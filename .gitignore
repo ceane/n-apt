@@ -1,0 +1,12 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# Rust
+sdr_wasm/target/
+
+# macOS
+.DS_Store

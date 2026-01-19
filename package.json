@@ -1,0 +1,7 @@
+{
+  "name": "nsignals-decode",
+  "version": "1.0.0",
+  "scripts": {
+    "capture": "source venv/bin/activate && python scripts/rtl_sdr_capture.py"
+  }
+}
