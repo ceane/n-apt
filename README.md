@@ -99,7 +99,7 @@ Ensure you have set up the Python virtual environment (`venv`) with `python -m v
 
 <br><br><br><br>
 -----
-<br><br><br><br>
+<br><br>
 
 ## Background
 
@@ -209,7 +209,8 @@ The project uses RTL-SDR to capture and decode signals across a wide frequency r
 
 ### Signal Captures
 
-- **Signal Capture A**: ![Signal Capture A](images/signal_capture_A.jpeg)
+- **A**: ![Signal Capture A](images/signal_capture_A.jpeg)
   From 25MHz to 28.2MHz -- This is assumedly a Gaussian, the peaks are an assumed effect of heterodyning, generated from adjusting the PPM of my RTL-SDR to 1 in SDR++ (PPM/parts per million adjusts the sampling correction, so that if a signal is off by a few Hz, it can adjust)
-- **Signal Capture B**: ![Signal Capture B](images/signal_capture_B.jpeg)
+  <br><br>
+- **B**: ![Signal Capture B](images/signal_capture_B.jpeg)
   This is from 50KHz to 3.3MHz or so -- While I mostly observe the signal and this pattern from 24MHz to 30MHz, the signal repeats at a much lower part of the spectrum, not surprising but leaves a question of how much bandwidth for which function of the brain, nervous system, and then others nearby as part of the psychological interactive
