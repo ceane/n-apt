@@ -97,7 +97,9 @@ source venv/bin/activate && python scripts/rtl_sdr_capture.py
 
 Ensure you have set up the Python virtual environment (`venv`) with `python -m venv venv` and installed the required dependencies (`pip install pyrtlsdr numpy`).
 
+<br><br><br><br>
 -----
+<br><br><br><br>
 
 ## Background
 
