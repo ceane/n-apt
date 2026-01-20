@@ -6,9 +6,21 @@
 npm run capture
 ```
 
+1. Ensure an RTL-SDR device is connected and the necessary drivers are installed.
+   - `brew install librtlsdr`
+2. Install Python dependencies: `pip install pyrtlsdr numpy`
+
+
 This runs `rtl_sdr_capture.py` by capturing IQ samples from an RTL-SDR device across multiple frequency slices. For each slice, it performs a Fast Fourier Transform (FFT) and stitches the resulting spectra together into a single wideband spectrum. The stitched spectrum is saved as NumPy arrays for further analysis.
 
-## Frequencies Captured
+** Required **
+
+To get live captures you need an [RTL-SDR](https://www.rtl-sdr.com) (pictured below). A software defined radio (SDR) is an important piece of technology that, a radio that allows one to see signals in the environment. It's recommened to also have a FM Bandpass filter (attached to the RTL-SDR in the photo) to filter out strong FM signals and get a cleaner capture, I had some partial interference with RTL-SDR. Currently I don't have an upconverter, which would capture and shift the signals to a higher frequency to get a cleaner capture.
+
+![RTL-SDR](images/rtl-sdr.jpg)
+
+
+** 📡 Frequencies Captured **
 
 - Start Frequency: 500 kHz
 - End Frequency: 31 MHz
@@ -23,12 +35,6 @@ This results in capturing from 0.5 MHz to 31 MHz in 3.2 MHz bandwidth slices, av
 - Samples per Capture: 3.2 million (1 second per slice)
 - FFT Size: 262144 points
 - Output Directory: `iq-samples/capture_{freq_range}_{script_name}_{timestamp}/`
-
-## How to Run
-
-1. Ensure an RTL-SDR device is connected and the necessary drivers are installed.
-2. Install Python dependencies: `pip install pyrtlsdr numpy`
-3. Run the capture script: `npm run capture`
 
 The script will create a timestamped directory in `iq-samples/` containing the raw IQ files and the stitched spectrum files.
 
@@ -195,7 +201,7 @@ As far as bandwidth, when tuning the signal, I could see about 6MHz of bandwidth
 
 The who or technical part of it wasn't even a thought for years enduring this because it was such a shocking experience filled with a lot of rich features and unthinkable AR/spatial experiences! Of course, later I resolved this was all driven by exploited tinfra (telecom infra, as I call it), the chain I researched assumes it goes like the image below:
 
-![Hardware Exploit Chain](images/hardware-exploit-chain.jpeg)
+![Hardware Exploit Chain](images/hardware-exploit-chain.png)
 
 The project uses RTL-SDR to capture and decode signals across a wide frequency range, focusing on neurotechnology-related emissions.
 
