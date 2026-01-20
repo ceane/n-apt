@@ -2,6 +2,9 @@ use wasm_bindgen::prelude::*;
 use rustfft::{FftPlanner, num_complex::Complex};
 use js_sys::Float32Array;
 
+mod stitcher;
+pub use stitcher::*;
+
 #[wasm_bindgen]
 pub struct SDRProcessor {
     fft_size: usize,
@@ -40,12 +43,12 @@ impl SDRProcessor {
         let mut buf: Vec<Complex<f32>> = Vec::with_capacity(self.fft_size);
 
         for n in 0..self.fft_size {
-            let i = iq.get(n * 2).unwrap_or(0.0) * self.gain;
-            let q = iq.get(n * 2 + 1).unwrap_or(0.0) * self.gain;
+            let i = iq.get(n * 2).copied().unwrap_or(0.0) * self.gain;
+            let q = iq.get(n * 2 + 1).copied().unwrap_or(0.0) * self.gain;
 
             // SDR++-style PPM correction = frequency shift
             let phase = 2.0 * std::f32::consts::PI * self.ppm * n as f32 / self.fft_size as f32;
-            let rot = Complex::from_polar(&1.0, &phase);
+            let rot = Complex::from_polar(1.0, phase);
 
             buf.push(Complex::new(i, q) * rot);
         }
