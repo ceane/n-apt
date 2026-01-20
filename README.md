@@ -15,7 +15,7 @@ This runs `rtl_sdr_capture.py` by capturing IQ samples from an RTL-SDR device ac
 
 **Required**
 
-To get live captures you need an [RTL-SDR](https://www.rtl-sdr.com) (pictured below). A software defined radio (SDR) is an important piece of technology that, a radio that allows one to see signals in the environment. It's recommened to also have a FM Bandpass filter (attached to the RTL-SDR in the photo) to filter out strong FM signals and get a cleaner capture, I had some partial interference with RTL-SDR. Currently I don't have an upconverter, which would capture and shift the signals to a higher frequency to get a cleaner capture.
+To get live captures you need an [RTL-SDR](https://www.rtl-sdr.com) (pictured below). A software defined radio (SDR) is an important piece of technology. It is a radio that allows one to see signals in the environment. It's recommened to also have a FM Bandpass filter (attached to the RTL-SDR in the photo) to filter out strong FM signals and get a cleaner capture, I had some partial interference with RTL-SDR. Currently I don't have an upconverter, which would capture and shift the signals to a higher frequency to get a cleaner capture.
 
 ![RTL-SDR](images/rtl-sdr.jpg)
 
@@ -162,9 +162,9 @@ Compare that to the table below...
 
 ### Heterodyning
 
-Heterodyning or beat frequencies are what happen when to signals interferce and generate a sideband or third signal as a natural side effect of overlapping in the right way, for instance `Signal A + Signal B` (B +30Hz higher) playing from the same antenna with the same amount of power per signal, generates a 30Hz signal no matter what frequenceis A or B are, as long as B is offset by that much.
+Heterodyning or beat frequencies are what occur when signals interfere and generate a sideband (or third signal) as a natural side effect of two signals overlapping in the right way, for instance `Signal A + Signal B` (B +30Hz higher) playing from the same antenna with the same amount of power per signal, generates a 30Hz signal no matter what frequenceis A or B are, as long as B is offset by that much.
 
-Essentially brain and neuronal waves are susceptible to this technique, as I found this was the only way what was happening was happening.
+Essentially brain and neuronal waves are susceptible to this technique, as I found this was the only math what was possible and could explain how what was happening was happening.
 
 ### Constructive interference
 
@@ -193,7 +193,7 @@ Here, I wrongly correlated interference with my FM radio (VHF) be the assumed fr
 
 Bandwidth is another problem as well, since there is so much going throughout the psychological experience, it is easy to make the following assumptions: 
    - (1) only 2 bits a cycle max, since biology is not a special hardware antenna, only the peak and trough translate into electrical energy that the brain and nervous system can interperet,
-   - (2) the brain is known to be small in bandwidth, but since this experience spanned from 2018 to the present and maintains such a high-fidelity, constant connection with real-time processing of and response to vision, hearing, thinking, etc., there isn't a lot going on, possibly 2-8MBs compromises one's brain, 
+   - (2) the brain is known to be small in bandwidth, but since this experience spanned from 2018 to the present and maintains such a high-fidelity, constant connection with real-time processing of and response to vision, hearing, thinking, etc., there isn't a lot going on, possibly 2-8MBs compromises one's brain-accordingly, the consciosuness is small as a data channel, 
    - (3) too much bandwidth "all damn day, every damn day" will most certainly produce heating effects in tissue, but I have yet to experience anything but its evils in media form.
 
 As far as bandwidth, when tuning the signal, I could see about 6MHz of bandwidth, reliably, provided RTL-SDR is not the best and this signal is complex with heterodyning involved (extremely small resolution, multiple signals not drawn easy by any spectrum analyzer which layers in everything).
