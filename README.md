@@ -186,7 +186,7 @@ In order to intercept data from the brain and nervous system, the NSA's techniqu
 
 ### An average of 1µW or more (of power on tissue traversal and exit)
 
-In order to target the brain, I made a solid assumption based off of what ChatGPT told me, that brainwaves are about 1-10µW (microwatts), so I figured that the signals' power should be near there, anything less in scale, the math I did was dire to remain above the noise in the environment, go through the body losing 99% of the time and the signal make it back to an endpoint.Biology constrains this problem to maintaining a specific level of energy consistently at the body, so the further one is away from an endpoint, the energy level always stays the same, only the receiever suffers from less energy traversing through the target (the body).
+In order to target the brain, I made a solid assumption based off of what ChatGPT told me, that brainwaves are about 1-10µW (microwatts), so I figured that the signals' power should be near there, anything less in scale, the math I did was dire to remain above the noise in the environment, go through the body losing 99% energy and make it back to an endpoint. Biology constrains this problem to maintaining a exacting level of energy consistently at the body/entry, so the further one is away from an endpoint, the energy always stays the same, only the receiver, fixed at various distances, suffers from less energy coming back from the target (the body).
 
 ### Frequency and bandwidth versus attenuation
 
