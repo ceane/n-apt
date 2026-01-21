@@ -210,6 +210,31 @@ The who or technical part of it wasn't even a thought for years enduring this be
 
 The project uses RTL-SDR to capture and decode signals across a wide frequency range, focusing on neurotechnology-related emissions.
 
+### Triangulation / Time of flight for depth
+
+These signals inherently use some kind of triangualtion to directly target the human body and nervous system. It is important to maintain power and hit the correct target, however this kind of triangulation is much more exacting than cell phones. Power off by microscopic fractions can severely disrupt the experience (which has never happened!), so one can imagine that there are microwaves in addition to the spectrum used to maintain persistent, exacting triangualtion. Time of flight also allows for depth calculations to ensure the target is correct, instead of going to a pole or tree or mannequin, time of flight + electrical response is used to determine person from object.
+
+### Signals processing
+
+In order to read anything that comes back, the NSA uses advanced signals processing to decode neuronal
+data. The unknown and unimaginable become a reality. Below are several theorized techniques used in the pipeline to take an advanced formula of radio waves and decode brain and neuronal data. 
+
+#### Kaiser + Fast Fourier Transform (FFT)?
+
+TODO
+
+#### Bayes' Theorem / Posterior Probability
+
+TODO
+
+#### Detecting charges from impedance
+
+TODO
+
+#### Decoding bioelectrical charges
+
+TODO  
+
 ### Signal Captures
 
 - **A**: ![Signal Capture A](images/signal_capture_A.jpeg)
