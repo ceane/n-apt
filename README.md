@@ -172,7 +172,11 @@ When two signals that are close intersect, if they do not overlap exactly, the a
 
 ### Phase shifting
 
-This is important, if you want to concentrate energy at a certain range, phase shifting moves the wave (phase) either back or forth, so they can combine for this bit and then uncombine if the wavelength is long.
+This is important, if you want to concentrate energy at a certain range (and localize the sideband within range of a target), phase shifting moves the wave (phase) either back or forth (±90°, 180°, 270°) so they can combine localize constructive interference in an area. This technique defeats the contradiction between intuition of using a short wavelength (microwaves infeasible, will attenuate and do nothing but cause heating) to target specific neuronal ensembles. Longer wavelengths which survive attenuation more easily work better and can use precise math + radio operations to precisely intersect.
+
+### Center frequency
+
+For a long time, I struggled with defeating my own intuition, particularly how the NSA was dong x, y, z, "just you" and bare up against other people, in crowds, and so forth. This is one of the hints the NSA dropped, that the brain apparently is responsive to a unique frequency, which i believed was the sideband + physics (impossible to x, y, z a radio wave with physics and it's too fast, resilient & faultless to support conclusions of billions of additional complex operations in regular old tinfra). So, I accept now that in some way to draw stronger assumptions on a center frequency, some kind of handshake the signals can trick a specific brain into, as advised. 
 
 ### Neuronal ensembles 
 
