@@ -160,6 +160,11 @@ Compare that to the table below...
 | Physiological Expression (facial/posture) | Beta (13–30 Hz), Gamma (30–90 Hz)               | Strong                |
 | Vitals / Autonomic Regulation       | Delta–Theta (0.5–8 Hz)                          | Strong                |
 
+
+### Automatic Picture Transmission / APT (the least intuitive hint, the signals' modulation)
+
+It took me a long time to find this scheme to match the signals' spikes and valleys enigma. APT was used by NOAA satellites before they were decomissioned, essentially encoding usable image data onto spikes and within valleys, data that represents space or dark parts of the photo. In APT's case, a satellite encodes data into signal/audio then is decoded into images, line by line. Here it is obviously different, it is raw data that interacts with the brain and nervous system, real-time, enforcing several states of mind and physiology, in addition to sustaining communication, an interactive and several layers of surveillance, real-time responsive interactivity and harm! There are about 90-95 lines for every 3.2MHz, going from 0Hz (direct current) to 4.75MHz or so (the signal drops off but some spikes remain) and from 24MHz to 30MHz. This form of APT writes and reads to the brain and nervous flawlessly, it survives the noisy environments of San Francisco, underground on trains, the high cliffs of beaches and remote areas. 
+
 ### Heterodyning
 
 Heterodyning or beat frequencies are what occur when signals interfere and generate a sideband (or third signal) as a natural side effect of two signals overlapping in the right way, for instance `Signal A + Signal B` (B +30Hz higher) playing from the same antenna with the same amount of power per signal, generates a 30Hz signal no matter what frequenceis A or B are, as long as B is offset by that much.
@@ -206,7 +211,6 @@ Bandwidth is another problem as well, since there is so much going throughout th
    - (3) too much bandwidth "all damn day, every damn day" will most certainly produce heating effects in tissue, but I have yet to experience anything but its evils in media form.
 
 As far as bandwidth, when tuning the signal, I could see about 6MHz of bandwidth, reliably, provided RTL-SDR is not the best and this signal is complex with heterodyning involved (extremely small resolution, multiple signals not drawn easy by any spectrum analyzer which layers in everything).
-
 
 ### Hacked telecommunications infrastructure & equipement (obviously)
 
