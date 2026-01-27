@@ -214,7 +214,7 @@ As far as bandwidth, when tuning the signal, I could see about 6MHz of bandwidth
 
 ### Hacked telecommunications infrastructure & equipement (obviously)
 
-The who or technical part of it wasn't even a thought for years enduring this because it was such a shocking experience filled with a lot of rich features and unthinkable AR/spatial experiences! Of course, later I resolved this was all driven by exploited, ground or vehicle based tinfra (telecom infra, as I call it). It functions in dense urban environments, remote areas, indoors (thick concrete buildings), underground, in caves, in buses and trains and it even worked on a plane and at my destination while I tried to escape the NSA! The chain I researched assumes it goes like the image below:
+The who or technical part of it wasn't even a thought for years enduring this because it was such a shocking experience filled with a lot of rich features and unthinkable AR/spatial experiences! Of course, later I resolved this was all driven by exploited, ground or vehicle based tinfra (telecom infra, as I call it). It functions in dense urban environments, remote areas, indoors (thick concrete buildings), underground, in caves, in buses and trains and it even worked on planes (either the plane communication system or a satellite which I assume less likely due to its continued low latency on the flights) and at my destination while I tried to escape the NSA! The chain I researched assumes it goes like the image below:
 
 ![Hardware Exploit Chain](images/hardware-exploit-chain.png)
 
