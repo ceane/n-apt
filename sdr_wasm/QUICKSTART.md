@@ -38,8 +38,8 @@ async function main() {
     // Initialize WASM
     await init();
     
-    // Create stitcher
-    const stitcher = new SpectrumStitcher(262144, 3.2e6);
+    // Create stitcher (reference_dbm calibrates dBFS to dBm, 0 = dBFS)
+    const stitcher = new SpectrumStitcher(262144, 3.2e6, 0.0);
     
     // Add captures
     const response = await fetch('iq_0.50MHz.c64');
@@ -62,7 +62,7 @@ async function main() {
 ```javascript
 async function handleFiles(fileList) {
     await init();
-    const stitcher = new SpectrumStitcher(262144, 3.2e6);
+    const stitcher = new SpectrumStitcher(262144, 3.2e6, 0.0);
     
     for (const file of fileList) {
         const buffer = await file.arrayBuffer();
@@ -79,7 +79,7 @@ async function handleFiles(fileList) {
 ```javascript
 async function loadCapturesFromUrls(captures) {
     await init();
-    const stitcher = new SpectrumStitcher(262144, 3.2e6);
+    const stitcher = new SpectrumStitcher(262144, 3.2e6, 0.0);
     
     for (const { url, centerFreq } of captures) {
         const response = await fetch(url);
@@ -153,7 +153,7 @@ For very large captures or many files, consider:
 ```javascript
 async function processBatch(files, batchSize = 5) {
     await init();
-    const stitcher = new SpectrumStitcher(262144, 3.2e6);
+    const stitcher = new SpectrumStitcher(262144, 3.2e6, 0.0);
     
     for (let i = 0; i < files.length; i += batchSize) {
         const batch = files.slice(i, i + batchSize);
