@@ -6,16 +6,18 @@ use std::collections::BTreeMap;
 pub struct SpectrumStitcher {
     fft_size: usize,
     sample_rate: f64,
+    reference_dbm: f32,
     spectrum: BTreeMap<i64, Complex<f32>>,
 }
 
 #[wasm_bindgen]
 impl SpectrumStitcher {
     #[wasm_bindgen(constructor)]
-    pub fn new(fft_size: usize, sample_rate: f64) -> SpectrumStitcher {
+    pub fn new(fft_size: usize, sample_rate: f64, reference_dbm: f32) -> SpectrumStitcher {
         SpectrumStitcher {
             fft_size,
             sample_rate,
+            reference_dbm,
             spectrum: BTreeMap::new(),
         }
     }
@@ -85,11 +87,11 @@ impl SpectrumStitcher {
         self.spectrum.keys().map(|&k| k as f64).collect()
     }
 
-    /// Get power spectrum array (in dB)
+    /// Get power spectrum array (in dBm)
     pub fn get_power_db(&self) -> Vec<f32> {
         self.spectrum
             .values()
-            .map(|val| 10.0 * val.norm_sqr().log10().max(-120.0))
+            .map(|val| 10.0 * val.norm_sqr().log10().max(-120.0) + self.reference_dbm)
             .collect()
     }
 
@@ -134,7 +136,7 @@ pub fn stitch_captures(
     fft_size: usize,
     sample_rate: f64,
 ) -> SpectrumStitcher {
-    let stitcher = SpectrumStitcher::new(fft_size, sample_rate);
+    let stitcher = SpectrumStitcher::new(fft_size, sample_rate, 0.0);
     
     // TODO: Implement proper JS interop for batch stitching
     // In practice, you'd call add_capture multiple times from JS
