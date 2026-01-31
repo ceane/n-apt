@@ -10,3 +10,7 @@ sdr_wasm/target/
 
 # macOS
 .DS_Store
+
+# Finder aliases (must give them .alias extension)
+.alias
+node_modules
