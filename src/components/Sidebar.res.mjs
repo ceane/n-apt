@@ -7,10 +7,20 @@ import * as Belt_Array from "rescript/lib/es6/belt_Array.js";
 import * as Belt_Option from "rescript/lib/es6/belt_Option.js";
 import * as Caml_option from "rescript/lib/es6/caml_option.js";
 import * as JsxRuntime from "react/jsx-runtime";
+import * as InfoPopoverResMjs from "./InfoPopover.res.mjs";
+import * as FrequencyRangeSliderResMjs from "./FrequencyRangeSlider.res.mjs";
 
-var FrequencyRangeSlider = {};
+var make = FrequencyRangeSliderResMjs.make;
 
-var InfoPopover = {};
+var FrequencyRangeSlider = {
+  make: make
+};
+
+var make$1 = InfoPopoverResMjs.make;
+
+var InfoPopover = {
+  make: make$1
+};
 
 function Sidebar(props) {
   var onClear = props.onClear;
@@ -469,7 +479,7 @@ function Sidebar(props) {
                                               children: "RTL-SDR v4",
                                               style: settingLabelStyle
                                             }),
-                                        JsxRuntime.jsx(default, {
+                                        JsxRuntime.jsx(make$1, {
                                               title: "RTL-SDR v4",
                                               content: "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua."
                                             })
@@ -492,7 +502,7 @@ function Sidebar(props) {
                               children: "Signal areas of interest",
                               style: sectionTitleStyle
                             }),
-                        JsxRuntime.jsx(default, {
+                        JsxRuntime.jsx(make, {
                               label: "A",
                               minFreq: 0.0,
                               maxFreq: 4.75,
@@ -504,7 +514,7 @@ function Sidebar(props) {
                                 }),
                               onRangeChange: handleAreaARangeChange
                             }),
-                        JsxRuntime.jsx(default, {
+                        JsxRuntime.jsx(make, {
                               label: "B",
                               minFreq: 24.15,
                               maxFreq: 30.0,
@@ -533,7 +543,7 @@ function Sidebar(props) {
                                               children: "N-APT",
                                               style: settingLabelStyle
                                             }),
-                                        JsxRuntime.jsx(default, {
+                                        JsxRuntime.jsx(make$1, {
                                               title: "N-APT",
                                               content: "NOAA Automatic Picture Transmission - Weather satellite imagery transmitted in analog format."
                                             })
@@ -564,7 +574,7 @@ function Sidebar(props) {
                                               children: "FFT Size",
                                               style: settingLabelStyle
                                             }),
-                                        JsxRuntime.jsx(default, {
+                                        JsxRuntime.jsx(make$1, {
                                               title: "FFT Size",
                                               content: "Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum."
                                             })
@@ -623,7 +633,7 @@ function Sidebar(props) {
                                               children: "FFT Window",
                                               style: settingLabelStyle
                                             }),
-                                        JsxRuntime.jsx(default, {
+                                        JsxRuntime.jsx(make$1, {
                                               title: "FFT Window",
                                               content: "Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium."
                                             })
@@ -665,7 +675,7 @@ function Sidebar(props) {
                                               children: "FFT Frame Rate",
                                               style: settingLabelStyle
                                             }),
-                                        JsxRuntime.jsx(default, {
+                                        JsxRuntime.jsx(make$1, {
                                               title: "FFT Frame Rate",
                                               content: "Nemo enim ipsam voluptatem quia voluptas sit aspernatur aut odit aut fugit."
                                             })
@@ -716,7 +726,7 @@ function Sidebar(props) {
                                               children: "PPM",
                                               style: settingLabelStyle
                                             }),
-                                        JsxRuntime.jsx(default, {
+                                        JsxRuntime.jsx(make$1, {
                                               title: "PPM Correction",
                                               content: "Neque porro quisquam est, qui dolorem ipsum quia dolor sit amet, consectetur, adipisci velit."
                                             })
@@ -738,7 +748,7 @@ function Sidebar(props) {
                                               children: "Gain",
                                               style: settingLabelStyle
                                             }),
-                                        JsxRuntime.jsx(default, {
+                                        JsxRuntime.jsx(make$1, {
                                               title: "Gain Setting",
                                               content: "Quis autem vel eum iure reprehenderit qui in ea voluptate velit esse quam nihil molestiae consequatur."
                                             })
@@ -760,7 +770,7 @@ function Sidebar(props) {
                                               children: "Bandwidth",
                                               style: settingLabelStyle
                                             }),
-                                        JsxRuntime.jsx(default, {
+                                        JsxRuntime.jsx(make$1, {
                                               title: "Bandwidth",
                                               content: "At vero eos et accusamus et iusto odio dignissimos ducimus qui blanditiis praesentium voluptatum."
                                             })
@@ -817,11 +827,11 @@ function Sidebar(props) {
             });
 }
 
-var make = Sidebar;
+var make$2 = Sidebar;
 
 export {
   FrequencyRangeSlider ,
   InfoPopover ,
-  make ,
+  make$2 as make,
 }
-/* react Not a pure module */
+/* make Not a pure module */
