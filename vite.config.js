@@ -5,13 +5,7 @@ import path from 'path'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
-  resolve: {
-    alias: {
-      // Support for ReScript compiled output
-      '@res': path.resolve(__dirname, './src'),
-    },
-  },
-  server: {
+    server: {
     port: 5173,
     proxy: {
       '/ws': {

@@ -1,7 +1,7 @@
-import { useRef, useCallback, useState } from 'react';
-import styled from 'styled-components';
-import InfoPopover from './InfoPopover';
-import FrequencyRangeSlider from './FrequencyRangeSlider';
+import { useRef, useCallback, useState } from 'react'
+import styled from 'styled-components'
+import InfoPopover from './InfoPopover'
+import FrequencyRangeSlider from './FrequencyRangeSlider'
 
 const SidebarContainer = styled.aside`
   width: 360px;
@@ -15,14 +15,14 @@ const SidebarContainer = styled.aside`
   overflow-y: auto;
   overflow-x: visible;
   position: relative;
-`;
+`
 
 const ConnectionStatusContainer = styled.div`
   display: flex;
   align-items: center;
   gap: 8px;
   margin-bottom: 24px;
-`;
+`
 
 const ConnectionStatus = styled.div`
   display: flex;
@@ -33,24 +33,24 @@ const ConnectionStatus = styled.div`
   background-color: #141414;
   border-radius: 8px;
   border: 1px solid #1f1f1f;
-`;
+`
 
-const StatusDot = styled.div`
+const StatusDot = styled.div<{ $connected: boolean }>`
   width: 8px;
   height: 8px;
   border-radius: 50%;
   background-color: ${props => props.$connected ? '#00d4ff' : '#ff4444'};
   box-shadow: ${props => props.$connected ? '0 0 8px #00d4ff' : '0 0 8px #ff4444'};
   flex-shrink: 0;
-`;
+`
 
 const StatusText = styled.span`
   font-size: 12px;
   color: #888;
   font-weight: 500;
-`;
+`
 
-const PauseButton = styled.button`
+const PauseButton = styled.button<{ $paused: boolean }>`
   flex: 0 0 25%;
   padding: 12px 8px;
   background-color: ${props => props.$paused ? '#2a2a2a' : '#1a1a1a'};
@@ -70,16 +70,16 @@ const PauseButton = styled.button`
     border-color: #00d4ff;
     color: #00d4ff;
   }
-`;
+`
 
 const TabContainer = styled.div`
   display: flex;
   flex-direction: column;
   gap: 8px;
   margin-bottom: 24px;
-`;
+`
 
-const Tab = styled.button`
+const Tab = styled.button<{ $active: boolean }>`
   padding: 12px 16px;
   background-color: ${props => props.$active ? '#1a1a1a' : 'transparent'};
   border: 1px solid ${props => props.$active ? '#2a2a2a' : 'transparent'};
@@ -97,11 +97,11 @@ const Tab = styled.button`
     background-color: #1a1a1a;
     color: ${props => props.$active ? '#00d4ff' : '#888'};
   }
-`;
+`
 
 const Section = styled.div`
   margin-bottom: 24px;
-`;
+`
 
 const SectionTitle = styled.div`
   font-size: 11px;
@@ -117,7 +117,7 @@ const SectionTitle = styled.div`
     content: '/';
     color: #444;
   }
-`;
+`
 
 const SettingRow = styled.div`
   display: flex;
@@ -129,23 +129,23 @@ const SettingRow = styled.div`
   margin-bottom: 8px;
   border: 1px solid #1a1a1a;
   user-select: none;
-`;
+`
 
 const SettingLabelContainer = styled.div`
   display: flex;
   align-items: center;
-`;
+`
 
 const SettingLabel = styled.span`
   font-size: 12px;
   color: #777;
-`;
+`
 
 const SettingValue = styled.span`
   font-size: 12px;
   color: #ccc;
   font-weight: 500;
-`;
+`
 
 const SettingSelect = styled.select`
   background-color: transparent;
@@ -180,7 +180,7 @@ const SettingSelect = styled.select`
     color: #ccc;
     font-family: 'JetBrains Mono', monospace;
   }
-`;
+`
 
 const SettingInput = styled.input`
   background-color: transparent;
@@ -213,7 +213,23 @@ const SettingInput = styled.input`
   &[type=number] {
     -moz-appearance: textfield;
   }
-`;
+`
+
+interface SidebarProps {
+  isConnected: boolean
+  isDeviceConnected: boolean
+  isPaused: boolean
+  activeTab: string
+  onTabChange: (tab: string) => void
+  activeSignalArea: string
+  onSignalAreaChange: (area: string) => void
+  onFrequencyRangeChange: (range: { min: number; max: number }) => void
+  onPauseToggle: () => void
+  selectedFiles: { name: string }[]
+  onSelectedFilesChange: (files: { name: string }[]) => void
+  onStitch: () => void
+  onClear: () => void
+}
 
 const Sidebar = ({
   isConnected,
@@ -229,40 +245,40 @@ const Sidebar = ({
   onSelectedFilesChange,
   onStitch,
   onClear
-}) => {
+}: SidebarProps) => {
   // FFT Settings state
-  const [fftSize, setFftSize] = useState(103432);
-  const [fftWindow, setFftWindow] = useState('Rectangular');
-  const [fftFrameRate, setFftFrameRate] = useState(60);
+  const [fftSize, setFftSize] = useState(103432)
+  const [fftWindow, setFftWindow] = useState('Rectangular')
+  const [fftFrameRate, setFftFrameRate] = useState(60)
   
   // Stitcher state (using props to sync with App component)
-  const setSelectedFiles = onSelectedFilesChange;
+  const setSelectedFiles = onSelectedFilesChange
 
   // Use refs to track last notified values to prevent excessive updates
-  const lastNotifiedRangeRef = useRef({ min: 0, max: 3.2 });
+  const lastNotifiedRangeRef = useRef({ min: 0, max: 3.2 })
 
-  const handleAreaARangeChange = useCallback((range) => {
+  const handleAreaARangeChange = useCallback((range: { min: number; max: number }) => {
     if (activeSignalArea === 'A') {
       // Only notify if changed significantly (0.01 MHz = 10 kHz threshold)
-      const minDiff = Math.abs(range.min - lastNotifiedRangeRef.current.min);
-      const maxDiff = Math.abs(range.max - lastNotifiedRangeRef.current.max);
+      const minDiff = Math.abs(range.min - lastNotifiedRangeRef.current.min)
+      const maxDiff = Math.abs(range.max - lastNotifiedRangeRef.current.max)
       if (minDiff > 0.01 || maxDiff > 0.01) {
-        lastNotifiedRangeRef.current = range;
-        onFrequencyRangeChange?.(range);
+        lastNotifiedRangeRef.current = range
+        onFrequencyRangeChange?.(range)
       }
     }
-  }, [activeSignalArea, onFrequencyRangeChange]);
+  }, [activeSignalArea, onFrequencyRangeChange])
 
-  const handleAreaBRangeChange = useCallback((range) => {
+  const handleAreaBRangeChange = useCallback((range: { min: number; max: number }) => {
     if (activeSignalArea === 'B') {
-      const minDiff = Math.abs(range.min - lastNotifiedRangeRef.current.min);
-      const maxDiff = Math.abs(range.max - lastNotifiedRangeRef.current.max);
+      const minDiff = Math.abs(range.min - lastNotifiedRangeRef.current.min)
+      const maxDiff = Math.abs(range.max - lastNotifiedRangeRef.current.max)
       if (minDiff > 0.01 || maxDiff > 0.01) {
-        lastNotifiedRangeRef.current = range;
-        onFrequencyRangeChange?.(range);
+        lastNotifiedRangeRef.current = range
+        onFrequencyRangeChange?.(range)
       }
     }
-  }, [activeSignalArea, onFrequencyRangeChange]);
+  }, [activeSignalArea, onFrequencyRangeChange])
 
   return (
     <SidebarContainer>
@@ -468,11 +484,11 @@ const Sidebar = ({
                 display: 'none'
               }}
               id="fileInput"
-              onChange={(e) => setSelectedFiles(Array.from(e.target.files))}
+              onChange={(e) => e.target.files && setSelectedFiles(Array.from(e.target.files))}
             />
             <PauseButton 
               $paused={false} 
-              onClick={() => document.getElementById('fileInput').click()}
+              onClick={() => document.getElementById('fileInput')?.click()}
               style={{ flex: 'none', fontSize: '11px', padding: '8px 12px' }}
             >
               Browse
@@ -508,8 +524,8 @@ const Sidebar = ({
           <PauseButton
             $paused={false}
             onClick={() => {
-              console.log('Sidebar stitch button clicked');
-              onStitch();
+              console.log('Sidebar stitch button clicked')
+              onStitch()
             }}
             style={{ flex: 1 }}
           >
@@ -518,8 +534,8 @@ const Sidebar = ({
           <PauseButton
             $paused={false}
             onClick={() => {
-              console.log('Sidebar clear button clicked');
-              onClear();
+              console.log('Sidebar clear button clicked')
+              onClear()
             }}
             style={{ flex: 1, background: 'transparent' }}
           >
@@ -532,7 +548,7 @@ const Sidebar = ({
         </>
       )}
     </SidebarContainer>
-  );
-};
+  )
+}
 
-export default Sidebar;
+export default Sidebar
