@@ -1,12 +1,12 @@
-import { useState, useRef } from 'react';
-import styled from 'styled-components';
-import { createPortal } from 'react-dom';
+import { useState, useRef } from 'react'
+import { createPortal } from 'react-dom'
+import styled from 'styled-components'
 
 const PopoverContainer = styled.div`
   position: relative;
   display: inline-flex;
   align-items: center;
-`;
+`
 
 const InfoIcon = styled.div`
   width: 16px;
@@ -29,9 +29,9 @@ const InfoIcon = styled.div`
     border-color: #00d4ff;
     color: #000;
   }
-`;
+`
 
-const PopoverContent = styled.div`
+const PopoverContent = styled.div<{ $visible: boolean }>`
   position: fixed;
   width: 280px;
   padding: 16px;
@@ -70,36 +70,41 @@ const PopoverContent = styled.div`
     border-bottom: 5px solid transparent;
     border-right: 5px solid #1a1a1a;
   }
-`;
+`
 
 const PopoverTitle = styled.div`
   font-size: 12px;
   font-weight: 600;
   color: #ccc;
   margin-bottom: 8px;
-`;
+`
 
 const PopoverText = styled.div`
   font-size: 11px;
   color: #888;
   line-height: 1.5;
-`;
+`
 
-const InfoPopover = ({ title = 'Information', content }) => {
-  const [isVisible, setIsVisible] = useState(false);
-  const [position, setPosition] = useState({ x: 0, y: 0 });
-  const iconRef = useRef(null);
+interface InfoPopoverProps {
+  title?: string
+  content: string
+}
+
+const InfoPopover: React.FC<InfoPopoverProps> = ({ title = 'Information', content }) => {
+  const [isVisible, setIsVisible] = useState(false)
+  const [position, setPosition] = useState({ x: 0, y: 0 })
+  const iconRef = useRef<HTMLDivElement>(null)
 
   const handleMouseEnter = () => {
     if (iconRef.current) {
-      const rect = iconRef.current.getBoundingClientRect();
+      const rect = iconRef.current.getBoundingClientRect()
       setPosition({
         x: rect.right + 12,
         y: rect.top + rect.height / 2
-      });
+      })
     }
-    setIsVisible(true);
-  };
+    setIsVisible(true)
+  }
 
   return (
     <PopoverContainer
@@ -122,7 +127,7 @@ const InfoPopover = ({ title = 'Information', content }) => {
         document.body
       )}
     </PopoverContainer>
-  );
-};
+  )
+}
 
-export default InfoPopover;
+export default InfoPopover
