@@ -208,7 +208,6 @@ let exportToSVG = (params: signalParams): unit => {
   let (xMin, xMax) = Belt.Array.reduce(data, (0.0, 0.0), ((min, max), point) => {
     (Js.Math.min_float(min, point.t), Js.Math.max_float(max, point.t))
   })
-  let yMin = 0.0
   let yMax = Belt.Array.reduce(data, 0.0, (acc, point) => {
     Js.Math.max_float(acc, point.x)
   }) *. 1.1

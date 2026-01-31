@@ -331,14 +331,14 @@ function StitcherVisualizer(props) {
           var ctx = canvas.getContext("2d");
           var ctx$1 = (ctx == null) ? PervasivesU.failwith("Failed to get 2d context") : ctx;
           ctxRef.current = Caml_option.some(ctx$1);
-          var dpr = globalThis.devicePixelRatio();
+          var dpr = window.devicePixelRatio;
           var resizeCanvas = function () {
             var wrapper = canvas.parentElement;
             if (wrapper == null) {
               return ;
             }
-            var w = wrapper.clientWidth();
-            var h = wrapper.clientHeight();
+            var w = wrapper.clientWidth;
+            var h = wrapper.clientHeight;
             var prim1 = Js_math.floor_int(w * dpr);
             canvas.width = prim1;
             var prim1$1 = Js_math.floor_int(h * dpr);

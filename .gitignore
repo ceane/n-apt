@@ -14,3 +14,7 @@ sdr_wasm/target/
 # Finder aliases (must give them .alias extension)
 .alias
 node_modules
+
+# ReScript
+lib/
+bs/

@@ -162,14 +162,19 @@ function useWebSocket(url, enabledOpt) {
                     setIsConnected(function (param) {
                           return false;
                         });
+                    if (wsRef.current === undefined) {
+                      return ;
+                    }
                     var timeoutId = globalThis.setTimeout(connect, 2000);
                     reconnectTimeoutRef.current = timeoutId;
                   });
-                ws.onerror = (function (err) {
-                    setError(function (param) {
-                          return "WebSocket error occurred";
-                        });
-                    console.error("WebSocket error:", err);
+                ws.onerror = (function (_err) {
+                    if (wsRef.current !== undefined) {
+                      return setError(function (param) {
+                                  return "WebSocket error occurred";
+                                });
+                    }
+                    
                   });
                 return ;
               }
@@ -183,11 +188,12 @@ function useWebSocket(url, enabledOpt) {
             };
             connect();
             return (function () {
+                      var ws = wsRef.current;
+                      wsRef.current = undefined;
                       var timeoutId = reconnectTimeoutRef.current;
                       if (timeoutId !== undefined) {
                         globalThis.clearTimeout(timeoutId);
                       }
-                      var ws = wsRef.current;
                       if (ws !== undefined) {
                         Caml_option.valFromOption(ws).close();
                         return ;
@@ -196,11 +202,18 @@ function useWebSocket(url, enabledOpt) {
                     });
           }
           var ws = wsRef.current;
+          wsRef.current = undefined;
+          var timeoutId = reconnectTimeoutRef.current;
+          if (timeoutId !== undefined) {
+            globalThis.clearTimeout(timeoutId);
+            reconnectTimeoutRef.current = undefined;
+          }
           if (ws !== undefined) {
             Caml_option.valFromOption(ws).close();
-            wsRef.current = undefined;
           }
-          
+          setIsConnected(function (param) {
+                return false;
+              });
         }), [
         url,
         enabled

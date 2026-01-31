@@ -373,7 +373,7 @@ function SpectrumVisualizer(props) {
           var waterfallCtx = (ctx$1 == null) ? PervasivesU.failwith("Failed to get 2d context for waterfall canvas") : ctx$1;
           spectrumCtxRef.current = Caml_option.some(spectrumCtx);
           waterfallCtxRef.current = Caml_option.some(waterfallCtx);
-          var dpr = globalThis.devicePixelRatio();
+          var dpr = window.devicePixelRatio;
           var resizeCanvases = function () {
             var match$2 = match.parentElement;
             var match$3 = match$1.parentElement;
@@ -383,10 +383,10 @@ function SpectrumVisualizer(props) {
             if (match$3 == null) {
               return ;
             }
-            var spectrumWidth = match$2.clientWidth();
-            var spectrumHeight = match$2.clientHeight();
-            var waterfallWidth = match$3.clientWidth();
-            var waterfallHeight = match$3.clientHeight();
+            var spectrumWidth = match$2.clientWidth;
+            var spectrumHeight = match$2.clientHeight;
+            var waterfallWidth = match$3.clientWidth;
+            var waterfallHeight = match$3.clientHeight;
             var prim1 = Js_math.floor_int(spectrumWidth * dpr);
             match.width = prim1;
             var prim1$1 = Js_math.floor_int(spectrumHeight * dpr);
