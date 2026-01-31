@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Catenary Comb Spectrum – Calibrated</title>
+</head>
+
+<body style="background:#0b0b0b; padding:20px;">
+
+<svg id="spec" width="1100" height="360"
+     viewBox="0 0 1100 360"
+     xmlns="http://www.w3.org/2000/svg"
+     style="background:#0b0b0b">
+
+  <line x1="0" y1="300" x2="1100" y2="300"
+        stroke="#1e1e1e" stroke-width="1"/>
+</svg>
+
+<script>
+const svg = document.getElementById("spec");
+
+const W = 1100;
+const baseline = 300;
+
+// -------- CALIBRATED PARAMETERS --------
+const center = 680;
+
+// derived from your measurement:
+// 6 spikes per 200 kHz → ~36 px spacing
+const spacing = 36;
+
+const lines = 20;             // enough to span the window
+const peakHeight = 220;
+
+// wide suspension-cable envelope
+const a = 260;
+const asymmetry = 0.18;
+
+const noiseFloor = 45;
+const jitter = 0.08;
+
+// catenary envelope
+function envelope(x) {
+  const dx = x - center;
+  const cat = 1 / Math.cosh(dx / a);
+  const skew = 1 - asymmetry * (dx > 0 ? dx / W : 0);
+  return cat * skew;
+}
+
+// draw comb
+for (let i = -lines; i <= lines; i++) {
+  const x = center + i * spacing;
+  if (x < 0 || x > W) continue;
+
+  let env = envelope(x);
+  env *= 1 + (Math.random() - 0.5) * jitter;
+
+  const h = Math.max(noiseFloor, peakHeight * env);
+
+  const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+  line.setAttribute("x1", x);
+  line.setAttribute("x2", x);
+  line.setAttribute("y1", baseline + 2);
+  line.setAttribute("y2", baseline - h);
+  line.setAttribute("stroke", "#7fdcff");
+  line.setAttribute("stroke-width", "1.2");
+
+  svg.appendChild(line);
+}
+</script>
+
+</body>
+</html>

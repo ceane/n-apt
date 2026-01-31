@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>RTL-SDR APT Signals</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@700&display=swap');
+        /* X-style dark theme with DM Sans font */
+        body {
+            font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background-color: #000000;
+            color: #e0e0e0;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+        h1 {
+            font-family: 'DM Sans', sans-serif;
+            font-weight: 700;
+            font-size: 28px;
+            color: #ffffff;
+            margin: 0 0 30px 0;
+            text-align: center;
+            letter-spacing: -0.5px;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            width: 100%;
+            max-width: 100%;  /* Fill full width */
+        }
+        canvas {
+            width: 100%;
+            height: auto;
+            background-color: #000000;
+            border: 1px solid #333;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+            image-rendering: auto;
+            image-rendering: crisp-edges;
+        }
+        #waveform {
+            width: 100%;
+            height: 500px;
+            max-width: none;
+        }
+        #waterfall {
+            width: 100%;
+            height: 400px;
+            max-width: none;
+        }
+        .info {
+            text-align: center;
+            font-size: 14px;
+            opacity: 0.7;
+            margin-top: 10px;
+            font-family: monospace;
+        }
+        /* Loading animation */
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: #ffffff;
+            animation: spin 1s ease-in-out infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        /* Button styling */
+        button {
+            margin: 10px auto;
+            padding: 10px 20px;
+            background: #1a1a1a;
+            color: #ffffff;
+            font-family: 'DM Sans', sans-serif;
+            font-weight: 700;
+            font-size: 14px;
+            border: 1px solid #333;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            width: fit-content;
+        }
+        button:hover {
+            background: #333;
+            border-color: #666;
+            transform: translateY(-1px);
+        }
+        button:active {
+            transform: translateY(0);
+        }
+    </style>
+</head>
+<body>
+    <h1>RTL-SDR APT Signals Monitor</h1>
+    
+    <div class="container">
+        <canvas id="waveform" width="1600" height="400"></canvas>
+        <canvas id="waterfall" width="800" height="400"></canvas>
+        <div class="info">
+            <span id="status">Connecting to server...</span>
+            <span id="loading" class="loading" style="display:none;"></span>
+        </div>
+    </div>
+    
+    <script>
+        const ws = new WebSocket('ws://localhost:8765');
+        let waterfallData = [];
+        const maxRows = 400;
+        let zoomLevel = 0;
+        let zoomStart = 0;
+        let zoomEnd = 1;
+        let isDragging = false;
+        let dragStartX = 0;
+        let dragEndX = 0;
+        const dpr = window.devicePixelRatio || 1;
+        
+        // Waveform canvas interaction
+        const waveformCanvas = document.getElementById('waveform');
+        waveformCanvas.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            const rect = waveformCanvas.getBoundingClientRect();
+            dragStartX = e.clientX - rect.left;
+        });
+        
+        waveformCanvas.addEventListener('mousemove', (e) => {
+            if (isDragging) {
+                const rect = waveformCanvas.getBoundingClientRect();
+                dragEndX = e.clientX - rect.left;
+            }
+        });
+        
+        waveformCanvas.addEventListener('mouseup', (e) => {
+            if (isDragging) {
+                isDragging = false;
+                const rect = waveformCanvas.getBoundingClientRect();
+                const endX = e.clientX - rect.left;
+                
+                // Calculate zoom range
+                const start = Math.min(dragStartX, endX) / rect.width;
+                const end = Math.max(dragStartX, endX) / rect.width;
+                
+                // Only zoom if selection is significant
+                if (Math.abs(end - start) > 0.05) {
+                    zoomStart = start;
+                    zoomEnd = end;
+                    zoomLevel++;
+                }
+            }
+        });
+        
+        // Reset zoom button
+        const resetBtn = document.createElement('button');
+        resetBtn.textContent = 'Reset Zoom';
+        resetBtn.style.cssText = 'margin: 5px; padding: 5px 10px; background: #00ff88; color: #000; font-family: monospace; border: 1px solid #00ff88; cursor: pointer; border-radius: 2px;';
+        resetBtn.addEventListener('click', () => {
+            zoomLevel = 0;
+            zoomStart = 0;
+            zoomEnd = 1;
+        });
+        document.querySelector('.container').insertBefore(resetBtn, waveformCanvas);
+        
+        ws.onopen = () => {
+            document.getElementById('status').textContent = 'Connected to server';
+        };
+        
+        ws.onclose = () => {
+            document.getElementById('status').textContent = 'Connection closed';
+        };
+        
+        ws.onerror = () => {
+            document.getElementById('status').textContent = 'Connection error';
+        };
+        
+        let frameRequest = null;
+        let latestData = null;
+        
+        // Use requestAnimationFrame for smooth updates
+        function updateDisplay() {
+            if (latestData) {
+                drawWaveform(latestData.waveform);
+                drawWaterfall(latestData.waterfall);
+                latestData = null;
+            }
+            frameRequest = requestAnimationFrame(updateDisplay);
+        }
+        
+        ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            latestData = data;  // Store latest data
+        };
+        
+        // Initialize canvas sizes for high-DPI
+        function initCanvasSizes() {
+            const waveformCanvas = document.getElementById('waveform');
+            const waterfallCanvas = document.getElementById('waterfall');
+            const container = document.querySelector('.container');
+            
+            const containerWidth = container.clientWidth;
+            
+            // Set canvas dimensions to fill container width
+            waveformCanvas.width = containerWidth * dpr;
+            waveformCanvas.height = 500 * dpr;
+            waterfallCanvas.width = containerWidth * dpr;
+            waterfallCanvas.height = 400 * dpr;
+        }
+        
+        // Initialize on load and resize
+        window.addEventListener('DOMContentLoaded', initCanvasSizes);
+        window.addEventListener('resize', initCanvasSizes);
+        
+        // Start animation loop
+        updateDisplay();
+        
+        function drawWaveform(data) {
+            const canvas = document.getElementById('waveform');
+            const ctx = canvas.getContext('2d');
+            
+            // Use actual canvas dimensions (already scaled by dpr in initCanvasSizes)
+            const width = canvas.width;
+            const height = canvas.height;
+
+            // Clear canvas
+            ctx.clearRect(0, 0, width, height);
+            ctx.fillStyle = '#0a0a0a';
+            ctx.fillRect(0, 0, width, height);
+            
+            // SDR++ style colors
+            const gridColor = 'rgba(100, 200, 255, 0.15)';
+            const lineColor = '#00d4ff';  // Cyan like SDR++
+            const textColor = '#88ccff';
+
+            // Apply zoom to data
+            const startIndex = Math.floor(zoomStart * data.length);
+            const endIndex = Math.floor(zoomEnd * data.length);
+            const zoomedData = data.slice(startIndex, endIndex);
+
+            // Data is now in dB scale from backend (calibrated to rtl_power)
+            // rtl_power typically shows values from -30 to -60 dB
+            const minDb = -60;  // noise floor
+            const maxDb = -20;  // strong signal
+
+            // Helper to convert dB value to Y coordinate
+            const dbToY = (db) => {
+                const normalized = (db - minDb) / (maxDb - minDb);
+                return (height - 30) - Math.max(0, Math.min(1, normalized)) * (height - 50);
+            };
+            
+            // Draw horizontal grid lines with dB labels (SDR++ style)
+            ctx.strokeStyle = gridColor;
+            ctx.lineWidth = 1;
+            ctx.fillStyle = textColor;
+            ctx.font = '11px monospace';
+            ctx.textAlign = 'right';
+            
+            const dbMarkers = [-20, -25, -30, -35, -40, -45, -50, -55, -60];
+            dbMarkers.forEach(db => {
+                const y = dbToY(db);
+                // Grid line
+                ctx.beginPath();
+                ctx.moveTo(50, y);
+                ctx.lineTo(width, y);
+                ctx.stroke();
+                // dB label
+                ctx.fillText(`${db}`, 45, y + 4);
+            });
+            
+            // Draw vertical grid lines (frequency markers)
+            for (let i = 0; i <= 10; i++) {
+                const x = 50 + i * (width - 50) / 10;
+                ctx.beginPath();
+                ctx.moveTo(x, 10);
+                ctx.lineTo(x, height - 30);
+                ctx.stroke();
+            }
+            
+            // Draw FFT bins as vertical lines (SDR++ style)
+            // Two-pass rendering: 1) Fill area, 2) Outline on top
+            const len = zoomedData.length;
+            const plotWidth = width - 50;
+            const binStep = plotWidth / len;
+            const bottomY = dbToY(minDb);
+
+            // First pass: Draw semi-transparent fill from each peak down
+            ctx.strokeStyle = 'rgba(92, 225, 230, 0.15)';
+            ctx.lineWidth = Math.max(1, binStep * 0.9);
+            
+            for (let i = 0; i < len; i++) {
+                const x = Math.floor(50 + i * binStep) + 0.5;
+                const y = dbToY(zoomedData[i]);
+                
+                ctx.beginPath();
+                ctx.moveTo(x, bottomY);
+                ctx.lineTo(x, y);
+                ctx.stroke();
+            }
+            
+            // Second pass: Draw outline on top of peaks (the "signal line")
+            ctx.strokeStyle = '#5ce1e6';
+            ctx.lineWidth = 1.5;
+            ctx.lineJoin = 'round';
+            ctx.beginPath();
+            for (let i = 0; i < len; i++) {
+                const x = Math.floor(50 + i * binStep) + 0.5;
+                const y = dbToY(zoomedData[i]);
+                if (i === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+            
+            // Draw frequency labels at bottom
+            ctx.fillStyle = textColor;
+            ctx.font = '11px monospace';
+            ctx.textAlign = 'center';
+            
+            const startFreq = Math.round(zoomStart * 3200);
+            const endFreq = Math.round(zoomEnd * 3200);
+            const freqInterval = Math.max(100, Math.round((endFreq - startFreq) / 6));
+            
+            for (let f = startFreq; f <= endFreq; f += freqInterval) {
+                const relPos = (f / 3200 - zoomStart) / (zoomEnd - zoomStart);
+                const x = relPos * width;
+                const label = f < 1000 ? `${f}K` : `${(f/1000).toFixed(1)}M`;
+                ctx.fillText(label, x, height - 2);
+            }
+            
+            // Draw dB scale label
+            ctx.save();
+            ctx.translate(15, height / 2);
+            ctx.rotate(-Math.PI / 2);
+            ctx.textAlign = 'center';
+            ctx.fillStyle = textColor;
+            ctx.fillText('dB', 0, 0);
+            ctx.restore();
+            
+            // Draw selection rectangle if dragging
+            if (isDragging) {
+                const rectStartX = Math.min(dragStartX, dragEndX);
+                const rectEndX = Math.max(dragStartX, dragEndX);
+                ctx.fillStyle = 'rgba(0, 180, 255, 0.2)';
+                ctx.fillRect(rectStartX, 10, rectEndX - rectStartX, height - 40);
+                ctx.strokeStyle = '#00d4ff';
+                ctx.lineWidth = 1;
+                ctx.strokeRect(rectStartX, 10, rectEndX - rectStartX, height - 40);
+            }
+        }
+        
+        function drawWaterfall(row) {
+            waterfallData.push(row);
+            if (waterfallData.length > maxRows) waterfallData.shift();
+            
+            const canvas = document.getElementById('waterfall');
+            const ctx = canvas.getContext('2d');
+            const width = canvas.width;
+            const height = canvas.height;
+            
+            // Create ImageData for faster rendering
+            const imgData = ctx.createImageData(width, height);
+            
+            const len = row.length;
+            const stepX = width / len;
+            const stepY = height / maxRows;
+            
+            // Waterfall data is already normalized 0-255 from backend
+            // No need to recalculate max - use the normalized values directly
+            
+            for (let r = 0; r < waterfallData.length; r++) {
+                const y = height - (r + 1) * stepY;
+                for (let i = 0; i < len; i++) {
+                    const x = i * stepX;
+                    const intensity = waterfallData[r][i] / 255;  // Already normalized 0-255
+                    
+                    // SDR++ style gradient (blue to green to yellow to red)
+                    let rVal, gVal, bVal;
+                    if (intensity < 0.33) {
+                        // Blue to green
+                        const t = intensity * 3;
+                        rVal = 0;
+                        gVal = Math.floor(t * 255);
+                        bVal = Math.floor(255 - t * 255);
+                    } else if (intensity < 0.66) {
+                        // Green to yellow
+                        const t = (intensity - 0.33) * 3;
+                        rVal = Math.floor(t * 255);
+                        gVal = 255;
+                        bVal = 0;
+                    } else {
+                        // Yellow to red
+                        const t = (intensity - 0.66) * 3;
+                        rVal = 255;
+                        gVal = Math.floor(255 - t * 255);
+                        bVal = 0;
+                    }
+                    
+                    // Set pixel values
+                    const pixelX = Math.floor(x);
+                    const pixelY = Math.floor(y);
+                    if (pixelX >= 0 && pixelX < width && pixelY >= 0 && pixelY < height) {
+                        const index = (pixelY * width + pixelX) * 4;
+                        imgData.data[index] = rVal;
+                        imgData.data[index + 1] = gVal;
+                        imgData.data[index + 2] = bVal;
+                        imgData.data[index + 3] = 255;  // Opaque
+                    }
+                }
+            }
+            
+            ctx.putImageData(imgData, 0, 0);
+        }
+    </script>
+</body>
+</html>
