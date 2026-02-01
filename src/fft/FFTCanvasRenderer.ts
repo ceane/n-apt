@@ -1,0 +1,222 @@
+/**
+ * Frequency range configuration for spectrum and waterfall displays
+ */
+export interface FrequencyRange {
+  /** Minimum frequency in MHz */
+  min: number
+  /** Maximum frequency in MHz */
+  max: number
+}
+
+/**
+ * Rendering options for spectrum display
+ */
+export interface SpectrumRenderOptions {
+  /** Canvas 2D rendering context */
+  ctx: CanvasRenderingContext2D
+  /** Canvas width in pixels */
+  width: number
+  /** Canvas height in pixels */
+  height: number
+  /** Power spectrum data array in dB */
+  waveform: number[]
+  /** Frequency range to display */
+  frequencyRange: FrequencyRange
+  /** Minimum dB level for spectrum display (default: -80) */
+  fftMin?: number
+  /** Maximum dB level for spectrum display (default: 20) */
+  fftMax?: number
+}
+
+import { 
+  FFT_GRID_COLOR, 
+  LINE_COLOR, 
+  HOLD_COLOR, 
+  SHADOW_COLOR, 
+  FFT_TEXT_COLOR, 
+  FFT_MIN_DB, 
+  FFT_MAX_DB, 
+  DB_MARKERS, 
+  VERTICAL_RANGE, 
+  FFT_FREQUENCY_RANGES, 
+  FFT_AREA_MIN, 
+  FFT_CANVAS_BG, 
+  FFT_FONT_FAMILY, 
+  FFT_FONT_SIZE,
+  formatFrequency as formatFreq,
+  findBestFrequencyRange as findBestRange
+} from '../consts'
+
+/**
+ * Converts dB value to Y coordinate on canvas
+ * @param db - dB value to convert
+ * @param height - Canvas height
+ * @returns Y coordinate in pixels
+ */
+function dbToY(db: number, height: number): number {
+  const normalized = (db - FFT_MIN_DB) / (FFT_MAX_DB - FFT_MIN_DB)
+  return height - 40 - Math.max(0, Math.min(1, normalized)) * (height - 60)
+}
+
+
+/**
+ * Draws spectrum analyzer display with SDR++ style rendering
+ * @param options - Rendering options including canvas context, dimensions, and data
+ */
+export function drawSpectrum(options: SpectrumRenderOptions): void {
+  const { ctx, width, height, waveform, frequencyRange, fftMin = FFT_MIN_DB, fftMax = FFT_MAX_DB } = options
+
+  // Clear spectrum canvas
+  ctx.fillStyle = FFT_CANVAS_BG
+  ctx.fillRect(0, 0, width, height)
+
+  if (!waveform || !Array.isArray(waveform) || waveform.length === 0) {
+    return
+  }
+
+  // SDR++ style layout constants
+  const fftAreaMax = { x: width - 40, y: height - 40 }
+  const fftHeight = fftAreaMax.y - FFT_AREA_MIN.y
+  const dataWidth = waveform.length
+
+  // Calculate scaling factors (SDR++ style)
+  const startLine = Math.floor(fftMax / VERTICAL_RANGE) * VERTICAL_RANGE
+  const vertRange = fftMax - fftMin
+  const scaleFactor = fftHeight / vertRange
+  
+  const minFreq = frequencyRange?.min ?? 0
+  const maxFreq = frequencyRange?.max ?? 3.2
+  const viewBandwidth = maxFreq - minFreq
+  const range = findBestRange(viewBandwidth, 10)
+  const lowerFreq = Math.ceil(minFreq / range) * range
+  const upperFreq = maxFreq
+  const horizScale = dataWidth / viewBandwidth
+
+  // Draw vertical grid lines and labels (SDR++ style)
+  ctx.strokeStyle = FFT_GRID_COLOR
+  ctx.fillStyle = FFT_TEXT_COLOR
+  ctx.font = `${FFT_FONT_SIZE} ${FFT_FONT_FAMILY}`
+  ctx.textAlign = 'right'
+  
+  for (let line = startLine; line > fftMin; line -= VERTICAL_RANGE) {
+    const yPos = fftAreaMax.y - ((line - fftMin) * scaleFactor)
+    ctx.beginPath()
+    ctx.moveTo(FFT_AREA_MIN.x, Math.round(yPos))
+    ctx.lineTo(fftAreaMax.x, Math.round(yPos))
+    ctx.stroke()
+    
+    ctx.fillText(line.toString(), FFT_AREA_MIN.x - 10, Math.round(yPos + 3))
+  }
+
+  // Draw horizontal grid lines and frequency labels (SDR++ style)
+  ctx.textAlign = 'center'
+  
+  for (let freq = lowerFreq; freq < upperFreq; freq += range) {
+    const xPos = FFT_AREA_MIN.x + ((freq - minFreq) * horizScale)
+    
+    // Grid line
+    ctx.beginPath()
+    ctx.moveTo(Math.round(xPos), FFT_AREA_MIN.y + 1)
+    ctx.lineTo(Math.round(xPos), fftAreaMax.y)
+    ctx.stroke()
+    
+    // Frequency tick
+    ctx.beginPath()
+    ctx.moveTo(Math.round(xPos), fftAreaMax.y)
+    ctx.lineTo(Math.round(xPos), fftAreaMax.y + 7)
+    ctx.stroke()
+    
+    // Frequency label
+    ctx.fillText(formatFreq(freq), Math.round(xPos), fftAreaMax.y + 25)
+  }
+
+  // Draw spectrum data (SDR++ style)
+  if (waveform.length > 0) {
+    // Draw shadow/fill
+    ctx.fillStyle = SHADOW_COLOR
+    for (let i = 1; i < dataWidth; i++) {
+      const aPos = fftAreaMax.y - ((waveform[i - 1] - fftMin) * scaleFactor)
+      const bPos = fftAreaMax.y - ((waveform[i] - fftMin) * scaleFactor)
+      const clampedAPos = Math.max(FFT_AREA_MIN.y + 1, Math.min(fftAreaMax.y, aPos))
+      const clampedBPos = Math.max(FFT_AREA_MIN.y + 1, Math.min(fftAreaMax.y, bPos))
+      
+      ctx.beginPath()
+      ctx.moveTo(FFT_AREA_MIN.x + i - 1, Math.round(clampedAPos))
+      ctx.lineTo(FFT_AREA_MIN.x + i, Math.round(clampedBPos))
+      ctx.lineTo(FFT_AREA_MIN.x + i, fftAreaMax.y)
+      ctx.lineTo(FFT_AREA_MIN.x + i - 1, fftAreaMax.y)
+      ctx.closePath()
+      ctx.fill()
+    }
+
+    // Draw main trace line
+    ctx.strokeStyle = LINE_COLOR
+    ctx.lineWidth = 1.0
+    ctx.lineJoin = 'round'
+    ctx.lineCap = 'round'
+    
+    ctx.beginPath()
+    for (let i = 1; i < dataWidth; i++) {
+      const aPos = fftAreaMax.y - ((waveform[i - 1] - fftMin) * scaleFactor)
+      const bPos = fftAreaMax.y - ((waveform[i] - fftMin) * scaleFactor)
+      const clampedAPos = Math.max(FFT_AREA_MIN.y + 1, Math.min(fftAreaMax.y, aPos))
+      const clampedBPos = Math.max(FFT_AREA_MIN.y + 1, Math.min(fftAreaMax.y, bPos))
+      
+      if (i === 1) {
+        ctx.moveTo(FFT_AREA_MIN.x + i - 1, Math.round(clampedAPos))
+      }
+      ctx.lineTo(FFT_AREA_MIN.x + i, Math.round(clampedBPos))
+    }
+    ctx.stroke()
+  }
+
+  // Draw axes
+  ctx.strokeStyle = FFT_TEXT_COLOR
+  ctx.lineWidth = 1.0
+  
+  // X-axis
+  ctx.beginPath()
+  ctx.moveTo(FFT_AREA_MIN.x, fftAreaMax.y)
+  ctx.lineTo(fftAreaMax.x, fftAreaMax.y)
+  ctx.stroke()
+  
+  // Y-axis
+  ctx.beginPath()
+  ctx.moveTo(FFT_AREA_MIN.x, FFT_AREA_MIN.y)
+  ctx.lineTo(FFT_AREA_MIN.x, fftAreaMax.y - 1)
+  ctx.stroke()
+}
+
+/**
+ * Applies zoom to FFT data (SDR++ style implementation)
+ * @param input - Input FFT data array
+ * @param offset - Starting offset for zoom
+ * @param width - Width of zoomed region
+ * @param outputSize - Size of output array
+ * @returns Zoomed FFT data array
+ */
+export function zoomFFT(input: number[], offset: number, width: number, outputSize: number): number[] {
+  if (offset < 0) offset = 0
+  if (width > 524288) width = 524288
+
+  const output: number[] = new Array(outputSize)
+  const factor = width / outputSize
+  const sFactor = Math.ceil(factor)
+  
+  let id = offset
+  for (let i = 0; i < outputSize; i++) {
+    let maxVal = -Infinity
+    const sId = Math.floor(id)
+    const uFactor = (sId + sFactor > input.length) ? sFactor - ((sId + sFactor) - input.length) : sFactor
+    
+    for (let j = 0; j < uFactor; j++) {
+      if (input[sId + j] > maxVal) {
+        maxVal = input[sId + j]
+      }
+    }
+    output[i] = maxVal
+    id += factor
+  }
+  
+  return output
+}

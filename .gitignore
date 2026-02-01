@@ -1,3 +1,6 @@
+# node
+node_modules
+
 # Python
 venv/
 __pycache__/
@@ -5,17 +8,32 @@ __pycache__/
 *.pyo
 *.egg-info/
 
-# Rust - exclude target folder but keep sdr_wasm.wasm
-sdr_wasm/target/
-!sdr_wasm/target/**/sdr_wasm.wasm
+# Rust - exclude all build artifacts and target folders
+target/
+Cargo.lock
+**/target/
+!packages/sdr_wasm/target/**/sdr_wasm.wasm
+
+# Rust-specific files
+*.pdb
+*.profraw
+**/*.rs.bk
+
+# Rust toolchain files
+rust-toolchain
+rust-toolchain.toml
+.rustup/
+
+# Rust analyzer
+.rust-analyzer/
+target/debug/
+target/release/
+target/rls/
+target/cargo-web/dist/
 
 # macOS
 .DS_Store
 
+# This is for local links to additional I/Q captures
 # Finder aliases (must give them .alias extension)
 .alias
-node_modules
-
-# ReScript
-lib/
-bs/

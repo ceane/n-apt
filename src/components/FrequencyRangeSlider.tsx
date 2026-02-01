@@ -1,5 +1,19 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { FrequencyRange } from '../hooks/useWebSocket'
+import { 
+  DEFAULT_MIN_FREQ, 
+  DEFAULT_MAX_FREQ, 
+  DEFAULT_VISIBLE_MIN, 
+  DEFAULT_VISIBLE_MAX, 
+  STEP_SIZE,
+  COLORS,
+  RANGE_TRACK_HEIGHT,
+  RANGE_TRACK_BACKGROUND,
+  RANGE_TRACK_BORDER,
+  RANGE_LABELS_COLOR,
+  RANGE_LABELS_PADDING,
+  RANGE_LABELS_FONT_SIZE
+} from '../consts'
 
 interface FrequencyRangeSliderProps {
   label: string
@@ -13,10 +27,10 @@ interface FrequencyRangeSliderProps {
 }
 
 const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
-  minFreq = 0,
-  maxFreq = 4.75,
-  visibleMin = 0,
-  visibleMax = 3.2,
+  minFreq = DEFAULT_MIN_FREQ,
+  maxFreq = DEFAULT_MAX_FREQ,
+  visibleMin = DEFAULT_VISIBLE_MIN,
+  visibleMax = DEFAULT_VISIBLE_MAX,
   label = 'A',
   isActive = false,
   onActivate,
@@ -68,8 +82,7 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   }, []);
 
   const moveWindow = useCallback((direction: 'up' | 'down') => {
-    const stepSize = 0.033;
-    const stepPercent = stepSize / totalRange;
+    const stepPercent = STEP_SIZE / totalRange;
     setWindowStart(prev => {
       let newStart = prev + (direction === 'up' ? stepPercent : -stepPercent);
       newStart = Math.max(0, Math.min(1 - windowWidth, newStart));
@@ -160,7 +173,7 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   const labelStyle: React.CSSProperties = {
     fontSize: '24px',
     fontWeight: 700,
-    color: isActive ? '#00d4ff' : '#666',
+    color: isActive ? COLORS.primary : COLORS.textSecondary,
     transition: 'color 0.2s ease',
   };
 
@@ -170,17 +183,17 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
     outline: 'none',
     padding: '8px',
     borderRadius: '6px',
-    border: `1px solid ${isActive ? '#00d4ff' : 'transparent'}`,
-    backgroundColor: isActive ? 'rgba(0, 212, 255, 0.05)' : 'transparent',
+    border: `1px solid ${isActive ? COLORS.primary : 'transparent'}`,
+    backgroundColor: isActive ? `${COLORS.primary}20` : 'transparent',
     cursor: 'pointer',
     transition: 'border-color 0.2s ease, background-color 0.2s ease',
   };
 
   const rangeTrackStyle: React.CSSProperties = {
     position: 'relative',
-    height: '32px',
-    backgroundColor: '#0f0f0f',
-    border: '1px solid #1a1a1a',
+    height: `${RANGE_TRACK_HEIGHT}px`,
+    backgroundColor: RANGE_TRACK_BACKGROUND,
+    border: `1px solid ${RANGE_TRACK_BORDER}`,
     borderRadius: '4px',
     overflow: 'hidden',
     userSelect: 'none',
@@ -195,9 +208,9 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: '0 12px',
-    fontSize: '9px',
-    color: '#444',
+    padding: RANGE_LABELS_PADDING,
+    fontSize: RANGE_LABELS_FONT_SIZE,
+    color: RANGE_LABELS_COLOR,
     pointerEvents: 'none',
     userSelect: 'none',
   };
@@ -206,9 +219,8 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
     position: 'absolute',
     top: '2px',
     bottom: '2px',
-    backgroundColor: isActive ? 'rgba(0, 212, 255, 0.15)' : 'rgba(128, 128, 128, 0.15)',
-    border: `1px solid ${isActive ? '#00d4ff' : '#808080'}`,
-    borderRadius: '2px',
+    backgroundColor: isActive ? COLORS.activeBackground : COLORS.inactiveBackground,
+    border: `1px solid ${isActive ? COLORS.primary : COLORS.textMuted}`,
     cursor: 'grab',
     display: 'flex',
     alignItems: 'center',
@@ -223,7 +235,7 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
 
   const windowLabelStyle: React.CSSProperties = {
     fontSize: '9px',
-    color: isActive ? '#00d4ff' : '#808080',
+    color: isActive ? COLORS.primary : COLORS.textMuted,
     whiteSpace: 'nowrap',
     pointerEvents: 'none',
     userSelect: 'none',
@@ -240,13 +252,13 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   };
 
   const rangeLabelStyle: React.CSSProperties = {
-    color: isActive ? '#00d4ff' : '#666',
+    color: isActive ? COLORS.primary : COLORS.textSecondary,
     fontWeight: isActive ? '500' : '400',
     userSelect: 'none',
   };
 
   const rangeValueStyle: React.CSSProperties = {
-    color: isActive ? '#00d4ff' : '#808080',
+    color: isActive ? COLORS.primary : COLORS.textMuted,
     fontWeight: '500',
     userSelect: 'none',
   };

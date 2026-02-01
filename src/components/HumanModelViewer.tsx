@@ -4,6 +4,14 @@ import { OrbitControls, useGLTF, TransformControls } from '@react-three/drei';
 import { Color, Mesh, Material, MeshStandardMaterial, Vector3 } from 'three';
 import { gsap } from 'gsap';
 import Brain from './Brain';
+import { 
+  MODEL_CAMERA_POSITION, 
+  MODEL_FOV, 
+  SPHERE_GEOMETRY_SEGMENTS, 
+  SPHERE_MARKER_COLOR, 
+  SPHERE_MARKER_BASE_INTENSITY, 
+  CONTROL_PANEL_WIDTH 
+} from '../consts';
 
 type Area = {
   name: string;
@@ -41,30 +49,30 @@ function Model({ selectedArea }: { selectedArea: Area | null }) {
       {selectedArea && (
         <group position={selectedArea.target}>
           <mesh>
-            <sphereGeometry args={[0.1, 16, 16]} />
+            <sphereGeometry args={[0.1, SPHERE_GEOMETRY_SEGMENTS, SPHERE_GEOMETRY_SEGMENTS]} />
             <meshStandardMaterial 
-              color="#00ffff" 
-              emissive="#00ffff" 
-              emissiveIntensity={0.8}
+              color={SPHERE_MARKER_COLOR} 
+              emissive={SPHERE_MARKER_COLOR} 
+              emissiveIntensity={SPHERE_MARKER_BASE_INTENSITY}
               transparent 
               opacity={0.4}
             />
           </mesh>
           <mesh>
-            <sphereGeometry args={[0.15, 16, 16]} />
+            <sphereGeometry args={[0.15, SPHERE_GEOMETRY_SEGMENTS, SPHERE_GEOMETRY_SEGMENTS]} />
             <meshStandardMaterial 
-              color="#00ffff" 
-              emissive="#00ffff" 
+              color={SPHERE_MARKER_COLOR} 
+              emissive={SPHERE_MARKER_COLOR} 
               emissiveIntensity={0.4}
               transparent 
               opacity={0.2}
             />
           </mesh>
           <mesh>
-            <sphereGeometry args={[0.2, 16, 16]} />
+            <sphereGeometry args={[0.2, SPHERE_GEOMETRY_SEGMENTS, SPHERE_GEOMETRY_SEGMENTS]} />
             <meshStandardMaterial 
-              color="#00ffff" 
-              emissive="#00ffff" 
+              color={SPHERE_MARKER_COLOR} 
+              emissive={SPHERE_MARKER_COLOR} 
               emissiveIntensity={0.2}
               transparent 
               opacity={0.1}
@@ -97,13 +105,15 @@ const HumanModelViewer: React.FC<HumanModelViewerProps> = ({
 
   return (
     <div style={{ position: 'relative', width, height }}>
-      <div style={{ position: 'absolute', left: 0, top: 0, width: '200px', height: '100%', background: 'rgba(0,0,0,0.8)', color: 'white', padding: '10px', zIndex: 1 }}>
+      <div 
+        style={{ position: 'absolute', left: 0, top: 0, width: CONTROL_PANEL_WIDTH, height: '100%', background: 'rgba(0,0,0,0.8)', color: 'white', padding: '10px', zIndex: 1 }}
+      >
         <h3>Body Areas</h3>
         {areas.map(area => <button key={area.name} onClick={() => setSelectedArea(area)} style={{ display: 'block', margin: '5px 0', width: '100%' }}>{area.name}</button>)}
       </div>
       <Canvas
-        style={{ position: 'absolute', left: '200px', width: `calc(100% - 200px)`, height: '100%' }}
-        camera={{ position: [0, 0, 5], fov: 75 }}
+        style={{ position: 'absolute', left: CONTROL_PANEL_WIDTH, width: `calc(100% - ${CONTROL_PANEL_WIDTH})`, height: '100%' }}
+        camera={{ position: MODEL_CAMERA_POSITION, fov: MODEL_FOV }}
       >
         <Suspense fallback={null}>
           <ambientLight intensity={0.5} />
