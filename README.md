@@ -2,19 +2,23 @@
 
 <img src="images/icon.svg" alt="n-apt icon" width="128" height="128">
 
-N-APT stands for: Neuro Automatic Picture Transmission. 
+N-APT stands for: **N**euro **A**utomatic **P**icture **T**ransmission. 
 
 N-APT originates from the National Security Agency (NSA) and are signals that appear like Automatic Picture Transmission (APT) signals used by NOAA satellites, however are a special formula of directional radio waves that are an unprecedented and full featured neurotechnology able to fully
 
--  intercept, 
-- process, 
-- and alter the brain and nervous system real-time, meaning full featured experiences, interactivity, communication and more.
+- intercept,
+- process,
+- and alter the brain and nervous system real-time...
 
+Meaning full featured experiences, interactivity, communication and more!
+
+<br>
 ![N-APT signal visualization](images/n-apt-signal.png)
 *Real live, on person capture of N-APT signals via SDR++ with an RTL-SDR (FFT Size 131072, PPM = 1, Gain = +49.06dB)*
+<br>
 
 
-This repo is a **signals intelligence problem.** 
+## This repo is a signals intelligence problem.
 
 The how and why and science of N-APT is a long story, to keep it short checkout the [Background](BACKGROUND.md). There are no answers, you can hit up as many LLMs, search engines as possible, but they will not help. 
 
