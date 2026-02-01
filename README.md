@@ -1,5 +1,7 @@
 # n-apt
 
+<img src="images/icon.svg" alt="n-apt icon" width="128" height="128">
+
 N-APT stands for Neuro Automatic Picture Transmission, being that it looks like an APT signal used by NOAA satellites as its modulation scheme, as well as federal innovation of neurotechnology through a special formula of radio waves!
 
 These signals have a long, long story in my life and reaches into exotic territory of the U.S. government's ability to read, stream and write to the human brain and nervous system––a very real and active psychological spyware with extensive, unprecdedent capabilities. The NSA is a very strange organizaiton, on the side of rough play to full on psychopath and Greek storyteller, and I want to avoid the politics and very long story behind why I have access to N-APT, why me, what does it mean for the world, etc.
