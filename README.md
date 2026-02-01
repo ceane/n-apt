@@ -2,13 +2,23 @@
 
 <img src="images/icon.svg" alt="n-apt icon" width="128" height="128">
 
-N-APT stands for Neuro Automatic Picture Transmission. N-APT originates from the National Security Agency (NSA) and are signals that appear like Automatic Picture Transmission (APT) signals used by NOAA satellites, however are a special formula of directional radio waves that are an unprecedented and full featured neurotechnology––able to fully intercept, process and alter the brain and nervous system real-time, meaning full featured experiences, interactivity, communication and more.
+N-APT stands for: Neuro Automatic Picture Transmission. 
+
+N-APT originates from the National Security Agency (NSA) and are signals that appear like Automatic Picture Transmission (APT) signals used by NOAA satellites, however are a special formula of directional radio waves that are an unprecedented and full featured neurotechnology able to fully
+
+-  intercept, 
+- process, 
+- and alter the brain and nervous system real-time, meaning full featured experiences, interactivity, communication and more.
 
 ![N-APT signal visualization](images/n-apt-signal.png)
 *Real live, on person capture of N-APT signals via SDR++ with an RTL-SDR (FFT Size 131072, PPM = 1, Gain = +49.06dB)*
 
 
-This repo is a signals intelligence problem. The how and why and science of N-APT is a long story, to keep it short checkout the [Background](BACKGROUND.md). There are no answers, you can hit up as many LLMs, search engines as possible, but they will not help. I want to focus on the technical aspects of the signal, how it works and my efforts toward deciphering the physics and neuroscience behind N-APT and studiously decoding parts of the signal that can be consumable by computer such as audio, voice and vision.
+This repo is a **signals intelligence problem.** 
+
+The how and why and science of N-APT is a long story, to keep it short checkout the [Background](BACKGROUND.md). There are no answers, you can hit up as many LLMs, search engines as possible, but they will not help. 
+
+I want to focus on the technical aspects of the signal, how it works and my efforts toward deciphering the physics and neuroscience behind N-APT and studiously decoding parts of the signal that can be consumable by computer such as audio, voice and vision.
 
 This purpose of this repository is to provide tooling to inspect, visualize, and decode components of N-APT using live (on my end where they are live) and recorded I/Q samples, with an emphasis on high fidelity captures, hypothesis-driven analysis and decoding, and mapping functions to features of the signal.
 
@@ -19,9 +29,9 @@ I do not volunteer lightly to share a potential live capture of my brain to the 
 
 N-APT is a project born out of being attacked and held hostage by the NSA because I was doing things on the streets of San Francisco while working my tech job. Only when I was about to leave, they started this interactive and I discovered they were there my whole life! 
 
-The experience is like a movie but severely changes psychology, even physically. The parental, demonic DoD (now DoW)-NSA experience and interactive started formless and me not knowing anything with the NSA showing off a lot of the functionality and the capability by trapping me all day in it, it is impressive like a phone call/signal, it does not ever leave my brain or person an continues to operate all day. I've learned a lot going from nothing to having a more solid understanding and plan to escape.
+The experience is like a movie but severely changes psychology, even physically. The parental, demonic DoD (now DoW)-NSA experience and interactive started formless and me not knowing anything with the NSA showing off a lot of the functionality and the capability by trapping me all day in it. It is impressive like a phone call/signal, it does not ever leave my brain or person an continues to operate all day. I've learned a lot going from nothing to having a more solid understanding and plan to escape.
 
-I warn you not to fuck around in life, have your shit together! Very important that you own an RV, have a lot of savings, and own Macbook Pro and a bunch of SDRs to look at signals. The NSA doesn't attack like you think, it's an impoverishing military disciplining! 
+#### I warn you not to fuck around in life, have your shit together! Very important that you own an RV, have a lot of savings, and own Macbook Pro and a bunch of SDRs to look at signals. The NSA doesn't attack like you think, it's an impoverishing military disciplining! 
 
 ## Get Started
 
@@ -30,14 +40,15 @@ You don't have access to N-APT, however you can get started with the app to anal
 ### Installation
 
 ```bash
-git clone https://github.com/ceane_of/n-apt.git    # or your username/repo
+git clone https://github.com/ceane_of/n-apt.git
 cd n-apt
 npm install
+```
 
 ### Running the App
 
 ```
-npm start
+npm run dev
 ```
 
 I only have on person captures (within the `iq-samples` dir), however in the future I'll be sure to add near and 1 or 2m away captures (as long as my cord can do), as well as some captures from suspected endpoints.
