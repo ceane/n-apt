@@ -1,6 +1,6 @@
 {
-  "name": "nsignals-decode",
-  "version": "1.0.0",
+  "name": "n-apt",
+  "version": "0.2.5",
   "type": "module",
   "scripts": {
     "capture": "source venv/bin/activate && python scripts/rtl_sdr_capture.py",
