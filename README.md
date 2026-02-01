@@ -1,4 +1,4 @@
-# n-apt
+# :brain: n-apt
 
 <img src="images/icon.svg" alt="n-apt icon" width="128" height="128">
 
