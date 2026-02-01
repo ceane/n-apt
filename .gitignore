@@ -5,8 +5,17 @@ __pycache__/
 *.pyo
 *.egg-info/
 
-# Rust
+# Rust - exclude target folder but keep sdr_wasm.wasm
 sdr_wasm/target/
+!sdr_wasm/target/**/sdr_wasm.wasm
 
 # macOS
 .DS_Store
+
+# Finder aliases (must give them .alias extension)
+.alias
+node_modules
+
+# ReScript
+lib/
+bs/
