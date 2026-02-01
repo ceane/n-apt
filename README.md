@@ -13,6 +13,7 @@ N-APT originates from the National Security Agency (NSA) and are signals that ap
 Meaning full featured experiences, interactivity, communication and more!
 
 <br>
+
 ![N-APT signal visualization](images/n-apt-signal.png)
 *Real live, on person capture of N-APT signals via SDR++ with an RTL-SDR (FFT Size 131072, PPM = 1, Gain = +49.06dB)*
 <br>
