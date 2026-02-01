@@ -1,12 +1,13 @@
 import React from 'react'
+import { STITCHER_BUTTON_STYLE } from '../consts'
 
-interface StitcherVisualizerProps {
+interface FFTStitcherCanvasProps {
   selectedFiles: { name: string }[]
   onStitch: (handler: () => void) => void
   onClear: () => void
 }
 
-const StitcherVisualizer: React.FC<StitcherVisualizerProps> = ({
+const FFTStitcherCanvas: React.FC<FFTStitcherCanvasProps> = ({
   selectedFiles,
   onStitch,
   onClear,
@@ -59,7 +60,7 @@ const StitcherVisualizer: React.FC<StitcherVisualizerProps> = ({
   return (
     <div style={containerStyle}>
       <div>
-        <h3 style={headerStyle}>Stitcher Visualizer</h3>
+        <h3 style={headerStyle}>FFT Stitcher Canvas</h3>
       </div>
       
       <div style={statusStyle}>
@@ -72,12 +73,12 @@ const StitcherVisualizer: React.FC<StitcherVisualizerProps> = ({
       {selectedFiles.length > 0 && (
         <div style={buttonContainerStyle}>
           <button 
-            style={buttonStyle}
+            style={STITCHER_BUTTON_STYLE}
             onClick={() => onStitch(() => console.log('Stitching...'))}
           >
             Stitch
           </button>
-          <button style={buttonStyle} onClick={onClear}>
+          <button style={STITCHER_BUTTON_STYLE} onClick={onClear}>
             Clear
           </button>
         </div>
@@ -86,4 +87,4 @@ const StitcherVisualizer: React.FC<StitcherVisualizerProps> = ({
   )
 }
 
-export default StitcherVisualizer
+export default FFTStitcherCanvas

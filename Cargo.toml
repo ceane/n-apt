@@ -1,0 +1,34 @@
+[package]
+name = "n-apt-backend"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "n_apt_backend"
+path = "src/lib.rs"
+
+# [[bin]]
+# name = "n-apt-backend"
+# path = "src/server/main.rs"
+
+[[test]]
+name = "fft_processor_tests"
+path = "test/rust/fft_processor_tests.rs"
+
+[dependencies]
+tokio = { version = "1.0", features = ["full"] }
+tokio-tungstenite = "0.20"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+# rtl-sdr = "0.1.5"
+rustfft = "6"
+num-complex = "0.4"
+rand = "0.8"
+log = "0.4"
+env_logger = "0.10"
+anyhow = "1.0"
+futures-util = "0.3"
+chrono = { version = "0.4", features = ["serde"] }
+
+[dev-dependencies]
+tokio-test = "0.4"

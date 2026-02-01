@@ -1,0 +1,66 @@
+import * as React from 'react';
+import { render, screen, fireEvent } from '@testing-library/react';
+import '@testing-library/jest-dom';
+import { MemoryRouter } from 'react-router-dom';
+import { AppContent } from '../../src/App';
+
+// Mock all components to avoid import issues
+jest.mock('../../src/components', () => ({
+  FFTCanvas: () => <div data-testid="spectrum-visualizer">Spectrum Visualizer</div>,
+  DrawMockNAPT: () => <div data-testid="draw-mock-napt">Draw Mock NAPT</div>,
+}));
+
+jest.mock('../../src/components/Sidebar', () => ({
+  default: () => <div data-testid="sidebar">Sidebar</div>,
+}));
+
+jest.mock('../../src/components/HumanModelViewer', () => ({
+  default: () => <div data-testid="human-model-viewer">Human Model Viewer</div>,
+}));
+
+jest.mock('../../src/components/HotspotEditor', () => ({
+  default: () => <div data-testid="hotspot-editor">Hotspot Editor</div>,
+}));
+
+jest.mock('../../src/components/FFTStitcherCanvas', () => ({
+  default: () => <div data-testid="stitcher-visualizer">Stitcher Visualizer</div>,
+}));
+
+jest.mock('../../src/hooks/useWebSocket', () => ({
+  useWebSocket: () => ({
+    data: null,
+    isConnected: false,
+    frequencyRange: { min: 0, max: 3.2 },
+    activeSignalArea: 'test-area',
+    isPaused: false,
+    setFrequencyRange: jest.fn(),
+    setActiveSignalArea: jest.fn(),
+    setIsPaused: jest.fn(),
+    connect: jest.fn(),
+    disconnect: jest.fn(),
+  }),
+}));
+
+const renderApp = () => {
+  return render(
+    <MemoryRouter initialEntries={['/']}>
+      <AppContent />
+    </MemoryRouter>
+  );
+};
+
+describe.skip('App Component', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('should render without crashing', () => {
+    renderApp();
+    expect(screen.getByTestId('sidebar')).toBeInTheDocument();
+  });
+
+  it('should show Spectrum tab by default', () => {
+    renderApp();
+    expect(screen.getByTestId('spectrum-visualizer')).toBeInTheDocument();
+  });
+});

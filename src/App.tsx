@@ -1,12 +1,11 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react'
-import { BrowserRouter, useLocation, useNavigate } from 'react-router-dom'
-import { useWebSocket, FrequencyRange } from './hooks/useWebSocket'
-import Sidebar from './components/Sidebar'
-import SpectrumVisualizer from './components/SpectrumVisualizer'
-import StitcherVisualizer from './components/StitcherVisualizer'
-import DrawMockNAPT from './components/DrawMockNAPT'
-import HumanModelViewer from './components/HumanModelViewer'
-import HotspotEditor from './components/HotspotEditor'
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
+import Sidebar from './components/Sidebar';
+import { FFTCanvas, DrawMockNAPT } from './components';
+import HumanModelViewer from './components/HumanModelViewer';
+import HotspotEditor from './components/HotspotEditor';
+import FFTStitcherCanvas from './components/FFTStitcherCanvas';
+import { useWebSocket, FrequencyRange } from './hooks/useWebSocket';
 
 // Types
 type MainTab = 'Spectrum' | 'DrawSignal' | 'Model3D' | 'HotspotEditor'
@@ -67,7 +66,7 @@ const routeToActiveTab = (path: string): string => {
 }
 
 // Inner App component that uses router hooks
-const AppContent: React.FC = () => {
+export const AppContent: React.FC = () => {
   const location = useLocation()
   const navigate = useNavigate()
   
@@ -240,10 +239,10 @@ const AppContent: React.FC = () => {
             />
             <section style={mainContentStyle}>
               {isVisualizer && (
-                <SpectrumVisualizer data={data} frequencyRange={frequencyRange} activeSignalArea={activeSignalArea} isPaused={isPaused} />
+                <FFTCanvas data={data} frequencyRange={frequencyRange} activeSignalArea={activeSignalArea} isPaused={isPaused} />
               )}
               {isStitcher && (
-                <StitcherVisualizer
+                <FFTStitcherCanvas
                   selectedFiles={selectedFiles}
                   onStitch={(handler: () => void) => {
                     stitchHandlerRef.current = handler
@@ -327,9 +326,9 @@ const AppContent: React.FC = () => {
 // Main App component with BrowserRouter wrapper
 const App: React.FC = () => {
   return (
-    <BrowserRouter>
+    <Router>
       <AppContent />
-    </BrowserRouter>
+    </Router>
   )
 }
 
