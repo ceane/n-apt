@@ -8,9 +8,9 @@ export const LINE_COLOR = '#00d4ff'
 export const HOLD_COLOR = '#ff6b35'
 export const SHADOW_COLOR = 'rgba(0, 212, 255, 0.2)'
 export const FFT_TEXT_COLOR = '#666'
-export const FFT_MIN_DB = -80
-export const FFT_MAX_DB = 20
-export const DB_MARKERS = [-80, -60, -40, -20, 0, 20]
+export const FFT_MIN_DB = -120
+export const FFT_MAX_DB = 0
+export const DB_MARKERS = [-120, -100, -80, -60, -40, -20, 0]
 export const VERTICAL_RANGE = 10.0
 
 // Frequency ranges for optimal grid display

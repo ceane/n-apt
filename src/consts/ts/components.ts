@@ -85,8 +85,8 @@ export const FILE_INPUT_ACCEPT = '.c64'
 // FFTCanvas constants
 export const VISUALIZER_PADDING = 20
 export const VISUALIZER_GAP = 20
-export const WATERFALL_HISTORY_LIMIT = -80
-export const WATERFALL_HISTORY_MAX = 20
+// Reuse FFT dB constants for consistency
+export { FFT_MIN_DB as WATERFALL_HISTORY_LIMIT, FFT_MAX_DB as WATERFALL_HISTORY_MAX } from './fft'
 export const SECTION_TITLE_COLOR = '#555'
 export const SECTION_TITLE_AFTER_COLOR = '#444'
 export const CANVAS_BORDER_COLOR = '#222'

@@ -53,11 +53,13 @@ export const useWebSocket = (url: string, enabled: boolean = true): WebSocketDat
           wsRef.current = ws
 
           ws.onopen = () => {
+            console.log('WebSocket connected successfully')
             setIsConnected(true)
             setError(null)
           }
 
           ws.onmessage = (event) => {
+            console.log('WebSocket message received:', event.data)
             try {
               const parsedData = JSON.parse(event.data)
 
@@ -115,16 +117,19 @@ export const useWebSocket = (url: string, enabled: boolean = true): WebSocketDat
             }
           }
 
-          ws.onclose = () => {
+          ws.onclose = (event) => {
+            console.log('WebSocket closed:', event.code, event.reason)
             setIsConnected(false)
             // Only attempt to reconnect if we haven't been cleaned up
             if (wsRef.current !== null) {
-              const timeoutId = setTimeout(connect, 2000)
+              const timeoutId = setTimeout(connect, 2000) as any
               reconnectTimeoutRef.current = timeoutId
             }
           }
 
-          ws.onerror = () => {
+          ws.onerror = (error) => {
+            console.error('WebSocket error:', error)
+            setError('WebSocket connection error')
             // Only log error if we haven't already closed the connection
             // This prevents errors during React strict mode cleanup
             if (wsRef.current !== null) {

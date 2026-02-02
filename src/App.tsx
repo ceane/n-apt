@@ -6,6 +6,7 @@ import HumanModelViewer from './components/HumanModelViewer';
 import HotspotEditor from './components/HotspotEditor';
 import FFTStitcherCanvas from './components/FFTStitcherCanvas';
 import { useWebSocket, FrequencyRange } from './hooks/useWebSocket';
+import { WS_URL } from './consts';
 
 // Types
 type MainTab = 'Spectrum' | 'DrawSignal' | 'Model3D' | 'HotspotEditor'
@@ -89,7 +90,7 @@ export const AppContent: React.FC = () => {
     data,
     sendFrequencyRange,
     sendPauseCommand
-  } = useWebSocket('ws://localhost:8765', isVisualizer && mainTab === 'Spectrum')
+  } = useWebSocket(WS_URL, isVisualizer && mainTab === 'Spectrum')
 
   // Use ref for stitch handler to avoid stale closures
   const stitchHandlerRef = useRef<(() => void) | null>(null)

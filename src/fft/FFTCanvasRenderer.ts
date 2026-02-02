@@ -78,6 +78,7 @@ export function drawSpectrum(options: SpectrumRenderOptions): void {
   const fftAreaMax = { x: width - 40, y: height - 40 }
   const fftHeight = fftAreaMax.y - FFT_AREA_MIN.y
   const dataWidth = waveform.length
+  const plotWidth = fftAreaMax.x - FFT_AREA_MIN.x
 
   // Calculate scaling factors (SDR++ style)
   const startLine = Math.floor(fftMax / VERTICAL_RANGE) * VERTICAL_RANGE
@@ -90,13 +91,20 @@ export function drawSpectrum(options: SpectrumRenderOptions): void {
   const range = findBestRange(viewBandwidth, 10)
   const lowerFreq = Math.ceil(minFreq / range) * range
   const upperFreq = maxFreq
-  const horizScale = dataWidth / viewBandwidth
+  const freqToX = (freq: number) => FFT_AREA_MIN.x + ((freq - minFreq) / viewBandwidth) * plotWidth
+  const idxToX = (idx: number) => {
+    if (dataWidth <= 1) return FFT_AREA_MIN.x
+    return FFT_AREA_MIN.x + (idx / (dataWidth - 1)) * plotWidth
+  }
 
   // Draw vertical grid lines and labels (SDR++ style)
   ctx.strokeStyle = FFT_GRID_COLOR
   ctx.fillStyle = FFT_TEXT_COLOR
-  ctx.font = `${FFT_FONT_SIZE} ${FFT_FONT_FAMILY}`
+  ctx.font = '12px JetBrains Mono'  // Smaller font
   ctx.textAlign = 'right'
+  
+  // Add "dB" marker
+  ctx.fillText('dB', FFT_AREA_MIN.x - 25, FFT_AREA_MIN.y + 15)
   
   for (let line = startLine; line > fftMin; line -= VERTICAL_RANGE) {
     const yPos = fftAreaMax.y - ((line - fftMin) * scaleFactor)
@@ -110,13 +118,14 @@ export function drawSpectrum(options: SpectrumRenderOptions): void {
 
   // Draw horizontal grid lines and frequency labels (SDR++ style)
   ctx.textAlign = 'center'
+  ctx.font = '12px JetBrains Mono'  // Smaller font for frequency labels too
   
   for (let freq = lowerFreq; freq < upperFreq; freq += range) {
-    const xPos = FFT_AREA_MIN.x + ((freq - minFreq) * horizScale)
+    const xPos = freqToX(freq)
     
-    // Grid line
+    // Grid line - extend to full canvas height
     ctx.beginPath()
-    ctx.moveTo(Math.round(xPos), FFT_AREA_MIN.y + 1)
+    ctx.moveTo(Math.round(xPos), FFT_AREA_MIN.y)
     ctx.lineTo(Math.round(xPos), fftAreaMax.y)
     ctx.stroke()
     
@@ -130,6 +139,23 @@ export function drawSpectrum(options: SpectrumRenderOptions): void {
     ctx.fillText(formatFreq(freq), Math.round(xPos), fftAreaMax.y + 25)
   }
 
+  // Always draw an explicit right-edge max frequency tick/label
+  {
+    const xPos = fftAreaMax.x
+
+    ctx.beginPath()
+    ctx.moveTo(Math.round(xPos), FFT_AREA_MIN.y)
+    ctx.lineTo(Math.round(xPos), fftAreaMax.y)
+    ctx.stroke()
+
+    ctx.beginPath()
+    ctx.moveTo(Math.round(xPos), fftAreaMax.y)
+    ctx.lineTo(Math.round(xPos), fftAreaMax.y + 7)
+    ctx.stroke()
+
+    ctx.fillText(formatFreq(maxFreq), Math.round(xPos), fftAreaMax.y + 25)
+  }
+
   // Draw spectrum data (SDR++ style)
   if (waveform.length > 0) {
     // Draw shadow/fill
@@ -139,12 +165,14 @@ export function drawSpectrum(options: SpectrumRenderOptions): void {
       const bPos = fftAreaMax.y - ((waveform[i] - fftMin) * scaleFactor)
       const clampedAPos = Math.max(FFT_AREA_MIN.y + 1, Math.min(fftAreaMax.y, aPos))
       const clampedBPos = Math.max(FFT_AREA_MIN.y + 1, Math.min(fftAreaMax.y, bPos))
+      const ax = idxToX(i - 1)
+      const bx = idxToX(i)
       
       ctx.beginPath()
-      ctx.moveTo(FFT_AREA_MIN.x + i - 1, Math.round(clampedAPos))
-      ctx.lineTo(FFT_AREA_MIN.x + i, Math.round(clampedBPos))
-      ctx.lineTo(FFT_AREA_MIN.x + i, fftAreaMax.y)
-      ctx.lineTo(FFT_AREA_MIN.x + i - 1, fftAreaMax.y)
+      ctx.moveTo(Math.round(ax), Math.round(clampedAPos))
+      ctx.lineTo(Math.round(bx), Math.round(clampedBPos))
+      ctx.lineTo(Math.round(bx), fftAreaMax.y)
+      ctx.lineTo(Math.round(ax), fftAreaMax.y)
       ctx.closePath()
       ctx.fill()
     }
@@ -161,11 +189,13 @@ export function drawSpectrum(options: SpectrumRenderOptions): void {
       const bPos = fftAreaMax.y - ((waveform[i] - fftMin) * scaleFactor)
       const clampedAPos = Math.max(FFT_AREA_MIN.y + 1, Math.min(fftAreaMax.y, aPos))
       const clampedBPos = Math.max(FFT_AREA_MIN.y + 1, Math.min(fftAreaMax.y, bPos))
+      const ax = idxToX(i - 1)
+      const bx = idxToX(i)
       
       if (i === 1) {
-        ctx.moveTo(FFT_AREA_MIN.x + i - 1, Math.round(clampedAPos))
+        ctx.moveTo(Math.round(ax), Math.round(clampedAPos))
       }
-      ctx.lineTo(FFT_AREA_MIN.x + i, Math.round(clampedBPos))
+      ctx.lineTo(Math.round(bx), Math.round(clampedBPos))
     }
     ctx.stroke()
   }

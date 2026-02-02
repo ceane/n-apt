@@ -7,6 +7,7 @@ use std::sync::Arc;
 use chrono::Utc;
 
 use super::types::*;
+use crate::consts::rs::fft::{SAMPLE_RATE, NUM_SAMPLES};
 
 /**
  * SDR++ style FFT configuration with enhanced parameters

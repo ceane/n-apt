@@ -42,13 +42,13 @@ describe('FFTCanvas', () => {
   it('should display spectrum analyzer section', () => {
     render(<FFTCanvas {...mockProps} />);
     
-    expect(screen.getByText(/Spectrum Analyzer/)).toBeInTheDocument();
+    expect(screen.getByText('FFT Signal Display')).toBeInTheDocument();
   });
 
   it('should display waterfall section', () => {
     render(<FFTCanvas {...mockProps} />);
     
-    expect(screen.getByText(/Waterfall Display/)).toBeInTheDocument();
+    expect(screen.getByText('Waterfall Display')).toBeInTheDocument();
   });
 
   it('should show paused status when isPaused is true', () => {
@@ -56,8 +56,12 @@ describe('FFTCanvas', () => {
     
     render(<FFTCanvas {...pausedProps} />);
     
-    expect(screen.getByText(/Spectrum Analyzer.*\(Paused\)/)).toBeInTheDocument();
-    expect(screen.getByText(/Waterfall Display.*\(Paused\)/)).toBeInTheDocument();
+    expect(screen.getByText((content, element) => {
+      return content.includes('FFT Signal Display') && content.includes('(Paused)');
+    })).toBeInTheDocument();
+    expect(screen.getByText((content, element) => {
+      return content.includes('Waterfall Display') && content.includes('(Paused)');
+    })).toBeInTheDocument();
   });
 
   it('should not show paused status when isPaused is false', () => {

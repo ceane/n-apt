@@ -1,10 +1,5 @@
 use rustfft::{num_complex::Complex};
-
-/// FFT configuration constants
-pub const SAMPLE_RATE: u32 = 3_200_000; // 3.2 MHz
-pub const CENTER_FREQ: u32 = 1_600_000; // 1.6 MHz
-pub const NUM_SAMPLES: usize = 1024 * 32; // 32768 samples
-pub const FFT_FRAME_RATE: u32 = 30; // Target frame rate
+use crate::consts::rs::fft::{SAMPLE_RATE, NUM_SAMPLES};
 
 /// FFT processing result containing both waveform and waterfall data
 #[derive(Debug, Clone)]
@@ -66,7 +61,7 @@ pub struct MockSignalConfig {
 impl Default for MockSignalConfig {
   fn default() -> Self {
     Self {
-      frequencies: vec![1000.0, 5000.0, 10000.0], // 1kHz, 5kHz, 10kHz
+      frequencies: vec![100000.0, 500000.0, 1000000.0], // 100kHz, 500kHz, 1MHz
       amplitudes: vec![0.3, 0.2, 0.1],
       noise_level: 0.1,
     }
