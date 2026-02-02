@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "capture": "source venv/bin/activate && python scripts/rtl_sdr_capture.py",
-    "dev": "concurrently \"npm run server\" \"vite\"",
+    "dev": "pkill -f n-apt-backend || true; concurrently \"npm run server\" \"vite\"",
     "server": "./start_server.sh",
     "build": "vite build",
     "preview": "vite preview",

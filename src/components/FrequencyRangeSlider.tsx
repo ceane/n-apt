@@ -42,6 +42,11 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   
   // Initialize windowStart from props
   const [windowStart, setWindowStart] = useState((visibleMin - minFreq) / totalRange);
+  
+  // Visual buffer for padding accommodation
+  const PADDING_BUFFER = 0.03; // 3% on each side
+  const visualWindowWidth = windowWidth + PADDING_BUFFER * 2;
+  const visualWindowStart = Math.max(0, Math.min(windowStart - PADDING_BUFFER, 1 - visualWindowWidth));
   const isDraggingRef = useRef(false);
   const trackRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -53,6 +58,28 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
 
   const currentMin = minFreq + windowStart * totalRange;
   const currentMax = minFreq + (windowStart + windowWidth) * totalRange;
+
+  // Calculate label positions to avoid collision
+  const calculateLabelPositions = useCallback(() => {
+    const trackWidth = trackRef.current?.getBoundingClientRect().width || 400;
+    const windowLeft = visualWindowStart * trackWidth;
+    const windowRight = (visualWindowStart + visualWindowWidth) * trackWidth;
+    
+    // Calculate label positions (approximately 50px from edges for padding)
+    const leftLabelEnd = 50; // Left label occupies ~0-50px
+    const rightLabelStart = trackWidth - 50; // Right label occupies ~trackWidth-50 to trackWidth
+    
+    // Check if window actually overlaps with labels (more conservative buffer)
+    const hideLeftLabel = windowLeft < leftLabelEnd + 10; // 10px buffer
+    const hideRightLabel = windowRight > rightLabelStart - 10; // 10px buffer
+    
+    return {
+      hideLeftLabel,
+      hideRightLabel
+    };
+  }, [visualWindowStart, visualWindowWidth]);
+
+  const labelPositions = calculateLabelPositions();
 
   const notifyParent = useCallback(() => {
     if (isActive && onRangeChange) {
@@ -78,15 +105,14 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
     if (freq < 1) {
       return `${(freq * 1000).toFixed(0)}kHz`;
     }
-    return `${freq.toFixed(1)}MHz`;
+    return `${freq.toFixed(2)}MHz`;
   }, []);
 
   const moveWindow = useCallback((direction: 'up' | 'down') => {
     const stepPercent = STEP_SIZE / totalRange;
     setWindowStart(prev => {
       let newStart = prev + (direction === 'up' ? stepPercent : -stepPercent);
-      newStart = Math.max(0, Math.min(1 - windowWidth, newStart));
-      return newStart;
+      return Math.max(0, Math.min(1 - windowWidth, newStart));
     });
   }, [totalRange, windowWidth]);
 
@@ -226,11 +252,10 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
     alignItems: 'center',
     justifyContent: 'center',
     userSelect: 'none',
-    padding: '0 6px',
     minWidth: '80px',
     boxSizing: 'border-box',
-    left: `${windowStart * 100}%`,
-    width: `${windowWidth * 100}%`,
+    left: `${visualWindowStart * 100}%`,
+    width: `${visualWindowWidth * 100}%`,
   };
 
   const windowLabelStyle: React.CSSProperties = {
@@ -239,28 +264,8 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
     whiteSpace: 'nowrap',
     pointerEvents: 'none',
     userSelect: 'none',
-  };
-
-  const rangeInfoStyle: React.CSSProperties = {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: '8px',
-    padding: '0 4px',
-    fontSize: '11px',
-    userSelect: 'none',
-  };
-
-  const rangeLabelStyle: React.CSSProperties = {
-    color: isActive ? COLORS.primary : COLORS.textSecondary,
-    fontWeight: isActive ? '500' : '400',
-    userSelect: 'none',
-  };
-
-  const rangeValueStyle: React.CSSProperties = {
-    color: isActive ? COLORS.primary : COLORS.textMuted,
-    fontWeight: '500',
-    userSelect: 'none',
+    padding: '0 12px',
+    boxSizing: 'content-box', // Padding adds to outside, doesn't squeeze content
   };
 
   return (
@@ -276,8 +281,12 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
       >
         <div ref={trackRef} className="range-track" style={rangeTrackStyle}>
           <div style={rangeLabelsStyle}>
-            <span>{formatFreq(minFreq)}</span>
-            <span>{formatFreq(maxFreq)}</span>
+            <span style={{ visibility: labelPositions.hideLeftLabel ? 'hidden' : 'visible' }}>
+              {formatFreq(minFreq)}
+            </span>
+            <span style={{ visibility: labelPositions.hideRightLabel ? 'hidden' : 'visible' }}>
+              {formatFreq(maxFreq)}
+            </span>
           </div>
           <div
             style={visibleWindowStyle}
@@ -287,10 +296,6 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
               {formatFreq(currentMin)} - {formatFreq(currentMax)}
             </div>
           </div>
-        </div>
-        <div style={rangeInfoStyle}>
-          <div style={rangeLabelStyle}>{formatFreq(minFreq)} to {formatFreq(maxFreq)}</div>
-          <div style={rangeValueStyle}>{formatFreq(currentMin)} to {formatFreq(currentMax)}</div>
         </div>
       </div>
     </div>

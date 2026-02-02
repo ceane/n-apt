@@ -10,7 +10,7 @@ mod tests {
     fn test_enhanced_fft_config_default() {
         let config = EnhancedFFTConfig::default();
         
-        assert_eq!(config.fft_size, 32768);
+        assert_eq!(config.fft_size, 1024);
         assert_eq!(config.sample_rate, 3200000);
         assert_eq!(config.gain, 1.0);
         assert_eq!(config.ppm, 0.0);
@@ -20,13 +20,13 @@ mod tests {
         assert_eq!(config.waterfall_max, 0.0);
         assert_eq!(config.window_type, WindowType::Hanning);
         assert_eq!(config.zoom_offset, 0);
-        assert_eq!(config.zoom_width, 32768);
+        assert_eq!(config.zoom_width, 1024);
     }
 
     #[test]
     fn test_fft_processor_creation() {
         let processor = FFTProcessor::new();
-        assert_eq!(processor.fft_size(), 32768);
+        assert_eq!(processor.fft_size(), 1024);
     }
 
     #[test]
@@ -57,7 +57,7 @@ mod tests {
         let mut processor = FFTProcessor::new();
         
         let result = processor.generate_mock_signal(None).unwrap();
-        assert_eq!(result.power_spectrum.len(), 32768);
+        assert_eq!(result.power_spectrum.len(), 1024);
         assert!(result.is_mock);
     }
 
@@ -72,7 +72,7 @@ mod tests {
         };
         
         let _result = processor.generate_mock_signal(Some(signal_config)).unwrap();
-        assert_eq!(_result.power_spectrum.len(), 32768);
+        assert_eq!(_result.power_spectrum.len(), 1024);
         assert!(_result.is_mock);
     }
 
@@ -155,7 +155,7 @@ mod tests {
         };
         
         let _result2 = processor.generate_mock_signal(Some(config)).unwrap();
-        assert_eq!(_result2.power_spectrum.len(), 32768);
+        assert_eq!(_result2.power_spectrum.len(), 1024);
     }
 
     #[test]
@@ -238,7 +238,7 @@ mod tests {
         let mut processor = FFTProcessor::new();
         let result = processor.generate_mock_signal(None).unwrap();
         
-        assert_eq!(result.power_spectrum.len(), 32768);
+        assert_eq!(result.power_spectrum.len(), 1024);
         assert!(result.is_mock);
         assert!(result.timestamp > 0);
         

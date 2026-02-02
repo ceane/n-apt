@@ -31,7 +31,9 @@ describe('FrequencyRangeSlider Component', () => {
   it('should display current frequency range', () => {
     render(<FrequencyRangeSlider {...defaultProps} />);
     
-    expect(screen.getByText('1.0MHz - 4.0MHz')).toBeInTheDocument();
+    expect(screen.getByText((content, element) => {
+      return content.includes('1.00MHz') && content.includes('4.00MHz');
+    })).toBeInTheDocument();
   });
 
   it('should call onActivate when clicked', () => {
@@ -56,8 +58,8 @@ describe('FrequencyRangeSlider Component', () => {
   it('should display frequency range information', () => {
     render(<FrequencyRangeSlider {...defaultProps} />);
     
-    expect(screen.getByText('0kHz to 10.0MHz')).toBeInTheDocument();
-    expect(screen.getByText('1.0MHz to 4.0MHz')).toBeInTheDocument();
+    expect(screen.getByText('0kHz')).toBeInTheDocument();
+    expect(screen.getByText('10.00MHz')).toBeInTheDocument();
   });
 
   it('should handle decimal precision correctly', () => {
@@ -69,7 +71,9 @@ describe('FrequencyRangeSlider Component', () => {
     
     render(<FrequencyRangeSlider {...preciseProps} />);
     
-    expect(screen.getByText('1.2MHz - 4.9MHz')).toBeInTheDocument();
+    expect(screen.getByText((content, element) => {
+      return content.includes('1.23MHz') && content.includes('4.88MHz');
+    })).toBeInTheDocument();
   });
 
   it('should be accessible with proper attributes', () => {

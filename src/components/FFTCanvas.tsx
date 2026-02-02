@@ -98,6 +98,7 @@ const FFTCanvas: React.FC<FFTCanvasProps> = ({
   const waterfallCanvasRef = useRef<HTMLCanvasElement>(null)
   const waterfallHistoryRef = useRef<ImageData[]>([])
   const animationFrameRef = useRef<number>()
+  const dataRef = useRef<any>(null)
 
   /**
  * Renders spectrum data using FFTCanvasRenderer
@@ -108,10 +109,15 @@ const renderSpectrum = useCallback((canvas: HTMLCanvasElement, spectrumData: num
     const ctx = canvas.getContext('2d')
     if (!ctx || !spectrumData) return
 
+    // Use CSS dimensions (not scaled canvas dimensions) since ctx is already scaled
+    const rect = canvas.parentElement?.getBoundingClientRect()
+    const width = rect?.width || canvas.width
+    const height = rect?.height || canvas.height
+
     drawSpectrum({
       ctx,
-      width: canvas.width,
-      height: canvas.height,
+      width,
+      height,
       waveform: spectrumData,
       frequencyRange
     })
@@ -126,23 +132,37 @@ const renderWaterfall = useCallback((canvas: HTMLCanvasElement, spectrumData: nu
     const ctx = canvas.getContext('2d')
     if (!ctx || !spectrumData) return
 
-    const width = canvas.width
-    const height = canvas.height
+    const dpr = window.devicePixelRatio || 1
+    const marginX = Math.round(40 * dpr)
+    const marginY = Math.round(20 * dpr)
+    const lineWidth = Math.max(1, Math.round(canvas.width - marginX * 2))
 
-    // Create waterfall line using the new renderer
-    const waterfallLine = createWaterfallLine(spectrumData, width, WATERFALL_HISTORY_LIMIT, WATERFALL_HISTORY_MAX)
+    const resampled: number[] = new Array(lineWidth)
+    const srcLen = spectrumData.length
+    for (let x = 0; x < lineWidth; x++) {
+      const start = Math.floor((x * srcLen) / lineWidth)
+      const end = Math.max(start + 1, Math.floor(((x + 1) * srcLen) / lineWidth))
+      let maxVal = -Infinity
+      for (let i = start; i < end && i < srcLen; i++) {
+        const v = spectrumData[i]
+        if (v > maxVal) maxVal = v
+      }
+      resampled[x] = maxVal === -Infinity ? spectrumData[Math.min(start, srcLen - 1)] : maxVal
+    }
+
+    const waterfallLine = createWaterfallLine(resampled, lineWidth, WATERFALL_HISTORY_LIMIT, WATERFALL_HISTORY_MAX)
 
     // Add to history
     waterfallHistoryRef.current.push(waterfallLine)
-    if (waterfallHistoryRef.current.length > height) {
+    const maxLines = Math.max(1, Math.round(canvas.height - marginY * 2))
+    if (waterfallHistoryRef.current.length > maxLines) {
       waterfallHistoryRef.current.shift()
     }
 
-    // Draw waterfall using the new renderer
     drawWaterfall({
       ctx,
-      width,
-      height,
+      width: canvas.width,
+      height: canvas.height,
       waterfallData: waterfallHistoryRef.current,
       frequencyRange
     })
@@ -157,32 +177,58 @@ const animate = useCallback(() => {
     const spectrumCanvas = spectrumCanvasRef.current
     const waterfallCanvas = waterfallCanvasRef.current
 
-    if (spectrumCanvas && waterfallCanvas && data?.waveform) {
-      renderSpectrum(spectrumCanvas, data.waveform)
-      renderWaterfall(waterfallCanvas, data.waveform)
+    const currentData = dataRef.current
+    if (spectrumCanvas && waterfallCanvas && currentData?.waveform) {
+      renderSpectrum(spectrumCanvas, currentData.waveform)
+      renderWaterfall(waterfallCanvas, currentData.waveform)
     }
 
     animationFrameRef.current = requestAnimationFrame(animate)
-  }, [data, renderSpectrum, renderWaterfall, isPaused])
+  }, [renderSpectrum, renderWaterfall, isPaused])
+
+  useEffect(() => {
+    dataRef.current = data
+  }, [data])
 
   useEffect(() => {
     const spectrumCanvas = spectrumCanvasRef.current
     const waterfallCanvas = waterfallCanvasRef.current
 
     if (spectrumCanvas && waterfallCanvas) {
-      // Set canvas size
+      // Set canvas size with high DPI support
       const resizeCanvas = () => {
+        const dpr = window.devicePixelRatio || 1
         const spectrumRect = spectrumCanvas.parentElement?.getBoundingClientRect()
         const waterfallRect = waterfallCanvas.parentElement?.getBoundingClientRect()
 
         if (spectrumRect) {
-          spectrumCanvas.width = spectrumRect.width
-          spectrumCanvas.height = spectrumRect.height
+          // Set actual canvas size in memory (scaled for high DPI)
+          spectrumCanvas.width = spectrumRect.width * dpr
+          spectrumCanvas.height = spectrumRect.height * dpr
+          // Set display size via CSS
+          spectrumCanvas.style.width = `${spectrumRect.width}px`
+          spectrumCanvas.style.height = `${spectrumRect.height}px`
+          // Scale context to match DPI
+          const ctx = spectrumCanvas.getContext('2d')
+          if (ctx) {
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+          }
         }
 
         if (waterfallRect) {
-          waterfallCanvas.width = waterfallRect.width
-          waterfallCanvas.height = waterfallRect.height
+          // Set actual canvas size in memory (scaled for high DPI)
+          waterfallCanvas.width = waterfallRect.width * dpr
+          waterfallCanvas.height = waterfallRect.height * dpr
+          // Set display size via CSS
+          waterfallCanvas.style.width = `${waterfallRect.width}px`
+          waterfallCanvas.style.height = `${waterfallRect.height}px`
+          // Do not scale for waterfall: putImageData ignores transforms
+          const ctx = waterfallCanvas.getContext('2d')
+          if (ctx) {
+            ctx.setTransform(1, 0, 0, 1, 0, 0)
+          }
+
+          waterfallHistoryRef.current = []
         }
       }
 
@@ -205,7 +251,7 @@ const animate = useCallback(() => {
     <VisualizerContainer>
       <SpectrumSection>
         <SectionTitle>
-          Spectrum Analyzer {isPaused && '(Paused)'}
+          FFT Signal Display {isPaused && '(Paused)'}
         </SectionTitle>
         <CanvasWrapper>
           <Canvas ref={spectrumCanvasRef} />

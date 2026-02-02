@@ -83,15 +83,15 @@ export function drawWaterfall(options: WaterfallRenderOptions): void {
     return
   }
 
-  // SDR++ style layout
-  const wfMax = { x: width - 40, y: height - 20 }
-  const waterfallHeight = wfMax.y - WF_MIN.y
-  const dataWidth = waterfallData[0]?.width ?? width
+  const dpr = window.devicePixelRatio || 1
+  const scaledWfMin = { x: Math.round(40 * dpr), y: Math.round(20 * dpr) }
+  const scaledWfMax = { x: width - Math.round(40 * dpr), y: height - Math.round(20 * dpr) }
+  const waterfallHeight = scaledWfMax.y - scaledWfMin.y
 
   // Draw waterfall lines
   waterfallData.forEach((lineData, index) => {
     if (index < waterfallHeight) {
-      ctx.putImageData(lineData, WF_MIN.x, wfMax.y - index - 1)
+      ctx.putImageData(lineData, scaledWfMin.x, scaledWfMax.y - index - 1)
     }
   })
 
@@ -109,11 +109,11 @@ export function drawWaterfall(options: WaterfallRenderOptions): void {
   ctx.textAlign = 'center'
 
   for (let freq = lowerFreq; freq < upperFreq; freq += range) {
-    const xPos = WF_MIN.x + ((freq - minFreq) / viewBandwidth) * (wfMax.x - WF_MIN.x)
+    const xPos = scaledWfMin.x + ((freq - minFreq) / viewBandwidth) * (scaledWfMax.x - scaledWfMin.x)
     
     ctx.beginPath()
-    ctx.moveTo(Math.round(xPos), WF_MIN.y)
-    ctx.lineTo(Math.round(xPos), wfMax.y)
+    ctx.moveTo(Math.round(xPos), scaledWfMin.y)
+    ctx.lineTo(Math.round(xPos), scaledWfMax.y)
     ctx.stroke()
   }
 }

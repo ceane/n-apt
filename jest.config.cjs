@@ -4,7 +4,7 @@ module.exports = {
   testEnvironment: 'jsdom',
   setupFilesAfterEnv: ['<rootDir>/test/ts/setup.ts'],
   extensionsToTreatAsEsm: ['.ts', '.tsx'],
-  moduleNameMapping: {
+  moduleNameMapper: {
     '^(\\.{1,2}/.*)\\.js$': '$1',
     '^react-router-dom$': '<rootDir>/node_modules/react-router-dom/dist/index.js',
     '^@n-apt/(.*)$': '<rootDir>/src/$1',

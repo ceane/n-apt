@@ -21,8 +21,8 @@ export const DEFAULT_COLOR_MAP: number[][] = [
 
 export const WATERFALL_GRID_COLOR = 'rgba(50, 50, 50, 255)'
 export const WATERFALL_TEXT_COLOR = '#666'
-export const WATERFALL_MIN_DB = -80
-export const WATERFALL_MAX_DB = 20
+// Reuse FFT dB constants for consistency
+export { FFT_MIN_DB as WATERFALL_MIN_DB, FFT_MAX_DB as WATERFALL_MAX_DB } from './ts/fft'
 
 // Frequency ranges for optimal grid display
 export const WATERFALL_FREQUENCY_RANGES = [
