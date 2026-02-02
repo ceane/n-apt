@@ -11,15 +11,10 @@ export default defineConfig({
     outDir: '../dist'
   },
   resolve: {
-    alias: {
-      '@n-apt': path.resolve(__dirname, './src'),
-      '@n-apt/components': path.resolve(__dirname, './src/components'),
-      '@n-apt/fft': path.resolve(__dirname, './src/fft'),
-      '@n-apt/waterfall': path.resolve(__dirname, './src/waterfall'),
-      '@n-apt/consts': path.resolve(__dirname, './src/consts'),
-      '@n-apt/hooks': path.resolve(__dirname, './src/hooks'),
-      '@n-apt/glb_models': path.resolve(__dirname, './src/glb_models')
-    }
+    alias: [
+      { find: /^@n-apt\/(.*)$/, replacement: `${path.resolve(__dirname, 'src')}/$1` },
+      { find: '@n-apt', replacement: path.resolve(__dirname, 'src') }
+    ]
   },
   server: {
     port: 5173,

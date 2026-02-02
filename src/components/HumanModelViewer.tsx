@@ -3,7 +3,7 @@ import { Canvas } from '@react-three/fiber';
 import { OrbitControls, useGLTF, TransformControls } from '@react-three/drei';
 import { Color, Mesh, Material, MeshStandardMaterial, Vector3 } from 'three';
 import { gsap } from 'gsap';
-import Brain from './Brain';
+import Brain from '@n-apt/components/Brain';
 import { 
   MODEL_CAMERA_POSITION, 
   MODEL_FOV, 
@@ -41,7 +41,7 @@ const areas: Area[] = [
 ];
 
 function Model({ selectedArea }: { selectedArea: Area | null }) {
-  const { scene } = useGLTF('/src/glb_models/androgynous_body.glb');
+  const { scene } = useGLTF('/glb_models/androgynous_body.glb');
 
   return (
     <>
