@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
-import { FrequencyRange } from '../hooks/useWebSocket'
+import { FrequencyRange } from '@n-apt/hooks/useWebSocket'
 import { 
   DEFAULT_MIN_FREQ, 
   DEFAULT_MAX_FREQ, 
@@ -13,7 +13,7 @@ import {
   RANGE_LABELS_COLOR,
   RANGE_LABELS_PADDING,
   RANGE_LABELS_FONT_SIZE
-} from '../consts'
+} from '@n-apt/consts'
 
 interface FrequencyRangeSliderProps {
   label: string

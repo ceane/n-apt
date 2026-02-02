@@ -41,7 +41,7 @@ import {
   WATERFALL_FONT_SIZE,
   formatFrequency as formatFreq,
   findBestFrequencyRange as findBestRange
-} from '../consts'
+} from '@n-apt/consts'
 
 
 /**

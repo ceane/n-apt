@@ -11,7 +11,7 @@ import {
   SPHERE_MARKER_COLOR, 
   SPHERE_MARKER_BASE_INTENSITY, 
   CONTROL_PANEL_WIDTH 
-} from '../consts';
+} from '@n-apt/consts';
 
 type Area = {
   name: string;
