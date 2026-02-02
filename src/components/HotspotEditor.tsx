@@ -53,7 +53,7 @@ function ClickHandler({ onAddHotspot }: { onAddHotspot: (point: Vector3) => void
 }
 
 function Model({ hotspots, onAddHotspot }: { hotspots: Hotspot[], onAddHotspot: (point: Vector3) => void }) {
-  const { scene } = useGLTF('/src/glb_models/androgynous_body.glb')
+  const { scene } = useGLTF('/glb_models/androgynous_body.glb')
   
   return (
     <>

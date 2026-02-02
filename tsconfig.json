@@ -24,6 +24,7 @@
     "baseUrl": ".",
     "paths": {
       "@n-apt/*": ["src/*"],
+      "@n-apt": ["src"],
       "@n-apt/components/*": ["src/components/*"],
       "@n-apt/fft/*": ["src/fft/*"],
       "@n-apt/waterfall/*": ["src/waterfall/*"],

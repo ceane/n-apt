@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
-import Sidebar from './components/Sidebar';
-import { FFTCanvas, DrawMockNAPT } from './components';
-import HumanModelViewer from './components/HumanModelViewer';
-import HotspotEditor from './components/HotspotEditor';
-import FFTStitcherCanvas from './components/FFTStitcherCanvas';
-import { useWebSocket, FrequencyRange } from './hooks/useWebSocket';
-import { WS_URL } from './consts';
+import Sidebar from '@n-apt/components/Sidebar';
+import { FFTCanvas, DrawMockNAPT } from '@n-apt/components';
+import HumanModelViewer from '@n-apt/components/HumanModelViewer';
+import HotspotEditor from '@n-apt/components/HotspotEditor';
+import FFTStitcherCanvas from '@n-apt/components/FFTStitcherCanvas';
+import { useWebSocket, FrequencyRange } from '@n-apt/hooks/useWebSocket';
+import { WS_URL } from '@n-apt/consts';
 
 // Types
 type MainTab = 'Spectrum' | 'DrawSignal' | 'Model3D' | 'HotspotEditor'

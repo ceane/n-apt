@@ -1,7 +1,7 @@
 import { useRef, useCallback, useState } from 'react'
 import styled from 'styled-components'
-import InfoPopover from './InfoPopover'
-import FrequencyRangeSlider from './FrequencyRangeSlider'
+import InfoPopover from '@n-apt/components/InfoPopover'
+import FrequencyRangeSlider from '@n-apt/components/FrequencyRangeSlider'
 
 const SidebarContainer = styled.aside`
   width: 360px;

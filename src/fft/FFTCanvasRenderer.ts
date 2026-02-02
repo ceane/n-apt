@@ -103,10 +103,14 @@ export function drawSpectrum(options: SpectrumRenderOptions): void {
   ctx.font = '12px JetBrains Mono'  // Smaller font
   ctx.textAlign = 'right'
   
-  // Add "dB" marker
-  ctx.fillText('dB', FFT_AREA_MIN.x - 25, FFT_AREA_MIN.y + 15)
+  // Add "0dB" marker at 0dB position
+  const zeroDbY = fftAreaMax.y - ((0 - fftMin) * scaleFactor)
+  ctx.fillText('0dB', FFT_AREA_MIN.x - 10, Math.round(zeroDbY + 3))
   
   for (let line = startLine; line > fftMin; line -= VERTICAL_RANGE) {
+    // Skip 0dB line since we already draw "0dB" marker
+    if (line === 0) continue
+    
     const yPos = fftAreaMax.y - ((line - fftMin) * scaleFactor)
     ctx.beginPath()
     ctx.moveTo(FFT_AREA_MIN.x, Math.round(yPos))
@@ -140,20 +144,26 @@ export function drawSpectrum(options: SpectrumRenderOptions): void {
   }
 
   // Always draw an explicit right-edge max frequency tick/label
+  // Only if it's not too close to the last grid label to prevent collision
   {
     const xPos = fftAreaMax.x
+    const lastGridFreq = Math.floor((upperFreq - 1e-6) / range) * range
+    const lastGridX = freqToX(lastGridFreq)
+    const minDistance = 50 // Minimum pixels between labels to prevent collision
+    
+    if (xPos - lastGridX > minDistance) {
+      ctx.beginPath()
+      ctx.moveTo(Math.round(xPos), FFT_AREA_MIN.y)
+      ctx.lineTo(Math.round(xPos), fftAreaMax.y)
+      ctx.stroke()
 
-    ctx.beginPath()
-    ctx.moveTo(Math.round(xPos), FFT_AREA_MIN.y)
-    ctx.lineTo(Math.round(xPos), fftAreaMax.y)
-    ctx.stroke()
+      ctx.beginPath()
+      ctx.moveTo(Math.round(xPos), fftAreaMax.y)
+      ctx.lineTo(Math.round(xPos), fftAreaMax.y + 7)
+      ctx.stroke()
 
-    ctx.beginPath()
-    ctx.moveTo(Math.round(xPos), fftAreaMax.y)
-    ctx.lineTo(Math.round(xPos), fftAreaMax.y + 7)
-    ctx.stroke()
-
-    ctx.fillText(formatFreq(maxFreq), Math.round(xPos), fftAreaMax.y + 25)
+      ctx.fillText(formatFreq(maxFreq), Math.round(xPos), fftAreaMax.y + 25)
+    }
   }
 
   // Draw spectrum data (SDR++ style)
@@ -179,7 +189,7 @@ export function drawSpectrum(options: SpectrumRenderOptions): void {
 
     // Draw main trace line
     ctx.strokeStyle = LINE_COLOR
-    ctx.lineWidth = 1.0
+    ctx.lineWidth = width < 700 ? 0.5 : 1.5
     ctx.lineJoin = 'round'
     ctx.lineCap = 'round'
     
