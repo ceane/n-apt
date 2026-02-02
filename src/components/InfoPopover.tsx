@@ -15,7 +15,7 @@ import {
   POPOVER_BORDER,
   POPOVER_TITLE_COLOR,
   POPOVER_TEXT_COLOR
-} from '../consts'
+} from '@n-apt/consts'
 
 const PopoverContainer = styled.div`
   position: relative;

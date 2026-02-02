@@ -11,7 +11,7 @@ import {
   DEFAULT_NUM_POINTS,
   NAPT_FREQUENCY_RANGE,
   COLORS
-} from '../consts';
+} from '@n-apt/consts';
 
 const DrawMockNAPT = () => {
   // Spike and waveform parameters

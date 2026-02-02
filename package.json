@@ -3,8 +3,10 @@
   "version": "0.2.5",
   "type": "module",
   "scripts": {
+    "predev": "pkill -f n-apt-backend || true",
+    "preserver": "cargo build --release --bin n-apt-backend",
     "capture": "source venv/bin/activate && python scripts/rtl_sdr_capture.py",
-    "dev": "pkill -f n-apt-backend || true; concurrently \"npm run server\" \"vite\"",
+    "dev": "concurrently \"npm run server\" \"vite\"",
     "server": "./start_server.sh",
     "build": "vite build",
     "preview": "vite preview",

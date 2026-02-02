@@ -45,7 +45,7 @@ import {
   FFT_FONT_SIZE,
   formatFrequency as formatFreq,
   findBestFrequencyRange as findBestRange
-} from '../consts'
+} from '@n-apt/consts'
 
 /**
  * Converts dB value to Y coordinate on canvas

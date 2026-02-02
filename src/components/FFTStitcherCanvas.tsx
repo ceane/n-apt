@@ -1,5 +1,5 @@
 import React from 'react'
-import { STITCHER_BUTTON_STYLE } from '../consts'
+import { STITCHER_BUTTON_STYLE } from '@n-apt/consts'
 
 interface FFTStitcherCanvasProps {
   selectedFiles: { name: string }[]
