@@ -1,10 +1,28 @@
 import '@testing-library/jest-dom';
+import 'resize-observer-polyfill';
 
 // Polyfill for TextEncoder/TextDecoder for Jest environment
 const { TextEncoder, TextDecoder } = require('util');
 
 global.TextEncoder = TextEncoder;
 global.TextDecoder = TextDecoder;
+
+// Mock ResizeObserver for testing
+global.ResizeObserver = class ResizeObserver {
+  constructor(callback: any) {
+    this.callback = callback;
+  }
+  callback: any;
+  observe() {
+    // Mock implementation
+  }
+  unobserve() {
+    // Mock implementation
+  }
+  disconnect() {
+    // Mock implementation
+  }
+};
 
 // Mock ImageData for canvas testing
 global.ImageData = class ImageData {
