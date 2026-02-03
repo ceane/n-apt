@@ -5,7 +5,18 @@ import path from 'path'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
-    server: {
+  root: './src',
+  publicDir: '../public',
+  build: {
+    outDir: '../dist'
+  },
+  resolve: {
+    alias: [
+      { find: /^@n-apt\/(.*)$/, replacement: `${path.resolve(__dirname, 'src')}/$1` },
+      { find: '@n-apt', replacement: path.resolve(__dirname, 'src') }
+    ]
+  },
+  server: {
     port: 5173,
     proxy: {
       '/ws': {

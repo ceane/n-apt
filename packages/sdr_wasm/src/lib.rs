@@ -5,6 +5,9 @@ use js_sys::Float32Array;
 mod stitcher;
 pub use stitcher::*;
 
+mod rtlsdr_backend;
+pub use rtlsdr_backend::*;
+
 #[wasm_bindgen]
 pub struct SDRProcessor {
     fft_size: usize,

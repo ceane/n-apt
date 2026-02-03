@@ -1,0 +1,51 @@
+[package]
+name = "n-apt-backend"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "n_apt_backend"
+path = "src/lib.rs"
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "n-apt-backend"
+path = "src/server/main.rs"
+
+[[test]]
+name = "fft_processor_tests"
+path = "test/rust/fft_processor_tests.rs"
+
+[dependencies]
+tokio = { version = "1.0", features = ["full"] }
+tokio-tungstenite = "0.20"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+# rtl-sdr = "0.1.5"
+rustfft = "6"
+num-complex = "0.4"
+rand = "0.8"
+getrandom = { version = "0.2", features = ["js"] }
+log = "0.4"
+env_logger = "0.10"
+anyhow = "1.0"
+futures-util = "0.3"
+chrono = { version = "0.4", features = ["serde", "wasmbind"] }
+wasm-bindgen = "0.2"
+
+[dev-dependencies]
+tokio-test = "0.4"
+doc-comment = "0.3"
+
+# Server configuration
+[package.metadata.server]
+host = "127.0.0.1"
+port = 8765
+
+# WASM SIMD configuration
+[target.wasm32-unknown-unknown]
+rustflags = ["-C", "target-feature=+simd128"]
+
+[profile.release]
+opt-level = 3
+lto = true
