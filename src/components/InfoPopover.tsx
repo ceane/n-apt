@@ -105,7 +105,7 @@ interface InfoPopoverProps {
   content: string
 }
 
-const InfoPopover: React.FC<InfoPopoverProps> = ({ title = 'Information', content }) => {
+const InfoPopover = ({ title = 'Information', content }: InfoPopoverProps) => {
   const [isVisible, setIsVisible] = useState(false)
   const [position, setPosition] = useState({ x: 0, y: 0 })
   const iconRef = useRef<HTMLDivElement>(null)

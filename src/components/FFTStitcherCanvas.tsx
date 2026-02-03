@@ -43,20 +43,6 @@ const FFTStitcherCanvas: React.FC<FFTStitcherCanvasProps> = ({
     gap: '12px',
   }
 
-  const buttonStyle: React.CSSProperties = {
-    flex: 1,
-    padding: '12px',
-    backgroundColor: '#1a1a1a',
-    border: '1px solid #2a2a2a',
-    borderRadius: '8px',
-    color: '#ccc',
-    fontFamily: "'JetBrains Mono', monospace",
-    fontSize: '12px',
-    fontWeight: '500',
-    cursor: 'pointer',
-    textAlign: 'center',
-  }
-
   return (
     <div style={containerStyle}>
       <div>

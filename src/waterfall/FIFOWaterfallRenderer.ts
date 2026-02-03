@@ -59,8 +59,6 @@ export interface WaterfallRenderOptions {
 
 import {
   DEFAULT_COLOR_MAP,
-  WATERFALL_MIN_DB,
-  WATERFALL_MAX_DB,
   WATERFALL_CANVAS_BG
 } from '@n-apt/consts';
 
@@ -103,20 +101,12 @@ function dbToColor(
  * @param options - Rendering options including canvas context, dimensions, and buffer
  */
 export function drawWaterfall(options: WaterfallRenderOptions): void {
-  const {
-    ctx,
-    width,
-    height,
-    waterfallBuffer,
-    frequencyRange: _frequencyRange,
-    waterfallMin: _waterfallMin = WATERFALL_MIN_DB,
-    waterfallMax: _waterfallMax = WATERFALL_MAX_DB
-  } = options;
+  const { ctx, width, height, waterfallBuffer } = options;
 
   // Calculate centered position
   const dpr = window.devicePixelRatio || 1;
   const marginX = Math.round(40 * dpr);
-  const marginY = Math.round(20 * dpr);
+  const marginY = Math.round(8 * dpr);
 
   // Calculate the actual waterfall display area
   const waterfallWidth = Math.max(1, Math.round(width - marginX * 2));
@@ -154,7 +144,7 @@ export function addWaterfallFrame(
   width: number,
   height: number,
   driftAmount: number = 0,
-  driftDirection: number = 1
+  _driftDirection: number = 1
 ): void {
   // 1️⃣ Shift all old pixels down by 1 row (FIFO)
   for (let y = height - 1; y > 0; y--) {
@@ -173,14 +163,14 @@ export function addWaterfallFrame(
     const amplitude = Math.min(fftFrame[x] || 0, 1); // normalize
     const color = amplitude * 255;
 
-    // Apply drift as horizontal smear
-    for (let dx = 0; dx <= driftAmount; dx++) {
-      const xi = Math.min(width - 1, x + dx * driftDirection);
-      const i = xi * 4;
-      waterfallBuffer[i] = color; // R
-      waterfallBuffer[i + 1] = color; // G
-      waterfallBuffer[i + 2] = color; // B
-      waterfallBuffer[i + 3] = 255; // alpha
+    const smear = Math.max(0, Math.min(Math.floor(driftAmount), height - 1));
+    for (let dy = 0; dy <= smear; dy++) {
+      const y = dy;
+      const i = (y * width + x) * 4;
+      waterfallBuffer[i] = Math.max(waterfallBuffer[i], color); // R
+      waterfallBuffer[i + 1] = Math.max(waterfallBuffer[i + 1], color); // G
+      waterfallBuffer[i + 2] = Math.max(waterfallBuffer[i + 2], color); // B
+      waterfallBuffer[i + 3] = 255;
     }
   }
 }

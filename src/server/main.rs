@@ -1,19 +1,16 @@
 use anyhow::Result;
-use futures_util::{SinkExt, StreamExt, future::join_all};
+use futures_util::{SinkExt, StreamExt};
 use log::{error, info, warn};
 // use rtlsdr::{RTLSDRDevice, RTLSDRError};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::{broadcast, Mutex};
-use std::time::{Duration, Instant};
-use tokio::net::{TcpListener, TcpStream};
-use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
+use std::time::Duration;
+use tokio::net::TcpListener;
 use tokio_tungstenite::{accept_async, tungstenite::Message};
-use tokio_tungstenite::WebSocketStream;
-use futures_util::stream::SplitSink;
 
 // Import FFT module
-use n_apt_backend::fft::{FFTProcessor, FFTResult, RawSamples};
+use n_apt_backend::fft::{FFTProcessor, FFTResult};
 use n_apt_backend::consts::rs::fft::{FFT_MIN_DB, FFT_MAX_DB, FFT_FRAME_RATE};
 use n_apt_backend::consts::rs::mock::{
   MOCK_SPECTRUM_SIZE, MOCK_NOISE_FLOOR_BASE, MOCK_NOISE_FLOOR_VARIATION,
@@ -166,7 +163,7 @@ impl SDRProcessor {
     let mut data = Vec::with_capacity(MOCK_SPECTRUM_SIZE);
     
     // Generate random noise-like spectrum data similar to real SDR
-    for i in 0..MOCK_SPECTRUM_SIZE {
+    for _i in 0..MOCK_SPECTRUM_SIZE {
       // Base noise floor around -60 to -70 dB
       let noise_floor = MOCK_NOISE_FLOOR_BASE + rng.gen_range(-MOCK_NOISE_FLOOR_VARIATION..MOCK_NOISE_FLOOR_VARIATION);
       
@@ -189,6 +186,7 @@ impl SDRProcessor {
   /// 
   /// # Returns
   /// FFTResult containing the generated mock signal
+  #[allow(dead_code)]
   fn generate_mock_signal(&mut self) -> Result<FFTResult> {
     self.fft_processor.generate_mock_signal(None)
   }
@@ -256,7 +254,7 @@ impl WebSocketServer {
     // Start streaming task (only once)
     let broadcast_tx = self.broadcast_tx.clone();
     let client_count_clone = self.client_count.clone();
-    let is_paused_clone = self.is_paused.clone();
+    let _is_paused_clone = self.is_paused.clone();
     
     info!("Starting streaming task...");
     

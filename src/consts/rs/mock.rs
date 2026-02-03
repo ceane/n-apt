@@ -1,4 +1,4 @@
-/// Mock signal generation constants
+//! Mock signal generation constants
 
 pub const MOCK_SPECTRUM_SIZE: usize = 1024;
 pub const MOCK_NOISE_FLOOR_BASE: f32 = -65.0;

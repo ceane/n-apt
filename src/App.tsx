@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { BrowserRouter as Router, useLocation, useNavigate } from 'react-router-dom';
 import Sidebar from '@n-apt/components/Sidebar';
 import { FFTCanvas, DrawMockNAPT } from '@n-apt/components';
 import HumanModelViewer from '@n-apt/components/HumanModelViewer';
@@ -11,26 +11,6 @@ import { WS_URL } from '@n-apt/consts';
 // Types
 type MainTab = 'Spectrum' | 'DrawSignal' | 'Model3D' | 'HotspotEditor'
 type File = { name: string }
-
-// Helper functions
-const mainTabToString = (tab: MainTab): string => {
-  switch (tab) {
-    case 'Spectrum': return 'spectrum'
-    case 'DrawSignal': return 'draw-signal'
-    case 'Model3D': return '3d-model'
-    case 'HotspotEditor': return 'hotspot-editor'
-  }
-}
-
-const stringToMainTab = (str: string): MainTab => {
-  switch (str) {
-    case 'spectrum': return 'Spectrum'
-    case 'draw-signal': return 'DrawSignal'
-    case '3d-model': return 'Model3D'
-    case 'hotspot-editor': return 'HotspotEditor'
-    default: return 'Spectrum'
-  }
-}
 
 const routeToMainTab = (path: string): MainTab => {
   switch (path) {
@@ -78,6 +58,7 @@ export const AppContent: React.FC = () => {
   const [activeSignalArea, setActiveSignalArea] = useState('A')
   const [frequencyRange, setFrequencyRange] = useState<FrequencyRange>({ min: 0.0, max: 3.2 })
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true)
 
   const isVisualizer = activeTab === 'visualizer'
   const isStitcher = activeTab === 'stitcher'
@@ -184,6 +165,24 @@ export const AppContent: React.FC = () => {
     overflow: 'hidden',
   }
 
+  const sidebarToggleStyle: React.CSSProperties = {
+    position: 'fixed',
+    top: '20px',
+    left: '20px',
+    zIndex: 1000,
+    backgroundColor: '#1a1a1a',
+    border: '1px solid #00d4ff',
+    borderRadius: '6px',
+    padding: '8px 12px',
+    color: '#00d4ff',
+    fontFamily: "'JetBrains Mono', monospace",
+    fontSize: '12px',
+    fontWeight: '500',
+    cursor: 'pointer',
+    transition: 'all 0.2s ease',
+    userSelect: 'none',
+  }
+
   const placeholderContentStyle: React.CSSProperties = {
     flex: '1',
     display: 'flex',
@@ -225,21 +224,29 @@ export const AppContent: React.FC = () => {
       case 'Spectrum':
         return (
           <>
-            <Sidebar
-              isConnected={isConnected}
-              isDeviceConnected={isDeviceConnected}
-              isPaused={isPaused}
-              activeTab={activeTab}
-              onTabChange={handleSidebarTabChange}
-              activeSignalArea={activeSignalArea}
-              onSignalAreaChange={handleSignalAreaChange}
-              onFrequencyRangeChange={handleFrequencyRangeChange}
-              onPauseToggle={() => sendPauseCommand(!isPaused)}
-              selectedFiles={selectedFiles}
-              onSelectedFilesChange={setSelectedFiles}
-              onStitch={handleStitch}
-              onClear={handleClear}
-            />
+            <button
+              style={sidebarToggleStyle}
+              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+            >
+              {isSidebarOpen ? '◀' : '▶'} Sidebar
+            </button>
+            {isSidebarOpen && (
+              <Sidebar
+                isConnected={isConnected}
+                isDeviceConnected={isDeviceConnected}
+                isPaused={isPaused}
+                activeTab={activeTab}
+                onTabChange={handleSidebarTabChange}
+                activeSignalArea={activeSignalArea}
+                onSignalAreaChange={handleSignalAreaChange}
+                onFrequencyRangeChange={handleFrequencyRangeChange}
+                onPauseToggle={() => sendPauseCommand(!isPaused)}
+                selectedFiles={selectedFiles}
+                onSelectedFilesChange={setSelectedFiles}
+                onStitch={handleStitch}
+                onClear={handleClear}
+              />
+            )}
             <section style={mainContentStyle}>
               {isVisualizer && (
                 <FFTCanvas data={data} frequencyRange={frequencyRange} activeSignalArea={activeSignalArea} isPaused={isPaused} />

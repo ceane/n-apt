@@ -1,4 +1,4 @@
-/// FFT display constants
+//! FFT display constants
 
 pub const FFT_MIN_DB: i32 = -120;
 pub const FFT_MAX_DB: i32 = 0;

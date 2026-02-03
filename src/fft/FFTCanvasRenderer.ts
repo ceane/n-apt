@@ -57,32 +57,16 @@ export interface SpectrumRenderOptions {
 import {
   FFT_GRID_COLOR,
   LINE_COLOR,
-  HOLD_COLOR,
   SHADOW_COLOR,
   FFT_TEXT_COLOR,
   FFT_MIN_DB,
   FFT_MAX_DB,
-  DB_MARKERS,
   VERTICAL_RANGE,
-  FFT_FREQUENCY_RANGES,
   FFT_AREA_MIN,
   FFT_CANVAS_BG,
-  FFT_FONT_FAMILY,
-  FFT_FONT_SIZE,
   formatFrequency as formatFreq,
   findBestFrequencyRange as findBestRange
 } from '@n-apt/consts';
-
-/**
- * Converts dB value to Y coordinate on canvas
- * @param db - dB value to convert
- * @param height - Canvas height
- * @returns Y coordinate in pixels
- */
-function dbToY(db: number, height: number): number {
-  const normalized = (db - FFT_MIN_DB) / (FFT_MAX_DB - FFT_MIN_DB);
-  return height - 40 - Math.max(0, Math.min(1, normalized)) * (height - 60);
-}
 
 /**
  * Draws spectrum analyzer display with SDR++ style rendering

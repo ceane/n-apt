@@ -95,14 +95,14 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
 
   // Notify parent during dragging for real-time updates
   useEffect(() => {
-    if (isActive && onRangeChange && isDragging) {
+    if (isActive && isDragging) {
       notifyParent();
     }
   }, [windowStart, isActive, onRangeChange, currentMin, currentMax, isDragging, notifyParent]);
 
   // Notify parent when windowStart changes via keyboard (not dragging)
   useEffect(() => {
-    if (isActive && onRangeChange && !isDragging) {
+    if (isActive && !isDragging) {
       notifyParent();
     }
   }, [windowStart, isActive, onRangeChange, currentMin, currentMax, isDragging, notifyParent]);
@@ -117,7 +117,7 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   const moveWindow = useCallback((direction: 'up' | 'down') => {
     const stepPercent = STEP_SIZE / totalRange;
     setWindowStart(prev => {
-      let newStart = prev + (direction === 'up' ? stepPercent : -stepPercent);
+      const newStart = prev + (direction === 'up' ? stepPercent : -stepPercent);
       return Math.max(0, Math.min(1 - windowWidth, newStart));
     });
   }, [totalRange, windowWidth]);
