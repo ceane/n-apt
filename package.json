@@ -4,7 +4,7 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "predev": "pkill -f n-apt-backend || true",
+    "predev": "fkill --force 'n-apt-backend' ':5173' ':8765' || true",
     "preserver": "cargo build --release --bin n-apt-backend",
     "capture": "source venv/bin/activate && python scripts/rtl_sdr_capture.py",
     "dev": "concurrently \"npm run server\" \"vite\"",
@@ -52,6 +52,7 @@
     "eslint-plugin-jsdoc": "^62.5.0",
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^7.0.1",
+    "fkill-cli": "^9.0.0",
     "jest": "^30.2.0",
     "jest-environment-jsdom": "^30.2.0",
     "postcss": "^8.5.6",
