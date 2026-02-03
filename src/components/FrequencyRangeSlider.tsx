@@ -52,6 +52,7 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const dragStartXRef = useRef(0);
   const dragStartWindowRef = useRef(0);
+  const lastNotifiedRangeRef = useRef<FrequencyRange | null>(null);
   
   // Track if we're currently dragging to avoid external updates during drag
   const [isDragging, setIsDragging] = useState(false);
@@ -83,23 +84,28 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
 
   const notifyParent = useCallback(() => {
     if (isActive && onRangeChange) {
-      onRangeChange({ min: currentMin, max: currentMax });
+      const nextRange = { min: currentMin, max: currentMax };
+      const last = lastNotifiedRangeRef.current;
+      if (!last || last.min !== nextRange.min || last.max !== nextRange.max) {
+        lastNotifiedRangeRef.current = nextRange;
+        onRangeChange(nextRange);
+      }
     }
   }, [isActive, onRangeChange, currentMin, currentMax]);
 
   // Notify parent during dragging for real-time updates
   useEffect(() => {
     if (isActive && onRangeChange && isDragging) {
-      onRangeChange({ min: currentMin, max: currentMax });
+      notifyParent();
     }
-  }, [windowStart, isActive, onRangeChange, currentMin, currentMax, isDragging]);
+  }, [windowStart, isActive, onRangeChange, currentMin, currentMax, isDragging, notifyParent]);
 
   // Notify parent when windowStart changes via keyboard (not dragging)
   useEffect(() => {
     if (isActive && onRangeChange && !isDragging) {
-      onRangeChange({ min: currentMin, max: currentMax });
+      notifyParent();
     }
-  }, [windowStart, isActive, onRangeChange, currentMin, currentMax, isDragging]);
+  }, [windowStart, isActive, onRangeChange, currentMin, currentMax, isDragging, notifyParent]);
 
   const formatFreq = useCallback((freq: number) => {
     if (freq < 1) {

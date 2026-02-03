@@ -259,13 +259,9 @@ const Sidebar = ({
 
   const handleAreaARangeChange = useCallback((range: { min: number; max: number }) => {
     if (activeSignalArea === 'A') {
-      // Only notify if changed significantly (0.01 MHz = 10 kHz threshold)
-      const minDiff = Math.abs(range.min - lastNotifiedRangeRef.current.min)
-      const maxDiff = Math.abs(range.max - lastNotifiedRangeRef.current.max)
-      if (minDiff > 0.01 || maxDiff > 0.01) {
-        lastNotifiedRangeRef.current = range
-        onFrequencyRangeChange?.(range)
-      }
+      // Always notify for real-time spectral drift effect
+      lastNotifiedRangeRef.current = range
+      onFrequencyRangeChange?.(range)
     }
   }, [activeSignalArea, onFrequencyRangeChange])
 
@@ -523,20 +519,14 @@ const Sidebar = ({
         <div style={{ display: 'flex', gap: '8px' }}>
           <PauseButton
             $paused={false}
-            onClick={() => {
-              console.log('Sidebar stitch button clicked')
-              onStitch()
-            }}
+            onClick={() => onStitch()}
             style={{ flex: 1 }}
           >
             Stitch spectrum
           </PauseButton>
           <PauseButton
             $paused={false}
-            onClick={() => {
-              console.log('Sidebar clear button clicked')
-              onClear()
-            }}
+            onClick={() => onClear()}
             style={{ flex: 1, background: 'transparent' }}
           >
             Clear

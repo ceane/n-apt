@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '@testing-library/jest-dom';
-import InfoPopover from '../../src/components/InfoPopover';
+import InfoPopover from '@n-apt/components/InfoPopover';
 
 describe('InfoPopover Component', () => {
   const mockContent = 'Test content for popover';

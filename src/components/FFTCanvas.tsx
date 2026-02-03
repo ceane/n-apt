@@ -1,7 +1,7 @@
 import { useRef, useEffect, useCallback } from 'react'
 import styled from 'styled-components'
 import { drawSpectrum, FrequencyRange } from '@n-apt/fft/FFTCanvasRenderer'
-import { drawWaterfall, createWaterfallLine } from '@n-apt/waterfall/WaterfallCanvasRenderer'
+import { drawWaterfall, addWaterfallFrame, spectrumToAmplitude } from '@n-apt/waterfall/FIFOWaterfallRenderer'
 import { 
   VISUALIZER_PADDING, 
   VISUALIZER_GAP, 
@@ -96,9 +96,12 @@ const FFTCanvas: React.FC<FFTCanvasProps> = ({
 }) => {
   const spectrumCanvasRef = useRef<HTMLCanvasElement>(null)
   const waterfallCanvasRef = useRef<HTMLCanvasElement>(null)
-  const waterfallHistoryRef = useRef<ImageData[]>([])
+  const waterfallBufferRef = useRef<Uint8ClampedArray>()
   const animationFrameRef = useRef<number>()
   const dataRef = useRef<any>(null)
+  const lastProcessedDataRef = useRef<any>(null)
+  const frequencyRangeRef = useRef<FrequencyRange>(frequencyRange)
+
 
   /**
  * Renders spectrum data using FFTCanvasRenderer
@@ -119,12 +122,12 @@ const renderSpectrum = useCallback((canvas: HTMLCanvasElement, spectrumData: num
       width,
       height,
       waveform: spectrumData,
-      frequencyRange
+      frequencyRange: frequencyRangeRef.current
     })
-  }, [frequencyRange])
+  }, [])
 
   /**
- * Renders waterfall data using WaterfallCanvasRenderer
+ * Renders waterfall data using buffer-based approach
  * @param canvas - Canvas element to render on
  * @param spectrumData - Power spectrum data in dB
  */
@@ -135,13 +138,25 @@ const renderWaterfall = useCallback((canvas: HTMLCanvasElement, spectrumData: nu
     const dpr = window.devicePixelRatio || 1
     const marginX = Math.round(40 * dpr)
     const marginY = Math.round(20 * dpr)
-    const lineWidth = Math.max(1, Math.round(canvas.width - marginX * 2))
+    
+    // Calculate waterfall display area
+    const waterfallWidth = Math.max(1, Math.round(canvas.width - marginX * 2))
+    const waterfallHeight = Math.max(1, Math.round(canvas.height - marginY * 2))
 
-    const resampled: number[] = new Array(lineWidth)
+    // Initialize buffer if needed (use waterfall display area, not full canvas)
+    if (!waterfallBufferRef.current || 
+        waterfallBufferRef.current.length !== waterfallWidth * waterfallHeight * 4) {
+      waterfallBufferRef.current = new Uint8ClampedArray(waterfallWidth * waterfallHeight * 4)
+      // Initialize with black background
+      waterfallBufferRef.current.fill(0)
+    }
+
+    // Resample spectrum data to waterfall width
+    const resampled: number[] = new Array(waterfallWidth)
     const srcLen = spectrumData.length
-    for (let x = 0; x < lineWidth; x++) {
-      const start = Math.floor((x * srcLen) / lineWidth)
-      const end = Math.max(start + 1, Math.floor(((x + 1) * srcLen) / lineWidth))
+    for (let x = 0; x < waterfallWidth; x++) {
+      const start = Math.floor((x * srcLen) / waterfallWidth)
+      const end = Math.max(start + 1, Math.floor(((x + 1) * srcLen) / waterfallWidth))
       let maxVal = -Infinity
       for (let i = start; i < end && i < srcLen; i++) {
         const v = spectrumData[i]
@@ -150,23 +165,28 @@ const renderWaterfall = useCallback((canvas: HTMLCanvasElement, spectrumData: nu
       resampled[x] = maxVal === -Infinity ? spectrumData[Math.min(start, srcLen - 1)] : maxVal
     }
 
-    const waterfallLine = createWaterfallLine(resampled, lineWidth, WATERFALL_HISTORY_LIMIT, WATERFALL_HISTORY_MAX)
+    // Convert dB to normalized amplitude (0-1)
+    const normalizedData = spectrumToAmplitude(resampled, WATERFALL_HISTORY_LIMIT, WATERFALL_HISTORY_MAX)
 
-    // Add to history
-    waterfallHistoryRef.current.push(waterfallLine)
-    const maxLines = Math.max(1, Math.round(canvas.height - marginY * 2))
-    if (waterfallHistoryRef.current.length > maxLines) {
-      waterfallHistoryRef.current.shift()
-    }
+    // Add new frame to buffer with drift (can be adjusted as needed)
+    addWaterfallFrame(
+      waterfallBufferRef.current,
+      normalizedData,
+      waterfallWidth,
+      waterfallHeight,
+      0, // driftAmount - set to 0 for no drift, can be made configurable
+      1  // driftDirection - 1 = right
+    )
 
+    // Draw the updated buffer
     drawWaterfall({
       ctx,
       width: canvas.width,
       height: canvas.height,
-      waterfallData: waterfallHistoryRef.current,
-      frequencyRange
+      waterfallBuffer: waterfallBufferRef.current,
+      frequencyRange: frequencyRangeRef.current
     })
-  }, [frequencyRange])
+  }, [])
 
   /**
  * Animation loop for continuous spectrum and waterfall updates
@@ -179,8 +199,14 @@ const animate = useCallback(() => {
 
     const currentData = dataRef.current
     if (spectrumCanvas && waterfallCanvas && currentData?.waveform) {
+      // Always update spectrum display
       renderSpectrum(spectrumCanvas, currentData.waveform)
-      renderWaterfall(waterfallCanvas, currentData.waveform)
+      
+      // Only add new waterfall line when data changes (not every frame)
+      if (currentData !== lastProcessedDataRef.current) {
+        renderWaterfall(waterfallCanvas, currentData.waveform)
+        lastProcessedDataRef.current = currentData
+      }
     }
 
     animationFrameRef.current = requestAnimationFrame(animate)
@@ -189,6 +215,12 @@ const animate = useCallback(() => {
   useEffect(() => {
     dataRef.current = data
   }, [data])
+
+  useEffect(() => {
+    // Update frequency range ref for new lines only
+    // Old waterfall lines stay exactly where they are (no horizontal shifting)
+    frequencyRangeRef.current = frequencyRange
+  }, [frequencyRange.min, frequencyRange.max])
 
   useEffect(() => {
     const spectrumCanvas = spectrumCanvasRef.current
@@ -228,7 +260,14 @@ const animate = useCallback(() => {
             ctx.setTransform(1, 0, 0, 1, 0, 0)
           }
 
-          waterfallHistoryRef.current = []
+          // Reset buffer on resize to match new waterfall display area dimensions
+          const marginX = Math.round(40 * dpr)
+          const marginY = Math.round(20 * dpr)
+          const waterfallWidth = Math.max(1, Math.round(waterfallCanvas.width - marginX * 2))
+          const waterfallHeight = Math.max(1, Math.round(waterfallCanvas.height - marginY * 2))
+          
+          waterfallBufferRef.current = new Uint8ClampedArray(waterfallWidth * waterfallHeight * 4)
+          waterfallBufferRef.current.fill(0)
         }
       }
 

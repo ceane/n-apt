@@ -12,9 +12,20 @@ global.ImageData = class ImageData {
   height: number;
   data: Uint8ClampedArray;
 
-  constructor(width: number, height: number) {
-    this.width = width;
-    this.height = height;
+  constructor(dataOrWidth: Uint8ClampedArray | number, widthOrHeight: number, maybeHeight?: number) {
+    if (dataOrWidth instanceof Uint8ClampedArray) {
+      const width = widthOrHeight
+      const height = maybeHeight ?? 0
+      this.width = width
+      this.height = height
+      this.data = dataOrWidth
+      return
+    }
+
+    const width = dataOrWidth
+    const height = widthOrHeight
+    this.width = width
+    this.height = height
     this.data = new Uint8ClampedArray(width * height * 4);
   }
 } as any;

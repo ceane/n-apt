@@ -53,13 +53,11 @@ export const useWebSocket = (url: string, enabled: boolean = true): WebSocketDat
           wsRef.current = ws
 
           ws.onopen = () => {
-            console.log('WebSocket connected successfully')
             setIsConnected(true)
             setError(null)
           }
 
           ws.onmessage = (event) => {
-            console.log('WebSocket message received:', event.data)
             try {
               const parsedData = JSON.parse(event.data)
 
@@ -113,12 +111,11 @@ export const useWebSocket = (url: string, enabled: boolean = true): WebSocketDat
                 }
               }
             } catch {
-              console.error("Failed to parse WebSocket message")
+              // Failed to parse WebSocket message
             }
           }
 
-          ws.onclose = (event) => {
-            console.log('WebSocket closed:', event.code, event.reason)
+          ws.onclose = () => {
             setIsConnected(false)
             // Only attempt to reconnect if we haven't been cleaned up
             if (wsRef.current !== null) {
@@ -127,8 +124,7 @@ export const useWebSocket = (url: string, enabled: boolean = true): WebSocketDat
             }
           }
 
-          ws.onerror = (error) => {
-            console.error('WebSocket error:', error)
+          ws.onerror = () => {
             setError('WebSocket connection error')
             // Only log error if we haven't already closed the connection
             // This prevents errors during React strict mode cleanup
@@ -138,7 +134,6 @@ export const useWebSocket = (url: string, enabled: boolean = true): WebSocketDat
           }
         } catch {
           setError("Failed to create WebSocket connection")
-          console.error("WebSocket creation error")
         }
       }
 
@@ -182,7 +177,7 @@ export const useWebSocket = (url: string, enabled: boolean = true): WebSocketDat
         paused: paused,
       })
       ws.send(message)
-      setIsPaused(paused)
+      // Note: isPaused state will be updated via WebSocket status message
     }
   }, [])
 

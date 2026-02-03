@@ -146,7 +146,7 @@ export const AppContent: React.FC = () => {
     if (isConnected && mainTab === 'Spectrum') {
       sendPauseCommand(!isVisualizer)
     }
-  }, [isVisualizer, isConnected, mainTab, sendPauseCommand])
+  }, [isVisualizer, isConnected, mainTab])
 
   const handleSignalAreaChange = (area: string) => {
     // Only reset frequency range when switching to a different area
@@ -161,11 +161,13 @@ export const AppContent: React.FC = () => {
     }
   }
 
-  const handleFrequencyRangeChange = (range: FrequencyRange) => {
-    setFrequencyRange(range)
-    // Send the new frequency range to the server
+  const handleFrequencyRangeChange = useCallback((range: FrequencyRange) => {
+    setFrequencyRange((prev) => {
+      if (prev.min === range.min && prev.max === range.max) return prev
+      return range
+    })
     sendFrequencyRange(range)
-  }
+  }, [sendFrequencyRange])
 
   // Styles
   const appContainerStyle: React.CSSProperties = {
@@ -277,8 +279,7 @@ export const AppContent: React.FC = () => {
         return (
           <section style={{ ...mainContentStyle, padding: 0, margin: 0 }}>
             <HotspotEditor 
-              onHotspotsChange={(hotspots) => {
-                console.log('Hotspots updated:', hotspots)
+              onHotspotsChange={() => {
                 // You can save these to localStorage or state here
               }}
             />

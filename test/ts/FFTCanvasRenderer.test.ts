@@ -1,4 +1,4 @@
-import { drawSpectrum, zoomFFT, FrequencyRange } from '../../src/fft/FFTCanvasRenderer';
+import { drawSpectrum, zoomFFT, FrequencyRange } from '@n-apt/fft/FFTCanvasRenderer';
 
 describe('FFTCanvasRenderer', () => {
   const mockCanvas = document.createElement('canvas');

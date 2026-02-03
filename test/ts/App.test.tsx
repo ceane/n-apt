@@ -2,31 +2,31 @@ import * as React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { MemoryRouter } from 'react-router-dom';
-import { AppContent } from '../../src/App';
+import { AppContent } from '@n-apt/App';
 
 // Mock all components to avoid import issues
-jest.mock('../../src/components', () => ({
+jest.mock('@n-apt/components', () => ({
   FFTCanvas: () => <div data-testid="spectrum-visualizer">Spectrum Visualizer</div>,
   DrawMockNAPT: () => <div data-testid="draw-mock-napt">Draw Mock NAPT</div>,
 }));
 
-jest.mock('../../src/components/Sidebar', () => ({
+jest.mock('@n-apt/components/Sidebar', () => ({
   default: () => <div data-testid="sidebar">Sidebar</div>,
 }));
 
-jest.mock('../../src/components/HumanModelViewer', () => ({
+jest.mock('@n-apt/components/HumanModelViewer', () => ({
   default: () => <div data-testid="human-model-viewer">Human Model Viewer</div>,
 }));
 
-jest.mock('../../src/components/HotspotEditor', () => ({
+jest.mock('@n-apt/components/HotspotEditor', () => ({
   default: () => <div data-testid="hotspot-editor">Hotspot Editor</div>,
 }));
 
-jest.mock('../../src/components/FFTStitcherCanvas', () => ({
+jest.mock('@n-apt/components/FFTStitcherCanvas', () => ({
   default: () => <div data-testid="stitcher-visualizer">Stitcher Visualizer</div>,
 }));
 
-jest.mock('../../src/hooks/useWebSocket', () => ({
+jest.mock('@n-apt/hooks/useWebSocket', () => ({
   useWebSocket: () => ({
     data: null,
     isConnected: false,

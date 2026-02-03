@@ -1,19 +1,21 @@
 import * as React from 'react';
 import { render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom';
-import FFTCanvas from '../../src/components/FFTCanvas';
-import { FrequencyRange } from '../../src/fft/FFTCanvasRenderer';
+import FFTCanvas from '@n-apt/components/FFTCanvas';
+import { FrequencyRange } from '@n-apt/fft/FFTCanvasRenderer';
 
 // Mock the canvas renderers
-jest.mock('../../src/fft/FFTCanvasRenderer', () => ({
+jest.mock('@n-apt/fft/FFTCanvasRenderer', () => ({
   drawSpectrum: jest.fn(),
   zoomFFT: jest.fn(),
   FrequencyRange: {} as any,
 }));
 
-jest.mock('../../src/waterfall/WaterfallCanvasRenderer', () => ({
+jest.mock('@n-apt/waterfall/FIFOWaterfallRenderer', () => ({
   drawWaterfall: jest.fn(),
   createWaterfallLine: jest.fn(() => new ImageData(800, 1)),
+  addWaterfallFrame: jest.fn(),
+  spectrumToAmplitude: jest.fn((spectrum: number[]) => spectrum.map(() => 0)),
 }));
 
 describe('FFTCanvas', () => {

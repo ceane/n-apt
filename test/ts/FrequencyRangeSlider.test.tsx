@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '@testing-library/jest-dom';
-import FrequencyRangeSlider from '../../src/components/FrequencyRangeSlider';
+import FrequencyRangeSlider from '@n-apt/components/FrequencyRangeSlider';
 
 describe('FrequencyRangeSlider Component', () => {
   const mockOnRangeChange = jest.fn();
