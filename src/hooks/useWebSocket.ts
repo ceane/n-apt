@@ -111,7 +111,7 @@ export const useWebSocket = (url: string, enabled: boolean = true): WebSocketDat
                 }
               }
             } catch {
-              console.error("Failed to parse WebSocket message")
+              // Failed to parse WebSocket message
             }
           }
 
@@ -119,12 +119,13 @@ export const useWebSocket = (url: string, enabled: boolean = true): WebSocketDat
             setIsConnected(false)
             // Only attempt to reconnect if we haven't been cleaned up
             if (wsRef.current !== null) {
-              const timeoutId = setTimeout(connect, 2000)
+              const timeoutId = setTimeout(connect, 2000) as any
               reconnectTimeoutRef.current = timeoutId
             }
           }
 
           ws.onerror = () => {
+            setError('WebSocket connection error')
             // Only log error if we haven't already closed the connection
             // This prevents errors during React strict mode cleanup
             if (wsRef.current !== null) {
@@ -133,7 +134,6 @@ export const useWebSocket = (url: string, enabled: boolean = true): WebSocketDat
           }
         } catch {
           setError("Failed to create WebSocket connection")
-          console.error("WebSocket creation error")
         }
       }
 
@@ -177,7 +177,7 @@ export const useWebSocket = (url: string, enabled: boolean = true): WebSocketDat
         paused: paused,
       })
       ws.send(message)
-      setIsPaused(paused)
+      // Note: isPaused state will be updated via WebSocket status message
     }
   }, [])
 

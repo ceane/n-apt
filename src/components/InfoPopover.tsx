@@ -1,6 +1,21 @@
 import { useState, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import styled from 'styled-components'
+import { 
+  POPOVER_WIDTH, 
+  POPOVER_PADDING, 
+  INFO_ICON_SIZE, 
+  POPOVER_Z_INDEX,
+  POPOVER_ICON_BACKGROUND,
+  POPOVER_ICON_BORDER,
+  POPOVER_ICON_COLOR,
+  POPOVER_ICON_HOVER_BACKGROUND,
+  POPOVER_ICON_HOVER_COLOR,
+  POPOVER_BACKGROUND,
+  POPOVER_BORDER,
+  POPOVER_TITLE_COLOR,
+  POPOVER_TEXT_COLOR
+} from '@n-apt/consts'
 
 const PopoverContainer = styled.div`
   position: relative;
@@ -9,12 +24,12 @@ const PopoverContainer = styled.div`
 `
 
 const InfoIcon = styled.div`
-  width: 16px;
-  height: 16px;
+  width: ${INFO_ICON_SIZE}px;
+  height: ${INFO_ICON_SIZE}px;
   border-radius: 50%;
-  background-color: #2a2a2a;
-  border: 1px solid #3a3a3a;
-  color: #666;
+  background-color: ${POPOVER_ICON_BACKGROUND};
+  border: 1px solid ${POPOVER_ICON_BORDER};
+  color: ${POPOVER_ICON_COLOR};
   font-size: 10px;
   font-weight: 600;
   display: flex;
@@ -25,21 +40,21 @@ const InfoIcon = styled.div`
   margin-left: 8px;
 
   &:hover {
-    background-color: #00d4ff;
-    border-color: #00d4ff;
-    color: #000;
+    background-color: ${POPOVER_ICON_HOVER_BACKGROUND};
+    border-color: ${POPOVER_ICON_HOVER_BACKGROUND};
+    color: ${POPOVER_ICON_HOVER_COLOR};
   }
 `
 
 const PopoverContent = styled.div<{ $visible: boolean }>`
   position: fixed;
-  width: 280px;
-  padding: 16px;
-  background-color: #1a1a1a;
-  border: 1px solid #2a2a2a;
+  width: ${POPOVER_WIDTH}px;
+  padding: ${POPOVER_PADDING}px;
+  background-color: ${POPOVER_BACKGROUND};
+  border: 1px solid ${POPOVER_BORDER};
   border-radius: 8px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
-  z-index: 9999;
+  z-index: ${POPOVER_Z_INDEX};
   opacity: ${props => props.$visible ? 1 : 0};
   visibility: ${props => props.$visible ? 'visible' : 'hidden'};
   transition: opacity 0.2s ease, visibility 0.2s ease;
@@ -55,7 +70,7 @@ const PopoverContent = styled.div<{ $visible: boolean }>`
     height: 0;
     border-top: 6px solid transparent;
     border-bottom: 6px solid transparent;
-    border-right: 6px solid #2a2a2a;
+    border-right: 6px solid ${POPOVER_BORDER};
   }
 
   &::after {
@@ -68,20 +83,20 @@ const PopoverContent = styled.div<{ $visible: boolean }>`
     height: 0;
     border-top: 5px solid transparent;
     border-bottom: 5px solid transparent;
-    border-right: 5px solid #1a1a1a;
+    border-right: 5px solid ${POPOVER_BACKGROUND};
   }
 `
 
 const PopoverTitle = styled.div`
   font-size: 12px;
   font-weight: 600;
-  color: #ccc;
+  color: ${POPOVER_TITLE_COLOR};
   margin-bottom: 8px;
 `
 
 const PopoverText = styled.div`
   font-size: 11px;
-  color: #888;
+  color: ${POPOVER_TEXT_COLOR};
   line-height: 1.5;
 `
 
@@ -90,7 +105,7 @@ interface InfoPopoverProps {
   content: string
 }
 
-const InfoPopover: React.FC<InfoPopoverProps> = ({ title = 'Information', content }) => {
+const InfoPopover = ({ title = 'Information', content }: InfoPopoverProps) => {
   const [isVisible, setIsVisible] = useState(false)
   const [position, setPosition] = useState({ x: 0, y: 0 })
   const iconRef = useRef<HTMLDivElement>(null)
