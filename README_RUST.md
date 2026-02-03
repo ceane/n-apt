@@ -209,7 +209,7 @@ The Rust backend is a drop-in replacement:
 
 ### Switching from Python
 
-1. Stop Python backend: `pkill -f backend.py`
+1. Stop existing n-apt servers: `fkill --force 'n-apt-backend' ':5173' ':8765'`
 2. Start Rust backend: `cd src/backend && cargo run`
 3. Frontend will automatically connect to Rust backend
 

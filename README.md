@@ -32,9 +32,17 @@ npm install
 
 ### Running the App
 
-```
+```bash
 npm run dev
 ```
+
+This command will:
+1. **Target only this project** - Kills processes by name and port (n-apt-backend, :5173, :8765)
+2. **Avoid interfering** with other Vite instances or applications
+3. **Start fresh servers** to prevent port conflicts
+4. **Launch both** the Rust backend and Vite frontend concurrently
+
+The app will be available at `http://localhost:5173` with the WebSocket server running on `ws://localhost:8765`.
 
 I only have on person captures (within the `iq-samples` dir), however in the future I'll be sure to add near and 1 or 2m away captures (as long as my cord can do), as well as some captures from suspected endpoints.
 
