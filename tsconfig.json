@@ -33,6 +33,6 @@
       "@n-apt/glb_models/*": ["src/glb_models/*"]
     }
   },
-  "include": ["src"],
+  "include": ["src", "src/types"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }
