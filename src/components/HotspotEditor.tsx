@@ -88,10 +88,6 @@ function HotspotMarker({ hotspot, onClick, onDelete, onRename, isSelected, isMul
   const baseColor = hotspot.size === 'large' ? '#00d4ff' : '#ffaa00'
   const color = isMultiSelected ? '#ff6b6b' : (isSelected ? '#ffffff' : baseColor)
   
-  // Debug logging
-  React.useEffect(() => {
-    console.log(`Hotspot ${hotspot.name}: size=${hotspot.size}, calculatedSize=${size}`)
-  }, [hotspot.size, size, hotspot.name])
 
   return (
     <group position={hotspot.position}>

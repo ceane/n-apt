@@ -277,18 +277,11 @@ impl WebSocketServer {
         
         let client_count = *client_count_clone.lock().await;
         
-        // Debug: always log client count
-        info!("Streaming loop: client_count={}", client_count);
-        
-        // Always generate data when clients are connected (ignore pause for now to debug)
+        // Generate data when clients are connected
         if client_count > 0 {
-          info!("Generating data for {} clients", client_count);
-          
           let (spectrum_data, is_mock) = {
             let mut processor = streaming_processor.lock().await;
-            info!("About to call read_and_process...");
             let spectrum = processor.read_and_process();
-            info!("read_and_process returned: {:?}", spectrum);
             match spectrum {
               Ok(data) => (data, processor.is_mock),
               Err(e) => {
@@ -297,8 +290,6 @@ impl WebSocketServer {
               }
             }
           };
-          
-          info!("Got spectrum data: {} samples", spectrum_data.len());
           
           let data = SpectrumData {
             message_type: "spectrum".to_string(),
@@ -310,13 +301,9 @@ impl WebSocketServer {
 
           let message = serde_json::to_string(&data).unwrap();
           
-          info!("Broadcasting message: {} bytes", message.len());
-          
           // Broadcast to all clients
           if let Err(e) = broadcast_tx.send(message) {
             warn!("Failed to broadcast: {}", e);
-          } else {
-            info!("Broadcast successful");
           }
         }
       }
@@ -324,7 +311,6 @@ impl WebSocketServer {
 
     // Handle connections
     while let Ok((stream, addr)) = listener.accept().await {
-      info!("New connection from {}", addr);
 
       let processor = self.processor.clone();
       let mut broadcast_rx = self.broadcast_tx.subscribe();
@@ -333,10 +319,7 @@ impl WebSocketServer {
 
       tokio::spawn(async move {
         let ws_stream = match accept_async(stream).await {
-          Ok(stream) => {
-            info!("WebSocket handshake successful for {}", addr);
-            stream
-          }
+          Ok(stream) => stream,
           Err(e) => {
             error!("WebSocket handshake failed: {}", e);
             return;
@@ -360,19 +343,15 @@ impl WebSocketServer {
           device_info,
         };
 
-        info!("Preparing to send status to {}: {:?}", addr, status);
-        
         match serde_json::to_string(&status) {
           Ok(status_json) => {
-            info!("Sending status JSON ({} bytes) to {}", status_json.len(), addr);
             if let Err(e) = ws_sender.send(Message::Text(status_json)).await {
-              error!("Failed to send initial status to {}: {}", addr, e);
+              error!("Failed to send initial status: {}", e);
               return;
             }
-            info!("Sent initial status to {}", addr);
           }
           Err(e) => {
-            error!("Failed to serialize status for {}: {}", addr, e);
+            error!("Failed to serialize status: {}", e);
             return;
           }
         }
@@ -381,7 +360,6 @@ impl WebSocketServer {
         {
           let mut count = client_count.lock().await;
           *count += 1;
-          info!("Client {} connected. Total clients: {}", addr, *count);
         }
 
         // Use tokio::select! to handle both broadcast messages and client messages concurrently
@@ -411,7 +389,6 @@ impl WebSocketServer {
                   }
                 }
                 Some(Ok(Message::Close(_))) => {
-                  info!("Client {} sent close frame", addr);
                   break;
                 }
                 Some(Ok(Message::Ping(data))) => {
@@ -420,12 +397,10 @@ impl WebSocketServer {
                     break;
                   }
                 }
-                Some(Err(e)) => {
-                  error!("WebSocket error from {}: {}", addr, e);
+                Some(Err(_)) => {
                   break;
                 }
                 None => {
-                  info!("Client {} connection closed", addr);
                   break;
                 }
                 _ => {}
@@ -438,7 +413,6 @@ impl WebSocketServer {
         {
           let mut count = client_count.lock().await;
           *count = count.saturating_sub(1);
-          info!("Client {} disconnected. Total clients: {}", addr, *count);
         }
       });
     }
@@ -461,7 +435,6 @@ async fn handle_message(
   is_paused: &Arc<Mutex<bool>>,
   message: WebSocketMessage,
 ) {
-  info!("Received WebSocket message: type={}", message.message_type);
   match message.message_type.as_str() {
     "frequency_range" => {
       // Handle frequency range updates
@@ -475,9 +448,7 @@ async fn handle_message(
     "pause" => {
       // Handle pause/resume requests
       if let Some(paused) = message.paused {
-        let old_paused = *is_paused.lock().await;
         *is_paused.lock().await = paused;
-        info!("Streaming {} (was: {})", if paused { "paused" } else { "resumed" }, old_paused);
       }
     }
     "gain" => {

@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom';
-import Sidebar from '../../src/components/Sidebar';
+import Sidebar from '@n-apt/components/Sidebar';
 
 describe('Sidebar Component', () => {
   const defaultProps = {

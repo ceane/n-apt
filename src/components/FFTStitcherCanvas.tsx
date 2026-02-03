@@ -74,7 +74,7 @@ const FFTStitcherCanvas: React.FC<FFTStitcherCanvasProps> = ({
         <div style={buttonContainerStyle}>
           <button 
             style={STITCHER_BUTTON_STYLE}
-            onClick={() => onStitch(() => console.log('Stitching...'))}
+            onClick={() => onStitch(() => {})}
           >
             Stitch
           </button>

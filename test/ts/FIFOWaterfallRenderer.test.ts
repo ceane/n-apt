@@ -1,6 +1,6 @@
-import { drawWaterfall, createWaterfallLine, FrequencyRange } from '../../src/waterfall/WaterfallCanvasRenderer';
+import { drawWaterfall, createWaterfallLine, FrequencyRange } from '@n-apt/waterfall/FIFOWaterfallRenderer';
 
-describe('WaterfallCanvasRenderer', () => {
+describe('FIFOWaterfallRenderer', () => {
   const mockCanvas = document.createElement('canvas');
   const mockCtx = mockCanvas.getContext('2d') as CanvasRenderingContext2D;
   
@@ -19,19 +19,19 @@ describe('WaterfallCanvasRenderer', () => {
 
   describe('drawWaterfall', () => {
     it('should render waterfall with valid inputs', () => {
-      const mockImageData = new ImageData(800, 1);
-      const waterfallData = [mockImageData];
+      const waterfallBuffer = new Uint8ClampedArray(800 * 400 * 4)
 
       const options = {
         ctx: mockCtx,
         width: 800,
         height: 400,
-        waterfallData,
+        waterfallBuffer,
         frequencyRange: mockFrequencyRange
       };
 
       expect(() => drawWaterfall(options)).not.toThrow();
-      expect(mockCtx.fillRect).toHaveBeenCalled();
+      expect(mockCtx.putImageData).toHaveBeenCalled();
+      expect(mockCtx.fillRect).toHaveBeenCalled(); // Should clear background
     });
 
     it('should handle empty waterfall data gracefully', () => {
@@ -39,28 +39,29 @@ describe('WaterfallCanvasRenderer', () => {
         ctx: mockCtx,
         width: 800,
         height: 400,
-        waterfallData: [],
+        waterfallBuffer: new Uint8ClampedArray(800 * 400 * 4),
         frequencyRange: mockFrequencyRange
       };
 
       expect(() => drawWaterfall(options)).not.toThrow();
+      expect(mockCtx.fillRect).toHaveBeenCalled(); // Should clear background
     });
 
     it('should use custom dB ranges when provided', () => {
-      const mockImageData = new ImageData(800, 1);
-      const waterfallData = [mockImageData];
+      const waterfallBuffer = new Uint8ClampedArray(800 * 400 * 4)
 
       const options = {
         ctx: mockCtx,
         width: 800,
         height: 400,
-        waterfallData,
+        waterfallBuffer,
         frequencyRange: mockFrequencyRange,
         waterfallMin: -100,
         waterfallMax: 10
       };
 
       expect(() => drawWaterfall(options)).not.toThrow();
+      expect(mockCtx.fillRect).toHaveBeenCalled(); // Should clear background
     });
   });
 
