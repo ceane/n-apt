@@ -1,4 +1,3 @@
-use rustfft::{num_complex::Complex};
 use crate::consts::rs::fft::{SAMPLE_RATE, NUM_SAMPLES};
 
 /// FFT processing result containing both waveform and waterfall data

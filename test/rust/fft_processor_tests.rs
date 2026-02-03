@@ -224,7 +224,7 @@ mod tests {
         }
         
         let history = processor.get_waterfall_history();
-        assert!(history.len() > 0);
+        assert!(!history.is_empty());
         assert!(history.len() <= 1000); // Should not exceed max lines
         
         // Clear history
@@ -244,7 +244,7 @@ mod tests {
         
         // Check that mock signal has reasonable values
         for &value in &result.power_spectrum {
-            assert!(value >= -200.0 && value <= 100.0);
+            assert!((-200.0..=100.0).contains(&value));
         }
         // Reset time
         processor.reset_time();

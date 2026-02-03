@@ -1,7 +1,7 @@
-import React, { useState, useRef, useCallback, useMemo } from 'react'
+import React, { useState, useRef, useCallback } from 'react'
 import { Canvas, useThree, useFrame } from '@react-three/fiber'
 import { OrbitControls, useGLTF } from '@react-three/drei'
-import { Mesh, Vector3, Vector2, Material, MeshStandardMaterial, Raycaster } from 'three'
+import { Vector3, Vector2, Raycaster } from 'three'
 
 interface Hotspot {
   id: string
@@ -52,7 +52,7 @@ function ClickHandler({ onAddHotspot }: { onAddHotspot: (point: Vector3) => void
   return null
 }
 
-function Model({ hotspots, onAddHotspot }: { hotspots: Hotspot[], onAddHotspot: (point: Vector3) => void }) {
+function Model({ hotspots: _hotspots, onAddHotspot }: { hotspots: Hotspot[], onAddHotspot: (point: Vector3) => void }) {
   const { scene } = useGLTF('/glb_models/androgynous_body.glb')
   
   return (
@@ -65,7 +65,7 @@ function Model({ hotspots, onAddHotspot }: { hotspots: Hotspot[], onAddHotspot: 
   )
 }
 
-function HotspotMarker({ hotspot, onClick, onDelete, onRename, isSelected, isMultiSelected, onToggleSelect }: { 
+function HotspotMarker({ hotspot, onClick, onDelete: _onDelete, onRename, isSelected, isMultiSelected, onToggleSelect: _onToggleSelect }: { 
   hotspot: Hotspot, 
   onClick: () => void, 
   onDelete: () => void, 
