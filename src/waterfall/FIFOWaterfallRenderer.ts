@@ -108,9 +108,9 @@ export function drawWaterfall(options: WaterfallRenderOptions): void {
     width,
     height,
     waterfallBuffer,
-    frequencyRange,
-    waterfallMin = WATERFALL_MIN_DB,
-    waterfallMax = WATERFALL_MAX_DB
+    frequencyRange: _frequencyRange,
+    waterfallMin: _waterfallMin = WATERFALL_MIN_DB,
+    waterfallMax: _waterfallMax = WATERFALL_MAX_DB
   } = options;
 
   // Calculate centered position
@@ -132,7 +132,7 @@ export function drawWaterfall(options: WaterfallRenderOptions): void {
 
   // Draw updated buffer to canvas at centered position
   const imageData = new ImageData(
-    waterfallBuffer,
+    new Uint8ClampedArray(waterfallBuffer),
     waterfallWidth,
     waterfallHeight
   );
