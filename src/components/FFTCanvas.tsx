@@ -106,9 +106,9 @@ const FFTCanvas = ({
 }: FFTCanvasProps) => {
   const spectrumCanvasRef = useRef<HTMLCanvasElement>(null)
   const waterfallCanvasRef = useRef<HTMLCanvasElement>(null)
-  const waterfallBufferRef = useRef<Uint8ClampedArray>()
+  const waterfallBufferRef = useRef<Uint8ClampedArray | null>(null)
   const waterfallDimsRef = useRef<{ width: number; height: number } | null>(null)
-  const animationFrameRef = useRef<number>()
+  const animationFrameRef = useRef<number | null>(null)
   const dataRef = useRef<any>(null)
   const lastProcessedDataRef = useRef<any>(null)
   const frequencyRangeRef = useRef<FrequencyRange>(frequencyRange)
@@ -238,7 +238,7 @@ const renderWaterfall = useCallback((canvas: HTMLCanvasElement, spectrumData: nu
         console.warn('SIMD buffer operations failed, using fallback:', error)
         // Fallback to original implementation
         addWaterfallFrame(
-          waterfallBufferRef.current,
+          waterfallBufferRef.current!,
           normalizedData,
           waterfallWidth,
           waterfallHeight,
@@ -267,7 +267,7 @@ const renderWaterfall = useCallback((canvas: HTMLCanvasElement, spectrumData: nu
       ctx,
       width: canvas.width,
       height: canvas.height,
-      waterfallBuffer: waterfallBufferRef.current,
+      waterfallBuffer: waterfallBufferRef.current!,
       frequencyRange: frequencyRangeRef.current
     })
   }, [])

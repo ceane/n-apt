@@ -257,7 +257,6 @@ export const AppContent: React.FC = () => {
                   onStitch={(handler: () => void) => {
                     stitchHandlerRef.current = handler
                   }}
-                  onClear={handleClear}
                 />
               )}
               {!isVisualizer && !isStitcher && (

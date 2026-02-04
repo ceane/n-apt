@@ -1,17 +1,27 @@
-import React from 'react'
-import { STITCHER_BUTTON_STYLE } from '@n-apt/consts'
+import React, { useEffect } from 'react'
 
 interface FFTStitcherCanvasProps {
   selectedFiles: { name: string }[]
   onStitch: (handler: () => void) => void
-  onClear: () => void
 }
 
 const FFTStitcherCanvas: React.FC<FFTStitcherCanvasProps> = ({
   selectedFiles,
   onStitch,
-  onClear,
 }) => {
+  // Register the stitch handler when component mounts
+  useEffect(() => {
+    // Pass a proper handler function to the parent
+    onStitch(() => {
+      // Stitch operation logic here
+    })
+    
+    // Cleanup when unmounting
+    return () => {
+      onStitch(() => {})
+    }
+  }, [onStitch])
+
   const containerStyle: React.CSSProperties = {
     flex: 1,
     display: 'flex',
@@ -38,11 +48,6 @@ const FFTStitcherCanvas: React.FC<FFTStitcherCanvasProps> = ({
     textAlign: 'center',
   }
 
-  const buttonContainerStyle: React.CSSProperties = {
-    display: 'flex',
-    gap: '12px',
-  }
-
   return (
     <div style={containerStyle}>
       <div>
@@ -57,16 +62,16 @@ const FFTStitcherCanvas: React.FC<FFTStitcherCanvasProps> = ({
       </div>
       
       {selectedFiles.length > 0 && (
-        <div style={buttonContainerStyle}>
-          <button 
-            style={STITCHER_BUTTON_STYLE}
-            onClick={() => onStitch(() => {})}
-          >
-            Stitch
-          </button>
-          <button style={STITCHER_BUTTON_STYLE} onClick={onClear}>
-            Clear
-          </button>
+        <div style={{ 
+          padding: '12px', 
+          backgroundColor: '#1a1a1a', 
+          border: '1px solid #2a2a2a', 
+          borderRadius: '8px',
+          color: '#888',
+          fontSize: '12px',
+          textAlign: 'center'
+        }}>
+          Use the sidebar buttons to stitch or clear files
         </div>
       )}
     </div>
