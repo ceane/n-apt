@@ -28,9 +28,9 @@
  */
 export interface FrequencyRange {
   /** Minimum frequency in MHz */
-  min: number;
+  min: number
   /** Maximum frequency in MHz */
-  max: number;
+  max: number
 }
 
 /**
@@ -38,29 +38,26 @@ export interface FrequencyRange {
  */
 export interface WaterfallRenderOptions {
   /** Canvas 2D rendering context */
-  ctx: CanvasRenderingContext2D;
+  ctx: CanvasRenderingContext2D
   /** Canvas width in pixels */
-  width: number;
+  width: number
   /** Canvas height in pixels */
-  height: number;
+  height: number
   /** RGBA buffer for waterfall data */
-  waterfallBuffer: Uint8ClampedArray;
+  waterfallBuffer: Uint8ClampedArray
   /** Frequency range to display */
-  frequencyRange: FrequencyRange;
+  frequencyRange: FrequencyRange
   /** Minimum dB level for waterfall display (default: -80) */
-  waterfallMin?: number;
+  waterfallMin?: number
   /** Maximum dB level for waterfall display (default: 20) */
-  waterfallMax?: number;
+  waterfallMax?: number
   /** Drift amount for horizontal smear (default: 0) */
-  driftAmount?: number;
+  driftAmount?: number
   /** Drift direction: 1 = right, -1 = left (default: 1) */
-  driftDirection?: number;
+  driftDirection?: number
 }
 
-import {
-  DEFAULT_COLOR_MAP,
-  WATERFALL_CANVAS_BG
-} from '@n-apt/consts';
+import { DEFAULT_COLOR_MAP, WATERFALL_CANVAS_BG } from "@n-apt/consts"
 
 /**
  * Converts dB value to RGB color using SDR++ color palette
@@ -72,28 +69,28 @@ import {
 function dbToColor(
   db: number,
   minDb: number,
-  maxDb: number
+  maxDb: number,
 ): [number, number, number] {
-  const normalized = (db - minDb) / (maxDb - minDb);
+  const normalized = (db - minDb) / (maxDb - minDb)
   const index = Math.max(
     0,
     Math.min(
       DEFAULT_COLOR_MAP.length - 1,
-      normalized * (DEFAULT_COLOR_MAP.length - 1)
-    )
-  );
-  const lowerIndex = Math.floor(index);
-  const upperIndex = Math.min(DEFAULT_COLOR_MAP.length - 1, lowerIndex + 1);
-  const fraction = index - lowerIndex;
+      normalized * (DEFAULT_COLOR_MAP.length - 1),
+    ),
+  )
+  const lowerIndex = Math.floor(index)
+  const upperIndex = Math.min(DEFAULT_COLOR_MAP.length - 1, lowerIndex + 1)
+  const fraction = index - lowerIndex
 
-  const lower = DEFAULT_COLOR_MAP[lowerIndex];
-  const upper = DEFAULT_COLOR_MAP[upperIndex];
+  const lower = DEFAULT_COLOR_MAP[lowerIndex]
+  const upper = DEFAULT_COLOR_MAP[upperIndex]
 
   return [
     lower[0] + (upper[0] - lower[0]) * fraction,
     lower[1] + (upper[1] - lower[1]) * fraction,
-    lower[2] + (upper[2] - lower[2]) * fraction
-  ];
+    lower[2] + (upper[2] - lower[2]) * fraction,
+  ]
 }
 
 /**
@@ -101,32 +98,32 @@ function dbToColor(
  * @param options - Rendering options including canvas context, dimensions, and buffer
  */
 export function drawWaterfall(options: WaterfallRenderOptions): void {
-  const { ctx, width, height, waterfallBuffer } = options;
+  const { ctx, width, height, waterfallBuffer } = options
 
   // Calculate centered position
-  const dpr = window.devicePixelRatio || 1;
-  const marginX = Math.round(40 * dpr);
-  const marginY = Math.round(8 * dpr);
+  const dpr = window.devicePixelRatio || 1
+  const marginX = Math.round(40 * dpr)
+  const marginY = Math.round(8 * dpr)
 
   // Calculate the actual waterfall display area
-  const waterfallWidth = Math.max(1, Math.round(width - marginX * 2));
-  const waterfallHeight = Math.max(1, Math.round(height - marginY * 2));
+  const waterfallWidth = Math.max(1, Math.round(width - marginX * 2))
+  const waterfallHeight = Math.max(1, Math.round(height - marginY * 2))
 
   // Center the waterfall horizontally
-  const centeredX = Math.round((width - waterfallWidth) / 2);
-  const centeredY = marginY;
+  const centeredX = Math.round((width - waterfallWidth) / 2)
+  const centeredY = marginY
 
   // Clear canvas with background
-  ctx.fillStyle = WATERFALL_CANVAS_BG;
-  ctx.fillRect(0, 0, width, height);
+  ctx.fillStyle = WATERFALL_CANVAS_BG
+  ctx.fillRect(0, 0, width, height)
 
   // Draw updated buffer to canvas at centered position
   const imageData = new ImageData(
     new Uint8ClampedArray(waterfallBuffer),
     waterfallWidth,
-    waterfallHeight
-  );
-  ctx.putImageData(imageData, centeredX, centeredY);
+    waterfallHeight,
+  )
+  ctx.putImageData(imageData, centeredX, centeredY)
 }
 
 /**
@@ -144,33 +141,33 @@ export function addWaterfallFrame(
   width: number,
   height: number,
   driftAmount: number = 0,
-  _driftDirection: number = 1
+  _driftDirection: number = 1,
 ): void {
   // 1️⃣ Shift all old pixels down by 1 row (FIFO)
   for (let y = height - 1; y > 0; y--) {
     for (let x = 0; x < width; x++) {
-      const dst = (y * width + x) * 4;
-      const src = ((y - 1) * width + x) * 4;
-      waterfallBuffer[dst] = waterfallBuffer[src];
-      waterfallBuffer[dst + 1] = waterfallBuffer[src + 1];
-      waterfallBuffer[dst + 2] = waterfallBuffer[src + 2];
-      waterfallBuffer[dst + 3] = 255;
+      const dst = (y * width + x) * 4
+      const src = ((y - 1) * width + x) * 4
+      waterfallBuffer[dst] = waterfallBuffer[src]
+      waterfallBuffer[dst + 1] = waterfallBuffer[src + 1]
+      waterfallBuffer[dst + 2] = waterfallBuffer[src + 2]
+      waterfallBuffer[dst + 3] = 255
     }
   }
 
   // 2️⃣ Insert new FFT frame at top row
   for (let x = 0; x < width; x++) {
-    const amplitude = Math.min(fftFrame[x] || 0, 1); // normalize
-    const color = amplitude * 255;
+    const amplitude = Math.min(fftFrame[x] || 0, 1) // normalize
+    const color = amplitude * 255
 
-    const smear = Math.max(0, Math.min(Math.floor(driftAmount), height - 1));
+    const smear = Math.max(0, Math.min(Math.floor(driftAmount), height - 1))
     for (let dy = 0; dy <= smear; dy++) {
-      const y = dy;
-      const i = (y * width + x) * 4;
-      waterfallBuffer[i] = Math.max(waterfallBuffer[i], color); // R
-      waterfallBuffer[i + 1] = Math.max(waterfallBuffer[i + 1], color); // G
-      waterfallBuffer[i + 2] = Math.max(waterfallBuffer[i + 2], color); // B
-      waterfallBuffer[i + 3] = 255;
+      const y = dy
+      const i = (y * width + x) * 4
+      waterfallBuffer[i] = Math.max(waterfallBuffer[i], color) // R
+      waterfallBuffer[i + 1] = Math.max(waterfallBuffer[i + 1], color) // G
+      waterfallBuffer[i + 2] = Math.max(waterfallBuffer[i + 2], color) // B
+      waterfallBuffer[i + 3] = 255
     }
   }
 }
@@ -187,21 +184,21 @@ export function createWaterfallLine(
   spectrum: number[],
   width: number,
   minDb: number,
-  maxDb: number
+  maxDb: number,
 ): ImageData {
-  const imageData = new ImageData(width, 1);
-  const data = imageData.data;
+  const imageData = new ImageData(width, 1)
+  const data = imageData.data
 
   for (let i = 0; i < spectrum.length && i < width; i++) {
-    const [r, g, b] = dbToColor(spectrum[i], minDb, maxDb);
-    const pixelIndex = i * 4;
-    data[pixelIndex] = r;
-    data[pixelIndex + 1] = g;
-    data[pixelIndex + 2] = b;
-    data[pixelIndex + 3] = 255;
+    const [r, g, b] = dbToColor(spectrum[i], minDb, maxDb)
+    const pixelIndex = i * 4
+    data[pixelIndex] = r
+    data[pixelIndex + 1] = g
+    data[pixelIndex + 2] = b
+    data[pixelIndex + 3] = 255
   }
 
-  return imageData;
+  return imageData
 }
 
 /**
@@ -214,10 +211,10 @@ export function createWaterfallLine(
 export function spectrumToAmplitude(
   spectrum: number[],
   minDb: number,
-  maxDb: number
+  maxDb: number,
 ): number[] {
-  return spectrum.map(db => {
-    const normalized = (db - minDb) / (maxDb - minDb);
-    return Math.max(0, Math.min(1, normalized));
-  });
+  return spectrum.map((db) => {
+    const normalized = (db - minDb) / (maxDb - minDb)
+    return Math.max(0, Math.min(1, normalized))
+  })
 }

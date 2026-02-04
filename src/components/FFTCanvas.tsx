@@ -1,11 +1,11 @@
-import React, { useRef, useEffect, useCallback } from 'react';
-import styled from 'styled-components';
-import { drawSpectrum, FrequencyRange } from '@n-apt/fft/FFTCanvasRenderer';
+import React, { useRef, useEffect, useCallback } from "react";
+import styled from "styled-components";
+import { drawSpectrum, FrequencyRange } from "@n-apt/fft/FFTCanvasRenderer";
 import {
   drawWaterfall,
   addWaterfallFrame,
-  spectrumToAmplitude
-} from '@n-apt/waterfall/FIFOWaterfallRenderer';
+  spectrumToAmplitude,
+} from "@n-apt/waterfall/FIFOWaterfallRenderer";
 import {
   VISUALIZER_PADDING,
   VISUALIZER_GAP,
@@ -13,44 +13,44 @@ import {
   WATERFALL_HISTORY_MAX,
   SECTION_TITLE_COLOR,
   SECTION_TITLE_AFTER_COLOR,
-  CANVAS_BORDER_COLOR
-} from '@n-apt/consts';
+  CANVAS_BORDER_COLOR,
+} from "@n-apt/consts";
 
 // Import SDR processor for WASM FFT processing
 let sdrProcessor: any = null;
-console.log('🚀 Initializing WASM FFT Pipeline...');
+console.log("🚀 Initializing WASM FFT Pipeline...");
 
 // Use dynamic import for WASM module loading
 (async () => {
   try {
-    console.log('📦 Loading WASM FFT module...');
-    const wasmModule = await import('sdr_wasm');
-    const { SDRProcessor, default: initWasm } = wasmModule;
+    console.log("📦 Loading WASM FFT module...");
+    const wasmModule = await import("n_apt_canvas");
+    const { SIMDRenderingProcessor, default: initWasm } = wasmModule;
 
-    console.log('✅ WASM FFT module loaded successfully');
-    console.log('🔧 Initializing WASM module...');
+    console.log("✅ WASM FFT module loaded successfully");
+    console.log("🔧 Initializing WASM module...");
 
     // Initialize the WASM module first
     await initWasm();
 
-    console.log('🔧 Creating SDRProcessor instance...');
-    sdrProcessor = new SDRProcessor(1024); // Default FFT size
+    console.log("🔧 Creating SIMDRenderingProcessor instance...");
+    sdrProcessor = new SIMDRenderingProcessor();
 
-    console.log('🎯 WASM FFT Pipeline: SUCCESS');
-    console.log('✅ All modules loaded successfully');
-    console.log('   - SDR Processor: Available');
-    console.log('   - FFT Size: 1024');
-    console.log('   - WASM Acceleration: Enabled');
-    console.log('   - SIMD Support: Available');
-    console.log('   - Memory Features: Enabled');
-    console.log('   - Performance: Native WASM FFT speed');
-    console.log('🚀 Ready for high-performance signal processing!');
+    console.log("🎯 WASM FFT Pipeline: SUCCESS");
+    console.log("✅ All modules loaded successfully");
+    console.log("   - SDR Processor: Available");
+    console.log("   - FFT Size: 1024");
+    console.log("   - WASM Acceleration: Enabled");
+    console.log("   - SIMD Support: Available");
+    console.log("   - Memory Features: Enabled");
+    console.log("   - Performance: Native WASM FFT speed");
+    console.log("🚀 Ready for high-performance signal processing!");
   } catch (error) {
-    console.error('❌ WASM FFT Pipeline: FAILED');
-    console.error('   - Error:', (error as Error).message);
-    console.error('   - Cause: WASM FFT module not available');
-    console.warn('⚠️  Falling back to JavaScript FFT processing');
-    console.log('📊 Performance Impact: FFT will be slower');
+    console.error("❌ WASM FFT Pipeline: FAILED");
+    console.error("   - Error:", (error as Error).message);
+    console.error("   - Cause: WASM FFT module not available");
+    console.warn("⚠️  Falling back to JavaScript FFT processing");
+    console.log("📊 Performance Impact: FFT will be slower");
   }
 })();
 
@@ -92,7 +92,7 @@ const SectionTitle = styled.div`
   gap: 8px;
 
   &::after {
-    content: '/';
+    content: "/";
     color: ${SECTION_TITLE_AFTER_COLOR};
   }
 `;
@@ -134,13 +134,13 @@ const FFTCanvas = ({
   data,
   frequencyRange,
   activeSignalArea: _activeSignalArea,
-  isPaused
+  isPaused,
 }: FFTCanvasProps) => {
   const spectrumCanvasRef = useRef<HTMLCanvasElement>(null);
   const waterfallCanvasRef = useRef<HTMLCanvasElement>(null);
   const waterfallBufferRef = useRef<Uint8ClampedArray | null>(null);
   const waterfallDimsRef = useRef<{ width: number; height: number } | null>(
-    null
+    null,
   );
   const animationFrameRef = useRef<number | null>(null);
   const dataRef = useRef<any>(null);
@@ -155,7 +155,7 @@ const FFTCanvas = ({
    */
   const renderSpectrum = useCallback(
     (canvas: HTMLCanvasElement, spectrumData: number[]) => {
-      const ctx = canvas.getContext('2d');
+      const ctx = canvas.getContext("2d");
       if (!ctx || !spectrumData) return;
 
       // Use CSS dimensions (not scaled canvas dimensions) since ctx is already scaled
@@ -168,10 +168,10 @@ const FFTCanvas = ({
         width,
         height,
         waveform: spectrumData,
-        frequencyRange: frequencyRangeRef.current
+        frequencyRange: frequencyRangeRef.current,
       });
     },
-    []
+    [],
   );
 
   /**
@@ -183,7 +183,7 @@ const FFTCanvas = ({
    */
   const renderWaterfall = useCallback(
     (canvas: HTMLCanvasElement, spectrumData: number[]) => {
-      const ctx = canvas.getContext('2d');
+      const ctx = canvas.getContext("2d");
       if (!ctx || !spectrumData) return;
 
       const dpr = window.devicePixelRatio || 1;
@@ -193,39 +193,39 @@ const FFTCanvas = ({
       // Calculate waterfall display area
       const waterfallWidth = Math.max(
         1,
-        Math.round(canvas.width - marginX * 2)
+        Math.round(canvas.width - marginX * 2),
       );
       const waterfallHeight = Math.max(
         1,
-        Math.round(canvas.height - marginY * 2)
+        Math.round(canvas.height - marginY * 2),
       );
 
       // Ensure buffer exists and matches display area; preserve content on resize
-      const ensureWaterfallBuffer = (newW: number, newH: number) => {
-        const currentBuf = waterfallBufferRef.current;
-        const currentDims = waterfallDimsRef.current;
+      const currentBuf = waterfallBufferRef.current;
+      const currentDims = waterfallDimsRef.current;
 
-        if (
-          currentBuf &&
-          currentDims &&
-          currentDims.width === newW &&
-          currentDims.height === newH
-        ) {
-          return;
-        }
-
-        const newBuf = new Uint8ClampedArray(newW * newH * 4);
+      if (
+        currentBuf &&
+        currentDims &&
+        currentDims.width === waterfallWidth &&
+        currentDims.height === waterfallHeight
+      ) {
+        // Buffer is already correct size, no action needed
+      } else {
+        const newBuf = new Uint8ClampedArray(
+          waterfallWidth * waterfallHeight * 4,
+        );
 
         if (currentBuf && currentDims) {
-          const copyW = Math.min(currentDims.width, newW);
-          const copyH = Math.min(currentDims.height, newH);
+          const copyW = Math.min(currentDims.width, waterfallWidth);
+          const copyH = Math.min(currentDims.height, waterfallHeight);
 
           for (let y = 0; y < copyH; y++) {
             const srcRowStart = y * currentDims.width * 4;
-            const dstRowStart = y * newW * 4;
+            const dstRowStart = y * waterfallWidth * 4;
             newBuf.set(
               currentBuf.subarray(srcRowStart, srcRowStart + copyW * 4),
-              dstRowStart
+              dstRowStart,
             );
           }
         } else {
@@ -233,30 +233,30 @@ const FFTCanvas = ({
         }
 
         waterfallBufferRef.current = newBuf;
-        waterfallDimsRef.current = { width: newW, height: newH };
-      };
+        waterfallDimsRef.current = {
+          width: waterfallWidth,
+          height: waterfallHeight,
+        };
+      }
 
-      ensureWaterfallBuffer(waterfallWidth, waterfallHeight);
-
-      // Use SIMD-accelerated resampling if available
+      // Use SIMD-accelerated resampling if available (WASM implementation)
       let resampled: number[];
-      if (false && sdrProcessor && spectrumData.length >= 4) {
-        // SIMD resampling for better performance (disabled - SDRProcessor doesn't have these methods)
+      if (sdrProcessor && spectrumData.length >= 4) {
+        // Use WASM SIMD resampling for maximum performance
         resampled = new Array(waterfallWidth);
         const float32Input = new Float32Array(spectrumData);
         const float32Output = new Float32Array(waterfallWidth);
 
         try {
-          // These methods don't exist in SDRProcessor - would need to be implemented
-          // sdrProcessor.resample_spectrum(
-          //   float32Input,
-          //   float32Output,
-          //   waterfallWidth
-          // );
+          sdrProcessor.resample_spectrum(
+            float32Input,
+            float32Output,
+            waterfallWidth,
+          );
           resampled = Array.from(float32Output);
         } catch (error) {
-          console.warn('SIMD resampling failed, using fallback:', error);
-          resampled = resampleSpectrum(spectrumData, waterfallWidth);
+          console.warn("WASM SIMD resampling failed, using fallback:", error);
+          resampled = performScalarResampling(spectrumData, waterfallWidth);
         }
       } else {
         // Fallback to scalar resampling
@@ -267,28 +267,23 @@ const FFTCanvas = ({
       const normalizedData = spectrumToAmplitude(
         resampled,
         WATERFALL_HISTORY_LIMIT,
-        WATERFALL_HISTORY_MAX
+        WATERFALL_HISTORY_MAX,
       );
 
       // Use SIMD-accelerated buffer shifting if available
-      if (false && sdrProcessor && waterfallBufferRef.current) {
+      if (sdrProcessor && waterfallBufferRef.current) {
         try {
-          // These methods don't exist in SDRProcessor - would need to be implemented
-          // sdrProcessor.shift_waterfall_buffer(
-          //   waterfallBufferRef.current,
-          //   waterfallWidth,
-          //   waterfallHeight
-          // );
+          sdrProcessor.shift_waterfall_buffer(
+            waterfallBufferRef.current,
+            waterfallWidth,
+            waterfallHeight,
+          );
 
           // Apply color mapping for new top row using SIMD
           const colorBuffer = new Uint8ClampedArray(waterfallWidth * 4);
           const amplitudeFloat32 = new Float32Array(normalizedData);
 
-          // sdrProcessor.apply_color_mapping(
-          //   amplitudeFloat32,
-          //   colorBuffer,
-          //   1.0
-          // );
+          sdrProcessor.apply_color_mapping(amplitudeFloat32, colorBuffer, 1.0);
 
           // Copy new color data to top row
           for (let x = 0; x < waterfallWidth; x++) {
@@ -300,7 +295,10 @@ const FFTCanvas = ({
             waterfallBufferRef.current[dstIdx + 3] = 255;
           }
         } catch (error) {
-          console.warn('SIMD buffer operations failed, using fallback:', error);
+          console.warn(
+            "WASM SIMD buffer operations failed, using fallback:",
+            error,
+          );
           // Fallback to original implementation
           addWaterfallFrame(
             waterfallBufferRef.current!,
@@ -308,19 +306,21 @@ const FFTCanvas = ({
             waterfallWidth,
             waterfallHeight,
             retuneSmearRef.current,
-            1 // driftDirection - 1 = right
+            1, // driftDirection - 1 = right
           );
         }
       } else {
         // Fallback to original implementation
-        addWaterfallFrame(
-          waterfallBufferRef.current,
-          normalizedData,
-          waterfallWidth,
-          waterfallHeight,
-          retuneSmearRef.current,
-          1 // driftDirection - 1 = right
-        );
+        if (waterfallBufferRef.current) {
+          addWaterfallFrame(
+            waterfallBufferRef.current,
+            normalizedData,
+            waterfallWidth,
+            waterfallHeight,
+            retuneSmearRef.current,
+            1, // driftDirection - 1 = right
+          );
+        }
       }
 
       if (retuneSmearRef.current > 0) {
@@ -333,10 +333,10 @@ const FFTCanvas = ({
         width: canvas.width,
         height: canvas.height,
         waterfallBuffer: waterfallBufferRef.current!,
-        frequencyRange: frequencyRangeRef.current
+        frequencyRange: frequencyRangeRef.current,
       });
     },
-    []
+    [sdrProcessor],
   );
 
   /**
@@ -348,7 +348,7 @@ const FFTCanvas = ({
    */
   const performScalarResampling = (
     spectrumData: number[],
-    waterfallWidth: number
+    waterfallWidth: number,
   ): number[] => {
     const resampled: number[] = new Array(waterfallWidth);
     const srcLen = spectrumData.length;
@@ -356,7 +356,7 @@ const FFTCanvas = ({
       const start = Math.floor((x * srcLen) / waterfallWidth);
       const end = Math.max(
         start + 1,
-        Math.floor(((x + 1) * srcLen) / waterfallWidth)
+        Math.floor(((x + 1) * srcLen) / waterfallWidth),
       );
       let maxVal = -Infinity;
       for (let i = start; i < end && i < srcLen; i++) {
@@ -429,7 +429,7 @@ const FFTCanvas = ({
           spectrumCanvas.style.width = `${spectrumRect.width}px`;
           spectrumCanvas.style.height = `${spectrumRect.height}px`;
           // Scale context to match DPI
-          const ctx = spectrumCanvas.getContext('2d');
+          const ctx = spectrumCanvas.getContext("2d");
           if (ctx) {
             ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
           }
@@ -443,7 +443,7 @@ const FFTCanvas = ({
           waterfallCanvas.style.width = `${waterfallRect.width}px`;
           waterfallCanvas.style.height = `${waterfallRect.height}px`;
           // Do not scale for waterfall: putImageData ignores transforms
-          const ctx = waterfallCanvas.getContext('2d');
+          const ctx = waterfallCanvas.getContext("2d");
           if (ctx) {
             ctx.setTransform(1, 0, 0, 1, 0, 0);
           }
@@ -451,7 +451,7 @@ const FFTCanvas = ({
       };
 
       resizeCanvas();
-      window.addEventListener('resize', resizeCanvas);
+      window.addEventListener("resize", resizeCanvas);
 
       // Add ResizeObserver to detect container size changes (sidebar toggle)
       // Use debouncing to prevent rapid successive resizes
@@ -474,7 +474,7 @@ const FFTCanvas = ({
       animate();
 
       return () => {
-        window.removeEventListener('resize', resizeCanvas);
+        window.removeEventListener("resize", resizeCanvas);
         if (resizeTimeout) clearTimeout(resizeTimeout);
         resizeObserver.disconnect();
         if (animationFrameRef.current) {
@@ -487,13 +487,13 @@ const FFTCanvas = ({
   return (
     <VisualizerContainer>
       <SpectrumSection>
-        <SectionTitle>FFT Signal Display {isPaused && '(Paused)'}</SectionTitle>
+        <SectionTitle>FFT Signal Display {isPaused && "(Paused)"}</SectionTitle>
         <CanvasWrapper>
           <Canvas ref={spectrumCanvasRef} />
         </CanvasWrapper>
       </SpectrumSection>
       <WaterfallSection>
-        <SectionTitle>Waterfall Display {isPaused && '(Paused)'}</SectionTitle>
+        <SectionTitle>Waterfall Display {isPaused && "(Paused)"}</SectionTitle>
         <CanvasWrapper>
           <Canvas ref={waterfallCanvasRef} />
         </CanvasWrapper>

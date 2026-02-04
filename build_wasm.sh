@@ -25,13 +25,14 @@ rustup target list --installed | grep wasm32-unknown-unknown || {
 
 # Build the WASM module only if needed
 echo "Checking if WASM module needs to be built..."
-if ./scripts/check_changes.sh "pkg" "src/lib.rs" "src/wasm_simd/*.rs" "Cargo.toml" "Cargo.lock"; then
+if ./scripts/check_changes.sh "packages/n_apt_canvas" "src/lib.rs" "src/wasm_simd/*.rs" "Cargo.toml" "Cargo.lock"; then
     echo "📦 Building with SIMD support..."
-    RUSTFLAGS="-C target-feature=+simd128" wasm-pack build --target web --out-dir pkg --dev
+    mkdir -p packages/n_apt_canvas
+    RUSTFLAGS="-C target-feature=+simd128" wasm-pack build --target web --out-dir packages/n_apt_canvas --dev
     echo "✅ WASM SIMD module built successfully!"
 else
     echo "WASM module is up to date, skipping build..."
 fi
 
-echo "📁 Output directory: pkg/"
+echo "📁 Output directory: packages/n_apt_canvas/"
 echo "🚀 You can now import the SIMD module in your TypeScript code"
