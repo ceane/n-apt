@@ -491,7 +491,7 @@ mod tests {
   #[test]
   fn test_simd_resampling_performance() {
     let processor = SIMDRenderingProcessor::new();
-    let input_data: Vec<f32> = (0..1024).map(|i| (i as f32 / 1024.0)).collect();
+    let input_data: Vec<f32> = (0..1024).map(|i| i as f32 / 1024.0).collect();
     let mut output_data = vec![0.0f32; 512];
     
     // Test SIMD resampling
@@ -513,7 +513,7 @@ mod tests {
   #[test]
   fn test_simd_color_mapping_performance() {
     let processor = SIMDRenderingProcessor::new();
-    let amplitudes: Vec<f32> = (0..256).map(|i| (i as f32 / 255.0)).collect();
+    let amplitudes: Vec<f32> = (0..256).map(|i| i as f32 / 255.0).collect();
     let mut output_data = vec![0u8; amplitudes.len() * 4];
     
     // Test SIMD color mapping
