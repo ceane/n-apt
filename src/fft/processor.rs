@@ -1,13 +1,15 @@
 use anyhow::Result;
+use crate::fft::now_millis;
 use rustfft::{num_complex::Complex, FftPlanner};
 use rand::SeedableRng;
 use rand::Rng;
 use std::sync::Arc;
+#[cfg(not(target_arch = "wasm32"))]
 use chrono::Utc;
 
 use super::types::*;
 use crate::consts::rs::fft::{SAMPLE_RATE, NUM_SAMPLES};
-#[cfg(target_arch = "wasm32")]
+#[cfg(not(target_arch = "wasm32"))]
 use crate::wasm_simd::SIMDFFTProcessor;
 
 /**
@@ -76,7 +78,7 @@ pub struct FFTProcessor {
   /// Maximum number of waterfall lines to keep
   max_waterfall_lines: usize,
   /// SIMD processor for WASM targets
-  #[cfg(target_arch = "wasm32")]
+  #[cfg(not(target_arch = "wasm32"))]
   simd_processor: Option<SIMDFFTProcessor>,
 }
 
@@ -110,7 +112,7 @@ impl FFTProcessor {
       fft_hold: None,
       waterfall_history: Vec::new(),
       max_waterfall_lines: 1000,
-      #[cfg(target_arch = "wasm32")]
+      #[cfg(not(target_arch = "wasm32"))]
       simd_processor: Some(SIMDFFTProcessor::new(config.fft_size)),
     }
   }
@@ -136,7 +138,7 @@ impl FFTProcessor {
       fft_hold: None,
       waterfall_history: Vec::new(),
       max_waterfall_lines: 1000,
-      #[cfg(target_arch = "wasm32")]
+      #[cfg(not(target_arch = "wasm32"))]
       simd_processor: Some(SIMDFFTProcessor::new(config.fft_size)),
     }
   }
@@ -152,13 +154,13 @@ impl FFTProcessor {
     if config.fft_size != self.fft.len() {
       let mut planner = FftPlanner::<f32>::new();
       self.fft = planner.plan_fft_forward(config.fft_size);
-      #[cfg(target_arch = "wasm32")]
+      #[cfg(not(target_arch = "wasm32"))]
       {
         self.simd_processor = Some(SIMDFFTProcessor::new(config.fft_size));
       }
     }
     
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(not(target_arch = "wasm32"))]
     {
       if let Some(ref mut simd_proc) = self.simd_processor {
         simd_proc.set_gain(config.gain);
@@ -203,8 +205,9 @@ impl FFTProcessor {
   /// - WASM with SIMD: 30-50% faster
   /// - Native: Standard FFT performance
   pub fn process_samples(&mut self, samples: &RawSamples) -> Result<FFTResult> {
-    // Try SIMD processing first on WASM targets
-    #[cfg(target_arch = "wasm32")]
+    // SIMD processing disabled on WASM builds for testing
+    // #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(target_arch = "wasm32"))]
     {
       if let Some(ref mut simd_proc) = self.simd_processor {
         let mut power = vec![0.0; self.config.fft_size];
@@ -238,7 +241,7 @@ impl FFTProcessor {
               power_spectrum: zoomed_power.clone(),
               waterfall: zoomed_power,
               is_mock: false,
-              timestamp: Utc::now().timestamp_millis(),
+              timestamp: now_millis(),
             });
           }
           Err(_) => {
@@ -325,7 +328,7 @@ impl FFTProcessor {
       power_spectrum: zoomed_power.clone(),
       waterfall: zoomed_power,
       is_mock: false,
-      timestamp: Utc::now().timestamp_millis(),
+      timestamp: now_millis(),
     })
   }
 
@@ -383,7 +386,7 @@ impl FFTProcessor {
       power_spectrum: zoomed_power,
       waterfall: power,
       is_mock: true,
-      timestamp: Utc::now().timestamp_millis(),
+      timestamp: now_millis(),
     })
   }
 
