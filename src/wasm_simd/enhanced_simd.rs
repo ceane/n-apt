@@ -369,17 +369,7 @@ impl EnhancedSIMDProcessor {
           0.42 - 0.5 * (2.0 * std::f32::consts::PI * n).cos()
             + 0.08 * (4.0 * std::f32::consts::PI * n).cos()
         }
-        WindowType::None => 1.0,
         WindowType::None => 1.0, // Rectangular window (no windowing)
-        WindowType::None => {
-          // Nuttall window: 0.355768 - 0.487396*cos(2πn) + 0.144232*cos(4πn) - 0.012604*cos(6πn)
-          let n = i as f32 / (buf.len() - 1) as f32;
-          let two_pi_n = 2.0 * std::f32::consts::PI * n;
-          let four_pi_n = 4.0 * std::f32::consts::PI * n;
-          let six_pi_n = 6.0 * std::f32::consts::PI * n;
-          0.355768 - 0.487396 * two_pi_n.cos() + 0.144232 * four_pi_n.cos()
-            - 0.012604 * six_pi_n.cos()
-        }
       };
       buf[i].re *= window_val;
       buf[i].im *= window_val;
@@ -413,17 +403,7 @@ impl EnhancedSIMDProcessor {
             0.42 - 0.5 * (2.0 * std::f32::consts::PI * n).cos()
               + 0.08 * (4.0 * std::f32::consts::PI * n).cos()
           }
-          WindowType::None => 1.0,
           WindowType::None => 1.0, // Rectangular window (no windowing)
-          WindowType::None => {
-            // Nuttall window: 0.355768 - 0.487396*cos(2πn) + 0.144232*cos(4πn) - 0.012604*cos(6πn)
-            let n = (i + j) as f32 / (self.fft_size - 1) as f32;
-            let two_pi_n = 2.0 * std::f32::consts::PI * n;
-            let four_pi_n = 4.0 * std::f32::consts::PI * n;
-            let six_pi_n = 6.0 * std::f32::consts::PI * n;
-            0.355768 - 0.487396 * two_pi_n.cos() + 0.144232 * four_pi_n.cos()
-              - 0.012604 * six_pi_n.cos()
-          }
         };
       }
 
