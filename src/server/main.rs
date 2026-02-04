@@ -4,19 +4,19 @@ use log::{error, info, warn};
 // use rtlsdr::{RTLSDRDevice, RTLSDRError};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tokio::sync::{broadcast, Mutex};
 use std::time::Duration;
 use tokio::net::TcpListener;
+use tokio::sync::{broadcast, Mutex};
 use tokio_tungstenite::{accept_async, tungstenite::Message};
 
 // Import FFT module
-use n_apt_backend::fft::{FFTProcessor, FFTResult};
-use n_apt_backend::consts::rs::fft::{FFT_MIN_DB, FFT_MAX_DB, FFT_FRAME_RATE};
+use n_apt_backend::consts::rs::fft::{FFT_FRAME_RATE, FFT_MAX_DB, FFT_MIN_DB};
 use n_apt_backend::consts::rs::mock::{
-  MOCK_SPECTRUM_SIZE, MOCK_NOISE_FLOOR_BASE, MOCK_NOISE_FLOOR_VARIATION,
-  MOCK_STRONG_SIGNAL_CHANCE, MOCK_STRONG_SIGNAL_MIN, MOCK_STRONG_SIGNAL_MAX,
-  MOCK_WEAK_SIGNAL_CHANCE, MOCK_WEAK_SIGNAL_MIN, MOCK_WEAK_SIGNAL_MAX
+  MOCK_NOISE_FLOOR_BASE, MOCK_NOISE_FLOOR_VARIATION, MOCK_SPECTRUM_SIZE, MOCK_STRONG_SIGNAL_CHANCE,
+  MOCK_STRONG_SIGNAL_MAX, MOCK_STRONG_SIGNAL_MIN, MOCK_WEAK_SIGNAL_CHANCE, MOCK_WEAK_SIGNAL_MAX,
+  MOCK_WEAK_SIGNAL_MIN,
 };
+use n_apt_backend::fft::{FFTProcessor, FFTResult};
 
 // Server configuration from Cargo.toml metadata
 use n_apt_backend::consts::rs::env::{WS_HOST, WS_PORT};
@@ -97,7 +97,7 @@ impl SDRProcessor {
   }
 
   /// Initialize the SDR processor
-  /// 
+  ///
   /// Currently always initializes in mock mode since RTL-SDR is not available
   fn initialize(&mut self) -> Result<()> {
     warn!("RTL-SDR not available. Using mock mode.");
@@ -106,10 +106,10 @@ impl SDRProcessor {
   }
 
   /// Set the center frequency for the SDR
-  /// 
+  ///
   /// # Arguments
   /// * `freq` - Center frequency in Hz
-  /// 
+  ///
   /// # Returns
   /// Result indicating success or failure
   fn set_center_frequency(&mut self, freq: u32) -> Result<()> {
@@ -121,10 +121,10 @@ impl SDRProcessor {
   }
 
   /// Set the gain for the SDR
-  /// 
+  ///
   /// # Arguments
   /// * `gain` - Gain value in dB
-  /// 
+  ///
   /// # Returns
   /// Result indicating success or failure
   fn set_gain(&mut self, gain: i32) -> Result<()> {
@@ -136,10 +136,10 @@ impl SDRProcessor {
   }
 
   /// Set the PPM correction for the SDR
-  /// 
+  ///
   /// # Arguments
   /// * `ppm` - PPM correction value
-  /// 
+  ///
   /// # Returns
   /// Result indicating success or failure
   fn set_ppm(&mut self, ppm: i32) -> Result<()> {
@@ -151,22 +151,23 @@ impl SDRProcessor {
   }
 
   /// Read and process SDR data
-  /// 
+  ///
   /// In mock mode, generates random noise-like spectrum data that simulates
   /// a real SDR signal with noise floor, occasional spikes, and edge roll-off.
-  /// 
+  ///
   /// # Returns
   /// Vector of f32 values representing the spectrum in dB
   fn read_and_process(&mut self) -> Result<Vec<f32>> {
     use rand::Rng;
     let mut rng = rand::thread_rng();
     let mut data = Vec::with_capacity(MOCK_SPECTRUM_SIZE);
-    
+
     // Generate random noise-like spectrum data similar to real SDR
     for _i in 0..MOCK_SPECTRUM_SIZE {
       // Base noise floor around -60 to -70 dB
-      let noise_floor = MOCK_NOISE_FLOOR_BASE + rng.gen_range(-MOCK_NOISE_FLOOR_VARIATION..MOCK_NOISE_FLOOR_VARIATION);
-      
+      let noise_floor = MOCK_NOISE_FLOOR_BASE
+        + rng.gen_range(-MOCK_NOISE_FLOOR_VARIATION..MOCK_NOISE_FLOOR_VARIATION);
+
       // Add some random spikes to simulate signals
       let spike = if rng.gen_range(0..100) < MOCK_STRONG_SIGNAL_CHANCE {
         rng.gen_range(MOCK_STRONG_SIGNAL_MIN..MOCK_STRONG_SIGNAL_MAX) // Occasional strong signal
@@ -175,7 +176,7 @@ impl SDRProcessor {
       } else {
         0.0
       };
-      
+
       let value: f32 = noise_floor + spike;
       data.push(value.clamp(FFT_MIN_DB as f32, FFT_MAX_DB as f32));
     }
@@ -183,7 +184,7 @@ impl SDRProcessor {
   }
 
   /// Generate a mock signal using the FFT processor
-  /// 
+  ///
   /// # Returns
   /// FFTResult containing the generated mock signal
   #[allow(dead_code)]
@@ -192,16 +193,14 @@ impl SDRProcessor {
   }
 
   /// Get device information string
-  /// 
+  ///
   /// # Returns
   /// Formatted string with device configuration
   fn get_device_info(&self) -> String {
     let config = self.fft_processor.config();
     format!(
       "Mock RTL-SDR Device - Sample Rate: {} Hz, Gain: {} dB, PPM: {}",
-      config.sample_rate, 
-      config.gain as i32, 
-      config.ppm as i32
+      config.sample_rate, config.gain as i32, config.ppm as i32
     )
   }
 }
@@ -232,10 +231,10 @@ impl WebSocketServer {
   }
 
   /// Start the WebSocket server and begin accepting connections
-  /// 
+  ///
   /// This method initializes the SDR processor, starts the WebSocket listener,
   /// and spawns a streaming task that continuously generates spectrum data.
-  /// 
+  ///
   /// # Returns
   /// Result indicating success or failure
   async fn start(&mut self) -> Result<()> {
@@ -255,26 +254,29 @@ impl WebSocketServer {
     let broadcast_tx = self.broadcast_tx.clone();
     let client_count_clone = self.client_count.clone();
     let _is_paused_clone = self.is_paused.clone();
-    
+
     info!("Starting streaming task...");
-    
+
     tokio::spawn(async move {
       info!("Streaming task started!");
       let frame_interval = 1000 / FFT_FRAME_RATE as u64;
-      
+
       // Create separate processor for streaming to avoid deadlock
       let streaming_processor = Arc::new(Mutex::new(SDRProcessor::new()));
       {
         let mut proc = streaming_processor.lock().await;
         proc.initialize().unwrap();
-        info!("Streaming SDR processor initialized: {}", proc.get_device_info());
+        info!(
+          "Streaming SDR processor initialized: {}",
+          proc.get_device_info()
+        );
       }
-      
+
       loop {
         tokio::time::sleep(Duration::from_millis(frame_interval)).await;
-        
+
         let client_count = *client_count_clone.lock().await;
-        
+
         // Generate data when clients are connected
         if client_count > 0 {
           let (spectrum_data, is_mock) = {
@@ -288,7 +290,7 @@ impl WebSocketServer {
               }
             }
           };
-          
+
           let data = SpectrumData {
             message_type: "spectrum".to_string(),
             waveform: spectrum_data.clone(),
@@ -298,7 +300,7 @@ impl WebSocketServer {
           };
 
           let message = serde_json::to_string(&data).unwrap();
-          
+
           // Broadcast to all clients
           if let Err(e) = broadcast_tx.send(message) {
             warn!("Failed to broadcast: {}", e);
@@ -309,7 +311,6 @@ impl WebSocketServer {
 
     // Handle connections
     while let Ok((stream, addr)) = listener.accept().await {
-
       let processor = self.processor.clone();
       let mut broadcast_rx = self.broadcast_tx.subscribe();
       let client_count = self.client_count.clone();
@@ -332,12 +333,16 @@ impl WebSocketServer {
           (proc.is_mock, proc.get_device_info())
         };
         let paused = *is_paused.lock().await;
-        
+
         let status = StatusMessage {
           message_type: "status".to_string(),
           device_connected: !is_mock,
           paused,
-          backend: if is_mock { "mock".to_string() } else { "rtl-sdr".to_string() },
+          backend: if is_mock {
+            "mock".to_string()
+          } else {
+            "rtl-sdr".to_string()
+          },
           device_info,
         };
 
@@ -420,10 +425,10 @@ impl WebSocketServer {
 }
 
 /// Handle incoming WebSocket messages from clients
-/// 
+///
 /// This function processes different message types and updates the SDR processor
 /// accordingly.
-/// 
+///
 /// # Arguments
 /// * `processor` - Shared SDR processor instance
 /// * `is_paused` - Shared pause state
@@ -473,9 +478,9 @@ async fn handle_message(
 }
 
 /// Main entry point for the N-APT Rust backend server
-/// 
+///
 /// This function initializes logging and starts the WebSocket server.
-/// 
+///
 /// # Returns
 /// Result indicating success or failure
 #[tokio::main]

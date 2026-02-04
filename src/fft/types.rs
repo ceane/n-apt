@@ -1,4 +1,4 @@
-use crate::consts::rs::fft::{SAMPLE_RATE, NUM_SAMPLES};
+use crate::consts::rs::fft::{NUM_SAMPLES, SAMPLE_RATE};
 
 /// FFT processing result containing both waveform and waterfall data
 #[derive(Debug, Clone)]
