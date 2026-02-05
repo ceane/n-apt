@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react"
+import { useState, useEffect } from "react";
 import {
   LineChart,
   Line,
@@ -8,7 +8,7 @@ import {
   Tooltip,
   Legend,
   ResponsiveContainer,
-} from "recharts"
+} from "recharts";
 import {
   DEFAULT_SPIKE_COUNT,
   DEFAULT_SPIKE_WIDTH,
@@ -20,27 +20,27 @@ import {
   DEFAULT_NUM_POINTS,
   NAPT_FREQUENCY_RANGE,
   COLORS,
-} from "@n-apt/consts"
+} from "@n-apt/consts";
 
 const DrawMockNAPT = () => {
   // Spike and waveform parameters
-  const [spikeCount, setSpikeCount] = useState(DEFAULT_SPIKE_COUNT)
-  const [spikeWidth, setSpikeWidth] = useState(DEFAULT_SPIKE_WIDTH)
+  const [spikeCount, setSpikeCount] = useState(DEFAULT_SPIKE_COUNT);
+  const [spikeWidth, setSpikeWidth] = useState(DEFAULT_SPIKE_WIDTH);
 
   // Center spike
   const [centerSpikeBoost, setCenterSpikeBoost] = useState(
     DEFAULT_CENTER_SPIKE_BOOST,
-  )
-  const [floorAmplitude, setFloorAmplitude] = useState(DEFAULT_FLOOR_AMPLITUDE)
-  const [decayRate, setDecayRate] = useState(DEFAULT_DECAY_RATE)
+  );
+  const [floorAmplitude, setFloorAmplitude] = useState(DEFAULT_FLOOR_AMPLITUDE);
+  const [decayRate, setDecayRate] = useState(DEFAULT_DECAY_RATE);
   const [baselineModulation, setBaselineModulation] = useState(
     DEFAULT_BASELINE_MODULATION,
-  )
+  );
 
-  const [envelopeWidth, setEnvelopeWidth] = useState(DEFAULT_ENVELOPE_WIDTH)
+  const [envelopeWidth, setEnvelopeWidth] = useState(DEFAULT_ENVELOPE_WIDTH);
 
   const calculateX = (
-    t,
+    t: number,
     {
       spikeCount,
       spikeWidth,
@@ -49,58 +49,68 @@ const DrawMockNAPT = () => {
       decayRate,
       baselineModulation,
       envelopeWidth,
+    }: {
+      spikeCount: number;
+      spikeWidth: number;
+      centerSpikeBoost: number;
+      floorAmplitude: number;
+      decayRate: number;
+      baselineModulation: number;
+      envelopeWidth: number;
     },
   ) => {
     // Frequency comb with sine wave spikes and exponential height decay
     // over t ∈ [-1, 1], modulated by Gaussian envelope
 
-    const N = spikeCount
-    const half = Math.floor((N - 1) / 2)
+    const N = spikeCount;
+    const half = Math.floor((N - 1) / 2);
 
     // Uniform tooth spacing
-    const spacing = 2 / (N - 1)
+    const spacing = 2 / (N - 1);
 
     // Tooth half-width as fraction of spacing
-    const halfWidth = (spikeWidth * spacing) / 2
+    const halfWidth = (spikeWidth * spacing) / 2;
 
-    let y = 0
+    let y = 0;
 
     for (let k = -half; k <= half; k++) {
-      const centerPos = k * spacing
-      const dx = t - centerPos
+      const centerPos = k * spacing;
+      const dx = t - centerPos;
 
       // Finite support guarantees baseline = 0
-      if (Math.abs(dx) > halfWidth) continue
+      if (Math.abs(dx) > halfWidth) continue;
 
       // Sine wave tooth
-      const sineArg = (Math.PI * dx) / halfWidth
-      const tooth = Math.sin(sineArg)
+      const sineArg = (Math.PI * dx) / halfWidth;
+      const tooth = Math.sin(sineArg);
 
       // Exponential height decay from center
-      const decay = Math.exp(-decayRate * Math.abs(k))
+      const decay = Math.exp(-decayRate * Math.abs(k));
 
       // Center boost
-      const boost = k === 0 ? centerSpikeBoost : 1
+      const boost = k === 0 ? centerSpikeBoost : 1;
 
       // Add contribution
-      y += boost * floorAmplitude * decay * tooth
+      y += boost * floorAmplitude * decay * tooth;
     }
 
     // Gaussian envelope
-    const envelope = Math.exp(-envelopeWidth * t * t)
+    const envelope = Math.exp(-envelopeWidth * t * t);
 
     // Baseline modulation
-    const baseline = baselineModulation * Math.cos(2 * Math.PI * t)
+    const baseline = baselineModulation * Math.cos(2 * Math.PI * t);
 
-    return envelope * y + baseline
-  }
+    const result = envelope * y + baseline;
+
+    return result;
+  };
 
   // Generate data points
   const generateData = () => {
-    const points = []
+    const points = [];
 
     for (let i = 0; i < DEFAULT_NUM_POINTS; i++) {
-      const t = -1 + (2 * i) / (DEFAULT_NUM_POINTS - 1)
+      const t = -1 + (2 * i) / (DEFAULT_NUM_POINTS - 1);
       const x = calculateX(t, {
         spikeCount,
         spikeWidth,
@@ -109,23 +119,25 @@ const DrawMockNAPT = () => {
         decayRate,
         baselineModulation,
         envelopeWidth,
-      })
+      });
 
       points.push({
-        t: t.toFixed(4),
-        x: x.toFixed(6),
-        frequency: (((t + 1) * NAPT_FREQUENCY_RANGE) / 2).toFixed(3), // Map to 0-3.2 MHz range
-        amplitude: x.toFixed(6),
-      })
+        t: parseFloat(t.toFixed(4)),
+        x: parseFloat(x.toFixed(6)),
+        frequency: parseFloat(
+          (((t + 1) * NAPT_FREQUENCY_RANGE) / 2).toFixed(3),
+        ), // Map to 0-3.2 MHz range
+        amplitude: parseFloat(x.toFixed(6)),
+      });
     }
 
-    return points
-  }
+    return points;
+  };
 
-  const [data, setData] = useState(generateData())
+  const [data, setData] = useState(generateData());
 
   useEffect(() => {
-    setData(generateData())
+    setData(generateData());
   }, [
     spikeCount,
     spikeWidth,
@@ -134,7 +146,7 @@ const DrawMockNAPT = () => {
     decayRate,
     baselineModulation,
     envelopeWidth,
-  ])
+  ]);
 
   return (
     <div
@@ -151,10 +163,66 @@ const DrawMockNAPT = () => {
 
       <div
         style={{
+          backgroundColor: COLORS.surface,
+          padding: "20px",
+          borderRadius: "8px",
+          border: `1px solid ${COLORS.border}`,
+        }}
+      >
+        <ResponsiveContainer width="100%" height={400}>
+          <LineChart data={data}>
+            <CartesianGrid strokeDasharray="3 3" stroke={COLORS.border} />
+            <XAxis
+              dataKey="t"
+              stroke={COLORS.textMuted}
+              tick={{ fill: COLORS.textDisabled, fontSize: "10px" }}
+              tickFormatter={(value) => `${(value * 1000).toFixed(0)} kHz`}
+              label={{
+                value: "Frequency",
+                position: "insideBottom",
+                offset: -5,
+                fill: COLORS.textDisabled,
+              }}
+            />
+            <YAxis
+              stroke={COLORS.textMuted}
+              tick={{ fill: COLORS.textDisabled, fontSize: "10px" }}
+              domain={[0, "auto"]}
+              label={{
+                value: "Amplitude",
+                angle: -90,
+                position: "insideLeft",
+                fill: COLORS.textDisabled,
+              }}
+            />
+            <Tooltip
+              contentStyle={{
+                backgroundColor: COLORS.surface,
+                border: `1px solid ${COLORS.border}`,
+                borderRadius: "4px",
+              }}
+              labelStyle={{ color: COLORS.textSecondary }}
+              itemStyle={{ color: COLORS.primary }}
+            />
+            <Legend wrapperStyle={{ color: COLORS.textSecondary }} />
+            <Line
+              type="monotone"
+              dataKey="x"
+              stroke={COLORS.primary}
+              strokeWidth={2}
+              dot={false}
+              name="Signal"
+            />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+
+      <div
+        style={{
           display: "grid",
           gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))",
           gap: "20px",
-          marginBottom: "30px",
+          marginTop: "30px",
         }}
       >
         <div>
@@ -313,60 +381,6 @@ const DrawMockNAPT = () => {
 
       <div
         style={{
-          backgroundColor: COLORS.surface,
-          padding: "20px",
-          borderRadius: "8px",
-          border: `1px solid ${COLORS.border}`,
-        }}
-      >
-        <ResponsiveContainer width="100%" height={400}>
-          <LineChart data={data}>
-            <CartesianGrid strokeDasharray="3 3" stroke={COLORS.border} />
-            <XAxis
-              dataKey="t"
-              stroke={COLORS.textMuted}
-              tick={{ fill: COLORS.textDisabled, fontSize: "10px" }}
-              label={{
-                value: "Time (normalized)",
-                position: "insideBottom",
-                offset: -5,
-                fill: COLORS.textDisabled,
-              }}
-            />
-            <YAxis
-              stroke={COLORS.textMuted}
-              tick={{ fill: COLORS.textDisabled, fontSize: "10px" }}
-              label={{
-                value: "Amplitude",
-                angle: -90,
-                position: "insideLeft",
-                fill: COLORS.textDisabled,
-              }}
-            />
-            <Tooltip
-              contentStyle={{
-                backgroundColor: COLORS.surface,
-                border: `1px solid ${COLORS.border}`,
-                borderRadius: "4px",
-              }}
-              labelStyle={{ color: COLORS.textSecondary }}
-              itemStyle={{ color: COLORS.primary }}
-            />
-            <Legend wrapperStyle={{ color: COLORS.textSecondary }} />
-            <Line
-              type="monotone"
-              dataKey="x"
-              stroke={COLORS.primary}
-              strokeWidth={2}
-              dot={false}
-              name="Signal"
-            />
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
-
-      <div
-        style={{
           marginTop: "30px",
           padding: "15px",
           backgroundColor: COLORS.surface,
@@ -406,7 +420,7 @@ const DrawMockNAPT = () => {
         </div>
       </div>
     </div>
-  )
-}
+  );
+};
 
-export default DrawMockNAPT
+export default DrawMockNAPT;

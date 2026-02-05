@@ -54,6 +54,23 @@ export interface SpectrumRenderOptions {
   fftMax?: number
 }
 
+export interface SpectrumGridOptions {
+  /** Canvas 2D rendering context */
+  ctx: CanvasRenderingContext2D
+  /** Canvas width in pixels */
+  width: number
+  /** Canvas height in pixels */
+  height: number
+  /** Frequency range to display */
+  frequencyRange: FrequencyRange
+  /** Minimum dB level for spectrum display (default: -80) */
+  fftMin?: number
+  /** Maximum dB level for spectrum display (default: 20) */
+  fftMax?: number
+  /** Whether to clear background before drawing (default: true) */
+  clearBackground?: boolean
+}
+
 import {
   FFT_GRID_COLOR,
   LINE_COLOR,
@@ -73,28 +90,37 @@ import {
  * @param options - Rendering options including canvas context, dimensions, and data
  */
 export function drawSpectrum(options: SpectrumRenderOptions): void {
+  drawSpectrumGrid({
+    ctx: options.ctx,
+    width: options.width,
+    height: options.height,
+    frequencyRange: options.frequencyRange,
+    fftMin: options.fftMin,
+    fftMax: options.fftMax,
+    clearBackground: true,
+  })
+  drawSpectrumTrace(options)
+}
+
+export function drawSpectrumGrid(options: SpectrumGridOptions): void {
   const {
     ctx,
     width,
     height,
-    waveform,
     frequencyRange,
     fftMin = FFT_MIN_DB,
     fftMax = FFT_MAX_DB,
+    clearBackground = true,
   } = options
 
-  // Clear spectrum canvas
-  ctx.fillStyle = FFT_CANVAS_BG
-  ctx.fillRect(0, 0, width, height)
-
-  if (!waveform || !Array.isArray(waveform) || waveform.length === 0) {
-    return
+  if (clearBackground) {
+    ctx.fillStyle = FFT_CANVAS_BG
+    ctx.fillRect(0, 0, width, height)
   }
 
   // SDR++ style layout constants
   const fftAreaMax = { x: width - 40, y: height - 40 }
   const fftHeight = fftAreaMax.y - FFT_AREA_MIN.y
-  const dataWidth = waveform.length
   const plotWidth = fftAreaMax.x - FFT_AREA_MIN.x
 
   // Calculate scaling factors (SDR++ style)
@@ -110,10 +136,6 @@ export function drawSpectrum(options: SpectrumRenderOptions): void {
   const upperFreq = maxFreq
   const freqToX = (freq: number) =>
     FFT_AREA_MIN.x + ((freq - minFreq) / viewBandwidth) * plotWidth
-  const idxToX = (idx: number) => {
-    if (dataWidth <= 1) return FFT_AREA_MIN.x
-    return FFT_AREA_MIN.x + (idx / (dataWidth - 1)) * plotWidth
-  }
 
   // Draw vertical grid lines and labels (SDR++ style)
   ctx.strokeStyle = FFT_GRID_COLOR
@@ -184,62 +206,6 @@ export function drawSpectrum(options: SpectrumRenderOptions): void {
     }
   }
 
-  // Draw spectrum data (SDR++ style)
-  if (waveform.length > 0) {
-    // Draw shadow/fill
-    ctx.fillStyle = SHADOW_COLOR
-    for (let i = 1; i < dataWidth; i++) {
-      const aPos = fftAreaMax.y - (waveform[i - 1] - fftMin) * scaleFactor
-      const bPos = fftAreaMax.y - (waveform[i] - fftMin) * scaleFactor
-      const clampedAPos = Math.max(
-        FFT_AREA_MIN.y + 1,
-        Math.min(fftAreaMax.y, aPos),
-      )
-      const clampedBPos = Math.max(
-        FFT_AREA_MIN.y + 1,
-        Math.min(fftAreaMax.y, bPos),
-      )
-      const ax = idxToX(i - 1)
-      const bx = idxToX(i)
-
-      ctx.beginPath()
-      ctx.moveTo(Math.round(ax), Math.round(clampedAPos))
-      ctx.lineTo(Math.round(bx), Math.round(clampedBPos))
-      ctx.lineTo(Math.round(bx), fftAreaMax.y)
-      ctx.lineTo(Math.round(ax), fftAreaMax.y)
-      ctx.closePath()
-      ctx.fill()
-    }
-
-    // Draw main trace line
-    ctx.strokeStyle = LINE_COLOR
-    ctx.lineWidth = width < 700 ? 0.5 : 1.5
-    ctx.lineJoin = "round"
-    ctx.lineCap = "round"
-
-    ctx.beginPath()
-    for (let i = 1; i < dataWidth; i++) {
-      const aPos = fftAreaMax.y - (waveform[i - 1] - fftMin) * scaleFactor
-      const bPos = fftAreaMax.y - (waveform[i] - fftMin) * scaleFactor
-      const clampedAPos = Math.max(
-        FFT_AREA_MIN.y + 1,
-        Math.min(fftAreaMax.y, aPos),
-      )
-      const clampedBPos = Math.max(
-        FFT_AREA_MIN.y + 1,
-        Math.min(fftAreaMax.y, bPos),
-      )
-      const ax = idxToX(i - 1)
-      const bx = idxToX(i)
-
-      if (i === 1) {
-        ctx.moveTo(Math.round(ax), Math.round(clampedAPos))
-      }
-      ctx.lineTo(Math.round(bx), Math.round(clampedBPos))
-    }
-    ctx.stroke()
-  }
-
   // Draw axes
   ctx.strokeStyle = FFT_TEXT_COLOR
   ctx.lineWidth = 1.0
@@ -254,6 +220,85 @@ export function drawSpectrum(options: SpectrumRenderOptions): void {
   ctx.beginPath()
   ctx.moveTo(FFT_AREA_MIN.x, FFT_AREA_MIN.y)
   ctx.lineTo(FFT_AREA_MIN.x, fftAreaMax.y - 1)
+  ctx.stroke()
+}
+
+export function drawSpectrumTrace(options: SpectrumRenderOptions): void {
+  const {
+    ctx,
+    width,
+    height,
+    waveform,
+    fftMin = FFT_MIN_DB,
+    fftMax = FFT_MAX_DB,
+  } = options
+
+  if (!waveform || !Array.isArray(waveform) || waveform.length === 0) {
+    return
+  }
+
+  const fftAreaMax = { x: width - 40, y: height - 40 }
+  const fftHeight = fftAreaMax.y - FFT_AREA_MIN.y
+  const plotWidth = fftAreaMax.x - FFT_AREA_MIN.x
+  const dataWidth = waveform.length
+
+  const vertRange = fftMax - fftMin
+  const scaleFactor = fftHeight / vertRange
+
+  const idxToX = (idx: number) => {
+    if (dataWidth <= 1) return FFT_AREA_MIN.x
+    return FFT_AREA_MIN.x + (idx / (dataWidth - 1)) * plotWidth
+  }
+
+  ctx.fillStyle = SHADOW_COLOR
+  for (let i = 1; i < dataWidth; i++) {
+    const aPos = fftAreaMax.y - (waveform[i - 1] - fftMin) * scaleFactor
+    const bPos = fftAreaMax.y - (waveform[i] - fftMin) * scaleFactor
+    const clampedAPos = Math.max(
+      FFT_AREA_MIN.y + 1,
+      Math.min(fftAreaMax.y, aPos),
+    )
+    const clampedBPos = Math.max(
+      FFT_AREA_MIN.y + 1,
+      Math.min(fftAreaMax.y, bPos),
+    )
+    const ax = idxToX(i - 1)
+    const bx = idxToX(i)
+
+    ctx.beginPath()
+    ctx.moveTo(Math.round(ax), Math.round(clampedAPos))
+    ctx.lineTo(Math.round(bx), Math.round(clampedBPos))
+    ctx.lineTo(Math.round(bx), fftAreaMax.y)
+    ctx.lineTo(Math.round(ax), fftAreaMax.y)
+    ctx.closePath()
+    ctx.fill()
+  }
+
+  ctx.strokeStyle = LINE_COLOR
+  ctx.lineWidth = width < 700 ? 0.5 : 1.5
+  ctx.lineJoin = "round"
+  ctx.lineCap = "round"
+
+  ctx.beginPath()
+  for (let i = 1; i < dataWidth; i++) {
+    const aPos = fftAreaMax.y - (waveform[i - 1] - fftMin) * scaleFactor
+    const bPos = fftAreaMax.y - (waveform[i] - fftMin) * scaleFactor
+    const clampedAPos = Math.max(
+      FFT_AREA_MIN.y + 1,
+      Math.min(fftAreaMax.y, aPos),
+    )
+    const clampedBPos = Math.max(
+      FFT_AREA_MIN.y + 1,
+      Math.min(fftAreaMax.y, bPos),
+    )
+    const ax = idxToX(i - 1)
+    const bx = idxToX(i)
+
+    if (i === 1) {
+      ctx.moveTo(Math.round(ax), Math.round(clampedAPos))
+    }
+    ctx.lineTo(Math.round(bx), Math.round(clampedBPos))
+  }
   ctx.stroke()
 }
 
