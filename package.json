@@ -7,7 +7,7 @@
     "predev": "fkill --force 'n-apt-backend' ':5173' ':8765' 2>/dev/null || true",
     "preserver": "./start_server.sh",
     "capture": "source venv/bin/activate && python scripts/rtl_sdr_capture.py",
-    "dev": "concurrently \"npm run server\" \"vite\"",
+    "dev": "concurrently \"npm run build:wasm 2>&1 | grep -v 'exited with code' || true\" \"npm run server\" \"vite\"",
     "server": "./start_server.sh",
     "build:wasm": "./build_wasm.sh",
     "build": "vite build",

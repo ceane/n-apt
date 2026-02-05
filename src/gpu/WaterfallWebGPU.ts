@@ -154,13 +154,15 @@ export class WaterfallWebGPU {
     if (width === 0) return
 
     const smear = Math.max(0, Math.min(Math.floor(smearRows), this.textureHeight - 1))
+    const boost = smear > 0 && Math.abs(driftPixels) > 0 ? 1.18 : 1
     for (let s = 0; s <= smear; s++) {
       const drift =
         smear > 0 ? Math.round(((smear - s) / smear) * driftPixels) : Math.round(driftPixels)
       for (let i = 0; i < width; i++) {
         const src = ((i - drift) % width + width) % width
         const amp = Math.max(0, Math.min(1, amplitudes[src] ?? 0))
-        this.rowUploadBuffer[i] = Math.round(amp * 255)
+        const boosted = Math.min(1, amp * boost)
+        this.rowUploadBuffer[i] = Math.round(boosted * 255)
       }
 
       const row = (this.writeRow - s + this.textureHeight) % this.textureHeight
