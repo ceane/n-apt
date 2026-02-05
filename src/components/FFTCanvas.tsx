@@ -605,15 +605,20 @@ const FFTCanvas = ({
     frequencyRangeRef.current = frequencyRange;
 
     // Retune artifact: briefly widen/smear the next few lines vertically
-    retuneSmearRef.current = 6;
+    retuneSmearRef.current = 10;
     const dims = waterfallGpuDimsRef.current;
     if (dims) {
       const prevSpan = prevRange.max - prevRange.min;
       const delta = frequencyRange.min - prevRange.min;
       const drift = prevSpan !== 0 ? (delta / prevSpan) * dims.width : 0;
       retuneDriftPxRef.current = Math.max(-dims.width, Math.min(dims.width, drift));
+      if (Math.abs(retuneDriftPxRef.current) < 0.5) {
+        retuneDriftPxRef.current = 0;
+        retuneSmearRef.current = 0;
+      }
     } else {
       retuneDriftPxRef.current = 0;
+      retuneSmearRef.current = 0;
     }
 
     const spectrumCanvas = spectrumCanvasRef.current;
