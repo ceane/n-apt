@@ -46,6 +46,7 @@
     "@types/jest": "^30.0.0",
     "@types/react": "^19.2.10",
     "@types/react-dom": "^19.2.3",
+    "@webgpu/types": "^0.1.47",
     "@vitejs/plugin-react": "^5.1.1",
     "autoprefixer": "^10.4.23",
     "concurrently": "^8.2.2",
