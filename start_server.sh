@@ -19,7 +19,12 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-echo "Starting N-APT Rust Backend Server..."
+# Wait a moment for Vite to start first
+sleep 2
+
+echo ""
+echo -e "\033[38;5;208mStarting N-APT Rust Backend Server...\033[0m"
+echo ""
 
 # Check if Rust is installed
 if ! command -v cargo &> /dev/null; then
@@ -29,23 +34,40 @@ if ! command -v cargo &> /dev/null; then
 fi
 
 # Check if RTL-SDR library is available
-if ! ldconfig -p | grep -q librtlsdr; then
-    echo "Warning: RTL-SDR library not found. Backend will run in mock mode."
-    echo "Install RTL-SDR library for hardware support:"
-    echo "  macOS: brew install librtlsdr"
-    echo "  Ubuntu: sudo apt-get install librtlsdr-dev"
+if command -v brew &> /dev/null; then
+    # macOS systems
+    if ! brew list librtlsdr &> /dev/null 2>&1; then
+        echo "  Warning: RTL-SDR library not found. Backend will run in mock mode."
+        echo "  Install RTL-SDR library for hardware support:"
+        echo "    macOS: brew install librtlsdr"
+        echo "    Ubuntu: sudo apt-get install librtlsdr-dev"
+    fi
+elif command -v ldconfig &> /dev/null; then
+    # Linux systems
+    if ! ldconfig -p | grep -q librtlsdr; then
+        echo "  Warning: RTL-SDR library not found. Backend will run in mock mode."
+        echo "  Install RTL-SDR library for hardware support:"
+        echo "    macOS: brew install librtlsdr"
+        echo "    Ubuntu: sudo apt-get install librtlsdr-dev"
+    fi
 fi
 
 # Change to project root (already there)
 # Rust files are now at the top level
 
 # Build the server only if needed
-echo "Checking if Rust backend server needs to be built..."
+echo "  Checking if Rust backend server needs to be built..."
 if ./scripts/check_changes.sh "target/release" "*.rs" "Cargo.toml" "Cargo.lock"; then
-    echo "Building Rust backend server..."
+    echo -e "  \033[38;5;208mBuilding Rust backend server...\033[0m"  # Orange text
     cargo build --release
+    if [ $? -eq 0 ]; then
+        echo -e "  \033[32m✓ Rust server built successfully\033[0m"  # Green text
+    else
+        echo -e "  \033[31m✗ Rust server build failed\033[0m"  # Red text
+        exit 1
+    fi
 else
-    echo "Backend is up to date, skipping build..."
+    echo "  Backend is up to date, skipping build..."
 fi
 
 # Set log level
@@ -53,9 +75,11 @@ export RUST_LOG=info
 
 # Run the compiled server directly (unless build-only)
 if [ "$BUILD_ONLY" = false ]; then
-    echo "Starting server on ws://127.0.0.1:8765"
+    echo ""
+    echo -e "\033[32m🚀 Rust server built and running at port:8765\033[0m"  # Green text
     echo "Press Ctrl+C to stop"
-    ./target/release/n-apt-backend
+    echo ""
+    ./target/release/n-apt-backend 2>&1 | ./scripts/indent_output.sh
 else
     echo "Build completed. Exiting..."
 fi

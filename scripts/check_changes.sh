@@ -36,6 +36,6 @@ done
 if [ "$NEEDS_BUILD" = true ]; then
     exit 0  # Need to build
 else
-    echo "No changes detected, skipping build..."
+    echo "  No changes detected, skipping build..."
     exit 1  # No build needed
 fi
