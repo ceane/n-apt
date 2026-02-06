@@ -81,6 +81,7 @@ export class WaterfallWebGPU {
   private textureHeight = 0
   private paddedRowBytes = 0
   private rowUploadBuffer = new Uint8Array(0)
+  private clearBuffer: Uint8Array | null = null
   private writeRow = 0
   private clearColor: GPUColor = { r: 0, g: 0, b: 0, a: 1 }
 
@@ -119,19 +120,56 @@ export class WaterfallWebGPU {
   updateDimensions(width: number, height: number): void {
     if (width === this.textureWidth && height === this.textureHeight) return
 
+    const prevTexture = this.dataTexture
+    const prevWidth = this.textureWidth
+    const prevHeight = this.textureHeight
+
     this.textureWidth = Math.max(1, Math.floor(width))
     this.textureHeight = Math.max(1, Math.floor(height))
-    this.dataTexture?.destroy()
+    const widthChanged = prevWidth !== this.textureWidth
 
     this.dataTexture = this.device.createTexture({
       size: { width: this.textureWidth, height: this.textureHeight },
       format: "r8unorm",
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+      usage:
+        GPUTextureUsage.TEXTURE_BINDING |
+        GPUTextureUsage.COPY_DST |
+        GPUTextureUsage.COPY_SRC,
     })
 
     this.paddedRowBytes = alignTo(this.textureWidth, 256)
     this.rowUploadBuffer = new Uint8Array(this.paddedRowBytes)
-    this.writeRow = 0
+    this.writeRow = widthChanged ? 0 : Math.min(this.writeRow, this.textureHeight - 1)
+
+    const clearSize = this.paddedRowBytes * this.textureHeight
+    if (!this.clearBuffer || this.clearBuffer.length !== clearSize) {
+      this.clearBuffer = new Uint8Array(clearSize)
+    }
+    this.device.queue.writeTexture(
+      { texture: this.dataTexture },
+      this.clearBuffer,
+      { bytesPerRow: this.paddedRowBytes, rowsPerImage: this.textureHeight },
+      {
+        width: this.textureWidth,
+        height: this.textureHeight,
+        depthOrArrayLayers: 1,
+      },
+    )
+
+    if (prevTexture && !widthChanged) {
+      const encoder = this.device.createCommandEncoder()
+      const copyWidth = Math.min(prevWidth, this.textureWidth)
+      const copyHeight = Math.min(prevHeight, this.textureHeight)
+      encoder.copyTextureToTexture(
+        { texture: prevTexture },
+        { texture: this.dataTexture },
+        { width: copyWidth, height: copyHeight, depthOrArrayLayers: 1 },
+      )
+      this.device.queue.submit([encoder.finish()])
+      prevTexture.destroy()
+    } else if (prevTexture) {
+      prevTexture.destroy()
+    }
 
     this.bindGroup = this.device.createBindGroup({
       layout: this.pipeline.getBindGroupLayout(0),
@@ -183,12 +221,24 @@ export class WaterfallWebGPU {
     this.clearColor = this.colorToGpu(params.backgroundColor)
 
     const [bgR, bgG, bgB, bgA] = parseCssColorToRgba(params.backgroundColor)
+    const displayWidth = Math.max(
+      1,
+      Math.round(params.canvasWidth * params.dpr - params.marginX * 2),
+    )
+    const displayHeight = Math.max(
+      1,
+      Math.round(params.canvasHeight * params.dpr - params.marginY * 2),
+    )
 
-    this.uniformValues[0] = this.textureWidth
-    this.uniformValues[1] = this.textureHeight
+    this.uniformValues[0] = displayWidth
+    this.uniformValues[1] = displayHeight
     this.uniformValues[2] = params.marginX
     this.uniformValues[3] = params.marginY
-    this.uniformValues[4] = this.writeRow
+    const renderRow =
+      this.textureHeight > 0
+        ? (this.writeRow - 1 + this.textureHeight) % this.textureHeight
+        : 0
+    this.uniformValues[4] = renderRow
     this.uniformValues[5] = this.textureWidth
     this.uniformValues[6] = this.textureHeight
     this.uniformValues[7] = this.colorCount

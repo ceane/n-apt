@@ -167,6 +167,7 @@ const FFTCanvas = ({
   const waterfallGpuDimsRef = useRef<{ width: number; height: number } | null>(
     null,
   );
+  const waterfallDataWidthRef = useRef<number | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const dataRef = useRef<any>(null);
   const lastProcessedDataRef = useRef<any>(null);
@@ -716,21 +717,25 @@ const FFTCanvas = ({
 
           const marginX = Math.round(40 * dpr);
           const marginY = Math.round(8 * dpr);
-          const waterfallWidth = Math.max(
+          const displayWidth = Math.max(
             1,
             Math.round(waterfallRect.width * dpr - marginX * 2),
           );
-          const waterfallHeight = Math.max(
+          const displayHeight = Math.max(
             1,
             Math.round(waterfallRect.height * dpr - marginY * 2),
           );
+          if (!waterfallDataWidthRef.current) {
+            waterfallDataWidthRef.current = displayWidth;
+          }
+          const dataWidth = waterfallDataWidthRef.current;
           waterfallGpuDimsRef.current = {
-            width: waterfallWidth,
-            height: waterfallHeight,
+            width: dataWidth,
+            height: displayHeight,
           };
           waterfallRendererRef.current.updateDimensions(
-            waterfallWidth,
-            waterfallHeight,
+            dataWidth,
+            displayHeight,
           );
         }
       }
