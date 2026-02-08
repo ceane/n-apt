@@ -369,7 +369,7 @@ impl EnhancedSIMDProcessor {
           0.42 - 0.5 * (2.0 * std::f32::consts::PI * n).cos()
             + 0.08 * (4.0 * std::f32::consts::PI * n).cos()
         }
-        WindowType::Rectangular => 1.0, // No windowing
+        WindowType::Rectangular => 1.0, // No windowing - same as None
         WindowType::Nuttall => {
           let n = i as f32 / (buf.len() - 1) as f32;
           let two_pi_n = 2.0 * std::f32::consts::PI * n;
@@ -412,7 +412,7 @@ impl EnhancedSIMDProcessor {
             0.42 - 0.5 * (2.0 * std::f32::consts::PI * n).cos()
               + 0.08 * (4.0 * std::f32::consts::PI * n).cos()
           }
-          WindowType::Rectangular => 1.0, // No windowing
+          WindowType::Rectangular => 1.0, // No windowing - same as None
           WindowType::Nuttall => {
             let n = (i + j) as f32 / (self.fft_size - 1) as f32;
             let two_pi_n = 2.0 * std::f32::consts::PI * n;
@@ -562,7 +562,7 @@ impl EnhancedSIMDProcessor {
           0.42 - 0.5 * (2.0 * std::f32::consts::PI * n).cos()
             + 0.08 * (4.0 * std::f32::consts::PI * n).cos()
         }
-        WindowType::Rectangular => 1.0, // No windowing
+        WindowType::Rectangular => 1.0, // No windowing - same as None
         WindowType::Nuttall => {
           let n = i as f32 / (buf.len() - 1) as f32;
           let two_pi_n = 2.0 * std::f32::consts::PI * n;
@@ -582,9 +582,7 @@ impl EnhancedSIMDProcessor {
 
 #[cfg(test)]
 mod tests {
-  use super::EnhancedSIMDProcessor;
-  use crate::fft::{RawSamples, WindowType};
-
+  
   #[cfg(target_arch = "wasm32")]
   #[test]
   fn test_enhanced_simd_processor_creation() {

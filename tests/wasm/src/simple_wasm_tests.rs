@@ -60,9 +60,8 @@ fn test_performance_baseline() {
     let start_time = js_sys::Date::now();
     
     // Simple computation loop
-    let mut _sum = 0.0;
     for i in 0..10000 {
-        _sum += (i as f32).sin();
+        let _unused = (i as f32).sin();
     }
     
     let end_time = js_sys::Date::now();

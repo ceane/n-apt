@@ -349,6 +349,53 @@ impl SIMDFFTProcessor {
       }
       WindowType::None => {} // No windowing
       WindowType::Rectangular => {} // No windowing (same as None)
+      WindowType::Blackman => {
+        // Blackman window: 0.42 - 0.5*cos(2πn) + 0.08*cos(4πn)
+        for i in (0..len).step_by(4) {
+          let indices = f32x4(i as f32, (i + 1) as f32, (i + 2) as f32, (i + 3) as f32);
+          
+          let scale = f32x4(
+            2.0 * std::f32::consts::PI / (len - 1) as f32,
+            2.0 * std::f32::consts::PI / (len - 1) as f32,
+            2.0 * std::f32::consts::PI / (len - 1) as f32,
+            2.0 * std::f32::consts::PI / (len - 1) as f32,
+          );
+          
+          let two_pi_scale = f32x4_mul(scale, f32x4(2.0, 2.0, 2.0, 2.0));
+          let four_pi_scale = f32x4_mul(scale, f32x4(4.0, 4.0, 4.0, 4.0));
+          
+          let two_pi_phases = f32x4_mul(indices, two_pi_scale);
+          let four_pi_phases = f32x4_mul(indices, four_pi_scale);
+          
+          let cos_two_pi = f32x4_cos_approx(two_pi_phases);
+          let cos_four_pi = f32x4_cos_approx(four_pi_phases);
+          
+          let window_values = f32x4_sub(
+            f32x4(0.42, 0.42, 0.42, 0.42),
+            f32x4_mul(
+              f32x4(0.5, 0.5, 0.5, 0.5),
+              cos_two_pi
+            )
+          );
+          
+          let window_values = f32x4_add(
+            window_values,
+            f32x4_mul(
+              f32x4(0.08, 0.08, 0.08, 0.08),
+              cos_four_pi
+            )
+          );
+          
+          for j in 0..4.min(len - i) {
+            buf[i + j].re *= match j {
+              0 => f32x4_extract_lane::<0>(window_values),
+              1 => f32x4_extract_lane::<1>(window_values),
+              2 => f32x4_extract_lane::<2>(window_values),
+              _ => f32x4_extract_lane::<3>(window_values),
+            };
+          }
+        }
+      }
       WindowType::Nuttall => {
         // Nuttall window: 0.355768 - 0.487396*cos(2πn) + 0.144232*cos(4πn) - 0.012604*cos(6πn)
         for i in 0..len {
