@@ -1,0 +1,168 @@
+[INFO  wasm_pack::command] Running test command...
+[INFO  wasm_pack::command::test] Checking rustc version...
+[INFO  wasm_pack::command::test] Rustc version is correct.
+[INFO  wasm_pack::command::test] Adding wasm-target...
+[INFO]: 🎯  Checking for the Wasm target...
+[INFO  wasm_pack::build::wasm_target] Found wasm32-unknown-unknown in "/Users/ceanelamerez/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/wasm32-unknown-unknown/lib"
+[INFO  wasm_pack::command::test] Adding wasm-target was successful.
+[INFO  wasm_pack::command::test] Compiling tests to wasm...
+[INFO  wasm_pack::child] Running cd "/Users/ceanelamerez/Documents/codescratch.nosync/n-apt/tests/wasm" && CARGO_BUILD_TARGET="wasm32-unknown-unknown" "cargo" "build" "--tests"
+warning: unused manifest key: target.wasm32-unknown-unknown.rustflags
+warning: unreachable pattern
+   --> /Users/ceanelamerez/Documents/codescratch.nosync/n-apt/src/wasm_simd/enhanced_simd.rs:373:9
+    |
+372 |         WindowType::None => 1.0,
+    |         ---------------- matches all the relevant values
+373 |         WindowType::None => 1.0, // Rectangular window (no windowing)
+    |         ^^^^^^^^^^^^^^^^ no value can reach this
+    |
+    = note: `#[warn(unreachable_patterns)]` (part of `#[warn(unused)]`) on by default
+
+warning: unreachable pattern
+   --> /Users/ceanelamerez/Documents/codescratch.nosync/n-apt/src/wasm_simd/enhanced_simd.rs:374:9
+    |
+372 |         WindowType::None => 1.0,
+    |         ---------------- matches all the relevant values
+373 |         WindowType::None => 1.0, // Rectangular window (no windowing)
+374 |         WindowType::None => {
+    |         ^^^^^^^^^^^^^^^^ no value can reach this
+
+warning: unreachable pattern
+   --> /Users/ceanelamerez/Documents/codescratch.nosync/n-apt/src/wasm_simd/enhanced_simd.rs:417:11
+    |
+416 |           WindowType::None => 1.0,
+    |           ---------------- matches all the relevant values
+417 |           WindowType::None => 1.0, // Rectangular window (no windowing)
+    |           ^^^^^^^^^^^^^^^^ no value can reach this
+
+warning: unreachable pattern
+   --> /Users/ceanelamerez/Documents/codescratch.nosync/n-apt/src/wasm_simd/enhanced_simd.rs:418:11
+    |
+416 |           WindowType::None => 1.0,
+    |           ---------------- matches all the relevant values
+417 |           WindowType::None => 1.0, // Rectangular window (no windowing)
+418 |           WindowType::None => {
+    |           ^^^^^^^^^^^^^^^^ no value can reach this
+
+warning: `n-apt-backend` (lib) generated 4 warnings
+warning: variable `sum` is assigned to, but never used
+  --> src/simple_wasm_tests.rs:63:9
+   |
+63 |     let mut sum = 0.0;
+   |         ^^^^^^^
+   |
+   = note: consider using `_sum` instead
+   = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: value assigned to `sum` is never read
+  --> src/simple_wasm_tests.rs:65:9
+   |
+65 |         sum += (i as f32).sin();
+   |         ^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: maybe it is overwritten before being read?
+   = note: `#[warn(unused_assignments)]` (part of `#[warn(unused)]`) on by default
+
+warning: `wasm-tests` (lib test) generated 2 warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.15s
+[INFO  wasm_pack::command::test] Finished compiling tests to wasm.
+[INFO  wasm_pack::command::test] Identifying wasm-bindgen dependency...
+[INFO]: ⬇️  Installing wasm-bindgen...
+[WARN  wasm_pack::install] could not download pre-built `wasm-bindgen`: no prebuilt wasm-bindgen binaries are available for this platform: Unrecognized target!. Falling back to `cargo install`.
+[INFO  wasm_pack::command::test] Getting wasm-bindgen-cli was successful.
+[INFO  wasm_pack::command::test] Running tests in Chrome with chromedriver at /Users/ceanelamerez/Library/Caches/.wasm-pack/chromedriver-4dbebdb1448c866d/chromedriver
+[INFO  wasm_pack::command::test] Using wasm-bindgen test runner at /Users/ceanelamerez/Library/Caches/.wasm-pack/wasm-bindgen-cargo-install-0.2.108/wasm-bindgen-test-runner
+[INFO  wasm_pack::child] Running cd "/Users/ceanelamerez/Documents/codescratch.nosync/n-apt/tests/wasm" && CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER="/Users/ceanelamerez/Library/Caches/.wasm-pack/wasm-bindgen-cargo-install-0.2.108/wasm-bindgen-test-runner" CHROMEDRIVER="/Users/ceanelamerez/Library/Caches/.wasm-pack/chromedriver-4dbebdb1448c866d/chromedriver" WASM_BINDGEN_TEST_ONLY_WEB="1" "cargo" "test" "--target" "wasm32-unknown-unknown"
+warning: unused manifest key: target.wasm32-unknown-unknown.rustflags
+warning: unreachable pattern
+   --> /Users/ceanelamerez/Documents/codescratch.nosync/n-apt/src/wasm_simd/enhanced_simd.rs:373:9
+    |
+372 |         WindowType::None => 1.0,
+    |         ---------------- matches all the relevant values
+373 |         WindowType::None => 1.0, // Rectangular window (no windowing)
+    |         ^^^^^^^^^^^^^^^^ no value can reach this
+    |
+    = note: `#[warn(unreachable_patterns)]` (part of `#[warn(unused)]`) on by default
+
+warning: unreachable pattern
+   --> /Users/ceanelamerez/Documents/codescratch.nosync/n-apt/src/wasm_simd/enhanced_simd.rs:374:9
+    |
+372 |         WindowType::None => 1.0,
+    |         ---------------- matches all the relevant values
+373 |         WindowType::None => 1.0, // Rectangular window (no windowing)
+374 |         WindowType::None => {
+    |         ^^^^^^^^^^^^^^^^ no value can reach this
+
+warning: unreachable pattern
+   --> /Users/ceanelamerez/Documents/codescratch.nosync/n-apt/src/wasm_simd/enhanced_simd.rs:417:11
+    |
+416 |           WindowType::None => 1.0,
+    |           ---------------- matches all the relevant values
+417 |           WindowType::None => 1.0, // Rectangular window (no windowing)
+    |           ^^^^^^^^^^^^^^^^ no value can reach this
+
+warning: unreachable pattern
+   --> /Users/ceanelamerez/Documents/codescratch.nosync/n-apt/src/wasm_simd/enhanced_simd.rs:418:11
+    |
+416 |           WindowType::None => 1.0,
+    |           ---------------- matches all the relevant values
+417 |           WindowType::None => 1.0, // Rectangular window (no windowing)
+418 |           WindowType::None => {
+    |           ^^^^^^^^^^^^^^^^ no value can reach this
+
+warning: `n-apt-backend` (lib) generated 4 warnings
+warning: variable `sum` is assigned to, but never used
+  --> src/simple_wasm_tests.rs:63:9
+   |
+63 |     let mut sum = 0.0;
+   |         ^^^^^^^
+   |
+   = note: consider using `_sum` instead
+   = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: value assigned to `sum` is never read
+  --> src/simple_wasm_tests.rs:65:9
+   |
+65 |         sum += (i as f32).sin();
+   |         ^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: maybe it is overwritten before being read?
+   = note: `#[warn(unused_assignments)]` (part of `#[warn(unused)]`) on by default
+
+warning: `wasm-tests` (lib test) generated 2 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running unittests src/lib.rs (target/wasm32-unknown-unknown/debug/deps/wasm_tests-d8fe37b15cae2906.wasm)
+Executing bindgen...                                                                                Running headless tests in Chrome on `http://127.0.0.1:51352/`
+Try find `webdriver.json` for configure browser's capabilities:
+Ok
+Starting new webdriver session...                 Visiting http://127.0.0.1:51351...                                                                  driver status: signal: 9 (SIGKILL)
+driver stdout:
+    Starting ChromeDriver 144.0.7559.133 (7da823b1d594d1b49797911900e003ec96a8c0e7-refs/branch-heads/7559@{#4253}) on port 51352
+    Only local connections are allowed.
+    Please see https://chromedriver.chromium.org/security-considerations for suggestions on keeping ChromeDriver safe.
+    ChromeDriver was started successfully on port 51352.
+
+                                                  Error: http status: 404
+
+Stack backtrace:
+   0: std::backtrace::Backtrace::create
+   1: std::backtrace::Backtrace::capture
+   2: anyhow::error::<impl core::convert::From<E> for anyhow::Error>::from
+   3: wasm_bindgen_cli::wasm_bindgen_test_runner::headless::Client::doit
+   4: wasm_bindgen_cli::wasm_bindgen_test_runner::headless::run
+   5: wasm_bindgen_cli::wasm_bindgen_test_runner::rmain
+   6: wasm_bindgen_cli::wasm_bindgen_test_runner::run_cli_with_args
+   7: wasm_bindgen_test_runner::main
+   8: std::sys::backtrace::__rust_begin_short_backtrace
+   9: std::rt::lang_start::{{closure}}
+  10: std::rt::lang_start_internal
+  11: _main
+error: test failed, to rerun pass `--lib`
+
+Caused by:
+  process didn't exit successfully: `/Users/ceanelamerez/Library/Caches/.wasm-pack/wasm-bindgen-cargo-install-0.2.108/wasm-bindgen-test-runner /Users/ceanelamerez/Documents/codescratch.nosync/n-apt/tests/wasm/target/wasm32-unknown-unknown/debug/deps/wasm_tests-d8fe37b15cae2906.wasm` (exit status: 1)
+note: test exited abnormally; to see the full output pass --no-capture to the harness.
+Error: Running Wasm tests with wasm-bindgen-test failed
+Caused by: Running Wasm tests with wasm-bindgen-test failed
+Caused by: failed to execute `cargo test`: exited with exit status: 1
+  full command: cd "/Users/ceanelamerez/Documents/codescratch.nosync/n-apt/tests/wasm" && CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER="/Users/ceanelamerez/Library/Caches/.wasm-pack/wasm-bindgen-cargo-install-0.2.108/wasm-bindgen-test-runner" CHROMEDRIVER="/Users/ceanelamerez/Library/Caches/.wasm-pack/chromedriver-4dbebdb1448c866d/chromedriver" WASM_BINDGEN_TEST_ONLY_WEB="1" "cargo" "test" "--target" "wasm32-unknown-unknown"

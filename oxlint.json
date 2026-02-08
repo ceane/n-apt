@@ -1,0 +1,1 @@
+{"plugins":["typescript"],"rules":{"typescript/no-unused-vars":"error","no-console":"warn","prefer-const":"error","no-var":"error"},"settings":{"typescript":{"parserOptions":{"project":"./tsconfig.json"}}}}
