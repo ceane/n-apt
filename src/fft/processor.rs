@@ -1,13 +1,13 @@
 use anyhow::Result;
+use crate::fft::now_millis;
 use rustfft::{num_complex::Complex, FftPlanner};
 use rand::SeedableRng;
 use rand::Rng;
 use std::sync::Arc;
-use chrono::Utc;
 
 use super::types::*;
 use crate::consts::rs::fft::{SAMPLE_RATE, NUM_SAMPLES};
-#[cfg(target_arch = "wasm32")]
+#[cfg(not(target_arch = "wasm32"))]
 use crate::wasm_simd::SIMDFFTProcessor;
 
 /**
@@ -76,7 +76,7 @@ pub struct FFTProcessor {
   /// Maximum number of waterfall lines to keep
   max_waterfall_lines: usize,
   /// SIMD processor for WASM targets
-  #[cfg(target_arch = "wasm32")]
+  #[cfg(not(target_arch = "wasm32"))]
   simd_processor: Option<SIMDFFTProcessor>,
 }
 
@@ -99,8 +99,9 @@ impl FFTProcessor {
   /// - Native targets: Standard FFT performance
   pub fn new() -> Self {
     let config = EnhancedFFTConfig::default();
+    let fft_size = config.fft_size;
     let mut planner = FftPlanner::<f32>::new();
-    let fft = planner.plan_fft_forward(config.fft_size);
+    let fft = planner.plan_fft_forward(fft_size);
     
     Self {
       fft,
@@ -110,8 +111,8 @@ impl FFTProcessor {
       fft_hold: None,
       waterfall_history: Vec::new(),
       max_waterfall_lines: 1000,
-      #[cfg(target_arch = "wasm32")]
-      simd_processor: Some(SIMDFFTProcessor::new(config.fft_size)),
+      #[cfg(not(target_arch = "wasm32"))]
+      simd_processor: Some(SIMDFFTProcessor::new(fft_size)),
     }
   }
 
@@ -125,8 +126,9 @@ impl FFTProcessor {
   /// 
   /// New FFTProcessor with SIMD optimization enabled on WASM targets
   pub fn with_config(config: EnhancedFFTConfig) -> Self {
+    let fft_size = config.fft_size;
     let mut planner = FftPlanner::<f32>::new();
-    let fft = planner.plan_fft_forward(config.fft_size);
+    let fft = planner.plan_fft_forward(fft_size);
     
     Self {
       fft,
@@ -136,8 +138,8 @@ impl FFTProcessor {
       fft_hold: None,
       waterfall_history: Vec::new(),
       max_waterfall_lines: 1000,
-      #[cfg(target_arch = "wasm32")]
-      simd_processor: Some(SIMDFFTProcessor::new(config.fft_size)),
+      #[cfg(not(target_arch = "wasm32"))]
+      simd_processor: Some(SIMDFFTProcessor::new(fft_size)),
     }
   }
 
@@ -152,13 +154,13 @@ impl FFTProcessor {
     if config.fft_size != self.fft.len() {
       let mut planner = FftPlanner::<f32>::new();
       self.fft = planner.plan_fft_forward(config.fft_size);
-      #[cfg(target_arch = "wasm32")]
+      #[cfg(not(target_arch = "wasm32"))]
       {
         self.simd_processor = Some(SIMDFFTProcessor::new(config.fft_size));
       }
     }
     
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(not(target_arch = "wasm32"))]
     {
       if let Some(ref mut simd_proc) = self.simd_processor {
         simd_proc.set_gain(config.gain);
@@ -203,8 +205,9 @@ impl FFTProcessor {
   /// - WASM with SIMD: 30-50% faster
   /// - Native: Standard FFT performance
   pub fn process_samples(&mut self, samples: &RawSamples) -> Result<FFTResult> {
-    // Try SIMD processing first on WASM targets
-    #[cfg(target_arch = "wasm32")]
+    // SIMD processing disabled on WASM builds for testing
+    // #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(target_arch = "wasm32"))]
     {
       if let Some(ref mut simd_proc) = self.simd_processor {
         let mut power = vec![0.0; self.config.fft_size];
@@ -238,7 +241,7 @@ impl FFTProcessor {
               power_spectrum: zoomed_power.clone(),
               waterfall: zoomed_power,
               is_mock: false,
-              timestamp: Utc::now().timestamp_millis(),
+              timestamp: now_millis(),
             });
           }
           Err(_) => {
@@ -325,7 +328,7 @@ impl FFTProcessor {
       power_spectrum: zoomed_power.clone(),
       waterfall: zoomed_power,
       is_mock: false,
-      timestamp: Utc::now().timestamp_millis(),
+      timestamp: now_millis(),
     })
   }
 
@@ -383,7 +386,7 @@ impl FFTProcessor {
       power_spectrum: zoomed_power,
       waterfall: power,
       is_mock: true,
-      timestamp: Utc::now().timestamp_millis(),
+      timestamp: now_millis(),
     })
   }
 
@@ -462,8 +465,21 @@ pub fn apply_window(samples: &mut [f32], window_type: WindowType) {
         let a1 = -0.5;
         let a2 = 0.08;
         for (i, sample) in samples.iter_mut().enumerate() {
-          *sample *= a0 + a1 * (2.0 * std::f32::consts::PI * i as f32 / (len - 1) as f32).cos()
+          let phase = 2.0 * std::f32::consts::PI * i as f32 / (len - 1) as f32;
+          *sample *= a0 + a1 * phase.cos()
             + a2 * (4.0 * std::f32::consts::PI * i as f32 / (len - 1) as f32).cos();
+        }
+      }
+      WindowType::Rectangular => {} // No windowing (same as None)
+      WindowType::Nuttall => {
+        // Nuttall window: 0.355768 - 0.487396*cos(2πn) + 0.144232*cos(4πn) - 0.012604*cos(6πn)
+        for (i, sample) in samples.iter_mut().enumerate() {
+          let n = i as f32 / (len - 1) as f32;
+          let two_pi_n = 2.0 * std::f32::consts::PI * n;
+          let four_pi_n = 4.0 * std::f32::consts::PI * n;
+          let six_pi_n = 6.0 * std::f32::consts::PI * n;
+          *sample *= 0.355768 - 0.487396 * two_pi_n.cos() + 0.144232 * four_pi_n.cos()
+            - 0.012604 * six_pi_n.cos();
         }
       }
       WindowType::None => {} // No windowing
@@ -476,8 +492,10 @@ pub enum WindowType {
     Hanning,
     Hamming,
     Blackman,
+    Rectangular,
+    Nuttall,
     None,
-  }
+}
 
   /// Calculate signal-to-noise ratio in dB
 /// @param signal - Signal data array
@@ -610,5 +628,26 @@ mod tests {
     assert_eq!(result.power_spectrum.len(), NUM_SAMPLES);
     assert!(result.is_mock);
     assert!(result.timestamp > 0);
+  }
+
+  #[test]
+  fn test_window_functions() {
+    let mut samples = vec![1.0; 8];
+    
+    // Test each window type
+    apply_window(&mut samples, WindowType::Hanning);
+    assert!(samples.iter().any(|&x| x != 1.0)); // Should be modified
+    
+    samples = vec![1.0; 8];
+    apply_window(&mut samples, WindowType::Rectangular);
+    assert!(samples.iter().all(|&x| x == 1.0)); // Should be unchanged
+    
+    samples = vec![1.0; 8];
+    apply_window(&mut samples, WindowType::None);
+    assert!(samples.iter().all(|&x| x == 1.0)); // Should be unchanged
+    
+    samples = vec![1.0; 8];
+    apply_window(&mut samples, WindowType::Nuttall);
+    assert!(samples.iter().any(|&x| x != 1.0)); // Should be modified
   }
 }

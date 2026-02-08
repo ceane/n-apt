@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback } from "react"
 
 // Types
 export type FrequencyRange = {
@@ -17,7 +17,10 @@ export type WebSocketData = {
 }
 
 // Hook implementation
-export const useWebSocket = (url: string, enabled: boolean = true): WebSocketData => {
+export const useWebSocket = (
+  url: string,
+  enabled: boolean = true,
+): WebSocketData => {
   const [isConnected, setIsConnected] = useState(false)
   const [isDeviceConnected, setIsDeviceConnected] = useState(false)
   const [isPaused, setIsPaused] = useState(false)
@@ -34,16 +37,16 @@ export const useWebSocket = (url: string, enabled: boolean = true): WebSocketDat
       // Close existing connection if disabled
       const ws = wsRef.current
       wsRef.current = null
-      
+
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current)
         reconnectTimeoutRef.current = null
       }
-      
+
       if (ws) {
         ws.close()
       }
-      
+
       setIsConnected(false)
       return
     } else {
@@ -62,10 +65,10 @@ export const useWebSocket = (url: string, enabled: boolean = true): WebSocketDat
               const parsedData = JSON.parse(event.data)
 
               // Check for status message type
-              if (typeof parsedData === 'object' && parsedData !== null) {
+              if (typeof parsedData === "object" && parsedData !== null) {
                 const type = parsedData.type
-                
-                if (type === 'status') {
+
+                if (type === "status") {
                   const deviceConnected = parsedData.deviceConnected || false
                   const paused = parsedData.paused || false
                   setIsDeviceConnected(deviceConnected)
@@ -125,7 +128,7 @@ export const useWebSocket = (url: string, enabled: boolean = true): WebSocketDat
           }
 
           ws.onerror = () => {
-            setError('WebSocket connection error')
+            setError("WebSocket connection error")
             // Only log error if we haven't already closed the connection
             // This prevents errors during React strict mode cleanup
             if (wsRef.current !== null) {
@@ -143,11 +146,11 @@ export const useWebSocket = (url: string, enabled: boolean = true): WebSocketDat
         // Cleanup function - set wsRef to null first to prevent reconnection attempts
         const ws = wsRef.current
         wsRef.current = null
-        
+
         if (reconnectTimeoutRef.current) {
           clearTimeout(reconnectTimeoutRef.current)
         }
-        
+
         if (ws) {
           ws.close()
         }

@@ -1,0 +1,22 @@
+[package]
+name = "wasm-tests"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wasm-bindgen = "0.2"
+wasm-bindgen-test = "0.3"
+js-sys = "0.3"
+n-apt-backend = { path = "../../" }
+
+[dependencies.web-sys]
+version = "0.3"
+
+[package.metadata.wasm-pack.profile.dev]
+wasm-opt = ['-O']
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = ['-O']
