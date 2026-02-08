@@ -329,10 +329,12 @@ const FFTCanvas = ({
           for (let x = 0; x < waterfallWidth; x++) {
             const srcIdx = x * 4;
             const dstIdx = x * 4;
-            waterfallBufferRef.current[dstIdx] = colorBuffer[srcIdx];
-            waterfallBufferRef.current[dstIdx + 1] = colorBuffer[srcIdx + 1];
-            waterfallBufferRef.current[dstIdx + 2] = colorBuffer[srcIdx + 2];
-            waterfallBufferRef.current[dstIdx + 3] = 255;
+            if (waterfallBufferRef.current) {
+              waterfallBufferRef.current[dstIdx] = colorBuffer[srcIdx];
+              waterfallBufferRef.current[dstIdx + 1] = colorBuffer[srcIdx + 1];
+              waterfallBufferRef.current[dstIdx + 2] = colorBuffer[srcIdx + 2];
+              waterfallBufferRef.current[dstIdx + 3] = 255;
+            }
           }
         } catch (error) {
           console.warn(
@@ -340,14 +342,18 @@ const FFTCanvas = ({
             error,
           );
           // Fallback to original implementation
-          addWaterfallFrame(
-            waterfallBufferRef.current!,
-            normalizedData,
-            waterfallWidth,
-            waterfallHeight,
-            retuneSmearRef.current,
-            1, // driftDirection - 1 = right
-          );
+          if (waterfallBufferRef.current) {
+            addWaterfallFrame(
+              waterfallBufferRef.current,
+              normalizedData,
+              waterfallWidth,
+              waterfallHeight,
+              retuneSmearRef.current,
+              1, // driftDirection - 1 = right
+              FFT_MIN_DB,
+              FFT_MAX_DB,
+            );
+          }
         }
       } else {
         // Fallback to original implementation
@@ -359,6 +365,8 @@ const FFTCanvas = ({
             waterfallHeight,
             retuneSmearRef.current,
             1, // driftDirection - 1 = right
+            FFT_MIN_DB,
+            FFT_MAX_DB,
           );
         }
       }
@@ -368,13 +376,15 @@ const FFTCanvas = ({
       }
 
       // Draw the updated buffer
-      drawWaterfall({
-        ctx,
-        width: canvas.width,
-        height: canvas.height,
-        waterfallBuffer: waterfallBufferRef.current!,
-        frequencyRange: frequencyRangeRef.current,
-      });
+      if (waterfallBufferRef.current) {
+        drawWaterfall({
+          ctx,
+          width: canvas.width,
+          height: canvas.height,
+          waterfallBuffer: waterfallBufferRef.current,
+          frequencyRange: frequencyRangeRef.current,
+        });
+      }
     },
     [sdrProcessor],
   );

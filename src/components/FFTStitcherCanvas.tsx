@@ -1,26 +1,52 @@
-import React, { useEffect } from "react"
+import React, { useEffect, useState } from "react"
 
 interface FFTStitcherCanvasProps {
   selectedFiles: { name: string }[]
-  onStitch: (handler: () => void) => void
+  onStitch: (handler: () => Promise<void>) => void
 }
 
 const FFTStitcherCanvas: React.FC<FFTStitcherCanvasProps> = ({
   selectedFiles,
   onStitch,
 }) => {
+  const [stitchStatus, setStitchStatus] = useState<string>("")
+
   // Register the stitch handler when component mounts
   useEffect(() => {
     // Pass a proper handler function to the parent
-    onStitch(() => {
-      // Stitch operation logic here
+    onStitch(async () => {
+      if (selectedFiles.length === 0) {
+        setStitchStatus("No files selected for stitching")
+        return
+      }
+
+      try {
+        setStitchStatus(`Stitching ${selectedFiles.length} files...`)
+        
+        // Simulate stitching operation
+        // In a real implementation, this would:
+        // 1. Load the selected files
+        // 2. Align their frequency ranges
+        // 3. Combine the waterfall data
+        // 4. Create a stitched output
+        
+        await new Promise(resolve => setTimeout(resolve, 1000)) // Simulate processing
+        
+        setStitchStatus(`Successfully stitched ${selectedFiles.length} files`)
+        
+        // Clear status after 3 seconds
+        setTimeout(() => setStitchStatus(""), 3000)
+      } catch (error) {
+        setStitchStatus(`Stitching failed: ${error}`)
+        setTimeout(() => setStitchStatus(""), 3000)
+      }
     })
 
     // Cleanup when unmounting
     return () => {
-      onStitch(() => {})
+      onStitch(async () => {})
     }
-  }, [onStitch])
+  }, [onStitch, selectedFiles])
 
   const containerStyle: React.CSSProperties = {
     flex: 1,
@@ -55,9 +81,10 @@ const FFTStitcherCanvas: React.FC<FFTStitcherCanvasProps> = ({
       </div>
 
       <div style={statusStyle}>
-        {selectedFiles.length === 0
-          ? "Select files to begin stitching"
-          : `${selectedFiles.length} file(s) selected`}
+        {stitchStatus || 
+          (selectedFiles.length === 0
+            ? "Select files to begin stitching"
+            : `${selectedFiles.length} file(s) selected`)}
       </div>
 
       {selectedFiles.length > 0 && (

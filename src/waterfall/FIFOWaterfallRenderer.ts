@@ -142,6 +142,8 @@ export function addWaterfallFrame(
   height: number,
   driftAmount: number = 0,
   _driftDirection: number = 1,
+  minDb: number = -80,
+  maxDb: number = 20,
 ): void {
   // 1️⃣ Shift all old pixels down by 1 row (FIFO)
   for (let y = height - 1; y > 0; y--) {
@@ -157,16 +159,17 @@ export function addWaterfallFrame(
 
   // 2️⃣ Insert new FFT frame at top row
   for (let x = 0; x < width; x++) {
-    const amplitude = Math.min(fftFrame[x] || 0, 1) // normalize
-    const color = amplitude * 255
+    // Convert amplitude (0-1) to dB range
+    const dbValue = fftFrame[x] * (maxDb - minDb) + minDb
+    const [r, g, b] = dbToColor(dbValue, minDb, maxDb)
 
     const smear = Math.max(0, Math.min(Math.floor(driftAmount), height - 1))
     for (let dy = 0; dy <= smear; dy++) {
       const y = dy
       const i = (y * width + x) * 4
-      waterfallBuffer[i] = Math.max(waterfallBuffer[i], color) // R
-      waterfallBuffer[i + 1] = Math.max(waterfallBuffer[i + 1], color) // G
-      waterfallBuffer[i + 2] = Math.max(waterfallBuffer[i + 2], color) // B
+      waterfallBuffer[i] = Math.max(waterfallBuffer[i], r) // R
+      waterfallBuffer[i + 1] = Math.max(waterfallBuffer[i + 1], g) // G
+      waterfallBuffer[i + 2] = Math.max(waterfallBuffer[i + 2], b) // B
       waterfallBuffer[i + 3] = 255
     }
   }

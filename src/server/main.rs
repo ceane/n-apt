@@ -296,7 +296,7 @@ impl SDRProcessor {
             
             // Create signal shape (Gaussian-like profile)
             let distance_from_center = (bin_offset as f32 - half_bandwidth).abs();
-            let signal_profile = (-distance_from_center.powi(2) / (2.0 * (signal.bandwidth as f32 / 4.0).powi(2)).exp());
+            let signal_profile = (-distance_from_center.powi(2) / (2.0 * (signal.bandwidth as f32 / 4.0).powi(2))).exp();
             
             let signal_contribution = current_strength * signal_profile;
             data[bin_idx] = data[bin_idx].max(signal_contribution);
