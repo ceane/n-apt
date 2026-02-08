@@ -7,6 +7,7 @@ import { FrequencyRange } from "@n-apt/fft/FFTCanvasRenderer"
 // Mock the canvas renderers
 jest.mock("@n-apt/fft/FFTCanvasRenderer", () => ({
   drawSpectrum: jest.fn(),
+  drawSpectrumGrid: jest.fn(),
   zoomFFT: jest.fn(),
   FrequencyRange: {} as any,
 }))
