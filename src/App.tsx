@@ -14,7 +14,7 @@ import { WS_URL } from "@n-apt/consts"
 
 // Types
 type MainTab = "Spectrum" | "DrawSignal" | "Model3D" | "HotspotEditor"
-type File = { name: string }
+type SelectedFile = { name: string; file: File }
 
 const routeToMainTab = (path: string): MainTab => {
   switch (path) {
@@ -64,7 +64,7 @@ export const AppContent: React.FC = () => {
     min: 0.0,
     max: 3.2,
   })
-  const [selectedFiles, setSelectedFiles] = useState<File[]>([])
+  const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([])
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
 
   const isVisualizer = activeTab === "visualizer"
@@ -80,17 +80,14 @@ export const AppContent: React.FC = () => {
     sendPauseCommand,
   } = useWebSocket(WS_URL, isVisualizer && mainTab === "Spectrum")
 
-  // Use ref for stitch handler to avoid stale closures
-  const stitchHandlerRef = useRef<() => void | null>(null)
+  const [visualizerPaused, setVisualizerPaused] = useState(false)
+
+  const [stitchTrigger, setStitchTrigger] = useState<number>(0)
+  const [stitchSourceSettings, setStitchSourceSettings] = useState<{ gain: number; ppm: number }>({ gain: 0, ppm: 0 })
+  const [isStitchPaused, setIsStitchPaused] = useState(false)
 
   const handleStitch = useCallback(() => {
-    if (stitchHandlerRef.current) {
-      stitchHandlerRef.current()
-    } else {
-      console.error(
-        "stitchHandlerRef.current is null! Visualizer may not be ready.",
-      )
-    }
+    setStitchTrigger((prev) => prev + 1)
   }, [])
 
   const handleClear = () => {
@@ -132,11 +129,24 @@ export const AppContent: React.FC = () => {
   }
 
   // Trigger pause when leaving visualizer tab, resume when returning
+  // Only when actually switching tabs, not on every re-render
+  const prevIsVisualizerRef = useRef(isVisualizer)
   useEffect(() => {
-    if (isConnected && mainTab === "Spectrum") {
+    const prevIsVisualizer = prevIsVisualizerRef.current
+    prevIsVisualizerRef.current = isVisualizer
+    
+    // Only send pause command when visualizer state actually changes
+    if (prevIsVisualizer !== isVisualizer && isConnected && mainTab === "Spectrum") {
       sendPauseCommand(!isVisualizer)
+      if (isVisualizer) {
+        setVisualizerPaused(false)
+      }
     }
-  }, [isVisualizer, isConnected, mainTab])
+  }, [isVisualizer, isConnected, mainTab, sendPauseCommand])
+
+  const handleVisualizerPauseToggle = useCallback(() => {
+    setVisualizerPaused((p) => !p)
+  }, [])
 
   const handleSignalAreaChange = (area: string) => {
     // Only reset frequency range when switching to a different area
@@ -246,15 +256,19 @@ export const AppContent: React.FC = () => {
               <Sidebar
                 isConnected={isConnected}
                 isDeviceConnected={isDeviceConnected}
-                isPaused={isPaused}
+                isPaused={visualizerPaused}
                 activeTab={activeTab}
                 onTabChange={handleSidebarTabChange}
                 activeSignalArea={activeSignalArea}
                 onSignalAreaChange={handleSignalAreaChange}
                 onFrequencyRangeChange={handleFrequencyRangeChange}
-                onPauseToggle={() => sendPauseCommand(!isPaused)}
+                onPauseToggle={handleVisualizerPauseToggle}
                 selectedFiles={selectedFiles}
                 onSelectedFilesChange={setSelectedFiles}
+                stitchSourceSettings={stitchSourceSettings}
+                onStitchSourceSettingsChange={setStitchSourceSettings}
+                isStitchPaused={isStitchPaused}
+                onStitchPauseToggle={() => setIsStitchPaused((p) => !p)}
                 onStitch={handleStitch}
                 onClear={handleClear}
               />
@@ -265,15 +279,15 @@ export const AppContent: React.FC = () => {
                   data={data}
                   frequencyRange={frequencyRange}
                   activeSignalArea={activeSignalArea}
-                  isPaused={isPaused}
+                  isPaused={visualizerPaused}
                 />
               )}
               {isStitcher && (
                 <FFTStitcherCanvas
                   selectedFiles={selectedFiles}
-                  onStitch={(handler: () => void) => {
-                    stitchHandlerRef.current = handler
-                  }}
+                  stitchTrigger={stitchTrigger}
+                  stitchSourceSettings={stitchSourceSettings}
+                  isPaused={isStitchPaused}
                 />
               )}
               {!isVisualizer && !isStitcher && (

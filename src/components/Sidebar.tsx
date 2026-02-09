@@ -11,10 +11,11 @@ const SidebarContainer = styled.aside`
   border-right: 1px solid #1a1a1a;
   display: flex;
   flex-direction: column;
-  padding: 24px;
+  padding: calc(24px + env(safe-area-inset-top, 0px)) 24px calc(24px + env(safe-area-inset-bottom, 0px));
   overflow-y: auto;
   overflow-x: visible;
   position: relative;
+  box-sizing: border-box;
 `;
 
 const ConnectionStatusContainer = styled.div`
@@ -224,10 +225,14 @@ interface SidebarProps {
   onTabChange: (tab: string) => void;
   activeSignalArea: string;
   onSignalAreaChange: (area: string) => void;
-  onFrequencyRangeChange: (range: { min: number; max: number }) => void;
+  onFrequencyRangeChange?: (range: { min: number; max: number }) => void;
   onPauseToggle: () => void;
-  selectedFiles: { name: string }[];
-  onSelectedFilesChange: (files: { name: string }[]) => void;
+  selectedFiles: { name: string; file: File }[];
+  onSelectedFilesChange: (files: { name: string; file: File }[]) => void;
+  stitchSourceSettings: { gain: number; ppm: number };
+  onStitchSourceSettingsChange: (settings: { gain: number; ppm: number }) => void;
+  isStitchPaused: boolean;
+  onStitchPauseToggle: () => void;
   onStitch: () => void;
   onClear: () => void;
 }
@@ -246,6 +251,10 @@ const Sidebar = ({
   onSelectedFilesChange,
   onStitch,
   onClear,
+  stitchSourceSettings,
+  onStitchSourceSettingsChange,
+  isStitchPaused,
+  onStitchPauseToggle,
 }: SidebarProps) => {
   // FFT Settings state
   const [fftSize, setFftSize] = useState(103432);
@@ -257,6 +266,8 @@ const Sidebar = ({
 
   // Use refs to track last notified values to prevent excessive updates
   const lastNotifiedRangeRef = useRef({ min: 0, max: 3.2 });
+  const stitchPointerDownFiredRef = useRef(false);
+  const stitchButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const handleAreaARangeChange = useCallback(
     (range: { min: number; max: number }) => {
@@ -507,10 +518,30 @@ const Sidebar = ({
                     display: "none",
                   }}
                   id="fileInput"
-                  onChange={(e) =>
-                    e.target.files &&
-                    setSelectedFiles(Array.from(e.target.files))
-                  }
+                  onChange={(e) => {
+                    if (!e.target.files) return
+                    setSelectedFiles(
+                      Array.from(e.target.files).map((file) => ({
+                        name: file.name,
+                        file,
+                      })),
+                    )
+
+                    // After closing the native file picker, the first click can be swallowed.
+                    // Focusing the action button makes the next interaction reliable.
+                    setTimeout(() => {
+                      const btn = stitchButtonRef.current
+                      if (btn) {
+                        btn.focus()
+                        // In iframe environments (ChatGPT Atlas), also ensure the window is active
+                        if (window.focus) window.focus()
+                        // Force a layout/paint to ensure activation
+                        btn.style.transform = 'translateZ(0)'
+                        void btn.offsetWidth
+                        btn.style.transform = ''
+                      }
+                    }, 50) // Slightly longer delay for iframe contexts
+                  }}
                 />
                 <PauseButton
                   $paused={false}
@@ -529,6 +560,56 @@ const Sidebar = ({
 
           {selectedFiles.length > 0 && (
             <>
+              <Section>
+                <SectionTitle>Source settings</SectionTitle>
+                <SettingRow>
+                  <SettingLabelContainer>
+                    <SettingLabel>Gain (dB)</SettingLabel>
+                  </SettingLabelContainer>
+                  <input
+                    type="number"
+                    value={stitchSourceSettings.gain}
+                    onChange={(e) =>
+                      onStitchSourceSettingsChange({
+                        ...stitchSourceSettings,
+                        gain: Number(e.target.value) || 0,
+                      })
+                    }
+                    style={{
+                      width: "100px",
+                      background: "#111",
+                      color: "#e6e6e6",
+                      border: "1px solid #333",
+                      borderRadius: "6px",
+                      padding: "6px 8px",
+                    }}
+                  />
+                </SettingRow>
+                <SettingRow>
+                  <SettingLabelContainer>
+                    <SettingLabel>PPM</SettingLabel>
+                  </SettingLabelContainer>
+                  <input
+                    type="number"
+                    value={stitchSourceSettings.ppm}
+                    onChange={(e) =>
+                      onStitchSourceSettingsChange({
+                        ...stitchSourceSettings,
+                        ppm: Number(e.target.value) || 0,
+                      })
+                    }
+                    style={{
+                      width: "100px",
+                      background: "#111",
+                      color: "#e6e6e6",
+                      border: "1px solid #333",
+                      borderRadius: "6px",
+                      padding: "6px 8px",
+                    }}
+                  />
+                </SettingRow>
+              </Section>
+
               <Section>
                 <SectionTitle>
                   Selected files ({selectedFiles.length})
@@ -569,20 +650,40 @@ const Sidebar = ({
               </Section>
 
               <Section>
-                <div style={{ display: "flex", gap: "8px" }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                  <div style={{ display: "flex", gap: "8px" }}>
+                    <PauseButton
+                      $paused={false}
+                      ref={stitchButtonRef}
+                      onPointerDown={() => {
+                        stitchPointerDownFiredRef.current = true
+                        onStitch()
+                      }}
+                      onClick={() => {
+                        if (stitchPointerDownFiredRef.current) {
+                          stitchPointerDownFiredRef.current = false
+                          return
+                        }
+                        onStitch()
+                      }}
+                      style={{ flex: 1 }}
+                    >
+                      Stitch spectrum
+                    </PauseButton>
+                    <PauseButton
+                      $paused={false}
+                      onClick={() => onClear()}
+                      style={{ flex: 1, background: "transparent" }}
+                    >
+                      Clear
+                    </PauseButton>
+                  </div>
                   <PauseButton
-                    $paused={false}
-                    onClick={() => onStitch()}
-                    style={{ flex: 1 }}
+                    $paused={isStitchPaused}
+                    onClick={onStitchPauseToggle}
+                    style={{ width: "100%" }}
                   >
-                    Stitch spectrum
-                  </PauseButton>
-                  <PauseButton
-                    $paused={false}
-                    onClick={() => onClear()}
-                    style={{ flex: 1, background: "transparent" }}
-                  >
-                    Clear
+                    {isStitchPaused ? "Resume" : "Pause"}
                   </PauseButton>
                 </div>
               </Section>

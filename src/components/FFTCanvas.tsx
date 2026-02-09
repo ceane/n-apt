@@ -467,34 +467,34 @@ const FFTCanvas = ({
 
   /**
    * Animation loop for continuous spectrum and waterfall updates
+   * While paused: keep rendering the last cached waveform without ingesting new data.
    */
   const animate = useCallback(() => {
-    if (isPaused) return;
-
     const spectrumCanvas = spectrumCanvasRef.current;
     const spectrumGpuCanvas = spectrumGpuCanvasRef.current;
     const waterfallCanvas = waterfallCanvasRef.current;
     const waterfallGpuCanvas = waterfallGpuCanvasRef.current;
 
     const currentData = dataRef.current;
-    if (currentData?.waveform) {
+
+    // Update cache only when not paused
+    if (!isPaused && currentData?.waveform) {
       const waveform = ensureFloat32Waveform(currentData.waveform);
       if (currentData !== lastProcessedDataRef.current) {
         waveformFloatRef.current = waveform;
+        lastProcessedDataRef.current = currentData;
       }
+    }
 
-      if (
-        webgpuEnabled &&
-        spectrumRendererRef.current &&
-        spectrumGpuCanvas
-      ) {
+    const waveform = waveformFloatRef.current;
+    if (waveform) {
+      // Spectrum render
+      if (webgpuEnabled && spectrumRendererRef.current && spectrumGpuCanvas) {
         const rect = spectrumGpuCanvas.parentElement?.getBoundingClientRect();
         const width = rect?.width || spectrumGpuCanvas.width;
         const height = rect?.height || spectrumGpuCanvas.height;
 
-        spectrumRendererRef.current.updateWaveform(
-          waveformFloatRef.current || waveform,
-        );
+        spectrumRendererRef.current.updateWaveform(waveform);
         spectrumRendererRef.current.render({
           canvasWidth: width,
           canvasHeight: height,
@@ -510,10 +510,11 @@ const FFTCanvas = ({
           backgroundColor: "rgba(0, 0, 0, 0)",
         });
       } else if (spectrumCanvas) {
-        renderSpectrum(spectrumCanvas, currentData.waveform);
+        renderSpectrum(spectrumCanvas, Array.from(waveform));
       }
 
-      if (currentData !== lastProcessedDataRef.current) {
+      // Waterfall render (only push new lines when not paused)
+      if (!isPaused && currentData) {
         if (
           webgpuEnabled &&
           waterfallRendererRef.current &&
@@ -568,12 +569,11 @@ const FFTCanvas = ({
             }
           }
         } else if (waterfallCanvas) {
-          renderWaterfall(waterfallCanvas, currentData.waveform);
+          renderWaterfall(waterfallCanvas, Array.from(waveform));
         }
-
-        lastProcessedDataRef.current = currentData;
       }
 
+      // Always render existing waterfall buffer (WebGPU)
       if (
         webgpuEnabled &&
         waterfallRendererRef.current &&

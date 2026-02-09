@@ -1,0 +1,4 @@
+# Block files containing sensitive patterns
+*.filter filter=secret
+*.key filter=secret
+config.* filter=secret

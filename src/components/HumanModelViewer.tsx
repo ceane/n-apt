@@ -23,6 +23,12 @@ const areas: Area[] = [
   {
     name: "Head",
     position: [-0.005256929115666855, 1.888884291818077, 0.6546510577135781],
+    target: [-0.0001, 1.91, 0.0196510577135781],
+    meshName: "o_ADBody",
+  },
+  {
+    name: "Face",
+    position: [-0.005256929115666855, 1.888884291818077, 0.6546510577135781],
     target: [-0.005256929115666855, 1.888884291818077, 0.1546510577135781],
     meshName: "o_ADBody",
   },
@@ -30,6 +36,12 @@ const areas: Area[] = [
     name: "Throat",
     position: [0.007886413129995381, 1.7673426681304798, 0.3609346531290654],
     target: [0.007886413129995381, 1.7673426681304798, 0.0609346531290654],
+    meshName: "o_ADBody",
+  },
+  {
+    name: "Vocal Cords",
+    position: [0.00, 1.79, 0.32],
+    target: [0.00, 1.81, 0.06],
     meshName: "o_ADBody",
   },
   {
@@ -139,9 +151,9 @@ function Model({ selectedArea }: { selectedArea: Area | null }) {
             <meshStandardMaterial
               color={SPHERE_MARKER_COLOR}
               emissive={SPHERE_MARKER_COLOR}
-              emissiveIntensity={SPHERE_MARKER_BASE_INTENSITY}
+              emissiveIntensity={selectedArea.name === "Head" ? 0 : SPHERE_MARKER_BASE_INTENSITY}
               transparent
-              opacity={0.4}
+              opacity={selectedArea.name === "Head" ? 0 : 0.4}
             />
           </mesh>
           <mesh>
@@ -186,6 +198,62 @@ const HumanModelViewer: React.FC<HumanModelViewerProps> = ({
   const [selectedArea, setSelectedArea] = useState<Area | null>(null)
   const controlsRef = useRef<any>(null)
 
+  const panelStyle: React.CSSProperties = {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    width: CONTROL_PANEL_WIDTH,
+    height: "100%",
+    color: "white",
+    padding: "12px",
+    zIndex: 1,
+    background: "rgba(10, 10, 12, 0.78)",
+    borderRight: "1px solid rgba(255,255,255,0.10)",
+    boxShadow: "0 20px 60px rgba(0,0,0,0.55)",
+    backdropFilter: "blur(10px)",
+    WebkitBackdropFilter: "blur(10px)",
+    display: "flex",
+    flexDirection: "column",
+    gap: "10px",
+  }
+
+  const listStyle: React.CSSProperties = {
+    display: "flex",
+    flexDirection: "column",
+    gap: "6px",
+    overflowY: "auto",
+    paddingRight: "4px",
+  }
+
+  const baseButtonStyle: React.CSSProperties = {
+    width: "100%",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "10px",
+    padding: "10px 10px",
+    borderRadius: "10px",
+    border: "1px solid rgba(255,255,255,0.10)",
+    background: "rgba(255,255,255,0.06)",
+    color: "rgba(255,255,255,0.92)",
+    fontSize: "13px",
+    lineHeight: 1.1,
+    textAlign: "left",
+    cursor: "pointer",
+    userSelect: "none",
+    transition:
+      "background 120ms ease, border-color 120ms ease, transform 120ms ease, box-shadow 120ms ease",
+  }
+
+  const getButtonStyle = (isSelected: boolean): React.CSSProperties => ({
+    ...baseButtonStyle,
+    background: isSelected ? "rgba(123, 97, 255, 0.22)" : baseButtonStyle.background,
+    borderColor: (isSelected
+      ? "rgba(123, 97, 255, 0.55)"
+      : "rgba(255,255,255,0.10)") as React.CSSProperties["borderColor"],
+    boxShadow: isSelected ? "0 0 0 1px rgba(123, 97, 255, 0.25)" : "none",
+  })
+
   useEffect(() => {
     if (selectedArea && controlsRef.current) {
       gsap.to(controlsRef.current.object.position, {
@@ -206,29 +274,89 @@ const HumanModelViewer: React.FC<HumanModelViewerProps> = ({
 
   return (
     <div style={{ position: "relative", width, height }}>
-      <div
-        style={{
-          position: "absolute",
-          left: 0,
-          top: 0,
-          width: CONTROL_PANEL_WIDTH,
-          height: "100%",
-          background: "rgba(0,0,0,0.8)",
-          color: "white",
-          padding: "10px",
-          zIndex: 1,
-        }}
-      >
-        <h3>Body Areas</h3>
-        {areas.map((area) => (
-          <button
-            key={area.name}
-            onClick={() => setSelectedArea(area)}
-            style={{ display: "block", margin: "5px 0", width: "100%" }}
+      <div style={panelStyle}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+          <div
+            style={{
+              fontSize: "12px",
+              letterSpacing: "0.08em",
+              textTransform: "uppercase",
+              color: "rgba(255,255,255,0.70)",
+            }}
           >
-            {area.name}
-          </button>
-        ))}
+            Body Areas
+          </div>
+          <div style={{ fontSize: "11px", color: "rgba(255,255,255,0.50)" }}>
+            Click an area to focus the camera
+          </div>
+        </div>
+
+        <div style={listStyle}>
+          {areas.map((area) => {
+            const isSelected = selectedArea?.name === area.name
+
+            return (
+              <button
+                key={area.name}
+                onClick={() => setSelectedArea(area)}
+                aria-pressed={isSelected}
+                style={getButtonStyle(isSelected)}
+                onMouseDown={(e) => e.currentTarget.style.setProperty("transform", "scale(0.99)")}
+                onMouseUp={(e) => e.currentTarget.style.removeProperty("transform")}
+                onMouseLeave={(e) => e.currentTarget.style.removeProperty("transform")}
+                onMouseEnter={(e) => {
+                  if (!isSelected) {
+                    e.currentTarget.style.background = "rgba(255,255,255,0.10)"
+                    e.currentTarget.style.borderColor = "rgba(255,255,255,0.18)"
+                  }
+                }}
+                onMouseOut={(e) => {
+                  if (!isSelected) {
+                    e.currentTarget.style.background = "rgba(255,255,255,0.06)"
+                    e.currentTarget.style.borderColor = "rgba(255,255,255,0.10)"
+                  }
+                }}
+                onFocus={(e) => {
+                  e.currentTarget.style.boxShadow =
+                    "0 0 0 3px rgba(123, 97, 255, 0.35), 0 0 0 1px rgba(123, 97, 255, 0.35) inset"
+                  e.currentTarget.style.outline = "none"
+                }}
+                onBlur={(e) => {
+                  e.currentTarget.style.boxShadow = isSelected
+                    ? "0 0 0 1px rgba(123, 97, 255, 0.25)"
+                    : "none"
+                }}
+              >
+                <span style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                  <span
+                    aria-hidden
+                    style={{
+                      width: "4px",
+                      height: "14px",
+                      borderRadius: "999px",
+                      background: isSelected
+                        ? "rgba(123, 97, 255, 0.95)"
+                        : "rgba(255,255,255,0.18)",
+                    }}
+                  />
+                  <span>{area.name}</span>
+                </span>
+
+                <span
+                  aria-hidden
+                  style={{
+                    fontSize: "14px",
+                    color: isSelected ? "rgba(255,255,255,0.85)" : "rgba(255,255,255,0.35)",
+                    transform: isSelected ? "translateX(0)" : "translateX(-2px)",
+                    transition: "transform 120ms ease, color 120ms ease",
+                  }}
+                >
+                  ›
+                </span>
+              </button>
+            )
+          })}
+        </div>
       </div>
       <Canvas
         style={{
