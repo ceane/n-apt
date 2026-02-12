@@ -180,6 +180,7 @@ const FFTCanvas = ({
   const webgpuDeviceRef = useRef<GPUDevice | null>(null);
   const webgpuFormatRef = useRef<GPUTextureFormat | null>(null);
   const [webgpuEnabled, setWebgpuEnabled] = useState(false);
+  const spectrumWebgpuEnabled = false;
 
   /**
    * Renders spectrum data using FFTCanvasRenderer
@@ -489,7 +490,7 @@ const FFTCanvas = ({
     const waveform = waveformFloatRef.current;
     if (waveform) {
       // Spectrum render
-      if (webgpuEnabled && spectrumRendererRef.current && spectrumGpuCanvas) {
+      if (spectrumWebgpuEnabled && spectrumRendererRef.current && spectrumGpuCanvas) {
         const rect = spectrumGpuCanvas.parentElement?.getBoundingClientRect();
         const width = rect?.width || spectrumGpuCanvas.width;
         const height = rect?.height || spectrumGpuCanvas.height;
@@ -651,7 +652,7 @@ const FFTCanvas = ({
         });
       }
     }
-  }, [frequencyRange.min, frequencyRange.max, webgpuEnabled]);
+  }, [frequencyRange.min, frequencyRange.max, spectrumWebgpuEnabled]);
 
   useEffect(() => {
     const spectrumCanvas = spectrumCanvasRef.current;
@@ -682,7 +683,7 @@ const FFTCanvas = ({
           const ctx = spectrumCanvas.getContext("2d");
           if (ctx) {
             ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-            if (webgpuEnabled) {
+            if (spectrumWebgpuEnabled) {
               ctx.clearRect(0, 0, spectrumRect.width, spectrumRect.height);
             }
             drawSpectrumGrid({
@@ -692,12 +693,12 @@ const FFTCanvas = ({
               frequencyRange: frequencyRangeRef.current,
               fftMin: FFT_MIN_DB,
               fftMax: FFT_MAX_DB,
-              clearBackground: !webgpuEnabled,
+              clearBackground: !spectrumWebgpuEnabled,
             });
           }
         }
 
-        if (spectrumGpuCanvas && spectrumRendererRef.current) {
+        if (spectrumWebgpuEnabled && spectrumGpuCanvas && spectrumRendererRef.current) {
           spectrumRendererRef.current.resize(
             spectrumRect.width,
             spectrumRect.height,
@@ -780,7 +781,7 @@ const FFTCanvas = ({
         cancelAnimationFrame(animationFrameRef.current);
       }
     };
-  }, [animate, webgpuEnabled]);
+  }, [animate, webgpuEnabled, spectrumWebgpuEnabled]);
 
   return (
     <VisualizerContainer>
@@ -789,7 +790,7 @@ const FFTCanvas = ({
         <CanvasWrapper>
           <CanvasLayer
             ref={spectrumGpuCanvasRef}
-            style={{ display: webgpuEnabled ? "block" : "none", zIndex: 1 }}
+            style={{ display: spectrumWebgpuEnabled ? "block" : "none", zIndex: 1 }}
           />
           <CanvasLayer
             ref={spectrumCanvasRef}

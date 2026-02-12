@@ -6,6 +6,14 @@ export type FrequencyRange = {
   max: number
 }
 
+export type SDRSettings = {
+  fftSize?: number
+  fftWindow?: string
+  frameRate?: number
+  gain?: number
+  ppm?: number
+}
+
 export type WebSocketData = {
   isConnected: boolean
   isDeviceConnected: boolean
@@ -14,6 +22,7 @@ export type WebSocketData = {
   error: string | null
   sendFrequencyRange: (range: FrequencyRange) => void
   sendPauseCommand: (isPaused: boolean) => void
+  sendSettings: (settings: SDRSettings) => void
 }
 
 // Hook implementation
@@ -69,7 +78,7 @@ export const useWebSocket = (
                 const type = parsedData.type
 
                 if (type === "status") {
-                  const deviceConnected = parsedData.deviceConnected || false
+                  const deviceConnected = parsedData.device_connected ?? parsedData.deviceConnected ?? false
                   const paused = parsedData.paused || false
                   setIsDeviceConnected(deviceConnected)
                   setIsPaused(paused)
@@ -184,6 +193,18 @@ export const useWebSocket = (
     }
   }, [])
 
+  // Function to send settings updates to the server
+  const sendSettings = useCallback((settings: SDRSettings) => {
+    const ws = wsRef.current
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      const message = JSON.stringify({
+        type: "settings",
+        ...settings,
+      })
+      ws.send(message)
+    }
+  }, [])
+
   return {
     isConnected,
     isDeviceConnected,
@@ -192,5 +213,6 @@ export const useWebSocket = (
     error,
     sendFrequencyRange,
     sendPauseCommand,
+    sendSettings,
   }
 }
