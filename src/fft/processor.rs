@@ -50,7 +50,7 @@ impl Default for EnhancedFFTConfig {
             fft_max: 0.0,
             waterfall_min: -80.0,
             waterfall_max: 0.0,
-            window_type: WindowType::Hanning,
+            window_type: WindowType::Rectangular,
             zoom_offset: 0,
             zoom_width: NUM_SAMPLES,
         }
@@ -281,22 +281,31 @@ impl FFTProcessor {
       }
     }
 
-    // Apply window function (SDR++ style)
+    // Apply window function to both real and imaginary parts (SDR++ style)
     if self.config.window_type != WindowType::None {
-      let mut real_samples: Vec<f32> = buf.iter().map(|c| c.re).collect();
-      crate::fft::apply_window(&mut real_samples, self.config.window_type);
-      for (i, sample) in real_samples.iter().enumerate() {
-        buf[i].re = *sample;
+      let len = buf.len();
+      let mut window = vec![1.0f32; len];
+      crate::fft::apply_window(&mut window, self.config.window_type);
+      for (i, w) in window.iter().enumerate() {
+        buf[i].re *= w;
+        buf[i].im *= w;
       }
     }
 
     // Perform FFT
     self.fft.process(&mut buf);
 
-    // Calculate power spectrum (log scale)
+    // FFT shift: swap first and second halves so DC is centered
+    let half = self.config.fft_size / 2;
+    for i in 0..half {
+      buf.swap(i, i + half);
+    }
+
+    // Calculate power spectrum (log scale) with FFT normalization
+    let norm = (self.config.fft_size as f32) * (self.config.fft_size as f32);
     let mut power = Vec::with_capacity(self.config.fft_size);
     for c in buf {
-      let mag = c.norm_sqr();
+      let mag = c.norm_sqr() / norm;
       power.push(10.0 * mag.log10().max(-120.0));
     }
 

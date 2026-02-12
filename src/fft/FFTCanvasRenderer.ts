@@ -12,7 +12,7 @@
  *                        ^
  *                        trough
  *
- * FFT output:   [3.2, 0.1, 1.8, 0.5]  ← amplitude at each frequency
+ * FFT output:   [3.2, 0.1, ...]  ← amplitude at each frequency
  *
  * Think of radio signals like music - they're made of many notes (frequencies)
  * playing at once. Fast Fourier Transform (FFT) is like a musical ear that
@@ -250,54 +250,37 @@ export function drawSpectrumTrace(options: SpectrumRenderOptions): void {
     return FFT_AREA_MIN.x + (idx / (dataWidth - 1)) * plotWidth
   }
 
-  ctx.fillStyle = SHADOW_COLOR
-  for (let i = 1; i < dataWidth; i++) {
-    const aPos = fftAreaMax.y - (waveform[i - 1] - fftMin) * scaleFactor
-    const bPos = fftAreaMax.y - (waveform[i] - fftMin) * scaleFactor
-    const clampedAPos = Math.max(
-      FFT_AREA_MIN.y + 1,
-      Math.min(fftAreaMax.y, aPos),
-    )
-    const clampedBPos = Math.max(
-      FFT_AREA_MIN.y + 1,
-      Math.min(fftAreaMax.y, bPos),
-    )
-    const ax = idxToX(i - 1)
-    const bx = idxToX(i)
-
-    ctx.beginPath()
-    ctx.moveTo(Math.round(ax), Math.round(clampedAPos))
-    ctx.lineTo(Math.round(bx), Math.round(clampedBPos))
-    ctx.lineTo(Math.round(bx), fftAreaMax.y)
-    ctx.lineTo(Math.round(ax), fftAreaMax.y)
-    ctx.closePath()
-    ctx.fill()
+  const clampY = (dbVal: number) => {
+    const y = fftAreaMax.y - (dbVal - fftMin) * scaleFactor
+    return Math.max(FFT_AREA_MIN.y + 1, Math.min(fftAreaMax.y, y))
   }
 
+  // Draw fill: single path tracing the line, then closing along the bottom
+  ctx.fillStyle = SHADOW_COLOR
+  ctx.beginPath()
+  ctx.moveTo(Math.round(idxToX(0)), fftAreaMax.y)
+  for (let i = 0; i < dataWidth; i++) {
+    ctx.lineTo(Math.round(idxToX(i)), Math.round(clampY(waveform[i])))
+  }
+  ctx.lineTo(Math.round(idxToX(dataWidth - 1)), fftAreaMax.y)
+  ctx.closePath()
+  ctx.fill()
+
+  // Draw trace line on top
   ctx.strokeStyle = LINE_COLOR
   ctx.lineWidth = width < 700 ? 0.5 : 1.5
   ctx.lineJoin = "round"
   ctx.lineCap = "round"
 
   ctx.beginPath()
-  for (let i = 1; i < dataWidth; i++) {
-    const aPos = fftAreaMax.y - (waveform[i - 1] - fftMin) * scaleFactor
-    const bPos = fftAreaMax.y - (waveform[i] - fftMin) * scaleFactor
-    const clampedAPos = Math.max(
-      FFT_AREA_MIN.y + 1,
-      Math.min(fftAreaMax.y, aPos),
-    )
-    const clampedBPos = Math.max(
-      FFT_AREA_MIN.y + 1,
-      Math.min(fftAreaMax.y, bPos),
-    )
-    const ax = idxToX(i - 1)
-    const bx = idxToX(i)
-
-    if (i === 1) {
-      ctx.moveTo(Math.round(ax), Math.round(clampedAPos))
+  for (let i = 0; i < dataWidth; i++) {
+    const x = Math.round(idxToX(i))
+    const y = Math.round(clampY(waveform[i]))
+    if (i === 0) {
+      ctx.moveTo(x, y)
+    } else {
+      ctx.lineTo(x, y)
     }
-    ctx.lineTo(Math.round(bx), Math.round(clampedBPos))
   }
   ctx.stroke()
 }

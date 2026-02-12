@@ -1,7 +1,8 @@
-import { useRef, useCallback, useState } from "react";
+import { useRef, useCallback, useState, useEffect } from "react";
 import styled from "styled-components";
 import InfoPopover from "@n-apt/components/InfoPopover";
 import FrequencyRangeSlider from "@n-apt/components/FrequencyRangeSlider";
+import type { SDRSettings } from "@n-apt/hooks/useWebSocket";
 
 const SidebarContainer = styled.aside`
   width: 360px;
@@ -227,6 +228,7 @@ interface SidebarProps {
   onSignalAreaChange: (area: string) => void;
   onFrequencyRangeChange?: (range: { min: number; max: number }) => void;
   onPauseToggle: () => void;
+  onSettingsChange?: (settings: SDRSettings) => void;
   selectedFiles: { name: string; file: File }[];
   onSelectedFilesChange: (files: { name: string; file: File }[]) => void;
   stitchSourceSettings: { gain: number; ppm: number };
@@ -247,6 +249,7 @@ const Sidebar = ({
   onSignalAreaChange,
   onFrequencyRangeChange,
   onPauseToggle,
+  onSettingsChange,
   selectedFiles,
   onSelectedFilesChange,
   onStitch,
@@ -256,10 +259,45 @@ const Sidebar = ({
   isStitchPaused,
   onStitchPauseToggle,
 }: SidebarProps) => {
-  // FFT Settings state
-  const [fftSize, setFftSize] = useState(103432);
+  // FFT Settings state — defaults match SDR++ reference settings
+  const [fftSize, setFftSize] = useState(131072);
   const [fftWindow, setFftWindow] = useState("Rectangular");
   const [fftFrameRate, setFftFrameRate] = useState(60);
+  const [gain, setGain] = useState(49.6);
+  const [ppm, setPpm] = useState(1);
+
+  // Send initial settings on mount when connected
+  const initialSettingsSent = useRef(false);
+  useEffect(() => {
+    if (isConnected && isDeviceConnected && !initialSettingsSent.current) {
+      initialSettingsSent.current = true;
+      onSettingsChange?.({
+        fftSize,
+        fftWindow,
+        frameRate: fftFrameRate,
+        gain,
+        ppm,
+      });
+    }
+    if (!isConnected) {
+      initialSettingsSent.current = false;
+    }
+  }, [isConnected, isDeviceConnected, fftSize, fftWindow, fftFrameRate, gain, ppm, onSettingsChange]);
+
+  // Helper to send settings on any control change
+  const sendCurrentSettings = useCallback(
+    (overrides: Partial<SDRSettings> = {}) => {
+      onSettingsChange?.({
+        fftSize,
+        fftWindow,
+        frameRate: fftFrameRate,
+        gain,
+        ppm,
+        ...overrides,
+      });
+    },
+    [fftSize, fftWindow, fftFrameRate, gain, ppm, onSettingsChange],
+  );
 
   // Stitcher state (using props to sync with App component)
   const setSelectedFiles = onSelectedFilesChange;
@@ -404,13 +442,16 @@ const Sidebar = ({
               </SettingLabelContainer>
               <SettingSelect
                 value={fftSize}
-                onChange={(e) => setFftSize(Number(e.target.value))}
+                onChange={(e) => {
+                  const val = Number(e.target.value);
+                  setFftSize(val);
+                  sendCurrentSettings({ fftSize: val });
+                }}
               >
                 <option value={8192}>8192</option>
                 <option value={16384}>16384</option>
                 <option value={32768}>32768</option>
                 <option value={65536}>65536</option>
-                <option value={103432}>103432</option>
                 <option value={131072}>131072</option>
                 <option value={262144}>262144</option>
               </SettingSelect>
@@ -425,9 +466,15 @@ const Sidebar = ({
               </SettingLabelContainer>
               <SettingSelect
                 value={fftWindow}
-                onChange={(e) => setFftWindow(e.target.value)}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setFftWindow(val);
+                  sendCurrentSettings({ fftWindow: val });
+                }}
               >
                 <option value="Rectangular">Rectangular</option>
+                <option value="Hanning">Hanning</option>
+                <option value="Hamming">Hamming</option>
                 <option value="Blackman">Blackman</option>
                 <option value="Nuttall">Nuttall</option>
               </SettingSelect>
@@ -446,11 +493,11 @@ const Sidebar = ({
                 <SettingInput
                   type="number"
                   value={fftFrameRate}
-                  onChange={(e) =>
-                    setFftFrameRate(
-                      Math.max(1, Math.min(120, Number(e.target.value) || 1)),
-                    )
-                  }
+                  onChange={(e) => {
+                    const val = Math.max(1, Math.min(120, Number(e.target.value) || 1));
+                    setFftFrameRate(val);
+                    sendCurrentSettings({ frameRate: val });
+                  }}
                   min="1"
                   max="120"
                 />
@@ -470,27 +517,49 @@ const Sidebar = ({
                 <SettingLabel>PPM</SettingLabel>
                 <InfoPopover
                   title="PPM Correction"
-                  content="Neque porro quisquam est, qui dolorem ipsum quia dolor sit amet, consectetur, adipisci velit."
+                  content="Parts per million frequency correction for your RTL-SDR oscillator."
                 />
               </SettingLabelContainer>
-              <SettingValue>1</SettingValue>
+              <SettingInput
+                type="number"
+                value={ppm}
+                onChange={(e) => {
+                  const val = Number(e.target.value) || 0;
+                  setPpm(val);
+                  sendCurrentSettings({ ppm: val });
+                }}
+                style={{ width: "60px" }}
+              />
             </SettingRow>
             <SettingRow>
               <SettingLabelContainer>
                 <SettingLabel>Gain</SettingLabel>
                 <InfoPopover
                   title="Gain Setting"
-                  content="Quis autem vel eum iure reprehenderit qui in ea voluptate velit esse quam nihil molestiae consequatur."
+                  content="Hardware tuner gain in dB. Higher values bring out weaker signals but increase noise."
                 />
               </SettingLabelContainer>
-              <SettingValue>+49.06dB</SettingValue>
+              <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                <SettingInput
+                  type="number"
+                  value={gain}
+                  onChange={(e) => {
+                    const val = Number(e.target.value) || 0;
+                    setGain(val);
+                    sendCurrentSettings({ gain: val });
+                  }}
+                  step="0.1"
+                  style={{ width: "60px" }}
+                />
+                <span style={{ fontSize: "12px", color: "#ccc", fontWeight: "500" }}>dB</span>
+              </div>
             </SettingRow>
             <SettingRow>
               <SettingLabelContainer>
                 <SettingLabel>Bandwidth</SettingLabel>
                 <InfoPopover
                   title="Bandwidth"
-                  content="At vero eos et accusamus et iusto odio dignissimos ducimus qui blanditiis praesentium voluptatum."
+                  content="Sample rate / bandwidth of the RTL-SDR device."
                 />
               </SettingLabelContainer>
               <SettingValue>3.2MHz (max)</SettingValue>

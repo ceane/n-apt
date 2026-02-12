@@ -1,6 +1,8 @@
 // Library exports for testing
 pub mod consts;
 pub mod fft;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod rtlsdr;
 pub mod wasm_simd;
 
 #[cfg(target_arch = "wasm32")]

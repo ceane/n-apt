@@ -9,9 +9,9 @@ path = "src/lib.rs"
 crate-type = ["cdylib", "rlib"]
 doctest = false
 
-# [[bin]]
-# name = "n-apt-backend"
-# path = "src/server/main.rs"
+[[bin]]
+name = "n-apt-backend"
+path = "src/server/main.rs"
 
 [[test]]
 name = "fft_processor_tests"
@@ -37,7 +37,7 @@ tokio = { version = "1.0", features = ["full"] }
 tokio-tungstenite = "0.20"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-# rtl-sdr = "0.1.5"
+# RTL-SDR: linked via build.rs FFI (librtlsdr)
 log = "0.4"
 env_logger = "0.10"
 futures-util = "0.3"

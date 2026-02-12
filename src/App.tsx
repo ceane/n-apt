@@ -78,6 +78,7 @@ export const AppContent: React.FC = () => {
     data,
     sendFrequencyRange,
     sendPauseCommand,
+    sendSettings,
   } = useWebSocket(WS_URL, isVisualizer && mainTab === "Spectrum")
 
   const [visualizerPaused, setVisualizerPaused] = useState(false)
@@ -263,6 +264,7 @@ export const AppContent: React.FC = () => {
                 onSignalAreaChange={handleSignalAreaChange}
                 onFrequencyRangeChange={handleFrequencyRangeChange}
                 onPauseToggle={handleVisualizerPauseToggle}
+                onSettingsChange={sendSettings}
                 selectedFiles={selectedFiles}
                 onSelectedFilesChange={setSelectedFiles}
                 stitchSourceSettings={stitchSourceSettings}
