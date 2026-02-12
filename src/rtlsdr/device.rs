@@ -4,7 +4,7 @@
 //! proper error handling and resource cleanup.
 
 use anyhow::{anyhow, Result};
-use log::{info, warn};
+use log::{debug, info, warn};
 use std::ffi::CStr;
 use std::os::raw::c_int;
 use std::ptr;
@@ -79,7 +79,7 @@ impl RtlSdrDevice {
         if ret != 0 {
             return Err(anyhow!("Failed to set center frequency to {} Hz", freq));
         }
-        info!("Center frequency set to {} Hz", freq);
+        debug!("Center frequency set to {} Hz", freq);
         Ok(())
     }
 
@@ -117,7 +117,7 @@ impl RtlSdrDevice {
         if ret != 0 {
             return Err(anyhow!("Failed to set tuner gain to {} (tenths dB)", gain));
         }
-        info!("Tuner gain set to {:.1} dB", gain as f32 / 10.0);
+        debug!("Tuner gain set to {:.1} dB", gain as f32 / 10.0);
         Ok(())
     }
 
@@ -146,7 +146,7 @@ impl RtlSdrDevice {
         if ret != 0 {
             return Err(anyhow!("Failed to set AGC mode"));
         }
-        info!("AGC mode {}", if enabled { "enabled" } else { "disabled" });
+        debug!("AGC mode {}", if enabled { "enabled" } else { "disabled" });
         Ok(())
     }
 
@@ -195,6 +195,46 @@ impl RtlSdrDevice {
         Ok(buf)
     }
 
+    /// Read IQ samples synchronously into a pre-allocated buffer (zero-copy)
+    ///
+    /// Returns the number of bytes actually read.
+    /// `buf` should be a multiple of 512 bytes for best performance.
+    pub fn read_sync_into(&self, buf: &mut [u8]) -> Result<usize> {
+        let mut n_read: c_int = 0;
+        let ret = unsafe {
+            ffi::rtlsdr_read_sync(
+                self.dev,
+                buf.as_mut_ptr() as *mut std::os::raw::c_void,
+                buf.len() as c_int,
+                &mut n_read,
+            )
+        };
+        if ret != 0 {
+            return Err(anyhow!("Synchronous read failed (error code: {})", ret));
+        }
+        Ok(n_read as usize)
+    }
+
+    /// Get the raw device pointer for sharing with the async reader thread.
+    ///
+    /// SAFETY: The pointer is only valid while the device is open.
+    /// Caller must ensure cancel_async() + join before dropping the device.
+    pub fn raw_ptr(&self) -> *mut ffi::RtlSdrDev {
+        self.dev
+    }
+
+    /// Cancel an ongoing async read. Must be called from a different thread
+    /// than the one running read_async. After this returns, the read_async
+    /// call on the reader thread will unblock and return.
+    pub fn cancel_async(&self) -> Result<()> {
+        info!("Cancelling async read...");
+        let ret = unsafe { ffi::rtlsdr_cancel_async(self.dev) };
+        if ret != 0 {
+            return Err(anyhow!("Cancel async failed (error code: {})", ret));
+        }
+        Ok(())
+    }
+
     /// Get a formatted device info string
     pub fn get_device_info(&self) -> String {
         let name = Self::get_device_name(self.device_index);
@@ -216,9 +256,12 @@ impl RtlSdrDevice {
 impl Drop for RtlSdrDevice {
     fn drop(&mut self) {
         if !self.dev.is_null() {
-            info!("Closing RTL-SDR device #{}", self.device_index);
-            unsafe {
-                ffi::rtlsdr_close(self.dev);
+            info!("Closing RTL-SDR device #{}...", self.device_index);
+            let ret = unsafe { ffi::rtlsdr_close(self.dev) };
+            if ret != 0 {
+                warn!("rtlsdr_close returned error code {} for device #{}", ret, self.device_index);
+            } else {
+                info!("RTL-SDR device #{} closed successfully", self.device_index);
             }
             self.dev = ptr::null_mut();
         }

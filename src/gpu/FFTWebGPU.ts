@@ -1,4 +1,5 @@
 import { configureWebGPUCanvas, parseCssColorToRgba } from "./webgpu"
+import type { OverlayTextureRenderer } from "./OverlayTextureRenderer"
 
 const spectrumShader = `
 @group(0) @binding(0) var<storage, read> waveform: array<f32>;
@@ -194,7 +195,13 @@ export class FFTWebGPU {
     this.device.queue.writeBuffer(this.waveformBuffer, 0, data)
   }
 
-  render(params: SpectrumRenderParams): void {
+  render(
+    params: SpectrumRenderParams,
+    overlays?: {
+      pre?: OverlayTextureRenderer | null
+      post?: OverlayTextureRenderer | null
+    },
+  ): void {
     if (!this.waveformBuffer || this.waveformLength < 2) return
 
     const plotMinX = (params.plotLeft / params.canvasWidth) * 2 - 1
@@ -241,6 +248,11 @@ export class FFTWebGPU {
       ],
     })
 
+    // Draw underlay first (e.g. grid)
+    if (overlays?.pre) {
+      overlays.pre.renderInPass(pass)
+    }
+
     pass.setBindGroup(0, this.bindGroup)
 
     pass.setPipeline(this.pipelineFill)
@@ -248,6 +260,11 @@ export class FFTWebGPU {
 
     pass.setPipeline(this.pipelineLine)
     pass.draw(this.waveformLength)
+
+    // Draw overlay last (e.g. markers/labels)
+    if (overlays?.post) {
+      overlays.post.renderInPass(pass)
+    }
 
     pass.end()
     this.device.queue.submit([encoder.finish()])

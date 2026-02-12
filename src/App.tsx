@@ -64,6 +64,9 @@ export const AppContent: React.FC = () => {
     min: 0.0,
     max: 3.2,
   })
+  const [displayTemporalResolution, setDisplayTemporalResolution] = useState<
+    "low" | "medium" | "high"
+  >("medium")
   const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([])
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
 
@@ -74,7 +77,9 @@ export const AppContent: React.FC = () => {
   const {
     isConnected,
     isDeviceConnected,
-    isPaused,
+    backend,
+    deviceInfo,
+    serverPaused,
     data,
     sendFrequencyRange,
     sendPauseCommand,
@@ -155,9 +160,13 @@ export const AppContent: React.FC = () => {
       setActiveSignalArea(area)
       // Update frequency range based on selected area
       if (area === "A") {
-        setFrequencyRange({ min: 0.0, max: 3.2 })
+        const nextRange = { min: 0.0, max: 3.2 }
+        setFrequencyRange(nextRange)
+        sendFrequencyRange(nextRange)
       } else if (area === "B") {
-        setFrequencyRange({ min: 26.0, max: 28.2 })
+        const nextRange = { min: 26.0, max: 28.2 }
+        setFrequencyRange(nextRange)
+        sendFrequencyRange(nextRange)
       }
     }
   }
@@ -257,6 +266,9 @@ export const AppContent: React.FC = () => {
               <Sidebar
                 isConnected={isConnected}
                 isDeviceConnected={isDeviceConnected}
+                backend={backend}
+                deviceInfo={deviceInfo}
+                serverPaused={serverPaused}
                 isPaused={visualizerPaused}
                 activeTab={activeTab}
                 onTabChange={handleSidebarTabChange}
@@ -265,6 +277,8 @@ export const AppContent: React.FC = () => {
                 onFrequencyRangeChange={handleFrequencyRangeChange}
                 onPauseToggle={handleVisualizerPauseToggle}
                 onSettingsChange={sendSettings}
+                displayTemporalResolution={displayTemporalResolution}
+                onDisplayTemporalResolutionChange={setDisplayTemporalResolution}
                 selectedFiles={selectedFiles}
                 onSelectedFilesChange={setSelectedFiles}
                 stitchSourceSettings={stitchSourceSettings}
@@ -276,12 +290,14 @@ export const AppContent: React.FC = () => {
               />
             )}
             <section style={mainContentStyle}>
-              {isVisualizer && (
+              {mainTab === "Spectrum" && isVisualizer && (
                 <FFTCanvas
                   data={data}
                   frequencyRange={frequencyRange}
+                  centerFrequencyMHz={(frequencyRange.min + frequencyRange.max) / 2}
                   activeSignalArea={activeSignalArea}
                   isPaused={visualizerPaused}
+                  displayTemporalResolution={displayTemporalResolution}
                 />
               )}
               {isStitcher && (

@@ -21,7 +21,7 @@ const SidebarContainer = styled.aside`
 
 const ConnectionStatusContainer = styled.div`
   display: flex;
-  align-items: center;
+  align-items: stretch;
   gap: 8px;
   margin-bottom: 24px;
 `;
@@ -55,6 +55,7 @@ const StatusText = styled.span`
 
 const PauseButton = styled.button<{ $paused: boolean }>`
   flex: 0 0 25%;
+  height: 100%;
   padding: 12px 8px;
   background-color: ${(props) => (props.$paused ? "#2a2a2a" : "#1a1a1a")};
   border: 1px solid ${(props) => (props.$paused ? "#00d4ff" : "#2a2a2a")};
@@ -137,11 +138,17 @@ const SettingRow = styled.div`
 const SettingLabelContainer = styled.div`
   display: flex;
   align-items: center;
+  gap: 8px;
+  min-width: 0;
 `;
 
 const SettingLabel = styled.span`
   font-size: 12px;
   color: #777;
+  max-width: 210px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 `;
 
 const SettingValue = styled.span`
@@ -222,6 +229,9 @@ interface SidebarProps {
   isConnected: boolean;
   isDeviceConnected: boolean;
   isPaused: boolean;
+  serverPaused: boolean;
+  backend: string | null;
+  deviceInfo: string | null;
   activeTab: string;
   onTabChange: (tab: string) => void;
   activeSignalArea: string;
@@ -229,6 +239,8 @@ interface SidebarProps {
   onFrequencyRangeChange?: (range: { min: number; max: number }) => void;
   onPauseToggle: () => void;
   onSettingsChange?: (settings: SDRSettings) => void;
+  displayTemporalResolution?: "low" | "medium" | "high";
+  onDisplayTemporalResolutionChange?: (resolution: "low" | "medium" | "high") => void;
   selectedFiles: { name: string; file: File }[];
   onSelectedFilesChange: (files: { name: string; file: File }[]) => void;
   stitchSourceSettings: { gain: number; ppm: number };
@@ -243,6 +255,9 @@ const Sidebar = ({
   isConnected,
   isDeviceConnected,
   isPaused,
+  serverPaused,
+  backend,
+  deviceInfo,
   activeTab,
   onTabChange,
   activeSignalArea,
@@ -250,6 +265,8 @@ const Sidebar = ({
   onFrequencyRangeChange,
   onPauseToggle,
   onSettingsChange,
+  displayTemporalResolution,
+  onDisplayTemporalResolutionChange,
   selectedFiles,
   onSelectedFilesChange,
   onStitch,
@@ -259,12 +276,18 @@ const Sidebar = ({
   isStitchPaused,
   onStitchPauseToggle,
 }: SidebarProps) => {
+  // Live retune toggle state (default on)
+  const liveRetune = true;
+  void liveRetune;
+
   // FFT Settings state — defaults match SDR++ reference settings
   const [fftSize, setFftSize] = useState(131072);
   const [fftWindow, setFftWindow] = useState("Rectangular");
   const [fftFrameRate, setFftFrameRate] = useState(60);
   const [gain, setGain] = useState(49.6);
   const [ppm, setPpm] = useState(1);
+
+  const temporalResolution = displayTemporalResolution ?? "medium";
 
   // Send initial settings on mount when connected
   const initialSettingsSent = useRef(false);
@@ -380,14 +403,26 @@ const Sidebar = ({
             <SectionTitle>Source</SectionTitle>
             <SettingRow>
               <SettingLabelContainer>
-                <SettingLabel>RTL-SDR v4</SettingLabel>
+                <SettingLabel>
+                  {backend === "rtl-sdr" ? "RTL-SDR" : backend === "mock" ? "Mock" : "Source"}
+                </SettingLabel>
                 <InfoPopover
-                  title="RTL-SDR v4"
-                  content="Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua."
+                  title="Source"
+                  content={deviceInfo ?? "No source info yet."}
                 />
               </SettingLabelContainer>
               <SettingValue>
-                {isConnected && isDeviceConnected ? "Active" : "Unavailable"}
+                {!isConnected
+                  ? "Unavailable"
+                  : backend === "rtl-sdr"
+                    ? isDeviceConnected
+                      ? serverPaused
+                        ? "Inactive"
+                        : "Active"
+                      : "Unavailable"
+                    : serverPaused
+                      ? "Inactive"
+                      : "Active"}
               </SettingValue>
             </SettingRow>
           </Section>
@@ -397,7 +432,7 @@ const Sidebar = ({
             <FrequencyRangeSlider
               label="A"
               minFreq={0}
-              maxFreq={4.75}
+              maxFreq={4.47}
               visibleMin={0}
               visibleMax={3.2}
               isActive={activeSignalArea === "A"}
@@ -406,8 +441,8 @@ const Sidebar = ({
             />
             <FrequencyRangeSlider
               label="B"
-              minFreq={24.15}
-              maxFreq={30}
+              minFreq={24.72}
+              maxFreq={29.88}
               visibleMin={26}
               visibleMax={28.2}
               isActive={activeSignalArea === "B"}
@@ -494,12 +529,22 @@ const Sidebar = ({
                   type="number"
                   value={fftFrameRate}
                   onChange={(e) => {
-                    const val = Math.max(1, Math.min(120, Number(e.target.value) || 1));
+                    const val = Math.max(1, Math.min(60, Number(e.target.value) || 1));
                     setFftFrameRate(val);
                     sendCurrentSettings({ frameRate: val });
                   }}
+                  onKeyDown={(e) => {
+                    if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const step = e.shiftKey ? 1 : 5;
+                    const delta = e.key === "ArrowUp" ? step : -step;
+                    const next = Math.max(1, Math.min(60, (fftFrameRate || 0) + delta));
+                    setFftFrameRate(next);
+                    sendCurrentSettings({ frameRate: next });
+                  }}
                   min="1"
-                  max="120"
+                  max="60"
                 />
                 <span
                   style={{ fontSize: "12px", color: "#ccc", fontWeight: "500" }}
@@ -507,6 +552,28 @@ const Sidebar = ({
                   fps
                 </span>
               </div>
+            </SettingRow>
+            <SettingRow>
+              <SettingLabelContainer>
+                <SettingLabel>Display Temporal Resolution</SettingLabel>
+                <InfoPopover
+                  title="Display Temporal Resolution"
+                  content="Adjusts how each FFT slice is drawn: low = blended lines, medium = partially averaged slices, high = exact slice amplitudes as dots with sharp FFT transitions."
+                />
+              </SettingLabelContainer>
+              <SettingSelect
+                value={temporalResolution}
+                onChange={(e) => {
+                  onDisplayTemporalResolutionChange?.(
+                    e.target.value as "low" | "medium" | "high",
+                  );
+                }}
+                style={{ minWidth: "120px" }}
+              >
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+              </SettingSelect>
             </SettingRow>
           </Section>
 
@@ -524,10 +591,21 @@ const Sidebar = ({
                 type="number"
                 value={ppm}
                 onChange={(e) => {
-                  const val = Number(e.target.value) || 0;
+                  const raw = e.target.value;
+                  const val = raw === "" ? 0 : parseInt(raw, 10) || 0;
                   setPpm(val);
                   sendCurrentSettings({ ppm: val });
                 }}
+                onKeyDown={(e) => {
+                  if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                  const delta = e.key === "ArrowUp" ? 1 : -1;
+                  const next = (ppm || 0) + delta;
+                  setPpm(next);
+                  sendCurrentSettings({ ppm: next });
+                }}
+                step="1"
                 style={{ width: "60px" }}
               />
             </SettingRow>

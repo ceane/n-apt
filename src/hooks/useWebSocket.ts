@@ -18,12 +18,18 @@ export type WebSocketData = {
   isConnected: boolean
   isDeviceConnected: boolean
   isPaused: boolean
+  serverPaused: boolean
+  backend: string | null
+  deviceInfo: string | null
   data: any
   error: string | null
   sendFrequencyRange: (range: FrequencyRange) => void
   sendPauseCommand: (isPaused: boolean) => void
   sendSettings: (settings: SDRSettings) => void
 }
+
+// Reconnect backoff schedule (seconds)
+const RECONNECT_BACKOFF = [2, 5, 10, 30, 60, 90]
 
 // Hook implementation
 export const useWebSocket = (
@@ -33,13 +39,23 @@ export const useWebSocket = (
   const [isConnected, setIsConnected] = useState(false)
   const [isDeviceConnected, setIsDeviceConnected] = useState(false)
   const [isPaused, setIsPaused] = useState(false)
+  const [serverPaused, setServerPaused] = useState(false)
+  const [backend, setBackend] = useState<string | null>(null)
+  const [deviceInfo, setDeviceInfo] = useState<string | null>(null)
   const [data, setData] = useState<any>(null)
   const [error, setError] = useState<string | null>(null)
 
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectTimeoutRef = useRef<number | null>(null)
-  const pendingDataRef = useRef<any>(null)
+  // Store raw message string — only JSON.parse inside rAF to avoid parsing discarded frames
+  const pendingRawRef = useRef<string | null>(null)
   const processingRef = useRef(false)
+  // Track last known is_mock value to avoid redundant state updates
+  const lastIsMockRef = useRef<boolean | undefined>(undefined)
+  // Exponential backoff counter
+  const reconnectAttemptRef = useRef(0)
+  // Error debounce — only set error state once per cooldown
+  const lastErrorTimeRef = useRef(0)
 
   useEffect(() => {
     if (!enabled) {
@@ -67,63 +83,74 @@ export const useWebSocket = (
           ws.onopen = () => {
             setIsConnected(true)
             setError(null)
+            // Reset backoff on successful connection
+            reconnectAttemptRef.current = 0
           }
 
           ws.onmessage = (event) => {
-            try {
-              const parsedData = JSON.parse(event.data)
+            const raw = event.data as string
 
-              // Check for status message type
-              if (typeof parsedData === "object" && parsedData !== null) {
-                const type = parsedData.type
+            // Fast path: check if this is a status message (rare, small payload)
+            // Status messages start with {"message_type":"status"
+            if (raw.includes('"message_type":"status"')) {
+              try {
+                const parsedData = JSON.parse(raw)
+                const deviceConnected = parsedData.device_connected ?? parsedData.deviceConnected ?? false
+                const paused = parsedData.paused || false
 
-                if (type === "status") {
-                  const deviceConnected = parsedData.device_connected ?? parsedData.deviceConnected ?? false
-                  const paused = parsedData.paused || false
+                if (typeof parsedData.backend === "string") {
+                  setBackend(parsedData.backend)
+                }
+                if (typeof parsedData.device_info === "string") {
+                  setDeviceInfo(parsedData.device_info)
+                }
+                setServerPaused(paused)
+
+                // Only update state if values actually changed
+                if (lastIsMockRef.current !== !deviceConnected) {
+                  lastIsMockRef.current = !deviceConnected
                   setIsDeviceConnected(deviceConnected)
-                  setIsPaused(paused)
-                } else {
-                  // Handle regular data messages
-                  if (parsedData.is_mock !== undefined) {
-                    setIsDeviceConnected(!parsedData.is_mock)
-                  }
-
-                  // Buffer messages - only keep the latest one
-                  pendingDataRef.current = parsedData
-
-                  // Process buffered message if not already processing
-                  if (!processingRef.current) {
-                    processingRef.current = true
-                    requestAnimationFrame(() => {
-                      if (pendingDataRef.current) {
-                        setData(pendingDataRef.current)
-                        pendingDataRef.current = null
-                      }
-                      processingRef.current = false
-                    })
-                  }
                 }
-              } else {
-                // Handle regular data messages (no type field)
-                if (parsedData.is_mock !== undefined) {
-                  setIsDeviceConnected(!parsedData.is_mock)
-                }
-
-                pendingDataRef.current = parsedData
-
-                if (!processingRef.current) {
-                  processingRef.current = true
-                  requestAnimationFrame(() => {
-                    if (pendingDataRef.current) {
-                      setData(pendingDataRef.current)
-                      pendingDataRef.current = null
-                    }
-                    processingRef.current = false
-                  })
-                }
+                setIsPaused(paused)
+              } catch {
+                // Ignore parse errors on status messages
               }
-            } catch {
-              // Failed to parse WebSocket message
+              return
+            }
+
+            // Spectrum data: buffer raw string, only parse in rAF callback
+            pendingRawRef.current = raw
+
+            if (!processingRef.current) {
+              processingRef.current = true
+              requestAnimationFrame(() => {
+                const pending = pendingRawRef.current
+                pendingRawRef.current = null
+                processingRef.current = false
+
+                if (pending) {
+                  try {
+                    const parsedData = JSON.parse(pending)
+
+                    // Update device connection state only when value changes
+                    if (parsedData.is_mock !== undefined) {
+                      const newIsMock = parsedData.is_mock as boolean
+                      if (lastIsMockRef.current !== newIsMock) {
+                        lastIsMockRef.current = newIsMock
+                        setIsDeviceConnected(!newIsMock)
+                      }
+
+                      // If we haven't received a status message yet, infer a backend
+                      // so the UI can still display the source label.
+                      setBackend((prev) => (prev ? prev : newIsMock ? "mock" : "rtl-sdr"))
+                    }
+
+                    setData(parsedData)
+                  } catch {
+                    // Failed to parse buffered WebSocket message
+                  }
+                }
+              })
             }
           }
 
@@ -131,17 +158,20 @@ export const useWebSocket = (
             setIsConnected(false)
             // Only attempt to reconnect if we haven't been cleaned up
             if (wsRef.current !== null) {
-              const timeoutId = setTimeout(connect, 2000) as any
+              const attempt = reconnectAttemptRef.current
+              const delaySec = RECONNECT_BACKOFF[Math.min(attempt, RECONNECT_BACKOFF.length - 1)]
+              reconnectAttemptRef.current = attempt + 1
+              const timeoutId = setTimeout(connect, delaySec * 1000) as any
               reconnectTimeoutRef.current = timeoutId
             }
           }
 
           ws.onerror = () => {
-            setError("WebSocket connection error")
-            // Only log error if we haven't already closed the connection
-            // This prevents errors during React strict mode cleanup
-            if (wsRef.current !== null) {
-              setError("WebSocket error occurred")
+            // Debounce error state — only update once per 10 seconds
+            const now = Date.now()
+            if (now - lastErrorTimeRef.current > 10_000) {
+              lastErrorTimeRef.current = now
+              setError("WebSocket connection error")
             }
           }
         } catch {
@@ -209,6 +239,9 @@ export const useWebSocket = (
     isConnected,
     isDeviceConnected,
     isPaused,
+    serverPaused,
+    backend,
+    deviceInfo,
     data,
     error,
     sendFrequencyRange,
