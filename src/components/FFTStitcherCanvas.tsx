@@ -368,6 +368,7 @@ const FFTStitcherCanvas: React.FC<FFTStitcherCanvasProps> = ({
           <FFTCanvas
             data={{ waveform: stitchedData.waveform }}
             frequencyRange={frequencyRange}
+            centerFrequencyMHz={(frequencyRange.min + frequencyRange.max) / 2}
             activeSignalArea="A"
             isPaused={false}
           />

@@ -278,13 +278,7 @@ impl SIMDFFTProcessor {
     // Perform FFT
     self.fft.process(&mut buf);
 
-    // FFT shift: swap first and second halves so DC is centered
-    let half = self.fft_size / 2;
-    for i in 0..half {
-      buf.swap(i, i + half);
-    }
-
-    // Calculate power spectrum with proper normalization
+    // Calculate power spectrum with proper normalization (magnitude, DC at left)
     let norm = (self.fft_size as f32) * (self.fft_size as f32);
     for (i, c) in buf.iter().enumerate() {
       if i < output.len() {

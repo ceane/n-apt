@@ -151,6 +151,21 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!isActive) return
 
+      const activeEl = document.activeElement as HTMLElement | null
+      if (activeEl) {
+        const tag = activeEl.tagName
+        if (
+          tag === "INPUT" ||
+          tag === "TEXTAREA" ||
+          tag === "SELECT" ||
+          activeEl.isContentEditable
+        ) {
+          return
+        }
+      }
+
+      if (e.altKey || e.ctrlKey || e.metaKey) return
+
       if (e.key === "ArrowUp") {
         e.preventDefault()
         moveWindow("up")
@@ -275,6 +290,21 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
     userSelect: "none",
   }
 
+  const limitMarkers = [
+    { freq: 0.5, label: "500kHz" },
+    { freq: 28.8, label: "28.8MHz" },
+  ]
+
+  const markerStyleBase: React.CSSProperties = {
+    position: "absolute",
+    top: "2px",
+    bottom: "2px",
+    width: "2px",
+    background: "rgba(220, 38, 38, 0.45)",
+    boxShadow: "0 0 6px rgba(220, 38, 38, 0.35)",
+    pointerEvents: "none",
+  }
+
   const visibleWindowStyle: React.CSSProperties = {
     position: "absolute",
     top: "2px",
@@ -316,6 +346,16 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
         tabIndex={0}
       >
         <div ref={trackRef} className="range-track" style={rangeTrackStyle}>
+          {limitMarkers.map((marker) => (
+            <div
+              key={marker.label}
+              title={`RTL-SDR: ${marker.label}`}
+              style={{
+                ...markerStyleBase,
+                left: `${((marker.freq - minFreq) / totalRange) * 100}%`,
+              }}
+            />
+          ))}
           <div style={rangeLabelsStyle}>
             <span
               style={{

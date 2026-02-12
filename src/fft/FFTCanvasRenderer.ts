@@ -69,6 +69,16 @@ export interface SpectrumGridOptions {
   fftMax?: number
   /** Whether to clear background before drawing (default: true) */
   clearBackground?: boolean
+  /** If set, hide axis frequency labels whose pixel position is within this many px of the given x coordinate */
+  skipFreqLabelsNearX?: number
+}
+
+export interface SpectrumMarkersOptions {
+  ctx: CanvasRenderingContext2D
+  width: number
+  height: number
+  frequencyRange: FrequencyRange
+  centerFrequencyMHz: number
 }
 
 import {
@@ -179,8 +189,10 @@ export function drawSpectrumGrid(options: SpectrumGridOptions): void {
     ctx.lineTo(Math.round(xPos), fftAreaMax.y + 7)
     ctx.stroke()
 
-    // Frequency label
-    ctx.fillText(formatFreq(freq), Math.round(xPos), fftAreaMax.y + 25)
+    // Frequency label — skip if too close to center-frequency overlay
+    if (options.skipFreqLabelsNearX === undefined || Math.abs(xPos - options.skipFreqLabelsNearX) > 50) {
+      ctx.fillText(formatFreq(freq), Math.round(xPos), fftAreaMax.y + 25)
+    }
   }
 
   // Always draw an explicit right-edge max frequency tick/label
@@ -192,6 +204,9 @@ export function drawSpectrumGrid(options: SpectrumGridOptions): void {
     const minDistance = 50 // Minimum pixels between labels to prevent collision
 
     if (xPos - lastGridX > minDistance) {
+      const skipNear = options.skipFreqLabelsNearX
+      const tooClose = skipNear !== undefined && Math.abs(xPos - skipNear) <= 50
+
       ctx.beginPath()
       ctx.moveTo(Math.round(xPos), FFT_AREA_MIN.y)
       ctx.lineTo(Math.round(xPos), fftAreaMax.y)
@@ -202,7 +217,9 @@ export function drawSpectrumGrid(options: SpectrumGridOptions): void {
       ctx.lineTo(Math.round(xPos), fftAreaMax.y + 7)
       ctx.stroke()
 
-      ctx.fillText(formatFreq(maxFreq), Math.round(xPos), fftAreaMax.y + 25)
+      if (!tooClose) {
+        ctx.fillText(formatFreq(maxFreq), Math.round(xPos), fftAreaMax.y + 25)
+      }
     }
   }
 
@@ -283,6 +300,90 @@ export function drawSpectrumTrace(options: SpectrumRenderOptions): void {
     }
   }
   ctx.stroke()
+}
+
+/**
+ * Draws spectrum overlay markers: red limit lines with labels, yellow center line, center frequency label.
+ * Should be called AFTER drawSpectrumGrid on the same 2D context.
+ */
+export function drawSpectrumMarkers(options: SpectrumMarkersOptions): void {
+  const { ctx, width, height, frequencyRange, centerFrequencyMHz } = options
+
+  const fftAreaMax = { x: width - 40, y: height - 40 }
+  const plotWidth = fftAreaMax.x - FFT_AREA_MIN.x
+  const minFreq = frequencyRange?.min ?? 0
+  const maxFreq = frequencyRange?.max ?? 3.2
+  const viewBandwidth = maxFreq - minFreq
+  if (viewBandwidth <= 0) return
+
+  const freqToX = (freq: number) =>
+    FFT_AREA_MIN.x + ((freq - minFreq) / viewBandwidth) * plotWidth
+
+  // --- Red limit markers ---
+  const markers: { freq: number; label: string }[] = [
+    { freq: 0.5, label: "500kHz / RTL-SDR v4 lower limit" },
+    { freq: 28.8, label: "28.8MHz / Potential hardware spur" },
+  ]
+
+  for (const m of markers) {
+    if (m.freq < minFreq || m.freq > maxFreq) continue
+    const x = Math.round(freqToX(m.freq)) + 0.5
+
+    ctx.save()
+    ctx.strokeStyle = "rgba(220, 38, 38, 0.55)"
+    ctx.lineWidth = 1
+    ctx.beginPath()
+    ctx.moveTo(x, FFT_AREA_MIN.y)
+    ctx.lineTo(x, fftAreaMax.y)
+    ctx.stroke()
+    ctx.restore()
+
+    // Top label
+    ctx.save()
+    ctx.font = "11px JetBrains Mono"
+    ctx.textAlign = "center"
+    ctx.textBaseline = "top"
+    const tw = ctx.measureText(m.label).width
+    const lx = Math.max(FFT_AREA_MIN.x + tw / 2 + 4, Math.min(fftAreaMax.x - tw / 2 - 4, x))
+    ctx.fillStyle = "rgba(10, 10, 10, 0.75)"
+    ctx.fillRect(lx - tw / 2 - 4, FFT_AREA_MIN.y + 4, tw + 8, 18)
+    ctx.fillStyle = "#fca5a5"
+    ctx.fillText(m.label, lx, FFT_AREA_MIN.y + 7)
+    ctx.restore()
+  }
+
+  // --- Yellow center frequency line ---
+  if (centerFrequencyMHz >= minFreq && centerFrequencyMHz <= maxFreq) {
+    const cx = Math.round(freqToX(centerFrequencyMHz)) + 0.5
+    ctx.save()
+    ctx.strokeStyle = "rgba(234, 179, 8, 0.35)"
+    ctx.lineWidth = 1
+    ctx.beginPath()
+    ctx.moveTo(cx, FFT_AREA_MIN.y)
+    ctx.lineTo(cx, fftAreaMax.y)
+    ctx.stroke()
+    ctx.restore()
+  }
+
+  // --- Center frequency label (bottom center, with background mask) ---
+  const centerLabel =
+    centerFrequencyMHz < 1
+      ? `${Math.round(centerFrequencyMHz * 1000)} kHz`
+      : `${centerFrequencyMHz.toFixed(3)} MHz`
+
+  ctx.save()
+  ctx.font = "12px JetBrains Mono"
+  ctx.textAlign = "center"
+  ctx.textBaseline = "alphabetic"
+  const labelW = ctx.measureText(centerLabel).width
+  const labelX = width / 2
+  const labelY = fftAreaMax.y + 25
+  // Background mask to cover axis labels underneath
+  ctx.fillStyle = "rgba(10, 10, 10, 0.9)"
+  ctx.fillRect(labelX - labelW / 2 - 6, labelY - 13, labelW + 12, 17)
+  ctx.fillStyle = "#ffffff"
+  ctx.fillText(centerLabel, labelX, labelY)
+  ctx.restore()
 }
 
 /**

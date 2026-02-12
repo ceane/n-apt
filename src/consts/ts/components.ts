@@ -19,7 +19,7 @@ export const DEFAULT_NUM_POINTS = 1000
 
 // Frequency range constants
 export const DEFAULT_MIN_FREQ = 0
-export const DEFAULT_MAX_FREQ = 4.75
+export const DEFAULT_MAX_FREQ = 4.47
 export const DEFAULT_VISIBLE_MIN = 0
 export const DEFAULT_VISIBLE_MAX = 3.2
 export const NAPT_FREQUENCY_RANGE = 3.2 // MHz
