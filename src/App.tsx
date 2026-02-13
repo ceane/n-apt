@@ -84,6 +84,7 @@ export const AppContent: React.FC = () => {
   const {
     isConnected,
     isDeviceConnected,
+    isDeviceLoading,
     backend,
     deviceInfo,
     serverPaused,
@@ -273,6 +274,7 @@ export const AppContent: React.FC = () => {
               <Sidebar
                 isConnected={isConnected}
                 isDeviceConnected={isDeviceConnected}
+                isDeviceLoading={isDeviceLoading}
                 backend={backend}
                 deviceInfo={deviceInfo}
                 serverPaused={serverPaused}
@@ -305,6 +307,7 @@ export const AppContent: React.FC = () => {
                   activeSignalArea={activeSignalArea}
                   isPaused={visualizerPaused}
                   isDeviceConnected={isDeviceConnected}
+                  onFrequencyRangeChange={handleFrequencyRangeChange}
                   displayTemporalResolution={displayTemporalResolution}
                 />
               )}

@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useCallback, useState } from "react";
+import { useRef, useEffect, useCallback, useState } from "react";
 import styled from "styled-components";
 import {
   drawSpectrum,
@@ -150,6 +150,8 @@ interface FFTCanvasProps {
   isPaused: boolean;
   /** Whether the RTL-SDR device is connected */
   isDeviceConnected?: boolean;
+  /** Callback for frequency range changes */
+  onFrequencyRangeChange?: (range: FrequencyRange) => void;
   displayTemporalResolution?: "low" | "medium" | "high";
 }
 
@@ -164,6 +166,7 @@ const FFTCanvas = ({
   activeSignalArea: _activeSignalArea,
   isPaused,
   isDeviceConnected = true,
+  onFrequencyRangeChange,
   displayTemporalResolution = "medium",
 }: FFTCanvasProps) => {
   const spectrumCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -171,18 +174,20 @@ const FFTCanvas = ({
   const waterfallCanvasRef = useRef<HTMLCanvasElement>(null);
   const waterfallGpuCanvasRef = useRef<HTMLCanvasElement>(null);
   const waterfallBufferRef = useRef<Uint8ClampedArray | null>(null);
-  const waterfallDimsRef = useRef<{ width: number; height: number } | null>(
-    null,
-  );
-  const waterfallGpuDimsRef = useRef<{ width: number; height: number } | null>(
-    null,
-  );
   const waterfallDataWidthRef = useRef<number | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const animationRunIdRef = useRef(0);
   const dataRef = useRef<any>(null);
   const lastProcessedDataRef = useRef<any>(null);
   const frequencyRangeRef = useRef<FrequencyRange>(frequencyRange);
+  const centerFreqRef = useRef(centerFrequencyMHz);
+  centerFreqRef.current = centerFrequencyMHz;
+
+  // Mouse drag state for frequency adjustment
+  const isDraggingRef = useRef(false);
+  const dragStartXRef = useRef(0);
+  const dragStartFreqRef = useRef(0);
+  
   const retuneSmearRef = useRef(0);
   const retuneDriftPxRef = useRef(0);
   const waveformFloatRef = useRef<Float32Array | null>(null);
@@ -194,10 +199,10 @@ const FFTCanvas = ({
   const waterfallRendererRef = useRef<WaterfallWebGPU | null>(null);
   const webgpuDeviceRef = useRef<GPUDevice | null>(null);
   const webgpuFormatRef = useRef<GPUTextureFormat | null>(null);
+  const waterfallDimsRef = useRef<{ width: number; height: number } | null>(null);
+  const waterfallGpuDimsRef = useRef<{ width: number; height: number } | null>(null);
   const [webgpuEnabled, setWebgpuEnabled] = useState(false);
   const spectrumWebgpuEnabled = webgpuEnabled;
-  const centerFreqRef = useRef(centerFrequencyMHz);
-  centerFreqRef.current = centerFrequencyMHz;
 
   const overlayDirtyRef = useRef({ grid: true, markers: true });
   const overlayLastUploadMsRef = useRef({ grid: 0, markers: 0 });
@@ -213,6 +218,122 @@ const FFTCanvas = ({
     // Device connectivity toggles whether red limit lines should display.
     overlayDirtyRef.current.markers = true;
   }, [isDeviceConnected]);
+
+  /**
+   * Variable Frequency Oscillator (VFO)
+   * Acts as the primary frequency source - click/drag to tune frequency
+   * Like a radio's tuning knob at the circuit level, this generates the
+   * base oscillating signal that determines what "frequency" the WebGPU canvas/SDR device is on
+   */
+  useEffect(() => {
+    const getActiveSpectrumCanvas = () => {
+      return spectrumWebgpuEnabled
+        ? spectrumGpuCanvasRef.current
+        : spectrumCanvasRef.current;
+    };
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const canvas = getActiveSpectrumCanvas();
+      if (!isDraggingRef.current || !canvas) return;
+
+      const rect = canvas.getBoundingClientRect();
+      const width = rect.width;
+      
+      // Calculate frequency change based on drag distance
+      const deltaX = e.clientX - dragStartXRef.current;
+      const freqRange = frequencyRangeRef.current.max - frequencyRangeRef.current.min;
+      const freqChange = (deltaX / width) * freqRange;
+      
+      // Calculate new frequency range, respecting boundaries
+      let newMinFreq = dragStartFreqRef.current + freqChange;
+      const rangeWidth = frequencyRangeRef.current.max - frequencyRangeRef.current.min;
+      let newMaxFreq = newMinFreq + rangeWidth;
+      
+      // Apply boundaries based on active signal area
+      let minBoundary = 0;
+      let maxBoundary = 4.47; // Default for area A
+      
+      if (_activeSignalArea === "B") {
+        minBoundary = 24.72;
+        maxBoundary = 29.88;
+      }
+      
+      // Clamp to boundaries
+      if (newMinFreq < minBoundary) {
+        newMinFreq = minBoundary;
+        newMaxFreq = newMinFreq + rangeWidth;
+      }
+      if (newMaxFreq > maxBoundary) {
+        newMaxFreq = maxBoundary;
+        newMinFreq = newMaxFreq - rangeWidth;
+      }
+      
+      // Update frequency range
+      const newRange = { min: newMinFreq, max: newMaxFreq };
+      frequencyRangeRef.current = newRange;
+      
+      // Notify parent component
+      if (onFrequencyRangeChange) {
+        onFrequencyRangeChange(newRange);
+      }
+    };
+
+    const handleMouseUp = () => {
+      const canvas = getActiveSpectrumCanvas();
+      if (isDraggingRef.current && canvas) {
+        canvas.style.cursor = "grab";
+      }
+      isDraggingRef.current = false;
+    };
+
+    const handleMouseDown = (e: MouseEvent) => {
+      const canvas = getActiveSpectrumCanvas();
+      if (!canvas) return;
+      
+      const rect = canvas.getBoundingClientRect();
+      
+      // Only start drag if clicking in the frequency axis area (bottom 60px)
+      const height = rect.height;
+      const y = e.clientY - rect.top;
+      if (y >= height - 60) {
+        isDraggingRef.current = true;
+        dragStartXRef.current = e.clientX;
+        dragStartFreqRef.current = frequencyRangeRef.current.min;
+        canvas.style.cursor = "grabbing";
+      }
+    };
+
+    const handleMouseEnter = () => {
+      const canvas = getActiveSpectrumCanvas();
+      if (canvas && !isDraggingRef.current) canvas.style.cursor = "grab";
+    };
+
+    const handleMouseLeave = () => {
+      const canvas = getActiveSpectrumCanvas();
+      if (canvas && !isDraggingRef.current) canvas.style.cursor = "default";
+    };
+
+    const canvas = getActiveSpectrumCanvas();
+    if (canvas) {
+      canvas.addEventListener("mousedown", handleMouseDown);
+      canvas.addEventListener("mouseenter", handleMouseEnter);
+      canvas.addEventListener("mouseleave", handleMouseLeave);
+      canvas.style.cursor = "grab";
+    }
+    
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+
+    return () => {
+      if (canvas) {
+        canvas.removeEventListener("mousedown", handleMouseDown);
+        canvas.removeEventListener("mouseenter", handleMouseEnter);
+        canvas.removeEventListener("mouseleave", handleMouseLeave);
+      }
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [onFrequencyRangeChange, _activeSignalArea, spectrumWebgpuEnabled]);
 
   const maybeUpdateOverlays = useCallback(
     (width: number, height: number, dpr: number) => {

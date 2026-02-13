@@ -31,7 +31,7 @@ const ASYNC_BUF_NUM: u32 = 15;
 const ASYNC_BUF_LEN: u32 = 32768;
 
 /// How often to probe for a newly attached RTL-SDR while running in mock mode.
-const DEVICE_PROBE_INTERVAL: Duration = Duration::from_millis(750);
+const DEVICE_PROBE_INTERVAL: Duration = Duration::from_millis(200);
 
 /// Command enum for the dedicated SDR I/O thread
 enum SdrCommand {
@@ -274,7 +274,7 @@ impl SDRProcessor {
         }
       }
     } else {
-      warn!("\x1b[91mNo RTL-SDR devices found. Using mock mode.\x1b[0m");
+      warn!("No RTL-SDR devices found. Using mock mode.");
       self.is_mock = true;
     }
 
@@ -700,7 +700,6 @@ impl SDRProcessor {
     }
   }
 }
-
 /// Shared state visible to the async runtime (lock-free where possible)
 struct SharedState {
   /// Latest spectrum data produced by the I/O thread
@@ -719,6 +718,8 @@ struct SharedState {
   shutdown: AtomicBool,
   /// Device info string (set once at init)
   device_info: std::sync::Mutex<String>,
+  /// Device loading state (when device is being initialized)
+  device_loading: std::sync::Mutex<bool>,
 }
 
 /// WebSocket server that handles client connections and broadcasts spectrum data.
@@ -747,6 +748,7 @@ impl WebSocketServer {
       pending_center_freq_dirty: AtomicBool::new(false),
       shutdown: AtomicBool::new(false),
       device_info: std::sync::Mutex::new(String::new()),
+      device_loading: std::sync::Mutex::new(false),
     });
 
     // Spawn the dedicated I/O thread — FFT processing + command handling happens here.
@@ -762,6 +764,7 @@ impl WebSocketServer {
         let send_status_update = |shared: &Arc<SharedState>, tx: &broadcast::Sender<String>| {
           let device_connected = shared.device_connected.load(Ordering::Relaxed);
           let device_info = shared.device_info.lock().unwrap().clone();
+          let device_loading = *shared.device_loading.lock().unwrap();
           let paused = shared.is_paused.load(Ordering::Relaxed);
 
           let max_sample_rate = if device_connected {
@@ -780,18 +783,17 @@ impl WebSocketServer {
               .unwrap_or(3_200_000)
           };
 
-          let status = StatusMessage {
-            message_type: "status".to_string(),
-            device_connected,
-            paused,
-            backend: if device_connected { "rtl-sdr".to_string() } else { "mock".to_string() },
-            device_info,
-            max_sample_rate,
-          };
+          let status_message = serde_json::json!({
+            "message_type": "status",
+            "device_connected": device_connected,
+            "device_info": device_info,
+            "device_loading": device_loading,
+            "paused": paused,
+            "max_sample_rate": max_sample_rate,
+            "backend": if device_connected { "rtl-sdr" } else { "mock" }
+          });
 
-          if let Ok(json) = serde_json::to_string(&status) {
-            let _ = tx.send(json);
-          }
+          let _ = tx.send(status_message.to_string());
         };
 
         let start_async_reader = |processor: &SDRProcessor| -> (Option<std::thread::JoinHandle<()>>, Option<std::sync::mpsc::Receiver<Vec<u8>>>) {
@@ -868,24 +870,65 @@ impl WebSocketServer {
         loop {
           let loop_start = std::time::Instant::now();
 
-          // --- Hotplug: periodically probe for RTL-SDR while in mock mode ---
-          if processor.is_mock && processor.device.is_none() && loop_start.duration_since(last_probe) >= DEVICE_PROBE_INTERVAL {
+          // --- Hotplug: periodically probe for RTL-SDR device status ---
+          if loop_start.duration_since(last_probe) >= DEVICE_PROBE_INTERVAL {
             last_probe = loop_start;
-            match processor.try_connect_device() {
-              Ok(true) => {
-                io_shared.device_connected.store(true, Ordering::Relaxed);
-                *io_shared.device_info.lock().unwrap() = processor.get_device_info();
-                if last_device_connected != true {
-                  last_device_connected = true;
+            
+            if processor.is_mock && processor.device.is_none() {
+              // In mock mode, try to connect to a newly attached device
+              let device_count = RtlSdrDevice::get_device_count();
+              if device_count > 0 {
+                // Device detected, set loading state
+                *io_shared.device_loading.lock().unwrap() = true;
+                send_status_update(&io_shared, &io_broadcast_tx);
+              }
+              
+              match processor.try_connect_device() {
+                Ok(true) => {
+                  *io_shared.device_loading.lock().unwrap() = false;
+                  io_shared.device_connected.store(true, Ordering::Relaxed);
+                  *io_shared.device_info.lock().unwrap() = processor.get_device_info();
+                  if last_device_connected != true {
+                    last_device_connected = true;
+                    send_status_update(&io_shared, &io_broadcast_tx);
+                  }
+
+                  let (h, rx) = start_async_reader(&processor);
+                  reader_handle = h;
+                  iq_rx = rx;
+                }
+                Ok(false) => {
+                  *io_shared.device_loading.lock().unwrap() = false;
                   send_status_update(&io_shared, &io_broadcast_tx);
                 }
-
-                let (h, rx) = start_async_reader(&processor);
-                reader_handle = h;
-                iq_rx = rx;
+                Err(e) => {
+                  *io_shared.device_loading.lock().unwrap() = false;
+                  debug!("Device probe failed: {}", e);
+                  send_status_update(&io_shared, &io_broadcast_tx);
+                }
               }
-              Ok(false) => {}
-              Err(e) => debug!("Device probe failed: {}", e),
+            } else if !processor.is_mock && processor.device.is_some() {
+              // When device is connected, periodically check if it's still responsive
+              let device_count = RtlSdrDevice::get_device_count();
+              if device_count == 0 {
+                // Device was disconnected
+                warn!("\x1b[31mRTL-SDR device disconnected. Falling back to mock mode.\x1b[0m");
+                processor.enter_mock_mode();
+                if let Some(ref dev) = processor.device {
+                  let _ = dev.cancel_async();
+                }
+                if let Some(h) = reader_handle.take() {
+                  let _ = h.join();
+                }
+                processor.release_device();
+                iq_rx = None;
+                io_shared.device_connected.store(false, Ordering::Relaxed);
+                *io_shared.device_info.lock().unwrap() = processor.get_device_info();
+                if last_device_connected != false {
+                  last_device_connected = false;
+                  send_status_update(&io_shared, &io_broadcast_tx);
+                }
+              }
             }
           }
 

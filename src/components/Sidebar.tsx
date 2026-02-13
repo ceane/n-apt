@@ -37,14 +37,25 @@ const ConnectionStatus = styled.div`
   border: 1px solid #1f1f1f;
 `;
 
-const StatusDot = styled.div<{ $connected: boolean }>`
+const StatusDot = styled.div<{ $connected: boolean; $loading?: boolean }>`
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background-color: ${(props) => (props.$connected ? "#00d4ff" : "#ff4444")};
+  background-color: ${(props) => 
+    props.$loading ? "#ffaa00" : 
+    props.$connected ? "#00d4ff" : "#ff4444"};
   box-shadow: ${(props) =>
+    props.$loading ? "0 0 8px #ffaa00" :
     props.$connected ? "0 0 8px #00d4ff" : "0 0 8px #ff4444"};
   flex-shrink: 0;
+  ${(props) => props.$loading && `
+    animation: pulse 1.5s ease-in-out infinite alternate;
+  `}
+  
+  @keyframes pulse {
+    from { opacity: 1; }
+    to { opacity: 0.4; }
+  }
 `;
 
 const StatusText = styled.span`
@@ -228,6 +239,7 @@ const SettingInput = styled.input`
 interface SidebarProps {
   isConnected: boolean;
   isDeviceConnected: boolean;
+  isDeviceLoading: boolean;
   isPaused: boolean;
   serverPaused: boolean;
   backend: string | null;
@@ -254,6 +266,7 @@ interface SidebarProps {
 const Sidebar = ({
   isConnected,
   isDeviceConnected,
+  isDeviceLoading,
   isPaused,
   serverPaused,
   backend,
@@ -462,13 +475,18 @@ const Sidebar = ({
         <>
           <ConnectionStatusContainer>
             <ConnectionStatus>
-              <StatusDot $connected={isConnected && isDeviceConnected} />
+              <StatusDot 
+                $connected={isConnected && isDeviceConnected} 
+                $loading={isDeviceLoading} 
+              />
               <StatusText>
                 {!isConnected
                   ? "Disconnected"
-                  : isDeviceConnected
-                    ? "Connected to server and device"
-                    : "Connected to server but device not connected"}
+                  : isDeviceLoading
+                    ? "Loading device..."
+                    : isDeviceConnected
+                      ? "Connected to server and device"
+                      : "Connected to server but device not connected"}
               </StatusText>
             </ConnectionStatus>
 

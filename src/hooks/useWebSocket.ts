@@ -17,6 +17,7 @@ export type SDRSettings = {
 export type WebSocketData = {
   isConnected: boolean
   isDeviceConnected: boolean
+  isDeviceLoading: boolean
   isPaused: boolean
   serverPaused: boolean
   backend: string | null
@@ -38,6 +39,7 @@ export const useWebSocket = (
 ): WebSocketData => {
   const [isConnected, setIsConnected] = useState(false)
   const [isDeviceConnected, setIsDeviceConnected] = useState(false)
+  const [isDeviceLoading, setIsDeviceLoading] = useState(false)
   const [isPaused, setIsPaused] = useState(false)
   const [serverPaused, setServerPaused] = useState(false)
   const [backend, setBackend] = useState<string | null>(null)
@@ -96,6 +98,7 @@ export const useWebSocket = (
               try {
                 const parsedData = JSON.parse(raw)
                 const deviceConnected = parsedData.device_connected ?? parsedData.deviceConnected ?? false
+                const deviceLoading = parsedData.device_loading ?? false
                 const paused = parsedData.paused || false
 
                 if (typeof parsedData.backend === "string") {
@@ -105,6 +108,7 @@ export const useWebSocket = (
                   setDeviceInfo(parsedData.device_info)
                 }
                 setServerPaused(paused)
+                setIsDeviceLoading(deviceLoading)
 
                 // Only update state if values actually changed
                 if (lastIsMockRef.current !== !deviceConnected) {
@@ -238,6 +242,7 @@ export const useWebSocket = (
   return {
     isConnected,
     isDeviceConnected,
+    isDeviceLoading,
     isPaused,
     serverPaused,
     backend,

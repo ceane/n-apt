@@ -370,8 +370,8 @@ export function drawSpectrumMarkers(options: SpectrumMarkersOptions & { isDevice
   // --- Center frequency label (bottom center, with background mask) ---
   const centerLabel =
     centerFrequencyMHz < 1
-      ? `${Math.round(centerFrequencyMHz * 1000)} kHz`
-      : `${centerFrequencyMHz.toFixed(3)} MHz`
+      ? `✋  ${Math.round(centerFrequencyMHz * 1000)} kHz`
+      : `✋  ${centerFrequencyMHz.toFixed(3)} MHz`
 
   ctx.save()
   ctx.font = "12px JetBrains Mono"
