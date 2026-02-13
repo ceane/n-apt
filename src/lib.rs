@@ -2,9 +2,15 @@
 pub mod consts;
 pub mod fft;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod credentials;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod crypto;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod native_simd;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod rtlsdr;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod session;
 pub mod wasm_simd;
 
 #[cfg(target_arch = "wasm32")]

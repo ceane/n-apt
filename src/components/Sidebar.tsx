@@ -238,6 +238,8 @@ const SettingInput = styled.input`
 
 interface SidebarProps {
   isConnected: boolean;
+  isAuthenticated: boolean;
+  authState: string;
   isDeviceConnected: boolean;
   isDeviceLoading: boolean;
   isPaused: boolean;
@@ -265,6 +267,8 @@ interface SidebarProps {
 
 const Sidebar = ({
   isConnected,
+  isAuthenticated,
+  authState,
   isDeviceConnected,
   isDeviceLoading,
   isPaused,
@@ -447,6 +451,63 @@ const Sidebar = ({
     },
     [activeSignalArea, onFrequencyRangeChange],
   );
+
+  // Minimal sidebar mode: only show connection status and auth state
+  if (!isAuthenticated) {
+    const authStatusText = (() => {
+      switch (authState) {
+        case "connecting": return "Connecting to server...";
+        case "awaiting_challenge": return "Establishing secure channel...";
+        case "ready": return "Awaiting authentication before streaming...";
+        case "authenticating": return "Verifying credentials...";
+        case "failed": return "Authentication failed";
+        case "timeout": return "Authentication timed out";
+        case "success": return "Authenticated — starting stream...";
+        default: return "Awaiting authentication before streaming...";
+      }
+    })();
+
+    return (
+      <SidebarContainer>
+        <Section>
+          <SectionTitle>Connection</SectionTitle>
+          <ConnectionStatusContainer>
+            <ConnectionStatus>
+              <StatusDot $connected={isConnected} $loading={authState === "authenticating" || authState === "awaiting_challenge"} />
+              <StatusText>
+                {!isConnected ? "Disconnected" : "Connected to server"}
+              </StatusText>
+            </ConnectionStatus>
+          </ConnectionStatusContainer>
+        </Section>
+
+        <Section>
+          <SectionTitle>Authentication</SectionTitle>
+          <SettingRow>
+            <SettingLabelContainer>
+              <SettingLabel>Status</SettingLabel>
+            </SettingLabelContainer>
+            <SettingValue style={{ 
+              color: authState === "failed" || authState === "timeout" ? "#ff4444" 
+                   : authState === "success" ? "#00d4ff" 
+                   : "#888",
+              fontSize: "11px",
+            }}>
+              {authStatusText}
+            </SettingValue>
+          </SettingRow>
+          {backend && (
+            <SettingRow>
+              <SettingLabelContainer>
+                <SettingLabel>Backend</SettingLabel>
+              </SettingLabelContainer>
+              <SettingValue>{backend === "rtl-sdr" ? "RTL-SDR" : "Mock"}</SettingValue>
+            </SettingRow>
+          )}
+        </Section>
+      </SidebarContainer>
+    );
+  }
 
   return (
     <SidebarContainer>

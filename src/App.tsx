@@ -5,12 +5,24 @@ import {
   useNavigate,
 } from "react-router-dom"
 import Sidebar from "@n-apt/components/Sidebar"
+import AuthenticationPrompt from "@n-apt/components/AuthenticationPrompt"
+import type { AuthState } from "@n-apt/components/AuthenticationPrompt"
 import { FFTCanvas, DrawMockNAPT } from "@n-apt/components"
 import HumanModelViewer from "@n-apt/components/HumanModelViewer"
 import HotspotEditor from "@n-apt/components/HotspotEditor"
 import FFTStitcherCanvas from "@n-apt/components/FFTStitcherCanvas"
 import { useWebSocket, FrequencyRange } from "@n-apt/hooks/useWebSocket"
-import { WS_URL } from "@n-apt/consts"
+import { deriveAesKey } from "@n-apt/crypto/webcrypto"
+import {
+  getStoredSession,
+  validateSession,
+  authenticateWithPassword,
+  authenticateWithPasskey,
+  registerPasskey,
+  fetchAuthInfo,
+  buildWsUrl,
+  clearSession,
+} from "@n-apt/services/auth"
 
 // Types
 type MainTab = "Spectrum" | "DrawSignal" | "Model3D" | "HotspotEditor"
@@ -80,7 +92,75 @@ export const AppContent: React.FC = () => {
   const isVisualizer = activeTab === "visualizer"
   const isStitcher = activeTab === "stitcher"
 
-  // WebSocket hook
+  // ── Auth state (REST-based) ──────────────────────────────────────────
+  const [authState, setAuthState] = useState<AuthState>("connecting")
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [authError, setAuthError] = useState<string | null>(null)
+  const [sessionToken, setSessionToken] = useState<string | null>(null)
+  const [aesKey, setAesKey] = useState<CryptoKey | null>(null)
+  const [hasPasskeys, setHasPasskeys] = useState(false)
+
+  // On mount: check for stored session, fetch auth info
+  useEffect(() => {
+    let cancelled = false
+
+    const init = async () => {
+      setAuthState("connecting")
+
+      // Check for existing session
+      const storedToken = getStoredSession()
+      if (storedToken) {
+        try {
+          const result = await validateSession(storedToken)
+          if (!cancelled && result.valid) {
+            setSessionToken(storedToken)
+            setIsAuthenticated(true)
+            setAuthState("success")
+            return
+          }
+        } catch {
+          // Session invalid, continue to auth
+        }
+        clearSession()
+      }
+
+      // Fetch auth info (are passkeys registered?) with retries
+      let retries = 0
+      const maxRetries = 5
+      const retryDelay = 1000
+
+      while (retries < maxRetries) {
+        try {
+          const info = await fetchAuthInfo()
+          if (!cancelled) {
+            setHasPasskeys(info.has_passkeys)
+            setAuthState("ready")
+            return
+          }
+        } catch (err) {
+          retries++
+          if (retries >= maxRetries) {
+            if (!cancelled) {
+              setAuthState("connecting")
+              // Retry after longer delay
+              setTimeout(init, 5000)
+            }
+            break
+          }
+          // Wait before retry
+          await new Promise(resolve => setTimeout(resolve, retryDelay))
+        }
+      }
+    }
+
+    init()
+    return () => { cancelled = true }
+  }, [])
+
+  // Build WS URL with session token
+  const wsUrl = sessionToken ? buildWsUrl(sessionToken) : ""
+
+  // WebSocket hook — only connects when authenticated
   const {
     isConnected,
     isDeviceConnected,
@@ -92,7 +172,57 @@ export const AppContent: React.FC = () => {
     sendFrequencyRange,
     sendPauseCommand,
     sendSettings,
-  } = useWebSocket(WS_URL, isVisualizer && mainTab === "Spectrum")
+  } = useWebSocket(wsUrl, aesKey, isAuthenticated && isVisualizer && mainTab === "Spectrum")
+
+  // Auth handlers
+  const handlePasswordAuth = useCallback(async (password: string) => {
+    setAuthState("authenticating")
+    setAuthError(null)
+    try {
+      const result = await authenticateWithPassword(password)
+      setSessionToken(result.token)
+      // Derive AES key from the password for decryption
+      const key = await deriveAesKey(password)
+      setAesKey(key)
+      setIsAuthenticated(true)
+      setAuthState("success")
+    } catch (e: any) {
+      setAuthState("failed")
+      setAuthError(e.message || "Authentication failed")
+    }
+  }, [])
+
+  const handlePasskeyAuth = useCallback(async () => {
+    setAuthState("authenticating")
+    setAuthError(null)
+    try {
+      const result = await authenticateWithPasskey()
+      setSessionToken(result.token)
+      // For passkey auth, derive AES key from the default passkey
+      // (server uses the same key for all sessions)
+      const key = await deriveAesKey("n-apt-dev-key")
+      setAesKey(key)
+      setIsAuthenticated(true)
+      setAuthState("success")
+    } catch (e: any) {
+      setAuthState("failed")
+      setAuthError(e.message || "Passkey authentication failed")
+    }
+  }, [])
+
+  const handleRegisterPasskey = useCallback(async () => {
+    try {
+      setAuthState("authenticating")
+      await registerPasskey()
+      // Refresh auth info to get updated hasPasskeys
+      const info = await fetchAuthInfo()
+      setHasPasskeys(info.has_passkeys)
+      setAuthState("ready")
+    } catch (e: any) {
+      setAuthState("failed")
+      setAuthError(e.message || "Passkey registration failed")
+    }
+  }, [setAuthState, setAuthError])
 
   const [visualizerPaused, setVisualizerPaused] = useState(false)
 
@@ -273,6 +403,8 @@ export const AppContent: React.FC = () => {
             {isSidebarOpen && (
               <Sidebar
                 isConnected={isConnected}
+                isAuthenticated={isAuthenticated}
+                authState={authState}
                 isDeviceConnected={isDeviceConnected}
                 isDeviceLoading={isDeviceLoading}
                 backend={backend}
@@ -299,7 +431,17 @@ export const AppContent: React.FC = () => {
               />
             )}
             <section style={mainContentStyle}>
-              {mainTab === "Spectrum" && isVisualizer && (
+              {mainTab === "Spectrum" && isVisualizer && !isAuthenticated && (
+                <AuthenticationPrompt
+                  authState={authState}
+                  error={authError}
+                  hasPasskeys={hasPasskeys}
+                  onPasswordSubmit={handlePasswordAuth}
+                  onPasskeyAuth={handlePasskeyAuth}
+                  onRegisterPasskey={handleRegisterPasskey}
+                />
+              )}
+              {mainTab === "Spectrum" && isVisualizer && isAuthenticated && (
                 <FFTCanvas
                   data={data}
                   frequencyRange={frequencyRange}
