@@ -306,8 +306,8 @@ export function drawSpectrumTrace(options: SpectrumRenderOptions): void {
  * Draws spectrum overlay markers: red limit lines with labels, yellow center line, center frequency label.
  * Should be called AFTER drawSpectrumGrid on the same 2D context.
  */
-export function drawSpectrumMarkers(options: SpectrumMarkersOptions): void {
-  const { ctx, width, height, frequencyRange, centerFrequencyMHz } = options
+export function drawSpectrumMarkers(options: SpectrumMarkersOptions & { isDeviceConnected?: boolean }): void {
+  const { ctx, width, height, frequencyRange, centerFrequencyMHz, isDeviceConnected = true } = options
 
   const fftAreaMax = { x: width - 40, y: height - 40 }
   const plotWidth = fftAreaMax.x - FFT_AREA_MIN.x
@@ -325,31 +325,33 @@ export function drawSpectrumMarkers(options: SpectrumMarkersOptions): void {
     { freq: 28.8, label: "28.8MHz / Potential hardware spur" },
   ]
 
-  for (const m of markers) {
-    if (m.freq < minFreq || m.freq > maxFreq) continue
-    const x = Math.round(freqToX(m.freq)) + 0.5
+  if (isDeviceConnected) {
+    for (const m of markers) {
+      if (m.freq < minFreq || m.freq > maxFreq) continue
+      const x = Math.round(freqToX(m.freq)) + 0.5
 
-    ctx.save()
-    ctx.strokeStyle = "rgba(220, 38, 38, 0.55)"
-    ctx.lineWidth = 1
-    ctx.beginPath()
-    ctx.moveTo(x, FFT_AREA_MIN.y)
-    ctx.lineTo(x, fftAreaMax.y)
-    ctx.stroke()
-    ctx.restore()
+      ctx.save()
+      ctx.strokeStyle = "rgba(220, 38, 38, 0.55)"
+      ctx.lineWidth = 1
+      ctx.beginPath()
+      ctx.moveTo(x, FFT_AREA_MIN.y)
+      ctx.lineTo(x, fftAreaMax.y)
+      ctx.stroke()
+      ctx.restore()
 
-    // Top label
-    ctx.save()
-    ctx.font = "11px JetBrains Mono"
-    ctx.textAlign = "center"
-    ctx.textBaseline = "top"
-    const tw = ctx.measureText(m.label).width
-    const lx = Math.max(FFT_AREA_MIN.x + tw / 2 + 4, Math.min(fftAreaMax.x - tw / 2 - 4, x))
-    ctx.fillStyle = "rgba(10, 10, 10, 0.75)"
-    ctx.fillRect(lx - tw / 2 - 4, FFT_AREA_MIN.y + 4, tw + 8, 18)
-    ctx.fillStyle = "#fca5a5"
-    ctx.fillText(m.label, lx, FFT_AREA_MIN.y + 7)
-    ctx.restore()
+      // Top label
+      ctx.save()
+      ctx.font = "11px JetBrains Mono"
+      ctx.textAlign = "center"
+      ctx.textBaseline = "top"
+      const tw = ctx.measureText(m.label).width
+      const lx = Math.max(FFT_AREA_MIN.x + tw / 2 + 4, Math.min(fftAreaMax.x - tw / 2 - 4, x))
+      ctx.fillStyle = "rgba(10, 10, 10, 0.75)"
+      ctx.fillRect(lx - tw / 2 - 4, FFT_AREA_MIN.y + 4, tw + 8, 18)
+      ctx.fillStyle = "rgba(220, 38, 38, 0.9)"
+      ctx.fillText(m.label, lx, FFT_AREA_MIN.y + 6)
+      ctx.restore()
+    }
   }
 
   // --- Yellow center frequency line ---

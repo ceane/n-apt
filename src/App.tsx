@@ -297,6 +297,7 @@ export const AppContent: React.FC = () => {
                   centerFrequencyMHz={(frequencyRange.min + frequencyRange.max) / 2}
                   activeSignalArea={activeSignalArea}
                   isPaused={visualizerPaused}
+                  isDeviceConnected={isDeviceConnected}
                   displayTemporalResolution={displayTemporalResolution}
                 />
               )}

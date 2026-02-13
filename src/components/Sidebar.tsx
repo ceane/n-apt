@@ -280,10 +280,10 @@ const Sidebar = ({
   const liveRetune = true;
   void liveRetune;
 
-  // FFT Settings state — defaults match SDR++ reference settings
-  const [fftSize, setFftSize] = useState(131072);
+  // FFT settings defaults tuned for realistic 3.2 Msps RTL-SDR throughput
+  const [fftSize, setFftSize] = useState(32768);
   const [fftWindow, setFftWindow] = useState("Rectangular");
-  const [fftFrameRate, setFftFrameRate] = useState(60);
+  const [fftFrameRate, setFftFrameRate] = useState(30);
   const [maxSampleRate, setMaxSampleRate] = useState(3200000); // Default 3.2MHz
   const [gain, setGain] = useState(49.6);
   const [ppm, setPpm] = useState(1);
@@ -483,7 +483,7 @@ const Sidebar = ({
                 </SettingLabel>
                 <InfoPopover
                   title="Source"
-                  content="Radio signal interception device. Captures radio waves for analysis and processing."
+                  content="SDR (Software Defined Radio) device used for capturing and processing radio frequency signals."
                 />
               </SettingLabelContainer>
               <SettingValue>
@@ -513,6 +513,7 @@ const Sidebar = ({
               isActive={activeSignalArea === "A"}
               onActivate={() => onSignalAreaChange?.("A")}
               onRangeChange={handleAreaARangeChange}
+              isDeviceConnected={isDeviceConnected}
             />
             <FrequencyRangeSlider
               label="B"
@@ -523,11 +524,12 @@ const Sidebar = ({
               isActive={activeSignalArea === "B"}
               onActivate={() => onSignalAreaChange?.("B")}
               onRangeChange={handleAreaBRangeChange}
+              isDeviceConnected={isDeviceConnected}
             />
           </Section>
 
           <Section>
-            <SectionTitle>Signal kind</SectionTitle>
+            <SectionTitle>Signal type</SectionTitle>
             <SettingRow>
               <SettingLabelContainer>
                 <SettingLabel>N-APT</SettingLabel>
@@ -536,7 +538,24 @@ const Sidebar = ({
                   content="N-APT stands for: Neuro Automatic Picture Transmission. These radio waves are modulated akin to APT signals (unknown reasons at this time) but unique in their ability to intercept, process and alter the brain and nervous system.<br /><br />Through LF/HF frequencies (frequencies that survive attenuation of the skull and/or body; and lose less energy with longer distances/obstacles), it functions from triangulation, heterodyning (it's key feature which ensures bioelectrical reception), phase shifting, center frequencies, impedance & endpoint signals processing (suspected as Kaiser, Bayes' Theorem/Posterior Probability, etc.).<br /><br />It is an unprecedented technology with nascent efforts to decipher its modulation and content."
                 />
               </SettingLabelContainer>
-              <SettingValue>Active</SettingValue>
+              <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                <SettingValue>{isDeviceConnected ? "Yes" : "No"}</SettingValue>
+                <PauseButton
+                  $paused={false}
+                  onClick={() => {}}
+                  disabled={!isConnected || !isDeviceConnected}
+                  style={{
+                    flex: "none",
+                    fontSize: "11px",
+                    padding: "6px 12px",
+                    minWidth: "80px",
+                    opacity: (!isConnected || !isDeviceConnected) ? 0.5 : 1,
+                    cursor: (!isConnected || !isDeviceConnected) ? "not-allowed" : "pointer"
+                  }}
+                >
+                  🧠 Classify?
+                </PauseButton>
+              </div>
             </SettingRow>
           </Section>
 
