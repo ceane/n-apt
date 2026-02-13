@@ -148,6 +148,8 @@ interface FFTCanvasProps {
   activeSignalArea: string;
   /** Whether the visualization is paused */
   isPaused: boolean;
+  /** Whether the RTL-SDR device is connected */
+  isDeviceConnected?: boolean;
   displayTemporalResolution?: "low" | "medium" | "high";
 }
 
@@ -161,6 +163,7 @@ const FFTCanvas = ({
   centerFrequencyMHz,
   activeSignalArea: _activeSignalArea,
   isPaused,
+  isDeviceConnected = true,
   displayTemporalResolution = "medium",
 }: FFTCanvasProps) => {
   const spectrumCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -206,6 +209,11 @@ const FFTCanvas = ({
     overlayDirtyRef.current.markers = true;
   }, [centerFrequencyMHz]);
 
+  useEffect(() => {
+    // Device connectivity toggles whether red limit lines should display.
+    overlayDirtyRef.current.markers = true;
+  }, [isDeviceConnected]);
+
   const maybeUpdateOverlays = useCallback(
     (width: number, height: number, dpr: number) => {
       const now = performance.now();
@@ -248,6 +256,7 @@ const FFTCanvas = ({
             height,
             frequencyRange: freq,
             centerFrequencyMHz: cf,
+            isDeviceConnected,
           });
           overlay.endDraw();
           overlayDirtyRef.current.markers = false;
@@ -255,7 +264,7 @@ const FFTCanvas = ({
         }
       }
     },
-    [],
+    [isDeviceConnected],
   );
 
   /**
@@ -713,6 +722,7 @@ const FFTCanvas = ({
             height: sh,
             frequencyRange: frequencyRangeRef.current,
             centerFrequencyMHz: centerFreqRef.current,
+            isDeviceConnected,
           });
         }
       }

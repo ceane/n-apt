@@ -24,6 +24,7 @@ interface FrequencyRangeSliderProps {
   isActive: boolean
   onActivate: () => void
   onRangeChange: (range: FrequencyRange) => void
+  isDeviceConnected?: boolean
 }
 
 const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
@@ -35,6 +36,7 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   isActive = false,
   onActivate,
   onRangeChange,
+  isDeviceConnected = true,
 }) => {
   // Calculate window width (constant based on visible range)
   const totalRange = maxFreq - minFreq
@@ -346,7 +348,7 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
         tabIndex={0}
       >
         <div ref={trackRef} className="range-track" style={rangeTrackStyle}>
-          {limitMarkers.map((marker) => (
+          {isDeviceConnected && limitMarkers.map((marker) => (
             <div
               key={marker.label}
               title={`RTL-SDR: ${marker.label}`}

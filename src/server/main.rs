@@ -5,7 +5,7 @@ use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::net::TcpListener;
 use tokio::sync::broadcast;
 use tokio_tungstenite::{accept_async, tungstenite::Message};
@@ -29,6 +29,9 @@ const ASYNC_BUF_NUM: u32 = 15;
 /// Size of each async USB buffer in bytes. 32KB = ~5ms at 3.2 MSPS.
 /// Smaller buffers = lower latency and more frequent callbacks.
 const ASYNC_BUF_LEN: u32 = 32768;
+
+/// How often to probe for a newly attached RTL-SDR while running in mock mode.
+const DEVICE_PROBE_INTERVAL: Duration = Duration::from_millis(750);
 
 /// Command enum for the dedicated SDR I/O thread
 enum SdrCommand {
@@ -276,6 +279,56 @@ impl SDRProcessor {
     }
 
     Ok(())
+  }
+
+  /// Attempt to connect to an RTL-SDR if one is available.
+  ///
+  /// Returns `Ok(true)` when a device was successfully opened + configured.
+  fn try_connect_device(&mut self) -> Result<bool> {
+    if self.device.is_some() {
+      self.is_mock = false;
+      return Ok(true);
+    }
+
+    let device_count = RtlSdrDevice::get_device_count();
+    if device_count == 0 {
+      return Ok(false);
+    }
+
+    match RtlSdrDevice::open_first() {
+      Ok(dev) => {
+        if let Err(e) = dev.set_sample_rate(SAMPLE_RATE) {
+          warn!("Failed to set sample rate: {}. Staying in mock mode.", e);
+          return Ok(false);
+        }
+        if let Err(e) = dev.set_center_freq(n_apt_backend::consts::rs::fft::CENTER_FREQ) {
+          warn!("Failed to set center freq: {}. Staying in mock mode.", e);
+          return Ok(false);
+        }
+        if let Err(e) = dev.set_tuner_gain(self.cached_gain_tenths) {
+          warn!("Failed to set gain: {}. Continuing with default.", e);
+        }
+        if let Err(e) = dev.set_agc_mode(false) {
+          warn!("Failed to disable AGC: {}", e);
+        }
+        if let Err(e) = dev.reset_buffer() {
+          warn!("Failed to reset buffer: {}. Staying in mock mode.", e);
+          return Ok(false);
+        }
+
+        info!("RTL-SDR device initialized (hotplug): {}", dev.get_device_info());
+        self.device = Some(dev);
+        self.is_mock = false;
+        self.iq_accumulator.clear();
+        self.iq_offset = 0;
+        self.avg_spectrum = None;
+        Ok(true)
+      }
+      Err(e) => {
+        debug!("RTL-SDR present but could not open: {}", e);
+        Ok(false)
+      }
+    }
   }
 
   /// Enter mock mode without touching the device handle.
@@ -703,79 +756,138 @@ impl WebSocketServer {
     std::thread::Builder::new()
       .name("sdr-io".into())
       .spawn(move || {
+        let mut last_probe = Instant::now() - DEVICE_PROBE_INTERVAL;
+        let mut last_device_connected: bool;
+
+        let send_status_update = |shared: &Arc<SharedState>, tx: &broadcast::Sender<String>| {
+          let device_connected = shared.device_connected.load(Ordering::Relaxed);
+          let device_info = shared.device_info.lock().unwrap().clone();
+          let paused = shared.is_paused.load(Ordering::Relaxed);
+
+          let max_sample_rate = if device_connected {
+            device_info
+              .split("max: ")
+              .nth(1)
+              .and_then(|s| s.split(" Hz").next())
+              .and_then(|s| s.parse::<u32>().ok())
+              .unwrap_or(3_200_000)
+          } else {
+            device_info
+              .split("Sample Rate: ")
+              .nth(1)
+              .and_then(|s| s.split(" Hz").next())
+              .and_then(|s| s.parse::<u32>().ok())
+              .unwrap_or(3_200_000)
+          };
+
+          let status = StatusMessage {
+            message_type: "status".to_string(),
+            device_connected,
+            paused,
+            backend: if device_connected { "rtl-sdr".to_string() } else { "mock".to_string() },
+            device_info,
+            max_sample_rate,
+          };
+
+          if let Ok(json) = serde_json::to_string(&status) {
+            let _ = tx.send(json);
+          }
+        };
+
+        let start_async_reader = |processor: &SDRProcessor| -> (Option<std::thread::JoinHandle<()>>, Option<std::sync::mpsc::Receiver<Vec<u8>>>) {
+          if processor.is_mock {
+            return (None, None);
+          }
+          let Some(dev) = processor.device.as_ref() else {
+            return (None, None);
+          };
+
+          let (iq_tx, rx) = std::sync::mpsc::sync_channel::<Vec<u8>>(64);
+          let dev_ptr = dev.raw_ptr() as usize;
+
+          let handle = std::thread::Builder::new()
+            .name("sdr-reader".into())
+            .spawn(move || {
+              unsafe extern "C" fn iq_callback(
+                buf: *mut u8,
+                len: u32,
+                ctx: *mut std::os::raw::c_void,
+              ) {
+                if buf.is_null() || len == 0 {
+                  return;
+                }
+                let tx = &*(ctx as *const std::sync::mpsc::SyncSender<Vec<u8>>);
+                let data = std::slice::from_raw_parts(buf, len as usize);
+                let _ = tx.try_send(data.to_vec());
+              }
+
+              let dev = dev_ptr as *mut rtlsdr_ffi::RtlSdrDev;
+              let ctx_ptr = &iq_tx as *const std::sync::mpsc::SyncSender<Vec<u8>>
+                as *mut std::os::raw::c_void;
+
+              log::info!(
+                "Async reader starting: {} buffers × {} bytes",
+                ASYNC_BUF_NUM, ASYNC_BUF_LEN
+              );
+              let ret = unsafe {
+                rtlsdr_ffi::rtlsdr_read_async(
+                  dev,
+                  Some(iq_callback),
+                  ctx_ptr,
+                  ASYNC_BUF_NUM,
+                  ASYNC_BUF_LEN,
+                )
+              };
+              if ret != 0 {
+                log::error!("rtlsdr_read_async returned error code {}", ret);
+              }
+              log::info!("Async reader thread exiting");
+            })
+            .expect("Failed to spawn SDR reader thread");
+
+          (Some(handle), Some(rx))
+        };
+
         let mut processor = SDRProcessor::new();
         if let Err(e) = processor.initialize() {
           error!("Failed to initialize SDR processor: {}", e);
         }
         io_shared.device_connected.store(!processor.is_mock, Ordering::Relaxed);
         *io_shared.device_info.lock().unwrap() = processor.get_device_info();
+        last_device_connected = !processor.is_mock;
         info!("SDR I/O thread started: {}", processor.get_device_info());
 
         // --- Async reader thread ---
         // If a real device is connected, spawn a reader thread that calls
         // rtlsdr_read_async. The callback copies each IQ buffer into the channel.
         // This keeps multiple USB transfers in-flight so the device never stalls.
-        let mut reader_handle: Option<std::thread::JoinHandle<()>> = None;
-        let mut iq_rx: Option<std::sync::mpsc::Receiver<Vec<u8>>> = None;
-
-        if !processor.is_mock {
-          let (iq_tx, rx) = std::sync::mpsc::sync_channel::<Vec<u8>>(64);
-          iq_rx = Some(rx);
-
-          // Send the raw device pointer to the reader thread (as usize for Send)
-          let dev_ptr = processor.device.as_ref().unwrap().raw_ptr() as usize;
-
-          reader_handle = Some(
-            std::thread::Builder::new()
-              .name("sdr-reader".into())
-              .spawn(move || {
-                /// Callback invoked by librtlsdr for each completed USB transfer.
-                /// Copies the IQ buffer and sends it via the channel.
-                unsafe extern "C" fn iq_callback(
-                  buf: *mut u8,
-                  len: u32,
-                  ctx: *mut std::os::raw::c_void,
-                ) {
-                  if buf.is_null() || len == 0 {
-                    return;
-                  }
-                  let tx = &*(ctx as *const std::sync::mpsc::SyncSender<Vec<u8>>);
-                  let data = std::slice::from_raw_parts(buf, len as usize);
-                  // try_send: non-blocking. If the processor can't keep up, drop this buffer.
-                  let _ = tx.try_send(data.to_vec());
-                }
-
-                let dev = dev_ptr as *mut rtlsdr_ffi::RtlSdrDev;
-                let ctx_ptr = &iq_tx as *const std::sync::mpsc::SyncSender<Vec<u8>>
-                  as *mut std::os::raw::c_void;
-
-                log::info!(
-                  "Async reader starting: {} buffers × {} bytes",
-                  ASYNC_BUF_NUM, ASYNC_BUF_LEN
-                );
-                let ret = unsafe {
-                  rtlsdr_ffi::rtlsdr_read_async(
-                    dev,
-                    Some(iq_callback),
-                    ctx_ptr,
-                    ASYNC_BUF_NUM,
-                    ASYNC_BUF_LEN,
-                  )
-                };
-                if ret != 0 {
-                  log::error!("rtlsdr_read_async returned error code {}", ret);
-                }
-                log::info!("Async reader thread exiting");
-                // iq_tx is dropped here → receiver sees Disconnected
-              })
-              .expect("Failed to spawn SDR reader thread"),
-          );
-        }
+        let (mut reader_handle, mut iq_rx) = start_async_reader(&processor);
 
         let mut frame_interval = Duration::from_millis(1000 / processor.display_frame_rate as u64);
 
         loop {
           let loop_start = std::time::Instant::now();
+
+          // --- Hotplug: periodically probe for RTL-SDR while in mock mode ---
+          if processor.is_mock && processor.device.is_none() && loop_start.duration_since(last_probe) >= DEVICE_PROBE_INTERVAL {
+            last_probe = loop_start;
+            match processor.try_connect_device() {
+              Ok(true) => {
+                io_shared.device_connected.store(true, Ordering::Relaxed);
+                *io_shared.device_info.lock().unwrap() = processor.get_device_info();
+                if last_device_connected != true {
+                  last_device_connected = true;
+                  send_status_update(&io_shared, &io_broadcast_tx);
+                }
+
+                let (h, rx) = start_async_reader(&processor);
+                reader_handle = h;
+                iq_rx = rx;
+              }
+              Ok(false) => {}
+              Err(e) => debug!("Device probe failed: {}", e),
+            }
+          }
 
           // --- Shutdown ---
           if io_shared.shutdown.load(Ordering::Relaxed) {
@@ -805,6 +917,11 @@ impl WebSocketServer {
             processor.release_device();
             iq_rx = None;
             io_shared.device_connected.store(false, Ordering::Relaxed);
+            *io_shared.device_info.lock().unwrap() = processor.get_device_info();
+            if last_device_connected != false {
+              last_device_connected = false;
+              send_status_update(&io_shared, &io_broadcast_tx);
+            }
           }
 
           // --- Commands ---
@@ -881,6 +998,11 @@ impl WebSocketServer {
               processor.release_device();
               iq_rx = None;
               io_shared.device_connected.store(false, Ordering::Relaxed);
+              *io_shared.device_info.lock().unwrap() = processor.get_device_info();
+              if last_device_connected != false {
+                last_device_connected = false;
+                send_status_update(&io_shared, &io_broadcast_tx);
+              }
             }
 
             // Process all complete FFT frames, keep only the latest for broadcast
@@ -897,6 +1019,11 @@ impl WebSocketServer {
 
             if let Some(spectrum) = latest_spectrum {
               io_shared.device_connected.store(true, Ordering::Relaxed);
+              if last_device_connected != true {
+                last_device_connected = true;
+                *io_shared.device_info.lock().unwrap() = processor.get_device_info();
+                send_status_update(&io_shared, &io_broadcast_tx);
+              }
 
               if has_clients && !is_paused {
                 *io_shared.latest_spectrum.lock().unwrap() = Some((spectrum.clone(), false));
@@ -918,6 +1045,11 @@ impl WebSocketServer {
             match processor.read_and_process_mock() {
               Ok(spectrum) => {
                 io_shared.device_connected.store(false, Ordering::Relaxed);
+                if last_device_connected != false {
+                  last_device_connected = false;
+                  *io_shared.device_info.lock().unwrap() = processor.get_device_info();
+                  send_status_update(&io_shared, &io_broadcast_tx);
+                }
                 if has_clients && !is_paused {
                   *io_shared.latest_spectrum.lock().unwrap() = Some((spectrum.clone(), true));
                   let payload_spectrum = downsample_spectrum(&spectrum, SERVER_SPECTRUM_BINS);
