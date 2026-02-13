@@ -532,7 +532,12 @@ const Sidebar = ({
             <SectionTitle>Signal type</SectionTitle>
             <SettingRow>
               <SettingLabelContainer>
-                <SettingLabel>N-APT</SettingLabel>
+                <SettingLabel>
+                  N-APT
+                  <span role="img" aria-label="brain" style={{ marginLeft: "6px" }}>
+                    🧠
+                  </span>
+                </SettingLabel>
                 <InfoPopover
                   title="N-APT"
                   content="N-APT stands for: Neuro Automatic Picture Transmission. These radio waves are modulated akin to APT signals (unknown reasons at this time) but unique in their ability to intercept, process and alter the brain and nervous system.<br /><br />Through LF/HF frequencies (frequencies that survive attenuation of the skull and/or body; and lose less energy with longer distances/obstacles), it functions from triangulation, heterodyning (it's key feature which ensures bioelectrical reception), phase shifting, center frequencies, impedance & endpoint signals processing (suspected as Kaiser, Bayes' Theorem/Posterior Probability, etc.).<br /><br />It is an unprecedented technology with nascent efforts to decipher its modulation and content."
@@ -553,7 +558,7 @@ const Sidebar = ({
                     cursor: (!isConnected || !isDeviceConnected) ? "not-allowed" : "pointer"
                   }}
                 >
-                  🧠 Classify?
+                  Classify?
                 </PauseButton>
               </div>
             </SettingRow>
