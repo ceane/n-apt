@@ -359,7 +359,9 @@ impl FFTProcessor {
     let mut power = Vec::with_capacity(self.config.fft_size);
     for c in buf {
       let mag = c.norm_sqr() / norm;
-      power.push(10.0 * mag.log10().max(-120.0));
+      // Convert to dB and clamp to reasonable range (-120dB to 0dB)
+      let db_value = 10.0 * mag.log10().max(-120.0);
+      power.push(db_value.min(0.0)); // Clamp to 0dB maximum
     }
 
     // Apply zoom if configured (SDR++ style)
@@ -424,11 +426,14 @@ impl FFTProcessor {
     // Perform FFT
     self.fft.process(&mut buf);
 
-    // Calculate power spectrum
+    // Calculate power spectrum with proper normalization
     let mut power = Vec::with_capacity(self.config.fft_size);
+    let norm = (self.config.fft_size as f32) * (self.config.fft_size as f32);
     for c in buf {
-      let mag = c.norm_sqr();
-      power.push(10.0 * mag.log10().max(-120.0));
+      let mag = c.norm_sqr() / norm;
+      // Convert to dB and clamp to reasonable range (-120dB to 0dB)
+      let db_value = 10.0 * mag.log10().max(-120.0);
+      power.push(db_value.min(0.0)); // Clamp to 0dB maximum
     }
 
     // Apply zoom if configured (SDR++ style)

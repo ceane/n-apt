@@ -10,7 +10,7 @@ use tokio::net::TcpListener;
 use tokio::sync::broadcast;
 use tokio_tungstenite::{accept_async, tungstenite::Message};
 
-use n_apt_backend::consts::rs::fft::{FFT_FRAME_RATE, FFT_MAX_DB, FFT_MIN_DB, NUM_SAMPLES, SAMPLE_RATE};
+use n_apt_backend::consts::rs::fft::{FFT_MAX_DB, FFT_MIN_DB, NUM_SAMPLES, SAMPLE_RATE};
 use n_apt_backend::consts::rs::mock::{
   MOCK_NOISE_FLOOR_BASE, MOCK_NOISE_FLOOR_VARIATION, MOCK_SPECTRUM_SIZE, MOCK_PERSISTENT_SIGNALS,
   MOCK_NARROW_BAND_WIDTH, MOCK_WIDE_BAND_WIDTH, MOCK_SIGNAL_DRIFT_RATE, MOCK_SIGNAL_MODULATION_RATE,
@@ -89,6 +89,7 @@ struct StatusMessage {
   paused: bool,
   backend: String,
   device_info: String,
+  max_sample_rate: u32,
 }
 
 /// Structured signal pattern for consistent waterfall visualization
@@ -164,6 +165,8 @@ struct SDRProcessor {
   iq_offset: usize,
   /// Reusable IQ frame buffer (avoids per-frame Vec allocation)
   iq_frame: Vec<u8>,
+  /// Validated frame rate for display (clamped to theoretical maximum)
+  display_frame_rate: u32,
 }
 
 impl SDRProcessor {
@@ -184,6 +187,7 @@ impl SDRProcessor {
       iq_accumulator: Vec::with_capacity(NUM_SAMPLES * 4),
       iq_offset: 0,
       iq_frame: Vec::with_capacity(NUM_SAMPLES * 2),
+      display_frame_rate: 30, // Default frame rate
     };
     processor.initialize_mock_signals();
     processor
@@ -354,7 +358,7 @@ impl SDRProcessor {
   }
 
   /// Apply settings from a WebSocket settings message
-  fn apply_settings(&mut self, fft_size: Option<usize>, fft_window: Option<String>, _frame_rate: Option<u32>, gain: Option<f64>, ppm: Option<i32>) -> Result<()> {
+  fn apply_settings(&mut self, fft_size: Option<usize>, fft_window: Option<String>, frame_rate: Option<u32>, gain: Option<f64>, ppm: Option<i32>) -> Result<()> {
     let mut config = self.fft_processor.config().clone();
     let mut config_changed = false;
 
@@ -389,6 +393,21 @@ impl SDRProcessor {
         config_changed = true;
         info!("FFT window changed to {:?}", window_type);
       }
+    }
+
+    // Validate and clamp frame rate
+    if let Some(requested_rate) = frame_rate {
+      let max_rate = self.calculate_max_frame_rate(config.fft_size);
+      let clamped_rate = requested_rate.clamp(1, max_rate);
+      
+      if clamped_rate != requested_rate {
+        warn!("Requested frame rate {} fps exceeds maximum {} fps for FFT size {}, clamping to {}", 
+              requested_rate, max_rate, config.fft_size, clamped_rate);
+      }
+      
+      // Store the validated frame rate for use in the processing loop
+      self.display_frame_rate = clamped_rate;
+      info!("Frame rate set to {} fps", clamped_rate);
     }
 
     if let Some(g) = gain {
@@ -533,9 +552,22 @@ impl SDRProcessor {
           if bin_index >= 0 && bin_index < MOCK_SPECTRUM_SIZE as i32 {
             let bin_idx = bin_index as usize;
             let distance_from_center = (bin_offset as f32 - half_bandwidth).abs();
-            let signal_profile = (-distance_from_center.powi(2) / (2.0 * (signal.bandwidth as f32 / 4.0).powi(2))).exp();
-            let signal_contribution = current_strength * signal_profile;
-            data[bin_idx] = data[bin_idx].max(signal_contribution);
+            let signal_profile = (-distance_from_center.powi(2)
+              / (2.0 * (signal.bandwidth as f32 / 4.0).powi(2)))
+              .exp();
+
+            // Convert Gaussian profile to a negative dB offset.
+            // signal_profile is in (0, 1]; 10*log10(profile) is <= 0 dB.
+            let profile_db = 10.0 * signal_profile.max(1e-12).log10();
+
+            // Interpret current_strength as dB above the local noise floor.
+            // This keeps signals in a realistic dB range (well below 0 dB).
+            let peak_db = data[bin_idx] + current_strength;
+            let signal_contribution_db = peak_db + profile_db;
+
+            // Ensure the final value never exceeds 0dB
+            let final_value = data[bin_idx].max(signal_contribution_db);
+            data[bin_idx] = final_value.min(FFT_MAX_DB as f32);
           }
         }
       }
@@ -557,10 +589,36 @@ impl SDRProcessor {
     } else {
       let config = self.fft_processor.config();
       format!(
-        "Mock RTL-SDR Device - Sample Rate: {} Hz, Gain: {} dB, PPM: {}",
-        config.sample_rate, config.gain as i32, config.ppm as i32
+        "Mock RTL-SDR Device - Sample Rate: {} Hz (max: {} Hz), Gain: {} dB, PPM: {}",
+        config.sample_rate, config.sample_rate, config.gain as i32, config.ppm as i32
       )
     }
+  }
+
+  /// Get the current sample rate from device or config
+  fn get_current_sample_rate(&self) -> u32 {
+    if let Some(ref dev) = self.device {
+      dev.get_sample_rate()
+    } else {
+      self.fft_processor.config().sample_rate
+    }
+  }
+
+  /// Get the maximum supported sample rate from device or config
+  fn get_max_sample_rate(&self) -> u32 {
+    if let Some(ref dev) = self.device {
+      dev.get_max_sample_rate()
+    } else {
+      self.fft_processor.config().sample_rate
+    }
+  }
+
+  /// Calculate maximum theoretical frame rate based on sample rate and FFT size
+  fn calculate_max_frame_rate(&self, fft_size: usize) -> u32 {
+    let sample_rate = self.get_current_sample_rate();
+    let max_theoretical = sample_rate as f32 / fft_size as f32;
+    // Cap at screen refresh rate (assume 60Hz as default)
+    max_theoretical.min(60.0) as u32
   }
 
   /// Process a command from the async runtime (called on the dedicated I/O thread)
@@ -714,7 +772,7 @@ impl WebSocketServer {
           );
         }
 
-        let mut frame_interval = Duration::from_millis(1000 / FFT_FRAME_RATE as u64);
+        let mut frame_interval = Duration::from_millis(1000 / processor.display_frame_rate as u64);
 
         loop {
           let loop_start = std::time::Instant::now();
@@ -789,6 +847,7 @@ impl WebSocketServer {
 
           if let Some(fr) = new_frame_rate {
             let fr = fr.clamp(1, 60);
+            processor.display_frame_rate = fr;
             frame_interval = Duration::from_millis(1000 / fr as u64);
           }
           if let Some(freq) = latest_freq {
@@ -932,12 +991,32 @@ impl WebSocketServer {
         let device_info = shared.device_info.lock().unwrap().clone();
         let paused = shared.is_paused.load(Ordering::Relaxed);
 
+        // Extract max sample rate from device_info string
+        let max_sample_rate = if device_connected {
+          // Parse "max: X Hz" from device_info string
+          device_info
+            .split("max: ")
+            .nth(1)
+            .and_then(|s| s.split(" Hz").next())
+            .and_then(|s| s.parse::<u32>().ok())
+            .unwrap_or(3_200_000) // fallback to 3.2MHz
+        } else {
+          // For mock mode, extract the sample rate
+          device_info
+            .split("Sample Rate: ")
+            .nth(1)
+            .and_then(|s| s.split(" Hz").next())
+            .and_then(|s| s.parse::<u32>().ok())
+            .unwrap_or(3_200_000) // fallback to 3.2MHz
+        };
+
         let status = StatusMessage {
           message_type: "status".to_string(),
           device_connected,
           paused,
           backend: if device_connected { "rtl-sdr".to_string() } else { "mock".to_string() },
           device_info,
+          max_sample_rate,
         };
 
         match serde_json::to_string(&status) {

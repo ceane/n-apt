@@ -1,4 +1,4 @@
-import { useRef, useCallback, useState, useEffect } from "react";
+import { useRef, useCallback, useState, useEffect, useMemo } from "react";
 import styled from "styled-components";
 import InfoPopover from "@n-apt/components/InfoPopover";
 import FrequencyRangeSlider from "@n-apt/components/FrequencyRangeSlider";
@@ -284,10 +284,36 @@ const Sidebar = ({
   const [fftSize, setFftSize] = useState(131072);
   const [fftWindow, setFftWindow] = useState("Rectangular");
   const [fftFrameRate, setFftFrameRate] = useState(60);
+  const [maxSampleRate, setMaxSampleRate] = useState(3200000); // Default 3.2MHz
   const [gain, setGain] = useState(49.6);
   const [ppm, setPpm] = useState(1);
 
   const temporalResolution = displayTemporalResolution ?? "medium";
+
+  // Calculate maximum theoretical frame rate based on FFT size and sample rate
+  const maxFrameRate = useMemo(() => {
+    const theoretical = maxSampleRate / fftSize;
+    return Math.max(1, Math.floor(Math.min(theoretical, 60))); // Cap at 60Hz screen refresh rate
+  }, [fftSize, maxSampleRate]);
+
+  // Extract max sample rate from device info when it changes
+  useEffect(() => {
+    if (deviceInfo) {
+      // Parse "max: X Hz" from device info string
+      const match = deviceInfo.match(/max:\s*(\d+)\s*Hz/);
+      if (match) {
+        const rate = parseInt(match[1], 10);
+        setMaxSampleRate(rate);
+      } else {
+        // Fallback: try to parse sample rate for mock mode
+        const sampleMatch = deviceInfo.match(/Sample Rate:\s*(\d+)\s*Hz/);
+        if (sampleMatch) {
+          const rate = parseInt(sampleMatch[1], 10);
+          setMaxSampleRate(rate);
+        }
+      }
+    }
+  }, [deviceInfo]);
 
   // Send initial settings on mount when connected
   const initialSettingsSent = useRef(false);
@@ -321,6 +347,55 @@ const Sidebar = ({
     },
     [fftSize, fftWindow, fftFrameRate, gain, ppm, onSettingsChange],
   );
+
+  const fftSizeOptions = useMemo(() => [8192, 16384, 32768, 65536, 131072, 262144], []);
+  const couplingTimerRef = useRef<number | null>(null);
+
+  const scheduleCoupledAdjustment = useCallback(
+    (trigger: "fftSize" | "frameRate", nextFftSize: number, nextFrameRate: number) => {
+      if (couplingTimerRef.current !== null) {
+        window.clearTimeout(couplingTimerRef.current);
+      }
+
+      couplingTimerRef.current = window.setTimeout(() => {
+        couplingTimerRef.current = null;
+
+        if (trigger === "fftSize") {
+          const theoreticalMax = maxSampleRate / nextFftSize;
+          const desiredFrameRate = Math.max(1, Math.floor(Math.min(theoreticalMax, 60)));
+          if (desiredFrameRate !== nextFrameRate) {
+            setFftFrameRate(desiredFrameRate);
+            sendCurrentSettings({ frameRate: desiredFrameRate });
+          }
+          return;
+        }
+
+        const maxFftSizeForRate = Math.floor(maxSampleRate / Math.max(1, nextFrameRate));
+        let desiredFftSize = fftSizeOptions[0];
+        for (const size of fftSizeOptions) {
+          if (size <= maxFftSizeForRate) desiredFftSize = size;
+          else break;
+        }
+
+        if (desiredFftSize !== nextFftSize) {
+          setFftSize(desiredFftSize);
+          sendCurrentSettings({ fftSize: desiredFftSize });
+        }
+      }, 300);
+    },
+    [fftSizeOptions, maxSampleRate, sendCurrentSettings],
+  );
+
+  useEffect(() => {
+    return () => {
+      if (couplingTimerRef.current !== null) {
+        window.clearTimeout(couplingTimerRef.current);
+        couplingTimerRef.current = null;
+      }
+    };
+  }, []);
+
+
 
   // Stitcher state (using props to sync with App component)
   const setSelectedFiles = onSelectedFilesChange;
@@ -408,7 +483,7 @@ const Sidebar = ({
                 </SettingLabel>
                 <InfoPopover
                   title="Source"
-                  content={deviceInfo ?? "No source info yet."}
+                  content="Radio signal interception device. Captures radio waves for analysis and processing."
                 />
               </SettingLabelContainer>
               <SettingValue>
@@ -458,7 +533,7 @@ const Sidebar = ({
                 <SettingLabel>N-APT</SettingLabel>
                 <InfoPopover
                   title="N-APT"
-                  content="NOAA Automatic Picture Transmission - Weather satellite imagery transmitted in analog format."
+                  content="N-APT stands for: Neuro Automatic Picture Transmission. These radio waves are modulated akin to APT signals (unknown reasons at this time) but unique in their ability to intercept, process and alter the brain and nervous system.<br /><br />Through LF/HF frequencies (frequencies that survive attenuation of the skull and/or body; and lose less energy with longer distances/obstacles), it functions from triangulation, heterodyning (it's key feature which ensures bioelectrical reception), phase shifting, center frequencies, impedance & endpoint signals processing (suspected as Kaiser, Bayes' Theorem/Posterior Probability, etc.).<br /><br />It is an unprecedented technology with nascent efforts to decipher its modulation and content."
                 />
               </SettingLabelContainer>
               <SettingValue>Active</SettingValue>
@@ -469,10 +544,61 @@ const Sidebar = ({
             <SectionTitle>Signal display</SectionTitle>
             <SettingRow>
               <SettingLabelContainer>
+                <SettingLabel>Sample Size</SettingLabel>
+                <InfoPopover
+                  title="Sample Size (Bandwidth)"
+                  content="Radio signal bandwidth capacity. Determines the range of frequencies that can be intercepted and processed from transmissions."
+                />
+              </SettingLabelContainer>
+              <SettingValue>{(maxSampleRate / 1000000).toFixed(1)}MHz (max)</SettingValue>
+            </SettingRow>
+            <SettingRow>
+              <SettingLabelContainer>
+                <SettingLabel>Frame Rate</SettingLabel>
+                <InfoPopover
+                  title="Frame Rate"
+                  content={`Signal processing speed. Higher rates provide more real-time analysis of transmissions. Current maximum theoretical rate: ${maxFrameRate} fps based on current FFT size and bandwidth capacity.`}
+                />
+              </SettingLabelContainer>
+              <div
+                style={{ display: "flex", alignItems: "center", gap: "4px" }}
+              >
+                <SettingInput
+                  type="number"
+                  value={fftFrameRate}
+                  onChange={(e) => {
+                    const val = Math.max(1, Math.min(maxFrameRate, Math.floor(Number(e.target.value) || 1)));
+                    setFftFrameRate(val);
+                    sendCurrentSettings({ frameRate: val });
+                    scheduleCoupledAdjustment("frameRate", fftSize, val);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const step = 1; // Always use 1-frame rate steps for precision
+                    const delta = e.key === "ArrowUp" ? step : -step;
+                    const next = Math.max(1, Math.min(maxFrameRate, Math.floor((fftFrameRate || 0) + delta)));
+                    setFftFrameRate(next);
+                    sendCurrentSettings({ frameRate: next });
+                    scheduleCoupledAdjustment("frameRate", fftSize, next);
+                  }}
+                  min="1"
+                  max={maxFrameRate}
+                />
+                <span
+                  style={{ fontSize: "12px", color: "#ccc", fontWeight: "500" }}
+                >
+                  fps
+                </span>
+              </div>
+            </SettingRow>
+            <SettingRow>
+              <SettingLabelContainer>
                 <SettingLabel>FFT Size</SettingLabel>
                 <InfoPopover
                   title="FFT Size"
-                  content="Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum."
+                  content="Frequency resolution. Larger sizes provide better detection of specific signal patterns in transmissions but reduce processing speed."
                 />
               </SettingLabelContainer>
               <SettingSelect
@@ -481,6 +607,7 @@ const Sidebar = ({
                   const val = Number(e.target.value);
                   setFftSize(val);
                   sendCurrentSettings({ fftSize: val });
+                  scheduleCoupledAdjustment("fftSize", val, fftFrameRate);
                 }}
               >
                 <option value={8192}>8192</option>
@@ -496,7 +623,7 @@ const Sidebar = ({
                 <SettingLabel>FFT Window</SettingLabel>
                 <InfoPopover
                   title="FFT Window"
-                  content="Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium."
+                  content="Signal filtering. Different windows optimize for detecting specific types of patterns and interactions in transmissions."
                 />
               </SettingLabelContainer>
               <SettingSelect
@@ -516,49 +643,10 @@ const Sidebar = ({
             </SettingRow>
             <SettingRow>
               <SettingLabelContainer>
-                <SettingLabel>FFT Frame Rate</SettingLabel>
-                <InfoPopover
-                  title="FFT Frame Rate"
-                  content="Nemo enim ipsam voluptatem quia voluptas sit aspernatur aut odit aut fugit."
-                />
-              </SettingLabelContainer>
-              <div
-                style={{ display: "flex", alignItems: "center", gap: "4px" }}
-              >
-                <SettingInput
-                  type="number"
-                  value={fftFrameRate}
-                  onChange={(e) => {
-                    const val = Math.max(1, Math.min(60, Number(e.target.value) || 1));
-                    setFftFrameRate(val);
-                    sendCurrentSettings({ frameRate: val });
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
-                    e.preventDefault();
-                    e.stopPropagation();
-                    const step = e.shiftKey ? 1 : 5;
-                    const delta = e.key === "ArrowUp" ? step : -step;
-                    const next = Math.max(1, Math.min(60, (fftFrameRate || 0) + delta));
-                    setFftFrameRate(next);
-                    sendCurrentSettings({ frameRate: next });
-                  }}
-                  min="1"
-                  max="60"
-                />
-                <span
-                  style={{ fontSize: "12px", color: "#ccc", fontWeight: "500" }}
-                >
-                  fps
-                </span>
-              </div>
-            </SettingRow>
-            <SettingRow>
-              <SettingLabelContainer>
-                <SettingLabel>Display Temporal Resolution</SettingLabel>
+                <SettingLabel>Temporal Resolution</SettingLabel>
                 <InfoPopover
                   title="Display Temporal Resolution"
-                  content="Adjusts how each FFT slice is drawn: low = blended lines, medium = partially averaged slices, high = exact slice amplitudes as dots with sharp FFT transitions."
+                  content="Signal visualization precision. Low blends signal patterns, medium shows averaged activity, high displays exact signal interactions with sharp transitions, with the ability to see patterns like dots and other patterns as the signal rises and falls sharply."
                 />
               </SettingLabelContainer>
               <SettingSelect
@@ -584,7 +672,7 @@ const Sidebar = ({
                 <SettingLabel>PPM</SettingLabel>
                 <InfoPopover
                   title="PPM Correction"
-                  content="Parts per million frequency correction for your RTL-SDR oscillator."
+                  content="Frequency alignment. Parts per million correction for precise tuning to signal frequencies."
                 />
               </SettingLabelContainer>
               <SettingInput
@@ -614,7 +702,7 @@ const Sidebar = ({
                 <SettingLabel>Gain</SettingLabel>
                 <InfoPopover
                   title="Gain Setting"
-                  content="Hardware tuner gain in dB. Higher values bring out weaker signals but increase noise."
+                  content="Signal amplification. Increases sensitivity to weak transmissions but may introduce interference from other signals."
                 />
               </SettingLabelContainer>
               <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
@@ -632,17 +720,7 @@ const Sidebar = ({
                 <span style={{ fontSize: "12px", color: "#ccc", fontWeight: "500" }}>dB</span>
               </div>
             </SettingRow>
-            <SettingRow>
-              <SettingLabelContainer>
-                <SettingLabel>Bandwidth</SettingLabel>
-                <InfoPopover
-                  title="Bandwidth"
-                  content="Sample rate / bandwidth of the RTL-SDR device."
-                />
-              </SettingLabelContainer>
-              <SettingValue>3.2MHz (max)</SettingValue>
-            </SettingRow>
-          </Section>
+            </Section>
         </>
       )}
 

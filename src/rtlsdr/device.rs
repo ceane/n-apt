@@ -164,6 +164,47 @@ impl RtlSdrDevice {
         unsafe { ffi::rtlsdr_get_freq_correction(self.dev) as i32 }
     }
 
+    /// Get the maximum supported sample rate for this device
+    /// Tests common sample rates and returns the highest one that works
+    pub fn get_max_sample_rate(&self) -> u32 {
+        // Common RTL-SDR sample rates to test (highest to lowest)
+        let test_rates = [
+            3_200_000,  // 3.2 MHz - common max
+            2_800_000,  // 2.8 MHz
+            2_560_000,  // 2.56 MHz
+            2_400_000,  // 2.4 MHz
+            2_048_000,  // 2.048 MHz
+            1_920_000,  // 1.92 MHz
+            1_800_000,  // 1.8 MHz
+            1_600_000,  // 1.6 MHz
+            1_440_000,  // 1.44 MHz
+            1_200_000,  // 1.2 MHz
+            1_024_000,  // 1.024 MHz
+            960_000,    // 960 kHz
+            900_001,    // 900 kHz (common for FM radio)
+            480_000,    // 480 kHz
+        ];
+
+        let current_rate = self.get_sample_rate();
+        let mut max_supported = current_rate;
+
+        for &rate in &test_rates {
+            let ret = unsafe { ffi::rtlsdr_set_sample_rate(self.dev, rate) };
+            if ret == 0 {
+                // Verify the rate was actually set
+                let actual_rate = unsafe { ffi::rtlsdr_get_sample_rate(self.dev) };
+                if actual_rate == rate {
+                    max_supported = rate;
+                }
+            }
+        }
+
+        // Restore original sample rate
+        let _ = unsafe { ffi::rtlsdr_set_sample_rate(self.dev, current_rate) };
+        
+        max_supported
+    }
+
     /// Reset the device buffer (call before starting reads)
     pub fn reset_buffer(&self) -> Result<()> {
         let ret = unsafe { ffi::rtlsdr_reset_buffer(self.dev) };
@@ -240,13 +281,16 @@ impl RtlSdrDevice {
         let name = Self::get_device_name(self.device_index);
         let freq = self.get_center_freq();
         let rate = self.get_sample_rate();
+        let max_rate = self.get_max_sample_rate();
         let gain = self.get_tuner_gain();
         let ppm = self.get_freq_correction();
+        
         format!(
-            "{} - Freq: {} Hz, Rate: {} Hz, Gain: {:.1} dB, PPM: {}",
+            "{} - Freq: {} Hz, Rate: {} Hz (max: {} Hz), Gain: {:.1} dB, PPM: {}",
             name,
             freq,
             rate,
+            max_rate,
             gain as f32 / 10.0,
             ppm
         )
