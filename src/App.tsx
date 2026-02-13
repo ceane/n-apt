@@ -70,6 +70,13 @@ export const AppContent: React.FC = () => {
   const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([])
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
 
+  // When returning to the visualizer tab, force a resize event so canvases reflow.
+  useEffect(() => {
+    if (activeTab === "visualizer") {
+      window.dispatchEvent(new Event("resize"))
+    }
+  }, [activeTab])
+
   const isVisualizer = activeTab === "visualizer"
   const isStitcher = activeTab === "stitcher"
 

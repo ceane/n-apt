@@ -286,6 +286,11 @@ const Sidebar = ({
   const [fftFrameRate, setFftFrameRate] = useState(30);
   const [maxSampleRate, setMaxSampleRate] = useState(3200000); // Default 3.2MHz
   const [gain, setGain] = useState(49.6);
+
+  const clampGain = useCallback((val: number) => {
+    if (Number.isNaN(val)) return 0;
+    return Math.max(0, Math.min(49.6, val));
+  }, []);
   const [ppm, setPpm] = useState(1);
 
   const temporalResolution = displayTemporalResolution ?? "medium";
@@ -734,17 +739,20 @@ const Sidebar = ({
                   type="number"
                   value={gain}
                   onChange={(e) => {
-                    const val = Number(e.target.value) || 0;
+                    const raw = Number(e.target.value);
+                    const val = clampGain(Number.isFinite(raw) ? raw : 0);
                     setGain(val);
                     sendCurrentSettings({ gain: val });
                   }}
                   step="0.1"
+                  min="0"
+                  max="49.6"
                   style={{ width: "60px" }}
                 />
                 <span style={{ fontSize: "12px", color: "#ccc", fontWeight: "500" }}>dB</span>
               </div>
             </SettingRow>
-            </Section>
+          </Section>
         </>
       )}
 
