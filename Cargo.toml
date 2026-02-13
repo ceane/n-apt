@@ -42,6 +42,22 @@ log = "0.4"
 env_logger = "0.10"
 futures-util = "0.3"
 chrono = { version = "0.4", features = ["serde", "wasmbind"] }
+# Encryption: AES-256-GCM for payload encryption, HMAC/PBKDF2 for auth
+aes-gcm = "0.10"
+hmac = "0.12"
+sha2 = "0.10"
+pbkdf2 = { version = "0.12", features = ["simple"] }
+base64 = "0.22"
+# HTTP + WebSocket server (axum replaces raw TcpListener + tokio-tungstenite)
+axum = { version = "0.7", features = ["ws"] }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors"] }
+# WebAuthn passkey authentication
+webauthn-rs = { version = "0.5", features = ["danger-allow-state-serialisation"] }
+webauthn-rs-proto = "0.5"
+# Session management
+uuid = { version = "1", features = ["v4"] }
+url = "2"
 
 [dev-dependencies]
 doc-comment = "0.3"

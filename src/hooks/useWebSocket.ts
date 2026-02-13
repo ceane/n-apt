@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react"
+import { decryptPayload } from "@n-apt/crypto/webcrypto"
 
 // Types
 export type FrequencyRange = {
@@ -32,9 +33,16 @@ export type WebSocketData = {
 // Reconnect backoff schedule (seconds)
 const RECONNECT_BACKOFF = [2, 5, 10, 30, 60, 90]
 
-// Hook implementation
+/**
+ * WebSocket hook for authenticated streaming.
+ *
+ * The `url` should already include the session token as a query parameter
+ * (e.g. `ws://host:port/ws?token=...`). Auth is handled separately via REST.
+ * The `aesKey` is used to decrypt encrypted spectrum payloads.
+ */
 export const useWebSocket = (
   url: string,
+  aesKey: CryptoKey | null,
   enabled: boolean = true,
 ): WebSocketData => {
   const [isConnected, setIsConnected] = useState(false)
@@ -58,9 +66,12 @@ export const useWebSocket = (
   const reconnectAttemptRef = useRef(0)
   // Error debounce — only set error state once per cooldown
   const lastErrorTimeRef = useRef(0)
+  // Keep a ref to the AES key so the message handler always sees the latest
+  const aesKeyRef = useRef<CryptoKey | null>(aesKey)
+  aesKeyRef.current = aesKey
 
   useEffect(() => {
-    if (!enabled) {
+    if (!enabled || !url) {
       // Close existing connection if disabled
       const ws = wsRef.current
       wsRef.current = null
@@ -92,8 +103,7 @@ export const useWebSocket = (
           ws.onmessage = (event) => {
             const raw = event.data as string
 
-            // Fast path: check if this is a status message (rare, small payload)
-            // Status messages start with {"message_type":"status"
+            // ── Status messages ─────────────────────────────────────
             if (raw.includes('"message_type":"status"')) {
               try {
                 const parsedData = JSON.parse(raw)
@@ -110,19 +120,57 @@ export const useWebSocket = (
                 setServerPaused(paused)
                 setIsDeviceLoading(deviceLoading)
 
-                // Only update state if values actually changed
                 if (lastIsMockRef.current !== !deviceConnected) {
                   lastIsMockRef.current = !deviceConnected
                   setIsDeviceConnected(deviceConnected)
                 }
                 setIsPaused(paused)
-              } catch {
-                // Ignore parse errors on status messages
+              } catch { /* ignore */ }
+              return
+            }
+
+            // ── Encrypted spectrum data ─────────────────────────────
+            if (raw.includes('"type":"encrypted_spectrum"')) {
+              pendingRawRef.current = raw
+
+              if (!processingRef.current) {
+                processingRef.current = true
+                requestAnimationFrame(() => {
+                  const pending = pendingRawRef.current
+                  pendingRawRef.current = null
+                  processingRef.current = false
+
+                  if (pending && aesKeyRef.current) {
+                    try {
+                      const envelope = JSON.parse(pending)
+                      if (envelope.type === "encrypted_spectrum" && typeof envelope.payload === "string") {
+                        decryptPayload(aesKeyRef.current, envelope.payload)
+                          .then((plaintext) => {
+                            const parsedData = JSON.parse(plaintext)
+
+                            if (parsedData.is_mock !== undefined) {
+                              const newIsMock = parsedData.is_mock as boolean
+                              if (lastIsMockRef.current !== newIsMock) {
+                                lastIsMockRef.current = newIsMock
+                                setIsDeviceConnected(!newIsMock)
+                              }
+                              setBackend((prev) => (prev ? prev : newIsMock ? "mock" : "rtl-sdr"))
+                            }
+
+                            setData(parsedData)
+                          })
+                          .catch(() => {
+                            // Decryption failed — likely wrong key or corrupted frame
+                          })
+                      }
+                    } catch { /* ignore */ }
+                  }
+                })
               }
               return
             }
 
-            // Spectrum data: buffer raw string, only parse in rAF callback
+            // ── Legacy unencrypted spectrum data (fallback) ─────────
             pendingRawRef.current = raw
 
             if (!processingRef.current) {
@@ -136,23 +184,17 @@ export const useWebSocket = (
                   try {
                     const parsedData = JSON.parse(pending)
 
-                    // Update device connection state only when value changes
                     if (parsedData.is_mock !== undefined) {
                       const newIsMock = parsedData.is_mock as boolean
                       if (lastIsMockRef.current !== newIsMock) {
                         lastIsMockRef.current = newIsMock
                         setIsDeviceConnected(!newIsMock)
                       }
-
-                      // If we haven't received a status message yet, infer a backend
-                      // so the UI can still display the source label.
                       setBackend((prev) => (prev ? prev : newIsMock ? "mock" : "rtl-sdr"))
                     }
 
                     setData(parsedData)
-                  } catch {
-                    // Failed to parse buffered WebSocket message
-                  }
+                  } catch { /* ignore */ }
                 }
               })
             }
@@ -223,7 +265,6 @@ export const useWebSocket = (
         paused: paused,
       })
       ws.send(message)
-      // Note: isPaused state will be updated via WebSocket status message
     }
   }, [])
 

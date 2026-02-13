@@ -1,4 +1,10 @@
 use anyhow::Result;
+use axum::extract::ws::{Message, WebSocket};
+use axum::extract::{Query, State, WebSocketUpgrade};
+use axum::http::StatusCode;
+use axum::response::IntoResponse;
+use axum::routing::{get, post};
+use axum::{Json, Router};
 use futures_util::{SinkExt, StreamExt};
 use log::{debug, error, info, warn};
 use rand::Rng;
@@ -6,9 +12,9 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::{Duration, Instant};
-use tokio::net::TcpListener;
 use tokio::sync::broadcast;
-use tokio_tungstenite::{accept_async, tungstenite::Message};
+use tower_http::cors::CorsLayer;
+use webauthn_rs::prelude::*;
 
 use n_apt_backend::consts::rs::fft::{FFT_MAX_DB, FFT_MIN_DB, NUM_SAMPLES, SAMPLE_RATE};
 use n_apt_backend::consts::rs::mock::{
@@ -18,12 +24,18 @@ use n_apt_backend::consts::rs::mock::{
   MOCK_WEAK_SIGNAL_MAX, MOCK_WEAK_SIGNAL_MIN, MOCK_SIGNAL_APPEARANCE_CHANCE,
   MOCK_SIGNAL_DISAPPEARANCE_CHANCE, MOCK_SIGNAL_STRENGTH_VARIATION,
 };
+use n_apt_backend::credentials::CredentialStore;
+use n_apt_backend::crypto;
 use n_apt_backend::fft::{FFTProcessor, FFTResult, RawSamples};
 use n_apt_backend::rtlsdr::RtlSdrDevice;
 use n_apt_backend::rtlsdr::ffi as rtlsdr_ffi;
 use n_apt_backend::consts::rs::env::{WS_HOST, WS_PORT};
+use n_apt_backend::session::SessionStore;
 
 const SERVER_SPECTRUM_BINS: usize = 4096;
+/// Passkey for AES-256-GCM encryption. Read from N_APT_PASSKEY env var at startup.
+/// Falls back to a default for development.
+const DEFAULT_PASSKEY: &str = "n-apt-dev-key";
 /// Number of async USB transfer buffers (librtlsdr default is 15)
 const ASYNC_BUF_NUM: u32 = 15;
 /// Size of each async USB buffer in bytes. 32KB = ~5ms at 3.2 MSPS.
@@ -708,6 +720,8 @@ struct SharedState {
   device_connected: AtomicBool,
   /// Client count
   client_count: AtomicU32,
+  /// Number of authenticated clients (streaming only starts when > 0)
+  authenticated_count: AtomicU32,
   /// Whether streaming is paused
   is_paused: AtomicBool,
   /// Latest requested center frequency (MHz -> Hz), coalesced atomically
@@ -720,6 +734,10 @@ struct SharedState {
   device_info: std::sync::Mutex<String>,
   /// Device loading state (when device is being initialized)
   device_loading: std::sync::Mutex<bool>,
+  /// AES-256 encryption key derived from passkey (set once at startup)
+  encryption_key: [u8; 32],
+  /// Pending auth challenges: challenge_id → (nonce_bytes, created_at)
+  pending_challenges: std::sync::Mutex<std::collections::HashMap<String, ([u8; 32], Instant)>>,
 }
 
 /// WebSocket server that handles client connections and broadcasts spectrum data.
@@ -739,16 +757,23 @@ impl WebSocketServer {
     let (cmd_tx, cmd_rx) = std::sync::mpsc::channel::<SdrCommand>();
     let (broadcast_tx, _) = broadcast::channel::<String>(16);
 
+    let passkey = std::env::var("N_APT_PASSKEY").unwrap_or_else(|_| DEFAULT_PASSKEY.to_string());
+    let encryption_key = crypto::derive_key(&passkey);
+    info!("Encryption key derived from passkey (PBKDF2-HMAC-SHA256, {} iterations)", 100_000);
+
     let shared = Arc::new(SharedState {
       latest_spectrum: std::sync::Mutex::new(None),
       device_connected: AtomicBool::new(false),
       client_count: AtomicU32::new(0),
+      authenticated_count: AtomicU32::new(0),
       is_paused: AtomicBool::new(false),
       pending_center_freq: AtomicU32::new(n_apt_backend::consts::rs::fft::CENTER_FREQ),
       pending_center_freq_dirty: AtomicBool::new(false),
       shutdown: AtomicBool::new(false),
       device_info: std::sync::Mutex::new(String::new()),
       device_loading: std::sync::Mutex::new(false),
+      encryption_key,
+      pending_challenges: std::sync::Mutex::new(std::collections::HashMap::new()),
     });
 
     // Spawn the dedicated I/O thread — FFT processing + command handling happens here.
@@ -1014,7 +1039,7 @@ impl WebSocketServer {
             processor.handle_command(SdrCommand::SetFrequency(freq));
           }
 
-          let has_clients = io_shared.client_count.load(Ordering::Relaxed) > 0;
+          let has_clients = io_shared.authenticated_count.load(Ordering::Relaxed) > 0;
           let is_paused = io_shared.is_paused.load(Ordering::Relaxed);
 
           // --- Process IQ data from async reader ---
@@ -1133,7 +1158,7 @@ impl WebSocketServer {
     }
   }
 
-  /// Start the WebSocket server and begin accepting connections
+  /// Start the axum HTTP + WebSocket server
   async fn start(&self) -> Result<()> {
     // Wait briefly for the I/O thread to initialize the device
     tokio::time::sleep(Duration::from_millis(200)).await;
@@ -1141,130 +1166,537 @@ impl WebSocketServer {
     let device_info = self.shared.device_info.lock().unwrap().clone();
     info!("SDR processor initialized: {}", device_info);
 
+    // Build shared application state for axum handlers
+    let rp_id = std::env::var("N_APT_RP_ID").unwrap_or_else(|_| "localhost".to_string());
+    // RP origin must match the browser's actual origin (Vite dev server on :5173).
+    // In production, set N_APT_RP_ORIGIN to the actual serving origin.
+    let rp_origin = std::env::var("N_APT_RP_ORIGIN")
+      .unwrap_or_else(|_| "http://localhost:5173".to_string());
+    let rp_origin_url = url::Url::parse(&rp_origin)
+      .unwrap_or_else(|_| url::Url::parse("http://localhost").unwrap());
+
+    let webauthn = WebauthnBuilder::new(&rp_id, &rp_origin_url)
+      .unwrap()
+      .rp_name("N-APT")
+      .build()
+      .expect("Failed to build WebAuthn");
+
+    let credential_store = CredentialStore::new().expect("Failed to init credential store");
+
+    let app_state = Arc::new(AppState {
+      shared: self.shared.clone(),
+      broadcast_tx: self.broadcast_tx.clone(),
+      cmd_tx: self.cmd_tx.clone(),
+      session_store: SessionStore::new(),
+      credential_store,
+      webauthn,
+    });
+
+    let cors = CorsLayer::permissive();
+
+    let app = Router::new()
+      // REST auth endpoints
+      .route("/auth/info", get(auth_info_handler))
+      .route("/auth/challenge", post(auth_challenge_handler))
+      .route("/auth/verify", post(auth_verify_handler))
+      .route("/auth/session", post(auth_session_handler))
+      .route("/auth/passkey/register/start", post(passkey_register_start_handler))
+      .route("/auth/passkey/register/finish", post(passkey_register_finish_handler))
+      .route("/auth/passkey/auth/start", post(passkey_auth_start_handler))
+      .route("/auth/passkey/auth/finish", post(passkey_auth_finish_handler))
+      // WebSocket upgrade (requires valid session token)
+      .route("/ws", get(ws_upgrade_handler))
+      // Status endpoint (no auth required)
+      .route("/status", get(status_handler))
+      .layer(cors)
+      .with_state(app_state);
+
     let server_addr = format!("{}:{}", WS_HOST, WS_PORT);
-    let listener = TcpListener::bind(&server_addr).await?;
-    info!("WebSocket server listening on ws://{}", server_addr);
+    let listener = tokio::net::TcpListener::bind(&server_addr).await?;
+    info!("N-APT server listening on http://{}", server_addr);
+    info!("  REST auth: POST /auth/challenge, /auth/verify, /auth/session");
+    info!("  Passkey:   POST /auth/passkey/register/start, .../finish, /auth/start, .../finish");
+    info!("  WebSocket: GET  /ws?token=<session_token>");
+    info!("  Status:    GET  /status");
 
-    // Handle connections
-    while let Ok((stream, addr)) = listener.accept().await {
-      let mut broadcast_rx = self.broadcast_tx.subscribe();
-      let shared = self.shared.clone();
-      let cmd_tx = self.cmd_tx.clone();
-
-      tokio::spawn(async move {
-        let ws_stream = match accept_async(stream).await {
-          Ok(stream) => stream,
-          Err(e) => {
-            error!("WebSocket handshake failed: {}", e);
-            return;
-          }
-        };
-        let (mut ws_sender, mut ws_receiver) = ws_stream.split();
-
-        // Send initial status
-        let device_connected = shared.device_connected.load(Ordering::Relaxed);
-        let device_info = shared.device_info.lock().unwrap().clone();
-        let paused = shared.is_paused.load(Ordering::Relaxed);
-
-        // Extract max sample rate from device_info string
-        let max_sample_rate = if device_connected {
-          // Parse "max: X Hz" from device_info string
-          device_info
-            .split("max: ")
-            .nth(1)
-            .and_then(|s| s.split(" Hz").next())
-            .and_then(|s| s.parse::<u32>().ok())
-            .unwrap_or(3_200_000) // fallback to 3.2MHz
-        } else {
-          // For mock mode, extract the sample rate
-          device_info
-            .split("Sample Rate: ")
-            .nth(1)
-            .and_then(|s| s.split(" Hz").next())
-            .and_then(|s| s.parse::<u32>().ok())
-            .unwrap_or(3_200_000) // fallback to 3.2MHz
-        };
-
-        let status = StatusMessage {
-          message_type: "status".to_string(),
-          device_connected,
-          paused,
-          backend: if device_connected { "rtl-sdr".to_string() } else { "mock".to_string() },
-          device_info,
-          max_sample_rate,
-        };
-
-        match serde_json::to_string(&status) {
-          Ok(status_json) => {
-            if let Err(e) = ws_sender.send(Message::Text(status_json)).await {
-              error!("Failed to send initial status: {}", e);
-              return;
-            }
-          }
-          Err(e) => {
-            error!("Failed to serialize status: {}", e);
-            return;
-          }
-        }
-
-        // Increment client count
-        shared.client_count.fetch_add(1, Ordering::Relaxed);
-
-        loop {
-          tokio::select! {
-            broadcast_result = broadcast_rx.recv() => {
-              match broadcast_result {
-                Ok(message) => {
-                  if let Err(e) = ws_sender.send(Message::Text(message)).await {
-                    debug!("Client {} disconnected during broadcast: {}", addr, e);
-                    break;
-                  }
-                }
-                Err(broadcast::error::RecvError::Lagged(n)) => {
-                  // Client fell behind — skip missed frames, don't disconnect
-                  debug!("Client {} lagged by {} frames, skipping", addr, n);
-                  continue;
-                }
-                Err(_) => {
-                  break;
-                }
-              }
-            }
-            client_msg = ws_receiver.next() => {
-              match client_msg {
-                Some(Ok(Message::Text(text))) => {
-                  if let Ok(message) = serde_json::from_str::<WebSocketMessage>(&text) {
-                    handle_message(&cmd_tx, &shared, message);
-                  }
-                }
-                Some(Ok(Message::Close(_))) => {
-                  break;
-                }
-                Some(Ok(Message::Ping(data))) => {
-                  if let Err(e) = ws_sender.send(Message::Pong(data)).await {
-                    warn!("Failed to send pong to {}: {}", addr, e);
-                    break;
-                  }
-                }
-                Some(Err(_)) => {
-                  break;
-                }
-                None => {
-                  break;
-                }
-                _ => {}
-              }
-            }
-          }
-        }
-
-        // Decrement client count on disconnect
-        shared.client_count.fetch_sub(1, Ordering::Relaxed);
-      });
-    }
+    axum::serve(listener, app).await?;
 
     Ok(())
   }
+}
+
+// ── Axum shared state ──────────────────────────────────────────────────
+
+/// Application state shared across all axum handlers.
+struct AppState {
+  shared: Arc<SharedState>,
+  broadcast_tx: broadcast::Sender<String>,
+  cmd_tx: std::sync::mpsc::Sender<SdrCommand>,
+  session_store: SessionStore,
+  credential_store: CredentialStore,
+  webauthn: Webauthn,
+}
+
+// ── REST auth request/response types ───────────────────────────────────
+
+#[derive(Deserialize)]
+struct AuthVerifyRequest {
+  challenge_id: String,
+  hmac: String,
+}
+
+#[derive(Deserialize)]
+struct AuthSessionRequest {
+  token: String,
+}
+
+#[derive(Deserialize)]
+struct WsQueryParams {
+  token: String,
+}
+
+#[derive(Deserialize)]
+struct PasskeyRegisterFinishRequest {
+  challenge_id: String,
+  credential: RegisterPublicKeyCredential,
+}
+
+#[derive(Deserialize)]
+struct PasskeyAuthFinishRequest {
+  challenge_id: String,
+  credential: PublicKeyCredential,
+}
+
+// ── REST auth handlers ─────────────────────────────────────────────────
+
+/// GET /auth/info — returns whether passkeys are registered (so frontend
+/// knows whether to show passkey button vs password-only).
+async fn auth_info_handler(
+  State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+  let has_passkeys = state.credential_store.has_passkeys();
+  Json(serde_json::json!({
+    "has_passkeys": has_passkeys,
+  }))
+}
+
+/// POST /auth/challenge — generate a nonce for password-based auth.
+async fn auth_challenge_handler(
+  State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+  let nonce = crypto::generate_nonce();
+  let nonce_b64 = crypto::to_base64(&nonce);
+
+  // Store the nonce temporarily in a session (short-lived, 60s)
+  // We reuse the session store with a special prefix
+  let challenge_id = uuid::Uuid::new_v4().to_string();
+  let mut challenges = state.shared.pending_challenges.lock().unwrap();
+  challenges.insert(challenge_id.clone(), (nonce, Instant::now()));
+
+  Json(serde_json::json!({
+    "challenge_id": challenge_id,
+    "nonce": nonce_b64,
+  }))
+}
+
+/// POST /auth/verify — verify password-based HMAC response, return session token.
+async fn auth_verify_handler(
+  State(state): State<Arc<AppState>>,
+  Json(body): Json<AuthVerifyRequest>,
+) -> impl IntoResponse {
+  // Look up the challenge nonce
+  let nonce = {
+    let mut challenges = state.shared.pending_challenges.lock().unwrap();
+    challenges.remove(&body.challenge_id)
+  };
+
+  let Some((nonce_bytes, created)) = nonce else {
+    return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({
+      "error": "invalid_challenge",
+      "message": "Challenge not found or expired",
+    })));
+  };
+
+  // Check challenge age (60s max)
+  if created.elapsed() > Duration::from_secs(60) {
+    return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({
+      "error": "challenge_expired",
+      "message": "Challenge has expired",
+    })));
+  }
+
+  // Verify HMAC
+  let client_hmac = match crypto::from_base64(&body.hmac) {
+    Ok(h) => h,
+    Err(_) => {
+      return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({
+        "error": "invalid_hmac",
+        "message": "Invalid HMAC encoding",
+      })));
+    }
+  };
+
+  if !crypto::verify_hmac(&state.shared.encryption_key, &nonce_bytes, &client_hmac) {
+    warn!("Password auth failed: invalid HMAC");
+    return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({
+      "error": "auth_failed",
+      "message": "Invalid passkey",
+    })));
+  }
+
+  // Authentication successful — create session
+  let token = state.session_store.create_session(state.shared.encryption_key);
+  info!("Password authentication successful, session created");
+
+  (StatusCode::OK, Json(serde_json::json!({
+    "token": token,
+    "expires_in": 86400,
+  })))
+}
+
+/// POST /auth/session — validate an existing session token.
+async fn auth_session_handler(
+  State(state): State<Arc<AppState>>,
+  Json(body): Json<AuthSessionRequest>,
+) -> impl IntoResponse {
+  match state.session_store.validate(&body.token) {
+    Some(_session) => {
+      info!("Session token validated successfully");
+      (StatusCode::OK, Json(serde_json::json!({
+        "valid": true,
+        "token": body.token,
+      })))
+    }
+    None => {
+      (StatusCode::UNAUTHORIZED, Json(serde_json::json!({
+        "valid": false,
+        "error": "session_expired",
+      })))
+    }
+  }
+}
+
+// ── Passkey (WebAuthn) handlers ────────────────────────────────────────
+
+/// POST /auth/passkey/register/start — begin passkey registration.
+async fn passkey_register_start_handler(
+  State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+  let user_unique_id = uuid::Uuid::new_v4();
+  let existing_keys = state.credential_store.get_passkeys();
+  let exclude_credentials: Vec<CredentialID> = existing_keys
+    .iter()
+    .map(|k| k.cred_id().clone())
+    .collect();
+
+  match state.webauthn.start_passkey_registration(
+    user_unique_id,
+    "n-apt-user",
+    "N-APT User",
+    Some(exclude_credentials),
+  ) {
+    Ok((ccr, reg_state)) => {
+      let challenge_id = uuid::Uuid::new_v4().to_string();
+      // Serialize registration state for later verification
+      let state_json = serde_json::to_string(&reg_state).unwrap_or_default();
+      if let Err(e) = state.credential_store.store_pending_registration(&challenge_id, &state_json) {
+        error!("Failed to store pending registration: {}", e);
+        return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+          "error": "storage_error",
+        })));
+      }
+
+      let ccr_json = serde_json::to_value(&ccr).unwrap_or_else(|e| {
+        error!("Failed to serialize CCR: {}", e);
+        serde_json::Value::Null
+      });
+      info!("Sending CCR to client: {}", serde_json::to_string_pretty(&ccr_json).unwrap_or_default());
+      
+      (StatusCode::OK, Json(serde_json::json!({
+        "challenge_id": challenge_id,
+        "options": ccr_json,
+      })))
+    }
+    Err(e) => {
+      error!("WebAuthn registration start failed: {}", e);
+      (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+        "error": "webauthn_error",
+        "message": format!("{}", e),
+      })))
+    }
+  }
+}
+
+/// POST /auth/passkey/register/finish — complete passkey registration.
+async fn passkey_register_finish_handler(
+  State(state): State<Arc<AppState>>,
+  Json(body): Json<PasskeyRegisterFinishRequest>,
+) -> impl IntoResponse {
+  let state_json = match state.credential_store.take_pending_registration(&body.challenge_id) {
+    Some(s) => s,
+    None => {
+      return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
+        "error": "invalid_challenge",
+      })));
+    }
+  };
+
+  let reg_state: PasskeyRegistration = match serde_json::from_str(&state_json) {
+    Ok(s) => s,
+    Err(_) => {
+      return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+        "error": "state_corrupt",
+      })));
+    }
+  };
+
+  match state.webauthn.finish_passkey_registration(&body.credential, &reg_state) {
+    Ok(passkey) => {
+      if let Err(e) = state.credential_store.add_passkey(passkey) {
+        error!("Failed to store passkey: {}", e);
+        return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+          "error": "storage_error",
+        })));
+      }
+      info!("Passkey registered successfully");
+      (StatusCode::OK, Json(serde_json::json!({
+        "success": true,
+      })))
+    }
+    Err(e) => {
+      warn!("Passkey registration failed: {}", e);
+      (StatusCode::BAD_REQUEST, Json(serde_json::json!({
+        "error": "registration_failed",
+        "message": format!("{}", e),
+      })))
+    }
+  }
+}
+
+/// POST /auth/passkey/auth/start — begin passkey authentication.
+async fn passkey_auth_start_handler(
+  State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+  let existing_keys = state.credential_store.get_passkeys();
+  if existing_keys.is_empty() {
+    return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
+      "error": "no_passkeys",
+      "message": "No passkeys registered",
+    })));
+  }
+
+  match state.webauthn.start_passkey_authentication(&existing_keys) {
+    Ok((rcr, auth_state)) => {
+      let challenge_id = uuid::Uuid::new_v4().to_string();
+      let state_json = serde_json::to_string(&auth_state).unwrap_or_default();
+      if let Err(e) = state.credential_store.store_pending_registration(&challenge_id, &state_json) {
+        error!("Failed to store pending auth state: {}", e);
+        return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+          "error": "storage_error",
+        })));
+      }
+
+      (StatusCode::OK, Json(serde_json::json!({
+        "challenge_id": challenge_id,
+        "options": rcr,
+      })))
+    }
+    Err(e) => {
+      error!("WebAuthn auth start failed: {}", e);
+      (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+        "error": "webauthn_error",
+        "message": format!("{}", e),
+      })))
+    }
+  }
+}
+
+/// POST /auth/passkey/auth/finish — complete passkey authentication.
+async fn passkey_auth_finish_handler(
+  State(state): State<Arc<AppState>>,
+  Json(body): Json<PasskeyAuthFinishRequest>,
+) -> impl IntoResponse {
+  let state_json = match state.credential_store.take_pending_registration(&body.challenge_id) {
+    Some(s) => s,
+    None => {
+      return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
+        "error": "invalid_challenge",
+      })));
+    }
+  };
+
+  let auth_state: PasskeyAuthentication = match serde_json::from_str(&state_json) {
+    Ok(s) => s,
+    Err(_) => {
+      return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+        "error": "state_corrupt",
+      })));
+    }
+  };
+
+  match state.webauthn.finish_passkey_authentication(&body.credential, &auth_state) {
+    Ok(_auth_result) => {
+      // Authentication successful — create session
+      let token = state.session_store.create_session(state.shared.encryption_key);
+      info!("Passkey authentication successful, session created");
+
+      (StatusCode::OK, Json(serde_json::json!({
+        "token": token,
+        "expires_in": 86400,
+      })))
+    }
+    Err(e) => {
+      warn!("Passkey authentication failed: {}", e);
+      (StatusCode::UNAUTHORIZED, Json(serde_json::json!({
+        "error": "auth_failed",
+        "message": format!("{}", e),
+      })))
+    }
+  }
+}
+
+// ── Status endpoint ────────────────────────────────────────────────────
+
+/// GET /status — public status endpoint (no auth required).
+async fn status_handler(
+  State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+  let device_connected = state.shared.device_connected.load(Ordering::Relaxed);
+  let device_info = state.shared.device_info.lock().unwrap().clone();
+  let client_count = state.shared.client_count.load(Ordering::Relaxed);
+  let authenticated_count = state.shared.authenticated_count.load(Ordering::Relaxed);
+
+  Json(serde_json::json!({
+    "device_connected": device_connected,
+    "device_info": device_info,
+    "backend": if device_connected { "rtl-sdr" } else { "mock" },
+    "clients": client_count,
+    "authenticated_clients": authenticated_count,
+  }))
+}
+
+// ── WebSocket upgrade handler ──────────────────────────────────────────
+
+/// GET /ws?token=<session_token> — upgrade to WebSocket after validating session.
+async fn ws_upgrade_handler(
+  ws: WebSocketUpgrade,
+  Query(params): Query<WsQueryParams>,
+  State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+  // Validate session token
+  let session = match state.session_store.validate(&params.token) {
+    Some(s) => s,
+    None => {
+      return (StatusCode::UNAUTHORIZED, "Invalid or expired session token").into_response();
+    }
+  };
+
+  info!("WebSocket upgrade: valid session, starting encrypted stream");
+
+  let shared = state.shared.clone();
+  let broadcast_tx = state.broadcast_tx.clone();
+  let cmd_tx = state.cmd_tx.clone();
+  let enc_key = session.encryption_key;
+
+  ws.on_upgrade(move |socket| handle_ws_connection(socket, shared, broadcast_tx, cmd_tx, enc_key))
+}
+
+/// Handle an authenticated WebSocket connection (streaming only, no auth).
+async fn handle_ws_connection(
+  socket: WebSocket,
+  shared: Arc<SharedState>,
+  broadcast_tx: broadcast::Sender<String>,
+  cmd_tx: std::sync::mpsc::Sender<SdrCommand>,
+  enc_key: [u8; 32],
+) {
+  let (mut ws_sender, mut ws_receiver) = socket.split();
+  let mut broadcast_rx = broadcast_tx.subscribe();
+
+  shared.client_count.fetch_add(1, Ordering::Relaxed);
+  shared.authenticated_count.fetch_add(1, Ordering::Relaxed);
+
+  // Send initial status
+  let device_connected = shared.device_connected.load(Ordering::Relaxed);
+  let device_info = shared.device_info.lock().unwrap().clone();
+  let paused = shared.is_paused.load(Ordering::Relaxed);
+
+  let max_sample_rate = if device_connected {
+    device_info
+      .split("max: ")
+      .nth(1)
+      .and_then(|s| s.split(" Hz").next())
+      .and_then(|s| s.parse::<u32>().ok())
+      .unwrap_or(3_200_000)
+  } else {
+    device_info
+      .split("Sample Rate: ")
+      .nth(1)
+      .and_then(|s| s.split(" Hz").next())
+      .and_then(|s| s.parse::<u32>().ok())
+      .unwrap_or(3_200_000)
+  };
+
+  let status = StatusMessage {
+    message_type: "status".to_string(),
+    device_connected,
+    paused,
+    backend: if device_connected { "rtl-sdr".to_string() } else { "mock".to_string() },
+    device_info,
+    max_sample_rate,
+  };
+
+  if let Ok(status_json) = serde_json::to_string(&status) {
+    if ws_sender.send(Message::Text(status_json)).await.is_err() {
+      shared.authenticated_count.fetch_sub(1, Ordering::Relaxed);
+      shared.client_count.fetch_sub(1, Ordering::Relaxed);
+      return;
+    }
+  }
+
+  // Encrypted streaming loop
+  loop {
+    tokio::select! {
+      broadcast_result = broadcast_rx.recv() => {
+        match broadcast_result {
+          Ok(plaintext_json) => {
+            match crypto::encrypt_payload(&enc_key, plaintext_json.as_bytes()) {
+              Ok(encrypted_b64) => {
+                let envelope = serde_json::json!({
+                  "type": "encrypted_spectrum",
+                  "payload": encrypted_b64,
+                });
+                if ws_sender.send(Message::Text(envelope.to_string())).await.is_err() {
+                  break;
+                }
+              }
+              Err(e) => {
+                error!("Encryption failed: {}", e);
+              }
+            }
+          }
+          Err(broadcast::error::RecvError::Lagged(n)) => {
+            debug!("Client lagged by {} frames, skipping", n);
+            continue;
+          }
+          Err(_) => break,
+        }
+      }
+      client_msg = ws_receiver.next() => {
+        match client_msg {
+          Some(Ok(Message::Text(text))) => {
+            if let Ok(message) = serde_json::from_str::<WebSocketMessage>(&text) {
+              handle_message(&cmd_tx, &shared, message);
+            }
+          }
+          Some(Ok(Message::Close(_))) | Some(Err(_)) | None => break,
+          _ => {}
+        }
+      }
+    }
+  }
+
+  shared.authenticated_count.fetch_sub(1, Ordering::Relaxed);
+  shared.client_count.fetch_sub(1, Ordering::Relaxed);
 }
 
 /// Handle incoming WebSocket messages from clients.
@@ -1300,7 +1732,6 @@ fn handle_message(
       }
     }
     "settings" => {
-      // Update SDR settings
       let _ = cmd_tx.send(SdrCommand::ApplySettings {
         fft_size: message.fft_size,
         fft_window: message.fft_window,
