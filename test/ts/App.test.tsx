@@ -32,16 +32,19 @@ jest.mock("@n-apt/components/FFTStitcherCanvas", () => ({
 
 jest.mock("@n-apt/hooks/useWebSocket", () => ({
   useWebSocket: () => ({
-    data: null,
     isConnected: false,
-    frequencyRange: { min: 0, max: 3.2 },
-    activeSignalArea: "test-area",
+    deviceState: "disconnected",
+    deviceLoadingReason: null,
     isPaused: false,
-    setFrequencyRange: jest.fn(),
-    setActiveSignalArea: jest.fn(),
-    setIsPaused: jest.fn(),
-    connect: jest.fn(),
-    disconnect: jest.fn(),
+    serverPaused: false,
+    backend: "mock",
+    deviceInfo: null,
+    data: null,
+    error: null,
+    sendFrequencyRange: jest.fn(),
+    sendPauseCommand: jest.fn(),
+    sendSettings: jest.fn(),
+    sendRestartDevice: jest.fn(),
   }),
 }))
 

@@ -2,7 +2,7 @@ import { useRef, useCallback, useState, useEffect, useMemo } from "react";
 import styled from "styled-components";
 import InfoPopover from "@n-apt/components/InfoPopover";
 import FrequencyRangeSlider from "@n-apt/components/FrequencyRangeSlider";
-import type { SDRSettings } from "@n-apt/hooks/useWebSocket";
+import type { SDRSettings, DeviceState, DeviceLoadingReason } from "@n-apt/hooks/useWebSocket";
 
 const SidebarContainer = styled.aside`
   width: 360px;
@@ -37,16 +37,20 @@ const ConnectionStatus = styled.div`
   border: 1px solid #1f1f1f;
 `;
 
-const StatusDot = styled.div<{ $connected: boolean; $loading?: boolean }>`
+const StatusDot = styled.div<{ $connected: boolean; $loading?: boolean; $color?: string }>`
   width: 8px;
   height: 8px;
   border-radius: 50%;
   background-color: ${(props) => 
+    props.$color ? props.$color :
     props.$loading ? "#ffaa00" : 
     props.$connected ? "#00d4ff" : "#ff4444"};
-  box-shadow: ${(props) =>
-    props.$loading ? "0 0 8px #ffaa00" :
-    props.$connected ? "0 0 8px #00d4ff" : "0 0 8px #ff4444"};
+  box-shadow: ${(props) => {
+    const c = props.$color ? props.$color :
+      props.$loading ? "#ffaa00" :
+      props.$connected ? "#00d4ff" : "#ff4444";
+    return `0 0 8px ${c}`;
+  }};
   flex-shrink: 0;
   ${(props) => props.$loading && `
     animation: pulse 1.5s ease-in-out infinite alternate;
@@ -234,14 +238,75 @@ const SettingInput = styled.input`
   &[type="number"] {
     -moz-appearance: textfield;
   }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+`;
+
+const ToggleSwitch = styled.label<{ $disabled?: boolean }>`
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+  cursor: ${(props) => (props.$disabled ? "not-allowed" : "pointer")};
+  opacity: ${(props) => (props.$disabled ? 0.4 : 1)};
+`;
+
+const ToggleSwitchInput = styled.input`
+  opacity: 0;
+  width: 44px;
+  height: 24px;
+  position: absolute;
+  z-index: 2;
+  margin: 0;
+  padding: 0;
+  cursor: ${(props) => (props.disabled ? "not-allowed" : "pointer")};
+
+  &:checked + span {
+    background-color: #00d4ff;
+  }
+
+  &:checked + span:before {
+    transform: translateX(20px);
+  }
+
+  &:disabled + span {
+    cursor: not-allowed;
+  }
+`;
+
+const ToggleSwitchSlider = styled.span<{ $disabled?: boolean }>`
+  position: absolute;
+  cursor: ${(props) => (props.$disabled ? "not-allowed" : "pointer")};
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #444;
+  transition: 0.2s;
+  border-radius: 24px;
+
+  &:before {
+    position: absolute;
+    content: "";
+    height: 18px;
+    width: 18px;
+    left: 3px;
+    bottom: 3px;
+    background-color: white;
+    transition: 0.2s;
+    border-radius: 50%;
+  }
 `;
 
 interface SidebarProps {
   isConnected: boolean;
   isAuthenticated: boolean;
   authState: string;
-  isDeviceConnected: boolean;
-  isDeviceLoading: boolean;
+  deviceState: DeviceState;
+  deviceLoadingReason: DeviceLoadingReason;
   isPaused: boolean;
   serverPaused: boolean;
   backend: string | null;
@@ -251,6 +316,7 @@ interface SidebarProps {
   activeSignalArea: string;
   onSignalAreaChange: (area: string) => void;
   onFrequencyRangeChange?: (range: { min: number; max: number }) => void;
+  frequencyRange?: { min: number; max: number };
   onPauseToggle: () => void;
   onSettingsChange?: (settings: SDRSettings) => void;
   displayTemporalResolution?: "low" | "medium" | "high";
@@ -263,14 +329,15 @@ interface SidebarProps {
   onStitchPauseToggle: () => void;
   onStitch: () => void;
   onClear: () => void;
+  onRestartDevice?: () => void;
 }
 
-const Sidebar = ({
+const Sidebar: React.FC<SidebarProps> = ({
   isConnected,
   isAuthenticated,
   authState,
-  isDeviceConnected,
-  isDeviceLoading,
+  deviceState,
+  deviceLoadingReason,
   isPaused,
   serverPaused,
   backend,
@@ -280,6 +347,7 @@ const Sidebar = ({
   activeSignalArea,
   onSignalAreaChange,
   onFrequencyRangeChange,
+  frequencyRange,
   onPauseToggle,
   onSettingsChange,
   displayTemporalResolution,
@@ -292,7 +360,8 @@ const Sidebar = ({
   onStitchSourceSettingsChange,
   isStitchPaused,
   onStitchPauseToggle,
-}: SidebarProps) => {
+  onRestartDevice,
+}) => {
   // Live retune toggle state (default on)
   const liveRetune = true;
   void liveRetune;
@@ -303,6 +372,8 @@ const Sidebar = ({
   const [fftFrameRate, setFftFrameRate] = useState(30);
   const [maxSampleRate, setMaxSampleRate] = useState(3200000); // Default 3.2MHz
   const [gain, setGain] = useState(49.6);
+  const [tunerAGC, setTunerAGC] = useState(false);
+  const [rtlAGC, setRtlAGC] = useState(false);
 
   const clampGain = useCallback((val: number) => {
     if (Number.isNaN(val)) return 0;
@@ -340,7 +411,7 @@ const Sidebar = ({
   // Send initial settings on mount when connected
   const initialSettingsSent = useRef(false);
   useEffect(() => {
-    if (isConnected && isDeviceConnected && !initialSettingsSent.current) {
+    if (isConnected && deviceState === "connected" && !initialSettingsSent.current) {
       initialSettingsSent.current = true;
       onSettingsChange?.({
         fftSize,
@@ -348,12 +419,14 @@ const Sidebar = ({
         frameRate: fftFrameRate,
         gain,
         ppm,
+        tunerAGC,
+        rtlAGC,
       });
     }
     if (!isConnected) {
       initialSettingsSent.current = false;
     }
-  }, [isConnected, isDeviceConnected, fftSize, fftWindow, fftFrameRate, gain, ppm, onSettingsChange]);
+  }, [isConnected, deviceState, fftSize, fftWindow, fftFrameRate, gain, ppm, tunerAGC, rtlAGC, onSettingsChange]);
 
   // Helper to send settings on any control change
   const sendCurrentSettings = useCallback(
@@ -364,10 +437,12 @@ const Sidebar = ({
         frameRate: fftFrameRate,
         gain,
         ppm,
+        tunerAGC,
+        rtlAGC,
         ...overrides,
       });
     },
-    [fftSize, fftWindow, fftFrameRate, gain, ppm, onSettingsChange],
+    [fftSize, fftWindow, fftFrameRate, gain, ppm, tunerAGC, rtlAGC, onSettingsChange],
   );
 
   const fftSizeOptions = useMemo(() => [8192, 16384, 32768, 65536, 131072, 262144], []);
@@ -458,12 +533,12 @@ const Sidebar = ({
       switch (authState) {
         case "connecting": return "Connecting to server...";
         case "awaiting_challenge": return "Establishing secure channel...";
-        case "ready": return "Awaiting authentication before streaming...";
+        case "ready": return "Awaiting authentication...";
         case "authenticating": return "Verifying credentials...";
         case "failed": return "Authentication failed";
         case "timeout": return "Authentication timed out";
         case "success": return "Authenticated — starting stream...";
-        default: return "Awaiting authentication before streaming...";
+        default: return "Awaiting authentication...";
       }
     })();
 
@@ -537,24 +612,74 @@ const Sidebar = ({
           <ConnectionStatusContainer>
             <ConnectionStatus>
               <StatusDot 
-                $connected={isConnected && isDeviceConnected} 
-                $loading={isDeviceLoading} 
+                $connected={isConnected && deviceState === "connected"} 
+                $loading={deviceState === "loading" || deviceState === "stale"}
+                $color={isConnected && deviceState === "disconnected" ? "#ff8800" : undefined}
               />
               <StatusText>
                 {!isConnected
                   ? "Disconnected"
-                  : isDeviceLoading
-                    ? "Loading device..."
-                    : isDeviceConnected
-                      ? "Connected to server and device"
-                      : "Connected to server but device not connected"}
+                  : deviceState === "loading"
+                    ? (deviceLoadingReason === "restart" ? "Restarting device..." : "Loading device...")
+                    : deviceState === "stale"
+                      ? "Device stream frozen"
+                      : deviceState === "connected"
+                        ? "Connected to server and device"
+                        : "Connected to server but device not connected"}
               </StatusText>
             </ConnectionStatus>
 
             {isConnected && (
-              <PauseButton $paused={isPaused} onClick={onPauseToggle}>
-                {isPaused ? "Resume" : "Pause"}
-              </PauseButton>
+              (deviceState === "stale") ? (
+                <PauseButton
+                  $paused={false}
+                  onClick={() => onRestartDevice?.()}
+                  title="Restart the SDR device connection"
+                  style={{
+                    flex: "0 0 25%",
+                    borderColor: "#ffaa00",
+                    color: "#ffaa00",
+                  }}
+                >
+                  Restart
+                </PauseButton>
+              ) : (deviceState === "loading" && deviceLoadingReason === "restart") ? (
+                <PauseButton
+                  $paused={false}
+                  onClick={() => {}}
+                  disabled={true}
+                  title="Device is restarting..."
+                  style={{
+                    flex: "0 0 25%",
+                    opacity: 0.6,
+                    cursor: "not-allowed",
+                    borderColor: "#ffaa00",
+                    color: "#ffaa00",
+                  }}
+                >
+                  Restarting...
+                </PauseButton>
+              ) : (deviceState === "loading") ? (
+                <PauseButton
+                  $paused={false}
+                  onClick={() => {}}
+                  disabled={true}
+                  title="Device is being initialized..."
+                  style={{
+                    flex: "0 0 25%",
+                    opacity: 0.6,
+                    cursor: "not-allowed",
+                    borderColor: "#ffaa00",
+                    color: "#ffaa00",
+                  }}
+                >
+                  Loading...
+                </PauseButton>
+              ) : (
+                <PauseButton $paused={isPaused} onClick={onPauseToggle}>
+                  {isPaused ? "Resume" : "Pause"}
+                </PauseButton>
+              )
             )}
           </ConnectionStatusContainer>
 
@@ -574,7 +699,7 @@ const Sidebar = ({
                 {!isConnected
                   ? "Unavailable"
                   : backend === "rtl-sdr"
-                    ? isDeviceConnected
+                    ? deviceState === "connected"
                       ? serverPaused
                         ? "Inactive"
                         : "Active"
@@ -597,7 +722,8 @@ const Sidebar = ({
               isActive={activeSignalArea === "A"}
               onActivate={() => onSignalAreaChange?.("A")}
               onRangeChange={handleAreaARangeChange}
-              isDeviceConnected={isDeviceConnected}
+              isDeviceConnected={deviceState === "connected"}
+              externalFrequencyRange={activeSignalArea === "A" ? frequencyRange : undefined}
             />
             <FrequencyRangeSlider
               label="B"
@@ -608,7 +734,8 @@ const Sidebar = ({
               isActive={activeSignalArea === "B"}
               onActivate={() => onSignalAreaChange?.("B")}
               onRangeChange={handleAreaBRangeChange}
-              isDeviceConnected={isDeviceConnected}
+              isDeviceConnected={deviceState === "connected"}
+              externalFrequencyRange={activeSignalArea === "B" ? frequencyRange : undefined}
             />
           </Section>
 
@@ -628,18 +755,18 @@ const Sidebar = ({
                 />
               </SettingLabelContainer>
               <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                <SettingValue>{isDeviceConnected ? "Yes" : "No"}</SettingValue>
+                <SettingValue>{deviceState === "connected" ? "Yes" : "No"}</SettingValue>
                 <PauseButton
                   $paused={false}
                   onClick={() => {}}
-                  disabled={!isConnected || !isDeviceConnected}
+                  disabled={!isConnected || deviceState !== "connected"}
                   style={{
                     flex: "none",
                     fontSize: "11px",
                     padding: "6px 12px",
                     minWidth: "80px",
-                    opacity: (!isConnected || !isDeviceConnected) ? 0.5 : 1,
-                    cursor: (!isConnected || !isDeviceConnected) ? "not-allowed" : "pointer"
+                    opacity: (!isConnected || deviceState !== "connected") ? 0.5 : 1,
+                    cursor: (!isConnected || deviceState !== "connected") ? "not-allowed" : "pointer"
                   }}
                 >
                   Classify?
@@ -754,7 +881,7 @@ const Sidebar = ({
                 <SettingLabel>Temporal Resolution</SettingLabel>
                 <InfoPopover
                   title="Display Temporal Resolution"
-                  content="Signal visualization precision. Low blends signal patterns, medium shows averaged activity, high displays exact signal interactions with sharp transitions, with the ability to see patterns like dots and other patterns as the signal rises and falls sharply."
+                  content="Signal visualization precision. Low blends signal patterns, medium shows averaged activity, high displays exact signal interactions with sharp transitions, with the ability to see patterns (like dots) in the waterfall as the signal rises and falls sharply."
                 />
               </SettingLabelContainer>
               <SettingSelect
@@ -827,9 +954,64 @@ const Sidebar = ({
                   min="0"
                   max="49.6"
                   style={{ width: "60px" }}
+                  // Remove disabled condition - gain works alongside AGC
                 />
                 <span style={{ fontSize: "12px", color: "#ccc", fontWeight: "500" }}>dB</span>
               </div>
+            </SettingRow>
+            <SettingRow>
+              <SettingLabelContainer>
+                <SettingLabel>Tuner AGC</SettingLabel>
+                <InfoPopover
+                  title="Tuner AGC"
+                  content="Tuner Automatic Gain Control. Automatically adjusts the tuner gain for optimal signal reception. Works alongside manual gain setting. Only one AGC mode can be active at a time."
+                />
+              </SettingLabelContainer>
+              <ToggleSwitch $disabled={!isConnected}>
+                <ToggleSwitchInput
+                  type="checkbox"
+                  checked={tunerAGC}
+                  onChange={(e) => {
+                    const enabled = e.target.checked;
+                    setTunerAGC(enabled);
+                    if (enabled) {
+                      setRtlAGC(false);
+                      sendCurrentSettings({ tunerAGC: true, rtlAGC: false });
+                    } else {
+                      sendCurrentSettings({ tunerAGC: false });
+                    }
+                  }}
+                  disabled={!isConnected}
+                />
+                <ToggleSwitchSlider $disabled={!isConnected} />
+              </ToggleSwitch>
+            </SettingRow>
+            <SettingRow>
+              <SettingLabelContainer>
+                <SettingLabel>RTL AGC</SettingLabel>
+                <InfoPopover
+                  title="RTL AGC"
+                  content="RTL Automatic Gain Control. Automatically adjusts the RTL2832 gain for optimal signal reception. Works alongside manual gain setting. Only one AGC mode can be active at a time."
+                />
+              </SettingLabelContainer>
+              <ToggleSwitch $disabled={!isConnected}>
+                <ToggleSwitchInput
+                  type="checkbox"
+                  checked={rtlAGC}
+                  onChange={(e) => {
+                    const enabled = e.target.checked;
+                    setRtlAGC(enabled);
+                    if (enabled) {
+                      setTunerAGC(false);
+                      sendCurrentSettings({ rtlAGC: true, tunerAGC: false });
+                    } else {
+                      sendCurrentSettings({ rtlAGC: false });
+                    }
+                  }}
+                  disabled={!isConnected}
+                />
+                <ToggleSwitchSlider $disabled={!isConnected} />
+              </ToggleSwitch>
             </SettingRow>
           </Section>
         </>

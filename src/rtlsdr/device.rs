@@ -150,6 +150,16 @@ impl RtlSdrDevice {
         Ok(())
     }
 
+    /// Enable or disable tuner gain mode (manual=1, automatic=0)
+    pub fn set_tuner_gain_mode(&self, manual: bool) -> Result<()> {
+        let ret = unsafe { ffi::rtlsdr_set_tuner_gain_mode(self.dev, if manual { 1 } else { 0 }) };
+        if ret != 0 {
+            return Err(anyhow!("Failed to set tuner gain mode"));
+        }
+        debug!("Tuner gain mode set to {}", if manual { "manual" } else { "automatic" });
+        Ok(())
+    }
+
     /// Set frequency correction in PPM
     pub fn set_freq_correction(&self, ppm: i32) -> Result<()> {
         let ret = unsafe { ffi::rtlsdr_set_freq_correction(self.dev, ppm as c_int) };

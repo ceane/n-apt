@@ -45,17 +45,90 @@ const ASYNC_BUF_LEN: u32 = 32768;
 /// How often to probe for a newly attached RTL-SDR while running in mock mode.
 const DEVICE_PROBE_INTERVAL: Duration = Duration::from_millis(200);
 
+const DISCONNECT_DEBOUNCE_STREAK: u32 = 3;
+
+fn reconcile_device_state(device_connected: bool, device_state: &str) -> String {
+  if device_connected && device_state == "disconnected" {
+    "connected".to_string()
+  } else if !device_connected && device_state == "connected" {
+    "disconnected".to_string()
+  } else {
+    device_state.to_string()
+  }
+}
+
+fn next_missing_device_probe_streak(prev: u32, device_count: u32) -> u32 {
+  if device_count == 0 {
+    prev.saturating_add(1)
+  } else {
+    0
+  }
+}
+
+fn should_declare_disconnected(missing_streak: u32) -> bool {
+  missing_streak >= DISCONNECT_DEBOUNCE_STREAK
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn reconcile_device_state_prefers_boolean_when_string_is_stale() {
+    assert_eq!(reconcile_device_state(true, "disconnected"), "connected");
+    assert_eq!(reconcile_device_state(false, "connected"), "disconnected");
+  }
+
+  #[test]
+  fn reconcile_device_state_preserves_other_states() {
+    assert_eq!(reconcile_device_state(true, "loading"), "loading");
+    assert_eq!(reconcile_device_state(true, "stale"), "stale");
+    assert_eq!(reconcile_device_state(false, "loading"), "loading");
+    assert_eq!(reconcile_device_state(false, "stale"), "stale");
+  }
+
+  #[test]
+  fn disconnect_debounce_requires_consecutive_missing_probes() {
+    let mut streak = 0;
+    streak = next_missing_device_probe_streak(streak, 1);
+    assert_eq!(streak, 0);
+    assert!(!should_declare_disconnected(streak));
+
+    streak = next_missing_device_probe_streak(streak, 0);
+    assert_eq!(streak, 1);
+    assert!(!should_declare_disconnected(streak));
+
+    streak = next_missing_device_probe_streak(streak, 0);
+    assert_eq!(streak, 2);
+    assert!(!should_declare_disconnected(streak));
+
+    streak = next_missing_device_probe_streak(streak, 0);
+    assert_eq!(streak, 3);
+    assert!(should_declare_disconnected(streak));
+
+    // Any non-zero count resets the streak.
+    streak = next_missing_device_probe_streak(streak, 1);
+    assert_eq!(streak, 0);
+    assert!(!should_declare_disconnected(streak));
+  }
+}
+
 /// Command enum for the dedicated SDR I/O thread
 enum SdrCommand {
   SetFrequency(u32),
   SetGain(f64),
   SetPpm(i32),
+  SetTunerAGC(bool),
+  SetRtlAGC(bool),
+  RestartDevice,
   ApplySettings {
     fft_size: Option<usize>,
     fft_window: Option<String>,
     frame_rate: Option<u32>,
     gain: Option<f64>,
     ppm: Option<i32>,
+    tuner_agc: Option<bool>,
+    rtl_agc: Option<bool>,
   },
 }
 
@@ -74,6 +147,10 @@ struct WebSocketMessage {
   gain: Option<f64>,
   #[serde(skip_serializing_if = "Option::is_none")]
   ppm: Option<i32>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "tunerAGC")]
+  tuner_agc: Option<bool>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "rtlAGC")]
+  rtl_agc: Option<bool>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "fftSize")]
   fft_size: Option<usize>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "fftWindow")]
@@ -215,9 +292,11 @@ impl SDRProcessor {
     
     self.mock_signals.clear();
     
+    // Place signals randomly across the FULL spectrum (0..MOCK_SPECTRUM_SIZE)
+    // so both signal areas A and B have activity.
     for i in 0..MOCK_PERSISTENT_SIGNALS {
-      // Distribute signals across the spectrum
-      let center_bin = (i as f32 / MOCK_PERSISTENT_SIGNALS as f32) * MOCK_SPECTRUM_SIZE as f32;
+      // Random placement across the entire spectrum width
+      let center_bin = rng.gen_range(10.0..(MOCK_SPECTRUM_SIZE as f32 - 10.0));
       
       // Vary signal types for diversity
       let signal_type = match i % 3 {
@@ -422,8 +501,40 @@ impl SDRProcessor {
     Ok(())
   }
 
+  /// Set tuner AGC mode (automatic vs manual gain control)
+  fn set_tuner_agc(&mut self, automatic: bool) -> Result<()> {
+    if let Some(ref dev) = self.device {
+      match dev.set_tuner_gain_mode(!automatic) {
+        Ok(()) => {
+          debug!("Tuner AGC set to automatic: {}", automatic);
+        }
+        Err(e) => {
+          warn!("Device error setting tuner AGC: {}. Entering mock mode.", e);
+          self.enter_mock_mode();
+        }
+      }
+    }
+    Ok(())
+  }
+
+  /// Set RTL AGC mode (automatic gain correction)
+  fn set_rtl_agc(&mut self, enabled: bool) -> Result<()> {
+    if let Some(ref dev) = self.device {
+      match dev.set_agc_mode(enabled) {
+        Ok(()) => {
+          debug!("RTL AGC set to enabled: {}", enabled);
+        }
+        Err(e) => {
+          warn!("Device error setting RTL AGC: {}. Entering mock mode.", e);
+          self.enter_mock_mode();
+        }
+      }
+    }
+    Ok(())
+  }
+
   /// Apply settings from a WebSocket settings message
-  fn apply_settings(&mut self, fft_size: Option<usize>, fft_window: Option<String>, frame_rate: Option<u32>, gain: Option<f64>, ppm: Option<i32>) -> Result<()> {
+  fn apply_settings(&mut self, fft_size: Option<usize>, fft_window: Option<String>, frame_rate: Option<u32>, gain: Option<f64>, ppm: Option<i32>, tuner_agc: Option<bool>, rtl_agc: Option<bool>) -> Result<()> {
     let mut config = self.fft_processor.config().clone();
     let mut config_changed = false;
 
@@ -481,6 +592,14 @@ impl SDRProcessor {
 
     if let Some(p) = ppm {
       let _ = self.set_ppm(p);
+    }
+
+    if let Some(tuner_agc) = tuner_agc {
+      let _ = self.set_tuner_agc(tuner_agc);
+    }
+
+    if let Some(rtl_agc) = rtl_agc {
+      let _ = self.set_rtl_agc(rtl_agc);
     }
 
     if config_changed {
@@ -704,8 +823,21 @@ impl SDRProcessor {
           warn!("Failed to set PPM: {}", e);
         }
       }
-      SdrCommand::ApplySettings { fft_size, fft_window, frame_rate, gain, ppm } => {
-        if let Err(e) = self.apply_settings(fft_size, fft_window, frame_rate, gain, ppm) {
+      SdrCommand::SetTunerAGC(automatic) => {
+        if let Err(e) = self.set_tuner_agc(automatic) {
+          warn!("Failed to set tuner AGC: {}", e);
+        }
+      }
+      SdrCommand::SetRtlAGC(enabled) => {
+        if let Err(e) = self.set_rtl_agc(enabled) {
+          warn!("Failed to set RTL AGC: {}", e);
+        }
+      }
+      SdrCommand::RestartDevice => {
+        // Handled in the I/O loop directly (needs reader thread teardown)
+      }
+      SdrCommand::ApplySettings { fft_size, fft_window, frame_rate, gain, ppm, tuner_agc, rtl_agc } => {
+        if let Err(e) = self.apply_settings(fft_size, fft_window, frame_rate, gain, ppm, tuner_agc, rtl_agc) {
           warn!("Failed to apply settings: {}", e);
         }
       }
@@ -734,6 +866,11 @@ struct SharedState {
   device_info: std::sync::Mutex<String>,
   /// Device loading state (when device is being initialized)
   device_loading: std::sync::Mutex<bool>,
+  /// When device_loading is true, why: "connect" | "restart" (optional)
+  device_loading_reason: std::sync::Mutex<Option<String>>,
+  /// Canonical device state: "connected", "loading", "disconnected", "stale"
+  /// This is the single source of truth for the frontend.
+  device_state: std::sync::Mutex<String>,
   /// AES-256 encryption key derived from passkey (set once at startup)
   encryption_key: [u8; 32],
   /// Pending auth challenges: challenge_id → (nonce_bytes, created_at)
@@ -772,6 +909,8 @@ impl WebSocketServer {
       shutdown: AtomicBool::new(false),
       device_info: std::sync::Mutex::new(String::new()),
       device_loading: std::sync::Mutex::new(false),
+      device_loading_reason: std::sync::Mutex::new(None),
+      device_state: std::sync::Mutex::new("disconnected".to_string()),
       encryption_key,
       pending_challenges: std::sync::Mutex::new(std::collections::HashMap::new()),
     });
@@ -785,11 +924,13 @@ impl WebSocketServer {
       .spawn(move || {
         let mut last_probe = Instant::now() - DEVICE_PROBE_INTERVAL;
         let mut last_device_connected: bool;
+        let mut missing_device_probe_streak: u32 = 0;
 
         let send_status_update = |shared: &Arc<SharedState>, tx: &broadcast::Sender<String>| {
           let device_connected = shared.device_connected.load(Ordering::Relaxed);
           let device_info = shared.device_info.lock().unwrap().clone();
           let device_loading = *shared.device_loading.lock().unwrap();
+          let device_loading_reason = shared.device_loading_reason.lock().unwrap().clone();
           let paused = shared.is_paused.load(Ordering::Relaxed);
 
           let max_sample_rate = if device_connected {
@@ -808,11 +949,15 @@ impl WebSocketServer {
               .unwrap_or(3_200_000)
           };
 
+          let device_state = shared.device_state.lock().unwrap().clone();
+
           let status_message = serde_json::json!({
             "message_type": "status",
             "device_connected": device_connected,
             "device_info": device_info,
             "device_loading": device_loading,
+            "device_loading_reason": device_loading_reason,
+            "device_state": device_state,
             "paused": paused,
             "max_sample_rate": max_sample_rate,
             "backend": if device_connected { "rtl-sdr" } else { "mock" }
@@ -882,6 +1027,7 @@ impl WebSocketServer {
         io_shared.device_connected.store(!processor.is_mock, Ordering::Relaxed);
         *io_shared.device_info.lock().unwrap() = processor.get_device_info();
         last_device_connected = !processor.is_mock;
+        *io_shared.device_state.lock().unwrap() = if !processor.is_mock { "connected".to_string() } else { "disconnected".to_string() };
         info!("SDR I/O thread started: {}", processor.get_device_info());
 
         // --- Async reader thread ---
@@ -891,6 +1037,11 @@ impl WebSocketServer {
         let (mut reader_handle, mut iq_rx) = start_async_reader(&processor);
 
         let mut frame_interval = Duration::from_millis(1000 / processor.display_frame_rate as u64);
+
+        // Stale-frame detection: track last time we produced a real spectrum frame
+        let mut last_real_spectrum_time = if !processor.is_mock { Instant::now() } else { Instant::now() };
+        let mut is_stale = false;
+        const STALE_THRESHOLD: Duration = Duration::from_secs(3);
 
         loop {
           let loop_start = std::time::Instant::now();
@@ -903,20 +1054,25 @@ impl WebSocketServer {
               // In mock mode, try to connect to a newly attached device
               let device_count = RtlSdrDevice::get_device_count();
               if device_count > 0 {
-                // Device detected, set loading state
+                // Device detected — broadcast loading state immediately
                 *io_shared.device_loading.lock().unwrap() = true;
+                *io_shared.device_loading_reason.lock().unwrap() = Some("connect".to_string());
+                *io_shared.device_state.lock().unwrap() = "loading".to_string();
                 send_status_update(&io_shared, &io_broadcast_tx);
+                std::thread::sleep(Duration::from_millis(50));
               }
               
               match processor.try_connect_device() {
                 Ok(true) => {
                   *io_shared.device_loading.lock().unwrap() = false;
+                  *io_shared.device_loading_reason.lock().unwrap() = None;
                   io_shared.device_connected.store(true, Ordering::Relaxed);
                   *io_shared.device_info.lock().unwrap() = processor.get_device_info();
-                  if last_device_connected != true {
-                    last_device_connected = true;
-                    send_status_update(&io_shared, &io_broadcast_tx);
-                  }
+                  *io_shared.device_state.lock().unwrap() = "connected".to_string();
+                  last_device_connected = true;
+                  last_real_spectrum_time = Instant::now();
+                  is_stale = false;
+                  send_status_update(&io_shared, &io_broadcast_tx);
 
                   let (h, rx) = start_async_reader(&processor);
                   reader_handle = h;
@@ -924,10 +1080,14 @@ impl WebSocketServer {
                 }
                 Ok(false) => {
                   *io_shared.device_loading.lock().unwrap() = false;
+                  *io_shared.device_loading_reason.lock().unwrap() = None;
+                  *io_shared.device_state.lock().unwrap() = "disconnected".to_string();
                   send_status_update(&io_shared, &io_broadcast_tx);
                 }
                 Err(e) => {
                   *io_shared.device_loading.lock().unwrap() = false;
+                  *io_shared.device_loading_reason.lock().unwrap() = None;
+                  *io_shared.device_state.lock().unwrap() = "disconnected".to_string();
                   debug!("Device probe failed: {}", e);
                   send_status_update(&io_shared, &io_broadcast_tx);
                 }
@@ -935,7 +1095,12 @@ impl WebSocketServer {
             } else if !processor.is_mock && processor.device.is_some() {
               // When device is connected, periodically check if it's still responsive
               let device_count = RtlSdrDevice::get_device_count();
-              if device_count == 0 {
+              missing_device_probe_streak =
+                next_missing_device_probe_streak(missing_device_probe_streak, device_count);
+
+              // Debounce disconnect: macOS/USB enumeration can transiently report 0
+              // even while the device is still present.
+              if should_declare_disconnected(missing_device_probe_streak) {
                 // Device was disconnected
                 warn!("\x1b[31mRTL-SDR device disconnected. Falling back to mock mode.\x1b[0m");
                 processor.enter_mock_mode();
@@ -949,10 +1114,12 @@ impl WebSocketServer {
                 iq_rx = None;
                 io_shared.device_connected.store(false, Ordering::Relaxed);
                 *io_shared.device_info.lock().unwrap() = processor.get_device_info();
-                if last_device_connected != false {
-                  last_device_connected = false;
-                  send_status_update(&io_shared, &io_broadcast_tx);
-                }
+                *io_shared.device_loading_reason.lock().unwrap() = None;
+                *io_shared.device_state.lock().unwrap() = "disconnected".to_string();
+                last_device_connected = false;
+                is_stale = false;
+                send_status_update(&io_shared, &io_broadcast_tx);
+                missing_device_probe_streak = 0;
               }
             }
           }
@@ -986,10 +1153,11 @@ impl WebSocketServer {
             iq_rx = None;
             io_shared.device_connected.store(false, Ordering::Relaxed);
             *io_shared.device_info.lock().unwrap() = processor.get_device_info();
-            if last_device_connected != false {
-              last_device_connected = false;
-              send_status_update(&io_shared, &io_broadcast_tx);
-            }
+            *io_shared.device_loading_reason.lock().unwrap() = None;
+            *io_shared.device_state.lock().unwrap() = "disconnected".to_string();
+            last_device_connected = false;
+            is_stale = false;
+            send_status_update(&io_shared, &io_broadcast_tx);
           }
 
           // --- Commands ---
@@ -1003,10 +1171,14 @@ impl WebSocketServer {
           // Drain all pending commands (non-blocking), coalesce frequency
           let mut latest_freq: Option<u32> = None;
           let mut new_frame_rate: Option<u32> = None;
+          let mut restart_requested = false;
           while let Ok(cmd) = cmd_rx.try_recv() {
             match cmd {
               SdrCommand::SetFrequency(f) => {
                 latest_freq = Some(f);
+              }
+              SdrCommand::RestartDevice => {
+                restart_requested = true;
               }
               SdrCommand::ApplySettings {
                 fft_size,
@@ -1014,6 +1186,8 @@ impl WebSocketServer {
                 frame_rate,
                 gain,
                 ppm,
+                tuner_agc,
+                rtl_agc,
               } => {
                 if let Some(fr) = frame_rate {
                   new_frame_rate = Some(fr);
@@ -1024,10 +1198,103 @@ impl WebSocketServer {
                   frame_rate: None,
                   gain,
                   ppm,
+                  tuner_agc: None,
+                  rtl_agc: None,
                 });
               }
               other => processor.handle_command(other),
             }
+          }
+
+          // --- Restart device ---
+          if restart_requested {
+            info!("\x1b[33m[RESTART] Device restart requested by client\x1b[0m");
+
+            // 1. Notify frontend: loading
+            *io_shared.device_loading.lock().unwrap() = true;
+            *io_shared.device_loading_reason.lock().unwrap() = Some("restart".to_string());
+            *io_shared.device_state.lock().unwrap() = "loading".to_string();
+            send_status_update(&io_shared, &io_broadcast_tx);
+            std::thread::sleep(Duration::from_millis(50));
+
+            // 2. Tear down current device + reader thread
+            info!("[RESTART] Step 2: Tearing down device and reader thread...");
+            if let Some(ref dev) = processor.device {
+              info!("[RESTART] Cancelling async read...");
+              let _ = dev.cancel_async();
+            }
+
+            let mut reader_exited = true;
+            if let Some(h) = reader_handle.take() {
+              info!("[RESTART] Waiting for reader thread to exit (5s timeout)...");
+              let join_result = std::sync::mpsc::channel::<()>();
+              let (done_tx, done_rx) = join_result;
+              std::thread::spawn(move || {
+                let _ = h.join();
+                let _ = done_tx.send(());
+              });
+              match done_rx.recv_timeout(Duration::from_secs(5)) {
+                Ok(()) => info!("[RESTART] Reader thread exited cleanly"),
+                Err(_) => {
+                  reader_exited = false;
+                  warn!("[RESTART] Reader thread join timed out after 5s; aborting restart to avoid unstable state");
+                }
+              }
+            }
+
+            if !reader_exited {
+              *io_shared.device_loading.lock().unwrap() = false;
+              *io_shared.device_loading_reason.lock().unwrap() = None;
+              // Restore previous state
+              *io_shared.device_state.lock().unwrap() = if last_device_connected { "connected".to_string() } else { "disconnected".to_string() };
+              send_status_update(&io_shared, &io_broadcast_tx);
+              continue;
+            }
+
+            iq_rx = None;
+            info!("[RESTART] Entering mock mode and releasing device...");
+            processor.enter_mock_mode();
+            processor.release_device();
+
+            std::thread::sleep(Duration::from_millis(500));
+
+            // 3. Try to reinitialize
+            info!("[RESTART] Step 3: Attempting to reinitialize device...");
+            match processor.try_connect_device() {
+              Ok(true) => {
+                info!("\x1b[32m[RESTART] Device restarted successfully: {}\x1b[0m", processor.get_device_info());
+                io_shared.device_connected.store(true, Ordering::Relaxed);
+                *io_shared.device_info.lock().unwrap() = processor.get_device_info();
+                *io_shared.device_state.lock().unwrap() = "connected".to_string();
+                last_device_connected = true;
+                last_real_spectrum_time = Instant::now();
+                is_stale = false;
+
+                let (h, rx) = start_async_reader(&processor);
+                reader_handle = h;
+                iq_rx = rx;
+              }
+              Ok(false) => {
+                warn!("[RESTART] No device found after restart, staying in mock mode");
+                io_shared.device_connected.store(false, Ordering::Relaxed);
+                *io_shared.device_info.lock().unwrap() = processor.get_device_info();
+                *io_shared.device_state.lock().unwrap() = "disconnected".to_string();
+                last_device_connected = false;
+              }
+              Err(e) => {
+                warn!("[RESTART] Device restart failed: {}, staying in mock mode", e);
+                io_shared.device_connected.store(false, Ordering::Relaxed);
+                *io_shared.device_info.lock().unwrap() = processor.get_device_info();
+                *io_shared.device_state.lock().unwrap() = "disconnected".to_string();
+                last_device_connected = false;
+              }
+            }
+
+            // 4. Clear loading state and broadcast new status
+            *io_shared.device_loading.lock().unwrap() = false;
+            *io_shared.device_loading_reason.lock().unwrap() = None;
+            send_status_update(&io_shared, &io_broadcast_tx);
+            info!("[RESTART] Restart sequence complete");
           }
 
           if let Some(fr) = new_frame_rate {
@@ -1067,10 +1334,11 @@ impl WebSocketServer {
               iq_rx = None;
               io_shared.device_connected.store(false, Ordering::Relaxed);
               *io_shared.device_info.lock().unwrap() = processor.get_device_info();
-              if last_device_connected != false {
-                last_device_connected = false;
-                send_status_update(&io_shared, &io_broadcast_tx);
-              }
+              *io_shared.device_loading_reason.lock().unwrap() = None;
+              *io_shared.device_state.lock().unwrap() = "disconnected".to_string();
+              last_device_connected = false;
+              is_stale = false;
+              send_status_update(&io_shared, &io_broadcast_tx);
             }
 
             // Process all complete FFT frames, keep only the latest for broadcast
@@ -1086,10 +1354,20 @@ impl WebSocketServer {
             }
 
             if let Some(spectrum) = latest_spectrum {
+              last_real_spectrum_time = Instant::now();
+
+              // If we were stale, we're not anymore
+              if is_stale {
+                is_stale = false;
+                *io_shared.device_state.lock().unwrap() = "connected".to_string();
+                send_status_update(&io_shared, &io_broadcast_tx);
+              }
+
               io_shared.device_connected.store(true, Ordering::Relaxed);
               if last_device_connected != true {
                 last_device_connected = true;
                 *io_shared.device_info.lock().unwrap() = processor.get_device_info();
+                *io_shared.device_state.lock().unwrap() = "connected".to_string();
                 send_status_update(&io_shared, &io_broadcast_tx);
               }
 
@@ -1107,6 +1385,12 @@ impl WebSocketServer {
                   let _ = io_broadcast_tx.send(json);
                 }
               }
+            } else if !is_stale && last_device_connected && loop_start.duration_since(last_real_spectrum_time) > STALE_THRESHOLD {
+              // No spectrum produced for STALE_THRESHOLD — device is frozen
+              is_stale = true;
+              warn!("\x1b[33mDevice stream stale (no spectrum for {}s)\x1b[0m", STALE_THRESHOLD.as_secs());
+              *io_shared.device_state.lock().unwrap() = "stale".to_string();
+              send_status_update(&io_shared, &io_broadcast_tx);
             }
           } else {
             // --- Mock mode ---
@@ -1116,6 +1400,7 @@ impl WebSocketServer {
                 if last_device_connected != false {
                   last_device_connected = false;
                   *io_shared.device_info.lock().unwrap() = processor.get_device_info();
+                  *io_shared.device_state.lock().unwrap() = "disconnected".to_string();
                   send_status_update(&io_shared, &io_broadcast_tx);
                 }
                 if has_clients && !is_paused {
@@ -1566,8 +1851,20 @@ async fn status_handler(
   let client_count = state.shared.client_count.load(Ordering::Relaxed);
   let authenticated_count = state.shared.authenticated_count.load(Ordering::Relaxed);
 
+  // This is a cheap, non-blocking check (does not open the device) and remains
+  // responsive even if the SDR I/O thread is busy.
+  let device_count = RtlSdrDevice::get_device_count();
+  let device_present = device_count > 0;
+
+  let device_state = state.shared.device_state.lock().unwrap().clone();
+  let device_loading_reason = state.shared.device_loading_reason.lock().unwrap().clone();
+
   Json(serde_json::json!({
     "device_connected": device_connected,
+    "device_present": device_present,
+    "device_count": device_count,
+    "device_state": device_state,
+    "device_loading_reason": device_loading_reason,
     "device_info": device_info,
     "backend": if device_connected { "rtl-sdr" } else { "mock" },
     "clients": client_count,
@@ -1618,6 +1915,12 @@ async fn handle_ws_connection(
   // Send initial status
   let device_connected = shared.device_connected.load(Ordering::Relaxed);
   let device_info = shared.device_info.lock().unwrap().clone();
+  let device_loading = *shared.device_loading.lock().unwrap();
+  let device_loading_reason = shared.device_loading_reason.lock().unwrap().clone();
+  let device_state = reconcile_device_state(
+    device_connected,
+    &shared.device_state.lock().unwrap().clone(),
+  );
   let paused = shared.is_paused.load(Ordering::Relaxed);
 
   let max_sample_rate = if device_connected {
@@ -1636,21 +1939,22 @@ async fn handle_ws_connection(
       .unwrap_or(3_200_000)
   };
 
-  let status = StatusMessage {
-    message_type: "status".to_string(),
-    device_connected,
-    paused,
-    backend: if device_connected { "rtl-sdr".to_string() } else { "mock".to_string() },
-    device_info,
-    max_sample_rate,
-  };
+  let initial_status = serde_json::json!({
+    "message_type": "status",
+    "device_connected": device_connected,
+    "device_info": device_info,
+    "device_loading": device_loading,
+    "device_loading_reason": device_loading_reason,
+    "device_state": device_state,
+    "paused": paused,
+    "max_sample_rate": max_sample_rate,
+    "backend": if device_connected { "rtl-sdr" } else { "mock" }
+  });
 
-  if let Ok(status_json) = serde_json::to_string(&status) {
-    if ws_sender.send(Message::Text(status_json)).await.is_err() {
-      shared.authenticated_count.fetch_sub(1, Ordering::Relaxed);
-      shared.client_count.fetch_sub(1, Ordering::Relaxed);
-      return;
-    }
+  if ws_sender.send(Message::Text(initial_status.to_string())).await.is_err() {
+    shared.authenticated_count.fetch_sub(1, Ordering::Relaxed);
+    shared.client_count.fetch_sub(1, Ordering::Relaxed);
+    return;
   }
 
   // Encrypted streaming loop
@@ -1659,6 +1963,15 @@ async fn handle_ws_connection(
       broadcast_result = broadcast_rx.recv() => {
         match broadcast_result {
           Ok(plaintext_json) => {
+            // Status messages must remain plaintext so the frontend can react
+            // immediately (connected/loading/disconnected/stale) without needing
+            // to decrypt them.
+            if plaintext_json.contains("\"message_type\":\"status\"") {
+              if ws_sender.send(Message::Text(plaintext_json)).await.is_err() {
+                break;
+              }
+              continue;
+            }
             match crypto::encrypt_payload(&enc_key, plaintext_json.as_bytes()) {
               Ok(encrypted_b64) => {
                 let envelope = serde_json::json!({
@@ -1738,7 +2051,13 @@ fn handle_message(
         frame_rate: message.frame_rate,
         gain: message.gain,
         ppm: message.ppm,
+        tuner_agc: message.tuner_agc,
+        rtl_agc: message.rtl_agc,
       });
+    }
+    "restart_device" => {
+      info!("Client requested device restart");
+      let _ = cmd_tx.send(SdrCommand::RestartDevice);
     }
     _ => {
       debug!("Unknown message type: {}", message.message_type);

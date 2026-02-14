@@ -13,12 +13,17 @@ export type SDRSettings = {
   frameRate?: number
   gain?: number
   ppm?: number
+  tunerAGC?: boolean
+  rtlAGC?: boolean
 }
+
+export type DeviceState = "connected" | "loading" | "disconnected" | "stale" | null
+export type DeviceLoadingReason = "connect" | "restart" | null
 
 export type WebSocketData = {
   isConnected: boolean
-  isDeviceConnected: boolean
-  isDeviceLoading: boolean
+  deviceState: DeviceState
+  deviceLoadingReason: DeviceLoadingReason
   isPaused: boolean
   serverPaused: boolean
   backend: string | null
@@ -28,6 +33,7 @@ export type WebSocketData = {
   sendFrequencyRange: (range: FrequencyRange) => void
   sendPauseCommand: (isPaused: boolean) => void
   sendSettings: (settings: SDRSettings) => void
+  sendRestartDevice: () => void
 }
 
 // Reconnect backoff schedule (seconds)
@@ -39,6 +45,9 @@ const RECONNECT_BACKOFF = [2, 5, 10, 30, 60, 90]
  * The `url` should already include the session token as a query parameter
  * (e.g. `ws://host:port/ws?token=...`). Auth is handled separately via REST.
  * The `aesKey` is used to decrypt encrypted spectrum payloads.
+ *
+ * Device state is driven entirely by the backend's `device_state` field
+ * in status messages. No frontend inference or polling.
  */
 export const useWebSocket = (
   url: string,
@@ -46,8 +55,8 @@ export const useWebSocket = (
   enabled: boolean = true,
 ): WebSocketData => {
   const [isConnected, setIsConnected] = useState(false)
-  const [isDeviceConnected, setIsDeviceConnected] = useState(false)
-  const [isDeviceLoading, setIsDeviceLoading] = useState(false)
+  const [deviceState, setDeviceState] = useState<DeviceState>(null)
+  const [deviceLoadingReason, setDeviceLoadingReason] = useState<DeviceLoadingReason>(null)
   const [isPaused, setIsPaused] = useState(false)
   const [serverPaused, setServerPaused] = useState(false)
   const [backend, setBackend] = useState<string | null>(null)
@@ -60,8 +69,6 @@ export const useWebSocket = (
   // Store raw message string — only JSON.parse inside rAF to avoid parsing discarded frames
   const pendingRawRef = useRef<string | null>(null)
   const processingRef = useRef(false)
-  // Track last known is_mock value to avoid redundant state updates
-  const lastIsMockRef = useRef<boolean | undefined>(undefined)
   // Exponential backoff counter
   const reconnectAttemptRef = useRef(0)
   // Error debounce — only set error state once per cooldown
@@ -103,12 +110,10 @@ export const useWebSocket = (
           ws.onmessage = (event) => {
             const raw = event.data as string
 
-            // ── Status messages ─────────────────────────────────────
+            // ── Status messages (backend-driven device state) ────────
             if (raw.includes('"message_type":"status"')) {
               try {
                 const parsedData = JSON.parse(raw)
-                const deviceConnected = parsedData.device_connected ?? parsedData.deviceConnected ?? false
-                const deviceLoading = parsedData.device_loading ?? false
                 const paused = parsedData.paused || false
 
                 if (typeof parsedData.backend === "string") {
@@ -117,13 +122,14 @@ export const useWebSocket = (
                 if (typeof parsedData.device_info === "string") {
                   setDeviceInfo(parsedData.device_info)
                 }
-                setServerPaused(paused)
-                setIsDeviceLoading(deviceLoading)
-
-                if (lastIsMockRef.current !== !deviceConnected) {
-                  lastIsMockRef.current = !deviceConnected
-                  setIsDeviceConnected(deviceConnected)
+                if (typeof parsedData.device_state === "string") {
+                  setDeviceState(parsedData.device_state as DeviceState)
                 }
+                const reason = parsedData.device_loading_reason
+                if (reason === "connect" || reason === "restart" || reason === null) {
+                  setDeviceLoadingReason(reason)
+                }
+                setServerPaused(paused)
                 setIsPaused(paused)
               } catch { /* ignore */ }
               return
@@ -147,16 +153,6 @@ export const useWebSocket = (
                         decryptPayload(aesKeyRef.current, envelope.payload)
                           .then((plaintext) => {
                             const parsedData = JSON.parse(plaintext)
-
-                            if (parsedData.is_mock !== undefined) {
-                              const newIsMock = parsedData.is_mock as boolean
-                              if (lastIsMockRef.current !== newIsMock) {
-                                lastIsMockRef.current = newIsMock
-                                setIsDeviceConnected(!newIsMock)
-                              }
-                              setBackend((prev) => (prev ? prev : newIsMock ? "mock" : "rtl-sdr"))
-                            }
-
                             setData(parsedData)
                           })
                           .catch(() => {
@@ -183,16 +179,6 @@ export const useWebSocket = (
                 if (pending) {
                   try {
                     const parsedData = JSON.parse(pending)
-
-                    if (parsedData.is_mock !== undefined) {
-                      const newIsMock = parsedData.is_mock as boolean
-                      if (lastIsMockRef.current !== newIsMock) {
-                        lastIsMockRef.current = newIsMock
-                        setIsDeviceConnected(!newIsMock)
-                      }
-                      setBackend((prev) => (prev ? prev : newIsMock ? "mock" : "rtl-sdr"))
-                    }
-
                     setData(parsedData)
                   } catch { /* ignore */ }
                 }
@@ -280,10 +266,21 @@ export const useWebSocket = (
     }
   }, [])
 
+  // Function to send device restart command to the server
+  const sendRestartDevice = useCallback(() => {
+    const ws = wsRef.current
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      const message = JSON.stringify({
+        type: "restart_device",
+      })
+      ws.send(message)
+    }
+  }, [])
+
   return {
     isConnected,
-    isDeviceConnected,
-    isDeviceLoading,
+    deviceState,
+    deviceLoadingReason,
     isPaused,
     serverPaused,
     backend,
@@ -293,5 +290,6 @@ export const useWebSocket = (
     sendFrequencyRange,
     sendPauseCommand,
     sendSettings,
+    sendRestartDevice,
   }
 }
