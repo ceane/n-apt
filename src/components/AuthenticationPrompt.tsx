@@ -97,7 +97,7 @@ const Input = styled.input`
 `
 
 const ActionButton = styled.button<{ $loading?: boolean; $secondary?: boolean }>`
-  width: 100%;
+  width: 24cqw;
   padding: 14px 24px;
   background-color: ${(props) =>
     props.$loading ? "#1a1a1a"
@@ -219,7 +219,7 @@ const AuthenticationPrompt = ({
         return "Establishing secure channel..."
       case "ready":
         return hasPasskeys
-          ? "Authenticate with passkey or password to start streaming"
+          ? "Enter your passkey or password to unlock the live SDR stream.\n\nAll data is encrypted end-to-end — your credentials establish the session key used to decrypt incoming frames. Streaming will begin only after successful authentication."
           : "Enter password to authenticate and start streaming"
       case "authenticating":
         return "Verifying credentials..."
@@ -244,13 +244,16 @@ const AuthenticationPrompt = ({
     <Container>
       <Title>
         {isLoading ? (
-          <LoadingDot>Secure Session Initialization</LoadingDot>
+          <LoadingDot>Secure Access Required for N-APT</LoadingDot>
         ) : (
-          "Secure Session Initialization"
+          "Secure Access Required for N-APT"
         )}
       </Title>
 
-      <StatusText $variant={getStatusVariant()}>{getStatusMessage()}</StatusText>
+      <StatusText 
+        $variant={getStatusVariant()} 
+        dangerouslySetInnerHTML={{ __html: getStatusMessage().replace(/\n/g, '<br>') }}
+      />
 
       {showActions && (
         <>

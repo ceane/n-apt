@@ -303,9 +303,12 @@ const FFTCanvas = ({
       }
     };
 
-    const handleMouseEnter = () => {
+    const handleCanvasMouseMove = (e: MouseEvent) => {
       const canvas = getActiveSpectrumCanvas();
-      if (canvas && !isDraggingRef.current) canvas.style.cursor = "grab";
+      if (!canvas || isDraggingRef.current) return;
+      const rect = canvas.getBoundingClientRect();
+      const y = e.clientY - rect.top;
+      canvas.style.cursor = y >= rect.height - 60 ? "grab" : "default";
     };
 
     const handleMouseLeave = () => {
@@ -316,9 +319,8 @@ const FFTCanvas = ({
     const canvas = getActiveSpectrumCanvas();
     if (canvas) {
       canvas.addEventListener("mousedown", handleMouseDown);
-      canvas.addEventListener("mouseenter", handleMouseEnter);
+      canvas.addEventListener("mousemove", handleCanvasMouseMove);
       canvas.addEventListener("mouseleave", handleMouseLeave);
-      canvas.style.cursor = "grab";
     }
     
     window.addEventListener("mousemove", handleMouseMove);
@@ -327,7 +329,7 @@ const FFTCanvas = ({
     return () => {
       if (canvas) {
         canvas.removeEventListener("mousedown", handleMouseDown);
-        canvas.removeEventListener("mouseenter", handleMouseEnter);
+        canvas.removeEventListener("mousemove", handleCanvasMouseMove);
         canvas.removeEventListener("mouseleave", handleMouseLeave);
       }
       window.removeEventListener("mousemove", handleMouseMove);
@@ -998,6 +1000,10 @@ const FFTCanvas = ({
         waterfallCanvas?.parentElement?.getBoundingClientRect() ??
         waterfallGpuCanvas?.parentElement?.getBoundingClientRect();
 
+      // Skip resize when canvas is hidden (display:none gives zero dimensions)
+      if (spectrumRect && spectrumRect.width === 0 && spectrumRect.height === 0) return;
+      if (waterfallRect && waterfallRect.width === 0 && waterfallRect.height === 0) return;
+
       if (spectrumRect) {
         if (spectrumCanvas) {
           spectrumCanvas.width = spectrumRect.width * dpr;
@@ -1053,7 +1059,7 @@ const FFTCanvas = ({
             1,
             Math.round(waterfallRect.height * dpr - marginY * 2),
           );
-          if (!waterfallDataWidthRef.current) {
+          if (!waterfallDataWidthRef.current || waterfallDataWidthRef.current < 10) {
             waterfallDataWidthRef.current = displayWidth;
           }
           const dataWidth = waterfallDataWidthRef.current;
@@ -1071,6 +1077,16 @@ const FFTCanvas = ({
 
     resizeCanvas();
     window.addEventListener("resize", resizeCanvas);
+
+    // Re-render when browser tab becomes visible (WebGPU context may need recovery)
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        overlayDirtyRef.current.grid = true;
+        overlayDirtyRef.current.markers = true;
+        resizeCanvas();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     let resizeTimeout: any = null;
     const resizeObserver = new ResizeObserver(() => {
@@ -1098,6 +1114,7 @@ const FFTCanvas = ({
 
     return () => {
       window.removeEventListener("resize", resizeCanvas);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
       if (resizeTimeout) clearTimeout(resizeTimeout);
       resizeObserver.disconnect();
       if (animationFrameRef.current) {

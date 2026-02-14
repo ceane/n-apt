@@ -83,9 +83,12 @@ export const AppContent: React.FC = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
 
   // When returning to the visualizer tab, force a resize event so canvases reflow.
+  // Use rAF to ensure the CSS display change has been applied before measuring.
   useEffect(() => {
     if (activeTab === "visualizer") {
-      window.dispatchEvent(new Event("resize"))
+      requestAnimationFrame(() => {
+        window.dispatchEvent(new Event("resize"))
+      })
     }
   }, [activeTab])
 
@@ -100,6 +103,15 @@ export const AppContent: React.FC = () => {
   const [aesKey, setAesKey] = useState<CryptoKey | null>(null)
   const [hasPasskeys, setHasPasskeys] = useState(false)
 
+  // When auth state changes, force canvas resize so FFTCanvas gets proper dimensions
+  useEffect(() => {
+    if (isAuthenticated) {
+      requestAnimationFrame(() => {
+        window.dispatchEvent(new Event("resize"))
+      })
+    }
+  }, [isAuthenticated])
+
   // On mount: check for stored session, fetch auth info
   useEffect(() => {
     let cancelled = false
@@ -107,48 +119,71 @@ export const AppContent: React.FC = () => {
     const init = async () => {
       setAuthState("connecting")
 
+      // Helper: wait for backend to be reachable
+      const waitForBackend = async (): Promise<boolean> => {
+        let attempts = 0
+        let d = 2000
+        while (attempts < 15 && !cancelled) {
+          try {
+            await fetchAuthInfo()
+            return true
+          } catch {
+            attempts++
+            await new Promise(resolve => setTimeout(resolve, d))
+            d = Math.min(d * 1.3, 5000)
+          }
+        }
+        return false
+      }
+
       // Check for existing session
       const storedToken = getStoredSession()
       if (storedToken) {
-        try {
-          const result = await validateSession(storedToken)
-          if (!cancelled && result.valid) {
-            setSessionToken(storedToken)
-            setIsAuthenticated(true)
-            setAuthState("success")
-            return
+        // Wait for backend before validating
+        const backendReady = await waitForBackend()
+        if (cancelled) return
+
+        if (backendReady) {
+          try {
+            const result = await validateSession(storedToken)
+            if (!cancelled && result.valid) {
+              setSessionToken(storedToken)
+              // Derive AES key for decryption (uses default key for restored sessions)
+              const key = await deriveAesKey("n-apt-dev-key")
+              setAesKey(key)
+              setIsAuthenticated(true)
+              setAuthState("success")
+              return
+            }
+          } catch {
+            // Session explicitly invalid
           }
-        } catch {
-          // Session invalid, continue to auth
         }
         clearSession()
       }
 
-      // Fetch auth info (are passkeys registered?) with retries
-      let retries = 0
-      const maxRetries = 5
-      const retryDelay = 1000
+      // No stored session — fetch auth info (are passkeys registered?)
+      if (!storedToken) {
+        const backendReady = await waitForBackend()
+        if (cancelled) return
+        if (!backendReady) {
+          setAuthState("connecting")
+          setTimeout(init, 10000)
+          return
+        }
+      }
 
-      while (retries < maxRetries) {
-        try {
-          const info = await fetchAuthInfo()
-          if (!cancelled) {
-            setHasPasskeys(info.has_passkeys)
-            setAuthState("ready")
-            return
-          }
-        } catch (err) {
-          retries++
-          if (retries >= maxRetries) {
-            if (!cancelled) {
-              setAuthState("connecting")
-              // Retry after longer delay
-              setTimeout(init, 5000)
-            }
-            break
-          }
-          // Wait before retry
-          await new Promise(resolve => setTimeout(resolve, retryDelay))
+      // Backend is reachable, get auth info
+      try {
+        const info = await fetchAuthInfo()
+        if (!cancelled) {
+          setHasPasskeys(info.has_passkeys)
+          setAuthState("ready")
+        }
+      } catch {
+        if (!cancelled) {
+          setAuthState("connecting")
+          setTimeout(init, 10000)
         }
       }
     }
@@ -163,8 +198,8 @@ export const AppContent: React.FC = () => {
   // WebSocket hook — only connects when authenticated
   const {
     isConnected,
-    isDeviceConnected,
-    isDeviceLoading,
+    deviceState,
+    deviceLoadingReason,
     backend,
     deviceInfo,
     serverPaused,
@@ -172,7 +207,8 @@ export const AppContent: React.FC = () => {
     sendFrequencyRange,
     sendPauseCommand,
     sendSettings,
-  } = useWebSocket(wsUrl, aesKey, isAuthenticated && isVisualizer && mainTab === "Spectrum")
+    sendRestartDevice,
+  } = useWebSocket(wsUrl, aesKey, isAuthenticated)
 
   // Auth handlers
   const handlePasswordAuth = useCallback(async (password: string) => {
@@ -405,17 +441,18 @@ export const AppContent: React.FC = () => {
                 isConnected={isConnected}
                 isAuthenticated={isAuthenticated}
                 authState={authState}
-                isDeviceConnected={isDeviceConnected}
-                isDeviceLoading={isDeviceLoading}
+                deviceState={deviceState}
+                deviceLoadingReason={deviceLoadingReason}
+                isPaused={visualizerPaused}
+                serverPaused={serverPaused}
                 backend={backend}
                 deviceInfo={deviceInfo}
-                serverPaused={serverPaused}
-                isPaused={visualizerPaused}
                 activeTab={activeTab}
                 onTabChange={handleSidebarTabChange}
                 activeSignalArea={activeSignalArea}
                 onSignalAreaChange={handleSignalAreaChange}
                 onFrequencyRangeChange={handleFrequencyRangeChange}
+                frequencyRange={frequencyRange}
                 onPauseToggle={handleVisualizerPauseToggle}
                 onSettingsChange={sendSettings}
                 displayTemporalResolution={displayTemporalResolution}
@@ -428,6 +465,7 @@ export const AppContent: React.FC = () => {
                 onStitchPauseToggle={() => setIsStitchPaused((p) => !p)}
                 onStitch={handleStitch}
                 onClear={handleClear}
+                onRestartDevice={sendRestartDevice}
               />
             )}
             <section style={mainContentStyle}>
@@ -441,18 +479,18 @@ export const AppContent: React.FC = () => {
                   onRegisterPasskey={handleRegisterPasskey}
                 />
               )}
-              {mainTab === "Spectrum" && isVisualizer && isAuthenticated && (
+              <div style={{ display: mainTab === "Spectrum" && isVisualizer && isAuthenticated ? 'contents' : 'none' }}>
                 <FFTCanvas
                   data={data}
                   frequencyRange={frequencyRange}
                   centerFrequencyMHz={(frequencyRange.min + frequencyRange.max) / 2}
                   activeSignalArea={activeSignalArea}
-                  isPaused={visualizerPaused}
-                  isDeviceConnected={isDeviceConnected}
+                  isPaused={visualizerPaused || !(mainTab === "Spectrum" && isVisualizer)}
+                  isDeviceConnected={deviceState === "connected"}
                   onFrequencyRangeChange={handleFrequencyRangeChange}
                   displayTemporalResolution={displayTemporalResolution}
                 />
-              )}
+              </div>
               {isStitcher && (
                 <FFTStitcherCanvas
                   selectedFiles={selectedFiles}

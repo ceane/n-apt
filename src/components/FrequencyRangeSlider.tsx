@@ -25,6 +25,7 @@ interface FrequencyRangeSliderProps {
   onActivate: () => void
   onRangeChange: (range: FrequencyRange) => void
   isDeviceConnected?: boolean
+  externalFrequencyRange?: FrequencyRange // Add external frequency range for VFO sync
 }
 
 const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
@@ -37,6 +38,7 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   onActivate,
   onRangeChange,
   isDeviceConnected = true,
+  externalFrequencyRange,
 }) => {
   // Calculate window width (constant based on visible range)
   const totalRange = maxFreq - minFreq
@@ -60,9 +62,28 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   const dragStartXRef = useRef(0)
   const dragStartWindowRef = useRef(0)
   const lastNotifiedRangeRef = useRef<FrequencyRange | null>(null)
+  // Monotonically increasing counter: bumped on internal changes (drag/keyboard),
+  // NOT bumped on external sync.  The notification effects only fire when this
+  // counter has changed since the last notification, which breaks the loop.
+  const internalChangeIdRef = useRef(0)
+  const lastNotifiedChangeIdRef = useRef(0)
 
   // Track if we're currently dragging to avoid external updates during drag
   const [isDragging, setIsDragging] = useState(false)
+
+  // Sync windowStart with external frequency range (VFO changes).
+  // Does NOT bump internalChangeIdRef, so the notification effects will
+  // see that the counter hasn't changed and skip the callback.
+  useEffect(() => {
+    if (!externalFrequencyRange || isDragging) return
+
+    const newWindowStart = (externalFrequencyRange.min - minFreq) / totalRange
+    const clamped = Math.max(0, Math.min(1 - windowWidth, newWindowStart))
+
+    setWindowStart(clamped)
+    // Keep lastNotifiedRange in sync so the next *internal* change diffs correctly
+    lastNotifiedRangeRef.current = externalFrequencyRange
+  }, [externalFrequencyRange, isDragging, minFreq, totalRange, windowWidth])
 
   const currentMin = minFreq + windowStart * totalRange
   const currentMax = minFreq + (windowStart + windowWidth) * totalRange
@@ -102,22 +123,23 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
 
   // Notify parent during dragging for real-time updates
   useEffect(() => {
+    if (internalChangeIdRef.current === lastNotifiedChangeIdRef.current) return
     if (isActive && isDragging) {
+      lastNotifiedChangeIdRef.current = internalChangeIdRef.current
       notifyParent()
     }
   }, [
     windowStart,
     isActive,
-    onRangeChange,
-    currentMin,
-    currentMax,
     isDragging,
     notifyParent,
   ])
 
   // Notify parent when windowStart changes via keyboard (not dragging)
   useEffect(() => {
+    if (internalChangeIdRef.current === lastNotifiedChangeIdRef.current) return
     if (isActive && !isDragging) {
+      lastNotifiedChangeIdRef.current = internalChangeIdRef.current
       notifyParent()
     }
   }, [
@@ -140,6 +162,7 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   const moveWindow = useCallback(
     (direction: "up" | "down") => {
       const stepPercent = STEP_SIZE / totalRange
+      internalChangeIdRef.current += 1
       setWindowStart((prev) => {
         const newStart =
           prev + (direction === "up" ? stepPercent : -stepPercent)
@@ -193,6 +216,7 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
       let newStart = dragStartWindowRef.current + deltaPercent
       newStart = Math.max(0, Math.min(1 - windowWidth, newStart))
 
+      internalChangeIdRef.current += 1
       setWindowStart(newStart)
     }
 
@@ -200,6 +224,7 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
       if (isDraggingRef.current) {
         isDraggingRef.current = false
         setIsDragging(false)
+        internalChangeIdRef.current += 1
         notifyParent()
       }
     }
