@@ -285,7 +285,7 @@ export function drawSpectrumTrace(options: SpectrumRenderOptions): void {
 
   // Draw trace line on top
   ctx.strokeStyle = LINE_COLOR
-  ctx.lineWidth = width < 700 ? 0.5 : 1.5
+  ctx.lineWidth = width < 700 ? 0.5 : 1
   ctx.lineJoin = "round"
   ctx.lineCap = "round"
 

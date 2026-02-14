@@ -33,6 +33,11 @@ target/release/
 target/rls/
 target/cargo-web/dist/
 
+# Swift / Vapor
+src/swift-coreml-service/.build/
+src/swift-coreml-service/.swiftpm/
+src/swift-coreml-service/Package.resolved
+
 # macOS
 .DS_Store
 

@@ -122,9 +122,9 @@ const Section = styled.div`
   margin-bottom: 24px;
 `;
 
-const SectionTitle = styled.div`
+const SectionTitle = styled.div<{ $fileMode?: boolean }>`
   font-size: 11px;
-  color: #555;
+  color: ${(props) => (props.$fileMode ? "#d9aa34" : "#555")};
   text-transform: uppercase;
   letter-spacing: 1px;
   margin-bottom: 12px;
@@ -313,6 +313,9 @@ interface SidebarProps {
   deviceInfo: string | null;
   activeTab: string;
   onTabChange: (tab: string) => void;
+  sourceMode: "live" | "file";
+  onSourceModeChange: (mode: "live" | "file") => void;
+  stitchStatus: string;
   activeSignalArea: string;
   onSignalAreaChange: (area: string) => void;
   onFrequencyRangeChange?: (range: { min: number; max: number }) => void;
@@ -344,6 +347,9 @@ const Sidebar: React.FC<SidebarProps> = ({
   deviceInfo,
   activeTab,
   onTabChange,
+  sourceMode,
+  onSourceModeChange,
+  stitchStatus,
   activeSignalArea,
   onSignalAreaChange,
   onFrequencyRangeChange,
@@ -494,12 +500,28 @@ const Sidebar: React.FC<SidebarProps> = ({
 
 
 
+  // Computed values for file mode
+  const fileCapturedRange = useMemo(() => {
+    if (sourceMode !== "file" || selectedFiles.length === 0) return null;
+    let minFreq = Infinity;
+    let maxFreq = -Infinity;
+    for (const f of selectedFiles) {
+      const match = f.name.match(/iq_(\d+\.?\d*)MHz/);
+      if (match) {
+        const freq = parseFloat(match[1]);
+        minFreq = Math.min(minFreq, freq - 1.6);
+        maxFreq = Math.max(maxFreq, freq + 1.6);
+      }
+    }
+    if (minFreq === Infinity) return null;
+    return { min: Math.max(0, minFreq), max: maxFreq };
+  }, [sourceMode, selectedFiles]);
+
   // Stitcher state (using props to sync with App component)
   const setSelectedFiles = onSelectedFilesChange;
 
   // Use refs to track last notified values to prevent excessive updates
   const lastNotifiedRangeRef = useRef({ min: 0, max: 3.2 });
-  const stitchPointerDownFiredRef = useRef(false);
   const stitchButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const handleAreaARangeChange = useCallback(
@@ -591,153 +613,337 @@ const Sidebar: React.FC<SidebarProps> = ({
           $active={activeTab === "visualizer"}
           onClick={() => onTabChange("visualizer")}
         >
-          Live N-APT visualizer
-        </Tab>
-        <Tab
-          $active={activeTab === "stitcher"}
-          onClick={() => onTabChange("stitcher")}
-        >
-          N-APT stitcher & I/Q replay
+          N-APT visualizer
         </Tab>
         <Tab
           $active={activeTab === "analysis"}
           onClick={() => onTabChange("analysis")}
         >
-          N-APT live deep analysis
+          Decode N-APT with ML
         </Tab>
       </TabContainer>
 
       {activeTab === "visualizer" && (
         <>
-          <ConnectionStatusContainer>
-            <ConnectionStatus>
-              <StatusDot 
-                $connected={isConnected && deviceState === "connected"} 
-                $loading={deviceState === "loading" || deviceState === "stale"}
-                $color={isConnected && deviceState === "disconnected" ? "#ff8800" : undefined}
-              />
-              <StatusText>
-                {!isConnected
-                  ? "Disconnected"
-                  : deviceState === "loading"
-                    ? (deviceLoadingReason === "restart" ? "Restarting device..." : "Loading device...")
-                    : deviceState === "stale"
-                      ? "Device stream frozen"
-                      : deviceState === "connected"
-                        ? "Connected to server and device"
-                        : "Connected to server but device not connected"}
-              </StatusText>
-            </ConnectionStatus>
+          {sourceMode === "live" && (
+            <ConnectionStatusContainer>
+              <ConnectionStatus>
+                <StatusDot 
+                  $connected={isConnected && deviceState === "connected"} 
+                  $loading={deviceState === "loading" || deviceState === "stale"}
+                  $color={isConnected && deviceState === "disconnected" ? "#ff8800" : undefined}
+                />
+                <StatusText>
+                  {!isConnected
+                    ? "Disconnected"
+                    : deviceState === "loading"
+                      ? (deviceLoadingReason === "restart" ? "Restarting device..." : "Loading device...")
+                      : deviceState === "stale"
+                        ? "Device stream frozen"
+                        : deviceState === "connected"
+                          ? "Connected to server and device"
+                          : "Connected to server but device not connected"}
+                </StatusText>
+              </ConnectionStatus>
 
-            {isConnected && (
-              (deviceState === "stale") ? (
-                <PauseButton
-                  $paused={false}
-                  onClick={() => onRestartDevice?.()}
-                  title="Restart the SDR device connection"
-                  style={{
-                    flex: "0 0 25%",
-                    borderColor: "#ffaa00",
-                    color: "#ffaa00",
-                  }}
-                >
-                  Restart
-                </PauseButton>
-              ) : (deviceState === "loading" && deviceLoadingReason === "restart") ? (
-                <PauseButton
-                  $paused={false}
-                  onClick={() => {}}
-                  disabled={true}
-                  title="Device is restarting..."
-                  style={{
-                    flex: "0 0 25%",
-                    opacity: 0.6,
-                    cursor: "not-allowed",
-                    borderColor: "#ffaa00",
-                    color: "#ffaa00",
-                  }}
-                >
-                  Restarting...
-                </PauseButton>
-              ) : (deviceState === "loading") ? (
-                <PauseButton
-                  $paused={false}
-                  onClick={() => {}}
-                  disabled={true}
-                  title="Device is being initialized..."
-                  style={{
-                    flex: "0 0 25%",
-                    opacity: 0.6,
-                    cursor: "not-allowed",
-                    borderColor: "#ffaa00",
-                    color: "#ffaa00",
-                  }}
-                >
-                  Loading...
-                </PauseButton>
-              ) : (
-                <PauseButton $paused={isPaused} onClick={onPauseToggle}>
-                  {isPaused ? "Resume" : "Pause"}
-                </PauseButton>
-              )
-            )}
-          </ConnectionStatusContainer>
+              {isConnected && (
+                (deviceState === "stale") ? (
+                  <PauseButton
+                    $paused={false}
+                    onClick={() => onRestartDevice?.()}
+                    title="Restart the SDR device connection"
+                    style={{
+                      flex: "0 0 25%",
+                      borderColor: "#ffaa00",
+                      color: "#ffaa00",
+                    }}
+                  >
+                    Restart
+                  </PauseButton>
+                ) : (deviceState === "loading" && deviceLoadingReason === "restart") ? (
+                  <PauseButton
+                    $paused={false}
+                    onClick={() => {}}
+                    disabled={true}
+                    title="Device is restarting..."
+                    style={{
+                      flex: "0 0 25%",
+                      opacity: 0.6,
+                      cursor: "not-allowed",
+                      borderColor: "#ffaa00",
+                      color: "#ffaa00",
+                    }}
+                  >
+                    Restarting...
+                  </PauseButton>
+                ) : (deviceState === "loading") ? (
+                  <PauseButton
+                    $paused={false}
+                    onClick={() => {}}
+                    disabled={true}
+                    title="Device is being initialized..."
+                    style={{
+                      flex: "0 0 25%",
+                      opacity: 0.6,
+                      cursor: "not-allowed",
+                      borderColor: "#ffaa00",
+                      color: "#ffaa00",
+                    }}
+                  >
+                    Loading...
+                  </PauseButton>
+                ) : (
+                  <PauseButton $paused={isPaused} onClick={onPauseToggle}>
+                    {isPaused ? "Resume" : "Pause"}
+                  </PauseButton>
+                )
+              )}
+            </ConnectionStatusContainer>
+          )}
 
           <Section>
-            <SectionTitle>Source</SectionTitle>
+            <SectionTitle $fileMode={sourceMode === "file"}>Source</SectionTitle>
             <SettingRow>
               <SettingLabelContainer>
-                <SettingLabel>
-                  {backend === "rtl-sdr" ? "RTL-SDR" : backend === "mock" ? "Mock" : "Source"}
-                </SettingLabel>
+                <SettingLabel>Input</SettingLabel>
                 <InfoPopover
                   title="Source"
-                  content="SDR (Software Defined Radio) device used for capturing and processing radio frequency signals."
+                  content="Select the signal source: live SDR device for real-time capture, or file selection to analyze previously recorded I/Q data."
                 />
               </SettingLabelContainer>
-              <SettingValue>
-                {!isConnected
-                  ? "Unavailable"
-                  : backend === "rtl-sdr"
-                    ? deviceState === "connected"
-                      ? serverPaused
-                        ? "Inactive"
-                        : "Active"
-                      : "Unavailable"
-                    : serverPaused
-                      ? "Inactive"
-                      : "Active"}
-              </SettingValue>
+              <SettingSelect
+                value={sourceMode}
+                onChange={(e) => onSourceModeChange(e.target.value as "live" | "file")}
+                style={{ minWidth: "130px" }}
+              >
+                <option value="live">
+                  {backend === "rtl-sdr" ? "RTL-SDR" : backend === "mock" ? "Mock SDR" : "Live SDR"}
+                </option>
+                <option value="file" style={{ color: "#d9aa34" }}>File Selection</option>
+              </SettingSelect>
             </SettingRow>
+            {sourceMode === "live" && (
+              <SettingRow>
+                <SettingLabelContainer>
+                  <SettingLabel>Status</SettingLabel>
+                </SettingLabelContainer>
+                <SettingValue>
+                  {!isConnected
+                    ? "Unavailable"
+                    : backend === "rtl-sdr"
+                      ? deviceState === "connected"
+                        ? serverPaused
+                          ? "Inactive"
+                          : "Active"
+                        : "Unavailable"
+                      : serverPaused
+                        ? "Inactive"
+                        : "Active"}
+                </SettingValue>
+              </SettingRow>
+            )}
           </Section>
 
-          <Section>
-            <SectionTitle>Signal areas of interest</SectionTitle>
-            <FrequencyRangeSlider
-              label="A"
-              minFreq={0}
-              maxFreq={4.47}
-              visibleMin={0}
-              visibleMax={3.2}
-              isActive={activeSignalArea === "A"}
-              onActivate={() => onSignalAreaChange?.("A")}
-              onRangeChange={handleAreaARangeChange}
-              isDeviceConnected={deviceState === "connected"}
-              externalFrequencyRange={activeSignalArea === "A" ? frequencyRange : undefined}
-            />
-            <FrequencyRangeSlider
-              label="B"
-              minFreq={24.72}
-              maxFreq={29.88}
-              visibleMin={26}
-              visibleMax={28.2}
-              isActive={activeSignalArea === "B"}
-              onActivate={() => onSignalAreaChange?.("B")}
-              onRangeChange={handleAreaBRangeChange}
-              isDeviceConnected={deviceState === "connected"}
-              externalFrequencyRange={activeSignalArea === "B" ? frequencyRange : undefined}
-            />
-          </Section>
+          {sourceMode === "file" && (
+            <>
+              <Section>
+                <SectionTitle $fileMode>File selection</SectionTitle>
+                <SettingRow>
+                  <SettingLabelContainer>
+                    <SettingLabel>Choose files...</SettingLabel>
+                  </SettingLabelContainer>
+                  <div
+                    style={{ display: "flex", alignItems: "center", gap: "8px" }}
+                  >
+                    <input
+                      type="file"
+                      accept=".c64"
+                      multiple
+                      style={{
+                        display: "none",
+                      }}
+                      id="fileInput"
+                      onChange={(e) => {
+                        if (!e.target.files) return
+                        setSelectedFiles(
+                          Array.from(e.target.files).map((file) => ({
+                            name: file.name,
+                            file,
+                          })),
+                        )
+
+                        setTimeout(() => {
+                          const btn = stitchButtonRef.current
+                          if (btn) {
+                            btn.focus()
+                            if (window.focus) window.focus()
+                            btn.style.transform = 'translateZ(0)'
+                            void btn.offsetWidth
+                            btn.style.transform = ''
+                          }
+                        }, 50)
+                      }}
+                    />
+                    <PauseButton
+                      $paused={false}
+                      onClick={() => document.getElementById("fileInput")?.click()}
+                      style={{
+                        flex: "none",
+                        fontSize: "11px",
+                        padding: "8px 12px",
+                      }}
+                    >
+                      Browse
+                    </PauseButton>
+                  </div>
+                </SettingRow>
+              </Section>
+
+              {selectedFiles.length > 0 && (
+                <>
+                  <Section>
+                    <SectionTitle $fileMode>
+                      Selected files ({selectedFiles.length})
+                    </SectionTitle>
+                    {selectedFiles.map((file, index) => (
+                      <SettingRow key={index}>
+                        <SettingLabelContainer>
+                          <SettingLabel
+                            style={{
+                              fontSize: "11px",
+                              maxWidth: "240px",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {file.name}
+                          </SettingLabel>
+                        </SettingLabelContainer>
+                        <PauseButton
+                          $paused={false}
+                          onClick={() =>
+                            setSelectedFiles(
+                              selectedFiles.filter((_, i) => i !== index),
+                            )
+                          }
+                          style={{
+                            flex: "none",
+                            fontSize: "10px",
+                            padding: "4px 8px",
+                            background: "transparent",
+                          }}
+                        >
+                          Remove
+                        </PauseButton>
+                      </SettingRow>
+                    ))}
+                  </Section>
+
+                  <Section>
+                    {stitchStatus && (
+                      <div style={{
+                        marginBottom: "8px",
+                        padding: "8px 12px",
+                        borderRadius: "6px",
+                        fontSize: "11px",
+                        color: stitchStatus.startsWith("Stitching failed") ? "#f87171" : "#a3e635",
+                        backgroundColor: stitchStatus.startsWith("Stitching failed") ? "rgba(248,113,113,0.08)" : "rgba(163,230,53,0.08)",
+                        border: `1px solid ${stitchStatus.startsWith("Stitching failed") ? "rgba(248,113,113,0.2)" : "rgba(163,230,53,0.2)"}`,
+                      }}>
+                        {stitchStatus}
+                      </div>
+                    )}
+                    <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                      <div style={{ display: "flex", gap: "8px" }}>
+                        <PauseButton
+                          $paused={false}
+                          ref={stitchButtonRef}
+                          onClick={onStitch}
+                          style={{ flex: 1 }}
+                        >
+                          Stitch spectrum
+                        </PauseButton>
+                        <PauseButton
+                          $paused={false}
+                          onClick={() => onClear()}
+                          style={{ flex: 1, background: "transparent" }}
+                        >
+                          Clear
+                        </PauseButton>
+                      </div>
+                      <PauseButton
+                        $paused={isStitchPaused}
+                        onClick={onStitchPauseToggle}
+                        style={{ width: "100%" }}
+                      >
+                        {isStitchPaused ? "Play" : "Pause"}
+                      </PauseButton>
+                    </div>
+                  </Section>
+                </>
+              )}
+            </>
+          )}
+
+          {sourceMode === "live" && (
+            <Section>
+              <SectionTitle>Signal areas of interest</SectionTitle>
+              <FrequencyRangeSlider
+                label="A"
+                minFreq={0}
+                maxFreq={4.47}
+                visibleMin={0}
+                visibleMax={3.2}
+                isActive={activeSignalArea === "A"}
+                onActivate={() => onSignalAreaChange?.("A")}
+                onRangeChange={handleAreaARangeChange}
+                isDeviceConnected={deviceState === "connected"}
+                externalFrequencyRange={activeSignalArea === "A" ? frequencyRange : undefined}
+              />
+              <FrequencyRangeSlider
+                label="B"
+                minFreq={24.72}
+                maxFreq={29.88}
+                visibleMin={26}
+                visibleMax={28.2}
+                isActive={activeSignalArea === "B"}
+                onActivate={() => onSignalAreaChange?.("B")}
+                onRangeChange={handleAreaBRangeChange}
+                isDeviceConnected={deviceState === "connected"}
+                externalFrequencyRange={activeSignalArea === "B" ? frequencyRange : undefined}
+              />
+              <SettingRow style={{ marginTop: "16px" }}>
+                <SettingLabelContainer>
+                  <SettingLabel>
+                    Signal features
+                    <span style={{ marginLeft: "4px", fontSize: "10px" }}>/</span>
+                  </SettingLabel>
+                  <InfoPopover
+                    title="Signal Features"
+                    content="Advanced frequency analysis to detect heterodyning patterns and other signal characteristics using machine learning."
+                  />
+                </SettingLabelContainer>
+                <PauseButton
+                  $paused={false}
+                  onClick={() => {
+                    // TODO: Implement heterodyning detection
+                    console.log("Verify heterodyning clicked");
+                  }}
+                  disabled={!isConnected || deviceState !== "connected"}
+                  style={{
+                    fontSize: "11px",
+                    padding: "6px 12px",
+                    minWidth: "120px",
+                    opacity: (!isConnected || deviceState !== "connected") ? 0.5 : 1,
+                    cursor: (!isConnected || deviceState !== "connected") ? "not-allowed" : "pointer"
+                  }}
+                >
+                  Verify heterodyning
+                </PauseButton>
+              </SettingRow>
+            </Section>
+          )}
 
           <Section>
             <SectionTitle>Signal type</SectionTitle>
@@ -785,74 +991,112 @@ const Sidebar: React.FC<SidebarProps> = ({
                   content="Radio signal bandwidth capacity. Determines the range of frequencies that can be intercepted and processed from transmissions."
                 />
               </SettingLabelContainer>
-              <SettingValue>{(maxSampleRate / 1000000).toFixed(1)}MHz (max)</SettingValue>
+              <SettingValue>
+                {sourceMode === "file"
+                  ? fileCapturedRange
+                    ? `${(fileCapturedRange.max - fileCapturedRange.min).toFixed(2)}MHz`
+                    : "No files"
+                  : `${(maxSampleRate / 1000000).toFixed(1)}MHz (max)`}
+              </SettingValue>
             </SettingRow>
-            <SettingRow>
-              <SettingLabelContainer>
-                <SettingLabel>Frame Rate</SettingLabel>
-                <InfoPopover
-                  title="Frame Rate"
-                  content={`Signal processing speed. Higher rates provide more real-time analysis of transmissions. Current maximum theoretical rate: ${maxFrameRate} fps based on current FFT size and bandwidth capacity.`}
-                />
-              </SettingLabelContainer>
-              <div
-                style={{ display: "flex", alignItems: "center", gap: "4px" }}
-              >
-                <SettingInput
-                  type="number"
-                  value={fftFrameRate}
-                  onChange={(e) => {
-                    const val = Math.max(1, Math.min(maxFrameRate, Math.floor(Number(e.target.value) || 1)));
-                    setFftFrameRate(val);
-                    sendCurrentSettings({ frameRate: val });
-                    scheduleCoupledAdjustment("frameRate", fftSize, val);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
-                    e.preventDefault();
-                    e.stopPropagation();
-                    const step = 1; // Always use 1-frame rate steps for precision
-                    const delta = e.key === "ArrowUp" ? step : -step;
-                    const next = Math.max(1, Math.min(maxFrameRate, Math.floor((fftFrameRate || 0) + delta)));
-                    setFftFrameRate(next);
-                    sendCurrentSettings({ frameRate: next });
-                    scheduleCoupledAdjustment("frameRate", fftSize, next);
-                  }}
-                  min="1"
-                  max={maxFrameRate}
-                />
-                <span
-                  style={{ fontSize: "12px", color: "#ccc", fontWeight: "500" }}
+            {sourceMode === "file" && fileCapturedRange && (
+              <SettingRow>
+                <SettingLabelContainer>
+                  <SettingLabel>Captured Range</SettingLabel>
+                  <InfoPopover
+                    title="Captured Frequency Range"
+                    content="The frequency range covered by the selected I/Q capture files, derived from the center frequencies encoded in the filenames."
+                  />
+                </SettingLabelContainer>
+                <SettingValue>
+                  {fileCapturedRange.min.toFixed(2)}MHz to {fileCapturedRange.max.toFixed(2)}MHz
+                </SettingValue>
+              </SettingRow>
+            )}
+            {sourceMode === "live" ? (
+              <SettingRow>
+                <SettingLabelContainer>
+                  <SettingLabel>Frame Rate</SettingLabel>
+                  <InfoPopover
+                    title="Frame Rate"
+                    content={`Signal processing speed. Higher rates provide more real-time analysis of transmissions. Current maximum theoretical rate: ${maxFrameRate} fps based on current FFT size and bandwidth capacity.`}
+                  />
+                </SettingLabelContainer>
+                <div
+                  style={{ display: "flex", alignItems: "center", gap: "4px" }}
                 >
-                  fps
-                </span>
-              </div>
-            </SettingRow>
-            <SettingRow>
-              <SettingLabelContainer>
-                <SettingLabel>FFT Size</SettingLabel>
-                <InfoPopover
-                  title="FFT Size"
-                  content="Frequency resolution. Larger sizes provide better detection of specific signal patterns in transmissions but reduce processing speed."
-                />
-              </SettingLabelContainer>
-              <SettingSelect
-                value={fftSize}
-                onChange={(e) => {
-                  const val = Number(e.target.value);
-                  setFftSize(val);
-                  sendCurrentSettings({ fftSize: val });
-                  scheduleCoupledAdjustment("fftSize", val, fftFrameRate);
-                }}
-              >
-                <option value={8192}>8192</option>
-                <option value={16384}>16384</option>
-                <option value={32768}>32768</option>
-                <option value={65536}>65536</option>
-                <option value={131072}>131072</option>
-                <option value={262144}>262144</option>
-              </SettingSelect>
-            </SettingRow>
+                  <SettingInput
+                    type="number"
+                    value={fftFrameRate}
+                    onChange={(e) => {
+                      const val = Math.max(1, Math.min(maxFrameRate, Math.floor(Number(e.target.value) || 1)));
+                      setFftFrameRate(val);
+                      sendCurrentSettings({ frameRate: val });
+                      scheduleCoupledAdjustment("frameRate", fftSize, val);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+                      e.preventDefault();
+                      e.stopPropagation();
+                      const step = 1; // Always use 1-frame rate steps for precision
+                      const delta = e.key === "ArrowUp" ? step : -step;
+                      const next = Math.max(1, Math.min(maxFrameRate, Math.floor((fftFrameRate || 0) + delta)));
+                      setFftFrameRate(next);
+                      sendCurrentSettings({ frameRate: next });
+                      scheduleCoupledAdjustment("frameRate", fftSize, next);
+                    }}
+                    min="1"
+                    max={maxFrameRate}
+                  />
+                  <span
+                    style={{ fontSize: "12px", color: "#ccc", fontWeight: "500" }}
+                  >
+                    fps
+                  </span>
+                </div>
+              </SettingRow>
+            ) : (
+              <SettingRow>
+                <SettingLabelContainer>
+                  <SettingLabel>Frame Rate</SettingLabel>
+                </SettingLabelContainer>
+                <SettingValue>4 fps</SettingValue>
+              </SettingRow>
+            )}
+            {sourceMode === "live" ? (
+              <SettingRow>
+                <SettingLabelContainer>
+                  <SettingLabel>FFT Size</SettingLabel>
+                  <InfoPopover
+                    title="FFT Size"
+                    content="Frequency resolution. Larger sizes provide better detection of specific signal patterns in transmissions but reduce processing speed."
+                  />
+                </SettingLabelContainer>
+                <SettingSelect
+                  value={fftSize}
+                  onChange={(e) => {
+                    const val = Number(e.target.value);
+                    setFftSize(val);
+                    sendCurrentSettings({ fftSize: val });
+                    scheduleCoupledAdjustment("fftSize", val, fftFrameRate);
+                  }}
+                >
+                  <option value={8192}>8192</option>
+                  <option value={16384}>16384</option>
+                  <option value={32768}>32768</option>
+                  <option value={65536}>65536</option>
+                  <option value={131072}>131072</option>
+                  <option value={262144}>262144</option>
+                </SettingSelect>
+              </SettingRow>
+            ) : (
+              <SettingRow>
+                <SettingLabelContainer>
+                  <SettingLabel>FFT Size</SettingLabel>
+                </SettingLabelContainer>
+                <SettingValue>1024</SettingValue>
+              </SettingRow>
+            )}
             <SettingRow>
               <SettingLabelContainer>
                 <SettingLabel>FFT Window</SettingLabel>
@@ -912,21 +1156,29 @@ const Sidebar: React.FC<SidebarProps> = ({
               </SettingLabelContainer>
               <SettingInput
                 type="number"
-                value={ppm}
+                value={sourceMode === "file" ? stitchSourceSettings.ppm : ppm}
                 onChange={(e) => {
                   const raw = e.target.value;
                   const val = raw === "" ? 0 : parseInt(raw, 10) || 0;
-                  setPpm(val);
-                  sendCurrentSettings({ ppm: val });
+                  if (sourceMode === "file") {
+                    onStitchSourceSettingsChange({ ...stitchSourceSettings, ppm: val });
+                  } else {
+                    setPpm(val);
+                    sendCurrentSettings({ ppm: val });
+                  }
                 }}
                 onKeyDown={(e) => {
                   if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
                   e.preventDefault();
                   e.stopPropagation();
                   const delta = e.key === "ArrowUp" ? 1 : -1;
-                  const next = (ppm || 0) + delta;
-                  setPpm(next);
-                  sendCurrentSettings({ ppm: next });
+                  if (sourceMode === "file") {
+                    onStitchSourceSettingsChange({ ...stitchSourceSettings, ppm: (stitchSourceSettings.ppm || 0) + delta });
+                  } else {
+                    const next = (ppm || 0) + delta;
+                    setPpm(next);
+                    sendCurrentSettings({ ppm: next });
+                  }
                 }}
                 step="1"
                 style={{ width: "60px" }}
@@ -943,272 +1195,87 @@ const Sidebar: React.FC<SidebarProps> = ({
               <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
                 <SettingInput
                   type="number"
-                  value={gain}
+                  value={sourceMode === "file" ? stitchSourceSettings.gain : gain}
                   onChange={(e) => {
                     const raw = Number(e.target.value);
-                    const val = clampGain(Number.isFinite(raw) ? raw : 0);
-                    setGain(val);
-                    sendCurrentSettings({ gain: val });
+                    if (sourceMode === "file") {
+                      onStitchSourceSettingsChange({ ...stitchSourceSettings, gain: raw || 0 });
+                    } else {
+                      const val = clampGain(Number.isFinite(raw) ? raw : 0);
+                      setGain(val);
+                      sendCurrentSettings({ gain: val });
+                    }
                   }}
                   step="0.1"
                   min="0"
-                  max="49.6"
+                  max={sourceMode === "file" ? undefined : "49.6"}
                   style={{ width: "60px" }}
-                  // Remove disabled condition - gain works alongside AGC
                 />
                 <span style={{ fontSize: "12px", color: "#ccc", fontWeight: "500" }}>dB</span>
               </div>
             </SettingRow>
-            <SettingRow>
-              <SettingLabelContainer>
-                <SettingLabel>Tuner AGC</SettingLabel>
-                <InfoPopover
-                  title="Tuner AGC"
-                  content="Tuner Automatic Gain Control. Automatically adjusts the tuner gain for optimal signal reception. Works alongside manual gain setting. Only one AGC mode can be active at a time."
-                />
-              </SettingLabelContainer>
-              <ToggleSwitch $disabled={!isConnected}>
-                <ToggleSwitchInput
-                  type="checkbox"
-                  checked={tunerAGC}
-                  onChange={(e) => {
-                    const enabled = e.target.checked;
-                    setTunerAGC(enabled);
-                    if (enabled) {
-                      setRtlAGC(false);
-                      sendCurrentSettings({ tunerAGC: true, rtlAGC: false });
-                    } else {
-                      sendCurrentSettings({ tunerAGC: false });
-                    }
-                  }}
-                  disabled={!isConnected}
-                />
-                <ToggleSwitchSlider $disabled={!isConnected} />
-              </ToggleSwitch>
-            </SettingRow>
-            <SettingRow>
-              <SettingLabelContainer>
-                <SettingLabel>RTL AGC</SettingLabel>
-                <InfoPopover
-                  title="RTL AGC"
-                  content="RTL Automatic Gain Control. Automatically adjusts the RTL2832 gain for optimal signal reception. Works alongside manual gain setting. Only one AGC mode can be active at a time."
-                />
-              </SettingLabelContainer>
-              <ToggleSwitch $disabled={!isConnected}>
-                <ToggleSwitchInput
-                  type="checkbox"
-                  checked={rtlAGC}
-                  onChange={(e) => {
-                    const enabled = e.target.checked;
-                    setRtlAGC(enabled);
-                    if (enabled) {
-                      setTunerAGC(false);
-                      sendCurrentSettings({ rtlAGC: true, tunerAGC: false });
-                    } else {
-                      sendCurrentSettings({ rtlAGC: false });
-                    }
-                  }}
-                  disabled={!isConnected}
-                />
-                <ToggleSwitchSlider $disabled={!isConnected} />
-              </ToggleSwitch>
-            </SettingRow>
-          </Section>
-        </>
-      )}
-
-      {activeTab === "stitcher" && (
-        <>
-          <Section>
-            <SectionTitle>File selection</SectionTitle>
-            <SettingRow>
-              <SettingLabelContainer>
-                <SettingLabel>Choose files...</SettingLabel>
-              </SettingLabelContainer>
-              <div
-                style={{ display: "flex", alignItems: "center", gap: "8px" }}
-              >
-                <input
-                  type="file"
-                  accept=".c64"
-                  multiple
-                  style={{
-                    display: "none",
-                  }}
-                  id="fileInput"
-                  onChange={(e) => {
-                    if (!e.target.files) return
-                    setSelectedFiles(
-                      Array.from(e.target.files).map((file) => ({
-                        name: file.name,
-                        file,
-                      })),
-                    )
-
-                    // After closing the native file picker, the first click can be swallowed.
-                    // Focusing the action button makes the next interaction reliable.
-                    setTimeout(() => {
-                      const btn = stitchButtonRef.current
-                      if (btn) {
-                        btn.focus()
-                        // In iframe environments (ChatGPT Atlas), also ensure the window is active
-                        if (window.focus) window.focus()
-                        // Force a layout/paint to ensure activation
-                        btn.style.transform = 'translateZ(0)'
-                        void btn.offsetWidth
-                        btn.style.transform = ''
-                      }
-                    }, 50) // Slightly longer delay for iframe contexts
-                  }}
-                />
-                <PauseButton
-                  $paused={false}
-                  onClick={() => document.getElementById("fileInput")?.click()}
-                  style={{
-                    flex: "none",
-                    fontSize: "11px",
-                    padding: "8px 12px",
-                  }}
-                >
-                  Browse
-                </PauseButton>
-              </div>
-            </SettingRow>
-          </Section>
-
-          {selectedFiles.length > 0 && (
-            <>
-              <Section>
-                <SectionTitle>Source settings</SectionTitle>
+            {sourceMode === "live" && (
+              <>
                 <SettingRow>
                   <SettingLabelContainer>
-                    <SettingLabel>Gain (dB)</SettingLabel>
+                    <SettingLabel>Tuner AGC</SettingLabel>
+                    <InfoPopover
+                      title="Tuner AGC"
+                      content="Tuner Automatic Gain Control. Automatically adjusts the tuner gain for optimal signal reception. Works alongside manual gain setting. Only one AGC mode can be active at a time."
+                    />
                   </SettingLabelContainer>
-                  <input
-                    type="number"
-                    value={stitchSourceSettings.gain}
-                    onChange={(e) =>
-                      onStitchSourceSettingsChange({
-                        ...stitchSourceSettings,
-                        gain: Number(e.target.value) || 0,
-                      })
-                    }
-                    style={{
-                      width: "100px",
-                      background: "#111",
-                      color: "#e6e6e6",
-                      border: "1px solid #333",
-                      borderRadius: "6px",
-                      padding: "6px 8px",
-                    }}
-                  />
-                </SettingRow>
-                <SettingRow>
-                  <SettingLabelContainer>
-                    <SettingLabel>PPM</SettingLabel>
-                  </SettingLabelContainer>
-                  <input
-                    type="number"
-                    value={stitchSourceSettings.ppm}
-                    onChange={(e) =>
-                      onStitchSourceSettingsChange({
-                        ...stitchSourceSettings,
-                        ppm: Number(e.target.value) || 0,
-                      })
-                    }
-                    style={{
-                      width: "100px",
-                      background: "#111",
-                      color: "#e6e6e6",
-                      border: "1px solid #333",
-                      borderRadius: "6px",
-                      padding: "6px 8px",
-                    }}
-                  />
-                </SettingRow>
-              </Section>
-
-              <Section>
-                <SectionTitle>
-                  Selected files ({selectedFiles.length})
-                </SectionTitle>
-                {selectedFiles.map((file, index) => (
-                  <SettingRow key={index}>
-                    <SettingLabelContainer>
-                      <SettingLabel
-                        style={{
-                          fontSize: "11px",
-                          maxWidth: "240px",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {file.name}
-                      </SettingLabel>
-                    </SettingLabelContainer>
-                    <PauseButton
-                      $paused={false}
-                      onClick={() =>
-                        setSelectedFiles(
-                          selectedFiles.filter((_, i) => i !== index),
-                        )
-                      }
-                      style={{
-                        flex: "none",
-                        fontSize: "10px",
-                        padding: "4px 8px",
-                        background: "transparent",
-                      }}
-                    >
-                      Remove
-                    </PauseButton>
-                  </SettingRow>
-                ))}
-              </Section>
-
-              <Section>
-                <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                  <div style={{ display: "flex", gap: "8px" }}>
-                    <PauseButton
-                      $paused={false}
-                      ref={stitchButtonRef}
-                      onPointerDown={() => {
-                        stitchPointerDownFiredRef.current = true
-                        onStitch()
-                      }}
-                      onClick={() => {
-                        if (stitchPointerDownFiredRef.current) {
-                          stitchPointerDownFiredRef.current = false
-                          return
+                  <ToggleSwitch $disabled={!isConnected}>
+                    <ToggleSwitchInput
+                      type="checkbox"
+                      checked={tunerAGC}
+                      onChange={(e) => {
+                        const enabled = e.target.checked;
+                        setTunerAGC(enabled);
+                        if (enabled) {
+                          setRtlAGC(false);
+                          sendCurrentSettings({ tunerAGC: true, rtlAGC: false });
+                        } else {
+                          sendCurrentSettings({ tunerAGC: false });
                         }
-                        onStitch()
                       }}
-                      style={{ flex: 1 }}
-                    >
-                      Stitch spectrum
-                    </PauseButton>
-                    <PauseButton
-                      $paused={false}
-                      onClick={() => onClear()}
-                      style={{ flex: 1, background: "transparent" }}
-                    >
-                      Clear
-                    </PauseButton>
-                  </div>
-                  <PauseButton
-                    $paused={isStitchPaused}
-                    onClick={onStitchPauseToggle}
-                    style={{ width: "100%" }}
-                  >
-                    {isStitchPaused ? "Resume" : "Pause"}
-                  </PauseButton>
-                </div>
-              </Section>
-            </>
-          )}
+                      disabled={!isConnected}
+                    />
+                    <ToggleSwitchSlider $disabled={!isConnected} />
+                  </ToggleSwitch>
+                </SettingRow>
+                <SettingRow>
+                  <SettingLabelContainer>
+                    <SettingLabel>RTL AGC</SettingLabel>
+                    <InfoPopover
+                      title="RTL AGC"
+                      content="RTL Automatic Gain Control. Automatically adjusts the RTL2832 gain for optimal signal reception. Works alongside manual gain setting. Only one AGC mode can be active at a time."
+                    />
+                  </SettingLabelContainer>
+                  <ToggleSwitch $disabled={!isConnected}>
+                    <ToggleSwitchInput
+                      type="checkbox"
+                      checked={rtlAGC}
+                      onChange={(e) => {
+                        const enabled = e.target.checked;
+                        setRtlAGC(enabled);
+                        if (enabled) {
+                          setTunerAGC(false);
+                          sendCurrentSettings({ rtlAGC: true, tunerAGC: false });
+                        } else {
+                          sendCurrentSettings({ rtlAGC: false });
+                        }
+                      }}
+                      disabled={!isConnected}
+                    />
+                    <ToggleSwitchSlider $disabled={!isConnected} />
+                  </ToggleSwitch>
+                </SettingRow>
+              </>
+            )}
+          </Section>
         </>
       )}
+
     </SidebarContainer>
   );
 };

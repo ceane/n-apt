@@ -7,6 +7,25 @@ const { TextEncoder, TextDecoder } = require("util")
 global.TextEncoder = TextEncoder
 global.TextDecoder = TextDecoder
 
+// Mock Worker for fileWorkerManager tests
+global.Worker = jest.fn().mockImplementation(() => ({
+  postMessage: jest.fn(),
+  onmessage: null,
+  onerror: null,
+  terminate: jest.fn(),
+  addEventListener: jest.fn(),
+  removeEventListener: jest.fn(),
+  dispatchEvent: jest.fn(),
+  readyState: 1 // WebSocket.OPEN equivalent
+}))
+
+// Mock import.meta.url for worker files
+global.import = {
+  meta: {
+    url: 'mock://worker/fileWorker.js'
+  }
+} as any
+
 // Mock ResizeObserver for testing
 global.ResizeObserver = class ResizeObserver {
   constructor(callback: any) {
@@ -114,3 +133,84 @@ Element.prototype.getBoundingClientRect = jest.fn(() => ({
   y: 0,
   toJSON: jest.fn(),
 }))
+
+// Mock WebSocket
+global.WebSocket = jest.fn().mockImplementation(() => ({
+  readyState: WebSocket.CONNECTING,
+  CONNECTING: 0,
+  OPEN: 1,
+  CLOSING: 2,
+  CLOSED: 3,
+  close: jest.fn(),
+  send: jest.fn(),
+  addEventListener: jest.fn(),
+  removeEventListener: jest.fn(),
+  dispatchEvent: jest.fn(),
+  onopen: null,
+  onclose: null,
+  onmessage: null,
+  onerror: null,
+}))
+
+// Mock Event classes
+global.Event = class Event {
+  constructor(type: string, options?: any) {
+    this.type = type
+    this.bubbles = options?.bubbles || false
+    this.cancelable = options?.cancelable || false
+  }
+  type: string
+  bubbles: boolean
+  cancelable: boolean
+}
+
+global.MessageEvent = class MessageEvent extends Event {
+  constructor(type: string, options?: any) {
+    super(type, options)
+    this.data = options?.data
+  }
+  data: any
+}
+
+// Mock FileReader
+global.FileReader = class FileReader {
+  static EMPTY = 0
+  static LOADING = 1
+  static DONE = 2
+  
+  constructor() {
+    this.readyState = FileReader.EMPTY
+  }
+  
+  readyState: number
+  result: any
+  error: any
+  onabort: any
+  onerror: any
+  onload: any
+  onloadstart: any
+  onprogress: any
+  
+  readAsArrayBuffer(blob: Blob) {
+    // Mock implementation
+    setTimeout(() => {
+      this.readyState = FileReader.DONE
+      this.result = new ArrayBuffer(8)
+      this.onload?.({ target: this })
+    }, 0)
+  }
+  
+  readAsText(blob: Blob) {
+    // Mock implementation
+    setTimeout(() => {
+      this.readyState = FileReader.DONE
+      this.result = "mock text"
+      this.onload?.({ target: this })
+    }, 0)
+  }
+  
+  abort() {
+    this.readyState = FileReader.DONE
+    this.onabort?.({ target: this })
+  }
+} as any

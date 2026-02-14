@@ -34,6 +34,7 @@ export type WebSocketData = {
   sendPauseCommand: (isPaused: boolean) => void
   sendSettings: (settings: SDRSettings) => void
   sendRestartDevice: () => void
+  sendTrainingCommand: (action: "start" | "stop", label: "target" | "noise", signalArea: string) => void
 }
 
 // Reconnect backoff schedule (seconds)
@@ -277,6 +278,23 @@ export const useWebSocket = (
     }
   }, [])
 
+  // Function to send training capture commands to the server
+  const sendTrainingCommand = useCallback(
+    (action: "start" | "stop", label: "target" | "noise", signalArea: string) => {
+      const ws = wsRef.current
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        const message = JSON.stringify({
+          type: "training_capture",
+          action,
+          label,
+          signalArea,
+        })
+        ws.send(message)
+      }
+    },
+    [],
+  )
+
   return {
     isConnected,
     deviceState,
@@ -291,5 +309,6 @@ export const useWebSocket = (
     sendPauseCommand,
     sendSettings,
     sendRestartDevice,
+    sendTrainingCommand,
   }
 }

@@ -1,6 +1,9 @@
 // Library exports for testing
 pub mod consts;
 pub mod fft;
+pub mod stitching;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod coreml_client;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod credentials;
 #[cfg(not(target_arch = "wasm32"))]

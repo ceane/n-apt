@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from "react"
+import React, { useState, useCallback, useRef, useEffect } from "react"
 import styled, { keyframes } from "styled-components"
 
 export type AuthState =
@@ -226,7 +226,7 @@ const AuthenticationPrompt = ({
       case "success":
         return "Authentication successful — starting stream..."
       case "failed":
-        return error || "Authentication failed — please retry"
+        return error ? `Authentication failed — ${error}` : "Authentication failed"
       case "timeout":
         return "Authentication timed out — please retry"
       default:

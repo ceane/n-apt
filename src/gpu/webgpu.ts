@@ -10,13 +10,21 @@ export function isWebGPUSupported(): boolean {
 }
 
 export async function getWebGPUDevice(): Promise<GPUDevice | null> {
-  if (!isWebGPUSupported()) return null
+  if (!isWebGPUSupported()) {
+    return null
+  }
   if (!devicePromise) {
     devicePromise = (async () => {
-      const adapter = await navigator.gpu.requestAdapter()
-      if (!adapter) return null
-      const device = await adapter.requestDevice()
-      return device
+      try {
+        const adapter = await navigator.gpu.requestAdapter()
+        if (!adapter) {
+          return null
+        }
+        const device = await adapter.requestDevice()
+        return device
+      } catch (error) {
+        return null
+      }
     })()
   }
   return devicePromise

@@ -25,7 +25,8 @@ module.exports = {
     'src/**/*.{ts,tsx}',
     '!src/**/*.d.ts',
     '!src/main.tsx',
-    '!src/vite-env.d.ts'
+    '!src/vite-env.d.ts',
+    '!src/workers/**/*' // Skip workers from coverage for now
   ],
   transform: {
     '^.+\\.(ts|tsx)$': ['ts-jest', {
@@ -37,5 +38,13 @@ module.exports = {
       }
     }]
   },
-  moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json']
+  transformIgnorePatterns: [
+    'node_modules/(?!(.*\\.mjs$))'
+  ],
+  moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
+  globals: {
+    'ts-jest': {
+      useESM: true
+    }
+  }
 };

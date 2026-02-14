@@ -471,6 +471,233 @@ impl FFTProcessor {
   pub fn reset_time(&mut self) {
     self.time = 0.0;
   }
+
+  /// Extract frequency features for heterodyning detection
+  /// 
+  /// # Returns
+  /// 
+  /// Tuple of (dominant_frequencies, frequency_peaks, spectral_rolloff, spectral_flux, phase_coherence, frequency_stability)
+  pub fn extract_frequency_features(&self, spectrum: &[f32]) -> (Vec<f32>, Vec<f32>, f32, f32, f32, f32) {
+    if spectrum.is_empty() {
+      return (Vec::new(), Vec::new(), 0.0, 0.0, 0.0, 0.0);
+    }
+
+    let magnitude: Vec<f32> = spectrum.iter().map(|&x| x.abs()).collect();
+    let count = spectrum.len() as f32;
+
+    // Find dominant frequencies (top 5 peaks)
+    let mut indexed_magnitude: Vec<(usize, f32)> = magnitude.iter().enumerate().map(|(i, &m)| (i, m)).collect();
+    indexed_magnitude.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    
+    let dominant_frequencies: Vec<f32> = indexed_magnitude.iter()
+      .take(5)
+      .map(|(i, _)| *i as f32)
+      .collect();
+
+    // Find all significant peaks (above threshold)
+    let threshold = magnitude.iter().sum::<f32>() / count * 2.0; // 2x average magnitude
+    let frequency_peaks: Vec<f32> = magnitude.iter()
+      .enumerate()
+      .filter(|(_, &m)| m > threshold)
+      .map(|(i, _)| i as f32)
+      .collect();
+
+    // Calculate spectral rolloff (frequency containing 85% of energy)
+    let total_energy = magnitude.iter().sum::<f32>();
+    let mut accumulated_energy = 0.0f32;
+    let mut rolloff_index = 0;
+    
+    for (i, &value) in magnitude.iter().enumerate() {
+      accumulated_energy += value;
+      if accumulated_energy >= total_energy * 0.85 {
+        rolloff_index = i;
+        break;
+      }
+    }
+    let spectral_rolloff = rolloff_index as f32;
+
+    // Calculate spectral flux (change in spectrum - simplified for single spectrum)
+    let spectral_flux = self.calculate_spectral_flux(&magnitude);
+
+    // Calculate phase coherence (placeholder - would need complex FFT data)
+    let phase_coherence = self.calculate_phase_coherence(&magnitude);
+
+    // Calculate frequency stability
+    let frequency_stability = self.calculate_frequency_stability(&dominant_frequencies);
+
+    (dominant_frequencies, frequency_peaks, spectral_rolloff, spectral_flux, phase_coherence, frequency_stability)
+  }
+
+  /// Detect heterodyning patterns in frequency spectrum
+  /// 
+  /// # Parameters
+  /// 
+  /// * `spectrum` - FFT magnitude spectrum
+  /// * `sample_rate` - Sample rate of the original signal
+  /// 
+  /// # Returns
+  /// 
+  /// Tuple of (is_detected, confidence, carrier_frequencies)
+  pub fn detect_heterodyning_patterns(&self, spectrum: &[f32], sample_rate: u32) -> (bool, f32, Vec<f32>) {
+    let (dominant_freqs, frequency_peaks, spectral_rolloff, spectral_flux, phase_coherence, frequency_stability) = 
+      self.extract_frequency_features(spectrum);
+
+    // Heterodyning indicators
+    let has_multiple_carriers = dominant_freqs.len() >= 2;
+    let high_peak_count = frequency_peaks.len() > 5;
+    let high_coherence = phase_coherence > 0.7;
+    let stable_frequencies = frequency_stability > 0.8;
+    let significant_flux = spectral_flux > 0.1;
+    let significant_rolloff = spectral_rolloff > (spectrum.len() as f32 * 0.7); // Rolloff in upper 30% of spectrum
+
+    // Calculate confidence based on multiple factors
+    let mut confidence = 0.0f32;
+    if has_multiple_carriers { confidence += 0.3; }
+    if high_peak_count { confidence += 0.2; }
+    if high_coherence { confidence += 0.2; }
+    if stable_frequencies { confidence += 0.1; }
+    if significant_flux { confidence += 0.1; }
+    if significant_rolloff { confidence += 0.1; }
+
+    confidence = confidence.min(0.95);
+    let is_detected = confidence > 0.5;
+
+    // Convert bin indices to actual frequencies
+    let carrier_frequencies: Vec<f32> = dominant_freqs.iter()
+      .map(|&bin| bin_to_freq(bin as usize, sample_rate, spectrum.len()))
+      .collect();
+
+    (is_detected, confidence, carrier_frequencies)
+  }
+
+  /// Get signal parameters for recreation analysis
+  /// 
+  /// # Parameters
+  /// 
+  /// * `spectrum` - FFT magnitude spectrum
+  /// * `sample_rate` - Sample rate of the original signal
+  /// 
+  /// # Returns
+  /// 
+  /// Signal parameters including amplitude, frequency, phase, etc.
+  pub fn get_signal_parameters(&self, spectrum: &[f32], sample_rate: u32) -> (f32, f32, f32, f32, String) {
+    if spectrum.is_empty() {
+      return (0.0, 0.0, 0.0, 0.0, "unknown".to_string());
+    }
+
+    let magnitude: Vec<f32> = spectrum.iter().map(|&x| x.abs()).collect();
+    
+    // Basic amplitude and frequency analysis
+    let amplitude = magnitude.iter().fold(0.0f32, |a, &b| a.max(b));
+    let peak_index = magnitude.iter().enumerate()
+      .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+      .map(|(i, _)| i)
+      .unwrap_or(0);
+    let frequency = bin_to_freq(peak_index, sample_rate, spectrum.len());
+
+    // Estimate phase (simplified - would need complex FFT data)
+    let phase = if peak_index < spectrum.len() {
+      (spectrum[peak_index] / amplitude).acos()
+    } else {
+      0.0
+    };
+
+    // Estimate noise level
+    let sorted_magnitude = {
+      let mut sorted = magnitude.clone();
+      sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+      sorted
+    };
+    let median_index = sorted_magnitude.len() / 2;
+    let noise_level = sorted_magnitude.get(median_index).unwrap_or(&0.0);
+
+    // Determine waveform type based on harmonic content
+    let waveform_type = self.determine_waveform_type(&magnitude);
+
+    (amplitude, frequency, phase, *noise_level, waveform_type)
+  }
+
+  // MARK: - Helper Methods for Frequency Analysis
+
+  fn calculate_spectral_flux(&self, magnitude: &[f32]) -> f32 {
+    if magnitude.len() < 2 {
+      return 0.0;
+    }
+
+    let mut flux = 0.0f32;
+    for i in 1..magnitude.len() {
+      let diff = magnitude[i] - magnitude[i - 1];
+      if diff > 0.0 {
+        flux += diff;
+      }
+    }
+
+    flux / (magnitude.len() - 1) as f32
+  }
+
+  fn calculate_phase_coherence(&self, magnitude: &[f32]) -> f32 {
+    // Placeholder for phase coherence calculation
+    // Would need actual phase data from complex FFT output
+    let energy = magnitude.iter().sum::<f32>();
+    let peak_energy = magnitude.iter().fold(0.0f32, |a, &b| a.max(b));
+    
+    if energy > 0.0 {
+      peak_energy / energy
+    } else {
+      0.0
+    }
+  }
+
+  fn calculate_frequency_stability(&self, dominant_freqs: &[f32]) -> f32 {
+    if dominant_freqs.len() < 2 {
+      return 1.0;
+    }
+
+    // Calculate frequency spacing consistency
+    let mut spacings: Vec<f32> = Vec::new();
+    for i in 1..dominant_freqs.len() {
+      spacings.push(dominant_freqs[i] - dominant_freqs[i - 1]);
+    }
+
+    if spacings.is_empty() {
+      return 1.0;
+    }
+
+    let mean_spacing = spacings.iter().sum::<f32>() / spacings.len() as f32;
+    let variance = spacings.iter()
+      .map(|&s| (s - mean_spacing).powi(2))
+      .sum::<f32>() / spacings.len() as f32;
+    let std_dev = variance.sqrt();
+
+    // Higher stability = lower relative standard deviation
+    if mean_spacing > 0.0 {
+      (1.0 - (std_dev / mean_spacing)).max(0.0)
+    } else {
+      0.0
+    }
+  }
+
+  fn determine_waveform_type(&self, magnitude: &[f32]) -> String {
+    // Simple harmonic analysis to determine waveform type
+    let threshold = magnitude.iter().fold(0.0f32, |a, &b| a.max(b)) * 0.1;
+    let harmonics: Vec<usize> = magnitude.iter()
+      .enumerate()
+      .filter(|(_, &m)| m > threshold)
+      .map(|(i, _)| i)
+      .collect();
+
+    if harmonics.len() > 8 {
+      "square".to_string()
+    } else if harmonics.len() > 4 {
+      "sawtooth".to_string()
+    } else if harmonics.len() > 2 {
+      "triangle".to_string()
+    } else if harmonics.len() == 1 {
+      "sine".to_string()
+    } else {
+      "complex".to_string()
+    }
+  }
 }
 
 /// Utility functions for FFT processing
