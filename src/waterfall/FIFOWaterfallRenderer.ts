@@ -163,13 +163,20 @@ export function addWaterfallFrame(
     const dbValue = fftFrame[x] * (maxDb - minDb) + minDb
     const [r, g, b] = dbToColor(dbValue, minDb, maxDb)
 
+    // Top row (y=0): always overwrite with new data
+    const i0 = x * 4
+    waterfallBuffer[i0] = r
+    waterfallBuffer[i0 + 1] = g
+    waterfallBuffer[i0 + 2] = b
+    waterfallBuffer[i0 + 3] = 255
+
+    // Smear rows (drift effect): blend with existing using max
     const smear = Math.max(0, Math.min(Math.floor(driftAmount), height - 1))
-    for (let dy = 0; dy <= smear; dy++) {
-      const y = dy
-      const i = (y * width + x) * 4
-      waterfallBuffer[i] = Math.max(waterfallBuffer[i], r) // R
-      waterfallBuffer[i + 1] = Math.max(waterfallBuffer[i + 1], g) // G
-      waterfallBuffer[i + 2] = Math.max(waterfallBuffer[i + 2], b) // B
+    for (let dy = 1; dy <= smear; dy++) {
+      const i = (dy * width + x) * 4
+      waterfallBuffer[i] = Math.max(waterfallBuffer[i], r)
+      waterfallBuffer[i + 1] = Math.max(waterfallBuffer[i + 1], g)
+      waterfallBuffer[i + 2] = Math.max(waterfallBuffer[i + 2], b)
       waterfallBuffer[i + 3] = 255
     }
   }

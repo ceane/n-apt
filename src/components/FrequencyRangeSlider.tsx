@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from "react"
+import styled from "styled-components"
 import { FrequencyRange } from "@n-apt/hooks/useWebSocket"
 import {
   DEFAULT_MIN_FREQ,
@@ -27,6 +28,107 @@ interface FrequencyRangeSliderProps {
   isDeviceConnected?: boolean
   externalFrequencyRange?: FrequencyRange // Add external frequency range for VFO sync
 }
+
+// Styled Components
+const SliderWrapper = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  user-select: none;
+`
+
+const LabelContainer = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  flex-shrink: 0;
+`
+
+const Label = styled.span<{ $isActive: boolean }>`
+  font-size: 24px;
+  font-weight: 700;
+  color: ${props => props.$isActive ? COLORS.primary : COLORS.textSecondary};
+  transition: color 0.2s ease;
+`
+
+const SliderContainer = styled.div<{ $isActive: boolean }>`
+  flex: 1;
+  user-select: none;
+  outline: none;
+  padding: 8px;
+  border-radius: 6px;
+  border: 1px solid ${props => props.$isActive ? COLORS.primary : "transparent"};
+  background-color: ${props => props.$isActive ? `${COLORS.primary}20` : "transparent"};
+  cursor: pointer;
+  transition: border-color 0.2s ease, background-color 0.2s ease;
+`
+
+const RangeTrack = styled.div`
+  position: relative;
+  height: ${RANGE_TRACK_HEIGHT}px;
+  background-color: ${RANGE_TRACK_BACKGROUND};
+  border: 1px solid ${RANGE_TRACK_BORDER};
+  border-radius: 4px;
+  overflow: hidden;
+  user-select: none;
+`
+
+const RangeLabels = styled.div`
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: ${RANGE_LABELS_PADDING};
+  font-size: ${RANGE_LABELS_FONT_SIZE};
+  color: ${RANGE_LABELS_COLOR};
+  pointer-events: none;
+  user-select: none;
+`
+
+const Marker = styled.div`
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  width: 2px;
+  background: rgba(220, 38, 38, 0.45);
+  box-shadow: 0 0 6px rgba(220, 38, 38, 0.35);
+  pointer-events: none;
+`
+
+const VisibleWindow = styled.div<{ $isActive: boolean; $left: number; $width: number }>`
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  background-color: ${props => props.$isActive
+    ? COLORS.activeBackground
+    : COLORS.inactiveBackground};
+  border: 1px solid ${props => props.$isActive ? COLORS.primary : COLORS.textMuted};
+  cursor: grab;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+  min-width: 80px;
+  box-sizing: border-box;
+  left: ${props => props.$left}%;
+  width: ${props => props.$width}%;
+`
+
+const WindowLabel = styled.span<{ $isActive: boolean }>`
+  font-size: 9px;
+  color: ${props => props.$isActive ? COLORS.primary : COLORS.textMuted};
+  white-space: nowrap;
+  pointer-events: none;
+  user-select: none;
+  padding: 0 12px;
+  box-sizing: content-box;
+`
 
 const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   minFreq = DEFAULT_MIN_FREQ,
@@ -255,135 +357,33 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
     }
   }
 
-  // Styled Components converted to inline styles
-  const sliderWrapperStyle: React.CSSProperties = {
-    display: "flex",
-    alignItems: "center",
-    gap: "12px",
-    marginBottom: "16px",
-    userSelect: "none",
-  }
-
-  const labelContainerStyle: React.CSSProperties = {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    width: "32px",
-    flexShrink: 0,
-  }
-
-  const labelStyle: React.CSSProperties = {
-    fontSize: "24px",
-    fontWeight: 700,
-    color: isActive ? COLORS.primary : COLORS.textSecondary,
-    transition: "color 0.2s ease",
-  }
-
-  const sliderContainerStyle: React.CSSProperties = {
-    flex: 1,
-    userSelect: "none",
-    outline: "none",
-    padding: "8px",
-    borderRadius: "6px",
-    border: `1px solid ${isActive ? COLORS.primary : "transparent"}`,
-    backgroundColor: isActive ? `${COLORS.primary}20` : "transparent",
-    cursor: "pointer",
-    transition: "border-color 0.2s ease, background-color 0.2s ease",
-  }
-
-  const rangeTrackStyle: React.CSSProperties = {
-    position: "relative",
-    height: `${RANGE_TRACK_HEIGHT}px`,
-    backgroundColor: RANGE_TRACK_BACKGROUND,
-    border: `1px solid ${RANGE_TRACK_BORDER}`,
-    borderRadius: "4px",
-    overflow: "hidden",
-    userSelect: "none",
-  }
-
-  const rangeLabelsStyle: React.CSSProperties = {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    padding: RANGE_LABELS_PADDING,
-    fontSize: RANGE_LABELS_FONT_SIZE,
-    color: RANGE_LABELS_COLOR,
-    pointerEvents: "none",
-    userSelect: "none",
-  }
-
   const limitMarkers = [
     { freq: 0.5, label: "500kHz" },
     { freq: 28.8, label: "28.8MHz" },
   ]
 
-  const markerStyleBase: React.CSSProperties = {
-    position: "absolute",
-    top: "2px",
-    bottom: "2px",
-    width: "2px",
-    background: "rgba(220, 38, 38, 0.45)",
-    boxShadow: "0 0 6px rgba(220, 38, 38, 0.35)",
-    pointerEvents: "none",
-  }
-
-  const visibleWindowStyle: React.CSSProperties = {
-    position: "absolute",
-    top: "2px",
-    bottom: "2px",
-    backgroundColor: isActive
-      ? COLORS.activeBackground
-      : COLORS.inactiveBackground,
-    border: `1px solid ${isActive ? COLORS.primary : COLORS.textMuted}`,
-    cursor: "grab",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    userSelect: "none",
-    minWidth: "80px",
-    boxSizing: "border-box",
-    left: `${visualWindowStart * 100}%`,
-    width: `${visualWindowWidth * 100}%`,
-  }
-
-  const windowLabelStyle: React.CSSProperties = {
-    fontSize: "9px",
-    color: isActive ? COLORS.primary : COLORS.textMuted,
-    whiteSpace: "nowrap",
-    pointerEvents: "none",
-    userSelect: "none",
-    padding: "0 12px",
-    boxSizing: "content-box", // Padding adds to outside, doesn't squeeze content
-  }
-
   return (
-    <div style={sliderWrapperStyle}>
-      <div style={labelContainerStyle}>
-        <div style={labelStyle}>{label}</div>
-      </div>
-      <div
+    <SliderWrapper>
+      <LabelContainer>
+        <Label $isActive={isActive}>{label}</Label>
+      </LabelContainer>
+      <SliderContainer
         ref={containerRef}
-        style={sliderContainerStyle}
+        $isActive={isActive}
         onClick={handleContainerClick}
         tabIndex={0}
       >
-        <div ref={trackRef} className="range-track" style={rangeTrackStyle}>
+        <RangeTrack ref={trackRef} className="range-track">
           {isDeviceConnected && limitMarkers.map((marker) => (
-            <div
+            <Marker
               key={marker.label}
               title={`RTL-SDR: ${marker.label}`}
               style={{
-                ...markerStyleBase,
                 left: `${((marker.freq - minFreq) / totalRange) * 100}%`,
               }}
             />
           ))}
-          <div style={rangeLabelsStyle}>
+          <RangeLabels>
             <span
               style={{
                 visibility: labelPositions.hideLeftLabel ? "hidden" : "visible",
@@ -400,15 +400,20 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
             >
               {formatFreq(maxFreq)}
             </span>
-          </div>
-          <div style={visibleWindowStyle} onMouseDown={handleMouseDown}>
-            <div style={windowLabelStyle}>
+          </RangeLabels>
+          <VisibleWindow 
+            $isActive={isActive}
+            $left={visualWindowStart * 100}
+            $width={visualWindowWidth * 100}
+            onMouseDown={handleMouseDown}
+          >
+            <WindowLabel $isActive={isActive}>
               {formatFreq(currentMin)} - {formatFreq(currentMax)}
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+            </WindowLabel>
+          </VisibleWindow>
+        </RangeTrack>
+      </SliderContainer>
+    </SliderWrapper>
   )
 }
 

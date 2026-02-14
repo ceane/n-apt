@@ -4,13 +4,16 @@ import {
   useLocation,
   useNavigate,
 } from "react-router-dom"
+import styled from "styled-components"
 import Sidebar from "@n-apt/components/Sidebar"
 import AuthenticationPrompt from "@n-apt/components/AuthenticationPrompt"
 import type { AuthState } from "@n-apt/components/AuthenticationPrompt"
 import { FFTCanvas, DrawMockNAPT } from "@n-apt/components"
+import ClassificationControls from "@n-apt/components/ClassificationControls"
 import HumanModelViewer from "@n-apt/components/HumanModelViewer"
 import HotspotEditor from "@n-apt/components/HotspotEditor"
 import FFTStitcherCanvas from "@n-apt/components/FFTStitcherCanvas"
+import Decode from "@n-apt/components/Decode"
 import { useWebSocket, FrequencyRange } from "@n-apt/hooks/useWebSocket"
 import { deriveAesKey } from "@n-apt/crypto/webcrypto"
 import {
@@ -26,13 +29,13 @@ import {
 
 // Types
 type MainTab = "Spectrum" | "DrawSignal" | "Model3D" | "HotspotEditor"
+type SourceMode = "live" | "file"
 type SelectedFile = { name: string; file: File }
 
 const routeToMainTab = (path: string): MainTab => {
   switch (path) {
     case "/":
     case "/visualizer":
-    case "/stitcher":
     case "/analysis":
       return "Spectrum"
     case "/draw-signal":
@@ -51,8 +54,6 @@ const routeToActiveTab = (path: string): string => {
     case "/":
     case "/visualizer":
       return "visualizer"
-    case "/stitcher":
-      return "stitcher"
     case "/analysis":
       return "analysis"
     case "/hotspot-editor":
@@ -61,6 +62,73 @@ const routeToActiveTab = (path: string): string => {
       return "visualizer"
   }
 }
+
+// Styled Components
+const AppContainer = styled.div`
+  display: flex;
+  width: 100%;
+  height: 100vh;
+  background-color: #0a0a0a;
+`
+
+const AppWrapper = styled.div`
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+`
+
+const MainContent = styled.section`
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+`
+
+const SidebarToggle = styled.button`
+  position: fixed;
+  top: 20px;
+  left: 20px;
+  z-index: 1000;
+  background-color: #1a1a1a;
+  border: 1px solid #00d4ff;
+  border-radius: 6px;
+  padding: 8px 12px;
+  color: #00d4ff;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+`
+
+const TabContainer = styled.div`
+  display: flex;
+  background-color: #0d0d0d;
+  border-bottom: 1px solid #1a1a1a;
+  padding: 0 20px;
+`
+
+const TabButton = styled.button<{ $isActive: boolean }>`
+  padding: 12px 24px;
+  background-color: ${props => props.$isActive ? "#1a1a1a" : "transparent"};
+  border: none;
+  border-bottom: 2px solid ${props => props.$isActive ? "#00d4ff" : "transparent"};
+  color: ${props => props.$isActive ? "#00d4ff" : "#666"};
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+`
+
+const ContentArea = styled.div`
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+`
 
 // Inner App component that uses router hooks
 export const AppContent: React.FC = () => {
@@ -92,8 +160,9 @@ export const AppContent: React.FC = () => {
     }
   }, [activeTab])
 
-  const isVisualizer = activeTab === "visualizer"
-  const isStitcher = activeTab === "stitcher"
+  const isVisualizer = mainTab === "Spectrum" && activeTab === "visualizer"
+  const [sourceMode, setSourceMode] = useState<SourceMode>("live")
+  const [stitchStatus, setStitchStatus] = useState("")
 
   // ── Auth state (REST-based) ──────────────────────────────────────────
   const [authState, setAuthState] = useState<AuthState>("connecting")
@@ -102,6 +171,7 @@ export const AppContent: React.FC = () => {
   const [sessionToken, setSessionToken] = useState<string | null>(null)
   const [aesKey, setAesKey] = useState<CryptoKey | null>(null)
   const [hasPasskeys, setHasPasskeys] = useState(false)
+  const [isInitialAuthCheck, setIsInitialAuthCheck] = useState(true)
 
   // When auth state changes, force canvas resize so FFTCanvas gets proper dimensions
   useEffect(() => {
@@ -119,71 +189,48 @@ export const AppContent: React.FC = () => {
     const init = async () => {
       setAuthState("connecting")
 
-      // Helper: wait for backend to be reachable
-      const waitForBackend = async (): Promise<boolean> => {
-        let attempts = 0
-        let d = 2000
-        while (attempts < 15 && !cancelled) {
-          try {
-            await fetchAuthInfo()
-            return true
-          } catch {
-            attempts++
-            await new Promise(resolve => setTimeout(resolve, d))
-            d = Math.min(d * 1.3, 5000)
-          }
-        }
-        return false
-      }
-
-      // Check for existing session
+      // Check for existing session first (fast path)
       const storedToken = getStoredSession()
       if (storedToken) {
-        // Wait for backend before validating
-        const backendReady = await waitForBackend()
-        if (cancelled) return
-
-        if (backendReady) {
-          try {
-            const result = await validateSession(storedToken)
-            if (!cancelled && result.valid) {
-              setSessionToken(storedToken)
-              // Derive AES key for decryption (uses default key for restored sessions)
-              const key = await deriveAesKey("n-apt-dev-key")
-              setAesKey(key)
-              setIsAuthenticated(true)
-              setAuthState("success")
-              return
-            }
-          } catch {
-            // Session explicitly invalid
+        try {
+          // Try to validate session immediately (no backend wait)
+          const result = await validateSession(storedToken)
+          if (!cancelled && result.valid) {
+            setSessionToken(storedToken)
+            // Derive AES key for decryption (uses default key for restored sessions)
+            const key = await deriveAesKey("n-apt-dev-key")
+            setAesKey(key)
+            // Set authenticated state first, then auth state to prevent flashing
+            setIsAuthenticated(true)
+            setAuthState("ready") // Set to ready instead of success to prevent prompt flash
+            setIsInitialAuthCheck(false)
+            return
           }
-        }
-        clearSession()
-      }
-
-      // No stored session — fetch auth info (are passkeys registered?)
-      if (!storedToken) {
-        const backendReady = await waitForBackend()
-        if (cancelled) return
-        if (!backendReady) {
-          setAuthState("connecting")
-          setTimeout(init, 10000)
-          return
+        } catch (error) {
+          // Session invalid, clear it and continue to auth info fetch
+          console.warn("Session validation failed:", error)
+          clearSession()
         }
       }
 
-      // Backend is reachable, get auth info
+      // No valid session - fetch auth info (are passkeys registered?)
+      // Use a shorter timeout for backend check
+      const backendTimeout = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error("Backend timeout")), 3000)
+      )
+
       try {
-        const info = await fetchAuthInfo()
+        const info = await Promise.race([fetchAuthInfo(), backendTimeout]) as any
         if (!cancelled) {
           setHasPasskeys(info.has_passkeys)
           setAuthState("ready")
+          setIsInitialAuthCheck(false)
         }
-      } catch {
+      } catch (error) {
         if (!cancelled) {
-          setAuthState("connecting")
-          setTimeout(init, 10000)
+          console.warn("Backend unavailable, showing auth prompt:", error)
+          setAuthState("ready")
+          setIsInitialAuthCheck(false)
         }
       }
     }
@@ -208,6 +255,7 @@ export const AppContent: React.FC = () => {
     sendPauseCommand,
     sendSettings,
     sendRestartDevice,
+    sendTrainingCommand,
   } = useWebSocket(wsUrl, aesKey, isAuthenticated)
 
   // Auth handlers
@@ -221,7 +269,8 @@ export const AppContent: React.FC = () => {
       const key = await deriveAesKey(password)
       setAesKey(key)
       setIsAuthenticated(true)
-      setAuthState("success")
+      setAuthState("ready") // Set to ready instead of success to prevent prompt flash
+      setIsInitialAuthCheck(false)
     } catch (e: any) {
       setAuthState("failed")
       setAuthError(e.message || "Authentication failed")
@@ -239,7 +288,8 @@ export const AppContent: React.FC = () => {
       const key = await deriveAesKey("n-apt-dev-key")
       setAesKey(key)
       setIsAuthenticated(true)
-      setAuthState("success")
+      setAuthState("ready") // Set to ready instead of success to prevent prompt flash
+      setIsInitialAuthCheck(false)
     } catch (e: any) {
       setAuthState("failed")
       setAuthError(e.message || "Passkey authentication failed")
@@ -262,11 +312,34 @@ export const AppContent: React.FC = () => {
 
   const [visualizerPaused, setVisualizerPaused] = useState(false)
 
+  // Training capture state
+  const [isTrainingCapturing, setIsTrainingCapturing] = useState(false)
+  const [trainingCaptureLabel, setTrainingCaptureLabel] = useState<"target" | "noise" | null>(null)
+  const [trainingCapturedSamples, setTrainingCapturedSamples] = useState(0)
+
+  const handleTrainingCaptureStart = useCallback(
+    (label: "target" | "noise") => {
+      setIsTrainingCapturing(true)
+      setTrainingCaptureLabel(label)
+      sendTrainingCommand("start", label, activeSignalArea)
+    },
+    [sendTrainingCommand, activeSignalArea],
+  )
+
+  const handleTrainingCaptureStop = useCallback(() => {
+    setIsTrainingCapturing(false)
+    setTrainingCaptureLabel(null)
+    setTrainingCapturedSamples((prev) => prev + 1)
+    sendTrainingCommand("stop", trainingCaptureLabel ?? "target", activeSignalArea)
+  }, [sendTrainingCommand, trainingCaptureLabel, activeSignalArea])
+
   const [stitchTrigger, setStitchTrigger] = useState<number>(0)
   const [stitchSourceSettings, setStitchSourceSettings] = useState<{ gain: number; ppm: number }>({ gain: 0, ppm: 0 })
-  const [isStitchPaused, setIsStitchPaused] = useState(false)
+  const [isStitchPaused, setIsStitchPaused] = useState(true)
 
   const handleStitch = useCallback(() => {
+    setIsStitchPaused(true)
+    setStitchStatus("")
     setStitchTrigger((prev) => prev + 1)
   }, [])
 
@@ -297,9 +370,6 @@ export const AppContent: React.FC = () => {
       case "visualizer":
         navigate("/")
         break
-      case "stitcher":
-        navigate("/stitcher")
-        break
       case "analysis":
         navigate("/analysis")
         break
@@ -316,11 +386,17 @@ export const AppContent: React.FC = () => {
     prevIsVisualizerRef.current = isVisualizer
     
     // Only send pause command when visualizer state actually changes
-    if (prevIsVisualizer !== isVisualizer && isConnected && mainTab === "Spectrum") {
+    if (prevIsVisualizer !== isVisualizer && isConnected) {
       sendPauseCommand(!isVisualizer)
-      if (isVisualizer) {
-        setVisualizerPaused(false)
+      // Update local pause state to match when leaving visualizer
+      if (!isVisualizer) {
+        setVisualizerPaused(true)
       }
+    }
+    
+    // Pause stitcher canvas when leaving visualizer tab (any main tab change)
+    if (prevIsVisualizer !== isVisualizer) {
+      setIsStitchPaused(!isVisualizer)
     }
   }, [isVisualizer, isConnected, mainTab, sendPauseCommand])
 
@@ -356,86 +432,17 @@ export const AppContent: React.FC = () => {
     [sendFrequencyRange],
   )
 
-  // Styles
-  const appContainerStyle: React.CSSProperties = {
-    display: "flex",
-    width: "100%",
-    height: "100vh",
-    backgroundColor: "#0a0a0a",
-  }
-
-  const mainContentStyle: React.CSSProperties = {
-    flex: "1",
-    display: "flex",
-    flexDirection: "column",
-    overflow: "hidden",
-  }
-
-  const sidebarToggleStyle: React.CSSProperties = {
-    position: "fixed",
-    top: "20px",
-    left: "20px",
-    zIndex: 1000,
-    backgroundColor: "#1a1a1a",
-    border: "1px solid #00d4ff",
-    borderRadius: "6px",
-    padding: "8px 12px",
-    color: "#00d4ff",
-    fontFamily: "'JetBrains Mono', monospace",
-    fontSize: "12px",
-    fontWeight: "500",
-    cursor: "pointer",
-    transition: "all 0.2s ease",
-    userSelect: "none",
-  }
-
-  const placeholderContentStyle: React.CSSProperties = {
-    flex: "1",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    color: "#444",
-    fontSize: "14px",
-  }
-
-  const tabContainerStyle: React.CSSProperties = {
-    display: "flex",
-    backgroundColor: "#0d0d0d",
-    borderBottom: "1px solid #1a1a1a",
-    padding: "0 20px",
-  }
-
-  const getTabStyle = (isActive: boolean): React.CSSProperties => ({
-    padding: "12px 24px",
-    backgroundColor: isActive ? "#1a1a1a" : "transparent",
-    border: "none",
-    borderBottom: `2px solid ${isActive ? "#00d4ff" : "transparent"}`,
-    color: isActive ? "#00d4ff" : "#666",
-    fontFamily: "'JetBrains Mono', monospace",
-    fontSize: "13px",
-    fontWeight: "500",
-    cursor: "pointer",
-    transition: "all 0.2s ease",
-    userSelect: "none",
-  })
-
-  const contentAreaStyle: React.CSSProperties = {
-    flex: "1",
-    display: "flex",
-    overflow: "hidden",
-  }
-
+  
   const renderContent = () => {
     switch (mainTab) {
       case "Spectrum":
         return (
           <>
-            <button
-              style={sidebarToggleStyle}
+            <SidebarToggle
               onClick={() => setIsSidebarOpen(!isSidebarOpen)}
             >
               {isSidebarOpen ? "◀" : "▶"} Sidebar
-            </button>
+            </SidebarToggle>
             {isSidebarOpen && (
               <Sidebar
                 isConnected={isConnected}
@@ -449,6 +456,9 @@ export const AppContent: React.FC = () => {
                 deviceInfo={deviceInfo}
                 activeTab={activeTab}
                 onTabChange={handleSidebarTabChange}
+                sourceMode={sourceMode}
+                onSourceModeChange={setSourceMode}
+                stitchStatus={stitchStatus}
                 activeSignalArea={activeSignalArea}
                 onSignalAreaChange={handleSignalAreaChange}
                 onFrequencyRangeChange={handleFrequencyRangeChange}
@@ -468,8 +478,50 @@ export const AppContent: React.FC = () => {
                 onRestartDevice={sendRestartDevice}
               />
             )}
-            <section style={mainContentStyle}>
-              {mainTab === "Spectrum" && isVisualizer && !isAuthenticated && (
+            <MainContent>
+              {mainTab === "Spectrum" && isVisualizer && isInitialAuthCheck && (
+                <div style={{
+                  flex: 1,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: '#0a0a0a',
+                  padding: '40px',
+                  gap: '32px'
+                }}>
+                  <h2 style={{
+                    fontFamily: '"JetBrains Mono", monospace',
+                    fontSize: '18px',
+                    fontWeight: 600,
+                    color: '#e0e0e0',
+                    margin: 0,
+                    letterSpacing: '0.5px',
+                    animation: 'pulse 1.5s ease-in-out infinite'
+                  }}>
+                    Initializing N-APT
+                  </h2>
+                  <p style={{
+                    fontFamily: '"JetBrains Mono", monospace',
+                    fontSize: '12px',
+                    color: '#666',
+                    margin: 0,
+                    textAlign: 'center',
+                    maxWidth: '400px',
+                    lineHeight: '1.6'
+                  }}>
+                    Establishing secure connection and verifying session...
+                  </p>
+                  <style>{`
+                    @keyframes pulse {
+                      0% { opacity: 0.4; }
+                      50% { opacity: 1; }
+                      100% { opacity: 0.4; }
+                    }
+                  `}</style>
+                </div>
+              )}
+              {mainTab === "Spectrum" && isVisualizer && !isAuthenticated && !isInitialAuthCheck && (
                 <AuthenticationPrompt
                   authState={authState}
                   error={authError}
@@ -479,7 +531,18 @@ export const AppContent: React.FC = () => {
                   onRegisterPasskey={handleRegisterPasskey}
                 />
               )}
-              <div style={{ display: mainTab === "Spectrum" && isVisualizer && isAuthenticated ? 'contents' : 'none' }}>
+              <div style={{ display: mainTab === "Spectrum" && isVisualizer && isAuthenticated && sourceMode === "live" ? 'contents' : 'none' }}>
+                {deviceState === "connected" && (
+                  <ClassificationControls
+                    isDeviceConnected={deviceState === "connected"}
+                    activeSignalArea={activeSignalArea}
+                    isCapturing={isTrainingCapturing}
+                    captureLabel={trainingCaptureLabel}
+                    capturedSamples={trainingCapturedSamples}
+                    onCaptureStart={handleTrainingCaptureStart}
+                    onCaptureStop={handleTrainingCaptureStop}
+                  />
+                )}
                 <FFTCanvas
                   data={data}
                   frequencyRange={frequencyRange}
@@ -491,88 +554,78 @@ export const AppContent: React.FC = () => {
                   displayTemporalResolution={displayTemporalResolution}
                 />
               </div>
-              {isStitcher && (
+              {isVisualizer && isAuthenticated && sourceMode === "file" && (
                 <FFTStitcherCanvas
                   selectedFiles={selectedFiles}
                   stitchTrigger={stitchTrigger}
                   stitchSourceSettings={stitchSourceSettings}
                   isPaused={isStitchPaused}
+                  onStitchStatus={setStitchStatus}
                 />
               )}
-              {!isVisualizer && !isStitcher && (
-                <div style={placeholderContentStyle}>
-                  N-APT Live Deep Analysis - Coming Soon
-                </div>
-              )}
-            </section>
+              {!isVisualizer && <Decode />}
+            </MainContent>
           </>
         )
       case "DrawSignal":
         return (
-          <section style={{ ...mainContentStyle, overflow: "auto" }}>
+          <MainContent style={{ overflow: "auto" }}>
             <div style={{ padding: "20px", height: "100%" }}>
               <DrawMockNAPT />
             </div>
-          </section>
+          </MainContent>
         )
       case "Model3D":
         return (
-          <section style={mainContentStyle}>
+          <MainContent>
             <HumanModelViewer />
-          </section>
+          </MainContent>
         )
       case "HotspotEditor":
         return (
-          <section style={{ ...mainContentStyle, padding: 0, margin: 0 }}>
+          <MainContent style={{ padding: 0, margin: 0 }}>
             <HotspotEditor
               onHotspotsChange={() => {
                 // You can save these to localStorage or state here
               }}
             />
-          </section>
+          </MainContent>
         )
     }
   }
 
   return (
-    <div style={appContainerStyle}>
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          width: "100%",
-          height: "100%",
-        }}
-      >
-        <div style={tabContainerStyle}>
-          <button
-            style={getTabStyle(mainTab === "Spectrum")}
+    <AppContainer>
+      <AppWrapper>
+        <TabContainer>
+          <TabButton
+            $isActive={mainTab === "Spectrum"}
             onClick={() => handleMainTabChange("Spectrum")}
           >
             Spectrum Analyzer
-          </button>
-          <button
-            style={getTabStyle(mainTab === "DrawSignal")}
+          </TabButton>
+          <TabButton
+            $isActive={mainTab === "DrawSignal"}
             onClick={() => handleMainTabChange("DrawSignal")}
           >
             Draw Signal Form
-          </button>
-          <button
-            style={getTabStyle(mainTab === "Model3D")}
+          </TabButton>
+          <TabButton
+            $isActive={mainTab === "Model3D"}
             onClick={() => handleMainTabChange("Model3D")}
           >
             3D Human Model
-          </button>
-          <button
-            style={getTabStyle(mainTab === "HotspotEditor")}
+          </TabButton>
+          <TabButton
+            $isActive={mainTab === "HotspotEditor"}
             onClick={() => handleMainTabChange("HotspotEditor")}
           >
             Hotspot Editor
-          </button>
-        </div>
-        <div style={contentAreaStyle}>{renderContent()}</div>
-      </div>
-    </div>
+          </TabButton>
+        </TabContainer>
+        <ContentArea>{renderContent()}</ContentArea>
+      </AppWrapper>
+    </AppContainer>
   )
 }
 

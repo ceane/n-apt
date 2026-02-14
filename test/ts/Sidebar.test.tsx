@@ -16,6 +16,9 @@ describe("Sidebar Component", () => {
     deviceInfo: null,
     activeTab: "visualizer",
     onTabChange: jest.fn(),
+    sourceMode: "live" as const,
+    onSourceModeChange: jest.fn(),
+    stitchStatus: "",
     activeSignalArea: "test-area",
     onSignalAreaChange: jest.fn(),
     onFrequencyRangeChange: jest.fn(),
@@ -33,13 +36,13 @@ describe("Sidebar Component", () => {
 
   it("should render without crashing", () => {
     render(<Sidebar {...defaultProps} />)
-    expect(screen.getByText("Live N-APT visualizer")).toBeInTheDocument()
+    expect(screen.getByText("N-APT visualizer")).toBeInTheDocument()
   })
 
   it("should display navigation tabs", () => {
     render(<Sidebar {...defaultProps} />)
-    expect(screen.getByText("N-APT stitcher & I/Q replay")).toBeInTheDocument()
-    expect(screen.getByText("N-APT live deep analysis")).toBeInTheDocument()
+    expect(screen.getByText("N-APT visualizer")).toBeInTheDocument()
+    expect(screen.getByText("Decode N-APT with ML")).toBeInTheDocument()
   })
 
   it("should display connection status", () => {
@@ -62,7 +65,7 @@ describe("Sidebar Component", () => {
 
   it("should display source information", () => {
     render(<Sidebar {...defaultProps} />)
-    expect(screen.getByText("Mock")).toBeInTheDocument()
+    expect(screen.getByText("Mock SDR")).toBeInTheDocument()
     expect(screen.getByText("Unavailable")).toBeInTheDocument()
   })
 })

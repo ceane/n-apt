@@ -31,6 +31,7 @@ use n_apt_backend::rtlsdr::RtlSdrDevice;
 use n_apt_backend::rtlsdr::ffi as rtlsdr_ffi;
 use n_apt_backend::consts::rs::env::{WS_HOST, WS_PORT};
 use n_apt_backend::session::SessionStore;
+use n_apt_backend::stitching::SignalStitcher;
 
 const SERVER_SPECTRUM_BINS: usize = 4096;
 /// Passkey for AES-256-GCM encryption. Read from N_APT_PASSKEY env var at startup.
@@ -121,6 +122,8 @@ enum SdrCommand {
   SetTunerAGC(bool),
   SetRtlAGC(bool),
   RestartDevice,
+  StartTraining { label: String, signal_area: String },
+  StopTraining,
   ApplySettings {
     fft_size: Option<usize>,
     fft_window: Option<String>,
@@ -159,6 +162,12 @@ struct WebSocketMessage {
   frame_rate: Option<u32>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "liveRetune")]
   live_retune: Option<bool>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  label: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "signalArea")]
+  signal_area: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  action: Option<String>,
 }
 
 /// Spectrum data message sent to clients
@@ -259,6 +268,16 @@ struct SDRProcessor {
   iq_frame: Vec<u8>,
   /// Validated frame rate for display (clamped to theoretical maximum)
   display_frame_rate: u32,
+  /// Whether training capture is active
+  training_active: bool,
+  /// Current training label ("target" or "noise")
+  training_label: Option<String>,
+  /// Current training signal area ("A" or "B")
+  training_signal_area: Option<String>,
+  /// Signal stitcher for accumulating FFT frames during training
+  training_stitcher: Option<SignalStitcher>,
+  /// Accumulated completed training samples (flushed to CoreML service)
+  training_samples: Vec<n_apt_backend::stitching::TrainingSample>,
 }
 
 impl SDRProcessor {
@@ -280,6 +299,11 @@ impl SDRProcessor {
       iq_offset: 0,
       iq_frame: Vec::with_capacity(NUM_SAMPLES * 2),
       display_frame_rate: 30, // Default frame rate
+      training_active: false,
+      training_label: None,
+      training_signal_area: None,
+      training_stitcher: None,
+      training_samples: Vec::new(),
     };
     processor.initialize_mock_signals();
     processor
@@ -836,6 +860,40 @@ impl SDRProcessor {
       SdrCommand::RestartDevice => {
         // Handled in the I/O loop directly (needs reader thread teardown)
       }
+      SdrCommand::StartTraining { label, signal_area } => {
+        let fft_size = self.fft_processor.fft_size();
+        // Accumulate 15 frames (~500ms at 30fps) before yielding a training sample
+        let target_frames = 15;
+        info!("Training capture started: label={}, area={}, fft_size={}, target_frames={}",
+          label, signal_area, fft_size, target_frames);
+        self.training_stitcher = Some(SignalStitcher::new(fft_size, target_frames));
+        self.training_label = Some(label);
+        self.training_signal_area = Some(signal_area);
+        self.training_active = true;
+      }
+      SdrCommand::StopTraining => {
+        info!("Training capture stopped. Accumulated {} complete samples", self.training_samples.len());
+        // Finalize any partial data in the stitcher
+        if let Some(ref mut stitcher) = self.training_stitcher {
+          if let Some(data) = stitcher.finalize() {
+            let sample = n_apt_backend::stitching::TrainingSample {
+              signal_area: self.training_signal_area.clone().unwrap_or_default(),
+              label: self.training_label.clone().unwrap_or_default(),
+              data,
+              timestamp: chrono::Utc::now().timestamp_millis(),
+              frequency_min: 0.0,
+              frequency_max: 0.0,
+              sample_rate: SAMPLE_RATE,
+            };
+            self.training_samples.push(sample);
+          }
+        }
+        self.training_active = false;
+        self.training_label = None;
+        self.training_signal_area = None;
+        self.training_stitcher = None;
+        info!("Training stopped. Total samples collected: {}", self.training_samples.len());
+      }
       SdrCommand::ApplySettings { fft_size, fft_window, frame_rate, gain, ppm, tuner_agc, rtl_agc } => {
         if let Err(e) = self.apply_settings(fft_size, fft_window, frame_rate, gain, ppm, tuner_agc, rtl_agc) {
           warn!("Failed to apply settings: {}", e);
@@ -1369,6 +1427,26 @@ impl WebSocketServer {
                 *io_shared.device_info.lock().unwrap() = processor.get_device_info();
                 *io_shared.device_state.lock().unwrap() = "connected".to_string();
                 send_status_update(&io_shared, &io_broadcast_tx);
+              }
+
+              // --- Training: feed spectrum to stitcher ---
+              if processor.training_active {
+                if let Some(ref mut stitcher) = processor.training_stitcher {
+                  if let Some(stitched_data) = stitcher.add_frame(&spectrum) {
+                    let sample = n_apt_backend::stitching::TrainingSample {
+                      signal_area: processor.training_signal_area.clone().unwrap_or_default(),
+                      label: processor.training_label.clone().unwrap_or_default(),
+                      data: stitched_data,
+                      timestamp: chrono::Utc::now().timestamp_millis(),
+                      frequency_min: 0.0,
+                      frequency_max: 0.0,
+                      sample_rate: SAMPLE_RATE,
+                    };
+                    info!("Training sample captured: label={}, area={}, data_len={}",
+                      sample.label, sample.signal_area, sample.data.len());
+                    processor.training_samples.push(sample);
+                  }
+                }
               }
 
               if has_clients && !is_paused {
@@ -2058,6 +2136,25 @@ fn handle_message(
     "restart_device" => {
       info!("Client requested device restart");
       let _ = cmd_tx.send(SdrCommand::RestartDevice);
+    }
+    "training_capture" => {
+      if let Some(action) = message.action.as_deref() {
+        match action {
+          "start" => {
+            let label = message.label.unwrap_or_else(|| "target".to_string());
+            let signal_area = message.signal_area.unwrap_or_else(|| "A".to_string());
+            info!("Client requested training start: label={}, area={}", label, signal_area);
+            let _ = cmd_tx.send(SdrCommand::StartTraining { label, signal_area });
+          }
+          "stop" => {
+            info!("Client requested training stop");
+            let _ = cmd_tx.send(SdrCommand::StopTraining);
+          }
+          _ => {
+            debug!("Unknown training action: {}", action);
+          }
+        }
+      }
     }
     _ => {
       debug!("Unknown message type: {}", message.message_type);

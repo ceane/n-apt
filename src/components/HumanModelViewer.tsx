@@ -1,4 +1,5 @@
 import React, { Suspense, useRef, useState, useEffect } from "react"
+import styled from "styled-components"
 import { Canvas } from "@react-three/fiber"
 import { OrbitControls, useGLTF, TransformControls } from "@react-three/drei"
 import { gsap } from "gsap"
@@ -191,6 +192,59 @@ interface HumanModelViewerProps {
   height?: string | number
 }
 
+// Styled Components
+const Panel = styled.div`
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: ${CONTROL_PANEL_WIDTH};
+  height: 100%;
+  color: white;
+  padding: 12px;
+  z-index: 1;
+  background: rgba(10, 10, 12, 0.78);
+  border-right: 1px solid rgba(255,255,255,0.10);
+  box-shadow: 0 20px 60px rgba(0,0,0,0.55);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+`
+
+const List = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+  padding-right: 4px;
+`
+
+const BaseButton = styled.button`
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.06);
+  color: rgba(255,255,255,0.92);
+  font-size: 13px;
+  line-height: 1.1;
+  text-align: left;
+  cursor: pointer;
+  user-select: none;
+  transition: background 120ms ease, border-color 120ms ease, transform 120ms ease, box-shadow 120ms ease;
+`
+
+const SelectableButton = styled(BaseButton)<{ $isSelected: boolean }>`
+  background: ${props => props.$isSelected ? "rgba(123, 97, 255, 0.22)" : "rgba(255,255,255,0.06)"};
+  border-color: ${props => props.$isSelected ? "rgba(123, 97, 255, 0.55)" : "rgba(255,255,255,0.10)"};
+  box-shadow: ${props => props.$isSelected ? "0 0 0 1px rgba(123, 97, 255, 0.25)" : "none"};
+`
+
 const HumanModelViewer: React.FC<HumanModelViewerProps> = ({
   width = "100%",
   height = "100%",
@@ -198,62 +252,7 @@ const HumanModelViewer: React.FC<HumanModelViewerProps> = ({
   const [selectedArea, setSelectedArea] = useState<Area | null>(null)
   const controlsRef = useRef<any>(null)
 
-  const panelStyle: React.CSSProperties = {
-    position: "absolute",
-    left: 0,
-    top: 0,
-    width: CONTROL_PANEL_WIDTH,
-    height: "100%",
-    color: "white",
-    padding: "12px",
-    zIndex: 1,
-    background: "rgba(10, 10, 12, 0.78)",
-    borderRight: "1px solid rgba(255,255,255,0.10)",
-    boxShadow: "0 20px 60px rgba(0,0,0,0.55)",
-    backdropFilter: "blur(10px)",
-    WebkitBackdropFilter: "blur(10px)",
-    display: "flex",
-    flexDirection: "column",
-    gap: "10px",
-  }
-
-  const listStyle: React.CSSProperties = {
-    display: "flex",
-    flexDirection: "column",
-    gap: "6px",
-    overflowY: "auto",
-    paddingRight: "4px",
-  }
-
-  const baseButtonStyle: React.CSSProperties = {
-    width: "100%",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: "10px",
-    padding: "10px 10px",
-    borderRadius: "10px",
-    border: "1px solid rgba(255,255,255,0.10)",
-    background: "rgba(255,255,255,0.06)",
-    color: "rgba(255,255,255,0.92)",
-    fontSize: "13px",
-    lineHeight: 1.1,
-    textAlign: "left",
-    cursor: "pointer",
-    userSelect: "none",
-    transition:
-      "background 120ms ease, border-color 120ms ease, transform 120ms ease, box-shadow 120ms ease",
-  }
-
-  const getButtonStyle = (isSelected: boolean): React.CSSProperties => ({
-    ...baseButtonStyle,
-    background: isSelected ? "rgba(123, 97, 255, 0.22)" : baseButtonStyle.background,
-    borderColor: (isSelected
-      ? "rgba(123, 97, 255, 0.55)"
-      : "rgba(255,255,255,0.10)") as React.CSSProperties["borderColor"],
-    boxShadow: isSelected ? "0 0 0 1px rgba(123, 97, 255, 0.25)" : "none",
-  })
-
+  
   useEffect(() => {
     if (selectedArea && controlsRef.current) {
       gsap.to(controlsRef.current.object.position, {
@@ -274,7 +273,7 @@ const HumanModelViewer: React.FC<HumanModelViewerProps> = ({
 
   return (
     <div style={{ position: "relative", width, height }}>
-      <div style={panelStyle}>
+      <Panel>
         <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
           <div
             style={{
@@ -291,16 +290,16 @@ const HumanModelViewer: React.FC<HumanModelViewerProps> = ({
           </div>
         </div>
 
-        <div style={listStyle}>
+        <List>
           {areas.map((area) => {
             const isSelected = selectedArea?.name === area.name
 
             return (
-              <button
+              <SelectableButton
                 key={area.name}
+                $isSelected={isSelected}
                 onClick={() => setSelectedArea(area)}
                 aria-pressed={isSelected}
-                style={getButtonStyle(isSelected)}
                 onMouseDown={(e) => e.currentTarget.style.setProperty("transform", "scale(0.99)")}
                 onMouseUp={(e) => e.currentTarget.style.removeProperty("transform")}
                 onMouseLeave={(e) => e.currentTarget.style.removeProperty("transform")}
@@ -353,11 +352,11 @@ const HumanModelViewer: React.FC<HumanModelViewerProps> = ({
                 >
                   ›
                 </span>
-              </button>
+              </SelectableButton>
             )
           })}
-        </div>
-      </div>
+        </List>
+      </Panel>
       <Canvas
         style={{
           position: "absolute",

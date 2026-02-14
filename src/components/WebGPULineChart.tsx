@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import styled from "styled-components";
 import { COLORS } from "@n-apt/consts";
 
@@ -77,7 +77,7 @@ export const WebGPULineChart: React.FC<WebGPULineChartProps> = ({
   };
 
   const generateAxisVertices = (
-    chartData: Array<{ t: number; freq: number; x: number }>,
+    _chartData: Array<{ t: number; freq: number; x: number }>,
     canvasWidth: number,
     canvasHeight: number
   ): number[] => {
