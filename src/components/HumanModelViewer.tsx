@@ -1,9 +1,9 @@
-import React, { Suspense, useRef, useState, useEffect } from "react"
-import styled from "styled-components"
-import { Canvas } from "@react-three/fiber"
-import { OrbitControls, useGLTF, TransformControls } from "@react-three/drei"
-import { gsap } from "gsap"
-import Brain from "@n-apt/components/Brain"
+import React, { Suspense, useRef, useState, useEffect } from "react";
+import styled from "styled-components";
+import { Canvas } from "@react-three/fiber";
+import { OrbitControls, useGLTF, TransformControls } from "@react-three/drei";
+import { gsap } from "gsap";
+import Brain from "@n-apt/components/Brain";
 import {
   MODEL_CAMERA_POSITION,
   MODEL_FOV,
@@ -11,14 +11,14 @@ import {
   SPHERE_MARKER_COLOR,
   SPHERE_MARKER_BASE_INTENSITY,
   CONTROL_PANEL_WIDTH,
-} from "@n-apt/consts"
+} from "@n-apt/consts";
 
 type Area = {
-  name: string
-  position: [number, number, number]
-  target: [number, number, number]
-  meshName: string
-}
+  name: string;
+  position: [number, number, number];
+  target: [number, number, number];
+  meshName: string;
+};
 
 const areas: Area[] = [
   {
@@ -41,8 +41,8 @@ const areas: Area[] = [
   },
   {
     name: "Vocal Cords",
-    position: [0.00, 1.79, 0.32],
-    target: [0.00, 1.81, 0.06],
+    position: [0.0, 1.79, 0.32],
+    target: [0.0, 1.81, 0.06],
     meshName: "o_ADBody",
   },
   {
@@ -135,10 +135,10 @@ const areas: Area[] = [
     target: [0.08594598979516654, 1.8953312879510087, 0.021125019930469335],
     meshName: "o_ADBody",
   },
-]
+];
 
 function Model({ selectedArea }: { selectedArea: Area | null }) {
-  const { scene } = useGLTF("/glb_models/androgynous_body.glb")
+  const { scene } = useGLTF("/glb_models/androgynous_body.glb");
 
   return (
     <>
@@ -146,9 +146,7 @@ function Model({ selectedArea }: { selectedArea: Area | null }) {
       {selectedArea && (
         <group position={selectedArea.target}>
           <mesh>
-            <sphereGeometry
-              args={[0.1, SPHERE_GEOMETRY_SEGMENTS, SPHERE_GEOMETRY_SEGMENTS]}
-            />
+            <sphereGeometry args={[0.1, SPHERE_GEOMETRY_SEGMENTS, SPHERE_GEOMETRY_SEGMENTS]} />
             <meshStandardMaterial
               color={SPHERE_MARKER_COLOR}
               emissive={SPHERE_MARKER_COLOR}
@@ -158,9 +156,7 @@ function Model({ selectedArea }: { selectedArea: Area | null }) {
             />
           </mesh>
           <mesh>
-            <sphereGeometry
-              args={[0.15, SPHERE_GEOMETRY_SEGMENTS, SPHERE_GEOMETRY_SEGMENTS]}
-            />
+            <sphereGeometry args={[0.15, SPHERE_GEOMETRY_SEGMENTS, SPHERE_GEOMETRY_SEGMENTS]} />
             <meshStandardMaterial
               color={SPHERE_MARKER_COLOR}
               emissive={SPHERE_MARKER_COLOR}
@@ -170,9 +166,7 @@ function Model({ selectedArea }: { selectedArea: Area | null }) {
             />
           </mesh>
           <mesh>
-            <sphereGeometry
-              args={[0.2, SPHERE_GEOMETRY_SEGMENTS, SPHERE_GEOMETRY_SEGMENTS]}
-            />
+            <sphereGeometry args={[0.2, SPHERE_GEOMETRY_SEGMENTS, SPHERE_GEOMETRY_SEGMENTS]} />
             <meshStandardMaterial
               color={SPHERE_MARKER_COLOR}
               emissive={SPHERE_MARKER_COLOR}
@@ -184,12 +178,12 @@ function Model({ selectedArea }: { selectedArea: Area | null }) {
         </group>
       )}
     </>
-  )
+  );
 }
 
 interface HumanModelViewerProps {
-  width?: string | number
-  height?: string | number
+  width?: string | number;
+  height?: string | number;
 }
 
 // Styled Components
@@ -210,7 +204,7 @@ const Panel = styled.div`
   display: flex;
   flex-direction: column;
   gap: 10px;
-`
+`;
 
 const List = styled.div`
   display: flex;
@@ -218,7 +212,7 @@ const List = styled.div`
   gap: 6px;
   overflow-y: auto;
   padding-right: 4px;
-`
+`;
 
 const BaseButton = styled.button`
   width: 100%;
@@ -228,31 +222,31 @@ const BaseButton = styled.button`
   gap: 10px;
   padding: 10px 10px;
   border-radius: 10px;
-  border: 1px solid rgba(255,255,255,0.10);
-  background: rgba(255,255,255,0.06);
-  color: rgba(255,255,255,0.92);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.92);
   font-size: 13px;
   line-height: 1.1;
   text-align: left;
   cursor: pointer;
   user-select: none;
-  transition: background 120ms ease, border-color 120ms ease, transform 120ms ease, box-shadow 120ms ease;
-`
+  transition:
+    background 120ms ease,
+    border-color 120ms ease,
+    transform 120ms ease,
+    box-shadow 120ms ease;
+`;
 
 const SelectableButton = styled(BaseButton)<{ $isSelected: boolean }>`
-  background: ${props => props.$isSelected ? "rgba(123, 97, 255, 0.22)" : "rgba(255,255,255,0.06)"};
-  border-color: ${props => props.$isSelected ? "rgba(123, 97, 255, 0.55)" : "rgba(255,255,255,0.10)"};
-  box-shadow: ${props => props.$isSelected ? "0 0 0 1px rgba(123, 97, 255, 0.25)" : "none"};
-`
+  background: ${(props) => (props.$isSelected ? "rgba(123, 97, 255, 0.22)" : "rgba(255,255,255,0.06)")};
+  border-color: ${(props) => (props.$isSelected ? "rgba(123, 97, 255, 0.55)" : "rgba(255,255,255,0.10)")};
+  box-shadow: ${(props) => (props.$isSelected ? "0 0 0 1px rgba(123, 97, 255, 0.25)" : "none")};
+`;
 
-const HumanModelViewer: React.FC<HumanModelViewerProps> = ({
-  width = "100%",
-  height = "100%",
-}) => {
-  const [selectedArea, setSelectedArea] = useState<Area | null>(null)
-  const controlsRef = useRef<any>(null)
+const HumanModelViewer: React.FC<HumanModelViewerProps> = ({ width = "100%", height = "100%" }) => {
+  const [selectedArea, setSelectedArea] = useState<Area | null>(null);
+  const controlsRef = useRef<any>(null);
 
-  
   useEffect(() => {
     if (selectedArea && controlsRef.current) {
       gsap.to(controlsRef.current.object.position, {
@@ -260,16 +254,16 @@ const HumanModelViewer: React.FC<HumanModelViewerProps> = ({
         y: selectedArea.position[1],
         z: selectedArea.position[2],
         duration: 1,
-      })
+      });
       gsap.to(controlsRef.current.target, {
         x: selectedArea.target[0],
         y: selectedArea.target[1],
         z: selectedArea.target[2],
         duration: 1,
         onUpdate: () => controlsRef.current.update(),
-      })
+      });
     }
-  }, [selectedArea])
+  }, [selectedArea]);
 
   return (
     <div style={{ position: "relative", width, height }}>
@@ -292,7 +286,7 @@ const HumanModelViewer: React.FC<HumanModelViewerProps> = ({
 
         <List>
           {areas.map((area) => {
-            const isSelected = selectedArea?.name === area.name
+            const isSelected = selectedArea?.name === area.name;
 
             return (
               <SelectableButton
@@ -305,25 +299,25 @@ const HumanModelViewer: React.FC<HumanModelViewerProps> = ({
                 onMouseLeave={(e) => e.currentTarget.style.removeProperty("transform")}
                 onMouseEnter={(e) => {
                   if (!isSelected) {
-                    e.currentTarget.style.background = "rgba(255,255,255,0.10)"
-                    e.currentTarget.style.borderColor = "rgba(255,255,255,0.18)"
+                    e.currentTarget.style.background = "rgba(255,255,255,0.10)";
+                    e.currentTarget.style.borderColor = "rgba(255,255,255,0.18)";
                   }
                 }}
                 onMouseOut={(e) => {
                   if (!isSelected) {
-                    e.currentTarget.style.background = "rgba(255,255,255,0.06)"
-                    e.currentTarget.style.borderColor = "rgba(255,255,255,0.10)"
+                    e.currentTarget.style.background = "rgba(255,255,255,0.06)";
+                    e.currentTarget.style.borderColor = "rgba(255,255,255,0.10)";
                   }
                 }}
                 onFocus={(e) => {
                   e.currentTarget.style.boxShadow =
-                    "0 0 0 3px rgba(123, 97, 255, 0.35), 0 0 0 1px rgba(123, 97, 255, 0.35) inset"
-                  e.currentTarget.style.outline = "none"
+                    "0 0 0 3px rgba(123, 97, 255, 0.35), 0 0 0 1px rgba(123, 97, 255, 0.35) inset";
+                  e.currentTarget.style.outline = "none";
                 }}
                 onBlur={(e) => {
                   e.currentTarget.style.boxShadow = isSelected
                     ? "0 0 0 1px rgba(123, 97, 255, 0.25)"
-                    : "none"
+                    : "none";
                 }}
               >
                 <span style={{ display: "flex", alignItems: "center", gap: "10px" }}>
@@ -353,7 +347,7 @@ const HumanModelViewer: React.FC<HumanModelViewerProps> = ({
                   ›
                 </span>
               </SelectableButton>
-            )
+            );
           })}
         </List>
       </Panel>
@@ -377,7 +371,7 @@ const HumanModelViewer: React.FC<HumanModelViewerProps> = ({
         </Suspense>
       </Canvas>
     </div>
-  )
-}
+  );
+};
 
-export default HumanModelViewer
+export default HumanModelViewer;

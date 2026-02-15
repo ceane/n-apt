@@ -2,8 +2,7 @@
 import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 
-const CHARACTERS =
-  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!@#$%^&*()-+=[]{}|;:,.<>?";
+const CHARACTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!@#$%^&*()-+=[]{}|;:,.<>?";
 
 interface DecryptingTextProps {
   targetText: string;
@@ -16,7 +15,7 @@ const DecryptingText: React.FC<DecryptingTextProps> = ({
   targetText,
   speed = 8,
   className = "text-2xl md:text-4xl lg:text-5xl font-bold text-center break-words z-10 text-gray-200",
-  style
+  style,
 }) => {
   const [currentText, setCurrentText] = useState<string>("");
 

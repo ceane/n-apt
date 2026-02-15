@@ -1,6 +1,6 @@
-import React, { useState, useRef, useEffect, useLayoutEffect } from "react"
-import { createPortal } from "react-dom"
-import styled from "styled-components"
+import React, { useState, useRef, useEffect, useLayoutEffect } from "react";
+import { createPortal } from "react-dom";
+import styled from "styled-components";
 import {
   POPOVER_WIDTH,
   POPOVER_PADDING,
@@ -15,13 +15,13 @@ import {
   POPOVER_BORDER,
   POPOVER_TITLE_COLOR,
   POPOVER_TEXT_COLOR,
-} from "@n-apt/consts"
+} from "@n-apt/consts";
 
 const PopoverContainer = styled.div`
   position: relative;
   display: inline-flex;
   align-items: center;
-`
+`;
 
 const InfoIcon = styled.div`
   width: ${INFO_ICON_SIZE}px;
@@ -43,9 +43,12 @@ const InfoIcon = styled.div`
     border-color: ${POPOVER_ICON_HOVER_BACKGROUND};
     color: ${POPOVER_ICON_HOVER_COLOR};
   }
-`
+`;
 
-const PopoverContent = styled.div<{ $visible: boolean; $placement?: 'right' | 'left' | 'top' | 'bottom' }>`
+const PopoverContent = styled.div<{
+  $visible: boolean;
+  $placement?: "right" | "left" | "top" | "bottom";
+}>`
   position: fixed;
   width: ${POPOVER_WIDTH}px;
   padding: ${POPOVER_PADDING}px;
@@ -61,7 +64,9 @@ const PopoverContent = styled.div<{ $visible: boolean; $placement?: 'right' | 'l
   max-height: calc(100vh - 24px);
   overflow-y: auto;
 
-  ${(props) => props.$placement === 'right' && `
+  ${(props) =>
+    props.$placement === "right" &&
+    `
     &::before {
       content: '';
       position: absolute;
@@ -89,7 +94,9 @@ const PopoverContent = styled.div<{ $visible: boolean; $placement?: 'right' | 'l
     }
   `}
 
-  ${(props) => props.$placement === 'left' && `
+  ${(props) =>
+    props.$placement === "left" &&
+    `
     &::before {
       content: '';
       position: absolute;
@@ -117,7 +124,9 @@ const PopoverContent = styled.div<{ $visible: boolean; $placement?: 'right' | 'l
     }
   `}
 
-  ${(props) => props.$placement === 'top' && `
+  ${(props) =>
+    props.$placement === "top" &&
+    `
     &::before {
       content: '';
       position: absolute;
@@ -145,7 +154,9 @@ const PopoverContent = styled.div<{ $visible: boolean; $placement?: 'right' | 'l
     }
   `}
 
-  ${(props) => props.$placement === 'bottom' && `
+  ${(props) =>
+    props.$placement === "bottom" &&
+    `
     &::before {
       content: '';
       position: absolute;
@@ -172,132 +183,132 @@ const PopoverContent = styled.div<{ $visible: boolean; $placement?: 'right' | 'l
       border-bottom: 5px solid ${POPOVER_BACKGROUND};
     }
   `}
-`
+`;
 
 const PopoverTitle = styled.div`
   font-size: 12px;
   font-weight: 600;
   color: ${POPOVER_TITLE_COLOR};
   margin-bottom: 8px;
-`
+`;
 
 const PopoverText = styled.div`
   font-size: 11px;
   color: ${POPOVER_TEXT_COLOR};
   line-height: 1.5;
-`
+`;
 
 interface InfoPopoverProps {
-  title?: string
-  content: string
+  title?: string;
+  content: string;
 }
 
 const InfoPopover = ({ title = "Information", content }: InfoPopoverProps) => {
-  const [isVisible, setIsVisible] = useState(false)
-  const [isClicked, setIsClicked] = useState(false)
-  const [position, setPosition] = useState({ x: 0, y: 0 })
-  const [placement, setPlacement] = useState<'right' | 'left' | 'top' | 'bottom'>('right')
-  const [popoverHeight, setPopoverHeight] = useState(120)
-  const iconRef = useRef<HTMLDivElement>(null)
-  const popoverRef = useRef<HTMLDivElement>(null)
+  const [isVisible, setIsVisible] = useState(false);
+  const [isClicked, setIsClicked] = useState(false);
+  const [position, setPosition] = useState({ x: 0, y: 0 });
+  const [placement, setPlacement] = useState<"right" | "left" | "top" | "bottom">("right");
+  const [popoverHeight, setPopoverHeight] = useState(120);
+  const iconRef = useRef<HTMLDivElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
 
   const calculatePosition = (measuredHeight?: number) => {
-    if (!iconRef.current) return { x: 0, y: 0, placement: 'right' as const }
-    
-    const rect = iconRef.current.getBoundingClientRect()
-    const popoverWidth = POPOVER_WIDTH
-    const currentPopoverHeight = measuredHeight ?? popoverHeight
-    const popoverPadding = 12
-    const viewportWidth = window.innerWidth
-    const viewportHeight = window.innerHeight
-    
+    if (!iconRef.current) return { x: 0, y: 0, placement: "right" as const };
+
+    const rect = iconRef.current.getBoundingClientRect();
+    const popoverWidth = POPOVER_WIDTH;
+    const currentPopoverHeight = measuredHeight ?? popoverHeight;
+    const popoverPadding = 12;
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+
     // Default position (right of icon, vertically aligned with icon center)
-    let x = rect.right + popoverPadding
-    let y = rect.top + rect.height / 2 - currentPopoverHeight / 2
-    let placement: 'right' | 'left' | 'top' | 'bottom' = 'right'
-    
+    let x = rect.right + popoverPadding;
+    let y = rect.top + rect.height / 2 - currentPopoverHeight / 2;
+    let placement: "right" | "left" | "top" | "bottom" = "right";
+
     // Check if tooltip would go off the right edge
     if (x + popoverWidth > viewportWidth) {
       // Position to the left instead
-      x = rect.left - popoverWidth - popoverPadding
-      placement = 'left'
-      
+      x = rect.left - popoverWidth - popoverPadding;
+      placement = "left";
+
       // If it would go off the left edge too, position above
       if (x < 0) {
-        x = rect.left + rect.width / 2 - popoverWidth / 2
-        y = rect.top - currentPopoverHeight - popoverPadding
-        placement = 'top'
-        
+        x = rect.left + rect.width / 2 - popoverWidth / 2;
+        y = rect.top - currentPopoverHeight - popoverPadding;
+        placement = "top";
+
         // If it would go off the top, position below
         if (y < 0) {
-          y = rect.bottom + popoverPadding
-          placement = 'bottom'
+          y = rect.bottom + popoverPadding;
+          placement = "bottom";
         }
       }
     }
-    
+
     // Ensure tooltip stays within viewport bounds vertically
     if (y < 0) {
-      y = popoverPadding // Align with top of viewport
+      y = popoverPadding; // Align with top of viewport
     } else if (y + currentPopoverHeight > viewportHeight) {
-      y = viewportHeight - currentPopoverHeight - popoverPadding // Align with bottom of viewport
+      y = viewportHeight - currentPopoverHeight - popoverPadding; // Align with bottom of viewport
     }
 
-    return { x, y, placement }
-  }
+    return { x, y, placement };
+  };
 
   useLayoutEffect(() => {
-    if (!isVisible) return
-    if (!popoverRef.current) return
+    if (!isVisible) return;
+    if (!popoverRef.current) return;
 
-    const height = popoverRef.current.getBoundingClientRect().height
+    const height = popoverRef.current.getBoundingClientRect().height;
     if (height > 0) {
-      setPopoverHeight(height)
-      const pos = calculatePosition(height)
-      setPosition({ x: pos.x, y: pos.y })
-      setPlacement(pos.placement)
+      setPopoverHeight(height);
+      const pos = calculatePosition(height);
+      setPosition({ x: pos.x, y: pos.y });
+      setPlacement(pos.placement);
     }
-  }, [isVisible, content])
+  }, [isVisible, content]);
 
   const handleMouseEnter = () => {
     if (!isClicked) {
-      const pos = calculatePosition()
-      setPosition({ x: pos.x, y: pos.y })
-      setPlacement(pos.placement)
-      setIsVisible(true)
+      const pos = calculatePosition();
+      setPosition({ x: pos.x, y: pos.y });
+      setPlacement(pos.placement);
+      setIsVisible(true);
     }
-  }
+  };
 
   const handleClick = (e: React.MouseEvent) => {
-    e.stopPropagation()
+    e.stopPropagation();
     if (!isClicked) {
-      const pos = calculatePosition()
-      setPosition({ x: pos.x, y: pos.y })
-      setPlacement(pos.placement)
-      setIsClicked(true)
-      setIsVisible(true)
+      const pos = calculatePosition();
+      setPosition({ x: pos.x, y: pos.y });
+      setPlacement(pos.placement);
+      setIsClicked(true);
+      setIsVisible(true);
     } else {
-      setIsClicked(false)
-      setIsVisible(false)
+      setIsClicked(false);
+      setIsVisible(false);
     }
-  }
+  };
 
   useEffect(() => {
     const handleGlobalClick = (e: MouseEvent) => {
       if (isClicked && iconRef.current && !iconRef.current.contains(e.target as Node)) {
-        setIsClicked(false)
-        setIsVisible(false)
+        setIsClicked(false);
+        setIsVisible(false);
       }
-    }
+    };
 
     if (isClicked) {
-      document.addEventListener('click', handleGlobalClick)
+      document.addEventListener("click", handleGlobalClick);
     }
 
     return () => {
-      document.removeEventListener('click', handleGlobalClick)
-    }
-  }, [isClicked])
+      document.removeEventListener("click", handleGlobalClick);
+    };
+  }, [isClicked]);
 
   return (
     <PopoverContainer
@@ -314,7 +325,7 @@ const InfoPopover = ({ title = "Information", content }: InfoPopoverProps) => {
           style={{
             left: position.x,
             top: position.y,
-            transform: 'none',
+            transform: "none",
           }}
         >
           <PopoverTitle>{title}</PopoverTitle>
@@ -323,7 +334,7 @@ const InfoPopover = ({ title = "Information", content }: InfoPopoverProps) => {
         document.body,
       )}
     </PopoverContainer>
-  )
-}
+  );
+};
 
-export default InfoPopover
+export default InfoPopover;

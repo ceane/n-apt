@@ -1,5 +1,5 @@
-import { configureWebGPUCanvas, parseCssColorToRgba } from "./webgpu"
-import type { OverlayTextureRenderer } from "./OverlayTextureRenderer"
+import { configureWebGPUCanvas, parseCssColorToRgba } from "./webgpu";
+import type { OverlayTextureRenderer } from "./OverlayTextureRenderer";
 
 const spectrumShader = `
 @group(0) @binding(0) var<storage, read> waveform: array<f32>;
@@ -46,43 +46,50 @@ fn fs_line() -> @location(0) vec4<f32> {
 fn fs_fill() -> @location(0) vec4<f32> {
   return uniforms[3];
 }
-`
+`;
 
 export type SpectrumRenderParams = {
-  canvasWidth: number
-  canvasHeight: number
-  dpr: number
-  plotLeft: number
-  plotRight: number
-  plotTop: number
-  plotBottom: number
-  dbMin: number
-  dbMax: number
-  lineColor: string
-  fillColor: string
-  backgroundColor: string
-}
+  canvasWidth: number;
+  canvasHeight: number;
+  dpr: number;
+  plotLeft: number;
+  plotRight: number;
+  plotTop: number;
+  plotBottom: number;
+  dbMin: number;
+  dbMax: number;
+  lineColor: string;
+  fillColor: string;
+  backgroundColor: string;
+};
 
 export class FFTWebGPU {
-  private canvas: HTMLCanvasElement
-  private device: GPUDevice
-  private format: GPUTextureFormat
-  private ctx: GPUCanvasContext
-  private uniformBuffer: GPUBuffer
-  private waveformBuffer: GPUBuffer | null = null
-  private waveformLength = 0
-  private pipelineLine: GPURenderPipeline
-  private pipelineFill: GPURenderPipeline
-  private bindGroup: GPUBindGroup
-  private bindGroupLayout: GPUBindGroupLayout
-  private uniformValues = new Float32Array(16)
+  private canvas: HTMLCanvasElement;
+  private device: GPUDevice;
+  private format: GPUTextureFormat;
+  private ctx: GPUCanvasContext;
+  private uniformBuffer: GPUBuffer;
+  private waveformBuffer: GPUBuffer | null = null;
+  private waveformLength = 0;
+  private pipelineLine: GPURenderPipeline;
+  private pipelineFill: GPURenderPipeline;
+  private bindGroup: GPUBindGroup;
+  private bindGroupLayout: GPUBindGroupLayout;
+  private uniformValues = new Float32Array(16);
 
   constructor(canvas: HTMLCanvasElement, device: GPUDevice, format: GPUTextureFormat) {
-    this.canvas = canvas
-    this.device = device
-    this.format = format
+    this.canvas = canvas;
+    this.device = device;
+    this.format = format;
 
-    this.ctx = configureWebGPUCanvas(canvas, device, format, canvas.clientWidth, canvas.clientHeight, 1)
+    this.ctx = configureWebGPUCanvas(
+      canvas,
+      device,
+      format,
+      canvas.clientWidth,
+      canvas.clientHeight,
+      1,
+    );
 
     this.bindGroupLayout = device.createBindGroupLayout({
       entries: [
@@ -97,14 +104,14 @@ export class FFTWebGPU {
           buffer: { type: "uniform" },
         },
       ],
-    })
+    });
 
     const pipelineLayout = device.createPipelineLayout({
       bindGroupLayouts: [this.bindGroupLayout],
-    })
+    });
 
-    this.device.pushErrorScope("validation")
-    const module = device.createShaderModule({ code: spectrumShader })
+    this.device.pushErrorScope("validation");
+    const module = device.createShaderModule({ code: spectrumShader });
 
     this.pipelineLine = device.createRenderPipeline({
       layout: pipelineLayout,
@@ -117,7 +124,7 @@ export class FFTWebGPU {
       primitive: {
         topology: "line-strip",
       },
-    })
+    });
 
     this.pipelineFill = device.createRenderPipeline({
       layout: pipelineLayout,
@@ -146,17 +153,17 @@ export class FFTWebGPU {
       primitive: {
         topology: "triangle-strip",
       },
-    })
+    });
     this.device.popErrorScope().then((error) => {
       if (error) {
-        console.error("FFTWebGPU pipeline error:", error.message)
+        console.error("FFTWebGPU pipeline error:", error.message);
       }
-    })
+    });
 
     this.uniformBuffer = device.createBuffer({
       size: this.uniformValues.byteLength,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    })
+    });
 
     this.bindGroup = device.createBindGroup({
       layout: this.bindGroupLayout,
@@ -170,72 +177,72 @@ export class FFTWebGPU {
           resource: { buffer: this.uniformBuffer },
         },
       ],
-    })
+    });
   }
 
   resize(width: number, height: number, dpr: number): void {
-    this.ctx = configureWebGPUCanvas(this.canvas, this.device, this.format, width, height, dpr)
+    this.ctx = configureWebGPUCanvas(this.canvas, this.device, this.format, width, height, dpr);
   }
 
   updateWaveform(data: Float32Array): void {
-    if (data.length === 0) return
+    if (data.length === 0) return;
 
     if (!this.waveformBuffer || data.length !== this.waveformLength) {
-      this.waveformBuffer = this.createWaveformBuffer(data.length)
-      this.waveformLength = data.length
+      this.waveformBuffer = this.createWaveformBuffer(data.length);
+      this.waveformLength = data.length;
       this.bindGroup = this.device.createBindGroup({
         layout: this.bindGroupLayout,
         entries: [
           { binding: 0, resource: { buffer: this.waveformBuffer } },
           { binding: 1, resource: { buffer: this.uniformBuffer } },
         ],
-      })
+      });
     }
 
-    this.device.queue.writeBuffer(this.waveformBuffer, 0, data)
+    this.device.queue.writeBuffer(this.waveformBuffer, 0, data.buffer);
   }
 
   render(
     params: SpectrumRenderParams,
     overlays?: {
-      pre?: OverlayTextureRenderer | null
-      post?: OverlayTextureRenderer | null
+      pre?: OverlayTextureRenderer | null;
+      post?: OverlayTextureRenderer | null;
     },
   ): void {
-    if (!this.waveformBuffer || this.waveformLength < 2) return
+    if (!this.waveformBuffer || this.waveformLength < 2) return;
 
-    const plotMinX = (params.plotLeft / params.canvasWidth) * 2 - 1
-    const plotMaxX = (params.plotRight / params.canvasWidth) * 2 - 1
-    const yToNdc = (y: number) => 1 - (y / params.canvasHeight) * 2
-    const plotMaxY = yToNdc(params.plotTop)
-    const plotMinY = yToNdc(params.plotBottom)
+    const plotMinX = (params.plotLeft / params.canvasWidth) * 2 - 1;
+    const plotMaxX = (params.plotRight / params.canvasWidth) * 2 - 1;
+    const yToNdc = (y: number) => 1 - (y / params.canvasHeight) * 2;
+    const plotMaxY = yToNdc(params.plotTop);
+    const plotMinY = yToNdc(params.plotBottom);
 
-    const [lineR, lineG, lineB, lineA] = parseCssColorToRgba(params.lineColor)
-    const [fillR, fillG, fillB, fillA] = parseCssColorToRgba(params.fillColor)
+    const [lineR, lineG, lineB, lineA] = parseCssColorToRgba(params.lineColor);
+    const [fillR, fillG, fillB, fillA] = parseCssColorToRgba(params.fillColor);
 
-    this.uniformValues[0] = plotMinX
-    this.uniformValues[1] = plotMinY
-    this.uniformValues[2] = plotMaxX
-    this.uniformValues[3] = plotMaxY
-    this.uniformValues[4] = params.dbMin
-    this.uniformValues[5] = params.dbMax
-    this.uniformValues[6] = this.waveformLength
-    this.uniformValues[7] = 0
-    this.uniformValues[8] = lineR
-    this.uniformValues[9] = lineG
-    this.uniformValues[10] = lineB
-    this.uniformValues[11] = lineA
-    this.uniformValues[12] = fillR
-    this.uniformValues[13] = fillG
-    this.uniformValues[14] = fillB
-    this.uniformValues[15] = fillA
+    this.uniformValues[0] = plotMinX;
+    this.uniformValues[1] = plotMinY;
+    this.uniformValues[2] = plotMaxX;
+    this.uniformValues[3] = plotMaxY;
+    this.uniformValues[4] = params.dbMin;
+    this.uniformValues[5] = params.dbMax;
+    this.uniformValues[6] = this.waveformLength;
+    this.uniformValues[7] = 0;
+    this.uniformValues[8] = lineR;
+    this.uniformValues[9] = lineG;
+    this.uniformValues[10] = lineB;
+    this.uniformValues[11] = lineA;
+    this.uniformValues[12] = fillR;
+    this.uniformValues[13] = fillG;
+    this.uniformValues[14] = fillB;
+    this.uniformValues[15] = fillA;
 
-    this.device.queue.writeBuffer(this.uniformBuffer, 0, this.uniformValues)
+    this.device.queue.writeBuffer(this.uniformBuffer, 0, this.uniformValues);
 
-    const encoder = this.device.createCommandEncoder()
-    const view = this.ctx.getCurrentTexture().createView()
+    const encoder = this.device.createCommandEncoder();
+    const view = this.ctx.getCurrentTexture().createView();
 
-    const [bgR, bgG, bgB, bgA] = parseCssColorToRgba(params.backgroundColor)
+    const [bgR, bgG, bgB, bgA] = parseCssColorToRgba(params.backgroundColor);
 
     const pass = encoder.beginRenderPass({
       colorAttachments: [
@@ -246,34 +253,34 @@ export class FFTWebGPU {
           storeOp: "store",
         },
       ],
-    })
+    });
 
     // Draw underlay first (e.g. grid)
     if (overlays?.pre) {
-      overlays.pre.renderInPass(pass)
+      overlays.pre.renderInPass(pass);
     }
 
-    pass.setBindGroup(0, this.bindGroup)
+    pass.setBindGroup(0, this.bindGroup);
 
-    pass.setPipeline(this.pipelineFill)
-    pass.draw(this.waveformLength * 2)
+    pass.setPipeline(this.pipelineFill);
+    pass.draw(this.waveformLength * 2);
 
-    pass.setPipeline(this.pipelineLine)
-    pass.draw(this.waveformLength)
+    pass.setPipeline(this.pipelineLine);
+    pass.draw(this.waveformLength);
 
     // Draw overlay last (e.g. markers/labels)
     if (overlays?.post) {
-      overlays.post.renderInPass(pass)
+      overlays.post.renderInPass(pass);
     }
 
-    pass.end()
-    this.device.queue.submit([encoder.finish()])
+    pass.end();
+    this.device.queue.submit([encoder.finish()]);
   }
 
   private createWaveformBuffer(length: number): GPUBuffer {
     return this.device.createBuffer({
       size: length * Float32Array.BYTES_PER_ELEMENT,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-    })
+    });
   }
 }

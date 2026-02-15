@@ -5,16 +5,19 @@ This implementation provides WebAssembly SIMD-accelerated FFT processing and ren
 ## 🚀 Performance Improvements
 
 ### FFT Computation SIMD
+
 - **Complex operations**: 2-4x speedup (vectorized rotations)
 - **Power spectrum**: 2-3x speedup (vectorized magnitude + log)
 - **Overall FFT**: 30-50% improvement
 
 ### Rendering SIMD
+
 - **Spectrum resampling**: 3-4x speedup (vectorized max reductions)
 - **Buffer operations**: 4-8x speedup (16-byte vs 1-byte copying)
 - **Color mapping**: 2-3x speedup (vectorized calculations)
 
 ### Combined System
+
 - **Total performance improvement**: 60-80%
 - **Frame rate**: Maintain 30+ FPS with larger FFT sizes
 - **CPU usage**: Reduce main thread blocking by 50%+
@@ -45,6 +48,7 @@ Raw IQ Data → SIMD FFT Processor → Power Spectrum → SIMD Rendering → Can
 ## 🛠️ Installation & Setup
 
 ### Prerequisites
+
 - Rust 1.70+ with WebAssembly target
 - `wasm-pack` for WASM compilation
 - Modern browser with WASM SIMD support
@@ -68,6 +72,7 @@ cargo test
 ### Browser Compatibility
 
 WASM SIMD supported in:
+
 - ✅ Chrome 91+
 - ✅ Firefox 89+
 - ✅ Safari 15+
@@ -78,7 +83,7 @@ WASM SIMD supported in:
 ### TypeScript Integration
 
 ```typescript
-import { SIMDRenderingProcessor } from './pkg/wasm_simd';
+import { SIMDRenderingProcessor } from "./pkg/wasm_simd";
 
 // Initialize SIMD processor
 const processor = new SIMDRenderingProcessor();
@@ -167,13 +172,13 @@ cargo test --release -- --nocapture
 
 ## 📊 Performance Metrics
 
-| Operation | Scalar (ms) | SIMD (ms) | Speedup |
-|-----------|-------------|-----------|---------|
-| FFT (1024) | 8.2 | 5.7 | 1.44x |
-| Resampling | 3.1 | 0.9 | 3.44x |
-| Buffer Shift | 12.4 | 2.1 | 5.90x |
-| Color Mapping | 2.8 | 1.1 | 2.55x |
-| **Total** | **26.5** | **9.8** | **2.71x** |
+| Operation     | Scalar (ms) | SIMD (ms) | Speedup   |
+| ------------- | ----------- | --------- | --------- |
+| FFT (1024)    | 8.2         | 5.7       | 1.44x     |
+| Resampling    | 3.1         | 0.9       | 3.44x     |
+| Buffer Shift  | 12.4        | 2.1       | 5.90x     |
+| Color Mapping | 2.8         | 1.1       | 2.55x     |
+| **Total**     | **26.5**    | **9.8**   | **2.71x** |
 
 ## 🔍 Debugging
 
@@ -187,15 +192,15 @@ cargo test --release -- --nocapture
 
 ```typescript
 // Check SIMD availability
-const supportsSimd = WebAssembly.validate(new Uint8Array([
-  0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
-  0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7f, 0x01,
-  0x03, 0x02, 0x01, 0x00, 0x07, 0x0a, 0x01, 0x06,
-  0x6d, 0x65, 0x6d, 0x6f, 0x72, 0x79, 0x02, 0x00,
-  0x01, 0x00, 0x0a, 0x03, 0x02, 0x01, 0x00, 0x0b
-]));
+const supportsSimd = WebAssembly.validate(
+  new Uint8Array([
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7f, 0x01,
+    0x03, 0x02, 0x01, 0x00, 0x07, 0x0a, 0x01, 0x06, 0x6d, 0x65, 0x6d, 0x6f, 0x72, 0x79, 0x02, 0x00,
+    0x01, 0x00, 0x0a, 0x03, 0x02, 0x01, 0x00, 0x0b,
+  ]),
+);
 
-console.log('WASM SIMD supported:', supportsSimd);
+console.log("WASM SIMD supported:", supportsSimd);
 ```
 
 ## 🤝 Contributing

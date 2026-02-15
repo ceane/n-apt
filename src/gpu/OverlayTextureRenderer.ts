@@ -30,30 +30,30 @@ fn vs(@builtin(vertex_index) vi: u32) -> VertexOut {
 fn fs(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
   return textureSample(overlayTex, overlaySampler, uv);
 }
-`
+`;
 
 export class OverlayTextureRenderer {
-  private device: GPUDevice
-  private pipeline: GPURenderPipeline
-  private sampler: GPUSampler
-  private bindGroupLayout: GPUBindGroupLayout
-  private texture: GPUTexture | null = null
-  private bindGroup: GPUBindGroup | null = null
-  private offscreen: OffscreenCanvas
-  private offscreenCtx: OffscreenCanvasRenderingContext2D
-  private texWidth = 0
-  private texHeight = 0
+  private device: GPUDevice;
+  private pipeline: GPURenderPipeline;
+  private sampler: GPUSampler;
+  private bindGroupLayout: GPUBindGroupLayout;
+  private texture: GPUTexture | null = null;
+  private bindGroup: GPUBindGroup | null = null;
+  private offscreen: OffscreenCanvas;
+  private offscreenCtx: OffscreenCanvasRenderingContext2D;
+  private texWidth = 0;
+  private texHeight = 0;
 
   constructor(device: GPUDevice, format: GPUTextureFormat) {
-    this.device = device
+    this.device = device;
 
-    this.offscreen = new OffscreenCanvas(1, 1)
-    this.offscreenCtx = this.offscreen.getContext("2d")!
+    this.offscreen = new OffscreenCanvas(1, 1);
+    this.offscreenCtx = this.offscreen.getContext("2d")!;
 
     this.sampler = device.createSampler({
       magFilter: "linear",
       minFilter: "linear",
-    })
+    });
 
     this.bindGroupLayout = device.createBindGroupLayout({
       entries: [
@@ -68,9 +68,9 @@ export class OverlayTextureRenderer {
           sampler: { type: "filtering" },
         },
       ],
-    })
+    });
 
-    const module = device.createShaderModule({ code: overlayShader })
+    const module = device.createShaderModule({ code: overlayShader });
 
     this.pipeline = device.createRenderPipeline({
       layout: device.createPipelineLayout({
@@ -99,7 +99,7 @@ export class OverlayTextureRenderer {
         ],
       },
       primitive: { topology: "triangle-strip" },
-    })
+    });
   }
 
   /**
@@ -110,20 +110,20 @@ export class OverlayTextureRenderer {
    *   3. Call `endDraw()` to upload the texture
    */
   beginDraw(width: number, height: number, dpr: number): OffscreenCanvasRenderingContext2D {
-    const pw = Math.max(1, Math.round(width * dpr))
-    const ph = Math.max(1, Math.round(height * dpr))
+    const pw = Math.max(1, Math.round(width * dpr));
+    const ph = Math.max(1, Math.round(height * dpr));
 
     if (this.offscreen.width !== pw || this.offscreen.height !== ph) {
-      this.offscreen.width = pw
-      this.offscreen.height = ph
+      this.offscreen.width = pw;
+      this.offscreen.height = ph;
       // Re-acquire context after resize (resizing can reset the context state)
-      this.offscreenCtx = this.offscreen.getContext("2d")!
+      this.offscreenCtx = this.offscreen.getContext("2d")!;
     }
 
-    this.offscreenCtx.clearRect(0, 0, pw, ph)
-    this.offscreenCtx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    this.offscreenCtx.clearRect(0, 0, pw, ph);
+    this.offscreenCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-    return this.offscreenCtx
+    return this.offscreenCtx;
   }
 
   /**
@@ -131,15 +131,11 @@ export class OverlayTextureRenderer {
    * Must be called after drawing to the context returned by beginDraw().
    */
   endDraw(): void {
-    const pw = this.offscreen.width
-    const ph = this.offscreen.height
+    const pw = this.offscreen.width;
+    const ph = this.offscreen.height;
 
-    if (
-      !this.texture ||
-      this.texWidth !== pw ||
-      this.texHeight !== ph
-    ) {
-      if (this.texture) this.texture.destroy()
+    if (!this.texture || this.texWidth !== pw || this.texHeight !== ph) {
+      if (this.texture) this.texture.destroy();
       this.texture = this.device.createTexture({
         size: [pw, ph],
         format: "rgba8unorm",
@@ -147,9 +143,9 @@ export class OverlayTextureRenderer {
           GPUTextureUsage.TEXTURE_BINDING |
           GPUTextureUsage.COPY_DST |
           GPUTextureUsage.RENDER_ATTACHMENT,
-      })
-      this.texWidth = pw
-      this.texHeight = ph
+      });
+      this.texWidth = pw;
+      this.texHeight = ph;
 
       this.bindGroup = this.device.createBindGroup({
         layout: this.bindGroupLayout,
@@ -157,7 +153,7 @@ export class OverlayTextureRenderer {
           { binding: 0, resource: this.texture.createView() },
           { binding: 1, resource: this.sampler },
         ],
-      })
+      });
     }
 
     // Upload offscreen canvas pixels to the GPU texture
@@ -165,7 +161,7 @@ export class OverlayTextureRenderer {
       { source: this.offscreen },
       { texture: this.texture },
       [pw, ph],
-    )
+    );
   }
 
   /**
@@ -174,16 +170,16 @@ export class OverlayTextureRenderer {
    * so the overlay composites on top.
    */
   renderInPass(pass: GPURenderPassEncoder): void {
-    if (!this.bindGroup) return
-    pass.setPipeline(this.pipeline)
-    pass.setBindGroup(0, this.bindGroup)
-    pass.draw(4)
+    if (!this.bindGroup) return;
+    pass.setPipeline(this.pipeline);
+    pass.setBindGroup(0, this.bindGroup);
+    pass.draw(4);
   }
 
   destroy(): void {
     if (this.texture) {
-      this.texture.destroy()
-      this.texture = null
+      this.texture.destroy();
+      this.texture = null;
     }
   }
 }

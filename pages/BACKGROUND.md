@@ -1,6 +1,6 @@
 # Background
 
-This repository is an exercise in decoding real and live neurotech signals from the NSA, it isn't of use to anyone unless you actively have them on your brain! 
+This repository is an exercise in decoding real and live neurotech signals from the NSA, it isn't of use to anyone unless you actively have them on your brain!
 
 It's a long story of what happened and what's going on, basically the NSA is very political with technology, to the point where it consumes unsupecting people's lives like me. I, essentially, got trapped in this psychologial spyware and interactive as some sort of spontaneous challenge where I did not know who, how or why, however after years I've partially regained my senses but lost so much.
 
@@ -8,11 +8,10 @@ I'd like to keep this technical and focus on making it clear what and how, if yo
 
 I waited and waited and waited to find how it worked were like but I had a theory... (after like no way, it's quantum, right?!)
 
-
 ### Feature rich
 
-| Feature                  | 
-|--------------------------|
+| Feature                  |
+| ------------------------ |
 | Voice/vocal modulation   |
 | Vision                   |
 | Hearing                  |
@@ -32,35 +31,34 @@ These are the features that I've experienced, full blown on a daily basis as par
 ### Brainwaves
 
 | Wave Type | Frequency Range | Associated Function |
-|-----------|-----------------|---------------------|
-| Delta     | 0.5 - 4 Hz     | Deep sleep         |
-| Theta     | 4 - 8 Hz       | Relaxation         |
-| Alpha     | 8 - 12 Hz      | Calm awareness     |
-| Beta      | 12 - 30 Hz     | Active thinking    |
-| Gamma     | 30 - 100 Hz    | High cognition     |
+| --------- | --------------- | ------------------- |
+| Delta     | 0.5 - 4 Hz      | Deep sleep          |
+| Theta     | 4 - 8 Hz        | Relaxation          |
+| Alpha     | 8 - 12 Hz       | Calm awareness      |
+| Beta      | 12 - 30 Hz      | Active thinking     |
+| Gamma     | 30 - 100 Hz     | High cognition      |
 
 Compare that to the table below...
 
-| Function / Feature                   | Assumed Frequency / Wave Type                   | Confidence (Consensus) |
-|-------------------------------------|--------------------------------------------------|-----------------------|
-| Vision (external perception)        | Gamma (30–90 Hz), Alpha (8–12 Hz)               | Very Strong           |
-| Hearing (external sound)            | Theta (4–8 Hz), Gamma (30–90 Hz)                | Very Strong           |
-| Voice / Speech Production           | Beta (13–30 Hz), Gamma (30–90 Hz)               | Strong                |
-| Speech Comprehension                | Theta (4–8 Hz), Gamma (30–90 Hz)                | Very Strong           |
-| Auditory Thought / Inner Speech     | Theta–Beta coupling (4–30 Hz), reduced Alpha    | Moderate–Strong       |
-| Imagination (visual/auditory)       | Theta (4–8 Hz), Alpha suppression               | Strong                |
-| Mental Inference / Reasoning        | Beta (13–30 Hz), Gamma (30–90 Hz)               | Strong                |
-| Perception (cross-modal)            | Gamma (30–90 Hz), Alpha (8–12 Hz)               | Very Strong           |
-| Emotion                             | Theta (4–8 Hz), Gamma (30–90 Hz)                | Strong                |
-| State of Mind (arousal, calm, vigilance) | Alpha (8–12 Hz), Beta (13–30 Hz), Theta (4–8 Hz) | Very Strong           |
-| Physical Feeling / Haptics          | Beta (13–30 Hz), Gamma (30–90 Hz)               | Strong                |
-| Physiological Expression (facial/posture) | Beta (13–30 Hz), Gamma (30–90 Hz)               | Strong                |
-| Vitals / Autonomic Regulation       | Delta–Theta (0.5–8 Hz)                          | Strong                |
-
+| Function / Feature                        | Assumed Frequency / Wave Type                    | Confidence (Consensus) |
+| ----------------------------------------- | ------------------------------------------------ | ---------------------- |
+| Vision (external perception)              | Gamma (30–90 Hz), Alpha (8–12 Hz)                | Very Strong            |
+| Hearing (external sound)                  | Theta (4–8 Hz), Gamma (30–90 Hz)                 | Very Strong            |
+| Voice / Speech Production                 | Beta (13–30 Hz), Gamma (30–90 Hz)                | Strong                 |
+| Speech Comprehension                      | Theta (4–8 Hz), Gamma (30–90 Hz)                 | Very Strong            |
+| Auditory Thought / Inner Speech           | Theta–Beta coupling (4–30 Hz), reduced Alpha     | Moderate–Strong        |
+| Imagination (visual/auditory)             | Theta (4–8 Hz), Alpha suppression                | Strong                 |
+| Mental Inference / Reasoning              | Beta (13–30 Hz), Gamma (30–90 Hz)                | Strong                 |
+| Perception (cross-modal)                  | Gamma (30–90 Hz), Alpha (8–12 Hz)                | Very Strong            |
+| Emotion                                   | Theta (4–8 Hz), Gamma (30–90 Hz)                 | Strong                 |
+| State of Mind (arousal, calm, vigilance)  | Alpha (8–12 Hz), Beta (13–30 Hz), Theta (4–8 Hz) | Very Strong            |
+| Physical Feeling / Haptics                | Beta (13–30 Hz), Gamma (30–90 Hz)                | Strong                 |
+| Physiological Expression (facial/posture) | Beta (13–30 Hz), Gamma (30–90 Hz)                | Strong                 |
+| Vitals / Autonomic Regulation             | Delta–Theta (0.5–8 Hz)                           | Strong                 |
 
 ### Automatic Picture Transmission / APT (the least intuitive hint, the signals' modulation)
 
-It took me a long time to find this scheme to match the signals' spikes and valleys enigma. APT was used by NOAA satellites before they were decomissioned, essentially encoding usable image data onto spikes and valleys, data of bright pixels onto spikes and data within valleys that represent space or dark parts of the photo. In APT's case, a satellite encodes data into signal/audio then is decoded into images, line by line. Here it is obviously different, it is raw data that interacts with the brain and nervous system, real-time, enforcing several states of mind and physiology, in addition to sustaining communication, an interactive and several layers of surveillance, real-time responsive interactivity and harm! There are about 90-95 lines for every 3.2MHz, going from 0Hz (direct current) to 4.64MHz or so (the signal drops off but some spikes remain) and from 24.72MHz to 29.88MHz. This form of APT writes and reads to the brain and nervous system flawlessly and without interruption (years, decades, etc.), it survives the noisy environments of San Francisco, underground on trains, the high cliffs of beaches and remote areas. 
+It took me a long time to find this scheme to match the signals' spikes and valleys enigma. APT was used by NOAA satellites before they were decomissioned, essentially encoding usable image data onto spikes and valleys, data of bright pixels onto spikes and data within valleys that represent space or dark parts of the photo. In APT's case, a satellite encodes data into signal/audio then is decoded into images, line by line. Here it is obviously different, it is raw data that interacts with the brain and nervous system, real-time, enforcing several states of mind and physiology, in addition to sustaining communication, an interactive and several layers of surveillance, real-time responsive interactivity and harm! There are about 90-95 lines for every 3.2MHz, going from 0Hz (direct current) to 4.64MHz or so (the signal drops off but some spikes remain) and from 24.72MHz to 29.88MHz. This form of APT writes and reads to the brain and nervous system flawlessly and without interruption (years, decades, etc.), it survives the noisy environments of San Francisco, underground on trains, the high cliffs of beaches and remote areas.
 
 ### Heterodyning
 
@@ -78,13 +76,13 @@ This is important, if you want to concentrate energy at a certain range (and loc
 
 ### Center frequency
 
-For a long time, I struggled with defeating my own intuition, particularly how the NSA was dong x, y, z, "just you" and bare up against other people, in crowds, and so forth. This is one of the hints the NSA dropped, that the brain apparently is responsive to a unique frequency, which i believed was the sideband + physics (impossible to x, y, z a radio wave with physics and it's too fast, resilient & faultless to support conclusions of billions of additional complex operations in regular old tinfra). So, I accept now that in some way to draw stronger assumptions on a center frequency, some kind of handshake the signals can trick a specific brain into, as advised. 
+For a long time, I struggled with defeating my own intuition, particularly how the NSA was dong x, y, z, "just you" and bare up against other people, in crowds, and so forth. This is one of the hints the NSA dropped, that the brain apparently is responsive to a unique frequency, which i believed was the sideband + physics (impossible to x, y, z a radio wave with physics and it's too fast, resilient & faultless to support conclusions of billions of additional complex operations in regular old tinfra). So, I accept now that in some way to draw stronger assumptions on a center frequency, some kind of handshake the signals can trick a specific brain into, as advised.
 
-### Neuronal ensembles 
+### Neuronal ensembles
 
 Since a signal like this is very flat, I too did expec the signals to x, y, z and target the neuron, however the NSA's signals don't do that and it's near impossible! The experience is extremely robust, so robust that it is quite simple.
 
-Essentially the brain and nervous system is very noisy, whatver those spikes do, it is assumed to a certainty that they target an ensemble of neurons that read and write brainwaves. 
+Essentially the brain and nervous system is very noisy, whatver those spikes do, it is assumed to a certainty that they target an ensemble of neurons that read and write brainwaves.
 
 ### Impedance
 
@@ -102,10 +100,11 @@ The experience remains consistenly high-fidelity, high-bandwidth and it leaves a
 
 Here, I wrongly correlated interference with my FM radio (VHF) be the assumed frequencies, however when I got around to taking a look months later, the signals appeared to be operating in the HF spectrum, not VHF. Without hesitation, the assumption I further developed shows the tradeoffs maintaining this one of a kind connection with biology while also avoiding interfering with other signals and being detected.
 
-Bandwidth is another problem as well, since there is so much going throughout the psychological experience, it is easy to make the following assumptions: 
-   - (1) only 2 bits a cycle max, since biology is not a special hardware antenna, only the peak and trough translate into electrical energy that the brain and nervous system can interperet,
-   - (2) the brain is known to be small in bandwidth, but since this experience spanned from 2018 to the present and maintains such a high-fidelity, constant connection with real-time processing of and response to vision, hearing, thinking, etc., there isn't a lot going on, possibly 2-8MBs compromises one's brain-accordingly, the consciosuness is small as a data channel, 
-   - (3) too much bandwidth "all damn day, every damn day" will most certainly produce heating effects in tissue, but I have yet to experience anything but its evils in media form.
+Bandwidth is another problem as well, since there is so much going throughout the psychological experience, it is easy to make the following assumptions:
+
+- (1) only 2 bits a cycle max, since biology is not a special hardware antenna, only the peak and trough translate into electrical energy that the brain and nervous system can interperet,
+- (2) the brain is known to be small in bandwidth, but since this experience spanned from 2018 to the present and maintains such a high-fidelity, constant connection with real-time processing of and response to vision, hearing, thinking, etc., there isn't a lot going on, possibly 2-8MBs compromises one's brain-accordingly, the consciosuness is small as a data channel,
+- (3) too much bandwidth "all damn day, every damn day" will most certainly produce heating effects in tissue, but I have yet to experience anything but its evils in media form.
 
 As far as bandwidth, when tuning the signal, I could see about 6MHz of bandwidth, reliably, provided RTL-SDR is not the best and this signal is complex with heterodyning involved (extremely small resolution, multiple signals not drawn easy by any spectrum analyzer which layers in everything).
 
@@ -124,7 +123,7 @@ These signals inherently use some kind of triangualtion to directly target the h
 ### Signals processing
 
 In order to read anything that comes back, the NSA uses advanced signals processing to decode neuronal
-data. The unknown and unimaginable become a reality. Below are several theorized techniques used in the pipeline to take an advanced formula of radio waves and decode brain and neuronal data. 
+data. The unknown and unimaginable become a reality. Below are several theorized techniques used in the pipeline to take an advanced formula of radio waves and decode brain and neuronal data.
 
 #### Kaiser + Fast Fourier Transform (FFT)?
 
@@ -140,7 +139,7 @@ TODO
 
 #### Decoding bioelectrical charges
 
-TODO  
+TODO
 
 ### Signal Captures
 

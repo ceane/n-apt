@@ -88,14 +88,10 @@ const DrawMockNAPT = () => {
   const [spikeWidth, setSpikeWidth] = useState(DEFAULT_SPIKE_WIDTH);
 
   // Center spike
-  const [centerSpikeBoost, setCenterSpikeBoost] = useState(
-    DEFAULT_CENTER_SPIKE_BOOST,
-  );
+  const [centerSpikeBoost, setCenterSpikeBoost] = useState(DEFAULT_CENTER_SPIKE_BOOST);
   const [floorAmplitude, setFloorAmplitude] = useState(DEFAULT_FLOOR_AMPLITUDE);
   const [decayRate, setDecayRate] = useState(DEFAULT_DECAY_RATE);
-  const [baselineModulation, setBaselineModulation] = useState(
-    DEFAULT_BASELINE_MODULATION,
-  );
+  const [baselineModulation, setBaselineModulation] = useState(DEFAULT_BASELINE_MODULATION);
 
   const [envelopeWidth, setEnvelopeWidth] = useState(DEFAULT_ENVELOPE_WIDTH);
 
@@ -142,7 +138,7 @@ const DrawMockNAPT = () => {
 
       // Sine wave tooth
       const local = dx / halfWidth;
-      const tooth = Math.sin(Math.PI * (local + 1) / 2);
+      const tooth = Math.sin((Math.PI * (local + 1)) / 2);
 
       let height;
 
@@ -171,7 +167,7 @@ const DrawMockNAPT = () => {
   const generateData = () => {
     const points = [];
     const steps = 5000; // More points like the working version
-    
+
     for (let i = 0; i <= steps; i++) {
       const t = -1 + (2 * i) / steps;
       const freq = ((t + 1) / 2) * 3; // 0 to 3 MHz like working version
@@ -191,7 +187,7 @@ const DrawMockNAPT = () => {
         x: parseFloat(x.toFixed(6)),
       });
     }
-    
+
     return points;
   };
 

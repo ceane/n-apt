@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from "react"
-import styled from "styled-components"
+import React, { useState, useEffect, useRef } from "react";
+import styled from "styled-components";
 
 const Container = styled.div`
   display: flex;
@@ -12,24 +12,20 @@ const Container = styled.div`
   font-size: 12px;
   color: #999;
   min-height: 40px;
-`
+`;
 
 const Label = styled.span`
   color: #666;
   font-size: 11px;
   font-weight: 500;
   white-space: nowrap;
-`
+`;
 
 const CaptureButton = styled.button<{ $active: boolean; $variant: "target" | "noise" }>`
   padding: 5px 14px;
   border-radius: 4px;
   border: 1px solid ${(props) =>
-    props.$active
-      ? props.$variant === "target"
-        ? "#00cc66"
-        : "#ff6644"
-      : "#333"};
+    props.$active ? (props.$variant === "target" ? "#00cc66" : "#ff6644") : "#333"};
   background: ${(props) =>
     props.$active
       ? props.$variant === "target"
@@ -37,11 +33,7 @@ const CaptureButton = styled.button<{ $active: boolean; $variant: "target" | "no
         : "rgba(255, 102, 68, 0.15)"
       : "transparent"};
   color: ${(props) =>
-    props.$active
-      ? props.$variant === "target"
-        ? "#00cc66"
-        : "#ff6644"
-      : "#888"};
+    props.$active ? (props.$variant === "target" ? "#00cc66" : "#ff6644") : "#888"};
   font-family: "JetBrains Mono", monospace;
   font-size: 11px;
   font-weight: 600;
@@ -50,10 +42,8 @@ const CaptureButton = styled.button<{ $active: boolean; $variant: "target" | "no
   white-space: nowrap;
 
   &:hover:not(:disabled) {
-    border-color: ${(props) =>
-      props.$variant === "target" ? "#00cc66" : "#ff6644"};
-    color: ${(props) =>
-      props.$variant === "target" ? "#00cc66" : "#ff6644"};
+    border-color: ${(props) => (props.$variant === "target" ? "#00cc66" : "#ff6644")};
+    color: ${(props) => (props.$variant === "target" ? "#00cc66" : "#ff6644")};
   }
 
   &:disabled {
@@ -70,7 +60,7 @@ const CaptureButton = styled.button<{ $active: boolean; $variant: "target" | "no
       to   { box-shadow: 0 0 8px ${props.$variant === "target" ? "rgba(0, 204, 102, 0.6)" : "rgba(255, 102, 68, 0.6)"}; }
     }
   `}
-`
+`;
 
 const StatusBadge = styled.span<{ $capturing: boolean }>`
   display: inline-flex;
@@ -84,7 +74,7 @@ const StatusBadge = styled.span<{ $capturing: boolean }>`
   font-size: 10px;
   font-weight: 500;
   white-space: nowrap;
-`
+`;
 
 const Dot = styled.span<{ $color: string }>`
   width: 6px;
@@ -99,23 +89,23 @@ const Dot = styled.span<{ $color: string }>`
     from { opacity: 0.4; }
     to   { opacity: 1; }
   }
-`
+`;
 
 const SamplesCount = styled.span`
   color: #555;
   font-size: 10px;
   margin-left: auto;
   white-space: nowrap;
-`
+`;
 
 interface ClassificationControlsProps {
-  isDeviceConnected: boolean
-  activeSignalArea: string
-  isCapturing: boolean
-  captureLabel: "target" | "noise" | null
-  capturedSamples: number
-  onCaptureStart: (label: "target" | "noise") => void
-  onCaptureStop: () => void
+  isDeviceConnected: boolean;
+  activeSignalArea: string;
+  isCapturing: boolean;
+  captureLabel: "target" | "noise" | null;
+  capturedSamples: number;
+  onCaptureStart: (label: "target" | "noise") => void;
+  onCaptureStop: () => void;
 }
 
 const ClassificationControls: React.FC<ClassificationControlsProps> = ({
@@ -127,49 +117,39 @@ const ClassificationControls: React.FC<ClassificationControlsProps> = ({
   onCaptureStart,
   onCaptureStop,
 }) => {
-  const [elapsedMs, setElapsedMs] = useState(0)
-  const startTimeRef = useRef<number | null>(null)
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const [elapsedMs, setElapsedMs] = useState(0);
+  const timerRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (isCapturing) {
-      startTimeRef.current = Date.now()
-      timerRef.current = setInterval(() => {
-        if (startTimeRef.current) {
-          setElapsedMs(Date.now() - startTimeRef.current)
-        }
-      }, 100)
-    } else {
-      if (timerRef.current) {
-        clearInterval(timerRef.current)
-        timerRef.current = null
-      }
-      startTimeRef.current = null
-      setElapsedMs(0)
-    }
+      const startTime = Date.now();
+      timerRef.current = window.setInterval(() => setElapsedMs(Date.now() - startTime), 100);
 
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current)
+      return () => {
+        if (timerRef.current) window.clearInterval(timerRef.current);
+      };
+    } else {
+      setElapsedMs(0);
     }
-  }, [isCapturing])
+  }, [isCapturing]);
 
   const handleToggle = (label: "target" | "noise") => {
     if (isCapturing && captureLabel === label) {
-      onCaptureStop()
+      onCaptureStop();
     } else if (isCapturing) {
       // Switch label: stop current, start new
-      onCaptureStop()
-      setTimeout(() => onCaptureStart(label), 50)
+      onCaptureStop();
+      setTimeout(() => onCaptureStart(label), 50);
     } else {
-      onCaptureStart(label)
+      onCaptureStart(label);
     }
-  }
+  };
 
   const formatElapsed = (ms: number) => {
-    const s = Math.floor(ms / 1000)
-    const tenths = Math.floor((ms % 1000) / 100)
-    return `${s}.${tenths}s`
-  }
+    const s = Math.trunc(ms / 1000);
+    const tenths = Math.trunc((ms % 1000) / 100);
+    return `${s}.${tenths}s`;
+  };
 
   return (
     <Container>
@@ -204,7 +184,7 @@ const ClassificationControls: React.FC<ClassificationControlsProps> = ({
 
       <SamplesCount>{capturedSamples} samples</SamplesCount>
     </Container>
-  )
-}
+  );
+};
 
-export default ClassificationControls
+export default ClassificationControls;
