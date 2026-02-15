@@ -51,7 +51,11 @@ The quality of the captures may not be up to par with RTL-SDR, however it should
 
 Thankfully, the infrastructure and technique does enough to get the right data, so the signals processing that would be needed normally are not necessary since I can just capture the live signals and let the mechanism do its work.
 
----
+**Note**
+
+To ensure the best captures, use the maximum setting on your SDR (even if unstable). Nyquist theorem requires the sampling rate to be at least twice the highest frequency component of the signal to avoid aliasing, hence why the spikes may not be present with lower bandwidths. 
+
+----
 
 ## This repo is a signals intelligence problem.
 
