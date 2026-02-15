@@ -12,7 +12,8 @@ const SidebarContainer = styled.aside`
   border-right: 1px solid #1a1a1a;
   display: flex;
   flex-direction: column;
-  padding: calc(24px + env(safe-area-inset-top, 0px)) 24px calc(24px + env(safe-area-inset-bottom, 0px));
+  padding: calc(24px + env(safe-area-inset-top, 0px)) 24px
+    calc(24px + env(safe-area-inset-bottom, 0px));
   overflow-y: auto;
   overflow-x: visible;
   position: relative;
@@ -41,18 +42,28 @@ const StatusDot = styled.div<{ $connected: boolean; $loading?: boolean; $color?:
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background-color: ${(props) => 
-    props.$color ? props.$color :
-    props.$loading ? "#ffaa00" : 
-    props.$connected ? "#00d4ff" : "#ff4444"};
+  background-color: ${(props) =>
+    props.$color
+      ? props.$color
+      : props.$loading
+        ? "#ffaa00"
+        : props.$connected
+          ? "#00d4ff"
+          : "#ff4444"};
   box-shadow: ${(props) => {
-    const c = props.$color ? props.$color :
-      props.$loading ? "#ffaa00" :
-      props.$connected ? "#00d4ff" : "#ff4444";
+    const c = props.$color
+      ? props.$color
+      : props.$loading
+        ? "#ffaa00"
+        : props.$connected
+          ? "#00d4ff"
+          : "#ff4444";
     return `0 0 8px ${c}`;
   }};
   flex-shrink: 0;
-  ${(props) => props.$loading && `
+  ${(props) =>
+    props.$loading &&
+    `
     animation: pulse 1.5s ease-in-out infinite alternate;
   `}
   
@@ -432,7 +443,18 @@ const Sidebar: React.FC<SidebarProps> = ({
     if (!isConnected) {
       initialSettingsSent.current = false;
     }
-  }, [isConnected, deviceState, fftSize, fftWindow, fftFrameRate, gain, ppm, tunerAGC, rtlAGC, onSettingsChange]);
+  }, [
+    isConnected,
+    deviceState,
+    fftSize,
+    fftWindow,
+    fftFrameRate,
+    gain,
+    ppm,
+    tunerAGC,
+    rtlAGC,
+    onSettingsChange,
+  ]);
 
   // Helper to send settings on any control change
   const sendCurrentSettings = useCallback(
@@ -498,8 +520,6 @@ const Sidebar: React.FC<SidebarProps> = ({
     };
   }, []);
 
-
-
   // Computed values for file mode
   const fileCapturedRange = useMemo(() => {
     if (sourceMode !== "file" || selectedFiles.length === 0) return null;
@@ -551,18 +571,16 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   // Minimal sidebar mode: only show connection status and auth state
   if (!isAuthenticated) {
-    const authStatusText = (() => {
-      switch (authState) {
-        case "connecting": return "Connecting to server...";
-        case "awaiting_challenge": return "Establishing secure channel...";
-        case "ready": return "Awaiting authentication...";
-        case "authenticating": return "Verifying credentials...";
-        case "failed": return "Authentication failed";
-        case "timeout": return "Authentication timed out";
-        case "success": return "Authenticated — starting stream...";
-        default: return "Awaiting authentication...";
-      }
-    })();
+    const authStatusMap = {
+      connecting: "Connecting to server...",
+      awaiting_challenge: "Establishing secure channel...",
+      ready: "Awaiting authentication...",
+      authenticating: "Verifying credentials...",
+      failed: "Authentication failed",
+      timeout: "Authentication timed out",
+      success: "Authenticated — starting stream...",
+    };
+    const authStatusText = authStatusMap[authState as keyof typeof authStatusMap] ?? "Awaiting authentication...";
 
     return (
       <SidebarContainer>
@@ -570,10 +588,11 @@ const Sidebar: React.FC<SidebarProps> = ({
           <SectionTitle>Connection</SectionTitle>
           <ConnectionStatusContainer>
             <ConnectionStatus>
-              <StatusDot $connected={isConnected} $loading={authState === "authenticating" || authState === "awaiting_challenge"} />
-              <StatusText>
-                {!isConnected ? "Disconnected" : "Connected to server"}
-              </StatusText>
+              <StatusDot
+                $connected={isConnected}
+                $loading={authState === "authenticating" || authState === "awaiting_challenge"}
+              />
+              <StatusText>{!isConnected ? "Disconnected" : "Connected to server"}</StatusText>
             </ConnectionStatus>
           </ConnectionStatusContainer>
         </Section>
@@ -584,12 +603,12 @@ const Sidebar: React.FC<SidebarProps> = ({
             <SettingLabelContainer>
               <SettingLabel>Status</SettingLabel>
             </SettingLabelContainer>
-            <SettingValue style={{ 
-              color: authState === "failed" || authState === "timeout" ? "#ff4444" 
-                   : authState === "success" ? "#00d4ff" 
-                   : "#888",
-              fontSize: "11px",
-            }}>
+            <SettingValue
+              style={{
+                color: authState === "failed" || authState === "timeout" ? "#f87171" : authState === "success" ? "#00d4ff" : "#888",
+                fontSize: "11px",
+              }}
+            >
               {authStatusText}
             </SettingValue>
           </SettingRow>
@@ -609,16 +628,10 @@ const Sidebar: React.FC<SidebarProps> = ({
   return (
     <SidebarContainer>
       <TabContainer>
-        <Tab
-          $active={activeTab === "visualizer"}
-          onClick={() => onTabChange("visualizer")}
-        >
+        <Tab $active={activeTab === "visualizer"} onClick={() => onTabChange("visualizer")}>
           N-APT visualizer
         </Tab>
-        <Tab
-          $active={activeTab === "analysis"}
-          onClick={() => onTabChange("analysis")}
-        >
+        <Tab $active={activeTab === "analysis"} onClick={() => onTabChange("analysis")}>
           Decode N-APT with ML
         </Tab>
       </TabContainer>
@@ -628,8 +641,8 @@ const Sidebar: React.FC<SidebarProps> = ({
           {sourceMode === "live" && (
             <ConnectionStatusContainer>
               <ConnectionStatus>
-                <StatusDot 
-                  $connected={isConnected && deviceState === "connected"} 
+                <StatusDot
+                  $connected={isConnected && deviceState === "connected"}
                   $loading={deviceState === "loading" || deviceState === "stale"}
                   $color={isConnected && deviceState === "disconnected" ? "#ff8800" : undefined}
                 />
@@ -637,7 +650,9 @@ const Sidebar: React.FC<SidebarProps> = ({
                   {!isConnected
                     ? "Disconnected"
                     : deviceState === "loading"
-                      ? (deviceLoadingReason === "restart" ? "Restarting device..." : "Loading device...")
+                      ? deviceLoadingReason === "restart"
+                        ? "Restarting device..."
+                        : "Loading device..."
                       : deviceState === "stale"
                         ? "Device stream frozen"
                         : deviceState === "connected"
@@ -646,8 +661,8 @@ const Sidebar: React.FC<SidebarProps> = ({
                 </StatusText>
               </ConnectionStatus>
 
-              {isConnected && (
-                (deviceState === "stale") ? (
+              {isConnected &&
+                (deviceState === "stale" ? (
                   <PauseButton
                     $paused={false}
                     onClick={() => onRestartDevice?.()}
@@ -660,10 +675,10 @@ const Sidebar: React.FC<SidebarProps> = ({
                   >
                     Restart
                   </PauseButton>
-                ) : (deviceState === "loading" && deviceLoadingReason === "restart") ? (
+                ) : deviceState === "loading" && deviceLoadingReason === "restart" ? (
                   <PauseButton
                     $paused={false}
-                    onClick={() => {}}
+                    onClick={() => { }}
                     disabled={true}
                     title="Device is restarting..."
                     style={{
@@ -676,10 +691,10 @@ const Sidebar: React.FC<SidebarProps> = ({
                   >
                     Restarting...
                   </PauseButton>
-                ) : (deviceState === "loading") ? (
+                ) : deviceState === "loading" ? (
                   <PauseButton
                     $paused={false}
-                    onClick={() => {}}
+                    onClick={() => { }}
                     disabled={true}
                     title="Device is being initialized..."
                     style={{
@@ -696,8 +711,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                   <PauseButton $paused={isPaused} onClick={onPauseToggle}>
                     {isPaused ? "Resume" : "Pause"}
                   </PauseButton>
-                )
-              )}
+                ))}
             </ConnectionStatusContainer>
           )}
 
@@ -719,7 +733,9 @@ const Sidebar: React.FC<SidebarProps> = ({
                 <option value="live">
                   {backend === "rtl-sdr" ? "RTL-SDR" : backend === "mock" ? "Mock SDR" : "Live SDR"}
                 </option>
-                <option value="file" style={{ color: "#d9aa34" }}>File Selection</option>
+                <option value="file" style={{ color: "#d9aa34" }}>
+                  File Selection
+                </option>
               </SettingSelect>
             </SettingRow>
             {sourceMode === "live" && (
@@ -752,9 +768,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                   <SettingLabelContainer>
                     <SettingLabel>Choose files...</SettingLabel>
                   </SettingLabelContainer>
-                  <div
-                    style={{ display: "flex", alignItems: "center", gap: "8px" }}
-                  >
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                     <input
                       type="file"
                       accept=".c64"
@@ -764,24 +778,24 @@ const Sidebar: React.FC<SidebarProps> = ({
                       }}
                       id="fileInput"
                       onChange={(e) => {
-                        if (!e.target.files) return
+                        if (!e.target.files) return;
                         setSelectedFiles(
                           Array.from(e.target.files).map((file) => ({
                             name: file.name,
                             file,
                           })),
-                        )
+                        );
 
                         setTimeout(() => {
-                          const btn = stitchButtonRef.current
+                          const btn = stitchButtonRef.current;
                           if (btn) {
-                            btn.focus()
-                            if (window.focus) window.focus()
-                            btn.style.transform = 'translateZ(0)'
-                            void btn.offsetWidth
-                            btn.style.transform = ''
+                            btn.focus();
+                            if (window.focus) window.focus();
+                            btn.style.transform = "translateZ(0)";
+                            void btn.offsetWidth;
+                            btn.style.transform = "";
                           }
-                        }, 50)
+                        }, 50);
                       }}
                     />
                     <PauseButton
@@ -802,9 +816,7 @@ const Sidebar: React.FC<SidebarProps> = ({
               {selectedFiles.length > 0 && (
                 <>
                   <Section>
-                    <SectionTitle $fileMode>
-                      Selected files ({selectedFiles.length})
-                    </SectionTitle>
+                    <SectionTitle $fileMode>Selected files ({selectedFiles.length})</SectionTitle>
                     {selectedFiles.map((file, index) => (
                       <SettingRow key={index}>
                         <SettingLabelContainer>
@@ -823,9 +835,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                         <PauseButton
                           $paused={false}
                           onClick={() =>
-                            setSelectedFiles(
-                              selectedFiles.filter((_, i) => i !== index),
-                            )
+                            setSelectedFiles(selectedFiles.filter((_, i) => i !== index))
                           }
                           style={{
                             flex: "none",
@@ -842,15 +852,21 @@ const Sidebar: React.FC<SidebarProps> = ({
 
                   <Section>
                     {stitchStatus && (
-                      <div style={{
-                        marginBottom: "8px",
-                        padding: "8px 12px",
-                        borderRadius: "6px",
-                        fontSize: "11px",
-                        color: stitchStatus.startsWith("Stitching failed") ? "#f87171" : "#a3e635",
-                        backgroundColor: stitchStatus.startsWith("Stitching failed") ? "rgba(248,113,113,0.08)" : "rgba(163,230,53,0.08)",
-                        border: `1px solid ${stitchStatus.startsWith("Stitching failed") ? "rgba(248,113,113,0.2)" : "rgba(163,230,53,0.2)"}`,
-                      }}>
+                      <div
+                        style={{
+                          marginBottom: "8px",
+                          padding: "8px 12px",
+                          borderRadius: "6px",
+                          fontSize: "11px",
+                          color: stitchStatus.startsWith("Stitching failed")
+                            ? "#f87171"
+                            : "#a3e635",
+                          backgroundColor: stitchStatus.startsWith("Stitching failed")
+                            ? "rgba(248,113,113,0.08)"
+                            : "rgba(163,230,53,0.08)",
+                          border: `1px solid ${stitchStatus.startsWith("Stitching failed") ? "rgba(248,113,113,0.2)" : "rgba(163,230,53,0.2)"}`,
+                        }}
+                      >
                         {stitchStatus}
                       </div>
                     )}
@@ -935,8 +951,8 @@ const Sidebar: React.FC<SidebarProps> = ({
                     fontSize: "11px",
                     padding: "6px 12px",
                     minWidth: "120px",
-                    opacity: (!isConnected || deviceState !== "connected") ? 0.5 : 1,
-                    cursor: (!isConnected || deviceState !== "connected") ? "not-allowed" : "pointer"
+                    opacity: !isConnected || deviceState !== "connected" ? 0.5 : 1,
+                    cursor: !isConnected || deviceState !== "connected" ? "not-allowed" : "pointer",
                   }}
                 >
                   Verify heterodyning
@@ -964,15 +980,15 @@ const Sidebar: React.FC<SidebarProps> = ({
                 <SettingValue>{deviceState === "connected" ? "Yes" : "No"}</SettingValue>
                 <PauseButton
                   $paused={false}
-                  onClick={() => {}}
+                  onClick={() => { }}
                   disabled={!isConnected || deviceState !== "connected"}
                   style={{
                     flex: "none",
                     fontSize: "11px",
                     padding: "6px 12px",
                     minWidth: "80px",
-                    opacity: (!isConnected || deviceState !== "connected") ? 0.5 : 1,
-                    cursor: (!isConnected || deviceState !== "connected") ? "not-allowed" : "pointer"
+                    opacity: !isConnected || deviceState !== "connected" ? 0.5 : 1,
+                    cursor: !isConnected || deviceState !== "connected" ? "not-allowed" : "pointer",
                   }}
                 >
                   Classify?
@@ -1022,14 +1038,15 @@ const Sidebar: React.FC<SidebarProps> = ({
                     content={`Signal processing speed. Higher rates provide more real-time analysis of transmissions. Current maximum theoretical rate: ${maxFrameRate} fps based on current FFT size and bandwidth capacity.`}
                   />
                 </SettingLabelContainer>
-                <div
-                  style={{ display: "flex", alignItems: "center", gap: "4px" }}
-                >
+                <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
                   <SettingInput
                     type="number"
                     value={fftFrameRate}
                     onChange={(e) => {
-                      const val = Math.max(1, Math.min(maxFrameRate, Math.floor(Number(e.target.value) || 1)));
+                      const val = Math.max(
+                        1,
+                        Math.min(maxFrameRate, Math.floor(Number(e.target.value) || 1)),
+                      );
                       setFftFrameRate(val);
                       sendCurrentSettings({ frameRate: val });
                       scheduleCoupledAdjustment("frameRate", fftSize, val);
@@ -1040,7 +1057,10 @@ const Sidebar: React.FC<SidebarProps> = ({
                       e.stopPropagation();
                       const step = 1; // Always use 1-frame rate steps for precision
                       const delta = e.key === "ArrowUp" ? step : -step;
-                      const next = Math.max(1, Math.min(maxFrameRate, Math.floor((fftFrameRate || 0) + delta)));
+                      const next = Math.max(
+                        1,
+                        Math.min(maxFrameRate, Math.floor((fftFrameRate || 0) + delta)),
+                      );
                       setFftFrameRate(next);
                       sendCurrentSettings({ frameRate: next });
                       scheduleCoupledAdjustment("frameRate", fftSize, next);
@@ -1048,11 +1068,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                     min="1"
                     max={maxFrameRate}
                   />
-                  <span
-                    style={{ fontSize: "12px", color: "#ccc", fontWeight: "500" }}
-                  >
-                    fps
-                  </span>
+                  <span style={{ fontSize: "12px", color: "#ccc", fontWeight: "500" }}>fps</span>
                 </div>
               </SettingRow>
             ) : (
@@ -1131,9 +1147,7 @@ const Sidebar: React.FC<SidebarProps> = ({
               <SettingSelect
                 value={temporalResolution}
                 onChange={(e) => {
-                  onDisplayTemporalResolutionChange?.(
-                    e.target.value as "low" | "medium" | "high",
-                  );
+                  onDisplayTemporalResolutionChange?.(e.target.value as "low" | "medium" | "high");
                 }}
                 style={{ minWidth: "120px" }}
               >
@@ -1173,7 +1187,10 @@ const Sidebar: React.FC<SidebarProps> = ({
                   e.stopPropagation();
                   const delta = e.key === "ArrowUp" ? 1 : -1;
                   if (sourceMode === "file") {
-                    onStitchSourceSettingsChange({ ...stitchSourceSettings, ppm: (stitchSourceSettings.ppm || 0) + delta });
+                    onStitchSourceSettingsChange({
+                      ...stitchSourceSettings,
+                      ppm: (stitchSourceSettings.ppm || 0) + delta,
+                    });
                   } else {
                     const next = (ppm || 0) + delta;
                     setPpm(next);
@@ -1275,7 +1292,6 @@ const Sidebar: React.FC<SidebarProps> = ({
           </Section>
         </>
       )}
-
     </SidebarContainer>
   );
 };

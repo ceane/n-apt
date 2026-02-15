@@ -79,7 +79,7 @@ export const WebGPULineChart: React.FC<WebGPULineChartProps> = ({
   const generateAxisVertices = (
     _chartData: Array<{ t: number; freq: number; x: number }>,
     canvasWidth: number,
-    canvasHeight: number
+    canvasHeight: number,
   ): number[] => {
     const vertices: number[] = [];
     const padding = 40;
@@ -298,10 +298,7 @@ export const WebGPULineChart: React.FC<WebGPULineChartProps> = ({
     for (let i = 0; i < chartData.length; i++) {
       const point = chartData[i];
       const x = padding + ((point.freq - xMin) / (xMax - xMin || 1)) * chartWidth;
-      const y =
-        canvasHeight -
-        padding -
-        ((point.x - yMin) / (yMax - yMin || 1)) * chartHeight;
+      const y = canvasHeight - padding - ((point.x - yMin) / (yMax - yMin || 1)) * chartHeight;
 
       const ndcX = (x / canvasWidth) * 2 - 1;
       const ndcY = -((y / canvasHeight) * 2 - 1);
@@ -487,9 +484,7 @@ export const WebGPULineChart: React.FC<WebGPULineChartProps> = ({
   return (
     <CanvasContainer>
       <Canvas ref={canvasRef} width={width} height={height} />
-      {isSupported === null && (
-        <FallbackMessage>Initializing WebGPU...</FallbackMessage>
-      )}
+      {isSupported === null && <FallbackMessage>Initializing WebGPU...</FallbackMessage>}
       {isSupported === false && (
         <FallbackMessage>
           <div>WebGPU not available</div>

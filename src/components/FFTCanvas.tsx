@@ -14,11 +14,7 @@ import {
 import { FFTWebGPU } from "@n-apt/gpu/FFTWebGPU";
 import { OverlayTextureRenderer } from "@n-apt/gpu/OverlayTextureRenderer";
 import { WaterfallWebGPU } from "@n-apt/gpu/WaterfallWebGPU";
-import {
-  getPreferredCanvasFormat,
-  getWebGPUDevice,
-  isWebGPUSupported,
-} from "@n-apt/gpu/webgpu";
+import { getPreferredCanvasFormat, getWebGPUDevice, isWebGPUSupported } from "@n-apt/gpu/webgpu";
 import {
   VISUALIZER_PADDING,
   VISUALIZER_GAP,
@@ -220,7 +216,7 @@ const FFTCanvas = ({
   const isDraggingRef = useRef(false);
   const dragStartXRef = useRef(0);
   const dragStartFreqRef = useRef(0);
-  
+
   const retuneSmearRef = useRef(0);
   const retuneDriftPxRef = useRef(0);
   const waveformFloatRef = useRef<Float32Array | null>(null);
@@ -263,9 +259,7 @@ const FFTCanvas = ({
    */
   useEffect(() => {
     const getActiveSpectrumCanvas = () => {
-      return spectrumWebgpuEnabled
-        ? spectrumGpuCanvasRef.current
-        : spectrumCanvasRef.current;
+      return spectrumWebgpuEnabled ? spectrumGpuCanvasRef.current : spectrumCanvasRef.current;
     };
 
     const handleMouseMove = (e: MouseEvent) => {
@@ -274,26 +268,26 @@ const FFTCanvas = ({
 
       const rect = canvas.getBoundingClientRect();
       const width = rect.width;
-      
+
       // Calculate frequency change based on drag distance
       const deltaX = e.clientX - dragStartXRef.current;
       const freqRange = frequencyRangeRef.current.max - frequencyRangeRef.current.min;
       const freqChange = (deltaX / width) * freqRange;
-      
+
       // Calculate new frequency range, respecting boundaries
       let newMinFreq = dragStartFreqRef.current + freqChange;
       const rangeWidth = frequencyRangeRef.current.max - frequencyRangeRef.current.min;
       let newMaxFreq = newMinFreq + rangeWidth;
-      
+
       // Apply boundaries based on active signal area
       let minBoundary = 0;
       let maxBoundary = 4.47; // Default for area A
-      
+
       if (_activeSignalArea === "B") {
         minBoundary = 24.72;
         maxBoundary = 29.88;
       }
-      
+
       // Clamp to boundaries
       if (newMinFreq < minBoundary) {
         newMinFreq = minBoundary;
@@ -303,11 +297,11 @@ const FFTCanvas = ({
         newMaxFreq = maxBoundary;
         newMinFreq = newMaxFreq - rangeWidth;
       }
-      
+
       // Update frequency range
       const newRange = { min: newMinFreq, max: newMaxFreq };
       frequencyRangeRef.current = newRange;
-      
+
       // Notify parent component
       if (onFrequencyRangeChange) {
         onFrequencyRangeChange(newRange);
@@ -325,9 +319,9 @@ const FFTCanvas = ({
     const handleMouseDown = (e: MouseEvent) => {
       const canvas = getActiveSpectrumCanvas();
       if (!canvas) return;
-      
+
       const rect = canvas.getBoundingClientRect();
-      
+
       // Only start drag if clicking in the frequency axis area (bottom 60px)
       const height = rect.height;
       const y = e.clientY - rect.top;
@@ -358,7 +352,7 @@ const FFTCanvas = ({
       canvas.addEventListener("mousemove", handleCanvasMouseMove);
       canvas.addEventListener("mouseleave", handleMouseLeave);
     }
-    
+
     window.addEventListener("mousemove", handleMouseMove);
     window.addEventListener("mouseup", handleMouseUp);
 
@@ -466,10 +460,7 @@ const FFTCanvas = ({
           const y = Math.round(
             Math.max(
               FFT_AREA_MIN.y + 1,
-              Math.min(
-                fftAreaMax.y,
-                fftAreaMax.y - (spectrumData[i] - FFT_MIN_DB) * scaleFactor,
-              ),
+              Math.min(fftAreaMax.y, fftAreaMax.y - (spectrumData[i] - FFT_MIN_DB) * scaleFactor),
             ),
           );
           ctx.fillRect(x, y, 1, 1);
@@ -492,14 +483,14 @@ const FFTCanvas = ({
       console.warn("Invalid spectrum data provided, using fallback");
       return new Float32Array(1024).fill(-120);
     }
-    
+
     // Validate data contains only finite numbers
-    const hasValidData = spectrumData.some(v => Number.isFinite(v));
+    const hasValidData = spectrumData.some((v) => Number.isFinite(v));
     if (!hasValidData) {
       console.warn("Spectrum data contains no valid values, using fallback");
       return new Float32Array(1024).fill(-120);
     }
-    
+
     if (spectrumData instanceof Float32Array) {
       return spectrumData;
     }
@@ -523,14 +514,8 @@ const FFTCanvas = ({
       const marginY = Math.round(8 * dpr);
 
       // Calculate waterfall display area
-      const waterfallWidth = Math.max(
-        1,
-        Math.round(canvas.width - marginX * 2),
-      );
-      const waterfallHeight = Math.max(
-        1,
-        Math.round(canvas.height - marginY * 2),
-      );
+      const waterfallWidth = Math.max(1, Math.round(canvas.width - marginX * 2));
+      const waterfallHeight = Math.max(1, Math.round(canvas.height - marginY * 2));
 
       // Ensure buffer exists and matches display area; preserve content on resize
       const currentBuf = waterfallBufferRef.current;
@@ -560,10 +545,7 @@ const FFTCanvas = ({
           for (let y = 0; y < copyH; y++) {
             const srcRowStart = y * currentDims.width * 4;
             const dstRowStart = y * waterfallWidth * 4;
-            newBuf.set(
-              currentBuf.subarray(srcRowStart, srcRowStart + copyW * 4),
-              dstRowStart,
-            );
+            newBuf.set(currentBuf.subarray(srcRowStart, srcRowStart + copyW * 4), dstRowStart);
           }
         }
 
@@ -583,11 +565,7 @@ const FFTCanvas = ({
         const float32Output = new Float32Array(waterfallWidth);
 
         try {
-          sdrProcessor.resample_spectrum(
-            float32Input,
-            float32Output,
-            waterfallWidth,
-          );
+          sdrProcessor.resample_spectrum(float32Input, float32Output, waterfallWidth);
           resampled = Array.from(float32Output);
         } catch (error) {
           console.warn("WASM SIMD resampling failed, using fallback:", error);
@@ -655,17 +633,17 @@ const FFTCanvas = ({
         if (!device || cancelled) {
           throw new Error("Failed to get WebGPU device");
         }
-        
+
         webgpuDeviceRef.current = device;
         webgpuFormatRef.current = getPreferredCanvasFormat();
         webgpuContextLostRef.current = false;
         webgpuRetryCountRef.current = 0;
-        
-        device.onuncapturederror = (event) => {
+
+        device.onuncapturederror = () => {
           // Silently handle WebGPU errors - app will fall back to 2D
           webgpuContextLostRef.current = true;
           setWebgpuEnabled(false);
-          
+
           // Attempt recovery
           if (webgpuRetryCountRef.current < maxWebgpuRetries) {
             webgpuRetryCountRef.current++;
@@ -676,12 +654,12 @@ const FFTCanvas = ({
             }, 1000 * webgpuRetryCountRef.current);
           }
         };
-        
-        device.lost?.then((info) => {
+
+        device.lost?.then(() => {
           // Silently handle WebGPU device loss - app will fall back to 2D
           webgpuContextLostRef.current = true;
           setWebgpuEnabled(false);
-          
+
           // Attempt recovery
           if (webgpuRetryCountRef.current < maxWebgpuRetries) {
             webgpuRetryCountRef.current++;
@@ -692,25 +670,28 @@ const FFTCanvas = ({
             }, 1000 * webgpuRetryCountRef.current);
           }
         });
-        
+
         setWebgpuEnabled(true);
         console.log("✅ WebGPU initialized successfully - using GPU acceleration");
       } catch (error) {
         // Silently handle WebGPU initialization failure - app will fall back to 2D
         webgpuContextLostRef.current = true;
         setWebgpuEnabled(false);
-        
+
         // Retry if we haven't exhausted attempts
         if (retryCount < maxWebgpuRetries) {
-          setTimeout(() => {
-            if (!cancelled) {
-              initializeWebGPU(retryCount + 1);
-            }
-          }, 1000 * (retryCount + 1));
+          setTimeout(
+            () => {
+              if (!cancelled) {
+                initializeWebGPU(retryCount + 1);
+              }
+            },
+            1000 * (retryCount + 1),
+          );
         }
       }
     };
-    
+
     initializeWebGPU();
 
     return () => {
@@ -726,11 +707,7 @@ const FFTCanvas = ({
 
     if (spectrumGpuCanvasRef.current && !spectrumRendererRef.current) {
       try {
-        spectrumRendererRef.current = new FFTWebGPU(
-          spectrumGpuCanvasRef.current,
-          device,
-          format,
-        );
+        spectrumRendererRef.current = new FFTWebGPU(spectrumGpuCanvasRef.current, device, format);
         gridOverlayRendererRef.current = new OverlayTextureRenderer(device, format);
         markersOverlayRendererRef.current = new OverlayTextureRenderer(device, format);
         overlayDirtyRef.current.grid = true;
@@ -766,52 +743,40 @@ const FFTCanvas = ({
    * @param waterfallWidth - Target width
    * @returns Resampled data array
    */
-  const performScalarResampling = (
-    spectrumData: number[],
-    waterfallWidth: number,
-  ): number[] => {
+  const performScalarResampling = (spectrumData: number[], waterfallWidth: number): number[] => {
     const resampled: number[] = new Array(waterfallWidth);
     const srcLen = spectrumData.length;
     for (let x = 0; x < waterfallWidth; x++) {
       const start = Math.floor((x * srcLen) / waterfallWidth);
-      const end = Math.max(
-        start + 1,
-        Math.floor(((x + 1) * srcLen) / waterfallWidth),
-      );
+      const end = Math.max(start + 1, Math.floor(((x + 1) * srcLen) / waterfallWidth));
       let maxVal = -Infinity;
       for (let i = start; i < end && i < srcLen; i++) {
         const v = spectrumData[i];
         if (v > maxVal) maxVal = v;
       }
-      resampled[x] =
-        maxVal === -Infinity
-          ? spectrumData[Math.min(start, srcLen - 1)]
-          : maxVal;
+      resampled[x] = maxVal === -Infinity ? spectrumData[Math.min(start, srcLen - 1)] : maxVal;
     }
     return resampled;
   };
 
-  const resampleSpectrumInto = useCallback(
-    (input: Float32Array, output: Float32Array) => {
-      const srcLen = input.length;
-      const outLen = output.length;
-      if (srcLen === 0 || outLen === 0) return;
+  const resampleSpectrumInto = useCallback((input: Float32Array, output: Float32Array) => {
+    const srcLen = input.length;
+    const outLen = output.length;
+    if (srcLen === 0 || outLen === 0) return;
 
-      for (let x = 0; x < outLen; x++) {
-        const start = Math.floor((x * srcLen) / outLen);
-        const end = Math.max(start + 1, Math.floor(((x + 1) * srcLen) / outLen));
-        let maxVal = -Infinity;
-        for (let i = start; i < end && i < srcLen; i++) {
-          const v = input[i];
-          if (Number.isFinite(v)) {
-            if (v > maxVal) maxVal = v;
-          }
+    for (let x = 0; x < outLen; x++) {
+      const start = Math.floor((x * srcLen) / outLen);
+      const end = Math.max(start + 1, Math.floor(((x + 1) * srcLen) / outLen));
+      let maxVal = -Infinity;
+      for (let i = start; i < end && i < srcLen; i++) {
+        const v = input[i];
+        if (Number.isFinite(v)) {
+          if (v > maxVal) maxVal = v;
         }
-        output[x] = maxVal !== -Infinity ? maxVal : input[Math.min(start, srcLen - 1)] ?? -120;
       }
-    },
-    [],
-  );
+      output[x] = maxVal !== -Infinity ? maxVal : (input[Math.min(start, srcLen - 1)] ?? -120);
+    }
+  }, []);
 
   /**
    * Animation loop for continuous spectrum and waterfall updates
@@ -820,7 +785,7 @@ const FFTCanvas = ({
   const animate = useCallback(() => {
     const runId = animationRunIdRef.current;
     const now = performance.now();
-    
+
     // Frame rate limiting to prevent excessive renders
     if (now - lastRenderTimeRef.current < targetFrameInterval) {
       animationFrameRef.current = requestAnimationFrame(() => {
@@ -830,9 +795,9 @@ const FFTCanvas = ({
       });
       return;
     }
-    
+
     lastRenderTimeRef.current = now;
-    
+
     const spectrumCanvas = spectrumCanvasRef.current;
     const spectrumGpuCanvas = spectrumGpuCanvasRef.current;
     const waterfallCanvas = waterfallCanvasRef.current;
@@ -842,13 +807,13 @@ const FFTCanvas = ({
 
     if (!isPaused && currentData?.waveform) {
       const waveform = ensureFloat32Waveform(currentData.waveform);
-      
+
       // Validate waveform before processing
       if (!waveform || waveform.length === 0) {
         console.warn("Invalid waveform detected, skipping frame");
         return;
       }
-      
+
       if (currentData !== lastProcessedDataRef.current) {
         waveformFloatRef.current = waveform;
         lastProcessedDataRef.current = currentData;
@@ -856,7 +821,7 @@ const FFTCanvas = ({
         // Add frame to buffer for smooth rendering
         const frameBuffer = frameBufferRef.current;
         frameBuffer.push(new Float32Array(waveform));
-        
+
         // Keep buffer size limited
         if (frameBuffer.length > maxFrameBufferSize) {
           frameBuffer.shift();
@@ -882,16 +847,21 @@ const FFTCanvas = ({
           }
         }
       }
-    } else if (isPaused && currentData?.waveform && currentData !== lastProcessedDataRef.current && force2D) {
+    } else if (
+      isPaused &&
+      currentData?.waveform &&
+      currentData !== lastProcessedDataRef.current &&
+      force2D
+    ) {
       // Paused: still ingest when data identity changes (stitched file frames only)
       const waveform = ensureFloat32Waveform(currentData.waveform);
-      
+
       // Validate waveform before processing
       if (!waveform || waveform.length === 0) {
         console.warn("Invalid waveform detected in paused mode, skipping frame");
         return;
       }
-      
+
       waveformFloatRef.current = waveform;
       lastProcessedDataRef.current = currentData;
       renderWaveformRef.current = new Float32Array(waveform);
@@ -905,10 +875,7 @@ const FFTCanvas = ({
         const rect = spectrumGpuCanvas.parentElement?.getBoundingClientRect();
         const width = rect?.width || spectrumGpuCanvas.width;
         const height = rect?.height || spectrumGpuCanvas.height;
-        const displayWidth = Math.max(
-          1,
-          Math.floor(width - FFT_AREA_MIN.x - 40),
-        );
+        const displayWidth = Math.max(1, Math.floor(width - FFT_AREA_MIN.x - 40));
 
         // Always downsample to ~pixel width to avoid "curtains" (many points
         // mapping to the same x pixel creates dense vertical lines).
@@ -936,23 +903,26 @@ const FFTCanvas = ({
         // Update overlays only when dirty, throttled (prevents drag jank)
         maybeUpdateOverlays(width, height, dpr);
 
-        spectrumRendererRef.current.render({
-          canvasWidth: width,
-          canvasHeight: height,
-          dpr,
-          plotLeft: FFT_AREA_MIN.x,
-          plotRight: Math.max(FFT_AREA_MIN.x + 1, width - 40),
-          plotTop: FFT_AREA_MIN.y,
-          plotBottom: Math.max(FFT_AREA_MIN.y + 1, height - 40),
-          dbMin: FFT_MIN_DB,
-          dbMax: FFT_MAX_DB,
-          lineColor: LINE_COLOR,
-          fillColor: SHADOW_COLOR,
-          backgroundColor: FFT_CANVAS_BG,
-        }, {
-          pre: gridOverlayRendererRef.current,
-          post: markersOverlayRendererRef.current,
-        });
+        spectrumRendererRef.current.render(
+          {
+            canvasWidth: width,
+            canvasHeight: height,
+            dpr,
+            plotLeft: FFT_AREA_MIN.x,
+            plotRight: Math.max(FFT_AREA_MIN.x + 1, width - 40),
+            plotTop: FFT_AREA_MIN.y,
+            plotBottom: Math.max(FFT_AREA_MIN.y + 1, height - 40),
+            dbMin: FFT_MIN_DB,
+            dbMax: FFT_MAX_DB,
+            lineColor: LINE_COLOR,
+            fillColor: SHADOW_COLOR,
+            backgroundColor: FFT_CANVAS_BG,
+          },
+          {
+            pre: gridOverlayRendererRef.current,
+            post: markersOverlayRendererRef.current,
+          },
+        );
       } else if (spectrumCanvas) {
         // Use 2D fallback
         renderSpectrum(spectrumCanvas, Array.from(waveform));
@@ -975,11 +945,7 @@ const FFTCanvas = ({
 
       // Waterfall render (only push new lines when not paused)
       if (!isPaused && currentData) {
-        if (
-          webgpuEnabled &&
-          waterfallRendererRef.current &&
-          waterfallGpuCanvas
-        ) {
+        if (webgpuEnabled && waterfallRendererRef.current && waterfallGpuCanvas) {
           const dims = waterfallGpuDimsRef.current;
           if (dims) {
             let resampled: number[];
@@ -987,27 +953,14 @@ const FFTCanvas = ({
               resampled = new Array(dims.width);
               const float32Output = new Float32Array(dims.width);
               try {
-                sdrProcessor.resample_spectrum(
-                  waveform,
-                  float32Output,
-                  dims.width,
-                );
+                sdrProcessor.resample_spectrum(waveform, float32Output, dims.width);
                 resampled = Array.from(float32Output);
               } catch (error) {
-                console.warn(
-                  "WASM SIMD resampling failed, using fallback:",
-                  error,
-                );
-                resampled = performScalarResampling(
-                  Array.from(waveform),
-                  dims.width,
-                );
+                console.warn("WASM SIMD resampling failed, using fallback:", error);
+                resampled = performScalarResampling(Array.from(waveform), dims.width);
               }
             } else {
-              resampled = performScalarResampling(
-                Array.from(waveform),
-                dims.width,
-              );
+              resampled = performScalarResampling(Array.from(waveform), dims.width);
             }
 
             const normalizedData = spectrumToAmplitude(
@@ -1047,11 +1000,7 @@ const FFTCanvas = ({
       }
 
       // Always render existing waterfall buffer (WebGPU)
-      if (
-        webgpuEnabled &&
-        waterfallRendererRef.current &&
-        waterfallGpuCanvas
-      ) {
+      if (webgpuEnabled && waterfallRendererRef.current && waterfallGpuCanvas) {
         const rect = waterfallGpuCanvas.parentElement?.getBoundingClientRect();
         if (rect) {
           const dpr = window.devicePixelRatio || 1;
@@ -1119,7 +1068,6 @@ const FFTCanvas = ({
     // Mark overlays dirty; throttled upload happens in animate loop.
     overlayDirtyRef.current.grid = true;
     overlayDirtyRef.current.markers = true;
-
   }, [frequencyRange.min, frequencyRange.max]);
 
   useEffect(() => {
@@ -1160,11 +1108,7 @@ const FFTCanvas = ({
         }
 
         if (spectrumWebgpuEnabled && spectrumGpuCanvas && spectrumRendererRef.current) {
-          spectrumRendererRef.current.resize(
-            spectrumRect.width,
-            spectrumRect.height,
-            dpr,
-          );
+          spectrumRendererRef.current.resize(spectrumRect.width, spectrumRect.height, dpr);
 
           // Resizing changes raster size — redraw overlays (throttled in animate loop)
           overlayDirtyRef.current.grid = true;
@@ -1185,22 +1129,12 @@ const FFTCanvas = ({
         }
 
         if (waterfallGpuCanvas && waterfallRendererRef.current) {
-          waterfallRendererRef.current.resize(
-            waterfallRect.width,
-            waterfallRect.height,
-            dpr,
-          );
+          waterfallRendererRef.current.resize(waterfallRect.width, waterfallRect.height, dpr);
 
           const marginX = Math.round(40 * dpr);
           const marginY = Math.round(8 * dpr);
-          const displayWidth = Math.max(
-            1,
-            Math.round(waterfallRect.width * dpr - marginX * 2),
-          );
-          const displayHeight = Math.max(
-            1,
-            Math.round(waterfallRect.height * dpr - marginY * 2),
-          );
+          const displayWidth = Math.max(1, Math.round(waterfallRect.width * dpr - marginX * 2));
+          const displayHeight = Math.max(1, Math.round(waterfallRect.height * dpr - marginY * 2));
           if (!waterfallDataWidthRef.current || waterfallDataWidthRef.current < 10) {
             waterfallDataWidthRef.current = displayWidth;
           }
@@ -1209,10 +1143,7 @@ const FFTCanvas = ({
             width: dataWidth,
             height: displayHeight,
           };
-          waterfallRendererRef.current.updateDimensions(
-            dataWidth,
-            displayHeight,
-          );
+          waterfallRendererRef.current.updateDimensions(dataWidth, displayHeight);
         }
       }
     };
@@ -1227,10 +1158,10 @@ const FFTCanvas = ({
         // Force redraw of last known data when becoming visible
         overlayDirtyRef.current.grid = true;
         overlayDirtyRef.current.markers = true;
-        
+
         // Trigger a resize to ensure WebGPU context is recovered
         resizeCanvas();
-        
+
         // If we have data but animation stopped, restart it
         if (dataRef.current && !animationFrameRef.current) {
           animationRunIdRef.current += 1;
@@ -1248,10 +1179,8 @@ const FFTCanvas = ({
       }, 100);
     });
 
-    const spectrumParent =
-      spectrumCanvas?.parentElement ?? spectrumGpuCanvas?.parentElement;
-    const waterfallParent =
-      waterfallCanvas?.parentElement ?? waterfallGpuCanvas?.parentElement;
+    const spectrumParent = spectrumCanvas?.parentElement ?? spectrumGpuCanvas?.parentElement;
+    const waterfallParent = waterfallCanvas?.parentElement ?? waterfallGpuCanvas?.parentElement;
 
     if (spectrumParent) resizeObserver.observe(spectrumParent);
     if (waterfallParent) resizeObserver.observe(waterfallParent);

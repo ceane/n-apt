@@ -28,6 +28,7 @@ A high-performance Rust implementation of the N-APT SDR server, replacing the Py
 ## Prerequisites
 
 ### Install Rust
+
 ```bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
@@ -35,11 +36,13 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ### Install RTL-SDR Library
 
 **macOS (Homebrew):**
+
 ```bash
 brew install librtlsdr
 ```
 
 **Ubuntu/Debian:**
+
 ```bash
 sudo apt-get install librtlsdr-dev
 ```
@@ -50,11 +53,13 @@ Download from https://osmocom.org/projects/rtl-sdr/wiki/rtl-sdr
 ## Building and Running
 
 ### 1. Build the server
+
 ```bash
 cargo build --release
 ```
 
 ### 2. Run the server
+
 ```bash
 # From project root
 ./start_server.sh
@@ -64,6 +69,7 @@ cargo run --release
 ```
 
 ### 3. Or run the compiled binary
+
 ```bash
 ./target/release/n-apt-backend
 ```
@@ -75,7 +81,7 @@ The server will start on `ws://127.0.0.1:8765`
 The backend uses the same configuration as the Python version:
 
 - **Sample Rate**: 3.2 MHz
-- **Center Frequency**: 1.6 MHz  
+- **Center Frequency**: 1.6 MHz
 - **FFT Size**: 32768 samples
 - **Frame Rate**: 30 FPS
 - **Default Gain**: 49 dB
@@ -102,7 +108,7 @@ The backend uses the same configuration as the Python version:
 
 ```json
 {
-  "type": "gain", 
+  "type": "gain",
   "gain": 49
 }
 ```
@@ -117,6 +123,7 @@ The backend uses the same configuration as the Python version:
 ### Messages to Client
 
 **Status Message:**
+
 ```json
 {
   "type": "status",
@@ -128,6 +135,7 @@ The backend uses the same configuration as the Python version:
 ```
 
 **Spectrum Data:**
+
 ```json
 {
   "waveform": [ -80.5, -75.2, ... ],
@@ -156,17 +164,21 @@ When RTL-SDR hardware is not available, the backend automatically falls back to 
 ## Development
 
 ### Logging
+
 Set log level with environment variable:
+
 ```bash
 RUST_LOG=debug cargo run
 ```
 
 ### Testing
+
 ```bash
 cargo test
 ```
 
 ### Profiling
+
 ```bash
 cargo build --release
 perf record ./target/release/n-apt-backend
@@ -175,6 +187,7 @@ perf record ./target/release/n-apt-backend
 ## Troubleshooting
 
 ### RTL-SDR not found
+
 ```bash
 # Check if device is available
 rtl_test -t
@@ -185,6 +198,7 @@ sudo usermod -a -G plugdev $USER
 ```
 
 ### Build errors
+
 ```bash
 # Update Rust
 rustup update
@@ -194,6 +208,7 @@ cargo clean && cargo build --release
 ```
 
 ### WebSocket connection issues
+
 - Check if port 8765 is available
 - Verify firewall settings
 - Check frontend WebSocket URL

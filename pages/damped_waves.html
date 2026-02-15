@@ -1,103 +1,101 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
-<head>
-  <meta charset="UTF-8" />
-  <title>Reversed Damped Radio-Wave SVG</title>
-</head>
-<body style="font-family: sans-serif; padding: 20px;">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Reversed Damped Radio-Wave SVG</title>
+  </head>
+  <body style="font-family: sans-serif; padding: 20px">
+    <h2>“Radio-style” Damped Wave (Reverse Envelope Growth)</h2>
+    <div id="svgContainer"></div>
+    <br />
+    <button id="downloadBtn">Download SVG</button>
 
-<h2>“Radio-style” Damped Wave (Reverse Envelope Growth)</h2>
-<div id="svgContainer"></div>
-<br/>
-<button id="downloadBtn">Download SVG</button>
+    <script>
+      function generateRadioStyleWave({
+        totalPoints = 3500, // how many sample points
+        trainCount = 5, // how many bursts/trains
+        cyclesPerTrain = 30, // how many sine cycles in each train
+        amplitude = 0.05,
+        lambda = 0.1, // controls growth speed
+        freq = 20, // frequency of sine waves (in “sample units”)
+        trainGap = 0.2, // fraction of train width used for gap
+      }) {
+        const data = [];
+        const pointsPerTrain = Math.floor(totalPoints / trainCount);
+        const gapPoints = Math.floor(pointsPerTrain * trainGap);
+        const wavePoints = pointsPerTrain - gapPoints;
 
-<script>
-  function generateRadioStyleWave({
-    totalPoints = 3500,        // how many sample points
-    trainCount = 5,            // how many bursts/trains
-    cyclesPerTrain = 30,       // how many sine cycles in each train
-    amplitude = .05,
-    lambda = 0.1,              // controls growth speed
-    freq = 20,                 // frequency of sine waves (in “sample units”)
-    trainGap = 0.2              // fraction of train width used for gap
-  }) {
-    const data = [];
-    const pointsPerTrain = Math.floor(totalPoints / trainCount);
-    const gapPoints = Math.floor(pointsPerTrain * trainGap);
-    const wavePoints = pointsPerTrain - gapPoints;
+        for (let train = 0; train < trainCount; train++) {
+          for (let i = 0; i < pointsPerTrain; i++) {
+            let xIndex = train * pointsPerTrain + i;
+            let y = 0;
 
-    for (let train = 0; train < trainCount; train++) {
-      for (let i = 0; i < pointsPerTrain; i++) {
-        let xIndex = train * pointsPerTrain + i;
-        let y = 0;
+            if (i < wavePoints) {
+              // normalized position within this train's wave region
+              let t = i / wavePoints;
+              // exponential *increasing* envelope
+              let env = amplitude * Math.exp(lambda * t - lambda);
+              // sine wave
+              y = env * Math.sin(2 * Math.PI * freq * t);
+            }
 
-        if (i < wavePoints) {
-          // normalized position within this train's wave region
-          let t = i / wavePoints;
-          // exponential *increasing* envelope
-          let env = amplitude * Math.exp(lambda * t - lambda);
-          // sine wave
-          y = env * Math.sin(2 * Math.PI * freq * t);
+            data.push({ x: xIndex, y });
+          }
         }
 
-        data.push({ x: xIndex, y });
+        return data;
       }
-    }
 
-    return data;
-  }
+      function toSVGPath(data, width, height) {
+        const ys = data.map((p) => p.y);
+        const minY = Math.min(...ys);
+        const maxY = Math.max(...ys);
+        const scaleX = width / (data.length - 1);
+        const scaleY = height / (maxY - minY);
 
-  function toSVGPath(data, width, height) {
-    const ys = data.map(p => p.y);
-    const minY = Math.min(...ys);
-    const maxY = Math.max(...ys);
-    const scaleX = width / (data.length - 1);
-    const scaleY = height / (maxY - minY);
+        let path = `M 0 ${(data[0].y - minY) * scaleY}`;
+        for (let i = 1; i < data.length; i++) {
+          const px = i * scaleX;
+          const py = (data[i].y - minY) * scaleY;
+          path += ` L ${px.toFixed(2)} ${py.toFixed(2)}`;
+        }
+        return path;
+      }
 
-    let path = `M 0 ${(data[0].y - minY) * scaleY}`;
-    for (let i = 1; i < data.length; i++) {
-      const px = i * scaleX;
-      const py = (data[i].y - minY) * scaleY;
-      path += ` L ${px.toFixed(2)} ${py.toFixed(2)}`;
-    }
-    return path;
-  }
+      // Parameters
+      const samples = generateRadioStyleWave({
+        totalPoints: 3500,
+        trainCount: 10,
+        cyclesPerTrain: 7,
+        amplitude: 0.1,
+        lambda: 4,
+        freq: 7,
+        trainGap: 0.1,
+      });
 
-  // Parameters
-  const samples = generateRadioStyleWave({
-    totalPoints: 3500,
-    trainCount: 10,
-    cyclesPerTrain: 7,
-    amplitude: .1,
-    lambda: 4,
-    freq: 7,
-    trainGap: 0.1
-  });
+      const width = 1200;
+      const height = 300;
+      const pathD = toSVGPath(samples, width, height);
 
-  const width = 1200;
-  const height = 300;
-  const pathD = toSVGPath(samples, width, height);
-
-  const svg = `
+      const svg = `
     <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"
          xmlns="http://www.w3.org/2000/svg">
       <path d="${pathD}" fill="none" stroke="black" stroke-width="1.5"/>
     </svg>
   `;
 
-  document.getElementById("svgContainer").innerHTML = svg;
-  document.getElementById("downloadBtn").onclick = () => {
-    const blob = new Blob([svg], { type: "image/svg+xml" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "reverse-damped-radio-wave.svg";
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-</script>
-
-</body>
+      document.getElementById("svgContainer").innerHTML = svg;
+      document.getElementById("downloadBtn").onclick = () => {
+        const blob = new Blob([svg], { type: "image/svg+xml" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "reverse-damped-radio-wave.svg";
+        a.click();
+        URL.revokeObjectURL(url);
+      };
+    </script>
+  </body>
 </html>
 
 <!-- 
