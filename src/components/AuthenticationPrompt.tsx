@@ -165,17 +165,21 @@ const AuthenticationPrompt = ({
   onRegisterPasskey,
 }: AuthenticationPromptProps) => {
   const [password, setPassword] = useState("");
-  const [showPasswordForm, setShowPasswordForm] = useState(!hasPasskeys);
+  const [showPasswordForm, setShowPasswordForm] = useState<boolean | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    if (authState === "ready" && showPasswordForm && inputRef.current) {
-      inputRef.current.focus();
-    }
-  }, [authState, showPasswordForm]);
+  // Derive effective state: if user hasn't explicitly toggled, follow hasPasskeys
+  const effectiveShowPasswordForm = showPasswordForm ?? !hasPasskeys;
 
   useEffect(() => {
-    setShowPasswordForm(!hasPasskeys);
+    if (authState === "ready" && effectiveShowPasswordForm && inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, [authState, effectiveShowPasswordForm]);
+
+  // Reset user's explicit choice when hasPasskeys changes
+  useEffect(() => {
+    setShowPasswordForm(null);
   }, [hasPasskeys]);
 
   const handlePasswordSubmit = useCallback(
@@ -249,7 +253,7 @@ const AuthenticationPrompt = ({
 
       {showActions && (
         <>
-          {hasPasskeys && !showPasswordForm && (
+          {hasPasskeys && !effectiveShowPasswordForm && (
             <>
               <ActionButton
                 onClick={onPasskeyAuth}
@@ -265,7 +269,7 @@ const AuthenticationPrompt = ({
             </>
           )}
 
-          {(showPasswordForm || !hasPasskeys) && (
+          {(effectiveShowPasswordForm || !hasPasskeys) && (
             <Form onSubmit={handlePasswordSubmit}>
               <Input
                 ref={inputRef}
@@ -287,7 +291,7 @@ const AuthenticationPrompt = ({
                     ? "Retry"
                     : "Authenticate"}
               </ActionButton>
-              {hasPasskeys && showPasswordForm && (
+              {hasPasskeys && effectiveShowPasswordForm && (
                 <>
                   <Divider>or</Divider>
                   <LinkButton onClick={() => setShowPasswordForm(false)}>

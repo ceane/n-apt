@@ -2,7 +2,27 @@ import { useRef, useCallback, useState, useEffect, useMemo } from "react";
 import styled from "styled-components";
 import InfoPopover from "@n-apt/components/InfoPopover";
 import FrequencyRangeSlider from "@n-apt/components/FrequencyRangeSlider";
-import type { SDRSettings, DeviceState, DeviceLoadingReason } from "@n-apt/hooks/useWebSocket";
+import { decryptPayloadBytes } from "@n-apt/crypto/webcrypto";
+import type {
+  SDRSettings,
+  DeviceState,
+  DeviceLoadingReason,
+  CaptureRequest,
+  CaptureStatus,
+  CaptureFileType,
+} from "@n-apt/hooks/useWebSocket";
+
+type NaptMetadata = {
+  sample_rate?: number;
+  center_frequency?: number;
+  frequency_range?: [number, number];
+  fft?: { size?: number; window?: string };
+  format?: string;
+  timestamp_utc?: string;
+  hardware?: string;
+  gain?: number;
+  ppm?: number;
+};
 
 const SidebarContainer = styled.aside`
   width: 360px;
@@ -138,15 +158,38 @@ const SectionTitle = styled.div<{ $fileMode?: boolean }>`
   color: ${(props) => (props.$fileMode ? "#d9aa34" : "#555")};
   text-transform: uppercase;
   letter-spacing: 1px;
-  margin-bottom: 12px;
+  margin-bottom: 16px;
+  font-weight: 600;
+  font-family: "JetBrains Mono", monospace;
+`;
+
+const SectionTitleCollapsible = styled.button`
+  width: 100%;
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: space-between;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  margin: 0 0 16px 0;
+  cursor: pointer;
+  text-align: left;
+`;
 
-  &::after {
-    content: "/";
-    color: #444;
-  }
+const SectionTitleLabel = styled.span<{ $fileMode?: boolean }>`
+  font-size: 11px;
+  color: ${(props) => (props.$fileMode ? "#d9aa34" : "#555")};
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-weight: 600;
+  font-family: "JetBrains Mono", monospace;
+`;
+
+const SectionTitleToggle = styled.span`
+  font-size: 12px;
+  color: #555;
+  font-family: "JetBrains Mono", monospace;
+  font-weight: 600;
 `;
 
 const SettingRow = styled.div`
@@ -220,40 +263,30 @@ const SettingSelect = styled.select`
 
 const SettingInput = styled.input`
   background-color: transparent;
-  border: 1px solid transparent;
+  border: 1px solid #2a2a2a;
   border-radius: 4px;
   color: #ccc;
   font-family: "JetBrains Mono", monospace;
   font-size: 12px;
   font-weight: 500;
-  padding: 2px 6px;
-  width: 50px;
-  text-align: center;
-
-  &:hover {
-    border-color: #2a2a2a;
-  }
-
-  &:focus {
-    outline: none;
-    border-color: #00d4ff;
-    background-color: rgba(0, 212, 255, 0.05);
-  }
-
+  padding: 4px 6px;
+  width: 70px;
+  text-align: right;
+  
+  /* Hide number input spinners */
   &::-webkit-outer-spin-button,
   &::-webkit-inner-spin-button {
     -webkit-appearance: none;
     margin: 0;
   }
-
+  
   &[type="number"] {
     -moz-appearance: textfield;
   }
+`;
 
-  &:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-  }
+const CollapsibleBody = styled.div`
+  margin-top: 8px;
 `;
 
 const ToggleSwitch = styled.label<{ $disabled?: boolean }>`
@@ -322,6 +355,12 @@ interface SidebarProps {
   serverPaused: boolean;
   backend: string | null;
   deviceInfo: string | null;
+  maxSampleRateHz: number | null;
+  sessionToken: string | null;
+  aesKey: CryptoKey | null;
+  captureStatus: CaptureStatus;
+  onCaptureCommand: (req: CaptureRequest) => void;
+  spectrumFrames?: Array<{ id: string; label: string; min_mhz: number; max_mhz: number; description: string }>;
   activeTab: string;
   onTabChange: (tab: string) => void;
   sourceMode: "live" | "file";
@@ -356,6 +395,12 @@ const Sidebar: React.FC<SidebarProps> = ({
   serverPaused,
   backend,
   deviceInfo,
+  maxSampleRateHz,
+  sessionToken,
+  aesKey,
+  captureStatus,
+  onCaptureCommand,
+  spectrumFrames,
   activeTab,
   onTabChange,
   sourceMode,
@@ -387,7 +432,25 @@ const Sidebar: React.FC<SidebarProps> = ({
   const [fftSize, setFftSize] = useState(32768);
   const [fftWindow, setFftWindow] = useState("Rectangular");
   const [fftFrameRate, setFftFrameRate] = useState(30);
-  const [maxSampleRate, setMaxSampleRate] = useState(3200000); // Default 3.2MHz
+  const [maxSampleRate, setMaxSampleRate] = useState(3_200_000); // Default 3.2MHz
+
+  // Capture UI state
+  const [captureOnscreen, setCaptureOnscreen] = useState(true);
+  const [captureAreaA, setCaptureAreaA] = useState(false);
+  const [captureAreaB, setCaptureAreaB] = useState(false);
+  const [captureDurationS, setCaptureDurationS] = useState(1);
+  const [captureFileType, setCaptureFileType] = useState<CaptureFileType>(".napt");
+  const [captureEncrypted, setCaptureEncrypted] = useState(true);
+  const [capturePlayback, setCapturePlayback] = useState(false);
+  const [captureOpen, setCaptureOpen] = useState(false);
+
+  // Snapshot UI state (default closed)
+  const [snapshotOpen, setSnapshotOpen] = useState(false);
+  const [snapshotWhole, setSnapshotWhole] = useState(false);
+  const [snapshotShowWaterfall, setSnapshotShowWaterfall] = useState(false);
+  const [snapshotShowGrid, setSnapshotShowGrid] = useState(true);
+  const [snapshotShowStats, setSnapshotShowStats] = useState(true);
+  const [snapshotFormat, setSnapshotFormat] = useState<"png" | "svg">("png");
   const [gain, setGain] = useState(49.6);
   const [tunerAGC, setTunerAGC] = useState(false);
   const [rtlAGC, setRtlAGC] = useState(false);
@@ -406,24 +469,227 @@ const Sidebar: React.FC<SidebarProps> = ({
     return Math.max(1, Math.floor(Math.min(theoretical, 60))); // Cap at 60Hz screen refresh rate
   }, [fftSize, maxSampleRate]);
 
-  // Extract max sample rate from device info when it changes
+  // Drive sample rate from backend status to avoid brittle deviceInfo parsing.
   useEffect(() => {
-    if (deviceInfo) {
-      // Parse "max: X Hz" from device info string
-      const match = deviceInfo.match(/max:\s*(\d+)\s*Hz/);
-      if (match) {
-        const rate = parseInt(match[1], 10);
-        setMaxSampleRate(rate);
-      } else {
-        // Fallback: try to parse sample rate for mock mode
-        const sampleMatch = deviceInfo.match(/Sample Rate:\s*(\d+)\s*Hz/);
-        if (sampleMatch) {
-          const rate = parseInt(sampleMatch[1], 10);
-          setMaxSampleRate(rate);
-        }
-      }
+    if (typeof maxSampleRateHz === "number" && Number.isFinite(maxSampleRateHz) && maxSampleRateHz > 0) {
+      setMaxSampleRate(maxSampleRateHz);
     }
+  }, [maxSampleRateHz]);
+
+  useEffect(() => {
+    if (captureFileType === ".napt") {
+      setCaptureEncrypted(true);
+    }
+  }, [captureFileType]);
+
+  // Parse device frequency from deviceInfo for accurate range calculation
+  const deviceFrequency = useMemo(() => {
+    if (!deviceInfo) return null;
+
+    const match = deviceInfo.match(/Freq:\s*(\d+)\s*Hz/);
+    if (match) {
+      const freqHz = parseInt(match[1]);
+      return freqHz / 1_000_000; // Convert to MHz
+    }
+    return null;
   }, [deviceInfo]);
+
+  const captureRange = useMemo(() => {
+    if (!frequencyRange) {
+      return { min: 0, max: 0, segments: [] as Array<{ label: string; min: number; max: number }> };
+    }
+
+    // If frequency range is still the default (0.0-3.2) but we have device frequency, 
+    // adjust to actual device range
+    let adjustedRange = frequencyRange;
+    if (frequencyRange.min === 0.0 && frequencyRange.max === 3.2 && maxSampleRate > 0 && deviceFrequency) {
+      const halfBandwidth = maxSampleRate / 2_000_000; // Convert to MHz
+      adjustedRange = {
+        min: Math.max(0, deviceFrequency - halfBandwidth),
+        max: deviceFrequency + halfBandwidth,
+      };
+    }
+
+    const fallbackA = { label: "A", min: 0.0, max: 4.47 };
+    const fallbackB = { label: "B", min: 24.72, max: 29.88 };
+
+    const findFrameByLabel = (label: string) =>
+      spectrumFrames?.find((f) => f.label.toLowerCase() === label.toLowerCase()) ?? null;
+
+    const frameA = findFrameByLabel("A");
+    const frameB = findFrameByLabel("B");
+
+    const AREA_A = frameA
+      ? { label: "A", min: frameA.min_mhz, max: frameA.max_mhz }
+      : fallbackA;
+    const AREA_B = frameB
+      ? { label: "B", min: frameB.min_mhz, max: frameB.max_mhz }
+      : fallbackB;
+
+    const segments: Array<{ label: string; min: number; max: number }> = [];
+    if (captureOnscreen) segments.push({ label: "Onscreen", min: adjustedRange.min, max: adjustedRange.max });
+    if (captureAreaA) segments.push(AREA_A);
+    if (captureAreaB) segments.push(AREA_B);
+
+    if (segments.length === 0) {
+      segments.push({ label: "Onscreen", min: adjustedRange.min, max: adjustedRange.max });
+    }
+
+    return {
+      min: Math.min(...segments.map((r) => r.min)),
+      max: Math.max(...segments.map((r) => r.max)),
+      segments,
+    };
+  }, [frequencyRange, captureOnscreen, captureAreaA, captureAreaB, maxSampleRate, spectrumFrames, deviceFrequency]);
+
+  const handleCapture = useCallback(() => {
+    // Allow captures in mock mode too (deviceState may be "disconnected" there)
+    if (!isConnected || deviceState === "loading") return;
+    if (!isAuthenticated) return;
+
+    // Validate capture range
+    if (captureRange.min === 0 && captureRange.max === 0) return;
+
+    const jobId = `cap_${Date.now()}`;
+    const req: CaptureRequest = {
+      jobId,
+      minFreq: captureRange.min,
+      maxFreq: captureRange.max,
+      durationS: Math.max(1, Math.round(Number(captureDurationS) || 1)),
+      fileType: captureFileType,
+      encrypted: captureFileType === ".napt" ? true : captureEncrypted,
+      fftSize,
+      fftWindow,
+    };
+    onCaptureCommand(req);
+  }, [
+    isConnected,
+    deviceState,
+    isAuthenticated,
+    captureRange.min,
+    captureRange.max,
+    captureDurationS,
+    captureFileType,
+    captureEncrypted,
+    fftSize,
+    fftWindow,
+    onCaptureCommand,
+  ]);
+
+  const handleSnapshot = useCallback(async () => {
+    // NOTE: Snapshot is client-side and should only reflect what is drawn.
+    // "Whole" snapshots (A/B) will be implemented via server-side stitching later.
+    void snapshotWhole;
+
+    // Find the visible spectrum canvas (WebGPU or 2D fallback)
+    const spectrumWebGPU = document.getElementById("fft-spectrum-canvas-webgpu") as HTMLCanvasElement | null;
+    const spectrum2D = document.getElementById("fft-spectrum-canvas-2d") as HTMLCanvasElement | null;
+    const spectrumCanvas = (spectrumWebGPU?.style.display !== "none" ? spectrumWebGPU : spectrum2D) || spectrumWebGPU || spectrum2D;
+
+    if (!spectrumCanvas) {
+      console.error("Snapshot failed: spectrum canvas not found");
+      alert("Snapshot failed: Canvas not found. Please ensure the FFT display is visible.");
+      return;
+    }
+
+    // Find the visible waterfall canvas (WebGPU or 2D fallback)
+    const waterfallWebGPU = document.getElementById("fft-waterfall-canvas-webgpu") as HTMLCanvasElement | null;
+    const waterfall2D = document.getElementById("fft-waterfall-canvas-2d") as HTMLCanvasElement | null;
+    const waterfallCanvas = (waterfallWebGPU?.style.display !== "none" ? waterfallWebGPU : waterfall2D) || waterfallWebGPU || waterfall2D;
+
+    const outCanvas = document.createElement("canvas");
+    const outW = spectrumCanvas.width;
+    const outH = spectrumCanvas.height + (snapshotShowWaterfall && waterfallCanvas ? waterfallCanvas.height : 0);
+    outCanvas.width = outW;
+    outCanvas.height = outH;
+
+    const ctx = outCanvas.getContext("2d");
+    if (!ctx) return;
+
+    // Draw spectrum
+    ctx.drawImage(spectrumCanvas, 0, 0);
+
+    // Optional stats overlay
+    if (snapshotShowStats && frequencyRange) {
+      const text = `${frequencyRange.min.toFixed(2)}-${frequencyRange.max.toFixed(2)} MHz`;
+      ctx.save();
+      ctx.font = '12px "JetBrains Mono", monospace';
+      ctx.textAlign = "right";
+      ctx.textBaseline = "bottom";
+      const padding = 10;
+      const x = outW - padding;
+      const y = spectrumCanvas.height - padding;
+      const metrics = ctx.measureText(text);
+      const boxW = Math.ceil(metrics.width) + 14;
+      const boxH = 22;
+      ctx.fillStyle = "rgba(0,0,0,0.55)";
+      ctx.fillRect(x - boxW, y - boxH, boxW, boxH);
+      ctx.fillStyle = "#ffffff";
+      ctx.fillText(text, x - 7, y - 5);
+      ctx.restore();
+    }
+
+    // Optional waterfall append
+    if (snapshotShowWaterfall && waterfallCanvas) {
+      ctx.drawImage(waterfallCanvas, 0, spectrumCanvas.height);
+    }
+
+    // Optional grid (best-effort): if disabled, we can't retroactively remove it.
+    // This toggle will become authoritative when snapshot rendering is done from data.
+    void snapshotShowGrid;
+
+    const min = frequencyRange?.min ?? 0;
+    const max = frequencyRange?.max ?? 0;
+    const baseName = `${min.toFixed(2)}-${max.toFixed(2)}MHz`;
+
+    let blob: Blob | null = null;
+    let fileName: string;
+
+    if (snapshotFormat === "svg") {
+      // Convert canvas to SVG
+      const svgNS = "http://www.w3.org/2000/svg";
+      const svg = document.createElementNS(svgNS, "svg");
+      svg.setAttribute("width", outW.toString());
+      svg.setAttribute("height", outH.toString());
+      svg.setAttribute("xmlns", svgNS);
+
+      // Embed the canvas as an image in the SVG
+      const img = document.createElementNS(svgNS, "image");
+      img.setAttribute("width", outW.toString());
+      img.setAttribute("height", outH.toString());
+      img.setAttribute("href", outCanvas.toDataURL("image/png"));
+      svg.appendChild(img);
+
+      const svgString = new XMLSerializer().serializeToString(svg);
+      blob = new Blob([svgString], { type: "image/svg+xml;charset=utf-8" });
+      fileName = `${baseName}.svg`;
+    } else {
+      blob = await new Promise((resolve) => outCanvas.toBlob(resolve, "image/png"));
+      fileName = `${baseName}.png`;
+    }
+
+    if (!blob) {
+      console.error("Snapshot failed: Could not create blob");
+      alert("Snapshot failed: Could not create image file.");
+      return;
+    }
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }, [
+    snapshotWhole,
+    snapshotShowWaterfall,
+    snapshotShowStats,
+    snapshotShowGrid,
+    snapshotFormat,
+    frequencyRange,
+  ]);
 
   // Send initial settings on mount when connected
   const initialSettingsSent = useRef(false);
@@ -523,9 +789,14 @@ const Sidebar: React.FC<SidebarProps> = ({
   // Computed values for file mode
   const fileCapturedRange = useMemo(() => {
     if (sourceMode !== "file" || selectedFiles.length === 0) return null;
+    // .napt files encode metadata internally, not in the filename.
+    // For now, only derive captured range from .c64 filenames.
     let minFreq = Infinity;
     let maxFreq = -Infinity;
     for (const f of selectedFiles) {
+      if (f.name.toLowerCase().endsWith(".napt")) {
+        continue;
+      }
       const match = f.name.match(/iq_(\d+\.?\d*)MHz/);
       if (match) {
         const freq = parseFloat(match[1]);
@@ -536,6 +807,57 @@ const Sidebar: React.FC<SidebarProps> = ({
     if (minFreq === Infinity) return null;
     return { min: Math.max(0, minFreq), max: maxFreq };
   }, [sourceMode, selectedFiles]);
+
+  const selectedNaptFile = useMemo(() => {
+    if (sourceMode !== "file") return null;
+    if (selectedFiles.length !== 1) return null;
+    const f = selectedFiles[0];
+    return f.name.toLowerCase().endsWith(".napt") ? f : null;
+  }, [sourceMode, selectedFiles]);
+
+  const [naptMetadata, setNaptMetadata] = useState<NaptMetadata | null>(null);
+  const [naptMetadataError, setNaptMetadataError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setNaptMetadata(null);
+    setNaptMetadataError(null);
+
+    const run = async () => {
+      if (!selectedNaptFile) return;
+      if (!aesKey) {
+        setNaptMetadataError("Locked (no session key)");
+        return;
+      }
+
+      try {
+        const buf = await selectedNaptFile.file.arrayBuffer();
+        const b64 = new TextDecoder().decode(new Uint8Array(buf)).trim();
+        // Decrypt base64( IV||ciphertext ) → bytes( JSON + '\n' + raw IQ )
+        const bytes = await decryptPayloadBytes(aesKey, b64);
+        const newlineIdx = bytes.indexOf(10);
+        if (newlineIdx <= 0) {
+          throw new Error("Invalid NAPT payload (missing metadata header)");
+        }
+        const metaJson = new TextDecoder().decode(bytes.slice(0, newlineIdx));
+        const meta = JSON.parse(metaJson) as NaptMetadata;
+        if (!cancelled) {
+          setNaptMetadata(meta);
+          setNaptMetadataError(null);
+        }
+      } catch (e: any) {
+        if (!cancelled) {
+          setNaptMetadata(null);
+          setNaptMetadataError(e?.message || "Failed to read NAPT metadata");
+        }
+      }
+    };
+
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedNaptFile, aesKey]);
 
   // Stitcher state (using props to sync with App component)
   const setSelectedFiles = onSelectedFilesChange;
@@ -627,6 +949,36 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <SidebarContainer>
+      {/* Capturing indicator - always visible when capturing */}
+      {captureStatus?.status === "started" && (
+        <div style={{
+          position: "fixed",
+          top: "24px",
+          right: "24px",
+          backgroundColor: "#ff4444",
+          color: "white",
+          padding: "8px 12px",
+          borderRadius: "6px",
+          fontSize: "12px",
+          fontWeight: "600",
+          fontFamily: "JetBrains Mono, monospace",
+          zIndex: 1000,
+          boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
+          display: "flex",
+          alignItems: "center",
+          gap: "8px"
+        }}>
+          <div style={{
+            width: "8px",
+            height: "8px",
+            backgroundColor: "white",
+            borderRadius: "50%",
+            animation: "pulse 1.5s infinite"
+          }} />
+          Capturing... {captureStatus.jobId}
+        </div>
+      )}
+
       <TabContainer>
         <Tab $active={activeTab === "visualizer"} onClick={() => onTabChange("visualizer")}>
           N-APT visualizer
@@ -738,25 +1090,285 @@ const Sidebar: React.FC<SidebarProps> = ({
                 </option>
               </SettingSelect>
             </SettingRow>
-            {sourceMode === "live" && (
-              <SettingRow>
-                <SettingLabelContainer>
-                  <SettingLabel>Status</SettingLabel>
-                </SettingLabelContainer>
-                <SettingValue>
-                  {!isConnected
-                    ? "Unavailable"
-                    : backend === "rtl-sdr"
-                      ? deviceState === "connected"
-                        ? serverPaused
-                          ? "Inactive"
-                          : "Active"
-                        : "Unavailable"
-                      : serverPaused
-                        ? "Inactive"
-                        : "Active"}
-                </SettingValue>
-              </SettingRow>
+          </Section>
+
+          {sourceMode === "live" && (
+            <Section>
+              <SectionTitleCollapsible type="button" onClick={() => setCaptureOpen((p) => !p)}>
+                <SectionTitleLabel>Capture /</SectionTitleLabel>
+                <SectionTitleToggle>{captureOpen ? "-" : "+"}</SectionTitleToggle>
+              </SectionTitleCollapsible>
+
+              {captureOpen && (
+                <CollapsibleBody>
+
+                  <SettingRow>
+                    <SettingLabelContainer>
+                      <SettingLabel>Areas</SettingLabel>
+                    </SettingLabelContainer>
+                    <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                      <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "11px", color: "#ccc" }}>
+                        <input
+                          type="checkbox"
+                          checked={captureOnscreen}
+                          onChange={(e) => setCaptureOnscreen(e.target.checked)}
+                        />
+                        Onscreen
+                      </label>
+                      <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "11px", color: "#ccc" }}>
+                        <input type="checkbox" checked={captureAreaA} onChange={(e) => setCaptureAreaA(e.target.checked)} />
+                        A
+                      </label>
+                      <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "11px", color: "#ccc" }}>
+                        <input type="checkbox" checked={captureAreaB} onChange={(e) => setCaptureAreaB(e.target.checked)} />
+                        B
+                      </label>
+                    </div>
+                  </SettingRow>
+
+                  <SettingRow>
+                    <SettingLabelContainer>
+                      <SettingLabel>Range</SettingLabel>
+                    </SettingLabelContainer>
+                    <SettingValue style={{ whiteSpace: "normal", lineHeight: 1.25 }}>
+                      <div style={{ display: "flex", flexDirection: "column", gap: "2px", alignItems: "flex-end" }}>
+                        {captureRange.segments.map((seg) => (
+                          <div key={seg.label}>
+                            {seg.label}: {seg.min === 0 ? "0kHz" : `${seg.min.toFixed(2)}MHz`} - {seg.max.toFixed(2)}MHz
+                          </div>
+                        ))}
+                      </div>
+                    </SettingValue>
+                  </SettingRow>
+
+                  <SettingRow>
+                    <SettingLabelContainer>
+                      <SettingLabel>Duration</SettingLabel>
+                    </SettingLabelContainer>
+                    <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                      <SettingInput
+                        type="number"
+                        min="1"
+                        step="1"
+                        value={Math.round(captureDurationS)}
+                        onChange={(e) => setCaptureDurationS(parseInt(e.target.value) || 1)}
+                        style={{ width: "60px", MozAppearance: "textfield", WebkitAppearance: "none" } as React.CSSProperties}
+                      />
+                      <span style={{ fontSize: "12px", color: "#ccc", fontWeight: "500" }}>s</span>
+                    </div>
+                  </SettingRow>
+
+                  <SettingRow>
+                    <SettingLabelContainer>
+                      <SettingLabel>File type</SettingLabel>
+                    </SettingLabelContainer>
+                    <SettingSelect
+                      value={captureFileType}
+                      onChange={(e) => setCaptureFileType(e.target.value as CaptureFileType)}
+                      style={{ minWidth: "110px" }}
+                    >
+                      <option value=".napt">.napt</option>
+                      <option value=".c64">.c64</option>
+                    </SettingSelect>
+                  </SettingRow>
+
+                  <SettingRow>
+                    <SettingLabelContainer>
+                      <SettingLabel>Encrypted</SettingLabel>
+                    </SettingLabelContainer>
+                    <ToggleSwitch $disabled={captureFileType === ".napt"}>
+                      <ToggleSwitchInput
+                        type="checkbox"
+                        checked={captureFileType === ".napt" ? true : captureEncrypted}
+                        disabled={captureFileType === ".napt"}
+                        onChange={(e) => setCaptureEncrypted(e.target.checked)}
+                      />
+                      <ToggleSwitchSlider $disabled={captureFileType === ".napt"} />
+                    </ToggleSwitch>
+                  </SettingRow>
+
+                  <SettingRow>
+                    <SettingLabelContainer>
+                      <SettingLabel>Playback</SettingLabel>
+                    </SettingLabelContainer>
+                    <ToggleSwitch>
+                      <ToggleSwitchInput
+                        type="checkbox"
+                        checked={capturePlayback}
+                        onChange={(e) => setCapturePlayback(e.target.checked)}
+                      />
+                      <ToggleSwitchSlider />
+                    </ToggleSwitch>
+                  </SettingRow>
+
+                  <SettingRow>
+                    <SettingLabelContainer>
+                      <SettingLabel>Sample size</SettingLabel>
+                    </SettingLabelContainer>
+                    <SettingValue>{maxSampleRate / 1000000}MHz</SettingValue>
+                  </SettingRow>
+
+                  <PauseButton
+                    $paused={false}
+                    onClick={handleCapture}
+                    disabled={(!isConnected || deviceState === "loading" || !isAuthenticated) || captureStatus?.status === "started"}
+                    style={{
+                      width: "auto",
+                      alignSelf: "flex-end",
+                      marginTop: "8px",
+                      opacity: (!isConnected || deviceState === "loading" || !isAuthenticated) || captureStatus?.status === "started" ? 0.5 : 1,
+                      cursor: (!isConnected || deviceState === "loading" || !isAuthenticated) || captureStatus?.status === "started" ? "not-allowed" : "pointer",
+                    }}
+                  >
+                    {captureStatus?.status === "started" ? "Capturing..." : "Capture"}
+                  </PauseButton>
+
+                  {captureStatus?.status === "started" && (
+                    <SettingRow style={{ marginTop: "12px" }}>
+                      <SettingLabelContainer>
+                        <SettingLabel>Status</SettingLabel>
+                      </SettingLabelContainer>
+                      <SettingValue style={{ color: "#ffaa00" }}>
+                        Capturing... {captureStatus.jobId}
+                      </SettingValue>
+                    </SettingRow>
+                  )}
+
+                  {/* Downloads Section */}
+                  {captureStatus?.status === "done" && captureStatus.downloadUrl && isAuthenticated && (
+                    <div style={{ marginTop: "16px" }}>
+                      <div style={{
+                        fontSize: "11px",
+                        color: "#555",
+                        textTransform: "uppercase",
+                        letterSpacing: "1px",
+                        marginBottom: "8px",
+                        fontWeight: 600,
+                        fontFamily: "JetBrains Mono, monospace"
+                      }}>
+                        Downloads
+                      </div>
+                      <div style={{
+                        padding: "8px 12px",
+                        backgroundColor: "#141414",
+                        borderRadius: "6px",
+                        border: "1px solid #2a2a2a"
+                      }}>
+                        <a
+                          href={`${captureStatus.downloadUrl}&token=${encodeURIComponent(sessionToken || "")}`}
+                          download={captureStatus.filename || "capture"}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{
+                            color: "#00d4ff",
+                            fontSize: "12px",
+                            fontFamily: "JetBrains Mono, monospace",
+                            textDecoration: "none",
+                            display: "block",
+                            wordBreak: "break-all",
+                            maxWidth: "200px",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap"
+                          }}
+                          title={captureStatus.filename || "Download"}
+                        >
+                          {captureStatus.filename || "Download"}
+                        </a>
+                      </div>
+                    </div>
+                  )}
+                </CollapsibleBody>
+              )}
+            </Section>
+          )}
+
+          <Section>
+            <SectionTitleCollapsible type="button" onClick={() => setSnapshotOpen((p) => !p)}>
+              <SectionTitleLabel>Snapshot /</SectionTitleLabel>
+              <SectionTitleToggle>{snapshotOpen ? "-" : "+"}</SectionTitleToggle>
+            </SectionTitleCollapsible>
+
+            {snapshotOpen && (
+              <CollapsibleBody>
+                <SettingRow>
+                  <SettingLabelContainer>
+                    <SettingLabel>Range</SettingLabel>
+                  </SettingLabelContainer>
+                  <SettingSelect
+                    value={snapshotWhole ? "whole" : "onscreen"}
+                    onChange={(e) => setSnapshotWhole(e.target.value === "whole")}
+                    style={{ minWidth: "120px" }}
+                  >
+                    <option value="onscreen">On screen</option>
+                    <option value="whole">Whole</option>
+                  </SettingSelect>
+                </SettingRow>
+
+                <SettingRow>
+                  <SettingLabelContainer>
+                    <SettingLabel>Waterfall</SettingLabel>
+                  </SettingLabelContainer>
+                  <ToggleSwitch>
+                    <ToggleSwitchInput
+                      type="checkbox"
+                      checked={snapshotShowWaterfall}
+                      onChange={(e) => setSnapshotShowWaterfall(e.target.checked)}
+                    />
+                    <ToggleSwitchSlider />
+                  </ToggleSwitch>
+                </SettingRow>
+
+                <SettingRow>
+                  <SettingLabelContainer>
+                    <SettingLabel>Grid</SettingLabel>
+                  </SettingLabelContainer>
+                  <ToggleSwitch>
+                    <ToggleSwitchInput
+                      type="checkbox"
+                      checked={snapshotShowGrid}
+                      onChange={(e) => setSnapshotShowGrid(e.target.checked)}
+                    />
+                    <ToggleSwitchSlider />
+                  </ToggleSwitch>
+                </SettingRow>
+
+                <SettingRow>
+                  <SettingLabelContainer>
+                    <SettingLabel>Stats</SettingLabel>
+                  </SettingLabelContainer>
+                  <ToggleSwitch>
+                    <ToggleSwitchInput
+                      type="checkbox"
+                      checked={snapshotShowStats}
+                      onChange={(e) => setSnapshotShowStats(e.target.checked)}
+                    />
+                    <ToggleSwitchSlider />
+                  </ToggleSwitch>
+                </SettingRow>
+
+                <SettingRow>
+                  <SettingLabelContainer>
+                    <SettingLabel>Format</SettingLabel>
+                  </SettingLabelContainer>
+                  <SettingSelect
+                    value={snapshotFormat}
+                    onChange={(e) => setSnapshotFormat(e.target.value as "png" | "svg")}
+                    style={{ minWidth: "110px" }}
+                  >
+                    <option value="png">PNG</option>
+                    <option value="svg">SVG</option>
+                  </SettingSelect>
+                </SettingRow>
+
+                <PauseButton
+                  $paused={false}
+                  onClick={handleSnapshot}
+                  style={{ width: "100%", marginTop: "8px" }}
+                >
+                  Save snapshot
+                </PauseButton>
+              </CollapsibleBody>
             )}
           </Section>
 
@@ -771,7 +1383,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                   <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                     <input
                       type="file"
-                      accept=".c64"
+                      accept=".c64,.napt"
                       multiple
                       style={{
                         display: "none",
@@ -897,6 +1509,79 @@ const Sidebar: React.FC<SidebarProps> = ({
                       </PauseButton>
                     </div>
                   </Section>
+
+                  {selectedNaptFile && (
+                    <Section>
+                      <SectionTitle $fileMode>NAPT metadata</SectionTitle>
+                      <SettingRow>
+                        <SettingLabelContainer>
+                          <SettingLabel>File</SettingLabel>
+                        </SettingLabelContainer>
+                        <SettingValue>{selectedNaptFile.name}</SettingValue>
+                      </SettingRow>
+                      <SettingRow>
+                        <SettingLabelContainer>
+                          <SettingLabel>Status</SettingLabel>
+                        </SettingLabelContainer>
+                        <SettingValue>
+                          {naptMetadata
+                            ? "Unlocked"
+                            : naptMetadataError
+                              ? naptMetadataError
+                              : "Loading..."}
+                        </SettingValue>
+                      </SettingRow>
+                      {naptMetadata && (
+                        <>
+                          <SettingRow>
+                            <SettingLabelContainer>
+                              <SettingLabel>Sample rate</SettingLabel>
+                            </SettingLabelContainer>
+                            <SettingValue>
+                              {typeof naptMetadata.sample_rate === "number"
+                                ? `${(naptMetadata.sample_rate / 1_000_000).toFixed(3)} MHz`
+                                : "—"}
+                            </SettingValue>
+                          </SettingRow>
+                          <SettingRow>
+                            <SettingLabelContainer>
+                              <SettingLabel>Center</SettingLabel>
+                            </SettingLabelContainer>
+                            <SettingValue>
+                              {typeof naptMetadata.center_frequency === "number"
+                                ? `${naptMetadata.center_frequency.toFixed(3)} MHz`
+                                : "—"}
+                            </SettingValue>
+                          </SettingRow>
+                          <SettingRow>
+                            <SettingLabelContainer>
+                              <SettingLabel>Range</SettingLabel>
+                            </SettingLabelContainer>
+                            <SettingValue>
+                              {Array.isArray(naptMetadata.frequency_range)
+                                ? `${naptMetadata.frequency_range[0].toFixed(3)}-${naptMetadata.frequency_range[1].toFixed(3)} MHz`
+                                : "—"}
+                            </SettingValue>
+                          </SettingRow>
+                          <SettingRow>
+                            <SettingLabelContainer>
+                              <SettingLabel>FFT</SettingLabel>
+                            </SettingLabelContainer>
+                            <SettingValue>
+                              {naptMetadata.fft?.size ? naptMetadata.fft.size : "—"}
+                              {naptMetadata.fft?.window ? ` / ${naptMetadata.fft.window}` : ""}
+                            </SettingValue>
+                          </SettingRow>
+                          <SettingRow>
+                            <SettingLabelContainer>
+                              <SettingLabel>Timestamp</SettingLabel>
+                            </SettingLabelContainer>
+                            <SettingValue>{naptMetadata.timestamp_utc || "—"}</SettingValue>
+                          </SettingRow>
+                        </>
+                      )}
+                    </Section>
+                  )}
                 </>
               )}
             </>
@@ -905,59 +1590,34 @@ const Sidebar: React.FC<SidebarProps> = ({
           {sourceMode === "live" && (
             <Section>
               <SectionTitle>Signal areas of interest</SectionTitle>
-              <FrequencyRangeSlider
-                label="A"
-                minFreq={0}
-                maxFreq={4.47}
-                visibleMin={0}
-                visibleMax={3.2}
-                isActive={activeSignalArea === "A"}
-                onActivate={() => onSignalAreaChange?.("A")}
-                onRangeChange={handleAreaARangeChange}
-                isDeviceConnected={deviceState === "connected"}
-                externalFrequencyRange={activeSignalArea === "A" ? frequencyRange : undefined}
-              />
-              <FrequencyRangeSlider
-                label="B"
-                minFreq={24.72}
-                maxFreq={29.88}
-                visibleMin={26}
-                visibleMax={28.2}
-                isActive={activeSignalArea === "B"}
-                onActivate={() => onSignalAreaChange?.("B")}
-                onRangeChange={handleAreaBRangeChange}
-                isDeviceConnected={deviceState === "connected"}
-                externalFrequencyRange={activeSignalArea === "B" ? frequencyRange : undefined}
-              />
-              <SettingRow style={{ marginTop: "16px" }}>
-                <SettingLabelContainer>
-                  <SettingLabel>
-                    Signal features
-                    <span style={{ marginLeft: "4px", fontSize: "10px" }}>/</span>
-                  </SettingLabel>
-                  <InfoPopover
-                    title="Signal Features"
-                    content="Advanced frequency analysis to detect heterodyning patterns and other signal characteristics using machine learning."
+              {(Array.isArray(spectrumFrames) && spectrumFrames.length > 0
+                ? spectrumFrames
+                : [
+                  { id: "frame_a", label: "A", min_mhz: 0.0, max_mhz: 4.47, description: "" },
+                  { id: "frame_b", label: "B", min_mhz: 24.72, max_mhz: 29.88, description: "" },
+                ]
+              ).map((frame) => {
+                const label = frame.label;
+                const min = frame.min_mhz;
+                const max = frame.max_mhz;
+                const span = max - min;
+                const window = Math.min(3.2, Math.max(0.2, span));
+                return (
+                  <FrequencyRangeSlider
+                    key={frame.id}
+                    label={label}
+                    minFreq={min}
+                    maxFreq={max}
+                    visibleMin={min}
+                    visibleMax={min + window}
+                    isActive={activeSignalArea === label}
+                    onActivate={() => onSignalAreaChange?.(label)}
+                    onRangeChange={label === "A" ? handleAreaARangeChange : handleAreaBRangeChange}
+                    isDeviceConnected={deviceState === "connected"}
+                    externalFrequencyRange={activeSignalArea === label ? frequencyRange : undefined}
                   />
-                </SettingLabelContainer>
-                <PauseButton
-                  $paused={false}
-                  onClick={() => {
-                    // TODO: Implement heterodyning detection
-                    console.log("Verify heterodyning clicked");
-                  }}
-                  disabled={!isConnected || deviceState !== "connected"}
-                  style={{
-                    fontSize: "11px",
-                    padding: "6px 12px",
-                    minWidth: "120px",
-                    opacity: !isConnected || deviceState !== "connected" ? 0.5 : 1,
-                    cursor: !isConnected || deviceState !== "connected" ? "not-allowed" : "pointer",
-                  }}
-                >
-                  Verify heterodyning
-                </PauseButton>
-              </SettingRow>
+                );
+              })}
             </Section>
           )}
 
@@ -995,6 +1655,35 @@ const Sidebar: React.FC<SidebarProps> = ({
                 </PauseButton>
               </div>
             </SettingRow>
+            <SettingRow>
+              <SettingLabelContainer>
+                <SettingLabel>Heterodyned?</SettingLabel>
+                <InfoPopover
+                  title="Heterodyning Detection"
+                  content="Advanced frequency analysis to detect heterodyning patterns in the signal using machine learning."
+                />
+              </SettingLabelContainer>
+              <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                <SettingValue>No</SettingValue>
+                <PauseButton
+                  $paused={false}
+                  onClick={() => {
+                    // TODO: Implement heterodyning detection
+                    console.log("Verify heterodyning clicked");
+                  }}
+                  disabled={!isConnected || deviceState !== "connected"}
+                  style={{
+                    fontSize: "11px",
+                    padding: "6px 12px",
+                    minWidth: "80px",
+                    opacity: !isConnected || deviceState !== "connected" ? 0.5 : 1,
+                    cursor: !isConnected || deviceState !== "connected" ? "not-allowed" : "pointer",
+                  }}
+                >
+                  Verify
+                </PauseButton>
+              </div>
+            </SettingRow>
           </Section>
 
           <Section>
@@ -1012,7 +1701,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                   ? fileCapturedRange
                     ? `${(fileCapturedRange.max - fileCapturedRange.min).toFixed(2)}MHz`
                     : "No files"
-                  : `${(maxSampleRate / 1000000).toFixed(1)}MHz (max)`}
+                  : `${(maxSampleRate / 1000000).toFixed(1)}MHz`}
               </SettingValue>
             </SettingRow>
             {sourceMode === "file" && fileCapturedRange && (
@@ -1212,9 +1901,10 @@ const Sidebar: React.FC<SidebarProps> = ({
               <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
                 <SettingInput
                   type="number"
+                  step="1"
                   value={sourceMode === "file" ? stitchSourceSettings.gain : gain}
                   onChange={(e) => {
-                    const raw = Number(e.target.value);
+                    const raw = Math.round(Number(e.target.value));
                     if (sourceMode === "file") {
                       onStitchSourceSettingsChange({ ...stitchSourceSettings, gain: raw || 0 });
                     } else {
@@ -1223,10 +1913,9 @@ const Sidebar: React.FC<SidebarProps> = ({
                       sendCurrentSettings({ gain: val });
                     }
                   }}
-                  step="0.1"
                   min="0"
                   max={sourceMode === "file" ? undefined : "49.6"}
-                  style={{ width: "60px" }}
+                  style={{ width: "60px", MozAppearance: "textfield", WebkitAppearance: "none" } as React.CSSProperties}
                 />
                 <span style={{ fontSize: "12px", color: "#ccc", fontWeight: "500" }}>dB</span>
               </div>

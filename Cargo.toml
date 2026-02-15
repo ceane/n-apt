@@ -17,6 +17,11 @@ path = "src/server/main.rs"
 name = "fft_processor_tests"
 path = "test/rust/fft_processor_tests.rs"
 
+[[test]]
+name = "wasm_tests"
+path = "test/wasm/src/lib.rs"
+harness = false
+
 [dependencies]
 # Core dependencies (always included)
 rustfft = "6"
@@ -24,6 +29,8 @@ num-complex = "0.4"
 rand = "0.8"
 getrandom = { version = "0.2", features = ["js"] }
 anyhow = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 
 # WASM dependencies (only when targeting WASM)
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -35,8 +42,6 @@ web-sys = { version = "0.3", features = ["console"] }
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio = { version = "1.0", features = ["full"] }
 tokio-tungstenite = "0.20"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
 # RTL-SDR: linked via build.rs FFI (librtlsdr)
 log = "0.4"
 env_logger = "0.10"
@@ -48,6 +53,7 @@ hmac = "0.12"
 sha2 = "0.10"
 pbkdf2 = { version = "0.12", features = ["simple"] }
 base64 = "0.22"
+zip = { version = "2", default-features = false, features = ["deflate"] }
 # HTTP client for CoreML service communication
 reqwest = { version = "0.11", features = ["json"] }
 # HTTP + WebSocket server (axum replaces raw TcpListener + tokio-tungstenite)
@@ -60,6 +66,9 @@ webauthn-rs-proto = "0.5"
 # Session management
 uuid = { version = "1", features = ["v4"] }
 url = "2"
+# Hot reloading and configuration
+notify = "6.0"
+serde_yaml = "0.9"
 
 [dev-dependencies]
 doc-comment = "0.3"
@@ -75,10 +84,22 @@ wasm-bindgen-test = "0.3"
 host = "127.0.0.1"
 port = 8765
 
-# WASM SIMD configuration
-[target.wasm32-unknown-unknown]
-rustflags = ["-C", "target-feature=+simd128"]
-
 [profile.release]
 opt-level = 3
 lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+overflow-checks = false
+
+[profile.dev]
+opt-level = 1
+incremental = true
+debug = true
+
+[profile.dev-fast]
+inherits = "dev"
+opt-level = 1
+debug = false
+incremental = true
+codegen-units = 16

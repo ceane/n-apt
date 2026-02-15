@@ -47,7 +47,7 @@ impl Default for EnhancedFFTConfig {
             fft_size: NUM_SAMPLES,
             sample_rate: SAMPLE_RATE,
             gain: 1.0,
-            ppm: 0.0,
+            ppm: 1.0,
             fft_min: -80.0,
             fft_max: 0.0,
             waterfall_min: -80.0,
