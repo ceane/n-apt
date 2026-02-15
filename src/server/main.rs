@@ -1853,6 +1853,68 @@ impl WebSocketServer {
                   processor.capture_buffer.extend_from_slice(&mock_iq);
                 }
                 
+                // --- Capture: check duration and save file (mock mode) ---
+                if processor.capture_active {
+                  if let Some(start) = processor.capture_start {
+                    let elapsed = start.elapsed().as_secs_f64();
+                    // Add a small buffer to ensure capture terminates even if data flow stops
+                    let timeout_duration = processor.capture_duration_s + 5.0; // 5 second buffer
+                    
+                    if elapsed >= processor.capture_duration_s {
+                      let job_id = processor.capture_job_id.clone().unwrap_or_default();
+                      info!("Mock capture complete: job_id={}, duration={}s, buffer_size={} bytes",
+                        job_id, elapsed, processor.capture_buffer.len());
+                      
+                      // Save capture file
+                      match save_capture_file(
+                        &job_id,
+                        &processor.capture_buffer,
+                        &processor.capture_file_type,
+                        processor.capture_encrypted,
+                        &io_shared.encryption_key,
+                      ) {
+                        Ok(artifact) => {
+                          io_shared.capture_artifacts.lock().unwrap()
+                            .entry(job_id.clone())
+                            .or_insert_with(Vec::new)
+                            .push(artifact.clone());
+                          
+                          // Broadcast success status
+                          let status = serde_json::json!({
+                            "message_type": "capture_status",
+                            "job_id": job_id,
+                            "status": "done",
+                            "filename": artifact.filename,
+                            "download_url": format!("/capture/download?jobId={}", job_id),
+                            "file_count": 1,
+                          });
+                          if let Ok(json) = serde_json::to_string(&status) {
+                            let _ = io_broadcast_tx.send(json);
+                          }
+                        }
+                        Err(e) => {
+                          error!("Failed to save capture file: {}", e);
+                          let status = serde_json::json!({
+                            "message_type": "capture_status",
+                            "job_id": job_id,
+                            "status": "failed",
+                            "error": e,
+                          });
+                          if let Ok(json) = serde_json::to_string(&status) {
+                            let _ = io_broadcast_tx.send(json);
+                          }
+                        }
+                      }
+                      
+                      // Reset capture state
+                      processor.capture_active = false;
+                      processor.capture_job_id = None;
+                      processor.capture_start = None;
+                      processor.capture_buffer.clear();
+                    }
+                  }
+                }
+                
                 if has_clients && !is_paused {
                   *io_shared.latest_spectrum.lock().unwrap() = Some((spectrum.clone(), true));
                   let payload_spectrum = downsample_spectrum(&spectrum, SERVER_SPECTRUM_BINS);
@@ -2528,7 +2590,9 @@ async fn handle_ws_connection(
             // Status messages must remain plaintext so the frontend can react
             // immediately (connected/loading/disconnected/stale) without needing
             // to decrypt them.
-            if plaintext_json.contains("\"message_type\":\"status\"") {
+            // Capture status messages also need to be plaintext for the frontend
+            // to handle capture state updates properly.
+            if plaintext_json.contains("\"message_type\":\"status\"") || plaintext_json.contains("\"message_type\":\"capture_status\"") {
               if ws_sender.send(Message::Text(plaintext_json)).await.is_err() {
                 break;
               }

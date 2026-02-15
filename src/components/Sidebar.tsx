@@ -1189,39 +1189,37 @@ const Sidebar: React.FC<SidebarProps> = ({
 
                   <SettingRow>
                     <SettingLabelContainer>
-                      <SettingLabel>Playback</SettingLabel>
-                    </SettingLabelContainer>
-                    <ToggleSwitch>
-                      <ToggleSwitchInput
-                        type="checkbox"
-                        checked={capturePlayback}
-                        onChange={(e) => setCapturePlayback(e.target.checked)}
-                      />
-                      <ToggleSwitchSlider />
-                    </ToggleSwitch>
-                  </SettingRow>
-
-                  <SettingRow>
-                    <SettingLabelContainer>
                       <SettingLabel>Sample size</SettingLabel>
                     </SettingLabelContainer>
                     <SettingValue>{maxSampleRate / 1000000}MHz</SettingValue>
                   </SettingRow>
 
-                  <PauseButton
-                    $paused={false}
-                    onClick={handleCapture}
-                    disabled={(!isConnected || deviceState === "loading" || !isAuthenticated) || captureStatus?.status === "started"}
-                    style={{
-                      width: "auto",
-                      alignSelf: "flex-end",
-                      marginTop: "8px",
-                      opacity: (!isConnected || deviceState === "loading" || !isAuthenticated) || captureStatus?.status === "started" ? 0.5 : 1,
-                      cursor: (!isConnected || deviceState === "loading" || !isAuthenticated) || captureStatus?.status === "started" ? "not-allowed" : "pointer",
-                    }}
-                  >
-                    {captureStatus?.status === "started" ? "Capturing..." : "Capture"}
-                  </PauseButton>
+                  <div style={{ display: "flex", gap: "8px", alignItems: "center", marginTop: "8px" }}>
+                    <PauseButton
+                      $paused={false}
+                      onClick={handleCapture}
+                      disabled={(!isConnected || deviceState === "loading" || !isAuthenticated) || captureStatus?.status === "started"}
+                      style={{
+                        flex: "1",
+                        opacity: (!isConnected || deviceState === "loading" || !isAuthenticated) || captureStatus?.status === "started" ? 0.5 : 1,
+                        cursor: (!isConnected || deviceState === "loading" || !isAuthenticated) || captureStatus?.status === "started" ? "not-allowed" : "pointer",
+                      }}
+                    >
+                      {captureStatus?.status === "started" ? "Capturing..." : "Capture"}
+                    </PauseButton>
+
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                      <input
+                        type="checkbox"
+                        checked={capturePlayback}
+                        onChange={(e) => setCapturePlayback(e.target.checked)}
+                        style={{ margin: 0 }}
+                      />
+                      <label style={{ fontSize: "11px", color: "#ccc", whiteSpace: "nowrap", margin: 0 }}>
+                        Playback after capture
+                      </label>
+                    </div>
+                  </div>
 
                   {captureStatus?.status === "started" && (
                     <SettingRow style={{ marginTop: "12px" }}>
