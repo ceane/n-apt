@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from "react"
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import {
   BrowserRouter as Router,
   useLocation,
@@ -14,7 +14,7 @@ import HumanModelViewer from "@n-apt/components/HumanModelViewer"
 import HotspotEditor from "@n-apt/components/HotspotEditor"
 import FFTStitcherCanvas from "@n-apt/components/FFTStitcherCanvas"
 import Decode from "@n-apt/components/Decode"
-import { useWebSocket, FrequencyRange } from "@n-apt/hooks/useWebSocket"
+import { useWebSocket, FrequencyRange, SpectrumFrame } from "@n-apt/hooks/useWebSocket"
 import { deriveAesKey } from "@n-apt/crypto/webcrypto"
 import {
   getStoredSession,
@@ -144,6 +144,13 @@ export const AppContent: React.FC = () => {
     min: 0.0,
     max: 3.2,
   })
+
+  const [spectrumFrames, setSpectrumFrames] = useState<SpectrumFrame[]>([])
+
+  const defaultFrames = useMemo(() => {
+    if (Array.isArray(spectrumFrames) && spectrumFrames.length > 0) return spectrumFrames
+    return []
+  }, [spectrumFrames])
   const [displayTemporalResolution, setDisplayTemporalResolution] = useState<
     "low" | "medium" | "high"
   >("medium")
@@ -215,7 +222,7 @@ export const AppContent: React.FC = () => {
 
       // No valid session - fetch auth info (are passkeys registered?)
       // Use a shorter timeout for backend check
-      const backendTimeout = new Promise((_, reject) => 
+      const backendTimeout = new Promise((_, reject) =>
         setTimeout(() => reject(new Error("Backend timeout")), 3000)
       )
 
@@ -249,14 +256,22 @@ export const AppContent: React.FC = () => {
     deviceLoadingReason,
     backend,
     deviceInfo,
+    maxSampleRateHz,
     serverPaused,
     data,
+    captureStatus,
+    spectrumFrames: wsSpectrumFrames,
     sendFrequencyRange,
     sendPauseCommand,
     sendSettings,
     sendRestartDevice,
     sendTrainingCommand,
+    sendCaptureCommand,
   } = useWebSocket(wsUrl, aesKey, isAuthenticated)
+
+  useEffect(() => {
+    setSpectrumFrames(wsSpectrumFrames)
+  }, [wsSpectrumFrames])
 
   // Auth handlers
   const handlePasswordAuth = useCallback(async (password: string) => {
@@ -384,7 +399,7 @@ export const AppContent: React.FC = () => {
   useEffect(() => {
     const prevIsVisualizer = prevIsVisualizerRef.current
     prevIsVisualizerRef.current = isVisualizer
-    
+
     // Only send pause command when visualizer state actually changes
     if (prevIsVisualizer !== isVisualizer && isConnected) {
       sendPauseCommand(!isVisualizer)
@@ -393,7 +408,7 @@ export const AppContent: React.FC = () => {
         setVisualizerPaused(true)
       }
     }
-    
+
     // Pause stitcher canvas when leaving visualizer tab (any main tab change)
     if (prevIsVisualizer !== isVisualizer) {
       setIsStitchPaused(!isVisualizer)
@@ -401,20 +416,20 @@ export const AppContent: React.FC = () => {
   }, [isVisualizer, isConnected, mainTab, sendPauseCommand])
 
   const handleVisualizerPauseToggle = useCallback(() => {
-    setVisualizerPaused((p) => !p)
-  }, [])
+    const newPausedState = !visualizerPaused
+    setVisualizerPaused(newPausedState)
+    if (isConnected) {
+      sendPauseCommand(newPausedState)
+    }
+  }, [visualizerPaused, isConnected, sendPauseCommand])
 
   const handleSignalAreaChange = (area: string) => {
     // Only reset frequency range when switching to a different area
     if (area !== activeSignalArea) {
       setActiveSignalArea(area)
-      // Update frequency range based on selected area
-      if (area === "A") {
-        const nextRange = { min: 0.0, max: 3.2 }
-        setFrequencyRange(nextRange)
-        sendFrequencyRange(nextRange)
-      } else if (area === "B") {
-        const nextRange = { min: 26.0, max: 28.2 }
+      const frame = defaultFrames.find((f: SpectrumFrame) => f.label.toLowerCase() === area.toLowerCase())
+      if (frame) {
+        const nextRange = { min: frame.min_mhz, max: Math.min(frame.max_mhz, frame.min_mhz + 3.2) }
         setFrequencyRange(nextRange)
         sendFrequencyRange(nextRange)
       }
@@ -432,7 +447,7 @@ export const AppContent: React.FC = () => {
     [sendFrequencyRange],
   )
 
-  
+
   const renderContent = () => {
     switch (mainTab) {
       case "Spectrum":
@@ -454,6 +469,12 @@ export const AppContent: React.FC = () => {
                 serverPaused={serverPaused}
                 backend={backend}
                 deviceInfo={deviceInfo}
+                maxSampleRateHz={maxSampleRateHz}
+                sessionToken={sessionToken}
+                aesKey={aesKey}
+                captureStatus={captureStatus}
+                onCaptureCommand={sendCaptureCommand}
+                spectrumFrames={defaultFrames}
                 activeTab={activeTab}
                 onTabChange={handleSidebarTabChange}
                 sourceMode={sourceMode}

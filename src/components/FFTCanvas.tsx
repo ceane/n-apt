@@ -114,20 +114,22 @@ const SectionTitle = styled.div`
 `;
 
 const CanvasWrapper = styled.div`
-  flex: 1;
   position: relative;
-  background-color: #0a0a0a;
+  flex: 1;
+  min-height: 0;
   border: 1px solid ${CANVAS_BORDER_COLOR};
   border-radius: 8px;
   overflow: hidden;
+  background-color: ${FFT_CANVAS_BG};
 `;
 
 const CanvasLayer = styled.canvas`
   position: absolute;
-  inset: 0;
+  top: 0;
+  left: 0;
   width: 100%;
   height: 100%;
-  display: block;
+  pointer-events: none;
 `;
 
 /**
@@ -197,9 +199,9 @@ const FFTCanvas = ({
     }
   };
 
-  // Frame buffering for smooth rendering
+  // Frame buffering for smooth rendering - optimized for memory
   const frameBufferRef = useRef<Float32Array[]>([]);
-  const maxFrameBufferSize = 3;
+  const maxFrameBufferSize = 3; // Optimized memory usage with cleanup
   const frameDropCounterRef = useRef(0);
   const animationFrameRef = useRef<number | null>(null);
   const animationRunIdRef = useRef(0);
@@ -211,6 +213,32 @@ const FFTCanvas = ({
   const frequencyRangeRef = useRef<FrequencyRange>(frequencyRange);
   const centerFreqRef = useRef(centerFrequencyMHz);
   centerFreqRef.current = centerFrequencyMHz;
+
+
+  // Memory cleanup function
+  const performMemoryCleanup = useCallback(() => {
+    // Clear frame buffer if it's getting too large
+    const frameBuffer = frameBufferRef.current;
+    if (frameBuffer.length > maxFrameBufferSize) {
+      const excess = frameBuffer.splice(maxFrameBufferSize);
+      excess.forEach(arr => arr.fill(0));
+    }
+
+    // Clear waterfall buffer if it's excessive
+    if (waterfallBufferRef.current && waterfallDimsRef.current) {
+      const { width, height } = waterfallDimsRef.current;
+      const expectedSize = width * height * 4;
+      if (waterfallBufferRef.current.length > expectedSize * 1.5) {
+        returnBufferToPool(waterfallBufferRef.current);
+        waterfallBufferRef.current = getBufferFromPool(expectedSize);
+      }
+    }
+
+    // Clear unused references
+    if (waveformFloatRef.current && !dataRef.current?.waveform) {
+      waveformFloatRef.current = null;
+    }
+  }, []);
 
   // Mouse drag state for frequency adjustment
   const isDraggingRef = useRef(false);
@@ -308,15 +336,8 @@ const FFTCanvas = ({
       }
     };
 
-    const handleMouseUp = () => {
-      const canvas = getActiveSpectrumCanvas();
-      if (isDraggingRef.current && canvas) {
-        canvas.style.cursor = "grab";
-      }
-      isDraggingRef.current = false;
-    };
-
     const handleMouseDown = (e: MouseEvent) => {
+      console.log("VFO: handleMouseDown fired", e);
       const canvas = getActiveSpectrumCanvas();
       if (!canvas) return;
 
@@ -325,20 +346,27 @@ const FFTCanvas = ({
       // Only start drag if clicking in the frequency axis area (bottom 60px)
       const height = rect.height;
       const y = e.clientY - rect.top;
+      console.log("VFO: Click position", { y, height, inDragArea: y >= height - 60 });
       if (y >= height - 60) {
         isDraggingRef.current = true;
         dragStartXRef.current = e.clientX;
         dragStartFreqRef.current = frequencyRangeRef.current.min;
         canvas.style.cursor = "grabbing";
+        console.log("VFO: Drag started");
       }
     };
 
-    const handleCanvasMouseMove = (e: MouseEvent) => {
+    const handleMouseUp = () => {
       const canvas = getActiveSpectrumCanvas();
-      if (!canvas || isDraggingRef.current) return;
-      const rect = canvas.getBoundingClientRect();
-      const y = e.clientY - rect.top;
-      canvas.style.cursor = y >= rect.height - 60 ? "grab" : "default";
+      if (isDraggingRef.current && canvas) {
+        canvas.style.cursor = "grab";
+      }
+      isDraggingRef.current = false;
+    };
+
+    const handleMouseEnter = () => {
+      const canvas = getActiveSpectrumCanvas();
+      if (canvas && !isDraggingRef.current) canvas.style.cursor = "grab";
     };
 
     const handleMouseLeave = () => {
@@ -347,10 +375,18 @@ const FFTCanvas = ({
     };
 
     const canvas = getActiveSpectrumCanvas();
+    console.log("VFO: Setting up event listeners", {
+      canvas: !!canvas,
+      spectrumWebgpuEnabled,
+      gpuCanvas: !!spectrumGpuCanvasRef.current,
+      canvas2d: !!spectrumCanvasRef.current
+    });
     if (canvas) {
+      console.log("VFO: Adding mousedown listener to canvas");
       canvas.addEventListener("mousedown", handleMouseDown);
-      canvas.addEventListener("mousemove", handleCanvasMouseMove);
+      canvas.addEventListener("mouseenter", handleMouseEnter);
       canvas.addEventListener("mouseleave", handleMouseLeave);
+      canvas.style.cursor = "grab";
     }
 
     window.addEventListener("mousemove", handleMouseMove);
@@ -359,7 +395,7 @@ const FFTCanvas = ({
     return () => {
       if (canvas) {
         canvas.removeEventListener("mousedown", handleMouseDown);
-        canvas.removeEventListener("mousemove", handleCanvasMouseMove);
+        canvas.removeEventListener("mouseenter", handleMouseEnter);
         canvas.removeEventListener("mouseleave", handleMouseLeave);
       }
       window.removeEventListener("mousemove", handleMouseMove);
@@ -560,12 +596,9 @@ const FFTCanvas = ({
       let resampled: number[];
       if (sdrProcessor && spectrumData.length >= 4) {
         // Use WASM SIMD resampling for maximum performance
-        resampled = new Array(waterfallWidth);
-        const float32Input = new Float32Array(spectrumData);
         const float32Output = new Float32Array(waterfallWidth);
-
         try {
-          sdrProcessor.resample_spectrum(float32Input, float32Output, waterfallWidth);
+          sdrProcessor.resample_spectrum(new Float32Array(spectrumData), float32Output, waterfallWidth);
           resampled = Array.from(float32Output);
         } catch (error) {
           console.warn("WASM SIMD resampling failed, using fallback:", error);
@@ -744,7 +777,7 @@ const FFTCanvas = ({
    * @returns Resampled data array
    */
   const performScalarResampling = (spectrumData: number[], waterfallWidth: number): number[] => {
-    const resampled: number[] = new Array(waterfallWidth);
+    const resampled = Array.from({ length: waterfallWidth }, () => 0);
     const srcLen = spectrumData.length;
     for (let x = 0; x < waterfallWidth; x++) {
       const start = Math.floor((x * srcLen) / waterfallWidth);
@@ -818,19 +851,37 @@ const FFTCanvas = ({
         waveformFloatRef.current = waveform;
         lastProcessedDataRef.current = currentData;
 
-        // Add frame to buffer for smooth rendering
+        // Add frame to buffer for smooth rendering - reuse arrays to save memory
         const frameBuffer = frameBufferRef.current;
-        frameBuffer.push(new Float32Array(waveform));
+        let newFrame: Float32Array;
+
+        if (frameBuffer.length > 0 && frameBuffer[0].length === waveform.length) {
+          // Reuse existing array to minimize memory allocation
+          newFrame = frameBuffer.shift()!;
+          newFrame.set(waveform);
+        } else {
+          // Create new array only when necessary
+          newFrame = new Float32Array(waveform);
+        }
+
+        frameBuffer.push(newFrame);
 
         // Keep buffer size limited
         if (frameBuffer.length > maxFrameBufferSize) {
-          frameBuffer.shift();
+          const dropped = frameBuffer.shift();
+          if (dropped) {
+            dropped.fill(0); // Clear dropped array to help GC
+          }
           frameDropCounterRef.current++;
         }
 
         if (displayTemporalResolution === "high") {
           const prev = renderWaveformRef.current;
           if (!prev || prev.length !== waveform.length) {
+            // Clear previous buffer before creating new one
+            if (prev) {
+              prev.fill(0);
+            }
             renderWaveformRef.current = new Float32Array(waveform);
           } else {
             prev.set(waveform);
@@ -839,6 +890,10 @@ const FFTCanvas = ({
           const alpha = displayTemporalResolution === "low" ? 0.15 : 0.4;
           const prev = renderWaveformRef.current;
           if (!prev || prev.length !== waveform.length) {
+            // Clear previous buffer before creating new one
+            if (prev) {
+              prev.fill(0);
+            }
             renderWaveformRef.current = new Float32Array(waveform);
           } else {
             for (let i = 0; i < waveform.length; i++) {
@@ -864,6 +919,12 @@ const FFTCanvas = ({
 
       waveformFloatRef.current = waveform;
       lastProcessedDataRef.current = currentData;
+
+      // Clear previous buffer before creating new one
+      const prev = renderWaveformRef.current;
+      if (prev) {
+        prev.fill(0);
+      }
       renderWaveformRef.current = new Float32Array(waveform);
     }
 
@@ -883,6 +944,10 @@ const FFTCanvas = ({
           !spectrumResampleBufRef.current ||
           spectrumResampleBufRef.current.length !== displayWidth
         ) {
+          // Clear old buffer before creating new one
+          if (spectrumResampleBufRef.current) {
+            spectrumResampleBufRef.current.fill(0);
+          }
           spectrumResampleBufRef.current = new Float32Array(displayWidth);
         }
         const outBuf = spectrumResampleBufRef.current;
@@ -923,10 +988,11 @@ const FFTCanvas = ({
             post: markersOverlayRendererRef.current,
           },
         );
-      } else if (spectrumCanvas) {
-        // Use 2D fallback
+      }
+
+      // Always maintain a 2D shadow render (used for snapshot export)
+      if (spectrumCanvas) {
         renderSpectrum(spectrumCanvas, Array.from(waveform));
-        // Draw markers on top of the 2D-rendered spectrum
         const ctx2d = spectrumCanvas.getContext("2d");
         if (ctx2d) {
           const r = spectrumCanvas.parentElement?.getBoundingClientRect();
@@ -950,7 +1016,6 @@ const FFTCanvas = ({
           if (dims) {
             let resampled: number[];
             if (sdrProcessor && waveform.length >= 4) {
-              resampled = new Array(dims.width);
               const float32Output = new Float32Array(dims.width);
               try {
                 sdrProcessor.resample_spectrum(waveform, float32Output, dims.width);
@@ -981,7 +1046,10 @@ const FFTCanvas = ({
               }
             }
           }
-        } else if (waterfallCanvas) {
+        }
+
+        // Always maintain a 2D shadow render for snapshot export
+        if (waterfallCanvas) {
           renderWaterfall(waterfallCanvas, Array.from(waveform));
         }
       } else if (waterfallCanvas && waterfallBufferRef.current) {
@@ -1040,7 +1108,16 @@ const FFTCanvas = ({
 
   useEffect(() => {
     dataRef.current = data;
-  }, [data]);
+
+    // Perform periodic memory cleanup
+    const cleanupInterval = setInterval(() => {
+      performMemoryCleanup();
+    }, 10000); // Every 10 seconds
+
+    return () => {
+      clearInterval(cleanupInterval);
+    };
+  }, [data, performMemoryCleanup]);
 
   useEffect(() => {
     // Update frequency range ref for new lines only
@@ -1211,10 +1288,12 @@ const FFTCanvas = ({
         <CanvasWrapper>
           <CanvasLayer
             ref={spectrumGpuCanvasRef}
+            id="fft-spectrum-canvas-webgpu"
             style={{ display: spectrumWebgpuEnabled ? "block" : "none", zIndex: 0 }}
           />
           <CanvasLayer
             ref={spectrumCanvasRef}
+            id="fft-spectrum-canvas-2d"
             style={{ display: spectrumWebgpuEnabled ? "none" : "block", zIndex: 0 }}
           />
         </CanvasWrapper>
@@ -1224,10 +1303,12 @@ const FFTCanvas = ({
         <CanvasWrapper>
           <CanvasLayer
             ref={waterfallGpuCanvasRef}
+            id="fft-waterfall-canvas-webgpu"
             style={{ display: webgpuEnabled ? "block" : "none", zIndex: 0 }}
           />
           <CanvasLayer
             ref={waterfallCanvasRef}
+            id="fft-waterfall-canvas-2d"
             style={{ display: webgpuEnabled ? "none" : "block", zIndex: 0 }}
           />
         </CanvasWrapper>

@@ -65,14 +65,21 @@ export async function computeHmac(passkey: string, nonceBase64: string): Promise
  * Returns the decrypted plaintext as a string.
  */
 export async function decryptPayload(aesKey: CryptoKey, encryptedBase64: string): Promise<string> {
+  const bytes = await decryptPayloadBytes(aesKey, encryptedBase64);
+  return new TextDecoder().decode(bytes);
+}
+
+export async function decryptPayloadBytes(
+  aesKey: CryptoKey,
+  encryptedBase64: string,
+): Promise<Uint8Array> {
   const data = base64ToBytes(encryptedBase64);
 
   const iv = data.slice(0, IV_LENGTH);
   const ciphertext = data.slice(IV_LENGTH);
 
   const decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, aesKey, ciphertext);
-
-  return new TextDecoder().decode(decrypted);
+  return new Uint8Array(decrypted);
 }
 
 // ── Base64 helpers ──────────────────────────────────────────────────

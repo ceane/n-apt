@@ -1,6 +1,18 @@
-//! Raw FFI bindings to librtlsdr
+//! Raw FFI (Foreign Function Interface) bindings to librtlsdr
 //!
-//! These map directly to the C API in rtl-sdr.h
+//! FFI is a mechanism that allows code written in one programming language (Rust)
+//! to call and be called by code written in another language (C). In this module,
+//! we define Rust function signatures that map directly to the C API functions
+//! provided by the librtlsdr library.
+//!
+//! These bindings are "unsafe" because Rust cannot guarantee the memory safety
+//! of C code. The librtlsdr C library manages its own memory and follows C
+//! conventions, so we must use unsafe blocks to call these functions.
+//!
+//! The RTL-SDR device is a USB radio tuner that can be used for software-defined
+//! radio applications. The librtlsdr C library provides the low-level interface
+//! for communicating with the hardware, and these FFI bindings expose that
+//! functionality to Rust code.
 
 use std::os::raw::{c_char, c_int, c_void};
 

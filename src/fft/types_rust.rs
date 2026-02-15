@@ -45,7 +45,7 @@ impl Default for FFTConfig {
   fn default() -> Self {
     Self {
       fft_size: NUM_SAMPLES,
-      gain: 49.0,
+      gain: 49.6,
       ppm: 1.0,
       sample_rate: SAMPLE_RATE,
     }

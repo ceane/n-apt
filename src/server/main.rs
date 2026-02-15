@@ -9,12 +9,14 @@ use futures_util::{SinkExt, StreamExt};
 use log::{debug, error, info, warn};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
 use tower_http::cors::CorsLayer;
 use webauthn_rs::prelude::*;
+use notify::{RecursiveMode, Watcher};
 
 use n_apt_backend::consts::rs::fft::{FFT_MAX_DB, FFT_MIN_DB, NUM_SAMPLES, SAMPLE_RATE};
 use n_apt_backend::consts::rs::mock::{
@@ -48,6 +50,65 @@ const DEVICE_PROBE_INTERVAL: Duration = Duration::from_millis(200);
 
 const DISCONNECT_DEBOUNCE_STREAK: u32 = 3;
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SpectrumFramesConfig {
+  frames: HashMap<String, SpectrumFrameConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SpectrumFrameConfig {
+  label: String,
+  #[serde(rename = "freq_range_mhz")]
+  freq_range_mhz: Vec<f64>,
+  description: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SpectrumFrameMessage {
+  id: String,
+  label: String,
+  min_mhz: f64,
+  max_mhz: f64,
+  description: String,
+}
+
+fn load_spectrum_frames() -> Vec<SpectrumFrameMessage> {
+  let content = match std::fs::read_to_string("spectrum_frames.yaml") {
+    Ok(c) => c,
+    Err(_) => return Vec::new(),
+  };
+
+  let parsed = match serde_yaml::from_str::<SpectrumFramesConfig>(&content) {
+    Ok(p) => p,
+    Err(e) => {
+      warn!("Failed to parse spectrum_frames.yaml: {}", e);
+      return Vec::new();
+    }
+  };
+
+  let mut out = Vec::new();
+  for (id, f) in parsed.frames {
+    if f.freq_range_mhz.len() < 2 {
+      continue;
+    }
+    let min_mhz = f.freq_range_mhz[0];
+    let max_mhz = f.freq_range_mhz[1];
+    if !(min_mhz.is_finite() && max_mhz.is_finite() && max_mhz > min_mhz) {
+      continue;
+    }
+    out.push(SpectrumFrameMessage {
+      id,
+      label: f.label,
+      min_mhz,
+      max_mhz,
+      description: f.description,
+    });
+  }
+
+  out.sort_by(|a, b| a.min_mhz.partial_cmp(&b.min_mhz).unwrap_or(std::cmp::Ordering::Equal));
+  out
+}
+
 fn reconcile_device_state(device_connected: bool, device_state: &str) -> String {
   if device_connected && device_state == "disconnected" {
     "connected".to_string()
@@ -68,6 +129,51 @@ fn next_missing_device_probe_streak(prev: u32, device_count: u32) -> u32 {
 
 fn should_declare_disconnected(missing_streak: u32) -> bool {
   missing_streak >= DISCONNECT_DEBOUNCE_STREAK
+}
+
+/// Save capture IQ data to a file (.c64 or encrypted .napt)
+fn save_capture_file(
+  job_id: &str,
+  iq_data: &[u8],
+  file_type: &str,
+  encrypted: bool,
+  encryption_key: &[u8; 32],
+) -> Result<CaptureArtifact, String> {
+  use std::io::Write;
+  
+  // Create temp directory if it doesn't exist
+  let temp_dir = std::path::PathBuf::from("/tmp/n-apt-captures");
+  std::fs::create_dir_all(&temp_dir).map_err(|e| format!("Failed to create temp dir: {}", e))?;
+  
+  let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S").to_string();
+  let filename = if encrypted && file_type == ".napt" {
+    format!("capture_{}_{}.napt", job_id, timestamp)
+  } else {
+    format!("capture_{}_{}.c64", job_id, timestamp)
+  };
+  
+  let path = temp_dir.join(&filename);
+  
+  if encrypted && file_type == ".napt" {
+    // Encrypt the IQ data using AES-256-GCM
+    let encrypted_payload = crypto::encrypt_payload(encryption_key, iq_data)
+      .map_err(|e| format!("Encryption failed: {}", e))?;
+    
+    // Write encrypted data
+    let mut file = std::fs::File::create(&path)
+      .map_err(|e| format!("Failed to create file: {}", e))?;
+    file.write_all(encrypted_payload.as_bytes())
+      .map_err(|e| format!("Failed to write file: {}", e))?;
+  } else {
+    // Write raw IQ data
+    let mut file = std::fs::File::create(&path)
+      .map_err(|e| format!("Failed to create file: {}", e))?;
+    file.write_all(iq_data)
+      .map_err(|e| format!("Failed to write file: {}", e))?;
+  }
+  
+  info!("Saved capture file: {}", path.display());
+  Ok(CaptureArtifact { filename, path })
 }
 
 #[cfg(test)]
@@ -124,6 +230,16 @@ enum SdrCommand {
   RestartDevice,
   StartTraining { label: String, signal_area: String },
   StopTraining,
+  StartCapture {
+    job_id: String,
+    min_freq: f64,
+    max_freq: f64,
+    duration_s: f64,
+    file_type: String,
+    encrypted: bool,
+    fft_size: usize,
+    fft_window: String,
+  },
   ApplySettings {
     fft_size: Option<usize>,
     fft_window: Option<String>,
@@ -168,6 +284,14 @@ struct WebSocketMessage {
   signal_area: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none")]
   action: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "jobId")]
+  job_id: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "durationS")]
+  duration_s: Option<f64>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "fileType")]
+  file_type: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  encrypted: Option<bool>,
 }
 
 /// Spectrum data message sent to clients
@@ -191,6 +315,8 @@ struct StatusMessage {
   backend: String,
   device_info: String,
   max_sample_rate: u32,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  spectrum_frames: Option<Vec<SpectrumFrameMessage>>,
 }
 
 /// Structured signal pattern for consistent waterfall visualization
@@ -278,6 +404,20 @@ struct SDRProcessor {
   training_stitcher: Option<SignalStitcher>,
   /// Accumulated completed training samples (flushed to CoreML service)
   training_samples: Vec<n_apt_backend::stitching::TrainingSample>,
+  /// Whether capture is active
+  capture_active: bool,
+  /// Current capture job ID
+  capture_job_id: Option<String>,
+  /// Capture start time
+  capture_start: Option<Instant>,
+  /// Capture duration in seconds
+  capture_duration_s: f64,
+  /// Capture file type (".c64" or ".napt")
+  capture_file_type: String,
+  /// Whether capture should be encrypted
+  capture_encrypted: bool,
+  /// Accumulated IQ samples for capture
+  capture_buffer: Vec<u8>,
 }
 
 impl SDRProcessor {
@@ -304,7 +444,18 @@ impl SDRProcessor {
       training_signal_area: None,
       training_stitcher: None,
       training_samples: Vec::new(),
+      capture_active: false,
+      capture_job_id: None,
+      capture_start: None,
+      capture_duration_s: 0.0,
+      capture_file_type: String::new(),
+      capture_encrypted: false,
+      capture_buffer: Vec::new(),
     };
+    // Initialize FFT processor config with default PPM
+    let mut config = processor.fft_processor.config().clone();
+    config.ppm = 1.0;
+    processor.fft_processor.update_config(config);
     processor.initialize_mock_signals();
     processor
   }
@@ -370,6 +521,13 @@ impl SDRProcessor {
           if let Err(e) = dev.set_tuner_gain(496) {
             warn!("Failed to set gain: {}. Continuing with default.", e);
           }
+          // Default PPM correction: 1
+          if let Err(e) = dev.set_freq_correction(self.cached_ppm) {
+            warn!("Failed to set PPM correction: {}. Continuing with default.", e);
+          } else {
+            let actual_ppm = dev.get_freq_correction();
+            info!("PPM correction set to {}, device reports: {}", self.cached_ppm, actual_ppm);
+          }
           if let Err(e) = dev.set_agc_mode(false) {
             warn!("Failed to disable AGC: {}", e);
           }
@@ -422,6 +580,12 @@ impl SDRProcessor {
         }
         if let Err(e) = dev.set_tuner_gain(self.cached_gain_tenths) {
           warn!("Failed to set gain: {}. Continuing with default.", e);
+        }
+        if let Err(e) = dev.set_freq_correction(self.cached_ppm) {
+          warn!("Failed to set PPM correction: {}. Continuing with default.", e);
+        } else {
+          let actual_ppm = dev.get_freq_correction();
+          info!("PPM correction set to {}, device reports: {}", self.cached_ppm, actual_ppm);
         }
         if let Err(e) = dev.set_agc_mode(false) {
           warn!("Failed to disable AGC: {}", e);
@@ -894,8 +1058,20 @@ impl SDRProcessor {
         self.training_stitcher = None;
         info!("Training stopped. Total samples collected: {}", self.training_samples.len());
       }
-      SdrCommand::ApplySettings { fft_size, fft_window, frame_rate, gain, ppm, tuner_agc, rtl_agc } => {
-        if let Err(e) = self.apply_settings(fft_size, fft_window, frame_rate, gain, ppm, tuner_agc, rtl_agc) {
+      SdrCommand::StartCapture { job_id, min_freq, max_freq, duration_s, file_type, encrypted, fft_size: _, fft_window: _ } => {
+        info!("Capture started: job_id={}, range={}-{} MHz, duration={}s, type={}, encrypted={}",
+          job_id, min_freq, max_freq, duration_s, file_type, encrypted);
+        self.capture_active = true;
+        self.capture_job_id = Some(job_id.clone());
+        self.capture_start = Some(Instant::now());
+        self.capture_duration_s = duration_s;
+        self.capture_file_type = file_type;
+        self.capture_encrypted = encrypted;
+        self.capture_buffer.clear();
+        // Note: fft_size and fft_window are for future use if we want to change settings during capture
+      }
+      SdrCommand::ApplySettings { fft_size, fft_window, frame_rate, gain, ppm, tuner_agc: _, rtl_agc: _ } => {
+        if let Err(e) = self.apply_settings(fft_size, fft_window, frame_rate, gain, ppm, None, None) {
           warn!("Failed to apply settings: {}", e);
         }
       }
@@ -933,6 +1109,16 @@ struct SharedState {
   encryption_key: [u8; 32],
   /// Pending auth challenges: challenge_id → (nonce_bytes, created_at)
   pending_challenges: std::sync::Mutex<std::collections::HashMap<String, ([u8; 32], Instant)>>,
+  /// Spectrum frames configuration loaded from spectrum_frames.yaml
+  spectrum_frames: std::sync::Mutex<Vec<SpectrumFrameMessage>>,
+  /// Capture artifacts: job_id → list of (filename, temp_path)
+  capture_artifacts: std::sync::Mutex<std::collections::HashMap<String, Vec<CaptureArtifact>>>,
+}
+
+#[derive(Debug, Clone)]
+struct CaptureArtifact {
+  filename: String,
+  path: std::path::PathBuf,
 }
 
 /// WebSocket server that handles client connections and broadcasts spectrum data.
@@ -971,7 +1157,58 @@ impl WebSocketServer {
       device_state: std::sync::Mutex::new("disconnected".to_string()),
       encryption_key,
       pending_challenges: std::sync::Mutex::new(std::collections::HashMap::new()),
+      spectrum_frames: std::sync::Mutex::new(load_spectrum_frames()),
+      capture_artifacts: std::sync::Mutex::new(std::collections::HashMap::new()),
     });
+
+    // Hot reload spectrum_frames.yaml (no restart needed)
+    {
+      let frames_shared = shared.clone();
+      let frames_broadcast_tx = broadcast_tx.clone();
+      std::thread::Builder::new()
+        .name("spectrum-frames-watcher".into())
+        .spawn(move || {
+          let (watch_tx, watch_rx) = std::sync::mpsc::channel();
+          let mut watcher = match notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
+            if let Ok(event) = res {
+              let _ = watch_tx.send(event);
+            }
+          }) {
+            Ok(w) => w,
+            Err(e) => {
+              warn!("Failed to init spectrum_frames watcher: {}", e);
+              return;
+            }
+          };
+
+          if let Err(e) = watcher.watch(std::path::Path::new("spectrum_frames.yaml"), RecursiveMode::NonRecursive) {
+            warn!("Failed to watch spectrum_frames.yaml: {}", e);
+            return;
+          }
+
+          while let Ok(event) = watch_rx.recv() {
+            if matches!(event.kind, notify::EventKind::Modify(_)) {
+              let next = load_spectrum_frames();
+              *frames_shared.spectrum_frames.lock().unwrap() = next;
+
+              let status_message = serde_json::json!({
+                "message_type": "status",
+                "device_connected": frames_shared.device_connected.load(Ordering::Relaxed),
+                "device_info": frames_shared.device_info.lock().unwrap().clone(),
+                "device_loading": *frames_shared.device_loading.lock().unwrap(),
+                "device_loading_reason": frames_shared.device_loading_reason.lock().unwrap().clone(),
+                "device_state": frames_shared.device_state.lock().unwrap().clone(),
+                "paused": frames_shared.is_paused.load(Ordering::Relaxed),
+                "max_sample_rate": 3_200_000,
+                "spectrum_frames": frames_shared.spectrum_frames.lock().unwrap().clone(),
+                "backend": if frames_shared.device_connected.load(Ordering::Relaxed) { "rtl-sdr" } else { "mock" }
+              });
+              let _ = frames_broadcast_tx.send(status_message.to_string());
+            }
+          }
+        })
+        .ok();
+    }
 
     // Spawn the dedicated I/O thread — FFT processing + command handling happens here.
     // A separate reader thread runs rtlsdr_read_async to keep the USB stream alive.
@@ -991,21 +1228,9 @@ impl WebSocketServer {
           let device_loading_reason = shared.device_loading_reason.lock().unwrap().clone();
           let paused = shared.is_paused.load(Ordering::Relaxed);
 
-          let max_sample_rate = if device_connected {
-            device_info
-              .split("max: ")
-              .nth(1)
-              .and_then(|s| s.split(" Hz").next())
-              .and_then(|s| s.parse::<u32>().ok())
-              .unwrap_or(3_200_000)
-          } else {
-            device_info
-              .split("Sample Rate: ")
-              .nth(1)
-              .and_then(|s| s.split(" Hz").next())
-              .and_then(|s| s.parse::<u32>().ok())
-              .unwrap_or(3_200_000)
-          };
+          // Frontend depends on this value being stable/authoritative.
+          // Avoid parsing a human-readable device string.
+          let max_sample_rate = SAMPLE_RATE;
 
           let device_state = shared.device_state.lock().unwrap().clone();
 
@@ -1018,6 +1243,7 @@ impl WebSocketServer {
             "device_state": device_state,
             "paused": paused,
             "max_sample_rate": max_sample_rate,
+            "spectrum_frames": shared.spectrum_frames.lock().unwrap().clone(),
             "backend": if device_connected { "rtl-sdr" } else { "mock" }
           });
 
@@ -1235,6 +1461,45 @@ impl WebSocketServer {
               SdrCommand::SetFrequency(f) => {
                 latest_freq = Some(f);
               }
+              SdrCommand::StartCapture {
+                job_id,
+                min_freq,
+                max_freq,
+                duration_s,
+                file_type,
+                encrypted,
+                fft_size,
+                fft_window,
+              } => {
+                let job_id_cloned = job_id.clone();
+                info!("About to handle capture command and broadcast status");
+                processor.handle_command(SdrCommand::StartCapture {
+                  job_id,
+                  min_freq,
+                  max_freq,
+                  duration_s,
+                  file_type,
+                  encrypted,
+                  fft_size,
+                  fft_window,
+                });
+
+                // Broadcast immediate status so UI can show the red-dot indicator
+                info!("Preparing to broadcast capture started status for job_id: {}", job_id_cloned);
+                let status = serde_json::json!({
+                  "message_type": "capture_status",
+                  "job_id": job_id_cloned,
+                  "status": "started",
+                });
+                if let Ok(json) = serde_json::to_string(&status) {
+                  info!("Broadcasting capture started status: {}", json);
+                  if let Err(e) = io_broadcast_tx.send(json) {
+                    error!("Failed to broadcast capture status: {}", e);
+                  } else {
+                    info!("Successfully broadcasted capture started status");
+                  }
+                }
+              }
               SdrCommand::RestartDevice => {
                 restart_requested = true;
               }
@@ -1373,7 +1638,13 @@ impl WebSocketServer {
             let mut reader_disconnected = false;
             loop {
               match rx.try_recv() {
-                Ok(chunk) => processor.iq_accumulator.extend_from_slice(&chunk),
+                Ok(chunk) => {
+                  processor.iq_accumulator.extend_from_slice(&chunk);
+                  // If capture is active, also accumulate raw IQ samples
+                  if processor.capture_active {
+                    processor.capture_buffer.extend_from_slice(&chunk);
+                  }
+                }
                 Err(std::sync::mpsc::TryRecvError::Empty) => break,
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => {
                   reader_disconnected = true;
@@ -1449,6 +1720,89 @@ impl WebSocketServer {
                 }
               }
 
+              // --- Capture: check duration and save file ---
+              if processor.capture_active {
+                if let Some(start) = processor.capture_start {
+                  let elapsed = start.elapsed().as_secs_f64();
+                  // Add a small buffer to ensure capture terminates even if data flow stops
+                  let timeout_duration = processor.capture_duration_s + 5.0; // 5 second buffer
+                  
+                  if elapsed >= processor.capture_duration_s {
+                    let job_id = processor.capture_job_id.clone().unwrap_or_default();
+                    info!("Capture complete: job_id={}, duration={}s, buffer_size={} bytes",
+                      job_id, elapsed, processor.capture_buffer.len());
+                    
+                    // Save capture file
+                    match save_capture_file(
+                      &job_id,
+                      &processor.capture_buffer,
+                      &processor.capture_file_type,
+                      processor.capture_encrypted,
+                      &io_shared.encryption_key,
+                    ) {
+                      Ok(artifact) => {
+                        io_shared.capture_artifacts.lock().unwrap()
+                          .entry(job_id.clone())
+                          .or_insert_with(Vec::new)
+                          .push(artifact.clone());
+                        
+                        // Broadcast success status
+                        let status = serde_json::json!({
+                          "message_type": "capture_status",
+                          "job_id": job_id,
+                          "status": "done",
+                          "filename": artifact.filename,
+                          "download_url": format!("/capture/download?jobId={}", job_id),
+                          "file_count": 1,
+                        });
+                        if let Ok(json) = serde_json::to_string(&status) {
+                          let _ = io_broadcast_tx.send(json);
+                        }
+                      }
+                      Err(e) => {
+                        error!("Failed to save capture file: {}", e);
+                        let status = serde_json::json!({
+                          "message_type": "capture_status",
+                          "job_id": job_id,
+                          "status": "failed",
+                          "error": e,
+                        });
+                        if let Ok(json) = serde_json::to_string(&status) {
+                          let _ = io_broadcast_tx.send(json);
+                        }
+                      }
+                    }
+                    
+                    // Reset capture state
+                    processor.capture_active = false;
+                    processor.capture_job_id = None;
+                    processor.capture_start = None;
+                    processor.capture_buffer.clear();
+                  } else if elapsed >= timeout_duration {
+                    // Force terminate if we've exceeded the timeout buffer
+                    let job_id = processor.capture_job_id.clone().unwrap_or_default();
+                    warn!("Capture timeout: job_id={}, elapsed={}s, forcing termination", job_id, elapsed);
+                    
+                    // Broadcast timeout status
+                    let status = serde_json::json!({
+                      "message_type": "capture_status",
+                      "job_id": job_id,
+                      "status": "failed",
+                      "error": format!("Capture timed out after {:.1}s", elapsed),
+                    });
+                    if let Ok(json) = serde_json::to_string(&status) {
+                      let _ = io_broadcast_tx.send(json);
+                    }
+                    
+                    // Reset capture state
+                    processor.capture_active = false;
+                    processor.capture_job_id = None;
+                    processor.capture_start = None;
+                    processor.capture_buffer.clear();
+                  }
+                }
+              }
+
               if has_clients && !is_paused {
                 *io_shared.latest_spectrum.lock().unwrap() = Some((spectrum.clone(), false));
                 let payload_spectrum = downsample_spectrum(&spectrum, SERVER_SPECTRUM_BINS);
@@ -1481,6 +1835,24 @@ impl WebSocketServer {
                   *io_shared.device_state.lock().unwrap() = "disconnected".to_string();
                   send_status_update(&io_shared, &io_broadcast_tx);
                 }
+                
+                // If capture is active in mock mode, generate synthetic IQ data
+                if processor.capture_active {
+                  // Generate synthetic IQ samples (8-bit unsigned, I/Q interleaved)
+                  // For mock mode, we'll generate NUM_SAMPLES worth of IQ data per frame
+                  let iq_bytes_per_frame = NUM_SAMPLES * 2; // 2 bytes per complex sample (I, Q)
+                  let mut mock_iq = vec![128u8; iq_bytes_per_frame]; // Center at 128 (zero)
+                  
+                  // Add some variation to make it realistic
+                  use rand::Rng;
+                  let mut rng = rand::thread_rng();
+                  for byte in mock_iq.iter_mut() {
+                    *byte = (*byte as i16 + rng.gen_range(-20..20)) as u8;
+                  }
+                  
+                  processor.capture_buffer.extend_from_slice(&mock_iq);
+                }
+                
                 if has_clients && !is_paused {
                   *io_shared.latest_spectrum.lock().unwrap() = Some((spectrum.clone(), true));
                   let payload_spectrum = downsample_spectrum(&spectrum, SERVER_SPECTRUM_BINS);
@@ -1571,6 +1943,8 @@ impl WebSocketServer {
       .route("/ws", get(ws_upgrade_handler))
       // Status endpoint (no auth required)
       .route("/status", get(status_handler))
+      // Capture download endpoint (requires valid session token)
+      .route("/capture/download", get(capture_download_handler))
       .layer(cors)
       .with_state(app_state);
 
@@ -1950,6 +2324,115 @@ async fn status_handler(
   }))
 }
 
+// ── Capture download endpoint ──────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+struct CaptureDownloadParams {
+  token: String,
+  #[serde(rename = "jobId")]
+  job_id: String,
+}
+
+/// GET /capture/download?token=<session_token>&jobId=<job_id>
+/// Returns captured file(s). If multiple files, returns a ZIP archive.
+async fn capture_download_handler(
+  Query(params): Query<CaptureDownloadParams>,
+  State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+  // Validate session token
+  if state.session_store.validate(&params.token).is_none() {
+    return (StatusCode::UNAUTHORIZED, "Invalid or expired session token").into_response();
+  }
+
+  // Get capture artifacts for this job
+  let artifacts = {
+    let artifacts_map = state.shared.capture_artifacts.lock().unwrap();
+    match artifacts_map.get(&params.job_id) {
+      Some(artifacts) => artifacts.clone(),
+      None => {
+        return (StatusCode::NOT_FOUND, "Capture job not found or not completed").into_response();
+      }
+    }
+  };
+
+  if artifacts.is_empty() {
+    return (StatusCode::NOT_FOUND, "No artifacts found for this capture job").into_response();
+  }
+
+  // If single file, return it directly
+  if artifacts.len() == 1 {
+    let artifact = &artifacts[0];
+    match tokio::fs::read(&artifact.path).await {
+      Ok(data) => {
+        let content_type = if artifact.filename.ends_with(".napt") {
+          "application/octet-stream"
+        } else {
+          "application/octet-stream"
+        };
+        
+        return (
+          StatusCode::OK,
+          [
+            ("Content-Type", content_type),
+            ("Content-Disposition", &format!("attachment; filename=\"{}\"", artifact.filename)),
+          ],
+          data,
+        ).into_response();
+      }
+      Err(e) => {
+        error!("Failed to read capture file: {}", e);
+        return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to read capture file").into_response();
+      }
+    }
+  }
+
+  // Multiple files: create ZIP archive
+  use std::io::Write;
+  let mut zip_buffer = std::io::Cursor::new(Vec::new());
+  {
+    let mut zip = zip::ZipWriter::new(&mut zip_buffer);
+    let options: zip::write::FileOptions<()> = zip::write::FileOptions::default()
+      .compression_method(zip::CompressionMethod::Deflated)
+      .unix_permissions(0o644);
+
+    for artifact in &artifacts {
+      match std::fs::read(&artifact.path) {
+        Ok(data) => {
+          if let Err(e) = zip.start_file(&artifact.filename, options) {
+            error!("Failed to add file to ZIP: {}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to create ZIP archive").into_response();
+          }
+          if let Err(e) = zip.write_all(&data) {
+            error!("Failed to write file to ZIP: {}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to create ZIP archive").into_response();
+          }
+        }
+        Err(e) => {
+          error!("Failed to read capture file for ZIP: {}", e);
+          return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to read capture file").into_response();
+        }
+      }
+    }
+
+    if let Err(e) = zip.finish() {
+      error!("Failed to finalize ZIP: {}", e);
+      return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to create ZIP archive").into_response();
+    }
+  }
+
+  let zip_data = zip_buffer.into_inner();
+  let zip_filename = format!("capture_{}.zip", params.job_id);
+
+  (
+    StatusCode::OK,
+    [
+      ("Content-Type", "application/zip"),
+      ("Content-Disposition", &format!("attachment; filename=\"{}\"", zip_filename)),
+    ],
+    zip_data,
+  ).into_response()
+}
+
 // ── WebSocket upgrade handler ──────────────────────────────────────────
 
 /// GET /ws?token=<session_token> — upgrade to WebSocket after validating session.
@@ -2026,6 +2509,7 @@ async fn handle_ws_connection(
     "device_state": device_state,
     "paused": paused,
     "max_sample_rate": max_sample_rate,
+    "spectrum_frames": shared.spectrum_frames.lock().unwrap().clone(),
     "backend": if device_connected { "rtl-sdr" } else { "mock" }
   });
 
@@ -2152,6 +2636,32 @@ fn handle_message(
           }
           _ => {
             debug!("Unknown training action: {}", action);
+          }
+        }
+      }
+    }
+    "capture" => {
+      if let Some(action) = message.action.as_deref() {
+        if action == "start" {
+          if let (Some(job_id), Some(min_freq), Some(max_freq), Some(duration_s), Some(file_type)) = 
+            (message.job_id, message.min_freq, message.max_freq, message.duration_s, message.file_type) {
+            let encrypted = message.encrypted.unwrap_or(false);
+            let fft_size = message.fft_size.unwrap_or(NUM_SAMPLES);
+            let fft_window = message.fft_window.unwrap_or_else(|| "hann".to_string());
+            
+            info!("Client requested capture: job_id={}, range={}-{} MHz, duration={}s, type={}, encrypted={}",
+              job_id, min_freq, max_freq, duration_s, file_type, encrypted);
+            
+            let _ = cmd_tx.send(SdrCommand::StartCapture {
+              job_id,
+              min_freq,
+              max_freq,
+              duration_s,
+              file_type,
+              encrypted,
+              fft_size,
+              fft_window,
+            });
           }
         }
       }

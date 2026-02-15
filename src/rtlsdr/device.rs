@@ -53,6 +53,7 @@ impl RtlSdrDevice {
                 ret
             ));
         }
+        
         info!("Opened RTL-SDR device #{}: {}", index, Self::get_device_name(index));
         Ok(Self {
             dev,

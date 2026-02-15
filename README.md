@@ -32,9 +32,26 @@ npm install
 
 ### Running the App
 
+#### For Development (Recommended)
+```bash
+npm run dev:hot
+```
+
+#### For Fast Development (Backend Only)
+```bash
+npm run dev:fast
+```
+
+#### For Full Development (Includes WASM Build)
 ```bash
 npm run dev
 ```
+
+**Development Features:**
+- 🚀 Fast Rust builds with incremental compilation
+- 🔄 Hot reload for signal configuration (`mock_signals.yaml`)
+- ⚡ Real-time configuration changes without server restart
+- 📊 WebSocket reload command: `{"type":"reload_config"}`
 
 This command will:
 
@@ -42,8 +59,13 @@ This command will:
 2. **Avoid interfering** with other Vite instances or applications
 3. **Start fresh servers** to prevent port conflicts
 4. **Launch both** the Rust backend and Vite frontend concurrently
+5. **Enable hot reload** for configuration changes (dev modes)
 
 The app will be available at `http://localhost:5173` with the WebSocket server running on `ws://localhost:8765`.
+
+> **💡 Tip:** Use `npm run dev:hot` for the best development experience with hot reloading enabled.
+
+For detailed development instructions, see [DEVELOPMENT.md](DEVELOPMENT.md).
 
 I only have on person captures (within the `iq-samples` dir), however in the future I'll be sure to add near and 1 or 2m away captures (as long as my cord can do), as well as some captures from suspected endpoints.
 

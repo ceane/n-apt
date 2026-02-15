@@ -17,8 +17,38 @@ export type SDRSettings = {
   rtlAGC?: boolean;
 };
 
+export type CaptureFileType = ".napt" | ".c64";
+
+export type CaptureRequest = {
+  jobId: string;
+  minFreq: number;
+  maxFreq: number;
+  durationS: number;
+  fileType: CaptureFileType;
+  encrypted: boolean;
+  fftSize: number;
+  fftWindow: string;
+};
+
+export type CaptureStatus = {
+  jobId: string;
+  status: "started" | "failed" | "done";
+  error?: string;
+  downloadUrl?: string;
+  filename?: string;
+  fileCount?: number;
+} | null;
+
 export type DeviceState = "connected" | "loading" | "disconnected" | "stale" | null;
 export type DeviceLoadingReason = "connect" | "restart" | null;
+
+export type SpectrumFrame = {
+  id: string;
+  label: string;
+  min_mhz: number;
+  max_mhz: number;
+  description: string;
+};
 
 export type WebSocketData = {
   isConnected: boolean;
@@ -28,12 +58,16 @@ export type WebSocketData = {
   serverPaused: boolean;
   backend: string | null;
   deviceInfo: string | null;
+  maxSampleRateHz: number | null;
   data: any;
+  spectrumFrames: SpectrumFrame[];
+  captureStatus: CaptureStatus;
   error: string | null;
   sendFrequencyRange: (range: FrequencyRange) => void;
   sendPauseCommand: (isPaused: boolean) => void;
   sendSettings: (settings: SDRSettings) => void;
   sendRestartDevice: () => void;
+  sendCaptureCommand: (req: CaptureRequest) => void;
   sendTrainingCommand: (
     action: "start" | "stop",
     label: "target" | "noise",
@@ -66,7 +100,10 @@ export const useWebSocket = (
   const [serverPaused, setServerPaused] = useState(false);
   const [backend, setBackend] = useState<string | null>(null);
   const [deviceInfo, setDeviceInfo] = useState<string | null>(null);
+  const [maxSampleRateHz, setMaxSampleRateHz] = useState<number | null>(null);
   const [data, setData] = useState<any>(null);
+  const [spectrumFrames, setSpectrumFrames] = useState<SpectrumFrame[]>([]);
+  const [captureStatus, setCaptureStatus] = useState<CaptureStatus>(null);
   const [error, setError] = useState<string | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
@@ -127,8 +164,32 @@ export const useWebSocket = (
                 if (typeof parsedData.device_info === "string") {
                   setDeviceInfo(parsedData.device_info);
                 }
+                if (typeof parsedData.max_sample_rate === "number") {
+                  setMaxSampleRateHz(parsedData.max_sample_rate);
+                }
                 if (typeof parsedData.device_state === "string") {
                   setDeviceState(parsedData.device_state as DeviceState);
+                }
+                if (Array.isArray(parsedData.spectrum_frames)) {
+                  const next: SpectrumFrame[] = parsedData.spectrum_frames
+                    .filter((f: any) => f && typeof f.id === "string")
+                    .map((f: any) => ({
+                      id: f.id,
+                      label: typeof f.label === "string" ? f.label : "",
+                      min_mhz: Number(f.min_mhz),
+                      max_mhz: Number(f.max_mhz),
+                      description: typeof f.description === "string" ? f.description : "",
+                    }))
+                    .filter(
+                      (f: SpectrumFrame) =>
+                        typeof f.label === "string" &&
+                        f.label.length > 0 &&
+                        f.label.length <= 2 &&
+                        Number.isFinite(f.min_mhz) &&
+                        Number.isFinite(f.max_mhz) &&
+                        f.max_mhz > f.min_mhz,
+                    );
+                  setSpectrumFrames(next);
                 }
                 const reason = parsedData.device_loading_reason;
                 if (reason === "connect" || reason === "restart" || reason === null) {
@@ -138,6 +199,33 @@ export const useWebSocket = (
                 setIsPaused(paused);
               } catch {
                 /* ignore */
+              }
+              return;
+            }
+
+            // ── Capture status messages (plaintext) ─────────────────
+            if (raw.includes('"message_type":"capture_status"')) {
+              console.log("Received capture status message:", raw);
+              try {
+                const parsed = JSON.parse(raw);
+                console.log("Parsed capture status:", parsed);
+                if (
+                  typeof parsed.job_id === "string" &&
+                  (parsed.status === "started" || parsed.status === "failed" || parsed.status === "done")
+                ) {
+                  const newStatus = {
+                    jobId: parsed.job_id,
+                    status: parsed.status,
+                    error: typeof parsed.error === "string" ? parsed.error : undefined,
+                    downloadUrl: typeof parsed.download_url === "string" ? parsed.download_url : undefined,
+                    filename: typeof parsed.filename === "string" ? parsed.filename : undefined,
+                    fileCount: typeof parsed.file_count === "number" ? parsed.file_count : undefined,
+                  };
+                  console.log("Setting capture status:", newStatus);
+                  setCaptureStatus(newStatus);
+                }
+              } catch (e) {
+                console.error("Failed to parse capture status:", e);
               }
               return;
             }
@@ -256,6 +344,38 @@ export const useWebSocket = (
     }
   }, []);
 
+  const sendCaptureCommand = useCallback((req: CaptureRequest) => {
+    console.log("sendCaptureCommand called with:", req);
+    const ws = wsRef.current;
+    const readyStateText = ws ? (['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'])[ws.readyState] || 'UNKNOWN' : 'NO_WS';
+    console.log("WebSocket state:", {
+      exists: !!ws,
+      readyState: ws?.readyState,
+      OPEN: WebSocket.OPEN,
+      readyStateText,
+    });
+    
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      const message = JSON.stringify({
+        type: "capture",
+        action: "start",
+        jobId: req.jobId,
+        minFreq: req.minFreq,
+        maxFreq: req.maxFreq,
+        durationS: req.durationS,
+        fileType: req.fileType,
+        encrypted: req.encrypted,
+        fftSize: req.fftSize,
+        fftWindow: req.fftWindow,
+      });
+      console.log("Sending WebSocket message:", message);
+      ws.send(message);
+      console.log("WebSocket message sent successfully");
+    } else {
+      console.log("WebSocket not ready - message not sent");
+    }
+  }, []);
+
   // Function to send pause/resume commands to the server
   const sendPauseCommand = useCallback((paused: boolean) => {
     const ws = wsRef.current;
@@ -316,12 +436,16 @@ export const useWebSocket = (
     serverPaused,
     backend,
     deviceInfo,
+    maxSampleRateHz,
     data,
+    spectrumFrames,
+    captureStatus,
     error,
     sendFrequencyRange,
     sendPauseCommand,
     sendSettings,
     sendRestartDevice,
+    sendCaptureCommand,
     sendTrainingCommand,
   };
 };

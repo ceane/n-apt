@@ -165,4 +165,177 @@ impl SessionStore {
         sessions.remove(token);
         self.save(&sessions);
     }
+
+    /// Create a SessionStore backed by a custom path (for testing).
+    #[cfg(test)]
+    fn with_path(path: std::path::PathBuf) -> Self {
+        Self {
+            sessions: Mutex::new(HashMap::new()),
+            ttl: DEFAULT_SESSION_TTL,
+            persist_path: path,
+        }
+    }
+
+    /// Create a SessionStore with a custom TTL (for testing).
+    #[cfg(test)]
+    fn with_path_and_ttl(path: std::path::PathBuf, ttl: Duration) -> Self {
+        Self {
+            sessions: Mutex::new(HashMap::new()),
+            ttl,
+            persist_path: path,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    fn temp_session_path() -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("n-apt-test-{}", Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        dir.join("sessions.json")
+    }
+
+    #[test]
+    fn test_create_and_validate_session() {
+        let path = temp_session_path();
+        let store = SessionStore::with_path(path.clone());
+        let key = [42u8; 32];
+
+        let token = store.create_session(key);
+        assert!(!token.is_empty());
+
+        let session = store.validate(&token);
+        assert!(session.is_some());
+        let s = session.unwrap();
+        assert_eq!(s.token, token);
+        assert_eq!(s.encryption_key, key);
+
+        // Cleanup
+        let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn test_validate_invalid_token_returns_none() {
+        let path = temp_session_path();
+        let store = SessionStore::with_path(path.clone());
+
+        assert!(store.validate("nonexistent-token").is_none());
+
+        let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn test_revoke_session() {
+        let path = temp_session_path();
+        let store = SessionStore::with_path(path.clone());
+        let key = [1u8; 32];
+
+        let token = store.create_session(key);
+        assert!(store.validate(&token).is_some());
+
+        store.revoke(&token);
+        assert!(store.validate(&token).is_none());
+
+        let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn test_multiple_sessions() {
+        let path = temp_session_path();
+        let store = SessionStore::with_path(path.clone());
+
+        let t1 = store.create_session([1u8; 32]);
+        let t2 = store.create_session([2u8; 32]);
+        let t3 = store.create_session([3u8; 32]);
+
+        assert!(store.validate(&t1).is_some());
+        assert!(store.validate(&t2).is_some());
+        assert!(store.validate(&t3).is_some());
+
+        // Revoking one doesn't affect others
+        store.revoke(&t2);
+        assert!(store.validate(&t1).is_some());
+        assert!(store.validate(&t2).is_none());
+        assert!(store.validate(&t3).is_some());
+
+        let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn test_expired_session_not_valid() {
+        let path = temp_session_path();
+        // TTL of 0 seconds means sessions expire immediately
+        let store = SessionStore::with_path_and_ttl(path.clone(), Duration::from_secs(0));
+        let key = [99u8; 32];
+
+        let token = store.create_session(key);
+        // Session was created with expires_at = now + 0, so it's already expired
+        std::thread::sleep(Duration::from_millis(10));
+        assert!(store.validate(&token).is_none(), "Expired session must not validate");
+
+        let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn test_session_persists_to_disk() {
+        let path = temp_session_path();
+        let key = [7u8; 32];
+
+        let token = {
+            let store = SessionStore::with_path(path.clone());
+            store.create_session(key)
+        };
+
+        // File should exist
+        assert!(path.exists(), "Sessions file should be written to disk");
+
+        // Verify persisted file contents
+        if let Ok(data) = fs::read_to_string(&path) {
+            if let Ok(persisted) = serde_json::from_str::<Vec<serde_json::Value>>(&data) {
+                assert!(!persisted.is_empty(), "Persisted sessions should not be empty");
+                let has_token = persisted.iter().any(|p| {
+                    p.get("token").and_then(|t| t.as_str()) == Some(&token)
+                });
+                assert!(has_token, "Persisted file should contain the created token");
+            }
+        }
+
+        let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn test_session_token_is_uuid_format() {
+        let path = temp_session_path();
+        let store = SessionStore::with_path(path.clone());
+        let token = store.create_session([0u8; 32]);
+
+        // UUID v4 format: 8-4-4-4-12 hex chars
+        assert!(Uuid::parse_str(&token).is_ok(), "Token should be valid UUID");
+
+        let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn test_session_has_correct_timestamps() {
+        let path = temp_session_path();
+        let store = SessionStore::with_path(path.clone());
+        let key = [0u8; 32];
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        let token = store.create_session(key);
+        let session = store.validate(&token).unwrap();
+
+        assert!(session.created_at_epoch >= now);
+        assert!(session.created_at_epoch <= now + 2);
+        assert!(session.expires_at_epoch > session.created_at_epoch);
+
+        let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
 }
