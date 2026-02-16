@@ -298,7 +298,9 @@ export function renderSpectrumSvg(options: {
     }
 
     const centerLabel =
-      centerFrequencyMHz < 1
+      Number.isNaN(centerFrequencyMHz) || !Number.isFinite(centerFrequencyMHz)
+        ? "✋  -- MHz"
+        : centerFrequencyMHz < 1
         ? `✋  ${Math.round(centerFrequencyMHz * 1000)} kHz`
         : `✋  ${centerFrequencyMHz.toFixed(3)} MHz`;
 
@@ -698,7 +700,9 @@ export function drawSpectrumMarkers(
 
   // --- Center frequency label (bottom center, with background mask) ---
   const centerLabel =
-    centerFrequencyMHz < 1
+    Number.isNaN(centerFrequencyMHz) || !Number.isFinite(centerFrequencyMHz)
+      ? "✋  -- MHz"
+      : centerFrequencyMHz < 1
       ? `✋  ${Math.round(centerFrequencyMHz * 1000)} kHz`
       : `✋  ${centerFrequencyMHz.toFixed(3)} MHz`;
 

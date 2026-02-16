@@ -8,10 +8,11 @@ use axum::{Json, Router};
 use futures_util::{SinkExt, StreamExt};
 use log::{debug, error, info, warn};
 use rand::Rng;
+use std::sync::atomic::AtomicU32;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
 use tower_http::cors::CorsLayer;
@@ -1122,8 +1123,9 @@ impl SDRProcessor {
         self.capture_duration_s = duration_s;
         self.capture_file_type = file_type;
         self.capture_encrypted = encrypted;
-        self.capture_min_freq = min_freq;
-        self.capture_max_freq = max_freq;
+        // Convert MHz to Hz for storage
+        self.capture_min_freq = min_freq * 1_000_000.0;
+        self.capture_max_freq = max_freq * 1_000_000.0;
         self.capture_buffer.clear();
         // Note: fft_size and fft_window are for future use if we want to change settings during capture
       }
@@ -1172,7 +1174,7 @@ struct SharedState {
   capture_artifacts: std::sync::Mutex<std::collections::HashMap<String, Vec<CaptureArtifact>>>,
   message_batch: std::sync::Mutex<VecDeque<String>>,
   last_batch_time: std::sync::Mutex<Instant>,
-  message_count: std::sync::AtomicU32,
+  message_count: AtomicU32,
 }
 
 #[derive(Debug, Clone)]
@@ -1229,7 +1231,7 @@ impl WebSocketServer {
       capture_artifacts: std::sync::Mutex::new(std::collections::HashMap::new()),
       message_batch: std::sync::Mutex::new(VecDeque::new()),
       last_batch_time: std::sync::Mutex::new(Instant::now()),
-      message_count: std::sync::AtomicU32::new(0),
+      message_count: AtomicU32::new(0),
     });
 
     // Hot reload spectrum_frames.yaml (no restart needed)
@@ -2058,6 +2060,10 @@ impl WebSocketServer {
       cmd_tx,
       broadcast_tx,
       shared,
+      message_batch: VecDeque::new(),
+      last_batch_time: Instant::now(),
+      batch_interval_ms: 16, // ~60 FPS batching
+      max_batch_size: 100,
     }
   }
 

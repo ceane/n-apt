@@ -464,13 +464,6 @@ const FFTCanvas = ({
     const gpuCanvas = spectrumGpuCanvasRef.current;
     const canvas2D = spectrumCanvasRef.current;
 
-    console.log("VFO: Setting up pointer event listeners", {
-      gpuCanvas: !!gpuCanvas,
-      canvas2D: !!canvas2D,
-      spectrumWebgpuEnabled,
-      visibleCanvas: !!getActiveSpectrumCanvas()
-    });
-
     // Add pointer event listeners to both canvases
     [gpuCanvas, canvas2D].forEach(canvas => {
       if (canvas) {

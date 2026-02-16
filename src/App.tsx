@@ -509,7 +509,18 @@ export const AppContent: React.FC = () => {
                 onSnapshotGridPreferenceChange={setSnapshotGridPreference}
                 fftWaveform={data?.waveform ?? null}
                 getCurrentWaveform={getCurrentWaveform}
-                centerFrequencyMHz={(frequencyRange.min + frequencyRange.max) / 2}
+                centerFrequencyMHz={
+                  (() => {
+                    const min = frequencyRange?.min;
+                    const max = frequencyRange?.max;
+                    if (typeof min !== 'number' || typeof max !== 'number' ||
+                      !Number.isFinite(min) || !Number.isFinite(max)) {
+                      console.warn('Invalid frequency range:', { min, max, frequencyRange });
+                      return 1.6; // Default center frequency
+                    }
+                    return (min + max) / 2;
+                  })()
+                }
               />
             )}
             <MainContent>
@@ -580,7 +591,18 @@ export const AppContent: React.FC = () => {
                 <FFTCanvas
                   data={data}
                   frequencyRange={frequencyRange}
-                  centerFrequencyMHz={(frequencyRange.min + frequencyRange.max) / 2}
+                  centerFrequencyMHz={
+                    (() => {
+                      const min = frequencyRange?.min;
+                      const max = frequencyRange?.max;
+                      if (typeof min !== 'number' || typeof max !== 'number' ||
+                        !Number.isFinite(min) || !Number.isFinite(max)) {
+                        console.warn('Invalid frequency range for FFTCanvas:', { min, max, frequencyRange });
+                        return 1.6; // Default center frequency
+                      }
+                      return (min + max) / 2;
+                    })()
+                  }
                   activeSignalArea={activeSignalArea}
                   isPaused={visualizerPaused || !(mainTab === "Spectrum" && isVisualizer)}
                   isDeviceConnected={deviceState === "connected"}
