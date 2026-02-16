@@ -156,6 +156,7 @@ export const AppContent: React.FC = () => {
   >("medium")
   const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([])
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
+  const [snapshotGridPreference, setSnapshotGridPreference] = useState(true)
 
   // When returning to the visualizer tab, force a resize event so canvases reflow.
   // Use rAF to ensure the CSS display change has been applied before measuring.
@@ -246,6 +247,10 @@ export const AppContent: React.FC = () => {
     return () => { cancelled = true }
   }, [])
 
+  // Ref for whole-range SVG snapshot (current waveform per window)
+  const waveformRef = useRef<Float32Array | number[] | null>(null)
+  const getCurrentWaveform = useCallback(() => waveformRef.current ?? null, [])
+
   // Build WS URL with session token
   const wsUrl = sessionToken ? buildWsUrl(sessionToken) : ""
 
@@ -268,6 +273,9 @@ export const AppContent: React.FC = () => {
     sendTrainingCommand,
     sendCaptureCommand,
   } = useWebSocket(wsUrl, aesKey, isAuthenticated)
+
+  // Update waveform ref when data changes
+  waveformRef.current = data?.waveform ?? null
 
   useEffect(() => {
     setSpectrumFrames(wsSpectrumFrames)
@@ -466,7 +474,7 @@ export const AppContent: React.FC = () => {
                 deviceState={deviceState}
                 deviceLoadingReason={deviceLoadingReason}
                 isPaused={visualizerPaused}
-                serverPaused={serverPaused}
+                _serverPaused={serverPaused}
                 backend={backend}
                 deviceInfo={deviceInfo}
                 maxSampleRateHz={maxSampleRateHz}
@@ -497,6 +505,11 @@ export const AppContent: React.FC = () => {
                 onStitch={handleStitch}
                 onClear={handleClear}
                 onRestartDevice={sendRestartDevice}
+                snapshotGridPreference={snapshotGridPreference}
+                onSnapshotGridPreferenceChange={setSnapshotGridPreference}
+                fftWaveform={data?.waveform ?? null}
+                getCurrentWaveform={getCurrentWaveform}
+                centerFrequencyMHz={(frequencyRange.min + frequencyRange.max) / 2}
               />
             )}
             <MainContent>
@@ -573,6 +586,7 @@ export const AppContent: React.FC = () => {
                   isDeviceConnected={deviceState === "connected"}
                   onFrequencyRangeChange={handleFrequencyRangeChange}
                   displayTemporalResolution={displayTemporalResolution}
+                  snapshotGridPreference={snapshotGridPreference}
                 />
               </div>
               {isVisualizer && isAuthenticated && sourceMode === "file" && (

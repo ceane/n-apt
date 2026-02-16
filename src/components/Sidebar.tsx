@@ -3,6 +3,8 @@ import styled from "styled-components";
 import InfoPopover from "@n-apt/components/InfoPopover";
 import FrequencyRangeSlider from "@n-apt/components/FrequencyRangeSlider";
 import { decryptPayloadBytes } from "@n-apt/crypto/webcrypto";
+import { renderSpectrumSvg, renderFullRangeSpectrumSvg, drawSpectrumGrid } from "@n-apt/fft/FFTCanvasRenderer";
+import { FFT_AREA_MIN } from "@n-apt/consts";
 import type {
   SDRSettings,
   DeviceState,
@@ -352,7 +354,7 @@ interface SidebarProps {
   deviceState: DeviceState;
   deviceLoadingReason: DeviceLoadingReason;
   isPaused: boolean;
-  serverPaused: boolean;
+  _serverPaused: boolean;
   backend: string | null;
   deviceInfo: string | null;
   maxSampleRateHz: number | null;
@@ -383,6 +385,11 @@ interface SidebarProps {
   onStitch: () => void;
   onClear: () => void;
   onRestartDevice?: () => void;
+  snapshotGridPreference?: boolean;
+  onSnapshotGridPreferenceChange?: (preference: boolean) => void;
+  fftWaveform?: Float32Array | number[] | null;
+  getCurrentWaveform?: () => Float32Array | number[] | null;
+  centerFrequencyMHz?: number;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({
@@ -392,7 +399,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   deviceState,
   deviceLoadingReason,
   isPaused,
-  serverPaused,
+  _serverPaused,
   backend,
   deviceInfo,
   maxSampleRateHz,
@@ -423,6 +430,11 @@ const Sidebar: React.FC<SidebarProps> = ({
   isStitchPaused,
   onStitchPauseToggle,
   onRestartDevice,
+  snapshotGridPreference,
+  onSnapshotGridPreferenceChange,
+  fftWaveform,
+  getCurrentWaveform,
+  centerFrequencyMHz,
 }) => {
   // Live retune toggle state (default on)
   const liveRetune = true;
@@ -431,8 +443,19 @@ const Sidebar: React.FC<SidebarProps> = ({
   // FFT settings defaults tuned for realistic 3.2 Msps RTL-SDR throughput
   const [fftSize, setFftSize] = useState(32768);
   const [fftWindow, setFftWindow] = useState("Rectangular");
-  const [fftFrameRate, setFftFrameRate] = useState(30);
   const [maxSampleRate, setMaxSampleRate] = useState(3_200_000); // Default 3.2MHz
+
+  // Calculate logical max frame rate based on FFT size and sample rate
+  const maxFrameRate = useMemo(() => {
+    const theoretical = maxSampleRate / fftSize;
+    return Math.max(1, Math.floor(Math.min(theoretical, 60))); // Cap at 60Hz screen refresh rate
+  }, [fftSize, maxSampleRate]);
+
+  // Set frame rate to logical max on mount/update
+  const [fftFrameRate, setFftFrameRate] = useState(() => {
+    const theoretical = 3_200_000 / 32768; // Default sample rate / FFT size
+    return Math.max(1, Math.floor(Math.min(theoretical, 60)));
+  });
 
   // Capture UI state
   const [captureOnscreen, setCaptureOnscreen] = useState(true);
@@ -448,7 +471,6 @@ const Sidebar: React.FC<SidebarProps> = ({
   const [snapshotOpen, setSnapshotOpen] = useState(false);
   const [snapshotWhole, setSnapshotWhole] = useState(false);
   const [snapshotShowWaterfall, setSnapshotShowWaterfall] = useState(false);
-  const [snapshotShowGrid, setSnapshotShowGrid] = useState(true);
   const [snapshotShowStats, setSnapshotShowStats] = useState(true);
   const [snapshotFormat, setSnapshotFormat] = useState<"png" | "svg">("png");
   const [gain, setGain] = useState(49.6);
@@ -463,18 +485,17 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   const temporalResolution = displayTemporalResolution ?? "medium";
 
-  // Calculate maximum theoretical frame rate based on FFT size and sample rate
-  const maxFrameRate = useMemo(() => {
-    const theoretical = maxSampleRate / fftSize;
-    return Math.max(1, Math.floor(Math.min(theoretical, 60))); // Cap at 60Hz screen refresh rate
-  }, [fftSize, maxSampleRate]);
-
   // Drive sample rate from backend status to avoid brittle deviceInfo parsing.
   useEffect(() => {
     if (typeof maxSampleRateHz === "number" && Number.isFinite(maxSampleRateHz) && maxSampleRateHz > 0) {
       setMaxSampleRate(maxSampleRateHz);
     }
   }, [maxSampleRateHz]);
+
+  // Update frame rate to logical max when FFT size or sample rate changes
+  useEffect(() => {
+    setFftFrameRate(maxFrameRate);
+  }, [maxFrameRate]);
 
   useEffect(() => {
     if (captureFileType === ".napt") {
@@ -576,15 +597,229 @@ const Sidebar: React.FC<SidebarProps> = ({
     onCaptureCommand,
   ]);
 
-  const handleSnapshot = useCallback(async () => {
-    // NOTE: Snapshot is client-side and should only reflect what is drawn.
-    // "Whole" snapshots (A/B) will be implemented via server-side stitching later.
-    void snapshotWhole;
+  const handleWholeRangeSnapshot = useCallback(async () => {
+    if (!onFrequencyRangeChange || !frequencyRange) {
+      alert("Whole range snapshot requires frequency range control");
+      return;
+    }
 
+    // Constants for full range capture
+    const FULL_MIN_FREQ = 0;
+    const FULL_MAX_FREQ = 4.47; // From DEFAULT_MAX_FREQ
+    const WINDOW_SIZE = 3.2; // NAPT_FREQUENCY_RANGE
+    const OVERLAP = 0.1; // Small overlap to ensure seamless stitching
+
+    // Save current frequency range
+    const originalRange = { ...frequencyRange };
+
+    // Calculate window positions
+    const windows: Array<{ min: number; max: number }> = [];
+    let currentMin = FULL_MIN_FREQ;
+
+    while (currentMin < FULL_MAX_FREQ) {
+      const windowMax = Math.min(currentMin + WINDOW_SIZE, FULL_MAX_FREQ);
+      windows.push({ min: currentMin, max: windowMax });
+      if (windowMax >= FULL_MAX_FREQ) break;
+      currentMin = windowMax - OVERLAP;
+    }
+
+    console.log(`Capturing ${windows.length} windows to cover ${FULL_MIN_FREQ}-${FULL_MAX_FREQ} MHz`);
+
+    // Find canvas elements
+    const spectrumWebGPU = document.getElementById("fft-spectrum-canvas-webgpu") as HTMLCanvasElement | null;
+    const spectrum2D = document.getElementById("fft-spectrum-canvas-2d") as HTMLCanvasElement | null;
+    const spectrumCanvas = spectrum2D || spectrumWebGPU;
+
+    const waterfallWebGPU = document.getElementById("fft-waterfall-canvas-webgpu") as HTMLCanvasElement | null;
+    const waterfall2D = document.getElementById("fft-waterfall-canvas-2d") as HTMLCanvasElement | null;
+    const waterfallCanvas = waterfall2D || waterfallWebGPU;
+
+    if (!spectrumCanvas) {
+      alert("Canvas not found. Please ensure the FFT display is visible.");
+      return;
+    }
+
+    const dpr = window.devicePixelRatio || 1;
+    const spectrumW = spectrumCanvas.width / dpr;
+    const spectrumH = spectrumCanvas.height / dpr;
+    const plotW = spectrumW - FFT_AREA_MIN.x - 40;
+    const plotH = spectrumH - FFT_AREA_MIN.y - 40;
+    const spectrumPartHeight = FFT_AREA_MIN.y + plotH + 40;
+    const waterfallH = snapshotShowWaterfall && waterfallCanvas ? waterfallCanvas.height / dpr : 0;
+    const outW = FFT_AREA_MIN.x + windows.length * plotW + 40;
+    const outH = spectrumPartHeight + waterfallH;
+
+    const windowsWithWaveform: Array<{ min: number; max: number; waveform: number[] }> = [];
+    const outputCanvas = document.createElement("canvas");
+    outputCanvas.width = outW * dpr;
+    outputCanvas.height = outH * dpr;
+    const outputCtx = outputCanvas.getContext("2d");
+    if (!outputCtx) return;
+    outputCtx.scale(dpr, dpr);
+    outputCtx.imageSmoothingEnabled = false;
+
+    const getCanvasScale = (canvas: HTMLCanvasElement | null) => {
+      if (!canvas) return { x: dpr, y: dpr };
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = rect.width ? canvas.width / rect.width : dpr;
+      const scaleY = rect.height ? canvas.height / rect.height : dpr;
+      return { x: scaleX, y: scaleY };
+    };
+
+    const spectrumScale = getCanvasScale(spectrumCanvas);
+    const waterfallScale = getCanvasScale(waterfallCanvas);
+
+    const sampleWaveformSignature = (wave: Float32Array | number[] | null | undefined): string | null => {
+      if (!wave || wave.length === 0) return null;
+      const len = wave.length;
+      const midIdx = Math.floor(len / 2);
+      const first = Number.isFinite(wave[0]) ? wave[0] : 0;
+      const mid = Number.isFinite(wave[midIdx]) ? wave[midIdx] : 0;
+      const last = Number.isFinite(wave[len - 1]) ? wave[len - 1] : 0;
+      return `${len}:${first.toFixed(3)}:${mid.toFixed(3)}:${last.toFixed(3)}`;
+    };
+
+    const waitForNewFrame = async (previousSignature: string | null) => {
+      const frameInterval = 1000 / Math.max(1, fftFrameRate);
+      const serverLatencyBuffer = 400; // accounts for SDR retune + backend render delay
+      const animationDelay = 1000; // UI transition/animation settling time
+      const timeoutMs = Math.max(frameInterval * 2 + serverLatencyBuffer, animationDelay);
+
+      // Let the browser present at least one frame before we start polling data
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      });
+
+      // Explicit wait so CSS/WebGPU transitions can settle
+      await new Promise<void>((resolve) => setTimeout(resolve, animationDelay));
+
+      const start = performance.now();
+      await new Promise<void>((resolve) => {
+        const poll = () => {
+          const currentSignature = sampleWaveformSignature(getCurrentWaveform?.());
+          if ((currentSignature && currentSignature !== previousSignature) || performance.now() - start >= timeoutMs) {
+            resolve();
+            return;
+          }
+          setTimeout(poll, Math.max(16, frameInterval / 2));
+        };
+        poll();
+      });
+    };
+
+    for (let i = 0; i < windows.length; i++) {
+      try {
+        const win = windows[i];
+        const prevSignature = sampleWaveformSignature(getCurrentWaveform?.());
+
+        onFrequencyRangeChange(win);
+
+        await waitForNewFrame(prevSignature);
+
+        const currentCanvas = spectrum2D || spectrumWebGPU;
+        if (currentCanvas && snapshotFormat !== "svg") {
+          outputCtx.drawImage(
+            currentCanvas,
+            FFT_AREA_MIN.x * spectrumScale.x,
+            FFT_AREA_MIN.y * spectrumScale.y,
+            plotW * spectrumScale.x,
+            plotH * spectrumScale.y,
+            FFT_AREA_MIN.x + i * plotW,
+            FFT_AREA_MIN.y,
+            plotW,
+            plotH,
+          );
+        }
+        if (snapshotFormat === "svg" && getCurrentWaveform) {
+          const w = getCurrentWaveform();
+          const arr = w == null ? [] : Array.isArray(w) ? w : Array.from(w);
+          windowsWithWaveform.push({ min: win.min, max: win.max, waveform: arr });
+        }
+        if (snapshotShowWaterfall && waterfallCanvas && snapshotFormat !== "svg") {
+          const currentWaterfall = waterfall2D || waterfallWebGPU;
+          if (currentWaterfall) {
+            outputCtx.drawImage(
+              currentWaterfall,
+              0,
+              0,
+              currentWaterfall.width ?? (plotW * waterfallScale.x),
+              currentWaterfall.height ?? (waterfallH * waterfallScale.y),
+              FFT_AREA_MIN.x + i * plotW,
+              spectrumPartHeight,
+              plotW,
+              waterfallH,
+            );
+          }
+        }
+        console.log(`Captured window ${i + 1}/${windows.length}: ${win.min.toFixed(2)}-${win.max.toFixed(2)} MHz`);
+      } catch (error) {
+        console.error(`Error capturing window ${i + 1}:`, error);
+      }
+    }
+
+    onFrequencyRangeChange(originalRange);
+
+    const min = FULL_MIN_FREQ;
+    const max = FULL_MAX_FREQ;
+    const baseName = `${min.toFixed(2)}-${max.toFixed(2)}MHz_WHOLE`;
+    let blob: Blob | null = null;
+    let fileName: string;
+
+    if (snapshotFormat === "svg") {
+      if (windowsWithWaveform.length === 0 || (windowsWithWaveform.length > 0 && windowsWithWaveform.every((w) => !w.waveform.length))) {
+        console.warn("Whole-range SVG: no waveform data collected, falling back to PNG");
+        outputCtx.fillStyle = "#0a0a0a";
+        outputCtx.fillRect(0, 0, outW, outH);
+        blob = await new Promise<Blob | null>((r) => outputCanvas.toBlob(r, "image/png", 1.0));
+        fileName = `${baseName}.png`;
+      } else {
+        const spectrumSvg = renderFullRangeSpectrumSvg({
+          width: outW,
+          height: spectrumPartHeight,
+          windows: windowsWithWaveform,
+          fullRange: { min: FULL_MIN_FREQ, max: FULL_MAX_FREQ },
+          showGrid: snapshotGridPreference ?? true,
+          isDeviceConnected: deviceState === "connected",
+        });
+        blob = new Blob([spectrumSvg], { type: "image/svg+xml;charset=utf-8" });
+        fileName = `${baseName}.svg`;
+      }
+    } else {
+      drawSpectrumGrid({
+        ctx: outputCtx,
+        width: outW,
+        height: spectrumPartHeight,
+        frequencyRange: { min: FULL_MIN_FREQ, max: FULL_MAX_FREQ },
+        clearBackground: false,
+      });
+      blob = await new Promise<Blob | null>((r) => outputCanvas.toBlob(r, "image/png", 1.0));
+      fileName = `${baseName}.png`;
+    }
+
+    if (blob) {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = fileName;
+      a.click();
+      URL.revokeObjectURL(url);
+      console.log(`Whole range snapshot saved: ${fileName}`);
+    }
+  }, [onFrequencyRangeChange, frequencyRange, snapshotFormat, snapshotShowWaterfall, snapshotGridPreference, deviceState, getCurrentWaveform]);
+
+  const handleSnapshot = useCallback(async () => {
+    // Check if we need to capture the whole range
+    if (snapshotWhole) {
+      await handleWholeRangeSnapshot();
+      return;
+    }
+
+    // NOTE: Original single-window snapshot code
     // Find the visible spectrum canvas (WebGPU or 2D fallback)
     const spectrumWebGPU = document.getElementById("fft-spectrum-canvas-webgpu") as HTMLCanvasElement | null;
     const spectrum2D = document.getElementById("fft-spectrum-canvas-2d") as HTMLCanvasElement | null;
-    const spectrumCanvas = (spectrumWebGPU?.style.display !== "none" ? spectrumWebGPU : spectrum2D) || spectrumWebGPU || spectrum2D;
+    // IMPORTANT: Always use 2D canvas for snapshots since WebGPU canvases cannot be read with drawImage()
+    const spectrumCanvas = spectrum2D || spectrumWebGPU;
 
     if (!spectrumCanvas) {
       console.error("Snapshot failed: spectrum canvas not found");
@@ -595,19 +830,22 @@ const Sidebar: React.FC<SidebarProps> = ({
     // Find the visible waterfall canvas (WebGPU or 2D fallback)
     const waterfallWebGPU = document.getElementById("fft-waterfall-canvas-webgpu") as HTMLCanvasElement | null;
     const waterfall2D = document.getElementById("fft-waterfall-canvas-2d") as HTMLCanvasElement | null;
-    const waterfallCanvas = (waterfallWebGPU?.style.display !== "none" ? waterfallWebGPU : waterfall2D) || waterfallWebGPU || waterfall2D;
+    // IMPORTANT: Always use 2D canvas for snapshots since WebGPU canvases cannot be read with drawImage()
+    const waterfallCanvas = waterfall2D || waterfallWebGPU;
 
     const outCanvas = document.createElement("canvas");
-    const outW = spectrumCanvas.width;
-    const outH = spectrumCanvas.height + (snapshotShowWaterfall && waterfallCanvas ? waterfallCanvas.height : 0);
-    outCanvas.width = outW;
-    outCanvas.height = outH;
+    const dpr = window.devicePixelRatio || 1;
+    const outW = spectrumCanvas.width / dpr;
+    const outH = spectrumCanvas.height / dpr + (snapshotShowWaterfall && waterfallCanvas ? waterfallCanvas.height / dpr : 0);
+    outCanvas.width = outW * dpr;
+    outCanvas.height = outH * dpr;
 
     const ctx = outCanvas.getContext("2d");
     if (!ctx) return;
+    ctx.scale(dpr, dpr);
 
     // Draw spectrum
-    ctx.drawImage(spectrumCanvas, 0, 0);
+    ctx.drawImage(spectrumCanvas, 0, 0, outW, spectrumCanvas.height / dpr);
 
     // Optional stats overlay
     if (snapshotShowStats && frequencyRange) {
@@ -631,12 +869,12 @@ const Sidebar: React.FC<SidebarProps> = ({
 
     // Optional waterfall append
     if (snapshotShowWaterfall && waterfallCanvas) {
-      ctx.drawImage(waterfallCanvas, 0, spectrumCanvas.height);
+      ctx.drawImage(waterfallCanvas, 0, spectrumCanvas.height / dpr, outW, waterfallCanvas.height / dpr);
     }
 
     // Optional grid (best-effort): if disabled, we can't retroactively remove it.
     // This toggle will become authoritative when snapshot rendering is done from data.
-    void snapshotShowGrid;
+    void snapshotGridPreference;
 
     const min = frequencyRange?.min ?? 0;
     const max = frequencyRange?.max ?? 0;
@@ -646,25 +884,53 @@ const Sidebar: React.FC<SidebarProps> = ({
     let fileName: string;
 
     if (snapshotFormat === "svg") {
-      // Convert canvas to SVG
-      const svgNS = "http://www.w3.org/2000/svg";
-      const svg = document.createElementNS(svgNS, "svg");
-      svg.setAttribute("width", outW.toString());
-      svg.setAttribute("height", outH.toString());
-      svg.setAttribute("xmlns", svgNS);
+      const spectrumRect = spectrumCanvas.parentElement?.getBoundingClientRect();
+      const spectrumW = Math.round(spectrumRect?.width ?? spectrumCanvas.width);
+      const spectrumH = Math.round(spectrumRect?.height ?? spectrumCanvas.height);
+      const waveformArray = fftWaveform ? Array.from(fftWaveform as any) : null;
 
-      // Embed the canvas as an image in the SVG
-      const img = document.createElementNS(svgNS, "image");
-      img.setAttribute("width", outW.toString());
-      img.setAttribute("height", outH.toString());
-      img.setAttribute("href", outCanvas.toDataURL("image/png"));
-      svg.appendChild(img);
+      if (!waveformArray || waveformArray.length === 0 || !frequencyRange) {
+        console.error("Snapshot failed: SVG export requires FFT waveform data");
+        alert("Snapshot failed: SVG export needs FFT data. Try again once the spectrum is active.");
+        return;
+      }
 
-      const svgString = new XMLSerializer().serializeToString(svg);
-      blob = new Blob([svgString], { type: "image/svg+xml;charset=utf-8" });
+      const spectrumSvg = renderSpectrumSvg({
+        width: spectrumW,
+        height: spectrumH,
+        waveform: waveformArray,
+        frequencyRange,
+        centerFrequencyMHz: centerFrequencyMHz ?? (frequencyRange.min + frequencyRange.max) / 2,
+        showGrid: snapshotGridPreference ?? true,
+        isDeviceConnected: deviceState === "connected",
+      });
+
+      // If waterfall is enabled, append it as raster <image> under the vector spectrum.
+      if (snapshotShowWaterfall && waterfallCanvas) {
+        const waterfallDataUrl = waterfallCanvas.toDataURL("image/png");
+        const waterfallRect = waterfallCanvas.parentElement?.getBoundingClientRect();
+        const waterfallH = Math.round(waterfallRect?.height ?? waterfallCanvas.height);
+        const totalH = spectrumH + waterfallH;
+
+        const spectrumInner = spectrumSvg
+          .replace(/^([\s\S]*?)<svg[^>]*>/, "")
+          .replace(/<\/svg>\s*$/, "");
+
+        const combined =
+          `<?xml version="1.0" encoding="UTF-8"?>\n` +
+          `<svg xmlns="http://www.w3.org/2000/svg" width="${spectrumW}" height="${totalH}" viewBox="0 0 ${spectrumW} ${totalH}">` +
+          `${spectrumInner}` +
+          `<image x="0" y="${spectrumH}" width="${waterfallCanvas.width}" height="${waterfallCanvas.height}" href="${waterfallDataUrl}"/>` +
+          `</svg>`;
+
+        blob = new Blob([combined], { type: "image/svg+xml;charset=utf-8" });
+      } else {
+        blob = new Blob([spectrumSvg], { type: "image/svg+xml;charset=utf-8" });
+      }
+
       fileName = `${baseName}.svg`;
     } else {
-      blob = await new Promise((resolve) => outCanvas.toBlob(resolve, "image/png"));
+      blob = await new Promise((resolve) => outCanvas.toBlob(resolve, "image/png", 1.0));
       fileName = `${baseName}.png`;
     }
 
@@ -684,11 +950,15 @@ const Sidebar: React.FC<SidebarProps> = ({
     URL.revokeObjectURL(url);
   }, [
     snapshotWhole,
+    handleWholeRangeSnapshot,
     snapshotShowWaterfall,
     snapshotShowStats,
-    snapshotShowGrid,
+    snapshotGridPreference,
     snapshotFormat,
     frequencyRange,
+    fftWaveform,
+    centerFrequencyMHz,
+    deviceState,
   ]);
 
   // Send initial settings on mount when connected
@@ -1324,8 +1594,8 @@ const Sidebar: React.FC<SidebarProps> = ({
                   <ToggleSwitch>
                     <ToggleSwitchInput
                       type="checkbox"
-                      checked={snapshotShowGrid}
-                      onChange={(e) => setSnapshotShowGrid(e.target.checked)}
+                      checked={snapshotGridPreference}
+                      onChange={(e) => onSnapshotGridPreferenceChange?.(e.target.checked)}
                     />
                     <ToggleSwitchSlider />
                   </ToggleSwitch>

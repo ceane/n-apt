@@ -29,6 +29,9 @@ export default defineConfig({
       "/status": {
         target: "http://127.0.0.1:8765",
       },
+      "/capture": {
+        target: "http://127.0.0.1:8765",
+      },
     },
   },
 });

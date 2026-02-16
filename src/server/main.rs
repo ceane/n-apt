@@ -16,6 +16,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
 use tower_http::cors::CorsLayer;
 use webauthn_rs::prelude::*;
+use std::collections::VecDeque;
 use notify::{RecursiveMode, Watcher};
 
 use n_apt_backend::consts::rs::fft::{FFT_MAX_DB, FFT_MIN_DB, NUM_SAMPLES, SAMPLE_RATE};
@@ -34,6 +35,46 @@ use n_apt_backend::rtlsdr::ffi as rtlsdr_ffi;
 use n_apt_backend::consts::rs::env::{WS_HOST, WS_PORT};
 use n_apt_backend::session::SessionStore;
 use n_apt_backend::stitching::SignalStitcher;
+
+// ── Helper functions ───────────────────────────────────────────────────────
+
+/// Batch and send messages with throttling to reduce WebSocket overhead
+fn broadcast_with_batching(
+  shared: &Arc<SharedState>,
+  broadcast_tx: &broadcast::Sender<String>,
+  message: String,
+) {
+  const BATCH_INTERVAL: Duration = Duration::from_millis(16); // ~60fps batching
+  const MAX_BATCH_SIZE: usize = 5;
+
+  // Add message to batch
+  {
+    let mut batch = shared.message_batch.lock().unwrap();
+    batch.push_back(message);
+    
+    // Check if we should send the batch
+    let now = Instant::now();
+    let mut last_batch_time = shared.last_batch_time.lock().unwrap();
+    
+    if batch.len() >= MAX_BATCH_SIZE || 
+       now.duration_since(*last_batch_time) >= BATCH_INTERVAL {
+      // Send batched messages
+      let batch_messages: Vec<String> = batch.drain(..).collect();
+      let batched_json = serde_json::json!({
+        "message_type": "batch",
+        "messages": batch_messages,
+        "count": batch_messages.len()
+      });
+      
+      if let Ok(json) = serde_json::to_string(&batched_json) {
+        let _ = broadcast_tx.send(json);
+        shared.message_count.fetch_add(batch_messages.len() as u32, Ordering::Relaxed);
+      }
+      
+      *last_batch_time = now;
+    }
+  }
+}
 
 const SERVER_SPECTRUM_BINS: usize = 4096;
 /// Passkey for AES-256-GCM encryption. Read from N_APT_PASSKEY env var at startup.
@@ -138,6 +179,8 @@ fn save_capture_file(
   file_type: &str,
   encrypted: bool,
   encryption_key: &[u8; 32],
+  min_freq: f64,
+  max_freq: f64,
 ) -> Result<CaptureArtifact, String> {
   use std::io::Write;
   
@@ -149,7 +192,13 @@ fn save_capture_file(
   let filename = if encrypted && file_type == ".napt" {
     format!("capture_{}_{}.napt", job_id, timestamp)
   } else {
-    format!("capture_{}_{}.c64", job_id, timestamp)
+    // Determine frequency units based on magnitude
+    let (from_freq_str, to_freq_str) = if min_freq >= 1_000_000.0 {
+      (format!("{:.1}MHz", min_freq / 1_000_000.0), format!("{:.1}MHz", max_freq / 1_000_000.0))
+    } else {
+      (format!("{:.0}kHz", min_freq / 1_000.0), format!("{:.0}kHz", max_freq / 1_000.0))
+    };
+    format!("iq_{}_to_{}_at_{}.c64", from_freq_str, to_freq_str, timestamp)
   };
   
   let path = temp_dir.join(&filename);
@@ -416,6 +465,10 @@ struct SDRProcessor {
   capture_file_type: String,
   /// Whether capture should be encrypted
   capture_encrypted: bool,
+  /// Capture minimum frequency in Hz
+  capture_min_freq: f64,
+  /// Capture maximum frequency in Hz
+  capture_max_freq: f64,
   /// Accumulated IQ samples for capture
   capture_buffer: Vec<u8>,
 }
@@ -450,6 +503,8 @@ impl SDRProcessor {
       capture_duration_s: 0.0,
       capture_file_type: String::new(),
       capture_encrypted: false,
+      capture_min_freq: 0.0,
+      capture_max_freq: 0.0,
       capture_buffer: Vec::new(),
     };
     // Initialize FFT processor config with default PPM
@@ -1067,6 +1122,8 @@ impl SDRProcessor {
         self.capture_duration_s = duration_s;
         self.capture_file_type = file_type;
         self.capture_encrypted = encrypted;
+        self.capture_min_freq = min_freq;
+        self.capture_max_freq = max_freq;
         self.capture_buffer.clear();
         // Note: fft_size and fft_window are for future use if we want to change settings during capture
       }
@@ -1113,6 +1170,9 @@ struct SharedState {
   spectrum_frames: std::sync::Mutex<Vec<SpectrumFrameMessage>>,
   /// Capture artifacts: job_id → list of (filename, temp_path)
   capture_artifacts: std::sync::Mutex<std::collections::HashMap<String, Vec<CaptureArtifact>>>,
+  message_batch: std::sync::Mutex<VecDeque<String>>,
+  last_batch_time: std::sync::Mutex<Instant>,
+  message_count: std::sync::AtomicU32,
 }
 
 #[derive(Debug, Clone)]
@@ -1130,6 +1190,14 @@ struct WebSocketServer {
   broadcast_tx: broadcast::Sender<String>,
   /// Shared state between I/O thread and async runtime
   shared: Arc<SharedState>,
+  /// Message batching for performance optimization
+  message_batch: VecDeque<String>,
+  /// Last batch time for throttling
+  last_batch_time: Instant,
+  /// Message batch interval (milliseconds)
+  batch_interval_ms: u64,
+  /// Maximum batch size
+  max_batch_size: usize,
 }
 
 impl WebSocketServer {
@@ -1159,6 +1227,9 @@ impl WebSocketServer {
       pending_challenges: std::sync::Mutex::new(std::collections::HashMap::new()),
       spectrum_frames: std::sync::Mutex::new(load_spectrum_frames()),
       capture_artifacts: std::sync::Mutex::new(std::collections::HashMap::new()),
+      message_batch: std::sync::Mutex::new(VecDeque::new()),
+      last_batch_time: std::sync::Mutex::new(Instant::now()),
+      message_count: std::sync::AtomicU32::new(0),
     });
 
     // Hot reload spectrum_frames.yaml (no restart needed)
@@ -1739,6 +1810,8 @@ impl WebSocketServer {
                       &processor.capture_file_type,
                       processor.capture_encrypted,
                       &io_shared.encryption_key,
+                      processor.capture_min_freq,
+                      processor.capture_max_freq,
                     ) {
                       Ok(artifact) => {
                         io_shared.capture_artifacts.lock().unwrap()
@@ -1814,7 +1887,8 @@ impl WebSocketServer {
                   timestamp: chrono::Utc::now().timestamp_millis(),
                 };
                 if let Ok(json) = serde_json::to_string(&data) {
-                  let _ = io_broadcast_tx.send(json);
+                  // Use batching for spectrum data to reduce WebSocket overhead
+                  broadcast_with_batching(&io_shared, &io_broadcast_tx, json);
                 }
               }
             } else if !is_stale && last_device_connected && loop_start.duration_since(last_real_spectrum_time) > STALE_THRESHOLD {
@@ -1836,18 +1910,47 @@ impl WebSocketServer {
                   send_status_update(&io_shared, &io_broadcast_tx);
                 }
                 
-                // If capture is active in mock mode, generate synthetic IQ data
+                // If capture is active in mock mode, generate synthetic IQ data that matches the spectrum
                 if processor.capture_active {
-                  // Generate synthetic IQ samples (8-bit unsigned, I/Q interleaved)
-                  // For mock mode, we'll generate NUM_SAMPLES worth of IQ data per frame
+                  // Generate IQ data that corresponds to the mock signals in the spectrum
                   let iq_bytes_per_frame = NUM_SAMPLES * 2; // 2 bytes per complex sample (I, Q)
                   let mut mock_iq = vec![128u8; iq_bytes_per_frame]; // Center at 128 (zero)
                   
-                  // Add some variation to make it realistic
+                  // Add base noise
                   use rand::Rng;
                   let mut rng = rand::thread_rng();
                   for byte in mock_iq.iter_mut() {
-                    *byte = (*byte as i16 + rng.gen_range(-20..20)) as u8;
+                    *byte = (*byte as i16 + rng.gen_range(-5..5)) as u8;
+                  }
+                  
+                  // Add simplified signals - just add tones at signal frequencies without complex modulation
+                  for signal in &processor.mock_signals {
+                    if signal.active {
+                      // Calculate the frequency bin for this signal
+                      let signal_bin = signal.center_bin + signal.drift_offset;
+                      if signal_bin >= 0.0 && signal_bin < MOCK_SPECTRUM_SIZE as f32 {
+                        // Convert bin to frequency
+                        let signal_freq = (signal_bin / MOCK_SPECTRUM_SIZE as f32) * SAMPLE_RATE as f32;
+                        
+                        // Generate a simple tone - much less computation
+                        let amplitude = (signal.base_strength * 10.0) as i16; // Simplified amplitude
+                        for i in 0..NUM_SAMPLES {
+                          // Simple sine wave calculation
+                          let phase = 2.0 * std::f32::consts::PI * signal_freq * i as f32 / SAMPLE_RATE as f32;
+                          let sample = (amplitude as f32 * phase.sin()) as i16;
+                          
+                          let idx = i * 2;
+                          if idx + 1 < mock_iq.len() {
+                            // Add to existing noise instead of replacing
+                            let current_i = mock_iq[idx] as i16 - 128;
+                            let current_q = mock_iq[idx + 1] as i16 - 128;
+                            
+                            mock_iq[idx] = (128 + (current_i + sample).clamp(-128, 127)) as u8;
+                            mock_iq[idx + 1] = (128 + (current_q + sample).clamp(-128, 127)) as u8;
+                          }
+                        }
+                      }
+                    }
                   }
                   
                   processor.capture_buffer.extend_from_slice(&mock_iq);
@@ -1872,6 +1975,8 @@ impl WebSocketServer {
                         &processor.capture_file_type,
                         processor.capture_encrypted,
                         &io_shared.encryption_key,
+                        processor.capture_min_freq,
+                        processor.capture_max_freq,
                       ) {
                         Ok(artifact) => {
                           io_shared.capture_artifacts.lock().unwrap()
@@ -1926,7 +2031,8 @@ impl WebSocketServer {
                     timestamp: chrono::Utc::now().timestamp_millis(),
                   };
                   if let Ok(json) = serde_json::to_string(&data) {
-                    let _ = io_broadcast_tx.send(json);
+                    // Use batching for spectrum data to reduce WebSocket overhead
+                    broadcast_with_batching(&io_shared, &io_broadcast_tx, json);
                   }
                 }
               }
@@ -2021,6 +2127,40 @@ impl WebSocketServer {
     axum::serve(listener, app).await?;
 
     Ok(())
+  }
+
+  /// Batch and send messages with throttling to reduce WebSocket overhead
+  fn broadcast_with_batching(&self, message: String) {
+    const BATCH_INTERVAL: Duration = Duration::from_millis(16); // ~60fps batching
+    const MAX_BATCH_SIZE: usize = 5;
+
+    // Add message to batch
+    {
+      let mut batch = self.shared.message_batch.lock().unwrap();
+      batch.push_back(message);
+      
+      // Check if we should send the batch
+      let now = Instant::now();
+      let mut last_batch_time = self.shared.last_batch_time.lock().unwrap();
+      
+      if batch.len() >= MAX_BATCH_SIZE || 
+         now.duration_since(*last_batch_time) >= BATCH_INTERVAL {
+        // Send batched messages
+        let batch_messages: Vec<String> = batch.drain(..).collect();
+        let batched_json = serde_json::json!({
+          "message_type": "batch",
+          "messages": batch_messages,
+          "count": batch_messages.len()
+        });
+        
+        if let Ok(json) = serde_json::to_string(&batched_json) {
+          let _ = self.broadcast_tx.send(json);
+          self.shared.message_count.fetch_add(batch_messages.len() as u32, Ordering::Relaxed);
+        }
+        
+        *last_batch_time = now;
+      }
+    }
   }
 }
 

@@ -149,8 +149,42 @@ export const useWebSocket = (
             reconnectAttemptRef.current = 0;
           };
 
+          // WebSocket message handler with batching
           ws.onmessage = (event) => {
             const raw = event.data as string;
+
+            // Batch messages for performance
+            messageBatch.push(raw);
+            
+            if (messageBatch.length >= BATCH_SIZE) {
+              processMessageBatch();
+            } else if (!batchTimeout) {
+              batchTimeout = setTimeout(processMessageBatch, BATCH_DELAY);
+            }
+          };
+
+          // Message batching for performance
+          let messageBatch: string[] = [];
+          let batchTimeout: NodeJS.Timeout | null = null;
+          const BATCH_SIZE = 5;
+          const BATCH_DELAY = 16; // 16ms batch delay
+
+          const processMessageBatch = () => {
+            if (batchTimeout) {
+              clearTimeout(batchTimeout);
+              batchTimeout = null;
+            }
+
+            if (messageBatch.length === 0) return;
+
+            // Process batched messages
+            for (const raw of messageBatch) {
+              processSingleMessage(raw);
+            }
+            messageBatch = [];
+          };
+
+          const processSingleMessage = (raw: string) => {
 
             // ── Status messages (backend-driven device state) ────────
             if (raw.includes('"message_type":"status"')) {
