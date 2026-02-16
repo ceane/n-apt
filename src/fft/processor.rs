@@ -418,7 +418,7 @@ impl FFTProcessor {
     // Calculate power spectrum with normalization (magnitude, DC at left)
     let norm = (self.config.fft_size as f32) * (self.config.fft_size as f32);
     let mut power = Vec::with_capacity(self.config.fft_size);
-    for c in buf {
+    for c in &buf {
       let mag = c.norm_sqr() / norm;
       // Convert to dB and clamp to reasonable range (-120dB to 0dB)
       let db_value = 10.0 * mag.log10().max(-120.0);

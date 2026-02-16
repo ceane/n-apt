@@ -285,7 +285,14 @@ export const useWebSocket = (
                         decryptPayload(aesKeyRef.current, envelope.payload)
                           .then((plaintext) => {
                             const parsedData = JSON.parse(plaintext);
-                            setData(parsedData);
+                            
+                            // Handle batched messages
+                            if (parsedData.message_type === 'batch' && parsedData.messages && parsedData.messages.length > 0) {
+                              const firstMessage = JSON.parse(parsedData.messages[0]);
+                              setData(firstMessage);
+                            } else {
+                              setData(parsedData);
+                            }
                           })
                           .catch(() => {
                             // Decryption failed — likely wrong key or corrupted frame
