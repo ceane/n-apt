@@ -3,6 +3,7 @@ import styled from "styled-components";
 import {
   drawSpectrum,
   drawSpectrumGrid,
+  drawSpectrumTrace,
   drawSpectrumMarkers,
   FrequencyRange,
 } from "@n-apt/fft/FFTCanvasRenderer";
@@ -35,6 +36,8 @@ import {
 // Import SDR processor for WASM FFT processing
 let sdrProcessor: any = null;
 console.log("🚀 Initializing WASM FFT Pipeline...");
+
+// WebGPU pre-warming removed to prevent memory issues
 
 // Use dynamic import for WASM module loading
 (async () => {
@@ -129,7 +132,7 @@ const CanvasLayer = styled.canvas`
   left: 0;
   width: 100%;
   height: 100%;
-  pointer-events: none;
+  pointer-events: auto;
 `;
 
 /**
@@ -153,6 +156,8 @@ interface FFTCanvasProps {
   displayTemporalResolution?: "low" | "medium" | "high";
   /** Force 2D canvas rendering (skip WebGPU). Used by file-selection mode. */
   force2D?: boolean;
+  /** Grid preference for snapshot rendering (affects 2D shadow canvases) */
+  snapshotGridPreference?: boolean;
 }
 
 /**
@@ -169,6 +174,7 @@ const FFTCanvas = ({
   onFrequencyRangeChange,
   displayTemporalResolution = "medium",
   force2D = false,
+  snapshotGridPreference = true,
 }: FFTCanvasProps) => {
   const spectrumCanvasRef = useRef<HTMLCanvasElement>(null);
   const spectrumGpuCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -177,7 +183,20 @@ const FFTCanvas = ({
   const waterfallBufferRef = useRef<Uint8ClampedArray | null>(null);
   const waterfallDataWidthRef = useRef<number | null>(null);
   const bufferPoolRef = useRef<Uint8ClampedArray[]>([]);
-  const maxBufferPoolSize = 5;
+  const maxBufferPoolSize = 3; // Reduced memory footprint
+
+  // WebGPU resource pooling with lazy initialization
+  const gpuBufferPoolRef = useRef<GPUBuffer[]>([]);
+  const maxGpuBufferPoolSize = 3;
+  const texturePoolRef = useRef<GPUTexture[]>([]);
+  const maxTexturePoolSize = 2;
+
+  // Lazy initialization state
+  const [isInitialized, setIsInitialized] = useState(false);
+  const [webgpuDevice, setWebgpuDevice] = useState<GPUDevice | null>(null);
+  const [webgpuReady, setWebgpuReady] = useState(false);
+
+  // Performance tracking removed to prevent memory leaks
 
   const getBufferFromPool = (size: number): Uint8ClampedArray => {
     const pool = bufferPoolRef.current;
@@ -199,21 +218,76 @@ const FFTCanvas = ({
     }
   };
 
+  // Frame rate limiting function - more aggressive for performance
+  const shouldRenderFrame = useCallback(() => {
+    const now = performance.now();
+    const elapsed = now - lastFrameTimeRef.current;
+
+    if (elapsed >= frameRateLimiterRef.current) {
+      lastFrameTimeRef.current = now;
+      return true;
+    }
+    return false;
+  }, []);
+
+  // Aggressive frame skipping for performance
+  const frameSkipCounterRef = useRef(0);
+  const frameSkipThreshold = 1; // Skip every other frame under heavy load
+
   // Frame buffering for smooth rendering - optimized for memory
   const frameBufferRef = useRef<Float32Array[]>([]);
-  const maxFrameBufferSize = 3; // Optimized memory usage with cleanup
+  const maxFrameBufferSize = 1; // Further reduced to minimize memory pressure
   const frameDropCounterRef = useRef(0);
   const animationFrameRef = useRef<number | null>(null);
   const animationRunIdRef = useRef(0);
   const isVisibleRef = useRef(true);
   const lastRenderTimeRef = useRef(0);
-  const targetFrameInterval = 1000 / 60; // 60 FPS target
+  const targetFrameInterval = 1000 / 60; // 60 FPS for smoother animation
+  const lastFrameTimeRef = useRef(0);
+  const frameRateLimiterRef = useRef(16); // 60 FPS = ~16.67ms per frame
   const dataRef = useRef<any>(null);
   const lastProcessedDataRef = useRef<any>(null);
   const frequencyRangeRef = useRef<FrequencyRange>(frequencyRange);
   const centerFreqRef = useRef(centerFrequencyMHz);
   centerFreqRef.current = centerFrequencyMHz;
 
+
+  // Lazy initialization for WebGPU resources
+  const initializeWebGPU = useCallback(async () => {
+    if (webgpuReady || force2D) return;
+
+    try {
+      const device = await getWebGPUDevice();
+      if (!device) {
+        console.warn("⚠️ WebGPU not available, falling back to 2D rendering");
+        return;
+      }
+
+      setWebgpuDevice(device);
+      setWebgpuReady(true);
+
+      // Pre-allocate some GPU resources
+      for (let i = 0; i < 2; i++) {
+        const buffer = device.createBuffer({
+          size: 1024 * 1024, // 1MB buffer
+          usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.STORAGE,
+        });
+        gpuBufferPoolRef.current.push(buffer);
+      }
+
+    } catch (error) {
+      console.error("❌ WebGPU initialization failed:", error);
+      setWebgpuReady(false);
+    }
+  }, [webgpuReady, force2D]);
+
+  // Initialize WebGPU on first render
+  useEffect(() => {
+    if (!isInitialized && !force2D) {
+      setIsInitialized(true);
+      initializeWebGPU();
+    }
+  }, [isInitialized, initializeWebGPU, force2D]);
 
   // Memory cleanup function
   const performMemoryCleanup = useCallback(() => {
@@ -247,6 +321,14 @@ const FFTCanvas = ({
 
   const retuneSmearRef = useRef(0);
   const retuneDriftPxRef = useRef(0);
+
+  // Ref to track snapshot grid preference (for 2D shadow renders)
+  const snapshotGridPreferenceRef = useRef(true);
+
+  // Update ref when prop changes
+  useEffect(() => {
+    snapshotGridPreferenceRef.current = snapshotGridPreference;
+  }, [snapshotGridPreference]);
   const waveformFloatRef = useRef<Float32Array | null>(null);
   const renderWaveformRef = useRef<Float32Array | null>(null);
   const spectrumResampleBufRef = useRef<Float32Array | null>(null);
@@ -266,7 +348,7 @@ const FFTCanvas = ({
 
   const overlayDirtyRef = useRef({ grid: true, markers: true });
   const overlayLastUploadMsRef = useRef({ grid: 0, markers: 0 });
-  const OVERLAY_MAX_FPS = 30;
+  const OVERLAY_MAX_FPS = 60;
   const OVERLAY_MIN_INTERVAL_MS = Math.round(1000 / OVERLAY_MAX_FPS);
 
   useEffect(() => {
@@ -287,10 +369,15 @@ const FFTCanvas = ({
    */
   useEffect(() => {
     const getActiveSpectrumCanvas = () => {
-      return spectrumWebgpuEnabled ? spectrumGpuCanvasRef.current : spectrumCanvasRef.current;
+      // Always return the currently visible canvas
+      if (spectrumWebgpuEnabled) {
+        return spectrumGpuCanvasRef.current;
+      } else {
+        return spectrumCanvasRef.current;
+      }
     };
 
-    const handleMouseMove = (e: MouseEvent) => {
+    const handlePointerMove = (e: PointerEvent) => {
       const canvas = getActiveSpectrumCanvas();
       if (!isDraggingRef.current || !canvas) return;
 
@@ -336,8 +423,7 @@ const FFTCanvas = ({
       }
     };
 
-    const handleMouseDown = (e: MouseEvent) => {
-      console.log("VFO: handleMouseDown fired", e);
+    const handlePointerDown = (e: PointerEvent) => {
       const canvas = getActiveSpectrumCanvas();
       if (!canvas) return;
 
@@ -346,62 +432,96 @@ const FFTCanvas = ({
       // Only start drag if clicking in the frequency axis area (bottom 60px)
       const height = rect.height;
       const y = e.clientY - rect.top;
-      console.log("VFO: Click position", { y, height, inDragArea: y >= height - 60 });
       if (y >= height - 60) {
         isDraggingRef.current = true;
         dragStartXRef.current = e.clientX;
         dragStartFreqRef.current = frequencyRangeRef.current.min;
         canvas.style.cursor = "grabbing";
-        console.log("VFO: Drag started");
+        canvas.setPointerCapture(e.pointerId); // Capture pointer for better drag experience
       }
     };
 
-    const handleMouseUp = () => {
+    const handlePointerUp = (e: PointerEvent) => {
       const canvas = getActiveSpectrumCanvas();
       if (isDraggingRef.current && canvas) {
         canvas.style.cursor = "grab";
+        canvas.releasePointerCapture(e.pointerId); // Release pointer capture
       }
       isDraggingRef.current = false;
     };
 
-    const handleMouseEnter = () => {
+    const handlePointerEnter = () => {
       const canvas = getActiveSpectrumCanvas();
       if (canvas && !isDraggingRef.current) canvas.style.cursor = "grab";
     };
 
-    const handleMouseLeave = () => {
+    const handlePointerLeave = () => {
       const canvas = getActiveSpectrumCanvas();
       if (canvas && !isDraggingRef.current) canvas.style.cursor = "default";
     };
 
-    const canvas = getActiveSpectrumCanvas();
-    console.log("VFO: Setting up event listeners", {
-      canvas: !!canvas,
-      spectrumWebgpuEnabled,
-      gpuCanvas: !!spectrumGpuCanvasRef.current,
-      canvas2d: !!spectrumCanvasRef.current
-    });
-    if (canvas) {
-      console.log("VFO: Adding mousedown listener to canvas");
-      canvas.addEventListener("mousedown", handleMouseDown);
-      canvas.addEventListener("mouseenter", handleMouseEnter);
-      canvas.addEventListener("mouseleave", handleMouseLeave);
-      canvas.style.cursor = "grab";
-    }
+    // Set up event listeners on both canvases but only activate the visible one
+    const gpuCanvas = spectrumGpuCanvasRef.current;
+    const canvas2D = spectrumCanvasRef.current;
 
-    window.addEventListener("mousemove", handleMouseMove);
-    window.addEventListener("mouseup", handleMouseUp);
+    console.log("VFO: Setting up pointer event listeners", {
+      gpuCanvas: !!gpuCanvas,
+      canvas2D: !!canvas2D,
+      spectrumWebgpuEnabled,
+      visibleCanvas: !!getActiveSpectrumCanvas()
+    });
+
+    // Add pointer event listeners to both canvases
+    [gpuCanvas, canvas2D].forEach(canvas => {
+      if (canvas) {
+        canvas.addEventListener("pointerdown", handlePointerDown);
+        canvas.addEventListener("pointerenter", handlePointerEnter);
+        canvas.addEventListener("pointerleave", handlePointerLeave);
+        // Set cursor only on the currently visible canvas
+        if (canvas === getActiveSpectrumCanvas()) {
+          canvas.style.cursor = "grab";
+        }
+      }
+    });
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
 
     return () => {
-      if (canvas) {
-        canvas.removeEventListener("mousedown", handleMouseDown);
-        canvas.removeEventListener("mouseenter", handleMouseEnter);
-        canvas.removeEventListener("mouseleave", handleMouseLeave);
-      }
-      window.removeEventListener("mousemove", handleMouseMove);
-      window.removeEventListener("mouseup", handleMouseUp);
+      [gpuCanvas, canvas2D].forEach(canvas => {
+        if (canvas) {
+          canvas.removeEventListener("pointerdown", handlePointerDown);
+          canvas.removeEventListener("pointerenter", handlePointerEnter);
+          canvas.removeEventListener("pointerleave", handlePointerLeave);
+        }
+      });
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
     };
   }, [onFrequencyRangeChange, _activeSignalArea, spectrumWebgpuEnabled]);
+
+  // Update cursor when canvas visibility changes
+  useEffect(() => {
+    const gpuCanvas = spectrumGpuCanvasRef.current;
+    const canvas2D = spectrumCanvasRef.current;
+
+    // Reset cursor on both canvases
+    [gpuCanvas, canvas2D].forEach(canvas => {
+      if (canvas) {
+        canvas.style.cursor = "default";
+      }
+    });
+
+    // Set grab cursor on the currently visible canvas
+    const getActiveSpectrumCanvas = () => {
+      return spectrumWebgpuEnabled ? spectrumGpuCanvasRef.current : spectrumCanvasRef.current;
+    };
+
+    const activeCanvas = getActiveSpectrumCanvas();
+    if (activeCanvas && !isDraggingRef.current) {
+      activeCanvas.style.cursor = "grab";
+    }
+  }, [spectrumWebgpuEnabled]);
 
   const maybeUpdateOverlays = useCallback(
     (width: number, height: number, dpr: number) => {
@@ -472,13 +592,21 @@ const FFTCanvas = ({
       const height = rect?.height || canvas.height;
 
       if (displayTemporalResolution === "high") {
-        drawSpectrumGrid({
-          ctx,
-          width,
-          height,
-          frequencyRange: frequencyRangeRef.current,
-          clearBackground: true,
-        });
+        // Check if we should draw grid (respect snapshot preference)
+        const shouldDrawGrid = snapshotGridPreferenceRef.current;
+        if (shouldDrawGrid) {
+          drawSpectrumGrid({
+            ctx,
+            width,
+            height,
+            frequencyRange: frequencyRangeRef.current,
+            clearBackground: true,
+          });
+        } else {
+          // Clear background without grid
+          ctx.fillStyle = "#000000";
+          ctx.fillRect(0, 0, width, height);
+        }
 
         const fftAreaMax = { x: width - 40, y: height - 40 };
         const fftHeight = fftAreaMax.y - FFT_AREA_MIN.y;
@@ -502,13 +630,29 @@ const FFTCanvas = ({
           ctx.fillRect(x, y, 1, 1);
         }
       } else {
-        drawSpectrum({
-          ctx,
-          width,
-          height,
-          waveform: spectrumData,
-          frequencyRange: frequencyRangeRef.current,
-        });
+        // Check if we should draw grid (respect snapshot preference)
+        const shouldDrawGrid = snapshotGridPreferenceRef.current;
+        if (shouldDrawGrid) {
+          drawSpectrum({
+            ctx,
+            width,
+            height,
+            waveform: spectrumData,
+            frequencyRange: frequencyRangeRef.current,
+          });
+        } else {
+          // Clear background without grid
+          ctx.fillStyle = "#000000";
+          ctx.fillRect(0, 0, width, height);
+          // Draw only the spectrum trace
+          drawSpectrumTrace({
+            ctx,
+            width,
+            height,
+            waveform: spectrumData,
+            frequencyRange: frequencyRangeRef.current,
+          });
+        }
       }
     },
     [displayTemporalResolution],
@@ -814,10 +958,30 @@ const FFTCanvas = ({
   /**
    * Animation loop for continuous spectrum and waterfall updates
    * While paused: keep rendering the last cached waveform without ingesting new data.
+   * 
+   * NOTE: React's dev profiling creates PerformanceMeasure objects that leak memory.
+   * WebGPU state changes also trigger performance measurements. Clear them each frame
+   * to prevent memory ballooning (was reaching 40GB+ without this).
    */
   const animate = useCallback(() => {
     const runId = animationRunIdRef.current;
     const now = performance.now();
+
+    // Clear performance measures to prevent memory leak from React dev profiling
+    // and WebGPU state changes that accumulate PerformanceMeasure objects
+    performance.clearMeasures();
+
+    // Aggressive frame skipping for performance
+    frameSkipCounterRef.current++;
+    if (frameSkipCounterRef.current < frameSkipThreshold) {
+      animationFrameRef.current = requestAnimationFrame(() => {
+        if (animationRunIdRef.current === runId) {
+          animate();
+        }
+      });
+      return;
+    }
+    frameSkipCounterRef.current = 0;
 
     // Frame rate limiting to prevent excessive renders
     if (now - lastRenderTimeRef.current < targetFrameInterval) {
@@ -929,8 +1093,19 @@ const FFTCanvas = ({
     }
 
     const waveform = renderWaveformRef.current;
+    // Early exit conditions to reduce unnecessary work
+    if (!waveform || !isVisibleRef.current || waveform.length === 0) {
+      // Skip rendering if no valid waveform or not visible
+      animationFrameRef.current = requestAnimationFrame(() => {
+        if (animationRunIdRef.current === runId) {
+          animate();
+        }
+      });
+      return;
+    }
+
     // Always render existing waveform, but only update with new data when not paused and visible
-    if (waveform && isVisibleRef.current && waveform.length > 0) {
+    if (isVisibleRef.current && waveform.length > 0) {
       // Spectrum render - always render existing waveform, but only update with new data when not paused
       if (spectrumWebgpuEnabled && spectrumRendererRef.current && spectrumGpuCanvas) {
         const rect = spectrumGpuCanvas.parentElement?.getBoundingClientRect();
@@ -1109,10 +1284,10 @@ const FFTCanvas = ({
   useEffect(() => {
     dataRef.current = data;
 
-    // Perform periodic memory cleanup
+    // Perform periodic memory cleanup - reduced frequency to reduce overhead
     const cleanupInterval = setInterval(() => {
       performMemoryCleanup();
-    }, 10000); // Every 10 seconds
+    }, 30000); // Every 30 seconds instead of 10
 
     return () => {
       clearInterval(cleanupInterval);
@@ -1253,7 +1428,7 @@ const FFTCanvas = ({
       if (resizeTimeout) clearTimeout(resizeTimeout);
       resizeTimeout = setTimeout(() => {
         resizeCanvas();
-      }, 100);
+      }, 16); // Reduced from 100ms to 16ms for better responsiveness
     });
 
     const spectrumParent = spectrumCanvas?.parentElement ?? spectrumGpuCanvas?.parentElement;
