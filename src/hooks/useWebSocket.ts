@@ -191,6 +191,8 @@ export const useWebSocket = (
               try {
                 const parsedData = JSON.parse(raw);
                 const paused = parsedData.paused || false;
+                
+
 
                 if (typeof parsedData.backend === "string") {
                   setBackend(parsedData.backend);

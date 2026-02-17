@@ -1,6 +1,6 @@
 import React from "react";
 import styled from "styled-components";
-import DecryptingText from "./DecryptingText";
+import DecryptingText from "@n-apt/components/DecryptingText";
 
 const DecodeContainer = styled.div`
   flex: 1;
