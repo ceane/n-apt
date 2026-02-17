@@ -1,5 +1,5 @@
-import { configureWebGPUCanvas, parseCssColorToRgba } from "./webgpu";
-import type { OverlayTextureRenderer } from "./OverlayTextureRenderer";
+import { configureWebGPUCanvas, parseCssColorToRgba } from "@n-apt/gpu/webgpu";
+import type { OverlayTextureRenderer } from "@n-apt/gpu/OverlayTextureRenderer";
 
 const spectrumShader = `
 @group(0) @binding(0) var<storage, read> waveform: array<f32>;

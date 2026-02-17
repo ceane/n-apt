@@ -2,6 +2,7 @@ import { useRef, useCallback, useState, useEffect, useMemo } from "react";
 import styled from "styled-components";
 import InfoPopover from "@n-apt/components/InfoPopover";
 import FrequencyRangeSlider from "@n-apt/components/FrequencyRangeSlider";
+import DrawMockNAPTSidebar from "./DrawMockNAPTSidebar";
 import { decryptPayloadBytes } from "@n-apt/crypto/webcrypto";
 import { renderSpectrumSvg, renderFullRangeSpectrumSvg, drawSpectrumGrid } from "@n-apt/fft/FFTCanvasRenderer";
 import { FFT_AREA_MIN } from "@n-apt/consts";
@@ -27,8 +28,7 @@ type NaptMetadata = {
 };
 
 const SidebarContainer = styled.aside`
-  width: 360px;
-  min-width: 360px;
+  width: 100%;
   height: 100vh;
   background-color: #0d0d0d;
   border-right: 1px solid #1a1a1a;
@@ -36,7 +36,6 @@ const SidebarContainer = styled.aside`
   flex-direction: column;
   padding: calc(24px + env(safe-area-inset-top, 0px)) 24px
     calc(24px + env(safe-area-inset-bottom, 0px));
-  overflow-y: auto;
   overflow-x: visible;
   position: relative;
   box-sizing: border-box;
@@ -348,9 +347,8 @@ const ToggleSwitchSlider = styled.span<{ $disabled?: boolean }>`
 `;
 
 interface SidebarProps {
-  isConnected: boolean;
   isAuthenticated: boolean;
-  authState: string;
+  isConnected: boolean;
   deviceState: DeviceState;
   deviceLoadingReason: DeviceLoadingReason;
   isPaused: boolean;
@@ -365,6 +363,15 @@ interface SidebarProps {
   spectrumFrames?: Array<{ id: string; label: string; min_mhz: number; max_mhz: number; description: string }>;
   activeTab: string;
   onTabChange: (tab: string) => void;
+  drawParams: {
+    spikeCount: number;
+    spikeWidth: number;
+    centerSpikeBoost: number;
+    floorAmplitude: number;
+    decayRate: number;
+    envelopeWidth: number;
+  };
+  onDrawParamsChange: (params: any) => void;
   sourceMode: "live" | "file";
   onSourceModeChange: (mode: "live" | "file") => void;
   stitchStatus: string;
@@ -390,16 +397,16 @@ interface SidebarProps {
   fftWaveform?: Float32Array | number[] | null;
   getCurrentWaveform?: () => Float32Array | number[] | null;
   centerFrequencyMHz?: number;
+  showInternalTabs?: boolean;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({
   isConnected,
   isAuthenticated,
-  authState,
   deviceState,
   deviceLoadingReason,
   isPaused,
-  _serverPaused,
+  _serverPaused: _unusedServerPaused,
   backend,
   deviceInfo,
   maxSampleRateHz,
@@ -410,6 +417,8 @@ const Sidebar: React.FC<SidebarProps> = ({
   spectrumFrames,
   activeTab,
   onTabChange,
+  drawParams,
+  onDrawParamsChange,
   sourceMode,
   onSourceModeChange,
   stitchStatus,
@@ -435,6 +444,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   fftWaveform,
   getCurrentWaveform,
   centerFrequencyMHz,
+  showInternalTabs = true,
 }) => {
   // Live retune toggle state (default on)
   const liveRetune = true;
@@ -1161,60 +1171,8 @@ const Sidebar: React.FC<SidebarProps> = ({
     [activeSignalArea, onFrequencyRangeChange],
   );
 
-  // Minimal sidebar mode: only show connection status and auth state
   if (!isAuthenticated) {
-    const authStatusMap = {
-      connecting: "Connecting to server...",
-      awaiting_challenge: "Establishing secure channel...",
-      ready: "Awaiting authentication...",
-      authenticating: "Verifying credentials...",
-      failed: "Authentication failed",
-      timeout: "Authentication timed out",
-      success: "Authenticated — starting stream...",
-    };
-    const authStatusText = authStatusMap[authState as keyof typeof authStatusMap] ?? "Awaiting authentication...";
-
-    return (
-      <SidebarContainer>
-        <Section>
-          <SectionTitle>Connection</SectionTitle>
-          <ConnectionStatusContainer>
-            <ConnectionStatus>
-              <StatusDot
-                $connected={isConnected}
-                $loading={authState === "authenticating" || authState === "awaiting_challenge"}
-              />
-              <StatusText>{!isConnected ? "Disconnected" : "Connected to server"}</StatusText>
-            </ConnectionStatus>
-          </ConnectionStatusContainer>
-        </Section>
-
-        <Section>
-          <SectionTitle>Authentication</SectionTitle>
-          <SettingRow>
-            <SettingLabelContainer>
-              <SettingLabel>Status</SettingLabel>
-            </SettingLabelContainer>
-            <SettingValue
-              style={{
-                color: authState === "failed" || authState === "timeout" ? "#f87171" : authState === "success" ? "#00d4ff" : "#888",
-                fontSize: "11px",
-              }}
-            >
-              {authStatusText}
-            </SettingValue>
-          </SettingRow>
-          {backend && (
-            <SettingRow>
-              <SettingLabelContainer>
-                <SettingLabel>Backend</SettingLabel>
-              </SettingLabelContainer>
-              <SettingValue>{backend === "rtl-sdr" ? "RTL-SDR" : "Mock"}</SettingValue>
-            </SettingRow>
-          )}
-        </Section>
-      </SidebarContainer>
-    );
+    return null;
   }
 
   return (
@@ -1249,14 +1207,19 @@ const Sidebar: React.FC<SidebarProps> = ({
         </div>
       )}
 
-      <TabContainer>
-        <Tab $active={activeTab === "visualizer"} onClick={() => onTabChange("visualizer")}>
-          N-APT visualizer
-        </Tab>
-        <Tab $active={activeTab === "analysis"} onClick={() => onTabChange("analysis")}>
-          Decode N-APT with ML
-        </Tab>
-      </TabContainer>
+      {showInternalTabs && (
+        <TabContainer>
+          <Tab $active={activeTab === "visualizer"} onClick={() => onTabChange("visualizer")}>
+            See FFT of N-APT (LF/HF freqs)
+          </Tab>
+          <Tab $active={activeTab === "analysis"} onClick={() => onTabChange("analysis")}>
+            Decode N-APT with ML
+          </Tab>
+          <Tab $active={activeTab === "draw"} onClick={() => onTabChange("draw")}>
+            Draw N-APT with Math/ML
+          </Tab>
+        </TabContainer>
+      )}
 
       {activeTab === "visualizer" && (
         <>
@@ -1365,7 +1328,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           {sourceMode === "live" && (
             <Section>
               <SectionTitleCollapsible type="button" onClick={() => setCaptureOpen((p) => !p)}>
-                <SectionTitleLabel>Capture /</SectionTitleLabel>
+                <SectionTitleLabel>I/Q Capture /</SectionTitleLabel>
                 <SectionTitleToggle>{captureOpen ? "-" : "+"}</SectionTitleToggle>
               </SectionTitleCollapsible>
 
@@ -1890,7 +1853,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           )}
 
           <Section>
-            <SectionTitle>Signal type</SectionTitle>
+            <SectionTitle>Signal Features</SectionTitle>
             <SettingRow>
               <SettingLabelContainer>
                 <SettingLabel>
@@ -2248,6 +2211,13 @@ const Sidebar: React.FC<SidebarProps> = ({
             )}
           </Section>
         </>
+      )}
+
+      {activeTab === "draw" && (
+        <DrawMockNAPTSidebar
+          drawParams={drawParams}
+          onDrawParamsChange={onDrawParamsChange}
+        />
       )}
     </SidebarContainer>
   );

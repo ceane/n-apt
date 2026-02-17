@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import styled from "styled-components";
-import { WebGPULineChart } from "./WebGPULineChart";
+import { WebGPULineChart } from "@n-apt/components/WebGPULineChart";
 import {
   DEFAULT_SPIKE_COUNT,
   DEFAULT_SPIKE_WIDTH,
@@ -305,7 +305,7 @@ const DrawMockNAPT = () => {
             <strong>Frequency Range:</strong> 0 - 3 MHz (N-APT APT frequency range)
           </InfoParagraph>
           <InfoParagraph>
-            <strong>Signal Type:</strong> Frequency comb with Gaussian envelope
+            <strong>Signal Features:</strong> Frequency comb with Gaussian envelope
           </InfoParagraph>
           <InfoParagraph>
             <strong>Modulation:</strong> Sine wave spikes with exponential decay

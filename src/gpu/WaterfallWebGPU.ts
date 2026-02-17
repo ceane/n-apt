@@ -1,4 +1,4 @@
-import { alignTo, configureWebGPUCanvas, parseCssColorToRgba } from "./webgpu";
+import { alignTo, configureWebGPUCanvas, parseCssColorToRgba } from "@n-apt/gpu/webgpu";
 import { DEFAULT_COLOR_MAP } from "@n-apt/consts";
 
 const waterfallShader = `
