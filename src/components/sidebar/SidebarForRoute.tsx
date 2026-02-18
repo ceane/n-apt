@@ -26,18 +26,24 @@ export const SidebarForRoute: React.FC<SidebarForRouteProps> = ({ activeTab }) =
     return (
       <>
         <Section>
-          <SectionTitle>Body Areas</SectionTitle>
-          <div style={{ fontSize: "11px", color: "rgba(255,255,255,0.50)", marginBottom: "16px" }}>
-            Click an area to focus the camera
+          <div style={{ padding: "0 12px" }}>
+            <SectionTitle>Body Areas</SectionTitle>
+            <div style={{ fontSize: "11px", color: "rgba(255,255,255,0.50)", marginBottom: "16px" }}>
+              Click an area to focus the camera
+            </div>
+            <BodyAreasSection />
           </div>
-          <BodyAreasSection />
         </Section>
       </>
     );
   }
 
   if (activeTab === "hotspoteditor") {
-    return <HotspotEditorSection />;
+    return (
+      <div style={{ padding: "0 12px" }}>
+        <HotspotEditorSection />
+      </div>
+    );
   }
 
   // For other routes, show a placeholder

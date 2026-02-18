@@ -772,7 +772,9 @@ const Sidebar: React.FC<SidebarProps> = ({
           <div style={{ fontSize: "11px", color: "rgba(255,255,255,0.50)", marginBottom: "16px" }}>
             Click an area to focus the camera
           </div>
-          <BodyAreasSection />
+          <div style={{ padding: "0 12px" }}>
+            <BodyAreasSection />
+          </div>
         </Section>
       )}
     </SidebarContent>
