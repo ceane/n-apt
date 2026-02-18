@@ -410,7 +410,7 @@ const FFTCanvas = ({
   };
 
   // Frame rate limiting function - more aggressive for performance
-  const shouldRenderFrame = useCallback(() => {
+  const _shouldRenderFrame = useCallback(() => {
     const now = performance.now();
     const elapsed = now - lastFrameTimeRef.current;
 
@@ -1570,18 +1570,71 @@ const FFTCanvas = ({
 
     const waveform = renderWaveformRef.current;
     // Early exit conditions to reduce unnecessary work
+    // But when paused, try to restore from sessionStorage if waveform is missing
     if (!waveform || !isVisibleRef.current || waveform.length === 0) {
-      // Skip rendering if no valid waveform or not visible
-      animationFrameRef.current = requestAnimationFrame(() => {
-        if (animationRunIdRef.current === runId) {
-          animate();
+      // When paused and no waveform, try to restore from sessionStorage
+      if (isPaused && !waveform) {
+        try {
+          const waveformJson = sessionStorage.getItem(SNAPSHOT_WAVEFORM_KEY);
+          if (waveformJson) {
+            const arr = JSON.parse(waveformJson) as number[];
+            const restoredWaveform = Float32Array.from(arr);
+            if (restoredWaveform.length > 0) {
+              renderWaveformRef.current = restoredWaveform;
+              waveformFloatRef.current = restoredWaveform;
+              // Update waveform variable to continue with restored data
+              const restoredWaveformRef = renderWaveformRef.current;
+              if (!restoredWaveformRef || !isVisibleRef.current || restoredWaveformRef.length === 0) {
+                animationFrameRef.current = requestAnimationFrame(() => {
+                  if (animationRunIdRef.current === runId) {
+                    animate();
+                  }
+                });
+                return;
+              }
+            } else {
+              // Skip rendering if no valid waveform or not visible
+              animationFrameRef.current = requestAnimationFrame(() => {
+                if (animationRunIdRef.current === runId) {
+                  animate();
+                }
+              });
+              return;
+            }
+          } else {
+            // Skip rendering if no valid waveform or not visible
+            animationFrameRef.current = requestAnimationFrame(() => {
+              if (animationRunIdRef.current === runId) {
+                animate();
+              }
+            });
+            return;
+          }
+        } catch {
+          // Skip rendering if restoration fails
+          animationFrameRef.current = requestAnimationFrame(() => {
+            if (animationRunIdRef.current === runId) {
+              animate();
+            }
+          });
+          return;
         }
-      });
-      return;
+      } else {
+        // Skip rendering if no valid waveform or not visible
+        animationFrameRef.current = requestAnimationFrame(() => {
+          if (animationRunIdRef.current === runId) {
+            animate();
+          }
+        });
+        return;
+      }
     }
 
+    // Update waveform reference after potential restoration
+    const currentWaveform = renderWaveformRef.current;
+
     // Always render existing waveform, but only update with new data when not paused and visible
-    if (isVisibleRef.current && waveform.length > 0) {
+    if (isVisibleRef.current && currentWaveform && currentWaveform.length > 0) {
 
 
       // Spectrum render - always render existing waveform, but only update with new data when not paused
@@ -1606,10 +1659,10 @@ const FFTCanvas = ({
           spectrumResampleBufRef.current = new Float32Array(displayWidth);
         }
         const outBuf = spectrumResampleBufRef.current;
-        if (waveform.length === displayWidth) {
-          outBuf.set(waveform);
+        if (currentWaveform.length === displayWidth) {
+          outBuf.set(currentWaveform);
         } else {
-          resampleSpectrumInto(waveform, outBuf);
+          resampleSpectrumInto(currentWaveform, outBuf);
         }
 
         // Prevent WebGPU vertex NaNs/Infs (can show as dense vertical "curtains")
@@ -1647,7 +1700,7 @@ const FFTCanvas = ({
 
       // Always maintain a 2D shadow render (used for snapshot export)
       if (spectrumCanvas) {
-        renderSpectrum(spectrumCanvas, Array.from(waveform));
+        renderSpectrum(spectrumCanvas, Array.from(currentWaveform));
         const ctx2d = spectrumCanvas.getContext("2d");
         if (ctx2d) {
           const r = spectrumCanvas.parentElement?.getBoundingClientRect();
@@ -1670,17 +1723,17 @@ const FFTCanvas = ({
           const dims = waterfallGpuDimsRef.current;
           if (dims) {
             let resampled: number[];
-            if (sdrProcessor && waveform.length >= 4) {
+            if (sdrProcessor && currentWaveform && currentWaveform.length >= 4) {
               const float32Output = new Float32Array(dims.width);
               try {
-                sdrProcessor.resample_spectrum(waveform, float32Output, dims.width);
+                sdrProcessor.resample_spectrum(currentWaveform, float32Output, dims.width);
                 resampled = Array.from(float32Output);
               } catch (error) {
                 console.warn("WASM SIMD resampling failed, using fallback:", error);
-                resampled = performScalarResampling(Array.from(waveform), dims.width);
+                resampled = performScalarResampling(Array.from(currentWaveform), dims.width);
               }
             } else {
-              resampled = performScalarResampling(Array.from(waveform), dims.width);
+              resampled = performScalarResampling(Array.from(currentWaveform), dims.width);
             }
 
             const normalizedData = spectrumToAmplitude(
@@ -1705,7 +1758,7 @@ const FFTCanvas = ({
 
         // Always maintain a 2D shadow render for snapshot export
         if (waterfallCanvas) {
-          renderWaterfall(waterfallCanvas, Array.from(waveform));
+          renderWaterfall(waterfallCanvas, Array.from(currentWaveform));
         }
       } else if (waterfallCanvas && waterfallBufferRef.current) {
         // Paused 2D fallback: keep displaying the last buffered waterfall.
@@ -1830,8 +1883,8 @@ const FFTCanvas = ({
       if (waterfallRect && waterfallRect.width === 0 && waterfallRect.height === 0) return;
 
       // Cache the current dimensions to avoid unnecessary resampling cache invalidation
-      const oldSpectrumWidth = spectrumWidthRef.current;
-      const oldSpectrumHeight = spectrumHeightRef.current;
+      // const oldSpectrumWidth = spectrumWidthRef.current;
+      // const oldSpectrumHeight = spectrumHeightRef.current;
 
       if (spectrumRect) {
         if (spectrumCanvas) {

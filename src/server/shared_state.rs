@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU32};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize};
 use std::sync::{Arc, Mutex};
 
 use super::types::{SpectrumFrameMessage, CaptureArtifact};
@@ -21,9 +21,9 @@ pub struct SharedState {
   /// Whether the device is connected (set once at init, updated on fallback)
   pub device_connected: AtomicBool,
   /// Client count
-  pub client_count: AtomicU32,
+  pub client_count: AtomicUsize,
   /// Number of authenticated clients (streaming only starts when > 0)
-  pub authenticated_count: AtomicU32,
+  pub authenticated_count: AtomicUsize,
   /// Whether streaming is paused
   pub is_paused: AtomicBool,
   /// Latest requested center frequency (MHz -> Hz), coalesced atomically
@@ -60,8 +60,8 @@ impl SharedState {
         Arc::new(SharedState {
             latest_spectrum: Mutex::new(None),
             device_connected: AtomicBool::new(false),
-            client_count: AtomicU32::new(0),
-            authenticated_count: AtomicU32::new(0),
+            client_count: AtomicUsize::new(0),
+            authenticated_count: AtomicUsize::new(0),
             is_paused: AtomicBool::new(false),
             pending_center_freq: AtomicU32::new(n_apt_backend::consts::rs::fft::CENTER_FREQ),
             pending_center_freq_dirty: AtomicBool::new(false),

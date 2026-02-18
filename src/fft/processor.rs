@@ -249,20 +249,22 @@ impl FFTProcessor {
   }
 
   /// Get waterfall history (properly ordered for circular buffer)
-  pub fn get_waterfall_history(&self) -> &[Vec<f32>] {
+  pub fn get_waterfall_history(&self) -> Vec<Vec<f32>> {
     if self.waterfall_history.len() <= self.max_waterfall_lines {
-      &self.waterfall_history
+      // Buffer not full yet, return as-is
+      self.waterfall_history.clone()
     } else {
-      // Return history in correct chronological order
-      // First part: from current position to end
-      // Second part: from beginning to current position
-      let _first_part = &self.waterfall_history[self.waterfall_pos..];
-      let _second_part = &self.waterfall_history[..self.waterfall_pos];
+      // Buffer is full, return in correct chronological order
+      // Oldest data is at waterfall_pos, newest is at waterfall_pos - 1 (wrapping around)
+      let mut result = Vec::with_capacity(self.max_waterfall_lines);
       
-      // This is a bit tricky - we need to return a slice that represents
-      // the correct chronological order. For now, we'll keep it simple
-      // and optimize this in a future iteration if needed.
-      &self.waterfall_history
+      // First part: from current position (oldest) to end
+      result.extend_from_slice(&self.waterfall_history[self.waterfall_pos..]);
+      
+      // Second part: from beginning to current position (newest)
+      result.extend_from_slice(&self.waterfall_history[..self.waterfall_pos]);
+      
+      result
     }
   }
 

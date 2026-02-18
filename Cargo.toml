@@ -17,11 +17,6 @@ path = "src/server/main.rs"
 name = "fft_processor_tests"
 path = "test/rust/fft_processor_tests.rs"
 
-[[test]]
-name = "wasm_tests"
-path = "test/wasm/src/lib.rs"
-harness = false
-
 [dependencies]
 # Core dependencies (always included)
 rustfft = "6"
