@@ -59,7 +59,7 @@ reqwest = { version = "0.11", features = ["json"] }
 # HTTP + WebSocket server (axum replaces raw TcpListener + tokio-tungstenite)
 axum = { version = "0.7", features = ["ws"] }
 tower = "0.4"
-tower-http = { version = "0.5", features = ["cors"] }
+tower-http = { version = "0.5", features = ["cors", "set-header"] }
 # WebAuthn passkey authentication
 webauthn-rs = { version = "0.5", features = ["danger-allow-state-serialisation"] }
 webauthn-rs-proto = "0.5"
@@ -75,6 +75,8 @@ doc-comment = "0.3"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio-test = "0.4"
+axum-test = "15.0"
+tower = "0.4"
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test = "0.3"

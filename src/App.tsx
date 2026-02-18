@@ -3,9 +3,11 @@ import {
   BrowserRouter as Router,
   Routes,
   Route,
+  Navigate,
 } from "react-router-dom"
 import styled from "styled-components"
 import { NavigationSidebar } from "@n-apt/components/NavigationSidebarNew"
+import { SpectrumRoute } from "@n-apt/components/SpectrumRoute"
 import { Model3DRoute } from "@n-apt/components/Model3DRoute"
 import { HotspotEditorRoute } from "@n-apt/components/HotspotEditorRoute"
 
@@ -21,12 +23,7 @@ const AppContainer = styled.div`
 export const AppContent: React.FC = () => {
   return (
     <AppContainer>
-      <NavigationSidebar>
-        <Routes>
-          <Route path="/3d-model" element={<Model3DRoute />} />
-          <Route path="/hotspot-editor" element={<HotspotEditorRoute />} />
-        </Routes>
-      </NavigationSidebar>
+      <NavigationSidebar />
     </AppContainer>
   )
 }

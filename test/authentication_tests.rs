@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod authentication_tests {
-    use crate::SDRProcessor;
+    use n_apt_backend::server::sdr_processor::SDRProcessor;
 
     #[test]
     fn test_authentication_condition_check() {

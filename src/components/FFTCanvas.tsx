@@ -236,6 +236,55 @@ const FFTCanvas = ({
   // Double buffering for smooth WebGPU resampling
   const resampleCacheRef = useRef<Map<string, Float32Array>>(new Map());
   const resampleInProgressRef = useRef<Set<string>>(new Set());
+
+  // Triple buffer system for resize operations to eliminate flickering
+  const resizeBuffersRef = useRef<{
+    active: number;                    // Currently active buffer (0, 1, or 2)
+    buffers: Map<number, Float32Array[]>; // Size-indexed buffer arrays
+    lastUsed: Map<number, number>;     // Track which buffer used for each size
+  }>({
+    active: 0,
+    buffers: new Map(),
+    lastUsed: new Map()
+  });
+
+  const getResizeBuffer = useCallback((size: number): Float32Array => {
+    const buffers = resizeBuffersRef.current;
+
+    // Get or create buffer array for this size
+    let sizeBuffers = buffers.buffers.get(size);
+    if (!sizeBuffers) {
+      sizeBuffers = [new Float32Array(size), new Float32Array(size), new Float32Array(size)];
+      buffers.buffers.set(size, sizeBuffers);
+      buffers.lastUsed.set(size, 0);
+    }
+
+    // Return the currently active buffer for this size
+    const activeIndex = buffers.lastUsed.get(size) || 0;
+    return sizeBuffers[activeIndex];
+  }, []);
+
+  const rotateResizeBuffer = useCallback((size: number): Float32Array => {
+    const buffers = resizeBuffersRef.current;
+    const sizeBuffers = buffers.buffers.get(size);
+
+    if (!sizeBuffers || sizeBuffers.length < 3) {
+      // Fallback to regular buffer allocation
+      return new Float32Array(size);
+    }
+
+    // Rotate to next buffer
+    const currentActive = buffers.lastUsed.get(size) || 0;
+    const nextActive = (currentActive + 1) % 3;
+    buffers.lastUsed.set(size, nextActive);
+
+    // Clear the new buffer for reuse
+    const buffer = sizeBuffers[nextActive];
+    buffer.fill(0);
+
+    return buffer;
+  }, []);
+
   const lastResampleKeyRef = useRef<string>("");
 
   // Track canvas dimensions for smart cache management
@@ -1808,35 +1857,6 @@ const FFTCanvas = ({
             // Mark resize in progress to prevent WebGPU buffer conflicts
             resampleInProgressRef.current.add('RESIZING');
 
-            // Clear only affected cache entries, not the entire cache
-            const cache = resampleCacheRef.current;
-            const keysToDelete: string[] = [];
-
-            cache.forEach((_, key) => {
-              // Remove cache entries that won't work with new dimensions
-              const [_srcLen, outLen] = key.split('-').map(Number);
-              // Keep entries that match the new width, remove others
-              if (Math.abs(outLen - spectrumRect.width) > 5) {
-                keysToDelete.push(key);
-              }
-            });
-
-            keysToDelete.forEach(key => cache.delete(key));
-
-            console.log(`🔄 Resize: cleared ${keysToDelete.length} cache entries, retained ${cache.size}`);
-
-            // Pre-warm cache with new dimensions if we have current data
-            if (dataRef.current?.waveform && cache.size === 0) {
-              console.log("🔥 Pre-warming cache for new dimensions...");
-              // Convert to Float32Array first
-              const waveform = ensureFloat32Waveform(dataRef.current.waveform);
-              // Trigger immediate cache population
-              setTimeout(() => {
-                const tempOutput = new Float32Array(spectrumRect.width);
-                resampleSpectrumInto(waveform, tempOutput);
-              }, 0);
-            }
-
             // Clear resize flag after a short delay
             setTimeout(() => {
               resampleInProgressRef.current.delete('RESIZING');
@@ -1914,43 +1934,6 @@ const FFTCanvas = ({
       if (resizeTimeout) clearTimeout(resizeTimeout);
       resizeTimeout = setTimeout(() => {
         resizeCanvas();
-        // Force immediate cache warming after resize
-        if (dataRef.current?.waveform) {
-          const spectrumRect = spectrumCanvas?.parentElement?.getBoundingClientRect() ??
-            spectrumGpuCanvas?.parentElement?.getBoundingClientRect();
-          if (spectrumRect && spectrumRect.width > 0) {
-            console.log("🔥 Post-resize cache warming...");
-            // Convert to Float32Array first
-            const waveform = ensureFloat32Waveform(dataRef.current.waveform);
-            const tempOutput = new Float32Array(spectrumRect.width);
-
-            // Force CPU processing during resize to prevent flickering
-            const cache = resampleCacheRef.current;
-            const cacheKey = `${waveform.length}-${tempOutput.length}`;
-
-            // Use CPU fallback for immediate result
-            for (let x = 0; x < tempOutput.length; x++) {
-              const start = Math.floor((x * waveform.length) / tempOutput.length);
-              const end = Math.max(start + 1, Math.floor(((x + 1) * waveform.length) / tempOutput.length));
-              let maxVal = -Infinity;
-              for (let i = start; i < end && i < waveform.length; i++) {
-                const v = waveform[i];
-                if (Number.isFinite(v)) {
-                  if (v > maxVal) maxVal = v;
-                }
-              }
-              tempOutput[x] = maxVal !== -Infinity ? maxVal : (waveform[Math.min(start, waveform.length - 1)] ?? -120);
-            }
-
-            // Cache the immediate result
-            cache.set(cacheKey, new Float32Array(tempOutput));
-
-            // Trigger async WebGPU processing in background
-            setTimeout(() => {
-              resampleSpectrumInto(waveform, tempOutput);
-            }, 0);
-          }
-        }
       }, 8); // More aggressive debouncing (8ms = ~120fps)
     });
 
