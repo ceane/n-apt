@@ -241,6 +241,7 @@ mod tests {
     assert_eq!(empty_history.len(), 0);
   }
 
+  
   #[test]
   fn test_mock_signal_generation() {
     let mut processor = FFTProcessor::new();
