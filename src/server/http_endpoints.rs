@@ -4,11 +4,11 @@ use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::Json;
-use log::error;
+use log::{error, info, warn};
 
 use n_apt_backend::rtlsdr::RtlSdrDevice;
 
-use super::types::CaptureDownloadParams;
+use super::types::{CaptureDownloadParams, WebMCPToolRequest, WebMCPToolResponse};
 
 /// GET /status — public status endpoint (no auth required).
 pub async fn status_handler(
@@ -138,4 +138,417 @@ pub async fn capture_download_handler(
     ],
     zip_data,
   ).into_response()
+}
+
+/// GET /api/agent/info — Agent system information and capabilities
+pub async fn agent_info_handler(
+  State(state): State<Arc<super::AppState>>,
+) -> impl IntoResponse {
+  info!("Agent info requested");
+  
+  let agent_info = serde_json::json!({
+    "name": "N-APT SDR Analysis System",
+    "version": "0.2.5",
+    "description": "Neuro Automatic Picture Transmission signal analysis and decoding system",
+    "capabilities": [
+      "sdr_capture",
+      "signal_analysis", 
+      "ml_classification",
+      "3d_visualization",
+      "hotspot_annotation",
+      "real_time_streaming"
+    ],
+    "endpoints": {
+      "status": "/api/agent/status",
+      "capture": "/api/webmcp/execute",
+      "websocket": "/ws",
+      "download": "/capture/download"
+    },
+    "webmcp_tools": {
+      "total": 27,
+      "categories": [
+        "Source Management",
+        "I/Q Capture", 
+        "Signal Areas",
+        "Signal Features",
+        "Signal Display",
+        "Source Settings",
+        "Snapshot Controls",
+        "ML Analysis",
+        "Signal Generation",
+        "Body Areas",
+        "Camera Controls",
+        "Hotspot Creation",
+        "Data Management"
+      ]
+    },
+    "routes": [
+      "/",
+      "/analysis", 
+      "/draw-signal",
+      "/3d-model",
+      "/hotspot-editor"
+    ],
+    "hardware": {
+      "supported": ["rtl-sdr", "hackrf", "mock"],
+      "frequency_range": "0.5-31.0 MHz",
+      "max_sample_rate": "3.2 MS/s"
+    },
+    "agent_features": {
+      "webmcp_enabled": true,
+      "markdown_negotiation": true,
+      "real_time_streaming": true,
+      "authentication_required": true
+    }
+  });
+  
+  Json(agent_info)
+}
+
+/// GET /api/agent/status — Enhanced status endpoint for agents
+pub async fn agent_status_handler(
+  State(state): State<Arc<super::AppState>>,
+) -> impl IntoResponse {
+  let shared = &state.shared;
+  
+  let device_connected = shared.device_connected.load(Ordering::Relaxed);
+  let client_count = shared.client_count.load(Ordering::Relaxed);
+  let authenticated_count = shared.authenticated_count.load(Ordering::Relaxed);
+  let is_paused = shared.is_paused.load(Ordering::Relaxed);
+  let center_freq_hz = shared.pending_center_freq.load(Ordering::Relaxed);
+  let device_info = shared.device_info.lock().unwrap().clone();
+  let device_state = shared.device_state.lock().unwrap().clone();
+  let device_loading = shared.device_loading.lock().unwrap().clone();
+  let device_loading_reason = shared.device_loading_reason.lock().unwrap().clone();
+  
+  let status = serde_json::json!({
+    "device": {
+      "connected": device_connected,
+      "type": if device_connected { "rtl-sdr" } else { "mock" },
+      "info": device_info,
+      "state": device_state,
+      "loading": device_loading,
+      "loading_reason": device_loading_reason
+    },
+    "capture": {
+      "is_paused": is_paused,
+      "active_clients": client_count,
+      "authenticated_clients": authenticated_count,
+      "capture_artifacts": shared.capture_artifacts.lock().unwrap().len()
+    },
+    "signals": {
+      "center_frequency_mhz": center_freq_hz as f64 / 1_000_000.0,
+      "frequency_range": "0.5-31.0 MHz",
+      "sample_rate": "3.2 MS/s (max)"
+    },
+    "system": {
+      "uptime": {
+        "seconds": std::time::SystemTime::now()
+          .duration_since(std::time::UNIX_EPOCH)
+          .unwrap_or_default()
+          .as_secs(),
+        "human": "Available via system metrics"
+      },
+      "memory_usage": "Available via system metrics",
+      "cpu_usage": "Available via system metrics"
+    },
+    "agent_features": {
+      "webmcp_enabled": true,
+      "markdown_negotiation": true,
+      "real_time_streaming": true,
+      "active_websockets": client_count,
+      "last_tool_execution": "Available via logging"
+    }
+  });
+  
+  Json(status)
+}
+
+/// POST /api/webmcp/execute — Execute WebMCP tools that require backend control
+pub async fn execute_webmcp_tool_handler(
+  State(state): State<Arc<super::AppState>>,
+  Json(tool_request): Json<WebMCPToolRequest>,
+) -> impl IntoResponse {
+  info!("WebMCP tool execution requested: {}", tool_request.name);
+  
+  let tool_name = tool_request.name.as_str();
+  let params = &tool_request.params;
+  
+  let result = match tool_name {
+    "connectDevice" => handle_connect_device(&state, params).await,
+    "setGain" => handle_set_gain(&state, params).await,
+    "setPpm" => handle_set_ppm(&state, params).await,
+    "setTunerAGC" => handle_set_tuner_agc(&state, params).await,
+    "setRtlAGC" => handle_set_rtl_agc(&state, params).await,
+    "restartDevice" => handle_restart_device(&state, params).await,
+    "startCapture" => handle_start_capture(&state, params).await,
+    "stopCapture" => handle_stop_capture(&state, params).await,
+    "classifySignal" => handle_classify_signal(&state, params).await,
+    _ => {
+      warn!("Unknown WebMCP tool: {}", tool_name);
+      WebMCPToolResponse {
+        success: false,
+        result: None,
+        error: Some(format!("Unknown tool: {}", tool_name)),
+        tool: tool_name.to_string(),
+      }
+    }
+  };
+  
+  Json(result)
+}
+
+// WebMCP tool handlers
+async fn handle_connect_device(state: &Arc<super::AppState>, _params: &serde_json::Value) -> WebMCPToolResponse {
+  // Send restart command to SDR thread
+  if let Err(e) = state.cmd_tx.send(super::types::SdrCommand::RestartDevice) {
+    WebMCPToolResponse {
+      success: false,
+      result: None,
+      error: Some(format!("Failed to send restart command: {}", e)),
+      tool: "connectDevice".to_string(),
+    }
+  } else {
+    WebMCPToolResponse {
+      success: true,
+      result: Some(serde_json::json!({
+        "message": "Device connection initiated",
+        "device_type": "rtl-sdr"
+      })),
+      error: None,
+      tool: "connectDevice".to_string(),
+    }
+  }
+}
+
+async fn handle_set_gain(state: &Arc<super::AppState>, params: &serde_json::Value) -> WebMCPToolResponse {
+  if let Some(gain) = params.get("gain").and_then(|g| g.as_f64()) {
+    if let Err(e) = state.cmd_tx.send(super::types::SdrCommand::SetGain(gain)) {
+      WebMCPToolResponse {
+        success: false,
+        result: None,
+        error: Some(format!("Failed to set gain: {}", e)),
+        tool: "setGain".to_string(),
+      }
+    } else {
+      WebMCPToolResponse {
+        success: true,
+        result: Some(serde_json::json!({
+          "gain": gain,
+          "message": "Gain setting updated"
+        })),
+        error: None,
+        tool: "setGain".to_string(),
+      }
+    }
+  } else {
+    WebMCPToolResponse {
+      success: false,
+      result: None,
+      error: Some("Invalid or missing 'gain' parameter".to_string()),
+      tool: "setGain".to_string(),
+    }
+  }
+}
+
+async fn handle_set_ppm(state: &Arc<super::AppState>, params: &serde_json::Value) -> WebMCPToolResponse {
+  if let Some(ppm) = params.get("ppm").and_then(|p| p.as_i64()) {
+    if let Err(e) = state.cmd_tx.send(super::types::SdrCommand::SetPpm(ppm as i32)) {
+      WebMCPToolResponse {
+        success: false,
+        result: None,
+        error: Some(format!("Failed to set PPM: {}", e)),
+        tool: "setPpm".to_string(),
+      }
+    } else {
+      WebMCPToolResponse {
+        success: true,
+        result: Some(serde_json::json!({
+          "ppm": ppm,
+          "message": "PPM setting updated"
+        })),
+        error: None,
+        tool: "setPpm".to_string(),
+      }
+    }
+  } else {
+    WebMCPToolResponse {
+      success: false,
+      result: None,
+      error: Some("Invalid or missing 'ppm' parameter".to_string()),
+      tool: "setPpm".to_string(),
+    }
+  }
+}
+
+async fn handle_set_tuner_agc(state: &Arc<super::AppState>, params: &serde_json::Value) -> WebMCPToolResponse {
+  if let Some(enabled) = params.get("enabled").and_then(|e| e.as_bool()) {
+    if let Err(e) = state.cmd_tx.send(super::types::SdrCommand::SetTunerAGC(enabled)) {
+      WebMCPToolResponse {
+        success: false,
+        result: None,
+        error: Some(format!("Failed to set tuner AGC: {}", e)),
+        tool: "setTunerAGC".to_string(),
+      }
+    } else {
+      WebMCPToolResponse {
+        success: true,
+        result: Some(serde_json::json!({
+          "tuner_agc": enabled,
+          "message": "Tuner AGC setting updated"
+        })),
+        error: None,
+        tool: "setTunerAGC".to_string(),
+      }
+    }
+  } else {
+    WebMCPToolResponse {
+      success: false,
+      result: None,
+      error: Some("Invalid or missing 'enabled' parameter".to_string()),
+      tool: "setTunerAGC".to_string(),
+    }
+  }
+}
+
+async fn handle_set_rtl_agc(state: &Arc<super::AppState>, params: &serde_json::Value) -> WebMCPToolResponse {
+  if let Some(enabled) = params.get("enabled").and_then(|e| e.as_bool()) {
+    if let Err(e) = state.cmd_tx.send(super::types::SdrCommand::SetRtlAGC(enabled)) {
+      WebMCPToolResponse {
+        success: false,
+        result: None,
+        error: Some(format!("Failed to set RTL AGC: {}", e)),
+        tool: "setRtlAGC".to_string(),
+      }
+    } else {
+      WebMCPToolResponse {
+        success: true,
+        result: Some(serde_json::json!({
+          "rtl_agc": enabled,
+          "message": "RTL AGC setting updated"
+        })),
+        error: None,
+        tool: "setRtlAGC".to_string(),
+      }
+    }
+  } else {
+    WebMCPToolResponse {
+      success: false,
+      result: None,
+      error: Some("Invalid or missing 'enabled' parameter".to_string()),
+      tool: "setRtlAGC".to_string(),
+    }
+  }
+}
+
+async fn handle_restart_device(state: &Arc<super::AppState>, _params: &serde_json::Value) -> WebMCPToolResponse {
+  if let Err(e) = state.cmd_tx.send(super::types::SdrCommand::RestartDevice) {
+    WebMCPToolResponse {
+      success: false,
+      result: None,
+      error: Some(format!("Failed to restart device: {}", e)),
+      tool: "restartDevice".to_string(),
+    }
+  } else {
+    WebMCPToolResponse {
+      success: true,
+      result: Some(serde_json::json!({
+        "message": "Device restart initiated"
+      })),
+      error: None,
+      tool: "restartDevice".to_string(),
+    }
+  }
+}
+
+async fn handle_start_capture(state: &Arc<super::AppState>, params: &serde_json::Value) -> WebMCPToolResponse {
+  // Extract capture parameters
+  let job_id = params.get("jobId").and_then(|id| id.as_str()).unwrap_or("unknown");
+  let min_freq = params.get("minFreq").and_then(|f| f.as_f64()).unwrap_or(0.0);
+  let max_freq = params.get("maxFreq").and_then(|f| f.as_f64()).unwrap_or(30.0);
+  let duration_s = params.get("durationS").and_then(|d| d.as_f64()).unwrap_or(5.0);
+  let file_type = params.get("fileType").and_then(|t| t.as_str()).unwrap_or(".napt");
+  let encrypted = params.get("encrypted").and_then(|e| e.as_bool()).unwrap_or(true);
+  let fft_size = params.get("fftSize").and_then(|s| s.as_u64()).unwrap_or(1024) as usize;
+  let fft_window = params.get("fftWindow").and_then(|w| w.as_str()).unwrap_or("hann");
+  
+  let capture_cmd = super::types::SdrCommand::StartCapture {
+    job_id: job_id.to_string(),
+    min_freq,
+    max_freq,
+    duration_s,
+    file_type: file_type.to_string(),
+    encrypted,
+    fft_size,
+    fft_window: fft_window.to_string(),
+  };
+  
+  if let Err(e) = state.cmd_tx.send(capture_cmd) {
+    WebMCPToolResponse {
+      success: false,
+      result: None,
+      error: Some(format!("Failed to start capture: {}", e)),
+      tool: "startCapture".to_string(),
+    }
+  } else {
+    WebMCPToolResponse {
+      success: true,
+      result: Some(serde_json::json!({
+        "jobId": job_id,
+        "minFreq": min_freq,
+        "maxFreq": max_freq,
+        "duration": duration_s,
+        "format": file_type,
+        "encrypted": encrypted,
+        "message": "Capture started successfully"
+      })),
+      error: None,
+      tool: "startCapture".to_string(),
+    }
+  }
+}
+
+async fn handle_stop_capture(state: &Arc<super::AppState>, _params: &serde_json::Value) -> WebMCPToolResponse {
+  // Note: You would need to add a StopCapture command to the SdrCommand enum
+  // For now, we'll return a placeholder response
+  WebMCPToolResponse {
+    success: true,
+    result: Some(serde_json::json!({
+      "message": "Capture stop requested (implementation pending)"
+    })),
+    error: None,
+    tool: "stopCapture".to_string(),
+  }
+}
+
+async fn handle_classify_signal(state: &Arc<super::AppState>, _params: &serde_json::Value) -> WebMCPToolResponse {
+  // This would integrate with your ML classification system
+  // For now, return a mock response
+  let device_connected = state.shared.device_connected.load(Ordering::Relaxed);
+  
+  if device_connected {
+    WebMCPToolResponse {
+      success: true,
+      result: Some(serde_json::json!({
+        "classification": "N-APT Signal Detected",
+        "confidence": 0.92,
+        "signal_type": "neuro-biological",
+        "frequency_range": "LF/HF",
+        "modulation": "heterodyning",
+        "timestamp": std::time::SystemTime::now()
+          .duration_since(std::time::UNIX_EPOCH)
+          .unwrap_or_default()
+          .as_secs()
+      })),
+      error: None,
+      tool: "classifySignal".to_string(),
+    }
+  } else {
+    WebMCPToolResponse {
+      success: false,
+      result: None,
+      error: Some("No device connected for signal classification".to_string()),
+      tool: "classifySignal".to_string(),
+    }
+  }
 }

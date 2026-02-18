@@ -8,6 +8,22 @@ use n_apt_backend::consts::rs::mock::{
   MOCK_WEAK_SIGNAL_MAX, MOCK_WEAK_SIGNAL_MIN,
 };
 
+/// WebMCP tool request from agents
+#[derive(Debug, Deserialize)]
+pub struct WebMCPToolRequest {
+  pub name: String,
+  pub params: serde_json::Value,
+}
+
+/// WebMCP tool response
+#[derive(Debug, Serialize)]
+pub struct WebMCPToolResponse {
+  pub success: bool,
+  pub result: Option<serde_json::Value>,
+  pub error: Option<String>,
+  pub tool: String,
+}
+
 /// Command enum for the dedicated SDR I/O thread
 #[derive(Debug, Clone)]
 pub enum SdrCommand {

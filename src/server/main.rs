@@ -102,6 +102,11 @@ impl websocket_server::WebSocketServer {
             .route("/status", get(http_endpoints::status_handler))
             .route("/capture/download", get(http_endpoints::capture_download_handler))
             
+            // Agent endpoints
+            .route("/api/agent/info", get(http_endpoints::agent_info_handler))
+            .route("/api/agent/status", get(http_endpoints::agent_status_handler))
+            .route("/api/webmcp/execute", post(http_endpoints::execute_webmcp_tool_handler))
+            
             // WebSocket endpoint
             .route("/ws", get(websocket_handlers::ws_upgrade_handler))
             
