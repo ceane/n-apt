@@ -256,8 +256,8 @@ impl FFTProcessor {
       // Return history in correct chronological order
       // First part: from current position to end
       // Second part: from beginning to current position
-      let first_part = &self.waterfall_history[self.waterfall_pos..];
-      let second_part = &self.waterfall_history[..self.waterfall_pos];
+      let _first_part = &self.waterfall_history[self.waterfall_pos..];
+      let _second_part = &self.waterfall_history[..self.waterfall_pos];
       
       // This is a bit tricky - we need to return a slice that represents
       // the correct chronological order. For now, we'll keep it simple

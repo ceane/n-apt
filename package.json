@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "predev": "fkill --force 'n-apt-backend' ':5173' ':8765' 2>/dev/null || true",
+    "predev:fast": "fkill --force 'n-apt-backend' ':8765' 2>/dev/null || true",
+    "predev:hot": "fkill --force 'n-apt-backend' ':8765' 2>/dev/null || true",
     "preserver": "./start_server.sh",
     "capture": "source venv/bin/activate && python scripts/rtl_sdr_capture.py",
     "dev": "concurrently \"npm run build:wasm 2>&1 | grep -E 'error:|warning:|failed' || true\" \"npm run server:dev\" \"vite 2>&1 | grep -v 'ECONNREFUSED 127.0.0.1:8765' || true\"",

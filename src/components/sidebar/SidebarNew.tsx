@@ -23,6 +23,7 @@ import { IQCaptureControlsSection } from "@n-apt/components/sidebar/IQCaptureCon
 import { SnapshotControlsSection } from "@n-apt/components/sidebar/SnapshotControlsSection";
 import { SourceSettingsSection } from "@n-apt/components/sidebar/SourceSettingsSection";
 import { FileProcessingSection } from "@n-apt/components/sidebar/FileProcessingSection";
+import { BodyAreasSection } from "@n-apt/components/sidebar/BodyAreasSection";
 
 type NaptMetadata = {
   sample_rate?: number;
@@ -36,12 +37,7 @@ type NaptMetadata = {
   ppm?: number;
 };
 
-const SidebarContainer = styled.aside`
-  width: 360px;
-  min-width: 360px;
-  height: 100vh;
-  background-color: #0d0d0d;
-  border-right: 1px solid #1a1a1a;
+const SidebarContent = styled.div`
   display: flex;
   flex-direction: column;
   padding: calc(24px + env(safe-area-inset-top, 0px)) 24px
@@ -50,6 +46,7 @@ const SidebarContainer = styled.aside`
   overflow-x: visible;
   position: relative;
   box-sizing: border-box;
+  flex: 1;
 `;
 
 const TabContainer = styled.div`
@@ -478,7 +475,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     const authStatusText = authStatusMap[authState as keyof typeof authStatusMap] ?? "Awaiting authentication...";
 
     return (
-      <SidebarContainer>
+      <SidebarContent>
         <Section>
           <SectionTitle>Connection</SectionTitle>
           <ConnectionStatusSection
@@ -516,12 +513,12 @@ const Sidebar: React.FC<SidebarProps> = ({
             </SettingRow>
           )}
         </Section>
-      </SidebarContainer>
+      </SidebarContent>
     );
   }
 
   return (
-    <SidebarContainer>
+    <SidebarContent>
       {/* Capturing indicator */}
       {captureStatus?.status === "started" && (
         <div style={{
@@ -551,18 +548,6 @@ const Sidebar: React.FC<SidebarProps> = ({
           Capturing... {captureStatus.jobId}
         </div>
       )}
-
-      <TabContainer>
-        <Tab $active={activeTab === "visualizer"} onClick={() => onTabChange("visualizer")}>
-          See FFT of N-APT (LF/HF freqs)
-        </Tab>
-        <Tab $active={activeTab === "analysis"} onClick={() => onTabChange("analysis")}>
-          Decode N-APT with ML
-        </Tab>
-        <Tab $active={activeTab === "draw"} onClick={() => onTabChange("draw")}>
-          Draw N-APT with Math/ML
-        </Tab>
-      </TabContainer>
 
       {activeTab === "visualizer" && (
         <>
@@ -780,7 +765,17 @@ const Sidebar: React.FC<SidebarProps> = ({
           onDrawParamsChange={onDrawParamsChange}
         />
       )}
-    </SidebarContainer>
+
+      {activeTab === "model3d" && (
+        <Section>
+          <SectionTitle>Body Areas</SectionTitle>
+          <div style={{ fontSize: "11px", color: "rgba(255,255,255,0.50)", marginBottom: "16px" }}>
+            Click an area to focus the camera
+          </div>
+          <BodyAreasSection />
+        </Section>
+      )}
+    </SidebarContent>
   );
 };
 

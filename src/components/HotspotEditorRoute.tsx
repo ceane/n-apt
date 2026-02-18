@@ -1,6 +1,7 @@
 import React from "react";
 import styled from "styled-components";
-import HotspotEditor from "@n-apt/components/HotspotEditor";
+import { HotspotEditorSimple } from "@n-apt/components/HotspotEditorSimple";
+import { useHotspotEditor } from "@n-apt/hooks/useHotspotEditor";
 
 const MainContent = styled.section`
   flex: 1;
@@ -10,16 +11,16 @@ const MainContent = styled.section`
 `;
 
 export const HotspotEditorRoute: React.FC = () => {
+  const { hotspots } = useHotspotEditor();
+
   const handleHotspotsChange = () => {
-    // You can save these to localStorage or state here
-    console.log("Hotspots changed");
+    // Hotspots are managed by the context
+    console.log("Hotspots changed:", hotspots.length);
   };
 
   return (
     <MainContent style={{ padding: 0, margin: 0 }}>
-      <HotspotEditor
-        onHotspotsChange={handleHotspotsChange}
-      />
+      <HotspotEditorSimple />
     </MainContent>
   );
 };

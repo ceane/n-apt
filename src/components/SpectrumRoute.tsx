@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import styled from "styled-components";
-import Sidebar from "@n-apt/components/sidebar/Sidebar";
+import SidebarNew from "@n-apt/components/sidebar/SidebarNew";
 import AuthenticationPrompt from "@n-apt/components/AuthenticationPrompt";
 import type { AuthState } from "@n-apt/components/AuthenticationPrompt";
 import { FFTCanvas } from "@n-apt/components";
@@ -60,7 +60,6 @@ interface SpectrumRouteProps {
   isSidebarOpen: boolean;
   onAuthChange?: (isAuthenticated: boolean) => void;
   sidebarWrapper?: (sidebar: React.ReactNode) => React.ReactNode;
-  showInternalTabs?: boolean;
 }
 
 export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
@@ -69,7 +68,6 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   isSidebarOpen,
   onAuthChange,
   sidebarWrapper,
-  showInternalTabs = true,
 }) => {
   const [activeSignalArea, setActiveSignalArea] = useState("A");
   const [frequencyRange, setFrequencyRange] = useState<FrequencyRange>({
@@ -424,9 +422,10 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
           {(() => {
             if (!isAuthenticated || !isSidebarOpen) return null;
             const sidebarNode = (
-              <Sidebar
+              <SidebarNew
                 isConnected={isConnected}
                 isAuthenticated={isAuthenticated}
+                authState={authState}
                 deviceState={deviceState}
                 deviceLoadingReason={deviceLoadingReason}
                 isPaused={visualizerPaused}
@@ -479,7 +478,6 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                     return (min + max) / 2;
                   })()
                 }
-                showInternalTabs={showInternalTabs}
               />
             );
             return sidebarWrapper ? sidebarWrapper(sidebarNode) : sidebarNode;

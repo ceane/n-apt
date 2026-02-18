@@ -63,6 +63,13 @@ fi
 # Change to project root (already there)
 # Rust files are now at the top level
 
+# Check if port 8765 is already in use and kill existing process
+if lsof -ti:8765 > /dev/null 2>&1; then
+    echo "  Port 8765 is in use. Killing existing process..."
+    lsof -ti:8765 | xargs kill -9 2>/dev/null || true
+    sleep 1
+fi
+
 # Build the server only if needed
 if [ "$DEV_MODE" = true ]; then
     echo "  Building in development mode (faster builds, less optimization)..."
