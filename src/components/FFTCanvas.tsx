@@ -409,18 +409,6 @@ const FFTCanvas = ({
     }
   };
 
-  // Frame rate limiting function - more aggressive for performance
-  const _shouldRenderFrame = useCallback(() => {
-    const now = performance.now();
-    const elapsed = now - lastFrameTimeRef.current;
-
-    if (elapsed >= frameRateLimiterRef.current) {
-      lastFrameTimeRef.current = now;
-      return true;
-    }
-    return false;
-  }, []);
-
   // Aggressive frame skipping for performance
   const frameSkipCounterRef = useRef(0);
   const frameSkipThreshold = 1; // Skip every other frame under heavy load
