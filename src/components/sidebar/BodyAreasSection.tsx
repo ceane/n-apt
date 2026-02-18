@@ -133,6 +133,7 @@ const AreaList = styled.div`
   gap: 6px;
   overflow-y: auto;
   padding-right: 4px;
+  box-sizing: border-box;
 `;
 
 const BaseButton = styled.button`
