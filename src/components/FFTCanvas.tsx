@@ -605,6 +605,7 @@ const FFTCanvas = ({
   const OVERLAY_MAX_FPS = 60;
   const OVERLAY_MIN_INTERVAL_MS = Math.round(1000 / OVERLAY_MAX_FPS);
 
+
   useEffect(() => {
     // Center frequency changes only affect marker overlay.
     overlayDirtyRef.current.markers = true;
@@ -905,24 +906,47 @@ const FFTCanvas = ({
     [displayTemporalResolution],
   );
 
-  const ensureFloat32Waveform = useCallback((spectrumData: number[]) => {
-    if (!spectrumData || !Array.isArray(spectrumData) || spectrumData.length === 0) {
-      console.warn("Invalid spectrum data provided, using fallback");
-      return new Float32Array(1024).fill(-120);
-    }
+  const ensureFloat32Waveform = useCallback(
+    (spectrumData: ArrayLike<number> | null | undefined) => {
+      if (!spectrumData || spectrumData.length === 0) {
+        console.warn("Invalid spectrum data provided, using fallback");
+        return new Float32Array(1024).fill(-120);
+      }
 
-    // Validate data contains only finite numbers
-    const hasValidData = spectrumData.some((v) => Number.isFinite(v));
-    if (!hasValidData) {
-      console.warn("Spectrum data contains no valid values, using fallback");
-      return new Float32Array(1024).fill(-120);
-    }
+      // Validate data contains at least one finite number
+      let hasValidData = false;
+      for (let i = 0; i < spectrumData.length; i++) {
+        const v = spectrumData[i];
+        if (Number.isFinite(v)) {
+          hasValidData = true;
+          break;
+        }
+      }
+      if (!hasValidData) {
+        console.warn("Spectrum data contains no valid values, using fallback");
+        return new Float32Array(1024).fill(-120);
+      }
 
-    if (spectrumData instanceof Float32Array) {
-      return spectrumData;
-    }
-    return Float32Array.from(spectrumData);
-  }, []);
+      if (spectrumData instanceof Float32Array) {
+        return spectrumData;
+      }
+      return Float32Array.from(spectrumData);
+    },
+    [],
+  );
+
+  // Ensure we have a renderable waveform when pausing/resizing.
+  const ensurePausedFrame = useCallback(() => {
+    const existing = renderWaveformRef.current;
+    if (existing && existing.length > 0) return true;
+    const waveformData = dataRef.current?.waveform;
+    if (!waveformData) return false;
+    const waveform = ensureFloat32Waveform(waveformData);
+    if (!waveform || waveform.length === 0) return false;
+    renderWaveformRef.current = new Float32Array(waveform);
+    waveformFloatRef.current = renderWaveformRef.current;
+    return true;
+  }, [ensureFloat32Waveform]);
 
   /**
    * Renders waterfall data using SIMD-accelerated buffer-based approach
@@ -1830,6 +1854,20 @@ const FFTCanvas = ({
     };
   }, [data, performMemoryCleanup]);
 
+  // When paused, render a single frame so the last data remains visible.
+  useEffect(() => {
+    if (!isPaused) return;
+    if (!ensurePausedFrame()) return;
+    // Persist the last frame for re-mounts/snapshots.
+    saveFrameData();
+    animationRunIdRef.current += 1;
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+    animate();
+  }, [isPaused, ensurePausedFrame, saveFrameData, animate]);
+
   useEffect(() => {
     // Update frequency range ref for new lines only
     // Old waterfall lines stay exactly where they are (no horizontal shifting)
@@ -1956,6 +1994,16 @@ const FFTCanvas = ({
           waterfallRendererRef.current.updateDimensions(dataWidth, displayHeight);
         }
       }
+
+      // If paused, redraw once after resize to avoid blank canvases.
+      if (isPaused && ensurePausedFrame()) {
+        animationRunIdRef.current += 1;
+        if (animationFrameRef.current) {
+          cancelAnimationFrame(animationFrameRef.current);
+          animationFrameRef.current = null;
+        }
+        animate();
+      }
     };
 
     resizeCanvas();
@@ -2020,7 +2068,7 @@ const FFTCanvas = ({
         cancelAnimationFrame(animationFrameRef.current);
       }
     };
-  }, [animate, webgpuEnabled, spectrumWebgpuEnabled]);
+  }, [animate, webgpuEnabled, spectrumWebgpuEnabled, isPaused, ensurePausedFrame]);
 
   return (
     <VisualizerContainer>
