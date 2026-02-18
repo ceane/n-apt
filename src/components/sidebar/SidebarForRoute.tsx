@@ -26,7 +26,7 @@ export const SidebarForRoute: React.FC<SidebarForRouteProps> = ({ activeTab }) =
     return (
       <>
         <Section>
-          <div style={{ padding: "0 12px" }}>
+          <div style={{ padding: "4cqh 3cqw" }}>
             <SectionTitle>Body Areas</SectionTitle>
             <div style={{ fontSize: "11px", color: "rgba(255,255,255,0.50)", marginBottom: "16px" }}>
               Click an area to focus the camera
@@ -40,7 +40,7 @@ export const SidebarForRoute: React.FC<SidebarForRouteProps> = ({ activeTab }) =
 
   if (activeTab === "hotspoteditor") {
     return (
-      <div style={{ padding: "0 12px" }}>
+      <div style={{ padding: "4cqh 3cqw" }}>
         <HotspotEditorSection />
       </div>
     );
