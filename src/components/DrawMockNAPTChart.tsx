@@ -153,7 +153,7 @@ const DrawMockNAPTChart: React.FC<DrawMockNAPTChartProps> = ({
 
   // Update data when parameters change
   useEffect(() => {
-    setData(generateMockNAPTData());
+    setData(() => generateMockNAPTData());
   }, [spikeCount, spikeWidth, centerSpikeBoost, floorAmplitude, decayRate, envelopeWidth]);
 
   // Draw FFT-style spectrum using Canvas2D renderer

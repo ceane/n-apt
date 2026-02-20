@@ -404,14 +404,12 @@ const FFTCanvas = ({
         return spectrumData;
       }
 
-      // OPTIMIZATION: If renderWaveformRef exists and matches length, copy into it instead of allocating a new array
-      if (renderWaveformRef.current && renderWaveformRef.current.length === spectrumData.length) {
-        for (let i = 0; i < spectrumData.length; i++) {
-          renderWaveformRef.current[i] = spectrumData[i];
-        }
-        return renderWaveformRef.current;
-      }
-
+      // If it's a regular array, we shouldn't return a reference to renderWaveformRef.current 
+      // directly because the caller (onRenderFrame) assumes it's returning a fresh waveform
+      // that it will THEN copy/blend into renderWaveformRef.current. 
+      // Returning renderWaveformRef.current here causes aliasing issues where the previous 
+      // frame and current frame point to the exact same memory, breaking the blending math
+      // and causing an empty/frozen screen.
       return Float32Array.from(spectrumData);
     },
     [],
