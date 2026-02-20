@@ -12,6 +12,8 @@ pub mod crypto;
 pub mod native_simd;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod rtlsdr;
+// #[cfg(not(target_arch = "wasm32"))]
+// pub mod server;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod session;
 pub mod wasm_simd;

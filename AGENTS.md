@@ -124,8 +124,8 @@ try { ... } catch { console.error("error") }
 ```rust
 // Good
 fn process_data(input: &str) -> Result<Data, anyhow::Error> {
-    let parsed = serde_json::from_str::<Payload>(input)?;
-    Ok(parsed.into())
+  let parsed = serde_json::from_str::<Payload>(input)?;
+  Ok(parsed.into())
 }
 ```
 
@@ -146,11 +146,15 @@ n-apt/
 │   ├── waterfall/        # Waterfall renderer
 │   ├── crypto/           # WebCrypto encryption
 │   └── services/         # Auth, API services
-├── test/ts/              # Jest tests
+├── test/
+|   ├── ts/               # Typescript and Jest tests
+|   ├── rust/             # Rust tests
+|   ├── wasm/             # Wasm tests 
 ├── src/                  # Rust backend
 │   ├── server/           # Axum WebSocket server
 │   ├── fft/              # FFT processing
 │   ├── wasm_simd/        # WASM SIMD implementations
+│   ├── rtlsdr/           # RTL-SDR device interface
 │   └── credentials/      # Auth/password handling
 ├── mock_signals.yaml     # Hot-reloadable signal config
 └── package.json
@@ -162,7 +166,7 @@ n-apt/
 2. **WASM Changes**: Use `npm run dev` (rebuilds WASM)
 3. **Fast Iteration**: Use `npm run dev:fast` (skips WASM)
 4. **Before Commit**: Run `npm run test:all`
-5. **Encryption**: WebSocket uses AES-256-GCM, auth via WebAuthn passkeys
+5. **Encryption**: WebSocket uses AES-256-GCM, auth via WebAuthn passkeys or password
 
 ## Environment
 
