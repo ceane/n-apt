@@ -403,6 +403,15 @@ const FFTCanvas = ({
       if (spectrumData instanceof Float32Array) {
         return spectrumData;
       }
+
+      // OPTIMIZATION: If renderWaveformRef exists and matches length, copy into it instead of allocating a new array
+      if (renderWaveformRef.current && renderWaveformRef.current.length === spectrumData.length) {
+        for (let i = 0; i < spectrumData.length; i++) {
+          renderWaveformRef.current[i] = spectrumData[i];
+        }
+        return renderWaveformRef.current;
+      }
+
       return Float32Array.from(spectrumData);
     },
     [],
