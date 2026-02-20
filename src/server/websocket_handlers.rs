@@ -118,7 +118,7 @@ pub async fn handle_ws_connection(
             }
             
             // Only process spectrum messages for the binary fast-path
-            if plaintext_json.contains("\"message_type\":\"spectrum\"") {
+            if plaintext_json.contains("\"type\":\"spectrum\"") {
               // Parse the JSON once to extract the float array and metadata
               if let Ok(spectrum_data) = serde_json::from_str::<super::types::SpectrumData>(&plaintext_json) {
                 let frame = spectrum_data.waveform;
