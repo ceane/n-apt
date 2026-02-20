@@ -11,6 +11,9 @@ type NaptMetadata = {
   hardware?: string;
   gain?: number;
   ppm?: number;
+  frame_rate?: number;
+  fft_size?: number;
+  duration_s?: number;
 };
 
 const Section = styled.div`
@@ -84,17 +87,112 @@ const PauseButton = styled.button<{ $paused: boolean }>`
   }
 `;
 
+const FileInputActions = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+`;
+
+const HiddenFileInput = styled.input`
+  display: none;
+`;
+
+const BrowseButton = styled(PauseButton)`
+  flex: none;
+  font-size: 11px;
+  padding: 8px 12px;
+`;
+
+const FileNameLabel = styled(SettingLabel)`
+  max-width: 200px;
+`;
+
+const FileActionsValue = styled(SettingValue)`
+  display: flex;
+  gap: 8px;
+  align-items: center;
+`;
+
+const DownloadLink = styled.a`
+  color: #00d4ff;
+  font-size: 11px;
+`;
+
+const LoadedLabel = styled.span`
+  font-size: 11px;
+  color: #888;
+`;
+
+const RemoveButton = styled.button`
+  background: none;
+  color: #ff6b6b;
+  border: 1px solid #ff6b6b;
+  border-radius: 4px;
+  padding: 4px 8px;
+  cursor: pointer;
+  font-size: 11px;
+`;
+
+const StitchStatusMessage = styled.div<{ $isError: boolean }>`
+  margin-bottom: 8px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 11px;
+  color: ${(props) => (props.$isError ? "#f87171" : "#a3e635")};
+  background-color: ${(props) =>
+    props.$isError
+      ? "rgba(248, 113, 113, 0.08)"
+      : "rgba(163, 230, 53, 0.08)"};
+  border: 1px solid
+    ${(props) =>
+    props.$isError
+      ? "rgba(248, 113, 113, 0.2)"
+      : "rgba(163, 230, 53, 0.2)"};
+`;
+
+const ButtonColumn = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+`;
+
+const ButtonRow = styled.div`
+  display: flex;
+  gap: 8px;
+`;
+
+const FlexPauseButton = styled(PauseButton)`
+  flex: 1;
+`;
+
+const ClearButton = styled(PauseButton)`
+  flex: 1;
+  background: transparent;
+`;
+
+const FullWidthPauseButton = styled(PauseButton)`
+  width: 100%;
+`;
+
+const TruncatedSettingValue = styled(SettingValue)`
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 160px;
+`;
+
 interface FileProcessingSectionProps {
-  selectedFiles: { name: string; file: File }[];
+  selectedFiles: { name: string; file: File; downloadUrl?: string }[];
   stitchStatus: string;
   isStitchPaused: boolean;
-  selectedNaptFile: { name: string; file: File } | null;
+  selectedNaptFile: { name: string; file: File; downloadUrl?: string } | null;
   naptMetadata: NaptMetadata | null;
   naptMetadataError: string | null;
-  onSelectedFilesChange: (files: { name: string; file: File }[]) => void;
+  onSelectedFilesChange: (files: { name: string; file: File; downloadUrl?: string }[]) => void;
   onStitch: () => void;
   onClear: () => void;
   onStitchPauseToggle: () => void;
+  sessionToken?: string | null;
 }
 
 export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
@@ -103,11 +201,12 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
   isStitchPaused,
   selectedNaptFile,
   naptMetadata,
-  naptMetadataError,
+  naptMetadataError: _naptMetadataError,
   onSelectedFilesChange,
   onStitch,
   onClear,
   onStitchPauseToggle,
+  sessionToken,
 }) => {
   const stitchButtonRef = useRef<HTMLButtonElement | null>(null);
 
@@ -144,29 +243,21 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
           <SettingLabelContainer>
             <SettingLabel>Choose files...</SettingLabel>
           </SettingLabelContainer>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <input
+          <FileInputActions>
+            <HiddenFileInput
               type="file"
-              accept=".c64,.napt"
+              accept=".c64,.napt,.wav"
               multiple
-              style={{
-                display: "none",
-              }}
               id="fileInput"
               onChange={handleFileChange}
             />
-            <PauseButton
+            <BrowseButton
               $paused={false}
               onClick={() => document.getElementById("fileInput")?.click()}
-              style={{
-                flex: "none",
-                fontSize: "11px",
-                padding: "8px 12px",
-              }}
             >
               Browse
-            </PauseButton>
-          </div>
+            </BrowseButton>
+          </FileInputActions>
         </SettingRow>
       </Section>
 
@@ -175,104 +266,77 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
           <Section>
             <SectionTitle $fileMode>Selected files ({selectedFiles.length})</SectionTitle>
             {selectedFiles.map((file, index) => (
-              <SettingRow key={index}>
+              <SettingRow key={`${file.name}-${index}`}>
                 <SettingLabelContainer>
-                  <SettingLabel
-                    style={{
-                      fontSize: "11px",
-                      maxWidth: "240px",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {file.name}
-                  </SettingLabel>
+                  <FileNameLabel>{file.name}</FileNameLabel>
                 </SettingLabelContainer>
-                <PauseButton
-                  $paused={false}
-                  onClick={() => removeFile(index)}
-                  style={{
-                    flex: "none",
-                    fontSize: "10px",
-                    padding: "4px 8px",
-                    background: "transparent",
-                  }}
-                >
-                  Remove
-                </PauseButton>
+                <FileActionsValue>
+                  {file.downloadUrl ? (
+                    <DownloadLink
+                      href={
+                        sessionToken
+                          ? `${file.downloadUrl}&token=${encodeURIComponent(sessionToken)}`
+                          : file.downloadUrl
+                      }
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Download
+                    </DownloadLink>
+                  ) : (
+                    <LoadedLabel>Loaded</LoadedLabel>
+                  )}
+                  <RemoveButton onClick={() => removeFile(index)}>
+                    Remove
+                  </RemoveButton>
+                </FileActionsValue>
               </SettingRow>
             ))}
           </Section>
 
           <Section>
             {stitchStatus && (
-              <div
-                style={{
-                  marginBottom: "8px",
-                  padding: "8px 12px",
-                  borderRadius: "6px",
-                  fontSize: "11px",
-                  color: stitchStatus.startsWith("Stitching failed")
-                    ? "#f87171"
-                    : "#a3e635",
-                  backgroundColor: stitchStatus.startsWith("Stitching failed")
-                    ? "rgba(248,113,113,0.08)"
-                    : "rgba(163,230,53,0.08)",
-                  border: `1px solid ${stitchStatus.startsWith("Stitching failed") ? "rgba(248,113,113,0.2)" : "rgba(163,230,53,0.2)"}`,
-                }}
+              <StitchStatusMessage
+                $isError={stitchStatus.startsWith("Stitching failed")}
               >
                 {stitchStatus}
-              </div>
+              </StitchStatusMessage>
             )}
-            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-              <div style={{ display: "flex", gap: "8px" }}>
-                <PauseButton
+            <ButtonColumn>
+              <ButtonRow>
+                <FlexPauseButton
                   $paused={false}
                   ref={stitchButtonRef}
                   onClick={onStitch}
-                  style={{ flex: 1 }}
                 >
                   Stitch spectrum
-                </PauseButton>
-                <PauseButton
+                </FlexPauseButton>
+                <ClearButton
                   $paused={false}
                   onClick={onClear}
-                  style={{ flex: 1, background: "transparent" }}
                 >
                   Clear
-                </PauseButton>
-              </div>
-              <PauseButton
+                </ClearButton>
+              </ButtonRow>
+              <FullWidthPauseButton
                 $paused={isStitchPaused}
                 onClick={onStitchPauseToggle}
-                style={{ width: "100%" }}
               >
                 {isStitchPaused ? "Play" : "Pause"}
-              </PauseButton>
-            </div>
+              </FullWidthPauseButton>
+            </ButtonColumn>
           </Section>
 
           {selectedNaptFile && (
             <Section>
-              <SectionTitle $fileMode>NAPT metadata</SectionTitle>
+              <SectionTitle $fileMode>Metadata</SectionTitle>
               <SettingRow>
                 <SettingLabelContainer>
                   <SettingLabel>File</SettingLabel>
                 </SettingLabelContainer>
-                <SettingValue>{selectedNaptFile.name}</SettingValue>
-              </SettingRow>
-              <SettingRow>
-                <SettingLabelContainer>
-                  <SettingLabel>Status</SettingLabel>
-                </SettingLabelContainer>
-                <SettingValue>
-                  {naptMetadata
-                    ? "Unlocked"
-                    : naptMetadataError
-                      ? naptMetadataError
-                      : "Loading..."}
-                </SettingValue>
+                <TruncatedSettingValue>
+                  {selectedNaptFile.name}
+                </TruncatedSettingValue>
               </SettingRow>
               {naptMetadata && (
                 <>
@@ -311,10 +375,26 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
                       <SettingLabel>FFT</SettingLabel>
                     </SettingLabelContainer>
                     <SettingValue>
-                      {naptMetadata.fft?.size ? naptMetadata.fft.size : "—"}
+                      {naptMetadata.fft?.size ?? naptMetadata.fft_size ?? "—"}
                       {naptMetadata.fft?.window ? ` / ${naptMetadata.fft.window}` : ""}
                     </SettingValue>
                   </SettingRow>
+                  {typeof naptMetadata.frame_rate === "number" && (
+                    <SettingRow>
+                      <SettingLabelContainer>
+                        <SettingLabel>Frame rate</SettingLabel>
+                      </SettingLabelContainer>
+                      <SettingValue>{naptMetadata.frame_rate} fps</SettingValue>
+                    </SettingRow>
+                  )}
+                  {typeof naptMetadata.duration_s === "number" && (
+                    <SettingRow>
+                      <SettingLabelContainer>
+                        <SettingLabel>Duration</SettingLabel>
+                      </SettingLabelContainer>
+                      <SettingValue>{naptMetadata.duration_s.toFixed(2)} s</SettingValue>
+                    </SettingRow>
+                  )}
                   <SettingRow>
                     <SettingLabelContainer>
                       <SettingLabel>Timestamp</SettingLabel>
@@ -330,3 +410,5 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
     </>
   );
 };
+
+export default FileProcessingSection;

@@ -25,9 +25,9 @@ describe("AuthenticationPrompt Component", () => {
   });
 
   it("should show loading state during authentication", () => {
-    render(<AuthenticationPrompt {...defaultProps} authState="authenticating" />)
-    expect(screen.getByText("Authenticating...")).toBeInTheDocument()
-  })
+    render(<AuthenticationPrompt {...defaultProps} authState="authenticating" />);
+    expect(screen.getByText("Authenticating...")).toBeInTheDocument();
+  });
 
   it("should show success state", () => {
     render(<AuthenticationPrompt {...defaultProps} authState="success" />);
@@ -76,7 +76,13 @@ describe("AuthenticationPrompt Component", () => {
 
   it("should handle password submission", async () => {
     const mockPasswordSubmit = jest.fn();
-    render(<AuthenticationPrompt {...defaultProps} onPasswordSubmit={mockPasswordSubmit} hasPasskeys={false} />);
+    render(
+      <AuthenticationPrompt
+        {...defaultProps}
+        onPasswordSubmit={mockPasswordSubmit}
+        hasPasskeys={false}
+      />,
+    );
 
     const passwordInput = screen.getByRole("textbox", { name: /Password/ });
     const submitButton = screen.getByRole("button", { name: /Authenticate/ });

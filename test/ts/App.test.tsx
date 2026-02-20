@@ -16,11 +16,20 @@ jest.mock("@n-apt/components/NavigationSidebarNew", () => {
     <div data-testid="navigation-sidebar">
       <Routes>
         <Route path="/" element={<div data-testid="spectrum-route">Spectrum Route</div>} />
-        <Route path="/visualizer" element={<div data-testid="spectrum-route">Spectrum Route</div>} />
+        <Route
+          path="/visualizer"
+          element={<div data-testid="spectrum-route">Spectrum Route</div>}
+        />
         <Route path="/analysis" element={<div data-testid="spectrum-route">Spectrum Route</div>} />
-        <Route path="/draw-signal" element={<div data-testid="spectrum-route">Spectrum Route</div>} />
+        <Route
+          path="/draw-signal"
+          element={<div data-testid="spectrum-route">Spectrum Route</div>}
+        />
         <Route path="/3d-model" element={<div data-testid="model3d-route">Model3D Route</div>} />
-        <Route path="/hotspot-editor" element={<div data-testid="hotspot-editor-route">Hotspot Editor Route</div>} />
+        <Route
+          path="/hotspot-editor"
+          element={<div data-testid="hotspot-editor-route">Hotspot Editor Route</div>}
+        />
       </Routes>
     </div>
   );

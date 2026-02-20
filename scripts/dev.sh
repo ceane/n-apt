@@ -79,5 +79,8 @@ echo -e "\033[32mStarting development server with hot reload...\033[0m"
 echo "Press Ctrl+C to stop"
 echo ""
 
+# Clear Vite cache each start to avoid stale optimized deps
+rm -rf node_modules/.vite node_modules/.cache/vite 2>/dev/null || true
+
 # Use npm run dev:fast for the fastest development experience
 npm run dev:fast

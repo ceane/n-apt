@@ -1,14 +1,10 @@
 import React, { useState } from "react";
 import styled from "styled-components";
-import {
-  useLocation,
-  useNavigate,
-  Routes,
-  Route,
-} from "react-router-dom";
+import { useLocation, useNavigate, Routes, Route } from "react-router-dom";
 import { SpectrumRoute } from "@n-apt/components/SpectrumRoute";
 import { Model3DProvider } from "@n-apt/hooks/useModel3D";
 import { HotspotEditorProvider } from "@n-apt/hooks/useHotspotEditor";
+import { AuthProvider } from "@n-apt/hooks/useAuthentication";
 import { SidebarForRoute } from "@n-apt/components/sidebar/SidebarForRoute";
 import { Model3DRoute } from "@n-apt/components/Model3DRoute";
 import { HotspotEditorRoute } from "@n-apt/components/HotspotEditorRoute";
@@ -45,7 +41,7 @@ const SidebarToggle = styled.button`
   border-radius: 6px;
   padding: 8px 12px;
   color: #00d4ff;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: "JetBrains Mono", monospace;
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
@@ -71,10 +67,10 @@ const NavigationTabs = styled.div`
 
 const NavigationTab = styled.button<{ $isActive: boolean }>`
   padding: 12px 16px;
-  background-color: ${props => props.$isActive ? "#1a1a1a" : "transparent"};
-  border: 1px solid ${props => props.$isActive ? "#2a2a2a" : "transparent"};
+  background-color: ${(props) => (props.$isActive ? "#1a1a1a" : "transparent")};
+  border: 1px solid ${(props) => (props.$isActive ? "#2a2a2a" : "transparent")};
   border-radius: 8px;
-  color: ${props => props.$isActive ? "#00d4ff" : "#666"};
+  color: ${(props) => (props.$isActive ? "#00d4ff" : "#666")};
   font-family: 'JetBrains Mono', monospace;
   font-size: 13px;
   font-weight: 500;
@@ -110,13 +106,13 @@ const routeToMainTab = (path: string): MainTab => {
     case "/visualizer":
     case "/analysis":
     case "/draw-signal":
-      return "Spectrum"
+      return "Spectrum";
     case "/3d-model":
-      return "Model3D"
+      return "Model3D";
     case "/hotspot-editor":
-      return "HotspotEditor"
+      return "HotspotEditor";
     default:
-      return "Spectrum"
+      return "Spectrum";
   }
 };
 
@@ -177,25 +173,25 @@ export const NavigationSidebar: React.FC = () => {
     const sidebarContent = sidebar || (
       <SidebarForRoute
         activeTab={
-          mainTab === "Model3D" ? "model3d" :
-            mainTab === "HotspotEditor" ? "hotspoteditor" :
-              mainTab.toLowerCase()
+          mainTab === "Model3D"
+            ? "model3d"
+            : mainTab === "HotspotEditor"
+              ? "hotspoteditor"
+              : mainTab.toLowerCase()
         }
       />
     );
 
     // Only clone props if we have the original SpectrumRoute sidebar
-    const finalSidebar = sidebar ?
-      React.cloneElement(sidebar as React.ReactElement, {
-        activeTab: mainTab === "Model3D" ? "model3d" : activeSpectrumTab,
-      }) :
-      sidebarContent;
+    const finalSidebar = sidebar
+      ? React.cloneElement(sidebar as React.ReactElement, {
+          activeTab: mainTab === "Model3D" ? "model3d" : activeSpectrumTab,
+        })
+      : sidebarContent;
 
     return (
       <NavigationContainer>
-        <SidebarToggle onClick={() => setIsSidebarOpen(false)}>
-          ◀ Sidebar
-        </SidebarToggle>
+        <SidebarToggle onClick={() => setIsSidebarOpen(false)}>◀ Sidebar</SidebarToggle>
         <NavigationTabs>
           <NavigationTab
             $isActive={mainTab === "Spectrum" && activeSpectrumTab === "visualizer"}
@@ -234,73 +230,91 @@ export const NavigationSidebar: React.FC = () => {
   };
 
   return (
-    <Model3DProvider>
-      <HotspotEditorProvider>
-        <>
-          {!isSidebarOpen && (
-            <CollapsedToggle onClick={() => setIsSidebarOpen(true)}>
-              ▶ Sidebar
-            </CollapsedToggle>
-          )}
-          <ContentArea>
-            <Routes>
-              {/* Spectrum routes */}
-              <Route path="/" element={
-                <SpectrumRoute
-                  activeTab={activeSpectrumTab}
-                  onTabChange={handleSpectrumTabChange}
-                  isSidebarOpen={isSidebarOpen}
-                  onAuthChange={undefined}
-                  sidebarWrapper={isSidebarOpen ? renderSidebarShell : undefined}
+    <AuthProvider>
+      <Model3DProvider>
+        <HotspotEditorProvider>
+          <>
+            {!isSidebarOpen && (
+              <CollapsedToggle onClick={() => setIsSidebarOpen(true)}>▶ Sidebar</CollapsedToggle>
+            )}
+            <ContentArea>
+              <Routes>
+                {/* Spectrum routes */}
+                <Route
+                  path="/"
+                  element={
+                    <SpectrumRoute
+                      activeTab={activeSpectrumTab}
+                      onTabChange={handleSpectrumTabChange}
+                      isSidebarOpen={isSidebarOpen}
+                      onAuthChange={undefined}
+                      sidebarWrapper={isSidebarOpen ? renderSidebarShell : undefined}
+                    />
+                  }
                 />
-              } />
-              <Route path="/visualizer" element={
-                <SpectrumRoute
-                  activeTab={activeSpectrumTab}
-                  onTabChange={handleSpectrumTabChange}
-                  isSidebarOpen={isSidebarOpen}
-                  onAuthChange={undefined}
-                  sidebarWrapper={isSidebarOpen ? renderSidebarShell : undefined}
+                <Route
+                  path="/visualizer"
+                  element={
+                    <SpectrumRoute
+                      activeTab={activeSpectrumTab}
+                      onTabChange={handleSpectrumTabChange}
+                      isSidebarOpen={isSidebarOpen}
+                      onAuthChange={undefined}
+                      sidebarWrapper={isSidebarOpen ? renderSidebarShell : undefined}
+                    />
+                  }
                 />
-              } />
-              <Route path="/analysis" element={
-                <SpectrumRoute
-                  activeTab={activeSpectrumTab}
-                  onTabChange={handleSpectrumTabChange}
-                  isSidebarOpen={isSidebarOpen}
-                  onAuthChange={undefined}
-                  sidebarWrapper={isSidebarOpen ? renderSidebarShell : undefined}
+                <Route
+                  path="/analysis"
+                  element={
+                    <SpectrumRoute
+                      activeTab={activeSpectrumTab}
+                      onTabChange={handleSpectrumTabChange}
+                      isSidebarOpen={isSidebarOpen}
+                      onAuthChange={undefined}
+                      sidebarWrapper={isSidebarOpen ? renderSidebarShell : undefined}
+                    />
+                  }
                 />
-              } />
-              <Route path="/draw-signal" element={
-                <SpectrumRoute
-                  activeTab={activeSpectrumTab}
-                  onTabChange={handleSpectrumTabChange}
-                  isSidebarOpen={isSidebarOpen}
-                  onAuthChange={undefined}
-                  sidebarWrapper={isSidebarOpen ? renderSidebarShell : undefined}
+                <Route
+                  path="/draw-signal"
+                  element={
+                    <SpectrumRoute
+                      activeTab={activeSpectrumTab}
+                      onTabChange={handleSpectrumTabChange}
+                      isSidebarOpen={isSidebarOpen}
+                      onAuthChange={undefined}
+                      sidebarWrapper={isSidebarOpen ? renderSidebarShell : undefined}
+                    />
+                  }
                 />
-              } />
 
-              {/* 3D Model route */}
-              <Route path="/3d-model" element={
-                <>
-                  {isSidebarOpen && renderSidebarShell()}
-                  <Model3DRoute />
-                </>
-              } />
+                {/* 3D Model route */}
+                <Route
+                  path="/3d-model"
+                  element={
+                    <>
+                      {isSidebarOpen && renderSidebarShell()}
+                      <Model3DRoute />
+                    </>
+                  }
+                />
 
-              {/* Hotspot Editor route */}
-              <Route path="/hotspot-editor" element={
-                <>
-                  {isSidebarOpen && renderSidebarShell()}
-                  <HotspotEditorRoute />
-                </>
-              } />
-            </Routes>
-          </ContentArea>
-        </>
-      </HotspotEditorProvider>
-    </Model3DProvider>
+                {/* Hotspot Editor route */}
+                <Route
+                  path="/hotspot-editor"
+                  element={
+                    <>
+                      {isSidebarOpen && renderSidebarShell()}
+                      <HotspotEditorRoute />
+                    </>
+                  }
+                />
+              </Routes>
+            </ContentArea>
+          </>
+        </HotspotEditorProvider>
+      </Model3DProvider>
+    </AuthProvider>
   );
 };

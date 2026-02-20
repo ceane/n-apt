@@ -29,6 +29,12 @@ const FallbackMessage = styled.div`
   padding: 20px;
 `;
 
+const ErrorDetail = styled.div`
+  font-size: 12px;
+  margin-top: 10px;
+  color: #666;
+`;
+
 interface DrawSignalWebGPUChartProps {
   data: Array<{ t: number; freq: number; x: number }>;
   width?: number;
@@ -128,10 +134,10 @@ const DrawSignalWebGPUChart: React.FC<DrawSignalWebGPUChartProps> = ({
     const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
     return result
       ? [
-        parseInt(result[1], 16) / 255,
-        parseInt(result[2], 16) / 255,
-        parseInt(result[3], 16) / 255,
-      ]
+          parseInt(result[1], 16) / 255,
+          parseInt(result[2], 16) / 255,
+          parseInt(result[3], 16) / 255,
+        ]
       : [0, 0, 0];
   };
 
@@ -527,15 +533,7 @@ const DrawSignalWebGPUChart: React.FC<DrawSignalWebGPUChartProps> = ({
       {isSupported === false && (
         <FallbackMessage>
           <div>WebGPU not available</div>
-          <div
-            style={{
-              fontSize: "12px",
-              marginTop: "10px",
-              color: "#666",
-            }}
-          >
-            {error}
-          </div>
+          <ErrorDetail>{error}</ErrorDetail>
         </FallbackMessage>
       )}
     </CanvasContainer>

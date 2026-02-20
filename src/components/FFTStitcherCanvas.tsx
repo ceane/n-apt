@@ -26,6 +26,26 @@ const VisualizationContainer = styled.div`
   min-height: 0;
 `;
 
+const EmptyStateContainer = styled.div`
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #444;
+  font-size: 14px;
+  text-align: center;
+  padding: 40px;
+`;
+
+const FileCountText = styled.div`
+  margin-bottom: 16px;
+`;
+
+const HelpText = styled.div`
+  font-size: 12px;
+  color: #666;
+`;
+
 const FFTStitcherCanvas: React.FC<FFTStitcherCanvasProps> = ({
   selectedFiles,
   stitchTrigger,
@@ -90,9 +110,9 @@ const FFTStitcherCanvas: React.FC<FFTStitcherCanvasProps> = ({
         chunks === 1
           ? startBase
           : Math.min(
-            rawData.length - windowSize,
-            startBase + Math.floor((c * (rawData.length - windowSize - startBase)) / span),
-          );
+              rawData.length - windowSize,
+              startBase + Math.floor((c * (rawData.length - windowSize - startBase)) / span),
+            );
       for (let i = 0; i < windowSize && start + i + 1 < rawData.length; i += 2) {
         const real = (rawData[start + i] ?? 128) - 128;
         const imag = (rawData[start + i + 1] ?? 128) - 128;
@@ -250,9 +270,9 @@ const FFTStitcherCanvas: React.FC<FFTStitcherCanvasProps> = ({
       maxFrames.current > 0
         ? maxFrames.current
         : Math.max(
-          1,
-          Math.min(...cachedEntries.map(([, raw]) => Math.floor(raw.length / windowStep))),
-        );
+            1,
+            Math.min(...cachedEntries.map(([, raw]) => Math.floor(raw.length / windowStep))),
+          );
 
     let animationFrameId: number | null = null;
     let lastFrameTime = 0;
@@ -329,29 +349,18 @@ const FFTStitcherCanvas: React.FC<FFTStitcherCanvasProps> = ({
             force2D
           />
         ) : (
-          <div
-            style={{
-              flex: 1,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: "#444",
-              fontSize: "14px",
-              textAlign: "center",
-              padding: "40px",
-            }}
-          >
+          <EmptyStateContainer>
             {selectedFiles.length > 0 ? (
               <div>
-                <div style={{ marginBottom: "16px" }}>{selectedFiles.length} file(s) selected</div>
-                <div style={{ fontSize: "12px", color: "#666" }}>
+                <FileCountText>{selectedFiles.length} file(s) selected</FileCountText>
+                <HelpText>
                   Click "Stitch spectrum" to process and visualize the combined data
-                </div>
+                </HelpText>
               </div>
             ) : (
               "Select .c64 files to begin stitching"
             )}
-          </div>
+          </EmptyStateContainer>
         )}
       </VisualizationContainer>
     </StitcherContainer>

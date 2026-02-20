@@ -57,7 +57,9 @@ describe("FileWorkerManager", () => {
     await manager.loadFile(mockFile, onProgress);
 
     expect(onProgress).toHaveBeenCalled();
-    expect(onProgress).toHaveBeenCalledWith(expect.objectContaining({ progress: expect.any(Number) }));
+    expect(onProgress).toHaveBeenCalledWith(
+      expect.objectContaining({ progress: expect.any(Number) }),
+    );
   });
 
   it("should handle file loading errors", async () => {

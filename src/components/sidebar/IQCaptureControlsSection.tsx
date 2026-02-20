@@ -1,6 +1,7 @@
 import React from "react";
 import styled from "styled-components";
-import type { CaptureStatus, CaptureFileType } from "@n-apt/hooks/useWebSocket";
+import { useAuthentication } from "@n-apt/hooks/useAuthentication";
+import type { CaptureStatus, CaptureFileType, DeviceState } from "@n-apt/hooks/useWebSocket";
 
 const Section = styled.div`
   margin-bottom: 24px;
@@ -119,14 +120,14 @@ const SettingInput = styled.input`
   padding: 4px 6px;
   width: 70px;
   text-align: right;
-  
+
   /* Hide number input spinners */
   &::-webkit-outer-spin-button,
   &::-webkit-inner-spin-button {
     -webkit-appearance: none;
     margin: 0;
   }
-  
+
   &[type="number"] {
     -moz-appearance: textfield;
   }
@@ -188,6 +189,59 @@ const ToggleSwitchSlider = styled.span<{ $disabled?: boolean }>`
   }
 `;
 
+const CheckboxGroup = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 10px;
+`;
+
+const CheckboxLabel = styled.label`
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #ccc;
+`;
+
+const RangeList = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-end;
+`;
+
+const DurationRow = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 4px;
+`;
+
+const DurationUnit = styled.span`
+  font-size: 12px;
+  color: #ccc;
+  font-weight: 500;
+`;
+
+const CaptureActions = styled.div`
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+`;
+
+const PlaybackOption = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 6px;
+`;
+
+const PlaybackLabel = styled.label`
+  font-size: 11px;
+  color: #ccc;
+  white-space: nowrap;
+  margin: 0;
+`;
+
 const PauseButton = styled.button<{ $paused: boolean }>`
   flex: 0 0 25%;
   height: 100%;
@@ -211,6 +265,54 @@ const PauseButton = styled.button<{ $paused: boolean }>`
   }
 `;
 
+const CaptureButton = styled(PauseButton) <{ $disabled: boolean }>`
+  flex: 1;
+  opacity: ${(props) => (props.$disabled ? 0.5 : 1)};
+  cursor: ${(props) => (props.$disabled ? "not-allowed" : "pointer")};
+`;
+
+const StatusSettingRow = styled(SettingRow)`
+  margin-top: 12px;
+`;
+
+const CaptureStatusValue = styled(SettingValue)`
+  color: #ffaa00;
+`;
+
+const DownloadsContainer = styled.div`
+  margin-top: 16px;
+`;
+
+const DownloadsTitle = styled.div`
+  font-size: 11px;
+  color: #555;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 8px;
+  font-weight: 600;
+  font-family: "JetBrains Mono", monospace;
+`;
+
+const DownloadCard = styled.div`
+  padding: 8px 12px;
+  background-color: #141414;
+  border-radius: 6px;
+  border: 1px solid #2a2a2a;
+`;
+
+const DownloadLink = styled.a`
+  color: #00d4ff;
+  font-size: 12px;
+  font-family: "JetBrains Mono", monospace;
+  text-decoration: none;
+  display: block;
+  word-break: break-all;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+`;
+
 interface CaptureRange {
   min: number;
   max: number;
@@ -231,9 +333,7 @@ interface IQCaptureControlsSectionProps {
   maxSampleRate: number;
   captureStatus: CaptureStatus;
   isConnected: boolean;
-  deviceState: string;
-  isAuthenticated: boolean;
-  sessionToken: string | null;
+  deviceState: DeviceState;
   onCaptureOnscreenChange: (value: boolean) => void;
   onCaptureAreaAChange: (value: boolean) => void;
   onCaptureAreaBChange: (value: boolean) => void;
@@ -259,8 +359,6 @@ export const IQCaptureControlsSection: React.FC<IQCaptureControlsSectionProps> =
   captureStatus,
   isConnected,
   deviceState,
-  isAuthenticated,
-  sessionToken,
   onCaptureOnscreenChange,
   onCaptureAreaAChange,
   onCaptureAreaBChange,
@@ -270,6 +368,7 @@ export const IQCaptureControlsSection: React.FC<IQCaptureControlsSectionProps> =
   onCapturePlaybackChange,
   onCapture,
 }) => {
+  const { isAuthenticated, sessionToken } = useAuthentication();
   return (
     <Section>
       <SectionTitleCollapsible type="button" onClick={onToggle}>
@@ -283,38 +382,47 @@ export const IQCaptureControlsSection: React.FC<IQCaptureControlsSectionProps> =
             <SettingLabelContainer>
               <SettingLabel>Areas</SettingLabel>
             </SettingLabelContainer>
-            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-              <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "11px", color: "#ccc" }}>
+            <CheckboxGroup>
+              <CheckboxLabel>
                 <input
                   type="checkbox"
                   checked={captureOnscreen}
                   onChange={(e) => onCaptureOnscreenChange(e.target.checked)}
                 />
                 Onscreen
-              </label>
-              <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "11px", color: "#ccc" }}>
-                <input type="checkbox" checked={captureAreaA} onChange={(e) => onCaptureAreaAChange(e.target.checked)} />
+              </CheckboxLabel>
+              <CheckboxLabel>
+                <input
+                  type="checkbox"
+                  checked={captureAreaA}
+                  onChange={(e) => onCaptureAreaAChange(e.target.checked)}
+                />
                 A
-              </label>
-              <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "11px", color: "#ccc" }}>
-                <input type="checkbox" checked={captureAreaB} onChange={(e) => onCaptureAreaBChange(e.target.checked)} />
+              </CheckboxLabel>
+              <CheckboxLabel>
+                <input
+                  type="checkbox"
+                  checked={captureAreaB}
+                  onChange={(e) => onCaptureAreaBChange(e.target.checked)}
+                />
                 B
-              </label>
-            </div>
+              </CheckboxLabel>
+            </CheckboxGroup>
           </SettingRow>
 
           <SettingRow>
             <SettingLabelContainer>
               <SettingLabel>Range</SettingLabel>
             </SettingLabelContainer>
-            <SettingValue style={{ whiteSpace: "normal", lineHeight: 1.25 }}>
-              <div style={{ display: "flex", flexDirection: "column", gap: "2px", alignItems: "flex-end" }}>
+            <SettingValue>
+              <RangeList>
                 {captureRange.segments.map((seg) => (
                   <div key={seg.label}>
-                    {seg.label}: {seg.min === 0 ? "0kHz" : `${seg.min.toFixed(2)}MHz`} - {seg.max.toFixed(2)}MHz
+                    {seg.label}: {seg.min === 0 ? "0kHz" : `${seg.min.toFixed(2)}MHz`} -{" "}
+                    {seg.max.toFixed(2)}MHz
                   </div>
                 ))}
-              </div>
+              </RangeList>
             </SettingValue>
           </SettingRow>
 
@@ -322,17 +430,16 @@ export const IQCaptureControlsSection: React.FC<IQCaptureControlsSectionProps> =
             <SettingLabelContainer>
               <SettingLabel>Duration</SettingLabel>
             </SettingLabelContainer>
-            <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+            <DurationRow>
               <SettingInput
                 type="number"
                 min="1"
                 step="1"
                 value={Math.round(captureDurationS)}
                 onChange={(e) => onCaptureDurationSChange(parseInt(e.target.value) || 1)}
-                style={{ width: "60px", MozAppearance: "textfield", WebkitAppearance: "none" } as React.CSSProperties}
               />
-              <span style={{ fontSize: "12px", color: "#ccc", fontWeight: "500" }}>s</span>
-            </div>
+              <DurationUnit>s</DurationUnit>
+            </DurationRow>
           </SettingRow>
 
           <SettingRow>
@@ -342,10 +449,9 @@ export const IQCaptureControlsSection: React.FC<IQCaptureControlsSectionProps> =
             <SettingSelect
               value={captureFileType}
               onChange={(e) => onCaptureFileTypeChange(e.target.value as CaptureFileType)}
-              style={{ minWidth: "110px" }}
             >
               <option value=".napt">.napt</option>
-              <option value=".c64">.c64</option>
+              <option value=".wav">.wav</option>
             </SettingSelect>
           </SettingRow>
 
@@ -371,87 +477,65 @@ export const IQCaptureControlsSection: React.FC<IQCaptureControlsSectionProps> =
             <SettingValue>{maxSampleRate / 1000000}MHz</SettingValue>
           </SettingRow>
 
-          <div style={{ display: "flex", gap: "8px", alignItems: "center", marginTop: "8px" }}>
-            <PauseButton
+          <CaptureActions>
+            <CaptureButton
               $paused={false}
+              $disabled={
+                !isConnected ||
+                deviceState === "loading" ||
+                !isAuthenticated ||
+                captureStatus?.status === "started"
+              }
               onClick={onCapture}
-              disabled={(!isConnected || deviceState === "loading" || !isAuthenticated) || captureStatus?.status === "started"}
-              style={{
-                flex: "1",
-                opacity: (!isConnected || deviceState === "loading" || !isAuthenticated) || captureStatus?.status === "started" ? 0.5 : 1,
-                cursor: (!isConnected || deviceState === "loading" || !isAuthenticated) || captureStatus?.status === "started" ? "not-allowed" : "pointer",
-              }}
+              disabled={
+                !isConnected ||
+                deviceState === "loading" ||
+                !isAuthenticated ||
+                captureStatus?.status === "started"
+              }
             >
               {captureStatus?.status === "started" ? "Capturing..." : "Capture"}
-            </PauseButton>
+            </CaptureButton>
 
-            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <PlaybackOption>
               <input
                 type="checkbox"
                 checked={capturePlayback}
                 onChange={(e) => onCapturePlaybackChange(e.target.checked)}
-                style={{ margin: 0 }}
               />
-              <label style={{ fontSize: "11px", color: "#ccc", whiteSpace: "nowrap", margin: 0 }}>
+              <PlaybackLabel>
                 Playback after capture
-              </label>
-            </div>
-          </div>
+              </PlaybackLabel>
+            </PlaybackOption>
+          </CaptureActions>
 
           {captureStatus?.status === "started" && (
-            <SettingRow style={{ marginTop: "12px" }}>
+            <StatusSettingRow>
               <SettingLabelContainer>
                 <SettingLabel>Status</SettingLabel>
               </SettingLabelContainer>
-              <SettingValue style={{ color: "#ffaa00" }}>
+              <CaptureStatusValue>
                 Capturing... {captureStatus.jobId}
-              </SettingValue>
-            </SettingRow>
+              </CaptureStatusValue>
+            </StatusSettingRow>
           )}
 
           {/* Downloads Section */}
           {captureStatus?.status === "done" && captureStatus.downloadUrl && isAuthenticated && (
-            <div style={{ marginTop: "16px" }}>
-              <div style={{
-                fontSize: "11px",
-                color: "#555",
-                textTransform: "uppercase",
-                letterSpacing: "1px",
-                marginBottom: "8px",
-                fontWeight: 600,
-                fontFamily: "JetBrains Mono, monospace"
-              }}>
-                Downloads
-              </div>
-              <div style={{
-                padding: "8px 12px",
-                backgroundColor: "#141414",
-                borderRadius: "6px",
-                border: "1px solid #2a2a2a"
-              }}>
-                <a
+            <DownloadsContainer>
+              <DownloadsTitle>Downloads</DownloadsTitle>
+              <DownloadCard>
+                <DownloadLink
                   href={`${captureStatus.downloadUrl}&token=${encodeURIComponent(sessionToken || "")}`}
                   download={captureStatus.filename || "capture"}
                   target="_blank"
                   rel="noopener noreferrer"
-                  style={{
-                    color: "#00d4ff",
-                    fontSize: "12px",
-                    fontFamily: "JetBrains Mono, monospace",
-                    textDecoration: "none",
-                    display: "block",
-                    wordBreak: "break-all",
-                    maxWidth: "200px",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap"
-                  }}
                   title={captureStatus.filename || "Download"}
                 >
                   {captureStatus.filename || "Download"}
-                </a>
-              </div>
-            </div>
+                </DownloadLink>
+              </DownloadCard>
+            </DownloadsContainer>
           )}
         </CollapsibleBody>
       )}

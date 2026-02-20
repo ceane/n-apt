@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useReducer, useEffect, useRef, useCallback } from "react";
 import { decryptPayload } from "@n-apt/crypto/webcrypto";
 
 // Types
@@ -17,7 +17,7 @@ export type SDRSettings = {
   rtlAGC?: boolean;
 };
 
-export type CaptureFileType = ".napt" | ".c64";
+export type CaptureFileType = ".napt" | ".wav";
 
 export type CaptureRequest = {
   jobId: string;
@@ -78,6 +78,66 @@ export type WebSocketData = {
 // Reconnect backoff schedule (seconds)
 const RECONNECT_BACKOFF = [2, 5, 10, 30, 60, 90];
 
+type WsState = {
+  isConnected: boolean;
+  deviceState: DeviceState;
+  deviceLoadingReason: DeviceLoadingReason;
+  isPaused: boolean;
+  serverPaused: boolean;
+  backend: string | null;
+  deviceInfo: string | null;
+  maxSampleRateHz: number | null;
+  data: any;
+  spectrumFrames: SpectrumFrame[];
+  captureStatus: CaptureStatus;
+  error: string | null;
+};
+
+type WsAction =
+  | { type: "CONNECTED" }
+  | { type: "DISCONNECTED" }
+  | { type: "RESET" }
+  | { type: "ERROR"; error: string }
+  | { type: "STATUS"; updates: Partial<WsState> }
+  | { type: "CAPTURE_STATUS"; status: CaptureStatus }
+  | { type: "DATA"; data: any };
+
+const INITIAL_WS_STATE: WsState = {
+  isConnected: false,
+  deviceState: null,
+  deviceLoadingReason: null,
+  isPaused: false,
+  serverPaused: false,
+  backend: null,
+  deviceInfo: null,
+  maxSampleRateHz: null,
+  data: null,
+  spectrumFrames: [],
+  captureStatus: null,
+  error: null,
+};
+
+function wsReducer(state: WsState, action: WsAction): WsState {
+  switch (action.type) {
+    case "CONNECTED":
+      return { ...state, isConnected: true, error: null };
+    case "DISCONNECTED":
+      return { ...state, isConnected: false };
+    case "RESET":
+      return INITIAL_WS_STATE;
+    case "ERROR":
+      return { ...state, error: action.error };
+    case "STATUS":
+      return { ...state, ...action.updates };
+    case "CAPTURE_STATUS":
+      return { ...state, captureStatus: action.status };
+    case "DATA":
+      return { ...state, data: action.data };
+    default:
+      return state;
+  }
+}
+
 /**
  * WebSocket hook for authenticated streaming.
  *
@@ -93,18 +153,7 @@ export const useWebSocket = (
   aesKey: CryptoKey | null,
   enabled: boolean = true,
 ): WebSocketData => {
-  const [isConnected, setIsConnected] = useState(false);
-  const [deviceState, setDeviceState] = useState<DeviceState>(null);
-  const [deviceLoadingReason, setDeviceLoadingReason] = useState<DeviceLoadingReason>(null);
-  const [isPaused, setIsPaused] = useState(false);
-  const [serverPaused, setServerPaused] = useState(false);
-  const [backend, setBackend] = useState<string | null>(null);
-  const [deviceInfo, setDeviceInfo] = useState<string | null>(null);
-  const [maxSampleRateHz, setMaxSampleRateHz] = useState<number | null>(null);
-  const [data, setData] = useState<any>(null);
-  const [spectrumFrames, setSpectrumFrames] = useState<SpectrumFrame[]>([]);
-  const [captureStatus, setCaptureStatus] = useState<CaptureStatus>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [state, dispatch] = useReducer(wsReducer, INITIAL_WS_STATE);
 
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<number | null>(null);
@@ -134,7 +183,7 @@ export const useWebSocket = (
         ws.close();
       }
 
-      setIsConnected(false);
+      dispatch({ type: "DISCONNECTED" });
       return;
     } else {
       const connect = () => {
@@ -143,71 +192,58 @@ export const useWebSocket = (
           wsRef.current = ws;
 
           ws.onopen = () => {
-            setIsConnected(true);
-            setError(null);
-            // Reset backoff on successful connection
+            dispatch({ type: "CONNECTED" });
             reconnectAttemptRef.current = 0;
           };
 
-          // WebSocket message handler with batching
+          // WebSocket message handler with rAF-batched processing
           ws.onmessage = (event) => {
             const raw = event.data as string;
-
-            // Batch messages for performance
             messageBatch.push(raw);
-            
-            if (messageBatch.length >= BATCH_SIZE) {
-              processMessageBatch();
-            } else if (!batchTimeout) {
-              batchTimeout = setTimeout(processMessageBatch, BATCH_DELAY);
+
+            if (batchRafId === null) {
+              batchRafId = requestAnimationFrame(() => {
+                // Keep only the most recent message to avoid heavy per-frame work
+                const latest = messageBatch.pop();
+                messageBatch = [];
+                batchRafId = null;
+
+                if (latest) {
+                  processSingleMessage(latest);
+                }
+              });
             }
           };
 
-          // Message batching for performance
+          // Message batching for performance (defer work off the WS handler)
           let messageBatch: string[] = [];
-          let batchTimeout: NodeJS.Timeout | null = null;
-          const BATCH_SIZE = 5;
-          const BATCH_DELAY = 16; // 16ms batch delay
-
-          const processMessageBatch = () => {
-            if (batchTimeout) {
-              clearTimeout(batchTimeout);
-              batchTimeout = null;
-            }
-
-            if (messageBatch.length === 0) return;
-
-            // Process batched messages
-            for (const raw of messageBatch) {
-              processSingleMessage(raw);
-            }
-            messageBatch = [];
-          };
+          let batchRafId: number | null = null;
 
           const processSingleMessage = (raw: string) => {
-
             // ── Status messages (backend-driven device state) ────────
             if (raw.includes('"message_type":"status"')) {
               try {
                 const parsedData = JSON.parse(raw);
                 const paused = parsedData.paused || false;
-                
-
+                const updates: Partial<WsState> = {
+                  serverPaused: paused,
+                  isPaused: paused,
+                };
 
                 if (typeof parsedData.backend === "string") {
-                  setBackend(parsedData.backend);
+                  updates.backend = parsedData.backend;
                 }
                 if (typeof parsedData.device_info === "string") {
-                  setDeviceInfo(parsedData.device_info);
+                  updates.deviceInfo = parsedData.device_info;
                 }
                 if (typeof parsedData.max_sample_rate === "number") {
-                  setMaxSampleRateHz(parsedData.max_sample_rate);
+                  updates.maxSampleRateHz = parsedData.max_sample_rate;
                 }
                 if (typeof parsedData.device_state === "string") {
-                  setDeviceState(parsedData.device_state as DeviceState);
+                  updates.deviceState = parsedData.device_state as DeviceState;
                 }
                 if (Array.isArray(parsedData.spectrum_frames)) {
-                  const next: SpectrumFrame[] = parsedData.spectrum_frames
+                  updates.spectrumFrames = parsedData.spectrum_frames
                     .filter((f: any) => f && typeof f.id === "string")
                     .map((f: any) => ({
                       id: f.id,
@@ -225,14 +261,12 @@ export const useWebSocket = (
                         Number.isFinite(f.max_mhz) &&
                         f.max_mhz > f.min_mhz,
                     );
-                  setSpectrumFrames(next);
                 }
                 const reason = parsedData.device_loading_reason;
                 if (reason === "connect" || reason === "restart" || reason === null) {
-                  setDeviceLoadingReason(reason);
+                  updates.deviceLoadingReason = reason;
                 }
-                setServerPaused(paused);
-                setIsPaused(paused);
+                dispatch({ type: "STATUS", updates });
               } catch {
                 /* ignore */
               }
@@ -247,18 +281,22 @@ export const useWebSocket = (
                 console.log("Parsed capture status:", parsed);
                 if (
                   typeof parsed.job_id === "string" &&
-                  (parsed.status === "started" || parsed.status === "failed" || parsed.status === "done")
+                  (parsed.status === "started" ||
+                    parsed.status === "failed" ||
+                    parsed.status === "done")
                 ) {
                   const newStatus = {
                     jobId: parsed.job_id,
                     status: parsed.status,
                     error: typeof parsed.error === "string" ? parsed.error : undefined,
-                    downloadUrl: typeof parsed.download_url === "string" ? parsed.download_url : undefined,
+                    downloadUrl:
+                      typeof parsed.download_url === "string" ? parsed.download_url : undefined,
                     filename: typeof parsed.filename === "string" ? parsed.filename : undefined,
-                    fileCount: typeof parsed.file_count === "number" ? parsed.file_count : undefined,
+                    fileCount:
+                      typeof parsed.file_count === "number" ? parsed.file_count : undefined,
                   };
                   console.log("Setting capture status:", newStatus);
-                  setCaptureStatus(newStatus);
+                  dispatch({ type: "CAPTURE_STATUS", status: newStatus });
                 }
               } catch (e) {
                 console.error("Failed to parse capture status:", e);
@@ -287,13 +325,17 @@ export const useWebSocket = (
                         decryptPayload(aesKeyRef.current, envelope.payload)
                           .then((plaintext) => {
                             const parsedData = JSON.parse(plaintext);
-                            
+
                             // Handle batched messages
-                            if (parsedData.message_type === 'batch' && parsedData.messages && parsedData.messages.length > 0) {
+                            if (
+                              parsedData.message_type === "batch" &&
+                              parsedData.messages &&
+                              parsedData.messages.length > 0
+                            ) {
                               const firstMessage = JSON.parse(parsedData.messages[0]);
-                              setData(firstMessage);
+                              dispatch({ type: "DATA", data: firstMessage });
                             } else {
-                              setData(parsedData);
+                              dispatch({ type: "DATA", data: parsedData });
                             }
                           })
                           .catch(() => {
@@ -322,7 +364,7 @@ export const useWebSocket = (
                 if (pending) {
                   try {
                     const parsedData = JSON.parse(pending);
-                    setData(parsedData);
+                    dispatch({ type: "DATA", data: parsedData });
                   } catch {
                     /* ignore */
                   }
@@ -332,7 +374,7 @@ export const useWebSocket = (
           };
 
           ws.onclose = () => {
-            setIsConnected(false);
+            dispatch({ type: "DISCONNECTED" });
             // Only attempt to reconnect if we haven't been cleaned up
             if (wsRef.current !== null) {
               const attempt = reconnectAttemptRef.current;
@@ -348,11 +390,11 @@ export const useWebSocket = (
             const now = Date.now();
             if (now - lastErrorTimeRef.current > 10_000) {
               lastErrorTimeRef.current = now;
-              setError("WebSocket connection error");
+              dispatch({ type: "ERROR", error: "WebSocket connection error" });
             }
           };
         } catch {
-          setError("Failed to create WebSocket connection");
+          dispatch({ type: "ERROR", error: "Failed to create WebSocket connection" });
         }
       };
 
@@ -390,14 +432,16 @@ export const useWebSocket = (
   const sendCaptureCommand = useCallback((req: CaptureRequest) => {
     console.log("sendCaptureCommand called with:", req);
     const ws = wsRef.current;
-    const readyStateText = ws ? (['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'])[ws.readyState] || 'UNKNOWN' : 'NO_WS';
+    const readyStateText = ws
+      ? ["CONNECTING", "OPEN", "CLOSING", "CLOSED"][ws.readyState] || "UNKNOWN"
+      : "NO_WS";
     console.log("WebSocket state:", {
       exists: !!ws,
       readyState: ws?.readyState,
       OPEN: WebSocket.OPEN,
       readyStateText,
     });
-    
+
     if (ws && ws.readyState === WebSocket.OPEN) {
       const message = JSON.stringify({
         type: "capture",
@@ -472,18 +516,7 @@ export const useWebSocket = (
   );
 
   return {
-    isConnected,
-    deviceState,
-    deviceLoadingReason,
-    isPaused,
-    serverPaused,
-    backend,
-    deviceInfo,
-    maxSampleRateHz,
-    data,
-    spectrumFrames,
-    captureStatus,
-    error,
+    ...state,
     sendFrequencyRange,
     sendPauseCommand,
     sendSettings,

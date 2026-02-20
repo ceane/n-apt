@@ -118,7 +118,7 @@ const Button = styled.button<{ $variant?: "primary" | "danger" | "warning" }>`
   transition: all 0.2s ease;
   margin-bottom: 8px;
 
-  ${props => {
+  ${(props) => {
     switch (props.$variant) {
       case "primary":
         return `
@@ -165,8 +165,8 @@ const HotspotList = styled.div`
 `;
 
 const HotspotItem = styled.div<{ $selected: boolean }>`
-  background-color: ${props => props.$selected ? "#2a2a2a" : "#1a1a1a"};
-  border: 1px solid ${props => props.$selected ? "#00d4ff" : "#333"};
+  background-color: ${(props) => (props.$selected ? "#2a2a2a" : "#1a1a1a")};
+  border: 1px solid ${(props) => (props.$selected ? "#00d4ff" : "#333")};
   border-radius: 4px;
   padding: 8px;
   margin-bottom: 8px;
@@ -237,7 +237,7 @@ export const HotspotEditorSection: React.FC = () => {
     <>
       <Section>
         <SectionTitle>Hotspot Creator</SectionTitle>
-        
+
         <SettingRow>
           <SettingLabelContainer>
             <SettingLabel>Point Name</SettingLabel>
@@ -291,7 +291,9 @@ export const HotspotEditorSection: React.FC = () => {
         </SettingRow>
 
         {isMultiSelectMode && (
-          <div style={{ marginLeft: "12px", marginBottom: "16px", color: "#666", fontSize: "11px" }}>
+          <div
+            style={{ marginLeft: "12px", marginBottom: "16px", color: "#666", fontSize: "11px" }}
+          >
             Selected: {multiSelectedHotspots.length} hotspots
           </div>
         )}
@@ -310,7 +312,7 @@ export const HotspotEditorSection: React.FC = () => {
 
       <Section>
         <SectionTitle>Actions</SectionTitle>
-        
+
         <Button $variant="primary" onClick={handleExport}>
           Export JSON
         </Button>
@@ -340,7 +342,7 @@ export const HotspotEditorSection: React.FC = () => {
 
       <Section>
         <SectionTitle>Hotspots ({hotspots.length})</SectionTitle>
-        
+
         <HotspotList>
           {hotspots.map((hotspot) => (
             <HotspotItem

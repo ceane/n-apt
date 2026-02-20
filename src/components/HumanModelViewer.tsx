@@ -239,7 +239,7 @@ const BaseButton = styled.button`
     box-shadow 120ms ease;
 `;
 
-const SelectableButton = styled(BaseButton) <{ $isSelected: boolean }>`
+const SelectableButton = styled(BaseButton)<{ $isSelected: boolean }>`
   background: ${(props) => (props.$isSelected ? "rgba(123, 97, 255, 0.22)" : "rgba(255,255,255,0.06)")};
   border-color: ${(props) => (props.$isSelected ? "rgba(123, 97, 255, 0.55)" : "rgba(255,255,255,0.10)")};
   box-shadow: ${(props) => (props.$isSelected ? "0 0 0 1px rgba(123, 97, 255, 0.25)" : "none")};
@@ -277,7 +277,7 @@ const HumanModelViewer: React.FC<HumanModelViewerProps> = ({ width = "100%", hei
               letterSpacing: "0.08em",
               textTransform: "uppercase",
               color: "rgba(255,255,255,0.70)",
-              padding: "12px"
+              padding: "12px",
             }}
           >
             Body Areas

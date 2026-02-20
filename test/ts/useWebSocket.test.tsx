@@ -20,20 +20,20 @@ describe("useWebSocket Hook", () => {
   });
 
   it("should return expected structure", () => {
-    const { result } = renderHook(() => useWebSocket("ws://test", null, true))
-    
+    const { result } = renderHook(() => useWebSocket("ws://test", null, true));
+
     // Check that all expected properties exist
-    expect(typeof result.current.isConnected).toBe("boolean")
-    expect(typeof result.current.isPaused).toBe("boolean")
-    expect(typeof result.current.deviceState).toBe("string")
-    expect(typeof result.current.backend).toBe("string")
-    expect(result.current.data === null || typeof result.current.data === "object").toBe(true)
-    expect(result.current.error === null || typeof result.current.error === "string").toBe(true)
-    expect(typeof result.current.sendFrequencyRange).toBe("function")
-    expect(typeof result.current.sendPauseCommand).toBe("function")
-    expect(typeof result.current.sendSettings).toBe("function")
-    expect(typeof result.current.sendRestartDevice).toBe("function")
-    expect(typeof result.current.sendTrainingCommand).toBe("function")
+    expect(typeof result.current.isConnected).toBe("boolean");
+    expect(typeof result.current.isPaused).toBe("boolean");
+    expect(typeof result.current.deviceState).toBe("string");
+    expect(typeof result.current.backend).toBe("string");
+    expect(result.current.data === null || typeof result.current.data === "object").toBe(true);
+    expect(result.current.error === null || typeof result.current.error === "string").toBe(true);
+    expect(typeof result.current.sendFrequencyRange).toBe("function");
+    expect(typeof result.current.sendPauseCommand).toBe("function");
+    expect(typeof result.current.sendSettings).toBe("function");
+    expect(typeof result.current.sendRestartDevice).toBe("function");
+    expect(typeof result.current.sendTrainingCommand).toBe("function");
   });
 
   it("should handle disabled state", () => {

@@ -2,7 +2,7 @@ use log::{error, info, warn};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
 
 use n_apt_backend::rtlsdr::RtlSdrDevice;
@@ -43,6 +43,7 @@ impl WebSocketServer {
         let mut sdr_processor = super::sdr_processor::SDRProcessor::new();
         let mut missing_device_probe_streak = 0u32;
         let mut device_connected;
+        let mut last_device_failure: Option<Instant> = None;
 
         // Try to initialize with real device first
         match sdr_processor.initialize() {
@@ -78,18 +79,42 @@ impl WebSocketServer {
                 Self::handle_command(&mut sdr_processor, &shared, cmd);
             }
 
+            // Apply pending center-frequency changes from VFO/range updates.
+            // This coalesces rapid slider updates and keeps the SDR in sync.
+            if shared
+                .pending_center_freq_dirty
+                .swap(false, Ordering::Relaxed)
+            {
+                let freq = shared.pending_center_freq.load(Ordering::Relaxed);
+                if let Err(e) = sdr_processor.set_center_frequency(freq) {
+                    error!("Failed to set frequency: {}", e);
+                    // Re-flag so we can retry after transient device issues.
+                    shared
+                        .pending_center_freq_dirty
+                        .store(true, Ordering::Relaxed);
+                }
+            }
+
             // Only produce spectrum data if there are authenticated clients
             if shared.authenticated_count.load(Ordering::Relaxed) > 0 && !shared.is_paused.load(Ordering::Relaxed) {
                 let now = std::time::Instant::now();
                 if now.duration_since(last_frame) >= frame_interval {
-                    match sdr_processor.read_and_process_mock() {
+                    let spectrum_result = if sdr_processor.is_mock {
+                        sdr_processor.read_and_process_mock()
+                    } else {
+                        sdr_processor.read_and_process_device()
+                    };
+
+                    match spectrum_result {
                         Ok(spectrum) => {
                             let timestamp = chrono::Utc::now().timestamp_millis();
+                            let is_mock = sdr_processor.is_mock;
                             let spectrum_data = SpectrumData {
                                 message_type: "spectrum".to_string(),
                                 waveform: spectrum.clone(),
                                 waterfall: spectrum,
-                                is_mock: !device_connected,
+                                is_mock,
+                                center_frequency_hz: Some(sdr_processor.center_freq),
                                 timestamp,
                             };
 
@@ -99,9 +124,38 @@ impl WebSocketServer {
 
                             // Update latest spectrum for status endpoint
                             *shared.latest_spectrum.lock().unwrap() = Some((spectrum_data.waveform, spectrum_data.is_mock));
+
+                            // Capture completion check
+                            if let Some((job_id, artifact)) = sdr_processor.check_capture_completion() {
+                                // Store capture artifact for download
+                                let mut artifacts_map = shared.capture_artifacts.lock().unwrap();
+                                artifacts_map.entry(job_id.clone()).or_insert_with(Vec::new).push(artifact.clone());
+                                drop(artifacts_map);
+
+                                // Send capture completion status
+                                let status_msg = serde_json::json!({
+                                    "message_type": "capture_status",
+                                    "job_id": job_id,
+                                    "status": "done",
+                                    "filename": artifact.filename,
+                                    "download_url": format!("/capture/download?jobId={}", job_id)
+                                });
+                                if let Ok(json) = serde_json::to_string(&status_msg) {
+                                    let _ = broadcast_tx.send(json);
+                                }
+                            }
                         }
                         Err(e) => {
                             error!("Failed to get spectrum data: {}", e);
+                            if !sdr_processor.is_mock {
+                                // Drop the device handle so the next reconnect opens a fresh device
+                                sdr_processor.release_device();
+                                sdr_processor.enter_mock_mode();
+                                device_connected = false;
+                                shared.device_connected.store(false, Ordering::Relaxed);
+                                *shared.device_state.lock().unwrap() = "disconnected".to_string();
+                                last_device_failure = Some(Instant::now());
+                            }
                         }
                     }
                     last_frame = now;
@@ -111,17 +165,25 @@ impl WebSocketServer {
             // Device probing logic for mock mode
             if !device_connected {
                 thread::sleep(Duration::from_millis(100));
+
+                // Backoff after a recent failure to avoid tight reconnect loops
+                if let Some(failed_at) = last_device_failure {
+                    if failed_at.elapsed() < Duration::from_millis(500) {
+                        continue;
+                    }
+                }
+
                 let device_count = RtlSdrDevice::get_device_count();
                 missing_device_probe_streak = next_missing_device_probe_streak(missing_device_probe_streak, device_count);
-                
-                if device_count > 0 && should_declare_disconnected(missing_device_probe_streak) {
+
+                if device_count > 0 {
                     info!("RTL-SDR device detected, attempting to connect");
                     *shared.device_loading.lock().unwrap() = true;
                     *shared.device_loading_reason.lock().unwrap() = Some("connect".to_string());
                     *shared.device_state.lock().unwrap() = "loading".to_string();
 
-                    match sdr_processor.initialize() {
-                        Ok(_) => {
+                    match sdr_processor.try_connect_device() {
+                        Ok(true) => {
                             info!("RTL-SDR device connected successfully");
                             device_connected = true;
                             shared.device_connected.store(true, Ordering::Relaxed);
@@ -130,6 +192,12 @@ impl WebSocketServer {
                             *shared.device_state.lock().unwrap() = "connected".to_string();
                             *shared.device_loading.lock().unwrap() = false;
                             *shared.device_loading_reason.lock().unwrap() = None;
+                            missing_device_probe_streak = 0;
+                        }
+                        Ok(false) => {
+                            *shared.device_loading.lock().unwrap() = false;
+                            *shared.device_loading_reason.lock().unwrap() = None;
+                            *shared.device_state.lock().unwrap() = "disconnected".to_string();
                         }
                         Err(e) => {
                             warn!("Failed to connect RTL-SDR device: {}", e);

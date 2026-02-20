@@ -314,6 +314,7 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
 
   const handleMouseDown = (e: React.MouseEvent) => {
     e.stopPropagation();
+    onActivate?.();
     isDraggingRef.current = true;
     setIsDragging(true);
     dragStartXRef.current = e.clientX;

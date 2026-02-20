@@ -10,12 +10,12 @@ module.exports = {
     "^@n-apt/fft/FFTCanvasRenderer$": "<rootDir>/src/fft/FFTCanvasRenderer.ts",
     "^@n-apt/waterfall/FIFOWaterfallRenderer$": "<rootDir>/src/waterfall/FIFOWaterfallRenderer.ts",
     "^@n-apt/consts$": "<rootDir>/src/consts",
-    "^@n-apt/(.*)$": "<rootDir>/src/$1",
     "^@n-apt/components/(.*)$": "<rootDir>/src/components/$1",
     "^@n-apt/fft/(.*)$": "<rootDir>/src/fft/$1.ts",
     "^@n-apt/waterfall/(.*)$": "<rootDir>/src/waterfall/$1.ts",
     "^@n-apt/hooks/(.*)$": "<rootDir>/src/hooks/$1",
     "^@n-apt/glb_models/(.*)$": "<rootDir>/src/glb_models/$1",
+    "^@n-apt/(.*)$": "<rootDir>/src/$1",
   },
   testMatch: ["<rootDir>/test/ts/**/*.test.ts", "<rootDir>/test/ts/**/*.test.tsx"],
   collectCoverageFrom: [
@@ -40,9 +40,4 @@ module.exports = {
   },
   transformIgnorePatterns: ["node_modules/(?!(.*\\.mjs$))"],
   moduleFileExtensions: ["ts", "tsx", "js", "jsx", "json"],
-  globals: {
-    "ts-jest": {
-      useESM: true,
-    },
-  },
 };

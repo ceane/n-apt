@@ -222,7 +222,7 @@ const AuthenticationPrompt = ({
       case "success":
         return "Authentication successful — starting stream...";
       case "failed":
-        return error ? `Authentication failed — ${error}` : "Authentication failed";
+        return error ? error : "Authentication failed — Server disconnected 500";
       case "timeout":
         return "Authentication timed out — please retry";
       default:

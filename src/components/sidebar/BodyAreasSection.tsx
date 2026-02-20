@@ -159,8 +159,8 @@ const BaseButton = styled.button`
     box-shadow 120ms ease;
 
   &:hover {
-    background: rgba(255,255,255,0.10);
-    border-color: rgba(255,255,255,0.18);
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.18);
   }
 
   &:active {
@@ -168,12 +168,14 @@ const BaseButton = styled.button`
   }
 
   &:focus {
-    box-shadow: 0 0 0 3px rgba(123, 97, 255, 0.35), 0 0 0 1px rgba(123, 97, 255, 0.35) inset;
+    box-shadow:
+      0 0 0 3px rgba(123, 97, 255, 0.35),
+      0 0 0 1px rgba(123, 97, 255, 0.35) inset;
     outline: none;
   }
 `;
 
-const SelectableButton = styled(BaseButton) <{ $isSelected: boolean }>`
+const SelectableButton = styled(BaseButton)<{ $isSelected: boolean }>`
   background: ${(props) => (props.$isSelected ? "rgba(123, 97, 255, 0.22)" : "rgba(255,255,255,0.06)")};
   border-color: ${(props) => (props.$isSelected ? "rgba(123, 97, 255, 0.55)" : "rgba(255,255,255,0.10)")};
   box-shadow: ${(props) => (props.$isSelected ? "0 0 0 1px rgba(123, 97, 255, 0.25)" : "none")};
@@ -186,6 +188,33 @@ const SelectableButton = styled(BaseButton) <{ $isSelected: boolean }>`
   &:focus {
     box-shadow: ${(props) => (props.$isSelected ? "0 0 0 1px rgba(123, 97, 255, 0.25)" : "0 0 0 3px rgba(123, 97, 255, 0.35), 0 0 0 1px rgba(123, 97, 255, 0.35) inset")};
   }
+`;
+
+const ButtonContent = styled.span`
+  display: flex;
+  align-items: center;
+  gap: 10px;
+`;
+
+const SelectionIndicator = styled.span<{ $isSelected: boolean }>`
+  width: 4px;
+  height: 14px;
+  border-radius: 999px;
+  background: ${(props) =>
+    props.$isSelected
+      ? "rgba(123, 97, 255, 0.95)"
+      : "rgba(255, 255, 255, 0.18)"};
+`;
+
+const ChevronIndicator = styled.span<{ $isSelected: boolean }>`
+  font-size: 14px;
+  color: ${(props) =>
+    props.$isSelected
+      ? "rgba(255, 255, 255, 0.85)"
+      : "rgba(255, 255, 255, 0.35)"};
+  transform: ${(props) =>
+    props.$isSelected ? "translateX(0)" : "translateX(-2px)"};
+  transition: transform 120ms ease, color 120ms ease;
 `;
 
 interface BodyAreasSectionProps {
@@ -225,32 +254,20 @@ export const BodyAreasSection: React.FC<BodyAreasSectionProps> = () => {
             onClick={() => setSelectedArea(area)}
             aria-pressed={isSelected}
           >
-            <span style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-              <span
+            <ButtonContent>
+              <SelectionIndicator
                 aria-hidden
-                style={{
-                  width: "4px",
-                  height: "14px",
-                  borderRadius: "999px",
-                  background: isSelected
-                    ? "rgba(123, 97, 255, 0.95)"
-                    : "rgba(255,255,255,0.18)",
-                }}
+                $isSelected={isSelected}
               />
               <span>{area.name}</span>
-            </span>
+            </ButtonContent>
 
-            <span
+            <ChevronIndicator
               aria-hidden
-              style={{
-                fontSize: "14px",
-                color: isSelected ? "rgba(255,255,255,0.85)" : "rgba(255,255,255,0.35)",
-                transform: isSelected ? "translateX(0)" : "translateX(-2px)",
-                transition: "transform 120ms ease, color 120ms ease",
-              }}
+              $isSelected={isSelected}
             >
               ›
-            </span>
+            </ChevronIndicator>
           </SelectableButton>
         );
       })}

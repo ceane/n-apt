@@ -10,12 +10,50 @@ function parseFrequencyFromFilename(filename: string): number {
 
 function loadC64File(fileData: ArrayBuffer, _fileName: string): number[] {
   // Convert ArrayBuffer to number array
-  const data = new Array(fileData.byteLength);
   const view = new DataView(fileData);
-  for (let i = 0; i < fileData.byteLength; i++) {
-    data[i] = view.getUint8(i);
+  return Array.from({ length: fileData.byteLength }, (_, i) => view.getUint8(i));
+}
+
+type WavLoadResult = {
+  raw: number[];
+};
+
+function loadWavFile(fileData: ArrayBuffer): WavLoadResult {
+  const view = new DataView(fileData);
+  const text = (off: number, len: number) =>
+    String.fromCharCode(...new Uint8Array(fileData, off, len));
+  if (text(0, 4) !== "RIFF" || text(8, 4) !== "WAVE") {
+    throw new Error("Invalid WAV header");
   }
-  return data;
+
+  let offset = 12;
+  let dataStart = 0;
+  let dataSize = 0;
+
+  while (offset + 8 <= fileData.byteLength) {
+    const chunkId = text(offset, 4);
+    const chunkSize = view.getUint32(offset + 4, true);
+    const chunkDataStart = offset + 8;
+    const available = fileData.byteLength - chunkDataStart;
+    const safeSize = Math.max(0, Math.min(chunkSize, available));
+    const step = chunkSize > 0 ? chunkSize : safeSize;
+
+    if (chunkId === "data") {
+      dataStart = chunkDataStart;
+      dataSize = safeSize;
+      break;
+    }
+
+    let nextOffset = chunkDataStart + step + (step % 2);
+    if (nextOffset <= offset) nextOffset = offset + 8;
+    offset = Math.min(nextOffset, fileData.byteLength);
+  }
+
+  if (dataStart === 0) throw new Error("No data chunk in WAV");
+  const dataBytes = new Uint8Array(fileData, dataStart, Math.max(0, dataSize));
+  const raw = new Array(dataBytes.length);
+  for (let i = 0; i < dataBytes.length; i++) raw[i] = dataBytes[i];
+  return { raw };
 }
 
 function processToSpectrum(rawData: number[], frame: number = 0, gain: number = 0): number[] {
@@ -62,7 +100,11 @@ function processToSpectrum(rawData: number[], frame: number = 0, gain: number = 
   return spectrum;
 }
 
-function buildCombinedFrame(fileDataCache: Map<string, number[]>, freqMap: Map<string, number>, frame: number) {
+function buildCombinedFrame(
+  fileDataCache: Map<string, number[]>,
+  freqMap: Map<string, number>,
+  frame: number,
+) {
   const fftSize = 1024;
   const cachedEntries = Array.from(fileDataCache.entries());
   if (cachedEntries.length === 0) return null;
@@ -105,7 +147,14 @@ self.onmessage = async function (e) {
     switch (type) {
       case "loadFile": {
         const { fileData, fileName } = data;
-        const rawData = loadC64File(fileData, fileName);
+        const lower = fileName.toLowerCase();
+        let rawData: number[] = [];
+        if (lower.endsWith(".wav")) {
+          const res = loadWavFile(fileData);
+          rawData = res.raw;
+        } else {
+          rawData = loadC64File(fileData, fileName);
+        }
         self.postMessage({ type: "result", id, data: { rawData, fileName } });
         break;
       }
@@ -235,6 +284,10 @@ self.onmessage = async function (e) {
         throw new Error(`Unknown message type: ${type}`);
     }
   } catch (error: unknown) {
-    self.postMessage({ type: "error", id, error: error instanceof Error ? error.message : String(error) });
+    self.postMessage({
+      type: "error",
+      id,
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
 };

@@ -84,6 +84,26 @@ const PauseButton = styled.button<{ $paused: boolean }>`
   }
 `;
 
+const WarningButton = styled(PauseButton)<{
+  $narrow?: boolean;
+  $isDisabled?: boolean;
+}>`
+  border-color: #ffaa00;
+  color: #ffaa00;
+  ${(props) => props.$narrow && `flex: 0 0 25%;`}
+  ${(props) =>
+    props.$isDisabled &&
+    `
+    opacity: 0.6;
+    cursor: not-allowed;
+  `}
+
+  &:hover {
+    border-color: #ffaa00;
+    color: #ffaa00;
+  }
+`;
+
 interface ConnectionStatusSectionProps {
   isConnected: boolean;
   deviceState: DeviceState;
@@ -126,49 +146,35 @@ export const ConnectionStatusSection: React.FC<ConnectionStatusSectionProps> = (
 
       {isConnected &&
         (deviceState === "stale" ? (
-          <PauseButton
+          <WarningButton
             $paused={false}
+            $narrow
             onClick={() => onRestartDevice?.()}
             title="Restart the SDR device connection"
-            style={{
-              flex: "0 0 25%",
-              borderColor: "#ffaa00",
-              color: "#ffaa00",
-            }}
           >
             Restart
-          </PauseButton>
+          </WarningButton>
         ) : deviceState === "loading" && deviceLoadingReason === "restart" ? (
-          <PauseButton
+          <WarningButton
             $paused={false}
-            onClick={() => { }}
+            $narrow
+            $isDisabled
+            onClick={() => {}}
             disabled={true}
             title="Device is restarting..."
-            style={{
-              flex: "0 0 25%",
-              opacity: 0.6,
-              cursor: "not-allowed",
-              borderColor: "#ffaa00",
-              color: "#ffaa00",
-            }}
           >
             Restarting...
-          </PauseButton>
+          </WarningButton>
         ) : deviceState === "loading" ? (
-          <PauseButton
+          <WarningButton
             $paused={false}
-            onClick={() => { }}
+            $isDisabled
+            onClick={() => {}}
             disabled={true}
             title="Device is being initialized..."
-            style={{
-              opacity: 0.6,
-              cursor: "not-allowed",
-              borderColor: "#ffaa00",
-              color: "#ffaa00",
-            }}
           >
             Loading...
-          </PauseButton>
+          </WarningButton>
         ) : (
           <PauseButton $paused={isPaused} onClick={onPauseToggle}>
             {isPaused ? "Resume" : "Pause"}

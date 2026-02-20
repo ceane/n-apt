@@ -44,7 +44,6 @@ const SettingLabel = styled.span`
   white-space: nowrap;
 `;
 
-
 const SettingInput = styled.input`
   background-color: transparent;
   border: 1px solid #2a2a2a;
@@ -56,14 +55,14 @@ const SettingInput = styled.input`
   padding: 4px 6px;
   width: 70px;
   text-align: right;
-  
+
   /* Hide number input spinners */
   &::-webkit-outer-spin-button,
   &::-webkit-inner-spin-button {
     -webkit-appearance: none;
     margin: 0;
   }
-  
+
   &[type="number"] {
     -moz-appearance: textfield;
   }
@@ -123,6 +122,22 @@ const ToggleSwitchSlider = styled.span<{ $disabled?: boolean }>`
     transition: 0.2s;
     border-radius: 50%;
   }
+`;
+
+const NarrowSettingInput = styled(SettingInput)`
+  width: 60px;
+`;
+
+const InputGroup = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 4px;
+`;
+
+const UnitLabel = styled.span`
+  font-size: 12px;
+  color: #ccc;
+  font-weight: 500;
 `;
 
 interface SourceSettingsSectionProps {
@@ -244,13 +259,12 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
             content="Frequency alignment. Parts per million correction for precise tuning to signal frequencies."
           />
         </SettingLabelContainer>
-        <SettingInput
+        <NarrowSettingInput
           type="number"
           value={sourceMode === "file" ? stitchSourceSettings.ppm : ppm}
           onChange={(e) => handlePpmChange(e.target.value)}
           onKeyDown={handlePpmKeyDown}
           step="1"
-          style={{ width: "60px" }}
         />
       </SettingRow>
       <SettingRow>
@@ -261,8 +275,8 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
             content="Signal amplification. Increases sensitivity to weak transmissions but may introduce interference from other signals."
           />
         </SettingLabelContainer>
-        <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-          <SettingInput
+        <InputGroup>
+          <NarrowSettingInput
             type="number"
             step="1"
             value={sourceMode === "file" ? stitchSourceSettings.gain : gain}
@@ -270,10 +284,9 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
             onKeyDown={handleGainKeyDown}
             min="0"
             max={sourceMode === "file" ? undefined : maxGain.toString()}
-            style={{ width: "60px", MozAppearance: "textfield", WebkitAppearance: "none" } as React.CSSProperties}
           />
-          <span style={{ fontSize: "12px", color: "#ccc", fontWeight: "500" }}>dB</span>
-        </div>
+          <UnitLabel>dB</UnitLabel>
+        </InputGroup>
       </SettingRow>
       {sourceMode === "live" && (
         <>

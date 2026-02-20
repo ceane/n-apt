@@ -1,9 +1,8 @@
 import { useCallback, useEffect } from "react";
 
-// Keys for persisting last-frame data across unmount/remount
 export const SNAPSHOT_WAVEFORM_KEY = "n-apt-fft-waveform-snapshot";
 export const SNAPSHOT_WATERFALL_KEY = "n-apt-fft-waterfall-snapshot";
-export const SNAPSHOT_WATERFALL_DIMS_KEY = "n-apt-fft-waterfall-dims-snapshot";
+export const SNAPSHOT_WATERFALL_DIMS_KEY = "n-apt-fft-waterfall-dims";
 
 export interface PauseLogicOptions {
   isPaused: boolean;
@@ -12,10 +11,8 @@ export interface PauseLogicOptions {
   waterfallBufferRef: React.MutableRefObject<Uint8ClampedArray | null>;
   waterfallDimsRef: React.MutableRefObject<{ width: number; height: number } | null>;
   dataRef: React.MutableRefObject<{ waveform?: number[] } | null>;
-  animationRunIdRef: React.MutableRefObject<number>;
-  animationFrameRef: React.MutableRefObject<number | null>;
   ensureFloat32Waveform: (spectrumData: number[] | Float32Array | null | undefined) => Float32Array;
-  animate: () => void;
+  forceRender: () => void;
 }
 
 export function usePauseLogic({
@@ -25,30 +22,31 @@ export function usePauseLogic({
   waterfallBufferRef,
   waterfallDimsRef,
   dataRef,
-  animationRunIdRef,
-  animationFrameRef,
   ensureFloat32Waveform,
-  animate,
+  forceRender,
 }: PauseLogicOptions) {
-  // Save current frame data to sessionStorage for persistence
   const saveFrameData = useCallback(() => {
     try {
-      // Save waveform
-      if (renderWaveformRef.current) {
-        sessionStorage.setItem(SNAPSHOT_WAVEFORM_KEY, JSON.stringify(Array.from(renderWaveformRef.current)));
+      const waveform = renderWaveformRef.current;
+      if (waveform && waveform.length > 0) {
+        sessionStorage.setItem(SNAPSHOT_WAVEFORM_KEY, JSON.stringify(Array.from(waveform)));
       }
-
-      // Save waterfall buffer
-      if (waterfallBufferRef.current && waterfallDimsRef.current) {
-        sessionStorage.setItem(SNAPSHOT_WATERFALL_KEY, JSON.stringify(Array.from(waterfallBufferRef.current)));
-        sessionStorage.setItem(SNAPSHOT_WATERFALL_DIMS_KEY, JSON.stringify(waterfallDimsRef.current));
+      const wfBuf = waterfallBufferRef.current;
+      const wfDims = waterfallDimsRef.current;
+      if (wfBuf && wfDims) {
+        const bytes = new Uint8Array(wfBuf.buffer, wfBuf.byteOffset, wfBuf.byteLength);
+        let binary = "";
+        for (let i = 0; i < bytes.length; i++) {
+          binary += String.fromCharCode(bytes[i]);
+        }
+        sessionStorage.setItem(SNAPSHOT_WATERFALL_KEY, btoa(binary));
+        sessionStorage.setItem(SNAPSHOT_WATERFALL_DIMS_KEY, JSON.stringify(wfDims));
       }
-    } catch (error) {
-      console.warn("Failed to save frame data to sessionStorage:", error);
+    } catch {
+      /* ignore */
     }
   }, [renderWaveformRef, waterfallBufferRef, waterfallDimsRef]);
 
-  // Restore waveform from sessionStorage
   const restoreWaveformFromStorage = useCallback(() => {
     try {
       const waveformJson = sessionStorage.getItem(SNAPSHOT_WAVEFORM_KEY);
@@ -58,52 +56,55 @@ export function usePauseLogic({
         if (restored.length > 0) {
           renderWaveformRef.current = restored;
           waveformFloatRef.current = restored;
-          return true;
         }
       }
-    } catch {
-      // ignore
-    }
-    return false;
-  }, [renderWaveformRef, waveformFloatRef]);
 
-  // Ensure we have a renderable waveform when pausing/resizing
+      const wfBase64 = sessionStorage.getItem(SNAPSHOT_WATERFALL_KEY);
+      const wfDimsJson = sessionStorage.getItem(SNAPSHOT_WATERFALL_DIMS_KEY);
+      if (wfBase64 && wfDimsJson) {
+        const dims = JSON.parse(wfDimsJson) as { width: number; height: number };
+        const binary = atob(wfBase64);
+        const bytes = new Uint8ClampedArray(binary.length);
+        for (let i = 0; i < binary.length; i++) {
+          bytes[i] = binary.charCodeAt(i);
+        }
+        waterfallBufferRef.current = bytes;
+        waterfallDimsRef.current = dims;
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [renderWaveformRef, waveformFloatRef, waterfallBufferRef, waterfallDimsRef]);
+
   const ensurePausedFrame = useCallback(() => {
     const existing = renderWaveformRef.current;
     if (existing && existing.length > 0) return true;
-    
     const waveformData = dataRef.current?.waveform;
     if (!waveformData) return false;
-    
     const waveform = ensureFloat32Waveform(waveformData);
     if (!waveform || waveform.length === 0) return false;
-    
     renderWaveformRef.current = new Float32Array(waveform);
     waveformFloatRef.current = renderWaveformRef.current;
     return true;
   }, [renderWaveformRef, waveformFloatRef, dataRef, ensureFloat32Waveform]);
 
-  // When paused, render a single frame so the last data remains visible
   useEffect(() => {
     if (!isPaused) return;
-    
+    restoreWaveformFromStorage();
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      saveFrameData();
+    };
+  }, [saveFrameData]);
+
+  useEffect(() => {
+    if (!isPaused) return;
     if (!ensurePausedFrame()) return;
-    
-    // Persist the last frame for re-mounts/snapshots
     saveFrameData();
-    
-    // Increment run ID to force a fresh render cycle
-    animationRunIdRef.current += 1;
-    
-    // Cancel any pending animation frame
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current);
-      animationFrameRef.current = null;
-    }
-    
-    // Render exactly one frame
-    animate();
-  }, [isPaused, ensurePausedFrame, saveFrameData, animate]);
+    forceRender();
+  }, [isPaused, ensurePausedFrame, saveFrameData, forceRender]);
 
   return {
     saveFrameData,

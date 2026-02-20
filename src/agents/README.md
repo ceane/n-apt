@@ -5,6 +5,7 @@ This implementation adds AI agent accessibility to the N-APT application through
 ## Features
 
 ### 📝 Markdown for Agents
+
 - **Content Negotiation**: AI agents can request `Accept: text/markdown` to receive structured documentation
 - **Token Optimization**: ~80% reduction in token usage compared to HTML
 - **Route-Specific Documentation**: Each route has detailed markdown describing its capabilities
@@ -12,6 +13,7 @@ This implementation adds AI agent accessibility to the N-APT application through
 - **Structured Metadata**: Includes token counts and content-signal headers
 
 ### 🛠️ WebMCP Tools
+
 - **Structured Interactions**: All sidebar controls exposed as WebMCP tools
 - **Route-Specific Tools**: Different tools available based on current route
 - **Parameter Validation**: Type-safe parameter handling
@@ -42,6 +44,7 @@ src/agents/
 ### For AI Agents
 
 #### Markdown Content Negotiation
+
 AI agents can request markdown documentation by including the appropriate headers:
 
 ```bash
@@ -51,11 +54,13 @@ curl -H "Accept: text/markdown" \
 ```
 
 Response headers include:
+
 - `Content-Type: text/markdown`
 - `x-markdown-tokens: 725` (estimated token count)
 - `content-signal: ai-train=yes, search=yes, ai-input=yes`
 
 #### WebMCP Tool Execution
+
 When WebMCP is available (Chrome Canary 146+ with experimental features), agents can execute tools:
 
 ```javascript
@@ -63,8 +68,8 @@ When WebMCP is available (Chrome Canary 146+ with experimental features), agents
 const tools = await window.webmcp.getTools();
 
 // Execute a tool
-const result = await window.webmcp.executeTool('setSourceMode', {
-  mode: 'live'
+const result = await window.webmcp.executeTool("setSourceMode", {
+  mode: "live",
 });
 ```
 
@@ -75,14 +80,12 @@ const result = await window.webmcp.executeTool('setSourceMode', {
 1. **Wrap your route component** with the AgentIntegrationProvider:
 
 ```tsx
-import { AgentIntegrationProvider } from '@n-apt/agents';
+import { AgentIntegrationProvider } from "@n-apt/agents";
 
 // In your route component
 export const SpectrumRoute: React.FC<SpectrumRouteProps> = (props) => {
   return (
-    <AgentIntegrationProvider 
-      spectrumProps={props}
-    >
+    <AgentIntegrationProvider spectrumProps={props}>
       {/* Your existing component content */}
     </AgentIntegrationProvider>
   );
@@ -102,20 +105,20 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = (props) => {
 ```typescript
 export const spectrumTools: WebMCPTool[] = [
   {
-    name: 'myNewTool',
-    description: 'Description of what the tool does',
+    name: "myNewTool",
+    description: "Description of what the tool does",
     parameters: [
       {
-        name: 'param1',
-        type: 'string',
-        description: 'Parameter description',
-        required: true
-      }
+        name: "param1",
+        type: "string",
+        description: "Parameter description",
+        required: true,
+      },
     ],
-    returns: { type: 'boolean', description: 'Success status' },
-    category: 'My Category',
-    route: '/'
-  }
+    returns: { type: "boolean", description: "Success status" },
+    category: "My Category",
+    route: "/",
+  },
 ];
 ```
 
@@ -123,10 +126,10 @@ export const spectrumTools: WebMCPTool[] = [
 
 ```typescript
 export function setupSpectrumToolHandlers(sidebarProps: any) {
-  toolHandlers.register('myNewTool', async (params) => {
+  toolHandlers.register("myNewTool", async (params) => {
     const { param1 } = params;
     // Your implementation here
-    return { success: true, result: 'Tool executed' };
+    return { success: true, result: "Tool executed" };
   });
 }
 ```
@@ -134,6 +137,7 @@ export function setupSpectrumToolHandlers(sidebarProps: any) {
 ## Available Tools by Route
 
 ### Spectrum Visualizer (`/`, `/visualizer`)
+
 - **Source Management**: `setSourceMode`, `connectDevice`
 - **I/Q Capture**: `startCapture`, `stopCapture`
 - **Signal Areas**: `setActiveArea`, `setFrequencyRange`
@@ -143,18 +147,22 @@ export function setupSpectrumToolHandlers(sidebarProps: any) {
 - **Snapshot Controls**: `takeSnapshot`
 
 ### Analysis (`/analysis`)
+
 - All Spectrum Visualizer tools
 - **ML Analysis**: `startAnalysis`, `getAnalysisResults`, `exportAnalysisResults`
 
 ### Draw Signal (`/draw-signal`)
+
 - **Signal Generation**: `setSpikeCount`, `setSpikeWidth`, `generateSignal`, `exportSignal`
 
 ### 3D Model (`/3d-model`)
+
 - **Body Areas**: `selectBodyArea`
 - **Camera Controls**: `resetCamera`, `setViewMode`
 - **Data Export**: `exportModelData`
 
 ### Hotspot Editor (`/hotspot-editor`)
+
 - **Hotspot Creation**: `createHotspot`
 - **Creation Settings**: `setSymmetryMode`
 - **Hotspot Management**: `selectHotspot`, `deleteHotspot`
@@ -170,6 +178,7 @@ open test-markdown-negotiation.html
 ```
 
 The test page provides:
+
 - Markdown content negotiation testing
 - WebMCP API detection
 - Agent detection simulation
@@ -178,10 +187,12 @@ The test page provides:
 ## Browser Requirements
 
 ### WebMCP Support
+
 - **Chrome Canary 146+** with `chrome://flags/#enable-experimental-web-platform-features`
 - **Chrome 146+** (when WebMCP ships in stable)
 
 ### Markdown for Agents
+
 - Works in any modern browser
 - No special requirements
 - Benefits AI agents regardless of WebMCP support
@@ -189,6 +200,7 @@ The test page provides:
 ## Agent Detection
 
 The system detects AI agents using:
+
 - User-Agent patterns (claude-, gpt-, openai, anthropic, etc.)
 - Accept header negotiation (`text/markdown`)
 - Combined detection for maximum compatibility
@@ -217,16 +229,19 @@ The system detects AI agents using:
 ## Troubleshooting
 
 ### WebMCP Not Available
+
 - Ensure Chrome Canary 146+
 - Enable experimental web platform features
 - Restart browser after enabling flags
 
 ### Markdown Not Serving
+
 - Check server middleware configuration
 - Verify Accept header includes `text/markdown`
 - Confirm markdown files exist in routes directory
 
 ### Tools Not Registering
+
 - Verify AgentIntegrationProvider is wrapping components
 - Check tool handler registration in integration.ts
 - Ensure route-specific props are passed correctly
@@ -234,6 +249,7 @@ The system detects AI agents using:
 ## Contributing
 
 When adding new agent features:
+
 1. Update documentation in corresponding markdown files
 2. Add appropriate WebMCP tools with clear descriptions
 3. Implement comprehensive error handling
