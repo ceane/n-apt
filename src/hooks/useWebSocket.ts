@@ -59,7 +59,7 @@ export type WebSocketData = {
   backend: string | null;
   deviceInfo: string | null;
   maxSampleRateHz: number | null;
-  data: any;
+  dataRef: React.MutableRefObject<any>;
   spectrumFrames: SpectrumFrame[];
   captureStatus: CaptureStatus;
   error: string | null;
@@ -167,6 +167,9 @@ export const useWebSocket = (
   // Keep a ref to the AES key so the message handler always sees the latest
   const aesKeyRef = useRef<CryptoKey | null>(aesKey);
   aesKeyRef.current = aesKey;
+  
+  // Mutable ref for high-frequency spectrum data to avoid React re-renders
+  const dataRef = useRef<any>(null);
 
   useEffect(() => {
     if (!enabled || !url) {
@@ -199,6 +202,61 @@ export const useWebSocket = (
           // WebSocket message handler with rAF-batched processing
           ws.onmessage = (event) => {
             const raw = event.data as string;
+            
+            // Fast-path for high-frequency spectrum data: skip the queue and parse it directly
+            // and don't trigger a React re-render for every frame!
+            if (raw.includes('"type":"encrypted_spectrum"')) {
+              pendingRawRef.current = raw;
+              
+              if (!processingRef.current) {
+                processingRef.current = true;
+                requestAnimationFrame(() => {
+                  const pending = pendingRawRef.current;
+                  pendingRawRef.current = null;
+
+                  if (pending && aesKeyRef.current) {
+                    try {
+                      const envelope = JSON.parse(pending);
+                      if (
+                        envelope.type === "encrypted_spectrum" &&
+                        typeof envelope.payload === "string"
+                      ) {
+                        decryptPayload(aesKeyRef.current, envelope.payload)
+                          .then((plaintext) => {
+                            const parsedData = JSON.parse(plaintext);
+                            // Store in mutable state instead of React state to avoid re-renders
+                            if (
+                              parsedData.message_type === "batch" &&
+                              parsedData.messages &&
+                              parsedData.messages.length > 0
+                            ) {
+                              const firstMessage = JSON.parse(parsedData.messages[0]);
+                              dataRef.current = firstMessage;
+                            } else {
+                              dataRef.current = parsedData;
+                            }
+                          })
+                          .catch(() => {
+                            // Decryption failed — likely wrong key or corrupted frame
+                          })
+                          .finally(() => {
+                            processingRef.current = false;
+                          });
+                      } else {
+                        processingRef.current = false;
+                      }
+                    } catch {
+                      processingRef.current = false;
+                    }
+                  } else {
+                    processingRef.current = false;
+                  }
+                });
+              }
+              return;
+            }
+
+            // For all other messages (status, etc.), batch them
             messageBatch.push(raw);
 
             if (batchRafId === null) {
@@ -418,14 +476,14 @@ export const useWebSocket = (
 
   // Function to send frequency range updates to the server
   const sendFrequencyRange = useCallback((range: FrequencyRange) => {
-    const ws = wsRef.current;
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      const message = JSON.stringify({
-        type: "frequency_range",
-        minFreq: range.min,
-        maxFreq: range.max,
-      });
-      ws.send(message);
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(
+        JSON.stringify({
+          type: "set_frequency_range",
+          minFreq: range.min,
+          maxFreq: range.max,
+        }),
+      );
     }
   }, []);
 
@@ -517,6 +575,7 @@ export const useWebSocket = (
 
   return {
     ...state,
+    dataRef,
     sendFrequencyRange,
     sendPauseCommand,
     sendSettings,

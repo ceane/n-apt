@@ -111,14 +111,14 @@ type SpectrumAction =
   | { type: "SET_SIGNAL_AREA"; area: string }
   | { type: "SET_FREQUENCY_RANGE"; range: FrequencyRange }
   | {
-      type: "SET_SIGNAL_AREA_AND_RANGE";
-      area: string;
-      range: FrequencyRange;
-    }
+    type: "SET_SIGNAL_AREA_AND_RANGE";
+    area: string;
+    range: FrequencyRange;
+  }
   | {
-      type: "SET_TEMPORAL_RESOLUTION";
-      resolution: "low" | "medium" | "high";
-    }
+    type: "SET_TEMPORAL_RESOLUTION";
+    resolution: "low" | "medium" | "high";
+  }
   | { type: "SET_SELECTED_FILES"; files: SelectedFile[] }
   | { type: "SET_SNAPSHOT_GRID"; preference: boolean }
   | { type: "SET_DRAW_PARAMS"; params: DrawParams }
@@ -130,9 +130,9 @@ type SpectrumAction =
   | { type: "TRIGGER_STITCH" }
   | { type: "TOGGLE_STITCH_PAUSE" }
   | {
-      type: "SET_STITCH_SOURCE_SETTINGS";
-      settings: { gain: number; ppm: number };
-    }
+    type: "SET_STITCH_SOURCE_SETTINGS";
+    settings: { gain: number; ppm: number };
+  }
   | { type: "SET_STITCH_PAUSED"; paused: boolean }
   | { type: "LEAVE_VISUALIZER" };
 
@@ -310,7 +310,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     deviceInfo,
     maxSampleRateHz,
     serverPaused,
-    data,
+    dataRef,
     captureStatus,
     spectrumFrames: wsSpectrumFrames,
     sendFrequencyRange,
@@ -321,7 +321,8 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     sendCaptureCommand,
   } = useWebSocket(wsUrl, aesKey, isAuthenticated);
 
-  waveformRef.current = data?.waveform ?? null;
+  // Still support waveformRef for older components, mapping it to the new dataRef
+  waveformRef.current = dataRef.current?.waveform ?? null;
 
   const hasAutoResumedRef = useRef(false);
   useEffect(() => {
@@ -534,7 +535,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                 onRestartDevice={sendRestartDevice}
                 snapshotGridPreference={state.snapshotGridPreference}
                 onSnapshotGridPreferenceChange={setSnapshotGridPreference}
-                fftWaveform={data?.waveform ?? null}
+                fftWaveform={dataRef.current?.waveform ?? null}
                 getCurrentWaveform={getCurrentWaveform}
                 centerFrequencyMHz={centerFrequencyMHz}
               />
@@ -574,7 +575,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                   />
                 )}
                 <FFTCanvas
-                  data={data}
+                  dataRef={dataRef}
                   frequencyRange={state.frequencyRange}
                   centerFrequencyMHz={centerFrequencyMHz}
                   activeSignalArea={state.activeSignalArea}
