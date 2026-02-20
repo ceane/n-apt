@@ -156,7 +156,6 @@ impl WebSocketServer {
                             let spectrum_data = SpectrumData {
                                 message_type: "spectrum".to_string(),
                                 waveform: spectrum.clone(),
-                                waterfall: spectrum,
                                 is_mock,
                                 center_frequency_hz: Some(sdr_processor.center_freq),
                                 timestamp,

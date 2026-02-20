@@ -203,55 +203,38 @@ export const useWebSocket = (
           ws.onmessage = (event) => {
             const raw = event.data as string;
             
-            // Fast-path for high-frequency spectrum data: skip the queue and parse it directly
-            // and don't trigger a React re-render for every frame!
+            // Fast-path for high-frequency spectrum data: skip the queue
+            // We parse and decrypt OUTSIDE of requestAnimationFrame so we don't block the main render thread
             if (raw.includes('"type":"encrypted_spectrum"')) {
-              pendingRawRef.current = raw;
-              
-              if (!processingRef.current) {
-                processingRef.current = true;
-                requestAnimationFrame(() => {
-                  const pending = pendingRawRef.current;
-                  pendingRawRef.current = null;
-
-                  if (pending && aesKeyRef.current) {
-                    try {
-                      const envelope = JSON.parse(pending);
-                      if (
-                        envelope.type === "encrypted_spectrum" &&
-                        typeof envelope.payload === "string"
-                      ) {
-                        decryptPayload(aesKeyRef.current, envelope.payload)
-                          .then((plaintext) => {
-                            const parsedData = JSON.parse(plaintext);
-                            // Store in mutable state instead of React state to avoid re-renders
-                            if (
-                              parsedData.message_type === "batch" &&
-                              parsedData.messages &&
-                              parsedData.messages.length > 0
-                            ) {
-                              const firstMessage = JSON.parse(parsedData.messages[0]);
-                              dataRef.current = firstMessage;
-                            } else {
-                              dataRef.current = parsedData;
-                            }
-                          })
-                          .catch(() => {
-                            // Decryption failed — likely wrong key or corrupted frame
-                          })
-                          .finally(() => {
-                            processingRef.current = false;
-                          });
-                      } else {
-                        processingRef.current = false;
-                      }
-                    } catch {
-                      processingRef.current = false;
-                    }
-                  } else {
-                    processingRef.current = false;
+              if (aesKeyRef.current) {
+                try {
+                  const envelope = JSON.parse(raw);
+                  if (
+                    envelope.type === "encrypted_spectrum" &&
+                    typeof envelope.payload === "string"
+                  ) {
+                    decryptPayload(aesKeyRef.current, envelope.payload)
+                      .then((plaintext) => {
+                        const parsedData = JSON.parse(plaintext);
+                        // Store in mutable state instead of React state to avoid re-renders
+                        if (
+                          parsedData.message_type === "batch" &&
+                          parsedData.messages &&
+                          parsedData.messages.length > 0
+                        ) {
+                          const firstMessage = JSON.parse(parsedData.messages[0]);
+                          dataRef.current = firstMessage;
+                        } else {
+                          dataRef.current = parsedData;
+                        }
+                      })
+                      .catch(() => {
+                        // Decryption failed — likely wrong key or corrupted frame
+                      });
                   }
-                });
+                } catch {
+                  /* ignore */
+                }
               }
               return;
             }
