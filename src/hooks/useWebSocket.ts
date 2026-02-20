@@ -1,5 +1,5 @@
 import { useReducer, useEffect, useRef, useCallback } from "react";
-import { decryptPayload } from "@n-apt/crypto/webcrypto";
+import { decryptPayload, decryptBinaryPayload } from "@n-apt/crypto/webcrypto";
 
 // Types
 export type FrequencyRange = {
@@ -192,6 +192,7 @@ export const useWebSocket = (
       const connect = () => {
         try {
           const ws = new WebSocket(url);
+          ws.binaryType = "arraybuffer"; // Set to receive binary payloads
           wsRef.current = ws;
 
           ws.onopen = () => {
@@ -201,10 +202,54 @@ export const useWebSocket = (
 
           // WebSocket message handler with rAF-batched processing
           ws.onmessage = (event) => {
+            // Binary fast-path for spectrum data
+            if (event.data instanceof ArrayBuffer) {
+              if (aesKeyRef.current) {
+                try {
+                  const buffer = event.data;
+                  const view = new DataView(buffer);
+                  
+                  // 1. Extract metadata: [timestamp: 8 bytes][center_frequency: 8 bytes]
+                  const timestamp = Number(view.getBigUint64(0, true)); // true = little-endian
+                  const centerFrequencyHz = Number(view.getBigUint64(8, true));
+                  
+                  // 2. Extract encrypted payload
+                  const encryptedPayload = new Uint8Array(buffer, 16);
+                  
+                  // 3. Decrypt the binary payload
+                  decryptBinaryPayload(aesKeyRef.current, encryptedPayload)
+                    .then((decryptedBytes) => {
+                      // 4. Convert decrypted bytes back to Float32Array
+                      const waveform = new Float32Array(
+                        decryptedBytes.buffer,
+                        decryptedBytes.byteOffset,
+                        decryptedBytes.byteLength / 4
+                      );
+                      
+                      // 5. Reconstruct the SpectrumData object format expected by the frontend
+                      const spectrumData = {
+                        message_type: "spectrum",
+                        waveform: waveform,
+                        is_mock: false, // We'll assume real unless backend tells us otherwise (binary fast path is mostly real)
+                        center_frequency_hz: centerFrequencyHz,
+                        timestamp: timestamp,
+                      };
+                      
+                      dataRef.current = spectrumData;
+                    })
+                    .catch((e) => {
+                      console.error("Binary decryption failed:", e);
+                    });
+                } catch (e) {
+                  console.error("Failed to parse binary WebSocket payload:", e);
+                }
+              }
+              return;
+            }
+
             const raw = event.data as string;
             
-            // Fast-path for high-frequency spectrum data: skip the queue
-            // We parse and decrypt OUTSIDE of requestAnimationFrame so we don't block the main render thread
+            // Backwards compatibility / mock mode handling (still using JSON)
             if (raw.includes('"type":"encrypted_spectrum"')) {
               if (aesKeyRef.current) {
                 try {

@@ -116,20 +116,36 @@ pub async fn handle_ws_connection(
               }
               continue;
             }
-            match crypto::encrypt_payload(&enc_key, plaintext_json.as_bytes()) {
-              Ok(encrypted_b64) => {
-                let center_freq_hz = shared.pending_center_freq.load(Ordering::Relaxed);
-                let envelope = serde_json::json!({
-                  "type": "encrypted_spectrum",
-                  "payload": encrypted_b64,
-                  "center_frequency_hz": center_freq_hz,
-                });
-                if ws_sender.send(Message::Text(envelope.to_string())).await.is_err() {
-                  break;
+            
+            // Only process spectrum messages for the binary fast-path
+            if plaintext_json.contains("\"message_type\":\"spectrum\"") {
+              // Parse the JSON once to extract the float array and metadata
+              if let Ok(spectrum_data) = serde_json::from_str::<super::types::SpectrumData>(&plaintext_json) {
+                let frame = spectrum_data.waveform;
+                let timestamp: u64 = spectrum_data.timestamp as u64; // i64 to u64
+                let center_frequency: u64 = spectrum_data.center_frequency_hz.unwrap_or(0) as u64;
+                
+                // 1. Convert f32 array to bytes
+                let frame_bytes: &[u8] = bytemuck::cast_slice(&frame);
+                
+                // 2. Encrypt the raw frame bytes
+                match crypto::encrypt_payload_binary(&enc_key, frame_bytes) {
+                  Ok(encrypted_frame) => {
+                    // 3. Construct the binary payload: [timestamp: 8 bytes][center_frequency: 8 bytes][encrypted_frame: N bytes]
+                    let mut binary_payload = Vec::with_capacity(8 + 8 + encrypted_frame.len());
+                    binary_payload.extend_from_slice(&timestamp.to_le_bytes());
+                    binary_payload.extend_from_slice(&center_frequency.to_le_bytes());
+                    binary_payload.extend_from_slice(&encrypted_frame);
+                    
+                    // 4. Send the binary message
+                    if ws_sender.send(Message::Binary(binary_payload)).await.is_err() {
+                      break;
+                    }
+                  }
+                  Err(e) => {
+                    error!("Binary encryption failed: {}", e);
+                  }
                 }
-              }
-              Err(e) => {
-                error!("Encryption failed: {}", e);
               }
             }
           }

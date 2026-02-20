@@ -46,6 +46,27 @@ pub fn verify_hmac(key: &[u8; 32], data: &[u8], tag: &[u8]) -> bool {
 }
 
 /// Encrypt `plaintext` with AES-256-GCM.
+/// Returns raw bytes: `12-byte IV || ciphertext || 16-byte tag`.
+pub fn encrypt_payload_binary(key: &[u8; 32], plaintext: &[u8]) -> Result<Vec<u8>, String> {
+    let cipher = Aes256Gcm::new_from_slice(key).map_err(|e| format!("cipher init: {e}"))?;
+
+    let mut iv_bytes = [0u8; 12];
+    OsRng.fill_bytes(&mut iv_bytes);
+    let nonce = Nonce::from_slice(&iv_bytes);
+
+    let ciphertext = cipher
+        .encrypt(nonce, plaintext)
+        .map_err(|e| format!("encrypt: {e}"))?;
+
+    // Wire format: IV || ciphertext (which includes the GCM tag)
+    let mut out = Vec::with_capacity(12 + ciphertext.len());
+    out.extend_from_slice(&iv_bytes);
+    out.extend_from_slice(&ciphertext);
+
+    Ok(out)
+}
+
+/// Encrypt `plaintext` with AES-256-GCM.
 /// Returns `base64( 12-byte IV || ciphertext || 16-byte tag )`.
 pub fn encrypt_payload(key: &[u8; 32], plaintext: &[u8]) -> Result<String, String> {
     let cipher = Aes256Gcm::new_from_slice(key).map_err(|e| format!("cipher init: {e}"))?;
