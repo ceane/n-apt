@@ -1,4 +1,11 @@
-use n_apt_backend::server::sdr_processor::SDRProcessor;
+#[path = "../../src/server/sdr_processor.rs"]
+mod sdr_processor;
+#[path = "../../src/server/types.rs"]
+mod types;
+#[path = "../../src/server/utils.rs"]
+mod utils;
+
+use sdr_processor::SDRProcessor;
 
 #[test]
 fn test_authentication_condition_check() {
@@ -23,6 +30,8 @@ fn test_authentication_condition_check() {
     assert!(should_generate, "Should generate mock data with authenticated clients and not paused");
 }
 
+use n_apt_backend::consts::rs::mock::MOCK_SPECTRUM_SIZE;
+
 #[test]
 fn test_mock_processor_creation() {
     // Test that mock processor can be created and generates signals when called directly
@@ -34,5 +43,7 @@ fn test_mock_processor_creation() {
     
     let spectrum = result.unwrap();
     assert!(!spectrum.is_empty(), "Mock spectrum should not be empty");
-    assert_eq!(spectrum.len(), processor.fft_processor.fft_size(), "Spectrum should match FFT size");
+    // Mock spectrum size is defined by MOCK_SPECTRUM_SIZE (4096) 
+    // rather than processor.fft_processor.fft_size() which is NUM_SAMPLES (131072)
+    assert_eq!(spectrum.len(), MOCK_SPECTRUM_SIZE, "Spectrum should match mock spectrum size");
 }
