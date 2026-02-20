@@ -82,6 +82,22 @@ export async function decryptPayloadBytes(
   return new Uint8Array(decrypted);
 }
 
+/**
+ * Decrypt a raw binary AES-256-GCM encrypted payload.
+ * Input: `IV (12 bytes) || ciphertext || tag (16 bytes)`
+ * Returns the decrypted plaintext as a Uint8Array.
+ */
+export async function decryptBinaryPayload(
+  aesKey: CryptoKey,
+  encryptedData: Uint8Array,
+): Promise<Uint8Array> {
+  const iv = encryptedData.slice(0, IV_LENGTH);
+  const ciphertext = encryptedData.slice(IV_LENGTH);
+
+  const decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, aesKey, ciphertext);
+  return new Uint8Array(decrypted);
+}
+
 // ── Base64 helpers ──────────────────────────────────────────────────
 
 export function bytesToBase64(bytes: Uint8Array): string {
