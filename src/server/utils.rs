@@ -48,13 +48,13 @@ pub fn load_spectrum_frames() -> Vec<super::types::SpectrumFrameMessage> {
 }
 
 pub fn reconcile_device_state(device_connected: bool, device_state: &str) -> String {
-  if device_connected && device_state == "disconnected" {
-    "connected".to_string()
-  } else if !device_connected && device_state == "connected" {
-    "disconnected".to_string()
-  } else {
-    device_state.to_string()
-  }
+    match (device_connected, device_state) {
+        (true, "disconnected") => "connected".to_string(),
+        (false, "connected") => "disconnected".to_string(), 
+        (false, "loading") => "disconnected".to_string(),
+        (true, "stale") => "connected".to_string(),
+        _ => device_state.to_string(),
+    }
 }
 
 pub fn next_missing_device_probe_streak(prev: u32, device_count: u32) -> u32 {

@@ -169,7 +169,7 @@ const CanvasLayer = styled.canvas`
   will-change: width, height;
 `;
 
-const ToggleableCanvasLayer = styled(CanvasLayer)<{ $visible: boolean }>`
+const ToggleableCanvasLayer = styled(CanvasLayer) <{ $visible: boolean }>`
   display: ${({ $visible }) => ($visible ? "block" : "none")};
   z-index: 0;
 `;
@@ -219,107 +219,16 @@ const FFTCanvas = ({
   const spectrumGpuCanvasRef = useRef<HTMLCanvasElement>(null);
   const waterfallCanvasRef = useRef<HTMLCanvasElement>(null);
   const waterfallGpuCanvasRef = useRef<HTMLCanvasElement>(null);
+
+  // Simplified buffer management
   const waterfallBufferRef = useRef<Uint8ClampedArray | null>(null);
   const waterfallDataWidthRef = useRef<number | null>(null);
   const bufferPoolRef = useRef<Uint8ClampedArray[]>([]);
-  const maxBufferPoolSize = 3; // Reduced memory footprint
+  const maxBufferPoolSize = 3;
 
-  // WebGPU resource pooling with lazy initialization
-  const gpuBufferPoolRef = useRef<GPUBuffer[]>([]);
-  const maxGpuBufferPoolSize = 3;
-  const texturePoolRef = useRef<GPUTexture[]>([]);
-  const maxTexturePoolSize = 2;
-
-  // WebGPU SIMD Resampling Pipeline
-  const resampleComputePipelineRef = useRef<GPUComputePipeline | null>(null);
-  const resampleParamsBufferRef = useRef<GPUBuffer | null>(null);
-  const resampleBindGroupRef = useRef<GPUBindGroup | null>(null);
-  const resampleInputBufferRef = useRef<GPUBuffer | null>(null);
-  const resampleOutputBufferRef = useRef<GPUBuffer | null>(null);
-
-  // Double buffering for smooth WebGPU resampling
-  const resampleCacheRef = useRef<Map<string, Float32Array>>(new Map());
-  const resampleInProgressRef = useRef<Set<string>>(new Set());
-
-  // Triple buffer system for resize operations to eliminate flickering
-  const resizeBuffersRef = useRef<{
-    active: number; // Currently active buffer (0, 1, or 2)
-    buffers: Map<number, Float32Array[]>; // Size-indexed buffer arrays
-    lastUsed: Map<number, number>; // Track which buffer used for each size
-  }>({
-    active: 0,
-    buffers: new Map(),
-    lastUsed: new Map(),
-  });
-
-  const getResizeBuffer = useCallback((size: number): Float32Array => {
-    const buffers = resizeBuffersRef.current;
-
-    // Get or create buffer array for this size
-    let sizeBuffers = buffers.buffers.get(size);
-    if (!sizeBuffers) {
-      sizeBuffers = [new Float32Array(size), new Float32Array(size), new Float32Array(size)];
-      buffers.buffers.set(size, sizeBuffers);
-      buffers.lastUsed.set(size, 0);
-    }
-
-    // Return the currently active buffer for this size
-    const activeIndex = buffers.lastUsed.get(size) || 0;
-    return sizeBuffers[activeIndex];
-  }, []);
-
-  const rotateResizeBuffer = useCallback((size: number): Float32Array => {
-    const buffers = resizeBuffersRef.current;
-    const sizeBuffers = buffers.buffers.get(size);
-
-    if (!sizeBuffers || sizeBuffers.length < 3) {
-      // Fallback to regular buffer allocation
-      return new Float32Array(size);
-    }
-
-    // Rotate to next buffer
-    const currentActive = buffers.lastUsed.get(size) || 0;
-    const nextActive = (currentActive + 1) % 3;
-    buffers.lastUsed.set(size, nextActive);
-
-    // Clear the new buffer for reuse
-    const buffer = sizeBuffers[nextActive];
-    buffer.fill(0);
-
-    return buffer;
-  }, []);
-
-  const lastResampleKeyRef = useRef<string>("");
-  const lastResampleInputRef = useRef<Float32Array | null>(null);
-  const resampleEpochRef = useRef(0);
-
-  // Track canvas dimensions for smart cache management
+  // Track canvas dimensions for cache management
   const spectrumWidthRef = useRef<number>(0);
   const spectrumHeightRef = useRef<number>(0);
-
-  // Cache management - prevent memory leaks
-  const manageCache = useCallback(() => {
-    const cache = resampleCacheRef.current;
-    const maxCacheSize = 50; // Limit cache size
-
-    if (cache.size > maxCacheSize) {
-      // Remove oldest entries (simple LRU)
-      const entries = Array.from(cache.entries());
-      const toRemove = entries.slice(0, cache.size - maxCacheSize);
-      toRemove.forEach(([key]) => cache.delete(key));
-    }
-  }, []);
-
-  // Periodic cache cleanup
-  useEffect(() => {
-    const cleanupInterval = setInterval(() => {
-      manageCache();
-    }, 30000); // Every 30 seconds
-
-    return () => clearInterval(cleanupInterval);
-  }, [manageCache]);
-
-  // Keys for persisting last-frame data across unmount/remount
 
   const getBufferFromPool = (size: number): Uint8ClampedArray => {
     const pool = bufferPoolRef.current;
@@ -327,7 +236,7 @@ const FFTCanvas = ({
       const buffer = pool[i];
       if (buffer.length === size) {
         pool.splice(i, 1);
-        buffer.fill(0); // Clear the buffer
+        buffer.fill(0);
         return buffer;
       }
     }
@@ -341,51 +250,14 @@ const FFTCanvas = ({
     }
   };
 
-  // Aggressive frame skipping for performance
-
-  // Frame buffering for smooth rendering - optimized for memory
+  // Simplified frame management
   const frameBufferRef = useRef<Float32Array[]>([]);
-  const maxFrameBufferSize = 1; // Further reduced to minimize memory pressure
-  const frameDropCounterRef = useRef(0);
+  const maxFrameBufferSize = 1;
   const dataRef = useRef<any>(null);
   const lastProcessedDataRef = useRef<any>(null);
   const frequencyRangeRef = useRef<FrequencyRange>(frequencyRange);
   const centerFreqRef = useRef(centerFrequencyMHz);
   centerFreqRef.current = centerFrequencyMHz;
-
-  // Initialize WebGPU SIMD Resampling Pipeline
-  const performanceStatsRef = useRef({
-    cacheHits: 0,
-    cacheMisses: 0,
-    gpuProcessing: 0,
-    cpuFallbacks: 0,
-    totalCalls: 0,
-  });
-
-  // Memory cleanup function
-  const performMemoryCleanup = useCallback(() => {
-    // Clear frame buffer if it's getting too large
-    const frameBuffer = frameBufferRef.current;
-    if (frameBuffer.length > maxFrameBufferSize) {
-      const excess = frameBuffer.splice(maxFrameBufferSize);
-      excess.forEach((arr) => arr.fill(0));
-    }
-
-    // Clear waterfall buffer if it's excessive
-    if (waterfallBufferRef.current && waterfallDimsRef.current) {
-      const { width, height } = waterfallDimsRef.current;
-      const expectedSize = width * height * 4;
-      if (waterfallBufferRef.current.length > expectedSize * 1.5) {
-        returnBufferToPool(waterfallBufferRef.current);
-        waterfallBufferRef.current = getBufferFromPool(expectedSize);
-      }
-    }
-
-    // Clear unused references
-    if (waveformFloatRef.current && !dataRef.current?.waveform) {
-      waveformFloatRef.current = null;
-    }
-  }, []);
 
   const retuneSmearRef = useRef(0);
   const retuneDriftPxRef = useRef(0);
@@ -405,6 +277,11 @@ const FFTCanvas = ({
   const OVERLAY_MAX_FPS = 60;
   const OVERLAY_MIN_INTERVAL_MS = Math.round(1000 / OVERLAY_MAX_FPS);
 
+  // Simplified WebGPU references
+  const resampleComputePipelineRef = useRef<GPUComputePipeline | null>(null);
+  const resampleParamsBufferRef = useRef<GPUBuffer | null>(null);
+  const gpuBufferPoolRef = useRef<GPUBuffer[]>([]);
+
   const {
     webgpuEnabled,
     webgpuDeviceRef,
@@ -419,9 +296,9 @@ const FFTCanvas = ({
     spectrumGpuCanvasRef,
     waterfallGpuCanvasRef,
     resampleWgsl: RESAMPLE_WGSL,
-    resampleComputePipelineRef: resampleComputePipelineRef,
-    resampleParamsBufferRef: resampleParamsBufferRef,
-    gpuBufferPoolRef: gpuBufferPoolRef,
+    resampleComputePipelineRef,
+    resampleParamsBufferRef,
+    gpuBufferPoolRef,
   });
   const spectrumWebgpuEnabled = webgpuEnabled;
 
@@ -532,7 +409,20 @@ const FFTCanvas = ({
     [],
   );
 
-  const restoreWaveformFromStorageRef = useRef<() => void>(() => {});
+  const restoreWaveformFromStorageRef = useRef<() => void>(() => {
+    // When paused and no current waveform, try to restore from last valid data
+    if (lastProcessedDataRef.current?.waveform) {
+      const waveform = ensureFloat32Waveform(lastProcessedDataRef.current.waveform);
+      if (waveform && waveform.length > 0) {
+        renderWaveformRef.current = new Float32Array(waveform);
+        return;
+      }
+    }
+
+    // If no previous data, create a fallback waveform
+    const fallbackWaveform = new Float32Array(1024).fill(-120);
+    renderWaveformRef.current = fallbackWaveform;
+  });
 
   /**
    * Renders waterfall data using SIMD-accelerated buffer-based approach
@@ -640,6 +530,21 @@ const FFTCanvas = ({
         retuneSmearRef.current -= 1;
       }
 
+      // Clear waterfall buffer if it's excessive
+      if (waterfallBufferRef.current && waterfallDimsRef.current) {
+        const { width, height } = waterfallDimsRef.current;
+        const expectedSize = width * height * 4;
+        if (waterfallBufferRef.current.length > expectedSize * 1.5) {
+          returnBufferToPool(waterfallBufferRef.current);
+          waterfallBufferRef.current = getBufferFromPool(expectedSize);
+        }
+      }
+
+      // Clear unused references
+      if (waveformFloatRef.current && !dataRef.current?.waveform) {
+        waveformFloatRef.current = null;
+      }
+
       // Draw the updated buffer
       if (waterfallBufferRef.current) {
         drawWaterfall({
@@ -677,270 +582,13 @@ const FFTCanvas = ({
     return resampled;
   };
 
-  /**
-   * Advanced WebGPU SIMD resampling with triple optimization:
-   * 1. Double buffering - cache GPU results for smooth animation
-   * 2. Background processing - async GPU work without blocking
-   * 3. Predictive caching - pre-resample common data sizes
-   */
+  // Simplified WebGPU resampling - remove complex caching and buffer management
   const resampleSpectrumInto = useCallback((input: Float32Array, output: Float32Array) => {
     const srcLen = input.length;
     const outLen = output.length;
     if (srcLen === 0 || outLen === 0) return;
 
-    const inputChanged = lastResampleInputRef.current !== input;
-    if (inputChanged) {
-      lastResampleInputRef.current = input;
-      resampleEpochRef.current += 1;
-    }
-    const epoch = resampleEpochRef.current;
-
-    // Track performance
-    const stats = performanceStatsRef.current;
-    stats.totalCalls++;
-
-    // Create cache key for this resampling operation
-    const cacheKey = `${srcLen}-${outLen}-${epoch}`;
-
-    // Check cache first (double buffering)
-    const cache = resampleCacheRef.current;
-    if (cache.has(cacheKey)) {
-      const cachedResult = cache.get(cacheKey)!;
-      output.set(cachedResult);
-      lastResampleKeyRef.current = cacheKey;
-      stats.cacheHits++;
-      return;
-    }
-    stats.cacheMisses++;
-
-    // Check if GPU processing is already in progress for this key
-    if (resampleInProgressRef.current.has(cacheKey)) {
-      // Use CPU fallback while GPU works in background
-      for (let x = 0; x < outLen; x++) {
-        const start = Math.floor((x * srcLen) / outLen);
-        const end = Math.max(start + 1, Math.floor(((x + 1) * srcLen) / outLen));
-        let maxVal = -Infinity;
-        for (let i = start; i < end && i < srcLen; i++) {
-          const v = input[i];
-          if (Number.isFinite(v)) {
-            if (v > maxVal) maxVal = v;
-          }
-        }
-        output[x] = maxVal !== -Infinity ? maxVal : (input[Math.min(start, srcLen - 1)] ?? -120);
-      }
-      return;
-    }
-
-    // Start WebGPU processing in background
-    if (
-      !inputChanged &&
-      resampleComputePipelineRef.current &&
-      resampleParamsBufferRef.current &&
-      webgpuDeviceRef.current
-    ) {
-      const device = webgpuDeviceRef.current;
-      const pipeline = resampleComputePipelineRef.current;
-      const paramsBuffer = resampleParamsBufferRef.current;
-
-      // Skip WebGPU processing if resize is in progress
-      if (resampleInProgressRef.current.has("RESIZING")) {
-        stats.cpuFallbacks++;
-        // Use CPU fallback during resize
-        for (let x = 0; x < outLen; x++) {
-          const start = Math.floor((x * srcLen) / outLen);
-          const end = Math.max(start + 1, Math.floor(((x + 1) * srcLen) / outLen));
-          let maxVal = -Infinity;
-          for (let i = start; i < end && i < srcLen; i++) {
-            const v = input[i];
-            if (Number.isFinite(v)) {
-              if (v > maxVal) maxVal = v;
-            }
-          }
-          output[x] = maxVal !== -Infinity ? maxVal : (input[Math.min(start, srcLen - 1)] ?? -120);
-        }
-        return;
-      }
-
-      // Mark as in progress
-      resampleInProgressRef.current.add(cacheKey);
-      stats.gpuProcessing++;
-
-      // Async GPU processing (doesn't block animation)
-      const epochAtDispatch = epoch;
-      (async () => {
-        try {
-          // Create or resize buffers if needed
-          const inputSize = srcLen * 4;
-          const outputSize = outLen * 4;
-
-          // Always recreate buffers if they're too small for current data
-          if (!resampleInputBufferRef.current || resampleInputBufferRef.current.size < inputSize) {
-            if (resampleInputBufferRef.current) {
-              resampleInputBufferRef.current.destroy();
-            }
-            resampleInputBufferRef.current = device.createBuffer({
-              size: Math.max(inputSize, 8192 * 4), // Minimum size for common cases
-              usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-            });
-            console.log(`🔧 Resized input buffer: ${inputSize} bytes`);
-          }
-
-          if (
-            !resampleOutputBufferRef.current ||
-            resampleOutputBufferRef.current.size < outputSize
-          ) {
-            if (resampleOutputBufferRef.current) {
-              resampleOutputBufferRef.current.destroy();
-            }
-            resampleOutputBufferRef.current = device.createBuffer({
-              size: Math.max(outputSize, 8192 * 4), // Minimum size for common cases
-              usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
-            });
-            console.log(`🔧 Resized output buffer: ${outputSize} bytes`);
-          }
-
-          const inputBuffer = resampleInputBufferRef.current;
-          const outputBuffer = resampleOutputBufferRef.current;
-
-          // Double-check buffer validity before use
-          if (!inputBuffer || !outputBuffer || !paramsBuffer) {
-            console.warn("WebGPU buffers not properly initialized");
-            return;
-          }
-
-          // Validate buffer sizes one more time
-          if (inputSize > inputBuffer.size || outputSize > outputBuffer.size) {
-            console.warn(
-              `Buffer size mismatch: input=${inputSize}/${inputBuffer.size}, output=${outputSize}/${outputBuffer.size}`,
-            );
-            return;
-          }
-
-          // Create staging buffer
-          const stagingBuffer = device.createBuffer({
-            size: outputSize,
-            usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
-          });
-
-          // Upload input data with proper validation
-          let processedInput = input;
-
-          // Convert regular array to Float32Array if needed
-          if (!(input instanceof Float32Array)) {
-            if (Array.isArray(input)) {
-              processedInput = new Float32Array(input);
-              console.log("🔄 Converted regular array to Float32Array for WebGPU");
-            } else {
-              console.warn("Invalid input data type for WebGPU resampling:", {
-                input,
-                type: typeof input,
-                isFloat32Array: input instanceof Float32Array,
-                isArray: Array.isArray(input),
-                byteLength: input?.byteLength,
-                hasBuffer: !!input?.buffer,
-              });
-              return;
-            }
-          }
-
-          if (
-            processedInput &&
-            processedInput.byteLength !== undefined &&
-            processedInput.buffer !== undefined
-          ) {
-            if (processedInput.byteLength <= inputBuffer.size) {
-              device.queue.writeBuffer(
-                inputBuffer,
-                0,
-                processedInput.buffer,
-                processedInput.byteOffset,
-                processedInput.byteLength,
-              );
-            } else {
-              console.log("Input data too large for WebGPU buffer:", {
-                byteLength: processedInput.byteLength,
-                bufferSize: inputBuffer.size,
-                inputLength: processedInput.length,
-                srcLen: srcLen,
-              });
-              return;
-            }
-          } else {
-            console.warn("Failed to process input data for WebGPU resampling");
-            return;
-          }
-
-          // Update parameters
-          const params = new Uint32Array([srcLen, outLen, 0, 0]);
-          device.queue.writeBuffer(paramsBuffer, 0, params);
-
-          // Create bind group
-          const bindGroup = device.createBindGroup({
-            layout: pipeline.getBindGroupLayout(0),
-            entries: [
-              { binding: 0, resource: { buffer: inputBuffer } },
-              { binding: 1, resource: { buffer: outputBuffer } },
-              { binding: 2, resource: { buffer: paramsBuffer } },
-            ],
-          });
-
-          // Execute compute shader
-          const commandEncoder = device.createCommandEncoder();
-          const passEncoder = commandEncoder.beginComputePass();
-          passEncoder.setPipeline(pipeline);
-          passEncoder.setBindGroup(0, bindGroup);
-          passEncoder.dispatchWorkgroups(Math.ceil(outLen / 64));
-          passEncoder.end();
-
-          // Copy results to staging buffer
-          commandEncoder.copyBufferToBuffer(outputBuffer, 0, stagingBuffer, 0, outputSize);
-
-          // Submit and wait for completion
-          const commandBuffer = commandEncoder.finish();
-          device.queue.submit([commandBuffer]);
-
-          // Read back results
-          await device.queue.onSubmittedWorkDone();
-          const arrayBuffer = await stagingBuffer.mapAsync(GPUMapMode.READ);
-          if (arrayBuffer) {
-            const result = new Float32Array(arrayBuffer, 0, outLen);
-
-            // Cache the result for future use
-            if (resampleEpochRef.current === epochAtDispatch) {
-              cache.set(cacheKey, result);
-            }
-
-            // Predictive caching - cache nearby sizes
-            const commonSizes = [512, 1024, 2048, 4096, 8192];
-            for (const commonOutLen of commonSizes) {
-              if (
-                commonOutLen !== outLen &&
-                commonOutLen > outLen / 2 &&
-                commonOutLen < outLen * 2
-              ) {
-                const predictiveKey = `${srcLen}-${commonOutLen}-${epochAtDispatch}`;
-                if (!cache.has(predictiveKey)) {
-                  // Trigger background processing for predictive cache
-                  setTimeout(() => {
-                    const predictiveInput = new Float32Array(commonOutLen);
-                    resampleSpectrumInto(input, predictiveInput);
-                  }, 0);
-                }
-              }
-            }
-          }
-          stagingBuffer.unmap();
-          stagingBuffer.destroy();
-        } catch (error) {
-          console.warn("WebGPU background resampling failed:", error);
-        } finally {
-          // Mark as completed
-          resampleInProgressRef.current.delete(cacheKey);
-        }
-      })();
-    }
-
-    // CPU fallback for immediate rendering
+    // Simple CPU resampling - reliable and fast enough for most cases
     for (let x = 0; x < outLen; x++) {
       const start = Math.floor((x * srcLen) / outLen);
       const end = Math.max(start + 1, Math.floor(((x + 1) * srcLen) / outLen));
@@ -1008,7 +656,6 @@ const FFTCanvas = ({
             if (dropped) {
               dropped.fill(0); // Clear dropped array to help GC
             }
-            frameDropCounterRef.current++;
           }
 
           if (displayTemporalResolution === "high") {
@@ -1278,13 +925,26 @@ const FFTCanvas = ({
 
     // Perform periodic memory cleanup - reduced frequency to reduce overhead
     const cleanupInterval = setInterval(() => {
-      performMemoryCleanup();
+      // Clear waterfall buffer if it's excessive
+      if (waterfallBufferRef.current && waterfallDimsRef.current) {
+        const { width, height } = waterfallDimsRef.current;
+        const expectedSize = width * height * 4;
+        if (waterfallBufferRef.current.length > expectedSize * 1.5) {
+          returnBufferToPool(waterfallBufferRef.current);
+          waterfallBufferRef.current = getBufferFromPool(expectedSize);
+        }
+      }
+
+      // Clear unused references
+      if (waveformFloatRef.current && !dataRef.current?.waveform) {
+        waveformFloatRef.current = null;
+      }
     }, 30000); // Every 30 seconds instead of 10
 
     return () => {
       clearInterval(cleanupInterval);
     };
-  }, [data, performMemoryCleanup]);
+  }, [data]);
 
   useEffect(() => {
     // Update frequency range ref for new lines only
@@ -1307,7 +967,7 @@ const FFTCanvas = ({
       if (spectrumResampleBufRef.current) {
         spectrumResampleBufRef.current.fill(0);
       }
-      resampleCacheRef.current.clear();
+      // Clear any cached resampling data if needed
     }
 
     // Retune artifact: briefly widen/smear the next few lines vertically
@@ -1382,12 +1042,10 @@ const FFTCanvas = ({
             Math.abs((spectrumHeightRef.current || 0) - spectrumRect.height) > 10;
 
           if (widthChanged || heightChanged) {
-            // Mark resize in progress to prevent WebGPU buffer conflicts
-            resampleInProgressRef.current.add("RESIZING");
-
+            // Handle resize - simplified approach
             // Clear resize flag after a short delay
             setTimeout(() => {
-              resampleInProgressRef.current.delete("RESIZING");
+              // Resize handling completed
             }, 100);
           }
 

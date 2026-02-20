@@ -17,6 +17,14 @@ path = "src/server/main.rs"
 name = "fft_processor_tests"
 path = "test/rust/fft_processor_tests.rs"
 
+[[test]]
+name = "device_stream_frozen_tests"
+path = "test/rust/device_stream_frozen_tests.rs"
+
+[[test]]
+name = "authentication_tests"
+path = "test/rust/authentication_tests.rs"
+
 [dependencies]
 # Core dependencies (always included)
 rustfft = "6"
