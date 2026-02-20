@@ -1,15 +1,8 @@
-import React, { useRef, useCallback, useReducer, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import styled from "styled-components";
 import InfoPopover from "@n-apt/components/InfoPopover";
 import FrequencyRangeSlider from "@n-apt/components/FrequencyRangeSlider";
-import DrawMockNAPTSidebar from "./DrawMockNAPTSidebar";
 import { decryptPayloadBytes } from "@n-apt/crypto/webcrypto";
-import {
-  renderSpectrumSvg,
-  renderFullRangeSpectrumSvg,
-  drawSpectrumGrid,
-} from "@n-apt/fft/FFTCanvasRenderer";
-import { FFT_AREA_MIN } from "@n-apt/consts";
 import { useSdrSettings } from "@n-apt/hooks/useSdrSettings";
 import { useAuthentication } from "@n-apt/hooks/useAuthentication";
 import type {
@@ -28,7 +21,6 @@ import { IQCaptureControlsSection } from "@n-apt/components/sidebar/IQCaptureCon
 import { SnapshotControlsSection } from "@n-apt/components/sidebar/SnapshotControlsSection";
 import { SourceSettingsSection } from "@n-apt/components/sidebar/SourceSettingsSection";
 import { FileProcessingSection } from "@n-apt/components/sidebar/FileProcessingSection";
-import { BodyAreasSection } from "@n-apt/components/sidebar/BodyAreasSection";
 
 type NaptMetadata = {
   sample_rate?: number;
@@ -41,99 +33,6 @@ type NaptMetadata = {
   gain?: number;
   ppm?: number;
 };
-
-interface SidebarUIState {
-  captureOpen: boolean;
-  captureOnscreen: boolean;
-  captureAreaA: boolean;
-  captureAreaB: boolean;
-  captureDurationS: number;
-  captureFileType: CaptureFileType;
-  captureEncrypted: boolean;
-  capturePlayback: boolean;
-  snapshotOpen: boolean;
-  snapshotWhole: boolean;
-  snapshotShowWaterfall: boolean;
-  snapshotShowStats: boolean;
-  snapshotFormat: "png" | "svg";
-  naptMetadata: NaptMetadata | null;
-  naptMetadataError: string | null;
-}
-
-type SidebarUIAction =
-  | { type: "SET_CAPTURE_OPEN"; payload: boolean }
-  | { type: "SET_CAPTURE_ONSCREEN"; payload: boolean }
-  | { type: "SET_CAPTURE_AREA_A"; payload: boolean }
-  | { type: "SET_CAPTURE_AREA_B"; payload: boolean }
-  | { type: "SET_CAPTURE_DURATION_S"; payload: number }
-  | { type: "SET_CAPTURE_FILE_TYPE"; payload: CaptureFileType }
-  | { type: "SET_CAPTURE_ENCRYPTED"; payload: boolean }
-  | { type: "SET_CAPTURE_PLAYBACK"; payload: boolean }
-  | { type: "SET_SNAPSHOT_OPEN"; payload: boolean }
-  | { type: "SET_SNAPSHOT_WHOLE"; payload: boolean }
-  | { type: "SET_SNAPSHOT_SHOW_WATERFALL"; payload: boolean }
-  | { type: "SET_SNAPSHOT_SHOW_STATS"; payload: boolean }
-  | { type: "SET_SNAPSHOT_FORMAT"; payload: "png" | "svg" }
-  | { type: "SET_NAPT_METADATA"; payload: NaptMetadata | null }
-  | { type: "SET_NAPT_METADATA_ERROR"; payload: string | null };
-
-const INITIAL_SIDEBAR_UI_STATE: SidebarUIState = {
-  captureOpen: true,
-  captureOnscreen: true,
-  captureAreaA: false,
-  captureAreaB: false,
-  captureDurationS: 1,
-  captureFileType: ".napt",
-  captureEncrypted: true,
-  capturePlayback: false,
-  snapshotOpen: false,
-  snapshotWhole: false,
-  snapshotShowWaterfall: false,
-  snapshotShowStats: true,
-  snapshotFormat: "png",
-  naptMetadata: null,
-  naptMetadataError: null,
-};
-
-function sidebarUIReducer(
-  state: SidebarUIState,
-  action: SidebarUIAction,
-): SidebarUIState {
-  switch (action.type) {
-    case "SET_CAPTURE_OPEN":
-      return { ...state, captureOpen: action.payload };
-    case "SET_CAPTURE_ONSCREEN":
-      return { ...state, captureOnscreen: action.payload };
-    case "SET_CAPTURE_AREA_A":
-      return { ...state, captureAreaA: action.payload };
-    case "SET_CAPTURE_AREA_B":
-      return { ...state, captureAreaB: action.payload };
-    case "SET_CAPTURE_DURATION_S":
-      return { ...state, captureDurationS: action.payload };
-    case "SET_CAPTURE_FILE_TYPE":
-      return { ...state, captureFileType: action.payload };
-    case "SET_CAPTURE_ENCRYPTED":
-      return { ...state, captureEncrypted: action.payload };
-    case "SET_CAPTURE_PLAYBACK":
-      return { ...state, capturePlayback: action.payload };
-    case "SET_SNAPSHOT_OPEN":
-      return { ...state, snapshotOpen: action.payload };
-    case "SET_SNAPSHOT_WHOLE":
-      return { ...state, snapshotWhole: action.payload };
-    case "SET_SNAPSHOT_SHOW_WATERFALL":
-      return { ...state, snapshotShowWaterfall: action.payload };
-    case "SET_SNAPSHOT_SHOW_STATS":
-      return { ...state, snapshotShowStats: action.payload };
-    case "SET_SNAPSHOT_FORMAT":
-      return { ...state, snapshotFormat: action.payload };
-    case "SET_NAPT_METADATA":
-      return { ...state, naptMetadata: action.payload };
-    case "SET_NAPT_METADATA_ERROR":
-      return { ...state, naptMetadataError: action.payload };
-    default:
-      return state;
-  }
-}
 
 const SidebarContent = styled.div`
   display: flex;
@@ -413,6 +312,13 @@ interface SidebarProps {
   fftWaveform?: Float32Array | number[] | null;
   getCurrentWaveform?: () => Float32Array | number[] | null;
   centerFrequencyMHz?: number;
+  onSnapshot?: (options: {
+    whole: boolean;
+    showWaterfall: boolean;
+    showStats: boolean;
+    format: "png" | "svg";
+    grid: boolean;
+  }) => void;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({
@@ -456,6 +362,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   fftWaveform,
   getCurrentWaveform,
   centerFrequencyMHz,
+  onSnapshot,
 }) => {
   const { isAuthenticated, sessionToken, authState, aesKey } = useAuthentication();
   const maxSampleRate = maxSampleRateHz || 3_200_000;
@@ -482,12 +389,20 @@ const Sidebar: React.FC<SidebarProps> = ({
   } = useSdrSettings({ maxSampleRate, onSettingsChange });
 
   // Capture UI state
-  const [captureOpen, setCaptureOpen] = useState(true);
+  const [captureOpen, setCaptureOpen] = useState(false);
   const [captureOnscreen, setCaptureOnscreen] = useState(true);
   const [captureAreaA, setCaptureAreaA] = useState(false);
   const [captureAreaB, setCaptureAreaB] = useState(false);
   const [captureDurationS, setCaptureDurationS] = useState(1);
-  const [captureFileType, setCaptureFileType] = useState<CaptureFileType>(".napt");
+  const setCaptureFileType = (fileType: CaptureFileType) => {
+    setCaptureFileTypeState(fileType);
+    // When .wav is selected, turn off encryption
+    if (fileType === ".wav") {
+      setCaptureEncrypted(false);
+    }
+  };
+
+  const [captureFileTypeState, setCaptureFileTypeState] = useState<CaptureFileType>(".napt");
   const [captureEncrypted, setCaptureEncrypted] = useState(true);
   const [capturePlayback, setCapturePlayback] = useState(false);
 
@@ -577,8 +492,8 @@ const Sidebar: React.FC<SidebarProps> = ({
       minFreq: captureRange.min,
       maxFreq: captureRange.max,
       durationS: Math.max(1, Math.round(Number(captureDurationS) || 1)),
-      fileType: captureFileType,
-      encrypted: captureFileType === ".napt" ? true : captureEncrypted,
+      fileType: captureFileTypeState,
+      encrypted: captureFileTypeState === ".napt" ? true : captureEncrypted,
       fftSize,
       fftWindow,
     };
@@ -590,17 +505,25 @@ const Sidebar: React.FC<SidebarProps> = ({
     captureRange.min,
     captureRange.max,
     captureDurationS,
-    captureFileType,
+    captureFileTypeState,
     captureEncrypted,
     fftSize,
     fftWindow,
     onCaptureCommand,
   ]);
 
-  // Handle snapshot (simplified version)
-  const handleSnapshot = useCallback(async () => {
-    console.log("Snapshot functionality would be implemented here");
-  }, []);
+  // Handle snapshot
+  const handleSnapshot = useCallback(() => {
+    if (!onSnapshot) return;
+
+    onSnapshot({
+      whole: snapshotWhole,
+      showWaterfall: snapshotShowWaterfall,
+      showStats: snapshotShowStats,
+      format: snapshotFormat,
+      grid: snapshotGridPreference ?? true,
+    });
+  }, [onSnapshot, snapshotWhole, snapshotShowWaterfall, snapshotShowStats, snapshotFormat, snapshotGridPreference]);
 
   // Load NAPT metadata
   useEffect(() => {
@@ -762,7 +685,7 @@ const Sidebar: React.FC<SidebarProps> = ({
               captureAreaA={captureAreaA}
               captureAreaB={captureAreaB}
               captureDurationS={captureDurationS}
-              captureFileType={captureFileType}
+              captureFileType={captureFileTypeState}
               captureEncrypted={captureEncrypted}
               capturePlayback={capturePlayback}
               captureRange={captureRange}

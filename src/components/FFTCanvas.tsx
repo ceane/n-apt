@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback } from "react";
+import { useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from "react";
 import styled from "styled-components";
 import { useFFTAnimation } from "@n-apt/hooks/useFFTAnimation";
 import { usePauseLogic } from "@n-apt/hooks/usePauseLogic";
@@ -203,7 +203,10 @@ interface FFTCanvasProps {
  * FFT canvas component with FFT spectrum and waterfall displays
  * Uses SDR++ style rendering for professional spectrum analysis
  */
-const FFTCanvas = ({
+const FFTCanvas = forwardRef<{
+  getSpectrumCanvas: () => HTMLCanvasElement | null;
+  getWaterfallCanvas: () => HTMLCanvasElement | null;
+}, FFTCanvasProps>(({
   dataRef,
   frequencyRange,
   centerFrequencyMHz,
@@ -214,7 +217,7 @@ const FFTCanvas = ({
   displayTemporalResolution = "medium",
   force2D = false,
   snapshotGridPreference = true,
-}: FFTCanvasProps) => {
+}, ref) => {
   const spectrumCanvasRef = useRef<HTMLCanvasElement>(null);
   const spectrumGpuCanvasRef = useRef<HTMLCanvasElement>(null);
   const waterfallCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -1128,6 +1131,18 @@ const FFTCanvas = ({
     };
   }, [forceRender, webgpuEnabled, spectrumWebgpuEnabled, isPaused, ensurePausedFrame]);
 
+  // Expose canvas getter methods via ref
+  useImperativeHandle(ref, () => ({
+    getSpectrumCanvas: () => {
+      // Return the 2D canvas for snapshot (always maintained for export)
+      return spectrumCanvasRef.current;
+    },
+    getWaterfallCanvas: () => {
+      // Return the 2D waterfall canvas for snapshot
+      return waterfallCanvasRef.current;
+    },
+  }), []);
+
   return (
     <VisualizerContainer>
       <SpectrumSection>
@@ -1162,6 +1177,8 @@ const FFTCanvas = ({
       </WaterfallSection>
     </VisualizerContainer>
   );
-};
+});
+
+FFTCanvas.displayName = 'FFTCanvas';
 
 export default FFTCanvas;

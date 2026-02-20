@@ -252,6 +252,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   onAuthChange,
   sidebarWrapper,
 }) => {
+  const fftCanvasRef = useRef<{ getSpectrumCanvas: () => HTMLCanvasElement | null; getWaterfallCanvas: () => HTMLCanvasElement | null } | null>(null);
   const [state, dispatch] = useReducer(
     spectrumReducer,
     INITIAL_SPECTRUM_STATE,
@@ -414,6 +415,89 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     dispatch({ type: "SET_SELECTED_FILES", files: [] });
   }, []);
 
+  const handleSnapshot = useCallback(async (options: {
+    whole: boolean;
+    showWaterfall: boolean;
+    showStats: boolean;
+    format: "png" | "svg";
+    grid: boolean;
+  }) => {
+    if (!fftCanvasRef.current) return;
+
+    const spectrumCanvas = fftCanvasRef.current.getSpectrumCanvas();
+    const waterfallCanvas = fftCanvasRef.current.getWaterfallCanvas();
+
+    if (!spectrumCanvas) return;
+
+    // Create a temporary canvas for the composite image
+    const tempCanvas = document.createElement("canvas");
+    const tempCtx = tempCanvas.getContext("2d");
+    if (!tempCtx) return;
+
+    // Calculate dimensions
+    let width = spectrumCanvas.width;
+    let height = spectrumCanvas.height;
+
+    if (options.showWaterfall && waterfallCanvas) {
+      height += waterfallCanvas.height;
+    }
+
+    tempCanvas.width = width;
+    tempCanvas.height = height;
+
+    // Draw spectrum
+    tempCtx.drawImage(spectrumCanvas, 0, 0);
+
+    // Draw waterfall if enabled
+    if (options.showWaterfall && waterfallCanvas) {
+      tempCtx.drawImage(waterfallCanvas, 0, spectrumCanvas.height);
+    }
+
+    // Draw stats if enabled
+    if (options.showStats) {
+      const statsText = [
+        `Center: ${(state.frequencyRange.min + state.frequencyRange.max) / 2} MHz`,
+        `Range: ${state.frequencyRange.min} - ${state.frequencyRange.max} MHz`,
+        `BW: ${(state.frequencyRange.max - state.frequencyRange.min).toFixed(2)} MHz`,
+        `Device: ${isConnected ? "Connected" : "Disconnected"}`,
+      ];
+
+      tempCtx.fillStyle = "rgba(0, 0, 0, 0.7)";
+      tempCtx.fillRect(10, 10, 200, statsText.length * 15 + 10);
+
+      tempCtx.fillStyle = "#00d4ff";
+      tempCtx.font = "12px JetBrains Mono, monospace";
+      statsText.forEach((text, index) => {
+        tempCtx.fillText(text, 15, 25 + index * 15);
+      });
+    }
+
+    // Export based on format
+    if (options.format === "png") {
+      const dataUrl = tempCanvas.toDataURL("image/png");
+      const link = document.createElement("a");
+      link.download = `spectrum-snapshot-${new Date().toISOString().slice(0, 19).replace(/:/g, "-")}.png`;
+      link.href = dataUrl;
+      link.click();
+    } else if (options.format === "svg") {
+      // For SVG, we'll need to convert the canvas to SVG format
+      // This is a simplified implementation - in a real app you might want to use a library
+      const dataUrl = tempCanvas.toDataURL("image/png");
+      const svgContent = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
+          <image href="${dataUrl}" width="${width}" height="${height}"/>
+        </svg>
+      `;
+      const blob = new Blob([svgContent], { type: "image/svg+xml" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.download = `spectrum-snapshot-${new Date().toISOString().slice(0, 19).replace(/:/g, "-")}.svg`;
+      link.href = url;
+      link.click();
+      URL.revokeObjectURL(url);
+    }
+  }, [state.frequencyRange, isConnected]);
+
   const prevIsVisualizerRef = useRef(isVisualizer);
   useEffect(() => {
     const prevIsVisualizer = prevIsVisualizerRef.current;
@@ -538,6 +622,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                 fftWaveform={dataRef.current?.waveform ?? null}
                 getCurrentWaveform={getCurrentWaveform}
                 centerFrequencyMHz={centerFrequencyMHz}
+                onSnapshot={handleSnapshot}
               />
             );
             return sidebarWrapper ? sidebarWrapper(sidebarNode) : sidebarNode;
@@ -575,6 +660,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                   />
                 )}
                 <FFTCanvas
+                  ref={fftCanvasRef}
                   dataRef={dataRef}
                   frequencyRange={state.frequencyRange}
                   centerFrequencyMHz={centerFrequencyMHz}
