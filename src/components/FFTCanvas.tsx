@@ -178,8 +178,8 @@ const ToggleableCanvasLayer = styled(CanvasLayer) <{ $visible: boolean }>`
  * Props for FFTCanvas component
  */
 interface FFTCanvasProps {
-  /** FFT data containing waveform and metadata */
-  data: any;
+  /** Reference to FFT data containing waveform and metadata */
+  dataRef: React.MutableRefObject<any>;
   /** Frequency range to display */
   frequencyRange: FrequencyRange;
   /** Current center frequency in MHz (for overlay label) */
@@ -204,7 +204,7 @@ interface FFTCanvasProps {
  * Uses SDR++ style rendering for professional spectrum analysis
  */
 const FFTCanvas = ({
-  data,
+  dataRef,
   frequencyRange,
   centerFrequencyMHz,
   activeSignalArea: _activeSignalArea,
@@ -253,7 +253,6 @@ const FFTCanvas = ({
   // Simplified frame management
   const frameBufferRef = useRef<Float32Array[]>([]);
   const maxFrameBufferSize = 1;
-  const dataRef = useRef<any>(null);
   const lastProcessedDataRef = useRef<any>(null);
   const frequencyRangeRef = useRef<FrequencyRange>(frequencyRange);
   const centerFreqRef = useRef(centerFrequencyMHz);
@@ -921,9 +920,8 @@ const FFTCanvas = ({
   restoreWaveformFromStorageRef.current = restoreWaveformFromStorage;
 
   useEffect(() => {
-    dataRef.current = data;
-
-    // Perform periodic memory cleanup - reduced frequency to reduce overhead
+    // We don't need to sync data to dataRef anymore since dataRef is passed directly
+    // but we can keep the cleanup interval
     const cleanupInterval = setInterval(() => {
       // Clear waterfall buffer if it's excessive
       if (waterfallBufferRef.current && waterfallDimsRef.current) {
@@ -944,7 +942,7 @@ const FFTCanvas = ({
     return () => {
       clearInterval(cleanupInterval);
     };
-  }, [data]);
+  }, []);
 
   useEffect(() => {
     // Update frequency range ref for new lines only

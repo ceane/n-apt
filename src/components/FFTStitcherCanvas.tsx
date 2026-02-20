@@ -110,9 +110,9 @@ const FFTStitcherCanvas: React.FC<FFTStitcherCanvasProps> = ({
         chunks === 1
           ? startBase
           : Math.min(
-              rawData.length - windowSize,
-              startBase + Math.floor((c * (rawData.length - windowSize - startBase)) / span),
-            );
+            rawData.length - windowSize,
+            startBase + Math.floor((c * (rawData.length - windowSize - startBase)) / span),
+          );
       for (let i = 0; i < windowSize && start + i + 1 < rawData.length; i += 2) {
         const real = (rawData[start + i] ?? 128) - 128;
         const imag = (rawData[start + i + 1] ?? 128) - 128;
@@ -270,9 +270,9 @@ const FFTStitcherCanvas: React.FC<FFTStitcherCanvasProps> = ({
       maxFrames.current > 0
         ? maxFrames.current
         : Math.max(
-            1,
-            Math.min(...cachedEntries.map(([, raw]) => Math.floor(raw.length / windowStep))),
-          );
+          1,
+          Math.min(...cachedEntries.map(([, raw]) => Math.floor(raw.length / windowStep))),
+        );
 
     let animationFrameId: number | null = null;
     let lastFrameTime = 0;
@@ -334,13 +334,17 @@ const FFTStitcherCanvas: React.FC<FFTStitcherCanvasProps> = ({
   }, [selectedFiles, setStitchStatus]);
 
   const fftCanvasData = canvasData;
+  const fftCanvasDataRef = useRef<any>(null);
+  useEffect(() => {
+    fftCanvasDataRef.current = fftCanvasData;
+  }, [fftCanvasData]);
 
   return (
     <StitcherContainer>
       <VisualizationContainer>
         {hasStitchedData && fftCanvasData ? (
           <FFTCanvas
-            data={fftCanvasData}
+            dataRef={fftCanvasDataRef}
             frequencyRange={frequencyRange}
             centerFrequencyMHz={(frequencyRange.min + frequencyRange.max) / 2}
             activeSignalArea="A"

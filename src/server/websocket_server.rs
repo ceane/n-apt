@@ -35,6 +35,48 @@ impl WebSocketServer {
         Self { shared, cmd_tx, broadcast_tx }
     }
 
+    fn broadcast_status(shared: &Arc<SharedState>, broadcast_tx: &broadcast::Sender<String>) {
+        let device_connected = shared.device_connected.load(Ordering::Relaxed);
+        let device_info = shared.device_info.lock().unwrap().clone();
+        let device_loading = *shared.device_loading.lock().unwrap();
+        let device_loading_reason = shared.device_loading_reason.lock().unwrap().clone();
+        let device_state = shared.device_state.lock().unwrap().clone();
+        let paused = shared.is_paused.load(Ordering::Relaxed);
+
+        let max_sample_rate = if device_connected {
+            device_info
+                .split("max: ")
+                .nth(1)
+                .and_then(|s| s.split(" Hz").next())
+                .and_then(|s| s.parse::<u32>().ok())
+                .unwrap_or(3_200_000)
+        } else {
+            device_info
+                .split("Sample Rate: ")
+                .nth(1)
+                .and_then(|s| s.split(" Hz").next())
+                .and_then(|s| s.parse::<u32>().ok())
+                .unwrap_or(3_200_000)
+        };
+
+        let status = serde_json::json!({
+            "message_type": "status",
+            "device_connected": device_connected,
+            "device_info": device_info,
+            "device_loading": device_loading,
+            "device_loading_reason": device_loading_reason,
+            "device_state": device_state,
+            "paused": paused,
+            "max_sample_rate": max_sample_rate,
+            "spectrum_frames": shared.spectrum_frames.lock().unwrap().clone(),
+            "backend": if device_connected { "rtl-sdr" } else { "mock" }
+        });
+
+        if let Ok(json) = serde_json::to_string(&status) {
+            let _ = broadcast_tx.send(json);
+        }
+    }
+
     fn sdr_io_thread(
         cmd_rx: std::sync::mpsc::Receiver<SdrCommand>,
         broadcast_tx: broadcast::Sender<String>,
@@ -53,6 +95,7 @@ impl WebSocketServer {
                 shared.device_connected.store(true, Ordering::Relaxed);
                 *shared.device_info.lock().unwrap() = sdr_processor.get_device_info();
                 *shared.device_state.lock().unwrap() = "connected".to_string();
+                Self::broadcast_status(&shared, &broadcast_tx);
             }
             Err(e) => {
                 warn!("Failed to initialize RTL-SDR device: {}. Using mock mode.", e);
@@ -61,6 +104,7 @@ impl WebSocketServer {
                 shared.device_connected.store(false, Ordering::Relaxed);
                 *shared.device_info.lock().unwrap() = sdr_processor.get_device_info();
                 *shared.device_state.lock().unwrap() = "disconnected".to_string();
+                Self::broadcast_status(&shared, &broadcast_tx);
             }
         }
 
@@ -208,22 +252,27 @@ impl WebSocketServer {
                     }
                 }
             } else {
-                // Check if device is still present
-                thread::sleep(Duration::from_millis(100));
-                let device_count = RtlSdrDevice::get_device_count();
-                if device_count == 0 {
-                    missing_device_probe_streak = next_missing_device_probe_streak(missing_device_probe_streak, 0);
-                    if should_declare_disconnected(missing_device_probe_streak) {
-                        warn!("RTL-SDR device disconnected");
-                        device_connected = false;
-                        shared.device_connected.store(false, Ordering::Relaxed);
-                        *shared.device_state.lock().unwrap() = "disconnected".to_string();
-                        
-                        // Fall back to mock mode
-                        sdr_processor.enter_mock_mode();
+                // Check if device is still present periodically (every ~1s)
+                // Do not sleep here, as it would cap the SDR thread's frame rate!
+                if missing_device_probe_streak % 30 == 0 {
+                    let device_count = RtlSdrDevice::get_device_count();
+                    if device_count == 0 {
+                        missing_device_probe_streak = next_missing_device_probe_streak(missing_device_probe_streak, 0);
+                        if should_declare_disconnected(missing_device_probe_streak) {
+                            warn!("RTL-SDR device disconnected");
+                            device_connected = false;
+                            shared.device_connected.store(false, Ordering::Relaxed);
+                            *shared.device_state.lock().unwrap() = "disconnected".to_string();
+                            Self::broadcast_status(&shared, &broadcast_tx);
+                            
+                            // Fall back to mock mode
+                            sdr_processor.enter_mock_mode();
+                        }
+                    } else {
+                        missing_device_probe_streak = 1;
                     }
                 } else {
-                    missing_device_probe_streak = 0;
+                    missing_device_probe_streak = missing_device_probe_streak.wrapping_add(1);
                 }
             }
         }
