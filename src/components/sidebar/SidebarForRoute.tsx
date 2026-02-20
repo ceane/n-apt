@@ -17,6 +17,22 @@ const SectionTitle = styled.div`
   font-family: "JetBrains Mono", monospace;
 `;
 
+const RouteContent = styled.div`
+  padding: 4cqh 3cqw;
+`;
+
+const SectionDescription = styled.div`
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+  margin-bottom: 16px;
+`;
+
+const PlaceholderText = styled.div`
+  font-size: 12px;
+  color: #888;
+  padding: 12px;
+`;
+
 interface SidebarForRouteProps {
   activeTab: string;
 }
@@ -26,13 +42,13 @@ export const SidebarForRoute: React.FC<SidebarForRouteProps> = ({ activeTab }) =
     return (
       <>
         <Section>
-          <div style={{ padding: "4cqh 3cqw" }}>
+          <RouteContent>
             <SectionTitle>Body Areas</SectionTitle>
-            <div style={{ fontSize: "11px", color: "rgba(255,255,255,0.50)", marginBottom: "16px" }}>
+            <SectionDescription>
               Click an area to focus the camera
-            </div>
+            </SectionDescription>
             <BodyAreasSection />
-          </div>
+          </RouteContent>
         </Section>
       </>
     );
@@ -40,9 +56,9 @@ export const SidebarForRoute: React.FC<SidebarForRouteProps> = ({ activeTab }) =
 
   if (activeTab === "hotspoteditor") {
     return (
-      <div style={{ padding: "4cqh 3cqw" }}>
+      <RouteContent>
         <HotspotEditorSection />
-      </div>
+      </RouteContent>
     );
   }
 
@@ -50,9 +66,9 @@ export const SidebarForRoute: React.FC<SidebarForRouteProps> = ({ activeTab }) =
   return (
     <Section>
       <SectionTitle>Route Settings</SectionTitle>
-      <div style={{ fontSize: "12px", color: "#888", padding: "12px" }}>
+      <PlaceholderText>
         Settings for {activeTab} would go here
-      </div>
+      </PlaceholderText>
     </Section>
   );
 };

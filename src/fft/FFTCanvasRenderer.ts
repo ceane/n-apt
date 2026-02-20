@@ -178,8 +178,8 @@ export function renderSpectrumSvg(options: {
 
   // Cap path points to avoid main-thread freeze (full FFT can be 32k+ points; SVG path doesn't need that)
   const maxPathPoints = Math.min(waveform.length, Math.max(Math.round(plotWidth), 2048));
-  const pathWaveform = waveform.length <= maxPathPoints ? waveform : downsampleWaveformForSvg(waveform, maxPathPoints);
-
+  const pathWaveform =
+    waveform.length <= maxPathPoints ? waveform : downsampleWaveformForSvg(waveform, maxPathPoints);
 
   const pathLen = pathWaveform.length;
   const idxToX = (idx: number) => {
@@ -187,7 +187,8 @@ export function renderSpectrumSvg(options: {
     return FFT_AREA_MIN.x + (idx / (pathLen - 1)) * plotWidth;
   };
 
-  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  const esc = (s: string) =>
+    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
   let svg = `<?xml version="1.0" encoding="UTF-8"?>\n`;
   svg += `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">`;
@@ -266,7 +267,7 @@ export function renderSpectrumSvg(options: {
   {
     const markers: { freq: number; label: string }[] = Array.from({ length: 2 }, (_, i) => ({
       freq: [0.5, 28.8][i],
-      label: [ "500kHz / RTL-SDR v4 lower limit", "28.8MHz / Potential hardware spur"][i],
+      label: ["500kHz / RTL-SDR v4 lower limit", "28.8MHz / Potential hardware spur"][i],
     }));
 
     if (isDeviceConnected) {
@@ -301,8 +302,8 @@ export function renderSpectrumSvg(options: {
       Number.isNaN(centerFrequencyMHz) || !Number.isFinite(centerFrequencyMHz)
         ? "✋  -- MHz"
         : centerFrequencyMHz < 1
-        ? `✋  ${Math.round(centerFrequencyMHz * 1000)} kHz`
-        : `✋  ${centerFrequencyMHz.toFixed(3)} MHz`;
+          ? `✋  ${Math.round(centerFrequencyMHz * 1000)} kHz`
+          : `✋  ${centerFrequencyMHz.toFixed(3)} MHz`;
 
     const labelX = width / 2;
     const labelY = fftAreaMax.y + 25;
@@ -340,7 +341,8 @@ export function renderFullRangeSpectrumSvg(options: {
     const y = fftAreaMax.y - (dbVal - fftMin) * scaleFactor;
     return Math.max(FFT_AREA_MIN.y + 1, Math.min(fftAreaMax.y, y));
   };
-  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  const esc = (s: string) =>
+    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
   let svg = `<?xml version="1.0" encoding="UTF-8"?>\n`;
   svg += `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">`;
@@ -350,7 +352,8 @@ export function renderFullRangeSpectrumSvg(options: {
     const range = findBestRange(viewBandwidth, 10);
     const lowerFreq = Math.ceil(fullMin / range) * range;
     const upperFreq = fullMax;
-    const freqToX = (freq: number) => FFT_AREA_MIN.x + ((freq - fullMin) / viewBandwidth) * plotWidth;
+    const freqToX = (freq: number) =>
+      FFT_AREA_MIN.x + ((freq - fullMin) / viewBandwidth) * plotWidth;
     const startLine = Math.floor(fftMax / VERTICAL_RANGE) * VERTICAL_RANGE;
     svg += `<g stroke="${FFT_GRID_COLOR}" stroke-width="0.5" fill="${FFT_TEXT_COLOR}" font-family="JetBrains Mono" font-size="12">`;
     const zeroDbY = fftAreaMax.y - (0 - fftMin) * scaleFactor;
@@ -391,9 +394,10 @@ export function renderFullRangeSpectrumSvg(options: {
     const winSpan = w.max - w.min;
     const windowPlotLeft = FFT_AREA_MIN.x + ((w.min - fullMin) / viewBandwidth) * plotWidth;
     const windowPlotWidth = (winSpan / viewBandwidth) * plotWidth;
-    const pathWave = w.waveform.length <= maxPathPointsPerWindow
-      ? w.waveform
-      : downsampleWaveformForSvg(w.waveform, maxPathPointsPerWindow);
+    const pathWave =
+      w.waveform.length <= maxPathPointsPerWindow
+        ? w.waveform
+        : downsampleWaveformForSvg(w.waveform, maxPathPointsPerWindow);
     const n = pathWave.length;
     if (n === 0) continue;
     const idxToX = (idx: number) => windowPlotLeft + (idx / Math.max(1, n - 1)) * windowPlotWidth;
@@ -703,8 +707,8 @@ export function drawSpectrumMarkers(
     Number.isNaN(centerFrequencyMHz) || !Number.isFinite(centerFrequencyMHz)
       ? "✋  -- MHz"
       : centerFrequencyMHz < 1
-      ? `✋  ${Math.round(centerFrequencyMHz * 1000)} kHz`
-      : `✋  ${centerFrequencyMHz.toFixed(3)} MHz`;
+        ? `✋  ${Math.round(centerFrequencyMHz * 1000)} kHz`
+        : `✋  ${centerFrequencyMHz.toFixed(3)} MHz`;
 
   ctx.save();
   ctx.font = "12px JetBrains Mono";
@@ -729,7 +733,12 @@ export function drawSpectrumMarkers(
  * @param outputSize - Size of output array
  * @returns Zoomed FFT data array
  */
-export function zoomFFT(input: number[], offset: number, width: number, outputSize: number): number[] {
+export function zoomFFT(
+  input: number[],
+  offset: number,
+  width: number,
+  outputSize: number,
+): number[] {
   if (offset < 0) offset = 0;
   if (width > 524288) width = 524288;
 

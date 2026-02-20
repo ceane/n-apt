@@ -8,17 +8,16 @@ const MainContent = styled.section`
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  padding: 0;
+  margin: 0;
 `;
 
 export const Model3DRoute: React.FC = () => {
   const { selectedArea, controlsRef } = useModel3D();
 
   return (
-    <MainContent style={{ padding: 0, margin: 0 }}>
-      <HumanModelViewerSimple
-        selectedArea={selectedArea}
-        controlsRef={controlsRef}
-      />
+    <MainContent>
+      <HumanModelViewerSimple selectedArea={selectedArea} controlsRef={controlsRef} />
     </MainContent>
   );
 };

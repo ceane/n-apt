@@ -5,16 +5,19 @@ This directory contains WebAssembly tests for the N-APT project, designed to ver
 ## Quick Start
 
 ### Run All Tests
+
 ```bash
 ./test_runner.sh
 ```
 
 ### Run Node.js Tests Only
+
 ```bash
 ./test_runner.sh node
 ```
 
-### Run Browser Tests Only  
+### Run Browser Tests Only
+
 ```bash
 ./test_runner.sh browser
 ```
@@ -22,11 +25,13 @@ This directory contains WebAssembly tests for the N-APT project, designed to ver
 ## Manual Testing
 
 ### Node.js Environment
+
 ```bash
 wasm-pack test --node
 ```
 
 ### Browser Environment
+
 ```bash
 wasm-pack test --headless --chrome
 # or
@@ -63,11 +68,13 @@ The test suite covers:
 ## Troubleshooting
 
 ### Browser Tests Fail
+
 - Ensure Chrome or Firefox is installed
 - Check if browser drivers are properly installed
 - Try running with `--no-capture` for more detailed output
 
 ### Node.js Tests Fail
+
 - Verify Node.js is installed
 - Check wasm-pack installation
 - Ensure WASM target is installed: `rustup target add wasm32-unknown-unknown`
@@ -75,6 +82,7 @@ The test suite covers:
 ## Integration with CI
 
 The test runner is designed to work in CI environments:
+
 - Node.js tests run reliably without browser dependencies
 - Browser tests are optional and gracefully handle missing browsers
 - All tests provide clear success/failure indicators

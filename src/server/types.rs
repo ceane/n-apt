@@ -107,6 +107,8 @@ pub struct SpectrumData {
   pub waveform: Vec<f32>,
   pub waterfall: Vec<f32>,
   pub is_mock: bool,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub center_frequency_hz: Option<u32>,
   pub timestamp: i64,
 }
 

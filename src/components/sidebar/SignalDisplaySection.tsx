@@ -96,17 +96,33 @@ const SettingInput = styled.input`
   padding: 4px 6px;
   width: 70px;
   text-align: right;
-  
+
   /* Hide number input spinners */
   &::-webkit-outer-spin-button,
   &::-webkit-inner-spin-button {
     -webkit-appearance: none;
     margin: 0;
   }
-  
+
   &[type="number"] {
     -moz-appearance: textfield;
   }
+`;
+
+const InputGroup = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 4px;
+`;
+
+const UnitLabel = styled.span`
+  font-size: 12px;
+  color: #ccc;
+  font-weight: 500;
+`;
+
+const WideSettingSelect = styled(SettingSelect)`
+  min-width: 120px;
 `;
 
 interface SignalDisplaySectionProps {
@@ -122,7 +138,11 @@ interface SignalDisplaySectionProps {
   onFftSizeChange: (value: number) => void;
   onFftWindowChange: (value: string) => void;
   onTemporalResolutionChange: (value: "low" | "medium" | "high") => void;
-  scheduleCoupledAdjustment: (trigger: "fftSize" | "frameRate", fftSize: number, frameRate: number) => void;
+  scheduleCoupledAdjustment: (
+    trigger: "fftSize" | "frameRate",
+    fftSize: number,
+    frameRate: number,
+  ) => void;
 }
 
 export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
@@ -182,7 +202,7 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
               content={`Signal processing speed. Higher rates provide more real-time analysis of transmissions. Current maximum theoretical rate: ${maxFrameRate} fps based on current FFT size and bandwidth capacity.`}
             />
           </SettingLabelContainer>
-          <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+          <InputGroup>
             <SettingInput
               type="number"
               value={fftFrameRate}
@@ -210,8 +230,8 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
               min="1"
               max={maxFrameRate}
             />
-            <span style={{ fontSize: "12px", color: "#ccc", fontWeight: "500" }}>fps</span>
-          </div>
+            <UnitLabel>fps</UnitLabel>
+          </InputGroup>
         </SettingRow>
       ) : (
         <SettingRow>
@@ -284,17 +304,16 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
             content="Signal visualization precision. Low blends signal patterns, medium shows averaged activity, high displays exact signal interactions with sharp transitions, with the ability to see patterns (like dots) in the waterfall as the signal rises and falls sharply."
           />
         </SettingLabelContainer>
-        <SettingSelect
+        <WideSettingSelect
           value={temporalResolution}
           onChange={(e) => {
             onTemporalResolutionChange(e.target.value as "low" | "medium" | "high");
           }}
-          style={{ minWidth: "120px" }}
         >
           <option value="low">Low</option>
           <option value="medium">Medium</option>
           <option value="high">High</option>
-        </SettingSelect>
+        </WideSettingSelect>
       </SettingRow>
     </Section>
   );

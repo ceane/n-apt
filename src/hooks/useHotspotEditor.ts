@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useReducer, useCallback, useMemo, ReactNode } from "react";
 
 interface Hotspot {
   id: string;
@@ -8,6 +8,89 @@ interface Hotspot {
   meshName: string;
   size: "small" | "large";
   selected?: boolean;
+}
+
+interface HotspotState {
+  hotspots: Hotspot[];
+  selectedHotspot: string | null;
+  newHotspotName: string;
+  symmetryMode: "none" | "x" | "y";
+  showGrid: boolean;
+  hotspotSize: "small" | "large";
+  isMultiSelectMode: boolean;
+  multiSelectedHotspots: string[];
+}
+
+type HotspotAction =
+  | { type: "SET_HOTSPOTS"; hotspots: Hotspot[] }
+  | { type: "SET_SELECTED"; id: string | null }
+  | { type: "SET_NAME"; name: string }
+  | { type: "SET_SYMMETRY"; mode: "none" | "x" | "y" }
+  | { type: "SET_GRID"; show: boolean }
+  | { type: "SET_SIZE"; size: "small" | "large" }
+  | { type: "SET_MULTI_SELECT"; mode: boolean }
+  | { type: "SET_MULTI_SELECTED"; ids: string[] }
+  | { type: "ADD_HOTSPOT"; hotspots: Hotspot[]; resetName: boolean }
+  | { type: "DELETE_HOTSPOT"; hotspots: Hotspot[] }
+  | { type: "DELETE_SELECTED"; hotspots: Hotspot[] }
+  | { type: "RENAME"; hotspots: Hotspot[] }
+  | { type: "CLEAR" }
+  | { type: "TOGGLE_SELECT"; id: string };
+
+const INITIAL_HOTSPOT_STATE: HotspotState = {
+  hotspots: [],
+  selectedHotspot: null,
+  newHotspotName: "",
+  symmetryMode: "none",
+  showGrid: true,
+  hotspotSize: "small",
+  isMultiSelectMode: false,
+  multiSelectedHotspots: [],
+};
+
+function hotspotReducer(
+  state: HotspotState,
+  action: HotspotAction
+): HotspotState {
+  switch (action.type) {
+    case "SET_HOTSPOTS":
+      return { ...state, hotspots: action.hotspots };
+    case "SET_SELECTED":
+      return { ...state, selectedHotspot: action.id };
+    case "SET_NAME":
+      return { ...state, newHotspotName: action.name };
+    case "SET_SYMMETRY":
+      return { ...state, symmetryMode: action.mode };
+    case "SET_GRID":
+      return { ...state, showGrid: action.show };
+    case "SET_SIZE":
+      return { ...state, hotspotSize: action.size };
+    case "SET_MULTI_SELECT":
+      return { ...state, isMultiSelectMode: action.mode };
+    case "SET_MULTI_SELECTED":
+      return { ...state, multiSelectedHotspots: action.ids };
+    case "ADD_HOTSPOT":
+      return {
+        ...state,
+        hotspots: action.hotspots,
+        ...(action.resetName && { newHotspotName: "" }),
+      };
+    case "DELETE_HOTSPOT":
+      return { ...state, hotspots: action.hotspots };
+    case "DELETE_SELECTED":
+      return { ...state, hotspots: action.hotspots, multiSelectedHotspots: [] };
+    case "RENAME":
+      return { ...state, hotspots: action.hotspots };
+    case "CLEAR":
+      return { ...state, hotspots: [] };
+    case "TOGGLE_SELECT":
+      return {
+        ...state,
+        multiSelectedHotspots: state.multiSelectedHotspots.includes(action.id)
+          ? state.multiSelectedHotspots.filter((hid) => hid !== action.id)
+          : [...state.multiSelectedHotspots, action.id],
+      };
+  }
 }
 
 interface HotspotEditorContextType {
@@ -45,23 +128,56 @@ interface HotspotEditorProviderProps {
   onHotspotsChange?: (hotspots: Hotspot[]) => void;
 }
 
-export const HotspotEditorProvider: React.FC<HotspotEditorProviderProps> = ({ 
-  children, 
-  onHotspotsChange 
+export const HotspotEditorProvider: React.FC<HotspotEditorProviderProps> = ({
+  children,
+  onHotspotsChange,
 }) => {
-  const [hotspots, setHotspots] = useState<Hotspot[]>([]);
-  const [selectedHotspot, setSelectedHotspot] = useState<string | null>(null);
-  const [newHotspotName, setNewHotspotName] = useState("");
-  const [symmetryMode, setSymmetryMode] = useState<"none" | "x" | "y">("none");
-  const [showGrid, setShowGrid] = useState(true);
-  const [hotspotSize, setHotspotSize] = useState<"small" | "large">("small");
-  const [isMultiSelectMode, setIsMultiSelectMode] = useState(false);
-  const [multiSelectedHotspots, setMultiSelectedHotspots] = useState<string[]>([]);
+  const [state, dispatch] = useReducer(hotspotReducer, INITIAL_HOTSPOT_STATE);
+
+  const setHotspots = useCallback(
+    (hotspots: Hotspot[]) => dispatch({ type: "SET_HOTSPOTS", hotspots }),
+    [],
+  );
+
+  const setSelectedHotspot = useCallback(
+    (id: string | null) => dispatch({ type: "SET_SELECTED", id }),
+    [],
+  );
+
+  const setNewHotspotName = useCallback(
+    (name: string) => dispatch({ type: "SET_NAME", name }),
+    [],
+  );
+
+  const setSymmetryMode = useCallback(
+    (mode: "none" | "x" | "y") => dispatch({ type: "SET_SYMMETRY", mode }),
+    [],
+  );
+
+  const setShowGrid = useCallback(
+    (show: boolean) => dispatch({ type: "SET_GRID", show }),
+    [],
+  );
+
+  const setHotspotSize = useCallback(
+    (size: "small" | "large") => dispatch({ type: "SET_SIZE", size }),
+    [],
+  );
+
+  const setIsMultiSelectMode = useCallback(
+    (mode: boolean) => dispatch({ type: "SET_MULTI_SELECT", mode }),
+    [],
+  );
+
+  const setMultiSelectedHotspots = useCallback(
+    (ids: string[]) => dispatch({ type: "SET_MULTI_SELECTED", ids }),
+    [],
+  );
 
   const handleAddHotspot = useCallback(
     (point: { x: number; y: number; z: number }) => {
       const id = Date.now().toString();
-      const name = newHotspotName || `Point ${hotspots.length + 1}`;
+      const name = state.newHotspotName || `Point ${state.hotspots.length + 1}`;
 
       const newHotspot: Hotspot = {
         id,
@@ -69,93 +185,103 @@ export const HotspotEditorProvider: React.FC<HotspotEditorProviderProps> = ({
         position: [point.x, point.y, point.z],
         target: [point.x, point.y, point.z],
         meshName: "o_ADBody",
-        size: hotspotSize,
+        size: state.hotspotSize,
       };
 
-      let updatedHotspots = [...hotspots, newHotspot];
+      let updatedHotspots = [...state.hotspots, newHotspot];
 
-      // Add symmetrical points if enabled
-      if (symmetryMode === "x") {
+      if (state.symmetryMode === "x") {
         const symmetricalHotspot: Hotspot = {
           id: `${id}_sym_x`,
           name: `${name} (Left)`,
           position: [-point.x, point.y, point.z],
           target: [-point.x, point.y, point.z],
           meshName: "o_ADBody",
-          size: hotspotSize,
+          size: state.hotspotSize,
         };
         newHotspot.name = `${name} (Right)`;
         updatedHotspots = [...updatedHotspots, symmetricalHotspot];
-      } else if (symmetryMode === "y") {
+      } else if (state.symmetryMode === "y") {
         const symmetricalHotspot: Hotspot = {
           id: `${id}_sym_y`,
           name: `${name} (Bottom)`,
           position: [point.x, -point.y, point.z],
           target: [point.x, -point.y, point.z],
           meshName: "o_ADBody",
-          size: hotspotSize,
+          size: state.hotspotSize,
         };
         newHotspot.name = `${name} (Top)`;
         updatedHotspots = [...updatedHotspots, symmetricalHotspot];
       }
 
-      setHotspots(updatedHotspots);
+      dispatch({
+        type: "ADD_HOTSPOT",
+        hotspots: updatedHotspots,
+        resetName: true,
+      });
       onHotspotsChange?.(updatedHotspots);
-      setNewHotspotName("");
     },
-    [hotspots, newHotspotName, symmetryMode, onHotspotsChange],
+    [
+      state.hotspots,
+      state.newHotspotName,
+      state.symmetryMode,
+      state.hotspotSize,
+      onHotspotsChange,
+    ],
   );
 
   const handleDeleteHotspot = useCallback(
     (id: string) => {
-      const updatedHotspots = hotspots.filter((h) => h.id !== id);
-      setHotspots(updatedHotspots);
+      const updatedHotspots = state.hotspots.filter((h) => h.id !== id);
+      dispatch({ type: "DELETE_HOTSPOT", hotspots: updatedHotspots });
       onHotspotsChange?.(updatedHotspots);
     },
-    [hotspots, onHotspotsChange],
+    [state.hotspots, onHotspotsChange],
   );
 
   const handleDeleteSelected = useCallback(() => {
-    const updatedHotspots = hotspots.filter((h) => !multiSelectedHotspots.includes(h.id));
-    setHotspots(updatedHotspots);
+    const updatedHotspots = state.hotspots.filter(
+      (h) => !state.multiSelectedHotspots.includes(h.id)
+    );
+    dispatch({ type: "DELETE_SELECTED", hotspots: updatedHotspots });
     onHotspotsChange?.(updatedHotspots);
-    setMultiSelectedHotspots([]);
-  }, [hotspots, multiSelectedHotspots, onHotspotsChange]);
+  }, [state.hotspots, state.multiSelectedHotspots, onHotspotsChange]);
 
   const handleToggleSelect = useCallback(
     (id: string) => {
-      if (isMultiSelectMode) {
-        setMultiSelectedHotspots((prev) =>
-          prev.includes(id) ? prev.filter((hid) => hid !== id) : [...prev, id],
-        );
+      if (state.isMultiSelectMode) {
+        dispatch({ type: "TOGGLE_SELECT", id });
       } else {
-        setSelectedHotspot(id);
+        dispatch({ type: "SET_SELECTED", id });
       }
     },
-    [isMultiSelectMode],
+    [state.isMultiSelectMode],
   );
 
   const handleHotspotClick = useCallback(
     (id: string) => {
-      if (isMultiSelectMode) {
+      if (state.isMultiSelectMode) {
         handleToggleSelect(id);
       } else {
-        setSelectedHotspot(id);
+        dispatch({ type: "SET_SELECTED", id });
       }
     },
-    [isMultiSelectMode, handleToggleSelect],
+    [state.isMultiSelectMode, handleToggleSelect],
   );
 
-  const handleRename = useCallback((id: string, newName: string) => {
-    const updatedHotspots = hotspots.map((h) =>
-      h.id === id ? { ...h, name: newName } : h,
-    );
-    setHotspots(updatedHotspots);
-    onHotspotsChange?.(updatedHotspots);
-  }, [hotspots, onHotspotsChange]);
+  const handleRename = useCallback(
+    (id: string, newName: string) => {
+      const updatedHotspots = state.hotspots.map((h) =>
+        h.id === id ? { ...h, name: newName } : h
+      );
+      dispatch({ type: "RENAME", hotspots: updatedHotspots });
+      onHotspotsChange?.(updatedHotspots);
+    },
+    [state.hotspots, onHotspotsChange],
+  );
 
   const handleExport = useCallback(() => {
-    const json = JSON.stringify(hotspots, null, 2);
+    const json = JSON.stringify(state.hotspots, null, 2);
     const blob = new Blob([json], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -163,7 +289,7 @@ export const HotspotEditorProvider: React.FC<HotspotEditorProviderProps> = ({
     a.download = "hotspots.json";
     a.click();
     URL.revokeObjectURL(url);
-  }, [hotspots]);
+  }, [state.hotspots]);
 
   const handleImport = useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -173,7 +299,7 @@ export const HotspotEditorProvider: React.FC<HotspotEditorProviderProps> = ({
         reader.onload = (e) => {
           try {
             const imported = JSON.parse(e.target?.result as string);
-            setHotspots(imported);
+            dispatch({ type: "SET_HOTSPOTS", hotspots: imported });
             onHotspotsChange?.(imported);
           } catch (error) {
             console.error("Failed to import hotspots:", error);
@@ -186,49 +312,60 @@ export const HotspotEditorProvider: React.FC<HotspotEditorProviderProps> = ({
   );
 
   const handleClear = useCallback(() => {
-    setHotspots([]);
+    dispatch({ type: "CLEAR" });
     onHotspotsChange?.([]);
   }, [onHotspotsChange]);
 
-  const contextValue: HotspotEditorContextType = {
-    hotspots,
-    setHotspots,
-    selectedHotspot,
-    setSelectedHotspot,
-    newHotspotName,
-    setNewHotspotName,
-    symmetryMode,
-    setSymmetryMode,
-    showGrid,
-    setShowGrid,
-    hotspotSize,
-    setHotspotSize,
-    isMultiSelectMode,
-    setIsMultiSelectMode,
-    multiSelectedHotspots,
-    setMultiSelectedHotspots,
-    handleAddHotspot,
-    handleDeleteHotspot,
-    handleDeleteSelected,
-    handleToggleSelect,
-    handleHotspotClick,
-    handleRename,
-    handleExport,
-    handleImport,
-    handleClear,
-  };
-
-  return React.createElement(
-    HotspotEditorContext.Provider,
-    { value: contextValue },
-    children
+  const contextValue = useMemo<HotspotEditorContextType>(
+    () => ({
+      ...state,
+      setHotspots,
+      setSelectedHotspot,
+      setNewHotspotName,
+      setSymmetryMode,
+      setShowGrid,
+      setHotspotSize,
+      setIsMultiSelectMode,
+      setMultiSelectedHotspots,
+      handleAddHotspot,
+      handleDeleteHotspot,
+      handleDeleteSelected,
+      handleToggleSelect,
+      handleHotspotClick,
+      handleRename,
+      handleExport,
+      handleImport,
+      handleClear,
+    }),
+    [
+      state,
+      setHotspots,
+      setSelectedHotspot,
+      setNewHotspotName,
+      setSymmetryMode,
+      setShowGrid,
+      setHotspotSize,
+      setIsMultiSelectMode,
+      setMultiSelectedHotspots,
+      handleAddHotspot,
+      handleDeleteHotspot,
+      handleDeleteSelected,
+      handleToggleSelect,
+      handleHotspotClick,
+      handleRename,
+      handleExport,
+      handleImport,
+      handleClear,
+    ],
   );
+
+  return React.createElement(HotspotEditorContext.Provider, { value: contextValue }, children);
 };
 
 export const useHotspotEditor = (): HotspotEditorContextType => {
   const context = useContext(HotspotEditorContext);
   if (context === undefined) {
-    throw new Error('useHotspotEditor must be used within a HotspotEditorProvider');
+    throw new Error("useHotspotEditor must be used within a HotspotEditorProvider");
   }
   return context;
 };

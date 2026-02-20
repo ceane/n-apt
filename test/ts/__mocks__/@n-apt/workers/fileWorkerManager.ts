@@ -150,7 +150,10 @@ export class FileWorkerManager {
   }
 
   // Mock method for testing error scenarios
-  simulateError(errorType: "timeout" | "crash" | "memory" | "fileloading" | "framebuilding", message?: string) {
+  simulateError(
+    errorType: "timeout" | "crash" | "memory" | "fileloading" | "framebuilding",
+    message?: string,
+  ) {
     switch (errorType) {
       case "timeout":
         // Set very short timeout and reject all pending requests

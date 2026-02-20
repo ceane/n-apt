@@ -3,12 +3,14 @@
 ## Recommended Approach
 
 ### Frontend (Vercel) - Markdown for Agents ✅
+
 - **Keep current implementation**
 - Static markdown files work perfectly on Vercel
 - Content negotiation handled by frontend
 - No backend changes needed for markdown
 
 ### Backend (Rust) - Add Agent API Endpoints
+
 Add these endpoints to `src/server/http_endpoints.rs`:
 
 ```rust
@@ -19,21 +21,21 @@ pub async fn agent_info(State(state): State<Arc<AppState>>) -> impl IntoResponse
         "version": "0.2.5",
         "capabilities": [
             "sdr_capture",
-            "signal_analysis", 
+            "signal_analysis",
             "ml_classification",
             "3d_visualization",
             "hotspot_annotation"
         ],
         "endpoints": {
             "capture": "/api/capture",
-            "analysis": "/api/analysis", 
+            "analysis": "/api/analysis",
             "status": "/api/status",
             "websocket": "/ws"
         },
         "webmcp_tools": 27,
         "routes": 5
     });
-    
+
     Json(agent_info)
 }
 
@@ -55,7 +57,7 @@ pub async fn execute_webmcp_tool(
 // Enhanced status endpoint for agents
 pub async fn agent_status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let shared = &state.shared;
-    
+
     let status = json!({
         "device": {
             "connected": shared.device_connected.load(Ordering::Relaxed),
@@ -77,7 +79,7 @@ pub async fn agent_status(State(state): State<Arc<AppState>>) -> impl IntoRespon
             "real_time_streaming": true
         }
     });
-    
+
     Json(status)
 }
 ```
@@ -107,7 +109,7 @@ let cors = CorsLayer::new()
     ])
     .allow_methods([
         Method::GET,
-        Method::POST, 
+        Method::POST,
         Method::OPTIONS,
     ])
     .allow_headers([
@@ -121,17 +123,20 @@ let cors = CorsLayer::new()
 ## Benefits of This Approach
 
 ### ✅ **Vercel Optimized**
+
 - Static markdown files served efficiently
 - No server-side rendering needed
 - Leverages Vercel's CDN
 
 ### ✅ **Rust Backend Power**
+
 - Real SDR hardware control
 - WebSocket streaming for live data
 - Authentication and security
 - Performance-critical signal processing
 
 ### ✅ **Agent Friendly**
+
 - Structured API endpoints for tool execution
 - Real-time data via WebSockets
 - Authentication integration
@@ -147,5 +152,6 @@ let cors = CorsLayer::new()
 ## Total Effort: ~4-6 hours
 
 This gives you the best of both worlds:
+
 - **Vercel**: Static content delivery and frontend hosting
 - **Rust**: Powerful backend for SDR control and real-time data

@@ -66,23 +66,18 @@ export default function AuthenticationPrompt({
     authState === "authenticating";
 
   return (
-    <div data-testid="authentication-prompt" style={{ padding: "20px", maxWidth: "400px", margin: "0 auto" }}>
+    <div
+      data-testid="authentication-prompt"
+      style={{ padding: "20px", maxWidth: "400px", margin: "0 auto" }}
+    >
       <h1>Secure Access Required for N-APT</h1>
       <p>{getStatusMessage()}</p>
 
-      {error && (
-        <div style={{ color: "red", marginBottom: "20px" }}>
-          {error}
-        </div>
-      )}
+      {error && <div style={{ color: "red", marginBottom: "20px" }}>{error}</div>}
 
       {hasPasskeys && showPassword ? (
         <>
-          <button
-            onClick={onPasskeyAuth}
-            disabled={isLoading}
-            data-testid="passkey-btn"
-          >
+          <button onClick={onPasskeyAuth} disabled={isLoading} data-testid="passkey-btn">
             {authState === "authenticating" ? "Authenticating..." : "Sign in with Passkey"}
           </button>
           <button
@@ -106,20 +101,12 @@ export default function AuthenticationPrompt({
               role="textbox"
               data-testid="password-input"
             />
-            <button
-              type="submit"
-              disabled={isLoading || !password.trim()}
-              data-testid="submit-btn"
-            >
+            <button type="submit" disabled={isLoading || !password.trim()} data-testid="submit-btn">
               {isLoading ? "Authenticating..." : "Authenticate"}
             </button>
           </form>
           {!hasPasskeys && (
-            <button
-              onClick={onRegisterPasskey}
-              disabled={isLoading}
-              data-testid="register-btn"
-            >
+            <button onClick={onRegisterPasskey} disabled={isLoading} data-testid="register-btn">
               Register a passkey
             </button>
           )}

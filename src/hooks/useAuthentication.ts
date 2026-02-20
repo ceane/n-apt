@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import React, { useReducer, useEffect, useCallback, createContext, useContext, useMemo } from "react";
 import type { AuthState } from "@n-apt/components/AuthenticationPrompt";
 import { deriveAesKey } from "@n-apt/crypto/webcrypto";
 import {
@@ -25,16 +25,102 @@ interface UseAuthenticationReturn {
   handleRegisterPasskey: () => Promise<void>;
 }
 
-export const useAuthentication = (): UseAuthenticationReturn => {
-  const [authState, setAuthState] = useState<AuthState>("connecting");
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [authError, setAuthError] = useState<string | null>(null);
-  const [sessionToken, setSessionToken] = useState<string | null>(null);
-  const [aesKey, setAesKey] = useState<CryptoKey | null>(null);
-  const [hasPasskeys, setHasPasskeys] = useState(false);
-  const [isInitialAuthCheck, setIsInitialAuthCheck] = useState(true);
+interface AuthInternalState {
+  authState: AuthState;
+  isAuthenticated: boolean;
+  authError: string | null;
+  sessionToken: string | null;
+  aesKey: CryptoKey | null;
+  hasPasskeys: boolean;
+  isInitialAuthCheck: boolean;
+}
 
-  // On mount: check for stored session, fetch auth info
+type AuthAction =
+  | { type: "AUTHENTICATING" }
+  | { type: "AUTH_SUCCESS"; sessionToken: string; aesKey: CryptoKey }
+  | { type: "AUTH_FAILED"; error: string }
+  | { type: "READY"; hasPasskeys?: boolean }
+  | { type: "SET_PASSKEYS"; hasPasskeys: boolean }
+  | { type: "REGISTER_SUCCESS"; hasPasskeys: boolean };
+
+const initialState: AuthInternalState = {
+  authState: "connecting",
+  isAuthenticated: false,
+  authError: null,
+  sessionToken: null,
+  aesKey: null,
+  hasPasskeys: false,
+  isInitialAuthCheck: true,
+};
+
+function authReducer(
+  state: AuthInternalState,
+  action: AuthAction
+): AuthInternalState {
+  switch (action.type) {
+    case "AUTHENTICATING":
+      return { ...state, authState: "authenticating", authError: null };
+    case "AUTH_SUCCESS":
+      return {
+        ...state,
+        sessionToken: action.sessionToken,
+        aesKey: action.aesKey,
+        isAuthenticated: true,
+        authState: "ready",
+        isInitialAuthCheck: false,
+      };
+    case "AUTH_FAILED":
+      return { ...state, authState: "failed", authError: action.error };
+    case "READY":
+      return {
+        ...state,
+        authState: "ready",
+        isInitialAuthCheck: false,
+        ...(action.hasPasskeys !== undefined && {
+          hasPasskeys: action.hasPasskeys,
+        }),
+      };
+    case "SET_PASSKEYS":
+      return { ...state, hasPasskeys: action.hasPasskeys };
+    case "REGISTER_SUCCESS":
+      return {
+        ...state,
+        hasPasskeys: action.hasPasskeys,
+        authState: "ready",
+      };
+  }
+}
+
+const AuthContext = createContext<UseAuthenticationReturn | undefined>(undefined);
+
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const auth = useAuthenticationInternal();
+  const value = useMemo(
+    () => auth,
+    [
+      auth.authState,
+      auth.isAuthenticated,
+      auth.authError,
+      auth.sessionToken,
+      auth.aesKey,
+      auth.hasPasskeys,
+      auth.isInitialAuthCheck,
+    ],
+  );
+  return React.createElement(AuthContext.Provider, { value }, children);
+};
+
+export const useAuthentication = (): UseAuthenticationReturn => {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error("useAuthentication must be used within an AuthProvider");
+  }
+  return context;
+};
+
+const useAuthenticationInternal = (): UseAuthenticationReturn => {
+  const [state, dispatch] = useReducer(authReducer, initialState);
+
   useEffect(() => {
     let cancelled = false;
     let retryTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -61,7 +147,7 @@ export const useAuthentication = (): UseAuthenticationReturn => {
         try {
           const info = await fetchAuthInfoWithTimeout();
           if (!cancelled) {
-            setHasPasskeys(info.has_passkeys);
+            dispatch({ type: "SET_PASSKEYS", hasPasskeys: info.has_passkeys });
           }
         } catch (error) {
           if (!cancelled) {
@@ -73,45 +159,30 @@ export const useAuthentication = (): UseAuthenticationReturn => {
     };
 
     const init = async () => {
-      setAuthState("connecting");
-
-      // Check for existing session first (fast path)
       const storedToken = getStoredSession();
       if (storedToken) {
         try {
-          // Try to validate session immediately (no backend wait)
           const result = await validateSession(storedToken);
           if (!cancelled && result.valid) {
-            setSessionToken(storedToken);
-            // Derive AES key for decryption (uses default key for restored sessions)
             const key = await deriveAesKey("n-apt-dev-key");
-            setAesKey(key);
-            // Set authenticated state first, then auth state to prevent flashing
-            setIsAuthenticated(true);
-            setAuthState("ready"); // Set to ready instead of success to prevent prompt flash
-            setIsInitialAuthCheck(false);
+            dispatch({ type: "AUTH_SUCCESS", sessionToken: storedToken, aesKey: key });
             return;
           }
         } catch (error) {
-          // Session invalid, clear it and continue to auth info fetch
           console.warn("Session validation failed:", error);
           clearSession();
         }
       }
 
-      // No valid session - fetch auth info (are passkeys registered?)
       try {
         const info = await fetchAuthInfoWithTimeout();
         if (!cancelled) {
-          setHasPasskeys(info.has_passkeys);
-          setAuthState("ready");
-          setIsInitialAuthCheck(false);
+          dispatch({ type: "READY", hasPasskeys: info.has_passkeys });
         }
       } catch (error) {
         if (!cancelled) {
           console.warn("Backend unavailable, showing auth prompt:", error);
-          setAuthState("ready");
-          setIsInitialAuthCheck(false);
+          dispatch({ type: "READY" });
           scheduleAuthInfoRetry();
         }
       }
@@ -126,66 +197,41 @@ export const useAuthentication = (): UseAuthenticationReturn => {
     };
   }, []);
 
-  // Auth handlers
   const handlePasswordAuth = useCallback(async (password: string) => {
-    setAuthState("authenticating");
-    setAuthError(null);
+    dispatch({ type: "AUTHENTICATING" });
     try {
       const result = await authenticateWithPassword(password);
-      setSessionToken(result.token);
-      // Derive AES key from the password for decryption
       const key = await deriveAesKey(password);
-      setAesKey(key);
-      setIsAuthenticated(true);
-      setAuthState("ready"); // Set to ready instead of success to prevent prompt flash
-      setIsInitialAuthCheck(false);
+      dispatch({ type: "AUTH_SUCCESS", sessionToken: result.token, aesKey: key });
     } catch (e: any) {
-      setAuthState("failed");
-      setAuthError(e.message || "Authentication failed");
+      dispatch({ type: "AUTH_FAILED", error: e.message || "Authentication failed" });
     }
   }, []);
 
   const handlePasskeyAuth = useCallback(async () => {
-    setAuthState("authenticating");
-    setAuthError(null);
+    dispatch({ type: "AUTHENTICATING" });
     try {
       const result = await authenticateWithPasskey();
-      setSessionToken(result.token);
-      // For passkey auth, derive AES key from the default passkey
-      // (server uses the same key for all sessions)
       const key = await deriveAesKey("n-apt-dev-key");
-      setAesKey(key);
-      setIsAuthenticated(true);
-      setAuthState("ready"); // Set to ready instead of success to prevent prompt flash
-      setIsInitialAuthCheck(false);
+      dispatch({ type: "AUTH_SUCCESS", sessionToken: result.token, aesKey: key });
     } catch (e: any) {
-      setAuthState("failed");
-      setAuthError(e.message || "Passkey authentication failed");
+      dispatch({ type: "AUTH_FAILED", error: e.message || "Passkey authentication failed" });
     }
   }, []);
 
   const handleRegisterPasskey = useCallback(async () => {
     try {
-      setAuthState("authenticating");
+      dispatch({ type: "AUTHENTICATING" });
       await registerPasskey();
-      // Refresh auth info to get updated hasPasskeys
       const info = await fetchAuthInfo();
-      setHasPasskeys(info.has_passkeys);
-      setAuthState("ready");
+      dispatch({ type: "REGISTER_SUCCESS", hasPasskeys: info.has_passkeys });
     } catch (e: any) {
-      setAuthState("failed");
-      setAuthError(e.message || "Passkey registration failed");
+      dispatch({ type: "AUTH_FAILED", error: e.message || "Passkey registration failed" });
     }
   }, []);
 
   return {
-    authState,
-    isAuthenticated,
-    authError,
-    sessionToken,
-    aesKey,
-    hasPasskeys,
-    isInitialAuthCheck,
+    ...state,
     handlePasswordAuth,
     handlePasskeyAuth,
     handleRegisterPasskey,

@@ -27,6 +27,7 @@ use std::time::Duration;
 use tokio::sync::broadcast;
 use tower_http::cors::CorsLayer;
 use tower_http::set_header::SetResponseHeaderLayer;
+use tower_http::compression::CompressionLayer;
 use axum::http::{HeaderValue, HeaderName};
 use tower::ServiceBuilder;
 use webauthn_rs::prelude::*;
@@ -111,6 +112,7 @@ impl websocket_server::WebSocketServer {
             .route("/ws", get(websocket_handlers::ws_upgrade_handler))
             
             .layer(cors)
+            .layer(CompressionLayer::new())
             .layer(security_headers)
             .with_state(state)
     }
@@ -128,7 +130,7 @@ impl websocket_server::WebSocketServer {
         };
         let rp_origin = match std::env::var("WEBAUTHN_RP_ORIGIN") {
             Ok(origin) => origin,
-            Err(_) => "http://localhost:8765".to_string(),
+            Err(_) => "http://localhost:5173".to_string(),
         };
 
         let webauthn_result = WebauthnBuilder::new(&rp_id, &rp_origin.parse().unwrap())

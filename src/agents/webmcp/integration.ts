@@ -1,7 +1,7 @@
 // WebMCP Integration Layer for N-APT Application
 // Connects WebMCP tools to existing React components and state management
 
-import { WebMCPTool, getToolsByRoute } from './registry';
+import { WebMCPTool, getToolsByRoute } from "./registry";
 
 // WebMCP Tool Handler Interface
 export interface ToolHandler {
@@ -40,14 +40,14 @@ export async function executeTool(toolName: string, params: any = {}): Promise<a
       success: true,
       result,
       tool: toolName,
-      params
+      params,
     };
   } catch (error) {
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown error',
+      error: error instanceof Error ? error.message : "Unknown error",
       tool: toolName,
-      params
+      params,
     };
   }
 }
@@ -55,7 +55,7 @@ export async function executeTool(toolName: string, params: any = {}): Promise<a
 // WebMCP Registration System
 export class WebMCPRegistry {
   private tools: WebMCPTool[] = [];
-  private currentRoute = '/';
+  private currentRoute = "/";
 
   setRoute(route: string) {
     this.currentRoute = route;
@@ -67,17 +67,17 @@ export class WebMCPRegistry {
   }
 
   getTool(name: string): WebMCPTool | undefined {
-    return this.tools.find(tool => tool.name === name);
+    return this.tools.find((tool) => tool.name === name);
   }
 
   getToolsByCategory(category: string): WebMCPTool[] {
-    return this.tools.filter(tool => tool.category === category);
+    return this.tools.filter((tool) => tool.category === category);
   }
 
   // Register tools with WebMCP API (when available)
   async registerWithWebMCP() {
     if (!window.webmcp) {
-      console.warn('WebMCP API not available');
+      console.warn("WebMCP API not available");
       return;
     }
 
@@ -89,12 +89,12 @@ export class WebMCPRegistry {
           parameters: tool.parameters,
           handler: async (params: any) => {
             return await executeTool(tool.name, params);
-          }
+          },
         });
       }
       console.log(`Registered ${this.tools.length} WebMCP tools for route ${this.currentRoute}`);
     } catch (error) {
-      console.error('Failed to register WebMCP tools:', error);
+      console.error("Failed to register WebMCP tools:", error);
     }
   }
 
@@ -107,7 +107,7 @@ export class WebMCPRegistry {
         await window.webmcp.unregisterTool(tool.name);
       }
     } catch (error) {
-      console.error('Failed to unregister WebMCP tools:', error);
+      console.error("Failed to unregister WebMCP tools:", error);
     }
   }
 }
@@ -127,7 +127,7 @@ declare global {
 }
 
 // React Hook for WebMCP Integration
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback } from "react";
 
 export function useWebMCP(route: string) {
   const [isRegistered, setIsRegistered] = useState(false);
@@ -170,21 +170,21 @@ export function useWebMCP(route: string) {
     lastResult,
     executeTool: executeWebMCPTool,
     getToolsByCategory: webmcpRegistry.getToolsByCategory.bind(webmcpRegistry),
-    getTool: webmcpRegistry.getTool.bind(webmcpRegistry)
+    getTool: webmcpRegistry.getTool.bind(webmcpRegistry),
   };
 }
 
 // Tool Handler Setup Functions
 export function setupSpectrumToolHandlers(sidebarProps: any) {
   // Source Management
-  toolHandlers.register('setSourceMode', async (params) => {
+  toolHandlers.register("setSourceMode", async (params) => {
     const { mode } = params;
     sidebarProps.onSourceModeChange(mode);
     return { success: true, mode };
   });
 
-  toolHandlers.register('connectDevice', async (params) => {
-    const { deviceType = 'rtl-sdr' } = params;
+  toolHandlers.register("connectDevice", async (params) => {
+    const { deviceType = "rtl-sdr" } = params;
     if (sidebarProps.onRestartDevice) {
       sidebarProps.onRestartDevice();
     }
@@ -192,106 +192,106 @@ export function setupSpectrumToolHandlers(sidebarProps: any) {
   });
 
   // I/Q Capture
-  toolHandlers.register('startCapture', async (params) => {
+  toolHandlers.register("startCapture", async (params) => {
     const captureRequest = {
       jobId: `cap_${Date.now()}`,
       minFreq: params.frequencyRange?.min || 0,
       maxFreq: params.frequencyRange?.max || 30,
       durationS: params.duration || 5,
-      fileType: params.format || '.napt',
-      encrypted: params.format === '.napt'
+      fileType: params.format || ".napt",
+      encrypted: params.format === ".napt",
     };
     sidebarProps.onCaptureCommand(captureRequest);
     return { success: true, jobId: captureRequest.jobId };
   });
 
-  toolHandlers.register('stopCapture', async () => {
+  toolHandlers.register("stopCapture", async () => {
     // Implementation depends on capture system
-    return { success: true, message: 'Capture stopped' };
+    return { success: true, message: "Capture stopped" };
   });
 
   // Signal Areas
-  toolHandlers.register('setActiveArea', async (params) => {
+  toolHandlers.register("setActiveArea", async (params) => {
     const { area } = params;
     sidebarProps.onSignalAreaChange(area);
     return { success: true, activeArea: area };
   });
 
-  toolHandlers.register('setFrequencyRange', async (params) => {
+  toolHandlers.register("setFrequencyRange", async (params) => {
     const { area, minFreq, maxFreq } = params;
     sidebarProps.onFrequencyRangeChange({ min: minFreq, max: maxFreq });
     return { success: true, area, range: { min: minFreq, max: maxFreq } };
   });
 
   // Signal Features
-  toolHandlers.register('classifySignal', async (params) => {
+  toolHandlers.register("classifySignal", async (params) => {
     // Implementation depends on ML system
-    return { success: true, classification: 'N-APT detected', confidence: 0.95 };
+    return { success: true, classification: "N-APT detected", confidence: 0.95 };
   });
 
   // Signal Display
-  toolHandlers.register('setFftSize', async (params) => {
+  toolHandlers.register("setFftSize", async (params) => {
     const { size } = params;
     // Implementation depends on FFT system
     return { success: true, fftSize: size };
   });
 
   // Source Settings
-  toolHandlers.register('setGain', async (params) => {
+  toolHandlers.register("setGain", async (params) => {
     const { gain } = params;
     // Implementation depends on SDR settings
     return { success: true, gain };
   });
 
   // Snapshot Controls
-  toolHandlers.register('takeSnapshot', async (params) => {
-    const { format = 'png', showWaterfall = true } = params;
+  toolHandlers.register("takeSnapshot", async (params) => {
+    const { format = "png", showWaterfall = true } = params;
     // Implementation depends on snapshot system
-    return { 
-      success: true, 
+    return {
+      success: true,
       filename: `snapshot_${Date.now()}.${format}`,
       format,
-      showWaterfall
+      showWaterfall,
     };
   });
 }
 
 export function setupDrawSignalToolHandlers(drawProps: any) {
-  toolHandlers.register('setSpikeCount', async (params) => {
+  toolHandlers.register("setSpikeCount", async (params) => {
     const { count } = params;
     drawProps.onDrawParamsChange({ ...drawProps.drawParams, spikeCount: count });
     return { success: true, spikeCount: count };
   });
 
-  toolHandlers.register('setSpikeWidth', async (params) => {
+  toolHandlers.register("setSpikeWidth", async (params) => {
     const { width } = params;
     drawProps.onDrawParamsChange({ ...drawProps.drawParams, spikeWidth: width });
     return { success: true, spikeWidth: width };
   });
 
-  toolHandlers.register('generateSignal', async (params) => {
+  toolHandlers.register("generateSignal", async (params) => {
     // Implementation depends on signal generation system
-    return { 
-      success: true, 
+    return {
+      success: true,
       signalId: `signal_${Date.now()}`,
       duration: params.duration || 5.0,
-      sampleRate: params.sampleRate || 3200000
+      sampleRate: params.sampleRate || 3200000,
     };
   });
 
-  toolHandlers.register('exportSignal', async (params) => {
+  toolHandlers.register("exportSignal", async (params) => {
     const { format, includeParameters = true } = params;
-    return { 
-      success: true, 
+    return {
+      success: true,
       filename: `generated_signal_${Date.now()}${format}`,
       format,
-      includeParameters
+      includeParameters,
     };
   });
 }
 
 export function setupModel3DToolHandlers(model3DProps: any) {
-  toolHandlers.register('selectBodyArea', async (params) => {
+  toolHandlers.register("selectBodyArea", async (params) => {
     const { area } = params;
     // Find area in the areas array and set it
     const areaData = model3DProps.areas?.find((a: any) => a.name === area);
@@ -301,80 +301,80 @@ export function setupModel3DToolHandlers(model3DProps: any) {
     return { success: true, selectedArea: area, position: areaData?.position };
   });
 
-  toolHandlers.register('resetCamera', async () => {
+  toolHandlers.register("resetCamera", async () => {
     // Implementation depends on camera system
-    return { success: true, message: 'Camera reset' };
+    return { success: true, message: "Camera reset" };
   });
 
-  toolHandlers.register('setViewMode', async (params) => {
+  toolHandlers.register("setViewMode", async (params) => {
     const { mode } = params;
     // Implementation depends on camera system
     return { success: true, viewMode: mode };
   });
 
-  toolHandlers.register('exportModelData', async (params) => {
+  toolHandlers.register("exportModelData", async (params) => {
     const { format, includeAreas = true } = params;
-    return { 
-      success: true, 
+    return {
+      success: true,
       filename: `model_data_${Date.now()}.${format}`,
       format,
       includeAreas,
-      areaCount: includeAreas ? 18 : 0
+      areaCount: includeAreas ? 18 : 0,
     };
   });
 }
 
 export function setupHotspotToolHandlers(hotspotProps: any) {
-  toolHandlers.register('createHotspot', async (params) => {
-    const { name, position, size = 'small' } = params;
+  toolHandlers.register("createHotspot", async (params) => {
+    const { name, position, size = "small" } = params;
     // Implementation depends on hotspot system
     const hotspotId = `hotspot_${Date.now()}`;
-    return { 
-      success: true, 
+    return {
+      success: true,
       hotspotId,
       name,
       position,
-      size
+      size,
     };
   });
 
-  toolHandlers.register('setSymmetryMode', async (params) => {
+  toolHandlers.register("setSymmetryMode", async (params) => {
     const { mode } = params;
     hotspotProps.setSymmetryMode(mode);
     return { success: true, symmetryMode: mode };
   });
 
-  toolHandlers.register('selectHotspot', async (params) => {
+  toolHandlers.register("selectHotspot", async (params) => {
     const { id } = params;
     hotspotProps.handleHotspotClick(id);
     return { success: true, selectedHotspot: id };
   });
 
-  toolHandlers.register('deleteHotspot', async (params) => {
+  toolHandlers.register("deleteHotspot", async (params) => {
     const { id } = params;
     hotspotProps.handleDeleteHotspot(id);
     return { success: true, deletedHotspot: id };
   });
 
-  toolHandlers.register('exportHotspots', async (params) => {
+  toolHandlers.register("exportHotspots", async (params) => {
     const { includePositions = true } = params;
     const exportData = hotspotProps.handleExport();
-    return { 
-      success: true, 
+    return {
+      success: true,
       filename: `hotspots_${Date.now()}.json`,
       hotspotCount: hotspotProps.hotspots?.length || 0,
       includePositions,
-      data: exportData
+      data: exportData,
     };
   });
 
-  toolHandlers.register('importHotspots', async (params) => {
+  toolHandlers.register("importHotspots", async (params) => {
     const { jsonData } = params;
     // Implementation depends on import system
-    return { 
-      success: true, 
+    return {
+      success: true,
       importedCount: 0,
-      message: 'Import completed'
+      message: "Import completed",
     };
   });
 }
@@ -382,10 +382,10 @@ export function setupHotspotToolHandlers(hotspotProps: any) {
 // Initialize WebMCP when available
 export function initializeWebMCP() {
   if (window.webmcp) {
-    console.log('WebMCP API detected, initializing...');
+    console.log("WebMCP API detected, initializing...");
     return true;
   } else {
-    console.log('WebMCP API not available, features disabled');
+    console.log("WebMCP API not available, features disabled");
     return false;
   }
 }

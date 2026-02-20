@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use log::{debug, info, warn};
 use std::time::Instant;
 
@@ -12,7 +12,7 @@ use n_apt_backend::fft::{FFTProcessor, FFTResult, RawSamples};
 use n_apt_backend::rtlsdr::RtlSdrDevice;
 use n_apt_backend::stitching::SignalStitcher;
 
-use super::types::{SdrCommand, MockSignal, SignalType};
+use super::types::{SdrCommand, MockSignal, SignalType, CaptureArtifact};
 
 /// Number of async USB transfer buffers (librtlsdr default is 15)
 #[allow(dead_code)]
@@ -79,8 +79,12 @@ pub struct SDRProcessor {
   pub capture_file_type: String,
   /// Whether capture should be encrypted
   pub capture_encrypted: bool,
-  /// Accumulated IQ samples for capture
+  /// Whether to trigger playback after capture completion
+  pub capture_playback: bool,
+  /// Accumulated IQ samples for capture (u8 interleaved, SDR++ compatible)
   pub capture_buffer: Vec<u8>,
+  /// Accumulated spectrum frames for capture (f32 per bin, our app's fast path)
+  pub spectrum_buffer: Vec<f32>,
 }
 
 #[allow(dead_code)]
@@ -114,7 +118,9 @@ impl SDRProcessor {
       capture_duration_s: 0.0,
       capture_file_type: String::new(),
       capture_encrypted: false,
+      capture_playback: false,
       capture_buffer: Vec::new(),
+      spectrum_buffer: Vec::new(),
     };
     // Initialize FFT processor config with default PPM
     let mut config = processor.fft_processor.config().clone();
@@ -484,6 +490,67 @@ impl SDRProcessor {
     self.iq_accumulator.len().saturating_sub(self.iq_offset) >= self.read_size
   }
 
+  /// Check if capture is complete and save the file; returns (job_id, artifact)
+  pub fn check_capture_completion(&mut self) -> Option<(String, CaptureArtifact)> {
+    if !self.capture_active {
+      return None;
+    }
+
+    if let Some(start_time) = self.capture_start {
+      let elapsed = start_time.elapsed().as_secs_f64();
+      if elapsed >= self.capture_duration_s {
+        info!(
+          "Capture completed: duration={}s, buffer_size={} bytes",
+          elapsed,
+          self.capture_buffer.len()
+        );
+
+        let job_id = self.capture_job_id.as_ref().unwrap().clone();
+        let file_type = self.capture_file_type.as_str();
+        let encrypted = self.capture_encrypted;
+        let encryption_key = [0u8; 32];
+
+        match super::utils::save_capture_file(
+          &job_id,
+          &self.capture_buffer,
+          &self.spectrum_buffer,
+          file_type,
+          encrypted,
+          &encryption_key,
+          self.center_freq as f64,
+          SAMPLE_RATE as f64,
+          30, // frame_rate: 30fps
+          MOCK_SPECTRUM_SIZE as u32,
+          elapsed, // actual capture duration in seconds
+        ) {
+          Ok(artifact) => {
+            // Reset capture state
+            self.capture_active = false;
+            let job_id_for_return = self.capture_job_id.take().unwrap();
+            self.capture_start = None;
+            self.capture_buffer.clear();
+            self.spectrum_buffer.clear();
+            self.capture_playback = false;
+
+            Some((job_id_for_return, artifact))
+          }
+          Err(e) => {
+            warn!("Failed to save capture file: {}", e);
+            self.capture_active = false;
+            self.capture_job_id = None;
+            self.capture_start = None;
+            self.capture_buffer.clear();
+            None
+          }
+        }
+      } else {
+        None
+      }
+    } else {
+      None
+    }
+  }
+
   /// Process one FFT frame from the IQ accumulator (no device read — data comes from async callback)
   pub fn process_iq_frame(&mut self) -> Result<Vec<f32>> {
     let start = self.iq_offset;
@@ -506,6 +573,63 @@ impl SDRProcessor {
       self.iq_accumulator.truncate(remaining);
       self.iq_offset = 0;
     }
+
+    let samples = RawSamples {
+      data: frame,
+      sample_rate: SAMPLE_RATE,
+    };
+    let result = self.fft_processor.process_samples(&samples)?;
+    self.iq_frame = samples.data;
+    let mut spectrum = result.power_spectrum;
+
+    // DC spike suppression: interpolate center bins
+    let len = spectrum.len();
+    if len > 6 {
+      let center = len / 2;
+      let left = spectrum[center - 3];
+      let right = spectrum[center + 3];
+      for i in 0..5 {
+        let t = (i + 1) as f32 / 6.0;
+        spectrum[center - 2 + i] = left * (1.0 - t) + right * t;
+      }
+    }
+
+    // Frame averaging (exponential moving average)
+    let alpha = self.avg_alpha;
+    if let Some(ref mut avg) = self.avg_spectrum {
+      if avg.len() == spectrum.len() {
+        for (i, val) in spectrum.iter().enumerate() {
+          avg[i] = alpha * val + (1.0 - alpha) * avg[i];
+        }
+        Ok(avg.clone())
+      } else {
+        self.avg_spectrum = Some(spectrum.clone());
+        Ok(spectrum)
+      }
+    } else {
+      self.avg_spectrum = Some(spectrum.clone());
+      Ok(spectrum)
+    }
+  }
+
+  /// Read IQ samples from the real device (sync) and process into a spectrum frame.
+  pub fn read_and_process_device(&mut self) -> Result<Vec<f32>> {
+    let dev = self
+      .device
+      .as_ref()
+      .ok_or_else(|| anyhow!("RTL-SDR device not initialized"))?;
+
+    let mut frame = std::mem::take(&mut self.iq_frame);
+    if frame.len() != self.read_size {
+      frame.resize(self.read_size, 0);
+    }
+
+    let n_read = dev.read_sync_into(&mut frame)?;
+    if n_read == 0 {
+      self.iq_frame = frame;
+      return Err(anyhow!("No IQ data read from device"));
+    }
+    frame.truncate(n_read);
 
     let samples = RawSamples {
       data: frame,
@@ -607,6 +731,33 @@ impl SDRProcessor {
                 }
             }
         }
+    }
+
+    // Accumulate capture buffers when active
+    if self.capture_active {
+      const MAX_CAPTURE_BUFFER_SIZE: usize = 100 * 1024 * 1024; // 100MB
+
+      // 1. Store spectrum frame (f32 per bin)
+      if self.spectrum_buffer.len() + data.len() <= MAX_CAPTURE_BUFFER_SIZE / 4 {
+        self.spectrum_buffer.extend_from_slice(&data);
+      }
+
+      // 2. Generate simple IQ from spectrum bins (u8 interleaved)
+      let n = data.len().max(1);
+      let samples_per_bin = (SAMPLE_RATE as usize / n).max(1);
+      let iq_bytes_len = n * samples_per_bin * 2;
+      if self.capture_buffer.len() + iq_bytes_len <= MAX_CAPTURE_BUFFER_SIZE {
+        for &db in &data {
+          let linear = 10f32.powf(db / 20.0).clamp(0.0, 1.0);
+          let amp = (linear * 127.0) as u8;
+          for _ in 0..samples_per_bin {
+            let i_val = (128u16 + amp as u16).clamp(0, 255) as u8;
+            let q_val = 128u8; // minimal Q
+            self.capture_buffer.push(i_val);
+            self.capture_buffer.push(q_val);
+          }
+        }
+      }
     }
 
     Ok(data)
@@ -732,6 +883,7 @@ impl SDRProcessor {
         self.capture_file_type = file_type;
         self.capture_encrypted = encrypted;
         self.capture_buffer.clear();
+        self.spectrum_buffer.clear();
         // Note: fft_size and fft_window are for future use if we want to change settings during capture
       }
       SdrCommand::ApplySettings { fft_size, fft_window, frame_rate, gain, ppm, tuner_agc: _, rtl_agc: _ } => {

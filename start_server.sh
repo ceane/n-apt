@@ -73,20 +73,14 @@ fi
 # Build the server only if needed
 if [ "$DEV_MODE" = true ]; then
     echo "  Building in development mode (faster builds, less optimization)..."
-    echo "  Checking if Rust backend server needs to be built..."
-    if ./scripts/check_changes.sh "target/dev-fast" "*.rs" "Cargo.toml" "Cargo.lock"; then
-        echo -e "  \033[38;5;208mBuilding Rust backend server (dev-fast profile)...\033[0m"
-        cargo build --profile dev-fast
-        if [ $? -eq 0 ]; then
-            echo -e "  \033[32m✓ Rust server built successfully (dev mode)\033[0m"
-            BINARY_PATH="target/dev-fast/n-apt-backend"
-        else
-            echo -e "  \033[31m✗ Rust server build failed\033[0m"
-            exit 1
-        fi
-    else
-        echo "  Backend is up to date, skipping build..."
+    echo -e "  \033[38;5;208mBuilding Rust backend server (dev-fast profile)...\033[0m"
+    cargo build --profile dev-fast
+    if [ $? -eq 0 ]; then
+        echo -e "  \033[32m✓ Rust server built successfully (dev mode)\033[0m"
         BINARY_PATH="target/dev-fast/n-apt-backend"
+    else
+        echo -e "  \033[31m✗ Rust server build failed\033[0m"
+        exit 1
     fi
 else
     echo "  Building in release mode (optimized builds)..."

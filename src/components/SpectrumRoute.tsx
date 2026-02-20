@@ -1,26 +1,15 @@
-import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import React, { useEffect, useCallback, useRef, useMemo, useReducer } from "react";
 import styled from "styled-components";
 import SidebarNew from "@n-apt/components/sidebar/SidebarNew";
 import AuthenticationPrompt from "@n-apt/components/AuthenticationPrompt";
-import type { AuthState } from "@n-apt/components/AuthenticationPrompt";
 import { FFTCanvas } from "@n-apt/components";
 import ClassificationControls from "@n-apt/components/ClassificationControls";
 import Decode from "@n-apt/components/Decode";
 import DrawMockNAPTChart from "@n-apt/components/DrawMockNAPTChart";
 import FFTStitcherCanvas from "@n-apt/components/FFTStitcherCanvas";
 import { useWebSocket, FrequencyRange, SpectrumFrame } from "@n-apt/hooks/useWebSocket";
-import { deriveAesKey } from "@n-apt/crypto/webcrypto";
-import {
-  getStoredSession,
-  validateSession,
-  authenticateWithPassword,
-  authenticateWithPasskey,
-  registerPasskey,
-  fetchAuthInfo,
-  buildWsUrl,
-  clearSession,
-  type AuthInfo,
-} from "@n-apt/services/auth";
+import { useAuthentication } from "@n-apt/hooks/useAuthentication";
+import { buildWsUrl } from "@n-apt/services/auth";
 
 // Types
 type SourceMode = "live" | "file";
@@ -54,6 +43,200 @@ const ContentArea = styled.div`
   overflow: hidden;
 `;
 
+const InitializingContainer = styled.div`
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background-color: #0a0a0a;
+  padding: 40px;
+  gap: 32px;
+`;
+
+const InitializingTitle = styled.h2`
+  font-family: "JetBrains Mono", monospace;
+  font-size: 18px;
+  font-weight: 600;
+  color: #e0e0e0;
+  margin: 0;
+  letter-spacing: 0.5px;
+  animation: pulse 1.5s ease-in-out infinite;
+
+  @keyframes pulse {
+    0% { opacity: 0.4; }
+    50% { opacity: 1; }
+    100% { opacity: 0.4; }
+  }
+`;
+
+const InitializingText = styled.p`
+  font-family: "JetBrains Mono", monospace;
+  font-size: 12px;
+  color: #666;
+  margin: 0;
+  text-align: center;
+  max-width: 400px;
+  line-height: 1.6;
+`;
+
+type DrawParams = {
+  spikeCount: number;
+  spikeWidth: number;
+  centerSpikeBoost: number;
+  floorAmplitude: number;
+  decayRate: number;
+  envelopeWidth: number;
+};
+
+type SpectrumState = {
+  activeSignalArea: string;
+  frequencyRange: FrequencyRange;
+  displayTemporalResolution: "low" | "medium" | "high";
+  selectedFiles: SelectedFile[];
+  snapshotGridPreference: boolean;
+  drawParams: DrawParams;
+  sourceMode: SourceMode;
+  stitchStatus: string;
+  visualizerPaused: boolean;
+  isTrainingCapturing: boolean;
+  trainingCaptureLabel: "target" | "noise" | null;
+  trainingCapturedSamples: number;
+  stitchTrigger: number;
+  stitchSourceSettings: { gain: number; ppm: number };
+  isStitchPaused: boolean;
+};
+
+type SpectrumAction =
+  | { type: "SET_SIGNAL_AREA"; area: string }
+  | { type: "SET_FREQUENCY_RANGE"; range: FrequencyRange }
+  | {
+      type: "SET_SIGNAL_AREA_AND_RANGE";
+      area: string;
+      range: FrequencyRange;
+    }
+  | {
+      type: "SET_TEMPORAL_RESOLUTION";
+      resolution: "low" | "medium" | "high";
+    }
+  | { type: "SET_SELECTED_FILES"; files: SelectedFile[] }
+  | { type: "SET_SNAPSHOT_GRID"; preference: boolean }
+  | { type: "SET_DRAW_PARAMS"; params: DrawParams }
+  | { type: "SET_SOURCE_MODE"; mode: SourceMode }
+  | { type: "SET_STITCH_STATUS"; status: string }
+  | { type: "SET_VISUALIZER_PAUSED"; paused: boolean }
+  | { type: "TRAINING_START"; label: "target" | "noise" }
+  | { type: "TRAINING_STOP" }
+  | { type: "TRIGGER_STITCH" }
+  | { type: "TOGGLE_STITCH_PAUSE" }
+  | {
+      type: "SET_STITCH_SOURCE_SETTINGS";
+      settings: { gain: number; ppm: number };
+    }
+  | { type: "SET_STITCH_PAUSED"; paused: boolean }
+  | { type: "LEAVE_VISUALIZER" };
+
+const INITIAL_SPECTRUM_STATE: SpectrumState = {
+  activeSignalArea: "A",
+  frequencyRange: { min: 0.0, max: 3.2 },
+  displayTemporalResolution: "medium",
+  selectedFiles: [],
+  snapshotGridPreference: true,
+  drawParams: {
+    spikeCount: 40,
+    spikeWidth: 0.4,
+    centerSpikeBoost: 4.9,
+    floorAmplitude: 0.5,
+    decayRate: 0.2,
+    envelopeWidth: 10,
+  },
+  sourceMode: "live",
+  stitchStatus: "",
+  visualizerPaused: false,
+  isTrainingCapturing: false,
+  trainingCaptureLabel: null,
+  trainingCapturedSamples: 0,
+  stitchTrigger: 0,
+  stitchSourceSettings: { gain: 0, ppm: 0 },
+  isStitchPaused: true,
+};
+
+function spectrumReducer(
+  state: SpectrumState,
+  action: SpectrumAction,
+): SpectrumState {
+  switch (action.type) {
+    case "SET_SIGNAL_AREA":
+      return { ...state, activeSignalArea: action.area };
+    case "SET_FREQUENCY_RANGE":
+      if (
+        state.frequencyRange.min === action.range.min &&
+        state.frequencyRange.max === action.range.max
+      ) {
+        return state;
+      }
+      return { ...state, frequencyRange: action.range };
+    case "SET_SIGNAL_AREA_AND_RANGE":
+      return {
+        ...state,
+        activeSignalArea: action.area,
+        frequencyRange: action.range,
+      };
+    case "SET_TEMPORAL_RESOLUTION":
+      return {
+        ...state,
+        displayTemporalResolution: action.resolution,
+      };
+    case "SET_SELECTED_FILES":
+      return { ...state, selectedFiles: action.files };
+    case "SET_SNAPSHOT_GRID":
+      return { ...state, snapshotGridPreference: action.preference };
+    case "SET_DRAW_PARAMS":
+      return { ...state, drawParams: action.params };
+    case "SET_SOURCE_MODE":
+      return { ...state, sourceMode: action.mode };
+    case "SET_STITCH_STATUS":
+      return { ...state, stitchStatus: action.status };
+    case "SET_VISUALIZER_PAUSED":
+      return { ...state, visualizerPaused: action.paused };
+    case "TRAINING_START":
+      return {
+        ...state,
+        isTrainingCapturing: true,
+        trainingCaptureLabel: action.label,
+      };
+    case "TRAINING_STOP":
+      return {
+        ...state,
+        isTrainingCapturing: false,
+        trainingCaptureLabel: null,
+        trainingCapturedSamples:
+          state.trainingCapturedSamples + 1,
+      };
+    case "TRIGGER_STITCH":
+      return {
+        ...state,
+        isStitchPaused: true,
+        stitchStatus: "",
+        stitchTrigger: state.stitchTrigger + 1,
+      };
+    case "TOGGLE_STITCH_PAUSE":
+      return { ...state, isStitchPaused: !state.isStitchPaused };
+    case "SET_STITCH_SOURCE_SETTINGS":
+      return { ...state, stitchSourceSettings: action.settings };
+    case "SET_STITCH_PAUSED":
+      return { ...state, isStitchPaused: action.paused };
+    case "LEAVE_VISUALIZER":
+      return {
+        ...state,
+        visualizerPaused: true,
+        isStitchPaused: true,
+      };
+    default:
+      return state;
+  }
+}
+
 interface SpectrumRouteProps {
   activeTab: string;
   onTabChange: (tab: string) => void;
@@ -69,28 +252,11 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   onAuthChange,
   sidebarWrapper,
 }) => {
-  const [activeSignalArea, setActiveSignalArea] = useState("A");
-  const [frequencyRange, setFrequencyRange] = useState<FrequencyRange>({
-    min: 0.0,
-    max: 3.2,
-  });
+  const [state, dispatch] = useReducer(
+    spectrumReducer,
+    INITIAL_SPECTRUM_STATE,
+  );
 
-  const [spectrumFrames, setSpectrumFrames] = useState<SpectrumFrame[]>([]);
-
-  const defaultFrames = useMemo(() => {
-    if (Array.isArray(spectrumFrames) && spectrumFrames.length > 0) return spectrumFrames;
-    return [];
-  }, [spectrumFrames]);
-
-  const [displayTemporalResolution, setDisplayTemporalResolution] = useState<
-    "low" | "medium" | "high"
-  >("medium");
-
-  const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([]);
-  const [snapshotGridPreference, setSnapshotGridPreference] = useState(true);
-
-  // When returning to the visualizer tab, force a resize event so canvases reflow.
-  // Use rAF to ensure the CSS display change has been applied before measuring.
   useEffect(() => {
     if (activeTab === "visualizer") {
       requestAnimationFrame(() => {
@@ -103,29 +269,19 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   const isDraw = activeTab === "draw";
   const isAnalysis = activeTab === "analysis";
 
-  // Draw signal parameters state
-  const [drawParams, setDrawParams] = useState({
-    spikeCount: 40,
-    spikeWidth: 0.4,
-    centerSpikeBoost: 4.9,
-    floorAmplitude: 0.5,
-    decayRate: 0.2,
-    envelopeWidth: 10,
-  });
+  const {
+    authState,
+    isAuthenticated,
+    authError,
+    sessionToken,
+    aesKey,
+    hasPasskeys,
+    isInitialAuthCheck,
+    handlePasswordAuth,
+    handlePasskeyAuth,
+    handleRegisterPasskey,
+  } = useAuthentication();
 
-  const [sourceMode, setSourceMode] = useState<SourceMode>("live");
-  const [stitchStatus, setStitchStatus] = useState("");
-
-  // ── Auth state (REST-based) ──────────────────────────────────────────
-  const [authState, setAuthState] = useState<AuthState>("connecting");
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [authError, setAuthError] = useState<string | null>(null);
-  const [sessionToken, setSessionToken] = useState<string | null>(null);
-  const [aesKey, setAesKey] = useState<CryptoKey | null>(null);
-  const [hasPasskeys, setHasPasskeys] = useState(false);
-  const [isInitialAuthCheck, setIsInitialAuthCheck] = useState(true);
-
-  // When auth state changes, force canvas resize so FFTCanvas gets proper dimensions
   useEffect(() => {
     onAuthChange?.(isAuthenticated);
   }, [isAuthenticated, onAuthChange]);
@@ -138,106 +294,14 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     }
   }, [isAuthenticated]);
 
-  // On mount: check for stored session, fetch auth info
-  useEffect(() => {
-    let cancelled = false;
-    let retryTimeout: ReturnType<typeof setTimeout> | null = null;
-
-    const fetchAuthInfoWithTimeout = () =>
-      new Promise<AuthInfo>((resolve, reject) => {
-        const timeoutId = setTimeout(() => reject(new Error("Backend timeout")), 3000);
-        fetchAuthInfo()
-          .then((info) => {
-            clearTimeout(timeoutId);
-            resolve(info);
-          })
-          .catch((err) => {
-            clearTimeout(timeoutId);
-            reject(err);
-          });
-      });
-
-    const scheduleAuthInfoRetry = (attempt = 1) => {
-      if (cancelled) return;
-      const delay = Math.min(5000, 500 * 2 ** (attempt - 1));
-      retryTimeout = setTimeout(async () => {
-        retryTimeout = null;
-        try {
-          const info = await fetchAuthInfoWithTimeout();
-          if (!cancelled) {
-            setHasPasskeys(info.has_passkeys);
-          }
-        } catch (error) {
-          if (!cancelled) {
-            console.debug("Auth info retry failed:", error);
-            scheduleAuthInfoRetry(attempt + 1);
-          }
-        }
-      }, delay);
-    };
-
-    const init = async () => {
-      setAuthState("connecting");
-
-      // Check for existing session first (fast path)
-      const storedToken = getStoredSession();
-      if (storedToken) {
-        try {
-          // Try to validate session immediately (no backend wait)
-          const result = await validateSession(storedToken);
-          if (!cancelled && result.valid) {
-            setSessionToken(storedToken);
-            // Derive AES key for decryption (uses default key for restored sessions)
-            const key = await deriveAesKey("n-apt-dev-key");
-            setAesKey(key);
-            // Set authenticated state first, then auth state to prevent flashing
-            setIsAuthenticated(true);
-            setAuthState("ready"); // Set to ready instead of success to prevent prompt flash
-            setIsInitialAuthCheck(false);
-            return;
-          }
-        } catch (error) {
-          // Session invalid, clear it and continue to auth info fetch
-          console.warn("Session validation failed:", error);
-          clearSession();
-        }
-      }
-
-      // No valid session - fetch auth info (are passkeys registered?)
-      try {
-        const info = await fetchAuthInfoWithTimeout();
-        if (!cancelled) {
-          setHasPasskeys(info.has_passkeys);
-          setAuthState("ready");
-          setIsInitialAuthCheck(false);
-        }
-      } catch (error) {
-        if (!cancelled) {
-          console.warn("Backend unavailable, showing auth prompt:", error);
-          setAuthState("ready");
-          setIsInitialAuthCheck(false);
-          scheduleAuthInfoRetry();
-        }
-      }
-    };
-
-    init();
-    return () => {
-      cancelled = true;
-      if (retryTimeout !== null) {
-        clearTimeout(retryTimeout);
-      }
-    };
-  }, []);
-
-  // Ref for whole-range SVG snapshot (current waveform per window)
   const waveformRef = useRef<Float32Array | number[] | null>(null);
-  const getCurrentWaveform = useCallback(() => waveformRef.current ?? null, []);
+  const getCurrentWaveform = useCallback(
+    () => waveformRef.current ?? null,
+    [],
+  );
 
-  // Build WS URL with session token
   const wsUrl = sessionToken ? buildWsUrl(sessionToken) : "";
 
-  // WebSocket hook — only connects when authenticated
   const {
     isConnected,
     deviceState,
@@ -257,114 +321,98 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     sendCaptureCommand,
   } = useWebSocket(wsUrl, aesKey, isAuthenticated);
 
-  // Update waveform ref when data changes
   waveformRef.current = data?.waveform ?? null;
 
-  // Auto-resume only on initial connection (server starts paused)
   const hasAutoResumedRef = useRef(false);
   useEffect(() => {
-    if (isConnected && isVisualizer && serverPaused && !hasAutoResumedRef.current) {
+    if (
+      isConnected &&
+      isVisualizer &&
+      serverPaused &&
+      !hasAutoResumedRef.current
+    ) {
       sendPauseCommand(false);
-      setVisualizerPaused(false);
+      dispatch({ type: "SET_VISUALIZER_PAUSED", paused: false });
       hasAutoResumedRef.current = true;
     }
   }, [isConnected, isVisualizer, serverPaused, sendPauseCommand]);
 
-  useEffect(() => {
-    setSpectrumFrames(wsSpectrumFrames);
-  }, [wsSpectrumFrames]);
-
-  // Auth handlers
-  const handlePasswordAuth = useCallback(async (password: string) => {
-    setAuthState("authenticating");
-    setAuthError(null);
-    try {
-      const result = await authenticateWithPassword(password);
-      setSessionToken(result.token);
-      // Derive AES key from the password for decryption
-      const key = await deriveAesKey(password);
-      setAesKey(key);
-      setIsAuthenticated(true);
-      setAuthState("ready"); // Set to ready instead of success to prevent prompt flash
-      setIsInitialAuthCheck(false);
-    } catch (e: any) {
-      setAuthState("failed");
-      setAuthError(e.message || "Authentication failed");
-    }
-  }, []);
-
-  const handlePasskeyAuth = useCallback(async () => {
-    setAuthState("authenticating");
-    setAuthError(null);
-    try {
-      const result = await authenticateWithPasskey();
-      setSessionToken(result.token);
-      // For passkey auth, derive AES key from the default passkey
-      // (server uses the same key for all sessions)
-      const key = await deriveAesKey("n-apt-dev-key");
-      setAesKey(key);
-      setIsAuthenticated(true);
-      setAuthState("ready"); // Set to ready instead of success to prevent prompt flash
-      setIsInitialAuthCheck(false);
-    } catch (e: any) {
-      setAuthState("failed");
-      setAuthError(e.message || "Passkey authentication failed");
-    }
-  }, []);
-
-  const handleRegisterPasskey = useCallback(async () => {
-    try {
-      setAuthState("authenticating");
-      await registerPasskey();
-      // Refresh auth info to get updated hasPasskeys
-      const info = await fetchAuthInfo();
-      setHasPasskeys(info.has_passkeys);
-      setAuthState("ready");
-    } catch (e: any) {
-      setAuthState("failed");
-      setAuthError(e.message || "Passkey registration failed");
-    }
-  }, [setAuthState, setAuthError]);
-
-  const [visualizerPaused, setVisualizerPaused] = useState(false);
-
-  // Training capture state
-  const [isTrainingCapturing, setIsTrainingCapturing] = useState(false);
-  const [trainingCaptureLabel, setTrainingCaptureLabel] = useState<"target" | "noise" | null>(null);
-  const [trainingCapturedSamples, setTrainingCapturedSamples] = useState(0);
+  const setDrawParams = useCallback(
+    (params: DrawParams) =>
+      dispatch({ type: "SET_DRAW_PARAMS", params }),
+    [],
+  );
+  const setSourceMode = useCallback(
+    (mode: SourceMode) =>
+      dispatch({ type: "SET_SOURCE_MODE", mode }),
+    [],
+  );
+  const setSelectedFiles = useCallback(
+    (files: SelectedFile[]) =>
+      dispatch({ type: "SET_SELECTED_FILES", files }),
+    [],
+  );
+  const setDisplayTemporalResolution = useCallback(
+    (resolution: "low" | "medium" | "high") =>
+      dispatch({ type: "SET_TEMPORAL_RESOLUTION", resolution }),
+    [],
+  );
+  const setStitchSourceSettings = useCallback(
+    (settings: { gain: number; ppm: number }) =>
+      dispatch({
+        type: "SET_STITCH_SOURCE_SETTINGS",
+        settings,
+      }),
+    [],
+  );
+  const setSnapshotGridPreference = useCallback(
+    (preference: boolean) =>
+      dispatch({ type: "SET_SNAPSHOT_GRID", preference }),
+    [],
+  );
+  const setStitchStatus = useCallback(
+    (status: string) =>
+      dispatch({ type: "SET_STITCH_STATUS", status }),
+    [],
+  );
 
   const handleTrainingCaptureStart = useCallback(
     (label: "target" | "noise") => {
-      setIsTrainingCapturing(true);
-      setTrainingCaptureLabel(label);
-      sendTrainingCommand("start", label, activeSignalArea);
+      dispatch({ type: "TRAINING_START", label });
+      sendTrainingCommand(
+        "start",
+        label,
+        state.activeSignalArea,
+      );
     },
-    [sendTrainingCommand, activeSignalArea],
+    [sendTrainingCommand, state.activeSignalArea],
   );
 
   const handleTrainingCaptureStop = useCallback(() => {
-    setIsTrainingCapturing(false);
-    setTrainingCaptureLabel(null);
-    setTrainingCapturedSamples((prev) => prev + 1);
-    sendTrainingCommand("stop", trainingCaptureLabel ?? "target", activeSignalArea);
-  }, [sendTrainingCommand, trainingCaptureLabel, activeSignalArea]);
-
-  const [stitchTrigger, setStitchTrigger] = useState<number>(0);
-  const [stitchSourceSettings, setStitchSourceSettings] = useState<{ gain: number; ppm: number }>({ gain: 0, ppm: 0 });
-  const [isStitchPaused, setIsStitchPaused] = useState(true);
+    dispatch({ type: "TRAINING_STOP" });
+    sendTrainingCommand(
+      "stop",
+      state.trainingCaptureLabel ?? "target",
+      state.activeSignalArea,
+    );
+  }, [
+    sendTrainingCommand,
+    state.trainingCaptureLabel,
+    state.activeSignalArea,
+  ]);
 
   const handleStitch = useCallback(() => {
-    setIsStitchPaused(true);
-    setStitchStatus("");
-    setStitchTrigger((prev) => prev + 1);
+    dispatch({ type: "TRIGGER_STITCH" });
   }, []);
 
-  const handleClear = () => {
-    setSelectedFiles([]);
-  };
+  const handleStitchPauseToggle = useCallback(() => {
+    dispatch({ type: "TOGGLE_STITCH_PAUSE" });
+  }, []);
 
-  // Pause server when leaving visualizer; stay paused when returning
-  // User must manually hit Resume to restart the stream
+  const handleClear = useCallback(() => {
+    dispatch({ type: "SET_SELECTED_FILES", files: [] });
+  }, []);
+
   const prevIsVisualizerRef = useRef(isVisualizer);
   useEffect(() => {
     const prevIsVisualizer = prevIsVisualizerRef.current;
@@ -372,48 +420,74 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
 
     if (prevIsVisualizer !== isVisualizer) {
       if (!isVisualizer && isConnected) {
-        // Leaving visualizer — pause the server stream
         sendPauseCommand(true);
-        setVisualizerPaused(true);
+        dispatch({ type: "SET_VISUALIZER_PAUSED", paused: true });
       }
-      // Returning to visualizer — stay paused, show cached snapshot
-      // User must click Resume to restart
-
-      setIsStitchPaused(!isVisualizer);
+      dispatch({
+        type: "SET_STITCH_PAUSED",
+        paused: !isVisualizer,
+      });
     }
   }, [isVisualizer, isConnected, sendPauseCommand]);
 
   const handleVisualizerPauseToggle = useCallback(() => {
-    const newPausedState = !visualizerPaused;
-    setVisualizerPaused(newPausedState);
+    const newPausedState = !state.visualizerPaused;
+    dispatch({
+      type: "SET_VISUALIZER_PAUSED",
+      paused: newPausedState,
+    });
     if (isConnected) {
       sendPauseCommand(newPausedState);
     }
-  }, [visualizerPaused, isConnected, sendPauseCommand]);
+  }, [state.visualizerPaused, isConnected, sendPauseCommand]);
 
-  const handleSignalAreaChange = (area: string) => {
-    // Only reset frequency range when switching to a different area
-    if (area !== activeSignalArea) {
-      setActiveSignalArea(area);
-      const frame = defaultFrames.find((f: SpectrumFrame) => f.label.toLowerCase() === area.toLowerCase());
-      if (frame) {
-        const nextRange = { min: frame.min_mhz, max: Math.min(frame.max_mhz, frame.min_mhz + 3.2) };
-        setFrequencyRange(nextRange);
-        sendFrequencyRange(nextRange);
+  const handleSignalAreaChange = useCallback(
+    (area: string) => {
+      if (area !== state.activeSignalArea) {
+        const frame = wsSpectrumFrames.find(
+          (f: SpectrumFrame) =>
+            f.label.toLowerCase() === area.toLowerCase(),
+        );
+        if (frame) {
+          const nextRange = {
+            min: frame.min_mhz,
+            max: Math.min(frame.max_mhz, frame.min_mhz + 3.2),
+          };
+          dispatch({
+            type: "SET_SIGNAL_AREA_AND_RANGE",
+            area,
+            range: nextRange,
+          });
+          sendFrequencyRange(nextRange);
+        } else {
+          dispatch({ type: "SET_SIGNAL_AREA", area });
+        }
       }
-    }
-  };
+    },
+    [state.activeSignalArea, wsSpectrumFrames, sendFrequencyRange],
+  );
 
   const handleFrequencyRangeChange = useCallback(
     (range: FrequencyRange) => {
-      setFrequencyRange((prev) => {
-        if (prev.min === range.min && prev.max === range.max) return prev;
-        return range;
-      });
+      dispatch({ type: "SET_FREQUENCY_RANGE", range });
       sendFrequencyRange(range);
     },
     [sendFrequencyRange],
   );
+
+  const centerFrequencyMHz = useMemo(() => {
+    const min = state.frequencyRange?.min;
+    const max = state.frequencyRange?.max;
+    if (
+      typeof min !== "number" ||
+      typeof max !== "number" ||
+      !Number.isFinite(min) ||
+      !Number.isFinite(max)
+    ) {
+      return 1.6;
+    }
+    return (min + max) / 2;
+  }, [state.frequencyRange]);
 
   return (
     <AppContainer>
@@ -424,106 +498,57 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
             const sidebarNode = (
               <SidebarNew
                 isConnected={isConnected}
-                isAuthenticated={isAuthenticated}
-                authState={authState}
                 deviceState={deviceState}
                 deviceLoadingReason={deviceLoadingReason}
-                isPaused={visualizerPaused}
+                isPaused={state.visualizerPaused}
                 _serverPaused={serverPaused}
                 backend={backend}
                 deviceInfo={deviceInfo}
                 maxSampleRateHz={maxSampleRateHz}
-                sessionToken={sessionToken}
-                aesKey={aesKey}
                 captureStatus={captureStatus}
                 onCaptureCommand={sendCaptureCommand}
-                spectrumFrames={defaultFrames}
+                spectrumFrames={wsSpectrumFrames}
                 activeTab={activeTab}
                 onTabChange={onTabChange}
-                drawParams={drawParams}
+                drawParams={state.drawParams}
                 onDrawParamsChange={setDrawParams}
-                sourceMode={sourceMode}
+                sourceMode={state.sourceMode}
                 onSourceModeChange={setSourceMode}
-                stitchStatus={stitchStatus}
-                activeSignalArea={activeSignalArea}
+                stitchStatus={state.stitchStatus}
+                activeSignalArea={state.activeSignalArea}
                 onSignalAreaChange={handleSignalAreaChange}
                 onFrequencyRangeChange={handleFrequencyRangeChange}
-                frequencyRange={frequencyRange}
+                frequencyRange={state.frequencyRange}
                 onPauseToggle={handleVisualizerPauseToggle}
                 onSettingsChange={sendSettings}
-                displayTemporalResolution={displayTemporalResolution}
+                displayTemporalResolution={state.displayTemporalResolution}
                 onDisplayTemporalResolutionChange={setDisplayTemporalResolution}
-                selectedFiles={selectedFiles}
+                selectedFiles={state.selectedFiles}
                 onSelectedFilesChange={setSelectedFiles}
-                stitchSourceSettings={stitchSourceSettings}
+                stitchSourceSettings={state.stitchSourceSettings}
                 onStitchSourceSettingsChange={setStitchSourceSettings}
-                isStitchPaused={isStitchPaused}
-                onStitchPauseToggle={() => setIsStitchPaused((p) => !p)}
+                isStitchPaused={state.isStitchPaused}
+                onStitchPauseToggle={handleStitchPauseToggle}
                 onStitch={handleStitch}
                 onClear={handleClear}
                 onRestartDevice={sendRestartDevice}
-                snapshotGridPreference={snapshotGridPreference}
+                snapshotGridPreference={state.snapshotGridPreference}
                 onSnapshotGridPreferenceChange={setSnapshotGridPreference}
                 fftWaveform={data?.waveform ?? null}
                 getCurrentWaveform={getCurrentWaveform}
-                centerFrequencyMHz={
-                  (() => {
-                    const min = frequencyRange?.min;
-                    const max = frequencyRange?.max;
-                    if (typeof min !== 'number' || typeof max !== 'number' ||
-                      !Number.isFinite(min) || !Number.isFinite(max)) {
-                      console.warn('Invalid frequency range:', { min, max, frequencyRange });
-                      return 1.6; // Default center frequency
-                    }
-                    return (min + max) / 2;
-                  })()
-                }
+                centerFrequencyMHz={centerFrequencyMHz}
               />
             );
             return sidebarWrapper ? sidebarWrapper(sidebarNode) : sidebarNode;
           })()}
           <MainContent>
             {isVisualizer && isInitialAuthCheck && (
-              <div style={{
-                flex: 1,
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                backgroundColor: '#0a0a0a',
-                padding: '40px',
-                gap: '32px'
-              }}>
-                <h2 style={{
-                  fontFamily: '"JetBrains Mono", monospace',
-                  fontSize: '18px',
-                  fontWeight: 600,
-                  color: '#e0e0e0',
-                  margin: 0,
-                  letterSpacing: '0.5px',
-                  animation: 'pulse 1.5s ease-in-out infinite'
-                }}>
-                  Initializing N-APT
-                </h2>
-                <p style={{
-                  fontFamily: '"JetBrains Mono", monospace',
-                  fontSize: '12px',
-                  color: '#666',
-                  margin: 0,
-                  textAlign: 'center',
-                  maxWidth: '400px',
-                  lineHeight: '1.6'
-                }}>
+              <InitializingContainer>
+                <InitializingTitle>Initializing N-APT</InitializingTitle>
+                <InitializingText>
                   Establishing secure connection and verifying session...
-                </p>
-                <style>{`
-                  @keyframes pulse {
-                    0% { opacity: 0.4; }
-                    50% { opacity: 1; }
-                    100% { opacity: 0.4; }
-                  }
-                `}</style>
-              </div>
+                </InitializingText>
+              </InitializingContainer>
             )}
             {isVisualizer && !isAuthenticated && !isInitialAuthCheck && (
               <AuthenticationPrompt
@@ -535,53 +560,43 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                 onRegisterPasskey={handleRegisterPasskey}
               />
             )}
-            {isVisualizer && isAuthenticated && sourceMode === "live" && (
+            {isVisualizer && isAuthenticated && state.sourceMode === "live" && (
               <>
                 {deviceState === "connected" && (
                   <ClassificationControls
                     isDeviceConnected={deviceState === "connected"}
-                    activeSignalArea={activeSignalArea}
-                    isCapturing={isTrainingCapturing}
-                    captureLabel={trainingCaptureLabel}
-                    capturedSamples={trainingCapturedSamples}
+                    activeSignalArea={state.activeSignalArea}
+                    isCapturing={state.isTrainingCapturing}
+                    captureLabel={state.trainingCaptureLabel}
+                    capturedSamples={state.trainingCapturedSamples}
                     onCaptureStart={handleTrainingCaptureStart}
                     onCaptureStop={handleTrainingCaptureStop}
                   />
                 )}
                 <FFTCanvas
                   data={data}
-                  frequencyRange={frequencyRange}
-                  centerFrequencyMHz={
-                    (() => {
-                      const min = frequencyRange?.min;
-                      const max = frequencyRange?.max;
-                      if (typeof min !== 'number' || typeof max !== 'number' ||
-                        !Number.isFinite(min) || !Number.isFinite(max)) {
-                        return 1.6;
-                      }
-                      return (min + max) / 2;
-                    })()
-                  }
-                  activeSignalArea={activeSignalArea}
-                  isPaused={visualizerPaused}
+                  frequencyRange={state.frequencyRange}
+                  centerFrequencyMHz={centerFrequencyMHz}
+                  activeSignalArea={state.activeSignalArea}
+                  isPaused={state.visualizerPaused}
                   isDeviceConnected={deviceState === "connected"}
                   onFrequencyRangeChange={handleFrequencyRangeChange}
-                  displayTemporalResolution={displayTemporalResolution}
-                  snapshotGridPreference={snapshotGridPreference}
+                  displayTemporalResolution={state.displayTemporalResolution}
+                  snapshotGridPreference={state.snapshotGridPreference}
                 />
               </>
             )}
-            {isVisualizer && isAuthenticated && sourceMode === "file" && (
+            {isVisualizer && isAuthenticated && state.sourceMode === "file" && (
               <FFTStitcherCanvas
-                selectedFiles={selectedFiles}
-                stitchTrigger={stitchTrigger}
-                stitchSourceSettings={stitchSourceSettings}
-                isPaused={isStitchPaused}
+                selectedFiles={state.selectedFiles}
+                stitchTrigger={state.stitchTrigger}
+                stitchSourceSettings={state.stitchSourceSettings}
+                isPaused={state.isStitchPaused}
                 onStitchStatus={setStitchStatus}
               />
             )}
             {isAnalysis && isAuthenticated && <Decode />}
-            {isDraw && <DrawMockNAPTChart {...drawParams} />}
+            {isDraw && <DrawMockNAPTChart {...state.drawParams} />}
           </MainContent>
         </ContentArea>
       </AppWrapper>

@@ -118,9 +118,11 @@ pub async fn handle_ws_connection(
             }
             match crypto::encrypt_payload(&enc_key, plaintext_json.as_bytes()) {
               Ok(encrypted_b64) => {
+                let center_freq_hz = shared.pending_center_freq.load(Ordering::Relaxed);
                 let envelope = serde_json::json!({
                   "type": "encrypted_spectrum",
                   "payload": encrypted_b64,
+                  "center_frequency_hz": center_freq_hz,
                 });
                 if ws_sender.send(Message::Text(envelope.to_string())).await.is_err() {
                   break;
@@ -164,7 +166,7 @@ pub fn handle_message(
   message: WebSocketMessage,
 ) {
   match message.message_type.as_str() {
-    "frequency_range" => {
+    "frequency_range" | "set_frequency_range" => {
       if let (Some(min_freq), Some(max_freq)) = (message.min_freq, message.max_freq) {
         let center_freq = ((min_freq + max_freq) * 500000.0) as u32;
         shared.pending_center_freq.store(center_freq, Ordering::Relaxed);

@@ -111,11 +111,11 @@ export function drawWaterfall(options: WaterfallRenderOptions): void {
   ctx.fillRect(0, 0, width, height);
 
   // Draw updated buffer to canvas at centered position
-  const imageData = new ImageData(
-    new Uint8ClampedArray(waterfallBuffer),
-    waterfallWidth,
-    waterfallHeight,
-  );
+  const expectedSize = waterfallWidth * waterfallHeight * 4;
+  const safeBuffer = new Uint8ClampedArray(expectedSize);
+  const copyLen = Math.min(expectedSize, waterfallBuffer.length);
+  safeBuffer.set(waterfallBuffer.subarray(0, copyLen));
+  const imageData = new ImageData(safeBuffer, waterfallWidth, waterfallHeight);
   ctx.putImageData(imageData, centeredX, centeredY);
 }
 

@@ -91,7 +91,7 @@ export async function authenticateWithPassword(password: string): Promise<AuthRe
     headers: { "Content-Type": "application/json" },
     body: "{}",
   });
-  if (!challengeRes.ok) throw new Error(`Challenge request failed: ${challengeRes.status}`);
+  if (!challengeRes.ok) throw new Error("Authentication failed — Server disconnected 500");
   const { challenge_id, nonce } = await challengeRes.json();
 
   // Step 2: Derive key and compute HMAC (client-side, using WebCrypto)

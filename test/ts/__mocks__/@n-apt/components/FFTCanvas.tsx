@@ -65,12 +65,7 @@ export default function FFTCanvas({
       </div>
       <div>
         <h2>Waterfall Display {isPaused && "(Paused)"}</h2>
-        <canvas
-          key="waterfall-canvas"
-          width={800}
-          height={300}
-          data-testid="waterfall-canvas"
-        />
+        <canvas key="waterfall-canvas" width={800} height={300} data-testid="waterfall-canvas" />
       </div>
       <div data-testid="canvas-status">
         <div>WebGPU: {webgpuEnabled ? "Enabled" : "Disabled"}</div>

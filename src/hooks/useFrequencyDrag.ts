@@ -1,0 +1,163 @@
+import { useRef, useEffect } from "react";
+import type { FrequencyRange } from "@n-apt/fft/FFTCanvasRenderer";
+
+export interface FrequencyDragOptions {
+  spectrumCanvasRef: React.RefObject<HTMLCanvasElement | null>;
+  spectrumGpuCanvasRef: React.RefObject<HTMLCanvasElement | null>;
+  frequencyRangeRef: React.MutableRefObject<FrequencyRange>;
+  spectrumWebgpuEnabled: boolean;
+  activeSignalArea: string;
+  onFrequencyRangeChange?: (range: FrequencyRange) => void;
+}
+
+export function useFrequencyDrag({
+  spectrumCanvasRef,
+  spectrumGpuCanvasRef,
+  frequencyRangeRef,
+  spectrumWebgpuEnabled,
+  activeSignalArea,
+  onFrequencyRangeChange,
+}: FrequencyDragOptions) {
+  const isDraggingRef = useRef(false);
+  const dragStartXRef = useRef(0);
+  const dragStartFreqRef = useRef(0);
+
+  useEffect(() => {
+    const getActiveSpectrumCanvas = () => {
+      if (spectrumWebgpuEnabled) {
+        return spectrumGpuCanvasRef.current;
+      } else {
+        return spectrumCanvasRef.current;
+      }
+    };
+
+    const handlePointerMove = (e: PointerEvent) => {
+      const canvas = getActiveSpectrumCanvas();
+      if (!isDraggingRef.current || !canvas) return;
+
+      const rect = canvas.getBoundingClientRect();
+      const width = rect.width;
+
+      const deltaX = e.clientX - dragStartXRef.current;
+      const freqRange = frequencyRangeRef.current.max - frequencyRangeRef.current.min;
+      const freqChange = (deltaX / width) * freqRange;
+
+      let newMinFreq = dragStartFreqRef.current + freqChange;
+      const rangeWidth = frequencyRangeRef.current.max - frequencyRangeRef.current.min;
+      let newMaxFreq = newMinFreq + rangeWidth;
+
+      let minBoundary = 0;
+      let maxBoundary = 4.47;
+
+      if (activeSignalArea === "B") {
+        minBoundary = 24.72;
+        maxBoundary = 29.88;
+      }
+
+      if (newMinFreq < minBoundary) {
+        newMinFreq = minBoundary;
+        newMaxFreq = newMinFreq + rangeWidth;
+      }
+      if (newMaxFreq > maxBoundary) {
+        newMaxFreq = maxBoundary;
+        newMinFreq = newMaxFreq - rangeWidth;
+      }
+
+      const newRange = { min: newMinFreq, max: newMaxFreq };
+      frequencyRangeRef.current = newRange;
+
+      if (onFrequencyRangeChange) {
+        onFrequencyRangeChange(newRange);
+      }
+    };
+
+    const handlePointerDown = (e: PointerEvent) => {
+      const canvas = getActiveSpectrumCanvas();
+      if (!canvas) return;
+
+      const rect = canvas.getBoundingClientRect();
+      const height = rect.height;
+      const y = e.clientY - rect.top;
+      if (y >= height - 60) {
+        isDraggingRef.current = true;
+        dragStartXRef.current = e.clientX;
+        dragStartFreqRef.current = frequencyRangeRef.current.min;
+        canvas.style.cursor = "grabbing";
+        canvas.setPointerCapture(e.pointerId);
+      }
+    };
+
+    const handlePointerUp = (e: PointerEvent) => {
+      const canvas = getActiveSpectrumCanvas();
+      if (isDraggingRef.current && canvas) {
+        canvas.style.cursor = "grab";
+        canvas.releasePointerCapture(e.pointerId);
+      }
+      isDraggingRef.current = false;
+    };
+
+    const handlePointerEnter = () => {
+      const canvas = getActiveSpectrumCanvas();
+      if (canvas && !isDraggingRef.current) canvas.style.cursor = "grab";
+    };
+
+    const handlePointerLeave = () => {
+      const canvas = getActiveSpectrumCanvas();
+      if (canvas && !isDraggingRef.current) canvas.style.cursor = "default";
+    };
+
+    const gpuCanvas = spectrumGpuCanvasRef.current;
+    const canvas2D = spectrumCanvasRef.current;
+
+    [gpuCanvas, canvas2D].forEach((canvas) => {
+      if (canvas) {
+        canvas.addEventListener("pointerdown", handlePointerDown);
+        canvas.addEventListener("pointerenter", handlePointerEnter);
+        canvas.addEventListener("pointerleave", handlePointerLeave);
+        if (canvas === getActiveSpectrumCanvas()) {
+          canvas.style.cursor = "grab";
+        }
+      }
+    });
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+
+    return () => {
+      [gpuCanvas, canvas2D].forEach((canvas) => {
+        if (canvas) {
+          canvas.removeEventListener("pointerdown", handlePointerDown);
+          canvas.removeEventListener("pointerenter", handlePointerEnter);
+          canvas.removeEventListener("pointerleave", handlePointerLeave);
+        }
+      });
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    };
+  }, [
+    onFrequencyRangeChange,
+    activeSignalArea,
+    spectrumWebgpuEnabled,
+    spectrumCanvasRef,
+    spectrumGpuCanvasRef,
+    frequencyRangeRef,
+  ]);
+
+  useEffect(() => {
+    const gpuCanvas = spectrumGpuCanvasRef.current;
+    const canvas2D = spectrumCanvasRef.current;
+
+    [gpuCanvas, canvas2D].forEach((canvas) => {
+      if (canvas) {
+        canvas.style.cursor = "default";
+      }
+    });
+
+    const activeCanvas = spectrumWebgpuEnabled
+      ? spectrumGpuCanvasRef.current
+      : spectrumCanvasRef.current;
+    if (activeCanvas && !isDraggingRef.current) {
+      activeCanvas.style.cursor = "grab";
+    }
+  }, [spectrumWebgpuEnabled, spectrumCanvasRef, spectrumGpuCanvasRef]);
+}

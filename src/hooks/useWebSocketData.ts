@@ -64,14 +64,14 @@ export function useWebSocketData({ wsUrl, aesKey }: WebSocketDataOptions): WebSo
 
       ws.onopen = () => {
         console.log("WebSocket connected");
-        setState(prev => ({ ...prev, isConnected: true }));
+        setState((prev) => ({ ...prev, isConnected: true }));
         reconnectAttemptsRef.current = 0;
       };
 
       ws.onmessage = async (event) => {
         try {
           const message = JSON.parse(event.data);
-          
+
           switch (message.type) {
             case "spectrum_data":
               setState((prev: WebSocketDataState) => ({
@@ -82,7 +82,7 @@ export function useWebSocketData({ wsUrl, aesKey }: WebSocketDataOptions): WebSo
                 },
               }));
               break;
-              
+
             case "device_state":
               setState((prev: WebSocketDataState) => ({
                 ...prev,
@@ -91,7 +91,7 @@ export function useWebSocketData({ wsUrl, aesKey }: WebSocketDataOptions): WebSo
                 deviceInfo: message.device_info,
               }));
               break;
-              
+
             case "backend_info":
               setState((prev: WebSocketDataState) => ({
                 ...prev,
@@ -99,21 +99,21 @@ export function useWebSocketData({ wsUrl, aesKey }: WebSocketDataOptions): WebSo
                 maxSampleRateHz: message.max_sample_rate_hz,
               }));
               break;
-              
+
             case "pause_state":
               setState((prev: WebSocketDataState) => ({
                 ...prev,
                 serverPaused: message.paused,
               }));
               break;
-              
+
             case "capture_status":
               setState((prev: WebSocketDataState) => ({
                 ...prev,
                 captureStatus: message.status,
               }));
               break;
-              
+
             default:
               console.log("Unknown message type:", message.type);
           }
@@ -125,13 +125,15 @@ export function useWebSocketData({ wsUrl, aesKey }: WebSocketDataOptions): WebSo
       ws.onclose = (event) => {
         console.log("WebSocket disconnected:", event.code, event.reason);
         setState((prev: WebSocketDataState) => ({ ...prev, isConnected: false }));
-        
+
         // Attempt reconnection if not explicitly closed
         if (event.code !== 1000 && reconnectAttemptsRef.current < maxReconnectAttempts) {
           const delay = reconnectDelay * Math.pow(2, reconnectAttemptsRef.current);
           reconnectTimeoutRef.current = setTimeout(() => {
             reconnectAttemptsRef.current++;
-            console.log(`Attempting reconnection (${reconnectAttemptsRef.current}/${maxReconnectAttempts})`);
+            console.log(
+              `Attempting reconnection (${reconnectAttemptsRef.current}/${maxReconnectAttempts})`,
+            );
             connect();
           }, delay);
         }
@@ -140,7 +142,6 @@ export function useWebSocketData({ wsUrl, aesKey }: WebSocketDataOptions): WebSo
       ws.onerror = (error) => {
         console.error("WebSocket error:", error);
       };
-
     } catch (error) {
       console.error("Failed to create WebSocket connection:", error);
     }
@@ -148,56 +149,68 @@ export function useWebSocketData({ wsUrl, aesKey }: WebSocketDataOptions): WebSo
 
   const sendFrequencyRange = useCallback((min: number, max: number) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({
-        type: "set_frequency_range",
-        min,
-        max,
-      }));
+      wsRef.current.send(
+        JSON.stringify({
+          type: "set_frequency_range",
+          min,
+          max,
+        }),
+      );
     }
   }, []);
 
   const sendPauseCommand = useCallback((paused: boolean) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({
-        type: "set_pause",
-        paused,
-      }));
+      wsRef.current.send(
+        JSON.stringify({
+          type: "set_pause",
+          paused,
+        }),
+      );
     }
   }, []);
 
   const sendSettings = useCallback((settings: any) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({
-        type: "set_settings",
-        settings,
-      }));
+      wsRef.current.send(
+        JSON.stringify({
+          type: "set_settings",
+          settings,
+        }),
+      );
     }
   }, []);
 
   const sendRestartDevice = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({
-        type: "restart_device",
-      }));
+      wsRef.current.send(
+        JSON.stringify({
+          type: "restart_device",
+        }),
+      );
     }
   }, []);
 
   const sendTrainingCommand = useCallback((command: string, label?: string) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({
-        type: "training_command",
-        command,
-        label,
-      }));
+      wsRef.current.send(
+        JSON.stringify({
+          type: "training_command",
+          command,
+          label,
+        }),
+      );
     }
   }, []);
 
   const sendCaptureCommand = useCallback((command: string) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({
-        type: "capture_command",
-        command,
-      }));
+      wsRef.current.send(
+        JSON.stringify({
+          type: "capture_command",
+          command,
+        }),
+      );
     }
   }, []);
 
@@ -206,7 +219,7 @@ export function useWebSocketData({ wsUrl, aesKey }: WebSocketDataOptions): WebSo
     if (wsUrl && aesKey) {
       connect();
     }
-    
+
     return cleanup;
   }, [wsUrl, aesKey, connect, cleanup]);
 

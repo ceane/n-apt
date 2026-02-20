@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useRef, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useRef, useMemo, ReactNode } from "react";
 
 type Area = {
   name: string;
@@ -23,23 +23,22 @@ export const Model3DProvider: React.FC<Model3DProviderProps> = ({ children }) =>
   const [selectedArea, setSelectedArea] = useState<Area | null>(null);
   const controlsRef = useRef<any>(null);
 
-  const contextValue: Model3DContextType = {
-    selectedArea,
-    setSelectedArea,
-    controlsRef,
-  };
-
-  return React.createElement(
-    Model3DContext.Provider,
-    { value: contextValue },
-    children
+  const contextValue = useMemo<Model3DContextType>(
+    () => ({
+      selectedArea,
+      setSelectedArea,
+      controlsRef,
+    }),
+    [selectedArea],
   );
+
+  return React.createElement(Model3DContext.Provider, { value: contextValue }, children);
 };
 
 export const useModel3D = (): Model3DContextType => {
   const context = useContext(Model3DContext);
   if (context === undefined) {
-    throw new Error('useModel3D must be used within a Model3DProvider');
+    throw new Error("useModel3D must be used within a Model3DProvider");
   }
   return context;
 };
