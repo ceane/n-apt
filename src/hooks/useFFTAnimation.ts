@@ -16,10 +16,18 @@ export function useFFTAnimation({
   const animationFrameRef = useRef<number | null>(null);
   const animationRunIdRef = useRef(0);
   const lastFrameTimeRef = useRef(0);
-  const frameRateLimiterRef = useRef(1000 / targetFPS);
+  
+  // Dynamically adjust FPS based on paused state to save resources while keeping canvas alive
+  const currentFPS = isPaused ? 15 : targetFPS;
+  const frameRateLimiterRef = useRef(1000 / currentFPS);
+
+  useEffect(() => {
+    frameRateLimiterRef.current = 1000 / currentFPS;
+  }, [currentFPS]);
+
   const isVisibleRef = useRef(true);
 
-  const animate = useCallback(() => {
+  const animate = useCallback((force: boolean = false) => {
     const runId = animationRunIdRef.current;
 
     if (!isVisibleRef.current) {
@@ -29,21 +37,26 @@ export function useFFTAnimation({
 
     const now = performance.now();
     const elapsed = now - lastFrameTimeRef.current;
-    if (elapsed >= frameRateLimiterRef.current) {
+    
+    // Always render if forced, or if enough time has passed
+    if (force || elapsed >= frameRateLimiterRef.current) {
       lastFrameTimeRef.current = now;
       onRenderFrame(runId);
     }
 
-    if (animationRunIdRef.current === runId && !isPaused) {
+    // Keep the animation loop running even when paused to prevent blank canvases
+    // WebGPU and Canvas2D contexts can be lost or cleared if not actively presented,
+    // especially during window resizes or tab switches. Throttling FPS saves CPU.
+    if (animationRunIdRef.current === runId) {
       animationFrameRef.current = requestAnimationFrame(() => {
         if (animationRunIdRef.current === runId) {
-          animate();
+          animate(false);
         }
       });
     } else {
       animationFrameRef.current = null;
     }
-  }, [isPaused, onRenderFrame]);
+  }, [onRenderFrame]);
 
   useEffect(() => {
     const handleVisibilityChange = () => {
@@ -52,7 +65,7 @@ export function useFFTAnimation({
         onBecomeVisible?.();
         if (!animationFrameRef.current) {
           animationRunIdRef.current += 1;
-          animate();
+          animate(true);
         }
       }
     };
@@ -69,7 +82,7 @@ export function useFFTAnimation({
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
       }
-      animate();
+      animate(false);
     } else {
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
@@ -92,7 +105,7 @@ export function useFFTAnimation({
       cancelAnimationFrame(animationFrameRef.current);
       animationFrameRef.current = null;
     }
-    animate();
+    animate(true);
   }, [animate]);
 
   return {

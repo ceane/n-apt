@@ -121,6 +121,59 @@ export const useAuthentication = (): UseAuthenticationReturn => {
 const useAuthenticationInternal = (): UseAuthenticationReturn => {
   const [state, dispatch] = useReducer(authReducer, initialState);
 
+  // Check if WebAuthn is available in the browser
+  const isWebAuthnAvailable = useMemo(() => {
+    // Basic API availability check
+    if (
+      typeof window === 'undefined' ||
+      !window.navigator ||
+      !window.navigator.credentials ||
+      typeof window.navigator.credentials.get !== 'function' ||
+      typeof window.navigator.credentials.create !== 'function'
+    ) {
+      return false;
+    }
+
+    // Conservative approach: disable WebAuthn in IDE/development environments
+    // since they often don't support proper biometric prompts
+    const userAgent = window.navigator.userAgent;
+    const isLikelyIDEBrowser = (
+      userAgent.includes('Electron') ||
+      userAgent.includes('Code') ||
+      userAgent.includes('VSCode') ||
+      userAgent.includes('Windsurf') ||
+      window.location.hostname === 'localhost' && window.location.port === '8080' ||
+      window.location.search.includes('ide=true')
+    );
+
+    if (isLikelyIDEBrowser) {
+      console.error('🔒 WebAuthn disabled: IDE/development environment detected. Passkeys require biometric prompts not available in IDE browsers.');
+      return false;
+    }
+
+    // Additional check: try a simple WebAuthn call to see if permissions policy allows it
+    try {
+      // This will fail if permissions policy blocks WebAuthn
+      void window.navigator.credentials.get({
+        publicKey: {
+          challenge: new Uint8Array(8),
+          allowCredentials: [],
+          timeout: 1,
+        },
+      });
+      // If we get here, the call was allowed (even if it fails later)
+      return true;
+    } catch (error) {
+      // If we get a permissions policy error, WebAuthn is effectively disabled
+      if (error instanceof Error && error.message.includes('publickey-credentials-get')) {
+        console.log('WebAuthn blocked by permissions policy:', error.message);
+        return false;
+      }
+      // Other errors might be normal (like timeout), so assume it's available
+      return true;
+    }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     let retryTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -147,7 +200,9 @@ const useAuthenticationInternal = (): UseAuthenticationReturn => {
         try {
           const info = await fetchAuthInfoWithTimeout();
           if (!cancelled) {
-            dispatch({ type: "SET_PASSKEYS", hasPasskeys: info.has_passkeys });
+            // Only show passkey option if both backend has passkeys AND browser supports WebAuthn
+            const effectiveHasPasskeys = info.has_passkeys && isWebAuthnAvailable;
+            dispatch({ type: "SET_PASSKEYS", hasPasskeys: effectiveHasPasskeys });
           }
         } catch (error) {
           if (!cancelled) {
@@ -177,7 +232,9 @@ const useAuthenticationInternal = (): UseAuthenticationReturn => {
       try {
         const info = await fetchAuthInfoWithTimeout();
         if (!cancelled) {
-          dispatch({ type: "READY", hasPasskeys: info.has_passkeys });
+          // Only show passkey option if both backend has passkeys AND browser supports WebAuthn
+          const effectiveHasPasskeys = info.has_passkeys && isWebAuthnAvailable;
+          dispatch({ type: "READY", hasPasskeys: effectiveHasPasskeys });
         }
       } catch (error) {
         if (!cancelled) {
@@ -220,15 +277,23 @@ const useAuthenticationInternal = (): UseAuthenticationReturn => {
   }, []);
 
   const handleRegisterPasskey = useCallback(async () => {
+    // Check if WebAuthn is available before attempting registration
+    if (!isWebAuthnAvailable) {
+      dispatch({ type: "AUTH_FAILED", error: "Passkeys are not supported in this browser" });
+      return;
+    }
+
     try {
       dispatch({ type: "AUTHENTICATING" });
       await registerPasskey();
       const info = await fetchAuthInfo();
-      dispatch({ type: "REGISTER_SUCCESS", hasPasskeys: info.has_passkeys });
+      // Only show passkey option if both backend has passkeys AND browser supports WebAuthn
+      const effectiveHasPasskeys = info.has_passkeys && isWebAuthnAvailable;
+      dispatch({ type: "REGISTER_SUCCESS", hasPasskeys: effectiveHasPasskeys });
     } catch (e: any) {
       dispatch({ type: "AUTH_FAILED", error: e.message || "Passkey registration failed" });
     }
-  }, []);
+  }, [isWebAuthnAvailable]);
 
   return {
     ...state,
