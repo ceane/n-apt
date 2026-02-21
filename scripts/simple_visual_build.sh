@@ -180,7 +180,7 @@ show_animated_spinner() {
             print_box_line "           cmd + click to open in default browser" " " "           ${GREY}cmd + click to open in default browser${RESET}" " "
             print_box_line " " " " " " " "
 
-            print_box_line "           http://localhost:8765 (websockets backend)" " " "           ${GREY}http://localhost:8765 (websockets backend)${RESET}" " "
+            print_box_line "           http://localhost:8765 (websockets backend)" " " "           ${ORANGE}http://localhost:8765${RESET} ${GREY}(websockets backend)${RESET}" " "
             print_box_line "           packages/n_apt_canvas (WebGPU wasm_simd build)" " " "           ${GREY}packages/n_apt_canvas (WebGPU wasm_simd build)${RESET}" " "
             print_box_line " " " " " " " "
             print_box_line " " " " " " " "

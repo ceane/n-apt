@@ -5,6 +5,19 @@
 
 set -e
 
+# Shared env defaults
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$SCRIPT_DIR/env.sh" ]; then
+    source "$SCRIPT_DIR/env.sh"
+fi
+
+# Export for child processes (cargo, vite)
+export APP_URL WEBSOCKETS_URL WASM_BUILD_PATH
+export VITE_BACKEND_URL=${VITE_BACKEND_URL:-$WEBSOCKETS_URL}
+export VITE_WS_URL=${VITE_WS_URL:-$WEBSOCKETS_URL}
+NO_BOX_ANIM=${NO_BOX_ANIM:-0}
+STOP_ANIM=0
+
 # Color definitions
 WHITE="\033[37m"
 BLUE="\033[34m"
@@ -21,6 +34,11 @@ WARNING_COUNT=0
 START_TIME=$(date +%s)
 VITE_PID=""
 RUST_PID=""
+BOX_WIDTH=61
+INNER_WIDTH=$((BOX_WIDTH - 2))
+APP_URL=${APP_URL:-${SITE_URL:-http://localhost:5173}}
+WEBSOCKETS_URL=${WEBSOCKETS_URL:-${BACKEND_URL:-http://localhost:8765}}
+WASM_BUILD_PATH=${WASM_BUILD_PATH:-${WASM_OUT:-packages/n_apt_canvas}}
 
 # Logo rendering function
 render_logo() {
@@ -35,62 +53,86 @@ show_header() {
     render_logo
     echo "(c) 2026 🇺🇸 Made in the USA"
     echo ""
-    
-    get_braille_spinner() {
+}
+
+# Braille spinner animation
+get_braille_spinner() {
     local spinners=("⠁" "⠃" "⠉" "⠙" "⠑" "⠋" "⠛" "⠓" "⠊" "⠚" "⠌" "⠜" "⠎" "⠞" "⠏" "⠟" "⠐" "⠑" "⠒" "⠓" "⠔" "⠕" "⠖" "⠗" "⠘" "⠙" "⠚" "⠛" "⠜" "⠝" "⠞" "⠟" "⠠" "⠡" "⠢" "⠣" "⠤" "⠥" "⠦" "⠧" "⠨" "⠩" "⠪" "⠫" "⠬" "⠭" "⠮" "⠯" "⠰" "⠱" "⠲" "⠳" "⠴" "⠵" "⠶" "⠷" "⠸" "⠹" "⠺" "⠻" "⠼" "⠽" "⠾" "⠿")
-    
-    # Use sub-second timing for faster animation
     local current_time=$(date +%s.%N 2>/dev/null || date +%s)
     local spinner_index=$(echo "$current_time * 10" | bc 2>/dev/null || echo "0")
-    spinner_index=${spinner_index%.*}  # Remove decimal part
+    spinner_index=${spinner_index%.*}
     spinner_index=$((spinner_index % ${#spinners[@]}))
-    
     echo "${spinners[$spinner_index]}"
 }
 
 animate_process_step() {
     local spinner_label="$1"
     local final_line="$2"
-    local duration="${3:-1}"
-    local iterations=$((duration * 10))
+    local duration_tenths="${3:-1}"  # tenths of a second, integer
+    if ! [[ "$duration_tenths" =~ ^[0-9]+$ ]]; then
+        duration_tenths=1
+    fi
+    local iterations=$duration_tenths
     if [ $iterations -le 0 ]; then
-        iterations=10
+        iterations=1
+    fi
+
+    # If not a TTY (e.g., npm piping), skip animation to avoid multiline spinner noise
+    if [ ! -t 1 ]; then
+        printf "%b\n" "$spinner_label"
+        printf "%b\n" "$final_line"
+        return
     fi
 
     for ((i=0; i<iterations; i++)); do
         local spinner=$(get_braille_spinner)
-        printf "\r\033[K${GREY}%s${RESET} %s" "$spinner" "$spinner_label"
+        printf "\r\033[K${GREY}%s${RESET} %b" "$spinner" "$spinner_label"
         sleep 0.1
     done
 
-    printf "\r\033[K%s\n" "$final_line"
+    printf "\r\033[K%b\n" "$final_line"
 }
-
 # Show process setup messages using the braille animation
 show_process_messages() {
+    # Kill blockers first, then quick confirm
+    ./scripts/kill_blockers.sh
     animate_process_step "${WHITE}Killing any blocking processes.${RESET}" "${WHITE}✔ Killing any blocking processes.${RESET}" 1
     
-    # Actually kill processes while showing spinner
-    fkill --force 'n-apt-backend' ':5173' ':8765' 2>/dev/null || true
-    
+    # Start frontend (Vite will pick up VITE_* env set above)
+    node_modules/.bin/vite dev --host > /tmp/vite_output.log 2>&1 &
+    VITE_PID=$!
     animate_process_step "${WHITE}Starting frontend server. ${BLUE}Vite${RESET}.${RESET}" "${WHITE}✔ Starting frontend server. ${BLUE}Vite${RESET}.${RESET}" 1
     
-    npm run dev:fast > /dev/null 2>&1 &
-    VITE_PID=$!
-    
+    # Checks
     animate_process_step "${WHITE}Checking to build backend server. ${ORANGE}Rust${RESET}.${RESET}" "${WHITE}✔ Checking to build backend server. ${ORANGE}Rust${RESET}.${RESET}" 1
     animate_process_step "${WHITE}Checking to wasm_simd package. ${ORANGE}Rust${RESET} -> ${ORANGE}wasm_simd${RESET}.${RESET}" "${WHITE}✔ Checking to wasm_simd package. ${ORANGE}Rust${RESET} -> ${ORANGE}wasm_simd${RESET}.${RESET}" 1
-    animate_process_step "${WHITE}Building (dev-fast)...${RESET}" "${WHITE}✔ Building (dev-fast)...${RESET}" 1
-    
-    # Start the actual builds
+
+    # Builds
     npm run build:wasm > /dev/null 2>&1 || true
     animate_process_step "${WHITE}Building (wasm_simd)...${RESET}" "${WHITE}✔ Building (wasm_simd)...${RESET}" 1
     
-    cargo build --bin n-apt-backend > /dev/null 2>&1
-    cargo run --bin n-apt-backend > /dev/null 2>&1 &
-    RUST_PID=$!
-    
-    animate_process_step "${WHITE}Starting to build backend server. ${ORANGE}Rust${RESET}.${RESET}" "${WHITE}✔ Starting to build backend server. ${ORANGE}Rust${RESET}.${RESET}" 1
+    set +e
+    CARGO_BUILD_OUT=$(cargo build --bin n-apt-backend 2>&1)
+    CARGO_BUILD_STATUS=$?
+    set -e
+    echo "$CARGO_BUILD_OUT" > /tmp/cargo_build.log
+    CARGO_WARNINGS=$(echo "$CARGO_BUILD_OUT" | grep -c "warning:" || true)
+    WARNING_COUNT=$((WARNING_COUNT + CARGO_WARNINGS))
+    if [ $CARGO_BUILD_STATUS -ne 0 ] || echo "$CARGO_BUILD_OUT" | grep -q "error:"; then
+        ERROR_COUNT=$((ERROR_COUNT + 1))
+        BUILD_FAILED=1
+    else
+        BUILD_FAILED=0
+    fi
+    animate_process_step "${WHITE}Building (backend)... ${ORANGE}Rust${RESET}.${RESET}" "${WHITE}✔ Building (backend)... ${ORANGE}Rust${RESET}.${RESET}" 1
+
+    if [ $BUILD_FAILED -eq 0 ]; then
+        cargo run --bin n-apt-backend > /tmp/rust_output.log 2>&1 &
+        RUST_PID=$!
+        animate_process_step "${WHITE}Starting backend server. ${ORANGE}Rust${RESET}.${RESET}" "${WHITE}✔ Starting backend server. ${ORANGE}Rust${RESET}.${RESET}" 1
+    else
+        RUST_PID=""
+    fi
     
     echo ""
     echo ""
@@ -225,7 +267,7 @@ print_box_line() {
     fi
     local right_len=${#right_str}
     local total_content=$((left_len + right_len))
-    local pad_len=$((73 - total_content))
+    local pad_len=$((INNER_WIDTH - total_content))
     
     local pad=""
     if [ $pad_len -gt 0 ]; then
@@ -244,14 +286,22 @@ get_braille_spinner() {
 }
 
 # Show unified output box
-show_unified_box() {
+render_unified_box_frame() {
+    local spinner="$1"
+    local skip_leading_newline="${2:-0}"
+
     if [ -z "$VITE_PID" ] || [ -z "$RUST_PID" ]; then
         echo -e "${RED}✗ One or more services failed to start${RESET}"
         return
     fi
 
-    END_TIME=$(date +%s)
-    DURATION=$((END_TIME - START_TIME))
+    # Use a locked duration if set (from show_unified_box) so the timer stops ticking during animation
+    if [ -n "$BOX_DURATION" ]; then
+        DURATION=$BOX_DURATION
+    else
+        END_TIME=$(date +%s)
+        DURATION=$((END_TIME - START_TIME))
+    fi
     
     # Force terminal width to a specific value if provided via env var
     TERM_WIDTH=${FORCE_COLOR_WIDTH:-0}
@@ -277,18 +327,18 @@ show_unified_box() {
     
     echo ""
     
-    if [ "$TERM_WIDTH" -lt 76 ]; then
+    if [ "$TERM_WIDTH" -lt "$BOX_WIDTH" ]; then
         # Compact mode for narrow terminals
         echo -e "${WHITE}┌─────┐${RESET}"
-        echo -e "${WHITE}│ n a │${RESET} ${WHITE}✔ Running .. $(get_braille_spinner)${RESET}"
+        echo -e "${WHITE}│ n a │${RESET} ${WHITE}✔ Running ${spinner}${RESET}"
         echo -e "${WHITE}│ p t │${RESET} ${GREY}${VITE_PID}${RESET} ${BLUE}Vite${RESET} ${GREY}PID ⠶ ${RUST_PID}${RESET} ${ORANGE}Rust${RESET} ${GREY}server PID${RESET}"
         echo -e "${WHITE}└─────┘${RESET}"
         echo ""
-        echo -e "${WHITE}N-APT${RESET} 🧠  ${BLUE}http://localhost:5173${RESET} ${GREY}(site)${RESET}"
+        echo -e "${WHITE}N-APT${RESET} 🧠  ${BLUE}${APP_URL}${RESET} ${GREY}(site)${RESET}"
         echo -e "${GREY}           cmd + click to open in default browser${RESET}"
         echo ""
-        echo -e "${ORANGE}http://localhost:8765${RESET} ${GREY}(websockets backend)${RESET}"
-        echo -e "${GREY}packages/n_apt_canvas (WebGPU wasm_simd build)${RESET}"
+        echo -e "${ORANGE}${WEBSOCKETS_URL}${RESET} ${GREY}(websockets backend)${RESET}"
+        echo -e "${GREY}${WASM_BUILD_PATH} (WebGPU wasm_simd build)${RESET}"
         echo ""
         echo -e "${GREY}Press Ctrl+C to stop all services${RESET}"
         echo ""
@@ -296,27 +346,24 @@ show_unified_box() {
         echo -e "${GREY}running in ${DURATION}s${RESET}"
     else
         # Full box mode for wide terminals
-        echo -e "${WHITE}┌─────────────────────────────────────────────────────────────────────────┐${RESET}"
+        local border_line=$(printf '─%.0s' {1..59})
+        echo -e "${WHITE}┌${border_line}┐${RESET}"
         
-        print_box_line " ┌─────┐" "✔ Running .. $(get_braille_spinner) " " ${WHITE}┌─────┐${RESET}" "${WHITE}✔ Running .. $(get_braille_spinner)${RESET} "
+        print_box_line " ┌─────┐" "✔ Running ${spinner} " " ${WHITE}┌─────┐${RESET}" "${WHITE}✔ Running ${spinner}${RESET} "
         
         local pid_str=" ${VITE_PID} Vite PID ⠶ ${RUST_PID} Rust server PID "
         local pid_col=" ${GREY}${VITE_PID}${RESET} ${BLUE}Vite${RESET} ${GREY}PID ⠶ ${RUST_PID}${RESET} ${ORANGE}Rust${RESET} ${GREY}server PID${RESET} "
         print_box_line " │ n a │" "$pid_str" " ${WHITE}│ n a │${RESET}" "$pid_col"
-        
-        print_box_line " │ p t │" " " " ${WHITE}│ p t │${RESET}" " "
+        print_box_line " │ p t │" " Press Ctrl+C to stop all services" " ${WHITE}│ p t │${RESET}" " ${GREY}Press Ctrl+C to stop all services${RESET}"
         print_box_line " └─────┘" " " " ${WHITE}└─────┘${RESET}" " "
         print_box_line " " " " " " " "
         
-        print_box_line " N-APT 🧠  http://localhost:5173 (site)" " " " ${WHITE}N-APT${RESET} 🧠  ${BLUE}http://localhost:5173${RESET} ${GREY}(site)${RESET}" " "
+        print_box_line " N-APT 🧠  ${APP_URL} (site)" " " " ${WHITE}N-APT${RESET} 🧠  ${BLUE}${APP_URL}${RESET} ${GREY}(site)${RESET}" " "
         print_box_line "           cmd + click to open in default browser" " " "           ${GREY}cmd + click to open in default browser${RESET}" " "
         print_box_line " " " " " " " "
         
-        print_box_line "           http://localhost:8765 (websockets backend)" " " "           ${ORANGE}http://localhost:8765${RESET} ${GREY}(websockets backend)${RESET}" " "
-        print_box_line "           packages/n_apt_canvas (WebGPU wasm_simd build)" " " "           ${GREY}packages/n_apt_canvas (WebGPU wasm_simd build)${RESET}" " "
-        print_box_line " " " " " " " "
-        print_box_line " " " " " " " "
-        print_box_line "           Press Ctrl+C to stop all services" " " "           ${GREY}Press Ctrl+C to stop all services${RESET}" " "
+        print_box_line "           ${WEBSOCKETS_URL} (websockets backend)" " " "           ${ORANGE}${WEBSOCKETS_URL}${RESET} ${GREY}(websockets backend)${RESET}" " "
+        print_box_line "           ${WASM_BUILD_PATH} (WebGPU wasm_simd build)" " " "           ${GREY}${WASM_BUILD_PATH} (WebGPU wasm_simd build)${RESET}" " "
         print_box_line " " " " " " " "
         print_box_line " " " " " " " "
         
@@ -327,35 +374,43 @@ show_unified_box() {
         
         print_box_line "$err_str" "$time_str" "$err_col" "$time_col"
         
-        echo -e "${WHITE}└─────────────────────────────────────────────────────────────────────────┘${RESET}"
+        echo -e "${WHITE}└${border_line}┘${RESET}"
     fi
+}
+
+show_unified_box() {
+    # Always render once to avoid stacking frames or terminal artifacts
+    BOX_DURATION=$(( $(date +%s) - START_TIME ))
+    render_unified_box_frame "$(get_braille_spinner)"
 }
 
 # Show errors and warnings (moved before runtime status)
 show_errors_warnings() {
     echo ""
     
-    # Show warnings
-    if [ $WARNING_COUNT -gt 0 ]; then
-        echo -e "${YELLOW}▲${RESET} ${WHITE}unused variable: \`state\`${RESET}"
-        echo -e "${GREY}  ${ORANGE}src/server/http_endpoints.rs:145:9${RESET}"
+    # Show warnings from cargo log if present
+    if [ $WARNING_COUNT -gt 0 ] && [ -f /tmp/cargo_build.log ]; then
+        WARN_NUMS=$(grep -n "warning:" /tmp/cargo_build.log | grep -v "n-apt-backend" | head -n 3 | cut -d: -f1)
+        while IFS= read -r num; do
+            [ -z "$num" ] && continue
+            warn_line=$(sed -n "${num}p" /tmp/cargo_build.log)
+            next_line_num=$((num + 1))
+            path_line=$(sed -n "${next_line_num}p" /tmp/cargo_build.log)
+            echo -e "${YELLOW}▲${RESET} ${WHITE}${warn_line}${RESET}"
+            if [ -n "$path_line" ]; then
+                echo -e "    ${GREY}${path_line}${RESET}"
+            fi
+        done <<< "$WARN_NUMS"
     fi
     
-    # Show errors
-    if [ $ERROR_COUNT -gt 0 ]; then
-        echo -e "${RED}✗${RESET} ${WHITE}mismatched types${RESET}"
-        echo -e "${GREY}  ${BLUE}src/components/FFTCanvas.tsx:23:15${RESET}"
+    # Show errors from cargo log if present
+    if [ $ERROR_COUNT -gt 0 ] && [ -f /tmp/cargo_build.log ]; then
+        ERR_LINES=$(grep "error:" /tmp/cargo_build.log | head -n 3)
+        while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            echo -e "${RED}✗${RESET} ${WHITE}${line}${RESET}"
+        done <<< "$ERR_LINES"
     fi
-}
-
-# Show footer summary
-show_footer() {
-    END_TIME=$(date +%s)
-    DURATION=$((END_TIME - START_TIME))
-    
-    echo ""
-    echo -e "${RED}✗ $ERROR_COUNT errors${RESET}${YELLOW} ▲ $WARNING_COUNT warnings${RESET}"
-    echo -e "${BLUE}running in ${DURATION}s${RESET}"
 }
 
 # Cleanup function on exit
@@ -368,8 +423,9 @@ cleanup_on_exit() {
     fi
 }
 
-# Set up cleanup trap
+# Set up cleanup trap and stop animation on Ctrl+C
 trap cleanup_on_exit EXIT
+trap 'STOP_ANIM=1' INT
 
 # Main execution
 main() {
@@ -377,28 +433,24 @@ main() {
     echo ""
     
     cleanup_processes
-    build_wasm_simd
-    build_rust_backend
-    start_frontend
-    start_backend
-    
-    show_errors_warnings
-    show_runtime_status
-    show_footer
+    show_process_messages
+
+    # Wait for backend to log startup before showing the box (manual loop, no timeout binary needed)
+    if [ -f /tmp/rust_output.log ]; then
+        for i in {1..50}; do
+            if grep -q "Starting server on 127.0.0.1:8765" /tmp/rust_output.log 2>/dev/null; then
+                break
+            fi
+            sleep 0.2
+        done
+    fi
+
+    show_unified_box
     
     # Keep script running to maintain services
     if [ -n "$VITE_PID" ] && [ -n "$RUST_PID" ]; then
-        echo ""
-        echo -e "${BLUE}Press Ctrl+C to stop all services${RESET}"
-        
-        # Monitor processes
         while true; do
-            if ! ps -p $VITE_PID > /dev/null; then
-                echo -e "${RED}Frontend server stopped unexpectedly${RESET}"
-                break
-            fi
-            if ! ps -p $RUST_PID > /dev/null; then
-                echo -e "${RED}Backend server stopped unexpectedly${RESET}"
+            if ! ps -p $VITE_PID > /dev/null 2>&1 || ! ps -p $RUST_PID > /dev/null 2>&1; then
                 break
             fi
             sleep 5

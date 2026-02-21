@@ -2,6 +2,7 @@
 
 # Build script for WASM SIMD module
 # This script compiles the Rust code to WebAssembly with SIMD support
+# Uses WASM_OUT env (default packages/n_apt_canvas) as output dir for consistency
 
 set -e
 
@@ -12,6 +13,7 @@ echo ""
 
 # Ensure we're using rustup version of Rust
 export PATH="$HOME/.cargo/bin:$PATH"
+WASM_OUT=${WASM_OUT:-packages/n_apt_canvas}
 
 # Check if wasm-pack is installed
 if ! command -v wasm-pack &> /dev/null; then
@@ -28,16 +30,16 @@ rustup target list --installed | grep wasm32-unknown-unknown >/dev/null || {
 
 # Build the WASM module only if needed
 echo "🔍 Checking if WASM SIMD module needs to be built..."
-if ./scripts/check_changes.sh "packages/n_apt_canvas" "src/lib.rs" "src/wasm_simd/*.rs" "Cargo.toml" "Cargo.lock"; then
+if ./scripts/check_changes.sh "$WASM_OUT" "src/lib.rs" "src/wasm_simd/*.rs" "Cargo.toml" "Cargo.lock"; then
     echo "📦 Building WASM SIMD module with optimizations..."
-    mkdir -p packages/n_apt_canvas
-    RUSTFLAGS="-C target-feature=+simd128" wasm-pack build --target web --out-dir packages/n_apt_canvas --dev
+    mkdir -p "$WASM_OUT"
+    RUSTFLAGS="-C target-feature=+simd128" wasm-pack build --target web --out-dir "$WASM_OUT" --dev
     echo "✅ WASM SIMD module built successfully!"
     echo "🚀 SIMD optimizations enabled for faster FFT processing"
 else
     echo "✅ WASM SIMD module is up to date, skipping build..."
 fi
 
-echo "📁 Output directory: packages/n_apt_canvas/"
+echo "📁 Output directory: $WASM_OUT/"
 echo ""
 exit 0
