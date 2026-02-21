@@ -13,6 +13,10 @@ RED='\033[31m'
 GREY='\033[38;5;145m'
 RESET='\033[0m'
 
+# Silence all output before the logo draws
+exec 3>&1 4>&2
+exec >/dev/null 2>&1
+
 # Start time
 START_TIME=$(date +%s)
 START_TIME_MS=$(python3 - <<'PY'
@@ -65,6 +69,8 @@ animate_process_step() {
 }
 
 # Clear screen for clean output
+# Restore stdout/stderr now that we're ready to render
+exec 1>&3 2>&4
 clear
 
 # Logo
@@ -107,9 +113,10 @@ show_animated_spinner() {
     TERM_WIDTH=${FORCE_COLOR_WIDTH:-0}
 
     if [ "$TERM_WIDTH" -eq 0 ]; then
-        # Try to get the real terminal width even when piped through npm
-        # stty size seems to be the most reliable across npm pipes on macOS
-        if STTY_SIZE=$(stty size 2>/dev/null); then
+        # Prefer /dev/tty to get width even when piped through npm
+        if STTY_SIZE=$(stty size < /dev/tty 2>/dev/null); then
+            TERM_WIDTH=$(echo "$STTY_SIZE" | awk '{print $2}')
+        elif STTY_SIZE=$(stty size 2>/dev/null); then
             TERM_WIDTH=$(echo "$STTY_SIZE" | awk '{print $2}')
         elif TPUT_COLS=$(tput cols 2>/dev/null); then
             TERM_WIDTH=$TPUT_COLS
@@ -144,7 +151,7 @@ show_animated_spinner() {
             echo -e "${WHITE}└─────┘${RESET}"
             echo ""
             echo -e "${WHITE}N-APT${RESET} 🧠  ${BLUE}http://localhost:5173${RESET} ${GREY}(site)${RESET}"
-            echo -e "${GREY}           cmd + click to open in default browser${RESET}"
+            echo -e "${GREY}            cmd + click to open in default browser${RESET}"
             echo ""
             echo -e "${GREY}http://localhost:8765 (websockets backend)${RESET}"
             echo -e "${GREY}packages/n_apt_canvas (WebGPU wasm_simd build)${RESET}"
@@ -162,23 +169,19 @@ show_animated_spinner() {
 
             print_box_line " ┌─────┐" "✔ Running  $(get_braille_spinner)  " " ${WHITE}┌─────┐${RESET}" "${GREY}✔${RESET} ${WHITE}Running${RESET}  ${GREY}$(get_braille_spinner)${RESET}  "
             
-            pid_str="  ${VITE_PID} Vite PID ⠶ ${RUST_PID} Rust server PID"
-            pid_col="  ${GREY}${VITE_PID}${RESET} ${BLUE}Vite${RESET} ${GREY}PID ⠶ ${RUST_PID}${RESET} ${ORANGE}Rust${RESET} ${GREY}server PID${RESET}"
+            pid_str="${VITE_PID} Vite PID ⠶ ${RUST_PID} Rust server PID "
+            pid_col="${GREY}${VITE_PID}${RESET} ${BLUE}Vite${RESET} ${GREY}PID ⠶ ${RUST_PID}${RESET} ${ORANGE}Rust${RESET} ${GREY}server PID${RESET} "
             print_box_line " │ n a │" "$pid_str" " ${WHITE}│ n a │${RESET}" "$pid_col"
-            
-            print_box_line " │ p t │" " " " ${WHITE}│ p t │${RESET}" " "
+            print_box_line " │ p t │" " Press Ctrl+C to stop all services" " ${WHITE}│ p t │${RESET}" " ${GREY}Press Ctrl+C to stop all services${RESET}"
             print_box_line " └─────┘" " " " ${WHITE}└─────┘${RESET}" " "
             print_box_line " " " " " " " "
             
             print_box_line " N-APT 🧠  http://localhost:5173 (site)" " " " ${WHITE}N-APT${RESET} 🧠  ${BLUE}http://localhost:5173${RESET} ${GREY}(site)${RESET}" " "
-            print_box_line "          cmd + click to open in default browser" " " "          ${GREY}cmd + click to open in default browser${RESET}" " "
+            print_box_line "           cmd + click to open in default browser" " " "           ${GREY}cmd + click to open in default browser${RESET}" " "
             print_box_line " " " " " " " "
 
             print_box_line "           http://localhost:8765 (websockets backend)" " " "           ${GREY}http://localhost:8765 (websockets backend)${RESET}" " "
             print_box_line "           packages/n_apt_canvas (WebGPU wasm_simd build)" " " "           ${GREY}packages/n_apt_canvas (WebGPU wasm_simd build)${RESET}" " "
-            print_box_line " " " " " " " "
-            print_box_line " " " " " " " "
-            print_box_line "           Press Ctrl+C to stop all services" " " "           ${GREY}Press Ctrl+C to stop all services${RESET}" " "
             print_box_line " " " " " " " "
             print_box_line " " " " " " " "
 
@@ -280,9 +283,10 @@ echo -e "${GREY}  ${BLUE}src/components/FFTCanvas.tsx:23:15${RESET}"
 TERM_WIDTH=${FORCE_COLOR_WIDTH:-0}
 
 if [ "$TERM_WIDTH" -eq 0 ]; then
-    # Try to get the real terminal width even when piped through npm
-    # stty size seems to be the most reliable across npm pipes on macOS
-    if STTY_SIZE=$(stty size 2>/dev/null); then
+    # Prefer /dev/tty to get width even when piped through npm
+    if STTY_SIZE=$(stty size < /dev/tty 2>/dev/null); then
+        TERM_WIDTH=$(echo "$STTY_SIZE" | awk '{print $2}')
+    elif STTY_SIZE=$(stty size 2>/dev/null); then
         TERM_WIDTH=$(echo "$STTY_SIZE" | awk '{print $2}')
     elif TPUT_COLS=$(tput cols 2>/dev/null); then
         TERM_WIDTH=$TPUT_COLS
@@ -305,6 +309,7 @@ if [ "$TERM_WIDTH" -lt 76 ]; then
     echo -e "${WHITE}┌─────┐${RESET}"
     echo -e "${WHITE}│ n a │${RESET} ${GREY}✔${RESET} ${WHITE}Running${RESET}  ${GREY}$(get_braille_spinner)${RESET}"
     echo -e "${WHITE}│ p t │${RESET} ${GREY}${VITE_PID}${RESET} ${BLUE}Vite${RESET} ${GREY}PID ⠶ ${RUST_PID}${RESET} ${ORANGE}Rust${RESET} ${GREY}server PID${RESET}"
+    echo -e "${GREY}Press Ctrl+C to stop all services${RESET}"
     echo -e "${WHITE}└─────┘${RESET}"
     echo ""
     echo -e "${WHITE}N-APT${RESET} 🧠  ${BLUE}http://localhost:5173${RESET} ${GREY}(site)${RESET}"
@@ -312,9 +317,6 @@ if [ "$TERM_WIDTH" -lt 76 ]; then
     echo ""
     echo -e "${GREY}http://localhost:8765 (websockets backend)${RESET}"
     echo -e "${GREY}packages/n_apt_canvas (WebGPU wasm_simd build)${RESET}"
-    echo ""
-    echo -e "${GREY}Press Ctrl+C to stop all services${RESET}"
-    echo ""
     echo -e "${RED}✗ 2 errors${RESET}   ${YELLOW}▲ 107 warnings${RESET}"
     echo -e "${GREY}running in ${DURATION}s${RESET}"
 else
@@ -326,8 +328,7 @@ else
     pid_str="${VITE_PID} Vite PID ⠶ ${RUST_PID} Rust server PID "
     pid_col="${GREY}${VITE_PID}${RESET} ${BLUE}Vite${RESET} ${GREY}PID ⠶ ${RUST_PID}${RESET} ${ORANGE}Rust${RESET} ${GREY}server PID${RESET} "
     print_box_line " │ n a │" "$pid_str" " ${WHITE}│ n a │${RESET}" "$pid_col"
-    
-    print_box_line " │ p t │" " " " ${WHITE}│ p t │${RESET}" " "
+    print_box_line " │ p t │" " Press Ctrl+C to stop all services" " ${WHITE}│ p t │${RESET}" " ${GREY}Press Ctrl+C to stop all services${RESET}"
     print_box_line " └─────┘" " " " ${WHITE}└─────┘${RESET}" " "
     print_box_line " " " " " " " "
     
@@ -337,9 +338,6 @@ else
 
     print_box_line "           http://localhost:8765 (websockets backend)" " " "           ${GREY}http://localhost:8765 (websockets backend)${RESET}" " "
     print_box_line "           packages/n_apt_canvas (WebGPU wasm_simd build)" " " "           ${GREY}packages/n_apt_canvas (WebGPU wasm_simd build)${RESET}" " "
-    print_box_line " " " " " " " "
-    print_box_line " " " " " " " "
-    print_box_line "           Press Ctrl+C to stop all services" " " "           ${GREY}Press Ctrl+C to stop all services${RESET}" " "
     print_box_line " " " " " " " "
     print_box_line " " " " " " " "
 
