@@ -11,7 +11,7 @@ use super::utils::load_spectrum_frames;
 pub const DEVICE_PROBE_INTERVAL: std::time::Duration = std::time::Duration::from_millis(200);
 
 /// Passkey for AES-256-GCM encryption. Read from N_APT_PASSKEY env var at startup.
-/// Falls back to a default for development.
+/// Falls back to UNSAFE_LOCAL_USER_PASSWORD (env) or a default for development.
 pub const DEFAULT_PASSKEY: &str = "n-apt-dev-key";
 
 /// Shared state visible to the async runtime (lock-free where possible)
@@ -53,7 +53,9 @@ pub struct SharedState {
 
 impl SharedState {
     pub fn new() -> Arc<Self> {
-        let passkey = std::env::var("N_APT_PASSKEY").unwrap_or_else(|_| DEFAULT_PASSKEY.to_string());
+        let passkey = std::env::var("N_APT_PASSKEY")
+            .or_else(|_| std::env::var("UNSAFE_LOCAL_USER_PASSWORD"))
+            .unwrap_or_else(|_| DEFAULT_PASSKEY.to_string());
         let encryption_key = n_apt_backend::crypto::derive_key(&passkey);
         log::info!("Encryption key derived from passkey (PBKDF2-HMAC-SHA256, {} iterations)", 100_000);
 

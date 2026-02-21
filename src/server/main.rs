@@ -20,6 +20,7 @@ mod websocket_server;
 use anyhow::Result;
 use axum::routing::{get, post};
 use axum::Router;
+use std::env;
 use log::info;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -34,7 +35,7 @@ use webauthn_rs::prelude::*;
 
 use n_apt_backend::credentials::CredentialStore;
 use n_apt_backend::session::SessionStore;
-use n_apt_backend::consts::rs::env::{WS_HOST, WS_PORT};
+use n_apt_backend::consts::rs::env::{ws_host, ws_port};
 
 /// Application state shared across all HTTP handlers.
 /// 
@@ -57,14 +58,26 @@ pub struct AppState {
 impl websocket_server::WebSocketServer {
     /// Create the Axum app with all routes and middleware
     pub fn create_app(state: Arc<AppState>) -> Router {
-        // CORS configuration - strict origin validation
+        // CORS configuration - strict origin validation using APP_URL
+        let app_url = env::var("APP_URL").unwrap_or_else(|_| "http://localhost:5173".to_string());
+        let mut origins: Vec<HeaderValue> = vec![];
+        if let Ok(val) = app_url.parse::<HeaderValue>() {
+            origins.push(val);
+        }
+        // common local fallbacks
+        for fallback in [
+            "http://127.0.0.1:5173",
+            "http://localhost:5173",
+            "http://127.0.0.1:3000",
+            "http://localhost:3000",
+        ] {
+            if let Ok(val) = fallback.parse::<HeaderValue>() {
+                origins.push(val);
+            }
+        }
+
         let cors = CorsLayer::new()
-            .allow_origin([
-                "http://localhost:5173".parse::<HeaderValue>().unwrap(),
-                "http://127.0.0.1:5173".parse::<HeaderValue>().unwrap(),
-                "http://localhost:3000".parse::<HeaderValue>().unwrap(),
-                "http://127.0.0.1:3000".parse::<HeaderValue>().unwrap(),
-            ])
+            .allow_origin(origins)
             .allow_methods([
                 axum::http::Method::GET,
                 axum::http::Method::POST,
@@ -149,8 +162,8 @@ impl websocket_server::WebSocketServer {
 
         let app = Self::create_app(state);
 
-        let host = WS_HOST.to_string();
-        let port = WS_PORT;
+        let host = ws_host();
+        let port = ws_port();
 
         info!("Starting server on {}:{}", host, port);
         let listener = tokio::net::TcpListener::bind((host, port)).await?;
