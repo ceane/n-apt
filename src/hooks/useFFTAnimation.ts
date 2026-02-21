@@ -77,12 +77,13 @@ export function useFFTAnimation({
   }, [animate, onBecomeVisible]);
 
   useEffect(() => {
-    if (isVisibleRef.current && !isPaused) {
+    if (isVisibleRef.current) {
       animationRunIdRef.current += 1;
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
       }
-      animate(false);
+      // Force an immediate render when unpausing to prevent flicker
+      animate(!isPaused);
     } else {
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);

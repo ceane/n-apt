@@ -1,4 +1,4 @@
-import React, { Suspense, useRef } from "react";
+import React, { Suspense } from "react";
 import styled from "styled-components";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls, useGLTF, TransformControls } from "@react-three/drei";
@@ -9,7 +9,6 @@ import {
   SPHERE_GEOMETRY_SEGMENTS,
   SPHERE_MARKER_COLOR,
   SPHERE_MARKER_BASE_INTENSITY,
-  CONTROL_PANEL_WIDTH,
 } from "@n-apt/consts";
 
 type Area = {
@@ -98,7 +97,7 @@ export const HumanModelViewerSimple: React.FC<HumanModelViewerSimpleProps> = ({
             <Model selectedArea={selectedArea} />
           </TransformControls>
           <Brain />
-          <OrbitControls ref={controlsRef} />
+          <OrbitControls ref={controlsRef} makeDefault enableDamping />
         </Suspense>
       </Canvas>
     </CanvasContainer>

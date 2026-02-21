@@ -97,6 +97,18 @@ pub struct WebSocketMessage {
   pub file_type: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub encrypted: Option<bool>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "screenWidth")]
+  pub screen_width: Option<u32>,
+}
+
+/// Auto FFT size options response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AutoFftOptionsResponse {
+  #[serde(rename = "type")]
+  pub message_type: String,
+  #[serde(rename = "autoSizes")]
+  pub auto_sizes: Vec<usize>,
+  pub recommended: usize,
 }
 
 /// Spectrum data message sent to clients

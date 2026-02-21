@@ -268,6 +268,7 @@ interface SidebarProps {
   deviceInfo: string | null;
   maxSampleRateHz: number | null;
   captureStatus: CaptureStatus;
+  autoFftOptions?: { message_type: "auto_fft_options"; autoSizes: number[]; recommended: number } | null;
   onCaptureCommand: (req: CaptureRequest) => void;
   spectrumFrames?: Array<{
     id: string;
@@ -331,6 +332,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   deviceInfo,
   maxSampleRateHz,
   captureStatus,
+  autoFftOptions,
   onCaptureCommand,
   spectrumFrames,
   activeTab,
@@ -888,6 +890,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                 fftSize={fftSize}
                 fftWindow={fftWindow}
                 temporalResolution={displayTemporalResolution || "medium"}
+                autoFftOptions={autoFftOptions}
                 onFftFrameRateChange={setFftFrameRate}
                 onFftSizeChange={setFftSize}
                 onFftWindowChange={setFftWindow}

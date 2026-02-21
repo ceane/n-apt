@@ -50,6 +50,12 @@ export type SpectrumFrame = {
   description: string;
 };
 
+export type AutoFftOptionsResponse = {
+  message_type: "auto_fft_options";
+  autoSizes: number[];
+  recommended: number;
+};
+
 export type WebSocketData = {
   isConnected: boolean;
   deviceState: DeviceState;
@@ -62,6 +68,7 @@ export type WebSocketData = {
   dataRef: React.MutableRefObject<any>;
   spectrumFrames: SpectrumFrame[];
   captureStatus: CaptureStatus;
+  autoFftOptions: AutoFftOptionsResponse | null;
   error: string | null;
   sendFrequencyRange: (range: FrequencyRange) => void;
   sendPauseCommand: (isPaused: boolean) => void;
@@ -73,6 +80,7 @@ export type WebSocketData = {
     label: "target" | "noise",
     signalArea: string,
   ) => void;
+  sendGetAutoFftOptions: (screenWidth: number) => void;
 };
 
 // Reconnect backoff schedule (seconds)
@@ -90,6 +98,7 @@ type WsState = {
   data: any;
   spectrumFrames: SpectrumFrame[];
   captureStatus: CaptureStatus;
+  autoFftOptions: AutoFftOptionsResponse | null;
   error: string | null;
 };
 
@@ -100,6 +109,7 @@ type WsAction =
   | { type: "ERROR"; error: string }
   | { type: "STATUS"; updates: Partial<WsState> }
   | { type: "CAPTURE_STATUS"; status: CaptureStatus }
+  | { type: "AUTO_FFT_OPTIONS"; options: AutoFftOptionsResponse }
   | { type: "DATA"; data: any };
 
 const INITIAL_WS_STATE: WsState = {
@@ -114,6 +124,7 @@ const INITIAL_WS_STATE: WsState = {
   data: null,
   spectrumFrames: [],
   captureStatus: null,
+  autoFftOptions: null,
   error: null,
 };
 
@@ -131,6 +142,8 @@ function wsReducer(state: WsState, action: WsAction): WsState {
       return { ...state, ...action.updates };
     case "CAPTURE_STATUS":
       return { ...state, captureStatus: action.status };
+    case "AUTO_FFT_OPTIONS":
+      return { ...state, autoFftOptions: action.options };
     case "DATA":
       return { ...state, data: action.data };
     default:
@@ -390,6 +403,29 @@ export const useWebSocket = (
               return;
             }
 
+            // ── Auto FFT options messages (plaintext) ─────────────────
+            if (raw.includes('"message_type":"auto_fft_options"')) {
+              console.log("Received auto FFT options message:", raw);
+              try {
+                const parsed = JSON.parse(raw);
+                if (
+                  Array.isArray(parsed.autoSizes) &&
+                  typeof parsed.recommended === "number"
+                ) {
+                  const options: AutoFftOptionsResponse = {
+                    message_type: "auto_fft_options",
+                    autoSizes: parsed.autoSizes,
+                    recommended: parsed.recommended,
+                  };
+                  console.log("Setting auto FFT options:", options);
+                  dispatch({ type: "AUTO_FFT_OPTIONS", options });
+                }
+              } catch (e) {
+                console.error("Failed to parse auto FFT options:", e);
+              }
+              return;
+            }
+
             // ── Encrypted spectrum data ─────────────────────────────
             if (raw.includes('"type":"encrypted_spectrum"')) {
               pendingRawRef.current = raw;
@@ -601,6 +637,19 @@ export const useWebSocket = (
     [],
   );
 
+  // Function to request auto FFT options from the server
+  const sendGetAutoFftOptions = useCallback((screenWidth: number) => {
+    const ws = wsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      const message = JSON.stringify({
+        type: "get_auto_fft_options",
+        screenWidth: screenWidth,
+      });
+      console.log("Requesting auto FFT options for screen width:", screenWidth);
+      ws.send(message);
+    }
+  }, []);
+
   return {
     ...state,
     dataRef,
@@ -610,5 +659,6 @@ export const useWebSocket = (
     sendRestartDevice,
     sendCaptureCommand,
     sendTrainingCommand,
+    sendGetAutoFftOptions,
   };
 };

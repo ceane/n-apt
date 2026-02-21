@@ -15,6 +15,23 @@ use super::shared_state::SharedState;
 use super::types::{WsQueryParams, WebSocketMessage};
 use super::utils::reconcile_device_state;
 
+/// Calculate optimal FFT sizes based on screen width
+fn calculate_auto_fft_sizes(screen_width: u32) -> Vec<usize> {
+    let base_size = (screen_width / 2).next_power_of_two() as usize;
+    let mut sizes = vec![base_size];
+    
+    // Add next power of 2 if it's within reasonable bounds
+    let next_size = base_size * 2;
+    if next_size <= 65536 {
+        sizes.push(next_size);
+    }
+    
+    // Filter out sizes that are too small and sort
+    sizes.into_iter()
+        .filter(|&size| size >= 1024)
+        .collect()
+}
+
 /// GET /ws?token=<session_token> — upgrade to WebSocket after validating session.
 pub async fn ws_upgrade_handler(
   ws: WebSocketUpgrade,
@@ -160,7 +177,28 @@ pub async fn handle_ws_connection(
         match client_msg {
           Some(Ok(Message::Text(text))) => {
             if let Ok(message) = serde_json::from_str::<WebSocketMessage>(&text) {
-              handle_message(&cmd_tx, &shared, message);
+              // Handle auto FFT options directly in the connection loop
+              if message.message_type == "get_auto_fft_options" {
+                if let Some(screen_width) = message.screen_width {
+                  info!("Client requested auto FFT options for screen width: {}", screen_width);
+                  let auto_sizes = calculate_auto_fft_sizes(screen_width);
+                  let recommended = auto_sizes.first().copied().unwrap_or(2048);
+                  
+                  let response = super::types::AutoFftOptionsResponse {
+                    message_type: "auto_fft_options".to_string(),
+                    auto_sizes: auto_sizes.clone(),
+                    recommended,
+                  };
+                  
+                  if let Ok(response_json) = serde_json::to_string(&response) {
+                    if ws_sender.send(Message::Text(response_json)).await.is_err() {
+                      break;
+                    }
+                  }
+                }
+              } else {
+                handle_message(&cmd_tx, &shared, message);
+              }
             }
           }
           Some(Ok(Message::Close(_))) | Some(Err(_)) | None => break,
@@ -241,30 +279,7 @@ pub fn handle_message(
       }
     }
     "capture" => {
-      if let Some(action) = message.action.as_deref() {
-        if action == "start" {
-          if let (Some(job_id), Some(min_freq), Some(max_freq), Some(duration_s), Some(file_type)) = 
-            (message.job_id, message.min_freq, message.max_freq, message.duration_s, message.file_type) {
-            let encrypted = message.encrypted.unwrap_or(false);
-            let fft_size = message.fft_size.unwrap_or(n_apt_backend::consts::rs::fft::NUM_SAMPLES);
-            let fft_window = message.fft_window.unwrap_or_else(|| "hann".to_string());
-            
-            info!("Client requested capture: job_id={}, range={}-{} MHz, duration={}s, type={}, encrypted={}",
-              job_id, min_freq, max_freq, duration_s, file_type, encrypted);
-            
-            let _ = cmd_tx.send(super::types::SdrCommand::StartCapture {
-              job_id,
-              min_freq,
-              max_freq,
-              duration_s,
-              file_type,
-              encrypted,
-              fft_size,
-              fft_window,
-            });
-          }
-        }
-      }
+      debug!("Unknown message type: {}", message.message_type);
     }
     _ => {
       debug!("Unknown message type: {}", message.message_type);
