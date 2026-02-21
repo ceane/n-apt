@@ -31,6 +31,7 @@
     "test:all": "npm run test && npm run test:rust",
     "lint": "oxlint",
     "lint:fix": "oxlint --fix",
+    "lint:fix:rust": "cargo fix --bin \"n-apt-backend\" -p n-apt-backend --allow-dirty --allow-no-vcs",
     "typecheck": "tsc --noEmit",
     "format": "oxfmt --write src test",
     "format:check": "oxfmt --check src test"
