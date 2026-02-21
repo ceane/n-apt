@@ -390,7 +390,7 @@ show_errors_warnings() {
     
     # Show warnings from cargo log if present
     if [ $WARNING_COUNT -gt 0 ] && [ -f /tmp/cargo_build.log ]; then
-        WARN_NUMS=$(grep -n "warning:" /tmp/cargo_build.log | grep -v "n-apt-backend" | head -n 3 | cut -d: -f1)
+        WARN_NUMS=$(grep -n "warning:" /tmp/cargo_build.log | grep -v "generated .* warning" | grep -v "\`n-apt-backend\`" | head -n 3 | cut -d: -f1)
         while IFS= read -r num; do
             [ -z "$num" ] && continue
             warn_line=$(sed -n "${num}p" /tmp/cargo_build.log)
