@@ -197,6 +197,8 @@ interface FFTCanvasProps {
   force2D?: boolean;
   /** Grid preference for snapshot rendering (affects 2D shadow canvases) */
   snapshotGridPreference?: boolean;
+  /** Function to request auto FFT options from server */
+  sendGetAutoFftOptions?: (screenWidth: number) => void;
 }
 
 /**
@@ -217,6 +219,7 @@ const FFTCanvas = forwardRef<{
   displayTemporalResolution = "medium",
   force2D = false,
   snapshotGridPreference = true,
+  sendGetAutoFftOptions,
 }, ref) => {
   const spectrumCanvasRef = useRef<HTMLCanvasElement>(null);
   const spectrumGpuCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -313,6 +316,34 @@ const FFTCanvas = forwardRef<{
     // Device connectivity toggles whether red limit lines should display.
     overlayDirtyRef.current.markers = true;
   }, [isDeviceConnected]);
+
+  // Screen width detection for auto FFT options
+  useEffect(() => {
+    if (sendGetAutoFftOptions) {
+      const detectScreenWidth = () => {
+        const width = window.innerWidth || document.documentElement.clientWidth || document.body.clientWidth;
+        console.log("Detected screen width:", width);
+        sendGetAutoFftOptions(width);
+      };
+
+      // Initial detection
+      detectScreenWidth();
+
+      // Listen for resize events (with debouncing)
+      let resizeTimeout: NodeJS.Timeout;
+      const handleResize = () => {
+        clearTimeout(resizeTimeout);
+        resizeTimeout = setTimeout(detectScreenWidth, 500);
+      };
+
+      window.addEventListener('resize', handleResize);
+
+      return () => {
+        window.removeEventListener('resize', handleResize);
+        clearTimeout(resizeTimeout);
+      };
+    }
+  }, [sendGetAutoFftOptions]);
 
   useFrequencyDrag({
     spectrumCanvasRef,
@@ -1098,9 +1129,15 @@ const FFTCanvas = forwardRef<{
         }
       }
 
-      if (isPaused && ensurePausedFrame()) {
-        forceRender();
+      if (isPaused) {
+        ensurePausedFrame();
       }
+
+      // ALWAYS force a render immediately after resizing. 
+      // Resizing a WebGPU canvas implicitly destroys its backing texture. 
+      // If we don't synchronously redraw, the browser compositor will present a black 
+      // frame before the next requestAnimationFrame fires, causing a noticeable flicker.
+      forceRender();
     };
 
     resizeCanvas();

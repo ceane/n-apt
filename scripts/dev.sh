@@ -1,13 +1,13 @@
 #!/bin/bash
 
-# Development launcher for N-APT with hot reload support
-# This script ensures the development environment is properly configured
+# Development launcher for N-APT with enhanced visual build output
+# This script uses the new build orchestrator for professional output
 
 set -e
 
-echo -e "\033[38;5;208m🚀 N-APT Development Environment\033[0m"
-echo "=================================="
-echo ""
+# Change to project root
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$(dirname "$SCRIPT_DIR")"
 
 # Check if mock_signals.yaml exists, create if not
 if [ ! -f "mock_signals.yaml" ]; then
@@ -68,19 +68,16 @@ EOF
 fi
 
 echo -e "\033[36m📋 Development Features:\033[0m"
-echo "  • Fast Rust builds (dev-fast profile)"
+echo "  • Enhanced visual build output"
 echo "  • Hot reload for mock_signals.yaml"
 echo "  • WebSocket reload command: {\"type\":\"reload_config\"}"
 echo "  • Incremental compilation enabled"
 echo ""
 
-# Start the development server
-echo -e "\033[32mStarting development server with hot reload...\033[0m"
+# Start the enhanced development server
+echo -e "\033[32mStarting enhanced development server...\033[0m"
 echo "Press Ctrl+C to stop"
 echo ""
 
-# Clear Vite cache each start to avoid stale optimized deps
-rm -rf node_modules/.vite node_modules/.cache/vite 2>/dev/null || true
-
-# Use npm run dev:fast for the fastest development experience
-npm run dev:fast
+# Use the new build orchestrator
+exec ./scripts/build_orchestrator.sh

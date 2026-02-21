@@ -314,30 +314,28 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     dataRef,
     captureStatus,
     spectrumFrames: wsSpectrumFrames,
+    autoFftOptions,
     sendFrequencyRange,
     sendPauseCommand,
     sendSettings,
     sendRestartDevice,
     sendTrainingCommand,
     sendCaptureCommand,
+    sendGetAutoFftOptions,
   } = useWebSocket(wsUrl, aesKey, isAuthenticated);
 
   // Still support waveformRef for older components, mapping it to the new dataRef
   waveformRef.current = dataRef.current?.waveform ?? null;
 
-  const hasAutoResumedRef = useRef(false);
+  const syncedInitialPauseRef = useRef(false);
   useEffect(() => {
-    if (
-      isConnected &&
-      isVisualizer &&
-      serverPaused &&
-      !hasAutoResumedRef.current
-    ) {
-      sendPauseCommand(false);
-      dispatch({ type: "SET_VISUALIZER_PAUSED", paused: false });
-      hasAutoResumedRef.current = true;
+    if (isConnected && !syncedInitialPauseRef.current) {
+      // Initialize local pause state to match server's pause state when we first connect.
+      // This prevents auto-playing if the user comes back from 4th/5th tabs and the server was paused.
+      dispatch({ type: "SET_VISUALIZER_PAUSED", paused: serverPaused });
+      syncedInitialPauseRef.current = true;
     }
-  }, [isConnected, isVisualizer, serverPaused, sendPauseCommand]);
+  }, [isConnected, serverPaused]);
 
   const setDrawParams = useCallback(
     (params: DrawParams) =>
@@ -515,6 +513,12 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     }
   }, [isVisualizer, isConnected, sendPauseCommand]);
 
+  useEffect(() => {
+    return () => {
+      sendPauseCommand(true);
+    };
+  }, [sendPauseCommand]);
+
   const handleVisualizerPauseToggle = useCallback(() => {
     const newPausedState = !state.visualizerPaused;
     dispatch({
@@ -591,6 +595,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                 deviceInfo={deviceInfo}
                 maxSampleRateHz={maxSampleRateHz}
                 captureStatus={captureStatus}
+                autoFftOptions={autoFftOptions}
                 onCaptureCommand={sendCaptureCommand}
                 spectrumFrames={wsSpectrumFrames}
                 activeTab={activeTab}
@@ -670,6 +675,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                   onFrequencyRangeChange={handleFrequencyRangeChange}
                   displayTemporalResolution={state.displayTemporalResolution}
                   snapshotGridPreference={state.snapshotGridPreference}
+                  sendGetAutoFftOptions={sendGetAutoFftOptions}
                 />
               </>
             )}

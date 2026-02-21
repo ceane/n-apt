@@ -134,6 +134,7 @@ interface SignalDisplaySectionProps {
   fftSize: number;
   fftWindow: string;
   temporalResolution: "low" | "medium" | "high";
+  autoFftOptions: { message_type: "auto_fft_options"; autoSizes: number[]; recommended: number } | null;
   onFftFrameRateChange: (value: number) => void;
   onFftSizeChange: (value: number) => void;
   onFftWindowChange: (value: string) => void;
@@ -154,6 +155,7 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
   fftSize,
   fftWindow,
   temporalResolution,
+  autoFftOptions,
   onFftFrameRateChange,
   onFftSizeChange,
   onFftWindowChange,
@@ -258,12 +260,31 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
               scheduleCoupledAdjustment("fftSize", val, fftFrameRate);
             }}
           >
-            <option value={8192}>8192</option>
-            <option value={16384}>16384</option>
-            <option value={32768}>32768</option>
-            <option value={65536}>65536</option>
-            <option value={131072}>131072</option>
-            <option value={262144}>262144</option>
+            {autoFftOptions ? (
+              <>
+                {autoFftOptions.autoSizes.map((size, index) => (
+                  <option key={`auto-${size}`} value={size}>
+                    {index === 0 ? "✔ " : ""}Auto ({size})
+                  </option>
+                ))}
+                <option disabled>---</option>
+                <option value={8192}>8192</option>
+                <option value={16384}>16384</option>
+                <option value={32768}>32768</option>
+                <option value={65536}>65536</option>
+                <option value={131072}>131072</option>
+                <option value={262144}>262144</option>
+              </>
+            ) : (
+              <>
+                <option value={8192}>8192</option>
+                <option value={16384}>16384</option>
+                <option value={32768}>32768</option>
+                <option value={65536}>65536</option>
+                <option value={131072}>131072</option>
+                <option value={262144}>262144</option>
+              </>
+            )}
           </SettingSelect>
         </SettingRow>
       ) : (
