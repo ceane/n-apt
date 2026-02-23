@@ -1,8 +1,204 @@
 import { useRef, useEffect, useCallback, useState } from "react";
-import { FFTWebGPU } from "@n-apt/gpu/FFTWebGPU";
-import { OverlayTextureRenderer } from "@n-apt/gpu/OverlayTextureRenderer";
-import { WaterfallWebGPU } from "@n-apt/gpu/WaterfallWebGPU";
-import { getPreferredCanvasFormat, getWebGPUDevice, isWebGPUSupported } from "@n-apt/gpu/webgpu";
+
+// Inlined OverlayTextureRenderer shader
+const overlayShader = `
+struct VertexOut {
+  @builtin(position) position: vec4<f32>,
+  @location(0) uv: vec2<f32>,
+}
+
+@vertex
+fn vs(@builtin(vertex_index) vi: u32) -> VertexOut {
+  // Fullscreen triangle-strip quad: 0→BL, 1→TL, 2→BR, 3→TR
+  let x = select(-1.0, 1.0, (vi & 1u) != 0u);
+  let y = select(-1.0, 1.0, (vi & 2u) != 0u);
+  let u = (x + 1.0) * 0.5;
+  let v = (1.0 - y) * 0.5;  // flip Y for texture coords
+  return VertexOut(vec4<f32>(x, y, 0.0, 1.0), vec2<f32>(u, v));
+}
+
+@group(0) @binding(0) var overlayTex: texture_2d<f32>;
+@group(0) @binding(1) var overlaySampler: sampler;
+
+@fragment
+fn fs(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+  return textureSample(overlayTex, overlaySampler, uv);
+}
+`;
+
+// Inlined OverlayTextureRenderer class as type
+export class OverlayTextureRenderer {
+  private device: GPUDevice;
+  private pipeline: GPURenderPipeline;
+  private sampler: GPUSampler;
+  private bindGroupLayout: GPUBindGroupLayout;
+  private texture: GPUTexture | null = null;
+  private bindGroup: GPUBindGroup | null = null;
+  private offscreen: OffscreenCanvas;
+  private offscreenCtx: OffscreenCanvasRenderingContext2D;
+  private texWidth = 0;
+  private texHeight = 0;
+
+  constructor(device: GPUDevice, format: GPUTextureFormat) {
+    this.device = device;
+
+    this.offscreen = new OffscreenCanvas(1, 1);
+    this.offscreenCtx = this.offscreen.getContext("2d")!;
+
+    this.sampler = device.createSampler({
+      magFilter: "linear",
+      minFilter: "linear",
+    });
+
+    this.bindGroupLayout = device.createBindGroupLayout({
+      entries: [
+        {
+          binding: 0,
+          visibility: GPUShaderStage.FRAGMENT,
+          texture: { sampleType: "float" },
+        },
+        {
+          binding: 1,
+          visibility: GPUShaderStage.FRAGMENT,
+          sampler: { type: "filtering" },
+        },
+      ],
+    });
+
+    const module = device.createShaderModule({ code: overlayShader });
+
+    this.pipeline = device.createRenderPipeline({
+      layout: device.createPipelineLayout({
+        bindGroupLayouts: [this.bindGroupLayout],
+      }),
+      vertex: { module, entryPoint: "vs" },
+      fragment: {
+        module,
+        entryPoint: "fs",
+        targets: [
+          {
+            format,
+            blend: {
+              color: {
+                srcFactor: "src-alpha",
+                dstFactor: "one-minus-src-alpha",
+                operation: "add",
+              },
+              alpha: {
+                srcFactor: "one",
+                dstFactor: "one-minus-src-alpha",
+                operation: "add",
+              },
+            },
+          },
+        ],
+      },
+      primitive: { topology: "triangle-strip" },
+    });
+  }
+
+  beginDraw(width: number, height: number, dpr: number): OffscreenCanvasRenderingContext2D {
+    const pw = Math.max(1, Math.round(width * dpr));
+    const ph = Math.max(1, Math.round(height * dpr));
+
+    if (this.offscreen.width !== pw || this.offscreen.height !== ph) {
+      this.offscreen.width = pw;
+      this.offscreen.height = ph;
+      this.offscreenCtx = this.offscreen.getContext("2d")!;
+    }
+
+    this.offscreenCtx.clearRect(0, 0, pw, ph);
+    this.offscreenCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    return this.offscreenCtx;
+  }
+
+  endDraw(): void {
+    const pw = this.offscreen.width;
+    const ph = this.offscreen.height;
+
+    if (!this.texture || this.texWidth !== pw || this.texHeight !== ph) {
+      if (this.texture) this.texture.destroy();
+      this.texture = this.device.createTexture({
+        size: [pw, ph],
+        format: "rgba8unorm",
+        usage:
+          GPUTextureUsage.TEXTURE_BINDING |
+          GPUTextureUsage.COPY_DST |
+          GPUTextureUsage.RENDER_ATTACHMENT,
+      });
+      this.texWidth = pw;
+      this.texHeight = ph;
+
+      this.bindGroup = this.device.createBindGroup({
+        layout: this.bindGroupLayout,
+        entries: [
+          { binding: 0, resource: this.texture.createView() },
+          { binding: 1, resource: this.sampler },
+        ],
+      });
+    }
+
+    this.device.queue.copyExternalImageToTexture(
+      { source: this.offscreen },
+      { texture: this.texture },
+      [pw, ph],
+    );
+  }
+
+  renderInPass(pass: GPURenderPassEncoder): void {
+    if (!this.bindGroup) return;
+    pass.setPipeline(this.pipeline);
+    pass.setBindGroup(0, this.bindGroup);
+    pass.draw(4);
+  }
+
+  destroy(): void {
+    if (this.texture) {
+      this.texture.destroy();
+      this.texture = null;
+    }
+  }
+}
+
+// Inlined from gpu/webgpu.ts
+let devicePromise: Promise<GPUDevice | null> | null = null;
+
+function isWebGPUSupported(): boolean {
+  return typeof navigator !== "undefined" && "gpu" in navigator;
+}
+
+async function getWebGPUDevice(): Promise<GPUDevice | null> {
+  if (!isWebGPUSupported()) {
+    return null;
+  }
+  if (!devicePromise) {
+    devicePromise = (async () => {
+      try {
+        const adapter = await navigator.gpu.requestAdapter();
+        if (!adapter) {
+          return null;
+        }
+        
+        // Request higher texture dimension limits to support larger canvases
+        const device = await adapter.requestDevice({
+          requiredLimits: {
+            maxTextureDimension2D: Math.min(adapter.limits.maxTextureDimension2D, 16384),
+          },
+        });
+        return device;
+      } catch (error) {
+        console.error("Failed to request WebGPU device:", error);
+        return null;
+      }
+    })();
+  }
+  return devicePromise;
+}
+
+function getPreferredCanvasFormat(): GPUTextureFormat {
+  return navigator.gpu.getPreferredCanvasFormat();
+}
 
 export interface WebGPUInitOptions {
   force2D: boolean;
@@ -16,8 +212,8 @@ export interface WebGPUInitOptions {
 
 export function useWebGPUInit({
   force2D,
-  spectrumGpuCanvasRef,
-  waterfallGpuCanvasRef,
+  spectrumGpuCanvasRef: _spectrumGpuCanvasRef,
+  waterfallGpuCanvasRef: _waterfallGpuCanvasRef,
   resampleWgsl,
   resampleComputePipelineRef,
   resampleParamsBufferRef,
@@ -33,13 +229,15 @@ export function useWebGPUInit({
   const webgpuRetryCountRef = useRef(0);
   const maxWebgpuRetries = 3;
 
-  const spectrumRendererRef = useRef<FFTWebGPU | null>(null);
+  // Overlay texture renderers are still provided by this hook
   const gridOverlayRendererRef = useRef<OverlayTextureRenderer | null>(null);
   const markersOverlayRendererRef = useRef<OverlayTextureRenderer | null>(null);
-  const waterfallRendererRef = useRef<WaterfallWebGPU | null>(null);
-
   const overlayDirtyRef = useRef({ grid: true, markers: true });
   const overlayLastUploadMsRef = useRef({ grid: 0, markers: 0 });
+
+  // Legacy renderer refs (kept for compatibility; actual rendering lives in hooks)
+  const spectrumRendererRef = useRef<any>(null);
+  const waterfallRendererRef = useRef<any>(null);
 
   const initializeResamplePipeline = useCallback(
     async (device: GPUDevice) => {
@@ -172,46 +370,27 @@ export function useWebGPUInit({
     };
   }, [force2D]);
 
+  // Create overlay renderers once device/format are ready
   useEffect(() => {
     if (!webgpuEnabled || webgpuContextLostRef.current) return;
     const device = webgpuDeviceRef.current;
     const format = webgpuFormatRef.current;
     if (!device || !format) return;
 
-    if (spectrumGpuCanvasRef.current && !spectrumRendererRef.current) {
-      try {
-        spectrumRendererRef.current = new FFTWebGPU(spectrumGpuCanvasRef.current, device, format);
-        gridOverlayRendererRef.current = new OverlayTextureRenderer(device, format);
-        markersOverlayRendererRef.current = new OverlayTextureRenderer(device, format);
-        overlayDirtyRef.current.grid = true;
-        overlayDirtyRef.current.markers = true;
-      } catch (error) {
-        console.error("Failed to create spectrum renderer:", error);
-        webgpuContextLostRef.current = true;
-        setWebgpuEnabled(false);
-        return;
-      }
+    if (!gridOverlayRendererRef.current) {
+      gridOverlayRendererRef.current = new OverlayTextureRenderer(device, format);
+      overlayDirtyRef.current.grid = true;
     }
-
-    if (waterfallGpuCanvasRef.current && !waterfallRendererRef.current) {
-      try {
-        waterfallRendererRef.current = new WaterfallWebGPU(
-          waterfallGpuCanvasRef.current,
-          device,
-          format,
-        );
-      } catch (error) {
-        console.error("Failed to create waterfall renderer:", error);
-        webgpuContextLostRef.current = true;
-        setWebgpuEnabled(false);
-        return;
-      }
+    if (!markersOverlayRendererRef.current) {
+      markersOverlayRendererRef.current = new OverlayTextureRenderer(device, format);
+      overlayDirtyRef.current.markers = true;
     }
-  }, [webgpuEnabled, spectrumGpuCanvasRef, waterfallGpuCanvasRef]);
+  }, [webgpuEnabled]);
 
   return {
     webgpuEnabled,
     webgpuDeviceRef,
+    webgpuFormatRef,
     spectrumRendererRef,
     gridOverlayRendererRef,
     markersOverlayRendererRef,

@@ -95,7 +95,15 @@ impl RtlSdrDevice {
         if ret != 0 {
             return Err(anyhow!("Failed to set sample rate to {} Hz", rate));
         }
-        info!("Sample rate set to {} Hz", rate);
+        
+        // Verify the rate was actually set correctly
+        let actual_rate = unsafe { ffi::rtlsdr_get_sample_rate(self.dev) };
+        if actual_rate != rate {
+            warn!("Sample rate mismatch: requested {} Hz, device reports {} Hz", rate, actual_rate);
+        } else {
+            info!("Sample rate verified: {} Hz", rate);
+        }
+        
         Ok(())
     }
 
@@ -199,6 +207,7 @@ impl RtlSdrDevice {
         let current_rate = self.get_sample_rate();
         let mut max_supported = current_rate;
 
+        // Test from highest to lowest, stop at first successful rate
         for &rate in &test_rates {
             let ret = unsafe { ffi::rtlsdr_set_sample_rate(self.dev, rate) };
             if ret == 0 {
@@ -206,12 +215,21 @@ impl RtlSdrDevice {
                 let actual_rate = unsafe { ffi::rtlsdr_get_sample_rate(self.dev) };
                 if actual_rate == rate {
                     max_supported = rate;
+                    break; // Found the highest supported rate, stop testing
                 }
             }
         }
 
         // Restore original sample rate
-        let _ = unsafe { ffi::rtlsdr_set_sample_rate(self.dev, current_rate) };
+        let restore_ret = unsafe { ffi::rtlsdr_set_sample_rate(self.dev, current_rate) };
+        if restore_ret != 0 {
+            warn!("Failed to restore original sample rate {} Hz (error code: {})", current_rate, restore_ret);
+        } else {
+            let restored_rate = unsafe { ffi::rtlsdr_get_sample_rate(self.dev) };
+            if restored_rate != current_rate {
+                warn!("Sample rate not properly restored: expected {} Hz, got {} Hz", current_rate, restored_rate);
+            }
+        }
         
         max_supported
     }

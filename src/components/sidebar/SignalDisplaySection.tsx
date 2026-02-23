@@ -262,9 +262,9 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
           >
             {autoFftOptions ? (
               <>
-                {autoFftOptions.autoSizes.map((size, index) => (
+                {autoFftOptions.autoSizes.map((size) => (
                   <option key={`auto-${size}`} value={size}>
-                    {index === 0 ? "✔ " : ""}Auto ({size})
+                    {size} (Auto)
                   </option>
                 ))}
                 <option disabled>---</option>

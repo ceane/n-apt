@@ -151,27 +151,8 @@ const useAuthenticationInternal = (): UseAuthenticationReturn => {
       return false;
     }
 
-    // Additional check: try a simple WebAuthn call to see if permissions policy allows it
-    try {
-      // This will fail if permissions policy blocks WebAuthn
-      void window.navigator.credentials.get({
-        publicKey: {
-          challenge: new Uint8Array(8),
-          allowCredentials: [],
-          timeout: 1,
-        },
-      });
-      // If we get here, the call was allowed (even if it fails later)
-      return true;
-    } catch (error) {
-      // If we get a permissions policy error, WebAuthn is effectively disabled
-      if (error instanceof Error && error.message.includes('publickey-credentials-get')) {
-        console.log('WebAuthn blocked by permissions policy:', error.message);
-        return false;
-      }
-      // Other errors might be normal (like timeout), so assume it's available
-      return true;
-    }
+    // Do not invoke navigator.credentials.get here to avoid biometric prompts on load.
+    return true;
   }, []);
 
   useEffect(() => {

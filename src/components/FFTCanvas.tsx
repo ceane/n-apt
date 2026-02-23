@@ -2,19 +2,15 @@ import { useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from 
 import styled from "styled-components";
 import { useFFTAnimation } from "@n-apt/hooks/useFFTAnimation";
 import { usePauseLogic } from "@n-apt/hooks/usePauseLogic";
-import { useSpectrumRendering } from "@n-apt/hooks/useSpectrumRendering";
+import { useDraw2DFFTSignal } from "@n-apt/hooks/useDraw2DFFTSignal";
+import { useDraw2DFIFOWaterfall } from "@n-apt/hooks/useDraw2DFIFOWaterfall";
+import { useDrawWebGPUFFTSignal } from "@n-apt/hooks/useDrawWebGPUFFTSignal";
+import { useDrawWebGPUFIFOWaterfall } from "@n-apt/hooks/useDrawWebGPUFIFOWaterfall";
+import { useOverlayRenderer } from "@n-apt/hooks/useOverlayRenderer";
 import { useFrequencyDrag } from "@n-apt/hooks/useFrequencyDrag";
 import { useWebGPUInit } from "@n-apt/hooks/useWebGPUInit";
-import {
-  drawSpectrumGrid,
-  drawSpectrumMarkers,
-  FrequencyRange,
-} from "@n-apt/fft/FFTCanvasRenderer";
-import {
-  drawWaterfall,
-  addWaterfallFrame,
-  spectrumToAmplitude,
-} from "@n-apt/waterfall/FIFOWaterfallRenderer";
+import type { FrequencyRange } from "@n-apt/consts/types";
+import { spectrumToAmplitude } from "@n-apt/consts/types";
 import {
   VISUALIZER_PADDING,
   VISUALIZER_GAP,
@@ -188,6 +184,8 @@ interface FFTCanvasProps {
   activeSignalArea: string;
   /** Whether the visualization is paused */
   isPaused: boolean;
+  /** Target frame rate for the visualization */
+  fftFrameRate?: number;
   /** Whether the RTL-SDR device is connected */
   isDeviceConnected?: boolean;
   /** Callback for frequency range changes */
@@ -205,22 +203,27 @@ interface FFTCanvasProps {
  * FFT canvas component with FFT spectrum and waterfall displays
  * Uses SDR++ style rendering for professional spectrum analysis
  */
-const FFTCanvas = forwardRef<{
-  getSpectrumCanvas: () => HTMLCanvasElement | null;
-  getWaterfallCanvas: () => HTMLCanvasElement | null;
-}, FFTCanvasProps>(({
-  dataRef,
-  frequencyRange,
-  centerFrequencyMHz,
-  activeSignalArea: _activeSignalArea,
-  isPaused,
-  isDeviceConnected = true,
-  onFrequencyRangeChange,
-  displayTemporalResolution = "medium",
-  force2D = false,
-  snapshotGridPreference = true,
-  sendGetAutoFftOptions,
-}, ref) => {
+const FFTCanvas = forwardRef<
+  {
+    getSpectrumCanvas: () => HTMLCanvasElement | null;
+    getWaterfallCanvas: () => HTMLCanvasElement | null;
+    triggerSnapshotRender: () => void;
+  },
+  FFTCanvasProps
+>((props, ref): React.ReactElement | null => {
+  const {
+    dataRef,
+    frequencyRange,
+    centerFrequencyMHz,
+    activeSignalArea: _activeSignalArea,
+    isPaused,
+    isDeviceConnected = true,
+    onFrequencyRangeChange,
+    displayTemporalResolution = "medium",
+    force2D = false,
+    snapshotGridPreference = true,
+    sendGetAutoFftOptions,
+  } = props;
   const spectrumCanvasRef = useRef<HTMLCanvasElement>(null);
   const spectrumGpuCanvasRef = useRef<HTMLCanvasElement>(null);
   const waterfallCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -290,10 +293,9 @@ const FFTCanvas = forwardRef<{
   const {
     webgpuEnabled,
     webgpuDeviceRef,
-    spectrumRendererRef,
+    webgpuFormatRef,
     gridOverlayRendererRef,
     markersOverlayRendererRef,
-    waterfallRendererRef,
     overlayDirtyRef,
     overlayLastUploadMsRef,
   } = useWebGPUInit({
@@ -354,64 +356,53 @@ const FFTCanvas = forwardRef<{
     onFrequencyRangeChange,
   });
 
+  // Use the new 2D rendering hooks for fallback/shadow rendering
+  const { draw2DFFTSignal } = useDraw2DFFTSignal();
+  const { draw2DFIFOWaterfall } = useDraw2DFIFOWaterfall();
+
+  // Use WebGPU rendering hooks
+  const { drawWebGPUFFTSignal } = useDrawWebGPUFFTSignal();
+  const { drawWebGPUFIFOWaterfall } = useDrawWebGPUFIFOWaterfall();
+
+  // Use overlay renderer hook for WebGPU overlay textures
+  const { drawGridOnContext, drawMarkersOnContext } = useOverlayRenderer();
+
   const maybeUpdateOverlays = useCallback(
     (width: number, height: number, dpr: number) => {
       const now = performance.now();
       const freq = frequencyRangeRef.current;
       const cf = centerFreqRef.current;
 
-      // Grid underlay
+      // Grid overlay
       {
         const overlay = gridOverlayRendererRef.current;
         const dirty = overlayDirtyRef.current.grid;
         const last = overlayLastUploadMsRef.current.grid;
         if (overlay && dirty && now - last >= OVERLAY_MIN_INTERVAL_MS) {
           const ctx = overlay.beginDraw(width, height, dpr);
-          drawSpectrumGrid({
-            ctx: ctx as unknown as CanvasRenderingContext2D,
-            width,
-            height,
-            frequencyRange: freq,
-            fftMin: FFT_MIN_DB,
-            fftMax: FFT_MAX_DB,
-            clearBackground: false,
-            skipFreqLabelsNearX: width / 2,
-          });
+          drawGridOnContext(ctx, width, height, freq, FFT_MIN_DB, FFT_MAX_DB);
           overlay.endDraw();
           overlayDirtyRef.current.grid = false;
           overlayLastUploadMsRef.current.grid = now;
         }
       }
 
-      // Markers + labels overlay
+      // Markers overlay
       {
         const overlay = markersOverlayRendererRef.current;
         const dirty = overlayDirtyRef.current.markers;
         const last = overlayLastUploadMsRef.current.markers;
         if (overlay && dirty && now - last >= OVERLAY_MIN_INTERVAL_MS) {
           const ctx = overlay.beginDraw(width, height, dpr);
-          drawSpectrumMarkers({
-            ctx: ctx as unknown as CanvasRenderingContext2D,
-            width,
-            height,
-            frequencyRange: freq,
-            centerFrequencyMHz: cf,
-            isDeviceConnected,
-          });
+          drawMarkersOnContext(ctx, width, height, freq, cf, isDeviceConnected);
           overlay.endDraw();
           overlayDirtyRef.current.markers = false;
           overlayLastUploadMsRef.current.markers = now;
         }
       }
     },
-    [isDeviceConnected],
+    [isDeviceConnected, drawGridOnContext, drawMarkersOnContext],
   );
-
-  const { renderSpectrum } = useSpectrumRendering({
-    displayTemporalResolution,
-    snapshotGridPreferenceRef,
-    frequencyRangeRef,
-  });
 
   const ensureFloat32Waveform = useCallback(
     (spectrumData: ArrayLike<number> | null | undefined) => {
@@ -463,141 +454,6 @@ const FFTCanvas = forwardRef<{
     const fallbackWaveform = new Float32Array(1024).fill(-120);
     renderWaveformRef.current = fallbackWaveform;
   });
-
-  /**
-   * Renders waterfall data using SIMD-accelerated buffer-based approach
-   *
-   * @param canvas - Canvas element to render on
-   * @param spectrumData - Power spectrum data in dB
-   * @performance Processing time: <2ms for 1024 samples with SIMD
-   */
-  const renderWaterfall = useCallback(
-    (canvas: HTMLCanvasElement, spectrumData: number[]) => {
-      const ctx = canvas.getContext("2d");
-      if (!ctx || !spectrumData) return;
-
-      const dpr = window.devicePixelRatio || 1;
-      const marginX = Math.round(40 * dpr);
-      const marginY = Math.round(8 * dpr);
-
-      // Calculate waterfall display area
-      const waterfallWidth = Math.max(1, Math.round(canvas.width - marginX * 2));
-      const waterfallHeight = Math.max(1, Math.round(canvas.height - marginY * 2));
-
-      // Ensure buffer exists and matches display area; preserve content on resize
-      const currentBuf = waterfallBufferRef.current;
-      const currentDims = waterfallDimsRef.current;
-      const requiredBufferSize = waterfallWidth * waterfallHeight * 4;
-
-      if (
-        currentBuf &&
-        currentDims &&
-        currentDims.width === waterfallWidth &&
-        currentDims.height === waterfallHeight
-      ) {
-        // Buffer is already correct size, no action needed
-      } else {
-        // Return old buffer to pool if it exists
-        if (currentBuf) {
-          returnBufferToPool(currentBuf);
-        }
-
-        // Try to get buffer from pool, or create new one
-        const newBuf = getBufferFromPool(requiredBufferSize);
-
-        if (currentBuf && currentDims) {
-          const copyW = Math.min(currentDims.width, waterfallWidth);
-          const copyH = Math.min(currentDims.height, waterfallHeight);
-
-          for (let y = 0; y < copyH; y++) {
-            const srcRowStart = y * currentDims.width * 4;
-            const dstRowStart = y * waterfallWidth * 4;
-            newBuf.set(currentBuf.subarray(srcRowStart, srcRowStart + copyW * 4), dstRowStart);
-          }
-        }
-
-        waterfallBufferRef.current = newBuf;
-        waterfallDimsRef.current = {
-          width: waterfallWidth,
-          height: waterfallHeight,
-        };
-      }
-
-      // Use SIMD-accelerated resampling if available (WASM implementation)
-      let resampled: number[];
-      if (sdrProcessor && spectrumData.length >= 4) {
-        // Use WASM SIMD resampling for maximum performance
-        const float32Output = new Float32Array(waterfallWidth);
-        try {
-          sdrProcessor.resample_spectrum(
-            new Float32Array(spectrumData),
-            float32Output,
-            waterfallWidth,
-          );
-          resampled = Array.from(float32Output);
-        } catch (error) {
-          console.warn("WASM SIMD resampling failed, using fallback:", error);
-          resampled = performScalarResampling(spectrumData, waterfallWidth);
-        }
-      } else {
-        // Fallback to scalar resampling
-        resampled = performScalarResampling(spectrumData, waterfallWidth);
-      }
-
-      // Convert dB to normalized amplitude (0-1)
-      const normalizedData = spectrumToAmplitude(
-        resampled,
-        WATERFALL_HISTORY_LIMIT,
-        WATERFALL_HISTORY_MAX,
-      );
-
-      // Update waterfall using the SDR++ palette implementation.
-      // This keeps the 2D fallback visually consistent with WebGPU rendering.
-      if (waterfallBufferRef.current) {
-        addWaterfallFrame(
-          waterfallBufferRef.current,
-          normalizedData,
-          waterfallWidth,
-          waterfallHeight,
-          retuneSmearRef.current,
-          1, // driftDirection - 1 = right
-          FFT_MIN_DB,
-          FFT_MAX_DB,
-        );
-      }
-
-      if (retuneSmearRef.current > 0) {
-        retuneSmearRef.current -= 1;
-      }
-
-      // Clear waterfall buffer if it's excessive
-      if (waterfallBufferRef.current && waterfallDimsRef.current) {
-        const { width, height } = waterfallDimsRef.current;
-        const expectedSize = width * height * 4;
-        if (waterfallBufferRef.current.length > expectedSize * 1.5) {
-          returnBufferToPool(waterfallBufferRef.current);
-          waterfallBufferRef.current = getBufferFromPool(expectedSize);
-        }
-      }
-
-      // Clear unused references
-      if (waveformFloatRef.current && !dataRef.current?.waveform) {
-        waveformFloatRef.current = null;
-      }
-
-      // Draw the updated buffer
-      if (waterfallBufferRef.current) {
-        drawWaterfall({
-          ctx,
-          width: canvas.width,
-          height: canvas.height,
-          waterfallBuffer: waterfallBufferRef.current,
-          frequencyRange: frequencyRangeRef.current,
-        });
-      }
-    },
-    [sdrProcessor],
-  );
 
   /**
    * Fallback scalar resampling implementation
@@ -768,7 +624,7 @@ const FFTCanvas = forwardRef<{
 
       if (currentWaveform && currentWaveform.length > 0) {
         // Spectrum render - always render existing waveform, but only update with new data when not paused
-        if (spectrumWebgpuEnabled && spectrumRendererRef.current && spectrumGpuCanvas) {
+        if (spectrumWebgpuEnabled && webgpuDeviceRef.current && webgpuFormatRef.current && spectrumGpuCanvas) {
           const rect = spectrumGpuCanvas.parentElement?.getBoundingClientRect();
           const width = rect?.width || spectrumGpuCanvas.width;
           const height = rect?.height || spectrumGpuCanvas.height;
@@ -800,55 +656,45 @@ const FFTCanvas = forwardRef<{
             if (!Number.isFinite(v)) outBuf[i] = FFT_MIN_DB;
           }
 
-          spectrumRendererRef.current.updateWaveform(outBuf);
           const dpr = window.devicePixelRatio || 1;
           // Update overlays only when dirty, throttled (prevents drag jank)
           maybeUpdateOverlays(width, height, dpr);
 
-          spectrumRendererRef.current.render(
-            {
-              canvasWidth: width,
-              canvasHeight: height,
-              dpr,
-              plotLeft: FFT_AREA_MIN.x,
-              plotRight: Math.max(FFT_AREA_MIN.x + 1, width - 40),
-              plotTop: FFT_AREA_MIN.y,
-              plotBottom: Math.max(FFT_AREA_MIN.y + 1, height - 40),
-              dbMin: FFT_MIN_DB,
-              dbMax: FFT_MAX_DB,
-              lineColor: LINE_COLOR,
-              fillColor: SHADOW_COLOR,
-              backgroundColor: FFT_CANVAS_BG,
-            },
-            {
-              pre: gridOverlayRendererRef.current,
-              post: markersOverlayRendererRef.current,
-            },
-          );
+          // Use hook-based WebGPU renderer
+          drawWebGPUFFTSignal({
+            canvas: spectrumGpuCanvas,
+            device: webgpuDeviceRef.current,
+            format: webgpuFormatRef.current,
+            waveform: outBuf,
+            frequencyRange: frequencyRangeRef.current,
+            fftMin: FFT_MIN_DB,
+            fftMax: FFT_MAX_DB,
+            gridOverlayRenderer: gridOverlayRendererRef.current ?? undefined,
+            markersOverlayRenderer: markersOverlayRendererRef.current ?? undefined,
+            centerFrequencyMHz: centerFreqRef.current,
+            isDeviceConnected,
+            showGrid: true,
+          });
         }
 
-        // Always maintain a 2D shadow render (used for snapshot export)
-        if (spectrumCanvas) {
-          renderSpectrum(spectrumCanvas, Array.from(currentWaveform));
-          const ctx2d = spectrumCanvas.getContext("2d");
-          if (ctx2d) {
-            const r = spectrumCanvas.parentElement?.getBoundingClientRect();
-            const sw = r?.width || spectrumCanvas.width;
-            const sh = r?.height || spectrumCanvas.height;
-            drawSpectrumMarkers({
-              ctx: ctx2d,
-              width: sw,
-              height: sh,
-              frequencyRange: frequencyRangeRef.current,
-              centerFrequencyMHz: centerFreqRef.current,
-              isDeviceConnected,
-            });
-          }
+        // Only draw 2D shadow render when snapshot is requested (not every frame!)
+        if (spectrumCanvas && snapshotNeededRef.current) {
+          draw2DFFTSignal({
+            canvas: spectrumCanvas,
+            waveform: Array.from(currentWaveform),
+            frequencyRange: frequencyRangeRef.current,
+            showGrid: snapshotGridPreferenceRef.current,
+            centerFrequencyMHz: centerFreqRef.current,
+            isDeviceConnected,
+            highPerformanceMode: false, // Use full quality for snapshots
+          });
+          snapshotNeededRef.current = false; // Reset after drawing
+          lastSnapshotWaveformRef.current = currentWaveform;
         }
 
         // Waterfall render (only push new lines when not paused)
         if (!isPaused && currentData) {
-          if (webgpuEnabled && waterfallRendererRef.current && waterfallGpuCanvas) {
+          if (webgpuEnabled && webgpuDeviceRef.current && webgpuFormatRef.current && waterfallGpuCanvas) {
             const dims = waterfallGpuDimsRef.current;
             if (dims) {
               let resampled: number[];
@@ -871,61 +717,54 @@ const FFTCanvas = forwardRef<{
                 WATERFALL_HISTORY_MAX,
               );
 
-              waterfallRendererRef.current.pushLine(
-                Float32Array.from(normalizedData),
-                retuneSmearRef.current,
-                retuneDriftPxRef.current,
-              );
-              if (retuneSmearRef.current > 0) {
-                retuneSmearRef.current -= 1;
-                if (retuneSmearRef.current <= 0) {
-                  retuneDriftPxRef.current = 0;
-                }
+              // Convert to RGBA format for waterfall hook
+              const rgbaBuffer = new Uint8ClampedArray(normalizedData.length * 4);
+              for (let i = 0; i < normalizedData.length; i++) {
+                const val = Math.round(normalizedData[i] * 255);
+                rgbaBuffer[i * 4] = val;
+                rgbaBuffer[i * 4 + 1] = val;
+                rgbaBuffer[i * 4 + 2] = val;
+                rgbaBuffer[i * 4 + 3] = 255;
               }
-            }
-          }
 
-          // Always maintain a 2D shadow render for snapshot export
-          if (waterfallCanvas) {
-            renderWaterfall(waterfallCanvas, Array.from(currentWaveform));
-          }
-        } else if (waterfallCanvas && waterfallBufferRef.current) {
-          // Paused 2D fallback: keep displaying the last buffered waterfall.
-          // (Don't push new lines, just redraw the existing buffer.)
-          const ctx = waterfallCanvas.getContext("2d");
-          if (ctx) {
-            drawWaterfall({
-              ctx,
-              width: waterfallCanvas.width,
-              height: waterfallCanvas.height,
-              waterfallBuffer: waterfallBufferRef.current,
+              // Use hook-based WebGPU waterfall renderer
+              drawWebGPUFIFOWaterfall({
+                canvas: waterfallGpuCanvas,
+                device: webgpuDeviceRef.current,
+                format: webgpuFormatRef.current,
+                waterfallBuffer: rgbaBuffer,
+                frequencyRange: frequencyRangeRef.current,
+                driftAmount: retuneSmearRef.current,
+                driftDirection: retuneDriftPxRef.current,
+              });
+            }
+          } else if (waterfallCanvas) {
+            // 2D waterfall rendering
+            draw2DFIFOWaterfall({
+              canvas: waterfallCanvas,
+              waveform: Array.from(currentWaveform),
               frequencyRange: frequencyRangeRef.current,
+              waterfallMin: WATERFALL_HISTORY_LIMIT,
+              waterfallMax: WATERFALL_HISTORY_MAX,
             });
           }
         }
 
-        // Always render existing waterfall buffer (WebGPU)
-        if (webgpuEnabled && waterfallRendererRef.current && waterfallGpuCanvas) {
-          const rect = waterfallGpuCanvas.parentElement?.getBoundingClientRect();
-          if (rect) {
-            const dpr = window.devicePixelRatio || 1;
-            const marginX = Math.round(40 * dpr);
-            const marginY = Math.round(8 * dpr);
-            waterfallRendererRef.current.render({
-              canvasWidth: rect.width,
-              canvasHeight: rect.height,
-              dpr,
-              marginX,
-              marginY,
-              backgroundColor: WATERFALL_CANVAS_BG,
-            });
-          }
+        // Only draw 2D waterfall shadow when snapshot is requested (not every frame!)
+        if (waterfallCanvas && waterfallBufferRef.current && snapshotNeededRef.current) {
+          draw2DFIFOWaterfall({
+            canvas: waterfallCanvas,
+            waterfallBuffer: waterfallBufferRef.current,
+            frequencyRange: frequencyRangeRef.current,
+          });
         }
       }
     },
     [
-      renderSpectrum,
-      renderWaterfall,
+      draw2DFFTSignal,
+      draw2DFIFOWaterfall,
+      drawWebGPUFFTSignal,
+      drawWebGPUFIFOWaterfall,
       isPaused,
       ensureFloat32Waveform,
       displayTemporalResolution,
@@ -933,6 +772,11 @@ const FFTCanvas = forwardRef<{
       resampleSpectrumInto,
       spectrumWebgpuEnabled,
       webgpuEnabled,
+      webgpuDeviceRef,
+      webgpuFormatRef,
+      gridOverlayRendererRef,
+      markersOverlayRendererRef,
+      isDeviceConnected,
     ],
   );
 
@@ -960,11 +804,105 @@ const FFTCanvas = forwardRef<{
 
   restoreWaveformFromStorageRef.current = restoreWaveformFromStorage;
 
+  // Reset cached waveforms when frequency range changes
   useEffect(() => {
-    // We don't need to sync data to dataRef anymore since dataRef is passed directly
-    // but we can keep the cleanup interval
+    const prevRange = frequencyRangeRef.current;
+    frequencyRangeRef.current = frequencyRange;
+
+    if (prevRange.min !== frequencyRange.min || prevRange.max !== frequencyRange.max) {
+      lastProcessedDataRef.current = null;
+      renderWaveformRef.current = null;
+      waveformFloatRef.current = null;
+      frameBufferRef.current = [];
+      spectrumResampleBufRef.current?.fill(0);
+    }
+  }, [frequencyRange]);
+
+  // Handle canvas resizing
+  useEffect(() => {
+    const resizeCanvas = () => {
+      const dpr = window.devicePixelRatio || 1;
+
+      const spectrumRect =
+        spectrumCanvasRef.current?.parentElement?.getBoundingClientRect() ??
+        spectrumGpuCanvasRef.current?.parentElement?.getBoundingClientRect();
+      const waterfallRect =
+        waterfallCanvasRef.current?.parentElement?.getBoundingClientRect() ??
+        waterfallGpuCanvasRef.current?.parentElement?.getBoundingClientRect();
+
+      if (spectrumRect && spectrumRect.width > 0 && spectrumRect.height > 0 && spectrumCanvasRef.current) {
+        const canvas = spectrumCanvasRef.current;
+        canvas.width = spectrumRect.width * dpr;
+        canvas.height = spectrumRect.height * dpr;
+        canvas.style.width = `${spectrumRect.width}px`;
+        canvas.style.height = `${spectrumRect.height}px`;
+        canvas.getContext("2d")?.setTransform(dpr, 0, 0, dpr, 0, 0);
+      }
+
+      if (spectrumRect && spectrumWebgpuEnabled && spectrumGpuCanvasRef.current) {
+        const canvas = spectrumGpuCanvasRef.current;
+        canvas.width = Math.max(1, Math.round(spectrumRect.width * dpr));
+        canvas.height = Math.max(1, Math.round(spectrumRect.height * dpr));
+        canvas.style.width = `${spectrumRect.width}px`;
+        canvas.style.height = `${spectrumRect.height}px`;
+
+        spectrumWidthRef.current = spectrumRect.width;
+        spectrumHeightRef.current = spectrumRect.height;
+        overlayDirtyRef.current.grid = true;
+        overlayDirtyRef.current.markers = true;
+      }
+
+      if (waterfallRect && waterfallRect.width > 0 && waterfallRect.height > 0 && waterfallCanvasRef.current) {
+        const canvas = waterfallCanvasRef.current;
+        canvas.width = waterfallRect.width * dpr;
+        canvas.height = waterfallRect.height * dpr;
+        canvas.style.width = `${waterfallRect.width}px`;
+        canvas.style.height = `${waterfallRect.height}px`;
+        canvas.getContext("2d")?.setTransform(1, 0, 0, 1, 0, 0);
+      }
+
+      if (waterfallRect && waterfallGpuCanvasRef.current) {
+        const canvas = waterfallGpuCanvasRef.current;
+        canvas.width = Math.max(1, Math.round(waterfallRect.width * dpr));
+        canvas.height = Math.max(1, Math.round(waterfallRect.height * dpr));
+        canvas.style.width = `${waterfallRect.width}px`;
+        canvas.style.height = `${waterfallRect.height}px`;
+
+        const marginX = Math.round(40 * dpr);
+        const marginY = Math.round(8 * dpr);
+        const displayWidth = Math.max(1, Math.round(waterfallRect.width * dpr - marginX * 2));
+        const displayHeight = Math.max(1, Math.round(waterfallRect.height * dpr - marginY * 2));
+        if (waterfallDataWidthRef.current !== displayWidth) {
+          waterfallDataWidthRef.current = displayWidth;
+        }
+        const dataWidth = waterfallDataWidthRef.current;
+        waterfallGpuDimsRef.current = { width: dataWidth, height: displayHeight };
+      }
+
+      if (isPaused) {
+        ensurePausedFrame();
+      }
+
+      forceRender();
+    };
+
+    resizeCanvas();
+    window.addEventListener("resize", resizeCanvas);
+
+    const resizeObserver = new ResizeObserver(() => resizeCanvas());
+    const spectrumParent = spectrumCanvasRef.current?.parentElement ?? spectrumGpuCanvasRef.current?.parentElement;
+    const waterfallParent = waterfallCanvasRef.current?.parentElement ?? waterfallGpuCanvasRef.current?.parentElement;
+    if (spectrumParent) resizeObserver.observe(spectrumParent);
+    if (waterfallParent) resizeObserver.observe(waterfallParent);
+
+    return () => {
+      window.removeEventListener("resize", resizeCanvas);
+      resizeObserver.disconnect();
+    };
+  }, [forceRender, spectrumWebgpuEnabled, isPaused, ensurePausedFrame]);
+
+  useEffect(() => {
     const cleanupInterval = setInterval(() => {
-      // Clear waterfall buffer if it's excessive
       if (waterfallBufferRef.current && waterfallDimsRef.current) {
         const { width, height } = waterfallDimsRef.current;
         const expectedSize = width * height * 4;
@@ -974,211 +912,26 @@ const FFTCanvas = forwardRef<{
         }
       }
 
-      // Clear unused references
       if (waveformFloatRef.current && !dataRef.current?.waveform) {
         waveformFloatRef.current = null;
       }
-    }, 30000); // Every 30 seconds instead of 10
+    }, 30000);
 
-    return () => {
-      clearInterval(cleanupInterval);
-    };
+    return () => clearInterval(cleanupInterval);
+  }, [dataRef, waterfallDimsRef, returnBufferToPool, getBufferFromPool]);
+
+  const snapshotNeededRef = useRef(false);
+  const lastSnapshotWaveformRef = useRef<Float32Array | null>(null);
+
+  const triggerSnapshotRender = useCallback(() => {
+    snapshotNeededRef.current = true;
   }, []);
 
-  useEffect(() => {
-    // Update frequency range ref for new lines only
-    // Old waterfall lines stay exactly where they are (no horizontal shifting)
-    const prevRange = frequencyRangeRef.current;
-    frequencyRangeRef.current = frequencyRange;
-
-    if (
-      prevRange.min !== frequencyRange.min ||
-      prevRange.max !== frequencyRange.max
-    ) {
-      // Retune: drop cached waveform/smoothing so new frames render immediately.
-      lastProcessedDataRef.current = null;
-      if (renderWaveformRef.current) {
-        renderWaveformRef.current.fill(0);
-      }
-      renderWaveformRef.current = null;
-      waveformFloatRef.current = null;
-      frameBufferRef.current = [];
-      if (spectrumResampleBufRef.current) {
-        spectrumResampleBufRef.current.fill(0);
-      }
-      // Clear any cached resampling data if needed
-    }
-
-    // Retune artifact: briefly widen/smear the next few lines vertically
-    retuneSmearRef.current = 10;
-    const dims = waterfallGpuDimsRef.current;
-    if (dims) {
-      const prevSpan = prevRange.max - prevRange.min;
-      const delta = frequencyRange.min - prevRange.min;
-      const drift = prevSpan !== 0 ? (delta / prevSpan) * dims.width : 0;
-      retuneDriftPxRef.current = Math.max(-dims.width, Math.min(dims.width, drift));
-      if (Math.abs(retuneDriftPxRef.current) < 0.5) {
-        retuneDriftPxRef.current = 0;
-        retuneSmearRef.current = 0;
-      }
-    } else {
-      retuneDriftPxRef.current = 0;
-      retuneSmearRef.current = 0;
-    }
-
-    // Mark overlays dirty; throttled upload happens in animate loop.
-    overlayDirtyRef.current.grid = true;
-    overlayDirtyRef.current.markers = true;
-  }, [frequencyRange.min, frequencyRange.max]);
-
-  useEffect(() => {
-    const spectrumCanvas = spectrumCanvasRef.current;
-    const spectrumGpuCanvas = spectrumGpuCanvasRef.current;
-    const waterfallCanvas = waterfallCanvasRef.current;
-    const waterfallGpuCanvas = waterfallGpuCanvasRef.current;
-
-    if (!spectrumCanvas && !waterfallCanvas && !spectrumGpuCanvas && !waterfallGpuCanvas) {
-      return;
-    }
-
-    const resizeCanvas = () => {
-      const dpr = window.devicePixelRatio || 1;
-
-      const spectrumRect =
-        spectrumCanvas?.parentElement?.getBoundingClientRect() ??
-        spectrumGpuCanvas?.parentElement?.getBoundingClientRect();
-      const waterfallRect =
-        waterfallCanvas?.parentElement?.getBoundingClientRect() ??
-        waterfallGpuCanvas?.parentElement?.getBoundingClientRect();
-
-      // Skip resize when canvas is hidden (display:none gives zero dimensions)
-      if (spectrumRect && spectrumRect.width === 0 && spectrumRect.height === 0) return;
-      if (waterfallRect && waterfallRect.width === 0 && waterfallRect.height === 0) return;
-
-      // Cache the current dimensions to avoid unnecessary resampling cache invalidation
-      // const oldSpectrumWidth = spectrumWidthRef.current;
-      // const oldSpectrumHeight = spectrumHeightRef.current;
-
-      if (spectrumRect) {
-        if (spectrumCanvas) {
-          spectrumCanvas.width = spectrumRect.width * dpr;
-          spectrumCanvas.height = spectrumRect.height * dpr;
-          spectrumCanvas.style.width = `${spectrumRect.width}px`;
-          spectrumCanvas.style.height = `${spectrumRect.height}px`;
-          const ctx = spectrumCanvas.getContext("2d");
-          if (ctx) {
-            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-          }
-          // Overlay is composited via WebGPU in WebGPU mode
-        }
-
-        if (spectrumWebgpuEnabled && spectrumGpuCanvas && spectrumRendererRef.current) {
-          spectrumRendererRef.current.resize(spectrumRect.width, spectrumRect.height, dpr);
-
-          // Only clear cache if dimensions actually changed significantly
-          const widthChanged = Math.abs((spectrumWidthRef.current || 0) - spectrumRect.width) > 10;
-          const heightChanged =
-            Math.abs((spectrumHeightRef.current || 0) - spectrumRect.height) > 10;
-
-          if (widthChanged || heightChanged) {
-            // Handle resize - simplified approach
-            // Clear resize flag after a short delay
-            setTimeout(() => {
-              // Resize handling completed
-            }, 100);
-          }
-
-          // Update dimension refs
-          spectrumWidthRef.current = spectrumRect.width;
-          spectrumHeightRef.current = spectrumRect.height;
-
-          // Resizing changes raster size — redraw overlays (throttled in animate loop)
-          overlayDirtyRef.current.grid = true;
-          overlayDirtyRef.current.markers = true;
-        }
-      }
-
-      if (waterfallRect) {
-        if (waterfallCanvas) {
-          waterfallCanvas.width = waterfallRect.width * dpr;
-          waterfallCanvas.height = waterfallRect.height * dpr;
-          waterfallCanvas.style.width = `${waterfallRect.width}px`;
-          waterfallCanvas.style.height = `${waterfallRect.height}px`;
-          const ctx = waterfallCanvas.getContext("2d");
-          if (ctx) {
-            ctx.setTransform(1, 0, 0, 1, 0, 0);
-          }
-        }
-
-        if (waterfallGpuCanvas && waterfallRendererRef.current) {
-          waterfallRendererRef.current.resize(waterfallRect.width, waterfallRect.height, dpr);
-
-          const marginX = Math.round(40 * dpr);
-          const marginY = Math.round(8 * dpr);
-          const displayWidth = Math.max(1, Math.round(waterfallRect.width * dpr - marginX * 2));
-          const displayHeight = Math.max(1, Math.round(waterfallRect.height * dpr - marginY * 2));
-          if (!waterfallDataWidthRef.current || waterfallDataWidthRef.current < 10) {
-            waterfallDataWidthRef.current = displayWidth;
-          }
-          const dataWidth = waterfallDataWidthRef.current;
-          waterfallGpuDimsRef.current = {
-            width: dataWidth,
-            height: displayHeight,
-          };
-          waterfallRendererRef.current.updateDimensions(dataWidth, displayHeight);
-        }
-      }
-
-      if (isPaused) {
-        ensurePausedFrame();
-      }
-
-      // ALWAYS force a render immediately after resizing. 
-      // Resizing a WebGPU canvas implicitly destroys its backing texture. 
-      // If we don't synchronously redraw, the browser compositor will present a black 
-      // frame before the next requestAnimationFrame fires, causing a noticeable flicker.
-      forceRender();
-    };
-
-    resizeCanvas();
-    window.addEventListener("resize", resizeCanvas);
-
-    let resizeTimeout: any = null;
-    const resizeObserver = new ResizeObserver(() => {
-      if (resizeTimeout) clearTimeout(resizeTimeout);
-      resizeTimeout = setTimeout(() => {
-        resizeCanvas();
-      }, 8); // More aggressive debouncing (8ms = ~120fps)
-    });
-
-    const spectrumParent = spectrumCanvas?.parentElement ?? spectrumGpuCanvas?.parentElement;
-    const waterfallParent = waterfallCanvas?.parentElement ?? waterfallGpuCanvas?.parentElement;
-
-    if (spectrumParent) resizeObserver.observe(spectrumParent);
-    if (waterfallParent) resizeObserver.observe(waterfallParent);
-
-    if (isPaused && renderWaveformRef.current) {
-      forceRender();
-    }
-
-    return () => {
-      window.removeEventListener("resize", resizeCanvas);
-      if (resizeTimeout) clearTimeout(resizeTimeout);
-      resizeObserver.disconnect();
-    };
-  }, [forceRender, webgpuEnabled, spectrumWebgpuEnabled, isPaused, ensurePausedFrame]);
-
-  // Expose canvas getter methods via ref
   useImperativeHandle(ref, () => ({
-    getSpectrumCanvas: () => {
-      // Return the 2D canvas for snapshot (always maintained for export)
-      return spectrumCanvasRef.current;
-    },
-    getWaterfallCanvas: () => {
-      // Return the 2D waterfall canvas for snapshot
-      return waterfallCanvasRef.current;
-    },
-  }), []);
+    getSpectrumCanvas: () => spectrumCanvasRef.current,
+    getWaterfallCanvas: () => waterfallCanvasRef.current,
+    triggerSnapshotRender,
+  }));
 
   return (
     <VisualizerContainer>
@@ -1216,6 +969,6 @@ const FFTCanvas = forwardRef<{
   );
 });
 
-FFTCanvas.displayName = 'FFTCanvas';
+FFTCanvas.displayName = "FFTCanvas";
 
 export default FFTCanvas;

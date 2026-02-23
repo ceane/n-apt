@@ -15,7 +15,7 @@ fi
 export APP_URL WEBSOCKETS_URL WASM_BUILD_PATH
 export VITE_BACKEND_URL=${VITE_BACKEND_URL:-$WEBSOCKETS_URL}
 export VITE_WS_URL=${VITE_WS_URL:-$WEBSOCKETS_URL}
-NO_BOX_ANIM=${NO_BOX_ANIM:-0}
+NO_BOX_ANIM=${NO_BOX_ANIM:-1}
 STOP_ANIM=0
 
 # Color definitions
@@ -107,29 +107,40 @@ show_process_messages() {
     animate_process_step "${WHITE}Checking to build backend server. ${ORANGE}Rust${RESET}.${RESET}" "${WHITE}✔ Checking to build backend server. ${ORANGE}Rust${RESET}.${RESET}" 1
     animate_process_step "${WHITE}Checking to wasm_simd package. ${ORANGE}Rust${RESET} -> ${ORANGE}wasm_simd${RESET}.${RESET}" "${WHITE}✔ Checking to wasm_simd package. ${ORANGE}Rust${RESET} -> ${ORANGE}wasm_simd${RESET}.${RESET}" 1
 
-    # Builds
-    npm run build:wasm > /dev/null 2>&1 || true
-    animate_process_step "${WHITE}Building (wasm_simd)...${RESET}" "${WHITE}✔ Building (wasm_simd)...${RESET}" 1
+    # Builds (async with spinner)
+    npm run build:wasm > /tmp/wasm_build.log 2>&1 &
+    WASM_PID=$!
+    WASM_FAILED=0
+    if ! wait_with_spinner $WASM_PID "${WHITE}Building (wasm_simd)...${RESET}" "${WHITE}✔ Building (wasm_simd)...${RESET}" "${RED}✗ Building (wasm_simd) failed${RESET}"; then
+        WASM_FAILED=1
+    fi
+    # Count wasm warnings if any
+    if [ -f /tmp/wasm_build.log ]; then
+        WASM_WARNINGS=$(grep -c "warning:" /tmp/wasm_build.log || true)
+        WARNING_COUNT=$((WARNING_COUNT + WASM_WARNINGS))
+    fi
     
-    set +e
-    CARGO_BUILD_OUT=$(cargo build --bin n-apt-backend 2>&1)
-    CARGO_BUILD_STATUS=$?
-    set -e
-    echo "$CARGO_BUILD_OUT" > /tmp/cargo_build.log
-    CARGO_WARNINGS=$(echo "$CARGO_BUILD_OUT" | grep -c "warning:" || true)
+    cargo build --bin n-apt-backend > /tmp/cargo_build.log 2>&1 &
+    CARGO_PID=$!
+    CARGO_BUILD_STATUS=0
+    if ! wait_with_spinner $CARGO_PID "${WHITE}Building (backend)... ${ORANGE}Rust${RESET}.${RESET}" "${WHITE}✔ Building (backend)... ${ORANGE}Rust${RESET}.${RESET}" "${RED}✗ Building (backend) failed${RESET}"; then
+        CARGO_BUILD_STATUS=$?
+    fi
+    CARGO_WARNINGS=$(grep -c "warning:" /tmp/cargo_build.log || true)
     WARNING_COUNT=$((WARNING_COUNT + CARGO_WARNINGS))
-    if [ $CARGO_BUILD_STATUS -ne 0 ] || echo "$CARGO_BUILD_OUT" | grep -q "error:"; then
+    if [ $CARGO_BUILD_STATUS -ne 0 ] || grep -q "error:" /tmp/cargo_build.log 2>/dev/null; then
         ERROR_COUNT=$((ERROR_COUNT + 1))
         BUILD_FAILED=1
     else
         BUILD_FAILED=0
     fi
-    animate_process_step "${WHITE}Building (backend)... ${ORANGE}Rust${RESET}.${RESET}" "${WHITE}✔ Building (backend)... ${ORANGE}Rust${RESET}.${RESET}" 1
 
-    if [ $BUILD_FAILED -eq 0 ]; then
+    if [ $BUILD_FAILED -eq 0 ] && [ $WASM_FAILED -eq 0 ]; then
         cargo run --bin n-apt-backend > /tmp/rust_output.log 2>&1 &
         RUST_PID=$!
-        animate_process_step "${WHITE}Starting backend server. ${ORANGE}Rust${RESET}.${RESET}" "${WHITE}✔ Starting backend server. ${ORANGE}Rust${RESET}.${RESET}" 1
+        if ! wait_for_backend_ready $RUST_PID "${WHITE}Starting backend server. ${ORANGE}Rust${RESET}.${RESET}" "${WHITE}✔ Starting backend server. ${ORANGE}Rust${RESET}.${RESET}" "${RED}✗ Starting backend server failed${RESET}"; then
+            RUST_PID=""
+        fi
     else
         RUST_PID=""
     fi
@@ -285,6 +296,66 @@ get_braille_spinner() {
     echo "${spinners[$spinner_index]}"
 }
 
+# Spinner wrapper for async commands
+wait_with_spinner() {
+    local pid=$1
+    local label="$2"
+    local success_line="$3"
+    local fail_line="$4"
+
+    while kill -0 $pid 2>/dev/null; do
+        local spinner=$(get_braille_spinner)
+        printf "\r\033[K${GREY}%s${RESET} %b" "$spinner" "$label"
+        sleep 0.1
+    done
+    local status=0
+    wait $pid >/dev/null 2>&1 || status=$?
+    if [ $status -eq 0 ]; then
+        printf "\r\033[K%b\n" "$success_line"
+    else
+        printf "\r\033[K%b\n" "$fail_line"
+        ERROR_COUNT=$((ERROR_COUNT + 1))
+    fi
+    return $status
+}
+
+# Wait for backend readiness by watching log while spinning
+wait_for_backend_ready() {
+    local pid=$1
+    local label="$2"
+    local success_line="$3"
+    local fail_line="$4"
+    local max_checks=150
+
+    # Derive host/port from WEBSOCKETS_URL for faster readiness detection
+    local ws_url=${WEBSOCKETS_URL:-http://localhost:8765}
+    local hp=${ws_url#*//}
+    hp=${hp%%/*}
+    local ws_host=${hp%:*}
+    local ws_port=${hp#*:}
+    [ -z "$ws_host" ] && ws_host="127.0.0.1"
+    [[ "$ws_port" == "$ws_host" ]] && ws_port=8765
+
+    for i in $(seq 1 $max_checks); do
+        if ! kill -0 $pid 2>/dev/null; then
+            printf "\r\033[K%b\n" "$fail_line"
+            ERROR_COUNT=$((ERROR_COUNT + 1))
+            return 1
+        fi
+        # Success if log is present or port is listening
+        if grep -q "Starting server on" /tmp/rust_output.log 2>/dev/null || (echo > /dev/tcp/$ws_host/$ws_port) >/dev/null 2>&1; then
+            printf "\r\033[K%b\n" "$success_line"
+            return 0
+        fi
+        local spinner=$(get_braille_spinner)
+        printf "\r\033[K${GREY}%s${RESET} %b" "$spinner" "$label"
+        sleep 0.2
+    done
+    printf "\r\033[K%b\n" "$fail_line"
+    ERROR_COUNT=$((ERROR_COUNT + 1))
+    return 1
+}
+
 # Show unified output box
 render_unified_box_frame() {
     local spinner="$1"
@@ -435,16 +506,7 @@ main() {
     cleanup_processes
     show_process_messages
 
-    # Wait for backend to log startup before showing the box (manual loop, no timeout binary needed)
-    if [ -f /tmp/rust_output.log ]; then
-        for i in {1..50}; do
-            if grep -q "Starting server on 127.0.0.1:8765" /tmp/rust_output.log 2>/dev/null; then
-                break
-            fi
-            sleep 0.2
-        done
-    fi
-
+    show_errors_warnings
     show_unified_box
     
     # Keep script running to maintain services

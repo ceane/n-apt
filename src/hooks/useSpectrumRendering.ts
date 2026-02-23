@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import { drawSpectrum, drawSpectrumGrid, drawSpectrumTrace } from "@n-apt/fft/FFTCanvasRenderer";
+import { drawSpectrum, drawSpectrumGrid, drawSpectrumTrace } from "@n-apt/utils/rendering";
 import { FFT_AREA_MIN, FFT_MIN_DB, FFT_MAX_DB, LINE_COLOR } from "@n-apt/consts";
 
 export interface SpectrumRenderingOptions {

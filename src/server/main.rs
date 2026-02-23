@@ -28,6 +28,7 @@ use std::time::Duration;
 use tokio::sync::broadcast;
 use tower_http::cors::CorsLayer;
 use tower_http::set_header::SetResponseHeaderLayer;
+use url::Url;
 use tower_http::compression::CompressionLayer;
 use axum::http::{HeaderValue, HeaderName};
 use tower::ServiceBuilder;
@@ -137,14 +138,15 @@ impl websocket_server::WebSocketServer {
         let session_store = SessionStore::new();
 
         // Initialize WebAuthn
-        let rp_id = match std::env::var("WEBAUTHN_RP_ID") {
-            Ok(id) => id,
-            Err(_) => "localhost".to_string(),
-        };
-        let rp_origin = match std::env::var("WEBAUTHN_RP_ORIGIN") {
-            Ok(origin) => origin,
-            Err(_) => "http://localhost:5173".to_string(),
-        };
+        let app_url = std::env::var("APP_URL").unwrap_or_else(|_| "http://localhost:5173".to_string());
+        let parsed_app_url = Url::parse(&app_url).ok();
+        let default_rp_id = parsed_app_url
+            .as_ref()
+            .and_then(|u| u.host_str())
+            .unwrap_or("localhost")
+            .to_string();
+        let rp_id = std::env::var("WEBAUTHN_RP_ID").unwrap_or(default_rp_id);
+        let rp_origin = std::env::var("WEBAUTHN_RP_ORIGIN").unwrap_or(app_url.clone());
 
         let webauthn_result = WebauthnBuilder::new(&rp_id, &rp_origin.parse().unwrap())
             .map_err(|e| anyhow::anyhow!("Failed to create WebAuthn: {}", e))?

@@ -6,11 +6,12 @@
  */
 
 import { computeHmac } from "@n-apt/crypto/webcrypto";
+import { BACKEND_HTTP_URL, WS_URL, SESSION_KEY as ENV_SESSION_KEY } from "../consts/ts/env";
 
 // In dev, Vite proxies /auth/* and /status to the backend.
 // In production, these are served from the same origin.
-const API_BASE = "";
-const SESSION_KEY = "n-apt-session-token";
+const API_BASE = BACKEND_HTTP_URL.replace(/\/$/, "");
+const SESSION_KEY = ENV_SESSION_KEY ?? "n-apt-session-token";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -311,9 +312,6 @@ function serializeAuthenticationCredential(cred: PublicKeyCredential): any {
 
 /** Build the WebSocket URL with session token as query parameter. */
 export function buildWsUrl(token: string): string {
-  // In dev, use the current page origin so the Vite proxy handles the upgrade.
-  // In production, connect directly to the backend.
-  const loc = window.location;
-  const protocol = loc.protocol === "https:" ? "wss:" : "ws:";
-  return `${protocol}//${loc.host}/ws?token=${encodeURIComponent(token)}`;
+  const wsBase = (WS_URL || BACKEND_HTTP_URL).replace(/^http/, "ws").replace(/\/$/, "");
+  return `${wsBase}/ws?token=${encodeURIComponent(token)}`;
 }
