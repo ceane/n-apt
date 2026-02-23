@@ -4,7 +4,7 @@ use std::time::Instant;
 
 use n_apt_backend::consts::rs::fft::{FFT_MAX_DB, FFT_MIN_DB, NUM_SAMPLES, SAMPLE_RATE};
 use n_apt_backend::consts::rs::mock::{
-  MOCK_NOISE_FLOOR_BASE, MOCK_NOISE_FLOOR_VARIATION, MOCK_SPECTRUM_SIZE, MOCK_PERSISTENT_SIGNALS,
+  MOCK_NOISE_FLOOR_BASE, MOCK_NOISE_FLOOR_VARIATION, MOCK_PERSISTENT_SIGNALS,
   MOCK_SIGNAL_DRIFT_RATE, MOCK_SIGNAL_MODULATION_RATE, MOCK_SIGNAL_APPEARANCE_CHANCE,
   MOCK_SIGNAL_DISAPPEARANCE_CHANCE, MOCK_SIGNAL_STRENGTH_VARIATION,
 };
@@ -137,11 +137,11 @@ impl SDRProcessor {
     
     self.mock_signals.clear();
     
-    // Place signals randomly across the FULL spectrum (0..MOCK_SPECTRUM_SIZE)
-    // so both signal areas A and B have activity.
+    // Place signals randomly across the FULL spectrum based on current FFT size
+    let spectrum_size = self.fft_processor.config().fft_size;
     for i in 0..MOCK_PERSISTENT_SIGNALS {
       // Random placement across the entire spectrum width
-      let center_bin = rng.gen_range(10.0..(MOCK_SPECTRUM_SIZE as f32 - 10.0));
+      let center_bin = rng.gen_range(10.0..(spectrum_size as f32 - 10.0));
       
       // Vary signal types for diversity
       let signal_type = match i % 3 {
@@ -176,6 +176,9 @@ impl SDRProcessor {
     if device_count > 0 {
       match RtlSdrDevice::open_first() {
         Ok(dev) => {
+          // Get device info BEFORE configuring to avoid sample rate interference
+          info!("RTL-SDR device detected: {}", dev.get_device_info());
+          
           // Configure the device
           if let Err(e) = dev.set_sample_rate(SAMPLE_RATE) {
             warn!("Failed to set sample rate: {}. Falling back to mock mode.", e);
@@ -207,7 +210,16 @@ impl SDRProcessor {
             return Ok(());
           }
 
-          info!("RTL-SDR device initialized: {}", dev.get_device_info());
+          // Final verification of sample rate after all configuration
+          let final_rate = dev.get_sample_rate();
+          if final_rate != SAMPLE_RATE {
+            warn!("Sample rate changed during initialization! Expected {} Hz, got {} Hz. Reapplying...", SAMPLE_RATE, final_rate);
+            if let Err(e) = dev.set_sample_rate(SAMPLE_RATE) {
+              warn!("Failed to reapply sample rate: {}", e);
+            }
+          }
+
+          info!("RTL-SDR device configured: {}", dev.get_device_info());
           self.device = Some(dev);
           self.is_mock = false;
         }
@@ -271,11 +283,32 @@ impl SDRProcessor {
         self.iq_accumulator.clear();
         self.iq_offset = 0;
         self.avg_spectrum = None;
+        self.reinforce_sample_rate();
         Ok(true)
       }
       Err(e) => {
         debug!("RTL-SDR present but could not open: {}", e);
         Ok(false)
+      }
+    }
+  }
+
+  /// Reapply the fixed sample rate to the RTL-SDR device (no-op in mock mode)
+  fn reinforce_sample_rate(&mut self) {
+    if let Some(ref dev) = self.device {
+      // Check current rate before changing
+      let before_rate = dev.get_sample_rate();
+      info!("Reinforcing sample rate: before={} Hz, target={} Hz", before_rate, SAMPLE_RATE);
+      
+      if let Err(e) = dev.set_sample_rate(SAMPLE_RATE) {
+        warn!("Failed to reapply sample rate {} Hz: {}", SAMPLE_RATE, e);
+      } else {
+        // Verify after setting
+        let after_rate = dev.get_sample_rate();
+        info!("Sample rate after reinforcement: {} Hz", after_rate);
+        if after_rate != SAMPLE_RATE {
+          warn!("Sample rate reinforcement failed! Expected {} Hz, got {} Hz", SAMPLE_RATE, after_rate);
+        }
       }
     }
   }
@@ -325,8 +358,9 @@ impl SDRProcessor {
     let old_freq = self.center_freq;
     self.center_freq = freq;
     if self.is_mock && old_freq != freq {
+      let spectrum_size = self.fft_processor.config().fft_size;
       let freq_delta = freq as f64 - old_freq as f64;
-      let bin_shift = (freq_delta / SAMPLE_RATE as f64) * MOCK_SPECTRUM_SIZE as f64;
+      let bin_shift = (freq_delta / SAMPLE_RATE as f64) * spectrum_size as f64;
       for signal in &mut self.mock_signals {
         signal.center_bin -= bin_shift as f32;
       }
@@ -396,6 +430,13 @@ impl SDRProcessor {
     let mut config = self.fft_processor.config().clone();
     let mut config_changed = false;
 
+    // Always ensure the FFT processor sample rate matches our expected rate
+    if config.sample_rate != SAMPLE_RATE {
+      config.sample_rate = SAMPLE_RATE;
+      config_changed = true;
+      info!("Updated FFT processor sample rate to {} Hz", SAMPLE_RATE);
+    }
+
     if let Some(size) = fft_size {
       if size > 0 && (size & (size - 1)) == 0 {
         if config.fft_size != size {
@@ -463,6 +504,9 @@ impl SDRProcessor {
     if config_changed {
       if !self.is_mock {
         config.gain = 1.0;
+        // TODO: Investigate if this reinforcement is causing sample rate issues
+        // self.reinforce_sample_rate();
+        info!("FFT config changed, skipping sample rate reinforcement to test");
       }
       self.fft_processor.update_config(config);
     }
@@ -481,6 +525,8 @@ impl SDRProcessor {
     self.cached_ppm = ppm;
     let mut config = self.fft_processor.config().clone();
     config.ppm = ppm as f32;
+    // Ensure sample rate stays correct
+    config.sample_rate = SAMPLE_RATE;
     self.fft_processor.update_config(config);
     Ok(())
   }
@@ -510,6 +556,7 @@ impl SDRProcessor {
         let encrypted = self.capture_encrypted;
         let encryption_key = [0u8; 32];
 
+        let spectrum_size = self.fft_processor.config().fft_size;
         match super::utils::save_capture_file(
           &job_id,
           &self.capture_buffer,
@@ -520,7 +567,7 @@ impl SDRProcessor {
           self.center_freq as f64,
           SAMPLE_RATE as f64,
           30, // frame_rate: 30fps
-          MOCK_SPECTRUM_SIZE as u32,
+          spectrum_size as u32,
           elapsed, // actual capture duration in seconds
         ) {
           Ok(artifact) => {
@@ -619,6 +666,16 @@ impl SDRProcessor {
       .as_ref()
       .ok_or_else(|| anyhow!("RTL-SDR device not initialized"))?;
 
+    // Verify sample rate before reading
+    let current_rate = dev.get_sample_rate();
+    if current_rate != SAMPLE_RATE {
+      warn!("Sample rate drift detected! Current: {} Hz, Expected: {} Hz", current_rate, SAMPLE_RATE);
+      // Try to fix it
+      if let Err(e) = dev.set_sample_rate(SAMPLE_RATE) {
+        warn!("Failed to fix sample rate: {}", e);
+      }
+    }
+
     let mut frame = std::mem::take(&mut self.iq_frame);
     if frame.len() != self.read_size {
       frame.resize(self.read_size, 0);
@@ -673,11 +730,14 @@ impl SDRProcessor {
   pub fn read_and_process_mock(&mut self) -> Result<Vec<f32>> {
     use rand::Rng;
     let mut rng = rand::thread_rng();
-    let mut data = Vec::with_capacity(MOCK_SPECTRUM_SIZE);
+    
+    // Use current FFT size from config instead of hardcoded MOCK_SPECTRUM_SIZE
+    let spectrum_size = self.fft_processor.config().fft_size;
+    let mut data = Vec::with_capacity(spectrum_size);
 
     self.frame_counter = self.frame_counter.wrapping_add(1);
 
-    for _i in 0..MOCK_SPECTRUM_SIZE {
+    for _i in 0..spectrum_size {
       let noise_floor = MOCK_NOISE_FLOOR_BASE
         + rng.gen_range(-MOCK_NOISE_FLOOR_VARIATION..MOCK_NOISE_FLOOR_VARIATION);
       data.push(noise_floor.clamp(FFT_MIN_DB as f32, FFT_MAX_DB as f32));
@@ -709,7 +769,7 @@ impl SDRProcessor {
             for bin_offset in 0..signal.bandwidth as i32 {
                 let bin_index = (current_bin + bin_offset as f32 - half_bandwidth) as i32;
                 
-                if bin_index >= 0 && bin_index < MOCK_SPECTRUM_SIZE as i32 {
+                if bin_index >= 0 && bin_index < spectrum_size as i32 {
                     let bin_idx = bin_index as usize;
                     let distance_from_center = (bin_offset as f32 - half_bandwidth).abs();
                     let signal_profile = (-distance_from_center.powi(2)

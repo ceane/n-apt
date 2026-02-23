@@ -1,5 +1,5 @@
 import { useRef, useEffect } from "react";
-import type { FrequencyRange } from "@n-apt/fft/FFTCanvasRenderer";
+import type { FrequencyRange } from "@n-apt/consts/types";
 
 export interface FrequencyDragOptions {
   spectrumCanvasRef: React.RefObject<HTMLCanvasElement | null>;

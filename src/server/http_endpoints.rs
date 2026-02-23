@@ -46,10 +46,10 @@ pub async fn capture_download_handler(
   Query(params): Query<CaptureDownloadParams>,
   State(state): State<Arc<super::AppState>>,
 ) -> impl IntoResponse {
-  // Validate session token
-  if state.session_store.validate(&params.token).is_none() {
-    return (StatusCode::UNAUTHORIZED, "Invalid or expired session token").into_response();
-  }
+  let _session = match state.session_store.validate(&params.token) {
+    Some(s) => s,
+    None => {return (StatusCode::UNAUTHORIZED, "Invalid or expired session token").into_response();}
+  };
 
   // Get capture artifacts for this job
   let artifacts = {
@@ -260,7 +260,6 @@ pub async fn agent_status_handler(
       "last_tool_execution": "Available via logging"
     }
   });
-  
   Json(status)
 }
 
@@ -273,6 +272,7 @@ pub async fn execute_webmcp_tool_handler(
   
   let tool_name = tool_request.name.as_str();
   let params = &tool_request.params;
+  // ... (rest of the code remains the same)
   
   let result = match tool_name {
     "connectDevice" => handle_connect_device(&state, params).await,
@@ -508,7 +508,7 @@ async fn handle_start_capture(state: &Arc<super::AppState>, params: &serde_json:
   }
 }
 
-async fn handle_stop_capture(state: &Arc<super::AppState>, _params: &serde_json::Value) -> WebMCPToolResponse {
+async fn handle_stop_capture(_state: &Arc<super::AppState>, _params: &serde_json::Value) -> WebMCPToolResponse {
   // Note: You would need to add a StopCapture command to the SdrCommand enum
   // For now, we'll return a placeholder response
   WebMCPToolResponse {

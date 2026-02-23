@@ -16,20 +16,8 @@ use super::types::{WsQueryParams, WebSocketMessage};
 use super::utils::reconcile_device_state;
 
 /// Calculate optimal FFT sizes based on screen width
-fn calculate_auto_fft_sizes(screen_width: u32) -> Vec<usize> {
-    let base_size = (screen_width / 2).next_power_of_two() as usize;
-    let mut sizes = vec![base_size];
-    
-    // Add next power of 2 if it's within reasonable bounds
-    let next_size = base_size * 2;
-    if next_size <= 65536 {
-        sizes.push(next_size);
-    }
-    
-    // Filter out sizes that are too small and sort
-    sizes.into_iter()
-        .filter(|&size| size >= 1024)
-        .collect()
+fn calculate_auto_fft_sizes(_screen_width: u32) -> Vec<usize> {
+    vec![2048, 4096]
 }
 
 /// GET /ws?token=<session_token> — upgrade to WebSocket after validating session.

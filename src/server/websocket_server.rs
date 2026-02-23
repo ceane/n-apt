@@ -108,7 +108,6 @@ impl WebSocketServer {
             }
         }
 
-        let frame_interval = Duration::from_millis(1000 / 30); // 30 FPS default
         let mut last_frame = std::time::Instant::now();
 
         loop {
@@ -138,6 +137,10 @@ impl WebSocketServer {
                         .store(true, Ordering::Relaxed);
                 }
             }
+
+            // Calculate current frame interval dynamically based on the applied frame rate
+            let current_frame_rate = sdr_processor.display_frame_rate.max(1);
+            let frame_interval = Duration::from_millis((1000 / current_frame_rate) as u64);
 
             // Only produce spectrum data if there are authenticated clients
             if shared.authenticated_count.load(Ordering::Relaxed) > 0 && !shared.is_paused.load(Ordering::Relaxed) {
@@ -340,9 +343,12 @@ impl WebSocketServer {
             SdrCommand::StartCapture { job_id: _, min_freq: _, max_freq: _, duration_s: _, file_type: _, encrypted: _, fft_size: _, fft_window: _ } => {
                 info!("Start capture command received (not implemented)");
             }
-            SdrCommand::ApplySettings { fft_size, fft_window, frame_rate: _, gain, ppm, tuner_agc, rtl_agc } => {
-                if let Err(e) = sdr_processor.apply_settings(fft_size, fft_window, None, gain, ppm, tuner_agc, rtl_agc) {
+            SdrCommand::ApplySettings { fft_size, fft_window, frame_rate, gain, ppm, tuner_agc, rtl_agc } => {
+                info!("Applying settings: fft_size={:?}, frame_rate={:?}, gain={:?}, ppm={:?}", fft_size, frame_rate, gain, ppm);
+                if let Err(e) = sdr_processor.apply_settings(fft_size, fft_window, frame_rate, gain, ppm, tuner_agc, rtl_agc) {
                     error!("Failed to apply settings: {}", e);
+                } else {
+                    info!("Settings applied successfully. Current display_frame_rate: {} fps", sdr_processor.display_frame_rate);
                 }
             }
         }

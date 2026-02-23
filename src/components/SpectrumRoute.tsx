@@ -105,6 +105,7 @@ type SpectrumState = {
   stitchTrigger: number;
   stitchSourceSettings: { gain: number; ppm: number };
   isStitchPaused: boolean;
+  fftFrameRate: number;
 };
 
 type SpectrumAction =
@@ -134,7 +135,8 @@ type SpectrumAction =
     settings: { gain: number; ppm: number };
   }
   | { type: "SET_STITCH_PAUSED"; paused: boolean }
-  | { type: "LEAVE_VISUALIZER" };
+  | { type: "LEAVE_VISUALIZER" }
+  | { type: "SET_FFT_FRAME_RATE"; fftFrameRate: number };
 
 const INITIAL_SPECTRUM_STATE: SpectrumState = {
   activeSignalArea: "A",
@@ -159,6 +161,7 @@ const INITIAL_SPECTRUM_STATE: SpectrumState = {
   stitchTrigger: 0,
   stitchSourceSettings: { gain: 0, ppm: 0 },
   isStitchPaused: true,
+  fftFrameRate: 60,
 };
 
 function spectrumReducer(
@@ -235,7 +238,7 @@ function spectrumReducer(
     default:
       return state;
   }
-}
+};
 
 interface SpectrumRouteProps {
   activeTab: string;
@@ -252,7 +255,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   onAuthChange,
   sidebarWrapper,
 }) => {
-  const fftCanvasRef = useRef<{ getSpectrumCanvas: () => HTMLCanvasElement | null; getWaterfallCanvas: () => HTMLCanvasElement | null } | null>(null);
+  const fftCanvasRef = useRef<{ getSpectrumCanvas: () => HTMLCanvasElement | null; getWaterfallCanvas: () => HTMLCanvasElement | null; triggerSnapshotRender: () => void } | null>(null);
   const [state, dispatch] = useReducer(
     spectrumReducer,
     INITIAL_SPECTRUM_STATE,
@@ -422,79 +425,85 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   }) => {
     if (!fftCanvasRef.current) return;
 
-    const spectrumCanvas = fftCanvasRef.current.getSpectrumCanvas();
-    const waterfallCanvas = fftCanvasRef.current.getWaterfallCanvas();
+    // Trigger 2D shadow render before capturing snapshot
+    fftCanvasRef.current.triggerSnapshotRender();
 
-    if (!spectrumCanvas) return;
+    // Wait a frame for the 2D render to complete, then capture
+    requestAnimationFrame(() => {
+      const spectrumCanvas = fftCanvasRef.current?.getSpectrumCanvas();
+      const waterfallCanvas = fftCanvasRef.current?.getWaterfallCanvas();
 
-    // Create a temporary canvas for the composite image
-    const tempCanvas = document.createElement("canvas");
-    const tempCtx = tempCanvas.getContext("2d");
-    if (!tempCtx) return;
+      if (!spectrumCanvas) return;
 
-    // Calculate dimensions
-    let width = spectrumCanvas.width;
-    let height = spectrumCanvas.height;
+      // Create a temporary canvas for the composite image
+      const tempCanvas = document.createElement("canvas");
+      const tempCtx = tempCanvas.getContext("2d");
+      if (!tempCtx) return;
 
-    if (options.showWaterfall && waterfallCanvas) {
-      height += waterfallCanvas.height;
-    }
+      // Calculate dimensions
+      let width = spectrumCanvas.width;
+      let height = spectrumCanvas.height;
 
-    tempCanvas.width = width;
-    tempCanvas.height = height;
+      if (options.showWaterfall && waterfallCanvas) {
+        height += waterfallCanvas.height;
+      }
 
-    // Draw spectrum
-    tempCtx.drawImage(spectrumCanvas, 0, 0);
+      tempCanvas.width = width;
+      tempCanvas.height = height;
 
-    // Draw waterfall if enabled
-    if (options.showWaterfall && waterfallCanvas) {
-      tempCtx.drawImage(waterfallCanvas, 0, spectrumCanvas.height);
-    }
+      // Draw spectrum
+      tempCtx.drawImage(spectrumCanvas, 0, 0);
 
-    // Draw stats if enabled
-    if (options.showStats) {
-      const statsText = [
-        `Center: ${(state.frequencyRange.min + state.frequencyRange.max) / 2} MHz`,
-        `Range: ${state.frequencyRange.min} - ${state.frequencyRange.max} MHz`,
-        `BW: ${(state.frequencyRange.max - state.frequencyRange.min).toFixed(2)} MHz`,
-        `Device: ${isConnected ? "Connected" : "Disconnected"}`,
-      ];
+      // Draw waterfall if enabled
+      if (options.showWaterfall && waterfallCanvas) {
+        tempCtx.drawImage(waterfallCanvas, 0, spectrumCanvas.height);
+      }
 
-      tempCtx.fillStyle = "rgba(0, 0, 0, 0.7)";
-      tempCtx.fillRect(10, 10, 200, statsText.length * 15 + 10);
+      // Draw stats if enabled
+      if (options.showStats) {
+        const statsText = [
+          `Center: ${(state.frequencyRange.min + state.frequencyRange.max) / 2} MHz`,
+          `Range: ${state.frequencyRange.min} - ${state.frequencyRange.max} MHz`,
+          `BW: ${(state.frequencyRange.max - state.frequencyRange.min).toFixed(2)} MHz`,
+          `Device: ${isConnected ? "Connected" : "Disconnected"}`,
+        ];
 
-      tempCtx.fillStyle = "#00d4ff";
-      tempCtx.font = "12px JetBrains Mono, monospace";
-      statsText.forEach((text, index) => {
-        tempCtx.fillText(text, 15, 25 + index * 15);
-      });
-    }
+        tempCtx.fillStyle = "rgba(0, 0, 0, 0.7)";
+        tempCtx.fillRect(10, 10, 200, statsText.length * 15 + 10);
 
-    // Export based on format
-    if (options.format === "png") {
-      const dataUrl = tempCanvas.toDataURL("image/png");
-      const link = document.createElement("a");
-      link.download = `spectrum-snapshot-${new Date().toISOString().slice(0, 19).replace(/:/g, "-")}.png`;
-      link.href = dataUrl;
-      link.click();
-    } else if (options.format === "svg") {
-      // For SVG, we'll need to convert the canvas to SVG format
-      // This is a simplified implementation - in a real app you might want to use a library
-      const dataUrl = tempCanvas.toDataURL("image/png");
-      const svgContent = `
+        tempCtx.fillStyle = "#00d4ff";
+        tempCtx.font = "12px JetBrains Mono, monospace";
+        statsText.forEach((text, index) => {
+          tempCtx.fillText(text, 15, 25 + index * 15);
+        });
+      }
+
+      // Export based on format
+      if (options.format === "png") {
+        const dataUrl = tempCanvas.toDataURL("image/png");
+        const link = document.createElement("a");
+        link.download = `spectrum-snapshot-${new Date().toISOString().slice(0, 19).replace(/:/g, "-")}.png`;
+        link.href = dataUrl;
+        link.click();
+      } else if (options.format === "svg") {
+        // For SVG, we'll need to convert the canvas to SVG format
+        // This is a simplified implementation - in a real app you might want to use a library
+        const dataUrl = tempCanvas.toDataURL("image/png");
+        const svgContent = `
         <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
           <image href="${dataUrl}" width="${width}" height="${height}"/>
         </svg>
       `;
-      const blob = new Blob([svgContent], { type: "image/svg+xml" });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.download = `spectrum-snapshot-${new Date().toISOString().slice(0, 19).replace(/:/g, "-")}.svg`;
-      link.href = url;
-      link.click();
-      URL.revokeObjectURL(url);
-    }
-  }, [state.frequencyRange, isConnected]);
+        const blob = new Blob([svgContent], { type: "image/svg+xml" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.download = `spectrum-snapshot-${new Date().toISOString().slice(0, 19).replace(/:/g, "-")}.svg`;
+        link.href = url;
+        link.click();
+        URL.revokeObjectURL(url);
+      }
+    }); // Close requestAnimationFrame callback
+  }, [state.frequencyRange, isConnected]); // Close handleSnapshot function
 
   const prevIsVisualizerRef = useRef(isVisualizer);
   useEffect(() => {
@@ -610,7 +619,12 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                 onFrequencyRangeChange={handleFrequencyRangeChange}
                 frequencyRange={state.frequencyRange}
                 onPauseToggle={handleVisualizerPauseToggle}
-                onSettingsChange={sendSettings}
+                onSettingsChange={(settings) => {
+                  if (settings.frameRate !== undefined) {
+                    dispatch({ type: "SET_FFT_FRAME_RATE", fftFrameRate: settings.frameRate });
+                  }
+                  sendSettings(settings);
+                }}
                 displayTemporalResolution={state.displayTemporalResolution}
                 onDisplayTemporalResolutionChange={setDisplayTemporalResolution}
                 selectedFiles={state.selectedFiles}

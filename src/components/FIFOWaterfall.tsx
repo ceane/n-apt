@@ -1,6 +1,6 @@
 import { memo, useRef, useEffect } from "react";
 import styled from "styled-components";
-import { drawWaterfall, addWaterfallFrame } from "@n-apt/waterfall/FIFOWaterfallRenderer";
+// TODO: Update to use useDraw2DFIFOWaterfall hook instead of direct rendering
 import {
   WATERFALL_CANVAS_BG,
   WATERFALL_HISTORY_LIMIT,

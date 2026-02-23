@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import styled from "styled-components";
-import { drawSpectrum } from "@n-apt/fft/FFTCanvasRenderer";
+import { useDraw2DFFTSignal } from "@n-apt/hooks/useDraw2DFFTSignal";
 import { FFT_CANVAS_BG } from "@n-apt/consts";
 
 const ChartContainer = styled.div`
@@ -142,14 +142,15 @@ const DrawMockNAPTChart: React.FC<DrawMockNAPTChartProps> = ({
       const dbValue = MIN_DB + clampedLinear * 80;
       return {
         t,
-        freq,
         x: dbValue,
+        y: freq,
       };
     });
   };
 
-  const [data, setData] = useState(generateMockNAPTData());
+  const [data, setData] = useState<{ x: number; y: number }[]>([]);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const { draw2DFFTSignal } = useDraw2DFFTSignal();
 
   // Update data when parameters change
   useEffect(() => {
@@ -180,14 +181,13 @@ const DrawMockNAPTChart: React.FC<DrawMockNAPTChartProps> = ({
 
     const waveform = data.map((point) => point.x);
 
-    drawSpectrum({
-      ctx,
-      width: displayWidth,
-      height: displayHeight,
+    draw2DFFTSignal({
+      canvas,
       waveform,
       frequencyRange: { min: 0, max: 3 },
       fftMin: -80,
       fftMax: 0,
+      showGrid: true,
     });
   }, [data]);
 
