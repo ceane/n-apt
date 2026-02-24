@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize};
 use std::sync::{Arc, Mutex};
 
 use super::types::{SpectrumFrameMessage, CaptureArtifact};
-use super::utils::load_spectrum_frames;
+use super::utils::{load_channels, load_sdr_settings};
 
 /// How often to probe for a newly attached RTL-SDR while running in mock mode.
 /// Device probing interval for checking device availability
@@ -45,8 +45,10 @@ pub struct SharedState {
   pub encryption_key: [u8; 32],
   /// Pending auth challenges: challenge_id -> (nonce_bytes, created_at)
   pub pending_challenges: Mutex<HashMap<String, ([u8; 32], std::time::Instant)>>,
-  /// Spectrum frames configuration loaded from signals.yaml
-  pub spectrum_frames: Mutex<Vec<SpectrumFrameMessage>>,
+  /// Channels configuration loaded from signals.yaml
+  pub channels: Mutex<Vec<SpectrumFrameMessage>>,
+  /// SDR settings loaded from signals.yaml
+  pub sdr_settings: Mutex<Option<super::types::SdrConfig>>,
   /// Capture artifacts: job_id -> list of (filename, temp_path)
   pub capture_artifacts: Mutex<HashMap<String, Vec<CaptureArtifact>>>,
 }
@@ -65,7 +67,14 @@ impl SharedState {
             client_count: AtomicUsize::new(0),
             authenticated_count: AtomicUsize::new(0),
             is_paused: AtomicBool::new(false),
-            pending_center_freq: AtomicU32::new(n_apt_backend::consts::rs::fft::CENTER_FREQ),
+            pending_center_freq: AtomicU32::new({
+                // Use loaded SDR center frequency, fallback to constant
+                if let Some(sdr_settings) = load_sdr_settings() {
+                    sdr_settings.center_frequency
+                } else {
+                    n_apt_backend::consts::rs::fft::CENTER_FREQ
+                }
+            }),
             pending_center_freq_dirty: AtomicBool::new(false),
             shutdown: AtomicBool::new(false),
             device_info: Mutex::new(String::new()),
@@ -74,7 +83,8 @@ impl SharedState {
             device_state: Mutex::new("disconnected".to_string()),
             encryption_key,
             pending_challenges: Mutex::new(HashMap::new()),
-            spectrum_frames: Mutex::new(load_spectrum_frames()),
+            channels: Mutex::new(load_channels()),
+            sdr_settings: Mutex::new(load_sdr_settings()),
             capture_artifacts: Mutex::new(HashMap::new()),
         })
     }

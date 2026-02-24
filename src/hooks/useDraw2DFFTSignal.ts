@@ -296,16 +296,7 @@ export function useDraw2DFFTSignal() {
 
       // Skip if dimensions haven't changed and waveform is the same (optimization)
       const current = { width, height, waveformLength: waveform.length };
-      const last = lastRenderRef.current;
-      if (
-        last &&
-        last.width === current.width &&
-        last.height === current.height &&
-        last.waveformLength === current.waveformLength &&
-        !highPerformanceMode
-      ) {
-        return true; // Skip rendering if nothing changed
-      }
+      // REMOVED early return optimization that breaks canvas rendering when slider values change
       lastRenderRef.current = current;
 
       try {

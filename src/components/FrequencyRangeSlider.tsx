@@ -1,11 +1,8 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import styled from "styled-components";
 import { FrequencyRange } from "@n-apt/hooks/useWebSocket";
+import { formatFrequency } from "../consts/sdr";
 import {
-  DEFAULT_MIN_FREQ,
-  DEFAULT_MAX_FREQ,
-  DEFAULT_VISIBLE_MIN,
-  DEFAULT_VISIBLE_MAX,
   STEP_SIZE,
   COLORS,
   RANGE_TRACK_HEIGHT,
@@ -22,6 +19,8 @@ interface FrequencyRangeSliderProps {
   maxFreq: number;
   visibleMin: number;
   visibleMax: number;
+  sampleRateMHz?: number | null;
+  limitMarkers?: Array<{ freq: number; label: string }>;
   isActive: boolean;
   onActivate: () => void;
   onRangeChange: (range: FrequencyRange) => void;
@@ -130,31 +129,40 @@ const WindowLabel = styled.span<{ $isActive: boolean }>`
 `;
 
 const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
-  minFreq = DEFAULT_MIN_FREQ,
-  maxFreq = DEFAULT_MAX_FREQ,
-  visibleMin = DEFAULT_VISIBLE_MIN,
-  visibleMax = DEFAULT_VISIBLE_MAX,
+  minFreq,
+  maxFreq,
+  visibleMin,
+  visibleMax,
   label = "A",
   isActive = false,
   onActivate,
   onRangeChange,
   isDeviceConnected = true,
   externalFrequencyRange,
+  sampleRateMHz = null,
+  limitMarkers,
 }) => {
   // Calculate window width (constant based on visible range)
   const totalRange = maxFreq - minFreq;
-  const windowWidth = (visibleMax - visibleMin) / totalRange;
+  // Ensure the window width doesn't exceed the sample rate
+  const rateLimitedMax =
+    typeof sampleRateMHz === "number" && Number.isFinite(sampleRateMHz)
+      ? visibleMin + sampleRateMHz
+      : visibleMax;
+  const actualVisibleMax = Math.min(visibleMax, rateLimitedMax);
+  const windowWidth = (actualVisibleMax - visibleMin) / totalRange;
 
   // Initialize windowStart from props
   const [windowStart, setWindowStart] = useState((visibleMin - minFreq) / totalRange);
 
   // Visual buffer for padding accommodation
   const PADDING_BUFFER = 0.03; // 3% on each side
-  const visualWindowWidth = windowWidth + PADDING_BUFFER * 2;
+  const visualWindowWidth = Math.min(1, windowWidth + (PADDING_BUFFER * 2));
   const visualWindowStart = Math.max(
     0,
     Math.min(windowStart - PADDING_BUFFER, 1 - visualWindowWidth),
   );
+
   const isDraggingRef = useRef(false);
   const trackRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -228,10 +236,7 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   }, [windowStart, isActive, onRangeChange, currentMin, currentMax, isDragging, notifyParent]);
 
   const formatFreq = useCallback((freq: number) => {
-    if (freq < 1) {
-      return `${(freq * 1000).toFixed(0)}kHz`;
-    }
-    return `${freq.toFixed(2)}MHz`;
+    return formatFrequency(freq);
   }, []);
 
   const moveWindow = useCallback(
@@ -327,10 +332,7 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
     }
   };
 
-  const limitMarkers = [
-    { freq: 0.5, label: "500kHz" },
-    { freq: 28.8, label: "28.8MHz" },
-  ];
+  const markerList = Array.isArray(limitMarkers) ? limitMarkers : [];
 
   return (
     <SliderWrapper>
@@ -345,10 +347,10 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
       >
         <RangeTrack ref={trackRef} className="range-track">
           {isDeviceConnected &&
-            limitMarkers.map((marker) => (
+            markerList.map((marker) => (
               <Marker
                 key={marker.label}
-                title={`RTL-SDR: ${marker.label}`}
+                title={marker.label}
                 style={{
                   left: `${((marker.freq - minFreq) / totalRange) * 100}%`,
                 }}

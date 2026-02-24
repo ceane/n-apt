@@ -1,6 +1,7 @@
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use indexmap::IndexMap;
 
 use n_apt_backend::consts::rs::mock::{
   MOCK_NARROW_BAND_WIDTH, MOCK_WIDE_BAND_WIDTH,
@@ -135,7 +136,7 @@ pub struct StatusMessage {
   pub device_info: String,
   pub max_sample_rate: u32,
   #[serde(skip_serializing_if = "Option::is_none")]
-  pub spectrum_frames: Option<Vec<SpectrumFrameMessage>>,
+  pub channels: Option<Vec<SpectrumFrameMessage>>,
 }
 
 /// Structured signal pattern for consistent waterfall visualization
@@ -186,6 +187,7 @@ pub struct SignalsConfig {
 pub struct SignalsData {
   pub mock: MockSignalsConfig,
   pub n_apt: NaptConfig,
+  pub sdr: SdrConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -199,7 +201,50 @@ pub struct MockSignalsConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NaptConfig {
-  pub channels: HashMap<String, SpectrumFrameConfig>,
+  pub channels: IndexMap<String, SpectrumFrameConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SdrConfig {
+  pub sample_rate: u32,
+  pub center_frequency: u32,
+  pub gain: SdrGainConfig,
+  pub ppm: f64,
+  pub fft: SdrFftConfig,
+  pub display: SdrDisplayConfig,
+  #[serde(default)]
+  pub limits: Option<SdrLimitsConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SdrGainConfig {
+  pub tuner_gain: u32,
+  pub rtl_agc: bool,
+  pub tuner_agc: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SdrFftConfig {
+  pub default_size: usize,
+  pub default_frame_rate: u32,
+  pub max_size: usize,
+  pub max_frame_rate: u32,
+  pub size_to_frame_rate: std::collections::HashMap<usize, u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SdrDisplayConfig {
+  pub min_db: i32,
+  pub max_db: i32,
+  pub padding: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SdrLimitsConfig {
+  pub lower_limit_mhz: Option<f64>,
+  pub upper_limit_mhz: Option<f64>,
+  pub lower_limit_label: Option<String>,
+  pub upper_limit_label: Option<String>,
 }
 
 // Mock signal types

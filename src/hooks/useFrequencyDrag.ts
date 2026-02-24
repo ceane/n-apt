@@ -7,6 +7,7 @@ export interface FrequencyDragOptions {
   frequencyRangeRef: React.MutableRefObject<FrequencyRange>;
   spectrumWebgpuEnabled: boolean;
   activeSignalArea: string;
+  signalAreaBounds?: Record<string, { min: number; max: number }>;
   onFrequencyRangeChange?: (range: FrequencyRange) => void;
 }
 
@@ -16,6 +17,7 @@ export function useFrequencyDrag({
   frequencyRangeRef,
   spectrumWebgpuEnabled,
   activeSignalArea,
+  signalAreaBounds,
   onFrequencyRangeChange,
 }: FrequencyDragOptions) {
   const isDraggingRef = useRef(false);
@@ -46,21 +48,20 @@ export function useFrequencyDrag({
       const rangeWidth = frequencyRangeRef.current.max - frequencyRangeRef.current.min;
       let newMaxFreq = newMinFreq + rangeWidth;
 
-      let minBoundary = 0;
-      let maxBoundary = 4.47;
-
-      if (activeSignalArea === "B") {
-        minBoundary = 24.72;
-        maxBoundary = 29.88;
-      }
-
-      if (newMinFreq < minBoundary) {
-        newMinFreq = minBoundary;
-        newMaxFreq = newMinFreq + rangeWidth;
-      }
-      if (newMaxFreq > maxBoundary) {
-        newMaxFreq = maxBoundary;
-        newMinFreq = newMaxFreq - rangeWidth;
+      const bounds =
+        signalAreaBounds?.[activeSignalArea] ??
+        signalAreaBounds?.[activeSignalArea.toLowerCase()];
+      if (bounds) {
+        const minBoundary = bounds.min;
+        const maxBoundary = bounds.max;
+        if (newMinFreq < minBoundary) {
+          newMinFreq = minBoundary;
+          newMaxFreq = newMinFreq + rangeWidth;
+        }
+        if (newMaxFreq > maxBoundary) {
+          newMaxFreq = maxBoundary;
+          newMinFreq = newMaxFreq - rangeWidth;
+        }
       }
 
       const newRange = { min: newMinFreq, max: newMaxFreq };
@@ -141,6 +142,7 @@ export function useFrequencyDrag({
     spectrumCanvasRef,
     spectrumGpuCanvasRef,
     frequencyRangeRef,
+    signalAreaBounds,
   ]);
 
   useEffect(() => {

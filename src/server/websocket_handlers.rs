@@ -68,6 +68,26 @@ pub async fn handle_ws_connection(
     &shared.device_state.lock().unwrap().clone(),
   );
   let paused = shared.is_paused.load(Ordering::Relaxed);
+  let channels = {
+    let mut guard = shared.channels.lock().unwrap();
+    if guard.is_empty() {
+      let loaded = super::utils::load_channels();
+      if !loaded.is_empty() {
+        *guard = loaded;
+      }
+    }
+    guard.clone()
+  };
+  let sdr_settings = {
+    let mut guard = shared.sdr_settings.lock().unwrap();
+    if guard.is_none() {
+      let loaded = super::utils::load_sdr_settings();
+      if loaded.is_some() {
+        *guard = loaded;
+      }
+    }
+    guard.clone()
+  };
 
   let max_sample_rate = if device_connected {
     device_info
@@ -75,14 +95,14 @@ pub async fn handle_ws_connection(
       .nth(1)
       .and_then(|s| s.split(" Hz").next())
       .and_then(|s| s.parse::<u32>().ok())
-      .unwrap_or(3_200_000)
+      .unwrap_or(64_000_000)
   } else {
     device_info
       .split("Sample Rate: ")
       .nth(1)
       .and_then(|s| s.split(" Hz").next())
       .and_then(|s| s.parse::<u32>().ok())
-      .unwrap_or(3_200_000)
+      .unwrap_or(64_000_000)
   };
 
   let initial_status = serde_json::json!({
@@ -94,7 +114,8 @@ pub async fn handle_ws_connection(
     "device_state": device_state,
     "paused": paused,
     "max_sample_rate": max_sample_rate,
-    "spectrum_frames": shared.spectrum_frames.lock().unwrap().clone(),
+    "channels": channels,
+    "sdr_settings": sdr_settings,
     "backend": if device_connected { "rtl-sdr" } else { "mock" }
   });
 
@@ -147,6 +168,7 @@ pub async fn handle_ws_connection(
                       break;
                     }
                   }
+                  
                   Err(e) => {
                     error!("Binary encryption failed: {}", e);
                   }
@@ -209,8 +231,18 @@ pub fn handle_message(
 ) {
   match message.message_type.as_str() {
     "frequency_range" | "set_frequency_range" => {
-      if let (Some(min_freq), Some(max_freq)) = (message.min_freq, message.max_freq) {
-        let center_freq = ((min_freq + max_freq) * 500000.0) as u32;
+      if let (Some(min_freq), Some(_max_freq)) = (message.min_freq, message.max_freq) {
+        // Calculate center frequency based on the start of the range plus half the sample rate
+        // This ensures the SDR tunes to exactly the right center frequency to capture the requested range
+        let sdr_settings_guard = shared.sdr_settings.lock().unwrap();
+        let sample_rate = if let Some(settings) = &*sdr_settings_guard {
+            settings.sample_rate as f64
+        } else {
+            3200000.0 // Default to 3.2MHz if settings not available
+        };
+        
+        let center_freq = ((min_freq * 1000000.0) + (sample_rate / 2.0)) as u32;
+        
         shared.pending_center_freq.store(center_freq, Ordering::Relaxed);
         shared
           .pending_center_freq_dirty

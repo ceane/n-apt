@@ -4,9 +4,9 @@ import {
   FFT_TEXT_COLOR,
   VERTICAL_RANGE,
   FFT_AREA_MIN,
-  formatFrequency,
   findBestFrequencyRange,
 } from "@n-apt/consts";
+import { formatFrequency } from "../consts/sdr";
 
 /**
  * Hook for rendering WebGPU overlay textures (grid and markers)
@@ -31,8 +31,10 @@ export function useOverlayRenderer() {
       const vertRange = fftMax - fftMin;
       const scaleFactor = fftHeight / vertRange;
 
-      const minFreq = frequencyRange?.min ?? 0;
-      const maxFreq = frequencyRange?.max ?? 3.2;
+      if (!frequencyRange) return;
+      const minFreq = frequencyRange.min;
+      const maxFreq = frequencyRange.max;
+      if (!Number.isFinite(minFreq) || !Number.isFinite(maxFreq)) return;
       const viewBandwidth = maxFreq - minFreq;
       const range = findBestFrequencyRange(viewBandwidth, 10);
       const lowerFreq = Math.ceil(minFreq / range) * range;
@@ -59,9 +61,40 @@ export function useOverlayRenderer() {
         ctx.fillText(line.toString(), FFT_AREA_MIN.x - 10, Math.round(yPos + 3));
       }
 
+      const viewBandwidth2 = maxFreq - minFreq;
+      const range2 = findBestFrequencyRange(viewBandwidth2, 10);
+      // Always show a line at the exact channel start, then continue with regular grid
+      const lowerFreq2 = Math.ceil(minFreq / range2) * range2;
+      const upperFreq2 = maxFreq;
+      const freqToX2 = (freq: number) =>
+        FFT_AREA_MIN.x + ((freq - minFreq) / viewBandwidth2) * plotWidth;
+
+      ctx.strokeStyle = FFT_GRID_COLOR;
+      ctx.fillStyle = FFT_TEXT_COLOR;
+      ctx.font = "12px JetBrains Mono";
       ctx.textAlign = "center";
-      for (let freq = lowerFreq; freq < upperFreq; freq += range) {
-        const xPos = freqToX(freq);
+
+      // Always draw a line at the exact channel start
+      const channelStartX = freqToX2(minFreq);
+      ctx.beginPath();
+      ctx.moveTo(Math.round(channelStartX), FFT_AREA_MIN.y);
+      ctx.lineTo(Math.round(channelStartX), fftAreaMax.y);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(Math.round(channelStartX), fftAreaMax.y);
+      ctx.lineTo(Math.round(channelStartX), fftAreaMax.y + 7);
+      ctx.stroke();
+      
+      // Show channel start frequency
+      const displayFreq = formatFrequency(minFreq);
+      ctx.fillText(displayFreq, Math.round(channelStartX), fftAreaMax.y + 25);
+
+      // Then draw the regular grid lines
+      for (let freq = lowerFreq2; freq < upperFreq2; freq += range2) {
+        // Skip if this is the same as the channel start we already drew
+        if (Math.abs(freq - minFreq) < 0.001) continue;
+        
+        const xPos = freqToX2(freq);
         ctx.beginPath();
         ctx.moveTo(Math.round(xPos), FFT_AREA_MIN.y);
         ctx.lineTo(Math.round(xPos), fftAreaMax.y);
@@ -70,7 +103,10 @@ export function useOverlayRenderer() {
         ctx.moveTo(Math.round(xPos), fftAreaMax.y);
         ctx.lineTo(Math.round(xPos), fftAreaMax.y + 7);
         ctx.stroke();
-        ctx.fillText(formatFrequency(freq), Math.round(xPos), fftAreaMax.y + 25);
+        
+        // Use proper frequency formatting with Hz/kHz/MHz
+        const displayFreq = formatFrequency(freq);
+        ctx.fillText(displayFreq, Math.round(xPos), fftAreaMax.y + 25);
       }
 
       const xPos = fftAreaMax.x;
@@ -85,7 +121,9 @@ export function useOverlayRenderer() {
         ctx.moveTo(Math.round(xPos), fftAreaMax.y);
         ctx.lineTo(Math.round(xPos), fftAreaMax.y + 7);
         ctx.stroke();
-        ctx.fillText(formatFrequency(maxFreq), Math.round(xPos), fftAreaMax.y + 25);
+        
+        const displayFreq = formatFrequency(maxFreq);
+        ctx.fillText(displayFreq, Math.round(xPos), fftAreaMax.y + 25);
       }
 
       ctx.strokeStyle = FFT_TEXT_COLOR;
@@ -114,18 +152,17 @@ export function useOverlayRenderer() {
       const dpr = window.devicePixelRatio || 1;
       const fftAreaMax = { x: width - 40, y: height - 40 };
       const plotWidth = fftAreaMax.x - FFT_AREA_MIN.x;
-      const minFreq = frequencyRange?.min ?? 0;
-      const maxFreq = frequencyRange?.max ?? 3.2;
+      if (!frequencyRange) return;
+      const minFreq = frequencyRange.min;
+      const maxFreq = frequencyRange.max;
+      if (!Number.isFinite(minFreq) || !Number.isFinite(maxFreq)) return;
       const viewBandwidth = maxFreq - minFreq;
       if (viewBandwidth <= 0) return;
 
       const freqToX = (freq: number) =>
         FFT_AREA_MIN.x + ((freq - minFreq) / viewBandwidth) * plotWidth;
 
-      const markers: { freq: number; label: string }[] = [
-        { freq: 0.5, label: "500kHz / RTL-SDR v4 lower limit" },
-        { freq: 28.8, label: "28.8MHz / Potential hardware spur" },
-      ];
+      const markers: { freq: number; label: string }[] = [];
 
       if (isDeviceConnected) {
         for (const m of markers) {
@@ -175,9 +212,7 @@ export function useOverlayRenderer() {
         Number.isNaN(centerFrequencyMHz) ||
         !Number.isFinite(centerFrequencyMHz)
           ? "✋  -- MHz"
-          : centerFrequencyMHz < 1
-            ? `✋  ${Math.round(centerFrequencyMHz * 1000)} kHz`
-            : `✋  ${centerFrequencyMHz.toFixed(3)} MHz`;
+          : `✋  ${formatFrequency(centerFrequencyMHz)}`;
 
       ctx.save();
       ctx.font = "12px JetBrains Mono";

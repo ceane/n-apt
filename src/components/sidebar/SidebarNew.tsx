@@ -12,15 +12,19 @@ import type {
   CaptureRequest,
   CaptureStatus,
   CaptureFileType,
+  FrequencyRange,
+  SdrSettingsConfig,
 } from "@n-apt/hooks/useWebSocket";
+import { formatFrequency } from "../../consts/sdr";
 
 // Import extracted section components
 import { ConnectionStatusSection } from "@n-apt/components/sidebar/ConnectionStatusSection";
 import { SignalDisplaySection } from "@n-apt/components/sidebar/SignalDisplaySection";
+import CaptureSection from "@n-apt/components/sidebar/CaptureSection";
+import FileProcessingSection from "@n-apt/components/sidebar/FileProcessingSection";
 import { IQCaptureControlsSection } from "@n-apt/components/sidebar/IQCaptureControlsSection";
 import { SnapshotControlsSection } from "@n-apt/components/sidebar/SnapshotControlsSection";
 import { SourceSettingsSection } from "@n-apt/components/sidebar/SourceSettingsSection";
-import { FileProcessingSection } from "@n-apt/components/sidebar/FileProcessingSection";
 import DrawMockNAPTSidebar from "@n-apt/components/sidebar/DrawMockNAPTSidebar";
 
 type NaptMetadata = {
@@ -272,6 +276,8 @@ interface SidebarProps {
   backend: string | null;
   deviceInfo: string | null;
   maxSampleRateHz: number | null;
+  sampleRateHz?: number | null;
+  sdrSettings?: SdrSettingsConfig | null;
   captureStatus: CaptureStatus;
   autoFftOptions?: {
     message_type: "auto_fft_options";
@@ -303,7 +309,7 @@ interface SidebarProps {
   activeSignalArea: string;
   onSignalAreaChange: (area: string) => void;
   onFrequencyRangeChange?: (range: { min: number; max: number }) => void;
-  frequencyRange?: { min: number; max: number };
+  frequencyRange?: FrequencyRange;
   onPauseToggle: () => void;
   onSettingsChange?: (settings: SDRSettings) => void;
   displayTemporalResolution?: "low" | "medium" | "high";
@@ -340,6 +346,8 @@ const Sidebar: React.FC<SidebarProps> = ({
   backend,
   deviceInfo,
   maxSampleRateHz,
+  sampleRateHz,
+  sdrSettings,
   captureStatus,
   autoFftOptions,
   onCaptureCommand,
@@ -376,7 +384,36 @@ const Sidebar: React.FC<SidebarProps> = ({
   onSnapshot,
 }) => {
   const { isAuthenticated, sessionToken, authState, aesKey } = useAuthentication();
-  const maxSampleRate = maxSampleRateHz || 3_200_000;
+  const maxSampleRate =
+    typeof sampleRateHz === "number" && Number.isFinite(sampleRateHz)
+      ? sampleRateHz
+      : maxSampleRateHz ?? 0;
+  const sampleRateMHz =
+    typeof sampleRateHz === "number" && Number.isFinite(sampleRateHz)
+      ? sampleRateHz / 1_000_000
+      : null;
+  const limitMarkers = useMemo(() => {
+    const limits = sdrSettings?.limits;
+    if (!limits) return [];
+    const markers: Array<{ freq: number; label: string }> = [];
+    if (typeof limits.lower_limit_mhz === "number") {
+      markers.push({
+        freq: limits.lower_limit_mhz,
+        label:
+          limits.lower_limit_label ??
+          `${formatFrequency(limits.lower_limit_mhz)} / Lower limit`,
+      });
+    }
+    if (typeof limits.upper_limit_mhz === "number") {
+      markers.push({
+        freq: limits.upper_limit_mhz,
+        label:
+          limits.upper_limit_label ??
+          `${formatFrequency(limits.upper_limit_mhz)} / Upper limit`,
+      });
+    }
+    return markers;
+  }, [sdrSettings]);
   const {
     fftSize,
     fftWindow,
@@ -397,7 +434,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     setRtlAGC,
     sendCurrentSettings,
     scheduleCoupledAdjustment,
-  } = useSdrSettings({ maxSampleRate, onSettingsChange });
+  } = useSdrSettings({ maxSampleRate, sdrSettings, onSettingsChange });
 
   // Capture UI state
   const [captureOpen, setCaptureOpen] = useState(false);
@@ -434,23 +471,19 @@ const Sidebar: React.FC<SidebarProps> = ({
       return { min: 0, max: 0, segments: [] as Array<{ label: string; min: number; max: number }> };
     }
 
-    const fallbackA = { label: "A", min: 0.0, max: 4.47 };
-    const fallbackB = { label: "B", min: 24.72, max: 29.88 };
-
     const findFrameByLabel = (label: string) =>
       spectrumFrames?.find((f) => f.label.toLowerCase() === label.toLowerCase()) ?? null;
 
     const frameA = findFrameByLabel("A");
     const frameB = findFrameByLabel("B");
 
-    const AREA_A = frameA ? { label: "A", min: frameA.min_mhz, max: frameA.max_mhz } : fallbackA;
-    const AREA_B = frameB ? { label: "B", min: frameB.min_mhz, max: frameB.max_mhz } : fallbackB;
-
     const segments: Array<{ label: string; min: number; max: number }> = [];
     if (captureOnscreen)
       segments.push({ label: "Onscreen", min: frequencyRange.min, max: frequencyRange.max });
-    if (captureAreaA) segments.push(AREA_A);
-    if (captureAreaB) segments.push(AREA_B);
+    if (captureAreaA && frameA)
+      segments.push({ label: "A", min: frameA.min_mhz, max: frameA.max_mhz });
+    if (captureAreaB && frameB)
+      segments.push({ label: "B", min: frameB.min_mhz, max: frameB.max_mhz });
 
     if (segments.length === 0) {
       segments.push({ label: "Onscreen", min: frequencyRange.min, max: frequencyRange.max });
@@ -482,8 +515,13 @@ const Sidebar: React.FC<SidebarProps> = ({
       const match = f.name.match(/iq_(\d+\.?\d*)MHz/);
       if (match) {
         const freq = parseFloat(match[1]);
-        minFreq = Math.min(minFreq, freq - 1.6);
-        maxFreq = Math.max(maxFreq, freq + 1.6);
+        const halfSpan =
+          typeof sampleRateMHz === "number" && Number.isFinite(sampleRateMHz)
+            ? sampleRateMHz / 2
+            : null;
+        if (halfSpan === null) continue;
+        minFreq = Math.min(minFreq, freq - halfSpan);
+        maxFreq = Math.max(maxFreq, freq + halfSpan);
       }
     }
     if (minFreq === Infinity) return null;
@@ -734,7 +772,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             onSnapshotShowWaterfallChange={setSnapshotShowWaterfall}
             onSnapshotShowStatsChange={setSnapshotShowStats}
             onSnapshotFormatChange={setSnapshotFormat}
-            onSnapshotGridPreferenceChange={onSnapshotGridPreferenceChange || (() => {})}
+            onSnapshotGridPreferenceChange={onSnapshotGridPreferenceChange || (() => { })}
             onSnapshot={handleSnapshot}
           />
 
@@ -807,42 +845,40 @@ const Sidebar: React.FC<SidebarProps> = ({
             <>
               <Section>
                 <SectionTitle>Signal areas of interest</SectionTitle>
-                {(Array.isArray(spectrumFrames) && spectrumFrames.length > 0
-                  ? spectrumFrames
-                  : [
-                      { id: "frame_a", label: "A", min_mhz: 0.0, max_mhz: 4.47, description: "" },
-                      {
-                        id: "frame_b",
-                        label: "B",
-                        min_mhz: 24.72,
-                        max_mhz: 29.88,
-                        description: "",
-                      },
-                    ]
-                ).map((frame) => {
-                  const label = frame.label;
-                  const min = frame.min_mhz;
-                  const max = frame.max_mhz;
-                  const span = max - min;
-                  const window = Math.min(3.2, Math.max(0.2, span));
-                  return (
-                    <FrequencyRangeSlider
-                      key={frame.id}
-                      label={label}
-                      minFreq={min}
-                      maxFreq={max}
-                      visibleMin={min}
-                      visibleMax={min + window}
-                      isActive={activeSignalArea === label}
-                      onActivate={() => onSignalAreaChange?.(label)}
-                      onRangeChange={(range) => handleRangeChange(label, range)}
-                      isDeviceConnected={deviceState === "connected"}
-                      externalFrequencyRange={
-                        activeSignalArea === label ? frequencyRange : undefined
-                      }
-                    />
-                  );
-                })}
+                {Array.isArray(spectrumFrames) && spectrumFrames.length > 0 ? (
+                  spectrumFrames.map((frame) => {
+                    const label = frame.label;
+                    const min = frame.min_mhz;
+                    const max = frame.max_mhz;
+                    const span = max - min;
+                    const window =
+                      typeof sampleRateMHz === "number" ? Math.min(sampleRateMHz, span) : span;
+
+                    return (
+                      <FrequencyRangeSlider
+                        key={frame.id}
+                        label={label}
+                        minFreq={min}
+                        maxFreq={max}
+                        visibleMin={min}
+                        visibleMax={min + window}
+                        sampleRateMHz={sampleRateMHz}
+                        limitMarkers={limitMarkers}
+                        isActive={activeSignalArea === label}
+                        onActivate={() => onSignalAreaChange?.(label)}
+                        onRangeChange={(range) => handleRangeChange(label, range)}
+                        isDeviceConnected={deviceState === "connected"}
+                        externalFrequencyRange={
+                          activeSignalArea === label ? frequencyRange : undefined
+                        }
+                      />
+                    );
+                  })
+                ) : (
+                  <div style={{ fontSize: "11px", color: "#666" }}>
+                    Signal configuration loading...
+                  </div>
+                )}
               </Section>
 
               <Section>
@@ -903,13 +939,14 @@ const Sidebar: React.FC<SidebarProps> = ({
                 fftFrameRate={fftFrameRate}
                 maxFrameRate={maxFrameRate}
                 fftSize={fftSize}
+                fftSizeOptions={fftSizeOptions}
                 fftWindow={fftWindow}
                 temporalResolution={displayTemporalResolution || "medium"}
                 autoFftOptions={autoFftOptions}
                 onFftFrameRateChange={setFftFrameRate}
                 onFftSizeChange={setFftSize}
                 onFftWindowChange={setFftWindow}
-                onTemporalResolutionChange={onDisplayTemporalResolutionChange || (() => {})}
+                onTemporalResolutionChange={onDisplayTemporalResolutionChange || (() => { })}
                 scheduleCoupledAdjustment={scheduleCoupledAdjustment}
               />
 
@@ -926,7 +963,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                 onTunerAGCChange={setTunerAGC}
                 onRtlAGCChange={setRtlAGC}
                 onStitchSourceSettingsChange={onStitchSourceSettingsChange}
-                onAgcModeChange={() => {}}
+                onAgcModeChange={() => { }}
               />
             </>
           )}

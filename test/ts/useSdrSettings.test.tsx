@@ -1,0 +1,76 @@
+import React from "react";
+import { render, screen } from "@testing-library/react";
+import { useSdrSettings } from "@n-apt/hooks/useSdrSettings";
+import type { SdrSettingsConfig } from "@n-apt/hooks/useWebSocket";
+
+type HookHarnessProps = {
+  sdrSettings: SdrSettingsConfig;
+};
+
+const HookHarness: React.FC<HookHarnessProps> = ({ sdrSettings }) => {
+  const {
+    fftSize,
+    fftFrameRate,
+    gain,
+    ppm,
+    tunerAGC,
+    rtlAGC,
+    fftSizeOptions,
+  } = useSdrSettings({
+    maxSampleRate: sdrSettings.sample_rate,
+    onSettingsChange: jest.fn(),
+    sdrSettings,
+  });
+
+  return (
+    <div>
+      <div data-testid="fftSize">{fftSize}</div>
+      <div data-testid="fftFrameRate">{fftFrameRate}</div>
+      <div data-testid="gain">{gain}</div>
+      <div data-testid="ppm">{ppm}</div>
+      <div data-testid="tunerAGC">{String(tunerAGC)}</div>
+      <div data-testid="rtlAGC">{String(rtlAGC)}</div>
+      <div data-testid="fftSizeOptions">{fftSizeOptions.join(",")}</div>
+    </div>
+  );
+};
+
+describe("useSdrSettings", () => {
+  it("initializes from sdr settings config", () => {
+    const sdrSettings: SdrSettingsConfig = {
+      sample_rate: 3_200_000,
+      center_frequency: 1_600_000,
+      gain: {
+        tuner_gain: 256,
+        rtl_agc: true,
+        tuner_agc: false,
+      },
+      ppm: 2,
+      fft: {
+        default_size: 16384,
+        default_frame_rate: 42,
+        max_size: 262144,
+        max_frame_rate: 48,
+        size_to_frame_rate: {
+          "8192": 60,
+          "16384": 42,
+        },
+      },
+      display: {
+        min_db: -120,
+        max_db: 0,
+        padding: 20,
+      },
+    };
+
+    render(<HookHarness sdrSettings={sdrSettings} />);
+
+    expect(screen.getByTestId("fftSize")).toHaveTextContent("16384");
+    expect(screen.getByTestId("fftFrameRate")).toHaveTextContent("42");
+    expect(screen.getByTestId("gain")).toHaveTextContent("25.6");
+    expect(screen.getByTestId("ppm")).toHaveTextContent("2");
+    expect(screen.getByTestId("tunerAGC")).toHaveTextContent("false");
+    expect(screen.getByTestId("rtlAGC")).toHaveTextContent("true");
+    expect(screen.getByTestId("fftSizeOptions")).toHaveTextContent("8192,16384");
+  });
+});

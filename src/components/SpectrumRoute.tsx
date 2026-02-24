@@ -1,4 +1,4 @@
-import React, { useEffect, useCallback, useRef, useMemo, useReducer } from "react";
+import React, { useEffect, useCallback, useRef, useMemo, useReducer, useState } from "react";
 import styled from "styled-components";
 import SidebarNew from "@n-apt/components/sidebar/SidebarNew";
 import AuthenticationPrompt from "@n-apt/components/AuthenticationPrompt";
@@ -7,6 +7,7 @@ import ClassificationControls from "@n-apt/components/ClassificationControls";
 import Decode from "@n-apt/components/Decode";
 import DrawMockNAPTChart from "@n-apt/components/DrawMockNAPTChart";
 import FFTStitcherCanvas from "@n-apt/components/FFTStitcherCanvas";
+import type { SdrSettingsConfig } from "@n-apt/hooks/useWebSocket";
 import { useWebSocket, FrequencyRange, SpectrumFrame } from "@n-apt/hooks/useWebSocket";
 import { useAuthentication } from "@n-apt/hooks/useAuthentication";
 import { useSnapshot } from "@n-apt/hooks/useSnapshot";
@@ -16,7 +17,8 @@ import { buildWsUrl } from "@n-apt/services/auth";
 type SourceMode = "live" | "file";
 type SelectedFile = { name: string; file: File };
 
-const VISUALIZER_PAUSED_KEY = "napt-visualizer-paused";
+const MANUAL_VISUALIZER_PAUSE_KEY = "napt-visualizer-manual-paused";
+let visualizerRoutePaused = false;
 
 // Styled Components
 const AppContainer = styled.div`
@@ -100,7 +102,7 @@ type DrawParams = {
 
 type SpectrumState = {
   activeSignalArea: string;
-  frequencyRange: FrequencyRange;
+  frequencyRange: FrequencyRange | null;
   displayTemporalResolution: "low" | "medium" | "high";
   selectedFiles: SelectedFile[];
   snapshotGridPreference: boolean;
@@ -121,14 +123,14 @@ type SpectrumAction =
   | { type: "SET_SIGNAL_AREA"; area: string }
   | { type: "SET_FREQUENCY_RANGE"; range: FrequencyRange }
   | {
-      type: "SET_SIGNAL_AREA_AND_RANGE";
-      area: string;
-      range: FrequencyRange;
-    }
+    type: "SET_SIGNAL_AREA_AND_RANGE";
+    area: string;
+    range: FrequencyRange;
+  }
   | {
-      type: "SET_TEMPORAL_RESOLUTION";
-      resolution: "low" | "medium" | "high";
-    }
+    type: "SET_TEMPORAL_RESOLUTION";
+    resolution: "low" | "medium" | "high";
+  }
   | { type: "SET_SELECTED_FILES"; files: SelectedFile[] }
   | { type: "SET_SNAPSHOT_GRID"; preference: boolean }
   | { type: "SET_DRAW_PARAMS"; params: DrawParams }
@@ -140,16 +142,16 @@ type SpectrumAction =
   | { type: "TRIGGER_STITCH" }
   | { type: "TOGGLE_STITCH_PAUSE" }
   | {
-      type: "SET_STITCH_SOURCE_SETTINGS";
-      settings: { gain: number; ppm: number };
-    }
+    type: "SET_STITCH_SOURCE_SETTINGS";
+    settings: { gain: number; ppm: number };
+  }
   | { type: "SET_STITCH_PAUSED"; paused: boolean }
   | { type: "LEAVE_VISUALIZER" }
   | { type: "SET_FFT_FRAME_RATE"; fftFrameRate: number };
 
 const INITIAL_SPECTRUM_STATE: SpectrumState = {
   activeSignalArea: "A",
-  frequencyRange: { min: 88, max: 108 },
+  frequencyRange: null,
   displayTemporalResolution: "medium",
   selectedFiles: [],
   snapshotGridPreference: true,
@@ -179,6 +181,7 @@ function spectrumReducer(state: SpectrumState, action: SpectrumAction): Spectrum
       return { ...state, activeSignalArea: action.area };
     case "SET_FREQUENCY_RANGE":
       if (
+        state.frequencyRange &&
         state.frequencyRange.min === action.range.min &&
         state.frequencyRange.max === action.range.max
       ) {
@@ -265,14 +268,34 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     getWaterfallCanvas: () => HTMLCanvasElement | null;
     triggerSnapshotRender: () => void;
   } | null>(null);
-  const [state, dispatch] = useReducer(spectrumReducer, INITIAL_SPECTRUM_STATE, (base) => ({
-    ...base,
-    visualizerPaused: sessionStorage.getItem(VISUALIZER_PAUSED_KEY) === "true",
-  }));
-
-  useEffect(() => {
-    sessionStorage.setItem(VISUALIZER_PAUSED_KEY, String(state.visualizerPaused));
-  }, [state.visualizerPaused]);
+  const [state, dispatch] = useReducer(spectrumReducer, INITIAL_SPECTRUM_STATE);
+  const [manualVisualizerPaused, setManualVisualizerPaused] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return sessionStorage.getItem(MANUAL_VISUALIZER_PAUSE_KEY) === "true";
+  });
+  const [routePaused, setRoutePaused] = useState(() => visualizerRoutePaused);
+  const lastSentPauseRef = useRef<boolean | null>(null);
+  const [cachedFrames, setCachedFrames] = useState<SpectrumFrame[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const raw = sessionStorage.getItem("napt-spectrum-frames");
+      if (!raw) return [];
+      const parsed = JSON.parse(raw) as SpectrumFrame[];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
+  const [cachedSdrSettings, setCachedSdrSettings] = useState<SdrSettingsConfig | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const raw = sessionStorage.getItem("napt-sdr-settings");
+      if (!raw) return null;
+      return JSON.parse(raw) as SdrSettingsConfig;
+    } catch {
+      return null;
+    }
+  });
 
   useEffect(() => {
     if (activeTab === "visualizer") {
@@ -323,6 +346,8 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     backend,
     deviceInfo,
     maxSampleRateHz,
+    sampleRateHz,
+    sdrSettings,
     serverPaused,
     dataRef,
     captureStatus,
@@ -342,15 +367,83 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   // Still support waveformRef for older components, mapping it to the new dataRef
   waveformRef.current = dataRef.current?.waveform ?? null;
 
-  const syncedInitialPauseRef = useRef(false);
+  const effectiveFrames = wsSpectrumFrames.length > 0 ? wsSpectrumFrames : cachedFrames;
+  const effectiveSdrSettings = sdrSettings ?? cachedSdrSettings;
+
   useEffect(() => {
-    if (isConnected && !syncedInitialPauseRef.current) {
-      // Initialize local pause state to match server's pause state when we first connect.
-      // This prevents auto-playing if the user comes back from 4th/5th tabs and the server was paused.
-      dispatch({ type: "SET_VISUALIZER_PAUSED", paused: serverPaused });
-      syncedInitialPauseRef.current = true;
+    if (wsSpectrumFrames.length === 0) return;
+    setCachedFrames(wsSpectrumFrames);
+    try {
+      sessionStorage.setItem("napt-spectrum-frames", JSON.stringify(wsSpectrumFrames));
+    } catch {
+      /* ignore */
     }
-  }, [isConnected, serverPaused]);
+  }, [wsSpectrumFrames]);
+
+  useEffect(() => {
+    if (!sdrSettings) return;
+    setCachedSdrSettings(sdrSettings);
+    try {
+      sessionStorage.setItem("napt-sdr-settings", JSON.stringify(sdrSettings));
+    } catch {
+      /* ignore */
+    }
+  }, [sdrSettings]);
+
+  const sampleRateHzEffective =
+    typeof effectiveSdrSettings?.sample_rate === "number" &&
+    Number.isFinite(effectiveSdrSettings.sample_rate)
+      ? effectiveSdrSettings.sample_rate
+      : sampleRateHz ?? null;
+
+  const sampleRateMHz =
+    typeof sampleRateHzEffective === "number" && Number.isFinite(sampleRateHzEffective)
+      ? sampleRateHzEffective / 1_000_000
+      : null;
+
+  const signalAreaBounds = useMemo(() => {
+    if (!Array.isArray(effectiveFrames) || effectiveFrames.length === 0) {
+      return null;
+    }
+    const bounds: Record<string, { min: number; max: number }> = {};
+    effectiveFrames.forEach((frame) => {
+      const label = frame.label;
+      if (!label) return;
+      bounds[label] = { min: frame.min_mhz, max: frame.max_mhz };
+      bounds[label.toLowerCase()] = { min: frame.min_mhz, max: frame.max_mhz };
+    });
+    return bounds;
+  }, [effectiveFrames]);
+
+  useEffect(() => {
+    if (state.frequencyRange) return;
+    if (!Array.isArray(effectiveFrames) || effectiveFrames.length === 0) return;
+    const primaryFrame =
+      effectiveFrames.find((frame) => frame.label.toLowerCase() === "a") ?? effectiveFrames[0];
+    if (!primaryFrame) return;
+    const min = primaryFrame.min_mhz;
+    const max = sampleRateMHz ? Math.min(primaryFrame.max_mhz, min + sampleRateMHz) : primaryFrame.max_mhz;
+    const nextRange = { min, max };
+    dispatch({ type: "SET_FREQUENCY_RANGE", range: nextRange });
+    sendFrequencyRange(nextRange);
+  }, [state.frequencyRange, sampleRateMHz, effectiveFrames, sendFrequencyRange]);
+
+  const desiredVisualizerPaused = !isVisualizer || manualVisualizerPaused || routePaused;
+
+  useEffect(() => {
+    dispatch({ type: "SET_VISUALIZER_PAUSED", paused: desiredVisualizerPaused });
+  }, [desiredVisualizerPaused]);
+
+  useEffect(() => {
+    if (!isConnected) {
+      lastSentPauseRef.current = null;
+      return;
+    }
+    if (lastSentPauseRef.current !== desiredVisualizerPaused) {
+      sendPauseCommand(desiredVisualizerPaused);
+      lastSentPauseRef.current = desiredVisualizerPaused;
+    }
+  }, [isConnected, desiredVisualizerPaused, sendPauseCommand]);
 
   const setDrawParams = useCallback(
     (params: DrawParams) => dispatch({ type: "SET_DRAW_PARAMS", params }),
@@ -435,16 +528,16 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     prevIsVisualizerRef.current = isVisualizer;
 
     if (prevIsVisualizer !== isVisualizer) {
-      if (!isVisualizer) {
-        sendPauseCommand(true);
-        dispatch({ type: "SET_VISUALIZER_PAUSED", paused: true });
+      if (!isVisualizer && !routePaused) {
+        visualizerRoutePaused = true;
+        setRoutePaused(true);
       }
       dispatch({
         type: "SET_STITCH_PAUSED",
         paused: !isVisualizer,
       });
     }
-  }, [isVisualizer, isConnected, sendPauseCommand]);
+  }, [isVisualizer, routePaused]);
 
   const skipFirstCleanupRef = useRef(true);
   useEffect(() => {
@@ -455,6 +548,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
         return;
       }
       // Pause and snapshot when unmounting the route
+      visualizerRoutePaused = true;
       dispatch({ type: "LEAVE_VISUALIZER" });
       sendPauseCommand(true);
     };
@@ -468,19 +562,30 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     });
     if (isConnected) {
       sendPauseCommand(newPausedState);
+      lastSentPauseRef.current = newPausedState;
+    }
+    if (newPausedState) {
+      sessionStorage.setItem(MANUAL_VISUALIZER_PAUSE_KEY, "true");
+      setManualVisualizerPaused(true);
+    } else {
+      sessionStorage.removeItem(MANUAL_VISUALIZER_PAUSE_KEY);
+      setManualVisualizerPaused(false);
+      visualizerRoutePaused = false;
+      setRoutePaused(false);
     }
   }, [state.visualizerPaused, isConnected, sendPauseCommand]);
 
   const handleSignalAreaChange = useCallback(
     (area: string) => {
       if (area !== state.activeSignalArea) {
-        const frame = wsSpectrumFrames.find(
+        const frame = effectiveFrames.find(
           (f: SpectrumFrame) => f.label.toLowerCase() === area.toLowerCase(),
         );
         if (frame) {
+          const window = sampleRateMHz ? frame.min_mhz + sampleRateMHz : frame.max_mhz;
           const nextRange = {
             min: frame.min_mhz,
-            max: Math.min(frame.max_mhz, frame.min_mhz + 3.2),
+            max: Math.min(frame.max_mhz, window),
           };
           dispatch({
             type: "SET_SIGNAL_AREA_AND_RANGE",
@@ -493,7 +598,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
         }
       }
     },
-    [state.activeSignalArea, wsSpectrumFrames, sendFrequencyRange],
+    [state.activeSignalArea, effectiveFrames, sendFrequencyRange, sampleRateMHz],
   );
 
   const handleFrequencyRangeChange = useCallback(
@@ -505,18 +610,17 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   );
 
   const centerFrequencyMHz = useMemo(() => {
-    const min = state.frequencyRange?.min;
-    const max = state.frequencyRange?.max;
-    if (
-      typeof min !== "number" ||
-      typeof max !== "number" ||
-      !Number.isFinite(min) ||
-      !Number.isFinite(max)
-    ) {
-      return 1.6;
+    if (!state.frequencyRange) return null;
+    const min = state.frequencyRange.min;
+    const max = state.frequencyRange.max;
+    if (!Number.isFinite(min) || !Number.isFinite(max)) return null;
+
+    if (state.sourceMode === "live" && sampleRateMHz !== null) {
+      return min + sampleRateMHz / 2;
     }
+
     return (min + max) / 2;
-  }, [state.frequencyRange]);
+  }, [state.frequencyRange, sampleRateMHz, state.sourceMode]);
 
   return (
     <AppContainer>
@@ -534,10 +638,12 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                 backend={backend}
                 deviceInfo={deviceInfo}
                 maxSampleRateHz={maxSampleRateHz}
+                sampleRateHz={sampleRateHzEffective ?? undefined}
+                sdrSettings={effectiveSdrSettings ?? undefined}
                 captureStatus={captureStatus}
                 autoFftOptions={autoFftOptions}
                 onCaptureCommand={sendCaptureCommand}
-                spectrumFrames={wsSpectrumFrames}
+                spectrumFrames={effectiveFrames}
                 activeTab={activeTab}
                 onTabChange={onTabChange}
                 drawParams={state.drawParams}
@@ -548,7 +654,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                 activeSignalArea={state.activeSignalArea}
                 onSignalAreaChange={handleSignalAreaChange}
                 onFrequencyRangeChange={handleFrequencyRangeChange}
-                frequencyRange={state.frequencyRange}
+                frequencyRange={state.frequencyRange ?? undefined}
                 onPauseToggle={handleVisualizerPauseToggle}
                 onSettingsChange={(settings) => {
                   if (settings.frameRate !== undefined) {
@@ -571,7 +677,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                 onSnapshotGridPreferenceChange={setSnapshotGridPreference}
                 fftWaveform={dataRef.current?.waveform ?? null}
                 getCurrentWaveform={getCurrentWaveform}
-                centerFrequencyMHz={centerFrequencyMHz}
+                centerFrequencyMHz={centerFrequencyMHz ?? undefined}
                 onSnapshot={handleSnapshot}
               />
             );
@@ -596,7 +702,11 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                 onRegisterPasskey={handleRegisterPasskey}
               />
             )}
-            {isVisualizer && isAuthenticated && state.sourceMode === "live" && (
+            {isVisualizer &&
+              isAuthenticated &&
+              state.sourceMode === "live" &&
+              state.frequencyRange &&
+              centerFrequencyMHz !== null && (
               <>
                 {deviceState === "connected" && (
                   <ClassificationControls
@@ -621,9 +731,21 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                   displayTemporalResolution={state.displayTemporalResolution}
                   snapshotGridPreference={state.snapshotGridPreference}
                   sendGetAutoFftOptions={sendGetAutoFftOptions}
+                  signalAreaBounds={signalAreaBounds ?? undefined}
                 />
               </>
             )}
+            {isVisualizer &&
+              isAuthenticated &&
+              state.sourceMode === "live" &&
+              (!state.frequencyRange || centerFrequencyMHz === null) && (
+                <InitializingContainer>
+                  <InitializingTitle>Loading Signal Configuration</InitializingTitle>
+                  <InitializingText>
+                    Waiting for signals.yaml settings from the server...
+                  </InitializingText>
+                </InitializingContainer>
+              )}
             {isVisualizer && isAuthenticated && state.sourceMode === "file" && (
               <FFTStitcherCanvas
                 selectedFiles={state.selectedFiles}

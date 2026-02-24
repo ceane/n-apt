@@ -149,15 +149,6 @@ show_process_messages() {
     echo ""
 }
 
-# Process cleanup
-cleanup_processes() {
-    # Kill existing processes
-    pkill -f "n-apt-backend" 2>/dev/null || true
-    pkill -f "vite" 2>/dev/null || true
-    fkill --force 'n-apt-backend' ':5173' ':8765' 2>/dev/null || true
-    sleep 1
-}
-
 # Build WASM_SIMD package
 build_wasm_simd() {
     echo -e "${BLUE}Building WASM_SIMD package...${RESET}"
@@ -503,7 +494,6 @@ main() {
     show_header
     echo ""
     
-    cleanup_processes
     show_process_messages
 
     show_errors_warnings
