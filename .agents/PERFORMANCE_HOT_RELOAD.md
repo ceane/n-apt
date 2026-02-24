@@ -81,7 +81,7 @@ signals:
 2. **Manual Reload**: Send WebSocket message:
 
 ```json
-{"type": "reload_config"}
+{ "type": "reload_config" }
 ```
 
 ### Development Workflow

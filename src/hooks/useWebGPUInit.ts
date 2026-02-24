@@ -179,7 +179,7 @@ async function getWebGPUDevice(): Promise<GPUDevice | null> {
         if (!adapter) {
           return null;
         }
-        
+
         // Request higher texture dimension limits to support larger canvases
         const device = await adapter.requestDevice({
           requiredLimits: {

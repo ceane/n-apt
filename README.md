@@ -33,21 +33,25 @@ npm install
 ### Running the App
 
 #### For Development (Recommended)
+
 ```bash
 npm run dev:hot
 ```
 
 #### For Fast Development (Backend Only)
+
 ```bash
 npm run dev:fast
 ```
 
 #### For Full Development (Includes WASM Build)
+
 ```bash
 npm run dev
 ```
 
 **Development Features:**
+
 - 🚀 Fast Rust builds with incremental compilation
 - 🔄 Hot reload for signal configuration (`mock_signals.yaml`)
 - ⚡ Real-time configuration changes without server restart
@@ -65,7 +69,7 @@ The app will be available at `http://localhost:5173` with the WebSocket server r
 
 > **💡 Tip:** Use `npm run dev:hot` for the best development experience with hot reloading enabled.
 
-For detailed development instructions, see [DEVELOPMENT.md](DEVELOPMENT.md).
+For detailed development instructions, see [.agents/DEVELOPMENT.md](.agents/DEVELOPMENT.md).
 
 I only have on person captures (within the `iq-samples` dir), however in the future I'll be sure to add near and 1 or 2m away captures (as long as my cord can do), as well as some captures from suspected endpoints.
 
@@ -75,9 +79,9 @@ Thankfully, the infrastructure and technique does enough to get the right data, 
 
 **Note**
 
-To ensure the best captures, use the maximum setting on your SDR (even if unstable). Nyquist theorem requires the sampling rate to be at least twice the highest frequency component of the signal to avoid aliasing, hence why the spikes may not be present with lower bandwidths. 
+To ensure the best captures, use the maximum setting on your SDR (even if unstable). Nyquist theorem requires the sampling rate to be at least twice the highest frequency component of the signal to avoid aliasing, hence why the spikes may not be present with lower bandwidths.
 
-----
+---
 
 ## This repo is a signals intelligence problem.
 

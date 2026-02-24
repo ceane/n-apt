@@ -3,18 +3,21 @@
 ## Summary of Changes
 
 ### 🚀 Performance Optimizations
+
 - **Enhanced Cargo.toml** with optimized build profiles
 - **Release profile**: Maximum optimization (`opt-level = 3`, `lto = true`)
 - **Dev-fast profile**: Fastest compilation for development
 - **Incremental builds** enabled for all profiles
 
 ### 🔄 Hot Reloading System
+
 - **File watcher** for `mock_signals.yaml` using `notify` crate
 - **WebSocket command** `{"type":"reload_config"}` for manual reload
 - **Configuration structures** for signal patterns
 - **Automatic reload** when configuration file changes
 
 ### 📋 Updated npm Scripts
+
 ```json
 {
   "dev": "concurrently \"npm run build:wasm ...\" \"npm run server:dev\" \"vite ...\"",
@@ -26,23 +29,27 @@
 ```
 
 ### 🛠 Development Scripts
+
 - `./scripts/dev.sh` - Complete development environment setup
 - `./scripts/dev_server.sh` - Original dev server (still available)
 - `./start_server.sh` - Updated with `--dev` flag support
 
 ### 📚 Documentation
-- `DEVELOPMENT.md` - Comprehensive development guide
+
+- `.agents/DEVELOPMENT.md` - Comprehensive development guide
 - `PERFORMANCE_HOT_RELOAD.md` - Technical implementation details
 - Updated `README.md` with new development workflow
 
 ## 🎯 Development Workflow
 
 ### Primary Development Command
+
 ```bash
 npm run dev:hot
 ```
 
 ### Alternative Commands
+
 ```bash
 npm run dev:fast    # Backend-only development
 npm run dev         # Full development with WASM
@@ -60,16 +67,19 @@ npm run server:dev  # Backend only
 ## 🚀 Usage Examples
 
 ### Hot Reload Testing
+
 1. Start: `npm run dev:hot`
 2. Edit: `mock_signals.yaml`
 3. See: Changes apply immediately
 
 ### Manual Reload
+
 ```json
-{"type":"reload_config"}
+{ "type": "reload_config" }
 ```
 
 ### Configuration Structure
+
 ```yaml
 signals:
   - id: "fm_radio"
@@ -92,6 +102,7 @@ signals:
 ## 🎉 Result
 
 Development is now significantly faster with:
+
 - **~5x faster builds** in development mode
 - **Hot reload** for configuration changes
 - **Incremental compilation** for subsequent builds

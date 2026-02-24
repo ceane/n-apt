@@ -31,7 +31,7 @@ describe("End-to-End Pipeline Integration", () => {
         paused: false,
       },
       {
-        message_type: "status", 
+        message_type: "status",
         device_connected: true,
         device_state: "connected",
         backend: "rtl-sdr",
@@ -41,7 +41,7 @@ describe("End-to-End Pipeline Integration", () => {
       {
         message_type: "status",
         device_connected: false,
-        device_state: "disconnected", 
+        device_state: "disconnected",
         backend: "mock",
         device_info: "Mock RTL-SDR Device",
         paused: false,
@@ -53,7 +53,7 @@ describe("End-to-End Pipeline Integration", () => {
       expect(status.message_type).toBe("status");
       expect(typeof status.device_connected).toBe("boolean");
       expect(typeof status.device_state).toBe("string");
-      
+
       if (index === 0) {
         expect(status.device_connected).toBe(false);
         expect(status.backend).toBe("mock");
@@ -178,11 +178,11 @@ describe("End-to-End Pipeline Integration", () => {
     const validSizes = [256, 512, 1024, 2048, 4096];
     const invalidSizes = [100, 300, 1000, 2000];
 
-    validSizes.forEach(size => {
+    validSizes.forEach((size) => {
       expect(size & (size - 1)).toBe(0); // Power of 2 check
     });
 
-    invalidSizes.forEach(size => {
+    invalidSizes.forEach((size) => {
       expect(size & (size - 1)).not.toBe(0); // Not power of 2
     });
   });
@@ -202,7 +202,8 @@ describe("End-to-End Pipeline Integration", () => {
       device_connected: true,
       device_state: "connected",
       backend: "rtl-sdr",
-      device_info: "RTL-SDR Blog V4 (Realtek RTL2832U) - Sample Rate: 3200000 Hz (max: 3200000 Hz), Gain: 49.6 dB, PPM: 1",
+      device_info:
+        "RTL-SDR Blog V4 (Realtek RTL2832U) - Sample Rate: 3200000 Hz (max: 3200000 Hz), Gain: 49.6 dB, PPM: 1",
       paused: false,
     };
 

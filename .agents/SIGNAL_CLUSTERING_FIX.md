@@ -11,6 +11,7 @@ The issue was that both Area A (0-4.47 MHz) and Area B (24.72-29.88 MHz) were be
 ## 🎯 Solution Implemented
 
 ### **Spectrum Splitting Logic**
+
 ```rust
 // Split the visible spectrum between areas
 // Area A gets the lower half (0-50%), Area B gets the upper half (50-100%)
@@ -22,6 +23,7 @@ let (freq_ratio_start, freq_ratio_end) = if is_lower_half {
 ```
 
 ### **Updated Signal Generation**
+
 - **Area A**: Maps to lower 50% of visible spectrum (0-1.6 MHz)
 - **Area B**: Maps to upper 50% of visible spectrum (1.6-3.2 MHz)
 - **Result**: Even distribution across entire spectrum
@@ -29,29 +31,33 @@ let (freq_ratio_start, freq_ratio_end) = if is_lower_half {
 ## 📊 Current Results
 
 ### **Proper Distribution**
+
 - **Area A**: 6 signals from 0.29-1.52 MHz (lower half)
 - **Area B**: 6 signals from 1.77-3.18 MHz (upper half)
 - **Total**: 12 signals evenly distributed across 0.29-3.18 MHz
 - **Coverage**: ~92% of visible spectrum with proper spacing
 
 ### **Before vs After**
+
 - **Before**: All 12 signals clustered in 2.0-3.0 MHz range
 - **After**: Signals split evenly across lower and upper spectrum
 
 ## 🔍 Technical Details
 
 ### **Frequency Mapping Strategy**
+
 1. **Original ranges preserved**: Still maps 0-4.47 MHz and 24.72-29.88 MHz
 2. **Spectrum splitting**: Area A → 0-50%, Area B → 50-100% of visible window
 3. **FFT-size independent**: Maintains consistency across different FFT sizes
 4. **Even distribution**: Prevents clustering in any single area
 
 ### **Configuration**
+
 ```yaml
 global_settings:
-  signals_per_area: 6        # 6 signals per area
-  area_a_density: 1.0      # Equal density
-  area_b_density: 1.0      # Equal density
+  signals_per_area: 6 # 6 signals per area
+  area_a_density: 1.0 # Equal density
+  area_b_density: 1.0 # Equal density
 ```
 
 ## 🎉 Benefits

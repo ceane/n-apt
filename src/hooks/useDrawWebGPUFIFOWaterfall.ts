@@ -191,259 +191,284 @@ export function useDrawWebGPUFIFOWaterfall() {
     return texture;
   }, []);
 
-  const createWaterfallWebGPUState = useCallback((canvas: HTMLCanvasElement, device: GPUDevice, format: GPUTextureFormat): WaterfallWebGPUState => {
-    const ctx = configureWebGPUCanvas(canvas, device, format);
+  const createWaterfallWebGPUState = useCallback(
+    (
+      canvas: HTMLCanvasElement,
+      device: GPUDevice,
+      format: GPUTextureFormat,
+    ): WaterfallWebGPUState => {
+      const ctx = configureWebGPUCanvas(canvas, device, format);
 
-    device.pushErrorScope("validation");
-    const module = device.createShaderModule({ code: waterfallShader });
-    const pipeline = device.createRenderPipeline({
-      layout: "auto",
-      vertex: { module, entryPoint: "vs_main" },
-      fragment: { module, entryPoint: "fs_main", targets: [{ format }] },
-      primitive: { topology: "triangle-list" },
-    });
-    device.popErrorScope().then((error) => {
-      if (error) {
-        console.error("WaterfallWebGPU pipeline error:", error.message);
+      device.pushErrorScope("validation");
+      const module = device.createShaderModule({ code: waterfallShader });
+      const pipeline = device.createRenderPipeline({
+        layout: "auto",
+        vertex: { module, entryPoint: "vs_main" },
+        fragment: { module, entryPoint: "fs_main", targets: [{ format }] },
+        primitive: { topology: "triangle-list" },
+      });
+      device.popErrorScope().then((error) => {
+        if (error) {
+          console.error("WaterfallWebGPU pipeline error:", error.message);
+        }
+      });
+
+      const uniformValues = new Float32Array(12);
+      const uniformBuffer = device.createBuffer({
+        size: uniformValues.byteLength,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      });
+
+      const colorTexture = createColorMapTexture(device);
+
+      return {
+        canvas,
+        device,
+        format,
+        ctx,
+        pipeline,
+        uniformBuffer,
+        uniformValues,
+        dataTexture: null,
+        colorTexture,
+        colorCount: DEFAULT_COLOR_MAP.length,
+        bindGroup: null,
+        textureWidth: 0,
+        textureHeight: 0,
+        paddedRowBytes: 0,
+        rowUploadBuffer: new Uint8Array(0),
+        clearBuffer: null,
+        writeRow: 0,
+        clearColor: { r: 0, g: 0, b: 0, a: 1 },
+      };
+    },
+    [createColorMapTexture],
+  );
+
+  const drawWebGPUFIFOWaterfall = useCallback(
+    async (options: WebGPUFIFOWaterfallOptions) => {
+      const {
+        canvas,
+        device,
+        format,
+        waterfallBuffer,
+        frequencyRange,
+        waterfallMin = -80,
+        waterfallMax = 20,
+        driftAmount = 0,
+        driftDirection = 1,
+      } = options;
+
+      // Initialize renderer state if needed
+      if (!rendererRef.current) {
+        try {
+          rendererRef.current = createWaterfallWebGPUState(canvas, device, format);
+        } catch (error) {
+          console.error("Failed to create WebGPU waterfall renderer:", error);
+          return false;
+        }
       }
-    });
 
-    const uniformValues = new Float32Array(12);
-    const uniformBuffer = device.createBuffer({
-      size: uniformValues.byteLength,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
+      const state = rendererRef.current;
 
-    const colorTexture = createColorMapTexture(device);
-
-    return {
-      canvas,
-      device,
-      format,
-      ctx,
-      pipeline,
-      uniformBuffer,
-      uniformValues,
-      dataTexture: null,
-      colorTexture,
-      colorCount: DEFAULT_COLOR_MAP.length,
-      bindGroup: null,
-      textureWidth: 0,
-      textureHeight: 0,
-      paddedRowBytes: 0,
-      rowUploadBuffer: new Uint8Array(0),
-      clearBuffer: null,
-      writeRow: 0,
-      clearColor: { r: 0, g: 0, b: 0, a: 1 },
-    };
-  }, [createColorMapTexture]);
-
-  const drawWebGPUFIFOWaterfall = useCallback(async (options: WebGPUFIFOWaterfallOptions) => {
-    const {
-      canvas,
-      device,
-      format,
-      waterfallBuffer,
-      frequencyRange,
-      waterfallMin = -80,
-      waterfallMax = 20,
-      driftAmount = 0,
-      driftDirection = 1,
-    } = options;
-
-    // Initialize renderer state if needed
-    if (!rendererRef.current) {
       try {
-        rendererRef.current = createWaterfallWebGPUState(canvas, device, format);
-      } catch (error) {
-        console.error("Failed to create WebGPU waterfall renderer:", error);
-        return false;
-      }
-    }
+        // Reconfigure canvas if needed
+        const currentDpr = window.devicePixelRatio || 1;
+        const targetWidth = Math.max(1, Math.round(canvas.width * currentDpr));
+        const targetHeight = Math.max(1, Math.round(canvas.height * currentDpr));
 
-    const state = rendererRef.current;
-
-    try {
-      // Reconfigure canvas if needed
-      const currentDpr = window.devicePixelRatio || 1;
-      const targetWidth = Math.max(1, Math.round(canvas.width * currentDpr));
-      const targetHeight = Math.max(1, Math.round(canvas.height * currentDpr));
-      
-      if (canvas.width !== targetWidth || canvas.height !== targetHeight) {
-        state.ctx = configureWebGPUCanvas(canvas, state.device, state.format);
-      }
-      
-      // Update dimensions if needed
-      const marginY = Math.round(8 * currentDpr);
-      const dataWidth = Math.max(1, Math.floor(waterfallBuffer.length / 4));
-      const dataHeight = Math.max(1, Math.round(canvas.height * currentDpr) - marginY * 2);
-
-      if (dataWidth !== state.textureWidth || dataHeight !== state.textureHeight) {
-        const prevTexture = state.dataTexture;
-        const prevWidth = state.textureWidth;
-        const prevHeight = state.textureHeight;
-
-        state.textureWidth = dataWidth;
-        state.textureHeight = dataHeight;
-        const widthChanged = prevWidth !== state.textureWidth;
-
-        state.dataTexture = state.device.createTexture({
-          size: { width: state.textureWidth, height: state.textureHeight },
-          format: "r8unorm",
-          usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.COPY_SRC,
-        });
-
-        state.paddedRowBytes = alignTo(state.textureWidth, 256);
-        state.rowUploadBuffer = new Uint8Array(state.paddedRowBytes);
-        state.writeRow = widthChanged ? 0 : Math.min(state.writeRow, state.textureHeight - 1);
-
-        const clearSize = state.paddedRowBytes * state.textureHeight;
-        if (!state.clearBuffer || state.clearBuffer.length !== clearSize) {
-          state.clearBuffer = new Uint8Array(clearSize);
+        if (canvas.width !== targetWidth || canvas.height !== targetHeight) {
+          state.ctx = configureWebGPUCanvas(canvas, state.device, state.format);
         }
-        state.device.queue.writeTexture(
-          { texture: state.dataTexture },
-          new Uint8Array(clearSize),
-          { bytesPerRow: state.paddedRowBytes, rowsPerImage: state.textureHeight },
-          {
-            width: state.textureWidth,
-            height: state.textureHeight,
-            depthOrArrayLayers: 1,
-          },
-        );
 
-        if (prevTexture && !widthChanged) {
-          const encoder = state.device.createCommandEncoder();
-          const copyWidth = Math.min(prevWidth, state.textureWidth);
-          const copyHeight = Math.min(prevHeight, state.textureHeight);
-          encoder.copyTextureToTexture(
-            { texture: prevTexture },
+        // Update dimensions if needed
+        const marginY = Math.round(8 * currentDpr);
+        const dataWidth = Math.max(1, Math.floor(waterfallBuffer.length / 4));
+        const dataHeight = Math.max(1, Math.round(canvas.height * currentDpr) - marginY * 2);
+
+        if (dataWidth !== state.textureWidth || dataHeight !== state.textureHeight) {
+          const prevTexture = state.dataTexture;
+          const prevWidth = state.textureWidth;
+          const prevHeight = state.textureHeight;
+
+          state.textureWidth = dataWidth;
+          state.textureHeight = dataHeight;
+          const widthChanged = prevWidth !== state.textureWidth;
+
+          state.dataTexture = state.device.createTexture({
+            size: { width: state.textureWidth, height: state.textureHeight },
+            format: "r8unorm",
+            usage:
+              GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.COPY_SRC,
+          });
+
+          state.paddedRowBytes = alignTo(state.textureWidth, 256);
+          state.rowUploadBuffer = new Uint8Array(state.paddedRowBytes);
+          state.writeRow = widthChanged ? 0 : Math.min(state.writeRow, state.textureHeight - 1);
+
+          const clearSize = state.paddedRowBytes * state.textureHeight;
+          if (!state.clearBuffer || state.clearBuffer.length !== clearSize) {
+            state.clearBuffer = new Uint8Array(clearSize);
+          }
+          state.device.queue.writeTexture(
             { texture: state.dataTexture },
-            { width: copyWidth, height: copyHeight, depthOrArrayLayers: 1 },
+            new Uint8Array(clearSize),
+            { bytesPerRow: state.paddedRowBytes, rowsPerImage: state.textureHeight },
+            {
+              width: state.textureWidth,
+              height: state.textureHeight,
+              depthOrArrayLayers: 1,
+            },
           );
-          state.device.queue.submit([encoder.finish()]);
-          prevTexture.destroy();
-        } else if (prevTexture) {
-          prevTexture.destroy();
-        }
 
-        state.bindGroup = state.device.createBindGroup({
-          layout: state.pipeline.getBindGroupLayout(0),
-          entries: [
-            { binding: 0, resource: state.dataTexture.createView() },
-            { binding: 1, resource: state.colorTexture.createView() },
-            { binding: 2, resource: { buffer: state.uniformBuffer } },
-          ],
-        });
-      }
-
-      // Update waterfall data by pushing new line
-      // Convert waterfall buffer to amplitude data (assuming RGBA format)
-      const amplitudes = new Float32Array(canvas.width);
-      
-      // Extract the latest row from waterfallBuffer (assuming it's at the beginning)
-      for (let i = 0; i < canvas.width && i < waterfallBuffer.length / 4; i++) {
-        const pixelIndex = i * 4;
-        // Convert RGBA to normalized amplitude
-        const r = waterfallBuffer[pixelIndex] / 255.0;
-        const g = waterfallBuffer[pixelIndex + 1] / 255.0;
-        const b = waterfallBuffer[pixelIndex + 2] / 255.0;
-        // Use average color intensity as the amplitude
-        amplitudes[i] = (r + g + b) / 3.0;
-      }
-
-      // Add the new line to the waterfall with drift/smear effects (inlined pushLine logic)
-      if (state.dataTexture && amplitudes.length > 0) {
-        const smear = Math.max(0, Math.min(Math.floor(driftAmount || 0), state.textureHeight - 1));
-        const driftPixels = 0; // Set to 0 for now
-        const boost = smear > 0 && Math.abs(driftPixels) > 0 ? 1.18 : 1;
-        
-        for (let s = 0; s <= smear; s++) {
-          const drift = smear > 0 ? Math.round(((smear - s) / smear) * driftPixels) : Math.round(driftPixels);
-          for (let i = 0; i < state.textureWidth; i++) {
-            const src = (((i - drift) % state.textureWidth) + state.textureWidth) % state.textureWidth;
-            const amp = Math.max(0, Math.min(1, amplitudes[src] ?? 0));
-            const boosted = Math.min(1, amp * boost);
-            state.rowUploadBuffer[i] = Math.round(boosted * 255);
+          if (prevTexture && !widthChanged) {
+            const encoder = state.device.createCommandEncoder();
+            const copyWidth = Math.min(prevWidth, state.textureWidth);
+            const copyHeight = Math.min(prevHeight, state.textureHeight);
+            encoder.copyTextureToTexture(
+              { texture: prevTexture },
+              { texture: state.dataTexture },
+              { width: copyWidth, height: copyHeight, depthOrArrayLayers: 1 },
+            );
+            state.device.queue.submit([encoder.finish()]);
+            prevTexture.destroy();
+          } else if (prevTexture) {
+            prevTexture.destroy();
           }
 
-          const row = (state.writeRow - s + state.textureHeight) % state.textureHeight;
-          state.device.queue.writeTexture(
-            { texture: state.dataTexture, origin: { x: 0, y: row } },
-            state.rowUploadBuffer,
-            { bytesPerRow: state.paddedRowBytes, rowsPerImage: 1 },
-            { width: state.textureWidth, height: 1, depthOrArrayLayers: 1 },
-          );
+          state.bindGroup = state.device.createBindGroup({
+            layout: state.pipeline.getBindGroupLayout(0),
+            entries: [
+              { binding: 0, resource: state.dataTexture.createView() },
+              { binding: 1, resource: state.colorTexture.createView() },
+              { binding: 2, resource: { buffer: state.uniformBuffer } },
+            ],
+          });
         }
 
-        state.writeRow = (state.writeRow + 1) % state.textureHeight;
+        // Update waterfall data by pushing new line
+        // Convert waterfall buffer to amplitude data (assuming RGBA format)
+        const amplitudes = new Float32Array(canvas.width);
+
+        // Extract the latest row from waterfallBuffer (assuming it's at the beginning)
+        for (let i = 0; i < canvas.width && i < waterfallBuffer.length / 4; i++) {
+          const pixelIndex = i * 4;
+          // Convert RGBA to normalized amplitude
+          const r = waterfallBuffer[pixelIndex] / 255.0;
+          const g = waterfallBuffer[pixelIndex + 1] / 255.0;
+          const b = waterfallBuffer[pixelIndex + 2] / 255.0;
+          // Use average color intensity as the amplitude
+          amplitudes[i] = (r + g + b) / 3.0;
+        }
+
+        // Add the new line to the waterfall with drift/smear effects (inlined pushLine logic)
+        if (state.dataTexture && amplitudes.length > 0) {
+          const smear = Math.max(
+            0,
+            Math.min(Math.floor(driftAmount || 0), state.textureHeight - 1),
+          );
+          const driftPixels = 0; // Set to 0 for now
+          const boost = smear > 0 && Math.abs(driftPixels) > 0 ? 1.18 : 1;
+
+          for (let s = 0; s <= smear; s++) {
+            const drift =
+              smear > 0 ? Math.round(((smear - s) / smear) * driftPixels) : Math.round(driftPixels);
+            for (let i = 0; i < state.textureWidth; i++) {
+              const src =
+                (((i - drift) % state.textureWidth) + state.textureWidth) % state.textureWidth;
+              const amp = Math.max(0, Math.min(1, amplitudes[src] ?? 0));
+              const boosted = Math.min(1, amp * boost);
+              state.rowUploadBuffer[i] = Math.round(boosted * 255);
+            }
+
+            const row = (state.writeRow - s + state.textureHeight) % state.textureHeight;
+            state.device.queue.writeTexture(
+              { texture: state.dataTexture, origin: { x: 0, y: row } },
+              state.rowUploadBuffer,
+              { bytesPerRow: state.paddedRowBytes, rowsPerImage: 1 },
+              { width: state.textureWidth, height: 1, depthOrArrayLayers: 1 },
+            );
+          }
+
+          state.writeRow = (state.writeRow + 1) % state.textureHeight;
+        }
+
+        // Prepare render parameters
+        const logicalWidth = canvas.clientWidth || 1;
+        const logicalHeight = canvas.clientHeight || 1;
+        const dpr = window.devicePixelRatio || 1;
+        const params: WaterfallRenderParams = {
+          canvasWidth: logicalWidth,
+          canvasHeight: logicalHeight,
+          dpr,
+          marginX: 40,
+          marginY: 8,
+          backgroundColor: WATERFALL_CANVAS_BG,
+        };
+
+        // Render the waterfall (inlined render logic)
+        if (state.bindGroup && state.dataTexture) {
+          const [bgR, bgG, bgB, bgA] = parseCssColorToRgba(params.backgroundColor);
+          state.clearColor = { r: bgR, g: bgG, b: bgB, a: bgA };
+
+          const displayWidth = Math.max(
+            1,
+            Math.round(params.canvasWidth * params.dpr - params.marginX * 2),
+          );
+          const displayHeight = Math.max(
+            1,
+            Math.round(params.canvasHeight * params.dpr - params.marginY * 2),
+          );
+
+          state.uniformValues[0] = displayWidth;
+          state.uniformValues[1] = displayHeight;
+          state.uniformValues[2] = params.marginX;
+          state.uniformValues[3] = params.marginY;
+          const renderRow =
+            state.textureHeight > 0
+              ? (state.writeRow - 1 + state.textureHeight) % state.textureHeight
+              : 0;
+          state.uniformValues[4] = renderRow;
+          state.uniformValues[5] = state.textureWidth;
+          state.uniformValues[6] = state.textureHeight;
+          state.uniformValues[7] = state.colorCount;
+          state.uniformValues[8] = bgR;
+          state.uniformValues[9] = bgG;
+          state.uniformValues[10] = bgB;
+          state.uniformValues[11] = bgA;
+
+          state.device.queue.writeBuffer(state.uniformBuffer, 0, state.uniformValues);
+
+          const encoder = state.device.createCommandEncoder();
+          const view = state.ctx.getCurrentTexture().createView();
+
+          const pass = encoder.beginRenderPass({
+            colorAttachments: [
+              {
+                view,
+                clearValue: state.clearColor,
+                loadOp: "clear",
+                storeOp: "store",
+              },
+            ],
+          });
+
+          pass.setPipeline(state.pipeline);
+          pass.setBindGroup(0, state.bindGroup);
+          pass.draw(3);
+          pass.end();
+
+          state.device.queue.submit([encoder.finish()]);
+        }
+
+        return true;
+      } catch (error) {
+        console.error("WebGPU waterfall rendering failed:", error);
+        return false;
       }
-
-      // Prepare render parameters
-      const logicalWidth = canvas.clientWidth || 1;
-      const logicalHeight = canvas.clientHeight || 1;
-      const dpr = window.devicePixelRatio || 1;
-      const params: WaterfallRenderParams = {
-        canvasWidth: logicalWidth,
-        canvasHeight: logicalHeight,
-        dpr,
-        marginX: 40,
-        marginY: 8,
-        backgroundColor: WATERFALL_CANVAS_BG,
-      };
-
-      // Render the waterfall (inlined render logic)
-      if (state.bindGroup && state.dataTexture) {
-        const [bgR, bgG, bgB, bgA] = parseCssColorToRgba(params.backgroundColor);
-        state.clearColor = { r: bgR, g: bgG, b: bgB, a: bgA };
-
-        const displayWidth = Math.max(1, Math.round(params.canvasWidth * params.dpr - params.marginX * 2));
-        const displayHeight = Math.max(1, Math.round(params.canvasHeight * params.dpr - params.marginY * 2));
-
-        state.uniformValues[0] = displayWidth;
-        state.uniformValues[1] = displayHeight;
-        state.uniformValues[2] = params.marginX;
-        state.uniformValues[3] = params.marginY;
-        const renderRow = state.textureHeight > 0 ? (state.writeRow - 1 + state.textureHeight) % state.textureHeight : 0;
-        state.uniformValues[4] = renderRow;
-        state.uniformValues[5] = state.textureWidth;
-        state.uniformValues[6] = state.textureHeight;
-        state.uniformValues[7] = state.colorCount;
-        state.uniformValues[8] = bgR;
-        state.uniformValues[9] = bgG;
-        state.uniformValues[10] = bgB;
-        state.uniformValues[11] = bgA;
-
-        state.device.queue.writeBuffer(state.uniformBuffer, 0, state.uniformValues);
-
-        const encoder = state.device.createCommandEncoder();
-        const view = state.ctx.getCurrentTexture().createView();
-
-        const pass = encoder.beginRenderPass({
-          colorAttachments: [
-            {
-              view,
-              clearValue: state.clearColor,
-              loadOp: "clear",
-              storeOp: "store",
-            },
-          ],
-        });
-
-        pass.setPipeline(state.pipeline);
-        pass.setBindGroup(0, state.bindGroup);
-        pass.draw(3);
-        pass.end();
-
-        state.device.queue.submit([encoder.finish()]);
-      }
-
-      return true;
-    } catch (error) {
-      console.error("WebGPU waterfall rendering failed:", error);
-      return false;
-    }
-  }, [createWaterfallWebGPUState]);
+    },
+    [createWaterfallWebGPUState],
+  );
 
   const cleanup = useCallback(() => {
     // WaterfallWebGPU doesn't have a destroy method, just clear the reference

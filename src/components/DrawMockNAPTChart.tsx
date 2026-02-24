@@ -165,17 +165,24 @@ const DrawMockNAPTChart: React.FC<DrawMockNAPTChartProps> = ({
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    const displayWidth = canvas.clientWidth;
-    const displayHeight = canvas.clientHeight;
+    // Use getBoundingClientRect for accurate pixel dimensions
+    const rect = canvas.getBoundingClientRect();
+    const displayWidth = rect.width;
+    const displayHeight = rect.height;
     const dpr = window.devicePixelRatio || 1;
 
-    if (canvas.width !== Math.round(displayWidth * dpr)) {
-      canvas.width = Math.round(displayWidth * dpr);
+    const targetWidth = Math.max(1, Math.round(displayWidth * dpr));
+    const targetHeight = Math.max(1, Math.round(displayHeight * dpr));
+
+    if (canvas.width !== targetWidth) {
+      canvas.width = targetWidth;
     }
-    if (canvas.height !== Math.round(displayHeight * dpr)) {
-      canvas.height = Math.round(displayHeight * dpr);
+    if (canvas.height !== targetHeight) {
+      canvas.height = targetHeight;
     }
 
+    // We must scale the context to match DPR since draw2DFFTSignal expects
+    // logical coordinates but the canvas backing store is physical pixels
     ctx.resetTransform();
     ctx.scale(dpr, dpr);
 
@@ -189,7 +196,7 @@ const DrawMockNAPTChart: React.FC<DrawMockNAPTChartProps> = ({
       fftMax: 0,
       showGrid: true,
     });
-  }, [data]);
+  }, [data, draw2DFFTSignal]);
 
   return (
     <ChartContainer>

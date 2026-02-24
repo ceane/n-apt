@@ -21,6 +21,7 @@ import { IQCaptureControlsSection } from "@n-apt/components/sidebar/IQCaptureCon
 import { SnapshotControlsSection } from "@n-apt/components/sidebar/SnapshotControlsSection";
 import { SourceSettingsSection } from "@n-apt/components/sidebar/SourceSettingsSection";
 import { FileProcessingSection } from "@n-apt/components/sidebar/FileProcessingSection";
+import DrawMockNAPTSidebar from "@n-apt/components/sidebar/DrawMockNAPTSidebar";
 
 type NaptMetadata = {
   sample_rate?: number;
@@ -193,8 +194,12 @@ const CapturingDot = styled.div`
   animation: pulse 1.5s infinite;
 
   @keyframes pulse {
-    from { opacity: 1; }
-    to { opacity: 0.4; }
+    from {
+      opacity: 1;
+    }
+    to {
+      opacity: 0.4;
+    }
   }
 `;
 
@@ -268,7 +273,11 @@ interface SidebarProps {
   deviceInfo: string | null;
   maxSampleRateHz: number | null;
   captureStatus: CaptureStatus;
-  autoFftOptions?: { message_type: "auto_fft_options"; autoSizes: number[]; recommended: number } | null;
+  autoFftOptions?: {
+    message_type: "auto_fft_options";
+    autoSizes: number[];
+    recommended: number;
+  } | null;
   onCaptureCommand: (req: CaptureRequest) => void;
   spectrumFrames?: Array<{
     id: string;
@@ -525,7 +534,14 @@ const Sidebar: React.FC<SidebarProps> = ({
       format: snapshotFormat,
       grid: snapshotGridPreference ?? true,
     });
-  }, [onSnapshot, snapshotWhole, snapshotShowWaterfall, snapshotShowStats, snapshotFormat, snapshotGridPreference]);
+  }, [
+    onSnapshot,
+    snapshotWhole,
+    snapshotShowWaterfall,
+    snapshotShowStats,
+    snapshotFormat,
+    snapshotGridPreference,
+  ]);
 
   // Load NAPT metadata
   useEffect(() => {
@@ -612,18 +628,14 @@ const Sidebar: React.FC<SidebarProps> = ({
             <SettingLabelContainer>
               <SettingLabel>Status</SettingLabel>
             </SettingLabelContainer>
-            <AuthStatusText $status={authState}>
-              {authStatusText}
-            </AuthStatusText>
+            <AuthStatusText $status={authState}>{authStatusText}</AuthStatusText>
           </SettingRow>
           {backend && (
             <SettingRow>
               <SettingLabelContainer>
                 <SettingLabel>Backend</SettingLabel>
               </SettingLabelContainer>
-              <SettingValueText>
-                {backend === "rtl-sdr" ? "RTL-SDR" : "Mock"}
-              </SettingValueText>
+              <SettingValueText>{backend === "rtl-sdr" ? "RTL-SDR" : "Mock"}</SettingValueText>
             </SettingRow>
           )}
         </Section>
@@ -639,6 +651,10 @@ const Sidebar: React.FC<SidebarProps> = ({
           <CapturingDot />
           Capturing... {captureStatus.jobId}
         </CapturingIndicator>
+      )}
+
+      {activeTab === "draw" && (
+        <DrawMockNAPTSidebar drawParams={drawParams} onDrawParamsChange={onDrawParamsChange} />
       )}
 
       {activeTab === "visualizer" && (
@@ -718,7 +734,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             onSnapshotShowWaterfallChange={setSnapshotShowWaterfall}
             onSnapshotShowStatsChange={setSnapshotShowStats}
             onSnapshotFormatChange={setSnapshotFormat}
-            onSnapshotGridPreferenceChange={onSnapshotGridPreferenceChange || (() => { })}
+            onSnapshotGridPreferenceChange={onSnapshotGridPreferenceChange || (() => {})}
             onSnapshot={handleSnapshot}
           />
 
@@ -763,8 +779,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                         padding: "6px 12px",
                         minWidth: "80px",
                         opacity: selectedFiles.length === 0 ? 0.5 : 1,
-                        cursor:
-                          selectedFiles.length === 0 ? "not-allowed" : "pointer",
+                        cursor: selectedFiles.length === 0 ? "not-allowed" : "pointer",
                         backgroundColor: "#1a1a1a",
                         border: "1px solid #2a2a2a",
                         borderRadius: "6px",
@@ -795,15 +810,15 @@ const Sidebar: React.FC<SidebarProps> = ({
                 {(Array.isArray(spectrumFrames) && spectrumFrames.length > 0
                   ? spectrumFrames
                   : [
-                    { id: "frame_a", label: "A", min_mhz: 0.0, max_mhz: 4.47, description: "" },
-                    {
-                      id: "frame_b",
-                      label: "B",
-                      min_mhz: 24.72,
-                      max_mhz: 29.88,
-                      description: "",
-                    },
-                  ]
+                      { id: "frame_a", label: "A", min_mhz: 0.0, max_mhz: 4.47, description: "" },
+                      {
+                        id: "frame_b",
+                        label: "B",
+                        min_mhz: 24.72,
+                        max_mhz: 29.88,
+                        description: "",
+                      },
+                    ]
                 ).map((frame) => {
                   const label = frame.label;
                   const min = frame.min_mhz;
@@ -894,7 +909,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                 onFftFrameRateChange={setFftFrameRate}
                 onFftSizeChange={setFftSize}
                 onFftWindowChange={setFftWindow}
-                onTemporalResolutionChange={onDisplayTemporalResolutionChange || (() => { })}
+                onTemporalResolutionChange={onDisplayTemporalResolutionChange || (() => {})}
                 scheduleCoupledAdjustment={scheduleCoupledAdjustment}
               />
 
@@ -911,7 +926,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                 onTunerAGCChange={setTunerAGC}
                 onRtlAGCChange={setRtlAGC}
                 onStitchSourceSettingsChange={onStitchSourceSettingsChange}
-                onAgcModeChange={() => { }}
+                onAgcModeChange={() => {}}
               />
             </>
           )}

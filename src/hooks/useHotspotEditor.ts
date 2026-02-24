@@ -1,4 +1,11 @@
-import React, { createContext, useContext, useReducer, useCallback, useMemo, ReactNode } from "react";
+import React, {
+  createContext,
+  useContext,
+  useReducer,
+  useCallback,
+  useMemo,
+  ReactNode,
+} from "react";
 
 interface Hotspot {
   id: string;
@@ -48,10 +55,7 @@ const INITIAL_HOTSPOT_STATE: HotspotState = {
   multiSelectedHotspots: [],
 };
 
-function hotspotReducer(
-  state: HotspotState,
-  action: HotspotAction
-): HotspotState {
+function hotspotReducer(state: HotspotState, action: HotspotAction): HotspotState {
   switch (action.type) {
     case "SET_HOTSPOTS":
       return { ...state, hotspots: action.hotspots };
@@ -144,20 +148,14 @@ export const HotspotEditorProvider: React.FC<HotspotEditorProviderProps> = ({
     [],
   );
 
-  const setNewHotspotName = useCallback(
-    (name: string) => dispatch({ type: "SET_NAME", name }),
-    [],
-  );
+  const setNewHotspotName = useCallback((name: string) => dispatch({ type: "SET_NAME", name }), []);
 
   const setSymmetryMode = useCallback(
     (mode: "none" | "x" | "y") => dispatch({ type: "SET_SYMMETRY", mode }),
     [],
   );
 
-  const setShowGrid = useCallback(
-    (show: boolean) => dispatch({ type: "SET_GRID", show }),
-    [],
-  );
+  const setShowGrid = useCallback((show: boolean) => dispatch({ type: "SET_GRID", show }), []);
 
   const setHotspotSize = useCallback(
     (size: "small" | "large") => dispatch({ type: "SET_SIZE", size }),
@@ -221,13 +219,7 @@ export const HotspotEditorProvider: React.FC<HotspotEditorProviderProps> = ({
       });
       onHotspotsChange?.(updatedHotspots);
     },
-    [
-      state.hotspots,
-      state.newHotspotName,
-      state.symmetryMode,
-      state.hotspotSize,
-      onHotspotsChange,
-    ],
+    [state.hotspots, state.newHotspotName, state.symmetryMode, state.hotspotSize, onHotspotsChange],
   );
 
   const handleDeleteHotspot = useCallback(
@@ -241,7 +233,7 @@ export const HotspotEditorProvider: React.FC<HotspotEditorProviderProps> = ({
 
   const handleDeleteSelected = useCallback(() => {
     const updatedHotspots = state.hotspots.filter(
-      (h) => !state.multiSelectedHotspots.includes(h.id)
+      (h) => !state.multiSelectedHotspots.includes(h.id),
     );
     dispatch({ type: "DELETE_SELECTED", hotspots: updatedHotspots });
     onHotspotsChange?.(updatedHotspots);
@@ -272,7 +264,7 @@ export const HotspotEditorProvider: React.FC<HotspotEditorProviderProps> = ({
   const handleRename = useCallback(
     (id: string, newName: string) => {
       const updatedHotspots = state.hotspots.map((h) =>
-        h.id === id ? { ...h, name: newName } : h
+        h.id === id ? { ...h, name: newName } : h,
       );
       dispatch({ type: "RENAME", hotspots: updatedHotspots });
       onHotspotsChange?.(updatedHotspots);

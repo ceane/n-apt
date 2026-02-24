@@ -140,14 +140,9 @@ const StitchStatusMessage = styled.div<{ $isError: boolean }>`
   font-size: 11px;
   color: ${(props) => (props.$isError ? "#f87171" : "#a3e635")};
   background-color: ${(props) =>
-    props.$isError
-      ? "rgba(248, 113, 113, 0.08)"
-      : "rgba(163, 230, 53, 0.08)"};
+    props.$isError ? "rgba(248, 113, 113, 0.08)" : "rgba(163, 230, 53, 0.08)"};
   border: 1px solid
-    ${(props) =>
-    props.$isError
-      ? "rgba(248, 113, 113, 0.2)"
-      : "rgba(163, 230, 53, 0.2)"};
+    ${(props) => (props.$isError ? "rgba(248, 113, 113, 0.2)" : "rgba(163, 230, 53, 0.2)")};
 `;
 
 const ButtonColumn = styled.div`
@@ -286,9 +281,7 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
                   ) : (
                     <LoadedLabel>Loaded</LoadedLabel>
                   )}
-                  <RemoveButton onClick={() => removeFile(index)}>
-                    Remove
-                  </RemoveButton>
+                  <RemoveButton onClick={() => removeFile(index)}>Remove</RemoveButton>
                 </FileActionsValue>
               </SettingRow>
             ))}
@@ -296,32 +289,20 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
 
           <Section>
             {stitchStatus && (
-              <StitchStatusMessage
-                $isError={stitchStatus.startsWith("Stitching failed")}
-              >
+              <StitchStatusMessage $isError={stitchStatus.startsWith("Stitching failed")}>
                 {stitchStatus}
               </StitchStatusMessage>
             )}
             <ButtonColumn>
               <ButtonRow>
-                <FlexPauseButton
-                  $paused={false}
-                  ref={stitchButtonRef}
-                  onClick={onStitch}
-                >
+                <FlexPauseButton $paused={false} ref={stitchButtonRef} onClick={onStitch}>
                   Stitch spectrum
                 </FlexPauseButton>
-                <ClearButton
-                  $paused={false}
-                  onClick={onClear}
-                >
+                <ClearButton $paused={false} onClick={onClear}>
                   Clear
                 </ClearButton>
               </ButtonRow>
-              <FullWidthPauseButton
-                $paused={isStitchPaused}
-                onClick={onStitchPauseToggle}
-              >
+              <FullWidthPauseButton $paused={isStitchPaused} onClick={onStitchPauseToggle}>
                 {isStitchPaused ? "Play" : "Pause"}
               </FullWidthPauseButton>
             </ButtonColumn>
@@ -334,9 +315,7 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
                 <SettingLabelContainer>
                   <SettingLabel>File</SettingLabel>
                 </SettingLabelContainer>
-                <TruncatedSettingValue>
-                  {selectedNaptFile.name}
-                </TruncatedSettingValue>
+                <TruncatedSettingValue>{selectedNaptFile.name}</TruncatedSettingValue>
               </SettingRow>
               {naptMetadata && (
                 <>

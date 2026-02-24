@@ -5,6 +5,7 @@ This file provides guidance for AI coding agents working on N-APT (RF spectrum a
 ## Project Overview
 
 N-APT is an RF spectrum analyzer that processes signal data from SDR hardware. It consists of:
+
 - **Frontend**: React 19 + TypeScript + Vite + styled-components
 - **Backend**: Rust (Axum WebSocket server with tokio)
 - **WASM**: Rust compiled to WebAssembly for FFT processing
@@ -13,6 +14,7 @@ N-APT is an RF spectrum analyzer that processes signal data from SDR hardware. I
 ## Build Commands
 
 ### Frontend
+
 ```bash
 npm run dev          # Full dev with WASM build
 npm run dev:fast     # Fast dev (no WASM rebuild)
@@ -22,6 +24,7 @@ npm run preview      # Preview production build
 ```
 
 ### Testing
+
 ```bash
 npm test                          # Run all tests
 npm run test:watch               # Watch mode
@@ -37,6 +40,7 @@ npm test -- test/ts/useWebSocket.test.tsx
 ```
 
 ### Backend (Rust)
+
 ```bash
 npm run server:dev   # Dev with auto-reload
 npm run server:build # Build only
@@ -48,6 +52,7 @@ cargo clippy         # Lint
 ```
 
 ### Linting & Formatting
+
 ```bash
 npm run lint         # oxlint
 npm run lint:fix     # Fix issues
@@ -61,10 +66,12 @@ npm run typecheck    # TypeScript
 ### TypeScript
 
 **Formatting** (oxfmt):
+
 - Print width: 80, Tab width: 2, Use spaces
 - Single quotes, Semicolons: yes, Trailing commas: none
 
 **Naming Conventions**:
+
 - Variables/functions: camelCase
 - Types/interfaces: PascalCase
 - Constants: UPPER_SNAKE_CASE
@@ -72,6 +79,7 @@ npm run typecheck    # TypeScript
 
 **Imports** (CRITICAL - enforced by WindSurf):
 Use `@n-apt/*` namespace for ALL internal imports. NEVER use relative paths.
+
 ```typescript
 // ✅ Correct
 import { useState } from "react";
@@ -85,11 +93,13 @@ import { FFTCanvas } from "./components/FFTCanvas";
 ```
 
 **Types**:
+
 - Use explicit types for function parameters and return types
 - Use `type` for unions/tuples, `interface` for objects
 - Avoid `any`, use `unknown` when type is truly unknown
 
 **Error Handling**: Empty catch only for expected parsing errors.
+
 ```typescript
 // Good - ignore malformed JSON
 try { const data = JSON.parse(raw); } catch { /* ignore */ }
@@ -99,6 +109,7 @@ try { ... } catch { console.error("error") }
 ```
 
 **React Patterns**:
+
 - Use hooks with proper dependency arrays
 - Use `useCallback` for functions passed as props
 - Avoid prop drilling, use context when appropriate
@@ -107,16 +118,19 @@ try { ... } catch { console.error("error") }
 ### Rust
 
 **Formatting** (rustfmt):
+
 - 2-space indentation, 80 char max width
 - Edition 2021, crate-level imports
 - Imports grouped: StdExternalCrate
 
 **Naming**:
+
 - Variables/functions: snake_case
 - Types: PascalCase
 - Constants: SCREAMING_SNAKE
 
 **Error Handling**:
+
 - Use `anyhow` for application errors
 - Use `?` operator for propagation
 - Avoid unwrap() in production
@@ -149,7 +163,7 @@ n-apt/
 ├── test/
 |   ├── ts/               # Typescript and Jest tests
 |   ├── rust/             # Rust tests
-|   ├── wasm/             # Wasm tests 
+|   ├── wasm/             # Wasm tests
 ├── src/                  # Rust backend
 │   ├── server/           # Axum WebSocket server
 │   ├── fft/              # FFT processing

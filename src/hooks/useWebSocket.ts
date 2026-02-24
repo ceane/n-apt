@@ -180,7 +180,7 @@ export const useWebSocket = (
   // Keep a ref to the AES key so the message handler always sees the latest
   const aesKeyRef = useRef<CryptoKey | null>(aesKey);
   aesKeyRef.current = aesKey;
-  
+
   // Mutable ref for high-frequency spectrum data to avoid React re-renders
   const dataRef = useRef<any>(null);
 
@@ -221,14 +221,14 @@ export const useWebSocket = (
                 try {
                   const buffer = event.data;
                   const view = new DataView(buffer);
-                  
+
                   // 1. Extract metadata: [timestamp: 8 bytes][center_frequency: 8 bytes]
                   const timestamp = Number(view.getBigUint64(0, true)); // true = little-endian
                   const centerFrequencyHz = Number(view.getBigUint64(8, true));
-                  
+
                   // 2. Extract encrypted payload
                   const encryptedPayload = new Uint8Array(buffer, 16);
-                  
+
                   // 3. Decrypt the binary payload
                   decryptBinaryPayload(aesKeyRef.current, encryptedPayload)
                     .then((decryptedBytes) => {
@@ -236,9 +236,9 @@ export const useWebSocket = (
                       const waveform = new Float32Array(
                         decryptedBytes.buffer,
                         decryptedBytes.byteOffset,
-                        decryptedBytes.byteLength / 4
+                        decryptedBytes.byteLength / 4,
                       );
-                      
+
                       // 5. Reconstruct the SpectrumData object format expected by the frontend
                       const spectrumData = {
                         message_type: "spectrum",
@@ -247,7 +247,7 @@ export const useWebSocket = (
                         center_frequency_hz: centerFrequencyHz,
                         timestamp: timestamp,
                       };
-                      
+
                       dataRef.current = spectrumData;
                     })
                     .catch((e) => {
@@ -261,7 +261,7 @@ export const useWebSocket = (
             }
 
             const raw = event.data as string;
-            
+
             // Backwards compatibility / mock mode handling (still using JSON)
             if (raw.includes('"type":"encrypted_spectrum"')) {
               if (aesKeyRef.current) {
@@ -408,10 +408,7 @@ export const useWebSocket = (
               console.log("Received auto FFT options message:", raw);
               try {
                 const parsed = JSON.parse(raw);
-                if (
-                  Array.isArray(parsed.autoSizes) &&
-                  typeof parsed.recommended === "number"
-                ) {
+                if (Array.isArray(parsed.autoSizes) && typeof parsed.recommended === "number") {
                   const options: AutoFftOptionsResponse = {
                     message_type: "auto_fft_options",
                     autoSizes: parsed.autoSizes,

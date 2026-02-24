@@ -11,15 +11,45 @@ fn downsample_spectrum(data: &[f32], target_len: usize) -> Vec<f32> {
 }
 
 pub fn load_spectrum_frames() -> Vec<super::types::SpectrumFrameMessage> {
-  let content = match std::fs::read_to_string("spectrum_frames.yaml") {
+  let content = match std::fs::read_to_string("signals.yaml") {
     Ok(c) => c,
-    Err(_) => return Vec::new(),
+    Err(_) => {
+      // Fallback to old spectrum_frames.yaml for backward compatibility
+      match std::fs::read_to_string("spectrum_frames.yaml") {
+        Ok(c) => c,
+        Err(_) => return Vec::new(),
+      }
+    }
   };
 
+  // Try new signals.yaml format first
+  if let Ok(parsed) = serde_yaml::from_str::<super::types::SignalsConfig>(&content) {
+    let mut out = Vec::new();
+    for (id, f) in parsed.signals.n_apt.channels {
+      if f.freq_range_mhz.len() < 2 {
+        continue;
+      }
+      let min_mhz = f.freq_range_mhz[0];
+      let max_mhz = f.freq_range_mhz[1];
+      if !(min_mhz.is_finite() && max_mhz.is_finite() && max_mhz > min_mhz) {
+        continue;
+      }
+      out.push(super::types::SpectrumFrameMessage {
+        id,
+        label: f.label,
+        min_mhz,
+        max_mhz,
+        description: f.description,
+      });
+    }
+    return out;
+  }
+
+  // Fallback to old spectrum_frames.yaml format
   let parsed = match serde_yaml::from_str::<super::types::SpectrumFramesConfig>(&content) {
     Ok(p) => p,
     Err(e) => {
-      log::warn!("Failed to parse spectrum_frames.yaml: {}", e);
+      log::warn!("Failed to parse signals.yaml or spectrum_frames.yaml: {}", e);
       return Vec::new();
     }
   };
@@ -42,7 +72,6 @@ pub fn load_spectrum_frames() -> Vec<super::types::SpectrumFrameMessage> {
       description: f.description,
     });
   }
-
   out.sort_by(|a, b| a.min_mhz.partial_cmp(&b.min_mhz).unwrap_or(std::cmp::Ordering::Equal));
   out
 }

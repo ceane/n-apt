@@ -1,6 +1,7 @@
 # Rendering Hooks Refactor - Inline Architecture
 
 ## Overview
+
 Refactored FFT and waterfall rendering to use a **fully inline hook-based architecture** with `useFFTAnimation` as the sole `requestAnimationFrame` driver. Eliminated all intermediate rendering utility layers (`utils/rendering.ts`) to simplify the codebase. All rendering logic is now embedded directly within hooks.
 
 ## Architecture: Components → Hooks (Inline Rendering)
@@ -11,29 +12,35 @@ Refactored FFT and waterfall rendering to use a **fully inline hook-based archit
 ## Changes Made
 
 ### 1. Inlined Rendering Functions into Hooks
+
 **Deleted:** `src/utils/rendering.ts` (no longer needed)
 
 All rendering functions are now embedded directly within their respective hooks:
 
 #### `useDraw2DFFTSignal` - Contains:
+
 - `drawSpectrumGrid()` - Grid, axes, and frequency labels
-- `drawSpectrumTrace()` - Spectrum waveform trace and fill  
+- `drawSpectrumTrace()` - Spectrum waveform trace and fill
 - `drawSpectrumMarkers()` - Overlay markers (limits, center frequency)
 - Main rendering logic for 2D FFT spectrum
 
 #### `useDraw2DFIFOWaterfall` - Contains:
+
 - `dbToColor()` - dB to RGB color mapping
 - `addWaterfallFrame()` - FIFO waterfall buffer updates
 - `drawWaterfall()` - Waterfall display rendering
 - Main rendering logic for 2D waterfall
 
 #### `useDrawWebGPUFFTSignal` - Contains:
+
 - `drawGridOnContext()` - WebGPU overlay grid rendering
 - `drawMarkersOnContext()` - WebGPU overlay markers rendering
 - Main WebGPU spectrum rendering with overlay support
 
 ### 2. Shared Types
+
 **Created:** `src/consts/types.ts`
+
 - `FrequencyRange` - Frequency range configuration
 - `SpectrumRenderOptions` - Spectrum rendering options
 - `SpectrumGridOptions` - Grid rendering options
@@ -41,7 +48,9 @@ All rendering functions are now embedded directly within their respective hooks:
 - `spectrumToAmplitude()` - dB to normalized amplitude conversion
 
 ### 3. Rendering Hooks (Already Existed)
+
 **Hook Architecture:**
+
 - `useFFTAnimation` - **Sole rAF driver**, manages animation loop
 - `useDrawWebGPUFFTSignal` - WebGPU FFT spectrum rendering
 - `useDrawWebGPUFIFOWaterfall` - WebGPU waterfall rendering
@@ -52,7 +61,9 @@ All rendering functions are now embedded directly within their respective hooks:
 **Key Principle:** Hooks encapsulate rendering logic; components call hooks, never direct renderers.
 
 ### 4. Updated Imports
+
 **Files Updated:**
+
 - `src/hooks/useDraw2DFFTSignal.ts` - Now imports from `@n-apt/utils/rendering`
 - `src/hooks/useDraw2DFIFOWaterfall.ts` - Now imports from `@n-apt/utils/rendering` and `@n-apt/consts/types`
 - `src/hooks/useSpectrumRendering.ts` - Now imports from `@n-apt/utils/rendering`
@@ -62,17 +73,22 @@ All rendering functions are now embedded directly within their respective hooks:
 - `src/components/DrawMockNAPTChart.tsx` - Now imports from `@n-apt/utils/rendering`
 
 ### 5. Deleted Legacy Files
+
 **Removed TypeScript Renderers:**
+
 - `src/fft/FFTCanvasRenderer.ts` - Migrated to `utils/rendering.ts`
 - `src/waterfall/FIFOWaterfallRenderer.ts` - Migrated to `utils/rendering.ts`
 - `src/waterfall/` directory - Removed (only contained TS renderer)
 
 **Preserved:**
+
 - `src/fft/*.rs` - Rust FFT processing modules (kept intact)
 - `src/gpu/*.ts` - WebGPU classes (only imported by hooks, not components)
 
 ### 6. Snapshot Rendering Optimization
+
 **FFTCanvas.tsx Changes:**
+
 - 2D shadow rendering now only occurs when `triggerSnapshotRender()` is called
 - Eliminated continuous 2D rendering on every frame when WebGPU is active
 - `snapshotNeededRef` flag controls when 2D canvas is updated
@@ -81,24 +97,28 @@ All rendering functions are now embedded directly within their respective hooks:
 ## Architecture Benefits
 
 ### Single Animation Loop
+
 - `useFFTAnimation` is the **only** hook that calls `requestAnimationFrame`
 - All other hooks provide rendering functions, not animation loops
 - Prevents multiple rAF loops competing for frames
 - Clear separation: animation timing vs. rendering logic
 
 ### Hook-Based Rendering
+
 - Components never directly import rendering functions
 - All rendering goes through hooks with proper React lifecycle management
 - Easier to test, mock, and maintain
 - Clear data flow: component → hook → renderer
 
 ### Reduced Confusion
+
 - Single `utils/rendering.ts` file for all 2D rendering
 - No duplicate or "ghost" rendering code
 - WebGPU classes isolated to `gpu/` directory
 - Clear distinction: Rust (FFT processing) vs. TypeScript (rendering)
 
 ### GPU Isolation
+
 - WebGPU classes (`FFTWebGPU`, `WaterfallWebGPU`, `OverlayTextureRenderer`) only imported by hooks
 - Components never directly touch WebGPU APIs
 - Hooks manage WebGPU lifecycle and state
@@ -135,18 +155,21 @@ src/
 ## Verification
 
 ### Build Status
+
 All imports updated successfully. TypeScript compilation should pass.
 
 ### Runtime Behavior
+
 - WebGPU rendering: No change in behavior
 - Canvas 2D rendering: Only occurs on snapshot requests (performance improvement)
 - Animation loop: Single rAF via `useFFTAnimation`
 
 ### Import Patterns
+
 ✅ Components import hooks, not renderers  
 ✅ Hooks import from `utils/rendering` or `gpu/`  
 ✅ No direct component → WebGPU imports  
-✅ Rust FFT modules preserved and functional  
+✅ Rust FFT modules preserved and functional
 
 ## Next Steps (Optional)
 
@@ -163,6 +186,7 @@ All imports updated successfully. TypeScript compilation should pass.
 **Fully inline hook-based architecture achieved.** All rendering logic, WebGPU classes, and utilities are now embedded directly within hooks. The `gpu/` folder has been completely eliminated. Architecture simplified to: **Components → Hooks (with all rendering logic inline)**.
 
 ### Key Achievements
+
 - ✅ **Deleted `src/utils/rendering.ts`** - all 2D rendering functions inlined into hooks
 - ✅ **Deleted `src/fft/FFTCanvasRenderer.ts` and `src/waterfall/FIFOWaterfallRenderer.ts`** - legacy TS renderers removed
 - ✅ **Deleted entire `src/gpu/` folder** - all WebGPU classes inlined into hooks
@@ -189,6 +213,7 @@ Components (FFTCanvas.tsx, etc.)
 ```
 
 ### Architecture Benefits
+
 - **Zero intermediate layers:** Components → Hooks (direct, no utilities or classes)
 - **Clear ownership:** Each hook owns its complete rendering implementation
 - **Single source of truth:** All related logic co-located in one hook
@@ -199,16 +224,19 @@ Components (FFTCanvas.tsx, etc.)
 ### What Was Inlined
 
 **2D Rendering Functions:**
+
 - `drawSpectrumGrid()`, `drawSpectrumTrace()`, `drawSpectrumMarkers()` → `useDraw2DFFTSignal`
 - `dbToColor()`, `addWaterfallFrame()`, `drawWaterfall()` → `useDraw2DFIFOWaterfall`
 - `drawGridOnContext()`, `drawMarkersOnContext()` → `useOverlayRenderer`
 
 **WebGPU Classes & Shaders:**
+
 - `FFTWebGPU` class + `spectrumShader` → `useDrawWebGPUFFTSignal`
 - `WaterfallWebGPU` class + `waterfallShader` → `useDrawWebGPUFIFOWaterfall`
 - `OverlayTextureRenderer` class + `overlayShader` → `useWebGPUInit`
 
 **WebGPU Utilities:**
+
 - `isWebGPUSupported()`, `getWebGPUDevice()`, `getPreferredCanvasFormat()` → `useWebGPUInit`
 - `configureWebGPUCanvas()`, `parseCssColorToRgba()`, `alignTo()` → rendering hooks
 

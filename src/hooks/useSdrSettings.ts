@@ -87,11 +87,7 @@ export const useSdrSettings = ({
   maxSampleRate,
   onSettingsChange,
 }: UseSdrSettingsProps): UseSdrSettingsReturn => {
-  const [state, dispatch] = useReducer(
-    sdrReducer,
-    maxSampleRate,
-    createInitialState
-  );
+  const [state, dispatch] = useReducer(sdrReducer, maxSampleRate, createInitialState);
 
   const maxFrameRate = useMemo(() => {
     const theoretical = maxSampleRate / state.fftSize;
@@ -109,70 +105,67 @@ export const useSdrSettings = ({
     onSettingsChangeRef.current = onSettingsChange;
   }, [onSettingsChange]);
 
-  const sendCurrentSettings = useCallback(
-    (overrides: Partial<SDRSettings> = {}) => {
-      onSettingsChangeRef.current?.({
-        fftSize: stateRef.current.fftSize,
-        fftWindow: stateRef.current.fftWindow,
-        frameRate: stateRef.current.fftFrameRate,
-        gain: stateRef.current.gain,
-        ppm: stateRef.current.ppm,
-        tunerAGC: stateRef.current.tunerAGC,
-        rtlAGC: stateRef.current.rtlAGC,
-        ...overrides,
-      });
-    },
-    [],
-  );
+  const sendCurrentSettings = useCallback((overrides: Partial<SDRSettings> = {}) => {
+    onSettingsChangeRef.current?.({
+      fftSize: stateRef.current.fftSize,
+      fftWindow: stateRef.current.fftWindow,
+      frameRate: stateRef.current.fftFrameRate,
+      gain: stateRef.current.gain,
+      ppm: stateRef.current.ppm,
+      tunerAGC: stateRef.current.tunerAGC,
+      rtlAGC: stateRef.current.rtlAGC,
+      ...overrides,
+    });
+  }, []);
 
   const setFftSize = useCallback(
     (size: number) => {
       dispatch({ type: "SET_FFT_SIZE", size });
       sendCurrentSettings({ fftSize: size });
     },
-    [sendCurrentSettings]
+    [sendCurrentSettings],
   );
   const setFftWindow = useCallback(
     (window: string) => {
       dispatch({ type: "SET_FFT_WINDOW", window });
       sendCurrentSettings({ fftWindow: window });
     },
-    [sendCurrentSettings]
+    [sendCurrentSettings],
   );
   const setFftFrameRate = useCallback(
     (rate: number) => {
       dispatch({ type: "SET_FFT_FRAME_RATE", rate });
       sendCurrentSettings({ frameRate: rate });
     },
-    [sendCurrentSettings]
+    [sendCurrentSettings],
   );
   const setGain = useCallback(
     (gain: number) => {
       dispatch({ type: "SET_GAIN", gain });
       sendCurrentSettings({ gain });
     },
-    [sendCurrentSettings]
+    [sendCurrentSettings],
   );
   const setTunerAGC = useCallback(
     (enabled: boolean) => {
       dispatch({ type: "SET_TUNER_AGC", enabled });
       sendCurrentSettings({ tunerAGC: enabled });
     },
-    [sendCurrentSettings]
+    [sendCurrentSettings],
   );
   const setRtlAGC = useCallback(
     (enabled: boolean) => {
       dispatch({ type: "SET_RTL_AGC", enabled });
       sendCurrentSettings({ rtlAGC: enabled });
     },
-    [sendCurrentSettings]
+    [sendCurrentSettings],
   );
   const setPpm = useCallback(
     (ppm: number) => {
       dispatch({ type: "SET_PPM", ppm });
       sendCurrentSettings({ ppm });
     },
-    [sendCurrentSettings]
+    [sendCurrentSettings],
   );
 
   const clampGain = useCallback((val: number) => {

@@ -89,7 +89,7 @@ describe("Device Stream Frozen Scenarios", () => {
       };
 
       render(<FFTCanvas {...frozenProps} />);
-      
+
       // Should still render even with stale data
       expect(screen.queryByText(/No data available/)).not.toBeInTheDocument();
       expect(screen.getByText("FFT Signal Display")).toBeInTheDocument();
@@ -97,10 +97,10 @@ describe("Device Stream Frozen Scenarios", () => {
 
     it("should handle stream freeze during device disconnect", () => {
       const { rerender } = render(<FFTCanvas {...mockProps} />);
-      
+
       // Device disconnects while streaming
       rerender(<FFTCanvas {...mockProps} isDeviceConnected={false} />);
-      
+
       // Should handle gracefully without crashing
       expect(screen.getByText("FFT Signal Display")).toBeInTheDocument();
       expect(screen.getByText("Waterfall Display")).toBeInTheDocument();
@@ -108,7 +108,7 @@ describe("Device Stream Frozen Scenarios", () => {
 
     it("should detect and handle repeated identical frames", () => {
       const identicalData = Array.from({ length: 1024 }, () => -60);
-      
+
       const frozenProps = {
         ...mockProps,
         data: {
@@ -117,7 +117,7 @@ describe("Device Stream Frozen Scenarios", () => {
       };
 
       render(<FFTCanvas {...frozenProps} />);
-      
+
       // Should render identical frames without freezing
       expect(screen.getByText("FFT Signal Display")).toBeInTheDocument();
     });
@@ -127,33 +127,29 @@ describe("Device Stream Frozen Scenarios", () => {
     it("should recover from frozen stream when new data arrives", async () => {
       const frozenData = Array.from({ length: 1024 }, () => -60);
       const freshData = Array.from({ length: 1024 }, (_, i) => -60 + Math.sin(i * 0.1) * 20);
-      
-      const { rerender } = render(
-        <FFTCanvas {...mockProps} data={{ waveform: frozenData }} />
-      );
-      
+
+      const { rerender } = render(<FFTCanvas {...mockProps} data={{ waveform: frozenData }} />);
+
       // Stream was frozen with flat data
       expect(screen.getByText("FFT Signal Display")).toBeInTheDocument();
-      
+
       // New data arrives - should recover
       rerender(<FFTCanvas {...mockProps} data={{ waveform: freshData }} />);
-      
+
       await waitFor(() => {
         expect(screen.getByText("FFT Signal Display")).toBeInTheDocument();
       });
     });
 
     it("should handle device reconnection after stream freeze", async () => {
-      const { rerender } = render(
-        <FFTCanvas {...mockProps} isDeviceConnected={false} />
-      );
-      
+      const { rerender } = render(<FFTCanvas {...mockProps} isDeviceConnected={false} />);
+
       // Device was disconnected (frozen stream)
       expect(screen.getByText("FFT Signal Display")).toBeInTheDocument();
-      
+
       // Device reconnects
       rerender(<FFTCanvas {...mockProps} isDeviceConnected={true} />);
-      
+
       await waitFor(() => {
         expect(screen.getByText("FFT Signal Display")).toBeInTheDocument();
       });
@@ -161,16 +157,16 @@ describe("Device Stream Frozen Scenarios", () => {
 
     it("should maintain waterfall during stream freeze recovery", () => {
       const { rerender } = render(<FFTCanvas {...mockProps} />);
-      
+
       // Simulate stream freeze
       rerender(<FFTCanvas {...mockProps} isDeviceConnected={false} />);
-      
+
       // Waterfall should still be maintained
       expect(screen.getByText("Waterfall Display")).toBeInTheDocument();
-      
+
       // Recovery
       rerender(<FFTCanvas {...mockProps} isDeviceConnected={true} />);
-      
+
       expect(screen.getByText("Waterfall Display")).toBeInTheDocument();
     });
   });
@@ -209,9 +205,7 @@ describe("Device Stream Frozen Scenarios", () => {
       const infiniteProps = {
         ...mockProps,
         data: {
-          waveform: Array.from({ length: 1024 }, (_, i) => 
-            i % 10 === 0 ? Infinity : -60
-          ),
+          waveform: Array.from({ length: 1024 }, (_, i) => (i % 10 === 0 ? Infinity : -60)),
         },
       };
 
@@ -229,23 +223,23 @@ describe("Device Stream Frozen Scenarios", () => {
       };
 
       const { rerender } = render(<FFTCanvas {...frozenProps} />);
-      
+
       // Simulate multiple frozen frames
       for (let i = 0; i < 10; i++) {
         rerender(<FFTCanvas {...frozenProps} />);
       }
-      
+
       // Should still render without memory issues
       expect(screen.getByText("FFT Signal Display")).toBeInTheDocument();
     });
 
     it("should maintain frame rate during stream recovery", () => {
       const { rerender } = render(<FFTCanvas {...mockProps} />);
-      
+
       // Simulate freeze and recovery cycle
       rerender(<FFTCanvas {...mockProps} isDeviceConnected={false} />);
       rerender(<FFTCanvas {...mockProps} isDeviceConnected={true} />);
-      
+
       // Should maintain performance
       expect(screen.getByText("FFT Signal Display")).toBeInTheDocument();
     });
@@ -259,7 +253,7 @@ describe("Device Stream Frozen Scenarios", () => {
       };
 
       render(<FFTCanvas {...frozenProps} />);
-      
+
       // Should show disconnected status for frozen stream
       expect(screen.getByText("Device: Disconnected")).toBeInTheDocument();
     });
@@ -271,7 +265,7 @@ describe("Device Stream Frozen Scenarios", () => {
       };
 
       render(<FFTCanvas {...frozenProps} />);
-      
+
       // UI should still be interactive
       expect(screen.getByText("FFT Signal Display")).toBeInTheDocument();
       expect(screen.getByText("Waterfall Display")).toBeInTheDocument();
@@ -286,7 +280,7 @@ describe("Device Stream Frozen Scenarios", () => {
       };
 
       render(<FFTCanvas {...frozenProps} />);
-      
+
       // Frequency range should be preserved
       expect(screen.getByText("FFT Signal Display")).toBeInTheDocument();
     });
@@ -300,23 +294,21 @@ describe("Device Stream Frozen Scenarios", () => {
       };
 
       render(<FFTCanvas {...mockModeProps} />);
-      
+
       // Should handle gracefully in mock mode
       expect(screen.getByText("FFT Signal Display")).toBeInTheDocument();
       expect(screen.getByText("Waterfall Display")).toBeInTheDocument();
     });
 
     it("should recover from mock mode stream freeze", async () => {
-      const { rerender } = render(
-        <FFTCanvas {...mockProps} isDeviceConnected={false} />
-      );
-      
+      const { rerender } = render(<FFTCanvas {...mockProps} isDeviceConnected={false} />);
+
       // Mock mode freeze
       expect(screen.getByText("FFT Signal Display")).toBeInTheDocument();
-      
+
       // Recovery to real device
       rerender(<FFTCanvas {...mockProps} isDeviceConnected={true} />);
-      
+
       await waitFor(() => {
         expect(screen.getByText("FFT Signal Display")).toBeInTheDocument();
       });
@@ -331,22 +323,20 @@ describe("Device Stream Frozen Scenarios", () => {
       };
 
       render(<FFTCanvas {...wsDisconnectedProps} />);
-      
+
       // Should handle WebSocket disconnection gracefully
       expect(screen.getByText("FFT Signal Display")).toBeInTheDocument();
     });
 
     it("should handle WebSocket reconnection after freeze", async () => {
-      const { rerender } = render(
-        <FFTCanvas {...mockProps} isDeviceConnected={false} />
-      );
-      
+      const { rerender } = render(<FFTCanvas {...mockProps} isDeviceConnected={false} />);
+
       // WebSocket was disconnected (frozen stream)
       expect(screen.getByText("FFT Signal Display")).toBeInTheDocument();
-      
+
       // WebSocket reconnects
       rerender(<FFTCanvas {...mockProps} isDeviceConnected={true} />);
-      
+
       await waitFor(() => {
         expect(screen.getByText("FFT Signal Display")).toBeInTheDocument();
       });

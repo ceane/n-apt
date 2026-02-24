@@ -178,6 +178,81 @@ impl SignalType {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignalsConfig {
+  pub signals: SignalsData,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignalsData {
+  pub mock: MockSignalsConfig,
+  pub n_apt: NaptConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MockSignalsConfig {
+  pub global_settings: MockGlobalSettings,
+  pub bandwidths: MockBandwidths,
+  pub strength_ranges: MockStrengthRanges,
+  pub signals: Vec<MockSignalConfig>,
+  pub training_areas: HashMap<String, MockTrainingArea>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NaptConfig {
+  pub channels: HashMap<String, SpectrumFrameConfig>,
+}
+
+// Mock signal types
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MockGlobalSettings {
+  pub noise_floor_base: f64,
+  pub noise_floor_variation: f64,
+  pub signal_drift_rate: f64,
+  pub signal_modulation_rate: f64,
+  pub signal_appearance_chance: f64,
+  pub signal_disappearance_chance: f64,
+  pub signal_strength_variation: f64,
+  pub dynamic_generation: bool,
+  pub signals_per_area: u32,
+  pub area_a_density: f64,
+  pub area_b_density: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MockBandwidths {
+  pub narrow: u32,
+  pub medium: u32,
+  pub wide: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MockStrengthRanges {
+  pub weak: StrengthRange,
+  pub medium: StrengthRange,
+  pub strong: StrengthRange,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StrengthRange {
+  pub min: f64,
+  pub max: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MockSignalConfig {
+  // This would contain predefined mock signals if any
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MockTrainingArea {
+  pub freq_range_mhz: Vec<f64>,
+  pub description: String,
+  pub signal_types: Vec<String>,
+  pub base_strength_range: Vec<f64>,
+}
+
+// Legacy spectrum frames config for backward compatibility
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpectrumFramesConfig {
   pub frames: HashMap<String, SpectrumFrameConfig>,
 }
