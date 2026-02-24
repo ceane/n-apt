@@ -235,10 +235,6 @@ export function useWebGPUInit({
   const overlayDirtyRef = useRef({ grid: true, markers: true });
   const overlayLastUploadMsRef = useRef({ grid: 0, markers: 0 });
 
-  // Legacy renderer refs (kept for compatibility; actual rendering lives in hooks)
-  const spectrumRendererRef = useRef<any>(null);
-  const waterfallRendererRef = useRef<any>(null);
-
   const initializeResamplePipeline = useCallback(
     async (device: GPUDevice) => {
       try {
@@ -388,13 +384,12 @@ export function useWebGPUInit({
   }, [webgpuEnabled]);
 
   return {
+    isInitialized,
     webgpuEnabled,
     webgpuDeviceRef,
     webgpuFormatRef,
-    spectrumRendererRef,
     gridOverlayRendererRef,
     markersOverlayRendererRef,
-    waterfallRendererRef,
     overlayDirtyRef,
     overlayLastUploadMsRef,
   };

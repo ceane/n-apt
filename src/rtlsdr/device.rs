@@ -188,7 +188,10 @@ impl RtlSdrDevice {
     pub fn get_max_sample_rate(&self) -> u32 {
         // Common RTL-SDR sample rates to test (highest to lowest)
         let test_rates = [
+            // Max sample rate for RTL-SDR Blog V4
+            // Required to correctly view N-APT due to nyquist limi
             3_200_000,  // 3.2 MHz - common max
+            // Always selecting max
             2_800_000,  // 2.8 MHz
             2_560_000,  // 2.56 MHz
             2_400_000,  // 2.4 MHz
@@ -204,7 +207,12 @@ impl RtlSdrDevice {
             480_000,    // 480 kHz
         ];
 
-        let current_rate = self.get_sample_rate();
+        let mut current_rate = self.get_sample_rate();
+        // If the device was just opened, the sample rate might read as 0
+        // in which case we should restore to our desired default (3.2MHz)
+        if current_rate == 0 {
+            current_rate = 3_200_000;
+        }
         let mut max_supported = current_rate;
 
         // Test from highest to lowest, stop at first successful rate
@@ -236,6 +244,7 @@ impl RtlSdrDevice {
 
     /// Reset the device buffer (call before starting reads)
     pub fn reset_buffer(&self) -> Result<()> {
+        info!("Resetting RTL-SDR device buffer...");
         let ret = unsafe { ffi::rtlsdr_reset_buffer(self.dev) };
         if ret != 0 {
             return Err(anyhow!("Failed to reset buffer"));
@@ -243,6 +252,10 @@ impl RtlSdrDevice {
         Ok(())
     }
 
+    // DO NOT READ SYNCHRONOUSLY
+    /// RTL-SDR will not allow you to change options
+    /// This will cause problems when adjusting SDR settings
+    /// 
     /// Read IQ samples synchronously
     ///
     /// Returns a Vec<u8> of interleaved I/Q samples (2 bytes per sample).
@@ -264,7 +277,10 @@ impl RtlSdrDevice {
         buf.truncate(n_read as usize);
         Ok(buf)
     }
-
+    // DO NOT READ SYNCHRONOUSLY
+    /// RTL-SDR will not allow you to change options
+    /// This will cause problems when adjusting SDR settings
+    /// 
     /// Read IQ samples synchronously into a pre-allocated buffer (zero-copy)
     ///
     /// Returns the number of bytes actually read.
@@ -283,6 +299,24 @@ impl RtlSdrDevice {
             return Err(anyhow!("Synchronous read failed (error code: {})", ret));
         }
         Ok(n_read as usize)
+    }
+
+    /// Read IQ samples asynchronously
+    ///
+    /// The callback will be called repeatedly with chunks of IQ data.
+    /// Blocks until cancel_async is called from another thread.
+    pub fn read_async(
+        &self,
+        cb: ffi::RtlSdrReadAsyncCb,
+        ctx: *mut std::os::raw::c_void,
+        buf_num: u32,
+        buf_len: u32,
+    ) -> Result<()> {
+        let ret = unsafe { ffi::rtlsdr_read_async(self.dev, cb, ctx, buf_num, buf_len) };
+        if ret != 0 {
+            return Err(anyhow!("Asynchronous read failed (error code: {})", ret));
+        }
+        Ok(())
     }
 
     /// Get the raw device pointer for sharing with the async reader thread.

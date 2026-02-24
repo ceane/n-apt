@@ -1,8 +1,11 @@
 use anyhow::{anyhow, Result};
 use log::{debug, info, warn};
+use std::sync::mpsc::{self, Receiver, SyncSender};
+use std::thread::JoinHandle;
 use std::time::Instant;
 
 use n_apt_backend::consts::rs::fft::{FFT_MAX_DB, FFT_MIN_DB, NUM_SAMPLES, SAMPLE_RATE};
+use n_apt_backend::rtlsdr::ffi;
 use n_apt_backend::consts::rs::mock::{
   MOCK_NOISE_FLOOR_BASE, MOCK_NOISE_FLOOR_VARIATION, MOCK_PERSISTENT_SIGNALS,
   MOCK_SIGNAL_DRIFT_RATE, MOCK_SIGNAL_MODULATION_RATE, MOCK_SIGNAL_APPEARANCE_CHANCE,
@@ -15,18 +18,34 @@ use n_apt_backend::stitching::SignalStitcher;
 use super::types::{SdrCommand, MockSignal, SignalType, CaptureArtifact};
 
 /// Number of async USB transfer buffers (librtlsdr default is 15)
-#[allow(dead_code)]
 pub const ASYNC_BUF_NUM: u32 = 15;
 /// Size of each async USB buffer in bytes. 32KB = ~5ms at 3.2 MSPS.
 /// Smaller buffers = lower latency and more frequent callbacks.
-#[allow(dead_code)]
 pub const ASYNC_BUF_LEN: u32 = 32768;
+
+/// C callback invoked by librtlsdr's async read loop.
+/// `ctx` is a raw pointer to a `SyncSender<Vec<u8>>`.
+unsafe extern "C" fn rtlsdr_async_callback(buf: *mut u8, len: u32, ctx: *mut std::os::raw::c_void) {
+    if ctx.is_null() || buf.is_null() || len == 0 {
+        return;
+    }
+    let tx = &*(ctx as *const SyncSender<Vec<u8>>);
+    let slice = std::slice::from_raw_parts(buf, len as usize);
+    // Best-effort send — if the channel is full we drop the oldest data
+    let _ = tx.try_send(slice.to_vec());
+}
 
 /// SDR processor wrapper that handles both real and mock SDR devices.
 /// Runs on a dedicated std::thread — all blocking device I/O happens here,
 /// never on the tokio async runtime.
 #[allow(dead_code)]
 pub struct SDRProcessor {
+  /// Async reader thread handle (Some when async reading is active)
+  pub async_reader_handle: Option<JoinHandle<()>>,
+  /// Channel receiver for IQ data from the async reader callback
+  pub async_rx: Option<Receiver<Vec<u8>>>,
+  /// Keep the sender alive so the callback pointer remains valid
+  pub async_tx: Option<Box<SyncSender<Vec<u8>>>>,
   /// FFT processor for signal processing
   pub fft_processor: FFTProcessor,
   /// Whether we're using mock data
@@ -92,6 +111,9 @@ impl SDRProcessor {
   /// Create a new SDR processor instance
   pub fn new() -> Self {
     let mut processor = Self {
+      async_reader_handle: None,
+      async_rx: None,
+      async_tx: None,
       fft_processor: FFTProcessor::new(),
       is_mock: true,
       device: None,
@@ -659,71 +681,94 @@ impl SDRProcessor {
     }
   }
 
-  /// Read IQ samples from the real device (sync) and process into a spectrum frame.
+  /// Start the async reader thread. The thread calls `rtlsdr_read_async`
+  /// which blocks and continuously fires the C callback with IQ chunks.
+  /// The callback sends data through a bounded channel that the I/O loop drains.
+  pub fn start_async_reader(&mut self) -> Result<()> {
+    let dev = self.device.as_ref().ok_or_else(|| anyhow!("No device"))?;
+    let raw = dev.raw_ptr();
+    if raw.is_null() {
+      return Err(anyhow!("Device pointer is null"));
+    }
+
+    // Bounded channel: ~64 buffers deep (~2MB at 32KB each, ~330ms at 3.2MSPS)
+    let (tx, rx) = mpsc::sync_channel::<Vec<u8>>(64);
+    let tx_box = Box::new(tx);
+    let tx_ptr = &*tx_box as *const SyncSender<Vec<u8>> as *mut std::os::raw::c_void;
+
+    // Convert raw pointers to usize so they are Send-safe across the thread boundary.
+    // SAFETY: raw is valid while device is open.
+    // tx_box is kept alive in self.async_tx for the lifetime of the reader.
+    let dev_addr = raw as usize;
+    let ctx_addr = tx_ptr as usize;
+
+    let handle = std::thread::spawn(move || {
+      info!("Async reader thread started");
+      let ret = unsafe {
+        ffi::rtlsdr_read_async(
+          dev_addr as *mut ffi::RtlSdrDev,
+          Some(rtlsdr_async_callback),
+          ctx_addr as *mut std::os::raw::c_void,
+          ASYNC_BUF_NUM,
+          ASYNC_BUF_LEN,
+        )
+      };
+      if ret != 0 {
+        warn!("rtlsdr_read_async returned error code {}", ret);
+      }
+      info!("Async reader thread exited");
+    });
+
+    self.async_tx = Some(tx_box);
+    self.async_rx = Some(rx);
+    self.async_reader_handle = Some(handle);
+    info!("Async IQ reader started (buf_num={}, buf_len={})", ASYNC_BUF_NUM, ASYNC_BUF_LEN);
+    Ok(())
+  }
+
+  /// Stop the async reader: cancel the librtlsdr async loop, join the thread.
+  pub fn stop_async_reader(&mut self) {
+    if let Some(ref dev) = self.device {
+      if let Err(e) = dev.cancel_async() {
+        warn!("cancel_async failed: {}", e);
+      }
+    }
+    if let Some(handle) = self.async_reader_handle.take() {
+      info!("Waiting for async reader thread to exit...");
+      let _ = handle.join();
+      info!("Async reader thread joined");
+    }
+    self.async_rx = None;
+    self.async_tx = None;
+  }
+
+  /// Drain the async channel into the IQ accumulator.
+  /// Returns the number of bytes added.
+  pub fn drain_async_channel(&mut self) -> usize {
+    let mut total = 0usize;
+    if let Some(ref rx) = self.async_rx {
+      while let Ok(chunk) = rx.try_recv() {
+        total += chunk.len();
+        self.iq_accumulator.extend_from_slice(&chunk);
+      }
+    }
+    total
+  }
+
+  /// Read from the async IQ accumulator and process into a spectrum frame.
+  /// Returns Ok(spectrum) if enough data, Err if not enough yet.
   pub fn read_and_process_device(&mut self) -> Result<Vec<f32>> {
-    let dev = self
-      .device
-      .as_ref()
-      .ok_or_else(|| anyhow!("RTL-SDR device not initialized"))?;
+    // Drain whatever the async reader has delivered
+    self.drain_async_channel();
 
-    // Verify sample rate before reading
-    let current_rate = dev.get_sample_rate();
-    if current_rate != SAMPLE_RATE {
-      warn!("Sample rate drift detected! Current: {} Hz, Expected: {} Hz", current_rate, SAMPLE_RATE);
-      // Try to fix it
-      if let Err(e) = dev.set_sample_rate(SAMPLE_RATE) {
-        warn!("Failed to fix sample rate: {}", e);
-      }
+    // Check if we have enough data
+    if !self.has_complete_frame() {
+      return Err(anyhow!("Not enough IQ data yet ({} / {} bytes)",
+        self.iq_accumulator.len().saturating_sub(self.iq_offset), self.read_size));
     }
 
-    let mut frame = std::mem::take(&mut self.iq_frame);
-    if frame.len() != self.read_size {
-      frame.resize(self.read_size, 0);
-    }
-
-    let n_read = dev.read_sync_into(&mut frame)?;
-    if n_read == 0 {
-      self.iq_frame = frame;
-      return Err(anyhow!("No IQ data read from device"));
-    }
-    frame.truncate(n_read);
-
-    let samples = RawSamples {
-      data: frame,
-      sample_rate: SAMPLE_RATE,
-    };
-    let result = self.fft_processor.process_samples(&samples)?;
-    self.iq_frame = samples.data;
-    let mut spectrum = result.power_spectrum;
-
-    // DC spike suppression: interpolate center bins
-    let len = spectrum.len();
-    if len > 6 {
-      let center = len / 2;
-      let left = spectrum[center - 3];
-      let right = spectrum[center + 3];
-      for i in 0..5 {
-        let t = (i + 1) as f32 / 6.0;
-        spectrum[center - 2 + i] = left * (1.0 - t) + right * t;
-      }
-    }
-
-    // Frame averaging (exponential moving average)
-    let alpha = self.avg_alpha;
-    if let Some(ref mut avg) = self.avg_spectrum {
-      if avg.len() == spectrum.len() {
-        for (i, val) in spectrum.iter().enumerate() {
-          avg[i] = alpha * val + (1.0 - alpha) * avg[i];
-        }
-        Ok(avg.clone())
-      } else {
-        self.avg_spectrum = Some(spectrum.clone());
-        Ok(spectrum)
-      }
-    } else {
-      self.avg_spectrum = Some(spectrum.clone());
-      Ok(spectrum)
-    }
+    // Process one frame from the accumulator
+    self.process_iq_frame()
   }
 
   /// Generate mock spectrum data with structured signal patterns

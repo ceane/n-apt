@@ -98,6 +98,17 @@ impl WebSocketServer {
                 *shared.device_info.lock().unwrap() = sdr_processor.get_device_info();
                 *shared.device_state.lock().unwrap() = "connected".to_string();
                 Self::broadcast_status(&shared, &broadcast_tx);
+
+                // Start async IQ reader
+                if !sdr_processor.is_mock {
+                    if let Err(e) = sdr_processor.start_async_reader() {
+                        error!("Failed to start async reader: {}. Falling back to mock.", e);
+                        sdr_processor.enter_mock_mode();
+                        device_connected = false;
+                        shared.device_connected.store(false, Ordering::Relaxed);
+                        *shared.device_state.lock().unwrap() = "disconnected".to_string();
+                    }
+                }
             }
             Err(e) => {
                 warn!("Failed to initialize RTL-SDR device: {}. Using mock mode.", e);
@@ -156,6 +167,8 @@ impl WebSocketServer {
 
                     match spectrum_result {
                         Ok(spectrum) => {
+                            // Reset failure tracking on success
+                            last_device_failure = None;
                             let timestamp = chrono::Utc::now().timestamp_millis();
                             let is_mock = sdr_processor.is_mock;
                             let spectrum_data = SpectrumData {
@@ -194,15 +207,22 @@ impl WebSocketServer {
                             }
                         }
                         Err(e) => {
-                            error!("Failed to get spectrum data: {}", e);
-                            if !sdr_processor.is_mock {
-                                // Drop the device handle so the next reconnect opens a fresh device
-                                sdr_processor.release_device();
-                                sdr_processor.enter_mock_mode();
-                                device_connected = false;
-                                shared.device_connected.store(false, Ordering::Relaxed);
-                                *shared.device_state.lock().unwrap() = "disconnected".to_string();
-                                last_device_failure = Some(Instant::now());
+                            let err_str = e.to_string();
+                            // "Not enough IQ data yet" is normal for async — just wait
+                            if err_str.contains("Not enough IQ data") {
+                                // Not an error, just no data available yet
+                            } else {
+                                error!("Failed to get spectrum data: {}", e);
+                                if !sdr_processor.is_mock {
+                                    // Stop async reader before releasing device
+                                    sdr_processor.stop_async_reader();
+                                    sdr_processor.release_device();
+                                    sdr_processor.enter_mock_mode();
+                                    device_connected = false;
+                                    shared.device_connected.store(false, Ordering::Relaxed);
+                                    *shared.device_state.lock().unwrap() = "disconnected".to_string();
+                                    last_device_failure = Some(Instant::now());
+                                }
                             }
                         }
                     }
@@ -233,6 +253,15 @@ impl WebSocketServer {
                     match sdr_processor.try_connect_device() {
                         Ok(true) => {
                             info!("RTL-SDR device connected successfully");
+                            // Start async reader for the newly connected device
+                            if let Err(e) = sdr_processor.start_async_reader() {
+                                error!("Failed to start async reader after hotplug: {}. Staying mock.", e);
+                                sdr_processor.enter_mock_mode();
+                                *shared.device_loading.lock().unwrap() = false;
+                                *shared.device_loading_reason.lock().unwrap() = None;
+                                *shared.device_state.lock().unwrap() = "disconnected".to_string();
+                                continue;
+                            }
                             device_connected = true;
                             shared.device_connected.store(true, Ordering::Relaxed);
                             let device_info = sdr_processor.get_device_info();
@@ -264,6 +293,8 @@ impl WebSocketServer {
                         missing_device_probe_streak = next_missing_device_probe_streak(missing_device_probe_streak, 0);
                         if should_declare_disconnected(missing_device_probe_streak) {
                             warn!("RTL-SDR device disconnected");
+                            // Stop async reader before releasing device
+                            sdr_processor.stop_async_reader();
                             device_connected = false;
                             shared.device_connected.store(false, Ordering::Relaxed);
                             *shared.device_state.lock().unwrap() = "disconnected".to_string();
@@ -322,7 +353,8 @@ impl WebSocketServer {
                 *shared.device_loading_reason.lock().unwrap() = Some("restart".to_string());
                 *shared.device_state.lock().unwrap() = "loading".to_string();
 
-                // Reinitialize the device
+                // Stop async reader before releasing device
+                sdr_processor.stop_async_reader();
                 sdr_processor.release_device();
                 if let Err(e) = sdr_processor.initialize() {
                     error!("Failed to restart device: {}", e);
@@ -331,6 +363,12 @@ impl WebSocketServer {
                     *shared.device_state.lock().unwrap() = "disconnected".to_string();
                 } else {
                     info!("Device restarted successfully");
+                    // Start async reader for restarted device
+                    if !sdr_processor.is_mock {
+                        if let Err(e) = sdr_processor.start_async_reader() {
+                            error!("Failed to start async reader after restart: {}", e);
+                        }
+                    }
                     *shared.device_loading.lock().unwrap() = false;
                     *shared.device_loading_reason.lock().unwrap() = None;
                     *shared.device_state.lock().unwrap() = "connected".to_string();
