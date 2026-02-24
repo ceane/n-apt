@@ -637,6 +637,7 @@ export const useWebSocket = (
 
   // Function to send settings updates to the server
   const sendSettings = useCallback((settings: SDRSettings) => {
+    console.log("[useWebSocket] sendSettings called with:", settings);
     const ws = wsRef.current;
     if (ws && ws.readyState === WebSocket.OPEN) {
       const message = JSON.stringify({
