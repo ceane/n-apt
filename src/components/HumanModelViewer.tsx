@@ -239,11 +239,13 @@ const BaseButton = styled.button`
     box-shadow 120ms ease;
 `;
 
-const SelectableButton = styled(BaseButton)<{ $isSelected: boolean }>`
-  background: ${(props) => (props.$isSelected ? "rgba(123, 97, 255, 0.22)" : "rgba(255,255,255,0.06)")};
-  border-color: ${(props) => (props.$isSelected ? "rgba(123, 97, 255, 0.55)" : "rgba(255,255,255,0.10)")};
-  box-shadow: ${(props) => (props.$isSelected ? "0 0 0 1px rgba(123, 97, 255, 0.25)" : "none")};
-`;
+const SelectableButton = styled(BaseButton).attrs<{ $isSelected: boolean }>(props => ({
+  style: {
+    background: props.$isSelected ? "rgba(123, 97, 255, 0.22)" : "rgba(255,255,255,0.06)",
+    borderColor: props.$isSelected ? "rgba(123, 97, 255, 0.55)" : "rgba(255,255,255,0.10)",
+    boxShadow: props.$isSelected ? "0 0 0 1px rgba(123, 97, 255, 0.25)" : "none",
+  },
+}))`;
 
 const HumanModelViewer: React.FC<HumanModelViewerProps> = ({ width = "100%", height = "100%" }) => {
   const [selectedArea, setSelectedArea] = useState<Area | null>(null);
@@ -358,7 +360,7 @@ const HumanModelViewer: React.FC<HumanModelViewerProps> = ({ width = "100%", hei
         style={{
           position: "absolute",
           left: CONTROL_PANEL_WIDTH,
-          width: `calc(100% - ${CONTROL_PANEL_WIDTH})`,
+          width: `calc(100 % - ${ CONTROL_PANEL_WIDTH })`,
           height: "100%",
         }}
         camera={{ position: MODEL_CAMERA_POSITION, fov: MODEL_FOV }}

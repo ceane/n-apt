@@ -126,10 +126,16 @@ const CanvasLayer = styled.canvas`
   will-change: width, height;
 `;
 
-const ToggleableCanvasLayer = styled(CanvasLayer)<{ $visible: boolean }>`
-  display: ${({ $visible }) => ($visible ? "block" : "none")};
+const ToggleableCanvasLayer = styled(CanvasLayer).attrs<{ $visible: boolean }>(props => ({
+  style: {
+    display: props.$visible ? "block" : "none",
+  },
+}))`
   z-index: 0;
 `;
+
+const WATERFALL_TEXTURE_SNAPSHOT_KEY = "napt-waterfall-texture-snapshot";
+const WATERFALL_TEXTURE_META_KEY = "napt-waterfall-texture-meta";
 
 /**
  * Props for FFTCanvas component
@@ -143,6 +149,8 @@ interface FFTCanvasProps {
   centerFrequencyMHz: number;
   /** Currently active signal area identifier */
   activeSignalArea: string;
+  /** Signal area bounds for VFO drag clamping */
+  signalAreaBounds?: Record<string, { min: number; max: number }>;
   /** Whether the visualization is paused */
   isPaused: boolean;
   /** Target frame rate for the visualization */
@@ -177,6 +185,7 @@ const FFTCanvas = forwardRef<
     frequencyRange,
     centerFrequencyMHz,
     activeSignalArea: _activeSignalArea,
+    signalAreaBounds,
     isPaused,
     isDeviceConnected = true,
     onFrequencyRangeChange,
@@ -219,6 +228,21 @@ const FFTCanvas = forwardRef<
       pool.push(buffer);
     }
   };
+
+  const lastWaterfallRowRef = useRef<Uint8ClampedArray | null>(null);
+  const pausedWaterfallRowRef = useRef<Uint8ClampedArray | null>(null);
+  const waterfallTextureSnapshotRef = useRef<Uint8Array | null>(null);
+  const waterfallTextureMetaRef = useRef<{ width: number; height: number; writeRow: number } | null>(
+    null,
+  );
+  const waterfallRowBufferRef = useRef<Uint8Array | null>(null);
+  const pendingWaterfallRestoreRef = useRef<{
+    data: Uint8Array;
+    width: number;
+    height: number;
+    writeRow: number;
+  } | null>(null);
+  const restoredWaterfallRef = useRef(false);
 
   // Simplified frame management
   const frameBufferRef = useRef<Float32Array[]>([]);
@@ -271,6 +295,12 @@ const FFTCanvas = forwardRef<
   const spectrumWebgpuEnabled = webgpuEnabled;
 
   useEffect(() => {
+    // Frequency range changes affect both overlays
+    overlayDirtyRef.current.grid = true;
+    overlayDirtyRef.current.markers = true;
+  }, [frequencyRange]);
+
+  useEffect(() => {
     // Center frequency changes only affect marker overlay.
     overlayDirtyRef.current.markers = true;
   }, [centerFrequencyMHz]);
@@ -315,6 +345,7 @@ const FFTCanvas = forwardRef<
     frequencyRangeRef,
     spectrumWebgpuEnabled,
     activeSignalArea: _activeSignalArea,
+    signalAreaBounds,
     onFrequencyRangeChange,
   });
 
@@ -547,9 +578,9 @@ const FFTCanvas = forwardRef<
         isPaused &&
         currentData?.waveform &&
         currentData !== lastProcessedDataRef.current &&
-        force2D
+        (force2D || !renderWaveformRef.current)
       ) {
-        // Paused: still ingest when data identity changes (stitched file frames only)
+        // Paused: ingest once to avoid blank frames (file mode or first paused frame)
         const waveform = ensureFloat32Waveform(currentData.waveform);
 
         // Validate waveform before processing
@@ -585,6 +616,7 @@ const FFTCanvas = forwardRef<
       const currentWaveform = renderWaveformRef.current;
 
       if (currentWaveform && currentWaveform.length > 0) {
+        let waveformArray: number[] | null = null;
         // Spectrum render - always render existing waveform, but only update with new data when not paused
         if (
           spectrumWebgpuEnabled &&
@@ -642,6 +674,17 @@ const FFTCanvas = forwardRef<
             isDeviceConnected,
             showGrid: true,
           });
+        } else if (!spectrumWebgpuEnabled && spectrumCanvas) {
+          waveformArray = waveformArray ?? Array.from(currentWaveform);
+          draw2DFFTSignal({
+            canvas: spectrumCanvas,
+            waveform: waveformArray,
+            frequencyRange: frequencyRangeRef.current,
+            showGrid: true,
+            centerFrequencyMHz: centerFreqRef.current,
+            isDeviceConnected,
+            highPerformanceMode: displayTemporalResolution !== "high",
+          });
         }
 
         // Only draw 2D shadow render when snapshot is requested (not every frame!)
@@ -660,66 +703,144 @@ const FFTCanvas = forwardRef<
         }
 
         // Waterfall render (only push new lines when not paused)
-        if (!isPaused && currentData) {
-          if (
-            webgpuEnabled &&
-            webgpuDeviceRef.current &&
-            webgpuFormatRef.current &&
-            waterfallGpuCanvas
-          ) {
-            const dims = waterfallGpuDimsRef.current;
-            if (dims) {
-              let resampled: number[];
-              if (sdrProcessor && currentWaveform && currentWaveform.length >= 4) {
-                const float32Output = new Float32Array(dims.width);
-                try {
-                  sdrProcessor.resample_spectrum(currentWaveform, float32Output, dims.width);
-                  resampled = Array.from(float32Output);
-                } catch (error) {
-                  console.warn("WASM SIMD resampling failed, using fallback:", error);
-                  resampled = performScalarResampling(Array.from(currentWaveform), dims.width);
-                }
-              } else {
+        if (
+          webgpuEnabled &&
+          webgpuDeviceRef.current &&
+          webgpuFormatRef.current &&
+          waterfallGpuCanvas
+        ) {
+          const dims = waterfallGpuDimsRef.current;
+          if (dims && !isPaused && currentData) {
+            let resampled: number[];
+            if (sdrProcessor && currentWaveform && currentWaveform.length >= 4) {
+              const float32Output = new Float32Array(dims.width);
+              try {
+                sdrProcessor.resample_spectrum(currentWaveform, float32Output, dims.width);
+                resampled = Array.from(float32Output);
+              } catch (error) {
+                console.warn("WASM SIMD resampling failed, using fallback:", error);
                 resampled = performScalarResampling(Array.from(currentWaveform), dims.width);
               }
+            } else {
+              resampled = performScalarResampling(Array.from(currentWaveform), dims.width);
+            }
 
-              const normalizedData = spectrumToAmplitude(
-                resampled,
-                WATERFALL_HISTORY_LIMIT,
-                WATERFALL_HISTORY_MAX,
+            const normalizedData = spectrumToAmplitude(
+              resampled,
+              WATERFALL_HISTORY_LIMIT,
+              WATERFALL_HISTORY_MAX,
+            );
+
+            // Convert to RGBA format for waterfall hook
+            const rgbaBuffer = new Uint8ClampedArray(normalizedData.length * 4);
+            const rowBuffer =
+              waterfallRowBufferRef.current && waterfallRowBufferRef.current.length === dims.width
+                ? waterfallRowBufferRef.current
+                : new Uint8Array(dims.width);
+            waterfallRowBufferRef.current = rowBuffer;
+            for (let i = 0; i < normalizedData.length; i++) {
+              const normalized = Math.max(0, Math.min(1, normalizedData[i]));
+              const gray = Math.round(normalized * 255);
+              rgbaBuffer[i * 4] = gray;
+              rgbaBuffer[i * 4 + 1] = gray;
+              rgbaBuffer[i * 4 + 2] = gray;
+              rgbaBuffer[i * 4 + 3] = 255;
+              if (i < rowBuffer.length) rowBuffer[i] = gray;
+            }
+            lastWaterfallRowRef.current = rgbaBuffer;
+
+            const textureSize = dims.width * dims.height;
+            if (!waterfallTextureSnapshotRef.current || waterfallTextureSnapshotRef.current.length !== textureSize) {
+              waterfallTextureSnapshotRef.current = new Uint8Array(textureSize);
+              waterfallTextureMetaRef.current = { width: dims.width, height: dims.height, writeRow: 0 };
+            }
+            const meta = waterfallTextureMetaRef.current;
+            const snapshot = waterfallTextureSnapshotRef.current;
+            if (meta && snapshot) {
+              const smear = Math.max(
+                0,
+                Math.min(Math.floor(retuneSmearRef.current || 0), dims.height - 1),
               );
-
-              // Convert to RGBA format for waterfall hook
-              const rgbaBuffer = new Uint8ClampedArray(normalizedData.length * 4);
-              for (let i = 0; i < normalizedData.length; i++) {
-                const val = Math.round(normalizedData[i] * 255);
-                rgbaBuffer[i * 4] = val;
-                rgbaBuffer[i * 4 + 1] = val;
-                rgbaBuffer[i * 4 + 2] = val;
-                rgbaBuffer[i * 4 + 3] = 255;
+              for (let s = 0; s <= smear; s++) {
+                const row = (meta.writeRow - s + dims.height) % dims.height;
+                const offset = row * dims.width;
+                snapshot.set(rowBuffer.subarray(0, dims.width), offset);
               }
+              meta.writeRow = (meta.writeRow + 1) % dims.height;
+            }
 
-              // Use hook-based WebGPU waterfall renderer
+            // Use hook-based WebGPU waterfall renderer
+            drawWebGPUFIFOWaterfall({
+              canvas: waterfallGpuCanvas,
+              device: webgpuDeviceRef.current,
+              format: webgpuFormatRef.current,
+              waterfallBuffer: rgbaBuffer,
+              frequencyRange: frequencyRangeRef.current,
+              driftAmount: retuneSmearRef.current,
+              driftDirection: retuneDriftPxRef.current,
+            });
+          } else if (isPaused) {
+            const restore = pendingWaterfallRestoreRef.current ?? undefined;
+            const restoreWidth = restore?.width;
+            const fallbackWidth = lastWaterfallRowRef.current
+              ? Math.max(1, Math.floor(lastWaterfallRowRef.current.length / 4))
+              : 0;
+            const targetWidth =
+              waterfallGpuDimsRef.current?.width ?? restoreWidth ?? fallbackWidth;
+            if (targetWidth > 0) {
+              let rowBuffer = lastWaterfallRowRef.current;
+              if (!rowBuffer || rowBuffer.length !== targetWidth * 4) {
+                if (!pausedWaterfallRowRef.current || pausedWaterfallRowRef.current.length !== targetWidth * 4) {
+                  pausedWaterfallRowRef.current = new Uint8ClampedArray(targetWidth * 4);
+                } else {
+                  pausedWaterfallRowRef.current.fill(0);
+                }
+                rowBuffer = pausedWaterfallRowRef.current;
+              }
               drawWebGPUFIFOWaterfall({
                 canvas: waterfallGpuCanvas,
                 device: webgpuDeviceRef.current,
                 format: webgpuFormatRef.current,
-                waterfallBuffer: rgbaBuffer,
+                waterfallBuffer: rowBuffer,
                 frequencyRange: frequencyRangeRef.current,
                 driftAmount: retuneSmearRef.current,
                 driftDirection: retuneDriftPxRef.current,
+                freeze: true,
+                restoreTexture: restore,
               });
+              if (pendingWaterfallRestoreRef.current) {
+                pendingWaterfallRestoreRef.current = null;
+                restoredWaterfallRef.current = true;
+              }
             }
-          } else if (waterfallCanvas && waterfallBufferRef.current) {
+          }
+        } else if (waterfallCanvas && !isPaused && currentData) {
+          waveformArray = waveformArray ?? Array.from(currentWaveform);
+          const rect = waterfallCanvas.parentElement?.getBoundingClientRect();
+          const width = rect?.width || waterfallCanvas.width;
+          const height = rect?.height || waterfallCanvas.height;
+          const dpr = window.devicePixelRatio || 1;
+          const marginX = Math.round(40 * dpr);
+          const marginY = Math.round(8 * dpr);
+          const waterfallWidth = Math.max(1, Math.round(width - marginX * 2));
+          const waterfallHeight = Math.max(1, Math.round(height - marginY * 2));
+          const expectedSize = waterfallWidth * waterfallHeight * 4;
+          if (!waterfallBufferRef.current || waterfallBufferRef.current.length !== expectedSize) {
+            waterfallBufferRef.current = getBufferFromPool(expectedSize);
+            waterfallDimsRef.current = { width: waterfallWidth, height: waterfallHeight };
+          }
+          const waterfallBuffer = waterfallBufferRef.current;
+          if (waterfallBuffer) {
             // 2D waterfall rendering uses the buffered RGBA waterfall data
             draw2DFIFOWaterfall({
               canvas: waterfallCanvas,
-              waterfallBuffer: waterfallBufferRef.current,
+              waterfallBuffer,
               frequencyRange: frequencyRangeRef.current,
               waterfallMin: WATERFALL_HISTORY_LIMIT,
               waterfallMax: WATERFALL_HISTORY_MAX,
               driftAmount: retuneSmearRef.current,
               driftDirection: retuneDriftPxRef.current,
+              fftFrame: waveformArray,
             });
           }
         }
@@ -778,7 +899,65 @@ const FFTCanvas = forwardRef<
 
   restoreWaveformFromStorageRef.current = restoreWaveformFromStorage;
 
-  // Reset cached waveforms when frequency range changes
+  const saveWaterfallTextureSnapshot = useCallback(() => {
+    const snapshot = waterfallTextureSnapshotRef.current;
+    const meta = waterfallTextureMetaRef.current;
+    if (!snapshot || !meta) return;
+    try {
+      const bytes = new Uint8Array(snapshot.buffer, snapshot.byteOffset, snapshot.byteLength);
+      let binary = "";
+      for (let i = 0; i < bytes.length; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      sessionStorage.setItem(WATERFALL_TEXTURE_SNAPSHOT_KEY, btoa(binary));
+      sessionStorage.setItem(WATERFALL_TEXTURE_META_KEY, JSON.stringify(meta));
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const loadWaterfallTextureSnapshot = useCallback(() => {
+    if (pendingWaterfallRestoreRef.current || restoredWaterfallRef.current) return;
+    if (waterfallTextureSnapshotRef.current && waterfallTextureMetaRef.current) return;
+    try {
+      const base64 = sessionStorage.getItem(WATERFALL_TEXTURE_SNAPSHOT_KEY);
+      const metaJson = sessionStorage.getItem(WATERFALL_TEXTURE_META_KEY);
+      if (!base64 || !metaJson) return;
+      const meta = JSON.parse(metaJson) as { width: number; height: number; writeRow: number };
+      const binary = atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      pendingWaterfallRestoreRef.current = {
+        data: bytes,
+        width: meta.width,
+        height: meta.height,
+        writeRow: meta.writeRow,
+      };
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isPaused) {
+      restoredWaterfallRef.current = false;
+      pendingWaterfallRestoreRef.current = null;
+      return;
+    }
+    loadWaterfallTextureSnapshot();
+    saveWaterfallTextureSnapshot();
+  }, [isPaused, loadWaterfallTextureSnapshot, saveWaterfallTextureSnapshot]);
+
+  useEffect(() => {
+    return () => {
+      saveWaterfallTextureSnapshot();
+    };
+  }, [saveWaterfallTextureSnapshot]);
+
+
+  // Reset cached waveforms and trigger grid redraw when frequency range changes
   useEffect(() => {
     const prevRange = frequencyRangeRef.current;
     frequencyRangeRef.current = frequencyRange;
@@ -789,8 +968,15 @@ const FFTCanvas = forwardRef<
       waveformFloatRef.current = null;
       frameBufferRef.current = [];
       spectrumResampleBufRef.current?.fill(0);
+
+      overlayDirtyRef.current.grid = true;
+      overlayDirtyRef.current.markers = true;
+
+      if (isPaused) {
+        forceRender();
+      }
     }
-  }, [frequencyRange]);
+  }, [frequencyRange, isPaused, forceRender]);
 
   // Handle canvas resizing
   useEffect(() => {

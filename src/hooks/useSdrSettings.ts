@@ -1,8 +1,9 @@
 import { useReducer, useCallback, useMemo, useRef, useEffect } from "react";
-import type { SDRSettings } from "@n-apt/hooks/useWebSocket";
+import type { SDRSettings, SdrSettingsConfig } from "@n-apt/hooks/useWebSocket";
 
 interface UseSdrSettingsProps {
   maxSampleRate: number;
+  sdrSettings?: SdrSettingsConfig | null;
   onSettingsChange?: (settings: SDRSettings) => void;
 }
 
@@ -43,6 +44,7 @@ type SdrState = {
 };
 
 type SdrAction =
+  | { type: "SET_FROM_CONFIG"; state: SdrState }
   | { type: "SET_FFT_SIZE"; size: number }
   | { type: "SET_FFT_WINDOW"; window: string }
   | { type: "SET_FFT_FRAME_RATE"; rate: number }
@@ -53,6 +55,8 @@ type SdrAction =
 
 function sdrReducer(state: SdrState, action: SdrAction): SdrState {
   switch (action.type) {
+    case "SET_FROM_CONFIG":
+      return action.state;
     case "SET_FFT_SIZE":
       return { ...state, fftSize: action.size };
     case "SET_FFT_WINDOW":
@@ -70,29 +74,54 @@ function sdrReducer(state: SdrState, action: SdrAction): SdrState {
   }
 }
 
-function createInitialState(maxSampleRate: number): SdrState {
-  const theoretical = maxSampleRate / 32768;
+const computeMaxFrameRate = (
+  maxSampleRate: number,
+  fftSize: number,
+  maxFrameRateLimit?: number,
+): number => {
+  if (!fftSize) return 0;
+  const theoretical = maxSampleRate / fftSize;
+  const limit = typeof maxFrameRateLimit === "number" ? maxFrameRateLimit : theoretical;
+  return Math.max(1, Math.floor(Math.min(theoretical, limit)));
+};
+
+const deriveStateFromConfig = (
+  maxSampleRate: number,
+  sdrSettings?: SdrSettingsConfig | null,
+): SdrState => {
+  const fft = sdrSettings?.fft;
+  const gainConfig = sdrSettings?.gain;
+  const fftSize = typeof fft?.default_size === "number" ? fft.default_size : 0;
+  const maxFrameRate = computeMaxFrameRate(maxSampleRate, fftSize, fft?.max_frame_rate);
+  const rawFrameRate =
+    typeof fft?.default_frame_rate === "number" ? fft.default_frame_rate : maxFrameRate;
+
   return {
-    fftSize: 32768,
+    fftSize,
     fftWindow: "Rectangular",
-    fftFrameRate: Math.max(1, Math.floor(Math.min(theoretical, 60))),
-    gain: 49.6,
-    tunerAGC: false,
-    rtlAGC: false,
-    ppm: 1,
+    fftFrameRate: maxFrameRate ? Math.min(rawFrameRate, maxFrameRate) : rawFrameRate,
+    gain:
+      typeof gainConfig?.tuner_gain === "number" ? gainConfig.tuner_gain / 10 : 0,
+    tunerAGC: gainConfig?.tuner_agc ?? false,
+    rtlAGC: gainConfig?.rtl_agc ?? false,
+    ppm: typeof sdrSettings?.ppm === "number" ? sdrSettings.ppm : 0,
   };
-}
+};
 
 export const useSdrSettings = ({
   maxSampleRate,
+  sdrSettings,
   onSettingsChange,
 }: UseSdrSettingsProps): UseSdrSettingsReturn => {
-  const [state, dispatch] = useReducer(sdrReducer, maxSampleRate, createInitialState);
+  const [state, dispatch] = useReducer(
+    sdrReducer,
+    { maxSampleRate, sdrSettings },
+    ({ maxSampleRate, sdrSettings }) => deriveStateFromConfig(maxSampleRate, sdrSettings),
+  );
 
   const maxFrameRate = useMemo(() => {
-    const theoretical = maxSampleRate / state.fftSize;
-    return Math.max(1, Math.floor(Math.min(theoretical, 60)));
-  }, [state.fftSize, maxSampleRate]);
+    return computeMaxFrameRate(maxSampleRate, state.fftSize, sdrSettings?.fft?.max_frame_rate);
+  }, [maxSampleRate, state.fftSize, sdrSettings]);
 
   const stateRef = useRef(state);
   const onSettingsChangeRef = useRef(onSettingsChange);
@@ -104,6 +133,14 @@ export const useSdrSettings = ({
   useEffect(() => {
     onSettingsChangeRef.current = onSettingsChange;
   }, [onSettingsChange]);
+
+  useEffect(() => {
+    if (!sdrSettings) return;
+    dispatch({
+      type: "SET_FROM_CONFIG",
+      state: deriveStateFromConfig(maxSampleRate, sdrSettings),
+    });
+  }, [maxSampleRate, sdrSettings]);
 
   const sendCurrentSettings = useCallback((overrides: Partial<SDRSettings> = {}) => {
     onSettingsChangeRef.current?.({
@@ -168,12 +205,35 @@ export const useSdrSettings = ({
     [sendCurrentSettings],
   );
 
-  const clampGain = useCallback((val: number) => {
-    if (Number.isNaN(val)) return 0;
-    return Math.max(0, Math.min(49.6, val));
-  }, []);
+  const clampGain = useCallback(
+    (val: number) => {
+      if (Number.isNaN(val)) return 0;
+      const maxGain =
+        typeof sdrSettings?.gain?.tuner_gain === "number"
+          ? sdrSettings.gain.tuner_gain / 10
+          : undefined;
+      if (typeof maxGain === "number") {
+        return Math.max(0, Math.min(maxGain, val));
+      }
+      return val;
+    },
+    [sdrSettings],
+  );
 
-  const fftSizeOptions = useMemo(() => [8192, 16384, 32768, 65536, 131072, 262144], []);
+  const fftSizeOptions = useMemo(() => {
+    const sizeMap = sdrSettings?.fft?.size_to_frame_rate;
+    if (sizeMap) {
+      return Object.keys(sizeMap)
+        .map((key) => Number(key))
+        .filter((size) => Number.isFinite(size))
+        .sort((a, b) => a - b);
+    }
+    const fallback =
+      typeof sdrSettings?.fft?.default_size === "number"
+        ? [sdrSettings.fft.default_size]
+        : [];
+    return fallback;
+  }, [sdrSettings]);
   const couplingTimerRef = useRef<number | null>(null);
   const skipFrameRateSyncRef = useRef(false);
 
@@ -187,8 +247,11 @@ export const useSdrSettings = ({
         couplingTimerRef.current = null;
 
         if (trigger === "fftSize") {
-          const theoreticalMax = maxSampleRate / nextFftSize;
-          const desiredFrameRate = Math.max(1, Math.floor(Math.min(theoreticalMax, 60)));
+          const desiredFrameRate = computeMaxFrameRate(
+            maxSampleRate,
+            nextFftSize,
+            sdrSettings?.fft?.max_frame_rate,
+          );
           if (desiredFrameRate !== nextFrameRate) {
             setFftFrameRate(desiredFrameRate);
             sendCurrentSettings({ frameRate: desiredFrameRate });
@@ -198,6 +261,9 @@ export const useSdrSettings = ({
 
         const maxFftSizeForRate = Math.floor(maxSampleRate / Math.max(1, nextFrameRate));
         let desiredFftSize = fftSizeOptions[0];
+        if (desiredFftSize === undefined) {
+          return;
+        }
         for (const size of fftSizeOptions) {
           if (size <= maxFftSizeForRate) desiredFftSize = size;
           else break;
@@ -210,7 +276,14 @@ export const useSdrSettings = ({
         }
       }, 300);
     },
-    [fftSizeOptions, maxSampleRate, sendCurrentSettings, setFftFrameRate, setFftSize],
+    [
+      fftSizeOptions,
+      maxSampleRate,
+      sdrSettings,
+      sendCurrentSettings,
+      setFftFrameRate,
+      setFftSize,
+    ],
   );
 
   useEffect(() => {
@@ -223,20 +296,24 @@ export const useSdrSettings = ({
   }, []);
 
   useEffect(() => {
+    if (!maxFrameRate) return;
     if (skipFrameRateSyncRef.current) {
       skipFrameRateSyncRef.current = false;
       return;
     }
-    setFftFrameRate(maxFrameRate);
+    if (stateRef.current.fftFrameRate > maxFrameRate) {
+      setFftFrameRate(maxFrameRate);
+    }
   }, [maxFrameRate, setFftFrameRate]);
 
   const initialSettingsSent = useRef(false);
   useEffect(() => {
+    if (!sdrSettings) return;
     if (!initialSettingsSent.current && onSettingsChange) {
       initialSettingsSent.current = true;
       sendCurrentSettings();
     }
-  }, [sendCurrentSettings, onSettingsChange]);
+  }, [sendCurrentSettings, onSettingsChange, sdrSettings]);
 
   return {
     ...state,

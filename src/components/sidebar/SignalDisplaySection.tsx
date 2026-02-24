@@ -132,6 +132,7 @@ interface SignalDisplaySectionProps {
   fftFrameRate: number;
   maxFrameRate: number;
   fftSize: number;
+  fftSizeOptions: number[];
   fftWindow: string;
   temporalResolution: "low" | "medium" | "high";
   autoFftOptions: {
@@ -157,6 +158,7 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
   fftFrameRate,
   maxFrameRate,
   fftSize,
+  fftSizeOptions,
   fftWindow,
   temporalResolution,
   autoFftOptions,
@@ -166,6 +168,8 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
   onTemporalResolutionChange,
   scheduleCoupledAdjustment,
 }) => {
+  const manualFftOptions = fftSizeOptions.length ? fftSizeOptions : [fftSize];
+
   return (
     <Section>
       <SectionTitle>Signal display</SectionTitle>
@@ -271,22 +275,20 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
                     {size} (Auto)
                   </option>
                 ))}
-                <option disabled>---</option>
-                <option value={8192}>8192</option>
-                <option value={16384}>16384</option>
-                <option value={32768}>32768</option>
-                <option value={65536}>65536</option>
-                <option value={131072}>131072</option>
-                <option value={262144}>262144</option>
+                {manualFftOptions.length > 0 && <option disabled>---</option>}
+                {manualFftOptions.map((size) => (
+                  <option key={`manual-${size}`} value={size}>
+                    {size}
+                  </option>
+                ))}
               </>
             ) : (
               <>
-                <option value={8192}>8192</option>
-                <option value={16384}>16384</option>
-                <option value={32768}>32768</option>
-                <option value={65536}>65536</option>
-                <option value={131072}>131072</option>
-                <option value={262144}>262144</option>
+                {manualFftOptions.map((size) => (
+                  <option key={`manual-${size}`} value={size}>
+                    {size}
+                  </option>
+                ))}
               </>
             )}
           </SettingSelect>

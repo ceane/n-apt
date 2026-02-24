@@ -45,10 +45,15 @@ const InfoIcon = styled.div`
   }
 `;
 
-const PopoverContent = styled.div<{
+const PopoverContent = styled.div.attrs<{
   $visible: boolean;
   $placement?: "right" | "left" | "top" | "bottom";
-}>`
+}>(props => ({
+  style: {
+    opacity: props.$visible ? 1 : 0,
+    visibility: props.$visible ? "visible" : "hidden",
+  },
+}))`
   position: fixed;
   width: ${POPOVER_WIDTH}px;
   padding: ${POPOVER_PADDING}px;
@@ -57,8 +62,6 @@ const PopoverContent = styled.div<{
   border-radius: 8px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
   z-index: ${POPOVER_Z_INDEX};
-  opacity: ${(props) => (props.$visible ? 1 : 0)};
-  visibility: ${(props) => (props.$visible ? "visible" : "hidden")};
   transition: opacity 0.2s ease, visibility 0.2s ease;
   pointer-events: none;
   max-height: calc(100vh - 24px);

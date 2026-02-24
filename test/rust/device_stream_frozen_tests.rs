@@ -322,13 +322,13 @@ async fn test_encryption_key_preservation() {
 }
 
 #[tokio::test]
-async fn test_spectrum_frames_preservation() {
-    // Test that spectrum frames configuration is preserved during freeze
+async fn test_channels_preservation() {
+    // Test that channels configuration is preserved during freeze
     let shared_state = Arc::new(SharedState::new());
     
-    // Verify spectrum frames are loaded
+    // Verify channels are loaded
     {
-        let frames = shared_state.spectrum_frames.lock().unwrap();
+        let frames = shared_state.channels.lock().unwrap();
         let frame_count = frames.len();
         // Explicitly drop the lock
         drop(frames);
@@ -338,8 +338,8 @@ async fn test_spectrum_frames_preservation() {
         let current_state = "connected";
         let reconciled = reconcile_device_state(device_connected, current_state);
         
-        // Spectrum frames should be preserved
-        let frames_check = shared_state.spectrum_frames.lock().unwrap();
+        // Channels should be preserved
+        let frames_check = shared_state.channels.lock().unwrap();
         assert_eq!(frames_check.len(), frame_count);
         // Explicitly drop the lock
         drop(frames_check);

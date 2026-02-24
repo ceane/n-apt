@@ -56,6 +56,35 @@ export type AutoFftOptionsResponse = {
   recommended: number;
 };
 
+export type SdrSettingsConfig = {
+  sample_rate: number;
+  center_frequency: number;
+  gain?: {
+    tuner_gain: number;
+    rtl_agc: boolean;
+    tuner_agc: boolean;
+  };
+  ppm?: number;
+  fft?: {
+    default_size: number;
+    default_frame_rate: number;
+    max_size: number;
+    max_frame_rate: number;
+    size_to_frame_rate?: Record<string, number>;
+  };
+  display?: {
+    min_db: number;
+    max_db: number;
+    padding: number;
+  };
+  limits?: {
+    lower_limit_mhz?: number;
+    upper_limit_mhz?: number;
+    lower_limit_label?: string;
+    upper_limit_label?: string;
+  };
+};
+
 export type WebSocketData = {
   isConnected: boolean;
   deviceState: DeviceState;
@@ -65,6 +94,8 @@ export type WebSocketData = {
   backend: string | null;
   deviceInfo: string | null;
   maxSampleRateHz: number | null;
+  sampleRateHz: number | null;
+  sdrSettings: SdrSettingsConfig | null;
   dataRef: React.MutableRefObject<any>;
   spectrumFrames: SpectrumFrame[];
   captureStatus: CaptureStatus;
@@ -95,6 +126,8 @@ type WsState = {
   backend: string | null;
   deviceInfo: string | null;
   maxSampleRateHz: number | null;
+  sampleRateHz: number | null;
+  sdrSettings: SdrSettingsConfig | null;
   data: any;
   spectrumFrames: SpectrumFrame[];
   captureStatus: CaptureStatus;
@@ -121,6 +154,8 @@ const INITIAL_WS_STATE: WsState = {
   backend: null,
   deviceInfo: null,
   maxSampleRateHz: null,
+  sampleRateHz: null,
+  sdrSettings: null,
   data: null,
   spectrumFrames: [],
   captureStatus: null,
@@ -338,11 +373,17 @@ export const useWebSocket = (
                 if (typeof parsedData.max_sample_rate === "number") {
                   updates.maxSampleRateHz = parsedData.max_sample_rate;
                 }
+                if (parsedData.sdr_settings) {
+                  updates.sdrSettings = parsedData.sdr_settings;
+                  if (typeof parsedData.sdr_settings.sample_rate === "number") {
+                    updates.sampleRateHz = parsedData.sdr_settings.sample_rate;
+                  }
+                }
                 if (typeof parsedData.device_state === "string") {
                   updates.deviceState = parsedData.device_state as DeviceState;
                 }
-                if (Array.isArray(parsedData.spectrum_frames)) {
-                  updates.spectrumFrames = parsedData.spectrum_frames
+                if (Array.isArray(parsedData.channels)) {
+                  updates.spectrumFrames = parsedData.channels
                     .filter((f: any) => f && typeof f.id === "string")
                     .map((f: any) => ({
                       id: f.id,
@@ -355,7 +396,6 @@ export const useWebSocket = (
                       (f: SpectrumFrame) =>
                         typeof f.label === "string" &&
                         f.label.length > 0 &&
-                        f.label.length <= 2 &&
                         Number.isFinite(f.min_mhz) &&
                         Number.isFinite(f.max_mhz) &&
                         f.max_mhz > f.min_mhz,
@@ -483,6 +523,7 @@ export const useWebSocket = (
                 if (pending) {
                   try {
                     const parsedData = JSON.parse(pending);
+                    dataRef.current = parsedData;
                     dispatch({ type: "DATA", data: parsedData });
                   } catch {
                     /* ignore */

@@ -27,7 +27,7 @@ export function usePauseLogic({
 }: PauseLogicOptions) {
   const saveFrameData = useCallback(() => {
     try {
-      const waveform = renderWaveformRef.current;
+      const waveform = renderWaveformRef.current || waveformFloatRef.current;
       if (waveform && waveform.length > 0) {
         sessionStorage.setItem(SNAPSHOT_WAVEFORM_KEY, JSON.stringify(Array.from(waveform)));
       }
@@ -79,9 +79,12 @@ export function usePauseLogic({
   const ensurePausedFrame = useCallback(() => {
     const existing = renderWaveformRef.current;
     if (existing && existing.length > 0) return true;
-    const waveformData = dataRef.current?.waveform;
+    const waveformData = dataRef.current?.waveform ?? waveformFloatRef.current;
     if (!waveformData) return false;
-    const waveform = ensureFloat32Waveform(waveformData);
+    const waveform =
+      waveformData instanceof Float32Array
+        ? waveformData
+        : ensureFloat32Waveform(waveformData);
     if (!waveform || waveform.length === 0) return false;
     renderWaveformRef.current = new Float32Array(waveform);
     waveformFloatRef.current = renderWaveformRef.current;

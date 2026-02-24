@@ -49,7 +49,7 @@ assert_eq!(*device_state, "disconnected");
 - `test_spectrum_data_validation`
 - `test_device_loading_state_during_freeze`
 - `test_stale_state_recovery`
-- `test_spectrum_frames_preservation`
+- `test_channels_preservation`
 - `test_memory_cleanup_during_freeze`
 
 ## Verification

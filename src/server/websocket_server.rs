@@ -49,14 +49,14 @@ impl WebSocketServer {
                 .nth(1)
                 .and_then(|s| s.split(" Hz").next())
                 .and_then(|s| s.parse::<u32>().ok())
-                .unwrap_or(3_200_000)
+                .unwrap_or(64_000_000)
         } else {
             device_info
                 .split("Sample Rate: ")
                 .nth(1)
                 .and_then(|s| s.split(" Hz").next())
                 .and_then(|s| s.parse::<u32>().ok())
-                .unwrap_or(3_200_000)
+                .unwrap_or(64_000_000)
         };
 
         let status = serde_json::json!({
@@ -68,7 +68,8 @@ impl WebSocketServer {
             "device_state": device_state,
             "paused": paused,
             "max_sample_rate": max_sample_rate,
-            "spectrum_frames": shared.spectrum_frames.lock().unwrap().clone(),
+            "channels": shared.channels.lock().unwrap().clone(),
+            "sdr_settings": shared.sdr_settings.lock().unwrap().clone(),
             "backend": if device_connected { "rtl-sdr" } else { "mock" }
         });
 
@@ -82,6 +83,7 @@ impl WebSocketServer {
         broadcast_tx: broadcast::Sender<String>,
         shared: Arc<SharedState>,
     ) {
+        let sdr_settings = shared.sdr_settings.lock().unwrap().clone();
         let mut sdr_processor = super::sdr_processor::SDRProcessor::new();
         let mut missing_device_probe_streak = 0u32;
         let mut device_connected;

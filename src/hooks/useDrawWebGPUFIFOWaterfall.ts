@@ -156,6 +156,13 @@ export interface WebGPUFIFOWaterfallOptions {
   waterfallMax?: number;
   driftAmount?: number;
   driftDirection?: number;
+  freeze?: boolean;
+  restoreTexture?: {
+    data: Uint8Array;
+    width: number;
+    height: number;
+    writeRow: number;
+  };
 }
 
 export function useDrawWebGPUFIFOWaterfall() {
@@ -257,6 +264,8 @@ export function useDrawWebGPUFIFOWaterfall() {
         waterfallMax = 20,
         driftAmount = 0,
         driftDirection = 1,
+        freeze = false,
+        restoreTexture,
       } = options;
 
       // Initialize renderer state if needed
@@ -346,51 +355,95 @@ export function useDrawWebGPUFIFOWaterfall() {
           });
         }
 
-        // Update waterfall data by pushing new line
-        // Convert waterfall buffer to amplitude data (assuming RGBA format)
-        const amplitudes = new Float32Array(canvas.width);
-
-        // Extract the latest row from waterfallBuffer (assuming it's at the beginning)
-        for (let i = 0; i < canvas.width && i < waterfallBuffer.length / 4; i++) {
-          const pixelIndex = i * 4;
-          // Convert RGBA to normalized amplitude
-          const r = waterfallBuffer[pixelIndex] / 255.0;
-          const g = waterfallBuffer[pixelIndex + 1] / 255.0;
-          const b = waterfallBuffer[pixelIndex + 2] / 255.0;
-          // Use average color intensity as the amplitude
-          amplitudes[i] = (r + g + b) / 3.0;
+        if (restoreTexture && state.dataTexture) {
+          const { data, width, height, writeRow } = restoreTexture;
+          if (width > 0 && height > 0 && data.length >= width * height) {
+            if (state.textureWidth !== width || state.textureHeight !== height) {
+              state.textureWidth = width;
+              state.textureHeight = height;
+              state.dataTexture.destroy();
+              state.dataTexture = state.device.createTexture({
+                size: { width: state.textureWidth, height: state.textureHeight },
+                format: "r8unorm",
+                usage:
+                  GPUTextureUsage.TEXTURE_BINDING |
+                  GPUTextureUsage.COPY_DST |
+                  GPUTextureUsage.COPY_SRC,
+              });
+              state.paddedRowBytes = alignTo(state.textureWidth, 256);
+              state.rowUploadBuffer = new Uint8Array(state.paddedRowBytes);
+              state.bindGroup = state.device.createBindGroup({
+                layout: state.pipeline.getBindGroupLayout(0),
+                entries: [
+                  { binding: 0, resource: state.dataTexture.createView() },
+                  { binding: 1, resource: state.colorTexture.createView() },
+                  { binding: 2, resource: { buffer: state.uniformBuffer } },
+                ],
+              });
+            }
+            const rowBytes = width;
+            for (let y = 0; y < height; y++) {
+              const start = y * rowBytes;
+              state.rowUploadBuffer.fill(0);
+              state.rowUploadBuffer.set(data.subarray(start, start + rowBytes), 0);
+              state.device.queue.writeTexture(
+                { texture: state.dataTexture, origin: { x: 0, y } },
+                state.rowUploadBuffer,
+                { bytesPerRow: state.paddedRowBytes, rowsPerImage: 1 },
+                { width: state.textureWidth, height: 1, depthOrArrayLayers: 1 },
+              );
+            }
+            state.writeRow = Math.max(0, Math.min(writeRow, height - 1));
+          }
         }
 
-        // Add the new line to the waterfall with drift/smear effects (inlined pushLine logic)
-        if (state.dataTexture && amplitudes.length > 0) {
-          const smear = Math.max(
-            0,
-            Math.min(Math.floor(driftAmount || 0), state.textureHeight - 1),
-          );
-          const driftPixels = 0; // Set to 0 for now
-          const boost = smear > 0 && Math.abs(driftPixels) > 0 ? 1.18 : 1;
+        if (!freeze) {
+          // Update waterfall data by pushing new line
+          // Convert waterfall buffer to amplitude data (assuming RGBA format)
+          const amplitudes = new Float32Array(canvas.width);
 
-          for (let s = 0; s <= smear; s++) {
-            const drift =
-              smear > 0 ? Math.round(((smear - s) / smear) * driftPixels) : Math.round(driftPixels);
-            for (let i = 0; i < state.textureWidth; i++) {
-              const src =
-                (((i - drift) % state.textureWidth) + state.textureWidth) % state.textureWidth;
-              const amp = Math.max(0, Math.min(1, amplitudes[src] ?? 0));
-              const boosted = Math.min(1, amp * boost);
-              state.rowUploadBuffer[i] = Math.round(boosted * 255);
-            }
-
-            const row = (state.writeRow - s + state.textureHeight) % state.textureHeight;
-            state.device.queue.writeTexture(
-              { texture: state.dataTexture, origin: { x: 0, y: row } },
-              state.rowUploadBuffer,
-              { bytesPerRow: state.paddedRowBytes, rowsPerImage: 1 },
-              { width: state.textureWidth, height: 1, depthOrArrayLayers: 1 },
-            );
+          // Extract the latest row from waterfallBuffer (assuming it's at the beginning)
+          for (let i = 0; i < canvas.width && i < waterfallBuffer.length / 4; i++) {
+            const pixelIndex = i * 4;
+            // Convert RGBA to normalized amplitude
+            const r = waterfallBuffer[pixelIndex] / 255.0;
+            const g = waterfallBuffer[pixelIndex + 1] / 255.0;
+            const b = waterfallBuffer[pixelIndex + 2] / 255.0;
+            // Use average color intensity as the amplitude
+            amplitudes[i] = (r + g + b) / 3.0;
           }
 
-          state.writeRow = (state.writeRow + 1) % state.textureHeight;
+          // Add the new line to the waterfall with drift/smear effects (inlined pushLine logic)
+          if (state.dataTexture && amplitudes.length > 0) {
+            const smear = Math.max(
+              0,
+              Math.min(Math.floor(driftAmount || 0), state.textureHeight - 1),
+            );
+            const driftPixels = 0; // Set to 0 for now
+            const boost = smear > 0 && Math.abs(driftPixels) > 0 ? 1.18 : 1;
+
+            for (let s = 0; s <= smear; s++) {
+              const drift =
+                smear > 0 ? Math.round(((smear - s) / smear) * driftPixels) : Math.round(driftPixels);
+              for (let i = 0; i < state.textureWidth; i++) {
+                const src =
+                  (((i - drift) % state.textureWidth) + state.textureWidth) % state.textureWidth;
+                const amp = Math.max(0, Math.min(1, amplitudes[src] ?? 0));
+                const boosted = Math.min(1, amp * boost);
+                state.rowUploadBuffer[i] = Math.round(boosted * 255);
+              }
+
+              const row = (state.writeRow - s + state.textureHeight) % state.textureHeight;
+              state.device.queue.writeTexture(
+                { texture: state.dataTexture, origin: { x: 0, y: row } },
+                state.rowUploadBuffer,
+                { bytesPerRow: state.paddedRowBytes, rowsPerImage: 1 },
+                { width: state.textureWidth, height: 1, depthOrArrayLayers: 1 },
+              );
+            }
+
+            state.writeRow = (state.writeRow + 1) % state.textureHeight;
+          }
         }
 
         // Prepare render parameters

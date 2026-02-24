@@ -1,5 +1,3 @@
-use rustfft::{num_complex::Complex};
-
 /// FFT configuration constants
 pub const SAMPLE_RATE: u32 = 3_200_000; // 3.2 MHz
 pub const CENTER_FREQ: u32 = 1_600_000; // 1.6 MHz

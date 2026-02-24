@@ -65,12 +65,16 @@ const NavigationTabs = styled.div`
   padding: 0 24px 16px 24px;
 `;
 
-const NavigationTab = styled.button<{ $isActive: boolean }>`
+const NavigationTab = styled.button.attrs<{ $isActive: boolean }>(props => ({
+  style: {
+    backgroundColor: props.$isActive ? "#1a1a1a" : "transparent",
+    borderColor: props.$isActive ? "#2a2a2a" : "transparent",
+    color: props.$isActive ? "#00d4ff" : "#666",
+  },
+}))`
   padding: 12px 16px;
-  background-color: ${(props) => (props.$isActive ? "#1a1a1a" : "transparent")};
-  border: 1px solid ${(props) => (props.$isActive ? "#2a2a2a" : "transparent")};
+  border: 1px solid;
   border-radius: 8px;
-  color: ${(props) => (props.$isActive ? "#00d4ff" : "#666")};
   font-family: 'JetBrains Mono', monospace;
   font-size: 13px;
   font-weight: 500;
@@ -133,7 +137,6 @@ export const NavigationSidebar: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-
   // Derive state from URL
   const mainTab = routeToMainTab(location.pathname);
   const activeSpectrumTab = routeToSpectrumTab(location.pathname);
@@ -185,8 +188,8 @@ export const NavigationSidebar: React.FC = () => {
     // Only clone props if we have the original SpectrumRoute sidebar
     const finalSidebar = sidebar
       ? React.cloneElement(sidebar as React.ReactElement<any>, {
-          activeTab: mainTab === "Model3D" ? "model3d" : activeSpectrumTab,
-        })
+        activeTab: mainTab === "Model3D" ? "model3d" : activeSpectrumTab,
+      })
       : sidebarContent;
 
     return (
@@ -251,10 +254,34 @@ export const NavigationSidebar: React.FC = () => {
                     />
                   }
                 >
-                  <Route path="/" />
-                  <Route path="/visualizer" />
-                  <Route path="/analysis" />
-                  <Route path="/draw-signal" />
+                  <Route index element={<SpectrumRoute
+                    activeTab={activeSpectrumTab}
+                    onTabChange={handleSpectrumTabChange}
+                    isSidebarOpen={isSidebarOpen}
+                    onAuthChange={undefined}
+                    sidebarWrapper={isSidebarOpen ? renderSidebarShell : undefined}
+                  />} />
+                  <Route path="/visualizer" element={<SpectrumRoute
+                    activeTab={activeSpectrumTab}
+                    onTabChange={handleSpectrumTabChange}
+                    isSidebarOpen={isSidebarOpen}
+                    onAuthChange={undefined}
+                    sidebarWrapper={isSidebarOpen ? renderSidebarShell : undefined}
+                  />} />
+                  <Route path="/analysis" element={<SpectrumRoute
+                    activeTab={activeSpectrumTab}
+                    onTabChange={handleSpectrumTabChange}
+                    isSidebarOpen={isSidebarOpen}
+                    onAuthChange={undefined}
+                    sidebarWrapper={isSidebarOpen ? renderSidebarShell : undefined}
+                  />} />
+                  <Route path="/draw-signal" element={<SpectrumRoute
+                    activeTab={activeSpectrumTab}
+                    onTabChange={handleSpectrumTabChange}
+                    isSidebarOpen={isSidebarOpen}
+                    onAuthChange={undefined}
+                    sidebarWrapper={isSidebarOpen ? renderSidebarShell : undefined}
+                  />} />
                 </Route>
 
                 {/* 3D Model route */}

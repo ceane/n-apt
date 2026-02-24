@@ -8,7 +8,31 @@ use log::{error, info, warn};
 
 use n_apt_backend::rtlsdr::RtlSdrDevice;
 
-use super::types::{CaptureDownloadParams, WebMCPToolRequest, WebMCPToolResponse};
+use super::types::{CaptureDownloadParams, WebMCPToolRequest, WebMCPToolResponse, SpectrumFrameMessage};
+
+fn format_frequency_range(frames: &[SpectrumFrameMessage]) -> Option<String> {
+  if frames.is_empty() {
+    return None;
+  }
+  let mut min = f64::INFINITY;
+  let mut max = f64::NEG_INFINITY;
+  for frame in frames {
+    min = min.min(frame.min_mhz);
+    max = max.max(frame.max_mhz);
+  }
+  if !min.is_finite() || !max.is_finite() || max <= min {
+    return None;
+  }
+  Some(format!("{:.3}-{:.3} MHz", min, max))
+}
+
+fn format_sample_rate(sample_rate: Option<u32>) -> Option<String> {
+  let rate = sample_rate?;
+  if rate == 0 {
+    return None;
+  }
+  Some(format!("{:.3} MS/s", rate as f64 / 1_000_000.0))
+}
 
 /// GET /status — public status endpoint (no auth required).
 pub async fn status_handler(
@@ -146,6 +170,19 @@ pub async fn agent_info_handler(
 ) -> impl IntoResponse {
   info!("Agent info requested");
   
+  let frames = state.shared.channels.lock().unwrap().clone();
+  let freq_range = format_frequency_range(&frames).unwrap_or_else(|| "unknown".to_string());
+  let sample_rate_label = format_sample_rate(
+    state
+      .shared
+      .sdr_settings
+      .lock()
+      .unwrap()
+      .as_ref()
+      .map(|s| s.sample_rate),
+  )
+  .unwrap_or_else(|| "unknown".to_string());
+
   let agent_info = serde_json::json!({
     "name": "N-APT SDR Analysis System",
     "version": "0.2.5",
@@ -191,8 +228,8 @@ pub async fn agent_info_handler(
     ],
     "hardware": {
       "supported": ["rtl-sdr", "hackrf", "mock"],
-      "frequency_range": "0.5-31.0 MHz",
-      "max_sample_rate": "3.2 MS/s"
+      "frequency_range": freq_range,
+      "max_sample_rate": sample_rate_label
     },
     "agent_features": {
       "webmcp_enabled": true,
@@ -220,6 +257,17 @@ pub async fn agent_status_handler(
   let device_state = shared.device_state.lock().unwrap().clone();
   let device_loading = shared.device_loading.lock().unwrap().clone();
   let device_loading_reason = shared.device_loading_reason.lock().unwrap().clone();
+  let frames = shared.channels.lock().unwrap().clone();
+  let freq_range = format_frequency_range(&frames).unwrap_or_else(|| "unknown".to_string());
+  let sample_rate_label = format_sample_rate(
+    shared
+      .sdr_settings
+      .lock()
+      .unwrap()
+      .as_ref()
+      .map(|s| s.sample_rate),
+  )
+  .unwrap_or_else(|| "unknown".to_string());
   
   let status = serde_json::json!({
     "device": {
@@ -238,8 +286,8 @@ pub async fn agent_status_handler(
     },
     "signals": {
       "center_frequency_mhz": center_freq_hz as f64 / 1_000_000.0,
-      "frequency_range": "0.5-31.0 MHz",
-      "sample_rate": "3.2 MS/s (max)"
+      "frequency_range": freq_range,
+      "sample_rate": sample_rate_label
     },
     "system": {
       "uptime": {
