@@ -4,7 +4,7 @@ import { useFFTAnimation } from "@n-apt/hooks/useFFTAnimation";
 import { usePauseLogic } from "@n-apt/hooks/usePauseLogic";
 import { useDraw2DFFTSignal } from "@n-apt/hooks/useDraw2DFFTSignal";
 import { useDraw2DFIFOWaterfall } from "@n-apt/hooks/useDraw2DFIFOWaterfall";
-import { useDrawWebGPUFFTSignal } from "@n-apt/hooks/useDrawWebGPUFFTSignal";
+import { useDrawWebGPUFFTSignal, RESAMPLE_WGSL } from "@n-apt/hooks/useDrawWebGPUFFTSignal";
 import { useDrawWebGPUFIFOWaterfall } from "@n-apt/hooks/useDrawWebGPUFIFOWaterfall";
 import { useOverlayRenderer } from "@n-apt/hooks/useOverlayRenderer";
 import { useFrequencyDrag } from "@n-apt/hooks/useFrequencyDrag";
@@ -21,48 +21,9 @@ import {
   CANVAS_BORDER_COLOR,
   FFT_AREA_MIN,
   FFT_CANVAS_BG,
-  LINE_COLOR,
-  SHADOW_COLOR,
   FFT_MIN_DB,
   FFT_MAX_DB,
-  WATERFALL_CANVAS_BG,
 } from "@n-apt/consts";
-
-// WebGPU SIMD Resampling Compute Shader
-const RESAMPLE_WGSL = `
-struct ResampleParams {
-  src_len: u32,
-  out_len: u32,
-  reserved1: u32,
-  reserved2: u32,
-};
-
-@group(0) @binding(0) var<storage, read> input_buffer: array<f32>;
-@group(0) @binding(1) var<storage, read_write> output_buffer: array<f32>;
-@group(0) @binding(2) var<uniform> params: ResampleParams;
-
-@compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
-  let x = global_id.x;
-  if (x >= params.out_len) {
-    return;
-  }
-  
-  let start = u32(floor(f32(x * params.src_len) / f32(params.out_len)));
-  let end = min(start + 1, u32(floor(f32((x + 1) * params.src_len) / f32(params.out_len))));
-  
-  var max_val: f32 = -3.402823466e38; // f32::MIN
-  for (var i = start; i < end && i < params.src_len; i = i + 1) {
-    let v = input_buffer[i];
-    // Check if v is finite by comparing with infinity values
-    if (v != -3.402823466e38 && v != 3.402823466e38 && v > max_val) {
-      max_val = v;
-    }
-  }
-  
-  output_buffer[x] = select(f32(-120.0), max_val, max_val > -3.402823466e38);
-}
-`;
 
 // Import SDR processor for WASM FFT processing
 let sdrProcessor: any = null;
@@ -165,7 +126,7 @@ const CanvasLayer = styled.canvas`
   will-change: width, height;
 `;
 
-const ToggleableCanvasLayer = styled(CanvasLayer) <{ $visible: boolean }>`
+const ToggleableCanvasLayer = styled(CanvasLayer)<{ $visible: boolean }>`
   display: ${({ $visible }) => ($visible ? "block" : "none")};
   z-index: 0;
 `;
@@ -323,7 +284,8 @@ const FFTCanvas = forwardRef<
   useEffect(() => {
     if (sendGetAutoFftOptions) {
       const detectScreenWidth = () => {
-        const width = window.innerWidth || document.documentElement.clientWidth || document.body.clientWidth;
+        const width =
+          window.innerWidth || document.documentElement.clientWidth || document.body.clientWidth;
         console.log("Detected screen width:", width);
         sendGetAutoFftOptions(width);
       };
@@ -338,10 +300,10 @@ const FFTCanvas = forwardRef<
         resizeTimeout = setTimeout(detectScreenWidth, 500);
       };
 
-      window.addEventListener('resize', handleResize);
+      window.addEventListener("resize", handleResize);
 
       return () => {
-        window.removeEventListener('resize', handleResize);
+        window.removeEventListener("resize", handleResize);
         clearTimeout(resizeTimeout);
       };
     }
@@ -429,10 +391,10 @@ const FFTCanvas = forwardRef<
         return spectrumData;
       }
 
-      // If it's a regular array, we shouldn't return a reference to renderWaveformRef.current 
+      // If it's a regular array, we shouldn't return a reference to renderWaveformRef.current
       // directly because the caller (onRenderFrame) assumes it's returning a fresh waveform
-      // that it will THEN copy/blend into renderWaveformRef.current. 
-      // Returning renderWaveformRef.current here causes aliasing issues where the previous 
+      // that it will THEN copy/blend into renderWaveformRef.current.
+      // Returning renderWaveformRef.current here causes aliasing issues where the previous
       // frame and current frame point to the exact same memory, breaking the blending math
       // and causing an empty/frozen screen.
       return Float32Array.from(spectrumData);
@@ -624,7 +586,12 @@ const FFTCanvas = forwardRef<
 
       if (currentWaveform && currentWaveform.length > 0) {
         // Spectrum render - always render existing waveform, but only update with new data when not paused
-        if (spectrumWebgpuEnabled && webgpuDeviceRef.current && webgpuFormatRef.current && spectrumGpuCanvas) {
+        if (
+          spectrumWebgpuEnabled &&
+          webgpuDeviceRef.current &&
+          webgpuFormatRef.current &&
+          spectrumGpuCanvas
+        ) {
           const rect = spectrumGpuCanvas.parentElement?.getBoundingClientRect();
           const width = rect?.width || spectrumGpuCanvas.width;
           const height = rect?.height || spectrumGpuCanvas.height;
@@ -694,7 +661,12 @@ const FFTCanvas = forwardRef<
 
         // Waterfall render (only push new lines when not paused)
         if (!isPaused && currentData) {
-          if (webgpuEnabled && webgpuDeviceRef.current && webgpuFormatRef.current && waterfallGpuCanvas) {
+          if (
+            webgpuEnabled &&
+            webgpuDeviceRef.current &&
+            webgpuFormatRef.current &&
+            waterfallGpuCanvas
+          ) {
             const dims = waterfallGpuDimsRef.current;
             if (dims) {
               let resampled: number[];
@@ -738,14 +710,16 @@ const FFTCanvas = forwardRef<
                 driftDirection: retuneDriftPxRef.current,
               });
             }
-          } else if (waterfallCanvas) {
-            // 2D waterfall rendering
+          } else if (waterfallCanvas && waterfallBufferRef.current) {
+            // 2D waterfall rendering uses the buffered RGBA waterfall data
             draw2DFIFOWaterfall({
               canvas: waterfallCanvas,
-              waveform: Array.from(currentWaveform),
+              waterfallBuffer: waterfallBufferRef.current,
               frequencyRange: frequencyRangeRef.current,
               waterfallMin: WATERFALL_HISTORY_LIMIT,
               waterfallMax: WATERFALL_HISTORY_MAX,
+              driftAmount: retuneSmearRef.current,
+              driftDirection: retuneDriftPxRef.current,
             });
           }
         }
@@ -830,7 +804,12 @@ const FFTCanvas = forwardRef<
         waterfallCanvasRef.current?.parentElement?.getBoundingClientRect() ??
         waterfallGpuCanvasRef.current?.parentElement?.getBoundingClientRect();
 
-      if (spectrumRect && spectrumRect.width > 0 && spectrumRect.height > 0 && spectrumCanvasRef.current) {
+      if (
+        spectrumRect &&
+        spectrumRect.width > 0 &&
+        spectrumRect.height > 0 &&
+        spectrumCanvasRef.current
+      ) {
         const canvas = spectrumCanvasRef.current;
         canvas.width = spectrumRect.width * dpr;
         canvas.height = spectrumRect.height * dpr;
@@ -852,7 +831,12 @@ const FFTCanvas = forwardRef<
         overlayDirtyRef.current.markers = true;
       }
 
-      if (waterfallRect && waterfallRect.width > 0 && waterfallRect.height > 0 && waterfallCanvasRef.current) {
+      if (
+        waterfallRect &&
+        waterfallRect.width > 0 &&
+        waterfallRect.height > 0 &&
+        waterfallCanvasRef.current
+      ) {
         const canvas = waterfallCanvasRef.current;
         canvas.width = waterfallRect.width * dpr;
         canvas.height = waterfallRect.height * dpr;
@@ -890,8 +874,10 @@ const FFTCanvas = forwardRef<
     window.addEventListener("resize", resizeCanvas);
 
     const resizeObserver = new ResizeObserver(() => resizeCanvas());
-    const spectrumParent = spectrumCanvasRef.current?.parentElement ?? spectrumGpuCanvasRef.current?.parentElement;
-    const waterfallParent = waterfallCanvasRef.current?.parentElement ?? waterfallGpuCanvasRef.current?.parentElement;
+    const spectrumParent =
+      spectrumCanvasRef.current?.parentElement ?? spectrumGpuCanvasRef.current?.parentElement;
+    const waterfallParent =
+      waterfallCanvasRef.current?.parentElement ?? waterfallGpuCanvasRef.current?.parentElement;
     if (spectrumParent) resizeObserver.observe(spectrumParent);
     if (waterfallParent) resizeObserver.observe(waterfallParent);
 
@@ -903,6 +889,9 @@ const FFTCanvas = forwardRef<
 
   useEffect(() => {
     const cleanupInterval = setInterval(() => {
+      // Avoid clearing buffers while paused so the snapshot can be restored
+      if (isPaused) return;
+
       if (waterfallBufferRef.current && waterfallDimsRef.current) {
         const { width, height } = waterfallDimsRef.current;
         const expectedSize = width * height * 4;
@@ -918,7 +907,15 @@ const FFTCanvas = forwardRef<
     }, 30000);
 
     return () => clearInterval(cleanupInterval);
-  }, [dataRef, waterfallDimsRef, returnBufferToPool, getBufferFromPool]);
+  }, [dataRef, waterfallDimsRef, returnBufferToPool, getBufferFromPool, isPaused]);
+
+  // When paused, draw the restored frame once WebGPU is ready
+  useEffect(() => {
+    if (!isPaused) return;
+    if (!webgpuEnabled) return;
+    if (!webgpuDeviceRef.current || !webgpuFormatRef.current) return;
+    forceRender();
+  }, [isPaused, webgpuEnabled, forceRender]);
 
   const snapshotNeededRef = useRef(false);
   const lastSnapshotWaveformRef = useRef<Float32Array | null>(null);

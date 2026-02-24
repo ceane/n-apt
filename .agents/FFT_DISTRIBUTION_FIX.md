@@ -7,32 +7,37 @@ The issue where changing FFT size dramatically affected signal distribution and 
 ## 🔧 Key Improvements
 
 ### **FFT-Size Independent Mapping**
+
 - **Before**: Signal positions depended on FFT size calculations
 - **After**: Uses frequency ratios that scale proportionally with FFT size
 - **Result**: Signals maintain consistent relative positions regardless of FFT size
 
 ### **Better Frequency Distribution**
+
 - **Before**: Signals clustered in 60-70% of spectrum or center
 - **After**: Even distribution across entire visible spectrum (0-3.2 MHz)
 - **Result**: Signals appear from 0.24 MHz to 2.10 MHz consistently
 
 ### **Updated Configuration**
+
 ```yaml
 global_settings:
-  signals_per_area: 6        # Reduced from 8 for better spacing
-  area_a_density: 1.0      # Equal density for even distribution
-  area_b_density: 1.0      # Equal density for even distribution
+  signals_per_area: 6 # Reduced from 8 for better spacing
+  area_a_density: 1.0 # Equal density for even distribution
+  area_b_density: 1.0 # Equal density for even distribution
 ```
 
 ## 📊 Test Results
 
 ### **Current Distribution (131072 FFT)**
+
 - **Area A**: 6 signals from 0.24-1.94 MHz
-- **Area B**: 6 signals from 0.24-2.10 MHz  
+- **Area B**: 6 signals from 0.24-2.10 MHz
 - **Total**: 12 signals spread across 0.24-2.10 MHz
 - **Coverage**: ~58% of visible spectrum with even spacing
 
 ### **Frequency Mapping Logic**
+
 ```rust
 // FFT-size independent frequency ratio calculation
 let freq_ratio_start = scaled_min_mhz / max_visible_freq_mhz;
@@ -54,6 +59,7 @@ let max_bin = (freq_ratio_end * current_fft_size as f64) as f32;
 ## 🔍 Technical Details
 
 The fix ensures that:
+
 - Frequency ratios are calculated first, then mapped to FFT bins
 - Signal positions scale proportionally with FFT size changes
 - No dependency on absolute FFT bin calculations

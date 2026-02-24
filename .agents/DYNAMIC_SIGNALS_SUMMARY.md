@@ -7,6 +7,7 @@ Successfully implemented dynamic mock signal generation that creates signals in 
 ## 🎯 What Was Implemented
 
 ### **Dynamic Signal Generation**
+
 - **Area A**: 0-1.2 MHz range with higher density (1.2x)
 - **Area B**: 1.8-2.8 MHz range with lower density (0.8x)
 - **Total signals**: 15 (9 in Area A, 6 in Area B)
@@ -14,6 +15,7 @@ Successfully implemented dynamic mock signal generation that creates signals in 
 - **Strength ranges**: Configurable per area
 
 ### **Configuration Structure**
+
 ```yaml
 global_settings:
   dynamic_generation: true
@@ -35,6 +37,7 @@ training_areas:
 ## 🔧 Technical Implementation
 
 ### **New Rust Features**
+
 - `MockSignalConfig` with dynamic generation settings
 - `TrainingArea` with signal types and strength ranges
 - `generate_dynamic_signals()` method
@@ -42,6 +45,7 @@ training_areas:
 - Frequency-to-FFT-bin conversion
 
 ### **Signal Generation Logic**
+
 1. **Frequency Conversion**: MHz → Hz → FFT bins
 2. **Random Placement**: Within specified frequency ranges
 3. **Type Selection**: From area's allowed signal types
@@ -51,6 +55,7 @@ training_areas:
 ## 📊 Test Results
 
 ### **Working Output**
+
 ```
 Creating dynamic signal 0 at bin 38296.84 (0.93498147 MHz) with bandwidth 9
 Creating dynamic signal 1 at bin 204.30421 (0.004987896 MHz) with bandwidth 15
@@ -62,6 +67,7 @@ Initialized 15 mock signals
 ```
 
 ### **Frequency Distribution**
+
 - **Area A**: 0.004 - 1.05 MHz ✅
 - **Area B**: 1.91 - 2.73 MHz ✅
 - **Total Range**: 0.004 - 2.73 MHz (within 3.2 MHz sample rate)
@@ -69,12 +75,15 @@ Initialized 15 mock signals
 ## 🎮 Usage
 
 ### **Start Development Server**
+
 ```bash
 npm run dev:hot
 ```
 
 ### **Edit Configuration**
+
 Edit `mock_signals.yaml` to adjust:
+
 - Signal densities per area
 - Frequency ranges
 - Signal types allowed
@@ -82,6 +91,7 @@ Edit `mock_signals.yaml` to adjust:
 - Number of signals per area
 
 ### **Hot Reload**
+
 Changes to `mock_signals.yaml` apply automatically without server restart.
 
 ## 🔄 Hot Reload Features

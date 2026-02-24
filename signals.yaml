@@ -1,0 +1,70 @@
+# Signals Configuration for N-APT
+# This file contains both mock signal generation and n-apt frame definitions
+# Can be edited while the server is running to test different configurations
+
+signals:
+  # Mock signal configuration for testing
+  mock:
+    # Global settings for mock signal generation
+    global_settings:
+      noise_floor_base: -80.0
+      noise_floor_variation: 5.0
+      signal_drift_rate: 0.1
+      signal_modulation_rate: 0.05
+      signal_appearance_chance: 0.02
+      signal_disappearance_chance: 0.01
+      signal_strength_variation: 2.0
+      # Dynamic generation settings
+      dynamic_generation: true
+      signals_per_area: 6
+      area_a_density: 1.0 # Equal density for even distribution
+      area_b_density: 1.0 # Equal density for even distribution
+
+    # Signal bandwidths
+    bandwidths:
+      narrow: 15
+      medium: 45
+      wide: 120
+
+    # Signal strength ranges (dB)
+    strength_ranges:
+      weak:
+        min: -80.0
+        max: -60.0
+      medium:
+        min: -60.0
+        max: -40.0
+      strong:
+        min: -40.0
+        max: -20.0
+
+    # No predefined signals - using dynamic generation in specified areas
+    signals: []
+
+    # Training signal areas - updated to match your requirements with proper distribution
+    training_areas:
+      area_a:
+        freq_range_mhz: [0.0, 4.47] # Area A: 0-4.47 MHz (original requirement)
+        description: "Area A: 0-4.47 MHz range"
+        signal_types: ["narrow", "medium", "wide"]
+        base_strength_range: [-20.0, 0.0]
+      area_b:
+        freq_range_mhz: [24.72, 29.88] # Area B: 24.72-29.88 MHz (original requirement)
+        description: "Area B: 24.72-29.88 MHz range"
+        signal_types: ["narrow", "medium"]
+        base_strength_range: [-30.0, -10.0]
+
+  # N-APT spectrum channel definitions
+  n_apt:
+    channels:
+      # Define frequency bands (in MHz) that should appear in the UI.
+      # Add new channels (e.g. c) and the app will pick them up on rebuild
+      # and via backend hot-reload when available.
+      a:
+        label: "A"
+        freq_range_mhz: [0.018, 4.47]
+        description: "Area A: 18kHz-4.47 MHz range"
+      b:
+        label: "B"
+        freq_range_mhz: [24.72, 29.88]
+        description: "Area B: 24.72-29.88 MHz range"

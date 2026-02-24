@@ -174,7 +174,7 @@ Use the provided test file to verify functionality:
 
 ```bash
 # Open the test page
-open test-markdown-negotiation.html
+open test/ts/test-markdown-negotiation.html
 ```
 
 The test page provides:

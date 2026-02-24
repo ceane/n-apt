@@ -16,7 +16,7 @@ export function useFFTAnimation({
   const animationFrameRef = useRef<number | null>(null);
   const animationRunIdRef = useRef(0);
   const lastFrameTimeRef = useRef(0);
-  
+
   // Dynamically adjust FPS based on paused state to save resources while keeping canvas alive
   const currentFPS = isPaused ? 15 : targetFPS;
   const frameRateLimiterRef = useRef(1000 / currentFPS);
@@ -27,36 +27,39 @@ export function useFFTAnimation({
 
   const isVisibleRef = useRef(true);
 
-  const animate = useCallback((force: boolean = false) => {
-    const runId = animationRunIdRef.current;
+  const animate = useCallback(
+    (force: boolean = false) => {
+      const runId = animationRunIdRef.current;
 
-    if (!isVisibleRef.current) {
-      animationFrameRef.current = null;
-      return;
-    }
+      if (!isVisibleRef.current) {
+        animationFrameRef.current = null;
+        return;
+      }
 
-    const now = performance.now();
-    const elapsed = now - lastFrameTimeRef.current;
-    
-    // Always render if forced, or if enough time has passed
-    if (force || elapsed >= frameRateLimiterRef.current) {
-      lastFrameTimeRef.current = now;
-      onRenderFrame(runId);
-    }
+      const now = performance.now();
+      const elapsed = now - lastFrameTimeRef.current;
 
-    // Keep the animation loop running even when paused to prevent blank canvases
-    // WebGPU and Canvas2D contexts can be lost or cleared if not actively presented,
-    // especially during window resizes or tab switches. Throttling FPS saves CPU.
-    if (animationRunIdRef.current === runId) {
-      animationFrameRef.current = requestAnimationFrame(() => {
-        if (animationRunIdRef.current === runId) {
-          animate(false);
-        }
-      });
-    } else {
-      animationFrameRef.current = null;
-    }
-  }, [onRenderFrame]);
+      // Always render if forced, or if enough time has passed
+      if (force || elapsed >= frameRateLimiterRef.current) {
+        lastFrameTimeRef.current = now;
+        onRenderFrame(runId);
+      }
+
+      // Keep the animation loop running even when paused to prevent blank canvases
+      // WebGPU and Canvas2D contexts can be lost or cleared if not actively presented,
+      // especially during window resizes or tab switches. Throttling FPS saves CPU.
+      if (animationRunIdRef.current === runId) {
+        animationFrameRef.current = requestAnimationFrame(() => {
+          if (animationRunIdRef.current === runId) {
+            animate(false);
+          }
+        });
+      } else {
+        animationFrameRef.current = null;
+      }
+    },
+    [onRenderFrame],
+  );
 
   useEffect(() => {
     const handleVisibilityChange = () => {

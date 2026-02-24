@@ -185,8 +185,8 @@ export const NavigationSidebar: React.FC = () => {
     // Only clone props if we have the original SpectrumRoute sidebar
     const finalSidebar = sidebar
       ? React.cloneElement(sidebar as React.ReactElement<any>, {
-        activeTab: mainTab === "Model3D" ? "model3d" : activeSpectrumTab,
-      })
+          activeTab: mainTab === "Model3D" ? "model3d" : activeSpectrumTab,
+        })
       : sidebarContent;
 
     return (

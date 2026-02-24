@@ -1,4 +1,11 @@
-import React, { useReducer, useEffect, useCallback, createContext, useContext, useMemo } from "react";
+import React, {
+  useReducer,
+  useEffect,
+  useCallback,
+  createContext,
+  useContext,
+  useMemo,
+} from "react";
 import type { AuthState } from "@n-apt/components/AuthenticationPrompt";
 import { deriveAesKey } from "@n-apt/crypto/webcrypto";
 import {
@@ -53,10 +60,7 @@ const initialState: AuthInternalState = {
   isInitialAuthCheck: true,
 };
 
-function authReducer(
-  state: AuthInternalState,
-  action: AuthAction
-): AuthInternalState {
+function authReducer(state: AuthInternalState, action: AuthAction): AuthInternalState {
   switch (action.type) {
     case "AUTHENTICATING":
       return { ...state, authState: "authenticating", authError: null };
@@ -125,11 +129,11 @@ const useAuthenticationInternal = (): UseAuthenticationReturn => {
   const isWebAuthnAvailable = useMemo(() => {
     // Basic API availability check
     if (
-      typeof window === 'undefined' ||
+      typeof window === "undefined" ||
       !window.navigator ||
       !window.navigator.credentials ||
-      typeof window.navigator.credentials.get !== 'function' ||
-      typeof window.navigator.credentials.create !== 'function'
+      typeof window.navigator.credentials.get !== "function" ||
+      typeof window.navigator.credentials.create !== "function"
     ) {
       return false;
     }
@@ -137,17 +141,18 @@ const useAuthenticationInternal = (): UseAuthenticationReturn => {
     // Conservative approach: disable WebAuthn in IDE/development environments
     // since they often don't support proper biometric prompts
     const userAgent = window.navigator.userAgent;
-    const isLikelyIDEBrowser = (
-      userAgent.includes('Electron') ||
-      userAgent.includes('Code') ||
-      userAgent.includes('VSCode') ||
-      userAgent.includes('Windsurf') ||
-      window.location.hostname === 'localhost' && window.location.port === '8080' ||
-      window.location.search.includes('ide=true')
-    );
+    const isLikelyIDEBrowser =
+      userAgent.includes("Electron") ||
+      userAgent.includes("Code") ||
+      userAgent.includes("VSCode") ||
+      userAgent.includes("Windsurf") ||
+      (window.location.hostname === "localhost" && window.location.port === "8080") ||
+      window.location.search.includes("ide=true");
 
     if (isLikelyIDEBrowser) {
-      console.error('🔒 WebAuthn disabled: IDE/development environment detected. Passkeys require biometric prompts not available in IDE browsers.');
+      console.error(
+        "🔒 WebAuthn disabled: IDE/development environment detected. Passkeys require biometric prompts not available in IDE browsers.",
+      );
       return false;
     }
 

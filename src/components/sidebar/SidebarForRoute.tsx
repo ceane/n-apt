@@ -44,9 +44,7 @@ export const SidebarForRoute: React.FC<SidebarForRouteProps> = ({ activeTab }) =
         <Section>
           <RouteContent>
             <SectionTitle>Body Areas</SectionTitle>
-            <SectionDescription>
-              Click an area to focus the camera
-            </SectionDescription>
+            <SectionDescription>Click an area to focus the camera</SectionDescription>
             <BodyAreasSection />
           </RouteContent>
         </Section>
@@ -66,9 +64,7 @@ export const SidebarForRoute: React.FC<SidebarForRouteProps> = ({ activeTab }) =
   return (
     <Section>
       <SectionTitle>Route Settings</SectionTitle>
-      <PlaceholderText>
-        Settings for {activeTab} would go here
-      </PlaceholderText>
+      <PlaceholderText>Settings for {activeTab} would go here</PlaceholderText>
     </Section>
   );
 };

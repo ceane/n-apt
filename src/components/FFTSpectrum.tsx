@@ -107,13 +107,7 @@ export const FFTSpectrum = memo<FFTSpectrumProps>(
       renderSpectrum();
     }, [renderSpectrum]);
 
-    return (
-      <SpectrumCanvas
-        ref={canvasRef}
-        $width={width}
-        $height={height}
-      />
-    );
+    return <SpectrumCanvas ref={canvasRef} $width={width} $height={height} />;
   },
 );
 

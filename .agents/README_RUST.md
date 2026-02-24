@@ -12,8 +12,8 @@ A high-performance Rust implementation of the N-APT SDR server, replacing the Py
 ├── build.rs                # Build script for RTL-SDR linking
 ├── src/server/
 │   └── main.rs             # Main server implementation
-├── start_server.sh         # Startup script
-└── README_RUST.md          # This file
+├── scripts/start_server.sh   # Startup script
+└── .agents/README_RUST.md    # This file
 ```
 
 ## Features

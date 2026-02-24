@@ -265,7 +265,7 @@ const PauseButton = styled.button<{ $paused: boolean }>`
   }
 `;
 
-const CaptureButton = styled(PauseButton) <{ $disabled: boolean }>`
+const CaptureButton = styled(PauseButton)<{ $disabled: boolean }>`
   flex: 1;
   opacity: ${(props) => (props.$disabled ? 0.5 : 1)};
   cursor: ${(props) => (props.$disabled ? "not-allowed" : "pointer")};
@@ -503,9 +503,7 @@ export const IQCaptureControlsSection: React.FC<IQCaptureControlsSectionProps> =
                 checked={capturePlayback}
                 onChange={(e) => onCapturePlaybackChange(e.target.checked)}
               />
-              <PlaybackLabel>
-                Playback after capture
-              </PlaybackLabel>
+              <PlaybackLabel>Playback after capture</PlaybackLabel>
             </PlaybackOption>
           </CaptureActions>
 
@@ -514,9 +512,7 @@ export const IQCaptureControlsSection: React.FC<IQCaptureControlsSectionProps> =
               <SettingLabelContainer>
                 <SettingLabel>Status</SettingLabel>
               </SettingLabelContainer>
-              <CaptureStatusValue>
-                Capturing... {captureStatus.jobId}
-              </CaptureStatusValue>
+              <CaptureStatusValue>Capturing... {captureStatus.jobId}</CaptureStatusValue>
             </StatusSettingRow>
           )}
 

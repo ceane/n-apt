@@ -54,7 +54,7 @@ jest.mock("@n-apt/hooks/useSpectrumRendering", () => ({
 }));
 
 jest.mock("@n-apt/hooks/useFrequencyDrag", () => ({
-  useFrequencyDrag: () => { },
+  useFrequencyDrag: () => {},
 }));
 
 describe("FFTCanvas Pause Functionality", () => {

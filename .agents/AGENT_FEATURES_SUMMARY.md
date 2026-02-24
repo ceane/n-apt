@@ -7,6 +7,7 @@ I have successfully implemented both Markdown for Agents and WebMCP features for
 ## 📝 Markdown for Agents Implementation
 
 ### Features Delivered
+
 - **Content Negotiation Middleware**: Automatic markdown serving when `Accept: text/markdown` header is detected
 - **Route-Specific Documentation**: Comprehensive markdown for all 5 routes
 - **Token Optimization**: ~80% reduction in token usage vs HTML
@@ -14,6 +15,7 @@ I have successfully implemented both Markdown for Agents and WebMCP features for
 - **Structured Headers**: Token counts and content-signal headers for AI optimization
 
 ### Documentation Created
+
 - `visualizer.md` - Spectrum visualization and SDR controls
 - `analysis.md` - ML signal processing and analysis
 - `draw-signal.md` - Mathematical/ML signal generation
@@ -21,6 +23,7 @@ I have successfully implemented both Markdown for Agents and WebMCP features for
 - `hotspot-editor.md` - 3D hotspot creation and management
 
 ### Technical Implementation
+
 - Express middleware for content negotiation
 - Route-to-markdown file mapping
 - Token estimation and header management
@@ -31,6 +34,7 @@ I have successfully implemented both Markdown for Agents and WebMCP features for
 ### Tool Categories by Route
 
 **Spectrum Visualizer (10 tools)**:
+
 - Source Management: `setSourceMode`, `connectDevice`
 - I/Q Capture: `startCapture`, `stopCapture`
 - Signal Areas: `setActiveArea`, `setFrequencyRange`
@@ -40,23 +44,28 @@ I have successfully implemented both Markdown for Agents and WebMCP features for
 - Snapshot Controls: `takeSnapshot`
 
 **Analysis Tab (3 tools)**:
+
 - ML Analysis: `startAnalysis`, `getAnalysisResults`, `exportAnalysisResults`
 
 **Draw Signal Tab (4 tools)**:
+
 - Signal Generation: `setSpikeCount`, `setSpikeWidth`, `generateSignal`, `exportSignal`
 
 **3D Model Tab (4 tools)**:
+
 - Body Areas: `selectBodyArea` (18 anatomical areas)
 - Camera Controls: `resetCamera`, `setViewMode`
 - Data Export: `exportModelData`
 
 **Hotspot Editor Tab (6 tools)**:
+
 - Hotspot Creation: `createHotspot`
 - Creation Settings: `setSymmetryMode`
 - Hotspot Management: `selectHotspot`, `deleteHotspot`
 - Data Management: `exportHotspots`, `importHotspots`
 
 ### Technical Implementation
+
 - **Tool Registry**: Type-safe tool definitions with parameter validation
 - **Handler System**: Integration with existing React state management
 - **Route-Based Registration**: Dynamic tool registration based on current route
@@ -81,12 +90,13 @@ src/agents/
 ├── AgentIntegrationProvider.tsx  # Main React component
 └── README.md                     # Comprehensive documentation
 
-test-markdown-negotiation.html    # Testing interface
+test/ts/test-markdown-negotiation.html    # Testing interface
 ```
 
 ## 🧪 Testing & Verification
 
 ### Test Suite Created
+
 - Interactive HTML test page for both features
 - Markdown content negotiation testing
 - WebMCP API detection and tool execution
@@ -94,6 +104,7 @@ test-markdown-negotiation.html    # Testing interface
 - Header inspection tools
 
 ### Usage Examples
+
 ```bash
 # Test markdown negotiation
 curl -H "Accept: text/markdown" \
@@ -108,23 +119,25 @@ curl -H "Accept: text/markdown" \
 
 ```javascript
 // Test WebMCP tool execution
-const result = await window.webmcp.executeTool('selectBodyArea', {
-  area: 'Head'
+const result = await window.webmcp.executeTool("selectBodyArea", {
+  area: "Head",
 });
 ```
 
 ## 🔧 Integration Points
 
 ### For Existing Components
+
 - **AgentIntegrationProvider**: Wrap existing route components
 - **Tool Handlers**: Connect to existing sidebar props and state
 - **Route Detection**: Automatic tool registration based on current route
 - **Development Overlay**: Debug information in development mode
 
 ### Minimal Code Changes Required
+
 ```tsx
 // Add to existing route components
-import { AgentIntegrationProvider } from '@n-apt/agents';
+import { AgentIntegrationProvider } from "@n-apt/agents";
 
 export const SpectrumRoute: React.FC = (props) => {
   return (
@@ -138,6 +151,7 @@ export const SpectrumRoute: React.FC = (props) => {
 ## 🚀 Benefits Achieved
 
 ### For AI Agents
+
 - **80% Token Reduction**: Markdown vs HTML for documentation
 - **Structured Interactions**: 27 WebMCP tools for reliable automation
 - **Route-Specific Tools**: Context-aware tool availability
@@ -145,12 +159,14 @@ export const SpectrumRoute: React.FC = (props) => {
 - **Real-time Updates**: Integration with live application state
 
 ### For Human Users
+
 - **Zero Impact**: All existing functionality preserved
 - **Performance**: No additional overhead
 - **Compatibility**: Works with all browsers
 - **Security**: Maintains same-origin policy and validation
 
 ### For Developers
+
 - **Type Safety**: Full TypeScript support
 - **Extensibility**: Easy to add new tools and routes
 - **Debugging**: Development overlays and logging
@@ -159,11 +175,13 @@ export const SpectrumRoute: React.FC = (props) => {
 ## 🌐 Browser Compatibility
 
 ### Markdown for Agents
+
 - ✅ All modern browsers
 - ✅ No special requirements
 - ✅ Backwards compatible
 
 ### WebMCP Tools
+
 - ✅ Chrome Canary 146+ with experimental features
 - ✅ Chrome 146+ (when ships in stable)
 - ⚠️ Requires `chrome://flags/#enable-experimental-web-platform-features`
@@ -172,6 +190,7 @@ export const SpectrumRoute: React.FC = (props) => {
 ## 📊 Metrics
 
 ### Implementation Scale
+
 - **5 Routes** with markdown documentation
 - **27 WebMCP Tools** across all routes
 - **18 Body Areas** for 3D model interaction
@@ -179,6 +198,7 @@ export const SpectrumRoute: React.FC = (props) => {
 - **Zero Breaking Changes** for existing functionality
 
 ### Performance Characteristics
+
 - **<100ms** Tool execution latency
 - **<50ms** Markdown serving time
 - **<1MB** Additional bundle size

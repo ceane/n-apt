@@ -9,11 +9,14 @@ import DrawMockNAPTChart from "@n-apt/components/DrawMockNAPTChart";
 import FFTStitcherCanvas from "@n-apt/components/FFTStitcherCanvas";
 import { useWebSocket, FrequencyRange, SpectrumFrame } from "@n-apt/hooks/useWebSocket";
 import { useAuthentication } from "@n-apt/hooks/useAuthentication";
+import { useSnapshot } from "@n-apt/hooks/useSnapshot";
 import { buildWsUrl } from "@n-apt/services/auth";
 
 // Types
 type SourceMode = "live" | "file";
 type SelectedFile = { name: string; file: File };
+
+const VISUALIZER_PAUSED_KEY = "napt-visualizer-paused";
 
 // Styled Components
 const AppContainer = styled.div`
@@ -64,9 +67,15 @@ const InitializingTitle = styled.h2`
   animation: pulse 1.5s ease-in-out infinite;
 
   @keyframes pulse {
-    0% { opacity: 0.4; }
-    50% { opacity: 1; }
-    100% { opacity: 0.4; }
+    0% {
+      opacity: 0.4;
+    }
+    50% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 0.4;
+    }
   }
 `;
 
@@ -112,14 +121,14 @@ type SpectrumAction =
   | { type: "SET_SIGNAL_AREA"; area: string }
   | { type: "SET_FREQUENCY_RANGE"; range: FrequencyRange }
   | {
-    type: "SET_SIGNAL_AREA_AND_RANGE";
-    area: string;
-    range: FrequencyRange;
-  }
+      type: "SET_SIGNAL_AREA_AND_RANGE";
+      area: string;
+      range: FrequencyRange;
+    }
   | {
-    type: "SET_TEMPORAL_RESOLUTION";
-    resolution: "low" | "medium" | "high";
-  }
+      type: "SET_TEMPORAL_RESOLUTION";
+      resolution: "low" | "medium" | "high";
+    }
   | { type: "SET_SELECTED_FILES"; files: SelectedFile[] }
   | { type: "SET_SNAPSHOT_GRID"; preference: boolean }
   | { type: "SET_DRAW_PARAMS"; params: DrawParams }
@@ -131,16 +140,16 @@ type SpectrumAction =
   | { type: "TRIGGER_STITCH" }
   | { type: "TOGGLE_STITCH_PAUSE" }
   | {
-    type: "SET_STITCH_SOURCE_SETTINGS";
-    settings: { gain: number; ppm: number };
-  }
+      type: "SET_STITCH_SOURCE_SETTINGS";
+      settings: { gain: number; ppm: number };
+    }
   | { type: "SET_STITCH_PAUSED"; paused: boolean }
   | { type: "LEAVE_VISUALIZER" }
   | { type: "SET_FFT_FRAME_RATE"; fftFrameRate: number };
 
 const INITIAL_SPECTRUM_STATE: SpectrumState = {
   activeSignalArea: "A",
-  frequencyRange: { min: 0.0, max: 3.2 },
+  frequencyRange: { min: 88, max: 108 },
   displayTemporalResolution: "medium",
   selectedFiles: [],
   snapshotGridPreference: true,
@@ -159,15 +168,12 @@ const INITIAL_SPECTRUM_STATE: SpectrumState = {
   trainingCaptureLabel: null,
   trainingCapturedSamples: 0,
   stitchTrigger: 0,
-  stitchSourceSettings: { gain: 0, ppm: 0 },
-  isStitchPaused: true,
+  stitchSourceSettings: { gain: 10, ppm: 0 },
+  isStitchPaused: false,
   fftFrameRate: 60,
 };
 
-function spectrumReducer(
-  state: SpectrumState,
-  action: SpectrumAction,
-): SpectrumState {
+function spectrumReducer(state: SpectrumState, action: SpectrumAction): SpectrumState {
   switch (action.type) {
     case "SET_SIGNAL_AREA":
       return { ...state, activeSignalArea: action.area };
@@ -213,8 +219,7 @@ function spectrumReducer(
         ...state,
         isTrainingCapturing: false,
         trainingCaptureLabel: null,
-        trainingCapturedSamples:
-          state.trainingCapturedSamples + 1,
+        trainingCapturedSamples: state.trainingCapturedSamples + 1,
       };
     case "TRIGGER_STITCH":
       return {
@@ -238,7 +243,7 @@ function spectrumReducer(
     default:
       return state;
   }
-};
+}
 
 interface SpectrumRouteProps {
   activeTab: string;
@@ -255,11 +260,19 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   onAuthChange,
   sidebarWrapper,
 }) => {
-  const fftCanvasRef = useRef<{ getSpectrumCanvas: () => HTMLCanvasElement | null; getWaterfallCanvas: () => HTMLCanvasElement | null; triggerSnapshotRender: () => void } | null>(null);
-  const [state, dispatch] = useReducer(
-    spectrumReducer,
-    INITIAL_SPECTRUM_STATE,
-  );
+  const fftCanvasRef = useRef<{
+    getSpectrumCanvas: () => HTMLCanvasElement | null;
+    getWaterfallCanvas: () => HTMLCanvasElement | null;
+    triggerSnapshotRender: () => void;
+  } | null>(null);
+  const [state, dispatch] = useReducer(spectrumReducer, INITIAL_SPECTRUM_STATE, (base) => ({
+    ...base,
+    visualizerPaused: sessionStorage.getItem(VISUALIZER_PAUSED_KEY) === "true",
+  }));
+
+  useEffect(() => {
+    sessionStorage.setItem(VISUALIZER_PAUSED_KEY, String(state.visualizerPaused));
+  }, [state.visualizerPaused]);
 
   useEffect(() => {
     if (activeTab === "visualizer") {
@@ -299,10 +312,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   }, [isAuthenticated]);
 
   const waveformRef = useRef<Float32Array | number[] | null>(null);
-  const getCurrentWaveform = useCallback(
-    () => waveformRef.current ?? null,
-    [],
-  );
+  const getCurrentWaveform = useCallback(() => waveformRef.current ?? null, []);
 
   const wsUrl = sessionToken ? buildWsUrl(sessionToken) : "";
 
@@ -327,6 +337,8 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     sendGetAutoFftOptions,
   } = useWebSocket(wsUrl, aesKey, isAuthenticated);
 
+  const { handleSnapshot: takeSnapshot } = useSnapshot(state.frequencyRange ?? null, isConnected);
+
   // Still support waveformRef for older components, mapping it to the new dataRef
   waveformRef.current = dataRef.current?.waveform ?? null;
 
@@ -341,18 +353,15 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   }, [isConnected, serverPaused]);
 
   const setDrawParams = useCallback(
-    (params: DrawParams) =>
-      dispatch({ type: "SET_DRAW_PARAMS", params }),
+    (params: DrawParams) => dispatch({ type: "SET_DRAW_PARAMS", params }),
     [],
   );
   const setSourceMode = useCallback(
-    (mode: SourceMode) =>
-      dispatch({ type: "SET_SOURCE_MODE", mode }),
+    (mode: SourceMode) => dispatch({ type: "SET_SOURCE_MODE", mode }),
     [],
   );
   const setSelectedFiles = useCallback(
-    (files: SelectedFile[]) =>
-      dispatch({ type: "SET_SELECTED_FILES", files }),
+    (files: SelectedFile[]) => dispatch({ type: "SET_SELECTED_FILES", files }),
     [],
   );
   const setDisplayTemporalResolution = useCallback(
@@ -369,40 +378,26 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     [],
   );
   const setSnapshotGridPreference = useCallback(
-    (preference: boolean) =>
-      dispatch({ type: "SET_SNAPSHOT_GRID", preference }),
+    (preference: boolean) => dispatch({ type: "SET_SNAPSHOT_GRID", preference }),
     [],
   );
   const setStitchStatus = useCallback(
-    (status: string) =>
-      dispatch({ type: "SET_STITCH_STATUS", status }),
+    (status: string) => dispatch({ type: "SET_STITCH_STATUS", status }),
     [],
   );
 
   const handleTrainingCaptureStart = useCallback(
     (label: "target" | "noise") => {
       dispatch({ type: "TRAINING_START", label });
-      sendTrainingCommand(
-        "start",
-        label,
-        state.activeSignalArea,
-      );
+      sendTrainingCommand("start", label, state.activeSignalArea);
     },
     [sendTrainingCommand, state.activeSignalArea],
   );
 
   const handleTrainingCaptureStop = useCallback(() => {
     dispatch({ type: "TRAINING_STOP" });
-    sendTrainingCommand(
-      "stop",
-      state.trainingCaptureLabel ?? "target",
-      state.activeSignalArea,
-    );
-  }, [
-    sendTrainingCommand,
-    state.trainingCaptureLabel,
-    state.activeSignalArea,
-  ]);
+    sendTrainingCommand("stop", state.trainingCaptureLabel ?? "target", state.activeSignalArea);
+  }, [sendTrainingCommand, state.trainingCaptureLabel, state.activeSignalArea]);
 
   const handleStitch = useCallback(() => {
     dispatch({ type: "TRIGGER_STITCH" });
@@ -416,94 +411,23 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     dispatch({ type: "SET_SELECTED_FILES", files: [] });
   }, []);
 
-  const handleSnapshot = useCallback(async (options: {
-    whole: boolean;
-    showWaterfall: boolean;
-    showStats: boolean;
-    format: "png" | "svg";
-    grid: boolean;
-  }) => {
-    if (!fftCanvasRef.current) return;
-
-    // Trigger 2D shadow render before capturing snapshot
-    fftCanvasRef.current.triggerSnapshotRender();
-
-    // Wait a frame for the 2D render to complete, then capture
-    requestAnimationFrame(() => {
-      const spectrumCanvas = fftCanvasRef.current?.getSpectrumCanvas();
-      const waterfallCanvas = fftCanvasRef.current?.getWaterfallCanvas();
-
-      if (!spectrumCanvas) return;
-
-      // Create a temporary canvas for the composite image
-      const tempCanvas = document.createElement("canvas");
-      const tempCtx = tempCanvas.getContext("2d");
-      if (!tempCtx) return;
-
-      // Calculate dimensions
-      let width = spectrumCanvas.width;
-      let height = spectrumCanvas.height;
-
-      if (options.showWaterfall && waterfallCanvas) {
-        height += waterfallCanvas.height;
-      }
-
-      tempCanvas.width = width;
-      tempCanvas.height = height;
-
-      // Draw spectrum
-      tempCtx.drawImage(spectrumCanvas, 0, 0);
-
-      // Draw waterfall if enabled
-      if (options.showWaterfall && waterfallCanvas) {
-        tempCtx.drawImage(waterfallCanvas, 0, spectrumCanvas.height);
-      }
-
-      // Draw stats if enabled
-      if (options.showStats) {
-        const statsText = [
-          `Center: ${(state.frequencyRange.min + state.frequencyRange.max) / 2} MHz`,
-          `Range: ${state.frequencyRange.min} - ${state.frequencyRange.max} MHz`,
-          `BW: ${(state.frequencyRange.max - state.frequencyRange.min).toFixed(2)} MHz`,
-          `Device: ${isConnected ? "Connected" : "Disconnected"}`,
-        ];
-
-        tempCtx.fillStyle = "rgba(0, 0, 0, 0.7)";
-        tempCtx.fillRect(10, 10, 200, statsText.length * 15 + 10);
-
-        tempCtx.fillStyle = "#00d4ff";
-        tempCtx.font = "12px JetBrains Mono, monospace";
-        statsText.forEach((text, index) => {
-          tempCtx.fillText(text, 15, 25 + index * 15);
-        });
-      }
-
-      // Export based on format
-      if (options.format === "png") {
-        const dataUrl = tempCanvas.toDataURL("image/png");
-        const link = document.createElement("a");
-        link.download = `spectrum-snapshot-${new Date().toISOString().slice(0, 19).replace(/:/g, "-")}.png`;
-        link.href = dataUrl;
-        link.click();
-      } else if (options.format === "svg") {
-        // For SVG, we'll need to convert the canvas to SVG format
-        // This is a simplified implementation - in a real app you might want to use a library
-        const dataUrl = tempCanvas.toDataURL("image/png");
-        const svgContent = `
-        <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
-          <image href="${dataUrl}" width="${width}" height="${height}"/>
-        </svg>
-      `;
-        const blob = new Blob([svgContent], { type: "image/svg+xml" });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.download = `spectrum-snapshot-${new Date().toISOString().slice(0, 19).replace(/:/g, "-")}.svg`;
-        link.href = url;
-        link.click();
-        URL.revokeObjectURL(url);
-      }
-    }); // Close requestAnimationFrame callback
-  }, [state.frequencyRange, isConnected]); // Close handleSnapshot function
+  const handleSnapshot = useCallback(
+    (options: {
+      whole: boolean;
+      showWaterfall: boolean;
+      showStats: boolean;
+      format: "svg" | "png";
+      grid: boolean;
+    }) => {
+      takeSnapshot({
+        ...options,
+        getSpectrumCanvas: () => fftCanvasRef.current?.getSpectrumCanvas() ?? null,
+        getWaterfallCanvas: () => fftCanvasRef.current?.getWaterfallCanvas() ?? null,
+        getSnapshotGridPreference: () => options.grid ?? state.snapshotGridPreference,
+      });
+    },
+    [takeSnapshot, state.snapshotGridPreference],
+  );
 
   const prevIsVisualizerRef = useRef(isVisualizer);
   useEffect(() => {
@@ -511,7 +435,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     prevIsVisualizerRef.current = isVisualizer;
 
     if (prevIsVisualizer !== isVisualizer) {
-      if (!isVisualizer && isConnected) {
+      if (!isVisualizer) {
         sendPauseCommand(true);
         dispatch({ type: "SET_VISUALIZER_PAUSED", paused: true });
       }
@@ -522,11 +446,19 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     }
   }, [isVisualizer, isConnected, sendPauseCommand]);
 
+  const skipFirstCleanupRef = useRef(true);
   useEffect(() => {
     return () => {
+      // In React 18 strict mode effects run twice; skip the first simulated cleanup
+      if (skipFirstCleanupRef.current) {
+        skipFirstCleanupRef.current = false;
+        return;
+      }
+      // Pause and snapshot when unmounting the route
+      dispatch({ type: "LEAVE_VISUALIZER" });
       sendPauseCommand(true);
     };
-  }, [sendPauseCommand]);
+  }, [dispatch, sendPauseCommand]);
 
   const handleVisualizerPauseToggle = useCallback(() => {
     const newPausedState = !state.visualizerPaused;
@@ -543,8 +475,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     (area: string) => {
       if (area !== state.activeSignalArea) {
         const frame = wsSpectrumFrames.find(
-          (f: SpectrumFrame) =>
-            f.label.toLowerCase() === area.toLowerCase(),
+          (f: SpectrumFrame) => f.label.toLowerCase() === area.toLowerCase(),
         );
         if (frame) {
           const nextRange = {

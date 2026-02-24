@@ -122,13 +122,7 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
       onWaterfallBufferChange,
     ]);
 
-    return (
-      <WaterfallCanvas
-        ref={canvasRef}
-        $width={width}
-        $height={height}
-      />
-    );
+    return <WaterfallCanvas ref={canvasRef} $width={width} $height={height} />;
   },
 );
 

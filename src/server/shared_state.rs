@@ -45,7 +45,7 @@ pub struct SharedState {
   pub encryption_key: [u8; 32],
   /// Pending auth challenges: challenge_id -> (nonce_bytes, created_at)
   pub pending_challenges: Mutex<HashMap<String, ([u8; 32], std::time::Instant)>>,
-  /// Spectrum frames configuration loaded from spectrum_frames.yaml
+  /// Spectrum frames configuration loaded from signals.yaml
   pub spectrum_frames: Mutex<Vec<SpectrumFrameMessage>>,
   /// Capture artifacts: job_id -> list of (filename, temp_path)
   pub capture_artifacts: Mutex<HashMap<String, Vec<CaptureArtifact>>>,
