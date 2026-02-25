@@ -1,4 +1,15 @@
 use anyhow::Result;
+
+// Logging helper: no-op on wasm to avoid pulling in server-only deps
+#[cfg(not(target_arch = "wasm32"))]
+macro_rules! log_info {
+    ($($arg:tt)*) => { log::info!($($arg)*); };
+}
+#[cfg(target_arch = "wasm32")]
+macro_rules! log_info {
+    ($($arg:tt)*) => { };
+}
+
 use crate::fft::now_millis;
 use rustfft::{num_complex::Complex, FftPlanner};
 use rand::SeedableRng;
@@ -147,6 +158,26 @@ impl FFTProcessor {
     }
   }
 
+  /// Create a new FFT processor with runtime-provided defaults.
+  ///
+  /// This is used by the backend, which treats `signals.yaml` as the single source of truth.
+  pub fn new_with_defaults(fft_size: usize, sample_rate: u32, min_db: i32, max_db: i32) -> Self {
+    let config = EnhancedFFTConfig {
+      fft_size,
+      sample_rate,
+      gain: 1.0,
+      ppm: 0.0,
+      fft_min: min_db as f32,
+      fft_max: max_db as f32,
+      waterfall_min: min_db as f32,
+      waterfall_max: max_db as f32,
+      window_type: WindowType::Rectangular,
+      zoom_offset: 0,
+      zoom_width: fft_size,
+    };
+    Self::with_config(config)
+  }
+
   /// Create a new FFT processor with custom configuration
   /// 
   /// # Arguments
@@ -234,6 +265,9 @@ impl FFTProcessor {
         native_proc.set_window_type(config.window_type);
       }
     }
+
+    // Log the applied configuration (no-op on wasm)
+    log_info!("FFT configuration updated: {:?}", self.config);
   }
 
   /// Enable/disable FFT hold (peak hold functionality)

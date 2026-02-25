@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from "react";
+import { useRef, useEffect, useCallback, forwardRef, useImperativeHandle, useState } from "react";
 import styled from "styled-components";
 import { useFFTAnimation } from "@n-apt/hooks/useFFTAnimation";
 import { usePauseLogic } from "@n-apt/hooks/usePauseLogic";
@@ -10,12 +10,11 @@ import { useOverlayRenderer } from "@n-apt/hooks/useOverlayRenderer";
 import { useFrequencyDrag } from "@n-apt/hooks/useFrequencyDrag";
 import { useWebGPUInit } from "@n-apt/hooks/useWebGPUInit";
 import type { FrequencyRange } from "@n-apt/consts/types";
+import { VisualizerSliders } from "@n-apt/components/VisualizerSliders";
 import { spectrumToAmplitude } from "@n-apt/consts/types";
 import {
   VISUALIZER_PADDING,
   VISUALIZER_GAP,
-  WATERFALL_HISTORY_LIMIT,
-  WATERFALL_HISTORY_MAX,
   SECTION_TITLE_COLOR,
   SECTION_TITLE_AFTER_COLOR,
   CANVAS_BORDER_COLOR,
@@ -116,6 +115,13 @@ const CanvasWrapper = styled.div`
   background-color: ${FFT_CANVAS_BG};
 `;
 
+const SpectrumRow = styled.div`
+  display: flex;
+  flex-direction: row;
+  flex: 1;
+  min-height: 0;
+`;
+
 const CanvasLayer = styled.canvas`
   position: absolute;
   top: 0;
@@ -163,7 +169,12 @@ interface FFTCanvasProps {
   /** Force 2D canvas rendering (skip WebGPU). Used by file-selection mode. */
   force2D?: boolean;
   /** Grid preference for snapshot rendering (affects 2D shadow canvases) */
-  snapshotGridPreference?: boolean;
+  snapshotGridPreference: boolean;
+  deviceState: "disconnected" | "connecting" | "connected";
+  vizZoom?: number;
+  vizPanOffset?: number;
+  onVizZoomChange?: (zoom: number) => void;
+  onVizPanChange?: (pan: number) => void;
   /** Function to request auto FFT options from server */
   sendGetAutoFftOptions?: (screenWidth: number) => void;
 }
@@ -191,7 +202,12 @@ const FFTCanvas = forwardRef<
     onFrequencyRangeChange,
     displayTemporalResolution = "medium",
     force2D = false,
-    snapshotGridPreference = true,
+    snapshotGridPreference,
+    deviceState,
+    vizZoom: externalVizZoom,
+    vizPanOffset: externalVizPanOffset,
+    onVizZoomChange,
+    onVizPanChange,
     sendGetAutoFftOptions,
   } = props;
   const spectrumCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -254,6 +270,93 @@ const FFTCanvas = forwardRef<
 
   const retuneSmearRef = useRef(0);
   const retuneDriftPxRef = useRef(0);
+
+  // Visualizer slider state: zoom (frequency), dB ceiling/floor
+  const [internalVizZoom, setInternalVizZoom] = useState(1);
+  const [vizDbMax, setVizDbMax] = useState(FFT_MAX_DB); // 0
+  const [vizDbMin, setVizDbMin] = useState(FFT_MIN_DB); // -120
+  const [internalVizPanOffset, setInternalVizPanOffset] = useState(0); // Offset in Hz
+
+  const vizZoom = externalVizZoom !== undefined ? externalVizZoom : internalVizZoom;
+  const vizPanOffset = externalVizPanOffset !== undefined ? externalVizPanOffset : internalVizPanOffset;
+
+  const setVizZoom = useCallback(
+    (val: number | ((prev: number) => number)) => {
+      if (onVizZoomChange) {
+        onVizZoomChange(typeof val === "function" ? val(vizZoom) : val);
+      } else {
+        setInternalVizZoom(val);
+      }
+    },
+    [onVizZoomChange, vizZoom]
+  );
+
+  const setVizPanOffset = useCallback(
+    (val: number | ((prev: number) => number)) => {
+      if (onVizPanChange) {
+        onVizPanChange(typeof val === "function" ? val(vizPanOffset) : val);
+      } else {
+        setInternalVizPanOffset(val);
+      }
+    },
+    [onVizPanChange, vizPanOffset]
+  );
+
+  const vizZoomRef = useRef(vizZoom);
+  const vizDbMaxRef = useRef(vizDbMax);
+  const vizDbMinRef = useRef(vizDbMin);
+  const vizPanOffsetRef = useRef(vizPanOffset);
+  vizZoomRef.current = vizZoom;
+  vizDbMaxRef.current = vizDbMax;
+  vizDbMinRef.current = vizDbMin;
+  vizPanOffsetRef.current = vizPanOffset;
+
+  // Compute zoomed visual frequency range and waveform slice
+  const getZoomedData = useCallback(
+    (
+      fullWaveform: Float32Array,
+      fullRange: FrequencyRange,
+      zoom: number,
+      panOffset: number,
+    ): {
+      slicedWaveform: Float32Array;
+      visualRange: FrequencyRange;
+      clampedPan: number;
+    } => {
+      if (zoom <= 1) {
+        return { slicedWaveform: fullWaveform, visualRange: fullRange, clampedPan: 0 };
+      }
+
+      const totalBins = fullWaveform.length;
+      const visibleBins = Math.floor(totalBins / zoom);
+
+      const fullSpan = fullRange.max - fullRange.min;
+      const halfSpan = fullSpan / (2 * zoom);
+
+      // Calculate max allowed pan so visual window doesn't exceed hardware window
+      const maxPan = (fullSpan / 2) - halfSpan;
+      const clampedPan = Math.max(-maxPan, Math.min(maxPan, panOffset));
+
+      const centerFreq = (fullRange.min + fullRange.max) / 2;
+      const visualCenter = centerFreq + clampedPan;
+
+      // Convert visual center to bin index
+      const visualCenterBin = Math.round(((visualCenter - fullRange.min) / fullSpan) * totalBins);
+
+      let startBin = Math.round(visualCenterBin - visibleBins / 2);
+      // Clamp startBin to valid array bounds
+      startBin = Math.max(0, Math.min(totalBins - visibleBins, startBin));
+
+      const slicedWaveform = fullWaveform.subarray(startBin, startBin + visibleBins);
+      const visualRange = {
+        min: visualCenter - halfSpan,
+        max: visualCenter + halfSpan,
+      };
+
+      return { slicedWaveform, visualRange, clampedPan };
+    },
+    [],
+  );
 
   // Ref to track snapshot grid preference (for 2D shadow renders)
   const snapshotGridPreferenceRef = useRef(true);
@@ -347,6 +450,14 @@ const FFTCanvas = forwardRef<
     activeSignalArea: _activeSignalArea,
     signalAreaBounds,
     onFrequencyRangeChange,
+    vizZoomRef,
+    vizPanOffsetRef,
+    onVizPanChange: (pan: number) => {
+      setVizPanOffset(pan);
+      overlayDirtyRef.current.grid = true;
+      overlayDirtyRef.current.markers = true;
+      if (isPaused) forceRender();
+    },
   });
 
   // Use the new 2D rendering hooks for fallback/shadow rendering
@@ -364,6 +475,17 @@ const FFTCanvas = forwardRef<
     (width: number, height: number, dpr: number) => {
       const now = performance.now();
       const freq = frequencyRangeRef.current;
+      const { visualRange, clampedPan } = getZoomedData(
+        renderWaveformRef.current || new Float32Array(0),
+        freq,
+        vizZoomRef.current,
+        vizPanOffsetRef.current,
+      );
+
+      // Sync clamped pan back to state if it drifted
+      if (clampedPan !== vizPanOffsetRef.current) {
+        setVizPanOffset(clampedPan);
+      }
       const cf = centerFreqRef.current;
 
       // Grid overlay
@@ -373,7 +495,7 @@ const FFTCanvas = forwardRef<
         const last = overlayLastUploadMsRef.current.grid;
         if (overlay && dirty && now - last >= OVERLAY_MIN_INTERVAL_MS) {
           const ctx = overlay.beginDraw(width, height, dpr);
-          drawGridOnContext(ctx, width, height, freq, FFT_MIN_DB, FFT_MAX_DB);
+          drawGridOnContext(ctx, width, height, visualRange, vizDbMinRef.current, vizDbMaxRef.current);
           overlay.endDraw();
           overlayDirtyRef.current.grid = false;
           overlayLastUploadMsRef.current.grid = now;
@@ -387,7 +509,7 @@ const FFTCanvas = forwardRef<
         const last = overlayLastUploadMsRef.current.markers;
         if (overlay && dirty && now - last >= OVERLAY_MIN_INTERVAL_MS) {
           const ctx = overlay.beginDraw(width, height, dpr);
-          drawMarkersOnContext(ctx, width, height, freq, cf, isDeviceConnected);
+          drawMarkersOnContext(ctx, width, height, visualRange, cf, isDeviceConnected);
           overlay.endDraw();
           overlayDirtyRef.current.markers = false;
           overlayLastUploadMsRef.current.markers = now;
@@ -616,6 +738,17 @@ const FFTCanvas = forwardRef<
       const currentWaveform = renderWaveformRef.current;
 
       if (currentWaveform && currentWaveform.length > 0) {
+        const { slicedWaveform, visualRange, clampedPan } = getZoomedData(
+          currentWaveform,
+          frequencyRangeRef.current,
+          vizZoomRef.current,
+          vizPanOffsetRef.current,
+        );
+
+        // Sync clamped pan back to state if it drifted
+        if (clampedPan !== vizPanOffsetRef.current) {
+          setVizPanOffset(clampedPan);
+        }
         let waveformArray: number[] | null = null;
         // Spectrum render - always render existing waveform, but only update with new data when not paused
         if (
@@ -643,16 +776,16 @@ const FFTCanvas = forwardRef<
             spectrumResampleBufRef.current = new Float32Array(displayWidth);
           }
           const outBuf = spectrumResampleBufRef.current;
-          if (currentWaveform.length === displayWidth) {
-            outBuf.set(currentWaveform);
+          if (slicedWaveform.length === displayWidth) {
+            outBuf.set(slicedWaveform);
           } else {
-            resampleSpectrumInto(currentWaveform, outBuf);
+            resampleSpectrumInto(slicedWaveform, outBuf);
           }
 
           // Prevent WebGPU vertex NaNs/Infs (can show as dense vertical "curtains")
           for (let i = 0; i < outBuf.length; i++) {
             const v = outBuf[i];
-            if (!Number.isFinite(v)) outBuf[i] = FFT_MIN_DB;
+            if (!Number.isFinite(v)) outBuf[i] = vizDbMinRef.current;
           }
 
           const dpr = window.devicePixelRatio || 1;
@@ -666,8 +799,8 @@ const FFTCanvas = forwardRef<
             format: webgpuFormatRef.current,
             waveform: outBuf,
             frequencyRange: frequencyRangeRef.current,
-            fftMin: FFT_MIN_DB,
-            fftMax: FFT_MAX_DB,
+            fftMin: vizDbMinRef.current,
+            fftMax: vizDbMaxRef.current,
             gridOverlayRenderer: gridOverlayRendererRef.current ?? undefined,
             markersOverlayRenderer: markersOverlayRendererRef.current ?? undefined,
             centerFrequencyMHz: centerFreqRef.current,
@@ -675,11 +808,13 @@ const FFTCanvas = forwardRef<
             showGrid: true,
           });
         } else if (!spectrumWebgpuEnabled && spectrumCanvas) {
-          waveformArray = waveformArray ?? Array.from(currentWaveform);
+          waveformArray = waveformArray ?? Array.from(slicedWaveform);
           draw2DFFTSignal({
             canvas: spectrumCanvas,
             waveform: waveformArray,
-            frequencyRange: frequencyRangeRef.current,
+            frequencyRange: visualRange,
+            fftMin: vizDbMinRef.current,
+            fftMax: vizDbMaxRef.current,
             showGrid: true,
             centerFrequencyMHz: centerFreqRef.current,
             isDeviceConnected,
@@ -691,8 +826,10 @@ const FFTCanvas = forwardRef<
         if (spectrumCanvas && snapshotNeededRef.current) {
           draw2DFFTSignal({
             canvas: spectrumCanvas,
-            waveform: Array.from(currentWaveform),
-            frequencyRange: frequencyRangeRef.current,
+            waveform: Array.from(slicedWaveform),
+            frequencyRange: visualRange,
+            fftMin: vizDbMinRef.current,
+            fftMax: vizDbMaxRef.current,
             showGrid: snapshotGridPreferenceRef.current,
             centerFrequencyMHz: centerFreqRef.current,
             isDeviceConnected,
@@ -712,23 +849,23 @@ const FFTCanvas = forwardRef<
           const dims = waterfallGpuDimsRef.current;
           if (dims && !isPaused && currentData) {
             let resampled: number[];
-            if (sdrProcessor && currentWaveform && currentWaveform.length >= 4) {
+            if (sdrProcessor && slicedWaveform && slicedWaveform.length >= 4) {
               const float32Output = new Float32Array(dims.width);
               try {
-                sdrProcessor.resample_spectrum(currentWaveform, float32Output, dims.width);
+                sdrProcessor.resample_spectrum(slicedWaveform, float32Output, dims.width);
                 resampled = Array.from(float32Output);
               } catch (error) {
                 console.warn("WASM SIMD resampling failed, using fallback:", error);
-                resampled = performScalarResampling(Array.from(currentWaveform), dims.width);
+                resampled = performScalarResampling(Array.from(slicedWaveform), dims.width);
               }
             } else {
-              resampled = performScalarResampling(Array.from(currentWaveform), dims.width);
+              resampled = performScalarResampling(Array.from(slicedWaveform), dims.width);
             }
 
             const normalizedData = spectrumToAmplitude(
               resampled,
-              WATERFALL_HISTORY_LIMIT,
-              WATERFALL_HISTORY_MAX,
+              vizDbMinRef.current,
+              vizDbMaxRef.current,
             );
 
             // Convert to RGBA format for waterfall hook
@@ -802,7 +939,7 @@ const FFTCanvas = forwardRef<
                 device: webgpuDeviceRef.current,
                 format: webgpuFormatRef.current,
                 waterfallBuffer: rowBuffer,
-                frequencyRange: frequencyRangeRef.current,
+                frequencyRange: visualRange,
                 driftAmount: retuneSmearRef.current,
                 driftDirection: retuneDriftPxRef.current,
                 freeze: true,
@@ -835,9 +972,9 @@ const FFTCanvas = forwardRef<
             draw2DFIFOWaterfall({
               canvas: waterfallCanvas,
               waterfallBuffer,
-              frequencyRange: frequencyRangeRef.current,
-              waterfallMin: WATERFALL_HISTORY_LIMIT,
-              waterfallMax: WATERFALL_HISTORY_MAX,
+              frequencyRange: visualRange,
+              waterfallMin: vizDbMinRef.current,
+              waterfallMax: vizDbMaxRef.current,
               driftAmount: retuneSmearRef.current,
               driftDirection: retuneDriftPxRef.current,
               fftFrame: waveformArray,
@@ -850,7 +987,9 @@ const FFTCanvas = forwardRef<
           draw2DFIFOWaterfall({
             canvas: waterfallCanvas,
             waterfallBuffer: waterfallBufferRef.current,
-            frequencyRange: frequencyRangeRef.current,
+            frequencyRange: visualRange,
+            waterfallMin: vizDbMinRef.current,
+            waterfallMax: vizDbMaxRef.current,
           });
         }
       }
@@ -1110,6 +1249,24 @@ const FFTCanvas = forwardRef<
     snapshotNeededRef.current = true;
   }, []);
 
+  useEffect(() => {
+    overlayDirtyRef.current.grid = true;
+    if (isPaused) forceRender();
+  }, [vizDbMin, vizDbMax, vizZoom, vizPanOffset, forceRender, isPaused]);
+
+  // Compute zoomed frequency range from the full range (visual only, don't retune)
+  const handleZoomChange = useCallback(
+    (newZoom: number) => {
+      setVizZoom(newZoom);
+      // Reset pan offset when zooming completely out to prevent getting stuck panned
+      if (newZoom <= 1) setVizPanOffset(0);
+      overlayDirtyRef.current.grid = true;
+      overlayDirtyRef.current.markers = true;
+      if (isPaused) forceRender();
+    },
+    [isPaused, forceRender],
+  );
+
   useImperativeHandle(ref, () => ({
     getSpectrumCanvas: () => spectrumCanvasRef.current,
     getWaterfallCanvas: () => waterfallCanvasRef.current,
@@ -1120,18 +1277,28 @@ const FFTCanvas = forwardRef<
     <VisualizerContainer>
       <SpectrumSection>
         <SectionTitle>FFT Signal Display {isPaused && "(Paused)"}</SectionTitle>
-        <CanvasWrapper>
-          <ToggleableCanvasLayer
-            ref={spectrumGpuCanvasRef}
-            id="fft-spectrum-canvas-webgpu"
-            $visible={spectrumWebgpuEnabled}
+        <SpectrumRow>
+          <CanvasWrapper>
+            <ToggleableCanvasLayer
+              ref={spectrumGpuCanvasRef}
+              id="fft-spectrum-canvas-webgpu"
+              $visible={spectrumWebgpuEnabled}
+            />
+            <ToggleableCanvasLayer
+              ref={spectrumCanvasRef}
+              id="fft-spectrum-canvas-2d"
+              $visible={!spectrumWebgpuEnabled}
+            />
+          </CanvasWrapper>
+          <VisualizerSliders
+            zoom={vizZoom}
+            dbMax={vizDbMax}
+            dbMin={vizDbMin}
+            onZoomChange={handleZoomChange}
+            onDbMaxChange={setVizDbMax}
+            onDbMinChange={setVizDbMin}
           />
-          <ToggleableCanvasLayer
-            ref={spectrumCanvasRef}
-            id="fft-spectrum-canvas-2d"
-            $visible={!spectrumWebgpuEnabled}
-          />
-        </CanvasWrapper>
+        </SpectrumRow>
       </SpectrumSection>
       <WaterfallSection>
         <SectionTitle>Waterfall Display {isPaused && "(Paused)"}</SectionTitle>

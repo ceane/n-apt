@@ -270,6 +270,7 @@ impl WebSocketServer {
                             *shared.device_loading.lock().unwrap() = false;
                             *shared.device_loading_reason.lock().unwrap() = None;
                             missing_device_probe_streak = 0;
+                            Self::broadcast_status(&shared, &broadcast_tx);
                         }
                         Ok(false) => {
                             *shared.device_loading.lock().unwrap() = false;
@@ -384,7 +385,12 @@ impl WebSocketServer {
                 info!("Start capture command received (not implemented)");
             }
             SdrCommand::ApplySettings { fft_size, fft_window, frame_rate, gain, ppm, tuner_agc, rtl_agc } => {
-                info!("Applying settings: fft_size={:?}, frame_rate={:?}, gain={:?}, ppm={:?}", fft_size, frame_rate, gain, ppm);
+                let current_sr = sdr_processor.get_current_sample_rate();
+                let frame_bytes = sdr_processor.read_size;
+                info!(
+                    "Applying settings: fft_size={:?}, frame_rate={:?}, gain={:?}, ppm={:?}, sample_rate={} Hz, frame_bytes={}",
+                    fft_size, frame_rate, gain, ppm, current_sr, frame_bytes
+                );
                 if let Err(e) = sdr_processor.apply_settings(fft_size, fft_window, frame_rate, gain, ppm, tuner_agc, rtl_agc) {
                     error!("Failed to apply settings: {}", e);
                 } else {

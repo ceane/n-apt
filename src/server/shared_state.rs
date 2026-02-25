@@ -48,7 +48,7 @@ pub struct SharedState {
   /// Channels configuration loaded from signals.yaml
   pub channels: Mutex<Vec<SpectrumFrameMessage>>,
   /// SDR settings loaded from signals.yaml
-  pub sdr_settings: Mutex<Option<super::types::SdrConfig>>,
+  pub sdr_settings: Mutex<super::types::SdrConfig>,
   /// Capture artifacts: job_id -> list of (filename, temp_path)
   pub capture_artifacts: Mutex<HashMap<String, Vec<CaptureArtifact>>>,
 }
@@ -67,14 +67,7 @@ impl SharedState {
             client_count: AtomicUsize::new(0),
             authenticated_count: AtomicUsize::new(0),
             is_paused: AtomicBool::new(false),
-            pending_center_freq: AtomicU32::new({
-                // Use loaded SDR center frequency, fallback to constant
-                if let Some(sdr_settings) = load_sdr_settings() {
-                    sdr_settings.center_frequency
-                } else {
-                    n_apt_backend::consts::rs::fft::CENTER_FREQ
-                }
-            }),
+            pending_center_freq: AtomicU32::new(load_sdr_settings().center_frequency),
             pending_center_freq_dirty: AtomicBool::new(false),
             shutdown: AtomicBool::new(false),
             device_info: Mutex::new(String::new()),
@@ -84,7 +77,7 @@ impl SharedState {
             encryption_key,
             pending_challenges: Mutex::new(HashMap::new()),
             channels: Mutex::new(load_channels()),
-            sdr_settings: Mutex::new(load_sdr_settings()),
+            sdr_settings: Mutex::new(load_sdr_settings().clone()),
             capture_artifacts: Mutex::new(HashMap::new()),
         })
     }

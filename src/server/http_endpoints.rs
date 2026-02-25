@@ -173,13 +173,14 @@ pub async fn agent_info_handler(
   let frames = state.shared.channels.lock().unwrap().clone();
   let freq_range = format_frequency_range(&frames).unwrap_or_else(|| "unknown".to_string());
   let sample_rate_label = format_sample_rate(
-    state
-      .shared
-      .sdr_settings
-      .lock()
-      .unwrap()
-      .as_ref()
-      .map(|s| s.sample_rate),
+    Some(
+      state
+        .shared
+        .sdr_settings
+        .lock()
+        .unwrap()
+        .sample_rate,
+    ),
   )
   .unwrap_or_else(|| "unknown".to_string());
 
@@ -260,12 +261,14 @@ pub async fn agent_status_handler(
   let frames = shared.channels.lock().unwrap().clone();
   let freq_range = format_frequency_range(&frames).unwrap_or_else(|| "unknown".to_string());
   let sample_rate_label = format_sample_rate(
-    shared
-      .sdr_settings
-      .lock()
-      .unwrap()
-      .as_ref()
-      .map(|s| s.sample_rate),
+    Some(
+      state
+        .shared
+        .sdr_settings
+        .lock()
+        .unwrap()
+        .sample_rate,
+    ),
   )
   .unwrap_or_else(|| "unknown".to_string());
   

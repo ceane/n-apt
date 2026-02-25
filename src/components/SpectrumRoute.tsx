@@ -297,6 +297,9 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     }
   });
 
+  const [vizZoom, setVizZoom] = useState(1);
+  const [vizPanOffset, setVizPanOffset] = useState(0);
+
   useEffect(() => {
     if (activeTab === "visualizer") {
       requestAnimationFrame(() => {
@@ -392,7 +395,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
 
   const sampleRateHzEffective =
     typeof effectiveSdrSettings?.sample_rate === "number" &&
-    Number.isFinite(effectiveSdrSettings.sample_rate)
+      Number.isFinite(effectiveSdrSettings.sample_rate)
       ? effectiveSdrSettings.sample_rate
       : sampleRateHz ?? null;
 
@@ -679,6 +682,9 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                 getCurrentWaveform={getCurrentWaveform}
                 centerFrequencyMHz={centerFrequencyMHz ?? undefined}
                 onSnapshot={handleSnapshot}
+                vizZoom={vizZoom}
+                vizPanOffset={vizPanOffset}
+                onVizPanChange={setVizPanOffset}
               />
             );
             return sidebarWrapper ? sidebarWrapper(sidebarNode) : sidebarNode;
@@ -707,34 +713,45 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
               state.sourceMode === "live" &&
               state.frequencyRange &&
               centerFrequencyMHz !== null && (
-              <>
-                {deviceState === "connected" && (
-                  <ClassificationControls
-                    isDeviceConnected={deviceState === "connected"}
+                <>
+                  {deviceState === "connected" && (
+                    <ClassificationControls
+                      isDeviceConnected={deviceState === "connected"}
+                      activeSignalArea={state.activeSignalArea}
+                      isCapturing={state.isTrainingCapturing}
+                      captureLabel={state.trainingCaptureLabel}
+                      capturedSamples={state.trainingCapturedSamples}
+                      onCaptureStart={handleTrainingCaptureStart}
+                      onCaptureStop={handleTrainingCaptureStop}
+                    />
+                  )}
+                  <FFTCanvas
+                    ref={fftCanvasRef}
+                    dataRef={dataRef}
+                    frequencyRange={state.frequencyRange}
+                    centerFrequencyMHz={centerFrequencyMHz}
                     activeSignalArea={state.activeSignalArea}
-                    isCapturing={state.isTrainingCapturing}
-                    captureLabel={state.trainingCaptureLabel}
-                    capturedSamples={state.trainingCapturedSamples}
-                    onCaptureStart={handleTrainingCaptureStart}
-                    onCaptureStop={handleTrainingCaptureStop}
+                    isPaused={state.visualizerPaused}
+                    isDeviceConnected={deviceState === "connected"}
+                    deviceState={
+                      deviceState === "connected"
+                        ? "connected"
+                        : deviceState === "loading"
+                          ? "connecting"
+                          : "disconnected"
+                    }
+                    onFrequencyRangeChange={handleFrequencyRangeChange}
+                    displayTemporalResolution={state.displayTemporalResolution}
+                    snapshotGridPreference={state.snapshotGridPreference}
+                    sendGetAutoFftOptions={sendGetAutoFftOptions}
+                    signalAreaBounds={signalAreaBounds ?? undefined}
+                    vizZoom={vizZoom}
+                    vizPanOffset={vizPanOffset}
+                    onVizZoomChange={setVizZoom}
+                    onVizPanChange={setVizPanOffset}
                   />
-                )}
-                <FFTCanvas
-                  ref={fftCanvasRef}
-                  dataRef={dataRef}
-                  frequencyRange={state.frequencyRange}
-                  centerFrequencyMHz={centerFrequencyMHz}
-                  activeSignalArea={state.activeSignalArea}
-                  isPaused={state.visualizerPaused}
-                  isDeviceConnected={deviceState === "connected"}
-                  onFrequencyRangeChange={handleFrequencyRangeChange}
-                  displayTemporalResolution={state.displayTemporalResolution}
-                  snapshotGridPreference={state.snapshotGridPreference}
-                  sendGetAutoFftOptions={sendGetAutoFftOptions}
-                  signalAreaBounds={signalAreaBounds ?? undefined}
-                />
-              </>
-            )}
+                </>
+              )}
             {isVisualizer &&
               isAuthenticated &&
               state.sourceMode === "live" &&

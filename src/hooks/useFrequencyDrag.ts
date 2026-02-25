@@ -9,6 +9,9 @@ export interface FrequencyDragOptions {
   activeSignalArea: string;
   signalAreaBounds?: Record<string, { min: number; max: number }>;
   onFrequencyRangeChange?: (range: FrequencyRange) => void;
+  vizZoomRef?: React.MutableRefObject<number>;
+  vizPanOffsetRef?: React.MutableRefObject<number>;
+  onVizPanChange?: (pan: number) => void;
 }
 
 export function useFrequencyDrag({
@@ -19,10 +22,14 @@ export function useFrequencyDrag({
   activeSignalArea,
   signalAreaBounds,
   onFrequencyRangeChange,
+  vizZoomRef,
+  vizPanOffsetRef,
+  onVizPanChange,
 }: FrequencyDragOptions) {
   const isDraggingRef = useRef(false);
   const dragStartXRef = useRef(0);
   const dragStartFreqRef = useRef(0);
+  const dragStartPanRef = useRef(0);
 
   useEffect(() => {
     const getActiveSpectrumCanvas = () => {
@@ -41,34 +48,52 @@ export function useFrequencyDrag({
       const width = rect.width;
 
       const deltaX = e.clientX - dragStartXRef.current;
-      const freqRange = frequencyRangeRef.current.max - frequencyRangeRef.current.min;
-      const freqChange = (deltaX / width) * freqRange;
+      const zoom = vizZoomRef?.current || 1;
+      const fullRange = frequencyRangeRef.current.max - frequencyRangeRef.current.min;
+      const visualRange = fullRange / zoom;
+      const freqChange = (deltaX / width) * visualRange;
 
-      let newMinFreq = dragStartFreqRef.current + freqChange;
-      const rangeWidth = frequencyRangeRef.current.max - frequencyRangeRef.current.min;
-      let newMaxFreq = newMinFreq + rangeWidth;
+      if (zoom > 1 && onVizPanChange) {
+        // Visual panning mode
+        const maxPan = (fullRange / 2) - (visualRange / 2);
+        
+        // Dragging right (deltaX > 0) means looking at lower frequencies (shifting visual window left)
+        // so we SUBTRACT freqChange from the pan offset
+        let newPan = dragStartPanRef.current - freqChange;
+        
+        // Clamp to max allowable pan (so we stay within the hardware window)
+        newPan = Math.max(-maxPan, Math.min(maxPan, newPan));
+        
+        onVizPanChange(newPan);
+      } else {
+        // Hardware retune mode (unzoomed)
+        // Dragging right (deltaX > 0) means frequency decreases
+        let newMinFreq = dragStartFreqRef.current - freqChange;
+        const rangeWidth = fullRange;
+        let newMaxFreq = newMinFreq + rangeWidth;
 
-      const bounds =
-        signalAreaBounds?.[activeSignalArea] ??
-        signalAreaBounds?.[activeSignalArea.toLowerCase()];
-      if (bounds) {
-        const minBoundary = bounds.min;
-        const maxBoundary = bounds.max;
-        if (newMinFreq < minBoundary) {
-          newMinFreq = minBoundary;
-          newMaxFreq = newMinFreq + rangeWidth;
+        const bounds =
+          signalAreaBounds?.[activeSignalArea] ??
+          signalAreaBounds?.[activeSignalArea.toLowerCase()];
+        if (bounds) {
+          const minBoundary = bounds.min;
+          const maxBoundary = bounds.max;
+          if (newMinFreq < minBoundary) {
+            newMinFreq = minBoundary;
+            newMaxFreq = newMinFreq + rangeWidth;
+          }
+          if (newMaxFreq > maxBoundary) {
+            newMaxFreq = maxBoundary;
+            newMinFreq = newMaxFreq - rangeWidth;
+          }
         }
-        if (newMaxFreq > maxBoundary) {
-          newMaxFreq = maxBoundary;
-          newMinFreq = newMaxFreq - rangeWidth;
+
+        const newRange = { min: newMinFreq, max: newMaxFreq };
+        frequencyRangeRef.current = newRange;
+
+        if (onFrequencyRangeChange) {
+          onFrequencyRangeChange(newRange);
         }
-      }
-
-      const newRange = { min: newMinFreq, max: newMaxFreq };
-      frequencyRangeRef.current = newRange;
-
-      if (onFrequencyRangeChange) {
-        onFrequencyRangeChange(newRange);
       }
     };
 
@@ -83,6 +108,7 @@ export function useFrequencyDrag({
         isDraggingRef.current = true;
         dragStartXRef.current = e.clientX;
         dragStartFreqRef.current = frequencyRangeRef.current.min;
+        dragStartPanRef.current = vizPanOffsetRef?.current || 0;
         canvas.style.cursor = "grabbing";
         canvas.setPointerCapture(e.pointerId);
       }
@@ -142,7 +168,9 @@ export function useFrequencyDrag({
     spectrumCanvasRef,
     spectrumGpuCanvasRef,
     frequencyRangeRef,
-    signalAreaBounds,
+    vizZoomRef,
+    vizPanOffsetRef,
+    onVizPanChange,
   ]);
 
   useEffect(() => {

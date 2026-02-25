@@ -1,7 +1,8 @@
 use anyhow::Result;
-use log::{info, warn};
+use log::info;
 use std::io::Write;
 use serde_yaml::Value;
+use std::sync::OnceLock;
 
 use super::types::CaptureArtifact;
 
@@ -20,53 +21,21 @@ fn read_config_file(filename: &str) -> Option<String> {
   std::fs::read_to_string(manifest_path).ok()
 }
 
+/// Load and cache the entire signals.yaml. Panics if missing or malformed.
+static SIGNALS_CONFIG: OnceLock<super::types::SignalsConfig> = OnceLock::new();
+
+pub fn signals_config() -> &'static super::types::SignalsConfig {
+  SIGNALS_CONFIG.get_or_init(|| {
+    let content = read_config_file("signals.yaml")
+      .expect("signals.yaml must be present alongside the binary or in CARGO_MANIFEST_DIR");
+    serde_yaml::from_str(&content).expect("Failed to parse signals.yaml")
+  })
+}
+
 pub fn load_channels() -> Vec<super::types::SpectrumFrameMessage> {
-  let content = match read_config_file("signals.yaml") {
-    Some(c) => c,
-    None => return Vec::new(),
-  };
-
-  // Try new signals.yaml format first (typed)
-  if let Ok(parsed) = serde_yaml::from_str::<super::types::SignalsConfig>(&content) {
-    let mut out = Vec::new();
-    for (id, f) in parsed.signals.n_apt.channels {
-      if f.freq_range_mhz.len() < 2 {
-        continue;
-      }
-      let min_mhz = f.freq_range_mhz[0];
-      let max_mhz = f.freq_range_mhz[1];
-      if !(min_mhz.is_finite() && max_mhz.is_finite() && max_mhz > min_mhz) {
-        continue;
-      }
-      out.push(super::types::SpectrumFrameMessage {
-        id,
-        label: f.label,
-        min_mhz,
-        max_mhz,
-        description: f.description,
-      });
-    }
-    return out;
-  }
-
-  // Try extracting only the n_apt.channels section (lenient YAML parse)
-  if let Ok(value) = serde_yaml::from_str::<Value>(&content) {
-    if let Some(out) = extract_channels_from_value(&value) {
-      return out;
-    }
-  }
-
-  // Fallback to old format
-  let parsed = match serde_yaml::from_str::<super::types::SpectrumFramesConfig>(&content) {
-    Ok(p) => p,
-    Err(e) => {
-      warn!("Failed to parse signals.yaml: {}", e);
-      return Vec::new();
-    }
-  };
-
+  let parsed = signals_config();
   let mut out = Vec::new();
-  for (id, f) in parsed.frames {
+  for (id, f) in parsed.signals.n_apt.channels.clone() {
     if f.freq_range_mhz.len() < 2 {
       continue;
     }
@@ -87,32 +56,14 @@ pub fn load_channels() -> Vec<super::types::SpectrumFrameMessage> {
   out
 }
 
-/// Load SDR settings from signals.yaml
-pub fn load_sdr_settings() -> Option<super::types::SdrConfig> {
-  let content = match read_config_file("signals.yaml") {
-    Some(c) => c,
-    None => return None,
-  };
+/// Load SDR settings (panic if missing/malformed)
+pub fn load_sdr_settings() -> &'static super::types::SdrConfig {
+  &signals_config().signals.sdr
+}
 
-  if let Ok(parsed) = serde_yaml::from_str::<super::types::SignalsConfig>(&content) {
-    return Some(parsed.signals.sdr);
-  }
-
-  // Lenient parse: extract signals.sdr only
-  if let Ok(value) = serde_yaml::from_str::<Value>(&content) {
-    if let Some(sdr_value) = value
-      .get("signals")
-      .and_then(|v| v.get("sdr"))
-      .cloned()
-    {
-      match serde_yaml::from_value::<super::types::SdrConfig>(sdr_value) {
-        Ok(config) => return Some(config),
-        Err(e) => warn!("Failed to parse signals.sdr from signals.yaml: {}", e),
-      }
-    }
-  }
-
-  None
+/// Load mock signal settings (panic if missing/malformed)
+pub fn load_mock_settings() -> &'static super::types::MockSignalsConfig {
+  &signals_config().signals.mock
 }
 
 fn extract_channels_from_value(
@@ -221,10 +172,7 @@ mod tests {
 
     std::env::set_current_dir(&original_dir).expect("restore dir");
     let _ = std::fs::remove_dir_all(&temp_dir);
-    assert!(
-      settings.is_some(),
-      "expected sdr settings from signals.yaml in manifest dir"
-    );
+    assert_eq!(settings.sample_rate, parsed.unwrap().sample_rate);
   }
 }
 

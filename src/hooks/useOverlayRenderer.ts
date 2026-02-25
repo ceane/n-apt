@@ -35,12 +35,6 @@ export function useOverlayRenderer() {
       const minFreq = frequencyRange.min;
       const maxFreq = frequencyRange.max;
       if (!Number.isFinite(minFreq) || !Number.isFinite(maxFreq)) return;
-      const viewBandwidth = maxFreq - minFreq;
-      const range = findBestFrequencyRange(viewBandwidth, 10);
-      const lowerFreq = Math.ceil(minFreq / range) * range;
-      const upperFreq = maxFreq;
-      const freqToX = (freq: number) =>
-        FFT_AREA_MIN.x + ((freq - minFreq) / viewBandwidth) * plotWidth;
 
       ctx.strokeStyle = FFT_GRID_COLOR;
       ctx.fillStyle = FFT_TEXT_COLOR;
@@ -110,8 +104,8 @@ export function useOverlayRenderer() {
       }
 
       const xPos = fftAreaMax.x;
-      const lastGridFreq = Math.floor((upperFreq - 1e-6) / range) * range;
-      const lastGridX = freqToX(lastGridFreq);
+      const lastGridFreq = Math.floor((upperFreq2 - 1e-6) / range2) * range2;
+      const lastGridX = freqToX2(lastGridFreq);
       if (xPos - lastGridX > 50) {
         ctx.beginPath();
         ctx.moveTo(Math.round(xPos), FFT_AREA_MIN.y);
@@ -207,12 +201,11 @@ export function useOverlayRenderer() {
         ctx.restore();
       }
 
+      const visualCenterFreq = (minFreq + maxFreq) / 2;
       const centerLabel =
-        centerFrequencyMHz === undefined ||
-        Number.isNaN(centerFrequencyMHz) ||
-        !Number.isFinite(centerFrequencyMHz)
+        Number.isNaN(visualCenterFreq) || !Number.isFinite(visualCenterFreq)
           ? "✋  -- MHz"
-          : `✋  ${formatFrequency(centerFrequencyMHz)}`;
+          : `✋  ${formatFrequency(visualCenterFreq)}`;
 
       ctx.save();
       ctx.font = "12px JetBrains Mono";
