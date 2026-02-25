@@ -335,6 +335,9 @@ interface SidebarProps {
     format: "png" | "svg";
     grid: boolean;
   }) => void;
+  vizZoom?: number;
+  vizPanOffset?: number;
+  onVizPanChange?: (pan: number) => void;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({
@@ -382,6 +385,9 @@ const Sidebar: React.FC<SidebarProps> = ({
   getCurrentWaveform,
   centerFrequencyMHz,
   onSnapshot,
+  vizZoom = 1,
+  vizPanOffset = 0,
+  onVizPanChange,
 }) => {
   const { isAuthenticated, sessionToken, authState, aesKey } = useAuthentication();
   const maxSampleRate =
@@ -851,8 +857,22 @@ const Sidebar: React.FC<SidebarProps> = ({
                     const min = frame.min_mhz;
                     const max = frame.max_mhz;
                     const span = max - min;
-                    const window =
-                      typeof sampleRateMHz === "number" ? Math.min(sampleRateMHz, span) : span;
+
+                    // If this is the active frame and we are zoomed in,
+                    // calculate the visual range based on zoom and pan offset
+                    let visibleMin = min;
+                    let visibleMax = min + (typeof sampleRateMHz === "number" ? Math.min(sampleRateMHz, span) : span);
+                    let externalFreqRange = activeSignalArea === label ? frequencyRange : undefined;
+
+                    if (activeSignalArea === label && vizZoom > 1) {
+                      const hardwareCenter = (min + max) / 2;
+                      const visualCenter = hardwareCenter + vizPanOffset;
+                      const visualSpan = span / vizZoom;
+                      visibleMin = visualCenter - visualSpan / 2;
+                      visibleMax = visualCenter + visualSpan / 2;
+
+                      externalFreqRange = { min: visibleMin, max: visibleMax };
+                    }
 
                     return (
                       <FrequencyRangeSlider
@@ -860,17 +880,25 @@ const Sidebar: React.FC<SidebarProps> = ({
                         label={label}
                         minFreq={min}
                         maxFreq={max}
-                        visibleMin={min}
-                        visibleMax={min + window}
-                        sampleRateMHz={sampleRateMHz}
+                        visibleMin={visibleMin}
+                        visibleMax={visibleMax}
+                        sampleRateMHz={typeof sampleRateMHz === "number" ? sampleRateMHz / (activeSignalArea === label ? vizZoom : 1) : null}
                         limitMarkers={limitMarkers}
                         isActive={activeSignalArea === label}
                         onActivate={() => onSignalAreaChange?.(label)}
-                        onRangeChange={(range) => handleRangeChange(label, range)}
+                        onRangeChange={(range) => {
+                          if (activeSignalArea === label && vizZoom > 1 && onVizPanChange) {
+                            // Calculate pan offset from the center of the dragged visual range
+                            const hardwareCenter = (min + max) / 2;
+                            const visualCenter = (range.min + range.max) / 2;
+                            const newPan = visualCenter - hardwareCenter;
+                            onVizPanChange(newPan);
+                          } else {
+                            handleRangeChange(label, range);
+                          }
+                        }}
                         isDeviceConnected={deviceState === "connected"}
-                        externalFrequencyRange={
-                          activeSignalArea === label ? frequencyRange : undefined
-                        }
+                        externalFrequencyRange={externalFreqRange}
                       />
                     );
                   })

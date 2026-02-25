@@ -1,13 +1,6 @@
-use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use indexmap::IndexMap;
-
-use n_apt_backend::consts::rs::mock::{
-  MOCK_NARROW_BAND_WIDTH, MOCK_WIDE_BAND_WIDTH,
-  MOCK_STRONG_SIGNAL_MAX, MOCK_STRONG_SIGNAL_MIN, MOCK_MEDIUM_SIGNAL_MAX, MOCK_MEDIUM_SIGNAL_MIN,
-  MOCK_WEAK_SIGNAL_MAX, MOCK_WEAK_SIGNAL_MIN,
-};
 
 /// WebMCP tool request from agents
 #[derive(Debug, Deserialize)]
@@ -161,21 +154,7 @@ pub enum SignalType {
 }
 
 impl SignalType {
-  pub fn bandwidth(&self) -> usize {
-    match self {
-      SignalType::Narrow => MOCK_NARROW_BAND_WIDTH,
-      SignalType::Medium => (MOCK_NARROW_BAND_WIDTH + MOCK_WIDE_BAND_WIDTH) / 2,
-      SignalType::Wide => MOCK_WIDE_BAND_WIDTH,
-    }
-  }
-
-  pub fn random_strength_range(&self, rng: &mut rand::rngs::ThreadRng) -> f32 {
-    match self {
-      SignalType::Narrow => rng.gen_range(MOCK_WEAK_SIGNAL_MIN..MOCK_WEAK_SIGNAL_MAX),
-      SignalType::Medium => rng.gen_range(MOCK_MEDIUM_SIGNAL_MIN..MOCK_MEDIUM_SIGNAL_MAX),
-      SignalType::Wide => rng.gen_range(MOCK_STRONG_SIGNAL_MIN..MOCK_STRONG_SIGNAL_MAX),
-    }
-  }
+  // NOTE: Bandwidth and strength ranges are sourced from signals.yaml.
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

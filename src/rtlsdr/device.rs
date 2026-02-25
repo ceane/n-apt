@@ -213,6 +213,9 @@ impl RtlSdrDevice {
         if current_rate == 0 {
             current_rate = 3_200_000;
         }
+
+        info!("Sample rate is set at {} Hz", current_rate);
+
         let mut max_supported = current_rate;
 
         // Test from highest to lowest, stop at first successful rate
@@ -227,6 +230,8 @@ impl RtlSdrDevice {
                 }
             }
         }
+
+        info!("After testing sample rate is set to {} Hz",  current_rate);
 
         // Restore original sample rate
         let restore_ret = unsafe { ffi::rtlsdr_set_sample_rate(self.dev, current_rate) };

@@ -78,16 +78,7 @@ pub async fn handle_ws_connection(
     }
     guard.clone()
   };
-  let sdr_settings = {
-    let mut guard = shared.sdr_settings.lock().unwrap();
-    if guard.is_none() {
-      let loaded = super::utils::load_sdr_settings();
-      if loaded.is_some() {
-        *guard = loaded;
-      }
-    }
-    guard.clone()
-  };
+  let sdr_settings = { shared.sdr_settings.lock().unwrap().clone() };
 
   let max_sample_rate = if device_connected {
     device_info
@@ -235,11 +226,7 @@ pub fn handle_message(
         // Calculate center frequency based on the start of the range plus half the sample rate
         // This ensures the SDR tunes to exactly the right center frequency to capture the requested range
         let sdr_settings_guard = shared.sdr_settings.lock().unwrap();
-        let sample_rate = if let Some(settings) = &*sdr_settings_guard {
-            settings.sample_rate as f64
-        } else {
-            3200000.0 // Default to 3.2MHz if settings not available
-        };
+        let sample_rate = sdr_settings_guard.sample_rate as f64;
         
         let center_freq = ((min_freq * 1000000.0) + (sample_rate / 2.0)) as u32;
         
