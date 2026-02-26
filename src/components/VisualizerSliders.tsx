@@ -34,7 +34,7 @@ const SliderLabel = styled.span`
 
 const SliderTrack = styled.div`
   position: relative;
-  width: 6px;
+  width: 12px;
   flex: 1;
   background-color: #1a1a1a;
   border-radius: 3px;
