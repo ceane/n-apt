@@ -2,22 +2,66 @@ import * as React from "react";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import FFTCanvas from "@n-apt/components/FFTCanvas";
-import { FrequencyRange } from "@n-apt/fft/FFTCanvasRenderer";
+import { FrequencyRange } from "@n-apt/consts/types";
 
-// Mock the canvas renderers
-jest.mock("@n-apt/fft/FFTCanvasRenderer", () => ({
-  drawSpectrum: jest.fn(),
-  drawSpectrumGrid: jest.fn(),
-  drawSpectrumMarkers: jest.fn(),
-  zoomFFT: jest.fn(),
-  FrequencyRange: {} as any,
+// Mock the hooks that FFTCanvas uses
+jest.mock("@n-apt/hooks/useFFTAnimation", () => ({
+  useFFTAnimation: () => ({
+    isAnimating: false,
+    startAnimation: jest.fn(),
+    stopAnimation: jest.fn(),
+  }),
 }));
 
-jest.mock("@n-apt/waterfall/FIFOWaterfallRenderer", () => ({
-  drawWaterfall: jest.fn(),
-  createWaterfallLine: jest.fn(() => new ImageData(800, 1)),
-  addWaterfallFrame: jest.fn(),
-  spectrumToAmplitude: jest.fn((spectrum: number[]) => spectrum.map(() => 0)),
+jest.mock("@n-apt/hooks/usePauseLogic", () => ({
+  usePauseLogic: () => ({
+    isPaused: false,
+    togglePause: jest.fn(),
+  }),
+}));
+
+jest.mock("@n-apt/hooks/useDraw2DFFTSignal", () => ({
+  useDraw2DFFTSignal: () => ({
+    draw2DFFTSignal: jest.fn(),
+    cleanup: jest.fn(),
+  }),
+}));
+
+jest.mock("@n-apt/hooks/useDraw2DFIFOWaterfall", () => ({
+  useDraw2DFIFOWaterfall: () => ({
+    draw2DFIFOWaterfall: jest.fn(),
+    cleanup: jest.fn(),
+  }),
+}));
+
+jest.mock("@n-apt/hooks/useDrawWebGPUFFTSignal", () => ({
+  useDrawWebGPUFFTSignal: () => ({
+    drawWebGPUFFTSignal: jest.fn(),
+    cleanup: jest.fn(),
+  }),
+  RESAMPLE_WGSL: "",
+}));
+
+jest.mock("@n-apt/hooks/useDrawWebGPUFIFOWaterfall", () => ({
+  useDrawWebGPUFIFOWaterfall: () => ({
+    drawWebGPUFIFOWaterfall: jest.fn(),
+    cleanup: jest.fn(),
+  }),
+}));
+
+jest.mock("@n-apt/hooks/useOverlayRenderer", () => ({
+  useOverlayRenderer: () => ({
+    renderOverlay: jest.fn(),
+    cleanup: jest.fn(),
+  }),
+}));
+
+jest.mock("@n-apt/hooks/useFrequencyDrag", () => ({
+  useFrequencyDrag: () => ({
+    handleMouseDown: jest.fn(),
+    handleMouseMove: jest.fn(),
+    handleMouseUp: jest.fn(),
+  }),
 }));
 
 // Mock WebGPU
@@ -54,7 +98,7 @@ jest.mock("@n-apt/hooks/useSpectrumRendering", () => ({
 }));
 
 jest.mock("@n-apt/hooks/useFrequencyDrag", () => ({
-  useFrequencyDrag: () => {},
+  useFrequencyDrag: () => { },
 }));
 
 describe("Device Stream Frozen Scenarios", () => {

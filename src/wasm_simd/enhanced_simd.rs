@@ -1,9 +1,9 @@
 //! # Enhanced SIMD FFT Processor
 //!
-use crate::fft::RawSamples;
+use crate::fft::types::RawSamples;
 /* using Rust's native SIMD intrinsics for maximum performance. */
 //
-use crate::fft::WindowType;
+use crate::fft::processor::WindowType;
 use anyhow::Result;
 use rustfft::{FftPlanner, FftDirection};
 use num_complex::Complex;
@@ -582,6 +582,9 @@ impl EnhancedSIMDProcessor {
 
 #[cfg(test)]
 mod tests {
+  use super::*;
+  use crate::fft::types::RawSamples;
+  use crate::fft::processor::WindowType;
   
   #[cfg(target_arch = "wasm32")]
   #[test]

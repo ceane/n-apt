@@ -10,7 +10,8 @@
 //! - Downsampling: 4-8x speedup (vectorized max reduction)
 //! - Window functions: 2-3x speedup (vectorized coefficient application)
 
-use crate::fft::{RawSamples, WindowType};
+use crate::fft::types::RawSamples;
+use crate::fft::processor::WindowType;
 use anyhow::Result;
 use rustfft::{num_complex::Complex, FftPlanner};
 use std::sync::Arc;
