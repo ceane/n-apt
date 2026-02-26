@@ -20,7 +20,8 @@
 //! processor.process_samples_simd(&input, &mut output);
 //! ```
 
-use crate::fft::{RawSamples, WindowType};
+use crate::fft::types::RawSamples;
+use crate::fft::processor::WindowType;
 use anyhow::Result;
 use rustfft::{num_complex::Complex, FftPlanner};
 #[cfg(target_arch = "wasm32")]

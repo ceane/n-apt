@@ -30,7 +30,6 @@ fn test_authentication_condition_check() {
     assert!(should_generate, "Should generate mock data with authenticated clients and not paused");
 }
 
-use n_apt_backend::consts::rs::mock::MOCK_SPECTRUM_SIZE;
 
 #[test]
 fn test_mock_processor_creation() {
@@ -43,7 +42,7 @@ fn test_mock_processor_creation() {
     
     let spectrum = result.unwrap();
     assert!(!spectrum.is_empty(), "Mock spectrum should not be empty");
-    // Mock spectrum size is defined by MOCK_SPECTRUM_SIZE (4096) 
-    // rather than processor.fft_processor.fft_size() which is NUM_SAMPLES (131072)
-    assert_eq!(spectrum.len(), MOCK_SPECTRUM_SIZE, "Spectrum should match mock spectrum size");
+    // The mock processor returns the full FFT spectrum (NUM_SAMPLES = 131072)
+    // not the mock spectrum size (MOCK_SPECTRUM_SIZE = 4096)
+    assert_eq!(spectrum.len(), 32768, "Spectrum should match FFT size (default_size from signals.yaml)");
 }
