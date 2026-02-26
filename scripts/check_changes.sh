@@ -15,15 +15,20 @@ if [ ! -d "$TARGET_DIR" ]; then
     exit 0
 fi
 
-# Find the most recent file in target directory (cross-platform)
-if command -v stat >/dev/null 2>&1; then
+# Use the actual binary timestamp, not the newest file in target/
+# This prevents incremental compilation artifacts from masking source changes
+BINARY="$TARGET_DIR/n-apt-backend"
+if [ -f "$BINARY" ]; then
     # Try Linux stat format first
-    TARGET_TIME=$(find "$TARGET_DIR" -type f -exec stat -c "%Y" {} \; 2>/dev/null | sort -r | head -1)
-fi
-
-# If Linux format failed, try macOS format
-if [ -z "$TARGET_TIME" ]; then
-    TARGET_TIME=$(find "$TARGET_DIR" -type f -exec stat -f "%m" {} \; 2>/dev/null | sort -r | head -1)
+    TARGET_TIME=$(stat -c "%Y" "$BINARY" 2>/dev/null)
+    # If Linux format failed, try macOS format
+    if [ -z "$TARGET_TIME" ]; then
+        TARGET_TIME=$(stat -f "%m" "$BINARY" 2>/dev/null)
+    fi
+else
+    # Binary doesn't exist, need to build
+    echo "Binary not found, building..."
+    exit 0
 fi
 
 if [ -z "$TARGET_TIME" ]; then

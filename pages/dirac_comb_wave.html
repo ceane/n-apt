@@ -1,94 +1,93 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-<meta charset="UTF-8">
-<title>Dirac Comb SVG Generator</title>
-<style>
-  body {
-    font-family: system-ui, sans-serif;
-    background: #111;
-    color: #ddd;
-    padding: 20px;
-  }
-  input, button {
-    margin: 4px;
-  }
-  svg {
-    background: black;
-    border: 1px solid #333;
-  }
-</style>
-</head>
-<body>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Dirac Comb SVG Generator</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        background: #111;
+        color: #ddd;
+        padding: 20px;
+      }
+      input,
+      button {
+        margin: 4px;
+      }
+      svg {
+        background: black;
+        border: 1px solid #333;
+      }
+    </style>
+  </head>
+  <body>
+    <h2>Dirac Comb SVG Generator</h2>
 
-<h2>Dirac Comb SVG Generator</h2>
+    <label>Period (px): <input id="period" type="number" value="40" /></label>
+    <label>Amplitude (px): <input id="amp" type="number" value="80" /></label>
+    <label>Count: <input id="count" type="number" value="20" /></label>
+    <label>Width: <input id="width" type="number" value="2" /></label>
 
-<label>Period (px): <input id="period" type="number" value="40"></label>
-<label>Amplitude (px): <input id="amp" type="number" value="80"></label>
-<label>Count: <input id="count" type="number" value="20"></label>
-<label>Width: <input id="width" type="number" value="2"></label>
+    <br />
 
-<br>
+    <button onclick="generate()">Generate</button>
+    <button onclick="downloadSVG()">Download SVG</button>
 
-<button onclick="generate()">Generate</button>
-<button onclick="downloadSVG()">Download SVG</button>
+    <br /><br />
 
-<br><br>
+    <svg id="svg" width="800" height="200"></svg>
 
-<svg id="svg" width="800" height="200"></svg>
+    <script>
+      function generate() {
+        const period = +periodInput.value;
+        const amp = +ampInput.value;
+        const count = +countInput.value;
+        const lineWidth = +widthInput.value;
 
-<script>
-function generate() {
-  const period = +periodInput.value;
-  const amp = +ampInput.value;
-  const count = +countInput.value;
-  const lineWidth = +widthInput.value;
+        const svg = document.getElementById("svg");
+        svg.innerHTML = "";
 
-  const svg = document.getElementById("svg");
-  svg.innerHTML = "";
+        const midY = svg.height.baseVal.value / 2;
+        const startX = 50;
 
-  const midY = svg.height.baseVal.value / 2;
-  const startX = 50;
+        for (let i = 0; i < count; i++) {
+          const x = startX + i * period;
 
-  for (let i = 0; i < count; i++) {
-    const x = startX + i * period;
+          const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+          line.setAttribute("x1", x);
+          line.setAttribute("x2", x);
+          line.setAttribute("y1", midY - amp / 2);
+          line.setAttribute("y2", midY + amp / 2);
+          line.setAttribute("stroke", "#00ffff");
+          line.setAttribute("stroke-width", lineWidth);
 
-    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-    line.setAttribute("x1", x);
-    line.setAttribute("x2", x);
-    line.setAttribute("y1", midY - amp / 2);
-    line.setAttribute("y2", midY + amp / 2);
-    line.setAttribute("stroke", "#00ffff");
-    line.setAttribute("stroke-width", lineWidth);
+          svg.appendChild(line);
+        }
+      }
 
-    svg.appendChild(line);
-  }
-}
+      function downloadSVG() {
+        const svg = document.getElementById("svg");
+        const serializer = new XMLSerializer();
+        const source = serializer.serializeToString(svg);
 
-function downloadSVG() {
-  const svg = document.getElementById("svg");
-  const serializer = new XMLSerializer();
-  const source = serializer.serializeToString(svg);
+        const blob = new Blob([source], { type: "image/svg+xml;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
 
-  const blob = new Blob([source], { type: "image/svg+xml;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "dirac_comb.svg";
+        a.click();
 
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = "dirac_comb.svg";
-  a.click();
+        URL.revokeObjectURL(url);
+      }
 
-  URL.revokeObjectURL(url);
-}
+      // input references
+      const periodInput = document.getElementById("period");
+      const ampInput = document.getElementById("amp");
+      const countInput = document.getElementById("count");
+      const widthInput = document.getElementById("width");
 
-// input references
-const periodInput = document.getElementById("period");
-const ampInput = document.getElementById("amp");
-const countInput = document.getElementById("count");
-const widthInput = document.getElementById("width");
-
-generate();
-</script>
-
-</body>
+      generate();
+    </script>
+  </body>
 </html>

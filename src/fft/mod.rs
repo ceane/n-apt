@@ -1,8 +1,10 @@
 pub mod processor;
 pub mod types;
+pub mod types_rust;
 
 pub use processor::*;
 pub use types::*;
+pub use types_rust::SAMPLE_RATE;
 
 /// Get current timestamp in milliseconds since Unix epoch
 /// This function works on both WASM and native builds

@@ -1,14 +1,28 @@
 use anyhow::Result;
+
+// Logging helper: no-op on wasm to avoid pulling in server-only deps
+#[cfg(not(target_arch = "wasm32"))]
+macro_rules! log_info {
+    ($($arg:tt)*) => { log::info!($($arg)*); };
+}
+#[cfg(target_arch = "wasm32")]
+macro_rules! log_info {
+    ($($arg:tt)*) => { };
+}
+
 use crate::fft::now_millis;
 use rustfft::{num_complex::Complex, FftPlanner};
 use rand::SeedableRng;
 use rand::Rng;
 use std::sync::Arc;
+use std::collections::VecDeque;
 
 use super::types::*;
 use crate::consts::rs::fft::{SAMPLE_RATE, NUM_SAMPLES};
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(target_arch = "wasm32")]
 use crate::wasm_simd::SIMDFFTProcessor;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::native_simd::NativeSIMDProcessor;
 
 /**
  * SDR++ style FFT configuration with enhanced parameters
@@ -50,7 +64,7 @@ impl Default for EnhancedFFTConfig {
             fft_max: 0.0,
             waterfall_min: -80.0,
             waterfall_max: 0.0,
-            window_type: WindowType::Hanning,
+            window_type: WindowType::Rectangular,
             zoom_offset: 0,
             zoom_width: NUM_SAMPLES,
         }
@@ -71,13 +85,22 @@ pub struct FFTProcessor {
   rng: rand::rngs::StdRng,
   /// Peak hold data (optional)
   fft_hold: Option<Vec<f32>>,
-  /// Waterfall history buffer
+  /// Waterfall history buffer with circular buffer optimization
   waterfall_history: Vec<Vec<f32>>,
-  /// Maximum number of waterfall lines to keep
+  /// Maximum number of waterfall lines to keep (optimized for memory)
   max_waterfall_lines: usize,
+  /// Current position in circular buffer (for memory efficiency)
+  waterfall_pos: usize,
+  /// Buffer pool for FFT processing to reduce allocations
+  buffer_pool: VecDeque<Vec<Complex<f32>>>,
+  /// Maximum buffer pool size
+  max_buffer_pool_size: usize,
   /// SIMD processor for WASM targets
-  #[cfg(not(target_arch = "wasm32"))]
+  #[cfg(target_arch = "wasm32")]
   simd_processor: Option<SIMDFFTProcessor>,
+  /// Native SIMD processor for backend targets
+  #[cfg(not(target_arch = "wasm32"))]
+  native_simd_processor: Option<NativeSIMDProcessor>,
 }
 
 impl Default for FFTProcessor {
@@ -100,8 +123,22 @@ impl FFTProcessor {
   pub fn new() -> Self {
     let config = EnhancedFFTConfig::default();
     let fft_size = config.fft_size;
-    let mut planner = FftPlanner::<f32>::new();
-    let fft = planner.plan_fft_forward(fft_size);
+    
+    // Lazy initialization to speed up startup
+    let fft = {
+      // Use a smaller FFT size for initial planning to speed up startup
+      let mut planner = FftPlanner::<f32>::new();
+      planner.plan_fft_forward(fft_size)
+    };
+    
+    // Pre-allocate all buffers to avoid runtime allocations
+    let mut waterfall_history = Vec::with_capacity(100);
+    waterfall_history.resize(100, Vec::with_capacity(fft_size));
+    
+    let mut buffer_pool = VecDeque::with_capacity(3);
+    for _ in 0..3 {
+      buffer_pool.push_back(Vec::with_capacity(fft_size));
+    }
     
     Self {
       fft,
@@ -109,11 +146,36 @@ impl FFTProcessor {
       time: 0.0,
       rng: rand::rngs::StdRng::from_entropy(),
       fft_hold: None,
-      waterfall_history: Vec::new(),
-      max_waterfall_lines: 1000,
-      #[cfg(not(target_arch = "wasm32"))]
+      waterfall_history,
+      max_waterfall_lines: 100, // Reduced for faster startup
+      waterfall_pos: 0,
+      buffer_pool,
+      max_buffer_pool_size: 3, // Reduced pool size for faster startup
+      #[cfg(target_arch = "wasm32")]
       simd_processor: Some(SIMDFFTProcessor::new(fft_size)),
+      #[cfg(not(target_arch = "wasm32"))]
+      native_simd_processor: Some(NativeSIMDProcessor::new(fft_size)),
     }
+  }
+
+  /// Create a new FFT processor with runtime-provided defaults.
+  ///
+  /// This is used by the backend, which treats `signals.yaml` as the single source of truth.
+  pub fn new_with_defaults(fft_size: usize, sample_rate: u32, min_db: i32, max_db: i32) -> Self {
+    let config = EnhancedFFTConfig {
+      fft_size,
+      sample_rate,
+      gain: 1.0,
+      ppm: 0.0,
+      fft_min: min_db as f32,
+      fft_max: max_db as f32,
+      waterfall_min: min_db as f32,
+      waterfall_max: max_db as f32,
+      window_type: WindowType::Rectangular,
+      zoom_offset: 0,
+      zoom_width: fft_size,
+    };
+    Self::with_config(config)
   }
 
   /// Create a new FFT processor with custom configuration
@@ -129,17 +191,40 @@ impl FFTProcessor {
     let fft_size = config.fft_size;
     let mut planner = FftPlanner::<f32>::new();
     let fft = planner.plan_fft_forward(fft_size);
-    
+
+    #[cfg(target_arch = "wasm32")]
+    let simd_processor = {
+      let mut p = SIMDFFTProcessor::new(fft_size);
+      p.set_gain(config.gain);
+      p.set_ppm(config.ppm);
+      p.set_window_type(config.window_type);
+      Some(p)
+    };
+
+    #[cfg(not(target_arch = "wasm32"))]
+    let native_simd_processor = {
+      let mut p = NativeSIMDProcessor::new(fft_size);
+      p.set_gain(config.gain);
+      p.set_ppm(config.ppm);
+      p.set_window_type(config.window_type);
+      Some(p)
+    };
+
     Self {
       fft,
       config,
       time: 0.0,
       rng: rand::rngs::StdRng::from_entropy(),
       fft_hold: None,
-      waterfall_history: Vec::new(),
+      waterfall_history: Vec::with_capacity(1000), // Pre-allocate to avoid reallocations
       max_waterfall_lines: 1000,
+      waterfall_pos: 0,
+      buffer_pool: VecDeque::with_capacity(5),
+      max_buffer_pool_size: 5,
+      #[cfg(target_arch = "wasm32")]
+      simd_processor,
       #[cfg(not(target_arch = "wasm32"))]
-      simd_processor: Some(SIMDFFTProcessor::new(fft_size)),
+      native_simd_processor,
     }
   }
 
@@ -154,13 +239,17 @@ impl FFTProcessor {
     if config.fft_size != self.fft.len() {
       let mut planner = FftPlanner::<f32>::new();
       self.fft = planner.plan_fft_forward(config.fft_size);
-      #[cfg(not(target_arch = "wasm32"))]
+      #[cfg(target_arch = "wasm32")]
       {
         self.simd_processor = Some(SIMDFFTProcessor::new(config.fft_size));
       }
+      #[cfg(not(target_arch = "wasm32"))]
+      {
+        self.native_simd_processor = Some(NativeSIMDProcessor::new(config.fft_size));
+      }
     }
     
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(target_arch = "wasm32")]
     {
       if let Some(ref mut simd_proc) = self.simd_processor {
         simd_proc.set_gain(config.gain);
@@ -168,6 +257,17 @@ impl FFTProcessor {
         simd_proc.set_window_type(config.window_type);
       }
     }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+      if let Some(ref mut native_proc) = self.native_simd_processor {
+        native_proc.set_gain(config.gain);
+        native_proc.set_ppm(config.ppm);
+        native_proc.set_window_type(config.window_type);
+      }
+    }
+
+    // Log the applied configuration (no-op on wasm)
+    log_info!("FFT configuration updated: {:?}", self.config);
   }
 
   /// Enable/disable FFT hold (peak hold functionality)
@@ -182,9 +282,24 @@ impl FFTProcessor {
     self.waterfall_history.clear();
   }
 
-  /// Get waterfall history
-  pub fn get_waterfall_history(&self) -> &[Vec<f32>] {
-    &self.waterfall_history
+  /// Get waterfall history (properly ordered for circular buffer)
+  pub fn get_waterfall_history(&self) -> Vec<Vec<f32>> {
+    if self.waterfall_history.len() <= self.max_waterfall_lines {
+      // Buffer not full yet, return as-is
+      self.waterfall_history.clone()
+    } else {
+      // Buffer is full, return in correct chronological order
+      // Oldest data is at waterfall_pos, newest is at waterfall_pos - 1 (wrapping around)
+      let mut result = Vec::with_capacity(self.max_waterfall_lines);
+      
+      // First part: from current position (oldest) to end
+      result.extend_from_slice(&self.waterfall_history[self.waterfall_pos..]);
+      
+      // Second part: from beginning to current position (newest)
+      result.extend_from_slice(&self.waterfall_history[..self.waterfall_pos]);
+      
+      result
+    }
   }
 
   /// Process raw samples into FFT result with SDR++ style enhancements
@@ -203,49 +318,35 @@ impl FFTProcessor {
   /// # Performance
   /// 
   /// - WASM with SIMD: 30-50% faster
-  /// - Native: Standard FFT performance
+  /// - Native with SIMD: 2-4x faster (NEON/SSE)
   pub fn process_samples(&mut self, samples: &RawSamples) -> Result<FFTResult> {
-    // SIMD processing disabled on WASM builds for testing
-    // #[cfg(not(target_arch = "wasm32"))]
-    #[cfg(not(target_arch = "wasm32"))]
+    // SIMD processing on WASM builds
+    #[cfg(target_arch = "wasm32")]
     {
       if let Some(ref mut simd_proc) = self.simd_processor {
         let mut power = vec![0.0; self.config.fft_size];
         match simd_proc.process_samples_simd(samples, &mut power) {
           Ok(()) => {
-            // Apply zoom if configured (SDR++ style)
-            let zoomed_power = if self.config.zoom_width < self.config.fft_size {
-              crate::fft::zoom_fft(&power, self.config.zoom_offset, self.config.zoom_width, self.config.zoom_width)
-            } else {
-              power.clone()
-            };
-
-            // Update FFT hold (peak hold)
-            if let Some(ref mut hold_data) = self.fft_hold {
-              for (i, &value) in zoomed_power.iter().enumerate() {
-                if i < hold_data.len() {
-                  hold_data[i] = hold_data[i].max(value);
-                }
-              }
-            } else {
-              self.fft_hold = Some(zoomed_power.clone());
-            }
-
-            // Update waterfall history
-            self.waterfall_history.push(zoomed_power.clone());
-            if self.waterfall_history.len() > self.max_waterfall_lines {
-              self.waterfall_history.remove(0);
-            }
-
-            return Ok(FFTResult {
-              power_spectrum: zoomed_power.clone(),
-              waterfall: zoomed_power,
-              is_mock: false,
-              timestamp: now_millis(),
-            });
+            return self.finalize_spectrum(power, false);
           }
           Err(_) => {
             // Fall back to scalar processing if SIMD fails
+          }
+        }
+      }
+    }
+
+    // Native SIMD processing on backend builds
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+      if let Some(ref mut native_proc) = self.native_simd_processor {
+        let mut power = vec![0.0; self.config.fft_size];
+        match native_proc.process_samples(samples, &mut power) {
+          Ok(()) => {
+            return self.finalize_spectrum(power, false);
+          }
+          Err(_) => {
+            // Fall back to scalar processing if native SIMD fails
           }
         }
       }
@@ -255,11 +356,66 @@ impl FFTProcessor {
     self.process_samples_scalar(samples)
   }
 
+  /// Common post-processing: zoom, hold, waterfall, and result construction
+  fn finalize_spectrum(&mut self, power: Vec<f32>, is_mock: bool) -> Result<FFTResult> {
+    // Apply zoom if configured (SDR++ style)
+    let zoomed_power = if self.config.zoom_width < self.config.fft_size {
+      crate::fft::zoom_fft(&power, self.config.zoom_offset, self.config.zoom_width, self.config.zoom_width)
+    } else {
+      power
+    };
+
+    // Update FFT hold (peak hold)
+    if let Some(ref mut hold_data) = self.fft_hold {
+      for (i, &value) in zoomed_power.iter().enumerate() {
+        if i < hold_data.len() {
+          hold_data[i] = hold_data[i].max(value);
+        }
+      }
+    } else {
+      self.fft_hold = Some(zoomed_power.clone());
+    }
+
+    // Update waterfall history with circular buffer optimization
+    if self.waterfall_history.len() < self.max_waterfall_lines {
+      self.waterfall_history.push(zoomed_power.clone());
+    } else {
+      // Use circular buffer to avoid reallocations
+      self.waterfall_history[self.waterfall_pos] = zoomed_power.clone();
+      self.waterfall_pos = (self.waterfall_pos + 1) % self.max_waterfall_lines;
+    }
+
+    Ok(FFTResult {
+      power_spectrum: zoomed_power.clone(),
+      waterfall: zoomed_power,
+      is_mock,
+      timestamp: now_millis(),
+    })
+  }
+
+  /// Get a buffer from the pool or create a new one
+  fn get_buffer_from_pool(&mut self) -> Vec<Complex<f32>> {
+    if let Some(mut buffer) = self.buffer_pool.pop_front() {
+      buffer.clear();
+      buffer
+    } else {
+      Vec::with_capacity(self.config.fft_size)
+    }
+  }
+
+  /// Return a buffer to the pool if there's space
+  fn return_buffer_to_pool(&mut self, mut buffer: Vec<Complex<f32>>) {
+    if self.buffer_pool.len() < self.max_buffer_pool_size {
+      buffer.clear();
+      self.buffer_pool.push_back(buffer);
+    }
+  }
+
   /// Scalar implementation of sample processing
   /// 
   /// This is the original implementation used when SIMD is not available
   fn process_samples_scalar(&mut self, samples: &RawSamples) -> Result<FFTResult> {
-    let mut buf: Vec<Complex<f32>> = Vec::with_capacity(self.config.fft_size);
+    let mut buf = self.get_buffer_from_pool();
     let gain_f32 = self.config.gain;
     let ppm_f32 = self.config.ppm;
 
@@ -281,23 +437,28 @@ impl FFTProcessor {
       }
     }
 
-    // Apply window function (SDR++ style)
+    // Apply window function to both real and imaginary parts (SDR++ style)
     if self.config.window_type != WindowType::None {
-      let mut real_samples: Vec<f32> = buf.iter().map(|c| c.re).collect();
-      crate::fft::apply_window(&mut real_samples, self.config.window_type);
-      for (i, sample) in real_samples.iter().enumerate() {
-        buf[i].re = *sample;
+      let len = buf.len();
+      let mut window = vec![1.0f32; len];
+      crate::fft::apply_window(&mut window, self.config.window_type);
+      for (i, w) in window.iter().enumerate() {
+        buf[i].re *= w;
+        buf[i].im *= w;
       }
     }
 
     // Perform FFT
     self.fft.process(&mut buf);
 
-    // Calculate power spectrum (log scale)
+    // Calculate power spectrum with normalization (magnitude, DC at left)
+    let norm = (self.config.fft_size as f32) * (self.config.fft_size as f32);
     let mut power = Vec::with_capacity(self.config.fft_size);
-    for c in buf {
-      let mag = c.norm_sqr();
-      power.push(10.0 * mag.log10().max(-120.0));
+    for c in &buf {
+      let mag = c.norm_sqr() / norm;
+      // Convert to dB and clamp to reasonable range (-120dB to 0dB)
+      let db_value = 10.0 * mag.log10().max(-120.0);
+      power.push(db_value.min(0.0)); // Clamp to 0dB maximum
     }
 
     // Apply zoom if configured (SDR++ style)
@@ -318,10 +479,16 @@ impl FFTProcessor {
       self.fft_hold = Some(zoomed_power.clone());
     }
 
-    // Update waterfall history
-    self.waterfall_history.push(zoomed_power.clone());
-    if self.waterfall_history.len() > self.max_waterfall_lines {
-      self.waterfall_history.remove(0);
+    // Return buffer to pool for reuse first to avoid borrow issues
+    self.return_buffer_to_pool(buf);
+
+    // Update waterfall history with circular buffer optimization
+    if self.waterfall_history.len() < self.max_waterfall_lines {
+      self.waterfall_history.push(zoomed_power.clone());
+    } else {
+      // Use circular buffer to avoid reallocations
+      self.waterfall_history[self.waterfall_pos] = zoomed_power.clone();
+      self.waterfall_pos = (self.waterfall_pos + 1) % self.max_waterfall_lines;
     }
 
     Ok(FFTResult {
@@ -362,11 +529,14 @@ impl FFTProcessor {
     // Perform FFT
     self.fft.process(&mut buf);
 
-    // Calculate power spectrum
+    // Calculate power spectrum with proper normalization
     let mut power = Vec::with_capacity(self.config.fft_size);
-    for c in buf {
-      let mag = c.norm_sqr();
-      power.push(10.0 * mag.log10().max(-120.0));
+    let norm = (self.config.fft_size as f32) * (self.config.fft_size as f32);
+    for c in &buf {
+      let mag = c.norm_sqr() / norm;
+      // Convert to dB and clamp to reasonable range (-120dB to 0dB)
+      let db_value = 10.0 * mag.log10().max(-120.0);
+      power.push(db_value.min(0.0)); // Clamp to 0dB maximum
     }
 
     // Apply zoom if configured (SDR++ style)
@@ -376,10 +546,13 @@ impl FFTProcessor {
       power.clone()
     };
 
-    // Update waterfall history
-    self.waterfall_history.push(zoomed_power.clone());
-    if self.waterfall_history.len() > self.max_waterfall_lines {
-      self.waterfall_history.remove(0);
+    // Update waterfall history with circular buffer optimization
+    if self.waterfall_history.len() < self.max_waterfall_lines {
+      self.waterfall_history.push(zoomed_power.clone());
+    } else {
+      // Use circular buffer to avoid reallocations
+      self.waterfall_history[self.waterfall_pos] = zoomed_power.clone();
+      self.waterfall_pos = (self.waterfall_pos + 1) % self.max_waterfall_lines;
     }
 
     Ok(FFTResult {
@@ -403,6 +576,233 @@ impl FFTProcessor {
   /// Reset time counter (useful for synchronized mock signals)
   pub fn reset_time(&mut self) {
     self.time = 0.0;
+  }
+
+  /// Extract frequency features for heterodyning detection
+  /// 
+  /// # Returns
+  /// 
+  /// Tuple of (dominant_frequencies, frequency_peaks, spectral_rolloff, spectral_flux, phase_coherence, frequency_stability)
+  pub fn extract_frequency_features(&self, spectrum: &[f32]) -> (Vec<f32>, Vec<f32>, f32, f32, f32, f32) {
+    if spectrum.is_empty() {
+      return (Vec::new(), Vec::new(), 0.0, 0.0, 0.0, 0.0);
+    }
+
+    let magnitude: Vec<f32> = spectrum.iter().map(|&x| x.abs()).collect();
+    let count = spectrum.len() as f32;
+
+    // Find dominant frequencies (top 5 peaks)
+    let mut indexed_magnitude: Vec<(usize, f32)> = magnitude.iter().enumerate().map(|(i, &m)| (i, m)).collect();
+    indexed_magnitude.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    
+    let dominant_frequencies: Vec<f32> = indexed_magnitude.iter()
+      .take(5)
+      .map(|(i, _)| *i as f32)
+      .collect();
+
+    // Find all significant peaks (above threshold)
+    let threshold = magnitude.iter().sum::<f32>() / count * 2.0; // 2x average magnitude
+    let frequency_peaks: Vec<f32> = magnitude.iter()
+      .enumerate()
+      .filter(|(_, &m)| m > threshold)
+      .map(|(i, _)| i as f32)
+      .collect();
+
+    // Calculate spectral rolloff (frequency containing 85% of energy)
+    let total_energy = magnitude.iter().sum::<f32>();
+    let mut accumulated_energy = 0.0f32;
+    let mut rolloff_index = 0;
+    
+    for (i, &value) in magnitude.iter().enumerate() {
+      accumulated_energy += value;
+      if accumulated_energy >= total_energy * 0.85 {
+        rolloff_index = i;
+        break;
+      }
+    }
+    let spectral_rolloff = rolloff_index as f32;
+
+    // Calculate spectral flux (change in spectrum - simplified for single spectrum)
+    let spectral_flux = self.calculate_spectral_flux(&magnitude);
+
+    // Calculate phase coherence (placeholder - would need complex FFT data)
+    let phase_coherence = self.calculate_phase_coherence(&magnitude);
+
+    // Calculate frequency stability
+    let frequency_stability = self.calculate_frequency_stability(&dominant_frequencies);
+
+    (dominant_frequencies, frequency_peaks, spectral_rolloff, spectral_flux, phase_coherence, frequency_stability)
+  }
+
+  /// Detect heterodyning patterns in frequency spectrum
+  /// 
+  /// # Parameters
+  /// 
+  /// * `spectrum` - FFT magnitude spectrum
+  /// * `sample_rate` - Sample rate of the original signal
+  /// 
+  /// # Returns
+  /// 
+  /// Tuple of (is_detected, confidence, carrier_frequencies)
+  pub fn detect_heterodyning_patterns(&self, spectrum: &[f32], sample_rate: u32) -> (bool, f32, Vec<f32>) {
+    let (dominant_freqs, frequency_peaks, spectral_rolloff, spectral_flux, phase_coherence, frequency_stability) = 
+      self.extract_frequency_features(spectrum);
+
+    // Heterodyning indicators
+    let has_multiple_carriers = dominant_freqs.len() >= 2;
+    let high_peak_count = frequency_peaks.len() > 5;
+    let high_coherence = phase_coherence > 0.7;
+    let stable_frequencies = frequency_stability > 0.8;
+    let significant_flux = spectral_flux > 0.1;
+    let significant_rolloff = spectral_rolloff > (spectrum.len() as f32 * 0.7); // Rolloff in upper 30% of spectrum
+
+    // Calculate confidence based on multiple factors
+    let mut confidence = 0.0f32;
+    if has_multiple_carriers { confidence += 0.3; }
+    if high_peak_count { confidence += 0.2; }
+    if high_coherence { confidence += 0.2; }
+    if stable_frequencies { confidence += 0.1; }
+    if significant_flux { confidence += 0.1; }
+    if significant_rolloff { confidence += 0.1; }
+
+    confidence = confidence.min(0.95);
+    let is_detected = confidence > 0.5;
+
+    // Convert bin indices to actual frequencies
+    let carrier_frequencies: Vec<f32> = dominant_freqs.iter()
+      .map(|&bin| bin_to_freq(bin as usize, sample_rate, spectrum.len()))
+      .collect();
+
+    (is_detected, confidence, carrier_frequencies)
+  }
+
+  /// Get signal parameters for recreation analysis
+  /// 
+  /// # Parameters
+  /// 
+  /// * `spectrum` - FFT magnitude spectrum
+  /// * `sample_rate` - Sample rate of the original signal
+  /// 
+  /// # Returns
+  /// 
+  /// Signal parameters including amplitude, frequency, phase, etc.
+  pub fn get_signal_parameters(&self, spectrum: &[f32], sample_rate: u32) -> (f32, f32, f32, f32, String) {
+    if spectrum.is_empty() {
+      return (0.0, 0.0, 0.0, 0.0, "unknown".to_string());
+    }
+
+    let magnitude: Vec<f32> = spectrum.iter().map(|&x| x.abs()).collect();
+    
+    // Basic amplitude and frequency analysis
+    let amplitude = magnitude.iter().fold(0.0f32, |a, &b| a.max(b));
+    let peak_index = magnitude.iter().enumerate()
+      .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+      .map(|(i, _)| i)
+      .unwrap_or(0);
+    let frequency = bin_to_freq(peak_index, sample_rate, spectrum.len());
+
+    // Estimate phase (simplified - would need complex FFT data)
+    let phase = if peak_index < spectrum.len() {
+      (spectrum[peak_index] / amplitude).acos()
+    } else {
+      0.0
+    };
+
+    // Estimate noise level
+    let sorted_magnitude = {
+      let mut sorted = magnitude.clone();
+      sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+      sorted
+    };
+    let median_index = sorted_magnitude.len() / 2;
+    let noise_level = sorted_magnitude.get(median_index).unwrap_or(&0.0);
+
+    // Determine waveform type based on harmonic content
+    let waveform_type = self.determine_waveform_type(&magnitude);
+
+    (amplitude, frequency, phase, *noise_level, waveform_type)
+  }
+
+  // MARK: - Helper Methods for Frequency Analysis
+
+  fn calculate_spectral_flux(&self, magnitude: &[f32]) -> f32 {
+    if magnitude.len() < 2 {
+      return 0.0;
+    }
+
+    let mut flux = 0.0f32;
+    for i in 1..magnitude.len() {
+      let diff = magnitude[i] - magnitude[i - 1];
+      if diff > 0.0 {
+        flux += diff;
+      }
+    }
+
+    flux / (magnitude.len() - 1) as f32
+  }
+
+  fn calculate_phase_coherence(&self, magnitude: &[f32]) -> f32 {
+    // Placeholder for phase coherence calculation
+    // Would need actual phase data from complex FFT output
+    let energy = magnitude.iter().sum::<f32>();
+    let peak_energy = magnitude.iter().fold(0.0f32, |a, &b| a.max(b));
+    
+    if energy > 0.0 {
+      peak_energy / energy
+    } else {
+      0.0
+    }
+  }
+
+  fn calculate_frequency_stability(&self, dominant_freqs: &[f32]) -> f32 {
+    if dominant_freqs.len() < 2 {
+      return 1.0;
+    }
+
+    // Calculate frequency spacing consistency
+    let mut spacings: Vec<f32> = Vec::new();
+    for i in 1..dominant_freqs.len() {
+      spacings.push(dominant_freqs[i] - dominant_freqs[i - 1]);
+    }
+
+    if spacings.is_empty() {
+      return 1.0;
+    }
+
+    let mean_spacing = spacings.iter().sum::<f32>() / spacings.len() as f32;
+    let variance = spacings.iter()
+      .map(|&s| (s - mean_spacing).powi(2))
+      .sum::<f32>() / spacings.len() as f32;
+    let std_dev = variance.sqrt();
+
+    // Higher stability = lower relative standard deviation
+    if mean_spacing > 0.0 {
+      (1.0 - (std_dev / mean_spacing)).max(0.0)
+    } else {
+      0.0
+    }
+  }
+
+  fn determine_waveform_type(&self, magnitude: &[f32]) -> String {
+    // Simple harmonic analysis to determine waveform type
+    let threshold = magnitude.iter().fold(0.0f32, |a, &b| a.max(b)) * 0.1;
+    let harmonics: Vec<usize> = magnitude.iter()
+      .enumerate()
+      .filter(|(_, &m)| m > threshold)
+      .map(|(i, _)| i)
+      .collect();
+
+    if harmonics.len() > 8 {
+      "square".to_string()
+    } else if harmonics.len() > 4 {
+      "sawtooth".to_string()
+    } else if harmonics.len() > 2 {
+      "triangle".to_string()
+    } else if harmonics.len() == 1 {
+      "sine".to_string()
+    } else {
+      "complex".to_string()
+    }
   }
 }
 

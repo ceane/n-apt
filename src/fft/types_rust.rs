@@ -1,5 +1,3 @@
-use rustfft::{num_complex::Complex};
-
 /// FFT configuration constants
 pub const SAMPLE_RATE: u32 = 3_200_000; // 3.2 MHz
 pub const CENTER_FREQ: u32 = 1_600_000; // 1.6 MHz
@@ -45,7 +43,7 @@ impl Default for FFTConfig {
   fn default() -> Self {
     Self {
       fft_size: NUM_SAMPLES,
-      gain: 49.0,
+      gain: 49.6,
       ppm: 1.0,
       sample_rate: SAMPLE_RATE,
     }

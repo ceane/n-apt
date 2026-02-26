@@ -28,68 +28,44 @@ comment_width = 80
 clippy = "all"
 # Allow some pedantic lints that are too strict
 allow = [
-    "clippy::module_name_repetitions",
-    "clippy::must_use_candidate",
-    "clippy::missing_errors_doc",
-    "clippy::missing_panics_doc",
-    "clippy::missing_docs_in_private_items",
-    "clippy::single_match_else",
-    "clippy::default_trait_access",
-    "clippy::redundant_clone",
-    "clippy::redundant_closure_for_method_calls",
-    "clippy::needless_return",
-    "clippy::collapsible_else_if",
-    "clippy::collapsible_if",
-    "clippy::collapsible_match",
-    "collapsible_if",
-    "collapsible_else_if",
-    "collapsible_match",
-    "use_self",
+  "clippy::module_name_repetitions",
+  "clippy::must_use_candidate",
+  "clippy::missing_errors_doc",
+  "clippy::missing_panics_doc",
+  "clippy::missing_docs_in_private_items",
+  "clippy::single_match_else",
+  "clippy::default_trait_access",
+  "clippy::redundant_clone",
+  "clippy::redundant_closure_for_method_calls",
+  "clippy::needless_return",
+  "clippy::collapsible_else_if",
+  "clippy::collapsible_if",
+  "clippy::collapsible_match",
+  "collapsible_if",
+  "collapsible_else_if",
+  "collapsible_match",
+  "use_self",
 ]
 
 # Deny some lints that we don't want
-deny = [
-    "clippy::unimplemented",
-    "clippy::todo",
-    "clippy::indexing_slicing",
-    "clippy::unwrap_used",
-]
+deny = ["clippy::unimplemented", "clippy::todo", "clippy::indexing_slicing", "clippy::unwrap_used"]
 
 [lints.rust]
 # Allow some rustc lints that are too strict
-allow = [
-    "dead_code",
-    "unused_variables",
-    "unused_imports",
-    "unused_mut",
-    "unreachable_patterns",
-]
+allow = ["dead_code", "unused_variables", "unused_imports", "unused_mut", "unreachable_patterns"]
 
 [lints.rust2018]
 # Allow some 2018 edition lints
-allow = [
-    "unused_variables",
-    "dead_code",
-    "unused_imports",
-]
+allow = ["unused_variables", "dead_code", "unused_imports"]
 
 [lints.rust2021]
 # Allow some 2021 edition lints
-allow = [
-    "unused_variables",
-    "dead_code",
-    "unused_imports",
-]
+allow = ["unused_variables", "dead_code", "unused_imports"]
 
 # Performance lints
 [lints.performance]
-allow = [
-    "clippy::many_args",
-    "clippy::large_enum_variant",
-]
+allow = ["clippy::many_args", "clippy::large_enum_variant"]
 
 # Documentation lints
 [lints.documentation]
-allow = [
-    "missing_docs_in_private_items",
-]
+allow = ["missing_docs_in_private_items"]

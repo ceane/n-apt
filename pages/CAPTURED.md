@@ -2,9 +2,6 @@
 
 If you ever end up in this thing and are curious...
 
-
-
-
 ```
 npm run capture
 ```
@@ -13,7 +10,6 @@ npm run capture
    - `brew install librtlsdr`
 2. Install Python dependencies: `pip install pyrtlsdr numpy`
 
-
 This runs `rtl_sdr_capture.py` by capturing IQ samples from an RTL-SDR device across multiple frequency slices. For each slice, it performs a Fast Fourier Transform (FFT) and stitches the resulting spectra together into a single wideband spectrum. The stitched spectrum is saved as NumPy arrays for further analysis.
 
 **Required**
@@ -21,7 +17,6 @@ This runs `rtl_sdr_capture.py` by capturing IQ samples from an RTL-SDR device ac
 To get live captures you need an [RTL-SDR](https://www.rtl-sdr.com) (pictured below). A software defined radio (SDR) is an important piece of technology. It is a radio that allows one to see signals in the environment. It's recommened to also have a FM Bandpass filter (attached to the RTL-SDR in the photo) to filter out strong FM signals and get a cleaner capture, I had some partial interference with RTL-SDR. Currently I don't have an upconverter, which would capture and shift the signals to a higher frequency to get a cleaner capture.
 
 ![RTL-SDR](images/rtl-sdr.jpg)
-
 
 **📡 Frequencies Captured**
 
@@ -40,7 +35,6 @@ This results in capturing from 0.5 MHz to 31 MHz in 3.2 MHz bandwidth slices, av
 - Output Directory: `iq-samples/capture_{freq_range}_{script_name}_{timestamp}/`
 
 The script will create a timestamped directory in `iq-samples/` containing the raw IQ files and the stitched spectrum files.
-
 
 ## Visualizing the Stitched Spectrum
 
@@ -69,11 +63,13 @@ The `iq-samples` directory contains large binary IQ data files. To avoid downloa
 After cloning the repository:
 
 1. Enable sparse checkout:
+
    ```
    git config core.sparseCheckout true
    ```
 
 2. Edit `.git/info/sparse-checkout` and add:
+
    ```
    *
    !iq-samples/
@@ -92,8 +88,8 @@ To include `iq-samples` later, remove the `!iq-samples/` line from `.git/info/sp
 
 To capture new IQ samples using the RTL-SDR device, use the npm script which activates the Python virtual environment and runs the capture script:
 
-
 This is equivalent to:
+
 ```
 source venv/bin/activate && python scripts/rtl_sdr_capture.py
 ```

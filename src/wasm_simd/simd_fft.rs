@@ -20,7 +20,8 @@
 //! processor.process_samples_simd(&input, &mut output);
 //! ```
 
-use crate::fft::{RawSamples, WindowType};
+use crate::fft::types::RawSamples;
+use crate::fft::processor::WindowType;
 use anyhow::Result;
 use rustfft::{num_complex::Complex, FftPlanner};
 #[cfg(target_arch = "wasm32")]
@@ -264,21 +265,25 @@ impl SIMDFFTProcessor {
       }
     }
 
-    // Apply window function
+    // Apply window function to both real and imaginary parts
     if self.window_type != WindowType::None {
-      crate::fft::apply_window(
-        &mut buf.iter_mut().map(|c| c.re).collect::<Vec<_>>(),
-        self.window_type,
-      );
+      let len = buf.len();
+      let mut window = vec![1.0f32; len];
+      crate::fft::apply_window(&mut window, self.window_type);
+      for (i, w) in window.iter().enumerate() {
+        buf[i].re *= w;
+        buf[i].im *= w;
+      }
     }
 
     // Perform FFT
     self.fft.process(&mut buf);
 
-    // Calculate power spectrum
+    // Calculate power spectrum with proper normalization (magnitude, DC at left)
+    let norm = (self.fft_size as f32) * (self.fft_size as f32);
     for (i, c) in buf.iter().enumerate() {
       if i < output.len() {
-        let mag = c.norm_sqr();
+        let mag = c.norm_sqr() / norm;
         output[i] = 10.0 * mag.log10().max(-120.0);
       }
     }

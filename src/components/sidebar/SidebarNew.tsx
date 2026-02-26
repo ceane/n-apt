@@ -1,0 +1,1019 @@
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import styled from "styled-components";
+import InfoPopover from "@n-apt/components/InfoPopover";
+import FrequencyRangeSlider from "@n-apt/components/FrequencyRangeSlider";
+import { decryptPayloadBytes } from "@n-apt/crypto/webcrypto";
+import { useSdrSettings } from "@n-apt/hooks/useSdrSettings";
+import { useAuthentication } from "@n-apt/hooks/useAuthentication";
+import type {
+  SDRSettings,
+  DeviceState,
+  DeviceLoadingReason,
+  CaptureRequest,
+  CaptureStatus,
+  CaptureFileType,
+  FrequencyRange,
+  SdrSettingsConfig,
+} from "@n-apt/hooks/useWebSocket";
+import { formatFrequency } from "../../consts/sdr";
+
+// Import extracted section components
+import { ConnectionStatusSection } from "@n-apt/components/sidebar/ConnectionStatusSection";
+import { SignalDisplaySection } from "@n-apt/components/sidebar/SignalDisplaySection";
+import CaptureSection from "@n-apt/components/sidebar/CaptureSection";
+import FileProcessingSection from "@n-apt/components/sidebar/FileProcessingSection";
+import { IQCaptureControlsSection } from "@n-apt/components/sidebar/IQCaptureControlsSection";
+import { SnapshotControlsSection } from "@n-apt/components/sidebar/SnapshotControlsSection";
+import { SourceSettingsSection } from "@n-apt/components/sidebar/SourceSettingsSection";
+import DrawMockNAPTSidebar from "@n-apt/components/sidebar/DrawMockNAPTSidebar";
+
+type NaptMetadata = {
+  sample_rate?: number;
+  center_frequency?: number;
+  frequency_range?: [number, number];
+  fft?: { size?: number; window?: string };
+  format?: string;
+  timestamp_utc?: string;
+  hardware?: string;
+  gain?: number;
+  ppm?: number;
+};
+
+const SidebarContent = styled.div`
+  display: flex;
+  flex-direction: column;
+  padding: calc(24px + env(safe-area-inset-top, 0px)) 24px
+    calc(24px + env(safe-area-inset-bottom, 0px));
+  overflow-y: auto;
+  overflow-x: visible;
+  position: relative;
+  box-sizing: border-box;
+  flex: 1;
+`;
+
+const TabContainer = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 24px;
+`;
+
+const Tab = styled.button<{ $active: boolean }>`
+  padding: 12px 16px;
+  background-color: ${(props) => (props.$active ? "#1a1a1a" : "transparent")};
+  border: 1px solid ${(props) => (props.$active ? "#2a2a2a" : "transparent")};
+  border-radius: 8px;
+  color: ${(props) => (props.$active ? "#00d4ff" : "#666")};
+  font-family: "JetBrains Mono", monospace;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.2s ease;
+  user-select: none;
+
+  &:hover {
+    background-color: #1a1a1a;
+    color: ${(props) => (props.$active ? "#00d4ff" : "#888")};
+  }
+`;
+
+const Section = styled.div`
+  margin-bottom: 24px;
+`;
+
+const CollapsibleSectionHeader = styled.button`
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  margin: 0 0 16px 0;
+  cursor: pointer;
+  text-align: left;
+`;
+
+const CollapsibleSectionLabel = styled.span`
+  font-size: 11px;
+  color: #555;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-weight: 600;
+  font-family: "JetBrains Mono", monospace;
+`;
+
+const CollapsibleSectionToggle = styled.span`
+  font-size: 12px;
+  color: #555;
+  font-family: "JetBrains Mono", monospace;
+  font-weight: 600;
+`;
+
+const SectionTitle = styled.div<{ $fileMode?: boolean }>`
+  font-size: 11px;
+  color: ${(props) => (props.$fileMode ? "#d9aa34" : "#555")};
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 16px;
+  font-weight: 600;
+  font-family: "JetBrains Mono", monospace;
+`;
+
+const SettingRow = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  background-color: #141414;
+  border-radius: 6px;
+  margin-bottom: 8px;
+  border: 1px solid #1a1a1a;
+  user-select: none;
+`;
+
+const SettingLabelContainer = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+`;
+
+const SettingLabel = styled.span`
+  font-size: 12px;
+  color: #777;
+  max-width: 210px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+`;
+
+const SettingSelect = styled.select`
+  background-color: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: #ccc;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 2px 6px;
+  min-width: 80px;
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ccc' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6,9 12,15 18,9'%3e%3c/polyline%3e%3c/svg%3e");
+  background-repeat: no-repeat;
+  background-position: right 2px center;
+  background-size: 12px;
+  padding-right: 20px;
+
+  &:hover {
+    border-color: #2a2a2a;
+  }
+
+  &:focus {
+    outline: none;
+    border-color: #00d4ff;
+    background-color: rgba(0, 212, 255, 0.05);
+  }
+
+  option {
+    background-color: #1a1a1a;
+    color: #ccc;
+    font-family: "JetBrains Mono", monospace;
+  }
+`;
+
+const AuthStatusText = styled.div<{ $status: string }>`
+  color: ${(props) =>
+    props.$status === "failed" || props.$status === "timeout"
+      ? "#f87171"
+      : props.$status === "success"
+        ? "#00d4ff"
+        : "#888"};
+  font-size: 11px;
+  font-weight: 500;
+`;
+
+const SettingValueText = styled.div`
+  font-size: 12px;
+  color: #ccc;
+  font-weight: 500;
+`;
+
+const CapturingIndicator = styled.div`
+  position: fixed;
+  top: 24px;
+  right: 24px;
+  background-color: #ff4444;
+  color: white;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: "JetBrains Mono", monospace;
+  z-index: 1000;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+`;
+
+const CapturingDot = styled.div`
+  width: 8px;
+  height: 8px;
+  background-color: white;
+  border-radius: 50%;
+  animation: pulse 1.5s infinite;
+
+  @keyframes pulse {
+    from {
+      opacity: 1;
+    }
+    to {
+      opacity: 0.4;
+    }
+  }
+`;
+
+const SourceSelect = styled(SettingSelect)`
+  min-width: 130px;
+`;
+
+const FileOptionText = styled.option`
+  && {
+    color: #d9aa34;
+  }
+`;
+
+const NaptIndicator = styled.span`
+  margin-left: 6px;
+`;
+
+const ClassifyButtonContainer = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 12px;
+`;
+
+const ClassifyValueText = styled.div`
+  font-size: 12px;
+  color: #ccc;
+  font-weight: 500;
+`;
+
+const ClassifyButton = styled.button<{ $disabled: boolean }>`
+  font-size: 11px;
+  padding: 6px 12px;
+  min-width: 80px;
+  opacity: ${(props) => (props.$disabled ? 0.5 : 1)};
+  cursor: ${(props) => (props.$disabled ? "not-allowed" : "pointer")};
+  background-color: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  color: ${(props) => (props.$disabled ? "#666" : "#00d4ff")};
+  font-family: "JetBrains Mono", monospace;
+`;
+
+const HeterodyningContainer = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  color: #ccc;
+  font-weight: 500;
+`;
+
+const VerifyButton = styled.button`
+  font-size: 11px;
+  padding: 6px 12px;
+  min-width: 80px;
+  background-color: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  color: #00d4ff;
+  cursor: pointer;
+  font-family: "JetBrains Mono", monospace;
+`;
+
+interface SidebarProps {
+  isConnected: boolean;
+  deviceState: DeviceState;
+  deviceLoadingReason: DeviceLoadingReason;
+  isPaused: boolean;
+  _serverPaused: boolean;
+  backend: string | null;
+  deviceInfo: string | null;
+  maxSampleRateHz: number | null;
+  sampleRateHz?: number | null;
+  sdrSettings?: SdrSettingsConfig | null;
+  captureStatus: CaptureStatus;
+  autoFftOptions?: {
+    message_type: "auto_fft_options";
+    autoSizes: number[];
+    recommended: number;
+  } | null;
+  onCaptureCommand: (req: CaptureRequest) => void;
+  spectrumFrames?: Array<{
+    id: string;
+    label: string;
+    min_mhz: number;
+    max_mhz: number;
+    description: string;
+  }>;
+  activeTab: string;
+  onTabChange: (tab: string) => void;
+  drawParams: {
+    spikeCount: number;
+    spikeWidth: number;
+    centerSpikeBoost: number;
+    floorAmplitude: number;
+    decayRate: number;
+    envelopeWidth: number;
+  };
+  onDrawParamsChange: (params: any) => void;
+  sourceMode: "live" | "file";
+  onSourceModeChange: (mode: "live" | "file") => void;
+  stitchStatus: string;
+  activeSignalArea: string;
+  onSignalAreaChange: (area: string) => void;
+  onFrequencyRangeChange?: (range: { min: number; max: number }) => void;
+  frequencyRange?: FrequencyRange;
+  onPauseToggle: () => void;
+  onSettingsChange?: (settings: SDRSettings) => void;
+  displayTemporalResolution?: "low" | "medium" | "high";
+  onDisplayTemporalResolutionChange?: (resolution: "low" | "medium" | "high") => void;
+  selectedFiles: { name: string; file: File }[];
+  onSelectedFilesChange: (files: { name: string; file: File }[]) => void;
+  stitchSourceSettings: { gain: number; ppm: number };
+  onStitchSourceSettingsChange: (settings: { gain: number; ppm: number }) => void;
+  isStitchPaused: boolean;
+  onStitchPauseToggle: () => void;
+  onStitch: () => void;
+  onClear: () => void;
+  onRestartDevice?: () => void;
+  snapshotGridPreference?: boolean;
+  onSnapshotGridPreferenceChange?: (preference: boolean) => void;
+  fftWaveform?: Float32Array | number[] | null;
+  getCurrentWaveform?: () => Float32Array | number[] | null;
+  centerFrequencyMHz?: number;
+  onSnapshot?: (options: {
+    whole: boolean;
+    showWaterfall: boolean;
+    showStats: boolean;
+    format: "png" | "svg";
+    grid: boolean;
+  }) => void;
+  vizZoom?: number;
+  vizPanOffset?: number;
+  onVizPanChange?: (pan: number) => void;
+}
+
+const Sidebar: React.FC<SidebarProps> = ({
+  isConnected,
+  deviceState,
+  deviceLoadingReason,
+  isPaused,
+  _serverPaused,
+  backend,
+  deviceInfo,
+  maxSampleRateHz,
+  sampleRateHz,
+  sdrSettings,
+  captureStatus,
+  autoFftOptions,
+  onCaptureCommand,
+  spectrumFrames,
+  activeTab,
+  onTabChange,
+  drawParams,
+  onDrawParamsChange,
+  sourceMode,
+  onSourceModeChange,
+  stitchStatus,
+  activeSignalArea,
+  onSignalAreaChange,
+  onFrequencyRangeChange,
+  frequencyRange,
+  onPauseToggle,
+  onSettingsChange,
+  displayTemporalResolution,
+  onDisplayTemporalResolutionChange,
+  selectedFiles,
+  onSelectedFilesChange,
+  stitchSourceSettings,
+  onStitchSourceSettingsChange,
+  isStitchPaused,
+  onStitchPauseToggle,
+  onStitch,
+  onClear,
+  onRestartDevice,
+  snapshotGridPreference,
+  onSnapshotGridPreferenceChange,
+  fftWaveform,
+  getCurrentWaveform,
+  centerFrequencyMHz,
+  onSnapshot,
+  vizZoom = 1,
+  vizPanOffset = 0,
+  onVizPanChange,
+}) => {
+  const { isAuthenticated, sessionToken, authState, aesKey } = useAuthentication();
+  const maxSampleRate =
+    typeof sampleRateHz === "number" && Number.isFinite(sampleRateHz)
+      ? sampleRateHz
+      : maxSampleRateHz ?? 0;
+  const sampleRateMHz =
+    typeof sampleRateHz === "number" && Number.isFinite(sampleRateHz)
+      ? sampleRateHz / 1_000_000
+      : null;
+  const limitMarkers = useMemo(() => {
+    const limits = sdrSettings?.limits;
+    if (!limits) return [];
+    const markers: Array<{ freq: number; label: string }> = [];
+    if (typeof limits.lower_limit_mhz === "number") {
+      markers.push({
+        freq: limits.lower_limit_mhz,
+        label:
+          limits.lower_limit_label ??
+          `${formatFrequency(limits.lower_limit_mhz)} / Lower limit`,
+      });
+    }
+    if (typeof limits.upper_limit_mhz === "number") {
+      markers.push({
+        freq: limits.upper_limit_mhz,
+        label:
+          limits.upper_limit_label ??
+          `${formatFrequency(limits.upper_limit_mhz)} / Upper limit`,
+      });
+    }
+    return markers;
+  }, [sdrSettings]);
+  const {
+    fftSize,
+    fftWindow,
+    fftFrameRate,
+    maxFrameRate,
+    gain,
+    ppm,
+    tunerAGC,
+    rtlAGC,
+    fftSizeOptions,
+    clampGain,
+    setFftSize,
+    setFftWindow,
+    setFftFrameRate,
+    setGain,
+    setPpm,
+    setTunerAGC,
+    setRtlAGC,
+    sendCurrentSettings,
+    scheduleCoupledAdjustment,
+  } = useSdrSettings({ maxSampleRate, sdrSettings, onSettingsChange });
+
+  // Capture UI state
+  const [captureOpen, setCaptureOpen] = useState(false);
+  const [captureOnscreen, setCaptureOnscreen] = useState(true);
+  const [captureAreaA, setCaptureAreaA] = useState(false);
+  const [captureAreaB, setCaptureAreaB] = useState(false);
+  const [captureDurationS, setCaptureDurationS] = useState(1);
+  const setCaptureFileType = (fileType: CaptureFileType) => {
+    setCaptureFileTypeState(fileType);
+    // When .wav is selected, turn off encryption
+    if (fileType === ".wav") {
+      setCaptureEncrypted(false);
+    }
+  };
+
+  const [captureFileTypeState, setCaptureFileTypeState] = useState<CaptureFileType>(".napt");
+  const [captureEncrypted, setCaptureEncrypted] = useState(true);
+  const [capturePlayback, setCapturePlayback] = useState(false);
+
+  // Snapshot UI state
+  const [snapshotOpen, setSnapshotOpen] = useState(false);
+
+  // Signal features UI state
+  const [signalFeaturesOpen, setSignalFeaturesOpen] = useState(false);
+  const [snapshotWhole, setSnapshotWhole] = useState(false);
+  const [snapshotShowWaterfall, setSnapshotShowWaterfall] = useState(false);
+  const [snapshotShowStats, setSnapshotShowStats] = useState(true);
+  const [snapshotFormat, setSnapshotFormat] = useState<"png" | "svg">("png");
+
+  // NAPT metadata state
+  const [naptMetadata, setNaptMetadata] = useState<NaptMetadata | null>(null);
+  const [naptMetadataError, setNaptMetadataError] = useState<string | null>(null);
+
+  // Calculate capture range
+  const captureRange = useMemo(() => {
+    if (!frequencyRange) {
+      return { min: 0, max: 0, segments: [] as Array<{ label: string; min: number; max: number }> };
+    }
+
+    const findFrameByLabel = (label: string) =>
+      spectrumFrames?.find((f) => f.label.toLowerCase() === label.toLowerCase()) ?? null;
+
+    const frameA = findFrameByLabel("A");
+    const frameB = findFrameByLabel("B");
+
+    const segments: Array<{ label: string; min: number; max: number }> = [];
+    if (captureOnscreen)
+      segments.push({ label: "Onscreen", min: frequencyRange.min, max: frequencyRange.max });
+    if (captureAreaA && frameA)
+      segments.push({ label: "A", min: frameA.min_mhz, max: frameA.max_mhz });
+    if (captureAreaB && frameB)
+      segments.push({ label: "B", min: frameB.min_mhz, max: frameB.max_mhz });
+
+    if (segments.length === 0) {
+      segments.push({ label: "Onscreen", min: frequencyRange.min, max: frequencyRange.max });
+    }
+
+    return {
+      min: Math.min(...segments.map((r) => r.min)),
+      max: Math.max(...segments.map((r) => r.max)),
+      segments,
+    };
+  }, [frequencyRange, captureOnscreen, captureAreaA, captureAreaB, spectrumFrames]);
+
+  // File processing state
+  const selectedNaptFile = useMemo(() => {
+    if (sourceMode !== "file") return null;
+    if (selectedFiles.length !== 1) return null;
+    const f = selectedFiles[0];
+    return f.name.toLowerCase().endsWith(".napt") ? f : null;
+  }, [sourceMode, selectedFiles]);
+
+  const fileCapturedRange = useMemo(() => {
+    if (sourceMode !== "file" || selectedFiles.length === 0) return null;
+    let minFreq = Infinity;
+    let maxFreq = -Infinity;
+    for (const f of selectedFiles) {
+      if (f.name.toLowerCase().endsWith(".napt")) {
+        continue;
+      }
+      const match = f.name.match(/iq_(\d+\.?\d*)MHz/);
+      if (match) {
+        const freq = parseFloat(match[1]);
+        const halfSpan =
+          typeof sampleRateMHz === "number" && Number.isFinite(sampleRateMHz)
+            ? sampleRateMHz / 2
+            : null;
+        if (halfSpan === null) continue;
+        minFreq = Math.min(minFreq, freq - halfSpan);
+        maxFreq = Math.max(maxFreq, freq + halfSpan);
+      }
+    }
+    if (minFreq === Infinity) return null;
+    return { min: Math.max(0, minFreq), max: maxFreq };
+  }, [sourceMode, selectedFiles]);
+
+  // Handle capture
+  const handleCapture = useCallback(() => {
+    if (!isConnected || deviceState === "loading") return;
+    if (!isAuthenticated) return;
+
+    if (captureRange.min === 0 && captureRange.max === 0) return;
+
+    const jobId = `cap_${Date.now()}`;
+    const req: CaptureRequest = {
+      jobId,
+      minFreq: captureRange.min,
+      maxFreq: captureRange.max,
+      durationS: Math.max(1, Math.round(Number(captureDurationS) || 1)),
+      fileType: captureFileTypeState,
+      encrypted: captureFileTypeState === ".napt" ? true : captureEncrypted,
+      fftSize,
+      fftWindow,
+    };
+    onCaptureCommand(req);
+  }, [
+    isConnected,
+    deviceState,
+    isAuthenticated,
+    captureRange.min,
+    captureRange.max,
+    captureDurationS,
+    captureFileTypeState,
+    captureEncrypted,
+    fftSize,
+    fftWindow,
+    onCaptureCommand,
+  ]);
+
+  // Handle snapshot
+  const handleSnapshot = useCallback(() => {
+    if (!onSnapshot) return;
+
+    onSnapshot({
+      whole: snapshotWhole,
+      showWaterfall: snapshotShowWaterfall,
+      showStats: snapshotShowStats,
+      format: snapshotFormat,
+      grid: snapshotGridPreference ?? true,
+    });
+  }, [
+    onSnapshot,
+    snapshotWhole,
+    snapshotShowWaterfall,
+    snapshotShowStats,
+    snapshotFormat,
+    snapshotGridPreference,
+  ]);
+
+  // Load NAPT metadata
+  useEffect(() => {
+    let cancelled = false;
+    setNaptMetadata(null);
+    setNaptMetadataError(null);
+
+    const run = async () => {
+      if (!selectedNaptFile) return;
+      if (!aesKey) {
+        setNaptMetadataError("Locked (no session key)");
+        return;
+      }
+
+      try {
+        const buf = await selectedNaptFile.file.arrayBuffer();
+        const b64 = new TextDecoder().decode(new Uint8Array(buf)).trim();
+        const bytes = await decryptPayloadBytes(aesKey, b64);
+        const newlineIdx = bytes.indexOf(10);
+        if (newlineIdx <= 0) {
+          throw new Error("Invalid NAPT payload (missing metadata header)");
+        }
+        const metaJson = new TextDecoder().decode(bytes.slice(0, newlineIdx));
+        const meta = JSON.parse(metaJson) as NaptMetadata;
+        if (!cancelled) {
+          setNaptMetadata(meta);
+          setNaptMetadataError(null);
+        }
+      } catch (e: any) {
+        if (!cancelled) {
+          setNaptMetadata(null);
+          setNaptMetadataError(e?.message || "Failed to read NAPT metadata");
+        }
+      }
+    };
+
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedNaptFile, aesKey]);
+
+  // Handle frequency range changes for signal areas
+  const handleRangeChange = useCallback(
+    (label: string, range: { min: number; max: number }) => {
+      if (activeSignalArea === label) {
+        onFrequencyRangeChange?.(range);
+      }
+    },
+    [activeSignalArea, onFrequencyRangeChange],
+  );
+
+  const SignalFeaturesSection = () => {
+    const isFileSource = sourceMode === "file";
+    const classificationStatusText = isFileSource
+      ? selectedFiles.length > 0
+        ? "Yes"
+        : "No"
+      : deviceState === "connected"
+        ? "Yes"
+        : "No";
+    const classificationDisabled = isFileSource
+      ? selectedFiles.length === 0
+      : !isConnected || deviceState !== "connected";
+
+    return (
+      <Section>
+        <CollapsibleSectionHeader type="button" onClick={() => setSignalFeaturesOpen((prev) => !prev)}>
+          <CollapsibleSectionLabel>Signal Features /</CollapsibleSectionLabel>
+          <CollapsibleSectionToggle>{signalFeaturesOpen ? "-" : "+"}</CollapsibleSectionToggle>
+        </CollapsibleSectionHeader>
+
+        {signalFeaturesOpen && (
+          <>
+            <SettingRow>
+              <SettingLabelContainer>
+                <SettingLabel>
+                  N-APT
+                  <span role="img" aria-label="brain" style={{ marginLeft: "6px" }}>
+                    🧠
+                  </span>
+                </SettingLabel>
+                <InfoPopover
+                  title="N-APT"
+                  content="N-APT stands for: Neuro Automatic Picture Transmission. These radio waves are modulated akin to APT signals (unknown reasons at this time) but unique in their ability to intercept, process and alter the brain and nervous system.<br><br>Through LF/HF frequencies (frequencies that survive attenuation of the skull and/or body; and lose less energy with longer distances/obstacles), it functions from triangulation, time of flight depth, heterodyning (it's key feature which ensures bioelectrical reception), phase shifting, center frequencies, impedance & endpoint signals processing (suspected as Kaiser, Bayes' Theorem/Posterior Probability, etc.).<br><br>It is an unprecedented formula of radio waves and neurotechnology with nascent efforts to decipher its modulation and content."
+                />
+              </SettingLabelContainer>
+              <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                <div style={{ fontSize: "12px", color: "#ccc", fontWeight: 500 }}>{classificationStatusText}</div>
+                <button
+                  disabled={classificationDisabled}
+                  style={{
+                    fontSize: "11px",
+                    padding: "6px 12px",
+                    minWidth: "80px",
+                    opacity: classificationDisabled ? 0.5 : 1,
+                    cursor: classificationDisabled ? "not-allowed" : "pointer",
+                    backgroundColor: "#1a1a1a",
+                    border: "1px solid #2a2a2a",
+                    borderRadius: "6px",
+                    color: classificationDisabled ? "#666" : "#00d4ff",
+                    fontFamily: "JetBrains Mono, monospace",
+                  }}
+                >
+                  Classify?
+                </button>
+              </div>
+            </SettingRow>
+
+            <SettingRow>
+              <SettingLabelContainer>
+                <SettingLabel>Heterodyned?</SettingLabel>
+              </SettingLabelContainer>
+              <HeterodyningContainer>
+                No
+                <VerifyButton>Verify</VerifyButton>
+              </HeterodyningContainer>
+            </SettingRow>
+          </>
+        )}
+      </Section>
+    );
+  };
+
+  // Minimal sidebar mode: only show connection status and auth state
+  if (!isAuthenticated) {
+    const authStatusMap = {
+      connecting: "Connecting to server...",
+      awaiting_challenge: "Establishing secure channel...",
+      ready: "Awaiting authentication...",
+      authenticating: "Verifying credentials...",
+      failed: "Authentication failed — Server disconnected 500",
+      timeout: "Authentication timed out",
+      success: "Authenticated — starting stream...",
+    };
+    const authStatusText =
+      authStatusMap[authState as keyof typeof authStatusMap] ?? "Awaiting authentication...";
+
+    return (
+      <SidebarContent>
+        <Section>
+          <SectionTitle>Connection</SectionTitle>
+          <ConnectionStatusSection
+            isConnected={isConnected}
+            deviceState={deviceState}
+            deviceLoadingReason={deviceLoadingReason}
+            isPaused={isPaused}
+            onPauseToggle={onPauseToggle}
+            onRestartDevice={onRestartDevice}
+          />
+        </Section>
+
+        <Section>
+          <SectionTitle>Authentication</SectionTitle>
+          <SettingRow>
+            <SettingLabelContainer>
+              <SettingLabel>Status</SettingLabel>
+            </SettingLabelContainer>
+            <AuthStatusText $status={authState}>{authStatusText}</AuthStatusText>
+          </SettingRow>
+          {backend && (
+            <SettingRow>
+              <SettingLabelContainer>
+                <SettingLabel>Backend</SettingLabel>
+              </SettingLabelContainer>
+              <SettingValueText>{backend === "rtl-sdr" ? "RTL-SDR" : "Mock"}</SettingValueText>
+            </SettingRow>
+          )}
+        </Section>
+      </SidebarContent>
+    );
+  }
+
+  return (
+    <SidebarContent>
+      {/* Capturing indicator */}
+      {captureStatus?.status === "started" && (
+        <CapturingIndicator>
+          <CapturingDot />
+          Capturing... {captureStatus.jobId}
+        </CapturingIndicator>
+      )}
+
+      {activeTab === "draw" && (
+        <DrawMockNAPTSidebar drawParams={drawParams} onDrawParamsChange={onDrawParamsChange} />
+      )}
+
+      {activeTab === "visualizer" && (
+        <>
+          {sourceMode === "live" && (
+            <ConnectionStatusSection
+              isConnected={isConnected}
+              deviceState={deviceState}
+              deviceLoadingReason={deviceLoadingReason}
+              isPaused={isPaused}
+              onPauseToggle={onPauseToggle}
+              onRestartDevice={onRestartDevice}
+            />
+          )}
+
+          <Section>
+            <SectionTitle $fileMode={sourceMode === "file"}>Source</SectionTitle>
+            <SettingRow>
+              <SettingLabelContainer>
+                <SettingLabel>Input</SettingLabel>
+                <InfoPopover
+                  title="Source"
+                  content="Select the signal source: live SDR device for real-time capture, or file selection to analyze previously recorded I/Q data."
+                />
+              </SettingLabelContainer>
+              <SettingSelect
+                value={sourceMode}
+                onChange={(e) => onSourceModeChange(e.target.value as "live" | "file")}
+                style={{ minWidth: "130px" }}
+              >
+                <option value="live">
+                  {backend === "rtl-sdr" ? "RTL-SDR" : backend === "mock" ? "Mock SDR" : "Live SDR"}
+                </option>
+                <option value="file" style={{ color: "#d9aa34" }}>
+                  File Selection
+                </option>
+              </SettingSelect>
+            </SettingRow>
+          </Section>
+
+          {sourceMode === "live" && (
+            <IQCaptureControlsSection
+              isOpen={captureOpen}
+              onToggle={() => setCaptureOpen(!captureOpen)}
+              captureOnscreen={captureOnscreen}
+              captureAreaA={captureAreaA}
+              captureAreaB={captureAreaB}
+              captureDurationS={captureDurationS}
+              captureFileType={captureFileTypeState}
+              captureEncrypted={captureEncrypted}
+              capturePlayback={capturePlayback}
+              captureRange={captureRange}
+              maxSampleRate={maxSampleRate}
+              captureStatus={captureStatus}
+              isConnected={isConnected}
+              deviceState={deviceState}
+              onCaptureOnscreenChange={setCaptureOnscreen}
+              onCaptureAreaAChange={setCaptureAreaA}
+              onCaptureAreaBChange={setCaptureAreaB}
+              onCaptureDurationSChange={setCaptureDurationS}
+              onCaptureFileTypeChange={setCaptureFileType}
+              onCaptureEncryptedChange={setCaptureEncrypted}
+              onCapturePlaybackChange={setCapturePlayback}
+              onCapture={handleCapture}
+            />
+          )}
+
+          <SnapshotControlsSection
+            isOpen={snapshotOpen}
+            onToggle={() => setSnapshotOpen(!snapshotOpen)}
+            snapshotWhole={snapshotWhole}
+            snapshotShowWaterfall={snapshotShowWaterfall}
+            snapshotShowStats={snapshotShowStats}
+            snapshotFormat={snapshotFormat}
+            snapshotGridPreference={snapshotGridPreference ?? true}
+            onSnapshotWholeChange={setSnapshotWhole}
+            onSnapshotShowWaterfallChange={setSnapshotShowWaterfall}
+            onSnapshotShowStatsChange={setSnapshotShowStats}
+            onSnapshotFormatChange={setSnapshotFormat}
+            onSnapshotGridPreferenceChange={onSnapshotGridPreferenceChange || (() => { })}
+            onSnapshot={handleSnapshot}
+          />
+
+          {sourceMode === "file" ? (
+            <>
+              <FileProcessingSection
+                selectedFiles={selectedFiles}
+                stitchStatus={stitchStatus}
+                isStitchPaused={isStitchPaused}
+                selectedNaptFile={selectedNaptFile}
+                naptMetadata={naptMetadata}
+                naptMetadataError={naptMetadataError}
+                onSelectedFilesChange={onSelectedFilesChange}
+                onStitch={onStitch}
+                onClear={onClear}
+                onStitchPauseToggle={onStitchPauseToggle}
+              />
+
+              <SignalFeaturesSection />
+            </>
+          ) : (
+            <>
+              <Section>
+                <SectionTitle>Signal areas of interest</SectionTitle>
+                {Array.isArray(spectrumFrames) && spectrumFrames.length > 0 ? (
+                  spectrumFrames.map((frame) => {
+                    const label = frame.label;
+                    const min = frame.min_mhz;
+                    const max = frame.max_mhz;
+                    const span = max - min;
+
+                    // If this is the active frame and we are zoomed in,
+                    // calculate the visual range based on zoom and pan offset
+                    // NOTE: Use frequencyRange (SDR center) not frame min/max for center calculation
+                    let visibleMin = min;
+                    let visibleMax = min + (typeof sampleRateMHz === "number" ? Math.min(sampleRateMHz, span) : span);
+                    let externalFreqRange = activeSignalArea === label ? frequencyRange : undefined;
+
+                    if (activeSignalArea === label && vizZoom > 1 && frequencyRange) {
+                      // Use frequencyRange (SDR tuned range) for center calculation
+                      // This matches what FFTCanvas does
+                      const hardwareCenter = (frequencyRange.min + frequencyRange.max) / 2;
+                      const visualSpan = span / vizZoom;
+                      // vizPanOffset is in Hz, convert to MHz
+                      const visualCenter = hardwareCenter + (vizPanOffset / 1_000_000);
+                      visibleMin = visualCenter - visualSpan / 2;
+                      visibleMax = visualCenter + visualSpan / 2;
+
+                      // Don't use externalFrequencyRange when zoomed - let the slider
+                      // use visibleMin/visibleMax props directly for the zoomed view
+                      externalFreqRange = undefined;
+                    }
+
+                    return (
+                      <FrequencyRangeSlider
+                        key={frame.id}
+                        label={label}
+                        minFreq={min}
+                        maxFreq={max}
+                        visibleMin={visibleMin}
+                        visibleMax={visibleMax}
+                        sampleRateMHz={typeof sampleRateMHz === "number" ? sampleRateMHz / (activeSignalArea === label ? vizZoom : 1) : null}
+                        limitMarkers={limitMarkers}
+                        isActive={activeSignalArea === label}
+                        onActivate={() => onSignalAreaChange?.(label)}
+                        onRangeChange={(range) => {
+                          if (activeSignalArea === label && vizZoom > 1 && onVizPanChange) {
+                            // Calculate pan offset from the center of the dragged visual range
+                            const hardwareCenter = (min + max) / 2;
+                            const visualCenter = (range.min + range.max) / 2;
+                            const newPan = visualCenter - hardwareCenter;
+                            onVizPanChange(newPan);
+                            // Update frequencyRange to the current visible range when zoomed
+                            onFrequencyRangeChange?.(range);
+                          } else {
+                            handleRangeChange(label, range);
+                          }
+                        }}
+                        isDeviceConnected={deviceState === "connected"}
+                        externalFrequencyRange={externalFreqRange}
+                      />
+                    );
+                  })
+                ) : (
+                  <div style={{ fontSize: "11px", color: "#666" }}>
+                    Signal configuration loading...
+                  </div>
+                )}
+              </Section>
+
+              <SignalFeaturesSection />
+
+              <SignalDisplaySection
+                sourceMode={sourceMode}
+                maxSampleRate={maxSampleRate}
+                fileCapturedRange={fileCapturedRange}
+                fftFrameRate={fftFrameRate}
+                maxFrameRate={maxFrameRate}
+                fftSize={fftSize}
+                fftSizeOptions={fftSizeOptions}
+                fftWindow={fftWindow}
+                temporalResolution={displayTemporalResolution || "medium"}
+                autoFftOptions={autoFftOptions}
+                onFftFrameRateChange={setFftFrameRate}
+                onFftSizeChange={setFftSize}
+                onFftWindowChange={setFftWindow}
+                onTemporalResolutionChange={onDisplayTemporalResolutionChange || (() => { })}
+                scheduleCoupledAdjustment={scheduleCoupledAdjustment}
+              />
+
+              <SourceSettingsSection
+                sourceMode={sourceMode}
+                gain={gain}
+                ppm={ppm}
+                tunerAGC={tunerAGC}
+                rtlAGC={rtlAGC}
+                stitchSourceSettings={stitchSourceSettings}
+                isConnected={isConnected}
+                onGainChange={setGain}
+                onPpmChange={setPpm}
+                onTunerAGCChange={setTunerAGC}
+                onRtlAGCChange={setRtlAGC}
+                onStitchSourceSettingsChange={onStitchSourceSettingsChange}
+                onAgcModeChange={() => { }}
+              />
+            </>
+          )}
+        </>
+      )}
+    </SidebarContent>
+  );
+};
+
+export default Sidebar;
