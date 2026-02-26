@@ -59,7 +59,7 @@ Successfully implemented a comprehensive build output redesign for the N-APT pro
 Killing any blocking processes.
 Starting frontend server. Vite.
 Checking to build backend server. Rust.
-Checking to wasm package. Rust -> wasm.
+Checking to build wasm package. Rust -> wasm.
 Building (dev-fast)...
 Building (wasm)...
 Starting to build backend server. Rust.

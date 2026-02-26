@@ -62,15 +62,33 @@ console.log("🚀 Initializing WASM FFT Pipeline...");
   }
 })();
 
+const MAX_VISUALIZER_ZOOM = 1000;
+
 const VisualizerContainer = styled.div`
   flex: 1;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   background-color: #0a0a0a;
   position: relative;
   overflow: hidden;
   padding: ${VISUALIZER_PADDING}px;
   gap: ${VISUALIZER_GAP}px;
+  align-items: stretch;
+`;
+
+const VisualizerContent = styled.div`
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: ${VISUALIZER_GAP}px;
+  min-height: 0;
+`;
+
+const SlidersRail = styled.div`
+  width: 64px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 `;
 
 const SpectrumSection = styled.div`
@@ -328,7 +346,7 @@ const FFTCanvas = forwardRef<
       }
 
       const totalBins = fullWaveform.length;
-      const visibleBins = Math.floor(totalBins / zoom);
+      const visibleBins = Math.max(1, Math.floor(totalBins / zoom));
 
       const fullSpan = fullRange.max - fullRange.min;
       const halfSpan = fullSpan / (2 * zoom);
@@ -396,6 +414,19 @@ const FFTCanvas = forwardRef<
     gpuBufferPoolRef,
   });
   const spectrumWebgpuEnabled = webgpuEnabled;
+
+  // Compute zoomed frequency range from the full range (visual only, don't retune)
+  const handleZoomChange = useCallback(
+    (newZoom: number) => {
+      const clampedZoom = Math.max(1, Math.min(MAX_VISUALIZER_ZOOM, Math.round(newZoom)));
+      setVizZoom(clampedZoom);
+      // Reset pan offset when zooming completely out to prevent getting stuck panned
+      if (clampedZoom <= 1) setVizPanOffset(0);
+      overlayDirtyRef.current.grid = true;
+      overlayDirtyRef.current.markers = true;
+    },
+    [setVizZoom, setVizPanOffset, overlayDirtyRef],
+  );
 
   useEffect(() => {
     // Frequency range changes affect both overlays
@@ -1254,19 +1285,6 @@ const FFTCanvas = forwardRef<
     if (isPaused) forceRender();
   }, [vizDbMin, vizDbMax, vizZoom, vizPanOffset, forceRender, isPaused]);
 
-  // Compute zoomed frequency range from the full range (visual only, don't retune)
-  const handleZoomChange = useCallback(
-    (newZoom: number) => {
-      setVizZoom(newZoom);
-      // Reset pan offset when zooming completely out to prevent getting stuck panned
-      if (newZoom <= 1) setVizPanOffset(0);
-      overlayDirtyRef.current.grid = true;
-      overlayDirtyRef.current.markers = true;
-      if (isPaused) forceRender();
-    },
-    [isPaused, forceRender],
-  );
-
   useImperativeHandle(ref, () => ({
     getSpectrumCanvas: () => spectrumCanvasRef.current,
     getWaterfallCanvas: () => waterfallCanvasRef.current,
@@ -1275,46 +1293,50 @@ const FFTCanvas = forwardRef<
 
   return (
     <VisualizerContainer>
-      <SpectrumSection>
-        <SectionTitle>FFT Signal Display {isPaused && "(Paused)"}</SectionTitle>
-        <SpectrumRow>
+      <VisualizerContent>
+        <SpectrumSection>
+          <SectionTitle>FFT Signal Display {isPaused && "(Paused)"}</SectionTitle>
+          <SpectrumRow>
+            <CanvasWrapper>
+              <ToggleableCanvasLayer
+                ref={spectrumGpuCanvasRef}
+                id="fft-spectrum-canvas-webgpu"
+                $visible={spectrumWebgpuEnabled}
+              />
+              <ToggleableCanvasLayer
+                ref={spectrumCanvasRef}
+                id="fft-spectrum-canvas-2d"
+                $visible={!spectrumWebgpuEnabled}
+              />
+            </CanvasWrapper>
+          </SpectrumRow>
+        </SpectrumSection>
+        <WaterfallSection>
+          <SectionTitle>Waterfall Display {isPaused && "(Paused)"}</SectionTitle>
           <CanvasWrapper>
             <ToggleableCanvasLayer
-              ref={spectrumGpuCanvasRef}
-              id="fft-spectrum-canvas-webgpu"
-              $visible={spectrumWebgpuEnabled}
+              ref={waterfallGpuCanvasRef}
+              id="fft-waterfall-canvas-webgpu"
+              $visible={webgpuEnabled}
             />
             <ToggleableCanvasLayer
-              ref={spectrumCanvasRef}
-              id="fft-spectrum-canvas-2d"
-              $visible={!spectrumWebgpuEnabled}
+              ref={waterfallCanvasRef}
+              id="fft-waterfall-canvas-2d"
+              $visible={!webgpuEnabled}
             />
           </CanvasWrapper>
-          <VisualizerSliders
-            zoom={vizZoom}
-            dbMax={vizDbMax}
-            dbMin={vizDbMin}
-            onZoomChange={handleZoomChange}
-            onDbMaxChange={setVizDbMax}
-            onDbMinChange={setVizDbMin}
-          />
-        </SpectrumRow>
-      </SpectrumSection>
-      <WaterfallSection>
-        <SectionTitle>Waterfall Display {isPaused && "(Paused)"}</SectionTitle>
-        <CanvasWrapper>
-          <ToggleableCanvasLayer
-            ref={waterfallGpuCanvasRef}
-            id="fft-waterfall-canvas-webgpu"
-            $visible={webgpuEnabled}
-          />
-          <ToggleableCanvasLayer
-            ref={waterfallCanvasRef}
-            id="fft-waterfall-canvas-2d"
-            $visible={!webgpuEnabled}
-          />
-        </CanvasWrapper>
-      </WaterfallSection>
+        </WaterfallSection>
+      </VisualizerContent>
+      <SlidersRail>
+        <VisualizerSliders
+          zoom={vizZoom}
+          dbMax={vizDbMax}
+          dbMin={vizDbMin}
+          onZoomChange={handleZoomChange}
+          onDbMaxChange={setVizDbMax}
+          onDbMinChange={setVizDbMin}
+        />
+      </SlidersRail>
     </VisualizerContainer>
   );
 });

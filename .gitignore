@@ -1,13 +1,18 @@
+# IDE stuff
+.vscode
+.windsurf
+
+# macOS
+.DS_Store
+
+# This is for local links to additional I/Q captures
+# Finder aliases (must give them .alias extension)
+.alias
+
 # node
 node_modules
 dist/
 
-# Python
-venv/
-__pycache__/
-*.pyc
-*.pyo
-*.egg-info/
 
 # Rust - exclude all build artifacts and target folders
 target/
@@ -37,9 +42,9 @@ src/swift-coreml-service/.build/
 src/swift-coreml-service/.swiftpm/
 src/swift-coreml-service/Package.resolved
 
-# macOS
-.DS_Store
-
-# This is for local links to additional I/Q captures
-# Finder aliases (must give them .alias extension)
-.alias
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/

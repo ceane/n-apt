@@ -3,12 +3,13 @@ import styled from "styled-components";
 
 const SlidersContainer = styled.div`
   display: flex;
-  flex-direction: row;
+  flex-direction: column;
   gap: 6px;
-  padding: 8px 4px;
+  padding: 4px 8px;
   background-color: #0a0a0a;
   border-left: 1px solid #222;
   align-self: stretch;
+  height: 100%;
   user-select: none;
 `;
 
@@ -17,7 +18,8 @@ const SliderGroup = styled.div`
   flex-direction: column;
   align-items: center;
   gap: 4px;
-  min-width: 36px;
+  flex: 1;
+  min-height: 0;
 `;
 
 const SliderLabel = styled.span`
@@ -34,7 +36,6 @@ const SliderTrack = styled.div`
   position: relative;
   width: 6px;
   flex: 1;
-  min-height: 80px;
   background-color: #1a1a1a;
   border-radius: 3px;
   cursor: pointer;
@@ -161,7 +162,7 @@ export const VisualizerSliders: React.FC<VisualizerSlidersProps> = ({
         label="Zoom"
         value={zoom}
         min={1}
-        max={32}
+        max={1000}
         step={1}
         onChange={onZoomChange}
         formatValue={(v) => `${v}x`}

@@ -96,7 +96,7 @@ animate_process_step() {
 show_process_messages() {
     # Kill blockers first, then quick confirm
     ./scripts/kill_blockers.sh
-    animate_process_step "${WHITE}Killing any blocking processes.${RESET}" "${WHITE}✔ Killing any blocking processes.${RESET}" 1
+    animate_process_step "${WHITE}Cleaning up existing processes...${RESET}" "${WHITE}✔ Cleaning up existing processes.${RESET}" 2
     
     # Start frontend (Vite will pick up VITE_* env set above)
     node_modules/.bin/vite dev --host > /tmp/vite_output.log 2>&1 &
@@ -105,13 +105,13 @@ show_process_messages() {
     
     # Checks
     animate_process_step "${WHITE}Checking to build backend server. ${ORANGE}Rust${RESET}.${RESET}" "${WHITE}✔ Checking to build backend server. ${ORANGE}Rust${RESET}.${RESET}" 1
-    animate_process_step "${WHITE}Checking to wasm_simd package. ${ORANGE}Rust${RESET} -> ${ORANGE}wasm_simd${RESET}.${RESET}" "${WHITE}✔ Checking to wasm_simd package. ${ORANGE}Rust${RESET} -> ${ORANGE}wasm_simd${RESET}.${RESET}" 1
+    animate_process_step "${WHITE}Checking to build wasm_simd package. ${ORANGE}Rust${RESET} -> ${ORANGE}wasm_simd${RESET}.${RESET}" "${WHITE}✔ Checking to build wasm_simd package. ${ORANGE}Rust${RESET} -> ${ORANGE}wasm_simd${RESET}.${RESET}" 1
 
     # Builds (async with spinner)
     npm run build:wasm > /tmp/wasm_build.log 2>&1 &
     WASM_PID=$!
     WASM_FAILED=0
-    if ! wait_with_spinner $WASM_PID "${WHITE}Building (wasm_simd)...${RESET}" "${WHITE}✔ Building (wasm_simd)...${RESET}" "${RED}✗ Building (wasm_simd) failed${RESET}"; then
+    if ! wait_with_spinner $WASM_PID "${WHITE}Building (wasm_simd)...${RESET}" "${WHITE}✔ Building (wasm_simd)...${RESET}" "${RED}✗ Building (wasm_simd) failed${RESET}" 120; then
         WASM_FAILED=1
     fi
     # Count wasm warnings if any
@@ -123,7 +123,7 @@ show_process_messages() {
     cargo build --bin n-apt-backend > /tmp/cargo_build.log 2>&1 &
     CARGO_PID=$!
     CARGO_BUILD_STATUS=0
-    if ! wait_with_spinner $CARGO_PID "${WHITE}Building (backend)... ${ORANGE}Rust${RESET}.${RESET}" "${WHITE}✔ Building (backend)... ${ORANGE}Rust${RESET}.${RESET}" "${RED}✗ Building (backend) failed${RESET}"; then
+    if ! wait_with_spinner $CARGO_PID "${WHITE}Building (backend)... ${ORANGE}Rust${RESET}.${RESET}" "${WHITE}✔ Building (backend)... ${ORANGE}Rust${RESET}.${RESET}" "${RED}✗ Building (backend) failed${RESET}" 90; then
         CARGO_BUILD_STATUS=$?
     fi
     CARGO_WARNINGS=$(grep -c "warning:" /tmp/cargo_build.log || true)
@@ -293,12 +293,26 @@ wait_with_spinner() {
     local label="$2"
     local success_line="$3"
     local fail_line="$4"
+    local timeout_seconds=${5:-60}  # Default 60s timeout
+    local count=0
 
-    while kill -0 $pid 2>/dev/null; do
+    while kill -0 $pid 2>/dev/null && [ $count -lt $timeout_seconds ]; do
         local spinner=$(get_braille_spinner)
         printf "\r\033[K${GREY}%s${RESET} %b" "$spinner" "$label"
         sleep 0.1
+        count=$((count + 1))
     done
+    
+    # Check if process is still running (timeout)
+    if kill -0 $pid 2>/dev/null; then
+        kill $pid 2>/dev/null || true  # Force kill
+        wait $pid >/dev/null 2>&1 || true
+        printf "\r\033[K${RED}✗ %s (timeout after %ds)${RESET}\n" "$label" "$timeout_seconds"
+        ERROR_COUNT=$((ERROR_COUNT + 1))
+        return 1
+    fi
+    
+    # Process finished normally
     local status=0
     wait $pid >/dev/null 2>&1 || status=$?
     if [ $status -eq 0 ]; then
@@ -316,7 +330,7 @@ wait_for_backend_ready() {
     local label="$2"
     local success_line="$3"
     local fail_line="$4"
-    local max_checks=150
+    local max_checks=50
 
     # Derive host/port from WEBSOCKETS_URL for faster readiness detection
     local ws_url=${WEBSOCKETS_URL:-http://localhost:8765}
@@ -333,8 +347,8 @@ wait_for_backend_ready() {
             ERROR_COUNT=$((ERROR_COUNT + 1))
             return 1
         fi
-        # Success if log is present or port is listening
-        if grep -q "Starting server on" /tmp/rust_output.log 2>/dev/null || (echo > /dev/tcp/$ws_host/$ws_port) >/dev/null 2>&1; then
+        # Success if log is present or port is listening (use lsof instead of TCP test)
+        if grep -q "Starting server on" /tmp/rust_output.log 2>/dev/null || lsof -ti:8765 >/dev/null 2>&1; then
             printf "\r\033[K%b\n" "$success_line"
             return 0
         fi
