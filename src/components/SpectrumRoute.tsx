@@ -373,6 +373,29 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   const effectiveFrames = wsSpectrumFrames.length > 0 ? wsSpectrumFrames : cachedFrames;
   const effectiveSdrSettings = sdrSettings ?? cachedSdrSettings;
 
+  const setVizPanOffsetWithRangeUpdate = useCallback((newPan: number) => {
+    setVizPanOffset(newPan);
+    // When zoomed, update frequencyRange to reflect the new visible range
+    if (vizZoom > 1 && state.frequencyRange && state.activeSignalArea) {
+      const frame = effectiveFrames.find(
+        (f: SpectrumFrame) => f.label.toLowerCase() === state.activeSignalArea.toLowerCase(),
+      );
+      if (frame) {
+        const min = frame.min_mhz;
+        const max = frame.max_mhz;
+        const span = max - min;
+        const hardwareCenter = (min + max) / 2;
+        const visualCenter = hardwareCenter + newPan;
+        const visualSpan = span / vizZoom;
+        const newVisibleMin = visualCenter - visualSpan / 2;
+        const newVisibleMax = visualCenter + visualSpan / 2;
+        const newRange = { min: newVisibleMin, max: newVisibleMax };
+        dispatch({ type: "SET_FREQUENCY_RANGE", range: newRange });
+        sendFrequencyRange(newRange);
+      }
+    }
+  }, [vizZoom, state.frequencyRange, state.activeSignalArea, effectiveFrames, sendFrequencyRange]);
+
   useEffect(() => {
     if (wsSpectrumFrames.length === 0) return;
     setCachedFrames(wsSpectrumFrames);
@@ -684,7 +707,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                 onSnapshot={handleSnapshot}
                 vizZoom={vizZoom}
                 vizPanOffset={vizPanOffset}
-                onVizPanChange={setVizPanOffset}
+                onVizPanChange={setVizPanOffsetWithRangeUpdate}
               />
             );
             return sidebarWrapper ? sidebarWrapper(sidebarNode) : sidebarNode;
@@ -748,7 +771,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                     vizZoom={vizZoom}
                     vizPanOffset={vizPanOffset}
                     onVizZoomChange={setVizZoom}
-                    onVizPanChange={setVizPanOffset}
+                    onVizPanChange={setVizPanOffsetWithRangeUpdate}
                   />
                 </>
               )}

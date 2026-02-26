@@ -415,6 +415,7 @@ render_unified_box_frame() {
         echo ""
         echo -e "${ORANGE}${WEBSOCKETS_URL}${RESET} ${GREY}(websockets backend)${RESET}"
         echo -e "${GREY}${WASM_BUILD_PATH} (WebGPU wasm_simd build)${RESET}"
+        echo -e "${GREY}/tmp/rust_output.log (Rust logs)${RESET}"
         echo ""
         echo -e "${GREY}Press Ctrl+C to stop all services${RESET}"
         echo ""
@@ -440,6 +441,7 @@ render_unified_box_frame() {
         
         print_box_line "           ${WEBSOCKETS_URL} (websockets backend)" " " "           ${ORANGE}${WEBSOCKETS_URL}${RESET} ${GREY}(websockets backend)${RESET}" " "
         print_box_line "           ${WASM_BUILD_PATH} (WebGPU wasm_simd build)" " " "           ${GREY}${WASM_BUILD_PATH} (WebGPU wasm_simd build)${RESET}" " "
+        print_box_line "           /tmp/rust_output.log (Rust logs)" " " "           ${GREY}/tmp/rust_output.log (Rust logs)${RESET}" " "
         print_box_line " " " " " " " "
         print_box_line " " " " " " " "
         

@@ -100,7 +100,7 @@ const Marker = styled.div`
   pointer-events: none;
 `;
 
-const VisibleWindow = styled.div<{ $isActive: boolean; $left: number; $width: number }>`
+const VisibleWindow = styled.div<{ $isActive: boolean }>`
   position: absolute;
   top: 2px;
   bottom: 2px;
@@ -112,10 +112,8 @@ const VisibleWindow = styled.div<{ $isActive: boolean; $left: number; $width: nu
   align-items: center;
   justify-content: center;
   user-select: none;
-  min-width: 80px;
   box-sizing: border-box;
-  left: ${(props) => props.$left}%;
-  width: ${(props) => props.$width}%;
+  min-width: min-content;
 `;
 
 const WindowLabel = styled.span<{ $isActive: boolean }>`
@@ -155,16 +153,16 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   // Initialize windowStart from props
   const [windowStart, setWindowStart] = useState((visibleMin - minFreq) / totalRange);
 
-  // Visual buffer for padding accommodation
-  const PADDING_BUFFER = 0.03; // 3% on each side
-  const visualWindowWidth = Math.min(1, windowWidth + (PADDING_BUFFER * 2));
-  const visualWindowStart = Math.max(
-    0,
-    Math.min(windowStart - PADDING_BUFFER, 1 - visualWindowWidth),
-  );
+  // Sync windowStart when visibleMin or visibleMax change (from zoom/pan)
+  useEffect(() => {
+    if (!isDraggingRef.current) {
+      setWindowStart((visibleMin - minFreq) / totalRange);
+    }
+  }, [visibleMin, minFreq, totalRange]);
 
   const isDraggingRef = useRef(false);
   const trackRef = useRef<HTMLDivElement>(null);
+  const thumbRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const dragStartXRef = useRef(0);
   const dragStartWindowRef = useRef(0);
@@ -173,25 +171,59 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   const lastNotifiedChangeIdRef = useRef(0);
   const [isDragging, setIsDragging] = useState(false);
 
-  // Sync windowStart with external frequency range (VFO changes)
+  const [trackWidth, setTrackWidth] = useState(1000);
+  const [thumbWidth, setThumbWidth] = useState(80);
+
   useEffect(() => {
-    if (!externalFrequencyRange || isDragging) return;
+    const track = trackRef.current;
+    const thumb = thumbRef.current;
+    if (!track || !thumb) return;
 
-    const newWindowStart = (externalFrequencyRange.min - minFreq) / totalRange;
-    const clamped = Math.max(0, Math.min(1 - windowWidth, newWindowStart));
+    const updateWidths = () => {
+      if (track) setTrackWidth(track.clientWidth); // Use clientWidth to prevent border overflow
+      if (thumb) setThumbWidth(thumb.getBoundingClientRect().width);
+    };
 
+    const observer = new ResizeObserver(updateWidths);
+    observer.observe(track);
+    observer.observe(thumb);
+
+    updateWidths();
+
+    return () => observer.disconnect();
+  }, []);
+
+  // Sync windowStart from external state (either actual SDR tune range or visual zoom range)
+  useEffect(() => {
+    if (isDragging) return;
+
+    let desiredStart = windowStart;
+    if (externalFrequencyRange) {
+      desiredStart = (externalFrequencyRange.min - minFreq) / totalRange;
+      lastNotifiedRangeRef.current = externalFrequencyRange;
+    } else {
+      desiredStart = (visibleMin - minFreq) / totalRange;
+    }
+
+    const clamped = Math.max(0, Math.min(1 - windowWidth, desiredStart));
     setWindowStart(clamped);
-    lastNotifiedRangeRef.current = externalFrequencyRange;
-  }, [externalFrequencyRange, isDragging, minFreq, totalRange, windowWidth]);
+  }, [externalFrequencyRange, visibleMin, minFreq, totalRange, windowWidth, isDragging]);
 
-  const currentMin = minFreq + windowStart * totalRange;
-  const currentMax = minFreq + (windowStart + windowWidth) * totalRange;
+  const maxWindowStart = Math.max(0, 1 - windowWidth);
+  const visualRatio = maxWindowStart > 0 ? Math.max(0, Math.min(1, windowStart / maxWindowStart)) : 0;
+
+  // Use the actual thumb width tracked by ResizeObserver, not just the percentage, to ensure
+  // that we do not overflow the right edge of the track when min-content kicks in.
+  const draggableTrackWidth = Math.max(0, trackWidth - thumbWidth);
+  const thumbLeftPx = visualRatio * draggableTrackWidth;
+
+  const currentMin = Math.max(minFreq, minFreq + windowStart * totalRange);
+  const currentMax = Math.min(maxFreq, minFreq + (windowStart + windowWidth) * totalRange);
 
   // Calculate label positions to avoid collision
   const calculateLabelPositions = useCallback(() => {
-    const trackWidth = trackRef.current?.getBoundingClientRect().width ?? 400;
-    const windowLeft = visualWindowStart * trackWidth;
-    const windowRight = (visualWindowStart + visualWindowWidth) * trackWidth;
+    const windowLeft = thumbLeftPx;
+    const windowRight = thumbLeftPx + thumbWidth;
 
     // Calculate label positions (approximately 50px from edges for padding)
     const leftLabelEnd = 50; // Left label occupies ~0-50px
@@ -202,7 +234,7 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
     const hideRightLabel = windowRight > rightLabelStart - 10; // 10px buffer
 
     return { hideLeftLabel, hideRightLabel };
-  }, [visualWindowStart, visualWindowWidth]);
+  }, [thumbLeftPx, thumbWidth, trackWidth]);
 
   const labelPositions = calculateLabelPositions();
 
@@ -287,13 +319,19 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
     const handleMouseMove = (e: MouseEvent) => {
       if (!isDraggingRef.current || !trackRef.current) return;
 
-      const track = trackRef.current;
-      const rect = track.getBoundingClientRect();
+      // Calculate how far the mouse has moved
       const deltaX = e.clientX - dragStartXRef.current;
-      const deltaPercent = deltaX / rect.width;
 
-      let newStart = dragStartWindowRef.current + deltaPercent;
-      newStart = Math.max(0, Math.min(1 - windowWidth, newStart));
+      // Get the number of draggable pixels, ensuring we don't divide by zero
+      const draggablePixels = Math.max(1, trackWidth - thumbWidth);
+
+      // How much the windowStart should change based on mouse movement
+      // windowStart scales from 0 to maxWindowStart, while pixels scale from 0 to draggablePixels
+      const ratioDelta = deltaX / draggablePixels;
+      const windowStartDelta = ratioDelta * maxWindowStart;
+
+      let newStart = dragStartWindowRef.current + windowStartDelta;
+      newStart = Math.max(0, Math.min(maxWindowStart, newStart));
 
       internalChangeIdRef.current += 1;
       setWindowStart(newStart);
@@ -315,7 +353,7 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [windowWidth, notifyParent]);
+  }, [maxWindowStart, thumbWidth, notifyParent]);
 
   const handleMouseDown = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -373,9 +411,12 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
             </span>
           </RangeLabels>
           <VisibleWindow
+            ref={thumbRef}
             $isActive={isActive}
-            $left={visualWindowStart * 100}
-            $width={visualWindowWidth * 100}
+            style={{
+              left: `${thumbLeftPx}px`,
+              width: `${windowWidth * 100}%`,
+            }}
             onMouseDown={handleMouseDown}
           >
             <WindowLabel $isActive={isActive}>

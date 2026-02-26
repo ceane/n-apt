@@ -82,6 +82,35 @@ const Section = styled.div`
   margin-bottom: 24px;
 `;
 
+const CollapsibleSectionHeader = styled.button`
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  margin: 0 0 16px 0;
+  cursor: pointer;
+  text-align: left;
+`;
+
+const CollapsibleSectionLabel = styled.span`
+  font-size: 11px;
+  color: #555;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-weight: 600;
+  font-family: "JetBrains Mono", monospace;
+`;
+
+const CollapsibleSectionToggle = styled.span`
+  font-size: 12px;
+  color: #555;
+  font-family: "JetBrains Mono", monospace;
+  font-weight: 600;
+`;
+
 const SectionTitle = styled.div<{ $fileMode?: boolean }>`
   font-size: 11px;
   color: ${(props) => (props.$fileMode ? "#d9aa34" : "#555")};
@@ -462,6 +491,9 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   // Snapshot UI state
   const [snapshotOpen, setSnapshotOpen] = useState(false);
+
+  // Signal features UI state
+  const [signalFeaturesOpen, setSignalFeaturesOpen] = useState(false);
   const [snapshotWhole, setSnapshotWhole] = useState(false);
   const [snapshotShowWaterfall, setSnapshotShowWaterfall] = useState(false);
   const [snapshotShowStats, setSnapshotShowStats] = useState(true);
@@ -638,6 +670,78 @@ const Sidebar: React.FC<SidebarProps> = ({
     [activeSignalArea, onFrequencyRangeChange],
   );
 
+  const SignalFeaturesSection = () => {
+    const isFileSource = sourceMode === "file";
+    const classificationStatusText = isFileSource
+      ? selectedFiles.length > 0
+        ? "Yes"
+        : "No"
+      : deviceState === "connected"
+        ? "Yes"
+        : "No";
+    const classificationDisabled = isFileSource
+      ? selectedFiles.length === 0
+      : !isConnected || deviceState !== "connected";
+
+    return (
+      <Section>
+        <CollapsibleSectionHeader type="button" onClick={() => setSignalFeaturesOpen((prev) => !prev)}>
+          <CollapsibleSectionLabel>Signal Features /</CollapsibleSectionLabel>
+          <CollapsibleSectionToggle>{signalFeaturesOpen ? "-" : "+"}</CollapsibleSectionToggle>
+        </CollapsibleSectionHeader>
+
+        {signalFeaturesOpen && (
+          <>
+            <SettingRow>
+              <SettingLabelContainer>
+                <SettingLabel>
+                  N-APT
+                  <span role="img" aria-label="brain" style={{ marginLeft: "6px" }}>
+                    🧠
+                  </span>
+                </SettingLabel>
+                <InfoPopover
+                  title="N-APT"
+                  content="N-APT stands for: Neuro Automatic Picture Transmission. These radio waves are modulated akin to APT signals (unknown reasons at this time) but unique in their ability to intercept, process and alter the brain and nervous system.<br><br>Through LF/HF frequencies (frequencies that survive attenuation of the skull and/or body; and lose less energy with longer distances/obstacles), it functions from triangulation, time of flight depth, heterodyning (it's key feature which ensures bioelectrical reception), phase shifting, center frequencies, impedance & endpoint signals processing (suspected as Kaiser, Bayes' Theorem/Posterior Probability, etc.).<br><br>It is an unprecedented formula of radio waves and neurotechnology with nascent efforts to decipher its modulation and content."
+                />
+              </SettingLabelContainer>
+              <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                <div style={{ fontSize: "12px", color: "#ccc", fontWeight: 500 }}>{classificationStatusText}</div>
+                <button
+                  disabled={classificationDisabled}
+                  style={{
+                    fontSize: "11px",
+                    padding: "6px 12px",
+                    minWidth: "80px",
+                    opacity: classificationDisabled ? 0.5 : 1,
+                    cursor: classificationDisabled ? "not-allowed" : "pointer",
+                    backgroundColor: "#1a1a1a",
+                    border: "1px solid #2a2a2a",
+                    borderRadius: "6px",
+                    color: classificationDisabled ? "#666" : "#00d4ff",
+                    fontFamily: "JetBrains Mono, monospace",
+                  }}
+                >
+                  Classify?
+                </button>
+              </div>
+            </SettingRow>
+
+            <SettingRow>
+              <SettingLabelContainer>
+                <SettingLabel>Heterodyned?</SettingLabel>
+              </SettingLabelContainer>
+              <HeterodyningContainer>
+                No
+                <VerifyButton>Verify</VerifyButton>
+              </HeterodyningContainer>
+            </SettingRow>
+          </>
+        )}
+      </Section>
+    );
+  };
+
   // Minimal sidebar mode: only show connection status and auth state
   if (!isAuthenticated) {
     const authStatusMap = {
@@ -797,55 +901,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                 onStitchPauseToggle={onStitchPauseToggle}
               />
 
-              <Section>
-                <SectionTitle>Signal Features</SectionTitle>
-                <SettingRow>
-                  <SettingLabelContainer>
-                    <SettingLabel>
-                      N-APT
-                      <span role="img" aria-label="brain" style={{ marginLeft: "6px" }}>
-                        🧠
-                      </span>
-                    </SettingLabel>
-                    <InfoPopover
-                      title="N-APT"
-                      content="N-APT stands for: Neuro Automatic Picture Transmission. These radio waves are modulated akin to APT signals (unknown reasons at this time) but unique in their ability to intercept, process and alter the brain and nervous system.<br><br>Through LF/HF frequencies (frequencies that survive attenuation of the skull and/or body; and lose less energy with longer distances/obstacles), it functions from triangulation, time of flight depth, heterodyning (it's key feature which ensures bioelectrical reception), phase shifting, center frequencies, impedance & endpoint signals processing (suspected as Kaiser, Bayes' Theorem/Posterior Probability, etc.).<br><br>It is an unprecedented formula of radio waves and neurotechnology with nascent efforts to decipher its modulation and content."
-                    />
-                  </SettingLabelContainer>
-                  <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                    <div style={{ fontSize: "12px", color: "#ccc", fontWeight: 500 }}>
-                      {selectedFiles.length > 0 ? "Yes" : "No"}
-                    </div>
-                    <button
-                      disabled={selectedFiles.length === 0}
-                      style={{
-                        fontSize: "11px",
-                        padding: "6px 12px",
-                        minWidth: "80px",
-                        opacity: selectedFiles.length === 0 ? 0.5 : 1,
-                        cursor: selectedFiles.length === 0 ? "not-allowed" : "pointer",
-                        backgroundColor: "#1a1a1a",
-                        border: "1px solid #2a2a2a",
-                        borderRadius: "6px",
-                        color: selectedFiles.length === 0 ? "#666" : "#00d4ff",
-                        fontFamily: "JetBrains Mono, monospace",
-                      }}
-                    >
-                      Classify?
-                    </button>
-                  </div>
-                </SettingRow>
-
-                <SettingRow>
-                  <SettingLabelContainer>
-                    <SettingLabel>Heterodyned?</SettingLabel>
-                  </SettingLabelContainer>
-                  <HeterodyningContainer>
-                    No
-                    <VerifyButton>Verify</VerifyButton>
-                  </HeterodyningContainer>
-                </SettingRow>
-              </Section>
+              <SignalFeaturesSection />
             </>
           ) : (
             <>
@@ -860,18 +916,24 @@ const Sidebar: React.FC<SidebarProps> = ({
 
                     // If this is the active frame and we are zoomed in,
                     // calculate the visual range based on zoom and pan offset
+                    // NOTE: Use frequencyRange (SDR center) not frame min/max for center calculation
                     let visibleMin = min;
                     let visibleMax = min + (typeof sampleRateMHz === "number" ? Math.min(sampleRateMHz, span) : span);
                     let externalFreqRange = activeSignalArea === label ? frequencyRange : undefined;
 
-                    if (activeSignalArea === label && vizZoom > 1) {
-                      const hardwareCenter = (min + max) / 2;
-                      const visualCenter = hardwareCenter + vizPanOffset;
+                    if (activeSignalArea === label && vizZoom > 1 && frequencyRange) {
+                      // Use frequencyRange (SDR tuned range) for center calculation
+                      // This matches what FFTCanvas does
+                      const hardwareCenter = (frequencyRange.min + frequencyRange.max) / 2;
                       const visualSpan = span / vizZoom;
+                      // vizPanOffset is in Hz, convert to MHz
+                      const visualCenter = hardwareCenter + (vizPanOffset / 1_000_000);
                       visibleMin = visualCenter - visualSpan / 2;
                       visibleMax = visualCenter + visualSpan / 2;
 
-                      externalFreqRange = { min: visibleMin, max: visibleMax };
+                      // Don't use externalFrequencyRange when zoomed - let the slider
+                      // use visibleMin/visibleMax props directly for the zoomed view
+                      externalFreqRange = undefined;
                     }
 
                     return (
@@ -893,6 +955,8 @@ const Sidebar: React.FC<SidebarProps> = ({
                             const visualCenter = (range.min + range.max) / 2;
                             const newPan = visualCenter - hardwareCenter;
                             onVizPanChange(newPan);
+                            // Update frequencyRange to the current visible range when zoomed
+                            onFrequencyRangeChange?.(range);
                           } else {
                             handleRangeChange(label, range);
                           }
@@ -909,56 +973,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                 )}
               </Section>
 
-              <Section>
-                <SectionTitle>Signal Features</SectionTitle>
-                <SettingRow>
-                  <SettingLabelContainer>
-                    <SettingLabel>
-                      N-APT
-                      <span role="img" aria-label="brain" style={{ marginLeft: "6px" }}>
-                        🧠
-                      </span>
-                    </SettingLabel>
-                    <InfoPopover
-                      title="N-APT"
-                      content="N-APT stands for: Neuro Automatic Picture Transmission. These radio waves are modulated akin to APT signals (unknown reasons at this time) but unique in their ability to intercept, process and alter the brain and nervous system.<br><br>Through LF/HF frequencies (frequencies that survive attenuation of the skull and/or body; and lose less energy with longer distances/obstacles), it functions from triangulation, time of flight depth, heterodyning (it's key feature which ensures bioelectrical reception), phase shifting, center frequencies, impedance & endpoint signals processing (suspected as Kaiser, Bayes' Theorem/Posterior Probability, etc.).<br><br>It is an unprecedented formula of radio waves and neurotechnology with nascent efforts to decipher its modulation and content."
-                    />
-                  </SettingLabelContainer>
-                  <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                    <div style={{ fontSize: "12px", color: "#ccc", fontWeight: 500 }}>
-                      {deviceState === "connected" ? "Yes" : "No"}
-                    </div>
-                    <button
-                      disabled={!isConnected || deviceState !== "connected"}
-                      style={{
-                        fontSize: "11px",
-                        padding: "6px 12px",
-                        minWidth: "80px",
-                        opacity: !isConnected || deviceState !== "connected" ? 0.5 : 1,
-                        cursor:
-                          !isConnected || deviceState !== "connected" ? "not-allowed" : "pointer",
-                        backgroundColor: "#1a1a1a",
-                        border: "1px solid #2a2a2a",
-                        borderRadius: "6px",
-                        color: !isConnected || deviceState !== "connected" ? "#666" : "#00d4ff",
-                        fontFamily: "JetBrains Mono, monospace",
-                      }}
-                    >
-                      Classify?
-                    </button>
-                  </div>
-                </SettingRow>
-
-                <SettingRow>
-                  <SettingLabelContainer>
-                    <SettingLabel>Heterodyned?</SettingLabel>
-                  </SettingLabelContainer>
-                  <HeterodyningContainer>
-                    No
-                    <VerifyButton>Verify</VerifyButton>
-                  </HeterodyningContainer>
-                </SettingRow>
-              </Section>
+              <SignalFeaturesSection />
 
               <SignalDisplaySection
                 sourceMode={sourceMode}
