@@ -20,8 +20,4 @@ wasm-bindgen-test = "0.3"
 
 [dependencies.web-sys]
 version = "0.3"
-features = [
-  "console",
-  "Performance",
-  "Window",
-]
+features = ["console", "Performance", "Window"]

@@ -1,6 +1,21 @@
 // Library exports for testing
 pub mod consts;
 pub mod fft;
+pub mod stitching;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod coreml_client;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod credentials;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod crypto;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod native_simd;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod rtlsdr;
+// #[cfg(not(target_arch = "wasm32"))]
+// pub mod server;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod session;
 pub mod wasm_simd;
 
 #[cfg(target_arch = "wasm32")]

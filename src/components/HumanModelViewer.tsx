@@ -1,8 +1,9 @@
-import React, { Suspense, useRef, useState, useEffect } from "react"
-import { Canvas } from "@react-three/fiber"
-import { OrbitControls, useGLTF, TransformControls } from "@react-three/drei"
-import { gsap } from "gsap"
-import Brain from "@n-apt/components/Brain"
+import React, { Suspense, useRef, useState, useEffect } from "react";
+import styled from "styled-components";
+import { Canvas } from "@react-three/fiber";
+import { OrbitControls, useGLTF, TransformControls } from "@react-three/drei";
+import { gsap } from "gsap";
+import Brain from "@n-apt/components/Brain";
 import {
   MODEL_CAMERA_POSITION,
   MODEL_FOV,
@@ -10,14 +11,14 @@ import {
   SPHERE_MARKER_COLOR,
   SPHERE_MARKER_BASE_INTENSITY,
   CONTROL_PANEL_WIDTH,
-} from "@n-apt/consts"
+} from "@n-apt/consts";
 
 type Area = {
-  name: string
-  position: [number, number, number]
-  target: [number, number, number]
-  meshName: string
-}
+  name: string;
+  position: [number, number, number];
+  target: [number, number, number];
+  meshName: string;
+};
 
 const areas: Area[] = [
   {
@@ -40,8 +41,8 @@ const areas: Area[] = [
   },
   {
     name: "Vocal Cords",
-    position: [0.00, 1.79, 0.32],
-    target: [0.00, 1.81, 0.06],
+    position: [0.0, 1.79, 0.32],
+    target: [0.0, 1.81, 0.06],
     meshName: "o_ADBody",
   },
   {
@@ -134,10 +135,10 @@ const areas: Area[] = [
     target: [0.08594598979516654, 1.8953312879510087, 0.021125019930469335],
     meshName: "o_ADBody",
   },
-]
+];
 
 function Model({ selectedArea }: { selectedArea: Area | null }) {
-  const { scene } = useGLTF("/glb_models/androgynous_body.glb")
+  const { scene } = useGLTF("/glb_models/androgynous_body.glb");
 
   return (
     <>
@@ -145,9 +146,7 @@ function Model({ selectedArea }: { selectedArea: Area | null }) {
       {selectedArea && (
         <group position={selectedArea.target}>
           <mesh>
-            <sphereGeometry
-              args={[0.1, SPHERE_GEOMETRY_SEGMENTS, SPHERE_GEOMETRY_SEGMENTS]}
-            />
+            <sphereGeometry args={[0.1, SPHERE_GEOMETRY_SEGMENTS, SPHERE_GEOMETRY_SEGMENTS]} />
             <meshStandardMaterial
               color={SPHERE_MARKER_COLOR}
               emissive={SPHERE_MARKER_COLOR}
@@ -157,9 +156,7 @@ function Model({ selectedArea }: { selectedArea: Area | null }) {
             />
           </mesh>
           <mesh>
-            <sphereGeometry
-              args={[0.15, SPHERE_GEOMETRY_SEGMENTS, SPHERE_GEOMETRY_SEGMENTS]}
-            />
+            <sphereGeometry args={[0.15, SPHERE_GEOMETRY_SEGMENTS, SPHERE_GEOMETRY_SEGMENTS]} />
             <meshStandardMaterial
               color={SPHERE_MARKER_COLOR}
               emissive={SPHERE_MARKER_COLOR}
@@ -169,9 +166,7 @@ function Model({ selectedArea }: { selectedArea: Area | null }) {
             />
           </mesh>
           <mesh>
-            <sphereGeometry
-              args={[0.2, SPHERE_GEOMETRY_SEGMENTS, SPHERE_GEOMETRY_SEGMENTS]}
-            />
+            <sphereGeometry args={[0.2, SPHERE_GEOMETRY_SEGMENTS, SPHERE_GEOMETRY_SEGMENTS]} />
             <meshStandardMaterial
               color={SPHERE_MARKER_COLOR}
               emissive={SPHERE_MARKER_COLOR}
@@ -183,76 +178,78 @@ function Model({ selectedArea }: { selectedArea: Area | null }) {
         </group>
       )}
     </>
-  )
+  );
 }
 
 interface HumanModelViewerProps {
-  width?: string | number
-  height?: string | number
+  width?: string | number;
+  height?: string | number;
 }
 
-const HumanModelViewer: React.FC<HumanModelViewerProps> = ({
-  width = "100%",
-  height = "100%",
-}) => {
-  const [selectedArea, setSelectedArea] = useState<Area | null>(null)
-  const controlsRef = useRef<any>(null)
+// Styled Components
+const Panel = styled.div`
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: ${CONTROL_PANEL_WIDTH};
+  height: 100%;
+  color: white;
+  padding: 12px;
+  z-index: 1;
+  background: rgba(10, 10, 12, 0.78);
+  border-right: 1px solid rgba(255,255,255,0.10);
+  box-shadow: 0 20px 60px rgba(0,0,0,0.55);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+`;
 
-  const panelStyle: React.CSSProperties = {
-    position: "absolute",
-    left: 0,
-    top: 0,
-    width: CONTROL_PANEL_WIDTH,
-    height: "100%",
-    color: "white",
-    padding: "12px",
-    zIndex: 1,
-    background: "rgba(10, 10, 12, 0.78)",
-    borderRight: "1px solid rgba(255,255,255,0.10)",
-    boxShadow: "0 20px 60px rgba(0,0,0,0.55)",
-    backdropFilter: "blur(10px)",
-    WebkitBackdropFilter: "blur(10px)",
-    display: "flex",
-    flexDirection: "column",
-    gap: "10px",
-  }
+const List = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+  padding: 0 12px 0 8px;
+  box-sizing: border-box;
+`;
 
-  const listStyle: React.CSSProperties = {
-    display: "flex",
-    flexDirection: "column",
-    gap: "6px",
-    overflowY: "auto",
-    paddingRight: "4px",
-  }
+const BaseButton = styled.button`
+  width: 100%;
+  max-width: calc(100% - 20px);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 13px;
+  line-height: 1.1;
+  text-align: left;
+  cursor: pointer;
+  user-select: none;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease,
+    transform 120ms ease,
+    box-shadow 120ms ease;
+`;
 
-  const baseButtonStyle: React.CSSProperties = {
-    width: "100%",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: "10px",
-    padding: "10px 10px",
-    borderRadius: "10px",
-    border: "1px solid rgba(255,255,255,0.10)",
-    background: "rgba(255,255,255,0.06)",
-    color: "rgba(255,255,255,0.92)",
-    fontSize: "13px",
-    lineHeight: 1.1,
-    textAlign: "left",
-    cursor: "pointer",
-    userSelect: "none",
-    transition:
-      "background 120ms ease, border-color 120ms ease, transform 120ms ease, box-shadow 120ms ease",
-  }
+const SelectableButton = styled(BaseButton).attrs<{ $isSelected: boolean }>(props => ({
+  style: {
+    background: props.$isSelected ? "rgba(123, 97, 255, 0.22)" : "rgba(255,255,255,0.06)",
+    borderColor: props.$isSelected ? "rgba(123, 97, 255, 0.55)" : "rgba(255,255,255,0.10)",
+    boxShadow: props.$isSelected ? "0 0 0 1px rgba(123, 97, 255, 0.25)" : "none",
+  },
+}))`;
 
-  const getButtonStyle = (isSelected: boolean): React.CSSProperties => ({
-    ...baseButtonStyle,
-    background: isSelected ? "rgba(123, 97, 255, 0.22)" : baseButtonStyle.background,
-    borderColor: (isSelected
-      ? "rgba(123, 97, 255, 0.55)"
-      : "rgba(255,255,255,0.10)") as React.CSSProperties["borderColor"],
-    boxShadow: isSelected ? "0 0 0 1px rgba(123, 97, 255, 0.25)" : "none",
-  })
+const HumanModelViewer: React.FC<HumanModelViewerProps> = ({ width = "100%", height = "100%" }) => {
+  const [selectedArea, setSelectedArea] = useState<Area | null>(null);
+  const controlsRef = useRef<any>(null);
 
   useEffect(() => {
     if (selectedArea && controlsRef.current) {
@@ -261,20 +258,20 @@ const HumanModelViewer: React.FC<HumanModelViewerProps> = ({
         y: selectedArea.position[1],
         z: selectedArea.position[2],
         duration: 1,
-      })
+      });
       gsap.to(controlsRef.current.target, {
         x: selectedArea.target[0],
         y: selectedArea.target[1],
         z: selectedArea.target[2],
         duration: 1,
         onUpdate: () => controlsRef.current.update(),
-      })
+      });
     }
-  }, [selectedArea])
+  }, [selectedArea]);
 
   return (
     <div style={{ position: "relative", width, height }}>
-      <div style={panelStyle}>
+      <Panel>
         <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
           <div
             style={{
@@ -282,6 +279,7 @@ const HumanModelViewer: React.FC<HumanModelViewerProps> = ({
               letterSpacing: "0.08em",
               textTransform: "uppercase",
               color: "rgba(255,255,255,0.70)",
+              padding: "12px",
             }}
           >
             Body Areas
@@ -291,40 +289,40 @@ const HumanModelViewer: React.FC<HumanModelViewerProps> = ({
           </div>
         </div>
 
-        <div style={listStyle}>
+        <List>
           {areas.map((area) => {
-            const isSelected = selectedArea?.name === area.name
+            const isSelected = selectedArea?.name === area.name;
 
             return (
-              <button
+              <SelectableButton
                 key={area.name}
+                $isSelected={isSelected}
                 onClick={() => setSelectedArea(area)}
                 aria-pressed={isSelected}
-                style={getButtonStyle(isSelected)}
                 onMouseDown={(e) => e.currentTarget.style.setProperty("transform", "scale(0.99)")}
                 onMouseUp={(e) => e.currentTarget.style.removeProperty("transform")}
                 onMouseLeave={(e) => e.currentTarget.style.removeProperty("transform")}
                 onMouseEnter={(e) => {
                   if (!isSelected) {
-                    e.currentTarget.style.background = "rgba(255,255,255,0.10)"
-                    e.currentTarget.style.borderColor = "rgba(255,255,255,0.18)"
+                    e.currentTarget.style.background = "rgba(255,255,255,0.10)";
+                    e.currentTarget.style.borderColor = "rgba(255,255,255,0.18)";
                   }
                 }}
                 onMouseOut={(e) => {
                   if (!isSelected) {
-                    e.currentTarget.style.background = "rgba(255,255,255,0.06)"
-                    e.currentTarget.style.borderColor = "rgba(255,255,255,0.10)"
+                    e.currentTarget.style.background = "rgba(255,255,255,0.06)";
+                    e.currentTarget.style.borderColor = "rgba(255,255,255,0.10)";
                   }
                 }}
                 onFocus={(e) => {
                   e.currentTarget.style.boxShadow =
-                    "0 0 0 3px rgba(123, 97, 255, 0.35), 0 0 0 1px rgba(123, 97, 255, 0.35) inset"
-                  e.currentTarget.style.outline = "none"
+                    "0 0 0 3px rgba(123, 97, 255, 0.35), 0 0 0 1px rgba(123, 97, 255, 0.35) inset";
+                  e.currentTarget.style.outline = "none";
                 }}
                 onBlur={(e) => {
                   e.currentTarget.style.boxShadow = isSelected
                     ? "0 0 0 1px rgba(123, 97, 255, 0.25)"
-                    : "none"
+                    : "none";
                 }}
               >
                 <span style={{ display: "flex", alignItems: "center", gap: "10px" }}>
@@ -353,16 +351,16 @@ const HumanModelViewer: React.FC<HumanModelViewerProps> = ({
                 >
                   ›
                 </span>
-              </button>
-            )
+              </SelectableButton>
+            );
           })}
-        </div>
-      </div>
+        </List>
+      </Panel>
       <Canvas
         style={{
           position: "absolute",
           left: CONTROL_PANEL_WIDTH,
-          width: `calc(100% - ${CONTROL_PANEL_WIDTH})`,
+          width: `calc(100 % - ${ CONTROL_PANEL_WIDTH })`,
           height: "100%",
         }}
         camera={{ position: MODEL_CAMERA_POSITION, fov: MODEL_FOV }}
@@ -378,7 +376,7 @@ const HumanModelViewer: React.FC<HumanModelViewerProps> = ({
         </Suspense>
       </Canvas>
     </div>
-  )
-}
+  );
+};
 
-export default HumanModelViewer
+export default HumanModelViewer;

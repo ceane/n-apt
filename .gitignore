@@ -1,13 +1,27 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# IDE stuff
+.vscode
+.windsurf
+
+# macOS
+.DS_Store
+
+# This is for local links to additional I/Q captures
+# Finder aliases (must give them .alias extension)
+.alias
+
 # node
 node_modules
 dist/
 
-# Python
-venv/
-__pycache__/
-*.pyc
-*.pyo
-*.egg-info/
 
 # Rust - exclude all build artifacts and target folders
 target/
@@ -32,9 +46,14 @@ target/release/
 target/rls/
 target/cargo-web/dist/
 
-# macOS
-.DS_Store
+# Swift / Vapor
+src/swift-coreml-service/.build/
+src/swift-coreml-service/.swiftpm/
+src/swift-coreml-service/Package.resolved
 
-# This is for local links to additional I/Q captures
-# Finder aliases (must give them .alias extension)
-.alias
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
