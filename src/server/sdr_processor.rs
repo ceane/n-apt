@@ -574,7 +574,7 @@ impl SDRProcessor {
       //
       // Convert dB -> linear amplitude multiplier relative to the baseline tuner gain
       // from signals.yaml so startup doesn't jump when the first settings packet arrives.
-      let baseline_db = self.sdr_settings.gain.tuner_gain as f32;
+      let baseline_db = (self.sdr_settings.gain.tuner_gain as f32) / 10.0;
       let delta_db = (g_db as f32) - baseline_db;
       config.gain = 10f32.powf(delta_db / 20.0);
       config_changed = true;
