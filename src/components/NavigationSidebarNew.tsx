@@ -47,7 +47,7 @@ const SidebarToggle = styled.button`
   cursor: pointer;
   transition: all 0.2s ease;
   user-select: none;
-  width: 24ch;
+  width: max-content;
   display: inline-block;
 `;
 

@@ -19,7 +19,10 @@ const SliderGroup = styled.div`
   align-items: center;
   gap: 4px;
   flex: 1;
-  min-height: 0;
+  
+  &:nth-child(even) {
+    margin: 2cqh 0;
+  }
 `;
 
 const SliderLabel = styled.span`
@@ -30,6 +33,7 @@ const SliderLabel = styled.span`
   letter-spacing: 0.5px;
   text-transform: uppercase;
   white-space: nowrap;
+  margin-bottom: 2cqh;
 `;
 
 const SliderTrack = styled.div`
@@ -68,6 +72,7 @@ const SliderValue = styled.span`
   font-size: 9px;
   color: #666;
   white-space: nowrap;
+  margin-top: 2cqh;
 `;
 
 interface VerticalSliderProps {
@@ -174,7 +179,7 @@ export const VisualizerSliders: React.FC<VisualizerSlidersProps> = ({
         max={0}
         step={5}
         onChange={onDbMaxChange}
-        formatValue={(v) => `${v}`}
+        formatValue={(v) => `${v}dB`}
       />
       <VerticalSlider
         label="Min"
@@ -183,7 +188,7 @@ export const VisualizerSliders: React.FC<VisualizerSlidersProps> = ({
         max={Math.min(-10, dbMax - 10)}
         step={5}
         onChange={onDbMinChange}
-        formatValue={(v) => `${v}`}
+        formatValue={(v) => `${v}dB`}
       />
     </SlidersContainer>
   );
