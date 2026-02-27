@@ -1,3 +1,25 @@
+/**
+ * useDrawWebGPUFIFOWaterfall.ts - Shows signal strength over time and frequency
+ *
+ * Think of a waterfall like a time-lapse photo of radio signals:
+ *
+ * Time (newest data)
+ *     ↓   ⌄⌄⌄⌄⌄⌄⌄⌄⌄⌄⌄
+ *     |   ...........
+ *     |   –– –– –– –– ↔ (drift when changing frequency or the knob also known as
+ *     |   –– –– –– –– ↔ the Variable Frequency Oscillator/VFO)
+ *     |   ...........
+ *     ↓   ........... (oldest data, falls off bottom)
+ *
+ * How it works:
+ * - Each horizontal line = one FFT spectrum snapshot
+ * - Colors = signal strength (red=strong, blue=weak)
+ * - New data appears at top, old data falls off bottom
+ * - Like watching paint drip down a wall, but with radio signals
+ *
+ * This renderer operates FIFO (First-In-First-Out), keeping the canvas
+ * static while data flows downward through the buffer.
+ */
 import { useCallback, useRef } from "react";
 import { WATERFALL_CANVAS_BG, DEFAULT_COLOR_MAP } from "@n-apt/consts";
 

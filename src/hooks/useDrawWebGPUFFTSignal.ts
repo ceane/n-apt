@@ -1,3 +1,38 @@
+/*
+ *
+ * useDrawWebGPUFFTSignal - Visualizes radio signals as frequency spectrum
+ *
+ * Raw signal (SINE WAVE, ONE CYCLE):
+ *
+ *                  ⌄ peak
+ *                 .--.
+ *                /    \    /
+ *                      \__/
+ *                        ^
+ *                        trough
+ *
+ * FFT output:   [3.2, 0.1, ...]  ← amplitude at each frequency
+ * (yes, just numbers, floats)
+ * 
+ * NOTE: The FFT rendered is based on 
+ *  ✔ MAGNITUDE FFT 
+ *      (0 → Fs/2, signal rises ↑ from noise as y = 0 as floor), 
+ *  ✗ TWO-SIDED, ZERO-CENTERED FFT of complex (I/Q) data
+ *      (-Fs/2 → +Fs/2, signal as ± with y = 0 as center). 
+ * This is a simplified view of the signal's frequency, the 
+ * conversion happens on the backend from zero-centered to magnitude.
+ *
+ * 
+ * Think of radio signals like music - they're made of many notes (frequencies)
+ * playing at once. Fast Fourier Transform (FFT) is like a musical ear that
+ * separates all the notes and tells you how loud each one is.
+ *
+ * FFT extracts the Y-POINTS (amplitude) of signal peaks and troughs
+ * (ups and downs) for each frequency, transforming raw radio wave data into a
+ * spectrum display showing signal strength at each frequency,
+ * just like a music equalizer.
+ *
+ */
 import { useCallback, useRef } from "react";
 import { OverlayTextureRenderer } from "@n-apt/hooks/useWebGPUInit";
 import { LINE_COLOR, SHADOW_COLOR, FFT_CANVAS_BG } from "@n-apt/consts";
