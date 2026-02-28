@@ -6,7 +6,7 @@ use axum::response::IntoResponse;
 use axum::Json;
 use log::{error, info, warn};
 
-use n_apt_backend::rtlsdr::RtlSdrDevice;
+use crate::sdr::rtlsdr::RtlSdrDevice;
 
 use super::types::{CaptureDownloadParams, WebMCPToolRequest, WebMCPToolResponse, SpectrumFrameMessage};
 
@@ -76,7 +76,7 @@ pub async fn capture_download_handler(
   };
 
   // Get capture artifacts for this job
-  let artifacts = {
+  let artifacts: Vec<crate::server::types::CaptureArtifact> = {
     let artifacts_map = state.shared.capture_artifacts.lock().unwrap();
     match artifacts_map.get(&params.job_id) {
       Some(artifacts) => artifacts.clone(),

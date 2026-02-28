@@ -11,7 +11,7 @@ doctest = false
 
 [[bin]]
 name = "n-apt-backend"
-path = "src/rs/server/main.rs"
+path = "src/rs/server/main_bin.rs"
 
 [[test]]
 name = "fft_processor_tests"

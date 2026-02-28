@@ -12,9 +12,13 @@ pub mod authentication;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod crypto;
 #[cfg(not(target_arch = "wasm32"))]
-pub mod rtlsdr;
-// #[cfg(not(target_arch = "wasm32"))]
-// pub mod server;
+pub mod sdr;  // New abstract SDR interface
+#[cfg(not(target_arch = "wasm32"))]
+pub mod server;
+
+// Re-export the main server function for binary use
+#[cfg(not(target_arch = "wasm32"))]
+pub use server::main::run_server;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod session;
 

@@ -14,7 +14,7 @@ use crate::fft::types::RawSamples;
 use crate::fft::processor::WindowType;
 use crate::simd::common::{SIMDProcessor, WindowFunctions, PowerSpectrum, IQConverter};
 use anyhow::Result;
-use rustfft::{num_complex::Complex, FftPlanner};
+use rustfft::FftPlanner;
 use std::sync::Arc;
 
 /// Native SIMD-accelerated FFT processor for signal analysis.
@@ -42,11 +42,13 @@ impl SIMDProcessor for NativeProcessor {
     let mut planner = FftPlanner::<f32>::new();
     let fft = planner.plan_fft_forward(fft_size);
 
+    // Default values from signals.yaml
+    // tuner_gain: 496 (in tenths) = 49.6 dB, ppm: 1.0
     Self {
       fft,
       fft_size,
-      gain: 1.0,
-      ppm: 0.0,
+      gain: 49.6,  // From signals.yaml: tuner_gain: 496 (tenths of dB)
+      ppm: 1.0,    // From signals.yaml: ppm: 1.0
       window_type: WindowType::Hanning,
       window_cache: None,
     }

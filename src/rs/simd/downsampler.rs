@@ -3,7 +3,6 @@
 //! High-performance spectrum downsampling using SIMD operations.
 //! Preserves peaks while reducing spectrum size for display.
 
-use crate::fft::types::RawSamples;
 
 /// Common spectrum downsampling utilities
 pub struct SpectrumDownsampler;

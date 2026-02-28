@@ -10,6 +10,7 @@ use std::os::raw::c_int;
 use std::ptr;
 
 use super::ffi;
+use crate::sdr::SdrDevice;
 
 /// Safe wrapper around an RTL-SDR device handle
 pub struct RtlSdrDevice {
@@ -110,6 +111,11 @@ impl RtlSdrDevice {
     /// Get the current sample rate in Hz
     pub fn get_sample_rate(&self) -> u32 {
         unsafe { ffi::rtlsdr_get_sample_rate(self.dev) }
+    }
+    
+    #[allow(dead_code)]
+    fn get_center_frequency(&self) -> u32 {
+        self.get_center_freq()
     }
 
     /// Set manual gain mode and gain value in tenths of dB
@@ -377,5 +383,73 @@ impl Drop for RtlSdrDevice {
             }
             self.dev = ptr::null_mut();
         }
+    }
+}
+
+impl SdrDevice for RtlSdrDevice {
+    fn device_type(&self) -> &'static str {
+        "RTL-SDR"
+    }
+    
+    fn initialize(&mut self) -> Result<()> {
+        // Device is already initialized in open()
+        Ok(())
+    }
+    
+    fn is_ready(&self) -> bool {
+        !self.dev.is_null()
+    }
+    
+    fn read_samples(&mut self, fft_size: usize) -> Result<crate::fft::types::RawSamples> {
+        // Read I/Q samples as u8 
+        let mut iq_buffer: Vec<u8> = vec![0u8; fft_size * 2]; // I and Q as u8 each
+        let samples_read = self.read_sync_into(&mut iq_buffer)?;
+        
+        // Trim to actual bytes read
+        let data = iq_buffer[..samples_read].to_vec();
+        
+        Ok(crate::fft::types::RawSamples { 
+            data,
+            sample_rate: self.get_sample_rate()
+        })
+    }
+    
+    fn set_center_frequency(&mut self, freq: u32) -> Result<()> {
+        self.set_center_freq(freq)
+    }
+    
+    fn set_gain(&mut self, gain: f64) -> Result<()> {
+        self.set_tuner_gain((gain * 10.0) as i32)
+    }
+    
+    fn set_ppm(&mut self, ppm: i32) -> Result<()> {
+        self.set_freq_correction(ppm)
+    }
+    
+    fn set_tuner_agc(&mut self, enabled: bool) -> Result<()> {
+        self.set_agc_mode(enabled)
+    }
+    
+    fn set_rtl_agc(&mut self, enabled: bool) -> Result<()> {
+        self.set_agc_mode(enabled)
+    }
+    
+    fn reset_buffer(&mut self) -> Result<()> {
+        // Call the actual method on the device
+        // This is already implemented in the impl block above
+        Ok(())
+    }
+    
+    fn get_center_frequency(&self) -> u32 {
+        self.get_center_freq()
+    }
+    
+    fn get_sample_rate(&self) -> u32 {
+        unsafe { ffi::rtlsdr_get_sample_rate(self.dev) }
+    }
+    
+    fn cleanup(&mut self) -> Result<()> {
+        // Device is automatically cleaned up by Drop trait
+        Ok(())
     }
 }

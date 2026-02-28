@@ -78,8 +78,10 @@ pub struct FFTProcessor {
   /// Current position in circular buffer (for memory efficiency)
   waterfall_pos: usize,
   /// Buffer pool for FFT processing to reduce allocations
+  #[allow(dead_code)]
   buffer_pool: VecDeque<Vec<Complex<f32>>>,
   /// Maximum buffer pool size
+  #[allow(dead_code)]
   max_buffer_pool_size: usize,
   /// Unified SIMD processor for both WASM and native targets
   simd_processor: Option<UnifiedProcessor>,
@@ -91,6 +93,7 @@ impl Default for FFTProcessor {
     }
 }
 
+#[allow(dead_code)]
 impl FFTProcessor {
   /// Create a new FFT processor with default configuration
   /// 
@@ -365,6 +368,7 @@ impl FFTProcessor {
   }
 
   /// Get a buffer from the pool or create a new one
+  #[allow(dead_code)]
   fn get_buffer_from_pool(&mut self) -> Vec<Complex<f32>> {
     if let Some(mut buffer) = self.buffer_pool.pop_front() {
       buffer.clear();
@@ -375,6 +379,7 @@ impl FFTProcessor {
   }
 
   /// Return a buffer to the pool if there's space
+  #[allow(dead_code)]
   fn return_buffer_to_pool(&mut self, mut buffer: Vec<Complex<f32>>) {
     if self.buffer_pool.len() < self.max_buffer_pool_size {
       buffer.clear();
@@ -385,6 +390,7 @@ impl FFTProcessor {
   /// Scalar implementation of sample processing
   /// 
   /// This is the original implementation used when SIMD is not available
+  #[allow(dead_code)]
   fn process_samples_scalar(&mut self, samples: &RawSamples) -> Result<FFTResult> {
     let mut buf = self.get_buffer_from_pool();
     let gain_f32 = self.config.gain;

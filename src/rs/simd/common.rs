@@ -51,10 +51,10 @@ impl WindowFunctions {
   pub fn blackman(fft_size: usize) -> Vec<f32> {
     (0..fft_size)
       .map(|i| {
-        let n = i as f32;
-        let N = fft_size as f32;
-        0.42 - 0.5 * (2.0 * std::f32::consts::PI * n / (N - 1.0)).cos() + 
-        0.08 * (4.0 * std::f32::consts::PI * n / (N - 1.0)).cos()
+        let i_f = i as f32;
+        let n = fft_size as f32;
+        0.42 - 0.5 * (2.0 * std::f32::consts::PI * i_f / (n - 1.0)).cos() + 
+        0.08 * (4.0 * std::f32::consts::PI * i_f / (n - 1.0)).cos()
       })
       .collect()
   }
@@ -63,11 +63,11 @@ impl WindowFunctions {
   pub fn nuttall(fft_size: usize) -> Vec<f32> {
     (0..fft_size)
       .map(|i| {
-        let n = i as f32;
-        let N = fft_size as f32;
-        0.355768 - 0.487396 * (2.0 * std::f32::consts::PI * n / (N - 1.0)).cos() + 
-        0.144232 * (4.0 * std::f32::consts::PI * n / (N - 1.0)).cos() - 
-        0.012604 * (6.0 * std::f32::consts::PI * n / (N - 1.0)).cos()
+        let i_f = i as f32;
+        let n = fft_size as f32;
+        0.355768 - 0.487396 * (2.0 * std::f32::consts::PI * i_f / (n - 1.0)).cos() + 
+        0.144232 * (4.0 * std::f32::consts::PI * i_f / (n - 1.0)).cos() - 
+        0.012604 * (6.0 * std::f32::consts::PI * i_f / (n - 1.0)).cos()
       })
       .collect()
   }

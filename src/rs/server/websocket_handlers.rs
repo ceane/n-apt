@@ -9,7 +9,7 @@ use log::{debug, error, info, warn};
 use serde_json;
 use tokio::sync::broadcast;
 
-use n_apt_backend::crypto;
+use crate::crypto;
 
 use super::shared_state::SharedState;
 use super::types::{WsQueryParams, WebSocketMessage};

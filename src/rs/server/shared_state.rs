@@ -58,7 +58,7 @@ impl SharedState {
         let passkey = std::env::var("N_APT_PASSKEY")
             .or_else(|_| std::env::var("UNSAFE_LOCAL_USER_PASSWORD"))
             .unwrap_or_else(|_| DEFAULT_PASSKEY.to_string());
-        let encryption_key = n_apt_backend::crypto::derive_key(&passkey);
+        let encryption_key = crate::crypto::derive_key(&passkey);
         log::info!("Encryption key derived from passkey (PBKDF2-HMAC-SHA256, {} iterations)", 100_000);
 
         Arc::new(SharedState {

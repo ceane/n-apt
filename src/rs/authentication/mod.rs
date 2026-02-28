@@ -96,3 +96,5 @@ fn dirs_path() -> Result<PathBuf, String> {
         .map_err(|_| "Cannot determine home directory".to_string())?;
     Ok(PathBuf::from(home).join(".n-apt"))
 }
+
+pub mod auth_handlers;

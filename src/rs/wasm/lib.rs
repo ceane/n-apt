@@ -29,11 +29,13 @@ impl WASMSIMDProcessor {
         
         console::log_1(&"✅ WASM SIMD module loaded successfully".into());
         
+        // Default values from signals.yaml
+        // tuner_gain: 496 (in tenths) = 49.6 dB, ppm: 1.0
         WASMSIMDProcessor {
             fft,
             fft_size,
-            gain: 1.0,
-            ppm: 0.0,
+            gain: 49.6,  // From signals.yaml: tuner_gain: 496 (tenths of dB)
+            ppm: 1.0,    // From signals.yaml: ppm: 1.0
             window_type: WindowType::Hanning,
         }
     }

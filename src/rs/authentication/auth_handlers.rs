@@ -7,9 +7,9 @@ use axum::Json;
 use log::{error, info, warn};
 use webauthn_rs::prelude::*;
 
-use n_apt_backend::crypto;
+use crate::crypto;
 
-use super::types::{
+use crate::server::types::{
     AuthVerifyRequest, AuthSessionRequest, PasskeyRegisterFinishRequest, 
     PasskeyAuthFinishRequest
 };
@@ -17,7 +17,7 @@ use super::types::{
 /// GET /auth/info — returns whether passkeys are registered (so frontend
 /// knows whether to show passkey button vs password-only).
 pub async fn auth_info_handler(
-  State(state): State<Arc<super::AppState>>,
+  State(state): State<Arc<crate::server::AppState>>,
 ) -> impl IntoResponse {
   let has_passkeys = state.credential_store.has_passkeys();
   Json(serde_json::json!({
@@ -27,7 +27,7 @@ pub async fn auth_info_handler(
 
 /// POST /auth/challenge — generate a nonce for password-based auth.
 pub async fn auth_challenge_handler(
-  State(state): State<Arc<super::AppState>>,
+  State(state): State<Arc<crate::server::AppState>>,
 ) -> impl IntoResponse {
   let nonce = crypto::generate_nonce();
   let nonce_b64 = crypto::to_base64(&nonce);
@@ -46,7 +46,7 @@ pub async fn auth_challenge_handler(
 
 /// POST /auth/verify — verify password-based HMAC response, return session token.
 pub async fn auth_verify_handler(
-  State(state): State<Arc<super::AppState>>,
+  State(state): State<Arc<crate::server::AppState>>,
   Json(body): Json<AuthVerifyRequest>,
 ) -> impl IntoResponse {
   // Look up the challenge nonce
@@ -101,7 +101,7 @@ pub async fn auth_verify_handler(
 
 /// POST /auth/session — validate an existing session token.
 pub async fn auth_session_handler(
-  State(state): State<Arc<super::AppState>>,
+  State(state): State<Arc<crate::server::AppState>>,
   Json(body): Json<AuthSessionRequest>,
 ) -> impl IntoResponse {
   match state.session_store.validate(&body.token) {
@@ -123,7 +123,7 @@ pub async fn auth_session_handler(
 
 /// POST /auth/passkey/register/start — begin passkey registration.
 pub async fn passkey_register_start_handler(
-  State(state): State<Arc<super::AppState>>,
+  State(state): State<Arc<crate::server::AppState>>,
 ) -> impl IntoResponse {
   let user_unique_id = Uuid::new_v4();
   let existing_keys = state.credential_store.get_passkeys();
@@ -172,10 +172,10 @@ pub async fn passkey_register_start_handler(
 
 /// POST /auth/passkey/register/finish — complete passkey registration.
 pub async fn passkey_register_finish_handler(
-  State(state): State<Arc<super::AppState>>,
+  State(state): State<Arc<crate::server::AppState>>,
   Json(body): Json<PasskeyRegisterFinishRequest>,
 ) -> impl IntoResponse {
-  let state_json = match state.credential_store.take_pending_registration(&body.challenge_id) {
+  let state_json: String = match state.credential_store.take_pending_registration(&body.challenge_id) {
     Some(s) => s,
     None => {
       return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
@@ -218,7 +218,7 @@ pub async fn passkey_register_finish_handler(
 
 /// POST /auth/passkey/auth/start — begin passkey authentication.
 pub async fn passkey_auth_start_handler(
-  State(state): State<Arc<super::AppState>>,
+  State(state): State<Arc<crate::server::AppState>>,
 ) -> impl IntoResponse {
   let existing_keys = state.credential_store.get_passkeys();
   if existing_keys.is_empty() {
@@ -256,10 +256,10 @@ pub async fn passkey_auth_start_handler(
 
 /// POST /auth/passkey/auth/finish — complete passkey authentication.
 pub async fn passkey_auth_finish_handler(
-  State(state): State<Arc<super::AppState>>,
+  State(state): State<Arc<crate::server::AppState>>,
   Json(body): Json<PasskeyAuthFinishRequest>,
 ) -> impl IntoResponse {
-  let state_json = match state.credential_store.take_pending_registration(&body.challenge_id) {
+  let state_json: String = match state.credential_store.take_pending_registration(&body.challenge_id) {
     Some(s) => s,
     None => {
       return (StatusCode::BAD_REQUEST, Json(serde_json::json!({

@@ -9,7 +9,7 @@ use super::types::CaptureArtifact;
 /// Downsample spectrum data to a target length using averaging
 #[allow(dead_code)]
 fn downsample_spectrum(data: &[f32], target_len: usize) -> Vec<f32> {
-  n_apt_backend::simd::downsample_spectrum_simd(data, target_len)
+  crate::simd::downsample_spectrum_simd(data, target_len)
 }
 
 fn read_config_file(filename: &str) -> Option<String> {
@@ -66,6 +66,7 @@ pub fn load_mock_settings() -> &'static super::types::MockSignalsConfig {
   &signals_config().signals.mock
 }
 
+#[allow(dead_code)]
 fn extract_channels_from_value(
   value: &Value,
 ) -> Option<Vec<super::types::SpectrumFrameMessage>> {
@@ -164,7 +165,7 @@ mod tests {
       .and_then(|v| v.get("sdr"))
       .cloned();
     assert!(sdr_value.is_some(), "expected signals.sdr in signals.yaml");
-    let parsed: Result<crate::types::SdrConfig, _> =
+    let parsed: Result<crate::server::types::SdrConfig, _> =
       serde_yaml::from_value(sdr_value.expect("signals.sdr value"));
     assert!(parsed.is_ok(), "expected signals.sdr to parse");
 
@@ -207,7 +208,7 @@ pub fn save_capture_file(
 
   if encrypted && file_type == ".napt" {
     // Encrypt the IQ data using AES-256-GCM
-    let encrypted_payload = n_apt_backend::crypto::encrypt_payload(encryption_key, iq_data)
+    let encrypted_payload = crate::crypto::encrypt_payload(encryption_key, iq_data)
       .map_err(|e| format!("Encryption failed: {}", e))?;
 
     // Write encrypted data

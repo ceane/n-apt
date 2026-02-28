@@ -8,14 +8,7 @@
 /// 
 /// The server uses Axum for HTTP handling and runs on a dedicated thread
 /// for SDR I/O operations to avoid blocking the async runtime.
-mod auth_handlers;
-mod http_endpoints;
-mod shared_state;
-mod sdr_processor;
-mod types;
-mod utils;
-mod websocket_handlers;
-mod websocket_server;
+// mod authentication; // Moved to top-level
 
 use anyhow::Result;
 use axum::routing::{get, post};
@@ -34,9 +27,16 @@ use axum::http::{HeaderValue, HeaderName};
 use tower::ServiceBuilder;
 use webauthn_rs::prelude::*;
 
-use n_apt_backend::authentication::CredentialStore;
-use n_apt_backend::session::SessionStore;
-use n_apt_backend::consts::rs::env::{ws_host, ws_port};
+use crate::authentication::CredentialStore;
+use crate::consts::rs::env::{ws_host, ws_port};
+use crate::session::SessionStore;
+
+// Import sibling modules
+use super::http_endpoints;
+use super::shared_state;
+use super::websocket_handlers;
+use super::websocket_server;
+use super::types;
 
 /// Application state shared across all HTTP handlers.
 /// 
@@ -104,16 +104,15 @@ impl websocket_server::WebSocketServer {
 
         Router::new()
             // Authentication endpoints
-            .route("/auth/info", get(auth_handlers::auth_info_handler))
-            .route("/auth/challenge", post(auth_handlers::auth_challenge_handler))
-            .route("/auth/verify", post(auth_handlers::auth_verify_handler))
-            .route("/auth/session", post(auth_handlers::auth_session_handler))
-            .route("/auth/passkey/register/start", post(auth_handlers::passkey_register_start_handler))
-            .route("/auth/passkey/register/finish", post(auth_handlers::passkey_register_finish_handler))
-            .route("/auth/passkey/auth/start", post(auth_handlers::passkey_auth_start_handler))
-            .route("/auth/passkey/auth/finish", post(auth_handlers::passkey_auth_finish_handler))
+            .route("/auth/info", get(crate::authentication::auth_handlers::auth_info_handler))
+            .route("/auth/challenge", post(crate::authentication::auth_handlers::auth_challenge_handler))
+            .route("/auth/verify", post(crate::authentication::auth_handlers::auth_verify_handler))
+            .route("/auth/session", post(crate::authentication::auth_handlers::auth_session_handler))
+            .route("/auth/passkey/register/start", post(crate::authentication::auth_handlers::passkey_register_start_handler))
+            .route("/auth/passkey/register/finish", post(crate::authentication::auth_handlers::passkey_register_finish_handler))
+            .route("/auth/passkey/auth/start", post(crate::authentication::auth_handlers::passkey_auth_start_handler))
+            .route("/auth/passkey/auth/finish", post(crate::authentication::auth_handlers::passkey_auth_finish_handler))
             
-            // HTTP endpoints
             .route("/status", get(http_endpoints::status_handler))
             .route("/capture/download", get(http_endpoints::capture_download_handler))
             
@@ -133,7 +132,9 @@ impl websocket_server::WebSocketServer {
 
     /// Run the HTTP server
     pub async fn run_server(self) -> Result<()> {
-        let shared = self.shared.clone();
+        // TODO: Update for new SDR architecture
+        // TODO: Update for new SDR architecture
+        let shared = shared_state::SharedState::new();
         let credential_store = CredentialStore::new().map_err(|e| anyhow::anyhow!("Failed to create credential store: {}", e))?;
         let session_store = SessionStore::new();
 
@@ -158,8 +159,9 @@ impl websocket_server::WebSocketServer {
             credential_store,
             session_store,
             webauthn: webauthn_result,
-            broadcast_tx: self.broadcast_tx.clone(),
-            cmd_tx: self.cmd_tx.clone(),
+            // TODO: Update for new SDR architecture
+            broadcast_tx: tokio::sync::broadcast::channel(100).0,
+            cmd_tx: std::sync::mpsc::channel().0,
         });
 
         let app = Self::create_app(state);
@@ -176,8 +178,7 @@ impl websocket_server::WebSocketServer {
 }
 
 /// Main entry point for the N-APT Rust backend server
-#[tokio::main]
-async fn main() -> Result<()> {
+pub async fn run_server() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
         .format_timestamp_secs()
         .init();
@@ -185,7 +186,8 @@ async fn main() -> Result<()> {
     info!("Starting N-APT Rust Backend Server");
 
     let shared = shared_state::SharedState::new();
-    let server = websocket_server::WebSocketServer::new(shared.clone());
+    // TODO: Update for new SDR architecture
+    let server = websocket_server::WebSocketServer::new();
 
     // Install signal handler: on SIGINT/SIGTERM, signal the I/O thread to shut down
     // so it can release the RTL-SDR device cleanly before the process exits.

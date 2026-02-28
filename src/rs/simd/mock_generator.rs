@@ -125,7 +125,7 @@ impl MockSignalGenerator {
   /// Generate a single IQ sample
   fn generate_sample(
     &mut self,
-    i: usize,
+    _i: usize,
     t: f32,
     signals: &[MockSignal],
     noise_level: f32,
