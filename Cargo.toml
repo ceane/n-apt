@@ -5,13 +5,13 @@ edition = "2021"
 
 [lib]
 name = "n_apt_backend"
-path = "src/lib.rs"
+path = "src/rs/lib.rs"
 crate-type = ["cdylib", "rlib"]
 doctest = false
 
 [[bin]]
 name = "n-apt-backend"
-path = "src/server/main.rs"
+path = "src/rs/server/main.rs"
 
 [[test]]
 name = "fft_processor_tests"

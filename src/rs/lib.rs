@@ -5,7 +5,7 @@ pub mod stitching;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod coreml_client;
 #[cfg(not(target_arch = "wasm32"))]
-pub mod credentials;
+pub mod authentication;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod crypto;
 #[cfg(not(target_arch = "wasm32"))]

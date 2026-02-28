@@ -33,8 +33,8 @@
     "lint:fix": "oxlint --fix",
     "lint:fix:rust": "cargo fix --bin \"n-apt-backend\" -p n-apt-backend --allow-dirty --allow-no-vcs",
     "typecheck": "tsc --noEmit",
-    "format": "oxfmt --write src test",
-    "format:check": "oxfmt --check src test"
+    "format": "oxfmt --write src/ts src/rs test",
+    "format:check": "oxfmt --check src/ts src/rs test"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.7",

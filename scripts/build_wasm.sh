@@ -30,7 +30,7 @@ rustup target list --installed | grep wasm32-unknown-unknown >/dev/null || {
 
 # Build the WASM module only if needed
 echo "🔍 Checking if WASM SIMD module needs to be built..."
-if ./scripts/check_changes.sh "$WASM_OUT" "src/lib.rs" "src/wasm_simd/*.rs" "Cargo.toml" "Cargo.lock"; then
+if ./scripts/check_changes.sh "$WASM_OUT" "src/rs/lib.rs" "src/rs/wasm_simd/*.rs" "Cargo.toml" "Cargo.lock"; then
     echo "📦 Building WASM SIMD module with optimizations..."
     mkdir -p "$WASM_OUT"
     RUSTFLAGS="-C target-feature=+simd128" wasm-pack build --target web --out-dir "$WASM_OUT" --dev

@@ -245,7 +245,7 @@ const SelectableButton = styled(BaseButton).attrs<{ $isSelected: boolean }>(prop
     borderColor: props.$isSelected ? "rgba(123, 97, 255, 0.55)" : "rgba(255,255,255,0.10)",
     boxShadow: props.$isSelected ? "0 0 0 1px rgba(123, 97, 255, 0.25)" : "none",
   },
-}))`;
+})`;
 
 const HumanModelViewer: React.FC<HumanModelViewerProps> = ({ width = "100%", height = "100%" }) => {
   const [selectedArea, setSelectedArea] = useState<Area | null>(null);
@@ -360,7 +360,7 @@ const HumanModelViewer: React.FC<HumanModelViewerProps> = ({ width = "100%", hei
         style={{
           position: "absolute",
           left: CONTROL_PANEL_WIDTH,
-          width: `calc(100 % - ${ CONTROL_PANEL_WIDTH })`,
+          width: "calc(100% - " + CONTROL_PANEL_WIDTH + "px)",
           height: "100%",
         }}
         camera={{ position: MODEL_CAMERA_POSITION, fov: MODEL_FOV }}

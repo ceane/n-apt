@@ -5,15 +5,15 @@ import path from "path";
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
-  root: "./src",
-  publicDir: "../public",
+  root: "./src/ts",
+  publicDir: "../../public",
   build: {
-    outDir: "../dist",
+    outDir: "../../dist",
   },
   resolve: {
     alias: [
-      { find: /^@n-apt\/(.*)$/, replacement: `${path.resolve(__dirname, "src")}/$1` },
-      { find: "@n-apt", replacement: path.resolve(__dirname, "src") },
+      { find: /^@n-apt\/(.*)$/, replacement: `${path.resolve(__dirname, "src/ts")}/$1` },
+      { find: "@n-apt", replacement: path.resolve(__dirname, "src/ts") },
     ],
   },
   server: {

@@ -153,7 +153,7 @@ show_process_messages() {
 build_wasm_simd() {
     echo -e "${BLUE}Building WASM_SIMD package...${RESET}"
     
-    if ./scripts/check_changes.sh "packages/n_apt_canvas" "src/lib.rs" "src/wasm_simd/*.rs" "Cargo.toml" "Cargo.lock"; then
+    if ./scripts/check_changes.sh "packages/n_apt_canvas" "src/rs/lib.rs" "src/rs/wasm_simd/*.rs" "Cargo.toml" "Cargo.lock"; then
         echo -e "${ORANGE}📦 Building WASM_SIMD SIMD module with optimizations...${RESET}"
         mkdir -p packages/n_apt_canvas
         

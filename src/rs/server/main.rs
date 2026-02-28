@@ -34,7 +34,7 @@ use axum::http::{HeaderValue, HeaderName};
 use tower::ServiceBuilder;
 use webauthn_rs::prelude::*;
 
-use n_apt_backend::credentials::CredentialStore;
+use n_apt_backend::authentication::CredentialStore;
 use n_apt_backend::session::SessionStore;
 use n_apt_backend::consts::rs::env::{ws_host, ws_port};
 
