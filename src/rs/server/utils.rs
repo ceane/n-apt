@@ -9,7 +9,7 @@ use super::types::CaptureArtifact;
 /// Downsample spectrum data to a target length using averaging
 #[allow(dead_code)]
 fn downsample_spectrum(data: &[f32], target_len: usize) -> Vec<f32> {
-  n_apt_backend::native_simd::fft_simd::downsample_spectrum_simd(data, target_len)
+  n_apt_backend::simd::downsample_spectrum_simd(data, target_len)
 }
 
 fn read_config_file(filename: &str) -> Option<String> {

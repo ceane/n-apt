@@ -1,6 +1,9 @@
 // Library exports for testing
 pub mod consts;
 pub mod fft;
+pub mod simd;  // Unified SIMD module
+#[cfg(target_arch = "wasm32")]
+pub mod wasm;  // WASM library module
 pub mod stitching;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod coreml_client;
@@ -9,14 +12,11 @@ pub mod authentication;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod crypto;
 #[cfg(not(target_arch = "wasm32"))]
-pub mod native_simd;
-#[cfg(not(target_arch = "wasm32"))]
 pub mod rtlsdr;
 // #[cfg(not(target_arch = "wasm32"))]
 // pub mod server;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod session;
-pub mod wasm_simd;
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;

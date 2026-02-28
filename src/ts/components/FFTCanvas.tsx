@@ -27,34 +27,23 @@ import {
 // Use dynamic import for WASM module loading
 (async () => {
   try {
-    console.log("📦 Loading WASM FFT module...");
     const wasmModule = await import("n_apt_canvas");
-    const { default: initWasm } = wasmModule;
-
-    console.log("✅ WASM FFT module loaded successfully");
-    console.log("🔧 Initializing WASM module...");
+    const { default: initWasm, test_wasm_simd_availability } = wasmModule;
 
     // Initialize the WASM module first
     await initWasm();
 
-    console.log("🔧 Creating SIMDRenderingProcessor instance...");
-    // sdrProcessor = new SIMDRenderingProcessor(); // Removed as sdrProcessor is unused
+    // Test WASM SIMD availability
+    if (test_wasm_simd_availability) {
+      test_wasm_simd_availability();
 
-    console.log("🎯 WASM FFT Pipeline: SUCCESS");
-    console.log("✅ All modules loaded successfully");
-    console.log("   - SDR Processor: Available");
-    console.log("   - FFT Size: Variable (backend controlled)");
-    console.log("   - WASM Acceleration: Enabled");
-    console.log("   - SIMD Support: Available");
-    console.log("   - Memory Features: Enabled");
-    console.log("   - Performance: Native WASM FFT speed");
-    console.log("🚀 Ready for high-performance signal processing!");
-  } catch (error) {
-    console.error("❌ WASM FFT Pipeline: FAILED");
-    console.error("   - Error:", (error as Error).message);
-    console.error("   - Cause: WASM FFT module not available");
-    console.warn("⚠️  Falling back to JavaScript FFT processing");
-    console.log("📊 Performance Impact: FFT will be slower");
+      // Expose globally for manual testing
+      (window as any).testWasmSimd = test_wasm_simd_availability;
+    }
+
+    // sdrProcessor = new SIMDRenderingProcessor(); // Removed as sdrProcessor is unused
+  } catch {
+    // Silently handle WASM loading errors
   }
 })();
 
@@ -452,7 +441,6 @@ const FFTCanvas = forwardRef<
       const detectScreenWidth = () => {
         const width =
           window.innerWidth || document.documentElement.clientWidth || document.body.clientWidth;
-        console.log("Detected screen width:", width);
         sendGetAutoFftOptions(width);
       };
 
@@ -555,7 +543,6 @@ const FFTCanvas = forwardRef<
   const ensureFloat32Waveform = useCallback(
     (spectrumData: ArrayLike<number> | null | undefined) => {
       if (!spectrumData || spectrumData.length === 0) {
-        console.warn("Invalid spectrum data provided, using fallback");
         return new Float32Array(1024).fill(-120);
       }
 
@@ -569,7 +556,6 @@ const FFTCanvas = forwardRef<
         }
       }
       if (!hasValidData) {
-        console.warn("Spectrum data contains no valid values, using fallback");
         return new Float32Array(1024).fill(-120);
       }
 
@@ -648,7 +634,6 @@ const FFTCanvas = forwardRef<
 
         // Validate waveform before processing
         if (!waveform || waveform.length === 0) {
-          console.warn("Invalid waveform detected, skipping frame");
           return;
         }
 
@@ -717,7 +702,6 @@ const FFTCanvas = forwardRef<
 
         // Validate waveform before processing
         if (!waveform || waveform.length === 0) {
-          console.warn("Invalid waveform detected in paused mode, skipping frame");
           return;
         }
 

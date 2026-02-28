@@ -13,33 +13,33 @@ use std::arch::wasm32::*;
 /// # Examples
 ///
 /// ```rust
-/// let processor = SIMDRenderingProcessor::new();
+/// let processor = RenderingProcessor::new();
 /// let input = vec![1.0, 2.0, 3.0, 4.0];
 /// let mut output = vec![0.0; 4];
 /// processor.resample_spectrum(&input, &mut output, 4);
 /// ```
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
-pub struct SIMDRenderingProcessor {
+pub struct RenderingProcessor {
   /// Internal state for performance optimization
   _private: (),
 }
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
-impl SIMDRenderingProcessor {
+impl RenderingProcessor {
   /// Creates a new SIMD rendering processor instance
   ///
   /// # Returns
   ///
-  /// New SIMDRenderingProcessor ready for vectorized operations
+  /// New RenderingProcessor ready for vectorized operations
   ///
   /// # Example
   ///
   /// ```javascript
-  /// const processor = new SIMDRenderingProcessor();
+  /// const processor = new RenderingProcessor();
   /// ```
   #[cfg_attr(target_arch = "wasm32", wasm_bindgen(constructor))]
-  pub fn new() -> SIMDRenderingProcessor {
-    SIMDRenderingProcessor { _private: () }
+  pub fn new() -> RenderingProcessor {
+    RenderingProcessor { _private: () }
   }
 
   /// Resamples spectrum data using SIMD-accelerated max reduction operations
@@ -319,13 +319,13 @@ mod tests {
 
   #[test]
   fn test_simd_processor_creation() {
-    let _processor = SIMDRenderingProcessor::new();
+    let _processor = RenderingProcessor::new();
     // Test passes if processor is created successfully
   }
 
   #[test]
   fn test_resample_spectrum() {
-    let processor = SIMDRenderingProcessor::new();
+    let processor = RenderingProcessor::new();
     let input = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
     let mut output = vec![0.0; 4];
 
@@ -337,7 +337,7 @@ mod tests {
 
   #[test]
   fn test_shift_waterfall_buffer() {
-    let processor = SIMDRenderingProcessor::new();
+    let processor = RenderingProcessor::new();
     let width = 4;
     let height = 3;
     let mut buffer = vec![0u8; width * height * 4];
@@ -355,7 +355,7 @@ mod tests {
 
   #[test]
   fn test_apply_color_mapping() {
-    let processor = SIMDRenderingProcessor::new();
+    let processor = RenderingProcessor::new();
     let amplitudes = vec![0.5, 0.7, 0.3, 0.9];
     let mut output = vec![0u8; amplitudes.len() * 4];
 
@@ -490,7 +490,7 @@ mod tests {
   #[cfg(target_arch = "wasm32")]
   #[test]
   fn test_simd_resampling_performance() {
-    let processor = SIMDRenderingProcessor::new();
+    let processor = RenderingProcessor::new();
     let input_data: Vec<f32> = (0..1024).map(|i| i as f32 / 1024.0).collect();
     let mut output_data = vec![0.0f32; 512];
     
@@ -512,7 +512,7 @@ mod tests {
   #[cfg(target_arch = "wasm32")]
   #[test]
   fn test_simd_color_mapping_performance() {
-    let processor = SIMDRenderingProcessor::new();
+    let processor = RenderingProcessor::new();
     let amplitudes: Vec<f32> = (0..256).map(|i| i as f32 / 255.0).collect();
     let mut output_data = vec![0u8; amplitudes.len() * 4];
     
@@ -556,7 +556,7 @@ mod tests {
     web_sys::console::log_1(&"  ✅ Complex SIMD operations".into());
     
     // Test 3: SIMD processor functionality
-    let processor = SIMDRenderingProcessor::new();
+    let processor = RenderingProcessor::new();
     let test_amplitudes = vec![0.1, 0.5, 0.9, 0.3];
     let mut test_output = vec![0u8; test_amplitudes.len() * 4];
     processor.apply_color_mapping(&test_amplitudes, &mut test_output, 0.8);

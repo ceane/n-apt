@@ -1,28 +1,14 @@
-use anyhow::Result;
-
-// Logging helper: no-op on wasm to avoid pulling in server-only deps
-#[cfg(not(target_arch = "wasm32"))]
-macro_rules! log_info {
-    ($($arg:tt)*) => { log::info!($($arg)*); };
-}
-#[cfg(target_arch = "wasm32")]
-macro_rules! log_info {
-    ($($arg:tt)*) => { };
-}
-
 use crate::fft::now_millis;
 use rustfft::{num_complex::Complex, FftPlanner};
 use rand::SeedableRng;
 use rand::Rng;
 use std::sync::Arc;
 use std::collections::VecDeque;
+use anyhow::Result;
 
 use super::types::*;
 use crate::consts::rs::fft::{SAMPLE_RATE, NUM_SAMPLES};
-#[cfg(target_arch = "wasm32")]
-use crate::wasm_simd::SIMDFFTProcessor;
-#[cfg(not(target_arch = "wasm32"))]
-use crate::native_simd::NativeSIMDProcessor;
+use crate::simd::UnifiedProcessor;
 
 /**
  * SDR++ style FFT configuration with enhanced parameters
@@ -95,12 +81,8 @@ pub struct FFTProcessor {
   buffer_pool: VecDeque<Vec<Complex<f32>>>,
   /// Maximum buffer pool size
   max_buffer_pool_size: usize,
-  /// SIMD processor for WASM targets
-  #[cfg(target_arch = "wasm32")]
-  simd_processor: Option<SIMDFFTProcessor>,
-  /// Native SIMD processor for backend targets
-  #[cfg(not(target_arch = "wasm32"))]
-  native_simd_processor: Option<NativeSIMDProcessor>,
+  /// Unified SIMD processor for both WASM and native targets
+  simd_processor: Option<UnifiedProcessor>,
 }
 
 impl Default for FFTProcessor {
@@ -151,10 +133,7 @@ impl FFTProcessor {
       waterfall_pos: 0,
       buffer_pool,
       max_buffer_pool_size: 3, // Reduced pool size for faster startup
-      #[cfg(target_arch = "wasm32")]
-      simd_processor: Some(SIMDFFTProcessor::new(fft_size)),
-      #[cfg(not(target_arch = "wasm32"))]
-      native_simd_processor: Some(NativeSIMDProcessor::new(fft_size)),
+      simd_processor: Some(UnifiedProcessor::new(fft_size)),
     }
   }
 
@@ -192,22 +171,30 @@ impl FFTProcessor {
     let mut planner = FftPlanner::<f32>::new();
     let fft = planner.plan_fft_forward(fft_size);
 
-    #[cfg(target_arch = "wasm32")]
     let simd_processor = {
-      let mut p = SIMDFFTProcessor::new(fft_size);
-      p.set_gain(config.gain);
-      p.set_ppm(config.ppm);
-      p.set_window_type(config.window_type);
-      Some(p)
-    };
-
-    #[cfg(not(target_arch = "wasm32"))]
-    let native_simd_processor = {
-      let mut p = NativeSIMDProcessor::new(fft_size);
-      p.set_gain(config.gain);
-      p.set_ppm(config.ppm);
-      p.set_window_type(config.window_type);
-      Some(p)
+      let mut p = UnifiedProcessor::new(fft_size);
+      #[cfg(not(target_arch = "wasm32"))]
+      {
+        p.set_gain(config.gain);
+        p.set_ppm(config.ppm);
+        p.set_window_type(config.window_type);
+      }
+      #[cfg(target_arch = "wasm32")]
+      {
+        p.set_gain(config.gain);
+        p.set_ppm(config.ppm);
+        // WASM processor uses string for window type
+        let window_str = match config.window_type {
+            WindowType::Hanning => "hanning",
+            WindowType::Hamming => "hamming", 
+            WindowType::Blackman => "blackman",
+            WindowType::Nuttall => "nuttall",
+            WindowType::Rectangular => "rectangular",
+            WindowType::None => "none",
+        };
+        p.set_window_type(window_str);
+      }
+      p
     };
 
     Self {
@@ -221,10 +208,7 @@ impl FFTProcessor {
       waterfall_pos: 0,
       buffer_pool: VecDeque::with_capacity(5),
       max_buffer_pool_size: 5,
-      #[cfg(target_arch = "wasm32")]
-      simd_processor,
-      #[cfg(not(target_arch = "wasm32"))]
-      native_simd_processor,
+      simd_processor: Some(simd_processor),
     }
   }
 
@@ -239,35 +223,34 @@ impl FFTProcessor {
     if config.fft_size != self.fft.len() {
       let mut planner = FftPlanner::<f32>::new();
       self.fft = planner.plan_fft_forward(config.fft_size);
-      #[cfg(target_arch = "wasm32")]
-      {
-        self.simd_processor = Some(SIMDFFTProcessor::new(config.fft_size));
-      }
-      #[cfg(not(target_arch = "wasm32"))]
-      {
-        self.native_simd_processor = Some(NativeSIMDProcessor::new(config.fft_size));
-      }
+      self.simd_processor = Some(UnifiedProcessor::new(config.fft_size));
     }
     
-    #[cfg(target_arch = "wasm32")]
-    {
-      if let Some(ref mut simd_proc) = self.simd_processor {
+    // Update processor settings
+    if let Some(ref mut simd_proc) = self.simd_processor {
+      #[cfg(not(target_arch = "wasm32"))]
+      {
         simd_proc.set_gain(config.gain);
         simd_proc.set_ppm(config.ppm);
         simd_proc.set_window_type(config.window_type);
       }
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-      if let Some(ref mut native_proc) = self.native_simd_processor {
-        native_proc.set_gain(config.gain);
-        native_proc.set_ppm(config.ppm);
-        native_proc.set_window_type(config.window_type);
+      #[cfg(target_arch = "wasm32")]
+      {
+        simd_proc.set_gain(config.gain);
+        simd_proc.set_ppm(config.ppm);
+        let window_str = match config.window_type {
+          WindowType::Hanning => "hanning",
+          WindowType::Hamming => "hamming", 
+          WindowType::Blackman => "blackman",
+          WindowType::Nuttall => "nuttall",
+          WindowType::Rectangular => "rectangular",
+          WindowType::None => "none",
+        };
+        simd_proc.set_window_type(window_str);
       }
     }
 
-    // Log the applied configuration (no-op on wasm)
-    log_info!("FFT configuration updated: {:?}", self.config);
+    // Configuration updated
   }
 
   /// Enable/disable FFT hold (peak hold functionality)
@@ -304,8 +287,8 @@ impl FFTProcessor {
 
   /// Process raw samples into FFT result with SDR++ style enhancements
   /// 
-  /// This function automatically uses SIMD acceleration on WASM targets
-  /// and falls back to scalar processing on other platforms.
+  /// This function uses unified SIMD acceleration on both WASM and native targets.
+  /// No scalar fallbacks - SIMD is required.
   /// 
   /// # Arguments
   /// 
@@ -317,43 +300,31 @@ impl FFTProcessor {
   /// 
   /// # Performance
   /// 
-  /// - WASM with SIMD: 30-50% faster
-  /// - Native with SIMD: 2-4x faster (NEON/SSE)
+  /// - WASM SIMD: 30-50% faster
+  /// - Native SIMD: 2-4x faster (NEON/SSE)
   pub fn process_samples(&mut self, samples: &RawSamples) -> Result<FFTResult> {
-    // SIMD processing on WASM builds
-    #[cfg(target_arch = "wasm32")]
-    {
-      if let Some(ref mut simd_proc) = self.simd_processor {
+    // Unified SIMD processing
+    if let Some(ref mut simd_proc) = self.simd_processor {
+      #[cfg(not(target_arch = "wasm32"))]
+      {
         let mut power = vec![0.0; self.config.fft_size];
-        match simd_proc.process_samples_simd(samples, &mut power) {
+        match simd_proc.process_samples(samples, &mut power) {
           Ok(()) => {
             return self.finalize_spectrum(power, false);
           }
-          Err(_) => {
-            // Fall back to scalar processing if SIMD fails
+          Err(e) => {
+            return Err(anyhow::anyhow!("SIMD processing failed: {}", e));
           }
         }
       }
-    }
-
-    // Native SIMD processing on backend builds
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-      if let Some(ref mut native_proc) = self.native_simd_processor {
-        let mut power = vec![0.0; self.config.fft_size];
-        match native_proc.process_samples(samples, &mut power) {
-          Ok(()) => {
-            return self.finalize_spectrum(power, false);
-          }
-          Err(_) => {
-            // Fall back to scalar processing if native SIMD fails
-          }
-        }
+      #[cfg(target_arch = "wasm32")]
+      {
+        let power = simd_proc.process_samples(&samples.data);
+        return self.finalize_spectrum(power, false);
       }
     }
-
-    // Scalar processing fallback
-    self.process_samples_scalar(samples)
+    
+    Err(anyhow::anyhow!("SIMD processor not available"))
   }
 
   /// Common post-processing: zoom, hold, waterfall, and result construction
