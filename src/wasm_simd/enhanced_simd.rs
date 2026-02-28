@@ -358,17 +358,6 @@ impl EnhancedSIMDProcessor {
     let start = (buf.len() / 4) * 4;
     for i in start..buf.len() {
       let window_val = match self.window_type {
-        WindowType::Hanning => {
-          0.5 * (1.0 - (2.0 * std::f32::consts::PI * i as f32 / (buf.len() - 1) as f32).cos())
-        }
-        WindowType::Hamming => {
-          0.54 - 0.46 * (2.0 * std::f32::consts::PI * i as f32 / (buf.len() - 1) as f32).cos()
-        }
-        WindowType::Blackman => {
-          let n = i as f32 / (buf.len() - 1) as f32;
-          0.42 - 0.5 * (2.0 * std::f32::consts::PI * n).cos()
-            + 0.08 * (4.0 * std::f32::consts::PI * n).cos()
-        }
         WindowType::Rectangular => 1.0, // No windowing - same as None
         WindowType::Nuttall => {
           let n = i as f32 / (buf.len() - 1) as f32;
@@ -377,6 +366,17 @@ impl EnhancedSIMDProcessor {
           let six_pi_n = 6.0 * std::f32::consts::PI * n;
           0.355768 - 0.487396 * two_pi_n.cos() + 0.144232 * four_pi_n.cos()
             - 0.012604 * six_pi_n.cos()
+        }
+        WindowType::Hamming => {
+          0.54 - 0.46 * (2.0 * std::f32::consts::PI * i as f32 / (buf.len() - 1) as f32).cos()
+        }
+        WindowType::Hanning => {
+          0.5 * (1.0 - (2.0 * std::f32::consts::PI * i as f32 / (buf.len() - 1) as f32).cos())
+        }
+        WindowType::Blackman => {
+          let n = i as f32 / (buf.len() - 1) as f32;
+          0.42 - 0.5 * (2.0 * std::f32::consts::PI * n).cos()
+            + 0.08 * (4.0 * std::f32::consts::PI * n).cos()
         }
         WindowType::None => 1.0, // Rectangular window (no windowing)
       };
@@ -397,21 +397,6 @@ impl EnhancedSIMDProcessor {
 
       for j in 0..4.min(self.fft_size - i) {
         values[j] = match self.window_type {
-          WindowType::Hanning => {
-            0.5
-              * (1.0
-                - (2.0 * std::f32::consts::PI * (i + j) as f32 / (self.fft_size - 1) as f32).cos())
-          }
-          WindowType::Hamming => {
-            0.54
-              - 0.46
-                * (2.0 * std::f32::consts::PI * (i + j) as f32 / (self.fft_size - 1) as f32).cos()
-          }
-          WindowType::Blackman => {
-            let n = (i + j) as f32 / (self.fft_size - 1) as f32;
-            0.42 - 0.5 * (2.0 * std::f32::consts::PI * n).cos()
-              + 0.08 * (4.0 * std::f32::consts::PI * n).cos()
-          }
           WindowType::Rectangular => 1.0, // No windowing - same as None
           WindowType::Nuttall => {
             let n = (i + j) as f32 / (self.fft_size - 1) as f32;
@@ -420,6 +405,21 @@ impl EnhancedSIMDProcessor {
             let six_pi_n = 6.0 * std::f32::consts::PI * n;
             0.355768 - 0.487396 * two_pi_n.cos() + 0.144232 * four_pi_n.cos()
               - 0.012604 * six_pi_n.cos()
+          }
+          WindowType::Hamming => {
+            0.54
+              - 0.46
+                * (2.0 * std::f32::consts::PI * (i + j) as f32 / (self.fft_size - 1) as f32).cos()
+          }
+          WindowType::Hanning => {
+            0.5
+              * (1.0
+                - (2.0 * std::f32::consts::PI * (i + j) as f32 / (self.fft_size - 1) as f32).cos())
+          }
+          WindowType::Blackman => {
+            let n = (i + j) as f32 / (self.fft_size - 1) as f32;
+            0.42 - 0.5 * (2.0 * std::f32::consts::PI * n).cos()
+              + 0.08 * (4.0 * std::f32::consts::PI * n).cos()
           }
           WindowType::None => 1.0, // Rectangular window (no windowing)
         };
@@ -551,17 +551,6 @@ impl EnhancedSIMDProcessor {
   fn apply_window_scalar(&self, buf: &mut [Complex<f32>]) -> Result<()> {
     for i in 0..buf.len() {
       let window_val = match self.window_type {
-        WindowType::Hanning => {
-          0.5 * (1.0 - (2.0 * std::f32::consts::PI * i as f32 / (buf.len() - 1) as f32).cos())
-        }
-        WindowType::Hamming => {
-          0.54 - 0.46 * (2.0 * std::f32::consts::PI * i as f32 / (buf.len() - 1) as f32).cos()
-        }
-        WindowType::Blackman => {
-          let n = i as f32 / (buf.len() - 1) as f32;
-          0.42 - 0.5 * (2.0 * std::f32::consts::PI * n).cos()
-            + 0.08 * (4.0 * std::f32::consts::PI * n).cos()
-        }
         WindowType::Rectangular => 1.0, // No windowing - same as None
         WindowType::Nuttall => {
           let n = i as f32 / (buf.len() - 1) as f32;
@@ -570,6 +559,17 @@ impl EnhancedSIMDProcessor {
           let six_pi_n = 6.0 * std::f32::consts::PI * n;
           0.355768 - 0.487396 * two_pi_n.cos() + 0.144232 * four_pi_n.cos()
             - 0.012604 * six_pi_n.cos()
+        }
+        WindowType::Hamming => {
+          0.54 - 0.46 * (2.0 * std::f32::consts::PI * i as f32 / (buf.len() - 1) as f32).cos()
+        }
+        WindowType::Hanning => {
+          0.5 * (1.0 - (2.0 * std::f32::consts::PI * i as f32 / (buf.len() - 1) as f32).cos())
+        }
+        WindowType::Blackman => {
+          let n = i as f32 / (buf.len() - 1) as f32;
+          0.42 - 0.5 * (2.0 * std::f32::consts::PI * n).cos()
+            + 0.08 * (4.0 * std::f32::consts::PI * n).cos()
         }
         WindowType::None => 1.0,
       };
@@ -608,11 +608,11 @@ mod tests {
     
     // Test each window type
     for window_type in [
-      WindowType::Hanning,
-      WindowType::Hamming, 
-      WindowType::Blackman,
       WindowType::Rectangular,
       WindowType::Nuttall,
+      WindowType::Hamming,
+      WindowType::Hanning,
+      WindowType::Blackman,
       WindowType::None,
     ] {
       processor.set_window_type(window_type.clone());
@@ -797,7 +797,7 @@ mod tests {
     web_sys::console::log_1(&"  ✅ Signal processing".into());
     
     // Test 4: Different window types
-    for window_type in [WindowType::Blackman, WindowType::Rectangular, WindowType::Nuttall, WindowType::None] {
+    for window_type in [WindowType::Rectangular, WindowType::Nuttall, WindowType::Hamming, WindowType::Hanning, WindowType::Blackman, WindowType::None] {
       processor.set_window_type(window_type.clone());
       let mut test_output = vec![0.0f32; 512];
       let result = processor.process_samples_enhanced_simd(&samples, &mut test_output);

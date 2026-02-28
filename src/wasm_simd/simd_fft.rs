@@ -296,32 +296,17 @@ impl SIMDFFTProcessor {
     let len = buf.len();
 
     match self.window_type {
-      WindowType::Hanning => {
-        for i in (0..len).step_by(4) {
-          let indices = f32x4(i as f32, (i + 1) as f32, (i + 2) as f32, (i + 3) as f32);
-
-          let scale = f32x4(
-            2.0 * std::f32::consts::PI / (len - 1) as f32,
-            2.0 * std::f32::consts::PI / (len - 1) as f32,
-            2.0 * std::f32::consts::PI / (len - 1) as f32,
-            2.0 * std::f32::consts::PI / (len - 1) as f32,
-          );
-
-          let phases = f32x4_mul(indices, scale);
-          let cos_values = f32x4_cos_approx(phases);
-          let window_values = f32x4_mul(
-            f32x4_sub(f32x4(0.5, 0.5, 0.5, 0.5), cos_values),
-            f32x4(0.5, 0.5, 0.5, 0.5),
-          );
-
-          for j in 0..4.min(len - i) {
-            buf[i + j].re *= match j {
-              0 => f32x4_extract_lane::<0>(window_values),
-              1 => f32x4_extract_lane::<1>(window_values),
-              2 => f32x4_extract_lane::<2>(window_values),
-              _ => f32x4_extract_lane::<3>(window_values),
-            };
-          }
+      WindowType::Rectangular => {} // No windowing (same as None)
+      WindowType::Nuttall => {
+        // Nuttall window: 0.355768 - 0.487396*cos(2πn) + 0.144232*cos(4πn) - 0.012604*cos(6πn)
+        for i in 0..len {
+          let n = i as f32 / (len - 1) as f32;
+          let two_pi_n = 2.0 * std::f32::consts::PI * n;
+          let four_pi_n = 4.0 * std::f32::consts::PI * n;
+          let six_pi_n = 6.0 * std::f32::consts::PI * n;
+          let window_value = 0.355768 - 0.487396 * two_pi_n.cos() + 0.144232 * four_pi_n.cos()
+            - 0.012604 * six_pi_n.cos();
+          buf[i].re *= window_value;
         }
       }
       WindowType::Hamming => {
@@ -352,8 +337,34 @@ impl SIMDFFTProcessor {
           }
         }
       }
-      WindowType::None => {} // No windowing
-      WindowType::Rectangular => {} // No windowing (same as None)
+      WindowType::Hanning => {
+        for i in (0..len).step_by(4) {
+          let indices = f32x4(i as f32, (i + 1) as f32, (i + 2) as f32, (i + 3) as f32);
+
+          let scale = f32x4(
+            2.0 * std::f32::consts::PI / (len - 1) as f32,
+            2.0 * std::f32::consts::PI / (len - 1) as f32,
+            2.0 * std::f32::consts::PI / (len - 1) as f32,
+            2.0 * std::f32::consts::PI / (len - 1) as f32,
+          );
+
+          let phases = f32x4_mul(indices, scale);
+          let cos_values = f32x4_cos_approx(phases);
+          let window_values = f32x4_mul(
+            f32x4_sub(f32x4(0.5, 0.5, 0.5, 0.5), cos_values),
+            f32x4(0.5, 0.5, 0.5, 0.5),
+          );
+
+          for j in 0..4.min(len - i) {
+            buf[i + j].re *= match j {
+              0 => f32x4_extract_lane::<0>(window_values),
+              1 => f32x4_extract_lane::<1>(window_values),
+              2 => f32x4_extract_lane::<2>(window_values),
+              _ => f32x4_extract_lane::<3>(window_values),
+            };
+          }
+        }
+      }
       WindowType::Blackman => {
         // Blackman window: 0.42 - 0.5*cos(2πn) + 0.08*cos(4πn)
         for i in (0..len).step_by(4) {
@@ -401,18 +412,7 @@ impl SIMDFFTProcessor {
           }
         }
       }
-      WindowType::Nuttall => {
-        // Nuttall window: 0.355768 - 0.487396*cos(2πn) + 0.144232*cos(4πn) - 0.012604*cos(6πn)
-        for i in 0..len {
-          let n = i as f32 / (len - 1) as f32;
-          let two_pi_n = 2.0 * std::f32::consts::PI * n;
-          let four_pi_n = 4.0 * std::f32::consts::PI * n;
-          let six_pi_n = 6.0 * std::f32::consts::PI * n;
-          let window_value = 0.355768 - 0.487396 * two_pi_n.cos() + 0.144232 * four_pi_n.cos()
-            - 0.012604 * six_pi_n.cos();
-          buf[i].re *= window_value;
-        }
-      }
+      WindowType::None => {} // No windowing
     }
 
     Ok(())
@@ -662,11 +662,11 @@ mod tests {
     
     // Test each window type
     for window_type in [
-      WindowType::Hanning,
-      WindowType::Hamming,
-      WindowType::Blackman,
       WindowType::Rectangular,
       WindowType::Nuttall,
+      WindowType::Hamming,
+      WindowType::Hanning,
+      WindowType::Blackman,
       WindowType::None,
     ] {
       processor.set_window_type(window_type.clone());

@@ -525,11 +525,11 @@ mod tests {
     };
 
     for window_type in [
-      WindowType::Hanning,
-      WindowType::Hamming,
-      WindowType::Blackman,
-      WindowType::Nuttall,
       WindowType::Rectangular,
+      WindowType::Nuttall,
+      WindowType::Hamming,
+      WindowType::Hanning,
+      WindowType::Blackman,
       WindowType::None,
     ] {
       processor.set_window_type(window_type);

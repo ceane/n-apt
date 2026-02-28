@@ -639,13 +639,52 @@ export const useWebSocket = (
   const sendSettings = useCallback((settings: SDRSettings) => {
     console.log("[useWebSocket] sendSettings called with:", settings);
     const ws = wsRef.current;
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      const message = JSON.stringify({
-        type: "settings",
-        ...settings,
-      });
-      ws.send(message);
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      return;
     }
+
+    const sanitized: Record<string, unknown> = {};
+
+    const isValidPositiveInt = (value: unknown) =>
+      typeof value === "number" && Number.isFinite(value) && value > 0;
+    const isValidNonNegative = (value: unknown) =>
+      typeof value === "number" && Number.isFinite(value) && value >= 0;
+
+    if (isValidPositiveInt(settings.fftSize)) {
+      sanitized.fftSize = Math.floor(settings.fftSize!);
+    }
+
+    if (typeof settings.fftWindow === "string" && settings.fftWindow.trim().length > 0) {
+      sanitized.fftWindow = settings.fftWindow;
+    }
+
+    if (isValidPositiveInt(settings.frameRate)) {
+      sanitized.frameRate = Math.floor(settings.frameRate!);
+    }
+
+    if (isValidNonNegative(settings.gain)) {
+      sanitized.gain = settings.gain;
+    }
+
+    if (typeof settings.ppm === "number" && Number.isFinite(settings.ppm)) {
+      sanitized.ppm = Math.round(settings.ppm);
+    }
+
+    if (typeof settings.tunerAGC === "boolean") {
+      sanitized.tunerAGC = settings.tunerAGC;
+    }
+
+    if (typeof settings.rtlAGC === "boolean") {
+      sanitized.rtlAGC = settings.rtlAGC;
+    }
+
+    if (Object.keys(sanitized).length === 0) {
+      console.warn("[useWebSocket] Ignoring settings update with no valid values", settings);
+      return;
+    }
+
+    sanitized.type = "settings";
+    ws.send(JSON.stringify(sanitized));
   }, []);
 
   // Function to send device restart command to the server

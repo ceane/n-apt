@@ -5,7 +5,7 @@ use axum::extract::ws::{Message, WebSocket};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use futures_util::{SinkExt, StreamExt};
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use serde_json;
 use tokio::sync::broadcast;
 
@@ -252,12 +252,62 @@ pub fn handle_message(
       }
     }
     "settings" => {
+      let fft_size = message.fft_size.and_then(|size| {
+        if size > 0 && (size & (size - 1)) == 0 {
+          Some(size)
+        } else {
+          warn!("Ignoring invalid fft_size from client: {}", size);
+          None
+        }
+      });
+
+      let frame_rate = message.frame_rate.and_then(|rate| {
+        if rate > 0 {
+          Some(rate)
+        } else {
+          warn!("Ignoring invalid frame_rate from client: {}", rate);
+          None
+        }
+      });
+
+      let gain = message.gain.and_then(|g| {
+        if g.is_finite() && g >= 0.0 {
+          Some(g)
+        } else {
+          warn!("Ignoring invalid gain from client: {}", g);
+          None
+        }
+      });
+
+      let ppm = message.ppm.and_then(|p| {
+        // i32 cannot be NaN, but we still guard against extreme values
+        const MAX_ABS_PPM: i32 = 200;
+        if (-MAX_ABS_PPM..=MAX_ABS_PPM).contains(&p) {
+          Some(p)
+        } else {
+          warn!("Ignoring implausible ppm from client: {}", p);
+          None
+        }
+      });
+
+      if fft_size.is_none()
+        && message.fft_window.is_none()
+        && frame_rate.is_none()
+        && gain.is_none()
+        && ppm.is_none()
+        && message.tuner_agc.is_none()
+        && message.rtl_agc.is_none()
+      {
+        debug!("Dropping settings message with no valid fields");
+        return;
+      }
+
       let _ = cmd_tx.send(super::types::SdrCommand::ApplySettings {
-        fft_size: message.fft_size,
+        fft_size,
         fft_window: message.fft_window,
-        frame_rate: message.frame_rate,
-        gain: message.gain,
-        ppm: message.ppm,
+        frame_rate,
+        gain,
+        ppm,
         tuner_agc: message.tuner_agc,
         rtl_agc: message.rtl_agc,
       });

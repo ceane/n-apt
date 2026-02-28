@@ -850,26 +850,6 @@ pub fn frequency_resolution(sample_rate: u32, fft_size: usize) -> f32 {
 pub fn apply_window(samples: &mut [f32], window_type: WindowType) {
     let len = samples.len();
     match window_type {
-      WindowType::Hanning => {
-        for (i, sample) in samples.iter_mut().enumerate() {
-          *sample *= 0.5 - 0.5 * (2.0 * std::f32::consts::PI * i as f32 / (len - 1) as f32).cos();
-        }
-      }
-      WindowType::Hamming => {
-        for (i, sample) in samples.iter_mut().enumerate() {
-          *sample *= 0.54 - 0.46 * (2.0 * std::f32::consts::PI * i as f32 / (len - 1) as f32).cos();
-        }
-      }
-      WindowType::Blackman => {
-        let a0 = 0.42;
-        let a1 = -0.5;
-        let a2 = 0.08;
-        for (i, sample) in samples.iter_mut().enumerate() {
-          let phase = 2.0 * std::f32::consts::PI * i as f32 / (len - 1) as f32;
-          *sample *= a0 + a1 * phase.cos()
-            + a2 * (4.0 * std::f32::consts::PI * i as f32 / (len - 1) as f32).cos();
-        }
-      }
       WindowType::Rectangular => {} // No windowing (same as None)
       WindowType::Nuttall => {
         // Nuttall window: 0.355768 - 0.487396*cos(2πn) + 0.144232*cos(4πn) - 0.012604*cos(6πn)
@@ -882,6 +862,26 @@ pub fn apply_window(samples: &mut [f32], window_type: WindowType) {
             - 0.012604 * six_pi_n.cos();
         }
       }
+      WindowType::Hamming => {
+        for (i, sample) in samples.iter_mut().enumerate() {
+          *sample *= 0.54 - 0.46 * (2.0 * std::f32::consts::PI * i as f32 / (len - 1) as f32).cos();
+        }
+      }
+      WindowType::Hanning => {
+        for (i, sample) in samples.iter_mut().enumerate() {
+          *sample *= 0.5 - 0.5 * (2.0 * std::f32::consts::PI * i as f32 / (len - 1) as f32).cos();
+        }
+      }
+      WindowType::Blackman => {
+        let a0 = 0.42;
+        let a1 = -0.5;
+        let a2 = 0.08;
+        for (i, sample) in samples.iter_mut().enumerate() {
+          let phase = 2.0 * std::f32::consts::PI * i as f32 / (len - 1) as f32;
+          *sample *= a0 + a1 * phase.cos()
+            + a2 * (4.0 * std::f32::consts::PI * i as f32 / (len - 1) as f32).cos();
+        }
+      }
       WindowType::None => {} // No windowing
     }
   }
@@ -889,11 +889,11 @@ pub fn apply_window(samples: &mut [f32], window_type: WindowType) {
 /// Window function types
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum WindowType {
-    Hanning,
-    Hamming,
-    Blackman,
     Rectangular,
     Nuttall,
+    Hamming,
+    Hanning,
+    Blackman,
     None,
 }
 

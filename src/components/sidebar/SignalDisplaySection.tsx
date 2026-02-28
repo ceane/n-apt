@@ -317,10 +317,10 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
           }}
         >
           <option value="Rectangular">Rectangular</option>
-          <option value="Hanning">Hanning</option>
-          <option value="Hamming">Hamming</option>
-          <option value="Blackman">Blackman</option>
           <option value="Nuttall">Nuttall</option>
+          <option value="Hamming">Hamming</option>
+          <option value="Hanning">Hanning</option>
+          <option value="Blackman">Blackman</option>
         </SettingSelect>
       </SettingRow>
       <SettingRow>

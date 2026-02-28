@@ -11,7 +11,7 @@ import { useFrequencyDrag } from "@n-apt/hooks/useFrequencyDrag";
 import { useWebGPUInit } from "@n-apt/hooks/useWebGPUInit";
 import type { FrequencyRange } from "@n-apt/consts/types";
 import { VisualizerSliders } from "@n-apt/components/VisualizerSliders";
-import { spectrumToAmplitude } from "@n-apt/consts/types";
+// spectrumToAmplitude removed — dB normalisation now handled in the waterfall WGSL shader
 import {
   VISUALIZER_PADDING,
   VISUALIZER_GAP,
@@ -24,16 +24,12 @@ import {
   FFT_MAX_DB,
 } from "@n-apt/consts";
 
-// Import SDR processor for WASM FFT processing
-let sdrProcessor: any = null;
-console.log("🚀 Initializing WASM FFT Pipeline...");
-
 // Use dynamic import for WASM module loading
 (async () => {
   try {
     console.log("📦 Loading WASM FFT module...");
     const wasmModule = await import("n_apt_canvas");
-    const { SIMDRenderingProcessor, default: initWasm } = wasmModule;
+    const { default: initWasm } = wasmModule;
 
     console.log("✅ WASM FFT module loaded successfully");
     console.log("🔧 Initializing WASM module...");
@@ -42,7 +38,7 @@ console.log("🚀 Initializing WASM FFT Pipeline...");
     await initWasm();
 
     console.log("🔧 Creating SIMDRenderingProcessor instance...");
-    sdrProcessor = new SIMDRenderingProcessor();
+    // sdrProcessor = new SIMDRenderingProcessor(); // Removed as sdrProcessor is unused
 
     console.log("🎯 WASM FFT Pipeline: SUCCESS");
     console.log("✅ All modules loaded successfully");
@@ -188,7 +184,6 @@ interface FFTCanvasProps {
   force2D?: boolean;
   /** Grid preference for snapshot rendering (affects 2D shadow canvases) */
   snapshotGridPreference: boolean;
-  deviceState: "disconnected" | "connecting" | "connected";
   vizZoom?: number;
   vizPanOffset?: number;
   onVizZoomChange?: (zoom: number) => void;
@@ -221,7 +216,6 @@ const FFTCanvas = forwardRef<
     displayTemporalResolution = "medium",
     force2D = false,
     snapshotGridPreference,
-    deviceState,
     vizZoom: externalVizZoom,
     vizPanOffset: externalVizPanOffset,
     onVizZoomChange,
@@ -263,13 +257,12 @@ const FFTCanvas = forwardRef<
     }
   };
 
-  const lastWaterfallRowRef = useRef<Uint8ClampedArray | null>(null);
-  const pausedWaterfallRowRef = useRef<Uint8ClampedArray | null>(null);
+  const lastWaterfallRowRef = useRef<Float32Array | null>(null);
+  const pausedWaterfallRowRef = useRef<Float32Array | null>(null);
   const waterfallTextureSnapshotRef = useRef<Uint8Array | null>(null);
   const waterfallTextureMetaRef = useRef<{ width: number; height: number; writeRow: number } | null>(
     null,
   );
-  const waterfallRowBufferRef = useRef<Uint8Array | null>(null);
   const pendingWaterfallRestoreRef = useRef<{
     data: Uint8Array;
     width: number;
@@ -294,6 +287,15 @@ const FFTCanvas = forwardRef<
   const [vizDbMax, setVizDbMax] = useState(FFT_MAX_DB); // 0
   const [vizDbMin, setVizDbMin] = useState(FFT_MIN_DB); // -120
   const [internalVizPanOffset, setInternalVizPanOffset] = useState(0); // Offset in Hz
+
+  // FFT averaging, smoothing, and waterfall smoothing toggles
+  const [fftAvgEnabled, setFftAvgEnabled] = useState(false);
+  const [fftSmoothEnabled, setFftSmoothEnabled] = useState(false);
+  const [wfSmoothEnabled, setWfSmoothEnabled] = useState(false);
+  const fftAvgBufferRef = useRef<Float32Array | null>(null);
+  const fftProcessedBufferRef = useRef<Float32Array | null>(null);
+  const fftSmoothedBufferRef = useRef<Float32Array | null>(null);
+  const waterfallCappedBufferRef = useRef<Float32Array | null>(null);
 
   const vizZoom = externalVizZoom !== undefined ? externalVizZoom : internalVizZoom;
   const vizPanOffset = externalVizPanOffset !== undefined ? externalVizPanOffset : internalVizPanOffset;
@@ -601,29 +603,6 @@ const FFTCanvas = forwardRef<
     renderWaveformRef.current = fallbackWaveform;
   });
 
-  /**
-   * Fallback scalar resampling implementation
-   *
-   * @param spectrumData - Input spectrum data
-   * @param waterfallWidth - Target width
-   * @returns Resampled data array
-   */
-  const performScalarResampling = (spectrumData: number[], waterfallWidth: number): number[] => {
-    const resampled = Array.from({ length: waterfallWidth }, () => 0);
-    const srcLen = spectrumData.length;
-    for (let x = 0; x < waterfallWidth; x++) {
-      const start = Math.floor((x * srcLen) / waterfallWidth);
-      const end = Math.max(start + 1, Math.floor(((x + 1) * srcLen) / waterfallWidth));
-      let maxVal = -Infinity;
-      for (let i = start; i < end && i < srcLen; i++) {
-        const v = spectrumData[i];
-        if (v > maxVal) maxVal = v;
-      }
-      resampled[x] = maxVal === -Infinity ? spectrumData[Math.min(start, srcLen - 1)] : maxVal;
-    }
-    return resampled;
-  };
-
   // Simplified WebGPU resampling - remove complex caching and buffer management
   const resampleSpectrumInto = useCallback((input: Float32Array, output: Float32Array) => {
     const srcLen = input.length;
@@ -769,7 +748,7 @@ const FFTCanvas = forwardRef<
       const currentWaveform = renderWaveformRef.current;
 
       if (currentWaveform && currentWaveform.length > 0) {
-        const { slicedWaveform, visualRange, clampedPan } = getZoomedData(
+        const { slicedWaveform: rawSlicedWaveform, visualRange, clampedPan } = getZoomedData(
           currentWaveform,
           frequencyRangeRef.current,
           vizZoomRef.current,
@@ -779,6 +758,57 @@ const FFTCanvas = forwardRef<
         // Sync clamped pan back to state if it drifted
         if (clampedPan !== vizPanOffsetRef.current) {
           setVizPanOffset(clampedPan);
+        }
+
+        // Apply FFT averaging + smoothing (modifiable copy)
+        let slicedWaveform = rawSlicedWaveform;
+
+        if (!isPaused && (fftAvgEnabled || fftSmoothEnabled)) {
+          // Ensure we have a persistent buffer of the right size
+          if (!fftProcessedBufferRef.current || fftProcessedBufferRef.current.length !== rawSlicedWaveform.length) {
+            fftProcessedBufferRef.current = new Float32Array(rawSlicedWaveform.length);
+          }
+          const processed = fftProcessedBufferRef.current;
+          processed.set(rawSlicedWaveform);
+
+          // FFT Averaging — exponential moving average (α = 0.2)
+          if (fftAvgEnabled) {
+            let prev = fftAvgBufferRef.current;
+            if (!prev || prev.length !== processed.length) {
+              prev = new Float32Array(processed);
+              fftAvgBufferRef.current = prev;
+            } else {
+              const alpha = 0.2;
+              for (let i = 0; i < processed.length; i++) {
+                processed[i] = prev[i] * (1 - alpha) + processed[i] * alpha;
+              }
+              prev.set(processed);
+            }
+          } else {
+            fftAvgBufferRef.current = null;
+          }
+
+          // FFT Smoothing — 5-bin moving average
+          if (fftSmoothEnabled && processed.length > 4) {
+            if (!fftSmoothedBufferRef.current || fftSmoothedBufferRef.current.length !== processed.length) {
+              fftSmoothedBufferRef.current = new Float32Array(processed.length);
+            }
+            const smoothed = fftSmoothedBufferRef.current;
+            for (let i = 0; i < processed.length; i++) {
+              let sum = 0;
+              let count = 0;
+              for (let j = Math.max(0, i - 2); j <= Math.min(processed.length - 1, i + 2); j++) {
+                sum += processed[j];
+                count++;
+              }
+              smoothed[i] = sum / count;
+            }
+            slicedWaveform = smoothed;
+          } else {
+            slicedWaveform = processed;
+          }
+        } else if (!fftAvgEnabled) {
+          fftAvgBufferRef.current = null;
         }
         let waveformArray: number[] | null = null;
         // Spectrum render - always render existing waveform, but only update with new data when not paused
@@ -879,89 +909,89 @@ const FFTCanvas = forwardRef<
         ) {
           const dims = waterfallGpuDimsRef.current;
           if (dims && !isPaused && currentData) {
-            let resampled: number[];
-            if (sdrProcessor && slicedWaveform && slicedWaveform.length >= 4) {
-              const float32Output = new Float32Array(dims.width);
-              try {
-                sdrProcessor.resample_spectrum(slicedWaveform, float32Output, dims.width);
-                resampled = Array.from(float32Output);
-              } catch (error) {
-                console.warn("WASM SIMD resampling failed, using fallback:", error);
-                resampled = performScalarResampling(Array.from(slicedWaveform), dims.width);
+            // ALWAYS resample to a constant width (4096 bins)
+            // This 'bakes' the current zoom into the row permanently and avoids
+            // resetting the WebGPU texture when the zoom level changes.
+            const FIXED_WATERFALL_BINS = 4096;
+            let waterfallBins: Float32Array;
+
+            // Ensure we have a persistent buffer for the fixed-width data
+            if (!waterfallCappedBufferRef.current || waterfallCappedBufferRef.current.length !== FIXED_WATERFALL_BINS) {
+              waterfallCappedBufferRef.current = new Float32Array(FIXED_WATERFALL_BINS);
+            }
+            const processed = waterfallCappedBufferRef.current;
+
+            // Peak-resampling to 4096 bins
+            const srcLen = slicedWaveform.length;
+            const ratio = srcLen / FIXED_WATERFALL_BINS;
+            for (let i = 0; i < FIXED_WATERFALL_BINS; i++) {
+              const start = Math.floor(i * ratio);
+              const end = Math.floor((i + 1) * ratio);
+              let maxVal = -200;
+              for (let j = start; j < Math.max(end, start + 1); j++) {
+                const val = slicedWaveform[j] ?? -200;
+                if (val > maxVal) maxVal = val;
               }
+              processed[i] = maxVal;
+            }
+            waterfallBins = processed;
+
+            // Keep a copy of the last row for pause/snapshot
+            if (!lastWaterfallRowRef.current || lastWaterfallRowRef.current.length !== waterfallBins.length) {
+              lastWaterfallRowRef.current = new Float32Array(waterfallBins);
             } else {
-              resampled = performScalarResampling(Array.from(slicedWaveform), dims.width);
+              lastWaterfallRowRef.current.set(waterfallBins);
             }
 
-            const normalizedData = spectrumToAmplitude(
-              resampled,
-              vizDbMinRef.current,
-              vizDbMaxRef.current,
-            );
-
-            // Convert to RGBA format for waterfall hook
-            const rgbaBuffer = new Uint8ClampedArray(normalizedData.length * 4);
-            const rowBuffer =
-              waterfallRowBufferRef.current && waterfallRowBufferRef.current.length === dims.width
-                ? waterfallRowBufferRef.current
-                : new Uint8Array(dims.width);
-            waterfallRowBufferRef.current = rowBuffer;
-            for (let i = 0; i < normalizedData.length; i++) {
-              const normalized = Math.max(0, Math.min(1, normalizedData[i]));
-              const gray = Math.round(normalized * 255);
-              rgbaBuffer[i * 4] = gray;
-              rgbaBuffer[i * 4 + 1] = gray;
-              rgbaBuffer[i * 4 + 2] = gray;
-              rgbaBuffer[i * 4 + 3] = 255;
-              if (i < rowBuffer.length) rowBuffer[i] = gray;
-            }
-            lastWaterfallRowRef.current = rgbaBuffer;
-
-            const textureSize = dims.width * dims.height;
-            if (!waterfallTextureSnapshotRef.current || waterfallTextureSnapshotRef.current.length !== textureSize) {
-              waterfallTextureSnapshotRef.current = new Uint8Array(textureSize);
-              waterfallTextureMetaRef.current = { width: dims.width, height: dims.height, writeRow: 0 };
+            // Snapshot tracking (always 4096 bins wide)
+            const textureBytesPerRow = FIXED_WATERFALL_BINS * 4;
+            const textureByteSize = textureBytesPerRow * dims.height;
+            if (!waterfallTextureSnapshotRef.current || waterfallTextureSnapshotRef.current.length !== textureByteSize) {
+              waterfallTextureSnapshotRef.current = new Uint8Array(textureByteSize);
+              waterfallTextureMetaRef.current = { width: FIXED_WATERFALL_BINS, height: dims.height, writeRow: 0 };
             }
             const meta = waterfallTextureMetaRef.current;
             const snapshot = waterfallTextureSnapshotRef.current;
-            if (meta && snapshot) {
+            if (meta && snapshot && meta.width === FIXED_WATERFALL_BINS) {
+              const rowBytes = new Uint8Array(waterfallBins.buffer, waterfallBins.byteOffset, waterfallBins.byteLength);
               const smear = Math.max(
                 0,
                 Math.min(Math.floor(retuneSmearRef.current || 0), dims.height - 1),
               );
               for (let s = 0; s <= smear; s++) {
                 const row = (meta.writeRow - s + dims.height) % dims.height;
-                const offset = row * dims.width;
-                snapshot.set(rowBuffer.subarray(0, dims.width), offset);
+                const offset = row * textureBytesPerRow;
+                snapshot.set(rowBytes, offset);
               }
               meta.writeRow = (meta.writeRow + 1) % dims.height;
             }
 
-            // Use hook-based WebGPU waterfall renderer
+            // Pass 4096 bins to hook — shader handles pixel mapping
             drawWebGPUFIFOWaterfall({
               canvas: waterfallGpuCanvas,
               device: webgpuDeviceRef.current,
               format: webgpuFormatRef.current,
-              waterfallBuffer: rgbaBuffer,
+              fftData: waterfallBins,
               frequencyRange: frequencyRangeRef.current,
+              dbMin: vizDbMinRef.current,
+              dbMax: vizDbMaxRef.current,
               driftAmount: retuneSmearRef.current,
               driftDirection: retuneDriftPxRef.current,
+              wfSmooth: wfSmoothEnabled,
             });
           } else if (isPaused) {
             const restore = pendingWaterfallRestoreRef.current ?? undefined;
-            const restoreWidth = restore?.width;
-            const fallbackWidth = lastWaterfallRowRef.current
-              ? Math.max(1, Math.floor(lastWaterfallRowRef.current.length / 4))
-              : 0;
-            const targetWidth =
-              waterfallGpuDimsRef.current?.width ?? restoreWidth ?? fallbackWidth;
+            const FIXED_WATERFALL_BINS = 4096;
+            const targetWidth = restore?.width ?? FIXED_WATERFALL_BINS;
+
             if (targetWidth > 0) {
               let rowBuffer = lastWaterfallRowRef.current;
-              if (!rowBuffer || rowBuffer.length !== targetWidth * 4) {
-                if (!pausedWaterfallRowRef.current || pausedWaterfallRowRef.current.length !== targetWidth * 4) {
-                  pausedWaterfallRowRef.current = new Uint8ClampedArray(targetWidth * 4);
+              if (!rowBuffer || rowBuffer.length !== targetWidth) {
+                if (!pausedWaterfallRowRef.current || pausedWaterfallRowRef.current.length !== targetWidth) {
+                  pausedWaterfallRowRef.current = new Float32Array(targetWidth);
+                  pausedWaterfallRowRef.current.fill(-200);
                 } else {
-                  pausedWaterfallRowRef.current.fill(0);
+                  pausedWaterfallRowRef.current.fill(-200);
                 }
                 rowBuffer = pausedWaterfallRowRef.current;
               }
@@ -969,8 +999,10 @@ const FFTCanvas = forwardRef<
                 canvas: waterfallGpuCanvas,
                 device: webgpuDeviceRef.current,
                 format: webgpuFormatRef.current,
-                waterfallBuffer: rowBuffer,
+                fftData: rowBuffer,
                 frequencyRange: visualRange,
+                dbMin: vizDbMinRef.current,
+                dbMax: vizDbMaxRef.current,
                 driftAmount: retuneSmearRef.current,
                 driftDirection: retuneDriftPxRef.current,
                 freeze: true,
@@ -1335,6 +1367,12 @@ const FFTCanvas = forwardRef<
           onZoomChange={handleZoomChange}
           onDbMaxChange={setVizDbMax}
           onDbMinChange={setVizDbMin}
+          fftAvgEnabled={fftAvgEnabled}
+          fftSmoothEnabled={fftSmoothEnabled}
+          wfSmoothEnabled={wfSmoothEnabled}
+          onFftAvgChange={setFftAvgEnabled}
+          onFftSmoothChange={setFftSmoothEnabled}
+          onWfSmoothChange={setWfSmoothEnabled}
         />
       </SlidersRail>
     </VisualizerContainer>

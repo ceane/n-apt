@@ -279,6 +279,8 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 10px;
         }
     </style>
 </head>
@@ -347,12 +349,6 @@
                 </div>
 
                 <div class="control-group">
-                    <label>Update Speed</label>
-                    <input type="range" id="speed" min="50" max="500" value="100" step="50" />
-                    <span id="speedValue">100ms</span>
-                </div>
-
-                <div class="control-group">
                     <label>FFT Size</label>
                     <select id="fftSize">
                         <option value="512">512</option>
@@ -370,6 +366,18 @@
 
                 <div class="control-group">
                     <button id="toggleHold">Hold: OFF</button>
+                </div>
+
+                <div class="control-group">
+                    <button id="toggleFftAvg">FFT Avg: OFF</button>
+                </div>
+
+                <div class="control-group">
+                    <button id="toggleFftSmooth">FFT Smooth: OFF</button>
+                </div>
+
+                <div class="control-group">
+                    <button id="toggleWfSmooth">WF Smooth: OFF</button>
                 </div>
 
                 <div class="control-group">
@@ -402,7 +410,6 @@
 
         const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
         const wrapIndex = (idx, length) => {
-            if (!Number.isFinite(idx) || length <= 0) return 0;
             const wrapped = idx % length;
             return wrapped < 0 ? wrapped + length : wrapped;
         };
@@ -519,8 +526,10 @@
                 this.waterfallWriteRow = 0;
                 this.isPaused = false;
                 this.holdEnabled = false;
+                this.fftAvgEnabled = false;
+                this.fftSmoothEnabled = false;
+                this.wfSmoothEnabled = false;
                 this.signalType = 'peaks';
-                this.updateSpeed = 100;
                 
                 // Performance tracking
                 this.frameCount = 0;
@@ -530,7 +539,7 @@
                 this.frameInterval = 1000 / this.targetFPS;
                 this.peakFrequency = 0;
                 
-                // Update interval management
+                // Update interval management (now relies entirely on animation frame)
                 this.updateInterval = null;
                 
                 // Waterfall data state tracking
@@ -587,10 +596,9 @@
                 this.updateSliderPosition('min', -80);
                 
                 // Update displays
-                document.getElementById('zoomValue').textContent = `${this.zoom}x`;
+                document.getElementById('zoomValue').textContent = `${this.zoom.toFixed(1)}x`;
                 document.getElementById('maxValue').textContent = '0dB';
                 document.getElementById('minValue').textContent = '-80dB';
-                document.getElementById('speedValue').textContent = '100ms';
                 this.updateDBRange();
             }
 
@@ -614,15 +622,31 @@
                     this.setVFOCenterRatio(ratio);
                 };
 
-                const startDrag = (clientX) => {
-                    updateFromClientX(clientX);
+                const startDrag = (clientX, target) => {
+                    const rect = this.vfoTrack.getBoundingClientRect();
+                    const windowRect = this.vfoWindow.getBoundingClientRect();
+                    
+                    // If they clicked the window itself, calculate offset so we don't jump center
+                    let dragOffsetRatio = 0;
+                    if (target === this.vfoWindow) {
+                        const clickRatio = (clientX - rect.left) / rect.width;
+                        dragOffsetRatio = this.vfoCenterRatio - clickRatio;
+                    } else {
+                        // If they clicked the track outside the window, jump to it
+                        updateFromClientX(clientX);
+                    }
+                    
                     this.vfoWindow.classList.add('dragging');
 
                     const onMove = (ev) => {
                         const point = ev.touches ? ev.touches[0] : ev;
                         if (!point) return;
                         ev.preventDefault();
-                        updateFromClientX(point.clientX);
+                        
+                        const rect = this.vfoTrack.getBoundingClientRect();
+                        if (!rect.width) return;
+                        const ratio = (point.clientX - rect.left) / rect.width;
+                        this.setVFOCenterRatio(ratio + dragOffsetRatio);
                     };
 
                     const stopDrag = () => {
@@ -645,7 +669,7 @@
                     const point = ev.touches ? ev.touches[0] : ev;
                     if (!point) return;
                     ev.preventDefault();
-                    startDrag(point.clientX);
+                    startDrag(point.clientX, ev.target);
                 };
 
                 this.vfoTrack.addEventListener('mousedown', handlePointerDown);
@@ -655,7 +679,7 @@
             setVFOCenterRatio(ratio) {
                 const clampedRatio = clamp(Number(ratio) || 0.5, 0, 1);
                 const zoomFactor = Math.max(1, this.zoom);
-                const viewRatio = Math.min(1, 1 / zoomFactor);
+                const viewRatio = clamp(1 / zoomFactor, 0.0001, 1);
                 const previousRatio = this.vfoCenterRatio ?? 0.5;
 
                 if (viewRatio >= 0.999) {
@@ -710,7 +734,8 @@
 
             getVisibleFFTInfo(width) {
                 const zoomFactor = Math.max(1, this.zoom);
-                const viewRatio = Math.min(1, 1 / zoomFactor);
+                const viewRatio = clamp(1 / zoomFactor, 0.0001, 1);
+                // The minimum plotWidth we can draw is nominally calculated
                 const plotWidth = Math.max(1, width - FFT_LEFT_MARGIN - FFT_RIGHT_MARGIN);
                 const startRatio = clamp(this.vfoCenterRatio - viewRatio / 2, 0, 1 - viewRatio);
                 const endRatio = startRatio + viewRatio;
@@ -720,8 +745,9 @@
                 const startFreqMHz = minFreq + startRatio * spanMHz;
                 const endFreqMHz = minFreq + endRatio * spanMHz;
                 const centerFreqMHz = (startFreqMHz + endFreqMHz) / 2;
-                const visibleBins = Math.max(1, Math.floor(viewRatio * this.fftSize));
-                const startBin = Math.max(0, Math.min(this.fftSize - visibleBins, Math.floor(startRatio * this.fftSize)));
+                // Keep bins as float so we can sub-pixel smooth the waterfall
+                const visibleBins = viewRatio * this.fftSize;
+                const startBin = Math.max(0, Math.min(this.fftSize - visibleBins, startRatio * this.fftSize));
                 const endBin = Math.min(this.fftSize, startBin + visibleBins);
                 return {
                     startRatio,
@@ -775,10 +801,10 @@
                         const pct = Math.max(0, Math.min(1, (clientY - rect.top) / rect.height));
                         
                         if (sliderType === 'zoom') {
-                            this.zoom = Math.max(1, Math.round(Math.pow(1000, pct)));
+                            this.zoom = Math.max(1, Math.pow(1000, pct));
                             this.setVFOCenterRatio(this.vfoCenterRatio);
                             thumb.style.height = `${pct * 100}%`;
-                            document.getElementById('zoomValue').textContent = `${this.zoom}x`;
+                            document.getElementById('zoomValue').textContent = `${this.zoom.toFixed(1)}x`;
                             return;
                         }
 
@@ -832,13 +858,6 @@
                     }
                 });
 
-                document.getElementById('speed').addEventListener('input', (e) => {
-                    this.updateSpeed = parseInt(e.target.value);
-                    document.getElementById('speedValue').textContent = `${this.updateSpeed}ms`;
-                    // Restart the update interval with new speed
-                    this.restartUpdateInterval();
-                });
-
                 document.getElementById('fftSize').addEventListener('change', (e) => {
                     this.fftSize = parseInt(e.target.value);
                     this.resizeBuffers();
@@ -847,16 +866,6 @@
                 document.getElementById('togglePause').addEventListener('click', (e) => {
                     this.isPaused = !this.isPaused;
                     e.target.textContent = this.isPaused ? '▶ Play' : '⏸ Pause';
-                    // Update interval behavior based on pause state
-                    if (!this.isPaused) {
-                        this.restartUpdateInterval();
-                    } else {
-                        // Clear interval when paused to stop updates
-                        if (this.updateInterval) {
-                            clearInterval(this.updateInterval);
-                            this.updateInterval = null;
-                        }
-                    }
                 });
 
                 document.getElementById('toggleHold').addEventListener('click', (e) => {
@@ -866,6 +875,24 @@
                     if (!this.holdEnabled) {
                         this.holdData.fill(this.dbMin);
                     }
+                });
+
+                document.getElementById('toggleFftAvg').addEventListener('click', (e) => {
+                    this.fftAvgEnabled = !this.fftAvgEnabled;
+                    e.target.classList.toggle('active');
+                    e.target.textContent = `FFT Avg: ${this.fftAvgEnabled ? 'ON' : 'OFF'}`;
+                });
+
+                document.getElementById('toggleFftSmooth').addEventListener('click', (e) => {
+                    this.fftSmoothEnabled = !this.fftSmoothEnabled;
+                    e.target.classList.toggle('active');
+                    e.target.textContent = `FFT Smooth: ${this.fftSmoothEnabled ? 'ON' : 'OFF'}`;
+                });
+
+                document.getElementById('toggleWfSmooth').addEventListener('click', (e) => {
+                    this.wfSmoothEnabled = !this.wfSmoothEnabled;
+                    e.target.classList.toggle('active');
+                    e.target.textContent = `WF Smooth: ${this.wfSmoothEnabled ? 'ON' : 'OFF'}`;
                 });
 
                 document.getElementById('resetView').addEventListener('click', () => {
@@ -1006,6 +1033,11 @@
             generateSignal() {
                 const time = Date.now() / 1000;
                 
+                const fftContainer = this.fftCanvas.parentElement;
+                const plotWidth = Math.max(1, Math.floor(fftContainer.offsetWidth) - FFT_LEFT_MARGIN - FFT_RIGHT_MARGIN);
+                const visibleBins = Math.max(1, Math.floor((1 / Math.max(1, this.zoom)) * this.fftSize));
+                const isSteps = (plotWidth / visibleBins) >= 3;
+
                 for (let i = 0; i < this.fftSize; i++) {
                     const normalized = i / this.fftSize;
                     const freq = normalized * this.bandwidth;
@@ -1041,7 +1073,29 @@
                     }
 
                     // Store raw signal values without clamping - let rendering handle normalization
-                    this.fftData[i] = signal;
+                    if (this.fftAvgEnabled && !isSteps) {
+                        if (this.fftData[i] === this.dbMin) {
+                             this.fftData[i] = signal;
+                        } else {
+                             this.fftData[i] = this.fftData[i] * 0.8 + signal * 0.2;
+                        }
+                    } else {
+                        this.fftData[i] = signal;
+                    }
+                }
+
+                if (this.fftSmoothEnabled && !isSteps) {
+                    const smoothed = new Float32Array(this.fftSize);
+                    for (let i = 0; i < this.fftSize; i++) {
+                        let sum = 0;
+                        let count = 0;
+                        for (let j = Math.max(0, i - 2); j <= Math.min(this.fftSize - 1, i + 2); j++) {
+                            sum += this.fftData[j];
+                            count++;
+                        }
+                        smoothed[i] = sum / count;
+                    }
+                    this.fftData.set(smoothed);
                 }
 
                 // Update hold data
@@ -1076,8 +1130,8 @@
                 const viewInfo = this.getVisibleFFTInfo(width);
                 const dbRange = this.dbMax - this.dbMin;
                 const safeDbRange = Math.max(1e-6, dbRange);
-                const startBin = viewInfo ? viewInfo.startBin : 0;
-                const endBin = viewInfo ? viewInfo.endBin : this.fftSize;
+                const startBin = viewInfo ? Math.floor(viewInfo.startBin) : 0;
+                const endBin = viewInfo ? Math.ceil(viewInfo.endBin) : this.fftSize;
                 const visibleBins = viewInfo ? viewInfo.visibleBins : Math.max(1, endBin - startBin);
 
                 const plotLeft = FFT_LEFT_MARGIN;
@@ -1091,14 +1145,27 @@
                     return; // Invalid range, skip drawing
                 }
 
-                const xDenominator = Math.max(1, visibleBins - 1);
+                const xDenominator = Math.max(1, visibleBins);
+                // When zoomed in far enough, draw as distinct blocks/steps
+                const drawAsSteps = (plotWidth / visibleBins) >= 3;
+
                 for (let i = startBin; i < endBin; i++) {
-                    const x = plotLeft + ((i - startBin) / xDenominator) * plotWidth;
+                    const xStart = plotLeft + ((i - startBin) / xDenominator) * plotWidth;
+                    const xEnd = plotLeft + ((i + 1 - startBin) / xDenominator) * plotWidth;
+                    
                     let value = this.fftData[i];
                     value = Number.isFinite(value) ? value : this.dbMin;
                     value = Math.min(this.dbMax, Math.max(this.dbMin, value));
                     const y = plotBottom - ((value - this.dbMin) / safeDbRange) * plotBottom;
-                    linePoints.push({ x, y });
+                    
+                    if (drawAsSteps) {
+                        // For steps, add two points per bin
+                        linePoints.push({ x: xStart, y });
+                        linePoints.push({ x: xEnd, y });
+                    } else {
+                        // For normal view, add one point per bin (centered)
+                        linePoints.push({ x: xStart + (xEnd - xStart)/2, y });
+                    }
                 }
 
                 if (linePoints.length === 0) {
@@ -1135,15 +1202,33 @@
                     this.fftCtx.lineWidth = 0.5;
                     this.fftCtx.beginPath();
 
-                    for (let idx = 0; idx < linePoints.length; idx++) {
-                        const { x } = linePoints[idx];
-                        const value = this.holdData[startBin + idx];
-                        const y = plotBottom - ((value - this.dbMin) / safeDbRange) * plotBottom;
+                    if (drawAsSteps) {
+                        for (let bin = 0; bin < visibleBins; bin++) {
+                            const value = this.holdData[startBin + bin];
+                            const valY = plotBottom - ((value - this.dbMin) / safeDbRange) * plotBottom;
+                            const idx = bin * 2;
+                            if (idx + 1 >= linePoints.length) break;
+                            const { x: x1 } = linePoints[idx];
+                            const { x: x2 } = linePoints[idx + 1];
 
-                        if (idx === 0) {
-                            this.fftCtx.moveTo(x, y);
-                        } else {
-                            this.fftCtx.lineTo(x, y);
+                            if (bin === 0) {
+                                this.fftCtx.moveTo(x1, valY);
+                            } else {
+                                this.fftCtx.lineTo(x1, valY);
+                            }
+                            this.fftCtx.lineTo(x2, valY);
+                        }
+                    } else {
+                        for (let idx = 0; idx < linePoints.length; idx++) {
+                            const { x } = linePoints[idx];
+                            const value = this.holdData[startBin + idx];
+                            const y = plotBottom - ((value - this.dbMin) / safeDbRange) * plotBottom;
+
+                            if (idx === 0) {
+                                this.fftCtx.moveTo(x, y);
+                            } else {
+                                this.fftCtx.lineTo(x, y);
+                            }
                         }
                     }
                     this.fftCtx.stroke();
@@ -1300,6 +1385,7 @@
                 };
 
                 const safeDbRange = Math.max(1e-6, this.dbMax - this.dbMin);
+                const isSteps = (clippedWidth / visibleBinsView) >= 3;
 
                 if (!this.hasWaterfallData) {
                     for (let y = 0; y < internalHeight; y++) {
@@ -1319,28 +1405,56 @@
                         const line = this.waterfallData[bufferY];
                         const hasLine = y < this.waterfallLinesWritten;
 
-                        for (let x = clippedStartX; x < clippedEndX; x++) {
-                            const ratio = (x - clippedStartX) / clippedWidth;
-                            const binPos = clipStartBin + ratio * (clipEndBin - clipStartBin);
-                            const binIdx = Math.floor(binPos - clipStartBin);
-                            const safeBinIdx = Math.max(0, Math.min(line.length - 1, binIdx));
-                            let value = hasLine && line && line[safeBinIdx] !== undefined
-                                ? line[safeBinIdx]
-                                : this.dbMin;
-                            value = Number.isFinite(value) ? value : this.dbMin;
-                            value = Math.min(this.dbMax, Math.max(this.dbMin, value));
+                        // Cache the ratio step
+                        const ratioStep = 1 / clippedWidth;
+                        const lenMinusOne = line.length - 1;
+                        let ratio = 0;
 
-                            const normalized = Math.max(0, Math.min(1, (value - this.dbMin) / safeDbRange));
-                            const colorIdx = Math.floor(normalized * (DEFAULT_COLOR_MAP.length - 1));
-                            const color = DEFAULT_COLOR_MAP[
-                                Math.max(0, Math.min(DEFAULT_COLOR_MAP.length - 1, colorIdx))
-                            ];
+                        if (this.wfSmoothEnabled && !isSteps) {
+                            for (let x = clippedStartX; x < clippedEndX; x++) {
+                                const exactIdx = ratio * lenMinusOne;
+                                const idxFloor = Math.floor(exactIdx);
+                                const idxCeil = Math.ceil(exactIdx);
+                                const frac = exactIdx - idxFloor;
 
-                            const pixelIdx = (y * internalWidth + x) * 4;
-                            data[pixelIdx] = color[0];
-                            data[pixelIdx + 1] = color[1];
-                            data[pixelIdx + 2] = color[2];
-                            data[pixelIdx + 3] = 255;
+                                const valFloor = line[idxFloor] ?? this.dbMin;
+                                const valCeil = line[idxCeil] ?? this.dbMin;
+
+                                let value = valFloor * (1 - frac) + valCeil * frac;
+                                value = value < this.dbMin ? this.dbMin : (value > this.dbMax ? this.dbMax : value);
+
+                                const normalized = (value - this.dbMin) / safeDbRange;
+                                const colorIdx = Math.floor(normalized * 12); // 12 is DEFAULT_COLOR_MAP.length - 1
+                                const color = DEFAULT_COLOR_MAP[colorIdx < 0 ? 0 : (colorIdx > 12 ? 12 : colorIdx)];
+
+                                const pixelIdx = (y * internalWidth + x) * 4;
+                                data[pixelIdx] = color[0];
+                                data[pixelIdx + 1] = color[1];
+                                data[pixelIdx + 2] = color[2];
+                                data[pixelIdx + 3] = 255;
+                                
+                                ratio += ratioStep;
+                            }
+                        } else {
+                            for (let x = clippedStartX; x < clippedEndX; x++) {
+                                const binIdx = Math.floor(ratio * line.length);
+                                const safeBinIdx = binIdx < 0 ? 0 : (binIdx > lenMinusOne ? lenMinusOne : binIdx);
+                                let value = line[safeBinIdx] ?? this.dbMin;
+                                
+                                value = value < this.dbMin ? this.dbMin : (value > this.dbMax ? this.dbMax : value);
+
+                                const normalized = (value - this.dbMin) / safeDbRange;
+                                const colorIdx = Math.floor(normalized * 12);
+                                const color = DEFAULT_COLOR_MAP[colorIdx < 0 ? 0 : (colorIdx > 12 ? 12 : colorIdx)];
+
+                                const pixelIdx = (y * internalWidth + x) * 4;
+                                data[pixelIdx] = color[0];
+                                data[pixelIdx + 1] = color[1];
+                                data[pixelIdx + 2] = color[2];
+                                data[pixelIdx + 3] = 255;
+                                
+                                ratio += ratioStep;
+                            }
                         }
                     }
 
@@ -1365,26 +1479,34 @@
                 const dpr = window.devicePixelRatio || 1;
                 const displayWidth = this.waterfallCanvas.width / dpr;
                 const viewInfo = this.lastViewInfo || this.getVisibleFFTInfo(displayWidth);
-                const visibleBins = viewInfo ? viewInfo.visibleBins : Math.max(1, Math.floor(this.fftSize / this.zoom));
-                const clipStartBin = viewInfo ? viewInfo.startBin : Math.max(0, Math.floor((this.fftSize - visibleBins) / 2));
-                const clipEndBin = Math.min(this.fftSize, clipStartBin + visibleBins);
+                const visibleBins = viewInfo ? viewInfo.visibleBins : Math.max(1, this.fftSize / this.zoom);
+                const clipStartBin = viewInfo ? Math.floor(viewInfo.startBin) : Math.max(0, Math.floor((this.fftSize - visibleBins) / 2));
+                const clipEndBin = Math.min(this.fftSize, Math.ceil(clipStartBin + visibleBins));
                 const clipWidth = Math.max(1, clipEndBin - clipStartBin);
+                const isSteps = (clipWidth / visibleBins) >= 3;
 
-                if (this.clipWidth !== clipWidth) {
-                    this.clipWidth = clipWidth;
-
-                    for (let i = 0; i < this.waterfallHeight; i++) {
-                        break;
-                        const newRow = new Float32Array(clipWidth);
-                        newRow.fill(this.dbMin);
-                        this.waterfallData[i] = newRow;
-                    }
+                let activeRow = this.waterfallData[this.waterfallWriteRow];
+                if (!activeRow || activeRow.length !== clipWidth) {
+                    activeRow = new Float32Array(clipWidth);
+                    this.waterfallData[this.waterfallWriteRow] = activeRow;
                 }
 
-                const activeRow = this.waterfallData[this.waterfallWriteRow];
                 for (let i = 0; i < clipWidth; i++) {
-                    const fftIdx = clipStartBin + i;
-                    const value = this.fftData[fftIdx] ?? this.dbMin;
+                    let value;
+                    if (this.wfSmoothEnabled && !isSteps) {
+                        // Smoothly sample the exact position in the raw FFT data
+                        const exactFftIdx = clipStartBin + (i / Math.max(1, clipWidth - 1)) * (clipEndBin - clipStartBin);
+                        const idxFloor = Math.floor(exactFftIdx);
+                        const idxCeil = Math.ceil(exactFftIdx);
+                        const frac = exactFftIdx - idxFloor;
+                        
+                        const valFloor = this.fftData[idxFloor] ?? this.dbMin;
+                        const valCeil = this.fftData[idxCeil] ?? this.dbMin;
+                        value = valFloor * (1 - frac) + valCeil * frac;
+                    } else {
+                        const fftIdx = Math.floor(clipStartBin + i);
+                        value = this.fftData[fftIdx] ?? this.dbMin;
+                    }
                     activeRow[i] = Number.isFinite(value) ? value : this.dbMin;
                 }
 
@@ -1445,31 +1567,8 @@
                 requestAnimationFrame(() => this.animate());
             }
 
-            restartUpdateInterval() {
-                // Clear existing interval if it exists
-                if (this.updateInterval) {
-                    clearInterval(this.updateInterval);
-                }
-                
-                // Start new interval with current speed
-                this.updateInterval = setInterval(() => {
-                    if (!this.isPaused) {
-                        this.generateSignal();
-                        this.updateWaterfall();
-                    }
-                }, this.updateSpeed);
-            }
-
             startAnimation() {
                 this.animate();
-                this.restartUpdateInterval();
-                
-                // Cleanup on page unload
-                window.addEventListener('beforeunload', () => {
-                    if (this.updateInterval) {
-                        clearInterval(this.updateInterval);
-                    }
-                });
             }
         }
 

@@ -4,11 +4,8 @@ import styled from "styled-components";
 const SlidersContainer = styled.div`
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 4px 8px;
-  background-color: #0a0a0a;
-  border-left: 1px solid #222;
   align-self: stretch;
+  gap: 12px;
   height: 100%;
   user-select: none;
 `;
@@ -17,62 +14,117 @@ const SliderGroup = styled.div`
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: 10px;
   flex: 1;
-  
-  &:nth-child(even) {
-    margin: 2cqh 0;
-  }
 `;
 
 const SliderLabel = styled.span`
   font-family: "JetBrains Mono", monospace;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
-  color: #ccc;
-  letter-spacing: 0.5px;
+  color: #d8d8d8;
+  letter-spacing: 0.6px;
   text-transform: uppercase;
   white-space: nowrap;
-  margin-bottom: 2cqh;
 `;
+
+const MIN_THUMB_RATIO = 0.2; // 20% of track height
 
 const SliderTrack = styled.div`
   position: relative;
-  width: 12px;
+  width: 40px;
   flex: 1;
-  background-color: #1a1a1a;
-  border-radius: 3px;
+  padding: 6px 10px;
+  border-radius: 16px;
+  background: #212121;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
   cursor: pointer;
+  transition: scale 1s ease-in-out;
 `;
 
-const SliderThumb = styled.div<{ $position: number }>`
+const SliderThumb = styled.div<{ $heightPercent: number }>`
+  display: flex;
+  flex-flow: column;
+  align-items: center;
   position: absolute;
-  left: 50%;
-  top: ${({ $position }) => $position}%;
-  transform: translate(-50%, -50%);
-  width: 18px;
-  height: 12px;
-  background-color: #3b82f6;
-  border-radius: 3px;
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  height: ${({ $heightPercent }) => `${$heightPercent}%`};
+  min-height: ${MIN_THUMB_RATIO * 100}%;
+  background-color: #3B3B3B;
+  border-radius: 16px;
   cursor: grab;
   transition: background-color 0.15s;
 
   &:hover {
-    background-color: #60a5fa;
+    background-color: grey;
+
+    &:after {
+        content: "";
+        display: block;
+        width: 60%;
+        height: 3px;
+        background: #5e5e5e;
+    }
   }
 
   &:active {
     cursor: grabbing;
-    background-color: #2563eb;
   }
 `;
 
 const SliderValue = styled.span`
+  position: absolute;
+  bottom: 13px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10px;
+  color: #686868;
+  letter-spacing: 0.3px;
+  pointer-events: none;
+  opacity: 0.9;
+  text-align: center;
+`;
+
+// Toggle button styles
+const TogglesContainer = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 4px;
+`;
+
+const ToggleButton = styled.button<{ $active: boolean }>`
   font-family: "JetBrains Mono", monospace;
   font-size: 9px;
-  color: #666;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
   white-space: nowrap;
-  margin-top: 2cqh;
+  padding: 6px 4px;
+  border-radius: 8px;
+  border: 1px solid ${({ $active }) => ($active ? "rgba(0,0,0,0.2)" : "#333")};
+  background: ${({ $active }) =>
+    $active ? "linear-gradient(135deg, #00c853, #009688)" : "#212121"};
+  color: ${({ $active }) => ($active ? "#fff" : "#888")};
+  cursor: pointer;
+  transition: all 0.15s ease;
+  width: 100%;
+  text-align: center;
+
+  &:hover {
+    background: ${({ $active }) =>
+    $active ? "linear-gradient(135deg, #00e676, #26a69a)" : "#2a2a2a"};
+    color: ${({ $active }) => ($active ? "#fff" : "#aaa")};
+  }
+
+  &:active {
+    transform: scale(0.96);
+  }
 `;
 
 interface VerticalSliderProps {
@@ -83,6 +135,7 @@ interface VerticalSliderProps {
   step?: number;
   onChange: (value: number) => void;
   formatValue?: (value: number) => string;
+  invertFill?: boolean;
 }
 
 const VerticalSlider: React.FC<VerticalSliderProps> = ({
@@ -93,21 +146,26 @@ const VerticalSlider: React.FC<VerticalSliderProps> = ({
   step = 1,
   onChange,
   formatValue,
+  invertFill = false,
 }) => {
-  // Position: 0% = top (max value), 100% = bottom (min value)
-  const position = ((max - value) / (max - min)) * 100;
+  const normalized = Math.max(0, Math.min(1, (value - min) / (max - min || 1)));
+  const fillRatio = invertFill ? 1 - normalized : normalized;
+  const heightPercent = (MIN_THUMB_RATIO + fillRatio * (1 - MIN_THUMB_RATIO)) * 100;
 
   const handleTrackInteraction = useCallback(
     (clientY: number, rect: DOMRect) => {
       const pct = Math.max(0, Math.min(1, (clientY - rect.top) / rect.height));
-      // Top = max, bottom = min
-      let raw = max - pct * (max - min);
-      // Snap to step
+      let raw: number;
+      if (invertFill) {
+        raw = min + pct * (max - min);
+      } else {
+        raw = max - pct * (max - min);
+      }
       raw = Math.round(raw / step) * step;
       raw = Math.max(min, Math.min(max, raw));
       onChange(raw);
     },
-    [min, max, step, onChange],
+    [min, max, step, onChange, invertFill],
   );
 
   const handleMouseDown = useCallback(
@@ -134,9 +192,9 @@ const VerticalSlider: React.FC<VerticalSliderProps> = ({
     <SliderGroup>
       <SliderLabel>{label}</SliderLabel>
       <SliderTrack onMouseDown={handleMouseDown}>
-        <SliderThumb $position={position} />
+        <SliderThumb $heightPercent={heightPercent} />
+        <SliderValue>{formatValue ? formatValue(value) : value}</SliderValue>
       </SliderTrack>
-      <SliderValue>{formatValue ? formatValue(value) : value}</SliderValue>
     </SliderGroup>
   );
 };
@@ -151,6 +209,15 @@ export interface VisualizerSlidersProps {
   onZoomChange: (zoom: number) => void;
   onDbMaxChange: (dbMax: number) => void;
   onDbMinChange: (dbMin: number) => void;
+  /** FFT averaging toggle */
+  fftAvgEnabled?: boolean;
+  /** FFT smoothing toggle */
+  fftSmoothEnabled?: boolean;
+  /** Waterfall smoothing toggle */
+  wfSmoothEnabled?: boolean;
+  onFftAvgChange?: (enabled: boolean) => void;
+  onFftSmoothChange?: (enabled: boolean) => void;
+  onWfSmoothChange?: (enabled: boolean) => void;
 }
 
 export const VisualizerSliders: React.FC<VisualizerSlidersProps> = ({
@@ -160,6 +227,12 @@ export const VisualizerSliders: React.FC<VisualizerSlidersProps> = ({
   onZoomChange,
   onDbMaxChange,
   onDbMinChange,
+  fftAvgEnabled = false,
+  fftSmoothEnabled = false,
+  wfSmoothEnabled = false,
+  onFftAvgChange,
+  onFftSmoothChange,
+  onWfSmoothChange,
 }) => {
   return (
     <SlidersContainer>
@@ -175,21 +248,45 @@ export const VisualizerSliders: React.FC<VisualizerSlidersProps> = ({
       <VerticalSlider
         label="Max"
         value={dbMax}
-        min={Math.max(-80, dbMin + 10)}
+        min={-80}
         max={0}
         step={5}
         onChange={onDbMaxChange}
         formatValue={(v) => `${v}dB`}
+        invertFill
       />
       <VerticalSlider
         label="Min"
         value={dbMin}
         min={-120}
-        max={Math.min(-10, dbMax - 10)}
+        max={-10}
         step={5}
         onChange={onDbMinChange}
         formatValue={(v) => `${v}dB`}
       />
+      <TogglesContainer>
+        <ToggleButton
+          $active={fftAvgEnabled}
+          onClick={() => onFftAvgChange?.(!fftAvgEnabled)}
+          title="FFT Averaging — temporal smoothing of spectrum"
+        >
+          {fftAvgEnabled ? "▸ AVG" : "▹ AVG"}
+        </ToggleButton>
+        <ToggleButton
+          $active={fftSmoothEnabled}
+          onClick={() => onFftSmoothChange?.(!fftSmoothEnabled)}
+          title="FFT Smoothing — adjacent bin averaging"
+        >
+          {fftSmoothEnabled ? "▸ FFT" : "▹ FFT"}
+        </ToggleButton>
+        <ToggleButton
+          $active={wfSmoothEnabled}
+          onClick={() => onWfSmoothChange?.(!wfSmoothEnabled)}
+          title="Waterfall Smoothing — interpolation between bins"
+        >
+          {wfSmoothEnabled ? "▸ WF" : "▹ WF"}
+        </ToggleButton>
+      </TogglesContainer>
     </SlidersContainer>
   );
 };
