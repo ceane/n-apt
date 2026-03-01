@@ -257,12 +257,13 @@ export function useOverlayRenderer() {
 
       if (
         centerFrequencyMHz !== undefined &&
-        centerFrequencyMHz >= minFreq &&
-        centerFrequencyMHz <= maxFreq
+        Number.isFinite(centerFrequencyMHz)
       ) {
-        const cx = Math.round(freqToX(centerFrequencyMHz)) + 0.5;
+        // Always draw center line at the exact middle of the plot area
+        // Using freqToX(centerFrequencyMHz) causes drift when zoomed
+        const cx = Math.round((FFT_AREA_MIN.x + fftAreaMax.x) / 2) + 0.5;
         ctx.save();
-        ctx.strokeStyle = "rgba(234, 179, 8, 0.35)";
+        ctx.strokeStyle = "rgba(220, 255, 0, 0.7)";
         ctx.lineWidth = 1 / dpr;
         ctx.beginPath();
         ctx.moveTo(cx, FFT_AREA_MIN.y);

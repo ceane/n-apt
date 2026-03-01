@@ -166,6 +166,9 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const dragStartXRef = useRef(0);
   const dragStartWindowRef = useRef(0);
+  const dragStartTrackWidthRef = useRef(0);
+  const dragStartThumbWidthRef = useRef(0);
+  const dragStartMaxWindowStartRef = useRef(0);
   const lastNotifiedRangeRef = useRef<FrequencyRange | null>(null);
   const internalChangeIdRef = useRef(0);
   const lastNotifiedChangeIdRef = useRef(0);
@@ -195,7 +198,7 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
 
   // Sync windowStart from external state (either actual SDR tune range or visual zoom range)
   useEffect(() => {
-    if (isDragging) return;
+    if (isDraggingRef.current) return;
 
     let desiredStart = windowStart;
     if (externalFrequencyRange) {
@@ -213,7 +216,7 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
       clamped = Math.max(-overscan, Math.min(0, desiredStart));
     }
     setWindowStart(clamped);
-  }, [externalFrequencyRange, visibleMin, minFreq, totalRange, windowWidth, isDragging]);
+  }, [externalFrequencyRange, visibleMin, minFreq, totalRange, windowWidth]);
 
   const maxWindowStart = 1 - windowWidth;
   let visualRatio = 0;
@@ -330,16 +333,25 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
       if (!isDraggingRef.current || !trackRef.current) return;
 
       const deltaX = e.clientX - dragStartXRef.current;
-      const draggablePixels = Math.max(1, trackWidth - thumbWidth);
+
+      // Dead zone: ignore tiny movements (< 2px) to prevent jitter
+      if (Math.abs(deltaX) < 2) return;
+
+      // Use dimensions captured at drag start for stability
+      const tw = dragStartTrackWidthRef.current;
+      const thw = dragStartThumbWidthRef.current;
+      const mws = dragStartMaxWindowStartRef.current;
+      const draggablePixels = Math.max(1, tw - thw);
 
       let newStart;
       if (windowWidth <= 1) {
         const ratioDelta = deltaX / draggablePixels;
-        const windowStartDelta = ratioDelta * maxWindowStart;
+        const windowStartDelta = ratioDelta * mws;
+
         newStart = dragStartWindowRef.current + windowStartDelta;
-        newStart = Math.max(0, Math.min(maxWindowStart, newStart));
+        newStart = Math.max(0, Math.min(mws, newStart));
       } else {
-        const ratioDelta = deltaX / trackWidth;
+        const ratioDelta = deltaX / tw;
         newStart = dragStartWindowRef.current + ratioDelta;
         const overscan = windowWidth - 1;
         newStart = Math.max(-overscan, Math.min(0, newStart));
@@ -374,6 +386,10 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
     setIsDragging(true);
     dragStartXRef.current = e.clientX;
     dragStartWindowRef.current = windowStart;
+    // Capture dimensions at drag start for stable calculations
+    dragStartTrackWidthRef.current = trackWidth;
+    dragStartThumbWidthRef.current = thumbWidth;
+    dragStartMaxWindowStartRef.current = maxWindowStart;
   };
 
   const handleContainerClick = (e: React.MouseEvent) => {

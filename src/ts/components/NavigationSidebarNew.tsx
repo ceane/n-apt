@@ -104,7 +104,7 @@ const ContentArea = styled.div`
   overflow: hidden;
 `;
 
-const routeToMainTab = (path: string): MainTab => {
+export const routeToMainTab = (path: string): MainTab => {
   switch (path) {
     case "/":
     case "/visualizer":
@@ -120,7 +120,7 @@ const routeToMainTab = (path: string): MainTab => {
   }
 };
 
-const routeToSpectrumTab = (path: string): SpectrumTab => {
+export const routeToSpectrumTab = (path: string): SpectrumTab => {
   switch (path) {
     case "/analysis":
       return "analysis";

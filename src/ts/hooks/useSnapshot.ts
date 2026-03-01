@@ -30,7 +30,7 @@ export type SnapshotOptions = {
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 /** Format MHz value for display — trims trailing zeros, always includes unit. */
-function fmtFreq(mhz: number): string {
+export function fmtFreq(mhz: number): string {
   if (Math.abs(mhz) < 1) {
     const khz = mhz * 1000;
     // Trim trailing zeros: 500.0 → 500, 123.45 → 123.45
@@ -53,7 +53,7 @@ function fmtTimestamp(): string {
 
 // ── Zoom/pan slice ──────────────────────────────────────────────────────────
 
-function getZoomedSlice(
+export function getZoomedSlice(
   fullWaveform: Float32Array,
   fullRange: { min: number; max: number },
   zoom: number,
@@ -311,7 +311,7 @@ function drawSpectrumToCanvas(
 
 // ── Waterfall renderers ─────────────────────────────────────────────────────
 
-function dbToColor(db: number, minDb: number, maxDb: number): [number, number, number] {
+export function dbToColor(db: number, minDb: number, maxDb: number): [number, number, number] {
   const normalized = (db - minDb) / (maxDb - minDb);
   const index = Math.max(0, Math.min(DEFAULT_COLOR_MAP.length - 1, normalized * (DEFAULT_COLOR_MAP.length - 1)));
   const lowerIndex = Math.floor(index);
@@ -420,7 +420,7 @@ function drawWaterfallFrom2DBuffer(
 
 // ── SVG Vector Generation ───────────────────────────────────────────────────
 
-function escapeXml(s: string): string {
+export function escapeXml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 

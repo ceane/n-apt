@@ -25,6 +25,10 @@ path = "test/rust/device_stream_frozen_tests.rs"
 name = "authentication_tests"
 path = "test/rust/authentication_tests.rs"
 
+[[test]]
+name = "mock_apt_tests"
+path = "test/rust/mock_apt_tests.rs"
+
 [dependencies]
 # Core dependencies (always included)
 rustfft = "6"

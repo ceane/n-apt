@@ -150,7 +150,7 @@ type SpectrumAction =
   | { type: "LEAVE_VISUALIZER" }
   | { type: "SET_FFT_FRAME_RATE"; fftFrameRate: number };
 
-const INITIAL_SPECTRUM_STATE: SpectrumState = {
+export const INITIAL_SPECTRUM_STATE: SpectrumState = {
   activeSignalArea: "A",
   frequencyRange: null,
   displayTemporalResolution: "medium",
@@ -176,7 +176,7 @@ const INITIAL_SPECTRUM_STATE: SpectrumState = {
   fftFrameRate: 60,
 };
 
-function spectrumReducer(state: SpectrumState, action: SpectrumAction): SpectrumState {
+export function spectrumReducer(state: SpectrumState, action: SpectrumAction): SpectrumState {
   switch (action.type) {
     case "SET_SIGNAL_AREA":
       return { ...state, activeSignalArea: action.area };
@@ -370,28 +370,24 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   const effectiveFrames = wsSpectrumFrames.length > 0 ? wsSpectrumFrames : cachedFrames;
   const effectiveSdrSettings = sdrSettings ?? cachedSdrSettings;
 
+  const sampleRateHzEffective =
+    typeof effectiveSdrSettings?.sample_rate === "number" &&
+      Number.isFinite(effectiveSdrSettings.sample_rate)
+      ? effectiveSdrSettings.sample_rate
+      : sampleRateHz ?? null;
+
+  const sampleRateMHz =
+    typeof sampleRateHzEffective === "number" && Number.isFinite(sampleRateHzEffective)
+      ? sampleRateHzEffective / 1_000_000
+      : null;
+
   const setVizPanOffsetWithRangeUpdate = useCallback((newPan: number) => {
+    // Only update the visual pan offset — do NOT dispatch SET_FREQUENCY_RANGE here.
+    // Dispatching the zoomed visual range into frequencyRange corrupts the hardware
+    // range state, causing a compounding feedback loop where the "hardware center"
+    // drifts each frame and the slider can't reach the edges of the signal area.
     setVizPanOffset(newPan);
-    // When zoomed, update frequencyRange to reflect the new visible range
-    if (vizZoom > 1 && state.frequencyRange && state.activeSignalArea) {
-      const frame = effectiveFrames.find(
-        (f: SpectrumFrame) => f.label.toLowerCase() === state.activeSignalArea.toLowerCase(),
-      );
-      if (frame) {
-        const min = frame.min_mhz;
-        const max = frame.max_mhz;
-        const span = max - min;
-        const hardwareCenter = (min + max) / 2;
-        const visualCenter = hardwareCenter + newPan;
-        const visualSpan = span / vizZoom;
-        const newVisibleMin = visualCenter - visualSpan / 2;
-        const newVisibleMax = visualCenter + visualSpan / 2;
-        const newRange = { min: newVisibleMin, max: newVisibleMax };
-        dispatch({ type: "SET_FREQUENCY_RANGE", range: newRange });
-        sendFrequencyRange(newRange);
-      }
-    }
-  }, [vizZoom, state.frequencyRange, state.activeSignalArea, effectiveFrames, sendFrequencyRange]);
+  }, []);
 
   useEffect(() => {
     if (wsSpectrumFrames.length === 0) return;
@@ -413,16 +409,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     }
   }, [sdrSettings]);
 
-  const sampleRateHzEffective =
-    typeof effectiveSdrSettings?.sample_rate === "number" &&
-      Number.isFinite(effectiveSdrSettings.sample_rate)
-      ? effectiveSdrSettings.sample_rate
-      : sampleRateHz ?? null;
 
-  const sampleRateMHz =
-    typeof sampleRateHzEffective === "number" && Number.isFinite(sampleRateHzEffective)
-      ? sampleRateHzEffective / 1_000_000
-      : null;
 
   const signalAreaBounds = useMemo(() => {
     if (!Array.isArray(effectiveFrames) || effectiveFrames.length === 0) {

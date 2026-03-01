@@ -30,6 +30,7 @@ export function useFrequencyDrag({
   const dragStartXRef = useRef(0);
   const dragStartFreqRef = useRef(0);
   const dragStartPanRef = useRef(0);
+  const dragStartRangeRef = useRef<FrequencyRange>({ min: 0, max: 0 });
 
   useEffect(() => {
     const getActiveSpectrumCanvas = () => {
@@ -49,7 +50,9 @@ export function useFrequencyDrag({
 
       const deltaX = e.clientX - dragStartXRef.current;
       const zoom = vizZoomRef?.current || 1;
-      const fullRange = frequencyRangeRef.current.max - frequencyRangeRef.current.min;
+      // Use the range captured at drag start to prevent feedback loops
+      // where mid-drag range updates change sensitivity
+      const fullRange = dragStartRangeRef.current.max - dragStartRangeRef.current.min;
       const visualRange = fullRange / zoom;
       const freqChange = (deltaX / width) * visualRange;
 
@@ -109,6 +112,7 @@ export function useFrequencyDrag({
         dragStartXRef.current = e.clientX;
         dragStartFreqRef.current = frequencyRangeRef.current.min;
         dragStartPanRef.current = vizPanOffsetRef?.current || 0;
+        dragStartRangeRef.current = { ...frequencyRangeRef.current };
         canvas.style.cursor = "grabbing";
         canvas.setPointerCapture(e.pointerId);
       }
@@ -117,15 +121,19 @@ export function useFrequencyDrag({
     const handlePointerUp = (e: PointerEvent) => {
       const canvas = getActiveSpectrumCanvas();
       if (isDraggingRef.current && canvas) {
-        canvas.style.cursor = "grab";
+        canvas.style.cursor = "default";
         canvas.releasePointerCapture(e.pointerId);
       }
       isDraggingRef.current = false;
     };
 
-    const handlePointerEnter = () => {
+    // Show grab cursor only in the bottom 60px VFO area
+    const handlePointerMoveForCursor = (e: PointerEvent) => {
       const canvas = getActiveSpectrumCanvas();
-      if (canvas && !isDraggingRef.current) canvas.style.cursor = "grab";
+      if (!canvas || isDraggingRef.current) return;
+      const rect = canvas.getBoundingClientRect();
+      const y = e.clientY - rect.top;
+      canvas.style.cursor = y >= rect.height - 60 ? "grab" : "default";
     };
 
     const handlePointerLeave = () => {
@@ -139,10 +147,10 @@ export function useFrequencyDrag({
     [gpuCanvas, canvas2D].forEach((canvas) => {
       if (canvas) {
         canvas.addEventListener("pointerdown", handlePointerDown);
-        canvas.addEventListener("pointerenter", handlePointerEnter);
+        canvas.addEventListener("pointermove", handlePointerMoveForCursor);
         canvas.addEventListener("pointerleave", handlePointerLeave);
         if (canvas === getActiveSpectrumCanvas()) {
-          canvas.style.cursor = "grab";
+          canvas.style.cursor = "default";
         }
       }
     });
@@ -154,7 +162,7 @@ export function useFrequencyDrag({
       [gpuCanvas, canvas2D].forEach((canvas) => {
         if (canvas) {
           canvas.removeEventListener("pointerdown", handlePointerDown);
-          canvas.removeEventListener("pointerenter", handlePointerEnter);
+          canvas.removeEventListener("pointermove", handlePointerMoveForCursor);
           canvas.removeEventListener("pointerleave", handlePointerLeave);
         }
       });
@@ -187,7 +195,7 @@ export function useFrequencyDrag({
       ? spectrumGpuCanvasRef.current
       : spectrumCanvasRef.current;
     if (activeCanvas && !isDraggingRef.current) {
-      activeCanvas.style.cursor = "grab";
+      activeCanvas.style.cursor = "default";
     }
   }, [spectrumWebgpuEnabled, spectrumCanvasRef, spectrumGpuCanvasRef]);
 }

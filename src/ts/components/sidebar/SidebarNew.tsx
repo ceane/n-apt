@@ -925,11 +925,18 @@ const Sidebar: React.FC<SidebarProps> = ({
                       // Use frequencyRange (SDR tuned range) for center calculation
                       // This matches what FFTCanvas does
                       const hardwareCenter = (frequencyRange.min + frequencyRange.max) / 2;
-                      const visualSpan = span / vizZoom;
+                      // Zoom applies to the hardware window width (sample rate), not the full signal area span
+                      const hardwareSpan = typeof sampleRateMHz === "number" ? Math.min(sampleRateMHz, span) : span;
+                      const visualSpan = hardwareSpan / vizZoom;
+                      const halfVisualSpan = visualSpan / 2;
                       // vizPanOffset is in MHz exactly
-                      const visualCenter = hardwareCenter + vizPanOffset;
-                      visibleMin = visualCenter - visualSpan / 2;
-                      visibleMax = visualCenter + visualSpan / 2;
+                      let visualCenter = hardwareCenter + vizPanOffset;
+
+                      // Clamp visual center so the visual window stays within signal area bounds
+                      visualCenter = Math.max(min + halfVisualSpan, Math.min(max - halfVisualSpan, visualCenter));
+
+                      visibleMin = visualCenter - halfVisualSpan;
+                      visibleMax = visualCenter + halfVisualSpan;
 
                       // Don't use externalFrequencyRange when zoomed - let the slider
                       // use visibleMin/visibleMax props directly for the zoomed view
@@ -949,12 +956,43 @@ const Sidebar: React.FC<SidebarProps> = ({
                         isActive={activeSignalArea === label}
                         onActivate={() => onSignalAreaChange?.(label)}
                         onRangeChange={(range) => {
-                          if (activeSignalArea === label && vizZoom > 1 && onVizPanChange) {
-                            // Calculate pan offset from the center of the dragged visual range
-                            const hardwareCenter = (min + max) / 2;
+                          if (activeSignalArea === label && vizZoom > 1 && frequencyRange) {
                             const visualCenter = (range.min + range.max) / 2;
-                            const newPan = visualCenter - hardwareCenter;
-                            onVizPanChange(newPan);
+                            const hardwareSpan = typeof sampleRateMHz === "number" ? Math.min(sampleRateMHz, span) : span;
+                            const halfHardware = hardwareSpan / 2;
+                            const currentHardwareCenter = (frequencyRange.min + frequencyRange.max) / 2;
+                            const halfVisualSpan = hardwareSpan / (2 * vizZoom);
+                            const maxPan = halfHardware - halfVisualSpan;
+
+                            const desiredPan = visualCenter - currentHardwareCenter;
+
+                            if (Math.abs(desiredPan) <= maxPan + 0.001) {
+                              // Pan is within hardware bounds — just update pan offset
+                              if (onVizPanChange) onVizPanChange(desiredPan);
+                            } else {
+                              // Pan exceeds hardware bounds — retune hardware to reach the edge
+                              let newHardwareCenter = visualCenter;
+                              let newHardwareMin = newHardwareCenter - halfHardware;
+                              let newHardwareMax = newHardwareCenter + halfHardware;
+
+                              // Clamp hardware range to signal area bounds
+                              if (newHardwareMin < min) {
+                                newHardwareMin = min;
+                                newHardwareMax = min + hardwareSpan;
+                              }
+                              if (newHardwareMax > max) {
+                                newHardwareMax = max;
+                                newHardwareMin = max - hardwareSpan;
+                              }
+                              newHardwareCenter = (newHardwareMin + newHardwareMax) / 2;
+
+                              // Retune hardware
+                              handleRangeChange(label, { min: newHardwareMin, max: newHardwareMax });
+
+                              // Set remaining pan offset relative to new hardware center
+                              const remainingPan = visualCenter - newHardwareCenter;
+                              if (onVizPanChange) onVizPanChange(remainingPan);
+                            }
                           } else {
                             handleRangeChange(label, range);
                           }

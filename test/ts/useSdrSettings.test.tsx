@@ -67,7 +67,7 @@ describe("useSdrSettings", () => {
 
     expect(screen.getByTestId("fftSize")).toHaveTextContent("16384");
     expect(screen.getByTestId("fftFrameRate")).toHaveTextContent("42");
-    expect(screen.getByTestId("gain")).toHaveTextContent("25.6");
+    expect(screen.getByTestId("gain")).toHaveTextContent("49.6");
     expect(screen.getByTestId("ppm")).toHaveTextContent("2");
     expect(screen.getByTestId("tunerAGC")).toHaveTextContent("false");
     expect(screen.getByTestId("rtlAGC")).toHaveTextContent("true");

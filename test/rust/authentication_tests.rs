@@ -1,5 +1,6 @@
 use n_apt_backend::sdr::processor::SdrProcessor;
 use n_apt_backend::server::types;
+#[allow(unused_imports)]
 use n_apt_backend::server::utils;
 
 #[test]
@@ -29,7 +30,7 @@ fn test_authentication_condition_check() {
 #[test]
 fn test_mock_processor_creation() {
     // Test that mock processor can be created and generates signals when called directly
-    let mut processor = SdrProcessor::new_mock().unwrap();
+    let mut processor = SdrProcessor::new_mock_apt().unwrap();
     
     // This should work (direct call, not through I/O loop)
     let result = processor.read_and_process_frame();
