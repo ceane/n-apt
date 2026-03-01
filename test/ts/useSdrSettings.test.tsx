@@ -41,7 +41,7 @@ describe("useSdrSettings", () => {
       sample_rate: 3_200_000,
       center_frequency: 1_600_000,
       gain: {
-        tuner_gain: 256,
+        tuner_gain: 49.6,
         rtl_agc: true,
         tuner_agc: false,
       },

@@ -419,7 +419,7 @@ impl SdrDevice for RtlSdrDevice {
     }
     
     fn set_gain(&mut self, gain: f64) -> Result<()> {
-        self.set_tuner_gain((gain * 10.0) as i32)
+        self.set_tuner_gain(gain as i32)
     }
     
     fn set_ppm(&mut self, ppm: i32) -> Result<()> {

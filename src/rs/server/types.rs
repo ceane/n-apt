@@ -197,7 +197,7 @@ pub struct SdrConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SdrGainConfig {
-  pub tuner_gain: u32,
+  pub tuner_gain: f64,
   pub rtl_agc: bool,
   pub tuner_agc: bool,
 }

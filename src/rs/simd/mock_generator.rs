@@ -99,10 +99,12 @@ impl MockSignalGenerator {
       }
 
       if signal.active {
-        signal.drift_offset += self.rng.gen_range(
-          -(config.global_settings.signal_drift_rate as f32)
-            ..(config.global_settings.signal_drift_rate as f32),
-        );
+        let drift = config.global_settings.signal_drift_rate as f32;
+        if drift > 0.0 {
+          signal.drift_offset += self.rng.gen_range(
+            -drift..drift,
+          );
+        }
         signal.drift_offset = signal.drift_offset.clamp(-5.0, 5.0);
 
         signal.modulation_phase += config.global_settings.signal_modulation_rate as f32;
@@ -140,13 +142,11 @@ impl MockSignalGenerator {
 
       // Calculate frequency and add signal contribution
       let current_bin = (signal.center_bin + signal.drift_offset).round() as i32;
-      let k = current_bin.rem_euclid(signals.len() as i32);
-      let freq_hz = (k as f32) * 41000.0 / (signals.len() as f32); // Assuming sample rate
+      let k = current_bin.rem_euclid(2048);
+      let freq_hz = (k as f32) * 41000.0 / 2048.0; // Assuming sample rate
 
       let modulation = signal.modulation_phase.sin() * 0.3 + 0.7;
-      let strength_variation = self.rng.gen_range(
-        -(1.0)..1.0, // Simplified variation
-      );
+      let strength_variation = 0.0;
       let current_strength_db = signal.base_strength * modulation + strength_variation;
       let amp = (10f32.powf(current_strength_db / 20.0) * 0.05).clamp(0.0, 0.9);
 

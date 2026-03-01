@@ -101,7 +101,7 @@ const deriveStateFromConfig = (
     fftWindow: "Rectangular",
     fftFrameRate: maxFrameRate ? Math.min(rawFrameRate, maxFrameRate) : rawFrameRate,
     gain:
-      typeof gainConfig?.tuner_gain === "number" ? gainConfig.tuner_gain / 10 : 0,
+      typeof gainConfig?.tuner_gain === "number" ? gainConfig.tuner_gain : 0,
     tunerAGC: gainConfig?.tuner_agc ?? false,
     rtlAGC: gainConfig?.rtl_agc ?? false,
     ppm: typeof sdrSettings?.ppm === "number" ? sdrSettings.ppm : 0,
@@ -210,7 +210,7 @@ export const useSdrSettings = ({
       if (Number.isNaN(val)) return 0;
       const maxGain =
         typeof sdrSettings?.gain?.tuner_gain === "number"
-          ? sdrSettings.gain.tuner_gain / 10
+          ? sdrSettings.gain.tuner_gain
           : undefined;
       if (typeof maxGain === "number") {
         return Math.max(0, Math.min(maxGain, val));

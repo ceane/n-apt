@@ -1,11 +1,6 @@
-#[path = "../../src/server/sdr_processor.rs"]
-mod sdr_processor;
-#[path = "../../src/server/types.rs"]
-mod types;
-#[path = "../../src/server/utils.rs"]
-mod utils;
-
-use sdr_processor::SDRProcessor;
+use n_apt_backend::sdr::processor::SdrProcessor;
+use n_apt_backend::server::types;
+use n_apt_backend::server::utils;
 
 #[test]
 fn test_authentication_condition_check() {
@@ -34,10 +29,10 @@ fn test_authentication_condition_check() {
 #[test]
 fn test_mock_processor_creation() {
     // Test that mock processor can be created and generates signals when called directly
-    let mut processor = SDRProcessor::new();
+    let mut processor = SdrProcessor::new_mock().unwrap();
     
     // This should work (direct call, not through I/O loop)
-    let result = processor.read_and_process_mock();
+    let result = processor.read_and_process_frame();
     assert!(result.is_ok(), "Mock data generation should work when called directly");
     
     let spectrum = result.unwrap();

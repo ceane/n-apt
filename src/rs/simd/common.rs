@@ -95,10 +95,14 @@ pub struct PowerSpectrum;
 impl PowerSpectrum {
   /// Convert complex FFT output to power spectrum in dB
   pub fn to_power_spectrum_db(complex_buffer: &[Complex<f32>], output: &mut [f32]) {
+    let n = complex_buffer.len() as f32;
+    // Normalize power exactly identically to how standard processor does it:
+    let inv_norm = 1.0 / (n * n);
+
     for (i, &sample) in complex_buffer.iter().enumerate() {
       if i < output.len() {
-        let magnitude_sq = sample.re * sample.re + sample.im * sample.im;
-        output[i] = 10.0 * (magnitude_sq + 1e-10).log10(); // Convert to dB
+        let magnitude_sq = (sample.re * sample.re + sample.im * sample.im) * inv_norm;
+        output[i] = 10.0 * (magnitude_sq + 1e-12).log10().max(-120.0).min(0.0); // Convert to dB and clamp
       }
     }
   }
@@ -176,8 +180,8 @@ impl IQConverter {
     for i in 0..fft_size.min(data.len() / 2) {
       let byte_idx = i * 2;
       if byte_idx + 1 < data.len() {
-        let i_val = (data[byte_idx] as i8) as f32 / 128.0 * gain;
-        let q_val = (data[byte_idx + 1] as i8) as f32 / 128.0 * gain;
+        let i_val = (data[byte_idx] as f32 - 128.0) / 128.0 * gain;
+        let q_val = (data[byte_idx + 1] as f32 - 128.0) / 128.0 * gain;
         
         // Apply PPM correction
         let phase = 2.0 * std::f32::consts::PI * ppm_factor * i as f32 / fft_size as f32;
@@ -234,10 +238,10 @@ mod tests {
   #[test]
   fn test_power_spectrum() {
     let complex_data = vec![
-      Complex::new(1.0, 0.0),
-      Complex::new(0.0, 1.0),
-      Complex::new(-1.0, 0.0),
-      Complex::new(0.0, -1.0),
+      Complex::new(4.0, 0.0),
+      Complex::new(0.0, 4.0),
+      Complex::new(-4.0, 0.0),
+      Complex::new(0.0, -4.0),
     ];
     
     let mut power = [0.0; 4];
@@ -251,13 +255,13 @@ mod tests {
 
   #[test]
   fn test_iq_conversion() {
-    let iq_data = vec![127, 0, 0, 127, 129, 0, 0, 129]; // Max positive and negative I/Q values (129 = -127 as u8)
+    let iq_data = vec![255, 128, 128, 255, 0, 128, 128, 0]; // Max positive and negative I/Q values (0 = -1.0, 255 = ~1.0, 128 = 0.0)
     
     let result = IQConverter::convert_to_complex(&iq_data, 1.0, 0.0, 4).unwrap();
     assert_eq!(result.len(), 4);
     
-    // First sample: I=1.0, Q=0.0
-    assert!((result[0].re - 1.0).abs() < 1e-6);
+    // First sample: I=~1.0, Q=0.0
+    assert!((result[0].re - (255.0 - 128.0) / 128.0).abs() < 1e-6);
     assert!((result[0].im - 0.0).abs() < 1e-6);
   }
 }

@@ -1,12 +1,15 @@
 use n_apt_backend::consts::rs::fft::NUM_SAMPLES;
 use n_apt_backend::fft::processor::utils::freq_to_bin;
 use n_apt_backend::fft::processor::{
+  EnhancedFFTConfig, FFTProcessor,
+};
+use n_apt_backend::fft::{
   apply_window, bin_to_freq, calculate_snr, detect_peaks, find_peak_frequency,
-  frequency_resolution, zoom_fft, EnhancedFFTConfig, FFTProcessor, WindowType,
+  frequency_resolution, zoom_fft, WindowType,
 };
 use n_apt_backend::fft::types::*;
 #[cfg(not(target_arch = "wasm32"))]
-use n_apt_backend::native_simd::{NativeSIMDProcessor, downsample_spectrum_simd};
+use n_apt_backend::simd::{NativeProcessor as NativeSIMDProcessor, downsample_spectrum_simd};
 
 #[cfg(test)]
 mod tests {

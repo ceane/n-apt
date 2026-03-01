@@ -131,10 +131,9 @@ impl websocket_server::WebSocketServer {
     }
 
     /// Run the HTTP server
-    pub async fn run_server(self) -> Result<()> {
-        // TODO: Update for new SDR architecture
-        // TODO: Update for new SDR architecture
-        let shared = shared_state::SharedState::new();
+    pub async fn run_server(self, websocket_server: websocket_server::WebSocketServer) -> Result<()> {
+        let shared = websocket_server.get_shared_state();
+        let broadcast_tx = websocket_server.get_broadcast_tx();
         let credential_store = CredentialStore::new().map_err(|e| anyhow::anyhow!("Failed to create credential store: {}", e))?;
         let session_store = SessionStore::new();
 
@@ -154,14 +153,15 @@ impl websocket_server::WebSocketServer {
             .build()
             .map_err(|e| anyhow::anyhow!("Failed to build WebAuthn: {}", e))?;
 
+        let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
+
         let state = Arc::new(AppState {
             shared,
             credential_store,
             session_store,
             webauthn: webauthn_result,
-            // TODO: Update for new SDR architecture
-            broadcast_tx: tokio::sync::broadcast::channel(100).0,
-            cmd_tx: std::sync::mpsc::channel().0,
+            broadcast_tx,
+            cmd_tx,
         });
 
         let app = Self::create_app(state);
@@ -171,6 +171,15 @@ impl websocket_server::WebSocketServer {
 
         info!("Starting server on {}:{}", host, port);
         let listener = tokio::net::TcpListener::bind((host, port)).await?;
+        
+        // Pass the command receiver to the WebSocket server's run loop
+        let websocket_server_clone = websocket_server.clone();
+        tokio::spawn(async move {
+            if let Err(e) = websocket_server_clone.run(cmd_rx).await {
+                log::error!("WebSocket server error: {}", e);
+            }
+        });
+
         axum::serve(listener, app).await?;
 
         Ok(())
@@ -185,9 +194,10 @@ pub async fn run_server() -> Result<()> {
 
     info!("Starting N-APT Rust Backend Server");
 
-    let shared = shared_state::SharedState::new();
-    // TODO: Update for new SDR architecture
-    let server = websocket_server::WebSocketServer::new();
+    // Create WebSocket server with integrated SDR processor
+    let websocket_server = websocket_server::WebSocketServer::new();
+    let shared = websocket_server.get_shared_state();
+    let _broadcast_tx = websocket_server.get_broadcast_tx();
 
     // Install signal handler: on SIGINT/SIGTERM, signal the I/O thread to shut down
     // so it can release the RTL-SDR device cleanly before the process exits.
@@ -214,7 +224,8 @@ pub async fn run_server() -> Result<()> {
         std::process::exit(0);
     });
 
-    server.run_server().await?;
+    // HTTP server runs in the main thread, WebSocket server runs in a spawned thread (handled in run_server)
+    websocket_server.clone().run_server(websocket_server.clone()).await?;
 
     Ok(())
 }

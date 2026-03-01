@@ -234,6 +234,8 @@ pub fn handle_message(
         shared
           .pending_center_freq_dirty
           .store(true, Ordering::Relaxed);
+          
+        let _ = cmd_tx.send(super::types::SdrCommand::SetFrequency(center_freq));
       }
     }
     "pause" => {

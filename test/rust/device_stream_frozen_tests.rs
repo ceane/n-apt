@@ -1,12 +1,6 @@
-#[path = "../../src/server/shared_state.rs"]
-mod shared_state;
-#[path = "../../src/server/utils.rs"]
-mod utils;
-#[path = "../../src/server/types.rs"]
-mod types;
-
-use shared_state::SharedState;
-use utils::reconcile_device_state;
+use n_apt_backend::server::shared_state::SharedState;
+use n_apt_backend::server::utils::reconcile_device_state;
+use n_apt_backend::server::types;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 

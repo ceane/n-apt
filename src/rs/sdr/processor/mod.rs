@@ -79,52 +79,25 @@ impl SdrProcessor {
         let sample_rate = device.get_sample_rate();
         let _center_freq = device.get_center_frequency();
         
-        // Load settings from signals.yaml (reuse existing loading logic)
-        // TODO: Replace with proper server utils when integration is ready
-        // For now, create a minimal config
-        use serde::Deserialize;
+        // Load settings from signals.yaml
+        let sdr_settings = crate::server::utils::load_sdr_settings();
         
-        #[derive(Debug, Clone, Deserialize)]
-        struct SdrConfig {
-            fft: FftConfig,
-            display: DisplayConfig,
-        }
-        
-        #[derive(Debug, Clone, Deserialize)]
-        struct FftConfig {
-            default_size: usize,
-            default_frame_rate: u32,
-        }
-        
-        #[derive(Debug, Clone, Deserialize)]
-        struct DisplayConfig {
-            min_db: i32,
-            max_db: i32,
-        }
-        
-        let sdr_settings = SdrConfig {
-            fft: FftConfig {
-                default_size: 32768,
-                default_frame_rate: 60,
-            },
-            display: DisplayConfig {
-                min_db: -120,
-                max_db: 0,
-            },
-        };
-        let fft_cfg = sdr_settings.fft.clone();
-        let display_cfg = sdr_settings.display.clone();
-        
-        let fft_size = fft_cfg.default_size;
-        let min_db = display_cfg.min_db;
-        let max_db = display_cfg.max_db;
-        let default_frame_rate = fft_cfg.default_frame_rate;
+        let fft_size = sdr_settings.fft.default_size;
+        let min_db = sdr_settings.display.min_db;
+        let max_db = sdr_settings.display.max_db;
+        let default_frame_rate = sdr_settings.fft.default_frame_rate;
         
         let mut fft_processor = FFTProcessor::new_with_defaults(fft_size, sample_rate, min_db, max_db);
         
         // Align initial zoom width and size to config
         let mut cfg = fft_processor.config().clone();
         cfg.zoom_width = fft_size;
+        
+        // Set initial gain properly so baseline tuner gain maps to 0dB delta
+        // If the SDR processes the signal at `gain = 1.0`, it passes through unaltered.
+        // We initialize config.gain to 1.0 (which is +0dB over baseline).
+        cfg.gain = 1.0;
+        
         fft_processor.update_config(cfg);
         
         let processor = Self {
@@ -289,7 +262,7 @@ impl SdrProcessor {
         if let Some(g_db) = gain {
             self.device.set_gain(g_db)?;
             // Convert dB to linear amplitude multiplier for FFT
-            let baseline_db = 49.6; // From signals.yaml
+            let baseline_db = crate::server::utils::load_sdr_settings().gain.tuner_gain; // Dynamically loaded
             let delta_db = g_db - baseline_db;
             config.gain = 10f32.powf(delta_db as f32 / 20.0);
             config_changed = true;
