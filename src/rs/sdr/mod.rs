@@ -6,7 +6,7 @@
 //! ## Architecture
 //!
 //! - `SdrDevice` trait defines the common interface for all SDR implementations
-//! - `mock` module provides simulated signals with configurable shapes and noise
+//! - `mock_apt` module provides simulated signals with configurable shapes and noise
 //! - `rtlsdr` module provides real hardware interface for RTL-SDR devices
 //! - `processor` contains the main signal processing pipeline
 
@@ -68,16 +68,16 @@ impl SdrDeviceFactory {
                 Ok(Box::new(device))
             }
             Err(_) => {
-                log::info!("No RTL-SDR device found, using mock implementation");
-                Ok(Box::new(crate::sdr::mock::MockDevice::new()))
+                log::info!("No RTL-SDR device found, using mock APT implementation");
+                Ok(Box::new(crate::sdr::mock_apt::MockAptDevice::new()))
             }
         }
     }
     
-    /// Force creation of a mock device
+    /// Force creation of a mock APT device
     pub fn create_mock_device() -> Box<dyn SdrDevice> {
-        log::info!("Creating mock SDR device");
-        Box::new(crate::sdr::mock::MockDevice::new())
+        log::info!("Creating mock APT SDR device");
+        Box::new(crate::sdr::mock_apt::MockAptDevice::new())
     }
     
     /// Force creation of an RTL-SDR device (will error if none available)
@@ -88,7 +88,7 @@ impl SdrDeviceFactory {
     }
 }
 
-pub mod mock;
+pub mod mock_apt;
 pub mod processor;
 pub mod rtlsdr;
 

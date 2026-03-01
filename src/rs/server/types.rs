@@ -111,7 +111,7 @@ pub struct SpectrumData {
   #[serde(rename = "type")]
   pub message_type: String,
   pub waveform: Vec<f32>,
-  pub is_mock: bool,
+  pub is_mock_apt: bool,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub center_frequency_hz: Option<u32>,
   pub timestamp: i64,
@@ -134,7 +134,7 @@ pub struct StatusMessage {
 
 /// Structured signal pattern for consistent waterfall visualization
 #[derive(Debug, Clone)]
-pub struct MockSignal {
+pub struct MockAptSignal {
   pub center_bin: f32,
   pub drift_offset: f32,
   pub bandwidth: usize,
@@ -164,18 +164,19 @@ pub struct SignalsConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignalsData {
-  pub mock: MockSignalsConfig,
+  #[serde(alias = "mock")]
+  pub mock_apt: MockAptSignalsConfig,
   pub n_apt: NaptConfig,
   pub sdr: SdrConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MockSignalsConfig {
-  pub global_settings: MockGlobalSettings,
-  pub bandwidths: MockBandwidths,
-  pub strength_ranges: MockStrengthRanges,
-  pub signals: Vec<MockSignalConfig>,
-  pub training_areas: HashMap<String, MockTrainingArea>,
+pub struct MockAptSignalsConfig {
+  pub global_settings: MockAptGlobalSettings,
+  pub bandwidths: MockAptBandwidths,
+  pub strength_ranges: MockAptStrengthRanges,
+  pub signals: Vec<MockAptSignalConfig>,
+  pub training_areas: HashMap<String, MockAptTrainingArea>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -226,9 +227,9 @@ pub struct SdrLimitsConfig {
   pub upper_limit_label: Option<String>,
 }
 
-// Mock signal types
+// MockApt signal types
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MockGlobalSettings {
+pub struct MockAptGlobalSettings {
   pub noise_floor_base: f64,
   pub noise_floor_variation: f64,
   pub signal_drift_rate: f64,
@@ -243,14 +244,14 @@ pub struct MockGlobalSettings {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MockBandwidths {
+pub struct MockAptBandwidths {
   pub narrow: u32,
   pub medium: u32,
   pub wide: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MockStrengthRanges {
+pub struct MockAptStrengthRanges {
   pub weak: StrengthRange,
   pub medium: StrengthRange,
   pub strong: StrengthRange,
@@ -263,12 +264,12 @@ pub struct StrengthRange {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MockSignalConfig {
+pub struct MockAptSignalConfig {
   // This would contain predefined mock signals if any
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MockTrainingArea {
+pub struct MockAptTrainingArea {
   pub freq_range_mhz: Vec<f64>,
   pub description: String,
   pub signal_types: Vec<String>,

@@ -23,18 +23,18 @@ impl WebSocketServer {
     pub fn new() -> Self {
         info!("Creating WebSocket server with SDR processor");
         
-        // Create SDR processor (will auto-select mock or real device)
+        // Create SDR processor (will auto-select mock_apt or real device)
         let mut sdr_processor = SdrProcessor::new()
             .expect("Failed to create SDR processor");
         
         // Initialize the processor
         if let Err(e) = sdr_processor.initialize() {
-            warn!("Failed to initialize SDR processor: {}, using mock mode", e);
-            // Fallback to mock mode
-            sdr_processor = SdrProcessor::new_mock()
-                .expect("Failed to create mock SDR processor");
+            warn!("Failed to initialize SDR processor: {}, using mock APT mode", e);
+            // Fallback to mock_apt mode
+            sdr_processor = SdrProcessor::new_mock_apt()
+                .expect("Failed to create mock APT SDR processor");
             sdr_processor.initialize()
-                .expect("Failed to initialize mock SDR processor");
+                .expect("Failed to initialize mock APT SDR processor");
         }
         
         info!("SDR processor initialized with device: {}", sdr_processor.device_type());
@@ -117,13 +117,13 @@ impl WebSocketServer {
                         Ok(waveform) => {
                             let timestamp = chrono::Utc::now().timestamp_millis();
                             let center_frequency = processor.get_center_frequency();
-                            let is_mock = processor.device_type() == "mock";
+                            let is_mock_apt = processor.device_type() == "mock_apt";
                             drop(processor);
 
                             let spectrum_message = SpectrumData {
                                 message_type: "spectrum".to_string(),
                                 waveform,
-                                is_mock,
+                                is_mock_apt,
                                 center_frequency_hz: Some(center_frequency),
                                 timestamp,
                             };

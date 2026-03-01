@@ -61,9 +61,9 @@ pub fn load_sdr_settings() -> &'static super::types::SdrConfig {
   &signals_config().signals.sdr
 }
 
-/// Load mock signal settings (panic if missing/malformed)
-pub fn load_mock_settings() -> &'static super::types::MockSignalsConfig {
-  &signals_config().signals.mock
+/// Load mock APT signal settings (panic if missing/malformed)
+pub fn load_mock_apt_settings() -> &'static super::types::MockAptSignalsConfig {
+  &signals_config().signals.mock_apt
 }
 
 #[allow(dead_code)]

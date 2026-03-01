@@ -20,7 +20,7 @@ import { formatFrequency } from "../../consts/sdr";
 // Import extracted section components
 import { ConnectionStatusSection } from "@n-apt/components/sidebar/ConnectionStatusSection";
 import { SignalDisplaySection } from "@n-apt/components/sidebar/SignalDisplaySection";
-import CaptureSection from "@n-apt/components/sidebar/CaptureSection";
+
 import FileProcessingSection from "@n-apt/components/sidebar/FileProcessingSection";
 import { IQCaptureControlsSection } from "@n-apt/components/sidebar/IQCaptureControlsSection";
 import { SnapshotControlsSection } from "@n-apt/components/sidebar/SnapshotControlsSection";
@@ -783,7 +783,7 @@ const Sidebar: React.FC<SidebarProps> = ({
               <SettingLabelContainer>
                 <SettingLabel>Backend</SettingLabel>
               </SettingLabelContainer>
-              <SettingValueText>{backend === "rtl-sdr" ? "RTL-SDR" : "Mock"}</SettingValueText>
+              <SettingValueText>{backend === "rtl-sdr" ? "RTL-SDR" : "Mock APT SDR"}</SettingValueText>
             </SettingRow>
           )}
         </Section>
@@ -834,7 +834,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                 style={{ minWidth: "130px" }}
               >
                 <option value="live">
-                  {backend === "rtl-sdr" ? "RTL-SDR" : backend === "mock" ? "Mock SDR" : "Live SDR"}
+                  {backend === "rtl-sdr" ? "RTL-SDR" : backend === "mock_apt" ? "Mock APT SDR" : "Live SDR"}
                 </option>
                 <option value="file" style={{ color: "#d9aa34" }}>
                   File Selection
@@ -926,8 +926,8 @@ const Sidebar: React.FC<SidebarProps> = ({
                       // This matches what FFTCanvas does
                       const hardwareCenter = (frequencyRange.min + frequencyRange.max) / 2;
                       const visualSpan = span / vizZoom;
-                      // vizPanOffset is in Hz, convert to MHz
-                      const visualCenter = hardwareCenter + (vizPanOffset / 1_000_000);
+                      // vizPanOffset is in MHz exactly
+                      const visualCenter = hardwareCenter + vizPanOffset;
                       visibleMin = visualCenter - visualSpan / 2;
                       visibleMax = visualCenter + visualSpan / 2;
 
@@ -955,8 +955,6 @@ const Sidebar: React.FC<SidebarProps> = ({
                             const visualCenter = (range.min + range.max) / 2;
                             const newPan = visualCenter - hardwareCenter;
                             onVizPanChange(newPan);
-                            // Update frequencyRange to the current visible range when zoomed
-                            onFrequencyRangeChange?.(range);
                           } else {
                             handleRangeChange(label, range);
                           }
@@ -985,7 +983,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                 fftSizeOptions={fftSizeOptions}
                 fftWindow={fftWindow}
                 temporalResolution={displayTemporalResolution || "medium"}
-                autoFftOptions={autoFftOptions}
+                autoFftOptions={autoFftOptions || null}
                 onFftFrameRateChange={setFftFrameRate}
                 onFftSizeChange={setFftSize}
                 onFftWindowChange={setFftWindow}

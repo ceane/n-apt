@@ -1,4 +1,4 @@
-//! # Mock SDR Device Implementation
+//! # Mock APT SDR Device Implementation
 //!
 //! Provides a simulated SDR device that generates realistic signals for testing and demonstration.
 //! Uses bin-based frequency modeling for consistent FFT placement and dynamic signal behavior.
@@ -13,15 +13,15 @@ use std::f64::consts::PI as PI64;
 
 use super::SdrDevice;
 
-/// Mock signal configuration
+/// Mock APT signal configuration
 #[derive(Debug, Clone)]
-struct MockSignalConfig {
+struct MockAptSignalConfig {
     center_frequency_mhz: f64,
     strength_db: f64,
 }
 
-/// Mock SDR device implementation
-pub struct MockDevice {
+/// Mock APT SDR device implementation
+pub struct MockAptDevice {
     center_freq: u32,
     sample_rate: u32,
     gain: f64,
@@ -29,17 +29,17 @@ pub struct MockDevice {
     tuner_agc: bool,
     rtl_agc: bool,
     frame_counter: u64,
-    signals: Vec<MockSignal>,
+    signals: Vec<MockAptSignal>,
     noise_floor_db: f32,
     signal_modulation_rate: f32,
     signal_drift_rate: f32,
     rng: StdRng,
 }
 
-/// Individual mock signal state
+/// Individual mock APT signal state
 #[derive(Debug, Clone)]
-struct MockSignal {
-    config: MockSignalConfig,
+struct MockAptSignal {
+    config: MockAptSignalConfig,
     drift_offset: f32,
     drift_velocity: f32,
     modulation_phase: f32,
@@ -47,12 +47,12 @@ struct MockSignal {
     bandwidth_hz: f64,
 }
 
-impl MockDevice {
-    /// Create a new mock SDR device
+impl MockAptDevice {
+    /// Create a new mock APT SDR device
     pub fn new() -> Self {
         let signals = Self::create_signals();
         
-        let mock_settings = crate::server::utils::load_mock_settings();
+        let mock_settings = crate::server::utils::load_mock_apt_settings();
         let sdr_settings = crate::server::utils::load_sdr_settings();
         
         Self {
@@ -72,7 +72,7 @@ impl MockDevice {
     }
     
     /// Create initial signals based on configuration
-    fn create_signals() -> Vec<MockSignal> {
+    fn create_signals() -> Vec<MockAptSignal> {
         let mut signals = Vec::new();
         let mut rng = rand::thread_rng();
         
@@ -80,8 +80,8 @@ impl MockDevice {
         // Area A: 0.1 - 4.5 MHz (covering the first N-APT range)
         for i in 0..10 {
             let freq = 0.1 + (i as f64 * 0.45);
-            signals.push(MockSignal {
-                config: MockSignalConfig {
+            signals.push(MockAptSignal {
+                config: MockAptSignalConfig {
                     center_frequency_mhz: freq,
                     strength_db: rng.gen_range(-70.0..-40.0),
                 },
@@ -96,8 +96,8 @@ impl MockDevice {
         // Area B: 24.7 - 30.0 MHz (covering the second N-APT range)
         for i in 0..11 {
             let freq = 24.7 + (i as f64 * 0.5);
-            signals.push(MockSignal {
-                config: MockSignalConfig {
+            signals.push(MockAptSignal {
+                config: MockAptSignalConfig {
                     center_frequency_mhz: freq,
                     strength_db: rng.gen_range(-60.0..-30.0),
                 },
@@ -133,13 +133,13 @@ impl MockDevice {
     }
 }
 
-impl SdrDevice for MockDevice {
+impl SdrDevice for MockAptDevice {
     fn device_type(&self) -> &'static str {
-        "mock"
+        "mock_apt"
     }
     
     fn initialize(&mut self) -> Result<()> {
-        log::info!("Initializing mock SDR device");
+        log::info!("Initializing mock APT SDR device");
         self.frame_counter = 0;
         Ok(())
     }
@@ -272,12 +272,12 @@ impl SdrDevice for MockDevice {
     }
     
     fn reset_buffer(&mut self) -> Result<()> {
-        log::debug!("Mock device buffer reset");
+        log::debug!("Mock APT device buffer reset");
         Ok(())
     }
     
     fn cleanup(&mut self) -> Result<()> {
-        log::info!("Mock device cleanup completed");
+        log::info!("Mock APT device cleanup completed");
         Ok(())
     }
 }

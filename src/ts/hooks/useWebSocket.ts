@@ -278,7 +278,7 @@ export const useWebSocket = (
                       const spectrumData = {
                         message_type: "spectrum",
                         waveform: waveform,
-                        is_mock: false, // We'll assume real unless backend tells us otherwise (binary fast path is mostly real)
+                        is_mock_apt: false, // We'll assume real unless backend tells us otherwise (binary fast path is mostly real)
                         center_frequency_hz: centerFrequencyHz,
                         timestamp: timestamp,
                       };

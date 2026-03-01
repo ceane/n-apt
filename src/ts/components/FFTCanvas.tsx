@@ -332,7 +332,7 @@ const FFTCanvas = forwardRef<
       visualRange: FrequencyRange;
       clampedPan: number;
     } => {
-      if (zoom <= 1) {
+      if (zoom === 1) {
         return { slicedWaveform: fullWaveform, visualRange: fullRange, clampedPan: 0 };
       }
 
@@ -344,7 +344,13 @@ const FFTCanvas = forwardRef<
 
       // Calculate max allowed pan so visual window doesn't exceed hardware window
       const maxPan = (fullSpan / 2) - halfSpan;
-      const clampedPan = Math.max(-maxPan, Math.min(maxPan, panOffset));
+      let clampedPan = panOffset;
+      if (maxPan >= 0) {
+        clampedPan = Math.max(-maxPan, Math.min(maxPan, panOffset));
+      } else {
+        const outPan = -maxPan;
+        clampedPan = Math.max(-outPan, Math.min(outPan, panOffset));
+      }
 
       const centerFreq = (fullRange.min + fullRange.max) / 2;
       const visualCenter = centerFreq + clampedPan;
@@ -353,14 +359,28 @@ const FFTCanvas = forwardRef<
       const visualCenterBin = Math.round(((visualCenter - fullRange.min) / fullSpan) * totalBins);
 
       let startBin = Math.round(visualCenterBin - visibleBins / 2);
-      // Clamp startBin to valid array bounds
-      startBin = Math.max(0, Math.min(totalBins - visibleBins, startBin));
 
-      const slicedWaveform = fullWaveform.subarray(startBin, startBin + visibleBins);
       const visualRange = {
         min: visualCenter - halfSpan,
         max: visualCenter + halfSpan,
       };
+
+      if (zoom < 1) {
+        const paddedWaveform = new Float32Array(visibleBins).fill(-120);
+        const destOffset = Math.max(0, -startBin);
+        const dataToCopy = Math.min(totalBins, visibleBins - destOffset);
+        const srcOffset = Math.max(0, startBin);
+
+        if (dataToCopy > 0) {
+          paddedWaveform.set(fullWaveform.subarray(srcOffset, srcOffset + dataToCopy), destOffset);
+        }
+        return { slicedWaveform: paddedWaveform, visualRange, clampedPan };
+      }
+
+      // Clamp startBin to valid array bounds for zoom > 1
+      startBin = Math.max(0, Math.min(totalBins - visibleBins, startBin));
+
+      const slicedWaveform = fullWaveform.subarray(startBin, startBin + visibleBins);
 
       return { slicedWaveform, visualRange, clampedPan };
     },
@@ -409,7 +429,7 @@ const FFTCanvas = forwardRef<
   // Compute zoomed frequency range from the full range (visual only, don't retune)
   const handleZoomChange = useCallback(
     (newZoom: number) => {
-      const clampedZoom = Math.max(1, Math.min(MAX_VISUALIZER_ZOOM, Math.round(newZoom)));
+      const clampedZoom = Math.max(1, Math.min(MAX_VISUALIZER_ZOOM, newZoom));
       setVizZoom(clampedZoom);
       // Reset pan offset when zooming completely out to prevent getting stuck panned
       if (clampedZoom <= 1) setVizPanOffset(0);

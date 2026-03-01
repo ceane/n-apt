@@ -54,8 +54,8 @@ signals:
       # Visualizer padding
       padding: 20
 
-  # Mock signal configuration for testing
-  mock:
+  # Mock APT signal configuration for testing
+  mock_apt:
     channels:
         a:
           label: "A"

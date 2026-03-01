@@ -132,8 +132,8 @@ impl SdrProcessor {
         Ok(processor)
     }
     
-    /// Force mock mode
-    pub fn new_mock() -> Result<Self> {
+    /// Force mock APT mode
+    pub fn new_mock_apt() -> Result<Self> {
         let device = SdrDeviceFactory::create_mock_device();
         Self::with_device(device)
     }

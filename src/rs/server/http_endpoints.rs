@@ -58,7 +58,7 @@ pub async fn status_handler(
     "device_state": device_state,
     "device_loading_reason": device_loading_reason,
     "device_info": device_info,
-    "backend": if device_connected { "rtl-sdr" } else { "mock" },
+    "backend": if device_connected { "rtl-sdr" } else { "mock_apt" },
     "clients": client_count,
     "authenticated_clients": authenticated_count,
   }))
@@ -228,7 +228,7 @@ pub async fn agent_info_handler(
       "/hotspot-editor"
     ],
     "hardware": {
-      "supported": ["rtl-sdr", "hackrf", "mock"],
+      "supported": ["rtl-sdr", "hackrf", "mock_apt"],
       "frequency_range": freq_range,
       "max_sample_rate": sample_rate_label
     },
@@ -275,7 +275,7 @@ pub async fn agent_status_handler(
   let status = serde_json::json!({
     "device": {
       "connected": device_connected,
-      "type": if device_connected { "rtl-sdr" } else { "mock" },
+      "type": if device_connected { "rtl-sdr" } else { "mock_apt" },
       "info": device_info,
       "state": device_state,
       "loading": device_loading,

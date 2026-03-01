@@ -136,6 +136,7 @@ interface VerticalSliderProps {
   onChange: (value: number) => void;
   formatValue?: (value: number) => string;
   invertFill?: boolean;
+  logarithmic?: boolean;
 }
 
 const VerticalSlider: React.FC<VerticalSliderProps> = ({
@@ -147,25 +148,50 @@ const VerticalSlider: React.FC<VerticalSliderProps> = ({
   onChange,
   formatValue,
   invertFill = false,
+  logarithmic = false,
 }) => {
-  const normalized = Math.max(0, Math.min(1, (value - min) / (max - min || 1)));
-  const fillRatio = invertFill ? 1 - normalized : normalized;
+  const rangeNorm = logarithmic
+    ? Math.max(0, Math.min(1, Math.log(value / min) / Math.log(max / min)))
+    : Math.max(0, Math.min(1, (value - min) / (max - min || 1)));
+
+  const fillRatio = invertFill ? 1 - rangeNorm : rangeNorm;
   const heightPercent = (MIN_THUMB_RATIO + fillRatio * (1 - MIN_THUMB_RATIO)) * 100;
 
   const handleTrackInteraction = useCallback(
     (clientY: number, rect: DOMRect) => {
-      const pct = Math.max(0, Math.min(1, (clientY - rect.top) / rect.height));
+      let pct = Math.max(0, Math.min(1, (clientY - rect.top) / rect.height));
+
+      // thumb's top edge ranges from 0 to 1 - MIN_THUMB_RATIO down the track
+      const maxScrollPct = 1 - MIN_THUMB_RATIO;
+      let adjustedPct = Math.max(0, Math.min(maxScrollPct, pct));
+
+      let rawFillRatio = 1 - (adjustedPct / maxScrollPct);
+      let normalized = invertFill ? 1 - rawFillRatio : rawFillRatio;
+
       let raw: number;
-      if (invertFill) {
-        raw = min + pct * (max - min);
+      if (logarithmic) {
+        raw = min * Math.pow(max / min, normalized);
       } else {
-        raw = max - pct * (max - min);
+        raw = min + normalized * (max - min);
       }
-      raw = Math.round(raw / step) * step;
+
+      // Handle floating point steps gracefully
+      if (step < 1) {
+        const inv = 1.0 / step;
+        raw = Math.round(raw * inv) / inv;
+      } else {
+        raw = Math.round(raw / step) * step;
+      }
+
+      // Snap to 1.0 for convenience if close
+      if (logarithmic && Math.abs(raw - 1.0) < 0.15) {
+        raw = 1.0;
+      }
+
       raw = Math.max(min, Math.min(max, raw));
       onChange(raw);
     },
-    [min, max, step, onChange, invertFill],
+    [min, max, step, onChange, invertFill, logarithmic],
   );
 
   const handleMouseDown = useCallback(
@@ -241,9 +267,10 @@ export const VisualizerSliders: React.FC<VisualizerSlidersProps> = ({
         value={zoom}
         min={1}
         max={1000}
-        step={1}
+        step={0.1}
         onChange={onZoomChange}
-        formatValue={(v) => `${v}x`}
+        formatValue={(v) => `${v.toFixed(1)}x`}
+        logarithmic
       />
       <VerticalSlider
         label="Max"

@@ -205,17 +205,27 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
       desiredStart = (visibleMin - minFreq) / totalRange;
     }
 
-    const clamped = Math.max(0, Math.min(1 - windowWidth, desiredStart));
+    let clamped = desiredStart;
+    if (windowWidth <= 1) {
+      clamped = Math.max(0, Math.min(1 - windowWidth, desiredStart));
+    } else {
+      const overscan = windowWidth - 1;
+      clamped = Math.max(-overscan, Math.min(0, desiredStart));
+    }
     setWindowStart(clamped);
   }, [externalFrequencyRange, visibleMin, minFreq, totalRange, windowWidth, isDragging]);
 
-  const maxWindowStart = Math.max(0, 1 - windowWidth);
-  const visualRatio = maxWindowStart > 0 ? Math.max(0, Math.min(1, windowStart / maxWindowStart)) : 0;
+  const maxWindowStart = 1 - windowWidth;
+  let visualRatio = 0;
+  if (maxWindowStart > 0) {
+    visualRatio = Math.max(0, Math.min(1, windowStart / maxWindowStart));
+  }
 
-  // Use the actual thumb width tracked by ResizeObserver, not just the percentage, to ensure
-  // that we do not overflow the right edge of the track when min-content kicks in.
   const draggableTrackWidth = Math.max(0, trackWidth - thumbWidth);
-  const thumbLeftPx = visualRatio * draggableTrackWidth;
+  let thumbLeftPx = visualRatio * draggableTrackWidth;
+  if (maxWindowStart <= 0) {
+    thumbLeftPx = windowStart * trackWidth;
+  }
 
   const currentMin = Math.max(minFreq, minFreq + windowStart * totalRange);
   const currentMax = Math.min(maxFreq, minFreq + (windowStart + windowWidth) * totalRange);
@@ -319,19 +329,21 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
     const handleMouseMove = (e: MouseEvent) => {
       if (!isDraggingRef.current || !trackRef.current) return;
 
-      // Calculate how far the mouse has moved
       const deltaX = e.clientX - dragStartXRef.current;
-
-      // Get the number of draggable pixels, ensuring we don't divide by zero
       const draggablePixels = Math.max(1, trackWidth - thumbWidth);
 
-      // How much the windowStart should change based on mouse movement
-      // windowStart scales from 0 to maxWindowStart, while pixels scale from 0 to draggablePixels
-      const ratioDelta = deltaX / draggablePixels;
-      const windowStartDelta = ratioDelta * maxWindowStart;
-
-      let newStart = dragStartWindowRef.current + windowStartDelta;
-      newStart = Math.max(0, Math.min(maxWindowStart, newStart));
+      let newStart;
+      if (windowWidth <= 1) {
+        const ratioDelta = deltaX / draggablePixels;
+        const windowStartDelta = ratioDelta * maxWindowStart;
+        newStart = dragStartWindowRef.current + windowStartDelta;
+        newStart = Math.max(0, Math.min(maxWindowStart, newStart));
+      } else {
+        const ratioDelta = deltaX / trackWidth;
+        newStart = dragStartWindowRef.current + ratioDelta;
+        const overscan = windowWidth - 1;
+        newStart = Math.max(-overscan, Math.min(0, newStart));
+      }
 
       internalChangeIdRef.current += 1;
       setWindowStart(newStart);
