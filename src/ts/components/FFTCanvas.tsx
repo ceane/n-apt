@@ -185,12 +185,31 @@ interface FFTCanvasProps {
  * FFT canvas component with FFT spectrum and waterfall displays
  * Uses SDR++ style rendering for professional spectrum analysis
  */
+export type SnapshotData = {
+  waveform: Float32Array | null;
+  frequencyRange: FrequencyRange;
+  dbMin: number;
+  dbMax: number;
+  centerFrequencyMHz: number;
+  isDeviceConnected: boolean;
+  vizZoom: number;
+  vizPanOffset: number;
+  waterfallTextureSnapshot: Uint8Array | null;
+  waterfallTextureMeta: { width: number; height: number; writeRow: number } | null;
+  waterfallBuffer: Uint8ClampedArray | null;
+  waterfallDims: { width: number; height: number } | null;
+  webgpuEnabled: boolean;
+};
+
+export type FFTCanvasHandle = {
+  getSpectrumCanvas: () => HTMLCanvasElement | null;
+  getWaterfallCanvas: () => HTMLCanvasElement | null;
+  triggerSnapshotRender: () => void;
+  getSnapshotData: () => SnapshotData | null;
+};
+
 const FFTCanvas = forwardRef<
-  {
-    getSpectrumCanvas: () => HTMLCanvasElement | null;
-    getWaterfallCanvas: () => HTMLCanvasElement | null;
-    triggerSnapshotRender: () => void;
-  },
+  FFTCanvasHandle,
   FFTCanvasProps
 >((props, ref): React.ReactElement | null => {
   const {
@@ -1325,6 +1344,33 @@ const FFTCanvas = forwardRef<
     getSpectrumCanvas: () => spectrumCanvasRef.current,
     getWaterfallCanvas: () => waterfallCanvasRef.current,
     triggerSnapshotRender,
+    getSnapshotData: () => {
+      const waveform = renderWaveformRef.current;
+      if (!waveform || waveform.length === 0) return null;
+      return {
+        waveform: new Float32Array(waveform),
+        frequencyRange: { ...frequencyRangeRef.current },
+        dbMin: vizDbMinRef.current,
+        dbMax: vizDbMaxRef.current,
+        centerFrequencyMHz: centerFreqRef.current,
+        isDeviceConnected,
+        vizZoom: vizZoomRef.current,
+        vizPanOffset: vizPanOffsetRef.current,
+        waterfallTextureSnapshot: waterfallTextureSnapshotRef.current
+          ? new Uint8Array(waterfallTextureSnapshotRef.current)
+          : null,
+        waterfallTextureMeta: waterfallTextureMetaRef.current
+          ? { ...waterfallTextureMetaRef.current }
+          : null,
+        waterfallBuffer: waterfallBufferRef.current
+          ? new Uint8ClampedArray(waterfallBufferRef.current)
+          : null,
+        waterfallDims: waterfallDimsRef.current
+          ? { ...waterfallDimsRef.current }
+          : null,
+        webgpuEnabled,
+      };
+    },
   }));
 
   return (

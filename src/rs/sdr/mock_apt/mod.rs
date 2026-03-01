@@ -170,9 +170,60 @@ impl SdrDevice for MockAptDevice {
         let total_adc_noise_db = 10.0 * total_adc_noise_power.log10();
         let noise_level = 10f64.powf(total_adc_noise_db / 20.0);
         
-        for i in 0..fft_size {
-            let t = t0 + (i as f64 / sample_rate);
+        // Optimization: Pre-calculate per-signal parameters out of the inner loop
+        struct CachedSignal {
+            phase_step: f64,
+            phase_step_side_low: f64,
+            phase_step_side_high: f64,
+            amp: f64,
+            amp_side: f64,
+            has_sidebands: bool,
+            phase: f64,
+            phase_side_low: f64,
+            phase_side_high: f64,
+        }
+        
+        let mut cached_signals = Vec::with_capacity(self.signals.len());
+        for signal in &self.signals {
+            if !signal.active {
+                continue;
+            }
+            let abs_freq_hz = (signal.config.center_frequency_mhz * 1_000_000.0) + (signal.drift_offset as f64);
+            let rel_freq = abs_freq_hz - center_freq;
+            if rel_freq.abs() > (sample_rate / 2.0) {
+                continue;
+            }
             
+            let modulation = (signal.modulation_phase as f64).sin() * 0.1 + 0.9;
+            let rf_signal_db = signal.config.strength_db as f64 * modulation;
+            let adc_signal_db = rf_signal_db + analog_gain;
+            let amp = 10f64.powf(adc_signal_db / 20.0);
+            
+            let phase_step = 2.0 * PI64 * rel_freq / sample_rate;
+            let phase = 2.0 * PI64 * rel_freq * t0;
+            
+            let mut has_sidebands = false;
+            let (mut phase_step_side_low, mut phase_step_side_high) = (0.0, 0.0);
+            let (mut phase_side_low, mut phase_side_high) = (0.0, 0.0);
+            let amp_side = amp * 0.707;
+            
+            if signal.bandwidth_hz > 500.0 {
+                has_sidebands = true;
+                let offset = signal.bandwidth_hz * 0.3;
+                phase_step_side_low = 2.0 * PI64 * (rel_freq - offset) / sample_rate;
+                phase_step_side_high = 2.0 * PI64 * (rel_freq + offset) / sample_rate;
+                phase_side_low = 2.0 * PI64 * (rel_freq - offset) * t0;
+                phase_side_high = 2.0 * PI64 * (rel_freq + offset) * t0;
+            }
+            
+            cached_signals.push(CachedSignal {
+                phase_step, phase_step_side_low, phase_step_side_high,
+                amp, amp_side, has_sidebands,
+                phase, phase_side_low, phase_side_high,
+            });
+        }
+        
+        for _ in 0..fft_size {
             let mut i_sample = 0.0f64;
             let mut q_sample = 0.0f64;
             
@@ -181,36 +232,19 @@ impl SdrDevice for MockAptDevice {
                 q_sample += (self.rng.gen::<f64>() - 0.5) * 2.0 * noise_level;
             }
             
-            for signal in &self.signals {
-                if !signal.active {
-                    continue;
-                }
+            for sig in &mut cached_signals {
+                i_sample += sig.amp * sig.phase.sin();
+                q_sample += sig.amp * sig.phase.cos();
+                sig.phase += sig.phase_step;
                 
-                let abs_freq_hz = (signal.config.center_frequency_mhz * 1_000_000.0) + (signal.drift_offset as f64);
-                let rel_freq = abs_freq_hz - center_freq;
-                
-                if rel_freq.abs() > (sample_rate / 2.0) {
-                    continue;
-                }
-                
-                let modulation = (signal.modulation_phase as f64).sin() * 0.1 + 0.9;
-                
-                // 3. True RF signal strength + Analog front-end amplification
-                let rf_signal_db = signal.config.strength_db as f64 * modulation;
-                let adc_signal_db = rf_signal_db + analog_gain;
-                let amp = 10f64.powf(adc_signal_db / 20.0);
-                
-                let phase = 2.0 * PI64 * rel_freq * t;
-                i_sample += amp * phase.sin();
-                q_sample += amp * phase.cos();
-                
-                let bw_hz = signal.bandwidth_hz;
-                if bw_hz > 500.0 {
-                    for offset_hz in [-(bw_hz * 0.3), bw_hz * 0.3] {
-                        let phase_side = 2.0 * PI64 * (rel_freq + offset_hz) * t;
-                        i_sample += (amp * 0.707) * phase_side.sin();
-                        q_sample += (amp * 0.707) * phase_side.cos();
-                    }
+                if sig.has_sidebands {
+                    i_sample += sig.amp_side * sig.phase_side_low.sin();
+                    q_sample += sig.amp_side * sig.phase_side_low.cos();
+                    sig.phase_side_low += sig.phase_step_side_low;
+                    
+                    i_sample += sig.amp_side * sig.phase_side_high.sin();
+                    q_sample += sig.amp_side * sig.phase_side_high.cos();
+                    sig.phase_side_high += sig.phase_step_side_high;
                 }
             }
             

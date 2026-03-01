@@ -53,6 +53,7 @@ pub struct AppState {
     pub session_store: SessionStore,
     pub webauthn: Webauthn,
     pub broadcast_tx: broadcast::Sender<String>,
+    pub spectrum_tx: broadcast::Sender<Arc<types::SpectrumData>>,
     pub cmd_tx: std::sync::mpsc::Sender<types::SdrCommand>,
 }
 
@@ -134,6 +135,7 @@ impl websocket_server::WebSocketServer {
     pub async fn run_server(self, websocket_server: websocket_server::WebSocketServer) -> Result<()> {
         let shared = websocket_server.get_shared_state();
         let broadcast_tx = websocket_server.get_broadcast_tx();
+        let spectrum_tx = websocket_server.get_spectrum_tx();
         let credential_store = CredentialStore::new().map_err(|e| anyhow::anyhow!("Failed to create credential store: {}", e))?;
         let session_store = SessionStore::new();
 
@@ -161,6 +163,7 @@ impl websocket_server::WebSocketServer {
             session_store,
             webauthn: webauthn_result,
             broadcast_tx,
+            spectrum_tx,
             cmd_tx,
         });
 

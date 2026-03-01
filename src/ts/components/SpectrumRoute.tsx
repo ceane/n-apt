@@ -3,6 +3,7 @@ import styled from "styled-components";
 import SidebarNew from "@n-apt/components/sidebar/SidebarNew";
 import AuthenticationPrompt from "@n-apt/components/AuthenticationPrompt";
 import { FFTCanvas } from "@n-apt/components";
+import type { FFTCanvasHandle } from "@n-apt/components";
 import ClassificationControls from "@n-apt/components/ClassificationControls";
 import Decode from "@n-apt/components/Decode";
 import DrawMockNAPTChart from "@n-apt/components/DrawMockNAPTChart";
@@ -263,11 +264,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   onAuthChange,
   sidebarWrapper,
 }) => {
-  const fftCanvasRef = useRef<{
-    getSpectrumCanvas: () => HTMLCanvasElement | null;
-    getWaterfallCanvas: () => HTMLCanvasElement | null;
-    triggerSnapshotRender: () => void;
-  } | null>(null);
+  const fftCanvasRef = useRef<FFTCanvasHandle | null>(null);
   const [state, dispatch] = useReducer(spectrumReducer, INITIAL_SPECTRUM_STATE);
   const [manualVisualizerPaused, setManualVisualizerPaused] = useState(() => {
     if (typeof window === "undefined") return false;
@@ -540,12 +537,14 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     }) => {
       takeSnapshot({
         ...options,
-        getSpectrumCanvas: () => fftCanvasRef.current?.getSpectrumCanvas() ?? null,
-        getWaterfallCanvas: () => fftCanvasRef.current?.getWaterfallCanvas() ?? null,
-        getSnapshotGridPreference: () => options.grid ?? state.snapshotGridPreference,
+        showGrid: options.grid ?? state.snapshotGridPreference,
+        getSnapshotData: () => fftCanvasRef.current?.getSnapshotData() ?? null,
+        signalAreaBounds,
+        activeSignalArea: state.activeSignalArea,
+        sourceName: backend || deviceInfo || undefined,
       });
     },
-    [takeSnapshot, state.snapshotGridPreference],
+    [takeSnapshot, state.snapshotGridPreference, signalAreaBounds, state.activeSignalArea, backend, deviceInfo],
   );
 
   const prevIsVisualizerRef = useRef(isVisualizer);

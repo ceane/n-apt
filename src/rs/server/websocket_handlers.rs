@@ -38,10 +38,11 @@ pub async fn ws_upgrade_handler(
 
   let shared = state.shared.clone();
   let broadcast_tx = state.broadcast_tx.clone();
+  let spectrum_tx = state.spectrum_tx.clone();
   let cmd_tx = state.cmd_tx.clone();
   let enc_key = session.encryption_key;
 
-  ws.on_upgrade(move |socket| handle_ws_connection(socket, shared, broadcast_tx, cmd_tx, enc_key))
+  ws.on_upgrade(move |socket| handle_ws_connection(socket, shared, broadcast_tx, spectrum_tx, cmd_tx, enc_key))
 }
 
 /// Handle an authenticated WebSocket connection (streaming only, no auth).
@@ -49,11 +50,13 @@ pub async fn handle_ws_connection(
   socket: WebSocket,
   shared: Arc<SharedState>,
   broadcast_tx: broadcast::Sender<String>,
+  spectrum_tx: broadcast::Sender<Arc<super::types::SpectrumData>>,
   cmd_tx: std::sync::mpsc::Sender<super::types::SdrCommand>,
   enc_key: [u8; 32],
 ) {
   let (mut ws_sender, mut ws_receiver) = socket.split();
   let mut broadcast_rx = broadcast_tx.subscribe();
+  let mut spectrum_rx = spectrum_tx.subscribe();
 
   shared.client_count.fetch_add(1, Ordering::Relaxed);
   shared.authenticated_count.fetch_add(1, Ordering::Relaxed);
@@ -133,42 +136,46 @@ pub async fn handle_ws_connection(
               }
               continue;
             }
+          }
+          Err(broadcast::error::RecvError::Lagged(n)) => {
+            debug!("Client lagged by {} frames, skipping", n);
+            continue;
+          }
+          Err(_) => break,
+        }
+      }
+      spectrum_result = spectrum_rx.recv() => {
+        match spectrum_result {
+          Ok(spectrum_data) => {
+            let frame = &spectrum_data.waveform;
+            let timestamp: u64 = spectrum_data.timestamp as u64; // i64 to u64
+            let center_frequency: u64 = spectrum_data.center_frequency_hz.unwrap_or(0) as u64;
             
-            // Only process spectrum messages for the binary fast-path
-            if plaintext_json.contains("\"type\":\"spectrum\"") {
-              // Parse the JSON once to extract the float array and metadata
-              if let Ok(spectrum_data) = serde_json::from_str::<super::types::SpectrumData>(&plaintext_json) {
-                let frame = spectrum_data.waveform;
-                let timestamp: u64 = spectrum_data.timestamp as u64; // i64 to u64
-                let center_frequency: u64 = spectrum_data.center_frequency_hz.unwrap_or(0) as u64;
+            // 1. Convert f32 array to bytes
+            let frame_bytes: &[u8] = bytemuck::cast_slice(frame);
+            
+            // 2. Encrypt the raw frame bytes
+            match crypto::encrypt_payload_binary(&enc_key, frame_bytes) {
+              Ok(encrypted_frame) => {
+                // 3. Construct the binary payload: [timestamp: 8 bytes][center_frequency: 8 bytes][encrypted_frame: N bytes]
+                let mut binary_payload = Vec::with_capacity(8 + 8 + encrypted_frame.len());
+                binary_payload.extend_from_slice(&timestamp.to_le_bytes());
+                binary_payload.extend_from_slice(&center_frequency.to_le_bytes());
+                binary_payload.extend_from_slice(&encrypted_frame);
                 
-                // 1. Convert f32 array to bytes
-                let frame_bytes: &[u8] = bytemuck::cast_slice(&frame);
-                
-                // 2. Encrypt the raw frame bytes
-                match crypto::encrypt_payload_binary(&enc_key, frame_bytes) {
-                  Ok(encrypted_frame) => {
-                    // 3. Construct the binary payload: [timestamp: 8 bytes][center_frequency: 8 bytes][encrypted_frame: N bytes]
-                    let mut binary_payload = Vec::with_capacity(8 + 8 + encrypted_frame.len());
-                    binary_payload.extend_from_slice(&timestamp.to_le_bytes());
-                    binary_payload.extend_from_slice(&center_frequency.to_le_bytes());
-                    binary_payload.extend_from_slice(&encrypted_frame);
-                    
-                    // 4. Send the binary message
-                    if ws_sender.send(Message::Binary(binary_payload)).await.is_err() {
-                      break;
-                    }
-                  }
-                  
-                  Err(e) => {
-                    error!("Binary encryption failed: {}", e);
-                  }
+                // 4. Send the binary message
+                if ws_sender.send(Message::Binary(binary_payload)).await.is_err() {
+                  break;
                 }
+              }
+              
+              Err(e) => {
+                error!("Binary encryption failed: {}", e);
               }
             }
           }
           Err(broadcast::error::RecvError::Lagged(n)) => {
-            debug!("Client lagged by {} frames, skipping", n);
+            debug!("Client lagged by {} spectrum frames, skipping", n);
             continue;
           }
           Err(_) => break,

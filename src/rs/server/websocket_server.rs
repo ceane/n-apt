@@ -17,6 +17,7 @@ pub struct WebSocketServer {
     sdr_processor: Arc<Mutex<SdrProcessor>>,
     shared_state: Arc<SharedState>,
     broadcast_tx: broadcast::Sender<String>,
+    spectrum_tx: broadcast::Sender<Arc<SpectrumData>>,
 }
 
 impl WebSocketServer {
@@ -41,20 +42,23 @@ impl WebSocketServer {
         
         // Create broadcast channel for WebSocket clients
         let (broadcast_tx, _) = broadcast::channel(1000);
+        let (spectrum_tx, _) = broadcast::channel(1000);
         
         Self {
             sdr_processor: Arc::new(Mutex::new(sdr_processor)),
             shared_state: SharedState::new(),
             broadcast_tx,
+            spectrum_tx,
         }
     }
     
-    pub async fn run(&self, mut cmd_rx: std::sync::mpsc::Receiver<crate::server::types::SdrCommand>) -> Result<()> {
+    pub async fn run(&self, cmd_rx: std::sync::mpsc::Receiver<crate::server::types::SdrCommand>) -> Result<()> {
         info!("Starting SDR data streaming thread");
         
         let sdr_processor = self.sdr_processor.clone();
         let _shared_state = self.shared_state.clone();
-        let broadcast_tx = self.broadcast_tx.clone();
+        let _broadcast_tx = self.broadcast_tx.clone();
+        let spectrum_tx = self.spectrum_tx.clone();
         
         // Spawn SDR processing thread
         tokio::spawn(async move {
@@ -62,7 +66,9 @@ impl WebSocketServer {
             let mut last_stats = Instant::now();
             loop {
                 let start_time = Instant::now();
-                let target_fps = 30; // 30 FPS for smooth streaming
+                let target_fps = {
+                    sdr_processor.lock().await.display_frame_rate
+                };
                 // 1. Process pending commands
                 while let Ok(cmd) = cmd_rx.try_recv() {
                     let mut processor = sdr_processor.lock().await;
@@ -111,54 +117,63 @@ impl WebSocketServer {
                 }
 
                 // 2. Read and process one frame from SDR
-                {
-                    let mut processor = sdr_processor.lock().await;
-                    match processor.read_and_process_frame() {
-                        Ok(waveform) => {
-                            let timestamp = chrono::Utc::now().timestamp_millis();
-                            let center_frequency = processor.get_center_frequency();
-                            let is_mock_apt = processor.device_type() == "mock_apt";
-                            drop(processor);
+                let process_result = {
+                    let cloned_processor = sdr_processor.clone();
+                    tokio::task::spawn_blocking(move || -> Result<(Vec<f32>, i64, u32, bool, String)> {
+                        let mut processor = cloned_processor.blocking_lock();
+                        let waveform = processor.read_and_process_frame()?;
+                        let timestamp = chrono::Utc::now().timestamp_millis();
+                        let center_frequency = processor.get_center_frequency();
+                        let is_mock_apt = processor.device_type() == "mock_apt";
+                        let device_type = processor.device_type().to_string();
+                        Ok((waveform, timestamp, center_frequency, is_mock_apt, device_type))
+                    }).await
+                };
 
-                            let spectrum_message = SpectrumData {
-                                message_type: "spectrum".to_string(),
-                                waveform,
-                                is_mock_apt,
-                                center_frequency_hz: Some(center_frequency),
-                                timestamp,
-                            };
+                match process_result {
+                    Ok(Ok((waveform, timestamp, center_frequency, is_mock_apt, device_type_str))) => {
+                        let spectrum_message = SpectrumData {
+                            message_type: "spectrum".to_string(),
+                            waveform,
+                            is_mock_apt,
+                            center_frequency_hz: Some(center_frequency),
+                            timestamp,
+                        };
 
-                            // Broadcast to all connected WebSocket clients
-                            if let Ok(json_message) = serde_json::to_string(&spectrum_message) {
-                                if let Err(_e) = broadcast_tx.send(json_message) {
-                                    // No receivers, which is normal when no clients are connected
-                                }
-                            }
-
-                            frame_count += 1;
-
-                            // Log stats every 10 seconds
-                            if last_stats.elapsed() >= Duration::from_secs(10) {
-                                let device_type = sdr_processor.lock().await.device_type();
-                                info!("SDR streaming: {} frames sent, device: {}", frame_count, device_type);
-                                last_stats = Instant::now();
-                            }
+                        // Broadcast to all connected WebSocket clients
+                        if let Err(_e) = spectrum_tx.send(Arc::new(spectrum_message)) {
+                            // No receivers, which is normal when no clients are connected
                         }
-                        Err(e) => {
-                            drop(processor);
-                            error!("SDR processing error: {}", e);
-                            // Try to reinitialize the processor
-                            if let Err(reinit_err) = sdr_processor.lock().await.initialize() {
+
+                        frame_count += 1;
+
+                        // Log stats every 10 seconds
+                        if last_stats.elapsed() >= Duration::from_secs(10) {
+                            info!("SDR streaming: {} frames sent, device: {}", frame_count, device_type_str);
+                            last_stats = Instant::now();
+                        }
+                    }
+                    Ok(Err(e)) => {
+                        error!("SDR processing error: {}", e);
+                        // Try to reinitialize the processor
+                        let cloned_processor = sdr_processor.clone();
+                        let _ = tokio::task::spawn_blocking(move || -> Result<()> {
+                            let mut processor = cloned_processor.blocking_lock();
+                            if let Err(reinit_err) = processor.initialize() {
                                 error!("Failed to reinitialize SDR processor: {}", reinit_err);
-                                tokio::time::sleep(Duration::from_secs(1)).await;
                             }
-                        }
+                            Ok(())
+                        }).await;
+                        tokio::time::sleep(Duration::from_secs(1)).await;
+                    }
+                    Err(join_e) => {
+                        error!("SDR block join error: {}", join_e);
                     }
                 }
                 
                 // Maintain target frame rate
                 let elapsed = start_time.elapsed();
-                let target_duration = Duration::from_millis(1000 / target_fps);
+                let target_duration = Duration::from_millis(1000 / (target_fps as u64));
                 if elapsed < target_duration {
                     tokio::time::sleep(target_duration - elapsed).await;
                 }
@@ -179,5 +194,9 @@ impl WebSocketServer {
     
     pub fn get_broadcast_tx(&self) -> broadcast::Sender<String> {
         self.broadcast_tx.clone()
+    }
+    
+    pub fn get_spectrum_tx(&self) -> broadcast::Sender<Arc<SpectrumData>> {
+        self.spectrum_tx.clone()
     }
 }
