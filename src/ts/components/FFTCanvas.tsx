@@ -9,6 +9,7 @@ import { useDrawWebGPUFIFOWaterfall } from "@n-apt/hooks/useDrawWebGPUFIFOWaterf
 import { useOverlayRenderer } from "@n-apt/hooks/useOverlayRenderer";
 import { useFrequencyDrag } from "@n-apt/hooks/useFrequencyDrag";
 import { useWebGPUInit } from "@n-apt/hooks/useWebGPUInit";
+import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 import type { FrequencyRange } from "@n-apt/consts/types";
 import { VisualizerSliders } from "@n-apt/components/VisualizerSliders";
 // spectrumToAmplitude removed — dB normalisation now handled in the waterfall WGSL shader
@@ -23,6 +24,7 @@ import {
   FFT_MIN_DB,
   FFT_MAX_DB,
 } from "@n-apt/consts";
+import { saveWaterfallSnapshot, loadWaterfallSnapshot, clearWaterfallSnapshot } from "@n-apt/utils/waterfallDb";
 
 // Use dynamic import for WASM module loading
 (async () => {
@@ -135,16 +137,10 @@ const CanvasLayer = styled.canvas`
   will-change: width, height;
 `;
 
-const ToggleableCanvasLayer = styled(CanvasLayer).attrs<{ $visible: boolean }>(props => ({
-  style: {
-    display: props.$visible ? "block" : "none",
-  },
-}))`
-  z-index: 0;
-`;
 
-const WATERFALL_TEXTURE_SNAPSHOT_KEY = "napt-waterfall-texture-snapshot";
-const WATERFALL_TEXTURE_META_KEY = "napt-waterfall-texture-meta";
+
+// const WATERFALL_TEXTURE_SNAPSHOT_KEY = "napt-waterfall-texture-snapshot";
+// const WATERFALL_TEXTURE_META_KEY = "napt-waterfall-texture-meta";
 
 /**
  * Props for FFTCanvas component
@@ -171,12 +167,17 @@ interface FFTCanvasProps {
   displayTemporalResolution?: "low" | "medium" | "high";
   /** Force 2D canvas rendering (skip WebGPU). Used by file-selection mode. */
   force2D?: boolean;
+  /** Callback to trigger a snapshot render for the sidebar */
+  onSnapshot?: (data: { waveform: Float32Array; frequencyRange: FrequencyRange; dbMin: number; dbMax: number; centerFrequencyMHz: number; isDeviceConnected: boolean; vizZoom: number; vizPanOffset: number; grid: boolean; }) => void;
   /** Grid preference for snapshot rendering (affects 2D shadow canvases) */
   snapshotGridPreference: boolean;
   vizZoom?: number;
   vizPanOffset?: number;
   onVizZoomChange?: (zoom: number) => void;
   onVizPanChange?: (pan: number) => void;
+  fftMin?: number;
+  fftMax?: number;
+  onFftDbLimitsChange?: (min: number, max: number) => void;
   /** Function to request auto FFT options from server */
   sendGetAutoFftOptions?: (screenWidth: number) => void;
 }
@@ -223,17 +224,34 @@ const FFTCanvas = forwardRef<
     onFrequencyRangeChange,
     displayTemporalResolution = "medium",
     force2D = false,
+    onSnapshot: _onSnapshot,
     snapshotGridPreference,
-    vizZoom: externalVizZoom,
-    vizPanOffset: externalVizPanOffset,
+    vizZoom = 1,
+    vizPanOffset = 0,
     onVizZoomChange,
     onVizPanChange,
+    fftMin,
+    fftMax,
+    onFftDbLimitsChange,
     sendGetAutoFftOptions,
   } = props;
-  const spectrumCanvasRef = useRef<HTMLCanvasElement>(null);
-  const spectrumGpuCanvasRef = useRef<HTMLCanvasElement>(null);
-  const waterfallCanvasRef = useRef<HTMLCanvasElement>(null);
-  const waterfallGpuCanvasRef = useRef<HTMLCanvasElement>(null);
+  const { state, dispatch } = useSpectrumStore();
+  const [spectrumCanvasNode, setSpectrumCanvasNode] = useState<HTMLCanvasElement | null>(null);
+  const [spectrumGpuCanvasNode, setSpectrumGpuCanvasNode] = useState<HTMLCanvasElement | null>(null);
+  const [waterfallCanvasNode, setWaterfallCanvasNode] = useState<HTMLCanvasElement | null>(null);
+  const [waterfallGpuCanvasNode, setWaterfallGpuCanvasNode] = useState<HTMLCanvasElement | null>(null);
+
+  // Maintain refs for internal hook usage that don't need to trigger re-renders
+  const spectrumCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const spectrumGpuCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const waterfallCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const waterfallGpuCanvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  // Sync state to refs
+  useEffect(() => { spectrumCanvasRef.current = spectrumCanvasNode; }, [spectrumCanvasNode]);
+  useEffect(() => { spectrumGpuCanvasRef.current = spectrumGpuCanvasNode; }, [spectrumGpuCanvasNode]);
+  useEffect(() => { waterfallCanvasRef.current = waterfallCanvasNode; }, [waterfallCanvasNode]);
+  useEffect(() => { waterfallGpuCanvasRef.current = waterfallGpuCanvasNode; }, [waterfallGpuCanvasNode]);
 
   // Simplified buffer management
   const waterfallBufferRef = useRef<Uint8ClampedArray | null>(null);
@@ -291,29 +309,36 @@ const FFTCanvas = forwardRef<
   const retuneDriftPxRef = useRef(0);
 
   // Visualizer slider state: zoom (frequency), dB ceiling/floor
-  const [internalVizZoom, setInternalVizZoom] = useState(1);
-  const [vizDbMax, setVizDbMax] = useState(FFT_MAX_DB); // 0
-  const [vizDbMin, setVizDbMin] = useState(FFT_MIN_DB); // -120
-  const [internalVizPanOffset, setInternalVizPanOffset] = useState(0); // Offset in Hz
+  const vizDbMax = fftMax ?? FFT_MAX_DB;
+  const vizDbMin = fftMin ?? FFT_MIN_DB;
+
+  const setVizDbLimits = useCallback((min: number, max: number) => {
+    if (onFftDbLimitsChange) {
+      onFftDbLimitsChange(min, max);
+    }
+  }, [onFftDbLimitsChange]);
 
   // FFT averaging, smoothing, and waterfall smoothing toggles
   const [fftAvgEnabled, setFftAvgEnabled] = useState(false);
   const [fftSmoothEnabled, setFftSmoothEnabled] = useState(false);
   const [wfSmoothEnabled, setWfSmoothEnabled] = useState(false);
+
+  // Clear waterfall effect
+  useEffect(() => {
+    if (state.isWaterfallCleared) {
+      clearWaterfallSnapshot();
+      dispatch({ type: "RESET_WATERFALL_CLEARED" });
+    }
+  }, [state.isWaterfallCleared, dispatch]);
   const fftAvgBufferRef = useRef<Float32Array | null>(null);
   const fftProcessedBufferRef = useRef<Float32Array | null>(null);
   const fftSmoothedBufferRef = useRef<Float32Array | null>(null);
   const waterfallCappedBufferRef = useRef<Float32Array | null>(null);
 
-  const vizZoom = externalVizZoom !== undefined ? externalVizZoom : internalVizZoom;
-  const vizPanOffset = externalVizPanOffset !== undefined ? externalVizPanOffset : internalVizPanOffset;
-
   const setVizZoom = useCallback(
     (val: number | ((prev: number) => number)) => {
       if (onVizZoomChange) {
         onVizZoomChange(typeof val === "function" ? val(vizZoom) : val);
-      } else {
-        setInternalVizZoom(val);
       }
     },
     [onVizZoomChange, vizZoom]
@@ -323,8 +348,6 @@ const FFTCanvas = forwardRef<
     (val: number | ((prev: number) => number)) => {
       if (onVizPanChange) {
         onVizPanChange(typeof val === "function" ? val(vizPanOffset) : val);
-      } else {
-        setInternalVizPanOffset(val);
       }
     },
     [onVizPanChange, vizPanOffset]
@@ -428,6 +451,7 @@ const FFTCanvas = forwardRef<
 
   const {
     webgpuEnabled,
+    isInitializingWebGPU,
     webgpuDeviceRef,
     webgpuFormatRef,
     gridOverlayRendererRef,
@@ -478,9 +502,10 @@ const FFTCanvas = forwardRef<
   useEffect(() => {
     if (sendGetAutoFftOptions) {
       const detectScreenWidth = () => {
-        const width =
+        const cssWidth =
           window.innerWidth || document.documentElement.clientWidth || document.body.clientWidth;
-        sendGetAutoFftOptions(width);
+        const dpr = window.devicePixelRatio || 1;
+        sendGetAutoFftOptions(Math.round(cssWidth * dpr));
       };
 
       // Initial detection
@@ -1097,6 +1122,10 @@ const FFTCanvas = forwardRef<
       gridOverlayRendererRef,
       markersOverlayRendererRef,
       isDeviceConnected,
+      spectrumCanvasNode,
+      spectrumGpuCanvasNode,
+      waterfallCanvasNode,
+      waterfallGpuCanvasNode,
     ],
   );
 
@@ -1124,59 +1153,44 @@ const FFTCanvas = forwardRef<
 
   restoreWaveformFromStorageRef.current = restoreWaveformFromStorage;
 
-  const saveWaterfallTextureSnapshot = useCallback(() => {
+  const saveWaterfallTextureSnapshot = useCallback(async () => {
     const snapshot = waterfallTextureSnapshotRef.current;
     const meta = waterfallTextureMetaRef.current;
     if (!snapshot || !meta) return;
     try {
-      const bytes = new Uint8Array(snapshot.buffer, snapshot.byteOffset, snapshot.byteLength);
-      let binary = "";
-      for (let i = 0; i < bytes.length; i++) {
-        binary += String.fromCharCode(bytes[i]);
-      }
-      sessionStorage.setItem(WATERFALL_TEXTURE_SNAPSHOT_KEY, btoa(binary));
-      sessionStorage.setItem(WATERFALL_TEXTURE_META_KEY, JSON.stringify(meta));
-    } catch {
-      /* ignore */
+      await saveWaterfallSnapshot(snapshot, meta);
+    } catch (e) {
+      console.error("Failed to save waterfall snapshot to IndexedDB:", e);
     }
   }, []);
 
-  const loadWaterfallTextureSnapshot = useCallback(() => {
+  const loadWaterfallTextureSnapshot = useCallback(async () => {
     if (pendingWaterfallRestoreRef.current || restoredWaterfallRef.current) return;
     if (waterfallTextureSnapshotRef.current && waterfallTextureMetaRef.current) return;
     try {
-      const base64 = sessionStorage.getItem(WATERFALL_TEXTURE_SNAPSHOT_KEY);
-      const metaJson = sessionStorage.getItem(WATERFALL_TEXTURE_META_KEY);
-      if (!base64 || !metaJson) return;
-      const meta = JSON.parse(metaJson) as { width: number; height: number; writeRow: number };
-      const binary = atob(base64);
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) {
-        bytes[i] = binary.charCodeAt(i);
-      }
+      const snapshot = await loadWaterfallSnapshot();
+      if (!snapshot) return;
+
       pendingWaterfallRestoreRef.current = {
-        data: bytes,
-        width: meta.width,
-        height: meta.height,
-        writeRow: meta.writeRow,
+        data: snapshot.data,
+        width: snapshot.meta.width,
+        height: snapshot.meta.height,
+        writeRow: snapshot.meta.writeRow,
       };
-    } catch {
-      /* ignore */
+    } catch (err) {
+      console.error("Failed to load waterfall snapshot from IndexedDB:", err);
     }
   }, []);
 
   useEffect(() => {
-    if (!isPaused) {
-      restoredWaterfallRef.current = false;
-      pendingWaterfallRestoreRef.current = null;
-      return;
-    }
-    loadWaterfallTextureSnapshot();
-    saveWaterfallTextureSnapshot();
-  }, [isPaused, loadWaterfallTextureSnapshot, saveWaterfallTextureSnapshot]);
+    // Restore waterfall history unconditionally on mount (no longer tied to isPaused).
+    // This allows returning to a tab with old context without tossing the buffer out
+    const timeoutId = setTimeout(() => {
+      loadWaterfallTextureSnapshot();
+    }, 100);
 
-  useEffect(() => {
     return () => {
+      clearTimeout(timeoutId);
       saveWaterfallTextureSnapshot();
     };
   }, [saveWaterfallTextureSnapshot]);
@@ -1205,7 +1219,7 @@ const FFTCanvas = forwardRef<
 
   // Handle canvas resizing
   useEffect(() => {
-    const resizeCanvas = () => {
+    const handleResize = () => {
       const dpr = window.devicePixelRatio || 1;
 
       const spectrumRect =
@@ -1229,7 +1243,7 @@ const FFTCanvas = forwardRef<
         canvas.getContext("2d")?.setTransform(dpr, 0, 0, dpr, 0, 0);
       }
 
-      if (spectrumRect && spectrumWebgpuEnabled && spectrumGpuCanvasRef.current) {
+      if (spectrumRect && spectrumRect.width > 0 && spectrumRect.height > 0 && spectrumWebgpuEnabled && spectrumGpuCanvasRef.current) {
         const canvas = spectrumGpuCanvasRef.current;
         canvas.width = Math.max(1, Math.round(spectrumRect.width * dpr));
         canvas.height = Math.max(1, Math.round(spectrumRect.height * dpr));
@@ -1256,7 +1270,7 @@ const FFTCanvas = forwardRef<
         canvas.getContext("2d")?.setTransform(1, 0, 0, 1, 0, 0);
       }
 
-      if (waterfallRect && waterfallGpuCanvasRef.current) {
+      if (waterfallRect && waterfallRect.width > 0 && waterfallRect.height > 0 && waterfallGpuCanvasRef.current) {
         const canvas = waterfallGpuCanvasRef.current;
         canvas.width = Math.max(1, Math.round(waterfallRect.width * dpr));
         canvas.height = Math.max(1, Math.round(waterfallRect.height * dpr));
@@ -1281,10 +1295,10 @@ const FFTCanvas = forwardRef<
       forceRender();
     };
 
-    resizeCanvas();
-    window.addEventListener("resize", resizeCanvas);
+    handleResize();
+    window.addEventListener("resize", handleResize);
 
-    const resizeObserver = new ResizeObserver(() => resizeCanvas());
+    const resizeObserver = new ResizeObserver(() => handleResize());
     const spectrumParent =
       spectrumCanvasRef.current?.parentElement ?? spectrumGpuCanvasRef.current?.parentElement;
     const waterfallParent =
@@ -1293,7 +1307,7 @@ const FFTCanvas = forwardRef<
     if (waterfallParent) resizeObserver.observe(waterfallParent);
 
     return () => {
-      window.removeEventListener("resize", resizeCanvas);
+      window.removeEventListener("resize", handleResize);
       resizeObserver.disconnect();
     };
   }, [forceRender, spectrumWebgpuEnabled, isPaused, ensurePausedFrame]);
@@ -1380,43 +1394,47 @@ const FFTCanvas = forwardRef<
           <SectionTitle>FFT Signal Display {isPaused && "(Paused)"}</SectionTitle>
           <SpectrumRow>
             <CanvasWrapper>
-              <ToggleableCanvasLayer
-                ref={spectrumGpuCanvasRef}
-                id="fft-spectrum-canvas-webgpu"
-                $visible={spectrumWebgpuEnabled}
-              />
-              <ToggleableCanvasLayer
-                ref={spectrumCanvasRef}
-                id="fft-spectrum-canvas-2d"
-                $visible={!spectrumWebgpuEnabled}
-              />
+              {!isInitializingWebGPU && spectrumWebgpuEnabled && (
+                <CanvasLayer
+                  ref={setSpectrumGpuCanvasNode}
+                  id="fft-spectrum-canvas-webgpu"
+                />
+              )}
+              {!isInitializingWebGPU && !spectrumWebgpuEnabled && (
+                <CanvasLayer
+                  ref={setSpectrumCanvasNode}
+                  id="fft-spectrum-canvas-2d"
+                />
+              )}
             </CanvasWrapper>
           </SpectrumRow>
         </SpectrumSection>
         <WaterfallSection>
           <SectionTitle>Waterfall Display {isPaused && "(Paused)"}</SectionTitle>
           <CanvasWrapper>
-            <ToggleableCanvasLayer
-              ref={waterfallGpuCanvasRef}
-              id="fft-waterfall-canvas-webgpu"
-              $visible={webgpuEnabled}
-            />
-            <ToggleableCanvasLayer
-              ref={waterfallCanvasRef}
-              id="fft-waterfall-canvas-2d"
-              $visible={!webgpuEnabled}
-            />
+            {!isInitializingWebGPU && webgpuEnabled && (
+              <CanvasLayer
+                ref={setWaterfallGpuCanvasNode}
+                id="fft-waterfall-canvas-webgpu"
+              />
+            )}
+            {!isInitializingWebGPU && !webgpuEnabled && (
+              <CanvasLayer
+                ref={setWaterfallCanvasNode}
+                id="fft-waterfall-canvas-2d"
+              />
+            )}
           </CanvasWrapper>
         </WaterfallSection>
       </VisualizerContent>
       <SlidersRail>
         <VisualizerSliders
           zoom={vizZoom}
-          dbMax={vizDbMax}
-          dbMin={vizDbMin}
+          dbMax={state.fftMaxDb}
+          dbMin={state.fftMinDb}
           onZoomChange={handleZoomChange}
-          onDbMaxChange={setVizDbMax}
-          onDbMinChange={setVizDbMin}
+          onDbMaxChange={(max: number) => setVizDbLimits(state.fftMinDb, max)}
+          onDbMinChange={(min: number) => setVizDbLimits(min, state.fftMaxDb)}
           fftAvgEnabled={fftAvgEnabled}
           fftSmoothEnabled={fftSmoothEnabled}
           wfSmoothEnabled={wfSmoothEnabled}

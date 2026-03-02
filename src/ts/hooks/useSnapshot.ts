@@ -25,6 +25,7 @@ export type SnapshotOptions = {
   signalAreaBounds?: Record<string, { min: number; max: number }> | null;
   activeSignalArea?: string;
   sourceName?: string;
+  sdrSettingsLabel?: string;
 };
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -82,6 +83,24 @@ export function getZoomedSlice(
   };
 
   return { slicedWaveform, visualRange };
+}
+
+/** Max-pooling decimation to extract signal envelope when points > pixels */
+function decimateWaveform(waveform: number[], targetWidth: number): number[] {
+  const len = waveform.length;
+  if (len <= targetWidth * 2 || targetWidth <= 0) return waveform;
+  const out = new Array(targetWidth);
+  const factor = len / targetWidth;
+  for (let i = 0; i < targetWidth; i++) {
+    const start = Math.floor(i * factor);
+    const end = Math.min(len, Math.floor((i + 1) * factor));
+    let max = -Infinity;
+    for (let j = start; j < end; j++) {
+      if (waveform[j] > max) max = waveform[j];
+    }
+    out[i] = max === -Infinity ? -120 : max;
+  }
+  return out;
 }
 
 // ── Canvas spectrum renderer ────────────────────────────────────────────────
@@ -219,7 +238,8 @@ function drawSpectrumToCanvas(
 
   // ── Trace ─────────────────────────────────────────────────────────────────
 
-  const dataWidth = waveform.length;
+  const decimatedWaveform = decimateWaveform(waveform, Math.ceil(plotWidth));
+  const dataWidth = decimatedWaveform.length;
   const pixelsPerBin = plotWidth / Math.max(1, dataWidth);
   const isSteps = pixelsPerBin >= 3; // box/square mode when zoomed in
 
@@ -237,7 +257,7 @@ function drawSpectrumToCanvas(
     const binW = plotWidth / dataWidth;
     for (let i = 0; i < dataWidth; i++) {
       const x = FFT_AREA_MIN.x + i * binW;
-      const y = Math.round(clampY(waveform[i]));
+      const y = Math.round(clampY(decimatedWaveform[i]));
       const w = Math.ceil(binW);
       const h = fftAreaMax.y - y;
 
@@ -247,7 +267,7 @@ function drawSpectrumToCanvas(
 
       // Stroke top edge
       ctx.strokeStyle = LINE_COLOR;
-      ctx.lineWidth = 1;
+      ctx.lineWidth = 0.5;
       ctx.beginPath();
       ctx.moveTo(Math.round(x), y);
       ctx.lineTo(Math.round(x + binW), y);
@@ -255,7 +275,7 @@ function drawSpectrumToCanvas(
 
       // Stroke vertical edges connecting to neighbors
       if (i > 0) {
-        const prevY = Math.round(clampY(waveform[i - 1]));
+        const prevY = Math.round(clampY(decimatedWaveform[i - 1]));
         ctx.beginPath();
         ctx.moveTo(Math.round(x), prevY);
         ctx.lineTo(Math.round(x), y);
@@ -268,20 +288,20 @@ function drawSpectrumToCanvas(
     ctx.beginPath();
     ctx.moveTo(Math.round(idxToX(0)), fftAreaMax.y);
     for (let i = 0; i < dataWidth; i++) {
-      ctx.lineTo(Math.round(idxToX(i)), Math.round(clampY(waveform[i])));
+      ctx.lineTo(Math.round(idxToX(i)), Math.round(clampY(decimatedWaveform[i])));
     }
     ctx.lineTo(Math.round(idxToX(dataWidth - 1)), fftAreaMax.y);
     ctx.closePath();
     ctx.fill();
 
     ctx.strokeStyle = LINE_COLOR;
-    ctx.lineWidth = 1;
+    ctx.lineWidth = 0.5;
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
     ctx.beginPath();
     for (let i = 0; i < dataWidth; i++) {
       const x = Math.round(idxToX(i));
-      const y = Math.round(clampY(waveform[i]));
+      const y = Math.round(clampY(decimatedWaveform[i]));
       if (i === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     }
@@ -499,7 +519,8 @@ function generateSpectrumSVG(
   parts.push(`<text x="${fftAreaMax.x}" y="${FREQ_LABEL_Y_SVG}" text-anchor="end" fill="${FFT_TEXT_COLOR}" font-family="JetBrains Mono, monospace" font-size="12">${escapeXml(endLabel)}</text>`);
 
   // Trace — step-aware rendering
-  const dataWidth = waveform.length;
+  const decimatedWaveform = decimateWaveform(waveform, Math.ceil(plotWidth));
+  const dataWidth = decimatedWaveform.length;
   const pixelsPerBin = plotWidth / Math.max(1, dataWidth);
   const isSteps = pixelsPerBin >= 3;
 
@@ -518,7 +539,7 @@ function generateSpectrumSVG(
     // Shadow fill: one rect per bin
     for (let i = 0; i < dataWidth; i++) {
       const x = Math.round(FFT_AREA_MIN.x + i * binW);
-      const y = Math.round(clampY(waveform[i]));
+      const y = Math.round(clampY(decimatedWaveform[i]));
       const w = Math.ceil(binW);
       const h = fftAreaMax.y - y;
       parts.push(`<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${SHADOW_COLOR}"/>`);
@@ -528,21 +549,21 @@ function generateSpectrumSVG(
     for (let i = 0; i < dataWidth; i++) {
       const x = Math.round(FFT_AREA_MIN.x + i * binW);
       const xEnd = Math.round(FFT_AREA_MIN.x + (i + 1) * binW);
-      const y = Math.round(clampY(waveform[i]));
+      const y = Math.round(clampY(decimatedWaveform[i]));
       if (i === 0) {
         stepPath = `M${x},${y}`;
       } else {
-        const prevY = Math.round(clampY(waveform[i - 1]));
+        const prevY = Math.round(clampY(decimatedWaveform[i - 1]));
         stepPath += ` L${x},${prevY} L${x},${y}`;
       }
       stepPath += ` L${xEnd},${y}`;
     }
-    parts.push(`<path d="${stepPath}" fill="none" stroke="${LINE_COLOR}" stroke-width="1"/>`);
+    parts.push(`<path d="${stepPath}" fill="none" stroke="${LINE_COLOR}" stroke-width="0.5"/>`);
   } else {
     // Smooth line mode
     let fillPath = `M${Math.round(idxToX(0))},${fftAreaMax.y}`;
     for (let i = 0; i < dataWidth; i++) {
-      fillPath += ` L${Math.round(idxToX(i))},${Math.round(clampY(waveform[i]))}`;
+      fillPath += ` L${Math.round(idxToX(i))},${Math.round(clampY(decimatedWaveform[i]))}`;
     }
     fillPath += ` L${Math.round(idxToX(dataWidth - 1))},${fftAreaMax.y} Z`;
     parts.push(`<path d="${fillPath}" fill="${SHADOW_COLOR}" stroke="none"/>`);
@@ -550,10 +571,10 @@ function generateSpectrumSVG(
     let strokePath = "";
     for (let i = 0; i < dataWidth; i++) {
       const x = Math.round(idxToX(i));
-      const y = Math.round(clampY(waveform[i]));
+      const y = Math.round(clampY(decimatedWaveform[i]));
       strokePath += i === 0 ? `M${x},${y}` : ` L${x},${y}`;
     }
-    parts.push(`<path d="${strokePath}" fill="none" stroke="${LINE_COLOR}" stroke-width="1" stroke-linejoin="round" stroke-linecap="round"/>`);
+    parts.push(`<path d="${strokePath}" fill="none" stroke="${LINE_COLOR}" stroke-width="0.5" stroke-linejoin="round" stroke-linecap="round"/>`);
   }
   // Center frequency label (no line, ○)
   const centerLabel =
@@ -666,8 +687,23 @@ export function useSnapshot(
             `${options.whole ? "Whole" : "Onscreen"} | dB: ${data.dbMin} to ${data.dbMax}`,
             `Source: ${options.sourceName || "Unknown"}`,
           ];
+          if (options.sdrSettingsLabel) {
+            statsLines.push(options.sdrSettingsLabel);
+          }
+
+          // Smart placement
+          let placeLeft = false;
+          if (waveformToRender.length > 0) {
+            const marginBins = Math.max(1, Math.floor(waveformToRender.length * 0.15));
+            let leftMax = -Infinity;
+            for (let i = 0; i < marginBins; i++) leftMax = Math.max(leftMax, waveformToRender[i]);
+            let rightMax = -Infinity;
+            for (let i = waveformToRender.length - marginBins; i < waveformToRender.length; i++) rightMax = Math.max(rightMax, waveformToRender[i]);
+            if (leftMax < rightMax) placeLeft = true;
+          }
+
           const statsW = 310;
-          const statsX = LOGICAL_WIDTH - statsW - 8;
+          const statsX = placeLeft ? 8 : LOGICAL_WIDTH - statsW - 8;
           const statsY = 4;
           statsSection = `<rect x="${statsX}" y="${statsY}" width="${statsW}" height="${statsLines.length * 16 + 8}" rx="4" fill="rgba(0,0,0,0.7)"/>`;
           statsLines.forEach((line, i) => {
@@ -735,7 +771,7 @@ export function useSnapshot(
         ctx.drawImage(waterfallCanvas, 0, PIXEL_SPECTRUM_H);
       }
 
-      // Stats overlay (top-right)
+      // Stats overlay (smart placement)
       if (options.showStats) {
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         const logicalW = PIXEL_WIDTH / dpr;
@@ -746,12 +782,26 @@ export function useSnapshot(
           `${options.whole ? "Whole" : "Onscreen"} | dB: ${data.dbMin} to ${data.dbMax}`,
           `Source: ${options.sourceName || "Unknown"}`,
         ];
+        if (options.sdrSettingsLabel) {
+          statsLines.push(options.sdrSettingsLabel);
+        }
+
+        // Smart placement
+        let placeLeft = false;
+        if (waveformToRender.length > 0) {
+          const marginBins = Math.max(1, Math.floor(waveformToRender.length * 0.15));
+          let leftMax = -Infinity;
+          for (let i = 0; i < marginBins; i++) leftMax = Math.max(leftMax, waveformToRender[i]);
+          let rightMax = -Infinity;
+          for (let i = waveformToRender.length - marginBins; i < waveformToRender.length; i++) rightMax = Math.max(rightMax, waveformToRender[i]);
+          if (leftMax < rightMax) placeLeft = true;
+        }
 
         ctx.font = "12px monospace";
         const maxTextW = Math.max(...statsLines.map((l) => ctx.measureText(l).width));
         const boxW = maxTextW + 16;
         const boxH = statsLines.length * 16 + 8;
-        const boxX = logicalW - boxW - 8;
+        const boxX = placeLeft ? 8 : logicalW - boxW - 8;
         const boxY = 4;
 
         ctx.fillStyle = "rgba(0, 0, 0, 0.7)";

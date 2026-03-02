@@ -4,6 +4,7 @@
 use anyhow::Result;
 use log::{info, warn, error};
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
 use tokio::sync::Mutex;
@@ -56,7 +57,7 @@ impl WebSocketServer {
         info!("Starting SDR data streaming thread");
         
         let sdr_processor = self.sdr_processor.clone();
-        let _shared_state = self.shared_state.clone();
+        let shared_state = self.shared_state.clone();
         let _broadcast_tx = self.broadcast_tx.clone();
         let spectrum_tx = self.spectrum_tx.clone();
         
@@ -114,6 +115,12 @@ impl WebSocketServer {
                             warn!("Unhandled command: {:?}", cmd);
                         }
                     }
+                }
+
+                // If the stream is paused by the client, don't read from SDR or broadcast
+                if shared_state.is_paused.load(Ordering::Relaxed) {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    continue;
                 }
 
                 // 2. Read and process one frame from SDR

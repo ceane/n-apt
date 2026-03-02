@@ -58,7 +58,7 @@ const IntegrationNote = styled.div`
   color: #666;
 `;
 
-const Decode: React.FC = () => {
+export const DecodeRoute: React.FC = () => {
   return (
     <DecodeContainer>
       <DecodeContent>
@@ -90,4 +90,4 @@ const Decode: React.FC = () => {
   );
 };
 
-export default Decode;
+export default DecodeRoute;

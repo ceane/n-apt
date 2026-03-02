@@ -15,9 +15,13 @@ use super::shared_state::SharedState;
 use super::types::{WsQueryParams, WebSocketMessage};
 use super::utils::reconcile_device_state;
 
-/// Calculate optimal FFT sizes based on screen width
-fn calculate_auto_fft_sizes(_screen_width: u32) -> Vec<usize> {
-    vec![2048, 4096]
+/// Calculate optimal FFT sizes based on screen width (in physical pixels, i.e. CSS width × DPR).
+/// Returns (available_sizes, recommended_size).
+fn calculate_auto_fft_sizes(screen_width: u32) -> (Vec<usize>, usize) {
+    let sizes = vec![2048, 4096];
+    // Hi-DPI / Retina screens send width * dpr, typically >= 3000 physical pixels.
+    let recommended = if screen_width >= 3000 { 4096 } else { 2048 };
+    (sizes, recommended)
 }
 
 /// GET /ws?token=<session_token> — upgrade to WebSocket after validating session.
@@ -189,12 +193,11 @@ pub async fn handle_ws_connection(
               if message.message_type == "get_auto_fft_options" {
                 if let Some(screen_width) = message.screen_width {
                   info!("Client requested auto FFT options for screen width: {}", screen_width);
-                  let auto_sizes = calculate_auto_fft_sizes(screen_width);
-                  let recommended = auto_sizes.first().copied().unwrap_or(2048);
+                  let (auto_sizes, recommended) = calculate_auto_fft_sizes(screen_width);
                   
                   let response = super::types::AutoFftOptionsResponse {
                     message_type: "auto_fft_options".to_string(),
-                    auto_sizes: auto_sizes.clone(),
+                    auto_sizes: auto_sizes,
                     recommended,
                   };
                   
@@ -320,6 +323,28 @@ pub fn handle_message(
         tuner_agc: message.tuner_agc,
         rtl_agc: message.rtl_agc,
       });
+
+      // Update the shared settings so that future status broadcasts
+      // reflect the new settings requested by the client.
+      let mut sdr_settings = shared.sdr_settings.lock().unwrap();
+      if let Some(size) = fft_size {
+        sdr_settings.fft.default_size = size;
+      }
+      if let Some(fr) = frame_rate {
+        sdr_settings.fft.default_frame_rate = fr;
+      }
+      if let Some(g) = gain {
+        sdr_settings.gain.tuner_gain = g;
+      }
+      if let Some(p) = ppm {
+        sdr_settings.ppm = p as f64;
+      }
+      if let Some(tagc) = message.tuner_agc {
+        sdr_settings.gain.tuner_agc = tagc;
+      }
+      if let Some(ragc) = message.rtl_agc {
+        sdr_settings.gain.rtl_agc = ragc;
+      }
     }
     "restart_device" => {
       info!("Client requested device restart");

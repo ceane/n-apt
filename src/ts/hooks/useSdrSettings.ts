@@ -1,5 +1,6 @@
-import { useReducer, useCallback, useMemo, useRef, useEffect } from "react";
+import { useCallback, useMemo, useRef, useEffect } from "react";
 import type { SDRSettings, SdrSettingsConfig } from "@n-apt/hooks/useWebSocket";
+import { useSpectrumStore, type SpectrumState } from "@n-apt/hooks/useSpectrumStore";
 
 interface UseSdrSettingsProps {
   maxSampleRate: number;
@@ -33,48 +34,7 @@ interface UseSdrSettingsReturn {
   ) => void;
 }
 
-type SdrState = {
-  fftSize: number;
-  fftWindow: string;
-  fftFrameRate: number;
-  gain: number;
-  tunerAGC: boolean;
-  rtlAGC: boolean;
-  ppm: number;
-};
-
-type SdrAction =
-  | { type: "SET_FROM_CONFIG"; state: SdrState }
-  | { type: "SET_FFT_SIZE"; size: number }
-  | { type: "SET_FFT_WINDOW"; window: string }
-  | { type: "SET_FFT_FRAME_RATE"; rate: number }
-  | { type: "SET_GAIN"; gain: number }
-  | { type: "SET_TUNER_AGC"; enabled: boolean }
-  | { type: "SET_RTL_AGC"; enabled: boolean }
-  | { type: "SET_PPM"; ppm: number };
-
-function sdrReducer(state: SdrState, action: SdrAction): SdrState {
-  switch (action.type) {
-    case "SET_FROM_CONFIG":
-      return action.state;
-    case "SET_FFT_SIZE":
-      return { ...state, fftSize: action.size };
-    case "SET_FFT_WINDOW":
-      return { ...state, fftWindow: action.window };
-    case "SET_FFT_FRAME_RATE":
-      return { ...state, fftFrameRate: action.rate };
-    case "SET_GAIN":
-      return { ...state, gain: action.gain };
-    case "SET_TUNER_AGC":
-      return { ...state, tunerAGC: action.enabled };
-    case "SET_RTL_AGC":
-      return { ...state, rtlAGC: action.enabled };
-    case "SET_PPM":
-      return { ...state, ppm: action.ppm };
-  }
-}
-
-const computeMaxFrameRate = (
+export const computeMaxFrameRate = (
   maxSampleRate: number,
   fftSize: number,
   maxFrameRateLimit?: number,
@@ -85,10 +45,10 @@ const computeMaxFrameRate = (
   return Math.max(1, Math.floor(Math.min(theoretical, limit)));
 };
 
-const deriveStateFromConfig = (
+export const deriveStateFromConfig = (
   maxSampleRate: number,
   sdrSettings?: SdrSettingsConfig | null,
-): SdrState => {
+): Partial<SpectrumState> => {
   const fft = sdrSettings?.fft;
   const gainConfig = sdrSettings?.gain;
   const fftSize = typeof fft?.default_size === "number" ? fft.default_size : 0;
@@ -113,11 +73,7 @@ export const useSdrSettings = ({
   sdrSettings,
   onSettingsChange,
 }: UseSdrSettingsProps): UseSdrSettingsReturn => {
-  const [state, dispatch] = useReducer(
-    sdrReducer,
-    { maxSampleRate, sdrSettings },
-    ({ maxSampleRate, sdrSettings }) => deriveStateFromConfig(maxSampleRate, sdrSettings),
-  );
+  const { state, dispatch } = useSpectrumStore();
 
   const maxFrameRate = useMemo(() => {
     return computeMaxFrameRate(maxSampleRate, state.fftSize, sdrSettings?.fft?.max_frame_rate);
@@ -134,14 +90,6 @@ export const useSdrSettings = ({
     onSettingsChangeRef.current = onSettingsChange;
   }, [onSettingsChange]);
 
-  useEffect(() => {
-    if (!sdrSettings) return;
-    dispatch({
-      type: "SET_FROM_CONFIG",
-      state: deriveStateFromConfig(maxSampleRate, sdrSettings),
-    });
-  }, [maxSampleRate, sdrSettings]);
-
   const sendCurrentSettings = useCallback((overrides: Partial<SDRSettings> = {}) => {
     onSettingsChangeRef.current?.({
       fftSize: stateRef.current.fftSize,
@@ -157,52 +105,52 @@ export const useSdrSettings = ({
 
   const setFftSize = useCallback(
     (size: number) => {
-      dispatch({ type: "SET_FFT_SIZE", size });
+      dispatch({ type: "SET_SDR_SETTINGS_BUNDLE", settings: { fftSize: size } });
       sendCurrentSettings({ fftSize: size });
     },
-    [sendCurrentSettings],
+    [dispatch, sendCurrentSettings],
   );
   const setFftWindow = useCallback(
     (window: string) => {
-      dispatch({ type: "SET_FFT_WINDOW", window });
+      dispatch({ type: "SET_SDR_SETTINGS_BUNDLE", settings: { fftWindow: window } });
       sendCurrentSettings({ fftWindow: window });
     },
-    [sendCurrentSettings],
+    [dispatch, sendCurrentSettings],
   );
   const setFftFrameRate = useCallback(
     (rate: number) => {
-      dispatch({ type: "SET_FFT_FRAME_RATE", rate });
+      dispatch({ type: "SET_FFT_FRAME_RATE", fftFrameRate: rate });
       sendCurrentSettings({ frameRate: rate });
     },
-    [sendCurrentSettings],
+    [dispatch, sendCurrentSettings],
   );
   const setGain = useCallback(
     (gain: number) => {
-      dispatch({ type: "SET_GAIN", gain });
+      dispatch({ type: "SET_SDR_SETTINGS_BUNDLE", settings: { gain } });
       sendCurrentSettings({ gain });
     },
-    [sendCurrentSettings],
+    [dispatch, sendCurrentSettings],
   );
   const setTunerAGC = useCallback(
     (enabled: boolean) => {
-      dispatch({ type: "SET_TUNER_AGC", enabled });
+      dispatch({ type: "SET_SDR_SETTINGS_BUNDLE", settings: { tunerAGC: enabled } });
       sendCurrentSettings({ tunerAGC: enabled });
     },
-    [sendCurrentSettings],
+    [dispatch, sendCurrentSettings],
   );
   const setRtlAGC = useCallback(
     (enabled: boolean) => {
-      dispatch({ type: "SET_RTL_AGC", enabled });
+      dispatch({ type: "SET_SDR_SETTINGS_BUNDLE", settings: { rtlAGC: enabled } });
       sendCurrentSettings({ rtlAGC: enabled });
     },
-    [sendCurrentSettings],
+    [dispatch, sendCurrentSettings],
   );
   const setPpm = useCallback(
     (ppm: number) => {
-      dispatch({ type: "SET_PPM", ppm });
+      dispatch({ type: "SET_SDR_SETTINGS_BUNDLE", settings: { ppm } });
       sendCurrentSettings({ ppm });
     },
-    [sendCurrentSettings],
+    [dispatch, sendCurrentSettings],
   );
 
   const clampGain = useCallback(
@@ -305,15 +253,6 @@ export const useSdrSettings = ({
       setFftFrameRate(maxFrameRate);
     }
   }, [maxFrameRate, setFftFrameRate]);
-
-  const initialSettingsSent = useRef(false);
-  useEffect(() => {
-    if (!sdrSettings) return;
-    if (!initialSettingsSent.current && onSettingsChange) {
-      initialSettingsSent.current = true;
-      sendCurrentSettings();
-    }
-  }, [sendCurrentSettings, onSettingsChange, sdrSettings]);
 
   return {
     ...state,

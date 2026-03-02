@@ -85,7 +85,7 @@ export function useFFTAnimation({
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
       }
-      // Force an immediate render when unpausing to prevent flicker
+      // Force an immediate render when unpausing or when render logic changes to prevent flicker
       animate(!isPaused);
     } else {
       if (animationFrameRef.current) {
@@ -93,7 +93,7 @@ export function useFFTAnimation({
         animationFrameRef.current = null;
       }
     }
-  }, [isPaused, animate]);
+  }, [isPaused, animate, onRenderFrame]);
 
   useEffect(() => {
     return () => {

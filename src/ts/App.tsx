@@ -1,30 +1,21 @@
 import React from "react";
 import { BrowserRouter as Router } from "react-router-dom";
-import styled from "styled-components";
-import { NavigationSidebar } from "@n-apt/components/NavigationSidebarNew";
-
-// Styled Components
-const AppContainer = styled.div`
-  display: flex;
-  width: 100%;
-  height: 100vh;
-  background-color: #0a0a0a;
-`;
-
-// Inner App component that uses router hooks
-export const AppContent: React.FC = () => {
-  return (
-    <AppContainer>
-      <NavigationSidebar />
-    </AppContainer>
-  );
-};
+import { AppRoutes } from "@n-apt/routes/Routes";
+import { AuthProvider } from "@n-apt/hooks/useAuthentication";
+import { SpectrumProvider } from "@n-apt/hooks/useSpectrumStore";
+import { AuthWrapper } from "@n-apt/components/AuthWrapper";
 
 // Main App component with BrowserRouter wrapper
 const App: React.FC = () => {
   return (
     <Router>
-      <AppContent />
+      <AuthProvider>
+        <AuthWrapper>
+          <SpectrumProvider>
+            <AppRoutes />
+          </SpectrumProvider>
+        </AuthWrapper>
+      </AuthProvider>
     </Router>
   );
 };

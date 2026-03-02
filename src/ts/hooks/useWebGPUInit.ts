@@ -222,6 +222,7 @@ export function useWebGPUInit({
   const [isInitialized, setIsInitialized] = useState(false);
   const [webgpuReady, setWebgpuReady] = useState(false);
   const [webgpuEnabled, setWebgpuEnabled] = useState(false);
+  const [isInitializingWebGPU, setIsInitializingWebGPU] = useState(!force2D && isWebGPUSupported());
 
   const webgpuDeviceRef = useRef<GPUDevice | null>(null);
   const webgpuFormatRef = useRef<GPUTextureFormat | null>(null);
@@ -316,6 +317,7 @@ export function useWebGPUInit({
         device.onuncapturederror = () => {
           webgpuContextLostRef.current = true;
           setWebgpuEnabled(false);
+          setIsInitializingWebGPU(false);
 
           if (webgpuRetryCountRef.current < maxWebgpuRetries) {
             webgpuRetryCountRef.current++;
@@ -330,6 +332,7 @@ export function useWebGPUInit({
         device.lost?.then(() => {
           webgpuContextLostRef.current = true;
           setWebgpuEnabled(false);
+          setIsInitializingWebGPU(false);
 
           if (webgpuRetryCountRef.current < maxWebgpuRetries) {
             webgpuRetryCountRef.current++;
@@ -342,9 +345,11 @@ export function useWebGPUInit({
         });
 
         setWebgpuEnabled(true);
+        setIsInitializingWebGPU(false);
       } catch {
         webgpuContextLostRef.current = true;
         setWebgpuEnabled(false);
+        setIsInitializingWebGPU(false);
 
         if (retryCount < maxWebgpuRetries) {
           setTimeout(
@@ -385,6 +390,7 @@ export function useWebGPUInit({
 
   return {
     isInitialized,
+    isInitializingWebGPU,
     webgpuEnabled,
     webgpuDeviceRef,
     webgpuFormatRef,

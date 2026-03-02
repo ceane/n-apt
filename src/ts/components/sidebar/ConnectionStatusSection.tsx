@@ -5,7 +5,7 @@ import type { DeviceState, DeviceLoadingReason } from "@n-apt/hooks/useWebSocket
 const ConnectionStatusContainer = styled.div`
   display: flex;
   align-items: stretch;
-  gap: 0 1cqw;
+  gap: 8px;
   margin-bottom: 24px;
 `;
 
@@ -63,7 +63,6 @@ const StatusText = styled.span`
 
 const PauseButton = styled.button<{ $paused: boolean }>`
   flex: 1;
-  height: 100%;
   padding: 12px 8px;
   background-color: ${(props) => (props.$paused ? "#2a2a2a" : "#1a1a1a")};
   border: 1px solid ${(props) => (props.$paused ? "#00d4ff" : "#2a2a2a")};
@@ -84,7 +83,7 @@ const PauseButton = styled.button<{ $paused: boolean }>`
   }
 `;
 
-const WarningButton = styled(PauseButton)<{
+const WarningButton = styled(PauseButton) <{
   $narrow?: boolean;
   $isDisabled?: boolean;
 }>`
@@ -159,7 +158,7 @@ export const ConnectionStatusSection: React.FC<ConnectionStatusSectionProps> = (
             $paused={false}
             $narrow
             $isDisabled
-            onClick={() => {}}
+            onClick={() => { }}
             disabled={true}
             title="Device is restarting..."
           >
@@ -169,7 +168,7 @@ export const ConnectionStatusSection: React.FC<ConnectionStatusSectionProps> = (
           <WarningButton
             $paused={false}
             $isDisabled
-            onClick={() => {}}
+            onClick={() => { }}
             disabled={true}
             title="Device is being initialized..."
           >

@@ -26,6 +26,7 @@ import { IQCaptureControlsSection } from "@n-apt/components/sidebar/IQCaptureCon
 import { SnapshotControlsSection } from "@n-apt/components/sidebar/SnapshotControlsSection";
 import { SourceSettingsSection } from "@n-apt/components/sidebar/SourceSettingsSection";
 import DrawMockNAPTSidebar from "@n-apt/components/sidebar/DrawMockNAPTSidebar";
+import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 
 type NaptMetadata = {
   sample_rate?: number;
@@ -49,33 +50,6 @@ const SidebarContent = styled.div`
   position: relative;
   box-sizing: border-box;
   flex: 1;
-`;
-
-const TabContainer = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-bottom: 24px;
-`;
-
-const Tab = styled.button<{ $active: boolean }>`
-  padding: 12px 16px;
-  background-color: ${(props) => (props.$active ? "#1a1a1a" : "transparent")};
-  border: 1px solid ${(props) => (props.$active ? "#2a2a2a" : "transparent")};
-  border-radius: 8px;
-  color: ${(props) => (props.$active ? "#00d4ff" : "#666")};
-  font-family: "JetBrains Mono", monospace;
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  text-align: left;
-  transition: all 0.2s ease;
-  user-select: none;
-
-  &:hover {
-    background-color: #1a1a1a;
-    color: ${(props) => (props.$active ? "#00d4ff" : "#888")};
-  }
 `;
 
 const Section = styled.div`
@@ -236,45 +210,6 @@ const CapturingDot = styled.div`
   }
 `;
 
-const SourceSelect = styled(SettingSelect)`
-  min-width: 130px;
-`;
-
-const FileOptionText = styled.option`
-  && {
-    color: #d9aa34;
-  }
-`;
-
-const NaptIndicator = styled.span`
-  margin-left: 6px;
-`;
-
-const ClassifyButtonContainer = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 12px;
-`;
-
-const ClassifyValueText = styled.div`
-  font-size: 12px;
-  color: #ccc;
-  font-weight: 500;
-`;
-
-const ClassifyButton = styled.button<{ $disabled: boolean }>`
-  font-size: 11px;
-  padding: 6px 12px;
-  min-width: 80px;
-  opacity: ${(props) => (props.$disabled ? 0.5 : 1)};
-  cursor: ${(props) => (props.$disabled ? "not-allowed" : "pointer")};
-  background-color: #1a1a1a;
-  border: 1px solid #2a2a2a;
-  border-radius: 6px;
-  color: ${(props) => (props.$disabled ? "#666" : "#00d4ff")};
-  font-family: "JetBrains Mono", monospace;
-`;
-
 const HeterodyningContainer = styled.div`
   display: flex;
   align-items: center;
@@ -301,9 +236,7 @@ interface SidebarProps {
   deviceState: DeviceState;
   deviceLoadingReason: DeviceLoadingReason;
   isPaused: boolean;
-  _serverPaused: boolean;
   backend: string | null;
-  deviceInfo: string | null;
   maxSampleRateHz: number | null;
   sampleRateHz?: number | null;
   sdrSettings?: SdrSettingsConfig | null;
@@ -322,7 +255,6 @@ interface SidebarProps {
     description: string;
   }>;
   activeTab: string;
-  onTabChange: (tab: string) => void;
   drawParams: {
     spikeCount: number;
     spikeWidth: number;
@@ -354,9 +286,6 @@ interface SidebarProps {
   onRestartDevice?: () => void;
   snapshotGridPreference?: boolean;
   onSnapshotGridPreferenceChange?: (preference: boolean) => void;
-  fftWaveform?: Float32Array | number[] | null;
-  getCurrentWaveform?: () => Float32Array | number[] | null;
-  centerFrequencyMHz?: number;
   onSnapshot?: (options: {
     whole: boolean;
     showWaterfall: boolean;
@@ -374,9 +303,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   deviceState,
   deviceLoadingReason,
   isPaused,
-  _serverPaused,
   backend,
-  deviceInfo,
   maxSampleRateHz,
   sampleRateHz,
   sdrSettings,
@@ -385,7 +312,6 @@ const Sidebar: React.FC<SidebarProps> = ({
   onCaptureCommand,
   spectrumFrames,
   activeTab,
-  onTabChange,
   drawParams,
   onDrawParamsChange,
   sourceMode,
@@ -410,15 +336,13 @@ const Sidebar: React.FC<SidebarProps> = ({
   onRestartDevice,
   snapshotGridPreference,
   onSnapshotGridPreferenceChange,
-  fftWaveform,
-  getCurrentWaveform,
-  centerFrequencyMHz,
   onSnapshot,
   vizZoom = 1,
   vizPanOffset = 0,
   onVizPanChange,
 }) => {
-  const { isAuthenticated, sessionToken, authState, aesKey } = useAuthentication();
+  const { state, dispatch, wsConnection } = useSpectrumStore();
+  const { isAuthenticated, authState, aesKey } = useAuthentication();
   const maxSampleRate =
     typeof sampleRateHz === "number" && Number.isFinite(sampleRateHz)
       ? sampleRateHz
@@ -459,7 +383,6 @@ const Sidebar: React.FC<SidebarProps> = ({
     tunerAGC,
     rtlAGC,
     fftSizeOptions,
-    clampGain,
     setFftSize,
     setFftWindow,
     setFftFrameRate,
@@ -467,9 +390,21 @@ const Sidebar: React.FC<SidebarProps> = ({
     setPpm,
     setTunerAGC,
     setRtlAGC,
-    sendCurrentSettings,
+    sendCurrentSettings: _sendCurrentSettings,
     scheduleCoupledAdjustment,
-  } = useSdrSettings({ maxSampleRate, sdrSettings, onSettingsChange });
+  } = useSdrSettings({ maxSampleRate, sdrSettings: wsConnection.sdrSettings, onSettingsChange });
+
+  // Auto-apply recommended FFT size on first load
+  useEffect(() => {
+    if (state.isAutoFftApplied) return;
+    if (!wsConnection.autoFftOptions || typeof wsConnection.autoFftOptions.recommended !== "number") return;
+
+    // When the auto FFT options are received, update the UI state and backend
+    setFftSize(wsConnection.autoFftOptions.recommended);
+    // Since FFT size can affect frame rate, schedule the adjustment to keep them coupled
+    scheduleCoupledAdjustment("fftSize", wsConnection.autoFftOptions.recommended, fftFrameRate);
+    dispatch({ type: "SET_AUTO_FFT_APPLIED", applied: true });
+  }, [wsConnection.autoFftOptions, setFftSize, scheduleCoupledAdjustment, fftFrameRate, state.isAutoFftApplied, dispatch]);
 
   // Capture UI state
   const [captureOpen, setCaptureOpen] = useState(false);
@@ -599,7 +534,6 @@ const Sidebar: React.FC<SidebarProps> = ({
     onCaptureCommand,
   ]);
 
-  // Handle snapshot
   const handleSnapshot = useCallback(() => {
     if (!onSnapshot) return;
 

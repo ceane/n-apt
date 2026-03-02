@@ -444,7 +444,7 @@ export const useWebSocket = (
             }
 
             // ── Auto FFT options messages (plaintext) ─────────────────
-            if (raw.includes('"message_type":"auto_fft_options"')) {
+            if (raw.includes('"type":"auto_fft_options"')) {
               console.log("Received auto FFT options message:", raw);
               try {
                 const parsed = JSON.parse(raw);
@@ -637,7 +637,6 @@ export const useWebSocket = (
 
   // Function to send settings updates to the server
   const sendSettings = useCallback((settings: SDRSettings) => {
-    console.log("[useWebSocket] sendSettings called with:", settings);
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       return;
@@ -723,7 +722,6 @@ export const useWebSocket = (
         type: "get_auto_fft_options",
         screenWidth: screenWidth,
       });
-      console.log("Requesting auto FFT options for screen width:", screenWidth);
       ws.send(message);
     }
   }, []);
