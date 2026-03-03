@@ -8,19 +8,12 @@ type HookHarnessProps = {
 };
 
 const HookHarness: React.FC<HookHarnessProps> = ({ sdrSettings }) => {
-  const {
-    fftSize,
-    fftFrameRate,
-    gain,
-    ppm,
-    tunerAGC,
-    rtlAGC,
-    fftSizeOptions,
-  } = useSdrSettings({
-    maxSampleRate: sdrSettings.sample_rate,
-    onSettingsChange: jest.fn(),
-    sdrSettings,
-  });
+  const { fftSize, fftFrameRate, gain, ppm, tunerAGC, rtlAGC, fftSizeOptions } =
+    useSdrSettings({
+      maxSampleRate: sdrSettings.sample_rate,
+      onSettingsChange: jest.fn(),
+      sdrSettings,
+    });
 
   return (
     <div>
@@ -71,6 +64,8 @@ describe("useSdrSettings", () => {
     expect(screen.getByTestId("ppm")).toHaveTextContent("2");
     expect(screen.getByTestId("tunerAGC")).toHaveTextContent("false");
     expect(screen.getByTestId("rtlAGC")).toHaveTextContent("true");
-    expect(screen.getByTestId("fftSizeOptions")).toHaveTextContent("8192,16384");
+    expect(screen.getByTestId("fftSizeOptions")).toHaveTextContent(
+      "8192,16384",
+    );
   });
 });

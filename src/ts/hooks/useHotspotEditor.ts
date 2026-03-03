@@ -4,6 +4,7 @@ import React, {
   useReducer,
   useCallback,
   useMemo,
+  useEffect,
   ReactNode,
 } from "react";
 
@@ -17,6 +18,8 @@ interface Hotspot {
   selected?: boolean;
 }
 
+type SidebarTab = "select-areas" | "make-hotspots";
+
 interface HotspotState {
   hotspots: Hotspot[];
   selectedHotspot: string | null;
@@ -26,6 +29,7 @@ interface HotspotState {
   hotspotSize: "small" | "large";
   isMultiSelectMode: boolean;
   multiSelectedHotspots: string[];
+  sidebarTab: SidebarTab;
 }
 
 type HotspotAction =
@@ -42,7 +46,27 @@ type HotspotAction =
   | { type: "DELETE_SELECTED"; hotspots: Hotspot[] }
   | { type: "RENAME"; hotspots: Hotspot[] }
   | { type: "CLEAR" }
-  | { type: "TOGGLE_SELECT"; id: string };
+  | { type: "TOGGLE_SELECT"; id: string }
+  | { type: "SET_SIDEBAR_TAB"; tab: SidebarTab };
+
+const STORAGE_KEY = "n-apt-hotspots";
+
+function loadHotspotsFromStorage(): Hotspot[] {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    return stored ? JSON.parse(stored) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveHotspotsToStorage(hotspots: Hotspot[]): void {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(hotspots));
+  } catch (error) {
+    console.error("Failed to save hotspots to localStorage:", error);
+  }
+}
 
 const INITIAL_HOTSPOT_STATE: HotspotState = {
   hotspots: [],
@@ -53,9 +77,13 @@ const INITIAL_HOTSPOT_STATE: HotspotState = {
   hotspotSize: "small",
   isMultiSelectMode: false,
   multiSelectedHotspots: [],
+  sidebarTab: "select-areas",
 };
 
-function hotspotReducer(state: HotspotState, action: HotspotAction): HotspotState {
+function hotspotReducer(
+  state: HotspotState,
+  action: HotspotAction,
+): HotspotState {
   switch (action.type) {
     case "SET_HOTSPOTS":
       return { ...state, hotspots: action.hotspots };
@@ -94,6 +122,8 @@ function hotspotReducer(state: HotspotState, action: HotspotAction): HotspotStat
           ? state.multiSelectedHotspots.filter((hid) => hid !== action.id)
           : [...state.multiSelectedHotspots, action.id],
       };
+    case "SET_SIDEBAR_TAB":
+      return { ...state, sidebarTab: action.tab };
   }
 }
 
@@ -120,12 +150,14 @@ interface HotspotEditorContextType {
   handleToggleSelect: (id: string) => void;
   handleHotspotClick: (id: string) => void;
   handleRename: (id: string, newName: string) => void;
-  handleExport: () => void;
-  handleImport: (event: React.ChangeEvent<HTMLInputElement>) => void;
   handleClear: () => void;
+  sidebarTab: SidebarTab;
+  setSidebarTab: (tab: SidebarTab) => void;
 }
 
-const HotspotEditorContext = createContext<HotspotEditorContextType | undefined>(undefined);
+const HotspotEditorContext = createContext<
+  HotspotEditorContextType | undefined
+>(undefined);
 
 interface HotspotEditorProviderProps {
   children: ReactNode;
@@ -136,7 +168,14 @@ export const HotspotEditorProvider: React.FC<HotspotEditorProviderProps> = ({
   children,
   onHotspotsChange,
 }) => {
-  const [state, dispatch] = useReducer(hotspotReducer, INITIAL_HOTSPOT_STATE);
+  const [state, dispatch] = useReducer(hotspotReducer, {
+    ...INITIAL_HOTSPOT_STATE,
+    hotspots: loadHotspotsFromStorage(),
+  });
+
+  useEffect(() => {
+    saveHotspotsToStorage(state.hotspots);
+  }, [state.hotspots]);
 
   const setHotspots = useCallback(
     (hotspots: Hotspot[]) => dispatch({ type: "SET_HOTSPOTS", hotspots }),
@@ -148,14 +187,20 @@ export const HotspotEditorProvider: React.FC<HotspotEditorProviderProps> = ({
     [],
   );
 
-  const setNewHotspotName = useCallback((name: string) => dispatch({ type: "SET_NAME", name }), []);
+  const setNewHotspotName = useCallback(
+    (name: string) => dispatch({ type: "SET_NAME", name }),
+    [],
+  );
 
   const setSymmetryMode = useCallback(
     (mode: "none" | "x" | "y") => dispatch({ type: "SET_SYMMETRY", mode }),
     [],
   );
 
-  const setShowGrid = useCallback((show: boolean) => dispatch({ type: "SET_GRID", show }), []);
+  const setShowGrid = useCallback(
+    (show: boolean) => dispatch({ type: "SET_GRID", show }),
+    [],
+  );
 
   const setHotspotSize = useCallback(
     (size: "small" | "large") => dispatch({ type: "SET_SIZE", size }),
@@ -219,7 +264,13 @@ export const HotspotEditorProvider: React.FC<HotspotEditorProviderProps> = ({
       });
       onHotspotsChange?.(updatedHotspots);
     },
-    [state.hotspots, state.newHotspotName, state.symmetryMode, state.hotspotSize, onHotspotsChange],
+    [
+      state.hotspots,
+      state.newHotspotName,
+      state.symmetryMode,
+      state.hotspotSize,
+      onHotspotsChange,
+    ],
   );
 
   const handleDeleteHotspot = useCallback(
@@ -272,35 +323,9 @@ export const HotspotEditorProvider: React.FC<HotspotEditorProviderProps> = ({
     [state.hotspots, onHotspotsChange],
   );
 
-  const handleExport = useCallback(() => {
-    const json = JSON.stringify(state.hotspots, null, 2);
-    const blob = new Blob([json], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "hotspots.json";
-    a.click();
-    URL.revokeObjectURL(url);
-  }, [state.hotspots]);
-
-  const handleImport = useCallback(
-    (event: React.ChangeEvent<HTMLInputElement>) => {
-      const file = event.target.files?.[0];
-      if (file) {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          try {
-            const imported = JSON.parse(e.target?.result as string);
-            dispatch({ type: "SET_HOTSPOTS", hotspots: imported });
-            onHotspotsChange?.(imported);
-          } catch (error) {
-            console.error("Failed to import hotspots:", error);
-          }
-        };
-        reader.readAsText(file);
-      }
-    },
-    [onHotspotsChange],
+  const setSidebarTab = useCallback(
+    (tab: SidebarTab) => dispatch({ type: "SET_SIDEBAR_TAB", tab }),
+    [],
   );
 
   const handleClear = useCallback(() => {
@@ -325,9 +350,9 @@ export const HotspotEditorProvider: React.FC<HotspotEditorProviderProps> = ({
       handleToggleSelect,
       handleHotspotClick,
       handleRename,
-      handleExport,
-      handleImport,
       handleClear,
+      sidebarTab: state.sidebarTab,
+      setSidebarTab,
     }),
     [
       state,
@@ -345,21 +370,26 @@ export const HotspotEditorProvider: React.FC<HotspotEditorProviderProps> = ({
       handleToggleSelect,
       handleHotspotClick,
       handleRename,
-      handleExport,
-      handleImport,
       handleClear,
+      setSidebarTab,
     ],
   );
 
-  return React.createElement(HotspotEditorContext.Provider, { value: contextValue }, children);
+  return React.createElement(
+    HotspotEditorContext.Provider,
+    { value: contextValue },
+    children,
+  );
 };
 
 export const useHotspotEditor = (): HotspotEditorContextType => {
   const context = useContext(HotspotEditorContext);
   if (context === undefined) {
-    throw new Error("useHotspotEditor must be used within a HotspotEditorProvider");
+    throw new Error(
+      "useHotspotEditor must be used within a HotspotEditorProvider",
+    );
   }
   return context;
 };
 
-export type { Hotspot };
+export type { Hotspot, SidebarTab };

@@ -22,7 +22,9 @@ class FileWorkerManager {
 
   private initializeWorker() {
     try {
-      this.worker = new Worker(new URL("./fileWorker.ts", import.meta.url), { type: "module" });
+      this.worker = new Worker(new URL("./fileWorker.ts", import.meta.url), {
+        type: "module",
+      });
 
       this.worker.onmessage = (event) => {
         const { type, id, data, error } = event.data;
@@ -62,7 +64,11 @@ class FileWorkerManager {
     return `req_${++this.requestId}_${Date.now()}`;
   }
 
-  private sendMessage(type: string, data: any, onProgress?: (progress: any) => void): Promise<any> {
+  private sendMessage(
+    type: string,
+    data: any,
+    onProgress?: (progress: any) => void,
+  ): Promise<any> {
     if (!this.worker) {
       return Promise.reject(new Error("File Worker not initialized"));
     }
@@ -75,7 +81,11 @@ class FileWorkerManager {
         const request = this.pendingRequests.get(id);
         if (request) {
           this.pendingRequests.delete(id);
-          reject(new Error(`Worker request ${id} timed out after ${this.REQUEST_TIMEOUT}ms`));
+          reject(
+            new Error(
+              `Worker request ${id} timed out after ${this.REQUEST_TIMEOUT}ms`,
+            ),
+          );
         }
       }, this.REQUEST_TIMEOUT);
 
@@ -90,6 +100,12 @@ class FileWorkerManager {
       let transferables: Transferable[] = [];
       if (type === "loadFile" && data.fileData instanceof ArrayBuffer) {
         transferables.push(data.fileData);
+      } else if (type === "stitchFiles" && Array.isArray(data.files)) {
+        for (const fileItem of data.files) {
+          if (fileItem.fileData instanceof ArrayBuffer) {
+            transferables.push(fileItem.fileData);
+          }
+        }
       }
 
       try {
@@ -105,15 +121,21 @@ class FileWorkerManager {
     });
   }
 
-  async loadFile(file: File): Promise<any> {
+  async loadFile(file: File, aesKey?: CryptoKey | null): Promise<any> {
     const fileData = await file.arrayBuffer();
-    return this.sendMessage("loadFile", { fileData, fileName: file.name });
+    return this.sendMessage("loadFile", {
+      fileData,
+      fileName: file.name,
+      aesKey,
+    });
   }
 
   async stitchFiles(
     files: Array<{ name: string; file: File }>,
     settings: { gain: number; ppm: number },
+    fftSize: number,
     onProgress?: (progress: any) => void,
+    aesKey?: CryptoKey | null,
   ): Promise<any> {
     const filesData = [];
 
@@ -125,15 +147,25 @@ class FileWorkerManager {
       });
     }
 
-    return this.sendMessage("stitchFiles", { files: filesData, settings }, onProgress);
+    return this.sendMessage(
+      "stitchFiles",
+      { files: filesData, settings, fftSize, aesKey },
+      onProgress,
+    );
   }
 
   async buildFrame(
     frame: number,
     fileDataCache: [string, number[]][],
     freqMap: [string, number][],
+    metadataMap: [string, any][],
   ): Promise<any> {
-    return this.sendMessage("buildFrame", { frame, fileDataCache, freqMap });
+    return this.sendMessage("buildFrame", {
+      frame,
+      fileDataCache,
+      freqMap,
+      metadataMap,
+    });
   }
 
   async getFrame(frameIndex: number, precomputedFrames: any[]): Promise<any> {

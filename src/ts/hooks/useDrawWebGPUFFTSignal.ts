@@ -13,16 +13,16 @@
  *
  * FFT output:   [3.2, 0.1, ...]  ← amplitude at each frequency
  * (yes, just numbers, floats)
- * 
- * NOTE: The FFT rendered is based on 
- *  ✔ MAGNITUDE FFT 
- *      (0 → Fs/2, signal rises ↑ from noise as y = 0 as floor), 
+ *
+ * NOTE: The FFT rendered is based on
+ *  ✔ MAGNITUDE FFT
+ *      (0 → Fs/2, signal rises ↑ from noise as y = 0 as floor),
  *  ✗ TWO-SIDED, ZERO-CENTERED FFT of complex (I/Q) data
- *      (-Fs/2 → +Fs/2, signal as ± with y = 0 as center). 
- * This is a simplified view of the signal's frequency, the 
+ *      (-Fs/2 → +Fs/2, signal as ± with y = 0 as center).
+ * This is a simplified view of the signal's frequency, the
  * conversion happens on the backend from zero-centered to magnitude.
  *
- * 
+ *
  * Think of radio signals like music - they're made of many notes (frequencies)
  * playing at once. Fast Fourier Transform (FFT) is like a musical ear that
  * separates all the notes and tells you how loud each one is.
@@ -223,10 +223,17 @@ export interface WebGPUFFTSignalOptions {
 
 export function useDrawWebGPUFFTSignal() {
   const rendererRef = useRef<FFTWebGPUState | null>(null);
-  const lastDataRef = useRef<{ waveform: Float32Array; frequencyRange: any } | null>(null);
+  const lastDataRef = useRef<{
+    waveform: Float32Array;
+    frequencyRange: any;
+  } | null>(null);
 
   const createFFTWebGPUState = useCallback(
-    (canvas: HTMLCanvasElement, device: GPUDevice, format: GPUTextureFormat): FFTWebGPUState => {
+    (
+      canvas: HTMLCanvasElement,
+      device: GPUDevice,
+      format: GPUTextureFormat,
+    ): FFTWebGPUState => {
       const ctx = configureWebGPUCanvas(canvas, device, format);
 
       const bindGroupLayout = device.createBindGroupLayout({
@@ -439,8 +446,12 @@ export function useDrawWebGPUFFTSignal() {
         const plotMaxY = yToNdc(params.plotTop);
         const plotMinY = yToNdc(params.plotBottom);
 
-        const [lineR, lineG, lineB, lineA] = parseCssColorToRgba(params.lineColor);
-        const [fillR, fillG, fillB, fillA] = parseCssColorToRgba(params.fillColor);
+        const [lineR, lineG, lineB, lineA] = parseCssColorToRgba(
+          params.lineColor,
+        );
+        const [fillR, fillG, fillB, fillA] = parseCssColorToRgba(
+          params.fillColor,
+        );
 
         state.uniformValues[0] = plotMinX;
         state.uniformValues[1] = plotMinY;
@@ -470,7 +481,9 @@ export function useDrawWebGPUFFTSignal() {
         const encoder = state.device.createCommandEncoder();
         const view = state.ctx.getCurrentTexture().createView();
 
-        const [bgR, bgG, bgB, bgA] = parseCssColorToRgba(params.backgroundColor);
+        const [bgR, bgG, bgB, bgA] = parseCssColorToRgba(
+          params.backgroundColor,
+        );
 
         const pass = encoder.beginRenderPass({
           colorAttachments: [

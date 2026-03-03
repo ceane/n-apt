@@ -45,7 +45,10 @@ async function getDB(): Promise<IDBDatabase> {
 /**
  * Saves the waterfall snapshot to IndexedDB.
  */
-export async function saveWaterfallSnapshot(snapshot: Uint8Array, meta: WaterfallMetadata): Promise<void> {
+export async function saveWaterfallSnapshot(
+  snapshot: Uint8Array,
+  meta: WaterfallMetadata,
+): Promise<void> {
   try {
     const db = await getDB();
     return new Promise((resolve, reject) => {

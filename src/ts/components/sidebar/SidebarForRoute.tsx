@@ -2,6 +2,7 @@ import React from "react";
 import styled from "styled-components";
 import { BodyAreasSection } from "./BodyAreasSection";
 import { HotspotEditorSection } from "./HotspotEditorSection";
+import { useHotspotEditor } from "@n-apt/hooks/useHotspotEditor";
 
 const Section = styled.div`
   margin-bottom: 24px;
@@ -27,44 +28,67 @@ const SectionDescription = styled.div`
   margin-bottom: 16px;
 `;
 
-const PlaceholderText = styled.div`
-  font-size: 12px;
-  color: #888;
-  padding: 12px;
+const TabBar = styled.div`
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  margin-bottom: 16px;
 `;
 
-interface SidebarForRouteProps {
-  activeTab: string;
-}
+const Tab = styled.button<{ $active: boolean }>`
+  flex: 1;
+  padding: 10px 8px;
+  border: none;
+  border-bottom: 2px solid ${(props) => (props.$active ? "rgba(123, 97, 255, 0.9)" : "transparent")};
+  background: ${(props) => (props.$active ? "rgba(123, 97, 255, 0.08)" : "transparent")};
+  color: ${(props) => (props.$active ? "rgba(255, 255, 255, 0.92)" : "rgba(255, 255, 255, 0.45)")};
+  font-size: 11px;
+  font-weight: 600;
+  font-family: "JetBrains Mono", monospace;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 120ms ease;
 
-export const SidebarForRoute: React.FC<SidebarForRouteProps> = ({ activeTab }) => {
-  if (activeTab === "model3d") {
-    return (
-      <>
-        <Section>
-          <RouteContent>
-            <SectionTitle>Body Areas</SectionTitle>
-            <SectionDescription>Click an area to focus the camera</SectionDescription>
-            <BodyAreasSection />
-          </RouteContent>
-        </Section>
-      </>
-    );
+  &:hover {
+    color: rgba(255, 255, 255, 0.75);
+    background: rgba(255, 255, 255, 0.04);
   }
+`;
 
-  if (activeTab === "hotspoteditor") {
-    return (
-      <RouteContent>
-        <HotspotEditorSection />
-      </RouteContent>
-    );
-  }
+export const SidebarForRoute: React.FC = () => {
+  const { sidebarTab, setSidebarTab } = useHotspotEditor();
 
-  // For other routes, show a placeholder
   return (
-    <Section>
-      <SectionTitle>Route Settings</SectionTitle>
-      <PlaceholderText>Settings for {activeTab} would go here</PlaceholderText>
-    </Section>
+    <>
+      <TabBar>
+        <Tab
+          $active={sidebarTab === "select-areas"}
+          onClick={() => setSidebarTab("select-areas")}
+        >
+          Select Areas
+        </Tab>
+        <Tab
+          $active={sidebarTab === "make-hotspots"}
+          onClick={() => setSidebarTab("make-hotspots")}
+        >
+          Make Hotspots
+        </Tab>
+      </TabBar>
+
+      <RouteContent>
+        {sidebarTab === "select-areas" && (
+          <Section>
+            <SectionTitle>Body Areas</SectionTitle>
+            <SectionDescription>
+              Click an area to focus the camera
+            </SectionDescription>
+            <BodyAreasSection />
+          </Section>
+        )}
+
+        {sidebarTab === "make-hotspots" && <HotspotEditorSection />}
+      </RouteContent>
+    </>
   );
 };

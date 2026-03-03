@@ -97,7 +97,11 @@ export class OverlayTextureRenderer {
     });
   }
 
-  beginDraw(width: number, height: number, dpr: number): OffscreenCanvasRenderingContext2D {
+  beginDraw(
+    width: number,
+    height: number,
+    dpr: number,
+  ): OffscreenCanvasRenderingContext2D {
     const pw = Math.max(1, Math.round(width * dpr));
     const ph = Math.max(1, Math.round(height * dpr));
 
@@ -183,7 +187,10 @@ async function getWebGPUDevice(): Promise<GPUDevice | null> {
         // Request higher texture dimension limits to support larger canvases
         const device = await adapter.requestDevice({
           requiredLimits: {
-            maxTextureDimension2D: Math.min(adapter.limits.maxTextureDimension2D, 16384),
+            maxTextureDimension2D: Math.min(
+              adapter.limits.maxTextureDimension2D,
+              16384,
+            ),
           },
         });
         return device;
@@ -222,7 +229,9 @@ export function useWebGPUInit({
   const [isInitialized, setIsInitialized] = useState(false);
   const [webgpuReady, setWebgpuReady] = useState(false);
   const [webgpuEnabled, setWebgpuEnabled] = useState(false);
-  const [isInitializingWebGPU, setIsInitializingWebGPU] = useState(!force2D && isWebGPUSupported());
+  const [isInitializingWebGPU, setIsInitializingWebGPU] = useState(
+    !force2D && isWebGPUSupported(),
+  );
 
   const webgpuDeviceRef = useRef<GPUDevice | null>(null);
   const webgpuFormatRef = useRef<GPUTextureFormat | null>(null);
@@ -259,7 +268,10 @@ export function useWebGPUInit({
         });
         resampleParamsBufferRef.current = paramsBuffer;
       } catch (error) {
-        console.error("Failed to initialize WebGPU resampling pipeline:", error);
+        console.error(
+          "Failed to initialize WebGPU resampling pipeline:",
+          error,
+        );
       }
     },
     [resampleWgsl, resampleComputePipelineRef, resampleParamsBufferRef],
@@ -379,11 +391,17 @@ export function useWebGPUInit({
     if (!device || !format) return;
 
     if (!gridOverlayRendererRef.current) {
-      gridOverlayRendererRef.current = new OverlayTextureRenderer(device, format);
+      gridOverlayRendererRef.current = new OverlayTextureRenderer(
+        device,
+        format,
+      );
       overlayDirtyRef.current.grid = true;
     }
     if (!markersOverlayRendererRef.current) {
-      markersOverlayRendererRef.current = new OverlayTextureRenderer(device, format);
+      markersOverlayRendererRef.current = new OverlayTextureRenderer(
+        device,
+        format,
+      );
       overlayDirtyRef.current.markers = true;
     }
   }, [webgpuEnabled]);

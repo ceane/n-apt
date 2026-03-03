@@ -199,7 +199,8 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
             />
           </SettingLabelContainer>
           <SettingValue>
-            {fileCapturedRange.min.toFixed(2)}MHz to {fileCapturedRange.max.toFixed(2)}MHz
+            {fileCapturedRange.min.toFixed(2)}MHz to{" "}
+            {fileCapturedRange.max.toFixed(2)}MHz
           </SettingValue>
         </SettingRow>
       )}
@@ -219,7 +220,10 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
               onChange={(e) => {
                 const val = Math.max(
                   1,
-                  Math.min(maxFrameRate, Math.floor(Number(e.target.value) || 1)),
+                  Math.min(
+                    maxFrameRate,
+                    Math.floor(Number(e.target.value) || 1),
+                  ),
                 );
                 onFftFrameRateChange(val);
                 scheduleCoupledAdjustment("frameRate", fftSize, val);
@@ -232,7 +236,10 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
                 const delta = e.key === "ArrowUp" ? step : -step;
                 const next = Math.max(
                   1,
-                  Math.min(maxFrameRate, Math.floor((fftFrameRate || 0) + delta)),
+                  Math.min(
+                    maxFrameRate,
+                    Math.floor((fftFrameRate || 0) + delta),
+                  ),
                 );
                 onFftFrameRateChange(next);
                 scheduleCoupledAdjustment("frameRate", fftSize, next);
@@ -334,7 +341,9 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
         <WideSettingSelect
           value={temporalResolution}
           onChange={(e) => {
-            onTemporalResolutionChange(e.target.value as "low" | "medium" | "high");
+            onTemporalResolutionChange(
+              e.target.value as "low" | "medium" | "high",
+            );
           }}
         >
           <option value="low">Low</option>

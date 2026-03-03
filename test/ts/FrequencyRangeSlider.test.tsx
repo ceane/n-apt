@@ -41,7 +41,9 @@ describe("FrequencyRangeSlider Component", () => {
   it("should call onActivate when clicked", () => {
     render(<FrequencyRangeSlider {...defaultProps} />);
 
-    const sliderContainer = screen.getByText("Test Frequency Range").parentElement;
+    const sliderContainer = screen.getByText(
+      "Test Frequency Range",
+    ).parentElement;
     const slider = sliderContainer?.nextElementSibling;
     if (slider) {
       fireEvent.click(slider);
@@ -84,7 +86,9 @@ describe("FrequencyRangeSlider Component", () => {
     render(<FrequencyRangeSlider {...defaultProps} />);
 
     // The slider itself should have tabIndex, not the label container
-    const sliderContainer = screen.getByText("Test Frequency Range").parentElement;
+    const sliderContainer = screen.getByText(
+      "Test Frequency Range",
+    ).parentElement;
     const slider = sliderContainer?.nextElementSibling;
     expect(slider).toHaveAttribute("tabIndex", "0");
   });
@@ -92,7 +96,9 @@ describe("FrequencyRangeSlider Component", () => {
   it("should handle keyboard input", () => {
     render(<FrequencyRangeSlider {...defaultProps} />);
 
-    const sliderContainer = screen.getByText("Test Frequency Range").parentElement;
+    const sliderContainer = screen.getByText(
+      "Test Frequency Range",
+    ).parentElement;
     const slider = sliderContainer?.nextElementSibling;
     if (slider) {
       (slider as HTMLElement).focus();

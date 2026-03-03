@@ -370,7 +370,24 @@ pub fn handle_message(
       }
     }
     "capture" => {
-      debug!("Unknown message type: {}", message.message_type);
+      let capture_cmd = super::types::SdrCommand::StartCapture {
+        job_id: message.job_id.clone().unwrap_or_else(|| format!("cap_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs())),
+        fragments: message.fragments.clone().unwrap_or_else(|| {
+          if let (Some(min_freq), Some(max_freq)) = (message.min_freq, message.max_freq) {
+            vec![super::types::FreqRange { min_freq, max_freq }]
+          } else {
+            vec![]
+          }
+        }).into_iter().map(|f| (f.min_freq, f.max_freq)).collect(),
+        duration_s: message.duration_s.unwrap_or(1.0),
+        file_type: message.file_type.clone().unwrap_or_else(|| ".napt".to_string()),
+        acquisition_mode: message.acquisition_mode.clone().unwrap_or_else(|| "stepwise".to_string()),
+        encrypted: message.encrypted.unwrap_or(true),
+        fft_size: message.fft_size.unwrap_or(2048),
+        fft_window: message.fft_window.clone().unwrap_or_else(|| "hann".to_string()),
+      };
+      log::info!("Client requested capture: {:?}", capture_cmd);
+      let _ = cmd_tx.send(capture_cmd);
     }
     _ => {
       debug!("Unknown message type: {}", message.message_type);

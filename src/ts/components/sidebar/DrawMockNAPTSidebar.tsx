@@ -110,7 +110,9 @@ const DrawMockNAPTSidebar: React.FC<DrawMockNAPTSidebarProps> = ({
             max="300"
             step="10"
             value={drawParams.spikeCount}
-            onChange={(e) => handleParamChange("spikeCount", Number(e.target.value))}
+            onChange={(e) =>
+              handleParamChange("spikeCount", Number(e.target.value))
+            }
           />
         </ControlGroup>
 
@@ -122,19 +124,25 @@ const DrawMockNAPTSidebar: React.FC<DrawMockNAPTSidebarProps> = ({
             max="2.0"
             step="0.1"
             value={drawParams.spikeWidth}
-            onChange={(e) => handleParamChange("spikeWidth", Number(e.target.value))}
+            onChange={(e) =>
+              handleParamChange("spikeWidth", Number(e.target.value))
+            }
           />
         </ControlGroup>
 
         <ControlGroup>
-          <Label>Center Spike Boost: {drawParams.centerSpikeBoost.toFixed(1)}</Label>
+          <Label>
+            Center Spike Boost: {drawParams.centerSpikeBoost.toFixed(1)}
+          </Label>
           <Slider
             type="range"
             min="1.0"
             max="5.0"
             step="0.1"
             value={drawParams.centerSpikeBoost}
-            onChange={(e) => handleParamChange("centerSpikeBoost", Number(e.target.value))}
+            onChange={(e) =>
+              handleParamChange("centerSpikeBoost", Number(e.target.value))
+            }
           />
         </ControlGroup>
 
@@ -146,7 +154,9 @@ const DrawMockNAPTSidebar: React.FC<DrawMockNAPTSidebarProps> = ({
             max="2.0"
             step="0.1"
             value={drawParams.floorAmplitude}
-            onChange={(e) => handleParamChange("floorAmplitude", Number(e.target.value))}
+            onChange={(e) =>
+              handleParamChange("floorAmplitude", Number(e.target.value))
+            }
           />
         </ControlGroup>
 
@@ -158,7 +168,9 @@ const DrawMockNAPTSidebar: React.FC<DrawMockNAPTSidebarProps> = ({
             max="2.0"
             step="0.1"
             value={drawParams.decayRate}
-            onChange={(e) => handleParamChange("decayRate", Number(e.target.value))}
+            onChange={(e) =>
+              handleParamChange("decayRate", Number(e.target.value))
+            }
           />
         </ControlGroup>
 
@@ -170,7 +182,9 @@ const DrawMockNAPTSidebar: React.FC<DrawMockNAPTSidebarProps> = ({
             max="20.0"
             step="0.5"
             value={drawParams.envelopeWidth}
-            onChange={(e) => handleParamChange("envelopeWidth", Number(e.target.value))}
+            onChange={(e) =>
+              handleParamChange("envelopeWidth", Number(e.target.value))
+            }
           />
         </ControlGroup>
       </ControlsContainer>
@@ -179,10 +193,12 @@ const DrawMockNAPTSidebar: React.FC<DrawMockNAPTSidebarProps> = ({
         <InfoTitle>Signal Parameters</InfoTitle>
         <InfoText>
           <InfoParagraph>
-            <strong>Frequency Range:</strong> 0 - 3 MHz (N-APT APT frequency range)
+            <strong>Frequency Range:</strong> 0 - 3 MHz (N-APT APT frequency
+            range)
           </InfoParagraph>
           <InfoParagraph>
-            <strong>Signal Features:</strong> Frequency comb with Gaussian envelope
+            <strong>Signal Features:</strong> Frequency comb with Gaussian
+            envelope
           </InfoParagraph>
           <InfoParagraph>
             <strong>Modulation:</strong> Sine wave spikes with exponential decay

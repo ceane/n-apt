@@ -3,8 +3,10 @@ use std::sync::atomic::Ordering;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
+use axum::body::Body;
 use axum::Json;
 use log::{error, info, warn};
+use tokio_util::io::ReaderStream;
 
 use crate::sdr::rtlsdr::RtlSdrDevice;
 
@@ -93,26 +95,39 @@ pub async fn capture_download_handler(
   // If single file, return it directly
   if artifacts.len() == 1 {
     let artifact = &artifacts[0];
-    match tokio::fs::read(&artifact.path).await {
-      Ok(data) => {
-        let content_type = if artifact.filename.ends_with(".napt") {
-          "application/octet-stream"
-        } else {
-          "application/octet-stream"
-        };
-        
-        return (
-          StatusCode::OK,
-          [
-            ("Content-Type", content_type),
-            ("Content-Disposition", &format!("attachment; filename=\"{}\"", artifact.filename)),
-          ],
-          data,
-        ).into_response();
+    match tokio::fs::metadata(&artifact.path).await {
+      Ok(meta) => {
+        let file_size = meta.len();
+        match tokio::fs::File::open(&artifact.path).await {
+          Ok(file) => {
+            let stream = ReaderStream::new(file);
+            let body = Body::from_stream(stream);
+            
+            let content_type = if artifact.filename.ends_with(".wav") {
+              "audio/wav"
+            } else {
+              "application/octet-stream"
+            };
+            
+            let mut headers = axum::http::HeaderMap::new();
+            headers.insert(axum::http::header::CONTENT_TYPE, content_type.parse().unwrap());
+            headers.insert(axum::http::header::CONTENT_LENGTH, file_size.to_string().parse().unwrap());
+            headers.insert(
+                axum::http::header::CONTENT_DISPOSITION,
+                format!("attachment; filename=\"{}\"", artifact.filename).parse().unwrap(),
+            );
+            
+            return (StatusCode::OK, headers, body).into_response();
+          }
+          Err(e) => {
+            error!("Failed to open capture file: {}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to read capture file").into_response();
+          }
+        }
       }
       Err(e) => {
-        error!("Failed to read capture file: {}", e);
-        return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to read capture file").into_response();
+        error!("Failed to get capture file metadata: {}", e);
+        return (StatusCode::NOT_FOUND, "Capture file not found on disk").into_response();
       }
     }
   }
@@ -515,20 +530,35 @@ async fn handle_restart_device(state: &Arc<super::AppState>, _params: &serde_jso
 async fn handle_start_capture(state: &Arc<super::AppState>, params: &serde_json::Value) -> WebMCPToolResponse {
   // Extract capture parameters
   let job_id = params.get("jobId").and_then(|id| id.as_str()).unwrap_or("unknown");
-  let min_freq = params.get("minFreq").and_then(|f| f.as_f64()).unwrap_or(0.0);
-  let max_freq = params.get("maxFreq").and_then(|f| f.as_f64()).unwrap_or(30.0);
+  
+  let fragments = if let Some(frags) = params.get("fragments").and_then(|f| f.as_array()) {
+    frags.iter().filter_map(|f| {
+      let min = f.get("minFreq").and_then(|v| v.as_f64());
+      let max = f.get("maxFreq").and_then(|v| v.as_f64());
+      match (min, max) {
+        (Some(m1), Some(m2)) => Some((m1, m2)),
+        _ => None,
+      }
+    }).collect()
+  } else {
+    let min_freq = params.get("minFreq").and_then(|f| f.as_f64()).unwrap_or(0.0);
+    let max_freq = params.get("maxFreq").and_then(|f| f.as_f64()).unwrap_or(30.0);
+    vec![(min_freq, max_freq)]
+  };
+  
   let duration_s = params.get("durationS").and_then(|d| d.as_f64()).unwrap_or(5.0);
   let file_type = params.get("fileType").and_then(|t| t.as_str()).unwrap_or(".napt");
+  let acquisition_mode = params.get("acquisitionMode").and_then(|m| m.as_str()).unwrap_or("stepwise");
   let encrypted = params.get("encrypted").and_then(|e| e.as_bool()).unwrap_or(true);
   let fft_size = params.get("fftSize").and_then(|s| s.as_u64()).unwrap_or(1024) as usize;
   let fft_window = params.get("fftWindow").and_then(|w| w.as_str()).unwrap_or("hann");
   
   let capture_cmd = super::types::SdrCommand::StartCapture {
     job_id: job_id.to_string(),
-    min_freq,
-    max_freq,
+    fragments: fragments.clone(),
     duration_s,
     file_type: file_type.to_string(),
+    acquisition_mode: acquisition_mode.to_string(),
     encrypted,
     fft_size,
     fft_window: fft_window.to_string(),
@@ -546,10 +576,10 @@ async fn handle_start_capture(state: &Arc<super::AppState>, params: &serde_json:
       success: true,
       result: Some(serde_json::json!({
         "jobId": job_id,
-        "minFreq": min_freq,
-        "maxFreq": max_freq,
+        "fragments": fragments.iter().map(|(min, max)| serde_json::json!({"minFreq": min, "maxFreq": max})).collect::<Vec<_>>(),
         "duration": duration_s,
         "format": file_type,
+        "acquisitionMode": acquisition_mode,
         "encrypted": encrypted,
         "message": "Capture started successfully"
       })),

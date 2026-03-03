@@ -20,7 +20,10 @@ export interface WebSocketDataState {
   spectrumFrames: any[];
 }
 
-export function useWebSocketData({ wsUrl, aesKey }: WebSocketDataOptions): WebSocketDataState & {
+export function useWebSocketData({
+  wsUrl,
+  aesKey,
+}: WebSocketDataOptions): WebSocketDataState & {
   sendFrequencyRange: (min: number, max: number) => void;
   sendPauseCommand: (paused: boolean) => void;
   sendSettings: (settings: any) => void;
@@ -124,11 +127,18 @@ export function useWebSocketData({ wsUrl, aesKey }: WebSocketDataOptions): WebSo
 
       ws.onclose = (event) => {
         console.log("WebSocket disconnected:", event.code, event.reason);
-        setState((prev: WebSocketDataState) => ({ ...prev, isConnected: false }));
+        setState((prev: WebSocketDataState) => ({
+          ...prev,
+          isConnected: false,
+        }));
 
         // Attempt reconnection if not explicitly closed
-        if (event.code !== 1000 && reconnectAttemptsRef.current < maxReconnectAttempts) {
-          const delay = reconnectDelay * Math.pow(2, reconnectAttemptsRef.current);
+        if (
+          event.code !== 1000 &&
+          reconnectAttemptsRef.current < maxReconnectAttempts
+        ) {
+          const delay =
+            reconnectDelay * Math.pow(2, reconnectAttemptsRef.current);
           reconnectTimeoutRef.current = setTimeout(() => {
             reconnectAttemptsRef.current++;
             console.log(

@@ -4,14 +4,14 @@ import AuthenticationPrompt from "@n-apt/components/AuthenticationPrompt";
 import {
   InitializingContainer,
   InitializingTitle,
-  InitializingText
+  InitializingText,
 } from "@n-apt/components/Layout";
 
-interface AuthWrapperProps {
+interface AuthRouteProps {
   children: React.ReactNode;
 }
 
-export const AuthWrapper: React.FC<AuthWrapperProps> = ({ children }) => {
+export const AuthRoute: React.FC<AuthRouteProps> = ({ children }) => {
   const {
     authState,
     isAuthenticated,
@@ -50,4 +50,4 @@ export const AuthWrapper: React.FC<AuthWrapperProps> = ({ children }) => {
   return <>{children}</>;
 };
 
-export default AuthWrapper;
+export default AuthRoute;

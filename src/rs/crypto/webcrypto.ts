@@ -16,9 +16,13 @@ const IV_LENGTH = 12; // AES-GCM standard nonce size
  */
 export async function deriveRawKey(passkey: string): Promise<ArrayBuffer> {
   const enc = new TextEncoder();
-  const keyMaterial = await crypto.subtle.importKey("raw", enc.encode(passkey), "PBKDF2", false, [
-    "deriveBits",
-  ]);
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw",
+    enc.encode(passkey),
+    "PBKDF2",
+    false,
+    ["deriveBits"],
+  );
 
   return crypto.subtle.deriveBits(
     {
@@ -37,14 +41,19 @@ export async function deriveRawKey(passkey: string): Promise<ArrayBuffer> {
  */
 export async function deriveAesKey(passkey: string): Promise<CryptoKey> {
   const rawKey = await deriveRawKey(passkey);
-  return crypto.subtle.importKey("raw", rawKey, { name: "AES-GCM" }, false, ["decrypt"]);
+  return crypto.subtle.importKey("raw", rawKey, { name: "AES-GCM" }, false, [
+    "decrypt",
+  ]);
 }
 
 /**
  * Compute HMAC-SHA256 over `data` using a key derived from the passkey.
  * Returns the HMAC as a base64 string.
  */
-export async function computeHmac(passkey: string, nonceBase64: string): Promise<string> {
+export async function computeHmac(
+  passkey: string,
+  nonceBase64: string,
+): Promise<string> {
   const rawKey = await deriveRawKey(passkey);
   const hmacKey = await crypto.subtle.importKey(
     "raw",
@@ -55,7 +64,11 @@ export async function computeHmac(passkey: string, nonceBase64: string): Promise
   );
 
   const nonceBytes = base64ToBytes(nonceBase64);
-  const signature = await crypto.subtle.sign("HMAC", hmacKey, nonceBytes.buffer as ArrayBuffer);
+  const signature = await crypto.subtle.sign(
+    "HMAC",
+    hmacKey,
+    nonceBytes.buffer as ArrayBuffer,
+  );
   return bytesToBase64(new Uint8Array(signature));
 }
 
@@ -64,7 +77,10 @@ export async function computeHmac(passkey: string, nonceBase64: string): Promise
  * Input: base64-encoded `IV (12 bytes) || ciphertext || tag (16 bytes)`
  * Returns the decrypted plaintext as a string.
  */
-export async function decryptPayload(aesKey: CryptoKey, encryptedBase64: string): Promise<string> {
+export async function decryptPayload(
+  aesKey: CryptoKey,
+  encryptedBase64: string,
+): Promise<string> {
   const bytes = await decryptPayloadBytes(aesKey, encryptedBase64);
   return new TextDecoder().decode(bytes);
 }
@@ -78,7 +94,11 @@ export async function decryptPayloadBytes(
   const iv = data.slice(0, IV_LENGTH);
   const ciphertext = data.slice(IV_LENGTH);
 
-  const decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, aesKey, ciphertext);
+  const decrypted = await crypto.subtle.decrypt(
+    { name: "AES-GCM", iv },
+    aesKey,
+    ciphertext,
+  );
   return new Uint8Array(decrypted);
 }
 
@@ -94,7 +114,11 @@ export async function decryptBinaryPayload(
   const iv = encryptedData.slice(0, IV_LENGTH);
   const ciphertext = encryptedData.slice(IV_LENGTH);
 
-  const decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, aesKey, ciphertext);
+  const decrypted = await crypto.subtle.decrypt(
+    { name: "AES-GCM", iv },
+    aesKey,
+    ciphertext,
+  );
   return new Uint8Array(decrypted);
 }
 

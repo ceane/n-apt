@@ -15,7 +15,12 @@ export type SDRSettings = {
   rtlAGC?: boolean;
 };
 
-export type DeviceState = "connected" | "loading" | "disconnected" | "stale" | null;
+export type DeviceState =
+  | "connected"
+  | "loading"
+  | "disconnected"
+  | "stale"
+  | null;
 export type DeviceLoadingReason = "connect" | "restart" | null;
 
 export type WebSocketData = {
@@ -46,7 +51,8 @@ export function useWebSocket(
 ): WebSocketData {
   const [isConnected, setIsConnected] = useState(false);
   const [deviceState, setDeviceState] = useState<DeviceState>(null);
-  const [deviceLoadingReason, setDeviceLoadingReason] = useState<DeviceLoadingReason>(null);
+  const [deviceLoadingReason, setDeviceLoadingReason] =
+    useState<DeviceLoadingReason>(null);
   const [isPaused, setIsPaused] = useState(false);
   const [serverPaused, setServerPaused] = useState(false);
   const [backend, setBackend] = useState<string | null>(null);
@@ -101,7 +107,9 @@ export function useWebSocket(
     if (isConnected) {
       const interval = setInterval(() => {
         setData({
-          waveform: new Float32Array(1024).fill(-60).map((_, i) => -60 + Math.sin(i * 0.1) * 20),
+          waveform: new Float32Array(1024)
+            .fill(-60)
+            .map((_, i) => -60 + Math.sin(i * 0.1) * 20),
           timestamp: Date.now(),
           frequencyRange: { min: 0, max: 3.2 },
         });
@@ -162,7 +170,11 @@ export function useWebSocket(
   }, [isConnected]);
 
   const sendTrainingCommand = useCallback(
-    (action: "start" | "stop", label: "target" | "noise", signalArea: string) => {
+    (
+      action: "start" | "stop",
+      label: "target" | "noise",
+      signalArea: string,
+    ) => {
       if (!isConnected) {
         setError("Not connected");
         return;
@@ -173,22 +185,25 @@ export function useWebSocket(
   );
 
   // Mock error scenarios
-  const simulateError = useCallback((errorType: "connection" | "timeout" | "device") => {
-    switch (errorType) {
-      case "connection":
-        setError("Connection lost");
-        setIsConnected(false);
-        setDeviceState("disconnected");
-        break;
-      case "timeout":
-        setError("Request timeout");
-        break;
-      case "device":
-        setDeviceState("stale");
-        setError("Device error");
-        break;
-    }
-  }, []);
+  const simulateError = useCallback(
+    (errorType: "connection" | "timeout" | "device") => {
+      switch (errorType) {
+        case "connection":
+          setError("Connection lost");
+          setIsConnected(false);
+          setDeviceState("disconnected");
+          break;
+        case "timeout":
+          setError("Request timeout");
+          break;
+        case "device":
+          setDeviceState("stale");
+          setError("Device error");
+          break;
+      }
+    },
+    [],
+  );
 
   return {
     isConnected,

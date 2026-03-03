@@ -68,17 +68,29 @@
     <div class="test-section">
       <h2>📝 Markdown Content Negotiation Test</h2>
       <p>
-        Test the markdown-for-agents feature by requesting routes with different Accept headers.
+        Test the markdown-for-agents feature by requesting routes with different
+        Accept headers.
       </p>
 
-      <button class="test-button" onclick="testMarkdownNegotiation('/')">Test Root (/)</button>
-      <button class="test-button" onclick="testMarkdownNegotiation('/analysis')">
+      <button class="test-button" onclick="testMarkdownNegotiation('/')">
+        Test Root (/)
+      </button>
+      <button
+        class="test-button"
+        onclick="testMarkdownNegotiation('/analysis')"
+      >
         Test Analysis
       </button>
-      <button class="test-button" onclick="testMarkdownNegotiation('/3d-model')">
+      <button
+        class="test-button"
+        onclick="testMarkdownNegotiation('/3d-model')"
+      >
         Test 3D Model
       </button>
-      <button class="test-button" onclick="testMarkdownNegotiation('/hotspot-editor')">
+      <button
+        class="test-button"
+        onclick="testMarkdownNegotiation('/hotspot-editor')"
+      >
         Test Hotspot Editor
       </button>
 
@@ -87,11 +99,20 @@
 
     <div class="test-section">
       <h2>🛠️ WebMCP Tools Test</h2>
-      <p>Test WebMCP tool availability and registration (requires WebMCP-enabled browser).</p>
+      <p>
+        Test WebMCP tool availability and registration (requires WebMCP-enabled
+        browser).
+      </p>
 
-      <button class="test-button" onclick="testWebMCPAvailability()">Check WebMCP API</button>
-      <button class="test-button" onclick="listWebMCPTools()">List Available Tools</button>
-      <button class="test-button" onclick="testWebMCPExecution()">Test Tool Execution</button>
+      <button class="test-button" onclick="testWebMCPAvailability()">
+        Check WebMCP API
+      </button>
+      <button class="test-button" onclick="listWebMCPTools()">
+        List Available Tools
+      </button>
+      <button class="test-button" onclick="testWebMCPExecution()">
+        Test Tool Execution
+      </button>
 
       <div id="webmcp-result" class="result"></div>
     </div>
@@ -100,8 +121,12 @@
       <h2>🔍 Agent Detection Test</h2>
       <p>Test agent detection capabilities and headers.</p>
 
-      <button class="test-button" onclick="testAgentDetection()">Detect Current Agent</button>
-      <button class="test-button" onclick="showHeaders()">Show Request Headers</button>
+      <button class="test-button" onclick="testAgentDetection()">
+        Detect Current Agent
+      </button>
+      <button class="test-button" onclick="showHeaders()">
+        Show Request Headers
+      </button>
 
       <div id="agent-result" class="result"></div>
     </div>
@@ -112,7 +137,8 @@
 
       async function testMarkdownNegotiation(route) {
         const resultDiv = document.getElementById("markdown-result");
-        resultDiv.innerHTML = '<div class="info">Testing markdown negotiation...</div>';
+        resultDiv.innerHTML =
+          '<div class="info">Testing markdown negotiation...</div>';
 
         try {
           // Test with markdown content negotiation
@@ -172,7 +198,8 @@
         const resultDiv = document.getElementById("webmcp-result");
 
         if (!window.webmcp) {
-          resultDiv.innerHTML = '<div class="error">❌ WebMCP API not available</div>';
+          resultDiv.innerHTML =
+            '<div class="error">❌ WebMCP API not available</div>';
           return;
         }
 
@@ -198,13 +225,16 @@
         const resultDiv = document.getElementById("webmcp-result");
 
         if (!window.webmcp) {
-          resultDiv.innerHTML = '<div class="error">❌ WebMCP API not available</div>';
+          resultDiv.innerHTML =
+            '<div class="error">❌ WebMCP API not available</div>';
           return;
         }
 
         try {
           // Try to execute a simple tool (this will depend on what's registered)
-          const result = await window.webmcp.executeTool("setSourceMode", { mode: "live" });
+          const result = await window.webmcp.executeTool("setSourceMode", {
+            mode: "live",
+          });
 
           let output = "🔧 Tool Execution Result:\n\n";
           output += `Tool: setSourceMode\n`;
@@ -213,7 +243,9 @@
           output += `Result: ${JSON.stringify(result.result, null, 2)}`;
 
           resultDiv.innerHTML = output;
-          resultDiv.className = result.success ? "result success" : "result error";
+          resultDiv.className = result.success
+            ? "result success"
+            : "result error";
         } catch (error) {
           resultDiv.innerHTML = `<div class="error">❌ Error executing tool: ${error.message}</div>`;
           resultDiv.className = "result error";

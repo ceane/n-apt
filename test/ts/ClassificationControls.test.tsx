@@ -47,13 +47,21 @@ describe("ClassificationControls Component", () => {
   });
 
   it("should call onCaptureStop when active Target button is clicked", () => {
-    render(<ClassificationControls {...defaultProps} isCapturing={true} captureLabel="target" />);
+    render(
+      <ClassificationControls
+        {...defaultProps}
+        isCapturing={true}
+        captureLabel="target"
+      />,
+    );
     fireEvent.click(screen.getByText("Stop"));
     expect(defaultProps.onCaptureStop).toHaveBeenCalled();
   });
 
   it("should disable buttons when device is not connected", () => {
-    render(<ClassificationControls {...defaultProps} isDeviceConnected={false} />);
+    render(
+      <ClassificationControls {...defaultProps} isDeviceConnected={false} />,
+    );
     const targetBtn = screen.getByText("Target");
     const noiseBtn = screen.getByText("Noise");
     expect(targetBtn).toBeDisabled();
@@ -61,7 +69,13 @@ describe("ClassificationControls Component", () => {
   });
 
   it("should show capturing status when active", () => {
-    render(<ClassificationControls {...defaultProps} isCapturing={true} captureLabel="target" />);
+    render(
+      <ClassificationControls
+        {...defaultProps}
+        isCapturing={true}
+        captureLabel="target"
+      />,
+    );
     expect(screen.getByText(/target/)).toBeInTheDocument();
   });
 });

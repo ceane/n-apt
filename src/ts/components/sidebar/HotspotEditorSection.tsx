@@ -227,9 +227,6 @@ export const HotspotEditorSection: React.FC = () => {
     handleDeleteHotspot,
     handleDeleteSelected,
     handleHotspotClick,
-    handleRename,
-    handleExport,
-    handleImport,
     handleClear,
   } = useHotspotEditor();
 
@@ -256,7 +253,9 @@ export const HotspotEditorSection: React.FC = () => {
           </SettingLabelContainer>
           <SettingSelect
             value={hotspotSize}
-            onChange={(e) => setHotspotSize(e.target.value as "small" | "large")}
+            onChange={(e) =>
+              setHotspotSize(e.target.value as "small" | "large")
+            }
           >
             <option value="small">Small</option>
             <option value="large">Large</option>
@@ -269,7 +268,9 @@ export const HotspotEditorSection: React.FC = () => {
           </SettingLabelContainer>
           <SettingSelect
             value={symmetryMode}
-            onChange={(e) => setSymmetryMode(e.target.value as "none" | "x" | "y")}
+            onChange={(e) =>
+              setSymmetryMode(e.target.value as "none" | "x" | "y")
+            }
           >
             <option value="none">None</option>
             <option value="x">Left/Right</option>
@@ -292,7 +293,12 @@ export const HotspotEditorSection: React.FC = () => {
 
         {isMultiSelectMode && (
           <div
-            style={{ marginLeft: "12px", marginBottom: "16px", color: "#666", fontSize: "11px" }}
+            style={{
+              marginLeft: "12px",
+              marginBottom: "16px",
+              color: "#666",
+              fontSize: "11px",
+            }}
           >
             Selected: {multiSelectedHotspots.length} hotspots
           </div>
@@ -312,22 +318,6 @@ export const HotspotEditorSection: React.FC = () => {
 
       <Section>
         <SectionTitle>Actions</SectionTitle>
-
-        <Button $variant="primary" onClick={handleExport}>
-          Export JSON
-        </Button>
-
-        <SettingRow>
-          <SettingLabelContainer>
-            <SettingLabel>Import JSON</SettingLabel>
-          </SettingLabelContainer>
-          <SettingInput
-            type="file"
-            accept=".json"
-            onChange={handleImport}
-            style={{ padding: "2px" }}
-          />
-        </SettingRow>
 
         {isMultiSelectMode && multiSelectedHotspots.length > 0 && (
           <Button $variant="warning" onClick={handleDeleteSelected}>

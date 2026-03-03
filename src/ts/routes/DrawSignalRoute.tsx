@@ -1,7 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import styled from "styled-components";
 import { useDraw2DFFTSignal } from "@n-apt/hooks/useDraw2DFFTSignal";
-import { useDrawWebGPUFFTSignal, RESAMPLE_WGSL } from "@n-apt/hooks/useDrawWebGPUFFTSignal";
+import {
+  useDrawWebGPUFFTSignal,
+  RESAMPLE_WGSL,
+} from "@n-apt/hooks/useDrawWebGPUFFTSignal";
 import { useWebGPUInit } from "@n-apt/hooks/useWebGPUInit";
 import { useOverlayRenderer } from "@n-apt/hooks/useOverlayRenderer";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
@@ -40,7 +43,9 @@ export const DrawSignalRoute: React.FC = () => {
   const [data, setData] = useState<{ x: number; y: number }[]>([]);
   const containerRef = useRef<HTMLDivElement>(null);
   const [canvasNode, setCanvasNode] = useState<HTMLCanvasElement | null>(null);
-  const [gpuCanvasNode, setGpuCanvasNode] = useState<HTMLCanvasElement | null>(null);
+  const [gpuCanvasNode, setGpuCanvasNode] = useState<HTMLCanvasElement | null>(
+    null,
+  );
 
   // Store layout dimensions
   const dimsRef = useRef<{ width: number; height: number } | null>(null);
@@ -76,14 +81,16 @@ export const DrawSignalRoute: React.FC = () => {
 
   // Update data when parameters change
   useEffect(() => {
-    setData(generateMockNAPTData({
-      spikeCount,
-      spikeWidth,
-      centerSpikeBoost,
-      floorAmplitude,
-      decayRate,
-      envelopeWidth,
-    }));
+    setData(
+      generateMockNAPTData({
+        spikeCount,
+        spikeWidth,
+        centerSpikeBoost,
+        floorAmplitude,
+        decayRate,
+        envelopeWidth,
+      }),
+    );
   }, [
     spikeCount,
     spikeWidth,
@@ -91,7 +98,7 @@ export const DrawSignalRoute: React.FC = () => {
     floorAmplitude,
     decayRate,
     envelopeWidth,
-    generateMockNAPTData
+    generateMockNAPTData,
   ]);
 
   const forceRender = useCallback(() => {
@@ -110,7 +117,12 @@ export const DrawSignalRoute: React.FC = () => {
     const targetWidth = Math.max(1, Math.round(displayWidth * dpr));
     const targetHeight = Math.max(1, Math.round(displayHeight * dpr));
 
-    if (webgpuEnabled && webgpuDeviceRef.current && webgpuFormatRef.current && gpuCanvasNode) {
+    if (
+      webgpuEnabled &&
+      webgpuDeviceRef.current &&
+      webgpuFormatRef.current &&
+      gpuCanvasNode
+    ) {
       // Use WebGPU rendering
       const canvas = gpuCanvasNode;
 
@@ -146,7 +158,14 @@ export const DrawSignalRoute: React.FC = () => {
       if (gridOverlayRendererRef.current) {
         const overlay = gridOverlayRendererRef.current;
         const ctx = overlay.beginDraw(displayWidth, displayHeight, dpr);
-        drawGridOnContext(ctx, displayWidth, displayHeight, { min: 0, max: 3 }, -120, 0);
+        drawGridOnContext(
+          ctx,
+          displayWidth,
+          displayHeight,
+          { min: 0, max: 3 },
+          -120,
+          0,
+        );
         overlay.endDraw();
       }
 
@@ -202,7 +221,7 @@ export const DrawSignalRoute: React.FC = () => {
     drawGridOnContext,
     canvasNode,
     gpuCanvasNode,
-    isInitializingWebGPU
+    isInitializingWebGPU,
   ]);
 
   // Handle ResizeObserver
@@ -215,7 +234,7 @@ export const DrawSignalRoute: React.FC = () => {
         if (entry.target === container) {
           dimsRef.current = {
             width: container.clientWidth,
-            height: container.clientHeight
+            height: container.clientHeight,
           };
           forceRender();
         }
@@ -227,7 +246,7 @@ export const DrawSignalRoute: React.FC = () => {
     // Initial measure
     dimsRef.current = {
       width: container.clientWidth,
-      height: container.clientHeight
+      height: container.clientHeight,
     };
     forceRender();
 
@@ -244,13 +263,9 @@ export const DrawSignalRoute: React.FC = () => {
   return (
     <ChartContainer ref={containerRef}>
       {/* 2D Canvas (Fallback) */}
-      {!webgpuEnabled && (
-        <CanvasLayer ref={setCanvasNode} />
-      )}
+      {!webgpuEnabled && <CanvasLayer ref={setCanvasNode} />}
       {/* WebGPU Canvas */}
-      {webgpuEnabled && (
-        <CanvasLayer ref={setGpuCanvasNode} />
-      )}
+      {webgpuEnabled && <CanvasLayer ref={setGpuCanvasNode} />}
     </ChartContainer>
   );
 };

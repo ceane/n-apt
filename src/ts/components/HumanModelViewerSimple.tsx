@@ -27,17 +27,23 @@ function Model({ selectedArea }: { selectedArea: Area | null }) {
       {selectedArea && (
         <group position={selectedArea.target}>
           <mesh>
-            <sphereGeometry args={[0.1, SPHERE_GEOMETRY_SEGMENTS, SPHERE_GEOMETRY_SEGMENTS]} />
+            <sphereGeometry
+              args={[0.1, SPHERE_GEOMETRY_SEGMENTS, SPHERE_GEOMETRY_SEGMENTS]}
+            />
             <meshStandardMaterial
               color={SPHERE_MARKER_COLOR}
               emissive={SPHERE_MARKER_COLOR}
-              emissiveIntensity={selectedArea.name === "Head" ? 0 : SPHERE_MARKER_BASE_INTENSITY}
+              emissiveIntensity={
+                selectedArea.name === "Head" ? 0 : SPHERE_MARKER_BASE_INTENSITY
+              }
               transparent
               opacity={selectedArea.name === "Head" ? 0 : 0.4}
             />
           </mesh>
           <mesh>
-            <sphereGeometry args={[0.15, SPHERE_GEOMETRY_SEGMENTS, SPHERE_GEOMETRY_SEGMENTS]} />
+            <sphereGeometry
+              args={[0.15, SPHERE_GEOMETRY_SEGMENTS, SPHERE_GEOMETRY_SEGMENTS]}
+            />
             <meshStandardMaterial
               color={SPHERE_MARKER_COLOR}
               emissive={SPHERE_MARKER_COLOR}
@@ -47,7 +53,9 @@ function Model({ selectedArea }: { selectedArea: Area | null }) {
             />
           </mesh>
           <mesh>
-            <sphereGeometry args={[0.2, SPHERE_GEOMETRY_SEGMENTS, SPHERE_GEOMETRY_SEGMENTS]} />
+            <sphereGeometry
+              args={[0.2, SPHERE_GEOMETRY_SEGMENTS, SPHERE_GEOMETRY_SEGMENTS]}
+            />
             <meshStandardMaterial
               color={SPHERE_MARKER_COLOR}
               emissive={SPHERE_MARKER_COLOR}

@@ -14,7 +14,9 @@ export const DrawSignalSidebar: React.FC = () => {
     <SidebarContent>
       <DrawMockNAPTSidebar
         drawParams={state.drawParams}
-        onDrawParamsChange={(params) => dispatch({ type: "SET_DRAW_PARAMS", params })}
+        onDrawParamsChange={(params) =>
+          dispatch({ type: "SET_DRAW_PARAMS", params })
+        }
       />
     </SidebarContent>
   );

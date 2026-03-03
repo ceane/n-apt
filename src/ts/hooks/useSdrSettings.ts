@@ -1,6 +1,9 @@
 import { useCallback, useMemo, useRef, useEffect } from "react";
 import type { SDRSettings, SdrSettingsConfig } from "@n-apt/hooks/useWebSocket";
-import { useSpectrumStore, type SpectrumState } from "@n-apt/hooks/useSpectrumStore";
+import {
+  useSpectrumStore,
+  type SpectrumState,
+} from "@n-apt/hooks/useSpectrumStore";
 
 interface UseSdrSettingsProps {
   maxSampleRate: number;
@@ -41,7 +44,8 @@ export const computeMaxFrameRate = (
 ): number => {
   if (!fftSize) return 0;
   const theoretical = maxSampleRate / fftSize;
-  const limit = typeof maxFrameRateLimit === "number" ? maxFrameRateLimit : theoretical;
+  const limit =
+    typeof maxFrameRateLimit === "number" ? maxFrameRateLimit : theoretical;
   return Math.max(1, Math.floor(Math.min(theoretical, limit)));
 };
 
@@ -52,14 +56,22 @@ export const deriveStateFromConfig = (
   const fft = sdrSettings?.fft;
   const gainConfig = sdrSettings?.gain;
   const fftSize = typeof fft?.default_size === "number" ? fft.default_size : 0;
-  const maxFrameRate = computeMaxFrameRate(maxSampleRate, fftSize, fft?.max_frame_rate);
+  const maxFrameRate = computeMaxFrameRate(
+    maxSampleRate,
+    fftSize,
+    fft?.max_frame_rate,
+  );
   const rawFrameRate =
-    typeof fft?.default_frame_rate === "number" ? fft.default_frame_rate : maxFrameRate;
+    typeof fft?.default_frame_rate === "number"
+      ? fft.default_frame_rate
+      : maxFrameRate;
 
   return {
     fftSize,
     fftWindow: "Rectangular",
-    fftFrameRate: maxFrameRate ? Math.min(rawFrameRate, maxFrameRate) : rawFrameRate,
+    fftFrameRate: maxFrameRate
+      ? Math.min(rawFrameRate, maxFrameRate)
+      : rawFrameRate,
     gain:
       typeof gainConfig?.tuner_gain === "number" ? gainConfig.tuner_gain : 0,
     tunerAGC: gainConfig?.tuner_agc ?? false,
@@ -76,7 +88,11 @@ export const useSdrSettings = ({
   const { state, dispatch } = useSpectrumStore();
 
   const maxFrameRate = useMemo(() => {
-    return computeMaxFrameRate(maxSampleRate, state.fftSize, sdrSettings?.fft?.max_frame_rate);
+    return computeMaxFrameRate(
+      maxSampleRate,
+      state.fftSize,
+      sdrSettings?.fft?.max_frame_rate,
+    );
   }, [maxSampleRate, state.fftSize, sdrSettings]);
 
   const stateRef = useRef(state);
@@ -90,29 +106,38 @@ export const useSdrSettings = ({
     onSettingsChangeRef.current = onSettingsChange;
   }, [onSettingsChange]);
 
-  const sendCurrentSettings = useCallback((overrides: Partial<SDRSettings> = {}) => {
-    onSettingsChangeRef.current?.({
-      fftSize: stateRef.current.fftSize,
-      fftWindow: stateRef.current.fftWindow,
-      frameRate: stateRef.current.fftFrameRate,
-      gain: stateRef.current.gain,
-      ppm: stateRef.current.ppm,
-      tunerAGC: stateRef.current.tunerAGC,
-      rtlAGC: stateRef.current.rtlAGC,
-      ...overrides,
-    });
-  }, []);
+  const sendCurrentSettings = useCallback(
+    (overrides: Partial<SDRSettings> = {}) => {
+      onSettingsChangeRef.current?.({
+        fftSize: stateRef.current.fftSize,
+        fftWindow: stateRef.current.fftWindow,
+        frameRate: stateRef.current.fftFrameRate,
+        gain: stateRef.current.gain,
+        ppm: stateRef.current.ppm,
+        tunerAGC: stateRef.current.tunerAGC,
+        rtlAGC: stateRef.current.rtlAGC,
+        ...overrides,
+      });
+    },
+    [],
+  );
 
   const setFftSize = useCallback(
     (size: number) => {
-      dispatch({ type: "SET_SDR_SETTINGS_BUNDLE", settings: { fftSize: size } });
+      dispatch({
+        type: "SET_SDR_SETTINGS_BUNDLE",
+        settings: { fftSize: size },
+      });
       sendCurrentSettings({ fftSize: size });
     },
     [dispatch, sendCurrentSettings],
   );
   const setFftWindow = useCallback(
     (window: string) => {
-      dispatch({ type: "SET_SDR_SETTINGS_BUNDLE", settings: { fftWindow: window } });
+      dispatch({
+        type: "SET_SDR_SETTINGS_BUNDLE",
+        settings: { fftWindow: window },
+      });
       sendCurrentSettings({ fftWindow: window });
     },
     [dispatch, sendCurrentSettings],
@@ -133,14 +158,20 @@ export const useSdrSettings = ({
   );
   const setTunerAGC = useCallback(
     (enabled: boolean) => {
-      dispatch({ type: "SET_SDR_SETTINGS_BUNDLE", settings: { tunerAGC: enabled } });
+      dispatch({
+        type: "SET_SDR_SETTINGS_BUNDLE",
+        settings: { tunerAGC: enabled },
+      });
       sendCurrentSettings({ tunerAGC: enabled });
     },
     [dispatch, sendCurrentSettings],
   );
   const setRtlAGC = useCallback(
     (enabled: boolean) => {
-      dispatch({ type: "SET_SDR_SETTINGS_BUNDLE", settings: { rtlAGC: enabled } });
+      dispatch({
+        type: "SET_SDR_SETTINGS_BUNDLE",
+        settings: { rtlAGC: enabled },
+      });
       sendCurrentSettings({ rtlAGC: enabled });
     },
     [dispatch, sendCurrentSettings],
@@ -186,7 +217,11 @@ export const useSdrSettings = ({
   const skipFrameRateSyncRef = useRef(false);
 
   const scheduleCoupledAdjustment = useCallback(
-    (trigger: "fftSize" | "frameRate", nextFftSize: number, nextFrameRate: number) => {
+    (
+      trigger: "fftSize" | "frameRate",
+      nextFftSize: number,
+      nextFrameRate: number,
+    ) => {
       if (couplingTimerRef.current !== null) {
         window.clearTimeout(couplingTimerRef.current);
       }
@@ -207,7 +242,9 @@ export const useSdrSettings = ({
           return;
         }
 
-        const maxFftSizeForRate = Math.floor(maxSampleRate / Math.max(1, nextFrameRate));
+        const maxFftSizeForRate = Math.floor(
+          maxSampleRate / Math.max(1, nextFrameRate),
+        );
         let desiredFftSize = fftSizeOptions[0];
         if (desiredFftSize === undefined) {
           return;

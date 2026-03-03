@@ -49,9 +49,15 @@ export const InitializingTitle = styled.h2`
   animation: pulse 1.5s ease-in-out infinite;
 
   @keyframes pulse {
-    0% { opacity: 0.4; }
-    50% { opacity: 1; }
-    100% { opacity: 0.4; }
+    0% {
+      opacity: 0.4;
+    }
+    50% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 0.4;
+    }
   }
 `;
 

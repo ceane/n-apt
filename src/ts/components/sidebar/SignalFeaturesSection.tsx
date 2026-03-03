@@ -114,9 +114,14 @@ export const SignalFeaturesSection: React.FC<SignalFeaturesSectionProps> = ({
 
   return (
     <Section>
-      <CollapsibleSectionHeader type="button" onClick={() => setIsOpen((prev) => !prev)}>
+      <CollapsibleSectionHeader
+        type="button"
+        onClick={() => setIsOpen((prev) => !prev)}
+      >
         <CollapsibleSectionLabel>Signal Features /</CollapsibleSectionLabel>
-        <CollapsibleSectionToggle>{isOpen ? "-" : "+"}</CollapsibleSectionToggle>
+        <CollapsibleSectionToggle>
+          {isOpen ? "-" : "+"}
+        </CollapsibleSectionToggle>
       </CollapsibleSectionHeader>
 
       {isOpen && (
@@ -125,7 +130,11 @@ export const SignalFeaturesSection: React.FC<SignalFeaturesSectionProps> = ({
             <SettingLabelContainer>
               <SettingLabel>
                 N-APT
-                <span role="img" aria-label="brain" style={{ marginLeft: "6px" }}>
+                <span
+                  role="img"
+                  aria-label="brain"
+                  style={{ marginLeft: "6px" }}
+                >
                   🧠
                 </span>
               </SettingLabel>
@@ -135,7 +144,9 @@ export const SignalFeaturesSection: React.FC<SignalFeaturesSectionProps> = ({
               />
             </SettingLabelContainer>
             <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-              <div style={{ fontSize: "12px", color: "#ccc", fontWeight: 500 }}>{classificationStatusText}</div>
+              <div style={{ fontSize: "12px", color: "#ccc", fontWeight: 500 }}>
+                {classificationStatusText}
+              </div>
               <button
                 disabled={classificationDisabled}
                 style={{

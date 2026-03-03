@@ -25,9 +25,14 @@ export default function FFTStitcherCanvas(props: any) {
       try {
         // Simulate file reading - check if FileReader is mocked to throw error
         const FileReaderMock = global.FileReader as any;
-        if (FileReaderMock && FileReaderMock.mock && FileReaderMock.mock.calls.length > 0) {
+        if (
+          FileReaderMock &&
+          FileReaderMock.mock &&
+          FileReaderMock.mock.calls.length > 0
+        ) {
           const mockInstance =
-            FileReaderMock.mock.results[FileReaderMock.mock.results.length - 1]?.value;
+            FileReaderMock.mock.results[FileReaderMock.mock.results.length - 1]
+              ?.value;
           if (mockInstance && mockInstance.__shouldThrowError) {
             throw new Error("File read error");
           }

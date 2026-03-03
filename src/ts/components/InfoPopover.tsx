@@ -48,7 +48,7 @@ const InfoIcon = styled.div`
 const PopoverContent = styled.div.attrs<{
   $visible: boolean;
   $placement?: "right" | "left" | "top" | "bottom";
-}>(props => ({
+}>((props) => ({
   style: {
     opacity: props.$visible ? 1 : 0,
     visibility: props.$visible ? "visible" : "hidden",
@@ -210,7 +210,9 @@ const InfoPopover = ({ title = "Information", content }: InfoPopoverProps) => {
   const [isVisible, setIsVisible] = useState(false);
   const [isClicked, setIsClicked] = useState(false);
   const [position, setPosition] = useState({ x: 0, y: 0 });
-  const [placement, setPlacement] = useState<"right" | "left" | "top" | "bottom">("right");
+  const [placement, setPlacement] = useState<
+    "right" | "left" | "top" | "bottom"
+  >("right");
   const [popoverHeight, setPopoverHeight] = useState(120);
   const iconRef = useRef<HTMLDivElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -298,7 +300,11 @@ const InfoPopover = ({ title = "Information", content }: InfoPopoverProps) => {
 
   useEffect(() => {
     const handleGlobalClick = (e: MouseEvent) => {
-      if (isClicked && iconRef.current && !iconRef.current.contains(e.target as Node)) {
+      if (
+        isClicked &&
+        iconRef.current &&
+        !iconRef.current.contains(e.target as Node)
+      ) {
         setIsClicked(false);
         setIsVisible(false);
       }

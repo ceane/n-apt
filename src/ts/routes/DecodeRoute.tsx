@@ -71,7 +71,8 @@ export const DecodeRoute: React.FC = () => {
           />
         </DecodeTitleWrapper>
         <DecodeDescription>
-          Advanced signal decoding and feature extraction using machine learning.
+          Advanced signal decoding and feature extraction using machine
+          learning.
         </DecodeDescription>
         <FeaturesContainer>
           <FeaturesLabel>Features:</FeaturesLabel>
@@ -83,7 +84,8 @@ export const DecodeRoute: React.FC = () => {
           </FeaturesList>
         </FeaturesContainer>
         <IntegrationNote>
-          FFT and waterfall display will be integrated here with ML decoding capabilities.
+          FFT and waterfall display will be integrated here with ML decoding
+          capabilities.
         </IntegrationNote>
       </DecodeContent>
     </DecodeContainer>

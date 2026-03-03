@@ -191,7 +191,9 @@ interface SnapshotControlsSectionProps {
   onSnapshot: () => void;
 }
 
-export const SnapshotControlsSection: React.FC<SnapshotControlsSectionProps> = ({
+export const SnapshotControlsSection: React.FC<
+  SnapshotControlsSectionProps
+> = ({
   isOpen,
   onToggle,
   snapshotWhole,
@@ -221,7 +223,9 @@ export const SnapshotControlsSection: React.FC<SnapshotControlsSectionProps> = (
             </SettingLabelContainer>
             <SettingSelect
               value={snapshotWhole ? "whole" : "onscreen"}
-              onChange={(e) => onSnapshotWholeChange(e.target.value === "whole")}
+              onChange={(e) =>
+                onSnapshotWholeChange(e.target.value === "whole")
+              }
               style={{ minWidth: "120px" }}
             >
               <option value="onscreen">On screen</option>
@@ -237,7 +241,9 @@ export const SnapshotControlsSection: React.FC<SnapshotControlsSectionProps> = (
               <ToggleSwitchInput
                 type="checkbox"
                 checked={snapshotShowWaterfall}
-                onChange={(e) => onSnapshotShowWaterfallChange(e.target.checked)}
+                onChange={(e) =>
+                  onSnapshotShowWaterfallChange(e.target.checked)
+                }
               />
               <ToggleSwitchSlider />
             </ToggleSwitch>
@@ -251,7 +257,9 @@ export const SnapshotControlsSection: React.FC<SnapshotControlsSectionProps> = (
               <ToggleSwitchInput
                 type="checkbox"
                 checked={snapshotGridPreference}
-                onChange={(e) => onSnapshotGridPreferenceChange(e.target.checked)}
+                onChange={(e) =>
+                  onSnapshotGridPreferenceChange(e.target.checked)
+                }
               />
               <ToggleSwitchSlider />
             </ToggleSwitch>
@@ -277,7 +285,9 @@ export const SnapshotControlsSection: React.FC<SnapshotControlsSectionProps> = (
             </SettingLabelContainer>
             <SettingSelect
               value={snapshotFormat}
-              onChange={(e) => onSnapshotFormatChange(e.target.value as "png" | "svg")}
+              onChange={(e) =>
+                onSnapshotFormatChange(e.target.value as "png" | "svg")
+              }
               style={{ minWidth: "110px" }}
             >
               <option value="png">PNG</option>

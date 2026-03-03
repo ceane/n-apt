@@ -1,4 +1,11 @@
-import React, { createContext, useContext, useState, useRef, useMemo, ReactNode } from "react";
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useRef,
+  useMemo,
+  ReactNode,
+} from "react";
 
 type Area = {
   name: string;
@@ -19,7 +26,9 @@ interface Model3DProviderProps {
   children: ReactNode;
 }
 
-export const Model3DProvider: React.FC<Model3DProviderProps> = ({ children }) => {
+export const Model3DProvider: React.FC<Model3DProviderProps> = ({
+  children,
+}) => {
   const [selectedArea, setSelectedArea] = useState<Area | null>(null);
   const controlsRef = useRef<any>(null);
 
@@ -32,7 +41,11 @@ export const Model3DProvider: React.FC<Model3DProviderProps> = ({ children }) =>
     [selectedArea],
   );
 
-  return React.createElement(Model3DContext.Provider, { value: contextValue }, children);
+  return React.createElement(
+    Model3DContext.Provider,
+    { value: contextValue },
+    children,
+  );
 };
 
 export const useModel3D = (): Model3DContextType => {

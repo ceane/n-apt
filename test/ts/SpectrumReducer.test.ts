@@ -79,7 +79,8 @@ jest.mock("@n-apt/hooks/useModel3D", () => ({
 
 jest.mock("@n-apt/hooks/useHotspotEditor", () => ({
   useHotspotEditor: () => ({}),
-  HotspotEditorProvider: ({ children }: { children: React.ReactNode }) => children,
+  HotspotEditorProvider: ({ children }: { children: React.ReactNode }) =>
+    children,
 }));
 
 jest.mock("@n-apt/components/sidebar/SidebarForRoute", () => ({
@@ -291,10 +292,9 @@ describe("spectrumReducer", () => {
   });
 
   it("returns same state for unknown action type", () => {
-    const next = spectrumReducer(
-      INITIAL_SPECTRUM_STATE,
-      { type: "UNKNOWN_ACTION" } as any,
-    );
+    const next = spectrumReducer(INITIAL_SPECTRUM_STATE, {
+      type: "UNKNOWN_ACTION",
+    } as any);
     expect(next).toBe(INITIAL_SPECTRUM_STATE);
   });
 });

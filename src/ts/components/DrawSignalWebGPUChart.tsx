@@ -142,7 +142,12 @@ const DrawSignalWebGPUChart: React.FC<DrawSignalWebGPUChartProps> = ({
   };
 
   const ensurePipelines = (device: GPUDevice, format: GPUTextureFormat) => {
-    if (linePipelineRef.current && gridPipelineRef.current && axisPipelineRef.current) return;
+    if (
+      linePipelineRef.current &&
+      gridPipelineRef.current &&
+      axisPipelineRef.current
+    )
+      return;
 
     // Line pipeline
     const vertexShaderCode = `
@@ -333,7 +338,11 @@ const DrawSignalWebGPUChart: React.FC<DrawSignalWebGPUChartProps> = ({
     }
 
     // Generate axis vertices
-    const axisVertices = generateAxisVertices(chartData, canvas.width, canvas.height);
+    const axisVertices = generateAxisVertices(
+      chartData,
+      canvas.width,
+      canvas.height,
+    );
 
     // Create or update buffers
     let lineVertexBuffer: GPUBuffer;
@@ -529,7 +538,9 @@ const DrawSignalWebGPUChart: React.FC<DrawSignalWebGPUChartProps> = ({
   return (
     <CanvasContainer>
       <Canvas ref={canvasRef} width={width} height={height} />
-      {isSupported === null && <FallbackMessage>Initializing WebGPU...</FallbackMessage>}
+      {isSupported === null && (
+        <FallbackMessage>Initializing WebGPU...</FallbackMessage>
+      )}
       {isSupported === false && (
         <FallbackMessage>
           <div>WebGPU not available</div>

@@ -136,7 +136,12 @@ export const WebGPULineChart: React.FC<WebGPULineChartProps> = ({
   };
 
   const ensurePipelines = (device: GPUDevice, format: GPUTextureFormat) => {
-    if (linePipelineRef.current && gridPipelineRef.current && axisPipelineRef.current) return;
+    if (
+      linePipelineRef.current &&
+      gridPipelineRef.current &&
+      axisPipelineRef.current
+    )
+      return;
 
     const vertexShaderCode = `
       struct VertexOutput {
@@ -167,7 +172,9 @@ export const WebGPULineChart: React.FC<WebGPULineChartProps> = ({
     `;
 
     const vertexShader = device.createShaderModule({ code: vertexShaderCode });
-    const fragmentShader = device.createShaderModule({ code: fragmentShaderCode });
+    const fragmentShader = device.createShaderModule({
+      code: fragmentShaderCode,
+    });
 
     const vertexBuffers: GPUVertexBufferLayout[] = [
       {
@@ -178,7 +185,11 @@ export const WebGPULineChart: React.FC<WebGPULineChartProps> = ({
 
     linePipelineRef.current = device.createRenderPipeline({
       layout: "auto",
-      vertex: { module: vertexShader, entryPoint: "main", buffers: vertexBuffers },
+      vertex: {
+        module: vertexShader,
+        entryPoint: "main",
+        buffers: vertexBuffers,
+      },
       fragment: {
         module: fragmentShader,
         entryPoint: "main",
@@ -189,7 +200,11 @@ export const WebGPULineChart: React.FC<WebGPULineChartProps> = ({
 
     gridPipelineRef.current = device.createRenderPipeline({
       layout: "auto",
-      vertex: { module: vertexShader, entryPoint: "main", buffers: vertexBuffers },
+      vertex: {
+        module: vertexShader,
+        entryPoint: "main",
+        buffers: vertexBuffers,
+      },
       fragment: {
         module: fragmentShader,
         entryPoint: "main",
@@ -200,7 +215,11 @@ export const WebGPULineChart: React.FC<WebGPULineChartProps> = ({
 
     axisPipelineRef.current = device.createRenderPipeline({
       layout: "auto",
-      vertex: { module: vertexShader, entryPoint: "main", buffers: vertexBuffers },
+      vertex: {
+        module: vertexShader,
+        entryPoint: "main",
+        buffers: vertexBuffers,
+      },
       fragment: {
         module: fragmentShader,
         entryPoint: "main",
@@ -239,17 +258,23 @@ export const WebGPULineChart: React.FC<WebGPULineChartProps> = ({
     // Create bind groups
     lineBindGroupRef.current = device.createBindGroup({
       layout: linePipelineRef.current.getBindGroupLayout(0),
-      entries: [{ binding: 0, resource: { buffer: lineUniformBufferRef.current } }],
+      entries: [
+        { binding: 0, resource: { buffer: lineUniformBufferRef.current } },
+      ],
     });
 
     gridBindGroupRef.current = device.createBindGroup({
       layout: gridPipelineRef.current.getBindGroupLayout(0),
-      entries: [{ binding: 0, resource: { buffer: gridUniformBufferRef.current } }],
+      entries: [
+        { binding: 0, resource: { buffer: gridUniformBufferRef.current } },
+      ],
     });
 
     axisBindGroupRef.current = device.createBindGroup({
       layout: axisPipelineRef.current.getBindGroupLayout(0),
-      entries: [{ binding: 0, resource: { buffer: axisUniformBufferRef.current } }],
+      entries: [
+        { binding: 0, resource: { buffer: axisUniformBufferRef.current } },
+      ],
     });
   };
 
@@ -297,8 +322,12 @@ export const WebGPULineChart: React.FC<WebGPULineChartProps> = ({
     const vertices: number[] = [];
     for (let i = 0; i < chartData.length; i++) {
       const point = chartData[i];
-      const x = padding + ((point.freq - xMin) / (xMax - xMin || 1)) * chartWidth;
-      const y = canvasHeight - padding - ((point.x - yMin) / (yMax - yMin || 1)) * chartHeight;
+      const x =
+        padding + ((point.freq - xMin) / (xMax - xMin || 1)) * chartWidth;
+      const y =
+        canvasHeight -
+        padding -
+        ((point.x - yMin) / (yMax - yMin || 1)) * chartHeight;
 
       const ndcX = (x / canvasWidth) * 2 - 1;
       const ndcY = -((y / canvasHeight) * 2 - 1);
@@ -324,7 +353,11 @@ export const WebGPULineChart: React.FC<WebGPULineChartProps> = ({
     }
 
     // Generate axis vertices
-    const axisVertices = generateAxisVertices(chartData, canvasWidth, canvasHeight);
+    const axisVertices = generateAxisVertices(
+      chartData,
+      canvasWidth,
+      canvasHeight,
+    );
 
     const lineData = new Float32Array(vertices);
     const gridData = new Float32Array(gridVertices);
@@ -354,7 +387,11 @@ export const WebGPULineChart: React.FC<WebGPULineChartProps> = ({
     });
     device.queue.writeBuffer(axisVertexBuffer, 0, axisData);
 
-    lastBuffersRef.current = { lineVertexBuffer, gridVertexBuffer, axisVertexBuffer };
+    lastBuffersRef.current = {
+      lineVertexBuffer,
+      gridVertexBuffer,
+      axisVertexBuffer,
+    };
 
     // Render
     const commandEncoder = device.createCommandEncoder();
@@ -444,7 +481,9 @@ export const WebGPULineChart: React.FC<WebGPULineChartProps> = ({
       } catch (e) {
         if (cancelled) return;
         setIsSupported(false);
-        setError(e instanceof Error ? e.message : "WebGPU initialization failed");
+        setError(
+          e instanceof Error ? e.message : "WebGPU initialization failed",
+        );
       }
     };
 
@@ -484,7 +523,9 @@ export const WebGPULineChart: React.FC<WebGPULineChartProps> = ({
   return (
     <CanvasContainer>
       <Canvas ref={canvasRef} width={width} height={height} />
-      {isSupported === null && <FallbackMessage>Initializing WebGPU...</FallbackMessage>}
+      {isSupported === null && (
+        <FallbackMessage>Initializing WebGPU...</FallbackMessage>
+      )}
       {isSupported === false && (
         <FallbackMessage>
           <div>WebGPU not available</div>

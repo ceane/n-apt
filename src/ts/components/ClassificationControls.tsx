@@ -21,11 +21,18 @@ const Label = styled.span`
   white-space: nowrap;
 `;
 
-const CaptureButton = styled.button<{ $active: boolean; $variant: "target" | "noise" }>`
+const CaptureButton = styled.button<{
+  $active: boolean;
+  $variant: "target" | "noise";
+}>`
   padding: 5px 14px;
   border-radius: 4px;
   border: 1px solid ${(props) =>
-    props.$active ? (props.$variant === "target" ? "#00cc66" : "#ff6644") : "#333"};
+    props.$active
+      ? props.$variant === "target"
+        ? "#00cc66"
+        : "#ff6644"
+      : "#333"};
   background: ${(props) =>
     props.$active
       ? props.$variant === "target"
@@ -33,7 +40,11 @@ const CaptureButton = styled.button<{ $active: boolean; $variant: "target" | "no
         : "rgba(255, 102, 68, 0.15)"
       : "transparent"};
   color: ${(props) =>
-    props.$active ? (props.$variant === "target" ? "#00cc66" : "#ff6644") : "#888"};
+    props.$active
+      ? props.$variant === "target"
+        ? "#00cc66"
+        : "#ff6644"
+      : "#888"};
   font-family: "JetBrains Mono", monospace;
   font-size: 11px;
   font-weight: 600;
@@ -123,7 +134,10 @@ const ClassificationControls: React.FC<ClassificationControlsProps> = ({
   useEffect(() => {
     if (isCapturing) {
       const startTime = Date.now();
-      timerRef.current = window.setInterval(() => setElapsedMs(Date.now() - startTime), 100);
+      timerRef.current = window.setInterval(
+        () => setElapsedMs(Date.now() - startTime),
+        100,
+      );
 
       return () => {
         if (timerRef.current) window.clearInterval(timerRef.current);

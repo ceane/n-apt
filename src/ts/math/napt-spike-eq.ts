@@ -11,14 +11,14 @@ const calculateX = (t: number, params: MockNAPTParams) => {
   // Frequency comb with sine wave spikes and exponential height decay
   // over t ∈ [-1, 1], modulated by Gaussian envelope
 
-  const { 
+  const {
     spikeCount,
     spikeWidth,
     centerSpikeBoost,
     floorAmplitude,
-    decayRate, 
-    envelopeWidth } = params;
-
+    decayRate,
+    envelopeWidth,
+  } = params;
 
   const N = spikeCount;
   const half = Math.floor((N - 1) / 2);

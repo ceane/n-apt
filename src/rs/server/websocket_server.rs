@@ -82,7 +82,12 @@ impl WebSocketServer {
                             }
                         }
                         crate::server::types::SdrCommand::SetFrequency(freq) => {
-                            if let Err(e) = processor.set_center_frequency(freq) {
+                            // During active captures, the hopping logic in read_and_process_frame
+                            // exclusively controls the SDR frequency. UI frequency range changes 
+                            // must NOT retune the hardware or they corrupt capture frames.
+                            if processor.capture_active {
+                                log::debug!("Ignoring SetFrequency during active capture");
+                            } else if let Err(e) = processor.set_center_frequency(freq) {
                                 error!("Failed to set frequency: {}", e);
                             }
                         }
@@ -111,6 +116,112 @@ impl WebSocketServer {
                                 error!("Failed to restart device: {}", e);
                             }
                         }
+                        crate::server::types::SdrCommand::StartCapture { job_id, fragments, duration_s, file_type, acquisition_mode, encrypted, fft_window, .. } => {
+                            processor.capture_job_id = Some(job_id.clone());
+                            processor.capture_duration_s = duration_s;
+                            processor.capture_file_type = file_type;
+                            
+                            let mode_str = if acquisition_mode == "stepwise" {
+                                "stepwise_naive".to_string()
+                            } else {
+                                acquisition_mode
+                            };
+                            processor.capture_acquisition_mode = mode_str.clone();
+                            info!("[CAPTURE] acquisition_mode={}, fragments={}, hops will be computed next", mode_str, fragments.len());
+                            
+                            processor.capture_current_fragment = 0;
+                            processor.capture_last_hop = Some(std::time::Instant::now());
+                            processor.capture_encrypted = encrypted;
+                            processor.capture_start = Some(std::time::Instant::now());
+                            processor.capture_actual_frames = 0;
+                            // Snapshot current settings
+                            processor.capture_fft_window = fft_window;
+                            processor.capture_gain = processor.current_gain_db;
+                            processor.capture_ppm = processor.current_ppm;
+                            // AGC state is not tracked in config, default false for now
+                            processor.capture_tuner_agc = false;
+                            processor.capture_rtl_agc = false;
+
+                            let hw_sample_rate = processor.get_sample_rate() as f64;
+                            let usable_bw_mhz = hw_sample_rate / 1_000_000.0;
+                            
+                            let mut all_hops: Vec<(f64, f64)> = Vec::new();
+                            // Track the overall requested range for metadata
+                            let mut overall_min = f64::INFINITY;
+                            let mut overall_max = f64::NEG_INFINITY;
+                            
+                            for &(min_freq, max_freq) in &fragments {
+                                overall_min = overall_min.min(min_freq);
+                                overall_max = overall_max.max(max_freq);
+                                
+                                let span = max_freq - min_freq;
+                                if span <= usable_bw_mhz {
+                                    // Single hop: center the window on the requested range
+                                    let center = (min_freq + max_freq) / 2.0;
+                                    let hop_start = center - usable_bw_mhz / 2.0;
+                                    all_hops.push((hop_start, hop_start + usable_bw_mhz));
+                                } else {
+                                    // Sliding window: first hop starts at min_freq,
+                                    // last hop ends at max_freq, with overlap in between
+                                    let num_hops = (span / usable_bw_mhz).ceil() as usize;
+                                    if num_hops <= 1 {
+                                        all_hops.push((min_freq, min_freq + usable_bw_mhz));
+                                    } else {
+                                        // Distribute hops so first starts at min_freq, last ends at max_freq
+                                        let step = (span - usable_bw_mhz) / ((num_hops - 1) as f64);
+                                        for i in 0..num_hops {
+                                            let start = min_freq + (i as f64 * step);
+                                            let end = start + usable_bw_mhz;
+                                            all_hops.push((start, end));
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            // Compute overall metadata from the REQUESTED range (not hops)
+                            let overall_span_hz = (overall_max - overall_min) * 1_000_000.0;
+                            let overall_center_hz = ((overall_min + overall_max) / 2.0) * 1_000_000.0;
+
+                            processor.capture_fragments = all_hops.clone();
+                            processor.capture_channels = all_hops.iter().map(|&(min_freq, _max_freq)| {
+                                let center_freq = (min_freq * 1_000_000.0) + (hw_sample_rate / 2.0);
+                                crate::sdr::processor::CaptureChannel {
+                                    center_freq_hz: center_freq,
+                                    sample_rate_hz: hw_sample_rate,
+                                    iq_data: Vec::new(),
+                                    spectrum_data: Vec::new(),
+                                    bins_per_frame: 0,
+                                }
+                            }).collect();
+                            
+                            processor.capture_active = true;
+                            processor.capture_overall_center_hz = overall_center_hz;
+                            processor.capture_overall_span_hz = overall_span_hz;
+                            
+                            // Tune to the first hop if available
+                            if let Some(&(min_freq, max_freq)) = all_hops.first() {
+                                let center_freq = ((min_freq * 1000000.0) + (hw_sample_rate / 2.0)) as u32;
+                                if let Err(e) = processor.set_center_frequency(center_freq) {
+                                    error!("Failed to tune to first fragment: {}", e);
+                                } else {
+                                    info!("Tuned to initial capture fragment: {} MHz - {} MHz (center {} Hz)", min_freq, max_freq, center_freq);
+                                }
+                            }
+                            
+                            // Auto-unpause for capture
+                            shared_state.is_paused.store(false, Ordering::Relaxed);
+                            
+                            info!("Started capture job {} for {}s (auto-unpaused)", job_id, duration_s);
+
+                            let msg = serde_json::json!({
+                                "message_type": "capture_status",
+                                "status": {
+                                    "jobId": job_id,
+                                    "status": "started"
+                                }
+                            });
+                            let _ = _broadcast_tx.send(msg.to_string());
+                        }
                         _ => {
                             warn!("Unhandled command: {:?}", cmd);
                         }
@@ -131,7 +242,7 @@ impl WebSocketServer {
                         let waveform = processor.read_and_process_frame()?;
                         let timestamp = chrono::Utc::now().timestamp_millis();
                         let center_frequency = processor.get_center_frequency();
-                        let is_mock_apt = processor.device_type() == "mock_apt";
+                        let is_mock_apt = processor.device_type().contains("Mock");
                         let device_type = processor.device_type().to_string();
                         Ok((waveform, timestamp, center_frequency, is_mock_apt, device_type))
                     }).await
@@ -171,11 +282,57 @@ impl WebSocketServer {
                             }
                             Ok(())
                         }).await;
-                        tokio::time::sleep(Duration::from_secs(1)).await;
+                        // Wait for settling
+                        tokio::time::sleep(Duration::from_millis(250)).await;
                     }
                     Err(join_e) => {
                         error!("SDR block join error: {}", join_e);
                     }
+                }
+
+                // 3. Check capture completion
+                let capture_result = { sdr_processor.lock().await.check_capture_completion() };
+                if let Some(result) = capture_result {
+                    let enc_key = shared_state.encryption_key;
+                    let shared_clone = shared_state.clone();
+                    let bcast = _broadcast_tx.clone();
+                    
+                    tokio::task::spawn_blocking(move || {
+                        match crate::server::utils::save_capture_file_multi(
+                            &result,
+                            &enc_key,
+                        ) {
+                            Ok(artifact) => {
+                                let mut artifacts = shared_clone.capture_artifacts.lock().unwrap();
+                                artifacts.entry(result.job_id.clone()).or_insert_with(Vec::new).push(artifact.clone());
+                                
+                                let file_name = artifact.filename.clone();
+
+                                let msg = serde_json::json!({
+                                    "message_type": "capture_status",
+                                    "status": {
+                                        "jobId": result.job_id,
+                                        "status": "done",
+                                        "filename": file_name,
+                                        "downloadUrl": format!("/api/capture/download?jobId={}", result.job_id)
+                                    }
+                                });
+                                let _ = bcast.send(msg.to_string());
+                            }
+                            Err(e) => {
+                                error!("Failed to save capture file: {}", e);
+                                let msg = serde_json::json!({
+                                    "message_type": "capture_status",
+                                    "status": {
+                                        "jobId": result.job_id,
+                                        "status": "failed",
+                                        "error": e.to_string()
+                                    }
+                                });
+                                let _ = bcast.send(msg.to_string());
+                            }
+                        }
+                    });
                 }
                 
                 // Maintain target frame rate

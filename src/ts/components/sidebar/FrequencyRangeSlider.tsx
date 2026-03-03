@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import styled from "styled-components";
 import { FrequencyRange } from "@n-apt/hooks/useWebSocket";
-import { formatFrequency } from "../consts/sdr";
+import { formatFrequency } from "@n-apt/consts/sdr";
 import {
   STEP_SIZE,
   COLORS,
@@ -151,7 +151,9 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   const windowWidth = (actualVisibleMax - visibleMin) / totalRange;
 
   // Initialize windowStart from props
-  const [windowStart, setWindowStart] = useState((visibleMin - minFreq) / totalRange);
+  const [windowStart, setWindowStart] = useState(
+    (visibleMin - minFreq) / totalRange,
+  );
 
   // Sync windowStart when visibleMin or visibleMax change (from zoom/pan)
   useEffect(() => {
@@ -231,7 +233,10 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   }
 
   const currentMin = Math.max(minFreq, minFreq + windowStart * totalRange);
-  const currentMax = Math.min(maxFreq, minFreq + (windowStart + windowWidth) * totalRange);
+  const currentMax = Math.min(
+    maxFreq,
+    minFreq + (windowStart + windowWidth) * totalRange,
+  );
 
   // Calculate label positions to avoid collision
   const calculateLabelPositions = useCallback(() => {
@@ -278,7 +283,15 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
       lastNotifiedChangeIdRef.current = internalChangeIdRef.current;
       notifyParent();
     }
-  }, [windowStart, isActive, onRangeChange, currentMin, currentMax, isDragging, notifyParent]);
+  }, [
+    windowStart,
+    isActive,
+    onRangeChange,
+    currentMin,
+    currentMax,
+    isDragging,
+    notifyParent,
+  ]);
 
   const formatFreq = useCallback((freq: number) => {
     return formatFrequency(freq);
@@ -289,7 +302,8 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
       const stepPercent = STEP_SIZE / totalRange;
       internalChangeIdRef.current += 1;
       setWindowStart((prev) => {
-        const newStart = prev + (direction === "up" ? stepPercent : -stepPercent);
+        const newStart =
+          prev + (direction === "up" ? stepPercent : -stepPercent);
         return Math.max(0, Math.min(1 - windowWidth, newStart));
       });
     },
@@ -393,7 +407,10 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   };
 
   const handleContainerClick = (e: React.MouseEvent) => {
-    if (e.target === containerRef.current || (e.target as HTMLElement).closest(".range-track")) {
+    if (
+      e.target === containerRef.current ||
+      (e.target as HTMLElement).closest(".range-track")
+    ) {
       onActivate?.();
     }
   };
@@ -432,7 +449,9 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
             </span>
             <span
               style={{
-                visibility: labelPositions.hideRightLabel ? "hidden" : "visible",
+                visibility: labelPositions.hideRightLabel
+                  ? "hidden"
+                  : "visible",
               }}
             >
               {formatFreq(maxFreq)}

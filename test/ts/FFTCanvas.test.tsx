@@ -79,7 +79,10 @@ describe("FFTCanvas", () => {
 
   const mockProps = {
     data: {
-      waveform: Array.from({ length: 1024 }, (_, i) => -60 + Math.sin(i * 0.1) * 20),
+      waveform: Array.from(
+        { length: 1024 },
+        (_, i) => -60 + Math.sin(i * 0.1) * 20,
+      ),
     },
     frequencyRange: mockFrequencyRange,
     activeSignalArea: "test-area",
@@ -113,12 +116,16 @@ describe("FFTCanvas", () => {
 
     expect(
       screen.getByText((content, _element) => {
-        return content.includes("FFT Signal Display") && content.includes("(Paused)");
+        return (
+          content.includes("FFT Signal Display") && content.includes("(Paused)")
+        );
       }),
     ).toBeInTheDocument();
     expect(
       screen.getByText((content, _element) => {
-        return content.includes("Waterfall Display") && content.includes("(Paused)");
+        return (
+          content.includes("Waterfall Display") && content.includes("(Paused)")
+        );
       }),
     ).toBeInTheDocument();
   });

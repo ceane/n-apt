@@ -178,127 +178,305 @@ mod tests {
 }
 
 /// Save capture IQ data to a file (.wav with metadata, or encrypted .napt)
-#[allow(dead_code)]
-pub fn save_capture_file(
-  job_id: &str,
-  iq_data: &[u8],
-  spectrum_data: &[f32],
-  file_type: &str,
-  encrypted: bool,
+/// Supports multiple channels.
+pub fn save_capture_file_multi(
+  result: &crate::sdr::processor::CaptureResult,
   encryption_key: &[u8; 32],
-  center_freq_hz: f64,
-  sample_rate_hz: f64,
-  frame_rate: u32,
-  fft_size: u32,
-  duration_s: f64,
 ) -> Result<CaptureArtifact, String> {
   // Create temp directory if it doesn't exist
   let temp_dir = std::path::PathBuf::from("/tmp/n-apt-captures");
   std::fs::create_dir_all(&temp_dir).map_err(|e| format!("Failed to create temp dir: {}", e))?;
 
   let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S").to_string();
-  let filename = if encrypted && file_type == ".napt" {
-    format!("capture_{}_{}.napt", job_id, timestamp)
+  let filename = if result.encrypted && result.file_type == ".napt" {
+    format!("capture_{}_{}.napt", result.job_id, timestamp)
   } else {
     // default to wav for non-encrypted capture
-    format!("capture_{}_{}.wav", job_id, timestamp)
+    format!("capture_{}_{}.wav", result.job_id, timestamp)
   };
 
   let path = temp_dir.join(&filename);
+  let timestamp_utc = chrono::Utc::now().to_rfc3339();
 
-  if encrypted && file_type == ".napt" {
-    // Encrypt the IQ data using AES-256-GCM
-    let encrypted_payload = crate::crypto::encrypt_payload(encryption_key, iq_data)
+  // Basic metadata shared by both formats
+  let mut meta_obj = serde_json::json!({
+    "center_frequency_hz": result.overall_center_frequency_hz,
+    "capture_sample_rate_hz": result.overall_capture_sample_rate_hz,
+    "hardware_sample_rate_hz": result.hardware_sample_rate_hz,
+    "encrypted": result.encrypted,
+    "timestamp_utc": timestamp_utc,
+    "frame_rate": if result.duration_s > 0.0 { result.actual_frame_count as f64 / result.duration_s } else { 0.0 },
+    "fft_size": result.fft_size,
+    "fft_window": result.fft_window,
+    "duration_s": result.duration_s,
+    "acquisition_mode": result.acquisition_mode,
+    "source_device": result.source_device,
+    "gain": result.gain,
+    "ppm": result.ppm,
+    "tuner_agc": result.tuner_agc,
+    "rtl_agc": result.rtl_agc,
+    "data_format": "iq_u8",
+    "spectrum_shifted": true,
+  });
+
+  if result.encrypted && result.file_type == ".napt" {
+    // Construct plaintext: JSON header with `channels` array + padding + Concatenated Data
+    let header_size = 4096; // Larger header for multi-channel JSON
+    let mut payload_plaintext = Vec::new();
+    let mut channel_metas = Vec::new();
+
+    for ch in &result.channels {
+        let offset_iq = payload_plaintext.len();
+        payload_plaintext.extend_from_slice(&ch.iq_data);
+        let iq_len = ch.iq_data.len();
+
+        let offset_spectrum = payload_plaintext.len();
+        let spec_bytes: Vec<u8> = ch.spectrum_data.iter().flat_map(|&v| v.to_le_bytes()).collect();
+        payload_plaintext.extend_from_slice(&spec_bytes);
+        let spec_len = spec_bytes.len();
+
+        channel_metas.push(serde_json::json!({
+            "center_freq_hz": ch.center_freq_hz,
+            "sample_rate_hz": ch.sample_rate_hz,
+            "offset_iq": offset_iq,
+            "iq_length": iq_len,
+            "offset_spectrum": offset_spectrum,
+            "spectrum_length": spec_len,
+            "bins_per_frame": ch.bins_per_frame,
+        }));
+    }
+
+    meta_obj["channels"] = serde_json::Value::Array(channel_metas);
+
+    // Header JSON for .napt
+    let complete_json = format!(
+      r#"{{"metadata":{}}}"#,
+      meta_obj.to_string()
+    );
+
+    let mut file = std::fs::File::create(&path)
+      .map_err(|e| format!("Failed to create file: {}", e))?;
+
+    // Write the plaintext JSON header
+    file.write_all(complete_json.as_bytes())
+      .map_err(|e| format!("Failed to write header: {}", e))?;
+
+    // Pad the header
+    let mut padded_len = complete_json.len();
+    if padded_len < header_size {
+      file.write_all(b"\n").map_err(|e| e.to_string())?;
+      padded_len += 1;
+      let padding = vec![b' '; header_size - padded_len];
+      file.write_all(&padding).map_err(|e| e.to_string())?;
+    } else {
+      return Err("Metadata size exceeds header_size".to_string());
+    }
+
+    // Now encrypt ONLY the fast data (IQ and Spectrum) 
+    let encrypted_data = crate::crypto::encrypt_payload_binary(encryption_key, &payload_plaintext)
       .map_err(|e| format!("Encryption failed: {}", e))?;
 
-    // Write encrypted data
-    let mut file = std::fs::File::create(&path)
-      .map_err(|e| format!("Failed to create file: {}", e))?;
-    file.write_all(encrypted_payload.as_bytes())
-      .map_err(|e| format!("Failed to write file: {}", e))?;
+    file.write_all(&encrypted_data)
+      .map_err(|e| format!("Failed to write encrypted data: {}", e))?;
   } else {
-    // Write WAV with custom metadata chunk (nAPT) and raw IQ payload in data chunk
+    // Write WAV with multi-channel chunks
     let mut file = std::fs::File::create(&path)
       .map_err(|e| format!("Failed to create file: {}", e))?;
 
-    // WAV fmt: PCM u8, 2 channels (I+Q interleaved), actual SDR sample rate
-    // This makes the file loadable in SDR++ and other SDR tools.
-    let channels: u16 = 2; // I and Q as stereo channels
-    let bits_per_sample: u16 = 8;
-    let sample_rate = sample_rate_hz as u32;
-    let byte_rate: u32 = sample_rate * channels as u32 * (bits_per_sample as u32 / 8);
-    let block_align: u16 = channels * (bits_per_sample / 8);
+    if result.channels.is_empty() {
+        return Err("No channels to save".to_string());
+    }
 
-    // nAPT metadata chunk (JSON)
-    let timestamp_utc = chrono::Utc::now().to_rfc3339();
-    let meta_json = serde_json::json!({
-      "center_frequency_hz": center_freq_hz,
-      "sample_rate_hz": sample_rate_hz,
-      "encrypted": encrypted,
-      "timestamp_utc": timestamp_utc,
-      "frame_rate": frame_rate,
-      "fft_size": fft_size,
-      "duration_s": duration_s,
-      "data_format": "iq_u8",
-    })
-    .to_string();
+    let channels_count: u16 = 2; // I and Q as stereo channels
+    let bits_per_sample: u16 = 8;
+    let sample_rate = result.channels[0].sample_rate_hz as u32;
+    let byte_rate: u32 = sample_rate * channels_count as u32 * (bits_per_sample as u32 / 8);
+    let block_align: u16 = channels_count * (bits_per_sample / 8);
+
+    // nAPT metadata chunk
+    let mut meta_with_channels = meta_obj.clone();
+    let mut chan_list = Vec::new();
+    for ch in &result.channels {
+        chan_list.push(serde_json::json!({
+            "center_freq_hz": ch.center_freq_hz,
+            "sample_rate_hz": ch.sample_rate_hz,
+            "bins_per_frame": ch.bins_per_frame,
+        }));
+    }
+    meta_with_channels["channels"] = serde_json::Value::Array(chan_list);
+    let meta_json = meta_with_channels.to_string();
     let meta_bytes = meta_json.as_bytes();
     let meta_padding = if (meta_bytes.len() + 1) % 2 == 0 { 0u32 } else { 1u32 };
     let meta_chunk_size = meta_bytes.len() as u32 + 1 + meta_padding;
 
-    // nSPC spectrum chunk: raw f32 LE spectrum frames for our app's fast path
-    let spec_bytes: Vec<u8> = spectrum_data.iter().flat_map(|&v| v.to_le_bytes()).collect();
-    let spec_padding = if spec_bytes.len() % 2 == 0 { 0u32 } else { 1u32 };
-    let spec_chunk_size = spec_bytes.len() as u32 + spec_padding;
+    // We'll calculate sizes and parts
+    // Part 0 (Standard data chunk) = channels[0].iq_data
+    // Extra Part IQ (nIQ1, nIQ2...)
+    // Extra Part Spectrum (nSP0, nSP1...)
 
-    let data_chunk_size = iq_data.len() as u32;
-    // RIFF size = 4 (WAVE) + fmt(24) + data(8+data) + nAPT(8+meta) + nSPC(8+spec)
-    let riff_size = 4
-      + (8 + 16)
-      + (8 + data_chunk_size)
-      + (8 + meta_chunk_size)
-      + if spec_chunk_size > 0 { 8 + spec_chunk_size } else { 0 };
+    let mut iq_chunks = Vec::new();
+    let mut spectrum_chunks = Vec::new();
+    let mut riff_total_delta: u32 = 0;
+
+    for (i, ch) in result.channels.iter().enumerate() {
+        // IQ Data
+        let tag = if i == 0 { "data".to_string() } else { format!("nIQ{}", i) };
+        let iq_data = &ch.iq_data;
+        let iq_size = iq_data.len() as u32;
+        let iq_padding = if iq_size % 2 == 0 { 0u32 } else { 1u32 };
+        iq_chunks.push((tag, iq_size, iq_padding));
+        riff_total_delta += 8 + iq_size + iq_padding;
+
+        // Spectrum Data
+        let spec_tag = if i == 0 { "nSPC".to_string() } else { format!("nSP{}", i) };
+        let spec_bytes: Vec<u8> = ch.spectrum_data.iter().flat_map(|&v| v.to_le_bytes()).collect();
+        let spec_size = spec_bytes.len() as u32;
+        let spec_padding = if spec_size % 2 == 0 { 0u32 } else { 1u32 };
+        spectrum_chunks.push((spec_tag, spec_bytes, spec_padding));
+        riff_total_delta += 8 + spec_size + spec_padding;
+    }
+
+    // RIFF size = 4 (WAVE) + fmt(24) + nAPT(8+meta) + iq_chunks + spectrum_chunks
+    let riff_size = 4 + 24 + (8 + meta_chunk_size) + riff_total_delta;
 
     // RIFF header
     file.write_all(b"RIFF").map_err(|e| e.to_string())?;
     file.write_all(&riff_size.to_le_bytes()).map_err(|e| e.to_string())?;
     file.write_all(b"WAVE").map_err(|e| e.to_string())?;
 
-    // fmt chunk (PCM u8, 2ch = I+Q stereo)
+    // fmt chunk
     file.write_all(b"fmt ").map_err(|e| e.to_string())?;
     file.write_all(&16u32.to_le_bytes()).map_err(|e| e.to_string())?;
     file.write_all(&1u16.to_le_bytes()).map_err(|e| e.to_string())?; // PCM
-    file.write_all(&channels.to_le_bytes()).map_err(|e| e.to_string())?;
+    file.write_all(&channels_count.to_le_bytes()).map_err(|e| e.to_string())?;
     file.write_all(&sample_rate.to_le_bytes()).map_err(|e| e.to_string())?;
     file.write_all(&byte_rate.to_le_bytes()).map_err(|e| e.to_string())?;
     file.write_all(&block_align.to_le_bytes()).map_err(|e| e.to_string())?;
     file.write_all(&bits_per_sample.to_le_bytes()).map_err(|e| e.to_string())?;
 
-    // data chunk (u8 IQ interleaved)
-    file.write_all(b"data").map_err(|e| e.to_string())?;
-    file.write_all(&data_chunk_size.to_le_bytes()).map_err(|e| e.to_string())?;
-    file.write_all(iq_data).map_err(|e| e.to_string())?;
-
-    // nAPT chunk (metadata JSON)
+    // nAPT chunk
     file.write_all(b"nAPT").map_err(|e| e.to_string())?;
     file.write_all(&meta_chunk_size.to_le_bytes()).map_err(|e| e.to_string())?;
     file.write_all(meta_bytes).map_err(|e| e.to_string())?;
-    file.write_all(&[0u8]).map_err(|e| e.to_string())?; // null terminator
-    for _ in 0..meta_padding {
-      file.write_all(&[0u8]).map_err(|e| e.to_string())?;
+    file.write_all(&[0u8]).map_err(|e| e.to_string())?;
+    for _ in 0..meta_padding { file.write_all(&[0u8]).map_err(|e| e.to_string())?; }
+
+    // Write IQ Chunks
+    for (i, (tag, size, padding)) in iq_chunks.iter().enumerate() {
+        file.write_all(tag.as_bytes()).map_err(|e| e.to_string())?;
+        file.write_all(&size.to_le_bytes()).map_err(|e| e.to_string())?;
+        file.write_all(&result.channels[i].iq_data).map_err(|e| e.to_string())?;
+        if *padding > 0 { file.write_all(&[0u8]).map_err(|e| e.to_string())?; }
     }
 
-    // nSPC chunk (f32 LE spectrum frames — our app's lossless fast path)
-    if !spec_bytes.is_empty() {
-      file.write_all(b"nSPC").map_err(|e| e.to_string())?;
-      file.write_all(&spec_chunk_size.to_le_bytes()).map_err(|e| e.to_string())?;
-      file.write_all(&spec_bytes).map_err(|e| e.to_string())?;
-      for _ in 0..spec_padding {
-        file.write_all(&[0u8]).map_err(|e| e.to_string())?;
-      }
+    // Write Spectrum Chunks
+    for (tag, bytes, padding) in spectrum_chunks {
+        file.write_all(tag.as_bytes()).map_err(|e| e.to_string())?;
+        file.write_all(&(bytes.len() as u32).to_le_bytes()).map_err(|e| e.to_string())?;
+        file.write_all(&bytes).map_err(|e| e.to_string())?;
+        if padding > 0 { file.write_all(&[0u8]).map_err(|e| e.to_string())?; }
     }
   }
   
   info!("Saved capture file: {}", path.display());
   Ok(CaptureArtifact { filename, path })
+}
+
+#[cfg(test)]
+mod save_tests {
+  use super::*;
+  use std::fs;
+  use std::path::PathBuf; // Keep this if other tests need it, otherwise remove.
+  use crate::sdr::processor::{CaptureResult, CaptureChannel}; // Add these imports
+
+  #[test]
+  fn test_save_capture_file_multi_metadata() {
+    let result = CaptureResult {
+        job_id: "test_multi".to_string(),
+        channels: vec![
+            CaptureChannel {
+                center_freq_hz: 137.5e6,
+                sample_rate_hz: 2.4e6,
+                iq_data: vec![0u8; 100],
+                spectrum_data: vec![0f32; 10],
+            }
+        ],
+        file_type: ".napt".to_string(),
+        acquisition_mode: "interleaved".to_string(),
+        encrypted: true,
+        fft_size: 2048,
+        duration_s: 1.0,
+        actual_frame_count: 60,
+        fft_window: "Hanning".to_string(),
+        gain: 1.0,
+        ppm: 0,
+        tuner_agc: false,
+        rtl_agc: false,
+        source_device: "Mock APT SDR".to_string(),
+        hardware_sample_rate_hz: 2.4e6,
+        overall_center_frequency_hz: 137.5e6,
+        overall_capture_sample_rate_hz: 2.4e6,
+    };
+    
+    let result_napt = save_capture_file_multi(
+      &result,
+      &[0u8; 32],
+    ).expect("save multi .napt");
+    
+    let content_napt_bytes = fs::read(&result_napt.path).expect("read .napt");
+    let content_napt = String::from_utf8_lossy(&content_napt_bytes);
+    assert!(content_napt.contains(r#""acquisition_mode":"interleaved""#), "Missing acquisition_mode");
+    assert!(content_napt.contains(r#""source_device":"Mock APT SDR""#), "Missing source_device");
+    assert!(content_napt.contains(r#""channels""#), "Missing channels array");
+
+    // Test .wav unencrypted
+    let result_wav_struct = CaptureResult {
+        job_id: "test_multi_wav".to_string(),
+        channels: vec![
+            CaptureChannel {
+                center_freq_hz: 137.5e6,
+                sample_rate_hz: 2.4e6,
+                iq_data: vec![0u8; 100],
+                spectrum_data: vec![0f32; 10],
+            },
+            CaptureChannel {
+                center_freq_hz: 140.0e6,
+                sample_rate_hz: 2.4e6,
+                iq_data: vec![1u8; 100],
+                spectrum_data: vec![1f32; 10],
+            }
+        ],
+        file_type: ".wav".to_string(),
+        acquisition_mode: "stepwise".to_string(),
+        encrypted: false,
+        fft_size: 2048,
+        duration_s: 1.0,
+        actual_frame_count: 60,
+        fft_window: "Hanning".to_string(),
+        gain: 1.0,
+        ppm: 0,
+        tuner_agc: false,
+        rtl_agc: false,
+        source_device: "Mock APT SDR".to_string(),
+        hardware_sample_rate_hz: 2.4e6,
+        overall_center_frequency_hz: 138.75e6,
+        overall_capture_sample_rate_hz: 4.9e6,
+    };
+
+    let result_wav = save_capture_file_multi(
+      &result_wav_struct,
+      &[0u8; 32],
+    ).expect("save multi .wav");
+    
+    let content_wav = fs::read(&result_wav.path).expect("read .wav");
+    let wav_str = String::from_utf8_lossy(&content_wav);
+    assert!(wav_str.contains(r#""acquisition_mode":"stepwise""#), "Missing acquisition_mode in .wav");
+    assert!(wav_str.contains(r#""channels""#), "Missing channels array in .wav");
+    assert!(wav_str.contains("nIQ1"), "Missing nIQ1 chunk in .wav");
+    assert!(wav_str.contains("nSP1"), "Missing nSP1 chunk in .wav");
+    
+    // Clean up
+    let _ = fs::remove_file(result_napt.path);
+    let _ = fs::remove_file(result_wav.path);
+  }
 }

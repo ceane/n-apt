@@ -20,7 +20,9 @@ interface AgentIntegrationProviderProps {
   hotspotProps?: any;
 }
 
-export const AgentIntegrationProvider: React.FC<AgentIntegrationProviderProps> = ({
+export const AgentIntegrationProvider: React.FC<
+  AgentIntegrationProviderProps
+> = ({
   children,
   spectrumProps,
   drawSignalProps,
@@ -29,7 +31,9 @@ export const AgentIntegrationProvider: React.FC<AgentIntegrationProviderProps> =
 }) => {
   const location = useLocation();
   const [isWebMCPEnabled, setIsWebMCPEnabled] = useState(false);
-  const [agentStatus, setAgentStatus] = useState<"detecting" | "enabled" | "disabled">("detecting");
+  const [agentStatus, setAgentStatus] = useState<
+    "detecting" | "enabled" | "disabled"
+  >("detecting");
 
   // Initialize WebMCP and set up tool handlers based on current route
   useEffect(() => {
@@ -80,10 +84,18 @@ export const AgentIntegrationProvider: React.FC<AgentIntegrationProviderProps> =
     };
 
     initialize();
-  }, [location.pathname, spectrumProps, drawSignalProps, model3DProps, hotspotProps]);
+  }, [
+    location.pathname,
+    spectrumProps,
+    drawSignalProps,
+    model3DProps,
+    hotspotProps,
+  ]);
 
   // Get WebMCP tools for current route
-  const { isRegistered, availableTools, lastResult } = useWebMCP(location.pathname);
+  const { isRegistered, availableTools, lastResult } = useWebMCP(
+    location.pathname,
+  );
 
   // Debug information for development
   useEffect(() => {
@@ -163,7 +175,9 @@ export function useAgentIntegration() {
       "codeium",
     ];
 
-    const detectedAgent = agentPatterns.find((pattern) => userAgent.includes(pattern));
+    const detectedAgent = agentPatterns.find((pattern) =>
+      userAgent.includes(pattern),
+    );
     setIsAgentDetected(!!detectedAgent);
     setAgentType(detectedAgent || null);
   }, []);

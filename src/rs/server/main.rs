@@ -22,7 +22,7 @@ use tokio::sync::broadcast;
 use tower_http::cors::CorsLayer;
 use tower_http::set_header::SetResponseHeaderLayer;
 use url::Url;
-use tower_http::compression::CompressionLayer;
+// use tower_http::compression::CompressionLayer; // Removed unused import
 use axum::http::{HeaderValue, HeaderName};
 use tower::ServiceBuilder;
 use webauthn_rs::prelude::*;
@@ -115,7 +115,7 @@ impl websocket_server::WebSocketServer {
             .route("/auth/passkey/auth/finish", post(crate::authentication::auth_handlers::passkey_auth_finish_handler))
             
             .route("/status", get(http_endpoints::status_handler))
-            .route("/capture/download", get(http_endpoints::capture_download_handler))
+            .route("/api/capture/download", get(http_endpoints::capture_download_handler))
             
             // Agent endpoints
             .route("/api/agent/info", get(http_endpoints::agent_info_handler))
@@ -126,7 +126,7 @@ impl websocket_server::WebSocketServer {
             .route("/ws", get(websocket_handlers::ws_upgrade_handler))
             
             .layer(cors)
-            .layer(CompressionLayer::new())
+            // .layer(CompressionLayer::new()) // Disabled to prevent Content-Length mismatch on large binary captures
             .layer(security_headers)
             .with_state(state)
     }

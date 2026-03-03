@@ -41,7 +41,10 @@ function parseCssColorToRgba(color: string): [number, number, number, number] {
   }
   const m = trimmed.match(/rgba?\(([^)]+)\)/i);
   if (m) {
-    const p = m[1].split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+    const p = m[1]
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
     return [
       Number(p[0] ?? 0) / 255,
       Number(p[1] ?? 0) / 255,
@@ -222,12 +225,21 @@ export function useDrawWebGPUFIFOWaterfall() {
       format: "rgba8unorm",
       usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
     });
-    device.queue.writeTexture({ texture: tex }, rgba, { bytesPerRow: w * 4 }, { width: w, height: 1 });
+    device.queue.writeTexture(
+      { texture: tex },
+      rgba,
+      { bytesPerRow: w * 4 },
+      { width: w, height: 1 },
+    );
     return tex;
   }, []);
 
   const initState = useCallback(
-    (canvas: HTMLCanvasElement, device: GPUDevice, format: GPUTextureFormat): WaterfallState => {
+    (
+      canvas: HTMLCanvasElement,
+      device: GPUDevice,
+      format: GPUTextureFormat,
+    ): WaterfallState => {
       const ctx = canvas.getContext("webgpu")!;
       ctx.configure({ device, format, alphaMode: "premultiplied" });
 
@@ -246,12 +258,19 @@ export function useDrawWebGPUFIFOWaterfall() {
       });
 
       return {
-        device, format, ctx, pipeline, uniformBuf, uniforms,
+        device,
+        format,
+        ctx,
+        pipeline,
+        uniformBuf,
+        uniforms,
         dataTex: null,
         colorTex: createColorTex(device),
         colorCount: DEFAULT_COLOR_MAP.length,
         bindGroup: null,
-        texW: 0, texH: 0, paddedRowBytes: 0,
+        texW: 0,
+        texH: 0,
+        paddedRowBytes: 0,
         rowBuf: new ArrayBuffer(0),
         writeRow: 0,
       };
@@ -265,8 +284,12 @@ export function useDrawWebGPUFIFOWaterfall() {
   const drawWebGPUFIFOWaterfall = useCallback(
     async (options: WebGPUFIFOWaterfallOptions) => {
       const {
-        canvas, device, format, fftData,
-        dbMin = -80, dbMax = 20,
+        canvas,
+        device,
+        format,
+        fftData,
+        dbMin = -80,
+        dbMax = 20,
         driftAmount = 0,
         freeze = false,
         wfSmooth = false,
@@ -310,7 +333,10 @@ export function useDrawWebGPUFIFOWaterfall() {
           s.dataTex = device.createTexture({
             size: { width: s.texW, height: s.texH },
             format: "r32float",
-            usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.COPY_SRC,
+            usage:
+              GPUTextureUsage.TEXTURE_BINDING |
+              GPUTextureUsage.COPY_DST |
+              GPUTextureUsage.COPY_SRC,
           });
 
           // Clear with very-low dB
@@ -328,7 +354,8 @@ export function useDrawWebGPUFIFOWaterfall() {
             // Re-map history to new vertical size if possible
             const enc = device.createCommandEncoder();
             enc.copyTextureToTexture(
-              { texture: prevTex }, { texture: s.dataTex },
+              { texture: prevTex },
+              { texture: s.dataTex },
               { width: s.texW, height: Math.min(prevH, needH) },
             );
             device.queue.submit([enc.finish()]);
@@ -354,12 +381,17 @@ export function useDrawWebGPUFIFOWaterfall() {
           if (width > 0 && height > 0 && data.length >= width * height * 4) {
             if (s.texW !== width || s.texH !== height) {
               s.dataTex.destroy();
-              s.texW = width; s.texH = height;
+              s.texW = width;
+              s.texH = height;
               s.paddedRowBytes = alignTo(s.texW * 4, 256);
               s.rowBuf = new ArrayBuffer(s.paddedRowBytes);
               s.dataTex = device.createTexture({
-                size: { width: s.texW, height: s.texH }, format: "r32float",
-                usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.COPY_SRC,
+                size: { width: s.texW, height: s.texH },
+                format: "r32float",
+                usage:
+                  GPUTextureUsage.TEXTURE_BINDING |
+                  GPUTextureUsage.COPY_DST |
+                  GPUTextureUsage.COPY_SRC,
               });
               s.bindGroup = device.createBindGroup({
                 layout: s.pipeline.getBindGroupLayout(0),
@@ -374,10 +406,15 @@ export function useDrawWebGPUFIFOWaterfall() {
             for (let y = 0; y < height; y++) {
               const upload = new Uint8Array(s.rowBuf);
               upload.fill(0);
-              upload.set(data.subarray(y * rowBytes, y * rowBytes + rowBytes), 0);
+              upload.set(
+                data.subarray(y * rowBytes, y * rowBytes + rowBytes),
+                0,
+              );
               device.queue.writeTexture(
                 { texture: s.dataTex, origin: { x: 0, y } },
-                upload, { bytesPerRow: s.paddedRowBytes }, { width: s.texW, height: 1 },
+                upload,
+                { bytesPerRow: s.paddedRowBytes },
+                { width: s.texW, height: 1 },
               );
             }
             s.writeRow = Math.max(0, Math.min(writeRow, height - 1));
@@ -388,7 +425,10 @@ export function useDrawWebGPUFIFOWaterfall() {
         // updateWaterfall() — push one row of raw dB into buffer
         // =========================================================
         if (!freeze && s.dataTex && fftData.length > 0) {
-          const smear = Math.max(0, Math.min(Math.floor(driftAmount || 0), s.texH - 1));
+          const smear = Math.max(
+            0,
+            Math.min(Math.floor(driftAmount || 0), s.texH - 1),
+          );
 
           for (let smearIdx = 0; smearIdx <= smear; smearIdx++) {
             const f32 = new Float32Array(s.rowBuf);
@@ -440,7 +480,8 @@ export function useDrawWebGPUFIFOWaterfall() {
         s.uniforms[15] = bgA;
 
         device.queue.writeBuffer(
-          s.uniformBuf, 0,
+          s.uniformBuf,
+          0,
           s.uniforms.buffer.slice(
             s.uniforms.byteOffset,
             s.uniforms.byteOffset + s.uniforms.byteLength,
@@ -449,11 +490,14 @@ export function useDrawWebGPUFIFOWaterfall() {
 
         const enc = device.createCommandEncoder();
         const pass = enc.beginRenderPass({
-          colorAttachments: [{
-            view: s.ctx.getCurrentTexture().createView(),
-            clearValue: { r: bgR, g: bgG, b: bgB, a: bgA },
-            loadOp: "clear", storeOp: "store",
-          }],
+          colorAttachments: [
+            {
+              view: s.ctx.getCurrentTexture().createView(),
+              clearValue: { r: bgR, g: bgG, b: bgB, a: bgA },
+              loadOp: "clear",
+              storeOp: "store",
+            },
+          ],
         });
         pass.setPipeline(s.pipeline);
         pass.setBindGroup(0, s.bindGroup);
@@ -470,6 +514,8 @@ export function useDrawWebGPUFIFOWaterfall() {
     [initState],
   );
 
-  const cleanup = useCallback(() => { stateRef.current = null; }, []);
+  const cleanup = useCallback(() => {
+    stateRef.current = null;
+  }, []);
   return { drawWebGPUFIFOWaterfall, cleanup };
 }

@@ -50,17 +50,28 @@ type AuthAction =
   | { type: "SET_PASSKEYS"; hasPasskeys: boolean }
   | { type: "REGISTER_SUCCESS"; hasPasskeys: boolean };
 
+const getInitialHasPasskeys = () => {
+  try {
+    return localStorage.getItem("n_apt_has_passkeys") === "true";
+  } catch (e) {
+    return false;
+  }
+};
+
 const initialState: AuthInternalState = {
   authState: "connecting",
   isAuthenticated: false,
   authError: null,
   sessionToken: null,
   aesKey: null,
-  hasPasskeys: false,
+  hasPasskeys: getInitialHasPasskeys(),
   isInitialAuthCheck: true,
 };
 
-function authReducer(state: AuthInternalState, action: AuthAction): AuthInternalState {
+function authReducer(
+  state: AuthInternalState,
+  action: AuthAction,
+): AuthInternalState {
   switch (action.type) {
     case "AUTHENTICATING":
       return { ...state, authState: "authenticating", authError: null };
@@ -95,9 +106,13 @@ function authReducer(state: AuthInternalState, action: AuthAction): AuthInternal
   }
 }
 
-const AuthContext = createContext<UseAuthenticationReturn | undefined>(undefined);
+const AuthContext = createContext<UseAuthenticationReturn | undefined>(
+  undefined,
+);
 
-export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
+  children,
+}) => {
   const auth = useAuthenticationInternal();
   const value = useMemo(
     () => auth,
@@ -146,7 +161,8 @@ const useAuthenticationInternal = (): UseAuthenticationReturn => {
       userAgent.includes("Code") ||
       userAgent.includes("VSCode") ||
       userAgent.includes("Windsurf") ||
-      (window.location.hostname === "localhost" && window.location.port === "8080") ||
+      (window.location.hostname === "localhost" &&
+        window.location.port === "8080") ||
       window.location.search.includes("ide=true");
 
     if (isLikelyIDEBrowser) {
@@ -166,7 +182,10 @@ const useAuthenticationInternal = (): UseAuthenticationReturn => {
 
     const fetchAuthInfoWithTimeout = () =>
       new Promise<AuthInfo>((resolve, reject) => {
-        const timeoutId = setTimeout(() => reject(new Error("Backend timeout")), 3000);
+        const timeoutId = setTimeout(
+          () => reject(new Error("Backend timeout")),
+          3000,
+        );
         fetchAuthInfo()
           .then((info) => {
             clearTimeout(timeoutId);
@@ -187,8 +206,18 @@ const useAuthenticationInternal = (): UseAuthenticationReturn => {
           const info = await fetchAuthInfoWithTimeout();
           if (!cancelled) {
             // Only show passkey option if both backend has passkeys AND browser supports WebAuthn
-            const effectiveHasPasskeys = info.has_passkeys && isWebAuthnAvailable;
-            dispatch({ type: "SET_PASSKEYS", hasPasskeys: effectiveHasPasskeys });
+            const effectiveHasPasskeys =
+              info.has_passkeys && isWebAuthnAvailable;
+            try {
+              localStorage.setItem(
+                "n_apt_has_passkeys",
+                effectiveHasPasskeys ? "true" : "false",
+              );
+            } catch (e) {}
+            dispatch({
+              type: "SET_PASSKEYS",
+              hasPasskeys: effectiveHasPasskeys,
+            });
           }
         } catch (error) {
           if (!cancelled) {
@@ -206,7 +235,11 @@ const useAuthenticationInternal = (): UseAuthenticationReturn => {
           const result = await validateSession(storedToken);
           if (!cancelled && result.valid) {
             const key = await deriveAesKey("n-apt-dev-key");
-            dispatch({ type: "AUTH_SUCCESS", sessionToken: storedToken, aesKey: key });
+            dispatch({
+              type: "AUTH_SUCCESS",
+              sessionToken: storedToken,
+              aesKey: key,
+            });
             return;
           }
         } catch (error) {
@@ -220,6 +253,12 @@ const useAuthenticationInternal = (): UseAuthenticationReturn => {
         if (!cancelled) {
           // Only show passkey option if both backend has passkeys AND browser supports WebAuthn
           const effectiveHasPasskeys = info.has_passkeys && isWebAuthnAvailable;
+          try {
+            localStorage.setItem(
+              "n_apt_has_passkeys",
+              effectiveHasPasskeys ? "true" : "false",
+            );
+          } catch (e) {}
           dispatch({ type: "READY", hasPasskeys: effectiveHasPasskeys });
         }
       } catch (error) {
@@ -245,9 +284,16 @@ const useAuthenticationInternal = (): UseAuthenticationReturn => {
     try {
       const result = await authenticateWithPassword(password);
       const key = await deriveAesKey(password);
-      dispatch({ type: "AUTH_SUCCESS", sessionToken: result.token, aesKey: key });
+      dispatch({
+        type: "AUTH_SUCCESS",
+        sessionToken: result.token,
+        aesKey: key,
+      });
     } catch (e: any) {
-      dispatch({ type: "AUTH_FAILED", error: e.message || "Authentication failed" });
+      dispatch({
+        type: "AUTH_FAILED",
+        error: e.message || "Authentication failed",
+      });
     }
   }, []);
 
@@ -256,16 +302,35 @@ const useAuthenticationInternal = (): UseAuthenticationReturn => {
     try {
       const result = await authenticateWithPasskey();
       const key = await deriveAesKey("n-apt-dev-key");
-      dispatch({ type: "AUTH_SUCCESS", sessionToken: result.token, aesKey: key });
+      dispatch({
+        type: "AUTH_SUCCESS",
+        sessionToken: result.token,
+        aesKey: key,
+      });
     } catch (e: any) {
-      dispatch({ type: "AUTH_FAILED", error: e.message || "Passkey authentication failed" });
+      const errorMessage = e.message || "Passkey authentication failed";
+      if (
+        errorMessage.includes("privacy-considerations-client") ||
+        errorMessage.includes("not allowed")
+      ) {
+        dispatch({
+          type: "AUTH_FAILED",
+          error:
+            "Passkeys are blocked in private browsing mode. Please use a password instead.",
+        });
+      } else {
+        dispatch({ type: "AUTH_FAILED", error: errorMessage });
+      }
     }
   }, []);
 
   const handleRegisterPasskey = useCallback(async () => {
     // Check if WebAuthn is available before attempting registration
     if (!isWebAuthnAvailable) {
-      dispatch({ type: "AUTH_FAILED", error: "Passkeys are not supported in this browser" });
+      dispatch({
+        type: "AUTH_FAILED",
+        error: "Passkeys are not supported in this browser",
+      });
       return;
     }
 
@@ -275,9 +340,18 @@ const useAuthenticationInternal = (): UseAuthenticationReturn => {
       const info = await fetchAuthInfo();
       // Only show passkey option if both backend has passkeys AND browser supports WebAuthn
       const effectiveHasPasskeys = info.has_passkeys && isWebAuthnAvailable;
+      try {
+        localStorage.setItem(
+          "n_apt_has_passkeys",
+          effectiveHasPasskeys ? "true" : "false",
+        );
+      } catch (e) {}
       dispatch({ type: "REGISTER_SUCCESS", hasPasskeys: effectiveHasPasskeys });
     } catch (e: any) {
-      dispatch({ type: "AUTH_FAILED", error: e.message || "Passkey registration failed" });
+      dispatch({
+        type: "AUTH_FAILED",
+        error: e.message || "Passkey registration failed",
+      });
     }
   }, [isWebAuthnAvailable]);
 

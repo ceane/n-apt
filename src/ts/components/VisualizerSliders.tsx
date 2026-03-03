@@ -118,7 +118,7 @@ const ToggleButton = styled.button<{ $active: boolean }>`
 
   &:hover {
     background: ${({ $active }) =>
-    $active ? "linear-gradient(135deg, #00e676, #26a69a)" : "#2a2a2a"};
+      $active ? "linear-gradient(135deg, #00e676, #26a69a)" : "#2a2a2a"};
     color: ${({ $active }) => ($active ? "#fff" : "#aaa")};
   }
 
@@ -155,7 +155,8 @@ const VerticalSlider: React.FC<VerticalSliderProps> = ({
     : Math.max(0, Math.min(1, (value - min) / (max - min || 1)));
 
   const fillRatio = invertFill ? 1 - rangeNorm : rangeNorm;
-  const heightPercent = (MIN_THUMB_RATIO + fillRatio * (1 - MIN_THUMB_RATIO)) * 100;
+  const heightPercent =
+    (MIN_THUMB_RATIO + fillRatio * (1 - MIN_THUMB_RATIO)) * 100;
 
   const handleTrackInteraction = useCallback(
     (clientY: number, rect: DOMRect) => {
@@ -165,7 +166,7 @@ const VerticalSlider: React.FC<VerticalSliderProps> = ({
       const maxScrollPct = 1 - MIN_THUMB_RATIO;
       let adjustedPct = Math.max(0, Math.min(maxScrollPct, pct));
 
-      let rawFillRatio = 1 - (adjustedPct / maxScrollPct);
+      let rawFillRatio = 1 - adjustedPct / maxScrollPct;
       let normalized = invertFill ? 1 - rawFillRatio : rawFillRatio;
 
       let raw: number;

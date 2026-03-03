@@ -6,7 +6,9 @@ import { AppContent } from "@n-apt/App";
 
 // Mock all components to avoid import issues
 jest.mock("@n-apt/components", () => ({
-  FFTCanvas: () => <div data-testid="spectrum-visualizer">Spectrum Visualizer</div>,
+  FFTCanvas: () => (
+    <div data-testid="spectrum-visualizer">Spectrum Visualizer</div>
+  ),
   DrawMockNAPT: () => <div data-testid="draw-mock-napt">Draw Mock NAPT</div>,
 }));
 
@@ -15,20 +17,31 @@ jest.mock("@n-apt/components/NavigationSidebarNew", () => {
   const MockNavigationSidebar = () => (
     <div data-testid="navigation-sidebar">
       <Routes>
-        <Route path="/" element={<div data-testid="spectrum-route">Spectrum Route</div>} />
+        <Route
+          path="/"
+          element={<div data-testid="spectrum-route">Spectrum Route</div>}
+        />
         <Route
           path="/visualizer"
           element={<div data-testid="spectrum-route">Spectrum Route</div>}
         />
-        <Route path="/analysis" element={<div data-testid="spectrum-route">Spectrum Route</div>} />
+        <Route
+          path="/analysis"
+          element={<div data-testid="spectrum-route">Spectrum Route</div>}
+        />
         <Route
           path="/draw-signal"
           element={<div data-testid="spectrum-route">Spectrum Route</div>}
         />
-        <Route path="/3d-model" element={<div data-testid="model3d-route">Model3D Route</div>} />
+        <Route
+          path="/3d-model"
+          element={<div data-testid="model3d-route">Model3D Route</div>}
+        />
         <Route
           path="/hotspot-editor"
-          element={<div data-testid="hotspot-editor-route">Hotspot Editor Route</div>}
+          element={
+            <div data-testid="hotspot-editor-route">Hotspot Editor Route</div>
+          }
         />
       </Routes>
     </div>
@@ -45,15 +58,21 @@ jest.mock("@n-apt/components/Model3DRoute", () => ({
 }));
 
 jest.mock("@n-apt/components/HotspotEditorRoute", () => ({
-  default: () => <div data-testid="hotspot-editor-route">Hotspot Editor Route</div>,
+  default: () => (
+    <div data-testid="hotspot-editor-route">Hotspot Editor Route</div>
+  ),
 }));
 
 jest.mock("@n-apt/components/HumanModelViewerSimple", () => ({
-  default: () => <div data-testid="human-model-viewer-simple">Human Model Viewer Simple</div>,
+  default: () => (
+    <div data-testid="human-model-viewer-simple">Human Model Viewer Simple</div>
+  ),
 }));
 
 jest.mock("@n-apt/components/HotspotEditorSimple", () => ({
-  default: () => <div data-testid="hotspot-editor-simple">Hotspot Editor Simple</div>,
+  default: () => (
+    <div data-testid="hotspot-editor-simple">Hotspot Editor Simple</div>
+  ),
 }));
 
 jest.mock("@n-apt/components/sidebar/SidebarForRoute", () => ({
@@ -89,7 +108,8 @@ jest.mock("@n-apt/hooks/useHotspotEditor", () => ({
     },
     updateSettings: jest.fn(),
   }),
-  HotspotEditorProvider: ({ children }: { children: React.ReactNode }) => children,
+  HotspotEditorProvider: ({ children }: { children: React.ReactNode }) =>
+    children,
 }));
 
 jest.mock("@n-apt/components/HumanModelViewer", () => ({
@@ -101,7 +121,9 @@ jest.mock("@n-apt/components/HotspotEditor", () => ({
 }));
 
 jest.mock("@n-apt/components/FFTStitcherCanvas", () => ({
-  default: () => <div data-testid="stitcher-visualizer">Stitcher Visualizer</div>,
+  default: () => (
+    <div data-testid="stitcher-visualizer">Stitcher Visualizer</div>
+  ),
 }));
 
 jest.mock("@n-apt/hooks/useWebSocket", () => ({

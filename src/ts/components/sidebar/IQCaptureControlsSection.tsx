@@ -1,7 +1,12 @@
 import React from "react";
 import styled from "styled-components";
 import { useAuthentication } from "@n-apt/hooks/useAuthentication";
-import type { CaptureStatus, CaptureFileType, DeviceState } from "@n-apt/hooks/useWebSocket";
+import type {
+  CaptureStatus,
+  CaptureFileType,
+  DeviceState,
+} from "@n-apt/hooks/useWebSocket";
+import InfoPopover from "@n-apt/components/InfoPopover";
 
 const Section = styled.div`
   margin-bottom: 24px;
@@ -265,7 +270,7 @@ const PauseButton = styled.button<{ $paused: boolean }>`
   }
 `;
 
-const CaptureButton = styled(PauseButton)<{ $disabled: boolean }>`
+const CaptureButton = styled(PauseButton) <{ $disabled: boolean }>`
   flex: 1;
   opacity: ${(props) => (props.$disabled ? 0.5 : 1)};
   cursor: ${(props) => (props.$disabled ? "not-allowed" : "pointer")};
@@ -322,11 +327,11 @@ interface CaptureRange {
 interface IQCaptureControlsSectionProps {
   isOpen: boolean;
   onToggle: () => void;
-  captureOnscreen: boolean;
-  captureAreaA: boolean;
-  captureAreaB: boolean;
+  activeCaptureAreas: string[];
+  availableCaptureAreas: Array<{ label: string; min: number; max: number }>;
   captureDurationS: number;
   captureFileType: CaptureFileType;
+  acquisitionMode: "stepwise" | "interleaved";
   captureEncrypted: boolean;
   capturePlayback: boolean;
   captureRange: CaptureRange;
@@ -334,24 +339,25 @@ interface IQCaptureControlsSectionProps {
   captureStatus: CaptureStatus;
   isConnected: boolean;
   deviceState: DeviceState;
-  onCaptureOnscreenChange: (value: boolean) => void;
-  onCaptureAreaAChange: (value: boolean) => void;
-  onCaptureAreaBChange: (value: boolean) => void;
+  onActiveCaptureAreasChange: (areas: string[]) => void;
   onCaptureDurationSChange: (value: number) => void;
   onCaptureFileTypeChange: (value: CaptureFileType) => void;
+  onAcquisitionModeChange: (mode: "stepwise" | "interleaved") => void;
   onCaptureEncryptedChange: (value: boolean) => void;
   onCapturePlaybackChange: (value: boolean) => void;
   onCapture: () => void;
 }
 
-export const IQCaptureControlsSection: React.FC<IQCaptureControlsSectionProps> = ({
+export const IQCaptureControlsSection: React.FC<
+  IQCaptureControlsSectionProps
+> = ({
   isOpen,
   onToggle,
-  captureOnscreen,
-  captureAreaA,
-  captureAreaB,
+  activeCaptureAreas,
+  availableCaptureAreas,
   captureDurationS,
   captureFileType,
+  acquisitionMode,
   captureEncrypted,
   capturePlayback,
   captureRange,
@@ -359,182 +365,205 @@ export const IQCaptureControlsSection: React.FC<IQCaptureControlsSectionProps> =
   captureStatus,
   isConnected,
   deviceState,
-  onCaptureOnscreenChange,
-  onCaptureAreaAChange,
-  onCaptureAreaBChange,
+  onActiveCaptureAreasChange,
   onCaptureDurationSChange,
   onCaptureFileTypeChange,
+  onAcquisitionModeChange,
   onCaptureEncryptedChange,
   onCapturePlaybackChange,
   onCapture,
 }) => {
-  const { isAuthenticated, sessionToken } = useAuthentication();
-  return (
-    <Section>
-      <SectionTitleCollapsible type="button" onClick={onToggle}>
-        <SectionTitleLabel>I/Q Capture /</SectionTitleLabel>
-        <SectionTitleToggle>{isOpen ? "-" : "+"}</SectionTitleToggle>
-      </SectionTitleCollapsible>
+    const { isAuthenticated, sessionToken } = useAuthentication();
+    return (
+      <Section>
+        <SectionTitleCollapsible type="button" onClick={onToggle}>
+          <SectionTitleLabel>I/Q Capture /</SectionTitleLabel>
+          <SectionTitleToggle>{isOpen ? "-" : "+"}</SectionTitleToggle>
+        </SectionTitleCollapsible>
 
-      {isOpen && (
-        <CollapsibleBody>
-          <SettingRow>
-            <SettingLabelContainer>
-              <SettingLabel>Areas</SettingLabel>
-            </SettingLabelContainer>
-            <CheckboxGroup>
-              <CheckboxLabel>
-                <input
-                  type="checkbox"
-                  checked={captureOnscreen}
-                  onChange={(e) => onCaptureOnscreenChange(e.target.checked)}
-                />
-                Onscreen
-              </CheckboxLabel>
-              <CheckboxLabel>
-                <input
-                  type="checkbox"
-                  checked={captureAreaA}
-                  onChange={(e) => onCaptureAreaAChange(e.target.checked)}
-                />
-                A
-              </CheckboxLabel>
-              <CheckboxLabel>
-                <input
-                  type="checkbox"
-                  checked={captureAreaB}
-                  onChange={(e) => onCaptureAreaBChange(e.target.checked)}
-                />
-                B
-              </CheckboxLabel>
-            </CheckboxGroup>
-          </SettingRow>
-
-          <SettingRow>
-            <SettingLabelContainer>
-              <SettingLabel>Range</SettingLabel>
-            </SettingLabelContainer>
-            <SettingValue>
-              <RangeList>
-                {captureRange.segments.map((seg) => (
-                  <div key={seg.label}>
-                    {seg.label}: {seg.min === 0 ? "0kHz" : `${seg.min.toFixed(2)}MHz`} -{" "}
-                    {seg.max.toFixed(2)}MHz
-                  </div>
-                ))}
-              </RangeList>
-            </SettingValue>
-          </SettingRow>
-
-          <SettingRow>
-            <SettingLabelContainer>
-              <SettingLabel>Duration</SettingLabel>
-            </SettingLabelContainer>
-            <DurationRow>
-              <SettingInput
-                type="number"
-                min="1"
-                step="1"
-                value={Math.round(captureDurationS)}
-                onChange={(e) => onCaptureDurationSChange(parseInt(e.target.value) || 1)}
-              />
-              <DurationUnit>s</DurationUnit>
-            </DurationRow>
-          </SettingRow>
-
-          <SettingRow>
-            <SettingLabelContainer>
-              <SettingLabel>File type</SettingLabel>
-            </SettingLabelContainer>
-            <SettingSelect
-              value={captureFileType}
-              onChange={(e) => onCaptureFileTypeChange(e.target.value as CaptureFileType)}
-            >
-              <option value=".napt">.napt</option>
-              <option value=".wav">.wav</option>
-            </SettingSelect>
-          </SettingRow>
-
-          <SettingRow>
-            <SettingLabelContainer>
-              <SettingLabel>Encrypted</SettingLabel>
-            </SettingLabelContainer>
-            <ToggleSwitch $disabled={captureFileType === ".napt"}>
-              <ToggleSwitchInput
-                type="checkbox"
-                checked={captureFileType === ".napt" ? true : captureEncrypted}
-                disabled={captureFileType === ".napt"}
-                onChange={(e) => onCaptureEncryptedChange(e.target.checked)}
-              />
-              <ToggleSwitchSlider $disabled={captureFileType === ".napt"} />
-            </ToggleSwitch>
-          </SettingRow>
-
-          <SettingRow>
-            <SettingLabelContainer>
-              <SettingLabel>Sample size</SettingLabel>
-            </SettingLabelContainer>
-            <SettingValue>{maxSampleRate / 1000000}MHz</SettingValue>
-          </SettingRow>
-
-          <CaptureActions>
-            <CaptureButton
-              $paused={false}
-              $disabled={
-                !isConnected ||
-                deviceState === "loading" ||
-                !isAuthenticated ||
-                captureStatus?.status === "started"
-              }
-              onClick={onCapture}
-              disabled={
-                !isConnected ||
-                deviceState === "loading" ||
-                !isAuthenticated ||
-                captureStatus?.status === "started"
-              }
-            >
-              {captureStatus?.status === "started" ? "Capturing..." : "Capture"}
-            </CaptureButton>
-
-            <PlaybackOption>
-              <input
-                type="checkbox"
-                checked={capturePlayback}
-                onChange={(e) => onCapturePlaybackChange(e.target.checked)}
-              />
-              <PlaybackLabel>Playback after capture</PlaybackLabel>
-            </PlaybackOption>
-          </CaptureActions>
-
-          {captureStatus?.status === "started" && (
-            <StatusSettingRow>
+        {isOpen && (
+          <CollapsibleBody>
+            <SettingRow>
               <SettingLabelContainer>
-                <SettingLabel>Status</SettingLabel>
+                <SettingLabel>Areas</SettingLabel>
               </SettingLabelContainer>
-              <CaptureStatusValue>Capturing... {captureStatus.jobId}</CaptureStatusValue>
-            </StatusSettingRow>
-          )}
+              <CheckboxGroup style={{ flexWrap: "wrap", justifyContent: "flex-end" }}>
+                {availableCaptureAreas.map((area) => (
+                  <CheckboxLabel key={area.label}>
+                    <input
+                      type="checkbox"
+                      checked={activeCaptureAreas.includes(area.label)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          onActiveCaptureAreasChange([...activeCaptureAreas, area.label]);
+                        } else {
+                          onActiveCaptureAreasChange(
+                            activeCaptureAreas.filter((a) => a !== area.label)
+                          );
+                        }
+                      }}
+                    />
+                    {area.label}
+                  </CheckboxLabel>
+                ))}
+              </CheckboxGroup>
+            </SettingRow>
 
-          {/* Downloads Section */}
-          {captureStatus?.status === "done" && captureStatus.downloadUrl && isAuthenticated && (
-            <DownloadsContainer>
-              <DownloadsTitle>Downloads</DownloadsTitle>
-              <DownloadCard>
-                <DownloadLink
-                  href={`${captureStatus.downloadUrl}&token=${encodeURIComponent(sessionToken || "")}`}
-                  download={captureStatus.filename || "capture"}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  title={captureStatus.filename || "Download"}
-                >
-                  {captureStatus.filename || "Download"}
-                </DownloadLink>
-              </DownloadCard>
-            </DownloadsContainer>
-          )}
-        </CollapsibleBody>
-      )}
-    </Section>
-  );
-};
+            <SettingRow>
+              <SettingLabelContainer>
+                <SettingLabel>Range</SettingLabel>
+              </SettingLabelContainer>
+              <SettingValue>
+                <RangeList>
+                  {captureRange.segments.map((seg) => (
+                    <div key={seg.label}>
+                      {seg.label}:{" "}
+                      {seg.min === 0 ? "0kHz" : `${seg.min.toFixed(2)}MHz`} -{" "}
+                      {seg.max.toFixed(2)}MHz
+                    </div>
+                  ))}
+                </RangeList>
+              </SettingValue>
+            </SettingRow>
+
+            <SettingRow>
+              <SettingLabelContainer>
+                <SettingLabel>Duration</SettingLabel>
+              </SettingLabelContainer>
+              <DurationRow>
+                <SettingInput
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={Math.round(captureDurationS)}
+                  onChange={(e) =>
+                    onCaptureDurationSChange(parseInt(e.target.value) || 1)
+                  }
+                />
+                <DurationUnit>s</DurationUnit>
+              </DurationRow>
+            </SettingRow>
+
+            <SettingRow>
+              <SettingLabelContainer>
+                <SettingLabel>File type</SettingLabel>
+              </SettingLabelContainer>
+              <SettingSelect
+                value={captureFileType}
+                onChange={(e) =>
+                  onCaptureFileTypeChange(e.target.value as CaptureFileType)
+                }
+              >
+                <option value=".napt">.napt</option>
+                <option value=".wav">.wav</option>
+              </SettingSelect>
+            </SettingRow>
+
+            <SettingRow>
+              <SettingLabelContainer>
+                <SettingLabel>TDMS (Interleaved Sweep)</SettingLabel>
+                <InfoPopover
+                  title="Time-Division Multiplexed Sampling"
+                  content="Rapidly sweeps across selected channels and interleaves the results into a single wideband output file. When off (Normal), captures each channel completely before moving to the next."
+                />
+              </SettingLabelContainer>
+              <ToggleSwitch>
+                <ToggleSwitchInput
+                  type="checkbox"
+                  checked={acquisitionMode === "interleaved"}
+                  onChange={(e) =>
+                    onAcquisitionModeChange(
+                      e.target.checked ? "interleaved" : "stepwise"
+                    )
+                  }
+                />
+                <ToggleSwitchSlider />
+              </ToggleSwitch>
+            </SettingRow>
+
+            <SettingRow>
+              <SettingLabelContainer>
+                <SettingLabel>Encrypted</SettingLabel>
+              </SettingLabelContainer>
+              <ToggleSwitch $disabled={captureFileType === ".napt"}>
+                <ToggleSwitchInput
+                  type="checkbox"
+                  checked={captureFileType === ".napt" ? true : captureEncrypted}
+                  disabled={captureFileType === ".napt"}
+                  onChange={(e) => onCaptureEncryptedChange(e.target.checked)}
+                />
+                <ToggleSwitchSlider $disabled={captureFileType === ".napt"} />
+              </ToggleSwitch>
+            </SettingRow>
+
+            <SettingRow>
+              <SettingLabelContainer>
+                <SettingLabel>Sample size</SettingLabel>
+              </SettingLabelContainer>
+              <SettingValue>{maxSampleRate / 1000000}MHz</SettingValue>
+            </SettingRow>
+
+            <CaptureActions>
+              <CaptureButton
+                $paused={false}
+                $disabled={
+                  !isConnected ||
+                  deviceState === "loading" ||
+                  !isAuthenticated ||
+                  captureStatus?.status === "started"
+                }
+                onClick={onCapture}
+                disabled={
+                  !isConnected ||
+                  deviceState === "loading" ||
+                  !isAuthenticated ||
+                  captureStatus?.status === "started"
+                }
+              >
+                {captureStatus?.status === "started" ? "Capturing..." : "Capture"}
+              </CaptureButton>
+
+              <PlaybackOption>
+                <input
+                  type="checkbox"
+                  checked={capturePlayback}
+                  onChange={(e) => onCapturePlaybackChange(e.target.checked)}
+                />
+                <PlaybackLabel>Playback after capture</PlaybackLabel>
+              </PlaybackOption>
+            </CaptureActions>
+
+            {captureStatus?.status === "started" && (
+              <StatusSettingRow>
+                <SettingLabelContainer>
+                  <SettingLabel>Status</SettingLabel>
+                </SettingLabelContainer>
+                <CaptureStatusValue>
+                  Capturing... {captureStatus.jobId}
+                </CaptureStatusValue>
+              </StatusSettingRow>
+            )}
+
+            {/* Downloads Section */}
+            {captureStatus?.status === "done" &&
+              captureStatus.downloadUrl &&
+              isAuthenticated && (
+                <DownloadsContainer>
+                  <DownloadsTitle>Downloads</DownloadsTitle>
+                  <DownloadCard>
+                    <DownloadLink
+                      href={`${captureStatus.downloadUrl}&token=${encodeURIComponent(sessionToken || "")}`}
+                      download={captureStatus.filename || "capture"}
+                      rel="noopener noreferrer"
+                      title={captureStatus.filename || "Download"}
+                    >
+                      {captureStatus.filename || "Download"}
+                    </DownloadLink>
+                  </DownloadCard>
+                </DownloadsContainer>
+              )}
+          </CollapsibleBody>
+        )}
+      </Section>
+    );
+  };

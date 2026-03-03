@@ -56,10 +56,10 @@ const NavigationTabs = styled.div`
 
 const NavigationTab = styled.button<{ $isActive: boolean }>`
   padding: 12px 16px;
-  border: 1px solid ${props => props.$isActive ? "#2a2a2a" : "transparent"};
+  border: 1px solid ${(props) => (props.$isActive ? "#2a2a2a" : "transparent")};
   border-radius: 8px;
-  background-color: ${props => props.$isActive ? "#1a1a1a" : "transparent"};
-  color: ${props => props.$isActive ? "#00d4ff" : "#666"};
+  background-color: ${(props) => (props.$isActive ? "#1a1a1a" : "transparent")};
+  color: ${(props) => (props.$isActive ? "#00d4ff" : "#666")};
   font-family: 'JetBrains Mono', monospace;
   font-size: 13px;
   font-weight: 500;
@@ -88,7 +88,10 @@ interface MainLayoutProps {
   sidebar: React.ReactNode;
 }
 
-export const MainLayout: React.FC<MainLayoutProps> = ({ children, sidebar }) => {
+export const MainLayout: React.FC<MainLayoutProps> = ({
+  children,
+  sidebar,
+}) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const location = useLocation();
   const navigate = useNavigate();
@@ -98,12 +101,23 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children, sidebar }) => 
   return (
     <>
       {!isSidebarOpen && (
-        <CollapsedToggle onClick={() => setIsSidebarOpen(true)}>▶ Sidebar</CollapsedToggle>
+        <CollapsedToggle onClick={() => setIsSidebarOpen(true)}>
+          ▶ Sidebar
+        </CollapsedToggle>
       )}
-      <div style={{ display: "flex", width: "100%", height: "100vh", overflow: "hidden" }}>
+      <div
+        style={{
+          display: "flex",
+          width: "100%",
+          height: "100vh",
+          overflow: "hidden",
+        }}
+      >
         {isSidebarOpen && (
           <NavigationContainer>
-            <SidebarToggle onClick={() => setIsSidebarOpen(false)}>◀ Sidebar</SidebarToggle>
+            <SidebarToggle onClick={() => setIsSidebarOpen(false)}>
+              ◀ Sidebar
+            </SidebarToggle>
             <NavigationTabs>
               <NavigationTab
                 $isActive={path === "/" || path === "/visualizer"}
@@ -129,17 +143,13 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children, sidebar }) => 
               >
                 3D Human Model
               </NavigationTab>
-              <NavigationTab
-                $isActive={path === "/hotspot-editor"}
-                onClick={() => navigate("/hotspot-editor")}
-              >
-                Hotspot Editor
-              </NavigationTab>
             </NavigationTabs>
             <SidebarContent>{sidebar}</SidebarContent>
           </NavigationContainer>
         )}
-        <ContentArea style={{ flex: 1, overflow: "hidden", position: "relative" }}>
+        <ContentArea
+          style={{ flex: 1, overflow: "hidden", position: "relative" }}
+        >
           {children}
         </ContentArea>
       </div>

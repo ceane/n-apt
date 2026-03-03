@@ -17,7 +17,11 @@ function estimateTokens(content: string): number {
   return Math.ceil(content.length / 4);
 }
 
-export function markdownContentNegotiation(req: Request, res: Response, next: NextFunction) {
+export function markdownContentNegotiation(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) {
   // Check if client accepts markdown
   const acceptHeader = req.headers.accept || "";
   const acceptsMarkdown = acceptHeader.includes("text/markdown");
@@ -86,7 +90,11 @@ export function isAgentRequest(req: Request): boolean {
 }
 
 // Middleware to add agent detection headers
-export function agentDetection(req: Request, res: Response, next: NextFunction) {
+export function agentDetection(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) {
   if (isAgentRequest(req)) {
     res.setHeader("x-detected-agent", "true");
     res.setHeader("x-agent-type", "ai-assistant");

@@ -69,14 +69,22 @@ export function getZoomedSlice(
   const fullSpan = fullRange.max - fullRange.min;
   const halfSpan = fullSpan / (2 * zoom);
   const maxPan = fullSpan / 2 - halfSpan;
-  const clampedPan = Math.max(-Math.abs(maxPan), Math.min(Math.abs(maxPan), panOffset));
+  const clampedPan = Math.max(
+    -Math.abs(maxPan),
+    Math.min(Math.abs(maxPan), panOffset),
+  );
   const centerFreq = (fullRange.min + fullRange.max) / 2;
   const visualCenter = centerFreq + clampedPan;
-  const visualCenterBin = Math.round(((visualCenter - fullRange.min) / fullSpan) * totalBins);
+  const visualCenterBin = Math.round(
+    ((visualCenter - fullRange.min) / fullSpan) * totalBins,
+  );
   let startBin = Math.round(visualCenterBin - visibleBins / 2);
   startBin = Math.max(0, Math.min(totalBins - visibleBins, startBin));
 
-  const slicedWaveform = fullWaveform.subarray(startBin, startBin + visibleBins);
+  const slicedWaveform = fullWaveform.subarray(
+    startBin,
+    startBin + visibleBins,
+  );
   const visualRange = {
     min: visualCenter - halfSpan,
     max: visualCenter + halfSpan,
@@ -118,7 +126,7 @@ function drawSpectrumToCanvas(
   if (!ctx || !waveform || waveform.length === 0) return;
 
   const dpr = window.devicePixelRatio || 1;
-  const width = canvas.width;   // already DPR-scaled
+  const width = canvas.width; // already DPR-scaled
   const height = canvas.height;
 
   // Scale context so all coordinates are in logical pixels
@@ -255,40 +263,50 @@ function drawSpectrumToCanvas(
   if (isSteps) {
     // Box/step mode: each bin is a filled rectangle
     const binW = plotWidth / dataWidth;
+
+    ctx.fillStyle = SHADOW_COLOR;
+    ctx.strokeStyle = LINE_COLOR;
+    ctx.lineWidth = 0.5;
+
+    ctx.beginPath();
+    let isFirst = true;
+
     for (let i = 0; i < dataWidth; i++) {
-      const x = FFT_AREA_MIN.x + i * binW;
+      const x = Math.round(FFT_AREA_MIN.x + i * binW);
+      // Ensure boxes touch exactly to prevent subpixel vertical gaps
+      const nextX =
+        i === dataWidth - 1
+          ? fftAreaMax.x
+          : Math.round(FFT_AREA_MIN.x + (i + 1) * binW);
+      const w = nextX - x;
       const y = Math.round(clampY(decimatedWaveform[i]));
-      const w = Math.ceil(binW);
       const h = fftAreaMax.y - y;
 
-      // Shadow fill
-      ctx.fillStyle = SHADOW_COLOR;
-      ctx.fillRect(Math.round(x), y, w, h);
+      // Shadow fill (drawn directly)
+      ctx.fillRect(x, y, w, h);
 
-      // Stroke top edge
-      ctx.strokeStyle = LINE_COLOR;
-      ctx.lineWidth = 0.5;
-      ctx.beginPath();
-      ctx.moveTo(Math.round(x), y);
-      ctx.lineTo(Math.round(x + binW), y);
-      ctx.stroke();
-
-      // Stroke vertical edges connecting to neighbors
-      if (i > 0) {
+      // Stroke path (accumulated)
+      if (isFirst) {
+        ctx.moveTo(x, y);
+        isFirst = false;
+      } else {
         const prevY = Math.round(clampY(decimatedWaveform[i - 1]));
-        ctx.beginPath();
-        ctx.moveTo(Math.round(x), prevY);
-        ctx.lineTo(Math.round(x), y);
-        ctx.stroke();
+        ctx.lineTo(x, prevY);
+        ctx.lineTo(x, y);
       }
+      ctx.lineTo(nextX, y);
     }
+    ctx.stroke();
   } else {
     // Smooth line mode
     ctx.fillStyle = SHADOW_COLOR;
     ctx.beginPath();
     ctx.moveTo(Math.round(idxToX(0)), fftAreaMax.y);
     for (let i = 0; i < dataWidth; i++) {
-      ctx.lineTo(Math.round(idxToX(i)), Math.round(clampY(decimatedWaveform[i])));
+      ctx.lineTo(
+        Math.round(idxToX(i)),
+        Math.round(clampY(decimatedWaveform[i])),
+      );
     }
     ctx.lineTo(Math.round(idxToX(dataWidth - 1)), fftAreaMax.y);
     ctx.closePath();
@@ -331,9 +349,19 @@ function drawSpectrumToCanvas(
 
 // ── Waterfall renderers ─────────────────────────────────────────────────────
 
-export function dbToColor(db: number, minDb: number, maxDb: number): [number, number, number] {
+export function dbToColor(
+  db: number,
+  minDb: number,
+  maxDb: number,
+): [number, number, number] {
   const normalized = (db - minDb) / (maxDb - minDb);
-  const index = Math.max(0, Math.min(DEFAULT_COLOR_MAP.length - 1, normalized * (DEFAULT_COLOR_MAP.length - 1)));
+  const index = Math.max(
+    0,
+    Math.min(
+      DEFAULT_COLOR_MAP.length - 1,
+      normalized * (DEFAULT_COLOR_MAP.length - 1),
+    ),
+  );
   const lowerIndex = Math.floor(index);
   const upperIndex = Math.min(DEFAULT_COLOR_MAP.length - 1, lowerIndex + 1);
   const fraction = index - lowerIndex;
@@ -384,7 +412,9 @@ function drawWaterfallToCanvas(
     // FIFO: newest row at top (outY=0), oldest at bottom
     // Scale outY proportionally to totalRows to avoid banding when pixelH > totalRows
     const rowOffset_from_newest = Math.floor((outY / pixelH) * totalRows);
-    const textureRow = ((meta.writeRow - 1 - rowOffset_from_newest) % totalRows + totalRows) % totalRows;
+    const textureRow =
+      (((meta.writeRow - 1 - rowOffset_from_newest) % totalRows) + totalRows) %
+      totalRows;
     const rowOffset = textureRow * bytesPerRow;
 
     for (let outX = 0; outX < pixelW; outX++) {
@@ -393,7 +423,11 @@ function drawWaterfallToCanvas(
 
       let dbVal = -120;
       if (byteOffset + 4 <= textureSnapshot.length) {
-        const view = new DataView(textureSnapshot.buffer, textureSnapshot.byteOffset + byteOffset, 4);
+        const view = new DataView(
+          textureSnapshot.buffer,
+          textureSnapshot.byteOffset + byteOffset,
+          4,
+        );
         dbVal = view.getFloat32(0, true);
       }
 
@@ -406,7 +440,11 @@ function drawWaterfallToCanvas(
     }
   }
 
-  ctx.putImageData(imgData, Math.round(marginX * dpr), Math.round(marginY * dpr));
+  ctx.putImageData(
+    imgData,
+    Math.round(marginX * dpr),
+    Math.round(marginY * dpr),
+  );
 }
 
 function drawWaterfallFrom2DBuffer(
@@ -435,13 +473,21 @@ function drawWaterfallFrom2DBuffer(
 
   // putImageData ignores transforms, so scale manually
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.putImageData(imageData, Math.round(marginX * dpr), Math.round(marginY * dpr));
+  ctx.putImageData(
+    imageData,
+    Math.round(marginX * dpr),
+    Math.round(marginY * dpr),
+  );
 }
 
 // ── SVG Vector Generation ───────────────────────────────────────────────────
 
 export function escapeXml(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 function generateSpectrumSVG(
@@ -471,20 +517,28 @@ function generateSpectrumSVG(
     FFT_AREA_MIN.x + ((freq - minFreq) / viewBandwidth) * plotWidth;
 
   // Background
-  parts.push(`<rect width="${svgW}" height="${svgH}" fill="${FFT_CANVAS_BG}"/>`);
+  parts.push(
+    `<rect width="${svgW}" height="${svgH}" fill="${FFT_CANVAS_BG}"/>`,
+  );
 
   // dB labels + optional grid
   const startLine = Math.floor(fftMax / VERTICAL_RANGE) * VERTICAL_RANGE;
   const zeroDbY = fftAreaMax.y - (0 - fftMin) * scaleFactor;
-  parts.push(`<text x="${FFT_AREA_MIN.x - 10}" y="${Math.round(zeroDbY + 3)}" text-anchor="end" fill="${FFT_TEXT_COLOR}" font-family="JetBrains Mono, monospace" font-size="12">0dB</text>`);
+  parts.push(
+    `<text x="${FFT_AREA_MIN.x - 10}" y="${Math.round(zeroDbY + 3)}" text-anchor="end" fill="${FFT_TEXT_COLOR}" font-family="JetBrains Mono, monospace" font-size="12">0dB</text>`,
+  );
 
   for (let line = startLine; line > fftMin; line -= VERTICAL_RANGE) {
     if (line === 0) continue;
     const yPos = fftAreaMax.y - (line - fftMin) * scaleFactor;
     if (showGrid) {
-      parts.push(`<line x1="${FFT_AREA_MIN.x}" y1="${Math.round(yPos)}" x2="${fftAreaMax.x}" y2="${Math.round(yPos)}" stroke="${FFT_GRID_COLOR}" stroke-width="0.5"/>`);
+      parts.push(
+        `<line x1="${FFT_AREA_MIN.x}" y1="${Math.round(yPos)}" x2="${fftAreaMax.x}" y2="${Math.round(yPos)}" stroke="${FFT_GRID_COLOR}" stroke-width="0.5"/>`,
+      );
     }
-    parts.push(`<text x="${FFT_AREA_MIN.x - 10}" y="${Math.round(yPos + 3)}" text-anchor="end" fill="${FFT_TEXT_COLOR}" font-family="JetBrains Mono, monospace" font-size="12">${line}</text>`);
+    parts.push(
+      `<text x="${FFT_AREA_MIN.x - 10}" y="${Math.round(yPos + 3)}" text-anchor="end" fill="${FFT_TEXT_COLOR}" font-family="JetBrains Mono, monospace" font-size="12">${line}</text>`,
+    );
   }
 
   // ── Edge + tick frequency labels (same approach as canvas) ─────────────────
@@ -501,22 +555,36 @@ function generateSpectrumSVG(
   for (let freq = lowerFreq; freq < maxFreq; freq += range) {
     const xPos = Math.round(freqToX(freq));
     if (showGrid) {
-      parts.push(`<line x1="${xPos}" y1="${FFT_AREA_MIN.y}" x2="${xPos}" y2="${fftAreaMax.y}" stroke="${FFT_GRID_COLOR}" stroke-width="0.5"/>`);
+      parts.push(
+        `<line x1="${xPos}" y1="${FFT_AREA_MIN.y}" x2="${xPos}" y2="${fftAreaMax.y}" stroke="${FFT_GRID_COLOR}" stroke-width="0.5"/>`,
+      );
     }
-    parts.push(`<line x1="${xPos}" y1="${fftAreaMax.y}" x2="${xPos}" y2="${fftAreaMax.y + 7}" stroke="${FFT_TEXT_COLOR}" stroke-width="0.5"/>`);
+    parts.push(
+      `<line x1="${xPos}" y1="${fftAreaMax.y}" x2="${xPos}" y2="${fftAreaMax.y + 7}" stroke="${FFT_TEXT_COLOR}" stroke-width="0.5"/>`,
+    );
     // Skip label if it would collide with edge labels
     if (xPos >= edgeLeftEnd && xPos <= edgeRightStart) {
-      parts.push(`<text x="${xPos}" y="${FREQ_LABEL_Y_SVG}" text-anchor="middle" fill="${FFT_TEXT_COLOR}" font-family="JetBrains Mono, monospace" font-size="12">${escapeXml(fmtFreqTick(freq))}</text>`);
+      parts.push(
+        `<text x="${xPos}" y="${FREQ_LABEL_Y_SVG}" text-anchor="middle" fill="${FFT_TEXT_COLOR}" font-family="JetBrains Mono, monospace" font-size="12">${escapeXml(fmtFreqTick(freq))}</text>`,
+      );
     }
   }
 
   // Axes
-  parts.push(`<line x1="${FFT_AREA_MIN.x}" y1="${fftAreaMax.y}" x2="${fftAreaMax.x}" y2="${fftAreaMax.y}" stroke="${FFT_TEXT_COLOR}" stroke-width="1"/>`);
-  parts.push(`<line x1="${FFT_AREA_MIN.x}" y1="${FFT_AREA_MIN.y}" x2="${FFT_AREA_MIN.x}" y2="${fftAreaMax.y - 1}" stroke="${FFT_TEXT_COLOR}" stroke-width="1"/>`);
+  parts.push(
+    `<line x1="${FFT_AREA_MIN.x}" y1="${fftAreaMax.y}" x2="${fftAreaMax.x}" y2="${fftAreaMax.y}" stroke="${FFT_TEXT_COLOR}" stroke-width="1"/>`,
+  );
+  parts.push(
+    `<line x1="${FFT_AREA_MIN.x}" y1="${FFT_AREA_MIN.y}" x2="${FFT_AREA_MIN.x}" y2="${fftAreaMax.y - 1}" stroke="${FFT_TEXT_COLOR}" stroke-width="1"/>`,
+  );
 
   // Edge labels (drawn last, take priority)
-  parts.push(`<text x="${FFT_AREA_MIN.x}" y="${FREQ_LABEL_Y_SVG}" text-anchor="start" fill="${FFT_TEXT_COLOR}" font-family="JetBrains Mono, monospace" font-size="12">${escapeXml(startLabel)}</text>`);
-  parts.push(`<text x="${fftAreaMax.x}" y="${FREQ_LABEL_Y_SVG}" text-anchor="end" fill="${FFT_TEXT_COLOR}" font-family="JetBrains Mono, monospace" font-size="12">${escapeXml(endLabel)}</text>`);
+  parts.push(
+    `<text x="${FFT_AREA_MIN.x}" y="${FREQ_LABEL_Y_SVG}" text-anchor="start" fill="${FFT_TEXT_COLOR}" font-family="JetBrains Mono, monospace" font-size="12">${escapeXml(startLabel)}</text>`,
+  );
+  parts.push(
+    `<text x="${fftAreaMax.x}" y="${FREQ_LABEL_Y_SVG}" text-anchor="end" fill="${FFT_TEXT_COLOR}" font-family="JetBrains Mono, monospace" font-size="12">${escapeXml(endLabel)}</text>`,
+  );
 
   // Trace — step-aware rendering
   const decimatedWaveform = decimateWaveform(waveform, Math.ceil(plotWidth));
@@ -537,28 +605,33 @@ function generateSpectrumSVG(
     // Box/step mode: each bin is a filled rectangle
     const binW = plotWidth / dataWidth;
     // Shadow fill: one rect per bin
-    for (let i = 0; i < dataWidth; i++) {
-      const x = Math.round(FFT_AREA_MIN.x + i * binW);
-      const y = Math.round(clampY(decimatedWaveform[i]));
-      const w = Math.ceil(binW);
-      const h = fftAreaMax.y - y;
-      parts.push(`<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${SHADOW_COLOR}"/>`);
-    }
-    // Stroke: step path (horizontal + vertical segments)
+    let rects = "";
     let stepPath = "";
+
     for (let i = 0; i < dataWidth; i++) {
       const x = Math.round(FFT_AREA_MIN.x + i * binW);
-      const xEnd = Math.round(FFT_AREA_MIN.x + (i + 1) * binW);
+      const nextX =
+        i === dataWidth - 1
+          ? fftAreaMax.x
+          : Math.round(FFT_AREA_MIN.x + (i + 1) * binW);
+      const w = nextX - x;
       const y = Math.round(clampY(decimatedWaveform[i]));
+      const h = fftAreaMax.y - y;
+
+      rects += `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${SHADOW_COLOR}"/>`;
+
       if (i === 0) {
-        stepPath = `M${x},${y}`;
+        stepPath += `M${x},${y}`;
       } else {
         const prevY = Math.round(clampY(decimatedWaveform[i - 1]));
-        stepPath += ` L${x},${prevY} L${x},${y}`;
+        stepPath += `L${x},${prevY} L${x},${y}`;
       }
-      stepPath += ` L${xEnd},${y}`;
+      stepPath += `L${nextX},${y} `;
     }
-    parts.push(`<path d="${stepPath}" fill="none" stroke="${LINE_COLOR}" stroke-width="0.5"/>`);
+    parts.push(rects);
+    parts.push(
+      `<path d="${stepPath.trim()}" fill="none" stroke="${LINE_COLOR}" stroke-width="0.5"/>`,
+    );
   } else {
     // Smooth line mode
     let fillPath = `M${Math.round(idxToX(0))},${fftAreaMax.y}`;
@@ -574,7 +647,9 @@ function generateSpectrumSVG(
       const y = Math.round(clampY(decimatedWaveform[i]));
       strokePath += i === 0 ? `M${x},${y}` : ` L${x},${y}`;
     }
-    parts.push(`<path d="${strokePath}" fill="none" stroke="${LINE_COLOR}" stroke-width="0.5" stroke-linejoin="round" stroke-linecap="round"/>`);
+    parts.push(
+      `<path d="${strokePath}" fill="none" stroke="${LINE_COLOR}" stroke-width="0.5" stroke-linejoin="round" stroke-linecap="round"/>`,
+    );
   }
   // Center frequency label (no line, ○)
   const centerLabel =
@@ -585,8 +660,12 @@ function generateSpectrumSVG(
   const labelY = fftAreaMax.y + 25;
   // approximate width for background
   const approxLabelW = centerLabel.length * 7.5;
-  parts.push(`<rect x="${labelX - approxLabelW / 2 - 6}" y="${labelY - 13}" width="${approxLabelW + 12}" height="17" fill="rgba(10,10,10,0.9)"/>`);
-  parts.push(`<text x="${labelX}" y="${labelY}" text-anchor="middle" fill="#ffffff" font-family="JetBrains Mono, monospace" font-size="12">${escapeXml(centerLabel)}</text>`);
+  parts.push(
+    `<rect x="${labelX - approxLabelW / 2 - 6}" y="${labelY - 13}" width="${approxLabelW + 12}" height="17" fill="rgba(10,10,10,0.9)"/>`,
+  );
+  parts.push(
+    `<text x="${labelX}" y="${labelY}" text-anchor="middle" fill="#ffffff" font-family="JetBrains Mono, monospace" font-size="12">${escapeXml(centerLabel)}</text>`,
+  );
 
   return parts.join("\n  ");
 }
@@ -597,185 +676,109 @@ export function useSnapshot(
   _frequencyRange: { min: number; max: number } | null,
   _isConnected: boolean,
 ) {
-  const handleSnapshot = useCallback(
-    async (options: SnapshotOptions) => {
-      const data = options.getSnapshotData();
-      if (!data || !data.waveform || data.waveform.length === 0) {
-        console.warn("[Snapshot] No waveform data available");
-        return;
-      }
+  const handleSnapshot = useCallback(async (options: SnapshotOptions) => {
+    const data = options.getSnapshotData();
+    if (!data || !data.waveform || data.waveform.length === 0) {
+      console.warn("[Snapshot] No waveform data available");
+      return;
+    }
 
-      // Determine waveform + range
-      let waveformToRender: Float32Array;
-      let rangeToRender: { min: number; max: number };
+    // Determine waveform + range
+    let waveformToRender: Float32Array;
+    let rangeToRender: { min: number; max: number };
 
-      if (options.whole) {
-        waveformToRender = data.waveform;
-        const area = options.activeSignalArea?.toLowerCase();
-        const bounds = area ? options.signalAreaBounds?.[area] : null;
-        rangeToRender = bounds ?? data.frequencyRange;
-      } else {
-        if (data.vizZoom > 1) {
-          const { slicedWaveform, visualRange } = getZoomedSlice(
-            data.waveform,
-            data.frequencyRange,
-            data.vizZoom,
-            data.vizPanOffset,
-          );
-          waveformToRender = slicedWaveform;
-          rangeToRender = visualRange;
-        } else {
-          waveformToRender = data.waveform;
-          rangeToRender = data.frequencyRange;
-        }
-      }
-
-      // Dimensions
-      const dpr = window.devicePixelRatio || 1;
-      const LOGICAL_WIDTH = 1200;
-      const LOGICAL_SPECTRUM_H = 400;
-      const LOGICAL_WATERFALL_H = 300;
-      const PIXEL_WIDTH = Math.round(LOGICAL_WIDTH * dpr);
-      const PIXEL_SPECTRUM_H = Math.round(LOGICAL_SPECTRUM_H * dpr);
-      const PIXEL_WATERFALL_H = Math.round(LOGICAL_WATERFALL_H * dpr);
-
-      const hasWaterfall =
-        options.showWaterfall &&
-        ((data.webgpuEnabled && data.waterfallTextureSnapshot && data.waterfallTextureMeta) ||
-         (!data.webgpuEnabled && data.waterfallBuffer && data.waterfallDims));
-
-      const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, "-");
-
-      // ── SVG Vector path ───────────────────────────────────────────────────
-      if (options.format === "svg") {
-        const totalH = hasWaterfall ? LOGICAL_SPECTRUM_H + LOGICAL_WATERFALL_H : LOGICAL_SPECTRUM_H;
-
-        const spectrumSvg = generateSpectrumSVG(
-          Array.from(waveformToRender),
-          rangeToRender,
-          data.dbMin,
-          data.dbMax,
-          options.showGrid,
-          data.centerFrequencyMHz,
-          LOGICAL_WIDTH,
-          LOGICAL_SPECTRUM_H,
+    if (options.whole) {
+      waveformToRender = data.waveform;
+      const area = options.activeSignalArea?.toLowerCase();
+      const bounds = area ? options.signalAreaBounds?.[area] : null;
+      rangeToRender = bounds ?? data.frequencyRange;
+    } else {
+      if (data.vizZoom > 1) {
+        const { slicedWaveform, visualRange } = getZoomedSlice(
+          data.waveform,
+          data.frequencyRange,
+          data.vizZoom,
+          data.vizPanOffset,
         );
-
-        // Waterfall as embedded PNG bitmap (vectors don't make sense for heatmaps)
-        let waterfallSection = "";
-        if (hasWaterfall) {
-          const wfCanvas = document.createElement("canvas");
-          wfCanvas.width = PIXEL_WIDTH;
-          wfCanvas.height = PIXEL_WATERFALL_H;
-
-          if (data.webgpuEnabled && data.waterfallTextureSnapshot && data.waterfallTextureMeta) {
-            drawWaterfallToCanvas(wfCanvas, data.waterfallTextureSnapshot, data.waterfallTextureMeta, data.dbMin, data.dbMax);
-          } else if (data.waterfallBuffer && data.waterfallDims) {
-            drawWaterfallFrom2DBuffer(wfCanvas, data.waterfallBuffer, data.waterfallDims);
-          }
-
-          const wfDataUrl = wfCanvas.toDataURL("image/png");
-          waterfallSection = `<image href="${wfDataUrl}" x="0" y="${LOGICAL_SPECTRUM_H}" width="${LOGICAL_WIDTH}" height="${LOGICAL_WATERFALL_H}"/>`;
-        }
-
-        // Stats overlay
-        let statsSection = "";
-        if (options.showStats) {
-          const statsLines = [
-            `${fmtFreq(rangeToRender.min)} – ${fmtFreq(rangeToRender.max)}`,
-            fmtTimestamp(),
-            `${options.whole ? "Whole" : "Onscreen"} | dB: ${data.dbMin} to ${data.dbMax}`,
-            `Source: ${options.sourceName || "Unknown"}`,
-          ];
-          if (options.sdrSettingsLabel) {
-            statsLines.push(options.sdrSettingsLabel);
-          }
-
-          // Smart placement
-          let placeLeft = false;
-          if (waveformToRender.length > 0) {
-            const marginBins = Math.max(1, Math.floor(waveformToRender.length * 0.15));
-            let leftMax = -Infinity;
-            for (let i = 0; i < marginBins; i++) leftMax = Math.max(leftMax, waveformToRender[i]);
-            let rightMax = -Infinity;
-            for (let i = waveformToRender.length - marginBins; i < waveformToRender.length; i++) rightMax = Math.max(rightMax, waveformToRender[i]);
-            if (leftMax < rightMax) placeLeft = true;
-          }
-
-          const statsW = 310;
-          const statsX = placeLeft ? 8 : LOGICAL_WIDTH - statsW - 8;
-          const statsY = 4;
-          statsSection = `<rect x="${statsX}" y="${statsY}" width="${statsW}" height="${statsLines.length * 16 + 8}" rx="4" fill="rgba(0,0,0,0.7)"/>`;
-          statsLines.forEach((line, i) => {
-            statsSection += `\n  <text x="${statsX + 8}" y="${statsY + 16 + i * 16}" fill="#ccc" font-family="monospace" font-size="12">${escapeXml(line)}</text>`;
-          });
-        }
-
-        const svgContent = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${LOGICAL_WIDTH} ${totalH}" width="${LOGICAL_WIDTH}" height="${totalH}">
-  ${spectrumSvg}
-  ${waterfallSection}
-  ${statsSection}
-</svg>`;
-
-        const blob = new Blob([svgContent], { type: "image/svg+xml" });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.download = `spectrum-snapshot-${timestamp}.svg`;
-        link.href = url;
-        link.click();
-        URL.revokeObjectURL(url);
-        return;
+        waveformToRender = slicedWaveform;
+        rangeToRender = visualRange;
+      } else {
+        waveformToRender = data.waveform;
+        rangeToRender = data.frequencyRange;
       }
+    }
 
-      // ── PNG path ──────────────────────────────────────────────────────────
+    // Dimensions
+    const dpr = window.devicePixelRatio || 1;
+    const LOGICAL_WIDTH = 1200;
+    const LOGICAL_SPECTRUM_H = 400;
+    const LOGICAL_WATERFALL_H = 300;
+    const PIXEL_WIDTH = Math.round(LOGICAL_WIDTH * dpr);
+    const PIXEL_SPECTRUM_H = Math.round(LOGICAL_SPECTRUM_H * dpr);
+    const PIXEL_WATERFALL_H = Math.round(LOGICAL_WATERFALL_H * dpr);
 
-      const totalPixelH = hasWaterfall ? PIXEL_SPECTRUM_H + PIXEL_WATERFALL_H : PIXEL_SPECTRUM_H;
+    const hasWaterfall =
+      options.showWaterfall &&
+      ((data.webgpuEnabled &&
+        data.waterfallTextureSnapshot &&
+        data.waterfallTextureMeta) ||
+        (!data.webgpuEnabled && data.waterfallBuffer && data.waterfallDims));
 
-      // Spectrum
-      const spectrumCanvas = document.createElement("canvas");
-      spectrumCanvas.width = PIXEL_WIDTH;
-      spectrumCanvas.height = PIXEL_SPECTRUM_H;
-      drawSpectrumToCanvas(
-        spectrumCanvas,
+    const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, "-");
+
+    const centerFreqToRender = (rangeToRender.min + rangeToRender.max) / 2;
+
+    // ── SVG Vector path ───────────────────────────────────────────────────
+    if (options.format === "svg") {
+      const totalH = hasWaterfall
+        ? LOGICAL_SPECTRUM_H + LOGICAL_WATERFALL_H
+        : LOGICAL_SPECTRUM_H;
+
+      const spectrumSvg = generateSpectrumSVG(
         Array.from(waveformToRender),
         rangeToRender,
         data.dbMin,
         data.dbMax,
         options.showGrid,
-        data.centerFrequencyMHz,
+        centerFreqToRender,
+        LOGICAL_WIDTH,
+        LOGICAL_SPECTRUM_H,
       );
 
-      // Waterfall
-      let waterfallCanvas: HTMLCanvasElement | null = null;
+      // Waterfall as embedded PNG bitmap (vectors don't make sense for heatmaps)
+      let waterfallSection = "";
       if (hasWaterfall) {
-        waterfallCanvas = document.createElement("canvas");
-        waterfallCanvas.width = PIXEL_WIDTH;
-        waterfallCanvas.height = PIXEL_WATERFALL_H;
+        const wfCanvas = document.createElement("canvas");
+        wfCanvas.width = PIXEL_WIDTH;
+        wfCanvas.height = PIXEL_WATERFALL_H;
 
-        if (data.webgpuEnabled && data.waterfallTextureSnapshot && data.waterfallTextureMeta) {
-          drawWaterfallToCanvas(waterfallCanvas, data.waterfallTextureSnapshot, data.waterfallTextureMeta, data.dbMin, data.dbMax);
+        if (
+          data.webgpuEnabled &&
+          data.waterfallTextureSnapshot &&
+          data.waterfallTextureMeta
+        ) {
+          drawWaterfallToCanvas(
+            wfCanvas,
+            data.waterfallTextureSnapshot,
+            data.waterfallTextureMeta,
+            data.dbMin,
+            data.dbMax,
+          );
         } else if (data.waterfallBuffer && data.waterfallDims) {
-          drawWaterfallFrom2DBuffer(waterfallCanvas, data.waterfallBuffer, data.waterfallDims);
+          drawWaterfallFrom2DBuffer(
+            wfCanvas,
+            data.waterfallBuffer,
+            data.waterfallDims,
+          );
         }
+
+        const wfDataUrl = wfCanvas.toDataURL("image/png");
+        waterfallSection = `<image href="${wfDataUrl}" x="0" y="${LOGICAL_SPECTRUM_H}" width="${LOGICAL_WIDTH}" height="${LOGICAL_WATERFALL_H}"/>`;
       }
 
-      // Composite
-      const finalCanvas = document.createElement("canvas");
-      finalCanvas.width = PIXEL_WIDTH;
-      finalCanvas.height = totalPixelH;
-      const ctx = finalCanvas.getContext("2d");
-      if (!ctx) return;
-
-      ctx.drawImage(spectrumCanvas, 0, 0);
-      if (waterfallCanvas) {
-        ctx.drawImage(waterfallCanvas, 0, PIXEL_SPECTRUM_H);
-      }
-
-      // Stats overlay (smart placement)
+      // Stats overlay
+      let statsSection = "";
       if (options.showStats) {
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        const logicalW = PIXEL_WIDTH / dpr;
-
         const statsLines = [
           `${fmtFreq(rangeToRender.min)} – ${fmtFreq(rangeToRender.max)}`,
           fmtTimestamp(),
@@ -789,42 +792,171 @@ export function useSnapshot(
         // Smart placement
         let placeLeft = false;
         if (waveformToRender.length > 0) {
-          const marginBins = Math.max(1, Math.floor(waveformToRender.length * 0.15));
+          const marginBins = Math.max(
+            1,
+            Math.floor(waveformToRender.length * 0.15),
+          );
           let leftMax = -Infinity;
-          for (let i = 0; i < marginBins; i++) leftMax = Math.max(leftMax, waveformToRender[i]);
+          for (let i = 0; i < marginBins; i++)
+            leftMax = Math.max(leftMax, waveformToRender[i]);
           let rightMax = -Infinity;
-          for (let i = waveformToRender.length - marginBins; i < waveformToRender.length; i++) rightMax = Math.max(rightMax, waveformToRender[i]);
+          for (
+            let i = waveformToRender.length - marginBins;
+            i < waveformToRender.length;
+            i++
+          )
+            rightMax = Math.max(rightMax, waveformToRender[i]);
           if (leftMax < rightMax) placeLeft = true;
         }
 
-        ctx.font = "12px monospace";
-        const maxTextW = Math.max(...statsLines.map((l) => ctx.measureText(l).width));
-        const boxW = maxTextW + 16;
-        const boxH = statsLines.length * 16 + 8;
-        const boxX = placeLeft ? 8 : logicalW - boxW - 8;
-        const boxY = 4;
-
-        ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
-        ctx.beginPath();
-        ctx.roundRect(boxX, boxY, boxW, boxH, 4);
-        ctx.fill();
-
-        ctx.fillStyle = "#ccc";
-        ctx.font = "12px monospace";
+        const statsW = 310;
+        const statsX = placeLeft ? 8 : LOGICAL_WIDTH - statsW - 8;
+        const statsY = 4;
+        statsSection = `<rect x="${statsX}" y="${statsY}" width="${statsW}" height="${statsLines.length * 16 + 8}" rx="4" fill="rgba(0,0,0,0.7)"/>`;
         statsLines.forEach((line, i) => {
-          ctx.fillText(line, boxX + 8, boxY + 16 + i * 16);
+          statsSection += `\n  <text x="${statsX + 8}" y="${statsY + 16 + i * 16}" fill="#ccc" font-family="monospace" font-size="12">${escapeXml(line)}</text>`;
         });
       }
 
-      // Export PNG
-      const dataUrl = finalCanvas.toDataURL("image/png");
+      const svgContent = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${LOGICAL_WIDTH} ${totalH}" width="${LOGICAL_WIDTH}" height="${totalH}">
+  ${spectrumSvg}
+  ${waterfallSection}
+  ${statsSection}
+</svg>`;
+
+      const blob = new Blob([svgContent], { type: "image/svg+xml" });
+      const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
-      link.download = `spectrum-snapshot-${timestamp}.png`;
-      link.href = dataUrl;
+      link.download = `spectrum-snapshot-${timestamp}.svg`;
+      link.href = url;
       link.click();
-    },
-    [],
-  );
+      URL.revokeObjectURL(url);
+      return;
+    }
+
+    // ── PNG path ──────────────────────────────────────────────────────────
+
+    const totalPixelH = hasWaterfall
+      ? PIXEL_SPECTRUM_H + PIXEL_WATERFALL_H
+      : PIXEL_SPECTRUM_H;
+
+    // Spectrum
+    const spectrumCanvas = document.createElement("canvas");
+    spectrumCanvas.width = PIXEL_WIDTH;
+    spectrumCanvas.height = PIXEL_SPECTRUM_H;
+    drawSpectrumToCanvas(
+      spectrumCanvas,
+      Array.from(waveformToRender),
+      rangeToRender,
+      data.dbMin,
+      data.dbMax,
+      options.showGrid,
+      centerFreqToRender,
+    );
+
+    // Waterfall
+    let waterfallCanvas: HTMLCanvasElement | null = null;
+    if (hasWaterfall) {
+      waterfallCanvas = document.createElement("canvas");
+      waterfallCanvas.width = PIXEL_WIDTH;
+      waterfallCanvas.height = PIXEL_WATERFALL_H;
+
+      if (
+        data.webgpuEnabled &&
+        data.waterfallTextureSnapshot &&
+        data.waterfallTextureMeta
+      ) {
+        drawWaterfallToCanvas(
+          waterfallCanvas,
+          data.waterfallTextureSnapshot,
+          data.waterfallTextureMeta,
+          data.dbMin,
+          data.dbMax,
+        );
+      } else if (data.waterfallBuffer && data.waterfallDims) {
+        drawWaterfallFrom2DBuffer(
+          waterfallCanvas,
+          data.waterfallBuffer,
+          data.waterfallDims,
+        );
+      }
+    }
+
+    // Composite
+    const finalCanvas = document.createElement("canvas");
+    finalCanvas.width = PIXEL_WIDTH;
+    finalCanvas.height = totalPixelH;
+    const ctx = finalCanvas.getContext("2d");
+    if (!ctx) return;
+
+    ctx.drawImage(spectrumCanvas, 0, 0);
+    if (waterfallCanvas) {
+      ctx.drawImage(waterfallCanvas, 0, PIXEL_SPECTRUM_H);
+    }
+
+    // Stats overlay (smart placement)
+    if (options.showStats) {
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      const logicalW = PIXEL_WIDTH / dpr;
+
+      const statsLines = [
+        `${fmtFreq(rangeToRender.min)} – ${fmtFreq(rangeToRender.max)}`,
+        fmtTimestamp(),
+        `${options.whole ? "Whole" : "Onscreen"} | dB: ${data.dbMin} to ${data.dbMax}`,
+        `Source: ${options.sourceName || "Unknown"}`,
+      ];
+      if (options.sdrSettingsLabel) {
+        statsLines.push(options.sdrSettingsLabel);
+      }
+
+      // Smart placement
+      let placeLeft = false;
+      if (waveformToRender.length > 0) {
+        const marginBins = Math.max(
+          1,
+          Math.floor(waveformToRender.length * 0.15),
+        );
+        let leftMax = -Infinity;
+        for (let i = 0; i < marginBins; i++)
+          leftMax = Math.max(leftMax, waveformToRender[i]);
+        let rightMax = -Infinity;
+        for (
+          let i = waveformToRender.length - marginBins;
+          i < waveformToRender.length;
+          i++
+        )
+          rightMax = Math.max(rightMax, waveformToRender[i]);
+        if (leftMax < rightMax) placeLeft = true;
+      }
+
+      ctx.font = "12px monospace";
+      const maxTextW = Math.max(
+        ...statsLines.map((l) => ctx.measureText(l).width),
+      );
+      const boxW = maxTextW + 16;
+      const boxH = statsLines.length * 16 + 8;
+      const boxX = placeLeft ? 8 : logicalW - boxW - 8;
+      const boxY = 4;
+
+      ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+      ctx.beginPath();
+      ctx.roundRect(boxX, boxY, boxW, boxH, 4);
+      ctx.fill();
+
+      ctx.fillStyle = "#ccc";
+      ctx.font = "12px monospace";
+      statsLines.forEach((line, i) => {
+        ctx.fillText(line, boxX + 8, boxY + 16 + i * 16);
+      });
+    }
+
+    // Export PNG
+    const dataUrl = finalCanvas.toDataURL("image/png");
+    const link = document.createElement("a");
+    link.download = `spectrum-snapshot-${timestamp}.png`;
+    link.href = dataUrl;
+    link.click();
+  }, []);
 
   return { handleSnapshot };
 }

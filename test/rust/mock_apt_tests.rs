@@ -8,7 +8,7 @@ mod tests {
     #[test]
     fn test_device_type() {
         let device = MockAptDevice::new();
-        assert_eq!(device.device_type(), "mock_apt");
+        assert_eq!(device.device_type(), "Mock APT SDR");
     }
 
     #[test]

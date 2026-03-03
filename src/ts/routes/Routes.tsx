@@ -8,7 +8,6 @@ import { SpectrumRoute } from "./SpectrumRoute";
 import { DecodeRoute } from "./DecodeRoute";
 import { DrawSignalRoute } from "./DrawSignalRoute";
 import { Model3DRoute } from "./Model3DRoute";
-import { HotspotEditorRoute } from "./HotspotEditorRoute";
 import { Model3DProvider } from "@n-apt/hooks/useModel3D";
 import { HotspotEditorProvider } from "@n-apt/hooks/useHotspotEditor";
 import { SidebarForRoute } from "@n-apt/components/sidebar/SidebarForRoute";
@@ -52,20 +51,12 @@ export const AppRoutes: React.FC = () => {
         path="/3d-model"
         element={
           <Model3DProvider>
-            <MainLayout sidebar={<SidebarForRoute activeTab="model3d" />}>
-              <Model3DRoute />
-            </MainLayout>
+            <HotspotEditorProvider>
+              <MainLayout sidebar={<SidebarForRoute />}>
+                <Model3DRoute />
+              </MainLayout>
+            </HotspotEditorProvider>
           </Model3DProvider>
-        }
-      />
-      <Route
-        path="/hotspot-editor"
-        element={
-          <HotspotEditorProvider>
-            <MainLayout sidebar={<SidebarForRoute activeTab="hotspoteditor" />}>
-              <HotspotEditorRoute />
-            </MainLayout>
-          </HotspotEditorProvider>
         }
       />
     </Routes>

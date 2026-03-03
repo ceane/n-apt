@@ -41,7 +41,11 @@ export interface WaterfallRenderOptions {
  * @param maxDb - Maximum dB level for normalization
  * @returns Normalized amplitude array
  */
-export function spectrumToAmplitude(spectrum: number[], minDb: number, maxDb: number): number[] {
+export function spectrumToAmplitude(
+  spectrum: number[],
+  minDb: number,
+  maxDb: number,
+): number[] {
   return spectrum.map((db) => {
     const normalized = (db - minDb) / (maxDb - minDb);
     return Math.max(0, Math.min(1, normalized));

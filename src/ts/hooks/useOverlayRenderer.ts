@@ -67,7 +67,11 @@ export function useOverlayRenderer() {
         ctx.moveTo(FFT_AREA_MIN.x, Math.round(yPos));
         ctx.lineTo(fftAreaMax.x, Math.round(yPos));
         ctx.stroke();
-        ctx.fillText(line.toString(), FFT_AREA_MIN.x - 10, Math.round(yPos + 3));
+        ctx.fillText(
+          line.toString(),
+          FFT_AREA_MIN.x - 10,
+          Math.round(yPos + 3),
+        );
       }
 
       const viewBandwidth2 = maxFreq - minFreq;
@@ -113,17 +117,23 @@ export function useOverlayRenderer() {
       ctx.moveTo(Math.round(channelStartX), fftAreaMax.y);
       ctx.lineTo(Math.round(channelStartX), fftAreaMax.y + 7);
       ctx.stroke();
-      
+
       // Show channel start frequency
       const useHighResLabels = viewBandwidth2 * 1_000_000 < 10_000;
-      const displayFreq = useHighResLabels ? formatFrequencyHighRes(minFreq) : formatFrequency(minFreq);
-      ctx.fillText(displayFreq, clampLabelX(Math.round(channelStartX), displayFreq), fftAreaMax.y + 25);
+      const displayFreq = useHighResLabels
+        ? formatFrequencyHighRes(minFreq)
+        : formatFrequency(minFreq);
+      ctx.fillText(
+        displayFreq,
+        clampLabelX(Math.round(channelStartX), displayFreq),
+        fftAreaMax.y + 25,
+      );
 
       // Then draw the regular grid lines
       for (let freq = lowerFreq2; freq < upperFreq2; freq += range2) {
         // Skip if this is the same as the channel start we already drew
         if (Math.abs(freq - minFreq) < 0.001) continue;
-        
+
         const xPos = freqToX2(freq);
         ctx.beginPath();
         ctx.moveTo(Math.round(xPos), FFT_AREA_MIN.y);
@@ -133,10 +143,16 @@ export function useOverlayRenderer() {
         ctx.moveTo(Math.round(xPos), fftAreaMax.y);
         ctx.lineTo(Math.round(xPos), fftAreaMax.y + 7);
         ctx.stroke();
-        
+
         // Use proper frequency formatting with Hz/kHz/MHz
-        const displayFreq = useHighResLabels ? formatFrequencyHighRes(freq) : formatFrequency(freq);
-        ctx.fillText(displayFreq, clampLabelX(Math.round(xPos), displayFreq), fftAreaMax.y + 25);
+        const displayFreq = useHighResLabels
+          ? formatFrequencyHighRes(freq)
+          : formatFrequency(freq);
+        ctx.fillText(
+          displayFreq,
+          clampLabelX(Math.round(xPos), displayFreq),
+          fftAreaMax.y + 25,
+        );
       }
 
       if (centerTicksMHz.length > 0 && Number.isFinite(visualCenterFreq)) {
@@ -185,9 +201,15 @@ export function useOverlayRenderer() {
         ctx.moveTo(Math.round(xPos), fftAreaMax.y);
         ctx.lineTo(Math.round(xPos), fftAreaMax.y + 7);
         ctx.stroke();
-        
-        const displayFreq = useHighResLabels ? formatFrequencyHighRes(maxFreq) : formatFrequency(maxFreq);
-        ctx.fillText(displayFreq, clampLabelX(Math.round(xPos), displayFreq), fftAreaMax.y + 25);
+
+        const displayFreq = useHighResLabels
+          ? formatFrequencyHighRes(maxFreq)
+          : formatFrequency(maxFreq);
+        ctx.fillText(
+          displayFreq,
+          clampLabelX(Math.round(xPos), displayFreq),
+          fftAreaMax.y + 25,
+        );
       }
 
       ctx.strokeStyle = FFT_TEXT_COLOR;
@@ -246,7 +268,10 @@ export function useOverlayRenderer() {
           ctx.textAlign = "center";
           ctx.textBaseline = "top";
           const tw = ctx.measureText(m.label).width;
-          const lx = Math.max(FFT_AREA_MIN.x + tw / 2 + 4, Math.min(fftAreaMax.x - tw / 2 - 4, x));
+          const lx = Math.max(
+            FFT_AREA_MIN.x + tw / 2 + 4,
+            Math.min(fftAreaMax.x - tw / 2 - 4, x),
+          );
           ctx.fillStyle = "rgba(10, 10, 10, 0.75)";
           ctx.fillRect(lx - tw / 2 - 4, FFT_AREA_MIN.y + 4, tw + 8, 18);
           ctx.fillStyle = "rgba(220, 38, 38, 0.9)";

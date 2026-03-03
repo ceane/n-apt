@@ -14,7 +14,9 @@ export interface Draw2DFIFOWaterfallOptions {
 }
 
 export function useDraw2DFIFOWaterfall() {
-  const lastBufferRef = useRef<{ length: number; timestamp: number } | null>(null);
+  const lastBufferRef = useRef<{ length: number; timestamp: number } | null>(
+    null,
+  );
 
   // Inline dbToColor function
   const dbToColor = useCallback(
@@ -22,7 +24,10 @@ export function useDraw2DFIFOWaterfall() {
       const normalized = (db - minDb) / (maxDb - minDb);
       const index = Math.max(
         0,
-        Math.min(DEFAULT_COLOR_MAP.length - 1, normalized * (DEFAULT_COLOR_MAP.length - 1)),
+        Math.min(
+          DEFAULT_COLOR_MAP.length - 1,
+          normalized * (DEFAULT_COLOR_MAP.length - 1),
+        ),
       );
       const lowerIndex = Math.floor(index);
       const upperIndex = Math.min(DEFAULT_COLOR_MAP.length - 1, lowerIndex + 1);
@@ -75,7 +80,10 @@ export function useDraw2DFIFOWaterfall() {
         waterfallBuffer[i0 + 2] = b;
         waterfallBuffer[i0 + 3] = 255;
 
-        const smear = Math.max(0, Math.min(Math.floor(driftAmount), height - 1));
+        const smear = Math.max(
+          0,
+          Math.min(Math.floor(driftAmount), height - 1),
+        );
         for (let dy = 1; dy <= smear; dy++) {
           const i = (dy * width + x) * 4;
           waterfallBuffer[i] = Math.max(waterfallBuffer[i], r);
@@ -86,37 +94,6 @@ export function useDraw2DFIFOWaterfall() {
       }
     },
     [dbToColor],
-  );
-
-  // Inline drawWaterfall function
-  const drawWaterfall = useCallback(
-    (
-      ctx: CanvasRenderingContext2D,
-      width: number,
-      height: number,
-      waterfallBuffer: Uint8ClampedArray,
-    ) => {
-      // Use consistent margins without dpr scaling for positioning
-      const marginX = 40;
-      const marginY = 8;
-
-      const waterfallWidth = Math.max(1, Math.round(width - marginX * 2));
-      const waterfallHeight = Math.max(1, Math.round(height - marginY * 2));
-
-      const centeredX = marginX;
-      const centeredY = marginY;
-
-      ctx.fillStyle = WATERFALL_CANVAS_BG;
-      ctx.fillRect(0, 0, width, height);
-
-      const expectedSize = waterfallWidth * waterfallHeight * 4;
-      const safeBuffer = new Uint8ClampedArray(expectedSize);
-      const copyLen = Math.min(expectedSize, waterfallBuffer.length);
-      safeBuffer.set(waterfallBuffer.subarray(0, copyLen));
-      const imageData = new ImageData(safeBuffer, waterfallWidth, waterfallHeight);
-      ctx.putImageData(imageData, centeredX, centeredY);
-    },
-    [],
   );
 
   const draw2DFIFOWaterfall = useCallback(
@@ -135,39 +112,57 @@ export function useDraw2DFIFOWaterfall() {
       const ctx = canvas.getContext("2d");
       if (!ctx || !waterfallBuffer) return false;
 
-      // Update canvas dimensions
+      const dpr = window.devicePixelRatio || 1;
       const rect = canvas.parentElement?.getBoundingClientRect();
-      const width = rect?.width || canvas.width;
-      const height = rect?.height || canvas.height;
+      const cssWidth = rect?.width || canvas.clientWidth || 800;
+      const cssHeight = rect?.height || canvas.clientHeight || 400;
 
-      canvas.width = width;
-      canvas.height = height;
-      canvas.style.width = `${width}px`;
-      canvas.style.height = `${height}px`;
+      // Update internal resolution for High-DPI displays
+      if (
+        canvas.width !== Math.floor(cssWidth * dpr) ||
+        canvas.height !== Math.floor(cssHeight * dpr)
+      ) {
+        canvas.width = Math.floor(cssWidth * dpr);
+        canvas.height = Math.floor(cssHeight * dpr);
+        canvas.style.width = `${cssWidth}px`;
+        canvas.style.height = `${cssHeight}px`;
+      }
 
       // Skip if buffer hasn't changed and no new frame (optimization)
       const now = performance.now();
       const currentBuffer = { length: waterfallBuffer.length, timestamp: now };
       if (lastBufferRef.current && !fftFrame) {
         const last = lastBufferRef.current;
-        if (last.length === waterfallBuffer.length && now - last.timestamp < 16) {
-          return true; // Skip rendering if buffer is same and < 16ms passed
+        if (
+          last.length === waterfallBuffer.length &&
+          now - last.timestamp < 16
+        ) {
+          return true;
         }
       }
       lastBufferRef.current = currentBuffer;
 
       try {
+        // Calculate waterfall display dimensions in physical pixels
+        const marginX = Math.round(40 * dpr);
+        const marginY = Math.round(8 * dpr);
+        const waterfallWidth = Math.max(
+          1,
+          Math.floor(cssWidth * dpr - marginX * 2),
+        );
+        const waterfallHeight = Math.max(
+          1,
+          Math.floor(cssHeight * dpr - marginY * 2),
+        );
+
         // If new FFT frame data is provided, update the waterfall buffer
         if (fftFrame && fftFrame.length > 0) {
           // Convert spectrum to amplitude (0-1 range)
-          const amplitudes = spectrumToAmplitude(fftFrame, waterfallMin, waterfallMax);
-
-          // Calculate waterfall display dimensions
-          const dpr = window.devicePixelRatio || 1;
-          const marginX = Math.round(40 * dpr);
-          const marginY = Math.round(8 * dpr);
-          const waterfallWidth = Math.max(1, Math.round(width - marginX * 2));
-          const waterfallHeight = Math.max(1, Math.round(height - marginY * 2));
+          const amplitudes = spectrumToAmplitude(
+            fftFrame,
+            waterfallMin,
+            waterfallMax,
+          );
 
           // Add new frame to waterfall buffer
           addWaterfallFrame(
@@ -182,8 +177,17 @@ export function useDraw2DFIFOWaterfall() {
           );
         }
 
-        // Draw the waterfall
-        drawWaterfall(ctx, width, height, waterfallBuffer);
+        // Draw the waterfall content using physical pixels
+        const expectedSize = waterfallWidth * waterfallHeight * 4;
+        if (waterfallBuffer.length >= expectedSize) {
+          try {
+            const imageData = new ImageData(waterfallWidth, waterfallHeight);
+            imageData.data.set(waterfallBuffer.subarray(0, expectedSize));
+            ctx.putImageData(imageData, marginX, marginY);
+          } catch (e) {
+            console.error("Waterfall draw failed:", e);
+          }
+        }
 
         return true;
       } catch (error) {
@@ -191,7 +195,7 @@ export function useDraw2DFIFOWaterfall() {
         return false;
       }
     },
-    [addWaterfallFrame, drawWaterfall],
+    [addWaterfallFrame],
   );
 
   const cleanup = useCallback(() => {

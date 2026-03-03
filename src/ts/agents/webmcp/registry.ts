@@ -59,7 +59,10 @@ export const spectrumTools: WebMCPTool[] = [
         default: "rtl-sdr",
       },
     ],
-    returns: { type: "object", description: "Device connection status and info" },
+    returns: {
+      type: "object",
+      description: "Device connection status and info",
+    },
     category: "Source Management",
     route: "/",
   },
@@ -166,7 +169,10 @@ export const spectrumTools: WebMCPTool[] = [
         default: 0.8,
       },
     ],
-    returns: { type: "object", description: "Classification results with confidence" },
+    returns: {
+      type: "object",
+      description: "Classification results with confidence",
+    },
     category: "Signal Features",
     route: "/",
   },
@@ -420,7 +426,10 @@ export const model3DTools: WebMCPTool[] = [
         ],
       },
     ],
-    returns: { type: "object", description: "Selected area and camera position" },
+    returns: {
+      type: "object",
+      description: "Selected area and camera position",
+    },
     category: "Body Areas",
     route: "/3d-model",
   },
@@ -504,7 +513,7 @@ export const hotspotTools: WebMCPTool[] = [
     ],
     returns: { type: "object", description: "Created hotspot information" },
     category: "Hotspot Creation",
-    route: "/hotspot-editor",
+    route: "/3d-model",
   },
   {
     name: "setSymmetryMode",
@@ -520,7 +529,7 @@ export const hotspotTools: WebMCPTool[] = [
     ],
     returns: { type: "string", description: "Current symmetry mode" },
     category: "Creation Settings",
-    route: "/hotspot-editor",
+    route: "/3d-model",
   },
   {
     name: "selectHotspot",
@@ -535,7 +544,7 @@ export const hotspotTools: WebMCPTool[] = [
     ],
     returns: { type: "object", description: "Selected hotspot data" },
     category: "Hotspot Management",
-    route: "/hotspot-editor",
+    route: "/3d-model",
   },
   {
     name: "deleteHotspot",
@@ -550,7 +559,7 @@ export const hotspotTools: WebMCPTool[] = [
     ],
     returns: { type: "boolean", description: "Deletion success status" },
     category: "Hotspot Management",
-    route: "/hotspot-editor",
+    route: "/3d-model",
   },
   {
     name: "exportHotspots",
@@ -566,7 +575,7 @@ export const hotspotTools: WebMCPTool[] = [
     ],
     returns: { type: "object", description: "Export file information" },
     category: "Data Management",
-    route: "/hotspot-editor",
+    route: "/3d-model",
   },
   {
     name: "importHotspots",
@@ -579,9 +588,12 @@ export const hotspotTools: WebMCPTool[] = [
         required: true,
       },
     ],
-    returns: { type: "object", description: "Import results and hotspot count" },
+    returns: {
+      type: "object",
+      description: "Import results and hotspot count",
+    },
     category: "Data Management",
-    route: "/hotspot-editor",
+    route: "/3d-model",
   },
 ];
 
@@ -596,7 +608,9 @@ export const allWebMCPTools: WebMCPTool[] = [
 
 // Get tools by route
 export function getToolsByRoute(route: string): WebMCPTool[] {
-  return allWebMCPTools.filter((tool) => tool.route === route || tool.route === "/");
+  return allWebMCPTools.filter(
+    (tool) => tool.route === route || tool.route === "/",
+  );
 }
 
 // Get tool by name

@@ -9,9 +9,14 @@ export interface PauseLogicOptions {
   renderWaveformRef: React.MutableRefObject<Float32Array | null>;
   waveformFloatRef: React.MutableRefObject<Float32Array | null>;
   waterfallBufferRef: React.MutableRefObject<Uint8ClampedArray | null>;
-  waterfallDimsRef: React.MutableRefObject<{ width: number; height: number } | null>;
+  waterfallDimsRef: React.MutableRefObject<{
+    width: number;
+    height: number;
+  } | null>;
   dataRef: React.MutableRefObject<{ waveform?: number[] } | null>;
-  ensureFloat32Waveform: (spectrumData: number[] | Float32Array | null | undefined) => Float32Array;
+  ensureFloat32Waveform: (
+    spectrumData: number[] | Float32Array | null | undefined,
+  ) => Float32Array;
   forceRender: () => void;
 }
 
@@ -29,18 +34,28 @@ export function usePauseLogic({
     try {
       const waveform = renderWaveformRef.current || waveformFloatRef.current;
       if (waveform && waveform.length > 0) {
-        sessionStorage.setItem(SNAPSHOT_WAVEFORM_KEY, JSON.stringify(Array.from(waveform)));
+        sessionStorage.setItem(
+          SNAPSHOT_WAVEFORM_KEY,
+          JSON.stringify(Array.from(waveform)),
+        );
       }
       const wfBuf = waterfallBufferRef.current;
       const wfDims = waterfallDimsRef.current;
       if (wfBuf && wfDims) {
-        const bytes = new Uint8Array(wfBuf.buffer, wfBuf.byteOffset, wfBuf.byteLength);
+        const bytes = new Uint8Array(
+          wfBuf.buffer,
+          wfBuf.byteOffset,
+          wfBuf.byteLength,
+        );
         let binary = "";
         for (let i = 0; i < bytes.length; i++) {
           binary += String.fromCharCode(bytes[i]);
         }
         sessionStorage.setItem(SNAPSHOT_WATERFALL_KEY, btoa(binary));
-        sessionStorage.setItem(SNAPSHOT_WATERFALL_DIMS_KEY, JSON.stringify(wfDims));
+        sessionStorage.setItem(
+          SNAPSHOT_WATERFALL_DIMS_KEY,
+          JSON.stringify(wfDims),
+        );
       }
     } catch {
       /* ignore */
@@ -62,7 +77,10 @@ export function usePauseLogic({
       const wfBase64 = sessionStorage.getItem(SNAPSHOT_WATERFALL_KEY);
       const wfDimsJson = sessionStorage.getItem(SNAPSHOT_WATERFALL_DIMS_KEY);
       if (wfBase64 && wfDimsJson) {
-        const dims = JSON.parse(wfDimsJson) as { width: number; height: number };
+        const dims = JSON.parse(wfDimsJson) as {
+          width: number;
+          height: number;
+        };
         const binary = atob(wfBase64);
         const bytes = new Uint8ClampedArray(binary.length);
         for (let i = 0; i < binary.length; i++) {
@@ -74,7 +92,12 @@ export function usePauseLogic({
     } catch {
       /* ignore */
     }
-  }, [renderWaveformRef, waveformFloatRef, waterfallBufferRef, waterfallDimsRef]);
+  }, [
+    renderWaveformRef,
+    waveformFloatRef,
+    waterfallBufferRef,
+    waterfallDimsRef,
+  ]);
 
   const ensurePausedFrame = useCallback(() => {
     const existing = renderWaveformRef.current;

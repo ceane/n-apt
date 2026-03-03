@@ -2,7 +2,8 @@
 import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 
-const CHARACTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!@#$%^&*()-+=[]{}|;:,.<>?";
+const CHARACTERS =
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!@#$%^&*()-+=[]{}|;:,.<>?";
 
 interface DecryptingTextProps {
   targetText: string;

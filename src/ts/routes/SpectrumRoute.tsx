@@ -8,19 +8,15 @@ import type { FrequencyRange } from "@n-apt/hooks/useWebSocket";
 import {
   InitializingContainer,
   InitializingTitle,
-  InitializingText
+  InitializingText,
 } from "@n-apt/components/Layout";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
-
-
 
 interface SpectrumRouteProps {
   activeTab: "visualizer" | "analysis" | "draw";
 }
 
-export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
-  activeTab,
-}) => {
+export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
   const fftCanvasRef = useRef<FFTCanvasHandle | null>(null);
   const {
     state,
@@ -41,8 +37,14 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     },
   } = useSpectrumStore();
 
-  const [vizZoom, setVizZoom] = [state.vizZoom, (zoom: number) => dispatch({ type: "SET_VIZ_ZOOM", zoom })] as const;
-  const [vizPanOffset, setVizPanOffset] = [state.vizPanOffset, (pan: number) => dispatch({ type: "SET_VIZ_PAN", pan })] as const;
+  const [vizZoom, setVizZoom] = [
+    state.vizZoom,
+    (zoom: number) => dispatch({ type: "SET_VIZ_ZOOM", zoom }),
+  ] as const;
+  const [vizPanOffset, setVizPanOffset] = [
+    state.vizPanOffset,
+    (pan: number) => dispatch({ type: "SET_VIZ_PAN", pan }),
+  ] as const;
 
   useEffect(() => {
     requestAnimationFrame(() => {
@@ -50,7 +52,10 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     });
   }, [activeTab]);
 
-  const { handleSnapshot: takeSnapshot } = useSnapshot(state.frequencyRange ?? null, isConnected);
+  const { handleSnapshot: takeSnapshot } = useSnapshot(
+    state.frequencyRange ?? null,
+    isConnected,
+  );
 
   // Snapshot listener for sidebar events
   useEffect(() => {
@@ -58,9 +63,18 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       const options = (e as CustomEvent).detail;
       let sdrSettingsLabel: string | undefined;
       if (effectiveSdrSettings) {
-        const agcOn = effectiveSdrSettings.gain?.rtl_agc || effectiveSdrSettings.gain?.tuner_agc;
-        const gainStr = agcOn ? "Auto" : (effectiveSdrSettings.gain?.tuner_gain ? `${effectiveSdrSettings.gain.tuner_gain} dB` : "N/A");
-        const ppmStr = effectiveSdrSettings.ppm !== undefined ? effectiveSdrSettings.ppm.toString() : "0";
+        const agcOn =
+          effectiveSdrSettings.gain?.rtl_agc ||
+          effectiveSdrSettings.gain?.tuner_agc;
+        const gainStr = agcOn
+          ? "Auto"
+          : effectiveSdrSettings.gain?.tuner_gain
+            ? `${effectiveSdrSettings.gain.tuner_gain} dB`
+            : "N/A";
+        const ppmStr =
+          effectiveSdrSettings.ppm !== undefined
+            ? effectiveSdrSettings.ppm.toString()
+            : "0";
         sdrSettingsLabel = `Gain: ${gainStr} | PPM: ${ppmStr}`;
       }
 
@@ -76,7 +90,15 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     };
     window.addEventListener("napt-snapshot", listener);
     return () => window.removeEventListener("napt-snapshot", listener);
-  }, [takeSnapshot, state.snapshotGridPreference, signalAreaBounds, state.activeSignalArea, backend, deviceInfo, effectiveSdrSettings]);
+  }, [
+    takeSnapshot,
+    state.snapshotGridPreference,
+    signalAreaBounds,
+    state.activeSignalArea,
+    backend,
+    deviceInfo,
+    effectiveSdrSettings,
+  ]);
 
   const handleTrainingCaptureStart = useCallback(
     (label: "target" | "noise") => {
@@ -88,8 +110,17 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
 
   const handleTrainingCaptureStop = useCallback(() => {
     dispatch({ type: "TRAINING_STOP" });
-    sendTrainingCommand("stop", state.trainingCaptureLabel ?? "target", state.activeSignalArea);
-  }, [sendTrainingCommand, state.trainingCaptureLabel, state.activeSignalArea, dispatch]);
+    sendTrainingCommand(
+      "stop",
+      state.trainingCaptureLabel ?? "target",
+      state.activeSignalArea,
+    );
+  }, [
+    sendTrainingCommand,
+    state.trainingCaptureLabel,
+    state.activeSignalArea,
+    dispatch,
+  ]);
 
   const handleFrequencyRangeChange = useCallback(
     (range: FrequencyRange) => {
@@ -119,7 +150,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
         display: "flex",
         flexDirection: "column",
         overflow: "hidden",
-        position: "relative"
+        position: "relative",
       }}
     >
       <div
@@ -128,7 +159,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
           flexDirection: "column",
           flex: 1,
           overflow: "hidden",
-          position: "relative"
+          position: "relative",
         }}
       >
         {state.sourceMode === "live" &&
@@ -152,6 +183,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                 frequencyRange={state.frequencyRange}
                 centerFrequencyMHz={centerFrequencyMHz}
                 activeSignalArea={state.activeSignalArea}
+                signalAreaBounds={signalAreaBounds ?? undefined}
                 isPaused={routePaused || manualVisualizerPaused}
                 isDeviceConnected={deviceState === "connected"}
                 onFrequencyRangeChange={handleFrequencyRangeChange}
@@ -162,7 +194,9 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                 onVizPanChange={setVizPanOffset}
                 fftMin={state.fftMinDb}
                 fftMax={state.fftMaxDb}
-                onFftDbLimitsChange={(min, max) => dispatch({ type: "SET_FFT_DB_LIMITS", min, max })}
+                onFftDbLimitsChange={(min, max) =>
+                  dispatch({ type: "SET_FFT_DB_LIMITS", min, max })
+                }
                 onSnapshot={() => { }}
                 snapshotGridPreference={state.snapshotGridPreference}
               />
@@ -171,7 +205,9 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
         {state.sourceMode === "live" &&
           (!state.frequencyRange || centerFrequencyMHz === null) && (
             <InitializingContainer>
-              <InitializingTitle>Loading Signal Configuration</InitializingTitle>
+              <InitializingTitle>
+                Loading Signal Configuration
+              </InitializingTitle>
               <InitializingText>
                 Waiting for signals.yaml settings from the server...
               </InitializingText>
@@ -183,7 +219,20 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
             stitchTrigger={state.stitchTrigger}
             stitchSourceSettings={state.stitchSourceSettings}
             isPaused={state.isStitchPaused}
-            onStitchStatus={(status) => dispatch({ type: "SET_STITCH_STATUS", status })}
+            fftSize={state.fftSize}
+            onStitchStatus={(status) =>
+              dispatch({ type: "SET_STITCH_STATUS", status })
+            }
+            snapshotGridPreference={state.snapshotGridPreference}
+            vizZoom={vizZoom}
+            vizPanOffset={vizPanOffset}
+            onVizZoomChange={setVizZoom}
+            onVizPanChange={setVizPanOffset}
+            fftMin={state.fftMinDb}
+            fftMax={state.fftMaxDb}
+            onFftDbLimitsChange={(min, max) =>
+              dispatch({ type: "SET_FFT_DB_LIMITS", min, max })
+            }
           />
         )}
       </div>

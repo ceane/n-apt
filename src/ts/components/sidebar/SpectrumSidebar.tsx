@@ -3,8 +3,11 @@ import styled from "styled-components";
 import { useSpectrumStore, SourceMode } from "@n-apt/hooks/useSpectrumStore";
 import { useSdrSettings } from "@n-apt/hooks/useSdrSettings";
 import { useAuthentication } from "@n-apt/hooks/useAuthentication";
-import { decryptPayloadBytes } from "@n-apt/crypto/webcrypto";
-import type { CaptureRequest, CaptureFileType } from "@n-apt/hooks/useWebSocket";
+
+import type {
+  CaptureRequest,
+  CaptureFileType,
+} from "@n-apt/hooks/useWebSocket";
 
 // Reuse existing section components
 import { SignalDisplaySection } from "@n-apt/components/sidebar/SignalDisplaySection";
@@ -13,12 +16,50 @@ import { SnapshotControlsSection } from "@n-apt/components/sidebar/SnapshotContr
 import { SourceSettingsSection } from "@n-apt/components/sidebar/SourceSettingsSection";
 import FileProcessingSection from "@n-apt/components/sidebar/FileProcessingSection";
 import { SignalFeaturesSection } from "@n-apt/components/sidebar/SignalFeaturesSection";
+import { ConnectionStatusSection } from "@n-apt/components/sidebar/ConnectionStatusSection";
+import FrequencyRangeSlider from "@n-apt/components/sidebar/FrequencyRangeSlider";
+import { formatFrequency } from "@n-apt/consts/sdr";
 import InfoPopover from "@n-apt/components/InfoPopover";
 
 const SidebarContent = styled.div`
   display: flex;
   flex-direction: column;
   padding: 0 24px 24px 24px;
+`;
+
+const CapturingIndicator = styled.div`
+  position: fixed;
+  top: 24px;
+  right: 24px;
+  background-color: #ff4444;
+  color: white;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: "JetBrains Mono", monospace;
+  z-index: 1000;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+`;
+
+const CapturingDot = styled.div`
+  width: 8px;
+  height: 8px;
+  background-color: white;
+  border-radius: 50%;
+  animation: pulse 1.5s infinite;
+
+  @keyframes pulse {
+    from {
+      opacity: 1;
+    }
+    to {
+      opacity: 0.4;
+    }
+  }
 `;
 
 const Section = styled.div<{ $marginBottom?: string }>`
@@ -100,10 +141,15 @@ const SettingSelect = styled.select`
 
 type NaptMetadata = {
   sample_rate?: number;
+  sample_rate_hz?: number;
+  capture_sample_rate_hz?: number;
+  hardware_sample_rate_hz?: number;
   center_frequency?: number;
+  center_frequency_hz?: number;
   frequency_range?: [number, number];
   fft?: { size?: number; window?: string };
   format?: string;
+  data_format?: string;
   timestamp_utc?: string;
   hardware?: string;
   gain?: number;
@@ -111,6 +157,12 @@ type NaptMetadata = {
   frame_rate?: number;
   fft_size?: number;
   duration_s?: number;
+  // New fields
+  acquisition_mode?: string;
+  source_device?: string;
+  fft_window?: string;
+  tuner_agc?: boolean;
+  rtl_agc?: boolean;
 };
 
 export const SpectrumSidebar: React.FC = () => {
@@ -119,17 +171,30 @@ export const SpectrumSidebar: React.FC = () => {
     dispatch,
     effectiveSdrSettings,
     sampleRateHzEffective,
+    manualVisualizerPaused,
+    toggleVisualizerPause,
+    effectiveFrames,
     wsConnection: {
-      isConnected, deviceState, backend,
-      maxSampleRateHz, captureStatus, autoFftOptions,
-      sendSettings, sendCaptureCommand
+      isConnected,
+      deviceState,
+      backend,
+      deviceLoadingReason,
+      maxSampleRateHz,
+      captureStatus,
+      autoFftOptions,
+      sendSettings,
+      sendCaptureCommand,
+      sendRestartDevice,
+      sendFrequencyRange,
     },
   } = useSpectrumStore();
 
   const { isAuthenticated, sessionToken, aesKey } = useAuthentication();
 
   const maxSampleRate = sampleRateHzEffective ?? maxSampleRateHz ?? 0;
-  const sampleRateMHz = sampleRateHzEffective ? sampleRateHzEffective / 1_000_000 : null;
+  const sampleRateMHz = sampleRateHzEffective
+    ? sampleRateHzEffective / 1_000_000
+    : null;
 
   const {
     fftSize,
@@ -154,19 +219,22 @@ export const SpectrumSidebar: React.FC = () => {
     sdrSettings: effectiveSdrSettings ?? null,
     onSettingsChange: (settings) => {
       if (settings.frameRate !== undefined) {
-        dispatch({ type: "SET_FFT_FRAME_RATE", fftFrameRate: settings.frameRate });
+        dispatch({
+          type: "SET_FFT_FRAME_RATE",
+          fftFrameRate: settings.frameRate,
+        });
       }
       sendSettings(settings);
-    }
+    },
   });
 
   // Capture UI state
   const [captureOpen, setCaptureOpen] = useState(false);
-  const [captureOnscreen, setCaptureOnscreen] = useState(true);
-  const [captureAreaA, setCaptureAreaA] = useState(false);
-  const [captureAreaB, setCaptureAreaB] = useState(false);
+  const [activeCaptureAreas, setActiveCaptureAreas] = useState<string[]>(["Onscreen"]);
+  const [acquisitionMode, setAcquisitionMode] = useState<"stepwise" | "interleaved">("stepwise");
   const [captureDurationS, setCaptureDurationS] = useState(1);
-  const [captureFileTypeState, setCaptureFileTypeState] = useState<CaptureFileType>(".napt");
+  const [captureFileTypeState, setCaptureFileTypeState] =
+    useState<CaptureFileType>(".napt");
   const [captureEncrypted, setCaptureEncrypted] = useState(true);
   const [capturePlayback, setCapturePlayback] = useState(false);
 
@@ -179,103 +247,336 @@ export const SpectrumSidebar: React.FC = () => {
 
   // NAPT metadata state
   const [naptMetadata, setNaptMetadata] = useState<NaptMetadata | null>(null);
-  const [naptMetadataError, setNaptMetadataError] = useState<string | null>(null);
+  const [naptMetadataError, setNaptMetadataError] = useState<string | null>(
+    null,
+  );
+
+  // Handle Playback after capture
+  useEffect(() => {
+    if (
+      captureStatus?.status === "done" &&
+      capturePlayback &&
+      captureStatus.downloadUrl
+    ) {
+      const run = async () => {
+        try {
+          // 1. Switch to file mode
+          dispatch({ type: "SET_SOURCE_MODE", mode: "file" });
+
+          // 2. Clear existing files
+          dispatch({ type: "SET_SELECTED_FILES", files: [] });
+          dispatch({ type: "CLEAR_WATERFALL" });
+
+          // 3. Fetch the file
+          const url = `${captureStatus.downloadUrl}&token=${encodeURIComponent(sessionToken || "")}`;
+          const response = await fetch(url);
+          if (!response.ok)
+            throw new Error(`HTTP error! status: ${response.status}`);
+          const blob = await response.blob();
+          const filename = captureStatus.filename || "capture.napt";
+          const file = new File([blob], filename, {
+            type: "application/octet-stream",
+          });
+
+          // 4. Update selected files
+          dispatch({
+            type: "SET_SELECTED_FILES",
+            files: [{ name: filename, file }],
+          });
+
+          // 5. Trigger stitching/playback
+          setTimeout(() => {
+            dispatch({ type: "TRIGGER_STITCH" });
+          }, 500);
+        } catch (e) {
+          console.error("Playback after capture failed:", e);
+        }
+      };
+      run();
+    }
+  }, [captureStatus, capturePlayback, sessionToken, dispatch]);
 
   // Memoized values for sections
-  const selectedNaptFile = useMemo(() => {
+  const selectedPrimaryFile = useMemo(() => {
     if (state.sourceMode !== "file") return null;
     if (state.selectedFiles.length !== 1) return null;
     const f = state.selectedFiles[0];
-    return f.name.toLowerCase().endsWith(".napt") ? f : null;
+    const lower = f.name.toLowerCase();
+    return lower.endsWith(".napt") || lower.endsWith(".wav") ? f : null;
   }, [state.sourceMode, state.selectedFiles]);
 
+  // Initial paused state for file mode
+  useEffect(() => {
+    if (state.sourceMode === "file") {
+      dispatch({ type: "SET_STITCH_PAUSED", paused: true });
+    }
+  }, [state.sourceMode, dispatch]);
+
   const fileCapturedRange = useMemo(() => {
-    if (state.sourceMode !== "file" || state.selectedFiles.length === 0) return null;
+    if (state.sourceMode !== "file" || state.selectedFiles.length === 0)
+      return null;
     let minFreq = Infinity;
     let maxFreq = -Infinity;
+
+    // If we have metadata for a single file, use that
+    if (state.selectedFiles.length === 1 && naptMetadata) {
+      const freq =
+        (naptMetadata.center_frequency_hz ||
+          naptMetadata.center_frequency ||
+          0) / 1_000_000;
+      const sampleRate =
+        (naptMetadata.capture_sample_rate_hz ||
+          naptMetadata.sample_rate_hz ||
+          naptMetadata.sample_rate ||
+          0) / 1_000_000;
+      if (sampleRate > 0) {
+        return {
+          min: Math.max(0, freq - sampleRate / 2),
+          max: freq + sampleRate / 2,
+        };
+      }
+    }
+
+    // Fallback to filename parsing
     for (const f of state.selectedFiles) {
-      if (f.name.toLowerCase().endsWith(".napt")) continue;
       const match = f.name.match(/iq_(\d+\.?\d*)MHz/);
       if (match) {
         const freq = parseFloat(match[1]);
-        const halfSpan = sampleRateMHz ? sampleRateMHz / 2 : null;
-        if (halfSpan === null) continue;
-        minFreq = Math.min(minFreq, freq - halfSpan);
-        maxFreq = Math.max(maxFreq, freq + halfSpan);
+        const sampleRate = 3.2; // Default fallback
+        minFreq = Math.min(minFreq, freq - sampleRate / 2);
+        maxFreq = Math.max(maxFreq, freq + sampleRate / 2);
       }
     }
-    return minFreq === Infinity ? null : { min: Math.max(0, minFreq), max: maxFreq };
-  }, [state.sourceMode, state.selectedFiles, sampleRateMHz]);
+    return minFreq === Infinity
+      ? null
+      : { min: Math.max(0, minFreq), max: maxFreq };
+  }, [state.sourceMode, state.selectedFiles, naptMetadata]);
+
+  const availableCaptureAreas = useMemo(() => {
+    const areas: Array<{ label: string; min: number; max: number }> = [];
+    if (state.frequencyRange) {
+      areas.push({
+        label: "Onscreen",
+        min: state.frequencyRange.min,
+        max: state.frequencyRange.max,
+      });
+    }
+    if (Array.isArray(effectiveFrames)) {
+      effectiveFrames.forEach((frame) => {
+        areas.push({
+          label: frame.label,
+          min: frame.min_mhz,
+          max: frame.max_mhz,
+        });
+      });
+    }
+    return areas;
+  }, [state.frequencyRange, effectiveFrames]);
+
+  const activeFragments = useMemo(() => {
+    return availableCaptureAreas
+      .filter((a) => activeCaptureAreas.includes(a.label))
+      .map((a) => ({ minFreq: a.min, maxFreq: a.max }));
+  }, [availableCaptureAreas, activeCaptureAreas]);
 
   const captureRange = useMemo(() => {
-    if (!state.frequencyRange) return { min: 0, max: 0, segments: [] };
-    const segments: any[] = [];
-    if (captureOnscreen) segments.push({ label: "Onscreen", min: state.frequencyRange.min, max: state.frequencyRange.max });
-    // Area A/B would need more frames data if we want to support them specifically
+    const segments = availableCaptureAreas.filter((a) =>
+      activeCaptureAreas.includes(a.label)
+    );
+    if (segments.length === 0 && state.frequencyRange) {
+      return {
+        min: state.frequencyRange.min,
+        max: state.frequencyRange.max,
+        segments: [],
+      };
+    }
+    const mins = segments.map((s) => s.min);
+    const maxs = segments.map((s) => s.max);
     return {
-      min: Math.min(...segments.map(r => r.min), state.frequencyRange.min),
-      max: Math.max(...segments.map(r => r.max), state.frequencyRange.max),
-      segments
+      min: Math.min(...mins, state.frequencyRange?.min ?? Infinity),
+      max: Math.max(...maxs, state.frequencyRange?.max ?? -Infinity),
+      segments,
     };
-  }, [state.frequencyRange, captureOnscreen]);
+  }, [availableCaptureAreas, activeCaptureAreas, state.frequencyRange]);
 
   // Handlers
   const handleCapture = useCallback(() => {
     if (!isConnected || deviceState === "loading" || !isAuthenticated) return;
+
+    // Default to the overall range if no active fragments
+    let fragments = activeFragments;
+    if (fragments.length === 0 && state.frequencyRange) {
+      fragments = [{ minFreq: state.frequencyRange.min, maxFreq: state.frequencyRange.max }];
+    }
+
     const req: CaptureRequest = {
       jobId: `cap_${Date.now()}`,
-      minFreq: captureRange.min,
-      maxFreq: captureRange.max,
+      fragments,
       durationS: Math.max(1, Math.round(captureDurationS)),
       fileType: captureFileTypeState,
+      acquisitionMode: acquisitionMode,
       encrypted: captureFileTypeState === ".napt" ? true : captureEncrypted,
       fftSize,
       fftWindow,
     };
     sendCaptureCommand(req);
-  }, [isConnected, deviceState, isAuthenticated, captureRange, captureDurationS, captureFileTypeState, captureEncrypted, fftSize, fftWindow, sendCaptureCommand]);
+  }, [
+    isConnected,
+    deviceState,
+    isAuthenticated,
+    activeFragments,
+    state.frequencyRange,
+    captureDurationS,
+    captureFileTypeState,
+    acquisitionMode,
+    captureEncrypted,
+    fftSize,
+    fftWindow,
+    sendCaptureCommand,
+  ]);
 
   const handleSnapshot = () => {
-    window.dispatchEvent(new CustomEvent("napt-snapshot", {
-      detail: {
-        whole: snapshotWhole,
-        showWaterfall: snapshotShowWaterfall,
-        showStats: snapshotShowStats,
-        format: snapshotFormat,
-        grid: state.snapshotGridPreference ?? true
-      }
-    }));
+    window.dispatchEvent(
+      new CustomEvent("napt-snapshot", {
+        detail: {
+          whole: snapshotWhole,
+          showWaterfall: snapshotShowWaterfall,
+          showStats: snapshotShowStats,
+          format: snapshotFormat,
+          grid: state.snapshotGridPreference ?? true,
+        },
+      }),
+    );
   };
 
-  // NAPT Metadata Effect
+  // NAPT/WAV Metadata Effect
   useEffect(() => {
     let cancelled = false;
-    if (!selectedNaptFile || !aesKey) {
+    if (!selectedPrimaryFile) {
       setNaptMetadata(null);
-      if (selectedNaptFile && !aesKey) setNaptMetadataError("Locked (no session key)");
       return;
     }
+
+    const isNapt = selectedPrimaryFile.name.toLowerCase().endsWith(".napt");
+    const isWav = selectedPrimaryFile.name.toLowerCase().endsWith(".wav");
+
+    if (isNapt && !aesKey) {
+      setNaptMetadata(null);
+      setNaptMetadataError("Locked (no session key)");
+      return;
+    }
+
     const run = async () => {
       try {
-        const buf = await selectedNaptFile.file.arrayBuffer();
-        const b64 = new TextDecoder().decode(new Uint8Array(buf)).trim();
-        const bytes = await decryptPayloadBytes(aesKey, b64);
-        const newlineIdx = bytes.indexOf(10);
-        if (newlineIdx <= 0) throw new Error("Invalid NAPT payload");
-        const meta = JSON.parse(new TextDecoder().decode(bytes.slice(0, newlineIdx)));
-        if (!cancelled) setNaptMetadata(meta);
+        const buf = await selectedPrimaryFile.file.arrayBuffer();
+
+        if (isNapt && aesKey) {
+          // Read the first 2048 bytes (header size)
+          const headerSize = Math.min(2048, buf.byteLength);
+          const headerBytes = new Uint8Array(buf, 0, headerSize);
+          const newlineIdx = headerBytes.indexOf(10); // Find newline terminator
+          if (newlineIdx <= 0) throw new Error("Invalid NAPT header");
+
+          const jsonStr = new TextDecoder().decode(
+            headerBytes.slice(0, newlineIdx),
+          );
+          const metaObj = JSON.parse(jsonStr);
+
+          if (!cancelled) {
+            // The metadata object itself is inside `metadata` key
+            setNaptMetadata(metaObj.metadata || metaObj);
+            setNaptMetadataError(null);
+          }
+        } else if (isWav) {
+          // Parse WAV RIFF for nAPT chunk
+          const view = new DataView(buf);
+          const text = (off: number, len: number) =>
+            String.fromCharCode(...new Uint8Array(buf, off, len));
+
+          if (text(0, 4) === "RIFF" && text(8, 4) === "WAVE") {
+            let offset = 12;
+            let meta: any = null;
+            while (offset + 8 <= buf.byteLength) {
+              const chunkId = text(offset, 4);
+              const chunkSize = view.getUint32(offset + 4, true);
+              if (chunkId === "nAPT") {
+                const metaBytes = new Uint8Array(buf, offset + 8, chunkSize);
+                const nullIdx = metaBytes.indexOf(0);
+                const jsonStr = new TextDecoder().decode(
+                  nullIdx !== -1 ? metaBytes.slice(0, nullIdx) : metaBytes,
+                );
+                meta = JSON.parse(jsonStr);
+                break;
+              }
+              offset += 8 + chunkSize + (chunkSize % 2);
+            }
+            if (!cancelled) {
+              if (meta) {
+                setNaptMetadata(meta);
+                setNaptMetadataError(null);
+              } else {
+                setNaptMetadata(null);
+                // No error, just no metadata found
+              }
+            }
+          }
+        }
       } catch (e: any) {
-        if (!cancelled) setNaptMetadataError(e?.message || "Failed to read metadata");
+        if (!cancelled)
+          setNaptMetadataError(e?.message || "Failed to read metadata");
       }
     };
     run();
-    return () => { cancelled = true; };
-  }, [selectedNaptFile, aesKey]);
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedPrimaryFile, aesKey]);
+
+  const limitMarkers = useMemo(() => {
+    const limits = effectiveSdrSettings?.limits;
+    if (!limits) return [];
+    const markers: Array<{ freq: number; label: string }> = [];
+    if (typeof limits.lower_limit_mhz === "number") {
+      markers.push({
+        freq: limits.lower_limit_mhz,
+        label:
+          limits.lower_limit_label ??
+          `${formatFrequency(limits.lower_limit_mhz)} / Lower limit`,
+      });
+    }
+    if (typeof limits.upper_limit_mhz === "number") {
+      markers.push({
+        freq: limits.upper_limit_mhz,
+        label:
+          limits.upper_limit_label ??
+          `${formatFrequency(limits.upper_limit_mhz)} / Upper limit`,
+      });
+    }
+    return markers;
+  }, [effectiveSdrSettings?.limits]);
+
+  const handleRangeChange = useCallback(
+    (label: string, range: { min: number; max: number }) => {
+      if (state.activeSignalArea === label) {
+        dispatch({ type: "SET_FREQUENCY_RANGE", range });
+        sendFrequencyRange(range);
+      }
+    },
+    [state.activeSignalArea, dispatch, sendFrequencyRange],
+  );
 
   return (
     <SidebarContent>
+      {captureStatus?.status === "started" && (
+        <CapturingIndicator>
+          <CapturingDot />
+          Capturing...
+        </CapturingIndicator>
+      )}
       <Section>
-        <SectionTitle $fileMode={state.sourceMode === "file"}>Source</SectionTitle>
+        <SectionTitle $fileMode={state.sourceMode === "file"}>
+          Source
+        </SectionTitle>
         <SettingRow>
           <SettingLabelContainer>
             <SettingLabel>Input</SettingLabel>
@@ -283,11 +584,20 @@ export const SpectrumSidebar: React.FC = () => {
           </SettingLabelContainer>
           <SettingSelect
             value={state.sourceMode}
-            onChange={(e) => dispatch({ type: "SET_SOURCE_MODE", mode: e.target.value as SourceMode })}
+            onChange={(e) =>
+              dispatch({
+                type: "SET_SOURCE_MODE",
+                mode: e.target.value as SourceMode,
+              })
+            }
             style={{ minWidth: "130px" }}
           >
-            <option value="live">{backend === "mock_apt" ? "Mock APT SDR" : (backend || "Live SDR")}</option>
-            <option value="file" style={{ color: "#d9aa34" }}>File Selection</option>
+            <option value="live">
+              {backend === "mock_apt" ? "Mock APT SDR" : backend || "Live SDR"}
+            </option>
+            <option value="file" style={{ color: "#d9aa34" }}>
+              File Selection
+            </option>
           </SettingSelect>
         </SettingRow>
       </Section>
@@ -296,7 +606,9 @@ export const SpectrumSidebar: React.FC = () => {
         <Section>
           <FileProcessingSection
             selectedFiles={state.selectedFiles}
-            onSelectedFilesChange={(files) => dispatch({ type: "SET_SELECTED_FILES", files })}
+            onSelectedFilesChange={(files) =>
+              dispatch({ type: "SET_SELECTED_FILES", files })
+            }
             stitchStatus={state.stitchStatus}
             isStitchPaused={state.isStitchPaused}
             onStitch={() => dispatch({ type: "TRIGGER_STITCH" })}
@@ -304,8 +616,10 @@ export const SpectrumSidebar: React.FC = () => {
               dispatch({ type: "SET_SELECTED_FILES", files: [] });
               dispatch({ type: "CLEAR_WATERFALL" });
             }}
-            onStitchPauseToggle={() => dispatch({ type: "TOGGLE_STITCH_PAUSE" })}
-            selectedNaptFile={selectedNaptFile}
+            onStitchPauseToggle={() =>
+              dispatch({ type: "TOGGLE_STITCH_PAUSE" })
+            }
+            selectedNaptFile={selectedPrimaryFile}
             naptMetadata={naptMetadata}
             naptMetadataError={naptMetadataError}
             sessionToken={sessionToken}
@@ -315,14 +629,23 @@ export const SpectrumSidebar: React.FC = () => {
 
       {state.sourceMode === "live" && (
         <>
+          <ConnectionStatusSection
+            isConnected={isConnected}
+            deviceState={deviceState || "disconnected"}
+            deviceLoadingReason={deviceLoadingReason}
+            isPaused={manualVisualizerPaused}
+            onPauseToggle={toggleVisualizerPause}
+            onRestartDevice={() => sendRestartDevice()}
+          />
+
           <IQCaptureControlsSection
             isOpen={captureOpen}
             onToggle={() => setCaptureOpen(!captureOpen)}
-            captureOnscreen={captureOnscreen}
-            captureAreaA={captureAreaA}
-            captureAreaB={captureAreaB}
+            activeCaptureAreas={activeCaptureAreas}
+            availableCaptureAreas={availableCaptureAreas}
             captureDurationS={captureDurationS}
             captureFileType={captureFileTypeState}
+            acquisitionMode={acquisitionMode}
             captureEncrypted={captureEncrypted}
             capturePlayback={capturePlayback}
             captureRange={captureRange}
@@ -330,11 +653,10 @@ export const SpectrumSidebar: React.FC = () => {
             captureStatus={captureStatus}
             isConnected={isConnected}
             deviceState={deviceState}
-            onCaptureOnscreenChange={setCaptureOnscreen}
-            onCaptureAreaAChange={setCaptureAreaA}
-            onCaptureAreaBChange={setCaptureAreaB}
+            onActiveCaptureAreasChange={setActiveCaptureAreas}
             onCaptureDurationSChange={setCaptureDurationS}
             onCaptureFileTypeChange={setCaptureFileTypeState}
+            onAcquisitionModeChange={setAcquisitionMode}
             onCaptureEncryptedChange={setCaptureEncrypted}
             onCapturePlaybackChange={setCapturePlayback}
             onCapture={handleCapture}
@@ -352,9 +674,157 @@ export const SpectrumSidebar: React.FC = () => {
             onSnapshotShowWaterfallChange={setSnapshotShowWaterfall}
             onSnapshotShowStatsChange={setSnapshotShowStats}
             onSnapshotFormatChange={setSnapshotFormat}
-            onSnapshotGridPreferenceChange={(pref) => dispatch({ type: "SET_SNAPSHOT_GRID", preference: pref })}
+            onSnapshotGridPreferenceChange={(pref) =>
+              dispatch({ type: "SET_SNAPSHOT_GRID", preference: pref })
+            }
             onSnapshot={handleSnapshot}
           />
+
+          <Section>
+            <SectionTitle>Signal areas of interest</SectionTitle>
+            {Array.isArray(effectiveFrames) && effectiveFrames.length > 0 ? (
+              effectiveFrames.map((frame) => {
+                const label = frame.label;
+                const min = frame.min_mhz;
+                const max = frame.max_mhz;
+                const span = max - min;
+
+                // If this is the active frame and we are zoomed in,
+                // calculate the visual range based on zoom and pan offset
+                // NOTE: Use frequencyRange (SDR center) not frame min/max for center calculation
+                let visibleMin = min;
+                let visibleMax =
+                  min +
+                  (typeof sampleRateMHz === "number"
+                    ? Math.min(sampleRateMHz, span)
+                    : span);
+                let externalFreqRange =
+                  state.activeSignalArea === label
+                    ? (state.frequencyRange ?? undefined)
+                    : undefined;
+
+                if (
+                  state.activeSignalArea === label &&
+                  state.vizZoom > 1 &&
+                  state.frequencyRange
+                ) {
+                  // Use frequencyRange (SDR tuned range) for center calculation
+                  // This matches what FFTCanvas does
+                  const hardwareCenter =
+                    (state.frequencyRange.min + state.frequencyRange.max) / 2;
+                  // Zoom applies to the hardware window width (sample rate), not the full signal area span
+                  const hardwareSpan =
+                    typeof sampleRateMHz === "number"
+                      ? Math.min(sampleRateMHz, span)
+                      : span;
+                  const visualSpan = hardwareSpan / state.vizZoom;
+                  const halfVisualSpan = visualSpan / 2;
+                  // vizPanOffset is in MHz exactly
+                  let visualCenter = hardwareCenter + state.vizPanOffset;
+
+                  // Clamp visual center so the visual window stays within signal area bounds
+                  visualCenter = Math.max(
+                    min + halfVisualSpan,
+                    Math.min(max - halfVisualSpan, visualCenter),
+                  );
+
+                  visibleMin = visualCenter - halfVisualSpan;
+                  visibleMax = visualCenter + halfVisualSpan;
+
+                  // Don't use externalFrequencyRange when zoomed - let the slider
+                  // use visibleMin/visibleMax props directly for the zoomed view
+                  externalFreqRange = undefined;
+                }
+
+                return (
+                  <FrequencyRangeSlider
+                    key={frame.id}
+                    label={label}
+                    minFreq={min}
+                    maxFreq={max}
+                    visibleMin={visibleMin}
+                    visibleMax={visibleMax}
+                    sampleRateMHz={
+                      typeof sampleRateMHz === "number"
+                        ? sampleRateMHz /
+                        (state.activeSignalArea === label ? state.vizZoom : 1)
+                        : null
+                    }
+                    limitMarkers={limitMarkers}
+                    isActive={state.activeSignalArea === label}
+                    onActivate={() =>
+                      dispatch({ type: "SET_SIGNAL_AREA", area: label })
+                    }
+                    onRangeChange={(range: { min: number; max: number }) => {
+                      if (
+                        state.activeSignalArea === label &&
+                        state.vizZoom > 1 &&
+                        state.frequencyRange
+                      ) {
+                        const visualCenter = (range.min + range.max) / 2;
+                        const hardwareSpan =
+                          typeof sampleRateMHz === "number"
+                            ? Math.min(sampleRateMHz, span)
+                            : span;
+                        const halfHardware = hardwareSpan / 2;
+                        const currentHardwareCenter =
+                          (state.frequencyRange.min +
+                            state.frequencyRange.max) /
+                          2;
+                        const halfVisualSpan =
+                          hardwareSpan / (2 * state.vizZoom);
+                        const maxPan = halfHardware - halfVisualSpan;
+
+                        const desiredPan = visualCenter - currentHardwareCenter;
+
+                        if (Math.abs(desiredPan) <= maxPan + 0.001) {
+                          // Pan is within hardware bounds — just update pan offset
+                          dispatch({ type: "SET_VIZ_PAN", pan: desiredPan });
+                        } else {
+                          // Pan exceeds hardware bounds — retune hardware to reach the edge
+                          let newHardwareCenter = visualCenter;
+                          let newHardwareMin = newHardwareCenter - halfHardware;
+                          let newHardwareMax = newHardwareCenter + halfHardware;
+
+                          // Clamp hardware range to signal area bounds
+                          if (newHardwareMin < min) {
+                            newHardwareMin = min;
+                            newHardwareMax = min + hardwareSpan;
+                          }
+                          if (newHardwareMax > max) {
+                            newHardwareMax = max;
+                            newHardwareMin = max - hardwareSpan;
+                          }
+                          newHardwareCenter =
+                            (newHardwareMin + newHardwareMax) / 2;
+
+                          // Retune hardware
+                          handleRangeChange(label, {
+                            min: newHardwareMin,
+                            max: newHardwareMax,
+                          });
+
+                          // Set remaining pan offset relative to new hardware center
+                          const remainingPan = visualCenter - newHardwareCenter;
+                          dispatch({ type: "SET_VIZ_PAN", pan: remainingPan });
+                        }
+                      } else {
+                        handleRangeChange(label, range);
+                      }
+                    }}
+                    isDeviceConnected={deviceState === "connected"}
+                    externalFrequencyRange={externalFreqRange}
+                  />
+                );
+              })
+            ) : (
+              <div
+                style={{ color: "#777", fontSize: "12px", fontStyle: "italic" }}
+              >
+                No active signal areas
+              </div>
+            )}
+          </Section>
 
           <SignalFeaturesSection
             sourceMode={state.sourceMode}
@@ -377,7 +847,9 @@ export const SpectrumSidebar: React.FC = () => {
             onFftFrameRateChange={setFftFrameRate}
             onFftSizeChange={setFftSize}
             onFftWindowChange={setFftWindow}
-            onTemporalResolutionChange={(res) => dispatch({ type: "SET_TEMPORAL_RESOLUTION", resolution: res })}
+            onTemporalResolutionChange={(res) =>
+              dispatch({ type: "SET_TEMPORAL_RESOLUTION", resolution: res })
+            }
             scheduleCoupledAdjustment={scheduleCoupledAdjustment}
           />
 
@@ -393,7 +865,9 @@ export const SpectrumSidebar: React.FC = () => {
             onGainChange={setGain}
             onTunerAGCChange={setTunerAGC}
             onRtlAGCChange={setRtlAGC}
-            onStitchSourceSettingsChange={(settings) => dispatch({ type: "SET_STITCH_SOURCE_SETTINGS", settings })}
+            onStitchSourceSettingsChange={(settings) =>
+              dispatch({ type: "SET_STITCH_SOURCE_SETTINGS", settings })
+            }
             onAgcModeChange={(tuner, rtl) => {
               setTunerAGC(tuner);
               setRtlAGC(rtl);

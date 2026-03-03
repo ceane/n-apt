@@ -34,8 +34,9 @@ export const AnalysisSidebar: React.FC = () => {
       <InfoBox>
         <InfoTitle>Analysis Mode</InfoTitle>
         <InfoText>
-          ML-powered signal analysis and feature extraction. Use this mode to identify
-          specific modulation types and protocol structures in N-APT signals.
+          ML-powered signal analysis and feature extraction. Use this mode to
+          identify specific modulation types and protocol structures in N-APT
+          signals.
         </InfoText>
       </InfoBox>
     </SidebarContent>

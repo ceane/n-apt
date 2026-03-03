@@ -153,7 +153,10 @@ interface SourceSettingsSectionProps {
   onGainChange: (value: number) => void;
   onTunerAGCChange: (value: boolean) => void;
   onRtlAGCChange: (value: boolean) => void;
-  onStitchSourceSettingsChange: (settings: { gain: number; ppm: number }) => void;
+  onStitchSourceSettingsChange: (settings: {
+    gain: number;
+    ppm: number;
+  }) => void;
   onAgcModeChange: (tunerAGC: boolean, rtlAGC: boolean) => void;
 }
 
@@ -280,7 +283,9 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
             type="number"
             step="1"
             value={sourceMode === "file" ? stitchSourceSettings.gain : gain}
-            onChange={(e) => handleGainChange(Math.round(Number(e.target.value)))}
+            onChange={(e) =>
+              handleGainChange(Math.round(Number(e.target.value)))
+            }
             onKeyDown={handleGainKeyDown}
             min="0"
             max={sourceMode === "file" ? undefined : maxGain.toString()}

@@ -21,10 +21,10 @@ export type CaptureFileType = ".napt" | ".wav";
 
 export type CaptureRequest = {
   jobId: string;
-  minFreq: number;
-  maxFreq: number;
+  fragments: { minFreq: number; maxFreq: number }[];
   durationS: number;
   fileType: CaptureFileType;
+  acquisitionMode: "stepwise" | "interleaved";
   encrypted: boolean;
   fftSize: number;
   fftWindow: string;
@@ -39,7 +39,12 @@ export type CaptureStatus = {
   fileCount?: number;
 } | null;
 
-export type DeviceState = "connected" | "loading" | "disconnected" | "stale" | null;
+export type DeviceState =
+  | "connected"
+  | "loading"
+  | "disconnected"
+  | "stale"
+  | null;
 export type DeviceLoadingReason = "connect" | "restart" | null;
 
 export type SpectrumFrame = {
@@ -315,7 +320,9 @@ export const useWebSocket = (
                           parsedData.messages &&
                           parsedData.messages.length > 0
                         ) {
-                          const firstMessage = JSON.parse(parsedData.messages[0]);
+                          const firstMessage = JSON.parse(
+                            parsedData.messages[0],
+                          );
                           dataRef.current = firstMessage;
                         } else {
                           dataRef.current = parsedData;
@@ -390,7 +397,8 @@ export const useWebSocket = (
                       label: typeof f.label === "string" ? f.label : "",
                       min_mhz: Number(f.min_mhz),
                       max_mhz: Number(f.max_mhz),
-                      description: typeof f.description === "string" ? f.description : "",
+                      description:
+                        typeof f.description === "string" ? f.description : "",
                     }))
                     .filter(
                       (f: SpectrumFrame) =>
@@ -402,7 +410,11 @@ export const useWebSocket = (
                     );
                 }
                 const reason = parsedData.device_loading_reason;
-                if (reason === "connect" || reason === "restart" || reason === null) {
+                if (
+                  reason === "connect" ||
+                  reason === "restart" ||
+                  reason === null
+                ) {
                   updates.deviceLoadingReason = reason;
                 }
                 dispatch({ type: "STATUS", updates });
@@ -417,22 +429,33 @@ export const useWebSocket = (
               console.log("Received capture status message:", raw);
               try {
                 const parsed = JSON.parse(raw);
+                const statusObj = parsed.status || {};
                 console.log("Parsed capture status:", parsed);
                 if (
-                  typeof parsed.job_id === "string" &&
-                  (parsed.status === "started" ||
-                    parsed.status === "failed" ||
-                    parsed.status === "done")
+                  typeof statusObj.jobId === "string" &&
+                  (statusObj.status === "started" ||
+                    statusObj.status === "failed" ||
+                    statusObj.status === "done")
                 ) {
                   const newStatus = {
-                    jobId: parsed.job_id,
-                    status: parsed.status,
-                    error: typeof parsed.error === "string" ? parsed.error : undefined,
+                    jobId: statusObj.jobId,
+                    status: statusObj.status as "started" | "failed" | "done",
+                    error:
+                      typeof statusObj.error === "string"
+                        ? statusObj.error
+                        : undefined,
                     downloadUrl:
-                      typeof parsed.download_url === "string" ? parsed.download_url : undefined,
-                    filename: typeof parsed.filename === "string" ? parsed.filename : undefined,
+                      typeof statusObj.downloadUrl === "string"
+                        ? statusObj.downloadUrl
+                        : undefined,
+                    filename:
+                      typeof statusObj.filename === "string"
+                        ? statusObj.filename
+                        : undefined,
                     fileCount:
-                      typeof parsed.file_count === "number" ? parsed.file_count : undefined,
+                      typeof statusObj.fileCount === "number"
+                        ? statusObj.fileCount
+                        : undefined,
                   };
                   console.log("Setting capture status:", newStatus);
                   dispatch({ type: "CAPTURE_STATUS", status: newStatus });
@@ -448,7 +471,10 @@ export const useWebSocket = (
               console.log("Received auto FFT options message:", raw);
               try {
                 const parsed = JSON.parse(raw);
-                if (Array.isArray(parsed.autoSizes) && typeof parsed.recommended === "number") {
+                if (
+                  Array.isArray(parsed.autoSizes) &&
+                  typeof parsed.recommended === "number"
+                ) {
                   const options: AutoFftOptionsResponse = {
                     message_type: "auto_fft_options",
                     autoSizes: parsed.autoSizes,
@@ -491,7 +517,9 @@ export const useWebSocket = (
                               parsedData.messages &&
                               parsedData.messages.length > 0
                             ) {
-                              const firstMessage = JSON.parse(parsedData.messages[0]);
+                              const firstMessage = JSON.parse(
+                                parsedData.messages[0],
+                              );
                               dispatch({ type: "DATA", data: firstMessage });
                             } else {
                               dispatch({ type: "DATA", data: parsedData });
@@ -538,7 +566,10 @@ export const useWebSocket = (
             // Only attempt to reconnect if we haven't been cleaned up
             if (wsRef.current !== null) {
               const attempt = reconnectAttemptRef.current;
-              const delaySec = RECONNECT_BACKOFF[Math.min(attempt, RECONNECT_BACKOFF.length - 1)];
+              const delaySec =
+                RECONNECT_BACKOFF[
+                  Math.min(attempt, RECONNECT_BACKOFF.length - 1)
+                ];
               reconnectAttemptRef.current = attempt + 1;
               const timeoutId = setTimeout(connect, delaySec * 1000) as any;
               reconnectTimeoutRef.current = timeoutId;
@@ -554,7 +585,10 @@ export const useWebSocket = (
             }
           };
         } catch {
-          dispatch({ type: "ERROR", error: "Failed to create WebSocket connection" });
+          dispatch({
+            type: "ERROR",
+            error: "Failed to create WebSocket connection",
+          });
         }
       };
 
@@ -607,10 +641,10 @@ export const useWebSocket = (
         type: "capture",
         action: "start",
         jobId: req.jobId,
-        minFreq: req.minFreq,
-        maxFreq: req.maxFreq,
+        fragments: req.fragments,
         durationS: req.durationS,
         fileType: req.fileType,
+        acquisitionMode: req.acquisitionMode,
         encrypted: req.encrypted,
         fftSize: req.fftSize,
         fftWindow: req.fftWindow,
@@ -653,7 +687,10 @@ export const useWebSocket = (
       sanitized.fftSize = Math.floor(settings.fftSize!);
     }
 
-    if (typeof settings.fftWindow === "string" && settings.fftWindow.trim().length > 0) {
+    if (
+      typeof settings.fftWindow === "string" &&
+      settings.fftWindow.trim().length > 0
+    ) {
       sanitized.fftWindow = settings.fftWindow;
     }
 
@@ -678,7 +715,10 @@ export const useWebSocket = (
     }
 
     if (Object.keys(sanitized).length === 0) {
-      console.warn("[useWebSocket] Ignoring settings update with no valid values", settings);
+      console.warn(
+        "[useWebSocket] Ignoring settings update with no valid values",
+        settings,
+      );
       return;
     }
 
@@ -699,7 +739,11 @@ export const useWebSocket = (
 
   // Function to send training capture commands to the server
   const sendTrainingCommand = useCallback(
-    (action: "start" | "stop", label: "target" | "noise", signalArea: string) => {
+    (
+      action: "start" | "stop",
+      label: "target" | "noise",
+      signalArea: string,
+    ) => {
       const ws = wsRef.current;
       if (ws && ws.readyState === WebSocket.OPEN) {
         const message = JSON.stringify({

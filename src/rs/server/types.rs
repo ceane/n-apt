@@ -31,10 +31,10 @@ pub enum SdrCommand {
   StopTraining,
   StartCapture {
     job_id: String,
-    min_freq: f64,
-    max_freq: f64,
+    fragments: Vec<(f64, f64)>,
     duration_s: f64,
     file_type: String,
+    acquisition_mode: String,
     encrypted: bool,
     fft_size: usize,
     fft_window: String,
@@ -50,11 +50,24 @@ pub enum SdrCommand {
   },
 }
 
+/// Struct representing a frequency range
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FreqRange {
+  #[serde(alias = "minFreq")]
+  pub min_freq: f64,
+  #[serde(alias = "maxFreq")]
+  pub max_freq: f64,
+}
+
 /// WebSocket message structure for client-server communication
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WebSocketMessage {
   #[serde(rename = "type")]
   pub message_type: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub fragments: Option<Vec<FreqRange>>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "acquisitionMode")]
+  pub acquisition_mode: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "minFreq")]
   pub min_freq: Option<f64>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "maxFreq")]

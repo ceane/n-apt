@@ -201,13 +201,17 @@ const SelectionIndicator = styled.span<{ $isSelected: boolean }>`
   height: 14px;
   border-radius: 999px;
   background: ${(props) =>
-    props.$isSelected ? "rgba(123, 97, 255, 0.95)" : "rgba(255, 255, 255, 0.18)"};
+    props.$isSelected
+      ? "rgba(123, 97, 255, 0.95)"
+      : "rgba(255, 255, 255, 0.18)"};
 `;
 
 const ChevronIndicator = styled.span<{ $isSelected: boolean }>`
   font-size: 14px;
   color: ${(props) =>
-    props.$isSelected ? "rgba(255, 255, 255, 0.85)" : "rgba(255, 255, 255, 0.35)"};
+    props.$isSelected
+      ? "rgba(255, 255, 255, 0.85)"
+      : "rgba(255, 255, 255, 0.35)"};
   transform: ${(props) => (props.$isSelected ? "translateX(0)" : "translateX(-2px)")};
   transition: transform 120ms ease, color 120ms ease;
 `;

@@ -28,7 +28,10 @@ class ToolHandlerRegistry {
 export const toolHandlers = new ToolHandlerRegistry();
 
 // WebMCP Tool Execution
-export async function executeTool(toolName: string, params: any = {}): Promise<any> {
+export async function executeTool(
+  toolName: string,
+  params: any = {},
+): Promise<any> {
   const handler = toolHandlers.get(toolName);
   if (!handler) {
     throw new Error(`No handler registered for tool: ${toolName}`);
@@ -92,7 +95,9 @@ export class WebMCPRegistry {
           },
         });
       }
-      console.log(`Registered ${this.tools.length} WebMCP tools for route ${this.currentRoute}`);
+      console.log(
+        `Registered ${this.tools.length} WebMCP tools for route ${this.currentRoute}`,
+      );
     } catch (error) {
       console.error("Failed to register WebMCP tools:", error);
     }
@@ -158,11 +163,14 @@ export function useWebMCP(route: string) {
   }, [route]);
 
   // Execute tool function
-  const executeWebMCPTool = useCallback(async (toolName: string, params: any) => {
-    const result = await executeTool(toolName, params);
-    setLastResult(result);
-    return result;
-  }, []);
+  const executeWebMCPTool = useCallback(
+    async (toolName: string, params: any) => {
+      const result = await executeTool(toolName, params);
+      setLastResult(result);
+      return result;
+    },
+    [],
+  );
 
   return {
     isRegistered,
@@ -226,7 +234,11 @@ export function setupSpectrumToolHandlers(sidebarProps: any) {
   // Signal Features
   toolHandlers.register("classifySignal", async (params) => {
     // Implementation depends on ML system
-    return { success: true, classification: "N-APT detected", confidence: 0.95 };
+    return {
+      success: true,
+      classification: "N-APT detected",
+      confidence: 0.95,
+    };
   });
 
   // Signal Display
@@ -259,13 +271,19 @@ export function setupSpectrumToolHandlers(sidebarProps: any) {
 export function setupDrawSignalToolHandlers(drawProps: any) {
   toolHandlers.register("setSpikeCount", async (params) => {
     const { count } = params;
-    drawProps.onDrawParamsChange({ ...drawProps.drawParams, spikeCount: count });
+    drawProps.onDrawParamsChange({
+      ...drawProps.drawParams,
+      spikeCount: count,
+    });
     return { success: true, spikeCount: count };
   });
 
   toolHandlers.register("setSpikeWidth", async (params) => {
     const { width } = params;
-    drawProps.onDrawParamsChange({ ...drawProps.drawParams, spikeWidth: width });
+    drawProps.onDrawParamsChange({
+      ...drawProps.drawParams,
+      spikeWidth: width,
+    });
     return { success: true, spikeWidth: width };
   });
 

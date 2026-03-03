@@ -1,6 +1,9 @@
 import React from "react";
 import styled from "styled-components";
-import type { DeviceState, DeviceLoadingReason } from "@n-apt/hooks/useWebSocket";
+import type {
+  DeviceState,
+  DeviceLoadingReason,
+} from "@n-apt/hooks/useWebSocket";
 
 const ConnectionStatusContainer = styled.div`
   display: flex;
@@ -20,7 +23,11 @@ const ConnectionStatus = styled.div`
   border: 1px solid #1f1f1f;
 `;
 
-const StatusDot = styled.div<{ $connected: boolean; $loading?: boolean; $color?: string }>`
+const StatusDot = styled.div<{
+  $connected: boolean;
+  $loading?: boolean;
+  $color?: string;
+}>`
   width: 8px;
   height: 8px;
   border-radius: 50%;
@@ -83,7 +90,7 @@ const PauseButton = styled.button<{ $paused: boolean }>`
   }
 `;
 
-const WarningButton = styled(PauseButton) <{
+const WarningButton = styled(PauseButton)<{
   $narrow?: boolean;
   $isDisabled?: boolean;
 }>`
@@ -110,9 +117,12 @@ interface ConnectionStatusSectionProps {
   isPaused: boolean;
   onPauseToggle: () => void;
   onRestartDevice?: () => void;
+  children?: React.ReactNode;
 }
 
-export const ConnectionStatusSection: React.FC<ConnectionStatusSectionProps> = ({
+export const ConnectionStatusSection: React.FC<
+  ConnectionStatusSectionProps
+> = ({
   isConnected,
   deviceState,
   deviceLoadingReason,
@@ -126,7 +136,11 @@ export const ConnectionStatusSection: React.FC<ConnectionStatusSectionProps> = (
         <StatusDot
           $connected={isConnected && deviceState === "connected"}
           $loading={deviceState === "loading" || deviceState === "stale"}
-          $color={isConnected && deviceState === "disconnected" ? "#ff8800" : undefined}
+          $color={
+            isConnected && deviceState === "disconnected"
+              ? "#ff8800"
+              : undefined
+          }
         />
         <StatusText>
           {!isConnected
@@ -158,7 +172,7 @@ export const ConnectionStatusSection: React.FC<ConnectionStatusSectionProps> = (
             $paused={false}
             $narrow
             $isDisabled
-            onClick={() => { }}
+            onClick={() => {}}
             disabled={true}
             title="Device is restarting..."
           >
@@ -168,7 +182,7 @@ export const ConnectionStatusSection: React.FC<ConnectionStatusSectionProps> = (
           <WarningButton
             $paused={false}
             $isDisabled
-            onClick={() => { }}
+            onClick={() => {}}
             disabled={true}
             title="Device is being initialized..."
           >

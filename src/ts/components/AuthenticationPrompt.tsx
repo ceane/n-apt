@@ -34,6 +34,7 @@ const Container = styled.div`
   background-color: #0a0a0a;
   padding: 40px;
   gap: 32px;
+  min-height: 100dvh;
 `;
 
 const Title = styled.h2`
@@ -49,7 +50,11 @@ const StatusText = styled.p<{ $variant?: "info" | "error" | "success" }>`
   font-family: "JetBrains Mono", monospace;
   font-size: 12px;
   color: ${(props) =>
-    props.$variant === "error" ? "#ff4444" : props.$variant === "success" ? "#00d4ff" : "#666"};
+    props.$variant === "error"
+      ? "#ff4444"
+      : props.$variant === "success"
+        ? "#00d4ff"
+        : "#666"};
   margin: 0;
   text-align: center;
   max-width: 400px;
@@ -92,7 +97,10 @@ const Input = styled.input`
   }
 `;
 
-const ActionButton = styled.button<{ $loading?: boolean; $secondary?: boolean }>`
+const ActionButton = styled.button<{
+  $loading?: boolean;
+  $secondary?: boolean;
+}>`
   width: 24cqw;
   padding: 14px 24px;
   background-color: ${(props) =>
@@ -165,14 +173,20 @@ const AuthenticationPrompt = ({
   onRegisterPasskey,
 }: AuthenticationPromptProps) => {
   const [password, setPassword] = useState("");
-  const [showPasswordForm, setShowPasswordForm] = useState<boolean | null>(null);
+  const [showPasswordForm, setShowPasswordForm] = useState<boolean | null>(
+    null,
+  );
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Derive effective state: if user hasn't explicitly toggled, follow hasPasskeys
   const effectiveShowPasswordForm = showPasswordForm ?? !hasPasskeys;
 
   useEffect(() => {
-    if (authState === "ready" && effectiveShowPasswordForm && inputRef.current) {
+    if (
+      authState === "ready" &&
+      effectiveShowPasswordForm &&
+      inputRef.current
+    ) {
       inputRef.current.focus();
     }
   }, [authState, effectiveShowPasswordForm]);
@@ -187,7 +201,9 @@ const AuthenticationPrompt = ({
       e.preventDefault();
       if (
         password.trim() &&
-        (authState === "ready" || authState === "failed" || authState === "timeout")
+        (authState === "ready" ||
+          authState === "failed" ||
+          authState === "timeout")
       ) {
         onPasswordSubmit(password);
       }
@@ -204,7 +220,8 @@ const AuthenticationPrompt = ({
     authState === "connecting" ||
     authState === "awaiting_challenge" ||
     authState === "authenticating";
-  const canInteract = authState === "ready" || authState === "failed" || authState === "timeout";
+  const canInteract =
+    authState === "ready" || authState === "failed" || authState === "timeout";
   const showActions = canInteract || authState === "authenticating";
 
   const getStatusMessage = () => {
@@ -222,7 +239,9 @@ const AuthenticationPrompt = ({
       case "success":
         return "Authentication successful — starting stream...";
       case "failed":
-        return error ? error : "Authentication failed — Server disconnected 500";
+        return error
+          ? error
+          : "Authentication failed — Server disconnected 500";
       case "timeout":
         return "Authentication timed out — please retry";
       default:
@@ -248,7 +267,9 @@ const AuthenticationPrompt = ({
 
       <StatusText
         $variant={getStatusVariant()}
-        dangerouslySetInnerHTML={{ __html: getStatusMessage().replace(/\n/g, "<br>") }}
+        dangerouslySetInnerHTML={{
+          __html: getStatusMessage().replace(/\n/g, "<br>"),
+        }}
       />
 
       {showActions && (
@@ -260,7 +281,9 @@ const AuthenticationPrompt = ({
                 disabled={authState === "authenticating"}
                 $loading={authState === "authenticating"}
               >
-                {authState === "authenticating" ? "Authenticating..." : "Sign in with Passkey"}
+                {authState === "authenticating"
+                  ? "Authenticating..."
+                  : "Sign in with Passkey"}
               </ActionButton>
               <Divider>or</Divider>
               <LinkButton onClick={() => setShowPasswordForm(true)}>

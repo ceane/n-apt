@@ -3,18 +3,18 @@ import { BrowserRouter as Router } from "react-router-dom";
 import { AppRoutes } from "@n-apt/routes/Routes";
 import { AuthProvider } from "@n-apt/hooks/useAuthentication";
 import { SpectrumProvider } from "@n-apt/hooks/useSpectrumStore";
-import { AuthWrapper } from "@n-apt/components/AuthWrapper";
+import { AuthRoute } from "@n-apt/routes/AuthRoute";
 
 // Main App component with BrowserRouter wrapper
 const App: React.FC = () => {
   return (
     <Router>
       <AuthProvider>
-        <AuthWrapper>
+        <AuthRoute>
           <SpectrumProvider>
             <AppRoutes />
           </SpectrumProvider>
-        </AuthWrapper>
+        </AuthRoute>
       </AuthProvider>
     </Router>
   );

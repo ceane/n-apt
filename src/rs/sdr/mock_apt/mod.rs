@@ -28,11 +28,10 @@ pub struct MockAptDevice {
     ppm: i32,
     tuner_agc: bool,
     rtl_agc: bool,
-    frame_counter: u64,
+    total_samples: u64,
     signals: Vec<MockAptSignal>,
     noise_floor_db: f32,
     signal_modulation_rate: f32,
-    signal_drift_rate: f32,
     rng: StdRng,
 }
 
@@ -41,10 +40,12 @@ pub struct MockAptDevice {
 struct MockAptSignal {
     config: MockAptSignalConfig,
     drift_offset: f32,
-    drift_velocity: f32,
     modulation_phase: f32,
     active: bool,
     bandwidth_hz: f64,
+    phase: f64,
+    phase_side_low: f64,
+    phase_side_high: f64,
 }
 
 impl MockAptDevice {
@@ -62,11 +63,10 @@ impl MockAptDevice {
             ppm: 1,
             tuner_agc: false,
             rtl_agc: false,
-            frame_counter: 0,
+            total_samples: 0,
             signals,
             noise_floor_db: mock_settings.global_settings.noise_floor_base as f32,
             signal_modulation_rate: mock_settings.global_settings.signal_modulation_rate as f32,
-            signal_drift_rate: mock_settings.global_settings.signal_drift_rate as f32,
             rng: StdRng::from_entropy(),
         }
     }
@@ -85,11 +85,13 @@ impl MockAptDevice {
                     center_frequency_mhz: freq,
                     strength_db: rng.gen_range(-70.0..-40.0),
                 },
-                drift_offset: rng.gen_range(-10.0..10.0),
-                drift_velocity: 0.0,
                 modulation_phase: rng.gen_range(0.0..=2.0 * PI),
+                drift_offset: rng.gen_range(-10.0..=10.0),
                 active: true,
-                bandwidth_hz: 30000.0, 
+                bandwidth_hz: 30000.0,
+                phase: rng.gen_range(0.0..=2.0 * PI64),
+                phase_side_low: rng.gen_range(0.0..=2.0 * PI64),
+                phase_side_high: rng.gen_range(0.0..=2.0 * PI64),
             });
         }
         
@@ -102,45 +104,29 @@ impl MockAptDevice {
                     strength_db: rng.gen_range(-60.0..-30.0),
                 },
                 drift_offset: rng.gen_range(-50.0..50.0),
-                drift_velocity: 0.0,
                 modulation_phase: rng.gen_range(0.0..=2.0 * PI),
                 active: true,
                 bandwidth_hz: 100000.0,
+                phase: rng.gen_range(0.0..=2.0 * PI64),
+                phase_side_low: rng.gen_range(0.0..=2.0 * PI64),
+                phase_side_high: rng.gen_range(0.0..=2.0 * PI64),
             });
         }
         
         signals
     }
     
-    /// Update signal states (drift, modulation)
-    fn update_signals(&mut self) {
-        for signal in &mut self.signals {
-            // Update modulation phase for strength variation
-            signal.modulation_phase += self.signal_modulation_rate;
-            if signal.modulation_phase > 2.0 * PI {
-                signal.modulation_phase -= 2.0 * PI;
-            }
-            
-            // Update drift in Hz (random walk)
-            let dr = self.signal_drift_rate * 50.0; // Scale to Hz
-            signal.drift_velocity += self.rng.gen_range(-dr..=dr) * 0.05;
-            signal.drift_velocity *= 0.98; // Damping
-            signal.drift_offset += signal.drift_velocity; 
-            signal.drift_offset = signal.drift_offset.clamp(-100000.0, 100000.0);
-            
-            // No sudden jumps anymore
-        }
-    }
+
 }
 
 impl SdrDevice for MockAptDevice {
     fn device_type(&self) -> &'static str {
-        "mock_apt"
+        "Mock APT SDR"
     }
     
     fn initialize(&mut self) -> Result<()> {
         log::info!("Initializing mock APT SDR device");
-        self.frame_counter = 0;
+        self.total_samples = 0;
         Ok(())
     }
     
@@ -149,13 +135,12 @@ impl SdrDevice for MockAptDevice {
     }
     
     fn read_samples(&mut self, fft_size: usize) -> Result<RawSamples> {
-        self.frame_counter = self.frame_counter.wrapping_add(1);
-        self.update_signals();
+        // State updates now happen per-sample in read_samples loop
+        // for better continuity during hopping.
         
         let mut frame = Vec::with_capacity(fft_size * 2);
         
         let sample_rate = self.sample_rate as f64;
-        let t0 = (self.frame_counter as f64) * (fft_size as f64) / sample_rate;
         let center_freq = self.center_freq as f64;
         
         // Hardware RF & ADC Simulation Pipeline
@@ -164,27 +149,36 @@ impl SdrDevice for MockAptDevice {
         let analog_gain = self.gain;
         let frontend_noise_db = rf_noise_db + analog_gain;
         
-        // 2. Incorporate the intrinsic 8-bit ADC quantization/thermal noise floor (approx -50 dBFS)
-        let adc_intrinsic_noise_db = -50.0;
+        // 2. Incorporate the intrinsic 8-bit ADC quantization/thermal noise floor
+        // We set this to approx -38.0 dBFS instead of -50.0 to guarantee sufficient analog dither.
+        // If noise falls below 1/128 amplitude, the offset-binary u8 cast rounds everything 
+        // to a perfectly solid 128, creating an artificial -120dB deep-null FFT cliff on empty channels 
+        // compared to the -50dB quantization noise floor of channels carrying real signals.
+        let adc_intrinsic_noise_db = -38.0;
         let total_adc_noise_power = 10f64.powf(frontend_noise_db / 10.0) + 10f64.powf(adc_intrinsic_noise_db / 10.0);
         let total_adc_noise_db = 10.0 * total_adc_noise_power.log10();
         let noise_level = 10f64.powf(total_adc_noise_db / 20.0);
         
         // Optimization: Pre-calculate per-signal parameters out of the inner loop
-        struct CachedSignal {
-            phase_step: f64,
-            phase_step_side_low: f64,
-            phase_step_side_high: f64,
+        struct CachedSignal<'a> {
+            signal: &'a mut MockAptSignal,
             amp: f64,
             amp_side: f64,
             has_sidebands: bool,
-            phase: f64,
-            phase_side_low: f64,
-            phase_side_high: f64,
+            
+            // Phasor states (cos, sin)
+            p_re: f64, p_im: f64,
+            r_re: f64, r_im: f64,
+            
+            sl_re: f64, sl_im: f64,
+            rl_re: f64, rl_im: f64,
+            
+            sh_re: f64, sh_im: f64,
+            rh_re: f64, rh_im: f64,
         }
         
         let mut cached_signals = Vec::with_capacity(self.signals.len());
-        for signal in &self.signals {
+        for signal in &mut self.signals {
             if !signal.active {
                 continue;
             }
@@ -198,28 +192,48 @@ impl SdrDevice for MockAptDevice {
             let rf_signal_db = signal.config.strength_db as f64 * modulation;
             let adc_signal_db = rf_signal_db + analog_gain;
             let amp = 10f64.powf(adc_signal_db / 20.0);
+            let amp_side = amp * 0.707;
             
+            // Advance modulation phase once per frame instead of per sample
+            // 8192 samples is ~4ms, plenty fast for modulation
+            signal.modulation_phase += self.signal_modulation_rate;
+            if signal.modulation_phase > 2.0 * PI {
+                signal.modulation_phase -= 2.0 * PI;
+            }
+            
+            let (p_im, p_re) = signal.phase.sin_cos();
             let phase_step = 2.0 * PI64 * rel_freq / sample_rate;
-            let phase = 2.0 * PI64 * rel_freq * t0;
+            let (r_im, r_re) = phase_step.sin_cos();
             
             let mut has_sidebands = false;
-            let (mut phase_step_side_low, mut phase_step_side_high) = (0.0, 0.0);
-            let (mut phase_side_low, mut phase_side_high) = (0.0, 0.0);
-            let amp_side = amp * 0.707;
+            let (mut sl_re, mut sl_im, mut rl_re, mut rl_im) = (1.0, 0.0, 1.0, 0.0);
+            let (mut sh_re, mut sh_im, mut rh_re, mut rh_im) = (1.0, 0.0, 1.0, 0.0);
             
             if signal.bandwidth_hz > 500.0 {
                 has_sidebands = true;
                 let offset = signal.bandwidth_hz * 0.3;
-                phase_step_side_low = 2.0 * PI64 * (rel_freq - offset) / sample_rate;
-                phase_step_side_high = 2.0 * PI64 * (rel_freq + offset) / sample_rate;
-                phase_side_low = 2.0 * PI64 * (rel_freq - offset) * t0;
-                phase_side_high = 2.0 * PI64 * (rel_freq + offset) * t0;
+                
+                let (im, re) = signal.phase_side_low.sin_cos();
+                sl_im = im; sl_re = re;
+                let step = 2.0 * PI64 * (rel_freq - offset) / sample_rate;
+                let (im_s, re_s) = step.sin_cos();
+                rl_im = im_s; rl_re = re_s;
+
+                let (im_h, re_h) = signal.phase_side_high.sin_cos();
+                sh_im = im_h; sh_re = re_h;
+                let step_h = 2.0 * PI64 * (rel_freq + offset) / sample_rate;
+                let (im_sh, re_sh) = step_h.sin_cos();
+                rh_im = im_sh; rh_re = re_sh;
             }
             
             cached_signals.push(CachedSignal {
-                phase_step, phase_step_side_low, phase_step_side_high,
-                amp, amp_side, has_sidebands,
-                phase, phase_side_low, phase_side_high,
+                signal,
+                amp,
+                amp_side,
+                has_sidebands,
+                p_re, p_im, r_re, r_im,
+                sl_re, sl_im, rl_re, rl_im,
+                sh_re, sh_im, rh_re, rh_im,
             });
         }
         
@@ -233,33 +247,56 @@ impl SdrDevice for MockAptDevice {
             }
             
             for sig in &mut cached_signals {
-                i_sample += sig.amp * sig.phase.sin();
-                q_sample += sig.amp * sig.phase.cos();
-                sig.phase += sig.phase_step;
+                // Update main signal
+                i_sample += sig.amp * sig.p_im;
+                q_sample += sig.amp * sig.p_re;
+                
+                let next_re = sig.p_re * sig.r_re - sig.p_im * sig.r_im;
+                let next_im = sig.p_im * sig.r_re + sig.p_re * sig.r_im;
+                sig.p_re = next_re;
+                sig.p_im = next_im;
                 
                 if sig.has_sidebands {
-                    i_sample += sig.amp_side * sig.phase_side_low.sin();
-                    q_sample += sig.amp_side * sig.phase_side_low.cos();
-                    sig.phase_side_low += sig.phase_step_side_low;
-                    
-                    i_sample += sig.amp_side * sig.phase_side_high.sin();
-                    q_sample += sig.amp_side * sig.phase_side_high.cos();
-                    sig.phase_side_high += sig.phase_step_side_high;
+                    // Update low sideband
+                    i_sample += sig.amp_side * sig.sl_im;
+                    q_sample += sig.amp_side * sig.sl_re;
+                    let next_l_re = sig.sl_re * sig.rl_re - sig.sl_im * sig.rl_im;
+                    let next_l_im = sig.sl_im * sig.rl_re + sig.sl_re * sig.rl_im;
+                    sig.sl_re = next_l_re;
+                    sig.sl_im = next_l_im;
+
+                    // Update high sideband
+                    i_sample += sig.amp_side * sig.sh_im;
+                    q_sample += sig.amp_side * sig.sh_re;
+                    let next_h_re = sig.sh_re * sig.rh_re - sig.sh_im * sig.rh_im;
+                    let next_h_im = sig.sh_im * sig.rh_re + sig.sh_re * sig.rh_im;
+                    sig.sh_re = next_h_re;
+                    sig.sh_im = next_h_im;
                 }
             }
             
-            // Apply soft clipping
-            let i_f = i_sample.tanh();
-            let q_f = q_sample.tanh();
+            // Fast linear clipping instead of tanh
+            let i_f = i_sample.clamp(-1.0, 1.0);
+            let q_f = q_sample.clamp(-1.0, 1.0);
             
             // Convert back to offset binary 8-bit output
-            // Strict quantization (the simulated intrinsic noise provides optimal dither)
-            let i_u8 = (i_f * 127.0 + 128.0).round().clamp(0.0, 255.0) as u8;
-            let q_u8 = (q_f * 127.0 + 128.0).round().clamp(0.0, 255.0) as u8;
+            // Faster conversion for dev builds: skip .round().clamp()
+            let i_u8 = (i_f * 127.0 + 128.5) as u8;
+            let q_u8 = (q_f * 127.0 + 128.5) as u8;
             
             frame.push(i_u8);
             frame.push(q_u8);
         }
+        
+        // Update persistent phases and total sample count
+        for sig in &mut cached_signals {
+            sig.signal.phase = sig.p_im.atan2(sig.p_re);
+            if sig.has_sidebands {
+                sig.signal.phase_side_low = sig.sl_im.atan2(sig.sl_re);
+                sig.signal.phase_side_high = sig.sh_im.atan2(sig.sh_re);
+            }
+        }
+        self.total_samples = self.total_samples.wrapping_add(fft_size as u64);
         
         Ok(RawSamples {
             data: frame,
@@ -307,6 +344,7 @@ impl SdrDevice for MockAptDevice {
     
     fn reset_buffer(&mut self) -> Result<()> {
         log::debug!("Mock APT device buffer reset");
+        self.total_samples = 0;
         Ok(())
     }
     

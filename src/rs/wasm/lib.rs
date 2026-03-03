@@ -6,7 +6,6 @@ use wasm_bindgen::prelude::*;
 use num_complex::Complex;
 use rustfft::{FftPlanner, FftDirection};
 use std::sync::Arc;
-use crate::fft::types::RawSamples;
 use crate::fft::processor::WindowType;
 use anyhow::Result;
 use web_sys::console;

@@ -6,7 +6,11 @@ import { Vector3, Vector2, Raycaster } from "three";
 import { useHotspotEditor } from "@n-apt/hooks/useHotspotEditor";
 import { MODEL_CAMERA_POSITION, MODEL_FOV } from "@n-apt/consts";
 
-function ClickHandler({ onAddHotspot }: { onAddHotspot: (point: Vector3) => void }) {
+function ClickHandler({
+  onAddHotspot,
+}: {
+  onAddHotspot: (point: Vector3) => void;
+}) {
   const { camera, gl, scene } = useThree();
   const raycaster = useRef(new Raycaster());
 
@@ -19,7 +23,10 @@ function ClickHandler({ onAddHotspot }: { onAddHotspot: (point: Vector3) => void
 
         raycaster.current.setFromCamera(new Vector2(x, y), camera);
 
-        const intersects = raycaster.current.intersectObjects(scene.children, true);
+        const intersects = raycaster.current.intersectObjects(
+          scene.children,
+          true,
+        );
 
         if (intersects.length > 0) {
           const point = intersects[0].point;
@@ -82,19 +89,31 @@ function HotspotMarker({
 
   const size = hotspot.size === "large" ? 0.08 : 0.02;
   const baseColor = hotspot.size === "large" ? "#00d4ff" : "#ffaa00";
-  const color = isMultiSelected ? "#ff6b6b" : isSelected ? "#ffffff" : baseColor;
+  const color = isMultiSelected
+    ? "#ff6b6b"
+    : isSelected
+      ? "#ffffff"
+      : baseColor;
 
   return (
     <group position={hotspot.position}>
       <mesh onClick={onClick}>
         <sphereGeometry args={[size, 16, 16]} />
-        <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.5} />
+        <meshStandardMaterial
+          color={color}
+          emissive={color}
+          emissiveIntensity={0.5}
+        />
       </mesh>
       {isSelected && (
         <group position={[0, size + 0.05, 0]}>
           <mesh>
             <sphereGeometry args={[0.02, 16, 16]} />
-            <meshStandardMaterial color="#ffaa00" emissive="#ffaa00" emissiveIntensity={0.8} />
+            <meshStandardMaterial
+              color="#ffaa00"
+              emissive="#ffaa00"
+              emissiveIntensity={0.8}
+            />
           </mesh>
           <mesh
             position={[0, 0.05, 0]}
@@ -184,7 +203,9 @@ export const HotspotEditorSimple: React.FC<HotspotEditorSimpleProps> = ({
         <ambientLight intensity={0.5} />
         <directionalLight position={[10, 10, 5]} intensity={1} />
 
-        {showGrid && <gridHelper args={[10, 10, "#333", "#222"]} position={[0, -1, 0]} />}
+        {showGrid && (
+          <gridHelper args={[10, 10, "#333", "#222"]} position={[0, -1, 0]} />
+        )}
 
         <Model onAddHotspot={handleAddHotspot} />
 

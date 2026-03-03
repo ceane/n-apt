@@ -24,9 +24,11 @@ export interface Draw2DFFTSignalOptions {
 }
 
 export function useDraw2DFFTSignal() {
-  const lastRenderRef = useRef<{ width: number; height: number; waveformLength: number } | null>(
-    null,
-  );
+  const lastRenderRef = useRef<{
+    width: number;
+    height: number;
+    waveformLength: number;
+  } | null>(null);
 
   // Inline rendering functions
   const drawSpectrumGrid = useCallback(
@@ -79,7 +81,11 @@ export function useDraw2DFFTSignal() {
         ctx.moveTo(FFT_AREA_MIN.x, Math.round(yPos));
         ctx.lineTo(fftAreaMax.x, Math.round(yPos));
         ctx.stroke();
-        ctx.fillText(line.toString(), FFT_AREA_MIN.x - 10, Math.round(yPos + 3));
+        ctx.fillText(
+          line.toString(),
+          FFT_AREA_MIN.x - 10,
+          Math.round(yPos + 3),
+        );
       }
 
       ctx.textAlign = "center";
@@ -93,7 +99,11 @@ export function useDraw2DFFTSignal() {
         ctx.moveTo(Math.round(xPos), fftAreaMax.y);
         ctx.lineTo(Math.round(xPos), fftAreaMax.y + 7);
         ctx.stroke();
-        ctx.fillText(formatFrequency(freq), Math.round(xPos), fftAreaMax.y + 25);
+        ctx.fillText(
+          formatFrequency(freq),
+          Math.round(xPos),
+          fftAreaMax.y + 25,
+        );
       }
 
       const xPos = fftAreaMax.x;
@@ -108,7 +118,11 @@ export function useDraw2DFFTSignal() {
         ctx.moveTo(Math.round(xPos), fftAreaMax.y);
         ctx.lineTo(Math.round(xPos), fftAreaMax.y + 7);
         ctx.stroke();
-        ctx.fillText(formatFrequency(maxFreq), Math.round(xPos), fftAreaMax.y + 25);
+        ctx.fillText(
+          formatFrequency(maxFreq),
+          Math.round(xPos),
+          fftAreaMax.y + 25,
+        );
       }
 
       ctx.strokeStyle = FFT_TEXT_COLOR;
@@ -135,7 +149,8 @@ export function useDraw2DFFTSignal() {
       fftMax: number,
     ) => {
       const dpr = window.devicePixelRatio || 1;
-      if (!waveform || !Array.isArray(waveform) || waveform.length === 0) return;
+      if (!waveform || !Array.isArray(waveform) || waveform.length === 0)
+        return;
 
       const fftAreaMax = { x: width - 40, y: height - 40 };
       const fftHeight = fftAreaMax.y - FFT_AREA_MIN.y;
@@ -223,7 +238,10 @@ export function useDraw2DFFTSignal() {
           ctx.textAlign = "center";
           ctx.textBaseline = "top";
           const tw = ctx.measureText(m.label).width;
-          const lx = Math.max(FFT_AREA_MIN.x + tw / 2 + 4, Math.min(fftAreaMax.x - tw / 2 - 4, x));
+          const lx = Math.max(
+            FFT_AREA_MIN.x + tw / 2 + 4,
+            Math.min(fftAreaMax.x - tw / 2 - 4, x),
+          );
           ctx.fillStyle = "rgba(10, 10, 10, 0.75)";
           ctx.fillRect(lx - tw / 2 - 4, FFT_AREA_MIN.y + 4, tw + 8, 18);
           ctx.fillStyle = "rgba(220, 38, 38, 0.9)";
@@ -286,45 +304,65 @@ export function useDraw2DFFTSignal() {
       const ctx = canvas.getContext("2d");
       if (!ctx || !waveform || waveform.length === 0) return false;
 
-      // Update canvas dimensions
+      const dpr = window.devicePixelRatio || 1;
       const rect = canvas.parentElement?.getBoundingClientRect();
-      const width = rect?.width || canvas.width;
-      const height = rect?.height || canvas.height;
+      const cssWidth = rect?.width || canvas.clientWidth || 800;
+      const cssHeight = rect?.height || canvas.clientHeight || 400;
 
-      canvas.width = width;
-      canvas.height = height;
-      canvas.style.width = `${width}px`;
-      canvas.style.height = `${height}px`;
+      // Update internal resolution for High-DPI displays
+      if (
+        canvas.width !== Math.floor(cssWidth * dpr) ||
+        canvas.height !== Math.floor(cssHeight * dpr)
+      ) {
+        canvas.width = Math.floor(cssWidth * dpr);
+        canvas.height = Math.floor(cssHeight * dpr);
+        canvas.style.width = `${cssWidth}px`;
+        canvas.style.height = `${cssHeight}px`;
+      }
 
-      // Skip if dimensions haven't changed and waveform is the same (optimization)
-      const current = { width, height, waveformLength: waveform.length };
-      // REMOVED early return optimization that breaks canvas rendering when slider values change
-      lastRenderRef.current = current;
+      // Reset transform and scale by DPR
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
       try {
         if (highPerformanceMode) {
           // High performance mode: minimal drawing
           if (showGrid) {
-            drawSpectrumGrid(ctx, width, height, frequencyRange, fftMin, fftMax, true);
+            drawSpectrumGrid(
+              ctx,
+              cssWidth,
+              cssHeight,
+              frequencyRange,
+              fftMin,
+              fftMax,
+              true,
+            );
           } else {
             ctx.fillStyle = "#000000";
-            ctx.fillRect(0, 0, width, height);
+            ctx.fillRect(0, 0, cssWidth, cssHeight);
           }
 
           // Simple line drawing for performance
-          drawSpectrumTrace(ctx, width, height, waveform, fftMin, fftMax);
+          drawSpectrumTrace(ctx, cssWidth, cssHeight, waveform, fftMin, fftMax);
         } else {
           // Full quality mode: complete spectrum rendering
-          drawSpectrumGrid(ctx, width, height, frequencyRange, fftMin, fftMax, true);
-          drawSpectrumTrace(ctx, width, height, waveform, fftMin, fftMax);
+          drawSpectrumGrid(
+            ctx,
+            cssWidth,
+            cssHeight,
+            frequencyRange,
+            fftMin,
+            fftMax,
+            true,
+          );
+          drawSpectrumTrace(ctx, cssWidth, cssHeight, waveform, fftMin, fftMax);
         }
 
         // Draw markers if needed
         if (centerFrequencyMHz !== undefined) {
           drawSpectrumMarkers(
             ctx,
-            width,
-            height,
+            cssWidth,
+            cssHeight,
             frequencyRange,
             centerFrequencyMHz,
             isDeviceConnected,

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import styled from "styled-components";
 import InfoPopover from "@n-apt/components/InfoPopover";
-import FrequencyRangeSlider from "@n-apt/components/FrequencyRangeSlider";
+import FrequencyRangeSlider from "@n-apt/components/sidebar/FrequencyRangeSlider";
 import { decryptPayloadBytes } from "@n-apt/crypto/webcrypto";
 import { useSdrSettings } from "@n-apt/hooks/useSdrSettings";
 import { useAuthentication } from "@n-apt/hooks/useAuthentication";
@@ -274,11 +274,16 @@ interface SidebarProps {
   onPauseToggle: () => void;
   onSettingsChange?: (settings: SDRSettings) => void;
   displayTemporalResolution?: "low" | "medium" | "high";
-  onDisplayTemporalResolutionChange?: (resolution: "low" | "medium" | "high") => void;
+  onDisplayTemporalResolutionChange?: (
+    resolution: "low" | "medium" | "high",
+  ) => void;
   selectedFiles: { name: string; file: File }[];
   onSelectedFilesChange: (files: { name: string; file: File }[]) => void;
   stitchSourceSettings: { gain: number; ppm: number };
-  onStitchSourceSettingsChange: (settings: { gain: number; ppm: number }) => void;
+  onStitchSourceSettingsChange: (settings: {
+    gain: number;
+    ppm: number;
+  }) => void;
   isStitchPaused: boolean;
   onStitchPauseToggle: () => void;
   onStitch: () => void;
@@ -342,11 +347,12 @@ const Sidebar: React.FC<SidebarProps> = ({
   onVizPanChange,
 }) => {
   const { state, dispatch, wsConnection } = useSpectrumStore();
-  const { isAuthenticated, authState, aesKey } = useAuthentication();
+  const { isAuthenticated, authState, aesKey, sessionToken } =
+    useAuthentication();
   const maxSampleRate =
     typeof sampleRateHz === "number" && Number.isFinite(sampleRateHz)
       ? sampleRateHz
-      : maxSampleRateHz ?? 0;
+      : (maxSampleRateHz ?? 0);
   const sampleRateMHz =
     typeof sampleRateHz === "number" && Number.isFinite(sampleRateHz)
       ? sampleRateHz / 1_000_000
@@ -392,19 +398,38 @@ const Sidebar: React.FC<SidebarProps> = ({
     setRtlAGC,
     sendCurrentSettings: _sendCurrentSettings,
     scheduleCoupledAdjustment,
-  } = useSdrSettings({ maxSampleRate, sdrSettings: wsConnection.sdrSettings, onSettingsChange });
+  } = useSdrSettings({
+    maxSampleRate,
+    sdrSettings: wsConnection.sdrSettings,
+    onSettingsChange,
+  });
 
   // Auto-apply recommended FFT size on first load
   useEffect(() => {
     if (state.isAutoFftApplied) return;
-    if (!wsConnection.autoFftOptions || typeof wsConnection.autoFftOptions.recommended !== "number") return;
+    if (
+      !wsConnection.autoFftOptions ||
+      typeof wsConnection.autoFftOptions.recommended !== "number"
+    )
+      return;
 
     // When the auto FFT options are received, update the UI state and backend
     setFftSize(wsConnection.autoFftOptions.recommended);
     // Since FFT size can affect frame rate, schedule the adjustment to keep them coupled
-    scheduleCoupledAdjustment("fftSize", wsConnection.autoFftOptions.recommended, fftFrameRate);
+    scheduleCoupledAdjustment(
+      "fftSize",
+      wsConnection.autoFftOptions.recommended,
+      fftFrameRate,
+    );
     dispatch({ type: "SET_AUTO_FFT_APPLIED", applied: true });
-  }, [wsConnection.autoFftOptions, setFftSize, scheduleCoupledAdjustment, fftFrameRate, state.isAutoFftApplied, dispatch]);
+  }, [
+    wsConnection.autoFftOptions,
+    setFftSize,
+    scheduleCoupledAdjustment,
+    fftFrameRate,
+    state.isAutoFftApplied,
+    dispatch,
+  ]);
 
   // Capture UI state
   const [captureOpen, setCaptureOpen] = useState(false);
@@ -420,7 +445,8 @@ const Sidebar: React.FC<SidebarProps> = ({
     }
   };
 
-  const [captureFileTypeState, setCaptureFileTypeState] = useState<CaptureFileType>(".napt");
+  const [captureFileTypeState, setCaptureFileTypeState] =
+    useState<CaptureFileType>(".napt");
   const [captureEncrypted, setCaptureEncrypted] = useState(true);
   const [capturePlayback, setCapturePlayback] = useState(false);
 
@@ -436,30 +462,95 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   // NAPT metadata state
   const [naptMetadata, setNaptMetadata] = useState<NaptMetadata | null>(null);
-  const [naptMetadataError, setNaptMetadataError] = useState<string | null>(null);
+  const [naptMetadataError, setNaptMetadataError] = useState<string | null>(
+    null,
+  );
+
+  // Handle Playback after capture
+  useEffect(() => {
+    if (
+      captureStatus?.status === "done" &&
+      capturePlayback &&
+      captureStatus.downloadUrl
+    ) {
+      const run = async () => {
+        try {
+          // 1. Switch to file mode
+          onSourceModeChange("file");
+
+          // 2. Clear existing files first
+          onClear();
+
+          // 3. Fetch the file
+          const url = `${captureStatus.downloadUrl}&token=${encodeURIComponent(sessionToken || "")}`;
+          const response = await fetch(url);
+          if (!response.ok)
+            throw new Error(`HTTP error! status: ${response.status}`);
+          const blob = await response.blob();
+          const filename = captureStatus.filename || "capture.napt";
+          const file = new File([blob], filename, {
+            type: "application/octet-stream",
+          });
+
+          // 4. Update selected files
+          onSelectedFilesChange([{ name: filename, file }]);
+
+          // 5. Trigger stitching/playback
+          // We wait a bit for the state to settle
+          setTimeout(() => {
+            onStitch();
+          }, 500);
+        } catch (e) {
+          console.error("Playback after capture failed:", e);
+        }
+      };
+      run();
+    }
+  }, [
+    captureStatus,
+    capturePlayback,
+    onSourceModeChange,
+    onClear,
+    onSelectedFilesChange,
+    onStitch,
+  ]);
 
   // Calculate capture range
   const captureRange = useMemo(() => {
     if (!frequencyRange) {
-      return { min: 0, max: 0, segments: [] as Array<{ label: string; min: number; max: number }> };
+      return {
+        min: 0,
+        max: 0,
+        segments: [] as Array<{ label: string; min: number; max: number }>,
+      };
     }
 
     const findFrameByLabel = (label: string) =>
-      spectrumFrames?.find((f) => f.label.toLowerCase() === label.toLowerCase()) ?? null;
+      spectrumFrames?.find(
+        (f) => f.label.toLowerCase() === label.toLowerCase(),
+      ) ?? null;
 
     const frameA = findFrameByLabel("A");
     const frameB = findFrameByLabel("B");
 
     const segments: Array<{ label: string; min: number; max: number }> = [];
     if (captureOnscreen)
-      segments.push({ label: "Onscreen", min: frequencyRange.min, max: frequencyRange.max });
+      segments.push({
+        label: "Onscreen",
+        min: frequencyRange.min,
+        max: frequencyRange.max,
+      });
     if (captureAreaA && frameA)
       segments.push({ label: "A", min: frameA.min_mhz, max: frameA.max_mhz });
     if (captureAreaB && frameB)
       segments.push({ label: "B", min: frameB.min_mhz, max: frameB.max_mhz });
 
     if (segments.length === 0) {
-      segments.push({ label: "Onscreen", min: frequencyRange.min, max: frequencyRange.max });
+      segments.push({
+        label: "Onscreen",
+        min: frequencyRange.min,
+        max: frequencyRange.max,
+      });
     }
 
     return {
@@ -467,7 +558,13 @@ const Sidebar: React.FC<SidebarProps> = ({
       max: Math.max(...segments.map((r) => r.max)),
       segments,
     };
-  }, [frequencyRange, captureOnscreen, captureAreaA, captureAreaB, spectrumFrames]);
+  }, [
+    frequencyRange,
+    captureOnscreen,
+    captureAreaA,
+    captureAreaB,
+    spectrumFrames,
+  ]);
 
   // File processing state
   const selectedNaptFile = useMemo(() => {
@@ -619,9 +716,14 @@ const Sidebar: React.FC<SidebarProps> = ({
 
     return (
       <Section>
-        <CollapsibleSectionHeader type="button" onClick={() => setSignalFeaturesOpen((prev) => !prev)}>
+        <CollapsibleSectionHeader
+          type="button"
+          onClick={() => setSignalFeaturesOpen((prev) => !prev)}
+        >
           <CollapsibleSectionLabel>Signal Features /</CollapsibleSectionLabel>
-          <CollapsibleSectionToggle>{signalFeaturesOpen ? "-" : "+"}</CollapsibleSectionToggle>
+          <CollapsibleSectionToggle>
+            {signalFeaturesOpen ? "-" : "+"}
+          </CollapsibleSectionToggle>
         </CollapsibleSectionHeader>
 
         {signalFeaturesOpen && (
@@ -630,7 +732,11 @@ const Sidebar: React.FC<SidebarProps> = ({
               <SettingLabelContainer>
                 <SettingLabel>
                   N-APT
-                  <span role="img" aria-label="brain" style={{ marginLeft: "6px" }}>
+                  <span
+                    role="img"
+                    aria-label="brain"
+                    style={{ marginLeft: "6px" }}
+                  >
                     🧠
                   </span>
                 </SettingLabel>
@@ -639,8 +745,14 @@ const Sidebar: React.FC<SidebarProps> = ({
                   content="N-APT stands for: Neuro Automatic Picture Transmission. These radio waves are modulated akin to APT signals (unknown reasons at this time) but unique in their ability to intercept, process and alter the brain and nervous system.<br><br>Through LF/HF frequencies (frequencies that survive attenuation of the skull and/or body; and lose less energy with longer distances/obstacles), it functions from triangulation, time of flight depth, heterodyning (it's key feature which ensures bioelectrical reception), phase shifting, center frequencies, impedance & endpoint signals processing (suspected as Kaiser, Bayes' Theorem/Posterior Probability, etc.).<br><br>It is an unprecedented formula of radio waves and neurotechnology with nascent efforts to decipher its modulation and content."
                 />
               </SettingLabelContainer>
-              <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                <div style={{ fontSize: "12px", color: "#ccc", fontWeight: 500 }}>{classificationStatusText}</div>
+              <div
+                style={{ display: "flex", alignItems: "center", gap: "12px" }}
+              >
+                <div
+                  style={{ fontSize: "12px", color: "#ccc", fontWeight: 500 }}
+                >
+                  {classificationStatusText}
+                </div>
                 <button
                   disabled={classificationDisabled}
                   style={{
@@ -688,7 +800,8 @@ const Sidebar: React.FC<SidebarProps> = ({
       success: "Authenticated — starting stream...",
     };
     const authStatusText =
-      authStatusMap[authState as keyof typeof authStatusMap] ?? "Awaiting authentication...";
+      authStatusMap[authState as keyof typeof authStatusMap] ??
+      "Awaiting authentication...";
 
     return (
       <SidebarContent>
@@ -710,14 +823,18 @@ const Sidebar: React.FC<SidebarProps> = ({
             <SettingLabelContainer>
               <SettingLabel>Status</SettingLabel>
             </SettingLabelContainer>
-            <AuthStatusText $status={authState}>{authStatusText}</AuthStatusText>
+            <AuthStatusText $status={authState}>
+              {authStatusText}
+            </AuthStatusText>
           </SettingRow>
           {backend && (
             <SettingRow>
               <SettingLabelContainer>
                 <SettingLabel>Backend</SettingLabel>
               </SettingLabelContainer>
-              <SettingValueText>{backend === "rtl-sdr" ? "RTL-SDR" : "Mock APT SDR"}</SettingValueText>
+              <SettingValueText>
+                {backend === "rtl-sdr" ? "RTL-SDR" : "Mock APT SDR"}
+              </SettingValueText>
             </SettingRow>
           )}
         </Section>
@@ -736,7 +853,22 @@ const Sidebar: React.FC<SidebarProps> = ({
       )}
 
       {activeTab === "draw" && (
-        <DrawMockNAPTSidebar drawParams={drawParams} onDrawParamsChange={onDrawParamsChange} />
+        <>
+          {sourceMode === "live" && (
+            <ConnectionStatusSection
+              isConnected={isConnected}
+              deviceState={deviceState}
+              deviceLoadingReason={deviceLoadingReason}
+              isPaused={isPaused}
+              onPauseToggle={onPauseToggle}
+              onRestartDevice={onRestartDevice}
+            />
+          )}
+          <DrawMockNAPTSidebar
+            drawParams={drawParams}
+            onDrawParamsChange={onDrawParamsChange}
+          />
+        </>
       )}
 
       {activeTab === "visualizer" && (
@@ -753,7 +885,9 @@ const Sidebar: React.FC<SidebarProps> = ({
           )}
 
           <Section>
-            <SectionTitle $fileMode={sourceMode === "file"}>Source</SectionTitle>
+            <SectionTitle $fileMode={sourceMode === "file"}>
+              Source
+            </SectionTitle>
             <SettingRow>
               <SettingLabelContainer>
                 <SettingLabel>Input</SettingLabel>
@@ -764,11 +898,17 @@ const Sidebar: React.FC<SidebarProps> = ({
               </SettingLabelContainer>
               <SettingSelect
                 value={sourceMode}
-                onChange={(e) => onSourceModeChange(e.target.value as "live" | "file")}
+                onChange={(e) =>
+                  onSourceModeChange(e.target.value as "live" | "file")
+                }
                 style={{ minWidth: "130px" }}
               >
                 <option value="live">
-                  {backend === "rtl-sdr" ? "RTL-SDR" : backend === "mock_apt" ? "Mock APT SDR" : "Live SDR"}
+                  {backend === "rtl-sdr"
+                    ? "RTL-SDR"
+                    : backend === "mock_apt"
+                      ? "Mock APT SDR"
+                      : "Live SDR"}
                 </option>
                 <option value="file" style={{ color: "#d9aa34" }}>
                   File Selection
@@ -816,7 +956,9 @@ const Sidebar: React.FC<SidebarProps> = ({
             onSnapshotShowWaterfallChange={setSnapshotShowWaterfall}
             onSnapshotShowStatsChange={setSnapshotShowStats}
             onSnapshotFormatChange={setSnapshotFormat}
-            onSnapshotGridPreferenceChange={onSnapshotGridPreferenceChange || (() => { })}
+            onSnapshotGridPreferenceChange={
+              onSnapshotGridPreferenceChange || (() => {})
+            }
             onSnapshot={handleSnapshot}
           />
 
@@ -852,22 +994,38 @@ const Sidebar: React.FC<SidebarProps> = ({
                     // calculate the visual range based on zoom and pan offset
                     // NOTE: Use frequencyRange (SDR center) not frame min/max for center calculation
                     let visibleMin = min;
-                    let visibleMax = min + (typeof sampleRateMHz === "number" ? Math.min(sampleRateMHz, span) : span);
-                    let externalFreqRange = activeSignalArea === label ? frequencyRange : undefined;
+                    let visibleMax =
+                      min +
+                      (typeof sampleRateMHz === "number"
+                        ? Math.min(sampleRateMHz, span)
+                        : span);
+                    let externalFreqRange =
+                      activeSignalArea === label ? frequencyRange : undefined;
 
-                    if (activeSignalArea === label && vizZoom > 1 && frequencyRange) {
+                    if (
+                      activeSignalArea === label &&
+                      vizZoom > 1 &&
+                      frequencyRange
+                    ) {
                       // Use frequencyRange (SDR tuned range) for center calculation
                       // This matches what FFTCanvas does
-                      const hardwareCenter = (frequencyRange.min + frequencyRange.max) / 2;
+                      const hardwareCenter =
+                        (frequencyRange.min + frequencyRange.max) / 2;
                       // Zoom applies to the hardware window width (sample rate), not the full signal area span
-                      const hardwareSpan = typeof sampleRateMHz === "number" ? Math.min(sampleRateMHz, span) : span;
+                      const hardwareSpan =
+                        typeof sampleRateMHz === "number"
+                          ? Math.min(sampleRateMHz, span)
+                          : span;
                       const visualSpan = hardwareSpan / vizZoom;
                       const halfVisualSpan = visualSpan / 2;
                       // vizPanOffset is in MHz exactly
                       let visualCenter = hardwareCenter + vizPanOffset;
 
                       // Clamp visual center so the visual window stays within signal area bounds
-                      visualCenter = Math.max(min + halfVisualSpan, Math.min(max - halfVisualSpan, visualCenter));
+                      visualCenter = Math.max(
+                        min + halfVisualSpan,
+                        Math.min(max - halfVisualSpan, visualCenter),
+                      );
 
                       visibleMin = visualCenter - halfVisualSpan;
                       visibleMax = visualCenter + halfVisualSpan;
@@ -885,20 +1043,34 @@ const Sidebar: React.FC<SidebarProps> = ({
                         maxFreq={max}
                         visibleMin={visibleMin}
                         visibleMax={visibleMax}
-                        sampleRateMHz={typeof sampleRateMHz === "number" ? sampleRateMHz / (activeSignalArea === label ? vizZoom : 1) : null}
+                        sampleRateMHz={
+                          typeof sampleRateMHz === "number"
+                            ? sampleRateMHz /
+                              (activeSignalArea === label ? vizZoom : 1)
+                            : null
+                        }
                         limitMarkers={limitMarkers}
                         isActive={activeSignalArea === label}
                         onActivate={() => onSignalAreaChange?.(label)}
                         onRangeChange={(range) => {
-                          if (activeSignalArea === label && vizZoom > 1 && frequencyRange) {
+                          if (
+                            activeSignalArea === label &&
+                            vizZoom > 1 &&
+                            frequencyRange
+                          ) {
                             const visualCenter = (range.min + range.max) / 2;
-                            const hardwareSpan = typeof sampleRateMHz === "number" ? Math.min(sampleRateMHz, span) : span;
+                            const hardwareSpan =
+                              typeof sampleRateMHz === "number"
+                                ? Math.min(sampleRateMHz, span)
+                                : span;
                             const halfHardware = hardwareSpan / 2;
-                            const currentHardwareCenter = (frequencyRange.min + frequencyRange.max) / 2;
+                            const currentHardwareCenter =
+                              (frequencyRange.min + frequencyRange.max) / 2;
                             const halfVisualSpan = hardwareSpan / (2 * vizZoom);
                             const maxPan = halfHardware - halfVisualSpan;
 
-                            const desiredPan = visualCenter - currentHardwareCenter;
+                            const desiredPan =
+                              visualCenter - currentHardwareCenter;
 
                             if (Math.abs(desiredPan) <= maxPan + 0.001) {
                               // Pan is within hardware bounds — just update pan offset
@@ -906,8 +1078,10 @@ const Sidebar: React.FC<SidebarProps> = ({
                             } else {
                               // Pan exceeds hardware bounds — retune hardware to reach the edge
                               let newHardwareCenter = visualCenter;
-                              let newHardwareMin = newHardwareCenter - halfHardware;
-                              let newHardwareMax = newHardwareCenter + halfHardware;
+                              let newHardwareMin =
+                                newHardwareCenter - halfHardware;
+                              let newHardwareMax =
+                                newHardwareCenter + halfHardware;
 
                               // Clamp hardware range to signal area bounds
                               if (newHardwareMin < min) {
@@ -918,13 +1092,18 @@ const Sidebar: React.FC<SidebarProps> = ({
                                 newHardwareMax = max;
                                 newHardwareMin = max - hardwareSpan;
                               }
-                              newHardwareCenter = (newHardwareMin + newHardwareMax) / 2;
+                              newHardwareCenter =
+                                (newHardwareMin + newHardwareMax) / 2;
 
                               // Retune hardware
-                              handleRangeChange(label, { min: newHardwareMin, max: newHardwareMax });
+                              handleRangeChange(label, {
+                                min: newHardwareMin,
+                                max: newHardwareMax,
+                              });
 
                               // Set remaining pan offset relative to new hardware center
-                              const remainingPan = visualCenter - newHardwareCenter;
+                              const remainingPan =
+                                visualCenter - newHardwareCenter;
                               if (onVizPanChange) onVizPanChange(remainingPan);
                             }
                           } else {
@@ -959,7 +1138,9 @@ const Sidebar: React.FC<SidebarProps> = ({
                 onFftFrameRateChange={setFftFrameRate}
                 onFftSizeChange={setFftSize}
                 onFftWindowChange={setFftWindow}
-                onTemporalResolutionChange={onDisplayTemporalResolutionChange || (() => { })}
+                onTemporalResolutionChange={
+                  onDisplayTemporalResolutionChange || (() => {})
+                }
                 scheduleCoupledAdjustment={scheduleCoupledAdjustment}
               />
 
@@ -976,11 +1157,17 @@ const Sidebar: React.FC<SidebarProps> = ({
                 onTunerAGCChange={setTunerAGC}
                 onRtlAGCChange={setRtlAGC}
                 onStitchSourceSettingsChange={onStitchSourceSettingsChange}
-                onAgcModeChange={() => { }}
+                onAgcModeChange={() => {}}
               />
             </>
           )}
         </>
+      )}
+      {captureStatus?.status === "started" && (
+        <CapturingIndicator>
+          <CapturingDot />
+          Capturing...
+        </CapturingIndicator>
       )}
     </SidebarContent>
   );

@@ -24,7 +24,11 @@ interface FIFOWaterfallProps {
   isPaused: boolean;
   isVisible: boolean;
   performScalarResampling: (data: number[], targetLength: number) => number[];
-  spectrumToAmplitude: (data: number[], historyLimit: number, historyMax: number) => number[];
+  spectrumToAmplitude: (
+    data: number[],
+    historyLimit: number,
+    historyMax: number,
+  ) => number[];
 }
 
 const WaterfallCanvas = styled.canvas<{ $width: number; $height: number }>`
@@ -49,12 +53,17 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
   }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const localBufferRef = useRef<Uint8ClampedArray | null>(null);
-    const bufferDimsRef = useRef<{ width: number; height: number } | null>(null);
+    const bufferDimsRef = useRef<{ width: number; height: number } | null>(
+      null,
+    );
 
     // Initialize buffer if needed
     useEffect(() => {
       const expectedLen = width * height * 4;
-      if (!localBufferRef.current || localBufferRef.current.length !== expectedLen) {
+      if (
+        !localBufferRef.current ||
+        localBufferRef.current.length !== expectedLen
+      ) {
         localBufferRef.current = new Uint8ClampedArray(expectedLen);
         bufferDimsRef.current = { width, height };
         onWaterfallBufferChange?.(localBufferRef.current);

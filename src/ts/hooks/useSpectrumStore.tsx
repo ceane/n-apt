@@ -1,5 +1,19 @@
-import React, { createContext, useContext, useReducer, useEffect, useRef, useState, useMemo, useCallback } from "react";
-import { useWebSocket, FrequencyRange, SpectrumFrame, SdrSettingsConfig } from "@n-apt/hooks/useWebSocket";
+import React, {
+  createContext,
+  useContext,
+  useReducer,
+  useEffect,
+  useRef,
+  useState,
+  useMemo,
+  useCallback,
+} from "react";
+import {
+  useWebSocket,
+  FrequencyRange,
+  SpectrumFrame,
+  SdrSettingsConfig,
+} from "@n-apt/hooks/useWebSocket";
 import { useAuthentication } from "@n-apt/hooks/useAuthentication";
 import { buildWsUrl } from "@n-apt/services/auth";
 import { useLocation } from "react-router-dom";
@@ -55,14 +69,14 @@ export type SpectrumAction =
   | { type: "SET_SIGNAL_AREA"; area: string }
   | { type: "SET_FREQUENCY_RANGE"; range: FrequencyRange }
   | {
-    type: "SET_SIGNAL_AREA_AND_RANGE";
-    area: string;
-    range: FrequencyRange;
-  }
+      type: "SET_SIGNAL_AREA_AND_RANGE";
+      area: string;
+      range: FrequencyRange;
+    }
   | {
-    type: "SET_TEMPORAL_RESOLUTION";
-    resolution: "low" | "medium" | "high";
-  }
+      type: "SET_TEMPORAL_RESOLUTION";
+      resolution: "low" | "medium" | "high";
+    }
   | { type: "SET_SELECTED_FILES"; files: SelectedFile[] }
   | { type: "SET_SNAPSHOT_GRID"; preference: boolean }
   | { type: "SET_DRAW_PARAMS"; params: DrawParams }
@@ -74,9 +88,9 @@ export type SpectrumAction =
   | { type: "TRIGGER_STITCH" }
   | { type: "TOGGLE_STITCH_PAUSE" }
   | {
-    type: "SET_STITCH_SOURCE_SETTINGS";
-    settings: { gain: number; ppm: number };
-  }
+      type: "SET_STITCH_SOURCE_SETTINGS";
+      settings: { gain: number; ppm: number };
+    }
   | { type: "SET_STITCH_PAUSED"; paused: boolean }
   | { type: "LEAVE_VISUALIZER" }
   | { type: "SET_FFT_FRAME_RATE"; fftFrameRate: number }
@@ -139,7 +153,10 @@ const loadPersistedSdrSettings = (): Partial<SpectrumState> => {
   }
 };
 
-export function spectrumReducer(state: SpectrumState, action: SpectrumAction): SpectrumState {
+export function spectrumReducer(
+  state: SpectrumState,
+  action: SpectrumAction,
+): SpectrumState {
   switch (action.type) {
     case "SET_SIGNAL_AREA":
       return { ...state, activeSignalArea: action.area };
@@ -246,7 +263,9 @@ type SpectrumStoreContextValue = {
   toggleVisualizerPause: () => void;
 };
 
-const SpectrumStoreContext = createContext<SpectrumStoreContextValue | null>(null);
+const SpectrumStoreContext = createContext<SpectrumStoreContextValue | null>(
+  null,
+);
 
 export const useSpectrumStore = () => {
   const context = useContext(SpectrumStoreContext);
@@ -256,7 +275,9 @@ export const useSpectrumStore = () => {
   return context;
 };
 
-export const SpectrumProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+export const SpectrumProvider: React.FC<{ children: React.ReactNode }> = ({
+  children,
+}) => {
   const [state, dispatch] = useReducer(spectrumReducer, {
     ...INITIAL_SPECTRUM_STATE,
     ...loadPersistedSdrSettings(),
@@ -286,25 +307,32 @@ export const SpectrumProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   });
 
-  const [cachedSdrSettings, setCachedSdrSettings] = useState<SdrSettingsConfig | null>(() => {
-    if (typeof window === "undefined") return null;
-    try {
-      const raw = sessionStorage.getItem("napt-sdr-settings");
-      if (!raw) return null;
-      return JSON.parse(raw) as SdrSettingsConfig;
-    } catch {
-      return null;
-    }
-  });
+  const [cachedSdrSettings, setCachedSdrSettings] =
+    useState<SdrSettingsConfig | null>(() => {
+      if (typeof window === "undefined") return null;
+      try {
+        const raw = sessionStorage.getItem("napt-sdr-settings");
+        if (!raw) return null;
+        return JSON.parse(raw) as SdrSettingsConfig;
+      } catch {
+        return null;
+      }
+    });
 
   const { sessionToken, aesKey, isAuthenticated } = useAuthentication();
   const wsUrl = sessionToken ? buildWsUrl(sessionToken) : "";
 
   const wsConnection = useWebSocket(wsUrl, aesKey, isAuthenticated);
-  const { sdrSettings, spectrumFrames: wsSpectrumFrames, isConnected, sendPauseCommand } = wsConnection;
+  const {
+    sdrSettings,
+    spectrumFrames: wsSpectrumFrames,
+    isConnected,
+    sendPauseCommand,
+  } = wsConnection;
 
   // Track active spectrum route globally
-  const isVisualizerRoute = location.pathname === "/" ||
+  const isVisualizerRoute =
+    location.pathname === "/" ||
     location.pathname === "/visualizer" ||
     location.pathname === "/analysis" ||
     location.pathname === "/draw-signal";
@@ -336,7 +364,15 @@ export const SpectrumProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         dispatch({ type: "SET_VISUALIZER_PAUSED", paused: true });
       }
     }
-  }, [isVisualizerRoute, isConnected, routePaused, manualVisualizerPaused, state.visualizerPaused, sendPauseCommand, dispatch]);
+  }, [
+    isVisualizerRoute,
+    isConnected,
+    routePaused,
+    manualVisualizerPaused,
+    state.visualizerPaused,
+    sendPauseCommand,
+    dispatch,
+  ]);
 
   // Persist SDR settings when they change
   useEffect(() => {
@@ -372,7 +408,10 @@ export const SpectrumProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     if (wsSpectrumFrames.length === 0) return;
     setCachedFrames(wsSpectrumFrames);
     try {
-      sessionStorage.setItem("napt-spectrum-frames", JSON.stringify(wsSpectrumFrames));
+      sessionStorage.setItem(
+        "napt-spectrum-frames",
+        JSON.stringify(wsSpectrumFrames),
+      );
     } catch {
       /* ignore */
     }
@@ -388,17 +427,19 @@ export const SpectrumProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   }, [sdrSettings]);
 
-  const effectiveFrames = wsSpectrumFrames.length > 0 ? wsSpectrumFrames : cachedFrames;
+  const effectiveFrames =
+    wsSpectrumFrames.length > 0 ? wsSpectrumFrames : cachedFrames;
   const effectiveSdrSettings = sdrSettings ?? cachedSdrSettings;
 
   const sampleRateHzEffective =
     typeof effectiveSdrSettings?.sample_rate === "number" &&
-      Number.isFinite(effectiveSdrSettings.sample_rate)
+    Number.isFinite(effectiveSdrSettings.sample_rate)
       ? effectiveSdrSettings.sample_rate
-      : wsConnection.sampleRateHz ?? null;
+      : (wsConnection.sampleRateHz ?? null);
 
   const sampleRateMHz =
-    typeof sampleRateHzEffective === "number" && Number.isFinite(sampleRateHzEffective)
+    typeof sampleRateHzEffective === "number" &&
+    Number.isFinite(sampleRateHzEffective)
       ? sampleRateHzEffective / 1_000_000
       : null;
 
@@ -416,42 +457,57 @@ export const SpectrumProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return bounds;
   }, [effectiveFrames]);
 
-  // Initialize frequencyRange if either it is null or unset 
-  // based on the first available frame (usually area 'A') 
-  // and the current sample rate. This is placed after variable 
+  // Initialize frequencyRange if either it is null or unset
+  // based on the first available frame (usually area 'A')
+  // and the current sample rate. This is placed after variable
   // declarations to satisfy closure requirements.
   useEffect(() => {
     if (state.frequencyRange) return;
     if (!Array.isArray(effectiveFrames) || effectiveFrames.length === 0) return;
 
     const primaryFrame =
-      effectiveFrames.find((frame) => frame.label.toLowerCase() === "a") ?? effectiveFrames[0];
+      effectiveFrames.find((frame) => frame.label.toLowerCase() === "a") ??
+      effectiveFrames[0];
     if (!primaryFrame) return;
 
     const min = primaryFrame.min_mhz;
-    const max = sampleRateMHz ? Math.min(primaryFrame.max_mhz, min + sampleRateMHz) : primaryFrame.max_mhz;
+    const max = sampleRateMHz
+      ? Math.min(primaryFrame.max_mhz, min + sampleRateMHz)
+      : primaryFrame.max_mhz;
     const nextRange = { min, max };
 
     dispatch({ type: "SET_FREQUENCY_RANGE", range: nextRange });
     wsConnection.sendFrequencyRange(nextRange);
-  }, [state.frequencyRange, sampleRateMHz, effectiveFrames, wsConnection.sendFrequencyRange]);
+  }, [
+    state.frequencyRange,
+    sampleRateMHz,
+    effectiveFrames,
+    wsConnection.sendFrequencyRange,
+  ]);
 
   // Execute exactly once to absorb backend default configurations (like signals.yaml gain)
   useEffect(() => {
     if (!sdrSettings || hasInitializedBackendSettingsRef.current) return;
 
     // Validate we actually received meaningful backend config (e.g. valid sample rate)
-    if (sdrSettings.sample_rate === 0 && (sdrSettings.center_frequency === 0 || sdrSettings.center_frequency === undefined)) return;
+    if (
+      sdrSettings.sample_rate === 0 &&
+      (sdrSettings.center_frequency === 0 ||
+        sdrSettings.center_frequency === undefined)
+    )
+      return;
 
-    // Once valid, sync it into the global store immediately. 
+    // Once valid, sync it into the global store immediately.
     hasInitializedBackendSettingsRef.current = true;
 
-    const derived = deriveStateFromConfig(sampleRateHzEffective ?? 0, sdrSettings);
+    const derived = deriveStateFromConfig(
+      sampleRateHzEffective ?? 0,
+      sdrSettings,
+    );
     dispatch({
       type: "SET_SDR_SETTINGS_BUNDLE",
       settings: derived,
     });
-
   }, [sdrSettings, sampleRateHzEffective, dispatch]);
 
   // Screen width detection for auto FFT options
@@ -459,7 +515,10 @@ export const SpectrumProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     if (!isVisualizerRoute || !isConnected) return;
 
     const detectScreenWidth = () => {
-      const cssWidth = window.innerWidth || document.documentElement.clientWidth || document.body.clientWidth;
+      const cssWidth =
+        window.innerWidth ||
+        document.documentElement.clientWidth ||
+        document.body.clientWidth;
       const dpr = window.devicePixelRatio || 1;
       wsConnection.sendGetAutoFftOptions(Math.round(cssWidth * dpr));
     };
@@ -513,5 +572,9 @@ export const SpectrumProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     toggleVisualizerPause,
   };
 
-  return <SpectrumStoreContext.Provider value={value}>{children}</SpectrumStoreContext.Provider>;
+  return (
+    <SpectrumStoreContext.Provider value={value}>
+      {children}
+    </SpectrumStoreContext.Provider>
+  );
 };

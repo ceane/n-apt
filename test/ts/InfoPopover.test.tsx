@@ -60,7 +60,8 @@ describe("InfoPopover Component", () => {
   });
 
   it("should handle special characters in content", () => {
-    const specialContent = "Content with special chars: @#$%^&*()_+-=[]{}|;:,.<>?";
+    const specialContent =
+      "Content with special chars: @#$%^&*()_+-=[]{}|;:,.<>?";
 
     render(<InfoPopover content={specialContent} />);
 

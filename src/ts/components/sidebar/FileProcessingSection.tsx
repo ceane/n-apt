@@ -3,10 +3,15 @@ import styled from "styled-components";
 
 type NaptMetadata = {
   sample_rate?: number;
+  sample_rate_hz?: number;
+  capture_sample_rate_hz?: number;
+  hardware_sample_rate_hz?: number;
   center_frequency?: number;
+  center_frequency_hz?: number;
   frequency_range?: [number, number];
   fft?: { size?: number; window?: string };
   format?: string;
+  data_format?: string;
   timestamp_utc?: string;
   hardware?: string;
   gain?: number;
@@ -14,10 +19,17 @@ type NaptMetadata = {
   frame_rate?: number;
   fft_size?: number;
   duration_s?: number;
+  // New fields
+  acquisition_mode?: string;
+  source_device?: string;
+  fft_window?: string;
+  tuner_agc?: boolean;
+  rtl_agc?: boolean;
 };
 
-const Section = styled.div`
+const Section = styled.div<{ $marginTop?: string }>`
   margin-bottom: 24px;
+  margin-top: ${(props) => props.$marginTop || "0"};
 `;
 
 const SectionTitle = styled.div<{ $fileMode?: boolean }>`
@@ -80,10 +92,15 @@ const PauseButton = styled.button<{ $paused: boolean }>`
   transition: all 0.2s ease;
   user-select: none;
 
-  &:hover {
+  &:hover:not(:disabled) {
     background-color: #2a2a2a;
     border-color: #00d4ff;
     color: #00d4ff;
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 `;
 
@@ -176,6 +193,38 @@ const TruncatedSettingValue = styled(SettingValue)`
   max-width: 160px;
 `;
 
+const MetadataGrid = styled.div`
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+`;
+
+const MetadataItem = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  background-color: #141414;
+  border-radius: 6px;
+  border: 1px solid #1a1a1a;
+`;
+
+const MetadataLabel = styled.span`
+  font-size: 10px;
+  color: #555;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+`;
+
+const MetadataValue = styled.span`
+  font-size: 11px;
+  color: #ccc;
+  font-family: "JetBrains Mono", monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+`;
+
 interface FileProcessingSectionProps {
   selectedFiles: { name: string; file: File; downloadUrl?: string }[];
   stitchStatus: string;
@@ -183,7 +232,9 @@ interface FileProcessingSectionProps {
   selectedNaptFile: { name: string; file: File; downloadUrl?: string } | null;
   naptMetadata: NaptMetadata | null;
   naptMetadataError: string | null;
-  onSelectedFilesChange: (files: { name: string; file: File; downloadUrl?: string }[]) => void;
+  onSelectedFilesChange: (
+    files: { name: string; file: File; downloadUrl?: string }[],
+  ) => void;
   onStitch: () => void;
   onClear: () => void;
   onStitchPauseToggle: () => void;
@@ -196,7 +247,7 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
   isStitchPaused,
   selectedNaptFile,
   naptMetadata,
-  naptMetadataError: _naptMetadataError,
+  naptMetadataError,
   onSelectedFilesChange,
   onStitch,
   onClear,
@@ -224,11 +275,20 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
         btn.style.transform = "";
       }
     }, 50);
+
+    // Reset value so selection of same file triggers onChange again
+    e.target.value = "";
   };
 
   const removeFile = (index: number) => {
     onSelectedFilesChange(selectedFiles.filter((_, i) => i !== index));
   };
+
+  const stitchingActive =
+    stitchStatus?.includes("Loading") ||
+    stitchStatus?.includes("Processing") ||
+    stitchStatus?.includes("computing");
+  const hasProcessedData = stitchStatus?.includes("Successfully");
 
   return (
     <>
@@ -259,11 +319,13 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
       {selectedFiles.length > 0 && (
         <>
           <Section>
-            <SectionTitle $fileMode>Selected files ({selectedFiles.length})</SectionTitle>
+            <SectionTitle $fileMode>
+              Selected files ({selectedFiles.length})
+            </SectionTitle>
             {selectedFiles.map((file, index) => (
               <SettingRow key={`${file.name}-${index}`}>
                 <SettingLabelContainer>
-                  <FileNameLabel>{file.name}</FileNameLabel>
+                  <FileNameLabel title={file.name}>{file.name}</FileNameLabel>
                 </SettingLabelContainer>
                 <FileActionsValue>
                   {file.downloadUrl ? (
@@ -273,7 +335,7 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
                           ? `${file.downloadUrl}&token=${encodeURIComponent(sessionToken)}`
                           : file.downloadUrl
                       }
-                      target="_blank"
+                      download={file.name || "download"}
                       rel="noopener noreferrer"
                     >
                       Download
@@ -281,7 +343,9 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
                   ) : (
                     <LoadedLabel>Loaded</LoadedLabel>
                   )}
-                  <RemoveButton onClick={() => removeFile(index)}>Remove</RemoveButton>
+                  <RemoveButton onClick={() => removeFile(index)}>
+                    Remove
+                  </RemoveButton>
                 </FileActionsValue>
               </SettingRow>
             ))}
@@ -289,102 +353,175 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
 
           <Section>
             {stitchStatus && (
-              <StitchStatusMessage $isError={stitchStatus.startsWith("Stitching failed")}>
+              <StitchStatusMessage
+                $isError={stitchStatus.startsWith("Stitching failed")}
+              >
                 {stitchStatus}
               </StitchStatusMessage>
             )}
             <ButtonColumn>
               <ButtonRow>
-                <FlexPauseButton $paused={false} ref={stitchButtonRef} onClick={onStitch}>
-                  Stitch spectrum
+                <FlexPauseButton
+                  $paused={false}
+                  ref={stitchButtonRef}
+                  onClick={onStitch}
+                  disabled={stitchingActive || hasProcessedData}
+                >
+                  {stitchingActive
+                    ? "Processing..."
+                    : selectedFiles.length > 1
+                      ? "Stitch spectrum"
+                      : "Process file"}
                 </FlexPauseButton>
                 <ClearButton $paused={false} onClick={onClear}>
                   Clear
                 </ClearButton>
               </ButtonRow>
-              <FullWidthPauseButton $paused={isStitchPaused} onClick={onStitchPauseToggle}>
+              <FullWidthPauseButton
+                $paused={isStitchPaused}
+                onClick={onStitchPauseToggle}
+                disabled={selectedFiles.length === 0 || !hasProcessedData}
+              >
                 {isStitchPaused ? "Play" : "Pause"}
               </FullWidthPauseButton>
             </ButtonColumn>
           </Section>
-
-          {selectedNaptFile && (
-            <Section>
-              <SectionTitle $fileMode>Metadata</SectionTitle>
-              <SettingRow>
-                <SettingLabelContainer>
-                  <SettingLabel>File</SettingLabel>
-                </SettingLabelContainer>
-                <TruncatedSettingValue>{selectedNaptFile.name}</TruncatedSettingValue>
-              </SettingRow>
-              {naptMetadata && (
-                <>
-                  <SettingRow>
-                    <SettingLabelContainer>
-                      <SettingLabel>Sample rate</SettingLabel>
-                    </SettingLabelContainer>
-                    <SettingValue>
-                      {typeof naptMetadata.sample_rate === "number"
-                        ? `${(naptMetadata.sample_rate / 1_000_000).toFixed(3)} MHz`
-                        : "—"}
-                    </SettingValue>
-                  </SettingRow>
-                  <SettingRow>
-                    <SettingLabelContainer>
-                      <SettingLabel>Center</SettingLabel>
-                    </SettingLabelContainer>
-                    <SettingValue>
-                      {typeof naptMetadata.center_frequency === "number"
-                        ? `${naptMetadata.center_frequency.toFixed(3)} MHz`
-                        : "—"}
-                    </SettingValue>
-                  </SettingRow>
-                  <SettingRow>
-                    <SettingLabelContainer>
-                      <SettingLabel>Range</SettingLabel>
-                    </SettingLabelContainer>
-                    <SettingValue>
-                      {Array.isArray(naptMetadata.frequency_range)
-                        ? `${naptMetadata.frequency_range[0].toFixed(3)}-${naptMetadata.frequency_range[1].toFixed(3)} MHz`
-                        : "—"}
-                    </SettingValue>
-                  </SettingRow>
-                  <SettingRow>
-                    <SettingLabelContainer>
-                      <SettingLabel>FFT</SettingLabel>
-                    </SettingLabelContainer>
-                    <SettingValue>
-                      {naptMetadata.fft?.size ?? naptMetadata.fft_size ?? "—"}
-                      {naptMetadata.fft?.window ? ` / ${naptMetadata.fft.window}` : ""}
-                    </SettingValue>
-                  </SettingRow>
-                  {typeof naptMetadata.frame_rate === "number" && (
-                    <SettingRow>
-                      <SettingLabelContainer>
-                        <SettingLabel>Frame rate</SettingLabel>
-                      </SettingLabelContainer>
-                      <SettingValue>{naptMetadata.frame_rate} fps</SettingValue>
-                    </SettingRow>
-                  )}
-                  {typeof naptMetadata.duration_s === "number" && (
-                    <SettingRow>
-                      <SettingLabelContainer>
-                        <SettingLabel>Duration</SettingLabel>
-                      </SettingLabelContainer>
-                      <SettingValue>{naptMetadata.duration_s.toFixed(2)} s</SettingValue>
-                    </SettingRow>
-                  )}
-                  <SettingRow>
-                    <SettingLabelContainer>
-                      <SettingLabel>Timestamp</SettingLabel>
-                    </SettingLabelContainer>
-                    <SettingValue>{naptMetadata.timestamp_utc || "—"}</SettingValue>
-                  </SettingRow>
-                </>
-              )}
-            </Section>
-          )}
         </>
+      )}
+
+      {selectedFiles.length > 0 && (
+        <Section>
+          <SectionTitle $fileMode>Metadata</SectionTitle>
+          {selectedNaptFile && (
+            <SettingRow>
+              <SettingLabelContainer>
+                <SettingLabel>File</SettingLabel>
+              </SettingLabelContainer>
+              <TruncatedSettingValue title={selectedNaptFile.name}>
+                {selectedNaptFile.name}
+              </TruncatedSettingValue>
+            </SettingRow>
+          )}
+
+          {naptMetadataError ? (
+            <div
+              style={{
+                color: "#ff4444",
+                fontSize: "11px",
+                fontFamily: "JetBrains Mono",
+                padding: "10px",
+                backgroundColor: "#1a1313",
+                borderRadius: "6px",
+                border: "1px solid #2a1a1a",
+              }}
+            >
+              {naptMetadataError}
+            </div>
+          ) : naptMetadata ? (
+            <MetadataGrid>
+              <MetadataItem>
+                <MetadataLabel>Center Freq</MetadataLabel>
+                <MetadataValue>
+                  {naptMetadata.center_frequency_hz
+                    ? (naptMetadata.center_frequency_hz / 1000000).toFixed(3)
+                    : naptMetadata.center_frequency
+                      ? naptMetadata.center_frequency.toFixed(3)
+                      : "0.000"}{" "}
+                  MHz
+                </MetadataValue>
+              </MetadataItem>
+              <MetadataItem>
+                <MetadataLabel>Capture Rate</MetadataLabel>
+                <MetadataValue>
+                  {(naptMetadata.capture_sample_rate_hz ||
+                    naptMetadata.sample_rate_hz ||
+                    naptMetadata.sample_rate ||
+                    0) / 1000000}{" "}
+                  MHz
+                </MetadataValue>
+              </MetadataItem>
+              <MetadataItem>
+                <MetadataLabel>Hardware Rate</MetadataLabel>
+                <MetadataValue>
+                  {(naptMetadata.hardware_sample_rate_hz || 0) / 1000000} MHz
+                </MetadataValue>
+              </MetadataItem>
+              <MetadataItem>
+                <MetadataLabel>Mode</MetadataLabel>
+                <MetadataValue style={{ textTransform: "capitalize" }}>
+                  {naptMetadata.acquisition_mode || "Normal"}
+                </MetadataValue>
+              </MetadataItem>
+              <MetadataItem>
+                <MetadataLabel>Source</MetadataLabel>
+                <MetadataValue>
+                  {naptMetadata.source_device || naptMetadata.hardware || "N/A"}
+                </MetadataValue>
+              </MetadataItem>
+              <MetadataItem>
+                <MetadataLabel>FFT Size/Win</MetadataLabel>
+                <MetadataValue>
+                  {naptMetadata.fft_size || naptMetadata.fft?.size || "N/A"} / {naptMetadata.fft_window || "Blackman"}
+                </MetadataValue>
+              </MetadataItem>
+              <MetadataItem>
+                <MetadataLabel>Actual FPS</MetadataLabel>
+                <MetadataValue>
+                  {naptMetadata.frame_rate?.toFixed(1) || "N/A"}
+                </MetadataValue>
+              </MetadataItem>
+              <MetadataItem>
+                <MetadataLabel>Duration</MetadataLabel>
+                <MetadataValue>
+                  {naptMetadata.duration_s?.toFixed(2) || "0.00"} s
+                </MetadataValue>
+              </MetadataItem>
+              <MetadataItem>
+                <MetadataLabel>Gain / PPM</MetadataLabel>
+                <MetadataValue>
+                  {naptMetadata.gain?.toFixed(1) || "N/A"} dB / {naptMetadata.ppm || 0}
+                </MetadataValue>
+              </MetadataItem>
+              <MetadataItem>
+                <MetadataLabel>AGC</MetadataLabel>
+                <MetadataValue>
+                  T:{naptMetadata.tuner_agc ? "On" : "Off"} R:{naptMetadata.rtl_agc ? "On" : "Off"}
+                </MetadataValue>
+              </MetadataItem>
+              <MetadataItem>
+                <MetadataLabel>Format</MetadataLabel>
+                <MetadataValue>
+                  {naptMetadata.data_format || naptMetadata.format || "N/A"}
+                </MetadataValue>
+              </MetadataItem>
+              <MetadataItem>
+                <MetadataLabel>Timestamp</MetadataLabel>
+                <MetadataValue title={naptMetadata.timestamp_utc}>
+                  {naptMetadata.timestamp_utc
+                    ? new Date(naptMetadata.timestamp_utc).toLocaleTimeString()
+                    : "N/A"}
+                </MetadataValue>
+              </MetadataItem>
+            </MetadataGrid>
+          ) : (
+            <div
+              style={{
+                color: "#777",
+                fontSize: "11px",
+                fontFamily: "JetBrains Mono",
+                padding: "12px",
+                backgroundColor: "#141414",
+                borderRadius: "6px",
+                border: "1px solid #1a1a1a",
+                textAlign: "center",
+              }}
+            >
+              {selectedFiles.length === 1
+                ? "No extended metadata available for this file type."
+                : "Multiple files selected. Stitch/Process to visualize combined spectrum."}
+            </div>
+          )}
+        </Section>
       )}
     </>
   );

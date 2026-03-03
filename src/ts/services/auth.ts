@@ -6,7 +6,11 @@
  */
 
 import { computeHmac } from "@n-apt/crypto/webcrypto";
-import { BACKEND_HTTP_URL, WS_URL, SESSION_KEY as ENV_SESSION_KEY } from "../consts/ts/env";
+import {
+  BACKEND_HTTP_URL,
+  WS_URL,
+  SESSION_KEY as ENV_SESSION_KEY,
+} from "../consts/ts/env";
 
 // In dev, Vite proxies /auth/* and /status to the backend.
 // In production, these are served from the same origin.
@@ -73,7 +77,9 @@ export async function fetchServerStatus(): Promise<any> {
 }
 
 /** POST /auth/session — validate an existing session token. */
-export async function validateSession(token: string): Promise<SessionValidation> {
+export async function validateSession(
+  token: string,
+): Promise<SessionValidation> {
   const res = await fetch(`${API_BASE}/auth/session`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -85,14 +91,17 @@ export async function validateSession(token: string): Promise<SessionValidation>
 // ── Password authentication ────────────────────────────────────────────
 
 /** Full password auth flow: challenge → derive key → HMAC → verify → session. */
-export async function authenticateWithPassword(password: string): Promise<AuthResult> {
+export async function authenticateWithPassword(
+  password: string,
+): Promise<AuthResult> {
   // Step 1: Get challenge from server
   const challengeRes = await fetch(`${API_BASE}/auth/challenge`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: "{}",
   });
-  if (!challengeRes.ok) throw new Error("Authentication failed — Server disconnected 500");
+  if (!challengeRes.ok)
+    throw new Error("Authentication failed — Server disconnected 500");
   const { challenge_id, nonce } = await challengeRes.json();
 
   // Step 2: Derive key and compute HMAC (client-side, using WebCrypto)
@@ -106,7 +115,9 @@ export async function authenticateWithPassword(password: string): Promise<AuthRe
   });
 
   if (!verifyRes.ok) {
-    const err = await verifyRes.json().catch(() => ({ message: "Authentication failed" }));
+    const err = await verifyRes
+      .json()
+      .catch(() => ({ message: "Authentication failed" }));
     throw new Error(err.message || "Authentication failed");
   }
 
@@ -155,7 +166,9 @@ export async function registerPasskey(): Promise<void> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       challenge_id,
-      credential: serializeRegistrationCredential(credential as PublicKeyCredential),
+      credential: serializeRegistrationCredential(
+        credential as PublicKeyCredential,
+      ),
     }),
   });
 
@@ -190,12 +203,16 @@ export async function authenticateWithPasskey(): Promise<AuthResult> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       challenge_id,
-      credential: serializeAuthenticationCredential(credential as PublicKeyCredential),
+      credential: serializeAuthenticationCredential(
+        credential as PublicKeyCredential,
+      ),
     }),
   });
 
   if (!finishRes.ok) {
-    const err = await finishRes.json().catch(() => ({ message: "Authentication failed" }));
+    const err = await finishRes
+      .json()
+      .catch(() => ({ message: "Authentication failed" }));
     throw new Error(err.message || "Passkey authentication failed");
   }
 
@@ -229,7 +246,9 @@ function base64urlToBuffer(base64url: string): ArrayBuffer {
   return bytes.buffer;
 }
 
-function parseCreationOptions(options: any): PublicKeyCredentialCreationOptions {
+function parseCreationOptions(
+  options: any,
+): PublicKeyCredentialCreationOptions {
   console.log("Parsing creation options:", options);
 
   // webauthn-rs nests everything under publicKey
@@ -303,7 +322,9 @@ function serializeAuthenticationCredential(cred: PublicKeyCredential): any {
       authenticatorData: bufferToBase64url(response.authenticatorData),
       clientDataJSON: bufferToBase64url(response.clientDataJSON),
       signature: bufferToBase64url(response.signature),
-      userHandle: response.userHandle ? bufferToBase64url(response.userHandle) : null,
+      userHandle: response.userHandle
+        ? bufferToBase64url(response.userHandle)
+        : null,
     },
   };
 }
@@ -312,6 +333,8 @@ function serializeAuthenticationCredential(cred: PublicKeyCredential): any {
 
 /** Build the WebSocket URL with session token as query parameter. */
 export function buildWsUrl(token: string): string {
-  const wsBase = (WS_URL || BACKEND_HTTP_URL).replace(/^http/, "ws").replace(/\/$/, "");
+  const wsBase = (WS_URL || BACKEND_HTTP_URL)
+    .replace(/^http/, "ws")
+    .replace(/\/$/, "");
   return `${wsBase}/ws?token=${encodeURIComponent(token)}`;
 }

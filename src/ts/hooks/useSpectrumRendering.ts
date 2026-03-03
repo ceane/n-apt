@@ -1,6 +1,15 @@
 import { useCallback } from "react";
-import { drawSpectrum, drawSpectrumGrid, drawSpectrumTrace } from "@n-apt/utils/rendering";
-import { FFT_AREA_MIN, FFT_MIN_DB, FFT_MAX_DB, LINE_COLOR } from "@n-apt/consts";
+import {
+  drawSpectrum,
+  drawSpectrumGrid,
+  drawSpectrumTrace,
+} from "@n-apt/utils/rendering";
+import {
+  FFT_AREA_MIN,
+  FFT_MIN_DB,
+  FFT_MAX_DB,
+  LINE_COLOR,
+} from "@n-apt/consts";
 
 export interface SpectrumRenderingOptions {
   displayTemporalResolution: "low" | "medium" | "high";
@@ -49,11 +58,16 @@ export function useSpectrumRendering({
         ctx.fillStyle = LINE_COLOR;
         const step = width < 700 ? 2 : 1;
         for (let i = 0; i < dataWidth; i += step) {
-          const x = Math.round(FFT_AREA_MIN.x + (i / (dataWidth - 1)) * plotWidth);
+          const x = Math.round(
+            FFT_AREA_MIN.x + (i / (dataWidth - 1)) * plotWidth,
+          );
           const y = Math.round(
             Math.max(
               FFT_AREA_MIN.y + 1,
-              Math.min(fftAreaMax.y, fftAreaMax.y - (spectrumData[i] - FFT_MIN_DB) * scaleFactor),
+              Math.min(
+                fftAreaMax.y,
+                fftAreaMax.y - (spectrumData[i] - FFT_MIN_DB) * scaleFactor,
+              ),
             ),
           );
           ctx.fillRect(x, y, 1, 1);

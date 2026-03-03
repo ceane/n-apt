@@ -31,7 +31,9 @@ export default function FFTCanvas({
     if (!force2D && typeof navigator !== "undefined" && "gpu" in navigator) {
       setTimeout(() => {
         setWebgpuEnabled(true);
-        console.log("✅ WebGPU initialized successfully - using GPU acceleration");
+        console.log(
+          "✅ WebGPU initialized successfully - using GPU acceleration",
+        );
       }, 100);
     } else {
       console.log("📱 WebGPU not supported - using 2D canvas rendering");
@@ -52,7 +54,10 @@ export default function FFTCanvas({
   }, [data]);
 
   return (
-    <div data-testid="fft-canvas" style={{ position: "relative", width: "100%", height: "100%" }}>
+    <div
+      data-testid="fft-canvas"
+      style={{ position: "relative", width: "100%", height: "100%" }}
+    >
       <div>
         <h2>FFT Signal Display {isPaused && "(Paused)"}</h2>
         <canvas
@@ -65,7 +70,12 @@ export default function FFTCanvas({
       </div>
       <div>
         <h2>Waterfall Display {isPaused && "(Paused)"}</h2>
-        <canvas key="waterfall-canvas" width={800} height={300} data-testid="waterfall-canvas" />
+        <canvas
+          key="waterfall-canvas"
+          width={800}
+          height={300}
+          data-testid="waterfall-canvas"
+        />
       </div>
       <div data-testid="canvas-status">
         <div>WebGPU: {webgpuEnabled ? "Enabled" : "Disabled"}</div>

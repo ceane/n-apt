@@ -27,8 +27,12 @@ describe("useWebSocket Hook", () => {
     expect(typeof result.current.isPaused).toBe("boolean");
     expect(typeof result.current.deviceState).toBe("string");
     expect(typeof result.current.backend).toBe("string");
-    expect(result.current.data === null || typeof result.current.data === "object").toBe(true);
-    expect(result.current.error === null || typeof result.current.error === "string").toBe(true);
+    expect(
+      result.current.data === null || typeof result.current.data === "object",
+    ).toBe(true);
+    expect(
+      result.current.error === null || typeof result.current.error === "string",
+    ).toBe(true);
     expect(typeof result.current.sendFrequencyRange).toBe("function");
     expect(typeof result.current.sendPauseCommand).toBe("function");
     expect(typeof result.current.sendSettings).toBe("function");
