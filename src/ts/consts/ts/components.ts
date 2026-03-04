@@ -95,7 +95,7 @@ export const RANGE_LABELS_COLOR = "#444";
 export const RANGE_LABELS_PADDING = "0 12px";
 export const RANGE_LABELS_FONT_SIZE = "9px";
 
-// FFTStitcherCanvas constants
+// FFTPlaybackCanvas constants
 export const STITCHER_BUTTON_STYLE = {
   flex: 1,
   padding: "12px",

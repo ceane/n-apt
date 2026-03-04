@@ -120,7 +120,7 @@ jest.mock("@n-apt/components/HotspotEditor", () => ({
   default: () => <div data-testid="hotspot-editor">Hotspot Editor</div>,
 }));
 
-jest.mock("@n-apt/components/FFTStitcherCanvas", () => ({
+jest.mock("@n-apt/components/FFTPlaybackCanvas", () => ({
   default: () => (
     <div data-testid="stitcher-visualizer">Stitcher Visualizer</div>
   ),

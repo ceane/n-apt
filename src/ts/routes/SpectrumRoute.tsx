@@ -2,7 +2,7 @@ import React, { useEffect, useCallback, useRef, useMemo } from "react";
 import { FFTCanvas } from "@n-apt/components";
 import type { FFTCanvasHandle } from "@n-apt/components";
 import ClassificationControls from "@n-apt/components/ClassificationControls";
-import FFTStitcherCanvas from "@n-apt/components/FFTStitcherCanvas";
+import FFTPlaybackCanvas from "@n-apt/components/FFTPlaybackCanvas";
 import { useSnapshot } from "@n-apt/hooks/useSnapshot";
 import type { FrequencyRange } from "@n-apt/hooks/useWebSocket";
 import {
@@ -218,7 +218,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
             </InitializingContainer>
           )}
         {state.sourceMode === "file" && (
-          <FFTStitcherCanvas
+          <FFTPlaybackCanvas
             ref={fftCanvasRef}
             selectedFiles={state.selectedFiles}
             stitchTrigger={state.stitchTrigger}

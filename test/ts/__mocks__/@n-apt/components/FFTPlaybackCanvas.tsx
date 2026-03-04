@@ -1,6 +1,6 @@
 import * as React from "react";
 
-export default function FFTStitcherCanvas(props: any) {
+export default function FFTPlaybackCanvas(props: any) {
   const [hasData, setHasData] = React.useState(false);
   const [isStitching, setIsStitching] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);

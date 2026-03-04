@@ -386,7 +386,6 @@ pub fn save_capture_file_multi(
 mod save_tests {
   use super::*;
   use std::fs;
-  use std::path::PathBuf; // Keep this if other tests need it, otherwise remove.
   use crate::sdr::processor::{CaptureResult, CaptureChannel}; // Add these imports
 
   #[test]
@@ -399,6 +398,7 @@ mod save_tests {
                 sample_rate_hz: 2.4e6,
                 iq_data: vec![0u8; 100],
                 spectrum_data: vec![0f32; 10],
+                bins_per_frame: 10,
             }
         ],
         file_type: ".napt".to_string(),
@@ -438,12 +438,14 @@ mod save_tests {
                 sample_rate_hz: 2.4e6,
                 iq_data: vec![0u8; 100],
                 spectrum_data: vec![0f32; 10],
+                bins_per_frame: 10,
             },
             CaptureChannel {
                 center_freq_hz: 140.0e6,
                 sample_rate_hz: 2.4e6,
                 iq_data: vec![1u8; 100],
                 spectrum_data: vec![1f32; 10],
+                bins_per_frame: 10,
             }
         ],
         file_type: ".wav".to_string(),

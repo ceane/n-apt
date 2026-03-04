@@ -7,7 +7,7 @@ use num_complex::Complex;
 use rustfft::{FftPlanner, FftDirection};
 use std::sync::Arc;
 use crate::fft::processor::WindowType;
-use anyhow::Result;
+// use anyhow::Result; // Removed unused import
 use web_sys::console;
 
 #[wasm_bindgen]

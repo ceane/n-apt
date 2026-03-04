@@ -60,7 +60,7 @@ jest.mock("@n-apt/components/DrawMockNAPTChart", () => ({
   default: () => null,
 }));
 
-jest.mock("@n-apt/components/FFTStitcherCanvas", () => ({
+jest.mock("@n-apt/components/FFTPlaybackCanvas", () => ({
   default: () => null,
 }));
 

@@ -68,9 +68,9 @@ pub struct WebSocketMessage {
   pub fragments: Option<Vec<FreqRange>>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "acquisitionMode")]
   pub acquisition_mode: Option<String>,
-  #[serde(skip_serializing_if = "Option::is_none", alias = "minFreq")]
+  #[serde(skip_serializing_if = "Option::is_none", alias = "minFreq", alias = "min_mhz")]
   pub min_freq: Option<f64>,
-  #[serde(skip_serializing_if = "Option::is_none", alias = "maxFreq")]
+  #[serde(skip_serializing_if = "Option::is_none", alias = "maxFreq", alias = "max_mhz")]
   pub max_freq: Option<f64>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub paused: Option<bool>,

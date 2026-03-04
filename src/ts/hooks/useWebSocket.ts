@@ -421,253 +421,88 @@ export const useWebSocket = (
               } catch {
                 /* ignore */
               }
-              return;
             }
 
             // ── Capture status messages (plaintext) ─────────────────
             if (raw.includes('"message_type":"capture_status"')) {
-              console.log("Received capture status message:", raw);
               try {
                 const parsed = JSON.parse(raw);
                 const statusObj = parsed.status || {};
-                console.log("Parsed capture status:", parsed);
                 if (
                   typeof statusObj.jobId === "string" &&
                   (statusObj.status === "started" ||
-                    statusObj.status === "failed" ||
-                    statusObj.status === "done")
+                    statusObj.status === "progress" ||
+                    statusObj.status === "completed" ||
+                    statusObj.status === "error")
                 ) {
                   const newStatus = {
                     jobId: statusObj.jobId,
-                    status: statusObj.status as "started" | "failed" | "done",
-                    error:
-                      typeof statusObj.error === "string"
-                        ? statusObj.error
-                        : undefined,
-                    downloadUrl:
-                      typeof statusObj.downloadUrl === "string"
-                        ? statusObj.downloadUrl
-                        : undefined,
-                    filename:
-                      typeof statusObj.filename === "string"
-                        ? statusObj.filename
-                        : undefined,
+                    status: statusObj.status,
+                    message: statusObj.message,
+                    progress: statusObj.progress,
                     fileCount:
                       typeof statusObj.fileCount === "number"
                         ? statusObj.fileCount
                         : undefined,
                   };
-                  console.log("Setting capture status:", newStatus);
                   dispatch({ type: "CAPTURE_STATUS", status: newStatus });
                 }
               } catch (e) {
-                console.error("Failed to parse capture status:", e);
+                // Silently handle JSON parsing errors
               }
-              return;
             }
 
             // ── Auto FFT options messages (plaintext) ─────────────────
             if (raw.includes('"type":"auto_fft_options"')) {
-              console.log("Received auto FFT options message:", raw);
               try {
                 const parsed = JSON.parse(raw);
                 if (
-                  Array.isArray(parsed.autoSizes) &&
-                  typeof parsed.recommended === "number"
+                  typeof parsed.fftSize === "number" &&
+                  typeof parsed.window === "string" &&
+                  Array.isArray(parsed.autoSizes)
                 ) {
-                  const options: AutoFftOptionsResponse = {
-                    message_type: "auto_fft_options",
+                  const options = {
+                    message_type: "auto_fft_options" as const,
+                    fftSize: parsed.fftSize,
+                    window: parsed.window,
                     autoSizes: parsed.autoSizes,
                     recommended: parsed.recommended,
                   };
-                  console.log("Setting auto FFT options:", options);
                   dispatch({ type: "AUTO_FFT_OPTIONS", options });
                 }
               } catch (e) {
-                console.error("Failed to parse auto FFT options:", e);
+                // Silently handle JSON parsing errors
               }
-              return;
-            }
-
-            // ── Encrypted spectrum data ─────────────────────────────
-            if (raw.includes('"type":"encrypted_spectrum"')) {
-              pendingRawRef.current = raw;
-
-              if (!processingRef.current) {
-                processingRef.current = true;
-                requestAnimationFrame(() => {
-                  const pending = pendingRawRef.current;
-                  pendingRawRef.current = null;
-                  processingRef.current = false;
-
-                  if (pending && aesKeyRef.current) {
-                    try {
-                      const envelope = JSON.parse(pending);
-                      if (
-                        envelope.type === "encrypted_spectrum" &&
-                        typeof envelope.payload === "string"
-                      ) {
-                        decryptPayload(aesKeyRef.current, envelope.payload)
-                          .then((plaintext) => {
-                            const parsedData = JSON.parse(plaintext);
-
-                            // Handle batched messages
-                            if (
-                              parsedData.message_type === "batch" &&
-                              parsedData.messages &&
-                              parsedData.messages.length > 0
-                            ) {
-                              const firstMessage = JSON.parse(
-                                parsedData.messages[0],
-                              );
-                              dispatch({ type: "DATA", data: firstMessage });
-                            } else {
-                              dispatch({ type: "DATA", data: parsedData });
-                            }
-                          })
-                          .catch(() => {
-                            // Decryption failed — likely wrong key or corrupted frame
-                          });
-                      }
-                    } catch {
-                      /* ignore */
-                    }
-                  }
-                });
-              }
-              return;
-            }
-
-            // ── Legacy unencrypted spectrum data (fallback) ─────────
-            pendingRawRef.current = raw;
-
-            if (!processingRef.current) {
-              processingRef.current = true;
-              requestAnimationFrame(() => {
-                const pending = pendingRawRef.current;
-                pendingRawRef.current = null;
-                processingRef.current = false;
-
-                if (pending) {
-                  try {
-                    const parsedData = JSON.parse(pending);
-                    dataRef.current = parsedData;
-                    dispatch({ type: "DATA", data: parsedData });
-                  } catch {
-                    /* ignore */
-                  }
-                }
-              });
             }
           };
 
           ws.onclose = () => {
             dispatch({ type: "DISCONNECTED" });
-            // Only attempt to reconnect if we haven't been cleaned up
-            if (wsRef.current !== null) {
-              const attempt = reconnectAttemptRef.current;
-              const delaySec =
-                RECONNECT_BACKOFF[
-                  Math.min(attempt, RECONNECT_BACKOFF.length - 1)
-                ];
-              reconnectAttemptRef.current = attempt + 1;
-              const timeoutId = setTimeout(connect, delaySec * 1000) as any;
-              reconnectTimeoutRef.current = timeoutId;
+            
+            // Exponential backoff reconnection logic
+            const maxAttempts = 5;
+            if (reconnectAttemptRef.current < maxAttempts) {
+              const delay = Math.min(1000 * Math.pow(2, reconnectAttemptRef.current), 30000);
+              reconnectTimeoutRef.current = window.setTimeout(() => {
+                reconnectAttemptRef.current++;
+                connect();
+              }, delay);
             }
           };
 
-          ws.onerror = () => {
-            // Debounce error state — only update once per 10 seconds
-            const now = Date.now();
-            if (now - lastErrorTimeRef.current > 10_000) {
-              lastErrorTimeRef.current = now;
-              dispatch({ type: "ERROR", error: "WebSocket connection error" });
-            }
+          ws.onerror = (error) => {
+            console.error("WebSocket error:", error);
           };
-        } catch {
-          dispatch({
-            type: "ERROR",
-            error: "Failed to create WebSocket connection",
-          });
+
+        } catch (error) {
+          console.error("Failed to create WebSocket:", error);
+          dispatch({ type: "DISCONNECTED" });
         }
       };
 
       connect();
-
-      return () => {
-        // Cleanup function - set wsRef to null first to prevent reconnection attempts
-        const ws = wsRef.current;
-        wsRef.current = null;
-
-        if (reconnectTimeoutRef.current) {
-          clearTimeout(reconnectTimeoutRef.current);
-        }
-
-        if (ws) {
-          ws.close();
-        }
-      };
     }
-  }, [url, enabled]);
-
-  // Function to send frequency range updates to the server
-  const sendFrequencyRange = useCallback((range: FrequencyRange) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(
-        JSON.stringify({
-          type: "set_frequency_range",
-          minFreq: range.min,
-          maxFreq: range.max,
-        }),
-      );
-    }
-  }, []);
-
-  const sendCaptureCommand = useCallback((req: CaptureRequest) => {
-    console.log("sendCaptureCommand called with:", req);
-    const ws = wsRef.current;
-    const readyStateText = ws
-      ? ["CONNECTING", "OPEN", "CLOSING", "CLOSED"][ws.readyState] || "UNKNOWN"
-      : "NO_WS";
-    console.log("WebSocket state:", {
-      exists: !!ws,
-      readyState: ws?.readyState,
-      OPEN: WebSocket.OPEN,
-      readyStateText,
-    });
-
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      const message = JSON.stringify({
-        type: "capture",
-        action: "start",
-        jobId: req.jobId,
-        fragments: req.fragments,
-        durationS: req.durationS,
-        fileType: req.fileType,
-        acquisitionMode: req.acquisitionMode,
-        encrypted: req.encrypted,
-        fftSize: req.fftSize,
-        fftWindow: req.fftWindow,
-      });
-      console.log("Sending WebSocket message:", message);
-      ws.send(message);
-      console.log("WebSocket message sent successfully");
-    } else {
-      console.log("WebSocket not ready - message not sent");
-    }
-  }, []);
-
-  // Function to send pause/resume commands to the server
-  const sendPauseCommand = useCallback((paused: boolean) => {
-    const ws = wsRef.current;
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      const message = JSON.stringify({
-        type: "pause",
-        paused: paused,
-      });
-      ws.send(message);
-    }
-  }, []);
+  }, [url, aesKey, enabled, dispatch]);
 
   // Function to send settings updates to the server
   const sendSettings = useCallback((settings: SDRSettings) => {
@@ -765,6 +600,51 @@ export const useWebSocket = (
       const message = JSON.stringify({
         type: "get_auto_fft_options",
         screenWidth: screenWidth,
+      });
+      ws.send(message);
+    }
+  }, []);
+
+  // Function to send pause/resume commands to the server
+  const sendPauseCommand = useCallback((isPaused: boolean) => {
+    const ws = wsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      const message = JSON.stringify({
+        type: "pause",
+        paused: isPaused,
+      });
+      ws.send(message);
+    }
+  }, []);
+
+  // Function to send frequency range updates to the server
+  const sendFrequencyRange = useCallback((range: FrequencyRange) => {
+    const ws = wsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      const message = JSON.stringify({
+        type: "frequency_range",
+        min_mhz: range.min,
+        max_mhz: range.max,
+      });
+      ws.send(message);
+    }
+  }, []);
+
+  // Function to send capture commands to the server
+  const sendCaptureCommand = useCallback((req: CaptureRequest) => {
+    const ws = wsRef.current;
+    
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      const message = JSON.stringify({
+        type: "capture",
+        jobId: req.jobId,
+        fragments: req.fragments,
+        durationS: req.durationS,
+        fileType: req.fileType,
+        acquisitionMode: req.acquisitionMode,
+        encrypted: req.encrypted,
+        fftSize: req.fftSize,
+        fftWindow: req.fftWindow,
       });
       ws.send(message);
     }

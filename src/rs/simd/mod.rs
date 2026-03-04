@@ -23,6 +23,7 @@ pub mod rendering_processor;
 pub mod mock_generator;
 pub mod common;
 pub mod downsampler;
+pub mod arm_optimized_common;
 
 // Re-export main processors for easy access
 pub use native_processor::NativeProcessor;
@@ -42,3 +43,4 @@ pub type UnifiedProcessor = NativeProcessor;
 
 /// Re-export for backward compatibility
 pub use UnifiedProcessor as FFTProcessor;
+pub mod fast_math;

@@ -7,7 +7,7 @@ import {
   act,
 } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import FFTStitcherCanvas from "@n-apt/components/FFTStitcherCanvas";
+import FFTPlaybackCanvas from "@n-apt/components/FFTPlaybackCanvas";
 
 // Mock File API
 const createMockFile = (name: string, size: number = 1024): File => {
@@ -20,7 +20,7 @@ const createMockFile = (name: string, size: number = 1024): File => {
   return new File([buffer], name, { type: "application/octet-stream" });
 };
 
-describe("FFTStitcherCanvas Component", () => {
+describe("FFTPlaybackCanvas Component", () => {
   const mockFiles = [
     createMockFile("test1.c64", 8192),
     createMockFile("test2.c64", 8192),
@@ -43,14 +43,14 @@ describe("FFTStitcherCanvas Component", () => {
   });
 
   it("should render stitcher canvas", () => {
-    render(<FFTStitcherCanvas {...defaultProps} />);
+    render(<FFTPlaybackCanvas {...defaultProps} />);
     expect(
       screen.getByText("N-APT File Stitcher & I/Q Replay"),
     ).toBeInTheDocument();
   });
 
   it("should show file selection prompt when no files selected", () => {
-    render(<FFTStitcherCanvas {...defaultProps} selectedFiles={[]} />);
+    render(<FFTPlaybackCanvas {...defaultProps} selectedFiles={[]} />);
     expect(
       screen.getByText("Select I/Q data files (.c64)"),
     ).toBeInTheDocument();
@@ -58,14 +58,14 @@ describe("FFTStitcherCanvas Component", () => {
   });
 
   it("should display selected files", () => {
-    render(<FFTStitcherCanvas {...defaultProps} />);
+    render(<FFTPlaybackCanvas {...defaultProps} />);
     expect(screen.getByText("test1.c64")).toBeInTheDocument();
     expect(screen.getByText("test2.c64")).toBeInTheDocument();
   });
 
   it("should handle file selection", async () => {
     const { unmount } = render(
-      <FFTStitcherCanvas {...defaultProps} selectedFiles={[]} />,
+      <FFTPlaybackCanvas {...defaultProps} selectedFiles={[]} />,
     );
 
     // Mock doesn't have file input, so just test the text is present
@@ -77,7 +77,7 @@ describe("FFTStitcherCanvas Component", () => {
   it("should trigger stitching when files are selected", async () => {
     // Mock doesn't auto-trigger stitching, so test with trigger
     const props = { ...defaultProps, stitchTrigger: 1 };
-    render(<FFTStitcherCanvas {...props} />);
+    render(<FFTPlaybackCanvas {...props} />);
 
     // Should trigger stitching
     await waitFor(
@@ -92,10 +92,10 @@ describe("FFTStitcherCanvas Component", () => {
 
   it("should handle stitch trigger", () => {
     const { rerender } = render(
-      <FFTStitcherCanvas {...defaultProps} stitchTrigger={0} />,
+      <FFTPlaybackCanvas {...defaultProps} stitchTrigger={0} />,
     );
 
-    rerender(<FFTStitcherCanvas {...defaultProps} stitchTrigger={1} />);
+    rerender(<FFTPlaybackCanvas {...defaultProps} stitchTrigger={1} />);
 
     // Mock triggers status update instead of onStitch
     expect(defaultProps.onStitchStatus).toHaveBeenCalledWith(
@@ -105,7 +105,7 @@ describe("FFTStitcherCanvas Component", () => {
 
   it("should handle play/pause controls", () => {
     const props = { ...defaultProps, isPaused: true }; // Start with Play button visible
-    render(<FFTStitcherCanvas {...props} />);
+    render(<FFTPlaybackCanvas {...props} />);
 
     const playButton = screen.getByRole("button", { name: /Play/ });
     expect(playButton).toBeInTheDocument();
@@ -116,7 +116,7 @@ describe("FFTStitcherCanvas Component", () => {
 
   it("should show processing status during stitching", async () => {
     const props = { ...defaultProps, stitchTrigger: 1 }; // Trigger stitching
-    render(<FFTStitcherCanvas {...props} />);
+    render(<FFTPlaybackCanvas {...props} />);
 
     await waitFor(
       () => {
@@ -129,7 +129,7 @@ describe("FFTStitcherCanvas Component", () => {
   });
 
   it("should show completed status after stitching", async () => {
-    render(<FFTStitcherCanvas {...defaultProps} />);
+    render(<FFTPlaybackCanvas {...defaultProps} />);
 
     await waitFor(
       () => {
@@ -142,7 +142,7 @@ describe("FFTStitcherCanvas Component", () => {
   });
 
   it("should handle clear action", () => {
-    render(<FFTStitcherCanvas {...defaultProps} />);
+    render(<FFTPlaybackCanvas {...defaultProps} />);
 
     const clearButton = screen.getByRole("button", { name: /Clear/ });
     fireEvent.click(clearButton);
@@ -162,7 +162,7 @@ describe("FFTStitcherCanvas Component", () => {
     });
 
     render(
-      <FFTStitcherCanvas {...defaultProps} selectedFiles={[invalidFile]} />,
+      <FFTPlaybackCanvas {...defaultProps} selectedFiles={[invalidFile]} />,
     );
 
     // Should not crash and should show error handling
@@ -174,7 +174,7 @@ describe("FFTStitcherCanvas Component", () => {
       type: "application/octet-stream",
     });
 
-    render(<FFTStitcherCanvas {...defaultProps} selectedFiles={[emptyFile]} />);
+    render(<FFTPlaybackCanvas {...defaultProps} selectedFiles={[emptyFile]} />);
 
     // Should not crash
     expect(screen.getByText("empty.c64")).toBeInTheDocument();
@@ -183,7 +183,7 @@ describe("FFTStitcherCanvas Component", () => {
   it("should handle large files efficiently", () => {
     const largeFile = createMockFile("large.c64", 1048576); // 1MB file
 
-    render(<FFTStitcherCanvas {...defaultProps} selectedFiles={[largeFile]} />);
+    render(<FFTPlaybackCanvas {...defaultProps} selectedFiles={[largeFile]} />);
 
     // Should not crash with large file
     expect(screen.getByText("large.c64")).toBeInTheDocument();
@@ -194,7 +194,7 @@ describe("FFTStitcherCanvas Component", () => {
       createMockFile(`test${i}.c64`, 4096),
     );
 
-    render(<FFTStitcherCanvas {...defaultProps} selectedFiles={manyFiles} />);
+    render(<FFTPlaybackCanvas {...defaultProps} selectedFiles={manyFiles} />);
 
     // Should display all files
     manyFiles.forEach((file, index) => {
@@ -204,7 +204,7 @@ describe("FFTStitcherCanvas Component", () => {
 
   it("should handle playback controls", async () => {
     const props = { ...defaultProps, isPaused: true }; // Start paused so Play button is visible
-    render(<FFTStitcherCanvas {...props} />);
+    render(<FFTPlaybackCanvas {...props} />);
 
     // Wait for stitching to complete
     await waitFor(
@@ -227,14 +227,14 @@ describe("FFTStitcherCanvas Component", () => {
   });
 
   it("should handle frequency mapping", () => {
-    render(<FFTStitcherCanvas {...defaultProps} />);
+    render(<FFTPlaybackCanvas {...defaultProps} />);
 
     // Frequency mapping should be handled internally
     expect(screen.getByText("Frequency Range")).toBeInTheDocument();
   });
 
   it("should handle frame stepping", async () => {
-    render(<FFTStitcherCanvas {...defaultProps} />);
+    render(<FFTPlaybackCanvas {...defaultProps} />);
 
     // Wait for stitching to complete
     await waitFor(
@@ -252,7 +252,7 @@ describe("FFTStitcherCanvas Component", () => {
 
   it("should handle worker communication", async () => {
     const props = { ...defaultProps, stitchTrigger: 1 }; // Trigger stitching
-    render(<FFTStitcherCanvas {...props} />);
+    render(<FFTPlaybackCanvas {...props} />);
 
     // Should use worker for processing (handled internally)
     await waitFor(
@@ -272,7 +272,7 @@ describe("FFTStitcherCanvas Component", () => {
       throw new Error("Worker unavailable");
     });
 
-    render(<FFTStitcherCanvas {...defaultProps} />);
+    render(<FFTPlaybackCanvas {...defaultProps} />);
 
     // Should fall back to local processing
     await waitFor(
@@ -289,14 +289,14 @@ describe("FFTStitcherCanvas Component", () => {
   });
 
   it("should cleanup resources on unmount", () => {
-    const { unmount } = render(<FFTStitcherCanvas {...defaultProps} />);
+    const { unmount } = render(<FFTPlaybackCanvas {...defaultProps} />);
 
     // Should not throw errors during unmount
     expect(() => unmount()).not.toThrow();
   });
 
   it("should handle rapid file selection changes", () => {
-    const { rerender } = render(<FFTStitcherCanvas {...defaultProps} />);
+    const { rerender } = render(<FFTPlaybackCanvas {...defaultProps} />);
 
     // Rapid file changes
     const files1 = [createMockFile("file1.c64")];
@@ -304,19 +304,19 @@ describe("FFTStitcherCanvas Component", () => {
     const files3 = [createMockFile("file3.c64")];
 
     expect(() =>
-      rerender(<FFTStitcherCanvas {...defaultProps} selectedFiles={files1} />),
+      rerender(<FFTPlaybackCanvas {...defaultProps} selectedFiles={files1} />),
     ).not.toThrow();
     expect(() =>
-      rerender(<FFTStitcherCanvas {...defaultProps} selectedFiles={files2} />),
+      rerender(<FFTPlaybackCanvas {...defaultProps} selectedFiles={files2} />),
     ).not.toThrow();
     expect(() =>
-      rerender(<FFTStitcherCanvas {...defaultProps} selectedFiles={files3} />),
+      rerender(<FFTPlaybackCanvas {...defaultProps} selectedFiles={files3} />),
     ).not.toThrow();
   });
 
   it("should display progress during file processing", async () => {
     const props = { ...defaultProps, stitchTrigger: 1 }; // Trigger stitching
-    render(<FFTStitcherCanvas {...props} />);
+    render(<FFTPlaybackCanvas {...props} />);
 
     // Should show processing status
     await waitFor(
