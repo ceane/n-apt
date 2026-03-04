@@ -554,6 +554,13 @@ self.onmessage = async function (e) {
                 }
                 
                 const actualFftSize = metadata?.fft_size || (metadata as any)?.fft?.size || 2048;
+                
+                // Store the individual hardware hops before they are grouped and overwritten by the stitcher
+                (metadata as any).raw_hardware_blocks = parsedChannels.map(ch => ({
+                    center_freq_hz: ch.center_freq_hz,
+                    sample_rate_hz: ch.sample_rate_hz
+                }));
+
                 const stitchedChannels = stitchAdjacentChannels(parsedChannels, actualFftSize);
                 (metadata as any).channels_data = stitchedChannels;
                 

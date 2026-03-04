@@ -34,7 +34,9 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
       sendFrequencyRange,
       sendTrainingCommand,
       dataRef,
+      captureStatus,
     },
+    sampleRateHzEffective,
   } = useSpectrumStore();
 
   const [vizZoom, setVizZoom] = [
@@ -184,6 +186,8 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
                 centerFrequencyMHz={centerFrequencyMHz}
                 activeSignalArea={state.activeSignalArea}
                 signalAreaBounds={signalAreaBounds ?? undefined}
+                hardwareSampleRateHz={sampleRateHzEffective ?? undefined}
+                isIqRecordingActive={captureStatus?.status === "started"}
                 isPaused={routePaused || manualVisualizerPaused}
                 isDeviceConnected={deviceState === "connected"}
                 onFrequencyRangeChange={handleFrequencyRangeChange}
@@ -215,6 +219,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
           )}
         {state.sourceMode === "file" && (
           <FFTStitcherCanvas
+            ref={fftCanvasRef}
             selectedFiles={state.selectedFiles}
             stitchTrigger={state.stitchTrigger}
             stitchSourceSettings={state.stitchSourceSettings}

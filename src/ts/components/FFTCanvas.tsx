@@ -202,6 +202,9 @@ interface FFTCanvasProps {
   onFftDbLimitsChange?: (min: number, max: number) => void;
   /** Function to request auto FFT options from server */
   sendGetAutoFftOptions?: (screenWidth: number) => void;
+  hardwareSampleRateHz?: number;
+  /** Whether I/Q recording is active */
+  isIqRecordingActive?: boolean;
 }
 
 /**
@@ -226,6 +229,7 @@ export type SnapshotData = {
   waterfallBuffer: Uint8ClampedArray | null;
   waterfallDims: { width: number; height: number } | null;
   webgpuEnabled: boolean;
+  hardwareSampleRateHz?: number;
 };
 
 export type FFTCanvasHandle = {
@@ -258,6 +262,8 @@ const FFTCanvas = forwardRef<FFTCanvasHandle, FFTCanvasProps>(
       fftMax,
       onFftDbLimitsChange,
       sendGetAutoFftOptions,
+      hardwareSampleRateHz,
+      isIqRecordingActive = false,
     } = props;
     const { state, dispatch } = useSpectrumStore();
     const [spectrumCanvasNode, setSpectrumCanvasNode] =
@@ -559,6 +565,11 @@ const FFTCanvas = forwardRef<FFTCanvasHandle, FFTCanvasProps>(
       overlayDirtyRef.current.markers = true;
     }, [isDeviceConnected]);
 
+    useEffect(() => {
+      // Recording state change should trigger grid redraw
+      overlayDirtyRef.current.grid = true;
+    }, [isIqRecordingActive, hardwareSampleRateHz]);
+
     // Screen width detection for auto FFT options
     useEffect(() => {
       if (sendGetAutoFftOptions) {
@@ -653,6 +664,9 @@ const FFTCanvas = forwardRef<FFTCanvasHandle, FFTCanvasProps>(
               visualRange,
               vizDbMinRef.current,
               vizDbMaxRef.current,
+              hardwareSampleRateHz,
+              frequencyRangeRef.current,
+              isIqRecordingActive,
             );
             overlay.endDraw();
             overlayDirtyRef.current.grid = false;
@@ -681,7 +695,13 @@ const FFTCanvas = forwardRef<FFTCanvasHandle, FFTCanvasProps>(
           }
         }
       },
-      [isDeviceConnected, drawGridOnContext, drawMarkersOnContext],
+      [
+        isDeviceConnected,
+        drawGridOnContext,
+        drawMarkersOnContext,
+        isIqRecordingActive,
+        hardwareSampleRateHz,
+      ],
     );
 
     const ensureFloat32Waveform = useCallback(
@@ -1048,6 +1068,9 @@ const FFTCanvas = forwardRef<FFTCanvasHandle, FFTCanvasProps>(
               centerFrequencyMHz: centerFreqRef.current,
               isDeviceConnected,
               highPerformanceMode: displayTemporalResolution !== "high",
+              hardwareSampleRateHz,
+              fullCaptureRange: frequencyRangeRef.current,
+              isIqRecordingActive,
             });
           }
 
@@ -1063,6 +1086,9 @@ const FFTCanvas = forwardRef<FFTCanvasHandle, FFTCanvasProps>(
               centerFrequencyMHz: centerFreqRef.current,
               isDeviceConnected,
               highPerformanceMode: false, // Use full quality for snapshots
+              hardwareSampleRateHz,
+              fullCaptureRange: frequencyRangeRef.current,
+              isIqRecordingActive,
             });
             snapshotNeededRef.current = false; // Reset after drawing
             lastSnapshotWaveformRef.current = currentWaveform;
@@ -1583,6 +1609,7 @@ const FFTCanvas = forwardRef<FFTCanvasHandle, FFTCanvasProps>(
             ? { ...waterfallDimsRef.current }
             : null,
           webgpuEnabled,
+          hardwareSampleRateHz,
         };
       },
     }));

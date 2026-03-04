@@ -21,6 +21,9 @@ export interface Draw2DFFTSignalOptions {
   centerFrequencyMHz?: number;
   isDeviceConnected?: boolean;
   highPerformanceMode?: boolean;
+  hardwareSampleRateHz?: number;
+  fullCaptureRange?: { min: number; max: number };
+  isIqRecordingActive?: boolean;
 }
 
 export function useDraw2DFFTSignal() {
@@ -40,6 +43,9 @@ export function useDraw2DFFTSignal() {
       fftMin: number,
       fftMax: number,
       clearBackground: boolean,
+      hardwareSampleRateHz?: number,
+      fullCaptureRange?: { min: number; max: number },
+      isIqRecordingActive?: boolean,
     ) => {
       const dpr = window.devicePixelRatio || 1;
 
@@ -135,6 +141,73 @@ export function useDraw2DFFTSignal() {
       ctx.moveTo(FFT_AREA_MIN.x, FFT_AREA_MIN.y);
       ctx.lineTo(FFT_AREA_MIN.x, fftAreaMax.y - 1);
       ctx.stroke();
+
+      // Draw mathematical hardware block boundaries if applicable
+      const anchorRange = fullCaptureRange || frequencyRange;
+      const totalSpan = anchorRange.max - anchorRange.min;
+      const hwSpanMHz = hardwareSampleRateHz ? hardwareSampleRateHz / 1e6 : 0;
+      
+      if (hwSpanMHz > 0 && totalSpan > hwSpanMHz + 0.001 && isIqRecordingActive) {
+        ctx.save();
+        ctx.strokeStyle = "rgba(220, 220, 220, 0.54)"; // User specified color
+        ctx.setLineDash([4, 4]); // Dashed line
+        ctx.lineWidth = 1 / dpr;
+        ctx.fillStyle = "#ffb669";
+        ctx.font = "10px JetBrains Mono";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "top";
+
+        const formatOffset = (mhz: number) => {
+          const abs = Math.abs(mhz);
+          if (abs >= 1) return `${mhz.toFixed(1)}MHz`;
+          if (abs >= 0.001) return `${Math.round(mhz * 1000)}kHz`;
+          return `${Math.round(mhz * 1_000_000)}Hz`;
+        };
+
+        let currentFreq = anchorRange.min;
+        while (currentFreq < anchorRange.max - 0.001) {
+          const blockStart = currentFreq;
+          const blockEnd = Math.min(blockStart + hwSpanMHz, anchorRange.max);
+          const blockWidth = blockEnd - blockStart;
+          const isFullBlock = blockWidth >= hwSpanMHz - 0.001;
+
+          // Only draw if visible in the current zoomed frequency range
+          if (blockEnd > minFreq && blockStart < maxFreq) {
+            // Draw left boundary
+            if (blockStart >= minFreq && blockStart <= maxFreq) {
+              const lx = Math.round(freqToX(blockStart));
+              ctx.beginPath();
+              ctx.moveTo(lx, FFT_AREA_MIN.y);
+              ctx.lineTo(lx, fftAreaMax.y);
+              ctx.stroke();
+            }
+
+            // Draw right boundary
+            if (blockEnd >= minFreq && blockEnd <= maxFreq) {
+              const rx = Math.round(freqToX(blockEnd));
+              ctx.beginPath();
+              ctx.moveTo(rx, FFT_AREA_MIN.y);
+              ctx.lineTo(rx, fftAreaMax.y);
+              ctx.stroke();
+            }
+
+            // Draw center label - clamp to visible region so it doesn't disappear when zoomed
+            const visibleStart = Math.max(blockStart, minFreq);
+            const visibleEnd = Math.min(blockEnd, maxFreq);
+            const visibleCenter = (visibleStart + visibleEnd) / 2;
+            
+            if (visibleCenter >= minFreq && visibleCenter <= maxFreq) {
+              const cx = Math.round(freqToX(visibleCenter));
+              const label = isFullBlock ? "Hardware Sample Rate" : "Next sample";
+              const subLabel = formatOffset(blockWidth);
+              ctx.fillText(label, cx, FFT_AREA_MIN.y + 4);
+              ctx.fillText(subLabel, cx, FFT_AREA_MIN.y + 16);
+            }
+          }
+          currentFreq = blockEnd;
+        }
+        ctx.restore();
+      }
     },
     [],
   );
@@ -299,6 +372,9 @@ export function useDraw2DFFTSignal() {
         centerFrequencyMHz,
         isDeviceConnected = true,
         highPerformanceMode = false,
+        hardwareSampleRateHz,
+        fullCaptureRange,
+        isIqRecordingActive,
       } = options;
 
       const ctx = canvas.getContext("2d");
@@ -335,6 +411,9 @@ export function useDraw2DFFTSignal() {
               fftMin,
               fftMax,
               true,
+              hardwareSampleRateHz,
+              fullCaptureRange,
+              isIqRecordingActive,
             );
           } else {
             ctx.fillStyle = "#000000";
@@ -345,15 +424,23 @@ export function useDraw2DFFTSignal() {
           drawSpectrumTrace(ctx, cssWidth, cssHeight, waveform, fftMin, fftMax);
         } else {
           // Full quality mode: complete spectrum rendering
-          drawSpectrumGrid(
-            ctx,
-            cssWidth,
-            cssHeight,
-            frequencyRange,
-            fftMin,
-            fftMax,
-            true,
-          );
+          if (showGrid) {
+            drawSpectrumGrid(
+              ctx,
+              cssWidth,
+              cssHeight,
+              frequencyRange,
+              fftMin,
+              fftMax,
+              true,
+              hardwareSampleRateHz,
+              fullCaptureRange,
+              isIqRecordingActive,
+            );
+          } else {
+            ctx.fillStyle = "#000000";
+            ctx.fillRect(0, 0, cssWidth, cssHeight);
+          }
           drawSpectrumTrace(ctx, cssWidth, cssHeight, waveform, fftMin, fftMax);
         }
 

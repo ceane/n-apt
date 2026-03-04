@@ -121,6 +121,8 @@ function drawSpectrumToCanvas(
   fftMax: number,
   showGrid: boolean,
   centerFrequencyMHz: number,
+  hardwareSampleRateHz?: number,
+  fullCaptureRange?: { min: number; max: number },
 ): void {
   const ctx = canvas.getContext("2d");
   if (!ctx || !waveform || waveform.length === 0) return;
@@ -243,6 +245,70 @@ function drawSpectrumToCanvas(
   ctx.moveTo(FFT_AREA_MIN.x, FFT_AREA_MIN.y);
   ctx.lineTo(FFT_AREA_MIN.x, fftAreaMax.y - 1);
   ctx.stroke();
+
+  // ── Hardware sample rate block boundaries ─────────────────────────────────
+  if (hardwareSampleRateHz) {
+    const hwSpanMHz = hardwareSampleRateHz / 1e6;
+    const anchorRange = fullCaptureRange || frequencyRange;
+
+    if (hwSpanMHz > 0) {
+      ctx.save();
+      ctx.strokeStyle = "rgba(220, 220, 220, 0.54)";
+      ctx.lineWidth = 1 / dpr;
+      ctx.fillStyle = "#ffb669";
+      ctx.font = "10px JetBrains Mono";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+
+      const fmtOff = (mhz: number) => {
+        if (Math.abs(mhz) >= 1) return `${mhz.toFixed(1)}MHz`;
+        if (Math.abs(mhz) >= 0.001) return `${Math.round(mhz * 1000)}kHz`;
+        return `${Math.round(mhz * 1_000_000)}Hz`;
+      };
+
+      let cur = anchorRange.min;
+      while (cur < anchorRange.max - 0.001) {
+        const bStart = cur;
+        const bEnd = Math.min(bStart + hwSpanMHz, anchorRange.max);
+        const bWidth = bEnd - bStart;
+        const isFull = bWidth >= hwSpanMHz - 0.001;
+
+        if (bEnd > minFreq && bStart < maxFreq) {
+          if (bStart >= minFreq && bStart <= maxFreq) {
+            const lx = Math.round(freqToX(bStart));
+            ctx.setLineDash([4, 4]);
+            ctx.beginPath();
+            ctx.moveTo(lx, FFT_AREA_MIN.y);
+            ctx.lineTo(lx, fftAreaMax.y);
+            ctx.stroke();
+          }
+          if (bEnd >= minFreq && bEnd <= maxFreq) {
+            const rx = Math.round(freqToX(bEnd));
+            ctx.setLineDash([4, 4]);
+            ctx.beginPath();
+            ctx.moveTo(rx, FFT_AREA_MIN.y);
+            ctx.lineTo(rx, fftAreaMax.y);
+            ctx.stroke();
+          }
+          // Draw center label - clamp to visible region so it doesn't disappear when zoomed
+          const visibleStart = Math.max(bStart, minFreq);
+          const visibleEnd = Math.min(bEnd, maxFreq);
+          const visibleCenter = (visibleStart + visibleEnd) / 2;
+
+          if (visibleCenter >= minFreq && visibleCenter <= maxFreq) {
+            const cx = Math.round(freqToX(visibleCenter));
+            const label = isFull ? "Hardware Sample Rate" : "Next sample";
+            const subLabel = fmtOff(bWidth);
+            ctx.setLineDash([]); // Reset dash for text
+            ctx.fillText(label, cx, FFT_AREA_MIN.y + 7);
+            ctx.fillText(subLabel, cx, FFT_AREA_MIN.y + 19);
+          }
+        }
+        cur = bEnd;
+      }
+      ctx.restore();
+    }
+  }
 
   // ── Trace ─────────────────────────────────────────────────────────────────
 
@@ -499,6 +565,8 @@ function generateSpectrumSVG(
   centerFrequencyMHz: number,
   svgW: number,
   svgH: number,
+  hardwareSampleRateHz?: number,
+  fullCaptureRange?: { min: number; max: number },
 ): string {
   const parts: string[] = [];
 
@@ -577,6 +645,52 @@ function generateSpectrumSVG(
   parts.push(
     `<line x1="${FFT_AREA_MIN.x}" y1="${FFT_AREA_MIN.y}" x2="${FFT_AREA_MIN.x}" y2="${fftAreaMax.y - 1}" stroke="${FFT_TEXT_COLOR}" stroke-width="1"/>`,
   );
+
+  // ── Hardware sample rate block boundaries ────────────────────────────────
+  if (hardwareSampleRateHz) {
+    const hwSpanMHz = hardwareSampleRateHz / 1e6;
+    const anchorRange = fullCaptureRange || frequencyRange;
+
+    if (hwSpanMHz > 0) {
+      const fmtOff = (mhz: number) => {
+        if (Math.abs(mhz) >= 1) return `${mhz.toFixed(1)}MHz`;
+        if (Math.abs(mhz) >= 0.001) return `${Math.round(mhz * 1000)}kHz`;
+        return `${Math.round(mhz * 1_000_000)}Hz`;
+      };
+
+      let cur = anchorRange.min;
+      while (cur < anchorRange.max - 0.001) {
+        const bStart = cur;
+        const bEnd = Math.min(bStart + hwSpanMHz, anchorRange.max);
+        const bWidth = bEnd - bStart;
+        const isFull = bWidth >= hwSpanMHz - 0.001;
+
+        if (bEnd > minFreq && bStart < maxFreq) {
+          if (bStart >= minFreq && bStart <= maxFreq) {
+            const lx = Math.round(freqToX(bStart));
+            parts.push(`<line x1="${lx}" y1="${FFT_AREA_MIN.y}" x2="${lx}" y2="${fftAreaMax.y}" stroke="rgba(220,220,220,0.54)" stroke-width="1" stroke-dasharray="4,4"/>`);
+          }
+          if (bEnd >= minFreq && bEnd <= maxFreq) {
+            const rx = Math.round(freqToX(bEnd));
+            parts.push(`<line x1="${rx}" y1="${FFT_AREA_MIN.y}" x2="${rx}" y2="${fftAreaMax.y}" stroke="rgba(220,220,220,0.54)" stroke-width="1" stroke-dasharray="4,4"/>`);
+          }
+          // Draw center label - clamp to visible region so it doesn't disappear when zoomed
+          const visibleStart = Math.max(bStart, minFreq);
+          const visibleEnd = Math.min(bEnd, maxFreq);
+          const visibleCenter = (visibleStart + visibleEnd) / 2;
+
+          if (visibleCenter >= minFreq && visibleCenter <= maxFreq) {
+            const cx = Math.round(freqToX(visibleCenter));
+            const label = isFull ? "Hardware Sample Rate" : "Next sample";
+            const subLabel = fmtOff(bWidth);
+            parts.push(`<text x="${cx}" y="${FFT_AREA_MIN.y + 14}" text-anchor="middle" fill="#ffb669" font-family="JetBrains Mono, monospace" font-size="10">${escapeXml(label)}</text>`);
+            parts.push(`<text x="${cx}" y="${FFT_AREA_MIN.y + 26}" text-anchor="middle" fill="#ffb669" font-family="JetBrains Mono, monospace" font-size="10">${escapeXml(subLabel)}</text>`);
+          }
+        }
+        cur = bEnd;
+      }
+    }
+  }
 
   // Edge labels (drawn last, take priority)
   parts.push(
@@ -672,6 +786,72 @@ function generateSpectrumSVG(
 
 // ── Hook ────────────────────────────────────────────────────────────────────
 
+// Helper to find the best corner for the stats box to avoid overlapping the waveform
+function findOptimalStatsBoxPosition(
+  waveform: Float32Array | number[],
+  dbMin: number,
+  dbMax: number,
+  boxW: number,
+  boxH: number,
+  gridLeft: number,
+  gridRight: number,
+  gridTop: number,
+  gridBottom: number
+): { x: number; y: number } {
+  const paddingX = 8;
+  const paddingBottom = 24; // Extra padding to avoid the frequency scale text at the bottom
+  
+  // We only consider the bottom corners to completely avoid top-aligned labels like "Hardware Sample Rate"
+  const corners = [
+    { x: gridLeft + paddingX, y: gridBottom - boxH - paddingBottom }, // Bottom-Left
+    { x: gridRight - boxW - paddingX, y: gridBottom - boxH - paddingBottom }, // Bottom-Right
+  ];
+
+  if (!waveform || waveform.length === 0) return corners[1]; // Default to Bottom-Right
+
+  const gridW = gridRight - gridLeft;
+  const gridH = gridBottom - gridTop;
+  const dbRange = dbMax - dbMin;
+
+  const getScore = (corner: { x: number; y: number }) => {
+    let intersections = 0;
+    let sumY = 0;
+    const startIdx = Math.max(0, Math.floor(((corner.x - gridLeft) / gridW) * waveform.length));
+    const endIdx = Math.min(waveform.length - 1, Math.ceil(((corner.x + boxW - gridLeft) / gridW) * waveform.length));
+    const count = endIdx - startIdx + 1;
+
+    for (let i = startIdx; i <= endIdx; i++) {
+      const db = Math.max(dbMin, Math.min(dbMax, waveform[i]));
+      const normalizedY = 1.0 - (db - dbMin) / dbRange;
+      const pointY = gridTop + normalizedY * gridH;
+      
+      // Check if the signal line crosses into or near the box
+      if (pointY >= corner.y - 10 && pointY <= corner.y + boxH + 10) {
+        intersections++;
+      }
+      sumY += pointY;
+    }
+    
+    // We want the signal line to be as far AWAY from the bottom box as possible.
+    // A smaller pointY means the signal is physically higher up on the screen.
+    const avgY = count > 0 ? sumY / count : 0;
+    
+    // Lower score is better.
+    // 10000 penalty per intersection bin.
+    return (intersections * 10000) + avgY;
+  };
+
+  const leftScore = getScore(corners[0]);
+  const rightScore = getScore(corners[1]);
+
+  // If tied or right is better, prefer right.
+  if (rightScore <= leftScore) {
+    return corners[1];
+  } else {
+    return corners[0];
+  }
+}
+
 export function useSnapshot(
   _frequencyRange: { min: number; max: number } | null,
   _isConnected: boolean,
@@ -728,6 +908,12 @@ export function useSnapshot(
 
     const centerFreqToRender = (rangeToRender.min + rangeToRender.max) / 2;
 
+    // The physical capture area bounds used to anchor the hardware block grid
+    const area = options.activeSignalArea?.toLowerCase();
+    const captureRange = (area && options.signalAreaBounds?.[area]) 
+      ? options.signalAreaBounds[area] 
+      : data.frequencyRange;
+
     // ── SVG Vector path ───────────────────────────────────────────────────
     if (options.format === "svg") {
       const totalH = hasWaterfall
@@ -743,6 +929,8 @@ export function useSnapshot(
         centerFreqToRender,
         LOGICAL_WIDTH,
         LOGICAL_SPECTRUM_H,
+        data.hardwareSampleRateHz,
+        captureRange ?? undefined,
       );
 
       // Waterfall as embedded PNG bitmap (vectors don't make sense for heatmaps)
@@ -789,32 +977,27 @@ export function useSnapshot(
           statsLines.push(options.sdrSettingsLabel);
         }
 
-        // Smart placement
-        let placeLeft = false;
-        if (waveformToRender.length > 0) {
-          const marginBins = Math.max(
-            1,
-            Math.floor(waveformToRender.length * 0.15),
-          );
-          let leftMax = -Infinity;
-          for (let i = 0; i < marginBins; i++)
-            leftMax = Math.max(leftMax, waveformToRender[i]);
-          let rightMax = -Infinity;
-          for (
-            let i = waveformToRender.length - marginBins;
-            i < waveformToRender.length;
-            i++
-          )
-            rightMax = Math.max(rightMax, waveformToRender[i]);
-          if (leftMax < rightMax) placeLeft = true;
-        }
+        // Calculate approximate text width for SVG
+        const charW = 7.2;
+        const maxTextLen = Math.max(...statsLines.map(l => l.length));
+        const statsW = maxTextLen * charW + 16;
+        const statsH = statsLines.length * 16 + 8;
 
-        const statsW = 310;
-        const statsX = placeLeft ? 8 : LOGICAL_WIDTH - statsW - 8;
-        const statsY = 4;
-        statsSection = `<rect x="${statsX}" y="${statsY}" width="${statsW}" height="${statsLines.length * 16 + 8}" rx="4" fill="rgba(0,0,0,0.7)"/>`;
+        const bestPos = findOptimalStatsBoxPosition(
+          waveformToRender,
+          data.dbMin,
+          data.dbMax,
+          statsW,
+          statsH,
+          FFT_AREA_MIN.x,
+          LOGICAL_WIDTH - 40,
+          FFT_AREA_MIN.y,
+          LOGICAL_SPECTRUM_H - 40
+        );
+
+        statsSection = `<rect x="${bestPos.x}" y="${bestPos.y}" width="${statsW}" height="${statsH}" rx="4" fill="rgba(0,0,0,0.7)"/>`;
         statsLines.forEach((line, i) => {
-          statsSection += `\n  <text x="${statsX + 8}" y="${statsY + 16 + i * 16}" fill="#ccc" font-family="monospace" font-size="12">${escapeXml(line)}</text>`;
+          statsSection += `\n  <text x="${bestPos.x + 8}" y="${bestPos.y + 16 + i * 16}" fill="#ccc" font-family="monospace" font-size="12">${escapeXml(line)}</text>`;
         });
       }
 
@@ -852,6 +1035,8 @@ export function useSnapshot(
       data.dbMax,
       options.showGrid,
       centerFreqToRender,
+      data.hardwareSampleRateHz,
+      captureRange ?? undefined,
     );
 
     // Waterfall
@@ -909,34 +1094,27 @@ export function useSnapshot(
         statsLines.push(options.sdrSettingsLabel);
       }
 
-      // Smart placement
-      let placeLeft = false;
-      if (waveformToRender.length > 0) {
-        const marginBins = Math.max(
-          1,
-          Math.floor(waveformToRender.length * 0.15),
-        );
-        let leftMax = -Infinity;
-        for (let i = 0; i < marginBins; i++)
-          leftMax = Math.max(leftMax, waveformToRender[i]);
-        let rightMax = -Infinity;
-        for (
-          let i = waveformToRender.length - marginBins;
-          i < waveformToRender.length;
-          i++
-        )
-          rightMax = Math.max(rightMax, waveformToRender[i]);
-        if (leftMax < rightMax) placeLeft = true;
-      }
-
       ctx.font = "12px monospace";
       const maxTextW = Math.max(
         ...statsLines.map((l) => ctx.measureText(l).width),
       );
       const boxW = maxTextW + 16;
       const boxH = statsLines.length * 16 + 8;
-      const boxX = placeLeft ? 8 : logicalW - boxW - 8;
-      const boxY = 4;
+      
+      const bestPos = findOptimalStatsBoxPosition(
+        waveformToRender,
+        data.dbMin,
+        data.dbMax,
+        boxW,
+        boxH,
+        FFT_AREA_MIN.x,
+        logicalW - 40,
+        FFT_AREA_MIN.y,
+        LOGICAL_SPECTRUM_H - 16 // Give some margin above the frequency axis
+      );
+
+      const boxX = bestPos.x;
+      const boxY = bestPos.y;
 
       ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
       ctx.beginPath();

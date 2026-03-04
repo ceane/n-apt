@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, forwardRef } from "react";
 import styled from "styled-components";
 import { FFTCanvas } from "@n-apt/components";
+import type { FFTCanvasHandle } from "@n-apt/components/FFTCanvas";
 import { fileWorkerManager } from "@n-apt/workers/fileWorkerManager";
 import { useAuthentication } from "@n-apt/hooks/useAuthentication";
 
@@ -58,7 +59,7 @@ const HelpText = styled.div`
   color: #666;
 `;
 
-const FFTStitcherCanvas: React.FC<FFTStitcherCanvasProps> = ({
+const FFTStitcherCanvas = forwardRef<FFTCanvasHandle, FFTStitcherCanvasProps>(({
   selectedFiles,
   stitchTrigger,
   stitchSourceSettings,
@@ -73,7 +74,7 @@ const FFTStitcherCanvas: React.FC<FFTStitcherCanvasProps> = ({
   fftMin,
   fftMax,
   onFftDbLimitsChange,
-}) => {
+}, forwardedRef) => {
   const { aesKey } = useAuthentication();
   const aesKeyRef = useRef(aesKey);
 
@@ -98,6 +99,7 @@ const FFTStitcherCanvas: React.FC<FFTStitcherCanvasProps> = ({
   const workerFileDataCache = useRef<[string, number[]][]>([]);
   const workerFreqMap = useRef<[string, number][]>([]);
   const workerMetadataMap = useRef<[string, any][]>([]);
+  const [hardwareSampleRateHz, setHardwareSampleRateHz] = useState<number | undefined>(undefined);
   const precomputedFrames = useRef<any[]>([]);
   const maxFrames = useRef<number>(0);
 
@@ -163,7 +165,16 @@ const FFTStitcherCanvas: React.FC<FFTStitcherCanvasProps> = ({
       // Handle multi-channel metadata from worker
       const firstFileMeta = result.metadataMap && result.metadataMap[0] ? result.metadataMap[0][1] : null;
       const channels = firstFileMeta?.channels_data || result.channels || [];
+      // Extract the TRUE per-hop hardware sample rate from raw_hardware_blocks
+      // (sample_rate_hz and capture_sample_rate_hz are overwritten by the stitcher
+      //  to the total stitched span, e.g. 5.2MHz instead of 3.2MHz)
+      const rawBlocks = firstFileMeta?.raw_hardware_blocks;
+      const hwHz = (rawBlocks && rawBlocks.length > 0)
+        ? rawBlocks[0].sample_rate_hz
+        : (firstFileMeta?.hardware_sample_rate_hz || firstFileMeta?.capture_sample_rate_hz);
+
       allChannelsRef.current = channels;
+      setHardwareSampleRateHz(hwHz);
       setChannelCount(channels.length);
       setActiveChannel(0);
 
@@ -299,6 +310,7 @@ const FFTStitcherCanvas: React.FC<FFTStitcherCanvasProps> = ({
       {hasStitchedData ? (
         <VisualizationContainer>
           <FFTCanvas
+            ref={forwardedRef}
             dataRef={fftCanvasDataRef}
             frequencyRange={frequencyRange}
             centerFrequencyMHz={(frequencyRange.min + frequencyRange.max) / 2}
@@ -312,6 +324,8 @@ const FFTStitcherCanvas: React.FC<FFTStitcherCanvasProps> = ({
             fftMin={fftMin}
             fftMax={fftMax}
             onFftDbLimitsChange={onFftDbLimitsChange}
+            hardwareSampleRateHz={hardwareSampleRateHz}
+            isIqRecordingActive={true}
           />
           {channelCount > 1 && (
             <div style={{
@@ -382,6 +396,6 @@ const FFTStitcherCanvas: React.FC<FFTStitcherCanvasProps> = ({
       )}
     </StitcherContainer>
   );
-};
+});
 
 export default FFTStitcherCanvas;

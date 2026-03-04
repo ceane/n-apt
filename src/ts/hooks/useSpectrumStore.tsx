@@ -69,14 +69,14 @@ export type SpectrumAction =
   | { type: "SET_SIGNAL_AREA"; area: string }
   | { type: "SET_FREQUENCY_RANGE"; range: FrequencyRange }
   | {
-      type: "SET_SIGNAL_AREA_AND_RANGE";
-      area: string;
-      range: FrequencyRange;
-    }
+    type: "SET_SIGNAL_AREA_AND_RANGE";
+    area: string;
+    range: FrequencyRange;
+  }
   | {
-      type: "SET_TEMPORAL_RESOLUTION";
-      resolution: "low" | "medium" | "high";
-    }
+    type: "SET_TEMPORAL_RESOLUTION";
+    resolution: "low" | "medium" | "high";
+  }
   | { type: "SET_SELECTED_FILES"; files: SelectedFile[] }
   | { type: "SET_SNAPSHOT_GRID"; preference: boolean }
   | { type: "SET_DRAW_PARAMS"; params: DrawParams }
@@ -88,9 +88,9 @@ export type SpectrumAction =
   | { type: "TRIGGER_STITCH" }
   | { type: "TOGGLE_STITCH_PAUSE" }
   | {
-      type: "SET_STITCH_SOURCE_SETTINGS";
-      settings: { gain: number; ppm: number };
-    }
+    type: "SET_STITCH_SOURCE_SETTINGS";
+    settings: { gain: number; ppm: number };
+  }
   | { type: "SET_STITCH_PAUSED"; paused: boolean }
   | { type: "LEAVE_VISUALIZER" }
   | { type: "SET_FFT_FRAME_RATE"; fftFrameRate: number }
@@ -433,13 +433,13 @@ export const SpectrumProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const sampleRateHzEffective =
     typeof effectiveSdrSettings?.sample_rate === "number" &&
-    Number.isFinite(effectiveSdrSettings.sample_rate)
+      Number.isFinite(effectiveSdrSettings.sample_rate)
       ? effectiveSdrSettings.sample_rate
-      : (wsConnection.sampleRateHz ?? null);
+      : (wsConnection.sampleRateHz ?? wsConnection.maxSampleRateHz ?? null);
 
   const sampleRateMHz =
     typeof sampleRateHzEffective === "number" &&
-    Number.isFinite(sampleRateHzEffective)
+      Number.isFinite(sampleRateHzEffective)
       ? sampleRateHzEffective / 1_000_000
       : null;
 
