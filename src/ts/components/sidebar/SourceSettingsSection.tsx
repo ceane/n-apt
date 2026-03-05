@@ -1,9 +1,13 @@
 import React from "react";
 import styled from "styled-components";
-import InfoPopover from "@n-apt/components/InfoPopover";
 
 const Section = styled.div`
-  margin-bottom: 24px;
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-column: 1 / -1;
+  gap: inherit;
+  box-sizing: border-box;
+  width: 100%;
 `;
 
 const SectionTitle = styled.div`
@@ -14,35 +18,10 @@ const SectionTitle = styled.div`
   margin-bottom: 16px;
   font-weight: 600;
   font-family: "JetBrains Mono", monospace;
+  grid-column: 1 / -1;
 `;
 
-const SettingRow = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 12px;
-  background-color: #141414;
-  border-radius: 6px;
-  margin-bottom: 8px;
-  border: 1px solid #1a1a1a;
-  user-select: none;
-`;
-
-const SettingLabelContainer = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-`;
-
-const SettingLabel = styled.span`
-  font-size: 12px;
-  color: #777;
-  max-width: 210px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-`;
+import { Row } from "@n-apt/components/ui";
 
 const SettingInput = styled.input`
   background-color: transparent;
@@ -129,7 +108,8 @@ const NarrowSettingInput = styled(SettingInput)`
 `;
 
 const InputGroup = styled.div`
-  display: flex;
+  display: grid;
+  grid-auto-flow: column;
   align-items: center;
   gap: 4px;
 `;
@@ -254,14 +234,7 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
   return (
     <Section>
       <SectionTitle>Source Settings</SectionTitle>
-      <SettingRow>
-        <SettingLabelContainer>
-          <SettingLabel>PPM</SettingLabel>
-          <InfoPopover
-            title="PPM Correction"
-            content="Frequency alignment. Parts per million correction for precise tuning to signal frequencies."
-          />
-        </SettingLabelContainer>
+      <Row label="PPM" tooltipTitle="PPM Correction" tooltip="Frequency alignment. Parts per million correction for precise tuning to signal frequencies.">
         <NarrowSettingInput
           type="number"
           value={sourceMode === "file" ? stitchSourceSettings.ppm : ppm}
@@ -269,15 +242,8 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
           onKeyDown={handlePpmKeyDown}
           step="1"
         />
-      </SettingRow>
-      <SettingRow>
-        <SettingLabelContainer>
-          <SettingLabel>Gain</SettingLabel>
-          <InfoPopover
-            title="Gain Setting"
-            content="Signal amplification. Increases sensitivity to weak transmissions but may introduce interference from other signals."
-          />
-        </SettingLabelContainer>
+      </Row>
+      <Row label="Gain" tooltipTitle="Gain Setting" tooltip="Signal amplification. Increases sensitivity to weak transmissions but may introduce interference from other signals.">
         <InputGroup>
           <NarrowSettingInput
             type="number"
@@ -292,17 +258,10 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
           />
           <UnitLabel>dB</UnitLabel>
         </InputGroup>
-      </SettingRow>
+      </Row>
       {sourceMode === "live" && (
         <>
-          <SettingRow>
-            <SettingLabelContainer>
-              <SettingLabel>Tuner AGC</SettingLabel>
-              <InfoPopover
-                title="Tuner AGC"
-                content="Tuner Automatic Gain Control. Automatically adjusts the tuner gain for optimal signal reception. Works alongside manual gain setting. Only one AGC mode can be active at a time."
-              />
-            </SettingLabelContainer>
+          <Row label="Tuner AGC" tooltipTitle="Tuner AGC" tooltip="Tuner Automatic Gain Control. Automatically adjusts the tuner gain for optimal signal reception. Works alongside manual gain setting. Only one AGC mode can be active at a time.">
             <ToggleSwitch $disabled={!isConnected}>
               <ToggleSwitchInput
                 type="checkbox"
@@ -312,15 +271,8 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
               />
               <ToggleSwitchSlider $disabled={!isConnected} />
             </ToggleSwitch>
-          </SettingRow>
-          <SettingRow>
-            <SettingLabelContainer>
-              <SettingLabel>RTL AGC</SettingLabel>
-              <InfoPopover
-                title="RTL AGC"
-                content="RTL Automatic Gain Control. Automatically adjusts the RTL2832 gain for optimal signal reception. Works alongside manual gain setting. Only one AGC mode can be active at a time."
-              />
-            </SettingLabelContainer>
+          </Row>
+          <Row label="RTL AGC" tooltipTitle="RTL AGC" tooltip="RTL Automatic Gain Control. Automatically adjusts the RTL2832 gain for optimal signal reception. Works alongside manual gain setting. Only one AGC mode can be active at a time.">
             <ToggleSwitch $disabled={!isConnected}>
               <ToggleSwitchInput
                 type="checkbox"
@@ -330,7 +282,7 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
               />
               <ToggleSwitchSlider $disabled={!isConnected} />
             </ToggleSwitch>
-          </SettingRow>
+          </Row>
         </>
       )}
     </Section>

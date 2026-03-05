@@ -16,33 +16,7 @@ const SectionTitle = styled.div`
   font-family: "JetBrains Mono", monospace;
 `;
 
-const SettingRow = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 12px;
-  background-color: #141414;
-  border-radius: 6px;
-  margin-bottom: 8px;
-  border: 1px solid #1a1a1a;
-  user-select: none;
-`;
-
-const SettingLabelContainer = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-`;
-
-const SettingLabel = styled.span`
-  font-size: 12px;
-  color: #777;
-  max-width: 210px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-`;
+import { Row } from "@n-apt/components/ui";
 
 const SettingInput = styled.input`
   background-color: transparent;
@@ -235,22 +209,16 @@ export const HotspotEditorSection: React.FC = () => {
       <Section>
         <SectionTitle>Hotspot Creator</SectionTitle>
 
-        <SettingRow>
-          <SettingLabelContainer>
-            <SettingLabel>Point Name</SettingLabel>
-          </SettingLabelContainer>
+        <Row label="Point Name">
           <SettingInput
             type="text"
             value={newHotspotName}
             onChange={(e) => setNewHotspotName(e.target.value)}
             placeholder="Enter name..."
           />
-        </SettingRow>
+        </Row>
 
-        <SettingRow>
-          <SettingLabelContainer>
-            <SettingLabel>Hotspot Size</SettingLabel>
-          </SettingLabelContainer>
+        <Row label="Hotspot Size">
           <SettingSelect
             value={hotspotSize}
             onChange={(e) =>
@@ -260,12 +228,9 @@ export const HotspotEditorSection: React.FC = () => {
             <option value="small">Small</option>
             <option value="large">Large</option>
           </SettingSelect>
-        </SettingRow>
+        </Row>
 
-        <SettingRow>
-          <SettingLabelContainer>
-            <SettingLabel>Symmetry Mode</SettingLabel>
-          </SettingLabelContainer>
+        <Row label="Symmetry Mode">
           <SettingSelect
             value={symmetryMode}
             onChange={(e) =>
@@ -276,12 +241,9 @@ export const HotspotEditorSection: React.FC = () => {
             <option value="x">Left/Right</option>
             <option value="y">Top/Bottom</option>
           </SettingSelect>
-        </SettingRow>
+        </Row>
 
-        <SettingRow>
-          <SettingLabelContainer>
-            <SettingLabel>Multi-Select Mode</SettingLabel>
-          </SettingLabelContainer>
+        <Row label="Multi-Select Mode">
           <SettingCheckbox
             type="checkbox"
             checked={isMultiSelectMode}
@@ -289,7 +251,7 @@ export const HotspotEditorSection: React.FC = () => {
               setIsMultiSelectMode(e.target.checked);
             }}
           />
-        </SettingRow>
+        </Row>
 
         {isMultiSelectMode && (
           <div
@@ -304,16 +266,13 @@ export const HotspotEditorSection: React.FC = () => {
           </div>
         )}
 
-        <SettingRow>
-          <SettingLabelContainer>
-            <SettingLabel>Show Grid</SettingLabel>
-          </SettingLabelContainer>
+        <Row label="Show Grid">
           <SettingCheckbox
             type="checkbox"
             checked={showGrid}
             onChange={(e) => setShowGrid(e.target.checked)}
           />
-        </SettingRow>
+        </Row>
       </Section>
 
       <Section>

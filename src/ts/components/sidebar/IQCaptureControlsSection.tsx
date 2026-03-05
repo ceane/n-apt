@@ -6,77 +6,23 @@ import type {
   CaptureFileType,
   DeviceState,
 } from "@n-apt/hooks/useWebSocket";
-import InfoPopover from "@n-apt/components/InfoPopover";
 
 const Section = styled.div`
-  margin-bottom: 24px;
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-column: 1 / -1;
+  gap: inherit;
 `;
 
-const SectionTitleCollapsible = styled.button`
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: transparent;
-  border: 0;
-  padding: 0;
-  margin: 0 0 16px 0;
-  cursor: pointer;
-  text-align: left;
-`;
-
-const SectionTitleLabel = styled.span`
-  font-size: 11px;
-  color: #555;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  font-weight: 600;
-  font-family: "JetBrains Mono", monospace;
-`;
-
-const SectionTitleToggle = styled.span`
-  font-size: 12px;
-  color: #555;
-  font-family: "JetBrains Mono", monospace;
-  font-weight: 600;
-`;
-
-const CollapsibleBody = styled.div`
-  margin-top: 8px;
-`;
-
-const SettingRow = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 12px;
-  background-color: #141414;
-  border-radius: 6px;
-  margin-bottom: 8px;
-  border: 1px solid #1a1a1a;
-  user-select: none;
-`;
-
-const SettingLabelContainer = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-`;
-
-const SettingLabel = styled.span`
-  font-size: 12px;
-  color: #777;
-  max-width: 210px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-`;
+import { Row, CollapsibleTitle, CollapsibleBody } from "@n-apt/components/ui";
 
 const SettingValue = styled.span`
   font-size: 12px;
   color: #ccc;
   font-weight: 500;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 `;
 
 const SettingSelect = styled.select`
@@ -96,6 +42,9 @@ const SettingSelect = styled.select`
   background-position: right 2px center;
   background-size: 12px;
   padding-right: 20px;
+  box-sizing: border-box;
+  max-width: 100%;
+  min-width: 0;
 
   &:hover {
     border-color: #2a2a2a;
@@ -125,6 +74,9 @@ const SettingInput = styled.input`
   padding: 4px 6px;
   width: 70px;
   text-align: right;
+  box-sizing: border-box;
+  max-width: 100%;
+  min-width: 0;
 
   /* Hide number input spinners */
   &::-webkit-outer-spin-button,
@@ -196,12 +148,15 @@ const ToggleSwitchSlider = styled.span<{ $disabled?: boolean }>`
 
 const CheckboxGroup = styled.div`
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
+  justify-content: flex-end;
 `;
 
 const CheckboxLabel = styled.label`
-  display: flex;
+  display: grid;
+  grid-auto-flow: column;
   align-items: center;
   gap: 6px;
   font-size: 11px;
@@ -209,14 +164,14 @@ const CheckboxLabel = styled.label`
 `;
 
 const RangeList = styled.div`
-  display: flex;
-  flex-direction: column;
+  display: grid;
   gap: 2px;
-  align-items: flex-end;
+  justify-items: end;
 `;
 
 const DurationRow = styled.div`
-  display: flex;
+  display: grid;
+  grid-auto-flow: column;
   align-items: center;
   gap: 4px;
 `;
@@ -228,16 +183,20 @@ const DurationUnit = styled.span`
 `;
 
 const CaptureActions = styled.div`
-  display: flex;
+  display: grid;
+  grid-auto-flow: column;
   gap: 8px;
   align-items: center;
   margin-top: 8px;
+  grid-column: 1 / -1;
 `;
 
 const PlaybackOption = styled.div`
-  display: flex;
+  display: grid;
+  grid-auto-flow: column;
   align-items: center;
   gap: 6px;
+  justify-content: start;
 `;
 
 const PlaybackLabel = styled.label`
@@ -276,7 +235,7 @@ const CaptureButton = styled(PauseButton) <{ $disabled: boolean }>`
   cursor: ${(props) => (props.$disabled ? "not-allowed" : "pointer")};
 `;
 
-const StatusSettingRow = styled(SettingRow)`
+const StatusSettingRow = styled(Row)`
   margin-top: 12px;
 `;
 
@@ -285,6 +244,9 @@ const CaptureStatusValue = styled(SettingValue)`
 `;
 
 const DownloadsContainer = styled.div`
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-column: 1 / -1;
   margin-top: 16px;
 `;
 
@@ -299,6 +261,9 @@ const DownloadsTitle = styled.div`
 `;
 
 const DownloadCard = styled.div`
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-column: 1 / -1;
   padding: 8px 12px;
   background-color: #141414;
   border-radius: 6px;
@@ -316,6 +281,7 @@ const DownloadLink = styled.a`
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  grid-column: 1 / -1;
 `;
 
 interface CaptureRange {
@@ -376,18 +342,16 @@ export const IQCaptureControlsSection: React.FC<
     const { isAuthenticated, sessionToken } = useAuthentication();
     return (
       <Section>
-        <SectionTitleCollapsible type="button" onClick={onToggle}>
-          <SectionTitleLabel>I/Q Capture /</SectionTitleLabel>
-          <SectionTitleToggle>{isOpen ? "-" : "+"}</SectionTitleToggle>
-        </SectionTitleCollapsible>
+        <CollapsibleTitle
+          label="I/Q Capture /"
+          isOpen={isOpen}
+          onToggle={onToggle}
+        />
 
         {isOpen && (
           <CollapsibleBody>
-            <SettingRow>
-              <SettingLabelContainer>
-                <SettingLabel>Areas</SettingLabel>
-              </SettingLabelContainer>
-              <CheckboxGroup style={{ flexWrap: "wrap", justifyContent: "flex-end" }}>
+            <Row label="Areas">
+              <CheckboxGroup>
                 {availableCaptureAreas.map((area) => (
                   <CheckboxLabel key={area.label}>
                     <input
@@ -407,12 +371,9 @@ export const IQCaptureControlsSection: React.FC<
                   </CheckboxLabel>
                 ))}
               </CheckboxGroup>
-            </SettingRow>
+            </Row>
 
-            <SettingRow>
-              <SettingLabelContainer>
-                <SettingLabel>Range</SettingLabel>
-              </SettingLabelContainer>
+            <Row label="Range">
               <SettingValue>
                 <RangeList>
                   {captureRange.segments.map((seg) => (
@@ -424,12 +385,9 @@ export const IQCaptureControlsSection: React.FC<
                   ))}
                 </RangeList>
               </SettingValue>
-            </SettingRow>
+            </Row>
 
-            <SettingRow>
-              <SettingLabelContainer>
-                <SettingLabel>Duration</SettingLabel>
-              </SettingLabelContainer>
+            <Row label="Duration">
               <DurationRow>
                 <SettingInput
                   type="number"
@@ -442,12 +400,9 @@ export const IQCaptureControlsSection: React.FC<
                 />
                 <DurationUnit>s</DurationUnit>
               </DurationRow>
-            </SettingRow>
+            </Row>
 
-            <SettingRow>
-              <SettingLabelContainer>
-                <SettingLabel>File type</SettingLabel>
-              </SettingLabelContainer>
+            <Row label="File type">
               <SettingSelect
                 value={captureFileType}
                 onChange={(e) =>
@@ -457,16 +412,9 @@ export const IQCaptureControlsSection: React.FC<
                 <option value=".napt">.napt</option>
                 <option value=".wav">.wav</option>
               </SettingSelect>
-            </SettingRow>
+            </Row>
 
-            <SettingRow>
-              <SettingLabelContainer>
-                <SettingLabel>TDMS (Interleaved Sweep)</SettingLabel>
-                <InfoPopover
-                  title="Time-Division Multiplexed Sampling"
-                  content="Rapidly sweeps across selected channels and interleaves the results into a single wideband output file. When off (Normal), captures each channel completely before moving to the next."
-                />
-              </SettingLabelContainer>
+            <Row label="TDMS (Interleaved Sweep)" tooltipTitle="Time-Division Multiplexed Sampling" tooltip="Rapidly sweeps across selected channels and interleaves the results into a single wideband output file. When off (Normal), captures each channel completely before moving to the next.">
               <ToggleSwitch>
                 <ToggleSwitchInput
                   type="checkbox"
@@ -479,12 +427,9 @@ export const IQCaptureControlsSection: React.FC<
                 />
                 <ToggleSwitchSlider />
               </ToggleSwitch>
-            </SettingRow>
+            </Row>
 
-            <SettingRow>
-              <SettingLabelContainer>
-                <SettingLabel>Encrypted</SettingLabel>
-              </SettingLabelContainer>
+            <Row label="Encrypted">
               <ToggleSwitch $disabled={captureFileType === ".napt"}>
                 <ToggleSwitchInput
                   type="checkbox"
@@ -494,14 +439,11 @@ export const IQCaptureControlsSection: React.FC<
                 />
                 <ToggleSwitchSlider $disabled={captureFileType === ".napt"} />
               </ToggleSwitch>
-            </SettingRow>
+            </Row>
 
-            <SettingRow>
-              <SettingLabelContainer>
-                <SettingLabel>Sample size</SettingLabel>
-              </SettingLabelContainer>
+            <Row label="Sample size">
               <SettingValue>{maxSampleRate / 1000000}MHz</SettingValue>
-            </SettingRow>
+            </Row>
 
             <CaptureActions>
               <CaptureButton
@@ -534,10 +476,7 @@ export const IQCaptureControlsSection: React.FC<
             </CaptureActions>
 
             {captureStatus?.status === "started" && (
-              <StatusSettingRow>
-                <SettingLabelContainer>
-                  <SettingLabel>Status</SettingLabel>
-                </SettingLabelContainer>
+              <StatusSettingRow label="Status">
                 <CaptureStatusValue>
                   Capturing... {captureStatus.jobId}
                 </CaptureStatusValue>

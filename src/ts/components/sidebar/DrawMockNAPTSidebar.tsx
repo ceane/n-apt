@@ -15,55 +15,16 @@ interface DrawMockNAPTSidebarProps {
 }
 
 const DrawContainer = styled.div`
-  display: flex;
-  flex-direction: column;
+  display: grid;
   gap: 16px;
 `;
 
 const ControlsContainer = styled.div`
-  display: flex;
-  flex-direction: column;
+  display: grid;
   gap: 16px;
 `;
 
-const ControlGroup = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-`;
-
-const Label = styled.label`
-  font-size: 12px;
-  color: ${COLORS.textMuted};
-  font-weight: 500;
-`;
-
-const Slider = styled.input`
-  width: 100%;
-  height: 4px;
-  border-radius: 2px;
-  background: ${COLORS.border};
-  outline: none;
-  cursor: pointer;
-
-  &::-webkit-slider-thumb {
-    appearance: none;
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    background: ${COLORS.primary};
-    cursor: pointer;
-  }
-
-  &::-moz-range-thumb {
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    background: ${COLORS.primary};
-    cursor: pointer;
-    border: none;
-  }
-`;
+import { Slider } from "@n-apt/components/ui";
 
 const InfoContainer = styled.div`
   background-color: ${COLORS.surface};
@@ -102,91 +63,71 @@ const DrawMockNAPTSidebar: React.FC<DrawMockNAPTSidebarProps> = ({
   return (
     <DrawContainer>
       <ControlsContainer>
-        <ControlGroup>
-          <Label>Spike Count: {drawParams.spikeCount}</Label>
-          <Slider
-            type="range"
-            min="10"
-            max="300"
-            step="10"
-            value={drawParams.spikeCount}
-            onChange={(e) =>
-              handleParamChange("spikeCount", Number(e.target.value))
-            }
-          />
-        </ControlGroup>
+        <Slider
+          label="Spikes"
+          value={drawParams.spikeCount}
+          min={10}
+          max={300}
+          step={10}
+          onChange={(v) => handleParamChange("spikeCount", v)}
+          formatValue={(v) => v.toString()}
+          orientation="horizontal"
+        />
 
-        <ControlGroup>
-          <Label>Spike Width: {drawParams.spikeWidth.toFixed(1)}</Label>
-          <Slider
-            type="range"
-            min="0.1"
-            max="2.0"
-            step="0.1"
-            value={drawParams.spikeWidth}
-            onChange={(e) =>
-              handleParamChange("spikeWidth", Number(e.target.value))
-            }
-          />
-        </ControlGroup>
+        <Slider
+          label="S. Width"
+          value={drawParams.spikeWidth}
+          min={0.1}
+          max={2.0}
+          step={0.1}
+          onChange={(v) => handleParamChange("spikeWidth", v)}
+          formatValue={(v) => v.toFixed(1)}
+          orientation="horizontal"
+        />
 
-        <ControlGroup>
-          <Label>
-            Center Spike Boost: {drawParams.centerSpikeBoost.toFixed(1)}
-          </Label>
-          <Slider
-            type="range"
-            min="1.0"
-            max="5.0"
-            step="0.1"
-            value={drawParams.centerSpikeBoost}
-            onChange={(e) =>
-              handleParamChange("centerSpikeBoost", Number(e.target.value))
-            }
-          />
-        </ControlGroup>
+        <Slider
+          label="Boost"
+          value={drawParams.centerSpikeBoost}
+          min={1.0}
+          max={5.0}
+          step={0.1}
+          onChange={(v) => handleParamChange("centerSpikeBoost", v)}
+          formatValue={(v) => v.toFixed(1)}
+          orientation="horizontal"
+        />
 
-        <ControlGroup>
-          <Label>Floor Amplitude: {drawParams.floorAmplitude.toFixed(1)}</Label>
-          <Slider
-            type="range"
-            min="0.1"
-            max="2.0"
-            step="0.1"
-            value={drawParams.floorAmplitude}
-            onChange={(e) =>
-              handleParamChange("floorAmplitude", Number(e.target.value))
-            }
-          />
-        </ControlGroup>
+        <Slider
+          label="Floor"
+          value={drawParams.floorAmplitude}
+          min={0.1}
+          max={2.0}
+          step={0.1}
+          onChange={(v) => handleParamChange("floorAmplitude", v)}
+          formatValue={(v) => v.toFixed(1)}
+          orientation="horizontal"
+        />
 
-        <ControlGroup>
-          <Label>Decay Rate: {drawParams.decayRate.toFixed(2)}</Label>
-          <Slider
-            type="range"
-            min="0.1"
-            max="2.0"
-            step="0.1"
-            value={drawParams.decayRate}
-            onChange={(e) =>
-              handleParamChange("decayRate", Number(e.target.value))
-            }
-          />
-        </ControlGroup>
+        <Slider
+          label="Decay"
+          value={drawParams.decayRate}
+          min={0.1}
+          max={2.0}
+          step={0.1}
+          onChange={(v) => handleParamChange("decayRate", v)}
+          formatValue={(v) => v.toFixed(2)}
+          orientation="horizontal"
+        />
 
-        <ControlGroup>
-          <Label>Envelope Width: {drawParams.envelopeWidth.toFixed(1)}</Label>
-          <Slider
-            type="range"
-            min="1.0"
-            max="20.0"
-            step="0.5"
-            value={drawParams.envelopeWidth}
-            onChange={(e) =>
-              handleParamChange("envelopeWidth", Number(e.target.value))
-            }
-          />
-        </ControlGroup>
+        <Slider
+          label="E. Width"
+          value={drawParams.envelopeWidth}
+          min={1.0}
+          max={20.0}
+          step={0.5}
+          onChange={(v) => handleParamChange("envelopeWidth", v)}
+          formatValue={(v) => v.toFixed(1)}
+          orientation="horizontal"
+        />
       </ControlsContainer>
 
       <InfoContainer>

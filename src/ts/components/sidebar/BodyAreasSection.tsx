@@ -128,8 +128,7 @@ const areas: Area[] = [
 ];
 
 const AreaList = styled.div`
-  display: flex;
-  flex-direction: column;
+  display: grid;
   gap: 6px;
   overflow-y: auto;
   padding-right: 4px;
@@ -137,10 +136,10 @@ const AreaList = styled.div`
 `;
 
 const BaseButton = styled.button`
-  width: 100%;
-  display: flex;
+  max-width: 100%;
+  display: grid;
+  grid-template-columns: 1fr max-content;
   align-items: center;
-  justify-content: space-between;
   gap: 10px;
   padding: 10px 12px;
   border-radius: 8px;
@@ -175,7 +174,7 @@ const BaseButton = styled.button`
   }
 `;
 
-const SelectableButton = styled(BaseButton)<{ $isSelected: boolean }>`
+const SelectableButton = styled(BaseButton) <{ $isSelected: boolean }>`
   background: ${(props) => (props.$isSelected ? "rgba(123, 97, 255, 0.22)" : "rgba(255,255,255,0.06)")};
   border-color: ${(props) => (props.$isSelected ? "rgba(123, 97, 255, 0.55)" : "rgba(255,255,255,0.10)")};
   box-shadow: ${(props) => (props.$isSelected ? "0 0 0 1px rgba(123, 97, 255, 0.25)" : "none")};
@@ -191,7 +190,8 @@ const SelectableButton = styled(BaseButton)<{ $isSelected: boolean }>`
 `;
 
 const ButtonContent = styled.span`
-  display: flex;
+  display: grid;
+  grid-template-columns: max-content 1fr;
   align-items: center;
   gap: 10px;
 `;

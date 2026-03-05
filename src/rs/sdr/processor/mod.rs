@@ -123,8 +123,18 @@ pub struct SdrProcessor {
     pub current_gain_db: f64,
     /// Last read PPM
     pub current_ppm: i32,
+    /// Last applied Tuner AGC
+    pub current_tuner_agc: bool,
+    /// Last applied RTL AGC
+    pub current_rtl_agc: bool,
     /// Last time samples were read (to maintain real-time flow)
     pub last_read_instant: Option<Instant>,
+    /// Pending frequency change (applied at start of next read cycle to debounce rapid slider drags)
+    pub pending_freq: Option<u32>,
+    /// Last time we applied a frequency change (to throttle rapid retunes)
+    pub last_retune_at: Option<Instant>,
+    /// Short cooldown window after a retune to let the device settle
+    pub retune_cooldown_until: Option<Instant>,
 }
 
 impl SdrProcessor {
@@ -156,7 +166,9 @@ impl SdrProcessor {
         // Set initial gain properly so baseline tuner gain maps to 0dB delta
         // If the SDR processes the signal at `gain = 1.0`, it passes through unaltered.
         // We initialize config.gain to 1.0 (which is +0dB over baseline).
+        // Initial gain/ppm for the digital processor is identity (Hardware handles it)
         cfg.gain = 1.0;
+        cfg.ppm = 0.0;
         
         fft_processor.update_config(cfg);
         
@@ -197,12 +209,31 @@ impl SdrProcessor {
             capture_fft_window: String::from("Rectangular"),
             capture_overall_center_hz: 0.0,
             capture_overall_span_hz: 0.0,
-            current_gain_db: 49.6, // Default for mock/real
-            current_ppm: 0,
+            current_gain_db: -999.0, // Force first update
+            current_ppm: -999999,      // Force first update
+            current_tuner_agc: false,
+            current_rtl_agc: false,
             last_read_instant: None,
+            pending_freq: None,
+            last_retune_at: None,
+            retune_cooldown_until: None,
         };
-        
-        info!("SDR processor created with device: {}", processor.device.device_type());
+
+        // Apply initial settings from config immediately to tune the hardware
+        let mut processor = processor;
+        processor.apply_settings(
+            Some(sdr_settings.fft.default_size),
+            None,
+            Some(sdr_settings.fft.default_frame_rate),
+            Some(sdr_settings.gain.tuner_gain),
+            Some(sdr_settings.ppm as i32),
+            Some(sdr_settings.gain.tuner_agc),
+            Some(sdr_settings.gain.rtl_agc),
+        )?;
+
+        processor.set_center_frequency(sdr_settings.center_frequency)?;
+
+        info!("SDR processor created and synchronized with device: {}", processor.device.device_type());
         Ok(processor)
     }
     
@@ -225,6 +256,42 @@ impl SdrProcessor {
         Ok(())
     }
     
+    /// Swap out the fundamental SDR device during execution (e.g. mock -> real)
+    pub fn swap_device(&mut self, mut device: Box<dyn SdrDevice>) -> Result<()> {
+        device.initialize()?;
+        self.device = device;
+
+        // Reset tracked state to force re-application to new hardware
+        self.current_gain_db = -1.0;
+        self.current_ppm = -999;
+        
+        // Push current config to the new hardware
+        let settings = crate::server::utils::load_sdr_settings();
+        self.apply_settings(
+            None,
+            None,
+            None,
+            Some(settings.gain.tuner_gain),
+            Some(settings.ppm as i32),
+            Some(settings.gain.tuner_agc),
+            Some(settings.gain.rtl_agc),
+        )?;
+        self.set_center_frequency(settings.center_frequency)?;
+
+        info!("SDR processor swapped and synchronized to {}", self.device.device_type());
+        Ok(())
+    }
+
+    /// Check if the current device is a mock device
+    pub fn is_mock(&self) -> bool {
+        self.device.device_type().contains("Mock")
+    }
+
+    /// Get detailed device info from the underlying hardware
+    pub fn get_device_info(&self) -> String {
+        self.device.get_device_info()
+    }
+    
     /// Check if the device is ready for reading
     pub fn is_ready(&self) -> bool {
         self.device.is_ready()
@@ -234,6 +301,39 @@ impl SdrProcessor {
     pub fn read_and_process_frame(&mut self) -> Result<Vec<f32>> {
         let fft_size = self.fft_processor.config().fft_size;
         let sample_rate = self.get_sample_rate();
+
+        // If we're in a retune cooldown window, avoid touching the device
+        if let Some(until) = self.retune_cooldown_until {
+            if Instant::now() < until {
+                if let Some(ref avg) = self.avg_spectrum {
+                    return Ok(avg.clone());
+                }
+                return Ok(vec![-120.0; fft_size]);
+            }
+            self.retune_cooldown_until = None;
+        }
+
+        // Apply any pending frequency change (debounced from rapid slider drags)
+        if let Some(freq) = self.pending_freq.take() {
+            if freq == self.get_center_frequency() {
+                // No change needed
+            } else {
+                let can_retune = self.last_retune_at
+                    .map(|last| last.elapsed() >= std::time::Duration::from_millis(150))
+                    .unwrap_or(true);
+
+                if can_retune {
+                    if let Err(e) = self.set_center_frequency(freq) {
+                        warn!("Failed to apply pending frequency: {}", e);
+                    }
+                    self.last_retune_at = Some(Instant::now());
+                    self.retune_cooldown_until = Some(Instant::now() + std::time::Duration::from_millis(50));
+                } else {
+                    // Keep latest request queued until the debounce interval passes
+                    self.pending_freq = Some(freq);
+                }
+            }
+        }
 
         // 0. Handle capture fragment hopping (TDMS is per-channel, not cross-channel)
         // Each fragment is its own channel; stepwise = sequential time slicing,
@@ -307,53 +407,23 @@ impl SdrProcessor {
             }
         }
 
-        // 1. Calculate how many samples to read to keep up with real-time
-        let now = Instant::now();
-        let samples_to_read = if let Some(last) = self.last_read_instant {
-            let elapsed = now.duration_since(last).as_secs_f64();
-            // Cap to avoid exploding if there's a huge delay (e.g. debugger)
-            let elapsed_capped = elapsed.min(0.2); // max 200ms catch up
-            (elapsed_capped * sample_rate as f64) as usize
-        } else {
-            fft_size
-        };
-        self.last_read_instant = Some(now);
-
-        // 2. Read in blocks to catch up
-        let mut all_samples = Vec::new();
-        let mut remaining = samples_to_read;
+        // 1. Read ONE fresh block of FFT size directly from the async layer
+        // The async layer handles discarding backlog and returning only the newest contiguous slice.
+        let samples = self.device.read_samples(fft_size)?;
         
-        // Ensure we always read at least one FFT block
-        if remaining < fft_size { remaining = fft_size; }
-
-        while all_samples.len() < remaining * 2 {
-            let chunk_size = std::cmp::min(fft_size, remaining - (all_samples.len() / 2));
-            // Read samples (iq is 2 bytes per sample)
-            let samples = self.device.read_samples(chunk_size)?;
-            
-            if samples.data.is_empty() {
-                break; // Device stopped providing
-            }
-
-            // If we are capturing, append IQ data to the current channel
-            if self.capture_active {
-                let ch_idx = self.capture_current_fragment;
-                if ch_idx < self.capture_channels.len() {
-                    self.capture_channels[ch_idx].iq_data.extend_from_slice(&samples.data);
-                }
-            }
-            
-            all_samples.extend_from_slice(&samples.data);
+        if samples.data.is_empty() {
+             return Ok(vec![-120.0; fft_size]); // fallback or handle error gracefully
         }
 
-        // 3. Process the LATEST fft_size samples for display/averaging
-        // (This maintains the target display frame rate without lag)
-        let display_samples_data = if all_samples.len() >= fft_size * 2 {
-            let start = all_samples.len() - (fft_size * 2);
-            all_samples[start..].to_vec()
-        } else {
-            all_samples.clone()
-        };
+        // If we are capturing, append IQ data to the current channel
+        if self.capture_active {
+            let ch_idx = self.capture_current_fragment;
+            if ch_idx < self.capture_channels.len() {
+                self.capture_channels[ch_idx].iq_data.extend_from_slice(&samples.data);
+            }
+        }
+        
+        let display_samples_data = samples.data;
 
         let display_samples = crate::fft::types::RawSamples {
             data: display_samples_data,
@@ -416,6 +486,9 @@ impl SdrProcessor {
         let device_sample_rate = self.device.get_sample_rate();
         if config.sample_rate != device_sample_rate {
             config.sample_rate = device_sample_rate;
+            if let Some(ref mut simd) = self.fft_processor.simd_processor_mut() {
+                simd.set_sample_rate(device_sample_rate);
+            }
             config_changed = true;
             info!("Updated FFT processor sample rate to {} Hz", device_sample_rate);
         }
@@ -468,28 +541,57 @@ impl SdrProcessor {
         
         // Device settings
         if let Some(g_db) = gain {
-            self.device.set_gain(g_db)?;
-            self.current_gain_db = g_db;
-            // Convert dB to linear amplitude multiplier for FFT
-            let baseline_db = crate::server::utils::load_sdr_settings().gain.tuner_gain; // Dynamically loaded
-            let delta_db = g_db - baseline_db;
-            config.gain = 10f32.powf(delta_db as f32 / 20.0);
+            if (self.current_gain_db - g_db).abs() > 0.01 {
+                if let Err(e) = self.device.set_gain(g_db) {
+                    warn!("Failed to set hardware gain: {}", e);
+                }
+                self.current_gain_db = g_db;
+            }
+            
+            if self.is_mock() {
+                // For mock, we can use the digital gain multiplier if the device doesn't handle it
+                // but MockAptDevice DOES handle it. However, if we want to allow digital delta:
+                let baseline_db = crate::server::utils::load_sdr_settings().gain.tuner_gain;
+                let delta_db = g_db - baseline_db;
+                config.gain = 10f32.powf(delta_db as f32 / 20.0);
+            } else {
+                // For real hardware, we rely ONLY on the tuner gain.
+                // Digital gain should remain 1.0 (baseline) to avoid double-scaling.
+                config.gain = 1.0;
+            }
             config_changed = true;
         }
         
         if let Some(p) = ppm {
-            self.device.set_ppm(p)?;
-            self.current_ppm = p;
-            config.ppm = p as f32;
+            if self.current_ppm != p {
+                if let Err(e) = self.device.set_ppm(p) {
+                    warn!("Failed to set hardware PPM: {}", e);
+                }
+                self.current_ppm = p;
+            }
+            
+            if self.is_mock() {
+                // Mock device doesn't shift clock, so we use digital rotation
+                config.ppm = p as f32;
+            } else {
+                // Hardware shifts clock, so digital rotation would double-correct
+                config.ppm = 0.0;
+            }
             config_changed = true;
         }
         
         if let Some(tuner_agc) = tuner_agc {
-            self.device.set_tuner_agc(tuner_agc)?;
+            if self.current_tuner_agc != tuner_agc {
+                self.device.set_tuner_agc(tuner_agc)?;
+                self.current_tuner_agc = tuner_agc;
+            }
         }
         
         if let Some(rtl_agc) = rtl_agc {
-            self.device.set_rtl_agc(rtl_agc)?;
+            if self.current_rtl_agc != rtl_agc {
+                self.device.set_rtl_agc(rtl_agc)?;
+                self.current_rtl_agc = rtl_agc;
+            }
         }
         
         if config_changed {
@@ -515,6 +617,10 @@ impl SdrProcessor {
     /// Set center frequency
     pub fn set_center_frequency(&mut self, freq: u32) -> Result<()> {
         self.device.set_center_frequency(freq)?;
+        // Synchronize with SIMD processor for digital PPM correction
+        if let Some(ref mut simd) = self.fft_processor.simd_processor_mut() {
+            simd.set_center_frequency(freq);
+        }
         // Clear averaging when frequency changes
         self.avg_spectrum = None;
         Ok(())

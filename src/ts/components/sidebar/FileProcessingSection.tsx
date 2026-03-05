@@ -28,7 +28,10 @@ type NaptMetadata = {
 };
 
 const Section = styled.div<{ $marginTop?: string }>`
-  margin-bottom: 24px;
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-column: 1 / -1;
+  gap: inherit;
   margin-top: ${(props) => props.$marginTop || "0"};
 `;
 
@@ -40,25 +43,30 @@ const SectionTitle = styled.div<{ $fileMode?: boolean }>`
   margin-bottom: 16px;
   font-weight: 600;
   font-family: "JetBrains Mono", monospace;
+  grid-column: 1 / -1;
 `;
 
 const SettingRow = styled.div`
-  display: flex;
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-column: 1 / -1;
   align-items: center;
-  justify-content: space-between;
   padding: 10px 12px;
   background-color: #141414;
   border-radius: 6px;
-  margin-bottom: 8px;
   border: 1px solid #1a1a1a;
   user-select: none;
+  gap: inherit;
+  box-sizing: border-box;
+  width: 100%;
 `;
 
 const SettingLabelContainer = styled.div`
-  display: flex;
+  display: grid;
+  grid-auto-flow: column;
   align-items: center;
   gap: 8px;
-  min-width: 0;
+  justify-content: start;
 `;
 
 const SettingLabel = styled.span`
@@ -68,12 +76,14 @@ const SettingLabel = styled.span`
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  min-width: 0;
 `;
 
 const SettingValue = styled.span`
   font-size: 12px;
   color: #ccc;
   font-weight: 500;
+  justify-self: end;
 `;
 
 const PauseButton = styled.button<{ $paused: boolean }>`
@@ -105,9 +115,11 @@ const PauseButton = styled.button<{ $paused: boolean }>`
 `;
 
 const FileInputActions = styled.div`
-  display: flex;
+  display: grid;
+  grid-auto-flow: column;
   align-items: center;
   gap: 8px;
+  justify-content: end;
 `;
 
 const HiddenFileInput = styled.input`
@@ -125,9 +137,11 @@ const FileNameLabel = styled(SettingLabel)`
 `;
 
 const FileActionsValue = styled(SettingValue)`
-  display: flex;
+  display: grid;
+  grid-auto-flow: column;
   gap: 8px;
   align-items: center;
+  justify-content: end;
 `;
 
 const DownloadLink = styled.a`
@@ -163,22 +177,24 @@ const StitchStatusMessage = styled.div<{ $isError: boolean }>`
 `;
 
 const ButtonColumn = styled.div`
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-column: 1 / -1;
   gap: 8px;
 `;
 
 const ButtonRow = styled.div`
-  display: flex;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
   gap: 8px;
 `;
 
 const FlexPauseButton = styled(PauseButton)`
-  flex: 1;
+  width: 100%;
 `;
 
 const ClearButton = styled(PauseButton)`
-  flex: 1;
+  width: 100%;
   background: transparent;
 `;
 
@@ -196,17 +212,19 @@ const TruncatedSettingValue = styled(SettingValue)`
 const MetadataGrid = styled.div`
   display: grid;
   grid-template-columns: 1fr 1fr;
+  grid-column: 1 / -1;
   gap: 8px;
 `;
 
 const MetadataItem = styled.div`
-  display: flex;
-  flex-direction: column;
+  display: grid;
   gap: 4px;
   padding: 8px;
   background-color: #141414;
   border-radius: 6px;
   border: 1px solid #1a1a1a;
+  box-sizing: border-box;
+  width: 100%;
 `;
 
 const MetadataLabel = styled.span`

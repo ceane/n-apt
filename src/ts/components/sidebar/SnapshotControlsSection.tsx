@@ -2,69 +2,15 @@ import React from "react";
 import styled from "styled-components";
 
 const Section = styled.div`
-  margin-bottom: 24px;
-`;
-
-const SectionTitleCollapsible = styled.button`
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-column: 1 / -1;
+  gap: inherit;
+  box-sizing: border-box;
   width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: transparent;
-  border: 0;
-  padding: 0;
-  margin: 0 0 16px 0;
-  cursor: pointer;
-  text-align: left;
 `;
 
-const SectionTitleLabel = styled.span`
-  font-size: 11px;
-  color: #555;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  font-weight: 600;
-  font-family: "JetBrains Mono", monospace;
-`;
-
-const SectionTitleToggle = styled.span`
-  font-size: 12px;
-  color: #555;
-  font-family: "JetBrains Mono", monospace;
-  font-weight: 600;
-`;
-
-const CollapsibleBody = styled.div`
-  margin-top: 8px;
-`;
-
-const SettingRow = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 12px;
-  background-color: #141414;
-  border-radius: 6px;
-  margin-bottom: 8px;
-  border: 1px solid #1a1a1a;
-  user-select: none;
-`;
-
-const SettingLabelContainer = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-`;
-
-const SettingLabel = styled.span`
-  font-size: 12px;
-  color: #777;
-  max-width: 210px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-`;
+import { Row, CollapsibleTitle, CollapsibleBody } from "@n-apt/components/ui";
 
 const SettingSelect = styled.select`
   background-color: transparent;
@@ -83,6 +29,8 @@ const SettingSelect = styled.select`
   background-position: right 2px center;
   background-size: 12px;
   padding-right: 20px;
+  box-sizing: border-box;
+  max-width: 100%;
 
   &:hover {
     border-color: #2a2a2a;
@@ -208,102 +156,88 @@ export const SnapshotControlsSection: React.FC<
   onSnapshotGridPreferenceChange,
   onSnapshot,
 }) => {
-  return (
-    <Section>
-      <SectionTitleCollapsible type="button" onClick={onToggle}>
-        <SectionTitleLabel>Snapshot /</SectionTitleLabel>
-        <SectionTitleToggle>{isOpen ? "-" : "+"}</SectionTitleToggle>
-      </SectionTitleCollapsible>
+    return (
+      <Section>
+        <CollapsibleTitle
+          label="Snapshot /"
+          isOpen={isOpen}
+          onToggle={onToggle}
+        />
 
-      {isOpen && (
-        <CollapsibleBody>
-          <SettingRow>
-            <SettingLabelContainer>
-              <SettingLabel>Range</SettingLabel>
-            </SettingLabelContainer>
-            <SettingSelect
-              value={snapshotWhole ? "whole" : "onscreen"}
-              onChange={(e) =>
-                onSnapshotWholeChange(e.target.value === "whole")
-              }
-              style={{ minWidth: "120px" }}
-            >
-              <option value="onscreen">On screen</option>
-              <option value="whole">Whole</option>
-            </SettingSelect>
-          </SettingRow>
-
-          <SettingRow>
-            <SettingLabelContainer>
-              <SettingLabel>Waterfall</SettingLabel>
-            </SettingLabelContainer>
-            <ToggleSwitch>
-              <ToggleSwitchInput
-                type="checkbox"
-                checked={snapshotShowWaterfall}
+        {isOpen && (
+          <CollapsibleBody>
+            <Row label="Range">
+              <SettingSelect
+                value={snapshotWhole ? "whole" : "onscreen"}
                 onChange={(e) =>
-                  onSnapshotShowWaterfallChange(e.target.checked)
+                  onSnapshotWholeChange(e.target.value === "whole")
                 }
-              />
-              <ToggleSwitchSlider />
-            </ToggleSwitch>
-          </SettingRow>
+                style={{ minWidth: "120px" }}
+              >
+                <option value="onscreen">On screen</option>
+                <option value="whole">Whole</option>
+              </SettingSelect>
+            </Row>
 
-          <SettingRow>
-            <SettingLabelContainer>
-              <SettingLabel>Grid</SettingLabel>
-            </SettingLabelContainer>
-            <ToggleSwitch>
-              <ToggleSwitchInput
-                type="checkbox"
-                checked={snapshotGridPreference}
+            <Row label="Waterfall">
+              <ToggleSwitch>
+                <ToggleSwitchInput
+                  type="checkbox"
+                  checked={snapshotShowWaterfall}
+                  onChange={(e) =>
+                    onSnapshotShowWaterfallChange(e.target.checked)
+                  }
+                />
+                <ToggleSwitchSlider />
+              </ToggleSwitch>
+            </Row>
+
+            <Row label="Grid">
+              <ToggleSwitch>
+                <ToggleSwitchInput
+                  type="checkbox"
+                  checked={snapshotGridPreference}
+                  onChange={(e) =>
+                    onSnapshotGridPreferenceChange(e.target.checked)
+                  }
+                />
+                <ToggleSwitchSlider />
+              </ToggleSwitch>
+            </Row>
+
+            <Row label="Stats">
+              <ToggleSwitch>
+                <ToggleSwitchInput
+                  type="checkbox"
+                  checked={snapshotShowStats}
+                  onChange={(e) => onSnapshotShowStatsChange(e.target.checked)}
+                />
+                <ToggleSwitchSlider />
+              </ToggleSwitch>
+            </Row>
+
+            <Row label="Format">
+              <SettingSelect
+                value={snapshotFormat}
                 onChange={(e) =>
-                  onSnapshotGridPreferenceChange(e.target.checked)
+                  onSnapshotFormatChange(e.target.value as "png" | "svg")
                 }
-              />
-              <ToggleSwitchSlider />
-            </ToggleSwitch>
-          </SettingRow>
+                style={{ minWidth: "110px" }}
+              >
+                <option value="png">PNG</option>
+                <option value="svg">SVG</option>
+              </SettingSelect>
+            </Row>
 
-          <SettingRow>
-            <SettingLabelContainer>
-              <SettingLabel>Stats</SettingLabel>
-            </SettingLabelContainer>
-            <ToggleSwitch>
-              <ToggleSwitchInput
-                type="checkbox"
-                checked={snapshotShowStats}
-                onChange={(e) => onSnapshotShowStatsChange(e.target.checked)}
-              />
-              <ToggleSwitchSlider />
-            </ToggleSwitch>
-          </SettingRow>
-
-          <SettingRow>
-            <SettingLabelContainer>
-              <SettingLabel>Format</SettingLabel>
-            </SettingLabelContainer>
-            <SettingSelect
-              value={snapshotFormat}
-              onChange={(e) =>
-                onSnapshotFormatChange(e.target.value as "png" | "svg")
-              }
-              style={{ minWidth: "110px" }}
+            <PauseButton
+              $paused={false}
+              onClick={onSnapshot}
+              style={{ width: "100%", marginTop: "8px" }}
             >
-              <option value="png">PNG</option>
-              <option value="svg">SVG</option>
-            </SettingSelect>
-          </SettingRow>
-
-          <PauseButton
-            $paused={false}
-            onClick={onSnapshot}
-            style={{ width: "100%", marginTop: "8px" }}
-          >
-            Save snapshot
-          </PauseButton>
-        </CollapsibleBody>
-      )}
-    </Section>
-  );
-};
+              Save snapshot
+            </PauseButton>
+          </CollapsibleBody>
+        )}
+      </Section>
+    );
+  };

@@ -19,12 +19,16 @@ import { SignalFeaturesSection } from "@n-apt/components/sidebar/SignalFeaturesS
 import { ConnectionStatusSection } from "@n-apt/components/sidebar/ConnectionStatusSection";
 import FrequencyRangeSlider from "@n-apt/components/sidebar/FrequencyRangeSlider";
 import { formatFrequency } from "@n-apt/consts/sdr";
-import InfoPopover from "@n-apt/components/InfoPopover";
+import { Row } from "@n-apt/components/ui";
 
 const SidebarContent = styled.div`
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
+  align-content: start;
+  gap: 16px;
   padding: 0 24px 24px 24px;
+  box-sizing: border-box;
+  max-width: 100%;
 `;
 
 const CapturingIndicator = styled.div`
@@ -40,7 +44,8 @@ const CapturingIndicator = styled.div`
   font-family: "JetBrains Mono", monospace;
   z-index: 1000;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-  display: flex;
+  display: grid;
+  grid-auto-flow: column;
   align-items: center;
   gap: 8px;
 `;
@@ -63,7 +68,13 @@ const CapturingDot = styled.div`
 `;
 
 const Section = styled.div<{ $marginBottom?: string }>`
-  margin-bottom: ${({ $marginBottom }) => $marginBottom || "32px"};
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-column: 1 / -1;
+  gap: inherit;
+  margin-bottom: ${({ $marginBottom }) => $marginBottom || "0"};
+  box-sizing: border-box;
+  width: 100%;
 `;
 
 const SectionTitle = styled.div<{ $fileMode?: boolean }>`
@@ -74,35 +85,10 @@ const SectionTitle = styled.div<{ $fileMode?: boolean }>`
   margin-bottom: 16px;
   font-weight: 600;
   font-family: "JetBrains Mono", monospace;
+  grid-column: 1 / -1;
 `;
 
-const SettingRow = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 12px;
-  background-color: #141414;
-  border-radius: 6px;
-  margin-bottom: 8px;
-  border: 1px solid #1a1a1a;
-  user-select: none;
-`;
 
-const SettingLabelContainer = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-`;
-
-const SettingLabel = styled.span`
-  font-size: 12px;
-  color: #777;
-  max-width: 210px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-`;
 
 const SettingSelect = styled.select`
   background-color: transparent;
@@ -113,7 +99,7 @@ const SettingSelect = styled.select`
   font-size: 12px;
   font-weight: 500;
   padding: 2px 6px;
-  min-width: 80px;
+  min-width: 0;
   cursor: pointer;
   appearance: none;
   background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ccc' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6,9 12,15 18,9'%3e%3c/polyline%3e%3c/svg%3e");
@@ -577,11 +563,7 @@ export const SpectrumSidebar: React.FC = () => {
         <SectionTitle $fileMode={state.sourceMode === "file"}>
           Source
         </SectionTitle>
-        <SettingRow>
-          <SettingLabelContainer>
-            <SettingLabel>Input</SettingLabel>
-            <InfoPopover title="Source" content="Select the signal source." />
-          </SettingLabelContainer>
+        <Row label="Input" tooltip="Select the signal source.">
           <SettingSelect
             value={state.sourceMode}
             onChange={(e) =>
@@ -593,13 +575,17 @@ export const SpectrumSidebar: React.FC = () => {
             style={{ minWidth: "130px" }}
           >
             <option value="live">
-              {backend === "mock_apt" ? "Mock APT SDR" : backend || "Live SDR"}
+              {backend === "rtl-sdr" || backend === "rtlsdr" || backend === "rtltcp" || backend === "rtl-tcp"
+                ? "RTL-SDR"
+                : backend?.includes("mock")
+                  ? "Mock APT SDR"
+                  : backend || "Mock SDR"}
             </option>
             <option value="file" style={{ color: "#d9aa34" }}>
               File Selection
             </option>
           </SettingSelect>
-        </SettingRow>
+        </Row>
       </Section>
 
       {state.sourceMode === "file" && (
@@ -682,148 +668,150 @@ export const SpectrumSidebar: React.FC = () => {
 
           <Section>
             <SectionTitle>Signal areas of interest</SectionTitle>
-            {Array.isArray(effectiveFrames) && effectiveFrames.length > 0 ? (
-              effectiveFrames.map((frame) => {
-                const label = frame.label;
-                const min = frame.min_mhz;
-                const max = frame.max_mhz;
-                const span = max - min;
+            <div style={{ display: "grid", gap: "16px", width: "100%", gridColumn: "1 / -1" }}>
+              {Array.isArray(effectiveFrames) && effectiveFrames.length > 0 ? (
+                effectiveFrames.map((frame) => {
+                  const label = frame.label;
+                  const min = frame.min_mhz;
+                  const max = frame.max_mhz;
+                  const span = max - min;
 
-                // If this is the active frame and we are zoomed in,
-                // calculate the visual range based on zoom and pan offset
-                // NOTE: Use frequencyRange (SDR center) not frame min/max for center calculation
-                let visibleMin = min;
-                let visibleMax =
-                  min +
-                  (typeof sampleRateMHz === "number"
-                    ? Math.min(sampleRateMHz, span)
-                    : span);
-                let externalFreqRange =
-                  state.activeSignalArea === label
-                    ? (state.frequencyRange ?? undefined)
-                    : undefined;
-
-                if (
-                  state.activeSignalArea === label &&
-                  state.vizZoom > 1 &&
-                  state.frequencyRange
-                ) {
-                  // Use frequencyRange (SDR tuned range) for center calculation
-                  // This matches what FFTCanvas does
-                  const hardwareCenter =
-                    (state.frequencyRange.min + state.frequencyRange.max) / 2;
-                  // Zoom applies to the hardware window width (sample rate), not the full signal area span
-                  const hardwareSpan =
-                    typeof sampleRateMHz === "number"
+                  // If this is the active frame and we are zoomed in,
+                  // calculate the visual range based on zoom and pan offset
+                  // NOTE: Use frequencyRange (SDR center) not frame min/max for center calculation
+                  let visibleMin = min;
+                  let visibleMax =
+                    min +
+                    (typeof sampleRateMHz === "number"
                       ? Math.min(sampleRateMHz, span)
-                      : span;
-                  const visualSpan = hardwareSpan / state.vizZoom;
-                  const halfVisualSpan = visualSpan / 2;
-                  // vizPanOffset is in MHz exactly
-                  let visualCenter = hardwareCenter + state.vizPanOffset;
+                      : span);
+                  let externalFreqRange =
+                    state.activeSignalArea === label
+                      ? (state.frequencyRange ?? undefined)
+                      : undefined;
 
-                  // Clamp visual center so the visual window stays within signal area bounds
-                  visualCenter = Math.max(
-                    min + halfVisualSpan,
-                    Math.min(max - halfVisualSpan, visualCenter),
-                  );
-
-                  visibleMin = visualCenter - halfVisualSpan;
-                  visibleMax = visualCenter + halfVisualSpan;
-
-                  // Don't use externalFrequencyRange when zoomed - let the slider
-                  // use visibleMin/visibleMax props directly for the zoomed view
-                  externalFreqRange = undefined;
-                }
-
-                return (
-                  <FrequencyRangeSlider
-                    key={frame.id}
-                    label={label}
-                    minFreq={min}
-                    maxFreq={max}
-                    visibleMin={visibleMin}
-                    visibleMax={visibleMax}
-                    sampleRateMHz={
+                  if (
+                    state.activeSignalArea === label &&
+                    state.vizZoom > 1 &&
+                    state.frequencyRange
+                  ) {
+                    // Use frequencyRange (SDR tuned range) for center calculation
+                    // This matches what FFTCanvas does
+                    const hardwareCenter =
+                      (state.frequencyRange.min + state.frequencyRange.max) / 2;
+                    // Zoom applies to the hardware window width (sample rate), not the full signal area span
+                    const hardwareSpan =
                       typeof sampleRateMHz === "number"
-                        ? sampleRateMHz /
-                        (state.activeSignalArea === label ? state.vizZoom : 1)
-                        : null
-                    }
-                    limitMarkers={limitMarkers}
-                    isActive={state.activeSignalArea === label}
-                    onActivate={() =>
-                      dispatch({ type: "SET_SIGNAL_AREA", area: label })
-                    }
-                    onRangeChange={(range: { min: number; max: number }) => {
-                      if (
-                        state.activeSignalArea === label &&
-                        state.vizZoom > 1 &&
-                        state.frequencyRange
-                      ) {
-                        const visualCenter = (range.min + range.max) / 2;
-                        const hardwareSpan =
-                          typeof sampleRateMHz === "number"
-                            ? Math.min(sampleRateMHz, span)
-                            : span;
-                        const halfHardware = hardwareSpan / 2;
-                        const currentHardwareCenter =
-                          (state.frequencyRange.min +
-                            state.frequencyRange.max) /
-                          2;
-                        const halfVisualSpan =
-                          hardwareSpan / (2 * state.vizZoom);
-                        const maxPan = halfHardware - halfVisualSpan;
+                        ? Math.min(sampleRateMHz, span)
+                        : span;
+                    const visualSpan = hardwareSpan / state.vizZoom;
+                    const halfVisualSpan = visualSpan / 2;
+                    // vizPanOffset is in MHz exactly
+                    let visualCenter = hardwareCenter + state.vizPanOffset;
 
-                        const desiredPan = visualCenter - currentHardwareCenter;
+                    // Clamp visual center so the visual window stays within signal area bounds
+                    visualCenter = Math.max(
+                      min + halfVisualSpan,
+                      Math.min(max - halfVisualSpan, visualCenter),
+                    );
 
-                        if (Math.abs(desiredPan) <= maxPan + 0.001) {
-                          // Pan is within hardware bounds — just update pan offset
-                          dispatch({ type: "SET_VIZ_PAN", pan: desiredPan });
-                        } else {
-                          // Pan exceeds hardware bounds — retune hardware to reach the edge
-                          let newHardwareCenter = visualCenter;
-                          let newHardwareMin = newHardwareCenter - halfHardware;
-                          let newHardwareMax = newHardwareCenter + halfHardware;
+                    visibleMin = visualCenter - halfVisualSpan;
+                    visibleMax = visualCenter + halfVisualSpan;
 
-                          // Clamp hardware range to signal area bounds
-                          if (newHardwareMin < min) {
-                            newHardwareMin = min;
-                            newHardwareMax = min + hardwareSpan;
-                          }
-                          if (newHardwareMax > max) {
-                            newHardwareMax = max;
-                            newHardwareMin = max - hardwareSpan;
-                          }
-                          newHardwareCenter =
-                            (newHardwareMin + newHardwareMax) / 2;
+                    // Don't use externalFrequencyRange when zoomed - let the slider
+                    // use visibleMin/visibleMax props directly for the zoomed view
+                    externalFreqRange = undefined;
+                  }
 
-                          // Retune hardware
-                          handleRangeChange(label, {
-                            min: newHardwareMin,
-                            max: newHardwareMax,
-                          });
-
-                          // Set remaining pan offset relative to new hardware center
-                          const remainingPan = visualCenter - newHardwareCenter;
-                          dispatch({ type: "SET_VIZ_PAN", pan: remainingPan });
-                        }
-                      } else {
-                        handleRangeChange(label, range);
+                  return (
+                    <FrequencyRangeSlider
+                      key={frame.id}
+                      label={label}
+                      minFreq={min}
+                      maxFreq={max}
+                      visibleMin={visibleMin}
+                      visibleMax={visibleMax}
+                      sampleRateMHz={
+                        typeof sampleRateMHz === "number"
+                          ? sampleRateMHz /
+                          (state.activeSignalArea === label ? state.vizZoom : 1)
+                          : null
                       }
-                    }}
-                    isDeviceConnected={deviceState === "connected"}
-                    externalFrequencyRange={externalFreqRange}
-                  />
-                );
-              })
-            ) : (
-              <div
-                style={{ color: "#777", fontSize: "12px", fontStyle: "italic" }}
-              >
-                No active signal areas
-              </div>
-            )}
+                      limitMarkers={limitMarkers}
+                      isActive={state.activeSignalArea === label}
+                      onActivate={() =>
+                        dispatch({ type: "SET_SIGNAL_AREA", area: label })
+                      }
+                      onRangeChange={(range: { min: number; max: number }) => {
+                        if (
+                          state.activeSignalArea === label &&
+                          state.vizZoom > 1 &&
+                          state.frequencyRange
+                        ) {
+                          const visualCenter = (range.min + range.max) / 2;
+                          const hardwareSpan =
+                            typeof sampleRateMHz === "number"
+                              ? Math.min(sampleRateMHz, span)
+                              : span;
+                          const halfHardware = hardwareSpan / 2;
+                          const currentHardwareCenter =
+                            (state.frequencyRange.min +
+                              state.frequencyRange.max) /
+                            2;
+                          const halfVisualSpan =
+                            hardwareSpan / (2 * state.vizZoom);
+                          const maxPan = halfHardware - halfVisualSpan;
+
+                          const desiredPan = visualCenter - currentHardwareCenter;
+
+                          if (Math.abs(desiredPan) <= maxPan + 0.001) {
+                            // Pan is within hardware bounds — just update pan offset
+                            dispatch({ type: "SET_VIZ_PAN", pan: desiredPan });
+                          } else {
+                            // Pan exceeds hardware bounds — retune hardware to reach the edge
+                            let newHardwareCenter = visualCenter;
+                            let newHardwareMin = newHardwareCenter - halfHardware;
+                            let newHardwareMax = newHardwareCenter + halfHardware;
+
+                            // Clamp hardware range to signal area bounds
+                            if (newHardwareMin < min) {
+                              newHardwareMin = min;
+                              newHardwareMax = min + hardwareSpan;
+                            }
+                            if (newHardwareMax > max) {
+                              newHardwareMax = max;
+                              newHardwareMin = max - hardwareSpan;
+                            }
+                            newHardwareCenter =
+                              (newHardwareMin + newHardwareMax) / 2;
+
+                            // Retune hardware
+                            handleRangeChange(label, {
+                              min: newHardwareMin,
+                              max: newHardwareMax,
+                            });
+
+                            // Set remaining pan offset relative to new hardware center
+                            const remainingPan = visualCenter - newHardwareCenter;
+                            dispatch({ type: "SET_VIZ_PAN", pan: remainingPan });
+                          }
+                        } else {
+                          handleRangeChange(label, range);
+                        }
+                      }}
+                      isDeviceConnected={deviceState === "connected"}
+                      externalFrequencyRange={externalFreqRange}
+                    />
+                  );
+                })
+              ) : (
+                <div
+                  style={{ color: "#777", fontSize: "12px", fontStyle: "italic" }}
+                >
+                  No active signal areas
+                </div>
+              )}
+            </div>
           </Section>
 
           <SignalFeaturesSection

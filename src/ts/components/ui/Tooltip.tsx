@@ -201,12 +201,12 @@ const PopoverText = styled.div`
   line-height: 1.5;
 `;
 
-interface InfoPopoverProps {
+export interface TooltipProps {
   title?: string;
   content: string;
 }
 
-const InfoPopover = ({ title = "Information", content }: InfoPopoverProps) => {
+export const Tooltip = ({ title = "Information", content }: TooltipProps) => {
   const [isVisible, setIsVisible] = useState(false);
   const [isClicked, setIsClicked] = useState(false);
   const [position, setPosition] = useState({ x: 0, y: 0 });
@@ -346,4 +346,4 @@ const InfoPopover = ({ title = "Information", content }: InfoPopoverProps) => {
   );
 };
 
-export default InfoPopover;
+export default Tooltip;

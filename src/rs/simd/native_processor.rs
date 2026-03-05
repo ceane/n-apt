@@ -35,6 +35,10 @@ pub struct NativeProcessor {
   window_type: WindowType,
   /// Precomputed window coefficients (avoids recomputation each frame)
   window_cache: Option<Vec<f32>>,
+  /// Current sample rate
+  sample_rate: u32,
+  /// Current center frequency
+  center_frequency: u32,
 }
 
 impl SIMDProcessor for NativeProcessor {
@@ -51,6 +55,8 @@ impl SIMDProcessor for NativeProcessor {
       ppm: 0.0,
       window_type: WindowType::Hanning,
       window_cache: None,
+      sample_rate: 3_200_000,
+      center_frequency: 1_600_000,
     }
   }
   
@@ -68,6 +74,14 @@ impl SIMDProcessor for NativeProcessor {
     }
     self.window_type = window_type;
   }
+
+  fn set_sample_rate(&mut self, sample_rate: u32) {
+    self.sample_rate = sample_rate;
+  }
+
+  fn set_center_frequency(&mut self, center_frequency: u32) {
+    self.center_frequency = center_frequency;
+  }
   
   fn process_samples(&mut self, samples: &RawSamples, output: &mut [f32]) -> Result<()> {
     if output.len() < self.fft_size {
@@ -75,7 +89,14 @@ impl SIMDProcessor for NativeProcessor {
     }
 
     // Use common IQ conversion
-    let mut buf = IQConverter::convert_to_complex(&samples.data, self.gain, self.ppm, self.fft_size)?;
+    let mut buf = IQConverter::convert_to_complex_with_context(
+        &samples.data, 
+        self.gain, 
+        self.ppm, 
+        self.fft_size,
+        self.sample_rate,
+        self.center_frequency
+    )?;
 
     // Apply window function if needed
     if self.window_type != WindowType::None && self.window_type != WindowType::Rectangular {
@@ -88,6 +109,10 @@ impl SIMDProcessor for NativeProcessor {
 
     // Convert to power spectrum using common function
     PowerSpectrum::to_power_spectrum_db(&buf, output);
+
+    // Apply FFT Shift: convert [DC..+Nyq, -Nyq..-1] to [-Nyq..-1, DC..+Nyq]
+    let half = self.fft_size / 2;
+    output.rotate_right(half);
 
     Ok(())
   }
@@ -116,6 +141,14 @@ impl NativeProcessor {
   /// Sets the window function type and invalidates the cache
   pub fn set_window_type(&mut self, window_type: WindowType) {
     <Self as SIMDProcessor>::set_window_type(self, window_type);
+  }
+
+  pub fn set_sample_rate(&mut self, sample_rate: u32) {
+    <Self as SIMDProcessor>::set_sample_rate(self, sample_rate);
+  }
+
+  pub fn set_center_frequency(&mut self, center_frequency: u32) {
+    <Self as SIMDProcessor>::set_center_frequency(self, center_frequency);
   }
 
   /// Process raw IQ samples into a power spectrum using SIMD-accelerated operations

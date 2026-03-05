@@ -1,9 +1,13 @@
 import React from "react";
 import styled from "styled-components";
-import InfoPopover from "@n-apt/components/InfoPopover";
 
 const Section = styled.div`
-  margin-bottom: 24px;
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-column: 1 / -1;
+  gap: inherit;
+  box-sizing: border-box;
+  width: 100%;
 `;
 
 const SectionTitle = styled.div`
@@ -14,40 +18,16 @@ const SectionTitle = styled.div`
   margin-bottom: 16px;
   font-weight: 600;
   font-family: "JetBrains Mono", monospace;
+  grid-column: 1 / -1;
 `;
 
-const SettingRow = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 12px;
-  background-color: #141414;
-  border-radius: 6px;
-  margin-bottom: 8px;
-  border: 1px solid #1a1a1a;
-  user-select: none;
-`;
-
-const SettingLabelContainer = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-`;
-
-const SettingLabel = styled.span`
-  font-size: 12px;
-  color: #777;
-  max-width: 210px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-`;
+import { Row } from "@n-apt/components/ui";
 
 const SettingValue = styled.span`
   font-size: 12px;
   color: #ccc;
   font-weight: 500;
+  justify-self: end;
 `;
 
 const SettingSelect = styled.select`
@@ -67,6 +47,8 @@ const SettingSelect = styled.select`
   background-position: right 2px center;
   background-size: 12px;
   padding-right: 20px;
+  box-sizing: border-box;
+  max-width: 100%;
 
   &:hover {
     border-color: #2a2a2a;
@@ -96,6 +78,8 @@ const SettingInput = styled.input`
   padding: 4px 6px;
   width: 70px;
   text-align: right;
+  box-sizing: border-box;
+  max-width: 100%;
 
   /* Hide number input spinners */
   &::-webkit-outer-spin-button,
@@ -110,7 +94,8 @@ const SettingInput = styled.input`
 `;
 
 const InputGroup = styled.div`
-  display: flex;
+  display: grid;
+  grid-auto-flow: column;
   align-items: center;
   gap: 4px;
 `;
@@ -173,14 +158,7 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
   return (
     <Section>
       <SectionTitle>Signal display</SectionTitle>
-      <SettingRow>
-        <SettingLabelContainer>
-          <SettingLabel>Sample Size</SettingLabel>
-          <InfoPopover
-            title="Sample Size (Bandwidth)"
-            content="Radio signal bandwidth capacity. Determines the range of frequencies that can be intercepted and processed from transmissions."
-          />
-        </SettingLabelContainer>
+      <Row label="Sample Size" tooltipTitle="Sample Size (Bandwidth)" tooltip="Radio signal bandwidth capacity. Determines the range of frequencies that can be intercepted and processed from transmissions.">
         <SettingValue>
           {sourceMode === "file"
             ? fileCapturedRange
@@ -188,31 +166,17 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
               : "No files"
             : `${(maxSampleRate / 1000000).toFixed(1)}MHz`}
         </SettingValue>
-      </SettingRow>
+      </Row>
       {sourceMode === "file" && fileCapturedRange && (
-        <SettingRow>
-          <SettingLabelContainer>
-            <SettingLabel>Captured Range</SettingLabel>
-            <InfoPopover
-              title="Captured Frequency Range"
-              content="The frequency range covered by the selected I/Q capture files, derived from the center frequencies encoded in the filenames."
-            />
-          </SettingLabelContainer>
+        <Row label="Captured Range" tooltipTitle="Captured Frequency Range" tooltip="The frequency range covered by the selected I/Q capture files, derived from the center frequencies encoded in the filenames.">
           <SettingValue>
             {fileCapturedRange.min.toFixed(2)}MHz to{" "}
             {fileCapturedRange.max.toFixed(2)}MHz
           </SettingValue>
-        </SettingRow>
+        </Row>
       )}
       {sourceMode === "live" ? (
-        <SettingRow>
-          <SettingLabelContainer>
-            <SettingLabel>Frame Rate</SettingLabel>
-            <InfoPopover
-              title="Frame Rate"
-              content={`Signal processing speed. Higher rates provide more real-time analysis of transmissions. Current maximum theoretical rate: ${maxFrameRate} fps based on current FFT size and bandwidth capacity.`}
-            />
-          </SettingLabelContainer>
+        <Row label="Frame rate (logical)" tooltipTitle="Frame Rate" tooltip={`Signal processing speed. Higher rates provide more real-time analysis of transmissions. Current maximum theoretical rate: ${maxFrameRate} fps based on current FFT size and bandwidth capacity.`}>
           <InputGroup>
             <SettingInput
               type="number"
@@ -249,24 +213,14 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
             />
             <UnitLabel>fps</UnitLabel>
           </InputGroup>
-        </SettingRow>
+        </Row>
       ) : (
-        <SettingRow>
-          <SettingLabelContainer>
-            <SettingLabel>Frame Rate</SettingLabel>
-          </SettingLabelContainer>
+        <Row label="Frame rate (logical)">
           <SettingValue>4 fps</SettingValue>
-        </SettingRow>
+        </Row>
       )}
       {sourceMode === "live" ? (
-        <SettingRow>
-          <SettingLabelContainer>
-            <SettingLabel>FFT Size</SettingLabel>
-            <InfoPopover
-              title="FFT Size"
-              content="Frequency resolution. Larger sizes provide better detection of specific signal patterns in transmissions but reduce processing speed."
-            />
-          </SettingLabelContainer>
+        <Row label="FFT Size" tooltipTitle="FFT Size" tooltip="Frequency resolution. Larger sizes provide better detection of specific signal patterns in transmissions but reduce processing speed.">
           <SettingSelect
             value={fftSize}
             onChange={(e) => {
@@ -299,24 +253,14 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
               </>
             )}
           </SettingSelect>
-        </SettingRow>
+        </Row>
       ) : (
-        <SettingRow>
-          <SettingLabelContainer>
-            <SettingLabel>FFT Size</SettingLabel>
-          </SettingLabelContainer>
+        <Row label="FFT Size">
           <SettingValue>1024</SettingValue>
-        </SettingRow>
+        </Row>
       )}
-      <SettingRow>
-        <SettingLabelContainer>
-          <SettingLabel>FFT Window</SettingLabel>
-          <InfoPopover
-            title="FFT Window"
-            content="Signal filtering. Different windows optimize for detecting specific types of patterns and interactions in transmissions."
-          />
-        </SettingLabelContainer>
-        <SettingSelect
+      <Row label="FFT Window" tooltipTitle="FFT Window" tooltip="Signal filtering. Different windows optimize for detecting specific types of patterns and interactions in transmissions.">
+        <WideSettingSelect
           value={fftWindow}
           onChange={(e) => {
             const val = e.target.value;
@@ -328,16 +272,9 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
           <option value="Hamming">Hamming</option>
           <option value="Hanning">Hanning</option>
           <option value="Blackman">Blackman</option>
-        </SettingSelect>
-      </SettingRow>
-      <SettingRow>
-        <SettingLabelContainer>
-          <SettingLabel>Temporal Resolution</SettingLabel>
-          <InfoPopover
-            title="Display Temporal Resolution"
-            content="Signal visualization precision. Low blends signal patterns, medium shows averaged activity, high displays exact signal interactions with sharp transitions, with the ability to see patterns (like dots) in the waterfall as the signal rises and falls sharply."
-          />
-        </SettingLabelContainer>
+        </WideSettingSelect>
+      </Row>
+      <Row label="Temporal Resolution" tooltipTitle="Display Temporal Resolution" tooltip="Signal visualization precision. Low blends signal patterns, medium shows averaged activity, high displays exact signal interactions with sharp transitions, with the ability to see patterns (like dots) in the waterfall as the signal rises and falls sharply.">
         <WideSettingSelect
           value={temporalResolution}
           onChange={(e) => {
@@ -350,7 +287,7 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
           <option value="medium">Medium</option>
           <option value="high">High</option>
         </WideSettingSelect>
-      </SettingRow>
+      </Row>
     </Section>
   );
 };

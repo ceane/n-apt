@@ -114,7 +114,7 @@ pub async fn handle_ws_connection(
     "max_sample_rate": max_sample_rate,
     "channels": channels,
     "sdr_settings": sdr_settings,
-    "backend": if device_connected { "rtl-sdr" } else { "mock_apt" }
+    "device": if device_connected { "rtl-sdr" } else { "mock_apt" }
   });
 
   if ws_sender.send(Message::Text(initial_status.to_string())).await.is_err() {

@@ -49,7 +49,7 @@ export const SPHERE_MARKER_COLOR = "#00ffff";
 export const SPHERE_MARKER_BASE_INTENSITY = 0.8;
 export const CONTROL_PANEL_WIDTH = "200px";
 
-// InfoPopover constants
+// Tooltip constants
 export const POPOVER_WIDTH = 280;
 export const POPOVER_PADDING = 16;
 export const INFO_ICON_SIZE = 16;

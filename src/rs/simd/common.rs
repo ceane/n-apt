@@ -20,6 +20,12 @@ pub trait SIMDProcessor {
   /// Sets the PPM correction for frequency offset
   fn set_ppm(&mut self, ppm: f32);
   
+  /// Sets the sample rate for frequency-dependent calculations
+  fn set_sample_rate(&mut self, sample_rate: u32);
+
+  /// Sets the center frequency for frequency-dependent calculations
+  fn set_center_frequency(&mut self, center_frequency: u32);
+  
   /// Sets the window function type
   fn set_window_type(&mut self, window_type: WindowType);
   
@@ -176,26 +182,44 @@ impl IQConverter {
     ppm: f32, 
     fft_size: usize
   ) -> Result<Vec<Complex<f32>>> {
+    Self::convert_to_complex_with_context(data, gain, ppm, fft_size, 3_200_000, 1_600_000)
+  }
+
+  /// Convert raw IQ bytes to complex numbers with gain and PPM correction (frequency-aware)
+  pub fn convert_to_complex_with_context(
+    data: &[u8], 
+    gain: f32, 
+    ppm: f32, 
+    fft_size: usize,
+    sample_rate: u32,
+    center_frequency: u32
+  ) -> Result<Vec<Complex<f32>>> {
     if data.len() < fft_size * 2 {
       return Err(anyhow::anyhow!("Insufficient input samples"));
     }
 
     let mut complex_re = vec![0.0f32; fft_size];
     let mut complex_im = vec![0.0f32; fft_size];
-    let ppm_factor = 1.0 + ppm / 1_000_000.0;
+    
+    // PPM correction shifts the LO. At frequency f, the shift is f * ppm / 1e6 Hz.
+    // Digital rotation by theta per sample shifts spectrum by theta * fs / (2 * PI) Hz.
+    // So theta = 2 * PI * (f * ppm / 1e6) / fs.
+    // We use the center_frequency as the base for this shift.
+    let phase_step = 2.0 * std::f32::consts::PI * (center_frequency as f32 * ppm / 1_000_000.0) / sample_rate as f32;
+    // We pass 1.0 + phase_step to the ARM optimized function which expects a "ppm_factor"
+    // Wait, the ARM function uses: phase = 2.0 * PI * (ppm_factor - 1.0) * i / fft_size.
+    // I should change the ARM function to accept actual phase_step per sample.
     
     ARMOptimizedSIMD::convert_to_complex_arm_optimized(
         data, 
         &mut complex_re, 
         &mut complex_im, 
         gain, 
-        ppm_factor, 
+        1.0 + (phase_step * fft_size as f32 / (2.0 * std::f32::consts::PI)), 
         fft_size
     );
     
     // Interleave back into Complex<f32> for backward compatibility.
-    // Transitioning to Structure-of-Arrays (SoA) throughout the pipeline 
-    // would eliminate this overhead entirely.
     let buf = complex_re.into_iter()
         .zip(complex_im.into_iter())
         .map(|(re, im)| Complex::new(re, im))

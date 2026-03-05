@@ -263,6 +263,10 @@ impl FFTProcessor {
     }
   }
 
+  pub fn simd_processor_mut(&mut self) -> Option<&mut UnifiedProcessor> {
+    self.simd_processor.as_mut()
+  }
+
   /// Clear waterfall history
   pub fn clear_waterfall(&mut self) {
     self.waterfall_history.clear();
@@ -438,6 +442,10 @@ impl FFTProcessor {
       power.push(db_value.min(0.0)); // Clamp to 0dB maximum
     }
 
+    // Shift FFT: Move DC to the center
+    let half = self.config.fft_size / 2;
+    power.rotate_right(half);
+
     // Apply zoom if configured (SDR++ style)
     let zoomed_power = if self.config.zoom_width < self.config.fft_size {
       crate::fft::zoom_fft(&power, self.config.zoom_offset, self.config.zoom_width, self.config.zoom_width)
@@ -516,6 +524,13 @@ impl FFTProcessor {
       power.push(db_value.min(0.0)); // Clamp to 0dB maximum
     }
 
+    // Shift FFT: Move DC to the center
+    let half = self.config.fft_size / 2;
+    power.rotate_right(half);
+    
+    // Waterfall should also be shifted for consistency
+    let waterfall_shifted = power.clone();
+
     // Apply zoom if configured (SDR++ style)
     let zoomed_power = if self.config.zoom_width < self.config.fft_size {
       crate::fft::zoom_fft(&power, self.config.zoom_offset, self.config.zoom_width, self.config.zoom_width)
@@ -534,7 +549,7 @@ impl FFTProcessor {
 
     Ok(FFTResult {
       power_spectrum: zoomed_power,
-      waterfall: power,
+      waterfall: waterfall_shifted,
       is_mock: true,
       timestamp: now_millis(),
     })

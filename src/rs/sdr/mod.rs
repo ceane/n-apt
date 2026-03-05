@@ -18,6 +18,9 @@ pub trait SdrDevice: Send {
     /// Device type identifier
     fn device_type(&self) -> &'static str;
     
+    /// Get a formatted device info string
+    fn get_device_info(&self) -> String;
+    
     /// Initialize the device and prepare for operation
     fn initialize(&mut self) -> Result<()>;
     
@@ -26,6 +29,9 @@ pub trait SdrDevice: Send {
     
     /// Read IQ samples from the device
     fn read_samples(&mut self, fft_size: usize) -> Result<RawSamples>;
+    
+    /// Set sample rate in Hz
+    fn set_sample_rate(&mut self, rate: u32) -> Result<()>;
     
     /// Set center frequency in Hz
     fn set_center_frequency(&mut self, freq: u32) -> Result<()>;

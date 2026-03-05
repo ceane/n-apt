@@ -29,14 +29,16 @@ const SectionDescription = styled.div`
 `;
 
 const TabBar = styled.div`
-  display: flex;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
   gap: 0;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   margin-bottom: 16px;
 `;
 
 const Tab = styled.button<{ $active: boolean }>`
-  flex: 1;
+  width: 100%;
   padding: 10px 8px;
   border: none;
   border-bottom: 2px solid ${(props) => (props.$active ? "rgba(123, 97, 255, 0.9)" : "transparent")};

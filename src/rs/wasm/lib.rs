@@ -92,12 +92,18 @@ impl WASMSIMDProcessor {
         self.fft.process(&mut iq_samples);
         
         // Calculate power spectrum
-        iq_samples.iter()
+        let mut power: Vec<f32> = iq_samples.iter()
             .map(|&complex| {
                 let magnitude = (complex.re * complex.re + complex.im * complex.im).sqrt();
                 20.0 * magnitude.log10()
             })
-            .collect()
+            .collect();
+            
+        // Shift FFT: Move DC to the center
+        let half = self.fft_size / 2;
+        power.rotate_right(half);
+        
+        power
     }
     
     #[wasm_bindgen]
@@ -119,12 +125,18 @@ impl WASMSIMDProcessor {
         self.fft.process(&mut buf);
         
         // Calculate power spectrum
-        buf.iter()
+        let mut power: Vec<f32> = buf.iter()
             .map(|&complex| {
                 let magnitude = (complex.re * complex.re + complex.im * complex.im).sqrt();
                 20.0 * magnitude.log10()
             })
-            .collect()
+            .collect();
+            
+        // Shift FFT: Move DC to the center
+        let half = self.fft_size / 2;
+        power.rotate_right(half);
+        
+        power
     }
     
     #[wasm_bindgen]

@@ -1,70 +1,23 @@
 import React, { useState } from "react";
 import styled from "styled-components";
-import InfoPopover from "@n-apt/components/InfoPopover";
 
 const Section = styled.div`
-  margin-bottom: 24px;
-`;
-
-const CollapsibleSectionHeader = styled.button`
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-column: 1 / -1;
+  gap: inherit;
+  box-sizing: border-box;
   width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: transparent;
-  border: 0;
-  padding: 0;
-  margin: 0 0 16px 0;
-  cursor: pointer;
-  text-align: left;
 `;
 
-const CollapsibleSectionLabel = styled.span`
-  font-size: 11px;
-  color: #555;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  font-weight: 600;
-  font-family: "JetBrains Mono", monospace;
-`;
+import { Row, CollapsibleTitle } from "@n-apt/components/ui";
 
-const CollapsibleSectionToggle = styled.span`
-  font-size: 12px;
-  color: #555;
-  font-family: "JetBrains Mono", monospace;
-  font-weight: 600;
-`;
 
-const SettingRow = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 12px;
-  background-color: #141414;
-  border-radius: 6px;
-  margin-bottom: 8px;
-  border: 1px solid #1a1a1a;
-  user-select: none;
-`;
-
-const SettingLabelContainer = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-`;
-
-const SettingLabel = styled.span`
-  font-size: 12px;
-  color: #777;
-  max-width: 210px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-`;
 
 const HeterodyningContainer = styled.div`
-  display: flex;
+  display: grid;
+  grid-auto-flow: column;
+  justify-content: start;
   align-items: center;
   gap: 12px;
   font-size: 12px;
@@ -114,36 +67,16 @@ export const SignalFeaturesSection: React.FC<SignalFeaturesSectionProps> = ({
 
   return (
     <Section>
-      <CollapsibleSectionHeader
-        type="button"
-        onClick={() => setIsOpen((prev) => !prev)}
-      >
-        <CollapsibleSectionLabel>Signal Features /</CollapsibleSectionLabel>
-        <CollapsibleSectionToggle>
-          {isOpen ? "-" : "+"}
-        </CollapsibleSectionToggle>
-      </CollapsibleSectionHeader>
+      <CollapsibleTitle
+        label="Signal Features /"
+        isOpen={isOpen}
+        onToggle={() => setIsOpen((prev) => !prev)}
+      />
 
       {isOpen && (
         <>
-          <SettingRow>
-            <SettingLabelContainer>
-              <SettingLabel>
-                N-APT
-                <span
-                  role="img"
-                  aria-label="brain"
-                  style={{ marginLeft: "6px" }}
-                >
-                  🧠
-                </span>
-              </SettingLabel>
-              <InfoPopover
-                title="N-APT"
-                content="N-APT stands for: Neuro Automatic Picture Transmission. These radio waves are modulated akin to APT signals (unknown reasons at this time) but unique in their ability to intercept, process and alter the brain and nervous system.<br><br>Through LF/HF frequencies (frequencies that survive attenuation of the skull and/or body; and lose less energy with longer distances/obstacles), it functions from triangulation, time of flight depth, heterodyning (it's key feature which ensures bioelectrical reception), phase shifting, center frequencies, impedance & endpoint signals processing (suspected as Kaiser, Bayes' Theorem/Posterior Probability, etc.).<br><br>It is an unprecedented formula of radio waves and neurotechnology with nascent efforts to decipher its modulation and content."
-              />
-            </SettingLabelContainer>
-            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          <Row label={<>N-APT<span role="img" aria-label="brain" style={{ marginLeft: "6px" }}>🧠</span></>} tooltipTitle="N-APT" tooltip="N-APT stands for: Neuro Automatic Picture Transmission. These radio waves are modulated akin to APT signals (unknown reasons at this time) but unique in their ability to intercept, process and alter the brain and nervous system.<br><br>Through LF/HF frequencies (frequencies that survive attenuation of the skull and/or body; and lose less energy with longer distances/obstacles), it functions from triangulation, time of flight depth, heterodyning (it's key feature which ensures bioelectrical reception), phase shifting, center frequencies, impedance & endpoint signals processing (suspected as Kaiser, Bayes' Theorem/Posterior Probability, etc.).<br><br>It is an unprecedented formula of radio waves and neurotechnology with nascent efforts to decipher its modulation and content.">
+            <div style={{ display: "grid", gridAutoFlow: "column", justifyItems: "end", alignItems: "center", gap: "12px" }}>
               <div style={{ fontSize: "12px", color: "#ccc", fontWeight: 500 }}>
                 {classificationStatusText}
               </div>
@@ -165,17 +98,14 @@ export const SignalFeaturesSection: React.FC<SignalFeaturesSectionProps> = ({
                 Classify?
               </button>
             </div>
-          </SettingRow>
+          </Row>
 
-          <SettingRow>
-            <SettingLabelContainer>
-              <SettingLabel>Heterodyned?</SettingLabel>
-            </SettingLabelContainer>
+          <Row label="Heterodyned?">
             <HeterodyningContainer>
               No
               <VerifyButton>Verify</VerifyButton>
             </HeterodyningContainer>
-          </SettingRow>
+          </Row>
         </>
       )}
     </Section>

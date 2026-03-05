@@ -2,7 +2,7 @@
 //! Handles real-time spectrum data streaming to frontend clients
 
 use anyhow::Result;
-use log::{info, warn, error};
+use log::{info, warn, error, debug};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
@@ -45,9 +45,13 @@ impl WebSocketServer {
         let (broadcast_tx, _) = broadcast::channel(1000);
         let (spectrum_tx, _) = broadcast::channel(1000);
         
+        let shared = SharedState::new();
+        // Sync initial state with SharedState
+        shared.update_device_status(!sdr_processor.is_mock(), sdr_processor.get_device_info());
+
         Self {
             sdr_processor: Arc::new(Mutex::new(sdr_processor)),
-            shared_state: SharedState::new(),
+            shared_state: shared,
             broadcast_tx,
             spectrum_tx,
         }
@@ -65,6 +69,7 @@ impl WebSocketServer {
         tokio::spawn(async move {
             let mut frame_count = 0u64;
             let mut last_stats = Instant::now();
+            let mut last_poll = Instant::now();
             loop {
                 let start_time = Instant::now();
                 let target_fps = {
@@ -87,8 +92,8 @@ impl WebSocketServer {
                             // must NOT retune the hardware or they corrupt capture frames.
                             if processor.capture_active {
                                 log::debug!("Ignoring SetFrequency during active capture");
-                            } else if let Err(e) = processor.set_center_frequency(freq) {
-                                error!("Failed to set frequency: {}", e);
+                            } else {
+                                processor.pending_freq = Some(freq);
                             }
                         }
                         crate::server::types::SdrCommand::SetGain(gain) => {
@@ -112,8 +117,22 @@ impl WebSocketServer {
                             }
                         }
                         crate::server::types::SdrCommand::RestartDevice => {
-                            if let Err(e) = processor.initialize() {
-                                error!("Failed to restart device: {}", e);
+                            let new_device_res = crate::sdr::SdrDeviceFactory::create_device();
+                            match new_device_res {
+                                Ok(new_device) => {
+                                    if let Err(e) = processor.swap_device(new_device) {
+                                        error!("Failed to swap SDR processor device: {}", e);
+                                    } else {
+                                        // Update SharedState on successful swap
+                                        shared_state.update_device_status(!processor.is_mock(), processor.get_device_info());
+                                    }
+                                }
+                                Err(e) => {
+                                    error!("Failed to create new device on restart: {}", e);
+                                    if let Err(e) = processor.initialize() {
+                                        error!("Failed to restart existing device: {}", e);
+                                    }
+                                }
                             }
                         }
                         crate::server::types::SdrCommand::StartCapture { job_id, fragments, duration_s, file_type, acquisition_mode, encrypted, fft_window, .. } => {
@@ -224,6 +243,33 @@ impl WebSocketServer {
                         }
                         _ => {
                             warn!("Unhandled command: {:?}", cmd);
+                        }
+                    }
+                }
+
+                // 1b. Auto-detect RTL-SDR if in mock mode
+                if last_poll.elapsed() >= Duration::from_secs(2) {
+                    last_poll = Instant::now();
+                    let mut processor = sdr_processor.lock().await;
+                    if processor.is_mock() && !processor.capture_active {
+                        let count = crate::sdr::rtlsdr::device::RtlSdrDevice::get_device_count();
+                        if count > 0 {
+                            info!("Auto-detected {} RTL-SDR device(s). Attempting to hot-swap...", count);
+                            match crate::sdr::SdrDeviceFactory::create_device() {
+                                Ok(new_device) => {
+                                    if !new_device.device_type().contains("Mock") {
+                                        if let Err(e) = processor.swap_device(new_device) {
+                                            error!("Failed to auto-swap to detected RTL-SDR: {}", e);
+                                        } else {
+                                            shared_state.update_device_status(true, processor.get_device_info());
+                                            info!("Successfully hot-swapped to RTL-SDR");
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    debug!("Auto-detection found device count > 0 but failed to open: {}", e);
+                                }
+                            }
                         }
                     }
                 }

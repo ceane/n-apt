@@ -103,7 +103,8 @@ impl websocket_server::WebSocketServer {
                 HeaderValue::from_static("require-corp"),
             ));
 
-        Router::new()
+        // Standard routes that benefit from compression (JSON, text, etc.)
+        let compressible_routes = Router::new()
             // Authentication endpoints
             .route("/auth/info", get(crate::authentication::auth_handlers::auth_info_handler))
             .route("/auth/challenge", post(crate::authentication::auth_handlers::auth_challenge_handler))
@@ -115,7 +116,6 @@ impl websocket_server::WebSocketServer {
             .route("/auth/passkey/auth/finish", post(crate::authentication::auth_handlers::passkey_auth_finish_handler))
             
             .route("/status", get(http_endpoints::status_handler))
-            .route("/api/capture/download", get(http_endpoints::capture_download_handler))
             
             // Agent endpoints
             .route("/api/agent/info", get(http_endpoints::agent_info_handler))
@@ -124,9 +124,14 @@ impl websocket_server::WebSocketServer {
             
             // WebSocket endpoint
             .route("/ws", get(websocket_handlers::ws_upgrade_handler))
-            
+            .layer(tower_http::compression::CompressionLayer::new());
+
+        Router::new()
+            .merge(compressible_routes)
+            // Exclude capture downloads from compression to avoid Content-Length mismatches 
+            // and unnecessary CPU overhead on large binary files.
+            .route("/api/capture/download", get(http_endpoints::capture_download_handler))
             .layer(cors)
-            // .layer(CompressionLayer::new()) // Disabled to prevent Content-Length mismatch on large binary captures
             .layer(security_headers)
             .with_state(state)
     }

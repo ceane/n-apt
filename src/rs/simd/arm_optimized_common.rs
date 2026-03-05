@@ -700,24 +700,31 @@ impl ARMOptimizedSIMD {
     /// Processes 4 complex samples at once.
     /// Performance: 3-5x faster than scalar implementation.
     pub fn convert_to_complex_arm_optimized(
-        data: &[u8],
-        complex_re: &mut [f32],
-        complex_im: &mut [f32],
-        gain: f32,
-        ppm_factor: f32,
-        fft_size: usize,
+        data: &[u8], 
+        complex_re: &mut [f32], 
+        complex_im: &mut [f32], 
+        gain: f32, 
+        phase_step: f32, 
+        fft_size: usize
     ) {
-        let len = fft_size.min(data.len() / 2).min(complex_re.len()).min(complex_im.len());
-        if len == 0 { return; }
+        let len = complex_re.len();
+        if data.len() < len * 2 || complex_im.len() < len {
+            return;
+        }
 
-        #[cfg(any(target_arch = "wasm32", target_arch = "aarch64"))]
+        #[cfg(target_arch = "aarch64")]
         {
-            Self::convert_to_complex_arm_impl(data, complex_re, complex_im, gain, ppm_factor, fft_size, len);
+            Self::convert_to_complex_arm_impl(data, complex_re, complex_im, gain, phase_step, fft_size, len);
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            Self::convert_to_complex_arm_impl(data, complex_re, complex_im, gain, phase_step, fft_size, len);
         }
 
         #[cfg(not(any(target_arch = "wasm32", target_arch = "aarch64")))]
         {
-            Self::convert_to_complex_scalar_impl(data, complex_re, complex_im, gain, ppm_factor, fft_size, len);
+            Self::convert_to_complex_scalar_impl(data, complex_re, complex_im, gain, phase_step, fft_size, len);
         }
     }
 
@@ -866,8 +873,8 @@ impl ARMOptimizedSIMD {
         complex_re: &mut [f32],
         complex_im: &mut [f32],
         gain: f32,
-        ppm_factor: f32,
-        fft_size: usize,
+        phase_step: f32,
+        _fft_size: usize,
         len: usize
     ) {
         use std::arch::aarch64::*;
@@ -877,7 +884,7 @@ impl ARMOptimizedSIMD {
             let v_bias = vdupq_n_f32(128.0);
             
             // Use f64 for phase increment to avoid precision loss over time
-            let pps_f64 = 2.0 * std::f64::consts::PI * (ppm_factor as f64 - 1.0) / fft_size as f64;
+            let pps_f64 = phase_step as f64;
             
             let mut i = 0;
             while i + 4 <= len {
@@ -924,7 +931,7 @@ impl ARMOptimizedSIMD {
             while i < len {
                 let i_val = (data[i * 2] as f32 - 128.0) / 128.0 * gain;
                 let q_val = (data[i * 2 + 1] as f32 - 128.0) / 128.0 * gain;
-                let phase = 2.0 * std::f32::consts::PI * (ppm_factor - 1.0) * i as f32 / fft_size as f32;
+                let phase = phase_step * i as f32;
                 complex_re[i] = i_val * phase.cos() - q_val * phase.sin();
                 complex_im[i] = i_val * phase.sin() + q_val * phase.cos();
                 i += 1;
@@ -938,8 +945,8 @@ impl ARMOptimizedSIMD {
         complex_re: &mut [f32],
         complex_im: &mut [f32],
         gain: f32,
-        ppm_factor: f32,
-        fft_size: usize,
+        phase_step: f32,
+        _fft_size: usize,
         len: usize
     ) {
         use std::arch::wasm32::*;
@@ -981,7 +988,7 @@ impl ARMOptimizedSIMD {
                     f32x4_extract_lane::<3>(f_high)
                 );
 
-                let pps_f64 = 2.0 * std::f64::consts::PI * (ppm_factor as f64 - 1.0) / fft_size as f64;
+                let pps_f64 = phase_step as f64;
                 let (p0_im, p0_re) = (i as f64 * pps_f64).sin_cos();
                 let (p1_im, p1_re) = ((i + 1) as f64 * pps_f64).sin_cos();
                 let (p2_im, p2_re) = ((i + 2) as f64 * pps_f64).sin_cos();
@@ -1001,7 +1008,7 @@ impl ARMOptimizedSIMD {
             while i < len {
                 let i_val = (data[i * 2] as f32 - 128.0) / 128.0 * gain;
                 let q_val = (data[i * 2 + 1] as f32 - 128.0) / 128.0 * gain;
-                let phase = 2.0 * std::f32::consts::PI * (ppm_factor - 1.0) * i as f32 / fft_size as f32;
+                let phase = phase_step * i as f32;
                 complex_re[i] = i_val * phase.cos() - q_val * phase.sin();
                 complex_im[i] = i_val * phase.sin() + q_val * phase.cos();
                 i += 1;
@@ -1015,14 +1022,14 @@ impl ARMOptimizedSIMD {
         complex_re: &mut [f32],
         complex_im: &mut [f32],
         gain: f32,
-        ppm_factor: f32,
-        fft_size: usize,
+        phase_step: f32,
+        _fft_size: usize,
         len: usize
     ) {
         for i in 0..len {
             let i_val = (data[i * 2] as f32 - 128.0) / 128.0 * gain;
             let q_val = (data[i * 2 + 1] as f32 - 128.0) / 128.0 * gain;
-            let phase = 2.0 * std::f32::consts::PI * (ppm_factor - 1.0) * i as f32 / fft_size as f32;
+            let phase = phase_step * i as f32;
             complex_re[i] = i_val * phase.cos() - q_val * phase.sin();
             complex_im[i] = i_val * phase.sin() + q_val * phase.cos();
         }

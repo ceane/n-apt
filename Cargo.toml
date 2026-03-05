@@ -78,6 +78,7 @@ uuid = { version = "1", features = ["v4"] }
 notify = "6.0"
 serde_yaml = "0.9"
 indexmap = { version = "2.0", features = ["serde"] }
+crossbeam-channel = "0.5"
 
 [dev-dependencies]
 doc-comment = "0.3"

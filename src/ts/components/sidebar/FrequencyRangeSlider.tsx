@@ -30,19 +30,22 @@ interface FrequencyRangeSliderProps {
 
 // Styled Components
 const SliderWrapper = styled.div`
-  display: flex;
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-columns: max-content 1fr;
   align-items: center;
   gap: 12px;
   margin-bottom: 16px;
   user-select: none;
+  box-sizing: border-box;
+  max-width: 100%;
 `;
 
 const LabelContainer = styled.div`
-  display: flex;
+  display: grid;
   align-items: center;
-  justify-content: center;
+  justify-items: center;
   width: 32px;
-  flex-shrink: 0;
 `;
 
 const Label = styled.span<{ $isActive: boolean }>`
@@ -53,7 +56,6 @@ const Label = styled.span<{ $isActive: boolean }>`
 `;
 
 const SliderContainer = styled.div<{ $isActive: boolean }>`
-  flex: 1;
   user-select: none;
   outline: none;
   padding: 8px;
@@ -62,6 +64,8 @@ const SliderContainer = styled.div<{ $isActive: boolean }>`
   background-color: ${(props) => (props.$isActive ? `${COLORS.primary}20` : "transparent")};
   cursor: pointer;
   transition: border-color 0.2s ease, background-color 0.2s ease;
+  box-sizing: border-box;
+  min-width: 0;
 `;
 
 const RangeTrack = styled.div`
@@ -80,8 +84,9 @@ const RangeLabels = styled.div`
   left: 0;
   right: 0;
   bottom: 0;
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  justify-items: end;
   align-items: center;
   padding: ${RANGE_LABELS_PADDING};
   font-size: ${RANGE_LABELS_FONT_SIZE};
@@ -108,9 +113,9 @@ const VisibleWindow = styled.div<{ $isActive: boolean }>`
     props.$isActive ? COLORS.activeBackground : COLORS.inactiveBackground};
   border: 1px solid ${(props) => (props.$isActive ? COLORS.primary : COLORS.textMuted)};
   cursor: grab;
-  display: flex;
+  display: grid;
   align-items: center;
-  justify-content: center;
+  justify-items: center;
   user-select: none;
   box-sizing: border-box;
   min-width: min-content;
@@ -443,6 +448,7 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
             <span
               style={{
                 visibility: labelPositions.hideLeftLabel ? "hidden" : "visible",
+                justifySelf: "start",
               }}
             >
               {formatFreq(minFreq)}

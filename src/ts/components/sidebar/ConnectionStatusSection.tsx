@@ -6,21 +6,27 @@ import type {
 } from "@n-apt/hooks/useWebSocket";
 
 const ConnectionStatusContainer = styled.div`
-  display: flex;
-  align-items: stretch;
-  gap: 8px;
-  margin-bottom: 24px;
+  display: grid;
+  grid-template-columns: 2fr minmax(0, 1fr);
+  grid-column: 1 / -1;
+  gap: 12px;
+  align-items: center;
+  background-color: #141414;
+  border-radius: 8px;
+  border: 1px solid #1a1a1a;
+  padding: 12px;
+  box-sizing: border-box;
+  width: 100%;
 `;
 
 const ConnectionStatus = styled.div`
-  display: inline-flex;
+  display: grid;
+  grid-auto-flow: column;
+  justify-content: start;
   align-items: center;
   gap: 8px;
-  flex: 0 0 70%;
-  padding: 12px 16px;
-  background-color: #141414;
-  border-radius: 8px;
-  border: 1px solid #1f1f1f;
+  box-sizing: border-box;
+  max-width: 100%;
 `;
 
 const StatusDot = styled.div<{
@@ -69,7 +75,8 @@ const StatusText = styled.span`
 `;
 
 const PauseButton = styled.button<{ $paused: boolean }>`
-  flex: 1;
+  max-width: 100%;
+  box-sizing: border-box;
   padding: 12px 8px;
   background-color: ${(props) => (props.$paused ? "#2a2a2a" : "#1a1a1a")};
   border: 1px solid ${(props) => (props.$paused ? "#00d4ff" : "#2a2a2a")};
@@ -90,13 +97,13 @@ const PauseButton = styled.button<{ $paused: boolean }>`
   }
 `;
 
-const WarningButton = styled(PauseButton)<{
+const WarningButton = styled(PauseButton) <{
   $narrow?: boolean;
   $isDisabled?: boolean;
 }>`
   border-color: #ffaa00;
   color: #ffaa00;
-  ${(props) => props.$narrow && `flex: 0 0 25%;`}
+  ${(props) => props.$narrow && `width: 100%;`}
   ${(props) =>
     props.$isDisabled &&
     `
@@ -130,69 +137,69 @@ export const ConnectionStatusSection: React.FC<
   onPauseToggle,
   onRestartDevice,
 }) => {
-  return (
-    <ConnectionStatusContainer>
-      <ConnectionStatus>
-        <StatusDot
-          $connected={isConnected && deviceState === "connected"}
-          $loading={deviceState === "loading" || deviceState === "stale"}
-          $color={
-            isConnected && deviceState === "disconnected"
-              ? "#ff8800"
-              : undefined
-          }
-        />
-        <StatusText>
-          {!isConnected
-            ? "Disconnected"
-            : deviceState === "loading"
-              ? deviceLoadingReason === "restart"
-                ? "Restarting device..."
-                : "Loading device..."
-              : deviceState === "stale"
-                ? "Device stream frozen"
-                : deviceState === "connected"
-                  ? "Connected to server and device"
-                  : "Connected to server but device not connected"}
-        </StatusText>
-      </ConnectionStatus>
+    return (
+      <ConnectionStatusContainer>
+        <ConnectionStatus>
+          <StatusDot
+            $connected={isConnected && deviceState === "connected"}
+            $loading={deviceState === "loading" || deviceState === "stale"}
+            $color={
+              isConnected && deviceState === "disconnected"
+                ? "#ff8800"
+                : undefined
+            }
+          />
+          <StatusText>
+            {!isConnected
+              ? "Disconnected"
+              : deviceState === "loading"
+                ? deviceLoadingReason === "restart"
+                  ? "Restarting device..."
+                  : "Loading device..."
+                : deviceState === "stale"
+                  ? "Device stream frozen"
+                  : deviceState === "connected"
+                    ? "Connected to server and device"
+                    : "Connected to server but device not connected"}
+          </StatusText>
+        </ConnectionStatus>
 
-      {isConnected &&
-        (deviceState === "stale" ? (
-          <WarningButton
-            $paused={false}
-            $narrow
-            onClick={() => onRestartDevice?.()}
-            title="Restart the SDR device connection"
-          >
-            Restart
-          </WarningButton>
-        ) : deviceState === "loading" && deviceLoadingReason === "restart" ? (
-          <WarningButton
-            $paused={false}
-            $narrow
-            $isDisabled
-            onClick={() => {}}
-            disabled={true}
-            title="Device is restarting..."
-          >
-            Restarting...
-          </WarningButton>
-        ) : deviceState === "loading" ? (
-          <WarningButton
-            $paused={false}
-            $isDisabled
-            onClick={() => {}}
-            disabled={true}
-            title="Device is being initialized..."
-          >
-            Loading...
-          </WarningButton>
-        ) : (
-          <PauseButton $paused={isPaused} onClick={onPauseToggle}>
-            {isPaused ? "Resume" : "Pause"}
-          </PauseButton>
-        ))}
-    </ConnectionStatusContainer>
-  );
-};
+        {isConnected &&
+          (deviceState === "stale" ? (
+            <WarningButton
+              $paused={false}
+              $narrow
+              onClick={() => onRestartDevice?.()}
+              title="Restart the SDR device connection"
+            >
+              Restart
+            </WarningButton>
+          ) : deviceState === "loading" && deviceLoadingReason === "restart" ? (
+            <WarningButton
+              $paused={false}
+              $narrow
+              $isDisabled
+              onClick={() => { }}
+              disabled={true}
+              title="Device is restarting..."
+            >
+              Restarting...
+            </WarningButton>
+          ) : deviceState === "loading" ? (
+            <WarningButton
+              $paused={false}
+              $isDisabled
+              onClick={() => { }}
+              disabled={true}
+              title="Device is being initialized..."
+            >
+              Loading...
+            </WarningButton>
+          ) : (
+            <PauseButton $paused={isPaused} onClick={onPauseToggle}>
+              {isPaused ? "Resume" : "Pause"}
+            </PauseButton>
+          ))}
+      </ConnectionStatusContainer>
+    );
+  };

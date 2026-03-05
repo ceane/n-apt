@@ -4,18 +4,49 @@
 //! proper error handling and resource cleanup.
 
 use anyhow::{anyhow, Result};
+use crossbeam_channel::{bounded, Receiver, Sender};
 use log::{debug, info, warn};
 use std::ffi::CStr;
 use std::os::raw::c_int;
 use std::ptr;
+use std::thread::{self, JoinHandle};
 
 use super::ffi;
 use crate::sdr::SdrDevice;
 
-/// Safe wrapper around an RTL-SDR device handle
 pub struct RtlSdrDevice {
     dev: *mut ffi::RtlSdrDev,
     device_index: u32,
+    rx_queue: Option<Receiver<Vec<u8>>>,
+    async_thread: Option<JoinHandle<()>>,
+    iq_overflow: Vec<u8>,
+    max_sample_rate_cache: Option<u32>,
+}
+
+struct AsyncContext {
+    tx: Sender<Vec<u8>>,
+    rx: Receiver<Vec<u8>>,
+}
+
+/// Asynchronous callback for RTL-SDR block events
+extern "C" fn c_read_async_cb(buf: *mut u8, len: u32, ctx: *mut std::os::raw::c_void) {
+    if buf.is_null() || ctx.is_null() || len == 0 {
+        return;
+    }
+    
+    let context = unsafe { &*(ctx as *const AsyncContext) };
+    let data_slice = unsafe { std::slice::from_raw_parts(buf, len as usize) };
+    
+    // Copy out from C buffer immediately
+    let chunk = data_slice.to_vec();
+    
+    // If the queue is full, we MUST drop the oldest frame, NOT the newest frame!
+    // Dropping the newest frame creates a phase discontinuity hole right in the 
+    // middle of our constructed FFT window. By popping the oldest frame, we just 
+    // slide the continuous time-window forward.
+    while let Err(crossbeam_channel::TrySendError::Full(_)) = context.tx.try_send(chunk.clone()) {
+        let _ = context.rx.try_recv(); // Pop oldest
+    }
 }
 
 // SAFETY: The RTL-SDR device handle is accessed behind a Mutex in the server,
@@ -56,10 +87,21 @@ impl RtlSdrDevice {
         }
         
         info!("Opened RTL-SDR device #{}: {}", index, Self::get_device_name(index));
-        Ok(Self {
+        
+        let device = Self {
             dev,
             device_index: index,
-        })
+            rx_queue: None,
+            async_thread: None,
+            iq_overflow: Vec::new(),
+            max_sample_rate_cache: None,
+        };
+
+        // Set mandatory default sample rate so get_device_info doesn't return 0Hz
+        // and initial processing doesn't fail.
+        let _ = device.set_sample_rate(3_200_000);
+        
+        Ok(device)
     }
 
     /// Try to open the first available RTL-SDR device
@@ -191,7 +233,11 @@ impl RtlSdrDevice {
 
     /// Get the maximum supported sample rate for this device
     /// Tests common sample rates and returns the highest one that works
-    pub fn get_max_sample_rate(&self) -> u32 {
+    pub fn get_max_sample_rate(&mut self) -> u32 {
+        if let Some(cached) = self.max_sample_rate_cache {
+            return cached;
+        }
+
         // Common RTL-SDR sample rates to test (highest to lowest)
         let test_rates = [
             // Max sample rate for RTL-SDR Blog V4
@@ -250,6 +296,7 @@ impl RtlSdrDevice {
             }
         }
         
+        self.max_sample_rate_cache = Some(max_supported);
         max_supported
     }
 
@@ -355,7 +402,10 @@ impl RtlSdrDevice {
         let name = Self::get_device_name(self.device_index);
         let freq = self.get_center_freq();
         let rate = self.get_sample_rate();
-        let max_rate = self.get_max_sample_rate();
+        // This is now &mut self or we need to avoid calling it here if we want to keep get_device_info as &self
+        // Actually, get_device_info is called from many places.
+        // Let's just make it return a default or use the cached value if available.
+        let max_rate = self.max_sample_rate_cache.unwrap_or(3_200_000);
         let gain = self.get_tuner_gain();
         let ppm = self.get_freq_correction();
         
@@ -375,6 +425,14 @@ impl Drop for RtlSdrDevice {
     fn drop(&mut self) {
         if !self.dev.is_null() {
             info!("Closing RTL-SDR device #{}...", self.device_index);
+            
+            if self.async_thread.is_some() {
+                let _ = unsafe { ffi::rtlsdr_cancel_async(self.dev) };
+                if let Some(handle) = self.async_thread.take() {
+                    let _ = handle.join();
+                }
+            }
+            
             let ret = unsafe { ffi::rtlsdr_close(self.dev) };
             if ret != 0 {
                 warn!("rtlsdr_close returned error code {} for device #{}", ret, self.device_index);
@@ -391,22 +449,108 @@ impl SdrDevice for RtlSdrDevice {
         "RTL-SDR"
     }
     
+    fn get_device_info(&self) -> String {
+        self.get_device_info()
+    }
+    
     fn initialize(&mut self) -> Result<()> {
-        // Device is already initialized in open()
+        // Allow re-initialization if the thread has exited or the queue is gone
+        if let Some(handle) = &self.async_thread {
+            if !handle.is_finished() {
+                return Ok(());
+            }
+            // Thread finished (likely crashed), cleanup before restart
+            let _ = self.async_thread.take().unwrap().join();
+        }
+        
+        self.reset_buffer()?;
+        
+        let (tx, rx) = bounded::<Vec<u8>>(1024);
+        let rx_for_device = rx.clone();
+        self.rx_queue = Some(rx_for_device);
+        self.iq_overflow.clear();
+        
+        let dev_ptr_val = self.dev as usize;
+        let device_index = self.device_index;
+        
+        let context = Box::new(AsyncContext { tx, rx });
+        let ctx_ptr_val = Box::into_raw(context) as usize;
+        
+        let handle = thread::spawn(move || {
+            let dev_ptr = dev_ptr_val as *mut ffi::RtlSdrDev;
+            let ctx_ptr = ctx_ptr_val as *mut std::os::raw::c_void;
+            
+            info!("Starting RTL-SDR async read thread for device #{}", device_index);
+            
+            // macOS often fails with LIBUSB_ERROR_IO (-5) if bulk transfers are too large.
+            // 32 buffers of 16KB (16384 bytes) handles 512KB queue, safe for macOS USB.
+            // Ensure buf_len is a multiple of 512.
+            let buf_num = 32;
+            let buf_len = 16384;
+            
+            let ret = unsafe {
+                ffi::rtlsdr_read_async(dev_ptr, Some(c_read_async_cb), ctx_ptr, buf_num, buf_len)
+            };
+            
+            info!("RTL-SDR async read thread for device #{} exited with code {}", device_index, ret);
+            let _ = unsafe { Box::from_raw(ctx_ptr as *mut AsyncContext) };
+        });
+        
+        self.async_thread = Some(handle);
         Ok(())
     }
     
     fn is_ready(&self) -> bool {
-        !self.dev.is_null()
+        !self.dev.is_null() && self.async_thread.is_some()
     }
     
     fn read_samples(&mut self, fft_size: usize) -> Result<crate::fft::types::RawSamples> {
-        // Read I/Q samples as u8 
-        let mut iq_buffer: Vec<u8> = vec![0u8; fft_size * 2]; // I and Q as u8 each
-        let samples_read = self.read_sync_into(&mut iq_buffer)?;
+        let bytes_needed = fft_size * 2;
         
-        // Trim to actual bytes read
-        let data = iq_buffer[..samples_read].to_vec();
+        if let Some(rx) = &self.rx_queue {
+            // First, aggressively drain any queued backlog to stay real-time!
+            while let Ok(chunk) = rx.try_recv() {
+                self.iq_overflow.extend_from_slice(&chunk);
+            }
+            
+            // If we don't have enough to satisfy one valid, contiguous FFT frame, wait.
+            while self.iq_overflow.len() < bytes_needed {
+                // Wait up to 500ms for more samples to arrive
+                match rx.recv_timeout(std::time::Duration::from_millis(500)) {
+                    Ok(chunk) => {
+                        self.iq_overflow.extend_from_slice(&chunk);
+                    }
+                    Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
+                        return Err(anyhow::anyhow!("Timeout waiting for async SDR samples"));
+                    }
+                    Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
+                        return Err(anyhow::anyhow!("Async reader thread disconnected"));
+                    }
+                }
+            }
+            
+            // Force even alignment before checking length, so that if an odd-length
+            // chunk arrived from libusb, we drop the stray byte and restore I/Q parity.
+            if self.iq_overflow.len() % 2 != 0 {
+                self.iq_overflow.drain(0..1);
+            }
+
+            // To maintain real-time performance and prevent an infinite memory 
+            // backlog, discard the oldest samples. Keep only the freshest.
+            if self.iq_overflow.len() > bytes_needed {
+                let excess = self.iq_overflow.len() - bytes_needed;
+                // Ensure we discard an EVEN number of bytes so we don't swap
+                // the I and Q interleaving, which would flip the FFT spectrum.
+                let discard = excess & !1;
+                self.iq_overflow.drain(0..discard);
+            }
+            
+        } else {
+            return Err(anyhow::anyhow!("Device not initialized for async reading"));
+        }
+        
+        let bytes_to_take = bytes_needed; // Guaranteed by the while condition
+        let data = self.iq_overflow.drain(..bytes_to_take).collect::<Vec<u8>>();
         
         Ok(crate::fft::types::RawSamples { 
             data,
@@ -414,12 +558,16 @@ impl SdrDevice for RtlSdrDevice {
         })
     }
     
+    fn set_sample_rate(&mut self, rate: u32) -> Result<()> {
+        RtlSdrDevice::set_sample_rate(self, rate)
+    }
+    
     fn set_center_frequency(&mut self, freq: u32) -> Result<()> {
         self.set_center_freq(freq)
     }
     
     fn set_gain(&mut self, gain: f64) -> Result<()> {
-        self.set_tuner_gain(gain as i32)
+        self.set_tuner_gain((gain * 10.0) as i32)
     }
     
     fn set_ppm(&mut self, ppm: i32) -> Result<()> {
@@ -435,9 +583,7 @@ impl SdrDevice for RtlSdrDevice {
     }
     
     fn reset_buffer(&mut self) -> Result<()> {
-        // Call the actual method on the device
-        // This is already implemented in the impl block above
-        Ok(())
+        RtlSdrDevice::reset_buffer(self)
     }
     
     fn get_center_frequency(&self) -> u32 {

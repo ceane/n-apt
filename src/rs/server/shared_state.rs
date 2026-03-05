@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use super::types::{SpectrumFrameMessage, CaptureArtifact};
@@ -80,5 +80,11 @@ impl SharedState {
             sdr_settings: Mutex::new(load_sdr_settings().clone()),
             capture_artifacts: Mutex::new(HashMap::new()),
         })
+    }
+
+    /// Update device connection status and info string
+    pub fn update_device_status(&self, connected: bool, info: String) {
+        self.device_connected.store(connected, Ordering::Relaxed);
+        *self.device_info.lock().unwrap() = info;
     }
 }

@@ -124,6 +124,17 @@ impl SdrDevice for MockAptDevice {
         "Mock APT SDR"
     }
     
+    fn get_device_info(&self) -> String {
+        format!(
+            "Mock APT SDR - Freq: {} Hz, Rate: {} Hz (Sample Rate: {} Hz), Gain: {:.1} dB, PPM: {}",
+            self.center_freq,
+            self.sample_rate,
+            self.sample_rate,
+            self.gain,
+            self.ppm
+        )
+    }
+    
     fn initialize(&mut self) -> Result<()> {
         log::info!("Initializing mock APT SDR device");
         self.total_samples = 0;
@@ -183,7 +194,9 @@ impl SdrDevice for MockAptDevice {
                 continue;
             }
             let abs_freq_hz = (signal.config.center_frequency_mhz * 1_000_000.0) + (signal.drift_offset as f64);
-            let rel_freq = abs_freq_hz - center_freq;
+            // Simulate PPM error: f_effective = f_requested * (1.0 - ppm / 1e6)
+            let effective_center_freq = center_freq * (1.0 - self.ppm as f64 / 1_000_000.0);
+            let rel_freq = abs_freq_hz - effective_center_freq;
             if rel_freq.abs() > (sample_rate / 2.0) {
                 continue;
             }
@@ -302,6 +315,12 @@ impl SdrDevice for MockAptDevice {
             data: frame,
             sample_rate: self.sample_rate,
         })
+    }
+    
+    fn set_sample_rate(&mut self, rate: u32) -> Result<()> {
+        self.sample_rate = rate;
+        log::debug!("Mock device sample rate set to {} Hz", rate);
+        Ok(())
     }
     
     fn set_center_frequency(&mut self, freq: u32) -> Result<()> {
