@@ -13,7 +13,8 @@ const SectionTitle = styled.div`
   color: #555;
   text-transform: uppercase;
   letter-spacing: 1px;
-  margin-bottom: 16px;
+  margin-top: 1rem;
+  margin-bottom: 0;
   font-weight: 600;
   font-family: "JetBrains Mono", monospace;
 `;
@@ -41,8 +42,8 @@ const Tab = styled.button<{ $active: boolean }>`
   width: 100%;
   padding: 10px 8px;
   border: none;
-  border-bottom: 2px solid ${(props) => (props.$active ? "rgba(123, 97, 255, 0.9)" : "transparent")};
-  background: ${(props) => (props.$active ? "rgba(123, 97, 255, 0.08)" : "transparent")};
+  border-bottom: 2px solid ${(props) => (props.$active ? props.theme.primary : "transparent")};
+  background: ${(props) => (props.$active ? props.theme.primaryAnchor : "transparent")};
   color: ${(props) => (props.$active ? "rgba(255, 255, 255, 0.92)" : "rgba(255, 255, 255, 0.45)")};
   font-size: 11px;
   font-weight: 600;

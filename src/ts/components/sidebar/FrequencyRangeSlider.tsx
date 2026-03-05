@@ -51,7 +51,7 @@ const LabelContainer = styled.div`
 const Label = styled.span<{ $isActive: boolean }>`
   font-size: 24px;
   font-weight: 700;
-  color: ${(props) => (props.$isActive ? COLORS.primary : COLORS.textSecondary)};
+  color: ${(props) => (props.$isActive ? props.theme.primary : props.theme.textSecondary)};
   transition: color 0.2s ease;
 `;
 
@@ -60,8 +60,8 @@ const SliderContainer = styled.div<{ $isActive: boolean }>`
   outline: none;
   padding: 8px;
   border-radius: 6px;
-  border: 1px solid ${(props) => (props.$isActive ? COLORS.primary : "transparent")};
-  background-color: ${(props) => (props.$isActive ? `${COLORS.primary}20` : "transparent")};
+  border: 1px solid ${(props) => (props.$isActive ? props.theme.primary : "transparent")};
+  background-color: ${(props) => (props.$isActive ? `${props.theme.primary}20` : "transparent")};
   cursor: pointer;
   transition: border-color 0.2s ease, background-color 0.2s ease;
   box-sizing: border-box;
@@ -110,8 +110,8 @@ const VisibleWindow = styled.div<{ $isActive: boolean }>`
   top: 2px;
   bottom: 2px;
   background-color: ${(props) =>
-    props.$isActive ? COLORS.activeBackground : COLORS.inactiveBackground};
-  border: 1px solid ${(props) => (props.$isActive ? COLORS.primary : COLORS.textMuted)};
+    props.$isActive ? props.theme.activeBackground : props.theme.inactiveBackground};
+  border: 1px solid ${(props) => (props.$isActive ? props.theme.primary : props.theme.textMuted)};
   cursor: grab;
   display: grid;
   align-items: center;
@@ -123,7 +123,7 @@ const VisibleWindow = styled.div<{ $isActive: boolean }>`
 
 const WindowLabel = styled.span<{ $isActive: boolean }>`
   font-size: 9px;
-  color: ${(props) => (props.$isActive ? COLORS.primary : COLORS.textMuted)};
+  color: ${(props) => (props.$isActive ? props.theme.primary : props.theme.textMuted)};
   white-space: nowrap;
   pointer-events: none;
   user-select: none;

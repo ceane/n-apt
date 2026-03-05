@@ -32,7 +32,7 @@ const VerifyButton = styled.button`
   background-color: #1a1a1a;
   border: 1px solid #2a2a2a;
   border-radius: 6px;
-  color: #00d4ff;
+  color: ${(props) => props.theme.primary};
   cursor: pointer;
   font-family: "JetBrains Mono", monospace;
 `;
@@ -43,6 +43,19 @@ interface SignalFeaturesSectionProps {
   isConnected: boolean;
   selectedFilesCount: number;
 }
+
+const ClassifyButton = styled.button<{ $disabled?: boolean }>`
+  font-size: 11px;
+  padding: 6px 12px;
+  min-width: 80px;
+  opacity: ${({ $disabled }) => ($disabled ? 0.5 : 1)};
+  cursor: ${({ $disabled }) => ($disabled ? "not-allowed" : "pointer")};
+  background-color: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  color: ${({ $disabled, theme }) => ($disabled ? "#666" : theme.primary)};
+  font-family: "JetBrains Mono", monospace;
+`;
 
 export const SignalFeaturesSection: React.FC<SignalFeaturesSectionProps> = ({
   sourceMode,
@@ -80,23 +93,12 @@ export const SignalFeaturesSection: React.FC<SignalFeaturesSectionProps> = ({
               <div style={{ fontSize: "12px", color: "#ccc", fontWeight: 500 }}>
                 {classificationStatusText}
               </div>
-              <button
+              <ClassifyButton
+                $disabled={classificationDisabled}
                 disabled={classificationDisabled}
-                style={{
-                  fontSize: "11px",
-                  padding: "6px 12px",
-                  minWidth: "80px",
-                  opacity: classificationDisabled ? 0.5 : 1,
-                  cursor: classificationDisabled ? "not-allowed" : "pointer",
-                  backgroundColor: "#1a1a1a",
-                  border: "1px solid #2a2a2a",
-                  borderRadius: "6px",
-                  color: classificationDisabled ? "#666" : "#00d4ff",
-                  fontFamily: "JetBrains Mono, monospace",
-                }}
               >
                 Classify?
-              </button>
+              </ClassifyButton>
             </div>
           </Row>
 

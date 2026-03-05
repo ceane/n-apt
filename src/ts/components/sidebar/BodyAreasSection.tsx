@@ -168,24 +168,24 @@ const BaseButton = styled.button`
 
   &:focus {
     box-shadow:
-      0 0 0 3px rgba(123, 97, 255, 0.35),
-      0 0 0 1px rgba(123, 97, 255, 0.35) inset;
+      0 0 0 3px ${(props) => props.theme.primaryAlpha},
+      0 0 0 1px ${(props) => props.theme.primaryAlpha} inset;
     outline: none;
   }
 `;
 
 const SelectableButton = styled(BaseButton) <{ $isSelected: boolean }>`
-  background: ${(props) => (props.$isSelected ? "rgba(123, 97, 255, 0.22)" : "rgba(255,255,255,0.06)")};
-  border-color: ${(props) => (props.$isSelected ? "rgba(123, 97, 255, 0.55)" : "rgba(255,255,255,0.10)")};
-  box-shadow: ${(props) => (props.$isSelected ? "0 0 0 1px rgba(123, 97, 255, 0.25)" : "none")};
+  background: ${(props) => (props.$isSelected ? props.theme.primaryAlpha : "rgba(255,255,255,0.06)")};
+  border-color: ${(props) => (props.$isSelected ? props.theme.primary : "rgba(255,255,255,0.10)")};
+  box-shadow: ${(props) => (props.$isSelected ? `0 0 0 1px ${props.theme.primaryAlpha}` : "none")};
 
   &:hover {
-    background: ${(props) => (props.$isSelected ? "rgba(123, 97, 255, 0.28)" : "rgba(255,255,255,0.10)")};
-    border-color: ${(props) => (props.$isSelected ? "rgba(123, 97, 255, 0.65)" : "rgba(255,255,255,0.18)")};
+    background: ${(props) => (props.$isSelected ? props.theme.primaryAlpha : "rgba(255,255,255,0.10)")};
+    border-color: ${(props) => (props.$isSelected ? props.theme.primary : "rgba(255,255,255,0.18)")};
   }
 
   &:focus {
-    box-shadow: ${(props) => (props.$isSelected ? "0 0 0 1px rgba(123, 97, 255, 0.25)" : "0 0 0 3px rgba(123, 97, 255, 0.35), 0 0 0 1px rgba(123, 97, 255, 0.35) inset")};
+    box-shadow: ${(props) => (props.$isSelected ? `0 0 0 1px ${props.theme.primaryAlpha}` : `0 0 0 3px ${props.theme.primaryAlpha}, 0 0 0 1px ${props.theme.primaryAlpha} inset`)};
   }
 `;
 
@@ -202,7 +202,7 @@ const SelectionIndicator = styled.span<{ $isSelected: boolean }>`
   border-radius: 999px;
   background: ${(props) =>
     props.$isSelected
-      ? "rgba(123, 97, 255, 0.95)"
+      ? props.theme.primary
       : "rgba(255, 255, 255, 0.18)"};
 `;
 

@@ -9,7 +9,7 @@ export const CollapsibleTitleContainer = styled.button`
   background: transparent;
   border: 0;
   padding: 0;
-  margin: 0 0 16px 0;
+  margin: 1rem 0 0 0;
   cursor: pointer;
   text-align: left;
 `;

@@ -12,7 +12,7 @@
  * - dB normalisation + colour LUT mapping done entirely in the shader
  */
 import { useCallback, useRef } from "react";
-import { WATERFALL_CANVAS_BG, DEFAULT_COLOR_MAP } from "@n-apt/consts";
+import { FFT_CANVAS_BG, DEFAULT_COLOR_MAP } from "@n-apt/consts";
 
 function alignTo(value: number, alignment: number): number {
   return Math.ceil(value / alignment) * alignment;
@@ -181,6 +181,7 @@ type WaterfallState = {
   paddedRowBytes: number;
   rowBuf: ArrayBuffer;
   writeRow: number;
+  currentColorMapName?: string;
 };
 
 export interface WebGPUFIFOWaterfallOptions {
@@ -190,8 +191,8 @@ export interface WebGPUFIFOWaterfallOptions {
   /** Raw dB Float32Array — MUST be a fixed width (e.g. 4096) to avoid resets */
   fftData: Float32Array;
   frequencyRange: { min: number; max: number };
-  dbMin?: number;
-  dbMax?: number;
+  fftMin?: number;
+  fftMax?: number;
   driftAmount?: number;
   driftDirection?: number;
   freeze?: boolean;
@@ -202,6 +203,9 @@ export interface WebGPUFIFOWaterfallOptions {
     height: number;
     writeRow: number;
   };
+  colormap?: number[][];
+  colormapName?: string;
+  backgroundColor?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -288,12 +292,15 @@ export function useDrawWebGPUFIFOWaterfall() {
         device,
         format,
         fftData,
-        dbMin = -80,
-        dbMax = 20,
+        fftMin = -80,
+        fftMax = 20,
         driftAmount = 0,
         freeze = false,
         wfSmooth = false,
         restoreTexture,
+        colormap,
+        colormapName,
+        backgroundColor = FFT_CANVAS_BG,
       } = options;
 
       if (!stateRef.current) {
@@ -449,9 +456,48 @@ export function useDrawWebGPUFIFOWaterfall() {
         // =========================================================
         // drawWaterfall() — render circular buffer to screen
         // =========================================================
-        if (!s.bindGroup || !s.dataTex) return true;
+        // Update colormap if provided and changed (detect via colormapName OR length)
+        const colormapChanged = colormapName 
+           ? colormapName !== s.currentColorMapName
+           : (colormap && colormap.length !== s.colorCount);
 
-        const [bgR, bgG, bgB, bgA] = parseCssColorToRgba(WATERFALL_CANVAS_BG);
+        if (colormap && colormap.length > 0 && colormapChanged) {
+          s.currentColorMapName = colormapName;
+          s.colorCount = colormap.length;
+          const w = colormap.length;
+          const rgba = new Uint8Array(w * 4);
+          for (let i = 0; i < w; i++) {
+            rgba[i * 4] = colormap[i][0];
+            rgba[i * 4 + 1] = colormap[i][1];
+            rgba[i * 4 + 2] = colormap[i][2];
+            rgba[i * 4 + 3] = 255;
+          }
+          s.colorTex.destroy();
+          s.colorTex = device.createTexture({
+            size: { width: w, height: 1 },
+            format: "rgba8unorm",
+            usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+          });
+          device.queue.writeTexture(
+            { texture: s.colorTex },
+            rgba,
+            { bytesPerRow: w * 4 },
+            { width: w, height: 1 },
+          );
+          // Rebuild bindGroup
+          if (s.dataTex) {
+            s.bindGroup = device.createBindGroup({
+              layout: s.pipeline.getBindGroupLayout(0),
+              entries: [
+                { binding: 0, resource: s.dataTex.createView() },
+                { binding: 1, resource: s.colorTex.createView() },
+                { binding: 2, resource: { buffer: s.uniformBuf } },
+              ],
+            });
+          }
+        }
+
+        const [bgR, bgG, bgB, bgA] = parseCssColorToRgba(backgroundColor);
         const plotW = Math.max(1, canvas.width - marginX * 2);
 
         // uniforms[0] = (plotW, plotH, marginX, marginY)
@@ -467,9 +513,9 @@ export function useDrawWebGPUFIFOWaterfall() {
         s.uniforms[6] = s.texH;
         s.uniforms[7] = s.colorCount;
 
-        // uniforms[2] = (dbMin, dbMax, wfSmooth, 0)
-        s.uniforms[8] = dbMin;
-        s.uniforms[9] = dbMax;
+        // uniforms[2] = (fftMin, fftMax, wfSmooth, 0)
+        s.uniforms[8] = fftMin;
+        s.uniforms[9] = fftMax;
         s.uniforms[10] = wfSmooth ? 1.0 : 0.0;
         s.uniforms[11] = 0;
 

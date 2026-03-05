@@ -108,6 +108,13 @@ function parseCssColorToRgba(color: string): [number, number, number, number] {
       const b = parseInt(hex.slice(4, 6), 16);
       return [r / 255, g / 255, b / 255, 1];
     }
+    if (hex.length === 8) {
+      const r = parseInt(hex.slice(0, 2), 16);
+      const g = parseInt(hex.slice(2, 4), 16);
+      const b = parseInt(hex.slice(4, 6), 16);
+      const a = parseInt(hex.slice(6, 8), 16);
+      return [r / 255, g / 255, b / 255, a / 255];
+    }
   }
 
   const rgbaMatch = trimmed.match(/rgba?\(([^)]+)\)/i);
@@ -219,6 +226,9 @@ export interface WebGPUFFTSignalOptions {
   centerFrequencyMHz?: number;
   isDeviceConnected?: boolean;
   showGrid?: boolean;
+  lineColor?: string;
+  fillColor?: string;
+  backgroundColor?: string;
 }
 
 export function useDrawWebGPUFFTSignal() {
@@ -363,6 +373,9 @@ export function useDrawWebGPUFFTSignal() {
         gridOverlayRenderer,
         markersOverlayRenderer,
         showGrid = true,
+        lineColor = LINE_COLOR,
+        fillColor = SHADOW_COLOR,
+        backgroundColor = FFT_CANVAS_BG,
       } = options;
 
       // Initialize renderer state if needed
@@ -426,9 +439,9 @@ export function useDrawWebGPUFFTSignal() {
           plotBottom: fftAreaMax.y,
           dbMin: fftMin,
           dbMax: fftMax,
-          lineColor: LINE_COLOR,
-          fillColor: SHADOW_COLOR,
-          backgroundColor: FFT_CANVAS_BG,
+          lineColor: lineColor,
+          fillColor: fillColor,
+          backgroundColor: backgroundColor,
         };
 
         // Prepare overlays (overlays are rendered by FFTCanvas using useOverlayRenderer)

@@ -13,6 +13,7 @@ import {
   SPHERE_MARKER_COLOR,
   SPHERE_MARKER_BASE_INTENSITY,
 } from "@n-apt/consts";
+import { useTheme } from "styled-components";
 
 function ClickHandler({
   onAddHotspot,
@@ -115,8 +116,9 @@ function HotspotMarker({
   isSelected: boolean;
   isMultiSelected: boolean;
 }) {
+  const theme = useTheme() as any;
   const size = hotspot.size === "large" ? 0.08 : 0.02;
-  const baseColor = hotspot.size === "large" ? "#00d4ff" : "#ffaa00";
+  const baseColor = hotspot.size === "large" ? theme.primary : "#ffaa00";
   const color = isMultiSelected
     ? "#ff6b6b"
     : isSelected

@@ -43,7 +43,7 @@ const StatusDot = styled.div<{
       : props.$loading
         ? "#ffaa00"
         : props.$connected
-          ? "#00d4ff"
+          ? props.theme.primary
           : "#ff4444"};
   box-shadow: ${(props) => {
     const c = props.$color
@@ -51,7 +51,7 @@ const StatusDot = styled.div<{
       : props.$loading
         ? "#ffaa00"
         : props.$connected
-          ? "#00d4ff"
+          ? props.theme.primary
           : "#ff4444";
     return `0 0 8px ${c}`;
   }};
@@ -78,10 +78,10 @@ const PauseButton = styled.button<{ $paused: boolean }>`
   max-width: 100%;
   box-sizing: border-box;
   padding: 12px 8px;
-  background-color: ${(props) => (props.$paused ? "#2a2a2a" : "#1a1a1a")};
-  border: 1px solid ${(props) => (props.$paused ? "#00d4ff" : "#2a2a2a")};
+  background-color: ${(props) => (props.$paused ? props.theme.primaryAnchor : "#1a1a1a")};
+  border: 1px solid ${(props) => (props.$paused ? props.theme.primary : "#2a2a2a")};
   border-radius: 8px;
-  color: ${(props) => (props.$paused ? "#00d4ff" : "#ccc")};
+  color: ${(props) => (props.$paused ? props.theme.primary : "#ccc")};
   font-family: "JetBrains Mono", monospace;
   font-size: 12px;
   font-weight: 500;
@@ -91,9 +91,9 @@ const PauseButton = styled.button<{ $paused: boolean }>`
   user-select: none;
 
   &:hover {
-    background-color: #2a2a2a;
-    border-color: #00d4ff;
-    color: #00d4ff;
+    background-color: ${(props) => props.theme.primary}0d;
+    border-color: ${(props) => props.theme.primary};
+    color: ${(props) => props.theme.primary};
   }
 `;
 

@@ -5,6 +5,8 @@ import {
   forwardRef,
   useImperativeHandle,
   useState,
+  useMemo,
+  memo,
 } from "react";
 import styled from "styled-components";
 import { useFFTAnimation } from "@n-apt/hooks/useFFTAnimation";
@@ -19,6 +21,8 @@ import { useFrequencyDrag } from "@n-apt/hooks/useFrequencyDrag";
 import { useWebGPUInit } from "@n-apt/hooks/useWebGPUInit";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 import { useWasmSimdMath } from "@n-apt/hooks/useWasmSimdMath";
+import { useThemeStore } from "@n-apt/hooks/useThemeStore";
+import { WATERFALL_COLORMAPS } from "@n-apt/consts/colormaps";
 import type { FrequencyRange } from "@n-apt/consts/types";
 import { VisualizerSliders } from "@n-apt/components/VisualizerSliders";
 // spectrumToAmplitude removed — dB normalisation now handled in the waterfall WGSL shader
@@ -29,7 +33,6 @@ import {
   SECTION_TITLE_AFTER_COLOR,
   CANVAS_BORDER_COLOR,
   FFT_AREA_MIN,
-  FFT_CANVAS_BG,
   FFT_MIN_DB,
   FFT_MAX_DB,
 } from "@n-apt/consts";
@@ -130,7 +133,7 @@ const CanvasWrapper = styled.div`
   border: 1px solid ${CANVAS_BORDER_COLOR};
   border-radius: 8px;
   overflow: hidden;
-  background-color: ${FFT_CANVAS_BG};
+  background-color: ${(props) => props.theme.background};
 `;
 
 const SpectrumRow = styled.div`
@@ -238,8 +241,8 @@ export type FFTCanvasHandle = {
   getSnapshotData: () => SnapshotData | null;
 };
 
-const FFTCanvas = forwardRef<FFTCanvasHandle, FFTCanvasProps>(
-  (props, ref): React.ReactElement | null => {
+const FFTCanvas = memo(
+  forwardRef<FFTCanvasHandle, FFTCanvasProps>((props, ref) => {
     const {
       dataRef,
       frequencyRange,
@@ -265,6 +268,17 @@ const FFTCanvas = forwardRef<FFTCanvasHandle, FFTCanvasProps>(
       isIqRecordingActive = false,
     } = props;
     const { state, dispatch } = useSpectrumStore();
+    const fftColor = useThemeStore((s) => s.fftColor);
+    const waterfallTheme = useThemeStore((s) => s.waterfallTheme);
+
+    const fillColor = useMemo(() => {
+      if (fftColor.startsWith("#")) {
+        return `${fftColor}33`; // 20% opacity
+      }
+      return fftColor;
+    }, [fftColor]);
+
+    const colormap = useMemo(() => WATERFALL_COLORMAPS[waterfallTheme], [waterfallTheme]);
     const [spectrumCanvasNode, setSpectrumCanvasNode] =
       useState<HTMLCanvasElement | null>(null);
     const [spectrumGpuCanvasNode, setSpectrumGpuCanvasNode] =
@@ -1067,6 +1081,8 @@ const FFTCanvas = forwardRef<FFTCanvasHandle, FFTCanvasProps>(
               centerFrequencyMHz: centerFreqRef.current,
               isDeviceConnected,
               showGrid: true,
+              lineColor: fftColor,
+              fillColor: fillColor,
             });
           }
 
@@ -1167,19 +1183,22 @@ const FFTCanvas = forwardRef<FFTCanvasHandle, FFTCanvasProps>(
                 format: webgpuFormatRef.current,
                 fftData: waterfallBins,
                 frequencyRange: frequencyRangeRef.current,
-                dbMin: vizDbMinRef.current,
-                dbMax: vizDbMaxRef.current,
+                fftMin: vizDbMinRef.current,
+                fftMax: vizDbMaxRef.current,
                 driftAmount: retuneSmearRef.current,
                 driftDirection: retuneDriftPxRef.current,
                 wfSmooth: wfSmoothEnabled,
+                colormap: colormap,
+                colormapName: waterfallTheme,
               });
             } else if (isPaused) {
               const restore = pendingWaterfallRestoreRef.current ?? undefined;
               const FIXED_WATERFALL_BINS = 4096;
               const targetWidth = restore?.width ?? FIXED_WATERFALL_BINS;
 
+              let rowBuffer: Float32Array | null = null;
               if (targetWidth > 0) {
-                let rowBuffer = lastWaterfallRowRef.current;
+                rowBuffer = lastWaterfallRowRef.current;
                 if (!rowBuffer || rowBuffer.length !== targetWidth) {
                   if (
                     !pausedWaterfallRowRef.current ||
@@ -1192,25 +1211,27 @@ const FFTCanvas = forwardRef<FFTCanvasHandle, FFTCanvasProps>(
                   } else {
                     pausedWaterfallRowRef.current.fill(-200);
                   }
-                  rowBuffer = pausedWaterfallRowRef.current;
+                  restoredWaterfallRef.current = true;
                 }
+                rowBuffer = pausedWaterfallRowRef.current;
+              }
+
+              if (rowBuffer) {
                 drawWebGPUFIFOWaterfall({
                   canvas: waterfallGpuCanvas,
                   device: webgpuDeviceRef.current,
                   format: webgpuFormatRef.current,
                   fftData: rowBuffer,
                   frequencyRange: visualRange,
-                  dbMin: vizDbMinRef.current,
-                  dbMax: vizDbMaxRef.current,
+                  fftMin: vizDbMinRef.current,
+                  fftMax: vizDbMaxRef.current,
                   driftAmount: retuneSmearRef.current,
                   driftDirection: retuneDriftPxRef.current,
                   freeze: true,
                   restoreTexture: restore,
+                  colormap,
+                  colormapName: waterfallTheme,
                 });
-                if (pendingWaterfallRestoreRef.current) {
-                  pendingWaterfallRestoreRef.current = null;
-                  restoredWaterfallRef.current = true;
-                }
               }
             }
           }
@@ -1235,6 +1256,10 @@ const FFTCanvas = forwardRef<FFTCanvasHandle, FFTCanvasProps>(
         spectrumGpuCanvasNode,
         waterfallCanvasNode,
         waterfallGpuCanvasNode,
+        fftColor,
+        fillColor,
+        colormap,
+        waterfallTheme,
       ],
     );
 
@@ -1594,7 +1619,7 @@ const FFTCanvas = forwardRef<FFTCanvasHandle, FFTCanvasProps>(
         </SlidersRail>
       </VisualizerContainer>
     );
-  },
+  })
 );
 
 FFTCanvas.displayName = "FFTCanvas";

@@ -18,7 +18,7 @@ export const Button = styled.button<{ $variant?: "primary" | "secondary" | "dang
     switch ($variant) {
       case "primary":
         return `
-          background: linear-gradient(135deg, #00d4ff, #0088cc);
+          background-color: ${(props: any) => props.theme.primary};
           border: 1px solid rgba(0,0,0,0.2);
           color: white;
           &:hover {
@@ -41,7 +41,7 @@ export const Button = styled.button<{ $variant?: "primary" | "secondary" | "dang
           border: 1px solid #333;
           color: #ccc;
           &:hover {
-            border-color: #00d4ff;
+            border-color: ${(props: any) => props.theme.primary};
             color: #fff;
           }
         `;

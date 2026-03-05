@@ -15,7 +15,8 @@ const SectionTitle = styled.div`
   color: #555;
   text-transform: uppercase;
   letter-spacing: 1px;
-  margin-bottom: 16px;
+  margin-top: 1rem;
+  margin-bottom: 0;
   font-weight: 600;
   font-family: "JetBrains Mono", monospace;
   grid-column: 1 / -1;
@@ -67,7 +68,7 @@ const ToggleSwitchInput = styled.input`
   cursor: ${(props) => (props.disabled ? "not-allowed" : "pointer")};
 
   &:checked + span {
-    background-color: #00d4ff;
+    background-color: ${(props) => props.theme.primary};
   }
 
   &:checked + span:before {

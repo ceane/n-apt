@@ -10,8 +10,8 @@ export const Toggle = styled.button<{ $active: boolean }>`
   padding: 6px 4px;
   border-radius: 8px;
   border: 1px solid ${({ $active }) => ($active ? "rgba(0,0,0,0.2)" : "#333")};
-  background: ${({ $active }) =>
-    $active ? "linear-gradient(135deg, #00c853, #009688)" : "#212121"};
+  background: ${({ $active, theme }) =>
+    $active ? theme.primary : "#212121"};
   color: ${({ $active }) => ($active ? "#fff" : "#888")};
   cursor: pointer;
   transition: all 0.15s ease;
@@ -19,8 +19,9 @@ export const Toggle = styled.button<{ $active: boolean }>`
   text-align: center;
 
   &:hover {
-    background: ${({ $active }) =>
-    $active ? "linear-gradient(135deg, #00e676, #26a69a)" : "#2a2a2a"};
+    background: ${({ $active, theme }) =>
+    $active ? theme.primary : "#2a2a2a"};
+    filter: brightness(1.1);
     color: ${({ $active }) => ($active ? "#fff" : "#aaa")};
   }
 

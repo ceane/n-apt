@@ -15,7 +15,8 @@ const SectionTitle = styled.div`
   color: #555;
   text-transform: uppercase;
   letter-spacing: 1px;
-  margin-bottom: 16px;
+  margin-top: 1rem;
+  margin-bottom: 0;
   font-weight: 600;
   font-family: "JetBrains Mono", monospace;
   grid-column: 1 / -1;
@@ -56,8 +57,8 @@ const SettingSelect = styled.select`
 
   &:focus {
     outline: none;
-    border-color: #00d4ff;
-    background-color: rgba(0, 212, 255, 0.05);
+    border-color: ${(props) => props.theme.primary};
+    background-color: ${(props) => props.theme.primary}0d;
   }
 
   option {

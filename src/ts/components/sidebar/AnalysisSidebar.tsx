@@ -7,15 +7,15 @@ const SidebarContent = styled.div`
 `;
 
 const InfoBox = styled.div`
-  background: rgba(0, 212, 255, 0.05);
-  border: 1px solid rgba(0, 212, 255, 0.2);
+  background: ${(props) => props.theme.primaryAnchor};
+  border: 1px solid ${(props) => props.theme.primaryAlpha};
   border-radius: 8px;
   padding: 16px;
   margin-top: 24px;
 `;
 
 const InfoTitle = styled.div`
-  color: #00d4ff;
+  color: ${(props) => props.theme.primary};
   font-size: 12px;
   font-weight: 600;
   margin-bottom: 8px;

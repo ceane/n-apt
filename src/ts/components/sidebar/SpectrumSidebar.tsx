@@ -17,6 +17,7 @@ import { SourceSettingsSection } from "@n-apt/components/sidebar/SourceSettingsS
 import FileProcessingSection from "@n-apt/components/sidebar/FileProcessingSection";
 import { SignalFeaturesSection } from "@n-apt/components/sidebar/SignalFeaturesSection";
 import { ConnectionStatusSection } from "@n-apt/components/sidebar/ConnectionStatusSection";
+import { ThemeSection } from "@n-apt/components/sidebar/ThemeSection";
 import FrequencyRangeSlider from "@n-apt/components/sidebar/FrequencyRangeSlider";
 import { formatFrequency } from "@n-apt/consts/sdr";
 import { Row } from "@n-apt/components/ui";
@@ -82,7 +83,8 @@ const SectionTitle = styled.div<{ $fileMode?: boolean }>`
   color: ${(props) => (props.$fileMode ? "#d9aa34" : "#555")};
   text-transform: uppercase;
   letter-spacing: 1px;
-  margin-bottom: 16px;
+  margin-top: 1rem;
+  margin-bottom: 0;
   font-weight: 600;
   font-family: "JetBrains Mono", monospace;
   grid-column: 1 / -1;
@@ -114,8 +116,8 @@ const SettingSelect = styled.select`
 
   &:focus {
     outline: none;
-    border-color: #00d4ff;
-    background-color: rgba(0, 212, 255, 0.05);
+    border-color: ${(props) => props.theme.primary};
+    background-color: ${(props) => props.theme.primaryAlpha};
   }
 
   option {
@@ -863,6 +865,7 @@ export const SpectrumSidebar: React.FC = () => {
           />
         </>
       )}
+      <ThemeSection />
     </SidebarContent>
   );
 };

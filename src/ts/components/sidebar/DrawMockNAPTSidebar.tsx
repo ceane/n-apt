@@ -34,7 +34,7 @@ const InfoContainer = styled.div`
 `;
 
 const InfoTitle = styled.h3`
-  color: ${COLORS.primary};
+  color: ${(props) => props.theme.primary};
   margin-bottom: 12px;
   font-size: 14px;
 `;

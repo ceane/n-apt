@@ -26,10 +26,10 @@ const SidebarToggle = styled.button`
   margin: 24px;
   z-index: 1000;
   background-color: #1a1a1a;
-  border: 1px solid #00d4ff;
+  border: 1px solid ${(props) => props.theme.primary};
   border-radius: 6px;
   padding: 8px 12px;
-  color: #00d4ff;
+  color: ${(props) => props.theme.primary};
   font-family: "JetBrains Mono", monospace;
   font-size: 12px;
   font-weight: 500;
@@ -59,7 +59,7 @@ const NavigationTab = styled.button<{ $isActive: boolean }>`
   border: 1px solid ${(props) => (props.$isActive ? "#2a2a2a" : "transparent")};
   border-radius: 8px;
   background-color: ${(props) => (props.$isActive ? "#1a1a1a" : "transparent")};
-  color: ${(props) => (props.$isActive ? "#00d4ff" : "#666")};
+  color: ${(props) => (props.$isActive ? props.theme.primary : "#666")};
   font-family: 'JetBrains Mono', monospace;
   font-size: 13px;
   font-weight: 500;

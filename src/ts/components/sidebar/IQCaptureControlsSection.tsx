@@ -52,8 +52,8 @@ const SettingSelect = styled.select`
 
   &:focus {
     outline: none;
-    border-color: #00d4ff;
-    background-color: rgba(0, 212, 255, 0.05);
+    border-color: ${(props) => props.theme.primary};
+    background-color: ${(props) => props.theme.primary}0d;
   }
 
   option {
@@ -110,7 +110,7 @@ const ToggleSwitchInput = styled.input`
   cursor: ${(props) => (props.disabled ? "not-allowed" : "pointer")};
 
   &:checked + span {
-    background-color: #00d4ff;
+    background-color: ${(props) => props.theme.primary};
   }
 
   &:checked + span:before {
@@ -210,10 +210,10 @@ const PauseButton = styled.button<{ $paused: boolean }>`
   flex: 0 0 25%;
   height: 100%;
   padding: 12px 8px;
-  background-color: ${(props) => (props.$paused ? "#2a2a2a" : "#1a1a1a")};
-  border: 1px solid ${(props) => (props.$paused ? "#00d4ff" : "#2a2a2a")};
+  background-color: ${(props) => (props.$paused ? props.theme.primaryAnchor : "#1a1a1a")};
+  border: 1px solid ${(props) => (props.$paused ? props.theme.primary : "#2a2a2a")};
   border-radius: 8px;
-  color: ${(props) => (props.$paused ? "#00d4ff" : "#ccc")};
+  color: ${(props) => (props.$paused ? props.theme.primary : "#ccc")};
   font-family: "JetBrains Mono", monospace;
   font-size: 12px;
   font-weight: 500;
@@ -223,9 +223,9 @@ const PauseButton = styled.button<{ $paused: boolean }>`
   user-select: none;
 
   &:hover {
-    background-color: #2a2a2a;
-    border-color: #00d4ff;
-    color: #00d4ff;
+    background-color: ${(props) => props.theme.primary}0d;
+    border-color: ${(props) => props.theme.primary};
+    color: ${(props) => props.theme.primary};
   }
 `;
 
@@ -271,7 +271,7 @@ const DownloadCard = styled.div`
 `;
 
 const DownloadLink = styled.a`
-  color: #00d4ff;
+  color: ${(props) => props.theme.primary};
   font-size: 12px;
   font-family: "JetBrains Mono", monospace;
   text-decoration: none;

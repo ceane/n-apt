@@ -61,7 +61,7 @@ export const SliderThumb = styled.div<{
   background-color: #3b3b3b;
   border-radius: 16px;
   cursor: grab;
-  transition: background-color 0.15s;
+  transition: all 0.15s;
 
   &:hover {
     background-color: grey;
