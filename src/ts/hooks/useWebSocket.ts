@@ -119,8 +119,7 @@ export type WebSocketData = {
   sendGetAutoFftOptions: (screenWidth: number) => void;
 };
 
-// Reconnect backoff schedule (seconds)
-const RECONNECT_BACKOFF = [2, 5, 10, 30, 60, 90];
+
 
 type WsState = {
   isConnected: boolean;
@@ -210,13 +209,10 @@ export const useWebSocket = (
 
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<number | null>(null);
-  // Store raw message string — only JSON.parse inside rAF to avoid parsing discarded frames
-  const pendingRawRef = useRef<string | null>(null);
-  const processingRef = useRef(false);
+
   // Exponential backoff counter
   const reconnectAttemptRef = useRef(0);
-  // Error debounce — only set error state once per cooldown
-  const lastErrorTimeRef = useRef(0);
+
   // Keep a ref to the AES key so the message handler always sees the latest
   const aesKeyRef = useRef<CryptoKey | null>(aesKey);
   aesKeyRef.current = aesKey;
@@ -432,19 +428,24 @@ export const useWebSocket = (
                   typeof statusObj.jobId === "string" &&
                   (statusObj.status === "started" ||
                     statusObj.status === "progress" ||
-                    statusObj.status === "completed" ||
-                    statusObj.status === "error")
+                    statusObj.status === "done" ||
+                    statusObj.status === "failed")
                 ) {
-                  const newStatus = {
+                  const newStatus: any = {
                     jobId: statusObj.jobId,
                     status: statusObj.status,
                     message: statusObj.message,
                     progress: statusObj.progress,
+                    downloadUrl: statusObj.downloadUrl,
+                    filename: statusObj.filename,
                     fileCount:
                       typeof statusObj.fileCount === "number"
                         ? statusObj.fileCount
                         : undefined,
                   };
+                  if (statusObj.error) {
+                    newStatus.error = statusObj.error;
+                  }
                   dispatch({ type: "CAPTURE_STATUS", status: newStatus });
                 }
               } catch (e) {
@@ -631,24 +632,30 @@ export const useWebSocket = (
   }, []);
 
   // Function to send capture commands to the server
-  const sendCaptureCommand = useCallback((req: CaptureRequest) => {
-    const ws = wsRef.current;
-    
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      const message = JSON.stringify({
-        type: "capture",
-        jobId: req.jobId,
-        fragments: req.fragments,
-        durationS: req.durationS,
-        fileType: req.fileType,
-        acquisitionMode: req.acquisitionMode,
-        encrypted: req.encrypted,
-        fftSize: req.fftSize,
-        fftWindow: req.fftWindow,
-      });
-      ws.send(message);
-    }
-  }, []);
+  const sendCaptureCommand = useCallback(
+    (req: CaptureRequest) => {
+      const ws = wsRef.current;
+
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        // Optimistically clear previous capture status
+        dispatch({ type: "CAPTURE_STATUS", status: null });
+
+        const message = JSON.stringify({
+          type: "capture",
+          jobId: req.jobId,
+          fragments: req.fragments,
+          durationS: req.durationS,
+          fileType: req.fileType,
+          acquisitionMode: req.acquisitionMode,
+          encrypted: req.encrypted,
+          fftSize: req.fftSize,
+          fftWindow: req.fftWindow,
+        });
+        ws.send(message);
+      }
+    },
+    [dispatch],
+  );
 
   return {
     ...state,

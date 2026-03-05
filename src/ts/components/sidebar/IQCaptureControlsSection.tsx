@@ -483,6 +483,22 @@ export const IQCaptureControlsSection: React.FC<
               </StatusSettingRow>
             )}
 
+            {captureStatus?.status === "done" && (
+              <StatusSettingRow label="Status">
+                <SettingValue style={{ color: "#00ff00" }}>
+                  Complete
+                </SettingValue>
+              </StatusSettingRow>
+            )}
+
+            {captureStatus?.status === "failed" && (
+              <StatusSettingRow label="Status">
+                <SettingValue style={{ color: "#ff4444" }}>
+                  Failed: {captureStatus.error || "Unknown error"}
+                </SettingValue>
+              </StatusSettingRow>
+            )}
+
             {/* Downloads Section */}
             {captureStatus?.status === "done" &&
               captureStatus.downloadUrl &&
