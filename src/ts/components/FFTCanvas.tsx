@@ -622,6 +622,11 @@ const FFTCanvas = forwardRef<FFTCanvasHandle, FFTCanvasProps>(
         overlayDirtyRef.current.markers = true;
         if (isPaused) forceRender();
       },
+      vizDbMinRef,
+      vizDbMaxRef,
+      onFftDbLimitsChange,
+      onVizZoomChange: setVizZoom,
+      renderWaveformRef,
     });
 
     // Initialize WASM SIMD for optimized data processing
@@ -1584,6 +1589,7 @@ const FFTCanvas = forwardRef<FFTCanvasHandle, FFTCanvasProps>(
             onFftAvgChange={setFftAvgEnabled}
             onFftSmoothChange={setFftSmoothEnabled}
             onWfSmoothChange={setWfSmoothEnabled}
+            onResetZoomDb={() => dispatch({ type: "RESET_ZOOM_AND_DB" })}
           />
         </SlidersRail>
       </VisualizerContainer>

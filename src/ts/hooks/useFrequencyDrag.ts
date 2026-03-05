@@ -17,6 +17,12 @@ export interface FrequencyDragOptions {
   vizZoomRef?: React.MutableRefObject<number>;
   vizPanOffsetRef?: React.MutableRefObject<number>;
   onVizPanChange?: (pan: number) => void;
+  vizDbMinRef?: React.MutableRefObject<number>;
+  vizDbMaxRef?: React.MutableRefObject<number>;
+  onFftDbLimitsChange?: (min: number, max: number) => void;
+  onVizZoomChange?: (zoom: number) => void;
+  /** Reference to the full current waveform data to check if selection is empty */
+  renderWaveformRef?: React.MutableRefObject<Float32Array | null>;
 }
 
 export function useFrequencyDrag({
@@ -33,12 +39,21 @@ export function useFrequencyDrag({
   vizZoomRef,
   vizPanOffsetRef,
   onVizPanChange,
+  vizDbMinRef,
+  vizDbMaxRef,
+  onFftDbLimitsChange,
+  onVizZoomChange,
+  renderWaveformRef,
 }: FrequencyDragOptions) {
   const isDraggingRef = useRef(false);
+  const isBoxDraggingRef = useRef(false);
   const dragStartXRef = useRef(0);
   const dragStartFreqRef = useRef(0);
   const dragStartPanRef = useRef(0);
   const dragStartRangeRef = useRef<FrequencyRange>({ min: 0, max: 0 });
+  const boxStartRef = useRef({ x: 0, y: 0 });
+  const boxCurrentRef = useRef({ x: 0, y: 0 });
+  const selectionBoxRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     // The canvas layers have pointer-events:none so we must attach to the
@@ -63,11 +78,50 @@ export function useFrequencyDrag({
     };
 
     const handlePointerMove = (e: PointerEvent) => {
+      const container = getContainer();
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+
+      if (isBoxDraggingRef.current) {
+        boxCurrentRef.current = { x: e.clientX, y: e.clientY };
+        
+        // Render box
+        if (!selectionBoxRef.current) {
+          const div = document.createElement("div");
+          div.style.position = "absolute";
+          div.style.border = "1px dashed rgba(255, 255, 255, 0.8)";
+          div.style.backgroundColor = "rgba(255, 255, 255, 0.1)";
+          div.style.pointerEvents = "none";
+          div.style.zIndex = "100";
+          container.appendChild(div);
+          selectionBoxRef.current = div;
+        }
+
+        const div = selectionBoxRef.current;
+        const startX = boxStartRef.current.x - rect.left;
+        const startY = boxStartRef.current.y - rect.top;
+        const currentX = boxCurrentRef.current.x - rect.left;
+        const currentY = boxCurrentRef.current.y - rect.top;
+
+        const left = Math.min(startX, currentX);
+        const top = Math.min(startY, currentY);
+        const width = Math.abs(currentX - startX);
+        const height = Math.abs(currentY - startY);
+
+        // Clamp to container bounds
+        div.style.left = `${Math.max(0, left)}px`;
+        div.style.top = `${Math.max(0, top)}px`;
+        div.style.width = `${Math.min(rect.width - left, width)}px`;
+        div.style.height = `${Math.min(rect.height - top, height)}px`;
+        return;
+      }
+
       const canvas = getActiveSpectrumCanvas();
       if (!isDraggingRef.current || !canvas) return;
 
-      const rect = canvas.getBoundingClientRect();
-      const width = rect.width;
+
+      const canvasRect = canvas.getBoundingClientRect();
+      const width = canvasRect.width;
 
       const deltaX = e.clientX - dragStartXRef.current;
       const zoom = vizZoomRef?.current || 1;
@@ -163,6 +217,8 @@ export function useFrequencyDrag({
       const rect = measurer.getBoundingClientRect();
       const height = rect.height;
       const y = e.clientY - rect.top;
+      
+      // Bottom 60px is the VFO area
       if (y >= height - 60) {
         isDraggingRef.current = true;
         dragStartXRef.current = e.clientX;
@@ -171,11 +227,112 @@ export function useFrequencyDrag({
         dragStartRangeRef.current = { ...frequencyRangeRef.current };
         container.style.cursor = "grabbing";
         container.setPointerCapture(e.pointerId);
+      } else {
+        // Upper area is for box zooming
+        isBoxDraggingRef.current = true;
+        boxStartRef.current = { x: e.clientX, y: e.clientY };
+        boxCurrentRef.current = { x: e.clientX, y: e.clientY };
+        container.setPointerCapture(e.pointerId);
       }
     };
 
     const handlePointerUp = (e: PointerEvent) => {
       const container = getContainer();
+      
+      if (isBoxDraggingRef.current && container) {
+        isBoxDraggingRef.current = false;
+        container.releasePointerCapture(e.pointerId);
+
+        if (selectionBoxRef.current) {
+          const rect = container.getBoundingClientRect();
+          const startX = boxStartRef.current.x - rect.left;
+          const startY = boxStartRef.current.y - rect.top;
+          const currentX = boxCurrentRef.current.x - rect.left;
+          const currentY = boxCurrentRef.current.y - rect.top;
+
+          const boxWidth = Math.abs(currentX - startX);
+          const boxHeight = Math.abs(currentY - startY);
+
+          // Only zoom if the box is reasonably sized (avoid accidental clicks)
+          if (boxWidth > 10 && boxHeight > 10 && onVizZoomChange && onVizPanChange && onFftDbLimitsChange) {
+            const zoom = vizZoomRef?.current || 1;
+            const fullRange = frequencyRangeRef.current.max - frequencyRangeRef.current.min;
+            const visualRange = fullRange / zoom;
+            const visualCenter = (frequencyRangeRef.current.min + frequencyRangeRef.current.max) / 2 + (vizPanOffsetRef?.current || 0);
+            const visualMin = visualCenter - visualRange / 2;
+            
+            const left = Math.min(startX, currentX);
+            const top = Math.min(startY, currentY);
+
+            // Calculate new frequency bounds
+            const newFreqMin = visualMin + (left / rect.width) * visualRange;
+            const newFreqMax = visualMin + ((left + boxWidth) / rect.width) * visualRange;
+            
+            // Zoom multiplier based on ratio of canvas width to box width
+            const newZoomMultiplier = rect.width / boxWidth;
+            const newZoomRaw = zoom * newZoomMultiplier;
+            const newZoom = Math.max(1, Math.min(1000, newZoomRaw));
+            
+            // Calculate new pan to center the selection
+            const targetVisualCenter = (newFreqMin + newFreqMax) / 2;
+            const trueCenter = (frequencyRangeRef.current.min + frequencyRangeRef.current.max) / 2;
+            let newPan = targetVisualCenter - trueCenter;
+
+            // Clamp pan
+            const clampedVisualRange = fullRange / newZoom;
+            const maxPan = fullRange / 2 - clampedVisualRange / 2;
+            newPan = Math.max(-maxPan, Math.min(maxPan, newPan));
+
+            // Calculate dB bounds
+            const currentDbMax = vizDbMaxRef?.current ?? 0;
+            const currentDbMin = vizDbMinRef?.current ?? -120;
+            const dbRange = currentDbMax - currentDbMin;
+
+            // Y is inverted (0 is top, rect.height is bottom)
+            // dB is also inverted visually (maxDb is top, minDb is bottom)
+            const newDbMax = Math.round(currentDbMax - (top / rect.height) * dbRange);
+            const newDbMin = Math.round(currentDbMax - ((top + boxHeight) / rect.height) * dbRange);
+
+            // Check if there is actual signal intersecting this box
+            let hasSignal = true;
+            if (renderWaveformRef?.current) {
+              const waveform = renderWaveformRef.current;
+              const totalBins = waveform.length;
+              const fullFreqMin = frequencyRangeRef.current.min;
+              const fullFreqMax = frequencyRangeRef.current.max;
+              const fullFreqSpan = fullFreqMax - fullFreqMin;
+
+              const binStart = Math.max(0, Math.floor(((newFreqMin - fullFreqMin) / fullFreqSpan) * totalBins));
+              const binEnd = Math.min(totalBins - 1, Math.ceil(((newFreqMax - fullFreqMin) / fullFreqSpan) * totalBins));
+
+              if (binStart <= binEnd) {
+                let maxSignal = -Infinity;
+                let minSignal = Infinity;
+                
+                for (let i = binStart; i <= binEnd; i++) {
+                  const val = waveform[i];
+                  if (val > maxSignal) maxSignal = val;
+                  if (val < minSignal) minSignal = val;
+                }
+
+                if (maxSignal < newDbMin || minSignal > newDbMax) {
+                  hasSignal = false; // Box is completely above or below the signal
+                }
+              }
+            }
+
+            if (hasSignal) {
+              onVizZoomChange(newZoom);
+              onVizPanChange(newPan);
+              onFftDbLimitsChange(newDbMin, newDbMax);
+            }
+          }
+
+          selectionBoxRef.current.remove();
+          selectionBoxRef.current = null;
+        }
+      }
+
       if (isDraggingRef.current && container) {
         container.style.cursor = "default";
         container.releasePointerCapture(e.pointerId);
@@ -232,6 +389,11 @@ export function useFrequencyDrag({
     vizZoomRef,
     vizPanOffsetRef,
     onVizPanChange,
+    vizDbMinRef,
+    vizDbMaxRef,
+    onFftDbLimitsChange,
+    onVizZoomChange,
+    renderWaveformRef,
   ]);
 
   useEffect(() => {

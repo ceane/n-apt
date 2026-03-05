@@ -100,7 +100,8 @@ export type SpectrumAction =
   | { type: "SET_VIZ_ZOOM"; zoom: number }
   | { type: "SET_VIZ_PAN"; pan: number }
   | { type: "SET_FFT_DB_LIMITS"; min: number; max: number }
-  | { type: "SET_SDR_SETTINGS_BUNDLE"; settings: Partial<SpectrumState> };
+  | { type: "SET_SDR_SETTINGS_BUNDLE"; settings: Partial<SpectrumState> }
+  | { type: "RESET_ZOOM_AND_DB" };
 
 export const INITIAL_SPECTRUM_STATE: SpectrumState = {
   activeSignalArea: "A",
@@ -237,9 +238,17 @@ export function spectrumReducer(
     case "SET_VIZ_PAN":
       return { ...state, vizPanOffset: action.pan };
     case "SET_FFT_DB_LIMITS":
-      return { ...state, fftMinDb: action.min, fftMaxDb: action.max };
+      return { ...state, fftMinDb: Math.round(action.min), fftMaxDb: Math.round(action.max) };
     case "SET_SDR_SETTINGS_BUNDLE":
       return { ...state, ...action.settings };
+    case "RESET_ZOOM_AND_DB":
+      return {
+        ...state,
+        vizZoom: 1,
+        vizPanOffset: 0,
+        fftMinDb: -120,
+        fftMaxDb: 0,
+      };
     default:
       return state;
   }

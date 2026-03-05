@@ -38,6 +38,7 @@ export interface VisualizerSlidersProps {
   onFftAvgChange?: (enabled: boolean) => void;
   onFftSmoothChange?: (enabled: boolean) => void;
   onWfSmoothChange?: (enabled: boolean) => void;
+  onResetZoomDb?: () => void;
 }
 
 export const VisualizerSliders: React.FC<VisualizerSlidersProps> = ({
@@ -53,10 +54,18 @@ export const VisualizerSliders: React.FC<VisualizerSlidersProps> = ({
   onFftAvgChange,
   onFftSmoothChange,
   onWfSmoothChange,
+  onResetZoomDb,
 }) => {
   return (
     <SlidersGrid>
       <TogglesContainer>
+        <Toggle
+          $active={false}
+          onClick={onResetZoomDb}
+          title="Reset Zoom and dB limits"
+        >
+          RESET
+        </Toggle>
         <Toggle
           $active={fftAvgEnabled}
           onClick={() => onFftAvgChange?.(!fftAvgEnabled)}

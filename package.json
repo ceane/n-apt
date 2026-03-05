@@ -12,7 +12,7 @@
     "dev:visual-demo": "npm --silent run simple_visual_build:inner",
     "dev:visual-demo:animate": "npm --silent run simple_visual_build:animate:inner",
     "build_orchestrator:inner": "./scripts/build_orchestrator.sh",
-    "build_orchestrator:rezi": "cd scripts && npx tsx --tsconfig tsconfig.rezi.json rezi_build_fixed.tsx",
+    "build_orchestrator:rezi": "cd scripts && npx tsx --tsconfig tsconfig.rezi.json rezi_build_image.tsx",
     "simple_visual_build:inner": "./scripts/simple_visual_build.sh",
     "simple_visual_build:animate:inner": "./scripts/simple_visual_build.sh --animate",
     "server": "./scripts/start_server.sh",
