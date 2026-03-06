@@ -36,14 +36,28 @@ import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 
 type NaptMetadata = {
   sample_rate?: number;
+  sample_rate_hz?: number;
+  capture_sample_rate_hz?: number;
+  hardware_sample_rate_hz?: number;
   center_frequency?: number;
+  center_frequency_hz?: number;
   frequency_range?: [number, number];
   fft?: { size?: number; window?: string };
   format?: string;
+  data_format?: string;
   timestamp_utc?: string;
   hardware?: string;
   gain?: number;
   ppm?: number;
+  frame_rate?: number;
+  fft_size?: number;
+  duration_s?: number;
+  // New fields
+  acquisition_mode?: string;
+  source_device?: string;
+  fft_window?: string;
+  tuner_agc?: boolean;
+  rtl_agc?: boolean;
 };
 
 const SidebarContent = styled.div`
@@ -538,6 +552,16 @@ const Sidebar: React.FC<SidebarProps> = ({
     if (sourceMode !== "file" || selectedFiles.length === 0) return null;
     let minFreq = Infinity;
     let maxFreq = -Infinity;
+
+    // Try to use actual metadata first for more accurate range calculation
+    if (naptMetadata && naptMetadata.frequency_range) {
+      return {
+        min: Math.max(0, naptMetadata.frequency_range[0]),
+        max: naptMetadata.frequency_range[1]
+      };
+    }
+
+    // Fallback to filename parsing for individual files
     for (const f of selectedFiles) {
       if (f.name.toLowerCase().endsWith(".napt")) {
         continue;
@@ -545,9 +569,17 @@ const Sidebar: React.FC<SidebarProps> = ({
       const match = f.name.match(/iq_(\d+\.?\d*)MHz/);
       if (match) {
         const freq = parseFloat(match[1]);
+        // For multiple captures, try to determine actual capture rate from metadata
+        let captureRateMHz = sampleRateMHz;
+
+        // If we have metadata, use the actual capture sample rate
+        if (naptMetadata && naptMetadata.capture_sample_rate_hz) {
+          captureRateMHz = naptMetadata.capture_sample_rate_hz / 1_000_000;
+        }
+
         const halfSpan =
-          typeof sampleRateMHz === "number" && Number.isFinite(sampleRateMHz)
-            ? sampleRateMHz / 2
+          typeof captureRateMHz === "number" && Number.isFinite(captureRateMHz)
+            ? captureRateMHz / 2
             : null;
         if (halfSpan === null) continue;
         minFreq = Math.min(minFreq, freq - halfSpan);
@@ -556,7 +588,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     }
     if (minFreq === Infinity) return null;
     return { min: Math.max(0, minFreq), max: maxFreq };
-  }, [sourceMode, selectedFiles]);
+  }, [sourceMode, selectedFiles, naptMetadata, sampleRateMHz]);
 
   // Handle capture
   const handleCapture = useCallback(() => {

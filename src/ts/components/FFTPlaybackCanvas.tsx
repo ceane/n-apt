@@ -77,11 +77,11 @@ const ChannelSelector = React.memo<ChannelSelectorProps>(({
   return (
     <div style={{
       position: "absolute",
-      top: "20px",
-      left: "50%",
-      transform: "translateX(-50%)",
-      backgroundColor: "rgba(0,0,0,0.8)",
-      padding: "4px 12px",
+      top: "4px",
+      right: "105px",
+      transform: "none",
+      backgroundColor: "rgb(41 41 41 / 80%)",
+      padding: "8px 12px",
       borderRadius: "20px",
       display: "flex",
       alignItems: "center",
@@ -190,8 +190,8 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(({
   });
 
   // ── Clear when file selection actually changes ──
-  const fileNamesSet = useMemo(() => 
-    new Set(selectedFiles.map(f => f.name)), 
+  const fileNamesSet = useMemo(() =>
+    new Set(selectedFiles.map(f => f.name)),
     [selectedFiles]
   );
 

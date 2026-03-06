@@ -1,13 +1,10 @@
-/**
- * Constants for FFT spectrum display rendering
- * SDR++ style color scheme and display parameters
- */
+import { COLORS } from "./components";
 
-export const FFT_GRID_COLOR = "rgba(50, 50, 50, 255)";
-export const LINE_COLOR = "#00d4ff";
-export const HOLD_COLOR = "#ff6b35";
-export const SHADOW_COLOR = "rgba(0, 212, 255, 0.2)";
-export const FFT_TEXT_COLOR = "#666";
+export const FFT_GRID_COLOR = COLORS.fftGrid;
+export const LINE_COLOR = COLORS.fftLine;
+export const HOLD_COLOR = COLORS.fftHold;
+export const SHADOW_COLOR = COLORS.fftShadow;
+export const FFT_TEXT_COLOR = COLORS.fftText;
 export const FFT_MIN_DB = -120;
 export const FFT_MAX_DB = 0;
 export const DB_MARKERS = [-120, -100, -80, -60, -40, -20, 0];
@@ -23,6 +20,19 @@ export const FFT_FREQUENCY_RANGES = [
 
 // Canvas layout constants
 export const FFT_AREA_MIN = { x: 40, y: 20 };
-export const FFT_CANVAS_BG = "#0a0a0a";
+export const FFT_CANVAS_BG = COLORS.fftBackground;
 export const FFT_FONT_FAMILY = "JetBrains Mono";
 export const FFT_FONT_SIZE = "16px";
+
+// Snapshot specific colors
+export const SNAP_HW_RATE_LINE = COLORS.snapHwRateLine;
+export const SNAP_HW_RATE_TEXT = COLORS.snapHwRateText;
+export const SNAP_CENTER_LABEL_BG = COLORS.snapCenterLabelBg;
+export const SNAP_CENTER_LABEL_TEXT = COLORS.snapCenterLabelText;
+
+// Overlay specific colors
+export const CENTER_LINE_COLOR = COLORS.fftCenterLine;
+export const OFFSET_TICK_LINE_COLOR = COLORS.fftOffsetTickLine;
+export const OFFSET_TICK_TEXT_COLOR = COLORS.fftOffsetTickText;
+export const BOUNDARY_LINE_COLOR = COLORS.fftBoundaryLine;
+export const BOUNDARY_TEXT_COLOR = COLORS.fftBoundaryText;

@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect, useCallback } from "react";
-import styled from "styled-components";
+import styled, { useTheme } from "styled-components";
 import { useSpectrumStore, SourceMode } from "@n-apt/hooks/useSpectrumStore";
 import { useSdrSettings } from "@n-apt/hooks/useSdrSettings";
 import { useAuthentication } from "@n-apt/hooks/useAuthentication";
@@ -36,7 +36,7 @@ const CapturingIndicator = styled.div`
   position: fixed;
   top: 24px;
   right: 24px;
-  background-color: #ff4444;
+  background-color: ${(props) => props.theme.danger || "#ff4444"};
   color: white;
   padding: 8px 12px;
   border-radius: 6px;
@@ -80,7 +80,7 @@ const Section = styled.div<{ $marginBottom?: string }>`
 
 const SectionTitle = styled.div<{ $fileMode?: boolean }>`
   font-size: 11px;
-  color: ${(props) => (props.$fileMode ? "#d9aa34" : "#555")};
+  color: ${(props) => (props.$fileMode ? props.theme.fileMode : props.theme.metadataLabel)};
   text-transform: uppercase;
   letter-spacing: 1px;
   margin-top: 1rem;
@@ -121,7 +121,7 @@ const SettingSelect = styled.select`
   }
 
   option {
-    background-color: #1a1a1a;
+    background-color: ${(props) => props.theme.fftBackground || "#0a0a0a"};
     color: #ccc;
     font-family: "JetBrains Mono", monospace;
   }
@@ -178,6 +178,7 @@ export const SpectrumSidebar: React.FC = () => {
   } = useSpectrumStore();
 
   const { isAuthenticated, sessionToken, aesKey } = useAuthentication();
+  const theme = useTheme();
 
   const maxSampleRate = sampleRateHzEffective ?? maxSampleRateHz ?? 0;
   const sampleRateMHz = sampleRateHzEffective
@@ -269,7 +270,7 @@ export const SpectrumSidebar: React.FC = () => {
           // 4. Update selected files
           dispatch({
             type: "SET_SELECTED_FILES",
-            files: [{ name: filename, file }],
+            files: [{ name: filename, file, downloadUrl: captureStatus.downloadUrl }],
           });
 
           // 5. Trigger stitching/playback
@@ -583,7 +584,7 @@ export const SpectrumSidebar: React.FC = () => {
                   ? "Mock APT SDR"
                   : backend || "Mock SDR"}
             </option>
-            <option value="file" style={{ color: "#d9aa34" }}>
+            <option value="file" style={{ color: theme.fileMode }}>
               File Selection
             </option>
           </SettingSelect>

@@ -7,6 +7,7 @@ import { AuthRoute } from "@n-apt/routes/AuthRoute";
 import { ThemeProvider } from "styled-components";
 import { useThemeStore } from "@n-apt/hooks/useThemeStore";
 import { COLORS } from "@n-apt/consts";
+import PWAInstallPrompt from "@n-apt/components/PWAInstallPrompt";
 
 // Main App component with BrowserRouter wrapper
 const App: React.FC = () => {
@@ -34,6 +35,7 @@ const App: React.FC = () => {
           <AuthRoute>
             <SpectrumProvider>
               <AppRoutes />
+              <PWAInstallPrompt />
             </SpectrumProvider>
           </AuthRoute>
         </AuthProvider>

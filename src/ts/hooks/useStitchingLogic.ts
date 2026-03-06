@@ -56,6 +56,7 @@ export const useStitchingLogic = ({
   const stitchSourceSettingsRef = useRef(stitchSourceSettings);
   stitchSourceSettingsRef.current = stitchSourceSettings;
   const lastTriggerRef = useRef<number | null>(null);
+  const lastProcessedFilesRef = useRef<string[]>([]);
 
   // Worker data refs
   const workerFileDataCache = useRef<[string, number[]][]>([]);
@@ -81,9 +82,21 @@ export const useStitchingLogic = ({
 
     setStitchStatus(`Loading ${currentFiles.length} files...`);
     
+    // Check if files have changed to force reset
+    const currentFileNames = currentFiles.map(f => f.name).sort();
+    const lastFileNames = lastProcessedFilesRef.current;
+    const filesChanged = JSON.stringify(currentFileNames) !== JSON.stringify(lastFileNames);
+    
     // Clear previous data
     workerFreqMap.current = [];
     workerFileDataCache.current = [];
+    precomputedFrames.current = [];
+    
+    // Reset to first channel if files changed
+    if (filesChanged) {
+      setActiveChannel(0);
+      lastProcessedFilesRef.current = currentFileNames;
+    }
 
     try {
       // Use file worker for stitching

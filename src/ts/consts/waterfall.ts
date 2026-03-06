@@ -1,7 +1,4 @@
-/**
- * Constants for waterfall display rendering
- * SDR++ style color palette and display parameters
- */
+import { COLORS } from "@n-apt/consts/ts/components";
 
 export const DEFAULT_COLOR_MAP: number[][] = [
   [0x00, 0x00, 0x20],
@@ -19,8 +16,8 @@ export const DEFAULT_COLOR_MAP: number[][] = [
   [0x4a, 0x00, 0x00],
 ];
 
-export const WATERFALL_GRID_COLOR = "rgba(50, 50, 50, 255)";
-export const WATERFALL_TEXT_COLOR = "#666";
+export const WATERFALL_GRID_COLOR = COLORS.waterfallGrid;
+export const WATERFALL_TEXT_COLOR = COLORS.waterfallText;
 // Reuse FFT dB constants for consistency
 export {
   FFT_MIN_DB as WATERFALL_MIN_DB,
@@ -37,6 +34,6 @@ export const WATERFALL_FREQUENCY_RANGES = [
 
 // Canvas layout constants
 export const WF_MIN = { x: 40, y: 20 };
-export const WATERFALL_CANVAS_BG = "#0a0a0a";
+export const WATERFALL_CANVAS_BG = COLORS.waterfallBackground;
 export const WATERFALL_FONT_FAMILY = "JetBrains Mono";
 export const WATERFALL_FONT_SIZE = "16px";

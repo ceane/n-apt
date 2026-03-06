@@ -10,6 +10,10 @@ import {
   WATERFALL_CANVAS_BG,
   DEFAULT_COLOR_MAP,
   findBestFrequencyRange,
+  SNAP_HW_RATE_LINE,
+  SNAP_HW_RATE_TEXT,
+  SNAP_CENTER_LABEL_BG,
+  SNAP_CENTER_LABEL_TEXT,
 } from "@n-apt/consts";
 import type { SnapshotData } from "@n-apt/components/FFTCanvas";
 
@@ -253,9 +257,9 @@ function drawSpectrumToCanvas(
 
     if (hwSpanMHz > 0) {
       ctx.save();
-      ctx.strokeStyle = "rgba(220, 220, 220, 0.54)";
+      ctx.strokeStyle = SNAP_HW_RATE_LINE;
       ctx.lineWidth = 1 / dpr;
-      ctx.fillStyle = "#ffb669";
+      ctx.fillStyle = SNAP_HW_RATE_TEXT;
       ctx.font = "10px JetBrains Mono";
       ctx.textAlign = "center";
       ctx.textBaseline = "top";
@@ -406,9 +410,9 @@ function drawSpectrumToCanvas(
   const labelW = ctx.measureText(centerLabel).width;
   const labelX = lw / 2;
   const labelY = fftAreaMax.y + 25;
-  ctx.fillStyle = "rgba(10, 10, 10, 0.9)";
+  ctx.fillStyle = SNAP_CENTER_LABEL_BG;
   ctx.fillRect(labelX - labelW / 2 - 6, labelY - 13, labelW + 12, 17);
-  ctx.fillStyle = "#ffffff";
+  ctx.fillStyle = SNAP_CENTER_LABEL_TEXT;
   ctx.fillText(centerLabel, labelX, labelY);
   ctx.restore();
 }
@@ -668,11 +672,11 @@ function generateSpectrumSVG(
         if (bEnd > minFreq && bStart < maxFreq) {
           if (bStart >= minFreq && bStart <= maxFreq) {
             const lx = Math.round(freqToX(bStart));
-            parts.push(`<line x1="${lx}" y1="${FFT_AREA_MIN.y}" x2="${lx}" y2="${fftAreaMax.y}" stroke="rgba(220,220,220,0.54)" stroke-width="1" stroke-dasharray="4,4"/>`);
+            parts.push(`<line x1="${lx}" y1="${FFT_AREA_MIN.y}" x2="${lx}" y2="${fftAreaMax.y}" stroke="${SNAP_HW_RATE_LINE}" stroke-width="1" stroke-dasharray="4,4"/>`);
           }
           if (bEnd >= minFreq && bEnd <= maxFreq) {
             const rx = Math.round(freqToX(bEnd));
-            parts.push(`<line x1="${rx}" y1="${FFT_AREA_MIN.y}" x2="${rx}" y2="${fftAreaMax.y}" stroke="rgba(220,220,220,0.54)" stroke-width="1" stroke-dasharray="4,4"/>`);
+            parts.push(`<line x1="${rx}" y1="${FFT_AREA_MIN.y}" x2="${rx}" y2="${fftAreaMax.y}" stroke="${SNAP_HW_RATE_LINE}" stroke-width="1" stroke-dasharray="4,4"/>`);
           }
           // Draw center label - clamp to visible region so it doesn't disappear when zoomed
           const visibleStart = Math.max(bStart, minFreq);
@@ -683,8 +687,8 @@ function generateSpectrumSVG(
             const cx = Math.round(freqToX(visibleCenter));
             const label = isFull ? "Hardware Sample Rate" : "Next sample";
             const subLabel = fmtOff(bWidth);
-            parts.push(`<text x="${cx}" y="${FFT_AREA_MIN.y + 14}" text-anchor="middle" fill="#ffb669" font-family="JetBrains Mono, monospace" font-size="10">${escapeXml(label)}</text>`);
-            parts.push(`<text x="${cx}" y="${FFT_AREA_MIN.y + 26}" text-anchor="middle" fill="#ffb669" font-family="JetBrains Mono, monospace" font-size="10">${escapeXml(subLabel)}</text>`);
+            parts.push(`<text x="${cx}" y="${FFT_AREA_MIN.y + 14}" text-anchor="middle" fill="${SNAP_HW_RATE_TEXT}" font-family="JetBrains Mono, monospace" font-size="10">${escapeXml(label)}</text>`);
+            parts.push(`<text x="${cx}" y="${FFT_AREA_MIN.y + 26}" text-anchor="middle" fill="${SNAP_HW_RATE_TEXT}" font-family="JetBrains Mono, monospace" font-size="10">${escapeXml(subLabel)}</text>`);
           }
         }
         cur = bEnd;
@@ -775,10 +779,10 @@ function generateSpectrumSVG(
   // approximate width for background
   const approxLabelW = centerLabel.length * 7.5;
   parts.push(
-    `<rect x="${labelX - approxLabelW / 2 - 6}" y="${labelY - 13}" width="${approxLabelW + 12}" height="17" fill="rgba(10,10,10,0.9)"/>`,
+    `<rect x="${labelX - approxLabelW / 2 - 6}" y="${labelY - 13}" width="${approxLabelW + 12}" height="17" fill="${SNAP_CENTER_LABEL_BG}"/>`,
   );
   parts.push(
-    `<text x="${labelX}" y="${labelY}" text-anchor="middle" fill="#ffffff" font-family="JetBrains Mono, monospace" font-size="12">${escapeXml(centerLabel)}</text>`,
+    `<text x="${labelX}" y="${labelY}" text-anchor="middle" fill="${SNAP_CENTER_LABEL_TEXT}" font-family="JetBrains Mono, monospace" font-size="12">${escapeXml(centerLabel)}</text>`,
   );
 
   return parts.join("\n  ");

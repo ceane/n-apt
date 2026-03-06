@@ -1,6 +1,8 @@
 import React from "react";
 import styled from "styled-components";
 import { COLORS } from "@n-apt/consts";
+import { Slider } from "@n-apt/components/ui";
+import { BlockMath } from "react-katex";
 
 interface DrawMockNAPTSidebarProps {
   drawParams: {
@@ -23,8 +25,6 @@ const ControlsContainer = styled.div`
   display: grid;
   gap: 16px;
 `;
-
-import { Slider } from "@n-apt/components/ui";
 
 const InfoContainer = styled.div`
   background-color: ${COLORS.surface};
@@ -49,6 +49,17 @@ const InfoParagraph = styled.p`
   color: ${COLORS.textSecondary};
 `;
 
+const MathContainer = styled(InfoContainer)`
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px dashed ${COLORS.border};
+  padding: 12px;
+  
+  .katex-display {
+    margin: 0.5em 0;
+    font-size: 0.9em;
+  }
+`;
+
 const DrawMockNAPTSidebar: React.FC<DrawMockNAPTSidebarProps> = ({
   drawParams,
   onDrawParamsChange,
@@ -62,6 +73,28 @@ const DrawMockNAPTSidebar: React.FC<DrawMockNAPTSidebarProps> = ({
 
   return (
     <DrawContainer>
+      <MathContainer>
+        <InfoTitle style={{ opacity: 0.7, fontSize: '12px' }}>Synthesis Equation</InfoTitle>
+        <BlockMath
+          math={`X(t) = e^{-\\left(\\frac{t}{w_e}\\right)^2} \\cdot \\sum_{k} h_k \\cdot S_k(t)`}
+        />
+        <BlockMath
+          math={`S_k(t) = \\sin\\left[ \\frac{\\pi}{2} \\left( \\frac{t - k \\cdot s}{w} + 1 \\right) \\right]`}
+        />
+        <BlockMath
+          math={`h_k = F + (B - F) \\cdot e^{-|k| \\lambda}`}
+        />
+        <div style={{ fontSize: '10px', color: COLORS.textSecondary, marginTop: '8px', textAlign: 'center' }}>
+          where |t - k·s| ≤ w
+        </div>
+      </MathContainer>
+
+      <div style={{ marginBottom: '8px', marginTop: '8px' }}>
+        <h2 style={{ fontSize: '11px', color: '#666', textTransform: 'uppercase', letterSpacing: '1px' }}>
+          Simulation Controls
+        </h2>
+      </div>
+
       <ControlsContainer>
         <Slider
           label="Spikes"
@@ -75,7 +108,7 @@ const DrawMockNAPTSidebar: React.FC<DrawMockNAPTSidebarProps> = ({
         />
 
         <Slider
-          label="S. Width"
+          label="Spike Width"
           value={drawParams.spikeWidth}
           min={0.1}
           max={2.0}
@@ -119,7 +152,7 @@ const DrawMockNAPTSidebar: React.FC<DrawMockNAPTSidebarProps> = ({
         />
 
         <Slider
-          label="E. Width"
+          label="Envelope Width"
           value={drawParams.envelopeWidth}
           min={1.0}
           max={20.0}

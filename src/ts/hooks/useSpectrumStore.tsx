@@ -21,7 +21,7 @@ import { deriveStateFromConfig } from "@n-apt/hooks/useSdrSettings";
 
 // Types
 export type SourceMode = "live" | "file";
-export type SelectedFile = { name: string; file: File };
+export type SelectedFile = { name: string; file: File; downloadUrl?: string };
 
 const MANUAL_VISUALIZER_PAUSE_KEY = "napt-visualizer-manual-paused";
 

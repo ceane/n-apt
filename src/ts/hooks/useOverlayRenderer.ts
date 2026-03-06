@@ -5,6 +5,15 @@ import {
   VERTICAL_RANGE,
   FFT_AREA_MIN,
   findBestFrequencyRange,
+  SNAP_HW_RATE_LINE,
+  SNAP_HW_RATE_TEXT,
+  OFFSET_TICK_LINE_COLOR,
+  OFFSET_TICK_TEXT_COLOR,
+  BOUNDARY_LINE_COLOR,
+  BOUNDARY_TEXT_COLOR,
+  CENTER_LINE_COLOR,
+  SNAP_CENTER_LABEL_BG,
+  SNAP_CENTER_LABEL_TEXT,
 } from "@n-apt/consts";
 import { formatFrequency } from "../consts/sdr";
 
@@ -160,8 +169,8 @@ export function useOverlayRenderer() {
 
       if (centerTicksMHz.length > 0 && Number.isFinite(visualCenterFreq)) {
         ctx.save();
-        ctx.strokeStyle = "rgba(120, 120, 120, 0.55)";
-        ctx.fillStyle = "rgba(160, 160, 160, 0.85)";
+        ctx.strokeStyle = OFFSET_TICK_LINE_COLOR;
+        ctx.fillStyle = OFFSET_TICK_TEXT_COLOR;
         ctx.font = "10px JetBrains Mono";
         ctx.textAlign = "center";
         ctx.textBaseline = "top";
@@ -232,10 +241,10 @@ export function useOverlayRenderer() {
       
       if (hwSpanMHz > 0 && isIqRecordingActive) {
         ctx.save();
-        ctx.strokeStyle = "rgba(220, 220, 220, 0.54)"; // User specified color
+        ctx.strokeStyle = SNAP_HW_RATE_LINE; // User specified color
         ctx.setLineDash([4, 4]); // Dashed line
         ctx.lineWidth = 1 / dpr;
-        ctx.fillStyle = "#ffb669";
+        ctx.fillStyle = SNAP_HW_RATE_TEXT;
         ctx.font = "10px JetBrains Mono";
         ctx.textAlign = "center";
         ctx.textBaseline = "top";
@@ -325,7 +334,7 @@ export function useOverlayRenderer() {
           if (m.freq < minFreq || m.freq > maxFreq) continue;
           const x = Math.round(freqToX(m.freq)) + 0.5;
           ctx.save();
-          ctx.strokeStyle = "rgba(220, 38, 38, 0.55)";
+          ctx.strokeStyle = BOUNDARY_LINE_COLOR;
           ctx.lineWidth = 1 / dpr;
           ctx.beginPath();
           ctx.moveTo(x, FFT_AREA_MIN.y);
@@ -342,9 +351,9 @@ export function useOverlayRenderer() {
             FFT_AREA_MIN.x + tw / 2 + 4,
             Math.min(fftAreaMax.x - tw / 2 - 4, x),
           );
-          ctx.fillStyle = "rgba(10, 10, 10, 0.75)";
+          ctx.fillStyle = SNAP_CENTER_LABEL_BG;
           ctx.fillRect(lx - tw / 2 - 4, FFT_AREA_MIN.y + 4, tw + 8, 18);
-          ctx.fillStyle = "rgba(220, 38, 38, 0.9)";
+          ctx.fillStyle = BOUNDARY_TEXT_COLOR;
           ctx.fillText(m.label, lx, FFT_AREA_MIN.y + 6);
           ctx.restore();
         }
@@ -358,7 +367,7 @@ export function useOverlayRenderer() {
         // Using freqToX(centerFrequencyMHz) causes drift when zoomed
         const cx = Math.round((FFT_AREA_MIN.x + fftAreaMax.x) / 2) + 0.5;
         ctx.save();
-        ctx.strokeStyle = "rgba(220, 255, 0, 0.7)";
+        ctx.strokeStyle = CENTER_LINE_COLOR;
         ctx.lineWidth = 1 / dpr;
         ctx.beginPath();
         ctx.moveTo(cx, FFT_AREA_MIN.y);
@@ -381,9 +390,9 @@ export function useOverlayRenderer() {
       const labelW = ctx.measureText(centerLabel).width;
       const labelX = width / 2;
       const labelY = fftAreaMax.y + 25;
-      ctx.fillStyle = "rgba(10, 10, 10, 0.9)";
+      ctx.fillStyle = SNAP_CENTER_LABEL_BG;
       ctx.fillRect(labelX - labelW / 2 - 6, labelY - 13, labelW + 12, 17);
-      ctx.fillStyle = "#ffffff";
+      ctx.fillStyle = SNAP_CENTER_LABEL_TEXT;
       ctx.fillText(centerLabel, labelX, labelY);
       ctx.restore();
     },
