@@ -98,6 +98,7 @@ export type WebSocketData = {
   serverPaused: boolean;
   backend: string | null;
   deviceInfo: string | null;
+  deviceName: string | null;
   maxSampleRateHz: number | null;
   sampleRateHz: number | null;
   sdrSettings: SdrSettingsConfig | null;
@@ -129,6 +130,7 @@ type WsState = {
   serverPaused: boolean;
   backend: string | null;
   deviceInfo: string | null;
+  deviceName: string | null;
   maxSampleRateHz: number | null;
   sampleRateHz: number | null;
   sdrSettings: SdrSettingsConfig | null;
@@ -157,6 +159,7 @@ const INITIAL_WS_STATE: WsState = {
   serverPaused: false,
   backend: null,
   deviceInfo: null,
+  deviceName: null,
   maxSampleRateHz: null,
   sampleRateHz: null,
   sdrSettings: null,
@@ -221,288 +224,314 @@ export const useWebSocket = (
   const dataRef = useRef<any>(null);
 
   useEffect(() => {
-    if (!enabled || !url) {
-      // Close existing connection if disabled
-      const ws = wsRef.current;
-      wsRef.current = null;
-
+    // Shared cleanup: close any existing connection and cancel pending reconnects
+    const cleanup = () => {
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = null;
       }
-
+      const ws = wsRef.current;
       if (ws) {
+        // Prevent the onclose handler from scheduling a reconnect during teardown
+        ws.onclose = null;
+        ws.onerror = null;
+        ws.onmessage = null;
         ws.close();
+        wsRef.current = null;
       }
+    };
 
+    if (!enabled || !url) {
+      cleanup();
       dispatch({ type: "DISCONNECTED" });
-      return;
-    } else {
-      const connect = () => {
-        try {
-          const ws = new WebSocket(url);
-          ws.binaryType = "arraybuffer"; // Set to receive binary payloads
-          wsRef.current = ws;
+      return cleanup;
+    }
 
-          ws.onopen = () => {
-            dispatch({ type: "CONNECTED" });
-            reconnectAttemptRef.current = 0;
-          };
+    // Clean up any previous connection before opening a new one
+    cleanup();
+    reconnectAttemptRef.current = 0;
 
-          // WebSocket message handler with rAF-batched processing
-          ws.onmessage = (event) => {
-            // Binary fast-path for spectrum data
-            if (event.data instanceof ArrayBuffer) {
-              if (aesKeyRef.current) {
-                try {
-                  const buffer = event.data;
-                  const view = new DataView(buffer);
+    let disposed = false;
 
-                  // 1. Extract metadata: [timestamp: 8 bytes][center_frequency: 8 bytes]
-                  const timestamp = Number(view.getBigUint64(0, true)); // true = little-endian
-                  const centerFrequencyHz = Number(view.getBigUint64(8, true));
+    const connect = () => {
+      if (disposed) return;
+      try {
+        const ws = new WebSocket(url);
+        ws.binaryType = "arraybuffer";
+        wsRef.current = ws;
 
-                  // 2. Extract encrypted payload
-                  const encryptedPayload = new Uint8Array(buffer, 16);
+        ws.onopen = () => {
+          if (disposed) { ws.close(); return; }
+          dispatch({ type: "CONNECTED" });
+          reconnectAttemptRef.current = 0;
+        };
 
-                  // 3. Decrypt the binary payload
-                  decryptBinaryPayload(aesKeyRef.current, encryptedPayload)
-                    .then((decryptedBytes) => {
-                      // 4. Convert decrypted bytes back to Float32Array
-                      const waveform = new Float32Array(
-                        decryptedBytes.buffer,
-                        decryptedBytes.byteOffset,
-                        decryptedBytes.byteLength / 4,
-                      );
+        // WebSocket message handler with rAF-batched processing
+        ws.onmessage = (event) => {
+          if (disposed) return;
 
-                      // 5. Reconstruct the SpectrumData object format expected by the frontend
-                      const spectrumData = {
-                        message_type: "spectrum",
-                        waveform: waveform,
-                        is_mock_apt: false, // We'll assume real unless backend tells us otherwise (binary fast path is mostly real)
-                        center_frequency_hz: centerFrequencyHz,
-                        timestamp: timestamp,
-                      };
-
-                      dataRef.current = spectrumData;
-                    })
-                    .catch((e) => {
-                      console.error("Binary decryption failed:", e);
-                    });
-                } catch (e) {
-                  console.error("Failed to parse binary WebSocket payload:", e);
-                }
-              }
-              return;
-            }
-
-            const raw = event.data as string;
-
-            // Backwards compatibility / mock mode handling (still using JSON)
-            if (raw.includes('"type":"encrypted_spectrum"')) {
-              if (aesKeyRef.current) {
-                try {
-                  const envelope = JSON.parse(raw);
-                  if (
-                    envelope.type === "encrypted_spectrum" &&
-                    typeof envelope.payload === "string"
-                  ) {
-                    decryptPayload(aesKeyRef.current, envelope.payload)
-                      .then((plaintext) => {
-                        const parsedData = JSON.parse(plaintext);
-                        // Store in mutable state instead of React state to avoid re-renders
-                        if (
-                          parsedData.message_type === "batch" &&
-                          parsedData.messages &&
-                          parsedData.messages.length > 0
-                        ) {
-                          const firstMessage = JSON.parse(
-                            parsedData.messages[0],
-                          );
-                          dataRef.current = firstMessage;
-                        } else {
-                          dataRef.current = parsedData;
-                        }
-                      })
-                      .catch(() => {
-                        // Decryption failed — likely wrong key or corrupted frame
-                      });
-                  }
-                } catch {
-                  /* ignore */
-                }
-              }
-              return;
-            }
-
-            // For all other messages (status, etc.), batch them
-            messageBatch.push(raw);
-
-            if (batchRafId === null) {
-              batchRafId = requestAnimationFrame(() => {
-                // Keep only the most recent message to avoid heavy per-frame work
-                const latest = messageBatch.pop();
-                messageBatch = [];
-                batchRafId = null;
-
-                if (latest) {
-                  processSingleMessage(latest);
-                }
-              });
-            }
-          };
-
-          // Message batching for performance (defer work off the WS handler)
-          let messageBatch: string[] = [];
-          let batchRafId: number | null = null;
-
-          const processSingleMessage = (raw: string) => {
-            // ── Status messages (backend-driven device state) ────────
-            if (raw.includes('"message_type":"status"')) {
+          // Binary fast-path for spectrum data
+          if (event.data instanceof ArrayBuffer) {
+            if (aesKeyRef.current) {
               try {
-                const parsedData = JSON.parse(raw);
-                const paused = parsedData.paused || false;
-                const updates: Partial<WsState> = {
-                  serverPaused: paused,
-                  isPaused: paused,
-                };
+                const buffer = event.data;
+                const view = new DataView(buffer);
 
-                if (typeof parsedData.backend === "string") {
-                  updates.backend = parsedData.backend;
-                }
-                if (typeof parsedData.device_info === "string") {
-                  updates.deviceInfo = parsedData.device_info;
-                }
-                if (typeof parsedData.max_sample_rate === "number") {
-                  updates.maxSampleRateHz = parsedData.max_sample_rate;
-                }
-                if (parsedData.sdr_settings) {
-                  updates.sdrSettings = parsedData.sdr_settings;
-                  if (typeof parsedData.sdr_settings.sample_rate === "number") {
-                    updates.sampleRateHz = parsedData.sdr_settings.sample_rate;
-                  }
-                }
-                if (typeof parsedData.device_state === "string") {
-                  updates.deviceState = parsedData.device_state as DeviceState;
-                }
-                if (Array.isArray(parsedData.channels)) {
-                  updates.spectrumFrames = parsedData.channels
-                    .filter((f: any) => f && typeof f.id === "string")
-                    .map((f: any) => ({
-                      id: f.id,
-                      label: typeof f.label === "string" ? f.label : "",
-                      min_mhz: Number(f.min_mhz),
-                      max_mhz: Number(f.max_mhz),
-                      description:
-                        typeof f.description === "string" ? f.description : "",
-                    }))
-                    .filter(
-                      (f: SpectrumFrame) =>
-                        typeof f.label === "string" &&
-                        f.label.length > 0 &&
-                        Number.isFinite(f.min_mhz) &&
-                        Number.isFinite(f.max_mhz) &&
-                        f.max_mhz > f.min_mhz,
+                // 1. Extract metadata: [timestamp: 8 bytes][center_frequency: 8 bytes]
+                const timestamp = Number(view.getBigUint64(0, true)); // true = little-endian
+                const centerFrequencyHz = Number(view.getBigUint64(8, true));
+
+                // 2. Extract encrypted payload
+                const encryptedPayload = new Uint8Array(buffer, 16);
+
+                // 3. Decrypt the binary payload
+                decryptBinaryPayload(aesKeyRef.current, encryptedPayload)
+                  .then((decryptedBytes) => {
+                    if (disposed) return;
+                    // 4. Convert decrypted bytes back to Float32Array
+                    const waveform = new Float32Array(
+                      decryptedBytes.buffer,
+                      decryptedBytes.byteOffset,
+                      decryptedBytes.byteLength / 4,
                     );
-                }
-                const reason = parsedData.device_loading_reason;
+
+                    // 5. Reconstruct the SpectrumData object format expected by the frontend
+                    const spectrumData = {
+                      message_type: "spectrum",
+                      waveform: waveform,
+                      is_mock_apt: false, // We'll assume real unless backend tells us otherwise (binary fast path is mostly real)
+                      center_frequency_hz: centerFrequencyHz,
+                      timestamp: timestamp,
+                    };
+
+                    dataRef.current = spectrumData;
+                  })
+                  .catch((e) => {
+                    console.error("Binary decryption failed:", e);
+                  });
+              } catch (e) {
+                console.error("Failed to parse binary WebSocket payload:", e);
+              }
+            }
+            return;
+          }
+
+          const raw = event.data as string;
+
+          // Backwards compatibility / mock mode handling (still using JSON)
+          if (raw.includes('"type":"encrypted_spectrum"')) {
+            if (aesKeyRef.current) {
+              try {
+                const envelope = JSON.parse(raw);
                 if (
-                  reason === "connect" ||
-                  reason === "restart" ||
-                  reason === null
+                  envelope.type === "encrypted_spectrum" &&
+                  typeof envelope.payload === "string"
                 ) {
-                  updates.deviceLoadingReason = reason;
+                  decryptPayload(aesKeyRef.current, envelope.payload)
+                    .then((plaintext) => {
+                      if (disposed) return;
+                      const parsedData = JSON.parse(plaintext);
+                      // Store in mutable state instead of React state to avoid re-renders
+                      if (
+                        parsedData.message_type === "batch" &&
+                        parsedData.messages &&
+                        parsedData.messages.length > 0
+                      ) {
+                        const firstMessage = JSON.parse(
+                          parsedData.messages[0],
+                        );
+                        dataRef.current = firstMessage;
+                      } else {
+                        dataRef.current = parsedData;
+                      }
+                    })
+                    .catch(() => {
+                      // Decryption failed — likely wrong key or corrupted frame
+                    });
                 }
-                dispatch({ type: "STATUS", updates });
               } catch {
                 /* ignore */
               }
             }
+            return;
+          }
 
-            // ── Capture status messages (plaintext) ─────────────────
-            if (raw.includes('"message_type":"capture_status"')) {
-              try {
-                const parsed = JSON.parse(raw);
-                const statusObj = parsed.status || {};
-                if (
-                  typeof statusObj.jobId === "string" &&
-                  (statusObj.status === "started" ||
-                    statusObj.status === "progress" ||
-                    statusObj.status === "done" ||
-                    statusObj.status === "failed")
-                ) {
-                  const newStatus: any = {
-                    jobId: statusObj.jobId,
-                    status: statusObj.status,
-                    message: statusObj.message,
-                    progress: statusObj.progress,
-                    downloadUrl: statusObj.downloadUrl,
-                    filename: statusObj.filename,
-                    fileCount:
-                      typeof statusObj.fileCount === "number"
-                        ? statusObj.fileCount
-                        : undefined,
-                  };
-                  if (statusObj.error) {
-                    newStatus.error = statusObj.error;
-                  }
-                  dispatch({ type: "CAPTURE_STATUS", status: newStatus });
-                }
-              } catch (e) {
-                // Silently handle JSON parsing errors
+          // For all other messages (status, etc.), batch them
+          messageBatch.push(raw);
+
+          if (batchRafId === null) {
+            batchRafId = requestAnimationFrame(() => {
+              // Keep only the most recent message to avoid heavy per-frame work
+              const latest = messageBatch.pop();
+              messageBatch = [];
+              batchRafId = null;
+
+              if (latest && !disposed) {
+                processSingleMessage(latest);
               }
-            }
+            });
+          }
+        };
 
-            // ── Auto FFT options messages (plaintext) ─────────────────
-            if (raw.includes('"type":"auto_fft_options"')) {
-              try {
-                const parsed = JSON.parse(raw);
-                if (
-                  typeof parsed.fftSize === "number" &&
-                  typeof parsed.window === "string" &&
-                  Array.isArray(parsed.autoSizes)
-                ) {
-                  const options = {
-                    message_type: "auto_fft_options" as const,
-                    fftSize: parsed.fftSize,
-                    window: parsed.window,
-                    autoSizes: parsed.autoSizes,
-                    recommended: parsed.recommended,
-                  };
-                  dispatch({ type: "AUTO_FFT_OPTIONS", options });
-                }
-              } catch (e) {
-                // Silently handle JSON parsing errors
+        // Message batching for performance (defer work off the WS handler)
+        let messageBatch: string[] = [];
+        let batchRafId: number | null = null;
+
+        const processSingleMessage = (raw: string) => {
+          // ── Status messages (backend-driven device state) ────────
+          if (raw.includes('"message_type":"status"')) {
+            try {
+              const parsedData = JSON.parse(raw);
+              const paused = parsedData.paused || false;
+              const updates: Partial<WsState> = {
+                serverPaused: paused,
+                isPaused: paused,
+              };
+
+              if (typeof parsedData.backend === "string") {
+                updates.backend = parsedData.backend;
               }
+              if (typeof parsedData.device_info === "string") {
+                updates.deviceInfo = parsedData.device_info;
+              }
+              if (typeof parsedData.device_name === "string") {
+                updates.deviceName = parsedData.device_name;
+              }
+              if (typeof parsedData.max_sample_rate === "number") {
+                updates.maxSampleRateHz = parsedData.max_sample_rate;
+              }
+              if (parsedData.sdr_settings) {
+                updates.sdrSettings = parsedData.sdr_settings;
+                if (typeof parsedData.sdr_settings.sample_rate === "number") {
+                  updates.sampleRateHz = parsedData.sdr_settings.sample_rate;
+                }
+              }
+              if (typeof parsedData.device_state === "string") {
+                updates.deviceState = parsedData.device_state as DeviceState;
+              }
+              if (Array.isArray(parsedData.channels)) {
+                updates.spectrumFrames = parsedData.channels
+                  .filter((f: any) => f && typeof f.id === "string")
+                  .map((f: any) => ({
+                    id: f.id,
+                    label: typeof f.label === "string" ? f.label : "",
+                    min_mhz: Number(f.min_mhz),
+                    max_mhz: Number(f.max_mhz),
+                    description:
+                      typeof f.description === "string" ? f.description : "",
+                  }))
+                  .filter(
+                    (f: SpectrumFrame) =>
+                      typeof f.label === "string" &&
+                      f.label.length > 0 &&
+                      Number.isFinite(f.min_mhz) &&
+                      Number.isFinite(f.max_mhz) &&
+                      f.max_mhz > f.min_mhz,
+                  );
+              }
+              const reason = parsedData.device_loading_reason;
+              if (
+                reason === "connect" ||
+                reason === "restart" ||
+                reason === null
+              ) {
+                updates.deviceLoadingReason = reason;
+              }
+              dispatch({ type: "STATUS", updates });
+            } catch {
+              /* ignore */
             }
-          };
+          }
 
-          ws.onclose = () => {
-            dispatch({ type: "DISCONNECTED" });
-            
-            // Exponential backoff reconnection logic
-            const maxAttempts = 5;
-            if (reconnectAttemptRef.current < maxAttempts) {
-              const delay = Math.min(1000 * Math.pow(2, reconnectAttemptRef.current), 30000);
-              reconnectTimeoutRef.current = window.setTimeout(() => {
-                reconnectAttemptRef.current++;
-                connect();
-              }, delay);
+          // ── Capture status messages (plaintext) ─────────────────
+          if (raw.includes('"message_type":"capture_status"')) {
+            try {
+              const parsed = JSON.parse(raw);
+              const statusObj = parsed.status || {};
+              if (
+                typeof statusObj.jobId === "string" &&
+                (statusObj.status === "started" ||
+                  statusObj.status === "progress" ||
+                  statusObj.status === "done" ||
+                  statusObj.status === "failed")
+              ) {
+                const newStatus: any = {
+                  jobId: statusObj.jobId,
+                  status: statusObj.status,
+                  message: statusObj.message,
+                  progress: statusObj.progress,
+                  downloadUrl: statusObj.downloadUrl,
+                  filename: statusObj.filename,
+                  fileCount:
+                    typeof statusObj.fileCount === "number"
+                      ? statusObj.fileCount
+                      : undefined,
+                };
+                if (statusObj.error) {
+                  newStatus.error = statusObj.error;
+                }
+                dispatch({ type: "CAPTURE_STATUS", status: newStatus });
+              }
+            } catch (e) {
+              // Silently handle JSON parsing errors
             }
-          };
+          }
 
-          ws.onerror = (error) => {
-            console.error("WebSocket error:", error);
-          };
+          // ── Auto FFT options messages (plaintext) ─────────────────
+          if (raw.includes('"type":"auto_fft_options"')) {
+            try {
+              const parsed = JSON.parse(raw);
+              if (
+                typeof parsed.fftSize === "number" &&
+                typeof parsed.window === "string" &&
+                Array.isArray(parsed.autoSizes)
+              ) {
+                const options = {
+                  message_type: "auto_fft_options" as const,
+                  fftSize: parsed.fftSize,
+                  window: parsed.window,
+                  autoSizes: parsed.autoSizes,
+                  recommended: parsed.recommended,
+                };
+                dispatch({ type: "AUTO_FFT_OPTIONS", options });
+              }
+            } catch (e) {
+              // Silently handle JSON parsing errors
+            }
+          }
+        };
 
-        } catch (error) {
-          console.error("Failed to create WebSocket:", error);
+        ws.onclose = () => {
+          if (disposed) return;
           dispatch({ type: "DISCONNECTED" });
-        }
-      };
+          
+          // Exponential backoff reconnection logic
+          const maxAttempts = 5;
+          if (reconnectAttemptRef.current < maxAttempts) {
+            const delay = Math.min(1000 * Math.pow(2, reconnectAttemptRef.current), 30000);
+            reconnectTimeoutRef.current = window.setTimeout(() => {
+              reconnectAttemptRef.current++;
+              connect();
+            }, delay);
+          }
+        };
 
-      connect();
-    }
+        ws.onerror = (error) => {
+          console.error("WebSocket error:", error);
+        };
+
+      } catch (error) {
+        console.error("Failed to create WebSocket:", error);
+        dispatch({ type: "DISCONNECTED" });
+      }
+    };
+
+    connect();
+
+    return () => {
+      disposed = true;
+      cleanup();
+    };
   }, [url, aesKey, enabled, dispatch]);
 
   // Function to send settings updates to the server

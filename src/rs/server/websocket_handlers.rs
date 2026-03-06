@@ -103,10 +103,20 @@ pub async fn handle_ws_connection(
       .unwrap_or(64_000_000)
   };
 
+  // Extract short device name from device_info
+  let device_name = if device_connected {
+    // Extract just the device name from the long device_info string
+    // device_info format: "Long Name - Freq: X Hz, Rate: Y Hz, ..."
+    device_info.split(" - ").next().unwrap_or("RTL-SDR").to_string()
+  } else {
+    "Mock APT SDR".to_string()
+  };
+
   let initial_status = serde_json::json!({
     "message_type": "status",
     "device_connected": device_connected,
     "device_info": device_info,
+    "device_name": device_name,
     "device_loading": device_loading,
     "device_loading_reason": device_loading_reason,
     "device_state": device_state,

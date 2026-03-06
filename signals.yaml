@@ -59,7 +59,7 @@ signals:
     channels:
         a:
           label: "A"
-          freq_range_mhz: [0.018, 4.47]
+          freq_range_mhz: [0.018, 4.37]
           description: "Area A: 18kHz-4.47 MHz range"
         b:
           label: "B"
@@ -177,7 +177,7 @@ signals:
       # and via backend hot-reload when available.
       a:
         label: "A"
-        freq_range_mhz: [0.018, 4.47]
+        freq_range_mhz: [0.018, 4.37]
         description: "Area A: 18kHz-4.47 MHz range"
       b:
         label: "B"

@@ -294,7 +294,7 @@ export const SpectrumSidebar: React.FC = () => {
     return lower.endsWith(".napt") || lower.endsWith(".wav") ? f : null;
   }, [state.sourceMode, state.selectedFiles]);
 
-  // Initial paused state for file mode
+  // Initial paused state for file mode - always reset to paused when entering file mode
   useEffect(() => {
     if (state.sourceMode === "file") {
       dispatch({ type: "SET_STITCH_PAUSED", paused: true });

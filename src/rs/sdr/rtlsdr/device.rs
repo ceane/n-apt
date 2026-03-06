@@ -21,6 +21,7 @@ pub struct RtlSdrDevice {
     async_thread: Option<JoinHandle<()>>,
     iq_overflow: Vec<u8>,
     max_sample_rate_cache: Option<u32>,
+    last_error: Option<String>,
 }
 
 struct AsyncContext {
@@ -95,6 +96,7 @@ impl RtlSdrDevice {
             async_thread: None,
             iq_overflow: Vec::new(),
             max_sample_rate_cache: None,
+            last_error: None,
         };
 
         // Set mandatory default sample rate so get_device_info doesn't return 0Hz
@@ -515,12 +517,26 @@ impl SdrDevice for RtlSdrDevice {
             
             // If we don't have enough to satisfy one valid, contiguous FFT frame, wait.
             while self.iq_overflow.len() < bytes_needed {
-                // Wait up to 500ms for more samples to arrive
-                match rx.recv_timeout(std::time::Duration::from_millis(500)) {
+                // If the async thread died (often due to sudden unplug), stop waiting immediately.
+                if let Some(handle) = &self.async_thread {
+                    if handle.is_finished() {
+                        return Err(anyhow::anyhow!("Async reader thread died prematurely"));
+                    }
+                }
+
+                // Wait up to 100ms for more samples to arrive.
+                // Shorter timeout (previously 500ms) improves responsiveness during device failure.
+                match rx.recv_timeout(std::time::Duration::from_millis(100)) {
                     Ok(chunk) => {
                         self.iq_overflow.extend_from_slice(&chunk);
                     }
                     Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
+                        // Check health again on timeout to avoid hanging if the thread is stuck
+                        if let Some(handle) = &self.async_thread {
+                            if handle.is_finished() {
+                                return Err(anyhow::anyhow!("Async reader thread died during timeout"));
+                            }
+                        }
                         return Err(anyhow::anyhow!("Timeout waiting for async SDR samples"));
                     }
                     Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
@@ -597,5 +613,26 @@ impl SdrDevice for RtlSdrDevice {
     fn cleanup(&mut self) -> Result<()> {
         // Device is automatically cleaned up by Drop trait
         Ok(())
+    }
+
+    fn is_healthy(&self) -> bool {
+        // Check if the device handle is still valid and the async thread is either
+        // still running or hasn't been started yet.
+        if self.dev.is_null() {
+            return false;
+        }
+
+        if let Some(handle) = &self.async_thread {
+            if handle.is_finished() {
+                // Thread died prematurely (often due to LIBUSB_ERROR_NO_DEVICE)
+                return false;
+            }
+        }
+
+        true
+    }
+
+    fn get_error(&self) -> Option<String> {
+        self.last_error.clone()
     }
 }

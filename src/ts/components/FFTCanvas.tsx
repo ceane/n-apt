@@ -11,12 +11,9 @@ import {
 import styled from "styled-components";
 import { useFFTAnimation } from "@n-apt/hooks/useFFTAnimation";
 import { usePauseLogic } from "@n-apt/hooks/usePauseLogic";
-import {
-  useDrawWebGPUFFTSignal,
-  RESAMPLE_WGSL,
-} from "@n-apt/hooks/useDrawWebGPUFFTSignal";
+import { useSpectrumRenderer } from "@n-apt/hooks/useSpectrumRenderer";
+import { RESAMPLE_WGSL } from "@n-apt/hooks/useDrawWebGPUFFTSignal";
 import { useDrawWebGPUFIFOWaterfall } from "@n-apt/hooks/useDrawWebGPUFIFOWaterfall";
-import { useOverlayRenderer } from "@n-apt/hooks/useOverlayRenderer";
 import { useFrequencyDrag } from "@n-apt/hooks/useFrequencyDrag";
 import { useWebGPUInit } from "@n-apt/hooks/useWebGPUInit";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
@@ -232,6 +229,7 @@ export type SnapshotData = {
   waterfallDims: { width: number; height: number } | null;
   webgpuEnabled: boolean;
   hardwareSampleRateHz?: number;
+  isIqRecordingActive?: boolean;
 };
 
 export type FFTCanvasHandle = {
@@ -521,8 +519,7 @@ const FFTCanvas = memo(
       width: number;
       height: number;
     } | null>(null);
-    const OVERLAY_MAX_FPS = 60;
-    const OVERLAY_MIN_INTERVAL_MS = Math.round(1000 / OVERLAY_MAX_FPS);
+    // OVERLAY_MIN_INTERVAL_MS moved to useSpectrumRenderer hook
 
     // Simplified WebGPU references
     const resampleComputePipelineRef = useRef<GPUComputePipeline | null>(null);
@@ -537,7 +534,6 @@ const FFTCanvas = memo(
       gridOverlayRendererRef,
       markersOverlayRendererRef,
       overlayDirtyRef,
-      overlayLastUploadMsRef,
     } = useWebGPUInit({
       force2D,
       spectrumGpuCanvasRef,
@@ -650,83 +646,13 @@ const FFTCanvas = memo(
       fallbackToScalar: true,
     });
 
-    // Use WebGPU rendering hooks
-    const { drawWebGPUFFTSignal } = useDrawWebGPUFFTSignal();
+    // Use the unified spectrum renderer (WebGPU + Canvas2D fallback)
+    const { drawSpectrum, cleanup: cleanupSpectrum } = useSpectrumRenderer();
     const { drawWebGPUFIFOWaterfall } = useDrawWebGPUFIFOWaterfall();
 
-    // Use overlay renderer hook for WebGPU overlay textures
-    const { drawGridOnContext, drawMarkersOnContext } = useOverlayRenderer();
+    // Simplified renderer initialization
 
-    const maybeUpdateOverlays = useCallback(
-      (width: number, height: number, dpr: number) => {
-        const now = performance.now();
-        const freq = frequencyRangeRef.current;
-        const { visualRange, clampedPan } = getZoomedData(
-          renderWaveformRef.current || new Float32Array(0),
-          freq,
-          vizZoomRef.current,
-          vizPanOffsetRef.current,
-        );
-
-        // Sync clamped pan back to state if it drifted
-        if (clampedPan !== vizPanOffsetRef.current) {
-          setVizPanOffset(clampedPan);
-        }
-        const cf = centerFreqRef.current;
-
-        // Grid overlay
-        {
-          const overlay = gridOverlayRendererRef.current;
-          const dirty = overlayDirtyRef.current.grid;
-          const last = overlayLastUploadMsRef.current.grid;
-          if (overlay && dirty && now - last >= OVERLAY_MIN_INTERVAL_MS) {
-            const ctx = overlay.beginDraw(width, height, dpr);
-            drawGridOnContext(
-              ctx,
-              width,
-              height,
-              visualRange,
-              vizDbMinRef.current,
-              vizDbMaxRef.current,
-              hardwareSampleRateHz,
-              frequencyRangeRef.current,
-              isIqRecordingActive,
-            );
-            overlay.endDraw();
-            overlayDirtyRef.current.grid = false;
-            overlayLastUploadMsRef.current.grid = now;
-          }
-        }
-
-        // Markers overlay
-        {
-          const overlay = markersOverlayRendererRef.current;
-          const dirty = overlayDirtyRef.current.markers;
-          const last = overlayLastUploadMsRef.current.markers;
-          if (overlay && dirty && now - last >= OVERLAY_MIN_INTERVAL_MS) {
-            const ctx = overlay.beginDraw(width, height, dpr);
-            drawMarkersOnContext(
-              ctx,
-              width,
-              height,
-              visualRange,
-              cf,
-              isDeviceConnected,
-            );
-            overlay.endDraw();
-            overlayDirtyRef.current.markers = false;
-            overlayLastUploadMsRef.current.markers = now;
-          }
-        }
-      },
-      [
-        isDeviceConnected,
-        drawGridOnContext,
-        drawMarkersOnContext,
-        isIqRecordingActive,
-        hardwareSampleRateHz,
-      ],
-    );
+    // Redundant overlay logic removed (now handled by useSpectrumRenderer)
 
     const ensureFloat32Waveform = useCallback(
       (spectrumData: ArrayLike<number> | null | undefined) => {
@@ -825,8 +751,8 @@ const FFTCanvas = memo(
     const onRenderFrame = useCallback(
       (_runId: number) => {
         performance.clearMeasures();
-
         const spectrumGpuCanvas = spectrumGpuCanvasRef.current;
+        const spectrumCanvas = spectrumCanvasRef.current;
         const waterfallGpuCanvas = waterfallGpuCanvasRef.current;
 
         const currentData = dataRef.current;
@@ -1020,33 +946,15 @@ const FFTCanvas = memo(
           } else if (!fftAvgEnabled) {
             fftAvgBufferRef.current = null;
           }
-          // Spectrum render - always render existing waveform, but only update with new data when not paused
-          if (
-            spectrumWebgpuEnabled &&
-            webgpuDeviceRef.current &&
-            webgpuFormatRef.current &&
-            spectrumGpuCanvas
-          ) {
-            const rect =
-              spectrumGpuCanvas.parentElement?.getBoundingClientRect();
-            const width = rect?.width || spectrumGpuCanvas.width;
-            const height = rect?.height || spectrumGpuCanvas.height;
+          // Spectrum render (using unified hook)
+          if (spectrumGpuCanvas || spectrumCanvas) {
+            const rect = (spectrumGpuCanvas || spectrumCanvas)?.parentElement?.getBoundingClientRect();
+            const width = rect?.width || (spectrumGpuCanvas || spectrumCanvas)?.width || 1;
+            const displayWidth = Math.max(1, Math.floor(width - FFT_AREA_MIN.x - 40));
 
-            const displayWidth = Math.max(
-              1,
-              Math.floor(width - FFT_AREA_MIN.x - 40),
-            );
-
-            // Always downsample to ~pixel width to avoid "curtains" (many points
-            // mapping to the same x pixel creates dense vertical lines).
-            if (
-              !spectrumResampleBufRef.current ||
-              spectrumResampleBufRef.current.length !== displayWidth
-            ) {
-              // Clear old buffer before creating new one
-              if (spectrumResampleBufRef.current) {
-                spectrumResampleBufRef.current.fill(0);
-              }
+            // Resample for performance and visual clarity
+            if (!spectrumResampleBufRef.current || spectrumResampleBufRef.current.length !== displayWidth) {
+              if (spectrumResampleBufRef.current) spectrumResampleBufRef.current.fill(0);
               spectrumResampleBufRef.current = new Float32Array(displayWidth);
             }
             const outBuf = spectrumResampleBufRef.current;
@@ -1056,31 +964,28 @@ const FFTCanvas = memo(
               resampleSpectrumInto(slicedWaveform, outBuf);
             }
 
-            // Prevent WebGPU vertex NaNs/Infs (can show as dense vertical "curtains")
+            // Sanitise data for shader
             for (let i = 0; i < outBuf.length; i++) {
-              const v = outBuf[i];
-              if (!Number.isFinite(v)) outBuf[i] = vizDbMinRef.current;
+              if (!Number.isFinite(outBuf[i])) outBuf[i] = vizDbMinRef.current;
             }
 
-            const dpr = window.devicePixelRatio || 1;
-            // Update overlays only when dirty, throttled (prevents drag jank)
-            maybeUpdateOverlays(width, height, dpr);
-
-            // Use hook-based WebGPU renderer
-            drawWebGPUFFTSignal({
-              canvas: spectrumGpuCanvas,
+            drawSpectrum({
+              canvas: (spectrumWebgpuEnabled ? spectrumGpuCanvas : spectrumCanvas) as HTMLCanvasElement,
+              webgpuEnabled: spectrumWebgpuEnabled,
               device: webgpuDeviceRef.current,
               format: webgpuFormatRef.current,
               waveform: outBuf,
-              frequencyRange: frequencyRangeRef.current,
+              frequencyRange: visualRange,
               fftMin: vizDbMinRef.current,
               fftMax: vizDbMaxRef.current,
-              gridOverlayRenderer: gridOverlayRendererRef.current ?? undefined,
-              markersOverlayRenderer:
-                markersOverlayRendererRef.current ?? undefined,
+              gridOverlayRenderer: gridOverlayRendererRef.current,
+              markersOverlayRenderer: markersOverlayRendererRef.current,
+              overlayDirty: overlayDirtyRef.current,
               centerFrequencyMHz: centerFreqRef.current,
               isDeviceConnected,
-              showGrid: true,
+              hardwareSampleRateHz,
+              fullCaptureRange: frequencyRangeRef.current,
+              isIqRecordingActive,
               lineColor: fftColor,
               fillColor: fillColor,
             });
@@ -1238,12 +1143,11 @@ const FFTCanvas = memo(
         }
       },
       [
-        drawWebGPUFFTSignal,
+        drawSpectrum,
         drawWebGPUFIFOWaterfall,
         isPaused,
         ensureFloat32Waveform,
         displayTemporalResolution,
-        maybeUpdateOverlays,
         resampleSpectrumInto,
         spectrumWebgpuEnabled,
         webgpuEnabled,
@@ -1331,8 +1235,9 @@ const FFTCanvas = memo(
       return () => {
         clearTimeout(timeoutId);
         saveWaterfallTextureSnapshot();
+        cleanupSpectrum();
       };
-    }, [saveWaterfallTextureSnapshot]);
+    }, [saveWaterfallTextureSnapshot, cleanupSpectrum]);
 
     // Reset cached waveforms and trigger grid redraw when frequency range changes
     useEffect(() => {
@@ -1552,6 +1457,7 @@ const FFTCanvas = memo(
             : null,
           webgpuEnabled,
           hardwareSampleRateHz,
+          isIqRecordingActive,
         };
       },
     }));

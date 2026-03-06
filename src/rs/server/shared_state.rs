@@ -73,7 +73,7 @@ impl SharedState {
             device_info: Mutex::new(String::new()),
             device_loading: Mutex::new(false),
             device_loading_reason: Mutex::new(None),
-            device_state: Mutex::new("disconnected".to_string()),
+            device_state: Mutex::new("connected".to_string()),
             encryption_key,
             pending_challenges: Mutex::new(HashMap::new()),
             channels: Mutex::new(load_channels()),
@@ -86,5 +86,6 @@ impl SharedState {
     pub fn update_device_status(&self, connected: bool, info: String) {
         self.device_connected.store(connected, Ordering::Relaxed);
         *self.device_info.lock().unwrap() = info;
+        *self.device_state.lock().unwrap() = if connected { "connected".to_string() } else { "disconnected".to_string() };
     }
 }

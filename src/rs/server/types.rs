@@ -140,6 +140,7 @@ pub struct StatusMessage {
   pub paused: bool,
   pub backend: String,
   pub device_info: String,
+  pub device_name: String,
   pub max_sample_rate: u32,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub channels: Option<Vec<SpectrumFrameMessage>>,

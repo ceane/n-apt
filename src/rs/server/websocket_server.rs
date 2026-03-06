@@ -12,6 +12,46 @@ use tokio::sync::Mutex;
 use crate::sdr::processor::SdrProcessor;
 use super::shared_state::SharedState;
 use super::types::SpectrumData;
+use super::utils::reconcile_device_state;
+
+/// Build and broadcast a device status message so all connected WebSocket
+/// clients immediately learn about hotplug / unplug events.
+fn broadcast_device_status(
+    shared: &SharedState,
+    broadcast_tx: &broadcast::Sender<String>,
+) {
+    let device_connected = shared.device_connected.load(Ordering::Relaxed);
+    let device_info = shared.device_info.lock().unwrap().clone();
+    let device_state = reconcile_device_state(
+        device_connected,
+        &shared.device_state.lock().unwrap(),
+    );
+    let paused = shared.is_paused.load(Ordering::Relaxed);
+    let sdr_settings = shared.sdr_settings.lock().unwrap().clone();
+    let channels = shared.channels.lock().unwrap().clone();
+
+    // Extract short device name from device_info
+    let device_name = if device_connected {
+        // Extract just the device name from the long device_info string
+        // device_info format: "Long Name - Freq: X Hz, Rate: Y Hz, ..."
+        device_info.split(" - ").next().unwrap_or("RTL-SDR").to_string()
+    } else {
+        "Mock APT SDR".to_string()
+    };
+
+    let msg = serde_json::json!({
+        "message_type": "status",
+        "device_connected": device_connected,
+        "device_info": device_info,
+        "device_name": device_name,
+        "device_state": device_state,
+        "paused": paused,
+        "sdr_settings": sdr_settings,
+        "channels": channels,
+        "backend": if device_connected { "rtl-sdr" } else { "mock_apt" },
+    });
+    let _ = broadcast_tx.send(msg.to_string());
+}
 
 #[derive(Clone)]
 pub struct WebSocketServer {
@@ -125,6 +165,7 @@ impl WebSocketServer {
                                     } else {
                                         // Update SharedState on successful swap
                                         shared_state.update_device_status(!processor.is_mock(), processor.get_device_info());
+                                        broadcast_device_status(&shared_state, &_broadcast_tx);
                                     }
                                 }
                                 Err(e) => {
@@ -136,6 +177,8 @@ impl WebSocketServer {
                             }
                         }
                         crate::server::types::SdrCommand::StartCapture { job_id, fragments, duration_s, file_type, acquisition_mode, encrypted, fft_window, .. } => {
+                            // Save current center frequency so we can restore it after capture
+                            processor.capture_pre_center_freq = Some(processor.get_center_frequency());
                             processor.capture_job_id = Some(job_id.clone());
                             processor.capture_duration_s = duration_s;
                             processor.capture_file_type = file_type;
@@ -247,28 +290,47 @@ impl WebSocketServer {
                     }
                 }
 
-                // 1b. Auto-detect RTL-SDR if in mock mode
-                if last_poll.elapsed() >= Duration::from_secs(2) {
+                // 1b. Monitor device health and handle hot-plugging
+                // Check health every 500ms for more aggressive hot-swap response
+                if last_poll.elapsed() >= Duration::from_millis(500) {
                     last_poll = Instant::now();
                     let mut processor = sdr_processor.lock().await;
-                    if processor.is_mock() && !processor.capture_active {
-                        let count = crate::sdr::rtlsdr::device::RtlSdrDevice::get_device_count();
-                        if count > 0 {
-                            info!("Auto-detected {} RTL-SDR device(s). Attempting to hot-swap...", count);
-                            match crate::sdr::SdrDeviceFactory::create_device() {
-                                Ok(new_device) => {
-                                    if !new_device.device_type().contains("Mock") {
-                                        if let Err(e) = processor.swap_device(new_device) {
-                                            error!("Failed to auto-swap to detected RTL-SDR: {}", e);
-                                        } else {
-                                            shared_state.update_device_status(true, processor.get_device_info());
-                                            info!("Successfully hot-swapped to RTL-SDR");
+                    
+                    if processor.is_mock() {
+                        // In mock mode: scan for real hardware to hot-plug
+                        if !processor.capture_active {
+                            let count = crate::sdr::rtlsdr::device::RtlSdrDevice::get_device_count();
+                            if count > 0 {
+                                info!("Auto-detected {} RTL-SDR device(s). Attempting to hot-swap...", count);
+                                match crate::sdr::SdrDeviceFactory::create_device() {
+                                    Ok(new_device) => {
+                                        if !new_device.device_type().contains("Mock") {
+                                            if let Err(e) = processor.swap_device(new_device) {
+                                                error!("Failed to auto-swap to detected RTL-SDR: {}", e);
+                                            } else {
+                                                shared_state.update_device_status(true, processor.get_device_info());
+                                                broadcast_device_status(&shared_state, &_broadcast_tx);
+                                                info!("Successfully hot-swapped to RTL-SDR");
+                                            }
                                         }
                                     }
+                                    Err(e) => {
+                                        debug!("Auto-detection found device count > 0 but failed to open: {}", e);
+                                    }
                                 }
-                                Err(e) => {
-                                    debug!("Auto-detection found device count > 0 but failed to open: {}", e);
-                                }
+                            }
+                        }
+                    } else {
+                        // In real hardware mode: verify device is still healthy (not unplugged)
+                        if !processor.is_healthy() {
+                            warn!("RTL-SDR device health check failed (unplugged?). Falling back to mock APT mode.");
+                            let mock_device = crate::sdr::SdrDeviceFactory::create_mock_device();
+                            if let Err(e) = processor.swap_device(mock_device) {
+                                error!("Failed to fall back to mock device: {}", e);
+                            } else {
+                                shared_state.update_device_status(false, processor.get_device_info());
+                                broadcast_device_status(&shared_state, &_broadcast_tx);
+                                info!("Successfully failed back to mock mode");
                             }
                         }
                     }
@@ -319,17 +381,34 @@ impl WebSocketServer {
                     }
                     Ok(Err(e)) => {
                         error!("SDR processing error: {}", e);
-                        // Try to reinitialize the processor
-                        let cloned_processor = sdr_processor.clone();
-                        let _ = tokio::task::spawn_blocking(move || -> Result<()> {
-                            let mut processor = cloned_processor.blocking_lock();
+                        
+                        // Handle potential hot-unplug event immediately
+                        let mut processor = sdr_processor.lock().await;
+                        if !processor.is_mock() && !processor.is_healthy() {
+                            warn!("Active real-time check: RTL-SDR hardware is unhealthy (likely unplugged). Falling back to mock.");
+                            let mock_device = crate::sdr::SdrDeviceFactory::create_mock_device();
+                            if let Err(swap_e) = processor.swap_device(mock_device) {
+                                error!("Failed to swap to mock on error: {}", swap_e);
+                            } else {
+                                shared_state.update_device_status(false, processor.get_device_info());
+                                broadcast_device_status(&shared_state, &_broadcast_tx);
+                            }
+                        } else if !processor.is_mock() {
+                            // Only try Re-initialize if it's NOT a mock and it *looks* healthy, 
+                            // maybe some temporary I/O glitch happened.
+                            warn!("Attempting hardware buffer reset + reinitialize after transient error...");
+                            if let Err(reset_err) = processor.reset_buffer() {
+                                error!("Failed to reset SDR buffer after transient error: {}", reset_err);
+                            }
                             if let Err(reinit_err) = processor.initialize() {
                                 error!("Failed to reinitialize SDR processor: {}", reinit_err);
                             }
-                            Ok(())
-                        }).await;
-                        // Wait for settling
-                        tokio::time::sleep(Duration::from_millis(250)).await;
+                            // Brief wait for settling
+                            tokio::time::sleep(Duration::from_millis(100)).await;
+                        } else {
+                            // If mock failed (shouldn't happen), just wait briefly
+                            tokio::time::sleep(Duration::from_millis(250)).await;
+                        }
                     }
                     Err(join_e) => {
                         error!("SDR block join error: {}", join_e);

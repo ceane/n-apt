@@ -12,8 +12,8 @@ import {
   findBestFrequencyRange,
   SNAP_HW_RATE_LINE,
   SNAP_HW_RATE_TEXT,
-  SNAP_CENTER_LABEL_BG,
-  SNAP_CENTER_LABEL_TEXT,
+  formatFrequency,
+  formatFrequencyHighRes,
 } from "@n-apt/consts";
 import type { SnapshotData } from "@n-apt/components/FFTCanvas";
 
@@ -34,20 +34,18 @@ export type SnapshotOptions = {
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
-/** Format MHz value for display — trims trailing zeros, always includes unit. */
-export function fmtFreq(mhz: number): string {
-  if (Math.abs(mhz) < 1) {
-    const khz = mhz * 1000;
-    // Trim trailing zeros: 500.0 → 500, 123.45 → 123.45
-    return `${parseFloat(khz.toPrecision(6))} kHz`;
-  }
-  // Trim trailing zeros: 3.0000 → 3, 1.2300 → 1.23
-  return `${parseFloat(mhz.toPrecision(6))} MHz`;
+/** Format MHz value for display — trims trailing zeros, always includes unit.
+ *  Precision depends on zoom level.
+ */
+export function fmtFreq(mhz: number, zoom: number = 1): string {
+  return zoom >= 100 ? formatFrequencyHighRes(mhz) : formatFrequency(mhz);
 }
 
 /** Format a frequency for tick labels — same as fmtFreq but used for grid ticks. */
-function fmtFreqTick(mhz: number): string {
-  return fmtFreq(mhz);
+function fmtFreqTick(mhz: number, stepMHz: number): string {
+  if (stepMHz >= 0.5) return mhz.toFixed(1);
+  if (stepMHz >= 0.01) return mhz.toFixed(2);
+  return mhz.toFixed(3);
 }
 
 function fmtTimestamp(): string {
@@ -127,6 +125,7 @@ function drawSpectrumToCanvas(
   centerFrequencyMHz: number,
   hardwareSampleRateHz?: number,
   fullCaptureRange?: { min: number; max: number },
+  isIqRecordingActive?: boolean,
 ): void {
   const ctx = canvas.getContext("2d");
   if (!ctx || !waveform || waveform.length === 0) return;
@@ -153,11 +152,13 @@ function drawSpectrumToCanvas(
   // ── Always draw ticks + labels (axes frame) ────────────────────────────────
 
   const FREQ_FONT = "12px JetBrains Mono";
-  const FREQ_LABEL_Y = fftAreaMax.y + 20; // unified baseline for all freq labels
+  const FREQ_LABEL_Y = fftAreaMax.y + 25; // unified baseline for all freq labels
 
   const minFreq = frequencyRange.min;
   const maxFreq = frequencyRange.max;
   const viewBandwidth = maxFreq - minFreq;
+  const fullSpan = fullCaptureRange ? (fullCaptureRange.max - fullCaptureRange.min) : 0;
+  const zoom = (fullSpan > 0) ? fullSpan / viewBandwidth : 1;
   const range = findBestFrequencyRange(viewBandwidth, 10);
   const lowerFreq = Math.ceil(minFreq / range) * range;
   const freqToX = (freq: number) =>
@@ -187,26 +188,37 @@ function drawSpectrumToCanvas(
     ctx.fillText(line.toString(), FFT_AREA_MIN.x - 10, Math.round(yPos + 3));
   }
 
-  // ── Edge frequency labels (always drawn — they take priority) ──────────────
+  // ── Frequency Labels + Collision Avoidance ──────────────────────────────
   ctx.font = FREQ_FONT;
-  const startLabel = fmtFreq(minFreq);
-  const endLabel = fmtFreq(maxFreq);
+  const startLabel = fmtFreq(minFreq, zoom);
+  const endLabel = fmtFreq(maxFreq, zoom);
+  const centerLabelText = Number.isNaN(centerFrequencyMHz) || !Number.isFinite(centerFrequencyMHz)
+    ? "-- MHz"
+    : fmtFreq(centerFrequencyMHz, zoom);
+  
+  const startW = ctx.measureText(startLabel).width;
+  const endW = ctx.measureText(endLabel).width;
+  const centerW = ctx.measureText(`○  ${centerLabelText}`).width;
 
-  // Measure edge label pixel widths for collision avoidance
-  const startLabelW = ctx.measureText(startLabel).width;
-  const endLabelW = ctx.measureText(endLabel).width;
-  // Start label is left-aligned at FFT_AREA_MIN.x, so it occupies [FFT_AREA_MIN.x, FFT_AREA_MIN.x + startLabelW]
-  const edgeLeftEnd = FFT_AREA_MIN.x + startLabelW + 12;
-  // End label is right-aligned at fftAreaMax.x, so it occupies [fftAreaMax.x - endLabelW, fftAreaMax.x]
-  const edgeRightStart = fftAreaMax.x - endLabelW - 12;
+  const occupied: { x1: number; x2: number }[] = [
+    { x1: FFT_AREA_MIN.x - 5, x2: FFT_AREA_MIN.x + startW + 15 },
+    { x1: fftAreaMax.x - endW - 15, x2: fftAreaMax.x + 5 },
+    { x1: lw / 2 - centerW / 2 - 15, x2: lw / 2 + centerW / 2 + 15 },
+  ];
 
-  // ── Tick frequency labels + grid (skip ticks that collide with edges) ──────
-  ctx.font = FREQ_FONT;
-  for (let freq = lowerFreq; freq < maxFreq; freq += range) {
+  const isColliding = (x: number, text: string) => {
+    const tw = ctx.measureText(text).width;
+    const x1 = x - tw / 2 - 10;
+    const x2 = x + tw / 2 + 10;
+    return occupied.some(r => (x1 < r.x2 && x2 > r.x1));
+  };
+
+  // ── Tick frequency labels + grid ──────
+  for (let freq = lowerFreq; freq < maxFreq - 0.0001; freq += range) {
     const xPos = freqToX(freq);
     const tickX = Math.round(xPos);
 
-    // Always draw vertical grid line if grid is on
+    // Grid line
     if (showGrid) {
       ctx.strokeStyle = FFT_GRID_COLOR;
       ctx.beginPath();
@@ -215,19 +227,20 @@ function drawSpectrumToCanvas(
       ctx.stroke();
     }
 
-    // Always draw tick mark
+    // Tick mark
     ctx.strokeStyle = FFT_TEXT_COLOR;
     ctx.beginPath();
     ctx.moveTo(tickX, fftAreaMax.y);
     ctx.lineTo(tickX, fftAreaMax.y + 7);
     ctx.stroke();
 
-    // Skip label if it would collide with edge labels
-    if (tickX < edgeLeftEnd || tickX > edgeRightStart) continue;
-
-    ctx.fillStyle = FFT_TEXT_COLOR;
-    ctx.textAlign = "center";
-    ctx.fillText(fmtFreqTick(freq), tickX, FREQ_LABEL_Y);
+    // Label with collision avoidance
+    const labelText = fmtFreqTick(freq, range);
+    if (!isColliding(xPos, labelText)) {
+      ctx.fillStyle = FFT_TEXT_COLOR;
+      ctx.textAlign = "center";
+      ctx.fillText(labelText, tickX, FREQ_LABEL_Y);
+    }
   }
 
   // Draw edge labels last (on top)
@@ -254,6 +267,8 @@ function drawSpectrumToCanvas(
   if (hardwareSampleRateHz) {
     const hwSpanMHz = hardwareSampleRateHz / 1e6;
     const anchorRange = fullCaptureRange || frequencyRange;
+    const totalSpan = anchorRange.max - anchorRange.min;
+    const shouldShowBlockLabels = totalSpan >= hwSpanMHz - 0.001;
 
     if (hwSpanMHz > 0) {
       ctx.save();
@@ -299,9 +314,15 @@ function drawSpectrumToCanvas(
           const visibleEnd = Math.min(bEnd, maxFreq);
           const visibleCenter = (visibleStart + visibleEnd) / 2;
 
-          if (visibleCenter >= minFreq && visibleCenter <= maxFreq) {
+          const showLabels = isIqRecordingActive || shouldShowBlockLabels;
+
+          if (
+            showLabels &&
+            visibleCenter >= minFreq &&
+            visibleCenter <= maxFreq
+          ) {
             const cx = Math.round(freqToX(visibleCenter));
-            const label = isFull ? "Hardware Sample Rate" : "Next sample";
+            const label = isFull ? "Hardware Sample Rate" : "Next Sample";
             const subLabel = fmtOff(bWidth);
             ctx.setLineDash([]); // Reset dash for text
             ctx.fillText(label, cx, FFT_AREA_MIN.y + 7);
@@ -398,21 +419,20 @@ function drawSpectrumToCanvas(
 
   // ── Center frequency label (no line, ○ instead of ✋) ─────────────────────
 
+  // ── Center frequency label (no line, ○ instead of ✋) ─────────────────────
+
   const centerLabel =
     Number.isNaN(centerFrequencyMHz) || !Number.isFinite(centerFrequencyMHz)
       ? "○  -- MHz"
-      : `○  ${fmtFreq(centerFrequencyMHz)}`;
+      : `○  ${fmtFreq(centerFrequencyMHz, zoom)}`;
 
   ctx.save();
   ctx.font = "12px JetBrains Mono";
   ctx.textAlign = "center";
   ctx.textBaseline = "alphabetic";
-  const labelW = ctx.measureText(centerLabel).width;
   const labelX = lw / 2;
   const labelY = fftAreaMax.y + 25;
-  ctx.fillStyle = SNAP_CENTER_LABEL_BG;
-  ctx.fillRect(labelX - labelW / 2 - 6, labelY - 13, labelW + 12, 17);
-  ctx.fillStyle = SNAP_CENTER_LABEL_TEXT;
+  ctx.fillStyle = "#ffffff";
   ctx.fillText(centerLabel, labelX, labelY);
   ctx.restore();
 }
@@ -571,6 +591,7 @@ function generateSpectrumSVG(
   svgH: number,
   hardwareSampleRateHz?: number,
   fullCaptureRange?: { min: number; max: number },
+  isIqRecordingActive?: boolean,
 ): string {
   const parts: string[] = [];
 
@@ -613,18 +634,30 @@ function generateSpectrumSVG(
     );
   }
 
-  // ── Edge + tick frequency labels (same approach as canvas) ─────────────────
-  const FREQ_LABEL_Y_SVG = fftAreaMax.y + 20;
-  const startLabel = fmtFreq(minFreq);
-  const endLabel = fmtFreq(maxFreq);
-  // Approximate text width for collision (7px per char for monospace 12px)
+  // ── Edge + tick frequency labels (SVG) ─────────────────────────
+  const fullSpan = fullCaptureRange ? (fullCaptureRange.max - fullCaptureRange.min) : 0;
+  const zoom = (fullSpan > 0) ? fullSpan / (maxFreq - minFreq) : 1;
+
+  const FREQ_LABEL_Y_SVG = fftAreaMax.y + 25;
+  const startLabel = fmtFreq(minFreq, zoom);
+  const endLabel = fmtFreq(maxFreq, zoom);
+  const centerLabelText = Number.isNaN(centerFrequencyMHz) || !Number.isFinite(centerFrequencyMHz)
+    ? "-- MHz"
+    : fmtFreq(centerFrequencyMHz, zoom);
+
+  // Approximate text width for collision (7.2px per char for monospace 12px)
   const charW = 7.2;
   const startLabelW = startLabel.length * charW;
   const endLabelW = endLabel.length * charW;
-  const edgeLeftEnd = FFT_AREA_MIN.x + startLabelW + 12;
-  const edgeRightStart = fftAreaMax.x - endLabelW - 12;
+  const centerW = (`○  ${centerLabelText}`).length * charW;
 
-  for (let freq = lowerFreq; freq < maxFreq; freq += range) {
+  const occupiedSVG: { x1: number; x2: number }[] = [
+    { x1: FFT_AREA_MIN.x - 5, x2: FFT_AREA_MIN.x + startLabelW + 15 },
+    { x1: fftAreaMax.x - endLabelW - 15, x2: fftAreaMax.x + 5 },
+    { x1: svgW / 2 - centerW / 2 - 15, x2: svgW / 2 + centerW / 2 + 15 },
+  ];
+
+  for (let freq = lowerFreq; freq < maxFreq - 0.0001; freq += range) {
     const xPos = Math.round(freqToX(freq));
     if (showGrid) {
       parts.push(
@@ -634,10 +667,16 @@ function generateSpectrumSVG(
     parts.push(
       `<line x1="${xPos}" y1="${fftAreaMax.y}" x2="${xPos}" y2="${fftAreaMax.y + 7}" stroke="${FFT_TEXT_COLOR}" stroke-width="0.5"/>`,
     );
-    // Skip label if it would collide with edge labels
-    if (xPos >= edgeLeftEnd && xPos <= edgeRightStart) {
+
+    const labelStr = fmtFreqTick(freq, range);
+    const tw = labelStr.length * charW;
+    const x1 = xPos - tw / 2 - 10;
+    const x2 = xPos + tw / 2 + 10;
+    const isColliding = occupiedSVG.some(r => (x1 < r.x2 && x2 > r.x1));
+
+    if (!isColliding) {
       parts.push(
-        `<text x="${xPos}" y="${FREQ_LABEL_Y_SVG}" text-anchor="middle" fill="${FFT_TEXT_COLOR}" font-family="JetBrains Mono, monospace" font-size="12">${escapeXml(fmtFreqTick(freq))}</text>`,
+        `<text x="${xPos}" y="${FREQ_LABEL_Y_SVG}" text-anchor="middle" fill="${FFT_TEXT_COLOR}" font-family="JetBrains Mono, monospace" font-size="12">${escapeXml(labelStr)}</text>`,
       );
     }
   }
@@ -654,6 +693,8 @@ function generateSpectrumSVG(
   if (hardwareSampleRateHz) {
     const hwSpanMHz = hardwareSampleRateHz / 1e6;
     const anchorRange = fullCaptureRange || frequencyRange;
+    const totalSpan = anchorRange.max - anchorRange.min;
+    const shouldShowBlockLabels = totalSpan >= hwSpanMHz - 0.001;
 
     if (hwSpanMHz > 0) {
       const fmtOff = (mhz: number) => {
@@ -683,9 +724,15 @@ function generateSpectrumSVG(
           const visibleEnd = Math.min(bEnd, maxFreq);
           const visibleCenter = (visibleStart + visibleEnd) / 2;
 
-          if (visibleCenter >= minFreq && visibleCenter <= maxFreq) {
+          const showLabels = isIqRecordingActive || shouldShowBlockLabels;
+
+          if (
+            showLabels &&
+            visibleCenter >= minFreq &&
+            visibleCenter <= maxFreq
+          ) {
             const cx = Math.round(freqToX(visibleCenter));
-            const label = isFull ? "Hardware Sample Rate" : "Next sample";
+            const label = isFull ? "Hardware Sample Rate" : "Next Sample";
             const subLabel = fmtOff(bWidth);
             parts.push(`<text x="${cx}" y="${FFT_AREA_MIN.y + 14}" text-anchor="middle" fill="${SNAP_HW_RATE_TEXT}" font-family="JetBrains Mono, monospace" font-size="10">${escapeXml(label)}</text>`);
             parts.push(`<text x="${cx}" y="${FFT_AREA_MIN.y + 26}" text-anchor="middle" fill="${SNAP_HW_RATE_TEXT}" font-family="JetBrains Mono, monospace" font-size="10">${escapeXml(subLabel)}</text>`);
@@ -773,16 +820,11 @@ function generateSpectrumSVG(
   const centerLabel =
     Number.isNaN(centerFrequencyMHz) || !Number.isFinite(centerFrequencyMHz)
       ? "○  -- MHz"
-      : `○  ${fmtFreq(centerFrequencyMHz)}`;
+      : `○  ${fmtFreq(centerFrequencyMHz, zoom)}`;
   const labelX = svgW / 2;
   const labelY = fftAreaMax.y + 25;
-  // approximate width for background
-  const approxLabelW = centerLabel.length * 7.5;
   parts.push(
-    `<rect x="${labelX - approxLabelW / 2 - 6}" y="${labelY - 13}" width="${approxLabelW + 12}" height="17" fill="${SNAP_CENTER_LABEL_BG}"/>`,
-  );
-  parts.push(
-    `<text x="${labelX}" y="${labelY}" text-anchor="middle" fill="${SNAP_CENTER_LABEL_TEXT}" font-family="JetBrains Mono, monospace" font-size="12">${escapeXml(centerLabel)}</text>`,
+    `<text x="${labelX}" y="${labelY}" text-anchor="middle" fill="white" font-family="JetBrains Mono, monospace" font-size="12">${escapeXml(centerLabel)}</text>`,
   );
 
   return parts.join("\n  ");
@@ -914,9 +956,27 @@ export function useSnapshot(
 
     // The physical capture area bounds used to anchor the hardware block grid
     const area = options.activeSignalArea?.toLowerCase();
-    const captureRange = (area && options.signalAreaBounds?.[area]) 
-      ? options.signalAreaBounds[area] 
-      : data.frequencyRange;
+    let captureRange: { min: number; max: number };
+    
+    if (data.hardwareSampleRateHz && Number.isFinite(centerFreqToRender)) {
+      const hwSpanMHz = data.hardwareSampleRateHz / 1e6;
+      const dataSpan = rangeToRender.max - rangeToRender.min;
+      
+      // If the data span is larger than hardware sample rate, use the actual data range
+      // Otherwise, calculate based on center frequency and hardware sample rate
+      if (dataSpan > hwSpanMHz + 0.001) {
+        captureRange = rangeToRender;
+      } else {
+        captureRange = { 
+          min: centerFreqToRender - (data.hardwareSampleRateHz / 2e6), 
+          max: centerFreqToRender + (data.hardwareSampleRateHz / 2e6) 
+        };
+      }
+    } else {
+      captureRange = (area && options.signalAreaBounds?.[area]) 
+        ? options.signalAreaBounds[area] 
+        : data.frequencyRange;
+    }
 
     // ── SVG Vector path ───────────────────────────────────────────────────
     if (options.format === "svg") {
@@ -935,6 +995,7 @@ export function useSnapshot(
         LOGICAL_SPECTRUM_H,
         data.hardwareSampleRateHz,
         captureRange ?? undefined,
+        data.isIqRecordingActive,
       );
 
       // Waterfall as embedded PNG bitmap (vectors don't make sense for heatmaps)
@@ -1041,6 +1102,7 @@ export function useSnapshot(
       centerFreqToRender,
       data.hardwareSampleRateHz,
       captureRange ?? undefined,
+      data.isIqRecordingActive,
     );
 
     // Waterfall

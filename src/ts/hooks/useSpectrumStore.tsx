@@ -188,6 +188,16 @@ export function spectrumReducer(
     case "SET_DRAW_PARAMS":
       return { ...state, drawParams: action.params };
     case "SET_SOURCE_MODE":
+      // When switching away from file mode, reset processing state but keep files
+      if (state.sourceMode === "file" && action.mode !== "file") {
+        return {
+          ...state,
+          sourceMode: action.mode,
+          stitchStatus: "",
+          isStitchPaused: true,
+          // Keep selectedFiles so they're still there when returning
+        };
+      }
       return { ...state, sourceMode: action.mode };
     case "SET_STITCH_STATUS":
       return { ...state, stitchStatus: action.status };

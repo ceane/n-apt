@@ -135,6 +135,8 @@ pub struct SdrProcessor {
     pub last_retune_at: Option<Instant>,
     /// Short cooldown window after a retune to let the device settle
     pub retune_cooldown_until: Option<Instant>,
+    /// Center frequency saved before capture starts, restored after capture ends
+    pub capture_pre_center_freq: Option<u32>,
 }
 
 impl SdrProcessor {
@@ -217,6 +219,7 @@ impl SdrProcessor {
             pending_freq: None,
             last_retune_at: None,
             retune_cooldown_until: None,
+            capture_pre_center_freq: None,
         };
 
         // Apply initial settings from config immediately to tune the hardware
@@ -287,6 +290,11 @@ impl SdrProcessor {
         self.device.device_type().contains("Mock")
     }
 
+    /// Check if the underlying device is still healthy
+    pub fn is_healthy(&self) -> bool {
+        self.device.is_healthy()
+    }
+
     /// Get detailed device info from the underlying hardware
     pub fn get_device_info(&self) -> String {
         self.device.get_device_info()
@@ -342,9 +350,9 @@ impl SdrProcessor {
             let elapsed = self.capture_start.map(|s| s.elapsed().as_secs_f64()).unwrap_or(0.0);
             
             let expected_channel = if self.capture_acquisition_mode == "interleaved" {
-                // TDMS mode: Rapidly slice across all channels (100ms per slice)
+                // TDMS mode: Slice across channels with enough dwell for hardware retune+settle
                 let num_channels = self.capture_fragments.len();
-                let slice_duration = 0.1; // 100ms
+                let slice_duration = 0.14; // 140ms
                 let current_slice = (elapsed / slice_duration) as usize;
                 current_slice % num_channels
             } else {
@@ -363,7 +371,9 @@ impl SdrProcessor {
                 if let Err(e) = self.set_center_frequency(new_center_freq) {
                     warn!("Failed to hop capture frequency: {}", e);
                 }
-                let _ = self.device.reset_buffer();
+                // Do NOT reset the hardware buffer on every hop.
+                // Frequent reset_buffer calls during fast interleaved hopping can
+                // starve async reads and trigger persistent timeout loops.
                 self.capture_last_hop = Some(Instant::now());
                 
                 // We do NOT return an immediate spectrum result here anymore.
@@ -373,9 +383,9 @@ impl SdrProcessor {
         
         // Skip processing if we just hopped and haven't reached settling time
         if let Some(last_hop) = self.capture_last_hop {
-            // Use 50ms settling for real hardware, but 0ms for instantaneous mock SDR
+            // Use 35ms settling for real hardware, but 0ms for instantaneous mock SDR
             let device_type_str = self.device.device_type().to_lowercase();
-            let settling_time = if device_type_str.contains("mock") { 0 } else { 50 };
+            let settling_time = if device_type_str.contains("mock") { 0 } else { 35 };
             
             if last_hop.elapsed().as_millis() < settling_time {
                  // Keep the read timer fresh so we don't try to bulk-read a massive backlog
@@ -395,15 +405,11 @@ impl SdrProcessor {
                      }
                  }
                  
-                 // Append the held frame so time progresses smoothly without dropping!
-                 if self.capture_active && ch_idx < self.capture_channels.len() {
-                     self.capture_channels[ch_idx].spectrum_data.extend_from_slice(&held_spectrum);
-                     // Pad IQ data with exact zeroes (128u8 offset binary) to maintain time duration linearly
-                     // 1 FFT block = fft_size * 2 bytes of offset-binary I/Q
-                     self.capture_channels[ch_idx].iq_data.extend_from_slice(&vec![128u8; fft_size * 2]);
-                 }
+                 // Keep held frames for live visualization continuity only.
+                // Do NOT write synthetic hold/zero-padding samples into capture output,
+                // as that creates artificial -120dB dips and malformed captures.
                  
-                 return Ok(held_spectrum);
+                return Ok(held_spectrum);
             }
         }
 
@@ -426,7 +432,7 @@ impl SdrProcessor {
         let display_samples_data = samples.data;
 
         let display_samples = crate::fft::types::RawSamples {
-            data: display_samples_data,
+            data: display_samples_data.clone(),
             sample_rate,
         };
         
@@ -668,6 +674,20 @@ impl SdrProcessor {
             if elapsed >= self.capture_duration_s {
                 self.capture_active = false;
                 let job_id = self.capture_job_id.take().unwrap_or_else(|| "unknown".to_string());
+
+                // Restore pre-capture center frequency so the live stream
+                // resumes at the correct tuning instead of the last hop.
+                if let Some(pre_freq) = self.capture_pre_center_freq.take() {
+                    if let Err(e) = self.set_center_frequency(pre_freq) {
+                        warn!("Failed to restore pre-capture center frequency: {}", e);
+                    }
+                }
+
+                // Reset stale capture fields to prevent post-capture glitches
+                self.capture_last_hop = None;
+                self.capture_fragments.clear();
+                self.capture_current_fragment = 0;
+                self.capture_start = None;
                 
                 // Take the raw captured channels
                 let mut channels = std::mem::take(&mut self.capture_channels);
@@ -700,27 +720,9 @@ impl SdrProcessor {
                     }
                 }
                 
-                // FFT-SHIFT: Convert spectrum frames from standard FFT order [DC...+Nyquist|-Nyquist...-1]
-                // to frequency order [-Nyquist...DC...+Nyquist] (low freq → high freq).
-                // This is essential: the trim_overlapping logic removes bins from the START of
-                // each frame (low frequency edge), and stitchAdjacentChannels concatenates bins
-                // left-to-right by frequency. Without fftshift, bins are in the wrong order,
-                // creating the "spectral stitching boundary" artifact (noise floor cliff).
-                for ch in channels.iter_mut() {
-                    if fft_size_dbg > 0 && !ch.spectrum_data.is_empty() {
-                        let num_frames = ch.spectrum_data.len() / fft_size_dbg;
-                        let half = fft_size_dbg / 2;
-                        let mut shifted = Vec::with_capacity(ch.spectrum_data.len());
-                        for f in 0..num_frames {
-                            let start = f * fft_size_dbg;
-                            // Second half (negative frequencies, maps to low freq) comes first
-                            shifted.extend_from_slice(&ch.spectrum_data[start + half..start + fft_size_dbg]);
-                            // First half (DC and positive frequencies, maps to high freq) comes second
-                            shifted.extend_from_slice(&ch.spectrum_data[start..start + half]);
-                        }
-                        ch.spectrum_data = shifted;
-                    }
-                }
+                // NOTE: capture spectra are already fftshifted by fft_processor.
+                // Re-shifting here would split the spectrum into non-contiguous halves
+                // and produce malformed stitched playback artifacts.
                 
                 // Trim overlapping IQ data and spectrum from adjacent channels
                 // so each channel contains only its unique non-overlapping portion.

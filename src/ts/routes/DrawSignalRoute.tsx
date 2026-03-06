@@ -3,9 +3,8 @@ import styled from "styled-components";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 import { useDrawMockNAPTSignal } from "@n-apt/hooks/useDrawMockNAPTSignal";
 import { useWebGPUInit } from "@n-apt/hooks/useWebGPUInit";
-import { useDrawWebGPUFFTSignal, RESAMPLE_WGSL } from "@n-apt/hooks/useDrawWebGPUFFTSignal";
-import { useDraw2DFFTSignal } from "@n-apt/hooks/useDraw2DFFTSignal";
-import { useOverlayRenderer } from "@n-apt/hooks/useOverlayRenderer";
+import { useSpectrumRenderer } from "@n-apt/hooks/useSpectrumRenderer";
+import { RESAMPLE_WGSL } from "@n-apt/hooks/useDrawWebGPUFFTSignal";
 import { FFT_CANVAS_BG } from "@n-apt/consts";
 
 const PageContainer = styled.div`
@@ -93,12 +92,10 @@ const InfoValue = styled.span`
 `;
 
 export const DrawSignalRoute: React.FC = () => {
-  const { state } = useSpectrumStore();
+  const { state, sampleRateHzEffective } = useSpectrumStore();
   const { drawParams } = state;
   const { generateMockNAPTData } = useDrawMockNAPTSignal();
-  const { drawWebGPUFFTSignal, cleanup: cleanupGPU } = useDrawWebGPUFFTSignal();
-  const { draw2DFFTSignal, cleanup: cleanup2D } = useDraw2DFFTSignal();
-  const { drawGridOnContext } = useOverlayRenderer();
+  const { drawSpectrum, cleanup } = useSpectrumRenderer();
 
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -112,7 +109,6 @@ export const DrawSignalRoute: React.FC = () => {
 
   const {
     webgpuEnabled,
-    isInitializingWebGPU,
     webgpuDeviceRef,
     webgpuFormatRef,
     gridOverlayRendererRef,
@@ -137,7 +133,12 @@ export const DrawSignalRoute: React.FC = () => {
 
   const renderFrame = useCallback(() => {
     const canvas = canvasRef.current;
-    if (!canvas || dimensions.width === 0 || dimensions.height === 0 || waveformArray.length === 0) {
+    if (
+      !canvas ||
+      dimensions.width === 0 ||
+      dimensions.height === 0 ||
+      waveformArray.length === 0
+    ) {
       return;
     }
 
@@ -148,69 +149,25 @@ export const DrawSignalRoute: React.FC = () => {
     if (canvas.width !== targetWidth || canvas.height !== targetHeight) {
       canvas.width = targetWidth;
       canvas.height = targetHeight;
+      canvas.style.width = `${dimensions.width}px`;
+      canvas.style.height = `${dimensions.height}px`;
     }
 
-    if (
-      webgpuEnabled &&
-      webgpuDeviceRef.current &&
-      webgpuFormatRef.current
-    ) {
-      // Use WebGPU rendering
-      const device = webgpuDeviceRef.current;
-      const format = webgpuFormatRef.current;
-
-      // Ensure context is configured
-      const context = canvas.getContext("webgpu");
-      if (context && !canvas.dataset.gpuConfigured) {
-        context.configure({
-          device,
-          format,
-          alphaMode: "premultiplied",
-        });
-        canvas.dataset.gpuConfigured = "true";
-      }
-
-      // Handle overlays
-      if (gridOverlayRendererRef.current) {
-        const overlay = gridOverlayRendererRef.current;
-        const ctx = overlay.beginDraw(dimensions.width, dimensions.height, dpr);
-        drawGridOnContext(
-          ctx,
-          dimensions.width,
-          dimensions.height,
-          { min: 0, max: 3 },
-          -120,
-          0,
-        );
-        overlay.endDraw();
-      }
-
-      drawWebGPUFFTSignal({
-        canvas,
-        device,
-        format,
-        waveform: floatWaveform,
-        frequencyRange: { min: 0, max: 3 },
-        fftMin: -120,
-        fftMax: 0,
-        gridOverlayRenderer: gridOverlayRendererRef.current ?? undefined,
-        markersOverlayRenderer: markersOverlayRendererRef.current ?? undefined,
-        showGrid: true,
-        isDeviceConnected: true,
-      });
-    } else if (!isInitializingWebGPU) {
-      // Fallback to Canvas2D
-      draw2DFFTSignal({
-        canvas,
-        waveform: waveformArray,
-        frequencyRange: { min: 0, max: 3 },
-        fftMin: -120,
-        fftMax: 0,
-        showGrid: true,
-        isDeviceConnected: true,
-        centerFrequencyMHz: 1.5,
-      });
-    }
+    // Use the unified renderer hook
+    drawSpectrum({
+      canvas,
+      webgpuEnabled,
+      device: webgpuDeviceRef.current,
+      format: webgpuFormatRef.current,
+      waveform: floatWaveform,
+      frequencyRange: { min: 0, max: 3 },
+      fftMin: -120,
+      fftMax: 0,
+      isIqRecordingActive: true,
+      hardwareSampleRateHz: sampleRateHzEffective ?? undefined,
+      gridOverlayRenderer: gridOverlayRendererRef.current,
+      markersOverlayRenderer: markersOverlayRendererRef.current,
+    });
   }, [
     dimensions,
     waveformArray,
@@ -218,12 +175,10 @@ export const DrawSignalRoute: React.FC = () => {
     webgpuEnabled,
     webgpuDeviceRef,
     webgpuFormatRef,
-    isInitializingWebGPU,
-    drawWebGPUFFTSignal,
-    draw2DFFTSignal,
-    drawGridOnContext,
+    sampleRateHzEffective,
     gridOverlayRendererRef,
     markersOverlayRendererRef,
+    drawSpectrum,
   ]);
 
   // Handle Resizing
@@ -258,11 +213,8 @@ export const DrawSignalRoute: React.FC = () => {
 
   // Cleanup on unmount
   useEffect(() => {
-    return () => {
-      cleanupGPU();
-      cleanup2D();
-    };
-  }, [cleanupGPU, cleanup2D]);
+    return () => cleanup();
+  }, [cleanup]);
 
   return (
     <PageContainer>

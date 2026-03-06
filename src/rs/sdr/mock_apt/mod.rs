@@ -371,4 +371,12 @@ impl SdrDevice for MockAptDevice {
         log::info!("Mock APT device cleanup completed");
         Ok(())
     }
+
+    fn is_healthy(&self) -> bool {
+        true // Mock is always healthy
+    }
+
+    fn get_error(&self) -> Option<String> {
+        None
+    }
 }

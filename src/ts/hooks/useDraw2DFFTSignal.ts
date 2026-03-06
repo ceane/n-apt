@@ -8,6 +8,7 @@ import {
   FFT_AREA_MIN,
   FFT_CANVAS_BG,
   formatFrequency,
+  formatFrequencyHighRes,
   findBestFrequencyRange,
 } from "@n-apt/consts";
 
@@ -94,41 +95,79 @@ export function useDraw2DFFTSignal() {
         );
       }
 
-      ctx.textAlign = "center";
-      for (let freq = lowerFreq; freq < upperFreq; freq += range) {
-        const xPos = freqToX(freq);
-        ctx.beginPath();
-        ctx.moveTo(Math.round(xPos), FFT_AREA_MIN.y);
-        ctx.lineTo(Math.round(xPos), fftAreaMax.y);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(Math.round(xPos), fftAreaMax.y);
-        ctx.lineTo(Math.round(xPos), fftAreaMax.y + 7);
-        ctx.stroke();
-        ctx.fillText(
-          formatFrequency(freq),
-          Math.round(xPos),
-          fftAreaMax.y + 25,
-        );
-      }
+      // (Removed old grid loop)
 
-      const xPos = fftAreaMax.x;
-      const lastGridFreq = Math.floor((upperFreq - 1e-6) / range) * range;
-      const lastGridX = freqToX(lastGridFreq);
-      if (xPos - lastGridX > 50) {
+      const fullSpan = fullCaptureRange ? (fullCaptureRange.max - fullCaptureRange.min) : 0;
+      const zoom = (fullSpan > 0) ? fullSpan / viewBandwidth : 1;
+      const useHighRes = zoom >= 100;
+      const formatFreq = (f: number) => useHighRes ? formatFrequencyHighRes(f) : formatFrequency(f);
+
+      const visualCenterFreq = (minFreq + maxFreq) / 2;
+
+      // ── Collision Avoidance Setup ──────────────────────────────────────────
+      const occupiedRects: { x1: number; x2: number }[] = [];
+      const startLabel = formatFreq(minFreq);
+      const endLabel = formatFreq(maxFreq);
+      const centerLabelText = Number.isNaN(visualCenterFreq) || !Number.isFinite(visualCenterFreq)
+        ? "-- MHz"
+        : formatFreq(visualCenterFreq);
+
+      const startW = ctx.measureText(startLabel).width;
+      const endW = ctx.measureText(endLabel).width;
+      const centerW = ctx.measureText(`✋  ${centerLabelText}`).width;
+
+      occupiedRects.push({ x1: FFT_AREA_MIN.x - 5, x2: FFT_AREA_MIN.x + startW + 15 });
+      occupiedRects.push({ x1: fftAreaMax.x - endW - 15, x2: fftAreaMax.x + 5 });
+      occupiedRects.push({ x1: width / 2 - centerW / 2 - 15, x2: width / 2 + centerW / 2 + 15 });
+
+      const isColliding = (x: number, text: string) => {
+        const tw = ctx.measureText(text).width;
+        const x1 = x - tw / 2 - 10;
+        const x2 = x + tw / 2 + 10;
+        return occupiedRects.some(r => (x1 < r.x2 && x2 > r.x1));
+      };
+      // ───────────────────────────────────────────────────────────────────────
+
+      // Draw Start Line + Label
+      ctx.textAlign = "left";
+      ctx.beginPath();
+      ctx.moveTo(FFT_AREA_MIN.x, FFT_AREA_MIN.y);
+      ctx.lineTo(FFT_AREA_MIN.x, fftAreaMax.y + 7);
+      ctx.stroke();
+      ctx.fillText(startLabel, FFT_AREA_MIN.x, fftAreaMax.y + 25);
+
+      // Draw End Line + Label
+      ctx.textAlign = "right";
+      ctx.beginPath();
+      ctx.moveTo(fftAreaMax.x, FFT_AREA_MIN.y);
+      ctx.lineTo(fftAreaMax.x, fftAreaMax.y + 7);
+      ctx.stroke();
+      ctx.fillText(endLabel, fftAreaMax.x, fftAreaMax.y + 25);
+
+      ctx.textAlign = "center";
+      for (let freq = lowerFreq; freq < upperFreq - 0.0001; freq += range) {
+        const xPos = freqToX(freq);
+        const ix = Math.round(xPos);
+
+        // Grid line
+        ctx.strokeStyle = FFT_GRID_COLOR;
         ctx.beginPath();
-        ctx.moveTo(Math.round(xPos), FFT_AREA_MIN.y);
-        ctx.lineTo(Math.round(xPos), fftAreaMax.y);
+        ctx.moveTo(ix, FFT_AREA_MIN.y);
+        ctx.lineTo(ix, fftAreaMax.y);
         ctx.stroke();
+
+        // Tick mark
+        ctx.strokeStyle = FFT_TEXT_COLOR;
         ctx.beginPath();
-        ctx.moveTo(Math.round(xPos), fftAreaMax.y);
-        ctx.lineTo(Math.round(xPos), fftAreaMax.y + 7);
+        ctx.moveTo(ix, fftAreaMax.y);
+        ctx.lineTo(ix, fftAreaMax.y + 7);
         ctx.stroke();
-        ctx.fillText(
-          formatFrequency(maxFreq),
-          Math.round(xPos),
-          fftAreaMax.y + 25,
-        );
+
+        // Tick label
+        const tickLabel = range >= 0.5 ? freq.toFixed(1) : (range >= 0.01 ? freq.toFixed(2) : freq.toFixed(3));
+        if (!isColliding(xPos, tickLabel)) {
+          ctx.fillText(tickLabel, ix, fftAreaMax.y + 25);
+        }
       }
 
       ctx.strokeStyle = FFT_TEXT_COLOR;
@@ -146,8 +185,9 @@ export function useDraw2DFFTSignal() {
       const anchorRange = fullCaptureRange || frequencyRange;
       const totalSpan = anchorRange.max - anchorRange.min;
       const hwSpanMHz = hardwareSampleRateHz ? hardwareSampleRateHz / 1e6 : 0;
+      const shouldShowBlockLabels = totalSpan > hwSpanMHz + 0.001;
       
-      if (hwSpanMHz > 0 && totalSpan > hwSpanMHz + 0.001 && isIqRecordingActive) {
+      if (hwSpanMHz > 0 && isIqRecordingActive) {
         ctx.save();
         ctx.strokeStyle = "rgba(220, 220, 220, 0.54)"; // User specified color
         ctx.setLineDash([4, 4]); // Dashed line
@@ -196,9 +236,17 @@ export function useDraw2DFFTSignal() {
             const visibleEnd = Math.min(blockEnd, maxFreq);
             const visibleCenter = (visibleStart + visibleEnd) / 2;
             
-            if (visibleCenter >= minFreq && visibleCenter <= maxFreq) {
+            // For I/Q recording, always show labels (not dependent on window size)
+            // For other cases, only show when window is larger than hardware sample rate
+            const showLabels = isIqRecordingActive || shouldShowBlockLabels;
+            
+            if (
+              showLabels &&
+              visibleCenter >= minFreq &&
+              visibleCenter <= maxFreq
+            ) {
               const cx = Math.round(freqToX(visibleCenter));
-              const label = isFullBlock ? "Hardware Sample Rate" : "Next sample";
+              const label = isFullBlock ? "Hardware Sample Rate" : "Next Sample";
               const subLabel = formatOffset(blockWidth);
               ctx.fillText(label, cx, FFT_AREA_MIN.y + 4);
               ctx.fillText(subLabel, cx, FFT_AREA_MIN.y + 16);
@@ -276,6 +324,7 @@ export function useDraw2DFFTSignal() {
       frequencyRange: { min: number; max: number },
       centerFrequencyMHz: number,
       isDeviceConnected: boolean,
+      fullCaptureRange?: { min: number; max: number },
     ) => {
       const dpr = window.devicePixelRatio || 1;
       const fftAreaMax = { x: width - 40, y: height - 40 };
@@ -284,6 +333,11 @@ export function useDraw2DFFTSignal() {
       const maxFreq = frequencyRange?.max ?? 3.2;
       const viewBandwidth = maxFreq - minFreq;
       if (viewBandwidth <= 0) return;
+
+      const fullSpan = fullCaptureRange ? (fullCaptureRange.max - fullCaptureRange.min) : 0;
+      const zoom = fullSpan > 0 ? fullSpan / viewBandwidth : 1;
+      const useHighRes = zoom >= 100;
+      const formatFreq = (f: number) => useHighRes ? formatFrequencyHighRes(f) : formatFrequency(f);
 
       const freqToX = (freq: number) =>
         FFT_AREA_MIN.x + ((freq - minFreq) / viewBandwidth) * plotWidth;
@@ -337,22 +391,18 @@ export function useDraw2DFFTSignal() {
         ctx.restore();
       }
 
+      const visualCenterFreq = (minFreq + maxFreq) / 2;
       const centerLabel =
-        Number.isNaN(centerFrequencyMHz) || !Number.isFinite(centerFrequencyMHz)
+        Number.isNaN(visualCenterFreq) || !Number.isFinite(visualCenterFreq)
           ? "✋  -- MHz"
-          : centerFrequencyMHz < 1
-            ? `✋  ${Math.round(centerFrequencyMHz * 1000)} kHz`
-            : `✋  ${centerFrequencyMHz.toFixed(3)} MHz`;
+          : `✋  ${formatFreq(visualCenterFreq)}`;
 
       ctx.save();
       ctx.font = "12px JetBrains Mono";
       ctx.textAlign = "center";
       ctx.textBaseline = "alphabetic";
-      const labelW = ctx.measureText(centerLabel).width;
       const labelX = width / 2;
       const labelY = fftAreaMax.y + 25;
-      ctx.fillStyle = "rgba(10, 10, 10, 0.9)";
-      ctx.fillRect(labelX - labelW / 2 - 6, labelY - 13, labelW + 12, 17);
       ctx.fillStyle = "#ffffff";
       ctx.fillText(centerLabel, labelX, labelY);
       ctx.restore();
@@ -453,6 +503,7 @@ export function useDraw2DFFTSignal() {
             frequencyRange,
             centerFrequencyMHz,
             isDeviceConnected,
+            fullCaptureRange,
           );
         }
 

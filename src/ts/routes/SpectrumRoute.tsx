@@ -31,6 +31,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
       deviceState,
       backend,
       deviceInfo,
+      deviceName,
       sendFrequencyRange,
       sendTrainingCommand,
       dataRef,
@@ -86,7 +87,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
         getSnapshotData: () => fftCanvasRef.current?.getSnapshotData() ?? null,
         signalAreaBounds,
         activeSignalArea: state.activeSignalArea,
-        sourceName: backend || deviceInfo || undefined,
+        sourceName: deviceName || backend || deviceInfo || undefined,
         sdrSettingsLabel,
       });
     };

@@ -138,12 +138,54 @@ export function useFrequencyDrag({
 
         // Dragging right (deltaX > 0) means looking at lower frequencies (shifting visual window left)
         // so we SUBTRACT freqChange from the pan offset
-        let newPan = dragStartPanRef.current - freqChange;
+        const desiredPan = dragStartPanRef.current - freqChange;
 
-        // Clamp to max allowable pan (so we stay within the hardware window)
-        newPan = Math.max(-maxPan, Math.min(maxPan, newPan));
+        if (onFrequencyRangeChange) {
+          // Check if we need to shift the hardware window (pan-retune)
+          if (Math.abs(desiredPan) > maxPan + 0.001) {
+            // Calculate where the center SHOULD be in absolute frequency space
+            const currentHardwareCenter =
+              (dragStartRangeRef.current.min + dragStartRangeRef.current.max) /
+              2;
+            const visualCenter = currentHardwareCenter + desiredPan;
 
-        onVizPanChange(newPan);
+            // Calculate a new hardware window centered on this visual center
+            const hardwareSpan = fullRange;
+            const halfHardware = hardwareSpan / 2;
+
+            let newHardwareMin = visualCenter - halfHardware;
+            let newHardwareMax = visualCenter + halfHardware;
+
+            // Clamp hardware window to signal area bounds
+            const bounds =
+              signalAreaBounds?.[activeSignalArea] ??
+              signalAreaBounds?.[activeSignalArea.toLowerCase()];
+            if (bounds) {
+              if (newHardwareMin < bounds.min) {
+                newHardwareMin = bounds.min;
+                newHardwareMax = bounds.min + hardwareSpan;
+              }
+              if (newHardwareMax > bounds.max) {
+                newHardwareMax = bounds.max;
+                newHardwareMin = newHardwareMax - hardwareSpan;
+              }
+            }
+
+            const newHardwareCenter = (newHardwareMin + newHardwareMax) / 2;
+
+            // 1. Notify hardware to shift its window
+            onFrequencyRangeChange({ min: newHardwareMin, max: newHardwareMax });
+
+            // 2. Set visual pan relative to this NEW hardware center
+            const remainingPan = visualCenter - newHardwareCenter;
+            onVizPanChange(remainingPan);
+            return;
+          }
+        }
+
+        // Standard behavior or fallback: Clamp to max allowable pan (stay within window)
+        const clampedPan = Math.max(-maxPan, Math.min(maxPan, desiredPan));
+        onVizPanChange(clampedPan);
       } else if (onFrequencyRangeChange) {
         // Hardware retune mode (unzoomed, live SDR only).
         // Dragging right (deltaX > 0) means frequency decreases.

@@ -59,6 +59,12 @@ pub trait SdrDevice: Send {
     
     /// Cleanup resources
     fn cleanup(&mut self) -> Result<()>;
+
+    /// Check if the device is still healthy (e.g. hasn't been unplugged)
+    fn is_healthy(&self) -> bool;
+
+    /// Get the last error message if any
+    fn get_error(&self) -> Option<String>;
 }
 
 /// Device factory for creating SDR instances
