@@ -38,6 +38,7 @@ describe("useWebSocket Hook", () => {
     expect(typeof result.current.sendSettings).toBe("function");
     expect(typeof result.current.sendRestartDevice).toBe("function");
     expect(typeof result.current.sendTrainingCommand).toBe("function");
+    expect(typeof result.current.sendCaptureCommand).toBe("function");
   });
 
   it("should handle disabled state", () => {
