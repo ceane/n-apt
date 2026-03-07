@@ -57,3 +57,13 @@ __pycache__/
 *.pyc
 *.pyo
 *.egg-info/
+
+# Data files - exclude large zip and dat files
+data/*.zip
+data/**/*.zip
+data/*.dat
+data/**/*.dat
+
+# Environment variables
+.env.local
+.env*.local

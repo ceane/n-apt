@@ -4,7 +4,6 @@ import { FrequencyRange } from "@n-apt/hooks/useWebSocket";
 import { formatFrequency } from "@n-apt/consts/sdr";
 import {
   STEP_SIZE,
-  COLORS,
   RANGE_TRACK_HEIGHT,
   RANGE_TRACK_BACKGROUND,
   RANGE_TRACK_BORDER,
@@ -224,6 +223,16 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
     }
     setWindowStart(clamped);
   }, [externalFrequencyRange, visibleMin, minFreq, totalRange, windowWidth]);
+
+  // Handle activation: force a notification when this slider becomes the active one
+  useEffect(() => {
+    if (isActive) {
+      // Increment internal change ID to trigger the notification effect
+      internalChangeIdRef.current += 1;
+      // Clear last notified range to ensure a fresh notification is sent even if position hasn't changed
+      lastNotifiedRangeRef.current = null;
+    }
+  }, [isActive]);
 
   const maxWindowStart = 1 - windowWidth;
   let visualRatio = 0;

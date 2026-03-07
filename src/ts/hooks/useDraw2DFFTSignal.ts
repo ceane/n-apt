@@ -46,7 +46,6 @@ export function useDraw2DFFTSignal() {
       clearBackground: boolean,
       hardwareSampleRateHz?: number,
       fullCaptureRange?: { min: number; max: number },
-      isIqRecordingActive?: boolean,
     ) => {
       const dpr = window.devicePixelRatio || 1;
 
@@ -185,9 +184,9 @@ export function useDraw2DFFTSignal() {
       const anchorRange = fullCaptureRange || frequencyRange;
       const totalSpan = anchorRange.max - anchorRange.min;
       const hwSpanMHz = hardwareSampleRateHz ? hardwareSampleRateHz / 1e6 : 0;
-      const shouldShowBlockLabels = totalSpan > hwSpanMHz + 0.001;
+      const shouldShowHWGrid = totalSpan > hwSpanMHz + 0.001 && hwSpanMHz > 0;
       
-      if (hwSpanMHz > 0 && isIqRecordingActive) {
+      if (shouldShowHWGrid) {
         ctx.save();
         ctx.strokeStyle = "rgba(220, 220, 220, 0.54)"; // User specified color
         ctx.setLineDash([4, 4]); // Dashed line
@@ -214,7 +213,7 @@ export function useDraw2DFFTSignal() {
           // Only draw if visible in the current zoomed frequency range
           if (blockEnd > minFreq && blockStart < maxFreq) {
             // Draw left boundary
-            if (blockStart >= minFreq && blockStart <= maxFreq) {
+            if (blockStart > anchorRange.min + 0.0001 && blockStart >= minFreq && blockStart <= maxFreq) {
               const lx = Math.round(freqToX(blockStart));
               ctx.beginPath();
               ctx.moveTo(lx, FFT_AREA_MIN.y);
@@ -223,7 +222,7 @@ export function useDraw2DFFTSignal() {
             }
 
             // Draw right boundary
-            if (blockEnd >= minFreq && blockEnd <= maxFreq) {
+            if (blockEnd < anchorRange.max - 0.0001 && blockEnd >= minFreq && blockEnd <= maxFreq) {
               const rx = Math.round(freqToX(blockEnd));
               ctx.beginPath();
               ctx.moveTo(rx, FFT_AREA_MIN.y);
@@ -236,12 +235,7 @@ export function useDraw2DFFTSignal() {
             const visibleEnd = Math.min(blockEnd, maxFreq);
             const visibleCenter = (visibleStart + visibleEnd) / 2;
             
-            // For I/Q recording, always show labels (not dependent on window size)
-            // For other cases, only show when window is larger than hardware sample rate
-            const showLabels = isIqRecordingActive || shouldShowBlockLabels;
-            
             if (
-              showLabels &&
               visibleCenter >= minFreq &&
               visibleCenter <= maxFreq
             ) {
@@ -424,7 +418,6 @@ export function useDraw2DFFTSignal() {
         highPerformanceMode = false,
         hardwareSampleRateHz,
         fullCaptureRange,
-        isIqRecordingActive,
       } = options;
 
       const ctx = canvas.getContext("2d");
@@ -462,8 +455,7 @@ export function useDraw2DFFTSignal() {
               fftMax,
               true,
               hardwareSampleRateHz,
-              fullCaptureRange,
-              isIqRecordingActive,
+              fullCaptureRange
             );
           } else {
             ctx.fillStyle = "#000000";
@@ -484,8 +476,7 @@ export function useDraw2DFFTSignal() {
               fftMax,
               true,
               hardwareSampleRateHz,
-              fullCaptureRange,
-              isIqRecordingActive,
+              fullCaptureRange
             );
           } else {
             ctx.fillStyle = "#000000";

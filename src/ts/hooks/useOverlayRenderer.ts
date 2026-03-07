@@ -30,7 +30,6 @@ export function useOverlayRenderer() {
       fftMax: number,
       hardwareSampleRateHz?: number,
       fullCaptureRange?: { min: number; max: number },
-      isIqRecordingActive?: boolean,
     ) => {
       const dpr = window.devicePixelRatio || 1;
       const fftAreaMax = { x: width - 40, y: height - 40 };
@@ -233,9 +232,9 @@ export function useOverlayRenderer() {
       const anchorRange = fullCaptureRange || frequencyRange;
       const totalSpan = anchorRange.max - anchorRange.min;
       const hwSpanMHz = hardwareSampleRateHz ? hardwareSampleRateHz / 1e6 : 0;
-      const shouldShowBlockLabels = totalSpan > hwSpanMHz + 0.001;
+      const shouldShowHWGrid = totalSpan > hwSpanMHz + 0.001 && hwSpanMHz > 0;
       
-      if (hwSpanMHz > 0 && isIqRecordingActive) {
+      if (shouldShowHWGrid) {
         ctx.save();
         ctx.strokeStyle = SNAP_HW_RATE_LINE; // User specified color
         ctx.setLineDash([4, 4]); // Dashed line
@@ -263,7 +262,7 @@ export function useOverlayRenderer() {
           // Only draw if visible in the current zoomed frequency range
           if (blockEnd > minFreq && blockStart < maxFreq) {
             // Draw left boundary
-            if (blockStart >= minFreq && blockStart <= maxFreq) {
+            if (blockStart > anchorRange.min + 0.0001 && blockStart >= minFreq && blockStart <= maxFreq) {
               const lx = Math.round(freqToX2(blockStart));
               ctx.beginPath();
               ctx.moveTo(lx, FFT_AREA_MIN.y);
@@ -272,7 +271,7 @@ export function useOverlayRenderer() {
             }
 
             // Draw right boundary
-            if (blockEnd >= minFreq && blockEnd <= maxFreq) {
+            if (blockEnd < anchorRange.max - 0.0001 && blockEnd >= minFreq && blockEnd <= maxFreq) {
               const rx = Math.round(freqToX2(blockEnd));
               ctx.beginPath();
               ctx.moveTo(rx, FFT_AREA_MIN.y);
@@ -285,12 +284,7 @@ export function useOverlayRenderer() {
             const visibleEnd = Math.min(blockEnd, maxFreq);
             const visibleCenter = (visibleStart + visibleEnd) / 2;
             
-            // For I/Q recording, always show labels (not dependent on window size)
-            // For other cases, only show when window is larger than hardware sample rate
-            const showLabels = isIqRecordingActive || shouldShowBlockLabels;
-            
             if (
-              showLabels &&
               visibleCenter >= minFreq &&
               visibleCenter <= maxFreq
             ) {

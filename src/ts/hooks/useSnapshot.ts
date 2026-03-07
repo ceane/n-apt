@@ -125,7 +125,6 @@ function drawSpectrumToCanvas(
   centerFrequencyMHz: number,
   hardwareSampleRateHz?: number,
   fullCaptureRange?: { min: number; max: number },
-  isIqRecordingActive?: boolean,
 ): void {
   const ctx = canvas.getContext("2d");
   if (!ctx || !waveform || waveform.length === 0) return;
@@ -268,9 +267,9 @@ function drawSpectrumToCanvas(
     const hwSpanMHz = hardwareSampleRateHz / 1e6;
     const anchorRange = fullCaptureRange || frequencyRange;
     const totalSpan = anchorRange.max - anchorRange.min;
-    const shouldShowBlockLabels = totalSpan >= hwSpanMHz - 0.001;
+    const shouldShowHWGrid = totalSpan > hwSpanMHz + 0.001 && hwSpanMHz > 0;
 
-    if (hwSpanMHz > 0) {
+    if (shouldShowHWGrid) {
       ctx.save();
       ctx.strokeStyle = SNAP_HW_RATE_LINE;
       ctx.lineWidth = 1 / dpr;
@@ -293,7 +292,8 @@ function drawSpectrumToCanvas(
         const isFull = bWidth >= hwSpanMHz - 0.001;
 
         if (bEnd > minFreq && bStart < maxFreq) {
-          if (bStart >= minFreq && bStart <= maxFreq) {
+          // Only draw line if NOT at the very edges of the capture range
+          if (bStart > anchorRange.min + 0.0001 && bStart >= minFreq && bStart <= maxFreq) {
             const lx = Math.round(freqToX(bStart));
             ctx.setLineDash([4, 4]);
             ctx.beginPath();
@@ -301,7 +301,7 @@ function drawSpectrumToCanvas(
             ctx.lineTo(lx, fftAreaMax.y);
             ctx.stroke();
           }
-          if (bEnd >= minFreq && bEnd <= maxFreq) {
+          if (bEnd < anchorRange.max - 0.0001 && bEnd >= minFreq && bEnd <= maxFreq) {
             const rx = Math.round(freqToX(bEnd));
             ctx.setLineDash([4, 4]);
             ctx.beginPath();
@@ -314,10 +314,7 @@ function drawSpectrumToCanvas(
           const visibleEnd = Math.min(bEnd, maxFreq);
           const visibleCenter = (visibleStart + visibleEnd) / 2;
 
-          const showLabels = isIqRecordingActive || shouldShowBlockLabels;
-
           if (
-            showLabels &&
             visibleCenter >= minFreq &&
             visibleCenter <= maxFreq
           ) {
@@ -591,7 +588,6 @@ function generateSpectrumSVG(
   svgH: number,
   hardwareSampleRateHz?: number,
   fullCaptureRange?: { min: number; max: number },
-  isIqRecordingActive?: boolean,
 ): string {
   const parts: string[] = [];
 
@@ -694,9 +690,9 @@ function generateSpectrumSVG(
     const hwSpanMHz = hardwareSampleRateHz / 1e6;
     const anchorRange = fullCaptureRange || frequencyRange;
     const totalSpan = anchorRange.max - anchorRange.min;
-    const shouldShowBlockLabels = totalSpan >= hwSpanMHz - 0.001;
+    const shouldShowHWGrid = totalSpan > hwSpanMHz + 0.001 && hwSpanMHz > 0;
 
-    if (hwSpanMHz > 0) {
+    if (shouldShowHWGrid) {
       const fmtOff = (mhz: number) => {
         if (Math.abs(mhz) >= 1) return `${mhz.toFixed(1)}MHz`;
         if (Math.abs(mhz) >= 0.001) return `${Math.round(mhz * 1000)}kHz`;
@@ -711,11 +707,11 @@ function generateSpectrumSVG(
         const isFull = bWidth >= hwSpanMHz - 0.001;
 
         if (bEnd > minFreq && bStart < maxFreq) {
-          if (bStart >= minFreq && bStart <= maxFreq) {
+          if (bStart > anchorRange.min + 0.0001 && bStart >= minFreq && bStart <= maxFreq) {
             const lx = Math.round(freqToX(bStart));
             parts.push(`<line x1="${lx}" y1="${FFT_AREA_MIN.y}" x2="${lx}" y2="${fftAreaMax.y}" stroke="${SNAP_HW_RATE_LINE}" stroke-width="1" stroke-dasharray="4,4"/>`);
           }
-          if (bEnd >= minFreq && bEnd <= maxFreq) {
+          if (bEnd < anchorRange.max - 0.0001 && bEnd >= minFreq && bEnd <= maxFreq) {
             const rx = Math.round(freqToX(bEnd));
             parts.push(`<line x1="${rx}" y1="${FFT_AREA_MIN.y}" x2="${rx}" y2="${fftAreaMax.y}" stroke="${SNAP_HW_RATE_LINE}" stroke-width="1" stroke-dasharray="4,4"/>`);
           }
@@ -724,10 +720,7 @@ function generateSpectrumSVG(
           const visibleEnd = Math.min(bEnd, maxFreq);
           const visibleCenter = (visibleStart + visibleEnd) / 2;
 
-          const showLabels = isIqRecordingActive || shouldShowBlockLabels;
-
           if (
-            showLabels &&
             visibleCenter >= minFreq &&
             visibleCenter <= maxFreq
           ) {
@@ -995,7 +988,6 @@ export function useSnapshot(
         LOGICAL_SPECTRUM_H,
         data.hardwareSampleRateHz,
         captureRange ?? undefined,
-        data.isIqRecordingActive,
       );
 
       // Waterfall as embedded PNG bitmap (vectors don't make sense for heatmaps)
@@ -1102,7 +1094,6 @@ export function useSnapshot(
       centerFreqToRender,
       data.hardwareSampleRateHz,
       captureRange ?? undefined,
-      data.isIqRecordingActive,
     );
 
     // Waterfall

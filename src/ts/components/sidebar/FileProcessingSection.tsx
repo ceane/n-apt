@@ -1,7 +1,7 @@
 import React, { useRef } from "react";
 import styled from "styled-components";
-import { Tooltip } from "@n-apt/components/ui";
-import { Activity, Download, Trash2, CheckCircle2 } from "lucide-react";
+import { Tooltip, Button } from "@n-apt/components/ui";
+import { Activity, Download, Trash2, CheckCircle2, Play, Pause, Loader2 } from "lucide-react";
 
 type NaptMetadata = {
   sample_rate?: number;
@@ -89,34 +89,6 @@ const SettingValue = styled.span`
   justify-self: end;
 `;
 
-const PauseButton = styled.button<{ $paused: boolean }>`
-  flex: 0 0 25%;
-  height: 100%;
-  padding: 12px 8px;
-  background-color: ${(props) => (props.$paused ? props.theme.primaryAnchor : "#1a1a1a")};
-  border: 1px solid ${(props) => (props.$paused ? props.theme.primary : "#2a2a2a")};
-  border-radius: 8px;
-  color: ${(props) => (props.$paused ? props.theme.primary : "#ccc")};
-  font-family: "JetBrains Mono", monospace;
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  text-align: center;
-  transition: all 0.2s ease;
-  user-select: none;
-
-  &:hover:not(:disabled) {
-    background-color: ${(props) => props.theme.primary}0d;
-    border-color: ${(props) => props.theme.primary};
-    color: ${(props) => props.theme.primary};
-  }
-
-  &:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-`;
-
 const FileInputActions = styled.div`
   display: grid;
   grid-auto-flow: column;
@@ -127,12 +99,6 @@ const FileInputActions = styled.div`
 
 const HiddenFileInput = styled.input`
   display: none;
-`;
-
-const BrowseButton = styled(PauseButton)`
-  flex: none;
-  font-size: 11px;
-  padding: 8px 12px;
 `;
 
 const FileNameLabel = styled(SettingLabel)`
@@ -192,68 +158,12 @@ const ClearAllLink = styled.button`
   }
 `;
 
-const ClearButton = styled(PauseButton)`
-  width: 100%;
-  background: transparent;
-`;
-
-const UnifiedActionButton = styled(PauseButton) <{ $state: string }>`
-  width: 100%;
-  grid-column: 1 / -1;
-  height: auto;
-  background-color: ${(props) => props.theme.surface || "#1a1a1a"};
-  border: 1px solid ${(props) => {
-    if (props.$state === "error") return props.theme.danger;
-    if (props.$state === "play") return props.theme.primary;
-    return props.theme.borderHover || "#2a2a2a";
-  }};
-  border-radius: 12px;
-  color: ${(props) => {
-    if (props.$state === "error") return props.theme.danger;
-    if (props.$state === "play") return props.theme.primary;
-    return props.theme.textPrimary || "#ccc";
-  }};
+const ActionsContainer = styled.div`
   display: flex;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  font-size: 14px;
-  font-family: inherit;
-  padding: 10px;
-  transition: all 0.2s ease;
-  box-sizing: border-box;
-
-  &:hover:not(:disabled) {
-    background-color: ${(props) => {
-    if (props.$state === "error") return "rgba(255, 107, 107, 0.1)";
-    if (props.$state === "play") return "rgba(0, 212, 255, 0.1)";
-    if (props.$state === "pause") return "rgba(163, 230, 53, 0.1)";
-    return "rgba(0, 212, 255, 0.1)";
-  }};
-    border-color: ${(props) => {
-    if (props.$state === "error") return props.theme.danger;
-    if (props.$state === "play") return props.theme.primary;
-    return props.theme.primary;
-  }};
-    color: #fff;
-    box-shadow: 0 0 20px ${(props) => {
-    if (props.$state === "error") return "rgba(255, 107, 107, 0.15)";
-    if (props.$state === "play") return "rgba(0, 212, 255, 0.15)";
-    if (props.$state === "pause") return "rgba(163, 230, 53, 0.15)";
-    return "rgba(0, 212, 255, 0.15)";
-  }};
-  }
-
-  &:active:not(:disabled) {
-    transform: scale(0.98);
-  }
-
-  &:disabled {
-    opacity: 0.3;
-    background-color: #0d0d0d;
-    border-color: #1a1a1a;
-    cursor: default;
-  }
+  flex-direction: column;
+  gap: 12px;
+  grid-column: 1 / -1;
+  margin-top: 8px;
 `;
 
 const FileCard = styled.div`
@@ -465,12 +375,12 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
               id="fileInput"
               onChange={handleFileChange}
             />
-            <BrowseButton
-              $paused={false}
+            <Button
+              $variant="secondary"
               onClick={() => document.getElementById("fileInput")?.click()}
             >
               Browse
-            </BrowseButton>
+            </Button>
           </FileInputActions>
         </SettingRow>
       </Section>
@@ -526,23 +436,20 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
             )}
           </Section>
 
-          <Section>
+          <ActionsContainer>
             {stitchStatus && !stitchingActive && stitchStatus.startsWith("Stitching failed") && (
               <StitchStatusMessage $isError={true}>
                 {stitchStatus}
               </StitchStatusMessage>
             )}
 
-            <UnifiedActionButton
-              $paused={isStitchPaused && hasProcessedData}
-              $state={
+            <Button
+              $variant={
                 stitchingActive
-                  ? "processing"
+                  ? "secondary"
                   : stitchStatus?.startsWith("Stitching failed")
-                    ? "error"
-                    : hasProcessedData
-                      ? (isStitchPaused ? "play" : "pause")
-                      : "initial"
+                    ? "danger"
+                    : "primary"
               }
               ref={stitchButtonRef}
               onClick={() => {
@@ -554,16 +461,23 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
                 }
               }}
               disabled={stitchingActive}
+              style={{ width: '100%', padding: '12px' }}
             >
-              {stitchingActive
-                ? "Processing..."
-                : stitchStatus?.startsWith("Stitching failed")
-                  ? "Error"
-                  : hasProcessedData
-                    ? (isStitchPaused ? "Play" : "Pause")
-                    : "Process then play"}
-            </UnifiedActionButton>
-          </Section>
+              {stitchingActive ? (
+                <><Loader2 size={16} className="animate-spin" /> Processing...</>
+              ) : stitchStatus?.startsWith("Stitching failed") ? (
+                "Error"
+              ) : hasProcessedData ? (
+                isStitchPaused ? (
+                  <><Play size={16} fill="currentColor" /> Play</>
+                ) : (
+                  <><Pause size={16} fill="currentColor" /> Pause</>
+                )
+              ) : (
+                <><CheckCircle2 size={16} /> Process then play</>
+              )}
+            </Button>
+          </ActionsContainer>
         </>
       )}
 

@@ -58,6 +58,18 @@ export const useStitchingLogic = ({
   const lastTriggerRef = useRef<number | null>(null);
   const lastProcessedFilesRef = useRef<string[]>([]);
 
+  // Reset stitched state when file selection changes
+  useEffect(() => {
+    const currentFileNames = selectedFiles.map((f) => f.name).sort();
+    const lastFileNames = lastProcessedFilesRef.current;
+    if (JSON.stringify(currentFileNames) !== JSON.stringify(lastFileNames)) {
+      setHasStitchedData(false);
+      onStitchStatus?.("");
+      // Update this so we don't keep resetting until the next process
+      lastProcessedFilesRef.current = currentFileNames;
+    }
+  }, [selectedFiles, onStitchStatus]);
+
   // Worker data refs
   const workerFileDataCache = useRef<[string, number[]][]>([]);
   const workerFreqMap = useRef<[string, number][]>([]);

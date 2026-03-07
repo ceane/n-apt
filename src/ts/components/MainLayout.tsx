@@ -143,6 +143,12 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
               >
                 3D Human Model
               </NavigationTab>
+              <NavigationTab
+                $isActive={path === "/map-endpoints"}
+                onClick={() => navigate("/map-endpoints")}
+              >
+                Map Endpoints
+              </NavigationTab>
             </NavigationTabs>
             <SidebarContent>{sidebar}</SidebarContent>
           </NavigationContainer>

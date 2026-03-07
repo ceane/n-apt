@@ -4,10 +4,12 @@ import { MainLayout } from "@n-apt/components/MainLayout";
 import { SpectrumSidebar } from "@n-apt/components/sidebar/SpectrumSidebar";
 import { AnalysisSidebar } from "@n-apt/components/sidebar/AnalysisSidebar";
 import { DrawSignalSidebar } from "@n-apt/components/sidebar/DrawSignalSidebar";
+import { MapEndpointsSidebar } from "@n-apt/components/sidebar/MapEndpointsSidebar";
 import { SpectrumRoute } from "./SpectrumRoute";
 import { DecodeRoute } from "./DecodeRoute";
 import { DrawSignalRoute } from "./DrawSignalRoute";
 import { Model3DRoute } from "./Model3DRoute";
+import { MapEndpointsRoute } from "./MapEndpointsRoute";
 import { Model3DProvider } from "@n-apt/hooks/useModel3D";
 import { HotspotEditorProvider } from "@n-apt/hooks/useHotspotEditor";
 import { SidebarForRoute } from "@n-apt/components/sidebar/SidebarForRoute";
@@ -57,6 +59,14 @@ export const AppRoutes: React.FC = () => {
               </MainLayout>
             </HotspotEditorProvider>
           </Model3DProvider>
+        }
+      />
+      <Route
+        path="/map-endpoints"
+        element={
+          <MainLayout sidebar={<MapEndpointsSidebar />}>
+            <MapEndpointsRoute />
+          </MainLayout>
         }
       />
     </Routes>
