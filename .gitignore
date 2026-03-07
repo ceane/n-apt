@@ -65,6 +65,18 @@ data/*.dat
 data/**/*.dat
 data/extracted/*/counts
 
+# Large JSON data files (FCC/OpenCellID processing)
+data/json/*.json
+data/**/*.json
+
+# Redis data files (already handled in redis/.gitignore)
+redis/data/
+redis/logs/
+redis/backups/
+**/*.rdb
+**/*.aof
+**/appendonlydir/*
+
 # Environment variables
 .env.local
 .env*.local
