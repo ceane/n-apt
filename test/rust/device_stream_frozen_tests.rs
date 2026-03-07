@@ -1,6 +1,5 @@
 use n_apt_backend::server::shared_state::SharedState;
 use n_apt_backend::server::utils::reconcile_device_state;
-use n_apt_backend::server::types;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
