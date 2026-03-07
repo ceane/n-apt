@@ -10,6 +10,11 @@ export/current/*.aof
 export/*/dump.rdb
 export/*/appendonly.aof
 
+# Redis AOF and RDB files anywhere in the project
+**/*.rdb
+**/*.aof
+**/appendonlydir/*
+
 # Keep configuration and export metadata
 !redis.conf
 !export/
