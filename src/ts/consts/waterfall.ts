@@ -1,4 +1,4 @@
-import { COLORS } from "@n-apt/consts/ts/components";
+import { COLORS } from "@n-apt/consts/components";
 
 export const DEFAULT_COLOR_MAP: number[][] = [
   [0x00, 0x00, 0x20],
@@ -22,7 +22,7 @@ export const WATERFALL_TEXT_COLOR = COLORS.waterfallText;
 export {
   FFT_MIN_DB as WATERFALL_MIN_DB,
   FFT_MAX_DB as WATERFALL_MAX_DB,
-} from "@n-apt/consts/ts/fft";
+} from "@n-apt/consts/fft";
 
 // Frequency ranges for optimal grid display
 export const WATERFALL_FREQUENCY_RANGES = [

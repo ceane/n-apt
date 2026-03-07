@@ -10,7 +10,7 @@ import {
   BACKEND_HTTP_URL,
   WS_URL,
   SESSION_KEY as ENV_SESSION_KEY,
-} from "../consts/ts/env";
+} from "../consts/env";
 
 // In dev, Vite proxies /auth/* and /status to the backend.
 // In production, these are served from the same origin.

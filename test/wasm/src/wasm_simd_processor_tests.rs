@@ -70,10 +70,18 @@ fn test_process_dc_signal() {
         input.push(0.0f32); // Q
     }
     let result = processor.process(&input);
-    // DC bin (index 0) should have highest energy
-    let dc_power = result[0];
-    let avg_non_dc: f32 = result[1..].iter().sum::<f32>() / (result.len() - 1) as f32;
-    assert!(dc_power > avg_non_dc, "DC bin should dominate for a DC signal");
+    // DC bin is shifted to the center (index 32 for size 64)
+    let dc_idx = result.len() / 2;
+    let dc_power = result[dc_idx];
+    
+    // Calculate average of non-DC bins
+    let sum: f32 = result.iter().enumerate()
+        .filter(|(i, _)| *i != dc_idx)
+        .map(|(_, &v)| if v.is_finite() { v } else { -120.0 })
+        .sum();
+    let avg_non_dc = sum / (result.len() - 1) as f32;
+    
+    assert!(dc_power > avg_non_dc, "DC bin (at center) should dominate for a DC signal: DC={}, avg={}", dc_power, avg_non_dc);
 }
 
 // ── process_samples (u8 input) ──────────────────────────────────────────────

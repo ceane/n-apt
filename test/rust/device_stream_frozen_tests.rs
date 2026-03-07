@@ -9,8 +9,8 @@ async fn test_device_freeze_detection() {
     // Test that the system can detect when a device becomes unresponsive
     let shared_state = Arc::new(SharedState::new());
     
-    // Simulate device freeze by setting disconnected state
-    shared_state.device_connected.store(false, Ordering::SeqCst);
+    // Simulate device freeze
+    shared_state.update_device_status(false, "Freeze simulated".to_string());
     
     // Check that device state is updated correctly
     {
@@ -45,10 +45,10 @@ async fn test_mock_mode_fallback() {
     let shared_state = Arc::new(SharedState::new());
     
     // Start with real device
-    shared_state.device_connected.store(true, Ordering::SeqCst);
+    shared_state.update_device_status(true, "Initial real device".to_string());
     
     // Simulate device freeze - should fallback to mock
-    shared_state.device_connected.store(false, Ordering::SeqCst);
+    shared_state.update_device_status(false, "Mock fallback simulated".to_string());
     
     // Verify mock mode activation
     {

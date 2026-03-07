@@ -28,7 +28,7 @@ use tower::ServiceBuilder;
 use webauthn_rs::prelude::*;
 
 use crate::authentication::CredentialStore;
-use crate::consts::rs::env::{ws_host, ws_port};
+use crate::consts::env::{ws_host, ws_port};
 use crate::session::SessionStore;
 
 // Import sibling modules

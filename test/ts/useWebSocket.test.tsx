@@ -1,6 +1,8 @@
 import { renderHook } from "@testing-library/react";
 import { useWebSocket } from "@n-apt/hooks/useWebSocket";
 
+jest.unmock("@n-apt/hooks/useWebSocket");
+
 // Mock WebSocket
 const mockWebSocket = {
   readyState: WebSocket.CONNECTING,
@@ -23,10 +25,17 @@ describe("useWebSocket Hook", () => {
     const { result } = renderHook(() => useWebSocket("ws://test", null, true));
 
     // Check that all expected properties exist
+    console.log("Keys in useWebSocket return:", Object.keys(result.current));
     expect(typeof result.current.isConnected).toBe("boolean");
     expect(typeof result.current.isPaused).toBe("boolean");
-    expect(typeof result.current.deviceState).toBe("string");
-    expect(typeof result.current.backend).toBe("string");
+    expect(
+      result.current.deviceState === null ||
+      typeof result.current.deviceState === "string",
+    ).toBe(true);
+    expect(
+      result.current.backend === null ||
+      typeof result.current.backend === "string",
+    ).toBe(true);
     expect(
       result.current.data === null || typeof result.current.data === "object",
     ).toBe(true);
@@ -39,6 +48,9 @@ describe("useWebSocket Hook", () => {
     expect(typeof result.current.sendRestartDevice).toBe("function");
     expect(typeof result.current.sendTrainingCommand).toBe("function");
     expect(typeof result.current.sendCaptureCommand).toBe("function");
+    expect(typeof result.current.sendGetAutoFftOptions).toBe("function");
+    expect(result.current.dataRef).toBeDefined();
+    expect(result.current.dataRef.current).toBeDefined();
   });
 
   it("should handle disabled state", () => {

@@ -29,6 +29,10 @@ path = "test/rust/authentication_tests.rs"
 name = "mock_apt_tests"
 path = "test/rust/mock_apt_tests.rs"
 
+[[test]]
+name = "server_tests"
+path = "test/rust/server_tests.rs"
+
 [dependencies]
 # Core dependencies (always included)
 rustfft = "6"
@@ -84,6 +88,7 @@ yawc = { version = "0.3.3", features = ["axum", "zlib"] }
 
 [dev-dependencies]
 doc-comment = "0.3"
+tempfile = "3"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio-test = "0.4"

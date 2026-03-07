@@ -1,9 +1,12 @@
+/** @jest-environment jsdom */
 import {
   fmtFreq,
   getZoomedSlice,
   dbToColor,
   escapeXml,
+  useSnapshot,
 } from "@n-apt/hooks/useSnapshot";
+import { renderHook, act } from "@testing-library/react";
 
 // ────────────────────────────────────────────────────────────────────────────
 // fmtFreq
@@ -142,3 +145,55 @@ describe("escapeXml", () => {
     );
   });
 });
+
+// ────────────────────────────────────────────────────────────────────────────
+// useSnapshot Hook
+// ────────────────────────────────────────────────────────────────────────────
+
+describe("useSnapshot", () => {
+  beforeEach(() => {
+    // Mock URL.createObjectURL
+    global.URL.createObjectURL = jest.fn(() => "mock-url");
+    // Mock document.createElement for download link
+    const mockAnchor = {
+      click: jest.fn(),
+      download: "",
+      href: "",
+    } as any;
+    const originalCreateElement = document.createElement.bind(document);
+    jest.spyOn(document, "createElement").mockImplementation((tagName) => {
+      if (tagName === "a") return mockAnchor;
+      return originalCreateElement(tagName);
+    });
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it("should return handleSnapshot function", () => {
+    const { result } = renderHook(() => useSnapshot(null, false));
+
+    expect(result.current.handleSnapshot).toBeInstanceOf(Function);
+  });
+
+  it("should handle snapshot when no data is available", async () => {
+    const { result } = renderHook(() => useSnapshot(null, false));
+
+    const options = {
+      whole: true,
+      showWaterfall: false,
+      showStats: true,
+      showGrid: true,
+      format: "png" as const,
+      getSnapshotData: () => null,
+    };
+
+    await act(async () => {
+      await result.current.handleSnapshot(options);
+    });
+    
+    // Should not crash even if data is null
+  });
+});
+

@@ -23,6 +23,37 @@ export type DeviceState =
   | null;
 export type DeviceLoadingReason = "connect" | "restart" | null;
 
+export type SpectrumFrame = {
+  id: string;
+  label: string;
+  min_mhz: number;
+  max_mhz: number;
+  description: string;
+};
+
+export type SdrSettingsConfig = {
+  sample_rate: number;
+  center_frequency: number;
+  gain?: {
+    tuner_gain: number;
+    rtl_agc: boolean;
+    tuner_agc: boolean;
+  };
+  ppm?: number;
+  fft?: {
+    default_size: number;
+    default_frame_rate: number;
+    max_size: number;
+    max_frame_rate: number;
+    size_to_frame_rate?: Record<string, number>;
+  };
+  display?: {
+    min_db: number;
+    max_db: number;
+    padding: number;
+  };
+};
+
 export type WebSocketData = {
   isConnected: boolean;
   deviceState: DeviceState;
@@ -31,17 +62,28 @@ export type WebSocketData = {
   serverPaused: boolean;
   backend: string | null;
   deviceInfo: string | null;
-  data: any;
+  deviceName: string | null;
+  maxSampleRateHz: number | null;
+  sampleRateHz: number | null;
+  sdrSettings: SdrSettingsConfig | null;
+  dataRef: React.MutableRefObject<any>;
+  spectrumFrames: SpectrumFrame[];
+  captureStatus: any;
+  autoFftOptions: any;
   error: string | null;
   sendFrequencyRange: (range: FrequencyRange) => void;
   sendPauseCommand: (isPaused: boolean) => void;
   sendSettings: (settings: SDRSettings) => void;
   sendRestartDevice: () => void;
+  sendCaptureCommand: (req: any) => void;
   sendTrainingCommand: (
     action: "start" | "stop",
     label: "target" | "noise",
     signalArea: string,
   ) => void;
+  sendGetAutoFftOptions: (screenWidth: number) => void;
+  // Included in mock for historical reasons
+  simulateError?: (errorType: "connection" | "timeout" | "device") => void;
 };
 
 export function useWebSocket(
@@ -57,134 +99,45 @@ export function useWebSocket(
   const [serverPaused, setServerPaused] = useState(false);
   const [backend, setBackend] = useState<string | null>(null);
   const [deviceInfo, setDeviceInfo] = useState<string | null>(null);
-  const [data, setData] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
+  const [spectrumFrames, setSpectrumFrames] = useState<SpectrumFrame[]>([]);
+  const [sdrSettings, setSdrSettings] = useState<SdrSettingsConfig | null>(null);
 
-  const wsRef = useRef<any>(null);
-  const reconnectTimeoutRef = useRef<any>(null);
-  const reconnectAttemptRef = useRef(0);
+  const dataRef = useRef<any>(null);
 
   // Mock connection logic
   useEffect(() => {
     if (!url || !enabled) {
-      // Close existing connection if disabled
       setIsConnected(false);
       setDeviceState(null);
       setBackend(null);
       setDeviceInfo(null);
       setError(null);
+      setSpectrumFrames([]);
+      setSdrSettings(null);
       return;
     }
 
-    const connect = () => {
-      setIsConnected(false);
-      setError(null);
-
-      // Connect immediately for testing
-      setIsConnected(true);
-      setDeviceState("connected");
-      setBackend("mock");
-      setDeviceInfo("Mock RTL-SDR Device");
-      setDeviceLoadingReason(null);
-      reconnectAttemptRef.current = 0;
-    };
-
-    connect();
-
-    return () => {
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-      }
-      setIsConnected(false);
-      setDeviceState(null);
-      setBackend(null);
-      setDeviceInfo(null);
-    };
+    setIsConnected(true);
+    setDeviceState("connected");
+    setBackend("mock");
+    setDeviceInfo("Mock RTL-SDR Device");
+    setDeviceLoadingReason(null);
+    setSpectrumFrames([]);
+    setSdrSettings(null);
   }, [url, enabled]);
 
-  // Mock data updates
-  useEffect(() => {
-    if (isConnected) {
-      const interval = setInterval(() => {
-        setData({
-          waveform: new Float32Array(1024)
-            .fill(-60)
-            .map((_, i) => -60 + Math.sin(i * 0.1) * 20),
-          timestamp: Date.now(),
-          frequencyRange: { min: 0, max: 3.2 },
-        });
-      }, 100);
+  const sendFrequencyRange = useCallback((range: FrequencyRange) => {}, []);
+  const sendPauseCommand = useCallback((paused: boolean) => {
+    setIsPaused(paused);
+    setServerPaused(paused);
+  }, []);
+  const sendSettings = useCallback((settings: SDRSettings) => {}, []);
+  const sendRestartDevice = useCallback(() => {}, []);
+  const sendTrainingCommand = useCallback(() => {}, []);
+  const sendCaptureCommand = useCallback((req: any) => {}, []);
+  const sendGetAutoFftOptions = useCallback((screenWidth: number) => {}, []);
 
-      return () => clearInterval(interval);
-    }
-  }, [isConnected]);
-
-  const sendFrequencyRange = useCallback(
-    (range: FrequencyRange) => {
-      if (!isConnected) {
-        setError("Not connected");
-        return;
-      }
-      // Mock implementation
-      console.log("Sending frequency range:", range);
-    },
-    [isConnected],
-  );
-
-  const sendPauseCommand = useCallback(
-    (paused: boolean) => {
-      if (!isConnected) {
-        setError("Not connected");
-        return;
-      }
-      setIsPaused(paused);
-      setServerPaused(paused);
-      console.log("Sending pause command:", paused);
-    },
-    [isConnected],
-  );
-
-  const sendSettings = useCallback(
-    (settings: SDRSettings) => {
-      if (!isConnected) {
-        setError("Not connected");
-        return;
-      }
-      console.log("Sending settings:", settings);
-    },
-    [isConnected],
-  );
-
-  const sendRestartDevice = useCallback(() => {
-    if (!isConnected) {
-      setError("Not connected");
-      return;
-    }
-    setDeviceState("loading");
-    setDeviceLoadingReason("restart");
-    setTimeout(() => {
-      setDeviceState("connected");
-      setDeviceLoadingReason(null);
-    }, 2000);
-    console.log("Restarting device");
-  }, [isConnected]);
-
-  const sendTrainingCommand = useCallback(
-    (
-      action: "start" | "stop",
-      label: "target" | "noise",
-      signalArea: string,
-    ) => {
-      if (!isConnected) {
-        setError("Not connected");
-        return;
-      }
-      console.log("Sending training command:", { action, label, signalArea });
-    },
-    [isConnected],
-  );
-
-  // Mock error scenarios
   const simulateError = useCallback(
     (errorType: "connection" | "timeout" | "device") => {
       switch (errorType) {
@@ -213,13 +166,22 @@ export function useWebSocket(
     serverPaused,
     backend,
     deviceInfo,
-    data,
+    deviceName: "Mock Device",
+    maxSampleRateHz: 3_200_000,
+    sampleRateHz: 3_200_000,
+    sdrSettings,
+    dataRef,
+    spectrumFrames,
+    captureStatus: null,
+    autoFftOptions: null,
     error,
     sendFrequencyRange,
     sendPauseCommand,
     sendSettings,
     sendRestartDevice,
+    sendCaptureCommand,
     sendTrainingCommand,
+    sendGetAutoFftOptions,
     simulateError,
   };
 }

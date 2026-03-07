@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
-import { BACKEND_HTTP_URL } from "@n-apt/consts/ts/env";
+import { BACKEND_HTTP_URL } from "@n-apt/consts/env";
 
 export type TowerRadio = "GSM" | "UMTS" | "LTE" | "NR" | "UNKNOWN";
 

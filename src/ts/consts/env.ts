@@ -8,15 +8,14 @@ const getEnvVar = (key: string): string | undefined => {
   }
 
   // Try import.meta.env (for Vite browser environments)
-  // We avoid directly using import.meta to prevent Jest parsing errors
+  // We use dynamic evaluation to prevent Jest parsing errors
   try {
-    // @ts-ignore
-    if (typeof import.meta !== "undefined" && import.meta.env) {
-      // @ts-ignore
-      return import.meta.env[key];
+    const meta = new Function("return import.meta")();
+    if (meta && meta.env && meta.env[key]) {
+      return meta.env[key];
     }
   } catch (_e) {
-    // Ignore errors
+    // Ignore errors (like when import.meta is not available)
   }
 
   return undefined;

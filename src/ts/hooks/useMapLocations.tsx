@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from "react";
 import { useJsApiLoader } from "@react-google-maps/api";
+import { getGoogleMapsApiKey } from "@n-apt/utils/env";
 
 export interface MapLocation {
   id: string;
@@ -40,7 +41,7 @@ const LIBRARIES: any[] = ["places", "geometry"];
 const STORAGE_KEY = "n-apt-map-locations";
 
 export const MapLocationsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
+  const apiKey = getGoogleMapsApiKey();
   const { isLoaded, loadError } = useJsApiLoader({
     id: "google-map-script",
     googleMapsApiKey: (apiKey as string) || "",

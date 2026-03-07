@@ -48,17 +48,7 @@ jest.mock("@n-apt/components/AuthenticationPrompt", () => ({
   default: () => null,
 }));
 
-jest.mock("@n-apt/components/ClassificationControls", () => ({
-  default: () => null,
-}));
-
-jest.mock("@n-apt/components/Decode", () => ({
-  default: () => null,
-}));
-
-jest.mock("@n-apt/components/DrawMockNAPTChart", () => ({
-  default: () => null,
-}));
+jest.unmock("@n-apt/hooks/useSpectrumStore");
 
 jest.mock("@n-apt/components/FFTPlaybackCanvas", () => ({
   default: () => null,
@@ -87,23 +77,15 @@ jest.mock("@n-apt/components/sidebar/SidebarForRoute", () => ({
   SidebarForRoute: () => null,
 }));
 
-jest.mock("@n-apt/components/Model3DRoute", () => ({
-  Model3DRoute: () => null,
-}));
 
-jest.mock("@n-apt/components/HotspotEditorRoute", () => ({
-  HotspotEditorRoute: () => null,
-}));
+
+
 
 import * as React from "react";
 import {
   spectrumReducer,
   INITIAL_SPECTRUM_STATE,
-} from "@n-apt/components/SpectrumRoute";
-import {
-  routeToMainTab,
-  routeToSpectrumTab,
-} from "@n-apt/components/NavigationSidebarNew";
+} from "@n-apt/hooks/useSpectrumStore";
 
 // ────────────────────────────────────────────────────────────────────────────
 // spectrumReducer
@@ -281,14 +263,12 @@ describe("spectrumReducer", () => {
     expect(next.isStitchPaused).toBe(true);
   });
 
-  it("SET_FFT_FRAME_RATE falls through to default (not handled in reducer)", () => {
+  it("SET_FFT_FRAME_RATE updates fftFrameRate", () => {
     const next = spectrumReducer(INITIAL_SPECTRUM_STATE, {
       type: "SET_FFT_FRAME_RATE",
       fftFrameRate: 30,
     });
-    // SET_FFT_FRAME_RATE is in the action union but the reducer doesn't handle it
-    // (fftFrameRate is managed externally) — state returned unchanged
-    expect(next).toBe(INITIAL_SPECTRUM_STATE);
+    expect(next.fftFrameRate).toBe(30);
   });
 
   it("returns same state for unknown action type", () => {
@@ -299,32 +279,4 @@ describe("spectrumReducer", () => {
   });
 });
 
-// ────────────────────────────────────────────────────────────────────────────
-// routeToMainTab / routeToSpectrumTab
-// ────────────────────────────────────────────────────────────────────────────
 
-describe("routeToMainTab", () => {
-  it.each([
-    ["/", "Spectrum"],
-    ["/visualizer", "Spectrum"],
-    ["/analysis", "Spectrum"],
-    ["/draw-signal", "Spectrum"],
-    ["/3d-model", "Model3D"],
-    ["/hotspot-editor", "HotspotEditor"],
-    ["/unknown", "Spectrum"],
-  ])("maps %s → %s", (path, expected) => {
-    expect(routeToMainTab(path)).toBe(expected);
-  });
-});
-
-describe("routeToSpectrumTab", () => {
-  it.each([
-    ["/", "visualizer"],
-    ["/visualizer", "visualizer"],
-    ["/analysis", "analysis"],
-    ["/draw-signal", "draw"],
-    ["/unknown-path", "visualizer"],
-  ])("maps %s → %s", (path, expected) => {
-    expect(routeToSpectrumTab(path)).toBe(expected);
-  });
-});

@@ -22,12 +22,31 @@ export const FONT_SIZE = "16px";
 export const CANVAS_BACKGROUND = "#0a0a0a";
 
 // Frequency formatting function (Standard / Zoomed out)
-export const formatFrequency = (freqMHz: number, showUnits: boolean = true): string => {
+export const formatFrequency = (
+  freqMHz: number,
+  showUnits: boolean = true,
+): string => {
   const abs = Math.abs(freqMHz);
-  if (abs >= 1000) return (freqMHz / 1000).toFixed(3) + (showUnits ? "GHz" : "");
-  if (abs >= 1) return freqMHz.toFixed(3) + (showUnits ? "MHz" : "");
-  if (abs >= 0.001) return (freqMHz * 1000).toFixed(0) + (showUnits ? "kHz" : "");
-  return (freqMHz * 1000000).toFixed(0) + (showUnits ? "Hz" : "");
+  let val: number;
+  let unit: string;
+
+  if (freqMHz === 0) {
+    val = 0;
+    unit = "kHz";
+  } else if (abs < 1) {
+    val = freqMHz * 1000;
+    unit = "kHz";
+  } else if (abs >= 1000) {
+    val = freqMHz / 1000;
+    unit = "GHz";
+  } else {
+    val = freqMHz;
+    unit = "MHz";
+  }
+
+  // Trim trailing zeros by converting back to Number
+  const formattedVal = Number(val.toFixed(3)).toString();
+  return formattedVal + (showUnits ? " " + unit : "");
 };
 
 // High resolution formatting: 100.000.000MHz

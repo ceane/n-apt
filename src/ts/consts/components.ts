@@ -49,7 +49,7 @@ export const SPHERE_MARKER_COLOR = "#00ffff";
 export const SPHERE_MARKER_BASE_INTENSITY = 0.8;
 export const CONTROL_PANEL_WIDTH = "200px";
 
-// InfoPopover constants
+// Tooltip constants
 export const POPOVER_WIDTH = 280;
 export const POPOVER_PADDING = 16;
 export const INFO_ICON_SIZE = 16;
@@ -82,7 +82,7 @@ export const VISUALIZER_GAP = 20;
 export {
   FFT_MIN_DB as WATERFALL_HISTORY_LIMIT,
   FFT_MAX_DB as WATERFALL_HISTORY_MAX,
-} from "@n-apt/consts/ts/fft";
+} from "@n-apt/consts/fft";
 export const SECTION_TITLE_COLOR = "#555";
 export const SECTION_TITLE_AFTER_COLOR = "#444";
 export const CANVAS_BORDER_COLOR = "#222";
@@ -126,8 +126,35 @@ export const COLORS = {
   textSecondary: "#888",
   textMuted: "#666",
   textDisabled: "#444",
+  metadataLabel: "#555",
+  metadataValue: "#ccc",
+  fileMode: "#d9aa34",
   activeBackground: "rgba(0, 212, 255, 0.15)",
   inactiveBackground: "rgba(128, 128, 128, 0.15)",
+
+  // FFT & Waterfall Rendering
+  fftBackground: "#0a0a0a",
+  fftGrid: "rgba(50, 50, 50, 255)",
+  fftLine: "#00d4ff",
+  fftShadow: "rgba(0, 212, 255, 0.2)",
+  fftText: "#666",
+  fftHold: "#ff6b35",
+  waterfallBackground: "#0a0a0a",
+  waterfallGrid: "rgba(50, 50, 50, 255)",
+  waterfallText: "#666",
+
+  // Snapshot Specific
+  snapHwRateLine: "rgba(220, 220, 220, 0.54)",
+  snapHwRateText: "#ffb669",
+  snapCenterLabelBg: "rgba(10, 10, 10, 0.9)",
+  snapCenterLabelText: "#ffffff",
+
+  // Overlays & Markers
+  fftCenterLine: "rgba(220, 255, 0, 0.7)",
+  fftOffsetTickLine: "rgba(120, 120, 120, 0.55)",
+  fftOffsetTickText: "rgba(160, 160, 160, 0.85)",
+  fftBoundaryLine: "rgba(220, 38, 38, 0.55)",
+  fftBoundaryText: "rgba(220, 38, 38, 0.9)",
 } as const;
 
 // Common font constants

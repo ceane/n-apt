@@ -7,7 +7,7 @@ use std::collections::VecDeque;
 use anyhow::Result;
 
 use super::types::*;
-use crate::consts::rs::fft::{SAMPLE_RATE, NUM_SAMPLES};
+use crate::consts::fft::{SAMPLE_RATE, NUM_SAMPLES};
 use crate::simd::UnifiedProcessor;
 
 /**
