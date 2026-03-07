@@ -49,6 +49,8 @@ pub struct TowerBoundsQuery {
   pub zoom: Option<u32>,
   pub tech: Option<String>,
   pub range: Option<String>,
+  pub mcc: Option<String>,
+  pub mnc: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -88,7 +90,6 @@ fn normalize_tech_key(token: &str) -> String {
 }
 
 fn default_tower_indexes() -> Vec<String> {
-  // Use all state indexes for comprehensive coverage
   vec![
     "towers:state:AL".to_string(), "towers:state:AK".to_string(), "towers:state:AZ".to_string(),
     "towers:state:AR".to_string(), "towers:state:CA".to_string(), "towers:state:CO".to_string(),
@@ -106,7 +107,7 @@ fn default_tower_indexes() -> Vec<String> {
     "towers:state:SC".to_string(), "towers:state:SD".to_string(), "towers:state:TN".to_string(),
     "towers:state:TX".to_string(), "towers:state:UT".to_string(), "towers:state:VA".to_string(),
     "towers:state:VT".to_string(), "towers:state:WA".to_string(), "towers:state:WI".to_string(),
-    "towers:state:WV".to_string(), "towers:state:WY".to_string()
+    "towers:state:WV".to_string(), "towers:state:WY".to_string(),
   ]
 }
 
@@ -121,8 +122,7 @@ fn parse_filter_set(raw: &Option<String>) -> HashSet<String> {
     None => HashSet::new(),
   }
 }
-
-/// GET /api/towers/bounds?ne_lat=<>&ne_lng=<>&sw_lat=<>&sw_lng=<>&zoom=<>&tech=<csv>&range=<csv>
+/// GET /api/towers/bounds?ne_lat=<>&ne_lng=<>&sw_lat=<>&sw_lng=<>&zoom=<>&tech=<csv>&range=<csv>&mcc=<>&mnc=<>
 pub async fn towers_bounds_handler(
   Query(query): Query<TowerBoundsQuery>,
 ) -> impl IntoResponse {
@@ -209,6 +209,18 @@ pub async fn towers_bounds_handler(
         Ok(v) => v,
         Err(_) => continue,
       };
+
+      // In-memory filtering logic
+      if let Some(target_mcc) = &query.mcc {
+        if fields.get("mcc").map(|s| s.as_str()) != Some(target_mcc.as_str()) {
+          continue;
+        }
+      }
+      if let Some(target_mnc) = &query.mnc {
+        if fields.get("mnc").map(|s| s.as_str()) != Some(target_mnc.as_str()) {
+          continue;
+        }
+      }
 
       let lat = match fields.get("lat").and_then(|v| v.parse::<f64>().ok()) {
         Some(v) => v,

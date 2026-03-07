@@ -29,6 +29,8 @@ interface BoundsQuery {
   zoom: number;
   tech?: string;
   range?: string;
+  mcc?: string;
+  mnc?: string;
 }
 
 interface TowerBoundsResponse {
@@ -56,6 +58,8 @@ export function useTowers() {
         query.zoom,
         query.tech ?? "all-tech",
         query.range ?? "all-range",
+        query.mcc ?? "all-mcc",
+        query.mnc ?? "all-mnc",
       ].join("|");
 
       const cached = cache.get(key);
@@ -78,6 +82,12 @@ export function useTowers() {
       }
       if (query.range) {
         params.set("range", query.range);
+      }
+      if (query.mcc) {
+        params.set("mcc", query.mcc);
+      }
+      if (query.mnc) {
+        params.set("mnc", query.mnc);
       }
 
       setLoading(true);
