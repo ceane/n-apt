@@ -4,7 +4,16 @@ logs/
 backups/
 *.pid
 
-# Keep configuration and exports
+# Export directory structure but exclude large data files
+export/current/*.rdb
+export/current/*.aof
+export/*/dump.rdb
+export/*/appendonly.aof
+
+# Keep configuration and export metadata
 !redis.conf
 !export/
+!export/**/
+!export/**/README.md
+!export/**/metadata.json
 !.gitignore
