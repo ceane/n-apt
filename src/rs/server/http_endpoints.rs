@@ -1,11 +1,15 @@
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::collections::{HashMap, HashSet};
+use std::env;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::body::Body;
 use axum::Json;
 use log::{error, info, warn};
+use redis::Client as RedisClient;
+use serde::{Deserialize, Serialize};
 use tokio_util::io::ReaderStream;
 
 use crate::sdr::rtlsdr::RtlSdrDevice;
@@ -34,6 +38,235 @@ fn format_sample_rate(sample_rate: Option<u32>) -> Option<String> {
     return None;
   }
   Some(format!("{:.3} MS/s", rate as f64 / 1_000_000.0))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TowerBoundsQuery {
+  pub ne_lat: f64,
+  pub ne_lng: f64,
+  pub sw_lat: f64,
+  pub sw_lng: f64,
+  pub zoom: Option<u32>,
+  pub tech: Option<String>,
+  pub range: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct TowerRecord {
+  pub id: String,
+  pub radio: String,
+  pub mcc: String,
+  pub mnc: String,
+  pub lac: String,
+  pub cell: String,
+  pub range: String,
+  pub lon: f64,
+  pub lat: f64,
+  pub samples: String,
+  pub created: String,
+  pub updated: String,
+  pub state: Option<String>,
+  pub region: Option<String>,
+  pub tech: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct TowerBoundsResponse {
+  pub towers: Vec<TowerRecord>,
+  pub count: usize,
+  pub zoom: Option<u32>,
+}
+
+fn normalize_tech_key(token: &str) -> String {
+  match token.trim().to_ascii_lowercase().as_str() {
+    "5g" => "nr".to_string(),
+    "4g" => "lte".to_string(),
+    "3g" => "umts".to_string(),
+    "2g" => "gsm".to_string(),
+    other => other.to_string(),
+  }
+}
+
+fn default_tower_indexes() -> Vec<String> {
+  // Use all state indexes for comprehensive coverage
+  vec![
+    "towers:state:AL".to_string(), "towers:state:AK".to_string(), "towers:state:AZ".to_string(),
+    "towers:state:AR".to_string(), "towers:state:CA".to_string(), "towers:state:CO".to_string(),
+    "towers:state:CT".to_string(), "towers:state:DE".to_string(), "towers:state:FL".to_string(),
+    "towers:state:GA".to_string(), "towers:state:HI".to_string(), "towers:state:IA".to_string(),
+    "towers:state:ID".to_string(), "towers:state:IL".to_string(), "towers:state:IN".to_string(),
+    "towers:state:KS".to_string(), "towers:state:KY".to_string(), "towers:state:LA".to_string(),
+    "towers:state:MA".to_string(), "towers:state:MD".to_string(), "towers:state:ME".to_string(),
+    "towers:state:MI".to_string(), "towers:state:MN".to_string(), "towers:state:MO".to_string(),
+    "towers:state:MS".to_string(), "towers:state:MT".to_string(), "towers:state:NC".to_string(),
+    "towers:state:ND".to_string(), "towers:state:NE".to_string(), "towers:state:NH".to_string(),
+    "towers:state:NJ".to_string(), "towers:state:NM".to_string(), "towers:state:NV".to_string(),
+    "towers:state:NY".to_string(), "towers:state:OH".to_string(), "towers:state:OK".to_string(),
+    "towers:state:OR".to_string(), "towers:state:PA".to_string(), "towers:state:RI".to_string(),
+    "towers:state:SC".to_string(), "towers:state:SD".to_string(), "towers:state:TN".to_string(),
+    "towers:state:TX".to_string(), "towers:state:UT".to_string(), "towers:state:VA".to_string(),
+    "towers:state:VT".to_string(), "towers:state:WA".to_string(), "towers:state:WI".to_string(),
+    "towers:state:WV".to_string(), "towers:state:WY".to_string()
+  ]
+}
+
+fn parse_filter_set(raw: &Option<String>) -> HashSet<String> {
+  match raw {
+    Some(value) => value
+      .split(',')
+      .map(|v| v.trim())
+      .filter(|v| !v.is_empty())
+      .map(std::string::ToString::to_string)
+      .collect(),
+    None => HashSet::new(),
+  }
+}
+
+/// GET /api/towers/bounds?ne_lat=<>&ne_lng=<>&sw_lat=<>&sw_lng=<>&zoom=<>&tech=<csv>&range=<csv>
+pub async fn towers_bounds_handler(
+  Query(query): Query<TowerBoundsQuery>,
+) -> impl IntoResponse {
+  if query.ne_lat < query.sw_lat || query.ne_lng < query.sw_lng {
+    return (
+      StatusCode::BAD_REQUEST,
+      Json(serde_json::json!({"error": "Invalid bounds: northeast must be above/right of southwest"})),
+    )
+      .into_response();
+  }
+
+  let redis_url = env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1/".to_string());
+  let client = match RedisClient::open(redis_url.clone()) {
+    Ok(c) => c,
+    Err(e) => {
+      error!("Failed to initialize Redis client at {}: {}", redis_url, e);
+      return (
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(serde_json::json!({"error": "Redis unavailable"})),
+      )
+        .into_response();
+    }
+  };
+
+  let mut con = match client.get_connection() {
+    Ok(conn) => conn,
+    Err(e) => {
+      error!("Failed to connect to Redis: {}", e);
+      return (
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(serde_json::json!({"error": "Redis unavailable"})),
+      )
+        .into_response();
+    }
+  };
+
+  let indexes: Vec<String> = match &query.tech {
+    Some(tech_csv) if !tech_csv.trim().is_empty() => tech_csv
+      .split(',')
+      .map(normalize_tech_key)
+      .map(|k| format!("towers:{}", k))
+      .collect(),
+    _ => default_tower_indexes(),
+  };
+
+  let range_filter = parse_filter_set(&query.range);
+  let mut seen_ids: HashSet<String> = HashSet::new();
+  let mut towers: Vec<TowerRecord> = Vec::new();
+
+  let center_lat = (query.ne_lat + query.sw_lat) / 2.0;
+  let center_lng = (query.ne_lng + query.sw_lng) / 2.0;
+  let lat_km = (query.ne_lat - query.sw_lat).abs() * 111.32;
+  let lon_km = (query.ne_lng - query.sw_lng).abs()
+    * 111.32
+    * center_lat.to_radians().cos().abs().max(0.01);
+  let radius_km = ((lat_km.powi(2) + lon_km.powi(2)).sqrt() / 2.0).max(0.5);
+
+  for index in indexes {
+    let ids_result: redis::RedisResult<Vec<String>> = redis::cmd("GEORADIUS")
+      .arg(&index)
+      .arg(center_lng)
+      .arg(center_lat)
+      .arg(radius_km)
+      .arg("km")
+      .query(&mut con);
+
+    let tower_ids = match ids_result {
+      Ok(ids) => ids,
+      Err(e) => {
+        warn!("Redis GEORADIUS failed for {}: {}", index, e);
+        continue;
+      }
+    };
+
+    for tower_id in tower_ids {
+      if !seen_ids.insert(tower_id.clone()) {
+        continue;
+      }
+
+      let fields_result: redis::RedisResult<HashMap<String, String>> =
+        redis::cmd("HGETALL").arg(&tower_id).query(&mut con);
+
+      let fields = match fields_result {
+        Ok(v) => v,
+        Err(_) => continue,
+      };
+
+      let lat = match fields.get("lat").and_then(|v| v.parse::<f64>().ok()) {
+        Some(v) => v,
+        None => continue,
+      };
+      let lon = match fields
+        .get("lon")
+        .or_else(|| fields.get("lng"))
+        .and_then(|v| v.parse::<f64>().ok())
+      {
+        Some(v) => v,
+        None => continue,
+      };
+
+      if lat < query.sw_lat || lat > query.ne_lat || lon < query.sw_lng || lon > query.ne_lng {
+        continue;
+      }
+
+      let range_value = fields
+        .get("range")
+        .cloned()
+        .unwrap_or_else(|| "-1".to_string());
+      if !range_filter.is_empty() && !range_filter.contains(range_value.as_str()) {
+        continue;
+      }
+
+      towers.push(TowerRecord {
+        id: tower_id,
+        radio: fields.get("radio").cloned().unwrap_or_else(|| "UNKNOWN".to_string()),
+        mcc: fields.get("mcc").cloned().unwrap_or_default(),
+        mnc: fields.get("mnc").cloned().unwrap_or_default(),
+        lac: fields.get("lac").cloned().unwrap_or_default(),
+        cell: fields
+          .get("cell")
+          .or_else(|| fields.get("cid"))
+          .cloned()
+          .unwrap_or_default(),
+        range: range_value,
+        lon,
+        lat,
+        samples: fields.get("samples").cloned().unwrap_or_default(),
+        created: fields.get("created").cloned().unwrap_or_default(),
+        updated: fields.get("updated").cloned().unwrap_or_default(),
+        state: fields.get("state").cloned(),
+        region: fields.get("region").cloned(),
+        tech: fields.get("tech").cloned(),
+      });
+    }
+  }
+
+  towers.sort_by(|a, b| a.id.cmp(&b.id));
+
+  Json(TowerBoundsResponse {
+    count: towers.len(),
+    towers,
+    zoom: query.zoom,
+  })
+    .into_response()
 }
 
 /// GET /status — public status endpoint (no auth required).

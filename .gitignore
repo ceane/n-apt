@@ -63,6 +63,7 @@ data/*.zip
 data/**/*.zip
 data/*.dat
 data/**/*.dat
+data/extracted/*/counts
 
 # Environment variables
 .env.local

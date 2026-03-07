@@ -34,6 +34,7 @@ WARNING_COUNT=0
 START_TIME=$(date +%s)
 VITE_PID=""
 RUST_PID=""
+REDIS_PID=""
 BOX_WIDTH=61
 INNER_WIDTH=$((BOX_WIDTH - 2))
 APP_URL=${APP_URL:-${SITE_URL:-http://localhost:5173}}
@@ -97,6 +98,17 @@ show_process_messages() {
     # Kill blockers first, then quick confirm
     ./scripts/kill_blockers.sh
     animate_process_step "${WHITE}Cleaning up existing processes...${RESET}" "${WHITE}✔ Cleaning up existing processes.${RESET}" 2
+    
+    # Start Redis server and load tower data
+    animate_process_step "${WHITE}Starting Redis server...${RESET}" "${WHITE}✔ Starting Redis server...${RESET}" 1
+    if ./scripts/setup_redis.sh start; then
+        REDIS_PID=$(lsof -ti:6379 2>/dev/null || echo "")
+        animate_process_step "${WHITE}Loading tower data into Redis...${RESET}" "${WHITE}✔ Loading tower data into Redis...${RESET}" 2
+        ./scripts/setup_redis.sh load
+    else
+        echo -e "${RED}✗ Failed to start Redis server${RESET}"
+        REDIS_PID=""
+    fi
     
     # Start frontend (Vite will pick up VITE_* env set above)
     rm -rf node_modules/.vite node_modules/.cache/vite 2>/dev/null || true
@@ -488,12 +500,16 @@ render_unified_box_frame() {
         echo -e "${WHITE}┌─────┐${RESET}"
         echo -e "${WHITE}│ n a │${RESET} ${WHITE}✔ Running ${spinner}${RESET}"
         echo -e "${WHITE}│ p t │${RESET} ${GREY}${VITE_PID}${RESET} ${BLUE}Vite${RESET} ${GREY}PID ⠶ ${RUST_PID}${RESET} ${ORANGE}Rust${RESET} ${GREY}server PID${RESET}"
+        if [ -n "$REDIS_PID" ]; then
+            echo -e "${WHITE}│     │${RESET} ${GREY}${REDIS_PID}${RESET} ${GREEN}Redis${RESET} ${GREY}PID${RESET}"
+        fi
         echo -e "${WHITE}└─────┘${RESET}"
         echo ""
         echo -e "${WHITE}N-APT${RESET} 🧠  ${BLUE}${APP_URL}${RESET} ${GREY}(site)${RESET}"
         echo -e "${GREY}           cmd + click to open in default browser${RESET}"
         echo ""
         echo -e "${ORANGE}${WEBSOCKETS_URL}${RESET} ${GREY}(websockets backend)${RESET}"
+        echo -e "${GREEN}redis://localhost:6379${RESET} ${GREY}(tower data)${RESET}"
         echo -e "${GREY}${WASM_BUILD_PATH} (WebGPU wasm_simd build)${RESET}"
         echo -e "${GREY}/tmp/rust_output.log (Rust logs)${RESET}"
         echo ""
@@ -509,7 +525,13 @@ render_unified_box_frame() {
         print_box_line " ┌─────┐" "✔ Running ${spinner} " " ${WHITE}┌─────┐${RESET}" "${WHITE}✔ Running ${spinner}${RESET} "
         
         local pid_str=" ${VITE_PID} Vite PID ⠶ ${RUST_PID} Rust server PID "
+        if [ -n "$REDIS_PID" ]; then
+            pid_str=" ${VITE_PID} Vite PID ⠶ ${RUST_PID} Rust server PID ⠶ ${REDIS_PID} Redis PID "
+        fi
         local pid_col=" ${GREY}${VITE_PID}${RESET} ${BLUE}Vite${RESET} ${GREY}PID ⠶ ${RUST_PID}${RESET} ${ORANGE}Rust${RESET} ${GREY}server PID${RESET} "
+        if [ -n "$REDIS_PID" ]; then
+            pid_col=" ${GREY}${VITE_PID}${RESET} ${BLUE}Vite${RESET} ${GREY}PID ⠶ ${RUST_PID}${RESET} ${ORANGE}Rust${RESET} ${GREY}server PID ⠶ ${REDIS_PID}${RESET} ${GREEN}Redis${RESET} ${GREY}PID${RESET} "
+        fi
         print_box_line " │ n a │" "$pid_str" " ${WHITE}│ n a │${RESET}" "$pid_col"
         print_box_line " │ p t │" " Press Ctrl+C to stop all services" " ${WHITE}│ p t │${RESET}" " ${GREY}Press Ctrl+C to stop all services${RESET}"
         print_box_line " └─────┘" " " " ${WHITE}└─────┘${RESET}" " "
@@ -520,6 +542,7 @@ render_unified_box_frame() {
         print_box_line " " " " " " " "
         
         print_box_line "           ${WEBSOCKETS_URL} (websockets backend)" " " "           ${ORANGE}${WEBSOCKETS_URL}${RESET} ${GREY}(websockets backend)${RESET}" " "
+        print_box_line "           redis://localhost:6379 (tower data)" " " "           ${GREEN}redis://localhost:6379${RESET} ${GREY}(tower data)${RESET}" " "
         print_box_line "           ${WASM_BUILD_PATH} (WebGPU wasm_simd build)" " " "           ${GREY}${WASM_BUILD_PATH} (WebGPU wasm_simd build)${RESET}" " "
         print_box_line "           /tmp/rust_output.log (Rust logs)" " " "           ${GREY}/tmp/rust_output.log (Rust logs)${RESET}" " "
         print_box_line " " " " " " " "
@@ -679,6 +702,10 @@ cleanup_on_exit() {
     fi
     if [ -n "$RUST_PID" ]; then
         kill $RUST_PID 2>/dev/null || true
+    fi
+    if [ -n "$REDIS_PID" ]; then
+        echo -e "${GREY}Stopping Redis server...${RESET}"
+        kill $REDIS_PID 2>/dev/null || true
     fi
 }
 

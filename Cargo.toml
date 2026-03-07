@@ -53,6 +53,7 @@ web-sys = { version = "0.3", features = ["console"] }
 tokio = { version = "1.0", features = ["full"] }
 tokio-util = { version = "0.7", features = ["io"] }
 tokio-tungstenite = "0.20"
+redis = "0.27"
 env_logger = "0.10"
 futures-util = "0.3"
 chrono = { version = "0.4", features = ["serde", "wasmbind"] }

@@ -13,6 +13,7 @@ import { MapEndpointsRoute } from "./MapEndpointsRoute";
 import { Model3DProvider } from "@n-apt/hooks/useModel3D";
 import { HotspotEditorProvider } from "@n-apt/hooks/useHotspotEditor";
 import { SidebarForRoute } from "@n-apt/components/sidebar/SidebarForRoute";
+import { MapLocationsProvider } from "@n-apt/hooks/useMapLocations";
 
 export const AppRoutes: React.FC = () => {
   return (
@@ -64,9 +65,11 @@ export const AppRoutes: React.FC = () => {
       <Route
         path="/map-endpoints"
         element={
-          <MainLayout sidebar={<MapEndpointsSidebar />}>
-            <MapEndpointsRoute />
-          </MainLayout>
+          <MapLocationsProvider>
+            <MainLayout sidebar={<MapEndpointsSidebar />}>
+              <MapEndpointsRoute />
+            </MainLayout>
+          </MapLocationsProvider>
         }
       />
     </Routes>

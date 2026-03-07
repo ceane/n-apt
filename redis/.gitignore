@@ -1,0 +1,10 @@
+# Redis data and logs (exclude from version control)
+data/
+logs/
+backups/
+*.pid
+
+# Keep configuration and exports
+!redis.conf
+!export/
+!.gitignore

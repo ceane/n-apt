@@ -1,6 +1,11 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import styled from "styled-components";
-import { GoogleMap, useJsApiLoader, Marker } from "@react-google-maps/api";
+import {
+  GoogleMap,
+  Marker,
+} from "@react-google-maps/api";
+import { useMapLocations } from "@n-apt/hooks/useMapLocations";
+import { type TowerRecord, useTowers } from "@n-apt/hooks/useTowers";
 
 const PageContainer = styled.div`
   display: flex;
@@ -32,6 +37,34 @@ const LoadingOverlay = styled.div`
   z-index: 10;
   font-family: "JetBrains Mono", monospace;
   color: #888;
+`;
+
+const ControlsPanel = styled.div`
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 11;
+  min-width: 220px;
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: rgba(5, 5, 5, 0.85);
+  backdrop-filter: blur(2px);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 12px;
+`;
+
+const FiltersRow = styled.div`
+  display: flex;
+  gap: 10px;
+  margin-top: 8px;
+`;
+
+const FilterLabel = styled.label`
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
 `;
 
 const mapContainerStyle = {
@@ -121,56 +154,217 @@ const darkMapStyles = [
 ];
 
 export const MapEndpointsRoute: React.FC = () => {
-  const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
-  console.log("GOOGLE_MAPS_API_KEY:", apiKey);
+  const { locations, activeLocationId, isLoaded, loadError, previewLocation } = useMapLocations();
+  const { towers, loading: towersLoading, error: towersError, fetchTowersInBounds } = useTowers();
+  const [center, setCenter] = useState({ lat: 37.7749, lng: -122.4194 }); // Default to SF for safety
+  const [zoom, setZoom] = useState(15);
+  const [map, setMap] = useState<google.maps.Map | null>(null);
+  const [selectedTech, setSelectedTech] = useState<string[]>(["LTE", "NR"]);
+  const boundsDebounceRef = useRef<number | null>(null);
 
-  const { isLoaded } = useJsApiLoader({
-    id: "google-map-script",
-    googleMapsApiKey: (apiKey as string) || "",
-  });
+  const techFilter = useMemo(() => selectedTech.join(","), [selectedTech]);
 
-  const [center, setCenter] = useState({ lat: 0, lng: 0 });
+  // Sync with active or preview location
+  useEffect(() => {
+    if (!isLoaded) return;
+
+    let targetLoc: any = previewLocation;
+    if (!targetLoc) {
+      targetLoc = locations.find((l: any) => l.id === activeLocationId);
+    }
+
+    if (targetLoc && targetLoc.lat !== 0 && targetLoc.lng !== 0) {
+      const newCenter = { lat: targetLoc.lat, lng: targetLoc.lng };
+      setCenter(newCenter);
+      setZoom(targetLoc.zoom);
+      if (map) {
+        map.panTo(newCenter);
+      }
+    }
+  }, [activeLocationId, locations, map, isLoaded, previewLocation]);
+
+  const onLoad = useCallback((m: google.maps.Map) => {
+    setMap(m);
+  }, []);
+
+  const onUnmount = useCallback(() => {
+    setMap(null);
+  }, []);
+
+  const toggleTech = useCallback((tech: string) => {
+    setSelectedTech((prev) => {
+      if (prev.includes(tech)) {
+        const next = prev.filter((t) => t !== tech);
+        return next.length > 0 ? next : prev;
+      }
+      return [...prev, tech];
+    });
+  }, []);
+
+  const fetchTowersForCurrentBounds = useCallback(() => {
+    if (!map || !isLoaded) return;
+    const bounds = map.getBounds();
+    if (!bounds) return;
+
+    const ne = bounds.getNorthEast();
+    const sw = bounds.getSouthWest();
+    fetchTowersInBounds({
+      neLat: ne.lat(),
+      neLng: ne.lng(),
+      swLat: sw.lat(),
+      swLng: sw.lng(),
+      zoom: map.getZoom() ?? zoom,
+      tech: techFilter,
+      range: "0,-1",
+    });
+  }, [map, isLoaded, fetchTowersInBounds, techFilter, zoom]);
+
+  const onMapIdle = useCallback(() => {
+    if (boundsDebounceRef.current !== null) {
+      window.clearTimeout(boundsDebounceRef.current);
+    }
+    boundsDebounceRef.current = window.setTimeout(() => {
+      fetchTowersForCurrentBounds();
+    }, 250);
+  }, [fetchTowersForCurrentBounds]);
 
   useEffect(() => {
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          setCenter({
-            lat: position.coords.latitude,
-            lng: position.coords.longitude,
-          });
-        },
-        () => {
-          console.error("Geolocation failed");
-          // Fallback center or handle error
-          setCenter({ lat: 40.7128, lng: -74.0060 }); // NYC
-        }
-      );
-    }
+    fetchTowersForCurrentBounds();
+  }, [fetchTowersForCurrentBounds]);
+
+  useEffect(() => {
+    return () => {
+      if (boundsDebounceRef.current !== null) {
+        window.clearTimeout(boundsDebounceRef.current);
+      }
+    };
+  }, []);
+
+  const towerIcon = useCallback((tower: TowerRecord) => {
+    const radio = tower.radio?.toUpperCase();
+    const fillColor =
+      radio === "NR"
+        ? "#3b82f6"
+        : radio === "LTE"
+          ? "#22c55e"
+          : radio === "UMTS"
+            ? "#eab308"
+            : radio === "GSM"
+              ? "#ef4444"
+              : "#9ca3af";
+
+    return {
+      path: google.maps.SymbolPath.CIRCLE,
+      scale: 4,
+      fillColor,
+      fillOpacity: 0.8,
+      strokeColor: "#ffffff",
+      strokeWeight: 1,
+    };
   }, []);
 
   return (
     <PageContainer>
       <MapWrapper>
+        <ControlsPanel>
+          <div>Towers in view: {towers.length.toLocaleString()}</div>
+          <div style={{ color: towersLoading ? "#93c5fd" : "#9ca3af" }}>
+            {towersLoading ? "Loading towers..." : "Ready"}
+          </div>
+          {towersError ? <div style={{ color: "#f87171" }}>{towersError}</div> : null}
+          <FiltersRow>
+            <FilterLabel>
+              <input
+                type="checkbox"
+                checked={selectedTech.includes("LTE")}
+                onChange={() => toggleTech("LTE")}
+              />
+              LTE
+            </FilterLabel>
+            <FilterLabel>
+              <input
+                type="checkbox"
+                checked={selectedTech.includes("NR")}
+                onChange={() => toggleTech("NR")}
+              />
+              5G
+            </FilterLabel>
+            <FilterLabel>
+              <input
+                type="checkbox"
+                checked={selectedTech.includes("UMTS")}
+                onChange={() => toggleTech("UMTS")}
+              />
+              3G
+            </FilterLabel>
+            <FilterLabel>
+              <input
+                type="checkbox"
+                checked={selectedTech.includes("GSM")}
+                onChange={() => toggleTech("GSM")}
+              />
+              2G
+            </FilterLabel>
+          </FiltersRow>
+        </ControlsPanel>
+        {loadError && (
+          <LoadingOverlay>
+            Error loading Google Maps: {loadError.message}
+          </LoadingOverlay>
+        )}
         {!isLoaded ? (
           <LoadingOverlay>Loading Engine...</LoadingOverlay>
         ) : (
           <GoogleMap
             mapContainerStyle={mapContainerStyle}
             center={center}
-            zoom={15} // Approx 1/2 mile
+            zoom={zoom}
+            onLoad={onLoad}
+            onUnmount={onUnmount}
+            onIdle={onMapIdle}
             options={{
               styles: darkMapStyles,
               disableDefaultUI: false,
               backgroundColor: "#1a1a1a",
             }}
           >
-            {center.lat !== 0 && (
+            {center.lat !== 0 && !previewLocation && (
               <Marker
                 position={center}
-                title="Your Location"
+                title="Active Location"
+                icon={{
+                  path: google.maps.SymbolPath.CIRCLE,
+                  scale: 8,
+                  fillColor: "#00d4ff",
+                  fillOpacity: 1,
+                  strokeColor: "#fff",
+                  strokeWeight: 2,
+                }}
               />
             )}
+            {previewLocation && (
+              <Marker
+                position={{ lat: previewLocation.lat, lng: previewLocation.lng }}
+                title="Preview"
+                animation={google.maps.Animation.BOUNCE}
+                icon={{
+                  path: google.maps.SymbolPath.BACKWARD_CLOSED_ARROW,
+                  scale: 7,
+                  fillColor: "#fff",
+                  fillOpacity: 1,
+                  strokeColor: "#00d4ff",
+                  strokeWeight: 2,
+                }}
+              />
+            )}
+            {towers.map((tower) => (
+              <Marker
+                key={tower.id}
+                position={{ lat: tower.lat, lng: tower.lon }}
+                title={`${tower.radio} ${tower.mcc}-${tower.mnc} LAC ${tower.lac} CELL ${tower.cell}`}
+                icon={towerIcon(tower)}
+              />
+            ))}
           </GoogleMap>
         )}
       </MapWrapper>

@@ -37,7 +37,16 @@
     "typecheck": "tsc --noEmit",
     "format": "oxfmt --write src/ts src/rs test",
     "format:check": "oxfmt --check src/ts src/rs test",
-    "fetch-towers-fcc": "./scripts/fetch_towers_fcc.sh"
+    "towers:load:redis": "node scripts/load_towers_to_redis.cjs",
+    "towers:load:all": "node scripts/load_all_towers_to_redis.cjs",
+    "towers:load:region": "node scripts/load_region_towers.cjs",
+    "redis:start": "./scripts/setup_redis.sh start",
+    "redis:stop": "./scripts/setup_redis.sh stop",
+    "redis:restart": "./scripts/setup_redis.sh restart",
+    "redis:status": "./scripts/setup_redis.sh status",
+    "redis:persistent": "./scripts/redis_persistent_manager.sh",
+    "redis:snapshot": "./scripts/redis_persistent_manager.sh snapshot",
+    "redis:export": "./scripts/redis_persistent_manager.sh export"
   },
   "dependencies": {
     "@react-google-maps/api": "^2.20.8",
@@ -55,6 +64,7 @@
     "react-dom": "^19.2.4",
     "react-katex": "^3.1.0",
     "react-router-dom": "^7.13.0",
+    "redis": "^4.7.1",
     "styled-components": "^6.3.8",
     "three": "^0.182.0"
   },

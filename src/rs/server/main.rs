@@ -120,6 +120,7 @@ impl websocket_server::WebSocketServer {
             // Agent endpoints
             .route("/api/agent/info", get(http_endpoints::agent_info_handler))
             .route("/api/agent/status", get(http_endpoints::agent_status_handler))
+            .route("/api/towers/bounds", get(http_endpoints::towers_bounds_handler))
             .route("/api/webmcp/execute", post(http_endpoints::execute_webmcp_tool_handler))
             
             // WebSocket endpoint
