@@ -117,22 +117,50 @@ check_redis_connection() {
 load_tower_data() {
     echo -e "${ORANGE}Loading tower data into Redis...${RESET}"
     
-    # Check if data files exist
-    if [ ! -f "$SCRIPT_DIR/../data/opencellid/ongoing/bay_area_ca.csv" ] || [ ! -f "$SCRIPT_DIR/../data/opencellid/ongoing/miami_fl.csv" ]; then
-        echo -e "${RED}✗ Tower data files not found in data/opencellid/ongoing/${RESET}"
-        echo "Please ensure the following files exist:"
-        echo "  - data/opencellid/ongoing/bay_area_ca.csv"
-        echo "  - data/opencellid/ongoing/miami_fl.csv"
-        return 1
+    # Check if Redis already has tower data
+    if check_redis_connection; then
+        TOWER_COUNT=$(redis-cli -p $REDIS_PORT hget towers:meta total 2>/dev/null || echo "0")
+        if [ "$TOWER_COUNT" != "0" ] && [ "$TOWER_COUNT" != "" ]; then
+            echo -e "${GREEN}✓ Tower data already loaded: $TOWER_COUNT towers${RESET}"
+            return 0
+        fi
     fi
     
-    # Load data using the Node.js script
+    # Check if Redis data files exist (from previous export)
+    if [ -f "$SCRIPT_DIR/../redis/data/dump.rdb" ]; then
+        echo -e "${GREY}Found Redis data file, starting Redis to load data...${RESET}"
+        # Redis will automatically load the dump.rdb file when started
+        if check_redis_connection; then
+            TOWER_COUNT=$(redis-cli -p $REDIS_PORT hget towers:meta total 2>/dev/null || echo "0")
+            if [ "$TOWER_COUNT" != "0" ] && [ "$TOWER_COUNT" != "" ]; then
+                echo -e "${GREEN}✓ Tower data loaded from Redis dump: $TOWER_COUNT towers${RESET}"
+                return 0
+            fi
+        fi
+    fi
+    
+    # Check if we have Redis export files to restore
+    if [ -f "$SCRIPT_DIR/../redis/export/current/dump.rdb" ]; then
+        echo -e "${GREY}Restoring from Redis export...${RESET}"
+        cp "$SCRIPT_DIR/../redis/export/current/dump.rdb" "$SCRIPT_DIR/../redis/data/dump.rdb"
+        if check_redis_connection; then
+            TOWER_COUNT=$(redis-cli -p $REDIS_PORT hget towers:meta total 2>/dev/null || echo "0")
+            if [ "$TOWER_COUNT" != "0" ] && [ "$TOWER_COUNT" != "" ]; then
+                echo -e "${GREEN}✓ Tower data restored from export: $TOWER_COUNT towers${RESET}"
+                return 0
+            fi
+        fi
+    fi
+    
+    # If no data found, load a minimal dataset for development
+    echo -e "${ORANGE}No tower data found, loading minimal dataset...${RESET}"
     cd "$SCRIPT_DIR/.."
-    if npm run towers:load:redis; then
-        echo -e "${GREEN}✓ Tower data loaded into Redis${RESET}"
+    if npm run towers:load:region -- --state NY --tech lte; then
+        echo -e "${GREEN}✓ Minimal tower data loaded (NY 4G towers)${RESET}"
         return 0
     else
         echo -e "${RED}✗ Failed to load tower data${RESET}"
+        echo -e "${GREY}Try running: npm run towers:load:region -- --state CA --tech nr${RESET}"
         return 1
     fi
 }

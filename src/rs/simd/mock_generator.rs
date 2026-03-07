@@ -6,6 +6,7 @@
 use crate::fft::types::RawSamples;
 use anyhow::Result;
 use rand::Rng;
+#[cfg(any(target_arch = "wasm32", target_arch = "aarch64"))]
 use crate::simd::fast_math::fast_tanhq_f32;
 #[cfg(target_arch = "aarch64")]
 use std::arch::aarch64::*;
