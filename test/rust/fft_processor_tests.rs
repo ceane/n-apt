@@ -1,4 +1,4 @@
-use n_apt_backend::consts::rs::fft::NUM_SAMPLES;
+use n_apt_backend::consts::fft::NUM_SAMPLES;
 use n_apt_backend::fft::processor::utils::freq_to_bin;
 use n_apt_backend::fft::processor::{
   EnhancedFFTConfig, FFTProcessor,
