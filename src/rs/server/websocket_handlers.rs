@@ -1,27 +1,27 @@
-use std::sync::Arc;
-use std::sync::atomic::Ordering;
-use axum::extract::{Query, State, WebSocketUpgrade};
 use axum::extract::ws::{Message, WebSocket};
+use axum::extract::{Query, State, WebSocketUpgrade};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use futures_util::{SinkExt, StreamExt};
 use log::{debug, error, info, warn};
 use serde_json;
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
 use tokio::sync::broadcast;
 
 use crate::crypto;
 
 use super::shared_state::SharedState;
-use super::types::{WsQueryParams, WebSocketMessage};
+use super::types::{WebSocketMessage, WsQueryParams};
 use super::utils::reconcile_device_state;
 
 /// Calculate optimal FFT sizes based on screen width (in physical pixels, i.e. CSS width × DPR).
 /// Returns (available_sizes, recommended_size).
 fn calculate_auto_fft_sizes(screen_width: u32) -> (Vec<usize>, usize) {
-    let sizes = vec![2048, 4096];
-    // Hi-DPI / Retina screens send width * dpr, typically >= 3000 physical pixels.
-    let recommended = if screen_width >= 3000 { 4096 } else { 2048 };
-    (sizes, recommended)
+  let sizes = vec![2048, 4096];
+  // Hi-DPI / Retina screens send width * dpr, typically >= 3000 physical pixels.
+  let recommended = if screen_width >= 3000 { 4096 } else { 2048 };
+  (sizes, recommended)
 }
 
 /// GET /ws?token=<session_token> — upgrade to WebSocket after validating session.
@@ -34,7 +34,8 @@ pub async fn ws_upgrade_handler(
   let session = match state.session_store.validate(&params.token) {
     Some(s) => s,
     None => {
-      return (StatusCode::UNAUTHORIZED, "Invalid or expired session token").into_response();
+      return (StatusCode::UNAUTHORIZED, "Invalid or expired session token")
+        .into_response();
     }
   };
 
@@ -46,10 +47,33 @@ pub async fn ws_upgrade_handler(
   let cmd_tx = state.cmd_tx.clone();
   let enc_key = session.encryption_key;
 
-  ws.on_upgrade(move |socket| handle_ws_connection(socket, shared, broadcast_tx, spectrum_tx, cmd_tx, enc_key))
+  ws.on_upgrade(move |socket| {
+    handle_ws_connection(
+      socket,
+      shared,
+      broadcast_tx,
+      spectrum_tx,
+      cmd_tx,
+      enc_key,
+    )
+  })
 }
 
-/// Handle an authenticated WebSocket connection (streaming only, no auth).
+/// Manages an authenticated WebSocket connection.
+///
+/// This function is responsible for:
+/// 1. Synchronizing the client with the initial device state (connection, settings, channels).
+/// 2. Starting a background loop to stream encrypted spectrum data.
+/// 3. Handling incoming WebSocket messages (commands) from the client.
+/// 4. Managing connection lifetime and cleanup.
+///
+/// # Arguments
+/// * `socket` - The upgraded WebSocket connection.
+/// * `shared` - Shared application state across all connections.
+/// * `broadcast_tx` - Channel for broadcasting text-based updates.
+/// * `spectrum_tx` - Channel for broadcasting high-frequency spectrum data.
+/// * `cmd_tx` - Channel for sending commands to the SDR I/O thread.
+/// * `enc_key` - 256-bit AES key for payload encryption.
 pub async fn handle_ws_connection(
   socket: WebSocket,
   shared: Arc<SharedState>,
@@ -69,7 +93,8 @@ pub async fn handle_ws_connection(
   let device_connected = shared.device_connected.load(Ordering::Relaxed);
   let device_info = shared.device_info.lock().unwrap().clone();
   let device_loading = *shared.device_loading.lock().unwrap();
-  let device_loading_reason = shared.device_loading_reason.lock().unwrap().clone();
+  let device_loading_reason =
+    shared.device_loading_reason.lock().unwrap().clone();
   let device_state = reconcile_device_state(
     device_connected,
     &shared.device_state.lock().unwrap().clone(),
@@ -107,30 +132,50 @@ pub async fn handle_ws_connection(
   let device_name = if device_connected {
     // Extract just the device name from the long device_info string
     // device_info format: "Long Name - Freq: X Hz, Rate: Y Hz, ..."
-    device_info.split(" - ").next().unwrap_or("RTL-SDR").to_string()
+    device_info
+      .split(" - ")
+      .next()
+      .unwrap_or("RTL-SDR")
+      .to_string()
   } else {
     "Mock APT SDR".to_string()
   };
 
-  let initial_status = serde_json::json!({
-    "message_type": "status",
-    "device_connected": device_connected,
-    "device_info": device_info,
-    "device_name": device_name,
-    "device_loading": device_loading,
-    "device_loading_reason": device_loading_reason,
-    "device_state": device_state,
-    "paused": paused,
-    "max_sample_rate": max_sample_rate,
-    "channels": channels,
-    "sdr_settings": sdr_settings,
-    "device": if device_connected { "rtl-sdr" } else { "mock_apt" }
-  });
+  let initial_status = super::types::StatusMessage {
+    message_type: "status".to_string(),
+    device_connected,
+    device_info,
+    device_name,
+    device_loading,
+    device_loading_reason,
+    device_state,
+    paused,
+    max_sample_rate,
+    channels: channels
+      .into_iter()
+      .map(|c| super::types::SpectrumFrameMessage {
+        id: c.id,
+        label: c.label,
+        min_mhz: c.min_mhz,
+        max_mhz: c.max_mhz,
+        description: c.description,
+      })
+      .collect(),
+    sdr_settings,
+    device: (if device_connected {
+      "rtl-sdr"
+    } else {
+      "mock_apt"
+    })
+    .to_string(),
+  };
 
-  if ws_sender.send(Message::Text(initial_status.to_string())).await.is_err() {
-    shared.authenticated_count.fetch_sub(1, Ordering::Relaxed);
-    shared.client_count.fetch_sub(1, Ordering::Relaxed);
-    return;
+  if let Ok(status_json) = serde_json::to_string(&initial_status) {
+    if ws_sender.send(Message::Text(status_json)).await.is_err() {
+      shared.authenticated_count.fetch_sub(1, Ordering::Relaxed);
+      shared.client_count.fetch_sub(1, Ordering::Relaxed);
+      return;
+    }
   }
 
   // Encrypted streaming loop
@@ -144,7 +189,7 @@ pub async fn handle_ws_connection(
             // to decrypt them.
             // Capture status messages also need to be plaintext for the frontend
             // to handle capture state updates properly.
-            if plaintext_json.contains("\"message_type\":\"status\"") || plaintext_json.contains("\"message_type\":\"capture_status\"") {
+            if plaintext_json.contains("\"type\":\"status\"") || plaintext_json.contains("\"type\":\"capture_status\"") {
               if ws_sender.send(Message::Text(plaintext_json)).await.is_err() {
                 break;
               }
@@ -164,10 +209,10 @@ pub async fn handle_ws_connection(
             let frame = &spectrum_data.waveform;
             let timestamp: u64 = spectrum_data.timestamp as u64; // i64 to u64
             let center_frequency: u64 = spectrum_data.center_frequency_hz.unwrap_or(0) as u64;
-            
+
             // 1. Convert f32 array to bytes
             let frame_bytes: &[u8] = bytemuck::cast_slice(frame);
-            
+
             // 2. Encrypt the raw frame bytes
             match crypto::encrypt_payload_binary(&enc_key, frame_bytes) {
               Ok(encrypted_frame) => {
@@ -176,13 +221,13 @@ pub async fn handle_ws_connection(
                 binary_payload.extend_from_slice(&timestamp.to_le_bytes());
                 binary_payload.extend_from_slice(&center_frequency.to_le_bytes());
                 binary_payload.extend_from_slice(&encrypted_frame);
-                
+
                 // 4. Send the binary message
                 if ws_sender.send(Message::Binary(binary_payload)).await.is_err() {
                   break;
                 }
               }
-              
+
               Err(e) => {
                 error!("Binary encryption failed: {}", e);
               }
@@ -204,13 +249,13 @@ pub async fn handle_ws_connection(
                 if let Some(screen_width) = message.screen_width {
                   info!("Client requested auto FFT options for screen width: {}", screen_width);
                   let (auto_sizes, recommended) = calculate_auto_fft_sizes(screen_width);
-                  
+
                   let response = super::types::AutoFftOptionsResponse {
                     message_type: "auto_fft_options".to_string(),
-                    auto_sizes: auto_sizes,
+                    auto_sizes,
                     recommended,
                   };
-                  
+
                   if let Ok(response_json) = serde_json::to_string(&response) {
                     if ws_sender.send(Message::Text(response_json)).await.is_err() {
                       break;
@@ -242,20 +287,25 @@ pub fn handle_message(
 ) {
   match message.message_type.as_str() {
     "frequency_range" | "set_frequency_range" => {
-      if let (Some(min_freq), Some(_max_freq)) = (message.min_freq, message.max_freq) {
+      if let (Some(min_freq), Some(_max_freq)) =
+        (message.min_freq, message.max_freq)
+      {
         // Calculate center frequency based on the start of the range plus half the sample rate
         // This ensures the SDR tunes to exactly the right center frequency to capture the requested range
         let sdr_settings_guard = shared.sdr_settings.lock().unwrap();
         let sample_rate = sdr_settings_guard.sample_rate as f64;
-        
+
         let center_freq = ((min_freq * 1000000.0) + (sample_rate / 2.0)) as u32;
-        
-        shared.pending_center_freq.store(center_freq, Ordering::Relaxed);
+
+        shared
+          .pending_center_freq
+          .store(center_freq, Ordering::Relaxed);
         shared
           .pending_center_freq_dirty
           .store(true, Ordering::Relaxed);
-          
-        let _ = cmd_tx.send(super::types::SdrCommand::SetFrequency(center_freq));
+
+        let _ =
+          cmd_tx.send(super::types::SdrCommand::SetFrequency(center_freq));
       }
     }
     "pause" => {
@@ -324,7 +374,7 @@ pub fn handle_message(
         return;
       }
 
-      let _ = cmd_tx.send(super::types::SdrCommand::ApplySettings {
+      let _ = cmd_tx.send(super::types::SdrCommand::ApplySettings(super::types::SdrProcessorSettings {
         fft_size,
         fft_window: message.fft_window,
         frame_rate,
@@ -332,7 +382,7 @@ pub fn handle_message(
         ppm,
         tuner_agc: message.tuner_agc,
         rtl_agc: message.rtl_agc,
-      });
+      }));
 
       // Update the shared settings so that future status broadcasts
       // reflect the new settings requested by the client.
@@ -365,9 +415,16 @@ pub fn handle_message(
         match action {
           "start" => {
             let label = message.label.unwrap_or_else(|| "target".to_string());
-            let signal_area = message.signal_area.unwrap_or_else(|| "A".to_string());
-            info!("Client requested training start: label={}, area={}", label, signal_area);
-            let _ = cmd_tx.send(super::types::SdrCommand::StartTraining { label, signal_area });
+            let signal_area =
+              message.signal_area.unwrap_or_else(|| "A".to_string());
+            info!(
+              "Client requested training start: label={}, area={}",
+              label, signal_area
+            );
+            let _ = cmd_tx.send(super::types::SdrCommand::StartTraining {
+              label,
+              signal_area,
+            });
           }
           "stop" => {
             info!("Client requested training stop");
@@ -381,20 +438,45 @@ pub fn handle_message(
     }
     "capture" => {
       let capture_cmd = super::types::SdrCommand::StartCapture {
-        job_id: message.job_id.clone().unwrap_or_else(|| format!("cap_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs())),
-        fragments: message.fragments.clone().unwrap_or_else(|| {
-          if let (Some(min_freq), Some(max_freq)) = (message.min_freq, message.max_freq) {
-            vec![super::types::FreqRange { min_freq, max_freq }]
-          } else {
-            vec![]
-          }
-        }).into_iter().map(|f| (f.min_freq, f.max_freq)).collect(),
+        job_id: message.job_id.clone().unwrap_or_else(|| {
+          format!(
+            "cap_{}",
+            std::time::SystemTime::now()
+              .duration_since(std::time::UNIX_EPOCH)
+              .unwrap()
+              .as_secs()
+          )
+        }),
+        fragments: message
+          .fragments
+          .clone()
+          .unwrap_or_else(|| {
+            if let (Some(min_freq), Some(max_freq)) =
+              (message.min_freq, message.max_freq)
+            {
+              vec![super::types::FreqRange { min_freq, max_freq }]
+            } else {
+              vec![]
+            }
+          })
+          .into_iter()
+          .map(|f| (f.min_freq, f.max_freq))
+          .collect(),
         duration_s: message.duration_s.unwrap_or(1.0),
-        file_type: message.file_type.clone().unwrap_or_else(|| ".napt".to_string()),
-        acquisition_mode: message.acquisition_mode.clone().unwrap_or_else(|| "stepwise".to_string()),
+        file_type: message
+          .file_type
+          .clone()
+          .unwrap_or_else(|| ".napt".to_string()),
+        acquisition_mode: message
+          .acquisition_mode
+          .clone()
+          .unwrap_or_else(|| "stepwise".to_string()),
         encrypted: message.encrypted.unwrap_or(true),
         fft_size: message.fft_size.unwrap_or(2048),
-        fft_window: message.fft_window.clone().unwrap_or_else(|| "hann".to_string()),
+        fft_window: message
+          .fft_window
+          .clone()
+          .unwrap_or_else(|| "hann".to_string()),
       };
       log::info!("Client requested capture: {:?}", capture_cmd);
       let _ = cmd_tx.send(capture_cmd);

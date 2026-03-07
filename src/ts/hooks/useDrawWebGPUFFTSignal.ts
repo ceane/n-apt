@@ -36,151 +36,10 @@
 import { useCallback, useRef } from "react";
 import { OverlayTextureRenderer } from "@n-apt/hooks/useWebGPUInit";
 import { LINE_COLOR, SHADOW_COLOR, FFT_CANVAS_BG } from "@n-apt/consts";
+import { SPECTRUM_SHADER } from "@n-apt/consts/shaders/spectrum";
+import { configureWebGPUCanvas, parseCssColorToRgba } from "@n-apt/utils/webgpu";
 
-// WebGPU SIMD Resampling Compute Shader (exported for reuse)
-export const RESAMPLE_WGSL = `
-struct ResampleParams {
-  src_len: u32,
-  out_len: u32,
-  reserved1: u32,
-  reserved2: u32,
-};
-
-@group(0) @binding(0) var<storage, read> input_buffer: array<f32>;
-@group(0) @binding(1) var<storage, read_write> output_buffer: array<f32>;
-@group(0) @binding(2) var<uniform> params: ResampleParams;
-
-@compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
-  let x = global_id.x;
-  if (x >= params.out_len) {
-    return;
-  }
-  
-  let start = u32(floor(f32(x * params.src_len) / f32(params.out_len)));
-  let end = min(start + 1, u32(floor(f32((x + 1) * params.src_len) / f32(params.out_len))));
-  
-  var max_val: f32 = -3.402823466e38; // f32::MIN
-  for (var i = start; i < end && i < params.src_len; i = i + 1) {
-    let v = input_buffer[i];
-    // Check if v is finite by comparing with infinity values
-    if (v != -3.402823466e38 && v != 3.402823466e38 && v > max_val) {
-      max_val = v;
-    }
-  }
-  
-  output_buffer[x] = select(f32(-120.0), max_val, max_val > -3.402823466e38);
-}
-`;
-
-// Inlined from gpu/webgpu.ts
-function configureWebGPUCanvas(
-  canvas: HTMLCanvasElement,
-  device: GPUDevice,
-  format: GPUTextureFormat,
-  alphaMode: GPUCanvasAlphaMode = "premultiplied",
-): GPUCanvasContext {
-  const ctx = canvas.getContext("webgpu");
-  if (!ctx) {
-    throw new Error("WebGPU context not available");
-  }
-  ctx.configure({
-    device,
-    format,
-    alphaMode,
-  });
-  return ctx;
-}
-
-function parseCssColorToRgba(color: string): [number, number, number, number] {
-  const trimmed = color.trim();
-  if (trimmed.startsWith("#")) {
-    const hex = trimmed.slice(1);
-    if (hex.length === 3) {
-      const r = parseInt(hex[0] + hex[0], 16);
-      const g = parseInt(hex[1] + hex[1], 16);
-      const b = parseInt(hex[2] + hex[2], 16);
-      return [r / 255, g / 255, b / 255, 1];
-    }
-    if (hex.length === 6) {
-      const r = parseInt(hex.slice(0, 2), 16);
-      const g = parseInt(hex.slice(2, 4), 16);
-      const b = parseInt(hex.slice(4, 6), 16);
-      return [r / 255, g / 255, b / 255, 1];
-    }
-    if (hex.length === 8) {
-      const r = parseInt(hex.slice(0, 2), 16);
-      const g = parseInt(hex.slice(2, 4), 16);
-      const b = parseInt(hex.slice(4, 6), 16);
-      const a = parseInt(hex.slice(6, 8), 16);
-      return [r / 255, g / 255, b / 255, a / 255];
-    }
-  }
-
-  const rgbaMatch = trimmed.match(/rgba?\(([^)]+)\)/i);
-  if (rgbaMatch) {
-    const parts = rgbaMatch[1]
-      .split(",")
-      .map((part) => part.trim())
-      .filter((part) => part.length > 0);
-
-    const r = Number(parts[0] ?? 0);
-    const g = Number(parts[1] ?? 0);
-    const b = Number(parts[2] ?? 0);
-    const a = parts.length > 3 ? Number(parts[3]) : 1;
-    return [r / 255, g / 255, b / 255, Math.max(0, Math.min(1, a))];
-  }
-
-  return [0, 0, 0, 1];
-}
-
-// Inlined FFTWebGPU shader
-const spectrumShader = `
-@group(0) @binding(0) var<storage, read> waveform: array<f32>;
-@group(0) @binding(1) var<uniform> uniforms: array<vec4<f32>, 4>;
-
-fn idx_to_x(idx: i32) -> f32 {
-  let len = max(1.0, uniforms[1].z);
-  let t = select(0.0, f32(idx) / (len - 1.0), len > 1.0);
-  return mix(uniforms[0].x, uniforms[0].z, t);
-}
-
-fn value_to_y(value: f32) -> f32 {
-  let norm = clamp((value - uniforms[1].x) / (uniforms[1].y - uniforms[1].x), 0.0, 1.0);
-  return mix(uniforms[0].y, uniforms[0].w, norm);
-}
-
-struct VertexOut {
-  @builtin(position) position: vec4<f32>,
-}
-
-@vertex
-fn vs_line(@builtin(vertex_index) vertex_index: u32) -> VertexOut {
-  let idx = i32(vertex_index);
-  let x = idx_to_x(idx);
-  let y = value_to_y(waveform[idx]);
-  return VertexOut(vec4<f32>(x, y, 0.0, 1.0));
-}
-
-@vertex
-fn vs_fill(@builtin(vertex_index) vertex_index: u32) -> VertexOut {
-  let idx = i32(vertex_index / 2u);
-  let isTop = (vertex_index & 1u) == 0u;
-  let x = idx_to_x(idx);
-  let y = select(uniforms[0].y, value_to_y(waveform[idx]), isTop);
-  return VertexOut(vec4<f32>(x, y, 0.0, 1.0));
-}
-
-@fragment
-fn fs_line() -> @location(0) vec4<f32> {
-  return uniforms[2];
-}
-
-@fragment
-fn fs_fill() -> @location(0) vec4<f32> {
-  return uniforms[3];
-}
-`;
+// Shaders are imported from @n-apt/consts/shaders/
 
 export type SpectrumRenderParams = {
   canvasWidth: number;
@@ -266,7 +125,7 @@ export function useDrawWebGPUFFTSignal() {
       });
 
       device.pushErrorScope("validation");
-      const module = device.createShaderModule({ code: spectrumShader });
+      const module = device.createShaderModule({ code: SPECTRUM_SHADER });
 
       const pipelineLine = device.createRenderPipeline({
         layout: pipelineLayout,

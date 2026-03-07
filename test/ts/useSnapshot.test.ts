@@ -90,8 +90,10 @@ describe("getZoomedSlice", () => {
 // ────────────────────────────────────────────────────────────────────────────
 
 describe("dbToColor", () => {
+  const mockColormap = [[0, 0, 0], [255, 255, 255]];
+
   it("returns [r, g, b] tuple", () => {
-    const color = dbToColor(-60, -120, 0);
+    const color = dbToColor(-60, -120, 0, mockColormap);
     expect(color).toHaveLength(3);
     color.forEach((c) => {
       expect(c).toBeGreaterThanOrEqual(0);
@@ -100,21 +102,21 @@ describe("dbToColor", () => {
   });
 
   it("returns different colors for different dB values", () => {
-    const low = dbToColor(-120, -120, 0);
-    const high = dbToColor(0, -120, 0);
+    const low = dbToColor(-120, -120, 0, mockColormap);
+    const high = dbToColor(0, -120, 0, mockColormap);
     // At least one channel should differ
     const differs = low.some((v, i) => Math.abs(v - high[i]) > 1);
     expect(differs).toBe(true);
   });
 
   it("handles boundary values", () => {
-    expect(() => dbToColor(-120, -120, 0)).not.toThrow();
-    expect(() => dbToColor(0, -120, 0)).not.toThrow();
+    expect(() => dbToColor(-120, -120, 0, mockColormap)).not.toThrow();
+    expect(() => dbToColor(0, -120, 0, mockColormap)).not.toThrow();
   });
 
   it("clamps out-of-range dB values gracefully", () => {
-    expect(() => dbToColor(-200, -120, 0)).not.toThrow();
-    expect(() => dbToColor(50, -120, 0)).not.toThrow();
+    expect(() => dbToColor(-200, -120, 0, mockColormap)).not.toThrow();
+    expect(() => dbToColor(50, -120, 0, mockColormap)).not.toThrow();
   });
 });
 

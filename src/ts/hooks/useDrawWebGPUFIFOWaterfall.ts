@@ -1,18 +1,5 @@
-/**
- * useDrawWebGPUFIFOWaterfall.ts
- *
- * Faithful translation of simple-fft-waterfall-demo.html's
- * updateWaterfall() / drawWaterfall() to WebGPU.
- *
- * Data pipeline:
- * - Raw dB Float32 values stored at FFT BIN resolution (not pixel-resampled)
- * - Shader maps display pixels → texture bins via ratio mapping
- * - When zoomed in (isSteps): floor() sampling → each bin fills multiple pixels (squares)
- * - When smooth enabled + !isSteps: linear interpolation between adjacent bins
- * - dB normalisation + colour LUT mapping done entirely in the shader
- */
 import { useCallback, useRef } from "react";
-import { FFT_CANVAS_BG, DEFAULT_COLOR_MAP } from "@n-apt/consts";
+import { FFT_CANVAS_BG } from "@n-apt/consts";
 
 function alignTo(value: number, alignment: number): number {
   return Math.ceil(value / alignment) * alignment;
@@ -202,6 +189,9 @@ export interface WebGPUFIFOWaterfallOptions {
     width: number;
     height: number;
     writeRow: number;
+    minDb?: number;
+    maxDb?: number;
+    colormap?: number[][];
   };
   colormap?: number[][];
   colormapName?: string;
@@ -214,35 +204,38 @@ export interface WebGPUFIFOWaterfallOptions {
 export function useDrawWebGPUFIFOWaterfall() {
   const stateRef = useRef<WaterfallState | null>(null);
 
-  const createColorTex = useCallback((device: GPUDevice): GPUTexture => {
-    const colors = DEFAULT_COLOR_MAP;
-    const w = colors.length;
-    const rgba = new Uint8Array(w * 4);
-    for (let i = 0; i < w; i++) {
-      rgba[i * 4] = colors[i][0];
-      rgba[i * 4 + 1] = colors[i][1];
-      rgba[i * 4 + 2] = colors[i][2];
-      rgba[i * 4 + 3] = 255;
-    }
-    const tex = device.createTexture({
-      size: { width: w, height: 1 },
-      format: "rgba8unorm",
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
-    });
-    device.queue.writeTexture(
-      { texture: tex },
-      rgba,
-      { bytesPerRow: w * 4 },
-      { width: w, height: 1 },
-    );
-    return tex;
-  }, []);
+  const createColorTex = useCallback(
+    (device: GPUDevice, colormap: number[][]): GPUTexture => {
+      const w = colormap.length;
+      const rgba = new Uint8Array(w * 4);
+      for (let i = 0; i < w; i++) {
+        rgba[i * 4] = colormap[i][0];
+        rgba[i * 4 + 1] = colormap[i][1];
+        rgba[i * 4 + 2] = colormap[i][2];
+        rgba[i * 4 + 3] = 255;
+      }
+      const tex = device.createTexture({
+        size: { width: w, height: 1 },
+        format: "rgba8unorm",
+        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+      });
+      device.queue.writeTexture(
+        { texture: tex },
+        rgba,
+        { bytesPerRow: w * 4 },
+        { width: w, height: 1 },
+      );
+      return tex;
+    },
+    [],
+  );
 
   const initState = useCallback(
     (
       canvas: HTMLCanvasElement,
       device: GPUDevice,
       format: GPUTextureFormat,
+      colormap: number[][],
     ): WaterfallState => {
       const ctx = canvas.getContext("webgpu")!;
       ctx.configure({ device, format, alphaMode: "premultiplied" });
@@ -261,6 +254,8 @@ export function useDrawWebGPUFIFOWaterfall() {
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       });
 
+      const colorTex = createColorTex(device, colormap);
+
       return {
         device,
         format,
@@ -269,8 +264,8 @@ export function useDrawWebGPUFIFOWaterfall() {
         uniformBuf,
         uniforms,
         dataTex: null,
-        colorTex: createColorTex(device),
-        colorCount: DEFAULT_COLOR_MAP.length,
+        colorTex,
+        colorCount: colormap.length,
         bindGroup: null,
         texW: 0,
         texH: 0,
@@ -305,7 +300,7 @@ export function useDrawWebGPUFIFOWaterfall() {
 
       if (!stateRef.current) {
         try {
-          stateRef.current = initState(canvas, device, format);
+          stateRef.current = initState(canvas, device, format, colormap || []);
         } catch (e) {
           console.error("WebGPU waterfall init failed:", e);
           return false;

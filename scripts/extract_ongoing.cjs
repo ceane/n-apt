@@ -53,7 +53,7 @@ function extractRegionData(regionKey, region, sourceFile) {
   outputStream.write('radio,mcc,mnc,lac,cell,range,lon,lat,samples,change,created,updated,averageSignal\n');
   
   let count = 0;
-  let techCount = {};
+  const techCount = {};
   
   const content = fs.readFileSync(sourceFile, 'utf8');
   const lines = content.split('\n').filter(line => line.trim());

@@ -1,6 +1,5 @@
 import { useCallback, useRef } from "react";
 import { spectrumToAmplitude } from "@n-apt/consts/types";
-import { DEFAULT_COLOR_MAP, WATERFALL_CANVAS_BG } from "@n-apt/consts";
 
 export interface Draw2DFIFOWaterfallOptions {
   canvas: HTMLCanvasElement;
@@ -11,6 +10,7 @@ export interface Draw2DFIFOWaterfallOptions {
   driftAmount?: number;
   driftDirection?: number;
   fftFrame?: number[]; // Optional new FFT frame data
+  colormap?: number[][];
 }
 
 export function useDraw2DFIFOWaterfall() {
@@ -20,21 +20,23 @@ export function useDraw2DFIFOWaterfall() {
 
   // Inline dbToColor function
   const dbToColor = useCallback(
-    (db: number, minDb: number, maxDb: number): [number, number, number] => {
+    (
+      db: number,
+      minDb: number,
+      maxDb: number,
+      colormap: number[][],
+    ): [number, number, number] => {
       const normalized = (db - minDb) / (maxDb - minDb);
       const index = Math.max(
         0,
-        Math.min(
-          DEFAULT_COLOR_MAP.length - 1,
-          normalized * (DEFAULT_COLOR_MAP.length - 1),
-        ),
+        Math.min(colormap.length - 1, normalized * (colormap.length - 1)),
       );
       const lowerIndex = Math.floor(index);
-      const upperIndex = Math.min(DEFAULT_COLOR_MAP.length - 1, lowerIndex + 1);
+      const upperIndex = Math.min(colormap.length - 1, lowerIndex + 1);
       const fraction = index - lowerIndex;
 
-      const lower = DEFAULT_COLOR_MAP[lowerIndex];
-      const upper = DEFAULT_COLOR_MAP[upperIndex];
+      const lower = colormap[lowerIndex];
+      const upper = colormap[upperIndex];
 
       return [
         lower[0] + (upper[0] - lower[0]) * fraction,
@@ -53,9 +55,9 @@ export function useDraw2DFIFOWaterfall() {
       width: number,
       height: number,
       driftAmount: number,
-      _driftDirection: number,
       minDb: number,
       maxDb: number,
+      colormap: number[][],
     ) => {
       // Shift all old pixels down by 1 row (FIFO)
       for (let y = height - 1; y > 0; y--) {
@@ -72,7 +74,7 @@ export function useDraw2DFIFOWaterfall() {
       // Insert new FFT frame at top row
       for (let x = 0; x < width; x++) {
         const dbValue = fftFrame[x] * (maxDb - minDb) + minDb;
-        const [r, g, b] = dbToColor(dbValue, minDb, maxDb);
+        const [r, g, b] = dbToColor(dbValue, minDb, maxDb, colormap);
 
         const i0 = x * 4;
         waterfallBuffer[i0] = r;
@@ -101,12 +103,11 @@ export function useDraw2DFIFOWaterfall() {
       const {
         canvas,
         waterfallBuffer,
-        frequencyRange,
         waterfallMin = -80,
         waterfallMax = 20,
         driftAmount = 0,
-        driftDirection = 1,
         fftFrame,
+        colormap = [],
       } = options;
 
       const ctx = canvas.getContext("2d");
@@ -171,9 +172,9 @@ export function useDraw2DFIFOWaterfall() {
             waterfallWidth,
             waterfallHeight,
             driftAmount,
-            driftDirection,
             waterfallMin,
             waterfallMax,
+            colormap,
           );
         }
 

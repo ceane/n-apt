@@ -157,6 +157,12 @@ pub struct CoreMLClient {
   endpoint: String,
 }
 
+impl Default for CoreMLClient {
+  fn default() -> Self {
+    Self::new()
+  }
+}
+
 impl CoreMLClient {
   /// Create a new CoreML client.
   ///

@@ -21,46 +21,52 @@ pub enum RtlSdrDev {}
 
 // Callback type for async reading
 pub type RtlSdrReadAsyncCb =
-    Option<unsafe extern "C" fn(buf: *mut u8, len: u32, ctx: *mut c_void)>;
+  Option<unsafe extern "C" fn(buf: *mut u8, len: u32, ctx: *mut c_void)>;
 
 extern "C" {
-    // Device discovery
-    pub fn rtlsdr_get_device_count() -> u32;
-    pub fn rtlsdr_get_device_name(index: u32) -> *const c_char;
+  // Device discovery
+  pub fn rtlsdr_get_device_count() -> u32;
+  pub fn rtlsdr_get_device_name(index: u32) -> *const c_char;
 
-    // Device open/close
-    pub fn rtlsdr_open(dev: *mut *mut RtlSdrDev, index: u32) -> c_int;
-    pub fn rtlsdr_close(dev: *mut RtlSdrDev) -> c_int;
+  // Device open/close
+  pub fn rtlsdr_open(dev: *mut *mut RtlSdrDev, index: u32) -> c_int;
+  pub fn rtlsdr_close(dev: *mut RtlSdrDev) -> c_int;
 
-    // Configuration
-    pub fn rtlsdr_set_center_freq(dev: *mut RtlSdrDev, freq: u32) -> c_int;
-    pub fn rtlsdr_get_center_freq(dev: *mut RtlSdrDev) -> u32;
-    pub fn rtlsdr_set_freq_correction(dev: *mut RtlSdrDev, ppm: c_int) -> c_int;
-    pub fn rtlsdr_get_freq_correction(dev: *mut RtlSdrDev) -> c_int;
-    pub fn rtlsdr_set_tuner_gain_mode(dev: *mut RtlSdrDev, manual: c_int) -> c_int;
-    pub fn rtlsdr_set_tuner_gain(dev: *mut RtlSdrDev, gain: c_int) -> c_int;
-    pub fn rtlsdr_get_tuner_gain(dev: *mut RtlSdrDev) -> c_int;
-    pub fn rtlsdr_get_tuner_gains(dev: *mut RtlSdrDev, gains: *mut c_int) -> c_int;
-    pub fn rtlsdr_set_tuner_bandwidth(dev: *mut RtlSdrDev, bw: u32) -> c_int;
-    pub fn rtlsdr_set_sample_rate(dev: *mut RtlSdrDev, rate: u32) -> c_int;
-    pub fn rtlsdr_get_sample_rate(dev: *mut RtlSdrDev) -> u32;
-    pub fn rtlsdr_set_agc_mode(dev: *mut RtlSdrDev, on: c_int) -> c_int;
-    pub fn rtlsdr_set_direct_sampling(dev: *mut RtlSdrDev, on: c_int) -> c_int;
+  // Configuration
+  pub fn rtlsdr_set_center_freq(dev: *mut RtlSdrDev, freq: u32) -> c_int;
+  pub fn rtlsdr_get_center_freq(dev: *mut RtlSdrDev) -> u32;
+  pub fn rtlsdr_set_freq_correction(dev: *mut RtlSdrDev, ppm: c_int) -> c_int;
+  pub fn rtlsdr_get_freq_correction(dev: *mut RtlSdrDev) -> c_int;
+  pub fn rtlsdr_set_tuner_gain_mode(
+    dev: *mut RtlSdrDev,
+    manual: c_int,
+  ) -> c_int;
+  pub fn rtlsdr_set_tuner_gain(dev: *mut RtlSdrDev, gain: c_int) -> c_int;
+  pub fn rtlsdr_get_tuner_gain(dev: *mut RtlSdrDev) -> c_int;
+  pub fn rtlsdr_get_tuner_gains(
+    dev: *mut RtlSdrDev,
+    gains: *mut c_int,
+  ) -> c_int;
+  pub fn rtlsdr_set_tuner_bandwidth(dev: *mut RtlSdrDev, bw: u32) -> c_int;
+  pub fn rtlsdr_set_sample_rate(dev: *mut RtlSdrDev, rate: u32) -> c_int;
+  pub fn rtlsdr_get_sample_rate(dev: *mut RtlSdrDev) -> u32;
+  pub fn rtlsdr_set_agc_mode(dev: *mut RtlSdrDev, on: c_int) -> c_int;
+  pub fn rtlsdr_set_direct_sampling(dev: *mut RtlSdrDev, on: c_int) -> c_int;
 
-    // Streaming
-    pub fn rtlsdr_reset_buffer(dev: *mut RtlSdrDev) -> c_int;
-    pub fn rtlsdr_read_sync(
-        dev: *mut RtlSdrDev,
-        buf: *mut c_void,
-        len: c_int,
-        n_read: *mut c_int,
-    ) -> c_int;
-    pub fn rtlsdr_read_async(
-        dev: *mut RtlSdrDev,
-        cb: RtlSdrReadAsyncCb,
-        ctx: *mut c_void,
-        buf_num: u32,
-        buf_len: u32,
-    ) -> c_int;
-    pub fn rtlsdr_cancel_async(dev: *mut RtlSdrDev) -> c_int;
+  // Streaming
+  pub fn rtlsdr_reset_buffer(dev: *mut RtlSdrDev) -> c_int;
+  pub fn rtlsdr_read_sync(
+    dev: *mut RtlSdrDev,
+    buf: *mut c_void,
+    len: c_int,
+    n_read: *mut c_int,
+  ) -> c_int;
+  pub fn rtlsdr_read_async(
+    dev: *mut RtlSdrDev,
+    cb: RtlSdrReadAsyncCb,
+    ctx: *mut c_void,
+    buf_num: u32,
+    buf_len: u32,
+  ) -> c_int;
+  pub fn rtlsdr_cancel_async(dev: *mut RtlSdrDev) -> c_int;
 }

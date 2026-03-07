@@ -10,9 +10,11 @@
 //! - Downsampling: 4-8x speedup (vectorized max reduction)
 //! - Window functions: 2-3x speedup (vectorized coefficient application)
 
-use crate::fft::types::RawSamples;
 use crate::fft::processor::WindowType;
-use crate::simd::common::{SIMDProcessor, WindowFunctions, PowerSpectrum, IQConverter};
+use crate::fft::types::RawSamples;
+use crate::simd::common::{
+  IQConverter, PowerSpectrum, SIMDProcessor, WindowFunctions,
+};
 use anyhow::Result;
 use rustfft::FftPlanner;
 use std::sync::Arc;
@@ -59,15 +61,15 @@ impl SIMDProcessor for NativeProcessor {
       center_frequency: 1_600_000,
     }
   }
-  
+
   fn set_gain(&mut self, gain: f32) {
     self.gain = gain;
   }
-  
+
   fn set_ppm(&mut self, ppm: f32) {
     self.ppm = ppm;
   }
-  
+
   fn set_window_type(&mut self, window_type: WindowType) {
     if self.window_type != window_type {
       self.window_cache = None;
@@ -82,24 +84,30 @@ impl SIMDProcessor for NativeProcessor {
   fn set_center_frequency(&mut self, center_frequency: u32) {
     self.center_frequency = center_frequency;
   }
-  
-  fn process_samples(&mut self, samples: &RawSamples, output: &mut [f32]) -> Result<()> {
+
+  fn process_samples(
+    &mut self,
+    samples: &RawSamples,
+    output: &mut [f32],
+  ) -> Result<()> {
     if output.len() < self.fft_size {
       return Err(anyhow::anyhow!("Output buffer too small"));
     }
 
     // Use common IQ conversion
     let mut buf = IQConverter::convert_to_complex_with_context(
-        &samples.data, 
-        self.gain, 
-        self.ppm, 
-        self.fft_size,
-        self.sample_rate,
-        self.center_frequency
+      &samples.data,
+      self.gain,
+      self.ppm,
+      self.fft_size,
+      self.sample_rate,
+      self.center_frequency,
     )?;
 
     // Apply window function if needed
-    if self.window_type != WindowType::None && self.window_type != WindowType::Rectangular {
+    if self.window_type != WindowType::None
+      && self.window_type != WindowType::Rectangular
+    {
       let window_coeffs = self.get_window_coeffs();
       IQConverter::apply_window(&mut buf, &window_coeffs);
     }
@@ -116,7 +124,7 @@ impl SIMDProcessor for NativeProcessor {
 
     Ok(())
   }
-  
+
   fn fft_size(&self) -> usize {
     self.fft_size
   }
@@ -152,14 +160,19 @@ impl NativeProcessor {
   }
 
   /// Process raw IQ samples into a power spectrum using SIMD-accelerated operations
-  pub fn process_samples(&mut self, samples: &RawSamples, output: &mut [f32]) -> Result<()> {
+  pub fn process_samples(
+    &mut self,
+    samples: &RawSamples,
+    output: &mut [f32],
+  ) -> Result<()> {
     <Self as SIMDProcessor>::process_samples(self, samples, output)
   }
 
   /// Get or compute window coefficients using common function
   fn get_window_coeffs(&mut self) -> Vec<f32> {
     if self.window_cache.is_none() {
-      self.window_cache = Some(WindowFunctions::get_coeffs(self.window_type, self.fft_size));
+      self.window_cache =
+        Some(WindowFunctions::get_coeffs(self.window_type, self.fft_size));
     }
     self.window_cache.as_ref().unwrap().clone()
   }
@@ -181,16 +194,16 @@ mod tests {
   #[test]
   fn test_window_functions() {
     let mut processor = NativeProcessor::new(256);
-    
+
     processor.set_window_type(WindowType::Hanning);
     assert_eq!(processor.window_type, WindowType::Hanning);
-    
+
     processor.set_window_type(WindowType::Hamming);
     assert_eq!(processor.window_type, WindowType::Hamming);
-    
+
     processor.set_gain(2.0);
     assert_eq!(processor.gain, 2.0);
-    
+
     processor.set_ppm(10.0);
     assert_eq!(processor.ppm, 10.0);
   }

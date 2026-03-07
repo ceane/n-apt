@@ -122,7 +122,7 @@ interface SignalDisplaySectionProps {
   fftWindow: string;
   temporalResolution: "low" | "medium" | "high";
   autoFftOptions: {
-    message_type: "auto_fft_options";
+    type: "auto_fft_options";
     autoSizes: number[];
     recommended: number;
   } | null;

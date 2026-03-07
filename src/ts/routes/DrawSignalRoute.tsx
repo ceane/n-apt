@@ -4,7 +4,7 @@ import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 import { useDrawMockNAPTSignal } from "@n-apt/hooks/useDrawMockNAPTSignal";
 import { useWebGPUInit } from "@n-apt/hooks/useWebGPUInit";
 import { useSpectrumRenderer } from "@n-apt/hooks/useSpectrumRenderer";
-import { RESAMPLE_WGSL } from "@n-apt/hooks/useDrawWebGPUFFTSignal";
+import { RESAMPLE_WGSL } from "@n-apt/consts/shaders/resample";
 import { FFT_CANVAS_BG } from "@n-apt/consts";
 
 const PageContainer = styled.div`
@@ -109,6 +109,7 @@ export const DrawSignalRoute: React.FC = () => {
 
   const {
     webgpuEnabled,
+    isInitializingWebGPU,
     webgpuDeviceRef,
     webgpuFormatRef,
     gridOverlayRendererRef,
@@ -137,7 +138,8 @@ export const DrawSignalRoute: React.FC = () => {
       !canvas ||
       dimensions.width === 0 ||
       dimensions.height === 0 ||
-      waveformArray.length === 0
+      waveformArray.length === 0 ||
+      isInitializingWebGPU
     ) {
       return;
     }
@@ -157,6 +159,7 @@ export const DrawSignalRoute: React.FC = () => {
     drawSpectrum({
       canvas,
       webgpuEnabled,
+      isInitializingWebGPU,
       device: webgpuDeviceRef.current,
       format: webgpuFormatRef.current,
       waveform: floatWaveform,
@@ -179,6 +182,7 @@ export const DrawSignalRoute: React.FC = () => {
     gridOverlayRendererRef,
     markersOverlayRendererRef,
     drawSpectrum,
+    isInitializingWebGPU,
   ]);
 
   // Handle Resizing

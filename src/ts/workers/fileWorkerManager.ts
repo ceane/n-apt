@@ -97,7 +97,7 @@ class FileWorkerManager {
       });
 
       // Handle transferable objects
-      let transferables: Transferable[] = [];
+      const transferables: Transferable[] = [];
       if (type === "loadFile" && data.fileData instanceof ArrayBuffer) {
         transferables.push(data.fileData);
       } else if (type === "stitchFiles" && Array.isArray(data.files)) {

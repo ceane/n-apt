@@ -58,10 +58,6 @@ const DrawSignalWebGPUChart: React.FC<DrawSignalWebGPUChartProps> = ({
   const gridPipelineRef = useRef<GPURenderPipeline | null>(null);
   const axisPipelineRef = useRef<GPURenderPipeline | null>(null);
 
-  const lineBindGroupRef = useRef<GPUBindGroup | null>(null);
-  const gridBindGroupRef = useRef<GPUBindGroup | null>(null);
-  const axisBindGroupRef = useRef<GPUBindGroup | null>(null);
-
   const lineUniformBufferRef = useRef<GPUBuffer | null>(null);
   const gridUniformBufferRef = useRef<GPUBuffer | null>(null);
   const axisUniformBufferRef = useRef<GPUBuffer | null>(null);
@@ -130,16 +126,6 @@ const DrawSignalWebGPUChart: React.FC<DrawSignalWebGPUChartProps> = ({
     return vertices;
   };
 
-  const hexToRgb = (hex: string): [number, number, number] => {
-    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-    return result
-      ? [
-          parseInt(result[1], 16) / 255,
-          parseInt(result[2], 16) / 255,
-          parseInt(result[3], 16) / 255,
-        ]
-      : [0, 0, 0];
-  };
 
   const ensurePipelines = (device: GPUDevice, format: GPUTextureFormat) => {
     if (
@@ -344,6 +330,8 @@ const DrawSignalWebGPUChart: React.FC<DrawSignalWebGPUChartProps> = ({
       canvas.height,
     );
 
+    const axisVerticesArray = new Float32Array(axisVertices);
+
     // Create or update buffers
     let lineVertexBuffer: GPUBuffer;
     let gridVertexBuffer: GPUBuffer;
@@ -361,11 +349,11 @@ const DrawSignalWebGPUChart: React.FC<DrawSignalWebGPUChartProps> = ({
         usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
       });
       gridVertexBuffer = device.createBuffer({
-        size: axisVertices.byteLength,
+        size: axisVerticesArray.byteLength,
         usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
       });
       axisVertexBuffer = device.createBuffer({
-        size: axisVertices.byteLength,
+        size: axisVerticesArray.byteLength,
         usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
       });
       lastBuffersRef.current = {
@@ -377,8 +365,8 @@ const DrawSignalWebGPUChart: React.FC<DrawSignalWebGPUChartProps> = ({
 
     // Update buffer data
     device.queue.writeBuffer(lineVertexBuffer, 0, lineVertices);
-    device.queue.writeBuffer(gridVertexBuffer, 0, axisVertices);
-    device.queue.writeBuffer(axisVertexBuffer, 0, axisVertices);
+    device.queue.writeBuffer(gridVertexBuffer, 0, axisVerticesArray);
+    device.queue.writeBuffer(axisVertexBuffer, 0, axisVerticesArray);
 
     // Create bind groups
     const lineBindGroup = device.createBindGroup({

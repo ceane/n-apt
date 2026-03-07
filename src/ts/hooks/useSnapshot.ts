@@ -8,7 +8,6 @@ import {
   FFT_AREA_MIN,
   FFT_CANVAS_BG,
   WATERFALL_CANVAS_BG,
-  DEFAULT_COLOR_MAP,
   findBestFrequencyRange,
   SNAP_HW_RATE_LINE,
   SNAP_HW_RATE_TEXT,
@@ -99,7 +98,7 @@ export function getZoomedSlice(
 function decimateWaveform(waveform: number[], targetWidth: number): number[] {
   const len = waveform.length;
   if (len <= targetWidth * 2 || targetWidth <= 0) return waveform;
-  const out = new Array(targetWidth);
+  const out = Array.from({ length: targetWidth }, () => 0);
   const factor = len / targetWidth;
   for (let i = 0; i < targetWidth; i++) {
     const start = Math.floor(i * factor);
@@ -440,24 +439,26 @@ export function dbToColor(
   db: number,
   minDb: number,
   maxDb: number,
+  colormap: number[][],
 ): [number, number, number] {
+  if (!colormap || colormap.length === 0) return [0, 0, 0];
   const normalized = (db - minDb) / (maxDb - minDb);
   const index = Math.max(
     0,
     Math.min(
-      DEFAULT_COLOR_MAP.length - 1,
-      normalized * (DEFAULT_COLOR_MAP.length - 1),
+      colormap.length - 1,
+      normalized * (colormap.length - 1),
     ),
   );
   const lowerIndex = Math.floor(index);
-  const upperIndex = Math.min(DEFAULT_COLOR_MAP.length - 1, lowerIndex + 1);
+  const upperIndex = Math.min(colormap.length - 1, lowerIndex + 1);
   const fraction = index - lowerIndex;
-  const lower = DEFAULT_COLOR_MAP[lowerIndex];
-  const upper = DEFAULT_COLOR_MAP[upperIndex];
+  const lower = colormap[lowerIndex];
+  const upper = colormap[upperIndex];
   return [
-    lower[0] + (upper[0] - lower[0]) * fraction,
-    lower[1] + (upper[1] - lower[1]) * fraction,
-    lower[2] + (upper[2] - lower[2]) * fraction,
+    Math.round(lower[0] + (upper[0] - lower[0]) * fraction),
+    Math.round(lower[1] + (upper[1] - lower[1]) * fraction),
+    Math.round(lower[2] + (upper[2] - lower[2]) * fraction),
   ];
 }
 
@@ -467,6 +468,7 @@ function drawWaterfallToCanvas(
   meta: { width: number; height: number; writeRow: number },
   dbMin: number,
   dbMax: number,
+  colormap: number[][],
 ): void {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
@@ -518,7 +520,7 @@ function drawWaterfallToCanvas(
         dbVal = view.getFloat32(0, true);
       }
 
-      const [r, g, b] = dbToColor(dbVal, dbMin, dbMax);
+      const [r, g, b] = dbToColor(dbVal, dbMin, dbMax, colormap);
       const pixelIdx = (outY * pixelW + outX) * 4;
       pixels[pixelIdx] = r;
       pixels[pixelIdx + 1] = g;
@@ -1008,6 +1010,7 @@ export function useSnapshot(
             data.waterfallTextureMeta,
             data.dbMin,
             data.dbMax,
+            data.colormap,
           );
         } else if (data.waterfallBuffer && data.waterfallDims) {
           drawWaterfallFrom2DBuffer(
@@ -1114,6 +1117,7 @@ export function useSnapshot(
           data.waterfallTextureMeta,
           data.dbMin,
           data.dbMax,
+          data.colormap,
         );
       } else if (data.waterfallBuffer && data.waterfallDims) {
         drawWaterfallFrom2DBuffer(

@@ -12,6 +12,8 @@ export interface SpectrumRendererOptions {
   
   /** Whether WebGPU is currently enabled and available */
   webgpuEnabled: boolean;
+  /** Whether WebGPU is currently in the process of initializing */
+  isInitializingWebGPU?: boolean;
   /** WebGPU device instance */
   device?: GPUDevice | null;
   /** WebGPU preferred canvas format */
@@ -73,6 +75,7 @@ export function useSpectrumRenderer() {
     const {
       canvas,
       webgpuEnabled,
+      isInitializingWebGPU,
       device,
       format,
       waveform,
@@ -94,6 +97,11 @@ export function useSpectrumRenderer() {
     } = options;
 
     if (!canvas) return false;
+
+    // VERY IMPORTANT: If WebGPU is still initializing, we MUST NOT attempt
+    // to get ANY context from the canvas yet. Once a '2d' context is requested,
+    // a 'webgpu' context can NEVER be requested on the same canvas (and vice versa).
+    if (isInitializingWebGPU) return false;
 
     // Use WebGPU if enabled and resources are ready
     if (webgpuEnabled && device && format) {

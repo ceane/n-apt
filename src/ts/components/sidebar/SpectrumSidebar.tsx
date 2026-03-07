@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect, useCallback, useRef } from "react";
+import React, { useMemo, useState, useEffect, useCallback } from "react";
 import styled, { useTheme } from "styled-components";
 import { useSpectrumStore, SourceMode } from "@n-apt/hooks/useSpectrumStore";
 import { useSdrSettings } from "@n-apt/hooks/useSdrSettings";
@@ -159,7 +159,6 @@ export const SpectrumSidebar: React.FC = () => {
     dispatch,
     effectiveSdrSettings,
     sampleRateHzEffective,
-    manualVisualizerPaused,
     toggleVisualizerPause,
     effectiveFrames,
     wsConnection: {
@@ -544,19 +543,9 @@ export const SpectrumSidebar: React.FC = () => {
     return markers;
   }, [effectiveSdrSettings?.limits]);
 
-  const lastKnownRangesRef = useRef<Record<string, { min: number; max: number }>>({});
-
-  // Sync last known ranges when frequency changes from any source (Slider, Box Zoom, etc)
-  useEffect(() => {
-    if (state.activeSignalArea && state.frequencyRange) {
-      lastKnownRangesRef.current[state.activeSignalArea] = state.frequencyRange;
-    }
-  }, [state.activeSignalArea, state.frequencyRange]);
-
   const handleRangeChange = useCallback(
     (label: string, range: { min: number; max: number }) => {
       if (state.activeSignalArea === label) {
-        lastKnownRangesRef.current[label] = range;
         dispatch({ type: "SET_FREQUENCY_RANGE", range });
         sendFrequencyRange(range);
       }
@@ -632,7 +621,7 @@ export const SpectrumSidebar: React.FC = () => {
             isConnected={isConnected}
             deviceState={deviceState || "disconnected"}
             deviceLoadingReason={deviceLoadingReason}
-            isPaused={manualVisualizerPaused}
+            isPaused={state.visualizerPaused}
             onPauseToggle={toggleVisualizerPause}
             onRestartDevice={() => sendRestartDevice()}
           />
@@ -692,7 +681,7 @@ export const SpectrumSidebar: React.FC = () => {
                   // If this is the active frame and we are zoomed in,
                   // calculate the visual range based on zoom and pan offset
                   // NOTE: Use frequencyRange (SDR center) not frame min/max for center calculation
-                  const lastRange = lastKnownRangesRef.current[label];
+                  const lastRange = state.lastKnownRanges[label];
                   let visibleMin = lastRange ? lastRange.min : min;
                   let visibleMax = lastRange
                     ? lastRange.max

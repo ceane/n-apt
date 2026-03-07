@@ -224,13 +224,12 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
     setWindowStart(clamped);
   }, [externalFrequencyRange, visibleMin, minFreq, totalRange, windowWidth]);
 
-  // Handle activation: force a notification when this slider becomes the active one
+  // Handle activation: no longer forces a notification on mount/activation
+  // to prevent overwriting the store with default/initial values.
   useEffect(() => {
     if (isActive) {
-      // Increment internal change ID to trigger the notification effect
-      internalChangeIdRef.current += 1;
-      // Clear last notified range to ensure a fresh notification is sent even if position hasn't changed
-      lastNotifiedRangeRef.current = null;
+      // We explicitly DO NOT increment internalChangeIdRef here anymore.
+      // The parent already knows our range via the global store's lastKnownRanges.
     }
   }, [isActive]);
 

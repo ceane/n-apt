@@ -1,10 +1,10 @@
 /**
- * waterfallDb.ts
+ * waterfallStore.ts
  * Utility to store large waterfall texture snapshots in IndexedDB.
  * Bypasses the 5MB limit of sessionStorage.
  */
 
-const DB_NAME = "napt-waterfall-db";
+const DB_NAME = "napt-waterfall-store";
 const STORE_NAME = "waterfall-store";
 const DB_VERSION = 1;
 

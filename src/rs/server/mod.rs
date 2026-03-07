@@ -1,5 +1,5 @@
 //! Server module for N-APT backend
-//! 
+//!
 //! This module contains the HTTP server, WebSocket handlers, and API endpoints
 //! for the N-APT SDR application.
 

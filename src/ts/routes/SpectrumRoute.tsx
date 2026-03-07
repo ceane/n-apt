@@ -22,7 +22,6 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
     state,
     dispatch,
     manualVisualizerPaused,
-    routePaused,
     effectiveSdrSettings,
     sampleRateMHz,
     signalAreaBounds,
@@ -189,7 +188,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
                 signalAreaBounds={signalAreaBounds ?? undefined}
                 hardwareSampleRateHz={sampleRateHzEffective ?? undefined}
                 isIqRecordingActive={captureStatus?.status === "started"}
-                isPaused={routePaused || manualVisualizerPaused}
+                isPaused={manualVisualizerPaused}
                 isDeviceConnected={deviceState === "connected"}
                 onFrequencyRangeChange={handleFrequencyRangeChange}
                 displayTemporalResolution={state.displayTemporalResolution}

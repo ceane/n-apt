@@ -30,6 +30,7 @@ export function useOverlayRenderer() {
       fftMax: number,
       hardwareSampleRateHz?: number,
       fullCaptureRange?: { min: number; max: number },
+      _isIqRecordingActive?: boolean,
     ) => {
       const dpr = window.devicePixelRatio || 1;
       const fftAreaMax = { x: width - 40, y: height - 40 };

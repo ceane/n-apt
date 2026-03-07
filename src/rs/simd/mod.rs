@@ -18,21 +18,21 @@
 //! - Mock generation: 3-5x speedup
 //! - Rendering: 4-8x speedup
 
-pub mod native_processor;
-pub mod rendering_processor;
-pub mod mock_generator;
+pub mod arm_optimized_common;
 pub mod common;
 pub mod downsampler;
-pub mod arm_optimized_common;
+pub mod mock_generator;
+pub mod native_processor;
+pub mod rendering_processor;
 
 // Re-export main processors for easy access
+pub use mock_generator::MockSignalGenerator;
 pub use native_processor::NativeProcessor;
 pub use rendering_processor::RenderingProcessor;
-pub use mock_generator::MockSignalGenerator;
 
 // Re-export common utilities
-pub use common::{SIMDProcessor, WindowFunctions, PowerSpectrum, IQConverter};
-pub use downsampler::{SpectrumDownsampler, downsample_spectrum_simd};
+pub use common::{IQConverter, PowerSpectrum, SIMDProcessor, WindowFunctions};
+pub use downsampler::{downsample_spectrum_simd, SpectrumDownsampler};
 
 /// Unified SIMD processor that works on both WASM and native targets
 #[cfg(target_arch = "wasm32")]

@@ -1,93 +1,32 @@
 import { useReducer, useEffect, useRef, useCallback } from "react";
 import { decryptPayload, decryptBinaryPayload } from "@n-apt/crypto/webcrypto";
 
-// Types
-export type FrequencyRange = {
-  min: number;
-  max: number;
-};
+import {
+  DeviceState,
+  DeviceLoadingReason,
+  FrequencyRange,
+  SDRSettings,
+  CaptureFileType,
+  CaptureRequest,
+  CaptureStatus,
+  SpectrumFrame,
+  AutoFftOptionsResponse,
+  SdrSettingsConfig,
+  WebSocketMessage
+} from "@n-apt/consts/schemas/websocket";
 
-export type SDRSettings = {
-  fftSize?: number;
-  fftWindow?: string;
-  frameRate?: number;
-  gain?: number;
-  ppm?: number;
-  tunerAGC?: boolean;
-  rtlAGC?: boolean;
-};
-
-export type CaptureFileType = ".napt" | ".wav";
-
-export type CaptureRequest = {
-  jobId: string;
-  fragments: { minFreq: number; maxFreq: number }[];
-  durationS: number;
-  fileType: CaptureFileType;
-  acquisitionMode: "stepwise" | "interleaved";
-  encrypted: boolean;
-  fftSize: number;
-  fftWindow: string;
-};
-
-export type CaptureStatus = {
-  jobId: string;
-  status: "started" | "failed" | "done";
-  error?: string;
-  downloadUrl?: string;
-  filename?: string;
-  fileCount?: number;
-} | null;
-
-export type DeviceState =
-  | "connected"
-  | "loading"
-  | "disconnected"
-  | "stale"
-  | null;
-export type DeviceLoadingReason = "connect" | "restart" | null;
-
-export type SpectrumFrame = {
-  id: string;
-  label: string;
-  min_mhz: number;
-  max_mhz: number;
-  description: string;
-};
-
-export type AutoFftOptionsResponse = {
-  message_type: "auto_fft_options";
-  autoSizes: number[];
-  recommended: number;
-};
-
-export type SdrSettingsConfig = {
-  sample_rate: number;
-  center_frequency: number;
-  gain?: {
-    tuner_gain: number;
-    rtl_agc: boolean;
-    tuner_agc: boolean;
-  };
-  ppm?: number;
-  fft?: {
-    default_size: number;
-    default_frame_rate: number;
-    max_size: number;
-    max_frame_rate: number;
-    size_to_frame_rate?: Record<string, number>;
-  };
-  display?: {
-    min_db: number;
-    max_db: number;
-    padding: number;
-  };
-  limits?: {
-    lower_limit_mhz?: number;
-    upper_limit_mhz?: number;
-    lower_limit_label?: string;
-    upper_limit_label?: string;
-  };
+export type {
+  DeviceState,
+  DeviceLoadingReason,
+  FrequencyRange,
+  SDRSettings,
+  CaptureFileType,
+  CaptureRequest,
+  CaptureStatus,
+  SpectrumFrame,
+  AutoFftOptionsResponse,
+  SdrSettingsConfig,
+  WebSocketMessage
 };
 
 export type WebSocketData = {
@@ -297,7 +236,7 @@ export const useWebSocket = (
 
                     // 5. Reconstruct the SpectrumData object format expected by the frontend
                     const spectrumData = {
-                      message_type: "spectrum",
+                      type: "spectrum",
                       waveform: waveform,
                       is_mock_apt: false, // We'll assume real unless backend tells us otherwise (binary fast path is mostly real)
                       center_frequency_hz: centerFrequencyHz,
@@ -333,7 +272,7 @@ export const useWebSocket = (
                       const parsedData = JSON.parse(plaintext);
                       // Store in mutable state instead of React state to avoid re-renders
                       if (
-                        parsedData.message_type === "batch" &&
+                        parsedData.type === "batch" &&
                         parsedData.messages &&
                         parsedData.messages.length > 0
                       ) {
@@ -379,7 +318,7 @@ export const useWebSocket = (
 
         const processSingleMessage = (raw: string) => {
           // ── Status messages (backend-driven device state) ────────
-          if (raw.includes('"message_type":"status"')) {
+          if (raw.includes('"type":"status"')) {
             try {
               const parsedData = JSON.parse(raw);
               const paused = parsedData.paused || false;
@@ -444,7 +383,7 @@ export const useWebSocket = (
           }
 
           // ── Capture status messages (plaintext) ─────────────────
-          if (raw.includes('"message_type":"capture_status"')) {
+          if (raw.includes('"type":"capture_status"')) {
             try {
               const parsed = JSON.parse(raw);
               const statusObj = parsed.status || {};
@@ -486,10 +425,8 @@ export const useWebSocket = (
                 typeof parsed.window === "string" &&
                 Array.isArray(parsed.autoSizes)
               ) {
-                const options = {
-                  message_type: "auto_fft_options" as const,
-                  fftSize: parsed.fftSize,
-                  window: parsed.window,
+                const options: AutoFftOptionsResponse = {
+                  type: "auto_fft_options",
                   autoSizes: parsed.autoSizes,
                   recommended: parsed.recommended,
                 };

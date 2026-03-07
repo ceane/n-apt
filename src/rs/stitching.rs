@@ -58,11 +58,12 @@ impl SignalStitcher {
       let buf_len = self.buffer.len();
       let overlap = self.overlap_size.min(frame.len()).min(buf_len);
 
-      for i in 0..overlap {
+      for (i, item) in frame.iter().enumerate().take(overlap) {
         let buf_idx = buf_len - self.overlap_size + i;
         if buf_idx < buf_len {
           let w = self.window[i];
-          self.buffer[buf_idx] = w * frame[i] + (1.0 - w) * self.buffer[buf_idx];
+          self.buffer[buf_idx] =
+            w * *item + (1.0 - w) * self.buffer[buf_idx];
         }
       }
 
@@ -190,12 +191,12 @@ mod tests {
     // The overlap region (last 2 bins of first frame blended with first 2 of second)
     // should contain values between 0.0 and 1.0
     let overlap_start = fft_size - (fft_size / 4);
-    for i in overlap_start..fft_size {
+    for (i, item) in result.iter().enumerate().take(fft_size).skip(overlap_start) {
       assert!(
-        result[i] >= 0.0 && result[i] <= 1.0,
+        *item >= 0.0 && *item <= 1.0,
         "Overlap bin {} = {} should be in [0, 1]",
         i,
-        result[i]
+        item
       );
     }
   }
@@ -211,7 +212,14 @@ mod tests {
     assert!(w[mid] > 0.9, "w[{}] = {} should be > 0.9", mid, w[mid]);
     // Values should be monotonically increasing in the first half
     for i in 1..mid {
-      assert!(w[i] >= w[i - 1], "w[{}] = {} < w[{}] = {}", i, w[i], i - 1, w[i - 1]);
+      assert!(
+        w[i] >= w[i - 1],
+        "w[{}] = {} < w[{}] = {}",
+        i,
+        w[i],
+        i - 1,
+        w[i - 1]
+      );
     }
   }
 }

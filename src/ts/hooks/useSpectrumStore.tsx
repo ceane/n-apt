@@ -63,6 +63,7 @@ export type SpectrumState = {
   ppm: number;
   tunerAGC: boolean;
   rtlAGC: boolean;
+  lastKnownRanges: Record<string, { min: number; max: number }>;
 };
 
 export type SpectrumAction =
@@ -139,6 +140,7 @@ export const INITIAL_SPECTRUM_STATE: SpectrumState = {
   ppm: 0,
   tunerAGC: false,
   rtlAGC: false,
+  lastKnownRanges: {},
 };
 
 const SDR_SETTINGS_KEY = "napt-sdr-settings-v2";
@@ -148,7 +150,12 @@ const loadPersistedSdrSettings = (): Partial<SpectrumState> => {
   try {
     const raw = sessionStorage.getItem(SDR_SETTINGS_KEY);
     if (!raw) return {};
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    // Ensure lastKnownRanges is an object
+    if (parsed.lastKnownRanges && typeof parsed.lastKnownRanges !== "object") {
+      parsed.lastKnownRanges = {};
+    }
+    return parsed;
   } catch {
     return {};
   }
@@ -169,12 +176,19 @@ export function spectrumReducer(
       ) {
         return state;
       }
-      return { ...state, frequencyRange: action.range };
+      return {
+        ...state,
+        frequencyRange: action.range,
+        lastKnownRanges: state.activeSignalArea
+          ? { ...state.lastKnownRanges, [state.activeSignalArea]: action.range }
+          : state.lastKnownRanges,
+      };
     case "SET_SIGNAL_AREA_AND_RANGE":
       return {
         ...state,
         activeSignalArea: action.area,
         frequencyRange: action.range,
+        lastKnownRanges: { ...state.lastKnownRanges, [action.area]: action.range },
       };
     case "SET_TEMPORAL_RESOLUTION":
       return {
@@ -270,8 +284,6 @@ type SpectrumStoreContextValue = {
   dispatch: React.Dispatch<SpectrumAction>;
   manualVisualizerPaused: boolean;
   setManualVisualizerPaused: React.Dispatch<React.SetStateAction<boolean>>;
-  routePaused: boolean;
-  setRoutePaused: React.Dispatch<React.SetStateAction<boolean>>;
   effectiveFrames: SpectrumFrame[];
   effectiveSdrSettings: SdrSettingsConfig | null | undefined;
   sampleRateHzEffective: number | null;
@@ -303,12 +315,25 @@ export const SpectrumProvider: React.FC<{ children: React.ReactNode }> = ({
   });
   const location = useLocation();
 
+  const { isAuthenticated, sessionToken, aesKey } = useAuthentication();
+  const wsUrl = sessionToken ? buildWsUrl(sessionToken) : "";
+  const wsConnection = useWebSocket(wsUrl, aesKey, isAuthenticated);
+  const {
+    sdrSettings,
+    spectrumFrames: wsSpectrumFrames,
+    isConnected,
+    sendPauseCommand,
+  } = wsConnection;
+
+  // Track active spectrum route globally
+  const isVisualizerRoute =
+    location.pathname === "/" || location.pathname === "/visualizer";
+
   const [manualVisualizerPaused, setManualVisualizerPaused] = useState(() => {
     if (typeof window === "undefined") return false;
     return sessionStorage.getItem(MANUAL_VISUALIZER_PAUSE_KEY) === "true";
   });
 
-  const [routePaused, setRoutePaused] = useState(false);
   const lastSentPauseRef = useRef<boolean | null>(null);
 
   // Track if we've already synced backend connection settings
@@ -338,60 +363,36 @@ export const SpectrumProvider: React.FC<{ children: React.ReactNode }> = ({
       }
     });
 
-  const { sessionToken, aesKey, isAuthenticated } = useAuthentication();
-  const wsUrl = sessionToken ? buildWsUrl(sessionToken) : "";
-
-  const wsConnection = useWebSocket(wsUrl, aesKey, isAuthenticated);
-  const {
-    sdrSettings,
-    spectrumFrames: wsSpectrumFrames,
-    isConnected,
-    sendPauseCommand,
-  } = wsConnection;
-
-  // Track active spectrum route globally
-  const isVisualizerRoute =
-    location.pathname === "/" ||
-    location.pathname === "/visualizer" ||
-    location.pathname === "/analysis" ||
-    location.pathname === "/draw-signal";
-
+  // 1. Clear manual pause on EXACTLY / if on fresh mount
   useEffect(() => {
-    if (!isVisualizerRoute) {
-      if (!routePaused) {
-        setRoutePaused(true);
-        // Only update state if it wasn't already paused
-        if (!state.visualizerPaused) {
-          dispatch({ type: "SET_VISUALIZER_PAUSED", paused: true });
-        }
-      }
-      if (isConnected && lastSentPauseRef.current !== true) {
-        sendPauseCommand(true);
-        lastSentPauseRef.current = true;
-      }
-    } else {
-      // Returning to visualizer route
-      if (routePaused && !manualVisualizerPaused) {
-        setRoutePaused(false);
-        dispatch({ type: "SET_VISUALIZER_PAUSED", paused: false });
-        if (isConnected && lastSentPauseRef.current !== false) {
-          sendPauseCommand(false);
-          lastSentPauseRef.current = false;
-        }
-      } else if (manualVisualizerPaused && !state.visualizerPaused) {
-        // Ensure store reflects manual pause
-        dispatch({ type: "SET_VISUALIZER_PAUSED", paused: true });
-      }
+    if (location.pathname === "/") {
+      setManualVisualizerPaused(false);
+      sessionStorage.setItem(MANUAL_VISUALIZER_PAUSE_KEY, "false");
     }
-  }, [
-    isVisualizerRoute,
-    isConnected,
-    routePaused,
-    manualVisualizerPaused,
-    state.visualizerPaused,
-    sendPauseCommand,
-    dispatch,
-  ]);
+  }, []); // Only once on mount
+
+  // 2. Auto-pause when navigating AWAY. We don't auto-resume.
+  useEffect(() => {
+    if (!isVisualizerRoute && !manualVisualizerPaused) {
+      setManualVisualizerPaused(true);
+      sessionStorage.setItem(MANUAL_VISUALIZER_PAUSE_KEY, "true");
+    }
+  }, [isVisualizerRoute, manualVisualizerPaused]);
+
+  // 3. Sync store visualizerPaused with manualVisualizerPaused
+  useEffect(() => {
+    if (state.visualizerPaused !== manualVisualizerPaused) {
+      dispatch({ type: "SET_VISUALIZER_PAUSED", paused: manualVisualizerPaused });
+    }
+  }, [manualVisualizerPaused, state.visualizerPaused, dispatch]);
+
+  // 4. Sync backend with manualVisualizerPaused
+  useEffect(() => {
+    if (isConnected && lastSentPauseRef.current !== manualVisualizerPaused) {
+      sendPauseCommand(manualVisualizerPaused);
+      lastSentPauseRef.current = manualVisualizerPaused;
+    }
+  }, [manualVisualizerPaused, isConnected, sendPauseCommand]);
 
   // Persist SDR settings when they change
   useEffect(() => {
@@ -407,6 +408,11 @@ export const SpectrumProvider: React.FC<{ children: React.ReactNode }> = ({
       vizPanOffset: state.vizPanOffset,
       fftMinDb: state.fftMinDb,
       fftMaxDb: state.fftMaxDb,
+      frequencyRange: state.frequencyRange,
+      activeSignalArea: state.activeSignalArea,
+      lastKnownRanges: state.lastKnownRanges,
+      displayTemporalResolution: state.displayTemporalResolution,
+      snapshotGridPreference: state.snapshotGridPreference,
     };
     sessionStorage.setItem(SDR_SETTINGS_KEY, JSON.stringify(settingsToPersist));
   }, [
@@ -421,6 +427,11 @@ export const SpectrumProvider: React.FC<{ children: React.ReactNode }> = ({
     state.vizPanOffset,
     state.fftMinDb,
     state.fftMaxDb,
+    state.frequencyRange,
+    state.activeSignalArea,
+    state.lastKnownRanges,
+    state.displayTemporalResolution,
+    state.snapshotGridPreference,
   ]);
 
   useEffect(() => {
@@ -574,22 +585,33 @@ export const SpectrumProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   }, [manualVisualizerPaused, isConnected, wsConnection.sendPauseCommand]);
 
-  const value = {
-    state,
-    dispatch,
-    manualVisualizerPaused,
-    setManualVisualizerPaused,
-    routePaused,
-    setRoutePaused,
-    effectiveFrames,
-    effectiveSdrSettings,
-    sampleRateHzEffective,
-    sampleRateMHz,
-    signalAreaBounds,
-    lastSentPauseRef,
-    wsConnection,
-    toggleVisualizerPause,
-  };
+  const value = useMemo(
+    () => ({
+      state,
+      dispatch,
+      manualVisualizerPaused,
+      setManualVisualizerPaused,
+      effectiveFrames,
+      effectiveSdrSettings,
+      sampleRateHzEffective,
+      sampleRateMHz,
+      signalAreaBounds,
+      lastSentPauseRef,
+      wsConnection,
+      toggleVisualizerPause,
+    }),
+    [
+      state,
+      manualVisualizerPaused,
+      effectiveFrames,
+      effectiveSdrSettings,
+      sampleRateHzEffective,
+      sampleRateMHz,
+      signalAreaBounds,
+      wsConnection,
+      toggleVisualizerPause,
+    ],
+  );
 
   return (
     <SpectrumStoreContext.Provider value={value}>

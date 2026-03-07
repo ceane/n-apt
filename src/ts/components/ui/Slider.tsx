@@ -156,20 +156,20 @@ export const Slider: React.FC<SliderProps> = ({
 
   const handleTrackInteraction = useCallback(
     (clientX: number, clientY: number, rect: DOMRect) => {
-      let pct =
+      const pct =
         orientation === "vertical"
           ? Math.max(0, Math.min(1, (clientY - rect.top) / rect.height))
           : Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
 
       const maxScrollPct = 1 - MIN_THUMB_RATIO;
-      let adjustedPct = Math.max(0, Math.min(maxScrollPct, pct));
+      const adjustedPct = Math.max(0, Math.min(maxScrollPct, pct));
 
-      let rawFillRatio =
+      const rawFillRatio =
         orientation === "vertical"
           ? 1 - adjustedPct / maxScrollPct
           : adjustedPct / maxScrollPct; // For horizontal, left-to-right is 0->1
 
-      let normalized = invertFill ? 1 - rawFillRatio : rawFillRatio;
+      const normalized = invertFill ? 1 - rawFillRatio : rawFillRatio;
 
       let raw: number;
       if (logarithmic) {

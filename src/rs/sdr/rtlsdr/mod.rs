@@ -4,9 +4,9 @@
 //! for RTL-SDR device access. Falls back gracefully when no device is present.
 
 #[cfg(not(target_arch = "wasm32"))]
-pub mod ffi;
-#[cfg(not(target_arch = "wasm32"))]
 pub mod device;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod ffi;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use device::RtlSdrDevice;

@@ -1,15 +1,15 @@
 use n_apt_backend::consts::fft::NUM_SAMPLES;
 use n_apt_backend::fft::processor::utils::freq_to_bin;
-use n_apt_backend::fft::processor::{
-  EnhancedFFTConfig, FFTProcessor,
-};
+use n_apt_backend::fft::processor::{EnhancedFFTConfig, FFTProcessor};
+use n_apt_backend::fft::types::*;
 use n_apt_backend::fft::{
   apply_window, bin_to_freq, calculate_snr, detect_peaks, find_peak_frequency,
   frequency_resolution, zoom_fft, WindowType,
 };
-use n_apt_backend::fft::types::*;
 #[cfg(not(target_arch = "wasm32"))]
-use n_apt_backend::simd::{NativeProcessor as NativeSIMDProcessor, downsample_spectrum_simd};
+use n_apt_backend::simd::{
+  downsample_spectrum_simd, NativeProcessor as NativeSIMDProcessor,
+};
 
 #[cfg(test)]
 mod tests {
@@ -113,7 +113,8 @@ mod tests {
 
   #[test]
   fn test_peak_detection() {
-    let spectrum = vec![-80.0, -60.0, -40.0, -20.0, 0.0, -20.0, -40.0, -60.0, -80.0];
+    let spectrum =
+      vec![-80.0, -60.0, -40.0, -20.0, 0.0, -20.0, -40.0, -60.0, -80.0];
     let peaks = detect_peaks(&spectrum, -50.0, 2);
 
     assert_eq!(peaks.len(), 1);
@@ -141,7 +142,8 @@ mod tests {
 
   #[test]
   fn test_find_peak_frequency() {
-    let spectrum = vec![-80.0, -60.0, -40.0, -20.0, 0.0, -20.0, -40.0, -60.0, -80.0];
+    let spectrum =
+      vec![-80.0, -60.0, -40.0, -20.0, 0.0, -20.0, -40.0, -60.0, -80.0];
     let (peak_index, _peak_freq) = find_peak_frequency(&spectrum, 32000, 9);
 
     let peak_freq: f32 = bin_to_freq(peak_index, 32000, 9);
@@ -244,7 +246,6 @@ mod tests {
     assert_eq!(empty_history.len(), 0);
   }
 
-  
   #[test]
   fn test_mock_signal_generation() {
     let mut processor = FFTProcessor::new();
@@ -329,7 +330,10 @@ mod tests {
       data[i * 2 + 1] = 128;
     }
 
-    let samples = RawSamples { data, sample_rate: 32000 };
+    let samples = RawSamples {
+      data,
+      sample_rate: 32000,
+    };
     let result = processor.process_samples(&samples).unwrap();
 
     assert_eq!(result.power_spectrum.len(), 256);
@@ -474,9 +478,22 @@ mod tests {
     let result_high = proc_high.process_samples(&samples).unwrap();
 
     // Find peak power in each — higher gain should produce a higher peak
-    let peak_low = result_low.power_spectrum.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-    let peak_high = result_high.power_spectrum.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-    assert!(peak_high > peak_low, "Higher gain should produce higher peak power: {} vs {}", peak_high, peak_low);
+    let peak_low = result_low
+      .power_spectrum
+      .iter()
+      .cloned()
+      .fold(f32::NEG_INFINITY, f32::max);
+    let peak_high = result_high
+      .power_spectrum
+      .iter()
+      .cloned()
+      .fold(f32::NEG_INFINITY, f32::max);
+    assert!(
+      peak_high > peak_low,
+      "Higher gain should produce higher peak power: {} vs {}",
+      peak_high,
+      peak_low
+    );
   }
 
   #[cfg(not(target_arch = "wasm32"))]
@@ -529,7 +546,9 @@ mod tests {
   #[test]
   fn test_downsample_spectrum_simd_integration() {
     // Test the SIMD downsampling function used by the server
-    let data: Vec<f32> = (0..4096).map(|i| -80.0 + (i as f32 / 4096.0) * 80.0).collect();
+    let data: Vec<f32> = (0..4096)
+      .map(|i| -80.0 + (i as f32 / 4096.0) * 80.0)
+      .collect();
     let result = downsample_spectrum_simd(&data, 1024);
     assert_eq!(result.len(), 1024);
 

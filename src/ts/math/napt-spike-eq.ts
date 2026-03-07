@@ -31,11 +31,15 @@ const calculateX = (t: number, params: MockNAPTParams) => {
 
   let y = 0;
 
-  for (let k = -half; k <= half; k++) {
+  // Localized loop: only calculate spikes within the immediate vicinity of t
+  const kStart = Math.max(-half, Math.floor((t - halfWidth) / spacing));
+  const kEnd = Math.min(half, Math.ceil((t + halfWidth) / spacing));
+
+  for (let k = kStart; k <= kEnd; k++) {
     const centerPos = k * spacing;
     const dx = t - centerPos;
 
-    // Finite support guarantees baseline = 0
+    // Finite support check (refined by loop bounds but kept for safety)
     if (Math.abs(dx) > halfWidth) continue;
 
     // Sine wave tooth

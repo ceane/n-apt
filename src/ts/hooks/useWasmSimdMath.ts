@@ -340,9 +340,9 @@ export function useWasmSimdMath(options: SpectrumMathOptions): WasmSimdMathHandl
         return { freqChange, newPan };
       } else {
         // Hardware retune mode
-        let newMinFreq = dragStartFreq - freqChange;
+        const newMinFreq = dragStartFreq - freqChange;
         const rangeWidth = fullRange.max - fullRange.min;
-        let newMaxFreq = newMinFreq + rangeWidth;
+        const newMaxFreq = newMinFreq + rangeWidth;
         
         return { 
           freqChange, 
@@ -361,9 +361,9 @@ export function useWasmSimdMath(options: SpectrumMathOptions): WasmSimdMathHandl
         
         return { freqChange, newPan };
       } else {
-        let newMinFreq = dragStartFreq - freqChange;
+        const newMinFreq = dragStartFreq - freqChange;
         const rangeWidth = fullRange.max - fullRange.min;
-        let newMaxFreq = newMinFreq + rangeWidth;
+        const newMaxFreq = newMinFreq + rangeWidth;
         
         return { 
           freqChange, 

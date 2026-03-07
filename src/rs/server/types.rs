@@ -1,6 +1,6 @@
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use indexmap::IndexMap;
 
 /// WebMCP tool request from agents
 #[derive(Debug, Deserialize)]
@@ -27,7 +27,10 @@ pub enum SdrCommand {
   SetTunerAGC(bool),
   SetRtlAGC(bool),
   RestartDevice,
-  StartTraining { label: String, signal_area: String },
+  StartTraining {
+    label: String,
+    signal_area: String,
+  },
   StopTraining,
   StartCapture {
     job_id: String,
@@ -39,15 +42,19 @@ pub enum SdrCommand {
     fft_size: usize,
     fft_window: String,
   },
-  ApplySettings {
-    fft_size: Option<usize>,
-    fft_window: Option<String>,
-    frame_rate: Option<u32>,
-    gain: Option<f64>,
-    ppm: Option<i32>,
-    tuner_agc: Option<bool>,
-    rtl_agc: Option<bool>,
-  },
+  ApplySettings(SdrProcessorSettings),
+}
+
+/// Settings for applying to the SDR processor and hardware
+#[derive(Debug, Clone, Default)]
+pub struct SdrProcessorSettings {
+  pub fft_size: Option<usize>,
+  pub fft_window: Option<String>,
+  pub frame_rate: Option<u32>,
+  pub gain: Option<f64>,
+  pub ppm: Option<i32>,
+  pub tuner_agc: Option<bool>,
+  pub rtl_agc: Option<bool>,
 }
 
 /// Struct representing a frequency range
@@ -68,9 +75,17 @@ pub struct WebSocketMessage {
   pub fragments: Option<Vec<FreqRange>>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "acquisitionMode")]
   pub acquisition_mode: Option<String>,
-  #[serde(skip_serializing_if = "Option::is_none", alias = "minFreq", alias = "min_mhz")]
+  #[serde(
+    skip_serializing_if = "Option::is_none",
+    alias = "minFreq",
+    alias = "min_mhz"
+  )]
   pub min_freq: Option<f64>,
-  #[serde(skip_serializing_if = "Option::is_none", alias = "maxFreq", alias = "max_mhz")]
+  #[serde(
+    skip_serializing_if = "Option::is_none",
+    alias = "maxFreq",
+    alias = "max_mhz"
+  )]
   pub max_freq: Option<f64>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub paused: Option<bool>,
@@ -130,20 +145,22 @@ pub struct SpectrumData {
   pub timestamp: i64,
 }
 
-/// Status message for WebSocket communication
-#[allow(dead_code)]
+/// Structured signal pattern for consistent waterfall visualization
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StatusMessage {
   #[serde(rename = "type")]
   pub message_type: String,
   pub device_connected: bool,
-  pub paused: bool,
-  pub backend: String,
   pub device_info: String,
   pub device_name: String,
+  pub device_loading: bool,
+  pub device_loading_reason: Option<String>,
+  pub device_state: String,
+  pub paused: bool,
   pub max_sample_rate: u32,
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub channels: Option<Vec<SpectrumFrameMessage>>,
+  pub channels: Vec<SpectrumFrameMessage>,
+  pub sdr_settings: SdrConfig,
+  pub device: String,
 }
 
 /// Structured signal pattern for consistent waterfall visualization
@@ -156,8 +173,8 @@ pub struct MockAptSignal {
   pub modulation_phase: f32,
   pub active: bool,
   /// Type of signal (for future classification features)
-#[allow(dead_code)]
-pub signal_type: SignalType,
+  #[allow(dead_code)]
+  pub signal_type: SignalType,
 }
 
 #[derive(Debug, Clone)]

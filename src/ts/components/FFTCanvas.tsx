@@ -12,7 +12,7 @@ import styled from "styled-components";
 import { useFFTAnimation } from "@n-apt/hooks/useFFTAnimation";
 import { usePauseLogic } from "@n-apt/hooks/usePauseLogic";
 import { useSpectrumRenderer } from "@n-apt/hooks/useSpectrumRenderer";
-import { RESAMPLE_WGSL } from "@n-apt/hooks/useDrawWebGPUFFTSignal";
+import { RESAMPLE_WGSL } from "@n-apt/consts/shaders/resample";
 import { useDrawWebGPUFIFOWaterfall } from "@n-apt/hooks/useDrawWebGPUFIFOWaterfall";
 import { useFrequencyDrag } from "@n-apt/hooks/useFrequencyDrag";
 import { useWebGPUInit } from "@n-apt/hooks/useWebGPUInit";
@@ -37,7 +37,7 @@ import {
   saveWaterfallSnapshot,
   loadWaterfallSnapshot,
   clearWaterfallSnapshot,
-} from "@n-apt/utils/waterfallDb";
+} from "@n-apt/utils/waterfallStore";
 
 // Use dynamic import for WASM module loading
 (async () => {
@@ -230,6 +230,7 @@ export type SnapshotData = {
   webgpuEnabled: boolean;
   hardwareSampleRateHz?: number;
   isIqRecordingActive?: boolean;
+  colormap: number[][];
 };
 
 export type FFTCanvasHandle = {
@@ -757,15 +758,13 @@ const FFTCanvas = memo(
 
         const currentData = dataRef.current;
 
-        if (!isPaused && currentData?.waveform) {
-          const waveform = ensureFloat32Waveform(currentData.waveform);
+        const hasNewData = !isPaused && currentData && currentData !== lastProcessedDataRef.current && !!currentData.waveform;
+
+        if (hasNewData) {
+          const waveform = ensureFloat32Waveform(currentData!.waveform);
 
           // Validate waveform before processing
-          if (!waveform || waveform.length === 0) {
-            return;
-          }
-
-          if (currentData !== lastProcessedDataRef.current) {
+          if (waveform && waveform.length > 0) {
             waveformFloatRef.current = waveform;
             lastProcessedDataRef.current = currentData;
 
@@ -972,6 +971,7 @@ const FFTCanvas = memo(
             drawSpectrum({
               canvas: (spectrumWebgpuEnabled ? spectrumGpuCanvas : spectrumCanvas) as HTMLCanvasElement,
               webgpuEnabled: spectrumWebgpuEnabled,
+              isInitializingWebGPU,
               device: webgpuDeviceRef.current,
               format: webgpuFormatRef.current,
               waveform: outBuf,
@@ -991,7 +991,7 @@ const FFTCanvas = memo(
             });
           }
 
-          // Waterfall render (only push new lines when not paused)
+          // Waterfall render (only push new lines when not paused AND new data is available)
           if (
             webgpuEnabled &&
             webgpuDeviceRef.current &&
@@ -999,7 +999,8 @@ const FFTCanvas = memo(
             waterfallGpuCanvas
           ) {
             const dims = waterfallGpuDimsRef.current;
-            if (dims && !isPaused && currentData) {
+            if (dims && currentData) {
+              const shouldUpdateWaterfallRow = hasNewData && !isPaused;
               // ALWAYS resample to a constant width (4096 bins)
               // This 'bakes' the current zoom into the row permanently and avoids
               // resetting the WebGPU texture when the zoom level changes.
@@ -1017,29 +1018,33 @@ const FFTCanvas = memo(
               }
               const processed = waterfallCappedBufferRef.current;
 
-              // Peak-resampling to 4096 bins
-              const srcLen = slicedWaveform.length;
-              const ratio = srcLen / FIXED_WATERFALL_BINS;
-              for (let i = 0; i < FIXED_WATERFALL_BINS; i++) {
-                const start = Math.floor(i * ratio);
-                const end = Math.floor((i + 1) * ratio);
-                let maxVal = -200;
-                for (let j = start; j < Math.max(end, start + 1); j++) {
-                  const val = slicedWaveform[j] ?? -200;
-                  if (val > maxVal) maxVal = val;
+              if (shouldUpdateWaterfallRow) {
+                // Peak-resampling to 4096 bins
+                const srcLen = slicedWaveform.length;
+                const ratio = srcLen / FIXED_WATERFALL_BINS;
+                for (let i = 0; i < FIXED_WATERFALL_BINS; i++) {
+                  const start = Math.floor(i * ratio);
+                  const end = Math.floor((i + 1) * ratio);
+                  let maxVal = -200;
+                  for (let j = start; j < Math.max(end, start + 1); j++) {
+                    const val = slicedWaveform[j] ?? -200;
+                    if (val > maxVal) maxVal = val;
+                  }
+                  processed[i] = maxVal;
                 }
-                processed[i] = maxVal;
-              }
-              waterfallBins = processed;
+                waterfallBins = processed;
 
-              // Keep a copy of the last row for pause/snapshot
-              if (
-                !lastWaterfallRowRef.current ||
-                lastWaterfallRowRef.current.length !== waterfallBins.length
-              ) {
-                lastWaterfallRowRef.current = new Float32Array(waterfallBins);
+                // Keep a copy of the last row for pause/snapshot
+                if (
+                  !lastWaterfallRowRef.current ||
+                  lastWaterfallRowRef.current.length !== waterfallBins.length
+                ) {
+                  lastWaterfallRowRef.current = new Float32Array(waterfallBins);
+                } else {
+                  lastWaterfallRowRef.current.set(waterfallBins);
+                }
               } else {
-                lastWaterfallRowRef.current.set(waterfallBins);
+                waterfallBins = lastWaterfallRowRef.current ?? processed;
               }
 
               // Snapshot tracking (always 4096 bins wide)
@@ -1060,7 +1065,7 @@ const FFTCanvas = memo(
               }
               const meta = waterfallTextureMetaRef.current;
               const snapshot = waterfallTextureSnapshotRef.current;
-              if (meta && snapshot && meta.width === FIXED_WATERFALL_BINS) {
+              if (shouldUpdateWaterfallRow && meta && snapshot && meta.width === FIXED_WATERFALL_BINS) {
                 const rowBytes = new Uint8Array(
                   waterfallBins.buffer,
                   waterfallBins.byteOffset,
@@ -1092,6 +1097,7 @@ const FFTCanvas = memo(
                 fftMax: vizDbMaxRef.current,
                 driftAmount: retuneSmearRef.current,
                 driftDirection: retuneDriftPxRef.current,
+                freeze: !shouldUpdateWaterfallRow,
                 wfSmooth: wfSmoothEnabled,
                 colormap: colormap,
                 colormapName: waterfallTheme,
@@ -1458,6 +1464,7 @@ const FFTCanvas = memo(
           webgpuEnabled,
           hardwareSampleRateHz,
           isIqRecordingActive,
+          colormap: colormap || [],
         };
       },
     }));

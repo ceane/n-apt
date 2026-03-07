@@ -4,13 +4,13 @@
 //! Provides high-performance vectorized operations for spectrum resampling,
 //! waterfall buffer management, and color mapping with ARM-specific optimizations.
 
-#[cfg(target_arch = "wasm32")]
-use wasm_bindgen::prelude::*;
+#[allow(unused_imports)]
+use crate::simd::arm_optimized_common::ARMOptimizedSIMD;
 #[cfg(target_arch = "wasm32")]
 #[allow(unused_imports)]
 use std::arch::wasm32::*;
-#[allow(unused_imports)]
-use crate::simd::arm_optimized_common::ARMOptimizedSIMD;
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::prelude::*;
 
 /// SIMD-accelerated processor for rendering operations
 ///
@@ -26,6 +26,12 @@ use crate::simd::arm_optimized_common::ARMOptimizedSIMD;
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 pub struct RenderingProcessor {
   _private: (),
+}
+
+impl Default for RenderingProcessor {
+  fn default() -> Self {
+    Self::new()
+  }
 }
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
@@ -61,7 +67,12 @@ impl RenderingProcessor {
   /// processor.resample_spectrum(input, output, 4);
   /// ```
   #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
-  pub fn resample_spectrum(&self, input: &[f32], output: &mut [f32], width: usize) {
+  pub fn resample_spectrum(
+    &self,
+    input: &[f32],
+    output: &mut [f32],
+    width: usize,
+  ) {
     // Use ARM-optimized implementation
     ARMOptimizedSIMD::resample_spectrum_arm_optimized(input, output, width);
   }
@@ -89,9 +100,16 @@ impl RenderingProcessor {
   /// processor.shift_waterfall_buffer(buffer, width, height);
   /// ```
   #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
-  pub fn shift_waterfall_buffer(&self, buffer: &mut [u8], width: usize, height: usize) {
+  pub fn shift_waterfall_buffer(
+    &self,
+    buffer: &mut [u8],
+    width: usize,
+    height: usize,
+  ) {
     // Use ARM-optimized implementation
-    ARMOptimizedSIMD::shift_waterfall_buffer_arm_optimized(buffer, width, height);
+    ARMOptimizedSIMD::shift_waterfall_buffer_arm_optimized(
+      buffer, width, height,
+    );
   }
 
   /// Applies color mapping to spectrum data using SIMD operations
@@ -118,9 +136,18 @@ impl RenderingProcessor {
   /// processor.apply_color_mapping(amplitudes, output, 0.8);
   /// ```
   #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
-  pub fn apply_color_mapping(&self, amplitudes: &[f32], output: &mut [u8], color_intensity: f32) {
+  pub fn apply_color_mapping(
+    &self,
+    amplitudes: &[f32],
+    output: &mut [u8],
+    color_intensity: f32,
+  ) {
     // Use ARM-optimized implementation
-    ARMOptimizedSIMD::apply_color_mapping_arm_optimized(amplitudes, output, color_intensity);
+    ARMOptimizedSIMD::apply_color_mapping_arm_optimized(
+      amplitudes,
+      output,
+      color_intensity,
+    );
   }
 
   /// NEW: Enhanced resampling with algorithm selection
@@ -177,8 +204,8 @@ mod tests {
     let mut buffer = vec![0u8; width * height * 4];
 
     // Fill first row with test data
-    for i in 0..width * 4 {
-      buffer[i] = (i % 256) as u8;
+    for (i, item) in buffer.iter_mut().enumerate().take(width * 4) {
+      *item = (i % 256) as u8;
     }
 
     processor.shift_waterfall_buffer(&mut buffer, width, height);
@@ -208,12 +235,12 @@ mod tests {
   fn test_wasm_simd_availability() {
     // Test that SIMD instructions are available in WASM
     use std::arch::wasm32::*;
-    
+
     // Test basic SIMD operations
     let a = f32x4(1.0, 2.0, 3.0, 4.0);
     let b = f32x4(5.0, 6.0, 7.0, 8.0);
     let result = f32x4_add(a, b);
-    
+
     // Verify SIMD operation worked
     assert_eq!(f32x4_extract_lane::<0>(result), 6.0);
     assert_eq!(f32x4_extract_lane::<1>(result), 8.0);
@@ -225,15 +252,15 @@ mod tests {
   #[test]
   fn test_simd_vector_operations() {
     use std::arch::wasm32::*;
-    
+
     // Test vectorized arithmetic operations
     let test_data = [1.0, 2.0, 3.0, 4.0];
     let vector = f32x4(test_data[0], test_data[1], test_data[2], test_data[3]);
-    
+
     // Test multiplication
     let multiplier = f32x4(2.0, 2.0, 2.0, 2.0);
     let result = f32x4_mul(vector, multiplier);
-    
+
     // Verify each element
     assert_eq!(f32x4_extract_lane::<0>(result), 2.0);
     assert_eq!(f32x4_extract_lane::<1>(result), 4.0);
@@ -245,18 +272,14 @@ mod tests {
   #[test]
   fn test_simd_memory_operations() {
     use std::arch::wasm32::*;
-    
+
     // Test SIMD memory load/store operations
     let vector: v128 = f32x4(1.5, 2.5, 3.5, 4.5);
 
     // Byte-level swizzle to reverse lane order (smoke test for shuffles).
     // Each f32 lane is 4 bytes, little-endian.
-    let mask: v128 = i8x16(
-      12, 13, 14, 15,
-      8, 9, 10, 11,
-      4, 5, 6, 7,
-      0, 1, 2, 3,
-    );
+    let mask: v128 =
+      i8x16(12, 13, 14, 15, 8, 9, 10, 11, 4, 5, 6, 7, 0, 1, 2, 3);
     let shuffled: v128 = i8x16_swizzle(vector, mask);
 
     assert_eq!(f32x4_extract_lane::<0>(shuffled), 4.5);
@@ -270,34 +293,38 @@ mod tests {
   fn test_simd_performance_characteristics() {
     use std::arch::wasm32::*;
     use std::time::Instant;
-    
+
     let iterations = 1000;
     let test_data = [1.0f32; 4];
-    
+
     // Test SIMD performance
     let start = Instant::now();
     for _ in 0..iterations {
-      let vector = f32x4(test_data[0], test_data[1], test_data[2], test_data[3]);
+      let vector =
+        f32x4(test_data[0], test_data[1], test_data[2], test_data[3]);
       let _ = f32x4_mul(vector, vector);
     }
     let simd_time = start.elapsed();
-    
+
     // Test scalar performance for comparison
     let start = Instant::now();
     for _ in 0..iterations {
       let result = [
         test_data[0] * test_data[0],
-        test_data[1] * test_data[1], 
+        test_data[1] * test_data[1],
         test_data[2] * test_data[2],
-        test_data[3] * test_data[3]
+        test_data[3] * test_data[3],
       ];
       // Prevent optimization
       std::hint::black_box(result);
     }
     let scalar_time = start.elapsed();
-    
+
     // SIMD should be faster (or at least not significantly slower)
-    assert!(scalar_time.as_nanos() as f64 / simd_time.as_nanos() as f64 >= 0.5, "SIMD should not be significantly slower than scalar");
+    assert!(
+      scalar_time.as_nanos() as f64 / simd_time.as_nanos() as f64 >= 0.5,
+      "SIMD should not be significantly slower than scalar"
+    );
   }
 
   #[cfg(target_arch = "wasm32")]
@@ -306,12 +333,12 @@ mod tests {
     let processor = RenderingProcessor::new();
     let input_data: Vec<f32> = (0..1024).map(|i| i as f32 / 1024.0).collect();
     let mut output_data = vec![0.0f32; 512];
-    
+
     // Test SIMD resampling
     let start = std::time::Instant::now();
     processor.resample_spectrum(&input_data, &mut output_data, 512);
     let simd_time = start.elapsed();
-    
+
     // Verify output is reasonable
     assert!(output_data.iter().any(|&x| x > 0.0));
     assert!(output_data.iter().any(|&x| x < 1.0));
@@ -323,15 +350,15 @@ mod tests {
     let processor = RenderingProcessor::new();
     let amplitudes: Vec<f32> = (0..256).map(|i| i as f32 / 255.0).collect();
     let mut output_data = vec![0u8; amplitudes.len() * 4];
-    
+
     // Test SIMD color mapping
     let start = std::time::Instant::now();
     processor.apply_color_mapping(&amplitudes, &mut output_data, 1.0);
     let simd_time = start.elapsed();
-    
+
     // Verify output has proper color data
     assert!(output_data.iter().any(|&x| x > 0));
-    
+
     // Verify alpha channel
     for i in (3..output_data.len()).step_by(4) {
       assert_eq!(output_data[i], 255);
@@ -339,21 +366,21 @@ mod tests {
   }
 
   #[cfg(target_arch = "wasm32")]
-  #[test] 
+  #[test]
   fn test_comprehensive_simd_functionality() {
     use std::arch::wasm32::*;
-    
+
     // Test 1: Basic SIMD availability
     let test_vec = f32x4(1.0, 2.0, 3.0, 4.0);
     let result = f32x4_add(test_vec, test_vec);
     assert_eq!(f32x4_extract_lane::<0>(result), 2.0);
-    
+
     // Test 2: Complex SIMD operations
     let a = f32x4(1.0, 2.0, 3.0, 4.0);
     let b = f32x4(0.5, 1.5, 2.5, 3.5);
     let complex_result = f32x4_add(f32x4_mul(a, b), f32x4(1.0, 1.0, 1.0, 1.0));
     assert_eq!(f32x4_extract_lane::<0>(complex_result), 1.5);
-    
+
     // Test 3: SIMD processor functionality
     let processor = RenderingProcessor::new();
     let test_amplitudes = [0.1, 0.5, 0.9, 0.3];

@@ -16,14 +16,7 @@ import type {
 } from "@n-apt/hooks/useWebSocket";
 import { formatFrequency } from "../../consts/sdr";
 
-// Import extracted section components
-import {
-  CheckboxLabel,
-  TabHeader,
-  TabButton,
-  Row,
-  CollapsibleTitle,
-} from "@n-apt/components/ui";
+import { Row, CollapsibleTitle } from "@n-apt/components/ui";
 import { ConnectionStatusSection } from "@n-apt/components/sidebar/ConnectionStatusSection";
 import { SignalDisplaySection } from "@n-apt/components/sidebar/SignalDisplaySection";
 
@@ -93,7 +86,7 @@ const SectionTitle = styled.div<{ $fileMode?: boolean }>`
   grid-column: 1 / -1;
 `;
 
-import { Row } from "@n-apt/components/ui";
+
 
 
 
@@ -220,7 +213,7 @@ interface SidebarProps {
   sdrSettings?: SdrSettingsConfig | null;
   captureStatus: CaptureStatus;
   autoFftOptions?: {
-    message_type: "auto_fft_options";
+    type: "auto_fft_options";
     autoSizes: number[];
     recommended: number;
   } | null;

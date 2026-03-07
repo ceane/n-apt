@@ -15,7 +15,7 @@ export function useDrawMockNAPTSignal() {
     const rawSamples: Array<{ t: number; freq: number; signal: number }> = [];
     let maxSignal = Number.NEGATIVE_INFINITY;
     let minSignal = Number.POSITIVE_INFINITY;
-    const steps = 32768; // Match FFT resolution for smoother curve
+    const steps = 16384; // Reduced from 32768 for performance
 
     for (let i = 0; i <= steps; i++) {
       const t = -1 + (2 * i) / steps;
