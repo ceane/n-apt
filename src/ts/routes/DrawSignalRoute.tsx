@@ -6,6 +6,9 @@ import { useWebGPUInit } from "@n-apt/hooks/useWebGPUInit";
 import { useSpectrumRenderer } from "@n-apt/hooks/useSpectrumRenderer";
 import { RESAMPLE_WGSL } from "@n-apt/consts/shaders/resample";
 import { FFT_CANVAS_BG } from "@n-apt/consts";
+import { PolarRadioWaveChart } from "@n-apt/components/PolarRadioWaveChart";
+import { PolarRadioWaveWebGPU } from "@n-apt/components/PolarRadioWaveWebGPU";
+import { CollapsibleTitle } from "@n-apt/components/ui/Collapsible";
 
 const PageContainer = styled.div`
   display: flex;
@@ -25,7 +28,7 @@ const Header = styled.div`
 const Title = styled.h1`
   font-size: 24px;
   margin-bottom: 8px;
-  color: ${(props) => props.theme.primary || "#3b82f6"};
+  color: ${(props: any) => props.theme.primary || "#3b82f6"};
   font-family: "Outfit", "Inter", sans-serif;
   letter-spacing: -0.5px;
   background: linear-gradient(135deg, #fff 0%, #888 100%);
@@ -87,8 +90,57 @@ const InfoItem = styled.div`
 `;
 
 const InfoValue = styled.span`
-  color: ${(props) => props.theme.primary || "#3b82f6"};
+  color: ${(props: any) => props.theme.primary || "#3b82f6"};
   font-weight: 500;
+`;
+
+const PolarSectionContainer = styled.div`
+  margin-top: 32px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding-top: 24px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  width: 100%;
+`;
+
+const PolarHeaderWrapper = styled.div`
+  grid-column: 1 / -1;
+  width: 100%;
+  margin-bottom: 8px; /* Reduced from 24px as CollapsibleTitleContainer has margin */
+`;
+
+const PolarGrid = styled.div`
+  grid-column: 1 / -1; /* Ensure it spans both columns of PolarSectionContainer */
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin-top: 16px;
+  height: 400px;
+
+  @media (max-width: 1200px) {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+`;
+
+const PolarCard = styled.div`
+  background: rgba(10, 10, 12, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.03);
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+`;
+
+const CardTitle = styled.div`
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #555;
+  font-weight: 600;
+  font-family: "JetBrains Mono", monospace;
 `;
 
 export const DrawSignalRoute: React.FC = () => {
@@ -100,6 +152,7 @@ export const DrawSignalRoute: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
+  const [isPolarOpen, setIsPolarOpen] = useState(false);
 
   // WebGPU initialization refs
   const waterfallGpuCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -251,6 +304,45 @@ export const DrawSignalRoute: React.FC = () => {
           </InfoItem>
         </InfoBox>
       </VisualizerWrapper>
+
+      <PolarSectionContainer>
+        <PolarHeaderWrapper>
+          <CollapsibleTitle
+            label="Polar Emission Charts (radio wave shown from antenna face)"
+            isOpen={isPolarOpen}
+            onToggle={() => setIsPolarOpen(!isPolarOpen)}
+          />
+        </PolarHeaderWrapper>
+
+        {isPolarOpen && (
+          <PolarGrid>
+            <PolarCard>
+              <CardTitle>Vector Analytic (SVG)</CardTitle>
+              <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <PolarRadioWaveChart
+                  aperture={40}
+                  beamWidth={(drawParams[state.activeClumpIndex]?.spikeWidth ?? 0.1) * 200}
+                  rotation={0}
+                  width={350}
+                  height={350}
+                />
+              </div>
+            </PolarCard>
+
+            <PolarCard>
+              <CardTitle>Physical Emission (WebGPU)</CardTitle>
+              <div style={{ flex: 1, position: 'relative' }}>
+                <PolarRadioWaveWebGPU
+                  aperture={40}
+                  beamWidth={(drawParams[state.activeClumpIndex]?.spikeWidth ?? 0.1) * 200}
+                  rotation={0}
+                  frequency={drawParams[state.activeClumpIndex]?.centerOffset ?? 0}
+                />
+              </div>
+            </PolarCard>
+          </PolarGrid>
+        )}
+      </PolarSectionContainer>
     </PageContainer>
   );
 };

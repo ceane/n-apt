@@ -357,27 +357,6 @@ const DrawMockNAPTSidebar: React.FC<DrawMockNAPTSidebarProps> = ({
       </div>
 
       <ControlsContainer>
-        <Row label="Clumps">
-          <SettingSelect
-            value={drawParams.length}
-            onChange={(e: React.ChangeEvent<HTMLSelectElement>) => handleClumpCountChange(parseInt(e.target.value))}
-            style={{ width: '100%' }}
-          >
-            {[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{n} Clump{n > 1 ? 's' : ''}</option>)}
-          </SettingSelect>
-        </Row>
-
-        <Slider
-          label="Global Noise Floor"
-          value={globalNoiseFloor}
-          min={-140}
-          max={-40}
-          step={1}
-          onChange={onGlobalNoiseFloorChange}
-          formatValue={(v) => `${v} dB`}
-          orientation="horizontal"
-        />
-
         <BeatsSection style={{ borderTop: 'none', paddingTop: 0, marginTop: 4 }}>
           <BeatsHeader>
             <BeatsTitle>Add Beats (Heterodyne)</BeatsTitle>
@@ -412,6 +391,16 @@ const DrawMockNAPTSidebar: React.FC<DrawMockNAPTSidebarProps> = ({
 
         <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', margin: '8px 0', paddingBottom: '8px' }} />
 
+        <Row label="Clumps">
+          <SettingSelect
+            value={drawParams.length}
+            onChange={(e: React.ChangeEvent<HTMLSelectElement>) => handleClumpCountChange(parseInt(e.target.value))}
+            style={{ width: '100%' }}
+          >
+            {[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{n} Clump{n > 1 ? 's' : ''}</option>)}
+          </SettingSelect>
+        </Row>
+
         <Row label="Clump config">
           <ClumpSelector style={{ margin: 0 }}>
             {drawParams.map((_, i) => (
@@ -426,16 +415,7 @@ const DrawMockNAPTSidebar: React.FC<DrawMockNAPTSidebarProps> = ({
           </ClumpSelector>
         </Row>
 
-        <Slider
-          label="Center Offset"
-          value={activeParams.centerOffset}
-          min={0.0}
-          max={3.0}
-          step={0.01}
-          onChange={(v) => handleParamChange("centerOffset", v)}
-          formatValue={(v) => `${v.toFixed(2)} MHz`}
-          orientation="horizontal"
-        />
+        <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', margin: '8px 0', paddingBottom: '8px' }} />
 
         <Slider
           label="Peak Amplitude"
@@ -448,28 +428,36 @@ const DrawMockNAPTSidebar: React.FC<DrawMockNAPTSidebarProps> = ({
           orientation="horizontal"
         />
 
+        <Slider
+          label="Spikes Amplitude"
+          value={activeParams.spikesAmplitude}
+          min={-60}
+          max={0}
+          step={1}
+          onChange={(v) => handleParamChange("spikesAmplitude", v)}
+          formatValue={(v) => `${v} dB`}
+          orientation="horizontal"
+        />
 
         <Slider
-          label="Simulated Noise (data)"
+          label="Global Noise Floor"
+          value={globalNoiseFloor}
+          min={-140}
+          max={-40}
+          step={1}
+          onChange={onGlobalNoiseFloorChange}
+          formatValue={(v) => `${v} dB`}
+          orientation="horizontal"
+        />
+
+        <Slider
+          label="Simulated Noise (Data)"
           value={activeParams.simulatedNoise}
           min={0.0}
           max={1.0}
           step={0.01}
           onChange={(v) => handleParamChange("simulatedNoise", v)}
           formatValue={(v) => v.toFixed(2)}
-          orientation="horizontal"
-        />
-
-        <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', margin: '8px 0', paddingBottom: '8px' }} />
-
-        <Slider
-          label="Spikes"
-          value={activeParams.spikeCount}
-          min={10}
-          max={300}
-          step={10}
-          onChange={(v) => handleParamChange("spikeCount", v)}
-          formatValue={(v) => v.toString()}
           orientation="horizontal"
         />
 
@@ -486,6 +474,30 @@ const DrawMockNAPTSidebar: React.FC<DrawMockNAPTSidebarProps> = ({
         />
 
         <Slider
+          label="Spikes -> Number of Spikes"
+          value={activeParams.spikeCount}
+          min={10}
+          max={300}
+          step={10}
+          onChange={(v) => handleParamChange("spikeCount", v)}
+          formatValue={(v) => v.toString()}
+          orientation="horizontal"
+        />
+
+        <Slider
+          label="Center Offset"
+          value={activeParams.centerOffset}
+          min={0.0}
+          max={3.0}
+          step={0.01}
+          onChange={(v) => handleParamChange("centerOffset", v)}
+          formatValue={(v) => `${v.toFixed(2)} MHz`}
+          orientation="horizontal"
+        />
+
+        <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', margin: '8px 0', paddingBottom: '8px' }} />
+
+        <Slider
           label="Boost"
           value={activeParams.centerSpikeBoost}
           min={1.0}
@@ -493,17 +505,6 @@ const DrawMockNAPTSidebar: React.FC<DrawMockNAPTSidebarProps> = ({
           step={0.1}
           onChange={(v) => handleParamChange("centerSpikeBoost", v)}
           formatValue={(v) => v.toFixed(1)}
-          orientation="horizontal"
-        />
-
-        <Slider
-          label="Spikes Amplitude"
-          value={activeParams.spikesAmplitude}
-          min={-60}
-          max={0}
-          step={1}
-          onChange={(v) => handleParamChange("spikesAmplitude", v)}
-          formatValue={(v) => `${v} dB`}
           orientation="horizontal"
         />
 

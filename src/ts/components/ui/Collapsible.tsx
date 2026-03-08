@@ -2,14 +2,15 @@ import React from "react";
 import styled from "styled-components";
 
 export const CollapsibleTitleContainer = styled.button`
-  display: grid;
-  grid-template-columns: subgrid;
-  grid-column: 1 / -1;
+  display: flex;
+  justify-content: space-between;
   align-items: center;
+  width: 100%;
+  grid-column: 1 / -1;
   background: transparent;
   border: 0;
   padding: 0;
-  margin: 1rem 0 0 0;
+  margin: 1.5rem 0 0.5rem 0;
   cursor: pointer;
   text-align: left;
 `;
@@ -21,7 +22,6 @@ export const CollapsibleTitleLabel = styled.span`
   letter-spacing: 1px;
   font-weight: 600;
   font-family: "JetBrains Mono", monospace;
-  grid-column: 1;
 `;
 
 export const CollapsibleTitleToggle = styled.span`
@@ -29,8 +29,6 @@ export const CollapsibleTitleToggle = styled.span`
   color: #555;
   font-family: "JetBrains Mono", monospace;
   font-weight: 600;
-  justify-self: end;
-  grid-column: 2;
 `;
 
 export const CollapsibleBody = styled.div`
