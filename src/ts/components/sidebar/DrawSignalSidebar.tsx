@@ -14,8 +14,19 @@ export const DrawSignalSidebar: React.FC = () => {
     <SidebarContent>
       <DrawMockNAPTSidebar
         drawParams={state.drawParams}
+        activeClumpIndex={state.activeClumpIndex}
+        globalNoiseFloor={state.globalNoiseFloor}
         onDrawParamsChange={(params) =>
           dispatch({ type: "SET_DRAW_PARAMS", params })
+        }
+        onActiveClumpIndexChange={(index) =>
+          dispatch({ type: "SET_ACTIVE_CLUMP_INDEX", index })
+        }
+        onGlobalNoiseFloorChange={(noise) =>
+          dispatch({ type: "SET_GLOBAL_NOISE_FLOOR", noise })
+        }
+        onResetParams={() =>
+          dispatch({ type: "RESET_DRAW_PARAMS" })
         }
       />
     </SidebarContent>

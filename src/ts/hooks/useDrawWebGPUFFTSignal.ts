@@ -35,7 +35,7 @@
  */
 import { useCallback, useRef } from "react";
 import { OverlayTextureRenderer } from "@n-apt/hooks/useWebGPUInit";
-import { LINE_COLOR, SHADOW_COLOR, FFT_CANVAS_BG } from "@n-apt/consts";
+import { LINE_COLOR, SHADOW_COLOR, FFT_CANVAS_BG, FFT_AREA_MIN } from "@n-apt/consts";
 import { SPECTRUM_SHADER } from "@n-apt/consts/shaders/spectrum";
 import { configureWebGPUCanvas, parseCssColorToRgba } from "@n-apt/utils/webgpu";
 
@@ -292,9 +292,9 @@ export function useDrawWebGPUFFTSignal() {
           canvasWidth: logicalWidth,
           canvasHeight: logicalHeight,
           dpr,
-          plotLeft: 40, // FFT_AREA_MIN.x
+          plotLeft: FFT_AREA_MIN.x, 
           plotRight: fftAreaMax.x,
-          plotTop: 40, // FFT_AREA_MIN.y
+          plotTop: FFT_AREA_MIN.y, 
           plotBottom: fftAreaMax.y,
           dbMin: fftMin,
           dbMax: fftMax,

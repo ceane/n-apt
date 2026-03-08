@@ -1,8 +1,13 @@
 import React from "react";
 import styled from "styled-components";
 import { useHotspotEditor } from "@n-apt/hooks/useHotspotEditor";
+import { Row } from "@n-apt/components/ui";
 
-const Section = styled.div`
+const FormGrid = styled.div`
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-column: 1 / -1;
+  gap: 2px;
   margin-bottom: 24px;
 `;
 
@@ -11,73 +16,71 @@ const SectionTitle = styled.div`
   color: #555;
   text-transform: uppercase;
   letter-spacing: 1px;
-  margin-bottom: 16px;
+  margin-top: 1.5rem;
+  margin-bottom: 12px;
   font-weight: 600;
   font-family: "JetBrains Mono", monospace;
+  grid-column: 1 / -1;
 `;
 
-import { Row } from "@n-apt/components/ui";
-
 const SettingInput = styled.input`
-  background-color: transparent;
-  border: 1px solid transparent;
+  background-color: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 4px;
   color: #ccc;
   font-family: "JetBrains Mono", monospace;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 500;
   padding: 4px 8px;
-  min-width: 120px;
-  cursor: pointer;
+  min-width: 140px;
+  text-align: right;
+  transition: all 0.2s ease;
 
   &:hover {
-    border-color: #2a2a2a;
+    border-color: rgba(255, 255, 255, 0.15);
   }
 
   &:focus {
     outline: none;
-    border-color: #00d4ff;
-    background-color: rgba(0, 212, 255, 0.05);
+    border-color: ${(props) => props.theme.primary};
+    background-color: ${(props) => props.theme.primary}0d;
   }
 `;
 
 const SettingSelect = styled.select`
-  background-color: transparent;
-  border: 1px solid transparent;
+  background-color: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 4px;
   color: #ccc;
   font-family: "JetBrains Mono", monospace;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 500;
   padding: 4px 8px;
-  min-width: 120px;
+  min-width: 140px;
   cursor: pointer;
   appearance: none;
   background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ccc' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6,9 12,15 18,9'%3e%3c/polyline%3e%3c/svg%3e");
   background-repeat: no-repeat;
-  background-position: right 2px center;
-  background-size: 12px;
-  padding-right: 20px;
+  background-position: right 8px center;
+  background-size: 10px;
+  padding-right: 28px;
+  text-align-last: right;
+  transition: all 0.2s ease;
 
   &:hover {
-    border-color: #2a2a2a;
+    border-color: rgba(255, 255, 255, 0.15);
   }
 
   &:focus {
     outline: none;
-    border-color: #00d4ff;
-    background-color: rgba(0, 212, 255, 0.05);
+    border-color: ${(props) => props.theme.primary};
+    background-color: ${(props) => props.theme.primary}0d;
   }
 
   option {
     background-color: #1a1a1a;
     color: #ccc;
-    font-family: "JetBrains Mono", monospace;
   }
-`;
-
-const SettingCheckbox = styled.input`
-  cursor: pointer;
 `;
 
 const Button = styled.button<{ $variant?: "primary" | "danger" | "warning" }>`
@@ -91,15 +94,16 @@ const Button = styled.button<{ $variant?: "primary" | "danger" | "warning" }>`
   cursor: pointer;
   transition: all 0.2s ease;
   margin-bottom: 8px;
+  grid-column: 1 / -1;
 
   ${(props) => {
     switch (props.$variant) {
       case "primary":
         return `
-          background-color: #00d4ff;
+          background-color: ${props.theme.primary};
           color: #000;
           &:hover {
-            background-color: #00b8e6;
+            opacity: 0.9;
           }
         `;
       case "danger":
@@ -136,26 +140,28 @@ const HotspotList = styled.div`
   max-height: 300px;
   overflow-y: auto;
   margin-top: 16px;
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 8px;
 `;
 
 const HotspotItem = styled.div<{ $selected: boolean }>`
-  background-color: ${(props) => (props.$selected ? "#2a2a2a" : "#1a1a1a")};
-  border: 1px solid ${(props) => (props.$selected ? "#00d4ff" : "#333")};
-  border-radius: 4px;
-  padding: 8px;
-  margin-bottom: 8px;
+  background-color: ${(props) => (props.$selected ? "rgba(255, 255, 255, 0.08)" : "rgba(255, 255, 255, 0.03)")};
+  border: 1px solid ${(props) => (props.$selected ? props.theme.primary : "rgba(255, 255, 255, 0.08)")};
+  border-radius: 6px;
+  padding: 10px 12px;
   cursor: pointer;
   transition: all 0.2s ease;
 
   &:hover {
-    background-color: #252525;
-    border-color: #444;
+    background-color: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.15);
   }
 `;
 
 const HotspotName = styled.div`
   color: #ccc;
-  font-weight: bold;
+  font-weight: 600;
   font-size: 12px;
   margin-bottom: 4px;
 `;
@@ -167,19 +173,20 @@ const HotspotPosition = styled.div`
 `;
 
 const DeleteButton = styled.button`
-  margin-top: 4px;
+  margin-top: 8px;
   padding: 4px 8px;
-  background-color: #ff4444;
-  border: none;
-  color: #fff;
-  border-radius: 2px;
+  background-color: rgba(255, 68, 68, 0.1);
+  border: 1px solid rgba(255, 68, 68, 0.2);
+  color: #ff4444;
+  border-radius: 4px;
   cursor: pointer;
-  font-size: 11px;
+  font-size: 10px;
   font-family: "JetBrains Mono", monospace;
-  transition: background-color 0.2s ease;
+  transition: all 0.2s ease;
 
   &:hover {
-    background-color: #ff6666;
+    background-color: rgba(255, 68, 68, 0.2);
+    border-color: rgba(255, 68, 68, 0.3);
   }
 `;
 
@@ -206,9 +213,7 @@ export const HotspotEditorSection: React.FC = () => {
 
   return (
     <>
-      <Section>
-        <SectionTitle>Hotspot Creator</SectionTitle>
-
+      <FormGrid>
         <Row label="Point Name">
           <SettingInput
             type="text"
@@ -243,13 +248,12 @@ export const HotspotEditorSection: React.FC = () => {
           </SettingSelect>
         </Row>
 
-        <Row label="Multi-Select Mode">
-          <SettingCheckbox
+        <Row label="Multi-Select">
+          <input
             type="checkbox"
+            style={{ accentColor: "var(--primary-color, #00d4ff)" }}
             checked={isMultiSelectMode}
-            onChange={(e) => {
-              setIsMultiSelectMode(e.target.checked);
-            }}
+            onChange={(e) => setIsMultiSelectMode(e.target.checked)}
           />
         </Row>
 
@@ -257,41 +261,41 @@ export const HotspotEditorSection: React.FC = () => {
           <div
             style={{
               marginLeft: "12px",
-              marginBottom: "16px",
+              marginBottom: "8px",
               color: "#666",
-              fontSize: "11px",
+              fontFamily: "JetBrains Mono",
+              fontSize: "10px",
+              gridColumn: "1 / -1",
             }}
           >
-            Selected: {multiSelectedHotspots.length} hotspots
+            Selected: {multiSelectedHotspots.length}
           </div>
         )}
 
         <Row label="Show Grid">
-          <SettingCheckbox
+          <input
             type="checkbox"
+            style={{ accentColor: "var(--primary-color, #00d4ff)" }}
             checked={showGrid}
             onChange={(e) => setShowGrid(e.target.checked)}
           />
         </Row>
-      </Section>
+      </FormGrid>
 
-      <Section>
+      <FormGrid>
         <SectionTitle>Actions</SectionTitle>
-
         {isMultiSelectMode && multiSelectedHotspots.length > 0 && (
           <Button $variant="warning" onClick={handleDeleteSelected}>
             Delete Selected ({multiSelectedHotspots.length})
           </Button>
         )}
-
         <Button $variant="danger" onClick={handleClear}>
           Clear All
         </Button>
-      </Section>
+      </FormGrid>
 
-      <Section>
+      <FormGrid>
         <SectionTitle>Hotspots ({hotspots.length})</SectionTitle>
-
         <HotspotList>
           {hotspots.map((hotspot) => (
             <HotspotItem
@@ -314,7 +318,7 @@ export const HotspotEditorSection: React.FC = () => {
             </HotspotItem>
           ))}
         </HotspotList>
-      </Section>
+      </FormGrid>
     </>
   );
 };

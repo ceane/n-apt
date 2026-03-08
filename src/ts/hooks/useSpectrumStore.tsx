@@ -25,13 +25,21 @@ export type SelectedFile = { name: string; file: File; downloadUrl?: string };
 
 const MANUAL_VISUALIZER_PAUSE_KEY = "napt-visualizer-manual-paused";
 
+export type BeatParams = {
+  offsetHz: number;
+};
+
 export type DrawParams = {
   spikeCount: number;
   spikeWidth: number;
   centerSpikeBoost: number;
-  floorAmplitude: number;
+  spikesAmplitude: number; // Unit: dB (max 0)
   decayRate: number;
   envelopeWidth: number;
+  centerOffset: number;    // Unit: MHz
+  peakAmplitude: number;   // Unit: dB (max 0)
+  simulatedNoise: number;
+  beats: BeatParams[];     // Up to 2 beats
 };
 
 export type SpectrumState = {
@@ -40,7 +48,9 @@ export type SpectrumState = {
   displayTemporalResolution: "low" | "medium" | "high";
   selectedFiles: SelectedFile[];
   snapshotGridPreference: boolean;
-  drawParams: DrawParams;
+  drawParams: DrawParams[];
+  activeClumpIndex: number;
+  globalNoiseFloor: number; // Unit: dB
   sourceMode: SourceMode;
   stitchStatus: string;
   visualizerPaused: boolean;
@@ -81,7 +91,10 @@ export type SpectrumAction =
   }
   | { type: "SET_SELECTED_FILES"; files: SelectedFile[] }
   | { type: "SET_SNAPSHOT_GRID"; preference: boolean }
-  | { type: "SET_DRAW_PARAMS"; params: DrawParams }
+  | { type: "SET_DRAW_PARAMS"; params: DrawParams[] }
+  | { type: "SET_CLUMP_PARAMS"; index: number; params: DrawParams }
+  | { type: "SET_ACTIVE_CLUMP_INDEX"; index: number }
+  | { type: "SET_GLOBAL_NOISE_FLOOR"; noise: number }
   | { type: "SET_SOURCE_MODE"; mode: SourceMode }
   | { type: "SET_STITCH_STATUS"; status: string }
   | { type: "SET_VISUALIZER_PAUSED"; paused: boolean }
@@ -104,7 +117,8 @@ export type SpectrumAction =
   | { type: "SET_FFT_DB_LIMITS"; min: number; max: number }
   | { type: "SET_SAMPLE_RATE"; sampleRateHz: number }
   | { type: "SET_SDR_SETTINGS_BUNDLE"; settings: Partial<SpectrumState> }
-  | { type: "RESET_ZOOM_AND_DB" };
+  | { type: "RESET_ZOOM_AND_DB" }
+  | { type: "RESET_DRAW_PARAMS" };
 
 export const INITIAL_SPECTRUM_STATE: SpectrumState = {
   activeSignalArea: "A",
@@ -112,14 +126,22 @@ export const INITIAL_SPECTRUM_STATE: SpectrumState = {
   displayTemporalResolution: "medium",
   selectedFiles: [],
   snapshotGridPreference: true,
-  drawParams: {
-    spikeCount: 40,
-    spikeWidth: 0.4,
-    centerSpikeBoost: 4.9,
-    floorAmplitude: 0.5,
-    decayRate: 0.2,
-    envelopeWidth: 10,
-  },
+  drawParams: [
+    {
+      spikeCount: 40,
+      spikeWidth: 0.25,
+      centerSpikeBoost: 4.9,
+      spikesAmplitude: -10, // dB
+      decayRate: 0.2,
+      envelopeWidth: 10,
+      centerOffset: 1.5,
+      peakAmplitude: -40,    // -40 dB
+      simulatedNoise: 0.05,
+      beats: [],
+    },
+  ],
+  activeClumpIndex: 0,
+  globalNoiseFloor: -100, // Default changed to -100dB
   sourceMode: "live",
   stitchStatus: "",
   visualizerPaused: false,
@@ -204,6 +226,15 @@ export function spectrumReducer(
       return { ...state, snapshotGridPreference: action.preference };
     case "SET_DRAW_PARAMS":
       return { ...state, drawParams: action.params };
+    case "SET_CLUMP_PARAMS": {
+      const newParams = [...state.drawParams];
+      newParams[action.index] = action.params;
+      return { ...state, drawParams: newParams };
+    }
+    case "SET_ACTIVE_CLUMP_INDEX":
+      return { ...state, activeClumpIndex: action.index };
+    case "SET_GLOBAL_NOISE_FLOOR":
+      return { ...state, globalNoiseFloor: action.noise };
     case "SET_SOURCE_MODE":
       // When switching away from file mode, reset processing state but keep files
       if (state.sourceMode === "file" && action.mode !== "file") {
@@ -277,6 +308,13 @@ export function spectrumReducer(
         vizPanOffset: 0,
         fftMinDb: -120,
         fftMaxDb: 0,
+      };
+    case "RESET_DRAW_PARAMS":
+      return {
+        ...state,
+        drawParams: JSON.parse(JSON.stringify(INITIAL_SPECTRUM_STATE.drawParams)),
+        globalNoiseFloor: INITIAL_SPECTRUM_STATE.globalNoiseFloor,
+        activeClumpIndex: 0,
       };
     default:
       return state;

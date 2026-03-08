@@ -1,6 +1,6 @@
 import React from "react";
 import styled from "styled-components";
-import { CollapsibleTitle, CollapsibleBody, Row } from "@n-apt/components/ui";
+import { CollapsibleTitle, CollapsibleBody, Row, usePrompt } from "@n-apt/components/ui";
 import { useMapLocations } from "@n-apt/hooks/useMapLocations";
 import { Autocomplete } from "@react-google-maps/api";
 import { LocalTowersButton } from "@n-apt/components/LocalTowersButton";
@@ -183,17 +183,22 @@ const RemoveButton = styled.button`
   border: none;
   color: #ff4444;
   cursor: pointer;
-  padding: 4px;
-  font-size: 14px;
+  padding: 6px;
+  font-size: 18px;
   line-height: 1;
   display: flex;
   align-items: center;
   justify-content: center;
   opacity: 0.6;
   transition: opacity 0.2s;
+  margin-left: 4px;
+  border-radius: 50%;
+  min-width: 24px;
+  min-height: 24px;
 
   &:hover {
     opacity: 1;
+    background: rgba(255, 68, 68, 0.1);
   }
 `;
 
@@ -201,6 +206,7 @@ export const MapEndpointsSidebar: React.FC = () => {
   const [linksOpen, setLinksOpen] = React.useState(true);
   const [searchValue, setSearchValue] = React.useState("");
   const [autocomplete, setAutocomplete] = React.useState<google.maps.places.Autocomplete | null>(null);
+  const showPrompt = usePrompt();
 
   const {
     locations,
@@ -243,6 +249,17 @@ export const MapEndpointsSidebar: React.FC = () => {
       addLocation(previewLocation.name, previewLocation.lat, previewLocation.lng);
       setPreviewLocation(null); // Clear preview after adding
     }
+  };
+
+  const handleRemoveClick = (locationId: string, locationName: string) => {
+    showPrompt({
+      title: "Remove Location",
+      message: `Are you sure you want to remove "${locationName}" from your saved locations?`,
+      confirmText: "Remove",
+      cancelText: "Cancel",
+      onConfirm: () => removeLocation(locationId),
+      variant: "danger"
+    });
   };
 
   return (
@@ -292,7 +309,7 @@ export const MapEndpointsSidebar: React.FC = () => {
             {loc.id !== "current" && (
               <RemoveButton onClick={(e) => {
                 e.stopPropagation();
-                removeLocation(loc.id);
+                handleRemoveClick(loc.id, loc.name);
               }}>
                 ×
               </RemoveButton>

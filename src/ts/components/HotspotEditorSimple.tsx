@@ -4,7 +4,11 @@ import { Canvas, useThree, useFrame } from "@react-three/fiber";
 import { OrbitControls, useGLTF } from "@react-three/drei";
 import { Vector3, Vector2, Raycaster } from "three";
 import { useHotspotEditor } from "@n-apt/hooks/useHotspotEditor";
-import { MODEL_CAMERA_POSITION, MODEL_FOV } from "@n-apt/consts";
+import {
+  MODEL_CAMERA_POSITION,
+  MODEL_CAMERA_TARGET,
+  MODEL_FOV,
+} from "@n-apt/consts";
 
 function ClickHandler({
   onAddHotspot,
@@ -51,14 +55,21 @@ function ClickHandler({
   return null;
 }
 
-function Model({ onAddHotspot }: { onAddHotspot: (point: Vector3) => void }) {
+function Model({
+  onAddHotspot,
+  children,
+}: {
+  onAddHotspot: (point: Vector3) => void;
+  children?: React.ReactNode;
+}) {
   const { scene } = useGLTF("/glb_models/androgynous_body.glb");
 
   return (
-    <>
+    <group>
       <primitive object={scene} />
       <ClickHandler onAddHotspot={onAddHotspot} />
-    </>
+      {children}
+    </group>
   );
 }
 
@@ -204,24 +215,24 @@ export const HotspotEditorSimple: React.FC<HotspotEditorSimpleProps> = ({
         <directionalLight position={[10, 10, 5]} intensity={1} />
 
         {showGrid && (
-          <gridHelper args={[10, 10, "#333", "#222"]} position={[0, -1, 0]} />
+          <gridHelper args={[10, 10, "#333", "#222"]} position={[0, 0, 0]} />
         )}
 
-        <Model onAddHotspot={handleAddHotspot} />
+        <Model onAddHotspot={handleAddHotspot}>
+          {hotspots.map((hotspot) => (
+            <HotspotMarker
+              key={hotspot.id}
+              hotspot={hotspot}
+              onClick={() => handleHotspotClick(hotspot.id)}
+              onDelete={() => handleDeleteHotspot(hotspot.id)}
+              onRename={handleRename}
+              isSelected={selectedHotspot === hotspot.id}
+              isMultiSelected={false}
+            />
+          ))}
+        </Model>
 
-        {hotspots.map((hotspot) => (
-          <HotspotMarker
-            key={hotspot.id}
-            hotspot={hotspot}
-            onClick={() => handleHotspotClick(hotspot.id)}
-            onDelete={() => handleDeleteHotspot(hotspot.id)}
-            onRename={handleRename}
-            isSelected={selectedHotspot === hotspot.id}
-            isMultiSelected={false}
-          />
-        ))}
-
-        <OrbitControls />
+        <OrbitControls target={MODEL_CAMERA_TARGET} />
       </Canvas>
 
       <div

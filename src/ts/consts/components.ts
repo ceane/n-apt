@@ -9,7 +9,7 @@ export const BRAIN_SCALE = [0.45, 0.45, 0.45] as const;
 
 // DrawMockNAPT constants
 export const DEFAULT_SPIKE_COUNT = 150;
-export const DEFAULT_SPIKE_WIDTH = 0.5;
+export const DEFAULT_SPIKE_WIDTH = 0.1;
 export const DEFAULT_CENTER_SPIKE_BOOST = 2.5;
 export const DEFAULT_FLOOR_AMPLITUDE = 1;
 export const DEFAULT_DECAY_RATE = 0.5;
@@ -42,8 +42,9 @@ export const HOTSPOT_CONTROL_PANEL_WIDTH = 300;
 export const HOTSPOT_CONTROL_PANEL_PADDING = 20;
 
 // HumanModelViewer constants
-export const MODEL_CAMERA_POSITION = [0, 0, 5] as const;
-export const MODEL_FOV = 75;
+export const MODEL_CAMERA_POSITION = [0, 1.1, 3.5] as const;
+export const MODEL_CAMERA_TARGET = [0, 1.1, 0] as const;
+export const MODEL_FOV = 40;
 export const SPHERE_GEOMETRY_SEGMENTS = 16;
 export const SPHERE_MARKER_COLOR = "#00ffff";
 export const SPHERE_MARKER_BASE_INTENSITY = 0.8;

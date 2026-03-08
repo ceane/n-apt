@@ -1,13 +1,15 @@
 import React, { Suspense, useRef, useCallback } from "react";
 import styled from "styled-components";
-import { Canvas, useThree, useFrame } from "@react-three/fiber";
+import { Canvas } from "@react-three/fiber";
 import { OrbitControls, useGLTF, TransformControls } from "@react-three/drei";
-import { Vector3, Vector2, Raycaster } from "three";
+import { Vector3 } from "three";
 import Brain from "@n-apt/components/Brain";
+import { HorizonFocusGlobe } from "./HorizonFocusGlobe";
 import { useModel3D, type Area } from "@n-apt/hooks/useModel3D";
 import { useHotspotEditor } from "@n-apt/hooks/useHotspotEditor";
 import {
   MODEL_CAMERA_POSITION,
+  MODEL_CAMERA_TARGET,
   MODEL_FOV,
   SPHERE_GEOMETRY_SEGMENTS,
   SPHERE_MARKER_COLOR,
@@ -15,50 +17,8 @@ import {
 } from "@n-apt/consts";
 import { useTheme } from "styled-components";
 
-function ClickHandler({
-  onAddHotspot,
-}: {
-  onAddHotspot: (point: Vector3) => void;
-}) {
-  const { camera, gl, scene } = useThree();
-  const raycaster = useRef(new Raycaster());
+// ClickHandler is no longer needed as we use onPointerDown on the mesh directly
 
-  const handleClick = useCallback(
-    (event: any) => {
-      try {
-        const rect = gl.domElement.getBoundingClientRect();
-        const x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-        const y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-
-        raycaster.current.setFromCamera(new Vector2(x, y), camera);
-
-        const intersects = raycaster.current.intersectObjects(
-          scene.children,
-          true,
-        );
-
-        if (intersects.length > 0) {
-          const point = intersects[0].point;
-          if (point && typeof point.x === "number") {
-            onAddHotspot(new Vector3(point.x, point.y, point.z));
-          }
-        }
-      } catch (error) {
-        console.error("Error handling click:", error);
-      }
-    },
-    [camera, gl, scene, onAddHotspot],
-  );
-
-  useFrame(() => {
-    gl.domElement.addEventListener("click", handleClick);
-    return () => {
-      gl.domElement.removeEventListener("click", handleClick);
-    };
-  });
-
-  return null;
-}
 
 function AreaMarker({ selectedArea }: { selectedArea: Area }) {
   return (
@@ -155,19 +115,35 @@ function Model({
   selectedArea,
   isEditMode,
   onAddHotspot,
+  children,
 }: {
   selectedArea: Area | null;
   isEditMode: boolean;
   onAddHotspot: (point: Vector3) => void;
+  children?: React.ReactNode;
 }) {
   const { scene } = useGLTF("/glb_models/androgynous_body.glb");
+  const groupRef = useRef<any>(null);
+
+  const onPointerDown = useCallback((e: any) => {
+    if (!isEditMode) return;
+    e.stopPropagation();
+    if (groupRef.current) {
+      // Find the body mesh to ensure we hit it specifically
+      if (e.object.name === "o_ADBody") {
+        // Convert world hit point to local point relative to the container group
+        const localPoint = groupRef.current.worldToLocal(e.point.clone());
+        onAddHotspot(localPoint);
+      }
+    }
+  }, [isEditMode, onAddHotspot]);
 
   return (
-    <>
-      <primitive object={scene} />
+    <group ref={groupRef}>
+      <primitive object={scene} onPointerDown={onPointerDown} />
       {selectedArea && <AreaMarker selectedArea={selectedArea} />}
-      {isEditMode && <ClickHandler onAddHotspot={onAddHotspot} />}
-    </>
+      {children}
+    </group>
   );
 }
 
@@ -222,7 +198,7 @@ export const HumanModelCanvas: React.FC<HumanModelCanvasProps> = ({
           <directionalLight position={[10, 10, 5]} intensity={1} />
 
           {isEditMode && showGrid && (
-            <gridHelper args={[10, 10, "#333", "#222"]} position={[0, -1, 0]} />
+            <gridHelper args={[10, 10, "#333", "#222"]} position={[0, 0, 0]} />
           )}
 
           <TransformControls mode="translate">
@@ -230,22 +206,28 @@ export const HumanModelCanvas: React.FC<HumanModelCanvasProps> = ({
               selectedArea={selectedArea}
               isEditMode={isEditMode}
               onAddHotspot={handleAddHotspot}
-            />
+            >
+              <Brain />
+              <HorizonFocusGlobe active={isEditMode} />
+
+              {hotspots.map((hotspot) => (
+                <HotspotMarker
+                  key={hotspot.id}
+                  hotspot={hotspot}
+                  onClick={() => handleHotspotClick(hotspot.id)}
+                  isSelected={selectedHotspot === hotspot.id}
+                  isMultiSelected={multiSelectedHotspots.includes(hotspot.id)}
+                />
+              ))}
+            </Model>
           </TransformControls>
 
-          <Brain />
-
-          {hotspots.map((hotspot) => (
-            <HotspotMarker
-              key={hotspot.id}
-              hotspot={hotspot}
-              onClick={() => handleHotspotClick(hotspot.id)}
-              isSelected={selectedHotspot === hotspot.id}
-              isMultiSelected={multiSelectedHotspots.includes(hotspot.id)}
-            />
-          ))}
-
-          <OrbitControls ref={controlsRef} makeDefault enableDamping />
+          <OrbitControls
+            ref={controlsRef}
+            makeDefault
+            enableDamping
+            target={MODEL_CAMERA_TARGET}
+          />
         </Suspense>
       </Canvas>
 

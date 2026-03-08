@@ -1,7 +1,8 @@
 import React, { useState } from "react";
 import styled from "styled-components";
 import { ContentArea } from "@n-apt/components/Layout";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation } from "react-router-dom";
+import { useSidebarNavigationScroll } from "@n-apt/hooks/useSidebarNavigationScroll";
 
 const NavigationContainer = styled.div`
   display: flex;
@@ -94,9 +95,10 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
 }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const location = useLocation();
-  const navigate = useNavigate();
 
   const path = location.pathname;
+  const { navigationContainerRef, sidebarToggleRef, handleTabClick } =
+    useSidebarNavigationScroll({ path });
 
   return (
     <>
@@ -114,38 +116,43 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
         }}
       >
         {isSidebarOpen && (
-          <NavigationContainer>
-            <SidebarToggle onClick={() => setIsSidebarOpen(false)}>
+          <NavigationContainer ref={navigationContainerRef}>
+            <SidebarToggle ref={sidebarToggleRef} onClick={() => setIsSidebarOpen(false)}>
               ◀ Sidebar
             </SidebarToggle>
             <NavigationTabs>
               <NavigationTab
                 $isActive={path === "/" || path === "/visualizer"}
-                onClick={() => navigate("/")}
+                onClick={(event) => handleTabClick("/", event)}
+                data-path="/"
               >
                 See FFT of N-APT (LF/HF freqs)
               </NavigationTab>
               <NavigationTab
                 $isActive={path === "/analysis"}
-                onClick={() => navigate("/analysis")}
+                onClick={(event) => handleTabClick("/analysis", event)}
+                data-path="/analysis"
               >
                 Decode N-APT with ML
               </NavigationTab>
               <NavigationTab
                 $isActive={path === "/draw-signal"}
-                onClick={() => navigate("/draw-signal")}
+                onClick={(event) => handleTabClick("/draw-signal", event)}
+                data-path="/draw-signal"
               >
-                Draw N-APT with Math/ML
+                Draw N-APT with Math
               </NavigationTab>
               <NavigationTab
                 $isActive={path === "/3d-model"}
-                onClick={() => navigate("/3d-model")}
+                onClick={(event) => handleTabClick("/3d-model", event)}
+                data-path="/3d-model"
               >
                 3D Human Model
               </NavigationTab>
               <NavigationTab
                 $isActive={path === "/map-endpoints"}
-                onClick={() => navigate("/map-endpoints")}
+                onClick={(event) => handleTabClick("/map-endpoints", event)}
+                data-path="/map-endpoints"
               >
                 Map Endpoints
               </NavigationTab>

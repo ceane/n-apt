@@ -126,8 +126,8 @@ export const DrawSignalRoute: React.FC = () => {
 
   // Generate data based on params
   const data = useMemo(() => {
-    return generateMockNAPTData(drawParams);
-  }, [drawParams, generateMockNAPTData]);
+    return generateMockNAPTData(drawParams, state.globalNoiseFloor);
+  }, [drawParams, state.globalNoiseFloor, generateMockNAPTData]);
 
   const waveformArray = useMemo(() => data.map((p) => p.x), [data]);
   const floatWaveform = useMemo(() => new Float32Array(waveformArray), [waveformArray]);
@@ -235,16 +235,19 @@ export const DrawSignalRoute: React.FC = () => {
 
         <InfoBox>
           <InfoItem>
-            Spikes: <InfoValue>{drawParams.spikeCount}</InfoValue>
+            Clumps: <InfoValue>{drawParams.length}</InfoValue>
           </InfoItem>
           <InfoItem>
-            Center Freq: <InfoValue>1.500 MHz</InfoValue>
+            Active: <InfoValue>#{state.activeClumpIndex + 1}</InfoValue>
           </InfoItem>
           <InfoItem>
-            Spike Width: <InfoValue>{drawParams.spikeWidth.toFixed(2)}</InfoValue>
+            Spike Count: <InfoValue>{drawParams[state.activeClumpIndex]?.spikeCount ?? 0}</InfoValue>
           </InfoItem>
           <InfoItem>
-            Envelope: <InfoValue>{drawParams.envelopeWidth.toFixed(1)}</InfoValue>
+            Spike Width: <InfoValue>{(drawParams[state.activeClumpIndex]?.spikeWidth ?? 0).toFixed(2)}</InfoValue>
+          </InfoItem>
+          <InfoItem>
+            Envelope: <InfoValue>{(drawParams[state.activeClumpIndex]?.envelopeWidth ?? 0).toFixed(1)}</InfoValue>
           </InfoItem>
         </InfoBox>
       </VisualizerWrapper>

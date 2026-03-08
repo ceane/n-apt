@@ -22,13 +22,21 @@ export const SliderLabel = styled.span<{ $orientation: "vertical" | "horizontal"
   text-align: ${({ $orientation }) => ($orientation === "vertical" ? "center" : "left")};
 `;
 
+export interface SnapRange {
+  label: string;
+  min: number;
+  max: number;
+  color?: string;
+}
+
 export const SliderTrack = styled.div<{ $orientation: "vertical" | "horizontal" }>`
   position: relative;
   border-radius: 16px;
   background: #212121;
   display: flex;
   cursor: pointer;
-  transition: scale 1s ease-in-out;
+  transition: scale 0.2s ease-in-out;
+  position: relative;
 
   ${({ $orientation }) =>
     $orientation === "vertical"
@@ -50,9 +58,57 @@ export const SliderTrack = styled.div<{ $orientation: "vertical" | "horizontal" 
   `}
 `;
 
+const RangeMarker = styled.div<{ $start: number; $end: number; $color?: string }>`
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: ${({ $start }) => $start}%;
+  width: ${({ $start, $end }) => $end - $start}%;
+  background: ${({ $color }) => $color || "rgba(255, 255, 255, 0.05)"};
+  pointer-events: none;
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+  border-right: 1px solid rgba(255, 255, 255, 0.1);
+`;
+
+const RangeLabel = styled.div<{ $pos: number }>`
+  position: absolute;
+  bottom: 2px;
+  left: ${({ $pos }) => $pos}%;
+  transform: translateX(-50%);
+  font-size: 7px;
+  color: #444;
+  text-transform: uppercase;
+  font-weight: 800;
+  pointer-events: none;
+  white-space: nowrap;
+`;
+
+const RangeTick = styled.div<{ $pos: number }>`
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: ${({ $pos }) => $pos}%;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.2);
+  pointer-events: none;
+  z-index: 1;
+`;
+
+const TrackClipper = styled.div`
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-radius: 16px;
+  overflow: hidden;
+  pointer-events: none;
+`;
+
 export const SliderThumb = styled.div<{
   $percent: number;
   $orientation: "vertical" | "horizontal";
+  $isDragging: boolean;
 }>`
   display: flex;
   align-items: center;
@@ -61,23 +117,35 @@ export const SliderThumb = styled.div<{
   background-color: #3b3b3b;
   border-radius: 16px;
   cursor: grab;
-  transition: all 0.15s;
+  /* Only animate when NOT dragging, for a 'snappy' feel when clicking/snapping */
+  transition: ${({ $isDragging }) =>
+    $isDragging
+      ? "background-color 0.2s ease"
+      : "width 0.15s cubic-bezier(0.2, 0, 0, 1), height 0.15s cubic-bezier(0.2, 0, 0, 1), background-color 0.2s ease, scale 0.1s ease"};
+  
+  /* Performance hint */
+  will-change: ${({ $orientation }) => ($orientation === "vertical" ? "height" : "width")};
+  z-index: 2;
 
   &:hover {
-    background-color: grey;
+    background-color: #444;
     &:after {
       content: "";
+      position: absolute;
+      background: #888;
       display: block;
-      background: #5e5e5e;
+      z-index: 10;
       ${({ $orientation }) =>
     $orientation === "vertical"
-      ? `width: 60%; height: 3px;`
-      : `height: 60%; width: 3px;`}
+      ? `width: 60%; height: 3px; top: 0; left: 50%; transform: translateX(-50%) translateY(-50%);`
+      : `height: 60%; width: 3px; right: 0; top: 50%; transform: translateX(50%) translateY(-50%);`}
     }
   }
 
   &:active {
     cursor: grabbing;
+    scale: 0.98;
+    background-color: #4a4a4a;
   }
 
   ${({ $orientation, $percent }) =>
@@ -104,10 +172,12 @@ export const SliderValue = styled.span<{ $orientation: "vertical" | "horizontal"
   position: absolute;
   font-family: "JetBrains Mono", monospace;
   font-size: 10px;
-  color: #686868;
-  letter-spacing: 0.3px;
+  color: #fff;
+  text-shadow: 0 0 4px rgba(0, 0, 0, 1), 0 0 8px rgba(0, 0, 0, 0.5);
+  font-weight: 600;
+  letter-spacing: 0.5px;
   pointer-events: none;
-  opacity: 0.9;
+  z-index: 20; /* Ensure it stays above thumb and markers */
   text-align: center;
 
   ${({ $orientation }) =>
@@ -128,11 +198,12 @@ export interface SliderProps {
   logarithmic?: boolean;
   orientation?: "vertical" | "horizontal";
   className?: string;
-  hideLabelInComponent?: boolean; // Useful if parent grid renders label separately
+  hideLabelInComponent?: boolean;
   labelPlacement?: "top" | "bottom" | "left" | "right";
+  snapRanges?: SnapRange[];
 }
 
-export const Slider: React.FC<SliderProps> = ({
+export const Slider: React.FC<SliderProps> = React.memo(({
   label,
   value,
   min,
@@ -146,13 +217,22 @@ export const Slider: React.FC<SliderProps> = ({
   className,
   hideLabelInComponent = false,
   labelPlacement,
+  snapRanges = [],
 }) => {
-  const rangeNorm = logarithmic
-    ? Math.max(0, Math.min(1, Math.log(value / min) / Math.log(max / min)))
-    : Math.max(0, Math.min(1, (value - min) / (max - min || 1)));
+  const [isDragging, setIsDragging] = React.useState(false);
 
+  const getNormFromVal = useCallback((val: number) => {
+    if (logarithmic) {
+      return Math.max(0, Math.min(1, Math.log(val / min) / Math.log(max / min)));
+    }
+    return Math.max(0, Math.min(1, (val - min) / (max - min || 1)));
+  }, [min, max, logarithmic]);
+
+  const rangeNorm = getNormFromVal(value);
   const fillRatio = invertFill ? 1 - rangeNorm : rangeNorm;
   const percent = (MIN_THUMB_RATIO + fillRatio * (1 - MIN_THUMB_RATIO)) * 100;
+
+  const currentRange = snapRanges.find(r => value >= r.min && value <= r.max);
 
   const handleTrackInteraction = useCallback(
     (clientX: number, clientY: number, rect: DOMRect) => {
@@ -167,7 +247,7 @@ export const Slider: React.FC<SliderProps> = ({
       const rawFillRatio =
         orientation === "vertical"
           ? 1 - adjustedPct / maxScrollPct
-          : adjustedPct / maxScrollPct; // For horizontal, left-to-right is 0->1
+          : adjustedPct / maxScrollPct;
 
       const normalized = invertFill ? 1 - rawFillRatio : rawFillRatio;
 
@@ -178,6 +258,16 @@ export const Slider: React.FC<SliderProps> = ({
         raw = min + normalized * (max - min);
       }
 
+      // Snapping to range boundaries based on track percentage (2% threshold)
+      for (const r of snapRanges) {
+        const snapThreshold = 0.02;
+        const startNorm = getNormFromVal(r.min);
+        const endNorm = getNormFromVal(r.max);
+
+        if (Math.abs(normalized - startNorm) < snapThreshold) raw = r.min;
+        if (Math.abs(normalized - endNorm) < snapThreshold) raw = r.max;
+      }
+
       if (step < 1) {
         const inv = 1.0 / step;
         raw = Math.round(raw * inv) / inv;
@@ -185,14 +275,14 @@ export const Slider: React.FC<SliderProps> = ({
         raw = Math.round(raw / step) * step;
       }
 
-      if (logarithmic && Math.abs(raw - 1.0) < 0.15) {
+      if (logarithmic && Math.abs(raw - 1.0) < 0.15 && min < 1.0 && max > 1.0) {
         raw = 1.0;
       }
 
       raw = Math.max(min, Math.min(max, raw));
       onChange(raw);
     },
-    [min, max, step, onChange, invertFill, logarithmic, orientation],
+    [min, max, step, onChange, invertFill, logarithmic, orientation, snapRanges, getNormFromVal],
   );
 
   const handleMouseDown = useCallback(
@@ -200,12 +290,14 @@ export const Slider: React.FC<SliderProps> = ({
       e.preventDefault();
       const track = e.currentTarget;
       const rect = track.getBoundingClientRect();
+      setIsDragging(true);
       handleTrackInteraction(e.clientX, e.clientY, rect);
 
       const onMouseMove = (ev: MouseEvent) => {
         handleTrackInteraction(ev.clientX, ev.clientY, rect);
       };
       const onMouseUp = () => {
+        setIsDragging(false);
         document.removeEventListener("mousemove", onMouseMove);
         document.removeEventListener("mouseup", onMouseUp);
       };
@@ -221,8 +313,28 @@ export const Slider: React.FC<SliderProps> = ({
       onMouseDown={handleMouseDown}
       className={className}
     >
-      <SliderThumb $percent={percent} $orientation={orientation} />
+      <TrackClipper>
+        {snapRanges.map((r, i) => {
+          const start = getNormFromVal(r.min) * 100;
+          const end = getNormFromVal(r.max) * 100;
+          return (
+            <React.Fragment key={i}>
+              <RangeMarker $start={start} $end={end} $color={r.color} />
+              <RangeLabel $pos={(start + end) / 2}>{r.label}</RangeLabel>
+              {start > 0.1 && start < 99.9 && <RangeTick $pos={start} />}
+              {end > 0.1 && end < 99.9 && <RangeTick $pos={end} />}
+            </React.Fragment>
+          );
+        })}
+      </TrackClipper>
+
+      <SliderThumb
+        $percent={percent}
+        $orientation={orientation}
+        $isDragging={isDragging}
+      />
       <SliderValue $orientation={orientation}>
+        {currentRange ? `${currentRange.label} ` : ""}
         {formatValue ? formatValue(value) : value}
       </SliderValue>
     </SliderTrack>
@@ -241,6 +353,6 @@ export const Slider: React.FC<SliderProps> = ({
       {isAfter && <SliderLabel $orientation={orientation}>{label}</SliderLabel>}
     </SliderContainer>
   );
-};
+});
 
 export default Slider;

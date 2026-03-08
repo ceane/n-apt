@@ -6,3 +6,5 @@ export * from "./Row";
 export * from "./Tabs";
 export * from "./Collapsible";
 export * from "./Tooltip";
+export * from "./Prompt";
+export * from "./PromptProvider";
