@@ -154,6 +154,14 @@ impl websocket_server::WebSocketServer {
         get(http_endpoints::towers_bounds_handler),
       )
       .route(
+        "/api/towers/load-local-radius",
+        post(super::tower_local::load_local_radius_towers),
+      )
+      .route(
+        "/api/towers/local-stats",
+        get(super::tower_local::get_local_cache_stats),
+      )
+      .route(
         "/api/webmcp/execute",
         post(http_endpoints::execute_webmcp_tool_handler),
       )

@@ -52,6 +52,8 @@ extern "C" {
   pub fn rtlsdr_get_sample_rate(dev: *mut RtlSdrDev) -> u32;
   pub fn rtlsdr_set_agc_mode(dev: *mut RtlSdrDev, on: c_int) -> c_int;
   pub fn rtlsdr_set_direct_sampling(dev: *mut RtlSdrDev, on: c_int) -> c_int;
+  pub fn rtlsdr_set_offset_tuning(dev: *mut RtlSdrDev, on: c_int) -> c_int;
+  pub fn rtlsdr_get_tuner_type(dev: *mut RtlSdrDev) -> c_int;
 
   // Streaming
   pub fn rtlsdr_reset_buffer(dev: *mut RtlSdrDev) -> c_int;

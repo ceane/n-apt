@@ -140,6 +140,19 @@ export const useAuthentication = (): UseAuthenticationReturn => {
 const useAuthenticationInternal = (): UseAuthenticationReturn => {
   const [state, dispatch] = useReducer(authReducer, initialState);
 
+  const deriveConfiguredAesKey = useCallback(async (): Promise<CryptoKey> => {
+    const configuredPassword = import.meta.env.VITE_UNSAFE_LOCAL_USER_PASSWORD;
+    if (
+      typeof configuredPassword !== "string" ||
+      configuredPassword.trim().length === 0
+    ) {
+      throw new Error(
+        "Missing VITE_UNSAFE_LOCAL_USER_PASSWORD; cannot derive the AES session key for encrypted WebSocket data.",
+      );
+    }
+    return deriveAesKey(configuredPassword);
+  }, []);
+
   // Check if WebAuthn is available in the browser
   const isWebAuthnAvailable = useMemo(() => {
     // Basic API availability check
@@ -234,13 +247,18 @@ const useAuthenticationInternal = (): UseAuthenticationReturn => {
         try {
           const result = await validateSession(storedToken);
           if (!cancelled && result.valid) {
-            const key = await deriveAesKey("n-apt-dev-key");
-            dispatch({
-              type: "AUTH_SUCCESS",
-              sessionToken: storedToken,
-              aesKey: key,
-            });
-            return;
+            try {
+              const key = await deriveConfiguredAesKey();
+              dispatch({
+                type: "AUTH_SUCCESS",
+                sessionToken: storedToken,
+                aesKey: key,
+              });
+              return;
+            } catch (error) {
+              console.warn("Stored session cannot be resumed securely:", error);
+              clearSession();
+            }
           }
         } catch (error) {
           console.warn("Session validation failed:", error);
@@ -277,7 +295,7 @@ const useAuthenticationInternal = (): UseAuthenticationReturn => {
         clearTimeout(retryTimeout);
       }
     };
-  }, []);
+  }, [deriveConfiguredAesKey, isWebAuthnAvailable]);
 
   const handlePasswordAuth = useCallback(async (password: string) => {
     dispatch({ type: "AUTHENTICATING" });
@@ -301,7 +319,7 @@ const useAuthenticationInternal = (): UseAuthenticationReturn => {
     dispatch({ type: "AUTHENTICATING" });
     try {
       const result = await authenticateWithPasskey();
-      const key = await deriveAesKey("n-apt-dev-key");
+      const key = await deriveConfiguredAesKey();
       dispatch({
         type: "AUTH_SUCCESS",
         sessionToken: result.token,

@@ -28,6 +28,9 @@ pub struct MockAptDevice {
   ppm: i32,
   tuner_agc: bool,
   rtl_agc: bool,
+  offset_tuning: bool,
+  tuner_bandwidth: u32,
+  direct_sampling: u8,
   total_samples: u64,
   signals: Vec<MockAptSignal>,
   noise_floor_db: f32,
@@ -69,6 +72,9 @@ impl MockAptDevice {
       ppm: 1,
       tuner_agc: false,
       rtl_agc: false,
+      offset_tuning: false,
+      tuner_bandwidth: 0,
+      direct_sampling: 0,
       total_samples: 0,
       signals,
       noise_floor_db: mock_settings.global_settings.noise_floor_base as f32,
@@ -378,6 +384,24 @@ impl SdrDevice for MockAptDevice {
   fn set_rtl_agc(&mut self, enabled: bool) -> Result<()> {
     self.rtl_agc = enabled;
     log::debug!("Mock device RTL AGC set to {}", enabled);
+    Ok(())
+  }
+
+  fn set_offset_tuning(&mut self, enabled: bool) -> Result<()> {
+    self.offset_tuning = enabled;
+    log::debug!("Mock device offset tuning set to {}", enabled);
+    Ok(())
+  }
+
+  fn set_tuner_bandwidth(&mut self, bw: u32) -> Result<()> {
+    self.tuner_bandwidth = bw;
+    log::debug!("Mock device tuner bandwidth set to {} Hz", bw);
+    Ok(())
+  }
+
+  fn set_direct_sampling(&mut self, mode: u8) -> Result<()> {
+    self.direct_sampling = mode;
+    log::debug!("Mock device direct sampling set to {}", mode);
     Ok(())
   }
 

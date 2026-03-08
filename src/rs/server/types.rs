@@ -26,6 +26,8 @@ pub enum SdrCommand {
   SetPpm(i32),
   SetTunerAGC(bool),
   SetRtlAGC(bool),
+  SetOffsetTuning(bool),
+  SetDirectSampling(u8),
   RestartDevice,
   StartTraining {
     label: String,
@@ -41,6 +43,7 @@ pub enum SdrCommand {
     encrypted: bool,
     fft_size: usize,
     fft_window: String,
+    geolocation: Option<GeolocationData>,
   },
   ApplySettings(SdrProcessorSettings),
 }
@@ -55,6 +58,9 @@ pub struct SdrProcessorSettings {
   pub ppm: Option<i32>,
   pub tuner_agc: Option<bool>,
   pub rtl_agc: Option<bool>,
+  pub offset_tuning: Option<bool>,
+  pub direct_sampling: Option<u8>,
+  pub tuner_bandwidth: Option<u32>,
 }
 
 /// Struct representing a frequency range
@@ -64,6 +70,17 @@ pub struct FreqRange {
   pub min_freq: f64,
   #[serde(alias = "maxFreq")]
   pub max_freq: f64,
+}
+
+/// Geolocation data structure
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GeolocationData {
+  pub latitude: f64,
+  pub longitude: f64,
+  pub accuracy: f64,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub altitude: Option<f64>,
+  pub timestamp: f64, // JavaScript timestamp in milliseconds
 }
 
 /// WebSocket message structure for client-server communication
@@ -97,6 +114,12 @@ pub struct WebSocketMessage {
   pub tuner_agc: Option<bool>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "rtlAGC")]
   pub rtl_agc: Option<bool>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "offsetTuning")]
+  pub offset_tuning: Option<bool>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "directSampling")]
+  pub direct_sampling: Option<u8>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "tunerBandwidth")]
+  pub tuner_bandwidth: Option<u32>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "fftSize")]
   pub fft_size: Option<usize>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "fftWindow")]
@@ -121,6 +144,8 @@ pub struct WebSocketMessage {
   pub encrypted: Option<bool>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "screenWidth")]
   pub screen_width: Option<u32>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub geolocation: Option<GeolocationData>,
 }
 
 /// Auto FFT size options response

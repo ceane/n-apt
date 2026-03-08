@@ -216,9 +216,11 @@ const darkMapStyles = [
   }
 ];
 
+import { TowerControlPanel } from "@n-apt/components/TowerControlPanel";
+
 export const MapEndpointsRoute: React.FC = () => {
   const { locations, activeLocationId, isLoaded, loadError, previewLocation } = useMapLocations();
-  const { towers, loading: towersLoading, error: towersError, fetchTowersInBounds } = useTowers();
+  const { towers, loading: towersLoading, error: towersError, truncated, totalFound, fetchTowersInBounds } = useTowers();
   const [center, setCenter] = useState({ lat: 37.7749, lng: -122.4194 }); // Default to SF for safety
   const [zoom, setZoom] = useState(15);
   const [map, setMap] = useState<google.maps.Map | null>(null);
@@ -288,6 +290,7 @@ export const MapEndpointsRoute: React.FC = () => {
 
     const ne = bounds.getNorthEast();
     const sw = bounds.getSouthWest();
+
     fetchTowersInBounds({
       neLat: ne.lat(),
       neLng: ne.lng(),
@@ -357,14 +360,13 @@ export const MapEndpointsRoute: React.FC = () => {
     <PageContainer>
       <MapWrapper>
         <ControlsPanel>
-          <div style={{ display: "flex", justifyContent: "space-between" }}>
-            <span>Towers in view:</span>
-            <span>{towers.length.toLocaleString()}</span>
-          </div>
-          <div style={{ color: towersLoading ? "#93c5fd" : "#9ca3af", fontSize: "10px", marginTop: "2px" }}>
-            {towersLoading ? "SYNCING..." : "LIVE"}
-          </div>
-          {towersError ? <div style={{ color: "#f87171", fontSize: "10px" }}>{towersError}</div> : null}
+          <TowerControlPanel
+            currentCount={towers.length}
+            truncated={truncated}
+            totalFound={totalFound}
+            towersLoading={towersLoading}
+            towersError={towersError}
+          />
 
           <ControlSection>
             <SectionTitle>Technology</SectionTitle>

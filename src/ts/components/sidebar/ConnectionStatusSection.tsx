@@ -122,6 +122,7 @@ interface ConnectionStatusSectionProps {
   deviceState: DeviceState;
   deviceLoadingReason: DeviceLoadingReason;
   isPaused: boolean;
+  cryptoCorrupted: boolean;
   onPauseToggle: () => void;
   onRestartDevice?: () => void;
   children?: React.ReactNode;
@@ -134,6 +135,7 @@ export const ConnectionStatusSection: React.FC<
   deviceState,
   deviceLoadingReason,
   isPaused,
+  cryptoCorrupted,
   onPauseToggle,
   onRestartDevice,
 }) => {
@@ -197,7 +199,7 @@ export const ConnectionStatusSection: React.FC<
             </WarningButton>
           ) : (
             <PauseButton $paused={isPaused} onClick={onPauseToggle}>
-              {isPaused ? "Resume" : "Pause"}
+              {cryptoCorrupted ? "Corrupted" : isPaused ? "Resume" : "Pause"}
             </PauseButton>
           ))}
       </ConnectionStatusContainer>

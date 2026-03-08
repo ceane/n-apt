@@ -229,6 +229,17 @@ pub fn save_capture_file_multi(
     "spectrum_shifted": true,
   });
 
+  // Add geolocation data if available
+  if let Some(geo) = &result.geolocation {
+    meta_obj["geolocation"] = serde_json::json!({
+      "latitude": geo.latitude,
+      "longitude": geo.longitude,
+      "accuracy": geo.accuracy,
+      "altitude": geo.altitude,
+      "timestamp": geo.timestamp,
+    });
+  }
+
   if result.encrypted && result.file_type == ".napt" {
     // Construct plaintext: JSON header with `channels` array + padding + Concatenated Data
     let header_size = 4096; // Larger header for multi-channel JSON
@@ -475,6 +486,7 @@ mod save_tests {
       hardware_sample_rate_hz: 2.4e6,
       overall_center_frequency_hz: 137.5e6,
       overall_capture_sample_rate_hz: 2.4e6,
+      geolocation: None,
     };
 
     let result_napt =
@@ -529,6 +541,7 @@ mod save_tests {
       hardware_sample_rate_hz: 2.4e6,
       overall_center_frequency_hz: 138.75e6,
       overall_capture_sample_rate_hz: 4.9e6,
+      geolocation: None,
     };
 
     let result_wav = save_capture_file_multi(&result_wav_struct, &[0u8; 32])

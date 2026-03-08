@@ -46,6 +46,7 @@ export type WebSocketData = {
   captureStatus: CaptureStatus;
   autoFftOptions: AutoFftOptionsResponse | null;
   error: string | null;
+  cryptoCorrupted: boolean;
   sendFrequencyRange: (range: FrequencyRange) => void;
   sendPauseCommand: (isPaused: boolean) => void;
   sendSettings: (settings: SDRSettings) => void;
@@ -78,6 +79,7 @@ type WsState = {
   captureStatus: CaptureStatus;
   autoFftOptions: AutoFftOptionsResponse | null;
   error: string | null;
+  cryptoCorrupted: boolean;
 };
 
 type WsAction =
@@ -88,7 +90,8 @@ type WsAction =
   | { type: "STATUS"; updates: Partial<WsState> }
   | { type: "CAPTURE_STATUS"; status: CaptureStatus }
   | { type: "AUTO_FFT_OPTIONS"; options: AutoFftOptionsResponse }
-  | { type: "DATA"; data: any };
+  | { type: "DATA"; data: any }
+  | { type: "CRYPTO_CORRUPTED" };
 
 const INITIAL_WS_STATE: WsState = {
   isConnected: false,
@@ -107,12 +110,13 @@ const INITIAL_WS_STATE: WsState = {
   captureStatus: null,
   autoFftOptions: null,
   error: null,
+  cryptoCorrupted: false,
 };
 
 function wsReducer(state: WsState, action: WsAction): WsState {
   switch (action.type) {
     case "CONNECTED":
-      return { ...state, isConnected: true, error: null };
+      return { ...state, isConnected: true, error: null, cryptoCorrupted: false };
     case "DISCONNECTED":
       return { ...state, isConnected: false };
     case "RESET":
@@ -127,6 +131,8 @@ function wsReducer(state: WsState, action: WsAction): WsState {
       return { ...state, autoFftOptions: action.options };
     case "DATA":
       return { ...state, data: action.data };
+    case "CRYPTO_CORRUPTED":
+      return { ...state, cryptoCorrupted: true };
     default:
       return state;
   }
@@ -247,6 +253,7 @@ export const useWebSocket = (
                   })
                   .catch((e) => {
                     console.error("Binary decryption failed:", e);
+                    dispatch({ type: "CRYPTO_CORRUPTED" });
                   });
               } catch (e) {
                 console.error("Failed to parse binary WebSocket payload:", e);
@@ -616,6 +623,7 @@ export const useWebSocket = (
           encrypted: req.encrypted,
           fftSize: req.fftSize,
           fftWindow: req.fftWindow,
+          geolocation: req.geolocation,
         });
         ws.send(message);
       }

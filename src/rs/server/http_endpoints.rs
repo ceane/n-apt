@@ -6,7 +6,7 @@ use axum::Json;
 use log::{error, info, warn};
 use redis::Client as RedisClient;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::env;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -18,6 +18,71 @@ use super::types::{
   CaptureDownloadParams, SpectrumFrameMessage, WebMCPToolRequest,
   WebMCPToolResponse,
 };
+
+// Haversine distance calculation for tower filtering
+fn haversine_distance(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
+  const EARTH_RADIUS: f64 = 6371.0; // Earth's radius in kilometers
+  
+  let lat1_rad = lat1.to_radians();
+  let lat2_rad = lat2.to_radians();
+  let delta_lat = (lat2 - lat1).to_radians();
+  let delta_lon = (lon2 - lon1).to_radians();
+  
+  let a = (delta_lat / 2.0).sin().powi(2) +
+          lat1_rad.cos() * lat2_rad.cos() *
+          (delta_lon / 2.0).sin().powi(2);
+  let c = 2.0 * a.sqrt().atan2((1.0 - a).sqrt());
+  
+  EARTH_RADIUS * c
+}
+
+/// Sample towers evenly across the area when zoomed out
+fn sample_towers_evenly(towers: &[TowerRecord], max_count: usize) -> Vec<TowerRecord> {
+  if towers.len() <= max_count {
+    return towers.to_vec();
+  }
+
+  let step = towers.len() / max_count;
+  let mut sampled = Vec::with_capacity(max_count);
+  
+  for i in (0..towers.len()).step_by(step.max(1)) {
+    sampled.push(towers[i].clone());
+    if sampled.len() >= max_count {
+      break;
+    }
+  }
+  
+  sampled
+}
+
+/// Sample towers by distance from center when zoomed in
+fn sample_towers_by_distance(
+  towers: &[TowerRecord], 
+  center_lat: f64, 
+  center_lng: f64, 
+  max_count: usize
+) -> Vec<TowerRecord> {
+  if towers.len() <= max_count {
+    return towers.to_vec();
+  }
+
+  let mut towers_with_distance: Vec<(f64, &TowerRecord)> = towers
+    .iter()
+    .map(|tower| {
+      let distance = haversine_distance(center_lat, center_lng, tower.lat, tower.lon);
+      (distance, tower)
+    })
+    .collect();
+
+  // Sort by distance and take the closest ones
+  towers_with_distance.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+  
+  towers_with_distance
+    .into_iter()
+    .take(max_count)
+    .map(|(_, tower)| tower.clone())
+    .collect()
+}
 
 fn format_frequency_range(frames: &[SpectrumFrameMessage]) -> Option<String> {
   if frames.is_empty() {
@@ -56,7 +121,7 @@ pub struct TowerBoundsQuery {
   pub mnc: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Clone)]
 pub struct TowerRecord {
   pub id: String,
   pub radio: String,
@@ -80,6 +145,10 @@ pub struct TowerBoundsResponse {
   pub towers: Vec<TowerRecord>,
   pub count: usize,
   pub zoom: Option<u32>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub truncated: Option<bool>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub total_found: Option<usize>,
 }
 
 fn normalize_tech_key(token: &str) -> String {
@@ -90,61 +159,6 @@ fn normalize_tech_key(token: &str) -> String {
     "2g" => "gsm".to_string(),
     other => other.to_string(),
   }
-}
-
-fn default_tower_indexes() -> Vec<String> {
-  vec![
-    "towers:state:AL".to_string(),
-    "towers:state:AK".to_string(),
-    "towers:state:AZ".to_string(),
-    "towers:state:AR".to_string(),
-    "towers:state:CA".to_string(),
-    "towers:state:CO".to_string(),
-    "towers:state:CT".to_string(),
-    "towers:state:DE".to_string(),
-    "towers:state:FL".to_string(),
-    "towers:state:GA".to_string(),
-    "towers:state:HI".to_string(),
-    "towers:state:IA".to_string(),
-    "towers:state:ID".to_string(),
-    "towers:state:IL".to_string(),
-    "towers:state:IN".to_string(),
-    "towers:state:KS".to_string(),
-    "towers:state:KY".to_string(),
-    "towers:state:LA".to_string(),
-    "towers:state:MA".to_string(),
-    "towers:state:MD".to_string(),
-    "towers:state:ME".to_string(),
-    "towers:state:MI".to_string(),
-    "towers:state:MN".to_string(),
-    "towers:state:MO".to_string(),
-    "towers:state:MS".to_string(),
-    "towers:state:MT".to_string(),
-    "towers:state:NC".to_string(),
-    "towers:state:ND".to_string(),
-    "towers:state:NE".to_string(),
-    "towers:state:NH".to_string(),
-    "towers:state:NJ".to_string(),
-    "towers:state:NM".to_string(),
-    "towers:state:NV".to_string(),
-    "towers:state:NY".to_string(),
-    "towers:state:OH".to_string(),
-    "towers:state:OK".to_string(),
-    "towers:state:OR".to_string(),
-    "towers:state:PA".to_string(),
-    "towers:state:RI".to_string(),
-    "towers:state:SC".to_string(),
-    "towers:state:SD".to_string(),
-    "towers:state:TN".to_string(),
-    "towers:state:TX".to_string(),
-    "towers:state:UT".to_string(),
-    "towers:state:VA".to_string(),
-    "towers:state:VT".to_string(),
-    "towers:state:WA".to_string(),
-    "towers:state:WI".to_string(),
-    "towers:state:WV".to_string(),
-    "towers:state:WY".to_string(),
-  ]
 }
 
 fn parse_filter_set(raw: &Option<String>) -> HashSet<String> {
@@ -196,14 +210,36 @@ pub async fn towers_bounds_handler(
     }
   };
 
-  let indexes: Vec<String> = match &query.tech {
-    Some(tech_csv) if !tech_csv.trim().is_empty() => tech_csv
-      .split(',')
-      .map(normalize_tech_key)
-      .map(|k| format!("towers:{}", k))
-      .collect(),
-    _ => default_tower_indexes(),
-  };
+  // Get towers from both Fast Select DB (2) and Local DB (4)
+  let mut all_tower_keys: Vec<String> = Vec::new();
+
+  // Query Fast Select DB (2)
+  if let Err(e) = redis::cmd("SELECT").arg(2).query::<()>(&mut con) {
+    error!("Failed to select Redis DB 2: {}", e);
+  } else {
+    if let Ok(keys) = redis::cmd("KEYS").arg("tower:*").query::<Vec<String>>(&mut con) {
+      all_tower_keys.extend(keys);
+    }
+  }
+
+  // Query Local DB (4) for user-loaded towers
+  if let Err(e) = redis::cmd("SELECT").arg(4).query::<()>(&mut con) {
+    error!("Failed to select Redis DB 4: {}", e);
+  } else {
+    if let Ok(keys) = redis::cmd("KEYS").arg("local:*").query::<Vec<String>>(&mut con) {
+      for local_key in keys {
+        if local_key.ends_with(":data") {
+          continue;
+        }
+        if let Ok(tower_ids) = redis::cmd("ZRANGE").arg(&local_key).arg(0).arg(-1).query::<Vec<String>>(&mut con) {
+          all_tower_keys.extend(tower_ids);
+        }
+      }
+    }
+  }
+
+  // Switch back to DB 2 for default tower data retrieval
+  let _ = redis::cmd("SELECT").arg(2).query::<()>(&mut con);
 
   let range_filter = parse_filter_set(&query.range);
   let mut seen_ids: HashSet<String> = HashSet::new();
@@ -217,114 +253,183 @@ pub async fn towers_bounds_handler(
     * center_lat.to_radians().cos().abs().max(0.01);
   let radius_km = ((lat_km.powi(2) + lon_km.powi(2)).sqrt() / 2.0).max(0.5);
 
-  for index in indexes {
-    let ids_result: redis::RedisResult<Vec<String>> = redis::cmd("GEORADIUS")
-      .arg(&index)
-      .arg(center_lng)
-      .arg(center_lat)
-      .arg(radius_km)
-      .arg("km")
-      .query(&mut con);
+  for tower_key in all_tower_keys {
+    // Skip if we've already seen this tower
+    if !seen_ids.insert(tower_key.clone()) {
+      continue;
+    }
 
-    let tower_ids = match ids_result {
-      Ok(ids) => ids,
-      Err(e) => {
-        warn!("Redis GEORADIUS failed for {}: {}", index, e);
-        continue;
+    // Get tower data as JSON string (try DB 2, then DB 4)
+    let tower_json: redis::RedisResult<String> = redis::cmd("GET")
+      .arg(&tower_key)
+      .query::<String>(&mut con);
+    
+    let tower_json = match tower_json {
+      Ok(json) => json,
+      Err(_) => {
+        // Try DB 4 if not found in DB 2
+        let _ = redis::cmd("SELECT").arg(4).query::<()>(&mut con);
+        let local_json = redis::cmd("GET").arg(&tower_key).query::<String>(&mut con);
+        let _ = redis::cmd("SELECT").arg(2).query::<()>(&mut con);
+
+        match local_json {
+          Ok(json) => json,
+          Err(_) => continue,
+        }
       }
     };
 
-    for tower_id in tower_ids {
-      if !seen_ids.insert(tower_id.clone()) {
-        continue;
-      }
+    // Parse JSON tower data
+    let tower_data: serde_json::Value = match serde_json::from_str(&tower_json) {
+      Ok(data) => data,
+      Err(_) => continue,
+    };
 
-      let fields_result: redis::RedisResult<HashMap<String, String>> =
-        redis::cmd("HGETALL").arg(&tower_id).query(&mut con);
+    // Extract tower fields
+    let lat = tower_data.get("lat")
+      .and_then(|v| v.as_f64())
+      .unwrap_or(0.0);
+    let lon = tower_data.get("lon")
+      .and_then(|v| v.as_f64())
+      .unwrap_or(0.0);
 
-      let fields = match fields_result {
-        Ok(v) => v,
-        Err(_) => continue,
-      };
-
-      // In-memory filtering logic
-      if let Some(target_mcc) = &query.mcc {
-        if fields.get("mcc").map(|s| s.as_str()) != Some(target_mcc.as_str()) {
-          continue;
-        }
-      }
-      if let Some(target_mnc) = &query.mnc {
-        if fields.get("mnc").map(|s| s.as_str()) != Some(target_mnc.as_str()) {
-          continue;
-        }
-      }
-
-      let lat = match fields.get("lat").and_then(|v| v.parse::<f64>().ok()) {
-        Some(v) => v,
-        None => continue,
-      };
-      let lon = match fields
-        .get("lon")
-        .or_else(|| fields.get("lng"))
-        .and_then(|v| v.parse::<f64>().ok())
-      {
-        Some(v) => v,
-        None => continue,
-      };
-
-      if lat < query.sw_lat
-        || lat > query.ne_lat
-        || lon < query.sw_lng
-        || lon > query.ne_lng
-      {
-        continue;
-      }
-
-      let range_value = fields
-        .get("range")
-        .cloned()
-        .unwrap_or_else(|| "-1".to_string());
-      if !range_filter.is_empty()
-        && !range_filter.contains(range_value.as_str())
-      {
-        continue;
-      }
-
-      towers.push(TowerRecord {
-        id: tower_id,
-        radio: fields
-          .get("radio")
-          .cloned()
-          .unwrap_or_else(|| "UNKNOWN".to_string()),
-        mcc: fields.get("mcc").cloned().unwrap_or_default(),
-        mnc: fields.get("mnc").cloned().unwrap_or_default(),
-        lac: fields.get("lac").cloned().unwrap_or_default(),
-        cell: fields
-          .get("cell")
-          .or_else(|| fields.get("cid"))
-          .cloned()
-          .unwrap_or_default(),
-        range: range_value,
-        lon,
-        lat,
-        samples: fields.get("samples").cloned().unwrap_or_default(),
-        created: fields.get("created").cloned().unwrap_or_default(),
-        updated: fields.get("updated").cloned().unwrap_or_default(),
-        state: fields.get("state").cloned(),
-        region: fields.get("region").cloned(),
-        tech: fields.get("tech").cloned(),
-      });
+    // Skip if coordinates are invalid
+    if lat == 0.0 || lon == 0.0 {
+      continue;
     }
+
+    // Check if tower is within bounding box (quick filter)
+    if lat < query.sw_lat || lat > query.ne_lat || lon < query.sw_lng || lon > query.ne_lng {
+      continue;
+    }
+
+    // Check if tower is within radius (precise filter)
+    let distance_km = haversine_distance(center_lat, center_lng, lat, lon);
+    if distance_km > radius_km {
+      continue;
+    }
+
+    // Extract other fields
+    let mcc = tower_data.get("mcc")
+      .and_then(|v| v.as_u64())
+      .unwrap_or(0)
+      .to_string();
+    let mnc = tower_data.get("mnc")
+      .and_then(|v| v.as_u64())
+      .unwrap_or(0)
+      .to_string();
+    let lac = tower_data.get("lac")
+      .and_then(|v| v.as_u64())
+      .unwrap_or(0)
+      .to_string();
+    let cell_id = tower_data.get("cellId")
+      .and_then(|v| v.as_u64())
+      .unwrap_or(0)
+      .to_string();
+    let tech = tower_data.get("type")
+      .and_then(|v| v.as_str())
+      .unwrap_or("unknown");
+    let samples = tower_data.get("samples")
+      .and_then(|v| v.as_u64())
+      .unwrap_or(0);
+    let range = tower_data.get("range")
+      .and_then(|v| v.as_f64())
+      .unwrap_or(0.0);
+
+    // Apply filters
+    if let Some(target_mcc) = &query.mcc {
+      if mcc != *target_mcc {
+        continue;
+      }
+    }
+    if let Some(target_mnc) = &query.mnc {
+      if mnc != *target_mnc {
+        continue;
+      }
+    }
+
+    // Apply technology filter
+    if let Some(tech_filter) = &query.tech {
+      let tech_filter_parts: Vec<&str> = tech_filter.split(',').collect();
+      if !tech_filter_parts.iter().any(|&t| normalize_tech_key(t) == normalize_tech_key(tech)) {
+        continue;
+      }
+    }
+
+    // Apply range filter
+    if !range_filter.is_empty() && !range_filter.contains(&(range as u32).to_string()) {
+      continue;
+    }
+
+    // Create tower record
+    towers.push(TowerRecord {
+      id: tower_key,
+      radio: tech.to_string(),
+      mcc,
+      mnc,
+      lac,
+      cell: cell_id,
+      range: range.to_string(),
+      lon,
+      lat,
+      samples: samples.to_string(),
+      created: tower_data.get("created")
+        .and_then(|v| v.as_u64())
+        .map(|v| v.to_string())
+        .unwrap_or_default(),
+      updated: tower_data.get("updated")
+        .and_then(|v| v.as_u64())
+        .map(|v| v.to_string())
+        .unwrap_or_default(),
+      state: None, // Can be derived from coordinates if needed
+      region: None, // Can be derived from coordinates if needed
+      tech: Some(tech.to_string()),
+    });
   }
 
   towers.sort_by(|a, b| a.id.cmp(&b.id));
 
-  Json(TowerBoundsResponse {
-    count: towers.len(),
-    towers,
-    zoom: query.zoom,
-  })
-  .into_response()
+  // Apply tower count limits to prevent browser crashes
+  const MAX_TOWERS: usize = 1000;
+  let total_found = towers.len();
+  
+  if towers.len() > MAX_TOWERS {
+    // Smart sampling for large areas
+    let sampled_towers = if query.zoom.unwrap_or(10) < 8 {
+      // When zoomed out, sample towers evenly across the area
+      sample_towers_evenly(&towers, MAX_TOWERS)
+    } else {
+      // When zoomed in, take closest towers to center
+      sample_towers_by_distance(&towers, center_lat, center_lng, MAX_TOWERS)
+    };
+    
+    warn!(
+      "Tower query truncated: {} -> {} towers (zoom: {}, area: {}x{} km)",
+      total_found,
+      sampled_towers.len(),
+      query.zoom.unwrap_or(10),
+      (lat_km * 2.0) as i32,
+      (lon_km * 2.0) as i32
+    );
+    
+    Json(TowerBoundsResponse {
+      count: sampled_towers.len(),
+      towers: sampled_towers,
+      zoom: query.zoom,
+      truncated: Some(true),
+      total_found: Some(total_found),
+    })
+    .into_response()
+  } else {
+    Json(TowerBoundsResponse {
+      count: towers.len(),
+      towers,
+      zoom: query.zoom,
+      truncated: Some(false),
+      total_found: Some(total_found),
+    })
+    .into_response()
+  }
 }
 
 /// GET /status — public status endpoint (no auth required).
@@ -950,6 +1055,7 @@ async fn handle_start_capture(
     encrypted,
     fft_size,
     fft_window: fft_window.to_string(),
+    geolocation: None, // HTTP endpoints don't have geolocation data
   };
 
   if let Err(e) = state.cmd_tx.send(capture_cmd) {

@@ -11,8 +11,13 @@ if [ -f "$SCRIPT_DIR/env.sh" ]; then
     source "$SCRIPT_DIR/env.sh"
 fi
 
+# Load .env.local for backend environment variables
+if [ -f "$SCRIPT_DIR/../.env.local" ]; then
+    source "$SCRIPT_DIR/../.env.local"
+fi
+
 # Export for child processes (cargo, vite)
-export APP_URL WEBSOCKETS_URL WASM_BUILD_PATH
+export APP_URL WEBSOCKETS_URL WASM_BUILD_PATH REDIS_URL
 export VITE_BACKEND_URL=${VITE_BACKEND_URL:-$WEBSOCKETS_URL}
 export VITE_WS_URL=${VITE_WS_URL:-$WEBSOCKETS_URL}
 NO_BOX_ANIM=${NO_BOX_ANIM:-1}
@@ -103,7 +108,7 @@ show_process_messages() {
     animate_process_step "${WHITE}Starting Redis server...${RESET}" "${WHITE}✔ Starting Redis server...${RESET}" 1
     if ./scripts/setup_redis.sh start; then
         REDIS_PID=$(lsof -ti:6379 2>/dev/null || echo "")
-        animate_process_step "${WHITE}Loading tower data into Redis...${RESET}" "${WHITE}✔ Loading tower data into Redis...${RESET}" 2
+        animate_process_step "${WHITE}Loading fast select towers (for UI)...${RESET}" "${WHITE}✔ Loading fast select towers (for UI)...${RESET}" 2
         ./scripts/setup_redis.sh load
     else
         echo -e "${RED}✗ Failed to start Redis server${RESET}"

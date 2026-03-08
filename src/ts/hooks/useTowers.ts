@@ -37,6 +37,8 @@ interface TowerBoundsResponse {
   towers: TowerRecord[];
   count: number;
   zoom?: number;
+  truncated?: boolean;
+  total_found?: number;
 }
 
 const API_BASE = BACKEND_HTTP_URL.replace(/\/$/, "");
@@ -45,6 +47,8 @@ export function useTowers() {
   const [towers, setTowers] = useState<TowerRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [truncated, setTruncated] = useState(false);
+  const [totalFound, setTotalFound] = useState<number | null>(null);
 
   const cache = useMemo(() => new Map<string, TowerRecord[]>(), []);
 
@@ -94,6 +98,7 @@ export function useTowers() {
       setError(null);
       try {
         const response = await fetch(`${API_BASE}/api/towers/bounds?${params.toString()}`);
+        
         if (!response.ok) {
           throw new Error(`Failed to load towers (${response.status})`);
         }
@@ -101,6 +106,10 @@ export function useTowers() {
         const payload = (await response.json()) as TowerBoundsResponse;
         const safeTowers = Array.isArray(payload.towers) ? payload.towers : [];
         cache.set(key, safeTowers);
+
+        // Update truncation state
+        setTruncated(payload.truncated || false);
+        setTotalFound(payload.total_found || null);
 
         if (cache.size > 120) {
           const firstKey = cache.keys().next().value as string | undefined;
@@ -124,6 +133,8 @@ export function useTowers() {
     towers,
     loading,
     error,
+    truncated,
+    totalFound,
     fetchTowersInBounds,
   };
 }

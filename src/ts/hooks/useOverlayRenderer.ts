@@ -232,74 +232,110 @@ export function useOverlayRenderer() {
       // Draw mathematical hardware block boundaries if applicable
       const anchorRange = fullCaptureRange || frequencyRange;
       const totalSpan = anchorRange.max - anchorRange.min;
-      const hwSpanMHz = hardwareSampleRateHz ? hardwareSampleRateHz / 1e6 : 0;
-      const shouldShowHWGrid = totalSpan > hwSpanMHz + 0.001 && hwSpanMHz > 0;
-      
-      if (shouldShowHWGrid) {
-        ctx.save();
-        ctx.strokeStyle = SNAP_HW_RATE_LINE; // User specified color
-        ctx.setLineDash([4, 4]); // Dashed line
-        ctx.lineWidth = 1 / dpr;
-        ctx.fillStyle = SNAP_HW_RATE_TEXT;
-        ctx.font = "10px JetBrains Mono";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "top";
+        const hwSpanMHz = hardwareSampleRateHz ? hardwareSampleRateHz / 1e6 : 0;
+        const USABLE_BW_FRACTION = 0.75;
+        const usableSpanMHz = hwSpanMHz * USABLE_BW_FRACTION;
+        const shouldShowHWGrid = totalSpan > hwSpanMHz + 0.001 && hwSpanMHz > 0;
+        
+        if (shouldShowHWGrid) {
+          ctx.save();
+          ctx.strokeStyle = SNAP_HW_RATE_LINE; // User specified color
+          ctx.setLineDash([4, 4]); // Dashed line
+          ctx.lineWidth = 1 / dpr;
+          ctx.fillStyle = SNAP_HW_RATE_TEXT;
+          ctx.font = "10px JetBrains Mono";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "top";
 
-        const formatOffset = (mhz: number) => {
-          const abs = Math.abs(mhz);
-          if (abs >= 1) return `${mhz.toFixed(1)}MHz`;
-          if (abs >= 0.001) return `${Math.round(mhz * 1000)}kHz`;
-          return `${Math.round(mhz * 1_000_000)}Hz`;
-        };
+          const formatOffset = (mhz: number) => {
+            const abs = Math.abs(mhz);
+            if (abs >= 1) return `${mhz.toFixed(1)}MHz`;
+            if (abs >= 0.001) return `${Math.round(mhz * 1000)}kHz`;
+            return `${Math.round(mhz * 1_000_000)}Hz`;
+          };
 
+          let currentFreq = anchorRange.min;
+          while (currentFreq < anchorRange.max - 0.001) {
+            const blockStart = currentFreq;
+            const blockEnd = Math.min(blockStart + hwSpanMHz, anchorRange.max);
+            const blockWidth = blockEnd - blockStart;
+            const isFullBlock = blockWidth >= hwSpanMHz - 0.001;
+            const blockCenter = (blockStart + blockEnd) / 2;
 
-        let currentFreq = anchorRange.min;
-        while (currentFreq < anchorRange.max - 0.001) {
-          const blockStart = currentFreq;
-          const blockEnd = Math.min(blockStart + hwSpanMHz, anchorRange.max);
-          const blockWidth = blockEnd - blockStart;
-          const isFullBlock = blockWidth >= hwSpanMHz - 0.001;
+            const usableStart = blockCenter - usableSpanMHz / 2;
+            const usableEnd = blockCenter + usableSpanMHz / 2;
 
-          // Only draw if visible in the current zoomed frequency range
-          if (blockEnd > minFreq && blockStart < maxFreq) {
-            // Draw left boundary
-            if (blockStart > anchorRange.min + 0.0001 && blockStart >= minFreq && blockStart <= maxFreq) {
-              const lx = Math.round(freqToX2(blockStart));
-              ctx.beginPath();
-              ctx.moveTo(lx, FFT_AREA_MIN.y);
-              ctx.lineTo(lx, fftAreaMax.y);
-              ctx.stroke();
+            // Only draw if visible in the current zoomed frequency range
+            if (blockEnd > minFreq && blockStart < maxFreq) {
+              // Draw left boundary
+              if (blockStart > anchorRange.min + 0.0001 && blockStart >= minFreq && blockStart <= maxFreq) {
+                const lx = Math.round(freqToX2(blockStart));
+                ctx.beginPath();
+                ctx.moveTo(lx, FFT_AREA_MIN.y);
+                ctx.lineTo(lx, fftAreaMax.y);
+                ctx.stroke();
+              }
+
+              // Draw usable bandwidth marks
+              if (isFullBlock) {
+                ctx.save();
+                ctx.strokeStyle = SNAP_HW_RATE_LINE;
+                ctx.setLineDash([2, 2]);
+                ctx.globalAlpha = 0.5;
+                if (usableStart >= minFreq && usableStart <= maxFreq) {
+                  const ux1 = Math.round(freqToX2(usableStart));
+                  ctx.beginPath();
+                  ctx.moveTo(ux1, FFT_AREA_MIN.y + 30);
+                  ctx.lineTo(ux1, fftAreaMax.y);
+                  ctx.stroke();
+                }
+                if (usableEnd >= minFreq && usableEnd <= maxFreq) {
+                  const ux2 = Math.round(freqToX2(usableEnd));
+                  ctx.beginPath();
+                  ctx.moveTo(ux2, FFT_AREA_MIN.y + 30);
+                  ctx.lineTo(ux2, fftAreaMax.y);
+                  ctx.stroke();
+                }
+                ctx.restore();
+              }
+
+              // Draw right boundary
+              if (blockEnd < anchorRange.max - 0.0001 && blockEnd >= minFreq && blockEnd <= maxFreq) {
+                const rx = Math.round(freqToX2(blockEnd));
+                ctx.beginPath();
+                ctx.moveTo(rx, FFT_AREA_MIN.y);
+                ctx.lineTo(rx, fftAreaMax.y);
+                ctx.stroke();
+              }
+
+              // Draw center label - clamp to visible region so it doesn't disappear when zoomed
+              const visibleStart = Math.max(blockStart, minFreq);
+              const visibleEnd = Math.min(blockEnd, maxFreq);
+              const visibleCenter = (visibleStart + visibleEnd) / 2;
+              
+              if (
+                visibleCenter >= minFreq &&
+                visibleCenter <= maxFreq
+              ) {
+                const cx = Math.round(freqToX2(visibleCenter));
+                const label = isFullBlock ? "Hardware Sample Rate" : "Next Sample";
+                const subLabel = formatOffset(blockWidth);
+                ctx.fillText(label, cx, FFT_AREA_MIN.y + 4);
+                ctx.fillText(subLabel, cx, FFT_AREA_MIN.y + 16);
+                
+                if (isFullBlock) {
+                  ctx.save();
+                  ctx.globalAlpha = 0.7;
+                  ctx.font = "italic 9px JetBrains Mono";
+                  ctx.fillText(`Clean BW: ${formatOffset(usableSpanMHz)}`, cx, FFT_AREA_MIN.y + 28);
+                  ctx.restore();
+                }
+              }
             }
-
-            // Draw right boundary
-            if (blockEnd < anchorRange.max - 0.0001 && blockEnd >= minFreq && blockEnd <= maxFreq) {
-              const rx = Math.round(freqToX2(blockEnd));
-              ctx.beginPath();
-              ctx.moveTo(rx, FFT_AREA_MIN.y);
-              ctx.lineTo(rx, fftAreaMax.y);
-              ctx.stroke();
-            }
-
-            // Draw center label - clamp to visible region so it doesn't disappear when zoomed
-            const visibleStart = Math.max(blockStart, minFreq);
-            const visibleEnd = Math.min(blockEnd, maxFreq);
-            const visibleCenter = (visibleStart + visibleEnd) / 2;
-            
-            if (
-              visibleCenter >= minFreq &&
-              visibleCenter <= maxFreq
-            ) {
-              const cx = Math.round(freqToX2(visibleCenter));
-              const label = isFullBlock ? "Hardware Sample Rate" : "Next Sample";
-              const subLabel = formatOffset(blockWidth);
-              ctx.fillText(label, cx, FFT_AREA_MIN.y + 4);
-              ctx.fillText(subLabel, cx, FFT_AREA_MIN.y + 16);
-            }
+            currentFreq = blockEnd;
           }
-          currentFreq = blockEnd;
+          ctx.restore();
         }
-        ctx.restore();
-      }
     },
     [formatFrequency, formatFrequencyHighRes],
   );

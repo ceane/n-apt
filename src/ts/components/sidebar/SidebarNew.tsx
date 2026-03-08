@@ -4,6 +4,7 @@ import FrequencyRangeSlider from "@n-apt/components/sidebar/FrequencyRangeSlider
 import { decryptPayloadBytes } from "@n-apt/crypto/webcrypto";
 import { useSdrSettings } from "@n-apt/hooks/useSdrSettings";
 import { useAuthentication } from "@n-apt/hooks/useAuthentication";
+import type { GeolocationData } from "@n-apt/consts/schemas/websocket";
 import type {
   SDRSettings,
   DeviceState,
@@ -51,6 +52,8 @@ type NaptMetadata = {
   fft_window?: string;
   tuner_agc?: boolean;
   rtl_agc?: boolean;
+  // Geolocation data
+  geolocation?: GeolocationData;
 };
 
 const SidebarContent = styled.div`
@@ -317,7 +320,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   vizPanOffset = 0,
   onVizPanChange,
 }) => {
-  const { state, dispatch, wsConnection } = useSpectrumStore();
+  const { state, dispatch, wsConnection, cryptoCorrupted } = useSpectrumStore();
   const { isAuthenticated, authState, aesKey, sessionToken } =
     useAuthentication();
   const maxSampleRate =
@@ -423,6 +426,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     useState<CaptureFileType>(".napt");
   const [captureEncrypted, setCaptureEncrypted] = useState(true);
   const [capturePlayback, setCapturePlayback] = useState(false);
+  const [captureGeolocation, setCaptureGeolocation] = useState(false);
 
   // Snapshot UI state
   const [snapshotOpen, setSnapshotOpen] = useState(false);
@@ -584,11 +588,36 @@ const Sidebar: React.FC<SidebarProps> = ({
   }, [sourceMode, selectedFiles, naptMetadata, sampleRateMHz]);
 
   // Handle capture
-  const handleCapture = useCallback(() => {
+  const handleCapture = useCallback(async () => {
     if (!isConnected || deviceState === "loading") return;
     if (!isAuthenticated) return;
 
     if (captureRange.min === 0 && captureRange.max === 0) return;
+
+    let geolocationData = undefined;
+    if (captureFileTypeState === ".napt" && captureGeolocation) {
+      try {
+        // Get geolocation data
+        const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: true,
+            timeout: 10000,
+            maximumAge: 0,
+          });
+        });
+
+        geolocationData = {
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+          accuracy: position.coords.accuracy,
+          altitude: position.coords.altitude || undefined,
+          timestamp: position.timestamp,
+        };
+      } catch (error) {
+        console.warn("Failed to get geolocation for capture:", error);
+        // Continue without geolocation if it fails
+      }
+    }
 
     const jobId = `cap_${Date.now()}`;
     const req: CaptureRequest = {
@@ -600,6 +629,7 @@ const Sidebar: React.FC<SidebarProps> = ({
       encrypted: captureFileTypeState === ".napt" ? true : captureEncrypted,
       fftSize,
       fftWindow,
+      geolocation: geolocationData,
     };
     onCaptureCommand(req);
   }, [
@@ -611,6 +641,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     captureDurationS,
     captureFileTypeState,
     captureEncrypted,
+    captureGeolocation,
     fftSize,
     fftWindow,
     onCaptureCommand,
@@ -774,6 +805,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             deviceState={deviceState}
             deviceLoadingReason={deviceLoadingReason}
             isPaused={isPaused}
+            cryptoCorrupted={cryptoCorrupted}
             onPauseToggle={onPauseToggle}
             onRestartDevice={onRestartDevice}
           />
@@ -816,6 +848,7 @@ const Sidebar: React.FC<SidebarProps> = ({
               deviceState={deviceState}
               deviceLoadingReason={deviceLoadingReason}
               isPaused={isPaused}
+              cryptoCorrupted={cryptoCorrupted}
               onPauseToggle={onPauseToggle}
               onRestartDevice={onRestartDevice}
             />
@@ -835,6 +868,7 @@ const Sidebar: React.FC<SidebarProps> = ({
               deviceState={deviceState}
               deviceLoadingReason={deviceLoadingReason}
               isPaused={isPaused}
+              cryptoCorrupted={cryptoCorrupted}
               onPauseToggle={onPauseToggle}
               onRestartDevice={onRestartDevice}
             />
@@ -880,6 +914,7 @@ const Sidebar: React.FC<SidebarProps> = ({
               captureFileType={captureFileTypeState}
               captureEncrypted={captureEncrypted}
               capturePlayback={capturePlayback}
+              captureGeolocation={captureGeolocation}
               captureRange={captureRange}
               maxSampleRate={maxSampleRate}
               captureStatus={captureStatus}
@@ -891,6 +926,7 @@ const Sidebar: React.FC<SidebarProps> = ({
               onCaptureFileTypeChange={setCaptureFileType}
               onCaptureEncryptedChange={setCaptureEncrypted}
               onCapturePlaybackChange={setCapturePlayback}
+              onCaptureGeolocationChange={setCaptureGeolocation}
               onCapture={handleCapture}
             />
           )}

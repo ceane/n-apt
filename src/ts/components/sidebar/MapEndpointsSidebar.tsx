@@ -3,6 +3,13 @@ import styled from "styled-components";
 import { CollapsibleTitle, CollapsibleBody, Row } from "@n-apt/components/ui";
 import { useMapLocations } from "@n-apt/hooks/useMapLocations";
 import { Autocomplete } from "@react-google-maps/api";
+import { LocalTowersButton } from "@n-apt/components/LocalTowersButton";
+
+const LocalTowersSection = () => (
+  <Row label="Local Towers">
+    <LocalTowersButton />
+  </Row>
+);
 
 const SidebarContainer = styled.div`
   display: grid;
@@ -294,6 +301,8 @@ export const MapEndpointsSidebar: React.FC = () => {
         ))}
       </PillGrid>
 
+      <LocalTowersSection />
+
       <CollapsibleTitle
         label="Useful Links /"
         isOpen={linksOpen}
@@ -336,8 +345,14 @@ export const MapEndpointsSidebar: React.FC = () => {
       <InfoParagraph>
         There are over 2 million cell sites within the United States
       </InfoParagraph>
-      <div style={{ gridColumn: "1 / -1", marginTop: "12px", fontSize: "10px", color: "#666", borderTop: "1px solid rgba(255,255,255,0.05)", paddingTop: "8px" }}>
-        Cell Tower Data from <a href="https://opencellid.org/" target="_blank" rel="noopener noreferrer" style={{ color: "#00d4ff", textDecoration: "none" }}>OpenCellID</a>
+      <div style={{ gridColumn: "1 / -1", marginTop: "12px", fontSize: "10px", color: "#666", borderTop: "1px solid rgba(255,255,255,0.05)", paddingTop: "8px", lineHeight: "1.4" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "4px" }}>
+          <span style={{ fontSize: "12px", color: "#888" }}>CC BY-SA</span>
+          <span>Cell Tower Data from <a href="https://opencellid.org/" target="_blank" rel="noopener noreferrer" style={{ color: "#00d4ff", textDecoration: "none" }}>OpenCelliD</a></span>
+        </div>
+        <div style={{ fontSize: "9px", color: "#555" }}>
+          OpenCelliD Project is licensed under a Creative Commons Attribution-ShareAlike 4.0 International License
+        </div>
       </div>
     </SidebarContainer>
   );

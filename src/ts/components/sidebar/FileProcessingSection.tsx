@@ -2,6 +2,7 @@ import React, { useRef } from "react";
 import styled from "styled-components";
 import { Tooltip, Button } from "@n-apt/components/ui";
 import { Activity, Download, Trash2, CheckCircle2, Play, Pause, Loader2 } from "lucide-react";
+import type { GeolocationData } from "@n-apt/consts/schemas/websocket";
 
 type NaptMetadata = {
   sample_rate?: number;
@@ -27,6 +28,8 @@ type NaptMetadata = {
   fft_window?: string;
   tuner_agc?: boolean;
   rtl_agc?: boolean;
+  // Geolocation data
+  geolocation?: GeolocationData;
 };
 
 const Section = styled.div<{ $marginTop?: string }>`
@@ -636,6 +639,20 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
                     : "N/A"}
                 </MetadataValue>
               </MetadataItem>
+              {naptMetadata.geolocation && (
+                <MetadataItem>
+                  <MetadataLabel>
+                    Geolocation
+                    <Tooltip
+                      title="Geolocation"
+                      content="GPS coordinates where the capture was recorded. Format: Latitude, Longitude in decimal degrees."
+                    />
+                  </MetadataLabel>
+                  <MetadataValue>
+                    {naptMetadata.geolocation.latitude}, {naptMetadata.geolocation.longitude}
+                  </MetadataValue>
+                </MetadataItem>
+              )}
             </MetadataGrid>
           ) : (
             <div

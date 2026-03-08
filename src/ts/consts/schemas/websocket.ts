@@ -68,6 +68,14 @@ export type SpectrumFrame = {
 
 export type CaptureFileType = ".napt" | ".wav";
 
+export type GeolocationData = {
+  latitude: number;
+  longitude: number;
+  accuracy: number;
+  altitude?: number;
+  timestamp: number;
+};
+
 export type CaptureRequest = {
   jobId: string;
   fragments: { minFreq: number; maxFreq: number }[];
@@ -77,6 +85,7 @@ export type CaptureRequest = {
   encrypted: boolean;
   fftSize: number;
   fftWindow: string;
+  geolocation?: GeolocationData;
 };
 
 export type CaptureStatus = {

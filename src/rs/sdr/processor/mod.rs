@@ -44,6 +44,8 @@ pub struct CaptureResult {
   pub overall_center_frequency_hz: f64,
   /// Total bandwidth of the overall requested capture range
   pub overall_capture_sample_rate_hz: f64,
+  /// Geolocation data if available
+  pub geolocation: Option<crate::server::types::GeolocationData>,
 }
 
 /// SDR processor that works with any SDR device implementation
@@ -115,6 +117,8 @@ pub struct SdrProcessor {
   pub capture_rtl_agc: bool,
   /// Snapshot of FFT window at capture start
   pub capture_fft_window: String,
+  /// Geolocation data at capture start
+  pub capture_geolocation: Option<crate::server::types::GeolocationData>,
   /// Overall center frequency of the requested capture range (Hz)
   pub capture_overall_center_hz: f64,
   /// Overall bandwidth of the requested capture range (Hz)
@@ -210,6 +214,7 @@ impl SdrProcessor {
       capture_tuner_agc: false,
       capture_rtl_agc: false,
       capture_fft_window: String::from("Rectangular"),
+      capture_geolocation: None,
       capture_overall_center_hz: 0.0,
       capture_overall_span_hz: 0.0,
       current_gain_db: -999.0, // Force first update
@@ -639,6 +644,18 @@ impl SdrProcessor {
       }
     }
 
+    if let Some(offset_tuning) = settings.offset_tuning {
+      self.device.set_offset_tuning(offset_tuning)?;
+    }
+
+    if let Some(direct_sampling) = settings.direct_sampling {
+      self.device.set_direct_sampling(direct_sampling)?;
+    }
+
+    if let Some(bandwidth) = settings.tuner_bandwidth {
+      self.device.set_tuner_bandwidth(bandwidth)?;
+    }
+
     if config_changed {
       self.fft_processor.update_config(config);
     }
@@ -771,75 +788,97 @@ impl SdrProcessor {
               }
               prev_avg = avg;
             }
-          }
         }
+    }
 
-        // NOTE: capture spectra are already fftshifted by fft_processor.
-        // Re-shifting here would split the spectrum into non-contiguous halves
-        // and produce malformed stitched playback artifacts.
+    // NOTE: capture spectra are already fftshifted by fft_processor.
+    // Re-shifting here would split the spectrum into non-contiguous halves
+    // and produce malformed stitched playback artifacts.
 
-        // Trim overlapping IQ data and spectrum from adjacent channels
-        // so each channel contains only its unique non-overlapping portion.
-        if channels.len() > 1 {
-          for i in 1..channels.len() {
-            let prev_max = channels[i - 1].center_freq_hz
-              + channels[i - 1].sample_rate_hz / 2.0;
-            let curr_min =
-              channels[i].center_freq_hz - channels[i].sample_rate_hz / 2.0;
-            let overlap_hz = prev_max - curr_min;
+    // Trim overlapping spectrum from adjacent channels so each channel
+    // contains only its unique non-overlapping portion.
+    // We trim both adjacent channels to meet at the MIDPOINT of their overlap,
+    // which ensures we use the cleanest (center) portion of both hops.
+    if channels.len() > 1 {
+      let fft_size = self.fft_processor.config().fft_size;
 
-            let fft_size = self.fft_processor.config().fft_size;
-            let mut trim_bins = 0;
+      for i in 1..channels.len() {
+        let prev_max = channels[i - 1].center_freq_hz
+          + channels[i - 1].sample_rate_hz / 2.0;
+        let curr_min =
+          channels[i].center_freq_hz - channels[i].sample_rate_hz / 2.0;
+        let overlap_hz = prev_max - curr_min;
 
-            if overlap_hz > 0.0 {
-              let overlap_fraction = overlap_hz / channels[i].sample_rate_hz;
+        if overlap_hz > 0.0 {
+          let midpoint_hz = (prev_max + curr_min) / 2.0;
 
-              // Note: Do NOT trim IQ data here. Trimming the IQ vector removes time duration,
-              // which causes misalignment with other channels during stitching.
-              // Frequency overlap is handled via spectrum bin trimming for visualization.
+          // 1. Trim end of previous channel (i-1)
+          let prev_overlap_hz = prev_max - midpoint_hz;
+          let prev_trim_fraction = prev_overlap_hz / channels[i-1].sample_rate_hz;
+          let prev_trim_bins = (fft_size as f64 * prev_trim_fraction).round() as usize;
 
-              // Trim spectrum frames: remove first N bins from each frame
-              if !channels[i].spectrum_data.is_empty() {
-                trim_bins =
-                  (fft_size as f64 * overlap_fraction).round() as usize;
+          if prev_trim_bins > 0 && prev_trim_bins < (channels[i-1].bins_per_frame as usize) {
+            if !channels[i-1].spectrum_data.is_empty() {
+              let old_bins = channels[i-1].bins_per_frame as usize;
+              let new_bins = old_bins - prev_trim_bins;
+              let num_frames = channels[i-1].spectrum_data.len() / old_bins;
+              let mut new_spectrum = Vec::with_capacity(num_frames * new_bins);
 
-                if trim_bins > 0 && trim_bins < fft_size {
-                  let num_frames = channels[i].spectrum_data.len() / fft_size;
-                  let mut new_spectrum =
-                    Vec::with_capacity(num_frames * (fft_size - trim_bins));
-
-                  for f in 0..num_frames {
-                    let start = f * fft_size + trim_bins;
-                    let end = (f + 1) * fft_size;
-                    new_spectrum.extend_from_slice(
-                      &channels[i].spectrum_data[start..end],
-                    );
-                  }
-                  channels[i].spectrum_data = new_spectrum;
-                } else {
-                  trim_bins = 0;
-                }
+              for f in 0..num_frames {
+                let start = f * old_bins;
+                let end = start + new_bins;
+                new_spectrum.extend_from_slice(&channels[i-1].spectrum_data[start..end]);
               }
+              channels[i-1].spectrum_data = new_spectrum;
+              channels[i-1].bins_per_frame = new_bins as u32;
+            }
 
-              // Update channel metadata to reflect the trimmed range
-              let new_min = curr_min + overlap_hz;
-              let new_sr = channels[i].sample_rate_hz - overlap_hz;
-              channels[i].center_freq_hz = new_min + new_sr / 2.0;
-              channels[i].sample_rate_hz = new_sr;
-              channels[i].bins_per_frame = (fft_size - trim_bins) as u32;
+            // Update i-1 metadata
+            channels[i-1].sample_rate_hz -= prev_overlap_hz;
+            channels[i-1].center_freq_hz -= prev_overlap_hz / 2.0;
+          }
+
+          // 2. Trim start of current channel (i)
+          let curr_overlap_hz = midpoint_hz - curr_min;
+          let curr_trim_fraction = curr_overlap_hz / channels[i].sample_rate_hz;
+          let curr_trim_bins = (fft_size as f64 * curr_trim_fraction).round() as usize;
+
+          if curr_trim_bins > 0 && curr_trim_bins < fft_size {
+            if !channels[i].spectrum_data.is_empty() {
+              let num_frames = channels[i].spectrum_data.len() / fft_size;
+              let new_bins = fft_size - curr_trim_bins;
+              let mut new_spectrum = Vec::with_capacity(num_frames * new_bins);
+
+              for f in 0..num_frames {
+                let start = f * fft_size + curr_trim_bins;
+                let end = (f + 1) * fft_size;
+                new_spectrum.extend_from_slice(&channels[i].spectrum_data[start..end]);
+              }
+              channels[i].spectrum_data = new_spectrum;
+              channels[i].bins_per_frame = new_bins as u32;
             } else {
-              // No trimming
-              channels[i].bins_per_frame = fft_size as u32;
+              // If spectrum is empty (IQ only capture), still set bins_per_frame
+              channels[i].bins_per_frame = (fft_size - curr_trim_bins) as u32;
+            }
+            
+            // Update i metadata
+            channels[i].sample_rate_hz -= curr_overlap_hz;
+            channels[i].center_freq_hz += curr_overlap_hz / 2.0;
+          }
+            } else {
+              // No overlap with previous, but still need to set bins_per_frame if not set
+              if channels[i].bins_per_frame == 0 {
+                channels[i].bins_per_frame = fft_size as u32;
+              }
             }
           }
         }
 
         // Ensure first channel also has bins_per_frame set
-        if !channels.is_empty()
-          && channels[0].bins_per_frame == 0 {
-            channels[0].bins_per_frame =
-              self.fft_processor.config().fft_size as u32;
-          }
+        if !channels.is_empty() && channels[0].bins_per_frame == 0 {
+          channels[0].bins_per_frame =
+            self.fft_processor.config().fft_size as u32;
+        }
 
         return Some(CaptureResult {
           job_id,
@@ -859,6 +898,7 @@ impl SdrProcessor {
           hardware_sample_rate_hz: self.get_sample_rate() as f64,
           overall_center_frequency_hz: self.capture_overall_center_hz,
           overall_capture_sample_rate_hz: self.capture_overall_span_hz,
+          geolocation: self.capture_geolocation.clone(),
         });
       }
     }

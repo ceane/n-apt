@@ -6,6 +6,7 @@
 pub mod http_endpoints;
 pub mod main;
 pub mod shared_state;
+pub mod tower_local;
 pub mod types;
 pub mod utils;
 pub mod websocket_handlers;

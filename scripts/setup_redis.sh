@@ -113,55 +113,69 @@ check_redis_connection() {
     fi
 }
 
-# Load tower data into Redis
+# Load tower data into Redis (permanent app data)
 load_tower_data() {
-    echo -e "${ORANGE}Loading tower data into Redis...${RESET}"
+    echo -e "${ORANGE}Loading fast select towers (for UI)...${RESET}"
     
-    # Check if Redis already has tower data
+    # Check if Redis already has tower data in PERMANENT databases (db2, db3)
     if check_redis_connection; then
-        TOWER_COUNT=$(redis-cli -p $REDIS_PORT hget towers:meta total 2>/dev/null || echo "0")
-        if [ "$TOWER_COUNT" != "0" ] && [ "$TOWER_COUNT" != "" ]; then
-            echo -e "${GREEN}✓ Tower data already loaded: $TOWER_COUNT towers${RESET}"
+        FAST_DB_TOWERS=$(redis-cli -p $REDIS_PORT -n 2 keys "tower:*" 2>/dev/null | wc -l || echo "0")
+        COMPLETE_DB_TOWERS=$(redis-cli -p $REDIS_PORT -n 3 keys "tower:*" 2>/dev/null | wc -l || echo "0")
+        
+        if [ "$FAST_DB_TOWERS" != "0" ] && [ "$COMPLETE_DB_TOWERS" != "0" ]; then
+            echo -e "${GREEN}✓ Fast select towers loaded: $FAST_DB_TOWERS towers (ready for UI)${RESET}"
             return 0
         fi
     fi
     
-    # Check if Redis data files exist (from previous export)
+    # Check if Redis data files exist (from previous export) with tower data
     if [ -f "$SCRIPT_DIR/../redis/data/dump.rdb" ]; then
-        echo -e "${GREY}Found Redis data file, starting Redis to load data...${RESET}"
-        # Redis will automatically load the dump.rdb file when started
+        echo -e "${GREY}Found Redis data file, checking for tower data...${RESET}"
+        
+        # Try to load and check for tower data in permanent databases
         if check_redis_connection; then
-            TOWER_COUNT=$(redis-cli -p $REDIS_PORT hget towers:meta total 2>/dev/null || echo "0")
-            if [ "$TOWER_COUNT" != "0" ] && [ "$TOWER_COUNT" != "" ]; then
-                echo -e "${GREEN}✓ Tower data loaded from Redis dump: $TOWER_COUNT towers${RESET}"
+            FAST_DB_TOWERS=$(redis-cli -p $REDIS_PORT -n 2 keys "tower:*" 2>/dev/null | wc -l || echo "0")
+            COMPLETE_DB_TOWERS=$(redis-cli -p $REDIS_PORT -n 3 keys "tower:*" 2>/dev/null | wc -l || echo "0")
+            
+            if [ "$FAST_DB_TOWERS" != "0" ] && [ "$COMPLETE_DB_TOWERS" != "0" ]; then
+                echo -e "${GREEN}✓ Fast select towers loaded from Redis dump: $FAST_DB_TOWERS towers (ready for UI)${RESET}"
                 return 0
+            else
+                echo -e "${ORANGE}Redis dump missing tower data, reloading with new system...${RESET}"
             fi
         fi
     fi
     
-    # Check if we have Redis export files to restore
-    if [ -f "$SCRIPT_DIR/../redis/export/current/dump.rdb" ]; then
-        echo -e "${GREY}Restoring from Redis export...${RESET}"
-        cp "$SCRIPT_DIR/../redis/export/current/dump.rdb" "$SCRIPT_DIR/../redis/data/dump.rdb"
-        if check_redis_connection; then
-            TOWER_COUNT=$(redis-cli -p $REDIS_PORT hget towers:meta total 2>/dev/null || echo "0")
-            if [ "$TOWER_COUNT" != "0" ] && [ "$TOWER_COUNT" != "" ]; then
-                echo -e "${GREEN}✓ Tower data restored from export: $TOWER_COUNT towers${RESET}"
-                return 0
-            fi
-        fi
-    fi
-    
-    # If no data found, load a minimal dataset for development
-    echo -e "${ORANGE}No tower data found, loading minimal dataset...${RESET}"
+    # If no tower data found, load tower data using new OpenCellID system into PERMANENT databases
+    echo -e "${ORANGE}No tower data found, loading from OpenCellID...${RESET}"
+    echo -e "${GREY}Note: Tower data will be stored in permanent databases (db2, db3)${RESET}"
     cd "$SCRIPT_DIR/.."
-    if npm run towers:load:region -- --state NY --tech lte; then
-        echo -e "${GREEN}✓ Minimal tower data loaded (NY 4G towers)${RESET}"
+    
+    # Try the new cached download system first (API with 1-week cache + CSV fallback)
+    if npm run towers:download:cached; then
+        echo -e "${GREEN}✓ Tower data loaded from OpenCellID API/CSV with caching${RESET}"
+        # Move tower data from temporary databases to permanent ones
+        echo -e "${ORANGE}Moving tower data to permanent databases...${RESET}"
+        redis-cli -p $REDIS_PORT swapdb 0 2 >/dev/null
+        redis-cli -p $REDIS_PORT swapdb 1 3 >/dev/null
+        echo -e "${GREEN}✓ Tower data moved to permanent databases (db2, db3)${RESET}"
         return 0
     else
-        echo -e "${RED}✗ Failed to load tower data${RESET}"
-        echo -e "${GREY}Try running: npm run towers:load:region -- --state CA --tech nr${RESET}"
-        return 1
+        # Fallback to processing existing CSV files
+        echo -e "${ORANGE}Cached download failed, trying direct CSV processing...${RESET}"
+        if npm run towers:process:opencellid; then
+            echo -e "${GREEN}✓ Tower data loaded from CSV files${RESET}"
+            # Move tower data from temporary databases to permanent ones
+            echo -e "${ORANGE}Moving tower data to permanent databases...${RESET}"
+            redis-cli -p $REDIS_PORT swapdb 0 2 >/dev/null
+            redis-cli -p $REDIS_PORT swapdb 1 3 >/dev/null
+            echo -e "${GREEN}✓ Tower data moved to permanent databases (db2, db3)${RESET}"
+            return 0
+        else
+            echo -e "${RED}✗ Failed to load tower data${RESET}"
+            echo -e "${GREY}Try running: npm run towers:download:cached${RESET}"
+            return 1
+        fi
     fi
 }
 
@@ -172,12 +186,41 @@ show_redis_status() {
     if check_redis_connection; then
         echo -e "  ${GREEN}● Connected${RESET} (port $REDIS_PORT)"
         
-        # Show tower data info
-        TOWER_COUNT=$(redis-cli -p $REDIS_PORT hget towers:meta total 2>/dev/null || echo "0")
-        if [ "$TOWER_COUNT" != "0" ]; then
-            echo -e "  ${GREEN}● Tower data loaded: $TOWER_COUNT towers${RESET}"
+        # Show user/session data info (databases 0, 1)
+        USER_DB_KEYS=$(redis-cli -p $REDIS_PORT -n 0 dbsize 2>/dev/null || echo "0")
+        SESSION_DB_KEYS=$(redis-cli -p $REDIS_PORT -n 1 dbsize 2>/dev/null || echo "0")
+        
+        # Show tower data info (permanent databases 2, 3)
+        FAST_DB_KEYS=$(redis-cli -p $REDIS_PORT -n 2 dbsize 2>/dev/null || echo "0")
+        COMPLETE_DB_KEYS=$(redis-cli -p $REDIS_PORT -n 3 dbsize 2>/dev/null || echo "0")
+        
+        # Get actual unique tower counts from permanent databases
+        FAST_DB_TOWERS=$(redis-cli -p $REDIS_PORT -n 2 keys "tower:*" 2>/dev/null | wc -l || echo "0")
+        COMPLETE_DB_TOWERS=$(redis-cli -p $REDIS_PORT -n 3 keys "tower:*" 2>/dev/null | wc -l || echo "0")
+        
+        # Show user/session data
+        if [ "$USER_DB_KEYS" != "0" ] || [ "$SESSION_DB_KEYS" != "0" ]; then
+            echo -e "  ${GREEN}● User/Session data: ${USER_DB_KEYS} users, ${SESSION_DB_KEYS} sessions${RESET}"
         else
-            echo -e "  ${ORANGE}● No tower data loaded${RESET}"
+            echo -e "  ${GREY}● No user/session data${RESET}"
+        fi
+        
+        # Show tower data (permanent)
+        if [ "$FAST_DB_TOWERS" != "0" ]; then
+            echo -e "  ${GREEN}● Fast select towers: ${FAST_DB_TOWERS} towers (ready for UI)${RESET}"
+            
+            # Show region breakdown if available
+            BAY_AREA_COUNT=$(redis-cli -p $REDIS_PORT -n 2 get "region:bay_area:meta" 2>/dev/null | grep -o '"towerCount":[0-9]*' | cut -d: -f2 || echo "0")
+            MIAMI_COUNT=$(redis-cli -p $REDIS_PORT -n 2 get "region:miami:meta" 2>/dev/null | grep -o '"towerCount":[0-9]*' | cut -d: -f2 || echo "0")
+            
+            if [ "$BAY_AREA_COUNT" != "0" ]; then
+                echo -e "  ${GREEN}● Bay Area: $BAY_AREA_COUNT towers${RESET}"
+            fi
+            if [ "$MIAMI_COUNT" != "0" ]; then
+                echo -e "  ${GREEN}● Miami: $MIAMI_COUNT towers${RESET}"
+            fi
+        else
+            echo -e "  ${ORANGE}● No tower data loaded (permanent databases)${RESET}"
         fi
     else
         echo -e "  ${RED}● Not connected${RESET}"

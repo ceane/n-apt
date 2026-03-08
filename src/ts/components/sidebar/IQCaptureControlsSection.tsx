@@ -1,6 +1,7 @@
 import React from "react";
 import styled from "styled-components";
 import { useAuthentication } from "@n-apt/hooks/useAuthentication";
+import { useGeolocation } from "@n-apt/hooks/useGeolocation";
 import type {
   CaptureStatus,
   CaptureFileType,
@@ -300,6 +301,7 @@ interface IQCaptureControlsSectionProps {
   acquisitionMode: "stepwise" | "interleaved";
   captureEncrypted: boolean;
   capturePlayback: boolean;
+  captureGeolocation: boolean;
   captureRange: CaptureRange;
   maxSampleRate: number;
   captureStatus: CaptureStatus;
@@ -311,6 +313,7 @@ interface IQCaptureControlsSectionProps {
   onAcquisitionModeChange: (mode: "stepwise" | "interleaved") => void;
   onCaptureEncryptedChange: (value: boolean) => void;
   onCapturePlaybackChange: (value: boolean) => void;
+  onCaptureGeolocationChange: (value: boolean) => void;
   onCapture: () => void;
 }
 
@@ -326,6 +329,7 @@ export const IQCaptureControlsSection: React.FC<
   acquisitionMode,
   captureEncrypted,
   capturePlayback,
+  captureGeolocation,
   captureRange,
   maxSampleRate,
   captureStatus,
@@ -337,9 +341,28 @@ export const IQCaptureControlsSection: React.FC<
   onAcquisitionModeChange,
   onCaptureEncryptedChange,
   onCapturePlaybackChange,
+  onCaptureGeolocationChange,
   onCapture,
 }) => {
     const { isAuthenticated, sessionToken } = useAuthentication();
+    const {
+      isSupported,
+      requestPermission,
+      error: geoError,
+      isLoading: geoLoading
+    } = useGeolocation();
+
+    const handleGeolocationToggle = async (enabled: boolean) => {
+      if (enabled && captureFileType === ".napt") {
+        const hasPermission = await requestPermission();
+        if (!hasPermission) {
+          // If permission denied, keep toggle off
+          onCaptureGeolocationChange(false);
+          return;
+        }
+      }
+      onCaptureGeolocationChange(enabled);
+    };
     return (
       <Section>
         <CollapsibleTitle
@@ -440,6 +463,26 @@ export const IQCaptureControlsSection: React.FC<
                 <ToggleSwitchSlider $disabled={captureFileType === ".napt"} />
               </ToggleSwitch>
             </Row>
+
+            <Row label="Geolocation" tooltipTitle="Location data (lat, long, accuracy, altitude)" tooltip="Only available for .napt files. Requires browser permission to access location.">
+              <ToggleSwitch $disabled={captureFileType !== ".napt" || !isSupported || geoLoading}>
+                <ToggleSwitchInput
+                  type="checkbox"
+                  checked={captureFileType === ".napt" ? captureGeolocation : false}
+                  disabled={captureFileType !== ".napt" || !isSupported || geoLoading}
+                  onChange={(e) => handleGeolocationToggle(e.target.checked)}
+                />
+                <ToggleSwitchSlider $disabled={captureFileType !== ".napt" || !isSupported || geoLoading} />
+              </ToggleSwitch>
+            </Row>
+
+            {geoError && captureFileType === ".napt" && (
+              <Row label="">
+                <SettingValue style={{ color: "#ff6666", fontSize: "11px" }}>
+                  {geoError}
+                </SettingValue>
+              </Row>
+            )}
 
             <Row label="Sample size">
               <SettingValue>{maxSampleRate / 1000000}MHz</SettingValue>

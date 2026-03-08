@@ -218,9 +218,12 @@ impl WebSocketServer {
               file_type,
               acquisition_mode,
               encrypted,
+              fft_size,
               fft_window,
-              ..
+              geolocation,
             } => {
+              // fft_size is used by the SDR processor for FFT configuration
+              info!("[CAPTURE] FFT size: {}", fft_size);
               // Save current center frequency so we can restore it after capture
               processor.capture_pre_center_freq =
                 Some(processor.get_center_frequency());
@@ -245,12 +248,18 @@ impl WebSocketServer {
               processor.capture_fft_window = fft_window;
               processor.capture_gain = processor.current_gain_db;
               processor.capture_ppm = processor.current_ppm;
+              processor.capture_geolocation = geolocation;
               // AGC state is not tracked in config, default false for now
               processor.capture_tuner_agc = false;
               processor.capture_rtl_agc = false;
 
               let hw_sample_rate = processor.get_sample_rate() as f64;
-              let usable_bw_mhz = hw_sample_rate / 1_000_000.0;
+              let hw_bw_mhz = hw_sample_rate / 1_000_000.0;
+              
+              // Use only the center portion of the hardware bandwidth to avoid 
+              // the noisy/distorted edges of the RTL-SDR.
+              const USABLE_BW_FRACTION: f64 = 0.75;
+              let usable_bw_mhz = hw_bw_mhz * USABLE_BW_FRACTION;
 
               let mut all_hops: Vec<(f64, f64)> = Vec::new();
               // Track the overall requested range for metadata
@@ -263,22 +272,37 @@ impl WebSocketServer {
 
                 let span = max_freq - min_freq;
                 if span <= usable_bw_mhz {
-                  // Single hop: center the window on the requested range
+                  // Small span: center the window on the requested range
+                  // But ensure we use the full HW bandwidth for the device tuning.
                   let center = (min_freq + max_freq) / 2.0;
-                  let hop_start = center - usable_bw_mhz / 2.0;
-                  all_hops.push((hop_start, hop_start + usable_bw_mhz));
+                  let hop_start = center - hw_bw_mhz / 2.0;
+                  all_hops.push((hop_start, hop_start + hw_bw_mhz));
                 } else {
-                  // Sliding window: first hop starts at min_freq,
-                  // last hop ends at max_freq, with overlap in between
+                  // Sliding window with overlap: first hop starts at its "usable" min,
+                  // last hop ends at its "usable" max.
+                  
+                  // Number of hops is based on USABLE bandwidth increments
                   let num_hops = (span / usable_bw_mhz).ceil() as usize;
                   if num_hops <= 1 {
-                    all_hops.push((min_freq, min_freq + usable_bw_mhz));
+                    let center = (min_freq + max_freq) / 2.0;
+                    let hop_start = center - hw_bw_mhz / 2.0;
+                    all_hops.push((hop_start, hop_start + hw_bw_mhz));
                   } else {
-                    // Distribute hops so first starts at min_freq, last ends at max_freq
-                    let step = (span - usable_bw_mhz) / ((num_hops - 1) as f64);
+                    // Distribute hops so that the "usable" centers cover the range.
+                    // The first hop's usable range starts at min_freq.
+                    // The last hop's usable range ends at max_freq.
+                    // Usable start = center - usable_bw/2
+                    // 1st hop: usable_start = min_freq => center = min_freq + usable_bw/2
+                    // Last hop: usable_end = max_freq => center = max_freq - usable_bw/2
+                    
+                    let first_center = min_freq + (usable_bw_mhz / 2.0);
+                    let last_center = max_freq - (usable_bw_mhz / 2.0);
+                    let step = (last_center - first_center) / ((num_hops - 1) as f64);
+                    
                     for i in 0..num_hops {
-                      let start = min_freq + (i as f64 * step);
-                      let end = start + usable_bw_mhz;
+                      let center = first_center + (i as f64 * step);
+                      let start = center - (hw_bw_mhz / 2.0);
+                      let end = start + hw_bw_mhz;
                       all_hops.push((start, end));
                     }
                   }
@@ -317,7 +341,7 @@ impl WebSocketServer {
                 if let Err(e) = processor.set_center_frequency(center_freq) {
                   error!("Failed to tune to first fragment: {}", e);
                 } else {
-                  info!("Tuned to initial capture fragment: {} MHz - {} MHz (center {} Hz)", min_freq, max_freq, center_freq);
+                  info!("Tuned to initial capture fragment: {} MHz - {} MHz (center {} Hz, bandwidth {} MHz)", min_freq, max_freq, center_freq, hw_bw_mhz);
                 }
               }
 

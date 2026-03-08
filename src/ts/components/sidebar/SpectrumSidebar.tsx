@@ -3,11 +3,14 @@ import styled, { useTheme } from "styled-components";
 import { useSpectrumStore, SourceMode } from "@n-apt/hooks/useSpectrumStore";
 import { useSdrSettings } from "@n-apt/hooks/useSdrSettings";
 import { useAuthentication } from "@n-apt/hooks/useAuthentication";
+import { useGeolocation } from "@n-apt/hooks/useGeolocation";
 
 import type {
   CaptureRequest,
+  CaptureStatus,
   CaptureFileType,
-} from "@n-apt/hooks/useWebSocket";
+  GeolocationData,
+} from "@n-apt/consts/schemas/websocket";
 
 // Reuse existing section components
 import { SignalDisplaySection } from "@n-apt/components/sidebar/SignalDisplaySection";
@@ -151,6 +154,8 @@ type NaptMetadata = {
   fft_window?: string;
   tuner_agc?: boolean;
   rtl_agc?: boolean;
+  // Geolocation data
+  geolocation?: GeolocationData;
 };
 
 export const SpectrumSidebar: React.FC = () => {
@@ -160,6 +165,7 @@ export const SpectrumSidebar: React.FC = () => {
     effectiveSdrSettings,
     sampleRateHzEffective,
     toggleVisualizerPause,
+    cryptoCorrupted,
     effectiveFrames,
     wsConnection: {
       isConnected,
@@ -177,6 +183,7 @@ export const SpectrumSidebar: React.FC = () => {
   } = useSpectrumStore();
 
   const { isAuthenticated, sessionToken, aesKey } = useAuthentication();
+  const { getLocation } = useGeolocation();
   const theme = useTheme();
 
   const maxSampleRate = sampleRateHzEffective ?? maxSampleRateHz ?? 0;
@@ -225,6 +232,7 @@ export const SpectrumSidebar: React.FC = () => {
     useState<CaptureFileType>(".napt");
   const [captureEncrypted, setCaptureEncrypted] = useState(true);
   const [capturePlayback, setCapturePlayback] = useState(false);
+  const [captureGeolocation, setCaptureGeolocation] = useState(false);
 
   // Snapshot UI state
   const [snapshotOpen, setSnapshotOpen] = useState(false);
@@ -330,7 +338,7 @@ export const SpectrumSidebar: React.FC = () => {
       const match = f.name.match(/iq_(\d+\.?\d*)MHz/);
       if (match) {
         const freq = parseFloat(match[1]);
-        const sampleRate = 3.2; // Default fallback
+        const sampleRate = sampleRateMHz ?? 3.2; // Use current sample rate or fallback
         minFreq = Math.min(minFreq, freq - sampleRate / 2);
         maxFreq = Math.max(maxFreq, freq + sampleRate / 2);
       }
@@ -388,13 +396,24 @@ export const SpectrumSidebar: React.FC = () => {
   }, [availableCaptureAreas, activeCaptureAreas, state.frequencyRange]);
 
   // Handlers
-  const handleCapture = useCallback(() => {
+  const handleCapture = useCallback(async () => {
     if (!isConnected || deviceState === "loading" || !isAuthenticated) return;
 
     // Default to the overall range if no active fragments
     let fragments = activeFragments;
     if (fragments.length === 0 && state.frequencyRange) {
       fragments = [{ minFreq: state.frequencyRange.min, maxFreq: state.frequencyRange.max }];
+    }
+
+    let geolocationData = undefined;
+    if (captureFileTypeState === ".napt" && captureGeolocation) {
+      try {
+        const location = await getLocation();
+        geolocationData = location || undefined;
+      } catch (error) {
+        console.warn("Failed to get geolocation for capture:", error);
+        // Continue without geolocation if it fails
+      }
     }
 
     const req: CaptureRequest = {
@@ -406,6 +425,7 @@ export const SpectrumSidebar: React.FC = () => {
       encrypted: captureFileTypeState === ".napt" ? true : captureEncrypted,
       fftSize,
       fftWindow,
+      geolocation: geolocationData,
     };
     sendCaptureCommand(req);
   }, [
@@ -418,9 +438,11 @@ export const SpectrumSidebar: React.FC = () => {
     captureFileTypeState,
     acquisitionMode,
     captureEncrypted,
+    captureGeolocation,
     fftSize,
     fftWindow,
     sendCaptureCommand,
+    getLocation,
   ]);
 
   const handleSnapshot = () => {
@@ -472,7 +494,8 @@ export const SpectrumSidebar: React.FC = () => {
 
           if (!cancelled) {
             // The metadata object itself is inside `metadata` key
-            setNaptMetadata(metaObj.metadata || metaObj);
+            const metadata = metaObj.metadata || metaObj;
+            setNaptMetadata(metadata);
             setNaptMetadataError(null);
           }
         } else if (isWav) {
@@ -619,9 +642,10 @@ export const SpectrumSidebar: React.FC = () => {
         <>
           <ConnectionStatusSection
             isConnected={isConnected}
-            deviceState={deviceState || "disconnected"}
+            deviceState={deviceState}
             deviceLoadingReason={deviceLoadingReason}
             isPaused={state.visualizerPaused}
+            cryptoCorrupted={cryptoCorrupted}
             onPauseToggle={toggleVisualizerPause}
             onRestartDevice={() => sendRestartDevice()}
           />
@@ -636,6 +660,7 @@ export const SpectrumSidebar: React.FC = () => {
             acquisitionMode={acquisitionMode}
             captureEncrypted={captureEncrypted}
             capturePlayback={capturePlayback}
+            captureGeolocation={captureGeolocation}
             captureRange={captureRange}
             maxSampleRate={maxSampleRate}
             captureStatus={captureStatus}
@@ -647,6 +672,7 @@ export const SpectrumSidebar: React.FC = () => {
             onAcquisitionModeChange={setAcquisitionMode}
             onCaptureEncryptedChange={setCaptureEncrypted}
             onCapturePlaybackChange={setCapturePlayback}
+            onCaptureGeolocationChange={setCaptureGeolocation}
             onCapture={handleCapture}
           />
 

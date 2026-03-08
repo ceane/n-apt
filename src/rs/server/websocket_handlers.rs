@@ -382,6 +382,9 @@ pub fn handle_message(
         ppm,
         tuner_agc: message.tuner_agc,
         rtl_agc: message.rtl_agc,
+        offset_tuning: message.offset_tuning,
+        direct_sampling: message.direct_sampling,
+        tuner_bandwidth: message.tuner_bandwidth,
       }));
 
       // Update the shared settings so that future status broadcasts
@@ -477,6 +480,7 @@ pub fn handle_message(
           .fft_window
           .clone()
           .unwrap_or_else(|| "hann".to_string()),
+        geolocation: message.geolocation,
       };
       log::info!("Client requested capture: {:?}", capture_cmd);
       let _ = cmd_tx.send(capture_cmd);

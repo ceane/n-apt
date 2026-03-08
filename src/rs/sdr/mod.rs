@@ -48,6 +48,15 @@ pub trait SdrDevice: Send {
   /// Enable/disable RTL AGC
   fn set_rtl_agc(&mut self, enabled: bool) -> Result<()>;
 
+  /// Enable/disable offset tuning
+  fn set_offset_tuning(&mut self, enabled: bool) -> Result<()>;
+
+  /// Set tuner bandwidth in Hz (0 = auto)
+  fn set_tuner_bandwidth(&mut self, bw: u32) -> Result<()>;
+
+  /// Set direct sampling mode (0 = off, 1 = I, 2 = Q)
+  fn set_direct_sampling(&mut self, mode: u8) -> Result<()>;
+
   /// Get current center frequency
   fn get_center_frequency(&self) -> u32;
 

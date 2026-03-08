@@ -109,6 +109,7 @@ impl RtlSdrDevice {
 
     // Set mandatory default sample rate so get_device_info doesn't return 0Hz
     // and initial processing doesn't fail.
+    // Set mandatory default sample rate (3.2MHz is the peak rate for RTL2832U)
     let _ = device.set_sample_rate(3_200_000);
 
     Ok(device)
@@ -265,13 +266,10 @@ impl RtlSdrDevice {
 
     // Common RTL-SDR sample rates to test (highest to lowest)
     let test_rates = [
-      // Max sample rate for RTL-SDR Blog V4
-      // Required to correctly view N-APT due to nyquist limi
-      3_200_000, // 3.2 MHz - common max
-      // Always selecting max
+      3_200_000, // 3.2 MHz - peak rate
       2_800_000, // 2.8 MHz
       2_560_000, // 2.56 MHz
-      2_400_000, // 2.4 MHz
+      2_400_000, // 2.4 MHz - common stable max
       2_048_000, // 2.048 MHz
       1_920_000, // 1.92 MHz
       1_800_000, // 1.8 MHz
@@ -438,7 +436,7 @@ impl RtlSdrDevice {
     // This is now &mut self or we need to avoid calling it here if we want to keep get_device_info as &self
     // Actually, get_device_info is called from many places.
     // Let's just make it return a default or use the cached value if available.
-    let max_rate = self.max_sample_rate_cache.unwrap_or(3_200_000);
+    let max_rate = self.max_sample_rate_cache.unwrap_or(2_400_000);
     let gain = self.get_tuner_gain();
     let ppm = self.get_freq_correction();
 
@@ -650,6 +648,30 @@ impl SdrDevice for RtlSdrDevice {
 
   fn set_rtl_agc(&mut self, enabled: bool) -> Result<()> {
     self.set_agc_mode(enabled)
+  }
+
+  fn set_offset_tuning(&mut self, enabled: bool) -> Result<()> {
+    let ret = unsafe { ffi::rtlsdr_set_offset_tuning(self.dev, enabled as i32) };
+    if ret != 0 {
+      return Err(anyhow!("Failed to set offset tuning (code {})", ret));
+    }
+    Ok(())
+  }
+
+  fn set_tuner_bandwidth(&mut self, bw: u32) -> Result<()> {
+    let ret = unsafe { ffi::rtlsdr_set_tuner_bandwidth(self.dev, bw) };
+    if ret != 0 {
+      return Err(anyhow!("Failed to set tuner bandwidth (code {})", ret));
+    }
+    Ok(())
+  }
+
+  fn set_direct_sampling(&mut self, mode: u8) -> Result<()> {
+    let ret = unsafe { ffi::rtlsdr_set_direct_sampling(self.dev, mode as i32) };
+    if ret != 0 {
+      return Err(anyhow!("Failed to set direct sampling (code {})", ret));
+    }
+    Ok(())
   }
 
   fn reset_buffer(&mut self) -> Result<()> {

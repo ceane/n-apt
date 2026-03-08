@@ -63,6 +63,7 @@ export type SpectrumState = {
   ppm: number;
   tunerAGC: boolean;
   rtlAGC: boolean;
+  sampleRateHz: number;
   lastKnownRanges: Record<string, { min: number; max: number }>;
 };
 
@@ -101,6 +102,7 @@ export type SpectrumAction =
   | { type: "SET_VIZ_ZOOM"; zoom: number }
   | { type: "SET_VIZ_PAN"; pan: number }
   | { type: "SET_FFT_DB_LIMITS"; min: number; max: number }
+  | { type: "SET_SAMPLE_RATE"; sampleRateHz: number }
   | { type: "SET_SDR_SETTINGS_BUNDLE"; settings: Partial<SpectrumState> }
   | { type: "RESET_ZOOM_AND_DB" };
 
@@ -140,6 +142,7 @@ export const INITIAL_SPECTRUM_STATE: SpectrumState = {
   ppm: 0,
   tunerAGC: false,
   rtlAGC: false,
+  sampleRateHz: 3_200_000,
   lastKnownRanges: {},
 };
 
@@ -263,6 +266,8 @@ export function spectrumReducer(
       return { ...state, vizPanOffset: action.pan };
     case "SET_FFT_DB_LIMITS":
       return { ...state, fftMinDb: Math.round(action.min), fftMaxDb: Math.round(action.max) };
+    case "SET_SAMPLE_RATE":
+      return { ...state, sampleRateHz: action.sampleRateHz };
     case "SET_SDR_SETTINGS_BUNDLE":
       return { ...state, ...action.settings };
     case "RESET_ZOOM_AND_DB":
@@ -292,6 +297,7 @@ type SpectrumStoreContextValue = {
   lastSentPauseRef: React.MutableRefObject<boolean | null>;
   wsConnection: ReturnType<typeof useWebSocket>;
   toggleVisualizerPause: () => void;
+  cryptoCorrupted: boolean;
 };
 
 const SpectrumStoreContext = createContext<SpectrumStoreContextValue | null>(
@@ -323,6 +329,7 @@ export const SpectrumProvider: React.FC<{ children: React.ReactNode }> = ({
     spectrumFrames: wsSpectrumFrames,
     isConnected,
     sendPauseCommand,
+    cryptoCorrupted,
   } = wsConnection;
 
   // Track active spectrum route globally
@@ -413,6 +420,7 @@ export const SpectrumProvider: React.FC<{ children: React.ReactNode }> = ({
       lastKnownRanges: state.lastKnownRanges,
       displayTemporalResolution: state.displayTemporalResolution,
       snapshotGridPreference: state.snapshotGridPreference,
+      sampleRateHz: state.sampleRateHz,
     };
     sessionStorage.setItem(SDR_SETTINGS_KEY, JSON.stringify(settingsToPersist));
   }, [
@@ -432,6 +440,7 @@ export const SpectrumProvider: React.FC<{ children: React.ReactNode }> = ({
     state.lastKnownRanges,
     state.displayTemporalResolution,
     state.snapshotGridPreference,
+    state.sampleRateHz,
   ]);
 
   useEffect(() => {
@@ -457,21 +466,21 @@ export const SpectrumProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   }, [sdrSettings]);
 
+  // Sync sample rate from backend to store state
+  useEffect(() => {
+    const rate = sdrSettings?.sample_rate ?? wsConnection.sampleRateHz ?? wsConnection.maxSampleRateHz;
+    if (typeof rate === "number" && rate > 0 && rate !== state.sampleRateHz) {
+      dispatch({ type: "SET_SAMPLE_RATE", sampleRateHz: rate });
+    }
+  }, [sdrSettings?.sample_rate, wsConnection.sampleRateHz, wsConnection.maxSampleRateHz, state.sampleRateHz, dispatch]);
+
   const effectiveFrames =
     wsSpectrumFrames.length > 0 ? wsSpectrumFrames : cachedFrames;
   const effectiveSdrSettings = sdrSettings ?? cachedSdrSettings;
 
-  const sampleRateHzEffective =
-    typeof effectiveSdrSettings?.sample_rate === "number" &&
-      Number.isFinite(effectiveSdrSettings.sample_rate)
-      ? effectiveSdrSettings.sample_rate
-      : (wsConnection.sampleRateHz ?? wsConnection.maxSampleRateHz ?? null);
+  const sampleRateHzEffective = state.sampleRateHz;
 
-  const sampleRateMHz =
-    typeof sampleRateHzEffective === "number" &&
-      Number.isFinite(sampleRateHzEffective)
-      ? sampleRateHzEffective / 1_000_000
-      : null;
+  const sampleRateMHz = sampleRateHzEffective / 1_000_000;
 
   const signalAreaBounds = useMemo(() => {
     if (!Array.isArray(effectiveFrames) || effectiveFrames.length === 0) {
@@ -599,6 +608,7 @@ export const SpectrumProvider: React.FC<{ children: React.ReactNode }> = ({
       lastSentPauseRef,
       wsConnection,
       toggleVisualizerPause,
+      cryptoCorrupted,
     }),
     [
       state,
@@ -610,6 +620,7 @@ export const SpectrumProvider: React.FC<{ children: React.ReactNode }> = ({
       signalAreaBounds,
       wsConnection,
       toggleVisualizerPause,
+      cryptoCorrupted,
     ],
   );
 
