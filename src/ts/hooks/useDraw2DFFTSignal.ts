@@ -11,6 +11,7 @@ import {
   formatFrequencyHighRes,
   findBestFrequencyRange,
 } from "@n-apt/consts";
+import type { SdrLimitMarker } from "@n-apt/utils/sdrLimitMarkers";
 
 export interface Draw2DFFTSignalOptions {
   canvas: HTMLCanvasElement;
@@ -25,6 +26,7 @@ export interface Draw2DFFTSignalOptions {
   hardwareSampleRateHz?: number;
   fullCaptureRange?: { min: number; max: number };
   isIqRecordingActive?: boolean;
+  limitMarkers?: SdrLimitMarker[];
 }
 
 export function useDraw2DFFTSignal() {
@@ -46,6 +48,7 @@ export function useDraw2DFFTSignal() {
       clearBackground: boolean,
       hardwareSampleRateHz?: number,
       fullCaptureRange?: { min: number; max: number },
+      limitMarkers: SdrLimitMarker[] = [],
     ) => {
       const dpr = window.devicePixelRatio || 1;
 
@@ -163,7 +166,14 @@ export function useDraw2DFFTSignal() {
         ctx.stroke();
 
         // Tick label
-        const tickLabel = range >= 0.5 ? freq.toFixed(1) : (range >= 0.01 ? freq.toFixed(2) : freq.toFixed(3));
+        const tickLabel =
+          maxFreq < 1
+            ? `${Math.round(freq * 1000)}kHz`
+            : range >= 0.5
+              ? freq.toFixed(1)
+              : range >= 0.01
+                ? freq.toFixed(2)
+                : freq.toFixed(3);
         if (!isColliding(xPos, tickLabel)) {
           ctx.fillText(tickLabel, ix, fftAreaMax.y + 25);
         }
@@ -179,6 +189,32 @@ export function useDraw2DFFTSignal() {
       ctx.moveTo(FFT_AREA_MIN.x, FFT_AREA_MIN.y);
       ctx.lineTo(FFT_AREA_MIN.x, fftAreaMax.y - 1);
       ctx.stroke();
+
+      if (limitMarkers.length > 0) {
+        ctx.save();
+        ctx.strokeStyle = "rgba(220, 38, 38, 0.75)";
+        ctx.fillStyle = "rgba(255, 140, 140, 0.95)";
+        ctx.lineWidth = 1 / dpr;
+        ctx.font = "10px JetBrains Mono";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "top";
+
+        for (const marker of limitMarkers) {
+          if (!Number.isFinite(marker.freq)) continue;
+          if (marker.freq < minFreq || marker.freq > maxFreq) continue;
+
+          const x = Math.round(freqToX(marker.freq)) + 0.5;
+          ctx.beginPath();
+          ctx.moveTo(x, FFT_AREA_MIN.y);
+          ctx.lineTo(x, fftAreaMax.y);
+          ctx.stroke();
+
+          const textX = Math.max(FFT_AREA_MIN.x + 45, Math.min(fftAreaMax.x - 45, x));
+          ctx.fillText(marker.label, textX, FFT_AREA_MIN.y + 6);
+        }
+
+        ctx.restore();
+      }
 
       // Draw mathematical hardware block boundaries if applicable
       const anchorRange = fullCaptureRange || frequencyRange;
@@ -418,6 +454,7 @@ export function useDraw2DFFTSignal() {
         highPerformanceMode = false,
         hardwareSampleRateHz,
         fullCaptureRange,
+        limitMarkers = [],
       } = options;
 
       const ctx = canvas.getContext("2d");
@@ -455,7 +492,8 @@ export function useDraw2DFFTSignal() {
               fftMax,
               true,
               hardwareSampleRateHz,
-              fullCaptureRange
+              fullCaptureRange,
+              limitMarkers,
             );
           } else {
             ctx.fillStyle = "#000000";

@@ -122,15 +122,23 @@ fn extract_channels_from_value(
   Some(out)
 }
 
+/// Reconcile `device_connected` flag with `device_state` string.
+///
+/// Since `SharedState::set_device_state` now atomically updates both fields,
+/// conflicts should be rare. This function exists as a safety net for reads
+/// that race with a state transition.
 pub fn reconcile_device_state(
   device_connected: bool,
   device_state: &str,
 ) -> String {
   match (device_connected, device_state) {
+    // "loading" is always authoritative — it means we're mid-transition
+    (_, "loading") => "loading".to_string(),
+    // "stale" is authoritative — the health loop set it deliberately
+    (_, "stale") => "stale".to_string(),
+    // Normal consistency checks
     (true, "disconnected") => "connected".to_string(),
     (false, "connected") => "disconnected".to_string(),
-    (false, "loading") => "disconnected".to_string(),
-    (true, "stale") => "connected".to_string(),
     _ => device_state.to_string(),
   }
 }

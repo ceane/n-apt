@@ -94,16 +94,6 @@ const RangeLabels = styled.div`
   user-select: none;
 `;
 
-const Marker = styled.div`
-  position: absolute;
-  top: 2px;
-  bottom: 2px;
-  width: 2px;
-  background: rgba(220, 38, 38, 0.45);
-  box-shadow: 0 0 6px rgba(220, 38, 38, 0.35);
-  pointer-events: none;
-`;
-
 const VisibleWindow = styled.div<{ $isActive: boolean }>`
   position: absolute;
   top: 2px;
@@ -139,10 +129,10 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   isActive = false,
   onActivate,
   onRangeChange,
-  isDeviceConnected = true,
+  isDeviceConnected: _isDeviceConnected = true,
   externalFrequencyRange,
   sampleRateMHz = null,
-  limitMarkers,
+  limitMarkers: _limitMarkers,
 }) => {
   // Calculate window width (constant based on visible range)
   const totalRange = maxFreq - minFreq;
@@ -306,9 +296,7 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
     notifyParent,
   ]);
 
-  const formatFreq = useCallback((freq: number) => {
-    return formatFrequency(freq);
-  }, []);
+  const formatFreq = useCallback((freq: number) => formatFrequency(freq), []);
 
   const moveWindow = useCallback(
     (direction: "up" | "down") => {
@@ -428,8 +416,6 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
     }
   };
 
-  const markerList = Array.isArray(limitMarkers) ? limitMarkers : [];
-
   return (
     <SliderWrapper>
       <LabelContainer>
@@ -442,16 +428,6 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
         tabIndex={0}
       >
         <RangeTrack ref={trackRef} className="range-track">
-          {isDeviceConnected &&
-            markerList.map((marker) => (
-              <Marker
-                key={marker.label}
-                title={marker.label}
-                style={{
-                  left: `${((marker.freq - minFreq) / totalRange) * 100}%`,
-                }}
-              />
-            ))}
           <RangeLabels>
             <span
               style={{

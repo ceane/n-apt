@@ -302,26 +302,13 @@ export const useWebSocket = (
             return;
           }
 
-          // For all other messages (status, etc.), batch them
-          messageBatch.push(raw);
-
-          if (batchRafId === null) {
-            batchRafId = requestAnimationFrame(() => {
-              // Keep only the most recent message to avoid heavy per-frame work
-              const latest = messageBatch.pop();
-              messageBatch = [];
-              batchRafId = null;
-
-              if (latest && !disposed) {
-                processSingleMessage(latest);
-              }
-            });
+          // Status messages are low-frequency and MUST be processed
+          // immediately — rAF batching would drop intermediate state
+          // transitions (e.g. loading → connected) causing stale UI.
+          if (!disposed) {
+            processSingleMessage(raw);
           }
         };
-
-        // Message batching for performance (defer work off the WS handler)
-        let messageBatch: string[] = [];
-        let batchRafId: number | null = null;
 
         const processSingleMessage = (raw: string) => {
           // ── Status messages (backend-driven device state) ────────
@@ -331,7 +318,10 @@ export const useWebSocket = (
               const paused = parsedData.paused || false;
               const updates: Partial<WsState> = {
                 serverPaused: paused,
-                isPaused: paused,
+                // NOTE: Do NOT set isPaused here. isPaused is owned by the
+                // user's explicit play/pause toggle (via SpectrumProvider).
+                // Device-status broadcasts fire on every hotplug transition
+                // and would reset the user's intent.
               };
 
               if (typeof parsedData.backend === "string") {
@@ -428,9 +418,8 @@ export const useWebSocket = (
             try {
               const parsed = JSON.parse(raw);
               if (
-                typeof parsed.fftSize === "number" &&
-                typeof parsed.window === "string" &&
-                Array.isArray(parsed.autoSizes)
+                Array.isArray(parsed.autoSizes) &&
+                typeof parsed.recommended === "number"
               ) {
                 const options: AutoFftOptionsResponse = {
                   type: "auto_fft_options",

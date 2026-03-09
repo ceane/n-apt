@@ -1,15 +1,26 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use super::types::{CaptureArtifact, SpectrumFrameMessage};
 use super::utils::{load_channels, load_sdr_settings};
 
 /// How often to probe for a newly attached RTL-SDR while running in mock mode.
-/// Device probing interval for checking device availability
-#[allow(dead_code)]
 pub const DEVICE_PROBE_INTERVAL: std::time::Duration =
-  std::time::Duration::from_millis(200);
+  std::time::Duration::from_millis(1000);
+
+/// How often to run health checks on real hardware.
+pub const HEALTH_CHECK_INTERVAL: std::time::Duration =
+  std::time::Duration::from_millis(1000);
+
+/// Number of consecutive health-check failures before declaring the device
+/// truly disconnected (prevents false positives from USB glitches).
+pub const DISCONNECT_FAILURE_THRESHOLD: u32 = 3;
+
+/// Maximum number of automatic recovery attempts (buffer reset + re-init)
+/// before giving up and falling back to mock.
+pub const MAX_RECOVERY_ATTEMPTS: u32 = 2;
 
 /// Passkey for AES-256-GCM encryption. Read from N_APT_PASSKEY env var at startup.
 /// Falls back to UNSAFE_LOCAL_USER_PASSWORD (env) or a default for development.
@@ -53,6 +64,17 @@ pub struct SharedState {
   pub sdr_settings: Mutex<super::types::SdrConfig>,
   /// Capture artifacts: job_id -> list of (filename, temp_path)
   pub capture_artifacts: Mutex<HashMap<String, Vec<CaptureArtifact>>>,
+
+  // ── Hotplug debounce state ──────────────────────────────────────────
+  /// Consecutive health-check failures while in real-hardware mode.
+  /// Reset to 0 on every successful health check or frame read.
+  pub health_failure_streak: AtomicU32,
+  /// Number of recovery attempts (re-init) made during the current failure
+  /// episode. Reset when the device recovers or is swapped to mock.
+  pub recovery_attempts: AtomicU32,
+  /// Timestamp of the last successful frame read from real hardware.
+  /// Used to detect stale streams.
+  pub last_successful_read: Mutex<Option<Instant>>,
 }
 
 impl SharedState {
@@ -84,10 +106,16 @@ impl SharedState {
       channels: Mutex::new(load_channels()),
       sdr_settings: Mutex::new(load_sdr_settings().clone()),
       capture_artifacts: Mutex::new(HashMap::new()),
+      health_failure_streak: AtomicU32::new(0),
+      recovery_attempts: AtomicU32::new(0),
+      last_successful_read: Mutex::new(None),
     })
   }
 
-  /// Update device connection status and info string
+  /// Update device connection status and info string.
+  ///
+  /// Also resets hotplug debounce counters so the next failure episode
+  /// starts from a clean slate.
   pub fn update_device_status(&self, connected: bool, info: String) {
     self.device_connected.store(connected, Ordering::Relaxed);
     *self.device_info.lock().unwrap() = info;
@@ -96,5 +124,38 @@ impl SharedState {
     } else {
       "disconnected".to_string()
     };
+    // Reset debounce counters on any definitive state change
+    self.health_failure_streak.store(0, Ordering::Relaxed);
+    self.recovery_attempts.store(0, Ordering::Relaxed);
+  }
+
+  /// Transition device_state and immediately update the loading fields.
+  /// This is the single source of truth for state transitions so the
+  /// frontend always sees a consistent snapshot.
+  pub fn set_device_state(
+    &self,
+    state: &str,
+    loading_reason: Option<&str>,
+  ) {
+    *self.device_state.lock().unwrap() = state.to_string();
+    let is_loading = state == "loading";
+    *self.device_loading.lock().unwrap() = is_loading;
+    *self.device_loading_reason.lock().unwrap() =
+      loading_reason.map(|s| s.to_string());
+    self.device_connected.store(
+      state == "connected" || state == "loading",
+      Ordering::Relaxed,
+    );
+  }
+
+  /// Record a successful read, resetting the failure streak.
+  pub fn record_successful_read(&self) {
+    self.health_failure_streak.store(0, Ordering::Relaxed);
+    *self.last_successful_read.lock().unwrap() = Some(Instant::now());
+  }
+
+  /// Increment the failure streak and return the new count.
+  pub fn record_health_failure(&self) -> u32 {
+    self.health_failure_streak.fetch_add(1, Ordering::Relaxed) + 1
   }
 }

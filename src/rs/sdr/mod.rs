@@ -69,7 +69,14 @@ pub trait SdrDevice: Send {
   /// Cleanup resources
   fn cleanup(&mut self) -> Result<()>;
 
-  /// Check if the device is still healthy (e.g. hasn't been unplugged)
+  /// Check if the device is still healthy (e.g. hasn't been unplugged).
+  ///
+  /// # Hotplug Contract
+  ///
+  /// Implementations return `false` on **any** sign of trouble (null handle,
+  /// dead thread, USB error). This is intentionally aggressive — the caller
+  /// is responsible for **debouncing** multiple consecutive failures before
+  /// deciding to abandon the device and fall back to mock.
   fn is_healthy(&self) -> bool;
 
   /// Get the last error message if any

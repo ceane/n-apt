@@ -246,8 +246,9 @@ async fn test_device_loading_state_during_freeze() {
   let current_state = "loading";
   let reconciled = reconcile_device_state(device_connected, current_state);
 
-  // Should transition to disconnected
-  assert_eq!(reconciled, "disconnected");
+  // "loading" is now authoritative — the server is mid-transition and
+  // will resolve to connected or disconnected when the operation finishes.
+  assert_eq!(reconciled, "loading");
 
   // Manually update the device state to simulate what would happen in real code
   {
@@ -304,8 +305,10 @@ async fn test_stale_state_recovery() {
   let current_state = "stale";
   let reconciled = reconcile_device_state(device_connected, current_state);
 
-  // Should recover to connected
-  assert_eq!(reconciled, "connected");
+  // "stale" is now authoritative — the health loop set it deliberately.
+  // Recovery happens via set_device_state("connected") when the device
+  // resumes producing frames, not via reconciliation.
+  assert_eq!(reconciled, "stale");
 }
 
 #[tokio::test]

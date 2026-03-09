@@ -25,6 +25,19 @@ export type SelectedFile = { name: string; file: File; downloadUrl?: string };
 
 const MANUAL_VISUALIZER_PAUSE_KEY = "napt-visualizer-manual-paused";
 
+export const LIVE_CONTROL_DEFAULTS = {
+  displayTemporalResolution: "medium" as const,
+  vizZoom: 1,
+  vizPanOffset: 0,
+  fftMinDb: -120,
+  fftMaxDb: 0,
+  fftWindow: "Rectangular",
+  gain: 49.6,
+  ppm: 1,
+  tunerAGC: false,
+  rtlAGC: false,
+};
+
 export type BeatParams = {
   offsetHz: number;
 };
@@ -118,7 +131,8 @@ export type SpectrumAction =
   | { type: "SET_SAMPLE_RATE"; sampleRateHz: number }
   | { type: "SET_SDR_SETTINGS_BUNDLE"; settings: Partial<SpectrumState> }
   | { type: "RESET_ZOOM_AND_DB" }
-  | { type: "RESET_DRAW_PARAMS" };
+  | { type: "RESET_DRAW_PARAMS" }
+  | { type: "RESET_LIVE_CONTROLS"; fftSize?: number; fftFrameRate?: number };
 
 export const INITIAL_SPECTRUM_STATE: SpectrumState = {
   activeSignalArea: "A",
@@ -316,6 +330,22 @@ export function spectrumReducer(
         globalNoiseFloor: INITIAL_SPECTRUM_STATE.globalNoiseFloor,
         activeClumpIndex: 0,
       };
+    case "RESET_LIVE_CONTROLS":
+      return {
+        ...state,
+        displayTemporalResolution: LIVE_CONTROL_DEFAULTS.displayTemporalResolution,
+        vizZoom: LIVE_CONTROL_DEFAULTS.vizZoom,
+        vizPanOffset: LIVE_CONTROL_DEFAULTS.vizPanOffset,
+        fftMinDb: LIVE_CONTROL_DEFAULTS.fftMinDb,
+        fftMaxDb: LIVE_CONTROL_DEFAULTS.fftMaxDb,
+        fftWindow: LIVE_CONTROL_DEFAULTS.fftWindow,
+        gain: LIVE_CONTROL_DEFAULTS.gain,
+        ppm: LIVE_CONTROL_DEFAULTS.ppm,
+        tunerAGC: LIVE_CONTROL_DEFAULTS.tunerAGC,
+        rtlAGC: LIVE_CONTROL_DEFAULTS.rtlAGC,
+        fftSize: action.fftSize ?? state.fftSize,
+        fftFrameRate: action.fftFrameRate ?? state.fftFrameRate,
+      };
     default:
       return state;
   }
@@ -336,6 +366,7 @@ type SpectrumStoreContextValue = {
   wsConnection: ReturnType<typeof useWebSocket>;
   toggleVisualizerPause: () => void;
   cryptoCorrupted: boolean;
+  deviceName: string | null;
 };
 
 const SpectrumStoreContext = createContext<SpectrumStoreContextValue | null>(
@@ -368,6 +399,7 @@ export const SpectrumProvider: React.FC<{ children: React.ReactNode }> = ({
     isConnected,
     sendPauseCommand,
     cryptoCorrupted,
+    deviceName,
   } = wsConnection;
 
   // Track active spectrum route globally
@@ -376,6 +408,10 @@ export const SpectrumProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const [manualVisualizerPaused, setManualVisualizerPaused] = useState(() => {
     if (typeof window === "undefined") return false;
+    // On the visualizer route, always start unpaused so the first render
+    // doesn't race with the mount effect and send a stale pause=true.
+    const path = window.location.pathname;
+    if (path === "/" || path === "/visualizer") return false;
     return sessionStorage.getItem(MANUAL_VISUALIZER_PAUSE_KEY) === "true";
   });
 
@@ -587,6 +623,11 @@ export const SpectrumProvider: React.FC<{ children: React.ReactNode }> = ({
     });
   }, [sdrSettings, sampleRateHzEffective, dispatch]);
 
+  useEffect(() => {
+    if (!isConnected || !state.frequencyRange) return;
+    wsConnection.sendFrequencyRange(state.frequencyRange);
+  }, [isConnected, state.frequencyRange, wsConnection]);
+
   // Screen width detection for auto FFT options
   useEffect(() => {
     if (!isVisualizerRoute || !isConnected) return;
@@ -647,6 +688,7 @@ export const SpectrumProvider: React.FC<{ children: React.ReactNode }> = ({
       wsConnection,
       toggleVisualizerPause,
       cryptoCorrupted,
+      deviceName,
     }),
     [
       state,
@@ -659,6 +701,7 @@ export const SpectrumProvider: React.FC<{ children: React.ReactNode }> = ({
       wsConnection,
       toggleVisualizerPause,
       cryptoCorrupted,
+      deviceName,
     ],
   );
 

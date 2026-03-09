@@ -68,9 +68,7 @@ export const formatFrequencyHighRes = (freqMHz: number): string => {
   } else if (abs >= 0.001) {
     // kHz.Hz
     const val = freqMHz * 1000;
-    const fixed = val.toFixed(3);
-    const [k, h] = fixed.split(".");
-    return `${k}.${h}kHz`;
+    return `${Math.round(val)}kHz`;
   } else {
     // Hz (just integer as requested)
     return `${Math.round(freqMHz * 1000000)}Hz`;

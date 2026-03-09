@@ -8,12 +8,22 @@ import {
   MODEL_CAMERA_POSITION,
   MODEL_CAMERA_TARGET,
   MODEL_FOV,
+  MODEL_ROOT_POSITION,
+  MODEL_AMBIENT_LIGHT_INTENSITY,
+  MODEL_KEY_LIGHT_INTENSITY,
+  MODEL_KEY_LIGHT_POSITION,
+  MODEL_FILL_LIGHT_INTENSITY,
+  MODEL_FILL_LIGHT_POSITION,
+  MODEL_BACK_LIGHT_INTENSITY,
+  MODEL_BACK_LIGHT_POSITION,
 } from "@n-apt/consts";
 
 function ClickHandler({
   onAddHotspot,
+  modelRootRef,
 }: {
   onAddHotspot: (point: Vector3) => void;
+  modelRootRef: React.RefObject<any>;
 }) {
   const { camera, gl, scene } = useThree();
   const raycaster = useRef(new Raycaster());
@@ -34,15 +44,16 @@ function ClickHandler({
 
         if (intersects.length > 0) {
           const point = intersects[0].point;
-          if (point && typeof point.x === "number") {
-            onAddHotspot(new Vector3(point.x, point.y, point.z));
+          if (point && typeof point.x === "number" && modelRootRef.current) {
+            const localPoint = modelRootRef.current.worldToLocal(point.clone());
+            onAddHotspot(new Vector3(localPoint.x, localPoint.y, localPoint.z));
           }
         }
       } catch (error) {
         console.error("Error handling click:", error);
       }
     },
-    [camera, gl, scene, onAddHotspot],
+    [camera, gl, scene, onAddHotspot, modelRootRef],
   );
 
   useFrame(() => {
@@ -62,12 +73,13 @@ function Model({
   onAddHotspot: (point: Vector3) => void;
   children?: React.ReactNode;
 }) {
-  const { scene } = useGLTF("/glb_models/androgynous_body.glb");
+  const { scene } = useGLTF("/glb_models/human_model_afro_male.glb");
+  const modelRootRef = useRef<any>(null);
 
   return (
-    <group>
+    <group ref={modelRootRef} position={MODEL_ROOT_POSITION}>
       <primitive object={scene} />
-      <ClickHandler onAddHotspot={onAddHotspot} />
+      <ClickHandler onAddHotspot={onAddHotspot} modelRootRef={modelRootRef} />
       {children}
     </group>
   );
@@ -76,14 +88,12 @@ function Model({
 function HotspotMarker({
   hotspot,
   onClick,
-  onDelete,
   onRename,
   isSelected,
   isMultiSelected,
 }: {
   hotspot: any;
   onClick: () => void;
-  onDelete: () => void;
   onRename: (id: string, newName: string) => void;
   isSelected: boolean;
   isMultiSelected: boolean;
@@ -180,7 +190,16 @@ function HotspotMarker({
 const CanvasContainer = styled.div`
   width: 100%;
   height: 100%;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
   position: relative;
+
+  canvas {
+    width: 100% !important;
+    height: 100% !important;
+    display: block;
+  }
 `;
 
 interface HotspotEditorSimpleProps {
@@ -198,7 +217,6 @@ export const HotspotEditorSimple: React.FC<HotspotEditorSimpleProps> = ({
     showGrid,
     handleAddHotspot,
     handleHotspotClick,
-    handleDeleteHotspot,
     handleRename,
   } = useHotspotEditor();
 
@@ -211,8 +229,12 @@ export const HotspotEditorSimple: React.FC<HotspotEditorSimpleProps> = ({
         }}
         camera={{ position: MODEL_CAMERA_POSITION, fov: MODEL_FOV }}
       >
-        <ambientLight intensity={0.5} />
-        <directionalLight position={[10, 10, 5]} intensity={1} />
+        <ambientLight intensity={MODEL_AMBIENT_LIGHT_INTENSITY} />
+        <directionalLight position={MODEL_KEY_LIGHT_POSITION} intensity={MODEL_KEY_LIGHT_INTENSITY} />
+        <pointLight position={MODEL_FILL_LIGHT_POSITION} intensity={MODEL_FILL_LIGHT_INTENSITY} color="#ffffff" />
+        <pointLight position={MODEL_BACK_LIGHT_POSITION} intensity={MODEL_BACK_LIGHT_INTENSITY} color="#8ddcff" />
+        <pointLight position={[-2.8, 2.4, -4.2]} intensity={1.4} color="#7cc7ff" />
+        <pointLight position={[2.8, 2.4, -4.2]} intensity={1.4} color="#7cc7ff" />
 
         {showGrid && (
           <gridHelper args={[10, 10, "#333", "#222"]} position={[0, 0, 0]} />
@@ -224,7 +246,6 @@ export const HotspotEditorSimple: React.FC<HotspotEditorSimpleProps> = ({
               key={hotspot.id}
               hotspot={hotspot}
               onClick={() => handleHotspotClick(hotspot.id)}
-              onDelete={() => handleDeleteHotspot(hotspot.id)}
               onRename={handleRename}
               isSelected={selectedHotspot === hotspot.id}
               isMultiSelected={false}

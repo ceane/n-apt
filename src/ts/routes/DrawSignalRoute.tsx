@@ -6,9 +6,11 @@ import { useWebGPUInit } from "@n-apt/hooks/useWebGPUInit";
 import { useSpectrumRenderer } from "@n-apt/hooks/useSpectrumRenderer";
 import { RESAMPLE_WGSL } from "@n-apt/consts/shaders/resample";
 import { FFT_CANVAS_BG } from "@n-apt/consts";
-import { PolarRadioWaveChart } from "@n-apt/components/PolarRadioWaveChart";
 import { PolarRadioWaveWebGPU } from "@n-apt/components/PolarRadioWaveWebGPU";
+import { RadiationLobe3D } from "@n-apt/components/RadiationLobe3D";
 import { CollapsibleTitle } from "@n-apt/components/ui/Collapsible";
+import { Canvas } from "@react-three/fiber";
+import { OrbitControls } from "@react-three/drei";
 
 const PageContainer = styled.div`
   display: flex;
@@ -109,19 +111,7 @@ const PolarHeaderWrapper = styled.div`
   margin-bottom: 8px; /* Reduced from 24px as CollapsibleTitleContainer has margin */
 `;
 
-const PolarGrid = styled.div`
-  grid-column: 1 / -1; /* Ensure it spans both columns of PolarSectionContainer */
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 24px;
-  margin-top: 16px;
-  height: 400px;
 
-  @media (max-width: 1200px) {
-    grid-template-columns: 1fr;
-    height: auto;
-  }
-`;
 
 const PolarCard = styled.div`
   background: rgba(10, 10, 12, 0.4);
@@ -315,32 +305,36 @@ export const DrawSignalRoute: React.FC = () => {
         </PolarHeaderWrapper>
 
         {isPolarOpen && (
-          <PolarGrid>
-            <PolarCard>
-              <CardTitle>Vector Analytic (SVG)</CardTitle>
-              <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <PolarRadioWaveChart
-                  aperture={40}
-                  beamWidth={(drawParams[state.activeClumpIndex]?.spikeWidth ?? 0.1) * 200}
-                  rotation={0}
-                  width={350}
-                  height={350}
-                />
-              </div>
-            </PolarCard>
+          <div style={{ marginTop: '20px', position: 'relative' }}>
+            <PolarCard style={{ height: '700px', width: '100%', position: 'relative', padding: 0, overflow: 'hidden' }}>
+              <CardTitle style={{ position: 'absolute', top: '16px', left: '16px', zIndex: 10 }}>
+                High-Fidelity 3D Propagation & Radiation HUD
+              </CardTitle>
 
-            <PolarCard>
-              <CardTitle>Physical Emission (WebGPU)</CardTitle>
-              <div style={{ flex: 1, position: 'relative' }}>
-                <PolarRadioWaveWebGPU
-                  aperture={40}
-                  beamWidth={(drawParams[state.activeClumpIndex]?.spikeWidth ?? 0.1) * 200}
-                  rotation={0}
-                  frequency={drawParams[state.activeClumpIndex]?.centerOffset ?? 0}
-                />
+              <div style={{ width: '100%', height: '100%' }}>
+                <Canvas camera={{ position: [15, 15, 15], fov: 45 }}>
+                  <ambientLight intensity={0.5} />
+                  <pointLight position={[20, 20, 20]} />
+                  <RadiationLobe3D
+                    frequency={drawParams[state.activeClumpIndex]?.centerOffset || 1.5}
+                    aperture={0.04}
+                    height={5}
+                    n={6}
+                    m={20}
+                  />
+                  <OrbitControls makeDefault />
+                </Canvas>
               </div>
+
+              {/* FIXED HUD OVERLAY */}
+              <PolarRadioWaveWebGPU
+                aperture={40}
+                beamWidth={(drawParams[state.activeClumpIndex]?.spikeWidth ?? 0.1) * 200}
+                rotation={0}
+                frequency={drawParams[state.activeClumpIndex]?.centerOffset ?? 1.5}
+              />
             </PolarCard>
-          </PolarGrid>
+          </div>
         )}
       </PolarSectionContainer>
     </PageContainer>

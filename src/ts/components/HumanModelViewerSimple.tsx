@@ -7,9 +7,17 @@ import {
   MODEL_CAMERA_POSITION,
   MODEL_CAMERA_TARGET,
   MODEL_FOV,
+  MODEL_ROOT_POSITION,
   SPHERE_GEOMETRY_SEGMENTS,
   SPHERE_MARKER_COLOR,
   SPHERE_MARKER_BASE_INTENSITY,
+  MODEL_AMBIENT_LIGHT_INTENSITY,
+  MODEL_KEY_LIGHT_INTENSITY,
+  MODEL_KEY_LIGHT_POSITION,
+  MODEL_FILL_LIGHT_INTENSITY,
+  MODEL_FILL_LIGHT_POSITION,
+  MODEL_BACK_LIGHT_INTENSITY,
+  MODEL_BACK_LIGHT_POSITION,
 } from "@n-apt/consts";
 
 type Area = {
@@ -26,10 +34,10 @@ function Model({
   selectedArea: Area | null;
   children?: React.ReactNode;
 }) {
-  const { scene } = useGLTF("/glb_models/androgynous_body.glb");
+  const { scene } = useGLTF("/glb_models/human_model_afro_male.glb");
 
   return (
-    <group>
+    <group position={MODEL_ROOT_POSITION}>
       <primitive object={scene} />
       {selectedArea && (
         <group position={selectedArea.target}>
@@ -88,7 +96,16 @@ interface HumanModelViewerSimpleProps {
 const CanvasContainer = styled.div`
   width: 100%;
   height: 100%;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
   position: relative;
+
+  canvas {
+    width: 100% !important;
+    height: 100% !important;
+    display: block;
+  }
 `;
 
 export const HumanModelViewerSimple: React.FC<HumanModelViewerSimpleProps> = ({
@@ -107,8 +124,12 @@ export const HumanModelViewerSimple: React.FC<HumanModelViewerSimpleProps> = ({
         camera={{ position: MODEL_CAMERA_POSITION, fov: MODEL_FOV }}
       >
         <Suspense fallback={null}>
-          <ambientLight intensity={0.5} />
-          <directionalLight position={[10, 10, 5]} intensity={1} />
+          <ambientLight intensity={MODEL_AMBIENT_LIGHT_INTENSITY} />
+          <directionalLight position={MODEL_KEY_LIGHT_POSITION} intensity={MODEL_KEY_LIGHT_INTENSITY} />
+          <pointLight position={MODEL_FILL_LIGHT_POSITION} intensity={MODEL_FILL_LIGHT_INTENSITY} color="#ffffff" />
+          <pointLight position={MODEL_BACK_LIGHT_POSITION} intensity={MODEL_BACK_LIGHT_INTENSITY} color="#8ddcff" />
+          <pointLight position={[-2.8, 2.4, -4.2]} intensity={1.4} color="#7cc7ff" />
+          <pointLight position={[2.8, 2.4, -4.2]} intensity={1.4} color="#7cc7ff" />
           <TransformControls mode="translate">
             <Model selectedArea={selectedArea}>
               <Brain />

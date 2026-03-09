@@ -1,5 +1,49 @@
 //! WebSocket server with SDR processor integration
 //! Handles real-time spectrum data streaming to frontend clients
+//!
+//! # RTL-SDR Hotplug Behaviour Contract
+//!
+//! The server MUST satisfy every scenario below without panicking, silently
+//! swallowing errors, or leaving the frontend in an unknown state.
+//!
+//! ## Plug In (device appears on USB)
+//! - Asynchronously detected during mock-mode polling.
+//! - **Immediately** broadcast `device_state = "loading"` so the frontend
+//!   shows a loading indicator before the device is fully initialised.
+//! - Attempt to open, initialise, and swap to the real device.
+//! - On success → broadcast `device_state = "connected"`.
+//! - On failure → remain in mock mode; broadcast `device_state = "disconnected"`.
+//!
+//! ## Plugged In (stable operation)
+//! - The device MUST NOT be dropped due to transient USB glitches.
+//! - Health checks use **debounced failure counting** (≥ 3 consecutive
+//!   failures required) before declaring the device unhealthy.
+//! - A single read timeout or thread hiccup MUST trigger a recovery attempt
+//!   (buffer reset + re-init), **not** an immediate fallback to mock.
+//!
+//! ## Device Stalled (async thread died but USB still present)
+//! - Detected when `is_healthy()` returns false but `get_device_count() > 0`.
+//! - Asynchronously send a restart command to re-initialise the device.
+//! - Broadcast `device_state = "loading"` with `loading_reason = "restart"`.
+//! - On success → `"connected"`. On failure → fall back to mock.
+//!
+//! ## Plugged Out (device physically removed)
+//! - Detected via health-check failure **and** `get_device_count() == 0`.
+//! - **Immediately** broadcast `device_state = "disconnected"` and swap to
+//!   mock so the frontend never shows a stale/hanging state.
+//! - The mock stream MUST start producing frames within one loop iteration.
+//!
+//! ## Hot Plug (rapid plug-in / plug-out cycles)
+//! - Every state transition MUST be fault-tolerant: a failed swap to mock or
+//!   a failed swap to real hardware must not crash or leave the processor in
+//!   an inconsistent state.
+//! - No silent failures — every swap error is logged at `error!` level.
+//! - The mock device is the ultimate fallback and MUST always succeed.
+//!
+//! ## Plugged In Constantly (long-running stable session)
+//! - The device must never be dropped while it is healthy.
+//! - Debounced health checks prevent false-positive disconnections from
+//!   minor physical disturbances or momentary USB bus resets.
 
 use anyhow::Result;
 use log::{debug, error, info, warn};
@@ -26,6 +70,9 @@ fn broadcast_device_status(
     device_connected,
     &shared.device_state.lock().unwrap(),
   );
+  let device_loading = *shared.device_loading.lock().unwrap();
+  let device_loading_reason =
+    shared.device_loading_reason.lock().unwrap().clone();
   let paused = shared.is_paused.load(Ordering::Relaxed);
   let sdr_settings = shared.sdr_settings.lock().unwrap().clone();
   let channels = shared.channels.lock().unwrap().clone();
@@ -48,6 +95,8 @@ fn broadcast_device_status(
       "device_connected": device_connected,
       "device_info": device_info,
       "device_name": device_name,
+      "device_loading": device_loading,
+      "device_loading_reason": device_loading_reason,
       "device_state": device_state,
       "paused": paused,
       "sdr_settings": sdr_settings,
@@ -188,14 +237,24 @@ impl WebSocketServer {
               }
             }
             crate::server::types::SdrCommand::RestartDevice => {
+              info!("Processing RestartDevice command");
+              // Immediately tell the frontend we're restarting
+              shared_state.set_device_state("loading", Some("restart"));
+              broadcast_device_status(&shared_state, &_broadcast_tx);
+
               let new_device_res =
                 crate::sdr::SdrDeviceFactory::create_device();
               match new_device_res {
                 Ok(new_device) => {
                   if let Err(e) = processor.swap_device(new_device) {
                     error!("Failed to swap SDR processor device: {}", e);
+                    // Revert to previous state so frontend doesn't hang
+                    shared_state.update_device_status(
+                      !processor.is_mock(),
+                      processor.get_device_info(),
+                    );
+                    broadcast_device_status(&shared_state, &_broadcast_tx);
                   } else {
-                    // Update SharedState on successful swap
                     shared_state.update_device_status(
                       !processor.is_mock(),
                       processor.get_device_info(),
@@ -205,9 +264,16 @@ impl WebSocketServer {
                 }
                 Err(e) => {
                   error!("Failed to create new device on restart: {}", e);
+                  // Try re-init of existing device
                   if let Err(e) = processor.initialize() {
                     error!("Failed to restart existing device: {}", e);
                   }
+                  // Revert state regardless
+                  shared_state.update_device_status(
+                    !processor.is_mock(),
+                    processor.get_device_info(),
+                  );
+                  broadcast_device_status(&shared_state, &_broadcast_tx);
                 }
               }
             }
@@ -369,26 +435,37 @@ impl WebSocketServer {
         }
 
         // 1b. Monitor device health and handle hot-plugging
-        // Check health every 500ms for more aggressive hot-swap response
-        if last_poll.elapsed() >= Duration::from_millis(500) {
+        //
+        // See module-level rustdoc for the full hotplug behaviour contract.
+        // Key invariants:
+        //   • Mock → Real: broadcast "loading" BEFORE opening the device.
+        //   • Real unhealthy: debounce ≥ DISCONNECT_FAILURE_THRESHOLD strikes,
+        //     attempt recovery, only then fall back to mock.
+        //   • Every state change is broadcast immediately.
+        if last_poll.elapsed() >= super::shared_state::HEALTH_CHECK_INTERVAL {
           last_poll = Instant::now();
           let mut processor = sdr_processor.lock().await;
 
           if processor.is_mock() {
-            // In mock mode: scan for real hardware to hot-plug
+            // ── Mock mode: scan for real hardware to hot-plug ──
             if !processor.capture_active {
               let count =
                 crate::sdr::rtlsdr::device::RtlSdrDevice::get_device_count();
               if count > 0 {
-                info!("Auto-detected {} RTL-SDR device(s). Attempting to hot-swap...", count);
+                info!("Auto-detected {} RTL-SDR device(s). Attempting hot-swap...", count);
+
+                // Immediately tell the frontend we are loading
+                shared_state.set_device_state("loading", Some("connect"));
+                broadcast_device_status(&shared_state, &_broadcast_tx);
+
                 match crate::sdr::SdrDeviceFactory::create_device() {
                   Ok(new_device) => {
                     if !new_device.device_type().contains("Mock") {
                       if let Err(e) = processor.swap_device(new_device) {
-                        error!(
-                          "Failed to auto-swap to detected RTL-SDR: {}",
-                          e
-                        );
+                        error!("Failed to auto-swap to detected RTL-SDR: {}", e);
+                        // Revert to disconnected so frontend doesn't hang on "loading"
+                        shared_state.set_device_state("disconnected", None);
+                        broadcast_device_status(&shared_state, &_broadcast_tx);
                       } else {
                         shared_state.update_device_status(
                           true,
@@ -397,27 +474,132 @@ impl WebSocketServer {
                         broadcast_device_status(&shared_state, &_broadcast_tx);
                         info!("Successfully hot-swapped to RTL-SDR");
                       }
+                    } else {
+                      // Factory returned mock despite count > 0 — revert
+                      shared_state.set_device_state("disconnected", None);
+                      broadcast_device_status(&shared_state, &_broadcast_tx);
                     }
                   }
                   Err(e) => {
                     debug!("Auto-detection found device count > 0 but failed to open: {}", e);
+                    shared_state.set_device_state("disconnected", None);
+                    broadcast_device_status(&shared_state, &_broadcast_tx);
                   }
                 }
               }
             }
           } else {
-            // In real hardware mode: verify device is still healthy (not unplugged)
+            // ── Real hardware mode: debounced health monitoring ──
             if !processor.is_healthy() {
-              warn!("RTL-SDR device health check failed (unplugged?). Falling back to mock APT mode.");
-              let mock_device =
-                crate::sdr::SdrDeviceFactory::create_mock_device();
-              if let Err(e) = processor.swap_device(mock_device) {
-                error!("Failed to fall back to mock device: {}", e);
+              let streak = shared_state.record_health_failure();
+              let recovery_count = shared_state.recovery_attempts.load(Ordering::Relaxed);
+
+              warn!(
+                "RTL-SDR health check failed (streak {}/{}, recovery attempts {}/{})",
+                streak,
+                super::shared_state::DISCONNECT_FAILURE_THRESHOLD,
+                recovery_count,
+                super::shared_state::MAX_RECOVERY_ATTEMPTS,
+              );
+
+              if streak < super::shared_state::DISCONNECT_FAILURE_THRESHOLD {
+                let usb_count = crate::sdr::rtlsdr::device::RtlSdrDevice::get_device_count();
+                if usb_count == 0 {
+                  warn!("RTL-SDR disappeared during recovery window. Falling back to mock immediately.");
+                  shared_state.set_device_state("disconnected", None);
+                  broadcast_device_status(&shared_state, &_broadcast_tx);
+
+                  let mock_device = crate::sdr::SdrDeviceFactory::create_mock_device();
+                  if let Err(e) = processor.swap_device(mock_device) {
+                    error!("Failed to fall back to mock device after early unplug: {}", e);
+                  } else {
+                    shared_state.update_device_status(false, processor.get_device_info());
+                    broadcast_device_status(&shared_state, &_broadcast_tx);
+                  }
+                } else {
+                  // ── Recovery attempt: re-init the existing device ──
+                  if recovery_count < super::shared_state::MAX_RECOVERY_ATTEMPTS {
+                    shared_state.recovery_attempts.fetch_add(1, Ordering::Relaxed);
+                    shared_state.set_device_state("loading", Some("restart"));
+                    broadcast_device_status(&shared_state, &_broadcast_tx);
+
+                    info!("Attempting device recovery (attempt {})...", recovery_count + 1);
+                    if let Err(reset_err) = processor.reset_buffer() {
+                      warn!("Buffer reset during recovery failed: {}", reset_err);
+                    }
+                    if let Err(reinit_err) = processor.initialize() {
+                      warn!("Re-init during recovery failed: {}", reinit_err);
+                    } else {
+                      // Re-init returned Ok, but we do NOT declare "connected" yet.
+                      // The next health-check pass (if is_healthy()==true) will
+                      // confirm recovery and broadcast "connected".
+                      info!("Device re-init succeeded, awaiting health confirmation...");
+                    }
+                  }
+                  // else: let the streak keep climbing until threshold
+                }
               } else {
-                shared_state
-                  .update_device_status(false, processor.get_device_info());
+                // ── Threshold reached: confirm via USB device count ──
+                let usb_count = crate::sdr::rtlsdr::device::RtlSdrDevice::get_device_count();
+
+                if usb_count == 0 {
+                  warn!("RTL-SDR confirmed unplugged (device_count=0). Falling back to mock.");
+                  shared_state.set_device_state("disconnected", None);
+                  broadcast_device_status(&shared_state, &_broadcast_tx);
+
+                  let mock_device = crate::sdr::SdrDeviceFactory::create_mock_device();
+                  if let Err(e) = processor.swap_device(mock_device) {
+                    error!("Failed to fall back to mock device: {}", e);
+                  } else {
+                    shared_state.update_device_status(false, processor.get_device_info());
+                    broadcast_device_status(&shared_state, &_broadcast_tx);
+                    info!("Fell back to mock mode after confirmed unplug");
+                  }
+                } else {
+                  // Device still on USB but stuck — try a full restart
+                  warn!("RTL-SDR still on USB (count={}) but unhealthy. Attempting full restart...", usb_count);
+                  shared_state.set_device_state("loading", Some("restart"));
+                  broadcast_device_status(&shared_state, &_broadcast_tx);
+
+                  match crate::sdr::SdrDeviceFactory::create_device() {
+                    Ok(new_device) if !new_device.device_type().contains("Mock") => {
+                      if let Err(e) = processor.swap_device(new_device) {
+                        error!("Full restart swap failed: {}", e);
+                        // Fall back to mock as last resort
+                        let mock_device = crate::sdr::SdrDeviceFactory::create_mock_device();
+                        if let Err(me) = processor.swap_device(mock_device) {
+                          error!("Emergency mock fallback also failed: {}", me);
+                        }
+                        shared_state.update_device_status(false, processor.get_device_info());
+                        broadcast_device_status(&shared_state, &_broadcast_tx);
+                      } else {
+                        shared_state.update_device_status(true, processor.get_device_info());
+                        broadcast_device_status(&shared_state, &_broadcast_tx);
+                        info!("Full device restart succeeded");
+                      }
+                    }
+                    _ => {
+                      // Couldn't re-open — fall back to mock
+                      let mock_device = crate::sdr::SdrDeviceFactory::create_mock_device();
+                      if let Err(me) = processor.swap_device(mock_device) {
+                        error!("Mock fallback after restart failure: {}", me);
+                      }
+                      shared_state.update_device_status(false, processor.get_device_info());
+                      broadcast_device_status(&shared_state, &_broadcast_tx);
+                    }
+                  }
+                }
+              }
+            } else {
+              // Healthy — reset the streak
+              let prev = shared_state.health_failure_streak.load(Ordering::Relaxed);
+              if prev > 0 {
+                info!("RTL-SDR health restored after {} failure(s)", prev);
+                shared_state.health_failure_streak.store(0, Ordering::Relaxed);
+                shared_state.recovery_attempts.store(0, Ordering::Relaxed);
+                // Ensure frontend knows we're solidly connected
+                shared_state.set_device_state("connected", None);
                 broadcast_device_status(&shared_state, &_broadcast_tx);
-                info!("Successfully failed back to mock mode");
               }
             }
           }
@@ -460,6 +642,18 @@ impl WebSocketServer {
             is_mock_apt,
             device_type_str,
           ))) => {
+            // Successful read — clear any failure streak and confirm
+            // recovery if we were in "loading" state from a recovery attempt.
+            if !is_mock_apt {
+              shared_state.record_successful_read();
+              let current_state = shared_state.device_state.lock().unwrap().clone();
+              if current_state != "connected" {
+                info!("First successful frame after recovery — confirming connected state");
+                shared_state.update_device_status(true, device_type_str.clone());
+                broadcast_device_status(&shared_state, &_broadcast_tx);
+              }
+            }
+
             let spectrum_message = SpectrumData {
               message_type: "spectrum".to_string(),
               waveform,
@@ -485,39 +679,83 @@ impl WebSocketServer {
             }
           }
           Ok(Err(e)) => {
-            error!("SDR processing error: {}", e);
-
-            // Handle potential hot-unplug event immediately
+            // ── Read error: use the same debounced recovery logic ──
+            //
+            // A read error from real hardware is treated as a health failure.
+            // Mock errors are extremely unlikely but handled gracefully.
             let mut processor = sdr_processor.lock().await;
-            if !processor.is_mock() && !processor.is_healthy() {
-              warn!("Active real-time check: RTL-SDR hardware is unhealthy (likely unplugged). Falling back to mock.");
-              let mock_device =
-                crate::sdr::SdrDeviceFactory::create_mock_device();
-              if let Err(swap_e) = processor.swap_device(mock_device) {
-                error!("Failed to swap to mock on error: {}", swap_e);
-              } else {
-                shared_state
-                  .update_device_status(false, processor.get_device_info());
-                broadcast_device_status(&shared_state, &_broadcast_tx);
-              }
-            } else if !processor.is_mock() {
-              // Only try Re-initialize if it's NOT a mock and it *looks* healthy,
-              // maybe some temporary I/O glitch happened.
-              warn!("Attempting hardware buffer reset + reinitialize after transient error...");
-              if let Err(reset_err) = processor.reset_buffer() {
-                error!(
-                  "Failed to reset SDR buffer after transient error: {}",
-                  reset_err
-                );
-              }
-              if let Err(reinit_err) = processor.initialize() {
-                error!("Failed to reinitialize SDR processor: {}", reinit_err);
-              }
-              // Brief wait for settling
+
+            if processor.is_mock() {
+              // Mock should never fail, but don't crash — just wait briefly
+              warn!("Mock SDR read error (unexpected): {}", e);
               tokio::time::sleep(Duration::from_millis(100)).await;
             } else {
-              // If mock failed (shouldn't happen), just wait briefly
-              tokio::time::sleep(Duration::from_millis(250)).await;
+              let streak = shared_state.record_health_failure();
+              let recovery_count = shared_state.recovery_attempts.load(Ordering::Relaxed);
+
+              error!(
+                "SDR read error (streak {}/{}, recovery {}/{}): {}",
+                streak,
+                super::shared_state::DISCONNECT_FAILURE_THRESHOLD,
+                recovery_count,
+                super::shared_state::MAX_RECOVERY_ATTEMPTS,
+                e,
+              );
+
+              if streak < super::shared_state::DISCONNECT_FAILURE_THRESHOLD {
+                let usb_count = crate::sdr::rtlsdr::device::RtlSdrDevice::get_device_count();
+                if usb_count == 0 {
+                  warn!("RTL-SDR unplugged after read error. Falling back to mock immediately.");
+                  shared_state.set_device_state("disconnected", None);
+                  broadcast_device_status(&shared_state, &_broadcast_tx);
+
+                  let mock_device = crate::sdr::SdrDeviceFactory::create_mock_device();
+                  if let Err(swap_e) = processor.swap_device(mock_device) {
+                    error!("Failed to swap to mock after early unplug: {}", swap_e);
+                  } else {
+                    shared_state.update_device_status(false, processor.get_device_info());
+                    broadcast_device_status(&shared_state, &_broadcast_tx);
+                  }
+                } else {
+                // Under threshold — try recovery if we haven't exhausted attempts
+                if recovery_count < super::shared_state::MAX_RECOVERY_ATTEMPTS {
+                  shared_state.recovery_attempts.fetch_add(1, Ordering::Relaxed);
+                  shared_state.set_device_state("loading", Some("restart"));
+                  broadcast_device_status(&shared_state, &_broadcast_tx);
+
+                  warn!("Attempting recovery after read error (attempt {})...", recovery_count + 1);
+                  if let Err(reset_err) = processor.reset_buffer() {
+                    warn!("Buffer reset during read-error recovery failed: {}", reset_err);
+                  }
+                  if let Err(reinit_err) = processor.initialize() {
+                    warn!("Re-init during read-error recovery failed: {}", reinit_err);
+                  } else {
+                    // Don't declare "connected" yet — the next health-check
+                    // or successful frame read will confirm recovery.
+                    info!("Read-error re-init succeeded, awaiting health confirmation...");
+                  }
+                }
+                }
+                // Brief settle regardless
+                tokio::time::sleep(Duration::from_millis(100)).await;
+              } else {
+                // Threshold reached — immediate fallback
+                let usb_count = crate::sdr::rtlsdr::device::RtlSdrDevice::get_device_count();
+                warn!(
+                  "Read-error threshold reached (streak={}). USB device_count={}. Falling back to mock.",
+                  streak, usb_count,
+                );
+                shared_state.set_device_state("disconnected", None);
+                broadcast_device_status(&shared_state, &_broadcast_tx);
+
+                let mock_device = crate::sdr::SdrDeviceFactory::create_mock_device();
+                if let Err(swap_e) = processor.swap_device(mock_device) {
+                  error!("Failed to swap to mock on read error: {}", swap_e);
+                } else {
+                  shared_state.update_device_status(false, processor.get_device_info());
+                  broadcast_device_status(&shared_state, &_broadcast_tx);
+                }
+              }
             }
           }
           Err(join_e) => {

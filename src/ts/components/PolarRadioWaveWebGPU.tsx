@@ -15,11 +15,25 @@ interface PolarRadioWaveWebGPUProps {
 }
 
 const Container = styled.div`
-  width: 100%;
-  height: 100%;
-  background: #050507;
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  width: 400px;
+  height: 400px;
+  background: rgba(10, 10, 12, 0.85);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(172, 119, 255, 0.2);
   border-radius: 12px;
   overflow: hidden;
+  z-index: 1000;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  pointer-events: auto;
+`;
+
+const ContentWrapper = styled.div`
+  position: relative;
+  width: 100%;
+  height: 100%;
 `;
 
 const SEGMENTS = 360; // Resolution of the polar pattern
@@ -114,7 +128,7 @@ const PolarLobeLine: React.FC<{
 
 const DegreeLabel = styled.div`
   font-family: "JetBrains Mono", monospace;
-  font-size: 9px;
+  font-size: 14px;
   color: #555;
   pointer-events: none;
   white-space: nowrap;
@@ -122,7 +136,7 @@ const DegreeLabel = styled.div`
 
 // 3D Polar Grid Component
 const PolarGrid3D: React.FC<{ aperture: number }> = ({ aperture }) => {
-  const ANTENNA_VISUAL_RADIUS = (aperture / 100) * 1.5;
+  const ANTENNA_VISUAL_RADIUS = (aperture / 100) * 2.5; // Enlarged antenna
   const MAX_RADIUS = 7.5;
   const angles = [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330];
 
@@ -165,15 +179,15 @@ const PolarGrid3D: React.FC<{ aperture: number }> = ({ aperture }) => {
         );
       })}
 
-      {/* Central Antenna Model */}
-      <group position={[0, 0.05, 0]}>
+      {/* Central Antenna Model - Shifted up to be on top */}
+      <group position={[0, 0.5, 0]}>
         <mesh rotation={[-Math.PI / 2, 0, 0]}>
           <circleGeometry args={[ANTENNA_VISUAL_RADIUS, 64]} />
           <meshBasicMaterial color="#0a0a0c" side={THREE.DoubleSide} />
         </mesh>
         <mesh rotation={[-Math.PI / 2, 0, 0]}>
-          <ringGeometry args={[ANTENNA_VISUAL_RADIUS - 0.03, ANTENNA_VISUAL_RADIUS, 64]} />
-          <meshBasicMaterial color="#ac77ff" transparent opacity={0.4} side={THREE.DoubleSide} />
+          <ringGeometry args={[ANTENNA_VISUAL_RADIUS - 0.06, ANTENNA_VISUAL_RADIUS, 64]} />
+          <meshBasicMaterial color="#ac77ff" transparent opacity={0.6} side={THREE.DoubleSide} />
         </mesh>
       </group>
     </group>
@@ -182,20 +196,24 @@ const PolarGrid3D: React.FC<{ aperture: number }> = ({ aperture }) => {
 
 const MetricsOverlay = styled.div`
   position: absolute;
-  bottom: 12px;
-  left: 12px;
+  top: 50%;
+  right: 40px;
+  transform: translateY(-50%);
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 12px;
   pointer-events: none;
+  text-align: right;
+  align-items: flex-end;
+  z-index: 10;
 `;
 
 const MetricItem = styled.div`
   font-family: "JetBrains Mono", monospace;
-  font-size: 9px;
+  font-size: 16px;
   color: #888;
   display: flex;
-  gap: 6px;
+  gap: 10px;
   align-items: center;
 `;
 
@@ -207,7 +225,7 @@ const MetricValue = styled.span`
 const MathText = styled.span`
   font-family: serif;
   font-style: italic;
-  font-size: 11px;
+  font-size: 18px;
   margin-right: 2px;
 `;
 
@@ -217,48 +235,64 @@ const formatDistance = (mm: number) => {
   return `${mm.toFixed(0)} mm`;
 };
 
-export const PolarRadioWaveWebGPU: React.FC<PolarRadioWaveWebGPUProps> = (props) => {
+export const PolarRadioWaveWebGPU: React.FC<PolarRadioWaveWebGPUProps> = ({
+  aperture = 40,
+  beamWidth = 25,
+  rotation = 0,
+  frequency = 1.5,
+}) => {
+  const wavelengthMm = 300000 / (frequency || 1.5);
+
   return (
-    <Container style={{ position: 'relative' }}>
-      <Canvas
-        orthographic
-        gl={async (glProps: any) => {
-          const renderer = new WebGPURenderer({ ...glProps, antialias: true, alpha: true });
-          await renderer.init();
-          return renderer as any;
-        }}
-        camera={{ position: [0, 15, 2.0], zoom: 15.5, up: [0, 0, -1], far: 1000, near: -1000 }}
-      >
-        <ambientLight intensity={0.5} />
-        <pointLight position={[10, 10, 10]} />
+    <Container>
+      <ContentWrapper>
+        <Canvas
+          shadows
+          gl={async (canvas: any) => {
+            const renderer = new WebGPURenderer({ canvas, antialias: true, alpha: true });
+            await renderer.init();
+            return renderer as any;
+          }}
+          camera={{ position: [0, 15, 0], zoom: 30, up: [0, 0, -1], far: 1000, near: -1000 }}
+          orthographic
+        >
+          <ambientLight intensity={1.5} />
+          <PolarGrid3D aperture={aperture} />
+          <PolarLobeLine
+            beamWidth={beamWidth}
+            rotation={rotation}
+            aperture={aperture}
+            frequency={frequency}
+          />
+        </Canvas>
 
-        <PolarGrid3D aperture={props.aperture ?? 30} />
+        <MetricsOverlay>
+          <MetricItem>
+            <MathText>ƒ</MathText> (Frequency): <MetricValue>{frequency.toFixed(3)} MHz</MetricValue>
+          </MetricItem>
+          <MetricItem>
+            <MathText>λ</MathText> (Wavelength): <MetricValue>{formatDistance(wavelengthMm)}</MetricValue>
+          </MetricItem>
+          <MetricItem>
+            <MathText>A</MathText> (Aperture): <MetricValue>{formatDistance(aperture)}</MetricValue>
+          </MetricItem>
+        </MetricsOverlay>
 
-        <PolarLobeLine
-          aperture={props.aperture ?? 30}
-          beamWidth={props.beamWidth ?? 25}
-          rotation={props.rotation ?? 0}
-          frequency={props.frequency ?? 2.4}
-        />
-
-        <gridHelper args={[30, 30, 0x333333, 0x1a1a1e]} position={[0, -0.01, 0]} />
-      </Canvas>
-
-      <MetricsOverlay>
-        <MetricItem>
-          <MathText>ƒ</MathText> (Frequency): <MetricValue style={{ marginLeft: '4px' }}>{(props.frequency ?? 2.4).toFixed(3)} MHz</MetricValue>
-        </MetricItem>
-        <MetricItem>
-          <MathText>λ</MathText> (Wavelength): <MetricValue style={{ marginLeft: '4px' }}>
-            {formatDistance(300000 / (props.frequency ?? 2.4))}
-          </MetricValue>
-        </MetricItem>
-        <MetricItem>
-          <MathText>A</MathText> (Aperture/Antenna Panel or Face): <MetricValue style={{ marginLeft: '4px' }}>
-            {formatDistance(props.aperture ?? 40)}
-          </MetricValue>
-        </MetricItem>
-      </MetricsOverlay>
+        <div
+          style={{
+            position: "absolute",
+            top: "12px",
+            left: "15px",
+            fontSize: "10px",
+            color: "#aaa",
+            fontFamily: "JetBrains Mono, monospace",
+            letterSpacing: "1px",
+            opacity: 0.6,
+          }}
+        >
+          REAL-TIME EMISSION HUD
+        </div>
+      </ContentWrapper>
     </Container>
   );
 };

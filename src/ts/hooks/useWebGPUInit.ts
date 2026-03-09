@@ -1,4 +1,7 @@
 import { useRef, useEffect, useCallback, useState } from "react";
+import { useAsyncShaderCache } from "@n-apt/hooks/useAsyncShaderCache";
+import { useSharedBufferManager } from "@n-apt/hooks/useSharedBufferManager";
+import { SPECTRUM_SHADER } from "@n-apt/consts/shaders/spectrum";
 
 // Inlined OverlayTextureRenderer shader
 const overlayShader = `
@@ -239,6 +242,49 @@ export function useWebGPUInit({
   const webgpuRetryCountRef = useRef(0);
   const maxWebgpuRetries = 3;
 
+  // Initialize async shader cache and shared buffer manager (only when device is ready)
+  const shaderCache = useAsyncShaderCache({
+    device: webgpuDeviceRef.current,
+    format: webgpuFormatRef.current,
+    maxCacheSize: 50,
+    enableHotReload: import.meta.hot !== undefined
+  });
+
+  const bufferManager = useSharedBufferManager({
+    device: webgpuDeviceRef.current,
+    initialPoolSize: 10,
+    maxPoolSize: 50,
+    bufferSize: 1024 * 1024,
+    enableGarbageCollection: true,
+    gcInterval: 30000
+  });
+  
+  // Preload essential shaders when device becomes available
+  useEffect(() => {
+    if (webgpuDeviceRef.current && webgpuFormatRef.current && shaderCache.isInitialized) {
+      const preloadShaders = async () => {
+        try {
+          // Temporarily disable shader preloading to isolate FFT shader issues
+          // TODO: Re-enable once FFT shader issues are resolved
+          console.log('Shader preloading temporarily disabled for FFT debugging');
+          
+          // Preload common shader variants
+          // await shaderCache.preloadShaders([
+          //   {
+          //     vertexCode: SPECTRUM_SHADER,
+          //     fragmentCode: SPECTRUM_SHADER.includes('fs_line') ? undefined : SPECTRUM_SHADER,
+          //     uniforms: { resolution: [1, 1], time: 0 }
+          //   }
+          // ]);
+        } catch (error) {
+          console.warn('Failed to preload shaders:', error);
+        }
+      };
+      
+      preloadShaders();
+    }
+  }, [webgpuDeviceRef.current, webgpuFormatRef.current, shaderCache.isInitialized]);
+
   // Overlay texture renderers are still provided by this hook
   const gridOverlayRendererRef = useRef<OverlayTextureRenderer | null>(null);
   const markersOverlayRendererRef = useRef<OverlayTextureRenderer | null>(null);
@@ -416,5 +462,8 @@ export function useWebGPUInit({
     markersOverlayRendererRef,
     overlayDirtyRef,
     overlayLastUploadMsRef,
+    // New optimization systems
+    shaderCache,
+    bufferManager,
   };
 }

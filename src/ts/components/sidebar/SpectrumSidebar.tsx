@@ -1,13 +1,12 @@
 import React, { useMemo, useState, useEffect, useCallback } from "react";
 import styled, { useTheme } from "styled-components";
-import { useSpectrumStore, SourceMode } from "@n-apt/hooks/useSpectrumStore";
+import { useSpectrumStore, LIVE_CONTROL_DEFAULTS } from "@n-apt/hooks/useSpectrumStore";
 import { useSdrSettings } from "@n-apt/hooks/useSdrSettings";
 import { useAuthentication } from "@n-apt/hooks/useAuthentication";
 import { useGeolocation } from "@n-apt/hooks/useGeolocation";
 
 import type {
   CaptureRequest,
-  CaptureStatus,
   CaptureFileType,
   GeolocationData,
 } from "@n-apt/consts/schemas/websocket";
@@ -19,11 +18,11 @@ import { SnapshotControlsSection } from "@n-apt/components/sidebar/SnapshotContr
 import { SourceSettingsSection } from "@n-apt/components/sidebar/SourceSettingsSection";
 import FileProcessingSection from "@n-apt/components/sidebar/FileProcessingSection";
 import { SignalFeaturesSection } from "@n-apt/components/sidebar/SignalFeaturesSection";
-import { ConnectionStatusSection } from "@n-apt/components/sidebar/ConnectionStatusSection";
+import { ConnectionStatusSection, WarningButton } from "@n-apt/components/sidebar/ConnectionStatusSection";
 import { ThemeSection } from "@n-apt/components/sidebar/ThemeSection";
 import FrequencyRangeSlider from "@n-apt/components/sidebar/FrequencyRangeSlider";
-import { formatFrequency } from "@n-apt/consts/sdr";
-import { Row } from "@n-apt/components/ui";
+import SourceInput from "@n-apt/components/sidebar/SourceInput";
+import { buildSdrLimitMarkers } from "@n-apt/utils/sdrLimitMarkers";
 
 const SidebarContent = styled.div`
   display: grid;
@@ -93,43 +92,6 @@ const SectionTitle = styled.div<{ $fileMode?: boolean }>`
   grid-column: 1 / -1;
 `;
 
-
-
-const SettingSelect = styled.select`
-  background-color: transparent;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  color: #ccc;
-  font-family: "JetBrains Mono", monospace;
-  font-size: 12px;
-  font-weight: 500;
-  padding: 2px 6px;
-  min-width: 0;
-  cursor: pointer;
-  appearance: none;
-  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ccc' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6,9 12,15 18,9'%3e%3c/polyline%3e%3c/svg%3e");
-  background-repeat: no-repeat;
-  background-position: right 2px center;
-  background-size: 12px;
-  padding-right: 20px;
-
-  &:hover {
-    border-color: #2a2a2a;
-  }
-
-  &:focus {
-    outline: none;
-    border-color: ${(props) => props.theme.primary};
-    background-color: ${(props) => props.theme.primaryAlpha};
-  }
-
-  option {
-    background-color: ${(props) => props.theme.fftBackground || "#0a0a0a"};
-    color: #ccc;
-    font-family: "JetBrains Mono", monospace;
-  }
-`;
-
 type NaptMetadata = {
   sample_rate?: number;
   sample_rate_hz?: number;
@@ -167,6 +129,7 @@ export const SpectrumSidebar: React.FC = () => {
     toggleVisualizerPause,
     cryptoCorrupted,
     effectiveFrames,
+    deviceName,
     wsConnection: {
       isConnected,
       deviceState,
@@ -543,28 +506,10 @@ export const SpectrumSidebar: React.FC = () => {
     };
   }, [selectedPrimaryFile, aesKey]);
 
-  const limitMarkers = useMemo(() => {
-    const limits = effectiveSdrSettings?.limits;
-    if (!limits) return [];
-    const markers: Array<{ freq: number; label: string }> = [];
-    if (typeof limits.lower_limit_mhz === "number") {
-      markers.push({
-        freq: limits.lower_limit_mhz,
-        label:
-          limits.lower_limit_label ??
-          `${formatFrequency(limits.lower_limit_mhz)} / Lower limit`,
-      });
-    }
-    if (typeof limits.upper_limit_mhz === "number") {
-      markers.push({
-        freq: limits.upper_limit_mhz,
-        label:
-          limits.upper_limit_label ??
-          `${formatFrequency(limits.upper_limit_mhz)} / Upper limit`,
-      });
-    }
-    return markers;
-  }, [effectiveSdrSettings?.limits]);
+  const limitMarkers = useMemo(
+    () => buildSdrLimitMarkers(effectiveSdrSettings ?? null),
+    [effectiveSdrSettings],
+  );
 
   const handleRangeChange = useCallback(
     (label: string, range: { min: number; max: number }) => {
@@ -575,6 +520,54 @@ export const SpectrumSidebar: React.FC = () => {
     },
     [state.activeSignalArea, dispatch, sendFrequencyRange],
   );
+
+  useEffect(() => {
+    if (!isConnected || state.sourceMode !== "live") return;
+    sendSettings({
+      fftSize: state.fftSize,
+      fftWindow: state.fftWindow,
+      frameRate: state.fftFrameRate,
+      gain: state.gain,
+      ppm: state.ppm,
+      tunerAGC: state.tunerAGC,
+      rtlAGC: state.rtlAGC,
+    });
+  }, [
+    isConnected,
+    state.sourceMode,
+    state.fftSize,
+    state.fftWindow,
+    state.fftFrameRate,
+    state.gain,
+    state.ppm,
+    state.tunerAGC,
+    state.rtlAGC,
+    sendSettings,
+  ]);
+
+  const resetLiveControls = useCallback(() => {
+    const recommendedFftSize = autoFftOptions?.recommended ?? state.fftSize;
+    const recommendedFrameRate = Math.max(
+      1,
+      Math.min(maxFrameRate, state.fftFrameRate),
+    );
+
+    dispatch({
+      type: "RESET_LIVE_CONTROLS",
+      fftSize: recommendedFftSize,
+      fftFrameRate: recommendedFrameRate,
+    });
+
+    sendSettings({
+      fftSize: recommendedFftSize,
+      fftWindow: LIVE_CONTROL_DEFAULTS.fftWindow,
+      frameRate: recommendedFrameRate,
+      gain: LIVE_CONTROL_DEFAULTS.gain,
+      ppm: LIVE_CONTROL_DEFAULTS.ppm,
+      tunerAGC: LIVE_CONTROL_DEFAULTS.tunerAGC,
+      rtlAGC: LIVE_CONTROL_DEFAULTS.rtlAGC,
+    });
+  }, [autoFftOptions?.recommended, dispatch, maxFrameRate, sendSettings, state.fftFrameRate, state.fftSize]);
 
   return (
     <SidebarContent>
@@ -588,29 +581,18 @@ export const SpectrumSidebar: React.FC = () => {
         <SectionTitle $fileMode={state.sourceMode === "file"}>
           Source
         </SectionTitle>
-        <Row label="Input" tooltip="Select the signal source.">
-          <SettingSelect
-            value={state.sourceMode}
-            onChange={(e) =>
-              dispatch({
-                type: "SET_SOURCE_MODE",
-                mode: e.target.value as SourceMode,
-              })
-            }
-            style={{ minWidth: "130px" }}
-          >
-            <option value="live">
-              {backend === "rtl-sdr" || backend === "rtlsdr" || backend === "rtltcp" || backend === "rtl-tcp"
-                ? "RTL-SDR"
-                : backend?.includes("mock")
-                  ? "Mock APT SDR"
-                  : backend || "Mock SDR"}
-            </option>
-            <option value="file" style={{ color: theme.fileMode }}>
-              File Selection
-            </option>
-          </SettingSelect>
-        </Row>
+        <SourceInput
+          sourceMode={state.sourceMode}
+          backend={backend}
+          deviceName={deviceName}
+          fileModeColor={theme.fileMode}
+          onSourceModeChange={(mode) =>
+            dispatch({
+              type: "SET_SOURCE_MODE",
+              mode,
+            })
+          }
+        />
       </Section>
 
       {state.sourceMode === "file" && (
@@ -649,6 +631,14 @@ export const SpectrumSidebar: React.FC = () => {
             onPauseToggle={toggleVisualizerPause}
             onRestartDevice={() => sendRestartDevice()}
           />
+          <WarningButton
+            $paused={false}
+            $narrow
+            onClick={resetLiveControls}
+            title="Reset sidebar and visualizer options to defaults"
+          >
+            Reset Options to Defaults
+          </WarningButton>
 
           <IQCaptureControlsSection
             isOpen={captureOpen}
@@ -769,9 +759,22 @@ export const SpectrumSidebar: React.FC = () => {
                       }
                       limitMarkers={limitMarkers}
                       isActive={state.activeSignalArea === label}
-                      onActivate={() =>
-                        dispatch({ type: "SET_SIGNAL_AREA", area: label })
-                      }
+                      onActivate={() => {
+                        const nextRange = state.lastKnownRanges[label] ?? {
+                          min,
+                          max:
+                            min +
+                            (typeof sampleRateMHz === "number"
+                              ? Math.min(sampleRateMHz, span)
+                              : span),
+                        };
+                        dispatch({
+                          type: "SET_SIGNAL_AREA_AND_RANGE",
+                          area: label,
+                          range: nextRange,
+                        });
+                        sendFrequencyRange(nextRange);
+                      }}
                       onRangeChange={(range: { min: number; max: number }) => {
                         if (
                           state.activeSignalArea === label &&

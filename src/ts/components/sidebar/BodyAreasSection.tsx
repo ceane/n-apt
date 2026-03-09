@@ -10,23 +10,23 @@ type Area = {
   meshName: string;
 };
 
-const areas: Area[] = [
+export const PHYSIOLOGY_AREAS: Area[] = [
   {
     name: "Head",
-    position: [-0.005256929115666855, 1.888884291818077, 0.6546510577135781],
-    target: [-0.0001, 1.91, 0.0196510577135781],
+    position: [0.0, 1.92, 0.48],
+    target: [0.0, 1.905, 0.0],
     meshName: "o_ADBody",
   },
   {
     name: "Face",
-    position: [-0.005256929115666855, 1.888884291818077, 0.6546510577135781],
-    target: [-0.005256929115666855, 1.888884291818077, 0.1546510577135781],
+    position: [0.0, 1.84, 0.56],
+    target: [0.0, 1.835, 0.12],
     meshName: "o_ADBody",
   },
   {
     name: "Throat",
-    position: [0.007886413129995381, 1.7673426681304798, 0.3609346531290654],
-    target: [0.007886413129995381, 1.7673426681304798, 0.0609346531290654],
+    position: [0.007886413129995381, 1.5673426681304798, 0.4609346531290654],
+    target: [0.007886413129995381, 1.5673426681304798, 0.2109346531290654],
     meshName: "o_ADBody",
   },
   {
@@ -109,20 +109,20 @@ const areas: Area[] = [
   },
   {
     name: "Buttocks",
-    position: [-0.0058183104165016875, 1.047481566553317, -0.61793005855546879],
-    target: [-0.0058183104165016875, 1.047481566553317, -0.11793005855546879],
+    position: [0.0, 1.13, -0.92],
+    target: [0.0, 1.13, -0.42],
     meshName: "o_ADBody",
   },
   {
     name: "Ears (Left)",
-    position: [-0.08594598979516654, 1.8953312879510087, 0.521125019930469335],
-    target: [-0.08594598979516654, 1.8953312879510087, 0.021125019930469335],
+    position: [-0.17, 1.84, 0.44],
+    target: [-0.17, 1.84, -0.01],
     meshName: "o_ADBody",
   },
   {
     name: "Ears (Right)",
-    position: [0.08594598979516654, 1.8953312879510087, 0.521125019930469335],
-    target: [0.08594598979516654, 1.8953312879510087, 0.021125019930469335],
+    position: [0.17, 1.84, 0.44],
+    target: [0.17, 1.84, -0.01],
     meshName: "o_ADBody",
   },
 ];
@@ -243,7 +243,7 @@ export const BodyAreasSection: React.FC<BodyAreasSectionProps> = () => {
 
   return (
     <AreaList>
-      {areas.map((area) => {
+      {PHYSIOLOGY_AREAS.map((area) => {
         const isSelected = selectedArea?.name === area.name;
 
         return (

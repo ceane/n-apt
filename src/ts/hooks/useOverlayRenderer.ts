@@ -12,6 +12,7 @@ import {
   CENTER_LINE_COLOR,
 } from "@n-apt/consts";
 import { formatFrequency, formatFrequencyHighRes } from "@n-apt/consts";
+import type { SdrLimitMarker } from "@n-apt/utils/sdrLimitMarkers";
 
 /**
  * Hook for rendering WebGPU overlay textures (grid and markers)
@@ -82,6 +83,12 @@ export function useOverlayRenderer() {
       }
 
       const step = findBestFrequencyRange(viewBandwidth2, 10);
+      const formatTickLabel = (freq: number) => {
+        if (maxFreq < 1) return `${Math.round(freq * 1000)}kHz`;
+        if (step >= 0.5) return freq.toFixed(1);
+        if (step >= 0.01) return freq.toFixed(2);
+        return freq.toFixed(3);
+      };
       const lowerFreq2 = Math.ceil((minFreq + 0.000001) / step) * step;
       const upperFreq2 = maxFreq;
 
@@ -183,7 +190,7 @@ export function useOverlayRenderer() {
         // Tick label (with collision avoidance)
         // Zoomed out (step >= 0.5): just show x.x
         // Zoomed in: show more precision if needed, but no units as per request
-        const label = step >= 0.5 ? freq.toFixed(1) : (step >= 0.01 ? freq.toFixed(2) : freq.toFixed(3));
+        const label = formatTickLabel(freq);
         
         if (!isColliding(xPos, label)) {
           ctx.fillText(label, xPos, fftAreaMax.y + 25);
@@ -212,7 +219,7 @@ export function useOverlayRenderer() {
             ctx.stroke();
 
             const label = formatOffset(s);
-            ctx.fillText(label, clampLabelX(x, label), FFT_AREA_MIN.y + 2);
+            ctx.fillText(label, clampLabelX(x, label), FFT_AREA_MIN.y + 18);
           }
         }
         ctx.restore();
@@ -320,14 +327,14 @@ export function useOverlayRenderer() {
                 const cx = Math.round(freqToX2(visibleCenter));
                 const label = isFullBlock ? "Hardware Sample Rate" : "Next Sample";
                 const subLabel = formatOffset(blockWidth);
-                ctx.fillText(label, cx, FFT_AREA_MIN.y + 4);
-                ctx.fillText(subLabel, cx, FFT_AREA_MIN.y + 16);
+                ctx.fillText(label, cx, FFT_AREA_MIN.y + 60);
+                ctx.fillText(subLabel, cx, FFT_AREA_MIN.y + 72);
                 
                 if (isFullBlock) {
                   ctx.save();
                   ctx.globalAlpha = 0.7;
                   ctx.font = "italic 9px JetBrains Mono";
-                  ctx.fillText(`Clean BW: ${formatOffset(usableSpanMHz)}`, cx, FFT_AREA_MIN.y + 28);
+                  ctx.fillText(`Clean BW: ${formatOffset(usableSpanMHz)}`, cx, FFT_AREA_MIN.y + 84);
                   ctx.restore();
                 }
               }
@@ -349,6 +356,7 @@ export function useOverlayRenderer() {
       centerFrequencyMHz?: number,
       isDeviceConnected: boolean = true,
       fullCaptureRange?: { min: number; max: number },
+      limitMarkers: SdrLimitMarker[] = [],
     ) => {
       const dpr = window.devicePixelRatio || 1;
       const fftAreaMax = { x: width - 40, y: height - 40 };
@@ -399,6 +407,31 @@ export function useOverlayRenderer() {
        ctx.fillStyle = "#ffffff";
        ctx.fillText(centerLabel, labelX, labelY);
        ctx.restore();
+
+       if (isDeviceConnected) {
+         ctx.save();
+         ctx.strokeStyle = "rgba(220, 38, 38, 0.75)";
+         ctx.fillStyle = "rgba(255, 140, 140, 0.95)";
+         ctx.lineWidth = 1 / dpr;
+         ctx.font = "10px JetBrains Mono";
+         ctx.textAlign = "center";
+         ctx.textBaseline = "top";
+
+         for (const marker of limitMarkers) {
+           if (!Number.isFinite(marker.freq)) continue;
+           if (marker.freq < minFreq || marker.freq > maxFreq) continue;
+
+           const x = Math.round(freqToX(marker.freq)) + 0.5;
+           ctx.beginPath();
+           ctx.moveTo(x, FFT_AREA_MIN.y);
+           ctx.lineTo(x, fftAreaMax.y);
+           ctx.stroke();
+
+           const textX = Math.max(FFT_AREA_MIN.x + 45, Math.min(fftAreaMax.x - 45, x));
+           ctx.fillText(marker.label, textX, FFT_AREA_MIN.y + 60);
+         }
+         ctx.restore();
+       }
 
        // Use isDeviceConnected and freqToX to satisfy lints if needed, 
        // but for now center line is the main one.

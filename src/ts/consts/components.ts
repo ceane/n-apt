@@ -3,9 +3,12 @@
  * General styling and configuration values
  */
 
+// Shared transform constants for the human model scene
+export const MODEL_ROOT_POSITION = [0, 0.95, 0] as const;
+
 // Brain component constants
-export const BRAIN_POSITION = [0.144, 1.17, 0.25] as const;
-export const BRAIN_SCALE = [0.45, 0.45, 0.45] as const;
+export const BRAIN_POSITION = [0.07, 0.38, 0.14] as const;
+export const BRAIN_SCALE = [0.22, 0.22, 0.22] as const;
 
 // DrawMockNAPT constants
 export const DEFAULT_SPIKE_COUNT = 150;
@@ -41,10 +44,19 @@ export const HOTSPOT_EDIT_PLANE_SIZE = [0.3, 0.1, 0.01] as const;
 export const HOTSPOT_CONTROL_PANEL_WIDTH = 300;
 export const HOTSPOT_CONTROL_PANEL_PADDING = 20;
 
+// 3D Model lighting constants
+export const MODEL_AMBIENT_LIGHT_INTENSITY = 1.1;
+export const MODEL_KEY_LIGHT_INTENSITY = 3.2;
+export const MODEL_KEY_LIGHT_POSITION = [2.5, 3.2, 4.5] as const;
+export const MODEL_FILL_LIGHT_INTENSITY = 1.6;
+export const MODEL_FILL_LIGHT_POSITION = [-3, 2.2, 3.5] as const;
+export const MODEL_BACK_LIGHT_INTENSITY = 2.4;
+export const MODEL_BACK_LIGHT_POSITION = [0, 2.8, -4.5] as const;
+
 // HumanModelViewer constants
-export const MODEL_CAMERA_POSITION = [0, 1.1, 3.5] as const;
-export const MODEL_CAMERA_TARGET = [0, 1.1, 0] as const;
-export const MODEL_FOV = 40;
+export const MODEL_CAMERA_POSITION = [0, 1.05, 3.6] as const;
+export const MODEL_CAMERA_TARGET = [0, 0.95, 0] as const;
+export const MODEL_FOV = 36;
 export const SPHERE_GEOMETRY_SEGMENTS = 16;
 export const SPHERE_MARKER_COLOR = "#00ffff";
 export const SPHERE_MARKER_BASE_INTENSITY = 0.8;

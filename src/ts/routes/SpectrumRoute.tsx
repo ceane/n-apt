@@ -11,6 +11,7 @@ import {
   InitializingText,
 } from "@n-apt/components/Layout";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
+import { buildSdrLimitMarkers } from "@n-apt/utils/sdrLimitMarkers";
 
 interface SpectrumRouteProps {
   activeTab: "visualizer" | "analysis" | "draw";
@@ -47,6 +48,10 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
     state.vizPanOffset,
     (pan: number) => dispatch({ type: "SET_VIZ_PAN", pan }),
   ] as const;
+  const limitMarkers = useMemo(
+    () => buildSdrLimitMarkers(effectiveSdrSettings ?? null),
+    [effectiveSdrSettings],
+  );
 
   useEffect(() => {
     requestAnimationFrame(() => {
@@ -188,6 +193,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
                 signalAreaBounds={signalAreaBounds ?? undefined}
                 hardwareSampleRateHz={sampleRateHzEffective ?? undefined}
                 isIqRecordingActive={captureStatus?.status === "started"}
+                limitMarkers={limitMarkers}
                 isPaused={manualVisualizerPaused}
                 isDeviceConnected={deviceState === "connected"}
                 onFrequencyRangeChange={handleFrequencyRangeChange}

@@ -7,6 +7,7 @@ import React, {
   useEffect,
   ReactNode,
 } from "react";
+import { MODEL_ROOT_POSITION } from "@n-apt/consts/components";
 
 interface Hotspot {
   id: string;
@@ -54,7 +55,31 @@ const STORAGE_KEY = "n-apt-hotspots";
 function loadHotspotsFromStorage(): Hotspot[] {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
-    return stored ? JSON.parse(stored) : [];
+    if (!stored) return [];
+
+    const parsed: Hotspot[] = JSON.parse(stored);
+    return parsed.map((hotspot) => {
+      const isLegacyWorldFrame =
+        hotspot.position[1] > 1.2 || hotspot.target[1] > 1.2;
+
+      if (!isLegacyWorldFrame) {
+        return hotspot;
+      }
+
+      return {
+        ...hotspot,
+        position: [
+          hotspot.position[0],
+          hotspot.position[1] - MODEL_ROOT_POSITION[1],
+          hotspot.position[2],
+        ],
+        target: [
+          hotspot.target[0],
+          hotspot.target[1] - MODEL_ROOT_POSITION[1],
+          hotspot.target[2],
+        ],
+      };
+    });
   } catch {
     return [];
   }
@@ -227,7 +252,7 @@ export const HotspotEditorProvider: React.FC<HotspotEditorProviderProps> = ({
         name,
         position: [point.x, point.y, point.z],
         target: [point.x, point.y, point.z],
-        meshName: "o_ADBody",
+        meshName: "human_model_afro_male",
         size: state.hotspotSize,
       };
 
@@ -239,7 +264,7 @@ export const HotspotEditorProvider: React.FC<HotspotEditorProviderProps> = ({
           name: `${name} (Left)`,
           position: [-point.x, point.y, point.z],
           target: [-point.x, point.y, point.z],
-          meshName: "o_ADBody",
+          meshName: "human_model_afro_male",
           size: state.hotspotSize,
         };
         newHotspot.name = `${name} (Right)`;
@@ -250,7 +275,7 @@ export const HotspotEditorProvider: React.FC<HotspotEditorProviderProps> = ({
           name: `${name} (Bottom)`,
           position: [point.x, -point.y, point.z],
           target: [point.x, -point.y, point.z],
-          meshName: "o_ADBody",
+          meshName: "human_model_afro_male",
           size: state.hotspotSize,
         };
         newHotspot.name = `${name} (Top)`;

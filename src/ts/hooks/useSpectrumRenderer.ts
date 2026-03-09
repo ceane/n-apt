@@ -3,6 +3,7 @@ import { useDrawWebGPUFFTSignal } from "./useDrawWebGPUFFTSignal";
 import { useDraw2DFFTSignal } from "./useDraw2DFFTSignal";
 import { useOverlayRenderer } from "./useOverlayRenderer";
 import { OverlayTextureRenderer } from "./useWebGPUInit";
+import type { SdrLimitMarker } from "@n-apt/utils/sdrLimitMarkers";
 
 const OVERLAY_MIN_INTERVAL_MS = 50;
 
@@ -45,6 +46,8 @@ export interface SpectrumRendererOptions {
   fullCaptureRange?: { min: number; max: number };
   /** Whether I/Q recording is active (forces hardware block labels) */
   isIqRecordingActive?: boolean;
+  /** Hardware limit markers derived from signals.yaml */
+  limitMarkers?: SdrLimitMarker[];
   
   /** Visual customization: Main signal line color */
   lineColor?: string;
@@ -90,6 +93,7 @@ export function useSpectrumRenderer() {
       hardwareSampleRateHz,
       fullCaptureRange,
       isIqRecordingActive,
+      limitMarkers = [],
       lineColor,
       fillColor,
       backgroundColor,
@@ -140,7 +144,8 @@ export function useSpectrumRenderer() {
             frequencyRange,
             centerFrequencyMHz,
             isDeviceConnected,
-            fullCaptureRange
+            fullCaptureRange,
+            limitMarkers,
           );
         }
         markersOverlayRenderer.endDraw();
@@ -180,6 +185,7 @@ export function useSpectrumRenderer() {
         hardwareSampleRateHz,
         fullCaptureRange,
         isIqRecordingActive,
+        limitMarkers,
         highPerformanceMode
       });
     }

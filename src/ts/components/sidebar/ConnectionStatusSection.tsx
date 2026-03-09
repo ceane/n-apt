@@ -97,7 +97,7 @@ const PauseButton = styled.button<{ $paused: boolean }>`
   }
 `;
 
-const WarningButton = styled(PauseButton) <{
+export const WarningButton = styled(PauseButton) <{
   $narrow?: boolean;
   $isDisabled?: boolean;
 }>`
@@ -115,6 +115,12 @@ const WarningButton = styled(PauseButton) <{
     border-color: #ffaa00;
     color: #ffaa00;
   }
+`;
+
+const ActionsColumn = styled.div`
+  display: grid;
+  gap: 8px;
+  width: 100%;
 `;
 
 interface ConnectionStatusSectionProps {
@@ -166,42 +172,44 @@ export const ConnectionStatusSection: React.FC<
           </StatusText>
         </ConnectionStatus>
 
-        {isConnected &&
-          (deviceState === "stale" ? (
-            <WarningButton
-              $paused={false}
-              $narrow
-              onClick={() => onRestartDevice?.()}
-              title="Restart the SDR device connection"
-            >
-              Restart
-            </WarningButton>
-          ) : deviceState === "loading" && deviceLoadingReason === "restart" ? (
-            <WarningButton
-              $paused={false}
-              $narrow
-              $isDisabled
-              onClick={() => { }}
-              disabled={true}
-              title="Device is restarting..."
-            >
-              Restarting...
-            </WarningButton>
-          ) : deviceState === "loading" ? (
-            <WarningButton
-              $paused={false}
-              $isDisabled
-              onClick={() => { }}
-              disabled={true}
-              title="Device is being initialized..."
-            >
-              Loading...
-            </WarningButton>
-          ) : (
-            <PauseButton $paused={isPaused} onClick={onPauseToggle}>
-              {cryptoCorrupted ? "Corrupted" : isPaused ? "Resume" : "Pause"}
-            </PauseButton>
-          ))}
+        <ActionsColumn>
+          {isConnected &&
+            (deviceState === "stale" ? (
+              <WarningButton
+                $paused={false}
+                $narrow
+                onClick={() => onRestartDevice?.()}
+                title="Restart the SDR device connection"
+              >
+                Restart
+              </WarningButton>
+            ) : deviceState === "loading" && deviceLoadingReason === "restart" ? (
+              <WarningButton
+                $paused={false}
+                $narrow
+                $isDisabled
+                onClick={() => { }}
+                disabled={true}
+                title="Device is restarting..."
+              >
+                Restarting...
+              </WarningButton>
+            ) : deviceState === "loading" ? (
+              <WarningButton
+                $paused={false}
+                $isDisabled
+                onClick={() => { }}
+                disabled={true}
+                title="Device is being initialized..."
+              >
+                Loading...
+              </WarningButton>
+            ) : (
+              <PauseButton $paused={isPaused} onClick={onPauseToggle}>
+                {cryptoCorrupted ? "Corrupted" : isPaused ? "Resume" : "Pause"}
+              </PauseButton>
+            ))}
+        </ActionsColumn>
       </ConnectionStatusContainer>
     );
   };

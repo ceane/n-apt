@@ -19,8 +19,10 @@ import { useWebGPUInit } from "@n-apt/hooks/useWebGPUInit";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 import { useWasmSimdMath } from "@n-apt/hooks/useWasmSimdMath";
 import { useThemeStore } from "@n-apt/hooks/useThemeStore";
+import { useUnifiedFFTWaterfall } from "@n-apt/hooks/useUnifiedFFTWaterfall";
 import { WATERFALL_COLORMAPS } from "@n-apt/consts/colormaps";
 import type { FrequencyRange } from "@n-apt/consts/types";
+import type { SdrLimitMarker } from "@n-apt/utils/sdrLimitMarkers";
 import { VisualizerSliders } from "@n-apt/components/VisualizerSliders";
 // spectrumToAmplitude removed — dB normalisation now handled in the waterfall WGSL shader
 import {
@@ -204,6 +206,7 @@ interface FFTCanvasProps {
   hardwareSampleRateHz?: number;
   /** Whether I/Q recording is active */
   isIqRecordingActive?: boolean;
+  limitMarkers?: SdrLimitMarker[];
 }
 
 /**
@@ -265,6 +268,7 @@ const FFTCanvas = memo(
       sendGetAutoFftOptions,
       hardwareSampleRateHz,
       isIqRecordingActive = false,
+      limitMarkers = [],
     } = props;
     const { state, dispatch } = useSpectrumStore();
     const fftColor = useThemeStore((s) => s.fftColor);
@@ -392,10 +396,10 @@ const FFTCanvas = memo(
         dispatch({ type: "RESET_WATERFALL_CLEARED" });
       }
     }, [state.isWaterfallCleared, dispatch]);
+    const waterfallCappedBufferRef = useRef<Float32Array | null>(null);
     const fftAvgBufferRef = useRef<Float32Array | null>(null);
     const fftProcessedBufferRef = useRef<Float32Array | null>(null);
     const fftSmoothedBufferRef = useRef<Float32Array | null>(null);
-    const waterfallCappedBufferRef = useRef<Float32Array | null>(null);
 
     const setVizZoom = useCallback(
       (val: number | ((prev: number) => number)) => {
@@ -545,6 +549,18 @@ const FFTCanvas = memo(
       gpuBufferPoolRef,
     });
     const spectrumWebgpuEnabled = webgpuEnabled;
+
+    // Initialize unified FFT and waterfall when WebGPU is available
+    const unifiedFFTSize = 4096;
+    const unifiedFFT = useUnifiedFFTWaterfall({
+      device: webgpuDeviceRef.current,
+      fftSize: unifiedFFTSize,
+      waterfallHeight: 512,
+      windowType: 'hanning',
+      enableAveraging: fftAvgEnabled,
+      enableSmoothing: fftSmoothEnabled,
+      normalizationFactor: 1.0
+    });
 
     // Compute zoomed frequency range from the full range (visual only, don't retune)
     const handleZoomChange = useCallback(
@@ -762,11 +778,19 @@ const FFTCanvas = memo(
 
         if (hasNewData) {
           const waveform = ensureFloat32Waveform(currentData!.waveform);
+          const canUseUnifiedFFT = waveform.length === unifiedFFTSize;
 
           // Validate waveform before processing
           if (waveform && waveform.length > 0) {
             waveformFloatRef.current = waveform;
             lastProcessedDataRef.current = currentData;
+
+            // Process with unified GPU FFT when available
+            if (canUseUnifiedFFT && unifiedFFT.isInitialized && !unifiedFFT.isProcessing) {
+              unifiedFFT.processUnified(waveform).catch((error: Error) => {
+                console.warn('Unified GPU FFT failed, falling back to CPU:', error);
+              });
+            }
 
             // Add frame to buffer for smooth rendering - reuse arrays to save memory
             const frameBuffer = frameBufferRef.current;
@@ -865,6 +889,7 @@ const FFTCanvas = memo(
         const currentWaveform = renderWaveformRef.current;
 
         if (currentWaveform && currentWaveform.length > 0) {
+          const canUseUnifiedFFT = currentWaveform.length === unifiedFFTSize;
           const {
             slicedWaveform: rawSlicedWaveform,
             visualRange,
@@ -881,24 +906,27 @@ const FFTCanvas = memo(
             setVizPanOffset(clampedPan);
           }
 
-          // Apply FFT averaging + smoothing (modifiable copy)
-          let slicedWaveform = rawSlicedWaveform;
+          const unifiedSourceWaveform =
+            canUseUnifiedFFT && unifiedFFT.isInitialized && unifiedFFT.lastResult?.spectrumData
+              ? unifiedFFT.lastResult.spectrumData
+              : null;
 
-          if (!isPaused && (fftAvgEnabled || fftSmoothEnabled)) {
-            // Ensure we have a persistent buffer of the right size
-            if (
-              !fftProcessedBufferRef.current ||
-              fftProcessedBufferRef.current.length !== rawSlicedWaveform.length
-            ) {
-              fftProcessedBufferRef.current = new Float32Array(
-                rawSlicedWaveform.length,
-              );
-            }
-            const processed = fftProcessedBufferRef.current;
-            processed.set(rawSlicedWaveform);
+          // Use unified GPU output (averaging/smoothing handled on GPU when enabled)
+          const baseSpectrumWaveform = unifiedSourceWaveform ?? rawSlicedWaveform;
+          let slicedWaveform = baseSpectrumWaveform;
 
-            // FFT Averaging — exponential moving average (α = 0.2)
+          // CPU-side fallback for averaging/smoothing when unified GPU path isn't active
+          if (!unifiedSourceWaveform) {
             if (fftAvgEnabled) {
+              if (
+                !fftProcessedBufferRef.current ||
+                fftProcessedBufferRef.current.length !== baseSpectrumWaveform.length
+              ) {
+                fftProcessedBufferRef.current = new Float32Array(baseSpectrumWaveform.length);
+              }
+              const processed = fftProcessedBufferRef.current;
+              processed.set(baseSpectrumWaveform);
+
               let prev = fftAvgBufferRef.current;
               if (!prev || prev.length !== processed.length) {
                 prev = new Float32Array(processed);
@@ -910,40 +938,32 @@ const FFTCanvas = memo(
                 }
                 prev.set(processed);
               }
-            } else {
-              fftAvgBufferRef.current = null;
+              slicedWaveform = processed;
             }
 
-            // FFT Smoothing — 5-bin moving average
-            if (fftSmoothEnabled && processed.length > 4) {
+            if (fftSmoothEnabled && slicedWaveform.length > 4) {
               if (
                 !fftSmoothedBufferRef.current ||
-                fftSmoothedBufferRef.current.length !== processed.length
+                fftSmoothedBufferRef.current.length !== slicedWaveform.length
               ) {
-                fftSmoothedBufferRef.current = new Float32Array(
-                  processed.length,
-                );
+                fftSmoothedBufferRef.current = new Float32Array(slicedWaveform.length);
               }
               const smoothed = fftSmoothedBufferRef.current;
-              for (let i = 0; i < processed.length; i++) {
+              for (let i = 0; i < slicedWaveform.length; i++) {
                 let sum = 0;
                 let count = 0;
                 for (
                   let j = Math.max(0, i - 2);
-                  j <= Math.min(processed.length - 1, i + 2);
+                  j <= Math.min(slicedWaveform.length - 1, i + 2);
                   j++
                 ) {
-                  sum += processed[j];
+                  sum += slicedWaveform[j];
                   count++;
                 }
                 smoothed[i] = sum / count;
               }
               slicedWaveform = smoothed;
-            } else {
-              slicedWaveform = processed;
             }
-          } else if (!fftAvgEnabled) {
-            fftAvgBufferRef.current = null;
           }
           // Spectrum render (using unified hook)
           if (spectrumGpuCanvas || spectrumCanvas) {
@@ -957,6 +977,7 @@ const FFTCanvas = memo(
               spectrumResampleBufRef.current = new Float32Array(displayWidth);
             }
             const outBuf = spectrumResampleBufRef.current;
+
             if (slicedWaveform.length === displayWidth) {
               outBuf.set(slicedWaveform);
             } else {
@@ -986,12 +1007,15 @@ const FFTCanvas = memo(
               hardwareSampleRateHz,
               fullCaptureRange: frequencyRangeRef.current,
               isIqRecordingActive,
+              limitMarkers,
               lineColor: fftColor,
               fillColor: fillColor,
             });
           }
 
           // Waterfall render (only push new lines when not paused AND new data is available)
+          // Note: Unified FFT system provides its own waterfall texture for instant synchronization
+          // This fallback waterfall rendering is kept for compatibility when unified FFT is not available
           if (
             webgpuEnabled &&
             webgpuDeviceRef.current &&
@@ -1170,6 +1194,9 @@ const FFTCanvas = memo(
         fillColor,
         colormap,
         waterfallTheme,
+        fftAvgEnabled,
+        fftSmoothEnabled,
+        wfSmoothEnabled,
       ],
     );
 
@@ -1183,6 +1210,20 @@ const FFTCanvas = memo(
       onRenderFrame,
       onBecomeVisible,
     });
+
+    useEffect(() => {
+      lastProcessedDataRef.current = null;
+      pausedWaterfallRowRef.current = null;
+      restoredWaterfallRef.current = false;
+      pendingWaterfallRestoreRef.current = null;
+
+      const currentWaveform = waveformFloatRef.current;
+      if (currentWaveform && currentWaveform.length > 0) {
+        renderWaveformRef.current = new Float32Array(currentWaveform);
+      }
+
+      forceRender();
+    }, [displayTemporalResolution, forceRender]);
 
     const { restoreWaveformFromStorage, ensurePausedFrame } = usePauseLogic({
       isPaused,

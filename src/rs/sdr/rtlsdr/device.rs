@@ -691,6 +691,22 @@ impl SdrDevice for RtlSdrDevice {
     Ok(())
   }
 
+  /// Check if the RTL-SDR device is still operational.
+  ///
+  /// # Hotplug Contract
+  ///
+  /// This is the **low-level** health probe. It returns `false` the instant the
+  /// USB read thread dies or the device handle becomes null. Callers (the
+  /// WebSocket server health loop) are responsible for **debouncing** — a single
+  /// `false` return does NOT mean the device should be abandoned. Transient USB
+  /// glitches (e.g. physical bump, momentary bus reset) can kill the thread
+  /// while the device is still physically present.
+  ///
+  /// The caller MUST:
+  /// 1. Increment a failure streak counter on `false`.
+  /// 2. Attempt a recovery (re-init) before falling back to mock.
+  /// 3. Only declare true disconnection after ≥ 3 consecutive failures **and**
+  ///    `get_device_count() == 0`.
   fn is_healthy(&self) -> bool {
     // Check if the device handle is still valid and the async thread is either
     // still running or hasn't been started yet.

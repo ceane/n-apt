@@ -15,10 +15,11 @@ import type {
   FrequencyRange,
   SdrSettingsConfig,
 } from "@n-apt/hooks/useWebSocket";
-import { formatFrequency } from "../../consts/sdr";
+import { buildSdrLimitMarkers } from "@n-apt/utils/sdrLimitMarkers";
+import SourceInput from "@n-apt/components/sidebar/SourceInput";
 
 import { Row, CollapsibleTitle } from "@n-apt/components/ui";
-import { ConnectionStatusSection } from "@n-apt/components/sidebar/ConnectionStatusSection";
+import { ConnectionStatusSection, WarningButton } from "@n-apt/components/sidebar/ConnectionStatusSection";
 import { SignalDisplaySection } from "@n-apt/components/sidebar/SignalDisplaySection";
 
 import FileProcessingSection from "@n-apt/components/sidebar/FileProcessingSection";
@@ -26,7 +27,7 @@ import { IQCaptureControlsSection } from "@n-apt/components/sidebar/IQCaptureCon
 import { SnapshotControlsSection } from "@n-apt/components/sidebar/SnapshotControlsSection";
 import { SourceSettingsSection } from "@n-apt/components/sidebar/SourceSettingsSection";
 import DrawMockNAPTSidebar from "@n-apt/components/sidebar/DrawMockNAPTSidebar";
-import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
+import { useSpectrumStore, LIVE_CONTROL_DEFAULTS, type DrawParams } from "@n-apt/hooks/useSpectrumStore";
 
 type NaptMetadata = {
   sample_rate?: number;
@@ -87,45 +88,6 @@ const SectionTitle = styled.div<{ $fileMode?: boolean }>`
   font-weight: 600;
   font-family: "JetBrains Mono", monospace;
   grid-column: 1 / -1;
-`;
-
-
-
-
-
-const SettingSelect = styled.select`
-  background-color: transparent;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  color: #ccc;
-  font-family: "JetBrains Mono", monospace;
-  font-size: 12px;
-  font-weight: 500;
-  padding: 2px 6px;
-  min-width: 80px;
-  cursor: pointer;
-  appearance: none;
-  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ccc' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6,9 12,15 18,9'%3e%3c/polyline%3e%3c/svg%3e");
-  background-repeat: no-repeat;
-  background-position: right 2px center;
-  background-size: 12px;
-  padding-right: 20px;
-
-  &:hover {
-    border-color: #2a2a2a;
-  }
-
-  &:focus {
-    outline: none;
-    border-color: #00d4ff;
-    background-color: rgba(0, 212, 255, 0.05);
-  }
-
-  option {
-    background-color: #1a1a1a;
-    color: #ccc;
-    font-family: "JetBrains Mono", monospace;
-  }
 `;
 
 const AuthStatusText = styled.div<{ $status: string }>`
@@ -229,15 +191,8 @@ interface SidebarProps {
     description: string;
   }>;
   activeTab: string;
-  drawParams: {
-    spikeCount: number;
-    spikeWidth: number;
-    centerSpikeBoost: number;
-    floorAmplitude: number;
-    decayRate: number;
-    envelopeWidth: number;
-  };
-  onDrawParamsChange: (params: any) => void;
+  drawParams: DrawParams[];
+  onDrawParamsChange: (params: DrawParams[]) => void;
   sourceMode: "live" | "file";
   onSourceModeChange: (mode: "live" | "file") => void;
   stitchStatus: string;
@@ -320,7 +275,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   vizPanOffset = 0,
   onVizPanChange,
 }) => {
-  const { state, dispatch, wsConnection, cryptoCorrupted } = useSpectrumStore();
+  const { state, dispatch, wsConnection, cryptoCorrupted, deviceName } = useSpectrumStore();
   const { isAuthenticated, authState, aesKey, sessionToken } =
     useAuthentication();
   const maxSampleRate =
@@ -331,28 +286,10 @@ const Sidebar: React.FC<SidebarProps> = ({
     typeof sampleRateHz === "number" && Number.isFinite(sampleRateHz)
       ? sampleRateHz / 1_000_000
       : null;
-  const limitMarkers = useMemo(() => {
-    const limits = sdrSettings?.limits;
-    if (!limits) return [];
-    const markers: Array<{ freq: number; label: string }> = [];
-    if (typeof limits.lower_limit_mhz === "number") {
-      markers.push({
-        freq: limits.lower_limit_mhz,
-        label:
-          limits.lower_limit_label ??
-          `${formatFrequency(limits.lower_limit_mhz)} / Lower limit`,
-      });
-    }
-    if (typeof limits.upper_limit_mhz === "number") {
-      markers.push({
-        freq: limits.upper_limit_mhz,
-        label:
-          limits.upper_limit_label ??
-          `${formatFrequency(limits.upper_limit_mhz)} / Upper limit`,
-      });
-    }
-    return markers;
-  }, [sdrSettings]);
+  const limitMarkers = useMemo(
+    () => buildSdrLimitMarkers(sdrSettings ?? null),
+    [sdrSettings],
+  );
   const {
     fftSize,
     fftWindow,
@@ -377,6 +314,35 @@ const Sidebar: React.FC<SidebarProps> = ({
     sdrSettings: wsConnection.sdrSettings,
     onSettingsChange,
   });
+
+  const resetLiveControls = useCallback(() => {
+    const recommendedFftSize = autoFftOptions?.recommended ?? fftSize;
+    const recommendedFrameRate = Math.max(
+      1,
+      Math.min(maxFrameRate, fftFrameRate),
+    );
+    dispatch({
+      type: "RESET_LIVE_CONTROLS",
+      fftSize: recommendedFftSize,
+      fftFrameRate: recommendedFrameRate,
+    });
+    onSettingsChange?.({
+      fftSize: recommendedFftSize,
+      fftWindow: LIVE_CONTROL_DEFAULTS.fftWindow,
+      frameRate: recommendedFrameRate,
+      gain: LIVE_CONTROL_DEFAULTS.gain,
+      ppm: LIVE_CONTROL_DEFAULTS.ppm,
+      tunerAGC: LIVE_CONTROL_DEFAULTS.tunerAGC,
+      rtlAGC: LIVE_CONTROL_DEFAULTS.rtlAGC,
+    });
+  }, [
+    autoFftOptions?.recommended,
+    dispatch,
+    fftFrameRate,
+    fftSize,
+    maxFrameRate,
+    onSettingsChange,
+  ]);
 
   // Auto-apply recommended FFT size on first load
   useEffect(() => {
@@ -853,9 +819,28 @@ const Sidebar: React.FC<SidebarProps> = ({
               onRestartDevice={onRestartDevice}
             />
           )}
+          {sourceMode === "live" && (
+            <WarningButton
+              $paused={false}
+              $narrow
+              onClick={resetLiveControls}
+              title="Reset sidebar and visualizer options to defaults"
+            >
+              Reset Options to Defaults
+            </WarningButton>
+          )}
           <DrawMockNAPTSidebar
             drawParams={drawParams}
+            activeClumpIndex={state.activeClumpIndex}
+            globalNoiseFloor={state.globalNoiseFloor}
             onDrawParamsChange={onDrawParamsChange}
+            onActiveClumpIndexChange={(index) =>
+              dispatch({ type: "SET_ACTIVE_CLUMP_INDEX", index })
+            }
+            onGlobalNoiseFloorChange={(noise) =>
+              dispatch({ type: "SET_GLOBAL_NOISE_FLOOR", noise })
+            }
+            onResetParams={() => dispatch({ type: "RESET_DRAW_PARAMS" })}
           />
         </>
       )}
@@ -873,31 +858,28 @@ const Sidebar: React.FC<SidebarProps> = ({
               onRestartDevice={onRestartDevice}
             />
           )}
+          {sourceMode === "live" && (
+            <WarningButton
+              $paused={false}
+              $narrow
+              onClick={resetLiveControls}
+              title="Reset sidebar and visualizer options to defaults"
+            >
+              Reset Options to Defaults
+            </WarningButton>
+          )}
 
           <Section>
             <SectionTitle $fileMode={sourceMode === "file"}>
               Source
             </SectionTitle>
-            <Row label="Input" tooltipTitle="Source" tooltip="Select the signal source: live SDR device for real-time capture, or file selection to analyze previously recorded I/Q data.">
-              <SettingSelect
-                value={sourceMode}
-                onChange={(e) =>
-                  onSourceModeChange(e.target.value as "live" | "file")
-                }
-                style={{ minWidth: "130px" }}
-              >
-                <option value="live">
-                  {backend === "rtl-sdr" || backend === "rtlsdr" || backend === "rtltcp" || backend === "rtl-tcp"
-                    ? "RTL-SDR"
-                    : backend?.includes("mock")
-                      ? "Mock APT SDR"
-                      : backend || "Mock SDR"}
-                </option>
-                <option value="file" style={{ color: "#d9aa34" }}>
-                  File Selection
-                </option>
-              </SettingSelect>
-            </Row>
+            <SourceInput
+              sourceMode={sourceMode}
+              backend={backend}
+              deviceName={deviceName}
+              fileModeColor="#d9aa34"
+              onSourceModeChange={onSourceModeChange}
+            />
           </Section>
 
           {sourceMode === "live" && (
