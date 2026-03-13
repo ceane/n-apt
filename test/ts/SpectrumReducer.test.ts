@@ -3,8 +3,6 @@ jest.mock("@n-apt/hooks/useWebSocket", () => ({
   useWebSocket: jest.fn(() => ({
     isConnected: false,
     deviceState: "disconnected",
-    data: null,
-    dataRef: { current: null },
     spectrumFrames: [],
     sdrSettings: null,
     sendFrequencyRange: jest.fn(),

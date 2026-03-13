@@ -1,14 +1,27 @@
 import { useCallback, useMemo, useRef, useEffect } from "react";
 import type { SDRSettings, SdrSettingsConfig } from "@n-apt/hooks/useWebSocket";
+import type { SpectrumState } from "@n-apt/hooks/useSpectrumStore";
 import {
-  useSpectrumStore,
-  type SpectrumState,
-} from "@n-apt/hooks/useSpectrumStore";
+  useAppDispatch,
+  useAppSelector,
+  setSdrSettingsBundle,
+  setFftFrameRate as setFftFrameRateAction,
+} from "@n-apt/redux";
 
 interface UseSdrSettingsProps {
   maxSampleRate: number;
   sdrSettings?: SdrSettingsConfig | null;
   onSettingsChange?: (settings: SDRSettings) => void;
+  spectrumStateOverride?: Pick<
+    SpectrumState,
+    | "fftSize"
+    | "fftWindow"
+    | "fftFrameRate"
+    | "gain"
+    | "ppm"
+    | "tunerAGC"
+    | "rtlAGC"
+  >;
 }
 
 interface UseSdrSettingsReturn {
@@ -49,6 +62,70 @@ export const computeMaxFrameRate = (
   return Math.max(1, Math.floor(Math.min(theoretical, limit)));
 };
 
+const getLogicalSizeToFrameRate = (
+  sdrSettings?: SdrSettingsConfig | null,
+): Map<number, number> => {
+  const sizeMap = sdrSettings?.fft?.size_to_frame_rate;
+  if (!sizeMap) return new Map();
+
+  return new Map(
+    Object.entries(sizeMap)
+      .map(([size, frameRate]) => [Number(size), Number(frameRate)] as const)
+      .filter(
+        ([size, frameRate]) =>
+          Number.isFinite(size) &&
+          size > 0 &&
+          Number.isFinite(frameRate) &&
+          frameRate > 0,
+      )
+      .sort((a, b) => a[0] - b[0]),
+  );
+};
+
+export const getLogicalMaxFrameRate = (
+  maxSampleRate: number,
+  fftSize: number,
+  sdrSettings?: SdrSettingsConfig | null,
+): number => {
+  const logicalMap = getLogicalSizeToFrameRate(sdrSettings);
+  const mapped = logicalMap.get(fftSize);
+  if (typeof mapped === "number") {
+    return mapped;
+  }
+
+  return computeMaxFrameRate(
+    maxSampleRate,
+    fftSize,
+    sdrSettings?.fft?.max_frame_rate,
+  );
+};
+
+const getBestLogicalFftSizeForFrameRate = (
+  requestedFrameRate: number,
+  fftSizeOptions: number[],
+  sdrSettings?: SdrSettingsConfig | null,
+): number | null => {
+  if (!fftSizeOptions.length) return null;
+
+  const logicalMap = getLogicalSizeToFrameRate(sdrSettings);
+  if (!logicalMap.size) {
+    return null;
+  }
+
+  let bestSize = fftSizeOptions[0];
+  for (const size of fftSizeOptions) {
+    const supportedFrameRate = logicalMap.get(size);
+    if (typeof supportedFrameRate !== "number") continue;
+    if (supportedFrameRate >= requestedFrameRate) {
+      bestSize = size;
+    } else {
+      break;
+    }
+  }
+
+  return bestSize;
+};
+
 export const deriveStateFromConfig = (
   maxSampleRate: number,
   sdrSettings?: SdrSettingsConfig | null,
@@ -56,11 +133,7 @@ export const deriveStateFromConfig = (
   const fft = sdrSettings?.fft;
   const gainConfig = sdrSettings?.gain;
   const fftSize = typeof fft?.default_size === "number" ? fft.default_size : 0;
-  const maxFrameRate = computeMaxFrameRate(
-    maxSampleRate,
-    fftSize,
-    fft?.max_frame_rate,
-  );
+  const maxFrameRate = getLogicalMaxFrameRate(maxSampleRate, fftSize, sdrSettings);
   const rawFrameRate =
     typeof fft?.default_frame_rate === "number"
       ? fft.default_frame_rate
@@ -84,15 +157,16 @@ export const useSdrSettings = ({
   maxSampleRate,
   sdrSettings,
   onSettingsChange,
+  spectrumStateOverride,
 }: UseSdrSettingsProps): UseSdrSettingsReturn => {
-  const { state, dispatch } = useSpectrumStore();
+  const dispatch = useAppDispatch();
+  const reduxState = useAppSelector((reduxState) => reduxState.spectrum);
+  const state = spectrumStateOverride
+    ? { ...reduxState, ...spectrumStateOverride }
+    : reduxState;
 
   const maxFrameRate = useMemo(() => {
-    return computeMaxFrameRate(
-      maxSampleRate,
-      state.fftSize,
-      sdrSettings?.fft?.max_frame_rate,
-    );
+    return getLogicalMaxFrameRate(maxSampleRate, state.fftSize, sdrSettings);
   }, [maxSampleRate, state.fftSize, sdrSettings]);
 
   const stateRef = useRef(state);
@@ -124,61 +198,49 @@ export const useSdrSettings = ({
 
   const setFftSize = useCallback(
     (size: number) => {
-      dispatch({
-        type: "SET_SDR_SETTINGS_BUNDLE",
-        settings: { fftSize: size },
-      });
+      dispatch(setSdrSettingsBundle({ fftSize: size }));
       sendCurrentSettings({ fftSize: size });
     },
     [dispatch, sendCurrentSettings],
   );
   const setFftWindow = useCallback(
     (window: string) => {
-      dispatch({
-        type: "SET_SDR_SETTINGS_BUNDLE",
-        settings: { fftWindow: window },
-      });
+      dispatch(setSdrSettingsBundle({ fftWindow: window }));
       sendCurrentSettings({ fftWindow: window });
     },
     [dispatch, sendCurrentSettings],
   );
   const setFftFrameRate = useCallback(
     (rate: number) => {
-      dispatch({ type: "SET_FFT_FRAME_RATE", fftFrameRate: rate });
+      dispatch(setFftFrameRateAction(rate));
       sendCurrentSettings({ frameRate: rate });
     },
     [dispatch, sendCurrentSettings],
   );
   const setGain = useCallback(
     (gain: number) => {
-      dispatch({ type: "SET_SDR_SETTINGS_BUNDLE", settings: { gain } });
+      dispatch(setSdrSettingsBundle({ gain }));
       sendCurrentSettings({ gain });
     },
     [dispatch, sendCurrentSettings],
   );
   const setTunerAGC = useCallback(
     (enabled: boolean) => {
-      dispatch({
-        type: "SET_SDR_SETTINGS_BUNDLE",
-        settings: { tunerAGC: enabled },
-      });
+      dispatch(setSdrSettingsBundle({ tunerAGC: enabled }));
       sendCurrentSettings({ tunerAGC: enabled });
     },
     [dispatch, sendCurrentSettings],
   );
   const setRtlAGC = useCallback(
     (enabled: boolean) => {
-      dispatch({
-        type: "SET_SDR_SETTINGS_BUNDLE",
-        settings: { rtlAGC: enabled },
-      });
+      dispatch(setSdrSettingsBundle({ rtlAGC: enabled }));
       sendCurrentSettings({ rtlAGC: enabled });
     },
     [dispatch, sendCurrentSettings],
   );
   const setPpm = useCallback(
     (ppm: number) => {
-      dispatch({ type: "SET_SDR_SETTINGS_BUNDLE", settings: { ppm } });
+      dispatch(setSdrSettingsBundle({ ppm }));
       sendCurrentSettings({ ppm });
     },
     [dispatch, sendCurrentSettings],
@@ -230,10 +292,10 @@ export const useSdrSettings = ({
         couplingTimerRef.current = null;
 
         if (trigger === "fftSize") {
-          const desiredFrameRate = computeMaxFrameRate(
+          const desiredFrameRate = getLogicalMaxFrameRate(
             maxSampleRate,
             nextFftSize,
-            sdrSettings?.fft?.max_frame_rate,
+            sdrSettings,
           );
           if (desiredFrameRate !== nextFrameRate) {
             setFftFrameRate(desiredFrameRate);
@@ -242,16 +304,22 @@ export const useSdrSettings = ({
           return;
         }
 
-        const maxFftSizeForRate = Math.floor(
-          maxSampleRate / Math.max(1, nextFrameRate),
+        const logicalDesiredFftSize = getBestLogicalFftSizeForFrameRate(
+          nextFrameRate,
+          fftSizeOptions,
+          sdrSettings,
         );
-        let desiredFftSize = fftSizeOptions[0];
-        if (desiredFftSize === undefined) {
-          return;
-        }
-        for (const size of fftSizeOptions) {
-          if (size <= maxFftSizeForRate) desiredFftSize = size;
-          else break;
+        let desiredFftSize = logicalDesiredFftSize ?? fftSizeOptions[0];
+        if (desiredFftSize === undefined) return;
+
+        if (!logicalDesiredFftSize) {
+          const maxFftSizeForRate = Math.floor(
+            maxSampleRate / Math.max(1, nextFrameRate),
+          );
+          for (const size of fftSizeOptions) {
+            if (size <= maxFftSizeForRate) desiredFftSize = size;
+            else break;
+          }
         }
 
         if (desiredFftSize !== nextFftSize) {
@@ -279,6 +347,25 @@ export const useSdrSettings = ({
       }
     };
   }, []);
+
+  // Initialize settings from sdrSettings if not already set
+  useEffect(() => {
+    if (sdrSettings?.fft?.default_size && state.fftSize !== sdrSettings.fft.default_size) {
+      setFftSize(sdrSettings.fft.default_size);
+    }
+    if (sdrSettings?.gain?.tuner_gain && state.gain !== sdrSettings.gain.tuner_gain) {
+      setGain(sdrSettings.gain.tuner_gain);
+    }
+    if (sdrSettings?.ppm !== undefined && state.ppm !== sdrSettings.ppm) {
+      setPpm(sdrSettings.ppm);
+    }
+    if (sdrSettings?.gain?.rtl_agc !== undefined && state.rtlAGC !== sdrSettings.gain.rtl_agc) {
+      setRtlAGC(sdrSettings.gain.rtl_agc);
+    }
+    if (sdrSettings?.gain?.tuner_agc !== undefined && state.tunerAGC !== sdrSettings.gain.tuner_agc) {
+      setTunerAGC(sdrSettings.gain.tuner_agc);
+    }
+  }, [sdrSettings, state.fftSize, state.gain, state.ppm, state.rtlAGC, state.tunerAGC, setFftSize, setGain, setPpm, setRtlAGC, setTunerAGC]);
 
   useEffect(() => {
     if (!maxFrameRate) return;

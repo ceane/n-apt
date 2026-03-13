@@ -121,7 +121,7 @@ The Hotspot Editor provides comprehensive tools for creating, managing, and orga
 
 - `/3d-model` - Base 3D model for hotspot placement
 - `/` - Correlate hotspots with signal data
-- `/analysis` - Study hotspot-signal relationships
+- `/demodulate` - Study hotspot-signal relationships
 
 ## Technical Specifications
 

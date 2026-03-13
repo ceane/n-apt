@@ -9,6 +9,11 @@ type NaptMetadata = {
   sample_rate_hz?: number;
   capture_sample_rate_hz?: number;
   hardware_sample_rate_hz?: number;
+  channels?: Array<{
+    center_freq_hz?: number;
+    sample_rate_hz?: number;
+    bins_per_frame?: number;
+  }>;
   center_frequency?: number;
   center_frequency_hz?: number;
   frequency_range?: [number, number];
@@ -102,21 +107,6 @@ const FileInputActions = styled.div`
 
 const HiddenFileInput = styled.input`
   display: none;
-`;
-
-const FileNameLabel = styled(SettingLabel)`
-  max-width: 200px;
-  white-space: normal;
-  word-wrap: break-word;
-  line-height: 1.3;
-`;
-
-const FileActionsValue = styled(SettingValue)`
-  display: grid;
-  grid-auto-flow: column;
-  gap: 8px;
-  align-items: center;
-  justify-content: end;
 `;
 
 const DownloadLink = styled.a`
@@ -277,9 +267,11 @@ const MetadataValue = styled.span`
   font-size: 11px;
   color: ${(props) => props.theme.metadataValue};
   font-family: "JetBrains Mono", monospace;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  line-height: 1.4;
+  min-width: 0;
 `;
 
 interface FileProcessingSectionProps {
@@ -326,6 +318,15 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
   onStitchPauseToggle,
   sessionToken,
 }) => {
+  const displayedCaptureRateHz =
+    naptMetadata?.channels?.length === 1 &&
+      typeof naptMetadata.channels[0]?.sample_rate_hz === "number"
+      ? naptMetadata.channels[0].sample_rate_hz
+      : naptMetadata?.capture_sample_rate_hz ||
+      naptMetadata?.sample_rate_hz ||
+      naptMetadata?.sample_rate ||
+      0;
+
   const stitchButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -540,10 +541,7 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
                   />
                 </MetadataLabel>
                 <MetadataValue>
-                  {(naptMetadata.capture_sample_rate_hz ||
-                    naptMetadata.sample_rate_hz ||
-                    naptMetadata.sample_rate ||
-                    0) / 1000000}{" "}
+                  {displayedCaptureRateHz / 1000000}{" "}
                   MHz
                 </MetadataValue>
               </MetadataItem>

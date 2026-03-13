@@ -37,7 +37,7 @@ export type SnapshotOptions = {
  *  Precision depends on zoom level.
  */
 export function fmtFreq(mhz: number, zoom: number = 1): string {
-  return zoom >= 100 ? formatFrequencyHighRes(mhz) : formatFrequency(mhz);
+  return zoom >= 100 ? formatFrequencyHighRes(mhz) : formatFrequency(mhz, { trimTrailingZeros: true, precisionKHz: 2 });
 }
 
 /** Format a frequency for tick labels — same as fmtFreq but used for grid ticks. */

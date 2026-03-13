@@ -1,12 +1,20 @@
 import React from "react";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { ThemeSection } from "@n-apt/components/sidebar/ThemeSection";
-import { ThemeProvider } from "styled-components";
 import { useThemeStore } from "@n-apt/hooks/useThemeStore";
+import { useAppSelector } from "@n-apt/redux";
+import { TestWrapper } from "./testUtils";
+import { ThemeProvider } from "styled-components";
 
 const mockTheme = {
   primary: "#00d4ff",
+};
+
+// Test harness to check Redux state
+const ThemeTestHarness: React.FC = () => {
+  const appMode = useAppSelector((state) => state.theme.appMode);
+  return <div data-testid="theme-state">{appMode}</div>;
 };
 
 describe("ThemeSection Component", () => {
@@ -16,9 +24,11 @@ describe("ThemeSection Component", () => {
 
   it("should render theme options when open", () => {
     render(
-      <ThemeProvider theme={mockTheme}>
-        <ThemeSection />
-      </ThemeProvider>
+      <TestWrapper>
+        <ThemeProvider theme={mockTheme}>
+          <ThemeSection />
+        </ThemeProvider>
+      </TestWrapper>
     );
 
     // Initial state: closed
@@ -35,39 +45,47 @@ describe("ThemeSection Component", () => {
 
   it("should handle theme mode change", () => {
     render(
-      <ThemeProvider theme={mockTheme}>
-        <ThemeSection />
-      </ThemeProvider>
+      <TestWrapper>
+        <ThemeProvider theme={mockTheme}>
+          <ThemeSection />
+          <ThemeTestHarness />
+        </ThemeProvider>
+      </TestWrapper>
     );
 
     fireEvent.click(screen.getByText(/Theme/));
 
     const select = screen.getByDisplayValue("System");
-    fireEvent.change(select, { target: { value: "dark" } });
+    act(() => {
+      fireEvent.change(select, { target: { value: "dark" } });
+    });
 
-    expect(useThemeStore.getState().appMode).toBe("dark");
+    // Check Redux state
+    expect(screen.getByTestId("theme-state")).toHaveTextContent("dark");
   });
 
   it("should handle reset button", () => {
     render(
-      <ThemeProvider theme={mockTheme}>
-        <ThemeSection />
-      </ThemeProvider>
+      <TestWrapper>
+        <ThemeProvider theme={mockTheme}>
+          <ThemeSection />
+          <ThemeTestHarness />
+        </ThemeProvider>
+      </TestWrapper>
     );
 
     fireEvent.click(screen.getByText(/Theme/));
 
-    // Change something
+    // Change something first
+    const select = screen.getByDisplayValue("System");
     act(() => {
-      useThemeStore.getState().setAppMode("light");
+      fireEvent.change(select, { target: { value: "light" } });
     });
 
     const resetButton = screen.getByText("Reset Theme to Defaults");
     fireEvent.click(resetButton);
 
-    expect(useThemeStore.getState().appMode).toBe("system");
+    // Check that it reset to system
+    expect(screen.getByTestId("theme-state")).toHaveTextContent("system");
   });
 });
-
-// Helper for 'act' if needed in components
-import { act } from "react";

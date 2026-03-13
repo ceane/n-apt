@@ -62,6 +62,8 @@ impl Default for EnhancedFFTConfig {
 pub struct FFTProcessor {
   /// FFT algorithm instance
   fft: Arc<dyn rustfft::Fft<f32>>,
+  /// Inverse FFT plan
+  ifft: Arc<dyn rustfft::Fft<f32>>,
   /// Current FFT configuration
   config: EnhancedFFTConfig,
   /// Time counter for mock signal generation
@@ -103,10 +105,10 @@ impl FFTProcessor {
     let fft_size = config.fft_size;
 
     // Lazy initialization to speed up startup
-    let fft = {
+    let (fft, ifft) = {
       // Use a smaller FFT size for initial planning to speed up startup
       let mut planner = FftPlanner::<f32>::new();
-      planner.plan_fft_forward(fft_size)
+      (planner.plan_fft_forward(fft_size), planner.plan_fft_inverse(fft_size))
     };
 
     // Pre-allocate all buffers to avoid runtime allocations
@@ -115,6 +117,7 @@ impl FFTProcessor {
 
     Self {
       fft,
+      ifft,
       config,
       time: 0.0,
       rng: rand::rngs::StdRng::from_entropy(),
@@ -164,6 +167,7 @@ impl FFTProcessor {
     let fft_size = config.fft_size;
     let mut planner = FftPlanner::<f32>::new();
     let fft = planner.plan_fft_forward(fft_size);
+    let ifft = planner.plan_fft_inverse(fft_size);
 
     let simd_processor = {
       let mut p = UnifiedProcessor::new(fft_size);
@@ -193,6 +197,7 @@ impl FFTProcessor {
 
     Self {
       fft,
+      ifft,
       config,
       time: 0.0,
       rng: rand::rngs::StdRng::from_entropy(),
@@ -213,8 +218,12 @@ impl FFTProcessor {
     self.config = config.clone();
     // Recreate FFT if size changed
     if config.fft_size != self.fft.len() {
-      let mut planner = FftPlanner::<f32>::new();
-      self.fft = planner.plan_fft_forward(config.fft_size);
+      let (fft, ifft) = {
+        let mut planner = FftPlanner::<f32>::new();
+        (planner.plan_fft_forward(config.fft_size), planner.plan_fft_inverse(config.fft_size))
+      };
+      self.fft = fft;
+      self.ifft = ifft;
       self.simd_processor = Some(UnifiedProcessor::new(config.fft_size));
     }
 
@@ -366,7 +375,881 @@ impl FFTProcessor {
       waterfall: zoomed_power,
       is_mock,
       timestamp: now_millis(),
+      phase_spectrum: None,
     })
+  }
+
+  /// Process raw I/Q samples and return FFT result with optional phase spectrum
+  ///
+  /// # Arguments
+  ///
+  /// * `samples` - Raw I/Q sample data from SDR device
+  /// * `include_phase` - Whether to calculate and include phase spectrum
+  ///
+  /// # Returns
+  ///
+  /// FFT result with power spectrum and optionally phase spectrum
+  pub fn process_samples_with_phase(&mut self, samples: &RawSamples, include_phase: bool) -> Result<FFTResult> {
+    // Get the regular FFT result first
+    let mut result = self.process_samples(samples)?;
+    
+    // Calculate phase spectrum if requested
+    if include_phase {
+      result.phase_spectrum = Some(self.calculate_phase_spectrum(&samples.data)?);
+    }
+    
+    Ok(result)
+  }
+
+  /// Calculate phase spectrum from raw I/Q samples
+  ///
+  /// # Arguments
+  ///
+  /// * `iq_data` - Raw I/Q sample data (u8, offset binary format)
+  ///
+  /// # Returns
+  ///
+  /// Phase spectrum in radians (same length as FFT)
+  fn calculate_phase_spectrum(&self, iq_data: &[u8]) -> Result<Vec<f32>> {
+    let fft_size = self.config.fft_size;
+    let mut phase_spectrum = vec![0.0f32; fft_size];
+    
+    // Convert I/Q samples to complex numbers
+    let mut complex_samples: Vec<Complex<f32>> = Vec::with_capacity(fft_size);
+    
+    for chunk in iq_data.chunks_exact(2).take(fft_size) {
+      if chunk.len() < 2 {
+        break;
+      }
+      
+      // Convert from offset binary u8 to float (-1.0 to 1.0)
+      let i_f = (chunk[0] as f32 - 128.0) / 127.0;
+      let q_f = (chunk[1] as f32 - 128.0) / 127.0;
+      
+      complex_samples.push(Complex::new(i_f, q_f));
+    }
+    
+    // Pad with zeros if we don't have enough samples
+    while complex_samples.len() < fft_size {
+      complex_samples.push(Complex::new(0.0, 0.0));
+    }
+    
+    // Apply window function
+    self.apply_window(&mut complex_samples);
+    
+    // Perform FFT
+    let mut planner = FftPlanner::new();
+    let fft = planner.plan_fft_forward(fft_size);
+    fft.process(&mut complex_samples);
+    
+    // Calculate phase for each frequency bin
+    for (i, complex_val) in complex_samples.iter().enumerate() {
+      phase_spectrum[i] = complex_val.arg();
+    }
+    
+    Ok(phase_spectrum)
+  }
+
+  /// Calculate phase coherence between two phase spectra for stitching validation
+  ///
+  /// # Arguments
+  ///
+  /// * `phase1` - First phase spectrum
+  /// * `phase2` - Second phase spectrum  
+  /// * `overlap_bins` - Number of bins to compare in overlap region
+  ///
+  /// # Returns
+  ///
+  /// Phase coherence result with alignment metrics
+  pub fn calculate_phase_coherence(
+    &self,
+    phase1: &[f32],
+    phase2: &[f32],
+    overlap_bins: usize,
+  ) -> PhaseCoherenceResult {
+    if phase1.len() != phase2.len() || overlap_bins == 0 {
+      return PhaseCoherenceResult {
+        phase_diff: 0.0,
+        coherence_score: 0.0,
+        phase_correction: 0.0,
+        is_aligned: false,
+      };
+    }
+    
+    let fft_size = phase1.len();
+    let start_bin = fft_size / 2 - overlap_bins / 2;
+    let end_bin = start_bin + overlap_bins;
+    
+    // Calculate phase differences in overlap region
+    let mut phase_diffs = Vec::new();
+    for i in start_bin..end_bin.min(fft_size) {
+      let diff = phase2[i] - phase1[i];
+      // Wrap phase difference to [-π, π]
+      let wrapped_diff = ((diff + std::f32::consts::PI) % (2.0 * std::f32::consts::PI)) - std::f32::consts::PI;
+      phase_diffs.push(wrapped_diff);
+    }
+    
+    // Calculate average phase difference
+    let avg_phase_diff = if phase_diffs.is_empty() {
+      0.0
+    } else {
+      phase_diffs.iter().sum::<f32>() / phase_diffs.len() as f32
+    };
+    
+    // Calculate coherence score based on variance of phase differences
+    let variance = if phase_diffs.is_empty() {
+      0.0
+    } else {
+      let mean = avg_phase_diff;
+      phase_diffs.iter()
+        .map(|diff| (diff - mean).powi(2))
+        .sum::<f32>() / phase_diffs.len() as f32
+    };
+    
+    // Coherence score: lower variance = higher coherence
+    let coherence_score = (-variance).exp();
+    
+    // Determine if alignment is acceptable (within 30 degrees and good coherence)
+    let is_aligned = avg_phase_diff.abs() < (30.0 * std::f32::consts::PI / 180.0) && coherence_score > 0.7;
+    
+    PhaseCoherenceResult {
+      phase_diff: avg_phase_diff,
+      coherence_score,
+      phase_correction: -avg_phase_diff, // Negative to apply correction
+      is_aligned,
+    }
+  }
+
+  /// Apply window function to complex samples (internal helper)
+  pub fn apply_window(&self, samples: &mut [Complex<f32>]) {
+    match self.config.window_type {
+      WindowType::Rectangular => {
+        // No windowing
+      }
+      WindowType::Hanning => {
+        let len = samples.len();
+        for (i, sample) in samples.iter_mut().enumerate() {
+          let window = 0.5 - 0.5 * (2.0 * std::f32::consts::PI * i as f32 / (len - 1) as f32).cos();
+          *sample *= window;
+        }
+      }
+      WindowType::Hamming => {
+        let len = samples.len();
+        for (i, sample) in samples.iter_mut().enumerate() {
+          let window = 0.54 - 0.46 * (2.0 * std::f32::consts::PI * i as f32 / (len - 1) as f32).cos();
+          *sample *= window;
+        }
+      }
+      WindowType::Blackman => {
+        let len = samples.len();
+        for (i, sample) in samples.iter_mut().enumerate() {
+          let phase = 2.0 * std::f32::consts::PI * i as f32 / (len - 1) as f32;
+          let window = 0.42 - 0.5 * phase.cos() + 0.08 * (2.0 * phase).cos();
+          *sample *= window;
+        }
+      }
+      WindowType::Nuttall => {
+        let len = samples.len();
+        for (i, sample) in samples.iter_mut().enumerate() {
+          let phase = 2.0 * std::f32::consts::PI * i as f32 / (len - 1) as f32;
+          let window = 0.3535533905932738 - 0.4877762677078954 * phase.cos() 
+                    + 0.1455559608136613 * (2.0 * phase).cos() 
+                    - 0.0131142424856482 * (3.0 * phase).cos();
+          *sample *= window;
+        }
+      }
+      WindowType::None => {
+        // No windowing
+      }
+    }
+  }
+
+  /// Convert raw I/Q samples to complex numbers
+  pub fn iq_to_complex(&self, iq_data: &[u8]) -> Vec<Complex<f32>> {
+    let mut complex_samples = Vec::with_capacity(iq_data.len() / 2);
+    
+    for chunk in iq_data.chunks_exact(2) {
+      // Convert from offset binary u8 to float (-1.0 to 1.0)
+      let i_f = (chunk[0] as f32 - 128.0) / 127.0;
+      let q_f = (chunk[1] as f32 - 128.0) / 127.0;
+      complex_samples.push(Complex::new(i_f, q_f));
+    }
+    
+    complex_samples
+  }
+
+  /// Analyze signal quality metrics for correlation strategy selection
+  pub fn analyze_signal_quality(&self, iq_data: &[u8]) -> SignalQualityMetrics {
+    let complex_samples = self.iq_to_complex(iq_data);
+    let sample_rate = self.config.sample_rate as f32;
+    
+    // Estimate bandwidth using FFT
+    let bandwidth_hz = self.estimate_bandwidth(&complex_samples);
+    
+    // Estimate SNR
+    let snr_db = self.estimate_snr(&complex_samples);
+    
+    // Estimate frequency offset
+    let frequency_offset_hz = self.estimate_frequency_offset(&complex_samples, sample_rate);
+    
+    // Detect modulation types
+    let (has_am_modulation, has_angular_modulation) = self.detect_modulation_types(&complex_samples);
+    
+    // Recommend correlation method based on signal characteristics
+    let recommended_method = self.recommend_correlation_method(
+      frequency_offset_hz, 
+      has_am_modulation, 
+      has_angular_modulation
+    );
+    
+    // Recommend window size based on bandwidth
+    let recommended_window_size = self.recommend_window_size(bandwidth_hz, sample_rate);
+    
+    SignalQualityMetrics {
+      bandwidth_hz,
+      snr_db,
+      frequency_offset_hz,
+      has_am_modulation,
+      has_angular_modulation,
+      recommended_method,
+      recommended_window_size,
+    }
+  }
+
+  /// Estimate signal bandwidth using FFT analysis
+  fn estimate_bandwidth(&self, samples: &[Complex<f32>]) -> f32 {
+    if samples.len() < 64 {
+      return 0.0;
+    }
+    
+    // Perform FFT
+    let mut fft_samples = samples.to_vec();
+    self.apply_window(&mut fft_samples);
+    
+    let mut planner = FftPlanner::new();
+    let fft = planner.plan_fft_forward(fft_samples.len());
+    fft.process(&mut fft_samples);
+    
+    // Calculate power spectrum
+    let mut power_spectrum: Vec<f32> = fft_samples.iter()
+      .map(|c| (c.re * c.re + c.im * c.im).sqrt())
+      .collect();
+    
+    // Find noise floor (median of lower 25%)
+    let mut sorted_power = power_spectrum.clone();
+    sorted_power.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let noise_floor_idx = power_spectrum.len() / 4;
+    let noise_floor = if noise_floor_idx < sorted_power.len() {
+      sorted_power[noise_floor_idx]
+    } else {
+      0.0
+    };
+    
+    // Find -3dB bandwidth points
+    let peak_power = power_spectrum.iter().fold(0.0f32, |a, &b| a.max(b));
+    let threshold = peak_power * 0.707; // -3dB point
+    
+    let mut start_bin = 0;
+    let mut end_bin = power_spectrum.len() - 1;
+    
+    // Find lower -3dB point
+    for (i, &power) in power_spectrum.iter().enumerate() {
+      if power > threshold {
+        start_bin = i;
+        break;
+      }
+    }
+    
+    // Find upper -3dB point
+    for (i, &power) in power_spectrum.iter().enumerate().rev() {
+      if power > threshold {
+        end_bin = i;
+        break;
+      }
+    }
+    
+    let bandwidth_bins = (end_bin - start_bin) as f32;
+    let sample_rate = self.config.sample_rate as f32;
+    let bandwidth_hz = bandwidth_bins * sample_rate / power_spectrum.len() as f32;
+    
+    bandwidth_hz
+  }
+
+  /// Estimate SNR in dB
+  fn estimate_snr(&self, samples: &[Complex<f32>]) -> f32 {
+    if samples.is_empty() {
+      return 0.0;
+    }
+    
+    // Calculate signal power (average magnitude)
+    let signal_power: f32 = samples.iter()
+      .map(|c| (c.re * c.re + c.im * c.im).sqrt())
+      .sum::<f32>() / samples.len() as f32;
+    
+    // Estimate noise power (variance of imaginary part for noise-like signals)
+    let noise_power: f32 = samples.iter()
+      .map(|c| c.im * c.im)
+      .sum::<f32>() / samples.len() as f32;
+    
+    if noise_power > 0.001 {
+      20.0 * (signal_power / noise_power).log10()
+    } else {
+      60.0 // Cap at 60dB
+    }
+  }
+
+  /// Estimate frequency offset using phase progression
+  fn estimate_frequency_offset(&self, samples: &[Complex<f32>], sample_rate: f32) -> f32 {
+    if samples.len() < 100 {
+      return 0.0;
+    }
+    
+    // Calculate phase differences between consecutive samples
+    let mut phase_diffs = Vec::new();
+    for window in samples.windows(2) {
+      let phase1 = window[0].arg();
+      let phase2 = window[1].arg();
+      let mut diff = phase2 - phase1;
+      
+      // Wrap to [-π, π]
+      while diff > std::f32::consts::PI {
+        diff -= 2.0 * std::f32::consts::PI;
+      }
+      while diff < -std::f32::consts::PI {
+        diff += 2.0 * std::f32::consts::PI;
+      }
+      
+      phase_diffs.push(diff);
+    }
+    
+    // Average phase difference gives frequency offset
+    let avg_phase_diff = phase_diffs.iter().sum::<f32>() / phase_diffs.len() as f32;
+    let frequency_offset = avg_phase_diff * sample_rate / (2.0 * std::f32::consts::PI);
+    
+    frequency_offset.abs()
+  }
+
+  /// Detect modulation types
+  fn detect_modulation_types(&self, samples: &[Complex<f32>]) -> (bool, bool) {
+    if samples.len() < 100 {
+      return (false, false);
+    }
+    
+    // Calculate amplitude variations
+    let amplitudes: Vec<f32> = samples.iter()
+      .map(|c| (c.re * c.re + c.im * c.im).sqrt())
+      .collect();
+    
+    let amplitude_variance = self.calculate_variance(&amplitudes);
+    let amplitude_mean = amplitudes.iter().sum::<f32>() / amplitudes.len() as f32;
+    let amplitude_cv = if amplitude_mean > 0.0 {
+      amplitude_variance.sqrt() / amplitude_mean
+    } else {
+      0.0
+    };
+    
+    // Calculate phase variations
+    let phases: Vec<f32> = samples.iter().map(|c| c.arg()).collect();
+    let phase_variance = self.calculate_variance(&phases);
+    
+    // Detect AM modulation (coefficient of variation > 0.1)
+    let has_am_modulation = amplitude_cv > 0.1;
+    
+    // Detect angular modulation (phase variance > 0.1 rad²)
+    let has_angular_modulation = phase_variance > 0.1;
+    
+    (has_am_modulation, has_angular_modulation)
+  }
+
+  /// Calculate variance of a slice
+  fn calculate_variance(&self, values: &[f32]) -> f32 {
+    if values.is_empty() {
+      return 0.0;
+    }
+    
+    let mean = values.iter().sum::<f32>() / values.len() as f32;
+    let variance = values.iter()
+      .map(|v| (v - mean) * (v - mean))
+      .sum::<f32>() / values.len() as f32;
+    
+    variance
+  }
+
+  /// Recommend correlation method based on signal characteristics
+  fn recommend_correlation_method(
+    &self, 
+    frequency_offset_hz: f32, 
+    has_am_modulation: bool, 
+    has_angular_modulation: bool
+  ) -> CorrelationMethod {
+    // If frequency offset is large, use robust methods
+    if frequency_offset_hz > 1000.0 {
+      if has_am_modulation {
+        CorrelationMethod::Amplitude
+      } else {
+        CorrelationMethod::PhaseDifference
+      }
+    } else if frequency_offset_hz > 100.0 {
+      // Moderate offset - prefer robust methods
+      CorrelationMethod::PhaseDifference
+    } else {
+      // Low offset - can use complex correlation for best accuracy
+      if has_am_modulation && has_angular_modulation {
+        CorrelationMethod::Complex
+      } else if has_am_modulation {
+        CorrelationMethod::Amplitude
+      } else {
+        CorrelationMethod::PhaseDifference
+      }
+    }
+  }
+
+  /// Recommend window size based on bandwidth
+  fn recommend_window_size(&self, bandwidth_hz: f32, sample_rate: f32) -> usize {
+    // Base window size on bandwidth and sample rate
+    // Higher bandwidth allows smaller windows
+    if bandwidth_hz > 0.1 * sample_rate {
+      // Wideband - use smaller windows (1-5ms)
+      (sample_rate * 0.001) as usize // 1ms
+    } else if bandwidth_hz > 0.01 * sample_rate {
+      // Medium bandwidth - use medium windows (5-10ms)
+      (sample_rate * 0.005) as usize // 5ms
+    } else {
+      // Narrowband - use larger windows (10-50ms)
+      (sample_rate * 0.010) as usize // 10ms
+    }
+  }
+
+  /// Perform comprehensive stitching validation between two I/Q signals
+  pub fn validate_stitching(
+    &self,
+    signal1: &[u8],
+    signal2: &[u8],
+    overlap_samples: usize,
+  ) -> Result<StitchingValidationResult> {
+    // Analyze signal quality
+    let signal_quality = self.analyze_signal_quality(signal1);
+    
+    // Perform primary correlation using recommended method
+    let primary_correlation = self.correlate_signals(
+      signal1, 
+      signal2, 
+      overlap_samples, 
+      signal_quality.recommended_method
+    )?;
+    
+    // Perform secondary correlation for cross-validation
+    let secondary_correlation = if signal_quality.recommended_method != CorrelationMethod::Amplitude {
+      Some(self.correlate_signals(signal1, signal2, overlap_samples, CorrelationMethod::Amplitude)?)
+    } else {
+      None
+    };
+    
+    // Calculate overall quality score
+    let overall_quality = self.calculate_overall_quality(&primary_correlation, &secondary_correlation, &signal_quality);
+    
+    // Generate recommendation
+    let recommendation = self.generate_stitching_recommendation(&primary_correlation, &signal_quality);
+    
+    Ok(StitchingValidationResult {
+      primary_correlation,
+      secondary_correlation,
+      signal_quality,
+      overall_quality,
+      recommendation,
+    })
+  }
+
+  /// Correlate two I/Q signals using specified method
+  pub fn correlate_signals(
+    &self,
+    signal1: &[u8],
+    signal2: &[u8],
+    overlap_samples: usize,
+    method: CorrelationMethod,
+  ) -> Result<CorrelationResult> {
+    let samples1 = self.iq_to_complex(&signal1[..overlap_samples * 2]);
+    let samples2 = self.iq_to_complex(&signal2[..overlap_samples * 2]);
+    
+    match method {
+      CorrelationMethod::Complex => {
+        // Prefer FFT-based correlation if signal size matches FFT size
+        if samples1.len() == self.fft.len() && samples2.len() == self.fft.len() {
+          self.fft_correlation(&samples1, &samples2)
+        } else {
+          self.complex_correlation(&samples1, &samples2)
+        }
+      },
+      CorrelationMethod::Amplitude => self.amplitude_correlation(&samples1, &samples2),
+      CorrelationMethod::Phase => self.phase_correlation(&samples1, &samples2),
+      CorrelationMethod::PhaseDifference => self.phase_difference_correlation(&samples1, &samples2),
+    }
+  }
+
+  /// FFT-based correlation: IFFT(FFT(s₁) · FFT(s₂*))
+  fn fft_correlation(&self, signal1: &[Complex<f32>], signal2: &[Complex<f32>]) -> Result<CorrelationResult> {
+    let n = self.fft.len();
+    let mut a = signal1.to_vec();
+    let mut b = signal2.to_vec();
+    
+    // 1. FFT of both signals
+    self.fft.process(&mut a);
+    self.fft.process(&mut b);
+    
+    // 2. Element-wise product: A · B*
+    let mut c = Vec::with_capacity(n);
+    for i in 0..n {
+      c.push(a[i] * b[i].conj());
+    }
+    
+    // 3. Inverse FFT
+    self.ifft.process(&mut c);
+    
+    // 4. Find peak in circular correlation
+    let mut best_score = 0.0f32;
+    let mut best_lag = 0isize;
+    
+    let norm = n as f32;
+    let scores: Vec<f32> = c.iter().map(|v| v.norm() / norm).collect();
+    
+    for (lag, &score) in scores.iter().enumerate() {
+      if score > best_score {
+        best_score = score;
+        best_lag = lag as isize;
+      }
+    }
+    
+    // Convert lag to range [-n/2, n/2]
+    if best_lag > (n / 2) as isize {
+      best_lag -= n as isize;
+    }
+    
+    let sample_rate = self.config.sample_rate as f64;
+    let (fractional_offset, interpolated_score) = if best_lag.abs() < (n / 2) as isize {
+       // Use parabolic interpolation
+       let y_mid = best_score;
+       let prev_idx = if best_lag <= -(n as isize / 2) + 1 { n - 1 } else { ((best_lag - 1 + n as isize) as usize) % n };
+       let next_idx = ((best_lag + 1 + n as isize) as usize) % n;
+       
+       self.estimate_fractional_delay(scores[prev_idx], y_mid, scores[next_idx])
+    } else {
+       (0.0, best_score)
+    };
+
+    Ok(CorrelationResult {
+      correlation_score: interpolated_score,
+      time_delay_samples: best_lag,
+      time_delay_seconds: (best_lag as f64 + fractional_offset as f64) / sample_rate,
+      fractional_delay_samples: fractional_offset,
+      method: CorrelationMethod::Complex,
+      snr_estimate: self.estimate_snr(signal1),
+      is_acceptable: interpolated_score > 0.7,
+    })
+  }
+
+  /// Complex correlation: |∑ s₁(t) · s₂*(t+τ)|
+  fn complex_correlation(&self, signal1: &[Complex<f32>], signal2: &[Complex<f32>]) -> Result<CorrelationResult> {
+    let max_delay = signal1.len().min(signal2.len()) / 4;
+    let mut best_correlation = 0.0f32;
+    let mut best_delay = 0isize;
+    
+    for delay in 0..=max_delay {
+      // Test both positive and negative delays
+      for sign in [-1, 1] {
+        let actual_delay = sign * delay as isize;
+        if sign == -1 && delay == 0 { continue; } // Avoid double-counting zero delay
+
+        let mut correlation = Complex::new(0.0, 0.0);
+        let mut count = 0usize;
+        
+        for i in 0..signal1.len() {
+          let j = i as isize + actual_delay;
+          if j >= 0 && j < signal2.len() as isize {
+            let j = j as usize;
+            correlation += signal1[i] * signal2[j].conj();
+            count += 1;
+          }
+        }
+        
+        if count > 0 {
+          let score = correlation.norm() / count as f32;
+          if score > best_correlation {
+            best_correlation = score;
+            best_delay = actual_delay;
+          }
+        }
+      }
+    }
+    
+    let sample_rate = self.config.sample_rate as f64;
+    
+    // Estimate fractional delay using parabolic interpolation
+    let (fractional_offset, interpolated_score) = if best_delay.abs() > 0 && best_delay.abs() < max_delay as isize {
+        // Helper to calculate score at a specific delay
+        let calc_score = |d: isize| {
+            let mut correlation = Complex::new(0.0, 0.0);
+            let mut count = 0usize;
+            for i in 0..signal1.len() {
+                let j = i as isize + d;
+                if j >= 0 && j < signal2.len() as isize {
+                    let j = j as usize;
+                    correlation += signal1[i] * signal2[j].conj();
+                    count += 1;
+                }
+            }
+            if count > 0 { correlation.norm() / count as f32 } else { 0.0 }
+        };
+
+        let y_prev = calc_score(best_delay - 1);
+        let y_mid = best_correlation;
+        let y_next = calc_score(best_delay + 1);
+        
+        self.estimate_fractional_delay(y_prev, y_mid, y_next)
+    } else {
+        (0.0f32, best_correlation)
+    };
+
+    let time_delay_seconds = (best_delay as f64 + fractional_offset as f64) / sample_rate;
+    let snr_estimate = self.estimate_snr(signal1);
+    
+    Ok(CorrelationResult {
+      correlation_score: interpolated_score,
+      time_delay_samples: best_delay,
+      time_delay_seconds,
+      fractional_delay_samples: fractional_offset,
+      method: CorrelationMethod::Complex,
+      snr_estimate,
+      is_acceptable: interpolated_score > 0.7,
+    })
+  }
+
+  /// Estimate fractional delay component using parabolic interpolation
+  fn estimate_fractional_delay(&self, y_prev: f32, y_mid: f32, y_next: f32) -> (f32, f32) {
+    if (2.0 * y_mid - y_prev - y_next).abs() < 1e-6 {
+      return (0.0, y_mid);
+    }
+    
+    let offset = 0.5 * (y_prev - y_next) / (y_prev - 2.0 * y_mid + y_next);
+    let interpolated_y = y_mid - 0.25 * (y_prev - y_next) * offset;
+    
+    (offset, interpolated_y)
+  }
+
+  /// Amplitude correlation: ∑ |s₁(t)| · |s₂(t+τ)|
+  fn amplitude_correlation(&self, signal1: &[Complex<f32>], signal2: &[Complex<f32>]) -> Result<CorrelationResult> {
+    let amplitudes1: Vec<f32> = signal1.iter().map(|c| c.norm()).collect();
+    let amplitudes2: Vec<f32> = signal2.iter().map(|c| c.norm()).collect();
+    
+    let max_delay = amplitudes1.len().min(amplitudes2.len()) / 4;
+    let mut best_correlation = 0.0f32;
+    let mut best_delay = 0isize;
+    
+    for delay in 0..=max_delay {
+      // Test both positive and negative delays
+      for sign in [-1, 1] {
+        let actual_delay = sign * delay as isize;
+        let mut correlation = 0.0f32;
+        let mut count = 0usize;
+        
+        for i in 0..amplitudes1.len() {
+          let j = i as isize + actual_delay;
+          if j >= 0 && j < amplitudes2.len() as isize {
+            let j = j as usize;
+            correlation += amplitudes1[i] * amplitudes2[j];
+            count += 1;
+          }
+        }
+        
+        if count > 0 {
+          correlation /= count as f32;
+          if correlation > best_correlation {
+            best_correlation = correlation;
+            best_delay = actual_delay;
+          }
+        }
+      }
+    }
+    
+    let sample_rate = self.config.sample_rate as f64;
+    let time_delay_seconds = best_delay as f64 / sample_rate;
+    let snr_estimate = self.estimate_snr(signal1);
+    
+    Ok(CorrelationResult {
+      correlation_score: best_correlation,
+      time_delay_samples: best_delay,
+      time_delay_seconds,
+      fractional_delay_samples: 0.0,
+      method: CorrelationMethod::Amplitude,
+      snr_estimate,
+      is_acceptable: best_correlation > 0.5, // Lower threshold for amplitude
+    })
+  }
+
+  /// Phase correlation: ∑ ∠s₁(t) · ∠s₂(t+τ)
+  fn phase_correlation(&self, signal1: &[Complex<f32>], signal2: &[Complex<f32>]) -> Result<CorrelationResult> {
+    let phases1: Vec<f32> = signal1.iter().map(|c| c.arg()).collect();
+    let phases2: Vec<f32> = signal2.iter().map(|c| c.arg()).collect();
+    
+    let max_delay = phases1.len().min(phases2.len()) / 4;
+    let mut best_correlation = 0.0f32;
+    let mut best_delay = 0isize;
+    
+    for delay in 0..=max_delay {
+      // Test both positive and negative delays
+      for sign in [-1, 1] {
+        let actual_delay = sign * delay as isize;
+        let mut correlation = 0.0f32;
+        let mut count = 0usize;
+        
+        for i in 0..phases1.len() {
+          let j = i as isize + actual_delay;
+          if j >= 0 && j < phases2.len() as isize {
+            let j = j as usize;
+            correlation += phases1[i] * phases2[j];
+            count += 1;
+          }
+        }
+        
+        if count > 0 {
+          correlation /= count as f32;
+          if correlation > best_correlation {
+            best_correlation = correlation;
+            best_delay = actual_delay;
+          }
+        }
+      }
+    }
+    
+    let sample_rate = self.config.sample_rate as f64;
+    let time_delay_seconds = best_delay as f64 / sample_rate;
+    let snr_estimate = self.estimate_snr(signal1);
+    
+    Ok(CorrelationResult {
+      correlation_score: best_correlation,
+      time_delay_samples: best_delay,
+      time_delay_seconds,
+      fractional_delay_samples: 0.0,
+      method: CorrelationMethod::Phase,
+      snr_estimate,
+      is_acceptable: best_correlation > 0.6,
+    })
+  }
+
+  /// Phase difference correlation: ∑ [∠s₁(t) - ∠s₁(t-1)] · [∠s₂(t+τ) - ∠s₂(t-1+τ)]
+  fn phase_difference_correlation(&self, signal1: &[Complex<f32>], signal2: &[Complex<f32>]) -> Result<CorrelationResult> {
+    let phases1: Vec<f32> = signal1.iter().map(|c| c.arg()).collect();
+    let phases2: Vec<f32> = signal2.iter().map(|c| c.arg()).collect();
+    
+    // Calculate phase differences
+    let mut phase_diffs1 = Vec::with_capacity(phases1.len() - 1);
+    let mut phase_diffs2 = Vec::with_capacity(phases2.len() - 1);
+    
+    for i in 1..phases1.len() {
+      let mut diff = phases1[i] - phases1[i - 1];
+      // Wrap to [-π, π]
+      while diff > std::f32::consts::PI {
+        diff -= 2.0 * std::f32::consts::PI;
+      }
+      while diff < -std::f32::consts::PI {
+        diff += 2.0 * std::f32::consts::PI;
+      }
+      phase_diffs1.push(diff);
+    }
+    
+    for i in 1..phases2.len() {
+      let mut diff = phases2[i] - phases2[i - 1];
+      // Wrap to [-π, π]
+      while diff > std::f32::consts::PI {
+        diff -= 2.0 * std::f32::consts::PI;
+      }
+      while diff < -std::f32::consts::PI {
+        diff += 2.0 * std::f32::consts::PI;
+      }
+      phase_diffs2.push(diff);
+    }
+    
+    let max_delay = phase_diffs1.len().min(phase_diffs2.len()) / 4;
+    let mut best_correlation = 0.0f32;
+    let mut best_delay = 0isize;
+    
+    for delay in 0..=max_delay {
+      // Test both positive and negative delays
+      for sign in [-1, 1] {
+        let actual_delay = sign * delay as isize;
+        let mut correlation = 0.0f32;
+        let mut count = 0usize;
+        
+        for i in 0..phase_diffs1.len() {
+          let j = i as isize + actual_delay;
+          if j >= 0 && j < phase_diffs2.len() as isize {
+            let j = j as usize;
+            correlation += phase_diffs1[i] * phase_diffs2[j];
+            count += 1;
+          }
+        }
+        
+        if count > 0 {
+          correlation /= count as f32;
+          if correlation > best_correlation {
+            best_correlation = correlation;
+            best_delay = actual_delay;
+          }
+        }
+      }
+    }
+    
+    let sample_rate = self.config.sample_rate as f64;
+    let time_delay_seconds = best_delay as f64 / sample_rate;
+    let snr_estimate = self.estimate_snr(signal1);
+    
+    Ok(CorrelationResult {
+      correlation_score: best_correlation,
+      time_delay_samples: best_delay,
+      time_delay_seconds,
+      fractional_delay_samples: 0.0,
+      method: CorrelationMethod::PhaseDifference,
+      snr_estimate,
+      is_acceptable: best_correlation > 0.4, // Lower threshold due to noise amplification
+    })
+  }
+
+  /// Calculate overall quality score
+  fn calculate_overall_quality(
+    &self,
+    primary: &CorrelationResult,
+    secondary: &Option<CorrelationResult>,
+    signal_quality: &SignalQualityMetrics,
+  ) -> f32 {
+    let primary_score = primary.correlation_score;
+    let secondary_score = secondary.as_ref().map(|s| s.correlation_score).unwrap_or(0.0);
+    let snr_factor = (signal_quality.snr_db / 20.0).min(1.0).max(0.0); // Normalize to 0-1
+    
+    // Weighted combination
+    0.6 * primary_score + 0.2 * secondary_score + 0.2 * snr_factor
+  }
+
+  /// Generate stitching recommendation
+  fn generate_stitching_recommendation(
+    &self,
+    correlation: &CorrelationResult,
+    signal_quality: &SignalQualityMetrics,
+  ) -> StitchingRecommendation {
+    if correlation.is_acceptable {
+      StitchingRecommendation::Accept
+    } else if correlation.correlation_score > 0.5 {
+      // Moderate correlation - try correction
+      let total_offset_samples = correlation.time_delay_samples as f32 + correlation.fractional_delay_samples;
+      if total_offset_samples.abs() > 0.1 {
+        StitchingRecommendation::ApplyTimeCorrection(correlation.time_delay_seconds)
+      } else {
+        StitchingRecommendation::Accept // Negligible delay, accept anyway
+      }
+    } else if signal_quality.frequency_offset_hz > 1000.0 {
+      // High frequency offset - try alternative method
+      StitchingRecommendation::UseAlternativeMethod(CorrelationMethod::PhaseDifference)
+    } else {
+      StitchingRecommendation::Reject
+    }
   }
 
   /// Generate mock signal for testing
@@ -446,6 +1329,7 @@ impl FFTProcessor {
       waterfall: waterfall_shifted,
       is_mock: true,
       timestamp: now_millis(),
+      phase_spectrum: None,
     })
   }
 
@@ -520,7 +1404,16 @@ impl FFTProcessor {
     let spectral_flux = self.calculate_spectral_flux(&magnitude);
 
     // Calculate phase coherence (placeholder - would need complex FFT data)
-    let phase_coherence = self.calculate_phase_coherence(&magnitude);
+    // For now, return a simple coherence score
+    let phase_coherence = {
+      let energy = magnitude.iter().sum::<f32>();
+      let peak_energy = magnitude.iter().fold(0.0f32, |a, &b| a.max(b));
+      if energy > 0.0 {
+        peak_energy / energy
+      } else {
+        0.0
+      }
+    };
 
     // Calculate frequency stability
     let frequency_stability =
@@ -673,19 +1566,6 @@ impl FFTProcessor {
     }
 
     flux / (magnitude.len() - 1) as f32
-  }
-
-  fn calculate_phase_coherence(&self, magnitude: &[f32]) -> f32 {
-    // Placeholder for phase coherence calculation
-    // Would need actual phase data from complex FFT output
-    let energy = magnitude.iter().sum::<f32>();
-    let peak_energy = magnitude.iter().fold(0.0f32, |a, &b| a.max(b));
-
-    if energy > 0.0 {
-      peak_energy / energy
-    } else {
-      0.0
-    }
   }
 
   fn calculate_frequency_stability(&self, dominant_freqs: &[f32]) -> f32 {
@@ -1008,5 +1888,36 @@ mod tests {
     samples = vec![1.0; 8];
     apply_window(&mut samples, WindowType::Nuttall);
     assert!(samples.iter().any(|&x| x != 1.0)); // Should be modified
+  }
+
+  #[test]
+  fn test_fractional_delay_estimation() {
+    let processor = FFTProcessor::new();
+    
+    // Test case 1: Exact integer delay
+    let (offset1, score1) = processor.estimate_fractional_delay(0.5, 1.0, 0.5);
+    assert!((offset1 - 0.0).abs() < 1e-6);
+    assert!((score1 - 1.0).abs() < 1e-6);
+    
+    // Test case 2: Shifted right by 0.25 samples
+    // y = -x^2 + 1, at x=-1.25, -0.25, 0.75
+    // But parabolic interpolation assumes y_mid is the peak.
+    // If peak is at 0.25:
+    // y(x) = -(x-0.25)^2 + 1
+    // y(-1) = -(-1.25)^2 + 1 = -0.5625
+    // y(0) = -(-0.25)^2 + 1 = 0.9375
+    // y(1) = -(0.75)^2 + 1 = 0.4375
+    let (offset2, score2) = processor.estimate_fractional_delay(-0.5625, 0.9375, 0.4375);
+    assert!((offset2 - 0.25).abs() < 0.01);
+    assert!((score2 - 1.0).abs() < 0.01);
+
+    // Test case 3: Shifted left by 0.5 samples
+    // y(x) = -(x+0.5)^2 + 1
+    // y(-1) = -(-0.5)^2 + 1 = 0.75
+    // y(0) = -(0.5)^2 + 1 = 0.75
+    // y(1) = -(1.5)^2 + 1 = -1.25
+    let (offset3, score3) = processor.estimate_fractional_delay(0.75, 0.75, -1.25);
+    assert!((offset3 - (-0.5)).abs() < 0.01);
+    assert!((score3 - 1.0).abs() < 0.01);
   }
 }

@@ -31,6 +31,7 @@ describe("useOverlayRenderer Hook", () => {
       frequencyRange,
       -120,
       0,
+      "dB",
       hardwareSampleRateHz
     );
 
@@ -56,6 +57,7 @@ describe("useOverlayRenderer Hook", () => {
       frequencyRange,
       -120,
       0,
+      "dB",
       hardwareSampleRateHz
     );
 
@@ -78,6 +80,7 @@ describe("useOverlayRenderer Hook", () => {
       frequencyRange,
       -120,
       0,
+      "dB",
       hardwareSampleRateHz
     );
 

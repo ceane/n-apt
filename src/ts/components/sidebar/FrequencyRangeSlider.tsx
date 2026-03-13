@@ -108,16 +108,20 @@ const VisibleWindow = styled.div<{ $isActive: boolean }>`
   user-select: none;
   box-sizing: border-box;
   min-width: min-content;
+  overflow: visible;
 `;
 
 const WindowLabel = styled.span<{ $isActive: boolean }>`
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
   font-size: 9px;
   color: ${(props) => (props.$isActive ? props.theme.primary : props.theme.textMuted)};
   white-space: nowrap;
   pointer-events: none;
   user-select: none;
-  padding: 0 12px;
-  box-sizing: content-box;
+  padding: 0 8px;
+  box-sizing: border-box;
 `;
 
 const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
@@ -134,31 +138,36 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   sampleRateMHz = null,
   limitMarkers: _limitMarkers,
 }) => {
-  // Calculate window width (constant based on visible range)
   const totalRange = maxFreq - minFreq;
-  // Ensure the window width doesn't exceed the sample rate
+  const safeTotalRange = Number.isFinite(totalRange) && totalRange > 0 ? totalRange : 1;
+  const clampedVisibleMin = Math.max(minFreq, Math.min(maxFreq, visibleMin));
+  const requestedVisibleMax = Math.max(clampedVisibleMin, visibleMax);
   const rateLimitedMax =
     typeof sampleRateMHz === "number" && Number.isFinite(sampleRateMHz)
-      ? visibleMin + sampleRateMHz
-      : visibleMax;
-  const actualVisibleMax = Math.min(visibleMax, rateLimitedMax);
-  const windowWidth = (actualVisibleMax - visibleMin) / totalRange;
+      ? Math.min(maxFreq, clampedVisibleMin + sampleRateMHz)
+      : Math.min(maxFreq, requestedVisibleMax);
+  const clampedVisibleMax = Math.max(clampedVisibleMin, rateLimitedMax);
+  const windowWidth = Math.max(
+    0,
+    Math.min(1, (clampedVisibleMax - clampedVisibleMin) / safeTotalRange),
+  );
 
   // Initialize windowStart from props
   const [windowStart, setWindowStart] = useState(
-    (visibleMin - minFreq) / totalRange,
+    (clampedVisibleMin - minFreq) / safeTotalRange,
   );
 
   // Sync windowStart when visibleMin or visibleMax change (from zoom/pan)
   useEffect(() => {
     if (!isDraggingRef.current) {
-      setWindowStart((visibleMin - minFreq) / totalRange);
+      setWindowStart((clampedVisibleMin - minFreq) / safeTotalRange);
     }
-  }, [visibleMin, minFreq, totalRange]);
+  }, [clampedVisibleMin, minFreq, safeTotalRange]);
 
   const isDraggingRef = useRef(false);
   const trackRef = useRef<HTMLDivElement>(null);
   const thumbRef = useRef<HTMLDivElement>(null);
+  const windowLabelRef = useRef<HTMLSpanElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const dragStartXRef = useRef(0);
   const dragStartWindowRef = useRef(0);
@@ -171,21 +180,23 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   const [isDragging, setIsDragging] = useState(false);
 
   const [trackWidth, setTrackWidth] = useState(1000);
-  const [thumbWidth, setThumbWidth] = useState(80);
+  const [windowLabelWidth, setWindowLabelWidth] = useState(0);
 
   useEffect(() => {
     const track = trackRef.current;
     const thumb = thumbRef.current;
-    if (!track || !thumb) return;
+    const windowLabel = windowLabelRef.current;
+    if (!track || !thumb || !windowLabel) return;
 
     const updateWidths = () => {
       if (track) setTrackWidth(track.clientWidth); // Use clientWidth to prevent border overflow
-      if (thumb) setThumbWidth(thumb.getBoundingClientRect().width);
+      if (windowLabel) setWindowLabelWidth(windowLabel.getBoundingClientRect().width);
     };
 
     const observer = new ResizeObserver(updateWidths);
     observer.observe(track);
     observer.observe(thumb);
+    observer.observe(windowLabel);
 
     updateWidths();
 
@@ -198,10 +209,10 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
 
     let desiredStart = windowStart;
     if (externalFrequencyRange) {
-      desiredStart = (externalFrequencyRange.min - minFreq) / totalRange;
+      desiredStart = (externalFrequencyRange.min - minFreq) / safeTotalRange;
       lastNotifiedRangeRef.current = externalFrequencyRange;
     } else {
-      desiredStart = (visibleMin - minFreq) / totalRange;
+      desiredStart = (clampedVisibleMin - minFreq) / safeTotalRange;
     }
 
     let clamped = desiredStart;
@@ -212,7 +223,7 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
       clamped = Math.max(-overscan, Math.min(0, desiredStart));
     }
     setWindowStart(clamped);
-  }, [externalFrequencyRange, visibleMin, minFreq, totalRange, windowWidth]);
+  }, [externalFrequencyRange, clampedVisibleMin, minFreq, safeTotalRange, windowWidth]);
 
   // Handle activation: no longer forces a notification on mount/activation
   // to prevent overwriting the store with default/initial values.
@@ -223,28 +234,33 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
     }
   }, [isActive]);
 
-  const maxWindowStart = 1 - windowWidth;
+  const widthPercent = Math.max(0, Math.min(100, windowWidth * 100));
+  const logicalThumbWidth = Math.max(0, windowWidth * trackWidth);
+  const minContentThumbWidth = Math.max(0, Math.ceil(windowLabelWidth) + 16);
+  const renderedThumbWidth = Math.max(logicalThumbWidth, minContentThumbWidth);
+  const logicalMaxWindowStart = Math.max(0, 1 - windowWidth);
+  const clampedWindowStart = Math.max(0, Math.min(logicalMaxWindowStart, windowStart));
   let visualRatio = 0;
-  if (maxWindowStart > 0) {
-    visualRatio = Math.max(0, Math.min(1, windowStart / maxWindowStart));
+  if (logicalMaxWindowStart > 0) {
+    visualRatio = Math.max(0, Math.min(1, clampedWindowStart / logicalMaxWindowStart));
   }
 
-  const draggableTrackWidth = Math.max(0, trackWidth - thumbWidth);
+  const draggableTrackWidth = Math.max(0, trackWidth - renderedThumbWidth);
   let thumbLeftPx = visualRatio * draggableTrackWidth;
-  if (maxWindowStart <= 0) {
-    thumbLeftPx = windowStart * trackWidth;
+  if (logicalMaxWindowStart <= 0) {
+    thumbLeftPx = clampedWindowStart * trackWidth;
   }
 
-  const currentMin = Math.max(minFreq, minFreq + windowStart * totalRange);
+  const currentMin = Math.max(minFreq, minFreq + windowStart * safeTotalRange);
   const currentMax = Math.min(
     maxFreq,
-    minFreq + (windowStart + windowWidth) * totalRange,
+    minFreq + (windowStart + windowWidth) * safeTotalRange,
   );
 
   // Calculate label positions to avoid collision
   const calculateLabelPositions = useCallback(() => {
     const windowLeft = thumbLeftPx;
-    const windowRight = thumbLeftPx + thumbWidth;
+    const windowRight = thumbLeftPx + renderedThumbWidth;
 
     // Calculate label positions (approximately 50px from edges for padding)
     const leftLabelEnd = 50; // Left label occupies ~0-50px
@@ -255,7 +271,7 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
     const hideRightLabel = windowRight > rightLabelStart - 10; // 10px buffer
 
     return { hideLeftLabel, hideRightLabel };
-  }, [thumbLeftPx, thumbWidth, trackWidth]);
+  }, [thumbLeftPx, renderedThumbWidth, trackWidth]);
 
   const labelPositions = calculateLabelPositions();
 
@@ -296,11 +312,21 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
     notifyParent,
   ]);
 
-  const formatFreq = useCallback((freq: number) => formatFrequency(freq), []);
+  const formatFreq = useCallback(
+    (freq: number) =>
+      formatFrequency(freq, {
+        showUnits: true,
+        precisionMHz: 4,
+        precisionGHz: 4,
+        precisionKHz: 0,
+        trimTrailingZeros: true,
+      }),
+    [],
+  );
 
   const moveWindow = useCallback(
     (direction: "up" | "down") => {
-      const stepPercent = STEP_SIZE / totalRange;
+      const stepPercent = STEP_SIZE / safeTotalRange;
       internalChangeIdRef.current += 1;
       setWindowStart((prev) => {
         const newStart =
@@ -308,7 +334,7 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
         return Math.max(0, Math.min(1 - windowWidth, newStart));
       });
     },
-    [totalRange, windowWidth],
+    [safeTotalRange, windowWidth],
   );
 
   useEffect(() => {
@@ -392,7 +418,7 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [maxWindowStart, thumbWidth, notifyParent]);
+  }, [windowWidth, notifyParent]);
 
   const handleMouseDown = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -403,8 +429,8 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
     dragStartWindowRef.current = windowStart;
     // Capture dimensions at drag start for stable calculations
     dragStartTrackWidthRef.current = trackWidth;
-    dragStartThumbWidthRef.current = thumbWidth;
-    dragStartMaxWindowStartRef.current = maxWindowStart;
+    dragStartThumbWidthRef.current = renderedThumbWidth;
+    dragStartMaxWindowStartRef.current = logicalMaxWindowStart;
   };
 
   const handleContainerClick = (e: React.MouseEvent) => {
@@ -452,11 +478,11 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
             $isActive={isActive}
             style={{
               left: `${thumbLeftPx}px`,
-              width: `${windowWidth * 100}%`,
+              width: `max(${widthPercent}%, ${minContentThumbWidth}px)`,
             }}
             onMouseDown={handleMouseDown}
           >
-            <WindowLabel $isActive={isActive}>
+            <WindowLabel ref={windowLabelRef} $isActive={isActive}>
               {formatFreq(currentMin)} - {formatFreq(currentMax)}
             </WindowLabel>
           </VisibleWindow>

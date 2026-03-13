@@ -18,6 +18,15 @@ pub struct WebMCPToolResponse {
   pub tool: String,
 }
 
+/// Power scale mode for spectrum display
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum PowerScale {
+  /// Relative dB scale (current default)
+  DB,
+  /// Calibrated dBm scale (RTL-SDR specific)
+  DBm,
+}
+
 /// Command enum for the dedicated SDR I/O thread
 #[derive(Debug, Clone)]
 pub enum SdrCommand {
@@ -46,6 +55,9 @@ pub enum SdrCommand {
     geolocation: Option<GeolocationData>,
   },
   ApplySettings(SdrProcessorSettings),
+  SetPowerScale {
+    scale: PowerScale,
+  },
 }
 
 /// Settings for applying to the SDR processor and hardware
@@ -146,6 +158,8 @@ pub struct WebSocketMessage {
   pub screen_width: Option<u32>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub geolocation: Option<GeolocationData>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "powerScale")]
+  pub power_scale: Option<String>,
 }
 
 /// Auto FFT size options response
@@ -167,10 +181,33 @@ pub struct SpectrumData {
   pub is_mock_apt: bool,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub center_frequency_hz: Option<u32>,
+  /// Actual span of the waveform in MHz (for live multi-hop captures)
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub waveform_span_mhz: Option<f64>,
   pub timestamp: i64,
+  /// Data type: "spectrum_db" for FFT power data, "iq_raw" for raw I/Q samples
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub data_type: Option<String>,
+  /// Sample rate in Hz (required for I/Q data processing)
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub sample_rate: Option<u32>,
+  /// Power scale mode (dB or dBm)
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub power_scale: Option<PowerScale>,
+  /// Raw I/Q data bytes (for dBm mode when data_type is "iq_raw")
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  pub iq_data: Vec<u8>,
 }
 
 /// Structured signal pattern for consistent waterfall visualization
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeviceProfile {
+  pub kind: String,
+  pub is_rtl_sdr: bool,
+  pub supports_approx_dbm: bool,
+  pub supports_raw_iq_stream: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StatusMessage {
   #[serde(rename = "type")]
@@ -186,6 +223,7 @@ pub struct StatusMessage {
   pub channels: Vec<SpectrumFrameMessage>,
   pub sdr_settings: SdrConfig,
   pub device: String,
+  pub device_profile: DeviceProfile,
 }
 
 /// Structured signal pattern for consistent waterfall visualization

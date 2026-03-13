@@ -28,7 +28,7 @@ pub async fn agent_info(State(state): State<Arc<AppState>>) -> impl IntoResponse
         ],
         "endpoints": {
             "capture": "/api/capture",
-            "analysis": "/api/analysis",
+            "demodulate": "/api/demodulate",
             "status": "/api/status",
             "websocket": "/ws"
         },

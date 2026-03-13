@@ -63,6 +63,11 @@ pub trait SdrDevice: Send {
   /// Get current sample rate
   fn get_sample_rate(&self) -> u32;
 
+  /// Flush software-side sample buffers (overflow + async queue) without
+  /// touching the hardware. Called after frequency hops to discard stale
+  /// samples from the previous tuning / PLL settling period.
+  fn flush_read_queue(&mut self) {}
+
   /// Reset device buffers
   fn reset_buffer(&mut self) -> Result<()>;
 

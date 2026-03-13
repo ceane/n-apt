@@ -16,14 +16,14 @@ import { RESAMPLE_WGSL } from "@n-apt/consts/shaders/resample";
 import { useDrawWebGPUFIFOWaterfall } from "@n-apt/hooks/useDrawWebGPUFIFOWaterfall";
 import { useFrequencyDrag } from "@n-apt/hooks/useFrequencyDrag";
 import { useWebGPUInit } from "@n-apt/hooks/useWebGPUInit";
-import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 import { useWasmSimdMath } from "@n-apt/hooks/useWasmSimdMath";
-import { useThemeStore } from "@n-apt/hooks/useThemeStore";
 import { useUnifiedFFTWaterfall } from "@n-apt/hooks/useUnifiedFFTWaterfall";
+import { useAppSelector, useAppDispatch } from "@n-apt/redux";
 import { WATERFALL_COLORMAPS } from "@n-apt/consts/colormaps";
 import type { FrequencyRange } from "@n-apt/consts/types";
 import type { SdrLimitMarker } from "@n-apt/utils/sdrLimitMarkers";
 import { VisualizerSliders } from "@n-apt/components/VisualizerSliders";
+import { spectrumActions } from "@n-apt/redux";
 // spectrumToAmplitude removed — dB normalisation now handled in the waterfall WGSL shader
 import {
   VISUALIZER_PADDING,
@@ -64,7 +64,6 @@ import {
   }
 })();
 
-const MAX_VISUALIZER_ZOOM = 1000;
 
 const VisualizerContainer = styled.div`
   flex: 1;
@@ -173,6 +172,9 @@ interface FFTCanvasProps {
   isPaused: boolean;
   /** Target frame rate for the visualization */
   fftFrameRate?: number;
+  fftSize?: number;
+  fftWindow?: string;
+  powerScale?: "dB" | "dBm";
   /** Whether the RTL-SDR device is connected */
   isDeviceConnected?: boolean;
   /** Callback for frequency range changes */
@@ -207,6 +209,8 @@ interface FFTCanvasProps {
   /** Whether I/Q recording is active */
   isIqRecordingActive?: boolean;
   limitMarkers?: SdrLimitMarker[];
+  isWaterfallCleared?: boolean;
+  onResetWaterfallCleared?: () => void;
 }
 
 /**
@@ -252,6 +256,10 @@ const FFTCanvas = memo(
       activeSignalArea: _activeSignalArea,
       signalAreaBounds,
       isPaused,
+      fftFrameRate,
+      fftSize,
+      fftWindow,
+      powerScale,
       isDeviceConnected = true,
       onFrequencyRangeChange,
       displayTemporalResolution = "medium",
@@ -269,10 +277,14 @@ const FFTCanvas = memo(
       hardwareSampleRateHz,
       isIqRecordingActive = false,
       limitMarkers = [],
+      isWaterfallCleared = false,
+      onResetWaterfallCleared,
     } = props;
-    const { state, dispatch } = useSpectrumStore();
-    const fftColor = useThemeStore((s) => s.fftColor);
-    const waterfallTheme = useThemeStore((s) => s.waterfallTheme);
+    const fftColor = useAppSelector((reduxState) => reduxState.theme.fftColor);
+    const waterfallTheme = useAppSelector((reduxState) => reduxState.theme.waterfallTheme);
+
+    // Theme/smoothing remain in Redux, but live visualizer controls come from SpectrumProvider
+    const reduxDispatch = useAppDispatch();
 
     const fillColor = useMemo(() => {
       if (fftColor.startsWith("#")) {
@@ -313,6 +325,8 @@ const FFTCanvas = memo(
     useEffect(() => {
       waterfallGpuCanvasRef.current = waterfallGpuCanvasNode;
     }, [waterfallGpuCanvasNode]);
+
+    const lastRenderedPowerScaleRef = useRef<"dB" | "dBm" | null>(null);
 
     // Simplified buffer management
     const waterfallBufferRef = useRef<Uint8ClampedArray | null>(null);
@@ -371,31 +385,21 @@ const FFTCanvas = memo(
     const retuneSmearRef = useRef(0);
     const retuneDriftPxRef = useRef(0);
 
-    // Visualizer slider state: zoom (frequency), dB ceiling/floor
     const vizDbMax = fftMax ?? FFT_MAX_DB;
     const vizDbMin = fftMin ?? FFT_MIN_DB;
+    const currentVizZoom = vizZoom ?? 1;
 
-    const setVizDbLimits = useCallback(
-      (min: number, max: number) => {
-        if (onFftDbLimitsChange) {
-          onFftDbLimitsChange(min, max);
-        }
-      },
-      [onFftDbLimitsChange],
-    );
-
-    // FFT averaging, smoothing, and waterfall smoothing toggles
-    const [fftAvgEnabled, setFftAvgEnabled] = useState(false);
-    const [fftSmoothEnabled, setFftSmoothEnabled] = useState(false);
-    const [wfSmoothEnabled, setWfSmoothEnabled] = useState(false);
+    const fftAvgEnabled = useAppSelector((reduxState) => reduxState.spectrum.fftAvgEnabled);
+    const fftSmoothEnabled = useAppSelector((reduxState) => reduxState.spectrum.fftSmoothEnabled);
+    const wfSmoothEnabled = useAppSelector((reduxState) => reduxState.spectrum.wfSmoothEnabled);
 
     // Clear waterfall effect
     useEffect(() => {
-      if (state.isWaterfallCleared) {
+      if (isWaterfallCleared) {
         clearWaterfallSnapshot();
-        dispatch({ type: "RESET_WATERFALL_CLEARED" });
+        onResetWaterfallCleared?.();
       }
-    }, [state.isWaterfallCleared, dispatch]);
+    }, [isWaterfallCleared, onResetWaterfallCleared]);
     const waterfallCappedBufferRef = useRef<Float32Array | null>(null);
     const fftAvgBufferRef = useRef<Float32Array | null>(null);
     const fftProcessedBufferRef = useRef<Float32Array | null>(null);
@@ -403,11 +407,12 @@ const FFTCanvas = memo(
 
     const setVizZoom = useCallback(
       (val: number | ((prev: number) => number)) => {
+        const newZoom = typeof val === "function" ? val(currentVizZoom) : val;
         if (onVizZoomChange) {
-          onVizZoomChange(typeof val === "function" ? val(vizZoom) : val);
+          onVizZoomChange(newZoom);
         }
       },
-      [onVizZoomChange, vizZoom],
+      [onVizZoomChange, currentVizZoom],
     );
 
     const setVizPanOffset = useCallback(
@@ -419,11 +424,11 @@ const FFTCanvas = memo(
       [onVizPanChange, vizPanOffset],
     );
 
-    const vizZoomRef = useRef(vizZoom);
+    const vizZoomRef = useRef(currentVizZoom);
     const vizDbMaxRef = useRef(vizDbMax);
     const vizDbMinRef = useRef(vizDbMin);
     const vizPanOffsetRef = useRef(vizPanOffset);
-    vizZoomRef.current = vizZoom;
+    vizZoomRef.current = currentVizZoom;
     vizDbMaxRef.current = vizDbMax;
     vizDbMinRef.current = vizDbMin;
     vizPanOffsetRef.current = vizPanOffset;
@@ -549,32 +554,36 @@ const FFTCanvas = memo(
       gpuBufferPoolRef,
     });
     const spectrumWebgpuEnabled = webgpuEnabled;
+    const effectiveFftSize = fftSize ?? 32768;
+    const effectivePowerScale = powerScale ?? "dB";
+    const effectiveFftWindowRaw = (fftWindow ?? "Rectangular").toLowerCase();
+    const effectiveFftWindow:
+      | "rectangular"
+      | "hanning"
+      | "hamming"
+      | "blackman"
+      | "nuttall" =
+      effectiveFftWindowRaw === "rectangular" ||
+        effectiveFftWindowRaw === "hanning" ||
+        effectiveFftWindowRaw === "hamming" ||
+        effectiveFftWindowRaw === "blackman" ||
+        effectiveFftWindowRaw === "nuttall"
+        ? effectiveFftWindowRaw
+        : "rectangular";
 
     // Initialize unified FFT and waterfall when WebGPU is available
-    const unifiedFFTSize = 4096;
+    const unifiedFFTSize = effectiveFftSize;
     const unifiedFFT = useUnifiedFFTWaterfall({
       device: webgpuDeviceRef.current,
       fftSize: unifiedFFTSize,
       waterfallHeight: 512,
-      windowType: 'hanning',
+      windowType: effectiveFftWindow,
       enableAveraging: fftAvgEnabled,
       enableSmoothing: fftSmoothEnabled,
       normalizationFactor: 1.0
     });
 
     // Compute zoomed frequency range from the full range (visual only, don't retune)
-    const handleZoomChange = useCallback(
-      (newZoom: number) => {
-        const clampedZoom = Math.max(1, Math.min(MAX_VISUALIZER_ZOOM, newZoom));
-        setVizZoom(clampedZoom);
-        // Reset pan offset when zooming completely out to prevent getting stuck panned
-        if (clampedZoom <= 1) setVizPanOffset(0);
-        overlayDirtyRef.current.grid = true;
-        overlayDirtyRef.current.markers = true;
-      },
-      [setVizZoom, setVizPanOffset, overlayDirtyRef],
-    );
-
     useEffect(() => {
       // Frequency range changes affect both overlays
       overlayDirtyRef.current.grid = true;
@@ -657,7 +666,11 @@ const FFTCanvas = memo(
     });
 
     // Initialize WASM SIMD for optimized data processing
-    const { resampleSpectrum: wasmResampleSpectrum, isSimdAvailable } = useWasmSimdMath({
+    const {
+      resampleSpectrum: wasmResampleSpectrum,
+      processIqToDbmSpectrum,
+      isSimdAvailable
+    } = useWasmSimdMath({
       fftSize: 4096,
       enableSimd: true,
       fallbackToScalar: true,
@@ -774,20 +787,82 @@ const FFTCanvas = memo(
 
         const currentData = dataRef.current;
 
-        const hasNewData = !isPaused && currentData && currentData !== lastProcessedDataRef.current && !!currentData.waveform;
+        const powerScale = effectivePowerScale;
+        const isDbmMode = powerScale === "dBm";
+        const powerScaleChanged = lastRenderedPowerScaleRef.current !== powerScale;
+        const hasNewData = !isPaused && currentData && currentData !== lastProcessedDataRef.current &&
+          (!!currentData.waveform || !!currentData.iq_data);
+        const shouldReprocessCurrentFrame = !!(
+          !isPaused &&
+          currentData &&
+          currentData === lastProcessedDataRef.current &&
+          powerScaleChanged &&
+          (!!currentData.waveform || !!currentData.iq_data)
+        );
 
-        if (hasNewData) {
-          const waveform = ensureFloat32Waveform(currentData!.waveform);
-          const canUseUnifiedFFT = waveform.length === unifiedFFTSize;
+        if (hasNewData || shouldReprocessCurrentFrame) {
+          const isIqRaw = currentData?.data_type === "iq_raw";
+          // Handle I/Q data for dBm mode
+          let waveform: Float32Array;
+          let gpuInput: Float32Array | null = null;
+          let gpuInputMode: "real" | "complex_iq" = "real";
+
+          if (isIqRaw && currentData?.iq_data) {
+            const iqBytes = currentData.iq_data as Uint8Array;
+
+            // Always produce a CPU/WASM spectrum for the line plot so toggling power
+            // scales never leaves us without data. Clamp to the current dB range to
+            // prevent the trace from pinning against the top label.
+            const cpuSpectrum = processIqToDbmSpectrum(iqBytes, effectiveFftSize);
+            const minClamp = vizDbMin;
+            const maxClamp = vizDbMax;
+            for (let i = 0; i < cpuSpectrum.length; i++) {
+              const val = cpuSpectrum[i];
+              cpuSpectrum[i] = Math.min(maxClamp, Math.max(minClamp, val));
+            }
+            waveform = cpuSpectrum;
+
+            // GPU Path: Convert Uint8 offset-binary to Float32 complex pairs
+            const pairCount = Math.min(effectiveFftSize, Math.floor(iqBytes.length / 2));
+            gpuInput = new Float32Array(pairCount * 2);
+            for (let i = 0; i < pairCount; i++) {
+              gpuInput[i * 2] = (iqBytes[i * 2] - 127.5) / 127.5;     // I
+              gpuInput[i * 2 + 1] = (iqBytes[i * 2 + 1] - 127.5) / 127.5; // Q
+            }
+            gpuInputMode = "complex_iq";
+          } else if (currentData && currentData.waveform) {
+            // Use regular spectrum data
+            waveform = ensureFloat32Waveform(currentData.waveform);
+            gpuInput = waveform;
+            gpuInputMode = "real";
+          } else {
+            // Safety fallback if data is partially missing during device swap
+            return;
+          }
+
+          const canUseUnifiedFFT = (gpuInputMode === "complex_iq" ? gpuInput!.length / 2 : gpuInput!.length) === unifiedFFTSize;
 
           // Validate waveform before processing
           if (waveform && waveform.length > 0) {
             waveformFloatRef.current = waveform;
             lastProcessedDataRef.current = currentData;
+            lastRenderedPowerScaleRef.current = effectivePowerScale;
 
             // Process with unified GPU FFT when available
-            if (canUseUnifiedFFT && unifiedFFT.isInitialized && !unifiedFFT.isProcessing) {
-              unifiedFFT.processUnified(waveform).catch((error: Error) => {
+            // ONLY if we have raw I/Q data. If we have a regular spectrum, 
+            // the unified logic would perform a recursive FFT (flicker).
+            if (canUseUnifiedFFT && gpuInputMode === "complex_iq" && unifiedFFT.isInitialized && !unifiedFFT.isProcessing) {
+              const processOptions = {
+                inputMode: gpuInputMode,
+                powerMode: isDbmMode ? "dbm" : "db" as "db" | "dbm",
+                minDb: vizDbMin,
+                maxDb: vizDbMax
+              };
+
+              unifiedFFT.processUnified(gpuInput!, {
+                ...processOptions,
+                hardwareSampleRateHz,
+              } as any).catch((error: Error) => {
                 console.warn('Unified GPU FFT failed, falling back to CPU:', error);
               });
             }
@@ -907,7 +982,10 @@ const FFTCanvas = memo(
           }
 
           const unifiedSourceWaveform =
-            canUseUnifiedFFT && unifiedFFT.isInitialized && unifiedFFT.lastResult?.spectrumData
+            !isDbmMode &&
+              canUseUnifiedFFT &&
+              unifiedFFT.isInitialized &&
+              unifiedFFT.lastResult?.spectrumData
               ? unifiedFFT.lastResult.spectrumData
               : null;
 
@@ -999,6 +1077,7 @@ const FFTCanvas = memo(
               frequencyRange: visualRange,
               fftMin: vizDbMinRef.current,
               fftMax: vizDbMaxRef.current,
+              powerScale: effectivePowerScale,
               gridOverlayRenderer: gridOverlayRendererRef.current,
               markersOverlayRenderer: markersOverlayRendererRef.current,
               overlayDirty: overlayDirtyRef.current,
@@ -1197,6 +1276,7 @@ const FFTCanvas = memo(
         fftAvgEnabled,
         fftSmoothEnabled,
         wfSmoothEnabled,
+        effectivePowerScale,
       ],
     );
 
@@ -1209,6 +1289,7 @@ const FFTCanvas = memo(
       isPaused,
       onRenderFrame,
       onBecomeVisible,
+      targetFPS: fftFrameRate,
     });
 
     useEffect(() => {
@@ -1471,8 +1552,23 @@ const FFTCanvas = memo(
 
     useEffect(() => {
       overlayDirtyRef.current.grid = true;
-      if (isPaused) forceRender();
-    }, [vizDbMin, vizDbMax, vizZoom, vizPanOffset, forceRender, isPaused]);
+      overlayDirtyRef.current.markers = true;
+      forceRender();
+    }, [vizDbMin, vizDbMax, currentVizZoom, vizPanOffset, forceRender]);
+
+    // Separate effect for powerScale changes to ensure immediate overlay updates
+    useEffect(() => {
+      lastProcessedDataRef.current = null;
+      lastRenderedPowerScaleRef.current = null;
+      renderWaveformRef.current = null;
+      spectrumResampleBufRef.current = null;
+      fftAvgBufferRef.current = null;
+      fftProcessedBufferRef.current = null;
+      fftSmoothedBufferRef.current = null;
+      overlayDirtyRef.current.grid = true;
+      overlayDirtyRef.current.markers = true;
+      forceRender();
+    }, [effectivePowerScale, forceRender]);
 
     useImperativeHandle(ref, () => ({
       getSpectrumCanvas: () => spectrumCanvasRef.current,
@@ -1556,19 +1652,24 @@ const FFTCanvas = memo(
         </VisualizerContent>
         <SlidersRail>
           <VisualizerSliders
-            zoom={vizZoom}
-            dbMax={state.fftMaxDb}
-            dbMin={state.fftMinDb}
-            onZoomChange={handleZoomChange}
-            onDbMaxChange={(max: number) => setVizDbLimits(state.fftMinDb, max)}
-            onDbMinChange={(min: number) => setVizDbLimits(min, state.fftMaxDb)}
+            zoom={currentVizZoom}
+            dbMax={vizDbMax}
+            dbMin={vizDbMin}
+            powerScale={effectivePowerScale}
+            onZoomChange={(zoom) => setVizZoom(zoom)}
+            onDbMaxChange={(max) => onFftDbLimitsChange?.(vizDbMin, max)}
+            onDbMinChange={(min) => onFftDbLimitsChange?.(min, vizDbMax)}
             fftAvgEnabled={fftAvgEnabled}
             fftSmoothEnabled={fftSmoothEnabled}
             wfSmoothEnabled={wfSmoothEnabled}
-            onFftAvgChange={setFftAvgEnabled}
-            onFftSmoothChange={setFftSmoothEnabled}
-            onWfSmoothChange={setWfSmoothEnabled}
-            onResetZoomDb={() => dispatch({ type: "RESET_ZOOM_AND_DB" })}
+            onFftAvgChange={(enabled) => reduxDispatch(spectrumActions.setFftAvgEnabled(enabled))}
+            onFftSmoothChange={(enabled) => reduxDispatch(spectrumActions.setFftSmoothEnabled(enabled))}
+            onWfSmoothChange={(enabled) => reduxDispatch(spectrumActions.setWfSmoothEnabled(enabled))}
+            onResetZoomDb={() => {
+              onVizZoomChange?.(1);
+              onVizPanChange?.(0);
+              onFftDbLimitsChange?.(FFT_MIN_DB, FFT_MAX_DB);
+            }}
           />
         </SlidersRail>
       </VisualizerContainer>

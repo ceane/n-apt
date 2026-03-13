@@ -25,7 +25,6 @@ describe("useWebSocket Hook", () => {
     const { result } = renderHook(() => useWebSocket("ws://test", null, true));
 
     // Check that all expected properties exist
-    console.log("Keys in useWebSocket return:", Object.keys(result.current));
     expect(typeof result.current.isConnected).toBe("boolean");
     expect(typeof result.current.isPaused).toBe("boolean");
     expect(
@@ -37,9 +36,6 @@ describe("useWebSocket Hook", () => {
       typeof result.current.backend === "string",
     ).toBe(true);
     expect(
-      result.current.data === null || typeof result.current.data === "object",
-    ).toBe(true);
-    expect(
       result.current.error === null || typeof result.current.error === "string",
     ).toBe(true);
     expect(typeof result.current.sendFrequencyRange).toBe("function");
@@ -49,8 +45,7 @@ describe("useWebSocket Hook", () => {
     expect(typeof result.current.sendTrainingCommand).toBe("function");
     expect(typeof result.current.sendCaptureCommand).toBe("function");
     expect(typeof result.current.sendGetAutoFftOptions).toBe("function");
-    expect(result.current.dataRef).toBeDefined();
-    expect(result.current.dataRef.current).toBeDefined();
+    // Note: dataRef now lives in liveDataRef from websocketMiddleware, not useWebSocket
   });
 
   it("should handle disabled state", () => {

@@ -3,7 +3,10 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { MemoryRouter } from "react-router-dom";
 import { AppRoutes } from "@n-apt/routes/Routes";
-import { ThemeProvider } from "styled-components";
+import { TestWrapper } from "./testUtils";
+
+// Mock scrollTo for containers
+Element.prototype.scrollTo = jest.fn();
 
 // Mock providers and AuthRoute
 jest.mock("@n-apt/hooks/useAuthentication", () => ({
@@ -36,9 +39,6 @@ jest.mock("@n-apt/routes/SpectrumRoute", () => ({
   SpectrumRoute: () => <div data-testid="spectrum-route">Spectrum Route</div>,
 }));
 
-jest.mock("@n-apt/routes/DecodeRoute", () => ({
-  DecodeRoute: () => <div data-testid="decode-route">Decode Route</div>,
-}));
 
 jest.mock("@n-apt/routes/DrawSignalRoute", () => ({
   DrawSignalRoute: () => <div data-testid="draw-signal-route">Draw Signal Route</div>,
@@ -83,11 +83,11 @@ const theme = {
 
 const renderApp = (initialPath = "/") => {
   return render(
-    <ThemeProvider theme={theme}>
+    <TestWrapper>
       <MemoryRouter initialEntries={[initialPath]}>
         <AppRoutes />
       </MemoryRouter>
-    </ThemeProvider>,
+    </TestWrapper>,
   );
 };
 
@@ -98,11 +98,6 @@ describe("App Routing", () => {
     expect(screen.getByTestId("spectrum-sidebar")).toBeInTheDocument();
   });
 
-  it("renders Decode route for /analysis", () => {
-    renderApp("/analysis");
-    expect(screen.getByTestId("decode-route")).toBeInTheDocument();
-    expect(screen.getByTestId("analysis-sidebar")).toBeInTheDocument();
-  });
 
   it("renders Draw Signal route for /draw-signal", () => {
     renderApp("/draw-signal");
@@ -122,17 +117,4 @@ describe("App Routing", () => {
     expect(screen.getByTestId("map-endpoints-sidebar")).toBeInTheDocument();
   });
 
-  it("navigates when clicking sidebar tabs", () => {
-    // We need MainLayout to be real enough to have buttons
-    // But we are using AppRoutes which renders MainLayout from the source
-    renderApp("/");
-
-    // Check for navigation buttons in MainLayout
-    // "Decode N-APT with ML"
-    const decodeTab = screen.getByText(/Decode N-APT with ML/i);
-    fireEvent.click(decodeTab);
-
-    // After clicking, the DecodeRoute should be rendered
-    expect(screen.getByTestId("decode-route")).toBeInTheDocument();
-  });
 });

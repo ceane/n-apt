@@ -9,6 +9,9 @@ struct FFTParams {
   input_size: u32,   // Size of input buffer (must be power of 2)
   window_type: u32,  // Window function type
   normalization: f32, // Normalization factor
+  min_db: f32,       // Minimum dB for waterfall normalization (e.g. -120.0)
+  max_db: f32,       // Maximum dB for waterfall normalization (e.g. 0.0)
+  waterfall_width: u32, // Width of waterfall texture (capped by hardware)
 };
 
 // Window function types
@@ -227,8 +230,9 @@ fn fft_waterfall_direct(@builtin(global_invocation_id) global_id: vec3<u32>) {
   // Convert to dB scale with normalization
   let db_value = 20.0 * log10(max(magnitude / params.normalization, 1e-10));
   
-  // Normalize dB value to [0, 1] for waterfall
-  let normalized = clamp((db_value + 120.0) / 120.0, 0.0, 1.0);
+  // Normalize dB value to [0, 1] for waterfall using min_db/max_db
+  let range = params.max_db - params.min_db;
+  let normalized = clamp((db_value - params.min_db) / max(range, 0.001), 0.0, 1.0);
   
   // Direct waterfall color mapping (optimized for real-time)
   var color: vec4<f32>;
@@ -250,30 +254,99 @@ fn fft_waterfall_direct(@builtin(global_invocation_id) global_id: vec3<u32>) {
   );
 }
 
-// Optimized waterfall buffer update
 @compute @workgroup_size(256)
 fn waterfall_buffer_update(@builtin(global_invocation_id) global_id: vec3<u32>) {
   let idx = global_id.x;
   let width = params.input_size;
-  let line_index = params.stage; // Reuse stage as line index
+  let waterfall_width = params.waterfall_width;
   
-  if (idx >= width) {
+  if (idx >= waterfall_width) {
     return;
   }
   
+  // Downsample if needed (decimation)
+  let ratio = width / waterfall_width;
+  let input_idx = idx * ratio;
+  
   // Read FFT power spectrum directly
-  let complex_val = input_buffer[idx];
+  let complex_val = input_buffer[input_idx];
   let magnitude = complex_magnitude(complex_val);
   let db_value = 20.0 * log10(max(magnitude / params.normalization, 1e-10));
   
-  // Normalize and apply color mapping
-  let normalized = clamp((db_value + 120.0) / 120.0, 0.0, 1.0);
+  // Normalize and apply color mapping using min_db/max_db
+  let range = params.max_db - params.min_db;
+  let normalized = clamp((db_value - params.min_db) / max(range, 0.001), 0.0, 1.0);
   
-  // Fast color calculation using bit manipulation for performance
-  let color_int = u32(normalized * 255.0);
+  // Map to colors: Blue -> Cyan -> Green -> Yellow -> Red
+  var r = 0.0;
+  var g = 0.0;
+  var b = 0.0;
   
-  // Store in waterfall texture format (single float packing)
-  output_buffer[idx] = Complex(f32(color_int), f32(line_index));
+  if (normalized < 0.25) {
+    b = normalized * 4.0;
+  } else if (normalized < 0.5) {
+    g = (normalized - 0.25) * 4.0;
+    b = 1.0;
+  } else if (normalized < 0.75) {
+    r = (normalized - 0.5) * 4.0;
+    g = 1.0;
+    b = 1.0 - (normalized - 0.5) * 4.0;
+  } else {
+    r = 1.0;
+    g = 1.0 - (normalized - 0.75) * 4.0;
+  }
+
+  let color_u32 = (u32(r * 255.0)) | (u32(g * 255.0) << 8u) | (u32(b * 255.0) << 16u) | (255u << 24u);
+  
+  // Pack 2 pixels per Complex element (8 bytes total, 4 bytes each)
+  // real part = pixel N, imag part = pixel N+1
+  if (idx % 2u == 0u) {
+    output_buffer[idx / 2u].real = bitcast<f32>(color_u32);
+  } else {
+    output_buffer[idx / 2u].imag = bitcast<f32>(color_u32);
+  }
+}
+
+fn rtl_sdr_windowed_complex_iq(idx: u32, sample: Complex) -> Complex {
+  let window_val = window_function(idx, params.input_size, WINDOW_HANNING);
+  return Complex(sample.real * window_val, sample.imag * window_val);
+}
+
+fn rtl_sdr_complex_power(sample: Complex) -> f32 {
+  return sample.real * sample.real + sample.imag * sample.imag;
+}
+
+fn rtl_sdr_approx_dbm(sample: Complex) -> f32 {
+  let power = max(rtl_sdr_complex_power(sample), 1e-20);
+  let normalized_power = power / params.normalization;
+  let window_correction_db = 1.5;
+  let reference_offset_db = 13.0;
+  return 10.0 * log10(max(normalized_power, 1e-20)) + window_correction_db + reference_offset_db;
+}
+
+@compute @workgroup_size(256)
+fn rtl_sdr_iq_to_dbm(@builtin(global_invocation_id) global_id: vec3<u32>) {
+  let idx = global_id.x;
+
+  if (idx >= params.input_size) {
+    return;
+  }
+
+  let iq_sample = input_buffer[idx];
+  output_buffer[idx] = rtl_sdr_windowed_complex_iq(idx, iq_sample);
+}
+
+@compute @workgroup_size(256)
+fn rtl_sdr_power_spectrum_dbm(@builtin(global_invocation_id) global_id: vec3<u32>) {
+  let idx = global_id.x;
+
+  if (idx >= params.input_size) {
+    return;
+  }
+
+  let complex_val = input_buffer[idx];
+  let dbm = rtl_sdr_approx_dbm(complex_val);
+  output_buffer[idx] = Complex(dbm, 0.0);
 }
 
 // Frequency domain filtering

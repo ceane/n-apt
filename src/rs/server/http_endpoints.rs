@@ -8,8 +8,9 @@ use redis::Client as RedisClient;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::env;
-use std::sync::atomic::Ordering;
-use std::sync::Arc;
+use rustfft::{num_complex::Complex, FftPlanner};
+use std::sync::{Arc, atomic::Ordering};
+use std::time::Instant;
 use tokio_util::io::ReaderStream;
 
 use crate::sdr::rtlsdr::RtlSdrDevice;
@@ -149,6 +150,44 @@ pub struct TowerBoundsResponse {
   pub truncated: Option<bool>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub total_found: Option<usize>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct StitchDiagnosticRequest {
+  /// Optional center frequency override in Hz (to honour channel selection from sidebar)
+  pub center_hz: Option<u32>,
+  /// Optional signal area label (A, B, etc.) to anchor the diagnostic to the channel start
+  pub signal_area: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct StitchDiagnosticTiming {
+  pub total_latency_ms: f32,
+  pub settle_time_ms: f32,
+  pub slice_duration_ms: f32,
+  pub capture_timestamp_ms: u64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct StitchDiagnosticResponse {
+  pub hop1_frames: Vec<Vec<f32>>,
+  pub hop2_frames: Vec<Vec<f32>>,
+  pub stitched_frames: Vec<Vec<f32>>,
+  pub hop1_freq_mhz: [f32; 2],
+  pub hop2_freq_mhz: [f32; 2],
+  pub stitched_freq_mhz: [f32; 2],
+  pub overlap_start: usize,
+  pub overlap_end: usize,
+  pub device_info: String,
+  /// Mean phase angle of the dominant signal in Hop 1 (degrees)
+  pub hop1_phase_deg: f32,
+  /// Mean phase angle of the dominant signal in Hop 2 (degrees)
+  pub hop2_phase_deg: f32,
+  /// Phase shift required to align Hop 2 with Hop 1 (degrees)
+  pub correction_angle_deg: f32,
+  /// Estimated FM deviation / frequency drift between the two captures (kHz)
+  pub fm_deviation_khz: f32,
+  pub timing: StitchDiagnosticTiming,
 }
 
 fn normalize_tech_key(token: &str) -> String {
@@ -794,6 +833,330 @@ pub async fn execute_webmcp_tool_handler(
   };
 
   Json(result)
+}
+
+
+/// POST /api/debug/stitch-diagnostic — Run a 2-hop capture and return stitching data
+/// Calculate the phase offset between two raw IQ frames in their overlap region.
+/// Returns the correction angle in degrees that should be added to Hop 2 to align it with Hop 1.
+fn calculate_overlap_phase_offset(
+  processor: &mut crate::sdr::SdrProcessor,
+  iq1: &[u8],
+  iq2: &[u8],
+) -> (f32, f32, f32, f32) {
+  let fft_size = processor.fft_processor.fft_size();
+  let sample_rate = processor.get_sample_rate() as f32;
+  let bytes_per_frame = fft_size * 2;
+
+  if iq1.len() < bytes_per_frame || iq2.len() < bytes_per_frame {
+    return (0.0, 0.0, 0.0, 0.0);
+  }
+
+  // Use the first frame from each capture for stable alignment
+  let frame1 = &iq1[0..bytes_per_frame];
+  let frame2 = &iq2[0..bytes_per_frame];
+
+  let mut c1 = processor.fft_processor.iq_to_complex(frame1);
+  let mut c2 = processor.fft_processor.iq_to_complex(frame2);
+
+  processor.fft_processor.apply_window(&mut c1);
+  processor.fft_processor.apply_window(&mut c2);
+
+  let mut planner = FftPlanner::new();
+  let fft = planner.plan_fft_forward(fft_size);
+  fft.process(&mut c1);
+  fft.process(&mut c2);
+
+  // We must shift frequencies to match visual layout: [-Nyq .. DC .. +Nyq]
+  c1.rotate_right(fft_size / 2);
+  c2.rotate_right(fft_size / 2);
+
+  // For a 1.2MHz jump at 3.2MHz sample rate, the overlap is 62.5% of the spectrum.
+  // The shift is exactly 37.5% of the bins.
+  let offset_bins = (0.375f32 * fft_size as f32).round() as usize;
+  let overlap_len = fft_size - offset_bins;
+
+  if overlap_len == 0 {
+    return (0.0, 0.0, 0.0, 0.0);
+  }
+
+  let mut sum_product = Complex::new(0.0f32, 0.0f32);
+  // 1. Compute Cross-Power Spectrum in the overlap region
+  let mut cross_power = Vec::with_capacity(overlap_len);
+  for i in 0..overlap_len {
+    // z1 * conj(z2) gives the complex vector offset from 2 to 1 for this frequency bin
+    cross_power.push(c1[offset_bins + i] * c2[i].conj());
+  }
+
+  // 2. Estimate sub-sample Time Delay (Fractional Delay) via Phase Slope
+  // Formula: X_corr(f) = X(f) e^{-j 2\pi f \Delta t}
+  // Instead of peak absolute cross-correlation, we use the phase differentiator method
+  // to yield exact sub-sample phase tracking.
+  let mut sum_slope = Complex::new(0.0f32, 0.0f32);
+  for i in 1..overlap_len {
+    // Multiply by conj of previous bin to find phase difference: z[i] * z[i-1]*
+    // Amplitude weighting prioritizes bins with strong signal to lock the slope
+    sum_slope += cross_power[i] * cross_power[i - 1].conj();
+  }
+  let phase_slope_per_bin = sum_slope.arg(); // Sub-sample fractional discrete delay
+
+  // 3. Estimate constant Phase Offset (LO mismatch / zero-Hz intercept)
+  // We remove the linear time delay from the cross_power to solve the base LO rotation.
+  let mut sum_base = Complex::new(0.0f32, 0.0f32);
+  for i in 0..overlap_len {
+    // Rotation applied to counteract the phase slope and align perfectly to base phase
+    let detrend_rot = Complex::new(0.0, -phase_slope_per_bin * (i as f32)).exp();
+    sum_base += cross_power[i] * detrend_rot;
+  }
+  let base_phase_offset = sum_base.arg();
+
+  // 4. Calculate Phase of Hop 1 and Hop 2 using the dominant frequency for UI display
+  let mut max_combined_pwr = -1.0;
+  let mut dominant_phase1 = 0.0;
+  let mut dominant_phase2 = 0.0;
+  let mut dominant_bin = 0;
+  
+  // Also track absolute separate peaks for FM Deviation
+  let mut max_pwr1 = -1.0;
+  let mut bin1 = 0;
+  let mut max_pwr2 = -1.0;
+  let mut bin2 = 0;
+
+  for i in 0..overlap_len {
+    let pwr1 = c1[offset_bins + i].norm_sqr();
+    let pwr2 = c2[i].norm_sqr();
+    let pwr_combined = pwr1 + pwr2;
+    
+    if pwr_combined > max_combined_pwr {
+      max_combined_pwr = pwr_combined;
+      dominant_phase1 = c1[offset_bins + i].arg();
+      dominant_phase2 = c2[i].arg();
+      dominant_bin = i;
+    }
+    
+    if pwr1 > max_pwr1 {
+      max_pwr1 = pwr1;
+      bin1 = i;
+    }
+    
+    if pwr2 > max_pwr2 {
+      max_pwr2 = pwr2;
+      bin2 = i;
+    }
+  }
+
+  // Calculate FM Deviation (how much the peak swung between Hop 1 and Hop 2)
+  let bin_size_hz = sample_rate / fft_size as f32;
+  let fm_deviation_hz = (bin2 as f32 - bin1 as f32) * bin_size_hz;
+  let fm_deviation_khz = fm_deviation_hz / 1000.0;
+
+  // Calculate the EXACT phase shift modeled for Hop 2 at the dominant frequency!
+  // Phase Rotation in frequency domain: X_corr(f) = X(f) * exp(j * (\theta_0 + slope * f))
+  let shift_at_dominant = base_phase_offset + phase_slope_per_bin * (dominant_bin as f32);
+
+  // Wrap to [-180, 180] strictly
+  // Use rem_euclid to restrict strictly to [0, 360) first
+  let mut correction_angle_deg = shift_at_dominant.to_degrees().rem_euclid(360.0);
+  
+  if correction_angle_deg > 180.0 {
+    correction_angle_deg -= 360.0;
+  }
+
+  (
+    correction_angle_deg,
+    dominant_phase1.to_degrees(),
+    dominant_phase2.to_degrees(),
+    fm_deviation_khz
+  )
+}
+
+pub async fn stitch_diagnostic_handler(
+  State(state): State<Arc<super::main::AppState>>,
+  body: Option<Json<StitchDiagnosticRequest>>,
+) -> impl IntoResponse {
+  let start_time = Instant::now();
+  info!("Stitch diagnostic requested (multi-frame)");
+
+  let center_hz_override = body.as_ref().and_then(|b| b.center_hz);
+  let signal_area_override = body.as_ref().and_then(|b| b.signal_area.clone());
+
+  let mut processor = state.sdr_processor.lock().await;
+
+  // Determine the primary center frequency for Hop 1.
+  // We prioritize anchoring to the start of the active signal area if provided.
+  let mut effective_center1 = center_hz_override;
+  if let Some(label) = signal_area_override {
+    let channels = state.shared.channels.lock().unwrap().clone();
+    if let Some(ch) = channels.iter().find(|c| c.label.to_uppercase() == label.to_uppercase()) {
+      // Anchor center1 so that the hardware capture starts exactly at the channel's min_mhz
+      // center = min + (sample_rate / 2)
+      let sr_hz = processor.get_sample_rate() as f64;
+      let anchored_hz = (ch.min_mhz * 1_000_000.0 + (sr_hz / 2.0)) as u32;
+      info!("Anchoring diagnostic center1 to {} Hz for area {}", anchored_hz, label);
+      effective_center1 = Some(anchored_hz);
+    }
+  }
+
+  let (center1, hop_bw_mhz, sample_rate, device_info, was_paused) = {
+    let was_paused = state.shared.is_paused.load(Ordering::Relaxed);
+    // Pause during diagnostic to avoid hardware contention
+    state.shared.is_paused.store(true, Ordering::Relaxed);
+
+    // Honor channel selection from the sidebar
+    if let Some(center_hz) = effective_center1 {
+      if center_hz != processor.get_center_frequency() {
+        if let Err(e) = processor.set_center_frequency(center_hz) {
+          warn!("Failed to apply center_hz override: {}", e);
+        } else {
+          processor.flush_read_queue();
+        }
+      }
+    }
+    
+    let sample_rate = processor.get_sample_rate() as f64;
+    (
+      processor.get_center_frequency(),
+      sample_rate / 1_000_000.0,
+      sample_rate,
+      processor.get_device_info(),
+      was_paused
+    )
+  };
+  
+  const NUM_FRAMES: usize = 60;
+  let mut hop1_frames = Vec::with_capacity(NUM_FRAMES);
+  let mut hop2_frames = Vec::with_capacity(NUM_FRAMES);
+  let mut hop1_raw_iq: Vec<u8> = Vec::new();
+  let mut hop2_raw_iq: Vec<u8> = Vec::new();
+
+  // 1. Capture Hop 1
+  {
+    // Clear any stale pending frequency to avoid accidental retunes
+    processor.pending_freq = None;
+    // Flush to clear any stale data before we start the "real" capture
+    processor.flush_read_queue();
+
+    for _ in 0..NUM_FRAMES {
+      match processor.read_and_process_frame() {
+        Ok(f) => {
+          // Collect the raw IQ bytes the device just read (set by read_and_process_frame)
+          hop1_raw_iq.extend_from_slice(&processor.last_frame_raw_iq);
+          hop1_frames.push(f);
+        }
+        Err(e) => {
+          state.shared.is_paused.store(was_paused, Ordering::Relaxed);
+          return (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to capture hop 1: {}", e)).into_response();
+        }
+      }
+    }
+  }
+
+
+
+  // 2. Tune and Capture Hop 2 (offset by 1.2MHz)
+  let center2 = center1 + 1_200_000;
+  {
+    if let Err(e) = processor.set_center_frequency(center2) {
+      state.shared.is_paused.store(was_paused, Ordering::Relaxed);
+      return (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to tune to hop 2: {}", e)).into_response();
+    }
+
+    // Flush to clear any data from the old frequency
+    processor.flush_read_queue();
+
+    for _ in 0..NUM_FRAMES {
+      match processor.read_and_process_frame() {
+        Ok(f) => {
+          hop2_raw_iq.extend_from_slice(&processor.last_frame_raw_iq);
+          hop2_frames.push(f);
+        }
+        Err(e) => {
+          let _ = processor.set_center_frequency(center1); // Restore
+          state.shared.is_paused.store(was_paused, Ordering::Relaxed);
+          return (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to capture hop 2: {}", e)).into_response();
+        }
+      }
+    }
+    // Restore frequency
+    let _ = processor.set_center_frequency(center1);
+  }
+
+  // Compute phase coherence / alignment offset in the overlap region
+  let (correction_angle_deg, hop1_phase_deg, hop2_phase_deg, fm_deviation_khz) = calculate_overlap_phase_offset(&mut processor, &hop1_raw_iq, &hop2_raw_iq);
+
+  // Restore previous pause state
+  state.shared.is_paused.store(was_paused, Ordering::Relaxed);
+
+  // 4. Seamless Crossfade Stitching
+  let jump_hz = (center2 - center1) as f64 / 1_000_000.0;
+  let fft_size = if !hop1_frames.is_empty() { hop1_frames[0].len() } else { 1024 };
+
+  // Calculate dynamic overlap bounds based strictly on the center frequency jump
+  let offset_bins = ((fft_size as f64) * (jump_hz / hop_bw_mhz)).round() as usize;
+  let overlap_bins = fft_size.saturating_sub(offset_bins);
+    // 4. Midpoint Cut Stitching (No Blending)
+    let mut stitched_frames = Vec::with_capacity(NUM_FRAMES);
+    let midpoint_bin = overlap_bins / 2;
+
+    for i in 0..NUM_FRAMES {
+      let f1 = &hop1_frames[i];
+      let f2 = &hop2_frames[i];
+      
+      let mut stitched = Vec::with_capacity(fft_size + offset_bins);
+      
+      if f1.len() < fft_size || f2.len() < fft_size {
+        stitched.extend_from_slice(f1);
+        stitched_frames.push(stitched);
+        continue;
+      }
+
+      // 1. Hop 1 up to the midpoint of the overlap
+      stitched.extend_from_slice(&f1[..offset_bins + midpoint_bin]);
+      
+      // 2. Hop 2 from the midpoint of the overlap onwards
+      // The overlap in f2 starts at index 0. So midpoint in overlap is index midpoint_bin.
+      stitched.extend_from_slice(&f2[midpoint_bin..]);
+      
+      stitched_frames.push(stitched);
+    }
+
+  // Frequency ranges
+  let hop1_start = (center1 as f32 - (sample_rate as f32 / 2.0)) / 1_000_000.0;
+  let hop1_end = (center1 as f32 + (sample_rate as f32 / 2.0)) / 1_000_000.0;
+  let hop2_start = (center2 as f32 - (sample_rate as f32 / 2.0)) / 1_000_000.0;
+  let hop2_end = (center2 as f32 + (sample_rate as f32 / 2.0)) / 1_000_000.0;
+
+  let total_latency_ms = start_time.elapsed().as_secs_f32() * 1000.0;
+  let slice_duration_ms = (fft_size as f32 / sample_rate as f32) * 1000.0;
+  // Mock uses 0ms settle, real hardware usually ~3-10ms based on post_retune_discard_frames
+  let settle_time_ms = if device_info.contains("Mock") { 0.0 } else { 10.0 }; 
+
+  Json(StitchDiagnosticResponse {
+    hop1_frames,
+    hop2_frames,
+    stitched_frames,
+    hop1_freq_mhz: [hop1_start, hop1_end],
+    hop2_freq_mhz: [hop2_start, hop2_end],
+    stitched_freq_mhz: [hop1_start, hop2_end],
+    overlap_start: offset_bins,
+    overlap_end: overlap_bins,
+
+    device_info,
+    hop1_phase_deg,
+    hop2_phase_deg,
+    correction_angle_deg,
+    fm_deviation_khz,
+    timing: StitchDiagnosticTiming {
+      total_latency_ms,
+      settle_time_ms,
+      slice_duration_ms,
+      capture_timestamp_ms: std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64,
+    },
+  })
+  .into_response()
 }
 
 // WebMCP tool handlers

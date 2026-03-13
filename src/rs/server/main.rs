@@ -54,6 +54,7 @@ pub struct AppState {
   pub broadcast_tx: broadcast::Sender<String>,
   pub spectrum_tx: broadcast::Sender<Arc<types::SpectrumData>>,
   pub cmd_tx: std::sync::mpsc::Sender<types::SdrCommand>,
+  pub sdr_processor: Arc<tokio::sync::Mutex<crate::sdr::processor::SdrProcessor>>,
 }
 
 impl websocket_server::WebSocketServer {
@@ -165,6 +166,11 @@ impl websocket_server::WebSocketServer {
         "/api/webmcp/execute",
         post(http_endpoints::execute_webmcp_tool_handler),
       )
+      // Debug / Diagnostic endpoints
+      .route(
+        "/api/debug/stitch-diagnostic",
+        post(http_endpoints::stitch_diagnostic_handler),
+      )
       // WebSocket endpoint
       .route("/ws", get(websocket_handlers::ws_upgrade_handler))
       .layer(tower_http::compression::CompressionLayer::new());
@@ -224,6 +230,7 @@ impl websocket_server::WebSocketServer {
       broadcast_tx,
       spectrum_tx,
       cmd_tx,
+      sdr_processor: websocket_server.get_sdr_processor(),
     });
 
     let app = Self::create_app(state);

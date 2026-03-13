@@ -1,6 +1,7 @@
 import { useCallback, useRef } from "react";
 import { useDrawWebGPUFFTSignal } from "./useDrawWebGPUFFTSignal";
 import { useDraw2DFFTSignal } from "./useDraw2DFFTSignal";
+import { useDraw3DWaterfallSignal } from "./useDraw3DWaterfallSignal";
 import { useOverlayRenderer } from "./useOverlayRenderer";
 import { OverlayTextureRenderer } from "./useWebGPUInit";
 import type { SdrLimitMarker } from "@n-apt/utils/sdrLimitMarkers";
@@ -28,6 +29,8 @@ export interface SpectrumRendererOptions {
   fftMin: number;
   /** Maximum dB value for the Y-axis */
   fftMax: number;
+  /** Display scale label for the Y-axis */
+  powerScale?: "dB" | "dBm";
   
   /** (WebGPU only) The overlay renderer instance for the grid */
   gridOverlayRenderer?: OverlayTextureRenderer | null;
@@ -58,6 +61,9 @@ export interface SpectrumRendererOptions {
 
   /** (2D only) Whether to use high performance (minimal) drawing mode */
   highPerformanceMode?: boolean;
+  
+  /** Whether to render in 3D waterfall mode */
+  drawSignal3D?: boolean;
 }
 
 /**
@@ -70,6 +76,7 @@ export interface SpectrumRendererOptions {
 export function useSpectrumRenderer() {
   const { drawWebGPUFFTSignal, cleanup: cleanupGPU } = useDrawWebGPUFFTSignal();
   const { draw2DFFTSignal, cleanup: cleanup2D } = useDraw2DFFTSignal();
+  const { draw3DWaterfallSignal, cleanup: cleanup3D } = useDraw3DWaterfallSignal();
   const { drawGridOnContext, drawMarkersOnContext } = useOverlayRenderer();
   
   const lastOverlayUploadMsRef = useRef({ grid: 0, markers: 0 });
@@ -85,6 +92,7 @@ export function useSpectrumRenderer() {
       frequencyRange,
       fftMin,
       fftMax,
+      powerScale = "dB",
       gridOverlayRenderer,
       markersOverlayRenderer,
       overlayDirty,
@@ -97,7 +105,8 @@ export function useSpectrumRenderer() {
       lineColor,
       fillColor,
       backgroundColor,
-      highPerformanceMode = false
+      highPerformanceMode = false,
+      drawSignal3D = false
     } = options;
 
     if (!canvas) return false;
@@ -107,7 +116,21 @@ export function useSpectrumRenderer() {
     // a 'webgpu' context can NEVER be requested on the same canvas (and vice versa).
     if (isInitializingWebGPU) return false;
 
-    // Use WebGPU if enabled and resources are ready
+    if (drawSignal3D) {
+      return draw3DWaterfallSignal({
+        canvas,
+        device: device ?? ({} as GPUDevice),
+        format: format ?? ("bgra8unorm" as GPUTextureFormat),
+        waveform: waveform instanceof Float32Array ? waveform : new Float32Array(waveform),
+        frequencyRange,
+        fftMin,
+        fftMax,
+        showGrid: true,
+        centerFrequencyMHz,
+        isDeviceConnected,
+      });
+    }
+
     if (webgpuEnabled && device && format) {
       const now = performance.now();
       const dpr = window.devicePixelRatio || 1;
@@ -124,6 +147,7 @@ export function useSpectrumRenderer() {
           frequencyRange, 
           fftMin, 
           fftMax, 
+          powerScale,
           hardwareSampleRateHz, 
           fullCaptureRange, 
           isIqRecordingActive
@@ -179,6 +203,7 @@ export function useSpectrumRenderer() {
         frequencyRange,
         fftMin,
         fftMax,
+        powerScale,
         showGrid: true,
         centerFrequencyMHz,
         isDeviceConnected,
@@ -189,13 +214,14 @@ export function useSpectrumRenderer() {
         highPerformanceMode
       });
     }
-  }, [drawWebGPUFFTSignal, draw2DFFTSignal, drawGridOnContext, drawMarkersOnContext]);
+  }, [drawWebGPUFFTSignal, draw2DFFTSignal, draw3DWaterfallSignal, drawGridOnContext, drawMarkersOnContext]);
 
   const cleanup = useCallback(() => {
     cleanupGPU();
     cleanup2D();
+    cleanup3D();
     lastOverlayUploadMsRef.current = { grid: 0, markers: 0 };
-  }, [cleanupGPU, cleanup2D]);
+  }, [cleanupGPU, cleanup2D, cleanup3D]);
 
   return { 
     drawSpectrum, 

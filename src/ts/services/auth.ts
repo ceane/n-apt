@@ -12,9 +12,22 @@ import {
   SESSION_KEY as ENV_SESSION_KEY,
 } from "../consts/env";
 
-// In dev, Vite proxies /auth/* and /status to the backend.
-// In production, these are served from the same origin.
-const API_BASE = BACKEND_HTTP_URL.replace(/\/$/, "");
+const getApiBase = (): string => {
+  if (typeof window !== "undefined") {
+    const host = window.location.hostname;
+    const isLocalPreviewHost =
+      host === "localhost" ||
+      host === "127.0.0.1";
+
+    if (isLocalPreviewHost) {
+      return "";
+    }
+  }
+
+  return BACKEND_HTTP_URL.replace(/\/$/, "");
+};
+
+const API_BASE = getApiBase();
 const SESSION_KEY = ENV_SESSION_KEY ?? "n-apt-session-token";
 
 // ── Types ──────────────────────────────────────────────────────────────

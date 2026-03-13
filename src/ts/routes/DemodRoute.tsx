@@ -2,7 +2,7 @@ import React from "react";
 import styled from "styled-components";
 import DecryptingText from "@n-apt/components/DecryptingText";
 
-const DecodeContainer = styled.div`
+const DemodContainer = styled.div`
   flex: 1;
   display: flex;
   align-items: center;
@@ -11,18 +11,18 @@ const DecodeContainer = styled.div`
   font-size: 14px;
 `;
 
-const DecodeContent = styled.div`
+const DemodContent = styled.div`
   padding: 20px;
   text-align: center;
   color: #ccc;
   font-size: 14px;
 `;
 
-const DecodeTitleWrapper = styled.div`
+const DemodTitleWrapper = styled.div`
   margin-bottom: 16px;
 `;
 
-const DecodeDescription = styled.p`
+const DemodDescription = styled.p`
   margin-bottom: 12px;
 `;
 
@@ -58,22 +58,22 @@ const IntegrationNote = styled.div`
   color: #666;
 `;
 
-export const DecodeRoute: React.FC = () => {
+export const DemodRoute: React.FC = () => {
   return (
-    <DecodeContainer>
-      <DecodeContent>
-        <DecodeTitleWrapper>
+    <DemodContainer>
+      <DemodContent>
+        <DemodTitleWrapper>
           <DecryptingText
-            targetText="Decode N-APT with ML"
+            targetText="Demodulate N-APT with ML"
             speed={7}
             className="text-4xl md:text-6xl lg:text-7xl font-bold text-center"
             style={{ color: "#00d4ff" }}
           />
-        </DecodeTitleWrapper>
-        <DecodeDescription>
-          Advanced signal decoding and feature extraction using machine
+        </DemodTitleWrapper>
+        <DemodDescription>
+          Advanced signal demodulation and feature extraction using machine
           learning.
-        </DecodeDescription>
+        </DemodDescription>
         <FeaturesContainer>
           <FeaturesLabel>Features:</FeaturesLabel>
           <FeaturesList>
@@ -84,12 +84,12 @@ export const DecodeRoute: React.FC = () => {
           </FeaturesList>
         </FeaturesContainer>
         <IntegrationNote>
-          FFT and waterfall display will be integrated here with ML decoding
+          FFT and waterfall display will be integrated here with ML demodulation
           capabilities.
         </IntegrationNote>
-      </DecodeContent>
-    </DecodeContainer>
+      </DemodContent>
+    </DemodContainer>
   );
 };
 
-export default DecodeRoute;
+export default DemodRoute;

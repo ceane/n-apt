@@ -1,0 +1,12 @@
+# .windsurfrules
+node_modules/
+target/
+venv/
+dist/
+package-lock.json
+Cargo.lock
+.cache
+coverage/
+*.rdb
+*.svg
+*.csv

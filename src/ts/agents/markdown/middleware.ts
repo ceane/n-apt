@@ -6,7 +6,7 @@ import { join } from "path";
 const routeMarkdownMap: Record<string, string> = {
   "/": "visualizer.md",
   "/visualizer": "visualizer.md",
-  "/analysis": "analysis.md",
+  "/demodulate": "analysis.md",
   "/draw-signal": "draw-signal.md",
   "/3d-model": "3d-model.md",
   "/hotspot-editor": "hotspot-editor.md",

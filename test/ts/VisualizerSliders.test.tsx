@@ -2,7 +2,7 @@ import React from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { VisualizerSliders } from "@n-apt/components/VisualizerSliders";
-import { ThemeProvider } from "styled-components";
+import { TestWrapper } from "./testUtils";
 
 const mockTheme = {
   primary: "#00d4ff",
@@ -26,9 +26,9 @@ describe("VisualizerSliders Component", () => {
 
   it("should render all sliders and toggles", () => {
     render(
-      <ThemeProvider theme={mockTheme}>
+      <TestWrapper>
         <VisualizerSliders {...defaultProps} />
-      </ThemeProvider>
+      </TestWrapper>
     );
 
     expect(screen.getByText("Zoom")).toBeInTheDocument();
@@ -36,15 +36,15 @@ describe("VisualizerSliders Component", () => {
     expect(screen.getByText("Min")).toBeInTheDocument();
     expect(screen.getByText("RESET")).toBeInTheDocument();
     expect(screen.getByText(/AVG/)).toBeInTheDocument();
-    expect(screen.getByText(/FFT/)).toBeInTheDocument();
+    expect(screen.getByText(/SMOOTH/)).toBeInTheDocument();
     expect(screen.getByText(/WF/)).toBeInTheDocument();
   });
 
   it("should call onResetZoomDb when RESET is clicked", () => {
     render(
-      <ThemeProvider theme={mockTheme}>
+      <TestWrapper>
         <VisualizerSliders {...defaultProps} />
-      </ThemeProvider>
+      </TestWrapper>
     );
 
     fireEvent.click(screen.getByText("RESET"));
@@ -53,15 +53,15 @@ describe("VisualizerSliders Component", () => {
 
   it("should call toggle handlers when toggles are clicked", () => {
     render(
-      <ThemeProvider theme={mockTheme}>
+      <TestWrapper>
         <VisualizerSliders {...defaultProps} />
-      </ThemeProvider>
+      </TestWrapper>
     );
 
     fireEvent.click(screen.getByText(/AVG/));
     expect(defaultProps.onFftAvgChange).toHaveBeenCalledWith(true);
 
-    fireEvent.click(screen.getByText(/FFT/));
+    fireEvent.click(screen.getByText(/SMOOTH/));
     expect(defaultProps.onFftSmoothChange).toHaveBeenCalledWith(true);
 
     fireEvent.click(screen.getByText(/WF/));
@@ -77,13 +77,13 @@ describe("VisualizerSliders Component", () => {
     };
 
     render(
-      <ThemeProvider theme={mockTheme}>
+      <TestWrapper>
         <VisualizerSliders {...activeProps} />
-      </ThemeProvider>
+      </TestWrapper>
     );
 
-    expect(screen.getByText("▸ AVG")).toBeInTheDocument();
-    expect(screen.getByText("▸ FFT")).toBeInTheDocument();
-    expect(screen.getByText("▸ WF")).toBeInTheDocument();
+    expect(screen.getByText("AVG")).toBeInTheDocument();
+    expect(screen.getByText("SMOOTH")).toBeInTheDocument();
+    expect(screen.getByText(/WF/)).toBeInTheDocument();
   });
 });

@@ -1,5 +1,6 @@
 import React from "react";
 import styled from "styled-components";
+import type { DeviceProfile } from "@n-apt/consts/schemas/websocket";
 
 const Section = styled.div`
   display: grid;
@@ -126,10 +127,14 @@ interface SignalDisplaySectionProps {
     autoSizes: number[];
     recommended: number;
   } | null;
+  backend: string | null;
+  deviceProfile?: DeviceProfile | null;
+  powerScale: "dB" | "dBm";
   onFftFrameRateChange: (value: number) => void;
   onFftSizeChange: (value: number) => void;
   onFftWindowChange: (value: string) => void;
   onTemporalResolutionChange: (value: "low" | "medium" | "high") => void;
+  onPowerScaleChange: (value: "dB" | "dBm") => void;
   scheduleCoupledAdjustment: (
     trigger: "fftSize" | "frameRate",
     fftSize: number,
@@ -148,13 +153,50 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
   fftWindow,
   temporalResolution,
   autoFftOptions,
+  backend,
+  deviceProfile,
+  powerScale,
   onFftFrameRateChange,
   onFftSizeChange,
   onFftWindowChange,
   onTemporalResolutionChange,
+  onPowerScaleChange,
   scheduleCoupledAdjustment,
 }) => {
-  const manualFftOptions = fftSizeOptions.length ? fftSizeOptions : [fftSize];
+  const showsApproxDbmToggle =
+    deviceProfile
+      ? deviceProfile.supports_approx_dbm
+      : (
+        backend === "rtl_sdr" ||
+        backend === "rtl-sdr" ||
+        backend === "rtlsdr" ||
+        backend === "rtl-tcp" ||
+        backend === "rtltcp"
+      );
+
+  const manualFftOptions = React.useMemo(
+    () =>
+      Array.from(
+        new Set(
+          (fftSizeOptions.length ? fftSizeOptions : [fftSize]).filter((size) =>
+            Number.isFinite(size) && size > 0,
+          ),
+        ),
+      ).sort((a, b) => a - b),
+    [fftSize, fftSizeOptions],
+  );
+
+  const autoFftSizeOptions = React.useMemo(
+    () =>
+      Array.from(
+        new Set(
+          (autoFftOptions?.autoSizes ?? []).filter((size) =>
+            Number.isFinite(size) && size > 0,
+          ),
+        ),
+      ).sort((a, b) => a - b),
+    [autoFftOptions],
+  );
 
   return (
     <Section>
@@ -230,9 +272,9 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
               scheduleCoupledAdjustment("fftSize", val, fftFrameRate);
             }}
           >
-            {autoFftOptions ? (
+            {autoFftSizeOptions.length > 0 ? (
               <>
-                {autoFftOptions.autoSizes.map((size) => (
+                {autoFftSizeOptions.map((size) => (
                   <option key={`auto-${size}`} value={size}>
                     {size} (Auto)
                   </option>
@@ -289,6 +331,20 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
           <option value="high">High</option>
         </WideSettingSelect>
       </Row>
+      {/* RTL-SDR specific power scale toggle - temporarily enabled for testing */}
+      {showsApproxDbmToggle && (
+        <Row label="Power Scale" tooltipTitle="Power Scale Mode" tooltip="Signal power measurement: dB (relative scale) or Approximated dBm (raw RTL-SDR I/Q based estimate). Approximated dBm is useful for stable absolute-like comparisons, but it is not lab-calibrated true dBm.">
+          <WideSettingSelect
+            value={powerScale}
+            onChange={(e) => {
+              onPowerScaleChange(e.target.value as "dB" | "dBm");
+            }}
+          >
+            <option value="dB">dB (relative)</option>
+            <option value="dBm">Approximated dBm</option>
+          </WideSettingSelect>
+        </Row>
+      )}
     </Section>
   );
 };

@@ -1,11 +1,4 @@
-import React, {
-  useReducer,
-  useEffect,
-  useCallback,
-  createContext,
-  useContext,
-  useMemo,
-} from "react";
+import React, { useMemo, useReducer, useEffect, useCallback, useRef, createContext, useContext } from "react";
 import type { AuthState } from "@n-apt/components/AuthenticationPrompt";
 import { deriveAesKey } from "@n-apt/crypto/webcrypto";
 import {
@@ -139,6 +132,7 @@ export const useAuthentication = (): UseAuthenticationReturn => {
 
 const useAuthenticationInternal = (): UseAuthenticationReturn => {
   const [state, dispatch] = useReducer(authReducer, initialState);
+  const hasLoggedWebAuthnIdeNoticeRef = useRef(false);
 
   const deriveConfiguredAesKey = useCallback(async (): Promise<CryptoKey> => {
     const configuredPassword = import.meta.env.VITE_UNSAFE_LOCAL_USER_PASSWORD;
@@ -179,9 +173,12 @@ const useAuthenticationInternal = (): UseAuthenticationReturn => {
       window.location.search.includes("ide=true");
 
     if (isLikelyIDEBrowser) {
-      console.error(
-        "🔒 WebAuthn disabled: IDE/development environment detected. Passkeys require biometric prompts not available in IDE browsers.",
-      );
+      if (!hasLoggedWebAuthnIdeNoticeRef.current) {
+        console.warn(
+          "🔒 Passkeys disabled in IDE browser. Use password authentication for in-IDE browsing.",
+        );
+        hasLoggedWebAuthnIdeNoticeRef.current = true;
+      }
       return false;
     }
 

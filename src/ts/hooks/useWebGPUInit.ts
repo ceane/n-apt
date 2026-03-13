@@ -247,7 +247,7 @@ export function useWebGPUInit({
     device: webgpuDeviceRef.current,
     format: webgpuFormatRef.current,
     maxCacheSize: 50,
-    enableHotReload: import.meta.hot !== undefined
+    enableHotReload: process.env.NODE_ENV === 'development'
   });
 
   const bufferManager = useSharedBufferManager({

@@ -74,7 +74,7 @@ const StatusText = styled.span`
   font-weight: 500;
 `;
 
-const PauseButton = styled.button<{ $paused: boolean }>`
+export const PauseButton = styled.button<{ $paused: boolean }>`
   max-width: 100%;
   box-sizing: border-box;
   padding: 12px 8px;
@@ -132,6 +132,8 @@ interface ConnectionStatusSectionProps {
   onPauseToggle: () => void;
   onRestartDevice?: () => void;
   children?: React.ReactNode;
+  hidePauseButton?: boolean;
+  extraActions?: React.ReactNode;
 }
 
 export const ConnectionStatusSection: React.FC<
@@ -144,6 +146,8 @@ export const ConnectionStatusSection: React.FC<
   cryptoCorrupted,
   onPauseToggle,
   onRestartDevice,
+  hidePauseButton,
+  extraActions,
 }) => {
     return (
       <ConnectionStatusContainer>
@@ -205,11 +209,18 @@ export const ConnectionStatusSection: React.FC<
                 Loading...
               </WarningButton>
             ) : (
-              <PauseButton $paused={isPaused} onClick={onPauseToggle}>
-                {cryptoCorrupted ? "Corrupted" : isPaused ? "Resume" : "Pause"}
-              </PauseButton>
+              !hidePauseButton && (
+                <PauseButton $paused={isPaused} onClick={onPauseToggle}>
+                  {cryptoCorrupted ? "Corrupted" : isPaused ? "Resume" : "Pause"}
+                </PauseButton>
+              )
             ))}
         </ActionsColumn>
+        {extraActions && (
+          <div style={{ gridColumn: "1 / -1", width: "100%" }}>
+            {extraActions}
+          </div>
+        )}
       </ConnectionStatusContainer>
     );
   };

@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use super::types::{CaptureArtifact, SpectrumFrameMessage};
+use super::types::{CaptureArtifact, DeviceProfile, SpectrumFrameMessage};
 use super::utils::{load_channels, load_sdr_settings};
 
 /// How often to probe for a newly attached RTL-SDR while running in mock mode.
@@ -12,11 +12,11 @@ pub const DEVICE_PROBE_INTERVAL: std::time::Duration =
 
 /// How often to run health checks on real hardware.
 pub const HEALTH_CHECK_INTERVAL: std::time::Duration =
-  std::time::Duration::from_millis(1000);
+  std::time::Duration::from_millis(2000);
 
 /// Number of consecutive health-check failures before declaring the device
 /// truly disconnected (prevents false positives from USB glitches).
-pub const DISCONNECT_FAILURE_THRESHOLD: u32 = 3;
+pub const DISCONNECT_FAILURE_THRESHOLD: u32 = 5;
 
 /// Maximum number of automatic recovery attempts (buffer reset + re-init)
 /// before giving up and falling back to mock.
@@ -46,6 +46,8 @@ pub struct SharedState {
   pub shutdown: AtomicBool,
   /// Device info string (set once at init)
   pub device_info: Mutex<String>,
+  /// Current device profile/capabilities for frontend feature gating
+  pub device_profile: Mutex<DeviceProfile>,
   /// Device loading state (when device is being initialized)
   pub device_loading: Mutex<bool>,
   /// When device_loading is true, why: "connect" | "restart" (optional)
@@ -98,6 +100,12 @@ impl SharedState {
       pending_center_freq_dirty: AtomicBool::new(false),
       shutdown: AtomicBool::new(false),
       device_info: Mutex::new(String::new()),
+      device_profile: Mutex::new(DeviceProfile {
+        kind: "mock_apt".to_string(),
+        is_rtl_sdr: false,
+        supports_approx_dbm: false,
+        supports_raw_iq_stream: false,
+      }),
       device_loading: Mutex::new(false),
       device_loading_reason: Mutex::new(None),
       device_state: Mutex::new("disconnected".to_string()),
@@ -116,9 +124,15 @@ impl SharedState {
   ///
   /// Also resets hotplug debounce counters so the next failure episode
   /// starts from a clean slate.
-  pub fn update_device_status(&self, connected: bool, info: String) {
+  pub fn update_device_status(
+    &self,
+    connected: bool,
+    info: String,
+    device_profile: DeviceProfile,
+  ) {
     self.device_connected.store(connected, Ordering::Relaxed);
     *self.device_info.lock().unwrap() = info;
+    *self.device_profile.lock().unwrap() = device_profile;
     *self.device_state.lock().unwrap() = if connected {
       "connected".to_string()
     } else {

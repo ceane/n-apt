@@ -19,7 +19,7 @@ import { buildSdrLimitMarkers } from "@n-apt/utils/sdrLimitMarkers";
 import SourceInput from "@n-apt/components/sidebar/SourceInput";
 
 import { Row, CollapsibleTitle } from "@n-apt/components/ui";
-import { ConnectionStatusSection, WarningButton } from "@n-apt/components/sidebar/ConnectionStatusSection";
+import { ConnectionStatusSection, PauseButton } from "@n-apt/components/sidebar/ConnectionStatusSection";
 import { SignalDisplaySection } from "@n-apt/components/sidebar/SignalDisplaySection";
 
 import FileProcessingSection from "@n-apt/components/sidebar/FileProcessingSection";
@@ -28,6 +28,7 @@ import { SnapshotControlsSection } from "@n-apt/components/sidebar/SnapshotContr
 import { SourceSettingsSection } from "@n-apt/components/sidebar/SourceSettingsSection";
 import DrawMockNAPTSidebar from "@n-apt/components/sidebar/DrawMockNAPTSidebar";
 import { useSpectrumStore, LIVE_CONTROL_DEFAULTS, type DrawParams } from "@n-apt/hooks/useSpectrumStore";
+import { usePrompt } from "@n-apt/components/ui";
 
 type NaptMetadata = {
   sample_rate?: number;
@@ -275,7 +276,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   vizPanOffset = 0,
   onVizPanChange,
 }) => {
-  const { state, dispatch, wsConnection, cryptoCorrupted, deviceName } = useSpectrumStore();
+  const { state, dispatch, wsConnection, cryptoCorrupted, deviceName, deviceProfile } = useSpectrumStore();
   const { isAuthenticated, authState, aesKey, sessionToken } =
     useAuthentication();
   const maxSampleRate =
@@ -286,6 +287,10 @@ const Sidebar: React.FC<SidebarProps> = ({
     typeof sampleRateHz === "number" && Number.isFinite(sampleRateHz)
       ? sampleRateHz / 1_000_000
       : null;
+  const isMockLiveSource =
+    sourceMode === "live" &&
+    (backend?.toLowerCase().includes("mock") ||
+      deviceName?.toLowerCase().includes("mock"));
   const limitMarkers = useMemo(
     () => buildSdrLimitMarkers(sdrSettings ?? null),
     [sdrSettings],
@@ -373,6 +378,7 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   // Capture UI state
   const [captureOpen, setCaptureOpen] = useState(false);
+  const showPrompt = usePrompt();
   const [activeCaptureAreas, setActiveCaptureAreas] = useState<string[]>([
     "Onscreen",
   ]);
@@ -820,14 +826,22 @@ const Sidebar: React.FC<SidebarProps> = ({
             />
           )}
           {sourceMode === "live" && (
-            <WarningButton
+            <PauseButton
               $paused={false}
-              $narrow
-              onClick={resetLiveControls}
+              onClick={() => {
+                showPrompt({
+                  title: "Reset Options to Defaults",
+                  message: "Reset all live options to defaults?",
+                  confirmText: "Reset",
+                  cancelText: "Cancel",
+                  variant: "danger",
+                  onConfirm: resetLiveControls,
+                });
+              }}
               title="Reset sidebar and visualizer options to defaults"
             >
               Reset Options to Defaults
-            </WarningButton>
+            </PauseButton>
           )}
           <DrawMockNAPTSidebar
             drawParams={drawParams}
@@ -859,14 +873,22 @@ const Sidebar: React.FC<SidebarProps> = ({
             />
           )}
           {sourceMode === "live" && (
-            <WarningButton
+            <PauseButton
               $paused={false}
-              $narrow
-              onClick={resetLiveControls}
+              onClick={() => {
+                showPrompt({
+                  title: "Reset Options to Defaults",
+                  message: "Reset all live options to defaults?",
+                  confirmText: "Reset",
+                  cancelText: "Cancel",
+                  variant: "danger",
+                  onConfirm: resetLiveControls,
+                });
+              }}
               title="Reset sidebar and visualizer options to defaults"
             >
               Reset Options to Defaults
-            </WarningButton>
+            </PauseButton>
           )}
 
           <Section>
@@ -1106,11 +1128,17 @@ const Sidebar: React.FC<SidebarProps> = ({
                 fftWindow={fftWindow}
                 temporalResolution={displayTemporalResolution || "medium"}
                 autoFftOptions={autoFftOptions || null}
+                backend={backend}
+                deviceProfile={deviceProfile}
+                powerScale={state.powerScale}
                 onFftFrameRateChange={setFftFrameRate}
                 onFftSizeChange={setFftSize}
                 onFftWindowChange={setFftWindow}
                 onTemporalResolutionChange={
                   onDisplayTemporalResolutionChange || (() => { })
+                }
+                onPowerScaleChange={(powerScale) =>
+                  dispatch({ type: "SET_POWER_SCALE", powerScale })
                 }
                 scheduleCoupledAdjustment={scheduleCoupledAdjustment}
               />
@@ -1123,6 +1151,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                 rtlAGC={rtlAGC}
                 stitchSourceSettings={stitchSourceSettings}
                 isConnected={isConnected}
+                disableAgcControls={isMockLiveSource}
                 onGainChange={setGain}
                 onPpmChange={setPpm}
                 onTunerAGCChange={setTunerAGC}

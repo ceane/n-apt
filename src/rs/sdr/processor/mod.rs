@@ -6,8 +6,9 @@
 use anyhow::Result;
 use log::{info, warn};
 use std::time::Instant;
+use rustfft::num_complex::Complex;
 
-use crate::fft::FFTProcessor;
+use crate::fft::{FFTProcessor, PhaseCoherenceResult, CorrelationResult, StitchingValidationResult, CorrelationMethod};
 use crate::stitching::SignalStitcher;
 
 use super::{SdrDevice, SdrDeviceFactory};
@@ -139,8 +140,23 @@ pub struct SdrProcessor {
   pub last_retune_at: Option<Instant>,
   /// Short cooldown window after a retune to let the device settle
   pub retune_cooldown_until: Option<Instant>,
+  /// Number of freshly read frames to discard after a retune to avoid warmup contamination
+  pub post_retune_discard_frames: usize,
+  /// Last stable spectrum shown before a retune; used while draining warmup frames
+  pub last_stable_spectrum: Option<Vec<f32>>,
+  /// Last phase spectrum for phase coherence tracking
+  pub last_phase_spectrum: Option<Vec<f32>>,
+  /// Phase coherence history for stitching validation
+  pub phase_coherence_history: Vec<PhaseCoherenceResult>,
+  /// Whether to enable phase-based stitching validation
+  pub enable_phase_stitching: bool,
   /// Center frequency saved before capture starts, restored after capture ends
   pub capture_pre_center_freq: Option<u32>,
+  /// Raw IQ bytes from the most recently read device frame (offset-binary u8 pairs: I, Q, I, Q,...)
+  /// Updated on every call to `read_and_process_frame` so callers can inspect the raw signal.
+  pub last_frame_raw_iq: Vec<u8>,
+  /// Current power scale mode for spectrum display (dB or dBm)
+  pub power_scale: crate::server::types::PowerScale,
 }
 
 impl SdrProcessor {
@@ -225,7 +241,14 @@ impl SdrProcessor {
       pending_freq: None,
       last_retune_at: None,
       retune_cooldown_until: None,
+      post_retune_discard_frames: 0,
+      last_stable_spectrum: None,
+      last_phase_spectrum: None,
+      phase_coherence_history: Vec::new(),
+      enable_phase_stitching: true,
       capture_pre_center_freq: None,
+      last_frame_raw_iq: Vec::new(),
+      power_scale: crate::server::types::PowerScale::DB, // Default to dB mode
     };
 
     // Apply initial settings from config immediately to tune the hardware
@@ -295,6 +318,13 @@ impl SdrProcessor {
       "SDR processor swapped and synchronized to {}",
       self.device.device_type()
     );
+
+    // RTL-SDR Blog V4 and others need a moment to settle after swap/init.
+    // Draining the initial stale buffers prevents health-check timeouts.
+    self.retune_cooldown_until = Some(std::time::Instant::now() + std::time::Duration::from_millis(500));
+    self.post_retune_discard_frames = self.post_retune_discard_frame_count();
+    self.flush_read_queue();
+
     Ok(())
   }
 
@@ -339,22 +369,12 @@ impl SdrProcessor {
       if freq == self.get_center_frequency() {
         // No change needed
       } else {
-        let can_retune = self
-          .last_retune_at
-          .map(|last| last.elapsed() >= std::time::Duration::from_millis(150))
-          .unwrap_or(true);
-
-        if can_retune {
-          if let Err(e) = self.set_center_frequency(freq) {
-            warn!("Failed to apply pending frequency: {}", e);
-          }
-          self.last_retune_at = Some(Instant::now());
-          self.retune_cooldown_until =
-            Some(Instant::now() + std::time::Duration::from_millis(50));
-        } else {
-          // Keep latest request queued until the debounce interval passes
-          self.pending_freq = Some(freq);
+        // No retune cooldown - read_async handles settling internally
+        if let Err(e) = self.set_center_frequency(freq) {
+          warn!("Failed to apply pending frequency: {}", e);
         }
+        self.last_retune_at = Some(Instant::now());
+        self.post_retune_discard_frames = self.post_retune_discard_frame_count();
       }
     }
 
@@ -367,25 +387,25 @@ impl SdrProcessor {
         .map(|s| s.elapsed().as_secs_f64())
         .unwrap_or(0.0);
 
-      let expected_channel = if self.capture_acquisition_mode == "interleaved" {
-        // TDMS mode: Slice across channels with enough dwell for hardware retune+settle
-        let num_channels = self.capture_fragments.len();
-        let slice_duration = 0.14; // 140ms
+      let expected_segment = if self.capture_acquisition_mode == "interleaved" {
+        // TDMS mode: Slice across segments with enough dwell for hardware retune+settle
+        let num_segments = self.capture_fragments.len();
+        let slice_duration = 1.0 / 63.0; // 4ms (250 slices per second)
         let current_slice = (elapsed / slice_duration) as usize;
-        current_slice % num_channels
+        current_slice % num_segments
       } else {
         // Stepwise Naive mode: Divide total time sequentially
-        let time_per_channel =
+        let time_per_segment =
           self.capture_duration_s / (self.capture_fragments.len() as f64);
-        ((elapsed / time_per_channel) as usize)
+        ((elapsed / time_per_segment) as usize)
           .min(self.capture_fragments.len() - 1)
       };
 
-      if expected_channel != self.capture_current_fragment {
-        // Moving to the next channel — flush current IQ/spectrum to the channel entry
+      if expected_segment != self.capture_current_fragment {
+        // Moving to the next segment — flush current IQ/spectrum to the segment entry
         // then tune to the new fragment
-        self.capture_current_fragment = expected_channel;
-        let &(min_freq, _max_freq) = &self.capture_fragments[expected_channel];
+        self.capture_current_fragment = expected_segment;
+        let &(min_freq, _max_freq) = &self.capture_fragments[expected_segment];
 
         let new_center_freq =
           ((min_freq * 1000000.0) + (sample_rate as f64 / 2.0)) as u32;
@@ -396,64 +416,31 @@ impl SdrProcessor {
         // Frequent reset_buffer calls during fast interleaved hopping can
         // starve async reads and trigger persistent timeout loops.
         self.capture_last_hop = Some(Instant::now());
+        self.post_retune_discard_frames = self.post_retune_discard_frame_count();
 
-        // We do NOT return an immediate spectrum result here anymore.
-        // It must fall through to the zero-padding logic below to keep time aligned.
-      }
-    }
-
-    // Skip processing if we just hopped and haven't reached settling time
-    if let Some(last_hop) = self.capture_last_hop {
-      // Use 35ms settling for real hardware, but 0ms for instantaneous mock SDR
-      let device_type_str = self.device.device_type().to_lowercase();
-      let settling_time = if device_type_str.contains("mock") {
-        0
-      } else {
-        35
-      };
-
-      if last_hop.elapsed().as_millis() < settling_time {
-        // Keep the read timer fresh so we don't try to bulk-read a massive backlog
-        // when the settling period ends.
-        self.last_read_instant = Some(Instant::now());
-
-        // ZERO-ORDER HOLD: Retrieve the last valid spectrum frame from the current channel
-        let mut held_spectrum = vec![-120.0; fft_size];
-        let ch_idx = self.capture_current_fragment;
-
-        if ch_idx < self.capture_channels.len() {
-          let channel = &self.capture_channels[ch_idx];
-          let len = channel.spectrum_data.len();
-          if len >= fft_size {
-            let start = len - fft_size;
-            held_spectrum.copy_from_slice(&channel.spectrum_data[start..]);
-          }
-        }
-
-        // Keep held frames for live visualization continuity only.
-        // Do NOT write synthetic hold/zero-padding samples into capture output,
-        // as that creates artificial -120dB dips and malformed captures.
-
-        return Ok(held_spectrum);
       }
     }
 
     // 1. Read ONE fresh block of FFT size directly from the async layer
     // The async layer handles discarding backlog and returning only the newest contiguous slice.
-    let samples = self.device.read_samples(fft_size)?;
+    let mut samples = self.device.read_samples(fft_size)?;
 
     if samples.data.is_empty() {
       return Ok(vec![-120.0; fft_size]); // fallback or handle error gracefully
     }
 
-    // If we are capturing, append IQ data to the current channel
-    if self.capture_active {
-      let ch_idx = self.capture_current_fragment;
-      if ch_idx < self.capture_channels.len() {
-        self.capture_channels[ch_idx]
-          .iq_data
-          .extend_from_slice(&samples.data);
+    while self.post_retune_discard_frames > 0 {
+      self.post_retune_discard_frames -= 1;
+
+      let next_samples = self.device.read_samples(fft_size)?;
+      if next_samples.data.is_empty() {
+        if let Some(ref held) = self.last_stable_spectrum {
+          return Ok(held.clone());
+        }
+        return Ok(vec![-120.0; fft_size]);
       }
+
+      samples = next_samples;
     }
 
     let display_samples_data = samples.data;
@@ -501,11 +488,19 @@ impl SdrProcessor {
       let ch_idx = self.capture_current_fragment;
       if ch_idx < self.capture_channels.len() {
         self.capture_channels[ch_idx]
+          .iq_data
+          .extend_from_slice(&display_samples_data);
+        self.capture_channels[ch_idx]
           .spectrum_data
           .extend_from_slice(&spectrum);
       }
       self.capture_actual_frames += 1;
     }
+
+    // Store raw IQ bytes for external callers (e.g. diagnostic phase analysis)
+    self.last_frame_raw_iq = display_samples_data.clone();
+
+    self.last_stable_spectrum = Some(final_spectrum.clone());
 
     Ok(final_spectrum)
   }
@@ -531,7 +526,7 @@ impl SdrProcessor {
     if config.sample_rate != device_sample_rate {
       config.sample_rate = device_sample_rate;
       if let Some(ref mut simd) = self.fft_processor.simd_processor_mut() {
-        simd.set_sample_rate(device_sample_rate);
+        let _: () = simd.set_sample_rate(device_sample_rate);
       }
       config_changed = true;
       info!(
@@ -576,7 +571,7 @@ impl SdrProcessor {
 
     // Frame rate
     if let Some(requested_rate) = frame_rate {
-      let max_rate = self.calculate_max_frame_rate(config.fft_size);
+      let max_rate = Self::calculate_valid_frame_rate(config.fft_size);
       let clamped_rate = requested_rate.clamp(1, max_rate);
       if clamped_rate != requested_rate {
         warn!(
@@ -664,7 +659,7 @@ impl SdrProcessor {
   }
 
   /// Calculate maximum frame rate for given FFT size
-  fn calculate_max_frame_rate(&self, fft_size: usize) -> u32 {
+  pub fn calculate_valid_frame_rate(fft_size: usize) -> u32 {
     // Simplified calculation - base on FFT size
     match fft_size {
       0..=8192 => 60,
@@ -676,21 +671,261 @@ impl SdrProcessor {
     }
   }
 
+  fn post_retune_discard_frame_count(&self) -> usize {
+    if self.is_mock() {
+      0
+    } else {
+      3
+    }
+  }
+
   /// Set center frequency
   pub fn set_center_frequency(&mut self, freq: u32) -> Result<()> {
     self.device.set_center_frequency(freq)?;
     // Synchronize with SIMD processor for digital PPM correction
     if let Some(ref mut simd) = self.fft_processor.simd_processor_mut() {
-      simd.set_center_frequency(freq);
+      let _: () = simd.set_center_frequency(freq);
     }
     // Clear averaging when frequency changes
     self.avg_spectrum = None;
+    self.last_retune_at = Some(std::time::Instant::now());
+    self.post_retune_discard_frames = self.post_retune_discard_frame_count();
     Ok(())
   }
 
-  /// Get device type information
-  pub fn device_type(&self) -> &'static str {
-    self.device.device_type()
+  /// Flush the underlying device read queue and clear software buffers
+  pub fn flush_read_queue(&mut self) {
+    self.device.flush_read_queue();
+    self.iq_accumulator.clear();
+    self.iq_frame.clear();
+  }
+
+  /// Validate stitching between two captured channels using correlation
+  pub fn validate_channel_stitching(
+    &mut self,
+    channel1_idx: usize,
+    channel2_idx: usize,
+    overlap_samples: usize,
+  ) -> Result<StitchingValidationResult> {
+    if channel1_idx >= self.capture_channels.len() || channel2_idx >= self.capture_channels.len() {
+      return Err(anyhow::anyhow!("Invalid channel indices"));
+    }
+    
+    let channel1 = &self.capture_channels[channel1_idx];
+    let channel2 = &self.capture_channels[channel2_idx];
+    
+    // Use FFT processor for correlation validation
+    let validation_result = self.fft_processor.validate_stitching(
+      &channel1.iq_data,
+      &channel2.iq_data,
+      overlap_samples,
+    )?;
+    
+    // Store validation result for logging
+    info!(
+      "Stitching validation: ch{} <-> ch{} = {:.3} (method: {:?}, quality: {:.3})",
+      channel1_idx,
+      channel2_idx,
+      validation_result.primary_correlation.correlation_score,
+      validation_result.primary_correlation.method,
+      validation_result.overall_quality
+    );
+    
+    Ok(validation_result)
+  }
+
+  /// Validate stitching with automatic overlap detection
+  pub fn validate_stitching_auto(
+    &mut self,
+    channel1_idx: usize,
+    channel2_idx: usize,
+  ) -> Result<StitchingValidationResult> {
+    if channel1_idx >= self.capture_channels.len() || channel2_idx >= self.capture_channels.len() {
+      return Err(anyhow::anyhow!("Invalid channel indices"));
+    }
+    
+    let channel1 = &self.capture_channels[channel1_idx];
+    let channel2 = &self.capture_channels[channel2_idx];
+    
+    // Estimate overlap based on frequency spacing and sample rate
+    let freq_diff = (channel2.center_freq_hz - channel1.center_freq_hz).abs();
+    let sample_rate = channel1.sample_rate_hz;
+    let overlap_ratio = 1.0 - (freq_diff / sample_rate);
+    let overlap_samples = if overlap_ratio > 0.1 && overlap_ratio < 0.9 {
+      (channel1.iq_data.len() as f64 * overlap_ratio / 2.0) as usize // Convert to IQ samples
+    } else {
+      // Default to 25% overlap if frequency spacing doesn't suggest clear overlap
+      channel1.iq_data.len() / 8
+    };
+    
+    info!(
+      "Auto overlap detection: freq_diff={:.1}kHz, overlap_ratio={:.3}, overlap_samples={}",
+      freq_diff / 1000.0,
+      overlap_ratio,
+      overlap_samples
+    );
+    
+    self.validate_channel_stitching(channel1_idx, channel2_idx, overlap_samples)
+  }
+
+  /// Apply stitching correction based on validation result
+  pub fn apply_stitching_correction(
+    &mut self,
+    channel_idx: usize,
+    validation_result: &StitchingValidationResult,
+  ) -> Result<()> {
+    if channel_idx >= self.capture_channels.len() {
+      return Err(anyhow::anyhow!("Invalid channel index"));
+    }
+    
+    match &validation_result.recommendation {
+      crate::fft::StitchingRecommendation::Accept => {
+        info!("Channel {} stitching accepted", channel_idx);
+      }
+      crate::fft::StitchingRecommendation::ApplyTimeCorrection(time_offset) => {
+        info!("Applying time correction to channel {}: {:.6} seconds", channel_idx, time_offset);
+        let channel = &mut self.capture_channels[channel_idx];
+        let total_sample_offset = *time_offset * channel.sample_rate_hz;
+        
+        let integer_offset = total_sample_offset.floor() as isize;
+        let fractional_offset = (total_sample_offset - total_sample_offset.floor()) as f32;
+        
+        // 1. First handle integer shift by draining/splicing (existing logic)
+        if integer_offset != 0 && integer_offset.abs() < channel.iq_data.len() as isize / 4 {
+          let bytes_to_shift = integer_offset.abs() as usize * 2;
+          if integer_offset > 0 {
+            channel.iq_data.splice(0..0, vec![128u8; bytes_to_shift]);
+          } else {
+            channel.iq_data.drain(0..bytes_to_shift);
+          }
+        }
+        
+        // 2. Then handle fractional shift via linear interpolation
+        if fractional_offset.abs() > 0.001 {
+          let complex_samples = self.fft_processor.iq_to_complex(&channel.iq_data);
+          let mut interpolated = Vec::with_capacity(complex_samples.len());
+          
+          for i in 0..complex_samples.len() - 1 {
+            let s1 = complex_samples[i];
+            let s2 = complex_samples[i+1];
+            // Linear interpolation: s(t + d) = (1-d)*s(t) + d*s(t+1)
+            let s_interp = s1 * (1.0 - fractional_offset) + s2 * fractional_offset;
+            interpolated.push(s_interp);
+          }
+          // Push last sample unchanged or drop it
+          if let Some(&last) = complex_samples.last() {
+            interpolated.push(last);
+          }
+          
+          // Convert back to I/Q bytes
+          channel.iq_data = interpolated.iter()
+            .flat_map(|c| {
+              let i = ((c.re * 127.0) + 128.0).clamp(0.0, 255.0) as u8;
+              let q = ((c.im * 127.0) + 128.0).clamp(0.0, 255.0) as u8;
+              [i, q]
+            })
+            .collect();
+        }
+      }
+      crate::fft::StitchingRecommendation::ApplyPhaseCorrection(phase_offset) => {
+        info!("Applying phase correction to channel {}: {:.3} radians", channel_idx, phase_offset);
+        // Apply phase correction by rotating complex samples
+        let channel = &mut self.capture_channels[channel_idx];
+        let complex_samples = self.fft_processor.iq_to_complex(&channel.iq_data);
+        let rotation = Complex::new(phase_offset.cos(), phase_offset.sin());
+        
+        // Apply rotation and convert back to I/Q
+        let corrected_samples: Vec<u8> = complex_samples.iter()
+          .map(|c| {
+            let corrected = c * rotation;
+            let i = ((corrected.re * 127.0) + 128.0) as u8;
+            let q = ((corrected.im * 127.0) + 128.0) as u8;
+            [i, q]
+          })
+          .flatten()
+          .collect();
+        
+        channel.iq_data = corrected_samples;
+      }
+      crate::fft::StitchingRecommendation::Reject => {
+        warn!("Channel {} stitching rejected - poor correlation", channel_idx);
+        return Err(anyhow::anyhow!("Stitching quality too poor"));
+      }
+      crate::fft::StitchingRecommendation::ApplyGainNormalization(gain_db) => {
+        info!("Applying gain normalization to channel {}: {:.3} dB", channel_idx, gain_db);
+        // TODO: Implement gain normalization
+      }
+      crate::fft::StitchingRecommendation::ApplySpectralFlattening(_flattening) => {
+        info!("Applying spectral flattening to channel {}", channel_idx);
+        // TODO: Implement spectral flattening
+      }
+      crate::fft::StitchingRecommendation::UseAlternativeMethod(method) => {
+        info!("Retrying channel {} with alternative method: {:?}", channel_idx, method);
+        // Re-validate with alternative method
+        let channel = &self.capture_channels[channel_idx];
+        let overlap_samples = channel.iq_data.len() / 8; // Default overlap
+        
+        // For simplicity, retry with the previous channel
+        if channel_idx > 0 {
+          let alt_validation = self.fft_processor.correlate_signals(
+            &self.capture_channels[channel_idx - 1].iq_data,
+            &channel.iq_data,
+            overlap_samples,
+            *method,
+          )?;
+          
+          if alt_validation.is_acceptable {
+            info!("Alternative method succeeded for channel {}", channel_idx);
+          } else {
+            warn!("Alternative method also failed for channel {}", channel_idx);
+            return Err(anyhow::anyhow!("All correlation methods failed"));
+          }
+        }
+      }
+    }
+    
+    Ok(())
+  }
+
+  /// Validate and correct all channel stitching in capture
+  pub fn validate_and_correct_all_stitching(&mut self) -> Result<Vec<StitchingValidationResult>> {
+    let mut validation_results = Vec::new();
+    
+    if self.capture_channels.len() < 2 {
+      return Ok(validation_results);
+    }
+    
+    info!("Validating stitching for {} channels", self.capture_channels.len());
+    
+    // Validate each adjacent channel pair
+    for i in 0..self.capture_channels.len() - 1 {
+      match self.validate_stitching_auto(i, i + 1) {
+        Ok(validation) => {
+          validation_results.push(validation.clone());
+          
+          // Apply correction if recommended
+          if let Err(e) = self.apply_stitching_correction(i + 1, &validation) {
+            warn!("Failed to apply correction to channel {}: {}", i + 1, e);
+          }
+        }
+        Err(e) => {
+          warn!("Failed to validate stitching between channels {} and {}: {}", i, i + 1, e);
+        }
+      }
+    }
+    
+    // Log overall results
+    let acceptable_count = validation_results.iter()
+      .filter(|v| v.primary_correlation.is_acceptable)
+      .count();
+    
+    info!(
+      "Stitching validation complete: {}/{} channel pairs acceptable",
+      acceptable_count,
+      validation_results.len()
+    );
+    
+    Ok(validation_results)
   }
 
   /// Get current center frequency
@@ -701,6 +936,22 @@ impl SdrProcessor {
   /// Get current sample rate
   pub fn get_sample_rate(&self) -> u32 {
     self.device.get_sample_rate()
+  }
+
+  /// Set power scale mode (dB or dBm)
+  pub fn set_power_scale(&mut self, scale: crate::server::types::PowerScale) {
+    info!("Power scale set to: {:?}", scale);
+    self.power_scale = scale;
+  }
+
+  /// Get current power scale mode
+  pub fn get_power_scale(&self) -> crate::server::types::PowerScale {
+    self.power_scale.clone()
+  }
+
+  /// Get device type information
+  pub fn device_type(&self) -> &'static str {
+    self.device.device_type()
   }
 
   /// Reset device buffers
@@ -869,6 +1120,47 @@ impl SdrProcessor {
               // No overlap with previous, but still need to set bins_per_frame if not set
               if channels[i].bins_per_frame == 0 {
                 channels[i].bins_per_frame = fft_size as u32;
+              }
+            }
+          }
+
+          // Apply seam blending across channel boundaries to minimize phase discontinuity
+          for i in 1..channels.len() {
+            let prev_bins = channels[i - 1].bins_per_frame as usize;
+            let curr_bins = channels[i].bins_per_frame as usize;
+
+            if prev_bins == 0 || curr_bins == 0 
+              || channels[i - 1].spectrum_data.is_empty() 
+              || channels[i].spectrum_data.is_empty() {
+              continue;
+            }
+
+            // Use a wider seam window to smooth phase discontinuities
+            // 256 bins ≈ 800kHz at 3.2MHz sample rate
+            let seam_window = prev_bins.min(curr_bins).min(256);
+            if seam_window == 0 {
+              continue;
+            }
+
+            let prev_frames = channels[i - 1].spectrum_data.len() / prev_bins;
+            let curr_frames = channels[i].spectrum_data.len() / curr_bins;
+            let seam_frames = prev_frames.min(curr_frames);
+
+            for f in 0..seam_frames {
+              let prev_frame_start = f * prev_bins;
+              let curr_frame_start = f * curr_bins;
+
+              for k in 0..seam_window {
+                // Use cosine taper for smoother transition
+                let t = (1.0 - ((k as f32 / seam_window as f32) * std::f32::consts::PI).cos()) / 2.0;
+                let prev_idx = prev_frame_start + (prev_bins - seam_window + k);
+                let curr_idx = curr_frame_start + k;
+                let prev_val = channels[i - 1].spectrum_data[prev_idx];
+                let curr_val = channels[i].spectrum_data[curr_idx];
+
+                // Crossfade between channels
+                channels[i - 1].spectrum_data[prev_idx] = prev_val * (1.0 - t) + curr_val * t;
+                channels[i].spectrum_data[curr_idx] = prev_val * (1.0 - t) + curr_val * t;
               }
             }
           }

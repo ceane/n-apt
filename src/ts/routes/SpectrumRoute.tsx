@@ -24,7 +24,6 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
     dispatch,
     manualVisualizerPaused,
     effectiveSdrSettings,
-    sampleRateMHz,
     signalAreaBounds,
     wsConnection: {
       isConnected,
@@ -34,8 +33,10 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
       deviceName,
       sendFrequencyRange,
       sendTrainingCommand,
+      sendGetAutoFftOptions,
       dataRef,
       captureStatus,
+      sendPowerScaleCommand: _sendPowerScaleCommand,
     },
     sampleRateHzEffective,
   } = useSpectrumStore();
@@ -142,13 +143,8 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
     const min = state.frequencyRange.min;
     const max = state.frequencyRange.max;
     if (!Number.isFinite(min) || !Number.isFinite(max)) return null;
-
-    if (state.sourceMode === "live" && sampleRateMHz !== null) {
-      return min + sampleRateMHz / 2;
-    }
-
     return (min + max) / 2;
-  }, [state.frequencyRange, sampleRateMHz, state.sourceMode]);
+  }, [state.frequencyRange]);
 
   return (
     <div
@@ -195,6 +191,9 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
                 isIqRecordingActive={captureStatus?.status === "started"}
                 limitMarkers={limitMarkers}
                 isPaused={manualVisualizerPaused}
+                fftSize={state.fftSize}
+                fftWindow={state.fftWindow}
+                powerScale={state.powerScale}
                 isDeviceConnected={deviceState === "connected"}
                 onFrequencyRangeChange={handleFrequencyRangeChange}
                 displayTemporalResolution={state.displayTemporalResolution}
@@ -209,6 +208,12 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
                 }
                 onSnapshot={() => { }}
                 snapshotGridPreference={state.snapshotGridPreference}
+                fftFrameRate={state.fftFrameRate}
+                sendGetAutoFftOptions={sendGetAutoFftOptions}
+                isWaterfallCleared={state.isWaterfallCleared}
+                onResetWaterfallCleared={() =>
+                  dispatch({ type: "RESET_WATERFALL_CLEARED" })
+                }
               />
             </>
           )}

@@ -236,39 +236,46 @@ const CaptureButton = styled(PauseButton) <{ $disabled: boolean }>`
   cursor: ${(props) => (props.$disabled ? "not-allowed" : "pointer")};
 `;
 
-const StatusSettingRow = styled(Row)`
-  margin-top: 12px;
-`;
-
-const CaptureStatusValue = styled(SettingValue)`
-  color: #ffaa00;
-`;
-
-const DownloadsContainer = styled.div`
+const StatusDownloadsCard = styled.div`
   display: grid;
-  grid-template-columns: subgrid;
+  gap: 12px;
   grid-column: 1 / -1;
-  margin-top: 16px;
+  margin-top: 12px;
+  background: #101010;
+  border: 1px solid #222;
+  border-radius: 8px;
+  padding: 12px;
+  min-width: 0;
 `;
 
-const DownloadsTitle = styled.div`
+const InfoCardTitle = styled.div`
   font-size: 11px;
   color: #555;
   text-transform: uppercase;
-  letter-spacing: 1px;
-  margin-bottom: 8px;
-  font-weight: 600;
+  letter-spacing: 2px;
   font-family: "JetBrains Mono", monospace;
+`;
+
+const InfoRow = styled.div`
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  min-width: 0;
+`;
+
+const InfoLabel = styled.div`
+  font-size: 12px;
+  color: #ccc;
+  min-width: 0;
 `;
 
 const DownloadCard = styled.div`
   display: grid;
-  grid-template-columns: subgrid;
-  grid-column: 1 / -1;
-  padding: 8px 12px;
-  background-color: #141414;
+  gap: 12px;
+  padding: 10px 12px;
   border-radius: 6px;
-  border: 1px solid #2a2a2a;
+  min-width: 0;
 `;
 
 const DownloadLink = styled.a`
@@ -278,11 +285,24 @@ const DownloadLink = styled.a`
   text-decoration: none;
   display: block;
   word-break: break-all;
-  max-width: 200px;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  min-width: 0;
+`;
+
+const StatusValue = styled.div<{ $tone: "warning" | "success" | "error" | "muted" }>`
+  font-size: 12px;
+  font-family: "JetBrains Mono", monospace;
+  color: ${(props) =>
+    props.$tone === "success"
+      ? "#00ff66"
+      : props.$tone === "error"
+        ? "#ff6666"
+        : props.$tone === "warning"
+          ? "#ffcc33"
+          : "#999"};
+  text-align: right;
   white-space: nowrap;
-  grid-column: 1 / -1;
 `;
 
 interface CaptureRange {
@@ -351,6 +371,28 @@ export const IQCaptureControlsSection: React.FC<
       error: geoError,
       isLoading: geoLoading
     } = useGeolocation();
+    const hasOnscreenSelected = activeCaptureAreas.includes("Onscreen");
+    const isTdmsDisabled = hasOnscreenSelected;
+    const effectiveAcquisitionMode =
+      isTdmsDisabled && acquisitionMode === "interleaved"
+        ? "stepwise"
+        : acquisitionMode;
+    const statusTone =
+      captureStatus?.status === "done"
+        ? "success"
+        : captureStatus?.status === "failed"
+          ? "error"
+          : captureStatus?.status === "started" || captureStatus?.status === "progress"
+            ? "warning"
+            : "muted";
+    const statusText =
+      captureStatus?.status === "done"
+        ? "Complete"
+        : captureStatus?.status === "failed"
+          ? `Failed: ${captureStatus.error || "Unknown error"}`
+          : captureStatus?.status === "started" || captureStatus?.status === "progress"
+            ? "In progress..."
+            : "Idle";
 
     const handleGeolocationToggle = async (enabled: boolean) => {
       if (enabled && captureFileType === ".napt") {
@@ -381,12 +423,19 @@ export const IQCaptureControlsSection: React.FC<
                       type="checkbox"
                       checked={activeCaptureAreas.includes(area.label)}
                       onChange={(e) => {
+                        const nextAreas = e.target.checked
+                          ? [...activeCaptureAreas, area.label]
+                          : activeCaptureAreas.filter((a) => a !== area.label);
+                        if (
+                          nextAreas.includes("Onscreen") &&
+                          acquisitionMode === "interleaved"
+                        ) {
+                          onAcquisitionModeChange("stepwise");
+                        }
                         if (e.target.checked) {
-                          onActiveCaptureAreasChange([...activeCaptureAreas, area.label]);
+                          onActiveCaptureAreasChange(nextAreas);
                         } else {
-                          onActiveCaptureAreasChange(
-                            activeCaptureAreas.filter((a) => a !== area.label)
-                          );
+                          onActiveCaptureAreasChange(nextAreas);
                         }
                       }}
                     />
@@ -438,17 +487,18 @@ export const IQCaptureControlsSection: React.FC<
             </Row>
 
             <Row label="TDMS (Interleaved Sweep)" tooltipTitle="Time-Division Multiplexed Sampling" tooltip="Rapidly sweeps across selected channels and interleaves the results into a single wideband output file. When off (Normal), captures each channel completely before moving to the next.">
-              <ToggleSwitch>
+              <ToggleSwitch $disabled={isTdmsDisabled}>
                 <ToggleSwitchInput
                   type="checkbox"
-                  checked={acquisitionMode === "interleaved"}
+                  checked={effectiveAcquisitionMode === "interleaved"}
+                  disabled={isTdmsDisabled}
                   onChange={(e) =>
                     onAcquisitionModeChange(
                       e.target.checked ? "interleaved" : "stepwise"
                     )
                   }
                 />
-                <ToggleSwitchSlider />
+                <ToggleSwitchSlider $disabled={isTdmsDisabled} />
               </ToggleSwitch>
             </Row>
 
@@ -518,37 +568,11 @@ export const IQCaptureControlsSection: React.FC<
               </PlaybackOption>
             </CaptureActions>
 
-            {captureStatus?.status === "started" && (
-              <StatusSettingRow label="Status">
-                <CaptureStatusValue>
-                  Capturing... {captureStatus.jobId}
-                </CaptureStatusValue>
-              </StatusSettingRow>
-            )}
-
-            {captureStatus?.status === "done" && (
-              <StatusSettingRow label="Status">
-                <SettingValue style={{ color: "#00ff00" }}>
-                  Complete
-                </SettingValue>
-              </StatusSettingRow>
-            )}
-
-            {captureStatus?.status === "failed" && (
-              <StatusSettingRow label="Status">
-                <SettingValue style={{ color: "#ff4444" }}>
-                  Failed: {captureStatus.error || "Unknown error"}
-                </SettingValue>
-              </StatusSettingRow>
-            )}
-
-            {/* Downloads Section */}
-            {captureStatus?.status === "done" &&
-              captureStatus.downloadUrl &&
-              isAuthenticated && (
-                <DownloadsContainer>
-                  <DownloadsTitle>Downloads</DownloadsTitle>
-                  <DownloadCard>
+            <StatusDownloadsCard>
+              <InfoCardTitle>Downloads</InfoCardTitle>
+              {captureStatus?.downloadUrl && isAuthenticated ? (
+                <DownloadCard>
+                  <InfoRow>
                     <DownloadLink
                       href={`${captureStatus.downloadUrl}&token=${encodeURIComponent(sessionToken || "")}`}
                       download={captureStatus.filename || "capture"}
@@ -557,9 +581,34 @@ export const IQCaptureControlsSection: React.FC<
                     >
                       {captureStatus.filename || "Download"}
                     </DownloadLink>
-                  </DownloadCard>
-                </DownloadsContainer>
+                    <StatusValue
+                      $tone={
+                        captureStatus?.status === "done"
+                          ? "success"
+                          : captureStatus?.status === "failed"
+                            ? "error"
+                            : "warning"
+                      }
+                    >
+                      {captureStatus?.status === "done"
+                        ? "Complete"
+                        : captureStatus?.status === "failed"
+                          ? "Failed"
+                          : "In progress..."}
+                    </StatusValue>
+                  </InfoRow>
+                </DownloadCard>
+              ) : (
+                <InfoRow>
+                  <InfoLabel>
+                    {captureStatus?.status === "started" || captureStatus?.status === "progress"
+                      ? "Capturing now..."
+                      : "No downloads yet"}
+                  </InfoLabel>
+                  <StatusValue $tone={statusTone}>{statusText}</StatusValue>
+                </InfoRow>
               )}
+            </StatusDownloadsCard>
           </CollapsibleBody>
         )}
       </Section>

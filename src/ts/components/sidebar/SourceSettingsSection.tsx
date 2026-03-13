@@ -129,6 +129,7 @@ interface SourceSettingsSectionProps {
   rtlAGC: boolean;
   stitchSourceSettings: { gain: number; ppm: number };
   isConnected: boolean;
+  disableAgcControls?: boolean;
   maxGain?: number;
   onPpmChange: (value: number) => void;
   onGainChange: (value: number) => void;
@@ -149,6 +150,7 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
   rtlAGC,
   stitchSourceSettings,
   isConnected,
+  disableAgcControls = false,
   maxGain = 49.6,
   onPpmChange,
   onGainChange,
@@ -213,6 +215,7 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
   };
 
   const handleTunerAGCChange = (enabled: boolean) => {
+    if (disableAgcControls) return;
     onTunerAGCChange(enabled);
     if (enabled) {
       onRtlAGCChange(false);
@@ -223,6 +226,7 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
   };
 
   const handleRtlAGCChange = (enabled: boolean) => {
+    if (disableAgcControls) return;
     onRtlAGCChange(enabled);
     if (enabled) {
       onTunerAGCChange(false);
@@ -263,25 +267,25 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
       {sourceMode === "live" && (
         <>
           <Row label="Tuner AGC" tooltipTitle="Tuner AGC" tooltip="Tuner Automatic Gain Control. Automatically adjusts the tuner gain for optimal signal reception. Works alongside manual gain setting. Only one AGC mode can be active at a time.">
-            <ToggleSwitch $disabled={!isConnected}>
+            <ToggleSwitch $disabled={!isConnected || disableAgcControls}>
               <ToggleSwitchInput
                 type="checkbox"
                 checked={tunerAGC}
                 onChange={(e) => handleTunerAGCChange(e.target.checked)}
-                disabled={!isConnected}
+                disabled={!isConnected || disableAgcControls}
               />
-              <ToggleSwitchSlider $disabled={!isConnected} />
+              <ToggleSwitchSlider $disabled={!isConnected || disableAgcControls} />
             </ToggleSwitch>
           </Row>
           <Row label="RTL AGC" tooltipTitle="RTL AGC" tooltip="RTL Automatic Gain Control. Automatically adjusts the RTL2832 gain for optimal signal reception. Works alongside manual gain setting. Only one AGC mode can be active at a time.">
-            <ToggleSwitch $disabled={!isConnected}>
+            <ToggleSwitch $disabled={!isConnected || disableAgcControls}>
               <ToggleSwitchInput
                 type="checkbox"
                 checked={rtlAGC}
                 onChange={(e) => handleRtlAGCChange(e.target.checked)}
-                disabled={!isConnected}
+                disabled={!isConnected || disableAgcControls}
               />
-              <ToggleSwitchSlider $disabled={!isConnected} />
+              <ToggleSwitchSlider $disabled={!isConnected || disableAgcControls} />
             </ToggleSwitch>
           </Row>
         </>

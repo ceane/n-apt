@@ -9,7 +9,13 @@ async fn test_device_freeze_detection() {
   let shared_state = Arc::new(SharedState::new());
 
   // Simulate device freeze
-  shared_state.update_device_status(false, "Freeze simulated".to_string());
+  let mock_profile = n_apt_backend::server::types::DeviceProfile {
+    kind: "Mock APT".to_string(),
+    is_rtl_sdr: false,
+    supports_approx_dbm: false,
+    supports_raw_iq_stream: false,
+  };
+  shared_state.update_device_status(false, "Freeze simulated".to_string(), mock_profile);
 
   // Check that device state is updated correctly
   {
@@ -44,11 +50,23 @@ async fn test_mock_mode_fallback() {
   let shared_state = Arc::new(SharedState::new());
 
   // Start with real device
-  shared_state.update_device_status(true, "Initial real device".to_string());
+  let rtl_profile = n_apt_backend::server::types::DeviceProfile {
+    kind: "RTL-SDR".to_string(),
+    is_rtl_sdr: true,
+    supports_approx_dbm: true,
+    supports_raw_iq_stream: true,
+  };
+  shared_state.update_device_status(true, "Initial real device".to_string(), rtl_profile);
 
   // Simulate device freeze - should fallback to mock
+  let mock_profile = n_apt_backend::server::types::DeviceProfile {
+    kind: "Mock APT".to_string(),
+    is_rtl_sdr: false,
+    supports_approx_dbm: false,
+    supports_raw_iq_stream: false,
+  };
   shared_state
-    .update_device_status(false, "Mock fallback simulated".to_string());
+    .update_device_status(false, "Mock fallback simulated".to_string(), mock_profile);
 
   // Verify mock mode activation
   {

@@ -33,6 +33,10 @@ async fn test_server_status_endpoint() {
     .build()
     .unwrap();
 
+  let sdr_processor = Arc::new(tokio::sync::Mutex::new(
+    n_apt_backend::sdr::processor::SdrProcessor::new_mock_apt().unwrap()
+  ));
+
   let state = Arc::new(AppState {
     shared,
     credential_store,
@@ -41,6 +45,7 @@ async fn test_server_status_endpoint() {
     broadcast_tx,
     spectrum_tx,
     cmd_tx,
+    sdr_processor,
   });
 
   let app = WebSocketServer::create_app(state);
@@ -74,6 +79,10 @@ async fn test_auth_challenge_flow() {
       .build()
       .unwrap();
 
+  let sdr_processor = Arc::new(tokio::sync::Mutex::new(
+    n_apt_backend::sdr::processor::SdrProcessor::new_mock_apt().unwrap()
+  ));
+
   let state = Arc::new(AppState {
     shared,
     credential_store,
@@ -82,6 +91,7 @@ async fn test_auth_challenge_flow() {
     broadcast_tx,
     spectrum_tx,
     cmd_tx,
+    sdr_processor,
   });
 
   let app = WebSocketServer::create_app(state);
@@ -120,6 +130,9 @@ async fn test_auth_info_endpoint() {
   std::env::set_var("HOME", temp_dir.path());
 
   let shared = SharedState::new();
+  let sdr_processor = Arc::new(tokio::sync::Mutex::new(
+    n_apt_backend::sdr::processor::SdrProcessor::new_mock_apt().unwrap()
+  ));
   let state = Arc::new(AppState {
     shared,
     credential_store: CredentialStore::new().unwrap(),
@@ -134,6 +147,7 @@ async fn test_auth_info_endpoint() {
     broadcast_tx,
     spectrum_tx,
     cmd_tx,
+    sdr_processor,
   });
 
   let app = WebSocketServer::create_app(state);

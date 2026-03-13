@@ -114,29 +114,43 @@ pub async fn handle_ws_connection(
 
   let max_sample_rate = if device_connected {
     device_info
-      .split("max: ")
+      .split("Rate: ")
       .nth(1)
       .and_then(|s| s.split(" Hz").next())
       .and_then(|s| s.parse::<u32>().ok())
       .unwrap_or(64_000_000)
   } else {
-    device_info
-      .split("Sample Rate: ")
-      .nth(1)
-      .and_then(|s| s.split(" Hz").next())
-      .and_then(|s| s.parse::<u32>().ok())
-      .unwrap_or(64_000_000)
+    64_000_000
+  };
+
+  let normalize_rtl_device_name = |raw_name: &str| {
+    let short_name = raw_name.split(" - ").next().unwrap_or("RTL-SDR").trim();
+    let lower = short_name.to_ascii_lowercase();
+
+    if let Some(version) = short_name.split_whitespace().find_map(|token| {
+      let cleaned = token
+        .trim_matches(|c: char| !c.is_ascii_alphanumeric())
+        .to_ascii_lowercase();
+      let version = cleaned.strip_prefix('v')?;
+      if !version.is_empty() && version.chars().all(|c| c.is_ascii_digit()) {
+        Some(version.to_string())
+      } else {
+        None
+      }
+    }) {
+      return format!("RTL-SDR {}", format!("v{}", version));
+    }
+
+    if lower.contains("rtl-sdr blog") || lower.contains("rtl2832") || lower.contains("rtl-sdr") {
+      return "RTL-SDR".to_string();
+    }
+
+    short_name.to_string()
   };
 
   // Extract short device name from device_info
   let device_name = if device_connected {
-    // Extract just the device name from the long device_info string
-    // device_info format: "Long Name - Freq: X Hz, Rate: Y Hz, ..."
-    device_info
-      .split(" - ")
-      .next()
-      .unwrap_or("RTL-SDR")
-      .to_string()
+    normalize_rtl_device_name(&device_info)
   } else {
     "Mock APT SDR".to_string()
   };
@@ -168,6 +182,7 @@ pub async fn handle_ws_connection(
       "mock_apt"
     })
     .to_string(),
+    device_profile: shared.device_profile.lock().unwrap().clone(),
   };
 
   if let Ok(status_json) = serde_json::to_string(&initial_status) {
@@ -206,31 +221,65 @@ pub async fn handle_ws_connection(
       spectrum_result = spectrum_rx.recv() => {
         match spectrum_result {
           Ok(spectrum_data) => {
-            let frame = &spectrum_data.waveform;
             let timestamp: u64 = spectrum_data.timestamp as u64; // i64 to u64
             let center_frequency: u64 = spectrum_data.center_frequency_hz.unwrap_or(0) as u64;
-
-            // 1. Convert f32 array to bytes
-            let frame_bytes: &[u8] = bytemuck::cast_slice(frame);
-
-            // 2. Encrypt the raw frame bytes
-            match crypto::encrypt_payload_binary(&enc_key, frame_bytes) {
-              Ok(encrypted_frame) => {
-                // 3. Construct the binary payload: [timestamp: 8 bytes][center_frequency: 8 bytes][encrypted_frame: N bytes]
-                let mut binary_payload = Vec::with_capacity(8 + 8 + encrypted_frame.len());
-                binary_payload.extend_from_slice(&timestamp.to_le_bytes());
-                binary_payload.extend_from_slice(&center_frequency.to_le_bytes());
-                binary_payload.extend_from_slice(&encrypted_frame);
-
-                // 4. Send the binary message
-                if ws_sender.send(Message::Binary(binary_payload)).await.is_err() {
-                  break;
+            
+            // Determine data type and payload
+            let data_type_str = spectrum_data.data_type.as_deref();
+            let is_iq_data = data_type_str == Some("iq_raw");
+            
+            let (data_type, frame_bytes) = if is_iq_data {
+              let data_type = 1u32;
+              let sample_rate = spectrum_data.sample_rate.unwrap_or(0) as u32;
+              let iq_bytes = &spectrum_data.iq_data;
+              
+              // Construct header: [timestamp: 8][center_freq: 8][data_type: 4][sample_rate: 4]
+              let mut binary_payload = Vec::with_capacity(24 + iq_bytes.len());
+              binary_payload.extend_from_slice(&timestamp.to_le_bytes());
+              binary_payload.extend_from_slice(&center_frequency.to_le_bytes());
+              binary_payload.extend_from_slice(&data_type.to_le_bytes());
+              binary_payload.extend_from_slice(&sample_rate.to_le_bytes());
+              
+              // Encrypt actual I/Q data
+              match crypto::encrypt_payload_binary(&enc_key, iq_bytes) {
+                Ok(encrypted_iq) => {
+                  binary_payload.extend_from_slice(&encrypted_iq);
+                  (data_type, binary_payload)
+                }
+                Err(_) => {
+                  error!("I/Q data encryption failed");
+                  continue;
                 }
               }
-
-              Err(e) => {
-                error!("Binary encryption failed: {}", e);
+            } else {
+              // Spectrum data: normal processing
+              let frame = &spectrum_data.waveform;
+              let frame_bytes_slice: &[u8] = bytemuck::cast_slice(frame);
+              let data_type = 0u32;
+              let sample_rate = spectrum_data.sample_rate.unwrap_or(0) as u32;
+              
+              // Construct payload: [timestamp: 8][center_freq: 8][data_type: 4][sample_rate: 4][spectrum: N]
+              let mut binary_payload = Vec::with_capacity(24 + frame_bytes_slice.len());
+              binary_payload.extend_from_slice(&timestamp.to_le_bytes());
+              binary_payload.extend_from_slice(&center_frequency.to_le_bytes());
+              binary_payload.extend_from_slice(&data_type.to_le_bytes());
+              binary_payload.extend_from_slice(&sample_rate.to_le_bytes());
+              
+              match crypto::encrypt_payload_binary(&enc_key, frame_bytes_slice) {
+                Ok(encrypted_frame) => {
+                  binary_payload.extend_from_slice(&encrypted_frame);
+                  (data_type, binary_payload)
+                }
+                Err(_) => {
+                  error!("Spectrum data encryption failed");
+                  continue;
+                }
               }
+            };
+
+            // Send the binary message
+            if ws_sender.send(Message::Binary(frame_bytes)).await.is_err() {
+              break;
             }
           }
           Err(broadcast::error::RecvError::Lagged(n)) => {
@@ -484,6 +533,25 @@ pub fn handle_message(
       };
       log::info!("Client requested capture: {:?}", capture_cmd);
       let _ = cmd_tx.send(capture_cmd);
+    }
+    "power_scale" => {
+      if let Some(scale_str) = message.power_scale.as_deref() {
+        match scale_str {
+          "dB" => {
+            let _ = cmd_tx.send(super::types::SdrCommand::SetPowerScale {
+              scale: super::types::PowerScale::DB,
+            });
+          }
+          "dBm" => {
+            let _ = cmd_tx.send(super::types::SdrCommand::SetPowerScale {
+              scale: super::types::PowerScale::DBm,
+            });
+          }
+          _ => {
+            debug!("Unknown power scale: {}", scale_str);
+          }
+        }
+      }
     }
     _ => {
       debug!("Unknown message type: {}", message.message_type);

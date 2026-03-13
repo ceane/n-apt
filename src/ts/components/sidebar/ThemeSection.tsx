@@ -1,7 +1,8 @@
 import React, { useState } from "react";
 import styled from "styled-components";
-import { useThemeStore, AppMode } from "@n-apt/hooks/useThemeStore";
-import { WATERFALL_COLORMAPS, ColormapId } from "@n-apt/consts/colormaps";
+import { useAppSelector, useAppDispatch } from "@n-apt/redux";
+import { setAppMode as setAppModeAction, setAccentColor as setAccentColorAction, setFftColor as setFftColorAction, setWaterfallTheme as setWaterfallThemeAction, resetTheme as resetThemeAction } from "@n-apt/redux";
+import { WATERFALL_COLORMAPS } from "@n-apt/consts/colormaps";
 import { Row, Button } from "@n-apt/components/ui";
 import {
   CollapsibleTitle,
@@ -95,17 +96,33 @@ const SettingSelect = styled.select`
 
 export const ThemeSection: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
+  const dispatch = useAppDispatch();
   const {
     appMode,
     accentColor,
     fftColor,
     waterfallTheme,
-    setAppMode,
-    setAccentColor,
-    setFftColor,
-    setWaterfallTheme,
-    resetTheme,
-  } = useThemeStore();
+  } = useAppSelector(state => state.theme);
+
+  const handleSetAppMode = (mode: "system" | "dark" | "light") => {
+    dispatch(setAppModeAction(mode));
+  };
+
+  const handleSetAccentColor = (color: string) => {
+    dispatch(setAccentColorAction(color));
+  };
+
+  const handleSetFftColor = (color: string) => {
+    dispatch(setFftColorAction(color));
+  };
+
+  const handleSetWaterfallTheme = (theme: string) => {
+    dispatch(setWaterfallThemeAction(theme));
+  };
+
+  const handleResetTheme = () => {
+    dispatch(resetThemeAction());
+  };
 
   return (
     <Section>
@@ -119,7 +136,7 @@ export const ThemeSection: React.FC = () => {
           <Row label="App Theme" tooltip="Switch between system, dark, and light modes.">
             <SettingSelect
               value={appMode}
-              onChange={(e) => setAppMode(e.target.value as AppMode)}
+              onChange={(e) => handleSetAppMode(e.target.value as "system" | "dark" | "light")}
             >
               <option value="system">System</option>
               <option value="dark">Dark</option>
@@ -132,12 +149,12 @@ export const ThemeSection: React.FC = () => {
               <ColorSquare
                 type="color"
                 value={accentColor}
-                onChange={(e) => setAccentColor(e.target.value)}
+                onChange={(e) => handleSetAccentColor(e.target.value)}
               />
               <HexInput
                 type="text"
                 value={accentColor}
-                onChange={(e) => setAccentColor(e.target.value)}
+                onChange={(e) => handleSetAccentColor(e.target.value)}
               />
             </ColorInputWrapper>
           </Row>
@@ -147,12 +164,12 @@ export const ThemeSection: React.FC = () => {
               <ColorSquare
                 type="color"
                 value={fftColor}
-                onChange={(e) => setFftColor(e.target.value)}
+                onChange={(e) => handleSetFftColor(e.target.value)}
               />
               <HexInput
                 type="text"
                 value={fftColor}
-                onChange={(e) => setFftColor(e.target.value)}
+                onChange={(e) => handleSetFftColor(e.target.value)}
               />
             </ColorInputWrapper>
           </Row>
@@ -160,7 +177,7 @@ export const ThemeSection: React.FC = () => {
           <Row label="Waterfall" tooltip="Select a colormap for the waterfall display.">
             <SettingSelect
               value={waterfallTheme}
-              onChange={(e) => setWaterfallTheme(e.target.value as ColormapId)}
+              onChange={(e) => handleSetWaterfallTheme(e.target.value)}
             >
               {Object.keys(WATERFALL_COLORMAPS).map((id) => (
                 <option key={id} value={id}>
@@ -173,7 +190,7 @@ export const ThemeSection: React.FC = () => {
           <div style={{ marginTop: "12px", gridColumn: "1 / -1" }}>
             <Button
               $variant="secondary"
-              onClick={resetTheme}
+              onClick={handleResetTheme}
               style={{ width: "100%", fontSize: "10px", padding: "6px" }}
             >
               Reset Theme to Defaults

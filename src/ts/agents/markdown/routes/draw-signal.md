@@ -112,7 +112,7 @@ The Draw Signal interface provides sophisticated tools for generating synthetic 
 ## Related Routes
 
 - `/` - Test generated signals with spectrum analysis
-- `/analysis` - Analyze generated signal properties
+- `/demodulate` - Analyze generated signal properties
 - `/3d-model` - Correlate with biological targets
 
 ## Technical Specifications

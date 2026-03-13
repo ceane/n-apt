@@ -2,6 +2,7 @@
  * Shared constants used across multiple modules
  * Common values that are used in both FFT and waterfall rendering
  */
+import { formatFrequency, formatFrequencyHighRes } from "../utils/frequency";
 
 // Shared frequency ranges for optimal grid display
 export const FREQUENCY_RANGES = [
@@ -21,59 +22,8 @@ export const FONT_SIZE = "16px";
 // Shared canvas background
 export const CANVAS_BACKGROUND = "#0a0a0a";
 
-// Frequency formatting function (Standard / Zoomed out)
-export const formatFrequency = (
-  freqMHz: number,
-  showUnits: boolean = true,
-): string => {
-  const abs = Math.abs(freqMHz);
-  let val: number;
-  let unit: string;
-
-  if (freqMHz === 0) {
-    val = 0;
-    unit = "kHz";
-  } else if (abs < 1) {
-    val = freqMHz * 1000;
-    unit = "kHz";
-  } else if (abs >= 1000) {
-    val = freqMHz / 1000;
-    unit = "GHz";
-  } else {
-    val = freqMHz;
-    unit = "MHz";
-  }
-
-  // Trim trailing zeros by converting back to Number
-  const formattedVal = Number(val.toFixed(3)).toString();
-  return formattedVal + (showUnits ? " " + unit : "");
-};
-
-// High resolution formatting: 100.000.000MHz
-export const formatFrequencyHighRes = (freqMHz: number): string => {
-  const abs = Math.abs(freqMHz);
-  
-  if (abs >= 1000) {
-    // GHz.MHz.kHz.Hz
-    const val = freqMHz / 1000;
-    const fixed = val.toFixed(9);
-    const [g, rest] = fixed.split(".");
-    return `${g}.${rest.slice(0, 3)}.${rest.slice(3, 6)}.${rest.slice(6, 9)}GHz`;
-  } else if (abs >= 1) {
-    // MHz.kHz.Hz
-    const val = freqMHz;
-    const fixed = val.toFixed(6);
-    const [m, rest] = fixed.split(".");
-    return `${m}.${rest.slice(0, 3)}.${rest.slice(3, 6)}MHz`;
-  } else if (abs >= 0.001) {
-    // kHz.Hz
-    const val = freqMHz * 1000;
-    return `${Math.round(val)}kHz`;
-  } else {
-    // Hz (just integer as requested)
-    return `${Math.round(freqMHz * 1000000)}Hz`;
-  }
-};
+// Frequency formatting functions are now imported from ../utils/frequency
+export { formatFrequency, formatFrequencyHighRes };
 
 // Find best range function can be shared
 export const findBestFrequencyRange = (

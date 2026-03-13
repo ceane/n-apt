@@ -54,7 +54,7 @@ use tokio::sync::broadcast;
 use tokio::sync::Mutex;
 
 use super::shared_state::SharedState;
-use super::types::SpectrumData;
+use super::types::{DeviceProfile, SpectrumData, PowerScale};
 use super::utils::reconcile_device_state;
 use crate::sdr::processor::SdrProcessor;
 
@@ -76,6 +76,7 @@ fn broadcast_device_status(
   let paused = shared.is_paused.load(Ordering::Relaxed);
   let sdr_settings = shared.sdr_settings.lock().unwrap().clone();
   let channels = shared.channels.lock().unwrap().clone();
+  let device_profile = shared.device_profile.lock().unwrap().clone();
 
   // Extract short device name from device_info
   let device_name = if device_connected {
@@ -99,11 +100,32 @@ fn broadcast_device_status(
       "device_loading_reason": device_loading_reason,
       "device_state": device_state,
       "paused": paused,
+      "max_sample_rate": sdr_settings.sample_rate,
       "sdr_settings": sdr_settings,
       "channels": channels,
       "backend": if device_connected { "rtl-sdr" } else { "mock_apt" },
+      "device": if device_connected { "rtl-sdr" } else { "mock_apt" },
+      "device_profile": device_profile,
   });
   let _ = broadcast_tx.send(msg.to_string());
+}
+
+fn build_device_profile(is_mock: bool) -> DeviceProfile {
+  if is_mock {
+    DeviceProfile {
+      kind: "mock_apt".to_string(),
+      is_rtl_sdr: false,
+      supports_approx_dbm: false,
+      supports_raw_iq_stream: false,
+    }
+  } else {
+    DeviceProfile {
+      kind: "rtl-sdr".to_string(),
+      is_rtl_sdr: true,
+      supports_approx_dbm: true,
+      supports_raw_iq_stream: true,
+    }
+  }
 }
 
 #[derive(Clone)]
@@ -156,6 +178,7 @@ impl WebSocketServer {
     shared.update_device_status(
       !sdr_processor.is_mock(),
       sdr_processor.get_device_info(),
+      build_device_profile(sdr_processor.is_mock()),
     );
 
     Self {
@@ -182,6 +205,8 @@ impl WebSocketServer {
       let mut frame_count = 0u64;
       let mut last_stats = Instant::now();
       let mut last_poll = Instant::now();
+      let mut last_hardware_swap: Option<Instant> = None;
+      let mut last_failure_at: Option<Instant> = None;
       loop {
         let start_time = Instant::now();
         let target_fps = { sdr_processor.lock().await.display_frame_rate };
@@ -252,12 +277,14 @@ impl WebSocketServer {
                     shared_state.update_device_status(
                       !processor.is_mock(),
                       processor.get_device_info(),
+                      build_device_profile(processor.is_mock()),
                     );
                     broadcast_device_status(&shared_state, &_broadcast_tx);
                   } else {
                     shared_state.update_device_status(
                       !processor.is_mock(),
                       processor.get_device_info(),
+                      build_device_profile(processor.is_mock()),
                     );
                     broadcast_device_status(&shared_state, &_broadcast_tx);
                   }
@@ -272,6 +299,7 @@ impl WebSocketServer {
                   shared_state.update_device_status(
                     !processor.is_mock(),
                     processor.get_device_info(),
+                    build_device_profile(processor.is_mock()),
                   );
                   broadcast_device_status(&shared_state, &_broadcast_tx);
                 }
@@ -428,6 +456,10 @@ impl WebSocketServer {
               });
               let _ = _broadcast_tx.send(msg.to_string());
             }
+            crate::server::types::SdrCommand::SetPowerScale { scale } => {
+              info!("Setting power scale to: {:?}", scale);
+              processor.set_power_scale(scale);
+            }
             _ => {
               warn!("Unhandled command: {:?}", cmd);
             }
@@ -451,7 +483,14 @@ impl WebSocketServer {
             if !processor.capture_active {
               let count =
                 crate::sdr::rtlsdr::device::RtlSdrDevice::get_device_count();
-              if count > 0 {
+              
+              // Only attempt re-scan if we haven't failed recently.
+              // Prevents rhythmic loop if device is electrically unstable.
+              let scan_cooldown = last_failure_at
+                .map(|t| t.elapsed() < std::time::Duration::from_secs(5))
+                .unwrap_or(false);
+
+              if count > 0 && !scan_cooldown {
                 info!("Auto-detected {} RTL-SDR device(s). Attempting hot-swap...", count);
 
                 // Immediately tell the frontend we are loading
@@ -470,8 +509,10 @@ impl WebSocketServer {
                         shared_state.update_device_status(
                           true,
                           processor.get_device_info(),
+                          build_device_profile(processor.is_mock()),
                         );
                         broadcast_device_status(&shared_state, &_broadcast_tx);
+                        last_hardware_swap = Some(Instant::now());
                         info!("Successfully hot-swapped to RTL-SDR");
                       }
                     } else {
@@ -490,7 +531,15 @@ impl WebSocketServer {
             }
           } else {
             // ── Real hardware mode: debounced health monitoring ──
-            if !processor.is_healthy() {
+            
+            // Be patient during the first 2 seconds of a new connection.
+            // Power-hungry devices like the Blog V4 may take time to settle their 
+            // internal regulators and I2C bridge after the initial 'open'.
+            let is_warming_up = last_hardware_swap
+              .map(|t| t.elapsed() < std::time::Duration::from_secs(5))
+              .unwrap_or(false);
+
+            if !processor.is_healthy() && !is_warming_up {
               let streak = shared_state.record_health_failure();
               let recovery_count = shared_state.recovery_attempts.load(Ordering::Relaxed);
 
@@ -513,7 +562,11 @@ impl WebSocketServer {
                   if let Err(e) = processor.swap_device(mock_device) {
                     error!("Failed to fall back to mock device after early unplug: {}", e);
                   } else {
-                    shared_state.update_device_status(false, processor.get_device_info());
+                    shared_state.update_device_status(
+                      false,
+                      processor.get_device_info(),
+                      build_device_profile(processor.is_mock()),
+                    );
                     broadcast_device_status(&shared_state, &_broadcast_tx);
                   }
                 } else {
@@ -551,8 +604,13 @@ impl WebSocketServer {
                   if let Err(e) = processor.swap_device(mock_device) {
                     error!("Failed to fall back to mock device: {}", e);
                   } else {
-                    shared_state.update_device_status(false, processor.get_device_info());
+                    shared_state.update_device_status(
+                      false,
+                      processor.get_device_info(),
+                      build_device_profile(processor.is_mock()),
+                    );
                     broadcast_device_status(&shared_state, &_broadcast_tx);
+                    last_failure_at = Some(Instant::now());
                     info!("Fell back to mock mode after confirmed unplug");
                   }
                 } else {
@@ -570,10 +628,18 @@ impl WebSocketServer {
                         if let Err(me) = processor.swap_device(mock_device) {
                           error!("Emergency mock fallback also failed: {}", me);
                         }
-                        shared_state.update_device_status(false, processor.get_device_info());
+                        shared_state.update_device_status(
+                          false,
+                          processor.get_device_info(),
+                          build_device_profile(processor.is_mock()),
+                        );
                         broadcast_device_status(&shared_state, &_broadcast_tx);
                       } else {
-                        shared_state.update_device_status(true, processor.get_device_info());
+                        shared_state.update_device_status(
+                          true,
+                          processor.get_device_info(),
+                          build_device_profile(processor.is_mock()),
+                        );
                         broadcast_device_status(&shared_state, &_broadcast_tx);
                         info!("Full device restart succeeded");
                       }
@@ -584,7 +650,11 @@ impl WebSocketServer {
                       if let Err(me) = processor.swap_device(mock_device) {
                         error!("Mock fallback after restart failure: {}", me);
                       }
-                      shared_state.update_device_status(false, processor.get_device_info());
+                      shared_state.update_device_status(
+                        false,
+                        processor.get_device_info(),
+                        build_device_profile(processor.is_mock()),
+                      );
                       broadcast_device_status(&shared_state, &_broadcast_tx);
                     }
                   }
@@ -649,17 +719,54 @@ impl WebSocketServer {
               let current_state = shared_state.device_state.lock().unwrap().clone();
               if current_state != "connected" {
                 info!("First successful frame after recovery — confirming connected state");
-                shared_state.update_device_status(true, device_type_str.clone());
+                shared_state.update_device_status(
+                  true,
+                  device_type_str.clone(),
+                  build_device_profile(false),
+                );
                 broadcast_device_status(&shared_state, &_broadcast_tx);
               }
             }
 
-            let spectrum_message = SpectrumData {
-              message_type: "spectrum".to_string(),
-              waveform,
-              is_mock_apt,
-              center_frequency_hz: Some(center_frequency),
-              timestamp,
+            // Get current power scale and sample rate
+            let power_scale = sdr_processor.lock().await.get_power_scale();
+            let sample_rate = sdr_processor.lock().await.get_sample_rate();
+
+            let spectrum_message = if matches!(power_scale, PowerScale::DBm) {
+              // dBm mode: send raw I/Q data (works with both RTL-SDR and Mock APT)
+              let raw_iq = sdr_processor.lock().await.last_frame_raw_iq.clone();
+              
+              // Only log on empty data (potential issue), not on every frame
+              if raw_iq.is_empty() {
+                warn!("Raw I/Q data is empty in dBm mode - this may cause data stream freeze");
+              }
+              
+              SpectrumData {
+                message_type: "spectrum".to_string(),
+                waveform: vec![0.0; raw_iq.len() / 2], // Placeholder for compatibility
+                is_mock_apt,
+                center_frequency_hz: Some(center_frequency),
+                waveform_span_mhz: None,
+                timestamp,
+                data_type: Some("iq_raw".to_string()),
+                sample_rate: Some(sample_rate),
+                power_scale: Some(PowerScale::DBm),
+                iq_data: raw_iq,
+              }
+            } else {
+              // Normal mode: send processed spectrum data
+              SpectrumData {
+                message_type: "spectrum".to_string(),
+                waveform,
+                is_mock_apt,
+                center_frequency_hz: Some(center_frequency),
+                waveform_span_mhz: None,
+                timestamp,
+                data_type: Some("spectrum_db".to_string()),
+                sample_rate: Some(sample_rate),
+                power_scale: Some(power_scale),
+                iq_data: vec![], // Empty for spectrum data
+              }
             };
 
             // Broadcast to all connected WebSocket clients
@@ -713,7 +820,11 @@ impl WebSocketServer {
                   if let Err(swap_e) = processor.swap_device(mock_device) {
                     error!("Failed to swap to mock after early unplug: {}", swap_e);
                   } else {
-                    shared_state.update_device_status(false, processor.get_device_info());
+                    shared_state.update_device_status(
+                      false,
+                      processor.get_device_info(),
+                      build_device_profile(processor.is_mock()),
+                    );
                     broadcast_device_status(&shared_state, &_broadcast_tx);
                   }
                 } else {
@@ -748,13 +859,17 @@ impl WebSocketServer {
                 shared_state.set_device_state("disconnected", None);
                 broadcast_device_status(&shared_state, &_broadcast_tx);
 
-                let mock_device = crate::sdr::SdrDeviceFactory::create_mock_device();
-                if let Err(swap_e) = processor.swap_device(mock_device) {
-                  error!("Failed to swap to mock on read error: {}", swap_e);
-                } else {
-                  shared_state.update_device_status(false, processor.get_device_info());
-                  broadcast_device_status(&shared_state, &_broadcast_tx);
-                }
+                  let mock_device = crate::sdr::SdrDeviceFactory::create_mock_device();
+                  if let Err(swap_e) = processor.swap_device(mock_device) {
+                    error!("Failed to swap to mock on read error: {}", swap_e);
+                  } else {
+                    shared_state.update_device_status(
+                      false,
+                      processor.get_device_info(),
+                      build_device_profile(processor.is_mock()),
+                    );
+                    broadcast_device_status(&shared_state, &_broadcast_tx);
+                  }
               }
             }
           }

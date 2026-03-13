@@ -29,6 +29,7 @@ export function useOverlayRenderer() {
       frequencyRange: { min: number; max: number },
       fftMin: number,
       fftMax: number,
+      powerScale: "dB" | "dBm" = "dB",
       hardwareSampleRateHz?: number,
       fullCaptureRange?: { min: number; max: number },
       _isIqRecordingActive?: boolean,
@@ -38,7 +39,6 @@ export function useOverlayRenderer() {
       const fftHeight = fftAreaMax.y - FFT_AREA_MIN.y;
       const plotWidth = fftAreaMax.x - FFT_AREA_MIN.x;
 
-      const startLine = Math.floor(fftMax / VERTICAL_RANGE) * VERTICAL_RANGE;
       const vertRange = fftMax - fftMin;
       const scaleFactor = fftHeight / vertRange;
 
@@ -59,24 +59,48 @@ export function useOverlayRenderer() {
         return Math.max(leftBound, Math.min(rightBound, x));
       };
 
+      ctx.clearRect(0, 0, width, height);
+
       ctx.strokeStyle = FFT_GRID_COLOR;
       ctx.fillStyle = FFT_TEXT_COLOR;
       ctx.font = "12px JetBrains Mono";
       ctx.textAlign = "right";
       ctx.lineWidth = 1 / dpr;
 
-      const zeroDbY = fftAreaMax.y - (0 - fftMin) * scaleFactor;
-      ctx.fillText("0dB", FFT_AREA_MIN.x - 10, Math.round(zeroDbY + 3));
+      // Ensure we start labeling from a clean multiple of VERTICAL_RANGE
+      // We use a small epsilon to catch cases where fftMax is very close to a tick
+      const labelStart = Math.floor((fftMax + 0.1) / VERTICAL_RANGE) * VERTICAL_RANGE;
+      
+      // Always include the actual fftMax as the top label, even if it's not on a VERTICAL_RANGE boundary
+      const labels = [];
+      if (Math.abs(fftMax - labelStart) > 0.1) {
+        labels.push(fftMax); // Add the actual max as first label
+      }
+      
+      // Add the regular grid labels
+      for (let line = labelStart; line >= fftMin - 1; line -= VERTICAL_RANGE) {
+        labels.push(line);
+      }
 
-      for (let line = startLine; line > fftMin; line -= VERTICAL_RANGE) {
-        if (line === 0) continue;
+      for (const line of labels) {
         const yPos = fftAreaMax.y - (line - fftMin) * scaleFactor;
+        
+        // Bounds check with small padding
+        if (yPos < FFT_AREA_MIN.y - 2 || yPos > fftAreaMax.y + 2) continue;
+
         ctx.beginPath();
         ctx.moveTo(FFT_AREA_MIN.x, Math.round(yPos));
         ctx.lineTo(fftAreaMax.x, Math.round(yPos));
         ctx.stroke();
+
+        let label = `${Math.round(line)}`;
+        // Append unit only to the top-most label (the first one in our array)
+        if (line === labels[0]) {
+          label += powerScale === "dBm" ? "dBm" : "dB";
+        }
+
         ctx.fillText(
-          line.toString(),
+          label,
           FFT_AREA_MIN.x - 10,
           Math.round(yPos + 3),
         );
@@ -219,7 +243,7 @@ export function useOverlayRenderer() {
             ctx.stroke();
 
             const label = formatOffset(s);
-            ctx.fillText(label, clampLabelX(x, label), FFT_AREA_MIN.y + 18);
+            ctx.fillText(label, clampLabelX(x, label), FFT_AREA_MIN.y + 10);
           }
         }
         ctx.restore();
@@ -240,8 +264,6 @@ export function useOverlayRenderer() {
       const anchorRange = fullCaptureRange || frequencyRange;
       const totalSpan = anchorRange.max - anchorRange.min;
         const hwSpanMHz = hardwareSampleRateHz ? hardwareSampleRateHz / 1e6 : 0;
-        const USABLE_BW_FRACTION = 0.75;
-        const usableSpanMHz = hwSpanMHz * USABLE_BW_FRACTION;
         const shouldShowHWGrid = totalSpan > hwSpanMHz + 0.001 && hwSpanMHz > 0;
         
         if (shouldShowHWGrid) {
@@ -267,10 +289,6 @@ export function useOverlayRenderer() {
             const blockEnd = Math.min(blockStart + hwSpanMHz, anchorRange.max);
             const blockWidth = blockEnd - blockStart;
             const isFullBlock = blockWidth >= hwSpanMHz - 0.001;
-            const blockCenter = (blockStart + blockEnd) / 2;
-
-            const usableStart = blockCenter - usableSpanMHz / 2;
-            const usableEnd = blockCenter + usableSpanMHz / 2;
 
             // Only draw if visible in the current zoomed frequency range
             if (blockEnd > minFreq && blockStart < maxFreq) {
@@ -283,29 +301,7 @@ export function useOverlayRenderer() {
                 ctx.stroke();
               }
 
-              // Draw usable bandwidth marks
-              if (isFullBlock) {
-                ctx.save();
-                ctx.strokeStyle = SNAP_HW_RATE_LINE;
-                ctx.setLineDash([2, 2]);
-                ctx.globalAlpha = 0.5;
-                if (usableStart >= minFreq && usableStart <= maxFreq) {
-                  const ux1 = Math.round(freqToX2(usableStart));
-                  ctx.beginPath();
-                  ctx.moveTo(ux1, FFT_AREA_MIN.y + 30);
-                  ctx.lineTo(ux1, fftAreaMax.y);
-                  ctx.stroke();
-                }
-                if (usableEnd >= minFreq && usableEnd <= maxFreq) {
-                  const ux2 = Math.round(freqToX2(usableEnd));
-                  ctx.beginPath();
-                  ctx.moveTo(ux2, FFT_AREA_MIN.y + 30);
-                  ctx.lineTo(ux2, fftAreaMax.y);
-                  ctx.stroke();
-                }
-                ctx.restore();
-              }
-
+              
               // Draw right boundary
               if (blockEnd < anchorRange.max - 0.0001 && blockEnd >= minFreq && blockEnd <= maxFreq) {
                 const rx = Math.round(freqToX2(blockEnd));
@@ -327,16 +323,8 @@ export function useOverlayRenderer() {
                 const cx = Math.round(freqToX2(visibleCenter));
                 const label = isFullBlock ? "Hardware Sample Rate" : "Next Sample";
                 const subLabel = formatOffset(blockWidth);
-                ctx.fillText(label, cx, FFT_AREA_MIN.y + 60);
-                ctx.fillText(subLabel, cx, FFT_AREA_MIN.y + 72);
-                
-                if (isFullBlock) {
-                  ctx.save();
-                  ctx.globalAlpha = 0.7;
-                  ctx.font = "italic 9px JetBrains Mono";
-                  ctx.fillText(`Clean BW: ${formatOffset(usableSpanMHz)}`, cx, FFT_AREA_MIN.y + 84);
-                  ctx.restore();
-                }
+                ctx.fillText(label, cx, FFT_AREA_MIN.y + 20);
+                ctx.fillText(subLabel, cx, FFT_AREA_MIN.y + 32);
               }
             }
             currentFreq = blockEnd;
@@ -428,7 +416,7 @@ export function useOverlayRenderer() {
            ctx.stroke();
 
            const textX = Math.max(FFT_AREA_MIN.x + 45, Math.min(fftAreaMax.x - 45, x));
-           ctx.fillText(marker.label, textX, FFT_AREA_MIN.y + 60);
+           ctx.fillText(marker.label, textX, FFT_AREA_MIN.y + 20);
          }
          ctx.restore();
        }

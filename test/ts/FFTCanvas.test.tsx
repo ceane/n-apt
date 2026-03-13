@@ -2,9 +2,10 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import FFTCanvas from "@n-apt/components/FFTCanvas";
-import { ThemeProvider } from "styled-components";
 import { SpectrumProvider } from "@n-apt/hooks/useSpectrumStore";
 import { MemoryRouter } from "react-router-dom";
+import { TestWrapper } from "./testUtils";
+import { ThemeProvider } from "styled-components";
 
 // Mock useAuthentication to avoid auth errors during state init
 jest.mock("@n-apt/hooks/useAuthentication", () => ({
@@ -37,13 +38,15 @@ describe("FFTCanvas Component", () => {
 
   it("should render spectrum and waterfall sections", async () => {
     render(
-      <MemoryRouter>
-        <SpectrumProvider>
-          <ThemeProvider theme={mockTheme}>
-            <FFTCanvas {...defaultProps} />
-          </ThemeProvider>
-        </SpectrumProvider>
-      </MemoryRouter>
+      <TestWrapper>
+        <MemoryRouter>
+          <SpectrumProvider>
+            <ThemeProvider theme={mockTheme}>
+              <FFTCanvas {...defaultProps} />
+            </ThemeProvider>
+          </SpectrumProvider>
+        </MemoryRouter>
+      </TestWrapper>
     );
 
     await waitFor(() => {
@@ -54,13 +57,13 @@ describe("FFTCanvas Component", () => {
 
   it("should render visualizer sliders", async () => {
     render(
-      <MemoryRouter>
-        <SpectrumProvider>
-          <ThemeProvider theme={mockTheme}>
+      <TestWrapper>
+        <MemoryRouter>
+          <SpectrumProvider>
             <FFTCanvas {...defaultProps} />
-          </ThemeProvider>
-        </SpectrumProvider>
-      </MemoryRouter>
+          </SpectrumProvider>
+        </MemoryRouter>
+      </TestWrapper>
     );
 
     await waitFor(() => {

@@ -146,10 +146,10 @@ export function setupSpectrumToolHandlers(sidebarProps: any) {
 - **Source Settings**: `setGain`
 - **Snapshot Controls**: `takeSnapshot`
 
-### Analysis (`/analysis`)
+### Demodulation (`/demodulate`)
 
 - All Spectrum Visualizer tools
-- **ML Analysis**: `startAnalysis`, `getAnalysisResults`, `exportAnalysisResults`
+- **ML Demodulation**: `startAnalysis`, `getAnalysisResults`, `exportAnalysisResults`
 
 ### Draw Signal (`/draw-signal`)
 

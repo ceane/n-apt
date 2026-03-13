@@ -5,6 +5,7 @@ import { useSdrSettings } from "@n-apt/hooks/useSdrSettings";
 import { SpectrumProvider } from "@n-apt/hooks/useSpectrumStore";
 import { AuthProvider } from "@n-apt/hooks/useAuthentication";
 import type { SdrSettingsConfig } from "@n-apt/hooks/useWebSocket";
+import { TestWrapper } from "./testUtils";
 
 jest.mock("@n-apt/hooks/useAuthentication", () => ({
   AuthProvider: ({ children }: { children: React.ReactNode }) => children,
@@ -97,13 +98,15 @@ describe("useSdrSettings", () => {
     };
 
     render(
-      <MemoryRouter>
-        <AuthProvider>
-          <SpectrumProvider>
-            <HookHarness sdrSettings={sdrSettings} />
-          </SpectrumProvider>
-        </AuthProvider>
-      </MemoryRouter>,
+      <TestWrapper>
+        <MemoryRouter>
+          <AuthProvider>
+            <SpectrumProvider>
+              <HookHarness sdrSettings={sdrSettings} />
+            </SpectrumProvider>
+          </AuthProvider>
+        </MemoryRouter>
+      </TestWrapper>,
     );
 
     expect(screen.getByTestId("fftSize")).toHaveTextContent("16384");

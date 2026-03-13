@@ -26,6 +26,8 @@ export interface VisualizerSlidersProps {
   dbMax: number;
   /** Min dB floor (bottom of Y axis), range: FFT_MIN_DB up to some maximum */
   dbMin: number;
+  /** Power scale: "dB" or "dBm" */
+  powerScale?: "dB" | "dBm";
   onZoomChange: (zoom: number) => void;
   onDbMaxChange: (dbMax: number) => void;
   onDbMinChange: (dbMin: number) => void;
@@ -45,6 +47,7 @@ export const VisualizerSliders: React.FC<VisualizerSlidersProps> = ({
   zoom,
   dbMax,
   dbMin,
+  powerScale = "dB",
   onZoomChange,
   onDbMaxChange,
   onDbMinChange,
@@ -56,6 +59,11 @@ export const VisualizerSliders: React.FC<VisualizerSlidersProps> = ({
   onWfSmoothChange,
   onResetZoomDb,
 }) => {
+  // Calculate appropriate ranges based on power scale
+  const isDbm = powerScale === "dBm";
+  const maxDbRange = isDbm ? { min: -80, max: 30 } : { min: -80, max: 0 };
+  const minDbRange = isDbm ? { min: -120, max: -10 } : { min: -120, max: -10 };
+  const dbUnit = isDbm ? "dBm" : "dB";
   return (
     <SlidersGrid>
       <TogglesContainer>
@@ -69,22 +77,23 @@ export const VisualizerSliders: React.FC<VisualizerSlidersProps> = ({
         <Toggle
           $active={fftAvgEnabled}
           onClick={() => onFftAvgChange?.(!fftAvgEnabled)}
-          title="FFT Averaging — temporal smoothing of spectrum"
+          title="Toggle FFT averaging"
         >
-          {fftAvgEnabled ? "▸ AVG" : "▹ AVG"}
+          AVG
         </Toggle>
         <Toggle
           $active={fftSmoothEnabled}
           onClick={() => onFftSmoothChange?.(!fftSmoothEnabled)}
-          title="FFT Smoothing — adjacent bin averaging"
+          title="Toggle FFT smoothing"
         >
-          {fftSmoothEnabled ? "▸ FFT" : "▹ FFT"}
+          SMOOTH
         </Toggle>
         <Toggle
           $active={wfSmoothEnabled}
           onClick={() => onWfSmoothChange?.(!wfSmoothEnabled)}
-          title="Waterfall Smoothing — interpolation between bins"
+          title="Toggle waterfall smoothing"
         >
+          WF
           {wfSmoothEnabled ? "▸ WF" : "▹ WF"}
         </Toggle>
       </TogglesContainer>
@@ -104,11 +113,11 @@ export const VisualizerSliders: React.FC<VisualizerSlidersProps> = ({
       <Slider
         label="Max"
         value={dbMax}
-        min={-80}
-        max={0}
+        min={maxDbRange.min}
+        max={maxDbRange.max}
         step={5}
         onChange={onDbMaxChange}
-        formatValue={(v) => `${v}dB`}
+        formatValue={(v) => `${v}${dbUnit}`}
         invertFill
         orientation="vertical"
         labelPlacement="bottom"
@@ -116,11 +125,11 @@ export const VisualizerSliders: React.FC<VisualizerSlidersProps> = ({
       <Slider
         label="Min"
         value={dbMin}
-        min={-120}
-        max={-10}
+        min={minDbRange.min}
+        max={minDbRange.max}
         step={5}
         onChange={onDbMinChange}
-        formatValue={(v) => `${v}dB`}
+        formatValue={(v) => `${v}${dbUnit}`}
         orientation="vertical"
         labelPlacement="bottom"
       />

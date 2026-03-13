@@ -6,13 +6,15 @@ import { AnalysisSidebar } from "@n-apt/components/sidebar/AnalysisSidebar";
 import { DrawSignalSidebar } from "@n-apt/components/sidebar/DrawSignalSidebar";
 import { MapEndpointsSidebar } from "@n-apt/components/sidebar/MapEndpointsSidebar";
 import { SpectrumRoute } from "./SpectrumRoute";
-import { DecodeRoute } from "./DecodeRoute";
+import { DemodRoute } from "./DemodRoute";
 import { DrawSignalRoute } from "./DrawSignalRoute";
 import { Model3DRoute } from "./Model3DRoute";
 import { MapEndpointsRoute } from "./MapEndpointsRoute";
+import { StitchTestRoute } from "./StitchTestRoute";
 import { Model3DProvider } from "@n-apt/hooks/useModel3D";
 import { HotspotEditorProvider } from "@n-apt/hooks/useHotspotEditor";
 import { SidebarForRoute } from "@n-apt/components/sidebar/SidebarForRoute";
+import { SDRTestSidebar } from "@n-apt/components/sidebar/SDRTestSidebar";
 import { MapLocationsProvider } from "@n-apt/hooks/useMapLocations";
 
 export const AppRoutes: React.FC = () => {
@@ -35,10 +37,10 @@ export const AppRoutes: React.FC = () => {
         }
       />
       <Route
-        path="/analysis"
+        path="/demodulate"
         element={
           <MainLayout sidebar={<AnalysisSidebar />}>
-            <DecodeRoute />
+            <DemodRoute />
           </MainLayout>
         }
       />
@@ -70,6 +72,14 @@ export const AppRoutes: React.FC = () => {
               <MapEndpointsRoute />
             </MainLayout>
           </MapLocationsProvider>
+        }
+      />
+      <Route
+        path="/stitch-test"
+        element={
+          <MainLayout sidebar={<SDRTestSidebar />}>
+            <StitchTestRoute />
+          </MainLayout>
         }
       />
     </Routes>

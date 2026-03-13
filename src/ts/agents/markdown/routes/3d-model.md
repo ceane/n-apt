@@ -123,7 +123,7 @@ Each body area has predefined camera positions:
 ## Related Routes
 
 - `/` - Correlate signals with body areas
-- `/analysis` - Study signal effects on biology
+- `/demodulate` - Study signal effects on biology
 - `/hotspot-editor` - Create custom area markers
 
 ## Technical Specifications

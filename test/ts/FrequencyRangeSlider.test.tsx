@@ -2,6 +2,7 @@ import * as React from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import FrequencyRangeSlider from "@n-apt/components/sidebar/FrequencyRangeSlider";
+import { TestWrapper } from "./testUtils";
 
 describe("FrequencyRangeSlider Component", () => {
   const mockOnRangeChange = jest.fn();
@@ -23,23 +24,35 @@ describe("FrequencyRangeSlider Component", () => {
   });
 
   it("should render without crashing", () => {
-    render(<FrequencyRangeSlider {...defaultProps} />);
+    render(
+      <TestWrapper>
+        <FrequencyRangeSlider {...defaultProps} />
+      </TestWrapper>
+    );
 
     expect(screen.getByText("Test Frequency Range")).toBeInTheDocument();
   });
 
   it("should display current frequency range", () => {
-    render(<FrequencyRangeSlider {...defaultProps} />);
+    render(
+      <TestWrapper>
+        <FrequencyRangeSlider {...defaultProps} />
+      </TestWrapper>
+    );
 
     expect(
       screen.getByText((content, _element) => {
-        return content.includes("1.000MHz") && content.includes("4.000MHz");
+        return content.includes("1 MHz") && content.includes("4 MHz");
       }),
     ).toBeInTheDocument();
   });
 
   it("should call onActivate when clicked", () => {
-    render(<FrequencyRangeSlider {...defaultProps} />);
+    render(
+      <TestWrapper>
+        <FrequencyRangeSlider {...defaultProps} />
+      </TestWrapper>
+    );
 
     const sliderContainer = screen.getByText(
       "Test Frequency Range",
@@ -53,17 +66,25 @@ describe("FrequencyRangeSlider Component", () => {
   });
 
   it("should show active state when isActive is true", () => {
-    render(<FrequencyRangeSlider {...defaultProps} isActive={true} />);
+    render(
+      <TestWrapper>
+        <FrequencyRangeSlider {...defaultProps} isActive={true} />
+      </TestWrapper>
+    );
 
     // Should have active styling (we can't easily test styled-components classes)
     expect(screen.getByText("Test Frequency Range")).toBeInTheDocument();
   });
 
   it("should display frequency range information", () => {
-    render(<FrequencyRangeSlider {...defaultProps} />);
+    render(
+      <TestWrapper>
+        <FrequencyRangeSlider {...defaultProps} />
+      </TestWrapper>
+    );
 
-    expect(screen.getByText("0Hz")).toBeInTheDocument();
-    expect(screen.getByText("10.000MHz")).toBeInTheDocument();
+    expect(screen.getByText(/0 (Hz|kHz)/)).toBeInTheDocument();
+    expect(screen.getByText("10 MHz")).toBeInTheDocument();
   });
 
   it("should handle decimal precision correctly", () => {
@@ -73,17 +94,25 @@ describe("FrequencyRangeSlider Component", () => {
       visibleMax: 4.876543,
     };
 
-    render(<FrequencyRangeSlider {...preciseProps} />);
+    render(
+      <TestWrapper>
+        <FrequencyRangeSlider {...preciseProps} />
+      </TestWrapper>
+    );
 
     expect(
       screen.getByText((content, _element) => {
-        return content.includes("1.235MHz") && content.includes("4.877MHz");
+        return content.includes("1.2346 MHz") && content.includes("4.8765 MHz");
       }),
     ).toBeInTheDocument();
   });
 
   it("should be accessible with proper attributes", () => {
-    render(<FrequencyRangeSlider {...defaultProps} />);
+    render(
+      <TestWrapper>
+        <FrequencyRangeSlider {...defaultProps} />
+      </TestWrapper>
+    );
 
     // The slider itself should have tabIndex, not the label container
     const sliderContainer = screen.getByText(

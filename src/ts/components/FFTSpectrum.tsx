@@ -2,6 +2,7 @@ import { memo, useRef, useEffect, useCallback } from "react";
 import styled from "styled-components";
 import { useDraw2DFFTSignal } from "@n-apt/hooks/useDraw2DFFTSignal";
 import { useDrawWebGPUFFTSignal } from "@n-apt/hooks/useDrawWebGPUFFTSignal";
+import { useDraw3DWaterfallSignal } from "@n-apt/hooks/useDraw3DWaterfallSignal";
 
 interface FFTSpectrumProps {
   width: number;
@@ -11,11 +12,12 @@ interface FFTSpectrumProps {
   webgpuEnabled: boolean;
   webgpuDevice?: GPUDevice | null;
   webgpuFormat?: GPUTextureFormat | null;
-  resampleSpectrumInto: (source: Float32Array, target: Float32Array) => void;
+  resampleSpectrumInto: (_source: Float32Array, target: Float32Array) => void;
   onRenderComplete?: () => void;
   centerFrequencyMHz?: number;
   isDeviceConnected?: boolean;
   showGrid?: boolean;
+  drawSignal3D?: boolean;
 }
 
 const SpectrumCanvas = styled.canvas<{ $width: number; $height: number }>`
@@ -34,17 +36,19 @@ export const FFTSpectrum = memo<FFTSpectrumProps>(
     webgpuEnabled,
     webgpuDevice,
     webgpuFormat,
-    resampleSpectrumInto,
+    resampleSpectrumInto: _resampleSpectrumInto,
     onRenderComplete,
     centerFrequencyMHz,
     isDeviceConnected = true,
     showGrid = true,
+    drawSignal3D = false,
   }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
 
-    // Use appropriate rendering hook based on WebGPU availability
+    // Use appropriate rendering hook based on WebGPU availability and 3D mode
     const { draw2DFFTSignal } = useDraw2DFFTSignal();
     const { drawWebGPUFFTSignal } = useDrawWebGPUFFTSignal();
+    const { draw3DWaterfallSignal } = useDraw3DWaterfallSignal();
 
     // Render spectrum using appropriate method
     const renderSpectrum = useCallback(async () => {
@@ -54,8 +58,27 @@ export const FFTSpectrum = memo<FFTSpectrumProps>(
       // Convert Float32Array to regular array for hooks
       const waveformArray = Array.from(waveform);
 
-      if (webgpuEnabled && webgpuDevice && webgpuFormat) {
-        // Use WebGPU rendering
+      // Check if 3D mode is enabled
+      if (drawSignal3D && webgpuEnabled && webgpuDevice && webgpuFormat) {
+        // Use 3D WebGPU rendering
+        const success = await draw3DWaterfallSignal({
+          canvas,
+          device: webgpuDevice,
+          format: webgpuFormat,
+          waveform: new Float32Array(waveformArray),
+          frequencyRange,
+          fftMin: -120,
+          fftMax: 0,
+          showGrid,
+          centerFrequencyMHz,
+          isDeviceConnected,
+        });
+
+        if (success) {
+          onRenderComplete?.();
+        }
+      } else if (webgpuEnabled && webgpuDevice && webgpuFormat) {
+        // Use regular WebGPU rendering
         const success = await drawWebGPUFFTSignal({
           canvas,
           device: webgpuDevice,
@@ -97,8 +120,10 @@ export const FFTSpectrum = memo<FFTSpectrumProps>(
       showGrid,
       centerFrequencyMHz,
       isDeviceConnected,
+      drawSignal3D,
       draw2DFFTSignal,
       drawWebGPUFFTSignal,
+      draw3DWaterfallSignal,
       onRenderComplete,
     ]);
 

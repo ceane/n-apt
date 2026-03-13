@@ -33,6 +33,10 @@ path = "test/rust/mock_apt_tests.rs"
 name = "server_tests"
 path = "test/rust/server_tests.rs"
 
+[[test]]
+name = "capture_stitch_tests"
+path = "test/rust/capture_stitch_tests.rs"
+
 [dependencies]
 # Core dependencies (always included)
 rustfft = "6"

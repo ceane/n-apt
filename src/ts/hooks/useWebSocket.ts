@@ -11,6 +11,7 @@ import {
   CaptureStatus,
   SpectrumFrame,
   AutoFftOptionsResponse,
+  DeviceProfile,
   SdrSettingsConfig,
   WebSocketMessage
 } from "@n-apt/consts/schemas/websocket";
@@ -25,6 +26,7 @@ export type {
   CaptureStatus,
   SpectrumFrame,
   AutoFftOptionsResponse,
+  DeviceProfile,
   SdrSettingsConfig,
   WebSocketMessage
 };
@@ -38,6 +40,7 @@ export type WebSocketData = {
   backend: string | null;
   deviceInfo: string | null;
   deviceName: string | null;
+  deviceProfile: DeviceProfile | null;
   maxSampleRateHz: number | null;
   sampleRateHz: number | null;
   sdrSettings: SdrSettingsConfig | null;
@@ -58,6 +61,7 @@ export type WebSocketData = {
     signalArea: string,
   ) => void;
   sendGetAutoFftOptions: (screenWidth: number) => void;
+  sendPowerScaleCommand: (scale: "dB" | "dBm") => void;
 };
 
 
@@ -71,6 +75,7 @@ type WsState = {
   backend: string | null;
   deviceInfo: string | null;
   deviceName: string | null;
+  deviceProfile: DeviceProfile | null;
   maxSampleRateHz: number | null;
   sampleRateHz: number | null;
   sdrSettings: SdrSettingsConfig | null;
@@ -102,6 +107,7 @@ const INITIAL_WS_STATE: WsState = {
   backend: null,
   deviceInfo: null,
   deviceName: null,
+  deviceProfile: null,
   maxSampleRateHz: null,
   sampleRateHz: null,
   sdrSettings: null,
@@ -222,34 +228,54 @@ export const useWebSocket = (
                 const buffer = event.data;
                 const view = new DataView(buffer);
 
-                // 1. Extract metadata: [timestamp: 8 bytes][center_frequency: 8 bytes]
+                // 1. Extract metadata: [timestamp: 8 bytes][center_frequency: 8 bytes][data_type: 4 bytes][sample_rate: 4 bytes]
                 const timestamp = Number(view.getBigUint64(0, true)); // true = little-endian
                 const centerFrequencyHz = Number(view.getBigUint64(8, true));
+                const dataType = Number(view.getUint32(16, true)); // 0 = spectrum, 1 = I/Q
+                const sampleRate = Number(view.getUint32(20, true)); // Sample rate for I/Q data
 
-                // 2. Extract encrypted payload
-                const encryptedPayload = new Uint8Array(buffer, 16);
+                // 2. Extract encrypted payload - always 24-byte header now
+                const encryptedPayload = new Uint8Array(buffer, 24);
 
                 // 3. Decrypt the binary payload
                 decryptBinaryPayload(aesKeyRef.current, encryptedPayload)
                   .then((decryptedBytes) => {
                     if (disposed) return;
-                    // 4. Convert decrypted bytes back to Float32Array
-                    const waveform = new Float32Array(
-                      decryptedBytes.buffer,
-                      decryptedBytes.byteOffset,
-                      decryptedBytes.byteLength / 4,
-                    );
-
-                    // 5. Reconstruct the SpectrumData object format expected by the frontend
-                    const spectrumData = {
-                      type: "spectrum",
-                      waveform: waveform,
-                      is_mock_apt: false, // We'll assume real unless backend tells us otherwise (binary fast path is mostly real)
-                      center_frequency_hz: centerFrequencyHz,
-                      timestamp: timestamp,
-                    };
-
-                    dataRef.current = spectrumData;
+                    
+                    // 4. Process based on data type
+                    if (dataType === 1) {
+                      // I/Q data: keep as Uint8Array for WebGPU processing
+                      const spectrumData = {
+                        type: "spectrum",
+                        waveform: new Float32Array(decryptedBytes.length / 2), // Placeholder for compatibility
+                        is_mock_apt: false,
+                        center_frequency_hz: centerFrequencyHz,
+                        waveform_span_mhz: null,
+                        timestamp: timestamp,
+                        data_type: "iq_raw",
+                        sample_rate: sampleRate,
+                        iq_data: decryptedBytes, // Raw I/Q data for WebGPU
+                      };
+                      dataRef.current = spectrumData;
+                    } else {
+                      // Spectrum data: convert to Float32Array as before
+                      const waveform = new Float32Array(
+                        decryptedBytes.buffer,
+                        decryptedBytes.byteOffset,
+                        decryptedBytes.byteLength / 4,
+                      );
+                      const spectrumData = {
+                        type: "spectrum",
+                        waveform: waveform,
+                        is_mock_apt: false,
+                        center_frequency_hz: centerFrequencyHz,
+                        waveform_span_mhz: null,
+                        timestamp: timestamp,
+                        data_type: "spectrum_db",
+                        sample_rate: sampleRate,
+                      };
+                      dataRef.current = spectrumData;
+                    }
                   })
                   .catch((e) => {
                     console.error("Binary decryption failed:", e);
@@ -263,6 +289,19 @@ export const useWebSocket = (
           }
 
           const raw = event.data as string;
+
+          // JSON spectrum path for live multi-hop metadata (waveform_span_mhz)
+          if (raw.includes('"type":"spectrum"')) {
+            try {
+              const parsedData = JSON.parse(raw);
+              if (parsedData.type === "spectrum") {
+                dataRef.current = parsedData;
+              }
+            } catch {
+              /* ignore */
+            }
+            return;
+          }
 
           // Backwards compatibility / mock mode handling (still using JSON)
           if (raw.includes('"type":"encrypted_spectrum"')) {
@@ -332,6 +371,15 @@ export const useWebSocket = (
               }
               if (typeof parsedData.device_name === "string") {
                 updates.deviceName = parsedData.device_name;
+              }
+              if (
+                parsedData.device_profile &&
+                typeof parsedData.device_profile.kind === "string" &&
+                typeof parsedData.device_profile.is_rtl_sdr === "boolean" &&
+                typeof parsedData.device_profile.supports_approx_dbm === "boolean" &&
+                typeof parsedData.device_profile.supports_raw_iq_stream === "boolean"
+              ) {
+                updates.deviceProfile = parsedData.device_profile as DeviceProfile;
               }
               if (typeof parsedData.max_sample_rate === "number") {
                 updates.maxSampleRateHz = parsedData.max_sample_rate;
@@ -620,6 +668,20 @@ export const useWebSocket = (
     [dispatch],
   );
 
+  // Function to send power scale command to the server
+  const sendPowerScaleCommand = useCallback((scale: "dB" | "dBm") => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      return;
+    }
+
+    const message = JSON.stringify({
+      type: "power_scale",
+      powerScale: scale,
+    });
+    ws.send(message);
+  }, []);
+
   return {
     ...state,
     dataRef,
@@ -630,5 +692,6 @@ export const useWebSocket = (
     sendCaptureCommand,
     sendTrainingCommand,
     sendGetAutoFftOptions,
+    sendPowerScaleCommand,
   };
 };

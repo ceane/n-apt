@@ -129,11 +129,11 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
                 See FFT of N-APT (LF/HF freqs)
               </NavigationTab>
               <NavigationTab
-                $isActive={path === "/analysis"}
-                onClick={(event) => handleTabClick("/analysis", event)}
-                data-path="/analysis"
+                $isActive={path === "/demodulate"}
+                onClick={(event) => handleTabClick("/demodulate", event)}
+                data-path="/demodulate"
               >
-                Decode N-APT with ML
+                Demod N-APT with ML
               </NavigationTab>
               <NavigationTab
                 $isActive={path === "/draw-signal"}

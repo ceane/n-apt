@@ -11,6 +11,106 @@ pub struct FFTResult {
   pub is_mock: bool,
   /// Timestamp of the processing
   pub timestamp: i64,
+  /// Phase data from I/Q samples (radians, same length as spectrum)
+  pub phase_spectrum: Option<Vec<f32>>,
+}
+
+/// Phase coherence result for stitching validation
+#[derive(Debug, Clone)]
+pub struct PhaseCoherenceResult {
+  /// Average phase difference between overlapping regions (radians)
+  pub phase_diff: f32,
+  /// Phase coherence score (0-1, higher is better)
+  pub coherence_score: f32,
+  /// Recommended phase correction (radians)
+  pub phase_correction: f32,
+  /// Whether phase alignment is acceptable
+  pub is_aligned: bool,
+}
+
+/// Correlation result for stitching validation
+#[derive(Debug, Clone)]
+pub struct CorrelationResult {
+  /// Correlation score (-1 to 1, higher is better)
+  pub correlation_score: f32,
+  /// Time delay in samples (peak position)
+  pub time_delay_samples: isize,
+  /// Time delay in seconds
+  pub time_delay_seconds: f64,
+  /// Fractional delay in samples
+  pub fractional_delay_samples: f32,
+  /// Correlation method used
+  pub method: CorrelationMethod,
+  /// Signal-to-noise ratio estimate
+  pub snr_estimate: f32,
+  /// Whether correlation is acceptable
+  pub is_acceptable: bool,
+}
+
+/// Correlation methods for stitching validation
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum CorrelationMethod {
+  /// Complex correlation: |∑ s₁(t) · s₂*(t+τ)|
+  Complex,
+  /// Amplitude correlation: ∑ |s₁(t)| · |s₂(t+τ)|
+  Amplitude,
+  /// Phase correlation: ∑ ∠s₁(t) · ∠s₂(t+τ)
+  Phase,
+  /// Phase difference correlation: ∑ [∠s₁(t) - ∠s₁(t-1)] · [∠s₂(t+τ) - ∠s₂(t-1+τ)]
+  PhaseDifference,
+}
+
+/// Signal quality metrics for correlation strategy selection
+#[derive(Debug, Clone)]
+pub struct SignalQualityMetrics {
+  /// Estimated bandwidth of signal (Hz)
+  pub bandwidth_hz: f32,
+  /// Signal-to-noise ratio estimate (dB)
+  pub snr_db: f32,
+  /// Estimated frequency offset (Hz)
+  pub frequency_offset_hz: f32,
+  /// Whether signal has amplitude modulation
+  pub has_am_modulation: bool,
+  /// Whether signal has angular modulation
+  pub has_angular_modulation: bool,
+  /// Recommended correlation method
+  pub recommended_method: CorrelationMethod,
+  /// Recommended window size (samples)
+  pub recommended_window_size: usize,
+}
+
+/// Comprehensive stitching validation result
+#[derive(Debug, Clone)]
+pub struct StitchingValidationResult {
+  /// Primary correlation result
+  pub primary_correlation: CorrelationResult,
+  /// Secondary correlation result (for cross-validation)
+  pub secondary_correlation: Option<CorrelationResult>,
+  /// Signal quality metrics
+  pub signal_quality: SignalQualityMetrics,
+  /// Overall stitching quality score (0-1)
+  pub overall_quality: f32,
+  /// Recommended action
+  pub recommendation: StitchingRecommendation,
+}
+
+/// Recommended action for stitching
+#[derive(Debug, Clone, PartialEq)]
+pub enum StitchingRecommendation {
+  /// Stitching is good, proceed
+  Accept,
+  /// Apply phase correction then stitch
+  ApplyPhaseCorrection(f32),
+  /// Apply time correction then stitch
+  ApplyTimeCorrection(f64),
+  /// Apply gain normalization (dB)
+  ApplyGainNormalization(f32),
+  /// Apply spectral flattening (vector of per-bin gain)
+  ApplySpectralFlattening(Vec<f32>),
+  /// Reject and recapture
+  Reject,
+  /// Use alternative method
+  UseAlternativeMethod(CorrelationMethod),
 }
 
 /// Sample data from RTL-SDR device

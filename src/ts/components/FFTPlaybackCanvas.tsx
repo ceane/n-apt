@@ -229,6 +229,7 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(({
             ref={forwardedRef}
             dataRef={fftCanvasDataRef}
             frequencyRange={frequencyRange}
+            fullCaptureRange={frequencyRange}
             centerFrequencyMHz={(frequencyRange.min + frequencyRange.max) / 2}
             activeSignalArea="Stitched"
             isPaused={isPaused}

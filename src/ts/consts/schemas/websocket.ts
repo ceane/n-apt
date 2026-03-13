@@ -105,6 +105,13 @@ export type AutoFftOptionsResponse = {
   recommended: number;
 };
 
+export interface DeviceProfile {
+  kind: string;
+  is_rtl_sdr: boolean;
+  supports_approx_dbm: boolean;
+  supports_raw_iq_stream: boolean;
+}
+
 export interface StatusMessage {
   type: "status";
   device_connected: boolean;
@@ -118,6 +125,7 @@ export interface StatusMessage {
   channels: SpectrumFrame[];
   sdr_settings: SdrSettingsConfig;
   device: "rtl-sdr" | "mock_apt";
+  device_profile: DeviceProfile;
 }
 
 export type WebSocketMessage =

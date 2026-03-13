@@ -267,7 +267,7 @@ export function useFrequencyDrag({
         dragStartFreqRef.current = frequencyRangeRef.current.min;
         dragStartPanRef.current = vizPanOffsetRef?.current || 0;
         dragStartRangeRef.current = { ...frequencyRangeRef.current };
-        container.style.cursor = "grabbing";
+        container.style.cursor = "move";
         container.setPointerCapture(e.pointerId);
       } else {
         // Upper area is for box zooming
@@ -382,14 +382,14 @@ export function useFrequencyDrag({
       isDraggingRef.current = false;
     };
 
-    // Show grab cursor only in the bottom 60px VFO area
+    // Show grab cursor only in the bottom 60px VFO area, crosshair in upper area
     const handlePointerMoveForCursor = (e: PointerEvent) => {
       const measurer = getActiveSpectrumCanvas();
       const container = getContainer();
       if (!measurer || !container || isDraggingRef.current) return;
       const rect = measurer.getBoundingClientRect();
       const y = e.clientY - rect.top;
-      container.style.cursor = y >= rect.height - 60 ? "grab" : "default";
+      container.style.cursor = y >= rect.height - 60 ? "grab" : "crosshair";
     };
 
     const handlePointerLeave = () => {
@@ -404,7 +404,7 @@ export function useFrequencyDrag({
     container.addEventListener("pointerdown", handlePointerDown);
     container.addEventListener("pointermove", handlePointerMoveForCursor);
     container.addEventListener("pointerleave", handlePointerLeave);
-    container.style.cursor = "default";
+    container.style.cursor = "crosshair";
 
     window.addEventListener("pointermove", handlePointerMove);
     window.addEventListener("pointerup", handlePointerUp);
@@ -448,7 +448,7 @@ export function useFrequencyDrag({
     };
     const container = getContainer();
     if (container && !isDraggingRef.current) {
-      container.style.cursor = "default";
+      container.style.cursor = "crosshair";
     }
   }, [
     spectrumWebgpuEnabled,

@@ -34,6 +34,7 @@ export interface DragMathParams {
 export interface WasmSimdMathHandle {
   // WASM SIMD operations
   resampleSpectrum: (input: Float32Array, output: Float32Array) => void;
+  processIqToDbmSpectrum: (input: Uint8Array, fftSize?: number) => Float32Array;
   shiftWaterfallBuffer: (buffer: Uint8ClampedArray, width: number, height: number) => void;
   applyColorMapping: (amplitudes: Float32Array, output: Uint8ClampedArray, intensity: number) => void;
   
@@ -69,6 +70,7 @@ export function useWasmSimdMath(options: SpectrumMathOptions): WasmSimdMathHandl
   
   // WASM processor references
   const renderingProcessorRef = useRef<any>(null);
+  const simdProcessorRef = useRef<any>(null);
   
   // Initialize WASM SIMD module
   useEffect(() => {
@@ -88,8 +90,9 @@ export function useWasmSimdMath(options: SpectrumMathOptions): WasmSimdMathHandl
           if (simdAvailable) {
             // Initialize RenderingProcessor
             try {
-              const { RenderingProcessor } = await import("n_apt_canvas");
+              const { RenderingProcessor, WASMSIMDProcessor } = await import("n_apt_canvas");
               renderingProcessorRef.current = new RenderingProcessor();
+              simdProcessorRef.current = new WASMSIMDProcessor(fftSize);
             } catch (e) {
               console.warn("RenderingProcessor not available, using fallbacks");
             }
@@ -134,7 +137,56 @@ export function useWasmSimdMath(options: SpectrumMathOptions): WasmSimdMathHandl
       }
     }
   }, [isSimdAvailable]);
-  
+
+  const processIqToDbmSpectrum = useCallback((input: Uint8Array, overrideFftSize?: number) => {
+    if (simdProcessorRef.current && isSimdAvailable) {
+      if (
+        typeof overrideFftSize === "number" &&
+        Number.isFinite(overrideFftSize) &&
+        simdProcessorRef.current.fft_size &&
+        simdProcessorRef.current.fft_size() !== overrideFftSize
+      ) {
+        try {
+          const ctor = simdProcessorRef.current.constructor;
+          simdProcessorRef.current = new ctor(overrideFftSize);
+        } catch (error) {
+          console.warn("Failed to recreate WASM SIMD processor for FFT size:", error);
+        }
+      }
+
+      try {
+        return new Float32Array(simdProcessorRef.current.process_samples(input));
+      } catch (error) {
+        console.warn("WASM SIMD I/Q dBm fallback failed, using scalar path:", error);
+      }
+    }
+
+    const fftOutSize = Math.max(
+      1,
+      Math.min(overrideFftSize ?? fftSize, Math.floor(input.length / 2)),
+    );
+    const output = new Float32Array(fftOutSize);
+    const pairCount = Math.floor(input.length / 2);
+    const samplesPerBin = Math.max(1, Math.floor(pairCount / fftOutSize));
+
+    for (let bin = 0; bin < fftOutSize; bin++) {
+      let powerSum = 0;
+      const start = bin * samplesPerBin;
+      const end = Math.min(pairCount, start + samplesPerBin);
+
+      for (let i = start; i < end; i++) {
+        const ii = (input[i * 2] - 128) / 128;
+        const qq = (input[i * 2 + 1] - 128) / 128;
+        powerSum += ii * ii + qq * qq;
+      }
+
+      const avgPower = powerSum / Math.max(1, end - start);
+      output[bin] = avgPower > 1e-12 ? 10 * Math.log10(avgPower) : -120;
+    }
+
+    return output;
+  }, [fftSize, isSimdAvailable]);
+
   const shiftWaterfallBuffer = useCallback((buffer: Uint8ClampedArray, width: number, height: number) => {
     if (renderingProcessorRef.current && isSimdAvailable) {
       // Use WASM SIMD for buffer shifting
@@ -390,6 +442,7 @@ export function useWasmSimdMath(options: SpectrumMathOptions): WasmSimdMathHandl
   return {
     // WASM SIMD operations
     resampleSpectrum,
+    processIqToDbmSpectrum,
     shiftWaterfallBuffer,
     applyColorMapping,
     

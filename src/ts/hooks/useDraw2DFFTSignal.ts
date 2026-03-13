@@ -19,6 +19,7 @@ export interface Draw2DFFTSignalOptions {
   frequencyRange: { min: number; max: number };
   fftMin?: number;
   fftMax?: number;
+  powerScale?: "dB" | "dBm";
   showGrid?: boolean;
   centerFrequencyMHz?: number;
   isDeviceConnected?: boolean;
@@ -45,6 +46,7 @@ export function useDraw2DFFTSignal() {
       frequencyRange: { min: number; max: number },
       fftMin: number,
       fftMax: number,
+      powerScale: "dB" | "dBm",
       clearBackground: boolean,
       hardwareSampleRateHz?: number,
       fullCaptureRange?: { min: number; max: number },
@@ -80,21 +82,16 @@ export function useDraw2DFFTSignal() {
       ctx.textAlign = "right";
       ctx.lineWidth = 1 / dpr;
 
-      const zeroDbY = fftAreaMax.y - (0 - fftMin) * scaleFactor;
-      ctx.fillText("0dB", FFT_AREA_MIN.x - 10, Math.round(zeroDbY + 3));
+      // Labeling is now handled by useOverlayRenderer.ts to prevent clobbering
+      // We only draw grid lines here if needed, but labeled ticks should be central.
 
       for (let line = startLine; line > fftMin; line -= VERTICAL_RANGE) {
-        if (line === 0) continue;
         const yPos = fftAreaMax.y - (line - fftMin) * scaleFactor;
         ctx.beginPath();
         ctx.moveTo(FFT_AREA_MIN.x, Math.round(yPos));
         ctx.lineTo(fftAreaMax.x, Math.round(yPos));
         ctx.stroke();
-        ctx.fillText(
-          line.toString(),
-          FFT_AREA_MIN.x - 10,
-          Math.round(yPos + 3),
-        );
+        // Labeling is handled by overlay renderer
       }
 
       // (Removed old grid loop)
@@ -448,6 +445,7 @@ export function useDraw2DFFTSignal() {
         frequencyRange,
         fftMin = -80,
         fftMax = 20,
+        powerScale = "dB",
         showGrid = true,
         centerFrequencyMHz,
         isDeviceConnected = true,
@@ -490,6 +488,7 @@ export function useDraw2DFFTSignal() {
               frequencyRange,
               fftMin,
               fftMax,
+              powerScale,
               true,
               hardwareSampleRateHz,
               fullCaptureRange,
@@ -512,6 +511,7 @@ export function useDraw2DFFTSignal() {
               frequencyRange,
               fftMin,
               fftMax,
+              powerScale,
               true,
               hardwareSampleRateHz,
               fullCaptureRange

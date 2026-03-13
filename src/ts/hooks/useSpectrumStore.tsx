@@ -8,15 +8,33 @@ import React, {
   useMemo,
   useCallback,
 } from "react";
-import {
-  useWebSocket,
+import type {
   FrequencyRange,
   SpectrumFrame,
   SdrSettingsConfig,
-} from "@n-apt/hooks/useWebSocket";
+  DeviceProfile,
+  CaptureStatus,
+  AutoFftOptionsResponse,
+  SDRSettings,
+  CaptureRequest,
+} from "@n-apt/consts/schemas/websocket";
 import { useAuthentication } from "@n-apt/hooks/useAuthentication";
 import { buildWsUrl } from "@n-apt/services/auth";
 import { useLocation } from "react-router-dom";
+import { useAppDispatch, useAppSelector } from "@n-apt/redux/store";
+import { liveDataRef } from "@n-apt/redux/middleware/websocketMiddleware";
+import {
+  connectWebSocket,
+  disconnectWebSocket,
+  sendPauseCommand as sendPauseCommandThunk,
+  sendPowerScaleCommand as sendPowerScaleCommandThunk,
+  sendGetAutoFftOptions as sendGetAutoFftOptionsThunk,
+  sendTrainingCommand as sendTrainingCommandThunk,
+  sendFrequencyRange as sendFrequencyRangeThunk,
+  sendSettings as sendSettingsThunk,
+  sendRestartDevice as sendRestartDeviceThunk,
+  sendCaptureCommand as sendCaptureCommandThunk,
+} from "@n-apt/redux/thunks/websocketThunks";
 import { deriveStateFromConfig } from "@n-apt/hooks/useSdrSettings";
 
 // Types
@@ -27,6 +45,7 @@ const MANUAL_VISUALIZER_PAUSE_KEY = "napt-visualizer-manual-paused";
 
 export const LIVE_CONTROL_DEFAULTS = {
   displayTemporalResolution: "medium" as const,
+  powerScale: "dB" as const,
   vizZoom: 1,
   vizPanOffset: 0,
   fftMinDb: -120,
@@ -59,6 +78,7 @@ export type SpectrumState = {
   activeSignalArea: string;
   frequencyRange: FrequencyRange | null;
   displayTemporalResolution: "low" | "medium" | "high";
+  powerScale: "dB" | "dBm";
   selectedFiles: SelectedFile[];
   snapshotGridPreference: boolean;
   drawParams: DrawParams[];
@@ -88,6 +108,10 @@ export type SpectrumState = {
   rtlAGC: boolean;
   sampleRateHz: number;
   lastKnownRanges: Record<string, { min: number; max: number }>;
+  diagnosticStatus: string;
+  isDiagnosticRunning: boolean;
+  diagnosticTrigger: number;
+  drawSignal3D: boolean;
 };
 
 export type SpectrumAction =
@@ -102,6 +126,7 @@ export type SpectrumAction =
     type: "SET_TEMPORAL_RESOLUTION";
     resolution: "low" | "medium" | "high";
   }
+  | { type: "SET_POWER_SCALE"; powerScale: "dB" | "dBm" }
   | { type: "SET_SELECTED_FILES"; files: SelectedFile[] }
   | { type: "SET_SNAPSHOT_GRID"; preference: boolean }
   | { type: "SET_DRAW_PARAMS"; params: DrawParams[] }
@@ -132,12 +157,17 @@ export type SpectrumAction =
   | { type: "SET_SDR_SETTINGS_BUNDLE"; settings: Partial<SpectrumState> }
   | { type: "RESET_ZOOM_AND_DB" }
   | { type: "RESET_DRAW_PARAMS" }
-  | { type: "RESET_LIVE_CONTROLS"; fftSize?: number; fftFrameRate?: number };
+  | { type: "RESET_LIVE_CONTROLS"; fftSize?: number; fftFrameRate?: number }
+  | { type: "SET_DIAGNOSTIC_STATUS"; status: string }
+  | { type: "SET_DIAGNOSTIC_RUNNING"; running: boolean }
+  | { type: "TRIGGER_DIAGNOSTIC" }
+  | { type: "SET_DRAW_SIGNAL_3D"; enabled: boolean };
 
 export const INITIAL_SPECTRUM_STATE: SpectrumState = {
   activeSignalArea: "A",
   frequencyRange: null,
   displayTemporalResolution: "medium",
+  powerScale: "dB",
   selectedFiles: [],
   snapshotGridPreference: true,
   drawParams: [
@@ -180,6 +210,10 @@ export const INITIAL_SPECTRUM_STATE: SpectrumState = {
   rtlAGC: false,
   sampleRateHz: 3_200_000,
   lastKnownRanges: {},
+  diagnosticStatus: "Ready",
+  isDiagnosticRunning: false,
+  diagnosticTrigger: 0,
+  drawSignal3D: false,
 };
 
 const SDR_SETTINGS_KEY = "napt-sdr-settings-v2";
@@ -194,6 +228,16 @@ const loadPersistedSdrSettings = (): Partial<SpectrumState> => {
     if (parsed.lastKnownRanges && typeof parsed.lastKnownRanges !== "object") {
       parsed.lastKnownRanges = {};
     }
+
+    // Fix outdated cached dB ranges
+    if (parsed.powerScale === "dBm" && parsed.fftMaxDb !== 30) {
+      parsed.fftMaxDb = 30;
+      parsed.fftMinDb = -100;
+    } else if (parsed.powerScale === "dB" && parsed.fftMaxDb !== 0) {
+      parsed.fftMaxDb = 0;
+      parsed.fftMinDb = -120;
+    }
+
     return parsed;
   } catch {
     return {};
@@ -234,6 +278,29 @@ export function spectrumReducer(
         ...state,
         displayTemporalResolution: action.resolution,
       };
+    case "SET_POWER_SCALE": {
+      const isSwitchingToDbm = action.powerScale === "dBm";
+      const currentMin = state.fftMinDb;
+      const currentMax = state.fftMaxDb;
+
+      let nextMin = currentMin;
+      let nextMax = currentMax;
+
+      if (isSwitchingToDbm) {
+        nextMin = -100;
+        nextMax = 30;
+      } else {
+        nextMin = -120;
+        nextMax = 0;
+      }
+
+      return {
+        ...state,
+        powerScale: action.powerScale,
+        fftMinDb: nextMin,
+        fftMaxDb: nextMax,
+      };
+    }
     case "SET_SELECTED_FILES":
       return { ...state, selectedFiles: action.files };
     case "SET_SNAPSHOT_GRID":
@@ -315,14 +382,16 @@ export function spectrumReducer(
       return { ...state, sampleRateHz: action.sampleRateHz };
     case "SET_SDR_SETTINGS_BUNDLE":
       return { ...state, ...action.settings };
-    case "RESET_ZOOM_AND_DB":
+    case "RESET_ZOOM_AND_DB": {
+      const isDbm = state.powerScale === "dBm";
       return {
         ...state,
         vizZoom: 1,
         vizPanOffset: 0,
-        fftMinDb: -120,
-        fftMaxDb: 0,
+        fftMinDb: isDbm ? -100 : -120,
+        fftMaxDb: isDbm ? 30 : 0,
       };
+    }
     case "RESET_DRAW_PARAMS":
       return {
         ...state,
@@ -334,6 +403,7 @@ export function spectrumReducer(
       return {
         ...state,
         displayTemporalResolution: LIVE_CONTROL_DEFAULTS.displayTemporalResolution,
+        powerScale: LIVE_CONTROL_DEFAULTS.powerScale,
         vizZoom: LIVE_CONTROL_DEFAULTS.vizZoom,
         vizPanOffset: LIVE_CONTROL_DEFAULTS.vizPanOffset,
         fftMinDb: LIVE_CONTROL_DEFAULTS.fftMinDb,
@@ -346,6 +416,14 @@ export function spectrumReducer(
         fftSize: action.fftSize ?? state.fftSize,
         fftFrameRate: action.fftFrameRate ?? state.fftFrameRate,
       };
+    case "SET_DIAGNOSTIC_STATUS":
+      return { ...state, diagnosticStatus: action.status };
+    case "SET_DIAGNOSTIC_RUNNING":
+      return { ...state, isDiagnosticRunning: action.running };
+    case "TRIGGER_DIAGNOSTIC":
+      return { ...state, diagnosticTrigger: state.diagnosticTrigger + 1 };
+    case "SET_DRAW_SIGNAL_3D":
+      return { ...state, drawSignal3D: action.enabled };
     default:
       return state;
   }
@@ -363,10 +441,42 @@ type SpectrumStoreContextValue = {
   sampleRateMHz: number | null;
   signalAreaBounds: Record<string, { min: number; max: number }> | null;
   lastSentPauseRef: React.MutableRefObject<boolean | null>;
-  wsConnection: ReturnType<typeof useWebSocket>;
+  wsConnection: {
+    isConnected: boolean;
+    deviceState: "connected" | "loading" | "disconnected" | "stale" | null;
+    deviceLoadingReason: "connect" | "restart" | null;
+    isPaused: boolean;
+    serverPaused: boolean;
+    backend: string | null;
+    deviceInfo: string | null;
+    deviceName: string | null;
+    deviceProfile: DeviceProfile | null;
+    maxSampleRateHz: number | null;
+    sampleRateHz: number | null;
+    sdrSettings: SdrSettingsConfig | null;
+    dataRef: React.MutableRefObject<any>;
+    spectrumFrames: SpectrumFrame[];
+    captureStatus: CaptureStatus;
+    autoFftOptions: AutoFftOptionsResponse | null;
+    error: string | null;
+    cryptoCorrupted: boolean;
+    sendFrequencyRange: (range: FrequencyRange) => void;
+    sendPauseCommand: (isPaused: boolean) => void;
+    sendSettings: (settings: SDRSettings) => void;
+    sendRestartDevice: () => void;
+    sendCaptureCommand: (req: CaptureRequest) => void;
+    sendTrainingCommand: (
+      action: "start" | "stop",
+      label: "target" | "noise",
+      signalArea: string,
+    ) => void;
+    sendGetAutoFftOptions: (screenWidth: number) => void;
+    sendPowerScaleCommand: (scale: "dB" | "dBm") => void;
+  };
   toggleVisualizerPause: () => void;
   cryptoCorrupted: boolean;
   deviceName: string | null;
+  deviceProfile: DeviceProfile | null;
 };
 
 const SpectrumStoreContext = createContext<SpectrumStoreContextValue | null>(
@@ -389,18 +499,158 @@ export const SpectrumProvider: React.FC<{ children: React.ReactNode }> = ({
     ...loadPersistedSdrSettings(),
   });
   const location = useLocation();
+  const reduxDispatch = useAppDispatch();
 
   const { isAuthenticated, sessionToken, aesKey } = useAuthentication();
   const wsUrl = sessionToken ? buildWsUrl(sessionToken) : "";
-  const wsConnection = useWebSocket(wsUrl, aesKey, isAuthenticated);
-  const {
-    sdrSettings,
-    spectrumFrames: wsSpectrumFrames,
-    isConnected,
-    sendPauseCommand,
-    cryptoCorrupted,
-    deviceName,
-  } = wsConnection;
+  const isConnected = useAppSelector((s) => s.websocket.isConnected);
+  const isPaused = useAppSelector((s) => s.websocket.isPaused);
+  const serverPaused = useAppSelector((s) => s.websocket.serverPaused);
+  const backend = useAppSelector((s) => s.websocket.backend);
+  const deviceInfo = useAppSelector((s) => s.websocket.deviceInfo);
+  const cryptoCorrupted = useAppSelector((s) => s.websocket.cryptoCorrupted);
+  const deviceName = useAppSelector((s) => s.websocket.deviceName);
+  const deviceProfile = useAppSelector((s) => s.websocket.deviceProfile);
+  const deviceLoadingReason = useAppSelector((s) => s.websocket.deviceLoadingReason);
+  const maxSampleRateHz = useAppSelector((s) => s.websocket.maxSampleRateHz);
+  const sampleRateHz = useAppSelector((s) => s.websocket.sampleRateHz);
+  const sdrSettings = useAppSelector((s) => s.websocket.sdrSettings);
+  const wsSpectrumFrames = useAppSelector((s) => s.websocket.spectrumFrames);
+  const captureStatus = useAppSelector((s) => s.websocket.captureStatus);
+  const autoFftOptions = useAppSelector((s) => s.websocket.autoFftOptions);
+  const error = useAppSelector((s) => s.websocket.error);
+  const deviceState = useAppSelector((s) => s.websocket.deviceState);
+  // liveDataRef is written directly by the middleware — never goes through Redux.
+  const dataRef = liveDataRef;
+
+  useEffect(() => {
+    reduxDispatch(
+      connectWebSocket({
+        url: wsUrl,
+        aesKey,
+        enabled: isAuthenticated,
+      }),
+    );
+    return () => {
+      reduxDispatch(disconnectWebSocket());
+    };
+  }, [reduxDispatch, wsUrl, aesKey, isAuthenticated]);
+
+  const sendFrequencyRangeCommand = useCallback(
+    (range: FrequencyRange) => {
+      reduxDispatch(sendFrequencyRangeThunk(range));
+    },
+    [reduxDispatch],
+  );
+
+  const sendPauseCommand = useCallback(
+    (paused: boolean) => {
+      reduxDispatch(sendPauseCommandThunk(paused));
+    },
+    [reduxDispatch],
+  );
+
+  const sendSettingsCommand = useCallback(
+    (settings: SDRSettings) => {
+      reduxDispatch(sendSettingsThunk(settings));
+    },
+    [reduxDispatch],
+  );
+
+  const sendRestartDeviceCommand = useCallback(() => {
+    reduxDispatch(sendRestartDeviceThunk());
+  }, [reduxDispatch]);
+
+  const sendCaptureCommand = useCallback(
+    (req: CaptureRequest) => {
+      reduxDispatch(sendCaptureCommandThunk(req));
+    },
+    [reduxDispatch],
+  );
+
+  const sendTrainingCommand = useCallback(
+    (
+      action: "start" | "stop",
+      label: "target" | "noise",
+      signalArea: string,
+    ) => {
+      reduxDispatch(sendTrainingCommandThunk({ action, label, signalArea }));
+    },
+    [reduxDispatch],
+  );
+
+  const sendGetAutoFftOptionsCommand = useCallback(
+    (screenWidth: number) => {
+      reduxDispatch(sendGetAutoFftOptionsThunk(screenWidth));
+    },
+    [reduxDispatch],
+  );
+
+  const sendPowerScaleCommand = useCallback(
+    (scale: "dB" | "dBm") => {
+      reduxDispatch(sendPowerScaleCommandThunk(scale));
+    },
+    [reduxDispatch],
+  );
+
+  const wsConnection = useMemo(
+    () => ({
+      isConnected,
+      deviceState,
+      deviceLoadingReason,
+      isPaused,
+      serverPaused,
+      backend,
+      deviceInfo,
+      deviceName,
+      deviceProfile,
+      maxSampleRateHz,
+      sampleRateHz,
+      sdrSettings,
+      dataRef,
+      spectrumFrames: wsSpectrumFrames,
+      captureStatus,
+      autoFftOptions,
+      error,
+      cryptoCorrupted,
+      sendFrequencyRange: sendFrequencyRangeCommand,
+      sendPauseCommand,
+      sendSettings: sendSettingsCommand,
+      sendRestartDevice: sendRestartDeviceCommand,
+      sendCaptureCommand,
+      sendTrainingCommand,
+      sendGetAutoFftOptions: sendGetAutoFftOptionsCommand,
+      sendPowerScaleCommand,
+    }),
+    [
+      isConnected,
+      deviceState,
+      deviceLoadingReason,
+      isPaused,
+      serverPaused,
+      backend,
+      deviceInfo,
+      deviceName,
+      deviceProfile,
+      maxSampleRateHz,
+      sampleRateHz,
+      sdrSettings,
+      dataRef,
+      wsSpectrumFrames,
+      captureStatus,
+      autoFftOptions,
+      error,
+      cryptoCorrupted,
+      sendFrequencyRangeCommand,
+      sendPauseCommand,
+      sendSettingsCommand,
+      sendRestartDeviceCommand,
+      sendCaptureCommand,
+      sendTrainingCommand,
+      sendGetAutoFftOptionsCommand,
+      sendPowerScaleCommand,
+    ],
+  );
 
   // Track active spectrum route globally
   const isVisualizerRoute =
@@ -470,10 +720,10 @@ export const SpectrumProvider: React.FC<{ children: React.ReactNode }> = ({
   // 4. Sync backend with manualVisualizerPaused
   useEffect(() => {
     if (isConnected && lastSentPauseRef.current !== manualVisualizerPaused) {
-      sendPauseCommand(manualVisualizerPaused);
+      wsConnection.sendPauseCommand(manualVisualizerPaused);
       lastSentPauseRef.current = manualVisualizerPaused;
     }
-  }, [manualVisualizerPaused, isConnected, sendPauseCommand]);
+  }, [manualVisualizerPaused, isConnected, wsConnection]);
 
   // Persist SDR settings when they change
   useEffect(() => {
@@ -493,6 +743,7 @@ export const SpectrumProvider: React.FC<{ children: React.ReactNode }> = ({
       activeSignalArea: state.activeSignalArea,
       lastKnownRanges: state.lastKnownRanges,
       displayTemporalResolution: state.displayTemporalResolution,
+      powerScale: state.powerScale,
       snapshotGridPreference: state.snapshotGridPreference,
       sampleRateHz: state.sampleRateHz,
     };
@@ -513,9 +764,22 @@ export const SpectrumProvider: React.FC<{ children: React.ReactNode }> = ({
     state.activeSignalArea,
     state.lastKnownRanges,
     state.displayTemporalResolution,
+    state.powerScale,
     state.snapshotGridPreference,
     state.sampleRateHz,
   ]);
+
+  useEffect(() => {
+    if (!isConnected) return;
+    wsConnection.sendPowerScaleCommand(state.powerScale);
+  }, [isConnected, wsConnection, state.powerScale]);
+
+  // Revert power scale to dB if not supported by the current device
+  useEffect(() => {
+    if (deviceProfile && !deviceProfile.supports_approx_dbm && state.powerScale === "dBm") {
+      dispatch({ type: "SET_POWER_SCALE", powerScale: "dB" });
+    }
+  }, [deviceProfile, state.powerScale, dispatch]);
 
   useEffect(() => {
     if (wsSpectrumFrames.length === 0) return;
@@ -542,11 +806,11 @@ export const SpectrumProvider: React.FC<{ children: React.ReactNode }> = ({
 
   // Sync sample rate from backend to store state
   useEffect(() => {
-    const rate = sdrSettings?.sample_rate ?? wsConnection.sampleRateHz ?? wsConnection.maxSampleRateHz;
+    const rate = sdrSettings?.sample_rate ?? sampleRateHz ?? maxSampleRateHz;
     if (typeof rate === "number" && rate > 0 && rate !== state.sampleRateHz) {
       dispatch({ type: "SET_SAMPLE_RATE", sampleRateHz: rate });
     }
-  }, [sdrSettings?.sample_rate, wsConnection.sampleRateHz, wsConnection.maxSampleRateHz, state.sampleRateHz, dispatch]);
+  }, [sdrSettings?.sample_rate, sampleRateHz, maxSampleRateHz, state.sampleRateHz, dispatch]);
 
   const effectiveFrames =
     wsSpectrumFrames.length > 0 ? wsSpectrumFrames : cachedFrames;
@@ -689,6 +953,7 @@ export const SpectrumProvider: React.FC<{ children: React.ReactNode }> = ({
       toggleVisualizerPause,
       cryptoCorrupted,
       deviceName,
+      deviceProfile,
     }),
     [
       state,
@@ -702,6 +967,7 @@ export const SpectrumProvider: React.FC<{ children: React.ReactNode }> = ({
       toggleVisualizerPause,
       cryptoCorrupted,
       deviceName,
+      deviceProfile,
     ],
   );
 

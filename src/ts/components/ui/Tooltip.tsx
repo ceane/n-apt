@@ -37,6 +37,7 @@ const InfoIcon = styled.div`
   justify-content: center;
   cursor: help;
   transition: all 0.2s ease;
+  margin-left: 10px;
 
   &:hover {
     background-color: ${POPOVER_ICON_HOVER_BACKGROUND};
