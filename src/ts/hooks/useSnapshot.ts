@@ -170,7 +170,7 @@ function drawSpectrumToCanvas(
   ctx.textAlign = "right";
   const startLine = Math.floor(fftMax / VERTICAL_RANGE) * VERTICAL_RANGE;
   const zeroDbY = fftAreaMax.y - (0 - fftMin) * scaleFactor;
-  ctx.fillText("0dB", FFT_AREA_MIN.x - 10, Math.round(zeroDbY + 3));
+  ctx.fillText("0dB", FFT_AREA_MIN.x - 15, Math.round(zeroDbY + 3));
 
   for (let line = startLine; line > fftMin; line -= VERTICAL_RANGE) {
     if (line === 0) continue;
@@ -183,7 +183,7 @@ function drawSpectrumToCanvas(
       ctx.stroke();
     }
     ctx.fillStyle = FFT_TEXT_COLOR;
-    ctx.fillText(line.toString(), FFT_AREA_MIN.x - 10, Math.round(yPos + 3));
+    ctx.fillText(line.toString(), FFT_AREA_MIN.x - 15, Math.round(yPos + 3));
   }
 
   // ── Frequency Labels + Collision Avoidance ──────────────────────────────
@@ -616,7 +616,7 @@ function generateSpectrumSVG(
   const startLine = Math.floor(fftMax / VERTICAL_RANGE) * VERTICAL_RANGE;
   const zeroDbY = fftAreaMax.y - (0 - fftMin) * scaleFactor;
   parts.push(
-    `<text x="${FFT_AREA_MIN.x - 10}" y="${Math.round(zeroDbY + 3)}" text-anchor="end" fill="${FFT_TEXT_COLOR}" font-family="JetBrains Mono, monospace" font-size="12">0dB</text>`,
+    `<text x="${FFT_AREA_MIN.x - 15}" y="${Math.round(zeroDbY + 3)}" text-anchor="end" fill="${FFT_TEXT_COLOR}" font-family="JetBrains Mono, monospace" font-size="12">0dB</text>`,
   );
 
   for (let line = startLine; line > fftMin; line -= VERTICAL_RANGE) {
@@ -628,7 +628,7 @@ function generateSpectrumSVG(
       );
     }
     parts.push(
-      `<text x="${FFT_AREA_MIN.x - 10}" y="${Math.round(yPos + 3)}" text-anchor="end" fill="${FFT_TEXT_COLOR}" font-family="JetBrains Mono, monospace" font-size="12">${line}</text>`,
+      `<text x="${FFT_AREA_MIN.x - 15}" y="${Math.round(yPos + 3)}" text-anchor="end" fill="${FFT_TEXT_COLOR}" font-family="JetBrains Mono, monospace" font-size="12">${line}</text>`,
     );
   }
 

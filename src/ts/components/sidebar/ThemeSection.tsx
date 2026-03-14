@@ -95,7 +95,7 @@ const SettingSelect = styled.select`
 `;
 
 export const ThemeSection: React.FC = () => {
-  const [isOpen, setIsOpen] = useState(false);
+  const [isOpen, setIsOpen] = useState(true);
   const dispatch = useAppDispatch();
   const {
     appMode,

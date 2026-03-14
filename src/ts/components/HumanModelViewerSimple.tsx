@@ -2,7 +2,8 @@ import React, { Suspense } from "react";
 import styled from "styled-components";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls, useGLTF, TransformControls } from "@react-three/drei";
-import Brain from "@n-apt/components/Brain";
+import Brain from "@n-apt/components/3D/Brain";
+import { HUMAN_MODEL_AFRO_MALE_GLB_URL } from "@n-apt/components/3D/modelAssetUrls";
 import {
   MODEL_CAMERA_POSITION,
   MODEL_CAMERA_TARGET,
@@ -34,7 +35,7 @@ function Model({
   selectedArea: Area | null;
   children?: React.ReactNode;
 }) {
-  const { scene } = useGLTF("/glb_models/human_model_afro_male.glb");
+  const { scene } = useGLTF(HUMAN_MODEL_AFRO_MALE_GLB_URL);
 
   return (
     <group position={MODEL_ROOT_POSITION}>

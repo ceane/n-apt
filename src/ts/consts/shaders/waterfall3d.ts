@@ -1,4 +1,4 @@
-export const WATERFALL_3D_VERTEX_SHADER = `
+export const WATERFALL_3D_VERTEX_SHADER = /* wgsl */`
 struct VertexOutput {
   @builtin(position) position: vec4<f32>,
   @location(0) color: vec3<f32>,
@@ -50,7 +50,7 @@ fn main(@location(0) position: vec2<f32>, @location(1) intensity: f32, @location
 }
 `;
 
-export const WATERFALL_3D_FRAGMENT_SHADER = `
+export const WATERFALL_3D_FRAGMENT_SHADER = /* wgsl */`
 @fragment
 fn main(@location(0) color: vec3<f32>, @location(1) depth: f32) -> @location(0) vec4<f32> {
   // Apply depth-based fading for waterfall effect

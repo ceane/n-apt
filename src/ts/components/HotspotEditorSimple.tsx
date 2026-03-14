@@ -4,6 +4,7 @@ import { Canvas, useThree, useFrame } from "@react-three/fiber";
 import { OrbitControls, useGLTF } from "@react-three/drei";
 import { Vector3, Vector2, Raycaster } from "three";
 import { useHotspotEditor } from "@n-apt/hooks/useHotspotEditor";
+import { HUMAN_MODEL_AFRO_MALE_GLB_URL } from "@n-apt/components/3D/modelAssetUrls";
 import {
   MODEL_CAMERA_POSITION,
   MODEL_CAMERA_TARGET,
@@ -73,7 +74,7 @@ function Model({
   onAddHotspot: (point: Vector3) => void;
   children?: React.ReactNode;
 }) {
-  const { scene } = useGLTF("/glb_models/human_model_afro_male.glb");
+  const { scene } = useGLTF(HUMAN_MODEL_AFRO_MALE_GLB_URL);
   const modelRootRef = useRef<any>(null);
 
   return (

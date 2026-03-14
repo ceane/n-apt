@@ -13,6 +13,8 @@ pub mod sdr; // New abstract SDR interface
 pub mod server;
 pub mod simd; // Unified SIMD module
 pub mod stitching;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod live_stream_test; // Live stream test module
 #[cfg(target_arch = "wasm32")]
 pub mod wasm; // WASM library module
 

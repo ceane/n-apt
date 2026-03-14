@@ -2,7 +2,6 @@ import React, { useRef, useMemo } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { Html } from "@react-three/drei";
 import * as THREE from "three";
-import { WebGPURenderer } from "three/webgpu";
 import styled from "styled-components";
 
 interface PolarRadioWaveWebGPUProps {
@@ -15,18 +14,14 @@ interface PolarRadioWaveWebGPUProps {
 }
 
 const Container = styled.div`
-  position: absolute;
-  top: 20px;
-  right: 20px;
-  width: 400px;
-  height: 400px;
-  background: rgba(10, 10, 12, 0.85);
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 500px;
+  background: rgba(10, 10, 12, 0.72);
   backdrop-filter: blur(8px);
-  border: 1px solid rgba(172, 119, 255, 0.2);
-  border-radius: 12px;
+  border-left: 1px solid rgba(172, 119, 255, 0.08);
   overflow: hidden;
-  z-index: 1000;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
   pointer-events: auto;
 `;
 
@@ -248,13 +243,9 @@ export const PolarRadioWaveWebGPU: React.FC<PolarRadioWaveWebGPUProps> = ({
       <ContentWrapper>
         <Canvas
           shadows
-          gl={async (canvas: any) => {
-            const renderer = new WebGPURenderer({ canvas, antialias: true, alpha: true });
-            await renderer.init();
-            return renderer as any;
-          }}
           camera={{ position: [0, 15, 0], zoom: 30, up: [0, 0, -1], far: 1000, near: -1000 }}
           orthographic
+          style={{ aspectRatio: '4 / 3', width: '100%' }}
         >
           <ambientLight intensity={1.5} />
           <PolarGrid3D aperture={aperture} />

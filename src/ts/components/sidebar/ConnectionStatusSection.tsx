@@ -156,23 +156,27 @@ export const ConnectionStatusSection: React.FC<
             $connected={isConnected && deviceState === "connected"}
             $loading={deviceState === "loading" || deviceState === "stale"}
             $color={
-              isConnected && deviceState === "disconnected"
-                ? "#ff8800"
-                : undefined
+              cryptoCorrupted
+                ? (deviceState === "connected" ? "#ff4444" : "#ffaa00")
+                : isConnected && deviceState === "disconnected"
+                  ? "#ff8800"
+                  : undefined
             }
           />
           <StatusText>
-            {!isConnected
-              ? "Disconnected"
-              : deviceState === "loading"
-                ? deviceLoadingReason === "restart"
-                  ? "Restarting device..."
-                  : "Loading device..."
-                : deviceState === "stale"
-                  ? "Device stream frozen"
-                  : deviceState === "connected"
-                    ? "Connected to server and device"
-                    : "Connected to server but device not connected"}
+            {cryptoCorrupted
+              ? "CRYPTO CORRUPTED"
+              : !isConnected
+                ? "Disconnected"
+                : deviceState === "loading"
+                  ? deviceLoadingReason === "restart"
+                    ? "Restarting device..."
+                    : "Loading device..."
+                  : deviceState === "stale"
+                    ? "Device stream frozen"
+                    : deviceState === "connected"
+                      ? "Connected to server and device"
+                      : "Connected to server but device not connected"}
           </StatusText>
         </ConnectionStatus>
 

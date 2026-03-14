@@ -20,7 +20,10 @@ lerna-debug.log*
 
 # node
 node_modules
+
+#build files
 dist/
+build/
 
 
 # Rust - exclude all build artifacts and target folders
@@ -80,3 +83,5 @@ redis/backups/
 # Environment variables
 .env.local
 .env*.local
+*storybook.log
+storybook-static

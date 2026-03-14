@@ -4,6 +4,8 @@
 
 N-APT stands for: **N**euro **A**utomatic **P**icture **T**ransmission.
 
+More on [Automatic Picture Transmission](https://www.sigidwiki.com/wiki/Automatic_Picture_Transmission_(APT))
+
 N-APT originates from the National Security Agency (NSA) and are signals that appear like Automatic Picture Transmission (APT) signals used by NOAA satellites (decomissioned in 2025), however are a special formula of directional radio waves that are an unprecedented and full featured neurotechnology able to fully
 
 - intercept,

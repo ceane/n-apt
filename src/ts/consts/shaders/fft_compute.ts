@@ -1,7 +1,7 @@
 // Advanced GPU FFT Compute Shaders
 // Implements Cooley-Tukey FFT algorithm entirely on GPU
 
-export const FFT_COMPUTE_SHADER = `
+export const FFT_COMPUTE_SHADER = /* wgsl */`
 // FFT Compute Parameters
 struct FFTParams {
   stage: u32,        // Current FFT stage
@@ -377,7 +377,7 @@ fn fft_filter(@builtin(global_invocation_id) global_id: vec3<u32>) {
 }
 `;
 
-export const FFT_PIPELINE_SHADER = `
+export const FFT_PIPELINE_SHADER = /* wgsl */`
 // Multi-stage FFT pipeline orchestrator
 @group(0) @binding(0) var<storage, read_write> fft_data: array<vec2<f32>>;
 @group(0) @binding(1) var<storage, read_write> temp_data: array<vec2<f32>>;

@@ -556,6 +556,8 @@ const FFTCanvas = memo(
     const spectrumWebgpuEnabled = webgpuEnabled;
     const effectiveFftSize = fftSize ?? 32768;
     const effectivePowerScale = powerScale ?? "dB";
+    const activeScaleDbMin = vizDbMin;
+    const activeScaleDbMax = vizDbMax;
     const effectiveFftWindowRaw = (fftWindow ?? "Rectangular").toLowerCase();
     const effectiveFftWindow:
       | "rectangular"
@@ -802,20 +804,20 @@ const FFTCanvas = memo(
 
         if (hasNewData || shouldReprocessCurrentFrame) {
           const isIqRaw = currentData?.data_type === "iq_raw";
+          const shouldUseIqRaw = isDbmMode && isIqRaw && !!currentData?.iq_data;
           // Handle I/Q data for dBm mode
           let waveform: Float32Array;
           let gpuInput: Float32Array | null = null;
           let gpuInputMode: "real" | "complex_iq" = "real";
 
-          if (isIqRaw && currentData?.iq_data) {
+          if (shouldUseIqRaw) {
             const iqBytes = currentData.iq_data as Uint8Array;
 
-            // Always produce a CPU/WASM spectrum for the line plot so toggling power
-            // scales never leaves us without data. Clamp to the current dB range to
-            // prevent the trace from pinning against the top label.
+            // Produce a CPU/WASM spectrum for the line plot in dBm mode and clamp
+            // to the canonical dBm viewport so the axis stays stable on restore/toggle.
             const cpuSpectrum = processIqToDbmSpectrum(iqBytes, effectiveFftSize);
-            const minClamp = vizDbMin;
-            const maxClamp = vizDbMax;
+            const minClamp = activeScaleDbMin;
+            const maxClamp = activeScaleDbMax;
             for (let i = 0; i < cpuSpectrum.length; i++) {
               const val = cpuSpectrum[i];
               cpuSpectrum[i] = Math.min(maxClamp, Math.max(minClamp, val));
@@ -830,13 +832,13 @@ const FFTCanvas = memo(
               gpuInput[i * 2 + 1] = (iqBytes[i * 2 + 1] - 127.5) / 127.5; // Q
             }
             gpuInputMode = "complex_iq";
-          } else if (currentData && currentData.waveform) {
+          } else if (!isIqRaw && currentData && currentData.waveform) {
             // Use regular spectrum data
             waveform = ensureFloat32Waveform(currentData.waveform);
             gpuInput = waveform;
             gpuInputMode = "real";
           } else {
-            // Safety fallback if data is partially missing during device swap
+            // Ignore mismatched mode/data packets during power-scale transitions
             return;
           }
 
@@ -855,8 +857,8 @@ const FFTCanvas = memo(
               const processOptions = {
                 inputMode: gpuInputMode,
                 powerMode: isDbmMode ? "dbm" : "db" as "db" | "dbm",
-                minDb: vizDbMin,
-                maxDb: vizDbMax
+                minDb: activeScaleDbMin,
+                maxDb: activeScaleDbMax
               };
 
               unifiedFFT.processUnified(gpuInput!, {
@@ -981,13 +983,7 @@ const FFTCanvas = memo(
             setVizPanOffset(clampedPan);
           }
 
-          const unifiedSourceWaveform =
-            !isDbmMode &&
-              canUseUnifiedFFT &&
-              unifiedFFT.isInitialized &&
-              unifiedFFT.lastResult?.spectrumData
-              ? unifiedFFT.lastResult.spectrumData
-              : null;
+          const unifiedSourceWaveform = null;
 
           // Use unified GPU output (averaging/smoothing handled on GPU when enabled)
           const baseSpectrumWaveform = unifiedSourceWaveform ?? rawSlicedWaveform;
@@ -1075,8 +1071,8 @@ const FFTCanvas = memo(
               format: webgpuFormatRef.current,
               waveform: outBuf,
               frequencyRange: visualRange,
-              fftMin: vizDbMinRef.current,
-              fftMax: vizDbMaxRef.current,
+              fftMin: activeScaleDbMin,
+              fftMax: activeScaleDbMax,
               powerScale: effectivePowerScale,
               gridOverlayRenderer: gridOverlayRendererRef.current,
               markersOverlayRenderer: markersOverlayRendererRef.current,
@@ -1196,8 +1192,8 @@ const FFTCanvas = memo(
                 format: webgpuFormatRef.current,
                 fftData: waterfallBins,
                 frequencyRange: frequencyRangeRef.current,
-                fftMin: vizDbMinRef.current,
-                fftMax: vizDbMaxRef.current,
+                fftMin: activeScaleDbMin,
+                fftMax: activeScaleDbMax,
                 driftAmount: retuneSmearRef.current,
                 driftDirection: retuneDriftPxRef.current,
                 freeze: !shouldUpdateWaterfallRow,
@@ -1237,8 +1233,8 @@ const FFTCanvas = memo(
                   format: webgpuFormatRef.current,
                   fftData: rowBuffer,
                   frequencyRange: visualRange,
-                  fftMin: vizDbMinRef.current,
-                  fftMax: vizDbMaxRef.current,
+                  fftMin: activeScaleDbMin,
+                  fftMax: activeScaleDbMax,
                   driftAmount: retuneSmearRef.current,
                   driftDirection: retuneDriftPxRef.current,
                   freeze: true,
@@ -1277,6 +1273,8 @@ const FFTCanvas = memo(
         fftSmoothEnabled,
         wfSmoothEnabled,
         effectivePowerScale,
+        activeScaleDbMin,
+        activeScaleDbMax,
       ],
     );
 
@@ -1560,8 +1558,17 @@ const FFTCanvas = memo(
     useEffect(() => {
       lastProcessedDataRef.current = null;
       lastRenderedPowerScaleRef.current = null;
+      waveformFloatRef.current = null;
       renderWaveformRef.current = null;
       spectrumResampleBufRef.current = null;
+      frameBufferRef.current = [];
+      lastWaterfallRowRef.current = null;
+      pausedWaterfallRowRef.current = null;
+      waterfallBufferRef.current = null;
+      waterfallTextureSnapshotRef.current = null;
+      waterfallTextureMetaRef.current = null;
+      pendingWaterfallRestoreRef.current = null;
+      restoredWaterfallRef.current = false;
       fftAvgBufferRef.current = null;
       fftProcessedBufferRef.current = null;
       fftSmoothedBufferRef.current = null;
@@ -1657,8 +1664,8 @@ const FFTCanvas = memo(
             dbMin={vizDbMin}
             powerScale={effectivePowerScale}
             onZoomChange={(zoom) => setVizZoom(zoom)}
-            onDbMaxChange={(max) => onFftDbLimitsChange?.(vizDbMin, max)}
-            onDbMinChange={(min) => onFftDbLimitsChange?.(min, vizDbMax)}
+            onDbMaxChange={(max) => onFftDbLimitsChange?.(vizDbMinRef.current, max)}
+            onDbMinChange={(min) => onFftDbLimitsChange?.(min, vizDbMaxRef.current)}
             fftAvgEnabled={fftAvgEnabled}
             fftSmoothEnabled={fftSmoothEnabled}
             wfSmoothEnabled={wfSmoothEnabled}

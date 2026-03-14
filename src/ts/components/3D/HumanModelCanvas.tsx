@@ -3,8 +3,9 @@ import styled from "styled-components";
 import { Canvas, useThree } from "@react-three/fiber";
 import { OrbitControls, useGLTF, TransformControls } from "@react-three/drei";
 import { Vector3 } from "three";
-import Brain from "@n-apt/components/Brain";
+import Brain from "./Brain";
 import { HorizonFocusGlobe } from "./HorizonFocusGlobe";
+import { HUMAN_MODEL_AFRO_MALE_GLB_URL } from "./modelAssetUrls";
 import { useModel3D, type Area } from "@n-apt/hooks/useModel3D";
 import { useHotspotEditor } from "@n-apt/hooks/useHotspotEditor";
 import { PHYSIOLOGY_AREAS } from "@n-apt/components/sidebar/BodyAreasSection";
@@ -217,7 +218,7 @@ function Model({
   onAddHotspot: (point: Vector3) => void;
   children?: React.ReactNode;
 }) {
-  const { scene } = useGLTF("/glb_models/human_model_afro_male.glb");
+  const { scene } = useGLTF(HUMAN_MODEL_AFRO_MALE_GLB_URL);
   const groupRef = useRef<any>(null);
 
   const onPointerDown = useCallback((e: any) => {

@@ -101,7 +101,7 @@ export function useOverlayRenderer() {
 
         ctx.fillText(
           label,
-          FFT_AREA_MIN.x - 10,
+          FFT_AREA_MIN.x - 15,
           Math.round(yPos + 3),
         );
       }

@@ -19,7 +19,7 @@ export const FFT_FREQUENCY_RANGES = [
 ];
 
 // Canvas layout constants
-export const FFT_AREA_MIN = { x: 40, y: 20 };
+export const FFT_AREA_MIN = { x: 50, y: 20 };
 export const FFT_CANVAS_BG = COLORS.fftBackground;
 export const FFT_FONT_FAMILY = "JetBrains Mono";
 export const FFT_FONT_SIZE = "16px";

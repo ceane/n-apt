@@ -21,6 +21,8 @@ import SourceInput from "@n-apt/components/sidebar/SourceInput";
 import { Row, CollapsibleTitle } from "@n-apt/components/ui";
 import { ConnectionStatusSection, PauseButton } from "@n-apt/components/sidebar/ConnectionStatusSection";
 import { SignalDisplaySection } from "@n-apt/components/sidebar/SignalDisplaySection";
+import { BodyAreasSection } from "@n-apt/components/sidebar/BodyAreasSection";
+import { HotspotEditorSection } from "@n-apt/components/sidebar/HotspotEditorSection";
 
 import FileProcessingSection from "@n-apt/components/sidebar/FileProcessingSection";
 import { IQCaptureControlsSection } from "@n-apt/components/sidebar/IQCaptureControlsSection";
@@ -952,6 +954,9 @@ const Sidebar: React.FC<SidebarProps> = ({
             }
             onSnapshot={handleSnapshot}
           />
+
+          <BodyAreasSection />
+          <HotspotEditorSection />
 
           {sourceMode === "file" ? (
             <>

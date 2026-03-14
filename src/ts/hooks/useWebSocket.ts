@@ -676,8 +676,8 @@ export const useWebSocket = (
     }
 
     const message = JSON.stringify({
-      type: "power_scale",
-      powerScale: scale,
+      type: 'power_scale',
+      data: { powerScale: scale },
     });
     ws.send(message);
   }, []);

@@ -1,5 +1,5 @@
 // Spectrum WebGPU shader
-export const SPECTRUM_SHADER = `
+export const SPECTRUM_SHADER = /* wgsl */`
 @group(0) @binding(0) var<storage, read> waveform: array<f32>;
 @group(0) @binding(1) var<uniform> uniforms: array<vec4<f32>, 4>;
 

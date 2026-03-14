@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
-import { PolarRadioWaveChart } from './PolarRadioWaveChart';
-import { PolarRadioWaveWebGPU } from './PolarRadioWaveWebGPU';
+import { PolarRadioWaveWebGPU } from "@n-apt/components/3D/PolarRadioWaveWebGPU";
 import styled from 'styled-components';
 
 const DemoWrapper = styled.div`
@@ -55,39 +54,10 @@ const ChartWrapper = styled.div`
   gap: 20px;
 `;
 
-const VersionToggle = styled.div`
-  display: flex;
-  gap: 12px;
-  margin-bottom: 24px;
-
-  button {
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(172, 119, 255, 0.2);
-    color: #fff;
-    padding: 8px 16px;
-    border-radius: 6px;
-    cursor: pointer;
-    font-size: 13px;
-    transition: all 0.2s;
-
-    &.active {
-      background: #ac77ff;
-      border-color: #ac77ff;
-      color: #000;
-      font-weight: 600;
-    }
-
-    &:hover:not(.active) {
-      background: rgba(172, 119, 255, 0.1);
-    }
-  }
-`;
-
 export const PolarChartDemo: React.FC = () => {
   const [antennaRadius, setAntennaRadius] = useState(40);
-  const [beamWidth, setBeamWidth] = useState(25);
+  const [beamWidth, setBeamWidth] = useState(30);
   const [rotation, setRotation] = useState(0);
-  const [version, setVersion] = useState<'svg' | 'webgpu'>('webgpu');
 
   return (
     <DemoWrapper>
@@ -97,14 +67,6 @@ export const PolarChartDemo: React.FC = () => {
       </p>
 
       <ControlsGrid>
-        <ControlItem>
-          <label>Version Selection</label>
-          <VersionToggle>
-            <button className={version === 'svg' ? 'active' : ''} onClick={() => setVersion('svg')}>SVG (Clean)</button>
-            <button className={version === 'webgpu' ? 'active' : ''} onClick={() => setVersion('webgpu')}>WebGPU (3D Performance)</button>
-          </VersionToggle>
-        </ControlItem>
-
         <ControlItem>
           <label>Antenna Physical Radius: {antennaRadius}px</label>
           <input
@@ -134,21 +96,11 @@ export const PolarChartDemo: React.FC = () => {
       </ControlsGrid>
 
       <ChartWrapper>
-        {version === 'svg' ? (
-          <PolarRadioWaveChart
-            antennaRadius={antennaRadius}
-            beamWidth={beamWidth}
-            rotation={rotation}
-            width={800}
-            height={800}
-          />
-        ) : (
-          <PolarRadioWaveWebGPU
-            antennaRadius={antennaRadius}
-            beamWidth={beamWidth}
-            rotation={rotation}
-          />
-        )}
+        <PolarRadioWaveWebGPU
+          aperture={antennaRadius}
+          beamWidth={beamWidth}
+          rotation={rotation}
+        />
       </ChartWrapper>
     </DemoWrapper>
   );

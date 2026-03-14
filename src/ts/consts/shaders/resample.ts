@@ -1,5 +1,5 @@
 // WebGPU SIMD Resampling Compute Shader
-export const RESAMPLE_WGSL = `
+export const RESAMPLE_WGSL = /* wgsl */`
 struct ResampleParams {
   src_len: u32,
   out_len: u32,

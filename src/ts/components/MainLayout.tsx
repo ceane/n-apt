@@ -87,13 +87,26 @@ const SidebarContent = styled.div`
 interface MainLayoutProps {
   children: React.ReactNode;
   sidebar: React.ReactNode;
+  isSidebarOpen?: boolean;
+  onSidebarOpenChange?: (open: boolean) => void;
 }
 
 export const MainLayout: React.FC<MainLayoutProps> = ({
   children,
   sidebar,
+  isSidebarOpen: controlledIsSidebarOpen,
+  onSidebarOpenChange,
 }) => {
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [internalIsSidebarOpen, setInternalIsSidebarOpen] = useState(true);
+  
+  const isSidebarOpen = controlledIsSidebarOpen !== undefined ? controlledIsSidebarOpen : internalIsSidebarOpen;
+  const setIsSidebarOpen = (open: boolean) => {
+    if (onSidebarOpenChange) {
+      onSidebarOpenChange(open);
+    }
+    setInternalIsSidebarOpen(open);
+  };
+
   const location = useLocation();
 
   const path = location.pathname;

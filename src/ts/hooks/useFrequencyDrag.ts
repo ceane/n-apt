@@ -88,11 +88,13 @@ export function useFrequencyDrag({
         // Render box
         if (!selectionBoxRef.current) {
           const div = document.createElement("div");
-          div.style.position = "absolute";
-          div.style.border = "1px dashed rgba(255, 255, 255, 0.8)";
-          div.style.backgroundColor = "rgba(255, 255, 255, 0.1)";
-          div.style.pointerEvents = "none";
-          div.style.zIndex = "100";
+          if (div.style) {
+            div.style.position = "absolute";
+            div.style.border = "1px dashed rgba(255, 255, 255, 0.8)";
+            div.style.backgroundColor = "rgba(255, 255, 255, 0.1)";
+            div.style.pointerEvents = "none";
+            div.style.zIndex = "100";
+          }
           container.appendChild(div);
           selectionBoxRef.current = div;
         }
