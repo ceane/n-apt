@@ -24,7 +24,7 @@
     "build:wasm": "./scripts/build_wasm.sh",
     "build": "npm run build:backend && npm run build:frontend && npm run build:wasm",
     "preview": "vite preview --port 5174",
-    "postinstall": "echo \"ALSO INSTALLING RUST DEPS\" && ./scripts/start_server.sh --build-only",
+    "postinstall": "sh -c 'if [ -n \"$CI\" ]; then echo \"Skipping backend build during CI postinstall\"; else echo \"ALSO INSTALLING RUST DEPS\" && ./scripts/start_server.sh --build-only; fi'",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
