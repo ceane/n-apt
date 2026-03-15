@@ -304,10 +304,21 @@ impl ARMOptimizedSIMD {
     for (i, item) in output.iter_mut().enumerate().take(width) {
       let start = (i as f32 * ratio) as usize;
       let end = ((i + 1) as f32 * ratio) as usize;
-      let count = end - start;
-      if count > 0 {
-        let sum: f32 = input[start..end.min(input_len)].iter().sum();
-        *item = sum / count as f32;
+      let clamped_end = end.min(input_len);
+      if start >= input_len {
+        *item = -120.0;
+        continue;
+      }
+      if start < clamped_end {
+        let mut max_val = -f32::INFINITY;
+        for &sample in &input[start..clamped_end] {
+          max_val = max_val.max(sample);
+        }
+        *item = if max_val == -f32::INFINITY {
+          input[start.min(input_len - 1)]
+        } else {
+          max_val
+        };
       } else if start < input_len {
         *item = input[start];
       }

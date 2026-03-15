@@ -155,7 +155,7 @@ export function useComputeFFT(options: ComputeFFTOptions) {
         layout: "auto",
         compute: {
           module: fftModule,
-          entryPoint: "fft_waterfall_color"
+          entryPoint: "fft_waterfall_direct"
         }
       });
       

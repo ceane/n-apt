@@ -5,6 +5,8 @@
  * exchanged between the client and server.
  */
 
+import { GeolocationData } from "@n-apt/types/geolocation";
+
 export type DeviceState =
   | "connected"
   | "loading"
@@ -67,14 +69,6 @@ export type SpectrumFrame = {
 };
 
 export type CaptureFileType = ".napt" | ".wav";
-
-export type GeolocationData = {
-  latitude: number;
-  longitude: number;
-  accuracy: number;
-  altitude?: number;
-  timestamp: number;
-};
 
 export type CaptureRequest = {
   jobId: string;

@@ -41,7 +41,7 @@ const REGIONS = {
     bounds: {
       north: 38.5,   // Santa Rosa area
       south: 37.0,   // Campbell area
-      east: 121.5,   // Antioch area
+      east: -121.5,   // Antioch area (corrected: negative for Western hemisphere)
       west: -123.0   // Coast
     },
     description: 'San Francisco Bay Area including SF, Oakland, San Jose'

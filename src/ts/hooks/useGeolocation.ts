@@ -1,12 +1,5 @@
 import { useState, useCallback } from 'react';
-
-export interface GeolocationData {
-  latitude: number;
-  longitude: number;
-  accuracy: number;
-  altitude?: number;
-  timestamp: number;
-}
+import { GeolocationData } from "@n-apt/types/geolocation";
 
 export interface UseGeolocationReturn {
   location: GeolocationData | null;
