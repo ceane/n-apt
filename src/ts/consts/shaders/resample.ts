@@ -24,8 +24,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   var max_val: f32 = -3.402823466e38; // f32::MIN
   for (var i = start; i < end && i < params.src_len; i = i + 1) {
     let v = input_buffer[i];
-    // Check if v is finite using built-in isFinite() function
-    if (isFinite(v) && v > max_val) {
+    // Check if v is finite (not NaN or infinity) using WGSL operations
+    if (v == v && abs(v) < 3.402823466e38 && v > max_val) {
       max_val = v;
     }
   }
