@@ -1,5 +1,11 @@
 import * as React from "react";
-import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import {
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+  act,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom";
 import AuthenticationPrompt from "@n-apt/components/AuthenticationPrompt";
@@ -21,56 +27,84 @@ describe("AuthenticationPrompt Component", () => {
 
   it("should render authentication prompt correctly", () => {
     render(<AuthenticationPrompt {...defaultProps} />);
-    expect(screen.getByText("Secure Access Required for N-APT")).toBeInTheDocument();
+    expect(
+      screen.getByText("Secure Access Required for N-APT"),
+    ).toBeInTheDocument();
   });
 
   it("should show loading state during authentication", () => {
-    render(<AuthenticationPrompt {...defaultProps} authState="authenticating" />);
+    render(
+      <AuthenticationPrompt {...defaultProps} authState="authenticating" />,
+    );
     expect(screen.getByText("Authenticating...")).toBeInTheDocument();
   });
 
   it("should show success state", () => {
     render(<AuthenticationPrompt {...defaultProps} authState="success" />);
-    expect(screen.getByText("Authentication successful — starting stream...")).toBeInTheDocument();
+    expect(
+      screen.getByText("Authentication successful — starting stream..."),
+    ).toBeInTheDocument();
   });
 
   it("should show error state", () => {
     const errorMessage = "Invalid credentials";
-    render(<AuthenticationPrompt {...defaultProps} authState="failed" error={errorMessage} />);
+    render(
+      <AuthenticationPrompt
+        {...defaultProps}
+        authState="failed"
+        error={errorMessage}
+      />,
+    );
     expect(screen.getByText(errorMessage)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Retry/ })).toBeInTheDocument();
   });
 
   it("should show timeout state", () => {
     render(<AuthenticationPrompt {...defaultProps} authState="timeout" />);
-    expect(screen.getByText("Authentication timed out — please retry")).toBeInTheDocument();
+    expect(
+      screen.getByText("Authentication timed out — please retry"),
+    ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Retry/ })).toBeInTheDocument();
   });
 
   it("should display passkey option when available", () => {
     render(<AuthenticationPrompt {...defaultProps} hasPasskeys={true} />);
-    expect(screen.getByRole("button", { name: /Sign in with Passkey/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Sign in with Passkey/ }),
+    ).toBeInTheDocument();
     expect(screen.getByText("Use password instead")).toBeInTheDocument();
   });
 
   it("should not display passkey option when not available", () => {
     render(<AuthenticationPrompt {...defaultProps} hasPasskeys={false} />);
-    expect(screen.queryByRole("button", { name: /Sign in with Passkey/ })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Authenticate/ })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Sign in with Passkey/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Authenticate/ }),
+    ).toBeInTheDocument();
   });
 
   it("should show password form when passkey available and user clicks 'Use password instead'", () => {
     render(<AuthenticationPrompt {...defaultProps} hasPasskeys={true} />);
 
     // Initially passkey form should be shown
-    expect(screen.getByRole("button", { name: /Sign in with Passkey/ })).toBeInTheDocument();
-    expect(screen.queryByRole("textbox", { name: /Password/ })).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Sign in with Passkey/ }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("textbox", { name: /Password/ }),
+    ).not.toBeInTheDocument();
 
     // Click to show password form
     fireEvent.click(screen.getByText("Use password instead"));
 
-    expect(screen.getByRole("textbox", { name: /Password/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Authenticate/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole("textbox", { name: /Password/ }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Authenticate/ }),
+    ).toBeInTheDocument();
     expect(screen.getByText("Use passkey instead")).toBeInTheDocument();
   });
 
@@ -96,10 +130,16 @@ describe("AuthenticationPrompt Component", () => {
   it("should handle passkey authentication", () => {
     const mockPasskeyAuth = jest.fn();
     render(
-      <AuthenticationPrompt {...defaultProps} onPasskeyAuth={mockPasskeyAuth} hasPasskeys={true} />,
+      <AuthenticationPrompt
+        {...defaultProps}
+        onPasskeyAuth={mockPasskeyAuth}
+        hasPasskeys={true}
+      />,
     );
 
-    const passkeyButton = screen.getByRole("button", { name: /Sign in with Passkey/ });
+    const passkeyButton = screen.getByRole("button", {
+      name: /Sign in with Passkey/,
+    });
     fireEvent.click(passkeyButton);
 
     expect(mockPasskeyAuth).toHaveBeenCalled();
@@ -115,7 +155,9 @@ describe("AuthenticationPrompt Component", () => {
       />,
     );
 
-    const registerButton = screen.getByRole("button", { name: /Register a passkey/ });
+    const registerButton = screen.getByRole("button", {
+      name: /Register a passkey/,
+    });
     fireEvent.click(registerButton);
 
     expect(mockRegisterPasskey).toHaveBeenCalled();
@@ -135,14 +177,28 @@ describe("AuthenticationPrompt Component", () => {
 
   it("should show appropriate status message for different auth states", () => {
     const testCases = [
-      { state: "connecting" as AuthState, expectedMessage: /Connecting to server/ },
-      { state: "awaiting_challenge" as AuthState, expectedMessage: /Establishing secure channel/ },
-      { state: "ready" as AuthState, expectedMessage: /Enter your passkey or password/ },
-      { state: "authenticating" as AuthState, expectedMessage: /Verifying credentials/ },
+      {
+        state: "connecting" as AuthState,
+        expectedMessage: /Connecting to server/,
+      },
+      {
+        state: "awaiting_challenge" as AuthState,
+        expectedMessage: /Establishing secure channel/,
+      },
+      {
+        state: "ready" as AuthState,
+        expectedMessage: /Enter your passkey or password/,
+      },
+      {
+        state: "authenticating" as AuthState,
+        expectedMessage: /Verifying credentials/,
+      },
     ];
 
     testCases.forEach(({ state, expectedMessage }) => {
-      const { unmount } = render(<AuthenticationPrompt {...defaultProps} authState={state} />);
+      const { unmount } = render(
+        <AuthenticationPrompt {...defaultProps} authState={state} />,
+      );
       expect(screen.getByText(expectedMessage)).toBeInTheDocument();
       unmount();
     });

@@ -107,7 +107,9 @@ describe("End-to-End Pipeline Integration", () => {
   it("should handle WebSocket connection lifecycle", () => {
     // Test WebSocket creation
     const ws = new WebSocket("ws://localhost:8765/ws?token=mock");
-    expect(global.WebSocket).toHaveBeenCalledWith("ws://localhost:8765/ws?token=mock");
+    expect(global.WebSocket).toHaveBeenCalledWith(
+      "ws://localhost:8765/ws?token=mock",
+    );
     expect(ws).toBe(mockWebSocket);
 
     // Test WebSocket methods
@@ -193,7 +195,8 @@ describe("End-to-End Pipeline Integration", () => {
       device_connected: false,
       device_state: "disconnected",
       backend: "mock",
-      device_info: "Mock RTL-SDR Device - Sample Rate: 3200000 Hz, Gain: 49.6 dB, PPM: 1",
+      device_info:
+        "Mock RTL-SDR Device - Sample Rate: 3200000 Hz, Gain: 49.6 dB, PPM: 1",
       paused: false,
     };
 

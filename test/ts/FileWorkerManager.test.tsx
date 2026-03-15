@@ -30,7 +30,9 @@ describe("FileWorkerManager", () => {
   });
 
   it("should load file", async () => {
-    const mockFile = new File(["test data"], "test.c64", { type: "application/octet-stream" });
+    const mockFile = new File(["test data"], "test.c64", {
+      type: "application/octet-stream",
+    });
     const onProgress = jest.fn();
 
     const result = await manager.loadFile(mockFile, onProgress);
@@ -41,7 +43,9 @@ describe("FileWorkerManager", () => {
   });
 
   it("should handle file loading progress", async () => {
-    const mockFile = new File(["test data"], "test.c64", { type: "application/octet-stream" });
+    const mockFile = new File(["test data"], "test.c64", {
+      type: "application/octet-stream",
+    });
     const onProgress = jest.fn();
 
     // Simulate progress messages
@@ -63,12 +67,16 @@ describe("FileWorkerManager", () => {
   });
 
   it("should handle file loading errors", async () => {
-    const mockFile = new File(["test data"], "test.c64", { type: "application/octet-stream" });
+    const mockFile = new File(["test data"], "test.c64", {
+      type: "application/octet-stream",
+    });
 
     // Simulate file loading error
     manager.simulateError("fileloading", "File loading failed");
 
-    await expect(manager.loadFile(mockFile)).rejects.toThrow("File loading failed");
+    await expect(manager.loadFile(mockFile)).rejects.toThrow(
+      "File loading failed",
+    );
 
     // Reset for next test
     manager.resetErrorSimulation();
@@ -101,12 +109,16 @@ describe("FileWorkerManager", () => {
   });
 
   it("should handle worker timeout", async () => {
-    const mockFile = new File(["test data"], "test.c64", { type: "application/octet-stream" });
+    const mockFile = new File(["test data"], "test.c64", {
+      type: "application/octet-stream",
+    });
 
     // Simulate timeout
     manager.simulateError("timeout");
 
-    await expect(manager.loadFile(mockFile)).rejects.toThrow("Worker request timed out");
+    await expect(manager.loadFile(mockFile)).rejects.toThrow(
+      "Worker request timed out",
+    );
 
     // Reset for next test
     manager.resetErrorSimulation();
@@ -137,17 +149,23 @@ describe("FileWorkerManager", () => {
   });
 
   it("should handle worker recreation after termination", async () => {
-    const mockFile = new File(["test data"], "test.c64", { type: "application/octet-stream" });
+    const mockFile = new File(["test data"], "test.c64", {
+      type: "application/octet-stream",
+    });
 
     // Terminate worker
     manager.terminate();
 
     // Should throw error when trying to load file after termination
-    await expect(manager.loadFile(mockFile)).rejects.toThrow("Worker terminated");
+    await expect(manager.loadFile(mockFile)).rejects.toThrow(
+      "Worker terminated",
+    );
   });
 
   it("should handle worker message routing", async () => {
-    const mockFile = new File(["test data"], "test.c64", { type: "application/octet-stream" });
+    const mockFile = new File(["test data"], "test.c64", {
+      type: "application/octet-stream",
+    });
     const onProgress = jest.fn();
 
     const result = await manager.loadFile(mockFile, onProgress);
@@ -158,7 +176,9 @@ describe("FileWorkerManager", () => {
 
   it("should handle transferable objects", async () => {
     const largeData = new ArrayBuffer(1024 * 1024); // 1MB
-    const mockFile = new File([largeData], "large.c64", { type: "application/octet-stream" });
+    const mockFile = new File([largeData], "large.c64", {
+      type: "application/octet-stream",
+    });
 
     const result = await manager.loadFile(mockFile);
 
@@ -182,7 +202,9 @@ describe("FileWorkerManager", () => {
   });
 
   it("should clean up pending requests on termination", () => {
-    const mockFile = new File(["test data"], "test.c64", { type: "application/octet-stream" });
+    const mockFile = new File(["test data"], "test.c64", {
+      type: "application/octet-stream",
+    });
     const promise = manager.loadFile(mockFile);
 
     // Terminate before completion
@@ -193,7 +215,9 @@ describe("FileWorkerManager", () => {
   });
 
   it("should handle worker message parsing errors", async () => {
-    const mockFile = new File(["test data"], "test.c64", { type: "application/octet-stream" });
+    const mockFile = new File(["test data"], "test.c64", {
+      type: "application/octet-stream",
+    });
 
     // The mock handles errors gracefully, so this should just work
     await expect(manager.loadFile(mockFile)).resolves.toBeDefined();

@@ -1,0 +1,1580 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Canvas FFT and Waterfall Demo</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #1a1a1a;
+            color: #fff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            padding: 0 20px 20px;
+            overflow-x: hidden;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            margin: 5vh auto;
+            font-size: 28px;
+            text-align: center;
+        }
+
+        .demo-container {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .visualization-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 0;
+            border: 1px solid #2a2a2a;
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        .visualization-area > .canvas-container:first-child {
+            margin-bottom: 0;
+            border-bottom-left-radius: 0;
+            border-bottom-right-radius: 0;
+        }
+
+        .visualization-area > .canvas-container:last-child {
+            border-radius: 0;
+            margin: 0;
+            border-top: none;
+        }
+
+        .canvas-container {
+            background: #0a0a0a;
+            overflow: hidden;
+            position: relative;
+            width: 100%;
+        }
+
+        .fft-canvas {
+            width: 100%;
+            height: 300px;
+            display: block;
+        }
+
+        .waterfall-canvas {
+            width: 100%;
+            height: 300px;
+            display: block;
+        }
+
+        .sliders-panel {
+            display: grid;
+            grid-auto-rows: auto;
+            gap: 18px;
+            user-select: none;
+        }
+
+        .slider-group {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .slider-label {
+            font-family: "JetBrains Mono", monospace;
+            font-size: 11px;
+            font-weight: 500;
+            color: #ebebeb;
+            letter-spacing: 0.2px;
+            text-transform: none;
+            white-space: nowrap;
+        }
+
+        .slider-track {
+            position: relative;
+            width: 40px;
+            height: 190px;
+            margin: 0 auto;
+            background: #212121;
+            border-radius: 10px;
+            cursor: pointer;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .slider-thumb {
+            position: absolute;
+            width: 100%;
+            min-height: 30px;
+            background: #3B3B3B;
+            border-radius: 10px;
+            cursor: grab;
+            display: flex;
+            flex-flow: column-reverse;
+            align-items: center;
+
+            &:hover:after {
+                content: "";
+                display: block;
+                width: 60%;
+                height: 3px;
+                background: #5e5e5e;
+            }
+        }
+
+
+        .slider-thumb:active {
+            cursor: grabbing;
+        }
+
+        .slider-track .slider-value {
+            position: absolute;
+            bottom: 15px;
+            font-family: "JetBrains Mono", monospace;
+            font-size: 10px;
+            color: #686868;
+            text-align: right;
+            letter-spacing: 0.3px;
+            pointer-events: none;
+            opacity: 0.85;
+        }
+
+        .controls {
+            margin: 30px auto;
+            padding: 26px 24px;
+            border-radius: 22px;
+            border: 1px solid #2a2a2a;
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            padding: 14px;
+            border-radius: 14px;
+            flex: 1;
+        }
+
+        .control-group label {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #d8d8d8;
+        }
+
+        .control-group input[type="range"] {
+            width: 100%;
+            cursor: pointer;
+            accent-color: #6ac6ff;
+        }
+
+        .control-group select,
+        .control-group input[type="range"],
+        .control-group button {
+            font-family: inherit;
+        }
+
+        .control-group select {
+            background: #767676;
+            color: #fff;
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            border-radius: 10px;
+            padding: 8px 12px;
+        }
+
+        .control-group button {
+            background: #515151;
+            color: #f6f6f6;
+            border: none;
+            padding: 10px 14px;
+            border-radius: 12px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.25s ease, transform 0.2s ease;
+            box-shadow: none;
+        }
+
+        .control-group button:hover {
+            background: rgba(255, 255, 255, 0.12);
+            transform: translateY(-1px);
+        }
+
+        .control-group button.active {
+            background: linear-gradient(135deg, #00c853, #009688);
+            border-color: rgba(0, 0, 0, 0.2);
+        }
+
+
+        .vfo-panel {
+            margin: 0;
+            padding: 14px 16px 10px;
+            background: rgba(12, 12, 12, 0.95);
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
+        }
+
+        .vfo-track {
+            position: relative;
+            width: 100%;
+            height: 30px;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.06);
+            overflow: hidden;
+        }
+
+        .vfo-window {
+            position: absolute;
+            top: 0;
+            height: 100%;
+            min-width: 16px;
+            border-radius: 9px;
+            background: #3B3B3B;
+            cursor: grab;
+        }
+
+        .vfo-window.dragging {
+            cursor: grabbing;
+        }
+
+        .vfo-window::after {
+            content: '';
+            position: absolute;
+            left: 50%;
+            top: 2px;
+            bottom: 2px;
+            width: 2px;
+            transform: translateX(-50%);
+            background: #5e5e5e;
+            border-radius: 1px;
+        }
+
+        .vfo-label-row {
+            display: flex;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 8px;
+            font-family: "JetBrains Mono", monospace;
+            font-size: 11px;
+            color: #d6d6d6;
+        }
+
+        .flex-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Canvas 2D FFT and Waterfall Visualization <br /> (ctx.lineTo!)</h1>
+
+        <div class="demo-container">
+            <div class="visualization-area">
+                <div class="canvas-container">
+                    <canvas id="fftCanvas" class="fft-canvas"></canvas>
+                </div>
+                <div class="vfo-panel">
+                    <div class="vfo-label-row">
+                        <span id="vfoFreqStart">-- MHz</span>
+                        <span id="vfoCenterLabel">○ -- MHz</span>
+                        <span id="vfoFreqEnd">-- MHz</span>
+                    </div>
+                    <div class="vfo-track" id="vfoTrack">
+                        <div class="vfo-window" id="vfoWindow"></div>
+                    </div>
+                </div>
+                <div class="canvas-container">
+                    <canvas id="waterfallCanvas" class="waterfall-canvas"></canvas>
+                </div>
+            </div>
+
+            <aside class="sliders-panel">
+                <div class="slider-group">
+                    <div class="slider-label">Zoom</div>
+                    <div class="slider-track" data-slider="zoom">
+                        <div class="slider-thumb" id="zoomThumb"></div>
+                        <div class="slider-value" id="zoomValue">1x</div>
+                    </div>
+                    
+                </div>
+                
+                <div class="slider-group">
+                    <div class="slider-label">Max</div>
+                    <div class="slider-track" data-slider="max">
+                        <div class="slider-thumb" id="maxThumb"></div>
+                        <div class="slider-value" id="maxValue">0dB</div>
+                    </div>
+                </div>
+                
+                <div class="slider-group">
+                    <div class="slider-label">Min</div>
+                    <div class="slider-track" data-slider="min">
+                        <div class="slider-thumb" id="minThumb"></div>
+                        <div class="slider-value" id="minValue">-80dB</div>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <div class="controls">
+            <div class="flex-row">
+             <div class="control-group">
+                <label>Signal Type</label>
+                    <select id="signalType">
+                        <option value="peaks">Peaks (Canvas)</option>
+                        <option value="sweep">Frequency Sweep</option>
+                        <option value="noise">Colored Noise</option>
+                        <option value="realistic">Realistic SDR</option>
+                    </select>
+                </div>
+
+                <div class="control-group">
+                    <label>FFT Size</label>
+                    <select id="fftSize">
+                        <option value="512">512</option>
+                        <option value="1024">1024</option>
+                        <option value="2048" selected="selected">2048</option>
+                        <option value="4096">4096</option>
+                    </select>
+                </div>               
+            </div>
+
+            <div class="flex-row">
+                <div class="control-group">
+                    <button id="togglePause">⏸ Pause</button>
+                </div>
+
+                <div class="control-group">
+                    <button id="toggleHold">Hold: OFF</button>
+                </div>
+
+                <div class="control-group">
+                    <button id="toggleFftAvg">FFT Avg: OFF</button>
+                </div>
+
+                <div class="control-group">
+                    <button id="toggleFftSmooth">FFT Smooth: OFF</button>
+                </div>
+
+                <div class="control-group">
+                    <button id="toggleWfSmooth">WF Smooth: OFF</button>
+                </div>
+
+                <div class="control-group">
+                    <button id="resetView">Reset View</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    //<![CDATA[
+        // ============ WebGPU FFT & Waterfall Visualization ============
+        
+        // SDR++ Color Palette
+        const DEFAULT_COLOR_MAP = [
+            [0x00, 0x00, 0x20],
+            [0x00, 0x00, 0x30],
+            [0x00, 0x00, 0x50],
+            [0x00, 0x00, 0x91],
+            [0x1e, 0x90, 0xff],
+            [0xff, 0xff, 0xff],
+            [0xff, 0xff, 0x00],
+            [0xfe, 0x6d, 0x16],
+            [0xff, 0x00, 0x00],
+            [0xc6, 0x00, 0x00],
+            [0x9f, 0x00, 0x00],
+            [0x75, 0x00, 0x00],
+            [0x4a, 0x00, 0x00]
+        ];
+
+        const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+        const wrapIndex = (idx, length) => {
+            const wrapped = idx % length;
+            return wrapped < 0 ? wrapped + length : wrapped;
+        };
+
+        const formatFrequency = (freqMHz) => {
+            if (!Number.isFinite(freqMHz)) return '-- MHz';
+            if (freqMHz >= 1) {
+                return `${freqMHz.toFixed(3)} MHz`;
+            }
+            if (freqMHz >= 0.001) {
+                return `${(freqMHz * 1000).toFixed(0)} kHz`;
+            }
+            return `${(freqMHz * 1_000_000).toFixed(0)} Hz`;
+        };
+
+        const formatBandwidth = (spanMHz) => {
+            if (!Number.isFinite(spanMHz)) return '-- MHz';
+            if (spanMHz >= 1) {
+                return `${spanMHz.toFixed(3)} MHz`;
+            }
+            return `${(spanMHz * 1000).toFixed(1)} kHz`;
+        };
+
+        const FFT_LEFT_MARGIN = 20;
+        const FFT_RIGHT_MARGIN = 20;
+        const FFT_TOP_MARGIN = 20;
+        const FFT_BOTTOM_MARGIN = 45;
+        const VFO_MIN_WINDOW_PX = 16;
+        const FREQ_STEP_CHOICES = [
+            0.0001,
+            0.0002,
+            0.0005,
+            0.001,
+            0.002,
+            0.005,
+            0.01,
+            0.02,
+            0.05,
+            0.1,
+            0.2,
+            0.5,
+            1,
+            2,
+            5,
+            10,
+            25,
+            50
+        ];
+        const DB_STEP_CHOICES = [2, 5, 10, 20];
+
+        const pickFrequencyStep = (viewBandwidthMHz) => {
+            for (const step of FREQ_STEP_CHOICES) {
+                if (viewBandwidthMHz / step <= 8) {
+                    return step;
+                }
+            }
+            return FREQ_STEP_CHOICES[FREQ_STEP_CHOICES.length - 1];
+        };
+
+        const pickDbStep = (dbRange, plotHeight) => {
+            if (!Number.isFinite(dbRange) || dbRange <= 0) {
+                return 10;
+            }
+            const targetLines = clamp(Math.floor(plotHeight / 40), 2, 10);
+            const approxStep = dbRange / Math.max(1, targetLines);
+            for (const step of DB_STEP_CHOICES) {
+                if (approxStep <= step) {
+                    return step;
+                }
+            }
+            return DB_STEP_CHOICES[DB_STEP_CHOICES.length - 1];
+        };
+
+        class CanvasSpectrumAnalyzer {
+            constructor() {
+                this.fftCanvas = document.getElementById('fftCanvas');
+                this.waterfallCanvas = document.getElementById('waterfallCanvas');
+                this.fftCtx = this.fftCanvas.getContext('2d');
+                this.waterfallCtx = this.waterfallCanvas.getContext('2d');
+                
+                // Track last resize to prevent infinite loops
+                this.lastResizeWidth = 0;
+                this.lastResizeHeightFFT = 0;
+                this.lastResizeHeightWaterfall = 0;
+                this.resizeDebounce = 0;
+                
+                // Visualization parameters
+                this.fftSize = 2048;
+                // Waterfall settings
+                this.waterfallHeight = 200; // Default height, will be updated on resize
+                this.waterfallWriteRow = 0;
+                this.waterfallLinesWritten = 0;
+                this.zoom = 2;
+                this.dbMin = -80;
+                this.dbMax = 0;
+                this.centerFreq = 100; // MHz
+                this.bandwidth = 100; // MHz;
+                
+                // dB range smoothing to prevent stripes
+                this.targetDbMin = this.dbMin;
+                this.targetDbMax = this.dbMax;
+                this.dbRangeSmoothing = 0.1; // Smoothing factor
+                
+                // Data buffers
+                this.fftData = new Float32Array(this.fftSize);
+                this.fftData.fill(this.dbMin);
+                this.holdData = new Float32Array(this.fftSize);
+                this.holdData.fill(this.dbMin);
+                this.waterfallData = [];
+                
+                // Initialize waterfall buffer
+                this.initializeWaterfallBuffer();
+                
+                this.waterfallWriteRow = 0;
+                this.isPaused = false;
+                this.holdEnabled = false;
+                this.fftAvgEnabled = false;
+                this.fftSmoothEnabled = false;
+                this.wfSmoothEnabled = false;
+                this.signalType = 'peaks';
+                
+                // Performance tracking
+                this.frameCount = 0;
+                this.lastTime = Date.now();
+                this.lastFrameTime = Date.now();
+                this.targetFPS = 60;
+                this.frameInterval = 1000 / this.targetFPS;
+                this.peakFrequency = 0;
+                
+                // Update interval management (now relies entirely on animation frame)
+                this.updateInterval = null;
+                
+                // Waterfall data state tracking
+                this.hasWaterfallData = false;
+
+                // VFO overlay state
+                this.vfoCenterRatio = 0.5;
+                this.vfoTrack = null;
+                this.vfoWindow = null;
+                this.vfoFreqStartEl = null;
+                this.vfoFreqEndEl = null;
+                this.vfoCenterLabelEl = null;
+                this.vfoBandwidthLabelEl = null;
+                this.vfoDbLabelEl = null;
+                this.lastViewInfo = null;
+                this.prevCenterRatio = this.vfoCenterRatio;
+                
+                this.init();
+            }
+
+            init() {
+                this.initializeSliders();
+                this.setupEventListeners();
+                this.initializeVFOOverlay();
+                this.startAnimation();
+            }
+
+            updateSliderPosition(sliderType, value) {
+                let thumb, position;
+                
+                if (sliderType === 'zoom') {
+                    thumb = document.getElementById('zoomThumb');
+                    // Inverse logarithmic calculation for position
+                    position = Math.log(value) / Math.log(1000);
+                } else if (sliderType === 'max') {
+                    thumb = document.getElementById('maxThumb');
+                    // Max dB: 0 to -80 (top to bottom)
+                    position = value / -80;
+                } else if (sliderType === 'min') {
+                    thumb = document.getElementById('minThumb');
+                    // Min dB: -10 to -120 (top to bottom)
+                    position = (value + 10) / -110;
+                }
+                
+                if (thumb) {
+                    thumb.style.height = `${Math.max(0, Math.min(100, position * 100))}%`;
+                }
+            }
+
+            initializeSliders() {
+                // Set initial slider positions using helper function
+                this.updateSliderPosition('zoom', this.zoom);
+                this.updateSliderPosition('max', 0);
+                this.updateSliderPosition('min', -80);
+                
+                // Update displays
+                document.getElementById('zoomValue').textContent = `${this.zoom.toFixed(1)}x`;
+                document.getElementById('maxValue').textContent = '0dB';
+                document.getElementById('minValue').textContent = '-80dB';
+                this.updateDBRange();
+            }
+
+            initializeVFOOverlay() {
+                this.vfoTrack = document.getElementById('vfoTrack');
+                this.vfoWindow = document.getElementById('vfoWindow');
+                this.vfoFreqStartEl = document.getElementById('vfoFreqStart');
+                this.vfoFreqEndEl = document.getElementById('vfoFreqEnd');
+                this.vfoCenterLabelEl = document.getElementById('vfoCenterLabel');
+                this.vfoBandwidthLabelEl = document.getElementById('vfoBandwidthLabel');
+                this.vfoDbLabelEl = document.getElementById('vfoDbLabel');
+
+                if (!this.vfoTrack || !this.vfoWindow) {
+                    return;
+                }
+
+                const updateFromClientX = (clientX) => {
+                    const rect = this.vfoTrack.getBoundingClientRect();
+                    if (!rect.width) return;
+                    const ratio = (clientX - rect.left) / rect.width;
+                    this.setVFOCenterRatio(ratio);
+                };
+
+                const startDrag = (clientX, target) => {
+                    const rect = this.vfoTrack.getBoundingClientRect();
+                    const windowRect = this.vfoWindow.getBoundingClientRect();
+                    
+                    // If they clicked the window itself, calculate offset so we don't jump center
+                    let dragOffsetRatio = 0;
+                    if (target === this.vfoWindow) {
+                        const clickRatio = (clientX - rect.left) / rect.width;
+                        dragOffsetRatio = this.vfoCenterRatio - clickRatio;
+                    } else {
+                        // If they clicked the track outside the window, jump to it
+                        updateFromClientX(clientX);
+                    }
+                    
+                    this.vfoWindow.classList.add('dragging');
+
+                    const onMove = (ev) => {
+                        const point = ev.touches ? ev.touches[0] : ev;
+                        if (!point) return;
+                        ev.preventDefault();
+                        
+                        const rect = this.vfoTrack.getBoundingClientRect();
+                        if (!rect.width) return;
+                        const ratio = (point.clientX - rect.left) / rect.width;
+                        this.setVFOCenterRatio(ratio + dragOffsetRatio);
+                    };
+
+                    const stopDrag = () => {
+                        this.vfoWindow.classList.remove('dragging');
+                        document.removeEventListener('mousemove', onMove);
+                        document.removeEventListener('touchmove', onMove);
+                        document.removeEventListener('mouseup', stopDrag);
+                        document.removeEventListener('touchend', stopDrag);
+                        document.removeEventListener('touchcancel', stopDrag);
+                    };
+
+                    document.addEventListener('mousemove', onMove, { passive: false });
+                    document.addEventListener('touchmove', onMove, { passive: false });
+                    document.addEventListener('mouseup', stopDrag, { passive: false });
+                    document.addEventListener('touchend', stopDrag, { passive: false });
+                    document.addEventListener('touchcancel', stopDrag, { passive: false });
+                };
+
+                const handlePointerDown = (ev) => {
+                    const point = ev.touches ? ev.touches[0] : ev;
+                    if (!point) return;
+                    ev.preventDefault();
+                    startDrag(point.clientX, ev.target);
+                };
+
+                this.vfoTrack.addEventListener('mousedown', handlePointerDown);
+                this.vfoTrack.addEventListener('touchstart', handlePointerDown, { passive: false });
+            }
+
+            setVFOCenterRatio(ratio) {
+                const clampedRatio = clamp(Number(ratio) || 0.5, 0, 1);
+                const zoomFactor = Math.max(1, this.zoom);
+                const viewRatio = clamp(1 / zoomFactor, 0.0001, 1);
+                const previousRatio = this.vfoCenterRatio ?? 0.5;
+
+                if (viewRatio >= 0.999) {
+                    this.vfoCenterRatio = 0.5;
+                    return;
+                }
+
+                const half = viewRatio / 2;
+                this.vfoCenterRatio = clamp(clampedRatio, half, 1 - half);
+
+                if (this.lastViewInfo) {
+                    const updated = { ...this.lastViewInfo, startRatio: this.vfoCenterRatio - viewRatio / 2, viewRatio };
+                    this.updateVFOOverlayLabels(updated);
+                }
+            }
+
+            updateVFOOverlayLabels(info) {
+                this.lastViewInfo = info;
+                if (!info || !this.vfoTrack || !this.vfoWindow) {
+                    return;
+                }
+
+                const { startFreqMHz, endFreqMHz, centerFreqMHz, bandwidthMHz, startRatio, viewRatio } = info;
+                if (this.vfoFreqStartEl) {
+                    this.vfoFreqStartEl.textContent = formatFrequency(startFreqMHz);
+                }
+                if (this.vfoFreqEndEl) {
+                    this.vfoFreqEndEl.textContent = formatFrequency(endFreqMHz);
+                }
+                if (this.vfoCenterLabelEl) {
+                    const label = formatFrequency(centerFreqMHz);
+                    this.vfoCenterLabelEl.textContent = `○ ${label}`;
+                }
+                if (this.vfoBandwidthLabelEl) {
+                    this.vfoBandwidthLabelEl.textContent = `View BW: ${formatBandwidth(bandwidthMHz)}`;
+                }
+                if (this.vfoDbLabelEl) {
+                    this.vfoDbLabelEl.textContent = `dB Range: ${this.dbMin.toFixed(0)} to ${this.dbMax.toFixed(0)} dB`;
+                }
+
+                const trackWidth = this.vfoTrack.clientWidth || this.vfoTrack.getBoundingClientRect().width;
+                if (!trackWidth) {
+                    return;
+                }
+
+                const safeViewRatio = clamp(viewRatio, 0, 1);
+                const windowWidth = Math.max(VFO_MIN_WINDOW_PX, trackWidth * safeViewRatio);
+                const leftPx = clamp(startRatio * trackWidth, 0, Math.max(0, trackWidth - windowWidth));
+                this.vfoWindow.style.width = `${windowWidth}px`;
+                this.vfoWindow.style.transform = `translateX(${leftPx}px)`;
+            }
+
+            getVisibleFFTInfo(width) {
+                const zoomFactor = Math.max(1, this.zoom);
+                const viewRatio = clamp(1 / zoomFactor, 0.0001, 1);
+                // The minimum plotWidth we can draw is nominally calculated
+                const plotWidth = Math.max(1, width - FFT_LEFT_MARGIN - FFT_RIGHT_MARGIN);
+                const startRatio = clamp(this.vfoCenterRatio - viewRatio / 2, 0, 1 - viewRatio);
+                const endRatio = startRatio + viewRatio;
+                const spanMHz = this.bandwidth;
+                const minFreq = this.centerFreq - spanMHz / 2;
+                const maxFreq = this.centerFreq + spanMHz / 2;
+                const startFreqMHz = minFreq + startRatio * spanMHz;
+                const endFreqMHz = minFreq + endRatio * spanMHz;
+                const centerFreqMHz = (startFreqMHz + endFreqMHz) / 2;
+                // Keep bins as float so we can sub-pixel smooth the waterfall
+                const visibleBins = viewRatio * this.fftSize;
+                const startBin = Math.max(0, Math.min(this.fftSize - visibleBins, startRatio * this.fftSize));
+                const endBin = Math.min(this.fftSize, startBin + visibleBins);
+                return {
+                    startRatio,
+                    viewRatio,
+                    startFreqMHz,
+                    endFreqMHz,
+                    centerFreqMHz,
+                    bandwidthMHz: endFreqMHz - startFreqMHz,
+                    plotWidth,
+                    visibleBins,
+                    startBin,
+                    endBin
+                };
+            }
+
+            computeFrequencyGrid(viewInfo) {
+                if (!viewInfo) return [];
+                const { startFreqMHz, endFreqMHz } = viewInfo;
+                const span = Math.max(1e-6, endFreqMHz - startFreqMHz);
+                const step = pickFrequencyStep(span);
+                const ticks = [];
+                const firstTick = Math.ceil(startFreqMHz / step) * step;
+                for (let freq = firstTick; freq < endFreqMHz; freq += step) {
+                    if (freq <= startFreqMHz || freq >= endFreqMHz) continue;
+                    ticks.push(freq);
+                    if (ticks.length > 32) break;
+                }
+                return ticks;
+            }
+
+            computeDbGrid(plotHeight) {
+                const dbRange = this.dbMax - this.dbMin;
+                const step = pickDbStep(dbRange, plotHeight);
+                const firstTick = Math.ceil(this.dbMin / step) * step;
+                const ticks = [];
+                for (let d = firstTick; d <= this.dbMax; d += step) {
+                    ticks.push(d);
+                    if (ticks.length > 32) break;
+                }
+                return ticks;
+            }
+
+            setupEventListeners() {
+                // Vertical sliders
+                document.querySelectorAll('.slider-track').forEach(track => {
+                    const sliderType = track.dataset.slider;
+                    const thumb = track.querySelector('.slider-thumb');
+                    
+                    const handleInteraction = (clientY) => {
+                        const rect = track.getBoundingClientRect();
+                        const pct = Math.max(0, Math.min(1, (clientY - rect.top) / rect.height));
+                        
+                        if (sliderType === 'zoom') {
+                            this.zoom = Math.max(1, Math.pow(1000, pct));
+                            this.setVFOCenterRatio(this.vfoCenterRatio);
+                            thumb.style.height = `${pct * 100}%`;
+                            document.getElementById('zoomValue').textContent = `${this.zoom.toFixed(1)}x`;
+                            return;
+                        }
+
+                        if (sliderType === 'max') {
+                            this.targetDbMax = Math.round(pct * -80);
+                            if (this.targetDbMin >= this.targetDbMax) {
+                                this.targetDbMin = this.targetDbMax - 10;
+                                const minPct = (this.targetDbMin + 10) / -110;
+                                document.getElementById('minThumb').style.height = `${minPct * 100}%`;
+                                document.getElementById('minValue').textContent = `${this.targetDbMin}dB`;
+                            }
+                            thumb.style.height = `${pct * 100}%`;
+                            document.getElementById('maxValue').textContent = `${this.targetDbMax}dB`;
+                            this.updateDBRange();
+                            return;
+                        }
+
+                        if (sliderType === 'min') {
+                            this.targetDbMin = Math.round(-10 + pct * -110);
+                            // Ensure min is always less than max
+                            if (this.targetDbMin >= this.targetDbMax) {
+                                this.targetDbMin = this.targetDbMax - 10;
+                                thumb.style.height = `${((this.targetDbMin + 10) / -110) * 100}%`;
+                            }
+                            thumb.style.height = `${pct * 100}%`;
+                            document.getElementById('minValue').textContent = `${this.targetDbMin}dB`;
+                            this.updateDBRange();
+                        }
+                    };
+
+                    track.addEventListener('mousedown', (e) => {
+                        e.preventDefault();
+                        handleInteraction(e.clientY);
+                        
+                        const onMouseMove = (ev) => handleInteraction(ev.clientY);
+                        const onMouseUp = () => {
+                            document.removeEventListener('mousemove', onMouseMove);
+                            document.removeEventListener('mouseup', onMouseUp);
+                        };
+                        
+                        document.addEventListener('mousemove', onMouseMove);
+                        document.addEventListener('mouseup', onMouseUp);
+                    });
+                });
+
+                // Control inputs
+                document.getElementById('signalType').addEventListener('change', (e) => {
+                    this.signalType = e.target.value;
+                    if (this.holdData) {
+                        this.holdData.fill(this.dbMin);
+                    }
+                });
+
+                document.getElementById('fftSize').addEventListener('change', (e) => {
+                    this.fftSize = parseInt(e.target.value);
+                    this.resizeBuffers();
+                });
+
+                document.getElementById('togglePause').addEventListener('click', (e) => {
+                    this.isPaused = !this.isPaused;
+                    e.target.textContent = this.isPaused ? '▶ Play' : '⏸ Pause';
+                });
+
+                document.getElementById('toggleHold').addEventListener('click', (e) => {
+                    this.holdEnabled = !this.holdEnabled;
+                    e.target.classList.toggle('active');
+                    e.target.textContent = `Hold: ${this.holdEnabled ? 'ON' : 'OFF'}`;
+                    if (!this.holdEnabled) {
+                        this.holdData.fill(this.dbMin);
+                    }
+                });
+
+                document.getElementById('toggleFftAvg').addEventListener('click', (e) => {
+                    this.fftAvgEnabled = !this.fftAvgEnabled;
+                    e.target.classList.toggle('active');
+                    e.target.textContent = `FFT Avg: ${this.fftAvgEnabled ? 'ON' : 'OFF'}`;
+                });
+
+                document.getElementById('toggleFftSmooth').addEventListener('click', (e) => {
+                    this.fftSmoothEnabled = !this.fftSmoothEnabled;
+                    e.target.classList.toggle('active');
+                    e.target.textContent = `FFT Smooth: ${this.fftSmoothEnabled ? 'ON' : 'OFF'}`;
+                });
+
+                document.getElementById('toggleWfSmooth').addEventListener('click', (e) => {
+                    this.wfSmoothEnabled = !this.wfSmoothEnabled;
+                    e.target.classList.toggle('active');
+                    e.target.textContent = `WF Smooth: ${this.wfSmoothEnabled ? 'ON' : 'OFF'}`;
+                });
+
+                document.getElementById('resetView').addEventListener('click', () => {
+                    this.resetView();
+                });
+            }
+
+            updateDBRange() {
+                // Placeholder to keep existing call sites; no UI output needed
+            }
+
+            smoothDBRange() {
+                // Smoothly interpolate dB values to prevent stripes
+                const minDiff = this.targetDbMin - this.dbMin;
+                const maxDiff = this.targetDbMax - this.dbMax;
+                
+                if (Math.abs(minDiff) > 0.1) {
+                    this.dbMin += minDiff * this.dbRangeSmoothing;
+                } else {
+                    this.dbMin = this.targetDbMin;
+                }
+                
+                if (Math.abs(maxDiff) > 0.1) {
+                    this.dbMax += maxDiff * this.dbRangeSmoothing;
+                } else {
+                    this.dbMax = this.targetDbMax;
+                }
+
+                // Enforce invariant: dbMin must stay below dbMax by a minimum span
+                const minSpan = 1;
+                if (this.dbMax - this.dbMin < minSpan) {
+                    const mid = (this.dbMin + this.dbMax) / 2;
+                    this.dbMin = mid - minSpan / 2;
+                    this.dbMax = mid + minSpan / 2;
+                }
+            }
+
+            initializeWaterfallBuffer() {
+                this.waterfallData = [];
+                for (let i = 0; i < this.waterfallHeight; i++) {
+                    this.waterfallData.push(new Float32Array(this.fftSize));
+                    this.waterfallData[i].fill(this.dbMin);
+                }
+                this.waterfallWriteRow = 0;
+                this.waterfallLinesWritten = 0;
+            }
+
+            resizeCanvases() {
+                // Debounce to prevent infinite loops
+                const now = Date.now();
+                if (now - this.resizeDebounce < 100) {
+                    return;
+                }
+                this.resizeDebounce = now;
+                
+                // Use offsetWidth/Height for more reliable size detection
+                const fftContainer = this.fftCanvas.parentElement;
+                const waterfallContainer = this.waterfallCanvas.parentElement;
+                
+                const displayWidth = Math.max(1, Math.floor(fftContainer.offsetWidth));
+                const displayHeightFFT = Math.max(1, Math.floor(fftContainer.offsetHeight));
+                const displayHeightWaterfall = Math.max(1, Math.floor(waterfallContainer.offsetHeight));
+                
+                // Only resize if dimensions actually changed significantly
+                const widthChanged = Math.abs(this.lastResizeWidth - displayWidth) > 2;
+                const heightFFTChanged = Math.abs(this.lastResizeHeightFFT - displayHeightFFT) > 2;
+                const heightWaterfallChanged = Math.abs(this.lastResizeHeightWaterfall - displayHeightWaterfall) > 2;
+                
+                if (!widthChanged && !heightFFTChanged && !heightWaterfallChanged) {
+                    return;
+                }
+                
+                // Store to prevent infinite resize loops
+                this.lastResizeWidth = displayWidth;
+                this.lastResizeHeightFFT = displayHeightFFT;
+                this.lastResizeHeightWaterfall = displayHeightWaterfall;
+                
+                // Set CSS size (visual size)
+                this.fftCanvas.style.width = `${displayWidth}px`;
+                this.fftCanvas.style.height = `${displayHeightFFT}px`;
+                this.waterfallCanvas.style.width = `${displayWidth}px`;
+                this.waterfallCanvas.style.height = `${displayHeightWaterfall}px`;
+                
+                // Set internal canvas size for high-DPI
+                const dpr = window.devicePixelRatio || 1;
+                this.fftCanvas.width = displayWidth * dpr;
+                this.fftCanvas.height = displayHeightFFT * dpr;
+                this.waterfallCanvas.width = displayWidth * dpr;
+                this.waterfallCanvas.height = displayHeightWaterfall * dpr;
+                
+                // Only reinitialize waterfall buffer if height significantly changed
+                const newWaterfallHeight = this.waterfallCanvas.height;
+                if (Math.abs(newWaterfallHeight - this.waterfallHeight) > 10) {
+                    this.waterfallHeight = newWaterfallHeight;
+                    this.initializeWaterfallBuffer();
+                }
+                
+                // Scale contexts for sharp rendering
+                this.fftCtx.setTransform(1, 0, 0, 1, 0, 0);
+                this.waterfallCtx.setTransform(1, 0, 0, 1, 0, 0);
+                this.fftCtx.scale(dpr, dpr);
+                this.waterfallCtx.scale(dpr, dpr);
+            }
+
+            resetView() {
+                this.zoom = 1;
+                this.targetDbMin = -80;
+                this.targetDbMax = 0;
+                
+                // Update sliders using helper function
+                this.updateSliderPosition('zoom', 1);
+                this.updateSliderPosition('max', 0);
+                this.updateSliderPosition('min', -80);
+                
+                // Update displays
+                document.getElementById('zoomValue').textContent = '1x';
+                document.getElementById('maxValue').textContent = '0dB';
+                document.getElementById('minValue').textContent = '-80dB';
+                
+                this.updateDBRange();
+            }
+
+            resizeBuffers() {
+                this.fftData = new Float32Array(this.fftSize);
+                this.fftData.fill(this.dbMin);
+                this.holdData = new Float32Array(this.fftSize);
+                this.holdData.fill(this.dbMin);
+                
+                this.waterfallData = [];
+                for (let i = 0; i < this.waterfallHeight; i++) {
+                    this.waterfallData.push(new Float32Array(this.fftSize));
+                    this.waterfallData[i].fill(this.dbMin);
+                }
+                this.waterfallWriteRow = 0;
+                this.waterfallLinesWritten = 0;
+            }
+
+            generateSignal() {
+                const time = Date.now() / 1000;
+                
+                const fftContainer = this.fftCanvas.parentElement;
+                const plotWidth = Math.max(1, Math.floor(fftContainer.offsetWidth) - FFT_LEFT_MARGIN - FFT_RIGHT_MARGIN);
+                const visibleBins = Math.max(1, Math.floor((1 / Math.max(1, this.zoom)) * this.fftSize));
+                const isSteps = (plotWidth / visibleBins) >= 3;
+
+                for (let i = 0; i < this.fftSize; i++) {
+                    const normalized = i / this.fftSize;
+                    const freq = normalized * this.bandwidth;
+                    let signal = -70 + Math.random() * 10; // Base noise
+
+                    switch (this.signalType) {
+                        case 'peaks':
+                            // Multiple static peaks
+                            signal += Math.exp(-Math.pow((normalized - 0.2) * 20, 2)) * 40;
+                            signal += Math.exp(-Math.pow((normalized - 0.5) * 15, 2)) * 35;
+                            signal += Math.exp(-Math.pow((normalized - 0.8) * 25, 2)) * 30;
+                            break;
+                            
+                        case 'sweep':
+                            // Frequency sweep
+                            const sweepPos = (Math.sin(time * 0.5) + 1) / 2;
+                            signal += Math.exp(-Math.pow((normalized - sweepPos) * 30, 2)) * 45;
+                            break;
+                            
+                        case 'noise':
+                            // Colored noise
+                            const noiseFreq = normalized * 10;
+                            signal += Math.sin(noiseFreq * time * 2) * 20 + Math.cos(noiseFreq * time * 3) * 15;
+                            break;
+                            
+                        case 'realistic':
+                            // Realistic SDR signals
+                            signal += Math.exp(-Math.pow((normalized - 0.15) * 50, 2)) * 35; // Narrow carrier
+                            signal += Math.exp(-Math.pow((normalized - 0.3) * 8, 2)) * 25;  // Wide signal
+                            signal += Math.exp(-Math.pow((normalized - 0.6) * 12, 2)) * 20; // Medium signal
+                            signal += Math.sin(normalized * Math.PI * 20 + time) * 5; // Some modulation
+                            break;
+                    }
+
+                    // Store raw signal values without clamping - let rendering handle normalization
+                    if (this.fftAvgEnabled && !isSteps) {
+                        if (this.fftData[i] === this.dbMin) {
+                             this.fftData[i] = signal;
+                        } else {
+                             this.fftData[i] = this.fftData[i] * 0.8 + signal * 0.2;
+                        }
+                    } else {
+                        this.fftData[i] = signal;
+                    }
+                }
+
+                if (this.fftSmoothEnabled && !isSteps) {
+                    const smoothed = new Float32Array(this.fftSize);
+                    for (let i = 0; i < this.fftSize; i++) {
+                        let sum = 0;
+                        let count = 0;
+                        for (let j = Math.max(0, i - 2); j <= Math.min(this.fftSize - 1, i + 2); j++) {
+                            sum += this.fftData[j];
+                            count++;
+                        }
+                        smoothed[i] = sum / count;
+                    }
+                    this.fftData.set(smoothed);
+                }
+
+                // Update hold data
+                if (this.holdEnabled) {
+                    for (let i = 0; i < this.fftSize; i++) {
+                        this.holdData[i] = Math.max(this.holdData[i], this.fftData[i]);
+                    }
+                }
+
+                // Find peak frequency
+                let maxVal = this.dbMin;
+                let maxIdx = 0;
+                for (let i = 0; i < this.fftSize; i++) {
+                    if (this.fftData[i] > maxVal) {
+                        maxVal = this.fftData[i];
+                        maxIdx = i;
+                    }
+                }
+                this.peakFrequency = (maxIdx / this.fftSize) * this.bandwidth;
+            }
+
+            drawFFT() {
+                const dpr = window.devicePixelRatio || 1;
+                const width = this.fftCanvas.width / dpr;
+                const height = this.fftCanvas.height / dpr;
+                if (width === 0 || height === 0) return;
+
+                // Clear
+                this.fftCtx.fillStyle = '#0a0a0a';
+                this.fftCtx.fillRect(0, 0, width, height);
+
+                const viewInfo = this.getVisibleFFTInfo(width);
+                const dbRange = this.dbMax - this.dbMin;
+                const safeDbRange = Math.max(1e-6, dbRange);
+                const startBin = viewInfo ? Math.floor(viewInfo.startBin) : 0;
+                const endBin = viewInfo ? Math.ceil(viewInfo.endBin) : this.fftSize;
+                const visibleBins = viewInfo ? viewInfo.visibleBins : Math.max(1, endBin - startBin);
+
+                const plotLeft = FFT_LEFT_MARGIN;
+                const plotRight = width - FFT_RIGHT_MARGIN;
+                const plotWidth = Math.max(1, plotRight - plotLeft);
+                const plotBottom = height - FFT_BOTTOM_MARGIN;
+
+                const linePoints = [];
+
+                if (startBin >= endBin || visibleBins <= 0) {
+                    return; // Invalid range, skip drawing
+                }
+
+                const xDenominator = Math.max(1, visibleBins);
+                // When zoomed in far enough, draw as distinct blocks/steps
+                const drawAsSteps = (plotWidth / visibleBins) >= 3;
+
+                for (let i = startBin; i < endBin; i++) {
+                    const xStart = plotLeft + ((i - startBin) / xDenominator) * plotWidth;
+                    const xEnd = plotLeft + ((i + 1 - startBin) / xDenominator) * plotWidth;
+                    
+                    let value = this.fftData[i];
+                    value = Number.isFinite(value) ? value : this.dbMin;
+                    value = Math.min(this.dbMax, Math.max(this.dbMin, value));
+                    const y = plotBottom - ((value - this.dbMin) / safeDbRange) * plotBottom;
+                    
+                    if (drawAsSteps) {
+                        // For steps, add two points per bin
+                        linePoints.push({ x: xStart, y });
+                        linePoints.push({ x: xEnd, y });
+                    } else {
+                        // For normal view, add one point per bin (centered)
+                        linePoints.push({ x: xStart + (xEnd - xStart)/2, y });
+                    }
+                }
+
+                if (linePoints.length === 0) {
+                    return;
+                }
+
+                // Fill area down to bottom
+                this.fftCtx.beginPath();
+                this.fftCtx.moveTo(plotLeft, plotBottom);
+                for (const pt of linePoints) {
+                    this.fftCtx.lineTo(pt.x, pt.y);
+                }
+                this.fftCtx.lineTo(plotRight, plotBottom);
+                this.fftCtx.closePath();
+                this.fftCtx.fillStyle = 'rgba(2, 70, 94, 0.45)';
+                this.fftCtx.fill();
+
+                // Stroke line on top
+                this.fftCtx.beginPath();
+                this.fftCtx.lineWidth = 0.5;
+                this.fftCtx.strokeStyle = '#00c6ff';
+                linePoints.forEach((pt, idx) => {
+                    if (idx === 0) {
+                        this.fftCtx.moveTo(pt.x, pt.y);
+                    } else {
+                        this.fftCtx.lineTo(pt.x, pt.y);
+                    }
+                });
+                this.fftCtx.stroke();
+
+                // Draw hold trace
+                if (this.holdEnabled) {
+                    this.fftCtx.strokeStyle = '#ff8657';
+                    this.fftCtx.lineWidth = 0.5;
+                    this.fftCtx.beginPath();
+
+                    if (drawAsSteps) {
+                        for (let bin = 0; bin < visibleBins; bin++) {
+                            const value = this.holdData[startBin + bin];
+                            const valY = plotBottom - ((value - this.dbMin) / safeDbRange) * plotBottom;
+                            const idx = bin * 2;
+                            if (idx + 1 >= linePoints.length) break;
+                            const { x: x1 } = linePoints[idx];
+                            const { x: x2 } = linePoints[idx + 1];
+
+                            if (bin === 0) {
+                                this.fftCtx.moveTo(x1, valY);
+                            } else {
+                                this.fftCtx.lineTo(x1, valY);
+                            }
+                            this.fftCtx.lineTo(x2, valY);
+                        }
+                    } else {
+                        for (let idx = 0; idx < linePoints.length; idx++) {
+                            const { x } = linePoints[idx];
+                            const value = this.holdData[startBin + idx];
+                            const y = plotBottom - ((value - this.dbMin) / safeDbRange) * plotBottom;
+
+                            if (idx === 0) {
+                                this.fftCtx.moveTo(x, y);
+                            } else {
+                                this.fftCtx.lineTo(x, y);
+                            }
+                        }
+                    }
+                    this.fftCtx.stroke();
+                }
+
+                this.drawFFTOverlay(width, height, viewInfo);
+
+                this.updateVFOOverlayLabels(viewInfo);
+            }
+
+            drawFFTOverlay(width, height, viewInfo) {
+                const plotLeft = FFT_LEFT_MARGIN;
+                const plotRight = width - FFT_RIGHT_MARGIN;
+                const plotTop = FFT_TOP_MARGIN;
+                const plotBottom = height - FFT_BOTTOM_MARGIN;
+                const plotWidth = Math.max(1, plotRight - plotLeft);
+                const plotHeight = Math.max(1, plotBottom - plotTop);
+
+                this.fftCtx.save();
+                this.fftCtx.strokeStyle = 'rgba(80,80,80,0.6)';
+                this.fftCtx.fillStyle = '#aaa';
+                this.fftCtx.lineWidth = 1;
+                this.fftCtx.font = '11px "JetBrains Mono", monospace';
+
+                const dbTicks = this.computeDbGrid(plotHeight);
+                this.fftCtx.textAlign = 'left';
+                this.fftCtx.textBaseline = 'middle';
+                for (const db of dbTicks) {
+                    const y = plotBottom - ((db - this.dbMin) / (this.dbMax - this.dbMin)) * plotHeight;
+                    this.fftCtx.beginPath();
+                    this.fftCtx.moveTo(plotLeft, y);
+                    this.fftCtx.lineTo(plotRight, y);
+                    this.fftCtx.stroke();
+                    this.fftCtx.fillText(`${db} dB`, plotLeft + 6, y);
+                }
+
+                if (viewInfo) {
+                    const freqTicks = this.computeFrequencyGrid(viewInfo);
+                    const drawnBoxes = [];
+                    const labelY = plotBottom + 26;
+                    const renderLabel = (label, align, x, force = false) => {
+                        this.fftCtx.textAlign = align;
+                        this.fftCtx.fillStyle = '#b0b0b0';
+                        const textWidth = this.fftCtx.measureText(label).width;
+                        let labelX = x;
+                        let boxStart;
+                        let boxEnd;
+                        if (align === 'center') {
+                            labelX = Math.min(plotRight - textWidth / 2, Math.max(plotLeft + textWidth / 2, labelX));
+                            boxStart = labelX - textWidth / 2;
+                            boxEnd = labelX + textWidth / 2;
+                        } else if (align === 'left') {
+                            labelX = Math.min(plotRight - textWidth, labelX);
+                            boxStart = labelX;
+                            boxEnd = labelX + textWidth;
+                        } else {
+                            labelX = Math.max(plotLeft + textWidth, labelX);
+                            boxStart = labelX - textWidth;
+                            boxEnd = labelX;
+                        }
+                        const overlaps = drawnBoxes.some(box => !(boxEnd + 2 < box.start || boxStart - 2 > box.end));
+                        if (!force && overlaps) return;
+                        this.fftCtx.fillText(label, labelX, labelY);
+                        this.fftCtx.fillStyle = '#aaa';
+                        drawnBoxes.push({ start: boxStart, end: boxEnd });
+                    };
+
+                    // Edge labels and guide lines
+                    this.fftCtx.beginPath();
+                    this.fftCtx.moveTo(plotLeft, plotTop);
+                    this.fftCtx.lineTo(plotLeft, plotBottom);
+                    this.fftCtx.stroke();
+                    renderLabel(formatFrequency(viewInfo.startFreqMHz), 'left', plotLeft, true);
+
+                    this.fftCtx.beginPath();
+                    this.fftCtx.moveTo(plotRight, plotTop);
+                    this.fftCtx.lineTo(plotRight, plotBottom);
+                    this.fftCtx.stroke();
+                    renderLabel(formatFrequency(viewInfo.endFreqMHz), 'right', plotRight, true);
+
+                    // Interior ticks
+                    for (const freq of freqTicks) {
+                        const ratio = (freq - viewInfo.startFreqMHz) / Math.max(1e-6, viewInfo.bandwidthMHz);
+                        const x = plotLeft + ratio * plotWidth;
+                        this.fftCtx.beginPath();
+                        this.fftCtx.moveTo(x, plotTop);
+                        this.fftCtx.lineTo(x, plotBottom);
+                        this.fftCtx.stroke();
+                        renderLabel(formatFrequency(freq), 'center', x, false);
+                    }
+                }
+
+                // Ensure the left/right border lines are always visible
+                this.fftCtx.strokeStyle = 'rgba(120, 120, 120, 0.8)';
+                this.fftCtx.lineWidth = 1;
+                this.fftCtx.beginPath();
+                this.fftCtx.moveTo(plotLeft, plotTop);
+                this.fftCtx.lineTo(plotLeft, plotBottom);
+                this.fftCtx.stroke();
+                this.fftCtx.beginPath();
+                this.fftCtx.moveTo(plotRight, plotTop);
+                this.fftCtx.lineTo(plotRight, plotBottom);
+                this.fftCtx.stroke();
+
+                this.fftCtx.restore();
+            }
+
+            drawWaterfall() {
+                const dpr = window.devicePixelRatio || 1;
+                const displayWidth = this.waterfallCanvas.width / dpr;
+                const displayHeight = this.waterfallCanvas.height / dpr;
+                const internalWidth = this.waterfallCanvas.width;
+                const internalHeight = this.waterfallCanvas.height;
+
+                if (displayWidth === 0 || displayHeight === 0) {
+                    return;
+                }
+
+                const viewInfo = this.lastViewInfo || this.getVisibleFFTInfo(displayWidth);
+                const startBinView = viewInfo ? viewInfo.startBin : 0;
+                const visibleBinsView = viewInfo ? viewInfo.visibleBins : this.fftSize;
+                const totalSpan = Math.max(1, visibleBinsView);
+                const clippedStartX = Math.max(Math.floor(FFT_LEFT_MARGIN * dpr), 0);
+                const clippedEndX = Math.min(
+                    Math.floor((displayWidth - FFT_RIGHT_MARGIN) * dpr),
+                    internalWidth,
+                );
+                const clippedWidth = Math.max(1, clippedEndX - clippedStartX);
+
+                const visibleBins = Math.max(1, Math.floor(this.fftSize / this.zoom));
+                const clipStartBin = Math.max(0, Math.min(this.fftSize - visibleBins, Math.floor(startBinView)));
+                const clipEndBin = Math.min(this.fftSize, clipStartBin + visibleBins);
+
+                const imageData = this.waterfallCtx.createImageData(internalWidth, internalHeight);
+                const data = imageData.data;
+
+                const paintOutsideClip = () => {
+                    for (let y = 0; y < internalHeight; y++) {
+                        for (let x = 0; x < clippedStartX; x++) {
+                            const idx = (y * internalWidth + x) * 4;
+                            data[idx] = 0;
+                            data[idx + 1] = 0;
+                            data[idx + 2] = 0;
+                            data[idx + 3] = 255;
+                        }
+                        for (let x = clippedEndX; x < internalWidth; x++) {
+                            const idx = (y * internalWidth + x) * 4;
+                            data[idx] = 0;
+                            data[idx + 1] = 0;
+                            data[idx + 2] = 0;
+                            data[idx + 3] = 255;
+                        }
+                    }
+                };
+
+                const safeDbRange = Math.max(1e-6, this.dbMax - this.dbMin);
+                const isSteps = (clippedWidth / visibleBinsView) >= 3;
+
+                if (!this.hasWaterfallData) {
+                    for (let y = 0; y < internalHeight; y++) {
+                        for (let x = clippedStartX; x < clippedEndX; x++) {
+                            const idx = (y * internalWidth + x) * 4;
+                            data[idx] = 0x00;
+                            data[idx + 1] = 0x00;
+                            data[idx + 2] = 0x20;
+                            data[idx + 3] = 255;
+                        }
+                    }
+                    paintOutsideClip();
+                } else {
+                    for (let y = 0; y < internalHeight; y++) {
+                        const bufferY =
+                            (this.waterfallWriteRow - 1 - y + this.waterfallHeight) % this.waterfallHeight;
+                        const line = this.waterfallData[bufferY];
+                        const hasLine = y < this.waterfallLinesWritten;
+
+                        // Cache the ratio step
+                        const ratioStep = 1 / clippedWidth;
+                        const lenMinusOne = line.length - 1;
+                        let ratio = 0;
+
+                        if (this.wfSmoothEnabled && !isSteps) {
+                            for (let x = clippedStartX; x < clippedEndX; x++) {
+                                const exactIdx = ratio * lenMinusOne;
+                                const idxFloor = Math.floor(exactIdx);
+                                const idxCeil = Math.ceil(exactIdx);
+                                const frac = exactIdx - idxFloor;
+
+                                const valFloor = line[idxFloor] ?? this.dbMin;
+                                const valCeil = line[idxCeil] ?? this.dbMin;
+
+                                let value = valFloor * (1 - frac) + valCeil * frac;
+                                value = value < this.dbMin ? this.dbMin : (value > this.dbMax ? this.dbMax : value);
+
+                                const normalized = (value - this.dbMin) / safeDbRange;
+                                const colorIdx = Math.floor(normalized * 12); // 12 is DEFAULT_COLOR_MAP.length - 1
+                                const color = DEFAULT_COLOR_MAP[colorIdx < 0 ? 0 : (colorIdx > 12 ? 12 : colorIdx)];
+
+                                const pixelIdx = (y * internalWidth + x) * 4;
+                                data[pixelIdx] = color[0];
+                                data[pixelIdx + 1] = color[1];
+                                data[pixelIdx + 2] = color[2];
+                                data[pixelIdx + 3] = 255;
+                                
+                                ratio += ratioStep;
+                            }
+                        } else {
+                            for (let x = clippedStartX; x < clippedEndX; x++) {
+                                const binIdx = Math.floor(ratio * line.length);
+                                const safeBinIdx = binIdx < 0 ? 0 : (binIdx > lenMinusOne ? lenMinusOne : binIdx);
+                                let value = line[safeBinIdx] ?? this.dbMin;
+                                
+                                value = value < this.dbMin ? this.dbMin : (value > this.dbMax ? this.dbMax : value);
+
+                                const normalized = (value - this.dbMin) / safeDbRange;
+                                const colorIdx = Math.floor(normalized * 12);
+                                const color = DEFAULT_COLOR_MAP[colorIdx < 0 ? 0 : (colorIdx > 12 ? 12 : colorIdx)];
+
+                                const pixelIdx = (y * internalWidth + x) * 4;
+                                data[pixelIdx] = color[0];
+                                data[pixelIdx + 1] = color[1];
+                                data[pixelIdx + 2] = color[2];
+                                data[pixelIdx + 3] = 255;
+                                
+                                ratio += ratioStep;
+                            }
+                        }
+                    }
+
+                    paintOutsideClip();
+                }
+
+                this.waterfallCtx.putImageData(imageData, 0, 0);
+            }
+
+            updateWaterfall() {
+                if (!this.waterfallData || this.waterfallData.length === 0) {
+                    return;
+                }
+
+                if (
+                    this.waterfallWriteRow >= this.waterfallData.length ||
+                    !this.waterfallData[this.waterfallWriteRow]
+                ) {
+                    return;
+                }
+
+                const dpr = window.devicePixelRatio || 1;
+                const displayWidth = this.waterfallCanvas.width / dpr;
+                const viewInfo = this.lastViewInfo || this.getVisibleFFTInfo(displayWidth);
+                const visibleBins = viewInfo ? viewInfo.visibleBins : Math.max(1, this.fftSize / this.zoom);
+                const clipStartBin = viewInfo ? Math.floor(viewInfo.startBin) : Math.max(0, Math.floor((this.fftSize - visibleBins) / 2));
+                const clipEndBin = Math.min(this.fftSize, Math.ceil(clipStartBin + visibleBins));
+                const clipWidth = Math.max(1, clipEndBin - clipStartBin);
+                const isSteps = (clipWidth / visibleBins) >= 3;
+
+                let activeRow = this.waterfallData[this.waterfallWriteRow];
+                if (!activeRow || activeRow.length !== clipWidth) {
+                    activeRow = new Float32Array(clipWidth);
+                    this.waterfallData[this.waterfallWriteRow] = activeRow;
+                }
+
+                for (let i = 0; i < clipWidth; i++) {
+                    let value;
+                    if (this.wfSmoothEnabled && !isSteps) {
+                        // Smoothly sample the exact position in the raw FFT data
+                        const exactFftIdx = clipStartBin + (i / Math.max(1, clipWidth - 1)) * (clipEndBin - clipStartBin);
+                        const idxFloor = Math.floor(exactFftIdx);
+                        const idxCeil = Math.ceil(exactFftIdx);
+                        const frac = exactFftIdx - idxFloor;
+                        
+                        const valFloor = this.fftData[idxFloor] ?? this.dbMin;
+                        const valCeil = this.fftData[idxCeil] ?? this.dbMin;
+                        value = valFloor * (1 - frac) + valCeil * frac;
+                    } else {
+                        const fftIdx = Math.floor(clipStartBin + i);
+                        value = this.fftData[fftIdx] ?? this.dbMin;
+                    }
+                    activeRow[i] = Number.isFinite(value) ? value : this.dbMin;
+                }
+
+                this.waterfallLinesWritten = Math.min(
+                    this.waterfallHeight,
+                    this.waterfallLinesWritten + 1,
+                );
+
+                this.waterfallWriteRow = (this.waterfallWriteRow + 1) % this.waterfallHeight;
+
+                if (this.waterfallLinesWritten > 0) {
+                    this.hasWaterfallData = true;
+                }
+            }
+
+            animate() {
+                try {
+                    const now = Date.now();
+                    
+                    // Frame rate limiting to prevent excessive CPU usage
+                    if (now - this.lastFrameTime < this.frameInterval) {
+                        requestAnimationFrame(() => this.animate());
+                        return;
+                    }
+                    this.lastFrameTime = now;
+                    
+                    // Resize canvases if needed - use offsetWidth/Height for reliable detection
+                    const fftContainer = this.fftCanvas.parentElement;
+                    const waterfallContainer = this.waterfallCanvas.parentElement;
+                    
+                    const currentWidth = Math.max(1, Math.floor(fftContainer.offsetWidth));
+                    const currentFFTHeight = Math.max(1, Math.floor(fftContainer.offsetHeight));
+                    const currentWaterfallHeight = Math.max(1, Math.floor(waterfallContainer.offsetHeight));
+                    
+                    if (this.lastResizeWidth !== currentWidth || 
+                        this.lastResizeHeightFFT !== currentFFTHeight || 
+                        this.lastResizeHeightWaterfall !== currentWaterfallHeight) {
+                        this.resizeCanvases();
+                    }
+                    
+                    // Apply smooth dB range transitions to prevent stripes
+                    this.smoothDBRange();
+                    
+                    if (!this.isPaused) {
+                        this.generateSignal();
+                        this.updateWaterfall();
+                    }
+
+                    this.drawFFT();
+                    this.drawWaterfall();
+                    
+                    this.frameCount++;
+                } catch (error) {
+                    console.error('Animation error:', error);
+                    // Continue animation even if there's an error
+                }
+
+                requestAnimationFrame(() => this.animate());
+            }
+
+            startAnimation() {
+                this.animate();
+            }
+        }
+
+        // Initialize the application
+        const analyzer = new CanvasSpectrumAnalyzer();
+    //]]>
+    </script>
+</body>
+</html>

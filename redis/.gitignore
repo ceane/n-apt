@@ -1,0 +1,24 @@
+# Redis data and logs (exclude from version control)
+data/
+logs/
+backups/
+*.pid
+
+# Export directory structure but exclude large data files
+export/current/*.rdb
+export/current/*.aof
+export/*/dump.rdb
+export/*/appendonly.aof
+
+# Redis AOF and RDB files anywhere in the project
+**/*.rdb
+**/*.aof
+**/appendonlydir/*
+
+# Keep configuration and export metadata
+!redis.conf
+!export/
+!export/**/
+!export/**/README.md
+!export/**/metadata.json
+!.gitignore

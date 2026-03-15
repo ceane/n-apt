@@ -19,10 +19,13 @@ global.Worker = jest.fn().mockImplementation(() => ({
   readyState: 1, // WebSocket.OPEN equivalent
 }));
 
-// Mock import.meta.url for worker files
-global.import = {
+// Mock import.meta for Vite environment
+(global as any).import = {
   meta: {
     url: "mock://worker/fileWorker.js",
+    env: {
+      VITE_GOOGLE_MAPS_API_KEY: "mock-api-key",
+    },
   },
 } as any;
 
@@ -152,25 +155,16 @@ global.WebSocket = jest.fn().mockImplementation(() => ({
   onerror: null,
 }));
 
-// Mock Event classes
-global.Event = class Event {
-  constructor(type: string, options?: any) {
-    this.type = type;
-    this.bubbles = options?.bubbles || false;
-    this.cancelable = options?.cancelable || false;
-  }
-  type: string;
-  bubbles: boolean;
-  cancelable: boolean;
-};
-
-global.MessageEvent = class MessageEvent extends Event {
-  constructor(type: string, options?: any) {
-    super(type, options);
-    this.data = options?.data;
-  }
-  data: any;
-};
+// JSDOM provides Event and MessageEvent, only polyfill if missing
+if (typeof (global as any).MessageEvent === "undefined") {
+  (global as any).MessageEvent = class MessageEvent extends Event {
+    constructor(type: string, options?: any) {
+      super(type, options);
+      this.data = options?.data;
+    }
+    data: any;
+  };
+}
 
 // Mock FileReader
 global.FileReader = class FileReader {
@@ -214,3 +208,22 @@ global.FileReader = class FileReader {
     this.onabort?.({ target: this });
   }
 } as any;
+
+// Mock performance.clearMeasures
+if (typeof performance !== "undefined" && !performance.clearMeasures) {
+  performance.clearMeasures = jest.fn();
+}
+if (typeof performance !== "undefined" && !performance.clearMarks) {
+  performance.clearMarks = jest.fn();
+}
+
+// Mock WASM modules
+jest.mock("n_apt_canvas", () => ({
+  __esModule: true,
+  default: jest.fn(() => Promise.resolve()),
+  RenderingProcessor: class {
+    process = jest.fn();
+    destroy = jest.fn();
+  },
+  test_wasm_simd_availability: jest.fn(() => false),
+}), { virtual: true });

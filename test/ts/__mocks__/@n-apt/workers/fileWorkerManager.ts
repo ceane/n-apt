@@ -10,7 +10,10 @@ export class FileWorkerManager {
     // Mock implementation
   }
 
-  async loadFile(file: File, onProgress?: (progress: any) => void): Promise<any> {
+  async loadFile(
+    file: File,
+    onProgress?: (progress: any) => void,
+  ): Promise<any> {
     if (this.isTerminated) {
       throw new Error("Worker terminated");
     }

@@ -1,0 +1,7 @@
+{
+  "created_at": "2026-03-06T22:24:15-08:00",
+  "redis_version": "8.6.1",
+  "total_keys": "606777",
+  "memory_used": "447.06M",
+  "tower_keys": "251"
+}

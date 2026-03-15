@@ -131,7 +131,9 @@
   <body>
     <div class="header">
       <h1>🚀 WASM SIMD Performance Test</h1>
-      <p class="subtitle">Test WebAssembly SIMD performance vs scalar implementations</p>
+      <p class="subtitle">
+        Test WebAssembly SIMD performance vs scalar implementations
+      </p>
     </div>
 
     <div class="container">
@@ -156,9 +158,13 @@
       </div>
 
       <div style="text-align: center; margin: 30px 0">
-        <button id="runTest" class="test-button">🧪 Run Performance Test</button>
+        <button id="runTest" class="test-button">
+          🧪 Run Performance Test
+        </button>
         <button id="clearConsole" class="test-button">🗑️ Clear Console</button>
-        <button id="checkSupport" class="test-button">✅ Check SIMD Support</button>
+        <button id="checkSupport" class="test-button">
+          ✅ Check SIMD Support
+        </button>
       </div>
 
       <div id="status" class="status" style="display: none"></div>
@@ -186,7 +192,8 @@
     <div class="container">
       <h2>Console Output</h2>
       <div id="console" class="console-output">
-        Ready to run WASM SIMD performance tests... Click "Run Performance Test" to begin testing.
+        Ready to run WASM SIMD performance tests... Click "Run Performance Test"
+        to begin testing.
       </div>
     </div>
 
@@ -203,7 +210,11 @@
       console.log = function (...args) {
         originalLog.apply(console, args);
         const message = args
-          .map((arg) => (typeof arg === "object" ? JSON.stringify(arg, null, 2) : String(arg)))
+          .map((arg) =>
+            typeof arg === "object"
+              ? JSON.stringify(arg, null, 2)
+              : String(arg),
+          )
           .join(" ");
         consoleOutput.textContent += message + "\n";
         consoleOutput.scrollTop = consoleOutput.scrollHeight;
@@ -218,12 +229,16 @@
       function updateMetrics(results) {
         if (!results || results.length === 0) return;
 
-        const avgSpeedup = results.reduce((sum, r) => sum + r.speedup, 0) / results.length;
+        const avgSpeedup =
+          results.reduce((sum, r) => sum + r.speedup, 0) / results.length;
         const bestSpeedup = Math.max(...results.map((r) => r.speedup));
-        const avgTime = results.reduce((sum, r) => sum + r.avg_time_us, 0) / results.length;
+        const avgTime =
+          results.reduce((sum, r) => sum + r.avg_time_us, 0) / results.length;
 
-        document.getElementById("avgSpeedup").textContent = avgSpeedup.toFixed(2) + "x";
-        document.getElementById("bestSpeedup").textContent = bestSpeedup.toFixed(2) + "x";
+        document.getElementById("avgSpeedup").textContent =
+          avgSpeedup.toFixed(2) + "x";
+        document.getElementById("bestSpeedup").textContent =
+          bestSpeedup.toFixed(2) + "x";
         document.getElementById("avgTime").textContent = avgTime.toFixed(2);
         document.getElementById("testCount").textContent = results.length;
         metricsDiv.style.display = "grid";
@@ -274,7 +289,9 @@
               const results = [];
 
               for (const line of lines) {
-                const match = line.match(/FFT (\d+): ([\d.]+)μs \(([\d.]+)x speedup\)/);
+                const match = line.match(
+                  /FFT (\d+): ([\d.]+)μs \(([\d.]+)x speedup\)/,
+                );
                 if (match) {
                   results.push({
                     fft_size: parseInt(match[1]),
@@ -301,14 +318,16 @@
       function checkSIMDSupport() {
         const hasSIMD = WebAssembly.validate(
           new Uint8Array([
-            0, 97, 115, 109, 1, 0, 0, 0, 1, 4, 1, 96, 0, 0, 7, 129, 1, 96, 0, 1, 127, 3, 1, 96, 0,
-            1, 127, 10, 128, 1, 96, 0, 0, 11, 1, 96, 0, 0, 12, 1, 96, 0, 0,
+            0, 97, 115, 109, 1, 0, 0, 0, 1, 4, 1, 96, 0, 0, 7, 129, 1, 96, 0, 1,
+            127, 3, 1, 96, 0, 1, 127, 10, 128, 1, 96, 0, 0, 11, 1, 96, 0, 0, 12,
+            1, 96, 0, 0,
           ]),
         );
 
         const hasBulkMemory = WebAssembly.validate(
           new Uint8Array([
-            0, 97, 115, 109, 1, 0, 0, 0, 2, 8, 1, 0, 5, 0, 1, 1, 1, 6, 6, 1, 0, 0, 0, 0, 0,
+            0, 97, 115, 109, 1, 0, 0, 0, 2, 8, 1, 0, 5, 0, 1, 1, 1, 6, 6, 1, 0,
+            0, 0, 0, 0,
           ]),
         );
 

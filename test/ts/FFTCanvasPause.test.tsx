@@ -98,7 +98,7 @@ jest.mock("@n-apt/hooks/useSpectrumRendering", () => ({
 }));
 
 jest.mock("@n-apt/hooks/useFrequencyDrag", () => ({
-  useFrequencyDrag: () => { },
+  useFrequencyDrag: () => {},
 }));
 
 describe("FFTCanvas Pause Functionality", () => {
@@ -109,7 +109,10 @@ describe("FFTCanvas Pause Functionality", () => {
 
   const mockProps = {
     data: {
-      waveform: Array.from({ length: 1024 }, (_, i) => -60 + Math.sin(i * 0.1) * 20),
+      waveform: Array.from(
+        { length: 1024 },
+        (_, i) => -60 + Math.sin(i * 0.1) * 20,
+      ),
     },
     frequencyRange: mockFrequencyRange,
     activeSignalArea: "test-area",
@@ -134,7 +137,9 @@ describe("FFTCanvas Pause Functionality", () => {
 
     expect(
       screen.getByText((content, element) => {
-        return content.includes("FFT Signal Display") && content.includes("(Paused)");
+        return (
+          content.includes("FFT Signal Display") && content.includes("(Paused)")
+        );
       }),
     ).toBeInTheDocument();
   });

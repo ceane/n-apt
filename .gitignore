@@ -20,7 +20,10 @@ lerna-debug.log*
 
 # node
 node_modules
+
+#build files
 dist/
+build/
 
 
 # Rust - exclude all build artifacts and target folders
@@ -57,3 +60,28 @@ __pycache__/
 *.pyc
 *.pyo
 *.egg-info/
+
+# Data files - exclude large zip and dat files
+data/*.zip
+data/**/*.zip
+data/*.dat
+data/**/*.dat
+data/extracted/*/counts
+
+# Large JSON data files (FCC/OpenCellID processing)
+data/json/*.json
+data/**/*.json
+
+# Redis data files (already handled in redis/.gitignore)
+redis/data/
+redis/logs/
+redis/backups/
+**/*.rdb
+**/*.aof
+**/appendonlydir/*
+
+# Environment variables
+.env.local
+.env*.local
+*storybook.log
+storybook-static
