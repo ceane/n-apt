@@ -5,13 +5,13 @@ edition = "2021"
 
 [lib]
 name = "n_apt_backend"
-path = "src/lib.rs"
+path = "src/rs/lib.rs"
 crate-type = ["cdylib", "rlib"]
 doctest = false
 
 [[bin]]
 name = "n-apt-backend"
-path = "src/server/main.rs"
+path = "src/rs/server/main_bin.rs"
 
 [[test]]
 name = "fft_processor_tests"
@@ -25,6 +25,22 @@ path = "test/rust/device_stream_frozen_tests.rs"
 name = "authentication_tests"
 path = "test/rust/authentication_tests.rs"
 
+[[test]]
+name = "mock_apt_tests"
+path = "test/rust/mock_apt_tests.rs"
+
+[[test]]
+name = "server_tests"
+path = "test/rust/server_tests.rs"
+
+[[test]]
+name = "capture_stitch_tests"
+path = "test/rust/capture_stitch_tests.rs"
+
+[[bin]]
+name = "live_stream_test"
+path = "src/rs/bin/live_stream_test.rs"
+
 [dependencies]
 # Core dependencies (always included)
 rustfft = "6"
@@ -37,6 +53,9 @@ serde_json = "1.0"
 bytemuck = "1.25.0"
 url = "2"
 log = "0.4"
+clap = { version = "4.0", features = ["derive"] }
+byteorder = "1.4"
+env_logger = "0.10"
 
 # WASM dependencies (only when targeting WASM)
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -47,7 +66,9 @@ web-sys = { version = "0.3", features = ["console"] }
 # Server dependencies (only when not targeting WASM)
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio = { version = "1.0", features = ["full"] }
+tokio-util = { version = "0.7", features = ["io"] }
 tokio-tungstenite = "0.20"
+redis = "0.27"
 env_logger = "0.10"
 futures-util = "0.3"
 chrono = { version = "0.4", features = ["serde", "wasmbind"] }
@@ -73,9 +94,12 @@ uuid = { version = "1", features = ["v4"] }
 notify = "6.0"
 serde_yaml = "0.9"
 indexmap = { version = "2.0", features = ["serde"] }
+crossbeam-channel = "0.5"
+yawc = { version = "0.3.3", features = ["axum", "zlib"] }
 
 [dev-dependencies]
 doc-comment = "0.3"
+tempfile = "3"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio-test = "0.4"
@@ -85,10 +109,19 @@ tower = "0.4"
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test = "0.3"
 
+[build-dependencies]
+pkg-config = "0.3"
+
 # Server configuration
 [package.metadata.server]
 host = "127.0.0.1"
 port = 8765
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
+
+[package.metadata.wasm-pack.profile.dev]
+wasm-opt = false
 
 [profile.release]
 opt-level = 3
@@ -100,7 +133,7 @@ overflow-checks = false
 
 [profile.dev]
 opt-level = 1
-incremental = true
+incremental = false
 debug = true
 
 [profile.dev-fast]

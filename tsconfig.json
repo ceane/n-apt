@@ -24,16 +24,16 @@
     /* Path mapping */
     "baseUrl": ".",
     "paths": {
-      "@n-apt/*": ["src/*"],
-      "@n-apt": ["src"],
-      "@n-apt/components/*": ["src/components/*"],
-      "@n-apt/fft/*": ["src/fft/*"],
-      "@n-apt/waterfall/*": ["src/waterfall/*"],
-      "@n-apt/consts": ["src/consts"],
-      "@n-apt/hooks/*": ["src/hooks/*"],
-      "@n-apt/glb_models/*": ["src/glb_models/*"]
+      "@n-apt/*": ["src/ts/*"],
+      "@n-apt": ["src/ts"],
+      "@n-apt/components/*": ["src/ts/components/*"],
+      "@n-apt/fft/*": ["src/ts/fft/*"],
+      "@n-apt/waterfall/*": ["src/ts/waterfall/*"],
+      "@n-apt/consts": ["src/ts/consts"],
+      "@n-apt/hooks/*": ["src/ts/hooks/*"],
+      "@n-apt/glb_models/*": ["src/ts/glb_models/*"]
     }
   },
-  "include": ["src", "src/types"],
+  "include": ["src/ts", "src/ts/types"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

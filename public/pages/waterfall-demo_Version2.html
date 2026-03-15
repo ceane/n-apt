@@ -1,0 +1,827 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Waterfall Visualization Demo</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #1a1a1a;
+            color: #fff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            margin-bottom: 20px;
+            font-size: 28px;
+        }
+
+        .controls {
+            background: #2a2a2a;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        label {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #aaa;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            cursor: pointer;
+        }
+
+        button {
+            background: #0066cc;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            background: #0052a3;
+        }
+
+        button.active {
+            background: #00aa44;
+        }
+
+        .waterfall-container {
+            background: #1a1a1a;
+            border: 1px solid #444;
+            border-radius: 8px;
+            overflow: hidden;
+            display: flex;
+            height: 500px;
+            gap: 0;
+        }
+
+        .waterfall-main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+        }
+
+        .fft-area {
+            height: 200px;
+            background: #0a0a0a;
+            border-bottom: 1px solid #444;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .waterfall-area {
+            flex: 1;
+            background: #0a0a0a;
+            position: relative;
+            overflow: hidden;
+        }
+
+        canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        .freq-scale {
+            width: 60px;
+            background: #1a1a1a;
+            border-right: 1px solid #444;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            color: #888;
+            writing-mode: vertical-rl;
+            text-orientation: mixed;
+            padding: 10px 0;
+        }
+
+        .info-panel {
+            background: #2a2a2a;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 20px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            line-height: 1.6;
+        }
+
+        .info-row {
+            display: grid;
+            grid-template-columns: 150px 1fr;
+            margin-bottom: 8px;
+        }
+
+        .info-label {
+            color: #888;
+        }
+
+        .info-value {
+            color: #0f0;
+        }
+
+        .smoothing-section {
+            margin-top: 20px;
+            background: #2a2a2a;
+            padding: 15px;
+            border-radius: 8px;
+        }
+
+        .smoothing-section h3 {
+            font-size: 14px;
+            margin-bottom: 12px;
+            color: #aaa;
+        }
+
+        .smoothing-controls {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🌊 Waterfall Visualization Demo with Smoothing</h1>
+        
+        <div class="controls">
+            <div class="control-group">
+                <label>FFT Min (dB)</label>
+                <input type="range" id="fftMin" min="-100" max="0" value="-70" step="5" />
+                <span id="fftMinValue">-70 dB</span>
+            </div>
+            
+            <div class="control-group">
+                <label>FFT Max (dB)</label>
+                <input type="range" id="fftMax" min="-100" max="0" value="0" step="5" />
+                <span id="fftMaxValue">0 dB</span>
+            </div>
+            
+            <div class="control-group">
+                <label>Waterfall Min (dB)</label>
+                <input type="range" id="waterfallMin" min="-100" max="0" value="-50" step="5" />
+                <span id="waterfallMinValue">-50 dB</span>
+            </div>
+            
+            <div class="control-group">
+                <label>Waterfall Max (dB)</label>
+                <input type="range" id="waterfallMax" min="-100" max="0" value="-10" step="5" />
+                <span id="waterfallMaxValue">-10 dB</span>
+            </div>
+
+            <div class="control-group">
+                <label>Update Speed</label>
+                <input type="range" id="speed" min="50" max="500" value="100" step="50" />
+                <span id="speedValue">100ms</span>
+            </div>
+
+            <div class="control-group">
+                <button id="togglePause">▶ Start</button>
+            </div>
+
+            <div class="control-group">
+                <button id="toggleHold" class="active">Hold: ON</button>
+            </div>
+
+            <div class="control-group">
+                <button id="resetView">Reset View</button>
+            </div>
+        </div>
+
+        <div class="waterfall-container">
+            <div class="freq-scale">dB</div>
+            <div class="waterfall-main">
+                <div class="fft-area">
+                    <canvas id="fftCanvas"></canvas>
+                </div>
+                <div class="waterfall-area">
+                    <canvas id="waterfallCanvas"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <div class="smoothing-section">
+            <h3>FFT Smoothing (Exponential Moving Average)</h3>
+            <div class="smoothing-controls">
+                <div class="control-group">
+                    <label>FFT Smoothing</label>
+                    <button id="toggleFFTSmoothing">Smoothing: OFF</button>
+                </div>
+
+                <div class="control-group">
+                    <label>FFT Smoothing Speed</label>
+                    <input type="range" id="fftSmoothingSpeed" min="0.01" max="1" value="0.3" step="0.05" />
+                    <span id="fftSmoothingSpeedValue">0.30 (slower smoothing)</span>
+                </div>
+
+                <div class="control-group">
+                    <label>Waterfall Smoothing</label>
+                    <button id="toggleWaterfallSmoothing">Waterfall Smoothing: OFF</button>
+                </div>
+
+                <div class="control-group">
+                    <label>Waterfall Smoothing Speed</label>
+                    <input type="range" id="waterfallSmoothingSpeed" min="0.01" max="1" value="0.5" step="0.05" />
+                    <span id="waterfallSmoothingSmoothingSpeedValue">0.50</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="info-panel">
+            <div class="info-row">
+                <span class="info-label">FFT Bins:</span>
+                <span class="info-value" id="infoBins">512</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Waterfall Height:</span>
+                <span class="info-value" id="infoHeight">256 lines</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">FPS:</span>
+                <span class="info-value" id="infoFPS">60</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">FFT Smoothing Status:</span>
+                <span class="info-value" id="infoFFTSmoothing">Disabled</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Waterfall Smoothing Status:</span>
+                <span class="info-value" id="infoWaterfallSmoothing">Disabled</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Subpixel Rendering:</span>
+                <span class="info-value" id="infoSubpixel">Active (Bilinear)</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Bilinear Interpolation:</span>
+                <span class="info-value" id="infoBilinear">Enabled</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Bins per Pixel:</span>
+                <span class="info-value" id="infoBinsPerPixel">1.0</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    //<![CDATA[
+        // ============ Waterfall Visualization with Smoothing ============
+        
+        // Default color map from SDRPlusPlus
+        const DEFAULT_COLOR_MAP = [
+            [0x00, 0x00, 0x20],
+            [0x00, 0x00, 0x30],
+            [0x00, 0x00, 0x50],
+            [0x00, 0x00, 0x91],
+            [0x1E, 0x90, 0xFF],
+            [0xFF, 0xFF, 0xFF],
+            [0xFF, 0xFF, 0x00],
+            [0xFE, 0x6D, 0x16],
+            [0xFF, 0x00, 0x00],
+            [0xC6, 0x00, 0x00],
+            [0x9F, 0x00, 0x00],
+            [0x75, 0x00, 0x00],
+            [0x4A, 0x00, 0x00]
+        ];
+
+        class Waterfall {
+            constructor(fftCanvasId, waterfallCanvasId) {
+                this.fftCanvas = document.getElementById(fftCanvasId);
+                this.waterfallCanvas = document.getElementById(waterfallCanvasId);
+                this.fftCtx = this.fftCanvas.getContext('2d');
+                this.waterfallCtx = this.waterfallCanvas.getContext('2d');
+
+                this.FFT_SIZE = 2048;
+                this.WATERFALL_HEIGHT = 256;
+                this.WATERFALL_RESOLUTION = 256;
+
+                // State
+                this.fftMin = -70;
+                this.fftMax = 0;
+                this.waterfallMin = -50;
+                this.waterfallMax = -10;
+                this.centerFreq = 100; // MHz
+                this.bandwidth = 20; // MHz
+                this.fftHold = true;
+
+                // Smoothing parameters
+                this.fftSmoothingEnabled = false;
+                this.fftSmoothingAlpha = 0.3;    // New data weight (0 = all old, 1 = all new)
+                this.fftSmoothingBeta = 0.7;     // Old data weight
+                
+                this.waterfallSmoothingEnabled = false;
+                this.waterfallSmoothingAlpha = 0.5;
+                this.waterfallSmoothingBeta = 0.5;
+
+                // Data buffers
+                this.latestFFT = new Float32Array(this.FFT_SIZE);
+                this.latestFFTHold = new Float32Array(this.FFT_SIZE);
+                this.latestFFTHold.fill(this.fftMin);
+                
+                // Smoothing buffers
+                this.smoothedFFT = new Float32Array(this.FFT_SIZE);
+                this.smoothedFFT.fill(this.fftMin);
+                
+                this.waterfallRawData = [];
+                this.waterfallSmoothedData = [];
+                
+                // Initialize waterfall buffers
+                for (let i = 0; i < this.WATERFALL_HEIGHT; i++) {
+                    const line = new Float32Array(this.FFT_SIZE);
+                    line.fill(this.waterfallMin);
+                    this.waterfallRawData.push(line);
+                    
+                    const smoothedLine = new Float32Array(this.FFT_SIZE);
+                    smoothedLine.fill(this.waterfallMin);
+                    this.waterfallSmoothedData.push(smoothedLine);
+                }
+
+                this.currentLine = 0;
+                this.frameCount = 0;
+                this.lastTime = Date.now();
+
+                // Build color palette
+                this.buildPalette();
+
+                // Generate initial data
+                this.generateFFTData();
+
+                // Start animation
+                this.animate();
+            }
+
+            buildPalette() {
+                this.palette = [];
+                for (let i = 0; i < this.WATERFALL_RESOLUTION; i++) {
+                    const ratio = i / (this.WATERFALL_RESOLUTION - 1);
+                    const colorIndex = Math.floor(ratio * (DEFAULT_COLOR_MAP.length - 1));
+                    const color = DEFAULT_COLOR_MAP[colorIndex];
+                    this.palette.push(`rgb(${color[0]}, ${color[1]}, ${color[2]})`);
+                }
+            }
+
+            generateFFTData() {
+                // Generate realistic-looking FFT data with some peaks
+                for (let i = 0; i < this.FFT_SIZE; i++) {
+                    const normalized = i / this.FFT_SIZE;
+                    
+                    // Base noise
+                    let signal = -70 + Math.random() * 20;
+
+                    // Add some peaks with controlled amplitude (more detailed for higher resolution)
+                    const peak1 = Math.exp(-Math.pow((normalized - 0.3) * 8, 2)) * 30;
+                    const peak2 = Math.exp(-Math.pow((normalized - 0.7) * 8, 2)) * 35;
+                    const peak3 = Math.exp(-Math.pow((normalized - 0.5) * 5, 2)) * 25;
+                    
+                    // Add some narrow peaks for detail
+                    const narrowPeak1 = Math.exp(-Math.pow((normalized - 0.25) * 20, 2)) * 20;
+                    const narrowPeak2 = Math.exp(-Math.pow((normalized - 0.85) * 15, 2)) * 15;
+
+                    signal = signal + peak1 + peak2 + peak3 + narrowPeak1 + narrowPeak2;
+
+                    this.latestFFT[i] = Math.min(0, Math.max(-100, signal));
+
+                    if (this.fftHold) {
+                        this.latestFFTHold[i] = Math.max(
+                            this.latestFFTHold[i] || signal,
+                            signal
+                        );
+                    }
+                }
+            }
+
+            applyFFTSmoothing() {
+                // Exponential moving average: smoothed = alpha * new + beta * old
+                for (let i = 0; i < this.FFT_SIZE; i++) {
+                    this.smoothedFFT[i] = 
+                        this.fftSmoothingAlpha * this.latestFFT[i] + 
+                        this.fftSmoothingBeta * this.smoothedFFT[i];
+                }
+            }
+
+            applyWaterfallSmoothing(sourceData, targetData) {
+                // Apply exponential moving average per frequency bin
+                for (let i = 0; i < this.FFT_SIZE; i++) {
+                    targetData[i] = 
+                        this.waterfallSmoothingAlpha * sourceData[i] + 
+                        this.waterfallSmoothingBeta * targetData[i];
+                }
+            }
+
+            addWaterfallLine(fftData) {
+                // Get the data to add (smoothed or raw)
+                const dataToAdd = this.waterfallSmoothingEnabled ? 
+                    new Float32Array(this.FFT_SIZE) : fftData;
+
+                // If smoothing is enabled, apply it
+                if (this.waterfallSmoothingEnabled) {
+                    this.applyWaterfallSmoothing(fftData, this.waterfallSmoothedData[0]);
+                    for (let j = 0; j < this.FFT_SIZE; j++) {
+                        dataToAdd[j] = this.waterfallSmoothedData[0][j];
+                    }
+                }
+
+                // Shift existing lines down
+                for (let i = this.WATERFALL_HEIGHT - 1; i > 0; i--) {
+                    for (let j = 0; j < this.FFT_SIZE; j++) {
+                        this.waterfallRawData[i][j] = this.waterfallRawData[i - 1][j];
+                        if (this.waterfallSmoothingEnabled) {
+                            this.waterfallSmoothedData[i][j] = this.waterfallSmoothedData[i - 1][j];
+                        }
+                    }
+                }
+
+                // Add new line at top
+                for (let j = 0; j < this.FFT_SIZE; j++) {
+                    this.waterfallRawData[0][j] = fftData[j];
+                    if (this.waterfallSmoothingEnabled) {
+                        this.waterfallSmoothedData[0][j] = dataToAdd[j];
+                    }
+                }
+            }
+
+            drawFFT() {
+                const width = this.fftCanvas.width;
+                const height = this.fftCanvas.height;
+
+                // Clear
+                this.fftCtx.fillStyle = '#0a0a0a';
+                this.fftCtx.fillRect(0, 0, width, height);
+
+                // Grid
+                this.fftCtx.strokeStyle = '#333';
+                this.fftCtx.lineWidth = 1;
+
+                // Horizontal lines (dB scale)
+                const range = this.fftMax - this.fftMin;
+                const safeRange = range === 0 ? 1 : range;
+                const step = Math.pow(10, Math.floor(Math.log10(safeRange)));
+                for (let db = Math.ceil(this.fftMin / step) * step; db <= this.fftMax; db += step) {
+                    const y = height - ((db - this.fftMin) / safeRange) * height;
+                    this.fftCtx.beginPath();
+                    this.fftCtx.moveTo(0, y);
+                    this.fftCtx.lineTo(width, y);
+                    this.fftCtx.stroke();
+
+                    this.fftCtx.fillStyle = '#666';
+                    this.fftCtx.font = '10px monospace';
+                    this.fftCtx.fillText(db + 'dB', 5, y - 2);
+                }
+
+                // Determine which FFT data to display (smoothed or raw)
+                const displayData = this.fftSmoothingEnabled ? this.smoothedFFT : this.latestFFT;
+
+                // Draw FFT trace
+                this.fftCtx.strokeStyle = '#00ff00';
+                this.fftCtx.lineWidth = 1.5;
+                this.fftCtx.beginPath();
+
+                // SDR++ style FFT trace - sample at screen resolution for smoother traces
+                const fftStep = Math.max(1, Math.floor(this.FFT_SIZE / width));
+                
+                for (let i = 0; i < this.FFT_SIZE; i += fftStep) {
+                    const x = (i / this.FFT_SIZE) * width;
+                    const value = displayData[i];
+                    const y = height - ((value - this.fftMin) / safeRange) * height;
+
+                    if (i === 0) {
+                        this.fftCtx.moveTo(x, y);
+                    } else {
+                        this.fftCtx.lineTo(x, y);
+                    }
+                }
+                this.fftCtx.stroke();
+
+                // Draw hold trace
+                if (this.fftHold) {
+                    this.fftCtx.strokeStyle = '#ff6666';
+                    this.fftCtx.lineWidth = 1;
+                    this.fftCtx.beginPath();
+
+                    for (let i = 0; i < this.FFT_SIZE; i += fftStep) {
+                        const x = (i / this.FFT_SIZE) * width;
+                        const value = this.latestFFTHold[i];
+                        const y = height - ((value - this.fftMin) / safeRange) * height;
+
+                        if (i === 0) {
+                            this.fftCtx.moveTo(x, y);
+                        } else {
+                            this.fftCtx.lineTo(x, y);
+                        }
+                    }
+                    this.fftCtx.stroke();
+                }
+
+                // Border
+                this.fftCtx.strokeStyle = '#444';
+                this.fftCtx.lineWidth = 1;
+                this.fftCtx.strokeRect(0, 0, width, height);
+            }
+
+            drawWaterfall() {
+                const width = this.waterfallCanvas.width;
+                const height = this.waterfallCanvas.height;
+                const imageData = this.waterfallCtx.createImageData(width, height);
+                const data = imageData.data;
+
+                const waterfallRange = this.waterfallMax - this.waterfallMin;
+                const safeWaterfallRange = waterfallRange === 0 ? 1 : waterfallRange;
+
+                // Determine which waterfall data to display
+                const displayWaterfall = this.waterfallSmoothingEnabled ? 
+                    this.waterfallSmoothedData : this.waterfallRawData;
+
+                // SDR++ style bilinear interpolation - smooth rendering between lines and bins
+                // This eliminates the "rectangle" effect when zoomed by interpolating between data points
+                // SDR++ uses this technique to achieve perfectly smooth gradients at any zoom level
+                const fftBinsPerPixel = this.FFT_SIZE / width;
+                const linesPerPixel = this.WATERFALL_HEIGHT / height;
+                
+                // Draw waterfall with bilinear interpolation
+                for (let y = 0; y < height; y++) {
+                    // Calculate exact position in waterfall data (can be fractional)
+                    const exactLinePos = (y / height) * this.WATERFALL_HEIGHT;
+                    const lineIdx1 = Math.floor(exactLinePos);
+                    const lineIdx2 = Math.min(lineIdx1 + 1, this.WATERFALL_HEIGHT - 1);
+                    const lineBlend = exactLinePos - lineIdx1; // 0 = use line1, 1 = use line2
+
+                    for (let x = 0; x < width; x++) {
+                        // Calculate exact position in FFT data (can be fractional)
+                        const exactBinPos = (x / width) * this.FFT_SIZE;
+                        const binIdx1 = Math.floor(exactBinPos);
+                        const binIdx2 = Math.min(binIdx1 + 1, this.FFT_SIZE - 1);
+                        const binBlend = exactBinPos - binIdx1; // 0 = use bin1, 1 = use bin2
+                        
+                        // Get values from 4 corners for bilinear interpolation
+                        const v11 = displayWaterfall[lineIdx1][binIdx1];
+                        const v12 = displayWaterfall[lineIdx1][binIdx2];
+                        const v21 = displayWaterfall[lineIdx2][binIdx1];
+                        const v22 = displayWaterfall[lineIdx2][binIdx2];
+                        
+                        // Bilinear interpolation: blend horizontally first, then vertically
+                        const topBlend = v11 * (1 - binBlend) + v12 * binBlend;
+                        const bottomBlend = v21 * (1 - binBlend) + v22 * binBlend;
+                        const interpolatedValue = topBlend * (1 - lineBlend) + bottomBlend * lineBlend;
+
+                        // Normalize interpolated value to color palette index
+                        const normalized = Math.max(0, Math.min(1, 
+                            (interpolatedValue - this.waterfallMin) / safeWaterfallRange
+                        ));
+                        const colorIdx = Math.floor(normalized * (this.WATERFALL_RESOLUTION - 1));
+                        const safeColorIdx = Math.max(0, Math.min(DEFAULT_COLOR_MAP.length - 1, colorIdx));
+                        const color = DEFAULT_COLOR_MAP[safeColorIdx];
+
+                        // Write RGBA data
+                        const pixelIdx = (y * width + x) * 4;
+                        data[pixelIdx] = color[0];      // R
+                        data[pixelIdx + 1] = color[1];  // G
+                        data[pixelIdx + 2] = color[2];  // B
+                        data[pixelIdx + 3] = 255;       // A
+                    }
+                }
+
+                this.waterfallCtx.putImageData(imageData, 0, 0);
+
+                // Border
+                this.waterfallCtx.strokeStyle = '#444';
+                this.waterfallCtx.lineWidth = 1;
+                this.waterfallCtx.strokeRect(0, 0, width, height);
+            }
+
+            animate() {
+                // Resize canvases to fit containers
+                const fftRect = this.fftCanvas.parentElement.getBoundingClientRect();
+                const waterfallRect = this.waterfallCanvas.parentElement.getBoundingClientRect();
+
+                this.fftCanvas.width = fftRect.width;
+                this.fftCanvas.height = fftRect.height;
+                this.waterfallCanvas.width = waterfallRect.width;
+                this.waterfallCanvas.height = waterfallRect.height;
+
+                this.drawFFT();
+                this.drawWaterfall();
+
+                // Update frame counter and subpixel info
+                this.frameCount++;
+                const now = Date.now();
+                if (now - this.lastTime >= 1000) {
+                    document.getElementById('infoFPS').textContent = 
+                        Math.round(this.frameCount * 1000 / (now - this.lastTime));
+                    
+                    // Update subpixel rendering info
+                    const fftBinsPerPixel = this.FFT_SIZE / this.waterfallCanvas.width;
+                    document.getElementById('infoBinsPerPixel').textContent = 
+                        fftBinsPerPixel.toFixed(2);
+                    document.getElementById('infoSubpixel').textContent = 
+                        fftBinsPerPixel > 1.5 ? 'Active (High Quality)' : 
+                        fftBinsPerPixel > 1.1 ? 'Active (Medium)' : 'Minimal';
+                    
+                    this.frameCount = 0;
+                    this.lastTime = now;
+                }
+
+                requestAnimationFrame(() => this.animate());
+            }
+
+            update(speedMs) {
+                this.generateFFTData();
+                
+                // Apply FFT smoothing if enabled
+                if (this.fftSmoothingEnabled) {
+                    this.applyFFTSmoothing();
+                }
+                
+                this.addWaterfallLine(this.latestFFT);
+            }
+
+            setFFTSmoothing(enabled) {
+                this.fftSmoothingEnabled = enabled;
+                if (!enabled) {
+                    this.smoothedFFT.fill(this.fftMin);
+                } else {
+                    // Initialize with current FFT data
+                    for (let i = 0; i < this.FFT_SIZE; i++) {
+                        this.smoothedFFT[i] = this.latestFFT[i];
+                    }
+                }
+            }
+
+            setFFTSmoothingSpeed(speed) {
+                this.fftSmoothingAlpha = speed;
+                this.fftSmoothingBeta = 1.0 - speed;
+            }
+
+            setWaterfallSmoothing(enabled) {
+                this.waterfallSmoothingEnabled = enabled;
+                if (!enabled) {
+                    for (let i = 0; i < this.WATERFALL_HEIGHT; i++) {
+                        this.waterfallSmoothedData[i].fill(this.waterfallMin);
+                    }
+                }
+            }
+
+            setWaterfallSmoothingSpeed(speed) {
+                this.waterfallSmoothingAlpha = speed;
+                this.waterfallSmoothingBeta = 1.0 - speed;
+            }
+
+            reset() {
+                this.currentLine = 0;
+                this.latestFFT.fill(this.fftMin);
+                this.latestFFTHold.fill(this.fftMin);
+                this.smoothedFFT.fill(this.fftMin);
+                for (let i = 0; i < this.WATERFALL_HEIGHT; i++) {
+                    this.waterfallRawData[i].fill(this.waterfallMin);
+                    this.waterfallSmoothedData[i].fill(this.waterfallMin);
+                }
+            }
+        }
+
+        // Initialize waterfall
+        const waterfall = new Waterfall('fftCanvas', 'waterfallCanvas');
+        let isRunning = true;
+        let updateSpeed = 100;
+        let updateTimer = null;
+
+        function scheduleUpdate() {
+            if (updateTimer) clearTimeout(updateTimer);
+            if (isRunning) {
+                updateTimer = setTimeout(() => {
+                    waterfall.update(updateSpeed);
+                    scheduleUpdate();
+                }, updateSpeed);
+            }
+        }
+
+        // Control bindings
+        document.getElementById('fftMin').addEventListener('input', (e) => {
+            waterfall.fftMin = parseInt(e.target.value);
+            document.getElementById('fftMinValue').textContent = waterfall.fftMin + ' dB';
+        });
+
+        document.getElementById('fftMax').addEventListener('input', (e) => {
+            waterfall.fftMax = parseInt(e.target.value);
+            document.getElementById('fftMaxValue').textContent = waterfall.fftMax + ' dB';
+        });
+
+        document.getElementById('waterfallMin').addEventListener('input', (e) => {
+            waterfall.waterfallMin = parseInt(e.target.value);
+            document.getElementById('waterfallMinValue').textContent = waterfall.waterfallMin + ' dB';
+        });
+
+        document.getElementById('waterfallMax').addEventListener('input', (e) => {
+            waterfall.waterfallMax = parseInt(e.target.value);
+            document.getElementById('waterfallMaxValue').textContent = waterfall.waterfallMax + ' dB';
+        });
+
+        document.getElementById('speed').addEventListener('input', (e) => {
+            updateSpeed = parseInt(e.target.value);
+            document.getElementById('speedValue').textContent = updateSpeed + 'ms';
+            scheduleUpdate();
+        });
+
+        document.getElementById('togglePause').addEventListener('click', (e) => {
+            isRunning = !isRunning;
+            e.target.textContent = isRunning ? '⏸ Pause' : '▶ Start';
+            scheduleUpdate();
+        });
+
+        document.getElementById('toggleHold').addEventListener('click', (e) => {
+            waterfall.fftHold = !waterfall.fftHold;
+            e.target.classList.toggle('active');
+            e.target.textContent = waterfall.fftHold ? 'Hold: ON' : 'Hold: OFF';
+            if (!waterfall.fftHold) {
+                waterfall.latestFFTHold.fill(waterfall.fftMin);
+            }
+        });
+
+        document.getElementById('resetView').addEventListener('click', () => {
+            waterfall.reset();
+        });
+
+        // FFT Smoothing controls
+        document.getElementById('toggleFFTSmoothing').addEventListener('click', (e) => {
+            const enabled = !waterfall.fftSmoothingEnabled;
+            waterfall.setFFTSmoothing(enabled);
+            e.target.classList.toggle('active');
+            e.target.textContent = enabled ? 'Smoothing: ON' : 'Smoothing: OFF';
+            document.getElementById('infoFFTSmoothing').textContent = 
+                enabled ? 'Enabled (α=' + waterfall.fftSmoothingAlpha.toFixed(2) + ')' : 'Disabled';
+        });
+
+        document.getElementById('fftSmoothingSpeed').addEventListener('input', (e) => {
+            const speed = parseFloat(e.target.value);
+            waterfall.setFFTSmoothingSpeed(speed);
+            const speedLabel = speed < 0.3 ? 'slower smoothing' : 
+                              speed < 0.7 ? 'moderate smoothing' : 'faster tracking';
+            document.getElementById('fftSmoothingSpeedValue').textContent = 
+                speed.toFixed(2) + ' (' + speedLabel + ')';
+            if (waterfall.fftSmoothingEnabled) {
+                document.getElementById('infoFFTSmoothing').textContent = 
+                    'Enabled (α=' + speed.toFixed(2) + ')';
+            }
+        });
+
+        // Waterfall Smoothing controls
+        document.getElementById('toggleWaterfallSmoothing').addEventListener('click', (e) => {
+            const enabled = !waterfall.waterfallSmoothingEnabled;
+            waterfall.setWaterfallSmoothing(enabled);
+            e.target.classList.toggle('active');
+            e.target.textContent = enabled ? 'Waterfall Smoothing: ON' : 'Waterfall Smoothing: OFF';
+            document.getElementById('infoWaterfallSmoothing').textContent = 
+                enabled ? 'Enabled (α=' + waterfall.waterfallSmoothingAlpha.toFixed(2) + ')' : 'Disabled';
+        });
+
+        document.getElementById('waterfallSmoothingSpeed').addEventListener('input', (e) => {
+            const speed = parseFloat(e.target.value);
+            waterfall.setWaterfallSmoothingSpeed(speed);
+            document.getElementById('waterfallSmoothingSmoothingSpeedValue').textContent = speed.toFixed(2);
+            if (waterfall.waterfallSmoothingEnabled) {
+                document.getElementById('infoWaterfallSmoothing').textContent = 
+                    'Enabled (α=' + speed.toFixed(2) + ')';
+            }
+        });
+
+        // Update info panel
+        document.getElementById('infoBins').textContent = waterfall.FFT_SIZE;
+        document.getElementById('infoHeight').textContent = waterfall.WATERFALL_HEIGHT + ' lines';
+        document.getElementById('infoCenterFreq').textContent = waterfall.centerFreq + ' MHz';
+        document.getElementById('infoBandwidth').textContent = waterfall.bandwidth + ' MHz';
+
+        // Start updates
+        scheduleUpdate();
+    //]]>
+    </script>
+</body>
+</html>

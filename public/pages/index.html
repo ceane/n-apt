@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SDR++ Waterfall Demo</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            background: #0a0a0f;
+            overflow: hidden;
+            font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+            position: relative;
+            z-index: 0;
+        }
+        
+        #container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            z-index: 1;
+        }
+        
+        #waterfall {
+            display: block;
+            width: 100%;
+            height: 100%;
+            image-rendering: pixelated;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
+            pointer-events: none;
+        }
+        
+        #canvas-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 2;
+        }
+        
+        #controls {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            background: rgba(20, 20, 30, 0.98);
+            border: 1px solid #666;
+            border-radius: 8px;
+            padding: 16px;
+            color: #ddd;
+            font-size: 13px;
+            z-index: 10000;
+            min-width: 200px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.6);
+            pointer-events: auto;
+        }
+        
+        #controls * {
+            pointer-events: auto;
+        }
+        
+        #controls h3 {
+            color: #4af;
+            margin-bottom: 10px;
+            font-size: 13px;
+            border-bottom: 1px solid #333;
+            padding-bottom: 6px;
+        }
+        
+        .control-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        
+        .control-row label {
+            flex: 1;
+        }
+        
+        .control-row input[type="range"] {
+            width: 80px;
+            cursor: pointer;
+        }
+        
+        input[type="range"] {
+            accent-color: #4af;
+        }
+        
+        #freq-display {
+            position: fixed;
+            bottom: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(20, 20, 30, 0.9);
+            padding: 8px 20px;
+            border-radius: 4px;
+            color: #fff;
+            font-size: 14px;
+            border: 1px solid #444;
+            z-index: 10000;
+        }
+        
+        #instructions {
+            position: fixed;
+            bottom: 10px;
+            left: 10px;
+            color: #666;
+            font-size: 11px;
+            z-index: 10000;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <canvas id="waterfall" width="800" height="600"></canvas>
+        <div id="canvas-overlay"></div>
+    </div>
+    
+    <div id="controls">
+        <h3>Signal Controls</h3>
+        <div class="control-row">
+            <label>Signal 1:</label>
+            <input type="range" id="sig1" min="0" max="100" value="60">
+        </div>
+        <div class="control-row">
+            <label>Signal 2:</label>
+            <input type="range" id="sig2" min="0" max="100" value="40">
+        </div>
+        <div class="control-row">
+            <label>Signal 3:</label>
+            <input type="range" id="sig3" min="0" max="100" value="30">
+        </div>
+        <div class="control-row">
+            <label>Noise:</label>
+            <input type="range" id="noise" min="0" max="50" value="15">
+        </div>
+        <div class="control-row">
+            <label>Speed:</label>
+            <input type="range" id="speed" min="1" max="60" value="30">
+        </div>
+    </div>
+    
+    <div id="freq-display">Center: 100.000 MHz | BW: 2.000 MHz</div>
+    <div id="instructions">Scroll to zoom • Drag to pan • Click to add VFO</div>
+
+    <script>
+        // ============================================================
+        // SDR++ WATERFALL DEMO - Vanilla JS Implementation
+        // ============================================================
+
+        const canvas = document.getElementById('waterfall');
+        const ctx = canvas.getContext('2d');
+        const overlay = document.getElementById('canvas-overlay');
+        
+        // Configuration
+        const FFT_SIZE = 1024;
+        const WATERFALL_RESOLUTION = 256;
+        
+        // View state
+        let viewBandwidth = 2e6;      // 2 MHz default view
+        let wholeBandwidth = 2e6;     // Full bandwidth
+        let centerFreq = 100e6;      // 100 MHz center
+        let viewOffset = 0;           // Pan offset
+        
+        // Rendering state
+        let waterfallHistory = [];
+        let waterfallHeight = 0;
+        let dataWidth = 0;
+        
+        // VFO markers
+        let vfos = [];
+        
+        // Interaction state
+        let isDragging = false;
+        let lastMouseX = 0;
+        
+        // Animation
+        let time = 0;
+        let speed = 30;
+        
+        // ============================================================
+        // SDR++ COLOR MAP (exact copy from source)
+        // ============================================================
+        const DEFAULT_COLOR_MAP = [
+            [0x00, 0x00, 0x20],
+            [0x00, 0x00, 0x30],
+            [0x00, 0x00, 0x50],
+            [0x00, 0x00, 0x91],
+            [0x1E, 0x90, 0xFF],
+            [0xFF, 0xFF, 0xFF],
+            [0xFF, 0xFF, 0x00],
+            [0xFE, 0x6D, 0x16],
+            [0xFF, 0x00, 0x00],
+            [0xC6, 0x00, 0x00],
+            [0x9F, 0x00, 0x00],
+            [0x75, 0x00, 0x00],
+            [0x4A, 0x00, 0x00]
+        ];
+        
+        // Generate palette (256 entries interpolated)
+        const palette = [];
+        const colorCount = DEFAULT_COLOR_MAP.length;
+        
+        for (let i = 0; i < WATERFALL_RESOLUTION; i++) {
+            const t = i / (WATERFALL_RESOLUTION - 1);
+            const lowerId = Math.floor(t * (colorCount - 1));
+            const upperId = Math.ceil(t * (colorCount - 1));
+            const ratio = (t * (colorCount - 1)) - lowerId;
+            
+            const r = Math.floor(DEFAULT_COLOR_MAP[lowerId][0] * (1 - ratio) + DEFAULT_COLOR_MAP[upperId][0] * ratio);
+            const g = Math.floor(DEFAULT_COLOR_MAP[lowerId][1] * (1 - ratio) + DEFAULT_COLOR_MAP[upperId][1] * ratio);
+            const b = Math.floor(DEFAULT_COLOR_MAP[lowerId][2] * (1 - ratio) + DEFAULT_COLOR_MAP[upperId][2] * ratio);
+            
+            // Store as RGBA
+            palette[i] = [r, g, b, 255];
+        }
+        
+        // ============================================================
+        // FFT PROCESSING
+        // ============================================================
+        
+        // Simple FFT implementation (no external dependencies)
+        function fft(input, n) {
+            // Use naive DFT for simplicity (works fine for visualization)
+            const real = new Float32Array(n);
+            const imag = new Float32Array(n);
+            
+            for (let k = 0; k < n; k++) {
+                let sumReal = 0;
+                let sumImag = 0;
+                for (let t = 0; t < n; t++) {
+                    const angle = -2 * Math.PI * k * t / n;
+                    sumReal += input[t] * Math.cos(angle);
+                    sumImag += input[t] * Math.sin(angle);
+                }
+                real[k] = sumReal;
+                imag[k] = sumImag;
+            }
+            
+            // Return magnitude spectrum (only first half is meaningful)
+            const spectrum = new Float32Array(n / 2);
+            for (let i = 0; i < n / 2; i++) {
+                const mag = Math.sqrt(real[i] * real[i] + imag[i] * imag[i]);
+                spectrum[i] = 20 * Math.log10(mag + 1e-10);
+            }
+            return spectrum;
+        }
+        
+        // Generate synthetic RF signal
+        function generateSignal(sig1Strength, sig2Strength, sig3Strength, noiseLevel) {
+            const signal = new Float32Array(FFT_SIZE);
+            
+            // Base noise floor
+            const baseNoise = -70 + noiseLevel * 2;
+            
+            // Add animated signals at different frequencies
+            // Signal 1: Strong CW signal
+            const sig1Freq = 0.15 + 0.02 * Math.sin(time * 0.5); // Sweeping
+            const sig1Mag = -30 + sig1Strength * 0.8;
+            for (let i = 0; i < FFT_SIZE; i++) {
+                const freq = i / FFT_SIZE;
+                const dist = Math.abs(freq - sig1Freq);
+                if (dist < 0.01) {
+                    signal[i] += Math.pow(1 - dist / 0.01, 2) * sig1Mag;
+                }
+            }
+            
+            // Signal 2: AM broadcast-like
+            const sig2Freq = 0.35;
+            const sig2Mag = -35 + sig2Strength * 0.7;
+            for (let i = 0; i < FFT_SIZE; i++) {
+                const freq = i / FFT_SIZE;
+                const dist = Math.abs(freq - sig2Freq);
+                if (dist < 0.02) {
+                    const envelope = 0.5 + 0.5 * Math.sin(time * 8);
+                    signal[i] += Math.pow(1 - dist / 0.02, 2) * sig2Mag * envelope;
+                }
+            }
+            
+            // Signal 3: Weak FM-like
+            const sig3Freq = 0.65 + 0.05 * Math.sin(time * 0.3);
+            const sig3Mag = -40 + sig3Strength * 0.6;
+            for (let i = 0; i < FFT_SIZE; i++) {
+                const freq = i / FFT_SIZE;
+                const dist = Math.abs(freq - sig3Freq);
+                if (dist < 0.015) {
+                    signal[i] += Math.pow(1 - dist / 0.015, 2) * sig3Mag;
+                }
+            }
+            
+            // Add noise
+            for (let i = 0; i < FFT_SIZE; i++) {
+                signal[i] += baseNoise + (Math.random() - 0.5) * noiseLevel * 3;
+            }
+            
+            return signal;
+        }
+        
+        // ============================================================
+        // WATERFALL RENDERING
+        // ============================================================
+        
+        function valueToColor(value, minDb, maxDb) {
+            // Clamp and normalize
+            const clamped = Math.max(minDb, Math.min(maxDb, value));
+            const normalized = (clamped - minDb) / (maxDb - minDb);
+            const paletteIndex = Math.floor(normalized * (WATERFALL_RESOLUTION - 1));
+            return palette[paletteIndex];
+        }
+        
+        function renderWaterfall(fftData) {
+            const minDb = -70;
+            const maxDb = 0;
+            
+            // Create image data
+            const imageData = ctx.createImageData(dataWidth, waterfallHeight);
+            const pixels = imageData.data;
+            
+            // Scroll existing history down
+            waterfallHistory.unshift(fftData.slice(0, dataWidth));
+            if (waterfallHistory.length > waterfallHeight) {
+                waterfallHistory.pop();
+            }
+            
+            // Render waterfall
+            for (let y = 0; y < waterfallHeight; y++) {
+                if (y < waterfallHistory.length) {
+                    const row = waterfallHistory[y];
+                    for (let x = 0; x < dataWidth; x++) {
+                        const color = valueToColor(row[x] || -70, minDb, maxDb);
+                        const idx = (y * dataWidth + x) * 4;
+                        pixels[idx] = color[0];     // R
+                        pixels[idx + 1] = color[1]; // G
+                        pixels[idx + 2] = color[2]; // B
+                        pixels[idx + 3] = color[3]; // A
+                    }
+                }
+            }
+            
+            ctx.putImageData(imageData, 50, 30); // Offset for scales
+        }
+        
+        function renderScales() {
+            const fftHeight = canvas.height - 80;
+            const wfTop = 30;
+            const wfLeft = 50;
+            
+            ctx.fillStyle = '#0a0a0f';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw frequency scale (bottom)
+            ctx.fillStyle = '#888';
+            ctx.font = '10px monospace';
+            ctx.textAlign = 'center';
+            
+            const lowerFreq = centerFreq + viewOffset - viewBandwidth / 2;
+            const upperFreq = centerFreq + viewOffset + viewBandwidth / 2;
+            const freqRange = upperFreq - lowerFreq;
+            
+            const numTicks = 10;
+            for (let i = 0; i <= numTicks; i++) {
+                const x = wfLeft + (i / numTicks) * dataWidth;
+                const freq = lowerFreq + (i / numTicks) * freqRange;
+                
+                // Tick mark
+                ctx.fillStyle = '#444';
+                ctx.fillRect(x, wfTop + fftHeight - 1, 1, 6);
+                
+                // Label
+                ctx.fillStyle = '#888';
+                let label;
+                if (freq >= 1e9) label = (freq / 1e9).toFixed(2) + 'G';
+                else if (freq >= 1e6) label = (freq / 1e6).toFixed(2) + 'M';
+                else if (freq >= 1e3) label = (freq / 1e3).toFixed(1) + 'K';
+                else label = freq.toFixed(0);
+                
+                ctx.fillText(label, x, wfTop + fftHeight + 18);
+            }
+            
+            // Draw dB scale (left side)
+            ctx.textAlign = 'right';
+            const dbTicks = [-70, -60, -50, -40, -30, -20, -10, 0];
+            dbTicks.forEach(db => {
+                const y = wfTop + fftHeight - ((db - -70) / 70) * fftHeight;
+                ctx.fillStyle = '#444';
+                ctx.fillRect(40, y, 8, 1);
+                ctx.fillStyle = '#666';
+                ctx.fillText(db.toString(), 38, y + 3);
+            });
+            
+            // Update frequency display
+            document.getElementById('freq-display').textContent = 
+                `Center: ${(centerFreq / 1e6).toFixed(3)} MHz | BW: ${(viewBandwidth / 1e6).toFixed(3)} MHz`;
+        }
+        
+        function renderVFOs() {
+            const wfTop = 30;
+            const wfLeft = 50;
+            
+            const lowerFreq = centerFreq + viewOffset - viewBandwidth / 2;
+            const upperFreq = centerFreq + viewOffset + viewBandwidth / 2;
+            const freqRange = upperFreq - lowerFreq;
+            
+            vfos.forEach((vfo, idx) => {
+                const x = wfLeft + ((vfo.freq - lowerFreq) / freqRange) * dataWidth;
+                
+                // VFO rectangle in waterfall
+                ctx.fillStyle = vfo.color + '40';
+                ctx.fillRect(x - 20, wfTop, 40, waterfallHeight);
+                
+                // VFO line
+                ctx.strokeStyle = idx === 0 ? '#f00' : '#ff0';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(x, wfTop);
+                ctx.lineTo(x, wfTop + waterfallHeight);
+                ctx.stroke();
+                
+                // Label
+                ctx.fillStyle = '#fff';
+                ctx.font = '10px monospace';
+                ctx.textAlign = 'center';
+                const label = vfo.name + '\n' + (vfo.freq / 1e6).toFixed(2) + 'M';
+                ctx.fillText(label, x, wfTop + 12);
+            });
+        }
+        
+        // ============================================================
+        // MAIN LOOP
+        // ============================================================
+        
+        let lastTime = 0;
+        
+        function animate(timestamp) {
+            const delta = timestamp - lastTime;
+            lastTime = timestamp;
+            
+            if (delta > 0) {
+                time += delta * 0.001 * speed / 30;
+            }
+            
+            // Get signal controls
+            const sig1 = parseInt(document.getElementById('sig1').value);
+            const sig2 = parseInt(document.getElementById('sig2').value);
+            const sig3 = parseInt(document.getElementById('sig3').value);
+            const noise = parseInt(document.getElementById('noise').value);
+            speed = parseInt(document.getElementById('speed').value);
+            
+            // Generate FFT
+            const signal = generateSignal(sig1, sig2, sig3, noise);
+            const spectrum = fft(signal, FFT_SIZE);
+            
+            // Resample to display width
+            const resampled = new Float32Array(dataWidth);
+            const binSize = spectrum.length / dataWidth;
+            for (let i = 0; i < dataWidth; i++) {
+                // Take max in each bin (like SDR++ does)
+                let maxVal = -Infinity;
+                const startBin = Math.floor(i * binSize);
+                const endBin = Math.floor((i + 1) * binSize);
+                for (let j = startBin; j < endBin; j++) {
+                    if (spectrum[j] > maxVal) maxVal = spectrum[j];
+                }
+                resampled[i] = maxVal;
+            }
+            
+            // Render
+            renderScales();
+            renderWaterfall(resampled);
+            renderVFOs();
+            
+            requestAnimationFrame(animate);
+        }
+        
+        // ============================================================
+        // INITIALIZATION & EVENTS
+        // ============================================================
+        
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            
+            dataWidth = Math.floor(canvas.width - 60);
+            waterfallHeight = Math.floor(canvas.height - 80);
+            waterfallHistory = [];
+        }
+        
+        window.addEventListener('resize', resize);
+        
+        // Mouse wheel zoom
+        overlay.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const zoomFactor = e.deltaY > 0 ? 1.2 : 0.8;
+            const newBandwidth = viewBandwidth * zoomFactor;
+            
+            if (newBandwidth >= 1e4 && newBandwidth <= wholeBandwidth) {
+                viewBandwidth = newBandwidth;
+            }
+        });
+        
+        // Drag to pan
+        overlay.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            lastMouseX = e.clientX;
+        });
+        
+        overlay.addEventListener('mousemove', (e) => {
+            if (isDragging) {
+                const dx = e.clientX - lastMouseX;
+                const freqDelta = -(dx / dataWidth) * viewBandwidth;
+                viewOffset += freqDelta;
+                
+                // Clamp
+                const maxOffset = (wholeBandwidth - viewBandwidth) / 2;
+                viewOffset = Math.max(-maxOffset, Math.min(maxOffset, viewOffset));
+                
+                lastMouseX = e.clientX;
+            }
+        });
+        
+        overlay.addEventListener('mouseup', () => isDragging = false);
+        overlay.addEventListener('mouseleave', () => isDragging = false);
+        
+        // Click to add VFO
+        overlay.addEventListener('click', (e) => {
+            if (Math.abs(e.clientX - lastMouseX) > 5) return; // Was dragging
+            
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left - 50;
+            const y = e.clientY - rect.top - 30;
+            
+            // Check if in waterfall area
+            if (x < 0 || x > dataWidth || y < 0 || y > waterfallHeight) return;
+            
+            const lowerFreq = centerFreq + viewOffset - viewBandwidth / 2;
+            const upperFreq = centerFreq + viewOffset + viewBandwidth / 2;
+            const freqRange = upperFreq - lowerFreq;
+            
+            const clickedFreq = lowerFreq + (x / dataWidth) * freqRange;
+            
+            // Toggle or add VFO
+            const existingIdx = vfos.findIndex(v => Math.abs(v.freq - clickedFreq) < freqRange * 0.05);
+            if (existingIdx >= 0) {
+                vfos.splice(existingIdx, 1);
+            } else {
+                const colors = ['#0f0', '#0ff', '#f0f', '#fa0'];
+                vfos.push({
+                    name: 'VFO' + (vfos.length + 1),
+                    freq: clickedFreq,
+                    color: colors[vfos.length % colors.length]
+                });
+            }
+        });
+        
+        // Initialize
+        resize();
+        
+        // Initial render
+        const initialSignal = generateSignal(60, 40, 30, 15);
+        const initialSpectrum = fft(initialSignal, FFT_SIZE);
+        const initialResampled = new Float32Array(dataWidth);
+        const binSize = initialSpectrum.length / dataWidth;
+        for (let i = 0; i < dataWidth; i++) {
+            let maxVal = -Infinity;
+            const startBin = Math.floor(i * binSize);
+            const endBin = Math.floor((i + 1) * binSize);
+            for (let j = startBin; j < endBin; j++) {
+                if (initialSpectrum[j] > maxVal) maxVal = initialSpectrum[j];
+            }
+            initialResampled[i] = maxVal;
+        }
+        renderScales();
+        renderWaterfall(initialResampled);
+        renderVFOs();
+        
+        requestAnimationFrame(animate);
+    </script>
+</body>
+</html>

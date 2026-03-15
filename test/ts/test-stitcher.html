@@ -89,9 +89,19 @@
       <div class="status" id="status">Select .c64 files to begin stitching</div>
 
       <div class="file-input">
-        <input type="file" id="fileInput" accept=".c64" multiple style="display: none" />
-        <button onclick="document.getElementById('fileInput').click()">Browse Files</button>
-        <button onclick="stitchFiles()" id="stitchBtn" disabled>Stitch Spectrum</button>
+        <input
+          type="file"
+          id="fileInput"
+          accept=".c64"
+          multiple
+          style="display: none"
+        />
+        <button onclick="document.getElementById('fileInput').click()">
+          Browse Files
+        </button>
+        <button onclick="stitchFiles()" id="stitchBtn" disabled>
+          Stitch Spectrum
+        </button>
         <button onclick="clearFiles()" id="clearBtn" disabled>Clear</button>
       </div>
 
@@ -115,7 +125,10 @@
       const canvasEl = document.getElementById("canvas");
 
       document.getElementById("fileInput").addEventListener("change", (e) => {
-        selectedFiles = Array.from(e.target.files).map((file) => ({ name: file.name, file }));
+        selectedFiles = Array.from(e.target.files).map((file) => ({
+          name: file.name,
+          file,
+        }));
         updateUI();
       });
 
@@ -174,7 +187,8 @@
               reject(error);
             }
           };
-          reader.onerror = () => reject(new Error(`Failed to read file: ${file.name}`));
+          reader.onerror = () =>
+            reject(new Error(`Failed to read file: ${file.name}`));
           reader.readAsArrayBuffer(file);
         });
       }
