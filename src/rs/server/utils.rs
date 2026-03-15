@@ -237,6 +237,10 @@ pub fn save_capture_file_multi(
     "spectrum_shifted": true,
   });
 
+  if let Some((min_mhz, max_mhz)) = result.frequency_range {
+    meta_obj["frequency_range"] = serde_json::json!([min_mhz, max_mhz]);
+  }
+
   // Add geolocation data if available
   if let Some(geo) = &result.geolocation {
     meta_obj["geolocation"] = serde_json::json!({
@@ -271,6 +275,8 @@ pub fn save_capture_file_multi(
       channel_metas.push(serde_json::json!({
           "center_freq_hz": ch.center_freq_hz,
           "sample_rate_hz": ch.sample_rate_hz,
+          "requested_min_freq_hz": ch.requested_min_freq_hz,
+          "requested_max_freq_hz": ch.requested_max_freq_hz,
           "offset_iq": offset_iq,
           "iq_length": iq_len,
           "offset_spectrum": offset_spectrum,
@@ -475,6 +481,8 @@ mod save_tests {
       channels: vec![CaptureChannel {
         center_freq_hz: 137.5e6,
         sample_rate_hz: 2.4e6,
+        requested_min_freq_hz: None,
+        requested_max_freq_hz: None,
         iq_data: vec![0u8; 100],
         spectrum_data: vec![0f32; 10],
         bins_per_frame: 10,
@@ -495,6 +503,7 @@ mod save_tests {
       overall_center_frequency_hz: 137.5e6,
       overall_capture_sample_rate_hz: 2.4e6,
       geolocation: None,
+      frequency_range: Some((136.3, 138.7)),
     };
 
     let result_napt =
@@ -514,6 +523,10 @@ mod save_tests {
       content_napt.contains(r#""channels""#),
       "Missing channels array"
     );
+    assert!(
+      content_napt.contains(r#""frequency_range":[136.3,138.7]"#),
+      "Missing frequency_range in .napt metadata"
+    );
 
     // Test .wav unencrypted
     let result_wav_struct = CaptureResult {
@@ -522,6 +535,8 @@ mod save_tests {
         CaptureChannel {
           center_freq_hz: 137.5e6,
           sample_rate_hz: 2.4e6,
+          requested_min_freq_hz: None,
+          requested_max_freq_hz: None,
           iq_data: vec![0u8; 100],
           spectrum_data: vec![0f32; 10],
           bins_per_frame: 10,
@@ -529,6 +544,8 @@ mod save_tests {
         CaptureChannel {
           center_freq_hz: 140.0e6,
           sample_rate_hz: 2.4e6,
+          requested_min_freq_hz: None,
+          requested_max_freq_hz: None,
           iq_data: vec![1u8; 100],
           spectrum_data: vec![1f32; 10],
           bins_per_frame: 10,
@@ -550,6 +567,7 @@ mod save_tests {
       overall_center_frequency_hz: 138.75e6,
       overall_capture_sample_rate_hz: 4.9e6,
       geolocation: None,
+      frequency_range: Some((136.3, 141.2)),
     };
 
     let result_wav = save_capture_file_multi(&result_wav_struct, &[0u8; 32])

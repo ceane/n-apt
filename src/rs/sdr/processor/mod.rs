@@ -18,6 +18,8 @@ use super::{SdrDevice, SdrDeviceFactory};
 pub struct CaptureChannel {
   pub center_freq_hz: f64,
   pub sample_rate_hz: f64,
+  pub requested_min_freq_hz: Option<f64>,
+  pub requested_max_freq_hz: Option<f64>,
   pub iq_data: Vec<u8>,
   pub spectrum_data: Vec<f32>,
   pub bins_per_frame: u32,
@@ -47,6 +49,8 @@ pub struct CaptureResult {
   pub overall_capture_sample_rate_hz: f64,
   /// Geolocation data if available
   pub geolocation: Option<crate::server::types::GeolocationData>,
+  /// Requested frequency range [min_mhz, max_mhz] from the original capture fragments
+  pub frequency_range: Option<(f64, f64)>,
 }
 
 /// SDR processor that works with any SDR device implementation
@@ -124,6 +128,8 @@ pub struct SdrProcessor {
   pub capture_overall_center_hz: f64,
   /// Overall bandwidth of the requested capture range (Hz)
   pub capture_overall_span_hz: f64,
+  /// Requested frequency range [min_mhz, max_mhz] from original fragments
+  pub capture_requested_range: Option<(f64, f64)>,
   /// Last read gain (dB)
   pub current_gain_db: f64,
   /// Last read PPM
@@ -233,6 +239,7 @@ impl SdrProcessor {
       capture_geolocation: None,
       capture_overall_center_hz: 0.0,
       capture_overall_span_hz: 0.0,
+      capture_requested_range: None,
       current_gain_db: -999.0, // Force first update
       current_ppm: -999999,    // Force first update
       current_tuner_agc: false,
@@ -393,6 +400,10 @@ impl SdrProcessor {
         let slice_duration = 1.0 / 63.0; // 4ms (250 slices per second)
         let current_slice = (elapsed / slice_duration) as usize;
         current_slice % num_segments
+      } else if self.capture_acquisition_mode == "whole_sample" {
+        // Whole Sample mode: NO hopping, capture exactly what's there
+        // Used when capture range equals hardware sample rate
+        0 // Always stay on first/only segment
       } else {
         // Stepwise Naive mode: Divide total time sequentially
         let time_per_segment =
@@ -1191,6 +1202,7 @@ impl SdrProcessor {
           overall_center_frequency_hz: self.capture_overall_center_hz,
           overall_capture_sample_rate_hz: self.capture_overall_span_hz,
           geolocation: self.capture_geolocation.clone(),
+          frequency_range: self.capture_requested_range,
         });
       }
     }

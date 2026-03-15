@@ -31,6 +31,22 @@ export interface DragMathParams {
   dragStartPan: number;
 }
 
+export interface SpikeDetectionParams {
+  spectrumData: Float32Array;
+  dbMin: number;
+  dbMax: number;
+  maxMarkers?: number;
+  frequencyRange?: { min: number; max: number };
+  temporalPersistence?: Float32Array;
+}
+
+export interface SpectrumSpikeMarker {
+  index: number;
+  value: number;
+  prominence: number;
+  radius: number;
+}
+
 export interface WasmSimdMathHandle {
   // WASM SIMD operations
   resampleSpectrum: (input: Float32Array, output: Float32Array) => void;
@@ -52,6 +68,7 @@ export interface WasmSimdMathHandle {
     newPan?: number; 
     newRange?: { min: number; max: number }; 
   };
+  detectProminentSpikes: (params: SpikeDetectionParams) => SpectrumSpikeMarker[];
   
   // Enhanced resampling
   resampleSpectrumEnhanced: (input: Float32Array, output: Float32Array, algorithm?: 'max' | 'avg' | 'min') => void;
@@ -425,6 +442,132 @@ export function useWasmSimdMath(options: SpectrumMathOptions): WasmSimdMathHandl
     }
   }, [isSimdAvailable]);
 
+  const detectProminentSpikes = useCallback((params: SpikeDetectionParams) => {
+    const {
+      spectrumData,
+      dbMin,
+      dbMax,
+      maxMarkers = 96,
+      frequencyRange,
+      temporalPersistence,
+    } = params;
+    const length = spectrumData.length;
+    if (length < 5) return [];
+
+    const dynamicRange = Math.max(1, dbMax - dbMin);
+
+    let w = Math.max(2, Math.floor(length * 0.015));
+    if (frequencyRange) {
+      const spanMHz = frequencyRange.max - frequencyRange.min;
+      if (spanMHz > 0) {
+        const binsPerMHz = length / spanMHz;
+        const bins45kHz = Math.ceil(binsPerMHz * 0.045);
+        w = Math.max(2, Math.min(Math.floor(length / 10), bins45kHz));
+      }
+    }
+
+    const eroded = new Float32Array(length);
+    for (let i = 0; i < length; i++) {
+      let minVal = Infinity;
+      const start = Math.max(0, i - w);
+      const end = Math.min(length - 1, i + w);
+      for (let j = start; j <= end; j++) {
+        if (spectrumData[j] < minVal) minVal = spectrumData[j];
+      }
+      eroded[i] = minVal;
+    }
+
+    const baseline = new Float32Array(length);
+    for (let i = 0; i < length; i++) {
+      let maxVal = -Infinity;
+      const start = Math.max(0, i - w);
+      const end = Math.min(length - 1, i + w);
+      for (let j = start; j <= end; j++) {
+        if (eroded[j] > maxVal) maxVal = eroded[j];
+      }
+      baseline[i] = maxVal;
+    }
+
+    const persistence =
+      temporalPersistence && temporalPersistence.length === length
+        ? temporalPersistence
+        : null;
+    const decay = 0.9;
+    const persistenceSpread = Math.max(1, Math.min(4, Math.floor(length / 1024)));
+    const residual = new Float32Array(length);
+
+    for (let i = 0; i < length; i++) {
+      const prominence = Math.max(0, spectrumData[i] - baseline[i]);
+      residual[i] = prominence;
+      if (persistence) {
+        persistence[i] *= decay;
+      }
+    }
+
+    if (persistence) {
+      for (let i = 0; i < length; i++) {
+        const prominence = residual[i];
+        if (prominence <= 0) continue;
+        for (
+          let j = Math.max(0, i - persistenceSpread);
+          j <= Math.min(length - 1, i + persistenceSpread);
+          j++
+        ) {
+          const weight = j === i ? 1 : 0.72;
+          const boosted = prominence * weight;
+          if (boosted > persistence[j]) {
+            persistence[j] = boosted;
+          }
+        }
+      }
+    }
+
+    const minProminence = Math.max(2.2, dynamicRange * 0.032);
+    const candidates: SpectrumSpikeMarker[] = [];
+
+    for (let i = 2; i < length - 2; i++) {
+      const center = spectrumData[i];
+      if (!Number.isFinite(center)) continue;
+
+      const effectiveProminence = residual[i] + (persistence ? persistence[i] * 0.65 : 0);
+      if (effectiveProminence < minProminence) continue;
+
+      if (
+        effectiveProminence <= residual[i - 1] + (persistence ? persistence[i - 1] * 0.65 : 0) ||
+        effectiveProminence <= residual[i + 1] + (persistence ? persistence[i + 1] * 0.65 : 0)
+      ) {
+        continue;
+      }
+
+      const normalized = Math.max(
+        0,
+        Math.min(1, effectiveProminence / Math.max(10, dynamicRange * 0.3)),
+      );
+
+      candidates.push({
+        index: i,
+        value: center,
+        prominence: effectiveProminence,
+        radius: 3.5 + normalized * 7.5,
+      });
+    }
+
+    candidates.sort((a, b) => b.prominence - a.prominence);
+
+    const filtered: SpectrumSpikeMarker[] = [];
+    const minSpacing = Math.max(2, Math.floor(length / 420));
+    for (const candidate of candidates) {
+      if (filtered.some((marker) => Math.abs(marker.index - candidate.index) < minSpacing)) {
+        continue;
+      }
+      filtered.push(candidate);
+      if (filtered.length >= maxMarkers) break;
+    }
+
+    filtered.sort((a, b) => a.index - b.index);
+    return filtered;
+  }, []);
+
   // Enhanced resampling with algorithm selection
   const resampleSpectrumEnhanced = useCallback((
     input: Float32Array, 
@@ -450,6 +593,7 @@ export function useWasmSimdMath(options: SpectrumMathOptions): WasmSimdMathHandl
     getZoomedData,
     transformToScreenCoords,
     calculateFrequencyDrag,
+    detectProminentSpikes,
     resampleSpectrumEnhanced,
     
     // State

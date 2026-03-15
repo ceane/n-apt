@@ -35,9 +35,9 @@ describe("VisualizerSliders Component", () => {
     expect(screen.getByText("Max")).toBeInTheDocument();
     expect(screen.getByText("Min")).toBeInTheDocument();
     expect(screen.getByText("RESET")).toBeInTheDocument();
-    expect(screen.getByText(/AVG/)).toBeInTheDocument();
-    expect(screen.getByText(/SMOOTH/)).toBeInTheDocument();
-    expect(screen.getByText(/WF/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "▹ AVG" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "▹ FFT" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "▹ WF" })).toBeInTheDocument();
   });
 
   it("should call onResetZoomDb when RESET is clicked", () => {
@@ -58,13 +58,13 @@ describe("VisualizerSliders Component", () => {
       </TestWrapper>
     );
 
-    fireEvent.click(screen.getByText(/AVG/));
+    fireEvent.click(screen.getByRole("button", { name: "▹ AVG" }));
     expect(defaultProps.onFftAvgChange).toHaveBeenCalledWith(true);
 
-    fireEvent.click(screen.getByText(/SMOOTH/));
+    fireEvent.click(screen.getByRole("button", { name: "▹ FFT" }));
     expect(defaultProps.onFftSmoothChange).toHaveBeenCalledWith(true);
 
-    fireEvent.click(screen.getByText(/WF/));
+    fireEvent.click(screen.getByRole("button", { name: "▹ WF" }));
     expect(defaultProps.onWfSmoothChange).toHaveBeenCalledWith(true);
   });
 
@@ -82,8 +82,8 @@ describe("VisualizerSliders Component", () => {
       </TestWrapper>
     );
 
-    expect(screen.getByText("AVG")).toBeInTheDocument();
-    expect(screen.getByText("SMOOTH")).toBeInTheDocument();
-    expect(screen.getByText(/WF/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "▸ AVG" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "▸ FFT" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "▸ WF" })).toBeInTheDocument();
   });
 });

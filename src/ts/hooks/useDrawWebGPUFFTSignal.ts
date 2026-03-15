@@ -82,6 +82,7 @@ export interface WebGPUFFTSignalOptions {
   fftMax?: number;
   gridOverlayRenderer?: OverlayTextureRenderer;
   markersOverlayRenderer?: OverlayTextureRenderer;
+  spikesOverlayRenderer?: OverlayTextureRenderer;
   centerFrequencyMHz?: number;
   isDeviceConnected?: boolean;
   showGrid?: boolean;
@@ -231,6 +232,7 @@ export function useDrawWebGPUFFTSignal() {
         fftMax = 20,
         gridOverlayRenderer,
         markersOverlayRenderer,
+        spikesOverlayRenderer,
         showGrid = true,
         lineColor = LINE_COLOR,
         fillColor = SHADOW_COLOR,
@@ -307,6 +309,7 @@ export function useDrawWebGPUFFTSignal() {
         const overlays = {
           pre: showGrid ? gridOverlayRenderer : null,
           post: markersOverlayRenderer,
+          spikes: spikesOverlayRenderer,
         };
 
         // Render spectrum using WebGPU (inlined render logic)
@@ -384,6 +387,9 @@ export function useDrawWebGPUFFTSignal() {
         // Draw overlay last (e.g. markers/labels)
         if (overlays?.post) {
           overlays.post.renderInPass(pass);
+        }
+        if (overlays?.spikes) {
+          overlays.spikes.renderInPass(pass);
         }
 
         pass.end();

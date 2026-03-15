@@ -130,7 +130,7 @@ overflow-checks = false
 
 [profile.dev]
 opt-level = 1
-incremental = true
+incremental = false
 debug = true
 
 [profile.dev-fast]

@@ -325,10 +325,10 @@ impl WebSocketServer {
               processor.capture_duration_s = duration_s;
               processor.capture_file_type = file_type;
 
-              let mode_str = if acquisition_mode == "stepwise" {
-                "stepwise_naive".to_string()
-              } else {
-                acquisition_mode
+              let mode_str = match acquisition_mode.as_str() {
+                "stepwise" => "stepwise_naive".to_string(),
+                "interleaved" => "interleaved".to_string(),
+                _ => "whole_sample".to_string(), // Default to whole_sample
               };
               processor.capture_acquisition_mode = mode_str.clone();
               info!("[CAPTURE] acquisition_mode={}, fragments={}, hops will be computed next", mode_str, fragments.len());
@@ -356,6 +356,8 @@ impl WebSocketServer {
               let usable_bw_mhz = hw_bw_mhz * USABLE_BW_FRACTION;
 
               let mut all_hops: Vec<(f64, f64)> = Vec::new();
+              let mut capture_channels: Vec<crate::sdr::processor::CaptureChannel> =
+                Vec::new();
               // Track the overall requested range for metadata
               let mut overall_min = f64::INFINITY;
               let mut overall_max = f64::NEG_INFINITY;
@@ -365,12 +367,21 @@ impl WebSocketServer {
                 overall_max = overall_max.max(max_freq);
 
                 let span = max_freq - min_freq;
-                if span <= usable_bw_mhz {
-                  // Small span: center the window on the requested range
+                if mode_str == "whole_sample" || span <= usable_bw_mhz {
+                  // Small span or whole_sample mode: center the window on the requested range
                   // But ensure we use the full HW bandwidth for the device tuning.
                   let center = (min_freq + max_freq) / 2.0;
                   let hop_start = center - hw_bw_mhz / 2.0;
                   all_hops.push((hop_start, hop_start + hw_bw_mhz));
+                  capture_channels.push(crate::sdr::processor::CaptureChannel {
+                    center_freq_hz: (hop_start * 1_000_000.0) + (hw_sample_rate / 2.0),
+                    sample_rate_hz: hw_sample_rate,
+                    requested_min_freq_hz: Some(min_freq * 1_000_000.0),
+                    requested_max_freq_hz: Some(max_freq * 1_000_000.0),
+                    iq_data: Vec::new(),
+                    spectrum_data: Vec::new(),
+                    bins_per_frame: 0,
+                  });
                 } else {
                   // Sliding window with overlap: first hop starts at its "usable" min,
                   // last hop ends at its "usable" max.
@@ -381,6 +392,15 @@ impl WebSocketServer {
                     let center = (min_freq + max_freq) / 2.0;
                     let hop_start = center - hw_bw_mhz / 2.0;
                     all_hops.push((hop_start, hop_start + hw_bw_mhz));
+                    capture_channels.push(crate::sdr::processor::CaptureChannel {
+                      center_freq_hz: (hop_start * 1_000_000.0) + (hw_sample_rate / 2.0),
+                      sample_rate_hz: hw_sample_rate,
+                      requested_min_freq_hz: Some(min_freq * 1_000_000.0),
+                      requested_max_freq_hz: Some(max_freq * 1_000_000.0),
+                      iq_data: Vec::new(),
+                      spectrum_data: Vec::new(),
+                      bins_per_frame: 0,
+                    });
                   } else {
                     // Distribute hops so that the "usable" centers cover the range.
                     // The first hop's usable range starts at min_freq.
@@ -398,6 +418,15 @@ impl WebSocketServer {
                       let start = center - (hw_bw_mhz / 2.0);
                       let end = start + hw_bw_mhz;
                       all_hops.push((start, end));
+                      capture_channels.push(crate::sdr::processor::CaptureChannel {
+                        center_freq_hz: (start * 1_000_000.0) + (hw_sample_rate / 2.0),
+                        sample_rate_hz: hw_sample_rate,
+                        requested_min_freq_hz: Some(min_freq * 1_000_000.0),
+                        requested_max_freq_hz: Some(max_freq * 1_000_000.0),
+                        iq_data: Vec::new(),
+                        spectrum_data: Vec::new(),
+                        bins_per_frame: 0,
+                      });
                     }
                   }
                 }
@@ -409,24 +438,12 @@ impl WebSocketServer {
                 ((overall_min + overall_max) / 2.0) * 1_000_000.0;
 
               processor.capture_fragments = all_hops.clone();
-              processor.capture_channels = all_hops
-                .iter()
-                .map(|&(min_freq, _max_freq)| {
-                  let center_freq =
-                    (min_freq * 1_000_000.0) + (hw_sample_rate / 2.0);
-                  crate::sdr::processor::CaptureChannel {
-                    center_freq_hz: center_freq,
-                    sample_rate_hz: hw_sample_rate,
-                    iq_data: Vec::new(),
-                    spectrum_data: Vec::new(),
-                    bins_per_frame: 0,
-                  }
-                })
-                .collect();
+              processor.capture_channels = capture_channels;
 
               processor.capture_active = true;
               processor.capture_overall_center_hz = overall_center_hz;
               processor.capture_overall_span_hz = overall_span_hz;
+              processor.capture_requested_range = Some((overall_min, overall_max));
 
               // Tune to the first hop if available
               if let Some(&(min_freq, max_freq)) = all_hops.first() {

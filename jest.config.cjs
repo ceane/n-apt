@@ -12,7 +12,12 @@ module.exports = {
     "^@n-apt/hooks/(.*)$": "<rootDir>/src/ts/hooks/$1",
     "^@n-apt/(.*)$": "<rootDir>/src/ts/$1",
   },
-  testMatch: ["<rootDir>/test/ts/**/*.test.ts", "<rootDir>/test/ts/**/*.test.tsx"],
+  testMatch: [
+    "<rootDir>/test/ts/**/*.test.ts", 
+    "<rootDir>/test/ts/**/*.test.tsx",
+    "<rootDir>/test/integration/**/*.test.ts",
+    "<rootDir>/test/integration/**/*.test.tsx"
+  ],
   collectCoverageFrom: [
     "src/**/*.{ts,tsx}",
     "!src/**/*.d.ts",

@@ -3,6 +3,15 @@ import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 export type SourceMode = "live" | "file";
 export type SelectedFile = { name: string; file: File; downloadUrl?: string };
 export type TrainingLabel = "target" | "noise";
+export type ActivePlaybackMetadata = {
+  activeChannel: number;
+  channelCount: number;
+  center_frequency_hz?: number;
+  capture_sample_rate_hz?: number;
+  frame_rate?: number;
+  hardware_sample_rate_hz?: number;
+  frequency_range?: [number, number];
+};
 
 export interface BeatParams {
   offsetHz: number;
@@ -37,6 +46,7 @@ export interface WaterfallState {
   stitchTrigger: number;
   stitchSourceSettings: { gain: number; ppm: number };
   isStitchPaused: boolean;
+  activePlaybackMetadata: ActivePlaybackMetadata | null;
   
   // Training capture
   isTrainingCapturing: boolean;
@@ -74,6 +84,7 @@ const initialState: WaterfallState = {
   stitchTrigger: 0,
   stitchSourceSettings: { gain: 10, ppm: 0 },
   isStitchPaused: false,
+  activePlaybackMetadata: null,
   
   isTrainingCapturing: false,
   trainingCaptureLabel: null,
@@ -102,6 +113,7 @@ const waterfallSlice = createSlice({
     
     setSelectedFiles: (state, action: PayloadAction<SelectedFile[]>) => {
       state.selectedFiles = action.payload;
+      state.activePlaybackMetadata = null;
     },
     
     setSnapshotGrid: (state, action: PayloadAction<boolean>) => {
@@ -148,6 +160,14 @@ const waterfallSlice = createSlice({
     
     setStitchPaused: (state, action: PayloadAction<boolean>) => {
       state.isStitchPaused = action.payload;
+    },
+
+    setActivePlaybackMetadata: (state, action: PayloadAction<ActivePlaybackMetadata>) => {
+      state.activePlaybackMetadata = action.payload;
+    },
+
+    clearActivePlaybackMetadata: (state) => {
+      state.activePlaybackMetadata = null;
     },
     
     // Training capture
@@ -203,6 +223,8 @@ export const {
   toggleStitchPause,
   setStitchSourceSettings,
   setStitchPaused,
+  setActivePlaybackMetadata,
+  clearActivePlaybackMetadata,
   startTrainingCapture,
   stopTrainingCapture,
   setDrawSignal3D,

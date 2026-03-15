@@ -144,6 +144,8 @@ export {
   setStitchPaused,
   setStitchStatus,
   setStitchSourceSettings,
+  setActivePlaybackMetadata,
+  clearActivePlaybackMetadata,
   triggerStitch,
   toggleStitchPause,
   startTrainingCapture,

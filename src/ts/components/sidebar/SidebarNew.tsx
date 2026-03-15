@@ -385,8 +385,8 @@ const Sidebar: React.FC<SidebarProps> = ({
     "Onscreen",
   ]);
   const [acquisitionMode, setAcquisitionMode] = useState<
-    "stepwise" | "interleaved"
-  >("interleaved");
+    "stepwise" | "interleaved" | "whole_sample"
+  >("whole_sample");
   const [captureDurationS, setCaptureDurationS] = useState(1);
   const setCaptureFileType = (fileType: CaptureFileType) => {
     setCaptureFileTypeState(fileType);
@@ -477,12 +477,20 @@ const Sidebar: React.FC<SidebarProps> = ({
       };
     }
 
+    const currentCenter = (frequencyRange.min + frequencyRange.max) / 2;
+    const hardwareSpanMHz =
+      typeof maxSampleRate === "number" && Number.isFinite(maxSampleRate) && maxSampleRate > 0
+        ? maxSampleRate / 1_000_000
+        : frequencyRange.max - frequencyRange.min;
+    const onscreenMin = currentCenter - hardwareSpanMHz / 2;
+    const onscreenMax = currentCenter + hardwareSpanMHz / 2;
+
     const segments: Array<{ label: string; min: number; max: number }> = [];
     if (activeCaptureAreas.includes("Onscreen"))
       segments.push({
         label: "Onscreen",
-        min: frequencyRange.min,
-        max: frequencyRange.max,
+        min: onscreenMin,
+        max: onscreenMax,
       });
 
     // Add dynamically mapped areas that are checked
@@ -495,8 +503,8 @@ const Sidebar: React.FC<SidebarProps> = ({
     if (segments.length === 0) {
       segments.push({
         label: "Onscreen",
-        min: frequencyRange.min,
-        max: frequencyRange.max,
+        min: onscreenMin,
+        max: onscreenMax,
       });
     }
 
@@ -507,6 +515,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     };
   }, [
     frequencyRange,
+    maxSampleRate,
     activeCaptureAreas,
     spectrumFrames,
   ]);
@@ -593,13 +602,21 @@ const Sidebar: React.FC<SidebarProps> = ({
       }
     }
 
+    const captureRangeSpan = captureRange.max - captureRange.min;
+    const hardwareSampleRateMHz = maxSampleRate / 1000000;
+    const effectiveAcquisitionMode =
+      activeCaptureAreas.includes("Onscreen") &&
+        Math.abs(captureRangeSpan - hardwareSampleRateMHz) < 0.01
+        ? "whole_sample"
+        : acquisitionMode;
+
     const jobId = `cap_${Date.now()}`;
     const req: CaptureRequest = {
       jobId,
       fragments: captureRange.segments.map(s => ({ minFreq: s.min, maxFreq: s.max })),
       durationS: Math.max(1, Math.round(Number(captureDurationS) || 1)),
       fileType: captureFileTypeState,
-      acquisitionMode,
+      acquisitionMode: effectiveAcquisitionMode,
       encrypted: captureFileTypeState === ".napt" ? true : captureEncrypted,
       fftSize,
       fftWindow,
@@ -610,12 +627,14 @@ const Sidebar: React.FC<SidebarProps> = ({
     isConnected,
     deviceState,
     isAuthenticated,
-    captureRange.min,
-    captureRange.max,
-    captureDurationS,
-    captureFileTypeState,
+    acquisitionMode,
+    activeCaptureAreas,
     captureEncrypted,
     captureGeolocation,
+    captureFileTypeState,
+    captureRange.max,
+    captureRange.min,
+    maxSampleRate,
     fftSize,
     fftWindow,
     onCaptureCommand,
@@ -912,7 +931,11 @@ const Sidebar: React.FC<SidebarProps> = ({
               onToggle={() => setCaptureOpen(!captureOpen)}
               activeCaptureAreas={activeCaptureAreas}
               availableCaptureAreas={[
-                { label: "Onscreen", min: frequencyRange?.min ?? 0, max: frequencyRange?.max ?? 0 },
+                {
+                  label: "Onscreen",
+                  min: captureRange.segments.find((segment) => segment.label === "Onscreen")?.min ?? 0,
+                  max: captureRange.segments.find((segment) => segment.label === "Onscreen")?.max ?? 0,
+                },
                 ...((spectrumFrames || []).map(f => ({ label: f.label, min: f.min_mhz, max: f.max_mhz })))
               ]}
               acquisitionMode={acquisitionMode}
@@ -973,7 +996,16 @@ const Sidebar: React.FC<SidebarProps> = ({
                 onStitchPauseToggle={onStitchPauseToggle}
               />
 
-              <SignalFeaturesSection />
+              <SignalFeaturesSection
+                sourceMode={sourceMode}
+                deviceState={deviceState}
+                isConnected={isConnected}
+                selectedFilesCount={selectedFiles.length}
+                showSpikeOverlay={state.showSpikeOverlay}
+                onShowSpikeOverlayChange={(enabled) =>
+                  dispatch({ type: "SET_SHOW_SPIKE_OVERLAY", enabled })
+                }
+              />
             </>
           ) : (
             <>
@@ -1120,7 +1152,16 @@ const Sidebar: React.FC<SidebarProps> = ({
                 </div>
               </Section>
 
-              <SignalFeaturesSection />
+              <SignalFeaturesSection
+                sourceMode={sourceMode}
+                deviceState={deviceState}
+                isConnected={isConnected}
+                selectedFilesCount={selectedFiles.length}
+                showSpikeOverlay={state.showSpikeOverlay}
+                onShowSpikeOverlayChange={(enabled) =>
+                  dispatch({ type: "SET_SHOW_SPIKE_OVERLAY", enabled })
+                }
+              />
 
               <SignalDisplaySection
                 sourceMode={sourceMode}

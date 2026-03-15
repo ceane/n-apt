@@ -1395,7 +1395,7 @@ async fn handle_start_capture(
   let acquisition_mode = params
     .get("acquisitionMode")
     .and_then(|m| m.as_str())
-    .unwrap_or("stepwise");
+    .unwrap_or("whole_sample");
   let encrypted = params
     .get("encrypted")
     .and_then(|e| e.as_bool())

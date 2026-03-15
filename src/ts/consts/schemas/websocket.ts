@@ -81,7 +81,7 @@ export type CaptureRequest = {
   fragments: { minFreq: number; maxFreq: number }[];
   durationS: number;
   fileType: CaptureFileType;
-  acquisitionMode: "stepwise" | "interleaved";
+  acquisitionMode: "stepwise" | "interleaved" | "whole_sample";
   encrypted: boolean;
   fftSize: number;
   fftWindow: string;

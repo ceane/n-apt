@@ -2,6 +2,7 @@ import React from "react";
 import styled from "styled-components";
 import { useAuthentication } from "@n-apt/hooks/useAuthentication";
 import { useGeolocation } from "@n-apt/hooks/useGeolocation";
+import { formatFrequency } from "@n-apt/utils/frequency";
 import type {
   CaptureStatus,
   CaptureFileType,
@@ -318,7 +319,7 @@ interface IQCaptureControlsSectionProps {
   availableCaptureAreas: Array<{ label: string; min: number; max: number }>;
   captureDurationS: number;
   captureFileType: CaptureFileType;
-  acquisitionMode: "stepwise" | "interleaved";
+  acquisitionMode: "stepwise" | "interleaved" | "whole_sample";
   captureEncrypted: boolean;
   capturePlayback: boolean;
   captureGeolocation: boolean;
@@ -330,7 +331,7 @@ interface IQCaptureControlsSectionProps {
   onActiveCaptureAreasChange: (areas: string[]) => void;
   onCaptureDurationSChange: (value: number) => void;
   onCaptureFileTypeChange: (value: CaptureFileType) => void;
-  onAcquisitionModeChange: (mode: "stepwise" | "interleaved") => void;
+  onAcquisitionModeChange: (mode: "stepwise" | "interleaved" | "whole_sample") => void;
   onCaptureEncryptedChange: (value: boolean) => void;
   onCapturePlaybackChange: (value: boolean) => void;
   onCaptureGeolocationChange: (value: boolean) => void;
@@ -372,11 +373,34 @@ export const IQCaptureControlsSection: React.FC<
       isLoading: geoLoading
     } = useGeolocation();
     const hasOnscreenSelected = activeCaptureAreas.includes("Onscreen");
-    const isTdmsDisabled = hasOnscreenSelected;
-    const effectiveAcquisitionMode =
-      isTdmsDisabled && acquisitionMode === "interleaved"
-        ? "stepwise"
-        : acquisitionMode;
+    const hasChannelSelected = activeCaptureAreas.some((a) => a !== "Onscreen");
+    const onscreenOnly = hasOnscreenSelected && !hasChannelSelected;
+
+    // Calculate capture range span to determine appropriate mode
+    const captureRangeSpan = captureRange.max - captureRange.min;
+    const hardwareSampleRateMHz = maxSampleRate / 1000000;
+
+    // Determine which modes are available
+    const isOnscreenExactMatch = onscreenOnly && hardwareSampleRateMHz > 0 && Math.abs(captureRangeSpan - hardwareSampleRateMHz) < 0.01;
+    const isWiderThanHardware = captureRangeSpan > hardwareSampleRateMHz + 0.01;
+
+    // GUARDS: Determine appropriate capture mode based on capture type
+    let effectiveAcquisitionMode = acquisitionMode;
+
+    if (isOnscreenExactMatch) {
+      // Onscreen only + span matches hardware → force whole_sample
+      effectiveAcquisitionMode = "whole_sample";
+    } else if (isWiderThanHardware) {
+      // Wider than hardware → only stepwise or interleaved allowed
+      if (acquisitionMode === "whole_sample") {
+        effectiveAcquisitionMode = "stepwise";
+      } else {
+        effectiveAcquisitionMode = acquisitionMode;
+      }
+    } else {
+      // Narrower than hardware but not exact match → user's choice
+      effectiveAcquisitionMode = acquisitionMode;
+    }
     const statusTone =
       captureStatus?.status === "done"
         ? "success"
@@ -426,17 +450,26 @@ export const IQCaptureControlsSection: React.FC<
                         const nextAreas = e.target.checked
                           ? [...activeCaptureAreas, area.label]
                           : activeCaptureAreas.filter((a) => a !== area.label);
-                        if (
-                          nextAreas.includes("Onscreen") &&
-                          acquisitionMode === "interleaved"
-                        ) {
-                          onAcquisitionModeChange("stepwise");
+
+                        // Apply guards: auto-switch acquisition mode based on selection
+                        const nextOnscreenOnly = nextAreas.includes("Onscreen") && nextAreas.every((a) => a === "Onscreen");
+                        const nextHasChannel = nextAreas.some((a) => a !== "Onscreen");
+                        const nextSpan = captureRange.max - captureRange.min;
+                        const hwMHz = maxSampleRate / 1000000;
+
+                        if (nextOnscreenOnly && hwMHz > 0 && Math.abs(nextSpan - hwMHz) < 0.01) {
+                          // Onscreen only, exact match → whole_sample
+                          if (acquisitionMode !== "whole_sample") {
+                            onAcquisitionModeChange("whole_sample");
+                          }
+                        } else if (nextHasChannel && nextSpan > hwMHz + 0.01) {
+                          // Wider than hardware → no whole_sample allowed
+                          if (acquisitionMode === "whole_sample") {
+                            onAcquisitionModeChange("stepwise");
+                          }
                         }
-                        if (e.target.checked) {
-                          onActiveCaptureAreasChange(nextAreas);
-                        } else {
-                          onActiveCaptureAreasChange(nextAreas);
-                        }
+
+                        onActiveCaptureAreasChange(nextAreas);
                       }}
                     />
                     {area.label}
@@ -451,8 +484,7 @@ export const IQCaptureControlsSection: React.FC<
                   {captureRange.segments.map((seg) => (
                     <div key={seg.label}>
                       {seg.label}:{" "}
-                      {seg.min === 0 ? "0kHz" : `${seg.min.toFixed(2)}MHz`} -{" "}
-                      {seg.max.toFixed(2)}MHz
+                      {formatFrequency(seg.min)} - {formatFrequency(seg.max)}
                     </div>
                   ))}
                 </RangeList>
@@ -486,20 +518,22 @@ export const IQCaptureControlsSection: React.FC<
               </SettingSelect>
             </Row>
 
-            <Row label="TDMS (Interleaved Sweep)" tooltipTitle="Time-Division Multiplexed Sampling" tooltip="Rapidly sweeps across selected channels and interleaves the results into a single wideband output file. When off (Normal), captures each channel completely before moving to the next.">
-              <ToggleSwitch $disabled={isTdmsDisabled}>
-                <ToggleSwitchInput
-                  type="checkbox"
-                  checked={effectiveAcquisitionMode === "interleaved"}
-                  disabled={isTdmsDisabled}
-                  onChange={(e) =>
-                    onAcquisitionModeChange(
-                      e.target.checked ? "interleaved" : "stepwise"
-                    )
-                  }
-                />
-                <ToggleSwitchSlider $disabled={isTdmsDisabled} />
-              </ToggleSwitch>
+            <Row label="Acquisition Mode" tooltipTitle="Capture Mode Selection" tooltip="Stepwise: Captures frequency ranges sequentially. Interleaved: Rapidly sweeps and interleaves results. Whole Sample: Captures exact hardware sample rate without movement.">
+              <SettingSelect
+                value={effectiveAcquisitionMode}
+                onChange={(e) => onAcquisitionModeChange(e.target.value as "stepwise" | "interleaved" | "whole_sample")}
+                disabled={isOnscreenExactMatch}
+              >
+                {!isWiderThanHardware && (
+                  <option value="whole_sample">Whole Sample</option>
+                )}
+                {!isOnscreenExactMatch && (
+                  <>
+                    <option value="stepwise">Stepwise</option>
+                    <option value="interleaved">Interleaved (TDMS)</option>
+                  </>
+                )}
+              </SettingSelect>
             </Row>
 
             <Row label="Encrypted">
@@ -537,6 +571,23 @@ export const IQCaptureControlsSection: React.FC<
             <Row label="Sample size">
               <SettingValue>{maxSampleRate / 1000000}MHz</SettingValue>
             </Row>
+
+            {hasOnscreenSelected && (
+              <Row label="Capture mode">
+                <SettingValue style={{ textTransform: "capitalize" }}>
+                  {effectiveAcquisitionMode === "whole_sample" ? "Whole Sample" : effectiveAcquisitionMode}
+                  {hasOnscreenSelected && (
+                    <span style={{ fontSize: "10px", color: "#888", marginLeft: "5px" }}>
+                      {Math.abs(captureRangeSpan - hardwareSampleRateMHz) < 0.01
+                        ? "(Exact Match)"
+                        : captureRangeSpan > hardwareSampleRateMHz
+                          ? "(User Choice)"
+                          : "(TDMS)"}
+                    </span>
+                  )}
+                </SettingValue>
+              </Row>
+            )}
 
             <CaptureActions>
               <CaptureButton

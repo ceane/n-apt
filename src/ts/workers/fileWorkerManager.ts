@@ -136,6 +136,7 @@ class FileWorkerManager {
     fftSize: number,
     onProgress?: (progress: any) => void,
     aesKey?: CryptoKey | null,
+    sampleRateOptions?: { maxSampleRateHz: number; currentSampleRateHz: number },
   ): Promise<any> {
     const filesData = [];
 
@@ -149,7 +150,13 @@ class FileWorkerManager {
 
     return this.sendMessage(
       "stitchFiles",
-      { files: filesData, settings, fftSize, aesKey },
+      { 
+        files: filesData, 
+        settings, 
+        fftSize, 
+        aesKey,
+        sampleRateOptions // Pass current sample rate options dynamically
+      },
       onProgress,
     );
   }

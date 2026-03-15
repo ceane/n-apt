@@ -42,6 +42,8 @@ interface SignalFeaturesSectionProps {
   deviceState: string;
   isConnected: boolean;
   selectedFilesCount: number;
+  showSpikeOverlay: boolean;
+  onShowSpikeOverlayChange: (enabled: boolean) => void;
 }
 
 const ClassifyButton = styled.button<{ $disabled?: boolean }>`
@@ -57,11 +59,26 @@ const ClassifyButton = styled.button<{ $disabled?: boolean }>`
   font-family: "JetBrains Mono", monospace;
 `;
 
+const ToggleButton = styled.button<{ $active: boolean; $disabled?: boolean }>`
+  font-size: 11px;
+  padding: 6px 12px;
+  min-width: 80px;
+  opacity: ${({ $disabled }) => ($disabled ? 0.5 : 1)};
+  cursor: ${({ $disabled }) => ($disabled ? "not-allowed" : "pointer")};
+  background-color: ${({ $active }) => ($active ? "rgba(220, 38, 38, 0.18)" : "#1a1a1a")};
+  border: 1px solid ${({ $active }) => ($active ? "rgba(239, 68, 68, 0.8)" : "#2a2a2a")};
+  border-radius: 6px;
+  color: ${({ $active, $disabled }) => ($disabled ? "#666" : ($active ? "#ff8a8a" : "#ccc"))};
+  font-family: "JetBrains Mono", monospace;
+`;
+
 export const SignalFeaturesSection: React.FC<SignalFeaturesSectionProps> = ({
   sourceMode,
   deviceState,
   isConnected,
   selectedFilesCount,
+  showSpikeOverlay,
+  onShowSpikeOverlayChange,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const isFileSource = sourceMode === "file";
@@ -77,6 +94,8 @@ export const SignalFeaturesSection: React.FC<SignalFeaturesSectionProps> = ({
   const classificationDisabled = isFileSource
     ? selectedFilesCount === 0
     : !isConnected || deviceState !== "connected";
+  const spikesVisible = !isFileSource && isConnected && deviceState === "connected";
+  const spikesDisabled = !spikesVisible;
 
   return (
     <Section>
@@ -108,6 +127,24 @@ export const SignalFeaturesSection: React.FC<SignalFeaturesSectionProps> = ({
               <VerifyButton>Verify</VerifyButton>
             </HeterodyningContainer>
           </Row>
+
+          {spikesVisible && (
+            <Row
+              label="Spikes"
+              tooltipTitle="Spike Overlay"
+              tooltip="Detects prominent live FFT peaks and overlays a contrasting dot on the WebGPU spectrum. Dot size scales with the spike's relative prominence above the local baseline."
+            >
+              <ToggleButton
+                type="button"
+                $active={showSpikeOverlay}
+                $disabled={spikesDisabled}
+                disabled={spikesDisabled}
+                onClick={() => onShowSpikeOverlayChange(!showSpikeOverlay)}
+              >
+                {showSpikeOverlay ? "On" : "Off"}
+              </ToggleButton>
+            </Row>
+          )}
         </>
       )}
     </Section>

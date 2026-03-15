@@ -36,9 +36,12 @@ type FileMetadata = {
   rtl_agc?: boolean;
   fft_window?: string;
   data_format?: string;
+  frequency_range?: [number, number];
   channels?: {
     center_freq_hz: number;
     sample_rate_hz: number;
+    requested_min_freq_hz?: number;
+    requested_max_freq_hz?: number;
     offset_iq?: number;
     iq_length?: number;
     offset_spectrum?: number;
@@ -56,6 +59,9 @@ type WavLoadResult = {
     spectrum_frames: Float32Array[];
     center_freq_hz: number;
     sample_rate_hz: number;
+    frequency_range?: [number, number];
+    frame_rate?: number;
+    hardware_sample_rate_hz?: number;
   }[];
 };
 
@@ -240,7 +246,7 @@ function processToSpectrum(
   return spectrum;
 }
 
-function stitchAdjacentChannels(channels: any[], _defaultFftSize: number) {
+function stitchAdjacentChannels(channels: any[], _defaultFftSize: number, maxSampleRateHz: number = 3200000) {
   if (!channels || channels.length <= 1) return channels;
   
   // Sort by center frequency
@@ -254,8 +260,12 @@ function stitchAdjacentChannels(channels: any[], _defaultFftSize: number) {
     const ch = sorted[i];
     const prev = currentGroup[currentGroup.length - 1];
     
-    const prevMax = (prev.center_freq_hz || 0) + (prev.sample_rate_hz || 3200000) / 2;
-    const chMin = (ch.center_freq_hz || 0) - (ch.sample_rate_hz || 3200000) / 2;
+    // ENFORCE MAXIMUM SAMPLE RATE (DYNAMIC, NOT HARDCODED)
+    const prevSampleRate = Math.min(prev.sample_rate_hz || maxSampleRateHz, maxSampleRateHz);
+    const chSampleRate = Math.min(ch.sample_rate_hz || maxSampleRateHz, maxSampleRateHz);
+    
+    const prevMax = (prev.center_freq_hz || 0) + prevSampleRate / 2;
+    const chMin = (ch.center_freq_hz || 0) - chSampleRate / 2;
     
     // Group if they touch or nearly touch (allow 1kHz epsilon for float rounding)
     if (chMin <= prevMax + 1000) {
@@ -273,10 +283,21 @@ function stitchAdjacentChannels(channels: any[], _defaultFftSize: number) {
     // Compute overall range from all channels (already trimmed by backend)
     const first = group[0];
     const last = group[group.length - 1];
-    const minFreq = (first.center_freq_hz || 0) - (first.sample_rate_hz || 3200000) / 2;
-    const maxFreq = (last.center_freq_hz || 0) + (last.sample_rate_hz || 3200000) / 2;
+    
+    // ENFORCE MAXIMUM SAMPLE RATE (DYNAMIC, NOT HARDCODED)
+    const firstSampleRate = Math.min(first.sample_rate_hz || maxSampleRateHz, maxSampleRateHz);
+    const lastSampleRate = Math.min(last.sample_rate_hz || maxSampleRateHz, maxSampleRateHz);
+    
+    const minFreq = (first.center_freq_hz || 0) - firstSampleRate / 2;
+    const maxFreq = (last.center_freq_hz || 0) + lastSampleRate / 2;
     const totalSpan = maxFreq - minFreq;
     const newCenter = minFreq + totalSpan / 2;
+    const requestedMins = group
+      .map((c: any) => c.frequency_range?.[0])
+      .filter((v: number | undefined) => Number.isFinite(v));
+    const requestedMaxs = group
+      .map((c: any) => c.frequency_range?.[1])
+      .filter((v: number | undefined) => Number.isFinite(v));
     
     // Ensure all channels have the same number of frames by truncating to the shortest channel.
     // This prevents asymmetric padding at the end of the waterfall, which the user saw as solid
@@ -312,7 +333,13 @@ function stitchAdjacentChannels(channels: any[], _defaultFftSize: number) {
       iq: group[0].iq,
       spectrum_frames: stitchedFrames,
       center_freq_hz: newCenter,
-      sample_rate_hz: totalSpan
+      sample_rate_hz: totalSpan,
+      frequency_range:
+        requestedMins.length > 0 && requestedMaxs.length > 0
+          ? [Math.min(...requestedMins), Math.max(...requestedMaxs)]
+          : undefined,
+      frame_rate: first.frame_rate,
+      hardware_sample_rate_hz: first.hardware_sample_rate_hz,
     };
   });
 }
@@ -324,6 +351,7 @@ function buildCombinedFrame(
   metadataMap: Map<string, FileMetadata> = new Map(),
   fftSize: number = currentFftSize,
   nSpcCache: Map<string, Float32Array[]> = new Map(),
+  maxSampleRateHz: number = 3200000,
 ) {
   const allFileNames = new Set([...fileDataCache.keys(), ...nSpcCache.keys()]);
   if (allFileNames.size === 0) return null;
@@ -335,8 +363,17 @@ function buildCombinedFrame(
   for (const name of allFileNames) {
     const freq = freqMap.get(name) ?? 0;
     const meta = metadataMap.get(name);
-    const sampleRate =
-      meta?.capture_sample_rate_hz || meta?.sample_rate_hz || 3200000;
+    
+    // ENFORCE MAXIMUM SAMPLE RATE (DYNAMIC, NOT HARDCODED)
+    const rawSampleRate = meta?.capture_sample_rate_hz || meta?.sample_rate_hz || maxSampleRateHz;
+    
+    // VALIDATE AND WARN IF SAMPLE RATE EXCEEDS MAXIMUM
+    if (rawSampleRate > maxSampleRateHz) {
+      console.warn(`⚠️ Sample rate exceeds maximum: ${rawSampleRate / 1000000}MHz. Clamping to ${maxSampleRateHz / 1000000}MHz for file: ${name}`);
+    }
+    
+    const sampleRate = Math.min(rawSampleRate, maxSampleRateHz);
+    
     const halfSpan = sampleRate / 1000000 / 2;
 
     const fMin = freq - halfSpan;
@@ -422,7 +459,7 @@ self.onmessage = async function (e) {
   try {
     switch (type) {
       case "loadFile": {
-        const { fileData, fileName, aesKey } = data;
+        const { fileData, fileName, aesKey, sampleRateOptions } = data;
         const lower = fileName.toLowerCase();
         let rawData: number[] = [];
         if (lower.endsWith(".wav")) {
@@ -469,8 +506,13 @@ self.onmessage = async function (e) {
       }
 
       case "stitchFiles": {
-        const { files, settings, fftSize, aesKey } = data;
+        const { files, settings, fftSize, aesKey, sampleRateOptions } = data;
         if (fftSize) currentFftSize = fftSize;
+        
+        // DERIVE MAX SAMPLE RATE FROM OPTIONS OR FALLBACK TO 3.2MHz
+        const maxSampleRateHz = sampleRateOptions?.maxSampleRateHz || 3200000;
+        const currentSampleRateHz = sampleRateOptions?.currentSampleRateHz || maxSampleRateHz;
+        
         const fileDataCache = new Map();
         const nSpcCache = new Map();
         const freqMap = new Map();
@@ -491,8 +533,24 @@ self.onmessage = async function (e) {
               rawData = raw;
               metadata = wavMeta as FileMetadata;
               nSpcFrames = wavFrames;
+              
+              // VALIDATE SAMPLE RATE AGAINST MAXIMUM (DYNAMIC, NOT HARDCODED)
+              const sampleRate = metadata?.capture_sample_rate_hz || metadata?.sample_rate_hz || maxSampleRateHz;
+              if (sampleRate > maxSampleRateHz) {
+                console.warn(`⚠️ WAV file sample rate exceeds maximum: ${sampleRate / 1000000}MHz. Clamping to ${maxSampleRateHz / 1000000}MHz. File: ${file.fileName}`);
+                // Clamp to maximum for processing AND UPDATE METADATA
+                if (metadata) {
+                  metadata.capture_sample_rate_hz = maxSampleRateHz;
+                  metadata.sample_rate_hz = maxSampleRateHz;
+                  // Also update any hardware sample rate if present
+                  if ((metadata as any).hardware_sample_rate_hz) {
+                    (metadata as any).hardware_sample_rate_hz = maxSampleRateHz;
+                  }
+                }
+              }
+              
               if (channels && channels.length > 0) {
-                 (metadata as any).channels_data = stitchAdjacentChannels(channels, metadata?.fft_size || 8192);
+                 (metadata as any).channels_data = stitchAdjacentChannels(channels, metadata?.fft_size || 8192, maxSampleRateHz);
               }
             } else if (lower.endsWith(".napt") && aesKey) {
               const MAX_HEADER_READ = Math.min(8192, file.fileData.byteLength);
@@ -517,6 +575,25 @@ self.onmessage = async function (e) {
               }
 
               if (channelsMetadata && channelsMetadata.length > 0) {
+                // VALIDATE SAMPLE RATE AGAINST MAXIMUM (DYNAMIC, NOT HARDCODED) FOR NAPT FILES
+                const sampleRate = metadata?.capture_sample_rate_hz || metadata?.sample_rate_hz || maxSampleRateHz;
+                if (sampleRate > maxSampleRateHz) {
+                  console.warn(`⚠️ NAPT file sample rate exceeds maximum: ${sampleRate / 1000000}MHz. Clamping to ${maxSampleRateHz / 1000000}MHz. File: ${file.fileName}`);
+                  // Clamp to maximum for processing AND UPDATE METADATA
+                  if (metadata) {
+                    metadata.capture_sample_rate_hz = maxSampleRateHz;
+                    metadata.sample_rate_hz = maxSampleRateHz;
+                    // Also update any hardware sample rate if present
+                    if ((metadata as any).hardware_sample_rate_hz) {
+                      (metadata as any).hardware_sample_rate_hz = maxSampleRateHz;
+                    }
+                  }
+                  // Also update channel metadata
+                  channelsMetadata.forEach((ch: any) => {
+                    ch.sample_rate_hz = Math.min(ch.sample_rate_hz || maxSampleRateHz, maxSampleRateHz);
+                  });
+                }
+                
                 const headerSize = metaObj.channels || metadata?.channels ? 4096 : 2048;
 
                 const encryptedData = new Uint8Array(file.fileData, headerSize);
@@ -550,7 +627,19 @@ self.onmessage = async function (e) {
                             }
                         }
                     }
-                    parsedChannels.push({ iq, spectrum_frames: frames, center_freq_hz: ch.center_freq_hz, sample_rate_hz: ch.sample_rate_hz });
+                    parsedChannels.push({
+                        iq,
+                        spectrum_frames: frames,
+                        center_freq_hz: ch.center_freq_hz,
+                        sample_rate_hz: ch.sample_rate_hz,
+                        frame_rate: metadata?.frame_rate,
+                        hardware_sample_rate_hz: metadata?.hardware_sample_rate_hz,
+                        frequency_range:
+                          Number.isFinite(ch.requested_min_freq_hz) &&
+                          Number.isFinite(ch.requested_max_freq_hz)
+                            ? [ch.requested_min_freq_hz / 1_000_000, ch.requested_max_freq_hz / 1_000_000]
+                            : undefined,
+                    });
                 }
                 
                 const actualFftSize = metadata?.fft_size || (metadata as any)?.fft?.size || 2048;
@@ -561,45 +650,80 @@ self.onmessage = async function (e) {
                     sample_rate_hz: ch.sample_rate_hz
                 }));
 
-                const stitchedChannels = stitchAdjacentChannels(parsedChannels, actualFftSize);
-                (metadata as any).channels_data = stitchedChannels;
+                const stitchedChannelsWithRange = stitchAdjacentChannels(parsedChannels, actualFftSize, maxSampleRateHz);
+                (metadata as any).channels_data = stitchedChannelsWithRange;
                 
                 // Register each stitched group as a separate entry for buildCombinedFrame.
                 // Previously only the first raw channel was stored, causing the waterfall to
                 // show only one hop's bandwidth (~3.2MHz) mapped to the full capture range,
                 // with everything beyond that hop at -120dB ("clipping at sample rate edge").
-                if (stitchedChannels.length === 1 && stitchedChannels[0].spectrum_frames?.length > 0) {
+                if (stitchedChannelsWithRange.length === 1 && stitchedChannelsWithRange[0].spectrum_frames?.length > 0) {
                     // Single stitched group — use it directly as the file's spectrum
-                    nSpcFrames = stitchedChannels[0].spectrum_frames;
-                    // Update metadata to match the stitched group's actual frequency range
+                    const onlyGroup = stitchedChannelsWithRange[0];
+                    nSpcFrames = onlyGroup.spectrum_frames;
+                    // Update metadata to match the requested frequency range if available,
+                    // otherwise fall back to the stitched group's bounds (which may be
+                    // wider than requested due to hop expansion).
                     if (metadata) {
-                        (metadata as any).center_frequency_hz = stitchedChannels[0].center_freq_hz;
-                        (metadata as any).capture_sample_rate_hz = stitchedChannels[0].sample_rate_hz;
-                        (metadata as any).sample_rate_hz = stitchedChannels[0].sample_rate_hz;
+                        const freqRange = onlyGroup.frequency_range || metadata.frequency_range;
+                        if (freqRange && freqRange.length === 2) {
+                            const rangeMinHz = freqRange[0] * 1_000_000;
+                            const rangeMaxHz = freqRange[1] * 1_000_000;
+                            const spanHz = rangeMaxHz - rangeMinHz;
+                            (metadata as any).center_frequency_hz = rangeMinHz + spanHz / 2;
+                            (metadata as any).capture_sample_rate_hz = spanHz;
+                            (metadata as any).sample_rate_hz = spanHz;
+                            (metadata as any).frequency_range = freqRange;
+                        } else {
+                            (metadata as any).center_frequency_hz = onlyGroup.center_freq_hz;
+                            (metadata as any).capture_sample_rate_hz = onlyGroup.sample_rate_hz;
+                            (metadata as any).sample_rate_hz = onlyGroup.sample_rate_hz;
+                        }
                     }
-                } else if (stitchedChannels.length > 1) {
+                } else if (stitchedChannelsWithRange.length > 1) {
                     // Multiple stitched groups (e.g., group capture with non-adjacent regions A+B)
                     // Register first group as the base file
-                    const firstGroup = stitchedChannels[0];
+                    const firstGroup = stitchedChannelsWithRange[0];
                     if (firstGroup.spectrum_frames?.length > 0) {
                         nSpcFrames = firstGroup.spectrum_frames;
                         if (metadata) {
-                            (metadata as any).center_frequency_hz = firstGroup.center_freq_hz;
-                            (metadata as any).capture_sample_rate_hz = firstGroup.sample_rate_hz;
-                            (metadata as any).sample_rate_hz = firstGroup.sample_rate_hz;
+                            const freqRange = firstGroup.frequency_range || metadata.frequency_range;
+                            if (freqRange && freqRange.length === 2) {
+                                const rangeMinHz = freqRange[0] * 1_000_000;
+                                const rangeMaxHz = freqRange[1] * 1_000_000;
+                                const spanHz = rangeMaxHz - rangeMinHz;
+                                (metadata as any).center_frequency_hz = rangeMinHz + spanHz / 2;
+                                (metadata as any).capture_sample_rate_hz = spanHz;
+                                (metadata as any).sample_rate_hz = spanHz;
+                                (metadata as any).frequency_range = freqRange;
+                            } else {
+                                (metadata as any).center_frequency_hz = firstGroup.center_freq_hz;
+                                (metadata as any).capture_sample_rate_hz = firstGroup.sample_rate_hz;
+                                (metadata as any).sample_rate_hz = firstGroup.sample_rate_hz;
+                            }
                         }
                     }
                     // Register additional groups as virtual files
-                    for (let g = 1; g < stitchedChannels.length; g++) {
-                        const group = stitchedChannels[g];
+                    for (let g = 1; g < stitchedChannelsWithRange.length; g++) {
+                        const group = stitchedChannelsWithRange[g];
                         if (group.spectrum_frames?.length > 0) {
                             const virtualName = `${file.fileName}__group${g}`;
                             nSpcCache.set(virtualName, group.spectrum_frames);
-                            freqMap.set(virtualName, (group.center_freq_hz || 0) / 1e6);
+                            const groupRange = group.frequency_range;
+                            const virtualCenterHz =
+                              groupRange && groupRange.length === 2
+                                ? ((groupRange[0] + groupRange[1]) / 2) * 1_000_000
+                                : group.center_freq_hz;
+                            const virtualSpanHz =
+                              groupRange && groupRange.length === 2
+                                ? (groupRange[1] - groupRange[0]) * 1_000_000
+                                : group.sample_rate_hz;
+                            freqMap.set(virtualName, virtualCenterHz / 1e6);
                             const virtualMeta = { ...metadata, 
-                                center_frequency_hz: group.center_freq_hz, 
-                                capture_sample_rate_hz: group.sample_rate_hz,
-                                sample_rate_hz: group.sample_rate_hz 
+                                center_frequency_hz: virtualCenterHz, 
+                                capture_sample_rate_hz: virtualSpanHz,
+                                sample_rate_hz: virtualSpanHz,
+                                frequency_range: groupRange ?? metadata?.frequency_range,
                             };
                             metadataMap.set(virtualName, virtualMeta as any);
                         }
@@ -647,7 +771,7 @@ self.onmessage = async function (e) {
 
         const precomputedFrames = [];
         for (let frame = 0; frame < maxFrames; frame++) {
-          const result = buildCombinedFrame(fileDataCache, freqMap, frame, metadataMap, internalFftSize, nSpcCache);
+          const result = buildCombinedFrame(fileDataCache, freqMap, frame, metadataMap, internalFftSize, nSpcCache, maxSampleRateHz);
           precomputedFrames.push(result);
           if (frame % Math.max(1, Math.floor(maxFrames / 20)) === 0) {
             const progress = Math.floor((frame / maxFrames) * 100);

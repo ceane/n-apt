@@ -522,7 +522,7 @@ pub fn handle_message(
         acquisition_mode: message
           .acquisition_mode
           .clone()
-          .unwrap_or_else(|| "stepwise".to_string()),
+          .unwrap_or_else(|| "whole_sample".to_string()),
         encrypted: message.encrypted.unwrap_or(true),
         fft_size: message.fft_size.unwrap_or(2048),
         fft_window: message

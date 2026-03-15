@@ -196,6 +196,7 @@ interface FFTCanvasProps {
   }) => void;
   /** Grid preference for snapshot rendering (affects 2D shadow canvases) */
   snapshotGridPreference: boolean;
+  showSpikeOverlay?: boolean;
   vizZoom?: number;
   vizPanOffset?: number;
   onVizZoomChange?: (zoom: number) => void;
@@ -266,6 +267,7 @@ const FFTCanvas = memo(
       force2D = false,
       onSnapshot: _onSnapshot,
       snapshotGridPreference,
+      showSpikeOverlay = false,
       vizZoom = 1,
       vizPanOffset = 0,
       onVizZoomChange,
@@ -404,6 +406,7 @@ const FFTCanvas = memo(
     const fftAvgBufferRef = useRef<Float32Array | null>(null);
     const fftProcessedBufferRef = useRef<Float32Array | null>(null);
     const fftSmoothedBufferRef = useRef<Float32Array | null>(null);
+    const spikePersistenceRef = useRef<Float32Array | null>(null);
 
     const setVizZoom = useCallback(
       (val: number | ((prev: number) => number)) => {
@@ -543,6 +546,7 @@ const FFTCanvas = memo(
       webgpuFormatRef,
       gridOverlayRendererRef,
       markersOverlayRendererRef,
+      spikesOverlayRendererRef,
       overlayDirtyRef,
     } = useWebGPUInit({
       force2D,
@@ -671,6 +675,7 @@ const FFTCanvas = memo(
     const {
       resampleSpectrum: wasmResampleSpectrum,
       processIqToDbmSpectrum,
+      detectProminentSpikes,
       isSimdAvailable
     } = useWasmSimdMath({
       fftSize: 4096,
@@ -1076,6 +1081,7 @@ const FFTCanvas = memo(
               powerScale: effectivePowerScale,
               gridOverlayRenderer: gridOverlayRendererRef.current,
               markersOverlayRenderer: markersOverlayRendererRef.current,
+              spikesOverlayRenderer: spikesOverlayRendererRef.current,
               overlayDirty: overlayDirtyRef.current,
               centerFrequencyMHz: centerFreqRef.current,
               isDeviceConnected,
@@ -1083,6 +1089,20 @@ const FFTCanvas = memo(
               fullCaptureRange: frequencyRangeRef.current,
               isIqRecordingActive,
               limitMarkers,
+              showSpikeOverlay,
+              spikeMarkers: showSpikeOverlay
+                ? detectProminentSpikes({
+                    spectrumData: outBuf,
+                    dbMin: activeScaleDbMin,
+                    dbMax: activeScaleDbMax,
+                    maxMarkers: Math.max(24, Math.floor(outBuf.length / 12)),
+                    frequencyRange: visualRange,
+                    temporalPersistence:
+                      spikePersistenceRef.current && spikePersistenceRef.current.length === outBuf.length
+                        ? spikePersistenceRef.current
+                        : (spikePersistenceRef.current = new Float32Array(outBuf.length)),
+                  })
+                : [],
               lineColor: fftColor,
               fillColor: fillColor,
             });
@@ -1275,6 +1295,7 @@ const FFTCanvas = memo(
         effectivePowerScale,
         activeScaleDbMin,
         activeScaleDbMax,
+        showSpikeOverlay,
       ],
     );
 
@@ -1303,6 +1324,15 @@ const FFTCanvas = memo(
 
       forceRender();
     }, [displayTemporalResolution, forceRender]);
+
+
+    useEffect(() => {
+      if (!showSpikeOverlay) {
+        spikePersistenceRef.current = null;
+      }
+      overlayDirtyRef.current.spikes = true;
+      forceRender();
+    }, [showSpikeOverlay, forceRender, overlayDirtyRef]);
 
     const { restoreWaveformFromStorage, ensurePausedFrame } = usePauseLogic({
       isPaused,
@@ -1379,6 +1409,7 @@ const FFTCanvas = memo(
         waveformFloatRef.current = null;
         frameBufferRef.current = [];
         spectrumResampleBufRef.current?.fill(0);
+        spikePersistenceRef.current = null;
 
         overlayDirtyRef.current.grid = true;
         overlayDirtyRef.current.markers = true;
@@ -1572,6 +1603,7 @@ const FFTCanvas = memo(
       fftAvgBufferRef.current = null;
       fftProcessedBufferRef.current = null;
       fftSmoothedBufferRef.current = null;
+      spikePersistenceRef.current = null;
       overlayDirtyRef.current.grid = true;
       overlayDirtyRef.current.markers = true;
       forceRender();

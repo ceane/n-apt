@@ -3,6 +3,7 @@ import styled from "styled-components";
 import { Tooltip, Button } from "@n-apt/components/ui";
 import { Activity, Download, Trash2, CheckCircle2, Play, Pause, Loader2 } from "lucide-react";
 import type { GeolocationData } from "@n-apt/consts/schemas/websocket";
+import { useAppSelector } from "@n-apt/redux";
 
 type NaptMetadata = {
   sample_rate?: number;
@@ -318,14 +319,25 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
   onStitchPauseToggle,
   sessionToken,
 }) => {
+  const activePlaybackMetadata = useAppSelector(
+    (state) => state.waterfall.activePlaybackMetadata,
+  );
+  const displayedCenterFrequencyHz =
+    activePlaybackMetadata?.center_frequency_hz ||
+    naptMetadata?.center_frequency_hz ||
+    (naptMetadata?.center_frequency
+      ? naptMetadata.center_frequency * 1_000_000
+      : 0);
   const displayedCaptureRateHz =
-    naptMetadata?.channels?.length === 1 &&
+    activePlaybackMetadata?.capture_sample_rate_hz ||
+    (naptMetadata?.channels?.length === 1 &&
       typeof naptMetadata.channels[0]?.sample_rate_hz === "number"
       ? naptMetadata.channels[0].sample_rate_hz
       : naptMetadata?.capture_sample_rate_hz ||
       naptMetadata?.sample_rate_hz ||
       naptMetadata?.sample_rate ||
-      0;
+      0);
+  const displayedFrameRate = activePlaybackMetadata?.frame_rate ?? naptMetadata?.frame_rate;
 
   const stitchButtonRef = useRef<HTMLButtonElement | null>(null);
 
@@ -524,11 +536,7 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
                   />
                 </MetadataLabel>
                 <MetadataValue>
-                  {naptMetadata.center_frequency_hz
-                    ? (naptMetadata.center_frequency_hz / 1000000).toFixed(3)
-                    : naptMetadata.center_frequency
-                      ? naptMetadata.center_frequency.toFixed(3)
-                      : "0.000"}{" "}
+                  {(displayedCenterFrequencyHz / 1000000).toFixed(3)}{" "}
                   MHz
                 </MetadataValue>
               </MetadataItem>
@@ -590,7 +598,9 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
               <MetadataItem>
                 <MetadataLabel>Actual FPS</MetadataLabel>
                 <MetadataValue>
-                  {naptMetadata.frame_rate?.toFixed(1) || "N/A"}
+                  {typeof displayedFrameRate === "number"
+                    ? displayedFrameRate.toFixed(1)
+                    : "N/A"}
                 </MetadataValue>
               </MetadataItem>
               <MetadataItem>

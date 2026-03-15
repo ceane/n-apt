@@ -60,6 +60,13 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
     });
   }, [activeTab]);
 
+
+  useEffect(() => {
+    if (deviceState !== "connected" && state.showSpikeOverlay) {
+      dispatch({ type: "SET_SHOW_SPIKE_OVERLAY", enabled: false });
+    }
+  }, [deviceState, state.showSpikeOverlay, dispatch]);
+
   const { handleSnapshot: takeSnapshot } = useSnapshot(
     state.frequencyRange ?? null,
     isConnected,
@@ -208,6 +215,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
                 }
                 onSnapshot={() => { }}
                 snapshotGridPreference={state.snapshotGridPreference}
+                showSpikeOverlay={state.showSpikeOverlay}
                 fftFrameRate={state.fftFrameRate}
                 sendGetAutoFftOptions={sendGetAutoFftOptions}
                 isWaterfallCleared={state.isWaterfallCleared}

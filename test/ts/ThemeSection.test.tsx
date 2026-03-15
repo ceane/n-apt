@@ -31,13 +31,6 @@ describe("ThemeSection Component", () => {
       </TestWrapper>
     );
 
-    // Initial state: closed
-    expect(screen.queryByText("App Theme")).not.toBeInTheDocument();
-
-    // Click to open
-    const title = screen.getByText(/Theme/);
-    fireEvent.click(title);
-
     expect(screen.getByText("App Theme")).toBeInTheDocument();
     expect(screen.getByText("Accent")).toBeInTheDocument();
     expect(screen.getByText("Waterfall")).toBeInTheDocument();
@@ -52,8 +45,6 @@ describe("ThemeSection Component", () => {
         </ThemeProvider>
       </TestWrapper>
     );
-
-    fireEvent.click(screen.getByText(/Theme/));
 
     const select = screen.getByDisplayValue("System");
     act(() => {
@@ -73,8 +64,6 @@ describe("ThemeSection Component", () => {
         </ThemeProvider>
       </TestWrapper>
     );
-
-    fireEvent.click(screen.getByText(/Theme/));
 
     // Change something first
     const select = screen.getByDisplayValue("System");

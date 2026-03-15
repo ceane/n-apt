@@ -288,8 +288,9 @@ export function useWebGPUInit({
   // Overlay texture renderers are still provided by this hook
   const gridOverlayRendererRef = useRef<OverlayTextureRenderer | null>(null);
   const markersOverlayRendererRef = useRef<OverlayTextureRenderer | null>(null);
-  const overlayDirtyRef = useRef({ grid: true, markers: true });
-  const overlayLastUploadMsRef = useRef({ grid: 0, markers: 0 });
+  const spikesOverlayRendererRef = useRef<OverlayTextureRenderer | null>(null);
+  const overlayDirtyRef = useRef({ grid: true, markers: true, spikes: true });
+  const overlayLastUploadMsRef = useRef({ grid: 0, markers: 0, spikes: 0 });
 
   const initializeResamplePipeline = useCallback(
     async (device: GPUDevice) => {
@@ -450,6 +451,13 @@ export function useWebGPUInit({
       );
       overlayDirtyRef.current.markers = true;
     }
+    if (!spikesOverlayRendererRef.current) {
+      spikesOverlayRendererRef.current = new OverlayTextureRenderer(
+        device,
+        format,
+      );
+      overlayDirtyRef.current.spikes = true;
+    }
   }, [webgpuEnabled]);
 
   return {
@@ -460,6 +468,7 @@ export function useWebGPUInit({
     webgpuFormatRef,
     gridOverlayRendererRef,
     markersOverlayRendererRef,
+    spikesOverlayRendererRef,
     overlayDirtyRef,
     overlayLastUploadMsRef,
     // New optimization systems

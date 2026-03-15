@@ -31,6 +31,8 @@
     "test:wasm": "PATH=$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$PATH sh -lc 'cd test/wasm && wasm-pack test --headless --chrome'",
     "test:rust": "cargo test",
     "test:all": "npm run test && npm run test:rust",
+    "test:iq-capture": "./scripts/run-iq-capture-tests.sh",
+    "test:iq-capture:install": "./scripts/run-iq-capture-tests.sh --install",
     "lint": "oxlint",
     "lint:fix": "oxlint --fix",
     "lint:fix:rust": "cargo fix --bin \"n-apt-backend\" -p n-apt-backend --allow-dirty --allow-no-vcs",

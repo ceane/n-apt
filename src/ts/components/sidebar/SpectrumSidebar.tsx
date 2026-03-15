@@ -357,7 +357,7 @@ export const SpectrumSidebar: React.FC = () => {
   const [captureOpen, setCaptureOpen] = useState(false);
   const showPrompt = usePrompt();
   const [activeCaptureAreas, setActiveCaptureAreas] = useState<string[]>(["Onscreen"]);
-  const [acquisitionMode, setAcquisitionMode] = useState<"stepwise" | "interleaved">("stepwise");
+  const [acquisitionMode, setAcquisitionMode] = useState<"stepwise" | "interleaved" | "whole_sample">("stepwise");
   const [captureDurationS, setCaptureDurationS] = useState(1);
   const [captureFileTypeState, setCaptureFileTypeState] =
     useState<CaptureFileType>(".napt");
@@ -518,21 +518,23 @@ export const SpectrumSidebar: React.FC = () => {
     const fallbackSpan = frequencyRange.max - frequencyRange.min;
     const hardwareMin = activeFrame?.min_mhz ?? frequencyRange.min;
     const hardwareMax = activeFrame?.max_mhz ?? frequencyRange.max;
-    const hardwareSpan = Math.max(
-      0,
-      hardwareMax - hardwareMin || fallbackSpan,
-    );
+    const hardwareSpan =
+      typeof sampleRateMHz === "number" && Number.isFinite(sampleRateMHz)
+        ? Math.min(sampleRateMHz, Math.max(0, hardwareMax - hardwareMin || fallbackSpan))
+        : Math.max(0, hardwareMax - hardwareMin || fallbackSpan);
 
     const safeZoom = Number.isFinite(vizZoom) && vizZoom > 0 ? vizZoom : 1;
     if (safeZoom <= 1 || hardwareSpan <= 0) {
+      const hardwareCenter = (frequencyRange.min + frequencyRange.max) / 2;
+      const halfHardware = hardwareSpan / 2;
       return {
-        min: Math.max(hardwareMin, frequencyRange.min),
-        max: Math.min(hardwareMax, frequencyRange.max),
+        min: Math.max(hardwareMin, hardwareCenter - halfHardware),
+        max: Math.min(hardwareMax, hardwareCenter + halfHardware),
       };
     }
 
     const hardwareCenter = (frequencyRange.min + frequencyRange.max) / 2;
-    const visualSpan = hardwareSpan / safeZoom;
+    const visualSpan = Math.min(hardwareSpan, hardwareSpan / safeZoom);
     const halfVisualSpan = visualSpan / 2;
     const boundedCenter = Math.max(
       hardwareMin + halfVisualSpan,
@@ -601,11 +603,14 @@ export const SpectrumSidebar: React.FC = () => {
         segments: [],
       };
     }
+    if (segments.length === 0) {
+      return { min: 0, max: 0, segments: [] };
+    }
     const mins = segments.map((s) => s.min);
     const maxs = segments.map((s) => s.max);
     return {
-      min: Math.min(...mins, visibleOnscreenRange?.min ?? Infinity),
-      max: Math.max(...maxs, visibleOnscreenRange?.max ?? -Infinity),
+      min: Math.min(...mins),
+      max: Math.max(...maxs),
       segments,
     };
   }, [availableCaptureAreas, activeCaptureAreas, visibleOnscreenRange]);
@@ -636,12 +641,24 @@ export const SpectrumSidebar: React.FC = () => {
       }
     }
 
+    const onscreenIsActive = activeCaptureAreas.includes("Onscreen");
+    const onscreenSpan = visibleOnscreenRange
+      ? visibleOnscreenRange.max - visibleOnscreenRange.min
+      : 0;
+    const hardwareSampleRateMHz = maxSampleRate / 1_000_000;
+    const effectiveAcquisitionMode =
+      onscreenIsActive &&
+        hardwareSampleRateMHz > 0 &&
+        Math.abs(onscreenSpan - hardwareSampleRateMHz) < 0.01
+        ? "whole_sample"
+        : acquisitionMode;
+
     const req: CaptureRequest = {
       jobId: `cap_${Date.now()}`,
       fragments,
       durationS: Math.max(1, Math.round(captureDurationS)),
       fileType: captureFileTypeState,
-      acquisitionMode: acquisitionMode,
+      acquisitionMode: effectiveAcquisitionMode,
       encrypted: captureFileTypeState === ".napt" ? true : captureEncrypted,
       fftSize,
       fftWindow,
@@ -653,10 +670,12 @@ export const SpectrumSidebar: React.FC = () => {
     liveDeviceState,
     isAuthenticated,
     activeFragments,
+    activeCaptureAreas,
     visibleOnscreenRange,
     captureDurationS,
     captureFileTypeState,
     acquisitionMode,
+    maxSampleRate,
     captureEncrypted,
     captureGeolocation,
     fftSize,
@@ -1003,6 +1022,10 @@ export const SpectrumSidebar: React.FC = () => {
             deviceState={liveDeviceState || "disconnected"}
             isConnected={isServerConnected}
             selectedFilesCount={selectedFiles.length}
+            showSpikeOverlay={liveState.showSpikeOverlay}
+            onShowSpikeOverlayChange={(enabled) =>
+              storeDispatch({ type: "SET_SHOW_SPIKE_OVERLAY", enabled })
+            }
           />
 
           <SignalDisplaySection

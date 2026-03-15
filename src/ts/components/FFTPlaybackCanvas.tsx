@@ -1,10 +1,12 @@
-import React, { useEffect, useRef, useMemo, forwardRef } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useMemo, forwardRef } from "react";
 import styled from "styled-components";
 import { FFTCanvas } from "@n-apt/components";
 import type { FFTCanvasHandle } from "@n-apt/components/FFTCanvas";
 import { useStitchingLogic } from "@n-apt/hooks/useStitchingLogic";
 import { usePlaybackAnimation } from "@n-apt/hooks/usePlaybackAnimation";
 import { useChannelManagement } from "@n-apt/hooks/useChannelManagement";
+import { useAppDispatch } from "@n-apt/redux";
+import { setActivePlaybackMetadata, clearActivePlaybackMetadata } from "@n-apt/redux";
 
 interface FFTPlaybackCanvasProps {
   selectedFiles: { name: string; file: File }[];
@@ -128,6 +130,7 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(({
   fftMax,
   onFftDbLimitsChange,
 }, forwardedRef) => {
+  const dispatch = useAppDispatch();
   // ── Custom hooks for separated concerns ──
   const {
     hasStitchedData,
@@ -140,11 +143,9 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(({
     workerFreqMap,
     workerMetadataMap,
     precomputedFrames,
-    maxFrames,
     setChannelCount,
     setActiveChannel,
     setFrequencyRange,
-    setHardwareSampleRateHz,
   } = useStitchingLogic({
     selectedFiles,
     stitchTrigger,
@@ -156,7 +157,6 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(({
   // Refs for data that changes rapidly (no re-render cascades)
   const fileDataCache = useRef<Map<string, number[]>>(new Map());
   const freqMapRef = useRef<Map<string, number>>(new Map());
-  const playbackFrameRef = useRef(0);
   const selectedFilesRef = useRef(selectedFiles);
   selectedFilesRef.current = selectedFiles;
   const isPausedRef = useRef(isPaused);
@@ -187,7 +187,35 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(({
     allChannelsRef,
     setActiveChannel,
     setFrequencyRange,
+    onChannelMetadataChange: (meta) => {
+      dispatch(setActivePlaybackMetadata(meta));
+    },
   });
+
+  useLayoutEffect(() => {
+    const ch = allChannelsRef.current[activeChannel];
+    if (!ch) return;
+    const activeRange =
+      Array.isArray(ch.frequency_range) &&
+        ch.frequency_range.length === 2 &&
+        Number.isFinite(ch.frequency_range[0]) &&
+        Number.isFinite(ch.frequency_range[1])
+        ? ch.frequency_range
+        : undefined;
+    dispatch(setActivePlaybackMetadata({
+      activeChannel,
+      channelCount,
+      center_frequency_hz: activeRange
+        ? ((activeRange[0] + activeRange[1]) / 2) * 1_000_000
+        : ch.center_freq_hz,
+      capture_sample_rate_hz: activeRange
+        ? (activeRange[1] - activeRange[0]) * 1_000_000
+        : ch.sample_rate_hz,
+      frame_rate: ch.frame_rate,
+      hardware_sample_rate_hz: ch.hardware_sample_rate_hz ?? hardwareSampleRateHz,
+      frequency_range: activeRange,
+    }));
+  }, [activeChannel, channelCount, hardwareSampleRateHz, allChannelsRef, dispatch]);
 
   // ── Clear when file selection actually changes ──
   const fileNamesSet = useMemo(() =>
@@ -203,10 +231,11 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(({
     fftCanvasDataRef.current = null;
     setChannelCount(0);
     setActiveChannel(0);
+    dispatch(clearActivePlaybackMetadata());
     fileDataCache.current.clear();
     freqMapRef.current.clear();
     allChannelsRef.current = [];
-  }, [fileNamesSet, setChannelCount, setActiveChannel]);
+  }, [fileNamesSet, setChannelCount, setActiveChannel, dispatch]);
 
   // ── Cleanup worker data on unmount ──
   useEffect(() => {
@@ -218,8 +247,9 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(({
       fileDataCache.current.clear();
       freqMapRef.current.clear();
       allChannelsRef.current = [];
+      dispatch(clearActivePlaybackMetadata());
     };
-  }, []);
+  }, [dispatch]);
 
   return (
     <StitcherContainer>
@@ -229,7 +259,6 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(({
             ref={forwardedRef}
             dataRef={fftCanvasDataRef}
             frequencyRange={frequencyRange}
-            fullCaptureRange={frequencyRange}
             centerFrequencyMHz={(frequencyRange.min + frequencyRange.max) / 2}
             activeSignalArea="Stitched"
             isPaused={isPaused}
@@ -243,6 +272,7 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(({
             onFftDbLimitsChange={onFftDbLimitsChange}
             hardwareSampleRateHz={hardwareSampleRateHz}
             isIqRecordingActive={true}
+            fftFrameRate={allChannelsRef.current[activeChannel]?.frame_rate}
           />
           <ChannelSelector
             channelCount={channelCount}

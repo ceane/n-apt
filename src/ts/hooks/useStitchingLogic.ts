@@ -8,6 +8,7 @@ interface UseStitchingLogicProps {
   stitchSourceSettings: { gain: number; ppm: number };
   fftSize: number;
   onStitchStatus?: (status: string) => void;
+  sampleRateOptions?: { maxSampleRateHz: number; currentSampleRateHz: number };
 }
 
 interface StitchingResult {
@@ -35,6 +36,7 @@ export const useStitchingLogic = ({
   stitchSourceSettings,
   fftSize,
   onStitchStatus,
+  sampleRateOptions,
 }: UseStitchingLogicProps): StitchingResult => {
   const { aesKey } = useAuthentication();
   const aesKeyRef = useRef(aesKey);
@@ -123,6 +125,7 @@ export const useStitchingLogic = ({
           );
         },
         aesKeyRef.current,
+        sampleRateOptions, // Pass dynamic sample rate options
       );
 
       if (!result.stitchedData) {
@@ -151,11 +154,30 @@ export const useStitchingLogic = ({
       setChannelCount(channels.length);
       setActiveChannel(0);
 
-      // Set frequency range from the first channel/file
-      if (channels.length > 0) {
-        const ch = channels[0];
-        const span = (ch.sample_rate_hz || 3200000) / 1_000_000;
-        const center = (ch.center_freq_hz || 0) / 1_000_000;
+      // Prefer the first stitched channel's requested range on initial render.
+      // This avoids briefly showing the file-wide multi-channel span before the
+      // active-channel metadata catches up.
+      const firstChannel = channels.length > 0 ? channels[0] : null;
+      const firstChannelRange =
+        Array.isArray(firstChannel?.frequency_range) &&
+        firstChannel.frequency_range.length === 2 &&
+        Number.isFinite(firstChannel.frequency_range[0]) &&
+        Number.isFinite(firstChannel.frequency_range[1])
+          ? firstChannel.frequency_range
+          : null;
+      const requestedRange = firstFileMeta?.frequency_range;
+      if (firstChannelRange) {
+        setFrequencyRange({ min: firstChannelRange[0], max: firstChannelRange[1] });
+      } else if (
+        Array.isArray(requestedRange) &&
+        requestedRange.length === 2 &&
+        Number.isFinite(requestedRange[0]) &&
+        Number.isFinite(requestedRange[1])
+      ) {
+        setFrequencyRange({ min: requestedRange[0], max: requestedRange[1] });
+      } else if (firstChannel) {
+        const span = (firstChannel.sample_rate_hz || 3200000) / 1_000_000;
+        const center = (firstChannel.center_freq_hz || 0) / 1_000_000;
         setFrequencyRange({ min: center - span / 2, max: center + span / 2 });
       } else if (result.range) {
         setFrequencyRange(result.range);

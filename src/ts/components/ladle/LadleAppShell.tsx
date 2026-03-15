@@ -94,7 +94,7 @@ const LocationSync = () => {
   const location = useLocation();
   const linkTo = useLink();
   const { globalState } = useLadleContext();
-  
+
   React.useEffect(() => {
     const targetStory = tabToStory(location.pathname);
     if (globalState.story !== targetStory) {
@@ -212,7 +212,7 @@ const ContentPanel = ({ title, children }: { title: string; children: React.Reac
 export const LadleAppShell = ({ children, route, title = "N-APT Shell" }: LadleAppShellProps) => {
   const { globalState } = useLadleContext();
   const storyId = globalState.story || "";
-  
+
   const [isSidebarOpen, setIsSidebarOpen] = React.useState(() => {
     const saved = localStorage.getItem("n-apt-sidebar-open");
     return saved === null ? true : saved === "true";
@@ -226,14 +226,14 @@ export const LadleAppShell = ({ children, route, title = "N-APT Shell" }: LadleA
   // Use the provided route prop if present, otherwise infer from story ID
   const activeRoute = route || (
     storyId.includes("draw") ? "/draw-signal" :
-    storyId.includes("demod") ? "/demodulate" :
-    (storyId.includes("3d-model") || storyId.includes("human-model")) ? "/3d-model" :
-    storyId.includes("map") ? "/map-endpoints" :
-    "/visualizer"
+      storyId.includes("demod") ? "/demodulate" :
+        (storyId.includes("3d-model") || storyId.includes("human-model")) ? "/3d-model" :
+          storyId.includes("map") ? "/map-endpoints" :
+            "/visualizer"
   );
 
   return (
-    <MainLayout 
+    <MainLayout
       sidebar={<SidebarShell activeTab={routeToTab(activeRoute)} />}
       isSidebarOpen={isSidebarOpen}
       onSidebarOpenChange={handleSidebarChange}
