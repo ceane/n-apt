@@ -102,9 +102,9 @@ impl MockSignalGenerator {
 
         // Convert to u8 range
         frame[i * 2] =
-          ((i_sample * 127.0) + 128.0).round().clamp(0.0, 255.0) as u8;
+          ((i_sample * 128.0) + 128.0).round().clamp(0.0, 255.0) as u8;
         frame[i * 2 + 1] =
-          ((q_sample * 127.0) + 128.0).round().clamp(0.0, 255.0) as u8;
+          ((q_sample * 128.0) + 128.0).round().clamp(0.0, 255.0) as u8;
       }
     }
 
@@ -363,9 +363,9 @@ impl MockSignalGenerator {
 
         // Convert to u8 [0, 255]
         #[cfg(target_arch = "aarch64")]
-        let v_127 = vdupq_n_f32(127.0);
+        let v_128_mult = vdupq_n_f32(128.0);
         #[cfg(target_arch = "wasm32")]
-        let v_127 = f32x4(127.0, 127.0, 127.0, 127.0);
+        let v_128_mult = f32x4(128.0, 128.0, 128.0, 128.0);
 
         #[cfg(target_arch = "aarch64")]
         let v_128 = vdupq_n_f32(128.0);
@@ -374,8 +374,8 @@ impl MockSignalGenerator {
 
         #[cfg(target_arch = "aarch64")]
         {
-          let i_u32 = vcvtnq_u32_f32(vaddq_f32(vmulq_f32(i_f, v_127), v_128));
-          let q_u32 = vcvtnq_u32_f32(vaddq_f32(vmulq_f32(q_f, v_127), v_128));
+          let i_u32 = vcvtnq_u32_f32(vaddq_f32(vmulq_f32(i_f, v_128_mult), v_128));
+          let q_u32 = vcvtnq_u32_f32(vaddq_f32(vmulq_f32(q_f, v_128_mult), v_128));
 
           frame[i * 2] = vgetq_lane_u32(i_u32, 0) as u8;
           frame[i * 2 + 1] = vgetq_lane_u32(q_u32, 0) as u8;
@@ -388,8 +388,8 @@ impl MockSignalGenerator {
         }
         #[cfg(target_arch = "wasm32")]
         {
-          let i_val = f32x4_add(f32x4_mul(i_f, v_127), v_128);
-          let q_val = f32x4_add(f32x4_mul(q_f, v_127), v_128);
+          let i_val = f32x4_add(f32x4_mul(i_f, v_128_mult), v_128);
+          let q_val = f32x4_add(f32x4_mul(q_f, v_128_mult), v_128);
           let i_u32 = u32x4_trunc_sat_f32x4(i_val);
           let q_u32 = u32x4_trunc_sat_f32x4(q_val);
 
@@ -416,9 +416,9 @@ impl MockSignalGenerator {
           fft_size,
         );
         frame[i * 2] =
-          ((i_sample * 127.0) + 128.0).round().clamp(0.0, 255.0) as u8;
+          ((i_sample * 128.0) + 128.0).round().clamp(0.0, 255.0) as u8;
         frame[i * 2 + 1] =
-          ((q_sample * 127.0) + 128.0).round().clamp(0.0, 255.0) as u8;
+          ((q_sample * 128.0) + 128.0).round().clamp(0.0, 255.0) as u8;
       }
     }
   }

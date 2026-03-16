@@ -109,6 +109,17 @@ impl WindowFunctions {
       WindowType::Rectangular | WindowType::None => Self::rectangular(fft_size),
     }
   }
+
+  /// Get the sum of window coefficients (Coherent Power Gain factor)
+  pub fn get_window_sum(window_type: WindowType, fft_size: usize) -> f32 {
+    match window_type {
+      WindowType::Rectangular | WindowType::None => fft_size as f32,
+      WindowType::Hanning => fft_size as f32 * 0.5,
+      WindowType::Hamming => fft_size as f32 * 0.54,
+      WindowType::Blackman => fft_size as f32 * 0.42,
+      WindowType::Nuttall => fft_size as f32 * 0.355768,
+    }
+  }
 }
 
 /// Common power spectrum calculation utilities
@@ -119,14 +130,14 @@ impl PowerSpectrum {
   pub fn to_power_spectrum_db(
     complex_buffer: &[Complex<f32>],
     output: &mut [f32],
+    window_type: WindowType,
   ) {
-    let n = complex_buffer.len() as f32;
-    // Normalize power exactly identically to how standard processor does it:
-    let inv_norm = 1.0 / (n * n);
+    let n = complex_buffer.len();
+    let window_sum = WindowFunctions::get_window_sum(window_type, n);
+    // Normalize power by coherent power gain (sum of window coefficients squared):
+    let inv_norm = 1.0 / (window_sum * window_sum);
 
     // We split complex_buffer into real and imaginary arrays to allow SIMD processing.
-    // In a future refactor, complex_buffer should ideally be pre-split (Structure of Arrays)
-    // to avoid this copy pass, but this is still faster than doing scalar log10/magnitude.
     let len = complex_buffer.len().min(output.len());
     let mut re = vec![0.0; len];
     let mut im = vec![0.0; len];

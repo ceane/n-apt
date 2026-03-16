@@ -103,8 +103,8 @@ impl SharedState {
       device_profile: Mutex::new(DeviceProfile {
         kind: "mock_apt".to_string(),
         is_rtl_sdr: false,
-        supports_approx_dbm: false,
-        supports_raw_iq_stream: false,
+        supports_approx_dbm: true,
+        supports_raw_iq_stream: true,
       }),
       device_loading: Mutex::new(false),
       device_loading_reason: Mutex::new(None),

@@ -131,9 +131,12 @@ interface SnapshotControlsSectionProps {
   snapshotShowStats: boolean;
   snapshotFormat: "png" | "svg";
   snapshotGridPreference: boolean;
+  snapshotShowGeolocation: boolean;
+  snapshotGeolocationError: string | null;
   onSnapshotWholeChange: (value: boolean) => void;
   onSnapshotShowWaterfallChange: (value: boolean) => void;
   onSnapshotShowStatsChange: (value: boolean) => void;
+  onSnapshotShowGeolocationChange: (value: boolean) => void;
   onSnapshotFormatChange: (value: "png" | "svg") => void;
   onSnapshotGridPreferenceChange: (value: boolean) => void;
   onSnapshot: () => void;
@@ -149,9 +152,12 @@ export const SnapshotControlsSection: React.FC<
   snapshotShowStats,
   snapshotFormat,
   snapshotGridPreference,
+  snapshotShowGeolocation,
+  snapshotGeolocationError,
   onSnapshotWholeChange,
   onSnapshotShowWaterfallChange,
   onSnapshotShowStatsChange,
+  onSnapshotShowGeolocationChange,
   onSnapshotFormatChange,
   onSnapshotGridPreferenceChange,
   onSnapshot,
@@ -175,7 +181,7 @@ export const SnapshotControlsSection: React.FC<
                 style={{ minWidth: "120px" }}
               >
                 <option value="onscreen">On screen</option>
-                <option value="whole">Whole</option>
+                <option value="whole">Whole Channel</option>
               </SettingSelect>
             </Row>
 
@@ -215,6 +221,27 @@ export const SnapshotControlsSection: React.FC<
                 <ToggleSwitchSlider />
               </ToggleSwitch>
             </Row>
+
+            <div style={{ display: 'contents', opacity: (snapshotShowStats && !snapshotGeolocationError) ? 1 : 0.5 }}>
+              <Row label="Geolocation">
+                <ToggleSwitch>
+                  <ToggleSwitchInput
+                    type="checkbox"
+                    checked={snapshotShowGeolocation && snapshotShowStats && !snapshotGeolocationError}
+                    disabled={!snapshotShowStats || !!snapshotGeolocationError}
+                    onChange={(e) => onSnapshotShowGeolocationChange(e.target.checked)}
+                  />
+                  <ToggleSwitchSlider />
+                </ToggleSwitch>
+              </Row>
+              {snapshotGeolocationError && (
+                <Row label="">
+                  <div style={{ color: '#ff4d4d', fontSize: '10px', marginTop: '-4px', gridColumn: '2' }}>
+                    {snapshotGeolocationError}
+                  </div>
+                </Row>
+              )}
+            </div>
 
             <Row label="Format">
               <SettingSelect

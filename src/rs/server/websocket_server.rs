@@ -115,8 +115,8 @@ fn build_device_profile(is_mock: bool) -> DeviceProfile {
     DeviceProfile {
       kind: "mock_apt".to_string(),
       is_rtl_sdr: false,
-      supports_approx_dbm: false,
-      supports_raw_iq_stream: false,
+      supports_approx_dbm: true,
+      supports_raw_iq_stream: true,
     }
   } else {
     DeviceProfile {
@@ -760,7 +760,7 @@ impl WebSocketServer {
               
               SpectrumData {
                 message_type: "spectrum".to_string(),
-                waveform: vec![0.0; raw_iq.len() / 2], // Placeholder for compatibility
+                waveform: waveform.clone(),
                 is_mock_apt,
                 center_frequency_hz: Some(center_frequency),
                 waveform_span_mhz: None,

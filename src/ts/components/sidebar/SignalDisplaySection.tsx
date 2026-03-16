@@ -78,7 +78,8 @@ const SettingInput = styled.input`
   font-size: 12px;
   font-weight: 500;
   padding: 4px 6px;
-  width: 70px;
+  width: 100%;
+  max-width: 80px;
   text-align: right;
   box-sizing: border-box;
   max-width: 100%;
@@ -109,7 +110,9 @@ const UnitLabel = styled.span`
 `;
 
 const WideSettingSelect = styled(SettingSelect)`
-  min-width: 120px;
+  min-width: 100px;
+  width: 100%;
+  text-align-last: right;
 `;
 
 interface SignalDisplaySectionProps {
@@ -341,7 +344,7 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
             }}
           >
             <option value="dB">dB (relative)</option>
-            <option value="dBm">Approximated dBm</option>
+            <option value="dBm">dBm (approximate)</option>
           </WideSettingSelect>
         </Row>
       )}

@@ -37,6 +37,7 @@ export const InitializingContainer = styled.div`
   background-color: #0a0a0a;
   padding: 40px;
   gap: 32px;
+  min-height: 100vh;
 `;
 
 export const InitializingTitle = styled.h2`

@@ -102,11 +102,18 @@ export type SpectrumState = {
   fftMaxDb: number;
   fftSize: number;
   fftWindow: string;
+  showSpikeOverlay: boolean;
   gain: number;
   ppm: number;
   tunerAGC: boolean;
   rtlAGC: boolean;
   sampleRateHz: number;
+  heterodyningVerifyRequestId: number;
+  heterodyningStatusText: string;
+  heterodyningVerifyDisabled: boolean;
+  heterodyningDetected: boolean;
+  heterodyningConfidence: number | null;
+  heterodyningHighlightedBins: Array<{ start: number; end: number }>;
   lastKnownRanges: Record<string, { min: number; max: number }>;
   diagnosticStatus: string;
   isDiagnosticRunning: boolean;
@@ -153,8 +160,18 @@ export type SpectrumAction =
   | { type: "SET_VIZ_ZOOM"; zoom: number }
   | { type: "SET_VIZ_PAN"; pan: number }
   | { type: "SET_FFT_DB_LIMITS"; min: number; max: number }
+  | { type: "SET_SHOW_SPIKE_OVERLAY"; enabled: boolean }
   | { type: "SET_SAMPLE_RATE"; sampleRateHz: number }
   | { type: "SET_SDR_SETTINGS_BUNDLE"; settings: Partial<SpectrumState> }
+  | { type: "REQUEST_HETERODYNING_VERIFY" }
+  | { type: "SET_HETERODYNING_VERIFY_DISABLED"; disabled: boolean }
+  | {
+    type: "SET_HETERODYNING_RESULT";
+    detected: boolean;
+    confidence: number | null;
+    statusText: string;
+    highlightedBins: Array<{ start: number; end: number }>;
+  }
   | { type: "RESET_ZOOM_AND_DB" }
   | { type: "RESET_DRAW_PARAMS" }
   | { type: "RESET_LIVE_CONTROLS"; fftSize?: number; fftFrameRate?: number }
@@ -204,11 +221,18 @@ export const INITIAL_SPECTRUM_STATE: SpectrumState = {
   fftMaxDb: 0,
   fftSize: 32768,
   fftWindow: "Rectangular",
+  showSpikeOverlay: false,
   gain: 10,
   ppm: 0,
   tunerAGC: false,
   rtlAGC: false,
   sampleRateHz: 3_200_000,
+  heterodyningVerifyRequestId: 0,
+  heterodyningStatusText: "Idle",
+  heterodyningVerifyDisabled: false,
+  heterodyningDetected: false,
+  heterodyningConfidence: null,
+  heterodyningHighlightedBins: [],
   lastKnownRanges: {},
   diagnosticStatus: "Ready",
   isDiagnosticRunning: false,
@@ -378,10 +402,42 @@ export function spectrumReducer(
       return { ...state, vizPanOffset: action.pan };
     case "SET_FFT_DB_LIMITS":
       return { ...state, fftMinDb: Math.round(action.min), fftMaxDb: Math.round(action.max) };
+    case "SET_SHOW_SPIKE_OVERLAY":
+      return { ...state, showSpikeOverlay: action.enabled };
     case "SET_SAMPLE_RATE":
       return { ...state, sampleRateHz: action.sampleRateHz };
     case "SET_SDR_SETTINGS_BUNDLE":
       return { ...state, ...action.settings };
+    case "REQUEST_HETERODYNING_VERIFY":
+      return {
+        ...state,
+        heterodyningVerifyRequestId: state.heterodyningVerifyRequestId + 1,
+        heterodyningStatusText: "Scanning…",
+        heterodyningConfidence: null,
+        heterodyningDetected: false,
+        heterodyningHighlightedBins: [],
+      };
+    case "SET_HETERODYNING_VERIFY_DISABLED":
+      return {
+        ...state,
+        heterodyningVerifyDisabled: action.disabled,
+        ...(action.disabled
+          ? {
+            heterodyningStatusText: "Unavailable",
+            heterodyningConfidence: null,
+            heterodyningDetected: false,
+            heterodyningHighlightedBins: [],
+          }
+          : {}),
+      };
+    case "SET_HETERODYNING_RESULT":
+      return {
+        ...state,
+        heterodyningDetected: action.detected,
+        heterodyningConfidence: action.confidence,
+        heterodyningStatusText: action.statusText,
+        heterodyningHighlightedBins: action.highlightedBins,
+      };
     case "RESET_ZOOM_AND_DB": {
       const isDbm = state.powerScale === "dBm";
       return {
@@ -636,7 +692,6 @@ export const SpectrumProvider: React.FC<{ children: React.ReactNode }> = ({
       sampleRateHz,
       sdrSettings,
       dataRef,
-      wsSpectrumFrames,
       captureStatus,
       autoFftOptions,
       error,
@@ -769,10 +824,12 @@ export const SpectrumProvider: React.FC<{ children: React.ReactNode }> = ({
     state.sampleRateHz,
   ]);
 
+  const lastSentPowerScaleRef = useRef<"dB" | "dBm" | null>(null);
   useEffect(() => {
-    if (!isConnected) return;
+    if (!isConnected || lastSentPowerScaleRef.current === state.powerScale) return;
     wsConnection.sendPowerScaleCommand(state.powerScale);
-  }, [isConnected, wsConnection, state.powerScale]);
+    lastSentPowerScaleRef.current = state.powerScale;
+  }, [isConnected, wsConnection.sendPowerScaleCommand, state.powerScale]);
 
   // Revert power scale to dB if not supported by the current device
   useEffect(() => {
@@ -853,8 +910,12 @@ export const SpectrumProvider: React.FC<{ children: React.ReactNode }> = ({
       : primaryFrame.max_mhz;
     const nextRange = { min, max };
 
+    const range = nextRange;
+    if (lastSentFrequencyRangeRef.current?.min === range.min && lastSentFrequencyRangeRef.current?.max === range.max) return;
+
     dispatch({ type: "SET_FREQUENCY_RANGE", range: nextRange });
     wsConnection.sendFrequencyRange(nextRange);
+    lastSentFrequencyRangeRef.current = nextRange;
   }, [
     state.frequencyRange,
     sampleRateMHz,
@@ -887,10 +948,15 @@ export const SpectrumProvider: React.FC<{ children: React.ReactNode }> = ({
     });
   }, [sdrSettings, sampleRateHzEffective, dispatch]);
 
+  const lastSentFrequencyRangeRef = useRef<FrequencyRange | null>(null);
   useEffect(() => {
     if (!isConnected || !state.frequencyRange) return;
-    wsConnection.sendFrequencyRange(state.frequencyRange);
-  }, [isConnected, state.frequencyRange, wsConnection]);
+    const range = state.frequencyRange;
+    if (lastSentFrequencyRangeRef.current?.min === range.min && lastSentFrequencyRangeRef.current?.max === range.max) return;
+    
+    wsConnection.sendFrequencyRange(range);
+    lastSentFrequencyRangeRef.current = range;
+  }, [isConnected, state.frequencyRange, wsConnection.sendFrequencyRange]);
 
   // Screen width detection for auto FFT options
   useEffect(() => {

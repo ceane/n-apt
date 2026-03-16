@@ -30,7 +30,7 @@ export function useDraw3DWaterfallSignal() {
       canvas,
       waveform,
       frequencyRange: _frequencyRange,
-      fftMin = -120,
+      fftMin = -150,
       fftMax = 0,
       maxFrames: maxFramesParam = maxFrames,
       frameSpacing = 10,

@@ -90,8 +90,8 @@ export const VisualizerSliders: React.FC<VisualizerSlidersProps> = ({
 }) => {
   // Calculate appropriate ranges based on power scale
   const isDbm = powerScale === "dBm";
-  const maxDbRange = isDbm ? { min: -80, max: 30 } : { min: -80, max: 0 };
-  const minDbRange = isDbm ? { min: -120, max: -10 } : { min: -120, max: -10 };
+  const maxDbRange = isDbm ? { min: -100, max: 30 } : { min: -150, max: 0 };
+  const minDbRange = isDbm ? { min: -120, max: -10 } : { min: -150, max: -10 };
   const dbUnit = isDbm ? "dBm" : "dB";
   return (
     <SlidersGrid>

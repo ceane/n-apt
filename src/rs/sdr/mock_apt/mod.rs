@@ -576,9 +576,8 @@ impl MockAptDevice {
       let q_f = q_sample.clamp(-1.0, 1.0);
 
       // Convert back to offset binary 8-bit output
-      // Faster conversion for dev builds: skip .round().clamp()
-      let i_u8 = (i_f * 127.0 + 128.5) as u8;
-      let q_u8 = (q_f * 127.0 + 128.5) as u8;
+      let i_u8 = ((i_f * 128.0) + 128.0).clamp(0.0, 255.0) as u8;
+      let q_u8 = ((q_f * 128.0) + 128.0).clamp(0.0, 255.0) as u8;
 
       frame.push(i_u8);
       frame.push(q_u8);

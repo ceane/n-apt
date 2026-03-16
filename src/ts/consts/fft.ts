@@ -5,9 +5,9 @@ export const LINE_COLOR = COLORS.fftLine;
 export const HOLD_COLOR = COLORS.fftHold;
 export const SHADOW_COLOR = COLORS.fftShadow;
 export const FFT_TEXT_COLOR = COLORS.fftText;
-export const FFT_MIN_DB = -120;
-export const FFT_MAX_DB = 30;
-export const DB_MARKERS = [-120, -100, -80, -60, -40, -20, 0, 20, 30];
+export const FFT_MIN_DB = -150;
+export const FFT_MAX_DB = 0;
+export const DB_MARKERS = [-150, -140, -120, -100, -80, -60, -40, -20, 0];
 export const VERTICAL_RANGE = 10.0;
 
 // Frequency ranges for optimal grid display
