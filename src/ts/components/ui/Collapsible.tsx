@@ -17,7 +17,7 @@ export const CollapsibleTitleContainer = styled.button`
 
 export const CollapsibleTitleLabel = styled.span`
   font-size: 11px;
-  color: #555;
+  color: ${(props) => props.theme.metadataLabel || "#555"};
   text-transform: uppercase;
   letter-spacing: 1px;
   font-weight: 600;
@@ -26,7 +26,7 @@ export const CollapsibleTitleLabel = styled.span`
 
 export const CollapsibleTitleToggle = styled.span`
   font-size: 12px;
-  color: #555;
+  color: ${(props) => props.theme.primary || "#555"};
   font-family: "JetBrains Mono", monospace;
   font-weight: 600;
 `;

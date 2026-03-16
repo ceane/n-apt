@@ -315,6 +315,8 @@ impl WebSocketServer {
               fft_size,
               fft_window,
               geolocation,
+              ref_based_demod_baseline,
+              is_ephemeral,
             } => {
               // fft_size is used by the SDR processor for FFT configuration
               info!("[CAPTURE] FFT size: {}", fft_size);
@@ -324,6 +326,8 @@ impl WebSocketServer {
               processor.capture_job_id = Some(job_id.clone());
               processor.capture_duration_s = duration_s;
               processor.capture_file_type = file_type;
+              processor.capture_ref_based_demod_baseline = ref_based_demod_baseline;
+              processor.capture_is_ephemeral = is_ephemeral;
 
               let mode_str = match acquisition_mode.as_str() {
                 "stepwise" => "stepwise_naive".to_string(),
@@ -904,6 +908,20 @@ impl WebSocketServer {
           let bcast = _broadcast_tx.clone();
 
           tokio::task::spawn_blocking(move || {
+            if result.is_ephemeral {
+                info!("Ephemeral capture job {} completed. Skipping persistence.", result.job_id);
+                let msg = serde_json::json!({
+                    "type": "capture_status",
+                    "status": {
+                        "jobId": result.job_id,
+                        "status": "done",
+                        "ephemeral": true
+                    }
+                });
+                let _ = bcast.send(msg.to_string());
+                return;
+            }
+
             match crate::server::utils::save_capture_file_multi(
               &result, &enc_key,
             ) {

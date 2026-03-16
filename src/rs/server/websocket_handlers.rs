@@ -530,6 +530,8 @@ pub fn handle_message(
           .clone()
           .unwrap_or_else(|| "hann".to_string()),
         geolocation: message.geolocation,
+        ref_based_demod_baseline: message.ref_based_demod_baseline,
+        is_ephemeral: message.live_mode.unwrap_or(false),
       };
       log::info!("Client requested capture: {:?}", capture_cmd);
       let _ = cmd_tx.send(capture_cmd);
