@@ -8,6 +8,7 @@ import type {
   CaptureFileType,
   DeviceState,
 } from "@n-apt/hooks/useWebSocket";
+import { Trash2 } from "lucide-react";
 
 const Section = styled.div`
   display: grid;
@@ -336,6 +337,7 @@ interface IQCaptureControlsSectionProps {
   onCapturePlaybackChange: (value: boolean) => void;
   onCaptureGeolocationChange: (value: boolean) => void;
   onCapture: () => void;
+  onClearStatus: () => void;
 }
 
 export const IQCaptureControlsSection: React.FC<
@@ -364,6 +366,7 @@ export const IQCaptureControlsSection: React.FC<
   onCapturePlaybackChange,
   onCaptureGeolocationChange,
   onCapture,
+  onClearStatus,
 }) => {
     const { isAuthenticated, sessionToken } = useAuthentication();
     const {
@@ -572,22 +575,6 @@ export const IQCaptureControlsSection: React.FC<
               <SettingValue>{maxSampleRate / 1000000}MHz</SettingValue>
             </Row>
 
-            {hasOnscreenSelected && (
-              <Row label="Capture mode">
-                <SettingValue style={{ textTransform: "capitalize" }}>
-                  {effectiveAcquisitionMode === "whole_sample" ? "Whole Sample" : effectiveAcquisitionMode}
-                  {hasOnscreenSelected && (
-                    <span style={{ fontSize: "10px", color: "#888", marginLeft: "5px" }}>
-                      {Math.abs(captureRangeSpan - hardwareSampleRateMHz) < 0.01
-                        ? "(Exact Match)"
-                        : captureRangeSpan > hardwareSampleRateMHz
-                          ? "(User Choice)"
-                          : "(TDMS)"}
-                    </span>
-                  )}
-                </SettingValue>
-              </Row>
-            )}
 
             <CaptureActions>
               <CaptureButton
@@ -620,7 +607,27 @@ export const IQCaptureControlsSection: React.FC<
             </CaptureActions>
 
             <StatusDownloadsCard>
-              <InfoCardTitle>Downloads</InfoCardTitle>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <InfoCardTitle>Downloads</InfoCardTitle>
+                <button
+                  onClick={onClearStatus}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: '#666',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    fontSize: '10px',
+                    fontFamily: '"JetBrains Mono", monospace',
+                    padding: '2px 4px',
+                  }}
+                  title="Clear capture status"
+                >
+                  <Trash2 size={12} /> Clear
+                </button>
+              </div>
               {captureStatus?.downloadUrl && isAuthenticated ? (
                 <DownloadCard>
                   <InfoRow>

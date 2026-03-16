@@ -50,7 +50,12 @@ const getLiveInputLabel = (
   backend: string | null,
   deviceName?: string | null,
 ) => {
-  if (deviceName && deviceName.trim().length > 0) return deviceName;
+  // Use device_name directly if available
+  if (deviceName && deviceName.trim().length > 0) {
+    return deviceName.trim();
+  }
+
+  // Fallback to backend-specific names
   if (
     backend === "rtl-sdr" ||
     backend === "rtlsdr" ||
@@ -59,8 +64,10 @@ const getLiveInputLabel = (
   ) {
     return "RTL-SDR";
   }
+
   if (backend?.includes("mock")) return "Mock APT SDR";
-  return backend || "Mock SDR";
+
+  return backend || "Mock APT SDR";
 };
 
 export const SourceInput: React.FC<SourceInputProps> = ({

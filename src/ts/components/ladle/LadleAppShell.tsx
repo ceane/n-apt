@@ -176,6 +176,7 @@ const SidebarShell = ({ activeTab }: { activeTab: string }) => {
       vizZoom={1}
       vizPanOffset={0}
       onVizPanChange={() => { }}
+      onClearCaptureStatus={() => setCaptureStatus(null)}
     />
   );
 };

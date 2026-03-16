@@ -4,7 +4,6 @@ import FrequencyRangeSlider from "@n-apt/components/sidebar/FrequencyRangeSlider
 import { decryptPayloadBytes } from "@n-apt/crypto/webcrypto";
 import { useSdrSettings } from "@n-apt/hooks/useSdrSettings";
 import { useAuthentication } from "@n-apt/hooks/useAuthentication";
-import type { GeolocationData } from "@n-apt/consts/schemas/websocket";
 import type {
   SDRSettings,
   DeviceState,
@@ -15,6 +14,7 @@ import type {
   FrequencyRange,
   SdrSettingsConfig,
 } from "@n-apt/hooks/useWebSocket";
+import { GeolocationData } from "@n-apt/types/geolocation";
 import { buildSdrLimitMarkers } from "@n-apt/utils/sdrLimitMarkers";
 import SourceInput from "@n-apt/components/sidebar/SourceInput";
 
@@ -233,6 +233,7 @@ interface SidebarProps {
   vizZoom?: number;
   vizPanOffset?: number;
   onVizPanChange?: (pan: number) => void;
+  onClearCaptureStatus?: () => void;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({
@@ -277,6 +278,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   vizZoom = 1,
   vizPanOffset = 0,
   onVizPanChange,
+  onClearCaptureStatus,
 }) => {
   const { state, dispatch, wsConnection, cryptoCorrupted, deviceName, deviceProfile } = useSpectrumStore();
   const { isAuthenticated, authState, aesKey, sessionToken } =
@@ -957,6 +959,13 @@ const Sidebar: React.FC<SidebarProps> = ({
               onCapturePlaybackChange={setCapturePlayback}
               onCaptureGeolocationChange={setCaptureGeolocation}
               onCapture={handleCapture}
+              onClearStatus={() => {
+                if (onClearCaptureStatus) {
+                  onClearCaptureStatus();
+                } else {
+                  dispatch({ type: 'SET_SDR_SETTINGS_BUNDLE', settings: { captureStatus: null } as any });
+                }
+              }}
             />
           )}
 

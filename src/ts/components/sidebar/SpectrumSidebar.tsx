@@ -16,6 +16,7 @@ import {
   setSdrSettingsBundle,
   setStitchSourceSettings as setStitchSourceSettingsAction,
   setPaused,
+  setCaptureStatus,
 } from "@n-apt/redux";
 import { setSnapshotGrid as setSettingsSnapshotGrid } from "@n-apt/redux";
 import {
@@ -622,6 +623,9 @@ export const SpectrumSidebar: React.FC = () => {
   const handleCapture = useCallback(async () => {
     if (!isServerConnected || liveDeviceState === "loading" || !isAuthenticated) return;
 
+    // Clear previous capture status before starting new one
+    dispatch(setCaptureStatus(null));
+
     // Default to the overall range if no active fragments
     let fragments = activeFragments;
     if (fragments.length === 0 && visibleOnscreenRange) {
@@ -994,6 +998,7 @@ export const SpectrumSidebar: React.FC = () => {
             onCapturePlaybackChange={setCapturePlayback}
             onCaptureGeolocationChange={setCaptureGeolocation}
             onCapture={handleCapture}
+            onClearStatus={() => dispatch(setCaptureStatus(null))}
           />
 
           <SnapshotControlsSection

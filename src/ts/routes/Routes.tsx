@@ -2,7 +2,7 @@ import React from "react";
 import { Routes, Route } from "react-router-dom";
 import { MainLayout } from "@n-apt/components/MainLayout";
 import { SpectrumSidebar } from "@n-apt/components/sidebar/SpectrumSidebar";
-import { AnalysisSidebar } from "@n-apt/components/sidebar/AnalysisSidebar";
+import { DemodulateSidebar } from "@n-apt/components/sidebar/DemodulateSidebar";
 import { DrawSignalSidebar } from "@n-apt/components/sidebar/DrawSignalSidebar";
 import { MapEndpointsSidebar } from "@n-apt/components/sidebar/MapEndpointsSidebar";
 import { SpectrumRoute } from "./SpectrumRoute";
@@ -13,6 +13,49 @@ import { MapEndpointsRoute } from "./MapEndpointsRoute";
 import { StitchTestRoute } from "./StitchTestRoute";
 import { Model3DProvider } from "@n-apt/hooks/useModel3D";
 import { HotspotEditorProvider } from "@n-apt/hooks/useHotspotEditor";
+
+import { DemodProvider, useDemod } from "@n-apt/contexts/DemodContext";
+
+// Create a wrapper component to manage scanner state
+const DemodRouteWithSidebarContent: React.FC = () => {
+  const { 
+    windowSizeHz, setWindowSizeHz,
+    stepSizeHz, setStepSizeHz,
+    audioThreshold, setAudioThreshold,
+    scanner, currentFreq, scanRange,
+    startScan, stopScan
+  } = useDemod();
+
+  return (
+    <MainLayout
+      sidebar={
+        <DemodulateSidebar
+          windowSizeHz={windowSizeHz}
+          stepSizeHz={stepSizeHz}
+          audioThreshold={audioThreshold}
+          onWindowSizeChange={setWindowSizeHz}
+          onStepSizeChange={setStepSizeHz}
+          onAudioThresholdChange={setAudioThreshold}
+          isScanning={scanner.isScanning}
+          scanProgress={scanner.scanProgress}
+          scanCurrentFreq={currentFreq}
+          scanRange={scanRange}
+          detectedRegions={scanner.detectedRegions.length}
+          onScanStart={startScan}
+          onScanStop={stopScan}
+        />
+      }
+    >
+      <DemodRoute />
+    </MainLayout>
+  );
+};
+
+const DemodRouteWithSidebar: React.FC = () => (
+  <DemodProvider>
+    <DemodRouteWithSidebarContent />
+  </DemodProvider>
+);
 import { SidebarForRoute } from "@n-apt/components/sidebar/SidebarForRoute";
 import { SDRTestSidebar } from "@n-apt/components/sidebar/SDRTestSidebar";
 import { MapLocationsProvider } from "@n-apt/hooks/useMapLocations";
@@ -38,11 +81,7 @@ export const AppRoutes: React.FC = () => {
       />
       <Route
         path="/demodulate"
-        element={
-          <MainLayout sidebar={<AnalysisSidebar />}>
-            <DemodRoute />
-          </MainLayout>
-        }
+        element={<DemodRouteWithSidebar />}
       />
       <Route
         path="/draw-signal"
