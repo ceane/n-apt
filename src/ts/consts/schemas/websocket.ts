@@ -80,6 +80,8 @@ export type CaptureRequest = {
   fftSize: number;
   fftWindow: string;
   geolocation?: GeolocationData;
+  refBasedDemodBaseline?: "audio_hearing" | "audio_internal" | "speech" | "vision";
+  liveMode?: boolean;
 };
 
 export type CaptureStatus = {
@@ -91,6 +93,7 @@ export type CaptureStatus = {
   downloadUrl?: string;
   filename?: string;
   fileCount?: number;
+  ephemeral?: boolean;
 } | null;
 
 export type AutoFftOptionsResponse = {

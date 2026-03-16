@@ -1,29 +1,27 @@
-import React, { useState, useCallback } from "react";
+import React from "react";
 import styled from "styled-components";
-import { AudioPlaybackSection } from "@n-apt/components/AudioPlaybackSection";
-import type { FrequencyRegion, AudioDetectionResult } from "@n-apt/hooks/useFrequencyScanner";
+import { AnalysisTriggers } from "@n-apt/components/analysis/AnalysisTriggers";
+import { VisionScene } from "@n-apt/components/analysis/VisionScene";
+import { useDemod } from "@n-apt/contexts/DemodContext";
 
 const DemodContainer = styled.div`
   flex: 1;
   display: flex;
   flex-direction: column;
-  padding: 20px;
-  gap: 20px;
+  padding: 24px;
+  gap: 24px;
+  overflow-y: auto;
+  max-height: 100%;
+  min-height: 0;
+  box-sizing: border-box;
 `;
-
-
-import { useDemod } from "@n-apt/contexts/DemodContext";
 
 export const DemodRoute: React.FC = () => {
   const {
-    scanner,
-    audioPlayback,
     currentIQData,
     setCurrentIQData,
+    analysisSession,
   } = useDemod();
-
-  const [audioSectionOpen, setAudioSectionOpen] = useState(false);
-  const [selectedRegion, setSelectedRegion] = useState<FrequencyRegion | null>(null);
 
   // Initialize with mock data if none exists
   React.useEffect(() => {
@@ -40,29 +38,13 @@ export const DemodRoute: React.FC = () => {
     }
   }, [currentIQData, setCurrentIQData]);
 
-  const handleRegionSelect = useCallback(async (region: FrequencyRegion): Promise<AudioDetectionResult | null> => {
-    if (!currentIQData) return null;
-    setSelectedRegion(region);
-    return await scanner.demodulateRegion(currentIQData, region);
-  }, [currentIQData, scanner]);
-
   return (
     <DemodContainer>
-      <div style={{ fontSize: "18px", fontWeight: "bold", color: "#00d4ff", marginBottom: "16px" }}>
-        N-APT Audio Demodulation
-      </div>
+      <AnalysisTriggers />
 
-      <AudioPlaybackSection
-        isOpen={audioSectionOpen}
-        onToggle={() => setAudioSectionOpen(!audioSectionOpen)}
-        detectedRegions={scanner.detectedRegions}
-        isScanning={scanner.isScanning}
-        scanProgress={scanner.scanProgress}
-        isPlaying={audioPlayback.isPlaying}
-        audioPlayback={audioPlayback}
-        onRegionSelect={handleRegionSelect}
-        selectedRegion={selectedRegion}
-      />
+      {analysisSession.state === 'capturing' && analysisSession.type === 'vision' && (
+        <VisionScene session={analysisSession} />
+      )}
     </DemodContainer>
   );
 };

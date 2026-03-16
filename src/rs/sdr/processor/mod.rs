@@ -51,6 +51,9 @@ pub struct CaptureResult {
   pub geolocation: Option<crate::server::types::GeolocationData>,
   /// Requested frequency range [min_mhz, max_mhz] from the original capture fragments
   pub frequency_range: Option<(f64, f64)>,
+  /// Reference based demod baseline metadata
+  pub ref_based_demod_baseline: Option<String>,
+  pub is_ephemeral: bool,
 }
 
 /// SDR processor that works with any SDR device implementation
@@ -130,6 +133,10 @@ pub struct SdrProcessor {
   pub capture_overall_span_hz: f64,
   /// Requested frequency range [min_mhz, max_mhz] from original fragments
   pub capture_requested_range: Option<(f64, f64)>,
+  /// Metadata for reference based demod baseline
+  pub capture_ref_based_demod_baseline: Option<String>,
+  /// Whether capture is ephemeral (not persisted to disk)
+  pub capture_is_ephemeral: bool,
   /// Last read gain (dB)
   pub current_gain_db: f64,
   /// Last read PPM
@@ -240,6 +247,8 @@ impl SdrProcessor {
       capture_overall_center_hz: 0.0,
       capture_overall_span_hz: 0.0,
       capture_requested_range: None,
+      capture_ref_based_demod_baseline: None,
+      capture_is_ephemeral: false,
       current_gain_db: -999.0, // Force first update
       current_ppm: -999999,    // Force first update
       current_tuner_agc: false,
@@ -1203,6 +1212,8 @@ impl SdrProcessor {
           overall_capture_sample_rate_hz: self.capture_overall_span_hz,
           geolocation: self.capture_geolocation.clone(),
           frequency_range: self.capture_requested_range,
+          ref_based_demod_baseline: self.capture_ref_based_demod_baseline.take(),
+          is_ephemeral: self.capture_is_ephemeral,
         });
       }
     }

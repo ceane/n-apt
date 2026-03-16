@@ -1419,6 +1419,8 @@ async fn handle_start_capture(
     fft_size,
     fft_window: fft_window.to_string(),
     geolocation: None, // HTTP endpoints don't have geolocation data
+    ref_based_demod_baseline: None,
+    is_ephemeral: false,
   };
 
   if let Err(e) = state.cmd_tx.send(capture_cmd) {

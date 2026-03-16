@@ -237,6 +237,10 @@ pub fn save_capture_file_multi(
     "spectrum_shifted": true,
   });
 
+  if let Some(baseline) = &result.ref_based_demod_baseline {
+    meta_obj["ref_based_demod_baseline"] = serde_json::json!(baseline);
+  }
+
   if let Some((min_mhz, max_mhz)) = result.frequency_range {
     meta_obj["frequency_range"] = serde_json::json!([min_mhz, max_mhz]);
   }
