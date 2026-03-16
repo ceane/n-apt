@@ -444,7 +444,7 @@ export const MapEndpointsRoute: React.FC = () => {
           </LoadingOverlay>
         )}
         {!isLoaded ? (
-          <LoadingOverlay>Loading Engine...</LoadingOverlay>
+          <LoadingOverlay>Loading maps...</LoadingOverlay>
         ) : (
           <GoogleMap
             mapContainerStyle={mapContainerStyle}

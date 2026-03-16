@@ -2,6 +2,8 @@ import React, { useMemo } from "react";
 import styled from "styled-components";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 import { formatFrequency } from "@n-apt/utils/frequency";
+import FrequencyRangeSlider from "@n-apt/components/sidebar/FrequencyRangeSlider";
+import type { FrequencyRange } from "@n-apt/hooks/useWebSocket";
 
 const Container = styled.div`
   display: flex;
@@ -9,13 +11,6 @@ const Container = styled.div`
   gap: 16px;
   grid-column: 1 / -1;
   padding: 8px 0;
-`;
-
-const ChannelList = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  grid-column: 1 / -1;
 `;
 
 const ChannelBlock = styled.button<{ $isActive: boolean }>`
@@ -29,6 +24,8 @@ const ChannelBlock = styled.button<{ $isActive: boolean }>`
   gap: 20px;
   text-align: left;
   transition: opacity 0.2s ease;
+  user-select: none;
+  align-items: center;
 
   &:hover {
     opacity: 0.8;
@@ -36,14 +33,15 @@ const ChannelBlock = styled.button<{ $isActive: boolean }>`
 `;
 
 const ChannelLetter = styled.span<{ $isActive: boolean }>`
-  font-size: 48px;
+  font-size: 36px;
   font-weight: 800;
   color: ${props => props.$isActive ? (props.theme.primary || "#00d4ff") : "#333"};
   line-height: 1;
+  tex
 `;
 
 const ChannelFreq = styled.span<{ $isActive: boolean }>`
-  font-size: 24px;
+  font-size: 18px;
   font-weight: 700;
   font-family: "JetBrains Mono", monospace;
   color: ${props => props.$isActive ? props.theme.primary : "#444"};
@@ -63,7 +61,23 @@ const SampleRateValue = styled.span`
   color: #00d4ff;
 `;
 
-export const Channels: React.FC = () => {
+interface ChannelsProps {
+  isScanning?: boolean;
+  scanProgress?: number;
+  scanCurrentFreq?: number;
+  scanRange?: FrequencyRange;
+  onScanStart?: () => void;
+  onScanStop?: () => void;
+}
+
+export const Channels: React.FC<ChannelsProps> = ({
+  isScanning = false,
+  scanProgress = 0,
+  scanCurrentFreq,
+  scanRange,
+  onScanStart,
+  onScanStop,
+}) => {
   const { state, dispatch, effectiveFrames, sampleRateMHz, wsConnection } = useSpectrumStore();
 
   const channels = useMemo(() => {
@@ -87,12 +101,15 @@ export const Channels: React.FC = () => {
 
   return (
     <Container>
-      <ChannelList>
-        {channels.map(ch => {
-          const isActive = state.activeSignalArea === ch.label;
-          return (
+      {channels.map(ch => {
+        const isActive = state.activeSignalArea === ch.label;
+        const isChannelScanning = isScanning && scanRange &&
+          ch.min_mhz * 1e6 <= (scanRange.max || 0) &&
+          ch.max_mhz * 1e6 >= (scanRange.min || 0);
+
+        return (
+          <React.Fragment key={ch.id}>
             <ChannelBlock
-              key={ch.id}
               $isActive={isActive}
               onClick={() => handleTune(ch)}
             >
@@ -101,9 +118,27 @@ export const Channels: React.FC = () => {
                 {formatFrequency(ch.min_mhz)} - {formatFrequency(ch.max_mhz)}
               </ChannelFreq>
             </ChannelBlock>
-          );
-        })}
-      </ChannelList>
+
+            {/* Show FrequencyRangeSlider only for the active channel */}
+            {isActive && (
+              <FrequencyRangeSlider
+                label=""
+                minFreq={ch.min_mhz}
+                maxFreq={ch.max_mhz}
+                visibleMin={ch.min_mhz}
+                visibleMax={ch.max_mhz}
+                sampleRateMHz={sampleRateMHz}
+                isActive={isActive}
+                onActivate={() => handleTune(ch)}
+                onRangeChange={() => { }}
+                readOnly={isChannelScanning}
+                scanProgress={isChannelScanning ? scanProgress : 0}
+                scanCurrentFreq={isChannelScanning && scanCurrentFreq !== undefined ? scanCurrentFreq : undefined}
+              />
+            )}
+          </React.Fragment>
+        );
+      })}
 
       <SampleRateLabel>
         Hardware sample rate: <SampleRateValue>{sampleRateMHz ? formatFrequency(sampleRateMHz) : "X.X MHz"}</SampleRateValue>

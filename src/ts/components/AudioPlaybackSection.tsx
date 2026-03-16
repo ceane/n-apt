@@ -167,7 +167,6 @@ interface AudioPlaybackSectionProps {
   audioPlayback: AudioPlaybackHandle;
   onRegionSelect: (region: FrequencyRegion) => Promise<AudioDetectionResult | null>;
   selectedRegion: FrequencyRegion | null;
-  onScanStart: () => void;
 }
 
 export const AudioPlaybackSection: React.FC<AudioPlaybackSectionProps> = ({
@@ -180,7 +179,6 @@ export const AudioPlaybackSection: React.FC<AudioPlaybackSectionProps> = ({
   audioPlayback,
   onRegionSelect,
   selectedRegion,
-  onScanStart,
 }) => {
   const handlePlayRegion = async (region: FrequencyRegion) => {
     try {
@@ -240,13 +238,14 @@ export const AudioPlaybackSection: React.FC<AudioPlaybackSectionProps> = ({
       {isOpen && (
         <AudioControlsContainer>
           <ControlRow>
-            <PlaybackButton
-              $playing={isPlaying}
-              $disabled={isScanning || detectedRegions.length === 0}
-              onClick={isPlaying ? handleStopPlayback : onScanStart}
-            >
-              {isScanning ? "Scanning..." : isPlaying ? "Stop" : "Scan for Audio"}
-            </PlaybackButton>
+            {isPlaying && (
+              <PlaybackButton
+                $playing={true}
+                onClick={handleStopPlayback}
+              >
+                Stop Playback
+              </PlaybackButton>
+            )}
             
             {detectedRegions.length > 0 && (
               <ExportButton onClick={handleMixSelected}>

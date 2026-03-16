@@ -3,13 +3,7 @@ import styled from "styled-components";
 import { CollapsibleTitle, CollapsibleBody, Row, usePrompt } from "@n-apt/components/ui";
 import { useMapLocations } from "@n-apt/hooks/useMapLocations";
 import { Autocomplete } from "@react-google-maps/api";
-import { LocalTowersButton } from "@n-apt/components/LocalTowersButton";
 
-const LocalTowersSection = () => (
-  <Row label="Local Towers">
-    <LocalTowersButton />
-  </Row>
-);
 
 const SidebarContainer = styled.div`
   display: grid;
@@ -48,7 +42,6 @@ const SearchInput = styled.input`
   font-family: "JetBrains Mono", monospace;
   width: 100%;
   box-sizing: border-box;
-  grid-column: 1 / -1;
 
   &:focus {
     outline: none;
@@ -264,28 +257,41 @@ export const MapEndpointsSidebar: React.FC = () => {
 
   return (
     <SidebarContainer>
+      <div style={{ gridColumn: "1 / -1", fontSize: "10px", color: "#666", lineHeight: "1.4", marginBottom: "16px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "4px" }}>
+          <span style={{ fontSize: "12px", color: "#888" }}>CC BY-SA</span>
+          <span>Cell Tower Data from <a href="https://opencellid.org/" target="_blank" rel="noopener noreferrer" style={{ color: "#00d4ff", textDecoration: "none" }}>OpenCelliD</a></span>
+        </div>
+        <div style={{ fontSize: "9px", color: "#555" }}>
+          OpenCelliD Project is licensed under a Creative Commons Attribution-ShareAlike 4.0 International License
+        </div>
+      </div>
       <SectionTitle>Locations</SectionTitle>
 
       {isLoaded ? (
-        <Autocomplete
-          onLoad={onAutocompleteLoad}
-          onPlaceChanged={onPlaceChanged}
-          options={{
-            types: ["geocode"],
-            componentRestrictions: { country: "us" }
-          }}
-        >
-          <SearchInput
-            placeholder="Search for a location..."
-            value={searchValue}
-            onChange={(e) => setSearchValue(e.target.value)}
-          />
-        </Autocomplete>
+        <div style={{ gridColumn: "1 / -1" }}>
+          <Autocomplete
+            onLoad={onAutocompleteLoad}
+            onPlaceChanged={onPlaceChanged}
+            options={{
+              types: ["geocode"],
+              componentRestrictions: { country: "us" }
+            }}
+          >
+            <SearchInput
+              placeholder="Search for a location..."
+              value={searchValue}
+              onChange={(e) => setSearchValue(e.target.value)}
+            />
+          </Autocomplete>
+        </div>
       ) : (
-        <SearchInput
-          placeholder="Loading Maps..."
-          disabled
-        />
+        <div style={{ gridColumn: "1 / -1" }}>
+          <SearchInput
+            placeholder="Loading Maps..."
+            disabled
+          />
+        </div>
       )}
 
       {previewLocation && (
@@ -318,7 +324,6 @@ export const MapEndpointsSidebar: React.FC = () => {
         ))}
       </PillGrid>
 
-      <LocalTowersSection />
 
       <CollapsibleTitle
         label="Useful Links /"
@@ -362,15 +367,6 @@ export const MapEndpointsSidebar: React.FC = () => {
       <InfoParagraph>
         There are over 2 million cell sites within the United States
       </InfoParagraph>
-      <div style={{ gridColumn: "1 / -1", marginTop: "12px", fontSize: "10px", color: "#666", borderTop: "1px solid rgba(255,255,255,0.05)", paddingTop: "8px", lineHeight: "1.4" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "4px" }}>
-          <span style={{ fontSize: "12px", color: "#888" }}>CC BY-SA</span>
-          <span>Cell Tower Data from <a href="https://opencellid.org/" target="_blank" rel="noopener noreferrer" style={{ color: "#00d4ff", textDecoration: "none" }}>OpenCelliD</a></span>
-        </div>
-        <div style={{ fontSize: "9px", color: "#555" }}>
-          OpenCelliD Project is licensed under a Creative Commons Attribution-ShareAlike 4.0 International License
-        </div>
-      </div>
     </SidebarContainer>
   );
 };
