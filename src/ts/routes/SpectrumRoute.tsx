@@ -1,6 +1,7 @@
 import React, { useEffect, useCallback, useRef, useMemo } from "react";
 import { FFTCanvas } from "@n-apt/components";
 import type { FFTCanvasHandle } from "@n-apt/components";
+import type { SnapshotData } from "@n-apt/components/FFTCanvas";
 import ClassificationControls from "@n-apt/components/ClassificationControls";
 import FFTPlaybackCanvas from "@n-apt/components/FFTPlaybackCanvas";
 import { useSnapshot } from "@n-apt/hooks/useSnapshot";
@@ -65,6 +66,18 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
     if (deviceState !== "connected" && state.showSpikeOverlay) {
       dispatch({ type: "SET_SHOW_SPIKE_OVERLAY", enabled: false });
     }
+    if (deviceState !== "connected") {
+      dispatch({ type: "SET_HETERODYNING_VERIFY_DISABLED", disabled: true });
+      dispatch({
+        type: "SET_HETERODYNING_RESULT",
+        detected: false,
+        confidence: null,
+        statusText: "Unavailable",
+        highlightedBins: [],
+      });
+    } else {
+      dispatch({ type: "SET_HETERODYNING_VERIFY_DISABLED", disabled: false });
+    }
   }, [deviceState, state.showSpikeOverlay, dispatch]);
 
   const { handleSnapshot: takeSnapshot } = useSnapshot(
@@ -72,9 +85,110 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
     isConnected,
   );
 
+  const captureWholeChannelSegments = useCallback(async () => {
+    const fullRange = state.frequencyRange;
+    const hardwareSpanMHz = sampleRateHzEffective
+      ? sampleRateHzEffective / 1_000_000
+      : null;
+
+    if (
+      !fullRange ||
+      state.sourceMode !== "live" ||
+      !hardwareSpanMHz ||
+      !(hardwareSpanMHz > 0)
+    ) {
+      return [];
+    }
+
+    const area = state.activeSignalArea?.toLowerCase();
+    const channelRange = area ? signalAreaBounds?.[area] ?? fullRange : fullRange;
+    const totalSpan = channelRange.max - channelRange.min;
+    if (!(totalSpan > hardwareSpanMHz + 0.0001)) {
+      return [];
+    }
+
+    const settleMs = 1000;
+    const raf = () =>
+      new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+    const sleep = (ms: number) =>
+      new Promise<void>((resolve) => window.setTimeout(resolve, ms));
+
+    const originalRange = fullRange;
+    const originalPan = state.vizPanOffset;
+    const originalZoom = state.vizZoom;
+    const segments: Array<{
+      data: SnapshotData;
+      visualRange: { min: number; max: number };
+    }> = [];
+
+    try {
+      for (
+        let segmentMin = channelRange.min;
+        segmentMin < channelRange.max - 0.0001;
+        segmentMin += hardwareSpanMHz
+      ) {
+        // Ensure the segment always has the full hardwareSpanMHz
+        // If we reach the end, "slide" back so the segment covers the end boundaries
+        let actualMin = segmentMin;
+        let actualMax = segmentMin + hardwareSpanMHz;
+        
+        if (actualMax > channelRange.max) {
+          actualMax = channelRange.max;
+          actualMin = Math.max(channelRange.min, actualMax - hardwareSpanMHz);
+        }
+
+        const nextRange = {
+          min: actualMin,
+          max: actualMax,
+        };
+
+        dispatch({ type: "SET_FREQUENCY_RANGE", range: nextRange });
+        sendFrequencyRange(nextRange);
+        dispatch({ type: "SET_VIZ_ZOOM", zoom: 1 });
+        dispatch({ type: "SET_VIZ_PAN", pan: 0 });
+        dispatch({ type: "CLEAR_WATERFALL" });
+
+        await raf();
+        await sleep(settleMs);
+        await raf();
+        await raf();
+
+        const data = fftCanvasRef.current?.getSnapshotData();
+        if (data?.waveform?.length) {
+          segments.push({
+            data,
+            visualRange: nextRange,
+          });
+        }
+        
+        // Break if we've reached the end to avoid redundant slides
+        if (actualMax >= channelRange.max - 0.0001) break;
+      }
+    } finally {
+      dispatch({ type: "SET_FREQUENCY_RANGE", range: originalRange });
+      sendFrequencyRange(originalRange);
+      dispatch({ type: "SET_VIZ_ZOOM", zoom: originalZoom });
+      dispatch({ type: "SET_VIZ_PAN", pan: originalPan });
+      await raf();
+    }
+
+    return segments;
+  }, [
+    dispatch,
+    sampleRateHzEffective,
+    sendFrequencyRange,
+    signalAreaBounds,
+    state.activeSignalArea,
+    state.fftFrameRate,
+    state.frequencyRange,
+    state.sourceMode,
+    state.vizPanOffset,
+    state.vizZoom,
+  ]);
+
   // Snapshot listener for sidebar events
   useEffect(() => {
-    const listener = (e: Event) => {
+    const listener = async (e: Event) => {
       const options = (e as CustomEvent).detail;
       let sdrSettingsLabel: string | undefined;
       if (effectiveSdrSettings) {
@@ -93,14 +207,24 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
         sdrSettingsLabel = `Gain: ${gainStr} | PPM: ${ppmStr}`;
       }
 
+      const modeLabel = options.whole ? "Whole Channel" : "Onscreen";
+      const wholeChannelSegments =
+        options.whole && state.sourceMode === "live"
+          ? await captureWholeChannelSegments()
+          : [];
+
       takeSnapshot({
         ...options,
+        modeLabel,
+        wholeChannelSegments,
         showGrid: options.grid ?? state.snapshotGridPreference,
         getSnapshotData: () => fftCanvasRef.current?.getSnapshotData() ?? null,
         signalAreaBounds,
         activeSignalArea: state.activeSignalArea,
         sourceName: deviceName || backend || deviceInfo || undefined,
         sdrSettingsLabel,
+        showGeolocation: options.showGeolocation,
+        geolocation: options.geolocation,
       });
     };
     window.addEventListener("napt-snapshot", listener);
@@ -110,9 +234,11 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
     state.snapshotGridPreference,
     signalAreaBounds,
     state.activeSignalArea,
+    state.sourceMode,
     backend,
     deviceInfo,
     effectiveSdrSettings,
+    captureWholeChannelSegments,
   ]);
 
   const handleTrainingCaptureStart = useCallback(
@@ -216,6 +342,17 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
                 onSnapshot={() => { }}
                 snapshotGridPreference={state.snapshotGridPreference}
                 showSpikeOverlay={state.showSpikeOverlay}
+                heterodyningVerifyRequestId={state.heterodyningVerifyRequestId}
+                heterodyningHighlightedBins={state.heterodyningHighlightedBins}
+                onHeterodyningAnalyzed={(result) =>
+                  dispatch({
+                    type: "SET_HETERODYNING_RESULT",
+                    detected: result.detected,
+                    confidence: result.confidence,
+                    statusText: result.statusText,
+                    highlightedBins: result.highlightedBins,
+                  })
+                }
                 fftFrameRate={state.fftFrameRate}
                 sendGetAutoFftOptions={sendGetAutoFftOptions}
                 isWaterfallCleared={state.isWaterfallCleared}

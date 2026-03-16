@@ -44,6 +44,9 @@ interface SignalFeaturesSectionProps {
   selectedFilesCount: number;
   showSpikeOverlay: boolean;
   onShowSpikeOverlayChange: (enabled: boolean) => void;
+  heterodyningStatusText: string;
+  heterodyningVerifyDisabled: boolean;
+  onVerifyHeterodyning: () => void;
 }
 
 const ClassifyButton = styled.button<{ $disabled?: boolean }>`
@@ -79,6 +82,9 @@ export const SignalFeaturesSection: React.FC<SignalFeaturesSectionProps> = ({
   selectedFilesCount,
   showSpikeOverlay,
   onShowSpikeOverlayChange,
+  heterodyningStatusText,
+  heterodyningVerifyDisabled,
+  onVerifyHeterodyning,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const isFileSource = sourceMode === "file";
@@ -123,8 +129,14 @@ export const SignalFeaturesSection: React.FC<SignalFeaturesSectionProps> = ({
 
           <Row label="Heterodyned?">
             <HeterodyningContainer>
-              No
-              <VerifyButton>Verify</VerifyButton>
+              {heterodyningStatusText}
+              <VerifyButton
+                type="button"
+                disabled={heterodyningVerifyDisabled}
+                onClick={onVerifyHeterodyning}
+              >
+                Verify
+              </VerifyButton>
             </HeterodyningContainer>
           </Row>
 

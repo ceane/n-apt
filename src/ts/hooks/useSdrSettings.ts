@@ -171,6 +171,7 @@ export const useSdrSettings = ({
 
   const stateRef = useRef(state);
   const onSettingsChangeRef = useRef(onSettingsChange);
+  const appliedConfigSignatureRef = useRef<string | null>(null);
 
   useEffect(() => {
     stateRef.current = state;
@@ -348,24 +349,39 @@ export const useSdrSettings = ({
     };
   }, []);
 
-  // Initialize settings from sdrSettings if not already set
+  // Initialize settings from sdrSettings when backend defaults change.
+  // Do not reapply on local state updates, or user changes will be overwritten.
   useEffect(() => {
-    if (sdrSettings?.fft?.default_size && state.fftSize !== sdrSettings.fft.default_size) {
+    const configSignature = JSON.stringify({
+      fftDefaultSize: sdrSettings?.fft?.default_size ?? null,
+      tunerGain: sdrSettings?.gain?.tuner_gain ?? null,
+      ppm: sdrSettings?.ppm ?? null,
+      rtlAgc: sdrSettings?.gain?.rtl_agc ?? null,
+      tunerAgc: sdrSettings?.gain?.tuner_agc ?? null,
+    });
+
+    if (appliedConfigSignatureRef.current === configSignature) {
+      return;
+    }
+
+    appliedConfigSignatureRef.current = configSignature;
+
+    if (sdrSettings?.fft?.default_size) {
       setFftSize(sdrSettings.fft.default_size);
     }
-    if (sdrSettings?.gain?.tuner_gain && state.gain !== sdrSettings.gain.tuner_gain) {
+    if (sdrSettings?.gain?.tuner_gain) {
       setGain(sdrSettings.gain.tuner_gain);
     }
-    if (sdrSettings?.ppm !== undefined && state.ppm !== sdrSettings.ppm) {
+    if (sdrSettings?.ppm !== undefined) {
       setPpm(sdrSettings.ppm);
     }
-    if (sdrSettings?.gain?.rtl_agc !== undefined && state.rtlAGC !== sdrSettings.gain.rtl_agc) {
+    if (sdrSettings?.gain?.rtl_agc !== undefined) {
       setRtlAGC(sdrSettings.gain.rtl_agc);
     }
-    if (sdrSettings?.gain?.tuner_agc !== undefined && state.tunerAGC !== sdrSettings.gain.tuner_agc) {
+    if (sdrSettings?.gain?.tuner_agc !== undefined) {
       setTunerAGC(sdrSettings.gain.tuner_agc);
     }
-  }, [sdrSettings, state.fftSize, state.gain, state.ppm, state.rtlAGC, state.tunerAGC, setFftSize, setGain, setPpm, setRtlAGC, setTunerAGC]);
+  }, [sdrSettings, setFftSize, setGain, setPpm, setRtlAGC, setTunerAGC]);
 
   useEffect(() => {
     if (!maxFrameRate) return;

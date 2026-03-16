@@ -423,8 +423,8 @@ impl FFTProcessor {
       }
       
       // Convert from offset binary u8 to float (-1.0 to 1.0)
-      let i_f = (chunk[0] as f32 - 128.0) / 127.0;
-      let q_f = (chunk[1] as f32 - 128.0) / 127.0;
+      let i_f = (chunk[0] as f32 - 128.0) / 128.0;
+      let q_f = (chunk[1] as f32 - 128.0) / 128.0;
       
       complex_samples.push(Complex::new(i_f, q_f));
     }
@@ -570,8 +570,8 @@ impl FFTProcessor {
     
     for chunk in iq_data.chunks_exact(2) {
       // Convert from offset binary u8 to float (-1.0 to 1.0)
-      let i_f = (chunk[0] as f32 - 128.0) / 127.0;
-      let q_f = (chunk[1] as f32 - 128.0) / 127.0;
+      let i_f = (chunk[0] as f32 - 128.0) / 128.0;
+      let q_f = (chunk[1] as f32 - 128.0) / 128.0;
       complex_samples.push(Complex::new(i_f, q_f));
     }
     
@@ -1286,14 +1286,28 @@ impl FFTProcessor {
     // Perform FFT
     self.fft.process(&mut buf);
 
-    // Calculate power spectrum with proper normalization
+    // Calculate power spectrum with proper normalization for true dBFS
+    // We normalize by the sum of window coefficients (Coherent Power Gain compensation)
     let mut power = Vec::with_capacity(self.config.fft_size);
-    let norm = (self.config.fft_size as f32) * (self.config.fft_size as f32);
+    
+    // Calculate window sum for normalization
+    let window_sum = match self.config.window_type {
+      WindowType::Rectangular => self.config.fft_size as f32,
+      WindowType::Hanning => self.config.fft_size as f32 * 0.5,
+      WindowType::Hamming => self.config.fft_size as f32 * 0.54,
+      WindowType::Blackman => self.config.fft_size as f32 * 0.42,
+      WindowType::Nuttall => self.config.fft_size as f32 * 0.355768,
+      WindowType::None => self.config.fft_size as f32,
+    };
+
+    let norm_sq = window_sum * window_sum;
+    let epsilon = 1e-15; // Support down to -150dB
+
     for c in &buf {
-      let mag = c.norm_sqr() / norm;
-      // Convert to dB and clamp to reasonable range (-120dB to 0dB)
-      let db_value = 10.0 * mag.log10().max(-120.0);
-      power.push(db_value.min(0.0)); // Clamp to 0dB maximum
+      let mag_sq = c.norm_sqr() / norm_sq;
+      // Convert to dB and clamp to reasonable range (-150dB to 0dB)
+      let db_value = 10.0 * (mag_sq + epsilon).log10();
+      power.push(db_value.clamp(-150.0, 0.0));
     }
 
     // Shift FFT: Move DC to the center

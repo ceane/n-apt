@@ -116,7 +116,7 @@ impl SIMDProcessor for NativeProcessor {
     self.fft.process(&mut buf);
 
     // Convert to power spectrum using common function
-    PowerSpectrum::to_power_spectrum_db(&buf, output);
+    PowerSpectrum::to_power_spectrum_db(&buf, output, self.window_type);
 
     // Apply FFT Shift: convert [DC..+Nyq, -Nyq..-1] to [-Nyq..-1, DC..+Nyq]
     let half = self.fft_size / 2;

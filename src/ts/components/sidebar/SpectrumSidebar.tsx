@@ -29,8 +29,8 @@ import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 import type {
   CaptureRequest,
   CaptureFileType,
-  GeolocationData,
 } from "@n-apt/consts/schemas/websocket";
+import { GeolocationData } from "@n-apt/types/geolocation";
 import { SignalDisplaySection } from "@n-apt/components/sidebar/SignalDisplaySection";
 import { IQCaptureControlsSection } from "@n-apt/components/sidebar/IQCaptureControlsSection";
 import { SnapshotControlsSection } from "@n-apt/components/sidebar/SnapshotControlsSection";
@@ -370,6 +370,9 @@ export const SpectrumSidebar: React.FC = () => {
   const [snapshotWhole, setSnapshotWhole] = useState(false);
   const [snapshotShowWaterfall, setSnapshotShowWaterfall] = useState(false);
   const [snapshotShowStats, setSnapshotShowStats] = useState(true);
+  const [snapshotShowGeolocation, setSnapshotShowGeolocation] = useState(false);
+  const [snapshotGeolocationError, setSnapshotGeolocationError] = useState<string | null>(null);
+  const [snapshotGeolocationPosition, setSnapshotGeolocationPosition] = useState<{lat: string, lon: string} | null>(null);
   const [snapshotFormat, setSnapshotFormat] = useState<"png" | "svg">("png");
 
   // NAPT metadata state
@@ -691,12 +694,60 @@ export const SpectrumSidebar: React.FC = () => {
           whole: snapshotWhole,
           showWaterfall: snapshotShowWaterfall,
           showStats: snapshotShowStats,
+          showGeolocation: snapshotShowGeolocation && snapshotShowStats,
+          geolocation: snapshotGeolocationPosition,
           format: snapshotFormat,
           grid: snapshotGridPreference,
         },
       }),
     );
   };
+
+  const handleSnapshotGeolocationToggle = useCallback((enabled: boolean) => {
+    if (!enabled) {
+      setSnapshotShowGeolocation(false);
+      setSnapshotGeolocationError(null);
+      return;
+    }
+
+    // Pre-flight check
+    if (!navigator.geolocation) {
+      setSnapshotGeolocationError("Not supported by browser");
+      return;
+    }
+
+    setSnapshotShowGeolocation(true);
+    setSnapshotGeolocationError(null);
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        // Success - we have permission and it works
+        setSnapshotGeolocationPosition({
+          lat: pos.coords.latitude.toFixed(6),
+          lon: pos.coords.longitude.toFixed(6)
+        });
+        setSnapshotGeolocationError(null);
+      },
+      (err) => {
+        // Map specific technical errors to user-friendly messages
+        let msg = err.message || "Permission denied";
+        if (msg.includes("kCLErrorLocationUnknown")) {
+          msg = "Location currently unavailable (System error)";
+        } else if (err.code === 1) {
+          msg = "Permission denied (User blocked)";
+        } else if (err.code === 2) {
+          msg = "Position unavailable (Check GPS/Network)";
+        } else if (err.code === 3) {
+          msg = "Timeout fetching location";
+        }
+        
+        setSnapshotGeolocationError(msg);
+        setSnapshotShowGeolocation(false);
+        setSnapshotGeolocationPosition(null);
+      },
+      { timeout: 8000, maximumAge: 60000, enableHighAccuracy: false }
+    );
+  }, []);
 
   // NAPT/WAV Metadata Effect
   useEffect(() => {
@@ -951,11 +1002,14 @@ export const SpectrumSidebar: React.FC = () => {
             snapshotWhole={snapshotWhole}
             snapshotShowWaterfall={snapshotShowWaterfall}
             snapshotShowStats={snapshotShowStats}
+            snapshotShowGeolocation={snapshotShowGeolocation}
+            snapshotGeolocationError={snapshotGeolocationError}
             snapshotFormat={snapshotFormat}
             snapshotGridPreference={snapshotGridPreference}
             onSnapshotWholeChange={setSnapshotWhole}
             onSnapshotShowWaterfallChange={setSnapshotShowWaterfall}
             onSnapshotShowStatsChange={setSnapshotShowStats}
+            onSnapshotShowGeolocationChange={handleSnapshotGeolocationToggle}
             onSnapshotFormatChange={setSnapshotFormat}
             onSnapshotGridPreferenceChange={(pref) => {
               dispatch(setSettingsSnapshotGrid(pref));
@@ -1025,6 +1079,16 @@ export const SpectrumSidebar: React.FC = () => {
             showSpikeOverlay={liveState.showSpikeOverlay}
             onShowSpikeOverlayChange={(enabled) =>
               storeDispatch({ type: "SET_SHOW_SPIKE_OVERLAY", enabled })
+            }
+            heterodyningStatusText={liveState.heterodyningStatusText}
+            heterodyningVerifyDisabled={
+              sourceMode !== "live" ||
+              !isServerConnected ||
+              (liveDeviceState || "disconnected") !== "connected" ||
+              liveState.heterodyningVerifyDisabled
+            }
+            onVerifyHeterodyning={() =>
+              storeDispatch({ type: "REQUEST_HETERODYNING_VERIFY" })
             }
           />
 

@@ -40,6 +40,7 @@ import {
   loadWaterfallSnapshot,
   clearWaterfallSnapshot,
 } from "@n-apt/utils/waterfallStore";
+import { detectHeterodyningFromHistory } from "@n-apt/utils/detectHeterodyning";
 
 // Use dynamic import for WASM module loading
 (async () => {
@@ -151,6 +152,23 @@ const CanvasLayer = styled.canvas`
   will-change: width, height;
 `;
 
+const HighlightOverlay = styled.div`
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+`;
+
+const HighlightBand = styled.div<{ $left: number; $width: number; $waterfall?: boolean }>`
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: ${({ $left }) => `${$left}%`};
+  width: ${({ $width }) => `${$width}%`};
+  background: ${({ $waterfall }) =>
+    $waterfall ? "rgba(255, 206, 84, 0.18)" : "rgba(255, 206, 84, 0.12)"};
+  box-shadow: inset 0 0 0 1px rgba(255, 206, 84, 0.7);
+`;
+
 // const WATERFALL_TEXTURE_SNAPSHOT_KEY = "napt-waterfall-texture-snapshot";
 // const WATERFALL_TEXTURE_META_KEY = "napt-waterfall-texture-meta";
 
@@ -212,6 +230,14 @@ interface FFTCanvasProps {
   limitMarkers?: SdrLimitMarker[];
   isWaterfallCleared?: boolean;
   onResetWaterfallCleared?: () => void;
+  heterodyningVerifyRequestId?: number;
+  heterodyningHighlightedBins?: Array<{ start: number; end: number }>;
+  onHeterodyningAnalyzed?: (result: {
+    detected: boolean;
+    confidence: number | null;
+    statusText: string;
+    highlightedBins: Array<{ start: number; end: number }>;
+  }) => void;
 }
 
 /**
@@ -220,9 +246,12 @@ interface FFTCanvasProps {
  */
 export type SnapshotData = {
   waveform: Float32Array | null;
+  fullChannelWaveform: Float32Array | null;
   frequencyRange: FrequencyRange;
   dbMin: number;
   dbMax: number;
+  fftSize?: number;
+  fftWindow?: string;
   centerFrequencyMHz: number;
   isDeviceConnected: boolean;
   vizZoom: number;
@@ -281,6 +310,9 @@ const FFTCanvas = memo(
       limitMarkers = [],
       isWaterfallCleared = false,
       onResetWaterfallCleared,
+      heterodyningVerifyRequestId = 0,
+      heterodyningHighlightedBins = [],
+      onHeterodyningAnalyzed,
     } = props;
     const fftColor = useAppSelector((reduxState) => reduxState.theme.fftColor);
     const waterfallTheme = useAppSelector((reduxState) => reduxState.theme.waterfallTheme);
@@ -368,6 +400,8 @@ const FFTCanvas = memo(
       height: number;
       writeRow: number;
     } | null>(null);
+    const heterodyningHistoryRef = useRef<Float32Array[]>([]);
+    const lastHeterodyningRequestIdRef = useRef(0);
     const pendingWaterfallRestoreRef = useRef<{
       data: Uint8Array;
       width: number;
@@ -398,6 +432,14 @@ const FFTCanvas = memo(
     // Clear waterfall effect
     useEffect(() => {
       if (isWaterfallCleared) {
+        waterfallBufferRef.current = null;
+        waterfallTextureSnapshotRef.current = null;
+        waterfallTextureMetaRef.current = null;
+        lastWaterfallRowRef.current = null;
+        pausedWaterfallRowRef.current = null;
+        pendingWaterfallRestoreRef.current = null;
+        restoredWaterfallRef.current = false;
+        heterodyningHistoryRef.current = [];
         clearWaterfallSnapshot();
         onResetWaterfallCleared?.();
       }
@@ -488,7 +530,7 @@ const FFTCanvas = memo(
         };
 
         if (zoom < 1) {
-          const paddedWaveform = new Float32Array(visibleBins).fill(-120);
+          const paddedWaveform = new Float32Array(visibleBins).fill(FFT_MIN_DB);
           const destOffset = Math.max(0, -startBin);
           const dataToCopy = Math.min(totalBins, visibleBins - destOffset);
           const srcOffset = Math.max(0, startBin);
@@ -524,6 +566,9 @@ const FFTCanvas = memo(
     }, [snapshotGridPreference]);
     const waveformFloatRef = useRef<Float32Array | null>(null);
     const renderWaveformRef = useRef<Float32Array | null>(null);
+    const FULL_CHANNEL_BINS = 4096;
+    const fullChannelWaveformRef = useRef<Float32Array | null>(null);
+    const fullChannelRangeRef = useRef<FrequencyRange | null>(null);
     const spectrumResampleBufRef = useRef<Float32Array | null>(null);
     const waterfallDimsRef = useRef<{ width: number; height: number } | null>(
       null,
@@ -694,7 +739,7 @@ const FFTCanvas = memo(
     const ensureFloat32Waveform = useCallback(
       (spectrumData: ArrayLike<number> | null | undefined) => {
         if (!spectrumData || spectrumData.length === 0) {
-          return new Float32Array(1024).fill(-120);
+          return new Float32Array(1024).fill(FFT_MIN_DB);
         }
 
         // Validate data contains at least one finite number
@@ -707,7 +752,7 @@ const FFTCanvas = memo(
           }
         }
         if (!hasValidData) {
-          return new Float32Array(1024).fill(-120);
+          return new Float32Array(1024).fill(FFT_MIN_DB);
         }
 
         if (spectrumData instanceof Float32Array) {
@@ -738,7 +783,7 @@ const FFTCanvas = memo(
       }
 
       // If no previous data, create a fallback waveform
-      const fallbackWaveform = new Float32Array(1024).fill(-120);
+      const fallbackWaveform = new Float32Array(1024).fill(FFT_MIN_DB);
       renderWaveformRef.current = fallbackWaveform;
     });
 
@@ -770,7 +815,7 @@ const FFTCanvas = memo(
             output[x] =
               maxVal !== -Infinity
                 ? maxVal
-                : (input[Math.min(start, srcLen - 1)] ?? -120);
+                : (input[Math.min(start, srcLen - 1)] ?? FFT_MIN_DB);
           }
         }
       },
@@ -800,15 +845,14 @@ const FFTCanvas = memo(
         const hasNewData = !isPaused && currentData && currentData !== lastProcessedDataRef.current &&
           (!!currentData.waveform || !!currentData.iq_data);
         const shouldReprocessCurrentFrame = !!(
-          !isPaused &&
           currentData &&
-          currentData === lastProcessedDataRef.current &&
+          (currentData === lastProcessedDataRef.current || isPaused) &&
           powerScaleChanged &&
           (!!currentData.waveform || !!currentData.iq_data)
         );
 
         if (hasNewData || shouldReprocessCurrentFrame) {
-          const isIqRaw = currentData?.data_type === "iq_raw";
+          const isIqRaw = currentData?.data_type === "iq_raw" || !!currentData?.iq_data;
           const shouldUseIqRaw = isDbmMode && isIqRaw && !!currentData?.iq_data;
           // Handle I/Q data for dBm mode
           let waveform: Float32Array;
@@ -820,12 +864,15 @@ const FFTCanvas = memo(
 
             // Produce a CPU/WASM spectrum for the line plot in dBm mode and clamp
             // to the canonical dBm viewport so the axis stays stable on restore/toggle.
-            const cpuSpectrum = processIqToDbmSpectrum(iqBytes, effectiveFftSize);
+            const offsetDb = isDbmMode ? 30.0 : 0.0;
+            const rawSpectrum = processIqToDbmSpectrum(iqBytes, offsetDb, effectiveFftSize);
+            const cpuSpectrum = new Float32Array(rawSpectrum.length);
+
             const minClamp = activeScaleDbMin;
             const maxClamp = activeScaleDbMax;
-            for (let i = 0; i < cpuSpectrum.length; i++) {
-              const val = cpuSpectrum[i];
-              cpuSpectrum[i] = Math.min(maxClamp, Math.max(minClamp, val));
+
+            for (let i = 0; i < rawSpectrum.length; i++) {
+              cpuSpectrum[i] = Math.min(maxClamp, Math.max(minClamp, rawSpectrum[i]));
             }
             waveform = cpuSpectrum;
 
@@ -833,8 +880,8 @@ const FFTCanvas = memo(
             const pairCount = Math.min(effectiveFftSize, Math.floor(iqBytes.length / 2));
             gpuInput = new Float32Array(pairCount * 2);
             for (let i = 0; i < pairCount; i++) {
-              gpuInput[i * 2] = (iqBytes[i * 2] - 127.5) / 127.5;     // I
-              gpuInput[i * 2 + 1] = (iqBytes[i * 2 + 1] - 127.5) / 127.5; // Q
+              gpuInput[i * 2] = (iqBytes[i * 2] - 128.0) / 128.0;     // I
+              gpuInput[i * 2 + 1] = (iqBytes[i * 2 + 1] - 128.0) / 128.0; // Q
             }
             gpuInputMode = "complex_iq";
           } else if (!isIqRaw && currentData && currentData.waveform) {
@@ -847,6 +894,7 @@ const FFTCanvas = memo(
             return;
           }
 
+
           const canUseUnifiedFFT = (gpuInputMode === "complex_iq" ? gpuInput!.length / 2 : gpuInput!.length) === unifiedFFTSize;
 
           // Validate waveform before processing
@@ -854,6 +902,47 @@ const FFTCanvas = memo(
             waveformFloatRef.current = waveform;
             lastProcessedDataRef.current = currentData;
             lastRenderedPowerScaleRef.current = effectivePowerScale;
+
+            // Accumulate into full-channel composite buffer for Whole Channel snapshots
+            {
+              const channelRange = frequencyRangeRef.current;
+              const channelSpan = channelRange.max - channelRange.min;
+              const hopCenterHz = currentData.center_frequency_hz;
+              const hopSampleRate = currentData.sample_rate;
+              if (
+                channelSpan > 0 &&
+                typeof hopCenterHz === "number" && hopCenterHz > 0 &&
+                typeof hopSampleRate === "number" && hopSampleRate > 0
+              ) {
+                const hopCenterMHz = hopCenterHz / 1_000_000;
+                const hopSpanMHz = hopSampleRate / 1_000_000;
+                const hopMin = hopCenterMHz - hopSpanMHz / 2;
+                const hopMax = hopCenterMHz + hopSpanMHz / 2;
+
+                // Reset if channel range changed
+                if (
+                  !fullChannelRangeRef.current ||
+                  fullChannelRangeRef.current.min !== channelRange.min ||
+                  fullChannelRangeRef.current.max !== channelRange.max
+                ) {
+                  fullChannelWaveformRef.current = new Float32Array(FULL_CHANNEL_BINS).fill(-200);
+                  fullChannelRangeRef.current = { ...channelRange };
+                }
+
+                const buf = fullChannelWaveformRef.current!;
+                const startRatio = Math.max(0, (hopMin - channelRange.min) / channelSpan);
+                const endRatio = Math.min(1, (hopMax - channelRange.min) / channelSpan);
+                const destStart = Math.round(startRatio * FULL_CHANNEL_BINS);
+                const destEnd = Math.round(endRatio * FULL_CHANNEL_BINS);
+                const destCount = Math.max(1, destEnd - destStart);
+                const srcLen = waveform.length;
+
+                for (let i = 0; i < destCount; i++) {
+                  const srcIdx = Math.min(srcLen - 1, Math.round((i / destCount) * srcLen));
+                  buf[destStart + i] = waveform[srcIdx];
+                }
+              }
+            }
 
             // Process with unified GPU FFT when available
             // ONLY if we have raw I/Q data. If we have a regular spectrum, 
@@ -929,27 +1018,32 @@ const FFTCanvas = memo(
           }
         } else if (
           isPaused &&
-          currentData?.waveform &&
-          currentData !== lastProcessedDataRef.current &&
-          (force2D || !renderWaveformRef.current)
+          (currentData?.waveform || currentData?.iq_data) &&
+          (currentData !== lastProcessedDataRef.current || powerScaleChanged)
         ) {
           // Paused: ingest once to avoid blank frames (file mode or first paused frame)
-          const waveform = ensureFloat32Waveform(currentData.waveform);
+          const isIqRawLocal = !!currentData?.iq_data;
+          const shouldUseIqLocal = isDbmMode && isIqRawLocal;
+          const processedWaveform = shouldUseIqLocal
+            ? processIqToDbmSpectrum(currentData.iq_data as Uint8Array, 30.0, effectiveFftSize)
+            : ensureFloat32Waveform(currentData?.waveform);
 
           // Validate waveform before processing
-          if (!waveform || waveform.length === 0) {
+          if (!processedWaveform || processedWaveform.length === 0) {
             return;
           }
 
-          waveformFloatRef.current = waveform;
+          waveformFloatRef.current = processedWaveform;
           lastProcessedDataRef.current = currentData;
+          lastRenderedPowerScaleRef.current = powerScale;
 
-          // Clear previous buffer before creating new one
           const prev = renderWaveformRef.current;
-          if (prev) {
+          if (!prev || prev.length !== processedWaveform.length) {
+            renderWaveformRef.current = new Float32Array(processedWaveform);
+          } else {
             prev.fill(0);
+            prev.set(processedWaveform);
           }
-          renderWaveformRef.current = new Float32Array(waveform);
         }
 
         const waveform = renderWaveformRef.current;
@@ -971,7 +1065,6 @@ const FFTCanvas = memo(
         const currentWaveform = renderWaveformRef.current;
 
         if (currentWaveform && currentWaveform.length > 0) {
-          const canUseUnifiedFFT = currentWaveform.length === unifiedFFTSize;
           const {
             slicedWaveform: rawSlicedWaveform,
             visualRange,
@@ -1092,16 +1185,16 @@ const FFTCanvas = memo(
               showSpikeOverlay,
               spikeMarkers: showSpikeOverlay
                 ? detectProminentSpikes({
-                    spectrumData: outBuf,
-                    dbMin: activeScaleDbMin,
-                    dbMax: activeScaleDbMax,
-                    maxMarkers: Math.max(24, Math.floor(outBuf.length / 12)),
-                    frequencyRange: visualRange,
-                    temporalPersistence:
-                      spikePersistenceRef.current && spikePersistenceRef.current.length === outBuf.length
-                        ? spikePersistenceRef.current
-                        : (spikePersistenceRef.current = new Float32Array(outBuf.length)),
-                  })
+                  spectrumData: outBuf,
+                  dbMin: activeScaleDbMin,
+                  dbMax: activeScaleDbMax,
+                  maxMarkers: Math.max(24, Math.floor(outBuf.length / 12)),
+                  frequencyRange: visualRange,
+                  temporalPersistence:
+                    spikePersistenceRef.current && spikePersistenceRef.current.length === outBuf.length
+                      ? spikePersistenceRef.current
+                      : (spikePersistenceRef.current = new Float32Array(outBuf.length)),
+                })
                 : [],
               lineColor: fftColor,
               fillColor: fillColor,
@@ -1161,6 +1254,10 @@ const FFTCanvas = memo(
                   lastWaterfallRowRef.current = new Float32Array(waterfallBins);
                 } else {
                   lastWaterfallRowRef.current.set(waterfallBins);
+                }
+                heterodyningHistoryRef.current.push(new Float32Array(waterfallBins));
+                if (heterodyningHistoryRef.current.length > 96) {
+                  heterodyningHistoryRef.current.shift();
                 }
               } else {
                 waterfallBins = lastWaterfallRowRef.current ?? processed;
@@ -1320,11 +1417,27 @@ const FFTCanvas = memo(
       const currentWaveform = waveformFloatRef.current;
       if (currentWaveform && currentWaveform.length > 0) {
         renderWaveformRef.current = new Float32Array(currentWaveform);
+      } else if (isPaused && dataRef.current?.iq_data) {
+        // Trigger a re-process of paused I/Q data
+        lastProcessedDataRef.current = null;
       }
 
       forceRender();
     }, [displayTemporalResolution, forceRender]);
 
+
+    useEffect(() => {
+      if (!onHeterodyningAnalyzed) return;
+      if (heterodyningVerifyRequestId <= 0) return;
+      if (heterodyningVerifyRequestId === lastHeterodyningRequestIdRef.current) {
+        return;
+      }
+
+      lastHeterodyningRequestIdRef.current = heterodyningVerifyRequestId;
+      onHeterodyningAnalyzed(
+        detectHeterodyningFromHistory(heterodyningHistoryRef.current),
+      );
+    }, [heterodyningVerifyRequestId, onHeterodyningAnalyzed]);
 
     useEffect(() => {
       if (!showSpikeOverlay) {
@@ -1407,6 +1520,8 @@ const FFTCanvas = memo(
         lastProcessedDataRef.current = null;
         renderWaveformRef.current = null;
         waveformFloatRef.current = null;
+        fullChannelWaveformRef.current = null;
+        fullChannelRangeRef.current = null;
         frameBufferRef.current = [];
         spectrumResampleBufRef.current?.fill(0);
         spikePersistenceRef.current = null;
@@ -1604,6 +1719,7 @@ const FFTCanvas = memo(
       fftProcessedBufferRef.current = null;
       fftSmoothedBufferRef.current = null;
       spikePersistenceRef.current = null;
+      heterodyningHistoryRef.current = [];
       overlayDirtyRef.current.grid = true;
       overlayDirtyRef.current.markers = true;
       forceRender();
@@ -1618,9 +1734,14 @@ const FFTCanvas = memo(
         if (!waveform || waveform.length === 0) return null;
         return {
           waveform: new Float32Array(waveform),
+          fullChannelWaveform: fullChannelWaveformRef.current
+            ? new Float32Array(fullChannelWaveformRef.current)
+            : null,
           frequencyRange: { ...frequencyRangeRef.current },
           dbMin: vizDbMinRef.current,
           dbMax: vizDbMaxRef.current,
+          fftSize: effectiveFftSize,
+          fftWindow: fftWindow ?? "Rectangular",
           centerFrequencyMHz: centerFreqRef.current,
           isDeviceConnected,
           vizZoom: vizZoomRef.current,
@@ -1666,6 +1787,20 @@ const FFTCanvas = memo(
                     id="fft-spectrum-canvas-2d"
                   />
                 )}
+                {heterodyningHighlightedBins.length > 0 && (
+                  <HighlightOverlay>
+                    {heterodyningHighlightedBins.map((bin, index) => (
+                      <HighlightBand
+                        key={`spectrum-highlight-${index}`}
+                        $left={Math.max(0, Math.min(100, bin.start * 100))}
+                        $width={Math.max(
+                          0.2,
+                          Math.min(100, (bin.end - bin.start) * 100),
+                        )}
+                      />
+                    ))}
+                  </HighlightOverlay>
+                )}
               </CanvasWrapper>
             </SpectrumRow>
           </SpectrumSection>
@@ -1685,6 +1820,21 @@ const FFTCanvas = memo(
                   ref={setWaterfallCanvasNode}
                   id="fft-waterfall-canvas-2d"
                 />
+              )}
+              {heterodyningHighlightedBins.length > 0 && (
+                <HighlightOverlay>
+                  {heterodyningHighlightedBins.map((bin, index) => (
+                    <HighlightBand
+                      key={`waterfall-highlight-${index}`}
+                      $left={Math.max(0, Math.min(100, bin.start * 100))}
+                      $width={Math.max(
+                        0.2,
+                        Math.min(100, (bin.end - bin.start) * 100),
+                      )}
+                      $waterfall={true}
+                    />
+                  ))}
+                </HighlightOverlay>
               )}
             </CanvasWrapper>
           </WaterfallSection>

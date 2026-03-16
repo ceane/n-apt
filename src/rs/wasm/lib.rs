@@ -33,8 +33,8 @@ impl WASMSIMDProcessor {
     WASMSIMDProcessor {
       fft,
       fft_size,
-      gain: 49.6, // From signals.yaml: tuner_gain: 496 (tenths of dB)
-      ppm: 1.0,   // From signals.yaml: ppm: 1.0
+      gain: 1.0,
+      ppm: 1.0,
       window_type: WindowType::Hanning,
     }
   }
@@ -62,44 +62,66 @@ impl WASMSIMDProcessor {
   }
 
   #[wasm_bindgen]
-  pub fn process_samples(&mut self, samples: &[u8]) -> Vec<f32> {
-    // Convert u8 samples to f32 IQ pairs
+  pub fn process_iq_to_dbm_spectrum(
+    &mut self,
+    samples: &[u8],
+    offset_db: f32,
+  ) -> Vec<f32> {
+    let num_samples = samples.len() / 2;
+    if num_samples == 0 {
+      return vec![-120.0 + offset_db; self.fft_size];
+    }
+
+    // Convert u8 samples to f32 IQ pairs with (x - 128) / 128 normalization and apply gain
     let mut iq_samples: Vec<Complex<f32>> = samples
       .chunks_exact(2)
       .map(|chunk| {
-        let i = (chunk[0] as f32 - 128.0) / 128.0 * self.gain;
-        let q = (chunk[1] as f32 - 128.0) / 128.0 * self.gain;
-        Complex::new(i, q)
+        let i = (chunk[0] as f32 - 128.0) / 128.0;
+        let q = (chunk[1] as f32 - 128.0) / 128.0;
+        Complex::new(i * self.gain, q * self.gain)
       })
       .collect();
 
-    // Pad or truncate to FFT size
+    // Calculate window sum for the actual number of samples provided
+    let mut window_sum = 0.0f32;
+    if self.window_type != WindowType::None
+      && self.window_type != WindowType::Rectangular
+    {
+      let n = num_samples as f32;
+      for (i, sample) in iq_samples.iter_mut().enumerate() {
+        let t = i as f32 / (n - 1.0);
+        let window = match self.window_type {
+          WindowType::Hanning => 0.5 - 0.5 * (2.0 * std::f32::consts::PI * t).cos(),
+          WindowType::Hamming => 0.54 - 0.46 * (2.0 * std::f32::consts::PI * t).cos(),
+          _ => 1.0,
+        };
+        *sample = *sample * window;
+        window_sum += window;
+      }
+    } else {
+      window_sum = num_samples as f32;
+    }
+
+    // Pad with zeros to reaching FFT size
     while iq_samples.len() < self.fft_size {
       iq_samples.push(Complex::new(0.0, 0.0));
     }
     iq_samples.truncate(self.fft_size);
 
-    // Apply simple window function
-    if self.window_type != WindowType::None
-      && self.window_type != WindowType::Rectangular
-    {
-      for (i, sample) in iq_samples.iter_mut().enumerate() {
-        let t = i as f32 / (self.fft_size - 1) as f32;
-        let window = 0.5 - 0.5 * (2.0 * std::f32::consts::PI * t).cos(); // Hanning
-        *sample = *sample * window;
-      }
-    }
-
     // Perform FFT
     self.fft.process(&mut iq_samples);
 
-    // Calculate power spectrum
+    let norm_sq = window_sum * window_sum;
+    let epsilon = 1e-15;
+
+    // Calculate power spectrum in dBFS + offset_db
     let mut power: Vec<f32> = iq_samples
       .iter()
       .map(|&complex| {
-        let magnitude =
-          (complex.re * complex.re + complex.im * complex.im).sqrt();
-        20.0 * magnitude.log10()
+        // Correct FFT normalization: |X|^2 / (Sum(window))^2
+        let mag_sq = (complex.re * complex.re + complex.im * complex.im) / norm_sq;
+        let db_value = 10.0 * (mag_sq + epsilon).log10() + offset_db;
+        db_value.clamp(-150.0, 50.0)
       })
       .collect();
 
@@ -108,6 +130,11 @@ impl WASMSIMDProcessor {
     power.rotate_right(half);
 
     power
+  }
+
+  #[wasm_bindgen]
+  pub fn process_samples(&mut self, samples: &[u8]) -> Vec<f32> {
+    self.process_iq_to_dbm_spectrum(samples, 0.0)
   }
 
   #[wasm_bindgen]

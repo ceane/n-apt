@@ -195,7 +195,7 @@ function processToSpectrum(
   gain: number = 0,
   fftSize: number = 8192,
 ): number[] {
-  const spectrum = new Array(fftSize).fill(-120);
+  const spectrum = new Array(fftSize).fill(-150);
   const windowSize = fftSize * 2;
   const windowStep = windowSize * 4;
   const maxChunks = 4;
@@ -235,13 +235,13 @@ function processToSpectrum(
   const gainOffset = gain > 0 ? 20 * Math.log10(gain) : 0;
 
   for (let i = 0; i < fftSize; i++) {
-    let dbValue = -120;
+    let dbValue = -150;
     if (counts[i] > 0) {
       let meanEnergy = powerBins[i] / counts[i];
       meanEnergy = meanEnergy / fftSize;
-      dbValue = 10 * Math.log10(meanEnergy + 1e-12) + gainOffset;
+      dbValue = 10 * Math.log10(meanEnergy + 1e-15) + gainOffset;
     }
-    spectrum[i] = Math.max(-120, Math.min(0, dbValue));
+    spectrum[i] = Math.max(-150, Math.min(0, dbValue));
   }
   return spectrum;
 }
@@ -386,7 +386,7 @@ function buildCombinedFrame(
 
   if (minFreq === Infinity) return null;
 
-  const combinedWaveform = new Float32Array(fftSize).fill(-120);
+  const combinedWaveform = new Float32Array(fftSize).fill(-150);
   const totalFreqSpan = maxFreq - minFreq || 1;
 
   for (const name of allFileNames) {

@@ -13,7 +13,7 @@ export interface PauseLogicOptions {
     width: number;
     height: number;
   } | null>;
-  dataRef: React.MutableRefObject<{ waveform?: number[] } | null>;
+  dataRef: React.MutableRefObject<{ waveform?: number[]; iq_data?: Uint8Array; data_type?: string } | null>;
   ensureFloat32Waveform: (
     spectrumData: number[] | Float32Array | null | undefined,
   ) => Float32Array;
@@ -39,17 +39,24 @@ export function usePauseLogic({
           JSON.stringify(Array.from(waveform)),
         );
       }
+      const data = dataRef.current;
+      if (data?.iq_data) {
+        const iq = data.iq_data;
+        let iqBinary = "";
+        const chunkSize = 8192;
+        for (let i = 0; i < iq.length; i += chunkSize) {
+          iqBinary += String.fromCharCode(...iq.subarray(i, i + chunkSize));
+        }
+        sessionStorage.setItem("n-apt-fft-iq-snapshot", btoa(iqBinary));
+      }
       const wfBuf = waterfallBufferRef.current;
       const wfDims = waterfallDimsRef.current;
       if (wfBuf && wfDims) {
-        const bytes = new Uint8Array(
-          wfBuf.buffer,
-          wfBuf.byteOffset,
-          wfBuf.byteLength,
-        );
+        const bytes = new Uint8Array(wfBuf.buffer, wfBuf.byteOffset, wfBuf.byteLength);
         let binary = "";
-        for (let i = 0; i < bytes.length; i++) {
-          binary += String.fromCharCode(bytes[i]);
+        const chunkSize = 8192;
+        for (let i = 0; i < bytes.length; i += chunkSize) {
+          binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
         }
         sessionStorage.setItem(SNAPSHOT_WATERFALL_KEY, btoa(binary));
         sessionStorage.setItem(
@@ -71,6 +78,20 @@ export function usePauseLogic({
         if (restored.length > 0) {
           renderWaveformRef.current = restored;
           waveformFloatRef.current = restored;
+        }
+      }
+
+      const iqBase64 = sessionStorage.getItem("n-apt-fft-iq-snapshot");
+      if (iqBase64) {
+        const binary = atob(iqBase64);
+        const iq = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) {
+          iq[i] = binary.charCodeAt(i);
+        }
+        if (dataRef.current) {
+          dataRef.current.iq_data = iq;
+        } else {
+          dataRef.current = { iq_data: iq };
         }
       }
 
@@ -102,13 +123,18 @@ export function usePauseLogic({
   const ensurePausedFrame = useCallback(() => {
     const existing = renderWaveformRef.current;
     if (existing && existing.length > 0) return true;
-    const waveformData = dataRef.current?.waveform ?? waveformFloatRef.current;
+    const data = dataRef.current;
+    const waveformData = data?.waveform ?? data?.iq_data ?? waveformFloatRef.current;
     if (!waveformData) return false;
     const waveform =
       waveformData instanceof Float32Array
         ? waveformData
-        : ensureFloat32Waveform(waveformData);
+        : (data?.waveform ? ensureFloat32Waveform(data.waveform) : null);
+    
+    // If we only have iq_data, we can't process it here without the hooks, 
+    // but onRenderFrame will handle it if we return false here and it's there.
     if (!waveform || waveform.length === 0) return false;
+
     renderWaveformRef.current = new Float32Array(waveform);
     waveformFloatRef.current = renderWaveformRef.current;
     return true;

@@ -3,11 +3,12 @@ import styled from "styled-components";
 import { Tooltip } from "./Tooltip";
 
 export const RowContainer = styled.div`
-  display: grid;
-  grid-template-columns: subgrid;
-  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: row;
   align-items: center;
-  gap: inherit;
+  justify-content: space-between;
+  grid-column: 1 / -1;
+  gap: 12px;
   padding: 10px 0;
   background-color: #141414;
   border-radius: 6px;
@@ -18,25 +19,24 @@ export const RowContainer = styled.div`
 `;
 
 export const RowLabel = styled.div`
-  display: grid;
-  grid-auto-flow: column;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  justify-content: start;
-  gap: 8px;
+  justify-content: flex-start;
+  gap: 6px;
   font-size: 12px;
   color: #777;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  min-width: 0;
+  white-space: pre-wrap;
+  line-height: 1.2;
+  flex: 1 0 auto;
   padding-left: 12px;
 `;
 
 export const RowControl = styled.div`
-  display: grid;
-  grid-auto-flow: column;
+  display: flex;
+  flex: 1 1 auto;
   align-items: center;
-  justify-content: end;
+  justify-content: flex-end;
   min-width: 0;
   gap: 8px;
   padding-right: 12px;

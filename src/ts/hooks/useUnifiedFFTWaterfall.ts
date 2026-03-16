@@ -96,6 +96,16 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
       console.warn('GPU device not available for unified buffer initialization');
       return;
     }
+
+    if (buffersRef.current) {
+      buffersRef.current.fftInputBuffer.destroy();
+      buffersRef.current.fftOutputBuffer.destroy();
+      buffersRef.current.fftTempBuffer.destroy();
+      buffersRef.current.fftParamsBuffer.destroy();
+      buffersRef.current.waterfallBuffer.destroy();
+      buffersRef.current.sharedSpectrumBuffer.destroy();
+      buffersRef.current.waterfallTexture.destroy();
+    }
     
     // Cap waterfall width to hardware limits (e.g. 16384 on many GPUs)
     const maxTextureWidth = device.limits.maxTextureDimension2D || 16384;
@@ -611,32 +621,22 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
     }
   }, [isInitialized, device, fftSize, waterfallHeight, windowType, enableAveraging, enableSmoothing, normalizationFactor, updateParams]);
   
-  // Initialize buffers once when device becomes available
+  // Initialize buffers and pipelines when device or dependencies change
   useEffect(() => {
     if (!device) return;
     try {
       initializeBuffers();
+      createPipelines().then(() => {
+        setIsInitialized(true);
+      }).catch((e) => {
+        console.error("Failed to create unified pipelines:", e);
+        setIsInitialized(false);
+      });
     } catch (error) {
       console.error("Failed to initialize unified buffers:", error);
+      setIsInitialized(false);
     }
-  }, [device, initializeBuffers]);
-  
-  // Create/recreate pipelines when device or toggle flags change (without destroying buffers)
-  useEffect(() => {
-    const init = async () => {
-      if (!device || !buffersRef.current) return;
-      
-      try {
-        await createPipelines();
-        setIsInitialized(true);
-      } catch (error) {
-        console.error("Failed to create unified pipelines:", error);
-        setIsInitialized(false);
-      }
-    };
-    
-    init();
-  }, [device, createPipelines]);
+  }, [device, initializeBuffers, createPipelines]);
   
   // Cleanup on unmount
   useEffect(() => {

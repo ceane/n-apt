@@ -966,11 +966,14 @@ const Sidebar: React.FC<SidebarProps> = ({
             snapshotWhole={snapshotWhole}
             snapshotShowWaterfall={snapshotShowWaterfall}
             snapshotShowStats={snapshotShowStats}
+            snapshotShowGeolocation={false}
+            snapshotGeolocationError={null}
             snapshotFormat={snapshotFormat}
             snapshotGridPreference={snapshotGridPreference ?? true}
             onSnapshotWholeChange={setSnapshotWhole}
             onSnapshotShowWaterfallChange={setSnapshotShowWaterfall}
             onSnapshotShowStatsChange={setSnapshotShowStats}
+            onSnapshotShowGeolocationChange={() => { }}
             onSnapshotFormatChange={setSnapshotFormat}
             onSnapshotGridPreferenceChange={
               onSnapshotGridPreferenceChange || (() => { })
@@ -985,27 +988,18 @@ const Sidebar: React.FC<SidebarProps> = ({
             <>
               <FileProcessingSection
                 selectedFiles={selectedFiles}
+                onSelectedFilesChange={onSelectedFilesChange}
                 stitchStatus={stitchStatus}
                 isStitchPaused={isStitchPaused}
-                selectedNaptFile={selectedNaptFile}
-                naptMetadata={naptMetadata}
-                naptMetadataError={naptMetadataError}
-                onSelectedFilesChange={onSelectedFilesChange}
                 onStitch={onStitch}
                 onClear={onClear}
                 onStitchPauseToggle={onStitchPauseToggle}
+                selectedNaptFile={selectedFiles.length > 0 && selectedFiles[0].name.endsWith(".napt") ? selectedFiles[0] : null}
+                naptMetadata={naptMetadata}
+                naptMetadataError={naptMetadataError}
               />
 
-              <SignalFeaturesSection
-                sourceMode={sourceMode}
-                deviceState={deviceState}
-                isConnected={isConnected}
-                selectedFilesCount={selectedFiles.length}
-                showSpikeOverlay={state.showSpikeOverlay}
-                onShowSpikeOverlayChange={(enabled) =>
-                  dispatch({ type: "SET_SHOW_SPIKE_OVERLAY", enabled })
-                }
-              />
+              <SignalFeaturesSection />
             </>
           ) : (
             <>
@@ -1019,9 +1013,6 @@ const Sidebar: React.FC<SidebarProps> = ({
                       const max = frame.max_mhz;
                       const span = max - min;
 
-                      // If this is the active frame and we are zoomed in,
-                      // calculate the visual range based on zoom and pan offset
-                      // NOTE: Use frequencyRange (SDR center) not frame min/max for center calculation
                       let visibleMin = min;
                       let visibleMax =
                         min +
@@ -1036,21 +1027,16 @@ const Sidebar: React.FC<SidebarProps> = ({
                         vizZoom > 1 &&
                         frequencyRange
                       ) {
-                        // Use frequencyRange (SDR tuned range) for center calculation
-                        // This matches what FFTCanvas does
                         const hardwareCenter =
                           (frequencyRange.min + frequencyRange.max) / 2;
-                        // Zoom applies to the hardware window width (sample rate), not the full signal area span
                         const hardwareSpan =
                           typeof sampleRateMHz === "number"
                             ? Math.min(sampleRateMHz, span)
                             : span;
                         const visualSpan = hardwareSpan / vizZoom;
                         const halfVisualSpan = visualSpan / 2;
-                        // vizPanOffset is in MHz exactly
                         let visualCenter = hardwareCenter + vizPanOffset;
 
-                        // Clamp visual center so the visual window stays within signal area bounds
                         visualCenter = Math.max(
                           min + halfVisualSpan,
                           Math.min(max - halfVisualSpan, visualCenter),
@@ -1058,9 +1044,6 @@ const Sidebar: React.FC<SidebarProps> = ({
 
                         visibleMin = visualCenter - halfVisualSpan;
                         visibleMax = visualCenter + halfVisualSpan;
-
-                        // Don't use externalFrequencyRange when zoomed - let the slider
-                        // use visibleMin/visibleMax props directly for the zoomed view
                         externalFreqRange = undefined;
                       }
 
@@ -1097,22 +1080,18 @@ const Sidebar: React.FC<SidebarProps> = ({
                                 (frequencyRange.min + frequencyRange.max) / 2;
                               const halfVisualSpan = hardwareSpan / (2 * vizZoom);
                               const maxPan = halfHardware - halfVisualSpan;
-
                               const desiredPan =
                                 visualCenter - currentHardwareCenter;
 
                               if (Math.abs(desiredPan) <= maxPan + 0.001) {
-                                // Pan is within hardware bounds — just update pan offset
                                 if (onVizPanChange) onVizPanChange(desiredPan);
                               } else {
-                                // Pan exceeds hardware bounds — retune hardware to reach the edge
                                 let newHardwareCenter = visualCenter;
                                 let newHardwareMin =
                                   newHardwareCenter - halfHardware;
                                 let newHardwareMax =
                                   newHardwareCenter + halfHardware;
 
-                                // Clamp hardware range to signal area bounds
                                 if (newHardwareMin < min) {
                                   newHardwareMin = min;
                                   newHardwareMax = min + hardwareSpan;
@@ -1124,13 +1103,11 @@ const Sidebar: React.FC<SidebarProps> = ({
                                 newHardwareCenter =
                                   (newHardwareMin + newHardwareMax) / 2;
 
-                                // Retune hardware
                                 handleRangeChange(label, {
                                   min: newHardwareMin,
                                   max: newHardwareMax,
                                 });
 
-                                // Set remaining pan offset relative to new hardware center
                                 const remainingPan =
                                   visualCenter - newHardwareCenter;
                                 if (onVizPanChange) onVizPanChange(remainingPan);
@@ -1152,16 +1129,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                 </div>
               </Section>
 
-              <SignalFeaturesSection
-                sourceMode={sourceMode}
-                deviceState={deviceState}
-                isConnected={isConnected}
-                selectedFilesCount={selectedFiles.length}
-                showSpikeOverlay={state.showSpikeOverlay}
-                onShowSpikeOverlayChange={(enabled) =>
-                  dispatch({ type: "SET_SHOW_SPIKE_OVERLAY", enabled })
-                }
-              />
+              <SignalFeaturesSection />
 
               <SignalDisplaySection
                 sourceMode={sourceMode}
@@ -1208,14 +1176,17 @@ const Sidebar: React.FC<SidebarProps> = ({
             </>
           )}
         </>
-      )}
-      {captureStatus?.status === "started" && (
-        <CapturingIndicator>
-          <CapturingDot />
-          Capturing...
-        </CapturingIndicator>
-      )}
-    </SidebarContent>
+      )
+      }
+      {
+        captureStatus?.status === "started" && (
+          <CapturingIndicator>
+            <CapturingDot />
+            Capturing...
+          </CapturingIndicator>
+        )
+      }
+    </SidebarContent >
   );
 };
 
