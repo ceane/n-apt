@@ -1,6 +1,7 @@
 # .windsurfrules
 node_modules/
 dist/
+scripts/dist/
 package-lock.json
 coverage/
 *.svg

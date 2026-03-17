@@ -34,6 +34,8 @@ import {
   sendSettings as sendSettingsThunk,
   sendRestartDevice as sendRestartDeviceThunk,
   sendCaptureCommand as sendCaptureCommandThunk,
+  sendScanCommand as sendScanCommandThunk,
+  sendDemodulateCommand as sendDemodulateCommandThunk,
 } from "@n-apt/redux/thunks/websocketThunks";
 import { deriveStateFromConfig } from "@n-apt/hooks/useSdrSettings";
 
@@ -521,6 +523,8 @@ type SpectrumStoreContextValue = {
     sendSettings: (settings: SDRSettings) => void;
     sendRestartDevice: () => void;
     sendCaptureCommand: (req: CaptureRequest) => void;
+    sendScanCommand: (jobId: string, minFreq: number, maxFreq: number, options?: any) => void;
+    sendDemodulateCommand: (jobId: string, region: any) => void;
     sendTrainingCommand: (
       action: "start" | "stop",
       label: "target" | "noise",
@@ -624,6 +628,20 @@ export const SpectrumProvider: React.FC<{ children: React.ReactNode }> = ({
     [reduxDispatch],
   );
 
+  const sendScanCommand = useCallback(
+    (jobId: string, minFreq: number, maxFreq: number, options?: any) => {
+      reduxDispatch(sendScanCommandThunk({ jobId, minFreq, maxFreq, options }));
+    },
+    [reduxDispatch],
+  );
+
+  const sendDemodulateCommand = useCallback(
+    (jobId: string, region: any) => {
+      reduxDispatch(sendDemodulateCommandThunk({ jobId, region }));
+    },
+    [reduxDispatch],
+  );
+
   const sendTrainingCommand = useCallback(
     (
       action: "start" | "stop",
@@ -674,6 +692,8 @@ export const SpectrumProvider: React.FC<{ children: React.ReactNode }> = ({
       sendSettings: sendSettingsCommand,
       sendRestartDevice: sendRestartDeviceCommand,
       sendCaptureCommand,
+      sendScanCommand,
+      sendDemodulateCommand,
       sendTrainingCommand,
       sendGetAutoFftOptions: sendGetAutoFftOptionsCommand,
       sendPowerScaleCommand,
@@ -701,6 +721,8 @@ export const SpectrumProvider: React.FC<{ children: React.ReactNode }> = ({
       sendSettingsCommand,
       sendRestartDeviceCommand,
       sendCaptureCommand,
+      sendScanCommand,
+      sendDemodulateCommand,
       sendTrainingCommand,
       sendGetAutoFftOptionsCommand,
       sendPowerScaleCommand,

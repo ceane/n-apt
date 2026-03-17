@@ -5,6 +5,15 @@ fn main() {
 
   #[cfg(not(target_arch = "wasm32"))]
   link_rtlsdr();
+
+  // Check for decrypted modules (Surgical Encryption)
+  let decrypted_marker = Path::new("src/encrypted-modules/tmp/rs/simd/fast_math.rs");
+  if decrypted_marker.exists() {
+    println!("cargo:rustc-cfg=rs_decrypted");
+    println!("cargo:warning=✔ Decrypted N-APT Rust kernels detected");
+  } else {
+    println!("cargo:warning=✗ Decrypted N-APT Rust kernels NOT detected - using scalar fallbacks");
+  }
 }
 
 #[cfg(not(target_arch = "wasm32"))]

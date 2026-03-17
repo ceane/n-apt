@@ -2,30 +2,21 @@
 //!
 //! High-performance SIMD-accelerated signal processing for native targets.
 //! WASM SIMD processing is handled by the unified UnifiedProcessor type.
-//!
-//! ## Architecture
-//!
-//! - **Native Processor**: NEON/SSE intrinsics for server/desktop deployment  
-//! - **Rendering Processor**: Spectrum visualization and waterfall rendering
-//! - **Mock Generator**: SIMD-accelerated test signal generation
-//! - **Common Utilities**: Shared SIMD operations and mathematical functions
-//!
-//! ## Performance
-//!
-//! - IQ conversion: 2-4x speedup
-//! - Power spectrum: 2-3x speedup  
-//! - Window functions: 2-3x speedup
-//! - Mock generation: 3-5x speedup
-//! - Rendering: 4-8x speedup
 
-pub mod arm_optimized_common;
 pub mod common;
 pub mod downsampler;
 pub mod mock_generator;
 pub mod native_processor;
 pub mod rendering_processor;
+pub mod fast_math;
+pub mod arm_optimized_common;
 
-// Re-export main processors for easy access
+// Encrypted demodulation kernels (only available when decrypted)
+#[cfg(rs_decrypted)]
+#[path = "../../encrypted-modules/tmp/rs/simd/demod_kernels.rs"]
+pub mod demod_kernels;
+
+// Re-export main processors
 pub use mock_generator::MockSignalGenerator;
 pub use native_processor::NativeProcessor;
 pub use rendering_processor::RenderingProcessor;
@@ -43,4 +34,3 @@ pub type UnifiedProcessor = NativeProcessor;
 
 /// Re-export for backward compatibility
 pub use UnifiedProcessor as FFTProcessor;
-pub mod fast_math;

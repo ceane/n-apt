@@ -15,6 +15,7 @@ import {
 } from '../slices/websocketSlice';
 import { decryptPayload, decryptBinaryPayload } from '@n-apt/crypto/webcrypto';
 import { AutoFftOptionsResponse } from '@n-apt/consts/schemas/websocket';
+import { scannerWorkerManager } from '../../workers/scannerWorkerManager';
 
 // Module-level ref for high-frequency live frame data.
 // Written directly — never goes through Redux state — so no React rerenders per frame.
@@ -247,6 +248,31 @@ const processMessage = (dispatch: Dispatch, getState: () => any, parsedData: any
       }
     } catch (e) {
       console.error('Failed to parse auto FFT options:', e);
+    }
+    return;
+  }
+
+  // Scan and Demodulation result messages
+  if (
+    parsedData?.type === "scan_result" ||
+    parsedData?.type === "scan_progress" ||
+    parsedData?.type === "demod_result"
+  ) {
+    scannerWorkerManager.handleWSResponse(parsedData);
+    return;
+  }
+
+  // APT Analysis result messages
+  if (parsedData?.type === "apt_analysis_result") {
+    try {
+      // Dispatch custom event for APT analysis results
+      // This will be handled by the DemodContext
+      const event = new CustomEvent('aptAnalysisResult', {
+        detail: parsedData
+      });
+      window.dispatchEvent(event);
+    } catch (e) {
+      console.error('Failed to process APT analysis result:', e);
     }
     return;
   }

@@ -31,9 +31,10 @@
       "@n-apt/waterfall/*": ["src/ts/waterfall/*"],
       "@n-apt/consts": ["src/ts/consts"],
       "@n-apt/hooks/*": ["src/ts/hooks/*"],
-      "@n-apt/glb_models/*": ["src/ts/glb_models/*"]
+      "@n-apt/glb_models/*": ["src/ts/glb_models/*"],
+      "@n-apt/encrypted-modules/*": ["src/encrypted-modules/*"]
     }
   },
-  "include": ["src/ts", "src/ts/types"],
+  "include": ["src/ts", "src/encrypted-modules", "src/ts/types"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

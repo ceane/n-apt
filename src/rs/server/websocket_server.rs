@@ -481,6 +481,88 @@ impl WebSocketServer {
               info!("Setting power scale to: {:?}", scale);
               processor.set_power_scale(scale);
             }
+            #[cfg(rs_decrypted)]
+            crate::server::types::SdrCommand::ScanForAudio {
+              job_id,
+              frequency_range,
+              window_size_hz,
+              step_size_hz,
+              audio_threshold,
+            } => {
+              info!("[SCAN] Starting scan job={}", job_id);
+              let regions = processor.handle_scan(
+                frequency_range,
+                window_size_hz,
+                step_size_hz,
+                audio_threshold,
+                &job_id,
+                &_broadcast_tx,
+              );
+              let response = crate::server::types::ScanResultResponse {
+                message_type: "scan_result".to_string(),
+                job_id,
+                regions,
+              };
+              if let Ok(json) = serde_json::to_string(&response) {
+                let _ = _broadcast_tx.send(json);
+              }
+            }
+            #[cfg(rs_decrypted)]
+            crate::server::types::SdrCommand::DemodulateRegion { job_id, region } => {
+              info!("[DEMOD] Demodulating region for job={}", job_id);
+              let (audio_buffer, sample_rate) = processor.handle_demodulate(&region);
+              let response = crate::server::types::DemodResultResponse {
+                message_type: "demod_result".to_string(),
+                job_id,
+                region,
+                audio_buffer,
+                sample_rate,
+              };
+              if let Ok(json) = serde_json::to_string(&response) {
+                let _ = _broadcast_tx.send(json);
+              }
+            }
+            #[cfg(rs_decrypted)]
+            crate::server::types::SdrCommand::StartAptAnalysis { job_id, config } => {
+              info!("[APT] Starting APT analysis for job={}", job_id);
+              
+              // Send initial progress update
+              let initial_result = crate::server::types::AptAnalysisResult {
+                message_type: "apt_analysis_result".to_string(),
+                job_id: job_id.clone(),
+                channel_metadata: crate::server::types::AptChannelMetadata {
+                  window_size_hz: config.window_size_hz,
+                  content_type: config.content_type.clone(),
+                  sub_channel_range: config.sub_channel_range,
+                  center_freq_hz: processor.get_center_frequency(),
+                  signal_strength_db: -50.0, // Placeholder
+                  snr: 10.0, // Placeholder
+                  demod_processor: config.demod_processor.clone(),
+                },
+                progress: 0.0,
+                processing_stage: crate::server::types::AptProcessingStage::Initializing,
+                analysis_data: None,
+              };
+              
+              if let Ok(json) = serde_json::to_string(&initial_result) {
+                let _ = _broadcast_tx.send(json);
+              }
+              
+              // Start async APT analysis
+              let processor_clone = sdr_processor.clone();
+              let broadcast_tx_clone = _broadcast_tx.clone();
+              let job_id_clone = job_id.clone();
+              let config_clone = config.clone();
+              
+              tokio::spawn(async move {
+                crate::encrypted_modules::apt_analysis::run_apt_analysis(
+                  processor_clone,
+                  broadcast_tx_clone,
+                  job_id_clone,
+                  config_clone,
+                ).await;
+              });
+            }
             _ => {
               warn!("Unhandled command: {:?}", cmd);
             }

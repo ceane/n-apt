@@ -7,6 +7,12 @@ pub mod coreml_client;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod crypto;
 pub mod fft;
+
+// Encrypted modules (only available when decrypted)
+#[cfg(rs_decrypted)]
+#[path = "../encrypted-modules/tmp/rs/mod.rs"]
+pub mod encrypted_modules;
+
 #[cfg(not(target_arch = "wasm32"))]
 pub mod sdr; // New abstract SDR interface
 #[cfg(not(target_arch = "wasm32"))]

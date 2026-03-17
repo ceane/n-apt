@@ -1,8 +1,7 @@
 /**
- * Scanner Worker Manager
+ * Scanner Worker Manager - Now redirects heavy lifting to the backend
  */
 class ScannerWorkerManager {
-  private worker: Worker | null = null;
   private pendingRequests = new Map<
     string,
     {
@@ -13,45 +12,35 @@ class ScannerWorkerManager {
     }
   >();
   private requestId = 0;
-  private readonly REQUEST_TIMEOUT = 60000; // 60 seconds for slow scans
+  private readonly REQUEST_TIMEOUT = 60000;
 
-  constructor() {
-    this.initializeWorker();
+  // This will be set by DemodContext or SpectrumStore once WS is ready
+  private _sendWSCommand: ((msg: any) => void) | null = null;
+
+  setWSCommandSender(sender: (msg: any) => void) {
+    this._sendWSCommand = sender;
   }
 
-  private initializeWorker() {
-    try {
-      this.worker = new Worker(new URL("./scannerWorker.ts", import.meta.url), {
-        type: "module",
-      });
+  /**
+   * Called by the WS message handler when a scan result/progress arrives
+   */
+  handleWSResponse(message: any) {
+    const { type, jobId, regions, progress, currentFreq, regionsLength } = message;
+    const request = this.pendingRequests.get(jobId);
 
-      this.worker.onmessage = (event) => {
-        const { type, id, data, error } = event.data;
-        const request = this.pendingRequests.get(id);
+    if (!request) return;
 
-        if (!request) {
-          if (type !== 'progress') console.warn(`Received response for unknown request: ${id}`);
-          return;
-        }
-
-        if (type === "progress" && request.onProgress) {
-          request.onProgress(data);
-        } else if (type === "result") {
-          if (request.timeout) clearTimeout(request.timeout);
-          request.resolve(data);
-          this.pendingRequests.delete(id);
-        } else if (type === "error") {
-          if (request.timeout) clearTimeout(request.timeout);
-          request.reject(new Error(error));
-          this.pendingRequests.delete(id);
-        }
-      };
-
-      this.worker.onerror = (error) => {
-        console.error("Scanner Worker error:", error);
-      };
-    } catch (error) {
-      console.error("Failed to initialize Scanner Worker:", error);
+    if (type === "scan_progress" && request.onProgress) {
+      request.onProgress({ progress, currentFreq, regionsLength });
+    } else if (type === "scan_result") {
+      if (request.timeout) clearTimeout(request.timeout);
+      request.resolve(regions);
+      this.pendingRequests.delete(jobId);
+    } else if (type === "demod_result") {
+        if (request.timeout) clearTimeout(request.timeout);
+        // data here would be the demod result
+        request.resolve(message);
+        this.pendingRequests.delete(jobId);
     }
   }
 
@@ -59,61 +48,57 @@ class ScannerWorkerManager {
     return `scan_${++this.requestId}_${Date.now()}`;
   }
 
-  private sendMessage(
-    type: string,
-    data: any,
-    onProgress?: (progress: any) => void,
-    transferables: Transferable[] = []
-  ): Promise<any> {
-    if (!this.worker) {
-      this.initializeWorker();
-      if (!this.worker) return Promise.reject(new Error("Scanner Worker not initialized"));
+  async scan(_iqSamples: Uint8Array, frequencyRange: { min: number; max: number }, options: any, onProgress?: (p: any) => void): Promise<any> {
+    if (!this._sendWSCommand) {
+        return Promise.reject(new Error("Backend connection not ready for scanning"));
     }
 
-    const id = this.generateRequestId();
+    const jobId = this.generateRequestId();
 
     return new Promise((resolve, reject) => {
       const timeoutId = setTimeout(() => {
-        const request = this.pendingRequests.get(id);
+        const request = this.pendingRequests.get(jobId);
         if (request) {
-          this.pendingRequests.delete(id);
-          reject(new Error(`Worker request ${id} timed out`));
+          this.pendingRequests.delete(jobId);
+          reject(new Error(`Scan request ${jobId} timed out`));
         }
       }, this.REQUEST_TIMEOUT);
 
-      this.pendingRequests.set(id, {
+      this.pendingRequests.set(jobId, {
         resolve,
         reject,
         onProgress,
         timeout: timeoutId as any,
       });
 
-      try {
-        this.worker!.postMessage({ type, id, data }, transferables);
-      } catch (error) {
-        clearTimeout(timeoutId);
-        this.pendingRequests.delete(id);
-        reject(error);
-      }
+      this._sendWSCommand!({
+        type: "scan",
+        job_id: jobId,
+        min_freq: frequencyRange.min,
+        max_freq: frequencyRange.max,
+        options // Pass through options for backend heuristic tuning
+      });
     });
   }
 
-  async scan(iqSamples: Uint8Array, frequencyRange: { min: number; max: number }, options: any, onProgress?: (p: any) => void): Promise<any> {
-    // We don't transfer iqSamples because the main thread still needs it for visualization etc.
-    // However, cloning/copying large buffers can be expensive. 
-    // If the browser still freezes during postMessage (due to serialization), we might need to use SharedArrayBuffer (if origin-isolated).
-    return this.sendMessage("scan", { iqSamples, frequencyRange, options }, onProgress);
-  }
+  async demodulate(_iqSamples: Uint8Array, region: any, _sampleRate: number): Promise<any> {
+    if (!this._sendWSCommand) {
+        return Promise.reject(new Error("Backend connection not ready for demodulation"));
+    }
 
-  async demodulate(iqSamples: Uint8Array, region: any, sampleRate: number): Promise<any> {
-    return this.sendMessage("demodulate", { iqSamples, region, sampleRate });
+    const jobId = `demod_${Date.now()}`;
+
+    return new Promise((resolve, reject) => {
+        this.pendingRequests.set(jobId, { resolve, reject });
+        this._sendWSCommand!({
+            type: "demodulate",
+            job_id: jobId,
+            region
+        });
+    });
   }
 
   terminate(): void {
-    if (this.worker) {
-      this.worker.terminate();
-      this.worker = null;
-    }
     this.pendingRequests.clear();
   }
 }

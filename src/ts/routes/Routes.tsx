@@ -2,8 +2,10 @@ import React from "react";
 import { Routes, Route } from "react-router-dom";
 import { MainLayout } from "@n-apt/components/MainLayout";
 import { SpectrumSidebar } from "@n-apt/components/sidebar/SpectrumSidebar";
+
 import { DemodulateSidebar } from "@n-apt/components/sidebar/DemodulateSidebar";
 import { DrawSignalSidebar } from "@n-apt/components/sidebar/DrawSignalSidebar";
+
 import { MapEndpointsSidebar } from "@n-apt/components/sidebar/MapEndpointsSidebar";
 import { SpectrumRoute } from "./SpectrumRoute";
 import { DemodRoute } from "./DemodRoute";
@@ -18,7 +20,7 @@ import { DemodProvider, useDemod } from "@n-apt/contexts/DemodContext";
 
 // Create a wrapper component to manage scanner state
 const DemodRouteWithSidebarContent: React.FC = () => {
-  const { 
+  const {
     windowSizeHz, setWindowSizeHz,
     stepSizeHz, setStepSizeHz,
     audioThreshold, setAudioThreshold,
@@ -86,7 +88,9 @@ export const AppRoutes: React.FC = () => {
       <Route
         path="/draw-signal"
         element={
-          <MainLayout sidebar={<DrawSignalSidebar />}>
+          <MainLayout
+            sidebar={<DrawSignalSidebar />}
+          >
             <DrawSignalRoute />
           </MainLayout>
         }
