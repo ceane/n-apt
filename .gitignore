@@ -21,9 +21,11 @@ lerna-debug.log*
 # node
 node_modules
 
-#build files
-dist/
-build/
+#build files (exclude root level only)
+/dist/
+/build/
+/dist/*
+/build/*
 
 
 # Rust - exclude all build artifacts and target folders

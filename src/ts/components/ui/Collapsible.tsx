@@ -37,6 +37,9 @@ export const CollapsibleBody = styled.div`
   grid-column: 1 / -1;
   gap: inherit;
   margin-top: 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  min-width: 0;
 `;
 
 export interface CollapsibleTitleProps

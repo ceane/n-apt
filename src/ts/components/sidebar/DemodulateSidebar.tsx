@@ -6,10 +6,9 @@ import { ConnectionStatusSection } from "@n-apt/components/sidebar/ConnectionSta
 import { Channels } from "@n-apt/components/sidebar/Channels";
 import { ScanningProgress } from "@n-apt/components/sidebar/ScanningProgress";
 import { useDemod } from "@n-apt/contexts/DemodContext";
-import { AnalysisTriggers } from "@n-apt/components/analysis/AnalysisTriggers";
 import { Row } from "@n-apt/components/ui";
 import { CollapsibleTitle, CollapsibleBody } from "@n-apt/components/ui/Collapsible";
-import { BlockMath, InlineMath } from "react-katex";
+import { DecryptionFallback } from "@n-apt/components/ui/DecryptionFallback";
 import type { SourceMode } from "@n-apt/hooks/useSpectrumStore";
 
 const SidebarContent = styled.div`
@@ -108,53 +107,9 @@ const StopButton = styled.button`
   }
 `;
 
-const MathContainer = styled.div`
-  background: #000;
-  border-radius: 4px;
-  padding: 12px;
-  margin-top: 8px;
-  border: 1px solid #1a1a1a;
-  overflow-x: auto;
-  
-  .katex-display {
-    margin: 0.5em 0;
-  }
-`;
-
-const MathStepLabel = styled.div`
-  font-size: 9px;
-  color: #555;
-  text-transform: uppercase;
-  font-family: "JetBrains Mono", monospace;
-  text-align: center;
-  margin-bottom: 12px;
-  border-top: 1px solid #111;
-  padding-top: 4px;
-`;
-
-const MathArrow = styled.div`
-  display: flex;
-  justify-content: center;
-  color: #00d4ff;
-  opacity: 0.5;
-  margin: 12px 0;
-  font-size: 14px;
-`;
-
-const MathDescription = styled.div`
-  font-size: 10px;
-  color: #888;
-  line-height: 1.4;
-  font-family: "JetBrains Mono", monospace;
-  text-align: center;
-  margin-top: 4px;
-  padding: 0 8px;
-
-  span {
-    color: #00d4ff;
-    font-weight: bold;
-  }
-`;
+const DemodMath = React.lazy(() => import("@n-apt/encrypted-modules/tmp/ts/components/math/DemodMath").catch(() => ({
+  default: () => <DecryptionFallback moduleName="Demod Math" />
+})));
 
 interface DemodulateSidebarProps {
   sourceMode?: SourceMode;
@@ -203,7 +158,6 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
 
   const { analysisSession } = useDemod();
   const [isOptionsOpen, setIsOptionsOpen] = React.useState(true);
-  const [isMathOpen, setIsMathOpen] = React.useState(false);
 
   return (
     <SidebarContent>
@@ -342,79 +296,10 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
         </InfoText>
       </InfoBox>
 
-      <Section style={{ display: 'block' }}>
-        <CollapsibleTitle
-          label="Demodulation Math"
-          isOpen={isMathOpen}
-          onToggle={() => setIsMathOpen(!isMathOpen)}
-        />
-        {isMathOpen && (
-          <CollapsibleBody style={{ display: 'block' }}>
-            <MathContainer>
-              <BlockMath math="s(t) = A \cos(2\pi f_c t + k_f \int m(t) dt)" />
-              <MathStepLabel>Receive RF</MathStepLabel>
-              <MathDescription>
-                <InlineMath math="s(t)" />: Received FM RF signal.
-              </MathDescription>
-
-              <MathArrow>↓</MathArrow>
-
-              <BlockMath math="m(t) = \frac{1}{k_f} \frac{d}{dt} [\text{phase}(s(t))]" />
-              <MathStepLabel>FM demodulation</MathStepLabel>
-              <MathDescription>
-                Removes carrier to recover baseband signal.
-              </MathDescription>
-
-              <MathArrow>↓</MathArrow>
-
-              <BlockMath math="m_f(t) = \text{BPF}\{m(t)\}" />
-              <MathStepLabel>Subcarrier isolation</MathStepLabel>
-              <MathDescription>
-                <InlineMath math="m_f(t)" />: Band-pass filtered subcarrier.
-              </MathDescription>
-
-              <MathArrow>↓</MathArrow>
-
-              <BlockMath math="A(t) = |\text{Hilbert}(m_f(t))|" />
-              <MathStepLabel>Envelope detection</MathStepLabel>
-              <MathDescription>
-                <InlineMath math="A(t)" />: AM subcarrier envelope.
-              </MathDescription>
-
-              <MathArrow>↓</MathArrow>
-
-              <BlockMath math="c(t) = \text{LPF}\{A(t)\}" />
-              <MathStepLabel>Low-pass filter</MathStepLabel>
-              <MathDescription>
-                <InlineMath math="c(t)" />: Recovered baseband content.
-              </MathDescription>
-
-              <MathArrow>↓</MathArrow>
-
-              <BlockMath math="c[n] = c(nT_s)" />
-              <MathStepLabel>Sampling</MathStepLabel>
-              <MathDescription>
-                <InlineMath math="c[n]" />: Digitized signal samples.
-              </MathDescription>
-
-              <MathArrow>↓</MathArrow>
-
-              <BlockMath math="v[n] = \text{Quantize}(c[n])" />
-              <MathStepLabel>Quantization</MathStepLabel>
-              <MathDescription>
-                <InlineMath math="v[n]" />: Reconstructed data values.
-              </MathDescription>
-
-              <MathArrow>↓</MathArrow>
-
-              <BlockMath math="\text{Content} = \text{Decode}(v[n])" />
-              <MathStepLabel>Decoding</MathStepLabel>
-              <MathDescription>
-                Final reconstructed digital content.
-              </MathDescription>
-            </MathContainer>
-          </CollapsibleBody>
-        )}
+      <Section>
+        <React.Suspense fallback={<div style={{ opacity: 0.5, fontSize: '10px', textAlign: 'center' }}>Loading Math...</div>}>
+          <DemodMath />
+        </React.Suspense>
       </Section>
     </SidebarContent>
   );

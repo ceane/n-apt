@@ -2,13 +2,6 @@
 //!
 //! Platform-specific SIMD acceleration for FFT pre/post-processing on native targets.
 //! Uses aarch64 NEON or x86_64 SSE intrinsics for vectorized operations.
-//!
-//! ## Performance
-//!
-//! - IQ conversion: 2-4x speedup (vectorized normalization + rotation)
-//! - Power spectrum: 2-3x speedup (vectorized magnitude + log)
-//! - Downsampling: 4-8x speedup (vectorized max reduction)
-//! - Window functions: 2-3x speedup (vectorized coefficient application)
 
 use crate::fft::processor::WindowType;
 use crate::fft::types::RawSamples;
@@ -20,10 +13,6 @@ use rustfft::FftPlanner;
 use std::sync::Arc;
 
 /// Native SIMD-accelerated FFT processor for signal analysis.
-///
-/// On aarch64 (Apple Silicon) this uses NEON intrinsics.
-/// On x86_64 this uses SSE2 intrinsics.
-/// SIMD-only implementation - no scalar fallbacks.
 pub struct NativeProcessor {
   /// FFT algorithm instance
   fft: Arc<dyn rustfft::Fft<f32>>,
@@ -48,8 +37,6 @@ impl SIMDProcessor for NativeProcessor {
     let mut planner = FftPlanner::<f32>::new();
     let fft = planner.plan_fft_forward(fft_size);
 
-    // Base multiplier starts at 1.0 (no delta applied yet)
-    // and ppm starts at 0.0 before dynamically loaded settings apply
     Self {
       fft,
       fft_size,

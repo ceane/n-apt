@@ -17,6 +17,9 @@ export default defineConfig({
   },
   resolve: {
     alias: [{
+      find: /^@n-apt\/encrypted-modules\/(.*)$/,
+      replacement: `${path.resolve(__dirname, "src/encrypted-modules")}/$1`
+    }, {
       find: /^@n-apt\/(.*)$/,
       replacement: `${path.resolve(__dirname, "src/ts")}/$1`
     }, {

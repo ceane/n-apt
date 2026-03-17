@@ -536,6 +536,49 @@ pub fn handle_message(
       log::info!("Client requested capture: {:?}", capture_cmd);
       let _ = cmd_tx.send(capture_cmd);
     }
+    "scan" => {
+      if let (Some(min_freq), Some(max_freq), Some(job_id)) = (message.min_freq, message.max_freq, message.job_id.clone()) {
+        let window_size_hz = 25000.0; // Default
+        let step_size_hz = 10000.0; // Default
+        let audio_threshold = 0.3; // Default
+        
+        let _ = cmd_tx.send(super::types::SdrCommand::ScanForAudio {
+          job_id,
+          frequency_range: (min_freq, max_freq),
+          window_size_hz,
+          step_size_hz,
+          audio_threshold,
+        });
+      }
+    }
+    "demodulate" => {
+      // Logic would be here if there's a specific demod message from frontend
+      // For now, scan results might trigger demodulation
+    }
+    "apt_analysis" => {
+      if let Some(job_id) = message.job_id.clone() {
+        // Parse APT analysis configuration from message
+        // For now, create a basic config - in a real implementation, 
+        // this would parse from message fields
+        let apt_config = super::types::AptAnalysisConfig {
+          content_type: super::types::AptContentType::AudioHearing, // Default
+          window_size_hz: message.min_freq.map(|f| (message.max_freq.unwrap_or(f) - f) * 1000.0).unwrap_or(25000.0),
+          sub_channel_range: (
+            message.min_freq.unwrap_or(0.0) * 1000.0 + 350000.0,
+            message.min_freq.unwrap_or(0.0) * 1000.0 + 500000.0
+          ),
+          script_content: None, // Would be parsed from message
+          media_content: None,  // Would be parsed from message
+          baseline_vector: None, // Would be parsed from message
+          demod_processor: "APT Pipeline v1.0".to_string(),
+        };
+        
+        let _ = cmd_tx.send(super::types::SdrCommand::StartAptAnalysis {
+          job_id,
+          config: apt_config,
+        });
+      }
+    }
     "power_scale" => {
       if let Some(scale_str) = message.power_scale.as_deref() {
         match scale_str {

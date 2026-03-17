@@ -41,6 +41,9 @@ path = "test/rust/capture_stitch_tests.rs"
 name = "live_stream_test"
 path = "src/rs/bin/live_stream_test.rs"
 
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(rs_decrypted)'] }
+
 [dependencies]
 # Core dependencies (always included)
 rustfft = "6"

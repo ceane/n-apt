@@ -214,14 +214,14 @@ const SCRIPT_VARIANTS = [
 ];
 
 export const AnalysisTriggers: React.FC = () => {
-  const { 
-    analysisSession, 
-    selectedBaseline, 
-    setSelectedBaseline, 
+  const {
+    analysisSession,
+    selectedBaseline,
+    setSelectedBaseline,
     liveMode,
     setLiveMode,
-    startAnalysis, 
-    clearAnalysis 
+    startAnalysis,
+    clearAnalysis
   } = useDemod();
 
   const [scriptIndex, setScriptIndex] = React.useState(0);
@@ -242,7 +242,7 @@ export const AnalysisTriggers: React.FC = () => {
 
     oscillator.type = 'sine';
     oscillator.frequency.setValueAtTime(440, audioCtx.currentTime);
-    
+
     // Smooth fade in/out to avoid clicking
     gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
     gainNode.gain.linearRampToValueAtTime(0.5, audioCtx.currentTime + 0.1);
@@ -262,9 +262,9 @@ export const AnalysisTriggers: React.FC = () => {
     if (type === 'audio' || type === 'internal') {
       setTimeout(() => playTone(), 3000); // Wait for countdown
     }
-    
+
     if (type === 'internal' || type === 'speech') {
-        setScriptIndex(Math.floor(Math.random() * SCRIPT_VARIANTS.length));
+      setScriptIndex(Math.floor(Math.random() * SCRIPT_VARIANTS.length));
     }
 
     startAnalysis(type, liveMode);
@@ -284,8 +284,8 @@ export const AnalysisTriggers: React.FC = () => {
         <ControlSection>
           <div style={{ marginBottom: 16 }}>
             <div style={{ color: '#888', fontSize: '11px', marginBottom: 8, fontFamily: 'JetBrains Mono' }}>SELECT BASELINE VECTOR</div>
-            <Select 
-              value={selectedBaseline} 
+            <Select
+              value={selectedBaseline}
               onChange={(e) => setSelectedBaseline(e.target.value as AnalysisType)}
               disabled={isBusy}
             >
@@ -298,17 +298,17 @@ export const AnalysisTriggers: React.FC = () => {
 
           <div style={{ marginBottom: 16 }}>
             <ToggleContainer>
-               <input 
-                  type="checkbox" 
-                  checked={liveMode} 
-                  onChange={(e) => setLiveMode(e.target.checked)} 
-                  style={{ display: 'none' }}
-                  disabled={isBusy}
-               />
-               <ToggleTrack $active={liveMode} />
-               <ToggleLabel style={{ color: liveMode ? '#00d4ff' : '#888' }}>
-                 LIVE CAPTURE (EPHEMERAL)
-               </ToggleLabel>
+              <input
+                type="checkbox"
+                checked={liveMode}
+                onChange={(e) => setLiveMode(e.target.checked)}
+                style={{ display: 'none' }}
+                disabled={isBusy}
+              />
+              <ToggleTrack $active={liveMode} />
+              <ToggleLabel style={{ color: liveMode ? '#00d4ff' : '#888' }}>
+                LIVE CAPTURE (EPHEMERAL)
+              </ToggleLabel>
             </ToggleContainer>
             <div style={{ fontSize: '9px', color: '#444', marginTop: 4, paddingLeft: 46 }}>
               Discard IQ capture after analysis
@@ -326,7 +326,7 @@ export const AnalysisTriggers: React.FC = () => {
           </TriggerButton>
 
           {analysisSession.state === 'result' && (
-            <button 
+            <button
               onClick={clearAnalysis}
               style={{ background: 'transparent', border: 'none', color: '#444', fontSize: '11px', cursor: 'pointer', textAlign: 'left', textDecoration: 'underline' }}
             >
@@ -337,7 +337,7 @@ export const AnalysisTriggers: React.FC = () => {
 
         <PreviewSection>
           <MediaOverlay>Media Playback Interface</MediaOverlay>
-          
+
           {selectedBaseline === 'audio' && (
             <div style={{ textAlign: 'center' }}>
               <WaveformContainer>
@@ -353,12 +353,12 @@ export const AnalysisTriggers: React.FC = () => {
 
           {selectedBaseline === 'internal' && (
             <div style={{ textAlign: 'center', width: '80%' }}>
-              <div style={{ color: '#00d4ff', fontSize: '12px', marginBottom: 20, fontFamily: 'JetBrains Mono' }}>INTERNAL SCRIPT RECONSTRUCTION</div>
+              <div style={{ color: '#00d4ff', fontSize: '12px', marginBottom: 20, fontFamily: 'JetBrains Mono' }}>Signal Analysis</div>
               <ScriptText>
-                {isCapturing ? SCRIPT_VARIANTS[scriptIndex] : "--- STANDBY FOR INJECTION ---"}
+                {isCapturing ? SCRIPT_VARIANTS[scriptIndex] : "Ready for analysis"}
               </ScriptText>
               <div style={{ color: '#555', fontSize: '10px', marginTop: 30 }}>
-                {isCapturing ? "STREAMING NEURAL VECTORS AT 12.5kbps..." : "CARRIER SYNC ACQUIRED"}
+                {isCapturing ? "Processing..." : "Ready"}
               </div>
             </div>
           )}
@@ -367,22 +367,22 @@ export const AnalysisTriggers: React.FC = () => {
             <div style={{ textAlign: 'center', width: '80%' }}>
               <div style={{ color: '#00ff88', fontSize: '12px', marginBottom: 20, fontFamily: 'JetBrains Mono' }}>VOCAL CAPTURE INTERFACE</div>
               <ScriptText style={{ color: '#00ff88' }}>
-                {isCapturing ? SCRIPT_VARIANTS[scriptIndex] : "--- AWAITING VOCAL INPUT ---"}
+                {isCapturing ? SCRIPT_VARIANTS[scriptIndex] : "Ready for vocal input"}
               </ScriptText>
               <div style={{ display: 'flex', gap: 6, marginTop: 40, justifyContent: 'center', height: 60, alignItems: 'center' }}>
                 {[...Array(20)].map((_, i) => {
                   // Create a sine wave pattern for the bars
                   return (
-                    <div 
-                      key={i} 
-                      style={{ 
-                        width: 4, 
-                        height: isCapturing ? (10 + Math.sin(Date.now() * 0.01 + i * 0.3) * 25 + 25) : 4, 
-                        background: isCapturing ? '#00ff88' : '#333', 
+                    <div
+                      key={i}
+                      style={{
+                        width: 4,
+                        height: isCapturing ? (10 + Math.sin(Date.now() * 0.01 + i * 0.3) * 25 + 25) : 4,
+                        background: isCapturing ? '#00ff88' : '#333',
                         transition: 'height 0.05s ease',
                         boxShadow: isCapturing ? '0 0 10px rgba(0,255,136,0.3)' : 'none',
                         borderRadius: '2px'
-                      }} 
+                      }}
                     />
                   );
                 })}

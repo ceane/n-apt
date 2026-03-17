@@ -288,6 +288,50 @@ export const sendCaptureCommand = createAsyncThunk(
   }
 );
 
+// Send scan command
+export const sendScanCommand = createAsyncThunk(
+  'websocket/sendScan',
+  async (
+    { jobId, minFreq, maxFreq, options }: { jobId: string; minFreq: number; maxFreq: number; options?: any },
+    { dispatch, getState }
+  ) => {
+    const state = getState() as RootState;
+    if (state.websocket.isConnected) {
+      dispatch({
+        type: 'websocket/sendMessage',
+        payload: {
+          type: 'scan',
+          job_id: jobId,
+          min_freq: minFreq,
+          max_freq: maxFreq,
+          options,
+        },
+      });
+    }
+  }
+);
+
+// Send demodulate command
+export const sendDemodulateCommand = createAsyncThunk(
+  'websocket/sendDemodulate',
+  async (
+    { jobId, region }: { jobId: string; region: any },
+    { dispatch, getState }
+  ) => {
+    const state = getState() as RootState;
+    if (state.websocket.isConnected) {
+      dispatch({
+        type: 'websocket/sendMessage',
+        payload: {
+          type: 'demodulate',
+          job_id: jobId,
+          region,
+        },
+      });
+    }
+  }
+);
+
 // Toggle visualizer pause (user action)
 export const toggleVisualizerPause = createAsyncThunk(
   'websocket/toggleVisualizerPause',

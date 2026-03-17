@@ -236,17 +236,10 @@ impl IQConverter {
     let mut complex_re = vec![0.0f32; fft_size];
     let mut complex_im = vec![0.0f32; fft_size];
 
-    // PPM correction shifts the LO. At frequency f, the shift is f * ppm / 1e6 Hz.
-    // Digital rotation by theta per sample shifts spectrum by theta * fs / (2 * PI) Hz.
-    // So theta = 2 * PI * (f * ppm / 1e6) / fs.
-    // We use the center_frequency as the base for this shift.
     let phase_step = 2.0
       * std::f32::consts::PI
       * (center_frequency as f32 * ppm / 1_000_000.0)
       / sample_rate as f32;
-    // We pass 1.0 + phase_step to the ARM optimized function which expects a "ppm_factor"
-    // Wait, the ARM function uses: phase = 2.0 * PI * (ppm_factor - 1.0) * i / fft_size.
-    // I should change the ARM function to accept actual phase_step per sample.
 
     ARMOptimizedSIMD::convert_to_complex_arm_optimized(
       data,
@@ -273,7 +266,6 @@ impl IQConverter {
     window_coeffs: &[f32],
   ) {
     let len = complex_buffer.len().min(window_coeffs.len());
-    // Same as above: SoA would be vastly superior, but we construct it here.
     let mut re = vec![0.0; len];
     let mut im = vec![0.0; len];
     for i in 0..len {
@@ -323,7 +315,7 @@ mod tests {
     ];
 
     let mut power = [0.0; 4];
-    PowerSpectrum::to_power_spectrum_db(&complex_data, &mut power);
+    PowerSpectrum::to_power_spectrum_db(&complex_data, &mut power, WindowType::Rectangular);
 
     // All should be 0 dB (magnitude = 1.0)
     for &value in &power {
