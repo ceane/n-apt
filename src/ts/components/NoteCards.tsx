@@ -13,6 +13,8 @@ import {
   updateNoteCardText,
   attachNoteCardSnapshot,
   hydrateNoteCards,
+  setNoteCardsCollapsed,
+  selectNoteCardsCollapsed,
 } from "@n-apt/redux";
 import { persistNoteCards, loadPersistedNoteCards } from "@n-apt/utils/noteCardStorage";
 
@@ -21,6 +23,7 @@ const MIN_CARD_HEIGHT = 320;
 const STACK_OFFSET_X = 0;
 const STACK_OFFSET_Y = 0;
 const STACK_EXTENSION = 60;
+const COLLAPSED_CARD_HEIGHT = 96;
 
 const Overlay = styled.div`
   position: absolute;
@@ -61,12 +64,14 @@ const Card = styled.article<{
   $active: boolean;
   $width: number;
   $height: number;
+  $collapsed: boolean;
 }>`
   position: absolute;
   top: ${({ $y }) => `${$y}px`};
   left: ${({ $x }) => `${$x}px`};
   width: ${({ $width }) => `${$width}px`};
-  height: ${({ $height }) => `${$height}px`};
+  height: ${({ $height, $collapsed }) =>
+    $collapsed ? `${Math.min($height, COLLAPSED_CARD_HEIGHT)}px` : `${$height}px`};
   min-width: ${MIN_CARD_WIDTH}px;
   min-height: ${MIN_CARD_HEIGHT}px;
   border-radius: 28px;
@@ -78,6 +83,8 @@ const Card = styled.article<{
   pointer-events: auto;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+  transition: height 180ms ease;
   user-select: none;
 `;
 
@@ -97,13 +104,14 @@ const HandleBar = styled.div`
   background: rgba(0, 0, 0, 0.28);
 `;
 
-const Content = styled.div`
+const Content = styled.div<{ $collapsed: boolean }>`
   display: flex;
   flex-direction: column;
   gap: 18px;
   padding: 18px 24px 24px;
   overflow: hidden;
   flex: 1;
+  ${({ $collapsed }) => ($collapsed ? "display: none;" : "")}
 `;
 
 const ScrollBody = styled.div`
@@ -225,7 +233,10 @@ const formatSummary = (card: ReturnType<typeof selectNoteCards>[number]) => {
   return `${centerText}\n${card.stats.vizZoom.toFixed(1)}x zoom\n${card.stats.fftDbMin} to ${card.stats.fftDbMax}${card.stats.powerScale}`;
 };
 
-const useNoteCardPersistence = (cards: ReturnType<typeof selectNoteCards>) => {
+const useNoteCardPersistence = (
+  cards: ReturnType<typeof selectNoteCards>,
+  isCollapsed: boolean,
+) => {
   const dispatch = useAppDispatch();
   const [isHydrated, setIsHydrated] = React.useState(false);
 
@@ -233,9 +244,10 @@ const useNoteCardPersistence = (cards: ReturnType<typeof selectNoteCards>) => {
     let cancelled = false;
     void loadPersistedNoteCards().then((stored) => {
       if (!cancelled) {
-        if (stored.length > 0) {
-          dispatch(hydrateNoteCards(stored));
+        if (stored.cards.length > 0) {
+          dispatch(hydrateNoteCards(stored.cards));
         }
+        dispatch(setNoteCardsCollapsed(stored.isCollapsed));
         setIsHydrated(true);
       }
     });
@@ -248,9 +260,8 @@ const useNoteCardPersistence = (cards: ReturnType<typeof selectNoteCards>) => {
     if (!isHydrated) {
       return;
     }
-    void persistNoteCards(cards);
-
-  }, [cards, isHydrated]);
+    void persistNoteCards({ cards, isCollapsed });
+  }, [cards, isCollapsed, isHydrated]);
 
   return isHydrated;
 };
@@ -258,8 +269,10 @@ const useNoteCardPersistence = (cards: ReturnType<typeof selectNoteCards>) => {
 export const NoteCards: React.FC<NoteCardsProps> = ({ fftCanvasRef }) => {
   const dispatch = useAppDispatch();
   const cards = useAppSelector(selectNoteCards);
-  const isHydrated = useNoteCardPersistence(cards);
+  const isCollapsed = useAppSelector(selectNoteCardsCollapsed);
+  const isHydrated = useNoteCardPersistence(cards, isCollapsed);
   const titleRef = React.useRef<HTMLTextAreaElement | null>(null);
+  const didDragRef = React.useRef(false);
 
   const activeCard = React.useMemo(() => {
     const explicitActive = cards.find((card) => card.isActive);
@@ -320,6 +333,7 @@ export const NoteCards: React.FC<NoteCardsProps> = ({ fftCanvasRef }) => {
       return;
     }
 
+    didDragRef.current = true;
     dispatch(
       updateNoteCardPosition({
         id: dragState.id,
@@ -351,11 +365,20 @@ export const NoteCards: React.FC<NoteCardsProps> = ({ fftCanvasRef }) => {
   const endDrag = React.useCallback((event: PointerEvent) => {
     if (dragStateRef.current?.pointerId === event.pointerId) {
       dragStateRef.current = null;
+      didDragRef.current = false;
     }
     if (resizeStateRef.current?.pointerId === event.pointerId) {
       resizeStateRef.current = null;
     }
   }, []);
+
+  const toggleCollapsed = React.useCallback(() => {
+    if (didDragRef.current) {
+      didDragRef.current = false;
+      return;
+    }
+    dispatch(setNoteCardsCollapsed(!isCollapsed));
+  }, [dispatch, isCollapsed]);
 
   React.useEffect(() => {
     window.addEventListener("pointermove", onPointerMove);
@@ -396,11 +419,13 @@ export const NoteCards: React.FC<NoteCardsProps> = ({ fftCanvasRef }) => {
         $active={true}
         $width={activeCard.size.width}
         $height={activeCard.size.height}
+        $collapsed={isCollapsed}
         onMouseDown={() => dispatch(setActiveNoteCard(activeCard.id))}
       >
         <HandleZone
           type="button"
           onPointerDown={(event) => {
+            didDragRef.current = false;
             dragStateRef.current = {
               id: activeCard.id,
               pointerId: event.pointerId,
@@ -412,10 +437,11 @@ export const NoteCards: React.FC<NoteCardsProps> = ({ fftCanvasRef }) => {
             dispatch(setActiveNoteCard(activeCard.id));
             event.currentTarget.setPointerCapture(event.pointerId);
           }}
+          onClick={toggleCollapsed}
         >
           <HandleBar />
         </HandleZone>
-        <Content>
+        <Content $collapsed={isCollapsed}>
           <ScrollBody>
             <TitleInput
               ref={titleRef}

@@ -173,6 +173,45 @@ const LOADING_PLACEHOLDER_TEXT = "Loading data from source...";
 const LOADING_PLACEHOLDER_FONT = "24px 'JetBrains Mono', monospace";
 const WATERFALL_PLACEHOLDER_FONT = "20px 'JetBrains Mono', monospace";
 const LOADING_PLACEHOLDER_COLOR = "#888888";
+const MIN_FFT_DB_SPAN = 5;
+
+const DB_MAX_RANGE: Record<"dB" | "dBm", { min: number; max: number }> = {
+  dB: { min: FFT_MIN_DB, max: FFT_MAX_DB },
+  dBm: { min: -100, max: 30 },
+};
+
+const DB_MIN_RANGE: Record<"dB" | "dBm", { min: number; max: number }> = {
+  dB: { min: FFT_MIN_DB, max: -10 },
+  dBm: { min: -120, max: -10 },
+};
+
+const clampDbMaxValue = (value: number, scale: "dB" | "dBm") => {
+  const bounds = DB_MAX_RANGE[scale];
+  return Math.min(Math.max(value, bounds.min), bounds.max);
+};
+
+const clampDbMinValue = (value: number, scale: "dB" | "dBm") => {
+  const bounds = DB_MIN_RANGE[scale];
+  return Math.min(Math.max(value, bounds.min), bounds.max);
+};
+
+const ensureValidDbRange = (
+  minVal: number,
+  maxVal: number,
+  scale: "dB" | "dBm",
+) => {
+  let nextMin = clampDbMinValue(minVal, scale);
+  let nextMax = clampDbMaxValue(maxVal, scale);
+
+  if (nextMax - nextMin < MIN_FFT_DB_SPAN) {
+    nextMax = clampDbMaxValue(nextMin + MIN_FFT_DB_SPAN, scale);
+    if (nextMax - nextMin < MIN_FFT_DB_SPAN) {
+      nextMin = clampDbMinValue(nextMax - MIN_FFT_DB_SPAN, scale);
+    }
+  }
+
+  return { min: nextMin, max: nextMax };
+};
 
 // const WATERFALL_TEXTURE_SNAPSHOT_KEY = "napt-waterfall-texture-snapshot";
 // const WATERFALL_TEXTURE_META_KEY = "napt-waterfall-texture-meta";
@@ -472,8 +511,32 @@ const FFTCanvas = memo(
     const retuneSmearRef = useRef(0);
     const retuneDriftPxRef = useRef(0);
 
-    const vizDbMax = fftMax ?? FFT_MAX_DB;
-    const vizDbMin = fftMin ?? FFT_MIN_DB;
+    const effectivePowerScale = powerScale ?? "dB";
+    const baseDbMin = Number.isFinite(fftMin) ? (fftMin as number) : FFT_MIN_DB;
+    const baseDbMax = Number.isFinite(fftMax) ? (fftMax as number) : FFT_MAX_DB;
+    const validatedDbRange = useMemo(
+      () => ensureValidDbRange(baseDbMin, baseDbMax, effectivePowerScale),
+      [baseDbMin, baseDbMax, effectivePowerScale],
+    );
+    const vizDbMin = validatedDbRange.min;
+    const vizDbMax = validatedDbRange.max;
+
+    const applyDbLimits = useCallback(
+      (minValue: number, maxValue: number) => {
+        if (!onFftDbLimitsChange) return;
+        const next = ensureValidDbRange(minValue, maxValue, effectivePowerScale);
+        onFftDbLimitsChange(next.min, next.max);
+      },
+      [onFftDbLimitsChange, effectivePowerScale],
+    );
+
+    useEffect(() => {
+      if (!onFftDbLimitsChange) return;
+      if (baseDbMin !== vizDbMin || baseDbMax !== vizDbMax) {
+        onFftDbLimitsChange(vizDbMin, vizDbMax);
+      }
+    }, [baseDbMin, baseDbMax, vizDbMin, vizDbMax, onFftDbLimitsChange]);
+
     const currentVizZoom = vizZoom ?? 1;
 
     const fftAvgEnabled = useAppSelector((reduxState) => reduxState.spectrum.fftAvgEnabled);
@@ -656,7 +719,6 @@ const FFTCanvas = memo(
     });
     const spectrumWebgpuEnabled = webgpuEnabled;
     const effectiveFftSize = fftSize ?? 32768;
-    const effectivePowerScale = powerScale ?? "dB";
     const activeScaleDbMin = vizDbMin;
     const activeScaleDbMax = vizDbMax;
     const effectiveFftWindowRaw = (fftWindow ?? "Rectangular").toLowerCase();
@@ -763,7 +825,7 @@ const FFTCanvas = memo(
       },
       vizDbMinRef,
       vizDbMaxRef,
-      onFftDbLimitsChange,
+      onFftDbLimitsChange: applyDbLimits,
       onVizZoomChange: setVizZoom,
       renderWaveformRef,
     });
@@ -897,7 +959,14 @@ const FFTCanvas = memo(
           renderWaveformRef.current &&
           renderWaveformRef.current.length > 0
         );
-        const showLoadingPlaceholder = awaitingDeviceData && !hasRenderableWaveform;
+        const hasIncomingData = !!(
+          currentData &&
+          (((currentData.waveform?.length ?? 0) > 0) ||
+            ((currentData.iq_data?.length ?? 0) > 0))
+        );
+        const showLoadingPlaceholder = awaitingDeviceData &&
+          !hasRenderableWaveform &&
+          !hasIncomingData;
 
         if (showLoadingPlaceholder) {
           drawLoadingPlaceholder(spectrumOverlayCanvas);
@@ -2008,10 +2077,8 @@ const FFTCanvas = memo(
             dbMin={vizDbMin}
             powerScale={effectivePowerScale}
             onZoomChange={(zoom) => setVizZoom(zoom)}
-            onDbMaxChange={(max) =>
-              onFftDbLimitsChange?.(vizDbMinRef.current, max)}
-            onDbMinChange={(min) =>
-              onFftDbLimitsChange?.(min, vizDbMaxRef.current)}
+            onDbMaxChange={(max) => applyDbLimits(vizDbMinRef.current, max)}
+            onDbMinChange={(min) => applyDbLimits(min, vizDbMaxRef.current)}
             fftAvgEnabled={fftAvgEnabled}
             fftSmoothEnabled={fftSmoothEnabled}
             wfSmoothEnabled={wfSmoothEnabled}
@@ -2027,7 +2094,7 @@ const FFTCanvas = memo(
             onResetZoomDb={() => {
               onVizZoomChange?.(1);
               onVizPanChange?.(0);
-              onFftDbLimitsChange?.(FFT_MIN_DB, FFT_MAX_DB);
+              applyDbLimits(FFT_MIN_DB, FFT_MAX_DB);
             }}
           />
         </SlidersRail>

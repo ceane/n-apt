@@ -5,6 +5,16 @@ const DB_VERSION = 1;
 const STORE_NAME = "note-cards";
 const RECORD_KEY = "cards";
 
+export interface PersistedNoteCardsPayload {
+  cards: NoteCardModel[];
+  isCollapsed: boolean;
+}
+
+const DEFAULT_PERSISTED_STATE: PersistedNoteCardsPayload = {
+  cards: [],
+  isCollapsed: false,
+};
+
 const isIndexedDbAvailable = () =>
   typeof window !== "undefined" && typeof window.indexedDB !== "undefined";
 
@@ -51,25 +61,36 @@ const withStore = async <T>(
   }
 };
 
-export const loadPersistedNoteCards = async (): Promise<NoteCardModel[]> => {
+export const loadPersistedNoteCards = async (): Promise<PersistedNoteCardsPayload> => {
   const result = await withStore("readonly", (store) =>
-    new Promise<NoteCardModel[]>((resolve, reject) => {
+    new Promise<PersistedNoteCardsPayload>((resolve, reject) => {
       const request = store.get(RECORD_KEY);
       request.onsuccess = () => {
-        const value = request.result?.value;
-        resolve(Array.isArray(value) ? value : []);
+        const rawValue = request.result?.value;
+        if (Array.isArray(rawValue)) {
+          resolve({ cards: rawValue, isCollapsed: false });
+          return;
+        }
+        if (rawValue && Array.isArray(rawValue.cards)) {
+          resolve({
+            cards: rawValue.cards,
+            isCollapsed: rawValue.isCollapsed ?? false,
+          });
+          return;
+        }
+        resolve(DEFAULT_PERSISTED_STATE);
       };
       request.onerror = () => reject(request.error);
     }),
   );
 
-  return result ?? [];
+  return result ?? DEFAULT_PERSISTED_STATE;
 };
 
-export const persistNoteCards = async (cards: NoteCardModel[]): Promise<void> => {
+export const persistNoteCards = async (payload: PersistedNoteCardsPayload): Promise<void> => {
   await withStore("readwrite", (store) =>
     new Promise<void>((resolve, reject) => {
-      const request = store.put({ id: RECORD_KEY, value: cards, updatedAt: Date.now() });
+      const request = store.put({ id: RECORD_KEY, value: payload, updatedAt: Date.now() });
       request.onsuccess = () => resolve();
       request.onerror = () => reject(request.error);
     }),

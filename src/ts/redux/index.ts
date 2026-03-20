@@ -51,9 +51,10 @@ export {
   setActiveNoteCard,
   removeNoteCard,
   clearNoteCards,
+  setNoteCardsCollapsed,
 } from './slices/noteCardsSlice';
 
-export { selectNoteCards, selectActiveNoteCard } from './slices/noteCardsSlice';
+export { selectNoteCards, selectActiveNoteCard, selectNoteCardsCollapsed } from './slices/noteCardsSlice';
 
 // Import spectrum actions for collective export
 import {
