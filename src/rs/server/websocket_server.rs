@@ -481,7 +481,7 @@ impl WebSocketServer {
               info!("Setting power scale to: {:?}", scale);
               processor.set_power_scale(scale);
             }
-            #[cfg(rs_decrypted)]
+            #[cfg(any(rs_decrypted, not(target_arch = "wasm32")))]
             crate::server::types::SdrCommand::ScanForAudio {
               job_id,
               frequency_range,
@@ -507,7 +507,7 @@ impl WebSocketServer {
                 let _ = _broadcast_tx.send(json);
               }
             }
-            #[cfg(rs_decrypted)]
+            #[cfg(any(rs_decrypted, not(target_arch = "wasm32")))]
             crate::server::types::SdrCommand::DemodulateRegion { job_id, region } => {
               info!("[DEMOD] Demodulating region for job={}", job_id);
               let (audio_buffer, sample_rate) = processor.handle_demodulate(&region);
@@ -522,7 +522,7 @@ impl WebSocketServer {
                 let _ = _broadcast_tx.send(json);
               }
             }
-            #[cfg(rs_decrypted)]
+            #[cfg(any(rs_decrypted, not(target_arch = "wasm32")))]
             crate::server::types::SdrCommand::StartAptAnalysis { job_id, config } => {
               info!("[APT] Starting APT analysis for job={}", job_id);
               

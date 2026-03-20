@@ -1,5 +1,5 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
-import { COLORS } from '@n-apt/consts';
+import { THEME_TOKENS } from '../../../rs/consts/theme';
 
 export type AppMode = "system" | "dark" | "light";
 
@@ -12,8 +12,8 @@ export interface ThemeState {
 
 const DEFAULTS = {
   appMode: "system" as AppMode,
-  accentColor: COLORS.primary,
-  fftColor: "#00d4ff",
+  accentColor: THEME_TOKENS.colors.dark.primary,
+  fftColor: THEME_TOKENS.colors.dark.fftLine,
   waterfallTheme: "classic",
 };
 

@@ -228,7 +228,7 @@ pub async fn handle_ws_connection(
             let data_type_str = spectrum_data.data_type.as_deref();
             let is_iq_data = data_type_str == Some("iq_raw");
             
-            let (data_type, frame_bytes) = if is_iq_data {
+            let (_data_type, frame_bytes) = if is_iq_data {
               let data_type = 1u32;
               let sample_rate = spectrum_data.sample_rate.unwrap_or(0) as u32;
               let iq_bytes = &spectrum_data.iq_data;

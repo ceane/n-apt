@@ -1,5 +1,6 @@
 import React, { useEffect, useCallback, useRef, useMemo } from "react";
 import { FFTCanvas } from "@n-apt/components";
+import { NoteCards } from "@n-apt/components";
 import type { FFTCanvasHandle } from "@n-apt/components";
 import type { SnapshotData } from "@n-apt/components/FFTCanvas";
 import ClassificationControls from "@n-apt/components/ClassificationControls";
@@ -131,7 +132,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
         // If we reach the end, "slide" back so the segment covers the end boundaries
         let actualMin = segmentMin;
         let actualMax = segmentMin + hardwareSpanMHz;
-        
+
         if (actualMax > channelRange.max) {
           actualMax = channelRange.max;
           actualMin = Math.max(channelRange.min, actualMax - hardwareSpanMHz);
@@ -160,7 +161,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
             visualRange: nextRange,
           });
         }
-        
+
         // Break if we've reached the end to avoid redundant slides
         if (actualMax >= channelRange.max - 0.0001) break;
       }
@@ -359,6 +360,12 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
                 onResetWaterfallCleared={() =>
                   dispatch({ type: "RESET_WATERFALL_CLEARED" })
                 }
+                awaitingDeviceData={
+                  isConnected &&
+                  deviceState !== "connected" &&
+                  deviceState !== "loading" &&
+                  deviceState !== "stale"
+                }
               />
             </>
           )}
@@ -396,6 +403,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
             }
           />
         )}
+        <NoteCards fftCanvasRef={fftCanvasRef} />
       </div>
     </div>
   );

@@ -9,8 +9,8 @@ const SettingSelect = styled.select`
   background-color: transparent;
   border: 1px solid transparent;
   border-radius: 4px;
-  color: #ccc;
-  font-family: "JetBrains Mono", monospace;
+  color: ${(props) => props.theme.textPrimary};
+  font-family: ${(props) => props.theme.typography.mono};
   font-size: 12px;
   font-weight: 500;
   padding: 2px 6px;
@@ -24,7 +24,7 @@ const SettingSelect = styled.select`
   padding-right: 20px;
 
   &:hover {
-    border-color: #2a2a2a;
+    border-color: ${(props) => props.theme.borderHover};
   }
 
   &:focus {
@@ -34,9 +34,9 @@ const SettingSelect = styled.select`
   }
 
   option {
-    background-color: #0a0a0a;
-    color: #ccc;
-    font-family: "JetBrains Mono", monospace;
+    background-color: ${(props) => props.theme.background};
+    color: ${(props) => props.theme.textPrimary};
+    font-family: ${(props) => props.theme.typography.mono};
   }
 `;
 
@@ -106,15 +106,15 @@ const ClumpSelector = styled.div`
     height: 4px;
   }
   &::-webkit-scrollbar-thumb {
-    background: #333;
+    background: ${(props) => props.theme.borderHover};
     border-radius: 2px;
   }
 `;
 
 const ClumpTab = styled.button<{ $active: boolean }>`
-  background: ${(props) => (props.$active ? props.theme.primary : "rgba(255,255,255,0.05)")};
-  color: ${(props) => (props.$active ? "#000" : "#888")};
-  border: 1px solid ${(props) => (props.$active ? props.theme.primary : "rgba(255,255,255,0.1)")};
+  background: ${(props) => (props.$active ? props.theme.primary : props.theme.surface)};
+  color: ${(props) => (props.$active ? props.theme.background : props.theme.textSecondary)};
+  border: 1px solid ${(props) => (props.$active ? props.theme.primary : props.theme.border)};
   padding: 4px 12px;
   border-radius: 4px;
   font-size: 11px;
@@ -124,14 +124,14 @@ const ClumpTab = styled.button<{ $active: boolean }>`
   transition: all 0.2s;
 
   &:hover {
-    background: ${(props) => (props.$active ? props.theme.primary : "rgba(255,255,255,0.1)")};
+    background: ${(props) => (props.$active ? props.theme.primary : props.theme.surfaceHover)};
   }
 `;
 
 const BeatsSection = styled.div`
   margin-top: 8px;
   padding-top: 12px;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  border-top: 1px solid ${(props) => props.theme.border};
 `;
 
 const BeatsHeader = styled.div`
@@ -143,7 +143,7 @@ const BeatsHeader = styled.div`
 
 const BeatsTitle = styled.h3`
   font-size: 11px;
-  color: #888;
+  color: ${(props) => props.theme.textSecondary};
   text-transform: uppercase;
   letter-spacing: 0.5px;
   margin: 0;
@@ -167,15 +167,15 @@ const AddBeatButton = styled.button`
   &:disabled {
     opacity: 0.2;
     cursor: default;
-    border-color: #444;
-    color: #444;
+    border-color: ${(props) => props.theme.textDisabled};
+    color: ${(props) => props.theme.textDisabled};
   }
 `;
 
 const ResetButton = styled.button`
   background: transparent;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  color: #888;
+  border: 1px solid ${(props) => props.theme.borderHover};
+  color: ${(props) => props.theme.textSecondary};
   border-radius: 4px;
   padding: 2px 10px;
   font-size: 9px;
@@ -186,18 +186,18 @@ const ResetButton = styled.button`
   letter-spacing: 0.5px;
 
   &:hover {
-    background: rgba(255, 255, 255, 0.05);
-    color: #fff;
-    border-color: rgba(255, 255, 255, 0.3);
+    background: ${(props) => props.theme.surfaceHover};
+    color: ${(props) => props.theme.textPrimary};
+    border-color: ${(props) => props.theme.primary};
   }
 `;
 
 const BeatItem = styled.div`
-  background: rgba(255, 255, 255, 0.03);
+  background: ${(props) => props.theme.surface};
   border-radius: 6px;
   padding: 10px;
   margin-bottom: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border: 1px solid ${(props) => props.theme.border};
 `;
 
 const BeatRow = styled.div`
@@ -210,7 +210,7 @@ const BeatRow = styled.div`
 const RemoveBeatButton = styled.button`
   background: transparent;
   border: none;
-  color: #666;
+  color: ${(props) => props.theme.textMuted};
   font-size: 16px;
   cursor: pointer;
   padding: 0 4px;
@@ -220,8 +220,43 @@ const RemoveBeatButton = styled.button`
   margin-left: auto;
 
   &:hover {
-    color: #ff4444;
+    color: ${(props) => props.theme.danger};
   }
+`;
+
+const SectionHeader = styled.div`
+  margin-bottom: 8px;
+  margin-top: 8px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+`;
+
+const SectionHeading = styled.h2`
+  font-size: 11px;
+  color: ${(props) => props.theme.textMuted};
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin: 0;
+`;
+
+const Divider = styled.div`
+  border-top: 1px solid ${(props) => props.theme.border};
+  margin: 8px 0;
+  padding-bottom: 8px;
+`;
+
+const LoadingFallback = styled.div`
+  opacity: 0.5;
+  font-size: 10px;
+  text-align: center;
+  color: ${(props) => props.theme.textSecondary};
+`;
+
+const BeatLabel = styled.div`
+  font-size: 11px;
+  color: ${(props) => props.theme.textSecondary};
+  font-weight: 600;
 `;
 
 const BEAT_SNAP_RANGES = [
@@ -286,18 +321,18 @@ export const DrawSignalSidebar: React.FC = () => {
 
   return (
     <DrawContainer>
-      <React.Suspense fallback={<div style={{ opacity: 0.5, fontSize: '10px', textAlign: 'center' }}>Loading Math...</div>}>
+      <React.Suspense fallback={<LoadingFallback>Loading Math...</LoadingFallback>}>
         <DrawMath />
       </React.Suspense>
 
-      <div style={{ marginBottom: '8px', marginTop: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h2 style={{ fontSize: '11px', color: '#666', textTransform: 'uppercase', letterSpacing: '1px', margin: 0 }}>
+      <SectionHeader>
+        <SectionHeading>
           Simulation Controls
-        </h2>
+        </SectionHeading>
         <ResetButton onClick={() => dispatch({ type: "RESET_DRAW_PARAMS" })}>
           Reset Defaults
         </ResetButton>
-      </div>
+      </SectionHeader>
 
       <ControlsContainer>
         <BeatsSection style={{ borderTop: 'none', paddingTop: 0, marginTop: 4 }}>
@@ -314,7 +349,7 @@ export const DrawSignalSidebar: React.FC = () => {
           {activeParams.beats.map((beat, i) => (
             <BeatItem key={i}>
               <BeatRow>
-                <div style={{ fontSize: '11px', color: COLORS.textSecondary, fontWeight: 600 }}>Beat {i + 1}</div>
+                <BeatLabel>Beat {i + 1}</BeatLabel>
                 <RemoveBeatButton onClick={() => handleRemoveBeat(i)}>×</RemoveBeatButton>
               </BeatRow>
               <Slider
@@ -332,7 +367,7 @@ export const DrawSignalSidebar: React.FC = () => {
           ))}
         </BeatsSection>
 
-        <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', margin: '8px 0', paddingBottom: '8px' }} />
+        <Divider />
 
         <Row label="Clumps">
           <SettingSelect
@@ -358,7 +393,7 @@ export const DrawSignalSidebar: React.FC = () => {
           </ClumpSelector>
         </Row>
 
-        <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', margin: '8px 0', paddingBottom: '8px' }} />
+        <Divider />
 
         <Slider
           label="Peak Amplitude"
@@ -438,7 +473,7 @@ export const DrawSignalSidebar: React.FC = () => {
           orientation="horizontal"
         />
 
-        <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', margin: '8px 0', paddingBottom: '8px' }} />
+        <Divider />
 
         <Slider
           label="Boost"

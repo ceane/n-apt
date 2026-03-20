@@ -8,6 +8,7 @@ import waterfallSlice from './slices/waterfallSlice';
 import themeSlice from './slices/themeSlice';
 import settingsSlice from './slices/settingsSlice';
 import websocketSlice from './slices/websocketSlice';
+import noteCardsSlice from './slices/noteCardsSlice';
 
 // Import middleware (will be created next)
 import websocketMiddleware from './middleware/websocketMiddleware';
@@ -22,6 +23,7 @@ export const store = configureStore({
     theme: themeSlice,
     settings: settingsSlice,
     websocket: websocketSlice,
+    noteCards: noteCardsSlice,
   },
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware({

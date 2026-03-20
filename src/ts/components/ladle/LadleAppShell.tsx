@@ -74,6 +74,18 @@ const statusPayload = {
   device: "mock_apt",
 };
 
+const getStatusPayloadForTab = (activeTab: string) => {
+  if (activeTab === "visualizer") {
+    return statusPayload;
+  }
+
+  return {
+    ...statusPayload,
+    device_connected: true,
+    device_state: "connected" as const,
+  };
+};
+
 const routeToTab = (route: string) => {
   if (route.includes("draw")) return "draw";
   if (route.includes("demod")) return "analysis";
@@ -83,11 +95,23 @@ const routeToTab = (route: string) => {
 };
 
 const tabToStory = (tab: string) => {
-  if (tab.includes("draw")) return "3d-model--draw-signal";
-  if (tab.includes("demod")) return "sidebar-demodulate--default";
-  if (tab.includes("3d-model")) return "layout--human-model-viewer-simple";
-  if (tab.includes("map")) return "sidebar-map-endpoints--default";
-  return "layout--fft-canvas";
+  if (tab.includes("draw")) return "routes-routes--draw-signal-route";
+  if (tab.includes("demod")) return "routes-routes--demodulate-route";
+  if (tab.includes("3d-model")) return "routes-routes--model3-droute";
+  if (tab.includes("map")) return "routes-routes--map-endpoints-route";
+  if (tab.includes("stitch")) return "routes-routes--stitch-test-route";
+  return "routes-routes--visualizer-route";
+};
+
+const isKnownStoryId = (storyId: string) => {
+  return [
+    "routes-routes--draw-signal-route",
+    "routes-routes--demodulate-route",
+    "routes-routes--model3-droute",
+    "routes-routes--map-endpoints-route",
+    "routes-routes--stitch-test-route",
+    "routes-routes--visualizer-route",
+  ].includes(storyId);
 };
 
 const LocationSync = () => {
@@ -97,7 +121,7 @@ const LocationSync = () => {
 
   React.useEffect(() => {
     const targetStory = tabToStory(location.pathname);
-    if (globalState.story !== targetStory) {
+    if (isKnownStoryId(targetStory) && globalState.story !== targetStory) {
       linkTo(targetStory);
     }
   }, [location.pathname, linkTo, globalState.story]);
@@ -106,35 +130,39 @@ const LocationSync = () => {
 };
 
 const SidebarShell = ({ activeTab }: { activeTab: string }) => {
+  const currentStatusPayload = React.useMemo(
+    () => getStatusPayloadForTab(activeTab),
+    [activeTab],
+  );
   const [sourceMode, setSourceMode] = React.useState<SourceMode>("live");
   const [activeSignalArea, setActiveSignalArea] = React.useState(
-    statusPayload.channels[0]?.label ?? "A",
+    currentStatusPayload.channels[0]?.label ?? "A",
   );
   const [frequencyRange, setFrequencyRange] = React.useState<FrequencyRange | null>({
-    min: statusPayload.channels[0]?.min_mhz ?? 0,
-    max: statusPayload.channels[0]?.max_mhz ?? 0,
+    min: currentStatusPayload.channels[0]?.min_mhz ?? 0,
+    max: currentStatusPayload.channels[0]?.max_mhz ?? 0,
   });
   const [drawParams, setDrawParams] = React.useState<DrawParams[]>([]);
   const [selectedFiles, setSelectedFiles] = React.useState<{ name: string; file: File }[]>([]);
   const [stitchStatus, setStitchStatus] = React.useState("Idle");
   const [stitchSourceSettings, setStitchSourceSettings] = React.useState({
-    gain: statusPayload.sdr_settings.gain.tuner_gain,
-    ppm: statusPayload.sdr_settings.ppm,
+    gain: currentStatusPayload.sdr_settings.gain.tuner_gain,
+    ppm: currentStatusPayload.sdr_settings.ppm,
   });
-  const [isPaused, setIsPaused] = React.useState(statusPayload.paused);
+  const [isPaused, setIsPaused] = React.useState(currentStatusPayload.paused);
   const [isStitchPaused, setIsStitchPaused] = React.useState(false);
   const [captureStatus, setCaptureStatus] = React.useState<CaptureStatus>(null);
 
   return (
     <SidebarNew
-      isConnected={statusPayload.device_connected}
-      deviceState={statusPayload.device_state}
-      deviceLoadingReason={statusPayload.device_loading_reason}
+      isConnected={currentStatusPayload.device_connected}
+      deviceState={currentStatusPayload.device_state}
+      deviceLoadingReason={currentStatusPayload.device_loading_reason}
       isPaused={isPaused}
-      backend={statusPayload.device}
-      maxSampleRateHz={statusPayload.max_sample_rate}
-      sampleRateHz={statusPayload.sdr_settings.sample_rate}
-      sdrSettings={statusPayload.sdr_settings}
+      backend={currentStatusPayload.device}
+      maxSampleRateHz={currentStatusPayload.max_sample_rate}
+      sampleRateHz={currentStatusPayload.sdr_settings.sample_rate}
+      sdrSettings={currentStatusPayload.sdr_settings}
       captureStatus={captureStatus}
       autoFftOptions={null}
       onCaptureCommand={(req: CaptureRequest) => {
@@ -143,7 +171,7 @@ const SidebarShell = ({ activeTab }: { activeTab: string }) => {
           jobId: req.jobId ?? "ladle-capture",
         });
       }}
-      spectrumFrames={statusPayload.channels}
+      spectrumFrames={currentStatusPayload.channels}
       activeTab={activeTab}
       drawParams={drawParams}
       onDrawParamsChange={setDrawParams}

@@ -21,7 +21,7 @@ const HeterodyningContainer = styled.div`
   align-items: center;
   gap: 12px;
   font-size: 12px;
-  color: #ccc;
+  color: ${(props) => props.theme.textPrimary};
   font-weight: 500;
 `;
 
@@ -29,12 +29,12 @@ const VerifyButton = styled.button`
   font-size: 11px;
   padding: 6px 12px;
   min-width: 80px;
-  background-color: #1a1a1a;
-  border: 1px solid #2a2a2a;
+  background-color: ${(props) => props.theme.surface};
+  border: 1px solid ${(props) => props.theme.borderHover};
   border-radius: 6px;
   color: ${(props) => props.theme.primary};
   cursor: pointer;
-  font-family: "JetBrains Mono", monospace;
+  font-family: ${(props) => props.theme.typography.mono};
 `;
 
 interface SignalFeaturesSectionProps {
@@ -55,11 +55,11 @@ const ClassifyButton = styled.button<{ $disabled?: boolean }>`
   min-width: 80px;
   opacity: ${({ $disabled }) => ($disabled ? 0.5 : 1)};
   cursor: ${({ $disabled }) => ($disabled ? "not-allowed" : "pointer")};
-  background-color: #1a1a1a;
-  border: 1px solid #2a2a2a;
+  background-color: ${(props) => props.theme.surface};
+  border: 1px solid ${(props) => props.theme.borderHover};
   border-radius: 6px;
-  color: ${({ $disabled, theme }) => ($disabled ? "#666" : theme.primary)};
-  font-family: "JetBrains Mono", monospace;
+  color: ${({ $disabled, theme }) => ($disabled ? theme.textMuted : theme.primary)};
+  font-family: ${(props) => props.theme.typography.mono};
 `;
 
 const ToggleButton = styled.button<{ $active: boolean; $disabled?: boolean }>`
@@ -68,11 +68,25 @@ const ToggleButton = styled.button<{ $active: boolean; $disabled?: boolean }>`
   min-width: 80px;
   opacity: ${({ $disabled }) => ($disabled ? 0.5 : 1)};
   cursor: ${({ $disabled }) => ($disabled ? "not-allowed" : "pointer")};
-  background-color: ${({ $active }) => ($active ? "rgba(220, 38, 38, 0.18)" : "#1a1a1a")};
-  border: 1px solid ${({ $active }) => ($active ? "rgba(239, 68, 68, 0.8)" : "#2a2a2a")};
+  background-color: ${({ $active, theme }) => ($active ? theme.danger + "2e" : theme.surface)};
+  border: 1px solid ${({ $active, theme }) => ($active ? theme.danger : theme.borderHover)};
   border-radius: 6px;
-  color: ${({ $active, $disabled }) => ($disabled ? "#666" : ($active ? "#ff8a8a" : "#ccc"))};
-  font-family: "JetBrains Mono", monospace;
+  color: ${({ $active, $disabled, theme }) => ($disabled ? theme.textMuted : ($active ? theme.danger : theme.textPrimary))};
+  font-family: ${(props) => props.theme.typography.mono};
+`;
+
+const StatusActionRow = styled.div`
+  display: grid;
+  grid-auto-flow: column;
+  justify-items: end;
+  align-items: center;
+  gap: 12px;
+`;
+
+const StatusText = styled.div`
+  font-size: 12px;
+  color: ${(props) => props.theme.textPrimary};
+  font-weight: 500;
 `;
 
 export const SignalFeaturesSection: React.FC<SignalFeaturesSectionProps> = ({
@@ -114,17 +128,17 @@ export const SignalFeaturesSection: React.FC<SignalFeaturesSectionProps> = ({
       {isOpen && (
         <>
           <Row label={<>N-APT<span role="img" aria-label="brain" style={{ marginLeft: "6px" }}>🧠</span></>} tooltipTitle="N-APT" tooltip="N-APT stands for: Neuro Automatic Picture Transmission. These radio waves are modulated akin to APT signals (unknown reasons at this time) but unique in their ability to intercept, process and alter the brain and nervous system.<br><br>Through LF/HF frequencies (frequencies that survive attenuation of the skull and/or body; and lose less energy with longer distances/obstacles), it functions from triangulation, time of flight depth, heterodyning (it's key feature which ensures bioelectrical reception), phase shifting, center frequencies, impedance & endpoint signals processing (suspected as Kaiser, Bayes' Theorem/Posterior Probability, etc.).<br><br>It is an unprecedented formula of radio waves and neurotechnology with nascent efforts to decipher its modulation and content.">
-            <div style={{ display: "grid", gridAutoFlow: "column", justifyItems: "end", alignItems: "center", gap: "12px" }}>
-              <div style={{ fontSize: "12px", color: "#ccc", fontWeight: 500 }}>
+            <StatusActionRow>
+              <StatusText>
                 {classificationStatusText}
-              </div>
+              </StatusText>
               <ClassifyButton
                 $disabled={classificationDisabled}
                 disabled={classificationDisabled}
               >
                 Classify?
               </ClassifyButton>
-            </div>
+            </StatusActionRow>
           </Row>
 
           <Row label="Heterodyned?">

@@ -10,9 +10,11 @@ export const RowContainer = styled.div`
   grid-column: 1 / -1;
   gap: 12px;
   padding: 10px 0;
-  background-color: #141414;
+  background-color: ${(props) =>
+    props.theme.mode === "light" ? props.theme.primaryAnchor : props.theme.surface};
   border-radius: 6px;
-  border: 1px solid #1a1a1a;
+  border: 1px solid ${(props) =>
+    props.theme.mode === "light" ? props.theme.borderHover : props.theme.border};
   user-select: none;
   box-sizing: border-box;
   width: 100%;
@@ -25,7 +27,7 @@ export const RowLabel = styled.div`
   justify-content: flex-start;
   gap: 6px;
   font-size: 12px;
-  color: #777;
+  color: ${(props) => props.theme.textSecondary};
   white-space: pre-wrap;
   line-height: 1.2;
   flex: 1 0 auto;

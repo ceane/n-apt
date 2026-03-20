@@ -7,12 +7,12 @@ import { useSidebarNavigationScroll } from "@n-apt/hooks/useSidebarNavigationScr
 const NavigationContainer = styled.div`
   display: flex;
   flex-direction: column;
-  width: 360px;
-  min-width: 280px;
+  width: ${(props) => `${props.theme.layout.sidebarWidth}px`};
+  min-width: ${(props) => `${props.theme.layout.sidebarMinWidth}px`};
   max-width: 500px;
   height: 100vh;
-  background-color: #0d0d0d;
-  border-right: 1px solid #1a1a1a;
+  background-color: ${(props) => props.theme.background};
+  border-right: 1px solid ${(props) => props.theme.border};
   position: sticky;
   top: 0;
   overflow-y: auto;
@@ -23,15 +23,15 @@ const NavigationContainer = styled.div`
 
 const SidebarToggle = styled.button`
   position: sticky;
-  top: 24px;
-  margin: 24px;
+  top: ${(props) => props.theme.spacing.xxl};
+  margin: ${(props) => props.theme.spacing.xxl};
   z-index: 1000;
-  background-color: #1a1a1a;
+  background-color: ${(props) => props.theme.surface};
   border: 1px solid ${(props) => props.theme.primary};
   border-radius: 6px;
-  padding: 8px 12px;
+  padding: ${(props) => `${props.theme.spacing.sm} ${props.theme.spacing.md}`};
   color: ${(props) => props.theme.primary};
-  font-family: "JetBrains Mono", monospace;
+  font-family: ${(props) => props.theme.typography.mono};
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
@@ -43,25 +43,25 @@ const SidebarToggle = styled.button`
 
 const CollapsedToggle = styled(SidebarToggle)`
   position: fixed;
-  top: 24px;
-  left: 24px;
+  top: ${(props) => props.theme.spacing.xxl};
+  left: ${(props) => props.theme.spacing.xxl};
   margin: 0;
 `;
 
 const NavigationTabs = styled.div`
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 0 24px 16px 24px;
+  gap: ${(props) => props.theme.spacing.sm};
+  padding: 0 ${(props) => props.theme.spacing.xxl} ${(props) => props.theme.spacing.lg} ${(props) => props.theme.spacing.xxl};
 `;
 
 const NavigationTab = styled.button<{ $isActive: boolean }>`
-  padding: 12px 16px;
-  border: 1px solid ${(props) => (props.$isActive ? "#2a2a2a" : "transparent")};
+  padding: ${(props) => `${props.theme.spacing.md} ${props.theme.spacing.lg}`};
+  border: 1px solid ${(props) => (props.$isActive ? props.theme.borderHover : "transparent")};
   border-radius: 8px;
-  background-color: ${(props) => (props.$isActive ? "#1a1a1a" : "transparent")};
-  color: ${(props) => (props.$isActive ? props.theme.primary : "#666")};
-  font-family: 'JetBrains Mono', monospace;
+  background-color: ${(props) => (props.$isActive ? props.theme.surface : "transparent")};
+  color: ${(props) => (props.$isActive ? props.theme.primary : props.theme.textMuted)};
+  font-family: ${(props) => props.theme.typography.mono};
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
@@ -72,8 +72,8 @@ const NavigationTab = styled.button<{ $isActive: boolean }>`
   justify-content: flex-start;
 
   &:hover {
-    background-color: #1a1a1a;
-    color: #888;
+    background-color: ${(props) => props.theme.surfaceHover};
+    color: ${(props) => props.theme.textSecondary};
   }
 `;
 
@@ -81,7 +81,7 @@ const SidebarContent = styled.div`
   flex: 1;
   display: flex;
   flex-direction: column;
-  padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  padding-bottom: calc(${(props) => props.theme.spacing.xxl} + env(safe-area-inset-bottom, 0px));
 `;
 
 interface MainLayoutProps {
@@ -98,7 +98,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
   onSidebarOpenChange,
 }) => {
   const [internalIsSidebarOpen, setInternalIsSidebarOpen] = useState(true);
-  
+
   const isSidebarOpen = controlledIsSidebarOpen !== undefined ? controlledIsSidebarOpen : internalIsSidebarOpen;
   const setIsSidebarOpen = (open: boolean) => {
     if (onSidebarOpenChange) {

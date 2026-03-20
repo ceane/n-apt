@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import styled from "styled-components";
+import { Palette, Droplet, AudioLines, SquareDashedTopSolid } from "lucide-react";
 import { useAppSelector, useAppDispatch } from "@n-apt/redux";
 import { setAppMode as setAppModeAction, setAccentColor as setAccentColorAction, setFftColor as setFftColorAction, setWaterfallTheme as setWaterfallThemeAction, resetTheme as resetThemeAction } from "@n-apt/redux";
 import { WATERFALL_COLORMAPS } from "@n-apt/consts/colormaps";
@@ -24,12 +25,33 @@ const ColorInputWrapper = styled.div`
   gap: 8px;
 `;
 
+const LabelWithIcon = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  line-height: 1.2;
+
+  svg {
+    width: 14px;
+    height: 14px;
+    color: ${(props) => props.theme.textSecondary};
+    opacity: 0.5;
+  }
+`;
+
+const IconLabel: React.FC<{ icon: React.ComponentType<any>; text: string }> = ({ icon: IconComponent, text }) => (
+  <LabelWithIcon>
+    <IconComponent size={14} strokeWidth={1.75} aria-hidden="true" />
+    {text}
+  </LabelWithIcon>
+);
+
 const ColorSquare = styled.input`
   appearance: none;
   width: 24px;
   height: 24px;
   border-radius: 4px;
-  border: 1px solid #444;
+  border: 1px solid ${(props) => props.theme.borderHover};
   cursor: pointer;
   padding: 0;
   background: none;
@@ -45,10 +67,10 @@ const ColorSquare = styled.input`
 
 const HexInput = styled.input`
   background-color: transparent;
-  border: 1px solid #444;
+  border: 1px solid ${(props) => props.theme.borderHover};
   border-radius: 4px;
-  color: #ccc;
-  font-family: "JetBrains Mono", monospace;
+  color: ${(props) => props.theme.textPrimary};
+  font-family: ${(props) => props.theme.typography.mono};
   font-size: 11px;
   padding: 2px 6px;
   width: 70px;
@@ -63,8 +85,8 @@ const SettingSelect = styled.select`
   background-color: transparent;
   border: 1px solid transparent;
   border-radius: 4px;
-  color: #ccc;
-  font-family: "JetBrains Mono", monospace;
+  color: ${(props) => props.theme.textPrimary};
+  font-family: ${(props) => props.theme.typography.mono};
   font-size: 12px;
   font-weight: 500;
   padding: 2px 6px;
@@ -78,19 +100,19 @@ const SettingSelect = styled.select`
   padding-right: 20px;
 
   &:hover {
-    border-color: #2a2a2a;
+    border-color: ${(props) => props.theme.borderHover};
   }
 
   &:focus {
     outline: none;
     border-color: ${(props) => props.theme.primary};
-    background-color: rgba(0, 212, 255, 0.05);
+    background-color: ${(props) => props.theme.primaryAnchor};
   }
 
   option {
-    background-color: #1a1a1a;
-    color: #ccc;
-    font-family: "JetBrains Mono", monospace;
+    background-color: ${(props) => props.theme.surface};
+    color: ${(props) => props.theme.textPrimary};
+    font-family: ${(props) => props.theme.typography.mono};
   }
 `;
 
@@ -133,7 +155,7 @@ export const ThemeSection: React.FC = () => {
       />
       {isOpen && (
         <CollapsibleBody>
-          <Row label="App Theme" tooltip="Switch between system, dark, and light modes.">
+          <Row label={<IconLabel icon={Palette} text="App Theme" />}>
             <SettingSelect
               value={appMode}
               onChange={(e) => handleSetAppMode(e.target.value as "system" | "dark" | "light")}
@@ -144,7 +166,7 @@ export const ThemeSection: React.FC = () => {
             </SettingSelect>
           </Row>
 
-          <Row label="Accent" tooltip="Choose the primary accent color for buttons and sliders.">
+          <Row label={<IconLabel icon={Droplet} text="Accent Color" />}>
             <ColorInputWrapper>
               <ColorSquare
                 type="color"
@@ -159,7 +181,7 @@ export const ThemeSection: React.FC = () => {
             </ColorInputWrapper>
           </Row>
 
-          <Row label="FFT Color" tooltip="Choose the color for the FFT line and fill.">
+          <Row label={<IconLabel icon={AudioLines} text="FFT Color" />}>
             <ColorInputWrapper>
               <ColorSquare
                 type="color"
@@ -174,7 +196,7 @@ export const ThemeSection: React.FC = () => {
             </ColorInputWrapper>
           </Row>
 
-          <Row label="Waterfall" tooltip="Select a colormap for the waterfall display.">
+          <Row label={<IconLabel icon={SquareDashedTopSolid} text="Waterfall" />}>
             <SettingSelect
               value={waterfallTheme}
               onChange={(e) => handleSetWaterfallTheme(e.target.value)}

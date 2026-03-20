@@ -66,7 +66,7 @@ export class FileWorkerManager {
         }
 
         // Simulate different file types
-        if (file.name.endsWith(".c64")) {
+        if (file.name.endsWith(".napt") || file.name.endsWith(".wav")) {
           resolve({
             name: file.name,
             data: new ArrayBuffer(file.size),

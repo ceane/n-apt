@@ -3,21 +3,21 @@ import styled from "styled-components";
 
 export const TabsContainer = styled.div`
   display: flex;
-  background: #141414;
+  background: ${(props) => props.theme.surface};
   border-radius: 6px;
   padding: 2px;
-  border: 1px solid #1a1a1a;
+  border: 1px solid ${(props) => props.theme.border};
   width: 100%;
 `;
 
 export const TabButton = styled.button<{ $active: boolean }>`
   flex: 1;
-  background: ${({ $active }) => ($active ? "#2a2a2a" : "transparent")};
-  color: ${({ $active }) => ($active ? "#fff" : "#888")};
+  background: ${({ $active, theme }) => ($active ? theme.surfaceHover : "transparent")};
+  color: ${({ $active, theme }) => ($active ? theme.textPrimary : theme.textSecondary)};
   border: none;
   border-radius: 4px;
   padding: 6px 12px;
-  font-family: inherit;
+  font-family: ${(props) => props.theme.typography.mono};
   font-size: 11px;
   font-weight: 500;
   cursor: pointer;
@@ -25,8 +25,8 @@ export const TabButton = styled.button<{ $active: boolean }>`
   white-space: nowrap;
 
   &:hover {
-    color: #fff;
-    background: ${({ $active }) => ($active ? "#2a2a2a" : "#1f1f1f")};
+    color: ${(props) => props.theme.textPrimary};
+    background: ${({ $active, theme }) => ($active ? theme.surfaceHover : theme.background)};
   }
 `;
 

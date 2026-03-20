@@ -631,7 +631,7 @@ impl FFTProcessor {
     fft.process(&mut fft_samples);
     
     // Calculate power spectrum
-    let mut power_spectrum: Vec<f32> = fft_samples.iter()
+    let power_spectrum: Vec<f32> = fft_samples.iter()
       .map(|c| (c.re * c.re + c.im * c.im).sqrt())
       .collect();
     
@@ -639,7 +639,7 @@ impl FFTProcessor {
     let mut sorted_power = power_spectrum.clone();
     sorted_power.sort_by(|a, b| a.partial_cmp(b).unwrap());
     let noise_floor_idx = power_spectrum.len() / 4;
-    let noise_floor = if noise_floor_idx < sorted_power.len() {
+    let _noise_floor = if noise_floor_idx < sorted_power.len() {
       sorted_power[noise_floor_idx]
     } else {
       0.0
@@ -1234,9 +1234,7 @@ impl FFTProcessor {
     correlation: &CorrelationResult,
     signal_quality: &SignalQualityMetrics,
   ) -> StitchingRecommendation {
-    if correlation.is_acceptable {
-      StitchingRecommendation::Accept
-    } else if correlation.correlation_score > 0.5 {
+    if correlation.correlation_score > 0.5 {
       // Moderate correlation - try correction
       let total_offset_samples = correlation.time_delay_samples as f32 + correlation.fractional_delay_samples;
       if total_offset_samples.abs() > 0.1 {

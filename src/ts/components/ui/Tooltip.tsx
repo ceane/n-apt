@@ -27,9 +27,9 @@ const InfoIcon = styled.div`
   width: ${INFO_ICON_SIZE}px;
   height: ${INFO_ICON_SIZE}px;
   border-radius: 50%;
-  background-color: ${POPOVER_ICON_BACKGROUND};
-  border: 1px solid ${POPOVER_ICON_BORDER};
-  color: ${POPOVER_ICON_COLOR};
+  background-color: ${(props) => props.theme.popoverIconBackground || POPOVER_ICON_BACKGROUND};
+  border: 1px solid ${(props) => props.theme.popoverIconBorder || POPOVER_ICON_BORDER};
+  color: ${(props) => props.theme.popoverIconColor || POPOVER_ICON_COLOR};
   font-size: 10px;
   font-weight: 600;
   display: flex;
@@ -37,12 +37,12 @@ const InfoIcon = styled.div`
   justify-content: center;
   cursor: help;
   transition: all 0.2s ease;
-  margin-left: 10px;
+  margin-left: 4px;
 
   &:hover {
-    background-color: ${POPOVER_ICON_HOVER_BACKGROUND};
-    border-color: ${POPOVER_ICON_HOVER_BACKGROUND};
-    color: ${POPOVER_ICON_HOVER_COLOR};
+    background-color: ${(props) => props.theme.popoverIconHoverBackground || POPOVER_ICON_HOVER_BACKGROUND};
+    border-color: ${(props) => props.theme.popoverIconHoverBackground || POPOVER_ICON_HOVER_BACKGROUND};
+    color: ${(props) => props.theme.popoverIconHoverColor || POPOVER_ICON_HOVER_COLOR};
   }
 `;
 
@@ -58,10 +58,10 @@ const PopoverContent = styled.div.attrs<{
   position: fixed;
   width: ${POPOVER_WIDTH}px;
   padding: ${POPOVER_PADDING}px;
-  background-color: ${POPOVER_BACKGROUND};
-  border: 1px solid ${POPOVER_BORDER};
+  background-color: ${(props) => props.theme.popoverBackground || POPOVER_BACKGROUND};
+  border: 1px solid ${(props) => props.theme.popoverBorder || POPOVER_BORDER};
   border-radius: 8px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 4px 20px ${(props) => (props.theme.mode === "light" ? "rgba(31, 37, 50, 0.18)" : "rgba(0, 0, 0, 0.5)")};
   z-index: ${POPOVER_Z_INDEX};
   transition: opacity 0.2s ease, visibility 0.2s ease;
   pointer-events: none;
@@ -81,7 +81,7 @@ const PopoverContent = styled.div.attrs<{
       height: 0;
       border-top: 6px solid transparent;
       border-bottom: 6px solid transparent;
-      border-right: 6px solid ${POPOVER_BORDER};
+      border-right: 6px solid ${props.theme.popoverBorder || POPOVER_BORDER};
     }
 
     &::after {
@@ -94,7 +94,7 @@ const PopoverContent = styled.div.attrs<{
       height: 0;
       border-top: 5px solid transparent;
       border-bottom: 5px solid transparent;
-      border-right: 5px solid ${POPOVER_BACKGROUND};
+      border-right: 5px solid ${props.theme.popoverBackground || POPOVER_BACKGROUND};
     }
   `}
 
@@ -111,7 +111,7 @@ const PopoverContent = styled.div.attrs<{
       height: 0;
       border-top: 6px solid transparent;
       border-bottom: 6px solid transparent;
-      border-left: 6px solid ${POPOVER_BORDER};
+      border-left: 6px solid ${props.theme.popoverBorder || POPOVER_BORDER};
     }
 
     &::after {
@@ -124,7 +124,7 @@ const PopoverContent = styled.div.attrs<{
       height: 0;
       border-top: 5px solid transparent;
       border-bottom: 5px solid transparent;
-      border-left: 5px solid ${POPOVER_BACKGROUND};
+      border-left: 5px solid ${props.theme.popoverBackground || POPOVER_BACKGROUND};
     }
   `}
 
@@ -141,7 +141,7 @@ const PopoverContent = styled.div.attrs<{
       height: 0;
       border-left: 6px solid transparent;
       border-right: 6px solid transparent;
-      border-top: 6px solid ${POPOVER_BORDER};
+      border-top: 6px solid ${props.theme.popoverBorder || POPOVER_BORDER};
     }
 
     &::after {
@@ -154,7 +154,7 @@ const PopoverContent = styled.div.attrs<{
       height: 0;
       border-left: 5px solid transparent;
       border-right: 5px solid transparent;
-      border-top: 5px solid ${POPOVER_BACKGROUND};
+      border-top: 5px solid ${props.theme.popoverBackground || POPOVER_BACKGROUND};
     }
   `}
 
@@ -171,7 +171,7 @@ const PopoverContent = styled.div.attrs<{
       height: 0;
       border-left: 6px solid transparent;
       border-right: 6px solid transparent;
-      border-bottom: 6px solid ${POPOVER_BORDER};
+      border-bottom: 6px solid ${props.theme.popoverBorder || POPOVER_BORDER};
     }
 
     &::after {
@@ -184,7 +184,7 @@ const PopoverContent = styled.div.attrs<{
       height: 0;
       border-left: 5px solid transparent;
       border-right: 5px solid transparent;
-      border-bottom: 5px solid ${POPOVER_BACKGROUND};
+      border-bottom: 5px solid ${props.theme.popoverBackground || POPOVER_BACKGROUND};
     }
   `}
 `;
@@ -192,13 +192,13 @@ const PopoverContent = styled.div.attrs<{
 const PopoverTitle = styled.div`
   font-size: 12px;
   font-weight: 600;
-  color: ${POPOVER_TITLE_COLOR};
+  color: ${(props) => props.theme.popoverTitle || POPOVER_TITLE_COLOR};
   margin-bottom: 8px;
 `;
 
 const PopoverText = styled.div`
   font-size: 11px;
-  color: ${POPOVER_TEXT_COLOR};
+  color: ${(props) => props.theme.popoverText || POPOVER_TEXT_COLOR};
   line-height: 1.5;
 `;
 

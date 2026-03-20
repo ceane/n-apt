@@ -1,5 +1,14 @@
 import React from "react";
 import styled from "styled-components";
+import { Row, CollapsibleTitle, CollapsibleBody } from "@n-apt/components/ui";
+import {
+  BookA,
+  Grid2X2,
+  Image as ImageIcon,
+  MapPin,
+  Scan,
+  SquareDashedTopSolid,
+} from "lucide-react";
 
 const Section = styled.div`
   display: grid;
@@ -10,14 +19,33 @@ const Section = styled.div`
   width: 100%;
 `;
 
-import { Row, CollapsibleTitle, CollapsibleBody } from "@n-apt/components/ui";
+const LabelWithIcon = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  line-height: 1.2;
+
+  svg {
+    width: 14px;
+    height: 14px;
+    color: ${(props) => props.theme.textSecondary};
+    opacity: 0.5;
+  }
+`;
+
+const IconLabel: React.FC<{ icon: React.ComponentType<any>; text: string }> = ({ icon: IconComponent, text }) => (
+  <LabelWithIcon>
+    <IconComponent size={14} strokeWidth={1.75} aria-hidden="true" />
+    {text}
+  </LabelWithIcon>
+);
 
 const SettingSelect = styled.select`
   background-color: transparent;
   border: 1px solid transparent;
   border-radius: 4px;
-  color: #ccc;
-  font-family: "JetBrains Mono", monospace;
+  color: ${(props) => props.theme.textPrimary};
+  font-family: ${(props) => props.theme.typography.mono};
   font-size: 12px;
   font-weight: 500;
   padding: 2px 6px;
@@ -33,7 +61,7 @@ const SettingSelect = styled.select`
   max-width: 100%;
 
   &:hover {
-    border-color: #2a2a2a;
+    border-color: ${(props) => props.theme.borderHover};
   }
 
   &:focus {
@@ -43,9 +71,9 @@ const SettingSelect = styled.select`
   }
 
   option {
-    background-color: #1a1a1a;
-    color: #ccc;
-    font-family: "JetBrains Mono", monospace;
+    background-color: ${(props) => props.theme.surface};
+    color: ${(props) => props.theme.textPrimary};
+    font-family: ${(props) => props.theme.typography.mono};
   }
 `;
 
@@ -83,7 +111,7 @@ const ToggleSwitchSlider = styled.span`
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: #444;
+  background-color: ${(props) => props.theme.borderHover};
   transition: 0.2s;
   border-radius: 24px;
 
@@ -104,11 +132,11 @@ const PauseButton = styled.button<{ $paused: boolean }>`
   flex: 0 0 25%;
   height: 100%;
   padding: 12px 8px;
-  background-color: ${(props) => (props.$paused ? props.theme.primaryAnchor : "#1a1a1a")};
-  border: 1px solid ${(props) => (props.$paused ? props.theme.primary : "#2a2a2a")};
+  background-color: ${(props) => (props.$paused ? props.theme.primaryAnchor : props.theme.surface)};
+  border: 1px solid ${(props) => (props.$paused ? props.theme.primary : props.theme.borderHover)};
   border-radius: 8px;
-  color: ${(props) => (props.$paused ? props.theme.primary : "#ccc")};
-  font-family: "JetBrains Mono", monospace;
+  color: ${(props) => (props.$paused ? props.theme.primary : props.theme.textPrimary)};
+  font-family: ${(props) => props.theme.typography.mono};
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
@@ -121,6 +149,21 @@ const PauseButton = styled.button<{ $paused: boolean }>`
     border-color: ${(props) => props.theme.primary};
     color: ${(props) => props.theme.primary};
   }
+`;
+
+const SnapshotActionButton = styled(PauseButton)`
+  width: 100%;
+  max-width: 100%;
+  grid-column: 1 / -1;
+  box-sizing: border-box;
+  align-self: stretch;
+`;
+
+const ErrorText = styled.div`
+  color: ${(props) => props.theme.danger};
+  font-size: 10px;
+  margin-top: -4px;
+  grid-column: 2;
 `;
 
 interface SnapshotControlsSectionProps {
@@ -172,7 +215,7 @@ export const SnapshotControlsSection: React.FC<
 
         {isOpen && (
           <CollapsibleBody>
-            <Row label="Range">
+            <Row label={<IconLabel icon={Scan} text="Range" />}>
               <SettingSelect
                 value={snapshotWhole ? "whole" : "onscreen"}
                 onChange={(e) =>
@@ -185,7 +228,7 @@ export const SnapshotControlsSection: React.FC<
               </SettingSelect>
             </Row>
 
-            <Row label="Waterfall">
+            <Row label={<IconLabel icon={SquareDashedTopSolid} text="Waterfall" />}>
               <ToggleSwitch>
                 <ToggleSwitchInput
                   type="checkbox"
@@ -198,7 +241,7 @@ export const SnapshotControlsSection: React.FC<
               </ToggleSwitch>
             </Row>
 
-            <Row label="Grid">
+            <Row label={<IconLabel icon={Grid2X2} text="Grid" />}>
               <ToggleSwitch>
                 <ToggleSwitchInput
                   type="checkbox"
@@ -211,7 +254,7 @@ export const SnapshotControlsSection: React.FC<
               </ToggleSwitch>
             </Row>
 
-            <Row label="Stats">
+            <Row label={<IconLabel icon={BookA} text="Stats" />}>
               <ToggleSwitch>
                 <ToggleSwitchInput
                   type="checkbox"
@@ -223,7 +266,7 @@ export const SnapshotControlsSection: React.FC<
             </Row>
 
             <div style={{ display: 'contents', opacity: (snapshotShowStats && !snapshotGeolocationError) ? 1 : 0.5 }}>
-              <Row label="Geolocation">
+              <Row label={<IconLabel icon={MapPin} text="Geolocation" />}>
                 <ToggleSwitch>
                   <ToggleSwitchInput
                     type="checkbox"
@@ -236,14 +279,12 @@ export const SnapshotControlsSection: React.FC<
               </Row>
               {snapshotGeolocationError && (
                 <Row label="">
-                  <div style={{ color: '#ff4d4d', fontSize: '10px', marginTop: '-4px', gridColumn: '2' }}>
-                    {snapshotGeolocationError}
-                  </div>
+                  <ErrorText>{snapshotGeolocationError}</ErrorText>
                 </Row>
               )}
             </div>
 
-            <Row label="Format">
+            <Row label={<IconLabel icon={ImageIcon} text="Format" />}>
               <SettingSelect
                 value={snapshotFormat}
                 onChange={(e) =>
@@ -256,13 +297,13 @@ export const SnapshotControlsSection: React.FC<
               </SettingSelect>
             </Row>
 
-            <PauseButton
+            <SnapshotActionButton
               $paused={false}
               onClick={onSnapshot}
-              style={{ width: "100%", marginTop: "8px" }}
+              style={{ marginTop: "8px" }}
             >
               Save snapshot
-            </PauseButton>
+            </SnapshotActionButton>
           </CollapsibleBody>
         )}
       </Section>

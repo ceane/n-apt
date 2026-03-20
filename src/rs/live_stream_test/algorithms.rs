@@ -54,7 +54,7 @@ impl AlgorithmTester {
     }
 
     /// Run peak detection algorithm
-    fn run_peak_detection(&mut self, waveform: &[f32], timestamp: i64, center_freq_hz: u32, sample_rate_hz: u32) {
+    fn run_peak_detection(&mut self, waveform: &[f32], timestamp: i64, _center_freq_hz: u32, sample_rate_hz: u32) {
         let peaks = find_peaks(waveform, sample_rate_hz, -60.0, 5);
         
         let peak_infos: Vec<PeakInfo> = peaks.iter()
@@ -107,7 +107,7 @@ impl AlgorithmTester {
     }
 
     /// Run frequency domain analysis
-    fn run_frequency_analysis(&mut self, waveform: &[f32], timestamp: i64, center_freq_hz: u32, sample_rate_hz: u32) {
+    fn run_frequency_analysis(&mut self, waveform: &[f32], timestamp: i64, _center_freq_hz: u32, sample_rate_hz: u32) {
         if waveform.is_empty() {
             return;
         }
@@ -152,7 +152,7 @@ impl AlgorithmTester {
     }
 
     /// Run noise floor analysis
-    fn run_noise_floor_analysis(&mut self, waveform: &[f32], timestamp: i64) {
+    fn run_noise_floor_analysis(&mut self, waveform: &[f32], _timestamp: i64) {
         let power_db_values: Vec<f32> = waveform.iter()
             .map(|&power| power_to_db(power))
             .collect();
@@ -169,7 +169,7 @@ impl AlgorithmTester {
     }
 
     /// Process raw I/Q data
-    fn process_iq_data(&mut self, iq_bytes: &[u8], timestamp: i64, center_freq_hz: u32, sample_rate_hz: u32) {
+    fn process_iq_data(&mut self, iq_bytes: &[u8], _timestamp: i64, center_freq_hz: u32, sample_rate_hz: u32) {
         println!("📊 Received I/Q data: {} bytes, center: {:.1} MHz, rate: {:.1} MHz", 
             iq_bytes.len(), center_freq_hz as f64 / 1e6, sample_rate_hz as f64 / 1e6);
 

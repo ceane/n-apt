@@ -20,7 +20,7 @@ This directory contains all sidebar-related components for the N-APT application
 
 ### Supporting Components
 
-- **`DrawMockNAPTSidebar.tsx** - Draw signal parameters sidebar
+- **`DrawSignalSidebar.tsx** - Draw signal parameters sidebar
 
 ## Import Patterns
 
@@ -29,7 +29,7 @@ This directory contains all sidebar-related components for the N-APT application
 Components within the sidebar folder use relative imports for local components:
 
 ```typescript
-import DrawMockNAPTSidebar from "./DrawMockNAPTSidebar";
+import DrawSignalSidebar from "./DrawSignalSidebar";
 ```
 
 ### From Outside Sidebar Folder

@@ -4,41 +4,25 @@
 //! without exposing method names in the public API.
 
 use anyhow::Result;
-use log::{info, error};
+use log::info;
+#[cfg(not(rs_decrypted))]
+use log::warn;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-// Import the private module - only available when rs_decrypted is enabled
-#[cfg(rs_decrypted)]
-use crate::encrypted_modules::websocket_pipeline::PrivateWebSocketProcessor;
+use crate::encrypted_modules::obfuscated_websocket as secure_ws;
 
 /// Wrapper for private WebSocket processing
 /// This provides a clean interface while keeping the sensitive implementation private
 pub struct SecureWebSocketHandler {
-    /// Private processor (only available with decryption)
-    #[cfg(rs_decrypted)]
-    processor: Arc<Mutex<PrivateWebSocketProcessor>>,
-    
-    /// Fallback state when decryption is not available
-    #[cfg(not(rs_decrypted))]
-    _placeholder: std::marker::PhantomData<()>,
+    processor: Arc<Mutex<secure_ws::SecureProcessor>>,
 }
 
 impl SecureWebSocketHandler {
     /// Create a new secure handler
     pub fn new() -> Self {
-        #[cfg(rs_decrypted)]
-        {
-            Self {
-                processor: Arc::new(Mutex::new(PrivateWebSocketProcessor::new())),
-            }
-        }
-        
-        #[cfg(not(rs_decrypted))]
-        {
-            Self {
-                _placeholder: std::marker::PhantomData,
-            }
+        Self {
+            processor: Arc::new(Mutex::new(secure_ws::create_obfuscated_processor())),
         }
     }
 
@@ -48,48 +32,49 @@ impl SecureWebSocketHandler {
         message: &crate::server::types::WebSocketMessage,
         broadcast_tx: &tokio::sync::broadcast::Sender<String>,
     ) -> Result<()> {
+        let mut processor = self.processor.lock().await;
+
         #[cfg(rs_decrypted)]
         {
-            let mut processor = self.processor.lock().await;
-            processor.process_encrypted_message(message, broadcast_tx).await?;
+            secure_ws::process_secure_message(&mut processor, message, broadcast_tx).await?;
             info!("Secure WebSocket message processed");
+            Ok(())
         }
-        
+
         #[cfg(not(rs_decrypted))]
         {
-            // Graceful fallback - no processing when decryption unavailable
-            log::warn!("Secure WebSocket processing not available - decryption modules missing");
+            if let Err(err) = secure_ws::process_secure_message(&mut processor, message, broadcast_tx).await {
+                warn!("Secure WebSocket processing not available: {}", err);
+            }
+            Ok(())
         }
-        
-        Ok(())
     }
 
     /// Initialize secure connection
     pub async fn initialize(&self) -> Result<()> {
+        let mut processor = self.processor.lock().await;
+
         #[cfg(rs_decrypted)]
         {
-            let mut processor = self.processor.lock().await;
-            processor.initialize_secure_connection()?;
+            secure_ws::initialize_secure_processor(&mut processor)?;
             info!("Secure WebSocket handler initialized");
+            Ok(())
         }
-        
+
         #[cfg(not(rs_decrypted))]
         {
-            log::warn!("Secure WebSocket initialization not available");
+            if let Err(err) = secure_ws::initialize_secure_processor(&mut processor) {
+                warn!("Secure WebSocket initialization not available: {}", err);
+            }
+            Ok(())
         }
-        
-        Ok(())
     }
 
     /// Cleanup sensitive data
     pub async fn cleanup(&self) -> Result<()> {
-        #[cfg(rs_decrypted)]
-        {
-            let mut processor = self.processor.lock().await;
-            processor.cleanup();
-            info!("Secure WebSocket handler cleaned up");
-        }
-        
+        let mut processor = self.processor.lock().await;
+        secure_ws::cleanup_secure_processor(&mut processor);
+        info!("Secure WebSocket handler cleaned up");
         Ok(())
     }
 }
@@ -101,8 +86,8 @@ pub fn create_secure_websocket_handler() -> SecureWebSocketHandler {
 
 /// Example usage in WebSocket server
 pub async fn handle_secure_websocket_connection(
-    socket: tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>,
-    broadcast_tx: tokio::sync::broadcast::Sender<String>,
+    _socket: tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>,
+    _broadcast_tx: tokio::sync::broadcast::Sender<String>,
 ) -> Result<()> {
     // Create secure handler
     let handler = create_secure_websocket_handler();

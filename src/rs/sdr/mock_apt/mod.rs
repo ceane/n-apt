@@ -65,6 +65,7 @@ impl Default for MockAptDevice {
 }
 
 /// Generate a block of mock samples with settle time behavior
+#[allow(dead_code)]
 fn generate_mock_block(
   block_size: usize,
   center_freq: u32,
@@ -72,7 +73,7 @@ fn generate_mock_block(
   gain: f64,
   ppm: i32,
   noise_floor_db: f32,
-  signal_modulation_rate: f32,
+  _signal_modulation_rate: f32,
   settle_time_samples: u64,
   total_samples: u64,
   rng: &mut impl rand::Rng,
@@ -120,17 +121,17 @@ fn generate_mock_block(
     let rf_signal_db = signal.config.strength_db * modulation;
     let adc_signal_db = rf_signal_db + gain;
     let mut amp = 10f64.powf(adc_signal_db / 20.0);
-    let mut amp_side = amp * 0.707;
+    let mut _amp_side = amp * 0.707;
 
     // Apply settle factor
     amp *= settle_factor;
-    amp_side *= settle_factor;
+    _amp_side *= settle_factor;
 
     let (p_im, p_re) = signal.phase.sin_cos();
     let phase_step = 2.0 * PI64 * rel_freq / sample_rate_f;
     let (r_im, r_re) = phase_step.sin_cos();
 
-    cached_signals.push((amp, amp_side, p_re, p_im, r_re, r_im));
+    cached_signals.push((amp, _amp_side, p_re, p_im, r_re, r_im));
   }
 
   let mut signal_states = cached_signals.iter().map(|(_, _, p_re, p_im, _, _)| (*p_re, *p_im)).collect::<Vec<_>>();
@@ -144,7 +145,7 @@ fn generate_mock_block(
       q_sample += (rng.gen::<f64>() - 0.5) * 2.0 * noise_level;
     }
 
-    for (idx, (amp, amp_side, p_re, p_im, r_re, r_im)) in cached_signals.iter().enumerate() {
+    for (idx, (amp, _amp_side, _p_re, _p_im, r_re, r_im)) in cached_signals.iter().enumerate() {
       // Update main signal
       i_sample += amp * signal_states[idx].1;
       q_sample += amp * signal_states[idx].0;
@@ -171,6 +172,7 @@ fn generate_mock_block(
   block
 }
 
+#[allow(dead_code)]
 impl MockAptDevice {
   /// Create a new mock APT SDR device
   pub fn new() -> Self {
@@ -393,6 +395,7 @@ impl SdrDevice for MockAptDevice {
   }
 }
 
+#[allow(dead_code)]
 impl MockAptDevice {
   /// Fallback synchronous read method
   fn read_samples_sync(&mut self, fft_size: usize) -> Result<RawSamples> {

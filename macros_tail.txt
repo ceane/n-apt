@@ -1,0 +1,25 @@
+#[cfg(any(rs_decrypted, not(target_arch = "wasm32")))]
+pub fn generate_obf_hash() -> &'static str {
+    // This would generate a cryptographic hash of the current context
+    // For now, return a fixed hash for demonstration
+    "a1b2c3d4e5f6"
+}
+
+/// Macro to create completely obfuscated API surface
+/// This combines multiple obfuscation techniques
+#[macro_export]
+macro_rules! obf_api {
+    // Obfuscated struct with methods
+    (pub struct $name:ident {
+        $( $field:ident : $ftype:ty),* $(,)?
+    } {
+        pub fn new($($arg:ident: $atype:ty),*) -> Self {
+            Self { $($field_name: $arg),* }
+        }
+        $(pub fn $method:ident(&self $(, $mparam:ident: $mptype:ty)*) -> $mrtype:ty $mblock:block)*
+    }) => {
+        paste::paste! {
+            #[allow(non_snake_case)]
+            pub struct [<__obf_struct_ $name:lower _0x77>] {
+                $(
+                    #[allow(non_snake_case)]

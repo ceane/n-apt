@@ -18,12 +18,10 @@ scripts/
 │   ├── build_orchestrator.sh
 │   ├── build_orchestrator_fast.sh
 │   ├── build_wasm.sh
+│   ├── build-orchestrator.tsx     # New ink-based TUI orchestrator
 │   ├── dev.sh
 │   ├── dev_fast.sh
-│   ├── rezi_build.mjs                    # WIP Rezi orchestrator
-│   ├── rezi_build_orchestrator.tsx       # WIP Rezi TUI version
 │   ├── NaptLogo.tsx
-│   └── tsconfig.rezi.json
 ├── data/                   # Data processing and database scripts 
 │   ├── README.md
 │   ├── setup_redis.sh
@@ -204,10 +202,14 @@ Optimized build with timeout protection:
 ./scripts/build/dev_fast.sh
 ```
 
-### **Rezi (WIP)**
-Modern TUI-based build orchestrator:
+### **Ink-based TUI Build**
+Modern terminal UI build orchestrator with real-time status:
 ```bash
-npm run dev:rezi
+npm run dev:ink
+```
+Or run directly:
+```bash
+npm run build_orchestrator:ink
 ```
 
 ## 🧪 Test Scripts Highlights
@@ -281,4 +283,5 @@ Security checks and module encryption:
 - Scripts use relative paths from the project root
 - Environment variables should be set in `.env` files
 - Check individual README files in each subdirectory for detailed usage
-- Rezi build system is WIP (work in progress)
+- Ink-based CLI system available for modern TUI implementations
+- New ink-based build orchestrator provides real-time visual feedback

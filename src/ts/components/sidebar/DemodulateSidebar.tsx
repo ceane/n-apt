@@ -38,7 +38,7 @@ const SectionTitle = styled.div`
   margin-top: 1rem;
   margin-bottom: 0;
   font-weight: 600;
-  font-family: "JetBrains Mono", monospace;
+  font-family: ${(props) => props.theme.typography.mono};
   grid-column: 1 / -1;
 `;
 
@@ -55,21 +55,21 @@ const InfoTitle = styled.div`
   font-size: 12px;
   font-weight: 600;
   margin-bottom: 8px;
-  font-family: "JetBrains Mono", monospace;
+  font-family: ${(props) => props.theme.typography.mono};
 `;
 
 const InfoText = styled.div`
-  color: #888;
+  color: ${(props) => props.theme.textSecondary};
   font-size: 11px;
   line-height: 1.5;
 `;
 
 const ControlInput = styled.input`
   background-color: transparent;
-  border: 1px solid #2a2a2a;
+  border: 1px solid ${(props) => props.theme.borderHover};
   border-radius: 4px;
-  color: #ccc;
-  font-family: "JetBrains Mono", monospace;
+  color: ${(props) => props.theme.textPrimary};
+  font-family: ${(props) => props.theme.typography.mono};
   font-size: 12px;
   padding: 6px 8px;
   min-width: 130px;
@@ -82,11 +82,11 @@ const ControlInput = styled.input`
 
 const StopButton = styled.button`
   padding: 8px 16px;
-  background-color: #ff4444;
-  border: 1px solid #ff6666;
+  background-color: ${(props) => props.theme.danger};
+  border: 1px solid ${(props) => props.theme.danger};
   border-radius: 6px;
-  color: white;
-  font-family: "JetBrains Mono", monospace;
+  color: ${(props) => props.theme.textPrimary};
+  font-family: ${(props) => props.theme.typography.mono};
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
@@ -95,16 +95,63 @@ const StopButton = styled.button`
   justify-self: start;
 
   &:hover {
-    background-color: #ff6666;
-    border-color: #ff8888;
+    background-color: ${(props) => `${props.theme.danger}cc`};
+    border-color: ${(props) => props.theme.danger};
   }
 
   &:disabled {
-    background-color: #333;
-    border-color: #444;
-    color: #666;
+    background-color: ${(props) => props.theme.borderHover};
+    border-color: ${(props) => props.theme.borderHover};
+    color: ${(props) => props.theme.textMuted};
     cursor: not-allowed;
   }
+`;
+
+const StartScanButton = styled(StopButton)`
+  background-color: ${(props) => props.theme.primary};
+  border-color: ${(props) => props.theme.primary};
+  color: ${(props) => props.theme.background};
+
+  &:hover {
+    background-color: ${(props) => `${props.theme.primary}cc`};
+    border-color: ${(props) => props.theme.primary};
+  }
+`;
+
+const ResultCard = styled.div`
+  padding: 8px;
+  background: ${(props) => props.theme.background};
+  border: 1px solid ${(props) => props.theme.border};
+  border-radius: 4px;
+  margin-top: 4px;
+`;
+
+const ResultLabel = styled.div`
+  font-size: 10px;
+  color: ${(props) => props.theme.textSecondary};
+  margin-bottom: 8px;
+  font-family: ${(props) => props.theme.typography.mono};
+`;
+
+const DownloadCaptureButton = styled(StopButton).attrs({ as: "a" })`
+  background-color: ${(props) => props.theme.success};
+  border-color: ${(props) => props.theme.success};
+  color: ${(props) => props.theme.background};
+  text-align: center;
+  text-decoration: none;
+  display: block;
+
+  &:hover {
+    background-color: ${(props) => `${props.theme.success}cc`};
+    border-color: ${(props) => props.theme.success};
+  }
+`;
+
+const MathFallback = styled.div`
+  opacity: 0.5;
+  font-size: 10px;
+  text-align: center;
+  color: ${(props) => props.theme.textSecondary};
 `;
 
 const DemodMath = React.lazy(() => import("@n-apt/encrypted-modules/tmp/ts/components/math/DemodMath").catch(() => ({
@@ -251,12 +298,9 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
                   Stop Scanning
                 </StopButton>
               ) : (
-                <StopButton
-                  onClick={onScanStart}
-                  style={{ backgroundColor: "#00d4ff", border: "1px solid #00d4ff" }}
-                >
+                <StartScanButton onClick={onScanStart}>
                   Scan for Audio
-                </StopButton>
+                </StartScanButton>
               )}
             </div>
           </CollapsibleBody>
@@ -266,26 +310,17 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
       {analysisSession.state === 'result' && analysisSession.result?.naptFilePath && (
         <Section>
           <SectionTitle>Reference Captures</SectionTitle>
-          <div style={{ padding: '8px', background: '#111', border: '1px solid #222', borderRadius: '4px', marginTop: '4px' }}>
-            <div style={{ fontSize: '10px', color: '#888', marginBottom: '8px', fontFamily: 'JetBrains Mono, monospace' }}>
+          <ResultCard>
+            <ResultLabel>
               RESULT: {analysisSession.result.jobId}
-            </div>
-            <StopButton
-              as="a"
+            </ResultLabel>
+            <DownloadCaptureButton
               href={analysisSession.result.naptFilePath}
               download
-              style={{
-                backgroundColor: '#00ff88',
-                borderColor: '#00ff88',
-                color: 'black',
-                textAlign: 'center',
-                textDecoration: 'none',
-                display: 'block'
-              }}
             >
               Download .napt Capture
-            </StopButton>
-          </div>
+            </DownloadCaptureButton>
+          </ResultCard>
         </Section>
       )}
 
@@ -297,7 +332,7 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
       </InfoBox>
 
       <Section>
-        <React.Suspense fallback={<div style={{ opacity: 0.5, fontSize: '10px', textAlign: 'center' }}>Loading Math...</div>}>
+        <React.Suspense fallback={<MathFallback>Loading Math...</MathFallback>}>
           <DemodMath />
         </React.Suspense>
       </Section>

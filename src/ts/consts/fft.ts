@@ -1,10 +1,12 @@
-import { COLORS } from "./components";
+import { THEME_TOKENS } from "../../rs/consts/theme";
 
-export const FFT_GRID_COLOR = COLORS.fftGrid;
-export const LINE_COLOR = COLORS.fftLine;
-export const HOLD_COLOR = COLORS.fftHold;
-export const SHADOW_COLOR = COLORS.fftShadow;
-export const FFT_TEXT_COLOR = COLORS.fftText;
+const BASE_COLORS = THEME_TOKENS.colors.dark;
+
+export const FFT_GRID_COLOR = BASE_COLORS.fftGrid;
+export const LINE_COLOR = BASE_COLORS.fftLine;
+export const HOLD_COLOR = BASE_COLORS.fftHold;
+export const SHADOW_COLOR = BASE_COLORS.fftShadow;
+export const FFT_TEXT_COLOR = BASE_COLORS.fftText;
 export const FFT_MIN_DB = -150;
 export const FFT_MAX_DB = 0;
 export const DB_MARKERS = [-150, -140, -120, -100, -80, -60, -40, -20, 0];
@@ -20,19 +22,19 @@ export const FFT_FREQUENCY_RANGES = [
 
 // Canvas layout constants
 export const FFT_AREA_MIN = { x: 50, y: 20 };
-export const FFT_CANVAS_BG = COLORS.fftBackground;
-export const FFT_FONT_FAMILY = "JetBrains Mono";
-export const FFT_FONT_SIZE = "16px";
+export const FFT_CANVAS_BG = BASE_COLORS.fftBackground;
+export const FFT_FONT_FAMILY = THEME_TOKENS.typography.mono;
+export const FFT_FONT_SIZE = THEME_TOKENS.layout.fftFontSize;
 
 // Snapshot specific colors
-export const SNAP_HW_RATE_LINE = COLORS.snapHwRateLine;
-export const SNAP_HW_RATE_TEXT = COLORS.snapHwRateText;
-export const SNAP_CENTER_LABEL_BG = COLORS.snapCenterLabelBg;
-export const SNAP_CENTER_LABEL_TEXT = COLORS.snapCenterLabelText;
+export const SNAP_HW_RATE_LINE = BASE_COLORS.snapHwRateLine;
+export const SNAP_HW_RATE_TEXT = BASE_COLORS.snapHwRateText;
+export const SNAP_CENTER_LABEL_BG = BASE_COLORS.snapCenterLabelBg;
+export const SNAP_CENTER_LABEL_TEXT = BASE_COLORS.snapCenterLabelText;
 
 // Overlay specific colors
-export const CENTER_LINE_COLOR = COLORS.fftCenterLine;
-export const OFFSET_TICK_LINE_COLOR = COLORS.fftOffsetTickLine;
-export const OFFSET_TICK_TEXT_COLOR = COLORS.fftOffsetTickText;
-export const BOUNDARY_LINE_COLOR = COLORS.fftBoundaryLine;
-export const BOUNDARY_TEXT_COLOR = COLORS.fftBoundaryText;
+export const CENTER_LINE_COLOR = BASE_COLORS.fftCenterLine;
+export const OFFSET_TICK_LINE_COLOR = BASE_COLORS.fftOffsetTickLine;
+export const OFFSET_TICK_TEXT_COLOR = BASE_COLORS.fftOffsetTickText;
+export const BOUNDARY_LINE_COLOR = BASE_COLORS.fftBoundaryLine;
+export const BOUNDARY_TEXT_COLOR = BASE_COLORS.fftBoundaryText;
