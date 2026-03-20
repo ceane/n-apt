@@ -11,7 +11,7 @@ pub mod fft;
 pub mod sdr; // New abstract SDR interface
 #[cfg(not(target_arch = "wasm32"))]
 pub mod server;
-#[cfg(any(rs_decrypted, not(target_arch = "wasm32")))]
+#[cfg(all(rs_decrypted, not(target_arch = "wasm32")))]
 #[path = "../encrypted-modules/tmp/rs/mod.rs"]
 pub mod encrypted_modules;
 
