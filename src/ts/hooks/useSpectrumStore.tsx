@@ -488,7 +488,7 @@ export function spectrumReducer(
 }
 
 // Complex Return Type
-type SpectrumStoreContextValue = {
+export type SpectrumStoreContextValue = {
   state: SpectrumState;
   dispatch: React.Dispatch<SpectrumAction>;
   manualVisualizerPaused: boolean;
@@ -551,9 +551,23 @@ export const useSpectrumStore = () => {
   return context;
 };
 
-export const SpectrumProvider: React.FC<{ children: React.ReactNode }> = ({
+interface SpectrumProviderProps {
+  children: React.ReactNode;
+  mockValue?: SpectrumStoreContextValue;
+}
+
+export const SpectrumProvider: React.FC<SpectrumProviderProps> = ({
   children,
+  mockValue,
 }) => {
+  if (mockValue) {
+    return (
+      <SpectrumStoreContext.Provider value={mockValue}>
+        {children}
+      </SpectrumStoreContext.Provider>
+    );
+  }
+
   const [state, dispatch] = useReducer(spectrumReducer, {
     ...INITIAL_SPECTRUM_STATE,
     ...loadPersistedSdrSettings(),
@@ -975,7 +989,7 @@ export const SpectrumProvider: React.FC<{ children: React.ReactNode }> = ({
     if (!isConnected || !state.frequencyRange) return;
     const range = state.frequencyRange;
     if (lastSentFrequencyRangeRef.current?.min === range.min && lastSentFrequencyRangeRef.current?.max === range.max) return;
-    
+
     wsConnection.sendFrequencyRange(range);
     lastSentFrequencyRangeRef.current = range;
   }, [isConnected, state.frequencyRange, wsConnection.sendFrequencyRange]);

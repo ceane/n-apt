@@ -5,9 +5,6 @@ import { formatFrequency } from "@n-apt/consts/sdr";
 import {
   STEP_SIZE,
   RANGE_TRACK_HEIGHT,
-  RANGE_TRACK_BACKGROUND,
-  RANGE_TRACK_BORDER,
-  RANGE_LABELS_COLOR,
   RANGE_LABELS_PADDING,
   RANGE_LABELS_FONT_SIZE,
 } from "@n-apt/consts";
@@ -73,8 +70,8 @@ const SliderContainer = styled.div<{ $isActive: boolean }>`
 const RangeTrack = styled.div`
   position: relative;
   height: ${RANGE_TRACK_HEIGHT}px;
-  background-color: ${RANGE_TRACK_BACKGROUND};
-  border: 1px solid ${RANGE_TRACK_BORDER};
+  background-color: ${(props) => props.theme.rangeTrackBackground};
+  border: 1px solid ${(props) => props.theme.rangeTrackBorder};
   border-radius: 4px;
   overflow: hidden;
   user-select: none;
@@ -92,7 +89,7 @@ const RangeLabels = styled.div`
   align-items: center;
   padding: ${RANGE_LABELS_PADDING};
   font-size: ${RANGE_LABELS_FONT_SIZE};
-  color: ${RANGE_LABELS_COLOR};
+  color: ${(props) => props.theme.rangeLabels};
   pointer-events: none;
   user-select: none;
 `;
@@ -102,10 +99,10 @@ const VisibleWindow = styled.div<{ $isActive: boolean; $readOnly?: boolean; $isS
   top: 2px;
   bottom: 2px;
   background-color: ${(props) =>
-    props.$isScanning ? "#00ff8830" :
+    props.$isScanning ? `${props.theme.success}30` :
       props.$isActive ? props.theme.activeBackground : props.theme.inactiveBackground};
   border: 1px solid ${(props) =>
-    props.$isScanning ? "#00ff88" :
+    props.$isScanning ? props.theme.success :
       props.$isActive ? props.theme.primary : props.theme.textMuted};
   cursor: ${props => props.$readOnly ? "default" : "grab"};
   display: grid;

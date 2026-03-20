@@ -14,8 +14,8 @@ const ProgressContainer = styled.div`
   display: grid;
   gap: 8px;
   padding: 12px;
-  background: #1a1a1a;
-  border: 1px solid #2a2a2a;
+  background: ${(props) => props.theme.surface};
+  border: 1px solid ${(props) => props.theme.borderHover};
   border-radius: 6px;
   grid-column: 1 / -1;
 `;
@@ -26,7 +26,7 @@ const ProgressHeader = styled.div`
   justify-content: space-between;
   align-items: center;
   font-size: 11px;
-  font-family: "JetBrains Mono", monospace;
+  font-family: ${(props) => props.theme.typography.mono};
 `;
 
 const ProgressTitle = styled.span`
@@ -35,13 +35,13 @@ const ProgressTitle = styled.span`
 `;
 
 const ProgressStatus = styled.span<{ $active: boolean }>`
-  color: ${props => props.$active ? "#00ff88" : "#666"};
+  color: ${(props) => (props.$active ? props.theme.success : props.theme.textMuted)};
   font-weight: 500;
 `;
 
 const ProgressBar = styled.div`
   height: 4px;
-  background: #2a2a2a;
+  background: ${(props) => props.theme.borderHover};
   border-radius: 2px;
   overflow: hidden;
   position: relative;
@@ -50,7 +50,7 @@ const ProgressBar = styled.div`
 const ProgressFill = styled.div<{ $progress: number }>`
   height: 100%;
   width: ${props => props.$progress}%;
-  background: linear-gradient(90deg, ${(props) => props.theme.primary}, #00ff88);
+  background: linear-gradient(90deg, ${(props) => props.theme.primary}, ${(props) => props.theme.success});
   border-radius: 2px;
   transition: width 0.3s ease;
 `;
@@ -60,8 +60,8 @@ const ProgressDetails = styled.div`
   grid-auto-flow: column;
   justify-content: space-between;
   font-size: 10px;
-  color: #888;
-  font-family: "JetBrains Mono", monospace;
+  color: ${(props) => props.theme.textSecondary};
+  font-family: ${(props) => props.theme.typography.mono};
 `;
 
 const FrequencyDisplay = styled.span`
@@ -78,11 +78,11 @@ export const ScanningProgress: React.FC<ScanningProgressProps> = ({
 }) => {
   if (!isScanning && scanProgress === 0) return null;
 
-  const currentFreqDisplay = currentFrequency 
+  const currentFreqDisplay = currentFrequency
     ? formatFrequency(currentFrequency, { showUnits: true, precisionMHz: 3 })
     : "N/A";
 
-  const rangeDisplay = scanRange 
+  const rangeDisplay = scanRange
     ? `${formatFrequency(scanRange.min, { showUnits: false, precisionMHz: 3 })} - ${formatFrequency(scanRange.max, { showUnits: false, precisionMHz: 3 })}`
     : "N/A";
 

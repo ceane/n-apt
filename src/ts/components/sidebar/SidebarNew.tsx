@@ -28,7 +28,7 @@ import FileProcessingSection from "@n-apt/components/sidebar/FileProcessingSecti
 import { IQCaptureControlsSection } from "@n-apt/components/sidebar/IQCaptureControlsSection";
 import { SnapshotControlsSection } from "@n-apt/components/sidebar/SnapshotControlsSection";
 import { SourceSettingsSection } from "@n-apt/components/sidebar/SourceSettingsSection";
-import DrawMockNAPTSidebar from "@n-apt/components/sidebar/DrawMockNAPTSidebar";
+import DrawSignalSidebar from "@n-apt/components/sidebar/DrawSignalSidebar";
 import { useSpectrumStore, LIVE_CONTROL_DEFAULTS, type DrawParams } from "@n-apt/hooks/useSpectrumStore";
 import { usePrompt } from "@n-apt/components/ui";
 
@@ -84,29 +84,29 @@ const Section = styled.div`
 
 const SectionTitle = styled.div<{ $fileMode?: boolean }>`
   font-size: 11px;
-  color: ${(props) => (props.$fileMode ? "#d9aa34" : "#555")};
+  color: ${(props) => (props.$fileMode ? props.theme.fileMode : props.theme.metadataLabel)};
   text-transform: uppercase;
   letter-spacing: 1px;
   margin-bottom: 16px;
   font-weight: 600;
-  font-family: "JetBrains Mono", monospace;
+  font-family: ${(props) => props.theme.typography.mono};
   grid-column: 1 / -1;
 `;
 
 const AuthStatusText = styled.div<{ $status: string }>`
   color: ${(props) =>
     props.$status === "failed" || props.$status === "timeout"
-      ? "#f87171"
+      ? props.theme.danger
       : props.$status === "success"
-        ? "#00d4ff"
-        : "#888"};
+        ? props.theme.primary
+        : props.theme.textSecondary};
   font-size: 11px;
   font-weight: 500;
 `;
 
 const SettingValueText = styled.div`
   font-size: 12px;
-  color: #ccc;
+  color: ${(props) => props.theme.textPrimary};
   font-weight: 500;
 `;
 
@@ -114,15 +114,15 @@ const CapturingIndicator = styled.div`
   position: fixed;
   top: 24px;
   right: 24px;
-  background-color: #ff4444;
-  color: white;
+  background-color: ${(props) => props.theme.danger};
+  color: ${(props) => props.theme.textPrimary};
   padding: 8px 12px;
   border-radius: 6px;
   font-size: 12px;
   font-weight: 600;
-  font-family: "JetBrains Mono", monospace;
+  font-family: ${(props) => props.theme.typography.mono};
   z-index: 1000;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 2px 8px ${(props) => `${props.theme.danger}4d`};
   display: grid;
   grid-auto-flow: column;
   align-items: center;
@@ -153,7 +153,7 @@ const HeterodyningContainer = styled.div`
   align-items: center;
   gap: 12px;
   font-size: 12px;
-  color: #ccc;
+  color: ${(props) => props.theme.textPrimary};
   font-weight: 500;
   grid-column: 1 / -1;
 `;
@@ -162,12 +162,42 @@ const VerifyButton = styled.button`
   font-size: 11px;
   padding: 6px 12px;
   min-width: 80px;
-  background-color: #1a1a1a;
-  border: 1px solid #2a2a2a;
+  background-color: ${(props) => props.theme.surface};
+  border: 1px solid ${(props) => props.theme.borderHover};
   border-radius: 6px;
-  color: #00d4ff;
+  color: ${(props) => props.theme.primary};
   cursor: pointer;
-  font-family: "JetBrains Mono", monospace;
+  font-family: ${(props) => props.theme.typography.mono};
+`;
+
+const StatusActionRow = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 12px;
+`;
+
+const StatusValueText = styled.div`
+  font-size: 12px;
+  color: ${(props) => props.theme.textPrimary};
+  font-weight: 500;
+`;
+
+const ClassifyButton = styled.button<{ $disabled?: boolean }>`
+  font-size: 11px;
+  padding: 6px 12px;
+  min-width: 80px;
+  opacity: ${(props) => (props.$disabled ? 0.5 : 1)};
+  cursor: ${(props) => (props.$disabled ? "not-allowed" : "pointer")};
+  background-color: ${(props) => props.theme.surface};
+  border: 1px solid ${(props) => props.theme.borderHover};
+  border-radius: 6px;
+  color: ${(props) => (props.$disabled ? props.theme.textMuted : props.theme.primary)};
+  font-family: ${(props) => props.theme.typography.mono};
+`;
+
+const LoadingText = styled.div`
+  font-size: 11px;
+  color: ${(props) => props.theme.textMuted};
 `;
 
 interface SidebarProps {
@@ -736,32 +766,17 @@ const Sidebar: React.FC<SidebarProps> = ({
         {signalFeaturesOpen && (
           <>
             <Row label={<>N-APT<span role="img" aria-label="brain" style={{ marginLeft: "6px" }}>🧠</span></>} tooltipTitle="N-APT" tooltip="N-APT stands for: Neuro Automatic Picture Transmission. These radio waves are modulated akin to APT signals (unknown reasons at this time) but unique in their ability to intercept, process and alter the brain and nervous system.<br><br>Through LF/HF frequencies (frequencies that survive attenuation of the skull and/or body; and lose less energy with longer distances/obstacles), it functions from triangulation, time of flight depth, heterodyning (it's key feature which ensures bioelectrical reception), phase shifting, center frequencies, impedance & endpoint signals processing (suspected as Kaiser, Bayes' Theorem/Posterior Probability, etc.).<br><br>It is an unprecedented formula of radio waves and neurotechnology with nascent efforts to decipher its modulation and content.">
-              <div
-                style={{ display: "flex", alignItems: "center", gap: "12px" }}
-              >
-                <div
-                  style={{ fontSize: "12px", color: "#ccc", fontWeight: 500 }}
-                >
+              <StatusActionRow>
+                <StatusValueText>
                   {classificationStatusText}
-                </div>
-                <button
+                </StatusValueText>
+                <ClassifyButton
+                  $disabled={classificationDisabled}
                   disabled={classificationDisabled}
-                  style={{
-                    fontSize: "11px",
-                    padding: "6px 12px",
-                    minWidth: "80px",
-                    opacity: classificationDisabled ? 0.5 : 1,
-                    cursor: classificationDisabled ? "not-allowed" : "pointer",
-                    backgroundColor: "#1a1a1a",
-                    border: "1px solid #2a2a2a",
-                    borderRadius: "6px",
-                    color: classificationDisabled ? "#666" : "#00d4ff",
-                    fontFamily: "JetBrains Mono, monospace",
-                  }}
                 >
                   Classify?
-                </button>
-              </div>
+                </ClassifyButton>
+              </StatusActionRow>
             </Row>
 
             <Row label="Heterodyned?">
@@ -866,7 +881,7 @@ const Sidebar: React.FC<SidebarProps> = ({
               Reset Options to Defaults
             </PauseButton>
           )}
-          <DrawMockNAPTSidebar
+          <DrawSignalSidebar
             drawParams={drawParams}
             activeClumpIndex={state.activeClumpIndex}
             globalNoiseFloor={state.globalNoiseFloor}
@@ -922,7 +937,7 @@ const Sidebar: React.FC<SidebarProps> = ({
               sourceMode={sourceMode}
               backend={backend}
               deviceName={deviceName}
-              fileModeColor="#d9aa34"
+              fileModeColor="var(--color-file-mode)"
               onSourceModeChange={onSourceModeChange}
             />
           </Section>
@@ -1131,9 +1146,9 @@ const Sidebar: React.FC<SidebarProps> = ({
                       );
                     })
                   ) : (
-                    <div style={{ fontSize: "11px", color: "#666" }}>
+                    <LoadingText>
                       Signal configuration loading...
-                    </div>
+                    </LoadingText>
                   )}
                 </div>
               </Section>

@@ -21,13 +21,13 @@ export const CollapsibleTitleLabel = styled.span`
   text-transform: uppercase;
   letter-spacing: 1px;
   font-weight: 600;
-  font-family: "JetBrains Mono", monospace;
+  font-family: ${(props) => props.theme.typography.mono};
 `;
 
 export const CollapsibleTitleToggle = styled.span`
   font-size: 12px;
   color: ${(props) => props.theme.primary || "#555"};
-  font-family: "JetBrains Mono", monospace;
+  font-family: ${(props) => props.theme.typography.mono};
   font-weight: 600;
 `;
 
@@ -37,8 +37,6 @@ export const CollapsibleBody = styled.div`
   grid-column: 1 / -1;
   gap: inherit;
   margin-top: 8px;
-  overflow-x: auto;
-  overflow-y: hidden;
   min-width: 0;
 `;
 

@@ -6,7 +6,6 @@
 use anyhow::Result;
 use clap::{Arg, Command};
 use log::{error, info, LevelFilter};
-use tokio::signal;
 
 use n_apt_backend::live_stream_test::LiveStreamTester;
 
@@ -68,7 +67,7 @@ async fn main() -> Result<()> {
     tester.run_examples();
 
     // Set up Ctrl+C handler
-    let (tx, mut rx) = tokio::sync::oneshot::channel::<()>();
+    let (tx, rx) = tokio::sync::oneshot::channel::<()>();
     tokio::spawn(async move {
         #[cfg(unix)]
         {

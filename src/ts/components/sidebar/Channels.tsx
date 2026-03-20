@@ -35,7 +35,7 @@ const ChannelBlock = styled.button<{ $isActive: boolean }>`
 const ChannelLetter = styled.span<{ $isActive: boolean }>`
   font-size: 36px;
   font-weight: 800;
-  color: ${props => props.$isActive ? (props.theme.primary || "#00d4ff") : "#333"};
+  color: ${(props) => (props.$isActive ? props.theme.primary : props.theme.textDisabled)};
   line-height: 1;
   tex
 `;
@@ -43,22 +43,22 @@ const ChannelLetter = styled.span<{ $isActive: boolean }>`
 const ChannelFreq = styled.span<{ $isActive: boolean }>`
   font-size: 18px;
   font-weight: 700;
-  font-family: "JetBrains Mono", monospace;
-  color: ${props => props.$isActive ? props.theme.primary : "#444"};
+  font-family: ${(props) => props.theme.typography.mono};
+  color: ${(props) => (props.$isActive ? props.theme.primary : props.theme.textDisabled)};
 `;
 
 const SampleRateLabel = styled.p`
   grid-column: 1 / -1;
   font-size: 11px;
-  color: #666;
+  color: ${(props) => props.theme.textMuted};
   line-height: 1.5;
   margin: 16px 0 0 0;
-  font-family: "JetBrains Mono", monospace;
+  font-family: ${(props) => props.theme.typography.mono};
   font-weight: 500;
 `;
 
 const SampleRateValue = styled.span`
-  color: #00d4ff;
+  color: ${(props) => props.theme.primary};
 `;
 
 interface ChannelsProps {

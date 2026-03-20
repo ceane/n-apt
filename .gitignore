@@ -21,11 +21,13 @@ lerna-debug.log*
 # node
 node_modules
 
-#build files (exclude root level only)
-/dist/
-/build/
-/dist/*
-/build/*
+#build files
+dist/
+build/
+scripts/dist/
+
+# Include scripts/build (don't exclude it)
+!scripts/build/
 
 
 # Rust - exclude all build artifacts and target folders
@@ -87,3 +89,4 @@ redis/backups/
 .env*.local
 *storybook.log
 storybook-static
+

@@ -45,6 +45,8 @@ path = "src/rs/bin/live_stream_test.rs"
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(rs_decrypted)'] }
 
 [dependencies]
+paste = "1.0"
+
 # Core dependencies (always included)
 rustfft = "6"
 num-complex = "0.4"

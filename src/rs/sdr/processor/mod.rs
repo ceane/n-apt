@@ -16,6 +16,8 @@ use crate::server::types::{FrequencyRegion, ScanProgressResponse};
 
 use super::{SdrDevice, SdrDeviceFactory};
 
+fn _keep_stitch_types(_result: &CorrelationResult, _method: CorrelationMethod) {}
+
 /// One captured channel's data
 #[derive(Debug, Clone)]
 pub struct CaptureChannel {
@@ -766,14 +768,14 @@ impl SdrProcessor {
       return Err(anyhow::anyhow!("Invalid channel index"));
     }
     
-    match &validation_result.recommendation {
+    match validation_result.recommendation.clone() {
       crate::fft::StitchingRecommendation::Accept => {
         info!("Channel {} stitching accepted", channel_idx);
       }
       crate::fft::StitchingRecommendation::ApplyTimeCorrection(time_offset) => {
         info!("Applying time correction to channel {}: {:.6} seconds", channel_idx, time_offset);
         let channel = &mut self.capture_channels[channel_idx];
-        let total_sample_offset = *time_offset * channel.sample_rate_hz;
+        let total_sample_offset = time_offset * channel.sample_rate_hz;
         
         let integer_offset = total_sample_offset.floor() as isize;
         let fractional_offset = (total_sample_offset - total_sample_offset.floor()) as f32;
@@ -848,7 +850,7 @@ impl SdrProcessor {
             &self.capture_channels[channel_idx - 1].iq_data,
             &channel.iq_data,
             overlap_samples,
-            *method,
+            method,
           )?;
           
           if alt_validation.is_acceptable {
@@ -893,8 +895,7 @@ impl SdrProcessor {
       .filter(|v| v.primary_correlation.is_acceptable)
       .count();
     
-    info!(
-      "Stitching validation complete: {}/{} channel pairs acceptable",
+    warn!("Stitching validation complete: {}/{} channel pairs acceptable",
       acceptable_count,
       validation_results.len()
     );

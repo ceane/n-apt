@@ -8,3 +8,5 @@ export * from "./Collapsible";
 export * from "./Tooltip";
 export * from "./Prompt";
 export * from "./PromptProvider";
+export * from "./Range";
+export * from "./Theme";

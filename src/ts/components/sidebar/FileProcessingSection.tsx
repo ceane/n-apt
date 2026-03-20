@@ -54,7 +54,7 @@ const SectionTitle = styled.div<{ $fileMode?: boolean }>`
   margin-top: 20px;
   margin-bottom: 0;
   font-weight: 600;
-  font-family: "JetBrains Mono", monospace;
+  font-family: ${(props) => props.theme.typography.mono};
   grid-column: 1 / -1;
 `;
 
@@ -64,9 +64,9 @@ const SettingRow = styled.div`
   grid-column: 1 / -1;
   align-items: center;
   padding: 10px 12px;
-  background-color: ${(props) => props.theme.surface || "#141414"};
+  background-color: ${(props) => props.theme.surface};
   border-radius: 6px;
-  border: 1px solid ${(props) => props.theme.border || "#1a1a1a"};
+  border: 1px solid ${(props) => props.theme.border};
   user-select: none;
   gap: inherit;
   box-sizing: border-box;
@@ -83,7 +83,7 @@ const SettingLabelContainer = styled.div`
 
 const SettingLabel = styled.span`
   font-size: 12px;
-  color: ${(props) => props.theme.textSecondary || "#777"};
+  color: ${(props) => props.theme.textSecondary};
   max-width: 210px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -93,7 +93,7 @@ const SettingLabel = styled.span`
 
 const SettingValue = styled.span`
   font-size: 12px;
-  color: ${(props) => props.theme.textPrimary || "#ccc"};
+  color: ${(props) => props.theme.textPrimary};
   font-weight: 500;
   justify-self: end;
 `;
@@ -117,7 +117,7 @@ const DownloadLink = styled.a`
 
 const LoadedLabel = styled.span`
   font-size: 11px;
-  color: ${(props) => props.theme.textSecondary || "#888"};
+  color: ${(props) => props.theme.textSecondary};
   display: flex;
   align-items: center;
   gap: 4px;
@@ -161,10 +161,10 @@ const ActionsContainer = styled.div`
 `;
 
 const FileCard = styled.div`
-  background-color: #0d0d0d;
+  background-color: ${(props) => props.theme.background};
   padding: 16px;
   border-radius: 8px;
-  border: 1px solid ${(props) => props.theme.border || "#1a1a1a"};
+  border: 1px solid ${(props) => props.theme.border};
   margin-bottom: 12px;
   display: grid;
   gap: 12px;
@@ -197,7 +197,7 @@ const FileIcon = styled.div`
 const FileTitle = styled.div`
   font-size: 14px;
   font-weight: 600;
-  color: #eee;
+  color: ${(props) => props.theme.textPrimary};
   white-space: normal;
   word-break: break-all;
   line-height: 1.3;
@@ -250,9 +250,9 @@ const MetadataItem = styled.div`
   display: grid;
   gap: 4px;
   padding: 8px;
-  background-color: ${(props) => props.theme.surface || "#141414"};
+  background-color: ${(props) => props.theme.surface};
   border-radius: 6px;
-  border: 1px solid ${(props) => props.theme.border || "#1a1a1a"};
+  border: 1px solid ${(props) => props.theme.border};
   box-sizing: border-box;
   width: 100%;
 `;
@@ -267,12 +267,58 @@ const MetadataLabel = styled.span`
 const MetadataValue = styled.span`
   font-size: 11px;
   color: ${(props) => props.theme.metadataValue};
-  font-family: "JetBrains Mono", monospace;
+  font-family: ${(props) => props.theme.typography.mono};
   white-space: normal;
   overflow-wrap: anywhere;
   word-break: break-word;
   line-height: 1.4;
   min-width: 0;
+`;
+
+const FileInfoActions = styled.div`
+  display: flex;
+  gap: 12px;
+  align-items: center;
+`;
+
+const DownloadActionLink = styled(DownloadLink)`
+  text-decoration: underline;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+`;
+
+const RemoveActionButton = styled(RemoveButton)`
+  display: flex;
+  align-items: center;
+  gap: 4px;
+`;
+
+const ClearAllContainer = styled.div`
+  display: flex;
+  justify-content: flex-start;
+  grid-column: 1 / -1;
+`;
+
+const MetadataErrorBox = styled.div`
+  color: ${(props) => props.theme.danger};
+  font-size: 11px;
+  font-family: ${(props) => props.theme.typography.mono};
+  padding: 10px;
+  background-color: ${(props) => `${props.theme.danger}12`};
+  border-radius: 6px;
+  border: 1px solid ${(props) => `${props.theme.danger}2a`};
+`;
+
+const MetadataEmptyBox = styled.div`
+  color: ${(props) => props.theme.textSecondary};
+  font-size: 11px;
+  font-family: ${(props) => props.theme.typography.mono};
+  padding: 12px;
+  background-color: ${(props) => props.theme.surface};
+  border-radius: 6px;
+  border: 1px solid ${(props) => props.theme.border};
+  text-align: center;
 `;
 
 interface FileProcessingSectionProps {
@@ -386,7 +432,7 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
           <FileInputActions>
             <HiddenFileInput
               type="file"
-              accept=".c64,.napt,.wav"
+              accept=".napt,.wav,.c64"
               multiple
               id="fileInput"
               onChange={handleFileChange}
@@ -418,37 +464,31 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
                   </FileTitle>
                 </FileItemHeader>
                 <FileInfoRow>
-                  <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                  <FileInfoActions>
                     <LoadedLabel>
                       <CheckCircle2 size={12} /> Loaded
                     </LoadedLabel>
                     {file.downloadUrl && (
-                      <DownloadLink
+                      <DownloadActionLink
                         href={`${file.downloadUrl}${sessionToken ? `&token=${encodeURIComponent(sessionToken)}` : ''}`}
                         download={file.name}
-                        style={{
-                          textDecoration: 'underline',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '4px'
-                        }}
                       >
                         <Download size={12} /> Download
-                      </DownloadLink>
+                      </DownloadActionLink>
                     )}
-                  </div>
-                  <RemoveButton onClick={() => removeFile(index)} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  </FileInfoActions>
+                  <RemoveActionButton onClick={() => removeFile(index)}>
                     <Trash2 size={12} /> Remove?
-                  </RemoveButton>
+                  </RemoveActionButton>
                 </FileInfoRow>
               </FileCard>
             ))}
             {selectedFiles.length > 0 && (
-              <div style={{ display: 'flex', justifyContent: 'flex-start', gridColumn: '1 / -1' }}>
+              <ClearAllContainer>
                 <ClearAllLink onClick={onClear}>
                   Clear all?
                 </ClearAllLink>
-              </div>
+              </ClearAllContainer>
             )}
           </Section>
 
@@ -512,19 +552,9 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
           )}
 
           {naptMetadataError ? (
-            <div
-              style={{
-                color: "#ff4444",
-                fontSize: "11px",
-                fontFamily: "JetBrains Mono",
-                padding: "10px",
-                backgroundColor: "#1a1313",
-                borderRadius: "6px",
-                border: "1px solid #2a1a1a",
-              }}
-            >
+            <MetadataErrorBox>
               {naptMetadataError}
-            </div>
+            </MetadataErrorBox>
           ) : naptMetadata ? (
             <MetadataGrid>
               <MetadataItem>
@@ -663,22 +693,11 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
               )}
             </MetadataGrid>
           ) : (
-            <div
-              style={{
-                color: "#777",
-                fontSize: "11px",
-                fontFamily: "JetBrains Mono",
-                padding: "12px",
-                backgroundColor: "#141414",
-                borderRadius: "6px",
-                border: "1px solid #1a1a1a",
-                textAlign: "center",
-              }}
-            >
+            <MetadataEmptyBox>
               {selectedFiles.length === 1
                 ? "No extended metadata available for this file type."
                 : "Multiple files selected. Stitch/Process to visualize combined spectrum."}
-            </div>
+            </MetadataEmptyBox>
           )}
         </Section>
       )}

@@ -103,10 +103,11 @@ const AuthContext = createContext<UseAuthenticationReturn | undefined>(
   undefined,
 );
 
-export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
-  children,
-}) => {
-  const auth = useAuthenticationInternal();
+export const AuthProvider: React.FC<{
+  children: React.ReactNode;
+  skipBackendBootstrap?: boolean;
+}> = ({ children, skipBackendBootstrap = false }) => {
+  const auth = useAuthenticationInternal(skipBackendBootstrap);
   const value = useMemo(
     () => auth,
     [
@@ -130,7 +131,9 @@ export const useAuthentication = (): UseAuthenticationReturn => {
   return context;
 };
 
-const useAuthenticationInternal = (): UseAuthenticationReturn => {
+const useAuthenticationInternal = (
+  skipBackendBootstrap = false,
+): UseAuthenticationReturn => {
   const [state, dispatch] = useReducer(authReducer, initialState);
   const hasLoggedWebAuthnIdeNoticeRef = useRef(false);
 
@@ -187,6 +190,11 @@ const useAuthenticationInternal = (): UseAuthenticationReturn => {
   }, []);
 
   useEffect(() => {
+    if (skipBackendBootstrap) {
+      dispatch({ type: "READY", hasPasskeys: false });
+      return;
+    }
+
     let cancelled = false;
     let retryTimeout: ReturnType<typeof setTimeout> | null = null;
 
@@ -292,7 +300,7 @@ const useAuthenticationInternal = (): UseAuthenticationReturn => {
         clearTimeout(retryTimeout);
       }
     };
-  }, [deriveConfiguredAesKey, isWebAuthnAvailable]);
+  }, [deriveConfiguredAesKey, isWebAuthnAvailable, skipBackendBootstrap]);
 
   const handlePasswordAuth = useCallback(async (password: string) => {
     dispatch({ type: "AUTHENTICATING" });

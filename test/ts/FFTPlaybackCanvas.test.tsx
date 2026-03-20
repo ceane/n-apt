@@ -22,8 +22,8 @@ const createMockFile = (name: string, size: number = 1024): File => {
 
 describe("FFTPlaybackCanvas Component", () => {
   const mockFiles = [
-    createMockFile("test1.c64", 8192),
-    createMockFile("test2.c64", 8192),
+    createMockFile("test1.napt", 8192),
+    createMockFile("test2.wav", 8192),
   ];
 
   const defaultProps = {
@@ -52,15 +52,15 @@ describe("FFTPlaybackCanvas Component", () => {
   it("should show file selection prompt when no files selected", () => {
     render(<FFTPlaybackCanvas {...defaultProps} selectedFiles={[]} />);
     expect(
-      screen.getByText("Select I/Q data files (.c64)"),
+      screen.getByText("Drop .wav or .napt files here"),
     ).toBeInTheDocument();
-    expect(screen.getByText("Choose files...")).toBeInTheDocument();
+    expect(screen.getByText("No files selected")).toBeInTheDocument();
   });
 
   it("should display selected files", () => {
     render(<FFTPlaybackCanvas {...defaultProps} />);
-    expect(screen.getByText("test1.c64")).toBeInTheDocument();
-    expect(screen.getByText("test2.c64")).toBeInTheDocument();
+    expect(screen.getByText("test1.napt")).toBeInTheDocument();
+    expect(screen.getByText("test2.wav")).toBeInTheDocument();
   });
 
   it("should handle file selection", async () => {
@@ -68,8 +68,8 @@ describe("FFTPlaybackCanvas Component", () => {
       <FFTPlaybackCanvas {...defaultProps} selectedFiles={[]} />,
     );
 
-    // Mock doesn't have file input, so just test the text is present
-    expect(screen.getByText("Choose files...")).toBeInTheDocument();
+    // Component shows drop zone when no files
+    expect(screen.getByText("Drop .wav or .napt files here")).toBeInTheDocument();
 
     unmount();
   });
@@ -170,35 +170,39 @@ describe("FFTPlaybackCanvas Component", () => {
   });
 
   it("should handle empty files gracefully", () => {
-    const emptyFile = new File([], "empty.c64", {
+    const emptyFile = new File([], "empty.napt", {
       type: "application/octet-stream",
     });
 
     render(<FFTPlaybackCanvas {...defaultProps} selectedFiles={[emptyFile]} />);
 
     // Should not crash
-    expect(screen.getByText("empty.c64")).toBeInTheDocument();
+    expect(screen.getByText("empty.napt")).toBeInTheDocument();
   });
 
   it("should handle large files efficiently", () => {
-    const largeFile = createMockFile("large.c64", 1048576); // 1MB file
+    const largeFile = createMockFile("large.wav", 1048576); // 1MB file
 
     render(<FFTPlaybackCanvas {...defaultProps} selectedFiles={[largeFile]} />);
 
     // Should not crash with large file
-    expect(screen.getByText("large.c64")).toBeInTheDocument();
+    expect(screen.getByText("large.wav")).toBeInTheDocument();
   });
 
   it("should handle multiple files", () => {
-    const manyFiles = Array.from({ length: 10 }, (_, i) =>
-      createMockFile(`test${i}.c64`, 4096),
-    );
+    const manyFiles = [
+      ...Array.from({ length: 5 }, (_, i) => createMockFile(`test${i}.napt`, 4096)),
+      ...Array.from({ length: 5 }, (_, i) => createMockFile(`wav${i}.wav`, 4096)),
+    ];
 
     render(<FFTPlaybackCanvas {...defaultProps} selectedFiles={manyFiles} />);
 
     // Should display all files
-    manyFiles.forEach((file, index) => {
-      expect(screen.getByText(`test${index}.c64`)).toBeInTheDocument();
+    manyFiles.slice(0, 5).forEach((file, index) => {
+      expect(screen.getByText(`test${index}.napt`)).toBeInTheDocument();
+    });
+    manyFiles.slice(5).forEach((file, index) => {
+      expect(screen.getByText(`wav${index}.wav`)).toBeInTheDocument();
     });
   });
 
@@ -299,9 +303,9 @@ describe("FFTPlaybackCanvas Component", () => {
     const { rerender } = render(<FFTPlaybackCanvas {...defaultProps} />);
 
     // Rapid file changes
-    const files1 = [createMockFile("file1.c64")];
-    const files2 = [createMockFile("file2.c64")];
-    const files3 = [createMockFile("file3.c64")];
+    const files1 = [createMockFile("file1.napt")];
+    const files2 = [createMockFile("file2.wav")];
+    const files3 = [createMockFile("file3.napt")];
 
     expect(() =>
       rerender(<FFTPlaybackCanvas {...defaultProps} selectedFiles={files1} />),

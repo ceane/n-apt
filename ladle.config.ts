@@ -1,11 +1,14 @@
-export const config = {
-  stories: [
-    "../src/ts/components/**/*.stories.@(js|jsx|ts|tsx)",
-    "../src/ts/routes/**/*.stories.@(js|jsx|ts|tsx)",
-  ],
+import type { UserConfig } from "@ladle/react";
+import { ThemeState } from "@ladle/react";
+
+const config: UserConfig = {
+  stories: "../src/ts/{components,routes}/**/*.stories.@(js|jsx|ts|tsx)",
   addons: {
     theme: {
-      defaultState: "dark",
+      defaultState: ThemeState.Dark,
     },
   },
+  viteConfig: "./ladle.vite.config.ts",
 };
+
+export default config;

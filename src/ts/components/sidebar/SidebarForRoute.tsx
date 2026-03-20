@@ -28,7 +28,7 @@ const RouteContent = styled.div`
 
 const SectionDescription = styled.div`
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.5);
+  color: ${(props) => props.theme.textSecondary};
   margin-bottom: 16px;
   grid-column: 1 / -1;
 `;
@@ -47,13 +47,13 @@ const InfoTitle = styled.div`
   font-size: 12px;
   font-weight: 600;
   margin-bottom: 8px;
-  font-family: "JetBrains Mono", monospace;
+  font-family: ${(props) => props.theme.typography.mono};
   text-transform: uppercase;
   letter-spacing: 0.5px;
 `;
 
 const InfoText = styled.div`
-  color: #888;
+  color: ${(props) => props.theme.textSecondary};
   font-size: 11px;
   line-height: 1.5;
 `;
@@ -65,7 +65,7 @@ const ResetButton = styled.button`
   color: ${(props) => props.theme.primary};
   font-size: 11px;
   font-weight: 500;
-  font-family: "JetBrains Mono", monospace;
+  font-family: ${(props) => props.theme.typography.mono};
   padding: 8px 12px;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -78,7 +78,7 @@ const ResetButton = styled.button`
     background: ${(props) => props.theme.primary};
     color: ${(props) => props.theme.background};
     transform: translateY(-1px);
-    box-shadow: 0 2px 8px rgba(0, 212, 255, 0.3);
+    box-shadow: 0 2px 8px ${(props) => `${props.theme.primary}4d`};
   }
 
   &:active {

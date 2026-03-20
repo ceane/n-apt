@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect, useCallback } from "react";
-import styled, { useTheme } from "styled-components";
+import styled from "styled-components";
 import { useAppSelector, useAppDispatch } from "@n-apt/redux";
 import {
   setSourceMode,
@@ -59,19 +59,25 @@ const CapturingIndicator = styled.div`
   position: fixed;
   top: 24px;
   right: 24px;
-  background-color: ${(props) => props.theme.danger || "#ff4444"};
-  color: white;
+  background-color: ${(props) => props.theme.danger};
+  color: ${(props) => props.theme.textPrimary};
   padding: 8px 12px;
   border-radius: 6px;
   font-size: 12px;
   font-weight: 600;
-  font-family: "JetBrains Mono", monospace;
+  font-family: ${(props) => props.theme.typography.mono};
   z-index: 1000;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 2px 8px ${(props) => `${props.theme.danger}4d`};
   display: grid;
   grid-auto-flow: column;
   align-items: center;
   gap: 8px;
+`;
+
+const EmptyStateText = styled.div`
+  color: ${(props) => props.theme.textSecondary};
+  font-size: 12px;
+  font-style: italic;
 `;
 
 const CapturingDot = styled.div`
@@ -196,7 +202,6 @@ export const SpectrumSidebar: React.FC = () => {
 
   const { isAuthenticated, sessionToken, aesKey } = useAuthentication();
   const { getLocation } = useGeolocation();
-  const theme = useTheme();
 
   const liveBackend = wsConnection.backend ?? backend;
   const liveDeviceState = wsConnection.deviceState ?? deviceState;
@@ -226,11 +231,8 @@ export const SpectrumSidebar: React.FC = () => {
     () =>
       liveIsConnected ||
       connectionStatus === "connected" ||
-      connectionStatus === "reconnecting" ||
-      liveBackend !== null ||
-      liveDeviceNameToUse !== null ||
-      liveDeviceState !== null,
-    [liveIsConnected, connectionStatus, liveBackend, liveDeviceNameToUse, liveDeviceState],
+      connectionStatus === "reconnecting",
+    [liveIsConnected, connectionStatus],
   );
 
   const sendLiveSettings = useCallback(
@@ -373,7 +375,7 @@ export const SpectrumSidebar: React.FC = () => {
   const [snapshotShowStats, setSnapshotShowStats] = useState(true);
   const [snapshotShowGeolocation, setSnapshotShowGeolocation] = useState(false);
   const [snapshotGeolocationError, setSnapshotGeolocationError] = useState<string | null>(null);
-  const [snapshotGeolocationPosition, setSnapshotGeolocationPosition] = useState<{lat: string, lon: string} | null>(null);
+  const [snapshotGeolocationPosition, setSnapshotGeolocationPosition] = useState<{ lat: string, lon: string } | null>(null);
   const [snapshotFormat, setSnapshotFormat] = useState<"png" | "svg">("png");
 
   // NAPT metadata state
@@ -744,7 +746,7 @@ export const SpectrumSidebar: React.FC = () => {
         } else if (err.code === 3) {
           msg = "Timeout fetching location";
         }
-        
+
         setSnapshotGeolocationError(msg);
         setSnapshotShowGeolocation(false);
         setSnapshotGeolocationPosition(null);
@@ -905,7 +907,7 @@ export const SpectrumSidebar: React.FC = () => {
           sourceMode={sourceMode}
           backend={liveBackend}
           deviceName={liveDeviceNameToUse}
-          fileModeColor={theme.fileMode}
+          fileModeColor="var(--color-file-mode)"
           onSourceModeChange={(mode) => {
             dispatch(setSourceMode(mode));
             storeDispatch({ type: "SET_SOURCE_MODE", mode });
@@ -1067,11 +1069,9 @@ export const SpectrumSidebar: React.FC = () => {
                     />
                   );
                 })) : (
-                <div
-                  style={{ color: "#777", fontSize: "12px", fontStyle: "italic" }}
-                >
+                <EmptyStateText>
                   No active signal areas
-                </div>
+                </EmptyStateText>
               )}
             </div>
           </Section>

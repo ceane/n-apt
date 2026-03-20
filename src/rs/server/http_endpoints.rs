@@ -880,7 +880,7 @@ fn calculate_overlap_phase_offset(
     return (0.0, 0.0, 0.0, 0.0);
   }
 
-  let mut sum_product = Complex::new(0.0f32, 0.0f32);
+  let _sum_product = Complex::new(0.0f32, 0.0f32);
   // 1. Compute Cross-Power Spectrum in the overlap region
   let mut cross_power = Vec::with_capacity(overlap_len);
   for i in 0..overlap_len {

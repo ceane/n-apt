@@ -41,6 +41,20 @@ export const authActions = {
   setInitialAuthCheckComplete,
 };
 
+export {
+  createNoteCardFromSpectrum,
+  hydrateNoteCards,
+  updateNoteCardText,
+  updateNoteCardPosition,
+  updateNoteCardSize,
+  attachNoteCardSnapshot,
+  setActiveNoteCard,
+  removeNoteCard,
+  clearNoteCards,
+} from './slices/noteCardsSlice';
+
+export { selectNoteCards, selectActiveNoteCard } from './slices/noteCardsSlice';
+
 // Import spectrum actions for collective export
 import {
   setFrequencyRange,

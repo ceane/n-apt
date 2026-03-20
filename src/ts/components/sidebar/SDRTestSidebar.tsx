@@ -32,26 +32,26 @@ const Section = styled.div<{ $marginBottom?: string }>`
 
 const SectionTitle = styled.div<{ $fileMode?: boolean }>`
   font-size: 11px;
-  color: ${(props) => (props.$fileMode ? (props.theme.fileMode || "#d9aa34") : (props.theme.metadataLabel || "#555"))};
+  color: ${(props) => (props.$fileMode ? props.theme.fileMode : props.theme.metadataLabel)};
   text-transform: uppercase;
   letter-spacing: 1px;
   margin-top: 1rem;
   margin-bottom: 0;
   font-weight: 600;
-  font-family: "JetBrains Mono", monospace;
+  font-family: ${(props) => props.theme.typography.mono};
   grid-column: 1 / -1;
 `;
 
 const MultiFrameButton = styled(PauseButton)`
   width: 100%;
   margin-top: 8px;
-  background-color: #00d4ff1a;
-  border-color: #00d4ff44;
-  color: #00d4ff;
+  background-color: ${(props) => props.theme.primaryAnchor};
+  border-color: ${(props) => props.theme.primaryAlpha};
+  color: ${(props) => props.theme.primary};
 
   &:hover {
-    background-color: #00d4ff2a;
-    border-color: #00d4ff;
+    background-color: ${(props) => props.theme.primaryAlpha};
+    border-color: ${(props) => props.theme.primary};
   }
 
   &:disabled {
@@ -63,11 +63,11 @@ const MultiFrameButton = styled(PauseButton)`
 const DiagnosticStatusDisplay = styled.div`
   grid-column: 1 / -1;
   font-size: 11px;
-  font-family: "JetBrains Mono", monospace;
-  color: #888;
+  font-family: ${(props) => props.theme.typography.mono};
+  color: ${(props) => props.theme.textSecondary};
   padding: 4px 12px;
   margin-top: -8px;
-  border-left: 2px solid #333;
+  border-left: 2px solid ${(props) => props.theme.borderHover};
 `;
 
 export const SDRTestSidebar: React.FC = () => {

@@ -1,0 +1,474 @@
+#!/usr/bin/env node
+
+import React, { useEffect, useState, useCallback } from 'react';
+import { render } from 'ink';
+import { Box, Text, useApp, useInput } from 'ink';
+import { execSync, spawn } from 'child_process';
+import chalk from 'chalk';
+
+// Types
+interface ProcessStatus {
+  name: string;
+  status: 'pending' | 'running' | 'success' | 'error';
+  message?: string;
+  pid?: number;
+}
+
+interface BuildState {
+  processes: ProcessStatus[];
+  currentStep: number;
+  isBuilding: boolean;
+  errorCount: number;
+  startTime: number;
+  spinnerFrame: number;
+  vitePid?: number;
+  rustPid?: number;
+  redisPid?: number;
+  warningCount: number;
+  errorDetails: string[];
+  warningDetails: string[];
+}
+
+// Simple spinner animation
+const spinnerFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+
+// Napt Logo Component
+const NaptLogo = () => (
+  <Box flexDirection="column" gap={0}>
+    <Text color="white">┌─────┐</Text>
+    <Text color="white">│ n a │</Text>
+    <Text color="white">│ p t │</Text>
+    <Text color="white">└─────┘</Text>
+  </Box>
+);
+
+// Logo Component
+const Logo = () => (
+  <Box flexDirection="column" alignItems="flex-start">
+    <NaptLogo />
+    <Text color="gray">(c) 2026 🇺🇸 Made in the USA</Text>
+    <Box marginTop={1} />
+  </Box>
+);
+
+// Process Step Component - no margin for compact display
+const ProcessStep = ({ process, isActive, spinnerFrame }: { process: ProcessStatus; isActive: boolean; spinnerFrame: number }) => {
+  const getStatusIcon = () => {
+    switch (process.status) {
+      case 'pending': return chalk.gray('○');
+      case 'running': return chalk.blue(spinnerFrames[spinnerFrame % spinnerFrames.length]);
+      case 'success': return chalk.green('✓');
+      case 'error': return chalk.red('✗');
+      default: return '○';
+    }
+  };
+
+  const getStatusText = () => {
+    switch (process.status) {
+      case 'pending': return process.name;
+      case 'running': return `${process.name}...`;
+      case 'success': return process.name;
+      case 'error': return process.name;
+      default: return process.name;
+    }
+  };
+
+  const getStatusColor = () => {
+    switch (process.status) {
+      case 'pending': return 'gray';
+      case 'running': return 'blue';
+      case 'success': return 'white';
+      case 'error': return 'white';
+      default: return 'gray';
+    }
+  };
+
+  return (
+    <Box flexDirection="row" marginBottom={0}>
+      <Text color={getStatusColor()}>
+        {getStatusIcon()} {getStatusText()}
+      </Text>
+      {isActive && process.status === 'running' && (
+        <Text color="blue"> {spinnerFrames[spinnerFrame % spinnerFrames.length]}</Text>
+      )}
+    </Box>
+  );
+};
+
+// Process List renders compact lines without blank spacing
+const ProcessList = ({
+  processes,
+  currentStep,
+  isBuilding,
+  spinnerFrame,
+}: {
+  processes: ProcessStatus[];
+  currentStep: number;
+  isBuilding: boolean;
+  spinnerFrame: number;
+}) => (
+  <Box flexDirection="column">
+    {processes.map((process, index) => (
+      <ProcessStep
+        key={`${process.name}-${index}`}
+        process={process}
+        isActive={index === currentStep && isBuilding}
+        spinnerFrame={spinnerFrame}
+      />
+    ))}
+  </Box>
+);
+
+// Main Build Orchestrator Component
+const BuildOrchestrator = () => {
+  const { exit } = useApp();
+  const [buildState, setBuildState] = useState<BuildState>({
+    processes: [
+      { name: 'Cleaning up existing processes...', status: 'pending' },
+      { name: 'Starting Redis server...', status: 'pending' },
+      { name: 'Loading fast select towers (for UI)...', status: 'pending' },
+      { name: 'Starting frontend server...', status: 'pending' },
+      { name: 'Building WASM SIMD module...', status: 'pending' },
+      { name: 'Starting Rust backend...', status: 'pending' },
+    ],
+    currentStep: 0,
+    isBuilding: false,
+    errorCount: 0,
+    startTime: Date.now(),
+    spinnerFrame: 0,
+    vitePid: undefined,
+    rustPid: undefined,
+    redisPid: undefined,
+    warningCount: 0,
+    errorDetails: [],
+    warningDetails: [],
+  });
+
+  const addLog = useCallback((message: string) => {
+    // Placeholder for future log streaming
+  }, []);
+
+  const appendErrorDetail = useCallback((message: string) => {
+    const trimmed = message?.trim();
+    if (!trimmed) return;
+    setBuildState(prev => {
+      const errorDetails = [...prev.errorDetails, trimmed].slice(-6);
+      return { ...prev, errorDetails, errorCount: errorDetails.length };
+    });
+  }, []);
+
+  const appendWarningDetail = useCallback((message: string) => {
+    const trimmed = message?.trim();
+    if (!trimmed) return;
+    setBuildState(prev => {
+      const warningDetails = [...prev.warningDetails, trimmed].slice(-6);
+      return { ...prev, warningDetails, warningCount: warningDetails.length };
+    });
+  }, []);
+
+  const updateProcessStatus = useCallback((index: number, status: ProcessStatus['status']) => {
+    setBuildState(prev => ({
+      ...prev,
+      processes: prev.processes.map((proc, i) =>
+        i === index ? { ...proc, status } : proc
+      ),
+    }));
+  }, []);
+
+  const executeCommand = useCallback((command: string, description: string): Promise<boolean> => {
+    return new Promise((resolve) => {
+      try {
+        addLog(chalk.blue(`Executing: ${command}`));
+        const result = execSync(command, {
+          encoding: 'utf8',
+          stdio: 'pipe',
+          cwd: '../../' // Run from project root
+        });
+
+        if (result.trim()) {
+          addLog(chalk.green(result.trim()));
+        }
+        addLog(chalk.green(`${description} completed successfully`));
+        resolve(true);
+      } catch (error: any) {
+        addLog(chalk.red(`Error in ${description}: ${error.message}`));
+        appendErrorDetail(`${description}: ${error.message}`);
+        if (error.stdout) {
+          addLog(chalk.yellow(`stdout: ${error.stdout}`));
+          appendWarningDetail(error.stdout);
+        }
+        if (error.stderr) {
+          addLog(chalk.red(`stderr: ${error.stderr}`));
+          appendErrorDetail(error.stderr);
+        }
+        resolve(false);
+      }
+    });
+  }, [addLog, appendErrorDetail, appendWarningDetail]);
+
+  const startBackgroundProcess = useCallback((command: string, description: string, pidKey: 'vitePid' | 'rustPid' | 'redisPid'): Promise<boolean> => {
+    return new Promise((resolve) => {
+      try {
+        addLog(chalk.blue(`Starting background: ${command}`));
+        const child = spawn(command, [], {
+          shell: true,
+          stdio: 'pipe',
+          detached: true,
+          cwd: '../../' // Run from project root
+        });
+
+        child.stdout?.on('data', (data: any) => {
+          const output = data.toString().trim();
+          addLog(chalk.blue(`[${description}] ${output}`));
+          if (/warning:/i.test(output)) {
+            appendWarningDetail(output);
+          }
+        });
+
+        child.stderr?.on('data', (data: any) => {
+          const output = data.toString().trim();
+          addLog(chalk.red(`[${description} ERROR] ${output}`));
+          if (/warning:/i.test(output)) {
+            appendWarningDetail(output);
+          }
+          if (/error/i.test(output)) {
+            appendErrorDetail(output);
+          }
+        });
+
+        child.on('error', (error: any) => {
+          addLog(chalk.red(`Failed to start ${description}: ${error.message}`));
+          appendErrorDetail(`${description}: ${error.message}`);
+          resolve(false);
+        });
+
+        // Give it a moment to start
+        setTimeout(() => {
+          if (child.pid) {
+            addLog(chalk.green(`${description} started (PID: ${child.pid})`));
+            // Store the PID
+            setBuildState(prev => ({ ...prev, [pidKey]: child.pid }));
+            child.unref(); // Allow parent to exit
+            resolve(true);
+          } else {
+            addLog(chalk.red(`${description} failed to start`));
+            appendErrorDetail(`${description} failed to start`);
+            resolve(false);
+          }
+        }, 2000);
+
+      } catch (error: any) {
+        addLog(chalk.red(`Error starting ${description}: ${error.message}`));
+        appendErrorDetail(`${description}: ${error.message}`);
+        resolve(false);
+      }
+    });
+  }, [addLog, appendErrorDetail, appendWarningDetail]);
+
+  const runBuild = useCallback(async () => {
+    setBuildState(prev => ({ ...prev, isBuilding: true }));
+
+    const steps = [
+      {
+        index: 0,
+        command: 'scripts/kill_blockers.sh',
+        description: 'Cleaning up existing processes',
+        isBackground: false,
+        pidKey: undefined,
+      },
+      {
+        index: 1,
+        command: 'scripts/setup_redis.sh start',
+        description: 'Starting Redis server',
+        isBackground: true,
+        pidKey: 'redisPid' as const,
+      },
+      {
+        index: 2,
+        command: 'scripts/setup_redis.sh load',
+        description: 'Loading fast select towers',
+        isBackground: false,
+        pidKey: undefined,
+      },
+      {
+        index: 3,
+        command: 'npm run dev',
+        description: 'Starting frontend server',
+        isBackground: true,
+        pidKey: 'vitePid' as const,
+      },
+      {
+        index: 4,
+        command: 'npm run build:wasm',
+        description: 'Building WASM SIMD module',
+        isBackground: false,
+        pidKey: undefined,
+      },
+      {
+        index: 5,
+        command: 'cargo run --bin n-apt-backend',
+        description: 'Starting Rust backend',
+        isBackground: true,
+        pidKey: 'rustPid' as const,
+      },
+    ];
+
+    for (const step of steps) {
+      updateProcessStatus(step.index, 'running');
+
+      let success: boolean;
+      if (step.isBackground && step.pidKey) {
+        success = await startBackgroundProcess(step.command, step.description, step.pidKey);
+      } else if (step.isBackground) {
+        success = await startBackgroundProcess(step.command, step.description, 'vitePid');
+      } else {
+        success = await executeCommand(step.command, step.description);
+      }
+
+      if (success) {
+        updateProcessStatus(step.index, 'success');
+      } else {
+        updateProcessStatus(step.index, 'error');
+        appendErrorDetail(`${step.description} failed`);
+      }
+
+      // Small delay between steps for visual clarity
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+
+    setBuildState(prev => ({ ...prev, isBuilding: false }));
+  }, [updateProcessStatus, executeCommand, startBackgroundProcess, appendErrorDetail]);
+
+  // Handle keyboard input
+  useInput((input, key) => {
+    if (key.escape || key.ctrl || input === 'q') {
+      addLog(chalk.yellow('Build interrupted by user'));
+      exit();
+    }
+  });
+
+  // Auto-start build on mount
+  useEffect(() => {
+    if (!buildState.isBuilding && buildState.currentStep === 0) {
+      runBuild();
+    }
+  }, []);
+
+  // Spinner animation
+  useEffect(() => {
+    if (buildState.isBuilding) {
+      const interval = setInterval(() => {
+        setBuildState(prev => ({
+          ...prev,
+          spinnerFrame: (prev.spinnerFrame + 1) % spinnerFrames.length
+        }));
+      }, 100);
+      return () => clearInterval(interval);
+    }
+  }, [buildState.isBuilding]);
+
+  const hasErrors = buildState.processes.some(p => p.status === 'error');
+  const allComplete = buildState.processes.every(p => p.status === 'success' || p.status === 'error');
+  const runtimeSeconds = Math.floor((Date.now() - buildState.startTime) / 1000);
+
+  return (
+    <Box flexDirection="column" padding={1}>
+      <Box flexDirection="column" alignItems="flex-start">
+        <NaptLogo />
+        <Text color="gray">(c) 2026 Made in the USA</Text>
+        <Box marginTop={1} />
+      </Box>
+
+      <Box flexDirection="column" alignItems="flex-start" marginTop={1}>
+        <Text color="white" bold>N-APT Build Orchestrator - Ink Version</Text>
+        <Text color="gray">Press 'q' or ESC to exit</Text>
+      </Box>
+
+      <Box flexDirection="column" marginTop={1}>
+        <ProcessList
+          processes={buildState.processes}
+          currentStep={buildState.currentStep}
+          isBuilding={buildState.isBuilding}
+          spinnerFrame={buildState.spinnerFrame}
+        />
+      </Box>
+
+      {buildState.isBuilding && (
+        <Box marginTop={1}>
+          <Text color="blue">
+            {spinnerFrames[buildState.spinnerFrame % spinnerFrames.length]} Building in progress...
+          </Text>
+        </Box>
+      )}
+
+      {allComplete && (buildState.errorDetails.length > 0 || buildState.warningDetails.length > 0) && (
+        <Box flexDirection="column" marginTop={1}>
+          {buildState.errorDetails.length > 0 && (
+            <Box flexDirection="column" marginTop={1}>
+              <Text color="red" bold>Errors</Text>
+              {buildState.errorDetails.map((error, index) => (
+                <Text key={index} color="red">  {error}</Text>
+              ))}
+            </Box>
+          )}
+
+          {buildState.warningDetails.length > 0 && (
+            <Box flexDirection="column" marginTop={1}>
+              <Text color="yellow" bold>Warnings</Text>
+              {buildState.warningDetails.map((warning, index) => (
+                <Text key={index} color="yellow">  {warning}</Text>
+              ))}
+            </Box>
+          )}
+        </Box>
+      )}
+
+      {allComplete && (
+        <Box flexDirection="column" marginTop={1}>
+          <Box borderStyle="round" borderColor="gray" padding={1}>
+            <Box flexDirection="row">
+              <Text color={hasErrors ? 'red' : 'green'} bold>
+                {hasErrors ? 'Stopped' : 'Running'}
+              </Text>
+
+              {
+                allComplete && (
+                  <Box flexDirection="column" marginTop={1}>
+                    <Box borderStyle="round" borderColor="gray" padding={1}>
+                      <Box flexDirection="row">
+                        <Text color={hasErrors ? 'red' : 'green'} bold>
+                          {hasErrors ? 'Stopped' : 'Running'}
+                        </Text>
+                        <Box flexGrow={1} />
+                        <Text color="gray">
+                          {buildState.errorDetails.length} errors, {buildState.warningDetails.length} warnings
+                        </Text>
+                      </Box>
+
+                      <Box flexDirection="column" marginTop={1}>
+                        <Text color="cyan">Vite PID: {buildState.vitePid || 'N/A'}</Text>
+                        <Text color="cyan">Frontend: http://localhost:5173</Text>
+
+                        <Text color="magenta">Rust PID: {buildState.rustPid || 'N/A'}</Text>
+                        <Text color="magenta">Backend: http://localhost:8765</Text>
+
+                        <Text color="green">Redis PID: {buildState.redisPid || 'N/A'}</Text>
+                        <Text color="green">Redis Port: TCP 6379</Text>
+                        <Text color="green">Redis URL: redis://localhost:6379</Text>
+                      </Box>
+
+                      <Box flexDirection="row" marginTop={1}>
+                        <Text color="gray">Runtime: {runtimeSeconds}s</Text>
+                      </Box>
+                    </Box>
+                  </Box>
+                )
+              }
+
+// ...
+              // Main execution
+              if (import.meta.url === `file://${process.argv[1]}`) {
+                render(<BuildOrchestrator />);
+}
+
+              export default BuildOrchestrator;

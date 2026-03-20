@@ -4,7 +4,7 @@ export const AppContainer = styled.div`
   display: flex;
   width: 100%;
   height: 100vh;
-  background-color: #0a0a0a;
+  background-color: ${(props) => props.theme.background};
 `;
 
 export const AppWrapper = styled.div`
@@ -34,7 +34,7 @@ export const InitializingContainer = styled.div`
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  background-color: #0a0a0a;
+  background-color: ${(props) => props.theme.background};
   padding: 40px;
   gap: 32px;
   min-height: 100vh;
@@ -44,7 +44,7 @@ export const InitializingTitle = styled.h2`
   font-family: "JetBrains Mono", monospace;
   font-size: 18px;
   font-weight: 600;
-  color: #e0e0e0;
+  color: ${(props) => props.theme.textPrimary};
   margin: 0;
   letter-spacing: 0.5px;
   animation: pulse 1.5s ease-in-out infinite;
@@ -65,7 +65,7 @@ export const InitializingTitle = styled.h2`
 export const InitializingText = styled.p`
   font-family: "JetBrains Mono", monospace;
   font-size: 12px;
-  color: #666;
+  color: ${(props) => props.theme.textSecondary};
   margin: 0;
   text-align: center;
   max-width: 400px;

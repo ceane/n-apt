@@ -86,13 +86,13 @@
     <div class="container">
       <h1>FFT Stitcher Test</h1>
 
-      <div class="status" id="status">Select .c64 files to begin stitching</div>
+      <div class="status" id="status">Select .napt or .wav files to begin stitching</div>
 
       <div class="file-input">
         <input
           type="file"
           id="fileInput"
-          accept=".c64"
+          accept=".napt,.wav,.c64"
           multiple
           style="display: none"
         />
@@ -134,7 +134,7 @@
 
       function updateUI() {
         if (selectedFiles.length === 0) {
-          statusEl.textContent = "Select .c64 files to begin stitching";
+          statusEl.textContent = "Select .napt or .wav files to begin stitching";
           fileListEl.style.display = "none";
           stitchBtnEl.disabled = true;
           clearBtnEl.disabled = true;

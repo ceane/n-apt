@@ -2,13 +2,21 @@ import React from "react";
 import styled from "styled-components";
 import { useAuthentication } from "@n-apt/hooks/useAuthentication";
 import { useGeolocation } from "@n-apt/hooks/useGeolocation";
-import { formatFrequency } from "@n-apt/utils/frequency";
 import type {
   CaptureStatus,
   CaptureFileType,
   DeviceState,
 } from "@n-apt/hooks/useWebSocket";
-import { Trash2 } from "lucide-react";
+import {
+  Clock,
+  File as FileIcon,
+  LockKeyhole,
+  MapPin,
+  PanelLeftDashed,
+  Scan,
+  Trash2,
+  type LucideIcon,
+} from "lucide-react";
 
 const Section = styled.div`
   display: grid;
@@ -17,23 +25,44 @@ const Section = styled.div`
   gap: inherit;
 `;
 
-import { Row, CollapsibleTitle, CollapsibleBody } from "@n-apt/components/ui";
+import { Row, CollapsibleTitle, CollapsibleBody, Range } from "@n-apt/components/ui";
 
 const SettingValue = styled.span`
   font-size: 12px;
-  color: #ccc;
+  color: ${(props) => props.theme.textPrimary};
   font-weight: 500;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 `;
 
+const LabelWithIcon = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  line-height: 1.2;
+
+  svg {
+    width: 14px;
+    height: 14px;
+    color: ${(props) => props.theme.textSecondary};
+    opacity: 0.5;
+  }
+`;
+
+const IconLabel: React.FC<{ icon: LucideIcon; text: string }> = ({ icon: IconComponent, text }) => (
+  <LabelWithIcon>
+    <IconComponent size={14} strokeWidth={1.75} aria-hidden="true" />
+    {text}
+  </LabelWithIcon>
+);
+
 const SettingSelect = styled.select`
   background-color: transparent;
   border: 1px solid transparent;
   border-radius: 4px;
-  color: #ccc;
-  font-family: "JetBrains Mono", monospace;
+  color: ${(props) => props.theme.textPrimary};
+  font-family: ${(props) => props.theme.typography.mono};
   font-size: 12px;
   font-weight: 500;
   padding: 2px 6px;
@@ -50,7 +79,7 @@ const SettingSelect = styled.select`
   min-width: 0;
 
   &:hover {
-    border-color: #2a2a2a;
+    border-color: ${(props) => props.theme.borderHover};
   }
 
   &:focus {
@@ -60,18 +89,18 @@ const SettingSelect = styled.select`
   }
 
   option {
-    background-color: #1a1a1a;
-    color: #ccc;
-    font-family: "JetBrains Mono", monospace;
+    background-color: ${(props) => props.theme.surface};
+    color: ${(props) => props.theme.textPrimary};
+    font-family: ${(props) => props.theme.typography.mono};
   }
 `;
 
 const SettingInput = styled.input`
   background-color: transparent;
-  border: 1px solid #2a2a2a;
+  border: 1px solid ${(props) => props.theme.borderHover};
   border-radius: 4px;
-  color: #ccc;
-  font-family: "JetBrains Mono", monospace;
+  color: ${(props) => props.theme.textPrimary};
+  font-family: ${(props) => props.theme.typography.mono};
   font-size: 12px;
   font-weight: 500;
   padding: 4px 6px;
@@ -132,7 +161,7 @@ const ToggleSwitchSlider = styled.span<{ $disabled?: boolean }>`
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: #444;
+  background-color: ${(props) => props.theme.borderHover};
   transition: 0.2s;
   border-radius: 24px;
 
@@ -149,27 +178,40 @@ const ToggleSwitchSlider = styled.span<{ $disabled?: boolean }>`
   }
 `;
 
-const CheckboxGroup = styled.div`
+const RangeRowContainer = styled.div`
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
+  flex-direction: column;
+  align-items: flex-start;
   gap: 10px;
-  justify-content: flex-end;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  grid-column: 1 / -1;
+  padding: 14px;
+  box-sizing: border-box;
+  background-color: ${(props) => props.theme.surface};
+  border-radius: 6px;
+  border: 1px solid ${(props) => props.theme.border};
 `;
 
-const CheckboxLabel = styled.label`
-  display: grid;
-  grid-auto-flow: column;
+const RangeRowLabel = styled.div`
+  display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 11px;
-  color: #ccc;
+  font-size: 12px;
+  color: ${(props) => props.theme.textSecondary};
 `;
 
-const RangeList = styled.div`
+const RangeRowBody = styled.div`
+  width: 100%;
+`;
+
+const RangeGrid = styled.div`
   display: grid;
-  gap: 2px;
-  justify-items: end;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  width: 100%;
+  align-items: flex-start;
 `;
 
 const DurationRow = styled.div`
@@ -181,7 +223,7 @@ const DurationRow = styled.div`
 
 const DurationUnit = styled.span`
   font-size: 12px;
-  color: #ccc;
+  color: ${(props) => props.theme.textPrimary};
   font-weight: 500;
 `;
 
@@ -204,7 +246,7 @@ const PlaybackOption = styled.div`
 
 const PlaybackLabel = styled.label`
   font-size: 11px;
-  color: #ccc;
+  color: ${(props) => props.theme.textPrimary};
   white-space: nowrap;
   margin: 0;
 `;
@@ -213,11 +255,11 @@ const PauseButton = styled.button<{ $paused: boolean }>`
   flex: 0 0 25%;
   height: 100%;
   padding: 12px 8px;
-  background-color: ${(props) => (props.$paused ? props.theme.primaryAnchor : "#1a1a1a")};
-  border: 1px solid ${(props) => (props.$paused ? props.theme.primary : "#2a2a2a")};
+  background-color: ${(props) => (props.$paused ? props.theme.primaryAnchor : props.theme.surface)};
+  border: 1px solid ${(props) => (props.$paused ? props.theme.primary : props.theme.borderHover)};
   border-radius: 8px;
-  color: ${(props) => (props.$paused ? props.theme.primary : "#ccc")};
-  font-family: "JetBrains Mono", monospace;
+  color: ${(props) => (props.$paused ? props.theme.primary : props.theme.textPrimary)};
+  font-family: ${(props) => props.theme.typography.mono};
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
@@ -243,8 +285,8 @@ const StatusDownloadsCard = styled.div`
   gap: 12px;
   grid-column: 1 / -1;
   margin-top: 12px;
-  background: #101010;
-  border: 1px solid #222;
+  background: ${(props) => props.theme.background};
+  border: 1px solid ${(props) => props.theme.border};
   border-radius: 8px;
   padding: 12px;
   min-width: 0;
@@ -252,10 +294,10 @@ const StatusDownloadsCard = styled.div`
 
 const InfoCardTitle = styled.div`
   font-size: 11px;
-  color: #555;
+  color: ${(props) => props.theme.metadataLabel};
   text-transform: uppercase;
   letter-spacing: 2px;
-  font-family: "JetBrains Mono", monospace;
+  font-family: ${(props) => props.theme.typography.mono};
 `;
 
 const InfoRow = styled.div`
@@ -268,7 +310,7 @@ const InfoRow = styled.div`
 
 const InfoLabel = styled.div`
   font-size: 12px;
-  color: #ccc;
+  color: ${(props) => props.theme.textPrimary};
   min-width: 0;
 `;
 
@@ -283,7 +325,7 @@ const DownloadCard = styled.div`
 const DownloadLink = styled.a`
   color: ${(props) => props.theme.primary};
   font-size: 12px;
-  font-family: "JetBrains Mono", monospace;
+  font-family: ${(props) => props.theme.typography.mono};
   text-decoration: none;
   display: block;
   word-break: break-all;
@@ -294,17 +336,41 @@ const DownloadLink = styled.a`
 
 const StatusValue = styled.div<{ $tone: "warning" | "success" | "error" | "muted" }>`
   font-size: 12px;
-  font-family: "JetBrains Mono", monospace;
+  font-family: ${(props) => props.theme.typography.mono};
   color: ${(props) =>
     props.$tone === "success"
-      ? "#00ff66"
+      ? props.theme.success
       : props.$tone === "error"
-        ? "#ff6666"
+        ? props.theme.danger
         : props.$tone === "warning"
-          ? "#ffcc33"
-          : "#999"};
+          ? props.theme.warning
+          : props.theme.textSecondary};
   text-align: right;
   white-space: nowrap;
+`;
+
+const ErrorSettingValue = styled(SettingValue)`
+  color: ${(props) => props.theme.danger};
+  font-size: 11px;
+`;
+
+const DownloadsHeader = styled.div`
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+`;
+
+const ClearStatusButton = styled.button`
+  background: none;
+  border: none;
+  color: ${(props) => props.theme.textMuted};
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-family: ${(props) => props.theme.typography.mono};
+  padding: 2px 4px;
 `;
 
 interface CaptureRange {
@@ -442,59 +508,61 @@ export const IQCaptureControlsSection: React.FC<
 
         {isOpen && (
           <CollapsibleBody>
-            <Row label="Areas">
-              <CheckboxGroup>
-                {availableCaptureAreas.map((area) => (
-                  <CheckboxLabel key={area.label}>
-                    <input
-                      type="checkbox"
-                      checked={activeCaptureAreas.includes(area.label)}
-                      onChange={(e) => {
-                        const nextAreas = e.target.checked
-                          ? [...activeCaptureAreas, area.label]
-                          : activeCaptureAreas.filter((a) => a !== area.label);
+            <RangeRowContainer>
+              <RangeRowLabel>
+                <IconLabel icon={Scan} text="Ranges" />
+              </RangeRowLabel>
+              <RangeRowBody>
+                <RangeGrid>
+                  {availableCaptureAreas.map((area, idx) => {
+                    const isSelected = activeCaptureAreas.includes(area.label);
+                    const variant = idx % 2 === 0 ? "primary" : "secondary";
 
-                        // Apply guards: auto-switch acquisition mode based on selection
-                        const nextOnscreenOnly = nextAreas.includes("Onscreen") && nextAreas.every((a) => a === "Onscreen");
-                        const nextHasChannel = nextAreas.some((a) => a !== "Onscreen");
-                        const nextSpan = captureRange.max - captureRange.min;
-                        const hwMHz = maxSampleRate / 1000000;
+                    const handleToggle = () => {
+                      const nextAreas = isSelected
+                        ? activeCaptureAreas.filter((a) => a !== area.label)
+                        : [...activeCaptureAreas, area.label];
 
-                        if (nextOnscreenOnly && hwMHz > 0 && Math.abs(nextSpan - hwMHz) < 0.01) {
-                          // Onscreen only, exact match → whole_sample
-                          if (acquisitionMode !== "whole_sample") {
-                            onAcquisitionModeChange("whole_sample");
-                          }
-                        } else if (nextHasChannel && nextSpan > hwMHz + 0.01) {
-                          // Wider than hardware → no whole_sample allowed
-                          if (acquisitionMode === "whole_sample") {
-                            onAcquisitionModeChange("stepwise");
-                          }
+                      const nextOnscreenOnly = nextAreas.includes("Onscreen") && nextAreas.every((a) => a === "Onscreen");
+                      const nextHasChannel = nextAreas.some((a) => a !== "Onscreen");
+                      const nextSpan = captureRange.max - captureRange.min;
+                      const hwMHz = maxSampleRate / 1000000;
+
+                      if (nextOnscreenOnly && hwMHz > 0 && Math.abs(nextSpan - hwMHz) < 0.01) {
+                        if (acquisitionMode !== "whole_sample") {
+                          onAcquisitionModeChange("whole_sample");
                         }
+                      } else if (nextHasChannel && nextSpan > hwMHz + 0.01) {
+                        if (acquisitionMode === "whole_sample") {
+                          onAcquisitionModeChange("stepwise");
+                        }
+                      }
 
-                        onActiveCaptureAreasChange(nextAreas);
-                      }}
-                    />
-                    {area.label}
-                  </CheckboxLabel>
-                ))}
-              </CheckboxGroup>
-            </Row>
+                      onActiveCaptureAreasChange(nextAreas);
+                    };
 
-            <Row label="Range">
-              <SettingValue>
-                <RangeList>
-                  {captureRange.segments.map((seg) => (
-                    <div key={seg.label}>
-                      {seg.label}:{" "}
-                      {formatFrequency(seg.min)} - {formatFrequency(seg.max)}
-                    </div>
-                  ))}
-                </RangeList>
-              </SettingValue>
-            </Row>
+                    const matchingSegment = captureRange.segments.find((seg) => seg.label === area.label);
+                    const label = matchingSegment?.label ?? area.label;
+                    const min = matchingSegment?.min ?? area.min;
+                    const max = matchingSegment?.max ?? area.max;
 
-            <Row label="Duration">
+                    return (
+                      <Range
+                        key={area.label}
+                        label={label}
+                        min={min}
+                        max={max}
+                        selected={isSelected}
+                        onToggle={handleToggle}
+                        variant={variant}
+                      />
+                    );
+                  })}
+                </RangeGrid>
+              </RangeRowBody>
+            </RangeRowContainer>
+
+            <Row label={<IconLabel icon={Clock} text="Duration" />}>
               <DurationRow>
                 <SettingInput
                   type="number"
@@ -509,7 +577,7 @@ export const IQCaptureControlsSection: React.FC<
               </DurationRow>
             </Row>
 
-            <Row label="File type">
+            <Row label={<IconLabel icon={FileIcon} text="File type" />}>
               <SettingSelect
                 value={captureFileType}
                 onChange={(e) =>
@@ -521,7 +589,11 @@ export const IQCaptureControlsSection: React.FC<
               </SettingSelect>
             </Row>
 
-            <Row label="Acquisition Mode" tooltipTitle="Capture Mode Selection" tooltip="Stepwise: Captures frequency ranges sequentially. Interleaved: Rapidly sweeps and interleaves results. Whole Sample: Captures exact hardware sample rate without movement.">
+            <Row
+              label={<IconLabel icon={PanelLeftDashed} text="Acquisition Mode" />}
+              tooltipTitle="Capture Mode Selection"
+              tooltip="Stepwise: Captures frequency ranges sequentially. Interleaved: Rapidly sweeps and interleaves results. Whole Sample: Captures exact hardware sample rate without movement."
+            >
               <SettingSelect
                 value={effectiveAcquisitionMode}
                 onChange={(e) => onAcquisitionModeChange(e.target.value as "stepwise" | "interleaved" | "whole_sample")}
@@ -539,7 +611,7 @@ export const IQCaptureControlsSection: React.FC<
               </SettingSelect>
             </Row>
 
-            <Row label="Encrypted">
+            <Row label={<IconLabel icon={LockKeyhole} text="Encrypted" />}>
               <ToggleSwitch $disabled={captureFileType === ".napt"}>
                 <ToggleSwitchInput
                   type="checkbox"
@@ -551,7 +623,11 @@ export const IQCaptureControlsSection: React.FC<
               </ToggleSwitch>
             </Row>
 
-            <Row label="Geolocation" tooltipTitle="Location data (lat, long, accuracy, altitude)" tooltip="Only available for .napt files. Requires browser permission to access location.">
+            <Row
+              label={<IconLabel icon={MapPin} text="Geolocation" />}
+              tooltipTitle="Location data (lat, long, accuracy, altitude)"
+              tooltip="Only available for .napt files. Requires browser permission to access location."
+            >
               <ToggleSwitch $disabled={captureFileType !== ".napt" || !isSupported || geoLoading}>
                 <ToggleSwitchInput
                   type="checkbox"
@@ -565,16 +641,11 @@ export const IQCaptureControlsSection: React.FC<
 
             {geoError && captureFileType === ".napt" && (
               <Row label="">
-                <SettingValue style={{ color: "#ff6666", fontSize: "11px" }}>
+                <ErrorSettingValue>
                   {geoError}
-                </SettingValue>
+                </ErrorSettingValue>
               </Row>
             )}
-
-            <Row label="Sample size">
-              <SettingValue>{maxSampleRate / 1000000}MHz</SettingValue>
-            </Row>
-
 
             <CaptureActions>
               <CaptureButton
@@ -607,27 +678,15 @@ export const IQCaptureControlsSection: React.FC<
             </CaptureActions>
 
             <StatusDownloadsCard>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <DownloadsHeader>
                 <InfoCardTitle>Downloads</InfoCardTitle>
-                <button
+                <ClearStatusButton
                   onClick={onClearStatus}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    color: '#666',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px',
-                    fontSize: '10px',
-                    fontFamily: '"JetBrains Mono", monospace',
-                    padding: '2px 4px',
-                  }}
                   title="Clear capture status"
                 >
                   <Trash2 size={12} /> Clear
-                </button>
-              </div>
+                </ClearStatusButton>
+              </DownloadsHeader>
               {captureStatus?.downloadUrl && isAuthenticated ? (
                 <DownloadCard>
                   <InfoRow>

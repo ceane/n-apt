@@ -1,5 +1,14 @@
 import React from "react";
 import styled from "styled-components";
+import { Row } from "@n-apt/components/ui";
+import {
+  Blend,
+  Frame,
+  GalleryHorizontal,
+  Gauge,
+  Image as ImageIcon,
+  type LucideIcon,
+} from "lucide-react";
 import type { DeviceProfile } from "@n-apt/consts/schemas/websocket";
 
 const Section = styled.div`
@@ -13,21 +22,19 @@ const Section = styled.div`
 
 const SectionTitle = styled.div`
   font-size: 11px;
-  color: #555;
+  color: ${(props) => props.theme.metadataLabel};
   text-transform: uppercase;
   letter-spacing: 1px;
   margin-top: 1rem;
   margin-bottom: 0;
   font-weight: 600;
-  font-family: "JetBrains Mono", monospace;
+  font-family: ${(props) => props.theme.typography.mono};
   grid-column: 1 / -1;
 `;
 
-import { Row } from "@n-apt/components/ui";
-
 const SettingValue = styled.span`
   font-size: 12px;
-  color: #ccc;
+  color: ${(props) => props.theme.textPrimary};
   font-weight: 500;
   justify-self: end;
 `;
@@ -36,8 +43,8 @@ const SettingSelect = styled.select`
   background-color: transparent;
   border: 1px solid transparent;
   border-radius: 4px;
-  color: #ccc;
-  font-family: "JetBrains Mono", monospace;
+  color: ${(props) => props.theme.textPrimary};
+  font-family: ${(props) => props.theme.typography.mono};
   font-size: 12px;
   font-weight: 500;
   padding: 2px 6px;
@@ -53,7 +60,7 @@ const SettingSelect = styled.select`
   max-width: 100%;
 
   &:hover {
-    border-color: #2a2a2a;
+    border-color: ${(props) => props.theme.borderHover};
   }
 
   &:focus {
@@ -63,18 +70,18 @@ const SettingSelect = styled.select`
   }
 
   option {
-    background-color: #1a1a1a;
-    color: #ccc;
-    font-family: "JetBrains Mono", monospace;
+    background-color: ${(props) => props.theme.surface};
+    color: ${(props) => props.theme.textPrimary};
+    font-family: ${(props) => props.theme.typography.mono};
   }
 `;
 
 const SettingInput = styled.input`
   background-color: transparent;
-  border: 1px solid #2a2a2a;
+  border: 1px solid ${(props) => props.theme.borderHover};
   border-radius: 4px;
-  color: #ccc;
-  font-family: "JetBrains Mono", monospace;
+  color: ${(props) => props.theme.textPrimary};
+  font-family: ${(props) => props.theme.typography.mono};
   font-size: 12px;
   font-weight: 500;
   padding: 4px 6px;
@@ -105,7 +112,7 @@ const InputGroup = styled.div`
 
 const UnitLabel = styled.span`
   font-size: 12px;
-  color: #ccc;
+  color: ${(props) => props.theme.textPrimary};
   font-weight: 500;
 `;
 
@@ -114,6 +121,27 @@ const WideSettingSelect = styled(SettingSelect)`
   width: 100%;
   text-align-last: right;
 `;
+
+const LabelWithIcon = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  line-height: 1.2;
+
+  svg {
+    width: 14px;
+    height: 14px;
+    color: ${(props) => props.theme.textSecondary};
+    opacity: 0.5;
+  }
+`;
+
+const IconLabel: React.FC<{ icon: LucideIcon; text: string }> = ({ icon: IconComponent, text }) => (
+  <LabelWithIcon>
+    <IconComponent size={14} strokeWidth={1.75} aria-hidden="true" />
+    {text}
+  </LabelWithIcon>
+);
 
 interface SignalDisplaySectionProps {
   sourceMode: "live" | "file";
@@ -204,7 +232,11 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
   return (
     <Section>
       <SectionTitle>Signal display</SectionTitle>
-      <Row label="Sample Size" tooltipTitle="Sample Size (Bandwidth)" tooltip="Radio signal bandwidth capacity. Determines the range of frequencies that can be intercepted and processed from transmissions.">
+      <Row
+        label={<IconLabel icon={Frame} text="Sample Size" />}
+        tooltipTitle="Sample Size (Bandwidth)"
+        tooltip="Radio signal bandwidth capacity. Determines the range of frequencies that can be intercepted and processed from transmissions."
+      >
         <SettingValue>
           {sourceMode === "file"
             ? fileCapturedRange
@@ -222,7 +254,11 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
         </Row>
       )}
       {sourceMode === "live" ? (
-        <Row label="Frame rate (logical)" tooltipTitle="Frame Rate" tooltip={`Signal processing speed. Higher rates provide more real-time analysis of transmissions. Current maximum theoretical rate: ${maxFrameRate} fps based on current FFT size and bandwidth capacity.`}>
+        <Row
+          label={<IconLabel icon={GalleryHorizontal} text="Frame rate (logical)" />}
+          tooltipTitle="Frame Rate"
+          tooltip={`Signal processing speed. Higher rates provide more real-time analysis of transmissions. Current maximum theoretical rate: ${maxFrameRate} fps based on current FFT size and bandwidth capacity.`}
+        >
           <InputGroup>
             <SettingInput
               type="number"
@@ -261,12 +297,16 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
           </InputGroup>
         </Row>
       ) : (
-        <Row label="Frame rate (logical)">
+        <Row label={<IconLabel icon={GalleryHorizontal} text="Frame rate (logical)" />}>
           <SettingValue>4 fps</SettingValue>
         </Row>
       )}
       {sourceMode === "live" ? (
-        <Row label="FFT Size" tooltipTitle="FFT Size" tooltip="Frequency resolution. Larger sizes provide better detection of specific signal patterns in transmissions but reduce processing speed.">
+        <Row
+          label={<IconLabel icon={ImageIcon} text="FFT Size" />}
+          tooltipTitle="FFT Size"
+          tooltip="Frequency resolution. Larger sizes provide better detection of specific signal patterns in transmissions but reduce processing speed."
+        >
           <SettingSelect
             value={fftSize}
             onChange={(e) => {
@@ -301,11 +341,15 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
           </SettingSelect>
         </Row>
       ) : (
-        <Row label="FFT Size">
+        <Row label={<IconLabel icon={ImageIcon} text="FFT Size" />}>
           <SettingValue>1024</SettingValue>
         </Row>
       )}
-      <Row label="FFT Window" tooltipTitle="FFT Window" tooltip="Signal filtering. Different windows optimize for detecting specific types of patterns and interactions in transmissions.">
+      <Row
+        label={<IconLabel icon={Blend} text="FFT Window" />}
+        tooltipTitle="FFT Window"
+        tooltip="Signal filtering. Different windows optimize for detecting specific types of patterns and interactions in transmissions."
+      >
         <WideSettingSelect
           value={fftWindow}
           onChange={(e) => {
@@ -320,7 +364,11 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
           <option value="Blackman">Blackman</option>
         </WideSettingSelect>
       </Row>
-      <Row label="Temporal Resolution" tooltipTitle="Display Temporal Resolution" tooltip="Signal visualization precision. Low blends signal patterns, medium shows averaged activity, high displays exact signal interactions with sharp transitions, with the ability to see patterns (like dots) in the waterfall as the signal rises and falls sharply.">
+      <Row
+        label={<IconLabel icon={Gauge} text="Temporal Resolution" />}
+        tooltipTitle="Display Temporal Resolution"
+        tooltip="Signal visualization precision. Low blends signal patterns, medium shows averaged activity, high displays exact signal interactions with sharp transitions, with the ability to see patterns (like dots) in the waterfall as the signal rises and falls sharply."
+      >
         <WideSettingSelect
           value={temporalResolution}
           onChange={(e) => {

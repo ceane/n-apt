@@ -59,7 +59,7 @@ describe("useMapLocations Hook", () => {
     });
 
     expect(result.current.locations).toHaveLength(2);
-    expect(result.current.locations.find(l => l.name === "Test Spot")).toBeDefined();
+    expect(result.current.locations.find(({ name }: { name: string }) => name === "Test Spot")).toBeDefined();
     expect(result.current.activeLocationId).toMatch(/^loc_/);
   });
 

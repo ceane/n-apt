@@ -1,4 +1,5 @@
 import { COLORS } from "@n-apt/consts/components";
+import { THEME_TOKENS } from "../../rs/consts/theme";
 
 export const WATERFALL_GRID_COLOR = COLORS.waterfallGrid;
 export const WATERFALL_TEXT_COLOR = COLORS.waterfallText;
@@ -19,5 +20,5 @@ export const WATERFALL_FREQUENCY_RANGES = [
 // Canvas layout constants
 export const WF_MIN = { x: 40, y: 20 };
 export const WATERFALL_CANVAS_BG = COLORS.waterfallBackground;
-export const WATERFALL_FONT_FAMILY = "JetBrains Mono";
-export const WATERFALL_FONT_SIZE = "16px";
+export const WATERFALL_FONT_FAMILY = THEME_TOKENS.typography.mono;
+export const WATERFALL_FONT_SIZE = THEME_TOKENS.layout.waterfallFontSize;
