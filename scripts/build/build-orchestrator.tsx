@@ -267,28 +267,94 @@ const BuildOrchestrator = () => {
     const steps = [
       {
         index: 0,
-        command: 'scripts/kill_blockers.sh',
+        command: `bash -lc "
+set -euo pipefail
+pkill -f 'n-apt-backend' 2>/dev/null || true
+pkill -f 'target/debug/n-apt-backend' 2>/dev/null || true
+pkill -f 'target/release/n-apt-backend' 2>/dev/null || true
+pkill -f 'target/dev-fast/n-apt-backend' 2>/dev/null || true
+pkill -f 'vite' 2>/dev/null || true
+pkill -f 'node_modules/.bin/vite' 2>/dev/null || true
+lsof -ti:5173 | xargs kill -9 2>/dev/null || true
+lsof -ti:8765 | xargs kill -9 2>/dev/null || true
+sleep 1
+"`,
         description: 'Cleaning up existing processes',
         isBackground: false,
         pidKey: undefined,
       },
       {
         index: 1,
-        command: 'npm run dev',
+        command: 'node_modules/.bin/vite dev --host',
         description: 'Starting frontend server',
         isBackground: true,
         pidKey: 'vitePid' as const,
       },
       {
         index: 2,
-        command: 'scripts/setup_redis.sh start',
+        command: `bash -lc "
+set -euo pipefail
+REDIS_PORT=6379
+DATA_DIR='.redis_data'
+mkdir -p "$DATA_DIR"
+if command -v redis-server >/dev/null 2>&1 && command -v redis-cli >/dev/null 2>&1; then
+  if lsof -ti:$REDIS_PORT >/dev/null 2>&1; then
+    exit 0
+  fi
+  redis-server --port $REDIS_PORT --dir "$DATA_DIR" --daemonize yes --appendonly yes
+  sleep 2
+  if ! lsof -ti:$REDIS_PORT >/dev/null 2>&1; then
+    echo 'Failed to start redis-server'
+    exit 1
+  fi
+else
+  echo 'redis-server and redis-cli are required on PATH'
+  exit 1
+fi
+"`,
         description: 'Starting Redis server',
         isBackground: true,
         pidKey: 'redisPid' as const,
       },
       {
         index: 3,
-        command: 'scripts/setup_redis.sh load',
+        command: `bash -lc "
+set -euo pipefail
+REDIS_PORT=\"\${REDIS_PORT:-6379}\"
+if [ -z \"$REDIS_PORT\" ] || [ \"$REDIS_PORT\" = '0' ]; then
+  REDIS_PORT=6379
+fi
+if ! command -v redis-cli >/dev/null 2>&1; then
+  echo 'redis-cli not available'
+  exit 1
+fi
+if ! redis-cli -p $REDIS_PORT ping >/dev/null 2>&1; then
+  echo 'Redis must be running before loading towers'
+  exit 1
+fi
+FAST_COUNT=$(redis-cli -p $REDIS_PORT -n 2 dbsize 2>/dev/null || echo 0)
+FULL_COUNT=$(redis-cli -p $REDIS_PORT -n 3 dbsize 2>/dev/null || echo 0)
+if [ "$FAST_COUNT" -gt 0 ] && [ "$FULL_COUNT" -gt 0 ]; then
+  exit 0
+fi
+if [ ! -f 'scripts/redis/download_opencellid_cached.cjs' ]; then
+  echo 'scripts/redis/download_opencellid_cached.cjs missing; skipping tower import'
+  exit 0
+fi
+if npm run towers:download:cached; then
+  TEMP_FAST=$(redis-cli -p $REDIS_PORT -n 0 dbsize 2>/dev/null || echo 0)
+  TEMP_FULL=$(redis-cli -p $REDIS_PORT -n 1 dbsize 2>/dev/null || echo 0)
+  if [ "$TEMP_FAST" -eq 0 ] || [ "$TEMP_FULL" -eq 0 ]; then
+    echo 'Tower download skipped or produced no data; leaving existing DBs untouched.'
+    exit 0
+  fi
+  redis-cli -p $REDIS_PORT swapdb 0 2 >/dev/null
+  redis-cli -p $REDIS_PORT swapdb 1 3 >/dev/null
+  exit 0
+fi
+echo 'Failed to load tower data'
+exit 1
+"`,
         description: 'Loading fast select towers',
         isBackground: false,
         pidKey: undefined,

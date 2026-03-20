@@ -63,6 +63,7 @@ interface NoteCardsState {
   cards: NoteCardModel[];
   activeCardId: string | null;
   nextZIndex: number;
+  isCollapsed: boolean;
 }
 
 const DEFAULT_POSITION: NoteCardPosition = { x: 120, y: 80 };
@@ -72,6 +73,7 @@ const initialState: NoteCardsState = {
   cards: [],
   activeCardId: null,
   nextZIndex: 1,
+  isCollapsed: false,
 };
 
 export const buildStatsSnapshot = (
@@ -228,6 +230,10 @@ const noteCardsSlice = createSlice({
       state.cards = [];
       state.activeCardId = null;
       state.nextZIndex = 1;
+      state.isCollapsed = false;
+    },
+    setNoteCardsCollapsed: (state, action: PayloadAction<boolean>) => {
+      state.isCollapsed = action.payload;
     },
   },
   extraReducers: (builder) => {
@@ -254,11 +260,13 @@ export const {
   setActiveNoteCard,
   removeNoteCard,
   clearNoteCards,
+  setNoteCardsCollapsed,
 } = noteCardsSlice.actions;
 
 export const selectNoteCardsState = (state: RootState) => state.noteCards;
 export const selectNoteCards = (state: RootState) => state.noteCards.cards;
 export const selectActiveNoteCard = (state: RootState) =>
   state.noteCards.cards.find((card) => card.id === state.noteCards.activeCardId) ?? null;
+export const selectNoteCardsCollapsed = (state: RootState) => state.noteCards.isCollapsed;
 
 export default noteCardsSlice.reducer;

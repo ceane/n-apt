@@ -84,6 +84,9 @@ redis/backups/
 **/*.aof
 **/appendonlydir/*
 
+# Encrypted modules temporary sources
+src/encrypted-modules/tmp/
+
 # Environment variables
 .env.local
 .env*.local
