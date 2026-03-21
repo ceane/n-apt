@@ -1,12 +1,18 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import styled, { createGlobalStyle } from "styled-components";
+import styled, { createGlobalStyle, css } from "styled-components";
 import ReactMarkdown from "react-markdown";
+import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import rehypeRaw from "rehype-raw";
+import rehypeKatex from "rehype-katex";
 import * as lucideIcons from "lucide-react";
 import "highlight.js/styles/github-dark.css";
+import "katex/dist/katex.min.css";
+import BodyAttenuationCanvas from "./BodyAttenuationWebGPUCanvas";
+import remarkBodyAttenuationBlocks from "./remarkBodyAttenuationBlocks";
 import remarkIconShortcodes from "./remarkIconShortcodes";
+import remarkLatexCodeBlocks from "./remarkLatexCodeBlocks";
 
 const DEFAULT_SOURCE = "/pages/how-do-they-do-it.md";
 const BASE_URL = (import.meta.env.BASE_URL ?? "/").replace(/\/$/, "");
@@ -22,6 +28,30 @@ const candidateAssetPaths = (relativePath: string) => {
   add(`/${sanitized}`);
 
   return Array.from(dedupe);
+};
+
+const BLEND_IMAGE_PATTERNS = ["bart-line-drawing", "first-installment-nsa"];
+
+const MarkdownImage: React.FC<MarkdownImageProps> = ({ src = "", alt = "", ...imgProps }) => {
+  const normalizedSrc = src.toLowerCase();
+  const normalizedAlt = alt.toLowerCase();
+  const shouldBlend = BLEND_IMAGE_PATTERNS.some((pattern) =>
+    normalizedSrc.includes(pattern) || normalizedAlt.includes(pattern)
+  );
+
+  if (shouldBlend) {
+    return (
+      <Figure $blend>
+        <img src={src} alt={alt} {...imgProps} />
+      </Figure>
+    );
+  }
+
+  return (
+    <Figure>
+      <img src={src} alt={alt} {...imgProps} />
+    </Figure>
+  );
 };
 
 const App: React.FC = () => {
@@ -75,9 +105,10 @@ const App: React.FC = () => {
     };
   }, [activeSource, fetchMarkdown]);
 
-  const markdownComponents = useMemo(() => ({
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    a: (props: any) => <MarkdownLink target="_blank" rel="noreferrer" {...props} />,
+  const markdownComponents = useMemo<Components>(() => ({
+    a: ({ node: _node, ...props }) => <MarkdownLink target="_blank" rel="noreferrer" {...props} />,
+    img: ({ node: _node, ...props }) => <MarkdownImage {...props} />,
+    "body-attenuation-canvas": BodyAttenuationCanvas,
     "icon-inline": IconInline,
   }), []);
 
@@ -87,8 +118,13 @@ const App: React.FC = () => {
       <Page>
         <ArticleContent>
           <ReactMarkdown
-            remarkPlugins={[remarkGfm, remarkIconShortcodes]}
-            rehypePlugins={[rehypeRaw, rehypeHighlight]}
+            remarkPlugins={[
+              remarkGfm,
+              remarkIconShortcodes,
+              remarkLatexCodeBlocks,
+              remarkBodyAttenuationBlocks,
+            ]}
+            rehypePlugins={[rehypeRaw, rehypeHighlight, rehypeKatex]}
             components={markdownComponents}
           >
             {markdown || "_Fetching markdown…_"}
@@ -118,15 +154,17 @@ const Page = styled.div`
   display: flex;
   flex-direction: column;
   padding: 0;
+  contain-intrinsic-size: 1000px;
 `;
 
-const ArticleContent = styled.div`
+const ArticleContent = styled.article`
   max-width: 800px;
   margin: 0 auto;
   padding: clamp(32px, 5vw, 72px);
-  color: #6c85ff;
+  color: #acbaff;
   line-height: 1.7;
   font-size: clamp(0.95rem, 1.2vw, 1.1rem);
+  contain-intrinsic-size: 1200px;
 
   h1,
   h2,
@@ -158,17 +196,19 @@ const ArticleContent = styled.div`
     margin: 1.2em 0;
     font-family: "DM Mono", monospace;
     font-weight: 300;
-    color: #6c85ff;
+    color: #acbaff;
   }
 
   a {
-    color: #73ffe8;
-    text-decoration: none;
-    border-bottom: 1px solid transparent;
-    transition: border-color 0.2s;
+    color: #acbaff;
+    text-decoration-line: underline;
+    text-decoration-style: dotted;
+    text-decoration-color: currentColor;
+    text-decoration-thickness: 2.5px;
+    text-underline-offset: 4px;
 
     &:hover {
-      border-bottom-color: #73ffe8;
+      text-decoration-style: solid;
     }
   }
 
@@ -178,7 +218,7 @@ const ArticleContent = styled.div`
     margin: 1.2em 0;
     font-family: "DM Mono", monospace;
     font-weight: 300;
-    color: #6c85ff;
+    color: #acbaff;
   }
 
   li {
@@ -188,13 +228,13 @@ const ArticleContent = styled.div`
   blockquote {
     margin: 2em 0;
     padding: 1.2em 1.8em;
-    border-left: 4px solid #73ffe8;
-    background: rgba(115, 255, 232, 0.08);
+    border-left: 4px solid #9eaeff;
+    background: rgba(172, 186, 255, 0.12);
     border-radius: 0 8px 8px 0;
     font-style: italic;
     font-family: "DM Mono", monospace;
     font-weight: 300;
-    color: #6c85ff;
+    color: #d0d8ff;
   }
 
   code {
@@ -208,7 +248,7 @@ const ArticleContent = styled.div`
   strong {
     font-family: "JetBrains Mono", monospace;
     font-weight: 600;
-    color: #9eaeff;
+    color: #d0d8ff;
   }
 
   pre {
@@ -239,7 +279,7 @@ const ArticleContent = styled.div`
     overflow: hidden;
     font-family: "DM Mono", monospace;
     font-weight: 300;
-    color: #9eaeff;
+    color: #acbaff;
   }
 
   th,
@@ -259,7 +299,7 @@ const ArticleContent = styled.div`
   }
 
   td {
-    color: #6c85ff;
+    color: #acbaff;
     background: #0f1647;
   }
 
@@ -284,8 +324,43 @@ const ArticleContent = styled.div`
 `;
 
 const MarkdownLink = styled.a`
-  color: #73ffe8;
-  text-decoration: underline;
+  color: #6c85ff;
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: currentColor;
+  text-underline-offset: 2px;
+`;
+
+const Figure = styled.figure<{ $blend?: boolean }>`
+  margin: 1.5em 0;
+  position: relative;
+  width: 100%;
+  display: block;
+
+  & > img {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-width: 100%;
+    border-radius: 12px;
+  }
+
+  ${({ $blend }) =>
+    $blend &&
+    css`
+      & > img {
+        mix-blend-mode: multiply;
+        filter: brightness(1.1) contrast(1.7);
+      }
+
+      &::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: 12px;
+        pointer-events: none;
+      }
+    `}
 `;
 
 const IconWrapper = styled.span`
@@ -307,6 +382,8 @@ const IconFallback = styled.span`
 type IconElementProps = React.HTMLAttributes<HTMLElement> & {
   "data-icon"?: string;
 };
+
+type MarkdownImageProps = React.ImgHTMLAttributes<HTMLImageElement>;
 
 const slugToComponentName = (slug = "") => {
   const parts = slug
