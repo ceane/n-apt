@@ -27,6 +27,8 @@ const pagesMiddleware: Plugin = {
       server.watcher.on(event, sendUpdate);
     }
 
+    const publicDir = path.resolve(dirname, "public");
+
     server.middlewares.use((req, res, next) => {
       if (req.url?.startsWith("/pages/")) {
         const filePath = path.join(dirname, req.url);
@@ -37,8 +39,28 @@ const pagesMiddleware: Plugin = {
           return;
         }
       }
+
+      if (req.url?.startsWith("/md-preview/")) {
+        const assetPath = req.url.replace(/^\/md-preview\//, "");
+        const filePath = path.join(publicDir, "md-preview", assetPath);
+        if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+          res.setHeader("Content-Type", "application/octet-stream");
+          fs.createReadStream(filePath).pipe(res);
+          return;
+        }
+      }
       next();
     });
+  },
+};
+
+const copyPagesPlugin: Plugin = {
+  name: "copy-pages-to-dist",
+  apply: "build",
+  closeBundle() {
+    const targetDir = path.resolve(dirname, "dist/md-preview/pages");
+    fs.rmSync(targetDir, { recursive: true, force: true });
+    fs.cpSync(pagesDir, targetDir, { recursive: true });
   },
 };
 
@@ -46,7 +68,7 @@ export default defineConfig({
   base: "/md-preview/",
   root: path.resolve(dirname, "src/md-preview"),
   envDir: dirname,
-  publicDir: path.resolve(dirname, "pages"),
+  publicDir: path.resolve(dirname, "public"),
   build: {
     outDir: path.resolve(dirname, "dist/md-preview"),
     emptyOutDir: true,
@@ -62,5 +84,5 @@ export default defineConfig({
   preview: {
     port: 4174,
   },
-  plugins: [pagesMiddleware],
+  plugins: [pagesMiddleware, copyPagesPlugin],
 });
