@@ -25,6 +25,9 @@ global.Worker = jest.fn().mockImplementation(() => ({
     url: "mock://worker/fileWorker.js",
     env: {
       VITE_GOOGLE_MAPS_API_KEY: "mock-api-key",
+      VITE_UNSAFE_LOCAL_USER_PASSWORD: "test-password",
+      VITE_COREML_SERVER_URL: "http://localhost:9999",
+      VITE_BACKEND_BASE_URL: "http://localhost:8765",
     },
   },
 } as any;

@@ -10,3 +10,4 @@ export * from "./Prompt";
 export * from "./PromptProvider";
 export * from "./Range";
 export * from "./Theme";
+export * from "./containment";
