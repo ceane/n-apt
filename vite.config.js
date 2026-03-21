@@ -47,63 +47,8 @@ const fsAllow = Array.from(
   ),
 );
 
-const markdownPreviewBasePath = "/md-preview";
-const markdownPreviewSrcDir = path.resolve(dirname, "src/public");
-const markdownPreviewPublicDir = path.resolve(dirname, "public", markdownPreviewBasePath.slice(1));
-
-const copyDirectory = async (from, to) => {
-  await fs.promises.mkdir(to, { recursive: true });
-  const entries = await fs.promises.readdir(from, { withFileTypes: true });
-
-  for (const entry of entries) {
-    const sourcePath = path.join(from, entry.name);
-    const targetPath = path.join(to, entry.name);
-
-    if (entry.isDirectory()) {
-      await copyDirectory(sourcePath, targetPath);
-    } else if (entry.isFile()) {
-      await fs.promises.copyFile(sourcePath, targetPath);
-    }
-  }
-};
-
-const syncMarkdownPreviewToPublic = async () => {
-  await fs.promises.rm(markdownPreviewPublicDir, { recursive: true, force: true });
-  await copyDirectory(markdownPreviewSrcDir, markdownPreviewPublicDir);
-};
-
-const debounce = (fn, delay = 120) => {
-  let timer;
-  return (...args) => {
-    clearTimeout(timer);
-    timer = setTimeout(() => fn(...args), delay);
-  };
-};
-
-const markdownPreviewPlugin = () => ({
-  name: "markdown-preview-sync",
-  async configResolved() {
-    await syncMarkdownPreviewToPublic();
-  },
-  configureServer(server) {
-    const scheduleSync = debounce(async () => {
-      await syncMarkdownPreviewToPublic();
-      server.ws.send({ type: "full-reload" });
-    });
-
-    server.watcher.add(markdownPreviewSrcDir);
-    server.watcher.on("all", (event, filePath) => {
-      if (!filePath) return;
-      const normalized = path.resolve(filePath);
-      if (normalized.startsWith(markdownPreviewSrcDir)) {
-        scheduleSync();
-      }
-    });
-  },
-});
-
 export default defineConfig({
-  plugins: [react(), markdownPreviewPlugin()],
+  plugins: [react()],
   root: "./src/ts",
   envDir: "../../",
   publicDir: "../../public",

@@ -15,19 +15,23 @@ export const CollapsibleTitleContainer = styled.button`
   text-align: left;
 `;
 
+const fallbackMono = "SFMono-Regular, Consolas, \"Liberation Mono\", Menlo, monospace";
+
 export const CollapsibleTitleLabel = styled.span`
   font-size: 11px;
   color: ${(props) => props.theme.metadataLabel || "#555"};
   text-transform: uppercase;
   letter-spacing: 1px;
   font-weight: 600;
-  font-family: ${(props) => props.theme.typography.mono};
+  font-family: ${(props) =>
+    props.theme.typography?.mono || props.theme.typography?.sans || fallbackMono};
 `;
 
 export const CollapsibleTitleToggle = styled.span`
   font-size: 12px;
   color: ${(props) => props.theme.primary || "#555"};
-  font-family: ${(props) => props.theme.typography.mono};
+  font-family: ${(props) =>
+    props.theme.typography?.mono || props.theme.typography?.sans || fallbackMono};
   font-weight: 600;
 `;
 

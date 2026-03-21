@@ -106,11 +106,20 @@ export interface RangeProps {
 
 export const Range: React.FC<RangeProps> = ({ label, min, max, selected, onToggle, variant = "primary" }) => {
   const totalSpan = Math.max(0, max - min);
+  const descriptiveRange = `${formatFrequency(min)} to ${formatFrequency(max)}`;
 
   return (
     <RangeWrapper>
       <RangeTitle>{label}</RangeTitle>
-      <RangeButton type="button" onClick={onToggle} $active={selected} aria-pressed={selected} $variant={variant}>
+      <RangeButton
+        type="button"
+        onClick={onToggle}
+        $active={selected}
+        aria-pressed={selected}
+        aria-label={label}
+        title={`${label}: ${descriptiveRange}`}
+        $variant={variant}
+      >
         <RangeStart>{formatFrequency(min)}</RangeStart>
         <RangeTotal $active={selected} aria-hidden={!selected} $variant={variant}>
           {selected ? `${formatFrequency(totalSpan)} total` : null}

@@ -35,6 +35,6 @@
       "@n-apt/encrypted-modules/*": ["src/encrypted-modules/*"]
     }
   },
-  "include": ["src/ts", "src/encrypted-modules", "src/ts/types"],
+  "include": ["src/ts", "src/md-preview", "src/encrypted-modules", "src/ts/types"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

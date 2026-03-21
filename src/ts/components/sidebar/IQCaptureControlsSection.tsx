@@ -198,8 +198,18 @@ const RangeRowLabel = styled.div`
   display: flex;
   align-items: center;
   gap: 6px;
+  justify-content: space-between;
+  width: 100%;
   font-size: 12px;
   color: ${(props) => props.theme.textSecondary};
+`;
+
+const SampleRateBadge = styled.span`
+  margin-left: auto;
+  font-size: 11px;
+  color: ${(props) => props.theme.metadataLabel};
+  font-family: ${(props) => props.theme.typography.mono};
+  letter-spacing: 0.5px;
 `;
 
 const RangeRowBody = styled.div`
@@ -487,6 +497,13 @@ export const IQCaptureControlsSection: React.FC<
             ? "In progress..."
             : "Idle";
 
+    const formatSampleRateLabel = (hz: number) => {
+      if (!hz || Number.isNaN(hz)) {
+        return "0MHz";
+      }
+      return `${(hz / 1_000_000).toFixed(1)}MHz`;
+    };
+
     const handleGeolocationToggle = async (enabled: boolean) => {
       if (enabled && captureFileType === ".napt") {
         const hasPermission = await requestPermission();
@@ -498,6 +515,8 @@ export const IQCaptureControlsSection: React.FC<
       }
       onCaptureGeolocationChange(enabled);
     };
+    const sampleRateLabel = formatSampleRateLabel(maxSampleRate);
+
     return (
       <Section>
         <CollapsibleTitle
@@ -511,6 +530,7 @@ export const IQCaptureControlsSection: React.FC<
             <RangeRowContainer>
               <RangeRowLabel>
                 <IconLabel icon={Scan} text="Ranges" />
+                <SampleRateBadge aria-label="Hardware sample rate">{sampleRateLabel}</SampleRateBadge>
               </RangeRowLabel>
               <RangeRowBody>
                 <RangeGrid>
