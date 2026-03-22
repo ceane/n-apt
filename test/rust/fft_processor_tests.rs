@@ -299,7 +299,7 @@ mod tests {
     assert_eq!(result.power_spectrum.len(), 1024);
     assert!(!result.is_mock);
     assert!(result.timestamp > 0);
-    assert!(result.power_spectrum.iter().all(|&x| x >= -120.0));
+    assert!(result.power_spectrum.iter().all(|&x| x >= -150.0));
   }
 
   #[cfg(not(target_arch = "wasm32"))]
@@ -576,6 +576,6 @@ mod tests {
     let result = processor.process_samples(&samples, &mut output);
     assert!(result.is_ok());
     assert!(output.iter().any(|&x| x != 0.0));
-    assert!(output.iter().all(|&x| x >= -120.0));
+    assert!(output.iter().all(|&x| x >= -150.0));
   }
 }

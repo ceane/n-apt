@@ -508,6 +508,8 @@ mod save_tests {
       overall_capture_sample_rate_hz: 2.4e6,
       geolocation: None,
       frequency_range: Some((136.3, 138.7)),
+      is_ephemeral: false,
+      ref_based_demod_baseline: None,
     };
 
     let result_napt =
@@ -572,6 +574,8 @@ mod save_tests {
       overall_capture_sample_rate_hz: 4.9e6,
       geolocation: None,
       frequency_range: Some((136.3, 141.2)),
+      is_ephemeral: false,
+      ref_based_demod_baseline: None,
     };
 
     let result_wav = save_capture_file_multi(&result_wav_struct, &[0u8; 32])

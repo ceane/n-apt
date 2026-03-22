@@ -1,6 +1,4 @@
 use n_apt_backend::sdr::processor::SdrProcessor;
-use n_apt_backend::sdr::processor::CaptureChannel;
-use num_complex::Complex;
 use anyhow::Result;
 
 fn synth_channel(len: usize, left_rolloff_db: f32, right_rolloff_db: f32) -> Vec<f32> {
@@ -281,7 +279,7 @@ async fn test_live_stitching_from_sdr() -> Result<()> {
   
   // Use our stitching algorithms on real data
   let usable_bw = hop_bw * 0.75;
-  let (fft_size, prev_trim, curr_trim) = overlap_bounds(total_span, hop_bw, usable_bw);
+  let (_, prev_trim, curr_trim) = overlap_bounds(total_span, hop_bw, usable_bw);
   
   // Ensure our frames match the expected fft_size from bounds
   // Actually frames from processor might be different size, but let's assume they match for now

@@ -205,6 +205,30 @@ body {
   background: rgba(255, 85, 101, 0.08);
 }
 
+.markdown-figure {
+  margin: 1.5em 0;
+  position: relative;
+  width: 100%;
+}
+
+.markdown-figure img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-width: 100%;
+  border-radius: 12px;
+}
+
+.markdown-figure.hero-image img {
+  border-radius: 0;
+  border: none;
+}
+
+.markdown-figure.blend-image img {
+  mix-blend-mode: multiply;
+  filter: brightness(1.1) contrast(1.7);
+}
+
 .sr-only {
   position: absolute;
   width: 1px;

@@ -1,4 +1,3 @@
-import katex from "katex";
 import type { Code, Content, Parent } from "mdast";
 import type { Plugin } from "unified";
 import { visit } from "unist-util-visit";
@@ -21,29 +20,19 @@ const unwrapDisplayMath = (value: string) => {
 
 const DISPLAY_SEGMENT_PATTERN = /\\\[([\s\S]*?)\\\]|\$\$([\s\S]*?)\$\$/g;
 
-const renderLatexBlock = (value: string) => {
+const collectExpressions = (value: string) => {
   const matches = Array.from(value.matchAll(DISPLAY_SEGMENT_PATTERN));
 
   if (matches.length === 0) {
-    return katex.renderToString(unwrapDisplayMath(value), {
-      throwOnError: false,
-      displayMode: true,
-      strict: "warn",
-    });
+    return [unwrapDisplayMath(value)].filter(Boolean);
   }
 
   return matches
-    .map((match) => {
-      const expression = (match[1] ?? match[2] ?? "").trim();
-
-      return katex.renderToString(expression, {
-        throwOnError: false,
-        displayMode: true,
-        strict: "warn",
-      });
-    })
-    .join("");
+    .map((match) => (match[1] ?? match[2] ?? "").trim())
+    .filter((expression) => expression.length > 0 && !/^\\rule\b/.test(expression));
 };
+
+const serializeExpressions = (expressions: string[]) => encodeURIComponent(JSON.stringify(expressions));
 
 const remarkLatexCodeBlocks: Plugin = () => (tree) => {
   visit(tree, "code", (node: Code, index, parent: Parent | undefined) => {
@@ -56,11 +45,11 @@ const remarkLatexCodeBlocks: Plugin = () => (tree) => {
       return;
     }
 
-    const rendered = renderLatexBlock(node.value);
+    const expressions = collectExpressions(node.value);
 
     const replacement: Content = {
       type: "html",
-      value: `<div class="katex-block">${rendered}</div>`,
+      value: `<latex-block data-expressions="${serializeExpressions(expressions)}"></latex-block>`,
     };
 
     parent.children.splice(index, 1, replacement);

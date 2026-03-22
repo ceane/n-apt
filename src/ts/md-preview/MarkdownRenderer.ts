@@ -26,7 +26,31 @@ registerLanguage("markdown", markdown);
 registerLanguage("rust", rust);
 registerLanguage("rs", rust);
 
+const BLEND_IMAGE_PATTERNS = ["bart-line-drawing", "first-installment-nsa"];
+const HERO_IMAGE_PATTERNS = ["hero-light", "hero-dark"];
+
+const renderer = new marked.Renderer();
+renderer.image = ({ href, text, title }) => {
+  const normalizedHref = href.toLowerCase();
+  const normalizedText = text.toLowerCase();
+  
+  const shouldBlend = BLEND_IMAGE_PATTERNS.some((pattern) =>
+    normalizedHref.includes(pattern) || normalizedText.includes(pattern)
+  );
+
+  const isHero = HERO_IMAGE_PATTERNS.some((pattern) =>
+    normalizedHref.includes(pattern) || normalizedText.includes(pattern)
+  );
+
+  let className = "markdown-figure";
+  if (shouldBlend) className += " blend-image";
+  if (isHero) className += " hero-image";
+
+  return `<figure class="${className}"><img src="${href}" alt="${text}" ${title ? `title="${title}"` : ""}></figure>`;
+};
+
 marked.use(
+  { renderer },
   markedHighlight({
     langPrefix: "hljs language-",
     highlight(code, lang) {
