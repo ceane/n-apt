@@ -28,6 +28,10 @@ jest.mock("@n-apt/components/ui", () => ({
 
 const theme = {
   primary: "#00ffff",
+  textMuted: "#888888",
+  typography: {
+    mono: "monospace",
+  },
 };
 
 describe("SignalFeaturesSection", () => {

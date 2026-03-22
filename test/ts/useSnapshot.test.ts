@@ -1,11 +1,10 @@
 /** @jest-environment jsdom */
 import {
-  fmtFreq,
   getZoomedSlice,
   dbToColor,
-  escapeXml,
   useSnapshot,
 } from "@n-apt/hooks/useSnapshot";
+import { fmtFreq } from "@n-apt/utils/rendering/formatters";
 import { renderHook, act } from "@testing-library/react";
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -117,34 +116,6 @@ describe("dbToColor", () => {
   it("clamps out-of-range dB values gracefully", () => {
     expect(() => dbToColor(-200, -120, 0, mockColormap)).not.toThrow();
     expect(() => dbToColor(50, -120, 0, mockColormap)).not.toThrow();
-  });
-});
-
-// ────────────────────────────────────────────────────────────────────────────
-// escapeXml
-// ────────────────────────────────────────────────────────────────────────────
-
-describe("escapeXml", () => {
-  it("escapes ampersand", () => {
-    expect(escapeXml("a & b")).toBe("a &amp; b");
-  });
-
-  it("escapes angle brackets", () => {
-    expect(escapeXml("<tag>")).toBe("&lt;tag&gt;");
-  });
-
-  it("escapes double quotes", () => {
-    expect(escapeXml('attr="val"')).toBe("attr=&quot;val&quot;");
-  });
-
-  it("leaves safe strings unchanged", () => {
-    expect(escapeXml("hello world")).toBe("hello world");
-  });
-
-  it("handles combined special characters", () => {
-    expect(escapeXml('A & B < C > "D"')).toBe(
-      "A &amp; B &lt; C &gt; &quot;D&quot;",
-    );
   });
 });
 

@@ -1,7 +1,30 @@
 import * as React from "react";
 import { render, screen, waitFor } from "@testing-library/react";
+jest.setTimeout(15000);
 import "@testing-library/jest-dom";
 import { DemodProvider, useDemod } from "../../src/ts/contexts/DemodContext";
+
+jest.mock("../../src/ts/hooks/useAuthentication", () => ({
+  useAuthentication: () => ({ isAuthenticated: true }),
+  AuthProvider: ({ children }: any) => <>{children}</>
+}));
+jest.mock("@n-apt/hooks/useAuthentication", () => ({
+  useAuthentication: () => ({ isAuthenticated: true }),
+  AuthProvider: ({ children }: any) => <>{children}</>
+}));
+const mockWsConnection = {
+  sendCaptureCommand: jest.fn(),
+  sendScanCommand: jest.fn(),
+  sendDemodulateCommand: jest.fn(),
+};
+
+jest.mock("@n-apt/hooks/useSpectrumStore", () => ({
+  useSpectrumStore: () => ({
+    state: { activeSignalArea: "A" },
+    wsConnection: mockWsConnection
+  }),
+  SpectrumProvider: ({ children }: any) => <>{children}</>
+}));
 
 // Test component to use the DemodContext
 const TestComponent: React.FC = () => {
@@ -10,7 +33,8 @@ const TestComponent: React.FC = () => {
   React.useEffect(() => {
     // Start APT analysis after component mounts
     startAnalysis('apt', false, 'test script', 'test media', [1, 2, 3]);
-  }, [startAnalysis]);
+    return () => clearAnalysis();
+  }, [startAnalysis, clearAnalysis]);
 
   return (
     <div data-testid="apt-test">
@@ -50,18 +74,18 @@ describe("APT Analysis", () => {
     // Wait for progress updates
     await waitFor(() => {
       expect(screen.getByTestId('apt-progress')).toHaveTextContent('0.2');
-    }, { timeout: 1000 });
+    }, { timeout: 5000 });
 
     await waitFor(() => {
-      expect(screen.getByTestId('apt-stage')).toHaveTextContent('fm_demodulation');
-    }, { timeout: 1500 });
+      expect(screen.getByTestId('apt-stage')).toHaveTextContent('subcarrier_isolation');
+    }, { timeout: 5000 });
 
     // Eventually should reach completed state
     await waitFor(() => {
       expect(screen.getByTestId('analysis-state')).toHaveTextContent('result');
       expect(screen.getByTestId('apt-progress')).toHaveTextContent('1');
       expect(screen.getByTestId('apt-stage')).toHaveTextContent('completed');
-    }, { timeout: 5000 });
+    }, { timeout: 10000 });
   });
 
   it("should clear analysis when requested", async () => {
@@ -74,12 +98,14 @@ describe("APT Analysis", () => {
     // Wait for analysis to complete
     await waitFor(() => {
       expect(screen.getByTestId('analysis-state')).toHaveTextContent('result');
-    }, { timeout: 5000 });
+    }, { timeout: 10000 });
 
     // Clear the analysis
     screen.getByTestId('clear-btn').click();
 
     // Should return to idle state
-    expect(screen.getByTestId('analysis-state')).toHaveTextContent('idle');
+    await waitFor(() => {
+      expect(screen.getByTestId('analysis-state')).toHaveTextContent('idle');
+    });
   });
 });

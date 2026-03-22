@@ -160,6 +160,20 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const [liveMode, setLiveMode] = useState(false);
 
+  const countdownIntervalRef = React.useRef<NodeJS.Timeout | null>(null);
+  const progressIntervalRef = React.useRef<NodeJS.Timeout | null>(null);
+
+  const clearAnalysis = useCallback(() => {
+    if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
+    if (progressIntervalRef.current) {
+      clearInterval(progressIntervalRef.current);
+      clearTimeout(progressIntervalRef.current);
+    }
+    countdownIntervalRef.current = null;
+    progressIntervalRef.current = null;
+    setAnalysisSession({ state: 'idle' });
+  }, []);
+
   const startAnalysis = useCallback((
     type: AnalysisType,
     isLive: boolean = false,
@@ -167,6 +181,8 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     mediaContent?: string,
     baselineVector?: number[]
   ) => {
+    clearAnalysis();
+
     // Start with a countdown
     let count = 3;
     setAnalysisSession({
@@ -181,12 +197,12 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       aptStage: 'initializing'
     });
 
-    const countdownInterval = setInterval(() => {
+    countdownIntervalRef.current = setInterval(() => {
       count -= 1;
       if (count > 0) {
         setAnalysisSession(prev => ({ ...prev, countdown: count }));
       } else {
-        clearInterval(countdownInterval);
+        if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
         setAnalysisSession(prev => ({ ...prev, countdown: 0 }));
 
         if (type === 'apt') {
@@ -201,7 +217,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           const stages = ['fm_demodulation', 'subcarrier_isolation', 'envelope_detection', 'baseband_recovery', 'content_analysis'];
           let currentStageIndex = 0;
 
-          const progressInterval = setInterval(() => {
+          progressIntervalRef.current = setInterval(() => {
             progress += 0.2;
             currentStageIndex = Math.min(Math.floor(progress / 0.2), stages.length - 1);
 
@@ -212,7 +228,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             }));
 
             if (progress >= 1.0) {
-              clearInterval(progressInterval);
+              if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
               setAnalysisSession(prev => ({
                 ...prev,
                 state: 'result',
@@ -245,11 +261,11 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           });
 
           // Transition to analyzing after 5 seconds of capture
-          setTimeout(() => {
+          progressIntervalRef.current = setTimeout(() => {
             setAnalysisSession(prev => ({ ...prev, state: 'analyzing', countdown: undefined }));
 
             // Transition to result after 3 seconds of "analyzing"
-            setTimeout(() => {
+            progressIntervalRef.current = setTimeout(() => {
               setAnalysisSession(prev => ({
                 ...prev,
                 state: 'result',
@@ -270,13 +286,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         }
       }
     }, 1000);
-
-    return () => clearInterval(countdownInterval);
-  }, [sendCaptureCommand]);
-
-  const clearAnalysis = useCallback(() => {
-    setAnalysisSession({ state: 'idle' });
-  }, []);
+  }, [sendCaptureCommand, clearAnalysis]);
 
   const value = useMemo(() => ({
     windowSizeHz,
