@@ -1,3 +1,18 @@
+```Canvas::BodyAttenuation
+```
+
+```Canvas::PhaseShifting
+```
+
+```Canvas::FrequencyModulation
+```
+
+```Canvas::Multipath
+```
+
+```Canvas::Heterodyning
+```
+
 # How did they do it?
 
 [TDLR at the bottom]()
@@ -173,6 +188,10 @@ Radio waves are around us everyday, primarily for communications, however they h
 
 It took me a long time to find this scheme to match the signals' spikes and valleys enigma. APT was used by NOAA satellites before they were decomissioned, essentially encoding usable image data onto spikes and valleys, data of bright pixels onto spikes and data within valleys that represent space or dark parts of the photo. In APT's case, a satellite encodes data into signal/audio then is decoded into images, line by line. Here it is obviously different, it is raw data that interacts with the brain and nervous system, real-time, enforcing several states of mind and physiology, in addition to sustaining communication, an interactive and several layers of surveillance, real-time responsive interactivity and harm! There are about 90-95 lines for every 3.2MHz, going from 0Hz (direct current) to 4.64MHz or so (the signal drops off but some spikes remain) and from 24.72MHz to 29.88MHz. This form of APT writes and reads to the brain and nervous system flawlessly and without interruption (years, decades, etc.), it survives the noisy environments of San Francisco, underground on trains, the high cliffs of beaches and remote areas.
 
+### Frequency Modulation
+
+### Amplitude Modulation
+
 #### Dubbing it as N-APT
 
 The equation that I came up with...
@@ -203,6 +222,20 @@ When two signals that are close intersect, if they do not overlap exactly, the a
 
 This is important, if you want to concentrate energy at a certain range (and localize the sideband within range of a target), phase shifting moves the wave (phase) either back or forth (±90°, 180°, 270°) so they can combine localize constructive interference in an area. This technique defeats the counterintuitive intuition of using a short(est) wavelength (microwaves infeasible, will attenuate and do nothing but cause heating) to target specific neuronal ensembles. Longer wavelengths which survive attenuation more easily work better and can use precise math + simple, performant radio operations to precisely intersect and shift out of the way.
 
+### Triangulation / Time of flight for depth
+
+These signals inherently use some kind of triangualtion to directly target the human body and nervous system. It is important to maintain power and hit the correct target, however this kind of triangulation is much more exacting than cell phones. Power off by microscopic fractions can severely disrupt the experience (which has never happened!), so one can imagine that there are microwaves in addition to the spectrum used to maintain persistent, exacting triangualtion. Time of flight also allows for depth calculations to ensure the target is correct, instead of going to a pole or tree or mannequin, time of flight + electrical response is used to determine person from object.
+
+## Power
+
+
+
+### An average of 1µW or more (of power on tissue traversal and exit)
+
+In order to target the brain, I made a solid assumption based off of what ChatGPT told me, that brainwaves are about 1-10µW (microwatts), so I figured that the signals' power should be near there, anything less in scale, the math I did was dire to remain above the noise in the environment, go through the skull and/or body (body because it does my vocal cords, mouth and throat muscles, in addition to others) losing 99% energy and make it back to an endpoint. Biology constrains this problem to maintaining a exacting level of energy consistently at the body/entry, so the further one is away from an endpoint, the energy always stays the same, only the receiver, fixed at various distances, suffers from less energy coming back from the target (the body).
+
+In reality, when I took a look at the signals on my person (antenna on me while it runs to my demise), it was actually a solid assumption, with values around -21dBm, as low as -29dBm (I assume read only or very, very minor writes). The spikes reached as high as 1, 3 and 9dBm.
+
 ### Center frequency
 
 For a long time, I struggled with defeating my own intuition, particularly how the NSA was dong x, y, z, "just you" and bare up against other people, in crowds, and so forth. This is one of the hints the NSA dropped, that the brain apparently is responsive to a unique frequency, which i believed was the sideband + physics (impossible to x, y, z a radio wave with physics and it's too fast, resilient & faultless to support conclusions of billions of additional complex operations in regular old tinfra). So, I accept now that in some way to draw stronger assumptions on a center frequency, some kind of handshake the signals can trick a specific brain into, as advised.
@@ -213,23 +246,9 @@ Since a signal like this is very flat, I too did expec the signals to x, y, z an
 
 Essentially the brain and nervous system is very noisy, whatver those spikes do, it is assumed to a certainty that they target an ensemble of neurons that read and write brainwaves.
 
-
-
-
 ### Impedance
 
 In order to intercept data from the brain and nervous system, the NSA's technique is guaranteed, once again by nature and physics, to use impedance to detect electrical charges, this operates by delivering the next frame of data and taking the difference between the previous frame after exit and difference of the new charges. Impedance works like where it is employed on touchscreens, where force applied where one electrical current (fingers) operates against an opposing charge (capacitive onscreen sensors).
-
-## Power
-
-```Canvas::BodyAttenuation
-```
-
-### An average of 1µW or more (of power on tissue traversal and exit)
-
-In order to target the brain, I made a solid assumption based off of what ChatGPT told me, that brainwaves are about 1-10µW (microwatts), so I figured that the signals' power should be near there, anything less in scale, the math I did was dire to remain above the noise in the environment, go through the skull and/or body (body because it does my vocal cords, mouth and throat muscles, in addition to others) losing 99% energy and make it back to an endpoint. Biology constrains this problem to maintaining a exacting level of energy consistently at the body/entry, so the further one is away from an endpoint, the energy always stays the same, only the receiver, fixed at various distances, suffers from less energy coming back from the target (the body).
-
-In reality, when I took a look at the signals on my person (antenna on me while it runs to my demise), it was actually a solid assumption, with values around -21dBm, as low as -29dBm (I assume read only or very, very minor writes). The spikes reached as high as 1, 3 and 9dBm.
 
 ### Frequency and bandwidth versus attenuation
 
@@ -252,10 +271,6 @@ The who or technical part of it wasn't even a thought for years enduring this be
 ![Hardware Exploit Chain](images/hardware-exploit-chain.png)
 
 The project uses RTL-SDR to capture and decode signals across a wide frequency range, focusing on neurotechnology-related emissions.
-
-### Triangulation / Time of flight for depth
-
-These signals inherently use some kind of triangualtion to directly target the human body and nervous system. It is important to maintain power and hit the correct target, however this kind of triangulation is much more exacting than cell phones. Power off by microscopic fractions can severely disrupt the experience (which has never happened!), so one can imagine that there are microwaves in addition to the spectrum used to maintain persistent, exacting triangualtion. Time of flight also allows for depth calculations to ensure the target is correct, instead of going to a pole or tree or mannequin, time of flight + electrical response is used to determine person from object.
 
 ### Signals processing
 

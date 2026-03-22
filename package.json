@@ -89,7 +89,6 @@
     "react-markdown": "^10.1.0",
     "react-redux": "^9.2.0",
     "react-router-dom": "^7.13.0",
-    "react-textarea-autosize": "^8.5.9",
     "redis": "^4.7.1",
     "rehype-highlight": "^7.0.2",
     "rehype-katex": "^7.0.1",

@@ -1,6 +1,8 @@
 import React, { useMemo } from "react";
 import * as THREE from "three";
 
+const CANVAS_FONT_FAMILY = '"JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace';
+
 interface CanvasTextProps {
   text: string;
   position?: [number, number, number];
@@ -30,7 +32,7 @@ export const CanvasText: React.FC<CanvasTextProps> = ({
     if (!ctx) return { texture: null, width: 1, height: 1, padUnitX: 0, padUnitY: 0 };
 
     const baseSize = 160;
-    const fontStr = `${fontWeight} ${baseSize}px ui-sans-serif, system-ui, -apple-system, sans-serif`;
+    const fontStr = `${fontWeight} ${baseSize}px ${CANVAS_FONT_FAMILY}`;
     ctx.font = fontStr;
 
     if ('letterSpacing' in canvas.style) {

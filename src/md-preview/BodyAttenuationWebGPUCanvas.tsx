@@ -1,13 +1,13 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Canvas, useThree } from "@react-three/fiber";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { useTexture } from "@react-three/drei";
 import styled from "styled-components";
 import * as THREE from "three";
-import { WebGPURenderer } from "three/webgpu";
 import { CanvasText } from "./CanvasText";
 
 const BASE_URL = (import.meta.env.BASE_URL ?? "/").replace(/\/$/, "");
 const BODY_CHARACTER_SRC = `${BASE_URL}/md-preview/body-attenuation-character.png`;
+const BACKGROUND_COLOR = "#e3e3e3";
 
 const DEFAULTS = {
   transmitPowerDbm: -8,
@@ -23,6 +23,153 @@ const DEFAULTS = {
   minDistanceCm: 2,
   maxDistanceCm: 58,
 };
+
+const CHARACTER_SIZE = {
+  width: 2.7,
+  height: 5.1,
+};
+
+const FLIP_EFFECT_DURATION_MS = 720;
+
+const peelVertexShader = `
+  uniform float uProgress;
+  uniform float uDirection;
+  uniform float uLift;
+  uniform float uCurlStrength;
+
+  varying vec2 vUv;
+  varying float vPeel;
+
+  void main() {
+    vUv = uv;
+
+    float peelEdge = uDirection > 0.0 ? uv.x : 1.0 - uv.x;
+    float edgeWindow = pow(clamp(peelEdge, 0.0, 1.0), 0.72);
+    float verticalWindow = pow(sin(uv.y * 3.14159265), 0.8);
+    float progressWindow = pow(sin(uProgress * 3.14159265), 0.82);
+    float peel = edgeWindow * verticalWindow * progressWindow;
+    float hingeBias = smoothstep(0.08, 0.88, peelEdge);
+
+    vec3 transformedPosition = position;
+    transformedPosition.z += peel * uLift + hingeBias * uCurlStrength * 0.22;
+    transformedPosition.x += uDirection * peel * (0.24 + uCurlStrength * 0.32);
+    transformedPosition.y += peel * peel * (0.14 + uCurlStrength * 0.22);
+
+    vPeel = peel;
+
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(transformedPosition, 1.0);
+  }
+`;
+
+const shimmerFragmentShader = `
+  uniform sampler2D uTexture;
+  uniform float uProgress;
+  uniform float uGleamStrength;
+
+  varying vec2 vUv;
+  varying float vPeel;
+
+  vec3 rainbowGradient(float t) {
+    vec3 pink = vec3(1.0, 0.33, 0.76);
+    vec3 violet = vec3(0.72, 0.42, 1.0);
+    vec3 cyan = vec3(0.25, 0.9, 1.0);
+    vec3 lime = vec3(0.9, 1.0, 0.42);
+    vec3 gold = vec3(1.0, 0.82, 0.34);
+
+    if (t < 0.25) {
+      return mix(pink, violet, smoothstep(0.0, 0.25, t));
+    }
+
+    if (t < 0.5) {
+      return mix(violet, cyan, smoothstep(0.25, 0.5, t));
+    }
+
+    if (t < 0.75) {
+      return mix(cyan, lime, smoothstep(0.5, 0.75, t));
+    }
+
+    return mix(lime, gold, smoothstep(0.75, 1.0, t));
+  }
+
+  void main() {
+    vec4 sampleColor = texture2D(uTexture, vUv);
+    if (sampleColor.a < 0.01) {
+      discard;
+    }
+
+    float sweep = mix(-0.2, 1.2, smoothstep(0.0, 1.0, uProgress));
+    float verticalBand = exp(-pow((vUv.y - sweep) * 7.0, 2.0));
+    float verticalCore = exp(-pow((vUv.y - sweep) * 14.0, 2.0));
+    float diagonalBand = exp(-pow((vUv.x + vUv.y * 0.85 - (uProgress * 1.55 - 0.2)) * 5.8, 2.0));
+    float peelMask = smoothstep(0.03, 0.2, vPeel);
+    float alphaMask = sampleColor.a * peelMask * uGleamStrength;
+    float rainbowCoord = clamp(vUv.x * 0.55 + vUv.y * 1.15 + uProgress * 0.5, 0.0, 1.0);
+    vec3 rainbow = rainbowGradient(rainbowCoord);
+    float shimmerShape = verticalBand * 0.9 + verticalCore * 0.8 + diagonalBand * 0.75;
+    vec3 color = rainbow * shimmerShape + vec3(1.0, 0.98, 0.94) * verticalCore * 0.9;
+    float alpha = clamp(shimmerShape * alphaMask * 0.95, 0.0, 0.92);
+
+    gl_FragColor = vec4(color, alpha);
+  }
+`;
+
+const peelFragmentShader = `
+  uniform sampler2D uTexture;
+  uniform float uProgress;
+  uniform float uGleamStrength;
+
+  varying vec2 vUv;
+  varying float vPeel;
+
+  vec3 rainbowGradient(float t) {
+    vec3 pink = vec3(1.0, 0.33, 0.76);
+    vec3 violet = vec3(0.72, 0.42, 1.0);
+    vec3 cyan = vec3(0.25, 0.9, 1.0);
+    vec3 lime = vec3(0.9, 1.0, 0.42);
+    vec3 gold = vec3(1.0, 0.82, 0.34);
+
+    if (t < 0.25) {
+      return mix(pink, violet, smoothstep(0.0, 0.25, t));
+    }
+
+    if (t < 0.5) {
+      return mix(violet, cyan, smoothstep(0.25, 0.5, t));
+    }
+
+    if (t < 0.75) {
+      return mix(cyan, lime, smoothstep(0.5, 0.75, t));
+    }
+
+    return mix(lime, gold, smoothstep(0.75, 1.0, t));
+  }
+
+  void main() {
+    vec4 sampleColor = texture2D(uTexture, vUv);
+    if (sampleColor.a < 0.01) {
+      discard;
+    }
+
+    float gleamHead = mix(-0.35, 1.35, smoothstep(0.05, 0.95, uProgress));
+    float shimmerHead = mix(-0.2, 1.2, smoothstep(0.0, 1.0, uProgress));
+    float gleamBand = exp(-pow((vUv.x - gleamHead) * 11.0, 2.0));
+    float gleamTail = exp(-pow((vUv.x - (gleamHead - 0.08)) * 6.0, 2.0));
+    float shimmerBand = exp(-pow((vUv.y - shimmerHead) * 8.5, 2.0));
+    float shimmerCore = exp(-pow((vUv.y - shimmerHead) * 18.0, 2.0));
+    float shimmerTrailingBand = exp(-pow((vUv.y - (shimmerHead - 0.16)) * 5.5, 2.0));
+    float peelMask = smoothstep(0.02, 0.18, vPeel);
+    float edgeLight = pow(clamp(vPeel, 0.0, 1.0), 1.15) * 0.2;
+    vec3 gleam = vec3(1.0, 0.99, 0.92) * (gleamBand + gleamTail * 0.45) * peelMask * uGleamStrength;
+    float rainbowCoord = clamp(vUv.x * 0.72 + vUv.y * 0.9 + uProgress * 0.45, 0.0, 1.0);
+    vec3 rainbowMix = rainbowGradient(rainbowCoord);
+    float shimmerMask = (shimmerBand * 0.95 + shimmerCore * 0.85 + shimmerTrailingBand * 0.55) * peelMask * uGleamStrength;
+    vec3 shimmerOverlay = rainbowMix * shimmerMask;
+    vec3 shimmerSpecular = vec3(1.0, 0.98, 0.94) * shimmerCore * peelMask * uGleamStrength * 0.8;
+    vec3 composited = mix(sampleColor.rgb, sampleColor.rgb + shimmerOverlay, clamp(shimmerMask * 0.9, 0.0, 1.0));
+    vec3 finalColor = composited + gleam + shimmerSpecular + vec3(edgeLight);
+
+    gl_FragColor = vec4(finalColor, sampleColor.a);
+  }
+`;
 
 const SCENE_BOUNDS = {
   left: -4.35,
@@ -173,15 +320,155 @@ const getArrowRotation = (metrics: LayoutMetrics) => {
   return THREE.MathUtils.degToRad(degrees);
 };
 
+const easeInOutCubic = (value: number) => {
+  if (value < 0.5) {
+    return 4 * value * value * value;
+  }
+
+  return 1 - Math.pow(-2 * value + 2, 3) / 2;
+};
+
+const easeOutQuad = (value: number) => 1 - (1 - value) * (1 - value);
+
+type FlipEffectState = {
+  active: boolean;
+  fromSide: -1 | 1;
+  toSide: -1 | 1;
+  progress: number;
+};
+
+const PeelCharacter: React.FC<{
+  facingSide: -1 | 1;
+  flipEffect: FlipEffectState;
+  texture: THREE.Texture;
+}> = ({ facingSide, flipEffect, texture }) => {
+  const materialRef = useRef<THREE.ShaderMaterial>(null);
+  const shimmerMaterialRef = useRef<THREE.ShaderMaterial>(null);
+
+  const baseUniforms = useMemo(() => ({
+    uTexture: { value: texture },
+    uProgress: { value: 0 },
+    uDirection: { value: facingSide },
+    uLift: { value: 0 },
+    uCurlStrength: { value: 0 },
+    uGleamStrength: { value: 0 },
+  }), [texture]);
+
+  const shimmerUniforms = useMemo(() => ({
+    uTexture: { value: texture },
+    uProgress: { value: 0 },
+    uDirection: { value: facingSide },
+    uLift: { value: 0 },
+    uCurlStrength: { value: 0 },
+    uGleamStrength: { value: 0 },
+  }), [texture]);
+
+  useEffect(() => {
+    if (materialRef.current) {
+      materialRef.current.uniforms.uTexture.value = texture;
+    }
+    if (shimmerMaterialRef.current) {
+      shimmerMaterialRef.current.uniforms.uTexture.value = texture;
+    }
+  }, [texture]);
+
+  useFrame(() => {
+    const activeProgress = flipEffect.active ? easeInOutCubic(flipEffect.progress) : 0;
+    const lift = Math.sin(activeProgress * Math.PI);
+    const curl = Math.sin(activeProgress * Math.PI) * 1.55;
+    const gleamStrength = Math.sin(activeProgress * Math.PI) * 1.2;
+    const direction = flipEffect.active ? flipEffect.fromSide : facingSide;
+
+    // Update uniform state objects
+    baseUniforms.uProgress.value = activeProgress;
+    baseUniforms.uDirection.value = direction;
+    baseUniforms.uLift.value = 1.8 * lift;
+    baseUniforms.uCurlStrength.value = curl;
+    baseUniforms.uGleamStrength.value = gleamStrength;
+
+    shimmerUniforms.uProgress.value = activeProgress;
+    shimmerUniforms.uDirection.value = direction;
+    shimmerUniforms.uLift.value = 1.8 * lift;
+    shimmerUniforms.uCurlStrength.value = curl;
+    shimmerUniforms.uGleamStrength.value = gleamStrength;
+
+    // Update material instances directly
+    if (materialRef.current) {
+      materialRef.current.uniforms.uProgress.value = activeProgress;
+      materialRef.current.uniforms.uDirection.value = direction;
+      materialRef.current.uniforms.uLift.value = 1.8 * lift;
+      materialRef.current.uniforms.uCurlStrength.value = curl;
+      materialRef.current.uniforms.uGleamStrength.value = gleamStrength;
+    }
+
+    if (shimmerMaterialRef.current) {
+      shimmerMaterialRef.current.uniforms.uProgress.value = activeProgress;
+      shimmerMaterialRef.current.uniforms.uDirection.value = direction;
+      shimmerMaterialRef.current.uniforms.uLift.value = 1.8 * lift;
+      shimmerMaterialRef.current.uniforms.uCurlStrength.value = curl;
+      shimmerMaterialRef.current.uniforms.uGleamStrength.value = gleamStrength;
+    }
+  });
+
+  const activeProgress = flipEffect.active ? easeInOutCubic(flipEffect.progress) : 0;
+  const lift = Math.sin(activeProgress * Math.PI);
+  const shadowOpacity = 0.08 + lift * 0.28;
+  const shadowScale = 1 + lift * 0.55;
+  const restingSide = flipEffect.active ? flipEffect.fromSide : facingSide;
+  const yRotation = flipEffect.active ? easeInOutCubic(flipEffect.progress) * Math.PI : 0;
+  const settleOffset = flipEffect.active ? easeOutQuad(Math.sin(activeProgress * Math.PI)) * 0.65 : 0;
+  const characterScale = 1 + lift * 0.05;
+
+  return (
+    <group position={[0, -0.68, 0.15]}>
+      <mesh position={[0, -2.59, -0.18]} rotation={[-Math.PI / 2, 0, 0]} scale={[shadowScale, 1 + lift * 0.18, 1]} frustumCulled={false}>
+        <planeGeometry args={[CHARACTER_SIZE.width * 1.22, 2.05]} />
+        <meshBasicMaterial color="#161922" transparent opacity={shadowOpacity} depthWrite={false} />
+      </mesh>
+
+      <group rotation={[0, yRotation, 0]} scale={[restingSide * characterScale, characterScale, 1]} position={[0, lift * 0.22, settleOffset]}>
+        <mesh frustumCulled={false}>
+          <planeGeometry args={[CHARACTER_SIZE.width, CHARACTER_SIZE.height, 48, 72]} />
+          <shaderMaterial
+            ref={materialRef}
+            uniforms={baseUniforms}
+            vertexShader={peelVertexShader}
+            fragmentShader={peelFragmentShader}
+            transparent
+            side={THREE.DoubleSide}
+            depthWrite={false}
+          />
+        </mesh>
+
+        <mesh position={[0, 0, 0.05]} renderOrder={999} frustumCulled={false}>
+          <planeGeometry args={[CHARACTER_SIZE.width, CHARACTER_SIZE.height, 48, 72]} />
+          <shaderMaterial
+            ref={shimmerMaterialRef}
+            uniforms={shimmerUniforms}
+            vertexShader={peelVertexShader}
+            fragmentShader={shimmerFragmentShader}
+            transparent
+            side={THREE.DoubleSide}
+            depthWrite={false}
+            depthTest={false}
+            blending={THREE.AdditiveBlending}
+          />
+        </mesh>
+      </group>
+    </group>
+  );
+};
+
 const SceneContents: React.FC<{
-  dragging: boolean;
+  characterFacingSide: -1 | 1;
+  flipEffect: FlipEffectState;
   metrics: LayoutMetrics;
   model: ReturnType<typeof computeModel>;
   previewMetrics: LayoutMetrics;
   onPointerDown: (point: THREE.Vector3) => void;
   onPointerMove: (point: THREE.Vector3) => void;
   onPointerUp: () => void;
-}> = ({ dragging, metrics, model, previewMetrics, onPointerDown, onPointerMove, onPointerUp }) => {
+}> = ({ characterFacingSide, flipEffect, metrics, model, previewMetrics, onPointerDown, onPointerMove, onPointerUp }) => {
   const texture = useTexture(BODY_CHARACTER_SRC);
   const { size, camera } = useThree();
 
@@ -204,13 +491,9 @@ const SceneContents: React.FC<{
   }, [onPointerDown]);
 
   const handleMove = useCallback((event: { point: THREE.Vector3; stopPropagation: () => void }) => {
-    if (!dragging) {
-      return;
-    }
-
     event.stopPropagation();
     onPointerMove(event.point);
-  }, [dragging, onPointerMove]);
+  }, [onPointerMove]);
 
   const handleUp = useCallback((event?: { stopPropagation?: () => void }) => {
     event?.stopPropagation?.();
@@ -219,13 +502,13 @@ const SceneContents: React.FC<{
 
   return (
     <>
-      <color attach="background" args={["#a7aac0"]} />
+      <color attach="background" args={[BACKGROUND_COLOR]} />
       <ambientLight intensity={1.8} />
       <directionalLight position={[0, 0, 3]} intensity={1.25} color="#ffffff" />
 
       <mesh position={[0, 0, -0.6]}>
         <planeGeometry args={[10, 6.5]} />
-        <meshBasicMaterial color="#a7aac0" />
+        <meshBasicMaterial color={BACKGROUND_COLOR} />
       </mesh>
 
       <mesh
@@ -249,10 +532,7 @@ const SceneContents: React.FC<{
       <CanvasText position={[4.1, 2.55, 0.35]} fontSize={0.16} color="#111217" anchorX="right" anchorY="middle" fontWeight={600} text="Endpoint B (Rx)" />
       <CanvasText position={[4.1, 2.35, 0.35]} fontSize={0.14} color="#111217" anchorX="right" anchorY="middle" fontWeight={500} text={`${formatDbm(model.receive)} / ${formatDistance(metrics.rxDistance)}`} />
 
-      <mesh position={[0, -0.55, 0.15]}>
-        <planeGeometry args={[2.7, 5.1]} />
-        <meshBasicMaterial map={texture} transparent opacity={0.8} toneMapped={false} />
-      </mesh>
+      <PeelCharacter facingSide={characterFacingSide} flipEffect={flipEffect} texture={texture} />
 
       <group position={[previewMetrics.markerX, previewMetrics.markerY, 1.2]} rotation={[0, 0, getArrowRotation(previewMetrics)]} renderOrder={1000}>
         <CanvasText position={[0, 0, 0]} fontSize={0.68} color="#958564" anchorX="center" anchorY="middle" fontWeight={700} text="➤" />
@@ -269,20 +549,17 @@ const SceneContents: React.FC<{
   );
 };
 
-type RendererProps = Record<string, unknown>;
-
-const createWebGpuRenderer = async (props: RendererProps) => {
-  const renderer = new WebGPURenderer(props as never);
-  await renderer.init();
-  return renderer;
-};
-
 const BodyAttenuationWebGPUCanvas: React.FC = () => {
   const [dragging, setDragging] = useState(false);
   const [metrics, setMetrics] = useState<LayoutMetrics>(() => toMetrics(2.1, 1.1));
   const [previewMetrics, setPreviewMetrics] = useState<LayoutMetrics>(() => toMetrics(2.1, 1.1));
-  const [webGpuReady, setWebGpuReady] = useState(true);
-
+  const [characterFacingSide, setCharacterFacingSide] = useState<-1 | 1>(1);
+  const [flipEffect, setFlipEffect] = useState<FlipEffectState>({
+    active: false,
+    fromSide: 1,
+    toSide: 1,
+    progress: 0,
+  });
   const model = useMemo(() => computeModel(metrics.txDistance, metrics.rxDistance), [metrics.txDistance, metrics.rxDistance]);
 
   const updateFromScenePoint = useCallback((point: THREE.Vector3) => {
@@ -299,10 +576,19 @@ const BodyAttenuationWebGPUCanvas: React.FC = () => {
   const handlePointerMove = useCallback((point: THREE.Vector3) => {
     const nextMetrics = updateFromScenePoint(point);
     setPreviewMetrics(nextMetrics);
+
     if (dragging) {
+      if (nextMetrics.side !== characterFacingSide && !flipEffect.active) {
+        setFlipEffect({
+          active: true,
+          fromSide: characterFacingSide,
+          toSide: nextMetrics.side,
+          progress: 0,
+        });
+      }
       setMetrics(nextMetrics);
     }
-  }, [dragging, updateFromScenePoint]);
+  }, [characterFacingSide, dragging, flipEffect.active, updateFromScenePoint]);
 
   const handlePointerUp = useCallback(() => {
     setDragging(false);
@@ -314,25 +600,59 @@ const BodyAttenuationWebGPUCanvas: React.FC = () => {
     return () => window.removeEventListener("pointerup", release);
   }, []);
 
+  useEffect(() => {
+    if (!flipEffect.active) {
+      return;
+    }
+
+    let frameId = 0;
+    const startedAt = performance.now();
+    const targetSide = flipEffect.toSide;
+
+    const tick = (now: number) => {
+      const nextProgress = clamp((now - startedAt) / FLIP_EFFECT_DURATION_MS, 0, 1);
+
+      if (nextProgress >= 1) {
+        setCharacterFacingSide(targetSide);
+        setFlipEffect({
+          active: false,
+          fromSide: targetSide,
+          toSide: targetSide,
+          progress: 0,
+        });
+        return;
+      }
+
+      setFlipEffect((current) => (
+        current.active
+          ? {
+            ...current,
+            progress: nextProgress,
+          }
+          : current
+      ));
+
+      frameId = window.requestAnimationFrame(tick);
+    };
+
+    frameId = window.requestAnimationFrame(tick);
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [flipEffect.active, flipEffect.toSide]);
+
   return (
     <Frame>
       <Canvas
         orthographic
         dpr={[1, 2]}
         camera={{ position: [0, 0, 10] }}
-        gl={async (props) => {
-          try {
-            const renderer = await createWebGpuRenderer(props);
-            setWebGpuReady(true);
-            return renderer;
-          } catch {
-            setWebGpuReady(false);
-            return new THREE.WebGLRenderer(props as unknown as THREE.WebGLRendererParameters);
-          }
-        }}
+        gl={{ antialias: true, alpha: true }}
       >
         <SceneContents
-          dragging={dragging}
+          characterFacingSide={characterFacingSide}
+          flipEffect={flipEffect}
           metrics={metrics}
           model={model}
           previewMetrics={previewMetrics}
@@ -341,7 +661,7 @@ const BodyAttenuationWebGPUCanvas: React.FC = () => {
           onPointerUp={handlePointerUp}
         />
       </Canvas>
-      <RendererBadge>{webGpuReady ? "WebGPU" : "WebGL fallback"}</RendererBadge>
+      <RendererBadge>WebGL</RendererBadge>
     </Frame>
   );
 };
@@ -354,7 +674,7 @@ const Frame = styled.div`
   border-radius: 16px;
   overflow: hidden;
   border: 1px solid rgba(12, 14, 18, 0.36);
-  background: #a7aac0;
+  background: ${BACKGROUND_COLOR};
   aspect-ratio: 10 / 6.4;
   position: relative;
 
@@ -369,12 +689,8 @@ const Frame = styled.div`
     width: 100% !important;
     height: 100% !important;
     min-width: 0;
-    cursor: grab;
+    cursor: none;
     touch-action: none;
-  }
-
-  canvas:active {
-    cursor: grabbing;
   }
 `;
 

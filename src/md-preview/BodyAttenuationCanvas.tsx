@@ -151,21 +151,40 @@ const BodyAttenuationCanvas: React.FC<BodyAttenuationElementProps> = () => {
   const draggingRef = useRef(false);
   const [supportsWebGpu, setSupportsWebGpu] = useState(false);
   const [pointerX, setPointerX] = useState<number | null>(null);
+  const [cursorVisualX, setCursorVisualX] = useState<number | null>(null);
   const [hasCharacterAsset, setHasCharacterAsset] = useState(true);
 
   useEffect(() => {
     setSupportsWebGpu(typeof navigator !== "undefined" && "gpu" in navigator);
   }, []);
 
-  const updatePointer = useCallback((clientX: number) => {
+  const mapClientXToStage = useCallback((clientX: number) => {
     const bounds = containerRef.current?.getBoundingClientRect();
     if (!bounds) {
+      return null;
+    }
+
+    return clamp(clientX - bounds.left, DEFAULTS.sidePaddingPx, bounds.width - DEFAULTS.sidePaddingPx);
+  }, []);
+
+  const updatePointer = useCallback((clientX: number) => {
+    const mapped = mapClientXToStage(clientX);
+    if (mapped === null) {
       return;
     }
 
-    const clampedX = clamp(clientX - bounds.left, DEFAULTS.sidePaddingPx, bounds.width - DEFAULTS.sidePaddingPx);
-    setPointerX(clampedX);
-  }, []);
+    setPointerX(mapped);
+    setCursorVisualX(mapped);
+  }, [mapClientXToStage]);
+
+  const updateCursorVisual = useCallback((clientX: number) => {
+    const mapped = mapClientXToStage(clientX);
+    if (mapped === null) {
+      return;
+    }
+
+    setCursorVisualX(mapped);
+  }, [mapClientXToStage]);
 
   useEffect(() => {
     const bounds = containerRef.current?.getBoundingClientRect();
@@ -173,7 +192,9 @@ const BodyAttenuationCanvas: React.FC<BodyAttenuationElementProps> = () => {
       return;
     }
 
-    setPointerX(bounds.width * 0.78);
+    const initial = clamp(bounds.width * 0.78, DEFAULTS.sidePaddingPx, bounds.width - DEFAULTS.sidePaddingPx);
+    setPointerX(initial);
+    setCursorVisualX(initial);
   }, []);
 
   useEffect(() => {
@@ -198,6 +219,41 @@ const BodyAttenuationCanvas: React.FC<BodyAttenuationElementProps> = () => {
     };
   }, [updatePointer]);
 
+  useEffect(() => {
+    const stage = containerRef.current;
+    if (!stage) {
+      return;
+    }
+
+    const handleStagePointerMove = (event: PointerEvent) => {
+      updateCursorVisual(event.clientX);
+
+      if (draggingRef.current) {
+        updatePointer(event.clientX);
+      }
+    };
+
+    const handleStagePointerEnter = (event: PointerEvent) => {
+      updateCursorVisual(event.clientX);
+    };
+
+    const handleStagePointerLeave = () => {
+      if (!draggingRef.current) {
+        setCursorVisualX(null);
+      }
+    };
+
+    stage.addEventListener("pointermove", handleStagePointerMove);
+    stage.addEventListener("pointerenter", handleStagePointerEnter);
+    stage.addEventListener("pointerleave", handleStagePointerLeave);
+
+    return () => {
+      stage.removeEventListener("pointermove", handleStagePointerMove);
+      stage.removeEventListener("pointerenter", handleStagePointerEnter);
+      stage.removeEventListener("pointerleave", handleStagePointerLeave);
+    };
+  }, [updateCursorVisual, updatePointer]);
+
   const stageMetrics = useMemo(() => {
     const bounds = containerRef.current?.getBoundingClientRect();
     const width = bounds?.width ?? 640;
@@ -220,21 +276,22 @@ const BodyAttenuationCanvas: React.FC<BodyAttenuationElementProps> = () => {
   const totalDistanceCm = stageMetrics.txDistanceCm + stageMetrics.rxDistanceCm;
   const sceneCursorX = stageMetrics.normalized * 2.45;
   const markerSide: -1 | 1 = stageMetrics.normalized < 0 ? -1 : 1;
-  const cursorTop = 24 + Math.abs(stageMetrics.normalized) * 8;
+
+  const cursorVisualResolvedX = cursorVisualX ?? stageMetrics.resolvedPointerX;
+  const cursorVisualNormalized = clamp(
+    (cursorVisualResolvedX - stageMetrics.width / 2) / (stageMetrics.usableWidth / 2),
+    -1,
+    1,
+  );
+  const cursorVisualSide: -1 | 1 = cursorVisualNormalized < 0 ? -1 : 1;
+  const cursorVisualTop = 24 + Math.abs(cursorVisualNormalized) * 8;
+  const cursorVisible = cursorVisualX !== null;
 
   const model = useMemo(() => computeModel(totalDistanceCm), [totalDistanceCm]);
   const targetValue = useMemo(() => model.entry - model.lossMedium / 2, [model.entry, model.lossMedium]);
 
   const handlePointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     draggingRef.current = true;
-    updatePointer(event.clientX);
-  }, [updatePointer]);
-
-  const handlePointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    if (!draggingRef.current) {
-      return;
-    }
-
     updatePointer(event.clientX);
   }, [updatePointer]);
 
@@ -252,7 +309,6 @@ const BodyAttenuationCanvas: React.FC<BodyAttenuationElementProps> = () => {
       <CanvasStage
         ref={containerRef}
         onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
       >
         <Canvas
@@ -265,7 +321,14 @@ const BodyAttenuationCanvas: React.FC<BodyAttenuationElementProps> = () => {
 
         <NoiseOverlay aria-hidden="true" />
         <MarkerTrack aria-hidden="true" />
-        <PointerGlyph $left={stageMetrics.resolvedPointerX} $top={cursorTop} $side={markerSide}>➤</PointerGlyph>
+        <PointerGlyph
+          $visible={cursorVisible}
+          $left={cursorVisualResolvedX}
+          $top={cursorVisualTop}
+          $side={cursorVisualSide}
+        >
+          ➤
+        </PointerGlyph>
         <AxisGlow $side={markerSide} />
 
         <CenterTitles>
@@ -407,7 +470,7 @@ const CanvasStage = styled.div`
   background:
     linear-gradient(180deg, #b7b8ca, #b7b8ca);
   border: 1px solid rgba(15, 18, 30, 0.25);
-  cursor: grab;
+  cursor: none;
 
   &::before {
     content: "";
@@ -418,10 +481,6 @@ const CanvasStage = styled.div`
       linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent 20%, transparent 80%, rgba(255, 255, 255, 0.05));
     pointer-events: none;
     z-index: 1;
-  }
-
-  &:active {
-    cursor: grabbing;
   }
 
   canvas {
@@ -456,7 +515,7 @@ const MarkerTrack = styled.div`
   z-index: 2;
 `;
 
-const PointerGlyph = styled.div<{ $left: number; $top: number; $side: -1 | 1 }>`
+const PointerGlyph = styled.div<{ $left: number; $top: number; $side: -1 | 1; $visible: boolean }>`
   position: absolute;
   left: ${({ $left }) => `${$left}px`};
   top: ${({ $top }) => `${$top}%`};
@@ -465,6 +524,10 @@ const PointerGlyph = styled.div<{ $left: number; $top: number; $side: -1 | 1 }>`
   line-height: 1;
   color: #9b8856;
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.15);
+  opacity: ${({ $visible }) => ($visible ? 1 : 0)};
+  transition:
+    opacity 120ms ease,
+    transform 180ms ease;
   pointer-events: none;
   z-index: 4;
 `;
@@ -542,10 +605,10 @@ const EndpointMeta = styled.span`
 const CharacterFrame = styled.div`
   position: absolute;
   left: 50%;
-  top: 54%;
+  top: 50%;
   transform: translate(-50%, -50%);
   width: min(34vw, 290px);
-  height: min(58vh, 470px);
+  height: min(85%, 400px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -592,13 +655,6 @@ const ReadoutPanel = styled.div<{ $edge: "left" | "right" }>`
   width: min(24%, 180px);
   pointer-events: none;
   z-index: 4;
-`;
-
-const ReadoutLabel = styled.span`
-  font-family: "JetBrains Mono", monospace;
-  font-size: 0.78rem;
-  letter-spacing: 0.22em;
-  color: rgba(17, 19, 26, 0.72);
 `;
 
 const ReadoutValue = styled.span`
