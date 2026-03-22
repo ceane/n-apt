@@ -25,8 +25,8 @@ const DEFAULTS = {
 };
 
 const CHARACTER_SIZE = {
-  width: 2.7,
-  height: 5.1,
+  width: 2.91, // 5.32 * (520/951) ≈ 2.91
+  height: 5.32,
 };
 
 const FLIP_EFFECT_DURATION_MS = 720;
@@ -106,7 +106,7 @@ const shimmerFragmentShader = `
     float rainbowCoord = clamp(vUv.x * 0.55 + vUv.y * 1.15 + uProgress * 0.5, 0.0, 1.0);
     vec3 rainbow = rainbowGradient(rainbowCoord);
     float shimmerShape = verticalBand * 0.9 + verticalCore * 0.8 + diagonalBand * 0.75;
-    vec3 color = rainbow * shimmerShape + vec3(1.0, 0.98, 0.94) * verticalCore * 0.9;
+    vec3 color = (rainbow * shimmerShape + vec3(1.0, 0.98, 0.94) * verticalCore * 0.9) * smoothstep(0.0, 0.02, sampleColor.a);
     float alpha = clamp(shimmerShape * alphaMask * 0.95, 0.0, 0.92);
 
     gl_FragColor = vec4(color, alpha);
@@ -145,9 +145,7 @@ const peelFragmentShader = `
 
   void main() {
     vec4 sampleColor = texture2D(uTexture, vUv);
-    if (sampleColor.a < 0.01) {
-      discard;
-    }
+    float alphaFactor = smoothstep(0.0, 0.02, sampleColor.a);
 
     float gleamHead = mix(-0.35, 1.35, smoothstep(0.05, 0.95, uProgress));
     float shimmerHead = mix(-0.2, 1.2, smoothstep(0.0, 1.0, uProgress));
@@ -157,13 +155,13 @@ const peelFragmentShader = `
     float shimmerCore = exp(-pow((vUv.y - shimmerHead) * 18.0, 2.0));
     float shimmerTrailingBand = exp(-pow((vUv.y - (shimmerHead - 0.16)) * 5.5, 2.0));
     float peelMask = smoothstep(0.02, 0.18, vPeel);
-    float edgeLight = pow(clamp(vPeel, 0.0, 1.0), 1.15) * 0.2;
-    vec3 gleam = vec3(1.0, 0.99, 0.92) * (gleamBand + gleamTail * 0.45) * peelMask * uGleamStrength;
+    float edgeLight = pow(clamp(vPeel, 0.0, 1.0), 1.15) * 0.2 * alphaFactor;
+    vec3 gleam = vec3(1.0, 0.99, 0.92) * (gleamBand + gleamTail * 0.45) * peelMask * uGleamStrength * alphaFactor;
     float rainbowCoord = clamp(vUv.x * 0.72 + vUv.y * 0.9 + uProgress * 0.45, 0.0, 1.0);
     vec3 rainbowMix = rainbowGradient(rainbowCoord);
-    float shimmerMask = (shimmerBand * 0.95 + shimmerCore * 0.85 + shimmerTrailingBand * 0.55) * peelMask * uGleamStrength;
+    float shimmerMask = (shimmerBand * 0.95 + shimmerCore * 0.85 + shimmerTrailingBand * 0.55) * peelMask * uGleamStrength * alphaFactor;
     vec3 shimmerOverlay = rainbowMix * shimmerMask;
-    vec3 shimmerSpecular = vec3(1.0, 0.98, 0.94) * shimmerCore * peelMask * uGleamStrength * 0.8;
+    vec3 shimmerSpecular = vec3(1.0, 0.98, 0.94) * shimmerCore * peelMask * uGleamStrength * 0.8 * alphaFactor;
     vec3 composited = mix(sampleColor.rgb, sampleColor.rgb + shimmerOverlay, clamp(shimmerMask * 0.9, 0.0, 1.0));
     vec3 finalColor = composited + gleam + shimmerSpecular + vec3(edgeLight);
 
@@ -420,8 +418,8 @@ const PeelCharacter: React.FC<{
   const characterScale = 1 + lift * 0.05;
 
   return (
-    <group position={[0, -0.68, 0.15]}>
-      <mesh position={[0, -2.59, -0.18]} rotation={[-Math.PI / 2, 0, 0]} scale={[shadowScale, 1 + lift * 0.18, 1]} frustumCulled={false}>
+    <group position={[0, -0.55, 0.15]}>
+      <mesh position={[0, -2.72, -0.18]} rotation={[-Math.PI / 2, 0, 0]} scale={[shadowScale, 1 + lift * 0.18, 1]} frustumCulled={false}>
         <planeGeometry args={[CHARACTER_SIZE.width * 1.22, 2.05]} />
         <meshBasicMaterial color="#161922" transparent opacity={shadowOpacity} depthWrite={false} />
       </mesh>
@@ -440,7 +438,7 @@ const PeelCharacter: React.FC<{
           />
         </mesh>
 
-        <mesh position={[0, 0, 0.05]} renderOrder={999} frustumCulled={false}>
+        <mesh position={[0, 0, 0.01]} renderOrder={999} frustumCulled={false}>
           <planeGeometry args={[CHARACTER_SIZE.width, CHARACTER_SIZE.height, 48, 72]} />
           <shaderMaterial
             ref={shimmerMaterialRef}
@@ -483,6 +481,12 @@ const SceneContents: React.FC<{
   useEffect(() => {
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.anisotropy = 8;
+    texture.wrapS = THREE.ClampToEdgeWrapping;
+    texture.wrapT = THREE.ClampToEdgeWrapping;
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+    texture.generateMipmaps = false;
+    texture.needsUpdate = true;
   }, [texture]);
 
   const handleDown = useCallback((event: { point: THREE.Vector3; stopPropagation: () => void }) => {
