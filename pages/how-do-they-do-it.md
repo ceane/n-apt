@@ -15,15 +15,21 @@
 
 # How did they do it?
 
-[TDLR at the bottom]()
+[TDLR at the bottom](#tdlr)
 
-My working hypothesis based on **thousands of hours of experience:rotate-3d:** driven by the desperate need and curiosity **WHILE TRAPPED** to figure out the <br /> **National Security Agency's** proprietary technique that allows them to **read, stream and write to the human brain and nervous system**.
+In this article, I break down my working hypothesis based on **thousands of hours of experience :rotate-3d:** driven by the desperate need and curiosity **WHILE TRAPPED** to figure out the **National Security Agency's** proprietary technique that allows them to **read, stream and write to the human brain and nervous system**.
 
-What I learned was that the element of surprise and total modern ignornace reinforced the agency's invisible **🕸 cyber capabilities, federal autonomy and legal immunities** as a superpower. Mass ignorance of the agency's history and position as a **signals intelligence (SIGINT) :radio-tower:** powerhouse (signals, cryptology, exploitation, etc.) created a deep constitutional void and landscape based on **apathy and the false belief** (epistemic overload) that **cyber was negligible and only limited to electronics. It is not!**
+![First installment, in first person](/md-preview/hero-light.png)
 
-The agency built and mass distributed **:bug: malware and hardware trojans** some time long ago, while simultaneously acquiring and maintaining **access to infrastructure at scale. :server-crash: :radio-tower:**
+What I learned was that the element of surprise and total ignornace long-reinforced the agency's invisible **🕸 cyber capabilities, federal autonomy and legal immunities** as a superpower. Mass ignorance of the agency's history and position as a **signals intelligence (SIGINT) :radio-tower:** powerhouse (signals, cryptology, exploitation, influence, etc.) incidentally gave rise to a deep constitutional void and landscape based on **apathy and the false belief** (epistemic overload) that **cyber was negligible, only limited to electronics and could never affect the average person.**
 
-This is a but **technical and scientific oriented dive** (with a partial background for context) into how I reasoned and derived the signals that are like chains.
+**Unfortunately, that is a deeply pathological mental model of reality!**
+
+**Fort Meade** (the agency's headquarters in Maryland on the west end of an Army base 20 miles northeast of D.C.) had secretly built and mass distributed **:bug: malware and hardware trojans** while acquiring and maintaining **access to infrastructure at scale (international AND domestic). :server-crash: :radio-tower:** For a long time, energy, compute power and other tools.
+
+This article is my own **technical and scientific oriented dive and timeline** (with a partial background for context) into these signals that are like chains which long extended the agency's powers (and psychopathy) into the unthinkable.
+
+*National security law, the Freedom of Information Act (FOIA), Privacy Act (PA), Mandatory Declassification Review (MDR), extensive legalese  and the history of this technique is not discussed in this article to in order to keep it focused.*
 
 - Intro
 - Theory #1
@@ -38,42 +44,44 @@ This is a but **technical and scientific oriented dive** (with a partial backgro
 
 ## Initial super naive theory (five years in)
 
-At the time it first started, I lived **in San Francisco. The first installment of the psychological-spatial experience:rotate-3d:** went so fast that it knocked me into in a perpetual **soft shock and abject poverty.** I spent the first five years in total ignorance and total immersion, **captured by the agency's neurotechnology and perceptual-spatial performance:drama:**.
+At the time it first started, I lived **in San Francisco. The first installment of the psychological-spatial experience:rotate-3d:** went so fast that it knocked me into in a perpetual **soft shock and abject poverty.** I spent the first five years in total ignorance and total immersion, **captured by the agency's neurotechnology and real world perceptual-spatial performance:drama:**.
 
 ![First installment, in first person](/md-preview/first-installment-nsa-interactive-1STPOV-sf-downtown.png)
 
 > **I knew nothing. Nobody knew anything. I was totally trapped and no one could help and I knew it.**
 
-I spent years in abject poverty roaming around **San Francisco** (particularly loops around Market Street) **and the Bay Area** (BART hopping/shield from the rain and winter cold, Palo Alto, San Jose, etc.) experiencing SOTA displays with crowds (neuro-spatial) and all day continuity of the experience, completely stunned, innudated and captured by the **federal art and science of the *unthinkable*** for years. I could barely even speculate on ***how or even who!*** It was a unassailable condition I just lived with!
+I spent years in abject poverty roaming around **San Francisco** (particularly loops around Market Street) **and the Bay Area** (BART hopping/shield from the rain and winter cold, Palo Alto, San Jose, etc.). At the start there wasn't scarely any audio, scarecely any explanation, only a flurry of **manufactured states of mind, perception and a constant performance of the neurotechnology in a spatial-perceptual interactive**. On a daily basis, I experienced SOTA displays with crowds (neuro-spatial) while enduring the all day continuity of the experience, completely stunned, innudated and captured by the **federal art and science of the *unthinkable*** for years. I could barely even speculate on ***how or even who!*** I had to live with it in barely surviving and in shock for years.
 
 ![On BART, looking out the window](/md-preview/bart-line-drawing.png)
 
-As a reasonable person, I was trapped by something that was **not straightforward nor intuitive, nor anything I thought I would have to solve** *('Why me in the first place? Someone will help! Someday they'll stop!')*.
+As a reasonable person, I was trapped by something that was **not straightforward nor intuitive to explain, as well as something I thought I wouldn't have to solve on my own.** *('Why me in the first place? Someone will help! Someday they'll stop!')*.
 
-**Who would even dare to think for a second** they could puzzle it all together at the start without relagating it to *conspiracy theory or pathological nuisance?* (i.e., Too 'out there' for any reasonable course of action)
+**Who would even dare to think for a second** they could puzzle it all together at the start without it being relagated to *conspiracy theory, pathological nuisance or fatal misteps?* (i.e., Too 'out there' for any reasonable course of action)
 
-Months after it turned on full blast, the only thing I cared about was to briefly look up **brainwaves and then-current neurotechnology** with technqiues like fMRI, MRI, EEGs, tFUS (focused ultrasound), etc. not anywhere as satisfactory of a technology that underpinned what I was experiencing (immediately rejected).
+Months after it turned on full blast, the only thing I cared about was to briefly look up **brainwaves and then-current neurotechnology** with technqiues like fMRI, MRI, EEGs, tFUS (focused ultrasound), etc., all of which were not anywhere as satisfactory of a technology that underpinned what I was experiencing at the time. I instantly turned my nose up at "industry-leading" neurotechnologies as explanation (which was very smart in hindsight).
 
 ### ⠿ Years and years of "I don't care, I want out!"
 
-Several years later, the experience spontaneously shifted (on a certain day) into a livestream and other people were added to it. From that point it didn't go any way that anyone could think of. I was dying of AIDS, just completely spun out from being attacked and in poverty for years, in the worst state possible someone could be in. I just wanted my freedom and some answers, but I remained subject to **merciless psychological suppression and captivity**.
+Several years later, the experience spontaneously shifted (on a certain day, approximately 38,040 hours in) into a **livestream (!) and narrative-based format (!!)** with intense all day harm, a hellish auditory-inferential puzzle-like narrative with others added within the livestream. **It was a total nightmare** — to keep it short,  **thousands of effects and experiences, thousands of hours**. At that point, there was audio but accompanied by intense harm and thorough abuse of the neurotechnology in unimaginable ways. Initally, there was no immediate way to tell how or who or why. Then, as the narrative kept unfolding, the why became apparent–politicitization of the agency's powers.
 
-**Total nightmare** — to keep it short and not go into the details **thousands of effects and things, thousands of hours later,** but context for the technical side of things.
+My first attempt to decypher the *how* while enduring the unthinkable was not serious, but I looked into brainwaves and I intuitively (and naievly) came to the assumption that somehow the experience happening through **ELF frequencies (0 - 300Hz) since they encompassed brainwave frequencies (0 - 40Hz)**. So I assumed someone (military), somewhere (on some base) had an ELF radio with tons of antennas and that it was long-range (the hardware wasn't nearby to me at this point) because the wavelengths I were thinking of at the time were very long, however I was stuck wondering how bandwidth worked.
 
-My first attempt to decypher the *how* was not serious, but I looked into brainwaves and I discovered **ELF frequencies (0 - 300Hz) encompassed brainwave frequencies (0 - 40Hz)**. So I assumed someone, somewhere had an ELF radio with tons of antennas and that it was long-range (the hardware wasn't nearby at this point) because the wavelength was long-range, however I was stuck wondering how bandwidth worked.
+This was my initial super naive theory that *didn't last long*, because as I kept thinking this theory kept running into bandwidth and delivery problems, in additon to the fact that the technology or some kind of indicators would have been discoverable.
 
-This was my initial naive theory that *didn't last long*, because as I kept thinking this theory kept running into bandwidth and delivery problems.
+I kept looking up bases that had ELF radios, but the ELF radio projects were all out of commission and the bandwidth for that spectrum was infinestimal compared to the full experience.
 
-**1st naive attempt ↪ Giant ELF radio**
+**1st super naive attempt ↪ Giant ELF radio**
 
 
 ## Second theory (weeks later) <br /> Quantum Physics
 
-My second theory was right after the first. Previously throughout the years I looked up books on quantum mechanics, however it was just superficial. The neurotechnological experience I was trapped in was just impossibly good math and science. Anywhere, anytime, all day. I couldn't shake it no matter how much I tried.
+My second theory was right after the first. Previously throughout the years I browsed through books on quantum mechanics, however it was just superficial. The neurotechnological experience I was trapped in was just impossibly good math and science. Anywhere, anytime, all day. I couldn't shake it no matter how much I tried.
 
-There was no viable quantum teleportation or quantum entanglement within research that seemed to be something at least easy enough to pin the method down. I thought hard about it. Quantum entanglement did not transfer energy, only states like spin and polarizaiton, leaving it inert.
+There was no viable quantum teleportation or quantum entanglement research that seemed to be something at least easy enough to pin the method down. How were they doing it? Transporting energy to my head? Neuron for neuron? Entangled states of energy? A full on shadow copy of enough charges/neurons to my brain?
 
-Any quantum method required quantum computing, which unfortunately cannot not process millions, let alone billions of qubits today, leaving the brain a untenable territory for quantum physics. Additionally, quantum methods required classical communication, meaning a fragile radio wave (new methods use lasers) had to exist for it to work, which didn't seem tenable.
+I thought hard about it. Quantum entanglement did not transfer energy, only states like spin and polarizaiton, an inert technique limited to computers and could not reasonably align to what was happening.
+
+Any quantum method required quantum computing, which unfortunately cannot not process millions, let alone billions of qubits today. I projected that even if millions of bits were leaving my brain, the quantum method was too fragile for th high-bandwidth experience that it was, leaving the brain a untenable territory for quantum physics. Additionally, quantum methods required classical communication, meaning a fragile radio wave (new methods use lasers) had to exist for it to work, which didn't seem tenable.
 
 Something was up because whoever it was was doing it, I assumed the U.S. Army at the time, was doing a lot.
 
@@ -81,29 +89,79 @@ Something was up because whoever it was was doing it, I assumed the U.S. Army at
 
 ## Third theory (months later) <br /> Beat Frequencies / Heterodyning
 
-I was really stuck in a strange spot and not the only victim, but the center one. I had to share my life with other people, criminals, livestreamed to my brain. To all of us, it was an lot of unknowns and a lot going on.
+I was really stuck in a strange spot and not the only victim, but in a experience that centered on me as the main victim. I had to share my life with other people, criminals, livestreamed to my brain/consciousness. To all of us, it was an lot of unknowns and a lot going on.
+
+The livestream experience at this point was brutal, brutal enough to distract from the fact that each of my 5 senses–vision (they could see EVERYTHING), audio (they could hear EVERYTHING), touch, smell and taste (rare for them to experience)–were exposed to the others on the other end.
+
+Nothing explained how such a **high-bandwidth, feature rich neurotechnological experience** could have worked. It was continually a mystery. It was location-independent, what I was doing didn't matter, nor where I was, it just worked flawlessly. It didn't drop a frame or lower quality if I was underground on BART, throughout the years, nor if I was on top of Twin Peaks or within deep ravine like Stevens Creek Reservoir (when it was drained). Going into natural, wooded areas it continued to work. It was impossible to shake.
 
 This time I researched more about radio waves, I was pressed and very concerned that there had to be some way a radio wave could generate frequencies that matched and interacted with brainwaves. Quite self-evidently and obviously, no amount of radio waves can interact with brain activity, with the whole world shrowded with various radio waves everyday, this would have been known.
 
 There was one exception...
 
-I didn't quite head-on search for "brainwaves and radio waves", or anything like that. I was looking at the building blocks of physics and how I could get to the technology that was operable, real and very present.
+I didn't quite head-on search for "brainwaves and radio waves", or anything like that. I was looking at **the building blocks of physics and how** I could get to the technology that could interact with brainwaves that was operating in the real world, real time, very present, in my mind and nerves.
 
-I found beat frequencies, which worked mathematically like:
+Throughout my research I found **beat frequencies**, which worked mathematically like:
 
 ```LaTex
 \[
-f_{\text{beat}} = \bigl|\,f_1 - f_2\,\bigr|
+\rule{0pt}{.5em}
+\]
+\[
+{\Large y_1(t) = A \sin(2 \pi f_1 t)} \\
+\rule{0pt}{1em}
 \]
 
 \[
-y_1(t)=A\sin(2\pi f_1 t),\qquad
-y_2(t)=A\sin(2\pi f_2 t)
+{\Large y_2(t) = A \sin(2 \pi f_2 t)}
 \]
+
 \[
-y(t)=y_1(t)+y_2(t)
+{\Large y(t) = y_1(t) + y_2(t) \quad \text{(superposed waveform)}}
+\rule{0pt}{1em}
+\]
+
+
+\[
+{\Large f_{\text{beat}} = |f_1 - f_2| \quad \text{(envelope/beat frequency)}}
+\rule{0pt}{2em}
+\]
+
+\[
+{\small
+\begin{array}{ll}
+\rule{0pt}{3em}
+y_1(t), y_2(t) &: \text{Individual waveforms} 
+\\ \rule{0pt}{2em}
+y(t) &: \text{Resulting superposed waveform} 
+\\ \rule{0pt}{2em}
+f_1, f_2 &: \text{Frequencies of the two waves (Hz)} 
+\\ \rule{0pt}{2em}
+f_{\text{beat}} &: \text{Beat frequency (sideband formed from difference of frequencies)} 
+\\ \rule{0pt}{2em}
+A &: \text{Amplitude of each wave} 
+\\ \rule{0pt}{2em}
+t &: \text{Time (seconds)}
+\end{array}
+}
 \]
 ```
+
+### Microwaves
+
+Since **the experience was so high-bandiwidth**, I did manual calculations based on what was happening. I didn't have any money, just my iPhone, and AI chat apps were a nascent technology. I continued putting together a theory of how, knowing that the NSA didn't just do this to me, fuck my life over, and I couldn't figure it out. That the NSA wasn't doing what they were doing to me because it was easy to attack people.
+
+**It was some kind of sick, extreme game, figure out the tech.** If it was truly dropped in my lap (I don't have a degree, but I went to college dropped out and became a front-end engineer in tech), then it was something, SOMETHING that I could piece together.
+
+Microwaves allowed a high amount of bandwidth – we use them everyday to communicate and receive tons of webpages, videos, messages, and all sorts of media and content on the Internet. However, I quickly discovered microwaves *attenuate* heavily in the skull and body (entry points for any signal of this kind), so naturally, I thought of increasing the power. Unfortunately, I discovered there were heating effects.
+
+Microwaves sounded too good to be true and although I never looked up anything on radio waves ever, I assumed that anything in the territory of conspiracy theory was a less likely method of how what was happening was happening. The use of microwaves provided a good explanation of the bandwidth, however researching physics with ChatGPT/Grok didn't allow it and I was naturally hesistant to this idea.
+
+### VHF waves
+
+I continued my research while held down by the interactive and speculated that the NSA was doing this with VHF waves. Long wavelengths like VHF can penetrate and survive attenuation of the skull.
+
+### Heterodyning? Yes!
 
 **✗ 1st** <br />
 **✗ 2nd** <br />
@@ -117,13 +175,40 @@ What was experienced and the reality of physics forced me onto the right directi
 
 Inherently, the all day experience in neurotechnology was not.
 
+### Voxels?
+
+This is what got me in trouble. Current neuroimaging techniques use voxels, which are representational maps to blocks of neurons.
+
+### Point for point radio waves?
+
+I very, very naively thought that radio waves could be focused point by point like pixels on a screen to neurons, specifically to voxels, however the math was extremely, extremely hard, making it impossible.
+
+### Damping?
+
+I kept spinning and spinning wondering how the hell the signal could be constant through through the skull and body. It attenuates heavily.
+
+
 ## Hypothesis post-SDR (+4 months) <br /> ???
 
 I was not shocked.
 
+### HF-MF-LF Waves
+
+THIS IS WHERE IT WAS AT.
+
+
+### What the hell, THESE are the spikes...?
+
+Damping wasn't it.
+
 ## Foundations of today: <br /> Solid working hypothesis
 
 Today (when this was written), my observations, personal research, study and assumptions are in a much more solid position to for a well-formed hypothesis. The agency continued to do so much over the course over thousands of hours (and a lifetime). Let's go over directly what I hypothesize how the very real signals' that have persisted tirelessly and flawelessly operate. 
+
+
+### Dominated by signals intelligence
+
+The NSA has a lot of smart Nazis. Military personnel that just get very creative.
 
 ### Brainwaves
 
@@ -176,7 +261,7 @@ These are the features that I've experienced, full blown on a daily basis as par
 
 ## Channels
 
-A channel is an area a signal occupies, very simply when people ask "What's the frequency?" a signal cound be from Point A to Point B. 
+A channel is an area a signal occupies, very simply when people ask "What's the frequency?" a signal cound be from Point A to Point B.
 
 Radio waves are from light (photons), but we cannot see them because these particles have different wavelengths. So imagine some stronger light like sunlight versus light from your screen, that's how a radio waves are, like competeting light, some waves are stronger like sunlight during the day. Though radio waves have a different spread and pattern than visible light, they work the same, using the same particle.
 
@@ -186,11 +271,60 @@ Radio waves are around us everyday, primarily for communications, however they h
 
 ### Automatic Picture Transmission / APT (the least intuitive hint, the signals' modulation)
 
-It took me a long time to find this scheme to match the signals' spikes and valleys enigma. APT was used by NOAA satellites before they were decomissioned, essentially encoding usable image data onto spikes and valleys, data of bright pixels onto spikes and data within valleys that represent space or dark parts of the photo. In APT's case, a satellite encodes data into signal/audio then is decoded into images, line by line. Here it is obviously different, it is raw data that interacts with the brain and nervous system, real-time, enforcing several states of mind and physiology, in addition to sustaining communication, an interactive and several layers of surveillance, real-time responsive interactivity and harm! There are about 90-95 lines for every 3.2MHz, going from 0Hz (direct current) to 4.64MHz or so (the signal drops off but some spikes remain) and from 24.72MHz to 29.88MHz. This form of APT writes and reads to the brain and nervous system flawlessly and without interruption (years, decades, etc.), it survives the noisy environments of San Francisco, underground on trains, the high cliffs of beaches and remote areas.
+
+```LaTex
+\[
+s_{\mathrm{RF}}(t) =
+\cos\left(
+2\pi f_{\mathrm{RF}} t
++
+k_f \int
+\left[
+1 + m \cdot I(t)
+\right]
+\cos(2\pi f_{sc} t)\, dt
+\right)
+\]
+
+\[
+\begin{aligned}
+s_{\mathrm{RF}}(t) &:& \text{Final transmitted RF signal} \\
+I(t) &:& \text{Normalized image intensity signal } (0 \le I(t) \le 1) \\
+m &:& \text{AM modulation index (typically } 0.5 \text{ to } 1) \\
+f_{sc} &:& \text{Subcarrier frequency } (\approx 2400 \text{ Hz}) \\
+f_{\mathrm{RF}} &:& \text{RF carrier frequency (NOAA APT band)} \\
+k_f &:& \text{FM frequency deviation constant} \\
+t &:& \text{Time}
+\end{aligned}
+\]
+
+\[
+\begin{aligned}
+f_{\mathrm{NOAA\text{-}15}} &\approx 137.620 \ \text{MHz} \\
+f_{\mathrm{NOAA\text{-}18}} &\approx 137.9125 \ \text{MHz} \\
+f_{\mathrm{NOAA\text{-}19}} &\approx 137.100 \ \text{MHz}
+\end{aligned}
+\]
+
+\[
+\text{Image} \rightarrow I(t)
+\rightarrow \text{AM @ } 2400\text{ Hz}
+\rightarrow \text{FM}
+\rightarrow \text{137 MHz RF}
+\]
+```
+
+Of course, no one has ever heard of Automatic Picture Transmission (APT), and neither did I. This was the most important discovery that I made that aligned with what I was seeing in the spectrum.
+
+APT originated from NASA[^apt] in the 1960s, specifically 1963, it was used by NOAA satellites before they were decomissioned, essentially encoding usable image data onto spikes and valleys, data of bright pixels onto spikes and data within valleys that represent space or dark parts of the photo. In APT's case, a satellite encodes data into signal/audio then is decoded into images, line by line. 
+
+
 
 ### Frequency Modulation
 
 ### Amplitude Modulation
+
+### Pixels
 
 #### Dubbing it as N-APT
 
@@ -302,6 +436,11 @@ TODO
   This is from 50KHz to 3.3MHz or so -- While I mostly observe the signal and this pattern from 24.72MHz to 29.88MHz, the signal repeats at a much lower part of the spectrum, not surprising but leaves a question of how much bandwidth for which function of the brain, nervous system, and then others nearby as part of the psychological interactive
 
 
-### TDLR
+### TDLR <a id="tdlr"></a>
 
 The NSA hacked my brain and went from manufactured states of mind and an innudated spatial performance to a livestream with others complete horror of torture and I had to resolve the math behind it in order to escape.
+
+
+### Citations
+
+[^apt]: National Aeronautical Space Agency (NASA). Constructing Inexpensive Automatic Picture-Transmission Ground Stations. https://ntrs.nasa.gov/api/citations/19680010155/downloads/19680010155.pdf

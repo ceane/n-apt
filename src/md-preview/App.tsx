@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import styled, { createGlobalStyle, css } from "styled-components";
 import ReactMarkdown from "react-markdown";
 import type { Components } from "react-markdown";
@@ -6,6 +6,7 @@ import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import rehypeRaw from "rehype-raw";
 import rehypeKatex from "rehype-katex";
+import katex from "katex";
 import * as lucideIcons from "lucide-react";
 import "highlight.js/styles/github-dark.css";
 import "katex/dist/katex.min.css";
@@ -33,26 +34,122 @@ const candidateAssetPaths = (relativePath: string) => {
 };
 
 const BLEND_IMAGE_PATTERNS = ["bart-line-drawing", "first-installment-nsa"];
+const HERO_IMAGE_PATTERNS = ["hero-light", "hero-dark"];
 
 const MarkdownImage: React.FC<MarkdownImageProps> = ({ src = "", alt = "", ...imgProps }) => {
   const normalizedSrc = src.toLowerCase();
   const normalizedAlt = alt.toLowerCase();
+
   const shouldBlend = BLEND_IMAGE_PATTERNS.some((pattern) =>
     normalizedSrc.includes(pattern) || normalizedAlt.includes(pattern)
   );
 
-  if (shouldBlend) {
-    return (
-      <Figure $blend>
-        <img src={src} alt={alt} {...imgProps} />
-      </Figure>
-    );
-  }
+  const isHero = HERO_IMAGE_PATTERNS.some((pattern) =>
+    normalizedSrc.includes(pattern) || normalizedAlt.includes(pattern)
+  );
 
   return (
-    <Figure>
+    <Figure $blend={shouldBlend} $hero={isHero}>
       <img src={src} alt={alt} {...imgProps} />
     </Figure>
+  );
+};
+
+const decodeExpressions = (serialized = "") => {
+  try {
+    const parsed = JSON.parse(decodeURIComponent(serialized));
+    return Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === "string") : [];
+  } catch {
+    return [];
+  }
+};
+
+const renderDisplayExpression = (expression: string) => katex.renderToString(expression, {
+  throwOnError: false,
+  displayMode: true,
+  strict: "warn",
+  fleqn: true,
+  output: "html",
+});
+
+type LatexBlockProps = React.HTMLAttributes<HTMLElement> & {
+  "data-expressions"?: string;
+};
+
+const LatexBlock: React.FC<LatexBlockProps> = ({ "data-expressions": serializedExpressions = "" }) => {
+  const expressions = useMemo(() => decodeExpressions(serializedExpressions), [serializedExpressions]);
+  const renderedExpressions = useMemo(
+    () => expressions.map((expression) => renderDisplayExpression(expression)),
+    [expressions],
+  );
+  const blockRef = useRef<HTMLDivElement | null>(null);
+  const expressionRefs = useRef<Array<HTMLDivElement | null>>([]);
+
+  useLayoutEffect(() => {
+    const resizeExpressions = () => {
+      expressionRefs.current.forEach((expressionNode) => {
+        if (!expressionNode) {
+          return;
+        }
+
+        const displayNode = expressionNode.querySelector(":scope > .katex-display") as HTMLElement | null;
+        const katexNode = displayNode?.querySelector(":scope > .katex") as HTMLElement | null;
+
+        if (!displayNode || !katexNode) {
+          return;
+        }
+
+        expressionNode.style.height = "";
+        displayNode.style.height = "";
+        katexNode.style.transform = "";
+        katexNode.style.transformOrigin = "left top";
+
+        const availableWidth = expressionNode.clientWidth;
+        const requiredWidth = katexNode.scrollWidth;
+        const naturalHeight = katexNode.scrollHeight;
+
+        if (availableWidth > 0 && requiredWidth > availableWidth) {
+          const scale = Math.max((availableWidth / requiredWidth) * 0.98, 0.58);
+          katexNode.style.transform = `scale(${scale})`;
+          const scaledHeight = naturalHeight * scale;
+          displayNode.style.height = `${scaledHeight}px`;
+          expressionNode.style.height = `${scaledHeight}px`;
+        }
+      });
+    };
+
+    resizeExpressions();
+
+    const resizeObserver = new ResizeObserver(() => {
+      resizeExpressions();
+    });
+
+    if (blockRef.current) {
+      resizeObserver.observe(blockRef.current);
+    }
+
+    window.addEventListener("resize", resizeExpressions);
+
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener("resize", resizeExpressions);
+    };
+  }, [renderedExpressions]);
+
+  expressionRefs.current = [];
+
+  return (
+    <LatexBlockContainer ref={blockRef}>
+      {renderedExpressions.map((html, index) => (
+        <LatexExpressionRow
+          key={`${index}-${expressions[index] ?? ""}`}
+          ref={(node: HTMLDivElement | null) => {
+            expressionRefs.current[index] = node;
+          }}
+          dangerouslySetInnerHTML={{ __html: html }}
+        />
+      ))}
+    </LatexBlockContainer>
   );
 };
 
@@ -83,6 +180,42 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    if (!("scrollRestoration" in window.history)) {
+      return;
+    }
+
+    const previousScrollRestoration = window.history.scrollRestoration;
+    window.history.scrollRestoration = "manual";
+
+    return () => {
+      window.history.scrollRestoration = previousScrollRestoration;
+    };
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!markdown) {
+      return;
+    }
+
+    const hash = window.location.hash;
+    const scrollingElement = document.scrollingElement;
+
+    if (!hash || !scrollingElement) {
+      return;
+    }
+
+    const targetId = hash.slice(1);
+    const element = document.getElementById(targetId);
+
+    if (!element) {
+      return;
+    }
+
+    const targetTop = element.getBoundingClientRect().top + scrollingElement.scrollTop;
+    scrollingElement.scrollTop = targetTop;
+  }, [markdown]);
+
+  useEffect(() => {
     void fetchMarkdown(activeSource);
   }, [activeSource, fetchMarkdown]);
 
@@ -108,8 +241,25 @@ const App: React.FC = () => {
   }, [activeSource, fetchMarkdown]);
 
   const markdownComponents = useMemo<Components>(() => ({
-    a: ({ node: _node, ...props }) => <MarkdownLink target="_blank" rel="noreferrer" {...props} />,
+    a: ({ node: _node, ...props }) => {
+      const isFootnoteRef = (props as any)['data-footnote-ref'] !== undefined;
+      const isFootnoteBackRef = (props as any)['data-footnote-backref'] !== undefined;
+      const href = (props as any).href || '';
+
+      const isInternalLink = href.startsWith('#');
+
+      if (isFootnoteRef || isFootnoteBackRef) {
+        return <CitationLinkWrapper $citation {...props} />;
+      }
+
+      if (isInternalLink) {
+        return <CitationLinkWrapper {...props} />;
+      }
+
+      return <MarkdownLink target="_blank" rel="noreferrer" {...props} />;
+    },
     img: ({ node: _node, ...props }) => <MarkdownImage {...props} />,
+    "latex-block": (props: any) => <LatexBlock {...(props as LatexBlockProps)} />,
     "body-attenuation-canvas": BodyAttenuationCanvas,
     "phase-shifting-canvas": PhaseShiftingCanvas,
     "frequency-modulation-canvas": FrequencyModulationCanvas,
@@ -147,12 +297,16 @@ const GlobalStyle = createGlobalStyle`
 
   :root { color-scheme: dark; }
   * { box-sizing: border-box; }
+  html {
+    scroll-behavior: auto !important;
+  }
   body {
     margin: 0;
     font-family: "DM Mono", "JetBrains Mono", "Space Grotesk", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
     background: #283780;
     color: #f3f6ff;
     min-height: 100vh;
+    scroll-behavior: auto !important;
   }
 `;
 
@@ -172,6 +326,8 @@ const ArticleContent = styled.article`
   line-height: 1.7;
   font-size: clamp(0.95rem, 1.2vw, 1.1rem);
   contain-intrinsic-size: 1200px;
+  overflow-x: hidden;
+  word-wrap: break-word;
 
   h1,
   h2,
@@ -338,7 +494,117 @@ const MarkdownLink = styled.a`
   text-underline-offset: 2px;
 `;
 
-const Figure = styled.figure<{ $blend?: boolean }>`
+const InternalLink = styled.button`
+  appearance: none;
+  border: 0;
+  background: none;
+  padding: 0;
+  margin: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  outline: none;
+  box-shadow: none;
+  line-height: inherit;
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: currentColor;
+  text-decoration-thickness: 2.5px;
+  text-underline-offset: 4px;
+
+  &:hover {
+    text-decoration-style: solid;
+  }
+
+  &:focus,
+  &:focus-visible,
+  &:active {
+    outline: none;
+    box-shadow: none;
+  }
+`;
+
+type InternalLinkProps = React.PropsWithChildren<{
+  href?: string;
+  $citation?: boolean;
+}>;
+
+const CitationButton = styled(InternalLink)`
+  text-decoration: none;
+
+  &:hover {
+    text-decoration-line: underline;
+    text-decoration-style: solid;
+    text-decoration-color: currentColor;
+    text-decoration-thickness: 2.5px;
+    text-underline-offset: 4px;
+  }
+`;
+
+const CitationLinkWrapper: React.FC<InternalLinkProps> = ({ children, href, $citation = false }) => {
+  const handleClick = () => {
+    if (!href || !href.startsWith("#")) {
+      return;
+    }
+
+    const targetId = href.slice(1);
+    const element = document.getElementById(targetId);
+    const scrollingElement = document.scrollingElement;
+
+    if (!element || !scrollingElement) {
+      return;
+    }
+
+    const targetTop = element.getBoundingClientRect().top + scrollingElement.scrollTop;
+    scrollingElement.scrollTop = targetTop;
+    window.history.replaceState(null, "", href);
+  };
+
+  return (
+    $citation ? (
+      <CitationButton type="button" onClick={handleClick}>
+        {children}
+      </CitationButton>
+    ) : (
+      <InternalLink type="button" onClick={handleClick}>
+        {children}
+      </InternalLink>
+    )
+  );
+};
+
+const LatexBlockContainer = styled.div`
+  display: grid;
+  width: fit-content;
+  overflow: hidden;
+  margin: 1.5em 0;
+`;
+
+const LatexExpressionRow = styled.div`
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+  margin: 0 0 1.25em;
+
+  &:last-child {
+    margin-bottom: 0;
+  }
+
+  & > .katex-display {
+    width: 100%;
+    max-width: 100%;
+    margin: 0;
+    overflow: hidden;
+    text-align: left;
+  }
+
+  & > .katex-display > .katex {
+    display: inline-block;
+    max-width: 100%;
+  }
+`;
+
+const Figure = styled.figure<{ $blend?: boolean; $hero?: boolean }>`
   margin: 1.5em 0;
   position: relative;
   width: 100%;
@@ -349,7 +615,8 @@ const Figure = styled.figure<{ $blend?: boolean }>`
     width: 100%;
     height: auto;
     max-width: 100%;
-    border-radius: 12px;
+    border-radius: ${({ $hero }) => ($hero ? "0" : "12px")};
+    border: ${({ $hero }) => ($hero ? "none" : "unset")};
   }
 
   ${({ $blend }) =>
