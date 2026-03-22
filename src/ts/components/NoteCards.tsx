@@ -1,6 +1,5 @@
 import React from "react";
 import styled from "styled-components";
-import TextareaAutosize from "react-textarea-autosize";
 import type { FFTCanvasHandle } from "@n-apt/components";
 import {
   useAppDispatch,
@@ -123,10 +122,11 @@ const ScrollBody = styled.div`
   flex: 1;
 `;
 
-const TitleInput = styled(TextareaAutosize)`
+const TitleInput = styled.textarea`
   width: 100%;
   min-height: 2.5rem;
   resize: none;
+  field-sizing: content;
   border: 0;
   outline: none;
   background: transparent;
@@ -271,7 +271,6 @@ export const NoteCards: React.FC<NoteCardsProps> = ({ fftCanvasRef }) => {
   const cards = useAppSelector(selectNoteCards);
   const isCollapsed = useAppSelector(selectNoteCardsCollapsed);
   const isHydrated = useNoteCardPersistence(cards, isCollapsed);
-  const titleRef = React.useRef<HTMLTextAreaElement | null>(null);
   const didDragRef = React.useRef(false);
 
   const activeCard = React.useMemo(() => {
@@ -309,17 +308,6 @@ export const NoteCards: React.FC<NoteCardsProps> = ({ fftCanvasRef }) => {
     const snapshot = fftCanvasRef?.current?.getCompositeSnapshot() ?? null;
     void dispatch(createNoteCardFromSpectrum({ snapshot }));
   }, [dispatch, fftCanvasRef]);
-
-  const adjustTitleHeight = React.useCallback(() => {
-    const node = titleRef.current;
-    if (!node) return;
-    node.style.height = "auto";
-    node.style.height = `${node.scrollHeight}px`;
-  }, []);
-
-  React.useEffect(() => {
-    adjustTitleHeight();
-  }, [activeCard?.id, activeCard?.title, adjustTitleHeight]);
 
   React.useEffect(() => {
     if (isHydrated && cards.length === 0) {
@@ -444,15 +432,13 @@ export const NoteCards: React.FC<NoteCardsProps> = ({ fftCanvasRef }) => {
         <Content $collapsed={isCollapsed}>
           <ScrollBody>
             <TitleInput
-              ref={titleRef}
               value={activeCard.title}
               name="note"
               placeholder="This looks like it's it..."
-              minRows={2}
+              rows={2}
               onChange={(event) =>
                 dispatch(updateNoteCardText({ id: activeCard.id, title: event.target.value }))
               }
-              onInput={adjustTitleHeight}
             />
 
             {activeCard.snapshot?.dataUrl ? (

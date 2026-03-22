@@ -10,7 +10,9 @@ import * as lucideIcons from "lucide-react";
 import "highlight.js/styles/github-dark.css";
 import "katex/dist/katex.min.css";
 import BodyAttenuationCanvas from "./BodyAttenuationWebGPUCanvas";
+import { FrequencyModulationCanvas, HeterodyningCanvas, MultipathCanvas, PhaseShiftingCanvas } from "./SignalCanvases";
 import remarkBodyAttenuationBlocks from "./remarkBodyAttenuationBlocks";
+import remarkSignalCanvasBlocks from "./remarkSignalCanvasBlocks";
 import remarkIconShortcodes from "./remarkIconShortcodes";
 import remarkLatexCodeBlocks from "./remarkLatexCodeBlocks";
 
@@ -109,6 +111,10 @@ const App: React.FC = () => {
     a: ({ node: _node, ...props }) => <MarkdownLink target="_blank" rel="noreferrer" {...props} />,
     img: ({ node: _node, ...props }) => <MarkdownImage {...props} />,
     "body-attenuation-canvas": BodyAttenuationCanvas,
+    "phase-shifting-canvas": PhaseShiftingCanvas,
+    "frequency-modulation-canvas": FrequencyModulationCanvas,
+    "multipath-canvas": MultipathCanvas,
+    "heterodyning-canvas": HeterodyningCanvas,
     "icon-inline": IconInline,
   }), []);
 
@@ -123,6 +129,7 @@ const App: React.FC = () => {
               remarkIconShortcodes,
               remarkLatexCodeBlocks,
               remarkBodyAttenuationBlocks,
+              remarkSignalCanvasBlocks,
             ]}
             rehypePlugins={[rehypeRaw, rehypeHighlight, rehypeKatex]}
             components={markdownComponents}
