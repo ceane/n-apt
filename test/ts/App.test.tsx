@@ -57,9 +57,6 @@ jest.mock("@n-apt/components/sidebar/SpectrumSidebar", () => ({
   SpectrumSidebar: () => <div data-testid="spectrum-sidebar">Spectrum Sidebar</div>,
 }));
 
-jest.mock("@n-apt/components/sidebar/AnalysisSidebar", () => ({
-  AnalysisSidebar: () => <div data-testid="analysis-sidebar">Analysis Sidebar</div>,
-}));
 
 jest.mock("@n-apt/components/sidebar/DrawSignalSidebar", () => ({
   DrawSignalSidebar: () => <div data-testid="draw-signal-sidebar">Draw Signal Sidebar</div>,
