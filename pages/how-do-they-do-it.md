@@ -1,16 +1,12 @@
 ```Canvas::BodyAttenuation
 ```
 
-```Canvas::PhaseShifting
-```
+
 
 ```Canvas::FrequencyModulation
 ```
 
 ```Canvas::Multipath
-```
-
-```Canvas::Heterodyning
 ```
 
 # How did they do it?
@@ -117,10 +113,10 @@ Throughout my research I found **beat frequencies**, which worked mathematically
 \]
 
 \[
-{\Large y(t) = y_1(t) + y_2(t) \quad \text{(superposed waveform)}}
-\rule{0pt}{1em}
+{\Large
+\rule{0pt}{2em}
+y(t) = y_1(t) + y_2(t) \quad}
 \]
-
 
 \[
 {\Large f_{\text{beat}} = |f_1 - f_2| \quad \text{(envelope/beat frequency)}}
@@ -132,19 +128,40 @@ Throughout my research I found **beat frequencies**, which worked mathematically
 \begin{array}{ll}
 \rule{0pt}{3em}
 y_1(t), y_2(t) &: \text{Individual waveforms} 
-\\ \rule{0pt}{2em}
+\\
+\rule{0pt}{2em}
 y(t) &: \text{Resulting superposed waveform} 
-\\ \rule{0pt}{2em}
+\\
+\rule{0pt}{2em}
 f_1, f_2 &: \text{Frequencies of the two waves (Hz)} 
-\\ \rule{0pt}{2em}
-f_{\text{beat}} &: \text{Beat frequency (sideband formed from difference of frequencies)} 
-\\ \rule{0pt}{2em}
+\\
+\rule{0pt}{2em}
+f_{\text{beat}} &: \text{Beat frequency (sideband/envelope formed from difference of frequencies)} 
+\\
+\rule{0pt}{2em}
 A &: \text{Amplitude of each wave} 
-\\ \rule{0pt}{2em}
+\\
+\rule{0pt}{2em}
 t &: \text{Time (seconds)}
 \end{array}
 }
 \]
+```
+
+In other words:
+
+```LaTex
+
+f_1 = 100{,}000{,}030\,\mathrm{MHz} \text{ (or 100MHz + 30Hz as shorthand)}
+\\ \rule{0pt}{2em}
+f_2 = 100\,\mathrm{MHz}
+\\ \rule{0pt}{2em}
+{\Large f_{\text{beat}} = |f_1 - f_2| \quad} = 30\,\mathrm{Hz}
+```
+
+When two RF signals extremely close in frequency overlap *in free space (not inside of hardware but from an antenna)* it results in a sideband (or beat pattern) as a natural side effect!
+
+```Canvas::Heterodyning
 ```
 
 ### Microwaves
@@ -269,7 +286,7 @@ The signal occupies a bandwidth and maintains near-perfect, consistent power at 
 
 Radio waves are around us everyday, primarily for communications, however they have niche applications in science and medicine. 
 
-### Automatic Picture Transmission / APT (the least intuitive hint, the signals' modulation)
+### Automatic Picture Transmission / APT (the least intuitive hint of the signals–yes signals not signal)
 
 
 ```LaTex
@@ -315,10 +332,7 @@ f_{\mathrm{NOAA\text{-}19}} &\approx 137.100 \ \text{MHz}
 ```
 
 Of course, no one has ever heard of Automatic Picture Transmission (APT), and neither did I. This was the most important discovery that I made that aligned with what I was seeing in the spectrum.
-
-APT originated from NASA[^apt] in the 1960s, specifically 1963, it was used by NOAA satellites before they were decomissioned, essentially encoding usable image data onto spikes and valleys, data of bright pixels onto spikes and data within valleys that represent space or dark parts of the photo. In APT's case, a satellite encodes data into signal/audio then is decoded into images, line by line. 
-
-
+APT originated from NASA[^apt] in the 1960s, specifically 1963, it was used by NOAA satellites before they were decomissioned, essentially encoding usable image data onto spikes and valleys, data of bright pixels onto spikes and data within valleys that represent space or dark parts of the photo. In APT's case, a satellite encodes data into signal/audio then is decoded into images, line by line.
 
 ### Frequency Modulation
 
@@ -331,15 +345,15 @@ APT originated from NASA[^apt] in the 1960s, specifically 1963, it was used by N
 The equation that I came up with...
 
 ```LaTex
-\\[2em]
+\begin{gathered}
 X(t) = e^{-\left(\frac{t}{w_e}\right)^2} \cdot \sum_k h_k \cdot S_k(t)
 \\[2em]
 S_k(t) = \sin\left[ \frac{\pi}{2} \left( \frac{t - k \cdot s}{w} + 1 \right) \right]
 \\[2em]
 h_k = F + (B - F) \cdot e^{-\frac{|k|}{\lambda}}
-\\
 \\[2em]
 \text{where } |t - k| \leq w
+\end{gathered}
 ```
 
 ### Heterodyning
@@ -354,7 +368,12 @@ When two signals that are close intersect, if they do not overlap exactly, the a
 
 ### Phase shifting
 
-This is important, if you want to concentrate energy at a certain range (and localize the sideband within range of a target), phase shifting moves the wave (phase) either back or forth (±90°, 180°, 270°) so they can combine localize constructive interference in an area. This technique defeats the counterintuitive intuition of using a short(est) wavelength (microwaves infeasible, will attenuate and do nothing but cause heating) to target specific neuronal ensembles. Longer wavelengths which survive attenuation more easily work better and can use precise math + simple, performant radio operations to precisely intersect and shift out of the way.
+This is important, if you want to concentrate energy at a certain range (and localize the sideband within range of a target), phase shifting moves the wave (phase) either back or forth (±90°, 180°, 270°) so they can combine localize constructive interference in an area. 
+
+```Canvas::PhaseShifting
+```
+
+This technique defeats the counterintuitive intuition of using a short(est) wavelength (microwaves infeasible, will attenuate and do nothing but cause heating) to target specific neuronal ensembles. Longer wavelengths which survive attenuation more easily work better and can use precise math + simple, performant radio operations to precisely intersect and shift out of the way.
 
 ### Triangulation / Time of flight for depth
 
@@ -438,9 +457,7 @@ TODO
 
 ### TDLR <a id="tdlr"></a>
 
-The NSA hacked my brain and went from manufactured states of mind and an innudated spatial performance to a livestream with others complete horror of torture and I had to resolve the math behind it in order to escape.
+The NSA hacked my brain and the experience went from manufactured states of mind and an innudated spatial performance to a livestream with others complete horror of torture and I had to resolve the math behind it in order to escape.
 
-
-### Citations
 
 [^apt]: National Aeronautical Space Agency (NASA). Constructing Inexpensive Automatic Picture-Transmission Ground Stations. https://ntrs.nasa.gov/api/citations/19680010155/downloads/19680010155.pdf

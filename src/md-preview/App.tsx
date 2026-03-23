@@ -68,7 +68,6 @@ const renderDisplayExpression = (expression: string) => katex.renderToString(exp
   throwOnError: false,
   displayMode: true,
   strict: "warn",
-  fleqn: true,
   output: "html",
 });
 
@@ -315,7 +314,7 @@ const Page = styled.div`
   display: flex;
   flex-direction: column;
   padding: 0;
-  contain-intrinsic-size: 1000px;
+  min-width: 0;
 `;
 
 const ArticleContent = styled.article`
@@ -325,9 +324,10 @@ const ArticleContent = styled.article`
   color: #acbaff;
   line-height: 1.7;
   font-size: clamp(0.95rem, 1.2vw, 1.1rem);
-  contain-intrinsic-size: 1200px;
   overflow-x: hidden;
-  word-wrap: break-word;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: normal;
 
   h1,
   h2,
@@ -360,6 +360,7 @@ const ArticleContent = styled.article`
     font-family: "DM Mono", monospace;
     font-weight: 300;
     color: #acbaff;
+    overflow-wrap: anywhere;
   }
 
   a {
@@ -369,6 +370,7 @@ const ArticleContent = styled.article`
     text-decoration-color: currentColor;
     text-decoration-thickness: 2.5px;
     text-underline-offset: 4px;
+    overflow-wrap: anywhere;
 
     &:hover {
       text-decoration-style: solid;
@@ -382,10 +384,12 @@ const ArticleContent = styled.article`
     font-family: "DM Mono", monospace;
     font-weight: 300;
     color: #acbaff;
+    overflow-wrap: anywhere;
   }
 
   li {
     margin-bottom: 0.6em;
+    overflow-wrap: anywhere;
   }
 
   blockquote {
@@ -398,6 +402,7 @@ const ArticleContent = styled.article`
     font-family: "DM Mono", monospace;
     font-weight: 300;
     color: #d0d8ff;
+    overflow-wrap: anywhere;
   }
 
   code {
@@ -406,6 +411,7 @@ const ArticleContent = styled.article`
     padding: 0.2em 0.4em;
     border-radius: 4px;
     font-size: 0.9em;
+    overflow-wrap: anywhere;
   }
 
   strong {
@@ -420,6 +426,7 @@ const ArticleContent = styled.article`
     border-radius: 8px;
     padding: 1.2em;
     overflow-x: auto;
+    max-width: 100%;
     margin: 1.5em 0;
 
     code {
@@ -432,6 +439,9 @@ const ArticleContent = styled.article`
 
   table {
     width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    table-layout: fixed;
     border-collapse: separate;
     border-spacing: 0;
     margin: 2em 0;
@@ -450,6 +460,8 @@ const ArticleContent = styled.article`
     padding: 1rem 1.4rem;
     text-align: left;
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    overflow-wrap: anywhere;
+    word-break: normal;
   }
 
   th {
@@ -483,6 +495,38 @@ const ArticleContent = styled.article`
     height: 1px;
     background: rgba(255, 255, 255, 0.08);
     margin: 3em 0;
+  }
+
+  /* Footnote styling */
+  .footnotes {
+    margin-top: 3em;
+    padding-top: 2em;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    font-size: 0.9em;
+    line-height: 1.6;
+  }
+
+  .footnotes ol {
+    padding-left: 1.5em;
+    margin: 0;
+  }
+
+  .footnotes li {
+    margin-bottom: 1em;
+    padding-left: 0.5em;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    max-width: 100%;
+  }
+
+  .footnotes p {
+    margin: 0;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+  }
+
+  .footnotes a {
+    word-break: break-all;
   }
 `;
 
@@ -575,7 +619,9 @@ const CitationLinkWrapper: React.FC<InternalLinkProps> = ({ children, href, $cit
 
 const LatexBlockContainer = styled.div`
   display: grid;
-  width: fit-content;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   overflow: hidden;
   margin: 1.5em 0;
 `;
@@ -583,6 +629,7 @@ const LatexBlockContainer = styled.div`
 const LatexExpressionRow = styled.div`
   width: 100%;
   max-width: 100%;
+  min-width: 0;
   overflow: hidden;
   margin: 0 0 1.25em;
 
@@ -595,7 +642,8 @@ const LatexExpressionRow = styled.div`
     max-width: 100%;
     margin: 0;
     overflow: hidden;
-    text-align: left;
+    text-align: center;
+    font-size: 1.18em;
   }
 
   & > .katex-display > .katex {
@@ -686,7 +734,6 @@ const IconInline: React.FC<IconElementProps> = ({ "data-icon": slug }) => {
     : (lucideIcons as Record<string, any>)[`${componentName}Icon`];
 
   if (!IconComponent) {
-    console.warn(`[IconInline] Could not find Lucide icon for slug "${slug}" (component name "${componentName}")`);
     return <IconFallback>{`:${slug}:`}</IconFallback>;
   }
 
