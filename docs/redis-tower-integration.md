@@ -47,7 +47,7 @@ towers:meta -> HSET (loadedAt, total, bayArea, miami)
 The Redis server is automatically started and loaded when you run the main dev script:
 
 ```bash
-./scripts/build_orchestrator.sh
+npm run dev
 ```
 
 This will:

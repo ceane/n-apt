@@ -133,6 +133,39 @@ function getGeohash(lat, lng, precision = 4) {
 }
 
 /**
+ * Normalize a Redis hash tower record into the local tower shape expected by this loader.
+ */
+function normalizeTowerRecord(towerKey, towerData) {
+  if (!towerData) {
+    return null;
+  }
+
+  const lat = parseFloat(towerData.lat);
+  const lon = parseFloat(towerData.lon);
+
+  if (Number.isNaN(lat) || Number.isNaN(lon) || lat === 0 || lon === 0) {
+    return null;
+  }
+
+  return {
+    id: towerKey,
+    radio: towerData.radio || towerData.type || 'UNKNOWN',
+    mcc: towerData.mcc || '0',
+    mnc: towerData.mnc || '0',
+    lac: towerData.lac || '0',
+    cell: towerData.cell || towerData.cellId || '0',
+    range: towerData.range || '-1',
+    lon,
+    lat,
+    samples: towerData.samples || '0',
+    created: towerData.created || '',
+    updated: towerData.updated || '',
+    state: towerData.state || 'Unknown',
+    tech: towerData.tech || towerData.radio || 'UNKNOWN'
+  };
+}
+
+/**
  * Determine which states intersect with a radius around a point
  */
 function getStatesInRadius(centerLat, centerLng, radiusKm) {
@@ -188,41 +221,16 @@ async function loadLocalTowers(centerLat, centerLng, radiusKm = 25) {
       
       for (const towerKey of batch) {
         try {
-          // Get tower data as JSON string
-          const towerJson = await towerClient.get(towerKey);
-          if (!towerJson) continue;
-          
-          const towerData = JSON.parse(towerJson);
-          
-          // Extract coordinates
-          const lat = towerData.lat;
-          const lon = towerData.lon;
+          // Tower records are stored as Redis hashes by the nationwide loader.
+          const towerData = await towerClient.hGetAll(towerKey);
+          const tower = normalizeTowerRecord(towerKey, towerData);
 
-          // Skip if coordinates are invalid
-          if (!lat || !lon || lat === 0 || lon === 0) {
+          if (!tower) {
             continue;
           }
           
-          // Convert to expected format
-          const tower = {
-            id: towerKey,
-            radio: towerData.type || 'UNKNOWN',
-            mcc: towerData.mcc?.toString() || '',
-            mnc: towerData.mnc?.toString() || '',
-            lac: towerData.lac?.toString() || '',
-            cell: towerData.cellId?.toString() || '',
-            range: towerData.range?.toString() || '0',
-            lon: lon, // Keep as lon for consistency
-            lat: lat,
-            samples: towerData.samples?.toString() || '0',
-            created: towerData.created?.toString() || '',
-            updated: towerData.updated?.toString() || '',
-            state: 'Unknown', // Could be derived from coordinates
-            tech: towerData.type || 'UNKNOWN'
-          };
-          
           allTowers.push(tower);
-        } catch (error) {
+        } catch {
           // Skip invalid tower records
           continue;
         }

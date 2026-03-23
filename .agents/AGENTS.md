@@ -16,9 +16,7 @@ N-APT is an RF spectrum analyzer that processes signal data from SDR hardware. I
 ### Frontend
 
 ```bash
-npm run dev          # Full dev with WASM build
-npm run dev:fast     # Fast dev (no WASM rebuild)
-npm run dev:hot      # Dev with hot config reload
+npm run dev          # Full dev with Ink build orchestrator
 npm run build        # Production build
 npm run preview      # Preview production build
 ```
@@ -178,7 +176,7 @@ n-apt/
 
 1. **Hot Reload**: Edit `mock_signals.yaml` while server runs - changes apply automatically
 2. **WASM Changes**: Use `npm run dev` (rebuilds WASM)
-3. **Fast Iteration**: Use `npm run dev:fast` (skips WASM)
+3. **Fast Iteration**: Use `npm run dev` (single orchestrated flow)
 4. **Before Commit**: Run `npm run test:all`
 5. **Encryption**: WebSocket uses AES-256-GCM, auth via WebAuthn passkeys or password
 

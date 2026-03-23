@@ -1,7 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { execSync } from 'node:child_process';
 
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 12;
@@ -144,7 +143,33 @@ if (mode === 'encrypt') {
     }
     console.log('✔ [pass] Decrypting N-APT modules...');
   } catch (e) {
-    console.error('✗ [fail] Decrypting N-APT modules. Feature will be disabled.');
+    console.error('✗ [fail] Decrypting N-APT modules:', e);
+    // Don't exit with 1 because we want the build to continue as requested
+  }
+} else if (mode === 'decrypt-if-needed') {
+  const fastMathPath = 'src/encrypted-modules/tmp/rs/simd/fast_math.rs';
+  if (fs.existsSync(fastMathPath)) {
+    // Already decrypted, exit silently
+    process.exit(0);
+  }
+  // Not decrypted, run normal decrypt
+  try {
+    // Decrypt LaTeX
+    if (latex && fs.existsSync('src/encrypted-modules/ts.bundle.enc')) {
+      const buffer = fs.readFileSync('src/encrypted-modules/ts.bundle.enc');
+      const decrypted = decrypt(buffer, latex);
+      unbundle(JSON.parse(decrypted), 'src/encrypted-modules/tmp/ts');
+    }
+
+    // Decrypt Demod
+    if (demod && fs.existsSync('src/encrypted-modules/rs.bundle.enc')) {
+      const buffer = fs.readFileSync('src/encrypted-modules/rs.bundle.enc');
+      const decrypted = decrypt(buffer, demod);
+      unbundle(JSON.parse(decrypted), 'src/encrypted-modules/tmp/rs');
+    }
+    console.log('✔ [pass] Decrypting N-APT modules...');
+  } catch (e) {
+    console.error('✗ [fail] Decrypting N-APT modules:', e);
     // Don't exit with 1 because we want the build to continue as requested
   }
 } else {

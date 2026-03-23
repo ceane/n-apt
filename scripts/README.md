@@ -15,12 +15,8 @@ scripts/
 │   └── pre-commit
 ├── build/                  # Build and development scripts 
 │   ├── README.md
-│   ├── build_orchestrator.sh
-│   ├── build_orchestrator_fast.sh
 │   ├── build_wasm.sh
 │   ├── build-orchestrator.tsx     # New ink-based TUI orchestrator
-│   ├── dev.sh
-│   ├── dev_fast.sh
 │   ├── NaptLogo.tsx
 ├── data/                   # Data processing and database scripts 
 │   ├── README.md
@@ -78,12 +74,7 @@ cd scripts/git
 
 ### **Building the Project**
 ```bash
-cd scripts/build
-./build_orchestrator.sh
-# or for development
-./dev.sh
-# or fast development
-./dev_fast.sh
+npm run dev
 ```
 
 ### **Running Tests**
@@ -140,7 +131,6 @@ cd scripts/processing
 ### **Visualization**
 ```bash
 cd scripts/visualization
-./simple_visual_build.sh
 ./iq_to_svg.py input.iq output.svg
 ./test_visual_output.sh
 ```
@@ -184,32 +174,16 @@ Secure commit workflow for sensitive code:
 
 ## 🏗️ Build Scripts Highlights
 
-### **Main Build**
-Comprehensive build orchestrator:
+### **Ink-based TUI Build**
+Modern terminal UI build orchestrator with real-time status:
 ```bash
-./scripts/build/build_orchestrator.sh
+npm run dev
 ```
 
 ### **Development**
 Quick development server:
 ```bash
-./scripts/build/dev.sh
-```
-
-### **Fast Development**
-Optimized build with timeout protection:
-```bash
-./scripts/build/dev_fast.sh
-```
-
-### **Ink-based TUI Build**
-Modern terminal UI build orchestrator with real-time status:
-```bash
-npm run dev:ink
-```
-Or run directly:
-```bash
-npm run build_orchestrator:ink
+npm run dev
 ```
 
 ## 🧪 Test Scripts Highlights

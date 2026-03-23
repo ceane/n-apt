@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { render } from 'ink';
 import { Box, Text, useApp, useInput } from 'ink';
-import { execSync, spawn } from 'child_process';
+import { spawn, spawnSync } from 'child_process';
 import chalk from 'chalk';
 
 // Types
@@ -11,6 +11,7 @@ interface ProcessStatus {
   name: string;
   status: 'pending' | 'running' | 'success' | 'error';
   message?: string;
+  label?: string;
   pid?: number;
 }
 
@@ -41,10 +42,21 @@ const accentColors = {
 
 const processSuffixes: Record<string, { text: string; color: string }> = {
   'Starting frontend server...': { text: ' Vite.', color: accentColors.vite },
-  'Starting Redis server...': { text: ' Redis.', color: accentColors.redis },
+  'Starting Redis database server...': { text: ' Redis.', color: accentColors.redis },
+  'Swapping Redis Database...': { text: ' Redis.', color: accentColors.redis },
   'Building WASM SIMD module...': { text: ' Rust → WebAssembly.', color: accentColors.wasm },
+  'N-APT Encrypted Modules...': { text: ' Rust.', color: accentColors.rust },
   'Starting Rust backend...': { text: ' Rust.', color: accentColors.rust },
 };
+
+const encryptedModulesStatus = {
+  pending: 'N-APT Encrypted Modules...',
+  warning: '⚠ N-APT Encrypted Modules not available',
+  success: '✔ N-APT Encrypted Modules Built',
+  error: '✗ Build error with N-APT Encrypted Modules',
+};
+
+const withEllipsis = (label: string) => (label.endsWith('...') ? label : `${label}...`);
 
 // Napt Logo Component
 const NaptLogo = () => (
@@ -101,10 +113,19 @@ const ProcessStep = ({ process, isActive, spinnerFrame }: { process: ProcessStat
     <Box flexDirection="row" marginBottom={0}>
       <Text>
         <Text color={getStatusColor()}>
-          {getStatusIcon()} {getStatusText()}
+          {getStatusIcon()} {process.label ?? getStatusText()}
         </Text>
-        {processSuffixes[process.name] && (
+        {process.name === 'Swapping Redis Database...' ? (
+          <Text color={accentColors.redis}> Redis.</Text>
+        ) : processSuffixes[process.name] && (
           <Text color={processSuffixes[process.name].color}>{processSuffixes[process.name].text}</Text>
+        )}
+        {process.message && process.name !== 'N-APT Encrypted Modules...' && (
+          <Text
+            color={process.message.startsWith('⚠') ? 'yellow' : process.message.startsWith('✗') ? 'red' : process.message.startsWith('✔') ? 'green' : 'gray'}
+          >
+            {` ${process.message}`}
+          </Text>
         )}
       </Text>
       {isActive && process.status === 'running' && (
@@ -117,13 +138,16 @@ const ProcessStep = ({ process, isActive, spinnerFrame }: { process: ProcessStat
 // Main Build Orchestrator Component
 const BuildOrchestrator = () => {
   const { exit } = useApp();
+  const shutdownRequestedRef = useRef(false);
+  const activeChildrenRef = useRef<Array<ReturnType<typeof spawn>>>([]);
   const [buildState, setBuildState] = useState<BuildState>({
     processes: [
-      { name: 'Cleaning up existing processes...', status: 'pending' },
+      { name: 'Cleaning up existing processes', status: 'pending' },
       { name: 'Starting frontend server...', status: 'pending' },
-      { name: 'Starting Redis server...', status: 'pending' },
-      { name: 'Loading fast select towers (for UI)...', status: 'pending' },
+      { name: 'Starting Redis database server...', status: 'pending' },
+      { name: 'Swapping Redis Database...', status: 'pending' },
       { name: 'Building WASM SIMD module...', status: 'pending' },
+      { name: 'N-APT Encrypted Modules...', status: 'pending' },
       { name: 'Starting Rust backend...', status: 'pending' },
     ],
     currentStep: 0,
@@ -139,7 +163,7 @@ const BuildOrchestrator = () => {
     warningDetails: [],
   });
 
-  const addLog = useCallback((message: string) => {
+  const addLog = useCallback((_message: string) => {
     // Placeholder for future log streaming
   }, []);
 
@@ -162,42 +186,105 @@ const BuildOrchestrator = () => {
     });
   }, []);
 
-  const updateProcessStatus = useCallback((index: number, status: ProcessStatus['status']) => {
+  const updateProcessStatus = useCallback((index: number, status: ProcessStatus['status'], message?: string, label?: string) => {
     setBuildState(prev => ({
       ...prev,
       processes: prev.processes.map((proc, i) =>
-        i === index ? { ...proc, status } : proc
+        i === index ? { ...proc, status, message, label } : proc
       ),
     }));
   }, []);
 
-  const executeCommand = useCallback((command: string, description: string): Promise<boolean> => {
+  const requestShutdown = useCallback(() => {
+    if (shutdownRequestedRef.current) {
+      return;
+    }
+
+    shutdownRequestedRef.current = true;
+    setBuildState(prev => ({
+      ...prev,
+      isBuilding: false,
+      processes: prev.processes.map(proc => ({ ...proc, status: proc.status === 'pending' ? 'error' : proc.status })),
+    }));
+
+    for (const child of activeChildrenRef.current) {
+      try {
+        if (child.pid) {
+          process.kill(-child.pid, 'SIGTERM');
+        }
+      } catch {
+        try {
+          child.kill('SIGTERM');
+        } catch {
+          // Ignore kill errors during shutdown.
+        }
+      }
+    }
+
+    activeChildrenRef.current = [];
+    exit();
+  }, [exit]);
+
+  const executeCommand = useCallback((command: string, description: string): Promise<{ success: boolean; output: string }> => {
     return new Promise((resolve) => {
       try {
         addLog(chalk.blue(`Executing: ${command}`));
-        const result = execSync(command, {
-          encoding: 'utf8',
-          stdio: 'pipe',
-          cwd: './' // Run from project root
+        const child = spawn(command, [], {
+          shell: true,
+          cwd: './',
+          stdio: ['ignore', 'pipe', 'pipe'],
+          detached: true,
         });
 
-        if (result.trim()) {
-          addLog(chalk.green(result.trim()));
-        }
-        addLog(chalk.green(`${description} completed successfully`));
-        resolve(true);
+        activeChildrenRef.current.push(child);
+        let stdout = '';
+        let stderr = '';
+
+        child.stdout?.on('data', (data: Buffer) => {
+          const chunk = data.toString();
+          stdout += chunk;
+          addLog(chunk.trim());
+        });
+
+        child.stderr?.on('data', (data: Buffer) => {
+          const chunk = data.toString();
+          stderr += chunk;
+          addLog(chalk.red(chunk.trim()));
+        });
+
+        child.on('close', (code) => {
+          activeChildrenRef.current = activeChildrenRef.current.filter((proc) => proc !== child);
+          if (shutdownRequestedRef.current) {
+            resolve({ success: false, output: stdout });
+            return;
+          }
+
+          if (code === 0) {
+            if (stdout.trim()) {
+              addLog(chalk.green(stdout.trim()));
+            }
+            addLog(chalk.green(`${description} completed successfully`));
+            resolve({ success: true, output: stdout });
+            return;
+          }
+
+          const errorMessage = stderr.trim() || stdout.trim() || `Command exited with code ${code ?? 'unknown'}`;
+          addLog(chalk.red(`Error in ${description}: ${errorMessage}`));
+          appendErrorDetail(`${description}: ${errorMessage}`);
+          resolve({ success: false, output: stdout });
+        });
+
+        child.on('error', (error: any) => {
+          activeChildrenRef.current = activeChildrenRef.current.filter((proc) => proc !== child);
+          addLog(chalk.red(`Error in ${description}: ${error.message}`));
+          appendErrorDetail(`${description}: ${error.message}`);
+          resolve({ success: false, output: '' });
+        });
+
       } catch (error: any) {
         addLog(chalk.red(`Error in ${description}: ${error.message}`));
         appendErrorDetail(`${description}: ${error.message}`);
-        if (error.stdout) {
-          addLog(chalk.yellow(`stdout: ${error.stdout}`));
-          appendWarningDetail(error.stdout);
-        }
-        if (error.stderr) {
-          addLog(chalk.red(`stderr: ${error.stderr}`));
-          appendErrorDetail(error.stderr);
-        }
-        resolve(false);
+        resolve({ success: false, output: '' });
       }
     });
   }, [addLog, appendErrorDetail, appendWarningDetail]);
@@ -244,6 +331,7 @@ const BuildOrchestrator = () => {
             addLog(chalk.green(`${description} started (PID: ${child.pid})`));
             // Store the PID
             setBuildState(prev => ({ ...prev, [pidKey]: child.pid }));
+            activeChildrenRef.current.push(child);
             child.unref(); // Allow parent to exit
             resolve(true);
           } else {
@@ -263,6 +351,36 @@ const BuildOrchestrator = () => {
 
   const runBuild = useCallback(async () => {
     setBuildState(prev => ({ ...prev, isBuilding: true }));
+
+    const localOpenCellIdPath = process.env.LOCAL_OPENCELLID_CSV_DIR || 'data/opencellid';
+    const redisPort = process.env.REDIS_PORT || '6379';
+    const readRedisTowerCount = (db: string) => {
+      const result = spawnSync('bash', ['-lc', `redis-cli -p ${redisPort} -n ${db} --raw keys 'tower:*' | wc -l`], { encoding: 'utf8' });
+      if (result.status !== 0) return 0;
+      const parsed = Number.parseInt((result.stdout || '').trim(), 10);
+      return Number.isFinite(parsed) ? parsed : 0;
+    };
+    const getTowerLoadDescription = () => {
+      if (process.env.LOCAL_OPENCELLID_CSV_DIR) {
+        return `Loading local OpenCellID data into Redis from ${localOpenCellIdPath}...`;
+      }
+
+      return (readRedisTowerCount('2') > 0 || readRedisTowerCount('3') > 0)
+        ? 'Swapping Redis Database...'
+        : 'Downloading OpenCellID data and loading it into Redis...';
+    };
+
+    const getTowerCountLabel = (stepLabel: string) => {
+      if (stepLabel.startsWith('Swapping Redis Database')) {
+        return { count: readRedisTowerCount('2'), source: 'Fast DB' };
+      }
+
+      if (stepLabel.startsWith('Loading local OpenCellID data into Redis')) {
+        return { count: readRedisTowerCount('2'), source: 'Fast DB' };
+      }
+
+      return { count: readRedisTowerCount('3'), source: 'Whole DB' };
+    };
 
     const steps = [
       {
@@ -312,50 +430,50 @@ else
   exit 1
 fi
 "`,
-        description: 'Starting Redis server',
+        description: 'Starting Redis database server',
         isBackground: true,
         pidKey: 'redisPid' as const,
       },
       {
         index: 3,
-        command: `bash -lc "
+        command: `bash -lc '
 set -euo pipefail
-REDIS_PORT=\"\${REDIS_PORT:-6379}\"
-if [ -z \"$REDIS_PORT\" ] || [ \"$REDIS_PORT\" = '0' ]; then
+REDIS_PORT="${'${'}REDIS_PORT:-6379}"
+if ! [[ "$REDIS_PORT" =~ ^[0-9]+$ ]] || [ "$REDIS_PORT" -le 0 ] || [ "$REDIS_PORT" -gt 65535 ]; then
   REDIS_PORT=6379
 fi
 if ! command -v redis-cli >/dev/null 2>&1; then
-  echo 'redis-cli not available'
+  echo "redis-cli not available"
   exit 1
 fi
-if ! redis-cli -p $REDIS_PORT ping >/dev/null 2>&1; then
-  echo 'Redis must be running before loading towers'
+if ! redis-cli -p "$REDIS_PORT" ping >/dev/null 2>&1; then
+  echo "Redis must be running before loading towers on port $REDIS_PORT"
   exit 1
 fi
-FAST_COUNT=$(redis-cli -p $REDIS_PORT -n 2 dbsize 2>/dev/null || echo 0)
-FULL_COUNT=$(redis-cli -p $REDIS_PORT -n 3 dbsize 2>/dev/null || echo 0)
+FAST_COUNT=${'$'}(redis-cli -p "$REDIS_PORT" -n 2 dbsize 2>/dev/null || echo 0)
+FULL_COUNT=${'$'}(redis-cli -p "$REDIS_PORT" -n 3 dbsize 2>/dev/null || echo 0)
 if [ "$FAST_COUNT" -gt 0 ] && [ "$FULL_COUNT" -gt 0 ]; then
   exit 0
 fi
-if [ ! -f 'scripts/redis/download_opencellid_cached.cjs' ]; then
-  echo 'scripts/redis/download_opencellid_cached.cjs missing; skipping tower import'
+if [ ! -f "scripts/redis/download_opencellid_cached.cjs" ]; then
+  echo "scripts/redis/download_opencellid_cached.cjs missing; skipping tower import"
   exit 0
 fi
 if npm run towers:download:cached; then
-  TEMP_FAST=$(redis-cli -p $REDIS_PORT -n 0 dbsize 2>/dev/null || echo 0)
-  TEMP_FULL=$(redis-cli -p $REDIS_PORT -n 1 dbsize 2>/dev/null || echo 0)
+  TEMP_FAST=${'$'}(redis-cli -p "$REDIS_PORT" -n 0 dbsize 2>/dev/null || echo 0)
+  TEMP_FULL=${'$'}(redis-cli -p "$REDIS_PORT" -n 1 dbsize 2>/dev/null || echo 0)
   if [ "$TEMP_FAST" -eq 0 ] || [ "$TEMP_FULL" -eq 0 ]; then
-    echo 'Tower download skipped or produced no data; leaving existing DBs untouched.'
+    echo "Tower download skipped or produced no data; leaving existing DBs untouched."
     exit 0
   fi
-  redis-cli -p $REDIS_PORT swapdb 0 2 >/dev/null
-  redis-cli -p $REDIS_PORT swapdb 1 3 >/dev/null
+  redis-cli -p "$REDIS_PORT" swapdb 0 2 >/dev/null
+  redis-cli -p "$REDIS_PORT" swapdb 1 3 >/dev/null
   exit 0
 fi
-echo 'Failed to load tower data'
+echo "Failed to load tower data"
 exit 1
-"`,
-        description: 'Loading fast select towers',
+'`,
+        description: 'Swapping Redis Database...',
         isBackground: false,
         pidKey: undefined,
       },
@@ -368,6 +486,25 @@ exit 1
       },
       {
         index: 5,
+        command: `bash -lc '
+set -euo pipefail
+if npm run decrypt-modules >/dev/null 2>&1; then
+  if [ -f "src/encrypted-modules/tmp/rs/simd/fast_math.rs" ]; then
+    echo "${encryptedModulesStatus.success}"
+    exit 0
+  fi
+  echo "${encryptedModulesStatus.warning}"
+  exit 0
+fi
+echo "${encryptedModulesStatus.error}"
+exit 1
+'`,
+        description: 'N-APT Encrypted Modules',
+        isBackground: false,
+        pidKey: undefined,
+      },
+      {
+        index: 6,
         command: 'cargo run --bin n-apt-backend',
         description: 'Starting Rust backend',
         isBackground: true,
@@ -379,23 +516,49 @@ exit 1
       updateProcessStatus(step.index, 'running');
 
       let success: boolean;
+      const stepLabelBase = step.index === 3 ? getTowerLoadDescription() : step.description;
+      const stepLabel = step.index === 0 ? stepLabelBase : withEllipsis(stepLabelBase);
+      updateProcessStatus(step.index, 'running', undefined, stepLabel);
+
       if (step.isBackground && step.pidKey) {
         success = await startBackgroundProcess(step.command, step.description, step.pidKey);
       } else if (step.isBackground) {
         success = await startBackgroundProcess(step.command, step.description, 'vitePid');
       } else {
-        success = await executeCommand(step.command, step.description);
+        const result = await executeCommand(step.command, stepLabel);
+        success = result.success;
       }
 
       if (success) {
-        updateProcessStatus(step.index, 'success');
+        if (step.index === 3) {
+          const { count, source } = getTowerCountLabel(stepLabel);
+          updateProcessStatus(step.index, 'success', `(${count} towers in DB / ${source})`, stepLabel);
+        } else if (step.index === 5) {
+          updateProcessStatus(step.index, 'success', undefined, 'N-APT Encrypted Modules...');
+        } else {
+          updateProcessStatus(step.index, 'success', undefined, stepLabel);
+        }
       } else {
-        updateProcessStatus(step.index, 'error');
+        if (step.index === 5) {
+          updateProcessStatus(step.index, 'error', undefined, 'N-APT Encrypted Modules...');
+        } else {
+          updateProcessStatus(step.index, 'error', undefined, stepLabel);
+        }
         appendErrorDetail(`${step.description} failed`);
       }
 
       // Small delay between steps for visual clarity
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await new Promise(resolve => {
+        const timeout = setTimeout(resolve, 500);
+        if (shutdownRequestedRef.current) {
+          clearTimeout(timeout);
+          resolve(undefined);
+        }
+      });
+
+      if (shutdownRequestedRef.current) {
+        break;
+      }
     }
 
     setBuildState(prev => ({ ...prev, isBuilding: false }));
@@ -405,9 +568,23 @@ exit 1
   useInput((input, key) => {
     if (key.escape || key.ctrl || input === 'q') {
       addLog(chalk.yellow('Build interrupted by user'));
-      exit();
+      requestShutdown();
     }
   });
+
+  useEffect(() => {
+    const handleSigint = () => {
+      requestShutdown();
+    };
+
+    process.once('SIGINT', handleSigint);
+    process.once('SIGTERM', handleSigint);
+
+    return () => {
+      process.off('SIGINT', handleSigint);
+      process.off('SIGTERM', handleSigint);
+    };
+  }, [requestShutdown]);
 
   // Auto-start build on mount
   useEffect(() => {
@@ -521,7 +698,7 @@ exit 1
                     <Text color={accentColors.rust}>http://localhost:8765</Text>{' '}
                     <Text color="gray">(websockets backend)</Text>
                   </Text>
-                  <Text color={accentColors.wasm}>packages/n_apt_canvas (WebGPU wasm_simd build)</Text>
+                  <Text color="gray">packages/n_apt_canvas (WebGPU wasm_simd build)</Text>
                   <Text>
                     <Text color={accentColors.redis}>redis://localhost:6379</Text>{' '}
                     <Text color="gray">(Redis service)</Text>
