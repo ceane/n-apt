@@ -4,19 +4,7 @@ This guide covers the optimized development workflow for N-APT with hot reloadin
 
 ## Quick Start
 
-### For Development with Hot Reload
-
-```bash
-npm run dev:hot
-```
-
-### For Fast Development (no WASM build)
-
-```bash
-npm run dev:fast
-```
-
-### For Full Development (includes WASM)
+### For Development
 
 ```bash
 npm run dev
@@ -26,9 +14,7 @@ npm run dev
 
 | Command                | Description                                        | Use Case                 |
 | ---------------------- | -------------------------------------------------- | ------------------------ |
-| `npm run dev:hot`      | **Recommended** - Dev server with hot reload setup | Daily development        |
-| `npm run dev:fast`     | Fast dev server (no WASM build)                    | Quick backend testing    |
-| `npm run dev`          | Full dev server with WASM build                    | When WASM changes needed |
+| `npm run dev`          | **Recommended** - Ink-based dev orchestrator       | Daily development        |
 | `npm run server:dev`   | Backend only in dev mode                           | Backend-only work        |
 | `npm run server:build` | Build backend without running                      | CI/CD or pre-deployment  |
 
@@ -80,11 +66,11 @@ signals:
 
 ## Development Tips
 
-### 1. Use `npm run dev:hot` for most development
+### 1. Use `npm run dev` for most development
 
-- Sets up hot reload automatically
-- Creates default config if missing
-- Fastest feedback loop
+- Starts the Ink-based build orchestrator
+- Decrypts modules before launch when needed
+- Shows real-time build and runtime status
 
 ### 2. Edit configuration instead of code when possible
 
@@ -92,15 +78,14 @@ signals:
 - Test different frequencies without rebuild
 - Modify signal strengths in real-time
 
-### 3. Use appropriate script for your task
+### 3. Use the appropriate script for your task
 
-- `dev:fast` for backend-only changes
-- `dev` when WASM needs rebuilding
+- `dev` for the full development workflow
 - `server:dev` for backend-only testing
 
 ### 4. Hot reload workflow
 
-1. Start with `npm run dev:hot`
+1. Start with `npm run dev`
 2. Edit `mock_signals.yaml`
 3. Changes appear immediately in UI
 4. No server restart needed
@@ -115,7 +100,7 @@ signals:
 
 ### Build performance issues
 
-1. Use `npm run dev:fast` instead of `npm run dev`
+1. Use `npm run dev` instead of the legacy development commands
 2. Ensure sufficient disk space
 3. Check if antivirus is interfering
 
@@ -145,7 +130,7 @@ n-apt/
 
 ## Next Steps
 
-1. Run `npm run dev:hot` to start development
+1. Run `npm run dev` to start development
 2. Edit `mock_signals.yaml` to test hot reload
 3. Use the new npm scripts for efficient development
 4. Check the Performance Guide for optimization details

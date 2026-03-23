@@ -37,18 +37,6 @@ npm install
 #### For Development (Recommended)
 
 ```bash
-npm run dev:hot
-```
-
-#### For Fast Development (Backend Only)
-
-```bash
-npm run dev:fast
-```
-
-#### For Full Development (Includes WASM Build)
-
-```bash
 npm run dev
 ```
 
@@ -69,7 +57,7 @@ This command will:
 
 The app will be available at `http://localhost:5173` with the WebSocket server running on `ws://localhost:8765`.
 
-> **💡 Tip:** Use `npm run dev:hot` for the best development experience with hot reloading enabled.
+> **💡 Tip:** Use `npm run dev` for the best development experience with the Ink-based build orchestrator.
 
 For detailed development instructions, see [.agents/DEVELOPMENT.md](.agents/DEVELOPMENT.md).
 

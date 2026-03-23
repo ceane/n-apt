@@ -515,6 +515,15 @@ async function main() {
     console.log(`🔑 Using API token: ${OPENCELLID_API_TOKEN.substring(0, 10)}...`);
     
     if (shouldSkipRun()) {
+      await initRedis();
+      try {
+        const fastCount = await fastRedisClient.dbSize();
+        const completeCount = await completeRedisClient.dbSize();
+        console.log(`TOWER_COUNT=${fastCount + completeCount}`);
+      } finally {
+        await fastRedisClient.quit();
+        await completeRedisClient.quit();
+      }
       return;
     }
     

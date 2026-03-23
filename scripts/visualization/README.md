@@ -23,8 +23,9 @@ Graphics, SVG generation, and IQ data processing utilities.
 ```
 
 ### Visual Build
+Use the Ink-based orchestrator from the repo root:
 ```bash
-./simple_visual_build.sh
+npm run dev
 ```
 
 ### Run Tests

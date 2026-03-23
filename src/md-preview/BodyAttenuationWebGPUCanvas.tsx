@@ -7,21 +7,21 @@ import { CanvasText } from "./CanvasText";
 
 const BASE_URL = (import.meta.env.BASE_URL ?? "/").replace(/\/$/, "");
 const BODY_CHARACTER_SRC = `${BASE_URL}/md-preview/body-attenuation-character.png`;
-const BACKGROUND_COLOR = "#e3e3e3";
+const BACKGROUND_COLOR = "#e0e0e2";
 
 const DEFAULTS = {
   transmitPowerDbm: -8,
   receivePowerDbm: -52,
   skinThicknessCm: 0.22,
   skullThicknessCm: 0.68,
-  frequencyHz: 13.56e6,
+  frequencyHz: 1.618e6,
   referenceFrequencyHz: 1e6,
   exponent: 0.5,
   skinLossRefDbPerCm: 1.1,
   skullLossRefDbPerCm: 2.35,
   mediumLossRefDbPerCm: 0.09,
-  minDistanceCm: 2,
-  maxDistanceCm: 58,
+  minDistanceCm: 3000,
+  maxDistanceCm: 50000,
 };
 
 const CHARACTER_SIZE = {
@@ -29,7 +29,7 @@ const CHARACTER_SIZE = {
   height: 5.32,
 };
 
-const FLIP_EFFECT_DURATION_MS = 720;
+const FLIP_EFFECT_DURATION_MS = 1100;
 
 const peelVertexShader = `
   uniform float uProgress;
@@ -97,17 +97,33 @@ const shimmerFragmentShader = `
       discard;
     }
 
-    float sweep = mix(-0.2, 1.2, smoothstep(0.0, 1.0, uProgress));
-    float verticalBand = exp(-pow((vUv.y - sweep) * 7.0, 2.0));
-    float verticalCore = exp(-pow((vUv.y - sweep) * 14.0, 2.0));
-    float diagonalBand = exp(-pow((vUv.x + vUv.y * 0.85 - (uProgress * 1.55 - 0.2)) * 5.8, 2.0));
+    float t = uProgress * 6.2831853;
+    float yCurve = pow(abs(vUv.y - 0.5) * 2.0, 1.9);
+    float archCenter = 0.22 + 0.10 * yCurve + 0.008 * sin(t * 0.21);
+    float archBand = exp(-pow((vUv.x - archCenter) * 5.8, 2.0));
+    float innerGlow = exp(-pow((vUv.x - (archCenter - 0.035)) * 10.0, 2.0));
+    float outerGlow = exp(-pow((vUv.x - (archCenter + 0.04)) * 8.2, 2.0));
+
+    float rippleA = sin(vUv.x * 10.0 + vUv.y * 4.0 + t * 0.22);
+    float rippleB = sin(vUv.x * 5.0 - vUv.y * 7.5 - t * 0.14);
+    float rippleC = sin(vUv.x * 2.8 + vUv.y * 11.0 + t * 0.08);
+    float ripple = 0.5 + 0.10 * rippleA + 0.07 * rippleB + 0.05 * rippleC;
     float peelMask = smoothstep(0.03, 0.2, vPeel);
-    float alphaMask = sampleColor.a * peelMask * uGleamStrength;
-    float rainbowCoord = clamp(vUv.x * 0.55 + vUv.y * 1.15 + uProgress * 0.5, 0.0, 1.0);
-    vec3 rainbow = rainbowGradient(rainbowCoord);
-    float shimmerShape = verticalBand * 0.9 + verticalCore * 0.8 + diagonalBand * 0.75;
-    vec3 color = (rainbow * shimmerShape + vec3(1.0, 0.98, 0.94) * verticalCore * 0.9) * smoothstep(0.0, 0.02, sampleColor.a);
-    float alpha = clamp(shimmerShape * alphaMask * 0.95, 0.0, 0.92);
+    float edgeGlow = pow(1.0 - clamp(abs(vUv.y - 0.5) * 1.8, 0.0, 1.0), 3.2);
+    float fresnel = pow(edgeGlow, 1.6);
+    float highlight = pow(clamp(ripple, 0.0, 1.0), 2.8) * (0.12 + fresnel * 0.32);
+    float shimmerShape = (archBand * 0.46 + innerGlow * 0.24 + outerGlow * 0.20 + highlight * 0.28) * peelMask;
+    float alphaMask = sampleColor.a * uGleamStrength;
+
+    vec3 paperShadow = vec3(0.80, 0.82, 0.84);
+    vec3 paperMid = vec3(0.88, 0.90, 0.92);
+    vec3 paperLight = vec3(0.95, 0.96, 0.97);
+    vec3 tint = mix(paperShadow, paperMid, clamp(archBand * 0.75 + ripple * 0.20, 0.0, 1.0));
+    tint = mix(tint, paperLight, fresnel * 0.24 + highlight * 0.42);
+
+    float alpha = clamp((0.035 + shimmerShape * 0.20 + fresnel * 0.08) * alphaMask, 0.0, 0.34);
+    vec3 color = tint * (0.74 + shimmerShape * 0.18) + paperLight * (fresnel * 0.10 + highlight * 0.12);
+    color *= smoothstep(0.0, 0.02, sampleColor.a);
 
     gl_FragColor = vec4(color, alpha);
   }
@@ -121,53 +137,214 @@ const peelFragmentShader = `
   varying vec2 vUv;
   varying float vPeel;
 
-  vec3 rainbowGradient(float t) {
-    vec3 pink = vec3(1.0, 0.33, 0.76);
-    vec3 violet = vec3(0.72, 0.42, 1.0);
-    vec3 cyan = vec3(0.25, 0.9, 1.0);
-    vec3 lime = vec3(0.9, 1.0, 0.42);
-    vec3 gold = vec3(1.0, 0.82, 0.34);
+  vec3 iridescentGradient(float t) {
+    vec3 white = vec3(1.0, 1.0, 1.0);
+    vec3 pearl = vec3(0.95, 0.92, 1.0);
+    vec3 silver = vec3(0.88, 0.90, 0.94);
+    vec3 blush = vec3(1.0, 0.94, 0.96);
+    vec3 ice = vec3(0.92, 0.97, 1.0);
 
-    if (t < 0.25) {
-      return mix(pink, violet, smoothstep(0.0, 0.25, t));
-    }
-
-    if (t < 0.5) {
-      return mix(violet, cyan, smoothstep(0.25, 0.5, t));
-    }
-
-    if (t < 0.75) {
-      return mix(cyan, lime, smoothstep(0.5, 0.75, t));
-    }
-
-    return mix(lime, gold, smoothstep(0.75, 1.0, t));
+    if (t < 0.25) return mix(white, pearl, smoothstep(0.0, 0.25, t));
+    if (t < 0.5) return mix(pearl, ice, smoothstep(0.25, 0.5, t));
+    if (t < 0.75) return mix(ice, blush, smoothstep(0.5, 0.75, t));
+    return mix(blush, silver, smoothstep(0.75, 1.0, t));
   }
 
   void main() {
     vec4 sampleColor = texture2D(uTexture, vUv);
     float alphaFactor = smoothstep(0.0, 0.02, sampleColor.a);
 
-    float gleamHead = mix(-0.35, 1.35, smoothstep(0.05, 0.95, uProgress));
-    float shimmerHead = mix(-0.2, 1.2, smoothstep(0.0, 1.0, uProgress));
-    float gleamBand = exp(-pow((vUv.x - gleamHead) * 11.0, 2.0));
-    float gleamTail = exp(-pow((vUv.x - (gleamHead - 0.08)) * 6.0, 2.0));
-    float shimmerBand = exp(-pow((vUv.y - shimmerHead) * 8.5, 2.0));
-    float shimmerCore = exp(-pow((vUv.y - shimmerHead) * 18.0, 2.0));
-    float shimmerTrailingBand = exp(-pow((vUv.y - (shimmerHead - 0.16)) * 5.5, 2.0));
     float peelMask = smoothstep(0.02, 0.18, vPeel);
     float edgeLight = pow(clamp(vPeel, 0.0, 1.0), 1.15) * 0.2 * alphaFactor;
-    vec3 gleam = vec3(1.0, 0.99, 0.92) * (gleamBand + gleamTail * 0.45) * peelMask * uGleamStrength * alphaFactor;
-    float rainbowCoord = clamp(vUv.x * 0.72 + vUv.y * 0.9 + uProgress * 0.45, 0.0, 1.0);
-    vec3 rainbowMix = rainbowGradient(rainbowCoord);
-    float shimmerMask = (shimmerBand * 0.95 + shimmerCore * 0.85 + shimmerTrailingBand * 0.55) * peelMask * uGleamStrength * alphaFactor;
-    vec3 shimmerOverlay = rainbowMix * shimmerMask;
-    vec3 shimmerSpecular = vec3(1.0, 0.98, 0.94) * shimmerCore * peelMask * uGleamStrength * 0.8 * alphaFactor;
-    vec3 composited = mix(sampleColor.rgb, sampleColor.rgb + shimmerOverlay, clamp(shimmerMask * 0.9, 0.0, 1.0));
-    vec3 finalColor = composited + gleam + shimmerSpecular + vec3(edgeLight);
+
+    // Vertical gleam sweep (top to bottom) during flip
+    float shimmerHead = mix(-0.2, 1.2, smoothstep(0.0, 1.0, uProgress));
+    float shimmerBand = exp(-pow((vUv.y - shimmerHead) * 8.5, 2.0));
+    float shimmerCore = exp(-pow((vUv.y - shimmerHead) * 18.0, 2.0));
+    float shimmerTrail = exp(-pow((vUv.y - (shimmerHead - 0.16)) * 5.5, 2.0));
+
+    float shimmerMask = (shimmerBand * 0.9 + shimmerCore * 0.85 + shimmerTrail * 0.5) * peelMask * uGleamStrength * alphaFactor;
+
+    // Iridescent tint
+    float iridCoord = clamp(vUv.x * 0.5 + vUv.y * 0.8 + uProgress * 0.3, 0.0, 1.0);
+    vec3 iridColor = iridescentGradient(iridCoord);
+
+    vec3 shimmerOverlay = iridColor * shimmerMask;
+    vec3 specular = vec3(1.0, 0.99, 0.96) * shimmerCore * peelMask * uGleamStrength * 0.8 * alphaFactor;
+
+    vec3 finalColor = sampleColor.rgb + shimmerOverlay + specular + vec3(edgeLight);
 
     gl_FragColor = vec4(finalColor, sampleColor.a);
   }
 `;
+
+const radioWaveVertexShader = `
+  varying vec2 vUv;
+  void main() {
+    vUv = uv;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+
+const radioWaveFragmentShader = `
+  uniform float uTime;
+  uniform float uFlipX;
+  uniform float uFlipFromSide;
+  uniform float uFlipProgress;
+  uniform sampler2D uBodyTexture;
+  uniform vec4 uBodyRect;
+  varying vec2 vUv;
+
+  float sampleBodyOriented(vec2 uv, float side) {
+    vec2 bodyUv = (uv - uBodyRect.xy) / uBodyRect.zw;
+    if (bodyUv.x < 0.0 || bodyUv.x > 1.0 || bodyUv.y < 0.0 || bodyUv.y > 1.0) return 0.0;
+    if (side < 0.0) bodyUv.x = 1.0 - bodyUv.x;
+    return texture2D(uBodyTexture, bodyUv).a;
+  }
+
+  float sampleBody(vec2 uv) {
+    if (uFlipProgress < 0.01) {
+      return sampleBodyOriented(uv, uFlipX);
+    }
+    // Blend between from-side and to-side silhouettes during flip
+    float fromAlpha = sampleBodyOriented(uv, uFlipFromSide);
+    float toAlpha = sampleBodyOriented(uv, -uFlipFromSide);
+    return mix(fromAlpha, toAlpha, uFlipProgress);
+  }
+
+  float bodyEdge(vec2 uv, float radius) {
+    float center = sampleBody(uv);
+    float maxNeighbor = 0.0;
+    for (float dx = -1.0; dx <= 1.0; dx += 1.0) {
+      for (float dy = -1.0; dy <= 1.0; dy += 1.0) {
+        if (dx == 0.0 && dy == 0.0) continue;
+        maxNeighbor = max(maxNeighbor, sampleBody(uv + vec2(dx, dy) * radius));
+      }
+    }
+    return maxNeighbor * (1.0 - center);
+  }
+
+  void main() {
+    float speed = 0.35;
+    float progress = mod(uTime * speed, 2.2) - 0.6;
+
+    float bodyAlpha = sampleBody(vUv);
+    bool insideBody = bodyAlpha > 0.15;
+
+    // Radio wave arc shape
+    float arcOffset = 0.25 * pow(abs(vUv.y - 0.5) * 2.0, 2.2);
+    float dist = (vUv.x + arcOffset) - progress;
+
+    // Sharp front, smooth tail
+    float bodyStrength = smoothstep(0.02, 0.0, dist) * smoothstep(-0.5, 0.0, dist);
+
+    // Rippling distortion
+    float ripple1 = sin((vUv.x * 7.5) - (uTime * 2.6) + (vUv.y * 2.8));
+    float ripple2 = sin((vUv.x * 13.0) + (vUv.y * 4.0) - (uTime * 4.2));
+    float ripple3 = sin((vUv.x * 4.0) - (vUv.y * 9.0) + (uTime * 1.5));
+    float ripple = ripple1 * 0.42 + ripple2 * 0.33 + ripple3 * 0.25;
+    float wave = ripple * 0.5 + 0.5;
+
+    float edge = smoothstep(0.03, 0.0, abs(dist));
+    float edgeFalloff = smoothstep(0.18, -0.06, dist);
+    float bodyDepth = smoothstep(0.0, 0.78, bodyStrength);
+
+    float fresnel = pow(1.0 - clamp(abs(vUv.y - 0.5) * 1.9, 0.0, 1.0), 2.4);
+    float crest = pow(wave, 4.0) * edge * 0.6;
+    float trough = (1.0 - wave) * bodyStrength * 0.08;
+    float caustics = smoothstep(0.28, 0.96, wave) * bodyStrength * 0.12;
+
+    float alpha = (bodyStrength * 0.02 + caustics + crest + fresnel * 0.22) * edgeFalloff;
+    alpha *= smoothstep(-0.15, 0.15, vUv.x + arcOffset - progress + 0.5);
+    alpha *= smoothstep(1.15, 0.85, vUv.x);
+
+    // Suppress wave inside the silhouette
+    if (insideBody) {
+      alpha = 0.0;
+    }
+
+    // Silhouette edge outline glow when wave front is near
+    float edgeDetect = bodyEdge(vUv, 0.008);
+    float waveFrontX = progress - arcOffset;
+    float nearWave = smoothstep(0.35, 0.0, abs(vUv.x - waveFrontX));
+    float outlineAlpha = edgeDetect * nearWave * 0.8;
+
+    // Force field palette
+    vec3 darkCore = vec3(0.02, 0.02, 0.03);
+    vec3 midTone = vec3(0.18, 0.19, 0.22);
+    vec3 brightEdge = vec3(0.92, 0.94, 0.96);
+    vec3 hotWhite = vec3(1.0, 0.98, 0.95);
+
+    vec3 waveBody = mix(darkCore, midTone, wave * 0.5 + bodyDepth * 0.3);
+    vec3 edgeGlow = mix(midTone, brightEdge, fresnel * 0.8 + crest * 1.0);
+    vec3 color = mix(waveBody, edgeGlow, clamp(fresnel + crest * 0.9, 0.0, 1.0));
+    color += hotWhite * edge * 0.35;
+    color += vec3(0.03) * trough;
+
+    // Outline color with shimmer
+    float outlineRipple = 0.5 + 0.5 * sin(vUv.y * 30.0 - uTime * 3.0);
+    vec3 outlineColor = mix(brightEdge, hotWhite, outlineRipple * 0.6);
+    color = mix(color, outlineColor, clamp(outlineAlpha, 0.0, 1.0));
+    float finalAlpha = clamp(alpha + outlineAlpha, 0.0, 0.85);
+
+    gl_FragColor = vec4(color, finalAlpha);
+  }
+`;
+
+const RadioWave: React.FC<{ bodyTexture: THREE.Texture; facingSide: number; flipEffect: FlipEffectState }> = ({ bodyTexture, facingSide, flipEffect }) => {
+  const materialRef = useRef<THREE.ShaderMaterial>(null);
+
+  const uniforms = useMemo(() => {
+    const charWorldX = 0;
+    const charWorldY = -0.55;
+    const halfW = CHARACTER_SIZE.width / 2;
+    const halfH = CHARACTER_SIZE.height / 2;
+    const uvLeft = (charWorldX - halfW + 5) / 10;
+    const uvBottom = (charWorldY - halfH + 3.25) / 6.5;
+    const uvW = CHARACTER_SIZE.width / 10;
+    const uvH = CHARACTER_SIZE.height / 6.5;
+
+    return {
+      uTime: { value: 0 },
+      uFlipX: { value: 1 },
+      uFlipFromSide: { value: 1 },
+      uFlipProgress: { value: 0 },
+      uBodyTexture: { value: bodyTexture },
+      uBodyRect: { value: new THREE.Vector4(uvLeft, uvBottom, uvW, uvH) },
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bodyTexture]);
+
+  useEffect(() => {
+    if (materialRef.current) {
+      materialRef.current.uniforms.uBodyTexture.value = bodyTexture;
+    }
+  }, [bodyTexture]);
+
+  useFrame((state) => {
+    if (materialRef.current) {
+      materialRef.current.uniforms.uTime.value = state.clock.elapsedTime;
+      materialRef.current.uniforms.uFlipX.value = facingSide;
+      materialRef.current.uniforms.uFlipFromSide.value = flipEffect.active ? flipEffect.fromSide : facingSide;
+      materialRef.current.uniforms.uFlipProgress.value = flipEffect.active ? flipEffect.progress : 0;
+    }
+  });
+
+  return (
+    <mesh position={[0, 0, -0.5]} frustumCulled={false}>
+      <planeGeometry args={[10, 6.5]} />
+      <shaderMaterial
+        ref={materialRef}
+        uniforms={uniforms}
+        vertexShader={radioWaveVertexShader}
+        fragmentShader={radioWaveFragmentShader}
+        transparent
+        depthWrite={false}
+        blending={THREE.AdditiveBlending}
+      />
+    </mesh>
+  );
+};
 
 const SCENE_BOUNDS = {
   left: -4.35,
@@ -183,14 +360,29 @@ const BODY_BOUNDS = {
   radiusY: 2.22,
 };
 
-const DISTANCE_ANCHORS = {
-  tx: new THREE.Vector2(-4.15, 0.1),
-  rx: new THREE.Vector2(4.15, 0.1),
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+const formatDbm = (value: number) => `${value >= 0 ? "+" : ""}${value.toFixed(2)}dBm`;
+const formatDistance = (valueCm: number) => `${(valueCm / 100).toFixed(0)}m away`;
+
+const logNormalize = (value: number, maxAbs: number) => {
+  const safeMax = Math.max(maxAbs, 0.0001);
+  const normalized = clamp(Math.abs(value) / safeMax, 0, 1);
+  return Math.log1p(normalized * 8) / Math.log1p(8);
 };
 
-const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
-const formatDbm = (value: number) => `${value >= 0 ? "+" : ""}${value.toFixed(0)}dBm`;
-const formatDistance = (value: number) => `${value.toFixed(0)}m away`;
+const toEndpointADistanceCm = (x: number) => {
+  const minDistance = 3000;
+  const maxDistance = DEFAULTS.maxDistanceCm;
+  const response = logNormalize(x, Math.max(Math.abs(SCENE_BOUNDS.left), Math.abs(SCENE_BOUNDS.right)));
+  return clamp(minDistance + response * (maxDistance - minDistance), DEFAULTS.minDistanceCm, DEFAULTS.maxDistanceCm);
+};
+
+const toEndpointBDistanceCm = (y: number) => {
+  const minDistance = 3000;
+  const maxDistance = DEFAULTS.maxDistanceCm;
+  const response = logNormalize(y, Math.max(Math.abs(SCENE_BOUNDS.bottom), Math.abs(SCENE_BOUNDS.top)));
+  return clamp(minDistance + response * (maxDistance - minDistance), DEFAULTS.minDistanceCm, DEFAULTS.maxDistanceCm);
+};
 
 const formatFrequency = (valueHz: number) => {
   if (valueHz >= 1e9) {
@@ -244,11 +436,6 @@ const getFrequencyClass = (valueHz: number) => {
   return "Microwave";
 };
 
-const toDistanceCm = (point: THREE.Vector2, anchor: THREE.Vector2) => {
-  const units = point.distanceTo(anchor);
-  return clamp(units * 10.5, DEFAULTS.minDistanceCm, DEFAULTS.maxDistanceCm);
-};
-
 const getEllipseTopY = (x: number) => {
   const normalizedX = clamp((x - BODY_BOUNDS.centerX) / BODY_BOUNDS.radiusX, -1, 1);
   const normalizedY = Math.sqrt(Math.max(0, 1 - normalizedX * normalizedX));
@@ -269,30 +456,34 @@ const constrainMarker = (x: number, y: number) => {
   return new THREE.Vector2(clampedX, clampedY);
 };
 
-const computeModel = (txDistance: number, rxDistance: number) => {
+const computeModel = (endpointADistance: number, endpointBDistance: number) => {
   const frequencyRatio = Math.pow(DEFAULTS.frequencyHz / DEFAULTS.referenceFrequencyHz, DEFAULTS.exponent);
-  const lossSkin = DEFAULTS.skinThicknessCm * DEFAULTS.skinLossRefDbPerCm * frequencyRatio;
-  const lossSkull = DEFAULTS.skullThicknessCm * DEFAULTS.skullLossRefDbPerCm * frequencyRatio;
-  const lossEntry = lossSkin + lossSkull;
-  const lossExit = lossSkin + lossSkull;
-  const lossMedium = (txDistance + rxDistance) * DEFAULTS.mediumLossRefDbPerCm * 0.1 * frequencyRatio;
-  const entry = DEFAULTS.transmitPowerDbm - lossEntry;
-  const exit = entry - lossMedium;
-  const receive = exit - lossExit;
+  const distanceLossA = endpointADistance * DEFAULTS.mediumLossRefDbPerCm * 0.015 * frequencyRatio;
+  const distanceLossB = endpointBDistance * DEFAULTS.mediumLossRefDbPerCm * 0.015 * frequencyRatio;
+  const bodyEntryLoss = (DEFAULTS.skinThicknessCm * DEFAULTS.skinLossRefDbPerCm + DEFAULTS.skullThicknessCm * DEFAULTS.skullLossRefDbPerCm) * 0.18 * frequencyRatio;
+  const bodyTraversalLoss = (DEFAULTS.skinThicknessCm * DEFAULTS.skinLossRefDbPerCm + DEFAULTS.skullThicknessCm * DEFAULTS.skullLossRefDbPerCm) * 0.12 * frequencyRatio;
+  const endpointA = DEFAULTS.transmitPowerDbm - distanceLossA;
+  const entry = -22;
+  const exit = entry - bodyTraversalLoss;
+  const receive = exit - distanceLossB;
 
   return {
+    endpointA,
     entry,
     exit,
     receive,
-    lossEntry,
-    lossExit,
-    lossMedium,
+    distanceLossA,
+    distanceLossB,
+    bodyEntryLoss,
+    bodyTraversalLoss,
   };
 };
 
 type LayoutMetrics = {
   markerX: number;
   markerY: number;
+  endpointADistance: number;
+  endpointBDistance: number;
   txDistance: number;
   rxDistance: number;
   side: -1 | 1;
@@ -304,8 +495,10 @@ const toMetrics = (x: number, y: number): LayoutMetrics => {
   return {
     markerX: point.x,
     markerY: point.y,
-    txDistance: toDistanceCm(point, DISTANCE_ANCHORS.tx),
-    rxDistance: toDistanceCm(point, DISTANCE_ANCHORS.rx),
+    endpointADistance: toEndpointADistanceCm(point.x),
+    endpointBDistance: toEndpointBDistanceCm(point.y),
+    txDistance: toEndpointADistanceCm(point.x),
+    rxDistance: toEndpointBDistanceCm(point.y),
     side: point.x < BODY_BOUNDS.centerX ? -1 : 1,
   };
 };
@@ -515,6 +708,8 @@ const SceneContents: React.FC<{
         <meshBasicMaterial color={BACKGROUND_COLOR} />
       </mesh>
 
+      <RadioWave bodyTexture={texture} facingSide={characterFacingSide} flipEffect={flipEffect} />
+
       <mesh
         position={[0, 0, 0.2]}
         onPointerDown={handleDown}
@@ -526,29 +721,29 @@ const SceneContents: React.FC<{
         <meshBasicMaterial transparent opacity={0.001} depthWrite={false} />
       </mesh>
 
-      <CanvasText position={[-4.1, 2.55, 0.35]} fontSize={0.16} color="#111217" anchorX="left" anchorY="middle" fontWeight={600} text="Endpoint A (Tx)" />
-      <CanvasText position={[-4.1, 2.35, 0.35]} fontSize={0.14} color="#111217" anchorX="left" anchorY="middle" fontWeight={500} text={`${formatDbm(DEFAULTS.transmitPowerDbm)} / ${formatDistance(metrics.txDistance)}`} />
+      <CanvasText position={[-4.2, 2.62, 0.35]} fontSize={0.24} color="#1e1e26" anchorX="left" anchorY="middle" fontWeight={700} text="Endpoint A (Tx)" />
+      <CanvasText position={[-4.2, 2.37, 0.35]} fontSize={0.17} color="#3a3a42" anchorX="left" anchorY="middle" fontWeight={500} text={`${formatDbm(model.endpointA)} / ${formatDistance(metrics.txDistance)}`} />
 
-      <CanvasText position={[-1.2, 2.45, 0.35]} fontSize={0.18} color="#101117" anchorX="right" anchorY="middle" fontWeight={600} text="Entry" />
-      <CanvasText position={[0, 2.45, 0.35]} fontSize={0.32} color="#101117" anchorX="center" anchorY="middle" fontWeight={700} text="Target" />
-      <CanvasText position={[1.2, 2.45, 0.35]} fontSize={0.18} color="#101117" anchorX="left" anchorY="middle" fontWeight={600} text="Exit" />
+      <CanvasText position={[0, 2.55, 0.35]} fontSize={0.26} color="#1a1a22" anchorX="center" anchorY="middle" fontWeight={700} text="Target" />
 
-      <CanvasText position={[4.1, 2.55, 0.35]} fontSize={0.16} color="#111217" anchorX="right" anchorY="middle" fontWeight={600} text="Endpoint B (Rx)" />
-      <CanvasText position={[4.1, 2.35, 0.35]} fontSize={0.14} color="#111217" anchorX="right" anchorY="middle" fontWeight={500} text={`${formatDbm(model.receive)} / ${formatDistance(metrics.rxDistance)}`} />
+      <CanvasText position={[4.2, 2.62, 0.35]} fontSize={0.24} color="#1e1e26" anchorX="right" anchorY="middle" fontWeight={700} text="Endpoint B (Rx)" />
+      <CanvasText position={[4.2, 2.37, 0.35]} fontSize={0.17} color="#3a3a42" anchorX="right" anchorY="middle" fontWeight={500} text={formatDistance(metrics.rxDistance)} />
 
       <PeelCharacter facingSide={characterFacingSide} flipEffect={flipEffect} texture={texture} />
 
       <group position={[previewMetrics.markerX, previewMetrics.markerY, 1.2]} rotation={[0, 0, getArrowRotation(previewMetrics)]} renderOrder={1000}>
-        <CanvasText position={[0, 0, 0]} fontSize={0.68} color="#958564" anchorX="center" anchorY="middle" fontWeight={700} text="➤" />
+        <CanvasText position={[0, 0, 0]} fontSize={0.52} color="#606068" anchorX="center" anchorY="middle" fontWeight={700} text="➤" />
       </group>
 
-      <CanvasText position={[-3.05, 0.2, 0.45]} fontSize={0.78} color="#101117" anchorX="center" anchorY="middle" fontWeight={900} letterSpacing={-0.02} text={formatDbm(model.entry)} />
+      <CanvasText position={[-3.0, 0.55, 0.45]} fontSize={0.42} color="#1a1a22" anchorX="center" anchorY="middle" fontWeight={900} letterSpacing={-0.02} text={formatDbm(model.entry)} />
+      <CanvasText position={[-3.0, 0.22, 0.45]} fontSize={0.16} color="#3a3a42" anchorX="right" anchorY="middle" fontWeight={500} text="Entry" />
 
-      <CanvasText position={[3.05, -0.68, 0.45]} fontSize={0.78} color="#101117" anchorX="center" anchorY="middle" fontWeight={900} letterSpacing={-0.02} text={formatDbm(model.exit)} />
+      <CanvasText position={[3.0, -0.2, 0.45]} fontSize={0.42} color="#1a1a22" anchorX="center" anchorY="middle" fontWeight={900} letterSpacing={-0.02} text={formatDbm(model.receive)} />
+      <CanvasText position={[3.0, -0.53, 0.45]} fontSize={0.16} color="#3a3a42" anchorX="left" anchorY="middle" fontWeight={500} text="Power at Rx" />
 
-      <CanvasText position={[-4.1, -2.1, 0.45]} fontSize={0.46} color="#111217" anchorX="left" anchorY="middle" fontWeight={900} letterSpacing={-0.02} text={formatFrequency(DEFAULTS.frequencyHz)} />
+      <CanvasText position={[-4.2, -2.18, 0.45]} fontSize={0.26} color="#1a1a22" anchorX="left" anchorY="middle" fontWeight={900} letterSpacing={-0.02} text={formatFrequency(DEFAULTS.frequencyHz)} />
 
-      <CanvasText position={[-4.1, -2.55, 0.45]} fontSize={0.26} color="#111217" anchorX="left" anchorY="middle" fontWeight={500} letterSpacing={-0.01} text={`${getFrequencyClass(DEFAULTS.frequencyHz)} frequency`} />
+      <CanvasText position={[-4.2, -2.45, 0.45]} fontSize={0.15} color="#3a3a42" anchorX="left" anchorY="middle" fontWeight={500} letterSpacing={-0.01} text={`${getFrequencyClass(DEFAULTS.frequencyHz)} frequency`} />
     </>
   );
 };
