@@ -106,12 +106,12 @@ fn test_process_samples_pads_short_input() {
 fn test_process_samples_center_is_zero() {
     let mut processor = WASMSIMDProcessor::new(64);
     processor.set_gain(1.0);
-    // All 128 → I=0, Q=0 after centering → silence → -inf dB
+    // All 128 → I=0, Q=0 after centering → silence → clamped dB floor
     let samples = vec![128u8; 128];
     let result = processor.process_samples(&samples);
     for &val in result.iter() {
-        assert!(val.is_infinite() && val < 0.0 || val.is_nan(),
-                "Zero input should produce -inf dB, got {}", val);
+        assert!(val.is_finite(), "Zero input should produce a finite floor value, got {}", val);
+        assert_eq!(val, -150.0, "Zero input should clamp to -150 dB, got {}", val);
     }
 }
 

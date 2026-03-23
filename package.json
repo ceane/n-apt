@@ -31,7 +31,7 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
-    "test:wasm": "PATH=$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$PATH sh -lc 'cd test/wasm && wasm-pack test --headless --chrome'",
+    "test:wasm": "bash ./test/wasm/test_runner.sh",
     "test:rust": "cargo test",
     "test:all": "npm run test && npm run test:rust",
     "test:iq-capture": "./scripts/test/integration/run-iq-capture-tests.sh",

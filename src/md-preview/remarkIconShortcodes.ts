@@ -22,13 +22,11 @@ const remarkIconShortcodes: Plugin = () => (tree) => {
     ICON_PATTERN.lastIndex = 0;
     while ((match = ICON_PATTERN.exec(node.value)) !== null) {
       const [full, rawSlug = ""] = match;
-      console.log("[remarkIconShortcodes] Found shortcode:", { full, rawSlug });
       if (match.index > lastIndex) {
         pieces.push({ type: "text", value: node.value.slice(lastIndex, match.index) });
       }
 
       const normalizedSlug = rawSlug.replace(/^icon-/, "").toLowerCase();
-      console.log("[remarkIconShortcodes] Normalized slug:", normalizedSlug);
       pieces.push(createIconNode(normalizedSlug));
       lastIndex = match.index + full.length;
     }
@@ -41,7 +39,6 @@ const remarkIconShortcodes: Plugin = () => (tree) => {
       pieces.push({ type: "text", value: node.value.slice(lastIndex) });
     }
 
-    console.log("[remarkIconShortcodes] Replacing text node with:", pieces);
     parent.children.splice(index, 1, ...pieces);
     return index + pieces.length;
   });

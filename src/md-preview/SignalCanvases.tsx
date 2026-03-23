@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Canvas } from "@react-three/fiber";
+import { Canvas, useThree } from "@react-three/fiber";
 import styled from "styled-components";
 import * as THREE from "three";
 import { WebGPURenderer } from "three/webgpu";
@@ -121,18 +121,27 @@ const useWavePoints = (
   offsetY = 0,
   samples = 220,
   stretch = Math.PI * 2,
-) =>
-  useMemo(() => {
+) => {
+  const { viewport } = useThree();
+
+  const points = useMemo(() => {
+    const xMin = -viewport.width * 0.56;
+    const xMax = viewport.width * 0.56;
     const points: THREE.Vector3[] = [];
+
     for (let i = 0; i <= samples; i += 1) {
       const t = i / samples;
-      const x = THREE.MathUtils.lerp(-4, 4, t);
+      const x = THREE.MathUtils.lerp(xMin, xMax, t);
       const angle = t * stretch * frequency + phase;
       const y = Math.sin(angle) * amplitude + offsetY;
       points.push(new THREE.Vector3(x, y, 0));
     }
+
     return points;
-  }, [phase, amplitude, frequency, offsetY, samples, stretch]);
+  }, [phase, amplitude, frequency, offsetY, samples, stretch, viewport.width]);
+
+  return points;
+}
 
 const useTubeGeometry = (points: THREE.Vector3[], radius: number, segments = 420) =>
   useMemo(() => {
@@ -340,6 +349,20 @@ const SignalCanvasFrame: React.FC<React.PropsWithChildren<{ title: string; overl
   </Frame>
 );
 
+const SignalGraphFrame: React.FC<React.PropsWithChildren<{ title: string; overlay?: React.ReactNode }>> = ({
+  children,
+  title,
+  overlay,
+}) => (
+  <Frame>
+    {children}
+    <Overlay>
+      <RendererBadge>{title}</RendererBadge>
+      {overlay}
+    </Overlay>
+  </Frame>
+);
+
 const CanvasHost: React.FC<React.PropsWithChildren> = ({ children }) => {
   const [fallback, setFallback] = useState(false);
 
@@ -368,47 +391,347 @@ const CanvasHost: React.FC<React.PropsWithChildren> = ({ children }) => {
   );
 };
 
-export const PhaseShiftingCanvas: React.FC = () => {
-  const referenceWave = useWavePoints(0, 0.85, 1.05);
-  const shiftedWave = useWavePoints(Math.PI / 2, 0.85, 1.05);
+const PHASE_SHIFT_VIEWBOX_WIDTH = 980;
+const PHASE_SHIFT_VIEWBOX_HEIGHT = 560;
+const PHASE_SHIFT_MARGIN = {
+  top: 40,
+  right: 24,
+  bottom: 40,
+  left: 66,
+};
+const PHASE_SHIFT_DOMAIN_MIN = -Math.PI / 2;
+const PHASE_SHIFT_DOMAIN_MAX = 2 * Math.PI + Math.PI / 2;
+const PHASE_SHIFT_RANGE_MIN = -1.5;
+const PHASE_SHIFT_RANGE_MAX = 1.5;
+const PHASE_SHIFT_WAVE_AMPLITUDE = 0.62;
+const PHASE_SHIFT_Y_TICK_STEP = 0.5;
+
+const formatPhaseTick = (value: number) => {
+  if (Math.abs(value) < 1e-6) {
+    return "0";
+  }
+  if (Math.abs(value - Math.PI / 2) < 1e-6) {
+    return "π/2";
+  }
+  if (Math.abs(value - Math.PI) < 1e-6) {
+    return "π";
+  }
+  if (Math.abs(value - 2 * Math.PI) < 1e-6) {
+    return "2π";
+  }
+  return value.toFixed(2);
+};
+
+const formatYTick = (value: number) => {
+  const sign = value < 0 ? "-" : "";
+  const absValue = Math.abs(value);
+  const whole = Math.floor(absValue);
+  const fraction = absValue - whole;
+
+  if (Math.abs(fraction) < 1e-6) {
+    return `${sign}${whole || 0}`;
+  }
+
+  if (Math.abs(fraction - 0.5) < 1e-6) {
+    if (whole === 0) {
+      return `${sign}1/2`;
+    }
+    return `${sign}${whole} 1/2`;
+  }
+
+  return `${sign}${absValue.toFixed(1)}`;
+};
+
+const PhaseShiftingGraph: React.FC = () => {
+  const { horizontalGridLines, verticalGridLines, waveADPath, waveBPath, tickLabels, yTickLabels, labelPositions } = useMemo(() => {
+    const width = PHASE_SHIFT_VIEWBOX_WIDTH;
+    const height = PHASE_SHIFT_VIEWBOX_HEIGHT;
+    const innerWidth = width - PHASE_SHIFT_MARGIN.left;
+    const innerHeight = height - PHASE_SHIFT_MARGIN.top - PHASE_SHIFT_MARGIN.bottom;
+    const xScale = (value: number) => {
+      const t = (value - PHASE_SHIFT_DOMAIN_MIN) / (PHASE_SHIFT_DOMAIN_MAX - PHASE_SHIFT_DOMAIN_MIN);
+      return PHASE_SHIFT_MARGIN.left + t * innerWidth;
+    };
+    const yScale = (value: number) => {
+      const t = (value - PHASE_SHIFT_RANGE_MIN) / (PHASE_SHIFT_RANGE_MAX - PHASE_SHIFT_RANGE_MIN);
+      return PHASE_SHIFT_MARGIN.top + (1 - t) * innerHeight;
+    };
+
+    const xValues: number[] = [];
+    for (let i = 0; i <= 6; i += 1) {
+      xValues.push(PHASE_SHIFT_DOMAIN_MIN + i * (Math.PI / 2));
+    }
+
+    const yValues: number[] = [];
+    for (let value = -1.5; value <= 1.5 + 1e-6; value += PHASE_SHIFT_Y_TICK_STEP) {
+      yValues.push(Number(value.toFixed(2)));
+    }
+
+    const buildWavePath = (phaseShift: number) => {
+      const samples = 540;
+      const points: string[] = [];
+      for (let i = 0; i <= samples; i += 1) {
+        const t = i / samples;
+        const x = PHASE_SHIFT_DOMAIN_MIN + t * (PHASE_SHIFT_DOMAIN_MAX - PHASE_SHIFT_DOMAIN_MIN);
+        const y = Math.sin(x + phaseShift) * PHASE_SHIFT_WAVE_AMPLITUDE;
+        const command = i === 0 ? "M" : "L";
+        points.push(`${command} ${xScale(x)} ${yScale(y)}`);
+      }
+      return points.join(" ");
+    };
+
+    const phaseGuideTop = yScale(PHASE_SHIFT_WAVE_AMPLITUDE + 0.02);
+    const axisY = yScale(0);
+    const phaseStartX = xScale(0);
+    const phaseEndX = xScale(Math.PI / 2);
+    const phaseGuideBottom = height - PHASE_SHIFT_MARGIN.bottom;
+
+    return {
+      horizontalGridLines: yValues.map((value) => ({ value, y: yScale(value) })),
+      verticalGridLines: xValues.map((value) => ({ value, x: xScale(value) })),
+      waveADPath: buildWavePath(0),
+      waveBPath: buildWavePath(-Math.PI / 2),
+      tickLabels: [0, Math.PI / 2, Math.PI, 2 * Math.PI].map((value) => ({ value, x: xScale(value) })),
+      yTickLabels: yValues.map((value) => ({ value, y: yScale(value) })),
+      labelPositions: {
+        axisY,
+        xAxisLabelY: yScale(-0.42),
+        yAxisLabelX: xScale(PHASE_SHIFT_DOMAIN_MIN) + 12,
+        phaseTopY: phaseGuideTop - 36,
+        phaseArrowY: phaseGuideTop - 20,
+        phaseArrowStartX: phaseStartX + 44,
+        phaseArrowEndX: phaseEndX - 44,
+        phaseZeroLabelX: phaseStartX - 6,
+        phaseNinetyLabelX: phaseEndX + 6,
+        phaseLeftX: phaseStartX,
+        phaseRightX: phaseEndX,
+        phaseGuideTop,
+        phaseGuideBottom,
+      },
+    };
+  }, []);
 
   return (
-    <SignalCanvasFrame
-      title="Phase Shifting"
-      overlay={(
-        <>
-          <OverlayText $top="16px" $left="50%" $align="center" $color="#111827" $weight={700}>Δφ = 90°</OverlayText>
-          <OverlayText $top="18px" $left="16px" $color="#6b7280">0°</OverlayText>
-          <OverlayText $top="18px" $right="16px" $align="right" $color={palette.accent}>90°</OverlayText>
-        </>
-      )}
+    <svg
+      viewBox={`0 0 ${PHASE_SHIFT_VIEWBOX_WIDTH} ${PHASE_SHIFT_VIEWBOX_HEIGHT}`}
+      preserveAspectRatio="none"
+      width="100%"
+      height="100%"
+      aria-hidden="true"
+      role="img"
     >
-      <GridBackdrop />
-      <DottedWave points={referenceWave} color={palette.muted} step={6} size={0.036} opacity={0.7} />
-      <WaveTube points={shiftedWave} color={palette.accent} thickness={0.038} z={0.12} />
-    </SignalCanvasFrame>
+      <rect x="0" y="0" width={PHASE_SHIFT_VIEWBOX_WIDTH} height={PHASE_SHIFT_VIEWBOX_HEIGHT} fill="#ffffff" />
+      {verticalGridLines.map(({ value, x }) => (
+        <line
+          key={`v-${value.toFixed(4)}`}
+          x1={x}
+          y1={0}
+          x2={x}
+          y2={PHASE_SHIFT_VIEWBOX_HEIGHT}
+          stroke="#d7d7d7"
+          strokeWidth={1}
+          vectorEffect="non-scaling-stroke"
+        />
+      ))}
+      {yTickLabels.map(({ value, y }) => (
+        <g key={`ytick-${value.toFixed(2)}`}>
+          <line
+            x1={0}
+            y1={y}
+            x2={PHASE_SHIFT_VIEWBOX_WIDTH}
+            y2={y}
+            stroke="#d7d7d7"
+            strokeWidth={1}
+            vectorEffect="non-scaling-stroke"
+          />
+          <text
+            x={PHASE_SHIFT_MARGIN.left - 18}
+            y={y + 5}
+            fill={Math.abs(value) < 1e-6 ? "#111827" : "#9ca3af"}
+            fontFamily="DM Mono, monospace"
+            fontSize={18}
+            fontWeight={700}
+            textAnchor="end"
+          >
+            {formatYTick(value)}
+          </text>
+        </g>
+      ))}
+      {horizontalGridLines.map(({ value, y }) => (
+        <line
+          key={`h-${value.toFixed(2)}`}
+          x1={PHASE_SHIFT_MARGIN.left}
+          y1={y}
+          x2={PHASE_SHIFT_VIEWBOX_WIDTH}
+          y2={y}
+          stroke="#d7d7d7"
+          strokeWidth={1}
+          vectorEffect="non-scaling-stroke"
+        />
+      ))}
+      <line
+        x1={PHASE_SHIFT_MARGIN.left}
+        y1={labelPositions.axisY}
+        x2={PHASE_SHIFT_VIEWBOX_WIDTH}
+        y2={labelPositions.axisY}
+        stroke="#7c7f87"
+        strokeWidth={2.5}
+        vectorEffect="non-scaling-stroke"
+      />
+      <line
+        x1={labelPositions.phaseLeftX}
+        y1={labelPositions.phaseGuideTop}
+        x2={labelPositions.phaseLeftX}
+        y2={labelPositions.phaseGuideBottom}
+        stroke="#b9d6f0"
+        strokeWidth={1.5}
+        strokeDasharray="1.5 7"
+        strokeLinecap="round"
+        vectorEffect="non-scaling-stroke"
+      />
+      <line
+        x1={labelPositions.phaseRightX}
+        y1={labelPositions.phaseGuideTop}
+        x2={labelPositions.phaseRightX}
+        y2={labelPositions.phaseGuideBottom}
+        stroke="#b9d6f0"
+        strokeWidth={1.5}
+        strokeDasharray="1.5 7"
+        strokeLinecap="round"
+        vectorEffect="non-scaling-stroke"
+      />
+      <line
+        x1={labelPositions.phaseLeftX}
+        y1={labelPositions.phaseGuideTop}
+        x2={labelPositions.phaseRightX}
+        y2={labelPositions.phaseGuideTop}
+        stroke="#9ad0ff"
+        strokeWidth={1.5}
+        strokeDasharray="1.5 7"
+        strokeLinecap="round"
+        vectorEffect="non-scaling-stroke"
+      />
+      <path
+        d={`M ${labelPositions.phaseArrowStartX} ${labelPositions.phaseArrowY} H ${labelPositions.phaseArrowEndX - 18} L ${labelPositions.phaseArrowEndX} ${labelPositions.phaseArrowY} L ${labelPositions.phaseArrowEndX - 18} ${labelPositions.phaseArrowY + 18}`}
+        fill="none"
+        stroke="#b7b7b7"
+        strokeWidth={4}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        vectorEffect="non-scaling-stroke"
+      />
+      <line
+        x1={PHASE_SHIFT_MARGIN.left}
+        y1={0}
+        x2={PHASE_SHIFT_MARGIN.left}
+        y2={PHASE_SHIFT_VIEWBOX_HEIGHT}
+        stroke="#7c7f87"
+        strokeWidth={2.5}
+        vectorEffect="non-scaling-stroke"
+      />
+      <path
+        d={waveADPath}
+        fill="none"
+        stroke="#831eff"
+        strokeWidth={5}
+        strokeDasharray="3 10"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        vectorEffect="non-scaling-stroke"
+      />
+      <path
+        d={waveBPath}
+        fill="none"
+        stroke="#be8cff"
+        strokeWidth={5}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        vectorEffect="non-scaling-stroke"
+      />
+      {tickLabels.map(({ value, x }) => (
+        <g key={`tick-${value.toFixed(4)}`}>
+          <line
+            x1={x}
+            y1={labelPositions.axisY - 6}
+            x2={x}
+            y2={labelPositions.axisY + 6}
+            stroke="#d7d7d7"
+            strokeWidth={2}
+            vectorEffect="non-scaling-stroke"
+          />
+          <text
+            x={x}
+            y={labelPositions.axisY + 28}
+            fill={Math.abs(value) < 1e-6 ? "#111827" : "#9ca3af"}
+            fontFamily="DM Mono, monospace"
+            fontSize={20}
+            fontWeight={700}
+            textAnchor="middle"
+          >
+            {formatPhaseTick(value)}
+          </text>
+        </g>
+      ))}
+      <text
+        x={labelPositions.yAxisLabelX}
+        y={(PHASE_SHIFT_MARGIN.top + labelPositions.axisY) / 2}
+        fill="#111827"
+        fontFamily="DM Mono, monospace"
+        fontSize={20}
+        fontWeight={700}
+        textAnchor="middle"
+        dominantBaseline="middle"
+      >
+        y
+      </text>
+      <text
+        x={(PHASE_SHIFT_MARGIN.left + (PHASE_SHIFT_VIEWBOX_WIDTH - PHASE_SHIFT_MARGIN.right)) / 2}
+        y={labelPositions.xAxisLabelY}
+        fill="#111827"
+        fontFamily="DM Mono, monospace"
+        fontSize={18}
+        fontWeight={700}
+        textAnchor="middle"
+      >
+        x
+      </text>
+      <text
+        x={labelPositions.phaseZeroLabelX}
+        y={labelPositions.phaseTopY}
+        fill="#111827"
+        fontFamily="DM Mono, monospace"
+        fontSize={24}
+        fontWeight={700}
+        textAnchor="middle"
+      >
+        0°
+      </text>
+      <text
+        x={labelPositions.phaseNinetyLabelX}
+        y={labelPositions.phaseTopY}
+        fill="#111827"
+        fontFamily="DM Mono, monospace"
+        fontSize={24}
+        fontWeight={700}
+        textAnchor="middle"
+      >
+        90°
+      </text>
+    </svg>
+  );
+};
+
+export const PhaseShiftingCanvas: React.FC = () => {
+  return (
+    <SignalGraphFrame
+      title="Phase Shifting"
+    >
+      <PhaseShiftingGraph />
+    </SignalGraphFrame>
   );
 };
 
 export const FrequencyModulationCanvas: React.FC = () => {
-  const carrier = useWavePoints(0, 0.55, 2.0);
-  const modulator = useWavePoints(0, 0.38, 0.45, -1.2, 180, Math.PI * 1.6);
-  const fmWave = useMemo(() => {
-    const samples = 360;
-    const pts: THREE.Vector3[] = [];
-    for (let i = 0; i <= samples; i += 1) {
-      const t = i / samples;
-      const x = THREE.MathUtils.lerp(-4, 4, t);
-      const modulation = Math.sin(t * Math.PI * 2 * 0.45);
-      const instantaneousFreq = 2.2 + modulation * 1.3;
-      const amplitude = 0.75 + modulation * 0.2;
-      const angle = t * Math.PI * 4 * instantaneousFreq;
-      const y = Math.sin(angle) * amplitude;
-      pts.push(new THREE.Vector3(x, y, 0));
-    }
-    return pts;
-  }, []);
-
   return (
     <SignalCanvasFrame
       title="Frequency Modulation"
@@ -420,11 +743,40 @@ export const FrequencyModulationCanvas: React.FC = () => {
         </>
       )}
     >
+      <FrequencyModulationScene />
+    </SignalCanvasFrame>
+  );
+};
+
+const FrequencyModulationScene: React.FC = () => {
+  const { viewport } = useThree();
+  const carrier = useWavePoints(0, 0.55, 2.0);
+  const modulator = useWavePoints(0, 0.38, 0.45, -1.2, 180, Math.PI * 1.6);
+  const fmWave = useMemo(() => {
+    const samples = 360;
+    const xMin = -viewport.width * 0.56;
+    const xMax = viewport.width * 0.56;
+    const pts: THREE.Vector3[] = [];
+    for (let i = 0; i <= samples; i += 1) {
+      const t = i / samples;
+      const x = THREE.MathUtils.lerp(xMin, xMax, t);
+      const modulation = Math.sin(t * Math.PI * 2 * 0.45);
+      const instantaneousFreq = 2.2 + modulation * 1.3;
+      const amplitude = 0.75 + modulation * 0.2;
+      const angle = t * Math.PI * 4 * instantaneousFreq;
+      const y = Math.sin(angle) * amplitude;
+      pts.push(new THREE.Vector3(x, y, 0));
+    }
+    return pts;
+  }, [viewport.width]);
+
+  return (
+    <>
       <GridBackdrop />
       <WaveTube points={carrier} color="#c7cedd" thickness={0.018} opacity={0.8} />
       <WaveTube points={fmWave} color={palette.accentSecondary} thickness={0.034} z={0.12} />
       <DottedWave points={modulator} color={palette.accentTertiary} step={7} size={0.032} z={0.15} />
-    </SignalCanvasFrame>
+    </>
   );
 };
 
@@ -578,25 +930,37 @@ export const MultipathCanvas: React.FC = () => {
 };
 
 export const HeterodyningCanvas: React.FC = () => {
-  const waveA = useWavePoints(0, 0.58, 0.9, 0.95);
-  const waveB = useWavePoints(Math.PI / 3, 0.58, 1.8, -0.95);
-  const sideband = useWavePoints(0, 0.95, 0.55);
-
   return (
     <SignalCanvasFrame
       title="Heterodyning"
       overlay={(
         <>
-          <OverlayText $top="52px" $left="16px" $color={palette.accentSecondary}>Wave A</OverlayText>
-          <OverlayText $bottom="18px" $right="16px" $align="right" $color={palette.accentTertiary}>Wave B</OverlayText>
-          <OverlayText $top="16px" $left="50%" $align="center" $color={palette.accent} $weight={700}>Sideband</OverlayText>
+          <OverlayText $top="52px" $right="16px" $color={waveAColor}>Wave A (100,000,030MHz)</OverlayText>
+          <OverlayText $top="50%" $right="16px" $color={sidebandColor} $weight={700}>Sideband/Envelope (30Hz)</OverlayText>
+          <OverlayText $bottom="18px" $right="16px" $color={waveBColor}>Wave B (100MHz)</OverlayText>
         </>
       )}
     >
-      <GridBackdrop />
-      <WaveTube points={waveA} color={palette.accentSecondary} thickness={0.03} z={0.12} />
-      <WaveTube points={waveB} color={palette.accentTertiary} thickness={0.03} z={0.1} />
-      <WaveTube points={sideband} color={palette.accent} thickness={0.038} z={0.14} />
+      <HeterodyningScene />
     </SignalCanvasFrame>
+  );
+};
+
+const waveAColor = "#7c3aed";
+const waveBColor = "#a855f7";
+const sidebandColor = "#d4acff";
+
+const HeterodyningScene: React.FC = () => {
+  const waveA = useWavePoints(0.2, 1.1, 0.99, 0.9);
+  const waveB = useWavePoints(0.2, 1.1, 1.15, -0.9);
+  const sideband = useWavePoints(0, 0.95, 0.55);
+
+  return (
+    <>
+      <GridBackdrop />
+      <WaveTube points={waveA} color={waveAColor} thickness={0.03} z={0.12} />
+      <WaveTube points={waveB} color={waveBColor} thickness={0.03} z={0.1} />
+      <DottedWave points={sideband} color={sidebandColor} step={8} size={0.042} opacity={0.95} z={0.14} />
+    </>
   );
 };
