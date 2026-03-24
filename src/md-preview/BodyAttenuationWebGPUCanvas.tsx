@@ -732,7 +732,7 @@ const SceneContents: React.FC<{
       <PeelCharacter facingSide={characterFacingSide} flipEffect={flipEffect} texture={texture} />
 
       <group position={[previewMetrics.markerX, previewMetrics.markerY, 1.2]} rotation={[0, 0, getArrowRotation(previewMetrics)]} renderOrder={1000}>
-        <CanvasText position={[0, 0, 0]} fontSize={0.52} color="#606068" anchorX="center" anchorY="middle" fontWeight={700} text="➤" />
+        <CanvasText position={[0, 0, 0]} fontSize={0.52} color="#3d3d3d" anchorX="center" anchorY="middle" fontWeight={700} text="➤" />
       </group>
 
       <CanvasText position={[-3.0, 0.55, 0.45]} fontSize={0.42} color="#1a1a22" anchorX="center" anchorY="middle" fontWeight={900} letterSpacing={-0.02} text={formatDbm(model.entry)} />
