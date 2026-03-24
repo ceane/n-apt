@@ -98,7 +98,35 @@ export async function validateSession(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ token }),
   });
-  return res.json();
+
+  const responseText = await res.text();
+  const parsed = responseText
+    ? (() => {
+        try {
+          return JSON.parse(responseText) as SessionValidation;
+        } catch {
+          return null;
+        }
+      })()
+    : null;
+
+  if (!res.ok) {
+    return {
+      valid: false,
+      error:
+        parsed?.error ||
+        `Session validation failed: ${res.status}`,
+    };
+  }
+
+  if (parsed && typeof parsed.valid === "boolean") {
+    return parsed;
+  }
+
+  return {
+    valid: false,
+    error: "Invalid session validation response",
+  };
 }
 
 // ── Password authentication ────────────────────────────────────────────

@@ -496,6 +496,13 @@ export const IQCaptureControlsSection: React.FC<
           : captureStatus?.status === "started" || captureStatus?.status === "progress"
             ? "In progress..."
             : "Idle";
+    const hasSelectedCaptureAreas = activeCaptureAreas.length > 0;
+    const isCaptureDisabled =
+      !hasSelectedCaptureAreas ||
+      !isConnected ||
+      deviceState === "loading" ||
+      !isAuthenticated ||
+      captureStatus?.status === "started";
 
     const formatSampleRateLabel = (hz: number) => {
       if (!hz || Number.isNaN(hz)) {
@@ -516,6 +523,8 @@ export const IQCaptureControlsSection: React.FC<
       onCaptureGeolocationChange(enabled);
     };
     const sampleRateLabel = formatSampleRateLabel(maxSampleRate);
+    const capturePhaseMessage = captureStatus?.message;
+    const captureButtonLabel = "Capture";
 
     return (
       <Section>
@@ -670,21 +679,11 @@ export const IQCaptureControlsSection: React.FC<
             <CaptureActions>
               <CaptureButton
                 $paused={false}
-                $disabled={
-                  !isConnected ||
-                  deviceState === "loading" ||
-                  !isAuthenticated ||
-                  captureStatus?.status === "started"
-                }
+                $disabled={isCaptureDisabled}
                 onClick={onCapture}
-                disabled={
-                  !isConnected ||
-                  deviceState === "loading" ||
-                  !isAuthenticated ||
-                  captureStatus?.status === "started"
-                }
+                disabled={isCaptureDisabled}
               >
-                {captureStatus?.status === "started" ? "Capturing..." : "Capture"}
+                {captureButtonLabel}
               </CaptureButton>
 
               <PlaybackOption>
@@ -738,9 +737,11 @@ export const IQCaptureControlsSection: React.FC<
               ) : (
                 <InfoRow>
                   <InfoLabel>
-                    {captureStatus?.status === "started" || captureStatus?.status === "progress"
-                      ? "Capturing now..."
-                      : "No downloads yet"}
+                    {capturePhaseMessage || (
+                      captureStatus?.status === "started" || captureStatus?.status === "progress"
+                        ? "Capturing now..."
+                        : "No downloads yet"
+                    )}
                   </InfoLabel>
                   <StatusValue $tone={statusTone}>{statusText}</StatusValue>
                 </InfoRow>

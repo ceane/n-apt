@@ -60,10 +60,10 @@ impl Default for EnhancedFFTConfig {
  * Enhanced FFT processor with SDR++ style features and SIMD optimization
  */
 pub struct FFTProcessor {
-  /// FFT algorithm instance
-  fft: Arc<dyn rustfft::Fft<f32>>,
-  /// Inverse FFT plan
-  ifft: Arc<dyn rustfft::Fft<f32>>,
+  /// FFT algorithm instance (lazy — only needed for correlation / phase / mock paths)
+  fft: Option<Arc<dyn rustfft::Fft<f32>>>,
+  /// Inverse FFT plan (lazy)
+  ifft: Option<Arc<dyn rustfft::Fft<f32>>>,
   /// Current FFT configuration
   config: EnhancedFFTConfig,
   /// Time counter for mock signal generation
@@ -90,6 +90,51 @@ impl Default for FFTProcessor {
 
 #[allow(dead_code)]
 impl FFTProcessor {
+  fn configure_simd_processor(
+    simd_proc: &mut UnifiedProcessor,
+    config: &EnhancedFFTConfig,
+  ) {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+      simd_proc.set_gain(config.gain);
+      simd_proc.set_ppm(config.ppm);
+      simd_proc.set_window_type(config.window_type);
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+      simd_proc.set_gain(config.gain);
+      simd_proc.set_ppm(config.ppm);
+      let window_str = match config.window_type {
+        WindowType::Hanning => "hanning",
+        WindowType::Hamming => "hamming",
+        WindowType::Blackman => "blackman",
+        WindowType::Nuttall => "nuttall",
+        WindowType::Rectangular => "rectangular",
+        WindowType::None => "none",
+      };
+      simd_proc.set_window_type(window_str);
+    }
+  }
+
+  fn ensure_fft_plans(&mut self) {
+    let fft_size = self.config.fft_size;
+    let needs_replan = self.fft.as_ref().map_or(true, |f| f.len() != fft_size);
+    if needs_replan {
+      let mut planner = FftPlanner::<f32>::new();
+      self.fft = Some(planner.plan_fft_forward(fft_size));
+      self.ifft = Some(planner.plan_fft_inverse(fft_size));
+    }
+  }
+
+  fn ensure_simd_processor(&mut self) -> &mut UnifiedProcessor {
+    let config = self.config.clone();
+    self.simd_processor.get_or_insert_with(|| {
+      let mut simd_proc = UnifiedProcessor::new(config.fft_size);
+      Self::configure_simd_processor(&mut simd_proc, &config);
+      simd_proc
+    })
+  }
+
   /// Create a new FFT processor with default configuration
   ///
   /// # Returns
@@ -102,30 +147,18 @@ impl FFTProcessor {
   /// - Native targets: Standard FFT performance
   pub fn new() -> Self {
     let config = EnhancedFFTConfig::default();
-    let fft_size = config.fft_size;
-
-    // Lazy initialization to speed up startup
-    let (fft, ifft) = {
-      // Use a smaller FFT size for initial planning to speed up startup
-      let mut planner = FftPlanner::<f32>::new();
-      (planner.plan_fft_forward(fft_size), planner.plan_fft_inverse(fft_size))
-    };
-
-    // Pre-allocate all buffers to avoid runtime allocations
-    let mut waterfall_history = Vec::with_capacity(100);
-    waterfall_history.resize(100, Vec::with_capacity(fft_size));
 
     Self {
-      fft,
-      ifft,
+      fft: None,
+      ifft: None,
       config,
       time: 0.0,
       rng: rand::rngs::StdRng::from_entropy(),
       fft_hold: None,
-      waterfall_history,
-      max_waterfall_lines: 100, // Reduced for faster startup
+      waterfall_history: Vec::new(),
+      max_waterfall_lines: 100,
       waterfall_pos: 0,
-      simd_processor: Some(UnifiedProcessor::new(fft_size)),
+      simd_processor: None,
     }
   }
 
@@ -163,49 +196,29 @@ impl FFTProcessor {
   /// # Returns
   ///
   /// New FFTProcessor with SIMD optimization enabled on WASM targets
-  pub fn with_config(config: EnhancedFFTConfig) -> Self {
-    let fft_size = config.fft_size;
-    let mut planner = FftPlanner::<f32>::new();
-    let fft = planner.plan_fft_forward(fft_size);
-    let ifft = planner.plan_fft_inverse(fft_size);
+  fn waterfall_limit_for_fft_size(fft_size: usize) -> usize {
+    match fft_size {
+      0..=8192 => 500,
+      8193..=32768 => 250,
+      32769..=65536 => 100,
+      _ => 50,
+    }
+  }
 
-    let simd_processor = {
-      let mut p = UnifiedProcessor::new(fft_size);
-      #[cfg(not(target_arch = "wasm32"))]
-      {
-        p.set_gain(config.gain);
-        p.set_ppm(config.ppm);
-        p.set_window_type(config.window_type);
-      }
-      #[cfg(target_arch = "wasm32")]
-      {
-        p.set_gain(config.gain);
-        p.set_ppm(config.ppm);
-        // WASM processor uses string for window type
-        let window_str = match config.window_type {
-          WindowType::Hanning => "hanning",
-          WindowType::Hamming => "hamming",
-          WindowType::Blackman => "blackman",
-          WindowType::Nuttall => "nuttall",
-          WindowType::Rectangular => "rectangular",
-          WindowType::None => "none",
-        };
-        p.set_window_type(window_str);
-      }
-      p
-    };
+  pub fn with_config(config: EnhancedFFTConfig) -> Self {
+    let max_lines = Self::waterfall_limit_for_fft_size(config.fft_size);
 
     Self {
-      fft,
-      ifft,
+      fft: None,
+      ifft: None,
       config,
       time: 0.0,
       rng: rand::rngs::StdRng::from_entropy(),
       fft_hold: None,
-      waterfall_history: Vec::with_capacity(1000),
-      max_waterfall_lines: 1000,
+      waterfall_history: Vec::with_capacity(max_lines),
+      max_waterfall_lines: max_lines,
       waterfall_pos: 0,
-      simd_processor: Some(simd_processor),
+      simd_processor: None,
     }
   }
 
@@ -215,43 +228,25 @@ impl FFTProcessor {
   ///
   /// * `config` - New FFT configuration
   pub fn update_config(&mut self, config: EnhancedFFTConfig) {
+    let size_changed = config.fft_size != self.config.fft_size;
     self.config = config.clone();
-    // Recreate FFT if size changed
-    if config.fft_size != self.fft.len() {
-      let (fft, ifft) = {
-        let mut planner = FftPlanner::<f32>::new();
-        (planner.plan_fft_forward(config.fft_size), planner.plan_fft_inverse(config.fft_size))
-      };
-      self.fft = fft;
-      self.ifft = ifft;
-      self.simd_processor = Some(UnifiedProcessor::new(config.fft_size));
+
+    if size_changed {
+      // Invalidate plans — they will be recreated lazily on next use
+      self.fft = None;
+      self.ifft = None;
+      self.simd_processor = None;
+      // Reset waterfall for new size
+      self.waterfall_history.clear();
+      self.waterfall_pos = 0;
+      self.max_waterfall_lines = Self::waterfall_limit_for_fft_size(config.fft_size);
+      self.fft_hold = None;
     }
 
     // Update processor settings
     if let Some(ref mut simd_proc) = self.simd_processor {
-      #[cfg(not(target_arch = "wasm32"))]
-      {
-        simd_proc.set_gain(config.gain);
-        simd_proc.set_ppm(config.ppm);
-        simd_proc.set_window_type(config.window_type);
-      }
-      #[cfg(target_arch = "wasm32")]
-      {
-        simd_proc.set_gain(config.gain);
-        simd_proc.set_ppm(config.ppm);
-        let window_str = match config.window_type {
-          WindowType::Hanning => "hanning",
-          WindowType::Hamming => "hamming",
-          WindowType::Blackman => "blackman",
-          WindowType::Nuttall => "nuttall",
-          WindowType::Rectangular => "rectangular",
-          WindowType::None => "none",
-        };
-        simd_proc.set_window_type(window_str);
-      }
+      Self::configure_simd_processor(simd_proc, &config);
     }
-
-    // Configuration updated
   }
 
   /// Enable/disable FFT hold (peak hold functionality)
@@ -309,27 +304,31 @@ impl FFTProcessor {
   /// - Native SIMD: 2-4x faster (NEON/SSE)
   pub fn process_samples(&mut self, samples: &RawSamples) -> Result<FFTResult> {
     // Unified SIMD processing
-    if let Some(ref mut simd_proc) = self.simd_processor {
-      #[cfg(not(target_arch = "wasm32"))]
-      {
-        let mut power = vec![0.0; self.config.fft_size];
-        match simd_proc.process_samples(samples, &mut power) {
-          Ok(()) => {
-            return self.finalize_spectrum(power, false);
-          }
-          Err(e) => {
-            return Err(anyhow::anyhow!("SIMD processing failed: {}", e));
-          }
+    let fft_size = self.config.fft_size;
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+      let mut power = vec![0.0; fft_size];
+      let simd_result = {
+        let simd_proc = self.ensure_simd_processor();
+        simd_proc.process_samples(samples, &mut power)
+      };
+      match simd_result {
+        Ok(()) => {
+          return self.finalize_spectrum(power, false);
+        }
+        Err(e) => {
+          return Err(anyhow::anyhow!("SIMD processing failed: {}", e));
         }
       }
-      #[cfg(target_arch = "wasm32")]
-      {
-        let power = simd_proc.process_samples(&samples.data);
-        return self.finalize_spectrum(power, false);
-      }
     }
-
-    Err(anyhow::anyhow!("SIMD processor not available"))
+    #[cfg(target_arch = "wasm32")]
+    {
+      let power = {
+        let simd_proc = self.ensure_simd_processor();
+        simd_proc.process_samples(&samples.data)
+      };
+      return self.finalize_spectrum(power, false);
+    }
   }
 
   /// Common post-processing: zoom, hold, waterfall, and result construction
@@ -822,7 +821,7 @@ impl FFTProcessor {
 
   /// Perform comprehensive stitching validation between two I/Q signals
   pub fn validate_stitching(
-    &self,
+    &mut self,
     signal1: &[u8],
     signal2: &[u8],
     overlap_samples: usize,
@@ -862,7 +861,7 @@ impl FFTProcessor {
 
   /// Correlate two I/Q signals using specified method
   pub fn correlate_signals(
-    &self,
+    &mut self,
     signal1: &[u8],
     signal2: &[u8],
     overlap_samples: usize,
@@ -874,7 +873,9 @@ impl FFTProcessor {
     match method {
       CorrelationMethod::Complex => {
         // Prefer FFT-based correlation if signal size matches FFT size
-        if samples1.len() == self.fft.len() && samples2.len() == self.fft.len() {
+        self.ensure_fft_plans();
+        let fft_len = self.fft.as_ref().map_or(0, |f| f.len());
+        if samples1.len() == fft_len && samples2.len() == fft_len {
           self.fft_correlation(&samples1, &samples2)
         } else {
           self.complex_correlation(&samples1, &samples2)
@@ -887,14 +888,17 @@ impl FFTProcessor {
   }
 
   /// FFT-based correlation: IFFT(FFT(s₁) · FFT(s₂*))
-  fn fft_correlation(&self, signal1: &[Complex<f32>], signal2: &[Complex<f32>]) -> Result<CorrelationResult> {
-    let n = self.fft.len();
+  fn fft_correlation(&mut self, signal1: &[Complex<f32>], signal2: &[Complex<f32>]) -> Result<CorrelationResult> {
+    self.ensure_fft_plans();
+    let fft = self.fft.as_ref().expect("FFT plan must exist after ensure_fft_plans");
+    let ifft = self.ifft.as_ref().expect("IFFT plan must exist after ensure_fft_plans");
+    let n = fft.len();
     let mut a = signal1.to_vec();
     let mut b = signal2.to_vec();
     
     // 1. FFT of both signals
-    self.fft.process(&mut a);
-    self.fft.process(&mut b);
+    fft.process(&mut a);
+    fft.process(&mut b);
     
     // 2. Element-wise product: A · B*
     let mut c = Vec::with_capacity(n);
@@ -903,7 +907,7 @@ impl FFTProcessor {
     }
     
     // 3. Inverse FFT
-    self.ifft.process(&mut c);
+    ifft.process(&mut c);
     
     // 4. Find peak in circular correlation
     let mut best_score = 0.0f32;
@@ -1282,7 +1286,8 @@ impl FFTProcessor {
     self.time += self.config.fft_size as f32 / self.config.sample_rate as f32;
 
     // Perform FFT
-    self.fft.process(&mut buf);
+    self.ensure_fft_plans();
+    self.fft.as_ref().expect("FFT plan must exist").process(&mut buf);
 
     // Calculate power spectrum with proper normalization for true dBFS
     // We normalize by the sum of window coefficients (Coherent Power Gain compensation)
