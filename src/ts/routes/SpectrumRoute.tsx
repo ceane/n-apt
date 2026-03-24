@@ -33,6 +33,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
       backend,
       deviceInfo,
       deviceName,
+      deviceProfile,
       sendFrequencyRange,
       sendTrainingCommand,
       sendGetAutoFftOptions,
@@ -322,6 +323,8 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
                 activeSignalArea={state.activeSignalArea}
                 signalAreaBounds={signalAreaBounds ?? undefined}
                 hardwareSampleRateHz={sampleRateHzEffective ?? undefined}
+                deviceProfile={deviceProfile}
+                tunerGainDb={effectiveSdrSettings?.gain?.tuner_gain}
                 isIqRecordingActive={captureStatus?.status === "started"}
                 limitMarkers={limitMarkers}
                 isPaused={manualVisualizerPaused}

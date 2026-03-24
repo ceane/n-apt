@@ -20,6 +20,7 @@ import { useWasmSimdMath } from "@n-apt/hooks/useWasmSimdMath";
 import { useUnifiedFFTWaterfall } from "@n-apt/hooks/useUnifiedFFTWaterfall";
 import { useAppSelector, useAppDispatch } from "@n-apt/redux";
 import { WATERFALL_COLORMAPS } from "@n-apt/consts/colormaps";
+import type { DeviceProfile } from "@n-apt/consts/schemas/websocket";
 import type { FrequencyRange } from "@n-apt/consts/types";
 import type { SdrLimitMarker } from "@n-apt/utils/sdrLimitMarkers";
 import { VisualizerSliders } from "@n-apt/components/VisualizerSliders";
@@ -269,6 +270,8 @@ interface FFTCanvasProps {
   /** Function to request auto FFT options from server */
   sendGetAutoFftOptions?: (screenWidth: number) => void;
   hardwareSampleRateHz?: number;
+  deviceProfile?: DeviceProfile | null;
+  tunerGainDb?: number;
   /** Whether I/Q recording is active */
   isIqRecordingActive?: boolean;
   limitMarkers?: SdrLimitMarker[];
@@ -352,6 +355,8 @@ const FFTCanvas = memo(
       onFftDbLimitsChange,
       sendGetAutoFftOptions,
       hardwareSampleRateHz,
+      deviceProfile = null,
+      tunerGainDb,
       isIqRecordingActive = false,
       limitMarkers = [],
       isWaterfallCleared = false,
@@ -1086,17 +1091,25 @@ const FFTCanvas = memo(
             // ONLY if we have raw I/Q data. If we have a regular spectrum, 
             // the unified logic would perform a recursive FFT (flicker).
             if (canUseUnifiedFFT && gpuInputMode === "complex_iq" && unifiedFFT.isInitialized && !unifiedFFT.isProcessing) {
+              const calibrationMode: "generic" | "rtl_sdr" = deviceProfile?.is_rtl_sdr ? "rtl_sdr" : "generic";
               const processOptions = {
                 inputMode: gpuInputMode,
                 powerMode: isDbmMode ? "dbm" : "db" as "db" | "dbm",
                 minDb: activeScaleDbMin,
-                maxDb: activeScaleDbMax
+                maxDb: activeScaleDbMax,
+                centerFrequencyHz: typeof currentData.center_frequency_hz === "number"
+                  ? currentData.center_frequency_hz
+                  : centerFrequencyMHz * 1_000_000,
+                hardwareSampleRateHz: typeof currentData.sample_rate === "number"
+                  ? currentData.sample_rate
+                  : hardwareSampleRateHz,
+                tunerGainDb: deviceProfile?.is_rtl_sdr ? tunerGainDb : undefined,
+                calibrationMode,
+                baseCalibrationDb: -30.0,
+                chainLossDb: 2.5,
               };
 
-              unifiedFFT.processUnified(gpuInput!, {
-                ...processOptions,
-                hardwareSampleRateHz,
-              } as any).catch((error: Error) => {
+              unifiedFFT.processUnified(gpuInput!, processOptions).catch((error: Error) => {
                 console.warn('Unified GPU FFT failed, falling back to CPU:', error);
               });
             }

@@ -233,7 +233,7 @@ const RadioWave: React.FC<{ bodyTexture: THREE.Texture }> = ({ bodyTexture }) =>
       uTime: { value: 0 },
       uBodyTexture: { value: bodyTexture },
       uBodyRect: { value: new THREE.Vector4(uvLeft, uvBottom, uvW, uvH) },
-      uAntennaCenter: { value: new THREE.Vector2(0.185, 0.37) },
+      uAntennaCenter: { value: new THREE.Vector2(0.08, 0.61) },
     };
   }, [bodyTexture]);
 
@@ -266,35 +266,56 @@ const RadioWave: React.FC<{ bodyTexture: THREE.Texture }> = ({ bodyTexture }) =>
 };
 
 const Antenna: React.FC = () => (
-  <group>
-    <mesh position={[-3.15, -2.08, 0]}>
-      <boxGeometry args={[0.48, 0.12, 0.18]} />
-      <meshStandardMaterial color="#4d4d4f" roughness={0.72} metalness={0.08} />
+  <group position={[-4.2, 0, 0.1]}>
+    {/* Pole stub — extends down and off-screen for cropped close-up feel */}
+    <mesh position={[0, -1.6, 0]}>
+      <cylinderGeometry args={[0.18, 0.20, 3.2, 16]} />
+      <meshStandardMaterial color="#5c5c5e" roughness={0.55} metalness={0.25} />
+    </mesh>
+    {/* Thin cable running along pole */}
+    <mesh position={[0.12, -1.2, 0.08]}>
+      <cylinderGeometry args={[0.025, 0.025, 2.6, 8]} />
+      <meshStandardMaterial color="#888" roughness={0.7} metalness={0.1} />
     </mesh>
 
-    <mesh position={[-3.15, -0.48, 0]}>
-      <cylinderGeometry args={[0.11, 0.12, 3.05, 16]} />
-      <meshStandardMaterial color="#4d4d4f" roughness={0.58} metalness={0.12} />
+    {/* Mounting collar / bracket ring */}
+    <mesh position={[0, 0.08, 0]}>
+      <cylinderGeometry args={[0.30, 0.30, 0.14, 16]} />
+      <meshStandardMaterial color="#6e6e70" roughness={0.45} metalness={0.30} />
     </mesh>
 
-    <mesh position={[-3.08, -0.48, 0.02]}>
-      <cylinderGeometry args={[0.03, 0.03, 2.95, 16]} />
-      <meshBasicMaterial color="#d0d0d2" transparent opacity={0.38} />
-    </mesh>
+    {/* Main hexagonal radome — the star of the show */}
+    <group position={[0, 0.72, 0]} rotation={[0, Math.PI / 6, 0]}>
+      {/* Outer hex shell */}
+      <mesh>
+        <cylinderGeometry args={[0.62, 0.62, 1.1, 6]} />
+        <meshStandardMaterial color="#e2e2e4" roughness={0.28} metalness={0.12} flatShading />
+      </mesh>
+      {/* Inner hex inset — panel face detail */}
+      <mesh position={[0, 0, 0.01]} rotation={[0, 0, 0]}>
+        <cylinderGeometry args={[0.52, 0.52, 1.02, 6]} />
+        <meshStandardMaterial color="#d0d0d4" roughness={0.35} metalness={0.08} flatShading />
+      </mesh>
+      {/* Dark front panel slot */}
+      <mesh position={[0.0, 0.0, 0.28]} rotation={[Math.PI / 2, 0, 0]}>
+        <planeGeometry args={[0.38, 0.82]} />
+        <meshStandardMaterial color="#3a3a3c" roughness={0.6} metalness={0.15} />
+      </mesh>
+      {/* Status LED */}
+      <mesh position={[0.0, 0.38, 0.30]} rotation={[Math.PI / 2, 0, 0]}>
+        <circleGeometry args={[0.035, 16]} />
+        <meshBasicMaterial color="#44ee66" />
+      </mesh>
+    </group>
 
-    <mesh position={[-3.15, 1.18, 0]}>
-      <cylinderGeometry args={[0.14, 0.14, 0.16, 16]} />
-      <meshStandardMaterial color="#5a5a5c" roughness={0.5} metalness={0.1} />
+    {/* Top cap / lightning rod */}
+    <mesh position={[0, 1.38, 0]}>
+      <cylinderGeometry args={[0.08, 0.12, 0.18, 16]} />
+      <meshStandardMaterial color="#a0a0a2" roughness={0.4} metalness={0.20} />
     </mesh>
-
-    <mesh position={[-3.15, 1.58, 0]} rotation={[0, Math.PI / 6, 0]}>
-      <cylinderGeometry args={[0.34, 0.34, 0.8, 6]} />
-      <meshStandardMaterial color="#ececec" roughness={0.36} metalness={0.06} flatShading />
-    </mesh>
-
-    <mesh position={[-3.15, 2.0, 0]}>
-      <cylinderGeometry args={[0.1, 0.1, 0.14, 16]} />
-      <meshStandardMaterial color="#cbcbcd" roughness={0.45} metalness={0.1} />
+    <mesh position={[0, 1.56, 0]}>
+      <cylinderGeometry args={[0.03, 0.03, 0.22, 8]} />
+      <meshStandardMaterial color="#888" roughness={0.5} metalness={0.15} />
     </mesh>
   </group>
 );
@@ -317,7 +338,7 @@ const HeatmapOverlay: React.FC<{ bodyTexture: THREE.Texture }> = ({ bodyTexture 
       uBodyRect: { value: new THREE.Vector4(uvLeft, uvBottom, uvW, uvH) },
       uTime: { value: 0 },
       uWaveProgress: { value: 0 },
-      uAntennaCenter: { value: new THREE.Vector2(0.185, 0.37) },
+      uAntennaCenter: { value: new THREE.Vector2(0.08, 0.61) },
     };
   }, [bodyTexture]);
 
@@ -412,7 +433,7 @@ const SceneContents: React.FC = () => {
       <HeatmapOverlay bodyTexture={texture} />
 
       {/* Labels */}
-      <CanvasText position={[-3.15, 2.35, 0.35]} fontSize={0.24} color="#1e1e26" anchorX="center" anchorY="middle" fontWeight={700} text="Antenna" />
+      <CanvasText position={[-4.2, 2.1, 0.35]} fontSize={0.24} color="#1e1e26" anchorX="center" anchorY="middle" fontWeight={700} text="Antenna" />
       <CanvasText position={[3, 2.5, 0.35]} fontSize={0.24} color="#1e1e26" anchorX="center" anchorY="middle" fontWeight={700} text="Target" />
       <CanvasText position={[0, -2.5, 0.35]} fontSize={0.26} color="#1e1e26" anchorX="center" anchorY="middle" fontWeight={700} text="Time of Flight" />
     </>

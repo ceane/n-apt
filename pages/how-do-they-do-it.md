@@ -1,3 +1,7 @@
+```Canvas::Impedance
+```
+
+
 ```Canvas::TimeOfFlight
 ```
 
@@ -376,9 +380,100 @@ This is important, if you want to concentrate energy at a certain range (and loc
 
 This technique defeats the counterintuitive intuition of using a short(est) wavelength (microwaves infeasible, will attenuate and do nothing but cause heating) to target specific neuronal ensembles. Longer wavelengths which survive attenuation more easily work better and can use precise math + simple, performant radio operations to precisely intersect and shift out of the way.
 
-### Triangulation / Time of flight for depth
+### Triangulation
+
+Besides the obvious, this is the hardest part of the signal! How exactly to me?
 
 These signals inherently use some kind of triangualtion to directly target the human body and nervous system. It is important to maintain power and hit the correct target, however this kind of triangulation is much more exacting than cell phones. Power off by microscopic fractions can severely disrupt the experience (which has never happened!), so one can imagine that there are microwaves in addition to the spectrum used to maintain persistent, exacting triangualtion. Time of flight also allows for depth calculations to ensure the target is correct, instead of going to a pole or tree or mannequin, time of flight + electrical response is used to determine person from object.
+
+#### Time of flight
+
+The key concept of time-of-flight (T-of-F) is that something, something will block your radio wave when it travels and when it comes back, parts of the received signal will be slower allowing one to gather an accurate shape or depth of what was received. Radio waves are essentially light, but not visible, so they travel at the speed of light but that does not mean they don't slow down. They scatter, they reflect, they attenuate or get absorbed when colliding with objects. 
+
+#### Frequency-Modulated Continuous Wave (FMCW) time-of-flight distance
+
+**Signal chain:**
+
+```LaTex
+
+\[
+\begin{aligned}
+\text{Frequency} &\rightarrow \text{Transmit} \rightarrow \text{Wait for reflection} \\
+&\rightarrow \text{Receive} \rightarrow \text{Mix} \rightarrow \text{Beat frequency} \\
+&\rightarrow \text{Distance}
+\end{aligned}
+\]
+
+```
+
+**Core relationships**
+
+```LaTex
+\[
+\begin{aligned}
+f(t) &= f_0 + S t \\[1.4em]
+S &= \frac{B}{T} \\[1.4em]
+\lambda &= \frac{c}{f_c}
+\end{aligned}
+\]
+
+\[
+\begin{aligned}
+s_{tx}(t) &= A \cos\Big(2\pi \big(f_0 t + \frac{1}{2} S t^2 \big)\Big) \\[1.4em]
+\tau &= \frac{2 d_{\text{body}}}{c} \\[1.4em]
+s_{rx}(t) &= A_r \cos\Big(2\pi \big[f_0 (t - \tau) + \frac{1}{2} S (t - \tau)^2 \big]\Big)
+\end{aligned}
+\]
+
+\[
+\begin{aligned}
+f_b &= S \tau \\[1.4em]
+f_b &= \frac{2 S d_{\text{body}}}{c} \\[1.4em]
+d_{\text{body}} &= \frac{c f_b}{2 S} + \frac{\lambda}{4\pi} \phi
+\end{aligned}
+\]
+
+\[
+\begin{aligned}
+\Delta d &= \frac{c}{2 B} \\[1.4em]
+d_{\max} &= \frac{c f_s}{2 S}
+\end{aligned}
+\]
+
+\[
+\begin{aligned}
+d_{\text{body}} &= \text{Distance to body reflection (m)} & f_b &= \text{Beat frequency (Hz)} \\
+f(t) &= \text{Instantaneous transmit frequency} & f_0 &= \text{Start carrier frequency} \\
+S &= \text{Chirp slope (Hz/s)} & B &= \text{Chirp bandwidth (Hz)} \\
+T &= \text{Chirp duration (s)} & s_{tx}(t) &= \text{Transmitted signal} \\
+s_{rx}(t) &= \text{Received (reflected) signal} & A, A_r &= \text{Transmit/receive amplitudes} \\
+\tau &= \text{Round-trip delay to body reflection} & \phi &= \text{Phase of beat signal (rad)} \\
+\lambda &= \text{Wavelength, } \lambda = \frac{c}{f_c} & c &= \text{Speed of light } (3\times 10^8 \text{ m/s}) \\
+\Delta d &= \text{Range resolution (m)} & d_{\max} &= \text{Maximum measurable range (m)} \\
+f_s &= \text{ADC sampling rate (Hz)} & f_c &= \text{Carrier frequency (Hz)}
+\end{aligned}
+\]
+
+\[
+\begin{array}{c|c}
+\text{Bandwidth } B & \text{Range Resolution } \Delta d = \frac{c}{2B} \\
+\hline
+100~\text{MHz} & 1.5~\text{m} \\
+200~\text{MHz} & 75~\text{cm} / 0.75~\text{m} \\
+500~\text{MHz} & 30~\text{cm} \\
+1~\text{GHz} & 15~\text{cm} \\
+2~\text{GHz} & 7.5~\text{cm} \\
+3~\text{GHz} & 5~\text{cm} \\
+4~\text{GHz} & 3.75~\text{cm} \\
+5~\text{GHz} & 3~\text{cm} \\
+\end{array}
+\]
+```
+
+
+### Maintaing a cell - Barycentric, Hysteresis
+
+
 
 ## Power
 
@@ -403,6 +498,29 @@ Essentially the brain and nervous system is very noisy, whatver those spikes do,
 ### Impedance
 
 In order to intercept data from the brain and nervous system, the NSA's technique is guaranteed, once again by nature and physics, to use impedance to detect electrical charges, this operates by delivering the next frame of data and taking the difference between the previous frame after exit and difference of the new charges. Impedance works like where it is employed on touchscreens, where force applied where one electrical current (fingers) operates against an opposing charge (capacitive onscreen sensors).
+
+```LaTex
+\[
+\boxed{
+R_n = \frac{P_{\text{rx},n} - P_\text{baseline}}{P_\text{baseline}} \cdot e^{-\alpha c t_{\text{flight},n}}
+}
+\]
+
+\[
+\begin{array}{ll}
+R_n & \text{Cycle-$n$ normalized tissue response (dimensionless)} \\
+P_{\text{rx},n} & \text{Received power during cycle $n$ (W or dBm)} \\
+P_\text{baseline} & \text{Reference baseline power (W or dBm)} \\
+t_{\text{flight},n} & \text{Time-of-flight of RF signal during cycle $n$ (s)} \\
+\alpha & \text{Tissue attenuation coefficient (Np/m)} \\
+c & \text{Speed of EM wave in tissue } \left(c = \frac{c_0}{\sqrt{\varepsilon_r}}\right) \\
+c_0 & \text{Speed of light in vacuum } (\approx 3\times10^8~\text{m/s}) \\
+\varepsilon_r & \text{Relative permittivity of tissue (dimensionless, $\sim 40$–$80$ for RF)} \\
+F(R_n) & \text{Optional function to adjust next-cycle waveform/power} \\
+n & \text{Cycle/frame index}
+\end{array}
+\]
+```
 
 ### Frequency and bandwidth versus attenuation
 

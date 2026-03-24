@@ -11,6 +11,7 @@ import * as lucideIcons from "lucide-react";
 import "highlight.js/styles/github-dark.css";
 import "katex/dist/katex.min.css";
 import BodyAttenuationCanvas from "./BodyAttenuationWebGPUCanvas";
+import ImpedanceCanvas from "./ImpedanceCanvas";
 import TimeOfFlightCanvas from "./TimeOfFlightCanvas";
 import { FrequencyModulationCanvas, HeterodyningCanvas, MultipathCanvas, PhaseShiftingCanvas } from "./SignalCanvases";
 import remarkBodyAttenuationBlocks from "./remarkBodyAttenuationBlocks";
@@ -262,6 +263,7 @@ const App: React.FC = () => {
     img: ({ node: _node, ...props }) => <MarkdownImage {...props} />,
     "latex-block": (props: any) => <LatexBlock {...(props as LatexBlockProps)} />,
     "body-attenuation-canvas": BodyAttenuationCanvas,
+    "impedance-canvas": ImpedanceCanvas,
     "time-of-flight-canvas": TimeOfFlightCanvas,
     "phase-shifting-canvas": PhaseShiftingCanvas,
     "frequency-modulation-canvas": FrequencyModulationCanvas,

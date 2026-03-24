@@ -12,6 +12,14 @@ struct FFTParams {
   min_db: f32,       // Minimum dB for waterfall normalization (e.g. -120.0)
   max_db: f32,       // Maximum dB for waterfall normalization (e.g. 0.0)
   waterfall_width: u32, // Width of waterfall texture (capped by hardware)
+  center_frequency_hz: f32,
+  sample_rate_hz: f32,
+  tuner_gain_db: f32,
+  base_calibration_db: f32,
+  chain_loss_db: f32,
+  calibration_mode: u32,
+  reserved_0: u32,
+  reserved_1: u32,
 };
 
 // Window function types
@@ -20,6 +28,8 @@ const WINDOW_HANNING = 1u;
 const WINDOW_HAMMING = 2u;
 const WINDOW_BLACKMAN = 3u;
 const WINDOW_NUTTALL = 4u;
+const CALIBRATION_MODE_GENERIC = 0u;
+const CALIBRATION_MODE_RTL_SDR = 1u;
 
 // Complex number operations
 struct Complex {
@@ -316,19 +326,81 @@ fn rtl_sdr_complex_power(sample: Complex) -> f32 {
   return sample.real * sample.real + sample.imag * sample.imag;
 }
 
-fn rtl_sdr_approx_dbm(sample: Complex) -> f32 {
+fn fft_bin_frequency_hz(idx: u32) -> f32 {
+  let fft_size = max(f32(params.input_size), 1.0);
+  let sample_rate_hz = max(params.sample_rate_hz, 1.0);
+  let bin_width_hz = sample_rate_hz / fft_size;
+  let signed_idx = select(f32(idx), f32(i32(idx) - i32(params.input_size)), idx > params.input_size / 2u);
+  return params.center_frequency_hz + signed_idx * bin_width_hz;
+}
+
+fn generic_true_dbm(sample: Complex) -> f32 {
   let power = max(rtl_sdr_complex_power(sample), 1e-20);
-  let normalized_power = power / params.normalization;
-  let window_correction_db = 1.5;
-  let reference_offset_db = 13.0;
-  return 10.0 * log10(max(normalized_power, 1e-20)) + window_correction_db + reference_offset_db;
+  let normalized_power = power / max(params.normalization, 1e-20);
+  return 10.0 * log10(max(normalized_power, 1e-20));
+}
+
+fn interpolate_rtl_sdr_gain_offset(gain_db: f32) -> f32 {
+  let g = clamp(gain_db, 0.0, 49.6);
+
+  if (g <= 10.0) {
+    return -32.0 + (g / 10.0) * 4.0;
+  }
+  if (g <= 20.0) {
+    return -28.0 + ((g - 10.0) / 10.0) * 6.0;
+  }
+  if (g <= 30.0) {
+    return -22.0 + ((g - 20.0) / 10.0) * 9.0;
+  }
+  if (g <= 40.0) {
+    return -13.0 + ((g - 30.0) / 10.0) * 10.0;
+  }
+  return -3.0 + ((g - 40.0) / 9.6) * 6.0;
+}
+
+fn rtl_sdr_frequency_correction(freq_hz: f32) -> f32 {
+  let abs_freq_hz = abs(freq_hz);
+
+  if (abs_freq_hz > 88e6 && abs_freq_hz < 108e6) {
+    return 7.0;
+  }
+  if (abs_freq_hz >= 174e6 && abs_freq_hz <= 230e6) {
+    return 2.0;
+  }
+  if (abs_freq_hz >= 470e6 && abs_freq_hz <= 860e6) {
+    return 0.0;
+  }
+
+  return 0.0;
+}
+
+fn rtl_sdr_true_dbm(sample: Complex, freq_hz: f32) -> f32 {
+  let power = max(rtl_sdr_complex_power(sample), 1e-20);
+  let normalized_power = power / max(params.normalization, 1e-20);
+  let dbfs = 10.0 * log10(max(normalized_power, 1e-20));
+  let gain_correction_db = interpolate_rtl_sdr_gain_offset(params.tuner_gain_db);
+  let frequency_correction_db = rtl_sdr_frequency_correction(freq_hz);
+
+  return dbfs
+    + params.base_calibration_db
+    + params.chain_loss_db
+    + gain_correction_db
+    + frequency_correction_db;
+}
+
+fn calibrated_dbm(sample: Complex, idx: u32) -> f32 {
+  if (params.calibration_mode == CALIBRATION_MODE_RTL_SDR) {
+    return rtl_sdr_true_dbm(sample, fft_bin_frequency_hz(idx));
+  }
+
+  return generic_true_dbm(sample);
 }
 
 @compute @workgroup_size(256)
 fn rtl_sdr_iq_to_dbm(@builtin(global_invocation_id) global_id: vec3<u32>) {
   let idx = global_id.x;
 
-  if (idx >= params.input_size) {
+  if (idx >= params.input_size / 2u) {
     return;
   }
 
@@ -345,7 +417,7 @@ fn rtl_sdr_power_spectrum_dbm(@builtin(global_invocation_id) global_id: vec3<u32
   }
 
   let complex_val = input_buffer[idx];
-  let dbm = rtl_sdr_approx_dbm(complex_val);
+  let dbm = calibrated_dbm(complex_val, idx);
   output_buffer[idx] = Complex(dbm, 0.0);
 }
 
