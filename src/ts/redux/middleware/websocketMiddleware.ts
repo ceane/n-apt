@@ -11,7 +11,6 @@ import {
   setCryptoCorrupted,
   queueMessage,
   clearQueuedMessages,
-  setPaused,
 } from '../slices/websocketSlice';
 import { decryptPayload, decryptBinaryPayload } from '@n-apt/crypto/webcrypto';
 import { AutoFftOptionsResponse } from '@n-apt/consts/schemas/websocket';
@@ -84,6 +83,7 @@ const equalValue = (current: unknown, next: unknown): boolean => {
 interface WebSocketInstance {
   ws: WebSocket | null;
   reconnectTimeout: number | null;
+  disconnectTimeout: number | null;
   reconnectAttempts: number;
   maxReconnectAttempts: number;
   url: string;
@@ -96,6 +96,7 @@ interface WebSocketInstance {
 let wsInstance: WebSocketInstance = {
   ws: null,
   reconnectTimeout: null,
+  disconnectTimeout: null,
   reconnectAttempts: 0,
   maxReconnectAttempts: 5,
   url: '',
@@ -108,6 +109,7 @@ let wsInstance: WebSocketInstance = {
 let dataBatchTimeout: number | null = null;
 let pendingDataUpdate: any = null;
 const BATCH_DELAY_MS = 16; // ~60fps
+const DISCONNECT_GRACE_MS = 150;
 
 // Process batched data updates — writes directly to liveDataRef, no Redux dispatch.
 const processBatchedData = () => {
@@ -118,11 +120,51 @@ const processBatchedData = () => {
   dataBatchTimeout = null;
 };
 
+const getPausedValue = (payload: unknown): boolean | null => {
+  if (typeof payload === 'boolean') {
+    return payload;
+  }
+
+  if (
+    payload &&
+    typeof payload === 'object' &&
+    'isPaused' in payload &&
+    typeof (payload as { isPaused?: unknown }).isPaused === 'boolean'
+  ) {
+    return (payload as { isPaused: boolean }).isPaused;
+  }
+
+  return null;
+};
+
 const queueLiveData = (data: unknown) => {
   pendingDataUpdate = data;
   if (dataBatchTimeout === null) {
     dataBatchTimeout = window.setTimeout(() => processBatchedData(), BATCH_DELAY_MS);
   }
+};
+
+const sameAesKeyReference = (
+  current: CryptoKey | null,
+  next: CryptoKey | null,
+): boolean => current === next;
+
+const cleanupSocket = () => {
+  if (wsInstance.reconnectTimeout) {
+    clearTimeout(wsInstance.reconnectTimeout);
+    wsInstance.reconnectTimeout = null;
+  }
+
+  if (wsInstance.ws) {
+    wsInstance.ws.onclose = null;
+    wsInstance.ws.onerror = null;
+    wsInstance.ws.onmessage = null;
+    wsInstance.ws.onopen = null;
+    wsInstance.ws.close();
+    wsInstance.ws = null;
+  }
+
+  wsInstance.disposed = true;
 };
 
 // WebSocket message processing
@@ -344,20 +386,33 @@ const createWebSocketMiddleware = (): Middleware<{}, any> => (store) => (next) =
   switch (action.type) {
     case 'websocket/connect': {
       const { url, aesKey, enabled = true } = action.payload;
+
+      if (wsInstance.disconnectTimeout) {
+        clearTimeout(wsInstance.disconnectTimeout);
+        wsInstance.disconnectTimeout = null;
+      }
+
+      const existingSocket = wsInstance.ws;
+      const hasReusableSocket =
+        !!existingSocket &&
+        !wsInstance.disposed &&
+        wsInstance.enabled === enabled &&
+        wsInstance.url === url &&
+        sameAesKeyReference(wsInstance.aesKey, aesKey) &&
+        (existingSocket.readyState === WebSocket.CONNECTING ||
+          existingSocket.readyState === WebSocket.OPEN);
+
+      if (hasReusableSocket) {
+        if (existingSocket?.readyState === WebSocket.OPEN) {
+          dispatch(setConnected());
+        } else {
+          dispatch(setConnecting());
+        }
+        return next(action);
+      }
       
       // Cleanup existing connection
-      if (wsInstance.ws) {
-        wsInstance.ws.onclose = null;
-        wsInstance.ws.onerror = null;
-        wsInstance.ws.onmessage = null;
-        wsInstance.ws.close();
-        wsInstance.ws = null;
-      }
-      
-      if (wsInstance.reconnectTimeout) {
-        clearTimeout(wsInstance.reconnectTimeout);
-        wsInstance.reconnectTimeout = null;
-      }
+      cleanupSocket();
       
       if (!enabled || !url) {
         dispatch(setDisconnected());
@@ -479,20 +534,14 @@ const createWebSocketMiddleware = (): Middleware<{}, any> => (store) => (next) =
     }
     
     case 'websocket/disconnect': {
-      wsInstance.disposed = true;
-      
-      if (wsInstance.reconnectTimeout) {
-        clearTimeout(wsInstance.reconnectTimeout);
-        wsInstance.reconnectTimeout = null;
+      if (wsInstance.disconnectTimeout) {
+        clearTimeout(wsInstance.disconnectTimeout);
       }
-      
-      if (wsInstance.ws) {
-        wsInstance.ws.onclose = null;
-        wsInstance.ws.onerror = null;
-        wsInstance.ws.onmessage = null;
-        wsInstance.ws.close();
-        wsInstance.ws = null;
-      }
+
+      wsInstance.disconnectTimeout = window.setTimeout(() => {
+        wsInstance.disconnectTimeout = null;
+        cleanupSocket();
+      }, DISCONNECT_GRACE_MS);
       
       if (dataBatchTimeout) {
         clearTimeout(dataBatchTimeout);
@@ -516,7 +565,11 @@ const createWebSocketMiddleware = (): Middleware<{}, any> => (store) => (next) =
     }
     
     case 'websocket/setPaused': {
-      const { isPaused }: { isPaused: boolean } = action.payload;
+      const isPaused = getPausedValue(action.payload);
+
+      if (isPaused === null) {
+        return next(action);
+      }
       
       if (wsInstance.ws && wsInstance.ws.readyState === WebSocket.OPEN) {
         wsInstance.ws.send(JSON.stringify({
@@ -524,9 +577,11 @@ const createWebSocketMiddleware = (): Middleware<{}, any> => (store) => (next) =
           paused: isPaused,
         }));
       }
-      
-      dispatch(setPaused(isPaused));
-      return next(action);
+
+      return next({
+        ...action,
+        payload: isPaused,
+      });
     }
     
     default:

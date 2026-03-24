@@ -474,20 +474,19 @@ impl SdrProcessor {
 
     // Frame averaging (exponential moving average)
     let alpha = self.avg_alpha;
-    let final_spectrum = if let Some(ref mut avg) = self.avg_spectrum {
+    if let Some(ref mut avg) = self.avg_spectrum {
       if avg.len() == spectrum.len() {
         for (i, val) in spectrum.iter().enumerate() {
           avg[i] = alpha * val + (1.0 - alpha) * avg[i];
         }
-        avg.clone()
       } else {
-        self.avg_spectrum = Some(spectrum.clone());
-        spectrum.clone()
+        *avg = spectrum.clone();
       }
     } else {
       self.avg_spectrum = Some(spectrum.clone());
-      spectrum.clone()
-    };
+    }
+    // Borrow the averaged spectrum for output (avoids extra clone)
+    let final_spectrum = self.avg_spectrum.as_ref().unwrap().clone();
 
     if self.capture_active {
       let ch_idx = self.capture_current_fragment;
@@ -502,7 +501,7 @@ impl SdrProcessor {
       self.capture_actual_frames += 1;
     }
 
-    self.last_frame_raw_iq = display_samples_data.clone();
+    self.last_frame_raw_iq = display_samples_data;
     self.last_stable_spectrum = Some(final_spectrum.clone());
 
     Ok(final_spectrum)

@@ -207,22 +207,24 @@ impl WebSocketServer {
       let mut last_poll = Instant::now();
       let mut last_hardware_swap: Option<Instant> = None;
       let mut last_failure_at: Option<Instant> = None;
+      let mut target_fps: u32 = 30; // sensible default until first frame
       loop {
         let start_time = Instant::now();
-        let target_fps = { sdr_processor.lock().await.display_frame_rate };
         // 1. Process pending commands
+        //
+        // "Fast" settings (FFT size, gain, PPM, AGC) are routed through
+        // `shared_state.pending_fast_settings` so they can be applied inside
+        // the blocking frame loop WITHOUT waiting for the processor lock.
+        // Only commands that need broadcast_tx / shared_state interaction
+        // (RestartDevice, StartCapture, etc.) still acquire the lock here.
         while let Ok(cmd) = cmd_rx.try_recv() {
-          let mut processor = sdr_processor.lock().await;
           match cmd {
             crate::server::types::SdrCommand::ApplySettings(settings) => {
-              if let Err(e) = processor.apply_settings(settings) {
-                error!("Failed to apply settings: {}", e);
-              }
+              shared_state.pending_fast_settings.lock().unwrap().push(settings);
             }
             crate::server::types::SdrCommand::SetFrequency(freq) => {
-              // During active captures, the hopping logic in read_and_process_frame
-              // exclusively controls the SDR frequency. UI frequency range changes
-              // must NOT retune the hardware or they corrupt capture frames.
+              // Frequency change is fast (just sets a pending field), so use brief lock
+              let mut processor = sdr_processor.lock().await;
               if processor.capture_active {
                 log::debug!("Ignoring SetFrequency during active capture");
               } else {
@@ -230,38 +232,39 @@ impl WebSocketServer {
               }
             }
             crate::server::types::SdrCommand::SetGain(gain) => {
-              if let Err(e) = processor.apply_settings(crate::server::types::SdrProcessorSettings {
-                gain: Some(gain),
-                ..Default::default()
-              }) {
-                error!("Failed to set gain: {}", e);
-              }
+              shared_state.pending_fast_settings.lock().unwrap().push(
+                crate::server::types::SdrProcessorSettings {
+                  gain: Some(gain),
+                  ..Default::default()
+                },
+              );
             }
             crate::server::types::SdrCommand::SetPpm(ppm) => {
-              if let Err(e) = processor.apply_settings(crate::server::types::SdrProcessorSettings {
-                ppm: Some(ppm),
-                ..Default::default()
-              }) {
-                error!("Failed to set PPM: {}", e);
-              }
+              shared_state.pending_fast_settings.lock().unwrap().push(
+                crate::server::types::SdrProcessorSettings {
+                  ppm: Some(ppm),
+                  ..Default::default()
+                },
+              );
             }
             crate::server::types::SdrCommand::SetTunerAGC(enabled) => {
-              if let Err(e) = processor.apply_settings(crate::server::types::SdrProcessorSettings {
-                tuner_agc: Some(enabled),
-                ..Default::default()
-              }) {
-                error!("Failed to set tuner AGC: {}", e);
-              }
+              shared_state.pending_fast_settings.lock().unwrap().push(
+                crate::server::types::SdrProcessorSettings {
+                  tuner_agc: Some(enabled),
+                  ..Default::default()
+                },
+              );
             }
             crate::server::types::SdrCommand::SetRtlAGC(enabled) => {
-              if let Err(e) = processor.apply_settings(crate::server::types::SdrProcessorSettings {
-                rtl_agc: Some(enabled),
-                ..Default::default()
-              }) {
-                error!("Failed to set RTL AGC: {}", e);
-              }
+              shared_state.pending_fast_settings.lock().unwrap().push(
+                crate::server::types::SdrProcessorSettings {
+                  rtl_agc: Some(enabled),
+                  ..Default::default()
+                },
+              );
             }
             crate::server::types::SdrCommand::RestartDevice => {
+              let mut processor = sdr_processor.lock().await;
               info!("Processing RestartDevice command");
               // Immediately tell the frontend we're restarting
               shared_state.set_device_state("loading", Some("restart"));
@@ -318,6 +321,7 @@ impl WebSocketServer {
               ref_based_demod_baseline,
               is_ephemeral,
             } => {
+              let mut processor = sdr_processor.lock().await;
               // fft_size is used by the SDR processor for FFT configuration
               info!("[CAPTURE] FFT size: {}", fft_size);
               // Save current center frequency so we can restore it after capture
@@ -472,12 +476,14 @@ impl WebSocketServer {
                   "type": "capture_status",
                   "status": {
                       "jobId": job_id,
-                      "status": "started"
+                      "status": "started",
+                      "message": "Capturing..."
                   }
               });
               let _ = _broadcast_tx.send(msg.to_string());
             }
             crate::server::types::SdrCommand::SetPowerScale { scale } => {
+              let mut processor = sdr_processor.lock().await;
               info!("Setting power scale to: {:?}", scale);
               processor.set_power_scale(scale);
             }
@@ -489,6 +495,7 @@ impl WebSocketServer {
               step_size_hz,
               audio_threshold,
             } => {
+              let mut processor = sdr_processor.lock().await;
               info!("[SCAN] Starting scan job={}", job_id);
               let regions = processor.handle_scan(
                 frequency_range,
@@ -509,6 +516,7 @@ impl WebSocketServer {
             }
             #[cfg(any(rs_decrypted, not(target_arch = "wasm32")))]
             crate::server::types::SdrCommand::DemodulateRegion { job_id, region } => {
+              let mut processor = sdr_processor.lock().await;
               info!("[DEMOD] Demodulating region for job={}", job_id);
               let (audio_buffer, sample_rate) = processor.handle_demodulate(&region);
               let response = crate::server::types::DemodResultResponse {
@@ -524,6 +532,7 @@ impl WebSocketServer {
             }
             #[cfg(any(rs_decrypted, not(target_arch = "wasm32")))]
             crate::server::types::SdrCommand::StartAptAnalysis { job_id, config } => {
+              let processor = sdr_processor.lock().await;
               info!("[APT] Starting APT analysis for job={}", job_id);
               
               // Send initial progress update
@@ -787,20 +796,57 @@ impl WebSocketServer {
         // 2. Read and process one frame from SDR
         let process_result = {
           let cloned_processor = sdr_processor.clone();
+          let cloned_shared = shared_state.clone();
           tokio::task::spawn_blocking(
-            move || -> Result<(Vec<f32>, i64, u32, bool, String)> {
+            move || -> Result<(Vec<f32>, i64, u32, bool, String, PowerScale, u32, Vec<u8>, u32)> {
               let mut processor = cloned_processor.blocking_lock();
+
+              // ── Apply any fast-path settings that arrived while we were
+              //    blocked on the previous frame's read_samples. ──────────
+              let pending: Vec<_> = {
+                let mut slot = cloned_shared.pending_fast_settings.lock().unwrap();
+                std::mem::take(&mut *slot)
+              };
+              let mut fft_size_changed = false;
+              let old_fft_size = processor.fft_processor.config().fft_size;
+              for settings in pending {
+                if let Err(e) = processor.apply_settings(settings) {
+                  log::error!("Failed to apply fast-path settings: {}", e);
+                }
+              }
+              if processor.fft_processor.config().fft_size != old_fft_size {
+                fft_size_changed = true;
+              }
+              // After an FFT size change, flush stale buffered data so
+              // read_samples doesn't block waiting for old-size worth of bytes.
+              if fft_size_changed {
+                processor.flush_read_queue();
+                processor.avg_spectrum = None;
+              }
+
               let waveform = processor.read_and_process_frame()?;
               let timestamp = chrono::Utc::now().timestamp_millis();
               let center_frequency = processor.get_center_frequency();
               let is_mock_apt = processor.device_type().contains("Mock");
               let device_type = processor.device_type().to_string();
+              let power_scale = processor.get_power_scale();
+              let sample_rate = processor.get_sample_rate();
+              let raw_iq = if matches!(power_scale, PowerScale::DBm) {
+                processor.last_frame_raw_iq.clone()
+              } else {
+                vec![]
+              };
+              let fps = processor.display_frame_rate;
               Ok((
                 waveform,
                 timestamp,
                 center_frequency,
                 is_mock_apt,
                 device_type,
+                power_scale,
+                sample_rate,
+                raw_iq,
+                fps,
               ))
             },
           )
@@ -814,7 +860,12 @@ impl WebSocketServer {
             center_frequency,
             is_mock_apt,
             device_type_str,
+            power_scale,
+            sample_rate,
+            raw_iq,
+            fps,
           ))) => {
+            target_fps = fps;
             // Successful read — clear any failure streak and confirm
             // recovery if we were in "loading" state from a recovery attempt.
             if !is_mock_apt {
@@ -831,15 +882,7 @@ impl WebSocketServer {
               }
             }
 
-            // Get current power scale and sample rate
-            let power_scale = sdr_processor.lock().await.get_power_scale();
-            let sample_rate = sdr_processor.lock().await.get_sample_rate();
-
             let spectrum_message = if matches!(power_scale, PowerScale::DBm) {
-              // dBm mode: send raw I/Q data (works with both RTL-SDR and Mock APT)
-              let raw_iq = sdr_processor.lock().await.last_frame_raw_iq.clone();
-              
-              // Only log on empty data (potential issue), not on every frame
               if raw_iq.is_empty() {
                 warn!("Raw I/Q data is empty in dBm mode - this may cause data stream freeze");
               }
@@ -989,6 +1032,16 @@ impl WebSocketServer {
           let shared_clone = shared_state.clone();
           let bcast = _broadcast_tx.clone();
 
+          let processing_msg = serde_json::json!({
+            "type": "capture_status",
+            "status": {
+              "jobId": result.job_id,
+              "status": "progress",
+              "message": "Processing data..."
+            }
+          });
+          let _ = bcast.send(processing_msg.to_string());
+
           tokio::task::spawn_blocking(move || {
             if result.is_ephemeral {
                 info!("Ephemeral capture job {} completed. Skipping persistence.", result.job_id);
@@ -997,12 +1050,23 @@ impl WebSocketServer {
                     "status": {
                         "jobId": result.job_id,
                         "status": "done",
+                        "message": "Processing data...",
                         "ephemeral": true
                     }
                 });
                 let _ = bcast.send(msg.to_string());
                 return;
             }
+
+            let creating_msg = serde_json::json!({
+              "type": "capture_status",
+              "status": {
+                "jobId": result.job_id,
+                "status": "progress",
+                "message": "Creating file..."
+              }
+            });
+            let _ = bcast.send(creating_msg.to_string());
 
             match crate::server::utils::save_capture_file_multi(
               &result, &enc_key,
@@ -1022,6 +1086,7 @@ impl WebSocketServer {
                     "status": {
                         "jobId": result.job_id,
                         "status": "done",
+                        "message": "Capture complete",
                         "filename": file_name,
                         "downloadUrl": format!("/api/capture/download?jobId={}", result.job_id)
                     }
@@ -1035,6 +1100,7 @@ impl WebSocketServer {
                     "status": {
                         "jobId": result.job_id,
                         "status": "failed",
+                        "message": "Capture failed",
                         "error": e.to_string()
                     }
                 });

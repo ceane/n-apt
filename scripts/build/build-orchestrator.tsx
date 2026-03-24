@@ -403,7 +403,11 @@ sleep 1
       },
       {
         index: 1,
-        command: 'node_modules/.bin/vite dev --host',
+        command: `bash -lc '
+set -euo pipefail
+rm -rf node_modules/.vite
+exec node_modules/.bin/vite dev --host --force
+'`,
         description: 'Starting frontend server',
         isBackground: true,
         pidKey: 'vitePid' as const,
@@ -441,19 +445,6 @@ set -euo pipefail
 REDIS_PORT="${'${'}REDIS_PORT:-6379}"
 if ! [[ "$REDIS_PORT" =~ ^[0-9]+$ ]] || [ "$REDIS_PORT" -le 0 ] || [ "$REDIS_PORT" -gt 65535 ]; then
   REDIS_PORT=6379
-fi
-if ! command -v redis-cli >/dev/null 2>&1; then
-  echo "redis-cli not available"
-  exit 1
-fi
-if ! redis-cli -p "$REDIS_PORT" ping >/dev/null 2>&1; then
-  echo "Redis must be running before loading towers on port $REDIS_PORT"
-  exit 1
-fi
-FAST_COUNT=${'$'}(redis-cli -p "$REDIS_PORT" -n 2 dbsize 2>/dev/null || echo 0)
-FULL_COUNT=${'$'}(redis-cli -p "$REDIS_PORT" -n 3 dbsize 2>/dev/null || echo 0)
-if [ "$FAST_COUNT" -gt 0 ] && [ "$FULL_COUNT" -gt 0 ]; then
-  exit 0
 fi
 if [ ! -f "scripts/redis/download_opencellid_cached.cjs" ]; then
   echo "scripts/redis/download_opencellid_cached.cjs missing; skipping tower import"

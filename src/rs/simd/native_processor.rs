@@ -6,7 +6,7 @@
 use crate::fft::processor::WindowType;
 use crate::fft::types::RawSamples;
 use crate::simd::common::{
-  IQConverter, PowerSpectrum, SIMDProcessor, WindowFunctions,
+  SIMDProcessor, WindowFunctions,
 };
 use anyhow::Result;
 use rustfft::FftPlanner;
@@ -30,6 +30,11 @@ pub struct NativeProcessor {
   sample_rate: u32,
   /// Current center frequency
   center_frequency: u32,
+  
+  // Scratch buffers to eliminate allocation on every frame
+  complex_buf: Vec<rustfft::num_complex::Complex<f32>>,
+  re_buf: Vec<f32>,
+  im_buf: Vec<f32>,
 }
 
 impl SIMDProcessor for NativeProcessor {
@@ -46,6 +51,9 @@ impl SIMDProcessor for NativeProcessor {
       window_cache: None,
       sample_rate: 3_200_000,
       center_frequency: 1_600_000,
+      complex_buf: vec![rustfft::num_complex::Complex::new(0.0, 0.0); fft_size],
+      re_buf: vec![0.0; fft_size],
+      im_buf: vec![0.0; fft_size],
     }
   }
 
@@ -80,32 +88,52 @@ impl SIMDProcessor for NativeProcessor {
     if output.len() < self.fft_size {
       return Err(anyhow::anyhow!("Output buffer too small"));
     }
-
-    // Use common IQ conversion
-    let mut buf = IQConverter::convert_to_complex_with_context(
-      &samples.data,
-      self.gain,
-      self.ppm,
-      self.fft_size,
-      self.sample_rate,
-      self.center_frequency,
-    )?;
-
-    // Apply window function if needed
-    if self.window_type != WindowType::None
-      && self.window_type != WindowType::Rectangular
-    {
-      let window_coeffs = self.get_window_coeffs();
-      IQConverter::apply_window(&mut buf, &window_coeffs);
+    if samples.data.len() < self.fft_size * 2 {
+      return Err(anyhow::anyhow!("Input buffer too small"));
     }
 
-    // FFT processing
-    self.fft.process(&mut buf);
+    let phase_step = 2.0
+      * std::f32::consts::PI
+      * (self.center_frequency as f32 * self.ppm / 1_000_000.0)
+      / self.sample_rate as f32;
 
-    // Convert to power spectrum using common function
-    PowerSpectrum::to_power_spectrum_db(&buf, output, self.window_type);
+    crate::simd::arm_optimized_common::ARMOptimizedSIMD::convert_to_complex_arm_optimized(
+      &samples.data,
+      &mut self.re_buf,
+      &mut self.im_buf,
+      self.gain,
+      1.0 + (phase_step * self.fft_size as f32 / (2.0 * std::f32::consts::PI)),
+      self.fft_size,
+    );
 
-    // Apply FFT Shift: convert [DC..+Nyq, -Nyq..-1] to [-Nyq..-1, DC..+Nyq]
+    if self.window_type != WindowType::None && self.window_type != WindowType::Rectangular {
+      let window_coeffs = self.get_window_coeffs();
+      crate::simd::arm_optimized_common::ARMOptimizedSIMD::apply_window_arm_optimized(
+        &mut self.re_buf,
+        &mut self.im_buf,
+        &window_coeffs,
+      );
+    }
+
+    for i in 0..self.fft_size {
+      self.complex_buf[i].re = self.re_buf[i];
+      self.complex_buf[i].im = self.im_buf[i];
+    }
+
+    self.fft.process(&mut self.complex_buf);
+
+    for i in 0..self.fft_size {
+      self.re_buf[i] = self.complex_buf[i].re;
+      self.im_buf[i] = self.complex_buf[i].im;
+    }
+
+    let window_sum = WindowFunctions::get_window_sum(self.window_type, self.fft_size);
+    let inv_norm = 1.0 / (window_sum * window_sum);
+
+    crate::simd::arm_optimized_common::ARMOptimizedSIMD::to_power_spectrum_db_arm_optimized(
+      &self.re_buf, &self.im_buf, output, inv_norm,
+    );
+
     let half = self.fft_size / 2;
     output.rotate_right(half);
 
