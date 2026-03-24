@@ -16,6 +16,12 @@ export interface UnifiedProcessOptions {
   powerMode?: "db" | "dbm";
   minDb?: number;
   maxDb?: number;
+  hardwareSampleRateHz?: number;
+  centerFrequencyHz?: number;
+  tunerGainDb?: number;
+  calibrationMode?: "generic" | "rtl_sdr";
+  baseCalibrationDb?: number;
+  chainLossDb?: number;
 }
 
 export interface UnifiedBuffers {
@@ -89,6 +95,11 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
     blackman: 3,
     nuttall: 4
   };
+  
+  const calibrationModeMap = {
+    generic: 0,
+    rtl_sdr: 1,
+  } as const;
   
   // Initialize unified buffers
   const initializeBuffers = useCallback(() => {
@@ -340,7 +351,7 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
       throw error;
     }
   }, [device, enableAveraging, enableSmoothing]);
-  
+
   // Update FFT parameters
   const updateParams = useCallback((
     stage: number,
@@ -348,31 +359,49 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
     windowTypeValue?: number,
     minDbValue?: number,
     maxDbValue?: number,
-    normalizationOverride?: number
+    normalizationOverride?: number,
+    calibrationOptions?: {
+      centerFrequencyHz?: number;
+      sampleRateHz?: number;
+      tunerGainDb?: number;
+      baseCalibrationDb?: number;
+      chainLossDb?: number;
+      calibrationMode?: "generic" | "rtl_sdr";
+    }
   ) => {
     if (!device || !buffersRef.current) return;
     
     const maxTextureWidth = device.limits.maxTextureDimension2D || 16384;
     const waterfallWidth = Math.min(fftSize, maxTextureWidth);
 
-    const params = new Float32Array([
-      stage,                    // stage
-      direction,                // direction
-      fftSize,                  // input_size
-      windowTypeValue ?? windowTypeMap[windowType as keyof typeof windowTypeMap], // window_type
-      normalizationOverride ?? normalizationFactor, // normalization
-      minDbValue ?? -120.0,     // min_db
-      maxDbValue ?? 0.0,        // max_db
-      waterfallWidth,           // waterfall_width
-    ]);
+    const paramsBuffer = new ArrayBuffer(64);
+    const floatView = new Float32Array(paramsBuffer);
+    const uintView = new Uint32Array(paramsBuffer);
+
+    uintView[0] = stage;
+    int32View(paramsBuffer)[1] = direction;
+    uintView[2] = fftSize;
+    uintView[3] = windowTypeValue ?? windowTypeMap[windowType as keyof typeof windowTypeMap];
+    floatView[4] = normalizationOverride ?? normalizationFactor;
+    floatView[5] = minDbValue ?? -120.0;
+    floatView[6] = maxDbValue ?? 0.0;
+    uintView[7] = waterfallWidth;
+    floatView[8] = calibrationOptions?.centerFrequencyHz ?? 0.0;
+    floatView[9] = calibrationOptions?.sampleRateHz ?? 0.0;
+    floatView[10] = calibrationOptions?.tunerGainDb ?? 0.0;
+    floatView[11] = calibrationOptions?.baseCalibrationDb ?? 0.0;
+    floatView[12] = calibrationOptions?.chainLossDb ?? 0.0;
+    uintView[13] = calibrationModeMap[calibrationOptions?.calibrationMode ?? "generic"];
+    uintView[14] = 0;
+    uintView[15] = 0;
     
     device.queue.writeBuffer(
       buffersRef.current.fftParamsBuffer,
       0,
-      params.buffer
+      paramsBuffer
     );
   }, [device, fftSize, windowType, normalizationFactor, windowTypeMap]);
-  
+
   // Unified FFT and waterfall processing
   const processUnified = useCallback(async (
     inputData: Float32Array,
@@ -393,9 +422,21 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
     // Calculate PSD normalization factor for dBm mode (Ps = P / (Fs * N))
     let activeNormalization = normalizationFactor;
     if (powerMode === "dbm" && inputMode === "complex_iq") {
-      const sampleRate = (processOptions as any).hardwareSampleRateHz || 2400000;
+      const sampleRate = processOptions?.hardwareSampleRateHz || 2400000;
       activeNormalization = sampleRate * fftSize;
     }
+
+    const calibrationMode = processOptions?.calibrationMode ?? "generic";
+    const baseCalibrationDb = processOptions?.baseCalibrationDb ?? -30.0;
+    const chainLossDb = processOptions?.chainLossDb ?? 2.5;
+    const calibrationOptions = {
+      centerFrequencyHz: processOptions?.centerFrequencyHz ?? 0,
+      sampleRateHz: processOptions?.hardwareSampleRateHz ?? 0,
+      tunerGainDb: processOptions?.tunerGainDb ?? 0,
+      baseCalibrationDb,
+      chainLossDb,
+      calibrationMode,
+    };
 
     // Debug logging for I/Q data and normalization
     const lastLogTime = lastIqLogTimeRef.current;
@@ -405,14 +446,17 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
       console.log(`[useUnifiedFFT] Debug (mode=${powerMode}, N=${fftSize}):`, {
         iq_samples_slice: inputData.slice(0, 10),
         norm_factor: activeNormalization,
-        sample_rate: (processOptions as any).hardwareSampleRateHz,
+        sample_rate: processOptions?.hardwareSampleRateHz,
         minDb,
-        maxDb
+        maxDb,
+        calibrationMode,
+        centerFrequencyHz: calibrationOptions.centerFrequencyHz,
+        tunerGainDb: calibrationOptions.tunerGainDb,
       });
     }
 
     const updateParamsWithVals = (s: number, d: number = 1, w?: number, l?: number, h?: number) => {
-      updateParams(s, d, w, l, h, activeNormalization);
+      updateParams(s, d, w, l, h, activeNormalization, calibrationOptions);
     };
 
     try {
@@ -442,7 +486,7 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
       const encoder = device.createCommandEncoder();
       
       // Stage 1: Apply window function
-      updateParams(0, 1, undefined, minDb, maxDb);
+      updateParams(0, 1, undefined, minDb, maxDb, activeNormalization, calibrationOptions);
       const windowPass = encoder.beginComputePass();
       if (inputMode === "complex_iq" && rtlIqWindowPipelineRef.current && bindGroupsRef.current.rtlIqWindow) {
         windowPass.setPipeline(rtlIqWindowPipelineRef.current);
@@ -471,9 +515,9 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
         // Swap buffers for next stage
         if (stage < numStages - 1) {
           encoder.copyBufferToBuffer(
-            buffersRef.current! .fftOutputBuffer,
+            buffersRef.current!.fftOutputBuffer,
             0,
-            buffersRef.current! .fftTempBuffer,
+            buffersRef.current!.fftTempBuffer,
             0,
             fftSize * 8
           );
@@ -509,14 +553,14 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
         
         // Copy averaged result back to sharedSpectrumBuffer (readback + waterfall source)
         encoder.copyBufferToBuffer(
-          buffersRef.current! .fftOutputBuffer, 0,
-          buffersRef.current! .sharedSpectrumBuffer, 0,
+          buffersRef.current!.fftOutputBuffer, 0,
+          buffersRef.current!.sharedSpectrumBuffer, 0,
           fftSize * 8
         );
         // Persist averaged result to fftTempBuffer for next frame's "previous"
         encoder.copyBufferToBuffer(
-          buffersRef.current! .fftOutputBuffer, 0,
-          buffersRef.current! .fftTempBuffer, 0,
+          buffersRef.current!.fftOutputBuffer, 0,
+          buffersRef.current!.fftTempBuffer, 0,
           fftSize * 8
         );
       }
@@ -535,8 +579,8 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
         
         // Copy smoothed result back to sharedSpectrumBuffer
         encoder.copyBufferToBuffer(
-          buffersRef.current! .fftOutputBuffer, 0,
-          buffersRef.current! .sharedSpectrumBuffer, 0,
+          buffersRef.current!.fftOutputBuffer, 0,
+          buffersRef.current!.sharedSpectrumBuffer, 0,
           fftSize * 8
         );
       }
@@ -620,7 +664,7 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
       setIsProcessing(false);
     }
   }, [isInitialized, device, fftSize, waterfallHeight, windowType, enableAveraging, enableSmoothing, normalizationFactor, updateParams]);
-  
+
   // Initialize buffers and pipelines when device or dependencies change
   useEffect(() => {
     if (!device) return;
@@ -637,7 +681,7 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
       setIsInitialized(false);
     }
   }, [device, initializeBuffers, createPipelines]);
-  
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -660,7 +704,7 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
       });
     };
   }, []);
-  
+
   return {
     isInitialized,
     isProcessing,
@@ -678,4 +722,8 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
       lastProcessedAt: lastResult?.processedAt || null
     }), [fftSize, waterfallHeight, windowType, enableAveraging, enableSmoothing, lastResult])
   };
+}
+
+function int32View(buffer: ArrayBuffer) {
+  return new Int32Array(buffer);
 }

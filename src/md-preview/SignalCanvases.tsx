@@ -32,6 +32,58 @@ const Frame = styled.div`
   }
 `;
 
+const FrequencyBracket = styled.div`
+  position: absolute;
+  top: 31%;
+  left: 50%;
+  width: min(38vw, 290px);
+  height: 34px;
+  transform: translateX(-50%);
+  color: #6b7280;
+  pointer-events: none;
+
+  &::before,
+  &::after {
+    content: "";
+    position: absolute;
+    top: 8px;
+    width: 24px;
+    height: 16px;
+    border-top: 2px solid currentColor;
+  }
+
+  &::before {
+    left: 0;
+    border-left: 2px solid currentColor;
+    border-top-left-radius: 2px;
+  }
+
+  &::after {
+    right: 0;
+    border-right: 2px solid currentColor;
+    border-top-right-radius: 2px;
+  }
+
+  span {
+    position: absolute;
+    top: 0;
+    transform: translateY(-1px);
+    font-family: "DM Mono", monospace;
+    font-size: clamp(0.66rem, 1vw, 0.9rem);
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+  }
+
+  .left {
+    left: 0;
+  }
+
+  .right {
+    right: 0;
+  }
+`;
+
 const RendererBadge = styled.div`
   position: absolute;
   top: 14px;
@@ -149,6 +201,8 @@ const useTubeGeometry = (points: THREE.Vector3[], radius: number, segments = 420
       return null;
     }
     const curve = new THREE.CatmullRomCurve3(points);
+    curve.curveType = "centripetal";
+    curve.tension = 0.5;
     return new THREE.TubeGeometry(curve, segments, radius, 12, false);
   }, [points, radius, segments]);
 
@@ -737,9 +791,10 @@ export const FrequencyModulationCanvas: React.FC = () => {
       title="Frequency Modulation"
       overlay={(
         <>
-          <OverlayText $top="52px" $left="16px" $color="#6b7280">Carrier</OverlayText>
-          <OverlayText $top="16px" $left="50%" $align="center" $color={palette.accentSecondary} $weight={700}>FM Output</OverlayText>
-          <OverlayText $bottom="18px" $right="16px" $align="right" $color={palette.accentTertiary}>Modulating Wave</OverlayText>
+          <FrequencyBracket>
+            <span className="left">Higher frequency</span>
+            <span className="right">Lower frequency</span>
+          </FrequencyBracket>
         </>
       )}
     >
@@ -750,22 +805,32 @@ export const FrequencyModulationCanvas: React.FC = () => {
 
 const FrequencyModulationScene: React.FC = () => {
   const { viewport } = useThree();
-  const carrier = useWavePoints(0, 0.55, 2.0);
-  const modulator = useWavePoints(0, 0.38, 0.45, -1.2, 180, Math.PI * 1.6);
   const fmWave = useMemo(() => {
-    const samples = 360;
+    const samples = 2400;
     const xMin = -viewport.width * 0.56;
     const xMax = viewport.width * 0.56;
     const pts: THREE.Vector3[] = [];
+    let phase = 0;
+    let prevX = xMin;
+
     for (let i = 0; i <= samples; i += 1) {
       const t = i / samples;
       const x = THREE.MathUtils.lerp(xMin, xMax, t);
-      const modulation = Math.sin(t * Math.PI * 2 * 0.45);
-      const instantaneousFreq = 2.2 + modulation * 1.3;
-      const amplitude = 0.75 + modulation * 0.2;
-      const angle = t * Math.PI * 4 * instantaneousFreq;
-      const y = Math.sin(angle) * amplitude;
+      const center = Math.abs(t - 0.5) * 2;
+      const centerDip = Math.pow(1 - center, 3);
+      const easedDip = 0.5 - 0.5 * Math.cos(Math.PI * centerDip);
+      const instantaneousFreq = THREE.MathUtils.lerp(4.4, 1.2, easedDip);
+      const amplitude = THREE.MathUtils.lerp(0.55, 0.8, easedDip * 0.7);
+
+      if (i === 0) {
+        phase = 0;
+      } else {
+        phase += (x - prevX) * Math.PI * instantaneousFreq * 1.05;
+      }
+
+      const y = Math.sin(phase) * amplitude;
       pts.push(new THREE.Vector3(x, y, 0));
+      prevX = x;
     }
     return pts;
   }, [viewport.width]);
@@ -773,9 +838,7 @@ const FrequencyModulationScene: React.FC = () => {
   return (
     <>
       <GridBackdrop />
-      <WaveTube points={carrier} color="#c7cedd" thickness={0.018} opacity={0.8} />
-      <WaveTube points={fmWave} color={palette.accentSecondary} thickness={0.034} z={0.12} />
-      <DottedWave points={modulator} color={palette.accentTertiary} step={7} size={0.032} z={0.15} />
+      <WaveTube points={fmWave} color={palette.accent} thickness={0.028} z={0.12} segments={2200} />
     </>
   );
 };
