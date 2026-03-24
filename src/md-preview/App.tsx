@@ -11,8 +11,10 @@ import * as lucideIcons from "lucide-react";
 import "highlight.js/styles/github-dark.css";
 import "katex/dist/katex.min.css";
 import BodyAttenuationCanvas from "./BodyAttenuationWebGPUCanvas";
+import TimeOfFlightCanvas from "./TimeOfFlightCanvas";
 import { FrequencyModulationCanvas, HeterodyningCanvas, MultipathCanvas, PhaseShiftingCanvas } from "./SignalCanvases";
 import remarkBodyAttenuationBlocks from "./remarkBodyAttenuationBlocks";
+import remarkTimeOfFlightBlocks from "./remarkTimeOfFlightBlocks";
 import remarkSignalCanvasBlocks from "./remarkSignalCanvasBlocks";
 import remarkIconShortcodes from "./remarkIconShortcodes";
 import remarkLatexCodeBlocks from "./remarkLatexCodeBlocks";
@@ -260,6 +262,7 @@ const App: React.FC = () => {
     img: ({ node: _node, ...props }) => <MarkdownImage {...props} />,
     "latex-block": (props: any) => <LatexBlock {...(props as LatexBlockProps)} />,
     "body-attenuation-canvas": BodyAttenuationCanvas,
+    "time-of-flight-canvas": TimeOfFlightCanvas,
     "phase-shifting-canvas": PhaseShiftingCanvas,
     "frequency-modulation-canvas": FrequencyModulationCanvas,
     "multipath-canvas": MultipathCanvas,
@@ -278,6 +281,7 @@ const App: React.FC = () => {
               remarkIconShortcodes,
               remarkLatexCodeBlocks,
               remarkBodyAttenuationBlocks,
+              remarkTimeOfFlightBlocks,
               remarkSignalCanvasBlocks,
             ]}
             rehypePlugins={[rehypeRaw, rehypeHighlight, rehypeKatex]}
