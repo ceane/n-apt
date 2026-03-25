@@ -1,5 +1,4 @@
 import { useCallback, useRef } from "react";
-import { FFT_CANVAS_BG } from "@n-apt/consts";
 
 function alignTo(value: number, alignment: number): number {
   return Math.ceil(value / alignment) * alignment;
@@ -40,6 +39,12 @@ function parseCssColorToRgba(color: string): [number, number, number, number] {
     ];
   }
   return [0, 0, 0, 1];
+}
+
+function readCssColor(name: string, fallback: string): string {
+  if (typeof window === "undefined" || typeof document === "undefined") return fallback;
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return value || fallback;
 }
 
 // ---------------------------------------------------------------------------
@@ -295,7 +300,7 @@ export function useDrawWebGPUFIFOWaterfall() {
         restoreTexture,
         colormap,
         colormapName,
-        backgroundColor = FFT_CANVAS_BG,
+        backgroundColor = readCssColor("--color-fft-background", "#0a0a0a"),
       } = options;
 
       if (!stateRef.current) {

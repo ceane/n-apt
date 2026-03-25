@@ -459,13 +459,15 @@ self.onmessage = async function (e) {
   try {
     switch (type) {
       case "loadFile": {
-        const { fileData, fileName, aesKey, sampleRateOptions } = data;
+        const { fileData, fileName, aesKey } = data;
         const lower = fileName.toLowerCase();
-        let rawData: number[] = [];
+        let rawData: Uint8Array | number[] = []; // Change type to allow Uint8Array
         if (lower.endsWith(".wav")) {
           const res = loadWavFile(fileData);
-          rawData = res.raw;
-          self.postMessage({ type: "result", id, data: { rawData, fileName, metadata: res.metadata } });
+          rawData = res.raw; // res.raw is already Uint8Array from loadWavFile
+          
+          const transferables = (rawData && (rawData as any).buffer) ? [(rawData as any).buffer] : [];
+          (self as any).postMessage({ type: "result", id, data: { rawData, fileName, metadata: res.metadata } }, transferables);
         } else if (lower.endsWith(".napt") && aesKey) {
           const MAX_HEADER_READ = Math.min(8192, fileData.byteLength);
           const maxHeaderBytes = new Uint8Array(fileData, 0, MAX_HEADER_READ);
@@ -475,27 +477,49 @@ self.onmessage = async function (e) {
           const jsonStr = new TextDecoder().decode(maxHeaderBytes.slice(0, newlineIdx));
           const metaObj = JSON.parse(jsonStr);
           
-          const channels = metaObj.channels || [{ offset_iq: metaObj.offset_iq, offset_spectrum: metaObj.offset_spectrum }];
+          // Check for channels at top-level OR inside metadata
+          const channels = metaObj.channels || metaObj.metadata?.channels || [
+            { 
+              offset_iq: metaObj.offset_iq ?? metaObj.metadata?.offset_iq, 
+              offset_spectrum: metaObj.offset_spectrum ?? metaObj.metadata?.offset_spectrum,
+              iq_length: metaObj.iq_length ?? metaObj.metadata?.iq_length
+            }
+          ];
           const firstChannel = channels[0];
+          console.log("NAPT Load - Channels:", channels);
+          console.log("NAPT Load - First Channel:", firstChannel);
 
           if (firstChannel && firstChannel.offset_iq !== undefined && firstChannel.offset_spectrum !== undefined) {
             // Determine actual padding size. Backend now uses 4096, previously used 2048.
-            const headerSize = metaObj.channels ? 4096 : 2048;
+            // Force 4096 if metaObj.metadata.channels exists as hinted by the user's header dump
+            const headerSize = (metaObj.metadata?.channels || metaObj.channels) ? 4096 : 2048;
+            console.log("NAPT Load - Calculated headerSize:", headerSize);
 
             const encryptedData = new Uint8Array(fileData, headerSize);
             const iv = encryptedData.slice(0, 12);
             const ciphertext = encryptedData.slice(12);
-            const decryptedData = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, aesKey, ciphertext);
-            const payloadArray = new Uint8Array(decryptedData);
             
-            const chOffsetIq = firstChannel.offset_iq;
-            const chOffsetSpec = firstChannel.offset_spectrum;
-            
-            const iqByteLength = firstChannel.iq_length ?? (chOffsetSpec - chOffsetIq);
-            rawData = Array.from(payloadArray.slice(chOffsetIq, chOffsetIq + iqByteLength));
-            const metadata = metaObj.metadata || metaObj;
-            self.postMessage({ type: "result", id, data: { rawData, fileName, metadata } });
+            try {
+              const decryptedData = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, aesKey, ciphertext);
+              const payloadArray = new Uint8Array(decryptedData);
+              
+              const chOffsetIq = firstChannel.offset_iq;
+              const chOffsetSpec = firstChannel.offset_spectrum;
+              
+              const iqByteLength = firstChannel.iq_length ?? (chOffsetSpec - chOffsetIq);
+              console.log("NAPT Load - Offsets:", { chOffsetIq, chOffsetSpec, iqByteLength });
+              
+              const iqPart = payloadArray.slice(chOffsetIq, chOffsetIq + iqByteLength);
+              const metadata = metaObj.metadata || metaObj;
+              
+              const responseData = { rawData: iqPart, fileName, metadata };
+              (self as any).postMessage({ type: "result", id, data: responseData }, [iqPart.buffer]);
+            } catch (decryptErr: any) {
+              console.error("NAPT Load - Decryption Failed:", decryptErr);
+              throw new Error(`Decryption failed: ${decryptErr.message || decryptErr}`);
+            }
           } else {
+            console.error("NAPT Load - Invalid channel offsets", { firstChannel });
             throw new Error("Missing offset_iq or offset_spectrum in header channels");
           }
         } else {
@@ -511,7 +535,6 @@ self.onmessage = async function (e) {
         
         // DERIVE MAX SAMPLE RATE FROM OPTIONS OR FALLBACK TO 3.2MHz
         const maxSampleRateHz = sampleRateOptions?.maxSampleRateHz || 3200000;
-        const currentSampleRateHz = sampleRateOptions?.currentSampleRateHz || maxSampleRateHz;
         
         const fileDataCache = new Map();
         const nSpcCache = new Map();
@@ -609,7 +632,7 @@ self.onmessage = async function (e) {
                     const chOffsetSpec = ch.offset_spectrum;
                     const iqLength = ch.iq_length ?? 0;
                     const iqBytes = payloadArray.slice(chOffsetIq, chOffsetIq + iqLength);
-                    const iq = Array.prototype.slice.call(iqBytes);
+                    const iq = iqBytes;
 
                     const specLength = ch.spectrum_length || (j + 1 < channelsMetadata.length ? channelsMetadata[j+1].offset_iq - ch.offset_spectrum : payloadArray.length - chOffsetSpec);
                     const specBytes = payloadArray.slice(chOffsetSpec, chOffsetSpec + specLength);

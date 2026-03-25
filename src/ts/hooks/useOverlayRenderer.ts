@@ -15,6 +15,22 @@ import { formatFrequency, formatFrequencyHighRes } from "@n-apt/consts";
 import type { SdrLimitMarker } from "@n-apt/utils/sdrLimitMarkers";
 import type { SpectrumSpikeMarker } from "@n-apt/hooks/useWasmSimdMath";
 
+const readCssColor = (name: string, fallback: string) => {
+  if (typeof window === "undefined" || typeof document === "undefined") return fallback;
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return value || fallback;
+};
+
+const getCanvasThemeColors = () => ({
+  gridColor: readCssColor("--color-fft-grid", FFT_GRID_COLOR),
+  textColor: readCssColor("--color-fft-text", FFT_TEXT_COLOR),
+  centerLineColor: readCssColor("--color-fft-center-line", CENTER_LINE_COLOR),
+  offsetTickLine: readCssColor("--color-fft-offset-tick-line", OFFSET_TICK_LINE_COLOR),
+  offsetTickText: readCssColor("--color-fft-offset-tick-text", OFFSET_TICK_TEXT_COLOR),
+  snapHwRateLine: readCssColor("--color-snap-hw-rate-line", SNAP_HW_RATE_LINE),
+  snapHwRateText: readCssColor("--color-snap-hw-rate-text", SNAP_HW_RATE_TEXT),
+});
+
 /**
  * Hook for rendering WebGPU overlay textures (grid and markers)
  * Provides functions to draw grid and markers onto OffscreenCanvas contexts
@@ -36,6 +52,7 @@ export function useOverlayRenderer() {
       _isIqRecordingActive?: boolean,
     ) => {
       const dpr = window.devicePixelRatio || 1;
+      const canvasTheme = getCanvasThemeColors();
       const fftAreaMax = { x: width - 40, y: height - 40 };
       const fftHeight = fftAreaMax.y - FFT_AREA_MIN.y;
       const plotWidth = fftAreaMax.x - FFT_AREA_MIN.x;
@@ -62,8 +79,8 @@ export function useOverlayRenderer() {
 
       ctx.clearRect(0, 0, width, height);
 
-      ctx.strokeStyle = FFT_GRID_COLOR;
-      ctx.fillStyle = FFT_TEXT_COLOR;
+      ctx.strokeStyle = canvasTheme.gridColor;
+      ctx.fillStyle = canvasTheme.textColor;
       ctx.font = "12px JetBrains Mono";
       ctx.textAlign = "right";
       ctx.lineWidth = 1 / dpr;
@@ -97,12 +114,12 @@ export function useOverlayRenderer() {
         let label = `${Math.round(line)}`;
         // Append unit only to the top-most label (the first one in our array)
         if (line === labels[0]) {
-          label += powerScale === "dBm" ? "dBm" : "dB";
+          label += powerScale === "dBm" ? " dBm" : " dB";
         }
 
         ctx.fillText(
           label,
-          FFT_AREA_MIN.x - 15,
+          FFT_AREA_MIN.x - 10,
           Math.round(yPos + 3),
         );
       }
@@ -142,8 +159,8 @@ export function useOverlayRenderer() {
         return `${Math.round(mhz * 1_000_000)}Hz`;
       };
 
-      ctx.strokeStyle = FFT_GRID_COLOR;
-      ctx.fillStyle = FFT_TEXT_COLOR;
+      ctx.strokeStyle = canvasTheme.gridColor;
+      ctx.fillStyle = canvasTheme.textColor;
       ctx.font = "12px JetBrains Mono";
       ctx.textAlign = "center";
 
@@ -199,14 +216,14 @@ export function useOverlayRenderer() {
         const ix = Math.round(xPos);
 
         // Grid line
-        ctx.strokeStyle = FFT_GRID_COLOR;
+        ctx.strokeStyle = canvasTheme.gridColor;
         ctx.beginPath();
         ctx.moveTo(ix, FFT_AREA_MIN.y);
         ctx.lineTo(ix, fftAreaMax.y);
         ctx.stroke();
 
         // Tick mark
-        ctx.strokeStyle = FFT_TEXT_COLOR;
+        ctx.strokeStyle = canvasTheme.textColor;
         ctx.beginPath();
         ctx.moveTo(ix, fftAreaMax.y);
         ctx.lineTo(ix, fftAreaMax.y + 7);
@@ -226,8 +243,8 @@ export function useOverlayRenderer() {
       // Top ticks
       if (centerTicksMHz.length > 0 && Number.isFinite(visualCenterFreq)) {
         ctx.save();
-        ctx.strokeStyle = OFFSET_TICK_LINE_COLOR;
-        ctx.fillStyle = OFFSET_TICK_TEXT_COLOR;
+        ctx.strokeStyle = canvasTheme.offsetTickLine;
+        ctx.fillStyle = canvasTheme.offsetTickText;
         ctx.font = "10px JetBrains Mono";
         ctx.textAlign = "center";
         ctx.textBaseline = "top";
@@ -250,7 +267,7 @@ export function useOverlayRenderer() {
         ctx.restore();
       }
 
-      ctx.strokeStyle = FFT_TEXT_COLOR;
+      ctx.strokeStyle = canvasTheme.textColor;
       ctx.lineWidth = 1.0 / dpr;
       ctx.beginPath();
       ctx.moveTo(FFT_AREA_MIN.x, fftAreaMax.y);
@@ -269,10 +286,10 @@ export function useOverlayRenderer() {
         
         if (shouldShowHWGrid) {
           ctx.save();
-          ctx.strokeStyle = SNAP_HW_RATE_LINE; // User specified color
-          ctx.setLineDash([4, 4]); // Dashed line
+          ctx.strokeStyle = canvasTheme.snapHwRateLine;
+          ctx.setLineDash([4, 4]);
           ctx.lineWidth = 1 / dpr;
-          ctx.fillStyle = SNAP_HW_RATE_TEXT;
+          ctx.fillStyle = canvasTheme.snapHwRateText;
           ctx.font = "10px JetBrains Mono";
           ctx.textAlign = "center";
           ctx.textBaseline = "top";
@@ -348,6 +365,7 @@ export function useOverlayRenderer() {
       limitMarkers: SdrLimitMarker[] = [],
     ) => {
       const dpr = window.devicePixelRatio || 1;
+      const canvasTheme = getCanvasThemeColors();
       const fftAreaMax = { x: width - 40, y: height - 40 };
       const plotWidth = fftAreaMax.x - FFT_AREA_MIN.x;
       if (!frequencyRange) return;
@@ -378,7 +396,7 @@ export function useOverlayRenderer() {
         ) {
           const cx = Math.round((FFT_AREA_MIN.x + fftAreaMax.x) / 2) + 0.5;
           ctx.save();
-          ctx.strokeStyle = CENTER_LINE_COLOR;
+          ctx.strokeStyle = canvasTheme.centerLineColor;
           ctx.lineWidth = 1 / dpr;
           ctx.beginPath();
           ctx.moveTo(cx, FFT_AREA_MIN.y);
@@ -393,14 +411,14 @@ export function useOverlayRenderer() {
        ctx.textBaseline = "alphabetic";
        const labelX = (FFT_AREA_MIN.x + fftAreaMax.x) / 2;
        const labelY = fftAreaMax.y + 25;
-       ctx.fillStyle = "#ffffff";
+       ctx.fillStyle = canvasTheme.textColor;
        ctx.fillText(centerLabel, labelX, labelY);
        ctx.restore();
 
        if (isDeviceConnected) {
          ctx.save();
          ctx.strokeStyle = "rgba(220, 38, 38, 0.75)";
-         ctx.fillStyle = "rgba(255, 140, 140, 0.95)";
+         ctx.fillStyle = canvasTheme.textColor;
          ctx.lineWidth = 1 / dpr;
          ctx.font = "10px JetBrains Mono";
          ctx.textAlign = "center";

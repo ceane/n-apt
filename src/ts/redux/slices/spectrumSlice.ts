@@ -16,6 +16,7 @@ export interface SpectrumState {
   powerScale: PowerScale;
   vizZoom: number;
   vizPanOffset: number;
+  displayMode: "fft" | "iq";
   
   // FFT settings
   fftMinDb: number;
@@ -73,6 +74,7 @@ const initialState: SpectrumState = {
   powerScale: "dB",
   vizZoom: 1,
   vizPanOffset: 0,
+  displayMode: "fft",
   
   fftMinDb: -120,
   fftMaxDb: 0,
@@ -156,6 +158,10 @@ const spectrumSlice = createSlice({
     
     setVizPan: (state, action: PayloadAction<number>) => {
       state.vizPanOffset = action.payload;
+    },
+    
+    setDisplayMode: (state, action: PayloadAction<"fft" | "iq">) => {
+      state.displayMode = action.payload;
     },
     
     // FFT settings
@@ -290,6 +296,7 @@ export const {
   setPowerScale,
   setVizZoom,
   setVizPan,
+  setDisplayMode,
   setFftDbLimits,
   setFftSize,
   setFftSizeOptions,

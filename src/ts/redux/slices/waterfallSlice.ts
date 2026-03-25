@@ -1,7 +1,7 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 
 export type SourceMode = "live" | "file";
-export type SelectedFile = { name: string; file: File; downloadUrl?: string };
+export type SelectedFile = { id: string; name: string; downloadUrl?: string };
 export type TrainingLabel = "target" | "noise";
 export type ActivePlaybackMetadata = {
   activeChannel: number;

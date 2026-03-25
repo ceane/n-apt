@@ -503,8 +503,6 @@ export function useWasmSimdMath(options: SpectrumMathOptions): WasmSimdMathHandl
   const detectProminentSpikes = useCallback((params: SpikeDetectionParams) => {
     const {
       spectrumData,
-      dbMin,
-      dbMax,
       maxMarkers = 96,
       frequencyRange,
       temporalPersistence,
@@ -512,8 +510,7 @@ export function useWasmSimdMath(options: SpectrumMathOptions): WasmSimdMathHandl
     const length = spectrumData.length;
     if (length < 5) return [];
 
-    const dynamicRange = Math.max(1, dbMax - dbMin);
-
+    // Calculate window size
     let w = Math.max(2, Math.floor(length * 0.015));
     if (frequencyRange) {
       const spanMHz = frequencyRange.max - frequencyRange.min;
@@ -524,26 +521,44 @@ export function useWasmSimdMath(options: SpectrumMathOptions): WasmSimdMathHandl
       }
     }
 
-    const eroded = new Float32Array(length);
+    // Z-score based approach
+    const zScores = new Float32Array(length);
+    const localMeans = new Float32Array(length);
+    const localStdDevs = new Float32Array(length);
+    
+    // Pass 1: compute local mean and std dev using sliding window
     for (let i = 0; i < length; i++) {
-      let minVal = Infinity;
+      let sum = 0;
+      let sumSq = 0;
+      let count = 0;
       const start = Math.max(0, i - w);
       const end = Math.min(length - 1, i + w);
+      
       for (let j = start; j <= end; j++) {
-        if (spectrumData[j] < minVal) minVal = spectrumData[j];
+        const val = spectrumData[j];
+        if (Number.isFinite(val)) {
+          sum += val;
+          sumSq += val * val;
+          count++;
+        }
       }
-      eroded[i] = minVal;
+      
+      if (count > 0) {
+        const mean = sum / count;
+        localMeans[i] = mean;
+        // variance = E[X^2] - (E[X])^2
+        const variance = Math.max(0, (sumSq / count) - (mean * mean));
+        const stdDev = Math.sqrt(variance);
+        localStdDevs[i] = Math.max(0.1, stdDev); // Prevent division by zero
+      }
     }
-
-    const baseline = new Float32Array(length);
+    
+    // Pass 2: calculate z-scores
     for (let i = 0; i < length; i++) {
-      let maxVal = -Infinity;
-      const start = Math.max(0, i - w);
-      const end = Math.min(length - 1, i + w);
-      for (let j = start; j <= end; j++) {
-        if (eroded[j] > maxVal) maxVal = eroded[j];
+      const val = spectrumData[i];
+      if (Number.isFinite(val)) {
+        zScores[i] = (val - localMeans[i]) / localStdDevs[i];
       }
-      baseline[i] = maxVal;
     }
 
     const persistence =
@@ -552,27 +567,22 @@ export function useWasmSimdMath(options: SpectrumMathOptions): WasmSimdMathHandl
         : null;
     const decay = 0.9;
     const persistenceSpread = Math.max(1, Math.min(4, Math.floor(length / 1024)));
-    const residual = new Float32Array(length);
 
-    for (let i = 0; i < length; i++) {
-      const prominence = Math.max(0, spectrumData[i] - baseline[i]);
-      residual[i] = prominence;
-      if (persistence) {
-        persistence[i] *= decay;
-      }
-    }
-
+    // Update persistence
     if (persistence) {
       for (let i = 0; i < length; i++) {
-        const prominence = residual[i];
-        if (prominence <= 0) continue;
+        persistence[i] *= decay;
+      }
+      for (let i = 0; i < length; i++) {
+        const score = zScores[i];
+        if (score <= 0) continue;
         for (
           let j = Math.max(0, i - persistenceSpread);
           j <= Math.min(length - 1, i + persistenceSpread);
           j++
         ) {
           const weight = j === i ? 1 : 0.72;
-          const boosted = prominence * weight;
+          const boosted = score * weight;
           if (boosted > persistence[j]) {
             persistence[j] = boosted;
           }
@@ -580,33 +590,35 @@ export function useWasmSimdMath(options: SpectrumMathOptions): WasmSimdMathHandl
       }
     }
 
-    const minProminence = Math.max(2.2, dynamicRange * 0.032);
+    const minZScore = 2.5; // Z-score threshold for spikes
     const candidates: SpectrumSpikeMarker[] = [];
 
     for (let i = 2; i < length - 2; i++) {
       const center = spectrumData[i];
       if (!Number.isFinite(center)) continue;
 
-      const effectiveProminence = residual[i] + (persistence ? persistence[i] * 0.65 : 0);
-      if (effectiveProminence < minProminence) continue;
+      const effectiveScore = zScores[i] + (persistence ? persistence[i] * 0.65 : 0);
+      if (effectiveScore < minZScore) continue;
 
+      // Peak detection (local maximum in the effective score)
       if (
-        effectiveProminence <= residual[i - 1] + (persistence ? persistence[i - 1] * 0.65 : 0) ||
-        effectiveProminence <= residual[i + 1] + (persistence ? persistence[i + 1] * 0.65 : 0)
+        effectiveScore <= zScores[i - 1] + (persistence ? persistence[i - 1] * 0.65 : 0) ||
+        effectiveScore <= zScores[i + 1] + (persistence ? persistence[i + 1] * 0.65 : 0)
       ) {
         continue;
       }
 
-      const normalized = Math.max(
+      // Base radius on Z-score magnitude
+      const normalizedScore = Math.max(
         0,
-        Math.min(1, effectiveProminence / Math.max(10, dynamicRange * 0.3)),
+        Math.min(1, (effectiveScore - minZScore) / 5.0)
       );
 
       candidates.push({
         index: i,
         value: center,
-        prominence: effectiveProminence,
-        radius: 3.5 + normalized * 7.5,
+        prominence: effectiveScore, // use z-score as prominence metric
+        radius: 3.5 + normalizedScore * 7.5,
       });
     }
 

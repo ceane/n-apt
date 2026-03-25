@@ -41,7 +41,7 @@ import { deriveStateFromConfig } from "@n-apt/hooks/useSdrSettings";
 
 // Types
 export type SourceMode = "live" | "file";
-export type SelectedFile = { name: string; file: File; downloadUrl?: string };
+export type SelectedFile = { id: string; name: string; downloadUrl?: string };
 
 const MANUAL_VISUALIZER_PAUSE_KEY = "napt-visualizer-manual-paused";
 
@@ -121,6 +121,7 @@ export type SpectrumState = {
   isDiagnosticRunning: boolean;
   diagnosticTrigger: number;
   drawSignal3D: boolean;
+  displayMode: "fft" | "iq";
 };
 
 export type SpectrumAction =
@@ -180,7 +181,9 @@ export type SpectrumAction =
   | { type: "SET_DIAGNOSTIC_STATUS"; status: string }
   | { type: "SET_DIAGNOSTIC_RUNNING"; running: boolean }
   | { type: "TRIGGER_DIAGNOSTIC" }
-  | { type: "SET_DRAW_SIGNAL_3D"; enabled: boolean };
+  | { type: "SET_DRAW_SIGNAL_3D"; enabled: boolean }
+  | { type: "SET_DISPLAY_MODE"; displayMode: "fft" | "iq" }
+  | { type: "SET_FFT_WINDOW"; fftWindow: string };
 
 export const INITIAL_SPECTRUM_STATE: SpectrumState = {
   activeSignalArea: "A",
@@ -240,6 +243,7 @@ export const INITIAL_SPECTRUM_STATE: SpectrumState = {
   isDiagnosticRunning: false,
   diagnosticTrigger: 0,
   drawSignal3D: false,
+  displayMode: "fft",
 };
 
 const SDR_SETTINGS_KEY = "napt-sdr-settings-v2";
@@ -482,6 +486,10 @@ export function spectrumReducer(
       return { ...state, diagnosticTrigger: state.diagnosticTrigger + 1 };
     case "SET_DRAW_SIGNAL_3D":
       return { ...state, drawSignal3D: action.enabled };
+    case "SET_DISPLAY_MODE":
+      return { ...state, displayMode: action.displayMode };
+    case "SET_FFT_WINDOW":
+      return { ...state, fftWindow: action.fftWindow };
     default:
       return state;
   }

@@ -16,6 +16,7 @@ const Section = styled.div`
     props.theme.mode === "light" ? `1px solid ${props.theme.border}` : "none"};
   box-sizing: border-box;
   width: 100%;
+  color: ${(props) => props.theme.textPrimary};
 `;
 
 interface FFTWaterfallSectionProps {

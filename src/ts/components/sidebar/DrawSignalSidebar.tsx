@@ -1,6 +1,5 @@
 import React from "react";
 import styled from "styled-components";
-import { COLORS } from "@n-apt/consts";
 import { Slider, Row } from "@n-apt/components/ui";
 import { DecryptionFallback } from "@n-apt/components/ui/DecryptionFallback";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
@@ -73,26 +72,29 @@ const ControlsContainer = styled.div`
 `;
 
 const InfoContainer = styled.div`
-  background-color: ${COLORS.surface};
+  background: ${(props) => props.theme.primaryAnchor};
   padding: 16px;
   border-radius: 8px;
-  border: 1px solid ${COLORS.border};
+  border: 1px solid ${(props) => props.theme.primaryAlpha};
 `;
 
 const InfoTitle = styled.h3`
   color: ${(props) => props.theme.primary};
-  margin-bottom: 12px;
-  font-size: 14px;
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  font-family: ${(props) => props.theme.typography.mono};
 `;
 
 const InfoText = styled.div`
-  font-size: 12px;
+  color: ${(props) => props.theme.textSecondary};
+  font-size: 11px;
   line-height: 1.5;
 `;
 
 const InfoParagraph = styled.p`
   margin-bottom: 8px;
-  color: ${COLORS.textSecondary};
+  color: ${(props) => props.theme.textSecondary};
 `;
 
 const ClumpSelector = styled.div`

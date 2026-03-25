@@ -1,6 +1,6 @@
 import { THEME_TOKENS } from "../../rs/consts/theme";
 
-const BASE_COLORS = THEME_TOKENS.colors.dark;
+const BASE_COLORS = THEME_TOKENS.colors.light;
 
 export const FFT_GRID_COLOR = BASE_COLORS.fftGrid;
 export const LINE_COLOR = BASE_COLORS.fftLine;

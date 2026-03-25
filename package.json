@@ -108,6 +108,7 @@
     "@vitest/browser-playwright": "^4.1.0",
     "@vitest/coverage-v8": "^4.1.0",
     "@webgpu/types": "^0.1.47",
+    "agentation": "^3.0.1",
     "concurrently": "^9.2.1",
     "fkill-cli": "^9.0.0",
     "jest": "^30.2.0",

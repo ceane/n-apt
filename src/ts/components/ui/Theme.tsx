@@ -18,6 +18,8 @@ interface BuildAppThemeOptions {
 
 type ThemeColorMap = Record<ThemeColorToken, string>;
 
+export const APP_THEME_COLORS = THEME_TOKENS.colors;
+
 const toAlphaHex = (value: number) => Math.round(value * 255).toString(16).padStart(2, "0");
 
 const appendHexAlpha = (color: string, opacity: number) => {
@@ -78,7 +80,14 @@ export interface AppStyledTheme {
   primaryAnchor: string;
   fft: string;
   cssVariables: Record<string, string | number>;
-  [key: string]: string | number | ThemeColorMap | typeof THEME_TOKENS.typography | typeof THEME_TOKENS.spacing | typeof THEME_TOKENS.layout;
+  [key: string]:
+  | string
+  | number
+  | ThemeColorMap
+  | typeof THEME_TOKENS.typography
+  | typeof THEME_TOKENS.spacing
+  | typeof THEME_TOKENS.layout
+  | Record<string, string | number>;
 }
 
 export const buildAppTheme = ({
@@ -88,7 +97,7 @@ export const buildAppTheme = ({
   resolvedMode,
   waterfallTheme,
 }: BuildAppThemeOptions): AppStyledTheme => {
-  const baseColors = THEME_TOKENS.colors[resolvedMode];
+  const baseColors = APP_THEME_COLORS[resolvedMode];
   const colors: ThemeColorMap = {
     ...baseColors,
     primary: accentColor,
@@ -140,9 +149,9 @@ export const buildAppTheme = ({
 export const GlobalThemeStyle = createGlobalStyle`
   :root {
     ${({ theme }) =>
-      Object.entries(theme.cssVariables)
-        .map(([name, value]) => `${name}: ${value};`)
-        .join("\n")}
+    Object.entries(theme.cssVariables)
+      .map(([name, value]) => `${name}: ${value};`)
+      .join("\n")}
   }
 
   html,

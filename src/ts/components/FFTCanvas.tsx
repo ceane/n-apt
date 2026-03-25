@@ -971,7 +971,8 @@ const FFTCanvas = memo(
         );
         const showLoadingPlaceholder = awaitingDeviceData &&
           !hasRenderableWaveform &&
-          !hasIncomingData;
+          !hasIncomingData &&
+          !(isPaused && pendingWaterfallRestoreRef.current);
 
         if (showLoadingPlaceholder) {
           drawLoadingPlaceholder(spectrumOverlayCanvas);
@@ -1485,9 +1486,9 @@ const FFTCanvas = memo(
                     pausedWaterfallRowRef.current = new Float32Array(
                       targetWidth,
                     );
-                    pausedWaterfallRowRef.current.fill(-200);
+                    pausedWaterfallRowRef.current.fill(-120);
                   } else {
-                    pausedWaterfallRowRef.current.fill(-200);
+                    pausedWaterfallRowRef.current.fill(-120);
                   }
                   restoredWaterfallRef.current = true;
                 }
@@ -1497,8 +1498,8 @@ const FFTCanvas = memo(
               if (rowBuffer) {
                 drawWebGPUFIFOWaterfall({
                   canvas: waterfallGpuCanvas,
-                  device: webgpuDeviceRef.current,
-                  format: webgpuFormatRef.current,
+                  device: webgpuDeviceRef.current!,
+                  format: webgpuFormatRef.current!,
                   fftData: rowBuffer,
                   frequencyRange: visualRange,
                   fftMin: activeScaleDbMin,
@@ -1565,10 +1566,12 @@ const FFTCanvas = memo(
     });
 
     useEffect(() => {
+      const hasPendingWaterfallRestore = !!pendingWaterfallRestoreRef.current;
       lastProcessedDataRef.current = null;
-      pausedWaterfallRowRef.current = null;
-      restoredWaterfallRef.current = false;
-      pendingWaterfallRestoreRef.current = null;
+      if (!isPaused || !hasPendingWaterfallRestore) {
+        pausedWaterfallRowRef.current = null;
+        restoredWaterfallRef.current = false;
+      }
 
       const currentWaveform = waveformFloatRef.current;
       if (currentWaveform && currentWaveform.length > 0) {
@@ -1649,10 +1652,13 @@ const FFTCanvas = memo(
           height: snapshot.meta.height,
           writeRow: snapshot.meta.writeRow,
         };
+        if (isPaused) {
+          forceRender();
+        }
       } catch (err) {
         console.error("Failed to load waterfall snapshot from IndexedDB:", err);
       }
-    }, []);
+    }, [forceRender, isPaused]);
 
     useEffect(() => {
       // Restore waterfall history unconditionally on mount (no longer tied to isPaused).
@@ -1893,10 +1899,6 @@ const FFTCanvas = memo(
       lastWaterfallRowRef.current = null;
       pausedWaterfallRowRef.current = null;
       waterfallBufferRef.current = null;
-      waterfallTextureSnapshotRef.current = null;
-      waterfallTextureMetaRef.current = null;
-      pendingWaterfallRestoreRef.current = null;
-      restoredWaterfallRef.current = false;
       fftAvgBufferRef.current = null;
       fftProcessedBufferRef.current = null;
       fftSmoothedBufferRef.current = null;

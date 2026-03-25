@@ -71,6 +71,8 @@ export interface SpectrumRendererOptions {
   
   /** Whether to render in 3D waterfall mode */
   drawSignal3D?: boolean;
+  /** Display mode: FFT or IQ */
+  displayMode?: "fft" | "iq";
 }
 
 /**
@@ -116,7 +118,8 @@ export function useSpectrumRenderer() {
       fillColor,
       backgroundColor,
       highPerformanceMode = false,
-      drawSignal3D = false
+      drawSignal3D = false,
+      displayMode = "fft"
     } = options;
 
     if (!canvas) return false;
@@ -251,7 +254,8 @@ export function useSpectrumRenderer() {
         fullCaptureRange,
         isIqRecordingActive,
         limitMarkers,
-        highPerformanceMode
+        highPerformanceMode,
+        displayMode
       });
     }
   }, [drawWebGPUFFTSignal, draw2DFFTSignal, draw3DWaterfallSignal, drawGridOnContext, drawMarkersOnContext, drawSpikeMarkersOnContext]);

@@ -31,7 +31,7 @@ const Container = styled.div`
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  background-color: #0a0a0a;
+  background-color: ${(props) => props.theme.background};
   padding: 40px;
   gap: 32px;
   min-height: 100dvh;
@@ -41,7 +41,7 @@ const Title = styled.h2`
   font-family: "JetBrains Mono", monospace;
   font-size: 18px;
   font-weight: 600;
-  color: #e0e0e0;
+  color: ${(props) => props.theme.textPrimary};
   margin: 0;
   letter-spacing: 0.5px;
 `;
@@ -51,10 +51,10 @@ const StatusText = styled.p<{ $variant?: "info" | "error" | "success" }>`
   font-size: 12px;
   color: ${(props) =>
     props.$variant === "error"
-      ? "#ff4444"
+      ? props.theme.danger ?? "#ff4444"
       : props.$variant === "success"
-        ? "#00d4ff"
-        : "#666"};
+        ? props.theme.primary ?? "#00d4ff"
+        : props.theme.textSecondary};
   margin: 0;
   text-align: center;
   max-width: 400px;
@@ -73,10 +73,10 @@ const Form = styled.form`
 const Input = styled.input`
   width: 100%;
   padding: 14px 18px;
-  background-color: #141414;
-  border: 1px solid #2a2a2a;
+  background-color: ${(props) => props.theme.surface ?? "#141414"};
+  border: 1px solid ${(props) => props.theme.border ?? "#2a2a2a"};
   border-radius: 8px;
-  color: #e0e0e0;
+  color: ${(props) => props.theme.textPrimary};
   font-family: "JetBrains Mono", monospace;
   font-size: 14px;
   outline: none;
@@ -84,11 +84,11 @@ const Input = styled.input`
   box-sizing: border-box;
 
   &:focus {
-    border-color: #00d4ff;
+    border-color: ${(props) => props.theme.primary};
   }
 
   &::placeholder {
-    color: #444;
+    color: ${(props) => props.theme.textMuted};
   }
 
   &:disabled {
@@ -104,11 +104,11 @@ const ActionButton = styled.button<{
   width: 24cqw;
   padding: 14px 24px;
   background-color: ${(props) =>
-    props.$loading ? "#1a1a1a" : props.$secondary ? "#1a1a1a" : "#0d2a3a"};
+    props.$loading ? (props.theme.surface ?? "#1a1a1a") : props.$secondary ? (props.theme.surface ?? "#1a1a1a") : (props.theme.primary ?? "#0d2a3a")};
   border: 1px solid ${(props) =>
-    props.$loading ? "#2a2a2a" : props.$secondary ? "#444" : "#00d4ff"};
+    props.$loading ? (props.theme.border ?? "#2a2a2a") : props.$secondary ? (props.theme.borderHover ?? "#444") : (props.theme.primary ?? "#00d4ff")};
   border-radius: 8px;
-  color: ${(props) => (props.$loading ? "#666" : props.$secondary ? "#888" : "#00d4ff")};
+  color: ${(props) => (props.$loading ? (props.theme.textMuted ?? "#666") : props.$secondary ? (props.theme.textSecondary ?? "#888") : (props.theme.primary ?? "#00d4ff"))};
   font-family: "JetBrains Mono", monospace;
   font-size: 13px;
   font-weight: 600;
@@ -117,7 +117,7 @@ const ActionButton = styled.button<{
   user-select: none;
 
   &:hover:not(:disabled) {
-    background-color: ${(props) => (props.$secondary ? "#222" : "#0d3a4a")};
+    background-color: ${(props) => (props.$secondary ? (props.theme.surfaceHover ?? "#222") : (props.theme.primary ?? "#0d3a4a"))};
   }
 
   &:disabled {
@@ -132,7 +132,7 @@ const Divider = styled.div`
   gap: 12px;
   width: 100%;
   max-width: 360px;
-  color: #444;
+  color: ${(props) => props.theme.textMuted};
   font-family: "JetBrains Mono", monospace;
   font-size: 11px;
 
@@ -141,14 +141,14 @@ const Divider = styled.div`
     content: "";
     flex: 1;
     height: 1px;
-    background-color: #2a2a2a;
+    background-color: ${(props) => props.theme.border};
   }
 `;
 
 const LinkButton = styled.button`
   background: none;
   border: none;
-  color: #555;
+  color: ${(props) => props.theme.textMuted};
   font-family: "JetBrains Mono", monospace;
   font-size: 11px;
   cursor: pointer;
@@ -156,7 +156,7 @@ const LinkButton = styled.button`
   transition: color 0.2s ease;
 
   &:hover {
-    color: #00d4ff;
+    color: ${(props) => props.theme.primary};
   }
 `;
 

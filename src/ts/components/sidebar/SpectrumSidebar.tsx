@@ -17,6 +17,8 @@ import {
   setStitchSourceSettings as setStitchSourceSettingsAction,
   setPaused,
   setCaptureStatus,
+  setDisplayMode,
+  setFftWindow as setFftWindowAction,
 } from "@n-apt/redux";
 import { setSnapshotGrid as setSettingsSnapshotGrid } from "@n-apt/redux";
 import {
@@ -31,19 +33,20 @@ import type {
   CaptureRequest,
   CaptureFileType,
 } from "@n-apt/consts/schemas/websocket";
-import { GeolocationData } from "@n-apt/types/geolocation";
-import { SignalDisplaySection } from "@n-apt/components/sidebar/SignalDisplaySection";
-import { IQCaptureControlsSection } from "@n-apt/components/sidebar/IQCaptureControlsSection";
-import { SnapshotControlsSection } from "@n-apt/components/sidebar/SnapshotControlsSection";
-import { SourceSettingsSection } from "@n-apt/components/sidebar/SourceSettingsSection";
-import FileProcessingSection from "@n-apt/components/sidebar/FileProcessingSection";
-import { SignalFeaturesSection } from "@n-apt/components/sidebar/SignalFeaturesSection";
-import { ConnectionStatusSection, PauseButton } from "@n-apt/components/sidebar/ConnectionStatusSection";
-import { ThemeSection } from "@n-apt/components/sidebar/ThemeSection";
-import ReduxFrequencyRangeSlider from "@n-apt/components/sidebar/ReduxFrequencyRangeSlider";
-import SourceInput from "@n-apt/components/sidebar/SourceInput";
-import { buildSdrLimitMarkers } from "@n-apt/utils/sdrLimitMarkers";
-import { usePrompt } from "@n-apt/components/ui";
+import { type GeolocationData } from "@n-apt/consts/schemas/websocket";
+import { SignalDisplaySection } from "./SignalDisplaySection";
+import { IQCaptureControlsSection } from "./IQCaptureControlsSection";
+import { SnapshotControlsSection } from "./SnapshotControlsSection";
+import { SourceSettingsSection } from "./SourceSettingsSection";
+import FileSelectionSidebar from "./FileSelectionSidebar";
+import { SignalFeaturesSection } from "./SignalFeaturesSection";
+import { ConnectionStatusSection, PauseButton } from "./ConnectionStatusSection";
+import { ThemeSection } from "./ThemeSection";
+import ReduxFrequencyRangeSlider from "./ReduxFrequencyRangeSlider";
+import SourceInput from "./SourceInput";
+import { buildSdrLimitMarkers } from "../../utils/sdrLimitMarkers";
+import { usePrompt } from "../ui/PromptProvider";
+import { fileRegistry } from "../../utils/fileRegistry";
 
 const SidebarContent = styled.div`
   display: grid;
@@ -59,15 +62,15 @@ const CapturingIndicator = styled.div`
   position: fixed;
   top: 24px;
   right: 24px;
-  background-color: ${(props) => props.theme.danger};
-  color: ${(props) => props.theme.textPrimary};
+  background-color: ${(props: any) => props.theme.danger};
+  color: ${(props: any) => props.theme.textPrimary};
   padding: 8px 12px;
   border-radius: 6px;
   font-size: 12px;
   font-weight: 600;
-  font-family: ${(props) => props.theme.typography.mono};
+  font-family: ${(props: any) => props.theme.typography.mono};
   z-index: 1000;
-  box-shadow: 0 2px 8px ${(props) => `${props.theme.danger}4d`};
+  box-shadow: 0 2px 8px ${(props: any) => `${props.theme.danger}4d`};
   display: grid;
   grid-auto-flow: column;
   align-items: center;
@@ -75,7 +78,7 @@ const CapturingIndicator = styled.div`
 `;
 
 const EmptyStateText = styled.div`
-  color: ${(props) => props.theme.textSecondary};
+  color: ${(props: any) => props.theme.textSecondary};
   font-size: 12px;
   font-style: italic;
 `;
@@ -109,7 +112,7 @@ const Section = styled.div<{ $marginBottom?: string }>`
 
 const SectionTitle = styled.div<{ $fileMode?: boolean }>`
   font-size: 11px;
-  color: ${(props) => (props.$fileMode ? props.theme.fileMode : props.theme.metadataLabel)};
+  color: ${(props: any) => (props.$fileMode ? props.theme.fileMode : props.theme.metadataLabel)};
   text-transform: uppercase;
   letter-spacing: 1px;
   margin-top: 1rem;
@@ -184,6 +187,7 @@ export const SpectrumSidebar: React.FC = () => {
     snapshotGridPreference,
     vizZoom,
     vizPanOffset,
+    displayMode,
   } = liveState;
 
   const isConnected = useAppSelector((s) => s.websocket.isConnected);
@@ -255,7 +259,6 @@ export const SpectrumSidebar: React.FC = () => {
     maxFrameRate,
     fftSizeOptions,
     setFftSize,
-    setFftWindow,
     setFftFrameRate,
     setGain,
     setPpm,
@@ -412,18 +415,17 @@ export const SpectrumSidebar: React.FC = () => {
           });
 
           // 4. Update selected files
-          dispatch(setSelectedFiles([{
+          const id = fileRegistry.register(file);
+          const serializedFile = {
+            id,
             name: filename,
-            file,
             downloadUrl: liveCaptureStatus.downloadUrl
-          }]));
+          };
+          
+          dispatch(setSelectedFiles([serializedFile]));
           storeDispatch({
             type: "SET_SELECTED_FILES",
-            files: [{
-              name: filename,
-              file,
-              downloadUrl: liveCaptureStatus.downloadUrl,
-            }],
+            files: [serializedFile],
           });
 
           // 5. Trigger stitching/playback
@@ -774,7 +776,10 @@ export const SpectrumSidebar: React.FC = () => {
 
     const run = async () => {
       try {
-        const buf = await selectedPrimaryFile.file.arrayBuffer();
+        const fileObj = fileRegistry.get(selectedPrimaryFile.id);
+        if (!fileObj) throw new Error("File not found in registry");
+        
+        const buf = await fileObj.arrayBuffer();
 
         if (isNapt && aesKey) {
           // Read the first 2048 bytes (header size)
@@ -798,7 +803,7 @@ export const SpectrumSidebar: React.FC = () => {
           // Parse WAV RIFF for nAPT chunk
           const view = new DataView(buf);
           const text = (off: number, len: number) =>
-            String.fromCharCode(...new Uint8Array(buf, off, len));
+            String.fromCharCode(...Array.from(new Uint8Array(buf, off, len)));
 
           if (text(0, 4) === "RIFF" && text(8, 4) === "WAVE") {
             let offset = 12;
@@ -916,10 +921,10 @@ export const SpectrumSidebar: React.FC = () => {
       </Section>
 
       {sourceMode === "file" && (
-        <Section>
-          <FileProcessingSection
+        <>
+          <FileSelectionSidebar
             selectedFiles={selectedFiles}
-            onSelectedFilesChange={(files) => {
+            onSelectedFilesChange={(files: { id: string; name: string; downloadUrl?: string }[]) => {
               dispatch(setSelectedFiles(files));
               storeDispatch({ type: "SET_SELECTED_FILES", files });
             }}
@@ -938,12 +943,47 @@ export const SpectrumSidebar: React.FC = () => {
               dispatch(setStitchPaused(!isStitchPaused));
               storeDispatch({ type: "SET_STITCH_PAUSED", paused: !isStitchPaused });
             }}
-            selectedNaptFile={selectedPrimaryFile}
+            selectedPrimaryFile={selectedPrimaryFile}
             naptMetadata={naptMetadata}
             naptMetadataError={naptMetadataError}
             sessionToken={sessionToken}
           />
-        </Section>
+          <SignalDisplaySection
+            sourceMode={sourceMode}
+            maxSampleRate={maxSampleRate}
+            fileCapturedRange={fileCapturedRange}
+            fftFrameRate={4}
+            maxFrameRate={4}
+            fftSize={1024}
+            fftSizeOptions={[1024]}
+            fftWindow={fftWindow || "Rectangular"}
+            temporalResolution={displayTemporalResolution}
+            autoFftOptions={null}
+            backend={null}
+            deviceProfile={null}
+            powerScale={powerScale}
+            displayMode={displayMode || "fft"}
+            onFftFrameRateChange={() => {}}
+            onFftSizeChange={() => {}}
+            onFftWindowChange={(win) => {
+              dispatch(setFftWindowAction(win));
+              storeDispatch({ type: "SET_FFT_WINDOW", fftWindow: win });
+            }}
+            onTemporalResolutionChange={(res) => {
+              dispatch(setTemporalResolution(res));
+              storeDispatch({ type: "SET_TEMPORAL_RESOLUTION", resolution: res });
+            }}
+            onPowerScaleChange={(ps) => {
+              dispatch(setPowerScale(ps));
+              storeDispatch({ type: "SET_POWER_SCALE", powerScale: ps });
+            }}
+            onDisplayModeChange={(mode) => {
+              dispatch(setDisplayMode(mode));
+              storeDispatch({ type: "SET_DISPLAY_MODE", displayMode: mode });
+            }}
+            scheduleCoupledAdjustment={() => {}}
+          />
+        </>
       )}
 
       {sourceMode === "live" && (
@@ -1035,9 +1075,6 @@ export const SpectrumSidebar: React.FC = () => {
                   const max = frame.max_mhz;
                   const span = max - min;
 
-                  // If this is the active frame and we are zoomed in,
-                  // calculate the visual range based on zoom and pan offset
-                  // NOTE: Use frequencyRange (SDR center) not frame min/max for center calculation
                   return (
                     <ReduxFrequencyRangeSlider
                       key={frame.id}
@@ -1098,29 +1135,37 @@ export const SpectrumSidebar: React.FC = () => {
           />
 
           <SignalDisplaySection
-            sourceMode="live"
+            sourceMode={sourceMode}
             maxSampleRate={maxSampleRate}
             fileCapturedRange={fileCapturedRange}
             fftFrameRate={fftFrameRate}
             maxFrameRate={maxFrameRate}
             fftSize={fftSize}
             fftSizeOptions={fftSizeOptions}
-            fftWindow={fftWindow}
+            fftWindow={fftWindow || "Rectangular"}
             temporalResolution={displayTemporalResolution}
             autoFftOptions={liveAutoFftOptions}
             backend={liveBackend}
             deviceProfile={liveDeviceProfileToUse}
             powerScale={powerScale}
+            displayMode={displayMode || "fft"}
             onFftFrameRateChange={setFftFrameRate}
             onFftSizeChange={setFftSize}
-            onFftWindowChange={setFftWindow}
+            onFftWindowChange={(win) => {
+              dispatch(setFftWindowAction(win));
+              storeDispatch({ type: "SET_FFT_WINDOW", fftWindow: win });
+            }}
             onTemporalResolutionChange={(res) => {
               dispatch(setTemporalResolution(res));
               storeDispatch({ type: "SET_TEMPORAL_RESOLUTION", resolution: res });
             }}
-            onPowerScaleChange={(powerScale) => {
-              dispatch(setPowerScale(powerScale));
-              storeDispatch({ type: "SET_POWER_SCALE", powerScale });
+            onPowerScaleChange={(ps) => {
+              dispatch(setPowerScale(ps));
+              storeDispatch({ type: "SET_POWER_SCALE", powerScale: ps });
+            }}
+            onDisplayModeChange={(mode) => {
+              dispatch(setDisplayMode(mode));
+              storeDispatch({ type: "SET_DISPLAY_MODE", displayMode: mode });
             }}
             scheduleCoupledAdjustment={scheduleCoupledAdjustment}
           />
@@ -1152,6 +1197,7 @@ export const SpectrumSidebar: React.FC = () => {
           />
         </>
       )}
+
       <ThemeSection />
     </SidebarContent>
   );

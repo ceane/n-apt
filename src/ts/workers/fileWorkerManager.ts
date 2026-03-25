@@ -2,6 +2,8 @@
  * Simple File Worker Manager
  */
 
+import { fileRegistry } from "../utils/fileRegistry";
+
 class FileWorkerManager {
   private worker: Worker | null = null;
   private pendingRequests = new Map<
@@ -121,7 +123,10 @@ class FileWorkerManager {
     });
   }
 
-  async loadFile(file: File, aesKey?: CryptoKey | null): Promise<any> {
+  async loadFile(fileId: string, aesKey?: CryptoKey | null): Promise<any> {
+    const file = fileRegistry.get(fileId);
+    if (!file) throw new Error("File not found in registry");
+    
     const fileData = await file.arrayBuffer();
     return this.sendMessage("loadFile", {
       fileData,
@@ -131,7 +136,7 @@ class FileWorkerManager {
   }
 
   async stitchFiles(
-    files: Array<{ name: string; file: File }>,
+    selectedFiles: { id: string; name: string }[],
     settings: { gain: number; ppm: number },
     fftSize: number,
     onProgress?: (progress: any) => void,
@@ -140,8 +145,11 @@ class FileWorkerManager {
   ): Promise<any> {
     const filesData = [];
 
-    for (const fileObj of files) {
-      const fileData = await fileObj.file.arrayBuffer();
+    for (const fileObj of selectedFiles) {
+      const actualFile = fileRegistry.get(fileObj.id);
+      if (!actualFile) throw new Error(`File ${fileObj.name} not found in registry`);
+      
+      const fileData = await actualFile.arrayBuffer();
       filesData.push({
         fileName: fileObj.name,
         fileData: fileData,

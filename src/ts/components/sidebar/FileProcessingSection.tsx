@@ -2,8 +2,10 @@ import React, { useRef } from "react";
 import styled from "styled-components";
 import { Tooltip, Button } from "@n-apt/components/ui";
 import { Activity, Download, Trash2, CheckCircle2, Play, Pause, Loader2 } from "lucide-react";
-import type { GeolocationData } from "@n-apt/consts/schemas/websocket";
+import { GeolocationData, AptChannelMetadata } from "@n-apt/consts/schemas/websocket";
 import { useAppSelector } from "@n-apt/redux";
+
+import { fileRegistry } from "../../utils/fileRegistry";
 
 type NaptMetadata = {
   sample_rate?: number;
@@ -14,7 +16,7 @@ type NaptMetadata = {
     center_freq_hz?: number;
     sample_rate_hz?: number;
     bins_per_frame?: number;
-  }>;
+  } & AptChannelMetadata>;
   center_frequency?: number;
   center_frequency_hz?: number;
   frequency_range?: [number, number];
@@ -48,7 +50,7 @@ const Section = styled.div<{ $marginTop?: string }>`
 
 const SectionTitle = styled.div<{ $fileMode?: boolean }>`
   font-size: 11px;
-  color: ${(props) => (props.$fileMode ? props.theme.fileMode : props.theme.metadataLabel)};
+  color: ${(props) => (props.$fileMode ? props.theme.primary : props.theme.metadataLabel)};
   text-transform: uppercase;
   letter-spacing: 1px;
   margin-top: 20px;
@@ -71,6 +73,8 @@ const SettingRow = styled.div`
   gap: inherit;
   box-sizing: border-box;
   width: 100%;
+  position: relative;
+  z-index: 1;
 `;
 
 const SettingLabelContainer = styled.div`
@@ -83,7 +87,8 @@ const SettingLabelContainer = styled.div`
 
 const SettingLabel = styled.span`
   font-size: 12px;
-  color: ${(props) => props.theme.textSecondary};
+  color: ${(props) => props.theme.textPrimary};
+  opacity: 0.8;
   max-width: 210px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -117,7 +122,7 @@ const DownloadLink = styled.a`
 
 const LoadedLabel = styled.span`
   font-size: 11px;
-  color: ${(props) => props.theme.textSecondary};
+  color: ${(props) => props.theme.success};
   display: flex;
   align-items: center;
   gap: 4px;
@@ -131,8 +136,10 @@ const RemoveButton = styled.button`
   font-size: 11px;
   text-decoration: underline;
   padding: 2px 4px;
+  opacity: 0.8;
   
   &:hover {
+    opacity: 1;
     filter: brightness(1.2);
   }
 `;
@@ -160,8 +167,41 @@ const ActionsContainer = styled.div`
   margin-top: 8px;
 `;
 
+const DropZone = styled.div<{ $isDragging: boolean }>`
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-column: 1 / -1;
+  gap: inherit;
+  position: relative;
+  border: 2px dashed ${(props) => (props.$isDragging ? props.theme.primary : "transparent")};
+  border-radius: 8px;
+  background-color: ${(props) => (props.$isDragging ? `${props.theme.primary}1a` : "transparent")};
+  transition: all 0.2s ease;
+  min-height: 40px;
+  z-index: 5;
+`;
+
+const DropOverlay = styled.div`
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: ${(props) => props.theme.mode === "light" ? "rgba(255, 255, 255, 0.7)" : `${props.theme.primary}1a`};
+  border-radius: 6px;
+  z-index: 10;
+  pointer-events: none;
+  color: ${(props) => props.theme.primary};
+  font-weight: 600;
+  font-size: 14px;
+  backdrop-filter: blur(2px);
+`;
+
 const FileCard = styled.div`
-  background-color: ${(props) => props.theme.background};
+  background-color: ${(props) => props.theme.surface};
   padding: 16px;
   border-radius: 8px;
   border: 1px solid ${(props) => props.theme.border};
@@ -169,6 +209,8 @@ const FileCard = styled.div`
   display: grid;
   gap: 12px;
   grid-column: 1 / -1;
+  position: relative;
+  z-index: 1;
 `;
 
 const FileInfoRow = styled.div`
@@ -266,7 +308,7 @@ const MetadataLabel = styled.span`
 
 const MetadataValue = styled.span`
   font-size: 11px;
-  color: ${(props) => props.theme.metadataValue};
+  color: ${(props) => props.theme.textPrimary};
   font-family: ${(props) => props.theme.typography.mono};
   white-space: normal;
   overflow-wrap: anywhere;
@@ -322,14 +364,14 @@ const MetadataEmptyBox = styled.div`
 `;
 
 interface FileProcessingSectionProps {
-  selectedFiles: { name: string; file: File; downloadUrl?: string }[];
+  selectedFiles: { id: string; name: string; downloadUrl?: string }[];
   stitchStatus: string;
   isStitchPaused: boolean;
-  selectedNaptFile: { name: string; file: File; downloadUrl?: string } | null;
+  selectedNaptFile: { id: string; name: string; downloadUrl?: string } | null;
   naptMetadata: NaptMetadata | null;
   naptMetadataError: string | null;
   onSelectedFilesChange: (
-    files: { name: string; file: File; downloadUrl?: string }[],
+    files: { id: string; name: string; downloadUrl?: string }[],
   ) => void;
   onStitch: () => void;
   onClear: () => void;
@@ -387,14 +429,18 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
 
   const stitchButtonRef = useRef<HTMLButtonElement | null>(null);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files) return;
-    onSelectedFilesChange(
-      Array.from(e.target.files).map((file) => ({
-        name: file.name,
-        file,
-      })),
-    );
+  const [isDragging, setIsDragging] = React.useState(false);
+
+  const processFiles = (files: File[]) => {
+    if (files.length === 0) return;
+
+    // Register files in the non-serializable registry
+    const registeredFiles = files.map(file => ({
+      id: fileRegistry.register(file),
+      name: file.name
+    }));
+
+    onSelectedFilesChange(registeredFiles);
 
     setTimeout(() => {
       const btn = stitchButtonRef.current;
@@ -406,12 +452,42 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
         btn.style.transform = "";
       }
     }, 50);
+  };
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files) return;
+    processFiles(Array.from(e.target.files));
     // Reset value so selection of same file triggers onChange again
     e.target.value = "";
   };
 
+  const onDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const onDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      processFiles(Array.from(e.dataTransfer.files));
+    }
+  };
+
   const removeFile = (index: number) => {
+    const fileToRemove = selectedFiles[index];
+    if (fileToRemove) {
+      fileRegistry.remove(fileToRemove.id);
+    }
     onSelectedFilesChange(selectedFiles.filter((_, i) => i !== index));
   };
 
@@ -422,12 +498,18 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
   const hasProcessedData = stitchStatus?.includes("Successfully");
 
   return (
-    <>
+    <DropZone
+      $isDragging={isDragging}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+    >
+      {isDragging && <DropOverlay>Drop files here</DropOverlay>}
       <Section>
         <SectionTitle $fileMode>File selection</SectionTitle>
         <SettingRow>
           <SettingLabelContainer>
-            <SettingLabel>Choose files...</SettingLabel>
+            <SettingLabel>Choose or drag files...</SettingLabel>
           </SettingLabelContainer>
           <FileInputActions>
             <HiddenFileInput
@@ -701,7 +783,7 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
           )}
         </Section>
       )}
-    </>
+    </DropZone>
   );
 };
 

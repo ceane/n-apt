@@ -7,6 +7,7 @@ import ClassificationControls from "@n-apt/components/ClassificationControls";
 import FFTPlaybackCanvas from "@n-apt/components/FFTPlaybackCanvas";
 import { useSnapshot } from "@n-apt/hooks/useSnapshot";
 import type { FrequencyRange } from "@n-apt/hooks/useWebSocket";
+
 import {
   InitializingContainer,
   InitializingTitle,
@@ -56,6 +57,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
     () => buildSdrLimitMarkers(effectiveSdrSettings ?? null),
     [effectiveSdrSettings],
   );
+  // themeState removed — FFTCanvas now handles theme reactivity internally
 
   useEffect(() => {
     requestAnimationFrame(() => {
@@ -391,6 +393,8 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
             stitchSourceSettings={state.stitchSourceSettings}
             isPaused={state.isStitchPaused}
             fftSize={state.fftSize}
+            displayMode={state.displayMode}
+            powerScale={state.powerScale}
             onStitchStatus={(status) =>
               dispatch({ type: "SET_STITCH_STATUS", status })
             }

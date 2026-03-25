@@ -6,8 +6,8 @@ const TriggersContainer = styled.div`
   display: flex;
   flex-direction: column;
   gap: 20px;
-  background: #0d0d0d;
-  border: 1px solid #222;
+  background: ${(props) => props.theme.surface};
+  border: 1px solid ${(props) => props.theme.border};
   border-radius: 12px;
   padding: 24px;
   margin-bottom: 20px;
@@ -26,8 +26,8 @@ const ControlSection = styled.div`
 `;
 
 const PreviewSection = styled.div`
-  background: #000;
-  border: 1px solid #1a1a1a;
+  background: ${(props) => props.theme.background};
+  border: 1px solid ${(props) => props.theme.border};
   border-radius: 12px;
   height: 450px;
   display: flex;
@@ -36,7 +36,7 @@ const PreviewSection = styled.div`
   align-items: center;
   position: relative;
   overflow: hidden;
-  box-shadow: inset 0 0 50px rgba(0, 0, 0, 1);
+  box-shadow: inset 0 0 50px rgba(0, 0, 0, 0.35);
 `;
 
 const MediaOverlay = styled.div`
@@ -44,7 +44,7 @@ const MediaOverlay = styled.div`
   top: 10px;
   left: 10px;
   font-size: 10px;
-  color: #555;
+  color: ${(props) => props.theme.textMuted};
   font-family: "JetBrains Mono", monospace;
   text-transform: uppercase;
 `;
@@ -59,7 +59,7 @@ const WaveformContainer = styled.div`
 const WaveBar = styled.div<{ $active: boolean }>`
   width: 3px;
   height: ${props => props.$active ? '100%' : '20%'};
-  background: #00d4ff;
+  background: ${(props) => props.theme.primary};
   border-radius: 1px;
   animation: ${props => props.$active ? 'bounce 0.5s infinite ease-in-out' : 'none'};
 
@@ -70,7 +70,7 @@ const WaveBar = styled.div<{ $active: boolean }>`
 `;
 
 const ScriptText = styled.div`
-  color: #00ff88;
+  color: ${(props) => props.theme.success};
   font-family: "JetBrains Mono", monospace;
   font-size: 28px;
   font-weight: bold;
@@ -82,15 +82,15 @@ const ScriptText = styled.div`
   line-height: 1.4;
 
   @keyframes flicker {
-    0%, 100% { opacity: 1; text-shadow: 0 0 10px rgba(0, 255, 136, 0.5); }
-    50% { opacity: 0.8; text-shadow: 0 0 20px rgba(0, 255, 136, 0.8); }
+    0%, 100% { opacity: 1; text-shadow: 0 0 10px rgba(0, 255, 136, 0.35); }
+    50% { opacity: 0.8; text-shadow: 0 0 20px rgba(0, 255, 136, 0.6); }
   }
 `;
 
 const TriggerButton = styled.button`
-  background: linear-gradient(135deg, #1a1a1a 0%, #0d0d0d 100%);
-  border: 1px solid #333;
-  color: #eee;
+  background: linear-gradient(135deg, ${(props) => props.theme.surface} 0%, ${(props) => props.theme.surfaceHover} 100%);
+  border: 1px solid ${(props) => props.theme.border};
+  color: ${(props) => props.theme.textPrimary};
   padding: 16px;
   border-radius: 8px;
   font-size: 14px;
@@ -104,8 +104,8 @@ const TriggerButton = styled.button`
   text-align: left;
 
   &:hover:not(:disabled) {
-    border-color: #00d4ff;
-    box-shadow: 0 0 20px rgba(0, 212, 255, 0.1);
+    border-color: ${(props) => props.theme.primary};
+    box-shadow: 0 0 20px ${(props) => props.theme.primaryAlpha};
     transform: translateY(-2px);
   }
 
@@ -120,9 +120,9 @@ const TriggerButton = styled.button`
 `;
 
 const Select = styled.select`
-  background: #1a1a1a;
-  border: 1px solid #333;
-  color: #00d4ff;
+  background: ${(props) => props.theme.surface};
+  border: 1px solid ${(props) => props.theme.border};
+  color: ${(props) => props.theme.primary};
   padding: 12px 16px;
   border-radius: 8px;
   font-size: 14px;
@@ -132,11 +132,11 @@ const Select = styled.select`
   outline: none;
 
   &:hover {
-    border-color: #444;
+    border-color: ${(props) => props.theme.borderHover};
   }
 
   &:focus {
-    border-color: #00d4ff;
+    border-color: ${(props) => props.theme.primary};
   }
 `;
 
@@ -151,7 +151,7 @@ const ToggleContainer = styled.label`
 const ToggleTrack = styled.div<{ $active: boolean }>`
   width: 36px;
   height: 20px;
-  background: ${props => props.$active ? '#00d4ff' : '#222'};
+  background: ${props => props.$active ? props.theme.primary : props.theme.surfaceHover};
   border-radius: 10px;
   position: relative;
   transition: background 0.3s ease;
@@ -161,7 +161,7 @@ const ToggleTrack = styled.div<{ $active: boolean }>`
     position: absolute;
     width: 14px;
     height: 14px;
-    background: #fff;
+    background: ${(props) => props.theme.textPrimary};
     border-radius: 50%;
     top: 3px;
     left: ${props => props.$active ? '19px' : '3px'};
@@ -172,12 +172,12 @@ const ToggleTrack = styled.div<{ $active: boolean }>`
 const ToggleLabel = styled.span`
   font-size: 11px;
   font-family: 'JetBrains Mono', monospace;
-  color: #888;
+  color: ${(props) => props.theme.textSecondary};
 `;
 
 const ResultCard = styled.div`
-  background: rgba(0, 0, 0, 0.4);
-  border: 1px solid #333;
+  background: ${(props) => props.theme.surface}66;
+  border: 1px solid ${(props) => props.theme.border};
   border-radius: 8px;
   padding: 16px;
   font-family: "JetBrains Mono", monospace;
@@ -188,12 +188,12 @@ const ResultItem = styled.div`
   display: flex;
   justify-content: space-between;
   margin-bottom: 6px;
-  color: #888;
+  color: ${(props) => props.theme.textSecondary};
 `;
 
 const AnalysisLabel = styled.div`
   font-size: 12px;
-  color: #00d4ff;
+  color: ${(props) => props.theme.primary};
   font-family: "JetBrains Mono", monospace;
   text-transform: uppercase;
   letter-spacing: 2px;

@@ -63,6 +63,7 @@ import {
   setSignalAreaAndRange,
   setVizZoom,
   setVizPan,
+  setDisplayMode,
   setFftDbLimits,
   setFftSize,
   setFftSizeOptions,
@@ -95,6 +96,7 @@ export {
   setSignalAreaAndRange,
   setVizZoom,
   setVizPan,
+  setDisplayMode,
   setFftDbLimits,
   setFftSize,
   setFftSizeOptions,
@@ -127,6 +129,7 @@ export const spectrumActions = {
   setSignalAreaAndRange,
   setVizZoom,
   setVizPan,
+  setDisplayMode,
   setFftDbLimits,
   setFftSize,
   setFftSizeOptions,
@@ -271,6 +274,7 @@ export {
 export {
   loadPersistedWaterfallData,
   loadPersistedWebSocketData,
+  loadPersistedSpectrumData,
   clearIndexedDBData,
   cleanupIndexedDBData,
 } from './middleware/indexedDBMiddleware';

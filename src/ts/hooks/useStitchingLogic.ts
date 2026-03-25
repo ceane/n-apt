@@ -3,7 +3,7 @@ import { fileWorkerManager } from "@n-apt/workers/fileWorkerManager";
 import { useAuthentication } from "@n-apt/hooks/useAuthentication";
 
 interface UseStitchingLogicProps {
-  selectedFiles: { name: string; file: File }[];
+  selectedFiles: { id: string; name: string }[];
   stitchTrigger: number | null;
   stitchSourceSettings: { gain: number; ppm: number };
   fftSize: number;
