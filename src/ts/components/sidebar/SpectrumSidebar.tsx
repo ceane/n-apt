@@ -10,7 +10,6 @@ import {
   setSignalAreaAndRange,
   setFftFrameRate as setFftFrameRateAction,
   resetZoomAndDb,
-  resetLiveControls as resetLiveControlsAction,
   setTemporalResolution,
   setPowerScale,
   setSdrSettingsBundle,
@@ -421,7 +420,7 @@ export const SpectrumSidebar: React.FC = () => {
             name: filename,
             downloadUrl: liveCaptureStatus.downloadUrl
           };
-          
+
           dispatch(setSelectedFiles([serializedFile]));
           storeDispatch({
             type: "SET_SELECTED_FILES",
@@ -778,7 +777,7 @@ export const SpectrumSidebar: React.FC = () => {
       try {
         const fileObj = fileRegistry.get(selectedPrimaryFile.id);
         if (!fileObj) throw new Error("File not found in registry");
-        
+
         const buf = await fileObj.arrayBuffer();
 
         if (isNapt && aesKey) {
@@ -849,44 +848,10 @@ export const SpectrumSidebar: React.FC = () => {
     [liveSdrSettingsToUse],
   );
 
-  const liveDefaults = useMemo(
-    () => ({
-      fftSize: liveSdrSettingsToUse?.fft?.default_size ?? 32768,
-      fftFrameRate: liveSdrSettingsToUse?.fft?.default_frame_rate ?? 60,
-      fftWindow: "Rectangular",
-      gain: liveSdrSettingsToUse?.gain?.tuner_gain ?? 49.6,
-      ppm:
-        typeof liveSdrSettingsToUse?.ppm === "number"
-          ? liveSdrSettingsToUse.ppm
-          : 1,
-      tunerAGC: liveSdrSettingsToUse?.gain?.tuner_agc ?? false,
-      rtlAGC: liveSdrSettingsToUse?.gain?.rtl_agc ?? false,
-    }),
-    [liveSdrSettingsToUse],
-  );
-
   const resetLiveControls = useCallback(() => {
-    dispatch(resetLiveControlsAction({
-      fftSize: liveDefaults.fftSize,
-      fftFrameRate: liveDefaults.fftFrameRate,
-    }));
-    storeDispatch({
-      type: "RESET_LIVE_CONTROLS",
-      fftSize: liveDefaults.fftSize,
-      fftFrameRate: liveDefaults.fftFrameRate,
-    });
     dispatch(resetZoomAndDb());
     storeDispatch({ type: "RESET_ZOOM_AND_DB" });
-    sendLiveSettings({
-      fftSize: liveDefaults.fftSize,
-      fftWindow: liveDefaults.fftWindow,
-      frameRate: liveDefaults.fftFrameRate,
-      gain: liveDefaults.gain,
-      ppm: liveDefaults.ppm,
-      tunerAGC: liveDefaults.tunerAGC,
-      rtlAGC: liveDefaults.rtlAGC,
-    });
-  }, [dispatch, liveDefaults, sendLiveSettings, storeDispatch]);
+  }, [dispatch, storeDispatch]);
 
   useEffect(() => {
     setActiveCaptureAreas((current) => {
@@ -963,8 +928,8 @@ export const SpectrumSidebar: React.FC = () => {
             deviceProfile={null}
             powerScale={powerScale}
             displayMode={displayMode || "fft"}
-            onFftFrameRateChange={() => {}}
-            onFftSizeChange={() => {}}
+            onFftFrameRateChange={() => { }}
+            onFftSizeChange={() => { }}
             onFftWindowChange={(win) => {
               dispatch(setFftWindowAction(win));
               storeDispatch({ type: "SET_FFT_WINDOW", fftWindow: win });
@@ -981,7 +946,7 @@ export const SpectrumSidebar: React.FC = () => {
               dispatch(setDisplayMode(mode));
               storeDispatch({ type: "SET_DISPLAY_MODE", displayMode: mode });
             }}
-            scheduleCoupledAdjustment={() => {}}
+            scheduleCoupledAdjustment={() => { }}
           />
         </>
       )}
