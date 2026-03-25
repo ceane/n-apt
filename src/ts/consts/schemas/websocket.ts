@@ -5,7 +5,8 @@
  * exchanged between the client and server.
  */
 
-import { GeolocationData } from "@n-apt/types/geolocation";
+import { type GeolocationData } from "../../types/geolocation";
+export { type GeolocationData };
 
 export type DeviceState =
   | "connected"
@@ -59,6 +60,31 @@ export type SdrSettingsConfig = {
     upper_limit_label?: string;
   };
 };
+
+export type AptContentType = "audio_hearing" | "audio_internal" | "speech" | "video_vision";
+
+export interface AptChannelMetadata {
+  windowSizeHz: number;
+  contentType: AptContentType;
+  subChannelRange: [number, number];
+  centerFreqHz: number;
+  signalStrengthDb: number;
+  snr: number;
+  demodProcessor: String;
+}
+
+export interface SdrProcessorSettings {
+  fft_size?: number;
+  fft_window?: string;
+  frame_rate?: number;
+  gain?: number;
+  ppm?: number;
+  tuner_agc?: boolean;
+  rtl_agc?: boolean;
+  offset_tuning?: boolean;
+  direct_sampling?: number;
+  tuner_bandwidth?: number;
+}
 
 export type SpectrumFrame = {
   id: string;

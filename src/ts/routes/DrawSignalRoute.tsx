@@ -19,8 +19,8 @@ const PageContainer = styled.div`
   min-height: 0;
   width: 100%;
   padding: 24px;
-  background-color: #050505;
-  color: #fff;
+  background-color: ${(props) => props.theme.background};
+  color: ${(props) => props.theme.textPrimary};
   box-sizing: border-box;
   overflow-y: auto;
 `;
@@ -35,28 +35,28 @@ const Title = styled.h1`
   color: ${(props: any) => props.theme.primary || "#3b82f6"};
   font-family: "Outfit", "Inter", sans-serif;
   letter-spacing: -0.5px;
-  background: linear-gradient(135deg, #fff 0%, #888 100%);
+  background: linear-gradient(135deg, ${(props) => props.theme.textPrimary} 0%, ${(props) => props.theme.textSecondary} 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 `;
 
 const Subtitle = styled.p`
   font-size: 14px;
-  color: #666;
+  color: ${(props) => props.theme.textSecondary};
   font-family: "Outfit", "Inter", sans-serif;
 `;
 
 const VisualizerWrapper = styled.div`
   flex: 1;
   position: relative;
-  background-color: ${FFT_CANVAS_BG};
-  border: 1px solid #1a1a1a;
+  background-color: ${(props) => props.theme.colors?.fftBackground ?? FFT_CANVAS_BG};
+  border: 1px solid ${(props) => props.theme.canvasBorder ?? "#1a1a1a"};
   border-radius: 12px;
   overflow: hidden;
-  box-shadow: 0 4px 32px rgba(0, 0, 0, 0.5);
   display: flex;
   flex-direction: column;
   min-height: 500px;
+  width: 100%;
 `;
 
 const CanvasElement = styled.canvas`
@@ -75,8 +75,8 @@ const InfoBox = styled.div`
   position: absolute;
   bottom: 20px;
   left: 60px;
-  background: rgba(10, 10, 11, 0.8);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: ${(props) => props.theme.surface}cc;
+  border: 1px solid ${(props) => props.theme.borderHover};
   border-radius: 8px;
   padding: 12px 16px;
   backdrop-filter: blur(12px);
@@ -93,7 +93,7 @@ const InfoItem = styled.div`
   gap: 8px;
   font-size: 11px;
   font-family: "JetBrains Mono", monospace;
-  color: #888;
+  color: ${(props) => props.theme.textSecondary};
 `;
 
 const InfoValue = styled.span`
@@ -119,8 +119,8 @@ const PolarHeaderWrapper = styled.div`
 
 
 const PolarCard = styled.div`
-  background: rgba(10, 10, 12, 0.4);
-  border: 1px solid rgba(255, 255, 255, 0.03);
+  background: ${(props) => props.theme.surfaceHover}66;
+  border: 1px solid ${(props) => props.theme.border};
   border-radius: 12px;
   padding: 16px;
   display: flex;
@@ -137,7 +137,7 @@ const PolarComposite = styled.div`
   min-height: 500px;
   border-radius: 12px;
   overflow: hidden;
-  background: rgba(10, 10, 12, 0.82);
+  background: ${(props) => props.theme.surface};
 `;
 
 const PolarPane = styled.div`
@@ -146,7 +146,7 @@ const PolarPane = styled.div`
   min-height: 500px;
 
   &:first-child {
-    border-right: 1px solid rgba(255, 255, 255, 0.05);
+    border-right: 1px solid ${(props) => props.theme.border};
   }
 `;
 
@@ -154,7 +154,7 @@ const CardTitle = styled.div`
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 1px;
-  color: #555;
+  color: ${(props) => props.theme.textMuted};
   font-weight: 600;
   font-family: "JetBrains Mono", monospace;
 `;

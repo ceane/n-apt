@@ -24,7 +24,7 @@ const SpectrumCanvas = styled.canvas<{ $width: number; $height: number }>`
   display: block;
   width: ${({ $width }) => $width}px;
   height: ${({ $height }) => $height}px;
-  background-color: #0a0a0a;
+  background-color: ${(props) => props.theme.colors?.fftBackground ?? "#0a0a0a"};
 `;
 
 export const FFTSpectrum = memo<FFTSpectrumProps>(

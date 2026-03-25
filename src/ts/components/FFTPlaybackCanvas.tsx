@@ -9,7 +9,7 @@ import { useAppDispatch } from "@n-apt/redux";
 import { setActivePlaybackMetadata, clearActivePlaybackMetadata } from "@n-apt/redux";
 
 interface FFTPlaybackCanvasProps {
-  selectedFiles: { name: string; file: File }[];
+  selectedFiles: { id: string; name: string; downloadUrl?: string }[];
   stitchTrigger: number | null;
   stitchSourceSettings: { gain: number; ppm: number };
   isPaused: boolean;
@@ -23,13 +23,15 @@ interface FFTPlaybackCanvasProps {
   fftMin?: number;
   fftMax?: number;
   onFftDbLimitsChange?: (min: number, max: number) => void;
+  displayMode: "fft" | "iq";
+  powerScale?: "dB" | "dBm";
 }
 
 const StitcherContainer = styled.div`
   flex: 1;
   display: flex;
   flex-direction: column;
-  background-color: #0a0a0a;
+  background-color: ${(props) => props.theme.colors?.background ?? "#0a0a0a"};
   position: relative;
 `;
 
@@ -47,7 +49,7 @@ const EmptyContainer = styled.div`
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  color: #444;
+  color: ${(props) => props.theme.colors?.textSecondary ?? "#666"};
   font-size: 14px;
   text-align: center;
   padding: 40px;
@@ -59,7 +61,7 @@ const FileCountText = styled.div`
 
 const HelpText = styled.div`
   font-size: 12px;
-  color: #666;
+  color: ${(props) => props.theme.colors?.textTertiary ?? "#666"};
 `;
 
 // Extracted memoized ChannelSelector component
@@ -82,16 +84,16 @@ const ChannelSelector = React.memo<ChannelSelectorProps>(({
       top: "4px",
       right: "105px",
       transform: "none",
-      backgroundColor: "rgb(41 41 41 / 80%)",
+      backgroundColor: "var(--color-surface, rgb(41 41 41 / 80%))",
       padding: "8px 12px",
       borderRadius: "20px",
       display: "flex",
       alignItems: "center",
       gap: "12px",
-      color: "#fff",
+      color: "var(--color-text-primary, #fff)",
       fontFamily: "JetBrains Mono",
       fontSize: "12px",
-      border: "1px solid #333",
+      border: "1px solid var(--color-border, #333)",
       zIndex: 10,
       userSelect: "none"
     }}>
@@ -129,6 +131,8 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(({
   fftMin,
   fftMax,
   onFftDbLimitsChange,
+  displayMode,
+  powerScale,
 }, forwardedRef) => {
   const dispatch = useAppDispatch();
   // ── Custom hooks for separated concerns ──
@@ -180,6 +184,7 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(({
     allChannelsRef,
     precomputedFrames,
     fftCanvasDataRef,
+    displayMode,
   });
 
   // ── Channel management hook ──
@@ -273,6 +278,8 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(({
             hardwareSampleRateHz={hardwareSampleRateHz}
             isIqRecordingActive={true}
             fftFrameRate={allChannelsRef.current[activeChannel]?.frame_rate}
+            displayMode={displayMode}
+            powerScale={powerScale}
           />
           <ChannelSelector
             channelCount={channelCount}

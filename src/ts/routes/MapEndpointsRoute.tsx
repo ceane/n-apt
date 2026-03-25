@@ -10,21 +10,21 @@ import { type TowerRecord, useTowers } from "@n-apt/hooks/useTowers";
 import { getCarrierName, getPotentialLeasee } from "@n-apt/utils/cellData";
 
 const InfoWindowContent = styled.div`
-  background: #000;
-  color: #fff;
+  background: ${(props) => props.theme.surface};
+  color: ${(props) => props.theme.textPrimary};
   padding: 12px;
   font-family: "JetBrains Mono", monospace;
   font-size: 11px;
   min-width: 200px;
-  border: 1px solid #333;
+  border: 1px solid ${(props) => props.theme.border};
 `;
 
 const InfoTitle = styled.div`
-  color: #00d4ff;
+  color: ${(props) => props.theme.primary};
   font-size: 14px;
   font-weight: 700;
   margin-bottom: 8px;
-  border-bottom: 1px solid #333;
+  border-bottom: 1px solid ${(props) => props.theme.border};
   padding-bottom: 4px;
 `;
 
@@ -35,33 +35,33 @@ const InfoRow = styled.div`
 `;
 
 const InfoLabel = styled.span`
-  color: #888;
+  color: ${(props) => props.theme.textSecondary};
 `;
 
 const InfoValue = styled.span`
-  color: #eee;
+  color: ${(props) => props.theme.textPrimary};
   font-weight: 500;
 `;
 
 const LeaseeBadge = styled.div`
   margin-top: 10px;
   padding: 6px;
-  background: #1a1a1a;
+  background: ${(props) => props.theme.surfaceHover};
   border-radius: 4px;
-  border-left: 3px solid #00d4ff;
-  color: #bbb;
+  border-left: 3px solid ${(props) => props.theme.primary};
+  color: ${(props) => props.theme.textSecondary};
   font-size: 10px;
   font-style: italic;
 `;
 
 const ControlSection = styled.div`
   margin-top: 12px;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  border-top: 1px solid ${(props) => props.theme.border};
   padding-top: 12px;
 `;
 
 const SectionTitle = styled.div`
-  color: #888;
+  color: ${(props) => props.theme.textSecondary};
   margin-bottom: 8px;
   font-weight: bold;
   text-transform: uppercase;
@@ -71,9 +71,9 @@ const SectionTitle = styled.div`
 
 const CarrierSelect = styled.select`
   width: 100%;
-  background: #111;
-  color: #eee;
-  border: 1px solid #333;
+  background: ${(props) => props.theme.surface};
+  color: ${(props) => props.theme.textPrimary};
+  border: 1px solid ${(props) => props.theme.border};
   border-radius: 4px;
   padding: 4px 8px;
   font-family: inherit;
@@ -82,7 +82,7 @@ const CarrierSelect = styled.select`
   cursor: pointer;
 
   &:focus {
-    border-color: #00d4ff;
+    border-color: ${(props) => props.theme.primary};
   }
 `;
 
@@ -94,9 +94,9 @@ const CustomCarrierRow = styled.div`
 
 const CarrierInput = styled.input`
   flex: 1;
-  background: #111;
-  color: #eee;
-  border: 1px solid #333;
+  background: ${(props) => props.theme.surface};
+  color: ${(props) => props.theme.textPrimary};
+  border: 1px solid ${(props) => props.theme.border};
   border-radius: 4px;
   padding: 4px;
   font-family: inherit;
@@ -105,7 +105,7 @@ const CarrierInput = styled.input`
   outline: none;
 
   &:focus {
-    border-color: #00d4ff;
+    border-color: ${(props) => props.theme.primary};
   }
 `;
 
@@ -114,15 +114,15 @@ const PageContainer = styled.div`
   flex-direction: column;
   height: 100%;
   width: 100%;
-  background-color: #050505;
-  color: #fff;
+  background-color: ${(props) => props.theme.background};
+  color: ${(props) => props.theme.textPrimary};
   box-sizing: border-box;
 `;
 
 const MapWrapper = styled.div`
   flex: 1;
   position: relative;
-  background-color: #1a1a1a;
+  background-color: ${(props) => props.theme.surface};
   overflow: hidden;
 `;
 
@@ -135,10 +135,10 @@ const LoadingOverlay = styled.div`
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.7);
+  background: ${(props) => props.theme.background}b3;
   z-index: 10;
   font-family: "JetBrains Mono", monospace;
-  color: #888;
+  color: ${(props) => props.theme.textSecondary};
 `;
 
 const ControlsPanel = styled.div`
@@ -148,9 +148,9 @@ const ControlsPanel = styled.div`
   z-index: 11;
   min-width: 220px;
   padding: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid ${(props) => props.theme.border};
   border-radius: 8px;
-  background: rgba(5, 5, 5, 0.85);
+  background: ${(props) => props.theme.surface}d9;
   backdrop-filter: blur(2px);
   font-family: "JetBrains Mono", monospace;
   font-size: 12px;
@@ -167,6 +167,7 @@ const FilterLabel = styled.label`
   align-items: center;
   gap: 4px;
   cursor: pointer;
+  color: ${(props) => props.theme.textSecondary};
 `;
 
 const mapContainerStyle = {

@@ -144,9 +144,9 @@ export function usePauseLogic({
     if (!isPaused) return;
     restoreWaveformFromStorage();
     // Force a render after restoring from storage so the canvas isn't blank
-    setTimeout(() => forceRender(), 50);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    const timeoutId = setTimeout(() => forceRender(), 50);
+    return () => clearTimeout(timeoutId);
+  }, [isPaused, forceRender, restoreWaveformFromStorage]);
 
   useEffect(() => {
     return () => {

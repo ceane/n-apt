@@ -36,11 +36,10 @@ const WaterfallCanvas = styled.canvas<{ $width: number; $height: number }>`
   display: block;
   width: ${({ $width }) => $width}px;
   height: ${({ $height }) => $height}px;
-  background-color: ${WATERFALL_CANVAS_BG};
+  background-color: ${({ theme }) => theme.colors?.waterfallBackground ?? WATERFALL_CANVAS_BG};
 `;
 
 const WATERFALL_PLACEHOLDER_TEXT = "Loading data from source...";
-const WATERFALL_PLACEHOLDER_FONT = "20px 'JetBrains Mono', monospace";
 const WATERFALL_PLACEHOLDER_COLOR = "#888888";
 
 const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
@@ -150,6 +149,7 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
     const bufferDimsRef = useRef<{ width: number; height: number } | null>(
       null,
     );
+    const lastWaveformRef = useRef<Float32Array | null>(null);
 
     // Initialize buffer if needed
     useEffect(() => {
@@ -181,9 +181,11 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
       const showPlaceholder = awaitingDeviceData && (!waveform || waveform.length === 0);
 
       if (showPlaceholder) {
-        ctx.fillStyle = "#020202";
+        const minDim = Math.max(1, Math.min(width, height));
+        const fontSize = Math.max(12, Math.min(24, Math.round(minDim * 0.07)));
+        ctx.fillStyle = canvas.style.backgroundColor || WATERFALL_CANVAS_BG;
         ctx.fillRect(0, 0, width, height);
-        ctx.font = WATERFALL_PLACEHOLDER_FONT;
+        ctx.font = `${fontSize}px 'JetBrains Mono', monospace`;
         ctx.fillStyle = WATERFALL_PLACEHOLDER_COLOR;
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
@@ -191,16 +193,17 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
         return;
       }
 
-      if (!waveform) {
-        return;
+      if (waveform) {
+        lastWaveformRef.current = waveform;
       }
 
       const buffer = localBufferRef.current;
       if (!buffer) return;
 
-      if (!isPaused) {
+      const renderWaveform = waveform ?? lastWaveformRef.current;
+      if (!isPaused && renderWaveform) {
         // Add new frame when not paused
-        const resampled = performScalarResampling(Array.from(waveform), width);
+        const resampled = performScalarResampling(Array.from(renderWaveform), width);
         const normalizedData = spectrumToAmplitude(
           resampled,
           WATERFALL_HISTORY_LIMIT,
@@ -222,12 +225,7 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
       }
 
       // Draw the waterfall
-      drawWaterfall({
-        ctx,
-        width,
-        height,
-        waterfallBuffer: buffer,
-      });
+      drawWaterfall({ ctx, width, height, waterfallBuffer: buffer });
     }, [
       width,
       height,

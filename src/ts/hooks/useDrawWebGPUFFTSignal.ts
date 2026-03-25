@@ -35,9 +35,15 @@
  */
 import { useCallback, useRef } from "react";
 import { OverlayTextureRenderer } from "@n-apt/hooks/useWebGPUInit";
-import { LINE_COLOR, SHADOW_COLOR, FFT_CANVAS_BG, FFT_AREA_MIN } from "@n-apt/consts";
+import { LINE_COLOR, SHADOW_COLOR, FFT_AREA_MIN } from "@n-apt/consts";
 import { SPECTRUM_SHADER } from "@n-apt/consts/shaders/spectrum";
 import { configureWebGPUCanvas, parseCssColorToRgba } from "@n-apt/utils/webgpu";
+
+const readCssColor = (name: string, fallback: string) => {
+  if (typeof window === "undefined" || typeof document === "undefined") return fallback;
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return value || fallback;
+};
 
 // Shaders are imported from @n-apt/consts/shaders/
 
@@ -236,7 +242,7 @@ export function useDrawWebGPUFFTSignal() {
         showGrid = true,
         lineColor = LINE_COLOR,
         fillColor = SHADOW_COLOR,
-        backgroundColor = FFT_CANVAS_BG,
+        backgroundColor = readCssColor("--color-fft-background", "#0a0a0a"),
       } = options;
 
       // Initialize renderer state if needed

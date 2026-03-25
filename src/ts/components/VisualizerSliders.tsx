@@ -1,6 +1,10 @@
 import React from "react";
 import styled from "styled-components";
 import { Slider } from "./ui";
+import {
+  COLORS,
+  STITCHER_BUTTON_STYLE,
+} from "@n-apt/consts/components";
 
 const SlidersGrid = styled.div`
   display: grid;
@@ -20,27 +24,31 @@ const ActionButtonsContainer = styled.div`
 `;
 
 const ActionButton = styled.button<{ $active?: boolean }>`
-  font-family: "JetBrains Mono", monospace;
+  font-family: ${STITCHER_BUTTON_STYLE.fontFamily};
   font-size: 9px;
-  font-weight: 600;
+  font-weight: ${STITCHER_BUTTON_STYLE.fontWeight};
   letter-spacing: 0.4px;
   text-transform: uppercase;
   white-space: nowrap;
   padding: 6px 10px;
-  border-radius: 8px;
-  border: 1px solid ${({ $active }) => ($active ? "rgba(0,0,0,0.2)" : "#333")};
-  background: ${({ $active }) =>
-    $active ? "linear-gradient(135deg, #00c853, #009688)" : "#212121"};
-  color: ${({ $active }) => ($active ? "#fff" : "#888")};
+  border-radius: ${STITCHER_BUTTON_STYLE.borderRadius};
+  border: 1px solid ${(props) =>
+    props.$active ? props.theme.primary : COLORS.borderHover};
+  background: ${(props) =>
+    props.$active
+      ? props.theme.activeBackground
+      : props.theme.surface};
+  color: ${(props) =>
+    props.$active ? props.theme.primary : props.theme.textSecondary};
   cursor: pointer;
   transition: all 0.15s ease;
   width: 100%;
   text-align: center;
 
   &:hover {
-    background: ${({ $active }) =>
-    $active ? "linear-gradient(135deg, #00e676, #26a69a)" : "#2a2a2a"};
-    color: ${({ $active }) => ($active ? "#fff" : "#aaa")};
+    background: ${(props) =>
+    props.$active ? props.theme.activeBackground : props.theme.surfaceHover};
+    color: ${(props) => (props.$active ? props.theme.primary : props.theme.textPrimary)};
   }
 
   &:active {

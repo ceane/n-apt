@@ -169,14 +169,12 @@ const createIndexedDBMiddleware = (): Middleware<{}, any> => (store) => (next) =
         .catch(error => console.warn('Failed to persist draw params:', error));
     }
     
-    // Persist selected files (File objects can't be stored, so we'll store metadata)
+    // Persist selected files (store serializable metadata)
     if (action.type === 'waterfall/setSelectedFiles') {
-      const filesMetadata = waterfallState.selectedFiles.map((file: any) => ({
-        name: file.name,
-        size: file.file.size,
-        type: file.file.type,
-        lastModified: file.file.lastModified,
-        downloadUrl: file.downloadUrl,
+      const filesMetadata = waterfallState.selectedFiles.map((f: any) => ({
+        id: f.id,
+        name: f.name,
+        downloadUrl: f.downloadUrl,
       }));
       idbManager.store('waterfall:selectedFiles', filesMetadata, 'waterfall')
         .catch(error => console.warn('Failed to persist selected files metadata:', error));
@@ -209,6 +207,13 @@ const createIndexedDBMiddleware = (): Middleware<{}, any> => (store) => (next) =
     }
   }
 
+  // Persist paused FFT/waterfall snapshot so remount can restore the full visual state.
+  if (action.type === 'spectrum/setPausedSnapshot') {
+    const spectrumState = state.spectrum;
+    idbManager.store('spectrum:pausedSnapshot', spectrumState.pausedSnapshot, 'spectrum')
+      .catch(error => console.warn('Failed to persist paused snapshot:', error));
+  }
+
   return result;
 };
 
@@ -229,6 +234,16 @@ export const loadPersistedWebSocketData = async () => {
     return data;
   } catch (error) {
     console.warn('Failed to load persisted WebSocket data:', error);
+    return {};
+  }
+};
+
+export const loadPersistedSpectrumData = async () => {
+  try {
+    const data = await idbManager.retrieveBySlice('spectrum');
+    return data;
+  } catch (error) {
+    console.warn('Failed to load persisted spectrum data:', error);
     return {};
   }
 };

@@ -7,6 +7,7 @@ interface UsePlaybackAnimationProps {
   allChannelsRef: React.MutableRefObject<any[]>;
   precomputedFrames: React.MutableRefObject<any[]>;
   fftCanvasDataRef: React.MutableRefObject<any>;
+  displayMode: "fft" | "iq";
 }
 
 export const usePlaybackAnimation = ({
@@ -16,41 +17,57 @@ export const usePlaybackAnimation = ({
   allChannelsRef,
   precomputedFrames,
   fftCanvasDataRef,
+  displayMode,
 }: UsePlaybackAnimationProps) => {
   const isPausedRef = useRef(isPaused);
   isPausedRef.current = isPaused;
   
   const activeChannelRef = useRef(activeChannel);
+  const lastFrameTimeRef = useRef<number | null>(null);
   
   // Update activeChannel ref when it changes
   useEffect(() => {
     activeChannelRef.current = activeChannel;
   }, [activeChannel]);
 
-  // Playback loop: runs only when unpaused + has data
-  const animateFrame = useCallback(
-    (timestamp: number) => {
-      if (isPausedRef.current) return;
+  const iqFrameIdxRef = useRef(0);
 
-      const channels = allChannelsRef.current;
-      const chIdx = activeChannelRef.current;
+  const animateFrame = useCallback((timestamp: number) => {
+    if (!lastFrameTimeRef.current) lastFrameTimeRef.current = timestamp;
+    const elapsed = timestamp - lastFrameTimeRef.current;
 
-      if (channels.length > 0 && channels[chIdx]) {
-        const ch = channels[chIdx];
-        const frames = ch.spectrum_frames || [];
-        if (frames.length > 0) {
-          const frameIdx = Math.floor(timestamp / 50) % frames.length;
-          // Frames from the file are already Float32Arrays
-          fftCanvasDataRef.current = { waveform: frames[frameIdx] };
+    const channelData = allChannelsRef.current[activeChannelRef.current];
+    if (channelData) {
+      const frameRate = channelData.frame_rate || 30;
+      const frameInterval = 1000 / frameRate;
+
+      if (elapsed >= frameInterval) {
+        if (displayMode === "iq") {
+          const iqData = channelData.iq_data || channelData.iq;
+          if (iqData && iqData.length > 0) {
+            // FFTCanvas expects Uint8Array for IQ processing
+            const fullIq = iqData instanceof Uint8Array ? iqData : new Uint8Array(iqData);
+            // Chunk into fftSize*2 byte windows (I/Q pairs) for frame-by-frame playback
+            const fftSize = channelData.bins_per_frame || 2048;
+            const chunkSize = fftSize * 2;
+            const totalFrames = Math.max(1, Math.floor(fullIq.length / chunkSize));
+            const frameIdx = iqFrameIdxRef.current % totalFrames;
+            const offset = frameIdx * chunkSize;
+            const chunk = fullIq.subarray(offset, offset + chunkSize);
+            iqFrameIdxRef.current = frameIdx + 1;
+            fftCanvasDataRef.current = { iq_data: chunk, data_type: "iq_raw" };
+          }
+        } else {
+          const frames = precomputedFrames.current;
+          if (frames.length > 0) {
+            const frameIdx = Math.floor(timestamp / frameInterval) % frames.length;
+            fftCanvasDataRef.current = frames[frameIdx];
+          }
         }
-      } else if (precomputedFrames.current.length > 0) {
-        const frameIdx = Math.floor(timestamp / 50) % precomputedFrames.current.length;
-        // Precomputed frames are already objects like { waveform, range }
-        fftCanvasDataRef.current = precomputedFrames.current[frameIdx];
+        lastFrameTimeRef.current = timestamp;
       }
-    },
-    [], // No dependencies - all values read from refs
-  );
+    }
+  }, [displayMode, allChannelsRef, precomputedFrames, fftCanvasDataRef]);
 
   useEffect(() => {
     if (!hasStitchedData || isPaused) return;
