@@ -1,7 +1,7 @@
 import React from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import { IQCaptureControlsSection } from "@n-apt/components/sidebar/IQCaptureControlsSection";
+import { IQCaptureControlsSection } from "../../src/ts/components/sidebar/IQCaptureControlsSection";
 import { TestWrapper } from "./testUtils";
 
 // Mock useAuthentication
@@ -11,11 +11,6 @@ jest.mock("@n-apt/hooks/useAuthentication", () => ({
     sessionToken: "mock-token",
   }),
 }));
-
-const mockTheme = {
-  primary: "#00d4ff",
-  primaryAnchor: "rgba(0, 212, 255, 0.1)",
-};
 
 const defaultProps = {
   isOpen: true,
@@ -27,9 +22,10 @@ const defaultProps = {
   acquisitionMode: "stepwise" as const,
   captureEncrypted: true,
   capturePlayback: false,
+  captureGeolocation: false,
   captureRange: { min: 10, max: 20, segments: [{ label: "Area A", min: 10, max: 20 }] },
   maxSampleRate: 3200000,
-  captureStatus: { status: "idle" as const },
+  captureStatus: null,
   isConnected: true,
   deviceState: "connected" as const,
   onActiveCaptureAreasChange: jest.fn(),
@@ -38,7 +34,9 @@ const defaultProps = {
   onAcquisitionModeChange: jest.fn(),
   onCaptureEncryptedChange: jest.fn(),
   onCapturePlaybackChange: jest.fn(),
+  onCaptureGeolocationChange: jest.fn(),
   onCapture: jest.fn(),
+  onClearStatus: jest.fn(),
 };
 
 describe("IQCaptureControlsSection", () => {
@@ -99,7 +97,7 @@ describe("IQCaptureControlsSection", () => {
       </TestWrapper>
     );
 
-    expect(screen.getByText("Capturing...")).toBeInTheDocument();
+    expect(screen.getByText("Capturing now...")).toBeInTheDocument();
   });
 
   it("should show success status and download link", () => {

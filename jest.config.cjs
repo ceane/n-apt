@@ -8,6 +8,7 @@ module.exports = {
     "^(\\.{1,2}/.*)\\.js$": "$1",
     "^react-router-dom$": "<rootDir>/node_modules/react-router-dom/dist/index.js",
     "^@n-apt/consts$": "<rootDir>/src/ts/consts",
+    "^@n-apt/md-preview/(.*)$": "<rootDir>/src/md-preview/$1",
     "^@n-apt/components/(.*)$": "<rootDir>/src/ts/components/$1",
     "^@n-apt/hooks/(.*)$": "<rootDir>/src/ts/hooks/$1",
     "^@n-apt/(.*)$": "<rootDir>/src/ts/$1",

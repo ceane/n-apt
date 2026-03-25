@@ -26,6 +26,7 @@
     "paths": {
       "@n-apt/*": ["src/ts/*"],
       "@n-apt": ["src/ts"],
+      "@n-apt/md-preview/*": ["src/md-preview/*"],
       "@n-apt/components/*": ["src/ts/components/*"],
       "@n-apt/fft/*": ["src/ts/fft/*"],
       "@n-apt/waterfall/*": ["src/ts/waterfall/*"],
