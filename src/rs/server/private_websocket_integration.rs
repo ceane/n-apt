@@ -10,7 +10,33 @@ use log::warn;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
+#[cfg(rs_decrypted)]
 use crate::encrypted_modules::obfuscated_websocket as secure_ws;
+
+#[cfg(not(rs_decrypted))]
+mod secure_ws {
+    use anyhow::Result;
+
+    pub struct SecureProcessor;
+
+    pub fn create_obfuscated_processor() -> SecureProcessor {
+        SecureProcessor
+    }
+
+    pub async fn process_secure_message(
+        _processor: &mut SecureProcessor,
+        _message: &crate::server::types::WebSocketMessage,
+        _broadcast_tx: &tokio::sync::broadcast::Sender<String>,
+    ) -> Result<()> {
+        Ok(())
+    }
+
+    pub fn initialize_secure_processor(_processor: &mut SecureProcessor) -> Result<()> {
+        Ok(())
+    }
+
+    pub fn cleanup_secure_processor(_processor: &mut SecureProcessor) {}
+}
 
 /// Wrapper for private WebSocket processing
 /// This provides a clean interface while keeping the sensitive implementation private

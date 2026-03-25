@@ -486,7 +486,7 @@ impl WebSocketServer {
               info!("Setting power scale to: {:?}", scale);
               processor.set_power_scale(scale);
             }
-            #[cfg(any(rs_decrypted, not(target_arch = "wasm32")))]
+            #[cfg(rs_decrypted)]
             crate::server::types::SdrCommand::ScanForAudio {
               job_id,
               frequency_range,
@@ -513,7 +513,11 @@ impl WebSocketServer {
                 let _ = _broadcast_tx.send(json);
               }
             }
-            #[cfg(any(rs_decrypted, not(target_arch = "wasm32")))]
+            #[cfg(not(rs_decrypted))]
+            crate::server::types::SdrCommand::ScanForAudio { job_id, .. } => {
+              warn!("ScanForAudio requested for job {} but decrypted scan support is disabled in this build", job_id);
+            }
+            #[cfg(rs_decrypted)]
             crate::server::types::SdrCommand::DemodulateRegion { job_id, region } => {
               let mut processor = sdr_processor.lock().await;
               info!("[DEMOD] Demodulating region for job={}", job_id);
@@ -529,7 +533,11 @@ impl WebSocketServer {
                 let _ = _broadcast_tx.send(json);
               }
             }
-            #[cfg(any(rs_decrypted, not(target_arch = "wasm32")))]
+            #[cfg(not(rs_decrypted))]
+            crate::server::types::SdrCommand::DemodulateRegion { job_id, .. } => {
+              warn!("DemodulateRegion requested for job {} but decrypted demod support is disabled in this build", job_id);
+            }
+            #[cfg(rs_decrypted)]
             crate::server::types::SdrCommand::StartAptAnalysis { job_id, config } => {
               let processor = sdr_processor.lock().await;
               info!("[APT] Starting APT analysis for job={}", job_id);
@@ -570,6 +578,10 @@ impl WebSocketServer {
                   config_clone,
                 ).await;
               });
+            }
+            #[cfg(not(rs_decrypted))]
+            crate::server::types::SdrCommand::StartAptAnalysis { job_id, .. } => {
+              warn!("StartAptAnalysis requested for job {} but APT analysis is disabled in this build", job_id);
             }
             _ => {
               warn!("Unhandled command: {:?}", cmd);
