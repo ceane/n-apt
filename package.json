@@ -21,7 +21,7 @@
     "build:wasm": "./scripts/build/build_wasm.sh",
     "build": "npm run build:backend && npm run build:frontend && npm run build:wasm",
     "preview": "vite preview --port 5174",
-    "postinstall": "./scripts/git/link_shared_worktree_assets.sh && sh -c 'if [ -n \"$CI\" ]; then echo \"Skipping backend build during CI postinstall\"; else echo \"ALSO INSTALLING RUST DEPS\" && ./scripts/deployment/start_server.sh --build-only; fi'",
+    "postinstall": "sh -c 'if [ -n \"$CI\" ]; then echo \"Skipping git hook and backend build during CI postinstall\"; else bash ./scripts/git/link_shared_worktree_assets.sh && echo \"ALSO INSTALLING RUST DEPS\" && ./scripts/deployment/start_server.sh --build-only; fi'",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
