@@ -2108,7 +2108,11 @@ const FFTCanvas = memo(
             onResetZoomDb={() => {
               onVizZoomChange?.(1);
               onVizPanChange?.(0);
-              applyDbLimits(FFT_MIN_DB, FFT_MAX_DB);
+              if (powerScale === "dBm") {
+                applyDbLimits(-100, 30);
+              } else {
+                applyDbLimits(-120, 0);
+              }
             }}
           />
         </SlidersRail>

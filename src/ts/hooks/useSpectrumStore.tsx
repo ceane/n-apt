@@ -461,15 +461,15 @@ export function spectrumReducer(
         globalNoiseFloor: INITIAL_SPECTRUM_STATE.globalNoiseFloor,
         activeClumpIndex: 0,
       };
-    case "RESET_LIVE_CONTROLS":
+    case "RESET_LIVE_CONTROLS": {
+      const isDbm = state.powerScale === "dBm";
       return {
         ...state,
         displayTemporalResolution: LIVE_CONTROL_DEFAULTS.displayTemporalResolution,
-        powerScale: LIVE_CONTROL_DEFAULTS.powerScale,
         vizZoom: LIVE_CONTROL_DEFAULTS.vizZoom,
         vizPanOffset: LIVE_CONTROL_DEFAULTS.vizPanOffset,
-        fftMinDb: LIVE_CONTROL_DEFAULTS.fftMinDb,
-        fftMaxDb: LIVE_CONTROL_DEFAULTS.fftMaxDb,
+        fftMinDb: isDbm ? -100 : -120,
+        fftMaxDb: isDbm ? 30 : 0,
         fftWindow: LIVE_CONTROL_DEFAULTS.fftWindow,
         gain: LIVE_CONTROL_DEFAULTS.gain,
         ppm: LIVE_CONTROL_DEFAULTS.ppm,
@@ -477,7 +477,9 @@ export function spectrumReducer(
         rtlAGC: LIVE_CONTROL_DEFAULTS.rtlAGC,
         fftSize: action.fftSize ?? state.fftSize,
         fftFrameRate: action.fftFrameRate ?? state.fftFrameRate,
+        globalNoiseFloor: isDbm ? -120 : -150,
       };
+    }
     case "SET_DIAGNOSTIC_STATUS":
       return { ...state, diagnosticStatus: action.status };
     case "SET_DIAGNOSTIC_RUNNING":
