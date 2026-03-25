@@ -51,6 +51,7 @@ paste = "1.0"
 rustfft = "6"
 num-complex = "0.4"
 rand = "0.8"
+rayon = "1.10"
 getrandom = { version = "0.2", features = ["js"] }
 anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }

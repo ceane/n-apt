@@ -18,6 +18,45 @@ use super::{SdrDevice, SdrDeviceFactory};
 
 fn _keep_stitch_types(_result: &CorrelationResult, _method: CorrelationMethod) {}
 
+/// Hot per-frame state that changes on every read cycle.
+#[derive(Debug)]
+pub struct SdrFrameState {
+  pub frame_counter: u64,
+  pub avg_spectrum: Option<Vec<f32>>,
+  pub avg_alpha: f32,
+  pub iq_accumulator: Vec<u8>,
+  pub iq_offset: usize,
+  pub iq_frame: Vec<u8>,
+  pub last_read_instant: Option<Instant>,
+  pub pending_freq: Option<u32>,
+  pub last_retune_at: Option<Instant>,
+  pub retune_cooldown_until: Option<Instant>,
+  pub post_retune_discard_frames: usize,
+  pub last_stable_spectrum: Option<Vec<f32>>,
+  pub last_frame_raw_iq: Vec<u8>,
+}
+
+impl SdrFrameState {
+  fn new(fft_size: usize) -> Self {
+    let reserve = fft_size.max(1).saturating_mul(2);
+    Self {
+      frame_counter: 0,
+      avg_spectrum: None,
+      avg_alpha: 0.3,
+      iq_accumulator: Vec::with_capacity(reserve),
+      iq_offset: 0,
+      iq_frame: Vec::with_capacity(reserve),
+      last_read_instant: None,
+      pending_freq: None,
+      last_retune_at: None,
+      retune_cooldown_until: None,
+      post_retune_discard_frames: 0,
+      last_stable_spectrum: None,
+      last_frame_raw_iq: Vec::with_capacity(reserve),
+    }
+  }
+}
+
 /// One captured channel's data
 #[derive(Debug, Clone)]
 pub struct CaptureChannel {
@@ -67,21 +106,11 @@ pub struct SdrProcessor {
   device: Box<dyn SdrDevice>,
   /// FFT processor for signal processing
   pub fft_processor: FFTProcessor,
-  /// Frame counter for time-based operations
-  pub frame_counter: u64,
-  /// Exponential moving average buffer for frame averaging
-  pub avg_spectrum: Option<Vec<f32>>,
-  /// EMA smoothing factor (0.0 = no smoothing, 1.0 = no averaging)
-  pub avg_alpha: f32,
+  /// Hot per-frame state.
+  pub frame: SdrFrameState,
   /// Display min/max dB
   pub display_min_db: i32,
   pub display_max_db: i32,
-  /// IQ sample accumulator for async reading
-  pub iq_accumulator: Vec<u8>,
-  /// Current read offset into iq_accumulator
-  pub iq_offset: usize,
-  /// Reusable IQ frame buffer
-  pub iq_frame: Vec<u8>,
   /// Validated frame rate for display
   pub display_frame_rate: u32,
   /// Whether training capture is active
@@ -150,18 +179,6 @@ pub struct SdrProcessor {
   pub current_tuner_agc: bool,
   /// Last applied RTL AGC
   pub current_rtl_agc: bool,
-  /// Last time samples were read (to maintain real-time flow)
-  pub last_read_instant: Option<Instant>,
-  /// Pending frequency change (applied at start of next read cycle to debounce rapid slider drags)
-  pub pending_freq: Option<u32>,
-  /// Last time we applied a frequency change (to throttle rapid retunes)
-  pub last_retune_at: Option<Instant>,
-  /// Short cooldown window after a retune to let the device settle
-  pub retune_cooldown_until: Option<Instant>,
-  /// Number of freshly read frames to discard after a retune to avoid warmup contamination
-  pub post_retune_discard_frames: usize,
-  /// Last stable spectrum shown before a retune; used while draining warmup frames
-  pub last_stable_spectrum: Option<Vec<f32>>,
   /// Last phase spectrum for phase coherence tracking
   pub last_phase_spectrum: Option<Vec<f32>>,
   /// Phase coherence history for stitching validation
@@ -170,9 +187,6 @@ pub struct SdrProcessor {
   pub enable_phase_stitching: bool,
   /// Center frequency saved before capture starts, restored after capture ends
   pub capture_pre_center_freq: Option<u32>,
-  /// Raw IQ bytes from the most recently read device frame (offset-binary u8 pairs: I, Q, I, Q,...)
-  /// Updated on every call to `read_and_process_frame` so callers can inspect the raw signal.
-  pub last_frame_raw_iq: Vec<u8>,
   /// Current power scale mode for spectrum display (dB or dBm)
   pub power_scale: crate::server::types::PowerScale,
 }
@@ -213,14 +227,9 @@ impl SdrProcessor {
     let processor = Self {
       device,
       fft_processor,
-      frame_counter: 0,
-      avg_spectrum: None,
-      avg_alpha: 0.3,
+      frame: SdrFrameState::new(fft_size),
       display_min_db: min_db,
       display_max_db: max_db,
-      iq_accumulator: Vec::new(),
-      iq_offset: 0,
-      iq_frame: Vec::new(),
       display_frame_rate: default_frame_rate,
       training_active: false,
       training_label: None,
@@ -255,22 +264,16 @@ impl SdrProcessor {
       current_ppm: -999999,    // Force first update
       current_tuner_agc: false,
       current_rtl_agc: false,
-      last_read_instant: None,
-      pending_freq: None,
-      last_retune_at: None,
-      retune_cooldown_until: None,
-      post_retune_discard_frames: 0,
-      last_stable_spectrum: None,
       last_phase_spectrum: None,
       phase_coherence_history: Vec::new(),
       enable_phase_stitching: true,
       capture_pre_center_freq: None,
-      last_frame_raw_iq: Vec::new(),
       power_scale: crate::server::types::PowerScale::DB, // Default to dB mode
     };
 
-    // Apply initial settings from config immediately to tune the hardware
     let mut processor = processor;
+
+    // Apply initial settings from config immediately to tune the hardware
     processor.apply_settings(crate::server::types::SdrProcessorSettings {
       fft_size: Some(sdr_settings.fft.default_size),
       frame_rate: Some(sdr_settings.fft.default_frame_rate),
@@ -337,8 +340,8 @@ impl SdrProcessor {
       self.device.device_type()
     );
 
-    self.retune_cooldown_until = Some(std::time::Instant::now() + std::time::Duration::from_millis(500));
-    self.post_retune_discard_frames = self.post_retune_discard_frame_count();
+    self.frame.retune_cooldown_until = Some(std::time::Instant::now() + std::time::Duration::from_millis(500));
+    self.frame.post_retune_discard_frames = self.post_retune_discard_frame_count();
     self.flush_read_queue();
 
     Ok(())
@@ -370,26 +373,26 @@ impl SdrProcessor {
     let sample_rate = self.get_sample_rate();
 
     // If we're in a retune cooldown window, avoid touching the device
-    if let Some(until) = self.retune_cooldown_until {
+    if let Some(until) = self.frame.retune_cooldown_until {
       if Instant::now() < until {
-        if let Some(ref avg) = self.avg_spectrum {
+        if let Some(ref avg) = self.frame.avg_spectrum {
           return Ok(avg.clone());
         }
         return Ok(vec![-120.0; fft_size]);
       }
-      self.retune_cooldown_until = None;
+      self.frame.retune_cooldown_until = None;
     }
 
-    // Apply any pending frequency change (debounced from rapid slider drags)
-    if let Some(freq) = self.pending_freq.take() {
-      if freq == self.get_center_frequency() {
-        // No change needed
-      } else {
+    if let Some(freq) = self.frame.pending_freq {
+      self.frame.pending_freq = None;
+
+      if freq != self.get_center_frequency() {
         if let Err(e) = self.set_center_frequency(freq) {
           warn!("Failed to apply pending frequency: {}", e);
+        } else {
+          self.frame.last_retune_at = Some(Instant::now());
+          self.frame.post_retune_discard_frames = self.post_retune_discard_frame_count();
         }
-        self.last_retune_at = Some(Instant::now());
-        self.post_retune_discard_frames = self.post_retune_discard_frame_count();
       }
     }
 
@@ -424,7 +427,7 @@ impl SdrProcessor {
           warn!("Failed to hop capture frequency: {}", e);
         }
         self.capture_last_hop = Some(Instant::now());
-        self.post_retune_discard_frames = self.post_retune_discard_frame_count();
+        self.frame.post_retune_discard_frames = self.post_retune_discard_frame_count();
       }
     }
 
@@ -435,12 +438,12 @@ impl SdrProcessor {
       return Ok(vec![-120.0; fft_size]);
     }
 
-    while self.post_retune_discard_frames > 0 {
-      self.post_retune_discard_frames -= 1;
+    while self.frame.post_retune_discard_frames > 0 {
+      self.frame.post_retune_discard_frames -= 1;
 
       let next_samples = self.device.read_samples(fft_size)?;
       if next_samples.data.is_empty() {
-        if let Some(ref held) = self.last_stable_spectrum {
+        if let Some(ref held) = self.frame.last_stable_spectrum {
           return Ok(held.clone());
         }
         return Ok(vec![-120.0; fft_size]);
@@ -450,7 +453,6 @@ impl SdrProcessor {
     }
 
     let display_samples_data = samples.data;
-
     let display_samples = crate::fft::types::RawSamples {
       data: display_samples_data.clone(),
       sample_rate,
@@ -473,8 +475,8 @@ impl SdrProcessor {
     }
 
     // Frame averaging (exponential moving average)
-    let alpha = self.avg_alpha;
-    if let Some(ref mut avg) = self.avg_spectrum {
+    let alpha = self.frame.avg_alpha;
+    if let Some(ref mut avg) = self.frame.avg_spectrum {
       if avg.len() == spectrum.len() {
         for (i, val) in spectrum.iter().enumerate() {
           avg[i] = alpha * val + (1.0 - alpha) * avg[i];
@@ -483,17 +485,20 @@ impl SdrProcessor {
         *avg = spectrum.clone();
       }
     } else {
-      self.avg_spectrum = Some(spectrum.clone());
+      self.frame.avg_spectrum = Some(spectrum.clone());
     }
     // Borrow the averaged spectrum for output (avoids extra clone)
-    let final_spectrum = self.avg_spectrum.as_ref().unwrap().clone();
+    let final_spectrum = self
+      .frame
+      .avg_spectrum
+      .as_ref()
+      .cloned()
+      .unwrap_or_else(|| spectrum.clone());
 
     if self.capture_active {
       let ch_idx = self.capture_current_fragment;
       if ch_idx < self.capture_channels.len() {
-        self.capture_channels[ch_idx]
-          .iq_data
-          .extend_from_slice(&display_samples_data);
+        self.capture_channels[ch_idx].iq_data.extend_from_slice(&display_samples_data);
         self.capture_channels[ch_idx]
           .spectrum_data
           .extend_from_slice(&spectrum);
@@ -501,8 +506,8 @@ impl SdrProcessor {
       self.capture_actual_frames += 1;
     }
 
-    self.last_frame_raw_iq = display_samples_data;
-    self.last_stable_spectrum = Some(final_spectrum.clone());
+    self.frame.last_frame_raw_iq = display_samples_data;
+    self.frame.last_stable_spectrum = Some(final_spectrum.clone());
 
     Ok(final_spectrum)
   }
@@ -545,6 +550,11 @@ impl SdrProcessor {
           config.zoom_width = size;
           config_changed = true;
           info!("FFT size changed to {}", size);
+
+          let reserve_samples = size.saturating_mul(2);
+          self.frame.iq_accumulator.reserve_exact(reserve_samples);
+          self.frame.iq_frame.reserve_exact(reserve_samples);
+          self.frame.last_frame_raw_iq.reserve_exact(reserve_samples);
         }
       } else {
         warn!("Invalid FFT size {} (must be power of 2), ignoring", size);
@@ -680,17 +690,22 @@ impl SdrProcessor {
     if let Some(ref mut simd) = self.fft_processor.simd_processor_mut() {
       let _: () = simd.set_center_frequency(freq);
     }
-    self.avg_spectrum = None;
-    self.last_retune_at = Some(std::time::Instant::now());
-    self.post_retune_discard_frames = self.post_retune_discard_frame_count();
+    self.frame.avg_spectrum = None;
+    self.frame.last_retune_at = Some(std::time::Instant::now());
+    self.frame.post_retune_discard_frames = self.post_retune_discard_frame_count();
     Ok(())
+  }
+
+  /// Queue a center frequency change for the next stable window instead of applying immediately.
+  pub fn queue_center_frequency(&mut self, freq: u32) {
+    self.frame.pending_freq = Some(freq);
   }
 
   /// Flush the underlying device read queue and clear software buffers
   pub fn flush_read_queue(&mut self) {
     self.device.flush_read_queue();
-    self.iq_accumulator.clear();
-    self.iq_frame.clear();
+    self.frame.iq_accumulator.clear();
+    self.frame.iq_frame.clear();
   }
 
   /// Validate stitching between two captured channels using correlation
@@ -931,9 +946,9 @@ impl SdrProcessor {
   /// Reset device buffers
   pub fn reset_buffer(&mut self) -> Result<()> {
     self.device.reset_buffer()?;
-    self.iq_accumulator.clear();
-    self.iq_offset = 0;
-    self.avg_spectrum = None;
+    self.frame.iq_accumulator.clear();
+    self.frame.iq_offset = 0;
+    self.frame.avg_spectrum = None;
     Ok(())
   }
 
@@ -1135,11 +1150,11 @@ impl SdrProcessor {
     job_id: &str,
     broadcast_tx: &tokio::sync::broadcast::Sender<String>,
   ) -> Vec<FrequencyRegion> {
-    if self.last_frame_raw_iq.is_empty() {
+    if self.frame.last_frame_raw_iq.is_empty() {
       return vec![];
     }
 
-    let iq_samples = &self.last_frame_raw_iq;
+    let iq_samples = &self.frame.last_frame_raw_iq;
     let sample_rate = self.get_sample_rate() as f32;
     let total_samples = (iq_samples.len() / 2) as f32;
     
@@ -1198,11 +1213,11 @@ impl SdrProcessor {
 
   #[cfg(rs_decrypted)]
   pub fn handle_demodulate(&mut self, region: &FrequencyRegion) -> (Vec<f32>, u32) {
-    if self.last_frame_raw_iq.is_empty() {
+    if self.frame.last_frame_raw_iq.is_empty() {
       return (vec![], 48000);
     }
 
-    let iq_samples = &self.last_frame_raw_iq;
+    let iq_samples = &self.frame.last_frame_raw_iq;
     let sample_rate = self.get_sample_rate() as f32;
     let total_samples = (iq_samples.len() / 2) as f32;
 

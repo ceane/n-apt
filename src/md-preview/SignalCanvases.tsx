@@ -32,57 +32,33 @@ const Frame = styled.div`
   }
 `;
 
-const FrequencyBracket = styled.div`
+const ZeroLine = styled.div`
   position: absolute;
-  top: 31%;
-  left: 50%;
-  width: min(38vw, 290px);
-  height: 34px;
-  transform: translateX(-50%);
-  color: #6b7280;
+  left: 0;
+  right: 0;
+  top: 50%;
+  border-top: 1px solid rgba(107, 114, 128, 0.32);
   pointer-events: none;
-
-  &::before,
-  &::after {
-    content: "";
-    position: absolute;
-    top: 8px;
-    width: 24px;
-    height: 16px;
-    border-top: 2px solid currentColor;
-  }
-
-  &::before {
-    left: 0;
-    border-left: 2px solid currentColor;
-    border-top-left-radius: 2px;
-  }
-
-  &::after {
-    right: 0;
-    border-right: 2px solid currentColor;
-    border-top-right-radius: 2px;
-  }
-
-  span {
-    position: absolute;
-    top: 0;
-    transform: translateY(-1px);
-    font-family: "DM Mono", monospace;
-    font-size: clamp(0.66rem, 1vw, 0.9rem);
-    font-weight: 700;
-    letter-spacing: 0.02em;
-    white-space: nowrap;
-  }
-
-  .left {
-    left: 0;
-  }
-
-  .right {
-    right: 0;
-  }
+  z-index: 1;
 `;
+
+
+const WaveLabel = styled.span`
+  position: absolute;
+  transform: translateX(-50%);
+  color: #111827;
+  font-family: "DM Mono", monospace;
+  font-size: clamp(0.68rem, 1vw, 0.92rem);
+  font-weight: 700;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 2;
+  text-align: center;
+`;
+
+const WaveLabelAnnotation = styled.span`
+  font-weight: normal;
+`
 
 const RendererBadge = styled.div`
   position: absolute;
@@ -117,6 +93,7 @@ const OverlayText = styled.div<{
   $align?: "left" | "center" | "right";
   $color?: string;
   $weight?: number;
+  $fontSize?: string;
 }>`
   position: absolute;
   top: ${({ $top }) => $top ?? "auto"};
@@ -133,7 +110,7 @@ const OverlayText = styled.div<{
     return "translateX(0)";
   }};
   font-family: "DM Mono", monospace;
-  font-size: clamp(0.72rem, 1.2vw, 1rem);
+  font-size: ${({ $fontSize }) => $fontSize ?? "clamp(0.72rem, 1.2vw, 1rem)"};
   line-height: 1.2;
   color: ${({ $color }) => $color ?? "#4b5563"};
   font-weight: ${({ $weight }) => $weight ?? 500};
@@ -791,14 +768,38 @@ export const FrequencyModulationCanvas: React.FC = () => {
       title="Frequency Modulation"
       overlay={(
         <>
-          <FrequencyBracket>
-            <span className="left">Higher frequency</span>
-            <span className="right">Lower frequency</span>
-          </FrequencyBracket>
+          <ZeroLine style={{ top: "65%" }} aria-hidden="true" />
+          <WaveLabel style={{ left: "22%", top: "25%" }}>
+            Higher frequency <br />
+            <WaveLabelAnnotation>(thinner, more cycles/second)</WaveLabelAnnotation>
+          </WaveLabel>
+          <WaveLabel style={{ left: "72%", top: "25%" }}>
+            Lower frequency <br />
+            <WaveLabelAnnotation>(wider, less cycles/second)</WaveLabelAnnotation>
+          </WaveLabel>
         </>
       )}
     >
       <FrequencyModulationScene />
+    </SignalCanvasFrame>
+  );
+};
+
+export const AmplitudeModulationCanvas: React.FC = () => {
+  return (
+    <SignalCanvasFrame
+      title="Amplitude Modulation"
+      overlay={(
+        <>
+          <WaveLabel style={{ left: "22%", top: "18%" }}>Higher amplitude</WaveLabel>
+          <WaveLabel style={{ left: "72%", top: "33%" }}>Lower amplitude</WaveLabel>
+          <WaveLabel style={{ left: "39%", top: "27%", color: "#858585", fontWeight: "normal" }}>Peak (crest)</WaveLabel>
+          <WaveLabel style={{ left: "43%", top: "70%", color: "#858585", fontWeight: "normal" }}>Trough</WaveLabel>
+          <ZeroLine aria-hidden="true" />
+        </>
+      )}
+    >
+      <AmplitudeModulationScene />
     </SignalCanvasFrame>
   );
 };
@@ -812,24 +813,22 @@ const FrequencyModulationScene: React.FC = () => {
     const pts: THREE.Vector3[] = [];
     let phase = 0;
     let prevX = xMin;
+    const yOffset = -0.8;
 
     for (let i = 0; i <= samples; i += 1) {
       const t = i / samples;
       const x = THREE.MathUtils.lerp(xMin, xMax, t);
-      const center = Math.abs(t - 0.5) * 2;
-      const centerDip = Math.pow(1 - center, 3);
-      const easedDip = 0.5 - 0.5 * Math.cos(Math.PI * centerDip);
-      const instantaneousFreq = THREE.MathUtils.lerp(4.4, 1.2, easedDip);
-      const amplitude = THREE.MathUtils.lerp(0.55, 0.8, easedDip * 0.7);
+      const instantaneousFreq = THREE.MathUtils.lerp(8.0, 0.8, t);
+      const amplitude = 1.2;
 
       if (i === 0) {
         phase = 0;
       } else {
-        phase += (x - prevX) * Math.PI * instantaneousFreq * 1.05;
+        phase += (x - prevX) * Math.PI * instantaneousFreq * 0.25;
       }
 
       const y = Math.sin(phase) * amplitude;
-      pts.push(new THREE.Vector3(x, y, 0));
+      pts.push(new THREE.Vector3(x, y + yOffset, 0));
       prevX = x;
     }
     return pts;
@@ -843,28 +842,61 @@ const FrequencyModulationScene: React.FC = () => {
   );
 };
 
+const AmplitudeModulationScene: React.FC = () => {
+  const { viewport } = useThree();
+  const amWave = useMemo(() => {
+    const samples = 2400;
+    const xMin = -viewport.width * 0.56;
+    const xMax = viewport.width * 0.56;
+    const pts: THREE.Vector3[] = [];
+    const cyclesAcrossCanvas = 4;
+
+    for (let i = 0; i <= samples; i += 1) {
+      const t = i / samples;
+      const x = THREE.MathUtils.lerp(xMin, xMax, t);
+      const amplitudeEnvelope = THREE.MathUtils.lerp(1.72, 0.18, t);
+      const phase = t * Math.PI * 2 * cyclesAcrossCanvas;
+      const y = Math.sin(phase) * amplitudeEnvelope;
+      pts.push(new THREE.Vector3(x, y, 0));
+    }
+
+    return pts;
+  }, [viewport.width]);
+
+  return (
+    <>
+      <GridBackdrop />
+      <WaveTube points={amWave} color={palette.accent} thickness={0.028} z={0.12} segments={2200} />
+    </>
+  );
+};
+
 export const MultipathCanvas: React.FC = () => {
-  const transmitter = useMemo(() => new THREE.Vector3(-3.45, -0.2, 0), []);
-  const target = useMemo(() => new THREE.Vector3(-1.45, -0.2, 0), []);
-  const receiver = useMemo(() => new THREE.Vector3(3.35, -0.2, 0), []);
-  const obstacleCenter = useMemo(() => new THREE.Vector3(1.15, -0.2, 0), []);
+  const verticalShift = 0.16;
+  const transmitter = useMemo(() => new THREE.Vector3(-4.15, -0.2 + verticalShift, 0), [verticalShift]);
+  const target = useMemo(() => new THREE.Vector3(-1.95, -0.2 + verticalShift, 0), [verticalShift]);
+  const receiver = useMemo(() => new THREE.Vector3(4.15, -0.2 + verticalShift, 0), [verticalShift]);
+  const obstacleCenter = useMemo(() => new THREE.Vector3(1.45, -0.2 + verticalShift, 0), [verticalShift]);
 
   // Reflector positions (surface points)
-  const upperReflect = useMemo(() => new THREE.Vector3(1.35, 1.89, 0), []); // Bottom of top block
-  const lowerReflect = useMemo(() => new THREE.Vector3(1.35, -2.09, 0), []); // Top of bottom block
+  const upperReflect = useMemo(() => new THREE.Vector3(1.65, 1.89 + verticalShift, 0), [verticalShift]); // Bottom of top block
+  const lowerReflect = useMemo(() => new THREE.Vector3(1.65, -2.09 + verticalShift, 0), [verticalShift]); // Top of bottom block
 
   // Path Offsets (Wave is "above" Arrow)
   const offset = 0.16;
+  const targetGap = 0.72;
+  const transmitterGap = 0.3;
+  const reflectorGap = 0.24;
 
   // Tx -> Target
-  const txTargetArrowStart = useMemo(() => transmitter.clone().add(new THREE.Vector3(0.18, 0, 0)), [transmitter]);
-  const txTargetArrowEnd = useMemo(() => target.clone().add(new THREE.Vector3(-0.18, 0, 0)), [target]);
+  const txTargetArrowStart = useMemo(() => transmitter.clone().add(new THREE.Vector3(transmitterGap, 0, 0)), [transmitter]);
+  const txTargetArrowEnd = useMemo(() => target.clone().add(new THREE.Vector3(-targetGap, 0, 0)), [target]);
   const txTargetWaveStart = useMemo(() => txTargetArrowStart.clone().add(new THREE.Vector3(0, offset, 0)), [txTargetArrowStart]);
   const txTargetWaveEnd = useMemo(() => txTargetArrowEnd.clone().add(new THREE.Vector3(0, offset, 0)), [txTargetArrowEnd]);
 
   // Upper Reflection (Arrow hits reflectors)
-  const upperTargetStart = useMemo(() => target.clone().add(new THREE.Vector3(0.12, 0.12, 0)), [target]);
-  const upperReceiverEnd = useMemo(() => receiver.clone().add(new THREE.Vector3(-0.12, 0.12, 0)), [receiver]);
+  const upperTargetStart = useMemo(() => target.clone().add(new THREE.Vector3(targetGap - 0.08, 0.08, 0)), [target]);
+  const upperReceiverEnd = useMemo(() => receiver.clone().add(new THREE.Vector3(-(targetGap - 0.08), 0.08, 0)), [receiver]);
 
   // Calculate intersection of two lines defined by (p1, dir1) and (p2, dir2)
   const getIntersection = (p1: THREE.Vector3, dir1: THREE.Vector3, p2: THREE.Vector3, dir2: THREE.Vector3) => {
@@ -884,13 +916,13 @@ export const MultipathCanvas: React.FC = () => {
   const upperLeg2Dir = new THREE.Vector3().subVectors(upperReceiverEnd, upperReflect).normalize();
   const upperLeg2Norm = new THREE.Vector3(-upperLeg2Dir.y, upperLeg2Dir.x, 0); // Up-Right
 
-  const upperWaveStart = upperTargetStart.clone().addScaledVector(upperLeg1Norm, offset);
-  const upperWaveEnd = upperReceiverEnd.clone().addScaledVector(upperLeg2Norm, offset);
+  const upperWaveStart = upperTargetStart.clone().addScaledVector(upperLeg1Norm, offset * 0.9);
+  const upperWaveEnd = upperReceiverEnd.clone().addScaledVector(upperLeg2Norm, offset * 0.9);
   const upperWaveReflect = getIntersection(upperWaveStart, upperLeg1Dir, upperWaveEnd, new THREE.Vector3().copy(upperLeg2Dir).negate());
 
   // Lower Reflection (Arrow hits reflectors)
-  const lowerTargetStart = useMemo(() => target.clone().add(new THREE.Vector3(0.12, -0.12, 0)), [target]);
-  const lowerReceiverEnd = useMemo(() => receiver.clone().add(new THREE.Vector3(-0.12, -0.12, 0)), [receiver]);
+  const lowerTargetStart = useMemo(() => target.clone().add(new THREE.Vector3(targetGap - 0.08, -0.08, 0)), [target]);
+  const lowerReceiverEnd = useMemo(() => receiver.clone().add(new THREE.Vector3(-(targetGap - 0.08), -0.08, 0)), [receiver]);
 
   // For bottom path, "Wave Above Arrow" means Wave is Top, Arrow is Bottom
   const lowerLeg1Dir = new THREE.Vector3().subVectors(lowerReflect, lowerTargetStart).normalize();
@@ -898,8 +930,8 @@ export const MultipathCanvas: React.FC = () => {
   const lowerLeg2Dir = new THREE.Vector3().subVectors(lowerReceiverEnd, lowerReflect).normalize();
   const lowerLeg2Norm = new THREE.Vector3(-lowerLeg2Dir.y, lowerLeg2Dir.x, 0); // Up-Left
 
-  const lowerWaveStart = lowerTargetStart.clone().addScaledVector(lowerLeg1Norm, offset);
-  const lowerWaveEnd = lowerReceiverEnd.clone().addScaledVector(lowerLeg2Norm, offset);
+  const lowerWaveStart = lowerTargetStart.clone().addScaledVector(lowerLeg1Norm, offset * 0.9);
+  const lowerWaveEnd = lowerReceiverEnd.clone().addScaledVector(lowerLeg2Norm, offset * 0.9);
   const lowerWaveReflect = getIntersection(lowerWaveStart, lowerLeg1Dir, lowerWaveEnd, new THREE.Vector3().copy(lowerLeg2Dir).negate());
 
   // Paths
@@ -908,23 +940,36 @@ export const MultipathCanvas: React.FC = () => {
 
   const upperLeftWave = useSinePathBetweenPoints(upperWaveStart, upperWaveReflect, 0.08, 8, 160);
   const upperRightWave = useSinePathBetweenPoints(upperWaveReflect, upperWaveEnd, 0.08, 7, 160);
-  const upperLeftGuide = useLinearPoints(upperTargetStart, upperReflect, 60);
-  const upperRightGuide = useLinearPoints(upperReflect, upperReceiverEnd, 60);
+  const upperLeftGuide = useLinearPoints(upperTargetStart, upperReflect.clone().add(new THREE.Vector3(-reflectorGap, 0, 0)), 60);
+  const upperRightGuide = useLinearPoints(upperReflect.clone().add(new THREE.Vector3(reflectorGap, 0, 0)), upperReceiverEnd, 60);
 
   const lowerLeftWave = useSinePathBetweenPoints(lowerWaveStart, lowerWaveReflect, 0.08, 8, 160);
   const lowerRightWave = useSinePathBetweenPoints(lowerWaveReflect, lowerWaveEnd, 0.08, 7, 160);
-  const lowerLeftGuide = useLinearPoints(lowerTargetStart, lowerReflect, 60);
-  const lowerRightGuide = useLinearPoints(lowerReflect, lowerReceiverEnd, 60);
+  const lowerLeftGuide = useLinearPoints(lowerTargetStart, lowerReflect.clone().add(new THREE.Vector3(-reflectorGap, 0, 0)), 60);
+  const lowerRightGuide = useLinearPoints(lowerReflect.clone().add(new THREE.Vector3(reflectorGap, 0, 0)), lowerReceiverEnd, 60);
 
   return (
     <SignalCanvasFrame
       title="Multipath"
       overlay={(
         <>
-          <OverlayText $bottom="24px" $left="16px" $color="#374151" $weight={700}>Tx / transmitter / source</OverlayText>
-          <OverlayText $top="48%" $left="23%" $align="center" $color="#374151" $weight={700}>Target</OverlayText>
-          <OverlayText $bottom="24px" $right="16px" $align="right" $color="#374151" $weight={700}>Receiver / Rx</OverlayText>
+          <OverlayText $top="220px" $left="40px" $fontSize="30px" $color="#374151" $weight={700}>
+            Tx <br />
+            <span style={{ fontSize: "12px", fontWeight: "normal" }}>
+              (transmitter / source)
+            </span>
+          </OverlayText>
+          <OverlayText $top="32%" $left="25%" $align="center" $fontSize="20px" $color="#374151" $weight={700}>Target</OverlayText>
+          <OverlayText $top="220px" $right="40px" $fontSize="30px" $align="right" $color="#374151" $weight={700}>
+            Rx
+            <br />
+            <span style={{ fontSize: "12px", fontWeight: "normal" }}>
+              (receiver / <br /> destination)
+            </span>
+          </OverlayText>
           <OverlayText $top="38%" $left="58%" $align="left" $color="#6b7280" $weight={500}>Blocking object</OverlayText>
+          <OverlayText $top="13%" $left="73%" $align="left" $color="#6b7280" $weight={500}>Reflection</OverlayText>
+          <OverlayText $top="87%" $left="72%" $align="left" $color="#6b7280" $weight={500}>Reflection</OverlayText>
         </>
       )}
     >
@@ -946,23 +991,23 @@ export const MultipathCanvas: React.FC = () => {
         <meshBasicMaterial color="#9ca3af" toneMapped={false} />
       </mesh>
 
-      <WaveTube points={txTargetGuide} color="#c9ccd3" thickness={0.008} z={0.1} segments={60} opacity={1} />
-      <WaveTube points={upperLeftGuide} color="#c9ccd3" thickness={0.008} z={0.1} segments={60} opacity={1} />
-      <WaveTube points={upperRightGuide} color="#c9ccd3" thickness={0.008} z={0.1} segments={60} opacity={1} />
-      <WaveTube points={lowerLeftGuide} color="#c9ccd3" thickness={0.008} z={0.1} segments={60} opacity={1} />
-      <WaveTube points={lowerRightGuide} color="#c9ccd3" thickness={0.008} z={0.1} segments={60} opacity={1} />
+      <WaveTube points={txTargetGuide} color="#b8bec9" thickness={0.008} z={0.1} segments={60} opacity={1} />
+      <WaveTube points={upperLeftGuide} color="#b8bec9" thickness={0.008} z={0.1} segments={60} opacity={1} />
+      <WaveTube points={upperRightGuide} color="#b8bec9" thickness={0.008} z={0.1} segments={60} opacity={1} />
+      <WaveTube points={lowerLeftGuide} color="#b8bec9" thickness={0.008} z={0.1} segments={60} opacity={1} />
+      <WaveTube points={lowerRightGuide} color="#b8bec9" thickness={0.008} z={0.1} segments={60} opacity={1} />
 
-      <WaveTube points={txTargetWave} color="#111827" thickness={0.014} z={0.13} segments={180} />
-      <WaveTube points={upperLeftWave} color="#111111" thickness={0.014} z={0.13} segments={180} />
-      <WaveTube points={upperRightWave} color="#111111" thickness={0.014} z={0.13} segments={180} />
-      <WaveTube points={lowerLeftWave} color="#111111" thickness={0.014} z={0.13} segments={180} />
-      <WaveTube points={lowerRightWave} color="#111111" thickness={0.014} z={0.13} segments={180} />
+      <WaveTube points={txTargetWave} color={palette.accent} thickness={0.014} z={0.13} segments={180} />
+      <WaveTube points={upperLeftWave} color={palette.accent} thickness={0.014} z={0.13} segments={180} />
+      <WaveTube points={upperRightWave} color={palette.accent} thickness={0.014} z={0.13} segments={180} />
+      <WaveTube points={lowerLeftWave} color={palette.accent} thickness={0.014} z={0.13} segments={180} />
+      <WaveTube points={lowerRightWave} color={palette.accent} thickness={0.014} z={0.13} segments={180} />
 
-      <ArrowHead from={txTargetGuide[txTargetGuide.length - 2]} to={txTargetGuide[txTargetGuide.length - 1]} color="#c9ccd3" z={0.11} />
-      <ArrowHead from={upperLeftGuide[upperLeftGuide.length - 10]} to={upperLeftGuide[upperLeftGuide.length - 1]} color="#c9ccd3" z={0.11} />
-      <ArrowHead from={upperRightGuide[upperRightGuide.length - 10]} to={upperRightGuide[upperRightGuide.length - 1]} color="#c9ccd3" z={0.11} />
-      <ArrowHead from={lowerLeftGuide[lowerLeftGuide.length - 10]} to={lowerLeftGuide[lowerLeftGuide.length - 1]} color="#c9ccd3" z={0.11} />
-      <ArrowHead from={lowerRightGuide[lowerRightGuide.length - 10]} to={lowerRightGuide[lowerRightGuide.length - 1]} color="#c9ccd3" z={0.11} />
+      <ArrowHead from={txTargetGuide[txTargetGuide.length - 12]} to={txTargetGuide[txTargetGuide.length - 1]} color="#b8bec9" z={0.11} />
+      <ArrowHead from={upperLeftGuide[upperLeftGuide.length - 12]} to={upperLeftGuide[upperLeftGuide.length - 1]} color="#b8bec9" z={0.11} />
+      <ArrowHead from={upperRightGuide[upperRightGuide.length - 12]} to={upperRightGuide[upperRightGuide.length - 1]} color="#b8bec9" z={0.11} />
+      <ArrowHead from={lowerLeftGuide[lowerLeftGuide.length - 12]} to={lowerLeftGuide[lowerLeftGuide.length - 1]} color="#b8bec9" z={0.11} />
+      <ArrowHead from={lowerRightGuide[lowerRightGuide.length - 12]} to={lowerRightGuide[lowerRightGuide.length - 1]} color="#b8bec9" z={0.11} />
 
       {[
         { point: transmitter, color: "#3b82f6", radius: 0.16, ring: true },

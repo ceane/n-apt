@@ -64,6 +64,10 @@ impl Default for MockAptDevice {
   }
 }
 
+fn strength_range_midpoint(range: &crate::server::types::StrengthRange) -> f64 {
+  (range.min + range.max) * 0.5
+}
+
 /// Generate a block of mock samples with settle time behavior
 #[allow(dead_code)]
 fn generate_mock_block(
@@ -93,8 +97,9 @@ fn generate_mock_block(
   let center_freq_f = center_freq as f64;
 
   // Hardware RF & ADC Simulation Pipeline
+  // Keep the noise floor anchored. Gain will be applied only to the signal terms.
   let rf_noise_db = noise_floor_db as f64;
-  let frontend_noise_db = rf_noise_db + gain;
+  let frontend_noise_db = rf_noise_db;
   let adc_intrinsic_noise_db = -38.0;
   let total_adc_noise_power = 10f64.powf(frontend_noise_db / 10.0)
     + 10f64.powf(adc_intrinsic_noise_db / 10.0);
@@ -117,10 +122,13 @@ fn generate_mock_block(
       continue;
     }
 
+    // The configured strength range is the baseline signal level; tuner gain increases
+    // contrast relative to the floor instead of lifting the floor itself.
     let modulation = (signal.modulation_phase as f64).sin() * 0.1 + 0.9;
-    let rf_signal_db = signal.config.strength_db * modulation;
-    let adc_signal_db = rf_signal_db + gain;
-    let mut amp = 10f64.powf(adc_signal_db / 20.0);
+    let target_signal_db = signal.config.strength_db * modulation;
+    let gain_norm = (gain / 49.6).clamp(0.0, 1.0);
+    let signal_boost_db = gain_norm * 18.0;
+    let mut amp = 10f64.powf((target_signal_db + signal_boost_db) / 20.0);
     let mut _amp_side = amp * 0.707;
 
     // Apply settle factor
@@ -176,9 +184,9 @@ fn generate_mock_block(
 impl MockAptDevice {
   /// Create a new mock APT SDR device
   pub fn new() -> Self {
-    let signals = Self::create_signals();
-
     let mock_settings = crate::server::utils::load_mock_apt_settings();
+    let signals = Self::create_signals(mock_settings);
+
     let sdr_settings = crate::server::utils::load_sdr_settings();
 
     Self {
@@ -207,18 +215,39 @@ impl MockAptDevice {
   }
 
   /// Create initial signals based on configuration
-  fn create_signals() -> Vec<MockAptSignal> {
+  fn create_signals(
+    mock_settings: &crate::server::types::MockAptSignalsConfig,
+  ) -> Vec<MockAptSignal> {
     let mut signals = Vec::new();
     let mut rng = rand::thread_rng();
+
+    let weak_mid = strength_range_midpoint(&mock_settings.strength_ranges.weak);
+    let medium_mid = strength_range_midpoint(&mock_settings.strength_ranges.medium);
+    let strong_mid = strength_range_midpoint(&mock_settings.strength_ranges.strong);
+
+    let weak_span = (mock_settings.strength_ranges.weak.max
+      - mock_settings.strength_ranges.weak.min)
+      * 0.5;
+    let medium_span = (mock_settings.strength_ranges.medium.max
+      - mock_settings.strength_ranges.medium.min)
+      * 0.5;
+    let strong_span = (mock_settings.strength_ranges.strong.max
+      - mock_settings.strength_ranges.strong.min)
+      * 0.5;
 
     // Create signals across the spectrum
     // Area A: 0.1 - 4.5 MHz (covering the first N-APT range)
     for i in 0..10 {
       let freq = 0.1 + (i as f64 * 0.45);
+      let strength_db = if i % 3 == 0 {
+        rng.gen_range((weak_mid - weak_span)..(weak_mid + weak_span))
+      } else {
+        rng.gen_range((medium_mid - medium_span)..(medium_mid + medium_span))
+      };
       signals.push(MockAptSignal {
         config: MockAptSignalConfig {
           center_frequency_mhz: freq,
-          strength_db: rng.gen_range(-70.0..-40.0),
+          strength_db,
         },
         modulation_phase: rng.gen_range(0.0..=2.0 * PI),
         drift_offset: rng.gen_range(-10.0..=10.0),
@@ -233,10 +262,15 @@ impl MockAptDevice {
     // Area B: 24.7 - 30.0 MHz (covering the second N-APT range)
     for i in 0..11 {
       let freq = 24.7 + (i as f64 * 0.5);
+      let strength_db = if i % 3 == 0 {
+        rng.gen_range((medium_mid - medium_span)..(medium_mid + medium_span))
+      } else {
+        rng.gen_range((strong_mid - strong_span)..(strong_mid + strong_span))
+      };
       signals.push(MockAptSignal {
         config: MockAptSignalConfig {
           center_frequency_mhz: freq,
-          strength_db: rng.gen_range(-60.0..-30.0),
+          strength_db,
         },
         drift_offset: rng.gen_range(-50.0..50.0),
         modulation_phase: rng.gen_range(0.0..=2.0 * PI),

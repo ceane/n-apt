@@ -124,7 +124,7 @@ const ScrollBody = styled.div`
 
 const TitleInput = styled.textarea`
   width: 100%;
-  min-height: 2.5rem;
+  min-height: fit-content;
   resize: none;
   field-sizing: content;
   border: 0;
