@@ -31,7 +31,6 @@ import {
   VISUALIZER_GAP,
   SECTION_TITLE_COLOR,
   SECTION_TITLE_AFTER_COLOR,
-  CANVAS_BORDER_COLOR,
   FFT_AREA_MIN,
   FFT_MIN_DB,
   FFT_MAX_DB,
@@ -71,7 +70,7 @@ const VisualizerContainer = styled.div`
   flex: 1;
   display: flex;
   flex-direction: row;
-  background-color: #0a0a0a;
+  background-color: ${(props) => props.theme.background};
   position: relative;
   overflow: hidden;
   padding: ${VISUALIZER_PADDING}px;
@@ -130,7 +129,7 @@ const CanvasWrapper = styled.div`
   position: relative;
   flex: 1;
   min-height: 0;
-  border: 1px solid ${CANVAS_BORDER_COLOR};
+  border: 1px solid ${(props) => props.theme.canvasBorder};
   border-radius: 8px;
   overflow: hidden;
   background-color: ${(props) => props.theme.background};

@@ -1,14 +1,13 @@
 import React, { useEffect, useRef, useState } from "react";
 import styled from "styled-components";
-import { FFT_CANVAS_BG } from "@n-apt/consts";
 
 const CanvasContainer = styled.div`
   position: relative;
   width: 100%;
   height: 100%;
-  background-color: ${FFT_CANVAS_BG};
+  background-color: ${(props) => props.theme.fftBackground};
   border-radius: 8px;
-  border: 1px solid #333;
+  border: 1px solid ${(props) => props.theme.border};
   overflow: hidden;
 `;
 

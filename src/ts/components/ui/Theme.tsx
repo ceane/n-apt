@@ -165,4 +165,29 @@ export const GlobalThemeStyle = createGlobalStyle`
   body {
     transition: background-color 0.2s ease, color 0.2s ease;
   }
+
+  /* KaTeX theming */
+  .katex {
+    color: ${({ theme }) => theme.colors.textPrimary} !important;
+  }
+  
+  .katex .katex-mathml {
+    color: ${({ theme }) => theme.colors.textPrimary} !important;
+  }
+  
+  .katex .katex-html {
+    color: ${({ theme }) => theme.colors.textPrimary} !important;
+  }
+  
+  .katex .base {
+    color: ${({ theme }) => theme.colors.textPrimary} !important;
+  }
+  
+  .katex .strut {
+    color: ${({ theme }) => theme.colors.textPrimary} !important;
+  }
+  
+  .katex .mopen, .katex .mclose, .katex .mrel, .katex .mbin, .katex .mpunct, .katex .mord, .katex .msupsub, .katex .mfrac, .katex .mrule, .katex .mtable, .katex .mtr, .katex .mtd {
+    color: ${({ theme }) => theme.colors.textPrimary} !important;
+  }
 `;
