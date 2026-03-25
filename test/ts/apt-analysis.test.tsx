@@ -1,5 +1,5 @@
 import * as React from "react";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, act } from '@testing-library/react';
 jest.setTimeout(15000);
 import "@testing-library/jest-dom";
 import { DemodProvider, useDemod } from "../../src/ts/contexts/DemodContext";
@@ -101,7 +101,9 @@ describe("APT Analysis", () => {
     }, { timeout: 10000 });
 
     // Clear the analysis
-    screen.getByTestId('clear-btn').click();
+    await act(async () => {
+      screen.getByTestId('clear-btn').click();
+    });
 
     // Should return to idle state
     await waitFor(() => {

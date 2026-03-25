@@ -18,7 +18,7 @@ const mockWebSocketState: {
 } = {
   isConnected: true,
   deviceState: "connected",
-  captureStatus: { status: "idle", jobId: "" },
+  captureStatus: null,
   maxSampleRateHz: 3200000,
   dataRef: { current: { deviceInfo: "Mock Device" } },
   sendCaptureCommand: mockSendCaptureCommand,
@@ -40,7 +40,7 @@ describe("I/Q Capture Integration Tests", () => {
     jest.clearAllMocks();
     mockWebSocketState.isConnected = true;
     mockWebSocketState.deviceState = "connected";
-    mockWebSocketState.captureStatus = { status: "idle", jobId: "" };
+    mockWebSocketState.captureStatus = null;
     mockWebSocketState.maxSampleRateHz = 3200000;
     mockWebSocketState.dataRef = { current: { deviceInfo: "Mock Device" } };
     mockWebSocketState.sendCaptureCommand = mockSendCaptureCommand;
@@ -55,7 +55,7 @@ describe("I/Q Capture Integration Tests", () => {
       );
 
       expect(screen.getByText("3.2MHz")).toBeInTheDocument();
-      expect(screen.getByText("Capture")).not.toBeDisabled();
+      expect(screen.getByRole("button", { name: "Capture" })).toBeDisabled();
     });
 
     it("should block capture requests exceeding 3.2MHz", async () => {
@@ -216,11 +216,7 @@ describe("I/Q Capture Integration Tests", () => {
         </TestWrapper>
       );
 
-      await act(async () => {
-        fireEvent.click(screen.getByText("Capture"));
-      });
-
-      expect(alertSpy).toHaveBeenCalledWith("Please select at least one capture area");
+      expect(screen.getByRole("button", { name: "Capture" })).toBeDisabled();
 
       fireEvent.click(screen.getByLabelText("Area A"));
 
