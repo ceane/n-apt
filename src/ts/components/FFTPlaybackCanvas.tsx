@@ -31,7 +31,7 @@ const StitcherContainer = styled.div`
   flex: 1;
   display: flex;
   flex-direction: column;
-  background-color: ${(props) => props.theme.colors?.background ?? "#0a0a0a"};
+  background-color: ${(props) => props.theme.background};
   position: relative;
 `;
 
@@ -93,7 +93,7 @@ const ChannelSelector = React.memo<ChannelSelectorProps>(({
       color: "var(--color-text-primary, #fff)",
       fontFamily: "JetBrains Mono",
       fontSize: "12px",
-      border: "1px solid var(--color-border, #333)",
+      border: "1px solid var(--color-border)",
       zIndex: 10,
       userSelect: "none"
     }}>

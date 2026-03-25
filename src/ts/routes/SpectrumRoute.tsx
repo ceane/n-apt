@@ -291,6 +291,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
         flexDirection: "column",
         overflow: "hidden",
         position: "relative",
+        backgroundColor: "var(--color-background)",
       }}
     >
       <div
@@ -300,6 +301,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
           flex: 1,
           overflow: "hidden",
           position: "relative",
+          backgroundColor: "var(--color-background)",
         }}
       >
         {state.sourceMode === "live" &&
