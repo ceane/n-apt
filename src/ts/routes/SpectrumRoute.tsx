@@ -1,6 +1,5 @@
 import React, { useEffect, useCallback, useRef, useMemo } from "react";
 import { FFTCanvas } from "@n-apt/components";
-import { NoteCards } from "@n-apt/components";
 import type { FFTCanvasHandle } from "@n-apt/components";
 import type { SnapshotData } from "@n-apt/components/FFTCanvas";
 import ClassificationControls from "@n-apt/components/ClassificationControls";
@@ -412,7 +411,6 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
             }
           />
         )}
-        <NoteCards fftCanvasRef={fftCanvasRef} />
       </div>
     </div>
   );

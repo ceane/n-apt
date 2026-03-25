@@ -98,7 +98,65 @@ function unbundle(bundle: FileBundle, targetDir: string) {
   }
 }
 
-const mode = process.argv[2]; // 'encrypt' or 'decrypt'
+/**
+ * Recursively find the newest file modification time in a directory.
+ * Returns 0 if the directory doesn't exist or is empty.
+ */
+function getNewestMtime(dir: string): number {
+  if (!fs.existsSync(dir)) return 0;
+  let newest = 0;
+  const walk = (currentDir: string) => {
+    for (const entry of fs.readdirSync(currentDir, { withFileTypes: true })) {
+      if (entry.name === '.DS_Store' || entry.name === '.gitkeep') continue;
+      const fullPath = path.join(currentDir, entry.name);
+      if (entry.isDirectory()) {
+        walk(fullPath);
+      } else {
+        const mtime = fs.statSync(fullPath).mtimeMs;
+        if (mtime > newest) newest = mtime;
+      }
+    }
+  };
+  walk(dir);
+  return newest;
+}
+
+/**
+ * Check if local tmp/ files have been modified since the last decryption.
+ * Returns true if local files are newer than the encrypted bundle (i.e. local edits exist).
+ */
+function hasLocalEdits(bundlePath: string, tmpDir: string): boolean {
+  if (!fs.existsSync(bundlePath) || !fs.existsSync(tmpDir)) return false;
+  const bundleMtime = fs.statSync(bundlePath).mtimeMs;
+  const newestTmpMtime = getNewestMtime(tmpDir);
+  return newestTmpMtime > bundleMtime;
+}
+
+/** Decrypt a single bundle into its target dir, with optional local-edit protection. */
+function decryptBundle(
+  password: string,
+  bundlePath: string,
+  tmpDir: string,
+  opts: { protectLocalEdits: boolean; label: string },
+): boolean {
+  if (!fs.existsSync(bundlePath)) return false;
+
+  if (opts.protectLocalEdits && hasLocalEdits(bundlePath, tmpDir)) {
+    console.log(
+      `⚠ [skip] ${opts.label}: local changes in ${tmpDir} are newer than ${bundlePath}. ` +
+      `Run "npm run encrypt-modules" first to persist your edits, then decrypt again.`,
+    );
+    return false;
+  }
+
+  const buffer = fs.readFileSync(bundlePath);
+  const decrypted = decrypt(buffer, password);
+  unbundle(JSON.parse(decrypted), tmpDir);
+  return true;
+}
+
+const mode = process.argv[2]; // 'encrypt', 'decrypt', or 'decrypt-if-needed'
+const forceFlag = process.argv.includes('--force');
 
 const { latex, demod } = getPasswords();
 
@@ -127,51 +185,57 @@ if (mode === 'encrypt') {
     process.exit(1);
   }
 } else if (mode === 'decrypt') {
+  // Explicit decrypt: protect local edits unless --force is passed
+  const protect = !forceFlag;
   try {
-    // Decrypt LaTeX
-    if (latex && fs.existsSync('src/encrypted-modules/ts.bundle.enc')) {
-      const buffer = fs.readFileSync('src/encrypted-modules/ts.bundle.enc');
-      const decrypted = decrypt(buffer, latex);
-      unbundle(JSON.parse(decrypted), 'src/encrypted-modules/tmp/ts');
+    if (latex) {
+      decryptBundle(latex, 'src/encrypted-modules/ts.bundle.enc', 'src/encrypted-modules/tmp/ts', {
+        protectLocalEdits: protect,
+        label: 'TS modules',
+      });
     }
 
-    // Decrypt Demod
-    if (demod && fs.existsSync('src/encrypted-modules/rs.bundle.enc')) {
-      const buffer = fs.readFileSync('src/encrypted-modules/rs.bundle.enc');
-      const decrypted = decrypt(buffer, demod);
-      unbundle(JSON.parse(decrypted), 'src/encrypted-modules/tmp/rs');
+    if (demod) {
+      decryptBundle(demod, 'src/encrypted-modules/rs.bundle.enc', 'src/encrypted-modules/tmp/rs', {
+        protectLocalEdits: protect,
+        label: 'RS modules',
+      });
     }
     console.log('✔ [pass] Decrypting N-APT modules...');
   } catch (e) {
     console.error('✗ [fail] Decrypting N-APT modules:', e);
-    // Don't exit with 1 because we want the build to continue as requested
   }
 } else if (mode === 'decrypt-if-needed') {
-  const fastMathPath = 'src/encrypted-modules/tmp/rs/simd/fast_math.rs';
-  if (fs.existsSync(fastMathPath)) {
+  // Check if tmp/ files exist at all (not just a single sentinel)
+  const rsTmpExists = fs.existsSync('src/encrypted-modules/tmp/rs') &&
+    getNewestMtime('src/encrypted-modules/tmp/rs') > 0;
+  const tsTmpExists = fs.existsSync('src/encrypted-modules/tmp/ts') &&
+    getNewestMtime('src/encrypted-modules/tmp/ts') > 0;
+
+  if (rsTmpExists && tsTmpExists) {
     // Already decrypted, exit silently
     process.exit(0);
   }
-  // Not decrypted, run normal decrypt
+
+  // Decrypt only the missing bundles, always protect existing local edits
   try {
-    // Decrypt LaTeX
-    if (latex && fs.existsSync('src/encrypted-modules/ts.bundle.enc')) {
-      const buffer = fs.readFileSync('src/encrypted-modules/ts.bundle.enc');
-      const decrypted = decrypt(buffer, latex);
-      unbundle(JSON.parse(decrypted), 'src/encrypted-modules/tmp/ts');
+    if (latex && !tsTmpExists) {
+      decryptBundle(latex, 'src/encrypted-modules/ts.bundle.enc', 'src/encrypted-modules/tmp/ts', {
+        protectLocalEdits: true,
+        label: 'TS modules',
+      });
     }
 
-    // Decrypt Demod
-    if (demod && fs.existsSync('src/encrypted-modules/rs.bundle.enc')) {
-      const buffer = fs.readFileSync('src/encrypted-modules/rs.bundle.enc');
-      const decrypted = decrypt(buffer, demod);
-      unbundle(JSON.parse(decrypted), 'src/encrypted-modules/tmp/rs');
+    if (demod && !rsTmpExists) {
+      decryptBundle(demod, 'src/encrypted-modules/rs.bundle.enc', 'src/encrypted-modules/tmp/rs', {
+        protectLocalEdits: true,
+        label: 'RS modules',
+      });
     }
     console.log('✔ [pass] Decrypting N-APT modules...');
   } catch (e) {
     console.error('✗ [fail] Decrypting N-APT modules:', e);
-    // Don't exit with 1 because we want the build to continue as requested
   }
 } else {
-  console.log('Usage: tsx scripts/crypt.ts [encrypt|decrypt]');
+  console.log('Usage: tsx scripts/crypt.ts [encrypt|decrypt|decrypt-if-needed] [--force]');
 }

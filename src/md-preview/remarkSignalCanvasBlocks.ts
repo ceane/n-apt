@@ -5,6 +5,7 @@ import { visit } from "unist-util-visit";
 const SIGNAL_TAGS: Record<string, string> = {
   "canvas::phaseshifting": "<phase-shifting-canvas></phase-shifting-canvas>",
   "canvas::frequencymodulation": "<frequency-modulation-canvas></frequency-modulation-canvas>",
+  "canvas::amplitudemodulation": "<amplitude-modulation-canvas></amplitude-modulation-canvas>",
   "canvas::multipath": "<multipath-canvas></multipath-canvas>",
   "canvas::heterodyning": "<heterodyning-canvas></heterodyning-canvas>",
 };

@@ -200,25 +200,24 @@ impl WebSocketServer {
     let _broadcast_tx = self.broadcast_tx.clone();
     let spectrum_tx = self.spectrum_tx.clone();
 
-    // Spawn SDR processing thread
-    tokio::spawn(async move {
-      let mut frame_count = 0u64;
-      let mut last_stats = Instant::now();
-      let mut last_poll = Instant::now();
-      let mut last_hardware_swap: Option<Instant> = None;
-      let mut last_failure_at: Option<Instant> = None;
-      let mut target_fps: u32 = 30; // sensible default until first frame
-      loop {
-        let start_time = Instant::now();
-        // 1. Process pending commands
-        //
-        // "Fast" settings (FFT size, gain, PPM, AGC) are routed through
-        // `shared_state.pending_fast_settings` so they can be applied inside
-        // the blocking frame loop WITHOUT waiting for the processor lock.
-        // Only commands that need broadcast_tx / shared_state interaction
-        // (RestartDevice, StartCapture, etc.) still acquire the lock here.
-        while let Ok(cmd) = cmd_rx.try_recv() {
-          match cmd {
+    let mut frame_count = 0u64;
+    let mut last_stats = Instant::now();
+    let mut last_poll = Instant::now();
+    let mut last_hardware_swap: Option<Instant> = None;
+    let mut last_failure_at: Option<Instant> = None;
+    let mut target_fps: u32 = 30; // sensible default until first frame
+    let retry_cooldown = Duration::from_secs(30);
+    loop {
+      let start_time = Instant::now();
+      // 1. Process pending commands
+      //
+      // "Fast" settings (FFT size, gain, PPM, AGC) are routed through
+      // `shared_state.pending_fast_settings` so they can be applied inside
+      // the blocking frame loop WITHOUT waiting for the processor lock.
+      // Only commands that need broadcast_tx / shared_state interaction
+      // (RestartDevice, StartCapture, etc.) still acquire the lock here.
+      while let Ok(cmd) = cmd_rx.try_recv() {
+        match cmd {
             crate::server::types::SdrCommand::ApplySettings(settings) => {
               shared_state.pending_fast_settings.lock().unwrap().push(settings);
             }
@@ -228,7 +227,7 @@ impl WebSocketServer {
               if processor.capture_active {
                 log::debug!("Ignoring SetFrequency during active capture");
               } else {
-                processor.pending_freq = Some(freq);
+                processor.queue_center_frequency(freq);
               }
             }
             crate::server::types::SdrCommand::SetGain(gain) => {
@@ -821,7 +820,7 @@ impl WebSocketServer {
               // read_samples doesn't block waiting for old-size worth of bytes.
               if fft_size_changed {
                 processor.flush_read_queue();
-                processor.avg_spectrum = None;
+                processor.frame.avg_spectrum = None;
               }
 
               let waveform = processor.read_and_process_frame()?;
@@ -832,7 +831,7 @@ impl WebSocketServer {
               let power_scale = processor.get_power_scale();
               let sample_rate = processor.get_sample_rate();
               let raw_iq = if matches!(power_scale, PowerScale::DBm) {
-                processor.last_frame_raw_iq.clone()
+                processor.frame.last_frame_raw_iq.clone()
               } else {
                 vec![]
               };
@@ -955,6 +954,16 @@ impl WebSocketServer {
                 e,
               );
 
+              if let Some(last_failed) = last_failure_at {
+                if last_failed.elapsed() < retry_cooldown {
+                  debug!(
+                    "Skipping recovery while cooling down after repeated RTL-SDR failure"
+                  );
+                  tokio::time::sleep(Duration::from_millis(250)).await;
+                  continue;
+                }
+              }
+
               if streak < super::shared_state::DISCONNECT_FAILURE_THRESHOLD {
                 let usb_count = crate::sdr::rtlsdr::device::RtlSdrDevice::get_device_count();
                 if usb_count == 0 {
@@ -973,9 +982,7 @@ impl WebSocketServer {
                     );
                     broadcast_device_status(&shared_state, &_broadcast_tx);
                   }
-                } else {
-                // Under threshold — try recovery if we haven't exhausted attempts
-                if recovery_count < super::shared_state::MAX_RECOVERY_ATTEMPTS {
+                } else if recovery_count < super::shared_state::MAX_RECOVERY_ATTEMPTS {
                   shared_state.recovery_attempts.fetch_add(1, Ordering::Relaxed);
                   shared_state.set_device_state("loading", Some("restart"));
                   broadcast_device_status(&shared_state, &_broadcast_tx);
@@ -991,8 +998,16 @@ impl WebSocketServer {
                     // or successful frame read will confirm recovery.
                     info!("Read-error re-init succeeded, awaiting health confirmation...");
                   }
+                } else {
+                  warn!(
+                    "Recovery attempts exhausted ({}). Cooling down before retrying.",
+                    super::shared_state::MAX_RECOVERY_ATTEMPTS
+                  );
+                  shared_state.set_device_state("disconnected", None);
+                  broadcast_device_status(&shared_state, &_broadcast_tx);
+                  last_failure_at = Some(Instant::now());
                 }
-                }
+
                 // Brief settle regardless
                 tokio::time::sleep(Duration::from_millis(100)).await;
               } else {
@@ -1005,17 +1020,18 @@ impl WebSocketServer {
                 shared_state.set_device_state("disconnected", None);
                 broadcast_device_status(&shared_state, &_broadcast_tx);
 
-                  let mock_device = crate::sdr::SdrDeviceFactory::create_mock_device();
-                  if let Err(swap_e) = processor.swap_device(mock_device) {
-                    error!("Failed to swap to mock on read error: {}", swap_e);
-                  } else {
-                    shared_state.update_device_status(
-                      false,
-                      processor.get_device_info(),
-                      build_device_profile(processor.is_mock()),
-                    );
-                    broadcast_device_status(&shared_state, &_broadcast_tx);
-                  }
+                let mock_device = crate::sdr::SdrDeviceFactory::create_mock_device();
+                if let Err(swap_e) = processor.swap_device(mock_device) {
+                  error!("Failed to swap to mock on read error: {}", swap_e);
+                } else {
+                  shared_state.update_device_status(
+                    false,
+                    processor.get_device_info(),
+                    build_device_profile(processor.is_mock()),
+                  );
+                  broadcast_device_status(&shared_state, &_broadcast_tx);
+                }
+                last_failure_at = Some(Instant::now());
               }
             }
           }
@@ -1117,10 +1133,6 @@ impl WebSocketServer {
           tokio::time::sleep(target_duration - elapsed).await;
         }
       }
-    });
-
-    info!("SDR data streaming started successfully");
-    Ok(())
   }
 
   pub fn get_shared_state(&self) -> Arc<SharedState> {

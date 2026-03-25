@@ -244,6 +244,8 @@ interface FFTCanvasProps {
   displayTemporalResolution?: "low" | "medium" | "high";
   /** Force 2D canvas rendering (skip WebGPU). Used by file-selection mode. */
   force2D?: boolean;
+  /** Hide the waterfall panel entirely. */
+  hideWaterfall?: boolean;
   /** Callback to trigger a snapshot render for the sidebar */
   onSnapshot?: (data: {
     waveform: Float32Array;
@@ -342,6 +344,7 @@ const FFTCanvas = memo(
       onFrequencyRangeChange,
       displayTemporalResolution = "medium",
       force2D = false,
+      hideWaterfall = false,
       onSnapshot: _onSnapshot,
       snapshotGridPreference,
       showSpikeOverlay = false,
@@ -2045,44 +2048,46 @@ const FFTCanvas = memo(
               </CanvasWrapper>
             </SpectrumRow>
           </SpectrumSection>
-          <WaterfallSection>
-            <SectionTitle>
-              Waterfall Display {isPaused && "(Paused)"}
-            </SectionTitle>
-            <CanvasWrapper>
-              {!isInitializingWebGPU && webgpuEnabled && (
+          {!hideWaterfall && (
+            <WaterfallSection>
+              <SectionTitle>
+                Waterfall Display {isPaused && "(Paused)"}
+              </SectionTitle>
+              <CanvasWrapper>
+                {!isInitializingWebGPU && webgpuEnabled && (
+                  <CanvasLayer
+                    ref={setWaterfallGpuCanvasNode}
+                    id="fft-waterfall-canvas-webgpu"
+                  />
+                )}
+                {!isInitializingWebGPU && !webgpuEnabled && (
+                  <CanvasLayer
+                    ref={setWaterfallCanvasNode}
+                    id="fft-waterfall-canvas-2d"
+                  />
+                )}
                 <CanvasLayer
-                  ref={setWaterfallGpuCanvasNode}
-                  id="fft-waterfall-canvas-webgpu"
+                  ref={setWaterfallOverlayCanvasNode}
+                  id="fft-waterfall-canvas-overlay"
                 />
-              )}
-              {!isInitializingWebGPU && !webgpuEnabled && (
-                <CanvasLayer
-                  ref={setWaterfallCanvasNode}
-                  id="fft-waterfall-canvas-2d"
-                />
-              )}
-              <CanvasLayer
-                ref={setWaterfallOverlayCanvasNode}
-                id="fft-waterfall-canvas-overlay"
-              />
-              {heterodyningHighlightedBins.length > 0 && (
-                <HighlightOverlay>
-                  {heterodyningHighlightedBins.map((bin, index) => (
-                    <HighlightBand
-                      key={`waterfall-highlight-${index}`}
-                      $left={Math.max(0, Math.min(100, bin.start * 100))}
-                      $width={Math.max(
-                        0.2,
-                        Math.min(100, (bin.end - bin.start) * 100),
-                      )}
-                      $waterfall={true}
-                    />
-                  ))}
-                </HighlightOverlay>
-              )}
-            </CanvasWrapper>
-          </WaterfallSection>
+                {heterodyningHighlightedBins.length > 0 && (
+                  <HighlightOverlay>
+                    {heterodyningHighlightedBins.map((bin, index) => (
+                      <HighlightBand
+                        key={`waterfall-highlight-${index}`}
+                        $left={Math.max(0, Math.min(100, bin.start * 100))}
+                        $width={Math.max(
+                          0.2,
+                          Math.min(100, (bin.end - bin.start) * 100),
+                        )}
+                        $waterfall={true}
+                      />
+                    ))}
+                  </HighlightOverlay>
+                )}
+              </CanvasWrapper>
+            </WaterfallSection>
+          )}
         </VisualizerContent>
         <SlidersRail>
           <VisualizerSliders

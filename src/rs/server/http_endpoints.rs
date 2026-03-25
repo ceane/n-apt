@@ -1032,7 +1032,7 @@ pub async fn stitch_diagnostic_handler(
   // 1. Capture Hop 1
   {
     // Clear any stale pending frequency to avoid accidental retunes
-    processor.pending_freq = None;
+    processor.frame.pending_freq = None;
     // Flush to clear any stale data before we start the "real" capture
     processor.flush_read_queue();
 
@@ -1040,7 +1040,7 @@ pub async fn stitch_diagnostic_handler(
       match processor.read_and_process_frame() {
         Ok(f) => {
           // Collect the raw IQ bytes the device just read (set by read_and_process_frame)
-          hop1_raw_iq.extend_from_slice(&processor.last_frame_raw_iq);
+          hop1_raw_iq.extend_from_slice(&processor.frame.last_frame_raw_iq);
           hop1_frames.push(f);
         }
         Err(e) => {
@@ -1067,7 +1067,7 @@ pub async fn stitch_diagnostic_handler(
     for _ in 0..NUM_FRAMES {
       match processor.read_and_process_frame() {
         Ok(f) => {
-          hop2_raw_iq.extend_from_slice(&processor.last_frame_raw_iq);
+          hop2_raw_iq.extend_from_slice(&processor.frame.last_frame_raw_iq);
           hop2_frames.push(f);
         }
         Err(e) => {

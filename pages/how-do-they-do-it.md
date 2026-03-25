@@ -11,6 +11,9 @@
 ```Canvas::FrequencyModulation
 ```
 
+```Canvas::AmplitudeModulation
+```
+
 ```Canvas::Multipath
 ```
 
@@ -337,13 +340,56 @@ f_{\mathrm{NOAA\text{-}19}} &\approx 137.100 \ \text{MHz}
 ```
 
 Of course, no one has ever heard of Automatic Picture Transmission (APT), and neither did I. This was the most important discovery that I made that aligned with what I was seeing in the spectrum.
-APT originated from NASA[^apt] in the 1960s, specifically 1963, it was used by NOAA satellites before they were decomissioned, essentially encoding usable image data onto spikes and valleys, data of bright pixels onto spikes and data within valleys that represent space or dark parts of the photo. In APT's case, a satellite encodes data into signal/audio then is decoded into images, line by line.
+
+APT originated from [^apt](https://ntrs.nasa.gov/api/citations/19680010155/downloads/19680010155.pdf) in the 1960s, specifically 1963, it was used by NOAA satellites before they were decomissioned in 2025, essentially encoding usable image data onto spikes and valleys, data of bright pixels onto spikes and data within valleys that represent space or dark parts of the photo. In APT's case, a satellite snaps a photo of the Earth and then encodes data into signals it transmists onto Earth, which someone receives with a radio then takes software to translate the signal into audio (because it's encoded in a weird way, but this step can be skipped entirely) then into an image, line by line (spike/valley by spike/valley).
 
 ### Frequency Modulation
+
+Frequency modulation is a big term, it simply means the x direction, the wave becomes longer or shorter.
 
 ### Amplitude Modulation
 
 ### Pixels
+
+### APT demodulation
+
+Translating APT into an image requires work. With traditional APT, you have to receive transmissions from the NOAA satellites over time, it's not just an instant transmission, you have to be in an area to receive the transmission and it takes about 10-15 minutes to get a full image of the Earth. The demodulation equation/process goes something like:
+
+```LaTex
+\begin{gathered}
+s(t) = A \cos\!\left(2\pi f_c t + k_f \int m(t)\,dt\right) \\
+{\small \text{RECEIVE RF}} \\
+{\small \text{$s(t)$: Received FM RF signal.}} \\
+\downarrow\\[0.9em]
+m(t) = \frac{1}{k_f} \frac{d}{dt}\bigl[\operatorname{phase}(s(t))\bigr] \\
+{\small \text{FM DEMODULATION}} \\
+{\small \text{Removes carrier to recover baseband signal.}} \\
+\downarrow\\[0.9em]
+m_f(t) = \operatorname{BPF}\{m(t)\} \\
+{\small \text{SUBCARRIER ISOLATION}} \\
+{\small \text{$m_f(t)$: Band-pass filtered subcarrier.}} \\
+\downarrow\\[0.9em]
+A(t) = \left|\operatorname{Hilbert}(m_f(t))\right| \\
+{\small \text{ENVELOPE DETECTION}} \\
+{\small \text{$A(t)$: AM subcarrier envelope.}} \\
+\downarrow\\[0.9em]
+c(t) = \operatorname{LPF}\{A(t)\} \\
+{\small \text{LOW-PASS FILTER}} \\
+{\small \text{$c(t)$: Recovered baseband content.}} \\
+\downarrow\\[0.9em]
+c[n] = c(nT_s) \\
+{\small \text{SAMPLING}} \\
+{\small \text{$c[n]$: Digitized signal samples.}} \\
+\downarrow\\[0.9em]
+v[n] = \operatorname{Quantize}(c[n]) \\
+{\small \text{QUANTIZATION}} \\
+{\small \text{$v[n]$: Reconstructed data values.}} \\
+\downarrow\\[0.9em]
+\text{Content} = \operatorname{Decode}(v[n]) \\
+{\small \text{DECODING}} \\
+{\small \text{Final reconstructed digital content.}}
+\end{gathered}
+```
 
 #### Dubbing it as N-APT
 
@@ -577,6 +623,4 @@ TODO
 ### TDLR <a id="tdlr"></a>
 
 The NSA hacked my brain and the experience went from manufactured states of mind and an innudated spatial performance to a livestream with others complete horror of torture and I had to resolve the math behind it in order to escape.
-
-
-[^apt]: National Aeronautical Space Agency (NASA). Constructing Inexpensive Automatic Picture-Transmission Ground Stations. https://ntrs.nasa.gov/api/citations/19680010155/downloads/19680010155.pdf
+National Aeronautical Space Agency (NASA). Constructing Inexpensive Automatic Picture-Transmission Ground Stations. https://ntrs.nasa.gov/api/citations/19680010155/downloads/19680010155.pdf

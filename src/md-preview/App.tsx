@@ -13,7 +13,7 @@ import "katex/dist/katex.min.css";
 import BodyAttenuationCanvas from "./BodyAttenuationWebGPUCanvas";
 import ImpedanceCanvas from "./ImpedanceCanvas";
 import TimeOfFlightCanvas from "./TimeOfFlightCanvas";
-import { FrequencyModulationCanvas, HeterodyningCanvas, MultipathCanvas, PhaseShiftingCanvas } from "./SignalCanvases";
+import { AmplitudeModulationCanvas, FrequencyModulationCanvas, HeterodyningCanvas, MultipathCanvas, PhaseShiftingCanvas } from "./SignalCanvases";
 import remarkBodyAttenuationBlocks from "./remarkBodyAttenuationBlocks";
 import remarkTimeOfFlightBlocks from "./remarkTimeOfFlightBlocks";
 import remarkSignalCanvasBlocks from "./remarkSignalCanvasBlocks";
@@ -267,6 +267,7 @@ const App: React.FC = () => {
     "time-of-flight-canvas": TimeOfFlightCanvas,
     "phase-shifting-canvas": PhaseShiftingCanvas,
     "frequency-modulation-canvas": FrequencyModulationCanvas,
+    "amplitude-modulation-canvas": AmplitudeModulationCanvas,
     "multipath-canvas": MultipathCanvas,
     "heterodyning-canvas": HeterodyningCanvas,
     "icon-inline": IconInline,

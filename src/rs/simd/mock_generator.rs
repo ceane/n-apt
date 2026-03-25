@@ -88,30 +88,125 @@ impl MockSignalGenerator {
     }
 
     #[cfg(not(any(target_arch = "wasm32", target_arch = "aarch64")))]
-    {
-      for i in 0..fft_size {
-        let t = t0 + (i as f32 / sample_rate as f32);
-        let (i_sample, q_sample) = self.generate_sample(
-          i,
-          t,
-          signals,
-          noise_level,
-          sample_rate,
-          fft_size,
-        );
-
-        // Convert to u8 range
-        frame[i * 2] =
-          ((i_sample * 128.0) + 128.0).round().clamp(0.0, 255.0) as u8;
-        frame[i * 2 + 1] =
-          ((q_sample * 128.0) + 128.0).round().clamp(0.0, 255.0) as u8;
-      }
-    }
+    self.generate_frame_native(&mut frame, fft_size, sample_rate, signals, noise_level, t0);
 
     Ok(RawSamples {
       data: frame,
       sample_rate,
     })
+  }
+
+  #[cfg(not(any(target_arch = "wasm32", target_arch = "aarch64")))]
+  fn generate_frame_native(
+    &mut self,
+    frame: &mut [u8],
+    fft_size: usize,
+    sample_rate: u32,
+    signals: &[MockSignal],
+    noise_level: f32,
+    t0: f32,
+  ) {
+    struct ActiveSignal {
+      amp: f32,
+      cos_phase: f32,
+      sin_phase: f32,
+      cos_step: f32,
+      sin_step: f32,
+      side_tones: Vec<ActiveSideTone>,
+    }
+
+    struct ActiveSideTone {
+      amp_weight: f32,
+      cos_phase: f32,
+      sin_phase: f32,
+      cos_step: f32,
+      sin_step: f32,
+    }
+
+    let mut active_signals = Vec::with_capacity(signals.len());
+
+    for s in signals.iter() {
+      if !s.active {
+        continue;
+      }
+
+      let current_bin = (s.center_bin + s.drift_offset).round() as i32;
+      let k = current_bin.rem_euclid(fft_size as i32);
+      let freq_hz = (k as f32) * (sample_rate as f32) / (fft_size as f32);
+      let modulation = s.modulation_phase.sin() * 0.3 + 0.7;
+      let current_strength_db = s.base_strength * modulation;
+      let amp = (10f32.powf(current_strength_db / 20.0) * 0.05).clamp(0.0, 0.9);
+      let phase0 = 2.0 * std::f32::consts::PI * freq_hz * t0;
+      let step = 2.0 * std::f32::consts::PI * freq_hz / sample_rate as f32;
+
+      let mut side_tones = Vec::new();
+      if s.bandwidth > 1 {
+        let side = (s.bandwidth as f32 / 4.0).round() as i32;
+        if side > 0 {
+          for mult in [-side, side] {
+            let k2 = k + mult;
+            let freq2 = (k2 as f32) * (sample_rate as f32) / (fft_size as f32);
+            let phase2 = 2.0 * std::f32::consts::PI * freq2 * t0;
+            let step2 = 2.0 * std::f32::consts::PI * freq2 / sample_rate as f32;
+            side_tones.push(ActiveSideTone {
+              amp_weight: 0.5,
+              cos_phase: phase2.cos(),
+              sin_phase: phase2.sin(),
+              cos_step: step2.cos(),
+              sin_step: step2.sin(),
+            });
+          }
+        }
+      }
+
+      active_signals.push(ActiveSignal {
+        amp,
+        cos_phase: phase0.cos(),
+        sin_phase: phase0.sin(),
+        cos_step: step.cos(),
+        sin_step: step.sin(),
+        side_tones,
+      });
+    }
+
+    let mut noise_i = Vec::with_capacity(fft_size);
+    let mut noise_q = Vec::with_capacity(fft_size);
+    for _ in 0..fft_size {
+      noise_i.push((self.rng.gen::<f32>() - 0.5) * 2.0 * noise_level);
+      noise_q.push((self.rng.gen::<f32>() - 0.5) * 2.0 * noise_level);
+    }
+
+    for i in 0..fft_size {
+      let mut i_acc = noise_i[i];
+      let mut q_acc = noise_q[i];
+
+      for sig in &mut active_signals {
+        i_acc += sig.amp * sig.sin_phase;
+        q_acc += sig.amp * sig.cos_phase;
+
+        let next_cos = sig.cos_phase * sig.cos_step - sig.sin_phase * sig.sin_step;
+        let next_sin = sig.sin_phase * sig.cos_step + sig.cos_phase * sig.sin_step;
+        sig.cos_phase = next_cos;
+        sig.sin_phase = next_sin;
+
+        for side in &mut sig.side_tones {
+          let side_amp = sig.amp * side.amp_weight;
+          i_acc += side_amp * side.sin_phase;
+          q_acc += side_amp * side.cos_phase;
+
+          let next_cos = side.cos_phase * side.cos_step - side.sin_phase * side.sin_step;
+          let next_sin = side.sin_phase * side.cos_step + side.cos_phase * side.sin_step;
+          side.cos_phase = next_cos;
+          side.sin_phase = next_sin;
+        }
+      }
+
+      let i_sample = i_acc.tanh();
+      let q_sample = q_acc.tanh();
+
+      frame[i * 2] = ((i_sample * 128.0) + 128.0).round().clamp(0.0, 255.0) as u8;
+      frame[i * 2 + 1] = ((q_sample * 128.0) + 128.0).round().clamp(0.0, 255.0) as u8;
+    }
   }
 
   #[cfg(any(target_arch = "wasm32", target_arch = "aarch64"))]
@@ -527,6 +622,7 @@ impl MockSignalGenerator {
 
     (i_f, q_f)
   }
+
 }
 
 impl Default for MockSignalGenerator {
