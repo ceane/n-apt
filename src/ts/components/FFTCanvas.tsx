@@ -270,6 +270,12 @@ interface FFTCanvasProps {
   onFftDbLimitsChange?: (min: number, max: number) => void;
   /** Function to request auto FFT options from server */
   sendGetAutoFftOptions?: (screenWidth: number) => void;
+  /** Auto FFT options from server/cache */
+  autoFftOptions?: {
+    type: "auto_fft_options";
+    autoSizes: number[];
+    recommended: number;
+  } | null;
   hardwareSampleRateHz?: number;
   deviceProfile?: DeviceProfile | null;
   tunerGainDb?: number;
@@ -356,6 +362,7 @@ const FFTCanvas = memo(
       fftMax,
       onFftDbLimitsChange,
       sendGetAutoFftOptions,
+      autoFftOptions,
       hardwareSampleRateHz,
       deviceProfile = null,
       tunerGainDb,
@@ -782,7 +789,7 @@ const FFTCanvas = memo(
 
     // Screen width detection for auto FFT options
     useEffect(() => {
-      if (sendGetAutoFftOptions) {
+      if (sendGetAutoFftOptions && !autoFftOptions) {
         const detectScreenWidth = () => {
           const cssWidth =
             window.innerWidth ||
@@ -809,7 +816,7 @@ const FFTCanvas = memo(
           clearTimeout(resizeTimeout);
         };
       }
-    }, [sendGetAutoFftOptions]);
+    }, [sendGetAutoFftOptions, autoFftOptions]);
 
     useFrequencyDrag({
       spectrumCanvasRef,

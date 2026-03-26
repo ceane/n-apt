@@ -1,5 +1,6 @@
 ## Token Efficiency
 
+- DO NOT RERUN THE DEV SERVER!
 - Never re-read files you just wrote or edited. You know the contents.
 - Never re-run commands to "verify" unless the outcome was uncertain.
 - Don't echo back large blocks of code or file contents unless asked.

@@ -606,6 +606,12 @@ export const useWebSocket = (
 
   // Function to request auto FFT options from the server
   const sendGetAutoFftOptions = useCallback((screenWidth: number) => {
+    // Check if we already have auto FFT options cached
+    if (state.autoFftOptions) {
+      console.log('Auto FFT options already cached, skipping WebSocket request');
+      return;
+    }
+    
     const ws = wsRef.current;
     if (ws && ws.readyState === WebSocket.OPEN) {
       const message = JSON.stringify({
@@ -614,7 +620,7 @@ export const useWebSocket = (
       });
       ws.send(message);
     }
-  }, []);
+  }, [state.autoFftOptions]);
 
   // Function to send pause/resume commands to the server
   const sendPauseCommand = useCallback((isPaused: boolean) => {

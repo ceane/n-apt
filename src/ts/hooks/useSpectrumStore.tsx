@@ -1017,22 +1017,25 @@ export const SpectrumProvider: React.FC<SpectrumProviderProps> = ({
       wsConnection.sendGetAutoFftOptions(Math.round(cssWidth * dpr));
     };
 
-    // Initial detection on route load
-    detectScreenWidth();
+    // Only request if we don't have cached auto FFT options
+    if (!autoFftOptions) {
+      // Initial detection on route load
+      detectScreenWidth();
 
-    // Listen for resize events (with debouncing)
-    let resizeTimeout: NodeJS.Timeout;
-    const handleResize = () => {
-      clearTimeout(resizeTimeout);
-      resizeTimeout = setTimeout(detectScreenWidth, 500);
-    };
+      // Listen for resize events (with debouncing)
+      let resizeTimeout: NodeJS.Timeout;
+      const handleResize = () => {
+        clearTimeout(resizeTimeout);
+        resizeTimeout = setTimeout(detectScreenWidth, 500);
+      };
 
-    window.addEventListener("resize", handleResize);
-    return () => {
-      window.removeEventListener("resize", handleResize);
-      clearTimeout(resizeTimeout);
-    };
-  }, [isVisualizerRoute, isConnected, wsConnection.sendGetAutoFftOptions]);
+      window.addEventListener("resize", handleResize);
+      return () => {
+        window.removeEventListener("resize", handleResize);
+        clearTimeout(resizeTimeout);
+      };
+    }
+  }, [isVisualizerRoute, isConnected, wsConnection.sendGetAutoFftOptions, autoFftOptions]);
 
   const toggleVisualizerPause = useCallback(() => {
     const nextPaused = !manualVisualizerPaused;
