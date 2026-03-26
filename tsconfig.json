@@ -33,7 +33,9 @@
       "@n-apt/consts": ["src/ts/consts"],
       "@n-apt/hooks/*": ["src/ts/hooks/*"],
       "@n-apt/glb_models/*": ["src/ts/glb_models/*"],
-      "@n-apt/encrypted-modules/*": ["src/encrypted-modules/*"]
+      "@n-apt/encrypted-modules/*": ["src/encrypted-modules/*"],
+      "@n-apt/validation": ["src/ts/validation"],
+      "@n-apt/validation/*": ["src/ts/validation/*"]
     }
   },
   "include": ["src/ts", "src/md-preview", "src/encrypted-modules", "src/ts/types"],

@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useRef, useEffect } from "react";
 import styled, { keyframes } from "styled-components";
+import { Button } from "@n-apt/components/ui/Button";
 
 export type AuthState =
   | "connecting"
@@ -97,33 +98,33 @@ const Input = styled.input`
   }
 `;
 
-const ActionButton = styled.button<{
-  $loading?: boolean;
-  $secondary?: boolean;
+const AuthButton = styled(Button) <{
+  $variant?: "primary" | "secondary" | "danger";
 }>`
   width: 24cqw;
   padding: 14px 24px;
-  background-color: ${(props) =>
-    props.$loading ? (props.theme.surface ?? "#1a1a1a") : props.$secondary ? (props.theme.surface ?? "#1a1a1a") : (props.theme.primary ?? "#0d2a3a")};
-  border: 1px solid ${(props) =>
-    props.$loading ? (props.theme.border ?? "#2a2a2a") : props.$secondary ? (props.theme.borderHover ?? "#444") : (props.theme.primary ?? "#00d4ff")};
-  border-radius: 8px;
-  color: ${(props) => (props.$loading ? (props.theme.textMuted ?? "#666") : props.$secondary ? (props.theme.textSecondary ?? "#888") : (props.theme.primary ?? "#00d4ff"))};
-  font-family: "JetBrains Mono", monospace;
   font-size: 13px;
   font-weight: 600;
-  cursor: ${(props) => (props.$loading ? "not-allowed" : "pointer")};
-  transition: all 0.2s ease;
-  user-select: none;
 
-  &:hover:not(:disabled) {
-    background-color: ${(props) => (props.$secondary ? (props.theme.surfaceHover ?? "#222") : (props.theme.primary ?? "#0d3a4a"))};
-  }
+  ${(props) =>
+    props.$variant === "primary" &&
+    `
+      background-color: ${props.theme.surface};
+      border: 1px solid ${props.theme.primary} !important;
+      color: ${props.theme.primary};
+      box-shadow: none;
 
-  &:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
+      &:hover {
+        background-color: ${props.theme.primary}0d;
+        border-color: ${props.theme.primary} !important;
+        color: ${props.theme.primary};
+        box-shadow: 0 0 0 1px ${props.theme.primary}33, 0 0 14px ${props.theme.primary}22;
+      }
+
+      &:disabled {
+        color: ${props.theme.textMuted};
+      }
+    `}
 `;
 
 const Divider = styled.div`
@@ -276,15 +277,15 @@ const AuthenticationPrompt = ({
         <>
           {hasPasskeys && !effectiveShowPasswordForm && (
             <>
-              <ActionButton
+              <AuthButton
+                $variant="primary"
                 onClick={onPasskeyAuth}
                 disabled={authState === "authenticating"}
-                $loading={authState === "authenticating"}
               >
                 {authState === "authenticating"
                   ? "Authenticating..."
                   : "Sign in with Passkey"}
-              </ActionButton>
+              </AuthButton>
               <Divider>or</Divider>
               <LinkButton onClick={() => setShowPasswordForm(true)}>
                 Use password instead
@@ -303,17 +304,17 @@ const AuthenticationPrompt = ({
                 disabled={authState === "authenticating"}
                 autoComplete="off"
               />
-              <ActionButton
+              <AuthButton
                 type="submit"
+                $variant="primary"
                 disabled={!password.trim() || authState === "authenticating"}
-                $loading={authState === "authenticating"}
               >
                 {authState === "authenticating"
                   ? "Authenticating..."
                   : authState === "failed" || authState === "timeout"
                     ? "Retry"
                     : "Authenticate"}
-              </ActionButton>
+              </AuthButton>
               {hasPasskeys && effectiveShowPasswordForm && (
                 <>
                   <Divider>or</Divider>

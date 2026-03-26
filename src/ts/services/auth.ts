@@ -11,6 +11,12 @@ import {
   WS_URL,
   SESSION_KEY as ENV_SESSION_KEY,
 } from "../consts/env";
+import {
+  validateAuthInfo,
+  validateAuthResult,
+  validateSessionValidation,
+  isValidSessionToken,
+} from "@n-apt/validation";
 
 const getApiBase = (): string => {
   if (typeof window !== "undefined") {
@@ -79,7 +85,13 @@ export function clearSession(): void {
 export async function fetchAuthInfo(): Promise<AuthInfo> {
   const res = await fetch(`${API_BASE}/auth/info`);
   if (!res.ok) throw new Error(`auth/info failed: ${res.status}`);
-  return res.json();
+  
+  const data = await res.json();
+  if (!validateAuthInfo(data)) {
+    throw new Error('Invalid auth info response from server');
+  }
+  
+  return data;
 }
 
 /** GET /status — public server status (no auth required). */
@@ -93,6 +105,14 @@ export async function fetchServerStatus(): Promise<any> {
 export async function validateSession(
   token: string,
 ): Promise<SessionValidation> {
+  // Validate token format first
+  if (!isValidSessionToken(token)) {
+    return {
+      valid: false,
+      error: "Invalid session token format",
+    };
+  }
+
   const res = await fetch(`${API_BASE}/auth/session`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -119,7 +139,7 @@ export async function validateSession(
     };
   }
 
-  if (parsed && typeof parsed.valid === "boolean") {
+  if (parsed && validateSessionValidation(parsed)) {
     return parsed;
   }
 
@@ -163,6 +183,11 @@ export async function authenticateWithPassword(
   }
 
   const result: AuthResult = await verifyRes.json();
+  
+  // Validate authentication result
+  if (!validateAuthResult(result)) {
+    throw new Error('Invalid authentication result from server');
+  }
 
   // Step 4: Store session and derive AES key for later decryption
   storeSession(result.token);
@@ -258,6 +283,12 @@ export async function authenticateWithPasskey(): Promise<AuthResult> {
   }
 
   const result: AuthResult = await finishRes.json();
+  
+  // Validate authentication result
+  if (!validateAuthResult(result)) {
+    throw new Error('Invalid passkey authentication result from server');
+  }
+  
   storeSession(result.token);
   return result;
 }

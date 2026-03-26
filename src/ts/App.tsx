@@ -17,13 +17,13 @@ const App: React.FC = () => {
       <Router>
         <ReduxThemeProvider>
           <AuthProvider>
-            <AuthRoute>
-              <SpectrumProvider>
+            <SpectrumProvider>
+              <AuthRoute>
                 <PromptProvider>
                   <AppRoutes />
                 </PromptProvider>
-              </SpectrumProvider>
-            </AuthRoute>
+              </AuthRoute>
+            </SpectrumProvider>
           </AuthProvider>
         </ReduxThemeProvider>
       </Router>

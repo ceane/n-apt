@@ -1,4 +1,5 @@
 import { useCallback, useRef } from "react";
+import { validateWaterfallDataComprehensive } from "@n-apt/validation";
 import { spectrumToAmplitude } from "@n-apt/consts/types";
 
 export interface Draw2DFIFOWaterfallOptions {
@@ -9,8 +10,11 @@ export interface Draw2DFIFOWaterfallOptions {
   waterfallMax?: number;
   driftAmount?: number;
   driftDirection?: number;
-  fftFrame?: number[]; // Optional new FFT frame data
-  colormap?: number[][];
+  colormap?: string;
+  fftSize?: number;
+  sampleRate?: number;
+  centerFrequencyHz?: number;
+  isPaused?: boolean;
 }
 
 export function useDraw2DFIFOWaterfall() {
@@ -103,11 +107,16 @@ export function useDraw2DFIFOWaterfall() {
       const {
         canvas,
         waterfallBuffer,
+        frequencyRange,
         waterfallMin = -80,
         waterfallMax = 20,
         driftAmount = 0,
-        fftFrame,
-        colormap = [],
+        driftDirection = 0,
+        colormap,
+        fftSize,
+        sampleRate,
+        centerFrequencyHz,
+        isPaused = false,
       } = options;
 
       const ctx = canvas.getContext("2d");
@@ -176,6 +185,32 @@ export function useDraw2DFIFOWaterfall() {
             waterfallMax,
             colormap,
           );
+
+          // Validate waterfall data on first frame or when paused
+          const isFirstFrame = !lastBufferRef.current;
+          if (isFirstFrame || isPaused) {
+            const validationResult = validateWaterfallDataComprehensive(waterfallBuffer, {
+              width: waterfallWidth,
+              height: waterfallHeight,
+              fftSize,
+              sampleRate,
+              centerFrequencyHz,
+              timestamp: Date.now(),
+              isPaused,
+              isFirstFrame
+            });
+            
+            if (!validationResult.isValid) {
+              console.error(`Waterfall validation failed (${isFirstFrame ? 'first frame' : 'paused'}):`, validationResult.errors);
+            } else if (validationResult.warnings.length > 0) {
+              console.warn(`Waterfall validation warnings (${isFirstFrame ? 'first frame' : 'paused'}):`, validationResult.warnings);
+            }
+            
+            // Log validation metadata for debugging (only in development)
+            if (process.env.NODE_ENV === 'development') {
+              console.log('Waterfall validation metadata:', validationResult.metadata);
+            }
+          }
         }
 
         // Draw the waterfall content using physical pixels

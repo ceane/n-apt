@@ -5,6 +5,7 @@ import {
   LINE_COLOR,
   SHADOW_COLOR,
 } from "@n-apt/consts";
+{"type":"frequency_range","min_mhz":0.017999999999999794,"max_mhz":3.218}import { validateSpectrumDataComprehensive } from "@n-apt/validation";
 
 export interface Draw3DWaterfallSignalOptions {
   canvas: HTMLCanvasElement;
@@ -19,6 +20,12 @@ export interface Draw3DWaterfallSignalOptions {
   isDeviceConnected?: boolean;
   maxFrames?: number;
   frameSpacing?: number;
+  // Validation options
+  fftSize?: number;
+  sampleRate?: number;
+  centerFrequencyHz?: number;
+  isPaused?: boolean;
+  isFirstFrame?: boolean;
 }
 
 export function useDraw3DWaterfallSignal() {
@@ -34,9 +41,37 @@ export function useDraw3DWaterfallSignal() {
       fftMax = 0,
       maxFrames: maxFramesParam = maxFrames,
       frameSpacing = 10,
+      fftSize,
+      sampleRate,
+      centerFrequencyHz,
+      isPaused = false,
+      isFirstFrame = false,
     } = options;
 
     try {
+      // Validate waveform data on first frame or when paused
+      if (isFirstFrame || isPaused) {
+        const validationResult = validateSpectrumDataComprehensive(waveform, {
+          fftSize,
+          sampleRate,
+          centerFrequencyHz,
+          timestamp: Date.now(),
+          isPaused,
+          isFirstFrame
+        });
+        
+        if (!validationResult.isValid) {
+          console.error(`3D waterfall validation failed (${isFirstFrame ? 'first frame' : 'paused'}):`, validationResult.errors);
+        } else if (validationResult.warnings.length > 0) {
+          console.warn(`3D waterfall validation warnings (${isFirstFrame ? 'first frame' : 'paused'}):`, validationResult.warnings);
+        }
+        
+        // Log validation metadata for debugging (only in development)
+        if (process.env.NODE_ENV === 'development') {
+          console.log('3D waterfall validation metadata:', validationResult.metadata);
+        }
+      }
+      
       frameHistoryRef.current.push(waveform.slice());
       if (frameHistoryRef.current.length > maxFramesParam) {
         frameHistoryRef.current.shift();
