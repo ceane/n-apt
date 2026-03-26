@@ -35,8 +35,13 @@ describe('Validation Exports', () => {
   test('should export WebSocket validation', () => {
     expect(typeof validateWebSocketMessage).toBe('function');
     
-    // Test that the function exists and returns a boolean
-    const result = validateWebSocketMessage({ type: "test" });
+    // Test with a valid WebSocket message structure
+    const validMessage = { type: "pause", paused: true };
+    const result = validateWebSocketMessage(validMessage);
     expect(typeof result).toBe('boolean');
+    
+    // Test with invalid message
+    const invalidResult = validateWebSocketMessage({ type: "test" });
+    expect(typeof invalidResult).toBe('boolean');
   });
 });

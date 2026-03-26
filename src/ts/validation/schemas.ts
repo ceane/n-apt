@@ -216,6 +216,9 @@ export const WebSocketMessageSchema = z.discriminatedUnion('type', [
     type: z.literal('get_auto_fft_options'),
     screenWidth: z.number(),
   }),
+  // Server-to-client messages
+  StatusMessageSchema,
+  AutoFftOptionsResponseSchema,
 ]);
 
 // Type guards derived from schemas
