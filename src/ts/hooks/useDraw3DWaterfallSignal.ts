@@ -5,7 +5,7 @@ import {
   LINE_COLOR,
   SHADOW_COLOR,
 } from "@n-apt/consts";
-{"type":"frequency_range","min_mhz":0.017999999999999794,"max_mhz":3.218}import { validateSpectrumDataComprehensive } from "@n-apt/validation";
+import { validateSpectrumDataComprehensive } from "@n-apt/validation";
 
 export interface Draw3DWaterfallSignalOptions {
   canvas: HTMLCanvasElement;
