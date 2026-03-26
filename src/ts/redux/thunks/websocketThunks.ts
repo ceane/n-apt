@@ -224,6 +224,13 @@ export const sendGetAutoFftOptions = createAsyncThunk(
   'websocket/sendGetAutoFftOptions',
   async (screenWidth: number, { dispatch, getState }) => {
     const state = getState() as RootState;
+    
+    // Check if we already have cached auto FFT options
+    if (state.websocket.autoFftOptions) {
+      console.log('Using cached auto FFT options, skipping request');
+      return screenWidth;
+    }
+    
     if (state.websocket.isConnected) {
       dispatch({
         type: 'websocket/sendMessage',

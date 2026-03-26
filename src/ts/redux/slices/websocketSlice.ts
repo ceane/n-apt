@@ -8,12 +8,11 @@ import {
   DeviceProfile,
   CaptureStatus,
 } from '@n-apt/consts/schemas/websocket';
-import {
-  isValidSpectrumFrameEnhanced,
-  isValidCaptureStatus,
-  isValidAutoFftOptions,
-  hasValidIntegrity,
-} from '@n-apt/validation';
+import { 
+  validateCaptureStatus,
+  validateAutoFftOptions,
+  isValidSpectrumFrame 
+} from "@n-apt/validation";
 import { loadPersistedAutoFftOptions } from '../middleware/localStorageMiddleware';
 
 const shallowEqualObject = (
@@ -56,17 +55,17 @@ const equalSpectrumFrames = (
 
 // Enhanced validation for spectrum frames with integrity checks
 const validateSpectrumFrames = (frames: unknown[]): SpectrumFrame[] => {
-  return frames.filter(isValidSpectrumFrameEnhanced);
+  return frames.filter(isValidSpectrumFrame);
 };
 
 // Enhanced validation for capture status
 const validateCaptureStatusEnhanced = (status: unknown): CaptureStatus | null => {
-  return isValidCaptureStatus(status) ? status : null;
+  return validateCaptureStatus(status) ? (status as CaptureStatus) : null;
 };
 
 // Enhanced validation for auto FFT options
 const validateAutoFftOptionsEnhanced = (options: unknown): AutoFftOptionsResponse | null => {
-  return isValidAutoFftOptions(options) ? options : null;
+  return validateAutoFftOptions(options) ? (options as AutoFftOptionsResponse) : null;
 };
 
 const equalValue = (current: unknown, next: unknown): boolean => {

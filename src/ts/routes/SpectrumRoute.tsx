@@ -224,6 +224,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
                 }
                 fftFrameRate={state.fftFrameRate}
                 sendGetAutoFftOptions={sendGetAutoFftOptions}
+                autoFftOptions={state.autoFftOptions}
                 isWaterfallCleared={state.isWaterfallCleared}
                 onResetWaterfallCleared={() =>
                   dispatch({ type: "RESET_WATERFALL_CLEARED" })
