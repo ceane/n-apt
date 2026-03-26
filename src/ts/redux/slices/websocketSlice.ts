@@ -14,6 +14,7 @@ import {
   isValidAutoFftOptions,
   hasValidIntegrity,
 } from '@n-apt/validation';
+import { loadPersistedAutoFftOptions } from '../middleware/localStorageMiddleware';
 
 const shallowEqualObject = (
   a: Record<string, unknown> | null | undefined,
@@ -153,7 +154,7 @@ const initialState: WebSocketState = {
   spectrumFrames: [],
   
   captureStatus: null,
-  autoFftOptions: null,
+  autoFftOptions: loadPersistedAutoFftOptions(), // Load cached options on startup
   
   error: null,
   cryptoCorrupted: false,
@@ -226,7 +227,13 @@ const websocketSlice = createSlice({
     },
     
     // Capture status
-    setCaptureStatus: (state, action: PayloadAction<CaptureStatus>) => {
+    setCaptureStatus: (state, action: PayloadAction<CaptureStatus | null>) => {
+      // Allow null to clear capture status
+      if (action.payload === null) {
+        state.captureStatus = null;
+        return;
+      }
+      
       // Validate capture status before storing
       const validatedStatus = validateCaptureStatusEnhanced(action.payload);
       if (validatedStatus) {
