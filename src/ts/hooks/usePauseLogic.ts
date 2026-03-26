@@ -1,4 +1,5 @@
 import { useCallback, useEffect } from "react";
+import { validateWaterfallDataComprehensive } from "@n-apt/validation";
 
 export const SNAPSHOT_WAVEFORM_KEY = "n-apt-fft-waveform-snapshot";
 export const SNAPSHOT_WATERFALL_KEY = "n-apt-fft-waterfall-snapshot";
@@ -18,6 +19,10 @@ export interface PauseLogicOptions {
     spectrumData: number[] | Float32Array | null | undefined,
   ) => Float32Array;
   forceRender: () => void;
+  // Additional options for waterfall validation
+  fftSize?: number;
+  sampleRate?: number;
+  centerFrequencyHz?: number;
 }
 
 export function usePauseLogic({
@@ -29,6 +34,9 @@ export function usePauseLogic({
   dataRef,
   ensureFloat32Waveform,
   forceRender,
+  fftSize,
+  sampleRate,
+  centerFrequencyHz,
 }: PauseLogicOptions) {
   const saveFrameData = useCallback(() => {
     try {
@@ -52,6 +60,30 @@ export function usePauseLogic({
       const wfBuf = waterfallBufferRef.current;
       const wfDims = waterfallDimsRef.current;
       if (wfBuf && wfDims) {
+        // Validate waterfall data when paused (comprehensive validation)
+        if (isPaused) {
+          const validationResult = validateWaterfallDataComprehensive(wfBuf, {
+            width: wfDims.width,
+            height: wfDims.height,
+            fftSize,
+            sampleRate,
+            centerFrequencyHz,
+            timestamp: Date.now(),
+            isPaused: true,
+            isFirstFrame: false
+          });
+          
+          if (!validationResult.isValid) {
+            console.error('Waterfall data validation failed on pause:', validationResult.errors);
+            // Still save the data, but log the issues
+          } else if (validationResult.warnings.length > 0) {
+            console.warn('Waterfall data validation warnings on pause:', validationResult.warnings);
+          }
+          
+          // Log validation metadata for debugging
+          console.log('Waterfall validation metadata:', validationResult.metadata);
+        }
+        
         const bytes = new Uint8Array(wfBuf.buffer, wfBuf.byteOffset, wfBuf.byteLength);
         let binary = "";
         const chunkSize = 8192;

@@ -1,4 +1,5 @@
 import React, { useEffect, useCallback, useRef, useMemo } from "react";
+import styled from "styled-components";
 import { FFTCanvas } from "@n-apt/components";
 import type { FFTCanvasHandle } from "@n-apt/components";
 import type { SnapshotData } from "@n-apt/components/FFTCanvas";
@@ -14,10 +15,31 @@ import {
 } from "@n-apt/components/Layout";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 import { buildSdrLimitMarkers } from "@n-apt/utils/sdrLimitMarkers";
+import { calculateCenterFrequency } from "@n-apt/utils/centerFrequency";
+import { useSnapshotListener } from "@n-apt/hooks/useSnapshotListener";
+import { useDeviceConnectionState } from "@n-apt/hooks/useDeviceConnectionState";
+import { useCaptureWholeChannelSegments } from "@n-apt/hooks/useCaptureWholeChannelSegments";
 
 interface SpectrumRouteProps {
   activeTab: "visualizer" | "analysis" | "draw";
 }
+
+const SpectrumContainer = styled.div`
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+  user-select: none;
+`;
+
+const SpectrumContent = styled.div`
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+`;
 
 export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
   const fftCanvasRef = useRef<FFTCanvasHandle | null>(null);
@@ -65,184 +87,46 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
   }, [activeTab]);
 
 
-  useEffect(() => {
-    if (deviceState !== "connected" && state.showSpikeOverlay) {
-      dispatch({ type: "SET_SHOW_SPIKE_OVERLAY", enabled: false });
-    }
-    if (deviceState !== "connected") {
-      dispatch({ type: "SET_HETERODYNING_VERIFY_DISABLED", disabled: true });
-      dispatch({
-        type: "SET_HETERODYNING_RESULT",
-        detected: false,
-        confidence: null,
-        statusText: "Unavailable",
-        highlightedBins: [],
-      });
-    } else {
-      dispatch({ type: "SET_HETERODYNING_VERIFY_DISABLED", disabled: false });
-    }
-  }, [deviceState, state.showSpikeOverlay, dispatch]);
+  // Device connection state management
+  useDeviceConnectionState({
+    deviceState,
+    showSpikeOverlay: state.showSpikeOverlay,
+    dispatch,
+  });
 
   const { handleSnapshot: takeSnapshot } = useSnapshot(
     state.frequencyRange ?? null,
     isConnected,
   );
 
-  const captureWholeChannelSegments = useCallback(async () => {
-    const fullRange = state.frequencyRange;
-    const hardwareSpanMHz = sampleRateHzEffective
-      ? sampleRateHzEffective / 1_000_000
-      : null;
-
-    if (
-      !fullRange ||
-      state.sourceMode !== "live" ||
-      !hardwareSpanMHz ||
-      !(hardwareSpanMHz > 0)
-    ) {
-      return [];
-    }
-
-    const area = state.activeSignalArea?.toLowerCase();
-    const channelRange = area ? signalAreaBounds?.[area] ?? fullRange : fullRange;
-    const totalSpan = channelRange.max - channelRange.min;
-    if (!(totalSpan > hardwareSpanMHz + 0.0001)) {
-      return [];
-    }
-
-    const settleMs = 1000;
-    const raf = () =>
-      new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
-    const sleep = (ms: number) =>
-      new Promise<void>((resolve) => window.setTimeout(resolve, ms));
-
-    const originalRange = fullRange;
-    const originalPan = state.vizPanOffset;
-    const originalZoom = state.vizZoom;
-    const segments: Array<{
-      data: SnapshotData;
-      visualRange: { min: number; max: number };
-    }> = [];
-
-    try {
-      for (
-        let segmentMin = channelRange.min;
-        segmentMin < channelRange.max - 0.0001;
-        segmentMin += hardwareSpanMHz
-      ) {
-        // Ensure the segment always has the full hardwareSpanMHz
-        // If we reach the end, "slide" back so the segment covers the end boundaries
-        let actualMin = segmentMin;
-        let actualMax = segmentMin + hardwareSpanMHz;
-
-        if (actualMax > channelRange.max) {
-          actualMax = channelRange.max;
-          actualMin = Math.max(channelRange.min, actualMax - hardwareSpanMHz);
-        }
-
-        const nextRange = {
-          min: actualMin,
-          max: actualMax,
-        };
-
-        dispatch({ type: "SET_FREQUENCY_RANGE", range: nextRange });
-        sendFrequencyRange(nextRange);
-        dispatch({ type: "SET_VIZ_ZOOM", zoom: 1 });
-        dispatch({ type: "SET_VIZ_PAN", pan: 0 });
-        dispatch({ type: "CLEAR_WATERFALL" });
-
-        await raf();
-        await sleep(settleMs);
-        await raf();
-        await raf();
-
-        const data = fftCanvasRef.current?.getSnapshotData();
-        if (data?.waveform?.length) {
-          segments.push({
-            data,
-            visualRange: nextRange,
-          });
-        }
-
-        // Break if we've reached the end to avoid redundant slides
-        if (actualMax >= channelRange.max - 0.0001) break;
-      }
-    } finally {
-      dispatch({ type: "SET_FREQUENCY_RANGE", range: originalRange });
-      sendFrequencyRange(originalRange);
-      dispatch({ type: "SET_VIZ_ZOOM", zoom: originalZoom });
-      dispatch({ type: "SET_VIZ_PAN", pan: originalPan });
-      await raf();
-    }
-
-    return segments;
-  }, [
-    dispatch,
+  const captureWholeChannelSegments = useCaptureWholeChannelSegments({
+    frequencyRange: state.frequencyRange,
+    sourceMode: state.sourceMode,
     sampleRateHzEffective,
-    sendFrequencyRange,
+    activeSignalArea: state.activeSignalArea,
     signalAreaBounds,
-    state.activeSignalArea,
-    state.fftFrameRate,
-    state.frequencyRange,
-    state.sourceMode,
-    state.vizPanOffset,
-    state.vizZoom,
-  ]);
+    fftFrameRate: state.fftFrameRate,
+    vizPanOffset: state.vizPanOffset,
+    vizZoom: state.vizZoom,
+    dispatch,
+    sendFrequencyRange,
+    fftCanvasRef,
+  });
 
   // Snapshot listener for sidebar events
-  useEffect(() => {
-    const listener = async (e: Event) => {
-      const options = (e as CustomEvent).detail;
-      let sdrSettingsLabel: string | undefined;
-      if (effectiveSdrSettings) {
-        const agcOn =
-          effectiveSdrSettings.gain?.rtl_agc ||
-          effectiveSdrSettings.gain?.tuner_agc;
-        const gainStr = agcOn
-          ? "Auto"
-          : effectiveSdrSettings.gain?.tuner_gain
-            ? `${effectiveSdrSettings.gain.tuner_gain} dB`
-            : "N/A";
-        const ppmStr =
-          effectiveSdrSettings.ppm !== undefined
-            ? effectiveSdrSettings.ppm.toString()
-            : "0";
-        sdrSettingsLabel = `Gain: ${gainStr} | PPM: ${ppmStr}`;
-      }
-
-      const modeLabel = options.whole ? "Whole Channel" : "Onscreen";
-      const wholeChannelSegments =
-        options.whole && state.sourceMode === "live"
-          ? await captureWholeChannelSegments()
-          : [];
-
-      takeSnapshot({
-        ...options,
-        modeLabel,
-        wholeChannelSegments,
-        showGrid: options.grid ?? state.snapshotGridPreference,
-        getSnapshotData: () => fftCanvasRef.current?.getSnapshotData() ?? null,
-        signalAreaBounds,
-        activeSignalArea: state.activeSignalArea,
-        sourceName: deviceName || backend || deviceInfo || undefined,
-        sdrSettingsLabel,
-        showGeolocation: options.showGeolocation,
-        geolocation: options.geolocation,
-      });
-    };
-    window.addEventListener("napt-snapshot", listener);
-    return () => window.removeEventListener("napt-snapshot", listener);
-  }, [
+  useSnapshotListener({
     takeSnapshot,
-    state.snapshotGridPreference,
+    snapshotGridPreference: state.snapshotGridPreference,
     signalAreaBounds,
-    state.activeSignalArea,
-    state.sourceMode,
+    activeSignalArea: state.activeSignalArea,
+    sourceMode: state.sourceMode,
     backend,
     deviceInfo,
     effectiveSdrSettings,
+    deviceName,
     captureWholeChannelSegments,
-  ]);
+    getSnapshotData: () => fftCanvasRef.current?.getSnapshotData() ?? null,
+  });
 
   const handleTrainingCaptureStart = useCallback(
     (label: "target" | "noise") => {
@@ -275,34 +159,12 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
   );
 
   const centerFrequencyMHz = useMemo(() => {
-    if (!state.frequencyRange) return null;
-    const min = state.frequencyRange.min;
-    const max = state.frequencyRange.max;
-    if (!Number.isFinite(min) || !Number.isFinite(max)) return null;
-    return (min + max) / 2;
+    return calculateCenterFrequency(state.frequencyRange);
   }, [state.frequencyRange]);
 
   return (
-    <div
-      style={{
-        flex: 1,
-        display: "flex",
-        flexDirection: "column",
-        overflow: "hidden",
-        position: "relative",
-        backgroundColor: "var(--color-background)",
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          flex: 1,
-          overflow: "hidden",
-          position: "relative",
-          backgroundColor: "var(--color-background)",
-        }}
-      >
+    <SpectrumContainer>
+      <SpectrumContent>
         {state.sourceMode === "live" &&
           state.frequencyRange &&
           centerFrequencyMHz !== null && (
@@ -411,7 +273,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
             }
           />
         )}
-      </div>
-    </div>
+      </SpectrumContent>
+    </SpectrumContainer>
   );
 };

@@ -8,6 +8,12 @@ import {
   DeviceProfile,
   CaptureStatus,
 } from '@n-apt/consts/schemas/websocket';
+import {
+  isValidSpectrumFrameEnhanced,
+  isValidCaptureStatus,
+  isValidAutoFftOptions,
+  hasValidIntegrity,
+} from '@n-apt/validation';
 
 const shallowEqualObject = (
   a: Record<string, unknown> | null | undefined,
@@ -45,6 +51,21 @@ const equalSpectrumFrames = (
     }
   }
   return true;
+};
+
+// Enhanced validation for spectrum frames with integrity checks
+const validateSpectrumFrames = (frames: unknown[]): SpectrumFrame[] => {
+  return frames.filter(isValidSpectrumFrameEnhanced);
+};
+
+// Enhanced validation for capture status
+const validateCaptureStatusEnhanced = (status: unknown): CaptureStatus | null => {
+  return isValidCaptureStatus(status) ? status : null;
+};
+
+// Enhanced validation for auto FFT options
+const validateAutoFftOptionsEnhanced = (options: unknown): AutoFftOptionsResponse | null => {
+  return isValidAutoFftOptions(options) ? options : null;
 };
 
 const equalValue = (current: unknown, next: unknown): boolean => {
@@ -196,17 +217,34 @@ const websocketSlice = createSlice({
     
     // Spectrum frames
     setSpectrumFrames: (state, action: PayloadAction<SpectrumFrame[]>) => {
-      state.spectrumFrames = action.payload;
+      // Validate spectrum frames before storing
+      const validatedFrames = validateSpectrumFrames(action.payload);
+      if (validatedFrames.length !== action.payload.length) {
+        console.warn(`Filtered ${action.payload.length - validatedFrames.length} invalid spectrum frames`);
+      }
+      state.spectrumFrames = validatedFrames;
     },
     
     // Capture status
     setCaptureStatus: (state, action: PayloadAction<CaptureStatus>) => {
-      state.captureStatus = action.payload;
+      // Validate capture status before storing
+      const validatedStatus = validateCaptureStatusEnhanced(action.payload);
+      if (validatedStatus) {
+        state.captureStatus = validatedStatus;
+      } else {
+        console.error('Invalid capture status rejected:', action.payload);
+      }
     },
     
     // Auto FFT options
     setAutoFftOptions: (state, action: PayloadAction<AutoFftOptionsResponse>) => {
-      state.autoFftOptions = action.payload;
+      // Validate auto FFT options before storing
+      const validatedOptions = validateAutoFftOptionsEnhanced(action.payload);
+      if (validatedOptions) {
+        state.autoFftOptions = validatedOptions;
+      } else {
+        console.error('Invalid auto FFT options rejected:', action.payload);
+      }
     },
     
     // Crypto corruption

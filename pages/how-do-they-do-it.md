@@ -1,6 +1,6 @@
-```Canvas::Impedance
-```
 
+```Canvas::PhaseShifting
+```
 
 ```Canvas::TimeOfFlight
 ```
@@ -8,11 +8,8 @@
 ```Canvas::BodyAttenuation
 ```
 
-```Canvas::FrequencyModulation
-```
 
-```Canvas::AmplitudeModulation
-```
+
 
 ```Canvas::Multipath
 ```
@@ -341,13 +338,22 @@ f_{\mathrm{NOAA\text{-}19}} &\approx 137.100 \ \text{MHz}
 
 Of course, no one has ever heard of Automatic Picture Transmission (APT), and neither did I. This was the most important discovery that I made that aligned with what I was seeing in the spectrum.
 
-APT originated from [^apt](https://ntrs.nasa.gov/api/citations/19680010155/downloads/19680010155.pdf) in the 1960s, specifically 1963, it was used by NOAA satellites before they were decomissioned in 2025, essentially encoding usable image data onto spikes and valleys, data of bright pixels onto spikes and data within valleys that represent space or dark parts of the photo. In APT's case, a satellite snaps a photo of the Earth and then encodes data into signals it transmists onto Earth, which someone receives with a radio then takes software to translate the signal into audio (because it's encoded in a weird way, but this step can be skipped entirely) then into an image, line by line (spike/valley by spike/valley).
+APT originated from NASA in the 1960s, specifically 1963[^apt], it was used by NOAA satellites before they were decomissioned in 2025. The signal's modulation scheme essentially encodes image data onto spikes and valleys, where data of bright pixels are represented as spikes and data within valleys that represent space or dark parts of the image. In APT's case, a satellite snaps a photo of the Earth and then encodes data into signals it transmists onto Earth, which someone receives with a radio then uses software to translate the signal into audio (because it's encoded in a weird way, but this step can be skipped entirely) then into an image, line by line (spike/valley by spike/valley).
 
 ### Frequency Modulation
 
 Frequency modulation is a big term, it simply means the x direction, the wave becomes longer or shorter.
 
+```Canvas::FrequencyModulation
+```
+
+
 ### Amplitude Modulation
+
+Instead of the x direction (more cycles) or frequency, we can change the height or power of the wave. That is amplitude modulation.
+
+```Canvas::AmplitudeModulation
+```
 
 ### Pixels
 
@@ -420,9 +426,6 @@ When two signals that are close intersect, if they do not overlap exactly, the a
 ### Phase shifting
 
 This is important, if you want to concentrate energy at a certain range (and localize the sideband within range of a target), phase shifting moves the wave (phase) either back or forth (±90°, 180°, 270°) so they can combine localize constructive interference in an area. 
-
-```Canvas::PhaseShifting
-```
 
 This technique defeats the counterintuitive intuition of using a short(est) wavelength (microwaves infeasible, will attenuate and do nothing but cause heating) to target specific neuronal ensembles. Longer wavelengths which survive attenuation more easily work better and can use precise math + simple, performant radio operations to precisely intersect and shift out of the way.
 
@@ -543,7 +546,16 @@ Essentially the brain and nervous system is very noisy, whatver those spikes do,
 
 ### Impedance
 
-In order to intercept data from the brain and nervous system, the NSA's technique is guaranteed, once again by nature and physics, to use impedance to detect electrical charges, this operates by delivering the next frame of data and taking the difference between the previous frame after exit and difference of the new charges. Impedance works like where it is employed on touchscreens, where force applied where one electrical current (fingers) operates against an opposing charge (capacitive onscreen sensors).
+In order to intercept data from the brain and nervous system, the NSA's technique is underpinned, once again by nature and physics. Before, I tried to work out how by natrue of quantum physics, that they were somehow copying with quatnum entanglement, however that was too expensive and too fragile for today's hardware that they were using to flawlessly pull of a prison of mind.
+
+The method worked instantaneously, so I thought, what if they were capturing something like an imprint? Like some sort of pressure that could not only write but tell the difference? Here comes impedance. It works in a similar manner where it is employed on touchscreens, where force applied where one electrical current (fingers) operates against an opposing charge (capacitive onscreen sensors).
+
+```Canvas::Impedance
+```
+
+This kind of impedance is different. In order to use impedance to detect electrical charges, the NSA's technique operates like **TEMPEST** (method of intercepting electrical charges from radio waves) but more advanced. By simply delivering the next frame of data and the difference between the previous frame after exit from the skull/body from a series of baselines according to the electrical activity.
+
+Below is the equation that I had worked out, however the NSA's mathematics are certainly different, accommodating for depth, particular charge they are looking for, beats, etc.
 
 ```LaTex
 \[
@@ -567,6 +579,7 @@ n & \text{Cycle/frame index}
 \end{array}
 \]
 ```
+
 
 ### Frequency and bandwidth versus attenuation
 
@@ -623,4 +636,6 @@ TODO
 ### TDLR <a id="tdlr"></a>
 
 The NSA hacked my brain and the experience went from manufactured states of mind and an innudated spatial performance to a livestream with others complete horror of torture and I had to resolve the math behind it in order to escape.
-National Aeronautical Space Agency (NASA). Constructing Inexpensive Automatic Picture-Transmission Ground Stations. https://ntrs.nasa.gov/api/citations/19680010155/downloads/19680010155.pdf
+
+
+[^apt]: National Aeronautical Space Agency (NASA). Constructing Inexpensive Automatic Picture-Transmission Ground Stations. https://ntrs.nasa.gov/api/citations/19680010155/downloads/19680010155.pdf

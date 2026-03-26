@@ -47,6 +47,8 @@ const getInitialHasPasskeys = () => {
   try {
     return localStorage.getItem("n_apt_has_passkeys") === "true";
   } catch (e) {
+    // Safari private mode or localStorage blocked
+    console.warn("localStorage unavailable, assuming no passkeys (likely Safari private mode)");
     return false;
   }
 };
@@ -175,10 +177,31 @@ const useAuthenticationInternal = (
         window.location.port === "8080") ||
       window.location.search.includes("ide=true");
 
+    // Check for Safari private mode
+    const isSafariPrivateMode = (() => {
+      try {
+        localStorage.setItem("test", "test");
+        localStorage.removeItem("test");
+        return false;
+      } catch (e) {
+        return true;
+      }
+    })();
+
     if (isLikelyIDEBrowser) {
       if (!hasLoggedWebAuthnIdeNoticeRef.current) {
         console.warn(
           "🔒 Passkeys disabled in IDE browser. Use password authentication for in-IDE browsing.",
+        );
+        hasLoggedWebAuthnIdeNoticeRef.current = true;
+      }
+      return false;
+    }
+
+    if (isSafariPrivateMode) {
+      if (!hasLoggedWebAuthnIdeNoticeRef.current) {
+        console.warn(
+          "🔒 Passkeys disabled in Safari private mode. Use password authentication.",
         );
         hasLoggedWebAuthnIdeNoticeRef.current = true;
       }
@@ -231,7 +254,10 @@ const useAuthenticationInternal = (
                 "n_apt_has_passkeys",
                 effectiveHasPasskeys ? "true" : "false",
               );
-            } catch (e) {}
+            } catch (e) {
+              // Safari private mode - localStorage not available
+              console.debug("localStorage unavailable for passkey state");
+            }
             dispatch({
               type: "SET_PASSKEYS",
               hasPasskeys: effectiveHasPasskeys,
@@ -281,7 +307,10 @@ const useAuthenticationInternal = (
               "n_apt_has_passkeys",
               effectiveHasPasskeys ? "true" : "false",
             );
-          } catch (e) {}
+          } catch (e) {
+            // Safari private mode - localStorage not available
+            console.debug("localStorage unavailable for passkey state");
+          }
           dispatch({ type: "READY", hasPasskeys: effectiveHasPasskeys });
         }
       } catch (error) {
@@ -368,7 +397,10 @@ const useAuthenticationInternal = (
           "n_apt_has_passkeys",
           effectiveHasPasskeys ? "true" : "false",
         );
-      } catch (e) {}
+      } catch (e) {
+        // Safari private mode - localStorage not available
+        console.debug("localStorage unavailable for passkey state");
+      }
       dispatch({ type: "REGISTER_SUCCESS", hasPasskeys: effectiveHasPasskeys });
     } catch (e: any) {
       dispatch({

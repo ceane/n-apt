@@ -15,6 +15,14 @@ import {
 import { decryptPayload, decryptBinaryPayload } from '@n-apt/crypto/webcrypto';
 import { AutoFftOptionsResponse } from '@n-apt/consts/schemas/websocket';
 import { scannerWorkerManager } from '../../workers/scannerWorkerManager';
+import { 
+  processWebSocketMessageWithValidation,
+  validateStatusMessage,
+  validateCaptureStatus,
+  validateAutoFftOptions,
+  isValidSpectrumData,
+  validateSpectrumDataComprehensive,
+} from '@n-apt/validation';
 
 // Module-level ref for high-frequency live frame data.
 // Written directly — never goes through Redux state — so no React rerenders per frame.
@@ -169,8 +177,20 @@ const cleanupSocket = () => {
 
 // WebSocket message processing
 const processMessage = (dispatch: Dispatch, getState: () => any, parsedData: any) => {
+  // Validate the message first (skip binary data for performance)
+  if (!processWebSocketMessageWithValidation(dispatch, getState, parsedData)) {
+    console.warn('WebSocket message failed validation:', parsedData);
+    return;
+  }
+
   // Status messages (backend-driven device state)
   if (parsedData?.type === "status") {
+    // Additional validation for status messages
+    if (!validateStatusMessage(parsedData)) {
+      console.error('Status message validation failed:', parsedData);
+      return;
+    }
+    
     try {
       const updates: any = {
         serverPaused: parsedData.paused || false,
@@ -182,6 +202,7 @@ const processMessage = (dispatch: Dispatch, getState: () => any, parsedData: any
       if (typeof parsedData.device_info === "string") {
         updates.deviceInfo = parsedData.device_info;
       }
+      // More aggressive device name updates - update even if empty to clear stale data
       if (typeof parsedData.device_name === "string") {
         updates.deviceName = parsedData.device_name;
       }
@@ -199,6 +220,11 @@ const processMessage = (dispatch: Dispatch, getState: () => any, parsedData: any
       }
       if (typeof parsedData.device_state === "string") {
         updates.deviceState = parsedData.device_state;
+        // When device connects, force immediate update of device info
+        if (parsedData.device_state === "connected" && !updates.deviceName) {
+          // Set a default name immediately if backend hasn't provided one yet
+          updates.deviceName = updates.deviceInfo || "RTL-SDR Device";
+        }
       }
       if (Array.isArray(parsedData.channels)) {
         updates.spectrumFrames = parsedData.channels
@@ -239,6 +265,13 @@ const processMessage = (dispatch: Dispatch, getState: () => any, parsedData: any
 
   // Capture status messages
   if (parsedData?.type === "capture_status") {
+    // Validate capture status
+    const statusData = parsedData.status || parsedData;
+    if (!validateCaptureStatus(statusData)) {
+      console.error('Capture status validation failed:', statusData);
+      return;
+    }
+    
     try {
       const statusObj = parsedData.status || {};
       if (
@@ -273,6 +306,12 @@ const processMessage = (dispatch: Dispatch, getState: () => any, parsedData: any
 
   // Auto FFT options messages
   if (parsedData?.type === "auto_fft_options") {
+    // Validate auto FFT options
+    if (!validateAutoFftOptions(parsedData)) {
+      console.error('Auto FFT options validation failed:', parsedData);
+      return;
+    }
+    
     try {
       if (
         Array.isArray(parsedData.autoSizes) &&
@@ -321,7 +360,7 @@ const processMessage = (dispatch: Dispatch, getState: () => any, parsedData: any
 };
 
 // Binary message processing
-const processBinaryMessage = async (dispatch: Dispatch, buffer: ArrayBuffer, aesKey: CryptoKey) => {
+const processBinaryMessage = async (dispatch: Dispatch, getState: () => any, buffer: ArrayBuffer, aesKey: CryptoKey) => {
   try {
     const view = new DataView(buffer);
     
@@ -358,6 +397,39 @@ const processBinaryMessage = async (dispatch: Dispatch, buffer: ArrayBuffer, aes
         decryptedBytes.byteOffset,
         decryptedBytes.byteLength / 4,
       );
+      
+      // Enhanced validation for pause and first render scenarios
+      const isPaused = getState().websocket.isPaused;
+      const isFirstFrame = !liveDataRef.current; // No data exists yet
+      
+      // Skip validation for real-time streaming, but validate on pause and first frame
+      if (isPaused || isFirstFrame) {
+        // Comprehensive validation for checkpoint scenarios
+        const validationResult = validateSpectrumDataComprehensive(waveform, {
+          fftSize: getState().websocket.sdrSettings?.fft_size,
+          sampleRate,
+          centerFrequencyHz,
+          timestamp,
+          isPaused,
+          isFirstFrame
+        });
+        
+        if (!validationResult.isValid) {
+          console.warn(`Spectrum data validation failed (${isPaused ? 'paused' : 'first render'}):`, validationResult.errors);
+          return;
+        }
+        
+        if (validationResult.warnings.length > 0) {
+          console.warn(`Spectrum data warnings (${isPaused ? 'paused' : 'first render'}):`, validationResult.warnings);
+        }
+      } else {
+        // Minimal validation for real-time streaming (performance optimized)
+        if (!isValidSpectrumData(waveform)) {
+          console.warn('Invalid spectrum data received, skipping frame');
+          return;
+        }
+      }
+      
       spectrumData = {
         type: "spectrum",
         waveform: waveform,
@@ -459,7 +531,7 @@ const createWebSocketMiddleware = (): Middleware<{}, any> => (store) => (next) =
             // Binary fast-path for spectrum data
             if (event.data instanceof ArrayBuffer) {
               if (wsInstance.aesKey) {
-                await processBinaryMessage(dispatch, event.data, wsInstance.aesKey);
+                await processBinaryMessage(dispatch, getState, event.data, wsInstance.aesKey);
               }
               return;
             }
@@ -470,6 +542,14 @@ const createWebSocketMiddleware = (): Middleware<{}, any> => (store) => (next) =
               parsed = JSON.parse(raw);
             } catch (e) {
               console.error('Failed to parse websocket message:', e);
+              return;
+            }
+
+            // Priority: Handle critical control messages immediately before any other processing
+            if (parsed?.type === "auto_fft_options" || 
+                parsed?.type === "status" ||
+                parsed?.type === "capture_status") {
+              processMessage(dispatch, getState, parsed);
               return;
             }
 

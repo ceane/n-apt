@@ -13,12 +13,14 @@ import "katex/dist/katex.min.css";
 import BodyAttenuationCanvas from "./BodyAttenuationWebGPUCanvas";
 import ImpedanceCanvas from "./ImpedanceCanvas";
 import TimeOfFlightCanvas from "./TimeOfFlightCanvas";
-import { AmplitudeModulationCanvas, FrequencyModulationCanvas, HeterodyningCanvas, MultipathCanvas, PhaseShiftingCanvas } from "./SignalCanvases";
+import { AmplitudeModulationCanvas, FrequencyModulationCanvas, HeterodyningCanvas, MultipathCanvas } from "./SignalCanvases";
+import PhaseShiftingCanvas from "./PhaseShfitingCanvas";
 import remarkBodyAttenuationBlocks from "./remarkBodyAttenuationBlocks";
 import remarkTimeOfFlightBlocks from "./remarkTimeOfFlightBlocks";
 import remarkSignalCanvasBlocks from "./remarkSignalCanvasBlocks";
 import remarkIconShortcodes from "./remarkIconShortcodes";
 import remarkLatexCodeBlocks from "./remarkLatexCodeBlocks";
+import GiscusComments from "./GiscusComments";
 
 const DEFAULT_SOURCE = "/pages/how-do-they-do-it.md";
 const BASE_URL = (import.meta.env.BASE_URL ?? "/").replace(/\/$/, "");
@@ -292,6 +294,9 @@ const App: React.FC = () => {
           >
             {markdown || "_Fetching markdown…_"}
           </ReactMarkdown>
+          {activeSource && (
+            <GiscusComments pageId={activeSource} />
+          )}
         </ArticleContent>
       </Page>
     </>

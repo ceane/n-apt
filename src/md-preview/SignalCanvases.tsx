@@ -606,7 +606,7 @@ const PhaseShiftingGraph: React.FC = () => {
         x2={PHASE_SHIFT_VIEWBOX_WIDTH}
         y2={labelPositions.axisY}
         stroke="#7c7f87"
-        strokeWidth={2.5}
+        strokeWidth={2}
         vectorEffect="non-scaling-stroke"
       />
       <line
@@ -615,7 +615,7 @@ const PhaseShiftingGraph: React.FC = () => {
         x2={labelPositions.phaseLeftX}
         y2={labelPositions.phaseGuideBottom}
         stroke="#b9d6f0"
-        strokeWidth={1.5}
+        strokeWidth={1}
         strokeDasharray="1.5 7"
         strokeLinecap="round"
         vectorEffect="non-scaling-stroke"
@@ -626,7 +626,7 @@ const PhaseShiftingGraph: React.FC = () => {
         x2={labelPositions.phaseRightX}
         y2={labelPositions.phaseGuideBottom}
         stroke="#b9d6f0"
-        strokeWidth={1.5}
+        strokeWidth={1}
         strokeDasharray="1.5 7"
         strokeLinecap="round"
         vectorEffect="non-scaling-stroke"
@@ -637,7 +637,7 @@ const PhaseShiftingGraph: React.FC = () => {
         x2={labelPositions.phaseRightX}
         y2={labelPositions.phaseGuideTop}
         stroke="#9ad0ff"
-        strokeWidth={1.5}
+        strokeWidth={1}
         strokeDasharray="1.5 7"
         strokeLinecap="round"
         vectorEffect="non-scaling-stroke"
@@ -646,7 +646,7 @@ const PhaseShiftingGraph: React.FC = () => {
         d={`M ${labelPositions.phaseArrowStartX} ${labelPositions.phaseArrowY} H ${labelPositions.phaseArrowEndX - 18} L ${labelPositions.phaseArrowEndX} ${labelPositions.phaseArrowY} L ${labelPositions.phaseArrowEndX - 18} ${labelPositions.phaseArrowY + 18}`}
         fill="none"
         stroke="#b7b7b7"
-        strokeWidth={4}
+        strokeWidth={2}
         strokeLinecap="round"
         strokeLinejoin="round"
         vectorEffect="non-scaling-stroke"
