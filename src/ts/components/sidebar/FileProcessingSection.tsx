@@ -5,6 +5,7 @@ import { Activity, Download, Trash2, CheckCircle2, Play, Pause, Loader2 } from "
 import FileMetadata from "./FileMetadata";
 
 import { fileRegistry } from "../../utils/fileRegistry";
+import { useDragAndDropFiles } from "@n-apt/hooks/useDragAndDropFiles";
 
 // Import NaptMetadata type from FileMetadata component
 import type { NaptMetadata } from "./FileMetadata";
@@ -322,8 +323,6 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
 
   const stitchButtonRef = useRef<HTMLButtonElement | null>(null);
 
-  const [isDragging, setIsDragging] = React.useState(false);
-
   const processFiles = (files: File[]) => {
     if (files.length === 0) return;
 
@@ -347,33 +346,21 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
     }, 50);
   };
 
+  const {
+    isDragging,
+    onDragEnter,
+    onDragOver,
+    onDragLeave,
+    onDrop,
+  } = useDragAndDropFiles({
+    onFilesDropped: processFiles,
+  });
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files) return;
     processFiles(Array.from(e.target.files));
     // Reset value so selection of same file triggers onChange again
     e.target.value = "";
-  };
-
-  const onDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(true);
-  };
-
-  const onDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(false);
-  };
-
-  const onDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(false);
-
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      processFiles(Array.from(e.dataTransfer.files));
-    }
   };
 
   const removeFile = (index: number) => {
@@ -392,7 +379,9 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
 
   return (
     <DropZone
+      data-testid="file-drop-zone"
       $isDragging={isDragging}
+      onDragEnter={onDragEnter}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}

@@ -1,8 +1,7 @@
 import React, { useEffect, useCallback, useRef, useMemo } from "react";
 import styled from "styled-components";
-import { FFTCanvas } from "@n-apt/components";
+import { FFTAndWaterfall } from "@n-apt/components";
 import type { FFTCanvasHandle } from "@n-apt/components";
-import type { SnapshotData } from "@n-apt/components/FFTCanvas";
 import ClassificationControls from "@n-apt/components/ClassificationControls";
 import FFTPlaybackCanvas from "@n-apt/components/FFTPlaybackCanvas";
 import { useSnapshot } from "@n-apt/hooks/useSnapshot";
@@ -46,6 +45,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
   const {
     state,
     dispatch,
+    fftVisualizerMachine,
     manualVisualizerPaused,
     effectiveSdrSettings,
     signalAreaBounds,
@@ -58,7 +58,6 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
       deviceProfile,
       sendFrequencyRange,
       sendTrainingCommand,
-      sendGetAutoFftOptions,
       dataRef,
       captureStatus,
       sendPowerScaleCommand: _sendPowerScaleCommand,
@@ -180,7 +179,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
                   onCaptureStop={handleTrainingCaptureStop}
                 />
               )}
-              <FFTCanvas
+              <FFTAndWaterfall
                 ref={fftCanvasRef}
                 dataRef={dataRef}
                 frequencyRange={state.frequencyRange}
@@ -223,8 +222,6 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
                   })
                 }
                 fftFrameRate={state.fftFrameRate}
-                sendGetAutoFftOptions={sendGetAutoFftOptions}
-                autoFftOptions={state.autoFftOptions}
                 isWaterfallCleared={state.isWaterfallCleared}
                 onResetWaterfallCleared={() =>
                   dispatch({ type: "RESET_WATERFALL_CLEARED" })
@@ -235,6 +232,8 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
                   deviceState !== "loading" &&
                   deviceState !== "stale"
                 }
+                visualizerMachine={fftVisualizerMachine}
+                visualizerSessionKey="live"
               />
             </>
           )}
@@ -272,6 +271,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
             onFftDbLimitsChange={(min, max) =>
               dispatch({ type: "SET_FFT_DB_LIMITS", min, max })
             }
+            visualizerMachine={fftVisualizerMachine}
           />
         )}
       </SpectrumContent>

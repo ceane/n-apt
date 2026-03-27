@@ -21,9 +21,10 @@ import remarkSignalCanvasBlocks from "./remarkSignalCanvasBlocks";
 import remarkIconShortcodes from "./remarkIconShortcodes";
 import remarkLatexCodeBlocks from "./remarkLatexCodeBlocks";
 import GiscusComments from "./GiscusComments";
+import { getBaseUrl } from "./getBaseUrl";
 
 const DEFAULT_SOURCE = "/pages/how-do-they-do-it.md";
-const BASE_URL = (import.meta.env.BASE_URL ?? "/").replace(/\/$/, "");
+const BASE_URL = getBaseUrl();
 
 const candidateAssetPaths = (relativePath: string) => {
   const sanitized = relativePath.replace(/^\/+/, "");
@@ -75,6 +76,15 @@ const renderDisplayExpression = (expression: string) => katex.renderToString(exp
   strict: "warn",
   output: "html",
 });
+
+type HotModuleApi = {
+  on: (event: string, callback: (payload: { path?: string }) => void) => void;
+  off?: (event: string, callback: (payload: { path?: string }) => void) => void;
+};
+
+const getHotModuleApi = () => {
+  return (globalThis as typeof globalThis & { import?: { meta?: { hot?: HotModuleApi } } }).import?.meta?.hot;
+};
 
 type LatexBlockProps = React.HTMLAttributes<HTMLElement> & {
   "data-expressions"?: string;
@@ -224,7 +234,8 @@ const App: React.FC = () => {
   }, [activeSource, fetchMarkdown]);
 
   useEffect(() => {
-    if (!import.meta.hot) {
+    const hot = getHotModuleApi();
+    if (!hot) {
       return;
     }
 
@@ -238,9 +249,9 @@ const App: React.FC = () => {
       }
     };
 
-    import.meta.hot.on("pages:update", handleUpdate);
+    hot.on("pages:update", handleUpdate);
     return () => {
-      import.meta.hot?.off("pages:update", handleUpdate);
+      hot.off?.("pages:update", handleUpdate);
     };
   }, [activeSource, fetchMarkdown]);
 

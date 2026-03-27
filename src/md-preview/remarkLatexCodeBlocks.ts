@@ -1,6 +1,6 @@
 import type { Code, Content, Parent } from "mdast";
 import type { Plugin } from "unified";
-import { visit } from "unist-util-visit";
+import { visitMdastNodes } from "./visitMdastNodes";
 
 const LATEX_LANGS = new Set(["latex", "tex"]);
 
@@ -35,7 +35,7 @@ const collectExpressions = (value: string) => {
 const serializeExpressions = (expressions: string[]) => encodeURIComponent(JSON.stringify(expressions));
 
 const remarkLatexCodeBlocks: Plugin = () => (tree) => {
-  visit(tree, "code", (node: Code, index, parent: Parent | undefined) => {
+  visitMdastNodes<Code>(tree, "code", (node: Code, index, parent: Parent) => {
     if (!parent || typeof index !== "number") {
       return;
     }

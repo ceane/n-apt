@@ -4,7 +4,6 @@ import App from "@n-apt/App";
 import ReduxProvider from "@n-apt/components/ReduxProvider";
 import "katex/dist/katex.min.css";
 
-console.log("Main.tsx is executing...");
 const root = ReactDOM.createRoot(
   document.getElementById("root") as HTMLElement,
 );

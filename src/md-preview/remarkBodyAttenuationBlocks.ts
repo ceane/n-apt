@@ -1,11 +1,11 @@
 import type { Code, Content, Parent } from "mdast";
 import type { Plugin } from "unified";
-import { visit } from "unist-util-visit";
+import { visitMdastNodes } from "./visitMdastNodes";
 
 const BODY_ATTENUATION_LANG = "canvas::bodyattenuation";
 
 const remarkBodyAttenuationBlocks: Plugin = () => (tree) => {
-  visit(tree, "code", (node: Code, index, parent: Parent | undefined) => {
+  visitMdastNodes<Code>(tree, "code", (node: Code, index, parent: Parent) => {
     if (!parent || typeof index !== "number") {
       return;
     }

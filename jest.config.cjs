@@ -2,7 +2,10 @@
 module.exports = {
   preset: "ts-jest",
   testEnvironment: "jsdom",
-  setupFilesAfterEnv: ["<rootDir>/test/ts/setup.ts"],
+  setupFilesAfterEnv: [
+    "<rootDir>/test/ts/setup.ts",
+    "<rootDir>/jest.canvasSetup.cjs",
+  ],
   extensionsToTreatAsEsm: [".ts", ".tsx"],
   moduleNameMapper: {
     "^(\\.{1,2}/.*)\\.js$": "$1",

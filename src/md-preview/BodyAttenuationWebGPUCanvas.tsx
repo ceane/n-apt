@@ -4,8 +4,9 @@ import { useTexture } from "@react-three/drei";
 import styled from "styled-components";
 import * as THREE from "three";
 import { CanvasText } from "./CanvasText";
+import { getBaseUrl } from "./getBaseUrl";
 
-const BASE_URL = (import.meta.env.BASE_URL ?? "/").replace(/\/$/, "");
+const BASE_URL = getBaseUrl();
 const BODY_CHARACTER_SRC = `${BASE_URL}/md-preview/body-attenuation-character.png`;
 const BACKGROUND_COLOR = "#e0e0e2";
 

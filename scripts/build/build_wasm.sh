@@ -6,6 +6,20 @@
 
 set -e
 
+# Parse arguments
+FORCE_BUILD=false
+while [[ "$1" == --* ]]; do
+    case "$1" in
+        --force)
+            FORCE_BUILD=true
+            shift
+            ;;
+        *)
+            shift
+            ;;
+    esac
+done
+
 echo ""
 echo "🔨 Building WASM SIMD module..."
 echo "📋 This will compile Rust FFT processing with SIMD optimizations for WebAssembly"
@@ -28,9 +42,12 @@ rustup target list --installed | grep wasm32-unknown-unknown >/dev/null || {
     rustup target add wasm32-unknown-unknown
 }
 
-# Build the WASM module only if needed
+# Build the WASM module only if needed or forced
 echo "🔍 Checking if WASM SIMD module needs to be built..."
-if scripts/check_changes.sh "$WASM_OUT" "src/rs/lib.rs" "src/rs/simd/*.rs" "src/rs/wasm/*.rs" "Cargo.toml" "Cargo.lock"; then
+if [ "$FORCE_BUILD" = true ] || scripts/check_changes.sh "$WASM_OUT" "src/rs/lib.rs" "src/rs/simd/*.rs" "src/rs/wasm/*.rs" "Cargo.toml" "Cargo.lock"; then
+    if [ "$FORCE_BUILD" = true ]; then
+        echo "🔄 Force rebuild requested..."
+    fi
     echo "📦 Building WASM SIMD module with optimizations..."
     mkdir -p "$WASM_OUT"
     RUSTFLAGS="-C target-feature=+simd128" wasm-pack build --target web --out-dir "$WASM_OUT" --dev

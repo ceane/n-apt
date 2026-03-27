@@ -114,6 +114,7 @@ export interface WebSocketState {
   
   // Data
   spectrumFrames: SpectrumFrame[];
+  dataFrameCounter: 0; // Increment when live data arrives
   
   // Capture and processing
   captureStatus: CaptureStatus;
@@ -151,6 +152,7 @@ const initialState: WebSocketState = {
   sdrSettings: null,
   
   spectrumFrames: [],
+  dataFrameCounter: 0,
   
   captureStatus: null,
   autoFftOptions: loadPersistedAutoFftOptions(), // Load cached options on startup
@@ -274,6 +276,11 @@ const websocketSlice = createSlice({
     setPaused: (state, action: PayloadAction<boolean>) => {
       state.isPaused = action.payload;
     },
+    
+    // Data frame counter - increment when live data arrives
+    incrementDataFrameCounter: (state) => {
+      state.dataFrameCounter += 1;
+    },
   },
 });
 
@@ -293,6 +300,7 @@ export const {
   queueMessage,
   clearQueuedMessages,
   setPaused,
+  incrementDataFrameCounter,
 } = websocketSlice.actions;
 
 export default websocketSlice.reducer;

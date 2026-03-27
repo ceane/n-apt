@@ -1,6 +1,6 @@
 import type { Code, Content, Parent } from "mdast";
 import type { Plugin } from "unified";
-import { visit } from "unist-util-visit";
+import { visitMdastNodes } from "./visitMdastNodes";
 
 const SIGNAL_TAGS: Record<string, string> = {
   "canvas::phaseshifting": "<phase-shifting-canvas></phase-shifting-canvas>",
@@ -11,7 +11,7 @@ const SIGNAL_TAGS: Record<string, string> = {
 };
 
 const remarkSignalCanvasBlocks: Plugin = () => (tree) => {
-  visit(tree, "code", (node: Code, index, parent: Parent | undefined) => {
+  visitMdastNodes<Code>(tree, "code", (node: Code, index, parent: Parent) => {
     if (!parent || typeof index !== "number") {
       return;
     }

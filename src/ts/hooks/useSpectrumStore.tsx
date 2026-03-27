@@ -38,6 +38,10 @@ import {
   sendDemodulateCommand as sendDemodulateCommandThunk,
 } from "@n-apt/redux/thunks/websocketThunks";
 import { deriveStateFromConfig } from "@n-apt/hooks/useSdrSettings";
+import {
+  createFFTVisualizerMachine,
+  type FFTVisualizerMachine,
+} from "@n-apt/utils/fftVisualizerMachine";
 
 // Types
 export type SourceMode = "live" | "file";
@@ -501,6 +505,7 @@ export function spectrumReducer(
 export type SpectrumStoreContextValue = {
   state: SpectrumState;
   dispatch: React.Dispatch<SpectrumAction>;
+  fftVisualizerMachine: FFTVisualizerMachine;
   manualVisualizerPaused: boolean;
   setManualVisualizerPaused: React.Dispatch<React.SetStateAction<boolean>>;
   effectiveFrames: SpectrumFrame[];
@@ -582,6 +587,11 @@ export const SpectrumProvider: React.FC<SpectrumProviderProps> = ({
     ...INITIAL_SPECTRUM_STATE,
     ...loadPersistedSdrSettings(),
   });
+  const fftVisualizerMachineRef = useRef<FFTVisualizerMachine | null>(null);
+  if (!fftVisualizerMachineRef.current) {
+    fftVisualizerMachineRef.current = createFFTVisualizerMachine();
+  }
+  const fftVisualizerMachine = fftVisualizerMachineRef.current;
   const location = useLocation();
   const reduxDispatch = useAppDispatch();
 
@@ -1056,6 +1066,7 @@ export const SpectrumProvider: React.FC<SpectrumProviderProps> = ({
     () => ({
       state,
       dispatch,
+      fftVisualizerMachine,
       manualVisualizerPaused,
       setManualVisualizerPaused,
       effectiveFrames,
@@ -1072,6 +1083,7 @@ export const SpectrumProvider: React.FC<SpectrumProviderProps> = ({
     }),
     [
       state,
+      fftVisualizerMachine,
       manualVisualizerPaused,
       effectiveFrames,
       effectiveSdrSettings,
