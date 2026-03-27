@@ -4,6 +4,14 @@ import { validateWaterfallDataComprehensive } from "@n-apt/validation";
 export const SNAPSHOT_WAVEFORM_KEY = "n-apt-fft-waveform-snapshot";
 export const SNAPSHOT_WATERFALL_KEY = "n-apt-fft-waterfall-snapshot";
 export const SNAPSHOT_WATERFALL_DIMS_KEY = "n-apt-fft-waterfall-dims";
+export const SNAPSHOT_IQ_KEY = "n-apt-fft-iq-snapshot";
+
+export const getPauseSnapshotStorageKeys = (scope = "default") => ({
+  waveform: `${SNAPSHOT_WAVEFORM_KEY}:${scope}`,
+  waterfall: `${SNAPSHOT_WATERFALL_KEY}:${scope}`,
+  waterfallDims: `${SNAPSHOT_WATERFALL_DIMS_KEY}:${scope}`,
+  iq: `${SNAPSHOT_IQ_KEY}:${scope}`,
+});
 
 export interface PauseLogicOptions {
   isPaused: boolean;
@@ -23,6 +31,7 @@ export interface PauseLogicOptions {
   fftSize?: number;
   sampleRate?: number;
   centerFrequencyHz?: number;
+  snapshotScope?: string;
 }
 
 export function usePauseLogic({
@@ -37,13 +46,16 @@ export function usePauseLogic({
   fftSize,
   sampleRate,
   centerFrequencyHz,
+  snapshotScope = "default",
 }: PauseLogicOptions) {
+  const storageKeys = getPauseSnapshotStorageKeys(snapshotScope);
+
   const saveFrameData = useCallback(() => {
     try {
       const waveform = renderWaveformRef.current || waveformFloatRef.current;
       if (waveform && waveform.length > 0) {
         sessionStorage.setItem(
-          SNAPSHOT_WAVEFORM_KEY,
+          storageKeys.waveform,
           JSON.stringify(Array.from(waveform)),
         );
       }
@@ -55,7 +67,7 @@ export function usePauseLogic({
         for (let i = 0; i < iq.length; i += chunkSize) {
           iqBinary += String.fromCharCode(...iq.subarray(i, i + chunkSize));
         }
-        sessionStorage.setItem("n-apt-fft-iq-snapshot", btoa(iqBinary));
+        sessionStorage.setItem(storageKeys.iq, btoa(iqBinary));
       }
       const wfBuf = waterfallBufferRef.current;
       const wfDims = waterfallDimsRef.current;
@@ -90,20 +102,34 @@ export function usePauseLogic({
         for (let i = 0; i < bytes.length; i += chunkSize) {
           binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
         }
-        sessionStorage.setItem(SNAPSHOT_WATERFALL_KEY, btoa(binary));
+        sessionStorage.setItem(storageKeys.waterfall, btoa(binary));
         sessionStorage.setItem(
-          SNAPSHOT_WATERFALL_DIMS_KEY,
+          storageKeys.waterfallDims,
           JSON.stringify(wfDims),
         );
       }
     } catch {
       /* ignore */
     }
-  }, [renderWaveformRef, waterfallBufferRef, waterfallDimsRef]);
+  }, [
+    centerFrequencyHz,
+    dataRef,
+    fftSize,
+    isPaused,
+    renderWaveformRef,
+    sampleRate,
+    storageKeys.iq,
+    storageKeys.waterfall,
+    storageKeys.waterfallDims,
+    storageKeys.waveform,
+    waterfallBufferRef,
+    waterfallDimsRef,
+    waveformFloatRef,
+  ]);
 
   const restoreWaveformFromStorage = useCallback(() => {
     try {
-      const waveformJson = sessionStorage.getItem(SNAPSHOT_WAVEFORM_KEY);
+      const waveformJson = sessionStorage.getItem(storageKeys.waveform);
       if (waveformJson) {
         const arr = JSON.parse(waveformJson) as number[];
         const restored = Float32Array.from(arr);
@@ -113,7 +139,7 @@ export function usePauseLogic({
         }
       }
 
-      const iqBase64 = sessionStorage.getItem("n-apt-fft-iq-snapshot");
+      const iqBase64 = sessionStorage.getItem(storageKeys.iq);
       if (iqBase64) {
         const binary = atob(iqBase64);
         const iq = new Uint8Array(binary.length);
@@ -127,8 +153,8 @@ export function usePauseLogic({
         }
       }
 
-      const wfBase64 = sessionStorage.getItem(SNAPSHOT_WATERFALL_KEY);
-      const wfDimsJson = sessionStorage.getItem(SNAPSHOT_WATERFALL_DIMS_KEY);
+      const wfBase64 = sessionStorage.getItem(storageKeys.waterfall);
+      const wfDimsJson = sessionStorage.getItem(storageKeys.waterfallDims);
       if (wfBase64 && wfDimsJson) {
         const dims = JSON.parse(wfDimsJson) as {
           width: number;
@@ -146,7 +172,12 @@ export function usePauseLogic({
       /* ignore */
     }
   }, [
+    dataRef,
     renderWaveformRef,
+    storageKeys.iq,
+    storageKeys.waterfall,
+    storageKeys.waterfallDims,
+    storageKeys.waveform,
     waveformFloatRef,
     waterfallBufferRef,
     waterfallDimsRef,

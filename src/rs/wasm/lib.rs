@@ -26,8 +26,6 @@ impl WASMSIMDProcessor {
     let mut planner = FftPlanner::new();
     let fft = planner.plan_fft(fft_size, FftDirection::Forward);
 
-    console::log_1(&"✅ WASM SIMD module loaded successfully".into());
-
     // Default values from signals.yaml
     // tuner_gain: 496 (in tenths) = 49.6 dB, ppm: 1.0
     WASMSIMDProcessor {
@@ -185,14 +183,11 @@ pub fn wasm_main() {
 
 #[wasm_bindgen]
 pub fn test_wasm_simd_availability() -> bool {
-  console::log_1(&"🔧 Testing WASM SIMD availability...".into());
-
   // Test basic WASM functionality
   let test_data = vec![1.0f32, 2.0f32, 3.0f32, 4.0f32];
   let processor = WASMSIMDProcessor::new(4);
   let result = processor.process(&test_data);
 
-  console::log_1(&"✅ WASM SIMD test completed".into());
   result.len() == 4
 }
 

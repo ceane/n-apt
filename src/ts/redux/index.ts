@@ -259,7 +259,6 @@ export * from './selectors/performanceSelectors';
 
 // Export middleware (for advanced usage)
 export { default as websocketMiddleware } from './middleware/websocketMiddleware';
-export { default as indexedDBMiddleware } from './middleware/indexedDBMiddleware';
 export { default as localStorageMiddleware } from './middleware/localStorageMiddleware';
 
 // Export persistence helpers
@@ -270,11 +269,3 @@ export {
   loadPersistedSpectrumFrames,
   loadPersistedSdrSettingsCache,
 } from './middleware/localStorageMiddleware';
-
-export {
-  loadPersistedWaterfallData,
-  loadPersistedWebSocketData,
-  loadPersistedSpectrumData,
-  clearIndexedDBData,
-  cleanupIndexedDBData,
-} from './middleware/indexedDBMiddleware';

@@ -1,11 +1,84 @@
 import "@testing-library/jest-dom";
 import "resize-observer-polyfill";
+import React from "react";
 
 // Polyfill for TextEncoder/TextDecoder for Jest environment
 const { TextEncoder, TextDecoder } = require("util");
 
 global.TextEncoder = TextEncoder;
 global.TextDecoder = TextDecoder;
+
+jest.mock("three/webgpu", () => ({
+  WebGPURenderer: jest.fn().mockImplementation(() => ({
+    init: jest.fn().mockResolvedValue(undefined),
+    setClearColor: jest.fn(),
+    setSize: jest.fn(),
+    render: jest.fn(),
+    dispose: jest.fn(),
+    domElement: document.createElement("canvas"),
+  })),
+}));
+
+jest.mock("@react-three/fiber", () => ({
+  Canvas: ({ className, style }: any) =>
+    React.createElement(
+      "div",
+      { "data-testid": "r3f-canvas", className, style },
+      React.createElement("canvas", { role: "img" }),
+    ),
+  useFrame: jest.fn(),
+  useThree: jest.fn(() => ({
+    gl: {
+      render: jest.fn(),
+      setSize: jest.fn(),
+      domElement: document.createElement("canvas"),
+    },
+    camera: {
+      position: { set: jest.fn() },
+      lookAt: jest.fn(),
+      updateProjectionMatrix: jest.fn(),
+      type: "OrthographicCamera",
+      zoom: 1,
+    },
+    scene: { add: jest.fn(), remove: jest.fn() },
+    size: { width: 800, height: 600 },
+    viewport: { width: 10, height: 6 },
+  })),
+}));
+
+jest.mock("@react-three/drei", () => ({
+  Html: ({ children }: any) => React.createElement("div", null, children),
+  Text: ({ children }: any) => React.createElement("span", null, children),
+  Line: () => null,
+  useTexture: jest.fn(() => ({
+    colorSpace: "",
+    anisotropy: 0,
+    wrapS: 0,
+    wrapT: 0,
+    minFilter: 0,
+    magFilter: 0,
+    generateMipmaps: false,
+    needsUpdate: false,
+    repeat: { set: jest.fn() },
+    offset: { set: jest.fn() },
+  })),
+}));
+
+jest.mock("@react-three/flex", () => ({
+  Flex: ({ children }: any) => React.createElement("div", null, children),
+  Box: ({ children }: any) => React.createElement("div", null, children),
+}), { virtual: true });
+
+jest.mock("@react-three/postprocessing", () => ({
+  EffectComposer: ({ children }: any) => children ?? null,
+  Bloom: () => null,
+}), { virtual: true });
+
+jest.mock("leva", () => ({
+  LevaPanel: () => null,
+  useControls: jest.fn(() => ({})),
+  useCreateStore: jest.fn(() => ({})),
+}));
 
 // Mock Worker for fileWorkerManager tests
 global.Worker = jest.fn().mockImplementation(() => ({

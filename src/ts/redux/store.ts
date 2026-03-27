@@ -12,7 +12,6 @@ import noteCardsSlice from './slices/noteCardsSlice';
 
 // Import middleware (will be created next)
 import websocketMiddleware from './middleware/websocketMiddleware';
-import indexedDBMiddleware from './middleware/indexedDBMiddleware';
 import localStorageMiddleware from './middleware/localStorageMiddleware';
 
 export const store = configureStore({
@@ -46,7 +45,6 @@ export const store = configureStore({
       },
     }).concat(
       websocketMiddleware,
-      indexedDBMiddleware,
       localStorageMiddleware
     ),
   devTools: process.env.NODE_ENV !== 'production',

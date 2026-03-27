@@ -11,6 +11,7 @@ import {
   setCryptoCorrupted,
   queueMessage,
   clearQueuedMessages,
+  incrementDataFrameCounter,
 } from '../slices/websocketSlice';
 import { decryptPayload, decryptBinaryPayload } from '@n-apt/crypto/webcrypto';
 import { AutoFftOptionsResponse } from '@n-apt/consts/schemas/websocket';
@@ -120,10 +121,12 @@ const BATCH_DELAY_MS = 16; // ~60fps
 const DISCONNECT_GRACE_MS = 150;
 
 // Process batched data updates — writes directly to liveDataRef, no Redux dispatch.
-const processBatchedData = () => {
+const processBatchedData = (dispatch: Dispatch) => {
   if (pendingDataUpdate !== null) {
     liveDataRef.current = pendingDataUpdate;
     pendingDataUpdate = null;
+    // Dispatch action to trigger state machine updates
+    dispatch(incrementDataFrameCounter());
   }
   dataBatchTimeout = null;
 };
@@ -443,7 +446,10 @@ const processBinaryMessage = async (dispatch: Dispatch, getState: () => any, buf
     }
     
     // Batch the data update to prevent excessive re-renders
-    queueLiveData(spectrumData);
+    pendingDataUpdate = spectrumData;
+    if (dataBatchTimeout === null) {
+      dataBatchTimeout = window.setTimeout(() => processBatchedData(dispatch), BATCH_DELAY_MS);
+    }
   } catch (e) {
     console.error("Binary decryption failed:", e);
     dispatch(setCryptoCorrupted());

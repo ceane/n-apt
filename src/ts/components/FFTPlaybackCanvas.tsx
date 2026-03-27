@@ -1,12 +1,14 @@
 import React, { useEffect, useLayoutEffect, useRef, useMemo, forwardRef } from "react";
 import styled from "styled-components";
-import { FFTCanvas } from "@n-apt/components";
+import { FFTAndWaterfall } from "@n-apt/components";
 import type { FFTCanvasHandle } from "@n-apt/components/FFTCanvas";
 import { useStitchingLogic } from "@n-apt/hooks/useStitchingLogic";
 import { usePlaybackAnimation } from "@n-apt/hooks/usePlaybackAnimation";
 import { useChannelManagement } from "@n-apt/hooks/useChannelManagement";
 import { useAppDispatch } from "@n-apt/redux";
 import { setActivePlaybackMetadata, clearActivePlaybackMetadata } from "@n-apt/redux";
+import type { FFTVisualizerMachine } from "@n-apt/utils/fftVisualizerMachine";
+import { buildPlaybackSeedFrame } from "@n-apt/utils/playbackSeedFrame";
 
 interface FFTPlaybackCanvasProps {
   selectedFiles: { id: string; name: string; downloadUrl?: string }[];
@@ -25,6 +27,7 @@ interface FFTPlaybackCanvasProps {
   onFftDbLimitsChange?: (min: number, max: number) => void;
   displayMode: "fft" | "iq";
   powerScale?: "dB" | "dBm";
+  visualizerMachine?: FFTVisualizerMachine;
 }
 
 const StitcherContainer = styled.div`
@@ -133,6 +136,7 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(({
   onFftDbLimitsChange,
   displayMode,
   powerScale,
+  visualizerMachine,
 }, forwardedRef) => {
   const dispatch = useAppDispatch();
   // ── Custom hooks for separated concerns ──
@@ -227,6 +231,13 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(({
     new Set(selectedFiles.map(f => f.name)),
     [selectedFiles]
   );
+  const visualizerSessionKey = useMemo(() => {
+    const fileIdentity = selectedFiles
+      .map((file) => file.id || file.name)
+      .sort()
+      .join("|");
+    return `playback:${displayMode}:${stitchTrigger ?? 0}:${fileIdentity}`;
+  }, [displayMode, selectedFiles, stitchTrigger]);
 
   useEffect(() => {
     const nameKey = Array.from(fileNamesSet).sort().join("|");
@@ -242,7 +253,19 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(({
     allChannelsRef.current = [];
   }, [fileNamesSet, setChannelCount, setActiveChannel, dispatch]);
 
-  // ── Cleanup worker data on unmount ──
+  // ── Handle stitched data state changes ──
+  useEffect(() => {
+    if (hasStitchedData) {
+      const channelData =
+        allChannelsRef.current[activeChannel] ?? allChannelsRef.current[0];
+      fftCanvasDataRef.current = buildPlaybackSeedFrame({
+        displayMode,
+        precomputedFrames: precomputedFrames.current,
+        channelData,
+      });
+    }
+  }, [activeChannel, allChannelsRef, displayMode, hasStitchedData, precomputedFrames]);
+
   useEffect(() => {
     return () => {
       workerFileDataCache.current = [];
@@ -260,7 +283,7 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(({
     <StitcherContainer>
       {hasStitchedData ? (
         <VisualizationContainer>
-          <FFTCanvas
+          <FFTAndWaterfall
             ref={forwardedRef}
             dataRef={fftCanvasDataRef}
             frequencyRange={frequencyRange}
@@ -278,8 +301,9 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(({
             hardwareSampleRateHz={hardwareSampleRateHz}
             isIqRecordingActive={true}
             fftFrameRate={allChannelsRef.current[activeChannel]?.frame_rate}
-            displayMode={displayMode}
             powerScale={powerScale}
+            visualizerMachine={visualizerMachine}
+            visualizerSessionKey={visualizerSessionKey}
           />
           <ChannelSelector
             channelCount={channelCount}

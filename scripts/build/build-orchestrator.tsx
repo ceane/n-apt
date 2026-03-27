@@ -470,7 +470,7 @@ exit 1
       },
       {
         index: 4,
-        command: 'npm run build:wasm',
+        command: 'npm run build:wasm -- --force',
         description: 'Building WASM SIMD module',
         isBackground: false,
         pidKey: undefined,

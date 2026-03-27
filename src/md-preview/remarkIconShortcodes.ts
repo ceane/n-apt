@@ -1,6 +1,6 @@
 import type { Plugin } from "unified";
-import { visit } from "unist-util-visit";
 import type { Content, Parent, Text } from "mdast";
+import { visitMdastNodes } from "./visitMdastNodes";
 
 const ICON_PATTERN = /:((?:icon-)?[a-z0-9-]+):/gi;
 
@@ -10,7 +10,7 @@ const createIconNode = (slug: string): Content => ({
 });
 
 const remarkIconShortcodes: Plugin = () => (tree) => {
-  visit(tree, "text", (node: Text, index, parent: Parent | undefined) => {
+  visitMdastNodes<Text>(tree, "text", (node: Text, index, parent: Parent) => {
     if (!parent || typeof index !== "number" || !node.value.includes(":")) {
       return;
     }

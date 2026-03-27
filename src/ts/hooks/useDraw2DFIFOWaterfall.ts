@@ -5,12 +5,13 @@ import { spectrumToAmplitude } from "@n-apt/consts/types";
 export interface Draw2DFIFOWaterfallOptions {
   canvas: HTMLCanvasElement;
   waterfallBuffer: Uint8ClampedArray;
+  fftFrame?: number[] | Float32Array;
   frequencyRange: { min: number; max: number };
   waterfallMin?: number;
   waterfallMax?: number;
   driftAmount?: number;
   driftDirection?: number;
-  colormap?: string;
+  colormap?: number[][];
   fftSize?: number;
   sampleRate?: number;
   centerFrequencyHz?: number;
@@ -107,12 +108,13 @@ export function useDraw2DFIFOWaterfall() {
       const {
         canvas,
         waterfallBuffer,
+        fftFrame,
         frequencyRange,
         waterfallMin = -80,
         waterfallMax = 20,
         driftAmount = 0,
         driftDirection = 0,
-        colormap,
+        colormap = [[0, 0, 0], [255, 255, 255]],
         fftSize,
         sampleRate,
         centerFrequencyHz,
