@@ -14,39 +14,41 @@ import { PromptProvider } from "@n-apt/components/ui";
 import "katex/dist/katex.min.css";
 
 // Main App component with BrowserRouter wrapper
-const App: React.FC = () => (
-  <>
-    <Helmet>
-      <title>n-apt - Signal Analysis Tool</title>
-      <meta name="description" content="Advanced signal analysis and processing tool" />
-      <meta name="viewport" content="width=device-width, initial-scale=1" />
-    </Helmet>
-    <Router>
-      <ReduxThemeProvider>
-        <AuthProvider>
-          <SpectrumProvider>
-            <AuthRoute>
-              <PromptProvider>
-                <AppRoutes />
-              </PromptProvider>
-            </AuthRoute>
-          </SpectrumProvider>
-        </AuthProvider>
-      </ReduxThemeProvider>
-    </Router>
-    {(process.env.NODE_ENV === "development" || true) && (
-      <>
-        <Agentation
-          className="agentation-toolbar"
-          endpoint="http://localhost:4747"
-          onSessionCreated={(sessionId) => {
-            console.log("Session started:", sessionId);
-          }}
-        />
-      </>
-    )}
-  </>
-);
+const App: React.FC = () => {
+  return (
+    <>
+      <Helmet>
+        <title>n-apt - Signal Analysis Tool</title>
+        <meta name="description" content="Advanced signal analysis and processing tool" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+      </Helmet>
+      <Router>
+        <ReduxThemeProvider>
+          <AuthProvider>
+            <SpectrumProvider>
+              <AuthRoute>
+                <PromptProvider>
+                  <AppRoutes />
+                </PromptProvider>
+              </AuthRoute>
+            </SpectrumProvider>
+          </AuthProvider>
+        </ReduxThemeProvider>
+      </Router>
+      {(process.env.NODE_ENV === "development" || true) && (
+        <>
+          <Agentation
+            className="agentation-toolbar"
+            endpoint="http://localhost:4747"
+            onSessionCreated={(sessionId) => {
+              console.log("Session started:", sessionId);
+            }}
+          />
+        </>
+      )}
+    </>
+  );
+};
 
 // Render the app
 const root = ReactDOM.createRoot(

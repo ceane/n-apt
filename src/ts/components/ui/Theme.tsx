@@ -160,6 +160,7 @@ export const GlobalThemeStyle = createGlobalStyle`
     background: ${({ theme }) => theme.colors.background};
     color: ${({ theme }) => theme.colors.textPrimary};
     font-family: ${({ theme }) => theme.typography.body};
+    overscroll-behavior-x: none;
   }
 
   body {

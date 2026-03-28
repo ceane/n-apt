@@ -612,6 +612,7 @@ pub struct SpectrumFrameMessage {
 pub struct CaptureArtifact {
   pub filename: String,
   pub path: std::path::PathBuf,
+  pub file_size: u64,
 }
 
 // REST auth request/response types

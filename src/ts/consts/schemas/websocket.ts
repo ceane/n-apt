@@ -120,6 +120,8 @@ export type CaptureStatus = {
   filename?: string;
   fileCount?: number;
   ephemeral?: boolean;
+  timestamp?: number;
+  fileSize?: number;
 } | null;
 
 export type AutoFftOptionsResponse = {

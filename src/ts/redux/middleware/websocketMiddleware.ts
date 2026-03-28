@@ -292,6 +292,8 @@ const processMessage = (dispatch: Dispatch, getState: () => any, parsedData: any
           downloadUrl: statusObj.downloadUrl,
           filename: statusObj.filename,
           fileCount: typeof statusObj.fileCount === "number" ? statusObj.fileCount : undefined,
+          timestamp: statusObj.timestamp,
+          fileSize: typeof statusObj.fileSize === "number" ? statusObj.fileSize : undefined,
         };
         if (statusObj.error) {
           (newStatus as any).error = statusObj.error;

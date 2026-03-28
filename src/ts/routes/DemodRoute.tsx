@@ -1,8 +1,8 @@
 import React from "react";
 import styled from "styled-components";
-import { AnalysisTriggers } from "@n-apt/components/analysis/AnalysisTriggers";
+import { DemodFromIQ } from "@n-apt/components/analysis/DemodFromIQ";
 import { VisionScene } from "@n-apt/components/analysis/VisionScene";
-import { AptDemodViz } from "@n-apt/components/analysis/AptDemodViz";
+import { DemodAPTFFTs } from "@n-apt/components/analysis/DemodAPTFFTs";
 import ClassificationControls from "@n-apt/components/ClassificationControls";
 import { useDemod } from "@n-apt/contexts/DemodContext";
 import { useAuthentication } from "@n-apt/hooks/useAuthentication";
@@ -12,12 +12,18 @@ const DemodContainer = styled.div`
   flex: 1;
   display: flex;
   flex-direction: column;
-  padding: 24px;
-  gap: 24px;
   overflow-y: auto;
   max-height: 100%;
   min-height: 0;
   box-sizing: border-box;
+`;
+
+const FileUploadContainer = styled.div`
+  padding-bottom: 12px;
+`;
+
+const FileInput = styled.input`
+  color: white;
 `;
 
 export const DemodRoute: React.FC = () => {
@@ -114,18 +120,18 @@ export const DemodRoute: React.FC = () => {
         onCaptureStop={handleCaptureStop}
       />
 
-      <div style={{ paddingBottom: 12 }}>
-        <input type="file" onChange={handleFileUpload} accept=".napt,.wav" style={{ color: "white" }} />
-      </div>
-
-      <AnalysisTriggers />
+      <DemodFromIQ />
 
       {analysisSession.state === 'capturing' && analysisSession.type === 'vision' && (
         <VisionScene session={analysisSession} />
       )}
 
+      <FileUploadContainer>
+        <FileInput type="file" onChange={handleFileUpload} accept=".napt,.wav" />
+      </FileUploadContainer>
+
       {currentIQData && (
-        <AptDemodViz
+        <DemodAPTFFTs
           iqData={currentIQData}
           sampleRate={captureMeta?.capture_sample_rate_hz || (captureMeta?.sampleRate) || 32768}
           centerFreq={captureMeta?.center_frequency_hz ? (captureMeta.center_frequency_hz / 1e6) : 137.1}

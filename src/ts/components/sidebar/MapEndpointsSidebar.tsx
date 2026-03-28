@@ -2,7 +2,7 @@ import React from "react";
 import styled from "styled-components";
 import { CollapsibleTitle, CollapsibleBody, Row, usePrompt } from "@n-apt/components/ui";
 import { useMapLocations } from "@n-apt/hooks/useMapLocations";
-import { Autocomplete } from "@react-google-maps/api";
+import { EndpointsListAndSearch } from "@n-apt/components/sidebar/EndpointsListAndSearch";
 
 
 const SidebarContainer = styled.div`
@@ -225,10 +225,39 @@ const AttributionDetail = styled.div`
   color: ${(props) => props.theme.metadataLabel};
 `;
 
+const SearchResults = styled.div`
+  grid-column: 1 / -1;
+  background: ${(props) => props.theme.surface};
+  border: 1px solid ${(props) => props.theme.borderHover};
+  border-radius: 6px;
+  max-height: 200px;
+  overflow-y: auto;
+  margin-top: 8px;
+`;
+
+const SearchResultItem = styled.div`
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 11px;
+  font-family: ${(props) => props.theme.typography.mono};
+  color: ${(props) => props.theme.textPrimary};
+  border-bottom: 1px solid ${(props) => props.theme.border};
+
+  &:last-child {
+    border-bottom: none;
+  }
+
+  &:hover {
+    background: ${(props) => props.theme.surfaceHover};
+  }
+`;
+
 export const MapEndpointsSidebar: React.FC = () => {
   const [linksOpen, setLinksOpen] = React.useState(true);
   const [searchValue, setSearchValue] = React.useState("");
-  const [autocomplete, setAutocomplete] = React.useState<google.maps.places.Autocomplete | null>(null);
+  const [searchResults, setSearchResults] = React.useState<any[]>([]);
+  const [isSearching, setIsSearching] = React.useState(false);
+  const [endpointsOpen, setEndpointsOpen] = React.useState(false);
   const showPrompt = usePrompt();
 
   const {
@@ -242,28 +271,92 @@ export const MapEndpointsSidebar: React.FC = () => {
     setPreviewLocation
   } = useMapLocations();
 
-  const onAutocompleteLoad = (autocompleteInstance: google.maps.places.Autocomplete) => {
-    setAutocomplete(autocompleteInstance);
+  // Nominatim search function
+  const searchLocations = async (query: string) => {
+    if (!query.trim()) {
+      setSearchResults([]);
+      return;
+    }
+
+    setIsSearching(true);
+    try {
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5&countrycodes=us&addressdetails=1&extratags=1`,
+        {
+          headers: {
+            'User-Agent': 'n-apt/1.0'
+          }
+        }
+      );
+
+      if (response.ok) {
+        const results = await response.json();
+
+        // Process results to be less granular - focus on city, state, and major landmarks
+        const processedResults = results.map((result: any) => {
+          const address = result.address || {};
+          let displayName = '';
+
+          // Priority order for US locations
+          if (address.city || address.town || address.village) {
+            const city = address.city || address.town || address.village;
+            const state = address.state || '';
+            displayName = state ? `${city}, ${state}` : city;
+          } else if (address.county && address.state) {
+            displayName = `${address.county.replace(' County', '')}, ${address.state}`;
+          } else if (address.state) {
+            displayName = address.state;
+          } else if (result.display_name) {
+            // Fallback but clean up the display name
+            displayName = result.display_name
+              .split(',')
+              .slice(0, 2) // Keep only first 2 parts
+              .join(',')
+              .replace(/, United States$/, '');
+          }
+
+          return {
+            ...result,
+            display_name: displayName || result.display_name,
+            simplified_name: displayName
+          };
+        }).filter((result: any) => result.simplified_name);
+
+        setSearchResults(processedResults);
+      }
+    } catch (error) {
+      console.error('Search error:', error);
+      setSearchResults([]);
+    } finally {
+      setIsSearching(false);
+    }
   };
 
-  const onPlaceChanged = () => {
-    if (autocomplete !== null) {
-      const place = autocomplete.getPlace();
-      if (place.geometry && place.geometry.location) {
-        const name = place.name || place.formatted_address || "Unnamed Location";
-        const lat = place.geometry.location.lat();
-        const lng = place.geometry.location.lng();
+  // Debounced search
+  React.useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      searchLocations(searchValue);
+    }, 300);
 
-        setPreviewLocation({
-          id: "preview",
-          name,
-          lat,
-          lng,
-          zoom: 15,
-          color: "var(--color-text-primary)",
-        });
-        setSearchValue("");
-      }
+    return () => clearTimeout(timeoutId);
+  }, [searchValue]);
+
+  const onPlaceSelect = (place: any) => {
+    if (place && place.lat && place.lon) {
+      const name = place.display_name || place.name || "Unnamed Location";
+      const lat = parseFloat(place.lat);
+      const lng = parseFloat(place.lon);
+
+      setPreviewLocation({
+        id: "preview",
+        name,
+        lat,
+        lng,
+        zoom: 15,
+        color: "var(--color-text-primary)",
+      });
+      setSearchValue("");
+      setSearchResults([]);
     }
   };
 
@@ -300,20 +393,23 @@ export const MapEndpointsSidebar: React.FC = () => {
 
       {isLoaded ? (
         <div style={{ gridColumn: "1 / -1" }}>
-          <Autocomplete
-            onLoad={onAutocompleteLoad}
-            onPlaceChanged={onPlaceChanged}
-            options={{
-              types: ["geocode"],
-              componentRestrictions: { country: "us" }
-            }}
-          >
-            <SearchInput
-              placeholder="Search for a location..."
-              value={searchValue}
-              onChange={(e) => setSearchValue(e.target.value)}
-            />
-          </Autocomplete>
+          <SearchInput
+            placeholder="Search for a location..."
+            value={searchValue}
+            onChange={(e) => setSearchValue(e.target.value)}
+          />
+          {searchResults.length > 0 && (
+            <SearchResults>
+              {searchResults.map((result, index) => (
+                <SearchResultItem
+                  key={index}
+                  onClick={() => onPlaceSelect(result)}
+                >
+                  {result.simplified_name}
+                </SearchResultItem>
+              ))}
+            </SearchResults>
+          )}
         </div>
       ) : (
         <div style={{ gridColumn: "1 / -1" }}>
@@ -353,6 +449,15 @@ export const MapEndpointsSidebar: React.FC = () => {
           </PillWrapper>
         ))}
       </PillGrid>
+
+      <CollapsibleTitle
+        label="Nearest Endpoints /"
+        isOpen={endpointsOpen}
+        onToggle={() => setEndpointsOpen((prev) => !prev)}
+      />
+      {endpointsOpen && (
+        <EndpointsListAndSearch />
+      )}
 
 
       <CollapsibleTitle
