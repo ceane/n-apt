@@ -27,8 +27,43 @@ module.exports = {
     "!src/**/*.d.ts",
     "!src/main.tsx",
     "!src/vite-env.d.ts",
-    "!src/workers/**/*", // Skip workers from coverage for now
+    "!src/workers/**/*", // Skip workers from coverage - run in separate contexts
+    "!src/**/*stories.tsx", // Skip Storybook stories - documentation only
+    "!src/encrypted-modules/**/*", // Skip encrypted/temporary modules
   ],
+  coverageThreshold: {
+    global: {
+      branches: 20,
+      functions: 24,
+      lines: 33,
+      statements: 33,
+    },
+    // Key utilities should have high coverage
+    'src/ts/utils/frequency.ts': {
+      branches: 100,
+      functions: 100,
+      lines: 100,
+      statements: 100,
+    },
+    'src/ts/utils/centerFrequency.ts': {
+      branches: 100,
+      functions: 100,
+      lines: 100,
+      statements: 100,
+    },
+    'src/ts/utils/webgpu.ts': {
+      branches: 40,
+      functions: 50,
+      lines: 70,
+      statements: 70,
+    },
+    'src/ts/utils/gpuMemoryManager.ts': {
+      branches: 58,
+      functions: 75,
+      lines: 70,
+      statements: 70,
+    },
+  },
   transform: {
     "^.+\\.(ts|tsx)$": [
       "ts-jest",
