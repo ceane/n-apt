@@ -141,7 +141,10 @@ pub async fn handle_ws_connection(
       return format!("RTL-SDR {}", format!("v{}", version));
     }
 
-    if lower.contains("rtl-sdr blog") || lower.contains("rtl2832") || lower.contains("rtl-sdr") {
+    if lower.contains("rtl-sdr blog")
+      || lower.contains("rtl2832")
+      || lower.contains("rtl-sdr")
+    {
       return "RTL-SDR".to_string();
     }
 
@@ -223,23 +226,23 @@ pub async fn handle_ws_connection(
           Ok(spectrum_data) => {
             let timestamp: u64 = spectrum_data.timestamp as u64; // i64 to u64
             let center_frequency: u64 = spectrum_data.center_frequency_hz.unwrap_or(0) as u64;
-            
+
             // Determine data type and payload
             let data_type_str = spectrum_data.data_type.as_deref();
             let is_iq_data = data_type_str == Some("iq_raw");
-            
+
             let (_data_type, frame_bytes) = if is_iq_data {
               let data_type = 1u32;
               let sample_rate = spectrum_data.sample_rate.unwrap_or(0) as u32;
               let iq_bytes = &spectrum_data.iq_data;
-              
+
               // Construct header: [timestamp: 8][center_freq: 8][data_type: 4][sample_rate: 4]
               let mut binary_payload = Vec::with_capacity(24 + iq_bytes.len());
               binary_payload.extend_from_slice(&timestamp.to_le_bytes());
               binary_payload.extend_from_slice(&center_frequency.to_le_bytes());
               binary_payload.extend_from_slice(&data_type.to_le_bytes());
               binary_payload.extend_from_slice(&sample_rate.to_le_bytes());
-              
+
               // Encrypt actual I/Q data
               match crypto::encrypt_payload_binary(&enc_key, iq_bytes) {
                 Ok(encrypted_iq) => {
@@ -257,14 +260,14 @@ pub async fn handle_ws_connection(
               let frame_bytes_slice: &[u8] = bytemuck::cast_slice(frame);
               let data_type = 0u32;
               let sample_rate = spectrum_data.sample_rate.unwrap_or(0) as u32;
-              
+
               // Construct payload: [timestamp: 8][center_freq: 8][data_type: 4][sample_rate: 4][spectrum: N]
               let mut binary_payload = Vec::with_capacity(24 + frame_bytes_slice.len());
               binary_payload.extend_from_slice(&timestamp.to_le_bytes());
               binary_payload.extend_from_slice(&center_frequency.to_le_bytes());
               binary_payload.extend_from_slice(&data_type.to_le_bytes());
               binary_payload.extend_from_slice(&sample_rate.to_le_bytes());
-              
+
               match crypto::encrypt_payload_binary(&enc_key, frame_bytes_slice) {
                 Ok(encrypted_frame) => {
                   binary_payload.extend_from_slice(&encrypted_frame);
@@ -423,18 +426,20 @@ pub fn handle_message(
         return;
       }
 
-      let _ = cmd_tx.send(super::types::SdrCommand::ApplySettings(super::types::SdrProcessorSettings {
-        fft_size,
-        fft_window: message.fft_window,
-        frame_rate,
-        gain,
-        ppm,
-        tuner_agc: message.tuner_agc,
-        rtl_agc: message.rtl_agc,
-        offset_tuning: message.offset_tuning,
-        direct_sampling: message.direct_sampling,
-        tuner_bandwidth: message.tuner_bandwidth,
-      }));
+      let _ = cmd_tx.send(super::types::SdrCommand::ApplySettings(
+        super::types::SdrProcessorSettings {
+          fft_size,
+          fft_window: message.fft_window,
+          frame_rate,
+          gain,
+          ppm,
+          tuner_agc: message.tuner_agc,
+          rtl_agc: message.rtl_agc,
+          offset_tuning: message.offset_tuning,
+          direct_sampling: message.direct_sampling,
+          tuner_bandwidth: message.tuner_bandwidth,
+        },
+      ));
 
       // Update the shared settings so that future status broadcasts
       // reflect the new settings requested by the client.
@@ -537,11 +542,13 @@ pub fn handle_message(
       let _ = cmd_tx.send(capture_cmd);
     }
     "scan" => {
-      if let (Some(min_freq), Some(max_freq), Some(job_id)) = (message.min_freq, message.max_freq, message.job_id.clone()) {
+      if let (Some(min_freq), Some(max_freq), Some(job_id)) =
+        (message.min_freq, message.max_freq, message.job_id.clone())
+      {
         let window_size_hz = 25000.0; // Default
         let step_size_hz = 10000.0; // Default
         let audio_threshold = 0.3; // Default
-        
+
         let _ = cmd_tx.send(super::types::SdrCommand::ScanForAudio {
           job_id,
           frequency_range: (min_freq, max_freq),
@@ -558,21 +565,24 @@ pub fn handle_message(
     "apt_analysis" => {
       if let Some(job_id) = message.job_id.clone() {
         // Parse APT analysis configuration from message
-        // For now, create a basic config - in a real implementation, 
+        // For now, create a basic config - in a real implementation,
         // this would parse from message fields
         let apt_config = super::types::AptAnalysisConfig {
           content_type: super::types::AptContentType::AudioHearing, // Default
-          window_size_hz: message.min_freq.map(|f| (message.max_freq.unwrap_or(f) - f) * 1000.0).unwrap_or(25000.0),
+          window_size_hz: message
+            .min_freq
+            .map(|f| (message.max_freq.unwrap_or(f) - f) * 1000.0)
+            .unwrap_or(25000.0),
           sub_channel_range: (
             message.min_freq.unwrap_or(0.0) * 1000.0 + 350000.0,
-            message.min_freq.unwrap_or(0.0) * 1000.0 + 500000.0
+            message.min_freq.unwrap_or(0.0) * 1000.0 + 500000.0,
           ),
           script_content: None, // Would be parsed from message
           media_content: None,  // Would be parsed from message
           baseline_vector: None, // Would be parsed from message
           demod_processor: "APT Pipeline v1.0".to_string(),
         };
-        
+
         let _ = cmd_tx.send(super::types::SdrCommand::StartAptAnalysis {
           job_id,
           config: apt_config,

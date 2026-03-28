@@ -62,8 +62,7 @@ impl SignalStitcher {
         let buf_idx = buf_len - self.overlap_size + i;
         if buf_idx < buf_len {
           let w = self.window[i];
-          self.buffer[buf_idx] =
-            w * *item + (1.0 - w) * self.buffer[buf_idx];
+          self.buffer[buf_idx] = w * *item + (1.0 - w) * self.buffer[buf_idx];
         }
       }
 
@@ -191,7 +190,9 @@ mod tests {
     // The overlap region (last 2 bins of first frame blended with first 2 of second)
     // should contain values between 0.0 and 1.0
     let overlap_start = fft_size - (fft_size / 4);
-    for (i, item) in result.iter().enumerate().take(fft_size).skip(overlap_start) {
+    for (i, item) in
+      result.iter().enumerate().take(fft_size).skip(overlap_start)
+    {
       assert!(
         *item >= 0.0 && *item <= 1.0,
         "Overlap bin {} = {} should be in [0, 1]",

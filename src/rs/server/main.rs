@@ -16,8 +16,8 @@ use log::info;
 use std::env;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use std::time::Duration;
 use std::thread::JoinHandle;
+use std::time::Duration;
 use tokio::sync::broadcast;
 use tower_http::cors::CorsLayer;
 use tower_http::set_header::SetResponseHeaderLayer;
@@ -55,7 +55,8 @@ pub struct AppState {
   pub broadcast_tx: broadcast::Sender<String>,
   pub spectrum_tx: broadcast::Sender<Arc<types::SpectrumData>>,
   pub cmd_tx: std::sync::mpsc::Sender<types::SdrCommand>,
-  pub sdr_processor: Arc<tokio::sync::Mutex<crate::sdr::processor::SdrProcessor>>,
+  pub sdr_processor:
+    Arc<tokio::sync::Mutex<crate::sdr::processor::SdrProcessor>>,
 }
 
 impl websocket_server::WebSocketServer {
@@ -339,6 +340,9 @@ mod tests {
 
   #[test]
   fn sdr_thread_has_stable_name() {
-    assert_eq!(websocket_server::WebSocketServer::sdr_thread_name(), "n-apt-sdr-io");
+    assert_eq!(
+      websocket_server::WebSocketServer::sdr_thread_name(),
+      "n-apt-sdr-io"
+    );
   }
 }

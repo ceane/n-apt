@@ -89,8 +89,12 @@ impl WASMSIMDProcessor {
       for (i, sample) in iq_samples.iter_mut().enumerate() {
         let t = i as f32 / (n - 1.0);
         let window = match self.window_type {
-          WindowType::Hanning => 0.5 - 0.5 * (2.0 * std::f32::consts::PI * t).cos(),
-          WindowType::Hamming => 0.54 - 0.46 * (2.0 * std::f32::consts::PI * t).cos(),
+          WindowType::Hanning => {
+            0.5 - 0.5 * (2.0 * std::f32::consts::PI * t).cos()
+          }
+          WindowType::Hamming => {
+            0.54 - 0.46 * (2.0 * std::f32::consts::PI * t).cos()
+          }
           _ => 1.0,
         };
         *sample = *sample * window;
@@ -117,7 +121,8 @@ impl WASMSIMDProcessor {
       .iter()
       .map(|&complex| {
         // Correct FFT normalization: |X|^2 / (Sum(window))^2
-        let mag_sq = (complex.re * complex.re + complex.im * complex.im) / norm_sq;
+        let mag_sq =
+          (complex.re * complex.re + complex.im * complex.im) / norm_sq;
         let db_value = 10.0 * (mag_sq + epsilon).log10() + offset_db;
         db_value.clamp(-150.0, 50.0)
       })

@@ -18,7 +18,9 @@ fn link_rtlsdr() {
   #[cfg(target_os = "macos")]
   {
     if Path::new("/opt/homebrew/opt/librtlsdr/lib").exists() {
-      println!("cargo:rustc-link-search=native=/opt/homebrew/opt/librtlsdr/lib");
+      println!(
+        "cargo:rustc-link-search=native=/opt/homebrew/opt/librtlsdr/lib"
+      );
       println!("cargo:include=/opt/homebrew/opt/librtlsdr/include");
       return;
     }

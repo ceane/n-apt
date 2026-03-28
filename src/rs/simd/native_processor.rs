@@ -5,9 +5,7 @@
 
 use crate::fft::processor::WindowType;
 use crate::fft::types::RawSamples;
-use crate::simd::common::{
-  SIMDProcessor, WindowFunctions,
-};
+use crate::simd::common::{SIMDProcessor, WindowFunctions};
 use anyhow::Result;
 use rustfft::FftPlanner;
 use std::sync::Arc;
@@ -30,7 +28,7 @@ pub struct NativeProcessor {
   sample_rate: u32,
   /// Current center frequency
   center_frequency: u32,
-  
+
   // Scratch buffers to eliminate allocation on every frame
   complex_buf: Vec<rustfft::num_complex::Complex<f32>>,
   re_buf: Vec<f32>,
@@ -106,7 +104,9 @@ impl SIMDProcessor for NativeProcessor {
       self.fft_size,
     );
 
-    if self.window_type != WindowType::None && self.window_type != WindowType::Rectangular {
+    if self.window_type != WindowType::None
+      && self.window_type != WindowType::Rectangular
+    {
       let window_coeffs = self.get_window_coeffs();
       crate::simd::arm_optimized_common::ARMOptimizedSIMD::apply_window_arm_optimized(
         &mut self.re_buf,
@@ -127,7 +127,8 @@ impl SIMDProcessor for NativeProcessor {
       self.im_buf[i] = self.complex_buf[i].im;
     }
 
-    let window_sum = WindowFunctions::get_window_sum(self.window_type, self.fft_size);
+    let window_sum =
+      WindowFunctions::get_window_sum(self.window_type, self.fft_size);
     let inv_norm = 1.0 / (window_sum * window_sum);
 
     crate::simd::arm_optimized_common::ARMOptimizedSIMD::to_power_spectrum_db_arm_optimized(

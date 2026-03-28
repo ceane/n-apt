@@ -3,13 +3,13 @@
 //! High-performance SIMD-accelerated signal processing for native targets.
 //! WASM SIMD processing is handled by the unified UnifiedProcessor type.
 
+pub mod arm_optimized_common;
 pub mod common;
 pub mod downsampler;
+pub mod fast_math;
 pub mod mock_generator;
 pub mod native_processor;
 pub mod rendering_processor;
-pub mod fast_math;
-pub mod arm_optimized_common;
 
 // Encrypted demodulation kernels (only available when decrypted)
 #[cfg(rs_decrypted)]

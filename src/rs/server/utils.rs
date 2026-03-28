@@ -375,7 +375,11 @@ pub fn save_capture_file_multi(
       };
       let iq_data = &ch.iq_data;
       let iq_size = iq_data.len() as u32;
-      let iq_padding = if iq_size.is_multiple_of(2) { 0u32 } else { 1u32 };
+      let iq_padding = if iq_size.is_multiple_of(2) {
+        0u32
+      } else {
+        1u32
+      };
       iq_chunks.push((tag, iq_size, iq_padding));
       riff_total_delta += 8 + iq_size + iq_padding;
 
@@ -391,7 +395,11 @@ pub fn save_capture_file_multi(
         .flat_map(|&v| v.to_le_bytes())
         .collect();
       let spec_size = spec_bytes.len() as u32;
-      let spec_padding = if spec_size.is_multiple_of(2) { 0u32 } else { 1u32 };
+      let spec_padding = if spec_size.is_multiple_of(2) {
+        0u32
+      } else {
+        1u32
+      };
       spectrum_chunks.push((spec_tag, spec_bytes, spec_padding));
       riff_total_delta += 8 + spec_size + spec_padding;
     }

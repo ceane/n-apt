@@ -85,7 +85,7 @@ fn generate_mock_block(
 ) -> Vec<u8> {
   let mut block = Vec::with_capacity(block_size);
   let samples_per_block = block_size / 2;
-  
+
   // Calculate settle factor (0.0 to 1.0) for realistic warm-up
   let settle_factor = if total_samples < settle_time_samples {
     (total_samples as f64 / settle_time_samples as f64).powf(2.0)
@@ -112,12 +112,13 @@ fn generate_mock_block(
     if !signal.active {
       continue;
     }
-    
+
     let abs_freq_hz = (signal.config.center_frequency_mhz * 1_000_000.0)
       + (signal.drift_offset as f64);
-    let effective_center_freq = center_freq_f * (1.0 - ppm as f64 / 1_000_000.0);
+    let effective_center_freq =
+      center_freq_f * (1.0 - ppm as f64 / 1_000_000.0);
     let rel_freq = abs_freq_hz - effective_center_freq;
-    
+
     if rel_freq.abs() > (sample_rate_f / 2.0) {
       continue;
     }
@@ -142,7 +143,10 @@ fn generate_mock_block(
     cached_signals.push((amp, _amp_side, p_re, p_im, r_re, r_im));
   }
 
-  let mut signal_states = cached_signals.iter().map(|(_, _, p_re, p_im, _, _)| (*p_re, *p_im)).collect::<Vec<_>>();
+  let mut signal_states = cached_signals
+    .iter()
+    .map(|(_, _, p_re, p_im, _, _)| (*p_re, *p_im))
+    .collect::<Vec<_>>();
 
   for _ in 0..samples_per_block {
     let mut i_sample = 0.0f64;
@@ -153,7 +157,9 @@ fn generate_mock_block(
       q_sample += (rng.gen::<f64>() - 0.5) * 2.0 * noise_level;
     }
 
-    for (idx, (amp, _amp_side, _p_re, _p_im, r_re, r_im)) in cached_signals.iter().enumerate() {
+    for (idx, (amp, _amp_side, _p_re, _p_im, r_re, r_im)) in
+      cached_signals.iter().enumerate()
+    {
       // Update main signal
       i_sample += amp * signal_states[idx].1;
       q_sample += amp * signal_states[idx].0;
@@ -222,8 +228,10 @@ impl MockAptDevice {
     let mut rng = rand::thread_rng();
 
     let weak_mid = strength_range_midpoint(&mock_settings.strength_ranges.weak);
-    let medium_mid = strength_range_midpoint(&mock_settings.strength_ranges.medium);
-    let strong_mid = strength_range_midpoint(&mock_settings.strength_ranges.strong);
+    let medium_mid =
+      strength_range_midpoint(&mock_settings.strength_ranges.medium);
+    let strong_mid =
+      strength_range_midpoint(&mock_settings.strength_ranges.strong);
 
     let weak_span = (mock_settings.strength_ranges.weak.max
       - mock_settings.strength_ranges.weak.min)
@@ -306,7 +314,7 @@ impl SdrDevice for MockAptDevice {
     log::info!("Initializing mock APT SDR device");
     self.total_samples = 0;
     self.samples_since_init = 0;
-    
+
     // For now, use simple synchronous initialization
     // TODO: Add optional async mode when it's properly implemented
     Ok(())
@@ -400,7 +408,7 @@ impl SdrDevice for MockAptDevice {
         // For now, the thread will be detached when the handle is dropped
       }
     }
-    
+
     self.rx_queue = None;
     self.iq_overflow.clear();
     log::info!("Mock APT device cleanup completed");
@@ -443,7 +451,8 @@ impl MockAptDevice {
 
     // Calculate settle factor (0.0 to 1.0) for realistic warm-up
     let settle_factor = if self.samples_since_init < self.settle_time_samples {
-      (self.samples_since_init as f64 / self.settle_time_samples as f64).powf(2.0)
+      (self.samples_since_init as f64 / self.settle_time_samples as f64)
+        .powf(2.0)
     } else {
       1.0
     };
@@ -629,7 +638,8 @@ impl MockAptDevice {
       }
     }
     self.total_samples = self.total_samples.wrapping_add(fft_size as u64);
-    self.samples_since_init = self.samples_since_init.wrapping_add(fft_size as u64);
+    self.samples_since_init =
+      self.samples_since_init.wrapping_add(fft_size as u64);
 
     Ok(RawSamples {
       data: frame,
@@ -715,7 +725,7 @@ impl MockAptDevice {
         // For now, the thread will be detached when the handle is dropped
       }
     }
-    
+
     self.rx_queue = None;
     self.iq_overflow.clear();
     log::info!("Mock APT device cleanup completed");

@@ -315,7 +315,11 @@ mod tests {
     ];
 
     let mut power = [0.0; 4];
-    PowerSpectrum::to_power_spectrum_db(&complex_data, &mut power, WindowType::Rectangular);
+    PowerSpectrum::to_power_spectrum_db(
+      &complex_data,
+      &mut power,
+      WindowType::Rectangular,
+    );
 
     // All should be 0 dB (magnitude = 1.0)
     for &value in &power {

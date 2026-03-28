@@ -5,18 +5,22 @@
 
 use anyhow::Result;
 use log::{info, warn};
-use std::time::Instant;
 use rustfft::num_complex::Complex;
+use std::time::Instant;
 
-use crate::fft::{FFTProcessor, PhaseCoherenceResult, CorrelationResult, StitchingValidationResult, CorrelationMethod};
-use crate::stitching::SignalStitcher;
+use crate::fft::{
+  CorrelationMethod, CorrelationResult, FFTProcessor, PhaseCoherenceResult,
+  StitchingValidationResult,
+};
+use crate::server::types::{FrequencyRegion, ScanProgressResponse};
 #[cfg(rs_decrypted)]
 use crate::simd::demod_kernels;
-use crate::server::types::{FrequencyRegion, ScanProgressResponse};
+use crate::stitching::SignalStitcher;
 
 use super::{SdrDevice, SdrDeviceFactory};
 
-fn _keep_stitch_types(_result: &CorrelationResult, _method: CorrelationMethod) {}
+fn _keep_stitch_types(_result: &CorrelationResult, _method: CorrelationMethod) {
+}
 
 /// Hot per-frame state that changes on every read cycle.
 #[derive(Debug)]
@@ -340,8 +344,10 @@ impl SdrProcessor {
       self.device.device_type()
     );
 
-    self.frame.retune_cooldown_until = Some(std::time::Instant::now() + std::time::Duration::from_millis(500));
-    self.frame.post_retune_discard_frames = self.post_retune_discard_frame_count();
+    self.frame.retune_cooldown_until =
+      Some(std::time::Instant::now() + std::time::Duration::from_millis(500));
+    self.frame.post_retune_discard_frames =
+      self.post_retune_discard_frame_count();
     self.flush_read_queue();
 
     Ok(())
@@ -391,7 +397,8 @@ impl SdrProcessor {
           warn!("Failed to apply pending frequency: {}", e);
         } else {
           self.frame.last_retune_at = Some(Instant::now());
-          self.frame.post_retune_discard_frames = self.post_retune_discard_frame_count();
+          self.frame.post_retune_discard_frames =
+            self.post_retune_discard_frame_count();
         }
       }
     }
@@ -427,7 +434,8 @@ impl SdrProcessor {
           warn!("Failed to hop capture frequency: {}", e);
         }
         self.capture_last_hop = Some(Instant::now());
-        self.frame.post_retune_discard_frames = self.post_retune_discard_frame_count();
+        self.frame.post_retune_discard_frames =
+          self.post_retune_discard_frame_count();
       }
     }
 
@@ -498,7 +506,9 @@ impl SdrProcessor {
     if self.capture_active {
       let ch_idx = self.capture_current_fragment;
       if ch_idx < self.capture_channels.len() {
-        self.capture_channels[ch_idx].iq_data.extend_from_slice(&display_samples_data);
+        self.capture_channels[ch_idx]
+          .iq_data
+          .extend_from_slice(&display_samples_data);
         self.capture_channels[ch_idx]
           .spectrum_data
           .extend_from_slice(&spectrum);
@@ -692,7 +702,8 @@ impl SdrProcessor {
     }
     self.frame.avg_spectrum = None;
     self.frame.last_retune_at = Some(std::time::Instant::now());
-    self.frame.post_retune_discard_frames = self.post_retune_discard_frame_count();
+    self.frame.post_retune_discard_frames =
+      self.post_retune_discard_frame_count();
     Ok(())
   }
 
@@ -715,19 +726,21 @@ impl SdrProcessor {
     channel2_idx: usize,
     overlap_samples: usize,
   ) -> Result<StitchingValidationResult> {
-    if channel1_idx >= self.capture_channels.len() || channel2_idx >= self.capture_channels.len() {
+    if channel1_idx >= self.capture_channels.len()
+      || channel2_idx >= self.capture_channels.len()
+    {
       return Err(anyhow::anyhow!("Invalid channel indices"));
     }
-    
+
     let channel1 = &self.capture_channels[channel1_idx];
     let channel2 = &self.capture_channels[channel2_idx];
-    
+
     let validation_result = self.fft_processor.validate_stitching(
       &channel1.iq_data,
       &channel2.iq_data,
       overlap_samples,
     )?;
-    
+
     info!(
       "Stitching validation: ch{} <-> ch{} = {:.3} (method: {:?}, quality: {:.3})",
       channel1_idx,
@@ -736,7 +749,7 @@ impl SdrProcessor {
       validation_result.primary_correlation.method,
       validation_result.overall_quality
     );
-    
+
     Ok(validation_result)
   }
 
@@ -746,13 +759,15 @@ impl SdrProcessor {
     channel1_idx: usize,
     channel2_idx: usize,
   ) -> Result<StitchingValidationResult> {
-    if channel1_idx >= self.capture_channels.len() || channel2_idx >= self.capture_channels.len() {
+    if channel1_idx >= self.capture_channels.len()
+      || channel2_idx >= self.capture_channels.len()
+    {
       return Err(anyhow::anyhow!("Invalid channel indices"));
     }
-    
+
     let channel1 = &self.capture_channels[channel1_idx];
     let channel2 = &self.capture_channels[channel2_idx];
-    
+
     let freq_diff = (channel2.center_freq_hz - channel1.center_freq_hz).abs();
     let sample_rate = channel1.sample_rate_hz;
     let overlap_ratio = 1.0 - (freq_diff / sample_rate);
@@ -761,14 +776,14 @@ impl SdrProcessor {
     } else {
       channel1.iq_data.len() / 8
     };
-    
+
     info!(
       "Auto overlap detection: freq_diff={:.1}kHz, overlap_ratio={:.3}, overlap_samples={}",
       freq_diff / 1000.0,
       overlap_ratio,
       overlap_samples
     );
-    
+
     self.validate_channel_stitching(channel1_idx, channel2_idx, overlap_samples)
   }
 
@@ -781,20 +796,26 @@ impl SdrProcessor {
     if channel_idx >= self.capture_channels.len() {
       return Err(anyhow::anyhow!("Invalid channel index"));
     }
-    
+
     match validation_result.recommendation.clone() {
       crate::fft::StitchingRecommendation::Accept => {
         info!("Channel {} stitching accepted", channel_idx);
       }
       crate::fft::StitchingRecommendation::ApplyTimeCorrection(time_offset) => {
-        info!("Applying time correction to channel {}: {:.6} seconds", channel_idx, time_offset);
+        info!(
+          "Applying time correction to channel {}: {:.6} seconds",
+          channel_idx, time_offset
+        );
         let channel = &mut self.capture_channels[channel_idx];
         let total_sample_offset = time_offset * channel.sample_rate_hz;
-        
+
         let integer_offset = total_sample_offset.floor() as isize;
-        let fractional_offset = (total_sample_offset - total_sample_offset.floor()) as f32;
-        
-        if integer_offset != 0 && integer_offset.abs() < channel.iq_data.len() as isize / 4 {
+        let fractional_offset =
+          (total_sample_offset - total_sample_offset.floor()) as f32;
+
+        if integer_offset != 0
+          && integer_offset.abs() < channel.iq_data.len() as isize / 4
+        {
           let bytes_to_shift = integer_offset.abs() as usize * 2;
           if integer_offset > 0 {
             channel.iq_data.splice(0..0, vec![128u8; bytes_to_shift]);
@@ -802,22 +823,25 @@ impl SdrProcessor {
             channel.iq_data.drain(0..bytes_to_shift);
           }
         }
-        
+
         if fractional_offset.abs() > 0.001 {
-          let complex_samples = self.fft_processor.iq_to_complex(&channel.iq_data);
+          let complex_samples =
+            self.fft_processor.iq_to_complex(&channel.iq_data);
           let mut interpolated = Vec::with_capacity(complex_samples.len());
-          
+
           for i in 0..complex_samples.len() - 1 {
             let s1 = complex_samples[i];
-            let s2 = complex_samples[i+1];
-            let s_interp = s1 * (1.0 - fractional_offset) + s2 * fractional_offset;
+            let s2 = complex_samples[i + 1];
+            let s_interp =
+              s1 * (1.0 - fractional_offset) + s2 * fractional_offset;
             interpolated.push(s_interp);
           }
           if let Some(&last) = complex_samples.last() {
             interpolated.push(last);
           }
-          
-          channel.iq_data = interpolated.iter()
+
+          channel.iq_data = interpolated
+            .iter()
             .flat_map(|c| {
               let i = ((c.re * 127.0) + 128.0).clamp(0.0, 255.0) as u8;
               let q = ((c.im * 127.0) + 128.0).clamp(0.0, 255.0) as u8;
@@ -826,13 +850,20 @@ impl SdrProcessor {
             .collect();
         }
       }
-      crate::fft::StitchingRecommendation::ApplyPhaseCorrection(phase_offset) => {
-        info!("Applying phase correction to channel {}: {:.3} radians", channel_idx, phase_offset);
+      crate::fft::StitchingRecommendation::ApplyPhaseCorrection(
+        phase_offset,
+      ) => {
+        info!(
+          "Applying phase correction to channel {}: {:.3} radians",
+          channel_idx, phase_offset
+        );
         let channel = &mut self.capture_channels[channel_idx];
-        let complex_samples = self.fft_processor.iq_to_complex(&channel.iq_data);
+        let complex_samples =
+          self.fft_processor.iq_to_complex(&channel.iq_data);
         let rotation = Complex::new(phase_offset.cos(), phase_offset.sin());
-        
-        let corrected_samples: Vec<u8> = complex_samples.iter()
+
+        let corrected_samples: Vec<u8> = complex_samples
+          .iter()
           .map(|c| {
             let corrected = c * rotation;
             let i = ((corrected.re * 127.0) + 128.0) as u8;
@@ -841,24 +872,35 @@ impl SdrProcessor {
           })
           .flatten()
           .collect();
-        
+
         channel.iq_data = corrected_samples;
       }
       crate::fft::StitchingRecommendation::Reject => {
-        warn!("Channel {} stitching rejected - poor correlation", channel_idx);
+        warn!(
+          "Channel {} stitching rejected - poor correlation",
+          channel_idx
+        );
         return Err(anyhow::anyhow!("Stitching quality too poor"));
       }
       crate::fft::StitchingRecommendation::ApplyGainNormalization(gain_db) => {
-        info!("Applying gain normalization to channel {}: {:.3} dB", channel_idx, gain_db);
+        info!(
+          "Applying gain normalization to channel {}: {:.3} dB",
+          channel_idx, gain_db
+        );
       }
-      crate::fft::StitchingRecommendation::ApplySpectralFlattening(_flattening) => {
+      crate::fft::StitchingRecommendation::ApplySpectralFlattening(
+        _flattening,
+      ) => {
         info!("Applying spectral flattening to channel {}", channel_idx);
       }
       crate::fft::StitchingRecommendation::UseAlternativeMethod(method) => {
-        info!("Retrying channel {} with alternative method: {:?}", channel_idx, method);
+        info!(
+          "Retrying channel {} with alternative method: {:?}",
+          channel_idx, method
+        );
         let channel = &self.capture_channels[channel_idx];
         let overlap_samples = channel.iq_data.len() / 8;
-        
+
         if channel_idx > 0 {
           let alt_validation = self.fft_processor.correlate_signals(
             &self.capture_channels[channel_idx - 1].iq_data,
@@ -866,7 +908,7 @@ impl SdrProcessor {
             overlap_samples,
             method,
           )?;
-          
+
           if alt_validation.is_acceptable {
             info!("Alternative method succeeded for channel {}", channel_idx);
           } else {
@@ -876,44 +918,56 @@ impl SdrProcessor {
         }
       }
     }
-    
+
     Ok(())
   }
 
   /// Validate and correct all channel stitching in capture
-  pub fn validate_and_correct_all_stitching(&mut self) -> Result<Vec<StitchingValidationResult>> {
+  pub fn validate_and_correct_all_stitching(
+    &mut self,
+  ) -> Result<Vec<StitchingValidationResult>> {
     let mut validation_results = Vec::new();
-    
+
     if self.capture_channels.len() < 2 {
       return Ok(validation_results);
     }
-    
-    info!("Validating stitching for {} channels", self.capture_channels.len());
-    
+
+    info!(
+      "Validating stitching for {} channels",
+      self.capture_channels.len()
+    );
+
     for i in 0..self.capture_channels.len() - 1 {
       match self.validate_stitching_auto(i, i + 1) {
         Ok(validation) => {
           validation_results.push(validation.clone());
-          
+
           if let Err(e) = self.apply_stitching_correction(i + 1, &validation) {
             warn!("Failed to apply correction to channel {}: {}", i + 1, e);
           }
         }
         Err(e) => {
-          warn!("Failed to validate stitching between channels {} and {}: {}", i, i + 1, e);
+          warn!(
+            "Failed to validate stitching between channels {} and {}: {}",
+            i,
+            i + 1,
+            e
+          );
         }
       }
     }
-    
-    let acceptable_count = validation_results.iter()
+
+    let acceptable_count = validation_results
+      .iter()
       .filter(|v| v.primary_correlation.is_acceptable)
       .count();
-    
-    warn!("Stitching validation complete: {}/{} channel pairs acceptable",
+
+    warn!(
+      "Stitching validation complete: {}/{} channel pairs acceptable",
       acceptable_count,
       validation_results.len()
     );
-    
+
     Ok(validation_results)
   }
 
@@ -1018,47 +1072,61 @@ impl SdrProcessor {
               let midpoint_hz = (prev_max + curr_min) / 2.0;
 
               let prev_overlap_hz = prev_max - midpoint_hz;
-              let prev_trim_fraction = prev_overlap_hz / channels[i-1].sample_rate_hz;
-              let prev_trim_bins = (fft_size as f64 * prev_trim_fraction).round() as usize;
+              let prev_trim_fraction =
+                prev_overlap_hz / channels[i - 1].sample_rate_hz;
+              let prev_trim_bins =
+                (fft_size as f64 * prev_trim_fraction).round() as usize;
 
-              if prev_trim_bins > 0 && prev_trim_bins < (channels[i-1].bins_per_frame as usize) {
-                if !channels[i-1].spectrum_data.is_empty() {
-                  let old_bins = channels[i-1].bins_per_frame as usize;
+              if prev_trim_bins > 0
+                && prev_trim_bins < (channels[i - 1].bins_per_frame as usize)
+              {
+                if !channels[i - 1].spectrum_data.is_empty() {
+                  let old_bins = channels[i - 1].bins_per_frame as usize;
                   let new_bins = old_bins - prev_trim_bins;
-                  let num_frames = channels[i-1].spectrum_data.len() / old_bins;
-                  let mut new_spectrum = Vec::with_capacity(num_frames * new_bins);
+                  let num_frames =
+                    channels[i - 1].spectrum_data.len() / old_bins;
+                  let mut new_spectrum =
+                    Vec::with_capacity(num_frames * new_bins);
 
                   for f in 0..num_frames {
                     let start = f * old_bins;
                     let end = start + new_bins;
-                    new_spectrum.extend_from_slice(&channels[i-1].spectrum_data[start..end]);
+                    new_spectrum.extend_from_slice(
+                      &channels[i - 1].spectrum_data[start..end],
+                    );
                   }
-                  channels[i-1].spectrum_data = new_spectrum;
-                  channels[i-1].bins_per_frame = new_bins as u32;
+                  channels[i - 1].spectrum_data = new_spectrum;
+                  channels[i - 1].bins_per_frame = new_bins as u32;
                 }
-                channels[i-1].sample_rate_hz -= prev_overlap_hz;
-                channels[i-1].center_freq_hz -= prev_overlap_hz / 2.0;
+                channels[i - 1].sample_rate_hz -= prev_overlap_hz;
+                channels[i - 1].center_freq_hz -= prev_overlap_hz / 2.0;
               }
 
               let curr_overlap_hz = midpoint_hz - curr_min;
-              let curr_trim_fraction = curr_overlap_hz / channels[i].sample_rate_hz;
-              let curr_trim_bins = (fft_size as f64 * curr_trim_fraction).round() as usize;
+              let curr_trim_fraction =
+                curr_overlap_hz / channels[i].sample_rate_hz;
+              let curr_trim_bins =
+                (fft_size as f64 * curr_trim_fraction).round() as usize;
 
               if curr_trim_bins > 0 && curr_trim_bins < fft_size {
                 if !channels[i].spectrum_data.is_empty() {
                   let num_frames = channels[i].spectrum_data.len() / fft_size;
                   let new_bins = fft_size - curr_trim_bins;
-                  let mut new_spectrum = Vec::with_capacity(num_frames * new_bins);
+                  let mut new_spectrum =
+                    Vec::with_capacity(num_frames * new_bins);
 
                   for f in 0..num_frames {
                     let start = f * fft_size + curr_trim_bins;
                     let end = (f + 1) * fft_size;
-                    new_spectrum.extend_from_slice(&channels[i].spectrum_data[start..end]);
+                    new_spectrum.extend_from_slice(
+                      &channels[i].spectrum_data[start..end],
+                    );
                   }
                   channels[i].spectrum_data = new_spectrum;
                   channels[i].bins_per_frame = new_bins as u32;
                 } else {
-                  channels[i].bins_per_frame = (fft_size - curr_trim_bins) as u32;
+                  channels[i].bins_per_frame =
+                    (fft_size - curr_trim_bins) as u32;
                 }
                 channels[i].sample_rate_hz -= curr_overlap_hz;
                 channels[i].center_freq_hz += curr_overlap_hz / 2.0;
@@ -1074,9 +1142,11 @@ impl SdrProcessor {
             let prev_bins = channels[i - 1].bins_per_frame as usize;
             let curr_bins = channels[i].bins_per_frame as usize;
 
-            if prev_bins == 0 || curr_bins == 0 
-              || channels[i - 1].spectrum_data.is_empty() 
-              || channels[i].spectrum_data.is_empty() {
+            if prev_bins == 0
+              || curr_bins == 0
+              || channels[i - 1].spectrum_data.is_empty()
+              || channels[i].spectrum_data.is_empty()
+            {
               continue;
             }
 
@@ -1094,14 +1164,19 @@ impl SdrProcessor {
               let curr_frame_start = f * curr_bins;
 
               for k in 0..seam_window {
-                let t = (1.0 - ((k as f32 / seam_window as f32) * std::f32::consts::PI).cos()) / 2.0;
+                let t = (1.0
+                  - ((k as f32 / seam_window as f32) * std::f32::consts::PI)
+                    .cos())
+                  / 2.0;
                 let prev_idx = prev_frame_start + (prev_bins - seam_window + k);
                 let curr_idx = curr_frame_start + k;
                 let prev_val = channels[i - 1].spectrum_data[prev_idx];
                 let curr_val = channels[i].spectrum_data[curr_idx];
 
-                channels[i - 1].spectrum_data[prev_idx] = prev_val * (1.0 - t) + curr_val * t;
-                channels[i].spectrum_data[curr_idx] = prev_val * (1.0 - t) + curr_val * t;
+                channels[i - 1].spectrum_data[prev_idx] =
+                  prev_val * (1.0 - t) + curr_val * t;
+                channels[i].spectrum_data[curr_idx] =
+                  prev_val * (1.0 - t) + curr_val * t;
               }
             }
           }
@@ -1132,13 +1207,15 @@ impl SdrProcessor {
           overall_capture_sample_rate_hz: self.capture_overall_span_hz,
           geolocation: self.capture_geolocation.clone(),
           frequency_range: self.capture_requested_range,
-          ref_based_demod_baseline: self.capture_ref_based_demod_baseline.take(),
-            is_ephemeral: self.capture_is_ephemeral,
-          });
-        }
+          ref_based_demod_baseline: self
+            .capture_ref_based_demod_baseline
+            .take(),
+          is_ephemeral: self.capture_is_ephemeral,
+        });
       }
-      None
     }
+    None
+  }
 
   #[cfg(rs_decrypted)]
   pub fn handle_scan(
@@ -1157,7 +1234,7 @@ impl SdrProcessor {
     let iq_samples = &self.frame.last_frame_raw_iq;
     let sample_rate = self.get_sample_rate() as f32;
     let total_samples = (iq_samples.len() / 2) as f32;
-    
+
     let start_hz = range_mhz.0 * 1_000_000.0;
     let end_hz = range_mhz.1 * 1_000_000.0;
     let total_steps = ((end_hz - start_hz) / step_hz).ceil() as usize;
@@ -1166,20 +1243,26 @@ impl SdrProcessor {
 
     for step in 0..total_steps {
       let center_hz = start_hz + (step as f64 * step_hz) + (window_hz / 2.0);
-      if center_hz + (window_hz / 2.0) > end_hz { break; }
+      if center_hz + (window_hz / 2.0) > end_hz {
+        break;
+      }
 
       let freq_to_sample_ratio = total_samples / sample_rate;
       let center_sample = (center_hz * freq_to_sample_ratio as f64) as usize;
       let window_samples = (window_hz * freq_to_sample_ratio as f64) as usize;
-      
+
       let start_idx = center_sample.saturating_sub(window_samples / 2);
-      let end_idx = (center_sample + window_samples / 2).min(total_samples as usize);
-      
-      if start_idx >= end_idx { continue; }
+      let end_idx =
+        (center_sample + window_samples / 2).min(total_samples as usize);
+
+      if start_idx >= end_idx {
+        continue;
+      }
 
       let window_iq = &iq_samples[start_idx * 2..end_idx * 2];
       let demodulated = demod_kernels::fm_demodulate(window_iq, sample_rate);
-      let audio_score = demod_kernels::calculate_audio_score(&demodulated, sample_rate);
+      let audio_score =
+        demod_kernels::calculate_audio_score(&demodulated, sample_rate);
 
       if audio_score >= threshold {
         regions.push(FrequencyRegion {
@@ -1188,7 +1271,7 @@ impl SdrProcessor {
           center_freq: center_hz,
           audio_score,
           signal_strength: 0.0, // Should implement signal power calculation
-          snr: 15.0, // Mock SNR
+          snr: 15.0,            // Mock SNR
         });
       }
 
@@ -1212,7 +1295,10 @@ impl SdrProcessor {
   }
 
   #[cfg(rs_decrypted)]
-  pub fn handle_demodulate(&mut self, region: &FrequencyRegion) -> (Vec<f32>, u32) {
+  pub fn handle_demodulate(
+    &mut self,
+    region: &FrequencyRegion,
+  ) -> (Vec<f32>, u32) {
     if self.frame.last_frame_raw_iq.is_empty() {
       return (vec![], 48000);
     }
@@ -1222,12 +1308,14 @@ impl SdrProcessor {
     let total_samples = (iq_samples.len() / 2) as f32;
 
     let freq_to_sample_ratio = total_samples / sample_rate;
-    let center_sample = (region.center_freq * freq_to_sample_ratio as f64) as usize;
+    let center_sample =
+      (region.center_freq * freq_to_sample_ratio as f64) as usize;
     let width_hz = region.end_freq - region.start_freq;
     let window_samples = (width_hz * freq_to_sample_ratio as f64) as usize;
 
     let start_idx = center_sample.saturating_sub(window_samples / 2);
-    let end_idx = (center_sample + window_samples / 2).min(total_samples as usize);
+    let end_idx =
+      (center_sample + window_samples / 2).min(total_samples as usize);
 
     if start_idx >= end_idx {
       return (vec![], 48000);
@@ -1235,9 +1323,13 @@ impl SdrProcessor {
 
     let window_iq = &iq_samples[start_idx * 2..end_idx * 2];
     let demodulated_fm = demod_kernels::fm_demodulate(window_iq, sample_rate);
-    
+
     let target_rate = 48000.0;
-    let audio_buffer = demod_kernels::am_demodulate_and_resample(&demodulated_fm, sample_rate, target_rate);
+    let audio_buffer = demod_kernels::am_demodulate_and_resample(
+      &demodulated_fm,
+      sample_rate,
+      target_rate,
+    );
 
     (audio_buffer, target_rate as u32)
   }

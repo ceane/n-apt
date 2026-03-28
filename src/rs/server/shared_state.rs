@@ -3,7 +3,9 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use super::types::{CaptureArtifact, DeviceProfile, SdrProcessorSettings, SpectrumFrameMessage};
+use super::types::{
+  CaptureArtifact, DeviceProfile, SdrProcessorSettings, SpectrumFrameMessage,
+};
 use super::utils::{load_channels, load_sdr_settings};
 
 /// How often to probe for a newly attached RTL-SDR while running in mock mode.
@@ -154,11 +156,7 @@ impl SharedState {
   /// Transition device_state and immediately update the loading fields.
   /// This is the single source of truth for state transitions so the
   /// frontend always sees a consistent snapshot.
-  pub fn set_device_state(
-    &self,
-    state: &str,
-    loading_reason: Option<&str>,
-  ) {
+  pub fn set_device_state(&self, state: &str, loading_reason: Option<&str>) {
     *self.device_state.lock().unwrap() = state.to_string();
     let is_loading = state == "loading";
     *self.device_loading.lock().unwrap() = is_loading;

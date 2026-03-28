@@ -34,7 +34,7 @@ async fn test_server_status_endpoint() {
     .unwrap();
 
   let sdr_processor = Arc::new(tokio::sync::Mutex::new(
-    n_apt_backend::sdr::processor::SdrProcessor::new_mock_apt().unwrap()
+    n_apt_backend::sdr::processor::SdrProcessor::new_mock_apt().unwrap(),
   ));
 
   let state = Arc::new(AppState {
@@ -80,7 +80,7 @@ async fn test_auth_challenge_flow() {
       .unwrap();
 
   let sdr_processor = Arc::new(tokio::sync::Mutex::new(
-    n_apt_backend::sdr::processor::SdrProcessor::new_mock_apt().unwrap()
+    n_apt_backend::sdr::processor::SdrProcessor::new_mock_apt().unwrap(),
   ));
 
   let state = Arc::new(AppState {
@@ -131,7 +131,7 @@ async fn test_auth_info_endpoint() {
 
   let shared = SharedState::new();
   let sdr_processor = Arc::new(tokio::sync::Mutex::new(
-    n_apt_backend::sdr::processor::SdrProcessor::new_mock_apt().unwrap()
+    n_apt_backend::sdr::processor::SdrProcessor::new_mock_apt().unwrap(),
   ));
   let state = Arc::new(AppState {
     shared,

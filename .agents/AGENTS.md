@@ -20,6 +20,7 @@ This file provides guidance for AI coding agents working on N-APT (RF spectrum a
 When creating markdown files for completed features, work done, or implementation summaries, **always place them in the `.agents/` directory**.
 
 **Examples:**
+
 - `/.agents/MARKDOWN_FOR_AGENTS_AND_MCP.md` - Implementation summaries
 - `/.agents/FEATURE_COMPLETION_SUMMARY.md` - Feature completion documentation
 - `/.agents/WORK_SESSION_NOTES.md` - Work session notes and progress
@@ -82,8 +83,43 @@ npm run format       # oxfmt
 npm run format:check # Check formatting
 npm run typecheck    # TypeScript
 
-rustfmt              # Rust formatting
+# Rust formatting (optimized)
+npm run format:rust      # Parallel formatting for all files
+npm run format:rust:fast # Incremental formatting for changed files only
+npm run format:rust:check # Check formatting without changes
+rustfmt                  # Standard rustfmt
 ```
+
+## Rustfmt Performance Optimization
+
+The project includes optimized Rustfmt configurations to address slow formatting performance:
+
+### Optimized Configuration (`rustfmt.toml`)
+
+- Disabled expensive features: comment formatting, doc attribute normalization
+- Enabled performance optimizations: `merge_derives = true`, disabled string formatting
+- Reduced formatting overhead with minimal configuration
+
+### Fast Formatting Scripts
+
+**Parallel Formatting** (`scripts/rust/rustfmt-parallel.sh`):
+
+- Uses `xargs -P` to format multiple files simultaneously
+- Leverages all CPU cores for faster processing
+- Best for full codebase formatting
+
+**Incremental Formatting** (`scripts/rust/rustfmt-fast.sh`):
+
+- Only formats files changed since last run
+- Uses timestamp-based caching to skip unchanged files
+- Ideal for frequent development formatting
+
+### Usage Recommendations
+- **During development**: `npm run format:rust:fast` for quick incremental formatting
+- **Before commits**: `npm run format:rust` for full parallel formatting  
+- **CI/CD**: `npm run format:rust:check` to verify formatting
+
+These optimizations significantly speed up Rustfmt, especially for the 90+ Rust files in the codebase.
 
 ## Code Style
 

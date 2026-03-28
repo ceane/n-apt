@@ -6,19 +6,19 @@ pub mod consts;
 pub mod coreml_client;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod crypto;
+#[cfg(all(rs_decrypted, not(target_arch = "wasm32")))]
+#[path = "../encrypted-modules/tmp/rs/mod.rs"]
+pub mod encrypted_modules;
 pub mod fft;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod sdr; // New abstract SDR interface
 #[cfg(not(target_arch = "wasm32"))]
 pub mod server;
-#[cfg(all(rs_decrypted, not(target_arch = "wasm32")))]
-#[path = "../encrypted-modules/tmp/rs/mod.rs"]
-pub mod encrypted_modules;
 
-pub mod simd; // Unified SIMD module
-pub mod stitching;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod live_stream_test; // Live stream test module
+pub mod simd; // Unified SIMD module
+pub mod stitching;
 #[cfg(target_arch = "wasm32")]
 pub mod wasm; // WASM library module
 

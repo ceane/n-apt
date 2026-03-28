@@ -1,7 +1,11 @@
-use n_apt_backend::sdr::processor::SdrProcessor;
 use anyhow::Result;
+use n_apt_backend::sdr::processor::SdrProcessor;
 
-fn synth_channel(len: usize, left_rolloff_db: f32, right_rolloff_db: f32) -> Vec<f32> {
+fn synth_channel(
+  len: usize,
+  left_rolloff_db: f32,
+  right_rolloff_db: f32,
+) -> Vec<f32> {
   (0..len)
     .map(|i| {
       let x = i as f32 / (len.saturating_sub(1).max(1)) as f32;
@@ -14,7 +18,11 @@ fn synth_channel(len: usize, left_rolloff_db: f32, right_rolloff_db: f32) -> Vec
     .collect()
 }
 
-fn overlap_bounds(total_span: f64, hop_bw: f64, usable_bw: f64) -> (usize, usize, usize) {
+fn overlap_bounds(
+  total_span: f64,
+  hop_bw: f64,
+  usable_bw: f64,
+) -> (usize, usize, usize) {
   let fft_size = 1024usize;
   let min_freq = 0.0;
   let max_freq = total_span;
@@ -26,31 +34,51 @@ fn overlap_bounds(total_span: f64, hop_bw: f64, usable_bw: f64) -> (usize, usize
   let midpoint_hz = (hop1_max + hop2_min) / 2.0;
   let prev_overlap_hz = hop1_max - midpoint_hz;
   let curr_overlap_hz = midpoint_hz - hop2_min;
-  let prev_trim_bins = ((fft_size as f64) * (prev_overlap_hz / hop_bw)).round() as usize;
-  let curr_trim_bins = ((fft_size as f64) * (curr_overlap_hz / hop_bw)).round() as usize;
+  let prev_trim_bins =
+    ((fft_size as f64) * (prev_overlap_hz / hop_bw)).round() as usize;
+  let curr_trim_bins =
+    ((fft_size as f64) * (curr_overlap_hz / hop_bw)).round() as usize;
   assert!(overlap_hz > 0.0);
   (fft_size, prev_trim_bins, curr_trim_bins)
 }
 
-fn hard_stitch(prev: &[f32], curr: &[f32], prev_trim_bins: usize, curr_trim_bins: usize) -> Vec<f32> {
-  let mut out = Vec::with_capacity((prev.len() - prev_trim_bins) + (curr.len() - curr_trim_bins));
+fn hard_stitch(
+  prev: &[f32],
+  curr: &[f32],
+  prev_trim_bins: usize,
+  curr_trim_bins: usize,
+) -> Vec<f32> {
+  let mut out = Vec::with_capacity(
+    (prev.len() - prev_trim_bins) + (curr.len() - curr_trim_bins),
+  );
   out.extend_from_slice(&prev[..prev.len() - prev_trim_bins]);
   out.extend_from_slice(&curr[curr_trim_bins..]);
   out
 }
 
-fn normalized_stitch(prev: &[f32], curr: &[f32], prev_trim_bins: usize, curr_trim_bins: usize) -> Vec<f32> {
+fn normalized_stitch(
+  prev: &[f32],
+  curr: &[f32],
+  prev_trim_bins: usize,
+  curr_trim_bins: usize,
+) -> Vec<f32> {
   let prev_kept = &prev[..prev.len() - prev_trim_bins];
   let curr_kept = &curr[curr_trim_bins..];
   let seam = prev_kept.len().min(curr_kept.len()).min(128);
-  let prev_avg: f32 = prev_kept[prev_kept.len() - seam..].iter().sum::<f32>() / seam as f32;
+  let prev_avg: f32 =
+    prev_kept[prev_kept.len() - seam..].iter().sum::<f32>() / seam as f32;
   let curr_avg: f32 = curr_kept[..seam].iter().sum::<f32>() / seam as f32;
   let delta = prev_avg - curr_avg;
   let adjusted_curr: Vec<f32> = curr.iter().map(|v| *v + delta).collect();
   hard_stitch(prev, &adjusted_curr, prev_trim_bins, curr_trim_bins)
 }
 
-fn blended_stitch(prev: &[f32], curr: &[f32], prev_trim_bins: usize, curr_trim_bins: usize) -> Vec<f32> {
+fn blended_stitch(
+  prev: &[f32],
+  curr: &[f32],
+  prev_trim_bins: usize,
+  curr_trim_bins: usize,
+) -> Vec<f32> {
   let prev_kept = &prev[..prev.len() - prev_trim_bins];
   let curr_kept = &curr[curr_trim_bins..];
   let seam = prev_kept.len().min(curr_kept.len()).min(96);
@@ -93,7 +121,8 @@ fn contaminate_frames(
   (0..total_frames)
     .map(|frame_idx| {
       if frame_idx < contaminated_frames {
-        let mix = 1.0 - ((frame_idx + 1) as f32 / (contaminated_frames + 1) as f32);
+        let mix =
+          1.0 - ((frame_idx + 1) as f32 / (contaminated_frames + 1) as f32);
         clean_curr
           .iter()
           .zip(clean_prev.iter())
@@ -154,13 +183,15 @@ fn reports_seam_dip_for_overlap_strategies() {
   let hop_bw = 3.2f64;
   let usable_bw = 3.2f64 * 0.8;
   let total_span = 4.69f64;
-  let (fft_size, prev_trim_bins, curr_trim_bins) = overlap_bounds(total_span, hop_bw, usable_bw);
+  let (fft_size, prev_trim_bins, curr_trim_bins) =
+    overlap_bounds(total_span, hop_bw, usable_bw);
 
   let prev = synth_channel(fft_size, 0.5, 18.0);
   let curr = synth_channel(fft_size, 18.0, 0.5);
 
   let hard = hard_stitch(&prev, &curr, prev_trim_bins, curr_trim_bins);
-  let normalized = normalized_stitch(&prev, &curr, prev_trim_bins, curr_trim_bins);
+  let normalized =
+    normalized_stitch(&prev, &curr, prev_trim_bins, curr_trim_bins);
   let blended = blended_stitch(&prev, &curr, prev_trim_bins, curr_trim_bins);
 
   let hard_dip = seam_dip(&hard);
@@ -195,7 +226,8 @@ fn reports_temporal_seam_dip_vs_post_hop_skip() {
   let mut dips = Vec::new();
   for skip in 0..=5 {
     let avg_curr = average_frames(&contaminated, skip);
-    let stitched = blended_stitch(&prev, &avg_curr, prev_trim_bins, curr_trim_bins);
+    let stitched =
+      blended_stitch(&prev, &avg_curr, prev_trim_bins, curr_trim_bins);
     dips.push((skip, seam_dip(&stitched)));
   }
 
@@ -251,44 +283,47 @@ async fn test_live_stitching_from_sdr() -> Result<()> {
 
   let mut processor = SdrProcessor::new()?;
   processor.initialize()?;
-  
+
   if processor.is_mock() {
     println!("SdrProcessor returned mock device, skipping live data test");
     return Ok(());
   }
 
-  println!("Capturing live data from {}...", processor.get_device_info());
-  
+  println!(
+    "Capturing live data from {}...",
+    processor.get_device_info()
+  );
+
   // Configure for a 2-hop capture
   let hop_bw = processor.get_sample_rate() as f64 / 1_000_000.0;
   let total_span = hop_bw * 1.5;
   let min_f = 100.0; // Assume 100MHz for test
   let max_f = min_f + total_span;
-  
+
   // We'll manually perform two reads at different frequencies
   let center1 = min_f + (hop_bw * 0.4);
   let center2 = max_f - (hop_bw * 0.4);
-  
+
   processor.set_center_frequency((center1 * 1_000_000.0) as u32)?;
   std::thread::sleep(std::time::Duration::from_millis(200)); // Settle
   let frame1 = processor.read_and_process_frame()?;
-  
+
   processor.set_center_frequency((center2 * 1_000_000.0) as u32)?;
   std::thread::sleep(std::time::Duration::from_millis(200)); // Settle
   let frame2 = processor.read_and_process_frame()?;
-  
+
   // Use our stitching algorithms on real data
   let usable_bw = hop_bw * 0.75;
   let (_, prev_trim, curr_trim) = overlap_bounds(total_span, hop_bw, usable_bw);
-  
+
   // Ensure our frames match the expected fft_size from bounds
   // Actually frames from processor might be different size, but let's assume they match for now
   // or resample.
-  
+
   let stitched = blended_stitch(&frame1, &frame2, prev_trim, curr_trim);
   let dip = seam_dip(&stitched);
-  
+
   println!("Live stitching dip: {:.3} dB", dip);
-  
+
   Ok(())
 }
