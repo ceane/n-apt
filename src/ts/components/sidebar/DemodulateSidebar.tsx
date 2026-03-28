@@ -6,6 +6,7 @@ import { ConnectionStatusSection } from "@n-apt/components/sidebar/ConnectionSta
 import { Channels } from "@n-apt/components/sidebar/Channels";
 import { ScanningProgress } from "@n-apt/components/sidebar/ScanningProgress";
 import { useDemod } from "@n-apt/contexts/DemodContext";
+import { useAudioDemodFM } from "@n-apt/hooks/useAudioDemodFM";
 import { Row } from "@n-apt/components/ui";
 import { CollapsibleTitle, CollapsibleBody } from "@n-apt/components/ui/Collapsible";
 import { DecryptionFallback } from "@n-apt/components/ui/DecryptionFallback";
@@ -154,6 +155,111 @@ const MathFallback = styled.div`
   color: ${(props) => props.theme.textSecondary};
 `;
 
+const AlgorithmSelect = styled.select`
+  background-color: transparent;
+  border: 1px solid ${(props) => props.theme.borderHover};
+  border-radius: 4px;
+  color: ${(props) => props.theme.textPrimary};
+  font-family: ${(props) => props.theme.typography.mono};
+  font-size: 12px;
+  padding: 6px 8px;
+  min-width: 130px;
+
+  &:focus {
+    outline: none;
+    border-color: ${(props) => props.theme.primary};
+  }
+
+  option {
+    background-color: ${(props) => props.theme.background};
+    color: ${(props) => props.theme.textPrimary};
+  }
+`;
+
+const AudioControlsContainer = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  grid-column: 1 / -1;
+  margin-top: 8px;
+`;
+
+const AudioButtonContainer = styled.div`
+  display: flex;
+  gap: 8px;
+  grid-column: 1 / -1;
+`;
+
+const AudioButton = styled.button<{ $variant?: "play" | "stop" }>`
+  padding: 8px 16px;
+  background-color: ${(props) =>
+    props.$variant === "stop"
+      ? props.theme.danger
+      : props.$variant === "play"
+        ? props.theme.success
+        : props.theme.primary
+  };
+  border: 1px solid ${(props) =>
+    props.$variant === "stop"
+      ? props.theme.danger
+      : props.$variant === "play"
+        ? props.theme.success
+        : props.theme.primary
+  };
+  border-radius: 6px;
+  color: ${(props) => props.theme.background};
+  font-family: ${(props) => props.theme.typography.mono};
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+
+  &:hover {
+    background-color: ${(props) =>
+    props.$variant === "stop"
+      ? `${props.theme.danger}cc`
+      : props.$variant === "play"
+        ? `${props.theme.success}cc`
+        : `${props.theme.primary}cc`
+  };
+  }
+
+  &:disabled {
+    background-color: ${(props) => props.theme.borderHover};
+    border-color: ${(props) => props.theme.borderHover};
+    color: ${(props) => props.theme.textMuted};
+    cursor: not-allowed;
+  }
+`;
+
+const VolumeSlider = styled.input`
+  width: 100%;
+  height: 4px;
+  background: ${(props) => props.theme.borderHover};
+  border-radius: 2px;
+  outline: none;
+  -webkit-appearance: none;
+
+  &::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    background: ${(props) => props.theme.primary};
+    border-radius: 50%;
+    cursor: pointer;
+  }
+
+  &::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    background: ${(props) => props.theme.primary};
+    border-radius: 50%;
+    cursor: pointer;
+    border: none;
+  }
+`;
+
 const DemodMath = React.lazy(() => import("@n-apt/encrypted-modules/tmp/ts/components/math/DemodMath").catch(() => ({
   default: () => <DecryptionFallback moduleName="Demod Math" />
 })));
@@ -203,8 +309,23 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
   const backend = useAppSelector((s) => s.websocket.backend);
   const cryptoCorrupted = useAppSelector((s) => s.websocket.cryptoCorrupted);
 
-  const { analysisSession } = useDemod();
+  const { analysisSession, currentIQData, selectedAlgorithm, setSelectedAlgorithm } = useDemod();
   const [isOptionsOpen, setIsOptionsOpen] = React.useState(true);
+
+  // FM audio demodulation hook
+  const fmAudio = useAudioDemodFM({
+    targetSampleRate: 48000,
+    bufferSize: 4096,
+  });
+
+  // Process I/Q data when available and FM algorithm is selected
+  React.useEffect(() => {
+    if (currentIQData && selectedAlgorithm === "fm") {
+      // Get sample rate from current data or default
+      const sampleRate = 3200000; // Default sample rate
+      fmAudio.processIQData(currentIQData, sampleRate);
+    }
+  }, [currentIQData, selectedAlgorithm, fmAudio]);
 
   return (
     <SidebarContent>
@@ -232,7 +353,6 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
 
 
       <Section>
-        <SectionTitle>Channels</SectionTitle>
         <Channels
           isScanning={isScanning}
           scanProgress={scanProgress}
@@ -259,6 +379,19 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
         />
         {isOptionsOpen && (
           <CollapsibleBody>
+            <Row label="Algorithm" tooltip="Select demodulation algorithm.">
+              <AlgorithmSelect
+                value={selectedAlgorithm}
+                onChange={(e) => setSelectedAlgorithm(e.target.value)}
+              >
+                <option value="fm">FM</option>
+                <option value="n-apt_audio_hearing" disabled>N-APT (Audio, Hearing) (Coming Soon)</option>
+                <option value="n-apt_audio_internal" disabled>N-APT (Audio, Internal) (Coming Soon)</option>
+                <option value="n-apt_audio_voice" disabled>N-APT (Audio, Voice) (Coming Soon)</option>
+                <option value="n-apt_vision" disabled>N-APT (Vision) (Coming Soon)</option>
+              </AlgorithmSelect>
+            </Row>
+
             <Row label="Window Size (Hz)" tooltip="Size of the frequency window for analysis.">
               <ControlInput
                 type="number"
@@ -291,6 +424,38 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
                 step="0.05"
               />
             </Row>
+
+            {selectedAlgorithm === "fm" && (
+              <AudioControlsContainer>
+                <Row label="Volume" tooltip="Adjust audio playback volume.">
+                  <VolumeSlider
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    value={fmAudio.volume}
+                    onChange={(e) => fmAudio.setVolume(Number(e.target.value))}
+                  />
+                </Row>
+
+                <AudioButtonContainer>
+                  <AudioButton
+                    $variant="play"
+                    onClick={fmAudio.playAudio}
+                    disabled={!currentIQData || fmAudio.isPlaying}
+                  >
+                    {fmAudio.isPlaying ? "Playing..." : "Play"}
+                  </AudioButton>
+                  <AudioButton
+                    $variant="stop"
+                    onClick={fmAudio.stopAudio}
+                    disabled={!fmAudio.isPlaying}
+                  >
+                    Stop
+                  </AudioButton>
+                </AudioButtonContainer>
+              </AudioControlsContainer>
+            )}
 
             <div style={{ gridColumn: "1 / -1", marginTop: "8px" }}>
               {isScanning ? (

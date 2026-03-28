@@ -47,6 +47,10 @@ interface DemodContextValue {
 
   startScan: () => Promise<void>;
   stopScan: () => void;
+
+  // FM demodulation state
+  selectedAlgorithm: string;
+  setSelectedAlgorithm: (algorithm: string) => void;
 }
 
 const DemodContext = createContext<DemodContextValue | null>(null);
@@ -65,6 +69,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [scanRange, setScanRange] = useState<{ min: number; max: number } | undefined>();
   const [analysisSession, setAnalysisSession] = useState<AnalysisSession>({ state: 'idle' });
   const [selectedBaseline, setSelectedBaseline] = useState<AnalysisType>('audio');
+  const [selectedAlgorithm, setSelectedAlgorithm] = useState('fm');
 
   const { state, wsConnection } = useSpectrumStore();
   const { sendCaptureCommand, sendScanCommand, sendDemodulateCommand } = wsConnection;
@@ -309,10 +314,13 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     startAnalysis,
     clearAnalysis,
     startScan,
-    stopScan
+    stopScan,
+    selectedAlgorithm,
+    setSelectedAlgorithm,
   }), [
     windowSizeHz, stepSizeHz, audioThreshold, scanner, audioPlayback,
-    currentIQData, scanRange, analysisSession, selectedBaseline, startAnalysis, clearAnalysis, startScan, stopScan
+    currentIQData, scanRange, analysisSession, selectedBaseline, startAnalysis, clearAnalysis, startScan, stopScan,
+    selectedAlgorithm,
   ]);
 
   return <DemodContext.Provider value={value}>{children}</DemodContext.Provider>;

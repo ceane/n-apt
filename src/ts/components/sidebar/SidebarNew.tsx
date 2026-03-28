@@ -1028,7 +1028,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           ) : (
             <>
               <Section>
-                <SectionTitle>Signal areas of interest</SectionTitle>
+                <SectionTitle>Channels</SectionTitle>
                 <div style={{ display: "grid", gap: "16px", width: "100%", gridColumn: "1 / -1" }}>
                   {Array.isArray(spectrumFrames) && spectrumFrames.length > 0 ? (
                     spectrumFrames.map((frame) => {
