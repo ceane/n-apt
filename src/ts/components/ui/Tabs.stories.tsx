@@ -1,5 +1,5 @@
 import React from "react";
-import Tabs from "./Tabs";
+import { Tabs } from "@n-apt/components/ui";
 
 export const Default = () => {
   const [value, setValue] = React.useState("tab1");

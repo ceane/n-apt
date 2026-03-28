@@ -1,3 +1,14 @@
+```Canvas::FrequencyModulation
+```
+
+```Canvas::AmplitudeModulation
+```
+
+```Canvas::Heterodyning
+```
+
+```Canvas::Multipath
+```
 
 ```Canvas::PhaseShifting
 ```
@@ -8,11 +19,9 @@
 ```Canvas::BodyAttenuation
 ```
 
-
-
-
-```Canvas::Multipath
+```Canvas::Impedance
 ```
+
 
 # How did they do it?
 
@@ -165,9 +174,6 @@ f_2 = 100\,\mathrm{MHz}
 ```
 
 When two RF signals extremely close in frequency overlap *in free space (not inside of hardware but from an antenna)* it results in a sideband (or beat pattern) as a natural side effect!
-
-```Canvas::Heterodyning
-```
 
 ### Microwaves
 
@@ -344,16 +350,13 @@ APT originated from NASA in the 1960s, specifically 1963[^apt], it was used by N
 
 Frequency modulation is a big term, it simply means the x direction, the wave becomes longer or shorter.
 
-```Canvas::FrequencyModulation
-```
+
 
 
 ### Amplitude Modulation
 
 Instead of the x direction (more cycles) or frequency, we can change the height or power of the wave. That is amplitude modulation.
 
-```Canvas::AmplitudeModulation
-```
 
 ### Pixels
 
@@ -395,6 +398,71 @@ v[n] = \operatorname{Quantize}(c[n]) \\
 {\small \text{DECODING}} \\
 {\small \text{Final reconstructed digital content.}}
 \end{gathered}
+```
+
+### FM Demodulation
+
+```LaTex
+\[
+\begin{array}{c}
+s(t) = A \cos\big(2\pi f_c t + \phi(t)\big) \\
+\textbf{\small RF: carrier + phase modulation} \\
+\downarrow \\[2mm]
+
+\phi(t) = 2\pi k_f \int m(\tau)\,d\tau \\
+\textbf{\small Phase = integrated audio} \\
+\downarrow \\[2mm]
+
+x_{\mathrm{bb}}(t) = A e^{j\phi(t)} \\
+\textbf{\small Complex baseband, carrier removed} \\
+\downarrow \\[2mm]
+
+\phi(t) = \arg\{x_{\mathrm{bb}}(t)\} \\
+\textbf{\small Extract phase} \\
+\downarrow \\[2mm]
+
+m(t) = \frac{1}{2\pi k_f} \frac{d\phi(t)}{dt} \\
+\textbf{\small Continuous-time audio} \\
+\downarrow \\[2mm]
+
+x[n] = I[n] + jQ[n] \\
+\textbf{\small Sampled complex baseband} \\
+\downarrow \\[2mm]
+
+y[n] = \arg\{x[n] x^*[n-1]\} \\
+\textbf{\small Discrete phase difference} \\
+\downarrow \\[2mm]
+
+m[n] = \frac{f_s}{2\pi k_f} y[n] \\
+\textbf{\small Scaled discrete audio} \\
+\downarrow \\[2mm]
+
+m_{\mathrm{LP}}[n] = m[n] * h_{\mathrm{LPF}}[n] \\
+\textbf{\small Low-pass filtered audio} \\
+\downarrow \\[2mm]
+
+y[n] = y[n-1] + \alpha \big(m_{\mathrm{LP}}[n] - y[n-1]\big) \\
+\textbf{\small De-emphasis filter} \\
+\downarrow \\[2mm]
+
+\text{DAC}\{y[n]\} \longrightarrow \text{speaker} \\
+\textbf{\small Sound output}
+\end{array}\\[3em]
+\]
+
+\[
+% VARIABLE GRID
+\begin{aligned}
+s(t) &= \text{FM signal (voltage or field)} & A &= \text{Carrier amplitude} \\
+f_c &= \text{Carrier frequency (Hz)} & \phi(t) &= \text{Phase modulation} \\
+m(t) &= \text{Original audio signal} & k_f &= \text{Frequency sensitivity (Hz per unit of m(t))} \\
+x_{\mathrm{bb}}(t) &= \text{Complex baseband signal} & I[n], Q[n] &= \text{Discrete in-phase and quadrature samples} \\
+x^*[n] &= \text{Complex conjugate of } x[n] & y[n] &= \text{Phase difference (discrete derivative)} \\
+f_s &= \text{Sample rate (Hz)} & h_{\mathrm{LPF}}[n] &= \text{Low-pass filter impulse response} \\
+\alpha &= \text{De-emphasis filter coefficient} & T_s &= \text{Sampling period } 1/f_s \\
+\text{DAC} &= \text{Digital-to-analog converter output}
+\end{aligned}
+\]
 ```
 
 #### Dubbing it as N-APT
@@ -550,8 +618,6 @@ In order to intercept data from the brain and nervous system, the NSA's techniqu
 
 The method worked instantaneously, so I thought, what if they were capturing something like an imprint? Like some sort of pressure that could not only write but tell the difference? Here comes impedance. It works in a similar manner where it is employed on touchscreens, where force applied where one electrical current (fingers) operates against an opposing charge (capacitive onscreen sensors).
 
-```Canvas::Impedance
-```
 
 This kind of impedance is different. In order to use impedance to detect electrical charges, the NSA's technique operates like **TEMPEST** (method of intercepting electrical charges from radio waves) but more advanced. By simply delivering the next frame of data and the difference between the previous frame after exit from the skull/body from a series of baselines according to the electrical activity.
 

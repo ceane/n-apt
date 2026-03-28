@@ -66,10 +66,6 @@ jest.mock("@n-apt/components/sidebar/MapEndpointsSidebar", () => ({
   MapEndpointsSidebar: () => <div data-testid="map-endpoints-sidebar">Map Endpoints Sidebar</div>,
 }));
 
-jest.mock("@n-apt/components/sidebar/SidebarForRoute", () => ({
-  SidebarForRoute: () => <div data-testid="route-sidebar">Route Sidebar</div>,
-}));
-
 const theme = {
   primary: "#00d4ff",
   primaryAlpha: "rgba(0, 212, 255, 0.2)",

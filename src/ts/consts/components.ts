@@ -55,7 +55,7 @@ export const MODEL_FILL_LIGHT_POSITION = [-3, 2.2, 3.5] as const;
 export const MODEL_BACK_LIGHT_INTENSITY = 2.4;
 export const MODEL_BACK_LIGHT_POSITION = [0, 2.8, -4.5] as const;
 
-// HumanModelViewer constants
+// Model3D constants
 export const MODEL_CAMERA_POSITION = [0, 1.05, 3.6] as const;
 export const MODEL_CAMERA_TARGET = [0, 0.95, 0] as const;
 export const MODEL_FOV = 36;

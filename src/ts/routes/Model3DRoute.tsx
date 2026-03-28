@@ -1,11 +1,11 @@
 import React from "react";
-import { HumanModelCanvas } from "@n-apt/components/3D/HumanModelCanvas";
+import { Model3DCanvas } from "@n-apt/components/3D/Model3DCanvas";
 import { MainContent } from "@n-apt/components/Layout";
 
 export const Model3DRoute: React.FC = () => {
   return (
     <MainContent>
-      <HumanModelCanvas />
+      <Model3DCanvas />
     </MainContent>
   );
 };

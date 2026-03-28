@@ -1,4 +1,4 @@
-import { BodyAreasSection } from "./BodyAreasSection";
+import { BodyAreasSection } from "@n-apt/components/sidebar/BodyAreasSection";
 import { Model3DProvider } from "@n-apt/hooks/useModel3D";
 import { ThemeProvider } from "styled-components";
 

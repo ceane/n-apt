@@ -256,14 +256,19 @@ describe('Canvas Component Loading Tests (Simple)', () => {
       const fs = require('fs');
       const path = require('path');
 
-      const componentsDir = path.join(__dirname, '../../src/md-preview');
+      const componentsDir = path.join(__dirname, '../../src/md-preview/components/canvas');
       const canvasFiles = [
-        'BodyAttenuationCanvas.tsx',
-        'BodyAttenuationWebGPUCanvas.tsx',
-        'SignalCanvases.tsx',
-        'ImpedanceCanvas.tsx',
+        'index.ts',
+        'helpers.tsx',
+        'CanvasComponents.tsx',
+        'PhaseShiftingCanvas.tsx',
+        'FrequencyModulationCanvas.tsx',
+        'AmplitudeModulationCanvas.tsx',
+        'MultipathCanvas.tsx',
+        'HeterodyningCanvas.tsx',
         'TimeOfFlightCanvas.tsx',
-        'PhaseShfitingCanvas.tsx',
+        'ImpedanceCanvas.tsx',
+        'BodyAttenuationCanvas.tsx',
       ];
 
       canvasFiles.forEach(file => {
@@ -279,16 +284,20 @@ describe('Canvas Component Loading Tests (Simple)', () => {
       const fs = require('fs');
       const path = require('path');
 
-      const componentsDir = path.join(__dirname, '../../src/md-preview');
+      const componentsDir = path.join(__dirname, '../../src/md-preview/components/canvas');
 
-      // Check SignalCanvases exports
-      const signalCanvasPath = path.join(componentsDir, 'SignalCanvases.tsx');
-      const signalCanvasContent = fs.readFileSync(signalCanvasPath, 'utf8');
+      // Check canvas index exports
+      const canvasIndexPath = path.join(componentsDir, 'index.ts');
+      const canvasIndexContent = fs.readFileSync(canvasIndexPath, 'utf8');
 
-      expect(signalCanvasContent).toMatch(/export.*AmplitudeModulationCanvas/);
-      expect(signalCanvasContent).toMatch(/export.*FrequencyModulationCanvas/);
-      expect(signalCanvasContent).toMatch(/export.*HeterodyningCanvas/);
-      expect(signalCanvasContent).toMatch(/export.*MultipathCanvas/);
+      expect(canvasIndexContent).toMatch(/export.*AmplitudeModulationCanvas/);
+      expect(canvasIndexContent).toMatch(/export.*FrequencyModulationCanvas/);
+      expect(canvasIndexContent).toMatch(/export.*HeterodyningCanvas/);
+      expect(canvasIndexContent).toMatch(/export.*MultipathCanvas/);
+      expect(canvasIndexContent).toMatch(/export.*PhaseShiftingCanvas/);
+      expect(canvasIndexContent).toMatch(/export.*TimeOfFlightCanvas/);
+      expect(canvasIndexContent).toMatch(/export.*ImpedanceCanvas/);
+      expect(canvasIndexContent).toMatch(/export.*BodyAttenuationCanvas/);
     });
   });
 
@@ -297,21 +306,21 @@ describe('Canvas Component Loading Tests (Simple)', () => {
       const fs = require('fs');
       const path = require('path');
 
-      const componentsDir = path.join(__dirname, '../../src/md-preview');
+      const componentsDir = path.join(__dirname, '../../src/md-preview/components/canvas');
 
       // Check that canvas files import React
-      const bodyAttenuationPath = path.join(componentsDir, 'BodyAttenuationCanvas.tsx');
-      const bodyAttenuationContent = fs.readFileSync(bodyAttenuationPath, 'utf8');
+      const amplitudeModulationPath = path.join(componentsDir, 'AmplitudeModulationCanvas.tsx');
+      const amplitudeModulationContent = fs.readFileSync(amplitudeModulationPath, 'utf8');
 
-      expect(bodyAttenuationContent).toMatch(/import.*React/);
+      expect(amplitudeModulationContent).toMatch(/import.*React/);
 
-      // Check SignalCanvases imports (be more flexible)
-      const signalCanvasPath = path.join(componentsDir, 'SignalCanvases.tsx');
-      const signalCanvasContent = fs.readFileSync(signalCanvasPath, 'utf8');
+      // Check canvas helpers imports
+      const helpersPath = path.join(componentsDir, 'helpers.tsx');
+      const helpersContent = fs.readFileSync(helpersPath, 'utf8');
 
-      expect(signalCanvasContent).toMatch(/import.*React/);
-      // Check for Three.js related imports (be flexible)
-      expect(signalCanvasContent).toMatch(/(three|@react-three|Canvas|useFrame)/);
+      expect(helpersContent).toMatch(/import.*React/);
+      // Check for Three.js related imports
+      expect(helpersContent).toMatch(/(three|@react-three|Canvas|useFrame)/);
     });
   });
 });

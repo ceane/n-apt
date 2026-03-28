@@ -1,4 +1,4 @@
-import { CoordinateMapper, Range } from "./CoordinateMapper";
+import { CoordinateMapper, Range } from "@n-apt/utils/rendering/CoordinateMapper";
 import { findBestFrequencyRange } from "@n-apt/consts";
 import { fmtFreq, fmtFreqTick } from "./formatters";
 

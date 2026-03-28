@@ -3,11 +3,13 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { useTexture } from "@react-three/drei";
 import styled from "styled-components";
 import * as THREE from "three";
-import { CanvasText } from "./CanvasText";
+import { CanvasText } from "../../CanvasText";
+import { theme } from "../../theme";
 
 const BASE_URL = "";
 const BODY_CHARACTER_SRC = `${BASE_URL}/md-preview/body-attenuation-character.png`;
-const BACKGROUND_COLOR = "#e8e8ea";
+
+const BACKGROUND_COLOR = theme.colors.background;
 
 const CHARACTER_SIZE = {
   width: 2.91,
@@ -461,10 +463,10 @@ const Frame = styled.div`
   max-width: 100%;
   min-width: 0;
   margin: 2rem 0;
-  border-radius: 16px;
+  border-radius: ${theme.layout.borderRadius};
   overflow: hidden;
   border: 1px solid rgba(12, 14, 18, 0.36);
-  background: ${BACKGROUND_COLOR};
+  background: ${theme.colors.background};
   aspect-ratio: 10 / 6.4;
   position: relative;
 
@@ -488,4 +490,4 @@ const RendererBadge = styled.div`
   display: none;
 `;
 
-export default TimeOfFlightCanvas;
+export { TimeOfFlightCanvas };

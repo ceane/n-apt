@@ -1,5 +1,5 @@
 import { ThemeProvider } from "styled-components";
-import { IQCaptureControlsSection } from "./IQCaptureControlsSection";
+import { IQCaptureControlsSection } from "@n-apt/components/sidebar/IQCaptureControlsSection";
 import type { CaptureStatus } from "@n-apt/hooks/useWebSocket";
 
 const theme = {

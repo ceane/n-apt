@@ -1,8 +1,8 @@
 import React from "react";
 import styled from "styled-components";
 import { gsap } from "gsap";
-import { BodyAreasSection } from "./BodyAreasSection";
-import { HotspotEditorSection } from "./HotspotEditorSection";
+import { BodyAreasSection } from "@n-apt/components/sidebar/BodyAreasSection";
+import { HotspotEditorSection } from "@n-apt/components/sidebar/HotspotEditorSection";
 import { useHotspotEditor } from "@n-apt/hooks/useHotspotEditor";
 import { useModel3D } from "@n-apt/hooks/useModel3D";
 import { CollapsibleTitle, CollapsibleBody } from "@n-apt/components/ui";
@@ -86,7 +86,7 @@ const ResetButton = styled.button`
   }
 `;
 
-export const SidebarForRoute: React.FC = () => {
+export const Model3DSidebar: React.FC = () => {
   const { setSidebarTab } = useHotspotEditor();
   const { controlsRef, setSelectedArea } = useModel3D();
 

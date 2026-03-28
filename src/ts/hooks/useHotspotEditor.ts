@@ -184,12 +184,12 @@ const HotspotEditorContext = createContext<
   HotspotEditorContextType | undefined
 >(undefined);
 
-interface HotspotEditorProviderProps {
+interface Model3DInteractionProviderProps {
   children: ReactNode;
   onHotspotsChange?: (hotspots: Hotspot[]) => void;
 }
 
-export const HotspotEditorProvider: React.FC<HotspotEditorProviderProps> = ({
+export const Model3DInteractionProvider: React.FC<Model3DInteractionProviderProps> = ({
   children,
   onHotspotsChange,
 }) => {
@@ -411,7 +411,7 @@ export const useHotspotEditor = (): HotspotEditorContextType => {
   const context = useContext(HotspotEditorContext);
   if (context === undefined) {
     throw new Error(
-      "useHotspotEditor must be used within a HotspotEditorProvider",
+      "useHotspotEditor must be used within a Model3DInteractionProvider",
     );
   }
   return context;

@@ -1,5 +1,5 @@
 import React from 'react';
-import PWAInstallPrompt from './PWAInstallPrompt';
+import PWAInstallPrompt from "@n-apt/components/PWAInstallPrompt";
 
 export default {
   title: 'Components/PWAInstallPrompt',

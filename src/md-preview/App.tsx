@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import styled, { createGlobalStyle, css } from "styled-components";
+import styled, { createGlobalStyle, css, ThemeProvider } from "styled-components";
+import { theme } from "./theme";
 import ReactMarkdown from "react-markdown";
 import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -10,18 +11,14 @@ import katex from "katex";
 import * as lucideIcons from "lucide-react";
 import "highlight.js/styles/github-dark.css";
 import "katex/dist/katex.min.css";
-import BodyAttenuationCanvas from "./BodyAttenuationWebGPUCanvas";
-import ImpedanceCanvas from "./ImpedanceCanvas";
-import TimeOfFlightCanvas from "./TimeOfFlightCanvas";
-import { AmplitudeModulationCanvas, FrequencyModulationCanvas, HeterodyningCanvas, MultipathCanvas } from "./SignalCanvases";
-import PhaseShiftingCanvas from "./PhaseShfitingCanvas";
-import remarkBodyAttenuationBlocks from "./remarkBodyAttenuationBlocks";
-import remarkTimeOfFlightBlocks from "./remarkTimeOfFlightBlocks";
-import remarkSignalCanvasBlocks from "./remarkSignalCanvasBlocks";
-import remarkIconShortcodes from "./remarkIconShortcodes";
-import remarkLatexCodeBlocks from "./remarkLatexCodeBlocks";
-import GiscusComments from "./GiscusComments";
-import { getBaseUrl } from "./getBaseUrl";
+import { AmplitudeModulationCanvas, FrequencyModulationCanvas, HeterodyningCanvas, MultipathCanvas, PhaseShiftingCanvas, TimeOfFlightCanvas, ImpedanceCanvas, BodyAttenuationCanvas } from "./components/canvas";
+import remarkBodyAttenuationBlocks from "@n-apt/md-preview/remarkBodyAttenuationBlocks";
+import remarkTimeOfFlightBlocks from "@n-apt/md-preview/remarkTimeOfFlightBlocks";
+import remarkSignalCanvasBlocks from "@n-apt/md-preview/remarkSignalCanvasBlocks";
+import remarkIconShortcodes from "@n-apt/md-preview/remarkIconShortcodes";
+import remarkLatexCodeBlocks from "@n-apt/md-preview/remarkLatexCodeBlocks";
+import GiscusComments from "@n-apt/md-preview/GiscusComments";
+import { getBaseUrl } from "@n-apt/md-preview/getBaseUrl";
 
 const DEFAULT_SOURCE = "/pages/how-do-they-do-it.md";
 const BASE_URL = getBaseUrl();
@@ -287,7 +284,7 @@ const App: React.FC = () => {
   }), []);
 
   return (
-    <>
+    <ThemeProvider theme={theme}>
       <GlobalStyle />
       <Page>
         <ArticleContent>
@@ -310,7 +307,7 @@ const App: React.FC = () => {
           )}
         </ArticleContent>
       </Page>
-    </>
+    </ThemeProvider>
   );
 };
 

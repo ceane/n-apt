@@ -87,7 +87,7 @@ function Model({
   );
 }
 
-interface HumanModelViewerSimpleProps {
+interface Model3DViewerSimpleProps {
   selectedArea: Area | null;
   controlsRef: React.RefObject<any>;
   width?: string | number;
@@ -109,7 +109,7 @@ const CanvasContainer = styled.div`
   }
 `;
 
-export const HumanModelViewerSimple: React.FC<HumanModelViewerSimpleProps> = ({
+export const Model3DViewerSimple: React.FC<Model3DViewerSimpleProps> = ({
   selectedArea,
   controlsRef,
   width = "100%",

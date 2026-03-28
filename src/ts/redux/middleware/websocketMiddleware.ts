@@ -148,10 +148,10 @@ const getPausedValue = (payload: unknown): boolean | null => {
   return null;
 };
 
-const queueLiveData = (data: unknown) => {
+const queueLiveData = (data: unknown, dispatch: Dispatch) => {
   pendingDataUpdate = data;
   if (dataBatchTimeout === null) {
-    dataBatchTimeout = window.setTimeout(() => processBatchedData(), BATCH_DELAY_MS);
+    dataBatchTimeout = window.setTimeout(() => processBatchedData(dispatch), BATCH_DELAY_MS);
   }
 };
 
@@ -560,7 +560,7 @@ const createWebSocketMiddleware = (): Middleware<{}, any> => (store) => (next) =
             }
 
             if (parsed?.type === "spectrum") {
-              queueLiveData(parsed);
+              queueLiveData(parsed, dispatch);
               return;
             }
 
@@ -574,9 +574,9 @@ const createWebSocketMiddleware = (): Middleware<{}, any> => (store) => (next) =
                     Array.isArray(decrypted.messages) &&
                     decrypted.messages.length > 0
                   ) {
-                    queueLiveData(JSON.parse(decrypted.messages[0]));
+                    queueLiveData(JSON.parse(decrypted.messages[0]), dispatch);
                   } else {
-                    queueLiveData(decrypted);
+                    queueLiveData(decrypted, dispatch);
                   }
                 } catch (e) {
                   console.error('Failed to decrypt spectrum data:', e);

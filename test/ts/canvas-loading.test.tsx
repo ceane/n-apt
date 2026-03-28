@@ -161,10 +161,10 @@ describe('Canvas Component Loading Tests', () => {
       });
     });
 
-    test('should load and render BodyAttenuationWebGPUCanvas', async () => {
-      const { default: BodyAttenuationWebGPUCanvas } = await import('../../src/md-preview/BodyAttenuationWebGPUCanvas');
+    test('should load and render BodyAttenuationCanvas', async () => {
+      const { default: BodyAttenuationCanvas } = await import('../../src/md-preview/BodyAttenuationCanvas');
 
-      render(<BodyAttenuationWebGPUCanvas />, { container });
+      render(<BodyAttenuationCanvas />, { container });
 
       // Wait for component to mount
       await waitFor(() => {
@@ -175,7 +175,7 @@ describe('Canvas Component Loading Tests', () => {
 
   describe('Signal Canvas Components', () => {
     test('should load and render AmplitudeModulationCanvas', async () => {
-      const { AmplitudeModulationCanvas } = await import('../../src/md-preview/SignalCanvases');
+      const { AmplitudeModulationCanvas } = await import('../../src/md-preview/components/canvas');
 
       render(<AmplitudeModulationCanvas />, { container });
 
@@ -185,7 +185,7 @@ describe('Canvas Component Loading Tests', () => {
     });
 
     test('should load and render FrequencyModulationCanvas', async () => {
-      const { FrequencyModulationCanvas } = await import('../../src/md-preview/SignalCanvases');
+      const { FrequencyModulationCanvas } = await import('../../src/md-preview/components/canvas');
 
       render(<FrequencyModulationCanvas />, { container });
 
@@ -195,7 +195,7 @@ describe('Canvas Component Loading Tests', () => {
     });
 
     test('should load and render HeterodyningCanvas', async () => {
-      const { HeterodyningCanvas } = await import('../../src/md-preview/SignalCanvases');
+      const { HeterodyningCanvas } = await import('../../src/md-preview/components/canvas');
 
       render(<HeterodyningCanvas />, { container });
 
@@ -205,7 +205,7 @@ describe('Canvas Component Loading Tests', () => {
     });
 
     test('should load and render MultipathCanvas', async () => {
-      const { MultipathCanvas } = await import('../../src/md-preview/SignalCanvases');
+      const { MultipathCanvas } = await import('../../src/md-preview/components/canvas');
 
       render(<MultipathCanvas />, { container });
 
@@ -237,12 +237,12 @@ describe('Canvas Component Loading Tests', () => {
     });
 
     test('should load and render PhaseShiftingCanvas', async () => {
-      const { default: PhaseShiftingCanvas } = await import('../../src/md-preview/PhaseShfitingCanvas');
+      const { PhaseShiftingCanvas } = await import('../../src/md-preview/components/canvas');
 
       render(<PhaseShiftingCanvas />, { container });
 
       await waitFor(() => {
-        expect(container.querySelector('canvas')).toBeInTheDocument();
+        expect(container.querySelector('svg')).toBeInTheDocument();
       });
     });
   });
@@ -270,11 +270,11 @@ describe('Canvas Component Loading Tests', () => {
         writable: true,
       });
 
-      const { default: BodyAttenuationWebGPUCanvas } = await import('../../src/md-preview/BodyAttenuationWebGPUCanvas');
+      const { default: BodyAttenuationCanvas } = await import('../../src/md-preview/BodyAttenuationCanvas');
 
       // Should not throw error
       expect(() => {
-        render(<BodyAttenuationWebGPUCanvas />, { container });
+        render(<BodyAttenuationCanvas />, { container });
       }).not.toThrow();
     });
   });
@@ -283,23 +283,22 @@ describe('Canvas Component Loading Tests', () => {
     test('should integrate all canvas components together', async () => {
       const canvasModules = await Promise.all([
         import('../../src/md-preview/BodyAttenuationCanvas'),
-        import('../../src/md-preview/BodyAttenuationWebGPUCanvas'),
-        import('../../src/md-preview/SignalCanvases'),
+        import('../../src/md-preview/BodyAttenuationCanvas'),
+        import('../../src/md-preview/components/canvas'),
         import('../../src/md-preview/ImpedanceCanvas'),
         import('../../src/md-preview/TimeOfFlightCanvas'),
-        import('../../src/md-preview/PhaseShfitingCanvas'),
       ]);
 
       const components = [
         canvasModules[0].default, // BodyAttenuationCanvas
-        canvasModules[1].default, // BodyAttenuationWebGPUCanvas
+        canvasModules[1].default, // BodyAttenuationCanvas
         canvasModules[2].AmplitudeModulationCanvas,
         canvasModules[2].FrequencyModulationCanvas,
         canvasModules[2].HeterodyningCanvas,
         canvasModules[2].MultipathCanvas,
+        canvasModules[2].PhaseShiftingCanvas,
         canvasModules[3].default, // ImpedanceCanvas
         canvasModules[4].default, // TimeOfFlightCanvas
-        canvasModules[5].default, // PhaseShiftingCanvas
       ];
 
       // Render all components

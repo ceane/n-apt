@@ -1,6 +1,5 @@
 import React from "react";
-import Row from "./Row";
-import Toggle from "./Toggle";
+import { Row, Toggle } from "@n-apt/components/ui";
 import { ThemeProvider } from "styled-components";
 
 const theme = {

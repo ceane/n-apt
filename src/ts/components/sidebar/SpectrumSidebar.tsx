@@ -33,19 +33,19 @@ import type {
   CaptureFileType,
 } from "@n-apt/consts/schemas/websocket";
 import { type GeolocationData } from "@n-apt/consts/schemas/websocket";
-import { SignalDisplaySection } from "./SignalDisplaySection";
-import { IQCaptureControlsSection } from "./IQCaptureControlsSection";
-import { SnapshotControlsSection } from "./SnapshotControlsSection";
-import { SourceSettingsSection } from "./SourceSettingsSection";
-import FileSelectionSidebar from "./FileSelectionSidebar";
-import { SignalFeaturesSection } from "./SignalFeaturesSection";
-import { ConnectionStatusSection, PauseButton } from "./ConnectionStatusSection";
-import { ThemeSection } from "./ThemeSection";
-import ReduxFrequencyRangeSlider from "./ReduxFrequencyRangeSlider";
-import SourceInput from "./SourceInput";
-import { buildSdrLimitMarkers } from "../../utils/sdrLimitMarkers";
-import { usePrompt } from "../ui/PromptProvider";
-import { fileRegistry } from "../../utils/fileRegistry";
+import { SignalDisplaySection } from "@n-apt/components/sidebar/SignalDisplaySection";
+import { IQCaptureControlsSection } from "@n-apt/components/sidebar/IQCaptureControlsSection";
+import { SnapshotControlsSection } from "@n-apt/components/sidebar/SnapshotControlsSection";
+import { SourceSettingsSection } from "@n-apt/components/sidebar/SourceSettingsSection";
+import FileSelectionSidebar from "@n-apt/components/sidebar/FileSelectionSidebar";
+import { SignalFeaturesSection } from "@n-apt/components/sidebar/SignalFeaturesSection";
+import { ConnectionStatusSection, PauseButton } from "@n-apt/components/sidebar/ConnectionStatusSection";
+import { ThemeSection } from "@n-apt/components/sidebar/ThemeSection";
+import ReduxFrequencyRangeSlider from "@n-apt/components/sidebar/ReduxFrequencyRangeSlider";
+import SourceInput from "@n-apt/components/sidebar/SourceInput";
+import { buildSdrLimitMarkers } from "@n-apt/utils/sdrLimitMarkers";
+import { usePrompt } from "@n-apt/components/ui/PromptProvider";
+import { fileRegistry } from "@n-apt/utils/fileRegistry";
 
 const SidebarContent = styled.div`
   display: grid;

@@ -1,7 +1,7 @@
 import type { Story } from "@ladle/react";
 import { Canvas } from "@react-three/fiber";
 import { Bounds, Center, OrbitControls } from "@react-three/drei";
-import Brain from "../Brain";
+import Brain from "@n-apt/components/3D/Brain";
 
 export default {
   title: "ThreeD/Brain Model",

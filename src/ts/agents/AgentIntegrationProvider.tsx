@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
-import { useWebMCP, initializeWebMCP } from "./webmcp/integration";
+import { useWebMCP, initializeWebMCP } from "@n-apt/webmcp/integration";
 import {
   setupSpectrumToolHandlers,
   setupDrawSignalToolHandlers,

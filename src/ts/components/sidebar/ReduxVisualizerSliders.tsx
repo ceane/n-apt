@@ -2,7 +2,7 @@ import React from "react";
 import styled from "styled-components";
 import { useAppSelector, useAppDispatch } from "@n-apt/redux";
 import { spectrumActions } from "@n-apt/redux";
-import VisualizerSliders from "../VisualizerSliders";
+import VisualizerSliders from "@n-apt/components/VisualizerSliders";
 
 const Container = styled.div`
   display: grid;
