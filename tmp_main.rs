@@ -10,13 +10,17 @@ use tokio::sync::{broadcast, Mutex};
 use tokio_tungstenite::{accept_async, tungstenite::Message};
 
 // Import FFT module
-use n_apt_backend::consts::rs::fft::{FFT_FRAME_RATE, FFT_MAX_DB, FFT_MIN_DB, NUM_SAMPLES, SAMPLE_RATE};
+use n_apt_backend::consts::rs::fft::{
+  FFT_FRAME_RATE, FFT_MAX_DB, FFT_MIN_DB, NUM_SAMPLES, SAMPLE_RATE,
+};
 use n_apt_backend::consts::rs::mock::{
-  MOCK_NOISE_FLOOR_BASE, MOCK_NOISE_FLOOR_VARIATION, MOCK_SPECTRUM_SIZE, MOCK_PERSISTENT_SIGNALS,
-  MOCK_NARROW_BAND_WIDTH, MOCK_WIDE_BAND_WIDTH, MOCK_SIGNAL_DRIFT_RATE, MOCK_SIGNAL_MODULATION_RATE,
-  MOCK_STRONG_SIGNAL_MAX, MOCK_STRONG_SIGNAL_MIN, MOCK_MEDIUM_SIGNAL_MAX, MOCK_MEDIUM_SIGNAL_MIN,
-  MOCK_WEAK_SIGNAL_MAX, MOCK_WEAK_SIGNAL_MIN, MOCK_SIGNAL_APPEARANCE_CHANCE,
-  MOCK_SIGNAL_DISAPPEARANCE_CHANCE, MOCK_SIGNAL_STRENGTH_VARIATION,
+  MOCK_MEDIUM_SIGNAL_MAX, MOCK_MEDIUM_SIGNAL_MIN, MOCK_NARROW_BAND_WIDTH,
+  MOCK_NOISE_FLOOR_BASE, MOCK_NOISE_FLOOR_VARIATION, MOCK_PERSISTENT_SIGNALS,
+  MOCK_SIGNAL_APPEARANCE_CHANCE, MOCK_SIGNAL_DISAPPEARANCE_CHANCE,
+  MOCK_SIGNAL_DRIFT_RATE, MOCK_SIGNAL_MODULATION_RATE,
+  MOCK_SIGNAL_STRENGTH_VARIATION, MOCK_SPECTRUM_SIZE, MOCK_STRONG_SIGNAL_MAX,
+  MOCK_STRONG_SIGNAL_MIN, MOCK_WEAK_SIGNAL_MAX, MOCK_WEAK_SIGNAL_MIN,
+  MOCK_WIDE_BAND_WIDTH,
 };
 use n_apt_backend::fft::{FFTProcessor, FFTResult, RawSamples};
 use n_apt_backend::rtlsdr::RtlSdrDevice;
@@ -125,9 +129,15 @@ impl SignalType {
 
   fn random_strength_range(&self, rng: &mut rand::rngs::ThreadRng) -> f32 {
     match self {
-      SignalType::Narrow => rng.gen_range(MOCK_WEAK_SIGNAL_MIN..MOCK_WEAK_SIGNAL_MAX),
-      SignalType::Medium => rng.gen_range(MOCK_MEDIUM_SIGNAL_MIN..MOCK_MEDIUM_SIGNAL_MAX),
-      SignalType::Wide => rng.gen_range(MOCK_STRONG_SIGNAL_MIN..MOCK_STRONG_SIGNAL_MAX),
+      SignalType::Narrow => {
+        rng.gen_range(MOCK_WEAK_SIGNAL_MIN..MOCK_WEAK_SIGNAL_MAX)
+      }
+      SignalType::Medium => {
+        rng.gen_range(MOCK_MEDIUM_SIGNAL_MIN..MOCK_MEDIUM_SIGNAL_MAX)
+      }
+      SignalType::Wide => {
+        rng.gen_range(MOCK_STRONG_SIGNAL_MIN..MOCK_STRONG_SIGNAL_MAX)
+      }
     }
   }
 }
@@ -185,23 +195,24 @@ impl SDRProcessor {
   fn initialize_mock_signals(&mut self) {
     use rand::Rng;
     let mut rng = rand::thread_rng();
-    
+
     self.mock_signals.clear();
-    
+
     for i in 0..MOCK_PERSISTENT_SIGNALS {
       // Distribute signals across the spectrum
-      let center_bin = (i as f32 / MOCK_PERSISTENT_SIGNALS as f32) * MOCK_SPECTRUM_SIZE as f32;
-      
+      let center_bin =
+        (i as f32 / MOCK_PERSISTENT_SIGNALS as f32) * MOCK_SPECTRUM_SIZE as f32;
+
       // Vary signal types for diversity
       let signal_type = match i % 3 {
         0 => SignalType::Narrow,
         1 => SignalType::Medium,
         _ => SignalType::Wide,
       };
-      
+
       let bandwidth = signal_type.bandwidth();
       let base_strength = signal_type.random_strength_range(&mut rng);
-      
+
       self.mock_signals.push(MockSignal {
         center_bin,
         drift_offset: 0.0,
@@ -227,12 +238,20 @@ impl SDRProcessor {
         Ok(dev) => {
           // Configure the device
           if let Err(e) = dev.set_sample_rate(SAMPLE_RATE) {
-            warn!("Failed to set sample rate: {}. Falling back to mock mode.", e);
+            warn!(
+              "Failed to set sample rate: {}. Falling back to mock mode.",
+              e
+            );
             self.is_mock = true;
             return Ok(());
           }
-          if let Err(e) = dev.set_center_freq(n_apt_backend::consts::rs::fft::CENTER_FREQ) {
-            warn!("Failed to set center freq: {}. Falling back to mock mode.", e);
+          if let Err(e) =
+            dev.set_center_freq(n_apt_backend::consts::rs::fft::CENTER_FREQ)
+          {
+            warn!(
+              "Failed to set center freq: {}. Falling back to mock mode.",
+              e
+            );
             self.is_mock = true;
             return Ok(());
           }
@@ -291,7 +310,10 @@ impl SDRProcessor {
     let mut device_failed = false;
     if let Some(ref dev) = self.device {
       if let Err(e) = dev.set_center_freq(freq) {
-        warn!("Device error setting frequency: {}. Falling back to mock.", e);
+        warn!(
+          "Device error setting frequency: {}. Falling back to mock.",
+          e
+        );
         device_failed = true;
       } else {
         // Reset buffer after frequency change to flush stale samples
@@ -303,7 +325,8 @@ impl SDRProcessor {
         // Clear averaging buffer so old spectrum doesn't bleed into new frequency
         self.avg_spectrum = None;
         // Allow the device to settle after a retune
-        self.retune_cooldown_until = Some(Instant::now() + Duration::from_millis(150));
+        self.retune_cooldown_until =
+          Some(Instant::now() + Duration::from_millis(150));
       }
     }
     if device_failed {
@@ -315,7 +338,8 @@ impl SDRProcessor {
     // Shift mock signal positions proportionally to the frequency change
     if self.is_mock && old_freq != freq {
       let freq_delta = freq as f64 - old_freq as f64;
-      let bin_shift = (freq_delta / SAMPLE_RATE as f64) * MOCK_SPECTRUM_SIZE as f64;
+      let bin_shift =
+        (freq_delta / SAMPLE_RATE as f64) * MOCK_SPECTRUM_SIZE as f64;
       for signal in &mut self.mock_signals {
         signal.center_bin -= bin_shift as f32;
       }
@@ -336,7 +360,9 @@ impl SDRProcessor {
       // Convert dB to tenths of dB for librtlsdr
       let tenths = (gain * 10.0) as i32;
       match dev.set_tuner_gain(tenths) {
-        Ok(()) => info!("Hardware gain set to {} dB (tenths: {})", gain, tenths),
+        Ok(()) => {
+          info!("Hardware gain set to {} dB (tenths: {})", gain, tenths)
+        }
         Err(e) => {
           warn!("Device error setting gain: {}. Falling back to mock.", e);
           device_failed = true;
@@ -350,7 +376,14 @@ impl SDRProcessor {
   }
 
   /// Apply settings from a WebSocket settings message
-  fn apply_settings(&mut self, fft_size: Option<usize>, fft_window: Option<String>, _frame_rate: Option<u32>, gain: Option<f64>, ppm: Option<i32>) -> Result<()> {
+  fn apply_settings(
+    &mut self,
+    fft_size: Option<usize>,
+    fft_window: Option<String>,
+    _frame_rate: Option<u32>,
+    gain: Option<f64>,
+    ppm: Option<i32>,
+  ) -> Result<()> {
     let mut config = self.fft_processor.config().clone();
     let mut config_changed = false;
 
@@ -451,23 +484,24 @@ impl SDRProcessor {
       if freq == self.center_freq {
         // No change needed
       } else {
-      let can_retune = if self.is_mock || self.device.is_none() {
-        true
-      } else {
-        self.last_retune_at
-          .map(|last| last.elapsed() >= Duration::from_millis(600))
-          .unwrap_or(true)
-      };
+        let can_retune = if self.is_mock || self.device.is_none() {
+          true
+        } else {
+          self
+            .last_retune_at
+            .map(|last| last.elapsed() >= Duration::from_millis(600))
+            .unwrap_or(true)
+        };
 
-      if can_retune {
-        if let Err(e) = self.set_center_frequency(freq) {
-          warn!("Failed to apply pending frequency: {}", e);
+        if can_retune {
+          if let Err(e) = self.set_center_frequency(freq) {
+            warn!("Failed to apply pending frequency: {}", e);
+          }
+          self.last_retune_at = Some(Instant::now());
+        } else {
+          // Keep latest request queued until the debounce interval passes
+          self.pending_freq = Some(freq);
         }
-        self.last_retune_at = Some(Instant::now());
-      } else {
-        // Keep latest request queued until the debounce interval passes
-        self.pending_freq = Some(freq);
-      }
       }
     }
 
@@ -538,7 +572,8 @@ impl SDRProcessor {
     // Start with base noise floor
     for _i in 0..MOCK_SPECTRUM_SIZE {
       let noise_floor = MOCK_NOISE_FLOOR_BASE
-        + rng.gen_range(-MOCK_NOISE_FLOOR_VARIATION..MOCK_NOISE_FLOOR_VARIATION);
+        + rng
+          .gen_range(-MOCK_NOISE_FLOOR_VARIATION..MOCK_NOISE_FLOOR_VARIATION);
       data.push(noise_floor.clamp(FFT_MIN_DB as f32, FFT_MAX_DB as f32));
     }
 
@@ -547,13 +582,16 @@ impl SDRProcessor {
       // Randomly activate/deactivate signals for dynamic behavior
       if signal.active && rng.gen::<f32>() < MOCK_SIGNAL_DISAPPEARANCE_CHANCE {
         signal.active = false;
-      } else if !signal.active && rng.gen::<f32>() < MOCK_SIGNAL_APPEARANCE_CHANCE {
+      } else if !signal.active
+        && rng.gen::<f32>() < MOCK_SIGNAL_APPEARANCE_CHANCE
+      {
         signal.active = true;
       }
 
       if signal.active {
         // Update signal drift (slow frequency drift)
-        signal.drift_offset += rng.gen_range(-MOCK_SIGNAL_DRIFT_RATE..MOCK_SIGNAL_DRIFT_RATE);
+        signal.drift_offset +=
+          rng.gen_range(-MOCK_SIGNAL_DRIFT_RATE..MOCK_SIGNAL_DRIFT_RATE);
         signal.drift_offset = signal.drift_offset.clamp(-5.0, 5.0); // Limit drift range
 
         // Update modulation phase
@@ -564,23 +602,30 @@ impl SDRProcessor {
 
         // Calculate current signal strength with modulation
         let modulation = signal.modulation_phase.sin() * 0.3 + 0.7; // 0.4 to 1.0
-        let strength_variation = rng.gen_range(-MOCK_SIGNAL_STRENGTH_VARIATION..MOCK_SIGNAL_STRENGTH_VARIATION);
-        let current_strength = signal.base_strength * modulation + strength_variation;
+        let strength_variation = rng.gen_range(
+          -MOCK_SIGNAL_STRENGTH_VARIATION..MOCK_SIGNAL_STRENGTH_VARIATION,
+        );
+        let current_strength =
+          signal.base_strength * modulation + strength_variation;
 
         // Apply signal to spectrum data
         let current_bin = signal.center_bin + signal.drift_offset;
         let half_bandwidth = signal.bandwidth as f32 / 2.0;
-        
+
         for bin_offset in 0..signal.bandwidth as i32 {
-          let bin_index = (current_bin + bin_offset as f32 - half_bandwidth) as i32;
-          
+          let bin_index =
+            (current_bin + bin_offset as f32 - half_bandwidth) as i32;
+
           if bin_index >= 0 && bin_index < MOCK_SPECTRUM_SIZE as i32 {
             let bin_idx = bin_index as usize;
-            
+
             // Create signal shape (Gaussian-like profile)
-            let distance_from_center = (bin_offset as f32 - half_bandwidth).abs();
-            let signal_profile = (-distance_from_center.powi(2) / (2.0 * (signal.bandwidth as f32 / 4.0).powi(2))).exp();
-            
+            let distance_from_center =
+              (bin_offset as f32 - half_bandwidth).abs();
+            let signal_profile = (-distance_from_center.powi(2)
+              / (2.0 * (signal.bandwidth as f32 / 4.0).powi(2)))
+            .exp();
+
             let signal_contribution = current_strength * signal_profile;
             data[bin_idx] = data[bin_idx].max(signal_contribution);
           }
@@ -844,14 +889,22 @@ async fn handle_message(
   match message.message_type.as_str() {
     "frequency_range" => {
       // Handle frequency range updates
-      if let (Some(min_freq), Some(max_freq)) = (message.min_freq, message.max_freq) {
+      if let (Some(min_freq), Some(max_freq)) =
+        (message.min_freq, message.max_freq)
+      {
         let center_freq = ((min_freq + max_freq) * 500000.0) as u32; // Convert MHz to Hz
-        debug!("Frequency range received: {:.2}-{:.2} MHz → center {} Hz (queued)", min_freq, max_freq, center_freq);
+        debug!(
+          "Frequency range received: {:.2}-{:.2} MHz → center {} Hz (queued)",
+          min_freq, max_freq, center_freq
+        );
         // Queue the frequency change — it will be applied at the start of the next read cycle
         // This debounces rapid slider drags that would otherwise flood the USB device
         processor.lock().await.pending_freq = Some(center_freq);
       } else {
-        warn!("frequency_range message missing min_freq/max_freq: {:?}", message);
+        warn!(
+          "frequency_range message missing min_freq/max_freq: {:?}",
+          message
+        );
       }
     }
     "pause" => {
@@ -906,7 +959,10 @@ async fn handle_message(
 #[tokio::main]
 async fn main() -> Result<()> {
   // Initialize logging with info level by default
-  env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+  env_logger::Builder::from_env(
+    env_logger::Env::default().default_filter_or("info"),
+  )
+  .init();
 
   info!("Starting N-APT Rust Backend Server");
 

@@ -88,7 +88,14 @@ impl MockSignalGenerator {
     }
 
     #[cfg(not(any(target_arch = "wasm32", target_arch = "aarch64")))]
-    self.generate_frame_native(&mut frame, fft_size, sample_rate, signals, noise_level, t0);
+    self.generate_frame_native(
+      &mut frame,
+      fft_size,
+      sample_rate,
+      signals,
+      noise_level,
+      t0,
+    );
 
     Ok(RawSamples {
       data: frame,
@@ -184,8 +191,10 @@ impl MockSignalGenerator {
         i_acc += sig.amp * sig.sin_phase;
         q_acc += sig.amp * sig.cos_phase;
 
-        let next_cos = sig.cos_phase * sig.cos_step - sig.sin_phase * sig.sin_step;
-        let next_sin = sig.sin_phase * sig.cos_step + sig.cos_phase * sig.sin_step;
+        let next_cos =
+          sig.cos_phase * sig.cos_step - sig.sin_phase * sig.sin_step;
+        let next_sin =
+          sig.sin_phase * sig.cos_step + sig.cos_phase * sig.sin_step;
         sig.cos_phase = next_cos;
         sig.sin_phase = next_sin;
 
@@ -194,8 +203,10 @@ impl MockSignalGenerator {
           i_acc += side_amp * side.sin_phase;
           q_acc += side_amp * side.cos_phase;
 
-          let next_cos = side.cos_phase * side.cos_step - side.sin_phase * side.sin_step;
-          let next_sin = side.sin_phase * side.cos_step + side.cos_phase * side.sin_step;
+          let next_cos =
+            side.cos_phase * side.cos_step - side.sin_phase * side.sin_step;
+          let next_sin =
+            side.sin_phase * side.cos_step + side.cos_phase * side.sin_step;
           side.cos_phase = next_cos;
           side.sin_phase = next_sin;
         }
@@ -204,8 +215,10 @@ impl MockSignalGenerator {
       let i_sample = i_acc.tanh();
       let q_sample = q_acc.tanh();
 
-      frame[i * 2] = ((i_sample * 128.0) + 128.0).round().clamp(0.0, 255.0) as u8;
-      frame[i * 2 + 1] = ((q_sample * 128.0) + 128.0).round().clamp(0.0, 255.0) as u8;
+      frame[i * 2] =
+        ((i_sample * 128.0) + 128.0).round().clamp(0.0, 255.0) as u8;
+      frame[i * 2 + 1] =
+        ((q_sample * 128.0) + 128.0).round().clamp(0.0, 255.0) as u8;
     }
   }
 
@@ -469,8 +482,10 @@ impl MockSignalGenerator {
 
         #[cfg(target_arch = "aarch64")]
         {
-          let i_u32 = vcvtnq_u32_f32(vaddq_f32(vmulq_f32(i_f, v_128_mult), v_128));
-          let q_u32 = vcvtnq_u32_f32(vaddq_f32(vmulq_f32(q_f, v_128_mult), v_128));
+          let i_u32 =
+            vcvtnq_u32_f32(vaddq_f32(vmulq_f32(i_f, v_128_mult), v_128));
+          let q_u32 =
+            vcvtnq_u32_f32(vaddq_f32(vmulq_f32(q_f, v_128_mult), v_128));
 
           frame[i * 2] = vgetq_lane_u32(i_u32, 0) as u8;
           frame[i * 2 + 1] = vgetq_lane_u32(q_u32, 0) as u8;
@@ -622,7 +637,6 @@ impl MockSignalGenerator {
 
     (i_f, q_f)
   }
-
 }
 
 impl Default for MockSignalGenerator {

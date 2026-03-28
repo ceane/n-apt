@@ -214,7 +214,10 @@ pub struct WebSocketMessage {
   pub screen_width: Option<u32>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub geolocation: Option<GeolocationData>,
-  #[serde(skip_serializing_if = "Option::is_none", alias = "refBasedDemodBaseline")]
+  #[serde(
+    skip_serializing_if = "Option::is_none",
+    alias = "refBasedDemodBaseline"
+  )]
   pub ref_based_demod_baseline: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "powerScale")]
   pub power_scale: Option<String>,

@@ -263,34 +263,34 @@ impl ARMOptimizedSIMD {
     let input_len = input.len();
 
     unsafe {
-        for (i, item) in output.iter_mut().enumerate().take(width) {
-          let start_idx = (i as f32 * scale) as usize;
-          let end_idx = (((i + 1) as f32 * scale) as usize).min(input_len);
+      for (i, item) in output.iter_mut().enumerate().take(width) {
+        let start_idx = (i as f32 * scale) as usize;
+        let end_idx = (((i + 1) as f32 * scale) as usize).min(input_len);
 
-          if start_idx >= input_len {
-            *item = -150.0;
-            continue;
-          }
-
-          let mut max_val = -f32::INFINITY;
-          let mut j = start_idx;
-          while j + 4 <= end_idx {
-            let v = vld1q_f32(input.as_ptr().add(j));
-            let m01 = vmax_f32(vget_low_f32(v), vget_high_f32(v));
-            let m = vmax_f32(m01, vrev64_f32(m01));
-            max_val = max_val.max(vget_lane_f32(m, 0));
-            j += 4;
-          }
-          while j < end_idx {
-            max_val = max_val.max(input[j]);
-            j += 1;
-          }
-          *item = if max_val == -f32::INFINITY {
-            input[start_idx.min(input_len - 1)]
-          } else {
-            max_val
-          };
+        if start_idx >= input_len {
+          *item = -150.0;
+          continue;
         }
+
+        let mut max_val = -f32::INFINITY;
+        let mut j = start_idx;
+        while j + 4 <= end_idx {
+          let v = vld1q_f32(input.as_ptr().add(j));
+          let m01 = vmax_f32(vget_low_f32(v), vget_high_f32(v));
+          let m = vmax_f32(m01, vrev64_f32(m01));
+          max_val = max_val.max(vget_lane_f32(m, 0));
+          j += 4;
+        }
+        while j < end_idx {
+          max_val = max_val.max(input[j]);
+          j += 1;
+        }
+        *item = if max_val == -f32::INFINITY {
+          input[start_idx.min(input_len - 1)]
+        } else {
+          max_val
+        };
+      }
     }
   }
 
