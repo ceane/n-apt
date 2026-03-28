@@ -1,5 +1,4 @@
 import type { Code, Content, Parent } from "mdast";
-import type { Plugin } from "unified";
 import { visitMdastNodes } from "./visitMdastNodes";
 
 const LATEX_LANGS = new Set(["latex", "tex"]);

@@ -1,4 +1,4 @@
-import { ConnectionStatusSection } from './ConnectionStatusSection';
+import { ConnectionStatusSection } from '@n-apt/components/sidebar/ConnectionStatusSection';
 
 export default {
   title: 'Sidebar/ConnectionStatusSection',

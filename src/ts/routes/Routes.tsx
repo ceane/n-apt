@@ -7,14 +7,14 @@ import { DemodulateSidebar } from "@n-apt/components/sidebar/DemodulateSidebar";
 import { DrawSignalSidebar } from "@n-apt/components/sidebar/DrawSignalSidebar";
 
 import { MapEndpointsSidebar } from "@n-apt/components/sidebar/MapEndpointsSidebar";
-import { SpectrumRoute } from "./SpectrumRoute";
-import { DemodRoute } from "./DemodRoute";
-import { DrawSignalRoute } from "./DrawSignalRoute";
-import { Model3DRoute } from "./Model3DRoute";
-import { MapEndpointsRoute } from "./MapEndpointsRoute";
-import { StitchTestRoute } from "./StitchTestRoute";
+import { SpectrumRoute } from "@n-apt/routes/SpectrumRoute";
+import { DemodRoute } from "@n-apt/routes/DemodRoute";
+import { DrawSignalRoute } from "@n-apt/routes/DrawSignalRoute";
+import { Model3DRoute } from "@n-apt/routes/Model3DRoute";
+import { MapEndpointsRoute } from "@n-apt/routes/MapEndpointsRoute";
+import { StitchTestRoute } from "@n-apt/routes/StitchTestRoute";
 import { Model3DProvider } from "@n-apt/hooks/useModel3D";
-import { HotspotEditorProvider } from "@n-apt/hooks/useHotspotEditor";
+import { Model3DInteractionProvider } from "@n-apt/hooks/useHotspotEditor";
 
 import { DemodProvider, useDemod } from "@n-apt/contexts/DemodContext";
 
@@ -58,7 +58,7 @@ const DemodRouteWithSidebar: React.FC = () => (
     <DemodRouteWithSidebarContent />
   </DemodProvider>
 );
-import { SidebarForRoute } from "@n-apt/components/sidebar/SidebarForRoute";
+import { Model3DSidebar } from "@n-apt/components/sidebar/Model3DSidebar";
 import { SDRTestSidebar } from "@n-apt/components/sidebar/SDRTestSidebar";
 import { MapLocationsProvider } from "@n-apt/hooks/useMapLocations";
 
@@ -99,11 +99,11 @@ export const AppRoutes: React.FC = () => {
         path="/3d-model"
         element={
           <Model3DProvider>
-            <HotspotEditorProvider>
-              <MainLayout sidebar={<SidebarForRoute />}>
+            <Model3DInteractionProvider>
+              <MainLayout sidebar={<Model3DSidebar />}>
                 <Model3DRoute />
               </MainLayout>
-            </HotspotEditorProvider>
+            </Model3DInteractionProvider>
           </Model3DProvider>
         }
       />

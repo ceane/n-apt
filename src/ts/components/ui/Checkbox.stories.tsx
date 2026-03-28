@@ -1,5 +1,5 @@
 import React from "react";
-import Checkbox from "./Checkbox";
+import { Checkbox } from "@n-apt/components/ui";
 
 export const Default = () => {
   const [checked, setChecked] = React.useState(false);

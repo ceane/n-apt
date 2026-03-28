@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { SourceSettingsSection } from './SourceSettingsSection';
+import { SourceSettingsSection } from '@n-apt/components/sidebar/SourceSettingsSection';
 import { ThemeProvider, styled } from 'styled-components';
 
 const SidebarContainer = styled.div`
@@ -41,8 +41,8 @@ export const LiveSource = () => {
           onPpmChange={setPpm}
           onTunerAGCChange={setTunerAGC}
           onRtlAGCChange={setRtlAGC}
-          onStitchSourceSettingsChange={() => {}}
-          onAgcModeChange={() => {}}
+          onStitchSourceSettingsChange={() => { }}
+          onAgcModeChange={() => { }}
         />
       </SidebarContainer>
     </ThemeProvider>
@@ -63,12 +63,12 @@ export const FileSource = () => {
           rtlAGC={false}
           stitchSourceSettings={stitchSettings}
           isConnected={true}
-          onGainChange={() => {}}
-          onPpmChange={() => {}}
-          onTunerAGCChange={() => {}}
-          onRtlAGCChange={() => {}}
+          onGainChange={() => { }}
+          onPpmChange={() => { }}
+          onTunerAGCChange={() => { }}
+          onRtlAGCChange={() => { }}
           onStitchSourceSettingsChange={setStitchSettings}
-          onAgcModeChange={() => {}}
+          onAgcModeChange={() => { }}
         />
       </SidebarContainer>
     </ThemeProvider>
@@ -86,12 +86,12 @@ export const Disconnected = () => (
         rtlAGC={false}
         stitchSourceSettings={{ gain: 0, ppm: 0 }}
         isConnected={false}
-        onGainChange={() => {}}
-        onPpmChange={() => {}}
-        onTunerAGCChange={() => {}}
-        onRtlAGCChange={() => {}}
-        onStitchSourceSettingsChange={() => {}}
-        onAgcModeChange={() => {}}
+        onGainChange={() => { }}
+        onPpmChange={() => { }}
+        onTunerAGCChange={() => { }}
+        onRtlAGCChange={() => { }}
+        onStitchSourceSettingsChange={() => { }}
+        onAgcModeChange={() => { }}
       />
     </SidebarContainer>
   </ThemeProvider>

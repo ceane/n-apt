@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useCallback, useMemo } from
 import { useFrequencyScanner, FrequencyScannerHandle } from "@n-apt/hooks/useFrequencyScanner";
 import { useAudioExtraction, AudioPlaybackHandle } from "@n-apt/hooks/useAudioExtraction";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
-import { scannerWorkerManager } from "../workers/scannerWorkerManager";
+import { scannerWorkerManager } from "@n-apt/workers/scannerWorkerManager";
 
 export type AnalysisSessionState = 'idle' | 'capturing' | 'analyzing' | 'result';
 export type AnalysisType = 'audio' | 'internal' | 'speech' | 'vision' | 'apt';

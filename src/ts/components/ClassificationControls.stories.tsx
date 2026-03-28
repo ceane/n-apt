@@ -1,4 +1,4 @@
-import ClassificationControls from './ClassificationControls';
+import ClassificationControls from "@n-apt/components/ClassificationControls";
 
 export default {
   title: 'Components/ClassificationControls',

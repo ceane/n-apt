@@ -1,5 +1,5 @@
 import type { Story } from "@ladle/react";
-import { PolarRadioWaveWebGPU } from "../PolarRadioWaveWebGPU";
+import { PolarRadioWaveWebGPU } from "@n-apt/components/3D/PolarRadioWaveWebGPU";
 
 export default {
   title: "ThreeD/Polar Radio Wave WebGPU",

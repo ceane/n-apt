@@ -1,5 +1,5 @@
 import React from "react";
-import { CollapsibleTitle, CollapsibleBody } from "./Collapsible";
+import { CollapsibleTitle, CollapsibleBody } from "@n-apt/components/ui";
 
 export const Default = () => {
   const [isOpen, setIsOpen] = React.useState(false);

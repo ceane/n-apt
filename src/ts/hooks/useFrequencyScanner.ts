@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState, useEffect } from "react";
-import { scannerWorkerManager } from "../workers/scannerWorkerManager";
+import { scannerWorkerManager } from "@n-apt/workers/scannerWorkerManager";
 
 export interface FrequencyRegion {
   startFreq: number;

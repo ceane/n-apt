@@ -1,5 +1,5 @@
 import React from "react";
-import { AppRoutes } from "./Routes";
+import { AppRoutes } from "@n-apt/routes/Routes";
 
 const FullscreenStage: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <div

@@ -1,4 +1,4 @@
-import { TowerControlPanel } from './TowerControlPanel';
+import { TowerControlPanel } from "@n-apt/components/TowerControlPanel";
 
 export default {
   title: 'Components/TowerControlPanel',
@@ -68,14 +68,14 @@ export const HighCount = () => (
 );
 
 export const InContext = () => (
-  <div style={{ 
-    backgroundColor: '#0a0a0a', 
+  <div style={{
+    backgroundColor: '#0a0a0a',
     padding: '40px',
     fontFamily: 'JetBrains Mono, monospace'
   }}>
-    <div style={{ 
-      backgroundColor: '#1a1a1a', 
-      padding: '20px', 
+    <div style={{
+      backgroundColor: '#1a1a1a',
+      padding: '20px',
       borderRadius: '8px',
       border: '1px solid #333',
       width: '280px'
@@ -90,9 +90,9 @@ export const InContext = () => (
         towersLoading={false}
         towersError={null}
       />
-      <div style={{ 
-        marginTop: '20px', 
-        padding: '12px', 
+      <div style={{
+        marginTop: '20px',
+        padding: '12px',
         backgroundColor: '#0d0d0d',
         borderRadius: '4px',
         border: '1px solid #2a2a2a'

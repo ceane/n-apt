@@ -3,12 +3,14 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { useTexture } from "@react-three/drei";
 import styled from "styled-components";
 import * as THREE from "three";
-import { CanvasText } from "./CanvasText";
-import { getBaseUrl } from "./getBaseUrl";
+import { CanvasText } from "@n-apt/md-preview/CanvasText";
+import { getBaseUrl } from "@n-apt/md-preview/getBaseUrl";
 
 const BASE_URL = getBaseUrl();
 const BODY_CHARACTER_SRC = `${BASE_URL}/md-preview/body-attenuation-character.png`;
-const BACKGROUND_COLOR = "#e0e0e2";
+import { theme } from "../../theme";
+
+const BACKGROUND_COLOR = theme.colors.background;
 
 const DEFAULTS = {
   transmitPowerDbm: -8,
@@ -898,4 +900,4 @@ const RendererBadge = styled.div`
   display: none;
 `;
 
-export default BodyAttenuationWebGPUCanvas;
+export { BodyAttenuationWebGPUCanvas as BodyAttenuationCanvas };

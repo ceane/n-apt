@@ -1,5 +1,5 @@
 import React from "react";
-import { ThemeSection } from "./ThemeSection";
+import { ThemeSection } from "@n-apt/components/sidebar/ThemeSection";
 import { Provider } from "react-redux";
 import { configureStore, createSlice } from "@reduxjs/toolkit";
 import { ThemeProvider } from "styled-components";

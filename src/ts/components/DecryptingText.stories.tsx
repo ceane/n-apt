@@ -1,4 +1,4 @@
-import DecryptingText from './DecryptingText';
+import DecryptingText from "@n-apt/components/DecryptingText";
 
 export default {
   title: 'Components/DecryptingText',

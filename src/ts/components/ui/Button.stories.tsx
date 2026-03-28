@@ -1,5 +1,5 @@
 import React from "react";
-import Button from "./Button";
+import { Button } from "@n-apt/components/ui";
 import { ThemeProvider } from "styled-components";
 
 const theme = {

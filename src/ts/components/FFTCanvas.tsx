@@ -44,6 +44,7 @@ import {
   resolvePendingWaterfallRestore,
   type PendingWaterfallRestore,
 } from "@n-apt/utils/waterfallRestore";
+import { getWaterfallMotion } from "@n-apt/utils/waterfallMotion";
 
 // Use dynamic import for WASM module loading
 (async () => {
@@ -552,6 +553,7 @@ const FFTCanvas = memo(
 
     const retuneSmearRef = useRef(0);
     const retuneDriftPxRef = useRef(0);
+    const lastWaterfallVisualRangeRef = useRef<FrequencyRange | null>(null);
 
     const effectivePowerScale = powerScale ?? "dB";
     const baseDbMin = Number.isFinite(fftMin) ? (fftMin as number) : FFT_MIN_DB;
@@ -1407,7 +1409,16 @@ const FFTCanvas = memo(
           ) {
             const dims = waterfallGpuDimsRef.current;
             if (dims && currentData) {
-              const shouldUpdateWaterfallRow = hasNewData && !isPaused;
+              const waterfallMotion = getWaterfallMotion({
+                previousVisualRange: lastWaterfallVisualRangeRef.current,
+                currentVisualRange: visualRange,
+                textureWidth: 4096,
+              });
+              const shouldUpdateWaterfallRow =
+                !isPaused && (hasNewData || waterfallMotion.shouldPaintMotionRow);
+              retuneDriftPxRef.current = waterfallMotion.driftBins;
+              retuneSmearRef.current = waterfallMotion.smearRows;
+
               // ALWAYS resample to a constant width (4096 bins)
               // This 'bakes' the current zoom into the row permanently and avoids
               // resetting the WebGPU texture when the zoom level changes.
@@ -1450,11 +1461,16 @@ const FFTCanvas = memo(
                 } else {
                   lastWaterfallRowRef.current.set(waterfallBins);
                 }
-                heterodyningHistoryRef.current.push(new Float32Array(waterfallBins));
-                if (heterodyningHistoryRef.current.length > 96) {
-                  heterodyningHistoryRef.current.shift();
+                if (hasNewData) {
+                  heterodyningHistoryRef.current.push(new Float32Array(waterfallBins));
+                  if (heterodyningHistoryRef.current.length > 96) {
+                    heterodyningHistoryRef.current.shift();
+                  }
                 }
+                lastWaterfallVisualRangeRef.current = { ...visualRange };
               } else {
+                retuneDriftPxRef.current = 0;
+                retuneSmearRef.current = 0;
                 waterfallBins = lastWaterfallRowRef.current ?? processed;
               }
 

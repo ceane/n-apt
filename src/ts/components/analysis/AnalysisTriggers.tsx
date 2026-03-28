@@ -1,6 +1,6 @@
 import React, { useCallback } from "react";
 import styled from "styled-components";
-import { useDemod, AnalysisType } from "../../contexts/DemodContext";
+import { useDemod, AnalysisType } from "@n-apt/contexts/DemodContext";
 
 const TriggersContainer = styled.div`
   display: flex;

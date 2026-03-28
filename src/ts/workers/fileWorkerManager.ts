@@ -4,7 +4,7 @@
 
 import { fileRegistry } from "../utils/fileRegistry";
 
-class FileWorkerManager {
+export class FileWorkerManager {
   private worker: Worker | null = null;
   private pendingRequests = new Map<
     string,

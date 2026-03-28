@@ -3,7 +3,7 @@ import styled from "styled-components";
 import { useAppDispatch } from "@n-apt/redux";
 import { spectrumActions } from "@n-apt/redux";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
-import FrequencyRangeSlider from "./FrequencyRangeSlider";
+import FrequencyRangeSlider from "@n-apt/components/sidebar/FrequencyRangeSlider";
 
 // Styled Components
 const Container = styled.div`

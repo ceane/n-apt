@@ -2,17 +2,17 @@ import { configureStore } from '@reduxjs/toolkit';
 import { TypedUseSelectorHook, useDispatch, useSelector } from 'react-redux';
 
 // Import slices (will be created next)
-import authSlice from './slices/authSlice';
-import spectrumSlice from './slices/spectrumSlice';
-import waterfallSlice from './slices/waterfallSlice';
-import themeSlice from './slices/themeSlice';
-import settingsSlice from './slices/settingsSlice';
-import websocketSlice from './slices/websocketSlice';
-import noteCardsSlice from './slices/noteCardsSlice';
+import authSlice from "@n-apt/redux/slices/authSlice";
+import spectrumSlice from "@n-apt/redux/slices/spectrumSlice";
+import waterfallSlice from "@n-apt/redux/slices/waterfallSlice";
+import themeSlice from "@n-apt/redux/slices/themeSlice";
+import settingsSlice from "@n-apt/redux/slices/settingsSlice";
+import websocketSlice from "@n-apt/redux/slices/websocketSlice";
+import noteCardsSlice from "@n-apt/redux/slices/noteCardsSlice";
 
 // Import middleware (will be created next)
-import websocketMiddleware from './middleware/websocketMiddleware';
-import localStorageMiddleware from './middleware/localStorageMiddleware';
+import websocketMiddleware from "@n-apt/redux/middleware/websocketMiddleware";
+import localStorageMiddleware from "@n-apt/redux/middleware/localStorageMiddleware";
 
 export const store = configureStore({
   reducer: {

@@ -5,12 +5,14 @@ import { Flex, Box } from "@react-three/flex";
 import * as THREE from "three";
 import styled, { keyframes } from "styled-components";
 
-const BACKGROUND = "#E0E0E2";
+import { theme } from "../../theme";
+
+const BACKGROUND = theme.colors.background;
 
 // Color variables
 const COLORS = {
-  background: "#E0E0E2",
-  textPrimary: "rgba(42, 42, 42, 0.9)",
+  background: theme.colors.background,
+  textPrimary: theme.colors.text,
   textSecondary: "rgba(42, 42, 42, 0.8)",
   textTertiary: "rgba(42, 42, 42, 0.6)",
   textMuted: "rgba(92, 92, 92, 0.7)",
@@ -24,8 +26,8 @@ const COLORS = {
 
 // Font family variables
 const FONTS = {
-  mono: '"SF Mono", "Fira Code", "JetBrains Mono", monospace',
-  monoShort: '"SF Mono", "Fira Code", monospace',
+  mono: theme.fonts.mono,
+  monoShort: theme.fonts.mono,
   serif: '"Cambria Math", "Georgia", "Times New Roman", serif'
 };
 
@@ -867,4 +869,4 @@ const ImpedanceCanvas = () => {
   );
 };
 
-export default ImpedanceCanvas;
+export { ImpedanceCanvas };

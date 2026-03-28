@@ -1,6 +1,6 @@
 import React from "react";
 import styled from "styled-components";
-import { Tooltip } from "./Tooltip";
+import { Tooltip } from "@n-apt/components/ui";
 
 export const RowContainer = styled.div`
   display: flex;

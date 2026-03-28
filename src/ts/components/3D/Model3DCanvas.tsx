@@ -3,9 +3,9 @@ import styled from "styled-components";
 import { Canvas, useThree } from "@react-three/fiber";
 import { OrbitControls, useGLTF, TransformControls } from "@react-three/drei";
 import { Vector3 } from "three";
-import Brain from "./Brain";
-import { HorizonFocusGlobe } from "./HorizonFocusGlobe";
-import { HUMAN_MODEL_AFRO_MALE_GLB_URL } from "./modelAssetUrls";
+import Brain from "@n-apt/components/3D/Brain";
+import { HorizonFocusGlobe } from "@n-apt/components/3D/HorizonFocusGlobe";
+import { HUMAN_MODEL_AFRO_MALE_GLB_URL } from "@n-apt/components/3D/modelAssetUrls";
 import { useModel3D, type Area } from "@n-apt/hooks/useModel3D";
 import { useHotspotEditor } from "@n-apt/hooks/useHotspotEditor";
 import { PHYSIOLOGY_AREAS } from "@n-apt/components/sidebar/BodyAreasSection";
@@ -266,12 +266,12 @@ const HintOverlay = styled.div`
   pointer-events: none;
 `;
 
-interface HumanModelCanvasProps {
+interface Model3DCanvasProps {
   width?: string | number;
   height?: string | number;
 }
 
-export const HumanModelCanvas: React.FC<HumanModelCanvasProps> = ({
+export const Model3DCanvas: React.FC<Model3DCanvasProps> = ({
   width = "100%",
   height = "100%",
 }) => {

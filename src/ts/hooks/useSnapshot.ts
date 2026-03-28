@@ -11,9 +11,9 @@ import {
   SNAP_HW_RATE_TEXT,
 } from "@n-apt/consts";
 import type { SnapshotData } from "@n-apt/components/FFTCanvas";
-import { CoordinateMapper, Range } from "../utils/rendering/CoordinateMapper";
-import { CanvasDrawingContext, SnapshotRenderer, SnapshotTheme, SVGDrawingContext, DrawingContext } from "../utils/rendering/SnapshotRenderer";
-import { fmtFreq, fmtTimestamp } from "../utils/rendering/formatters";
+import { CoordinateMapper, Range } from "@n-apt/utils/rendering/CoordinateMapper";
+import { CanvasDrawingContext, SnapshotRenderer, SnapshotTheme, SVGDrawingContext, DrawingContext } from "@n-apt/utils/rendering/SnapshotRenderer";
+import { fmtFreq, fmtTimestamp } from "@n-apt/utils/rendering/formatters";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 

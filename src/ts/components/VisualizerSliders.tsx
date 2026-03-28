@@ -1,6 +1,6 @@
 import React from "react";
 import styled from "styled-components";
-import { Slider } from "./ui";
+import { Slider } from "@n-apt/components/ui";
 import {
   COLORS,
   STITCHER_BUTTON_STYLE,

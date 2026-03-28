@@ -74,6 +74,21 @@ export default defineConfig({
     emptyOutDir: true,
     assetsDir: "assets",
   },
+  resolve: {
+    alias: [{
+      find: /^@n-apt\/encrypted-modules\/(.*)$/,
+      replacement: `${path.resolve(dirname, "src/encrypted-modules")}/$1`
+    }, {
+      find: /^@n-apt\/md-preview\/(.*)$/,
+      replacement: `${path.resolve(dirname, "src/md-preview")}/$1`
+    }, {
+      find: /^@n-apt\/(.*)$/,
+      replacement: `${path.resolve(dirname, "src/ts")}/$1`
+    }, {
+      find: "@n-apt",
+      replacement: path.resolve(dirname, "src/ts")
+    }]
+  },
   server: {
     port: 5174,
     strictPort: false,

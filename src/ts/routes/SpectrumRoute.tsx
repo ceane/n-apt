@@ -2,7 +2,6 @@ import React, { useEffect, useCallback, useRef, useMemo } from "react";
 import styled from "styled-components";
 import { FFTAndWaterfall } from "@n-apt/components";
 import type { FFTCanvasHandle } from "@n-apt/components";
-import ClassificationControls from "@n-apt/components/ClassificationControls";
 import FFTPlaybackCanvas from "@n-apt/components/FFTPlaybackCanvas";
 import { useSnapshot } from "@n-apt/hooks/useSnapshot";
 import type { FrequencyRange } from "@n-apt/hooks/useWebSocket";
@@ -57,7 +56,6 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
       deviceName,
       deviceProfile,
       sendFrequencyRange,
-      sendTrainingCommand,
       dataRef,
       captureStatus,
       sendPowerScaleCommand: _sendPowerScaleCommand,
@@ -88,7 +86,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
 
   // Device connection state management
   useDeviceConnectionState({
-    deviceState,
+    deviceState: deviceState || 'disconnected',
     showSpikeOverlay: state.showSpikeOverlay,
     dispatch,
   });
@@ -114,40 +112,18 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
 
   // Snapshot listener for sidebar events
   useSnapshotListener({
-    takeSnapshot,
+    takeSnapshot: (options) => takeSnapshot(options).catch(console.error),
     snapshotGridPreference: state.snapshotGridPreference,
     signalAreaBounds,
     activeSignalArea: state.activeSignalArea,
     sourceMode: state.sourceMode,
-    backend,
-    deviceInfo,
-    effectiveSdrSettings,
-    deviceName,
+    backend: backend ?? undefined,
+    deviceInfo: deviceInfo ?? undefined,
+    effectiveSdrSettings: effectiveSdrSettings ?? undefined,
+    deviceName: deviceName ?? undefined,
     captureWholeChannelSegments,
-    getSnapshotData: () => fftCanvasRef.current?.getSnapshotData() ?? null,
+    getSnapshotData: () => fftCanvasRef.current?.getSnapshotData() ?? undefined,
   });
-
-  const handleTrainingCaptureStart = useCallback(
-    (label: "target" | "noise") => {
-      dispatch({ type: "TRAINING_START", label });
-      sendTrainingCommand("start", label, state.activeSignalArea);
-    },
-    [sendTrainingCommand, state.activeSignalArea, dispatch],
-  );
-
-  const handleTrainingCaptureStop = useCallback(() => {
-    dispatch({ type: "TRAINING_STOP" });
-    sendTrainingCommand(
-      "stop",
-      state.trainingCaptureLabel ?? "target",
-      state.activeSignalArea,
-    );
-  }, [
-    sendTrainingCommand,
-    state.trainingCaptureLabel,
-    state.activeSignalArea,
-    dispatch,
-  ]);
 
   const handleFrequencyRangeChange = useCallback(
     (range: FrequencyRange) => {
@@ -168,17 +144,6 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
           state.frequencyRange &&
           centerFrequencyMHz !== null && (
             <>
-              {deviceState === "connected" && (
-                <ClassificationControls
-                  isDeviceConnected={deviceState === "connected"}
-                  activeSignalArea={state.activeSignalArea}
-                  isCapturing={state.isTrainingCapturing}
-                  captureLabel={state.trainingCaptureLabel}
-                  capturedSamples={state.trainingCapturedSamples}
-                  onCaptureStart={handleTrainingCaptureStart}
-                  onCaptureStop={handleTrainingCaptureStop}
-                />
-              )}
               <FFTAndWaterfall
                 ref={fftCanvasRef}
                 dataRef={dataRef}

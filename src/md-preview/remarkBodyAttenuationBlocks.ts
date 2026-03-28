@@ -1,5 +1,5 @@
 import type { Code, Content, Parent } from "mdast";
-import type { Plugin } from "unified";
+import { getBaseUrl } from "./getBaseUrl";
 import { visitMdastNodes } from "./visitMdastNodes";
 
 const BODY_ATTENUATION_LANG = "canvas::bodyattenuation";

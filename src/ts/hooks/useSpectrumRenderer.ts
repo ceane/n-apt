@@ -1,9 +1,9 @@
 import { useCallback, useRef } from "react";
-import { useDrawWebGPUFFTSignal } from "./useDrawWebGPUFFTSignal";
-import { useDraw2DFFTSignal } from "./useDraw2DFFTSignal";
-import { useDraw3DWaterfallSignal } from "./useDraw3DWaterfallSignal";
-import { useOverlayRenderer } from "./useOverlayRenderer";
-import { OverlayTextureRenderer } from "./useWebGPUInit";
+import { useDrawWebGPUFFTSignal } from "@n-apt/hooks/useDrawWebGPUFFTSignal";
+import { useDraw2DFFTSignal } from "@n-apt/hooks/useDraw2DFFTSignal";
+import { useDraw3DWaterfallSignal } from "@n-apt/hooks/useDraw3DWaterfallSignal";
+import { useOverlayRenderer } from "@n-apt/hooks/useOverlayRenderer";
+import { OverlayTextureRenderer } from "@n-apt/hooks/useWebGPUInit";
 import type { SdrLimitMarker } from "@n-apt/utils/sdrLimitMarkers";
 import type { SpectrumSpikeMarker } from "@n-apt/hooks/useWasmSimdMath";
 

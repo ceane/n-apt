@@ -2,9 +2,9 @@ import React from "react";
 import { Provider } from "react-redux";
 import { configureStore, createSlice } from "@reduxjs/toolkit";
 import { ThemeProvider } from "styled-components";
-import FFTCanvas from "./FFTCanvas";
-import type { FFTCanvasHandle } from "./FFTCanvas";
-import { SnapshotControlsSection } from "./sidebar/SnapshotControlsSection";
+import FFTCanvas from "@n-apt/components/FFTCanvas";
+import type { FFTCanvasHandle } from "@n-apt/components/FFTCanvas";
+import { SnapshotControlsSection } from "@n-apt/components/sidebar/SnapshotControlsSection";
 import { useSnapshot } from "@n-apt/hooks/useSnapshot";
 
 const mockThemeSlice = createSlice({

@@ -1,6 +1,6 @@
 import React from "react";
 import styled from "styled-components";
-import FileProcessingSection from "./FileProcessingSection";
+import FileProcessingSection from "@n-apt/components/sidebar/FileProcessingSection";
 import type { GeolocationData } from "@n-apt/consts/schemas/websocket";
 
 const Section = styled.div<{ $marginBottom?: string }>`

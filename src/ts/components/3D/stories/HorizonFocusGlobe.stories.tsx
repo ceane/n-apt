@@ -1,7 +1,7 @@
 import type { Story } from "@ladle/react";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
-import { HorizonFocusGlobe } from "../HorizonFocusGlobe";
+import { HorizonFocusGlobe } from "@n-apt/components/3D/HorizonFocusGlobe";
 
 export default {
   title: "ThreeD/Horizon Focus Globe",

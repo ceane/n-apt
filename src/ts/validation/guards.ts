@@ -7,8 +7,8 @@ import type {
   SpectrumFrame,
   CaptureRequest,
   StatusMessage,
-  AuthResult,
 } from "@n-apt/consts/schemas/websocket";
+import type { AuthResult } from "@n-apt/services/auth";
 import type { SdrProcessorMetadata } from "@n-apt/validation/types";
 import { calculateExpectedLatency, calculateTrustLevel } from "@n-apt/validation/types";
 
@@ -639,7 +639,7 @@ export const isValidStatusMessageEnhanced = (data: unknown): data is StatusMessa
 export const isValidAuthResponse = (response: unknown): response is AuthResult => {
   if (!isValidObject(response)) return false;
   
-  const result = response as AuthResult;
+  const result = response as unknown as AuthResult;
   return (
     isValidStringEnhanced(result.token, 10, 1000) &&
     isValidNumberEnhanced(result.expires_in, 1, 86400) // 1 second to 24 hours

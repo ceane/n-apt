@@ -272,7 +272,7 @@ describe('Markdown Preview Assets', () => {
       expect(appContent).toMatch(/BodyAttenuationCanvas/);
       expect(appContent).toMatch(/ImpedanceCanvas/);
       expect(appContent).toMatch(/TimeOfFlightCanvas/);
-      expect(appContent).toMatch(/SignalCanvases/);
+      expect(appContent).toMatch(/@n-apt\/ts\/components\/canvas/);
       expect(appContent).toMatch(/PhaseShiftingCanvas/);
       
       // Check for ReactMarkdown usage
