@@ -27,7 +27,7 @@ jest.mock("@n-apt/hooks/useModel3D", () => ({
 }));
 
 jest.mock("@n-apt/hooks/useHotspotEditor", () => ({
-  HotspotEditorProvider: ({ children }: { children: React.ReactNode }) => children,
+  Model3DInteractionProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
 
 jest.mock("@n-apt/hooks/useMapLocations", () => ({

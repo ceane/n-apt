@@ -4,6 +4,20 @@ describe('Markdown Preview Assets', () => {
   const fs = require('fs');
   const path = require('path');
 
+  /** Root md-preview barrels that re-export — assert against implementation files. */
+  const CANVAS_SOURCE_OVERRIDES: Record<string, string> = {
+    'BodyAttenuationCanvas.tsx': 'components/canvas/BodyAttenuationCanvas.tsx',
+    'ImpedanceCanvas.tsx': 'components/canvas/ImpedanceCanvas.tsx',
+    'TimeOfFlightCanvas.tsx': 'components/canvas/TimeOfFlightCanvas.tsx',
+    'PhaseShfitingCanvas.tsx': 'components/canvas/PhaseShiftingCanvas.tsx',
+    'SignalCanvases.tsx': 'components/canvas/FrequencyModulationCanvas.tsx',
+  };
+
+  function resolveCanvasSourcePath(componentsDir: string, componentFile: string): string {
+    const relative = CANVAS_SOURCE_OVERRIDES[componentFile] ?? componentFile;
+    return path.join(componentsDir, relative);
+  }
+
   describe('Asset Files', () => {
     test('should have all required image assets', () => {
       const publicDir = path.join(__dirname, '../../public/md-preview');
@@ -221,7 +235,7 @@ describe('Markdown Preview Assets', () => {
       ];
       
       canvasComponents.forEach(componentFile => {
-        const componentPath = path.join(componentsDir, componentFile);
+        const componentPath = resolveCanvasSourcePath(componentsDir, componentFile);
         const content = fs.readFileSync(componentPath, 'utf8');
         
         // Check for React component structure (be more flexible)
@@ -238,7 +252,7 @@ describe('Markdown Preview Assets', () => {
       
       // Check body attenuation canvas for character image reference
       const bodyAttenuationContent = fs.readFileSync(
-        path.join(componentsDir, 'BodyAttenuationCanvas.tsx'), 
+        resolveCanvasSourcePath(componentsDir, 'BodyAttenuationCanvas.tsx'),
         'utf8'
       );
       expect(bodyAttenuationContent).toMatch(/body-attenuation-character\.png/);

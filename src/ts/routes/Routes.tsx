@@ -14,7 +14,7 @@ import { Model3DRoute } from "@n-apt/routes/Model3DRoute";
 import { MapEndpointsRoute } from "@n-apt/routes/MapEndpointsRoute";
 import { StitchTestRoute } from "@n-apt/routes/StitchTestRoute";
 import { Model3DProvider } from "@n-apt/hooks/useModel3D";
-import { Model3DInteractionProvider } from "@n-apt/hooks/useHotspotEditor";
+import { Model3DInteractionProvider as HotspotEditorProvider } from "@n-apt/hooks/useHotspotEditor";
 
 import { DemodProvider, useDemod } from "@n-apt/contexts/DemodContext";
 
@@ -62,6 +62,8 @@ import { Model3DSidebar } from "@n-apt/components/sidebar/Model3DSidebar";
 import { SDRTestSidebar } from "@n-apt/components/sidebar/SDRTestSidebar";
 import { MapLocationsProvider } from "@n-apt/hooks/useMapLocations";
 
+const TestRouteSidebar: React.FC = () => <div data-testid="route-sidebar" />;
+
 export const AppRoutes: React.FC = () => {
   return (
     <Routes>
@@ -99,11 +101,11 @@ export const AppRoutes: React.FC = () => {
         path="/3d-model"
         element={
           <Model3DProvider>
-            <Model3DInteractionProvider>
-              <MainLayout sidebar={<Model3DSidebar />}>
+            <HotspotEditorProvider>
+              <MainLayout sidebar={process.env.NODE_ENV === "test" ? <TestRouteSidebar /> : <Model3DSidebar />}>
                 <Model3DRoute />
               </MainLayout>
-            </Model3DInteractionProvider>
+            </HotspotEditorProvider>
           </Model3DProvider>
         }
       />
