@@ -1834,31 +1834,11 @@ const FFTCanvas = memo(
       }
     }, [frequencyRange, isPaused, forceRender]);
 
-    const lastLoggedDataRef = useRef<string>('');
-
     useEffect(() => {
       const currentData = dataRef.current;
       const hasData = !!(currentData && (currentData.waveform || currentData.iq_data));
 
-      const dataKey = `${hasData}-${currentData?.waveform?.length || 0}-${currentData?.iq_data?.length || 0}-${currentData?.waterfall?.length || 0}`;
-
-      if (lastLoggedDataRef.current !== dataKey) {
-        console.log('Data change effect:', {
-          hasData,
-          isPaused,
-          hasWaveform: !!currentData?.waveform,
-          hasIqData: !!currentData?.iq_data,
-          hasWaterfall: !!currentData?.waterfall,
-          waveformLength: currentData?.waveform?.length || 0,
-          iqDataLength: currentData?.iq_data?.length || 0,
-          waterfallLength: currentData?.waterfall?.length || 0
-        });
-
-        lastLoggedDataRef.current = dataKey;
-      }
-
       if (hasData && !isPaused) {
-        console.log('Triggering forceRender due to data arrival');
         forceRender();
       }
     }, [dataRef.current?.waveform, dataRef.current?.iq_data, isPaused, forceRender]);

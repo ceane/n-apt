@@ -7,7 +7,6 @@ import {
   triggerStitch,
   clearWaterfall,
   setStitchPaused,
-  setSignalAreaAndRange,
   setFftFrameRate as setFftFrameRateAction,
   resetZoomAndDb,
   setTemporalResolution,
@@ -41,7 +40,7 @@ import FileSelectionSidebar from "@n-apt/components/sidebar/FileSelectionSidebar
 import { SignalFeaturesSection } from "@n-apt/components/sidebar/SignalFeaturesSection";
 import { ConnectionStatusSection, PauseButton } from "@n-apt/components/sidebar/ConnectionStatusSection";
 import { ThemeSection } from "@n-apt/components/sidebar/ThemeSection";
-import ReduxFrequencyRangeSlider from "@n-apt/components/sidebar/ReduxFrequencyRangeSlider";
+import { Channels } from "@n-apt/components/sidebar/Channels";
 import SourceInput from "@n-apt/components/sidebar/SourceInput";
 import { buildSdrLimitMarkers } from "@n-apt/utils/sdrLimitMarkers";
 import { usePrompt } from "@n-apt/components/ui/PromptProvider";
@@ -74,12 +73,6 @@ const CapturingIndicator = styled.div`
   grid-auto-flow: column;
   align-items: center;
   gap: 8px;
-`;
-
-const EmptyStateText = styled.div`
-  color: ${(props: any) => props.theme.textSecondary};
-  font-size: 12px;
-  font-style: italic;
 `;
 
 const CapturingDot = styled.div`
@@ -1031,51 +1024,11 @@ export const SpectrumSidebar: React.FC = () => {
           />
 
           <Section>
-            <SectionTitle>Signal areas of interest</SectionTitle>
-            <div style={{ display: "grid", gap: "16px", width: "100%", gridColumn: "1 / -1" }}>
-              {Array.isArray(liveFramesToUse) && liveFramesToUse.length > 0 ? (
-                liveFramesToUse.map((frame) => {
-                  const label = frame.label;
-                  const min = frame.min_mhz;
-                  const max = frame.max_mhz;
-                  const span = max - min;
-
-                  return (
-                    <ReduxFrequencyRangeSlider
-                      key={frame.id}
-                      label={label}
-                      minFreq={min}
-                      maxFreq={max}
-                      sampleRateMHz={sampleRateMHz}
-                      limitMarkers={limitMarkers}
-                      isActive={activeSignalArea === label}
-                      onActivate={() => {
-                        const rememberedRange =
-                          liveState.lastKnownRanges[label] ??
-                          liveState.lastKnownRanges[label.toLowerCase()];
-                        const nextRange = rememberedRange ?? {
-                          min,
-                          max:
-                            min +
-                            (typeof sampleRateMHz === "number"
-                              ? Math.min(sampleRateMHz, span)
-                              : span),
-                        };
-                        dispatch(setSignalAreaAndRange({ area: label, range: nextRange }));
-                        storeDispatch({
-                          type: "SET_SIGNAL_AREA_AND_RANGE",
-                          area: label,
-                          range: nextRange,
-                        });
-                      }}
-                    />
-                  );
-                })) : (
-                <EmptyStateText>
-                  No active signal areas
-                </EmptyStateText>
-              )}
-            </div>
+            <Channels
+              variant="spectrum"
+              fileMode={sourceMode === "file"}
+              limitMarkers={limitMarkers}
+            />
           </Section>
 
           <SignalFeaturesSection
