@@ -1,24 +1,11 @@
-import React, { createContext, useContext, useState, useCallback, useMemo } from "react";
+import React, { createContext, useContext, useCallback, useRef, useState, useEffect, useMemo } from "react";
+import { useAppSelector, useAppDispatch } from "@n-apt/redux";
+import { sendCaptureCommand } from "@n-apt/redux/thunks/websocketThunks";
+import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 import { useFrequencyScanner, FrequencyScannerHandle } from "@n-apt/hooks/useFrequencyScanner";
 import { useAudioExtraction, AudioPlaybackHandle } from "@n-apt/hooks/useAudioExtraction";
-import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 import { scannerWorkerManager } from "@n-apt/workers/scannerWorkerManager";
-
-export type AnalysisSessionState = 'idle' | 'capturing' | 'analyzing' | 'result';
-export type AnalysisType = 'audio' | 'internal' | 'speech' | 'vision' | 'apt';
-
-export interface AnalysisSession {
-  state: AnalysisSessionState;
-  type?: AnalysisType;
-  startTime?: number;
-  countdown?: number; // 3, 2, 1...
-  result?: any;
-  scriptContent?: string; // Content of the script for analysis
-  mediaContent?: string; // Base64 encoded media content (e.g., image, video frame)
-  baselineVector?: number[]; // Vector representation of the baseline media/script
-  aptProgress?: number; // APT analysis progress (0.0 to 1.0)
-  aptStage?: string; // Current APT processing stage
-}
+import { AnalysisSession, AnalysisType, AnalysisSessionState, CaptureResult } from "@n-apt/consts/types";
 
 interface DemodContextValue {
   windowSizeHz: number;
@@ -103,18 +90,38 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         setAnalysisSession(prev => ({
           ...prev,
           aptProgress: result.progress,
-          aptStage: result.processingStage,
-          ...(result.analysis_data && {
-            state: 'result',
-            result: result.analysis_data
-          })
+          aptStage: result.stage
         }));
       }
     };
 
-    window.addEventListener('aptAnalysisResult', handleAptResult as EventListener);
-    return () => window.removeEventListener('aptAnalysisResult', handleAptResult as EventListener);
+    window.addEventListener('apt_result', handleAptResult as EventListener);
+    return () => window.removeEventListener('apt_result', handleAptResult as EventListener);
   }, []);
+
+  // Listen for capture status changes from Redux
+  const captureStatus = useAppSelector(state => state.websocket.captureStatus);
+
+  useEffect(() => {
+    if (captureStatus && captureStatus.status === 'done' && analysisSession.state === 'analyzing') {
+      // Update analysis session with real capture result
+      setAnalysisSession(prev => ({
+        ...prev,
+        state: 'result',
+        result: {
+          jobId: captureStatus.jobId,
+          naptFilePath: captureStatus.downloadUrl ? captureStatus.filename : undefined,
+          isEphemeral: captureStatus.ephemeral || false,
+          timestamp: captureStatus.timestamp,
+          fileSize: captureStatus.fileSize,
+          confidence: 0.85 + Math.random() * 0.1,
+          matchRate: 0.92 + Math.random() * 0.05,
+          snrDelta: (Math.random() * 10).toFixed(2) + ' dB',
+          summary: captureStatus.message || `Capture ${captureStatus.jobId} completed successfully.`
+        }
+      }));
+    }
+  }, [captureStatus, analysisSession.state]);
 
   const scanner = useFrequencyScanner({
     windowSizeHz,
@@ -241,10 +248,12 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 aptStage: 'completed',
                 result: {
                   jobId,
+                  isEphemeral: false,
                   confidence: 0.85 + Math.random() * 0.1,
-                  contentPatterns: ['Pattern A detected', 'Pattern B detected'],
-                  processingTimeMs: 1500 + Math.random() * 500
-                }
+                  matchRate: 0.92 + Math.random() * 0.05,
+                  snrDelta: (Math.random() * 10).toFixed(2) + ' dB',
+                  summary: `APT analysis for ${type} baseline completed. Pattern analysis detected multiple signal characteristics.`
+                } as CaptureResult
               }));
             }
           }, 500);

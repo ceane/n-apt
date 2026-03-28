@@ -1,5 +1,4 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from "react";
-import { useJsApiLoader } from "@react-google-maps/api";
 import { getGoogleMapsApiKey } from "@n-apt/utils/env";
 
 export interface MapLocation {
@@ -37,16 +36,12 @@ const PILL_COLORS = [
   "#a5f3fc", // cyan
 ];
 
-const LIBRARIES: any[] = ["places", "geometry"];
 const STORAGE_KEY = "n-apt-map-locations";
 
 export const MapLocationsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const apiKey = getGoogleMapsApiKey();
-  const { isLoaded, loadError } = useJsApiLoader({
-    id: "google-map-script",
-    googleMapsApiKey: (apiKey as string) || "",
-    libraries: LIBRARIES,
-  });
+  // Leaflet loads immediately without API key requirement
+  const [isLoaded] = useState(true);
+  const [loadError] = useState<Error | undefined>(undefined);
 
   const [locations, setLocations] = useState<MapLocation[]>(() => {
     // Load from localStorage on initialization

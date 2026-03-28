@@ -10,6 +10,7 @@ import { useAudioDemodFM } from "@n-apt/hooks/useAudioDemodFM";
 import { Row } from "@n-apt/components/ui";
 import { CollapsibleTitle, CollapsibleBody } from "@n-apt/components/ui/Collapsible";
 import { DecryptionFallback } from "@n-apt/components/ui/DecryptionFallback";
+import { DemodDownloads } from "@n-apt/components/sidebar/DemodDownloads";
 import type { SourceMode } from "@n-apt/hooks/useSpectrumStore";
 
 const SidebarContent = styled.div`
@@ -116,35 +117,6 @@ const StartScanButton = styled(StopButton)`
   &:hover {
     background-color: ${(props) => `${props.theme.primary}cc`};
     border-color: ${(props) => props.theme.primary};
-  }
-`;
-
-const ResultCard = styled.div`
-  padding: 8px;
-  background: ${(props) => props.theme.background};
-  border: 1px solid ${(props) => props.theme.border};
-  border-radius: 4px;
-  margin-top: 4px;
-`;
-
-const ResultLabel = styled.div`
-  font-size: 10px;
-  color: ${(props) => props.theme.textSecondary};
-  margin-bottom: 8px;
-  font-family: ${(props) => props.theme.typography.mono};
-`;
-
-const DownloadCaptureButton = styled(StopButton).attrs({ as: "a" })`
-  background-color: ${(props) => props.theme.success};
-  border-color: ${(props) => props.theme.success};
-  color: ${(props) => props.theme.background};
-  text-align: center;
-  text-decoration: none;
-  display: block;
-
-  &:hover {
-    background-color: ${(props) => `${props.theme.success}cc`};
-    border-color: ${(props) => props.theme.success};
   }
 `;
 
@@ -309,7 +281,7 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
   const backend = useAppSelector((s) => s.websocket.backend);
   const cryptoCorrupted = useAppSelector((s) => s.websocket.cryptoCorrupted);
 
-  const { analysisSession, currentIQData, selectedAlgorithm, setSelectedAlgorithm } = useDemod();
+  const { currentIQData, selectedAlgorithm, setSelectedAlgorithm } = useDemod();
   const [isOptionsOpen, setIsOptionsOpen] = React.useState(true);
 
   // FM audio demodulation hook
@@ -326,6 +298,7 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
       fmAudio.processIQData(currentIQData, sampleRate);
     }
   }, [currentIQData, selectedAlgorithm, fmAudio]);
+
 
   return (
     <SidebarContent>
@@ -472,22 +445,7 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
         )}
       </Section>
 
-      {analysisSession.state === 'result' && analysisSession.result?.naptFilePath && (
-        <Section>
-          <SectionTitle>Reference Captures</SectionTitle>
-          <ResultCard>
-            <ResultLabel>
-              RESULT: {analysisSession.result.jobId}
-            </ResultLabel>
-            <DownloadCaptureButton
-              href={analysisSession.result.naptFilePath}
-              download
-            >
-              Download .napt Capture
-            </DownloadCaptureButton>
-          </ResultCard>
-        </Section>
-      )}
+      <DemodDownloads />
 
       <InfoBox>
         <InfoTitle>Demodulation</InfoTitle>

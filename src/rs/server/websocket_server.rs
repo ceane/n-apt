@@ -1183,6 +1183,11 @@ impl WebSocketServer {
 
               let file_name = artifact.filename.clone();
 
+              let timestamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+
               let msg = serde_json::json!({
                   "type": "capture_status",
                   "status": {
@@ -1190,7 +1195,9 @@ impl WebSocketServer {
                       "status": "done",
                       "message": "Capture complete",
                       "filename": file_name,
-                      "downloadUrl": format!("/api/capture/download?jobId={}", result.job_id)
+                      "downloadUrl": format!("/api/capture/download?jobId={}", result.job_id),
+                      "timestamp": timestamp,
+                      "fileSize": artifact.file_size
                   }
               });
               let _ = bcast.send(msg.to_string());

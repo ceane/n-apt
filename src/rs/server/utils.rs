@@ -477,14 +477,15 @@ pub fn save_capture_file_multi(
   }
 
   info!("Saved capture file: {}", path.display());
-  Ok(CaptureArtifact { filename, path })
+  let file_size = std::fs::metadata(&path).unwrap().len();
+  Ok(CaptureArtifact { filename, path, file_size })
 }
 
 #[cfg(test)]
 mod save_tests {
   use super::*;
   use crate::sdr::processor::{CaptureChannel, CaptureResult};
-  use std::fs; // Add these imports
+  use std::fs;
 
   #[test]
   fn test_save_capture_file_multi_metadata() {

@@ -6,7 +6,6 @@ import { useWasmSimdMath } from "@n-apt/hooks/useWasmSimdMath";
 const VizGrid = styled.div`
   display: grid;
   grid-template-columns: 1fr;
-  gap: 24px;
   width: 100%;
 `;
 
@@ -14,18 +13,22 @@ const StageContainer = styled.div`
   display: flex;
   flex-direction: column;
   gap: 12px;
-  background: rgba(20, 20, 22, 0.6);
-  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 8px;
   padding: 16px;
 `;
 
 const StageHeader = styled.h3`
   margin: 0;
-  color: #fff;
   font-size: 14px;
   text-transform: uppercase;
   letter-spacing: 0.1em;
+`;
+
+const CanvasContainer = styled.div`
+  aspect-ratio: 4 / 3;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
 `;
 
 interface AptDemodVizProps {
@@ -36,7 +39,7 @@ interface AptDemodVizProps {
   maxFreq?: number;
 }
 
-export const AptDemodViz: React.FC<AptDemodVizProps> = ({
+export const DemodAPTFFTs: React.FC<AptDemodVizProps> = ({
   iqData,
   sampleRate = 32768,
   centerFreq = 137.1,
@@ -61,7 +64,7 @@ export const AptDemodViz: React.FC<AptDemodVizProps> = ({
   useEffect(() => {
     rfDataRef.current = rfData;
   }, [rfData]);
-  
+
   useEffect(() => {
     fmDataRef.current = fmData;
   }, [fmData]);
@@ -81,19 +84,19 @@ export const AptDemodViz: React.FC<AptDemodVizProps> = ({
     // 2. FM Demodulation Stage
     const numSamples = Math.floor(iqData.length / 2);
     const fmBuffer = new Float32Array(numSamples);
-    
+
     let lastPhase = 0;
     for (let i = 0; i < numSamples; i++) {
       const i_val = (iqData[i * 2] - 128) / 128.0;
       const q_val = (iqData[i * 2 + 1] - 128) / 128.0;
-      
+
       const phase = Math.atan2(q_val, i_val);
       let dPhase = phase - lastPhase;
-      
+
       // Unwrap
       while (dPhase > Math.PI) dPhase -= 2 * Math.PI;
       while (dPhase < -Math.PI) dPhase += 2 * Math.PI;
-      
+
       fmBuffer[i] = dPhase;
       lastPhase = phase;
     }
@@ -113,13 +116,13 @@ export const AptDemodViz: React.FC<AptDemodVizProps> = ({
     const amBuffer = new Float32Array(numSamples);
     let lpfState = 0;
     const alpha = 0.1; // simple LPF alpha
-    
+
     for (let i = 0; i < numSamples; i++) {
-        // Enveloping
-        const rectified = Math.abs(fmBuffer[i]);
-        // LPF
-        lpfState = lpfState + alpha * (rectified - lpfState);
-        amBuffer[i] = lpfState;
+      // Enveloping
+      const rectified = Math.abs(fmBuffer[i]);
+      // LPF
+      lpfState = lpfState + alpha * (rectified - lpfState);
+      amBuffer[i] = lpfState;
     }
 
     const amIq = new Uint8Array(numSamples * 2);
@@ -142,76 +145,75 @@ export const AptDemodViz: React.FC<AptDemodVizProps> = ({
     return () => clearInterval(interval);
   }, [iqData]);
 
-  const canvasStyle = { aspectRatio: "4 / 3", width: "100%", display: "flex", flexDirection: "column" as const };
 
   return (
     <VizGrid>
       <StageContainer>
         <StageHeader>1. RF Input (Raw I/Q)</StageHeader>
-        <div style={canvasStyle}>
+        <CanvasContainer>
           {rfData && (
-             <FFTCanvas
-               dataRef={rfDataRef}
-               frequencyRange={minFreq !== undefined && maxFreq !== undefined 
-                 ? { min: minFreq, max: maxFreq } 
-                 : { min: centerFreq - (sampleRate / 2e6), max: centerFreq + (sampleRate / 2e6) }
-               }
-               centerFrequencyMHz={centerFreq}
-               activeSignalArea={"0"}
-               isPaused={false}
-               isDeviceConnected={true}
-               awaitingDeviceData={false}
-               fftSize={2048}
-               snapshotGridPreference={true}
-               hideWaterfall={true}
-               hideSliders={true}
-             />
+            <FFTCanvas
+              dataRef={rfDataRef}
+              frequencyRange={minFreq !== undefined && maxFreq !== undefined
+                ? { min: minFreq, max: maxFreq }
+                : { min: centerFreq - (sampleRate / 2e6), max: centerFreq + (sampleRate / 2e6) }
+              }
+              centerFrequencyMHz={centerFreq}
+              activeSignalArea={"0"}
+              isPaused={false}
+              isDeviceConnected={true}
+              awaitingDeviceData={false}
+              fftSize={2048}
+              snapshotGridPreference={true}
+              hideWaterfall={true}
+              hideSliders={true}
+            />
           )}
-        </div>
+        </CanvasContainer>
       </StageContainer>
 
       <StageContainer>
         <StageHeader>2. FM Demodulator Output</StageHeader>
-        <div style={canvasStyle}>
+        <CanvasContainer>
           {fmData && (
-             <FFTCanvas
-               dataRef={fmDataRef}
-               frequencyRange={{ min: -sampleRate / 2e6, max: sampleRate / 2e6 }}
-               centerFrequencyMHz={0}
-               activeSignalArea={"0"}
-               isPaused={false}
-               isDeviceConnected={true}
-               awaitingDeviceData={false}
-               fftSize={2048}
-               fftMin={-80}
-               snapshotGridPreference={true}
-               hideWaterfall={true}
-               hideSliders={true}
-             />
+            <FFTCanvas
+              dataRef={fmDataRef}
+              frequencyRange={{ min: -sampleRate / 2e6, max: sampleRate / 2e6 }}
+              centerFrequencyMHz={0}
+              activeSignalArea={"0"}
+              isPaused={false}
+              isDeviceConnected={true}
+              awaitingDeviceData={false}
+              fftSize={2048}
+              fftMin={-80}
+              snapshotGridPreference={true}
+              hideWaterfall={true}
+              hideSliders={true}
+            />
           )}
-        </div>
+        </CanvasContainer>
       </StageContainer>
 
       <StageContainer>
         <StageHeader>3. AM Envelope (Pixels)</StageHeader>
-        <div style={canvasStyle}>
+        <CanvasContainer>
           {amData && (
-             <FFTCanvas
-               dataRef={amDataRef}
-               frequencyRange={{ min: -sampleRate / 2e6, max: sampleRate / 2e6 }}
-               centerFrequencyMHz={0}
-               activeSignalArea={"0"}
-               isPaused={false}
-               isDeviceConnected={true}
-               awaitingDeviceData={false}
-               fftSize={2048}
-               fftMin={-80}
-               snapshotGridPreference={true}
-               hideWaterfall={true}
-               hideSliders={true}
-             />
+            <FFTCanvas
+              dataRef={amDataRef}
+              frequencyRange={{ min: -sampleRate / 2e6, max: sampleRate / 2e6 }}
+              centerFrequencyMHz={0}
+              activeSignalArea={"0"}
+              isPaused={false}
+              isDeviceConnected={true}
+              awaitingDeviceData={false}
+              fftSize={2048}
+              fftMin={-80}
+              snapshotGridPreference={true}
+              hideWaterfall={true}
+              hideSliders={true}
+            />
           )}
-        </div>
+        </CanvasContainer>
       </StageContainer>
     </VizGrid>
   );
