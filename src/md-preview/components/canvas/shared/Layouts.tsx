@@ -108,9 +108,12 @@ export const CanvasHost: React.FC<React.PropsWithChildren> = ({ children }) => {
         }
       }}
     >
+      {/* eslint-disable-next-line react/no-unknown-property */}
       <color attach="background" args={[theme.colors.background]} />
+      {/* eslint-disable-next-line react/no-unknown-property */}
       <ambientLight intensity={0.9} />
       {children}
+      {/* eslint-disable-next-line react/no-unknown-property */}
       <group visible={false} userData={{ fallback }} />
     </Canvas>
   );

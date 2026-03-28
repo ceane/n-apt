@@ -180,41 +180,94 @@ jest.mock('styled-components', () => ({
 }));
 
 // Mock the actual components
-const MockFFTCanvas = React.forwardRef<HTMLDivElement, any>((props, ref) => (
-  <div data-testid="fft-canvas" ref={ref} {...props}>
-    <canvas data-testid="fft-canvas-element" width={800} height={400} />
-    <div data-testid="visualizer-sliders">Visualizer Sliders</div>
-  </div>
-));
+const MockFFTCanvas = React.forwardRef<HTMLDivElement, any>(({ ...props }, ref) => {
+  // Filter out component-specific props that shouldn't be passed to DOM elements
+  const {
+    dataRef,
+    frequencyRange,
+    centerFrequencyMHz,
+    showVisualizerSliders,
+    hideWaterfall,
+    hideSliders,
+    onFrequencyDragStart,
+    onFrequencyDragMove,
+    onFrequencyDragEnd,
+    ...domProps
+  } = props;
 
-const MockFFTPlaybackCanvas = React.forwardRef<HTMLDivElement, any>((props, ref) => (
-  <div data-testid="fft-playback-canvas" ref={ref} {...props}>
-    <div data-testid="fft-canvas">FFT Canvas</div>
-    {props.selectedFiles?.length > 0 ? (
-      <div data-testid="playback-content">
-        <div data-testid="file-count">{props.selectedFiles.length} files loaded</div>
-        <div data-testid="channel-selector">Channel: 1/{props.channelCount || 1}</div>
-      </div>
-    ) : (
-      <div data-testid="empty-state">No files selected</div>
-    )}
-  </div>
-));
+  return (
+    <div data-testid="fft-canvas" ref={ref} {...domProps}>
+      <canvas data-testid="fft-canvas-element" width={800} height={400} />
+      <div data-testid="visualizer-sliders">Visualizer Sliders</div>
+    </div>
+  );
+});
 
-const MockFIFOWaterfall: React.FC<any> = ({ width, height, waveform, ...props }) => (
-  <div data-testid="fifo-waterfall" {...props}>
-    <canvas
-      data-testid="waterfall-canvas"
-      width={width}
-      height={height}
-    />
-    {waveform ? (
-      <div data-testid="waterfall-data">Data loaded</div>
-    ) : (
-      <div data-testid="waterfall-placeholder">Loading data from source...</div>
-    )}
-  </div>
-);
+const MockFFTPlaybackCanvas = React.forwardRef<HTMLDivElement, any>(({ ...props }, ref) => {
+  // Filter out component-specific props that shouldn't be passed to DOM elements
+  const {
+    selectedFiles,
+    stitchTrigger,
+    stitchSourceSettings,
+    channelCount,
+    displayMode,
+    vizPanOffset,
+    vizZoomLevel,
+    onStitch,
+    onChannelChange,
+    onPlaybackControl,
+    fftSize,
+    powerScale,
+    vizZoom,
+    ...domProps
+  } = props;
+
+  return (
+    <div data-testid="fft-playback-canvas" ref={ref} {...domProps}>
+      <div data-testid="fft-canvas">FFT Canvas</div>
+      {selectedFiles?.length > 0 ? (
+        <div data-testid="playback-content">
+          <div data-testid="file-count">{selectedFiles.length} files loaded</div>
+          <div data-testid="channel-selector">Channel: 1/{channelCount || 1}</div>
+        </div>
+      ) : (
+        <div data-testid="empty-state">No files selected</div>
+      )}
+    </div>
+  );
+});
+
+const MockFIFOWaterfall: React.FC<any> = ({ width, height, waveform, ...props }) => {
+  // Filter out all component-specific props that shouldn't be passed to DOM elements
+  const {
+    awaitingDeviceData,
+    frequencyRange,
+    isPaused,
+    isVisible,
+    displayMode,
+    powerScale,
+    spectrumToAmplitude,
+    onWaterfallBufferChange,
+    retuneSmear,
+    performScalarResampling,
+    ...domProps
+  } = props;
+
+  return (
+    <div data-testid="fifo-waterfall" {...domProps}>
+      <canvas
+        data-testid="waterfall-canvas"
+        width={width}
+        height={height}
+      />
+      {waveform ? (
+        <div data-testid="waterfall-data">Data loaded</div>
+      ) : (
+        <div data-testid="waterfall-placeholder">Loading data from source...</div>
+      )}
+    </div>
+  );
+};
 
 // Mock the imports
 jest.mock('../../src/ts/components/FFTCanvas', () => ({
