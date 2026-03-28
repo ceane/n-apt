@@ -1,8 +1,17 @@
 import * as React from "react";
 import { render, screen, waitFor, act } from '@testing-library/react';
+import { Provider } from 'react-redux';
+import { configureStore } from '@reduxjs/toolkit';
 jest.setTimeout(15000);
 import "@testing-library/jest-dom";
 import { DemodProvider, useDemod } from "../../src/ts/contexts/DemodContext";
+
+// Create a mock Redux store
+const mockStore = configureStore({
+  reducer: {
+    websocket: (_state = { captureStatus: null }, _action) => ({ captureStatus: null }),
+  },
+});
 
 jest.mock("../../src/ts/hooks/useAuthentication", () => ({
   useAuthentication: () => ({ isAuthenticated: true }),
@@ -52,9 +61,11 @@ const TestComponent: React.FC = () => {
 describe("APT Analysis", () => {
   it("should initialize APT analysis with correct parameters", async () => {
     render(
-      <DemodProvider>
-        <TestComponent />
-      </DemodProvider>
+      <Provider store={mockStore}>
+        <DemodProvider>
+          <TestComponent />
+        </DemodProvider>
+      </Provider>
     );
 
     // Check initial capturing state
@@ -66,9 +77,11 @@ describe("APT Analysis", () => {
 
   it("should progress through APT analysis stages", async () => {
     render(
-      <DemodProvider>
-        <TestComponent />
-      </DemodProvider>
+      <Provider store={mockStore}>
+        <DemodProvider>
+          <TestComponent />
+        </DemodProvider>
+      </Provider>
     );
 
     // Wait for progress updates
@@ -90,9 +103,11 @@ describe("APT Analysis", () => {
 
   it("should clear analysis when requested", async () => {
     render(
-      <DemodProvider>
-        <TestComponent />
-      </DemodProvider>
+      <Provider store={mockStore}>
+        <DemodProvider>
+          <TestComponent />
+        </DemodProvider>
+      </Provider>
     );
 
     // Wait for analysis to complete
