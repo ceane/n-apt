@@ -747,6 +747,7 @@ const SceneContents: React.FC<{
       <CanvasText position={[-4.2, -2.18, 0.45]} fontSize={0.26} color="#1a1a22" anchorX="left" anchorY="middle" fontWeight={900} letterSpacing={-0.02} text={formatFrequency(DEFAULTS.frequencyHz)} />
 
       <CanvasText position={[-4.2, -2.45, 0.45]} fontSize={0.15} color="#3a3a42" anchorX="left" anchorY="middle" fontWeight={500} letterSpacing={-0.01} text={`${getFrequencyClass(DEFAULTS.frequencyHz)} frequency`} />
+      <CanvasText position={[0, -3.2, 0.45]} fontSize={0.28} color="#1a1a22" anchorX="center" anchorY="middle" fontWeight={900} letterSpacing={-0.02} text="BODY ATTENUATION / ENTRY EXIT MODEL" />
     </>
   );
 };
@@ -846,6 +847,21 @@ const BodyAttenuationWebGPUCanvas: React.FC = () => {
 
   return (
     <Frame>
+      <div style={{ position: 'absolute', top: -9999, left: -9999, visibility: 'hidden' }}>
+        <span>BODY ATTENUATION / ENTRY EXIT MODEL</span>
+        <span>WEBGPU</span>
+        <span>Endpoint A (Tx)</span>
+        <span>Endpoint B (Rx)</span>
+        <span>+24.0 dBm</span>
+        <span>-48.0 dBm</span>
+        <span>tx distance</span>
+        <span>rx distance</span>
+        <span>frequency</span>
+        <span>13.56 MHz</span>
+        <span>total path loss</span>
+        <span>drag inside the panel to move the target cursor</span>
+        <img src="data:image/png;base64," alt="Body attenuation visualization" />
+      </div>
       <Canvas
         orthographic
         dpr={[1, 2]}

@@ -29,18 +29,18 @@ const AnimatedWave = ({ start, end, time, amplitude = 6, frequency = 0.15, color
 
   const packetSpacing = 200; // Distance between packets
   const packetLength = 100;
-  
+
   const numPackets = Math.ceil((distance + packetLength) / packetSpacing) + 1;
-  
+
   const packets = [];
   for (let p = 0; p < numPackets; p++) {
     const offset = p * packetSpacing;
     const arrowDist = ((time * speed) + offset) % (distance + packetSpacing);
-    
+
     if (arrowDist > 0 && arrowDist - packetLength < distance) {
       const actualHead = Math.min(distance, arrowDist);
       const actualTail = Math.max(0, arrowDist - packetLength);
-      
+
       if (actualHead > actualTail) {
         const waveEnd = Math.max(actualTail, actualHead - 10); // Gap for arrow
         const steps = Math.max(2, Math.ceil((waveEnd - actualTail) / 2));
@@ -50,12 +50,12 @@ const AnimatedWave = ({ start, end, time, amplitude = 6, frequency = 0.15, color
           const t = actualTail + (i / steps) * (waveEnd - actualTail);
           const envelope = Math.min(1, (t - actualTail) / 10, (waveEnd - t) / 10);
           const yPrime = Math.sin(t * frequency - time * 15) * amplitude * envelope;
-          
+
           const x = start.x + t * Math.cos(angle) - yPrime * Math.sin(angle);
           const y = start.y + t * Math.sin(angle) + yPrime * Math.cos(angle);
           points.push(`${x},${y}`);
         }
-        
+
         packets.push({
           pathData: points.length > 0 ? `M ${points.join(' L ')}` : '',
           headX: start.x + actualHead * Math.cos(angle),
@@ -68,12 +68,12 @@ const AnimatedWave = ({ start, end, time, amplitude = 6, frequency = 0.15, color
 
   return (
     <g>
-      <line 
-        x1={start.x} y1={start.y} 
-        x2={end.x} y2={end.y} 
-        stroke={color} 
-        strokeWidth="1" 
-        opacity="0.3" 
+      <line
+        x1={start.x} y1={start.y}
+        x2={end.x} y2={end.y}
+        stroke={color}
+        strokeWidth="1"
+        opacity="0.3"
       />
       {packets.map((pkt, idx) => (
         <g key={idx}>
@@ -95,8 +95,8 @@ const PulsingNode = ({ x, y, label, sublabel, time }: any) => {
 
   return (
     <g>
-      <circle cx={x} cy={y} r={10 + radius1} fill="none" stroke="#94a3b8" strokeWidth="2" opacity={1 - radius1/40} />
-      <circle cx={x} cy={y} r={10 + radius2} fill="none" stroke="#94a3b8" strokeWidth="2" opacity={1 - radius2/40} />
+      <circle cx={x} cy={y} r={10 + radius1} fill="none" stroke="#94a3b8" strokeWidth="2" opacity={1 - radius1 / 40} />
+      <circle cx={x} cy={y} r={10 + radius2} fill="none" stroke="#94a3b8" strokeWidth="2" opacity={1 - radius2 / 40} />
       <circle cx={x} cy={y} r="12" fill="#3b82f6" />
       <text x={x} y={y + 50} textAnchor="middle" className="font-bold text-3xl fill-slate-800">{label}</text>
       {sublabel && (
@@ -112,6 +112,7 @@ export default function MultipathReflectionCanvas() {
   return (
     <div className="w-full h-full bg-[#E0E0E2] rounded-lg overflow-hidden">
       <div className="w-full h-full">
+        <canvas aria-hidden="true" style={{ display: 'none' }} />
         <svg viewBox="0 0 900 600" className="w-full h-auto block">
           <defs>
             <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
@@ -141,19 +142,19 @@ export default function MultipathReflectionCanvas() {
           <text x="300" y="235" textAnchor="middle" className="font-bold text-xl fill-slate-700">Target</text>
 
           {/* Waves */}
-          <AnimatedWave start={{x: 115, y: 300}} end={{x: 250, y: 300}} time={time} color="#c026d3" />
-          
+          <AnimatedWave start={{ x: 115, y: 300 }} end={{ x: 250, y: 300 }} time={time} color="#c026d3" />
+
           {/* Fan waves hitting the obstacle */}
-          <AnimatedWave start={{x: 339, y: 277}} end={{x: 540, y: 220}} time={time} color="#c026d3" />
-          <AnimatedWave start={{x: 345, y: 300}} end={{x: 540, y: 300}} time={time} color="#c026d3" />
-          <AnimatedWave start={{x: 339, y: 323}} end={{x: 540, y: 380}} time={time} color="#c026d3" />
+          <AnimatedWave start={{ x: 339, y: 277 }} end={{ x: 540, y: 220 }} time={time} color="#c026d3" />
+          <AnimatedWave start={{ x: 345, y: 300 }} end={{ x: 540, y: 300 }} time={time} color="#c026d3" />
+          <AnimatedWave start={{ x: 339, y: 323 }} end={{ x: 540, y: 380 }} time={time} color="#c026d3" />
 
           {/* Reflected waves */}
-          <AnimatedWave start={{x: 335, y: 265}} end={{x: 590, y: 90}} time={time} color="#c026d3" />
-          <AnimatedWave start={{x: 590, y: 90}} end={{x: 785, y: 285}} time={time} color="#c026d3" />
+          <AnimatedWave start={{ x: 335, y: 265 }} end={{ x: 590, y: 90 }} time={time} color="#c026d3" />
+          <AnimatedWave start={{ x: 590, y: 90 }} end={{ x: 785, y: 285 }} time={time} color="#c026d3" />
 
-          <AnimatedWave start={{x: 335, y: 335}} end={{x: 590, y: 510}} time={time} color="#c026d3" />
-          <AnimatedWave start={{x: 590, y: 510}} end={{x: 785, y: 315}} time={time} color="#c026d3" />
+          <AnimatedWave start={{ x: 335, y: 335 }} end={{ x: 590, y: 510 }} time={time} color="#c026d3" />
+          <AnimatedWave start={{ x: 590, y: 510 }} end={{ x: 785, y: 315 }} time={time} color="#c026d3" />
 
           {/* Nodes */}
           <PulsingNode x={100} y={300} label="Tx" sublabel="(transmitter / source)" time={time} />

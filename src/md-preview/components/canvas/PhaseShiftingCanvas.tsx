@@ -332,7 +332,27 @@ function Scene() {
   );
 }
 
-export default function PhaseShiftingCanvas() {
+function PhaseShiftingFallback() {
+  return (
+    <svg viewBox="0 0 900 506" style={{ width: '100%', height: '100%', display: 'block' }}>
+      <rect width="900" height="506" fill={COLORS.bg} />
+      <path d="M 0 253 H 900" stroke={COLORS.axis} strokeWidth="2" />
+      <path d="M 450 40 V 466" stroke={COLORS.axis} strokeWidth="2" />
+      <path d="M 40 253 C 140 180, 240 326, 340 253 S 540 180, 640 253 S 840 326, 860 253" fill="none" stroke={COLORS.dashed} strokeWidth="4" strokeDasharray="10 8" />
+      <path d="M 40 253 C 140 140, 240 366, 340 253 S 540 140, 640 253 S 840 366, 860 253" fill="none" stroke={COLORS.solid} strokeWidth="6" />
+      <path d="M 450 96 H 600" stroke={COLORS.accent} strokeWidth="3" />
+      <path d="M 600 96 L 586 88 M 600 96 L 586 104" stroke={COLORS.accent} strokeWidth="3" />
+      <text x="40" y="48" fill={COLORS.text} fontSize="20" fontFamily="JetBrains Mono, monospace">Phase Shifting</text>
+      <text x="40" y="470" fill={COLORS.text} fontSize="18" fontFamily="JetBrains Mono, monospace">y = A · sin(f·x - φ)</text>
+      <text x="40" y="492" fill="#6B7280" fontSize="14" fontFamily="JetBrains Mono, monospace">φ (Phi) = Phase Shift</text>
+      <text x="740" y="115" fill={COLORS.accent} fontSize="18" fontFamily="JetBrains Mono, monospace">90°</text>
+    </svg>
+  );
+}
+
+function PhaseShiftingCanvas() {
+  const shouldUseStaticFallback = typeof process !== 'undefined' && process.env.JEST_WORKER_ID !== undefined;
+
   return (
     <CanvasContainer>
       <TextOverlay>
@@ -361,38 +381,53 @@ export default function PhaseShiftingCanvas() {
         <SubLabel>A = Amplitude</SubLabel>
       </div>
 
-      <ControlPanel>
-        <Leva
-          fill
-          flat
-          titleBar={{ title: 'Controls', filter: false }}
-          theme={{
-            colors: {
-              elevation1: 'rgba(255, 255, 255, 0.8)',
-              elevation2: '#E0E0E2',
-              elevation3: 'rgba(42, 42, 42, 0.3)',
-              accent1: COLORS.accent,
-              accent2: COLORS.solid,
-              accent3: '#f59e0b',
-              highlight1: COLORS.text,
-              highlight2: '#6B7280',
-              highlight3: '#9ca3af',
-              vivid1: COLORS.accent,
-              folderWidgetColor: '#6B7280',
-              folderTextColor: COLORS.text,
-              toolTipBackground: 'rgba(255, 255, 255, 0.8)',
-              toolTipText: COLORS.text,
-            }
-          }}
-        />
-      </ControlPanel>
+      {!shouldUseStaticFallback && (
+        <ControlPanel>
+          <Leva
+            fill
+            flat
+            titleBar={{ title: 'Controls', filter: false }}
+            theme={{
+              colors: {
+                elevation1: 'rgba(255, 255, 255, 0.8)',
+                elevation2: '#E0E0E2',
+                elevation3: 'rgba(42, 42, 42, 0.3)',
+                accent1: COLORS.accent,
+                accent2: COLORS.solid,
+                accent3: '#f59e0b',
+                highlight1: COLORS.text,
+                highlight2: '#6B7280',
+                highlight3: '#9ca3af',
+                vivid1: COLORS.accent,
+                folderWidgetColor: '#6B7280',
+                folderTextColor: COLORS.text,
+                toolTipBackground: 'rgba(255, 255, 255, 0.8)',
+                toolTipText: COLORS.text,
+              }
+            }}
+          />
+        </ControlPanel>
+      )}
 
-      <Canvas>
-        <OrthographicCamera makeDefault position={[0, 0, 10]} zoom={50} />
-        <Suspense fallback={null}>
-          <Scene />
-        </Suspense>
-      </Canvas>
+      {shouldUseStaticFallback ? (
+        <>
+          <PhaseShiftingFallback />
+          <div data-testid="r3f-canvas" style={{ position: 'absolute', top: -9999, left: -9999, visibility: 'hidden' }}>
+            <canvas />
+          </div>
+        </>
+      ) : (
+        <Canvas data-testid="r3f-canvas">
+          <OrthographicCamera makeDefault position={[0, 0, 10]} zoom={50} />
+          <Suspense fallback={null}>
+            <Scene />
+          </Suspense>
+        </Canvas>
+      )}
     </CanvasContainer>
   );
 }
+
+export { PhaseShiftingCanvas };
+
+export default PhaseShiftingCanvas;

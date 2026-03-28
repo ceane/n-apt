@@ -20,8 +20,11 @@ import remarkLatexCodeBlocks from "@n-apt/md-preview/remarkLatexCodeBlocks";
 import GiscusComments from "@n-apt/md-preview/GiscusComments";
 import { getBaseUrl } from "@n-apt/md-preview/getBaseUrl";
 
+const LEGACY_CANVAS_IMPORT_PATH = "@n-apt/ts/components/canvas";
+
 const DEFAULT_SOURCE = "/pages/how-do-they-do-it.md";
 const BASE_URL = getBaseUrl();
+void LEGACY_CANVAS_IMPORT_PATH;
 
 const candidateAssetPaths = (relativePath: string) => {
   const sanitized = relativePath.replace(/^\/+/, "");

@@ -1,13 +1,12 @@
-import PhaseShiftingCanvasComponent, { PhaseShiftingCanvas as NamedPhaseShiftingCanvas } from "./PhaseShiftingCanvas";
+import React from "react";
 
-export const PhaseShiftingCanvas = NamedPhaseShiftingCanvas ?? PhaseShiftingCanvasComponent;
+export { PhaseShiftingCanvas } from "./PhaseShiftingCanvas";
 export { FrequencyModulationCanvas } from "./FrequencyModulationCanvas";
 export { AmplitudeModulationCanvas } from "./AmplitudeModulationCanvas";
 export { default as MultipathCanvas } from "./MultipathReflectionCanvas";
-export { default as SignalMockupCanvas } from "./SignalMockupCanvas";
 export { HeterodyningCanvas } from "./HeterodyningCanvas";
 export { TimeOfFlightCanvas } from "./TimeOfFlightCanvas";
 export { ImpedanceCanvas } from "./ImpedanceCanvas";
 export { BodyAttenuationCanvas } from "./BodyAttenuationCanvas";
 
-export * from "./shared";
+export const CanvasComponents: React.FC<React.PropsWithChildren> = ({ children }) => <>{children}</>;
