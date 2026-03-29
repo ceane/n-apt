@@ -1,15 +1,8 @@
 import { useCallback } from "react";
-import {
-  FFT_GRID_COLOR,
-  LINE_COLOR,
-  SHADOW_COLOR,
-  FFT_TEXT_COLOR,
-  FFT_AREA_MIN,
-  FFT_CANVAS_BG,
-  WATERFALL_CANVAS_BG,
-  SNAP_HW_RATE_LINE,
-  SNAP_HW_RATE_TEXT,
-} from "@n-apt/consts";
+import { FFT_AREA_MIN } from "@n-apt/consts";
+import { THEME_TOKENS } from "../../rs/consts/theme";
+import { useAppSelector } from "@n-apt/redux";
+import { useResolvedThemeMode } from "@n-apt/components/ui/Theme";
 import type { SnapshotData } from "@n-apt/components/FFTCanvas";
 import { CoordinateMapper, Range } from "@n-apt/utils/rendering/CoordinateMapper";
 import { CanvasDrawingContext, SnapshotRenderer, SnapshotTheme, SVGDrawingContext, DrawingContext } from "@n-apt/utils/rendering/SnapshotRenderer";
@@ -79,16 +72,7 @@ export function getZoomedSlice(
 }
 
 
-const THEME: SnapshotTheme = {
-  bg: FFT_CANVAS_BG,
-  grid: FFT_GRID_COLOR,
-  line: LINE_COLOR,
-  shadow: SHADOW_COLOR,
-  text: FFT_TEXT_COLOR,
-  hwLine: SNAP_HW_RATE_LINE,
-  hwText: SNAP_HW_RATE_TEXT,
-  cfText: "#fff",
-};
+// THEME constant removed - now computed dynamically inside useSnapshot hook
 
 function getDbUnit(data: SnapshotData): "dB" | "dBm" {
   return data.dbMax > 20 ? "dBm" : "dB";
@@ -102,28 +86,30 @@ function renderSpectrumSnapshot(
   pixelHeight: number,
   format: "png" | "svg",
   fullCaptureRange?: Range,
-  statsLines?: string[],
-  waveform?: Float32Array,
+   statsLines?: string[],
+   waveform?: Float32Array,
+   theme?: SnapshotTheme,
 ): HTMLCanvasElement | string {
-  const dpr = window.devicePixelRatio || 1;
-  const logicalW = pixelWidth / dpr;
-  const logicalH = pixelHeight / dpr;
-  const plotLeft = Math.max(FFT_AREA_MIN.x, 52);
-  const plotBottom = 44;
-
-  const mapper = new CoordinateMapper(
-    {
-      x: plotLeft,
-      y: FFT_AREA_MIN.y,
-      width: logicalW - 40 - plotLeft,
-      height: logicalH - plotBottom - FFT_AREA_MIN.y,
-    },
-    frequencyRange,
-    { min: data.dbMin, max: data.dbMax },
-    dpr
-  );
-
-  const renderer = new SnapshotRenderer(mapper, THEME);
+   const dpr = window.devicePixelRatio || 1;
+   const logicalW = pixelWidth / dpr;
+   const logicalH = pixelHeight / dpr;
+   const plotLeft = Math.max(FFT_AREA_MIN.x, 52);
+   const plotBottom = 38;
+ 
+   const mapper = new CoordinateMapper(
+     {
+       x: plotLeft,
+       y: FFT_AREA_MIN.y,
+       width: logicalW - 40 - plotLeft,
+       height: logicalH - plotBottom - FFT_AREA_MIN.y,
+     },
+     frequencyRange,
+     { min: data.dbMin, max: data.dbMax },
+     dpr
+   );
+ 
+   if (!theme) throw new Error("Snapshot theme is required");
+   const renderer = new SnapshotRenderer(mapper, theme);
 
   if (format === "svg") {
     const dc = new SVGDrawingContext(logicalW, logicalH);
@@ -213,7 +199,7 @@ function drawWaterfallToCanvas(
   dbMin: number,
   dbMax: number,
   colormap: number[][],
-  options?: { marginX?: number; marginY?: number; noBackground?: boolean }
+  options?: { marginX?: number; marginY?: number; noBackground?: boolean; waterfallBg?: string }
 ): void {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
@@ -229,10 +215,6 @@ function drawWaterfallToCanvas(
   const displayH = Math.max(1, Math.round(lh - marginY * 2));
 
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  if (!options?.noBackground) {
-    ctx.fillStyle = WATERFALL_CANVAS_BG;
-    ctx.fillRect(marginStart, marginY, displayW, displayH);
-  }
 
   const textureBinsPerRow = meta.width;
   const bytesPerRow = textureBinsPerRow * 4;
@@ -288,22 +270,16 @@ function drawWaterfallFrom2DBuffer(
   canvas: HTMLCanvasElement,
   waterfallBuffer: Uint8ClampedArray,
   dims: { width: number; height: number },
-  options?: { marginX?: number; marginY?: number; noBackground?: boolean }
+  options?: { marginX?: number; marginY?: number; noBackground?: boolean; waterfallBg?: string }
 ): void {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
 
   const dpr = window.devicePixelRatio || 1;
-  const lw = canvas.width / dpr;
-  const lh = canvas.height / dpr;
   const marginStart = options?.marginX !== undefined ? options.marginX : FFT_AREA_MIN.x;
   const marginY = options?.marginY ?? 8;
 
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  if (!options?.noBackground) {
-    ctx.fillStyle = WATERFALL_CANVAS_BG;
-    ctx.fillRect(0, 0, lw, lh);
-  }
 
   const expectedSize = dims.width * dims.height * 4;
   const safeBuffer = new Uint8ClampedArray(expectedSize);
@@ -324,11 +300,19 @@ function renderWaterfallSnapshotCanvas(
   data: SnapshotData,
   pixelWidth: number,
   pixelHeight: number,
-  options?: { marginX?: number; marginY?: number; noBackground?: boolean }
+  options?: { marginX?: number; marginY?: number; noBackground?: boolean; waterfallBg?: string }
 ): HTMLCanvasElement | null {
   const canvas = document.createElement("canvas");
   canvas.width = pixelWidth;
   canvas.height = pixelHeight;
+
+  if (options?.waterfallBg && !options?.noBackground) {
+    const ctx = canvas.getContext("2d");
+    if (ctx) {
+      ctx.fillStyle = options.waterfallBg;
+      ctx.fillRect(0, 0, pixelWidth, pixelHeight);
+    }
+  }
 
   if (
     data.webgpuEnabled &&
@@ -364,6 +348,7 @@ function renderSpectrumSnapshotCanvas(
   fullCaptureRange?: Range,
   statsLines?: string[],
   waveform?: Float32Array,
+  theme?: SnapshotTheme,
 ): HTMLCanvasElement {
   return renderSpectrumSnapshot(
     data,
@@ -375,6 +360,7 @@ function renderSpectrumSnapshotCanvas(
     fullCaptureRange,
     statsLines,
     waveform,
+    theme,
   ) as HTMLCanvasElement;
 }
 
@@ -386,6 +372,7 @@ function composeWholeChannelWaterfallCanvas(
   fullRange: { min: number; max: number },
   pixelWidth: number,
   pixelHeight: number,
+  waterfallBg?: string,
 ): HTMLCanvasElement | null {
   if (!segments.length) return null;
 
@@ -398,13 +385,15 @@ function composeWholeChannelWaterfallCanvas(
   const ctx = canvas.getContext("2d");
   if (!ctx) return null;
 
-  ctx.fillStyle = WATERFALL_CANVAS_BG;
-  ctx.fillRect(0, 0, pixelWidth, pixelHeight);
+  if (waterfallBg) {
+    ctx.fillStyle = waterfallBg;
+    ctx.fillRect(0, 0, pixelWidth, pixelHeight);
+  }
 
   const dpr = window.devicePixelRatio || 1;
   const marginStart = FFT_AREA_MIN.x;
   const marginEnd = 40;
-  const marginY = 8;
+  const marginY = 0;
   const plotPixelW = Math.round((pixelWidth / dpr - marginStart - marginEnd) * dpr);
   const plotPixelH = Math.round((pixelHeight / dpr - marginY * 2) * dpr);
   const plotPixelX = Math.round(marginStart * dpr);
@@ -423,7 +412,7 @@ function composeWholeChannelWaterfallCanvas(
       segment.data,
       targetWidth,
       plotPixelH,
-      { marginX: 0, marginY: 0, noBackground: true }
+      { marginX: 0, marginY: 0, noBackground: true, waterfallBg }
     );
     if (!segmentCanvas) continue;
 
@@ -455,6 +444,7 @@ function composeWholeChannelSpectrumCanvas(
   pixelHeight: number,
   fullCaptureRange?: Range,
   statsLines?: string[],
+  theme?: SnapshotTheme,
 ): HTMLCanvasElement | null {
   if (!segments.length) return null;
 
@@ -524,6 +514,7 @@ function composeWholeChannelSpectrumCanvas(
     fullCaptureRange,
     statsLines,
     stitched,
+    theme,
   );
 }
 
@@ -535,6 +526,23 @@ export function useSnapshot(
   _frequencyRange: { min: number; max: number } | null,
   _isConnected: boolean,
 ) {
+  const appMode = useAppSelector((state) => state.theme.appMode);
+  const resolvedMode = useResolvedThemeMode(appMode);
+  const themeColors = THEME_TOKENS.colors[resolvedMode];
+
+  const theme: SnapshotTheme = {
+    bg: themeColors.fftBackground,
+    grid: themeColors.fftGrid,
+    line: themeColors.fftLine,
+    shadow: themeColors.fftShadow,
+    text: themeColors.fftText,
+    hwLine: themeColors.snapHwRateLine,
+    hwText: themeColors.snapHwRateText,
+    cfText: themeColors.snapCenterLabelText,
+  };
+
+  const waterfallBg = themeColors.waterfallBackground;
+
   const handleSnapshot = useCallback(async (options: SnapshotOptions) => {
     const data = options.getSnapshotData();
     if (!data || !data.waveform || data.waveform.length === 0) {
@@ -655,6 +663,7 @@ export function useSnapshot(
             PIXEL_SPECTRUM_H,
             captureRange,
             statsLines,
+            theme,
           )
         : null;
     const wholeChannelWaterfallCanvas =
@@ -664,6 +673,7 @@ export function useSnapshot(
             rangeToRender,
             PIXEL_WIDTH,
             PIXEL_WATERFALL_H,
+            waterfallBg,
           )
         : null;
 
@@ -683,14 +693,15 @@ export function useSnapshot(
         captureRange,
         statsLines,
         waveformToRender,
+        theme,
       ) as string;
-
+ 
       // Waterfall as embedded PNG bitmap
       let waterfallSection = "";
       if (hasWaterfall) {
         const wfCanvas =
           wholeChannelWaterfallCanvas ??
-          renderWaterfallSnapshotCanvas(data, PIXEL_WIDTH, PIXEL_WATERFALL_H);
+          renderWaterfallSnapshotCanvas(data, PIXEL_WIDTH, PIXEL_WATERFALL_H, { waterfallBg, marginY: 0 });
 
         if (wfCanvas) {
           const wfDataUrl = wfCanvas.toDataURL("image/png");
@@ -731,14 +742,15 @@ export function useSnapshot(
         captureRange,
         statsLines,
         waveformToRender,
+        theme,
       );
-
+ 
     // Waterfall
     let waterfallCanvas: HTMLCanvasElement | null = null;
     if (hasWaterfall) {
       waterfallCanvas =
         wholeChannelWaterfallCanvas ??
-        renderWaterfallSnapshotCanvas(data, PIXEL_WIDTH, PIXEL_WATERFALL_H);
+        renderWaterfallSnapshotCanvas(data, PIXEL_WIDTH, PIXEL_WATERFALL_H, { waterfallBg, marginY: 0 });
     }
 
     // Composite
@@ -747,6 +759,10 @@ export function useSnapshot(
     finalCanvas.height = totalPixelH;
     const ctx = finalCanvas.getContext("2d");
     if (!ctx) return;
+
+    // Fill with background to prevent gaps
+    ctx.fillStyle = theme.bg;
+    ctx.fillRect(0, 0, PIXEL_WIDTH, totalPixelH);
 
     ctx.drawImage(spectrumCanvas, 0, 0);
     if (waterfallCanvas) {
@@ -759,7 +775,7 @@ export function useSnapshot(
     link.download = `spectrum-snapshot-${timestamp}.png`;
     link.href = dataUrl;
     link.click();
-  }, []);
+  }, [theme, waterfallBg]);
 
   return { handleSnapshot };
 }

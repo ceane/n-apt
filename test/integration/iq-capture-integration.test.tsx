@@ -47,14 +47,17 @@ describe("I/Q Capture Integration Tests", () => {
   });
 
   describe("Sample Rate Validation", () => {
-    it("should enforce 3.2MHz maximum sample rate", () => {
+    it("should enforce 3.2MHz maximum sample rate", async () => {
       render(
         <TestWrapper>
           <IQCaptureIntegrationTest />
         </TestWrapper>
       );
 
-      expect(screen.getByText("3.2MHz")).toBeInTheDocument();
+      // Open the collapsible section
+      fireEvent.click(screen.getByText("IQ Capture Controls"));
+
+      expect(screen.getByLabelText("Hardware sample rate")).toHaveTextContent("3.2MHz");
       expect(screen.getByRole("button", { name: "Capture" })).toBeDisabled();
     });
 
@@ -66,6 +69,9 @@ describe("I/Q Capture Integration Tests", () => {
           <IQCaptureIntegrationTest />
         </TestWrapper>
       );
+
+      // Open the collapsible section
+      fireEvent.click(screen.getByText("IQ Capture Controls"));
 
       fireEvent.click(screen.getByLabelText("Area A"));
 
@@ -91,6 +97,9 @@ describe("I/Q Capture Integration Tests", () => {
         </TestWrapper>
       );
 
+      // Open the collapsible section
+      fireEvent.click(screen.getByText("IQ Capture Controls"));
+
       await waitFor(() => {
         expect(screen.getByText("test-capture.napt")).toBeInTheDocument();
       });
@@ -106,6 +115,9 @@ describe("I/Q Capture Integration Tests", () => {
           <IQCaptureIntegrationTest />
         </TestWrapper>
       );
+
+      // Open the collapsible section
+      fireEvent.click(screen.getByText("IQ Capture Controls"));
 
       fireEvent.click(screen.getByLabelText("Onscreen"));
 
@@ -126,6 +138,9 @@ describe("I/Q Capture Integration Tests", () => {
           <IQCaptureIntegrationTest />
         </TestWrapper>
       );
+
+      // Open the collapsible section
+      fireEvent.click(screen.getByText("IQ Capture Controls"));
 
       fireEvent.click(screen.getByLabelText("Area A"));
       fireEvent.change(screen.getByDisplayValue("5"), { target: { value: "10" } });
@@ -150,6 +165,9 @@ describe("I/Q Capture Integration Tests", () => {
           <IQCaptureIntegrationTest />
         </TestWrapper>
       );
+
+      // Open the collapsible section
+      fireEvent.click(screen.getByText("IQ Capture Controls"));
 
       mockWebSocketState.captureStatus = { status: "progress", jobId: "test-job-1", progress: 25 };
       view.rerender(
@@ -189,6 +207,9 @@ describe("I/Q Capture Integration Tests", () => {
         </TestWrapper>
       );
 
+      // Open the collapsible section
+      fireEvent.click(screen.getByText("IQ Capture Controls"));
+
       mockWebSocketState.isConnected = false;
       mockWebSocketState.deviceState = "disconnected";
       mockWebSocketState.captureStatus = {
@@ -216,6 +237,9 @@ describe("I/Q Capture Integration Tests", () => {
         </TestWrapper>
       );
 
+      // Open the collapsible section
+      fireEvent.click(screen.getByText("IQ Capture Controls"));
+
       expect(screen.getByRole("button", { name: "Capture" })).toBeDisabled();
 
       fireEvent.click(screen.getByLabelText("Area A"));
@@ -233,6 +257,9 @@ describe("I/Q Capture Integration Tests", () => {
           <IQCaptureIntegrationTest />
         </TestWrapper>
       );
+
+      // Open the collapsible section
+      fireEvent.click(screen.getByText("IQ Capture Controls"));
 
       fireEvent.click(screen.getByLabelText("Area A"));
       const durationInput = screen.getByDisplayValue("5");
@@ -259,8 +286,11 @@ describe("I/Q Capture Integration Tests", () => {
         </TestWrapper>
       );
 
+      // Open the collapsible section
+      fireEvent.click(screen.getByText("IQ Capture Controls"));
+
       fireEvent.change(screen.getByDisplayValue(".napt"), { target: { value: ".wav" } });
-      expect(screen.getByText("3.2MHz")).toBeInTheDocument();
+      expect(screen.getByLabelText("Hardware sample rate")).toHaveTextContent("3.2MHz");
 
       fireEvent.click(screen.getByLabelText("Area A"));
 
@@ -289,6 +319,9 @@ describe("I/Q Capture Integration Tests", () => {
         </TestWrapper>
       );
 
+      // Open the collapsible section
+      fireEvent.click(screen.getByText("IQ Capture Controls"));
+
       await waitFor(() => {
         const downloadLink = screen.getByText("test-capture.napt");
         expect(downloadLink).toBeInTheDocument();
@@ -310,8 +343,11 @@ describe("I/Q Capture Integration Tests", () => {
         </TestWrapper>
       );
 
+      // Open the collapsible section
+      fireEvent.click(screen.getByText("IQ Capture Controls"));
+
       expect(screen.getByText("Mock APT Device")).toBeInTheDocument();
-      expect(screen.getByText("3.2MHz")).toBeInTheDocument();
+      expect(screen.getByLabelText("Hardware sample rate")).toHaveTextContent("3.2MHz");
 
       fireEvent.click(screen.getByLabelText("Area A"));
 

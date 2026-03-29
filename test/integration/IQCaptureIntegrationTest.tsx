@@ -1,7 +1,7 @@
 import React from "react";
 import { IQCaptureControlsSection } from "../../src/ts/components/sidebar/IQCaptureControlsSection";
 import { useWebSocket } from "../../src/ts/hooks/useWebSocket";
-import type { CaptureStatus, CaptureFileType, DeviceState } from "../../src/ts/consts/schemas/websocket";
+import type { CaptureFileType } from "../../src/ts/consts/schemas/websocket";
 
 export const IQCaptureIntegrationTest: React.FC = () => {
   const {
@@ -11,7 +11,7 @@ export const IQCaptureIntegrationTest: React.FC = () => {
     maxSampleRateHz,
     dataRef,
     sendCaptureCommand,
-  } = useWebSocket();
+  } = useWebSocket("", null);
 
   // Mock state for testing
   const [activeCaptureAreas, setActiveCaptureAreas] = React.useState<string[]>([]);
@@ -118,8 +118,6 @@ export const IQCaptureIntegrationTest: React.FC = () => {
 
       {/* Main Capture Controls */}
       <IQCaptureControlsSection
-        isOpen={true}
-        onToggle={() => { }}
         activeCaptureAreas={activeCaptureAreas}
         availableCaptureAreas={mockAvailableCaptureAreas}
         captureDurationS={captureDurationS}
@@ -141,6 +139,7 @@ export const IQCaptureIntegrationTest: React.FC = () => {
         onCapturePlaybackChange={setCapturePlayback}
         onCaptureGeolocationChange={setCaptureGeolocation}
         onCapture={handleCapture}
+        onClearStatus={() => { }}
       />
     </div>
   );

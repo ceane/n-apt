@@ -379,6 +379,7 @@ export class SnapshotRenderer {
 
     // Center label - Always white
     const centerLabel = `○  ${centerLabelText}`;
+    dc.setFont("bold 12px JetBrains Mono");
     dc.setFill(this.theme.cfText);
     dc.setTextAlign("center");
     dc.fillText(centerLabel, area.x + area.width / 2, FREQ_LABEL_Y);

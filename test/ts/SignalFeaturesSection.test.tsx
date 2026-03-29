@@ -11,6 +11,16 @@ jest.mock("@n-apt/components/ui", () => ({
       <div>{children}</div>
     </div>
   ),
+  Collapsible: ({ children, label, defaultOpen }: {
+    children: React.ReactNode;
+    label: string;
+    defaultOpen?: boolean;
+  }) => (
+    <div data-testid="collapsible">
+      <button type="button">{label}</button>
+      {defaultOpen && <div>{children}</div>}
+    </div>
+  ),
   CollapsibleTitle: ({
     label,
     isOpen,
@@ -61,15 +71,12 @@ describe("SignalFeaturesSection", () => {
   it("shows heterodyning status text from props", () => {
     renderComponent({ heterodyningStatusText: "Detected (0.82)" });
 
-    fireEvent.click(screen.getByRole("button", { name: /Signal Features/i }));
-
     expect(screen.getByText("Detected (0.82)")).toBeInTheDocument();
   });
 
   it("calls onVerifyHeterodyning when Verify is clicked", () => {
     renderComponent();
 
-    fireEvent.click(screen.getByRole("button", { name: /Signal Features/i }));
     fireEvent.click(screen.getByRole("button", { name: "Verify" }));
 
     expect(defaultProps.onVerifyHeterodyning).toHaveBeenCalledTimes(1);
@@ -77,8 +84,6 @@ describe("SignalFeaturesSection", () => {
 
   it("disables Verify when heterodyning verification is unavailable", () => {
     renderComponent({ heterodyningVerifyDisabled: true });
-
-    fireEvent.click(screen.getByRole("button", { name: /Signal Features/i }));
 
     expect(screen.getByRole("button", { name: "Verify" })).toBeDisabled();
   });
