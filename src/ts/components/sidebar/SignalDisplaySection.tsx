@@ -4,6 +4,7 @@ import { Row } from "@n-apt/components/ui";
 import {
   Activity,
   Blend,
+  Columns3Cog,
   Frame,
   GalleryHorizontal,
   Gauge,
@@ -32,6 +33,14 @@ const SectionTitle = styled.div`
   font-weight: 600;
   font-family: ${(props) => props.theme.typography.mono};
   grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+`;
+
+const SectionText = styled.span`
+  display: flex;
+  align-items: center;
 `;
 
 const SettingValue = styled.span`
@@ -236,7 +245,10 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
 
   return (
     <Section>
-      <SectionTitle>Signal display</SectionTitle>
+      <SectionTitle>
+        <Columns3Cog size={14} />
+        <SectionText>Signal display</SectionText>
+      </SectionTitle>
       {sourceMode === "live" && (
         <>
           <Row

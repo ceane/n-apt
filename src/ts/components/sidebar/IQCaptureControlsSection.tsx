@@ -10,6 +10,7 @@ import type {
 import {
   Clock,
   File as FileIcon,
+  FileSignal,
   LockKeyhole,
   MapPin,
   PanelLeftDashed,
@@ -25,7 +26,7 @@ const Section = styled.div`
   gap: inherit;
 `;
 
-import { Row, CollapsibleTitle, CollapsibleBody, Range } from "@n-apt/components/ui";
+import { Row, Collapsible, Range } from "@n-apt/components/ui";
 
 const SettingValue = styled.span`
   font-size: 12px;
@@ -390,8 +391,6 @@ interface CaptureRange {
 }
 
 interface IQCaptureControlsSectionProps {
-  isOpen: boolean;
-  onToggle: () => void;
   activeCaptureAreas: string[];
   availableCaptureAreas: Array<{ label: string; min: number; max: number }>;
   captureDurationS: number;
@@ -419,8 +418,6 @@ interface IQCaptureControlsSectionProps {
 export const IQCaptureControlsSection: React.FC<
   IQCaptureControlsSectionProps
 > = ({
-  isOpen,
-  onToggle,
   activeCaptureAreas,
   availableCaptureAreas,
   captureDurationS,
@@ -528,227 +525,223 @@ export const IQCaptureControlsSection: React.FC<
 
     return (
       <Section>
-        <CollapsibleTitle
-          label="I/Q Capture /"
-          isOpen={isOpen}
-          onToggle={onToggle}
-        />
+        <Collapsible
+          icon={<FileSignal size={14} />}
+          label="IQ Capture Controls"
+          defaultOpen={false}
+        >
+          <RangeRowContainer>
+            <RangeRowLabel>
+              <IconLabel icon={Scan} text="Ranges" />
+              <SampleRateBadge aria-label="Hardware sample rate">{sampleRateLabel}</SampleRateBadge>
+            </RangeRowLabel>
+            <RangeRowBody>
+              <RangeGrid>
+                {availableCaptureAreas.map((area, idx) => {
+                  const isSelected = activeCaptureAreas.includes(area.label);
+                  const variant = idx % 2 === 0 ? "primary" : "secondary";
 
-        {isOpen && (
-          <CollapsibleBody>
-            <RangeRowContainer>
-              <RangeRowLabel>
-                <IconLabel icon={Scan} text="Ranges" />
-                <SampleRateBadge aria-label="Hardware sample rate">{sampleRateLabel}</SampleRateBadge>
-              </RangeRowLabel>
-              <RangeRowBody>
-                <RangeGrid>
-                  {availableCaptureAreas.map((area, idx) => {
-                    const isSelected = activeCaptureAreas.includes(area.label);
-                    const variant = idx % 2 === 0 ? "primary" : "secondary";
+                  const handleToggle = () => {
+                    const nextAreas = isSelected
+                      ? activeCaptureAreas.filter((a) => a !== area.label)
+                      : [...activeCaptureAreas, area.label];
 
-                    const handleToggle = () => {
-                      const nextAreas = isSelected
-                        ? activeCaptureAreas.filter((a) => a !== area.label)
-                        : [...activeCaptureAreas, area.label];
+                    const nextOnscreenOnly = nextAreas.includes("Onscreen") && nextAreas.every((a) => a === "Onscreen");
+                    const nextHasChannel = nextAreas.some((a) => a !== "Onscreen");
+                    const nextSpan = captureRange.max - captureRange.min;
+                    const hwMHz = maxSampleRate / 1000000;
 
-                      const nextOnscreenOnly = nextAreas.includes("Onscreen") && nextAreas.every((a) => a === "Onscreen");
-                      const nextHasChannel = nextAreas.some((a) => a !== "Onscreen");
-                      const nextSpan = captureRange.max - captureRange.min;
-                      const hwMHz = maxSampleRate / 1000000;
-
-                      if (nextOnscreenOnly && hwMHz > 0 && Math.abs(nextSpan - hwMHz) < 0.01) {
-                        if (acquisitionMode !== "whole_sample") {
-                          onAcquisitionModeChange("whole_sample");
-                        }
-                      } else if (nextHasChannel && nextSpan > hwMHz + 0.01) {
-                        if (acquisitionMode === "whole_sample") {
-                          onAcquisitionModeChange("stepwise");
-                        }
+                    if (nextOnscreenOnly && hwMHz > 0 && Math.abs(nextSpan - hwMHz) < 0.01) {
+                      if (acquisitionMode !== "whole_sample") {
+                        onAcquisitionModeChange("whole_sample");
                       }
+                    } else if (nextHasChannel && nextSpan > hwMHz + 0.01) {
+                      if (acquisitionMode === "whole_sample") {
+                        onAcquisitionModeChange("stepwise");
+                      }
+                    }
 
-                      onActiveCaptureAreasChange(nextAreas);
-                    };
+                    onActiveCaptureAreasChange(nextAreas);
+                  };
 
-                    const matchingSegment = captureRange.segments.find((seg) => seg.label === area.label);
-                    const label = matchingSegment?.label ?? area.label;
-                    const min = matchingSegment?.min ?? area.min;
-                    const max = matchingSegment?.max ?? area.max;
+                  const matchingSegment = captureRange.segments.find((seg) => seg.label === area.label);
+                  const label = matchingSegment?.label ?? area.label;
+                  const min = matchingSegment?.min ?? area.min;
+                  const max = matchingSegment?.max ?? area.max;
 
-                    return (
-                      <Range
-                        key={area.label}
-                        label={label}
-                        min={min}
-                        max={max}
-                        selected={isSelected}
-                        onToggle={handleToggle}
-                        variant={variant}
-                      />
-                    );
-                  })}
-                </RangeGrid>
-              </RangeRowBody>
-            </RangeRowContainer>
+                  return (
+                    <Range
+                      key={area.label}
+                      label={label}
+                      min={min}
+                      max={max}
+                      selected={isSelected}
+                      onToggle={handleToggle}
+                      variant={variant}
+                    />
+                  );
+                })}
+              </RangeGrid>
+            </RangeRowBody>
+          </RangeRowContainer>
 
-            <Row label={<IconLabel icon={Clock} text="Duration" />}>
-              <DurationRow>
-                <SettingInput
-                  type="number"
-                  min="1"
-                  step="1"
-                  value={Math.round(captureDurationS)}
-                  onChange={(e) =>
-                    onCaptureDurationSChange(parseInt(e.target.value) || 1)
-                  }
-                />
-                <DurationUnit>s</DurationUnit>
-              </DurationRow>
-            </Row>
-
-            <Row label={<IconLabel icon={FileIcon} text="File type" />}>
-              <SettingSelect
-                value={captureFileType}
+          <Row label={<IconLabel icon={Clock} text="Duration" />}>
+            <DurationRow>
+              <SettingInput
+                type="number"
+                min="1"
+                step="1"
+                value={Math.round(captureDurationS)}
                 onChange={(e) =>
-                  onCaptureFileTypeChange(e.target.value as CaptureFileType)
+                  onCaptureDurationSChange(parseInt(e.target.value) || 1)
                 }
-              >
-                <option value=".napt">.napt</option>
-                <option value=".wav">.wav</option>
-              </SettingSelect>
-            </Row>
+              />
+              <DurationUnit>s</DurationUnit>
+            </DurationRow>
+          </Row>
 
-            <Row
-              label={<IconLabel icon={PanelLeftDashed} text="Acquisition Mode" />}
-              tooltipTitle="Capture Mode Selection"
-              tooltip="Stepwise: Captures frequency ranges sequentially. Interleaved: Rapidly sweeps and interleaves results. Whole Sample: Captures exact hardware sample rate without movement."
+          <Row label={<IconLabel icon={FileIcon} text="File type" />}>
+            <SettingSelect
+              value={captureFileType}
+              onChange={(e) =>
+                onCaptureFileTypeChange(e.target.value as CaptureFileType)
+              }
             >
-              <SettingSelect
-                value={effectiveAcquisitionMode}
-                onChange={(e) => onAcquisitionModeChange(e.target.value as "stepwise" | "interleaved" | "whole_sample")}
-                disabled={isOnscreenExactMatch}
-              >
-                {!isWiderThanHardware && (
-                  <option value="whole_sample">Whole Sample</option>
-                )}
-                {!isOnscreenExactMatch && (
-                  <>
-                    <option value="stepwise">Stepwise</option>
-                    <option value="interleaved">Interleaved (TDMS)</option>
-                  </>
-                )}
-              </SettingSelect>
-            </Row>
+              <option value=".napt">.napt</option>
+              <option value=".wav">.wav</option>
+            </SettingSelect>
+          </Row>
 
-            <Row label={<IconLabel icon={LockKeyhole} text="Encrypted" />}>
-              <ToggleSwitch $disabled={captureFileType === ".napt"}>
-                <ToggleSwitchInput
-                  type="checkbox"
-                  checked={captureFileType === ".napt" ? true : captureEncrypted}
-                  disabled={captureFileType === ".napt"}
-                  onChange={(e) => onCaptureEncryptedChange(e.target.checked)}
-                />
-                <ToggleSwitchSlider $disabled={captureFileType === ".napt"} />
-              </ToggleSwitch>
-            </Row>
-
-            <Row
-              label={<IconLabel icon={MapPin} text="Geolocation" />}
-              tooltipTitle="Location data (lat, long, accuracy, altitude)"
-              tooltip="Only available for .napt files. Requires browser permission to access location."
+          <Row
+            label={<IconLabel icon={PanelLeftDashed} text="Acquisition Mode" />}
+            tooltipTitle="Capture Mode Selection"
+            tooltip="Stepwise: Captures frequency ranges sequentially. Interleaved: Rapidly sweeps and interleaves results. Whole Sample: Captures exact hardware sample rate without movement."
+          >
+            <SettingSelect
+              value={effectiveAcquisitionMode}
+              onChange={(e) => onAcquisitionModeChange(e.target.value as "stepwise" | "interleaved" | "whole_sample")}
+              disabled={isOnscreenExactMatch}
             >
-              <ToggleSwitch $disabled={captureFileType !== ".napt" || !isSupported || geoLoading}>
-                <ToggleSwitchInput
-                  type="checkbox"
-                  checked={captureFileType === ".napt" ? captureGeolocation : false}
-                  disabled={captureFileType !== ".napt" || !isSupported || geoLoading}
-                  onChange={(e) => handleGeolocationToggle(e.target.checked)}
-                />
-                <ToggleSwitchSlider $disabled={captureFileType !== ".napt" || !isSupported || geoLoading} />
-              </ToggleSwitch>
-            </Row>
-
-            {geoError && captureFileType === ".napt" && (
-              <Row label="">
-                <ErrorSettingValue>
-                  {geoError}
-                </ErrorSettingValue>
-              </Row>
-            )}
-
-            <CaptureActions>
-              <CaptureButton
-                $paused={false}
-                $disabled={isCaptureDisabled}
-                onClick={onCapture}
-                disabled={isCaptureDisabled}
-              >
-                {captureButtonLabel}
-              </CaptureButton>
-
-              <PlaybackOption>
-                <input
-                  type="checkbox"
-                  checked={capturePlayback}
-                  onChange={(e) => onCapturePlaybackChange(e.target.checked)}
-                />
-                <PlaybackLabel>Playback after capture</PlaybackLabel>
-              </PlaybackOption>
-            </CaptureActions>
-
-            <StatusDownloadsCard>
-              <DownloadsHeader>
-                <InfoCardTitle>Downloads</InfoCardTitle>
-                <ClearStatusButton
-                  onClick={onClearStatus}
-                  title="Clear capture status"
-                >
-                  <Trash2 size={12} /> Clear
-                </ClearStatusButton>
-              </DownloadsHeader>
-              {captureStatus?.downloadUrl && isAuthenticated ? (
-                <DownloadCard>
-                  <InfoRow>
-                    <DownloadLink
-                      href={`${captureStatus.downloadUrl}&token=${encodeURIComponent(sessionToken || "")}`}
-                      download={captureStatus.filename || "capture"}
-                      rel="noopener noreferrer"
-                      title={captureStatus.filename || "Download"}
-                    >
-                      {captureStatus.filename || "Download"}
-                    </DownloadLink>
-                    <StatusValue
-                      $tone={
-                        captureStatus?.status === "done"
-                          ? "success"
-                          : captureStatus?.status === "failed"
-                            ? "error"
-                            : "warning"
-                      }
-                    >
-                      {captureStatus?.status === "done"
-                        ? "Complete"
-                        : captureStatus?.status === "failed"
-                          ? "Failed"
-                          : "In progress..."}
-                    </StatusValue>
-                  </InfoRow>
-                </DownloadCard>
-              ) : (
-                <InfoRow>
-                  <InfoLabel>
-                    {capturePhaseMessage || (
-                      captureStatus?.status === "started" || captureStatus?.status === "progress"
-                        ? "Capturing now..."
-                        : "No downloads yet"
-                    )}
-                  </InfoLabel>
-                  <StatusValue $tone={statusTone}>{statusText}</StatusValue>
-                </InfoRow>
+              {!isWiderThanHardware && (
+                <option value="whole_sample">Whole Sample</option>
               )}
-            </StatusDownloadsCard>
-          </CollapsibleBody>
-        )}
+              {!isOnscreenExactMatch && (
+                <>
+                  <option value="stepwise">Stepwise</option>
+                  <option value="interleaved">Interleaved (TDMS)</option>
+                </>
+              )}
+            </SettingSelect>
+          </Row>
+
+          <Row label={<IconLabel icon={LockKeyhole} text="Encrypted" />}>
+            <ToggleSwitch $disabled={captureFileType === ".napt"}>
+              <ToggleSwitchInput
+                type="checkbox"
+                checked={captureFileType === ".napt" ? true : captureEncrypted}
+                disabled={captureFileType === ".napt"}
+                onChange={(e) => onCaptureEncryptedChange(e.target.checked)}
+              />
+              <ToggleSwitchSlider $disabled={captureFileType === ".napt"} />
+            </ToggleSwitch>
+          </Row>
+
+          <Row
+            label={<IconLabel icon={MapPin} text="Geolocation" />}
+            tooltipTitle="Location data (lat, long, accuracy, altitude)"
+            tooltip="Only available for .napt files. Requires browser permission to access location."
+          >
+            <ToggleSwitch $disabled={captureFileType !== ".napt" || !isSupported || geoLoading}>
+              <ToggleSwitchInput
+                type="checkbox"
+                checked={captureFileType === ".napt" ? captureGeolocation : false}
+                disabled={captureFileType !== ".napt" || !isSupported || geoLoading}
+                onChange={(e) => handleGeolocationToggle(e.target.checked)}
+              />
+              <ToggleSwitchSlider $disabled={captureFileType !== ".napt" || !isSupported || geoLoading} />
+            </ToggleSwitch>
+          </Row>
+
+          {geoError && captureFileType === ".napt" && (
+            <Row label="">
+              <ErrorSettingValue>
+                {geoError}
+              </ErrorSettingValue>
+            </Row>
+          )}
+
+          <CaptureActions>
+            <CaptureButton
+              $paused={false}
+              $disabled={isCaptureDisabled}
+              onClick={onCapture}
+              disabled={isCaptureDisabled}
+            >
+              {captureButtonLabel}
+            </CaptureButton>
+
+            <PlaybackOption>
+              <input
+                type="checkbox"
+                checked={capturePlayback}
+                onChange={(e) => onCapturePlaybackChange(e.target.checked)}
+              />
+              <PlaybackLabel>Playback after capture</PlaybackLabel>
+            </PlaybackOption>
+          </CaptureActions>
+
+          <StatusDownloadsCard>
+            <DownloadsHeader>
+              <InfoCardTitle>Downloads</InfoCardTitle>
+              <ClearStatusButton
+                onClick={onClearStatus}
+                title="Clear capture status"
+              >
+                <Trash2 size={12} /> Clear
+              </ClearStatusButton>
+            </DownloadsHeader>
+            {captureStatus?.downloadUrl && isAuthenticated ? (
+              <DownloadCard>
+                <InfoRow>
+                  <DownloadLink
+                    href={`${captureStatus.downloadUrl}&token=${encodeURIComponent(sessionToken || "")}`}
+                    download={captureStatus.filename || "capture"}
+                    rel="noopener noreferrer"
+                    title={captureStatus.filename || "Download"}
+                  >
+                    {captureStatus.filename || "Download"}
+                  </DownloadLink>
+                  <StatusValue
+                    $tone={
+                      captureStatus?.status === "done"
+                        ? "success"
+                        : captureStatus?.status === "failed"
+                          ? "error"
+                          : "warning"
+                    }
+                  >
+                    {captureStatus?.status === "done"
+                      ? "Complete"
+                      : captureStatus?.status === "failed"
+                        ? "Failed"
+                        : "In progress..."}
+                  </StatusValue>
+                </InfoRow>
+              </DownloadCard>
+            ) : (
+              <InfoRow>
+                <InfoLabel>
+                  {capturePhaseMessage || (
+                    captureStatus?.status === "started" || captureStatus?.status === "progress"
+                      ? "Capturing now..."
+                      : "No downloads yet"
+                  )}
+                </InfoLabel>
+                <StatusValue $tone={statusTone}>{statusText}</StatusValue>
+              </InfoRow>
+            )}
+          </StatusDownloadsCard>
+        </Collapsible>
       </Section>
     );
   };

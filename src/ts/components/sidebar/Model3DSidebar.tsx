@@ -1,11 +1,12 @@
 import React from "react";
 import styled from "styled-components";
 import { gsap } from "gsap";
+import { PersonStanding, Blend, Bone, NotebookPen, DraftingCompass } from "lucide-react";
 import { BodyAreasSection } from "@n-apt/components/sidebar/BodyAreasSection";
 import { HotspotEditorSection } from "@n-apt/components/sidebar/HotspotEditorSection";
 import { useHotspotEditor } from "@n-apt/hooks/useHotspotEditor";
 import { useModel3D } from "@n-apt/hooks/useModel3D";
-import { CollapsibleTitle, CollapsibleBody } from "@n-apt/components/ui";
+import { Collapsible } from "@n-apt/components/ui";
 import {
   MODEL_CAMERA_POSITION,
   MODEL_CAMERA_TARGET,
@@ -93,19 +94,6 @@ export const Model3DSidebar: React.FC = () => {
   // Unified accordion state
   const [openSection, setOpenSection] = React.useState<string>("physiology");
 
-  const toggleSection = (section: string) => {
-    const isOpening = openSection !== section;
-    const nextSection = isOpening ? section : "";
-    setOpenSection(nextSection);
-
-    // Sync sidebarTab based on the section being opened
-    if (nextSection === "hotspots") {
-      setSidebarTab("make-hotspots");
-    } else {
-      setSidebarTab("select-areas");
-    }
-  };
-
   const handleResetCamera = () => {
     if (controlsRef?.current) {
       // Reset camera position and target with smooth animation
@@ -149,73 +137,58 @@ export const Model3DSidebar: React.FC = () => {
       </ResetButton>
 
       <Section>
-        <CollapsibleTitle
+        <Collapsible
+          icon={<PersonStanding size={16} />}
           label="Physiology /"
-          isOpen={openSection === "physiology"}
-          onToggle={() => toggleSection("physiology")}
-        />
-        {openSection === "physiology" && (
-          <CollapsibleBody>
-            <SectionDescription>
-              Click an area to focus the camera
-            </SectionDescription>
-            <div style={{ gridColumn: "1 / -1" }}>
-              <BodyAreasSection />
-            </div>
-          </CollapsibleBody>
-        )}
+          defaultOpen={openSection === "physiology"}
+        >
+          <SectionDescription>
+            Click an area to focus the camera
+          </SectionDescription>
+          <div style={{ gridColumn: "1 / -1" }}>
+            <BodyAreasSection />
+          </div>
+        </Collapsible>
 
-        <CollapsibleTitle
+        <Collapsible
+          icon={<Blend size={16} />}
           label="Psychology /"
-          isOpen={openSection === "psychology"}
-          onToggle={() => toggleSection("psychology")}
-        />
-        {openSection === "psychology" && (
-          <CollapsibleBody>
-            <SectionDescription>
-              Psycholgy-related data and mappings.
-            </SectionDescription>
-          </CollapsibleBody>
-        )}
+          defaultOpen={openSection === "psychology"}
+        >
+          <SectionDescription>
+            Psychology-related data and mappings.
+          </SectionDescription>
+        </Collapsible>
 
-        <CollapsibleTitle
+        <Collapsible
+          icon={<Bone size={16} />}
           label="Anatomy /"
-          isOpen={openSection === "anatomy"}
-          onToggle={() => toggleSection("anatomy")}
-        />
-        {openSection === "anatomy" && (
-          <CollapsibleBody>
-            <SectionDescription>
-              Anatomy structures and mapping.
-            </SectionDescription>
-          </CollapsibleBody>
-        )}
+          defaultOpen={openSection === "anatomy"}
+        >
+          <SectionDescription>
+            Anatomical structures and bone mapping.
+          </SectionDescription>
+        </Collapsible>
 
-        <CollapsibleTitle
+        <Collapsible
+          icon={<NotebookPen size={16} />}
           label="Effects /"
-          isOpen={openSection === "effects"}
-          onToggle={() => toggleSection("effects")}
-        />
-        {openSection === "effects" && (
-          <CollapsibleBody>
-            <SectionDescription>
-              Observed and documented biological effects.
-            </SectionDescription>
-          </CollapsibleBody>
-        )}
+          defaultOpen={openSection === "effects"}
+        >
+          <SectionDescription>
+            Visual effects and overlays.
+          </SectionDescription>
+        </Collapsible>
 
-        <CollapsibleTitle
+        <Collapsible
+          icon={<DraftingCompass size={16} />}
           label="Make Hotspots /"
-          isOpen={openSection === "hotspots"}
-          onToggle={() => toggleSection("hotspots")}
-        />
-        {openSection === "hotspots" && (
-          <Section>
-            <div style={{ padding: "0 12px", gridColumn: "1 / -1" }}>
-              <HotspotEditorSection />
-            </div>
-          </Section>
-        )}
+          defaultOpen={openSection === "hotspots"}
+        >
+          <div style={{ padding: "0 12px", gridColumn: "1 / -1" }}>
+            <HotspotEditorSection />
+          </div>
+        </Collapsible>
       </Section>
     </RouteContent>
   );

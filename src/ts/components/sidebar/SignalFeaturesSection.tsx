@@ -1,5 +1,7 @@
-import React, { useState } from "react";
+import React from "react";
 import styled from "styled-components";
+import { ClipboardPen } from "lucide-react";
+import { Row, Collapsible } from "@n-apt/components/ui";
 
 const Section = styled.div`
   display: grid;
@@ -10,7 +12,6 @@ const Section = styled.div`
   width: 100%;
 `;
 
-import { Row, CollapsibleTitle } from "@n-apt/components/ui";
 
 
 
@@ -100,7 +101,6 @@ export const SignalFeaturesSection: React.FC<SignalFeaturesSectionProps> = ({
   heterodyningVerifyDisabled,
   onVerifyHeterodyning,
 }) => {
-  const [isOpen, setIsOpen] = useState(false);
   const isFileSource = sourceMode === "file";
 
   const classificationStatusText = isFileSource
@@ -119,13 +119,11 @@ export const SignalFeaturesSection: React.FC<SignalFeaturesSectionProps> = ({
 
   return (
     <Section>
-      <CollapsibleTitle
+      <Collapsible
+        icon={<ClipboardPen size={14} />}
         label="Signal Features /"
-        isOpen={isOpen}
-        onToggle={() => setIsOpen((prev) => !prev)}
-      />
-
-      {isOpen && (
+        defaultOpen={true}
+      >
         <>
           <Row label={<>N-APT<span role="img" aria-label="brain" style={{ marginLeft: "6px" }}>🧠</span></>} tooltipTitle="N-APT" tooltip="N-APT stands for: Neuro Automatic Picture Transmission. These radio waves are modulated akin to APT signals (unknown reasons at this time) but unique in their ability to intercept, process and alter the brain and nervous system.<br><br>Through LF/HF frequencies (frequencies that survive attenuation of the skull and/or body; and lose less energy with longer distances/obstacles), it functions from triangulation, time of flight depth, heterodyning (it's key feature which ensures bioelectrical reception), phase shifting, center frequencies, impedance & endpoint signals processing (suspected as Kaiser, Bayes' Theorem/Posterior Probability, etc.).<br><br>It is an unprecedented formula of radio waves and neurotechnology with nascent efforts to decipher its modulation and content.">
             <StatusActionRow>
@@ -172,7 +170,7 @@ export const SignalFeaturesSection: React.FC<SignalFeaturesSectionProps> = ({
             </Row>
           )}
         </>
-      )}
+      </Collapsible>
     </Section>
   );
 };

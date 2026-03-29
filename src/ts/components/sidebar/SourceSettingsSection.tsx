@@ -1,7 +1,7 @@
 import React from "react";
 import styled from "styled-components";
 import { Row } from "@n-apt/components/ui";
-import { ArrowBigUp, Pipette, type LucideIcon } from "lucide-react";
+import { ArrowBigUp, Pipette, SlidersVertical, type LucideIcon } from "lucide-react";
 
 const Section = styled.div`
   display: grid;
@@ -22,6 +22,14 @@ const SectionTitle = styled.div`
   font-weight: 600;
   font-family: ${(props) => props.theme.typography.mono};
   grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+`;
+
+const SectionText = styled.span`
+  display: flex;
+  align-items: center;
 `;
 
 const SettingInput = styled.input`
@@ -258,7 +266,10 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
 
   return (
     <Section>
-      <SectionTitle>Source Settings</SectionTitle>
+      <SectionTitle>
+        <SlidersVertical size={14} />
+        <SectionText>Source Settings</SectionText>
+      </SectionTitle>
       <Row
         label={<IconLabel icon={Pipette} text="PPM" />}
         tooltipTitle="PPM Correction"
