@@ -1,8 +1,9 @@
 import React from "react";
 import styled from "styled-components";
-import { Row, CollapsibleTitle, CollapsibleBody } from "@n-apt/components/ui";
+import { Row, Collapsible } from "@n-apt/components/ui";
 import {
   BookA,
+  Fullscreen,
   Grid2X2,
   Image as ImageIcon,
   MapPin,
@@ -167,8 +168,6 @@ const ErrorText = styled.div`
 `;
 
 interface SnapshotControlsSectionProps {
-  isOpen: boolean;
-  onToggle: () => void;
   snapshotWhole: boolean;
   snapshotShowWaterfall: boolean;
   snapshotShowStats: boolean;
@@ -188,8 +187,6 @@ interface SnapshotControlsSectionProps {
 export const SnapshotControlsSection: React.FC<
   SnapshotControlsSectionProps
 > = ({
-  isOpen,
-  onToggle,
   snapshotWhole,
   snapshotShowWaterfall,
   snapshotShowStats,
@@ -207,105 +204,114 @@ export const SnapshotControlsSection: React.FC<
 }) => {
     return (
       <Section>
-        <CollapsibleTitle
-          label="Snapshot /"
-          isOpen={isOpen}
-          onToggle={onToggle}
-        />
-
-        {isOpen && (
-          <CollapsibleBody>
-            <Row label={<IconLabel icon={Scan} text="Range" />}>
-              <SettingSelect
-                value={snapshotWhole ? "whole" : "onscreen"}
-                onChange={(e) =>
-                  onSnapshotWholeChange(e.target.value === "whole")
-                }
-                style={{ minWidth: "120px" }}
-              >
-                <option value="onscreen">On screen</option>
-                <option value="whole">Whole Channel</option>
-              </SettingSelect>
-            </Row>
-
-            <Row label={<IconLabel icon={SquareDashedTopSolid} text="Waterfall" />}>
-              <ToggleSwitch>
-                <ToggleSwitchInput
-                  type="checkbox"
-                  checked={snapshotShowWaterfall}
-                  onChange={(e) =>
-                    onSnapshotShowWaterfallChange(e.target.checked)
-                  }
-                />
-                <ToggleSwitchSlider />
-              </ToggleSwitch>
-            </Row>
-
-            <Row label={<IconLabel icon={Grid2X2} text="Grid" />}>
-              <ToggleSwitch>
-                <ToggleSwitchInput
-                  type="checkbox"
-                  checked={snapshotGridPreference}
-                  onChange={(e) =>
-                    onSnapshotGridPreferenceChange(e.target.checked)
-                  }
-                />
-                <ToggleSwitchSlider />
-              </ToggleSwitch>
-            </Row>
-
-            <Row label={<IconLabel icon={BookA} text="Stats" />}>
-              <ToggleSwitch>
-                <ToggleSwitchInput
-                  type="checkbox"
-                  checked={snapshotShowStats}
-                  onChange={(e) => onSnapshotShowStatsChange(e.target.checked)}
-                />
-                <ToggleSwitchSlider />
-              </ToggleSwitch>
-            </Row>
-
-            <div style={{ display: 'contents', opacity: (snapshotShowStats && !snapshotGeolocationError) ? 1 : 0.5 }}>
-              <Row label={<IconLabel icon={MapPin} text="Geolocation" />}>
-                <ToggleSwitch>
-                  <ToggleSwitchInput
-                    type="checkbox"
-                    checked={snapshotShowGeolocation && snapshotShowStats && !snapshotGeolocationError}
-                    disabled={!snapshotShowStats || !!snapshotGeolocationError}
-                    onChange={(e) => onSnapshotShowGeolocationChange(e.target.checked)}
-                  />
-                  <ToggleSwitchSlider />
-                </ToggleSwitch>
-              </Row>
-              {snapshotGeolocationError && (
-                <Row label="">
-                  <ErrorText>{snapshotGeolocationError}</ErrorText>
-                </Row>
-              )}
-            </div>
-
-            <Row label={<IconLabel icon={ImageIcon} text="Format" />}>
-              <SettingSelect
-                value={snapshotFormat}
-                onChange={(e) =>
-                  onSnapshotFormatChange(e.target.value as "png" | "svg")
-                }
-                style={{ minWidth: "110px" }}
-              >
-                <option value="png">PNG</option>
-                <option value="svg">SVG</option>
-              </SettingSelect>
-            </Row>
-
-            <SnapshotActionButton
-              $paused={false}
-              onClick={onSnapshot}
-              style={{ marginTop: "8px" }}
+        <Collapsible
+          icon={<Fullscreen size={14} />}
+          label="Snapshot Controls"
+          defaultOpen={false}
+        >
+          <Row label={<IconLabel icon={Scan} text="Range" />}>
+            <SettingSelect
+              value={snapshotWhole ? "whole" : "onscreen"}
+              onChange={(e) =>
+                onSnapshotWholeChange(e.target.value === "whole")
+              }
+              style={{ minWidth: "120px" }}
             >
-              Save snapshot
-            </SnapshotActionButton>
-          </CollapsibleBody>
-        )}
-      </Section>
+              <option value="onscreen">On screen</option>
+              <option value="whole">Whole Channel</option>
+            </SettingSelect>
+          </Row>
+
+          <Row label={<IconLabel icon={SquareDashedTopSolid} text="Waterfall" />}>
+            <ToggleSwitch>
+              <ToggleSwitchInput
+                type="checkbox"
+                checked={snapshotShowWaterfall}
+                onChange={(e) =>
+                  onSnapshotShowWaterfallChange(e.target.checked)
+                }
+              />
+              <ToggleSwitchSlider />
+            </ToggleSwitch>
+          </Row>
+
+          <Row label={<IconLabel icon={SquareDashedTopSolid} text="Waterfall" />}>
+            <ToggleSwitch>
+              <ToggleSwitchInput
+                type="checkbox"
+                checked={snapshotShowWaterfall}
+                onChange={(e) =>
+                  onSnapshotShowWaterfallChange(e.target.checked)
+                }
+              />
+              <ToggleSwitchSlider />
+            </ToggleSwitch>
+          </Row>
+
+          <Row label={<IconLabel icon={Grid2X2} text="Grid" />}>
+            <ToggleSwitch>
+              <ToggleSwitchInput
+                type="checkbox"
+                checked={snapshotGridPreference}
+                onChange={(e) =>
+                  onSnapshotGridPreferenceChange(e.target.checked)
+                }
+              />
+              <ToggleSwitchSlider />
+            </ToggleSwitch>
+          </Row>
+
+          <Row label={<IconLabel icon={BookA} text="Stats" />}>
+            <ToggleSwitch>
+              <ToggleSwitchInput
+                type="checkbox"
+                checked={snapshotShowStats}
+                onChange={(e) => onSnapshotShowStatsChange(e.target.checked)}
+              />
+              <ToggleSwitchSlider />
+            </ToggleSwitch>
+          </Row>
+
+          <div style={{ display: 'contents', opacity: (snapshotShowStats && !snapshotGeolocationError) ? 1 : 0.5 }}>
+            <Row label={<IconLabel icon={MapPin} text="Geolocation" />}>
+              <ToggleSwitch>
+                <ToggleSwitchInput
+                  type="checkbox"
+                  checked={snapshotShowGeolocation && snapshotShowStats && !snapshotGeolocationError}
+                  disabled={!snapshotShowStats || !!snapshotGeolocationError}
+                  onChange={(e) => onSnapshotShowGeolocationChange(e.target.checked)}
+                />
+                <ToggleSwitchSlider />
+              </ToggleSwitch>
+            </Row>
+            {snapshotGeolocationError && (
+              <Row label="">
+                <ErrorText>{snapshotGeolocationError}</ErrorText>
+              </Row>
+            )}
+          </div>
+
+          <Row label={<IconLabel icon={ImageIcon} text="Format" />}>
+            <SettingSelect
+              value={snapshotFormat}
+              onChange={(e) =>
+                onSnapshotFormatChange(e.target.value as "png" | "svg")
+              }
+              style={{ minWidth: "110px" }}
+            >
+              <option value="png">PNG</option>
+              <option value="svg">SVG</option>
+            </SettingSelect>
+          </Row>
+
+          <SnapshotActionButton
+            $paused={false}
+            onClick={onSnapshot}
+            style={{ marginTop: "8px" }}
+          >
+            Save snapshot
+          </SnapshotActionButton>
+        </Collapsible >
+      </Section >
     );
   };

@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import styled from "styled-components";
 import { useAppSelector, useAppDispatch, setDrawSignal3D } from "@n-apt/redux";
-import { Row, CollapsibleTitle } from "@n-apt/components/ui";
+import { Row, Collapsible } from "@n-apt/components/ui";
 import { Toggle } from "@n-apt/components/ui/Toggle";
 
 const Section = styled.div`
@@ -32,7 +32,7 @@ export const FFTWaterfallSection: React.FC<FFTWaterfallSectionProps> = ({
   isConnected: _isConnected,
   selectedFilesCount,
 }) => {
-  const [isOpen, setIsOpen] = useState(false);
+  const [isOpen] = useState(false);
   const dispatch = useAppDispatch();
   const drawSignal3D = useAppSelector(state => state.waterfall.drawSignal3D);
 
@@ -45,13 +45,10 @@ export const FFTWaterfallSection: React.FC<FFTWaterfallSectionProps> = ({
 
   return (
     <Section>
-      <CollapsibleTitle
+      <Collapsible
         label="FFT/Waterfall Drawing options"
-        isOpen={isOpen}
-        onToggle={() => setIsOpen((prev) => !prev)}
-      />
-
-      {isOpen && (
+        defaultOpen={isOpen}
+      >
         <Row
           label="Draw Signal 3D"
           tooltipTitle="3D FFT Waterfall"
@@ -65,7 +62,7 @@ export const FFTWaterfallSection: React.FC<FFTWaterfallSectionProps> = ({
             {drawSignal3D ? "ON" : "OFF"}
           </Toggle>
         </Row>
-      )}
+      </Collapsible>
     </Section>
   );
 };

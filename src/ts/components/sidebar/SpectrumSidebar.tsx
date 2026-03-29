@@ -1,6 +1,7 @@
 import React, { useMemo, useState, useEffect, useCallback } from "react";
 import styled from "styled-components";
 import { useAppSelector, useAppDispatch } from "@n-apt/redux";
+import { Unplug } from "lucide-react";
 import {
   setSourceMode,
   setSelectedFiles,
@@ -112,6 +113,23 @@ const SectionTitle = styled.div<{ $fileMode?: boolean }>`
   font-weight: 600;
   font-family: "JetBrains Mono", monospace;
   grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+`;
+
+const SectionIcon = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  color: ${(props: any) => props.theme.metadataLabel};
+`;
+
+const SectionText = styled.span`
+  display: flex;
+  align-items: center;
 `;
 
 type NaptMetadata = {
@@ -864,7 +882,10 @@ export const SpectrumSidebar: React.FC = () => {
       )}
       <Section>
         <SectionTitle $fileMode={sourceMode === "file"}>
-          Source
+          <SectionIcon>
+            <Unplug size={14} />
+          </SectionIcon>
+          <SectionText>Source</SectionText>
         </SectionTitle>
         <SourceInput
           sourceMode={sourceMode}

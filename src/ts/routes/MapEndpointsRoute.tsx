@@ -20,7 +20,6 @@ const InfoWindowContent = styled.div`
   font-family: "JetBrains Mono", monospace;
   font-size: 11px;
   min-width: 200px;
-  border: 1px solid ${(props) => props.theme.border};
 `;
 
 const InfoTitle = styled.div`
@@ -51,7 +50,6 @@ const LeaseeBadge = styled.div`
   margin-top: 10px;
   padding: 6px;
   background: ${(props) => props.theme.surfaceHover};
-  border-radius: 4px;
   border-left: 3px solid ${(props) => props.theme.primary};
   color: ${(props) => props.theme.textSecondary};
   font-size: 10px;
@@ -528,6 +526,7 @@ export const MapEndpointsRoute: React.FC = () => {
             {selectedTower && (
               <Popup
                 position={[selectedTower.lat, selectedTower.lon]}
+                className="custom-popup"
               >
                 <InfoWindowContent>
                   <InfoTitle>{getCarrierName(selectedTower.mcc, selectedTower.mnc)}</InfoTitle>

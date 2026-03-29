@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from "react";
 import styled from "styled-components";
+import { ChevronsLeftRightEllipsis } from "lucide-react";
 import { useAppDispatch, useAppSelector } from "@n-apt/redux";
 import { setSignalAreaAndRange } from "@n-apt/redux";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
@@ -28,6 +29,14 @@ const ChannelsSectionTitle = styled.div<{ $fileMode?: boolean }>`
   font-weight: 600;
   font-family: ${(props) => props.theme.typography.mono};
   grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+`;
+
+const SectionText = styled.span`
+  display: flex;
+  align-items: center;
 `;
 
 /** Same as the former Spectrum inline grid wrapper — must be `display: grid` (not flex) for slider subgrid + drag. */
@@ -238,7 +247,10 @@ export const Channels: React.FC<ChannelsProps> = ({
   if (variant === "spectrum") {
     return (
       <ChannelsSection>
-        <ChannelsSectionTitle $fileMode={fileMode}>Channels</ChannelsSectionTitle>
+        <ChannelsSectionTitle $fileMode={fileMode}>
+          <ChevronsLeftRightEllipsis size={14} />
+          <SectionText>Channels</SectionText>
+        </ChannelsSectionTitle>
         <ChannelsSpectrumGrid>
           {Array.isArray(liveFramesToUse) && liveFramesToUse.length > 0 ? (
             liveFramesToUse.map((frame) => {
@@ -335,87 +347,90 @@ export const Channels: React.FC<ChannelsProps> = ({
 
   return (
     <ChannelsSection>
-      <ChannelsSectionTitle>Channels</ChannelsSectionTitle>
+      <ChannelsSectionTitle>
+        <ChevronsLeftRightEllipsis size={14} />
+        <SectionText>Channels</SectionText>
+      </ChannelsSectionTitle>
       <ChannelsDemodBody>
-      {/* Channel/Manual Toggle */}
-      <ModeToggle>
-        <ModeButton
-          $active={!isManualMode}
-          onClick={() => handleModeToggle(false)}
-        >
-          Channel(s)
-        </ModeButton>
-        <ModeButton
-          $active={isManualMode}
-          onClick={() => handleModeToggle(true)}
-        >
-          Manual
-        </ModeButton>
-      </ModeToggle>
+        {/* Channel/Manual Toggle */}
+        <ModeToggle>
+          <ModeButton
+            $active={!isManualMode}
+            onClick={() => handleModeToggle(false)}
+          >
+            Channel(s)
+          </ModeButton>
+          <ModeButton
+            $active={isManualMode}
+            onClick={() => handleModeToggle(true)}
+          >
+            Manual
+          </ModeButton>
+        </ModeToggle>
 
-      {/* Manual Frequency Input - Only show when Manual is selected */}
-      {isManualMode && (
-        <FrequencyInputContainer>
-          <FrequencyLabel>Manual Freq (MHz):</FrequencyLabel>
-          <FrequencyInput
-            type="number"
-            value={manualFrequency}
-            onChange={(e) => setManualFrequency(e.target.value)}
-            step="0.1"
-            min="0.1"
-            max="1000"
-            placeholder="137.1"
-          />
-          <TuneButton onClick={handleManualTune} disabled={isScanning}>
-            Tune
-          </TuneButton>
-        </FrequencyInputContainer>
-      )}
+        {/* Manual Frequency Input - Only show when Manual is selected */}
+        {isManualMode && (
+          <FrequencyInputContainer>
+            <FrequencyLabel>Manual Freq (MHz):</FrequencyLabel>
+            <FrequencyInput
+              type="number"
+              value={manualFrequency}
+              onChange={(e) => setManualFrequency(e.target.value)}
+              step="0.1"
+              min="0.1"
+              max="1000"
+              placeholder="137.1"
+            />
+            <TuneButton onClick={handleManualTune} disabled={isScanning}>
+              Tune
+            </TuneButton>
+          </FrequencyInputContainer>
+        )}
 
-      {/* Channel Buttons - Only show when Channel(s) is selected */}
-      {!isManualMode && channels.map(ch => {
-        const isActive = state.activeSignalArea === ch.label;
-        const isChannelScanning = isScanning && scanRange &&
-          ch.min_mhz * 1e6 <= (scanRange.max || 0) &&
-          ch.max_mhz * 1e6 >= (scanRange.min || 0);
+        {/* Channel Buttons - Only show when Channel(s) is selected */}
+        {!isManualMode && channels.map(ch => {
+          const isActive = state.activeSignalArea === ch.label;
+          const isChannelScanning = isScanning && scanRange &&
+            ch.min_mhz * 1e6 <= (scanRange.max || 0) &&
+            ch.max_mhz * 1e6 >= (scanRange.min || 0);
 
-        return (
-          <React.Fragment key={ch.id}>
-            <ChannelBlock
-              $isActive={isActive}
-              onClick={() => handleTune(ch)}
-            >
-              <ChannelLetter $isActive={isActive}>{ch.label}</ChannelLetter>
-              <ChannelFreq $isActive={isActive}>
-                {formatFrequency(ch.min_mhz)} - {formatFrequency(ch.max_mhz)}
-              </ChannelFreq>
-            </ChannelBlock>
+          return (
+            <React.Fragment key={ch.id}>
+              <ChannelBlock
+                $isActive={isActive}
+                onClick={() => handleTune(ch)}
+              >
+                <ChannelLetter $isActive={isActive}>{ch.label}</ChannelLetter>
+                <ChannelFreq $isActive={isActive}>
+                  {formatFrequency(ch.min_mhz)} - {formatFrequency(ch.max_mhz)}
+                </ChannelFreq>
+              </ChannelBlock>
 
-            {/* Show FrequencyRangeSlider only for the active channel */}
-            {isActive && (
-              <ReduxFrequencyRangeSlider
-                label=""
-                signalAreaKey={ch.label}
-                minFreq={ch.min_mhz}
-                maxFreq={ch.max_mhz}
-                sampleRateMHz={sampleRateMHz}
-                onActivate={() => handleTune(ch)}
-                readOnly={isChannelScanning}
-                scanProgress={isChannelScanning ? scanProgress : 0}
-                scanCurrentFreq={
-                  isChannelScanning && scanCurrentFreq !== undefined
-                    ? scanCurrentFreq
-                    : undefined
-                }
-              />
-            )}
-          </React.Fragment>
-        );
-      })}
+              {/* Show FrequencyRangeSlider only for the active channel */}
+              {isActive && (
+                <ReduxFrequencyRangeSlider
+                  label=""
+                  signalAreaKey={ch.label}
+                  minFreq={ch.min_mhz}
+                  maxFreq={ch.max_mhz}
+                  sampleRateMHz={sampleRateMHz}
+                  onActivate={() => handleTune(ch)}
+                  readOnly={isChannelScanning}
+                  scanProgress={isChannelScanning ? scanProgress : 0}
+                  scanCurrentFreq={
+                    isChannelScanning && scanCurrentFreq !== undefined
+                      ? scanCurrentFreq
+                      : undefined
+                  }
+                />
+              )}
+            </React.Fragment>
+          );
+        })}
 
-      <SampleRateLabel>
-        Hardware sample rate: <SampleRateValue>{sampleRateMHz ? formatFrequency(sampleRateMHz) : "X.X MHz"}</SampleRateValue>
-      </SampleRateLabel>
+        <SampleRateLabel>
+          Hardware sample rate: <SampleRateValue>{sampleRateMHz ? formatFrequency(sampleRateMHz) : "X.X MHz"}</SampleRateValue>
+        </SampleRateLabel>
       </ChannelsDemodBody>
     </ChannelsSection>
   );

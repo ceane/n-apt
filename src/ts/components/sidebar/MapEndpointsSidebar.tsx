@@ -1,8 +1,9 @@
 import React from "react";
 import styled from "styled-components";
-import { CollapsibleTitle, CollapsibleBody, Row, usePrompt } from "@n-apt/components/ui";
-import { useMapLocations } from "@n-apt/hooks/useMapLocations";
-import { EndpointsListAndSearch } from "@n-apt/components/sidebar/EndpointsListAndSearch";
+import { usePrompt } from "@n-apt/components/ui";
+import { MapLocationsSection } from "./MapLocationsSection";
+import { MapNearestEndpointsSection } from "./MapNearestEndpointsSection";
+import { MapUsefulLinksSection } from "./MapUsefulLinksSection";
 
 
 const SidebarContainer = styled.div`
@@ -225,6 +226,13 @@ const AttributionDetail = styled.div`
   color: ${(props) => props.theme.metadataLabel};
 `;
 
+const SectionDivider = styled.div`
+  height: 1px;
+  background: ${(props) => props.theme.border};
+  margin: 8px 0;
+  width: 100%;
+`;
+
 const SearchResults = styled.div`
   grid-column: 1 / -1;
   background: ${(props) => props.theme.surface};
@@ -253,131 +261,6 @@ const SearchResultItem = styled.div`
 `;
 
 export const MapEndpointsSidebar: React.FC = () => {
-  const [linksOpen, setLinksOpen] = React.useState(true);
-  const [searchValue, setSearchValue] = React.useState("");
-  const [searchResults, setSearchResults] = React.useState<any[]>([]);
-  const [isSearching, setIsSearching] = React.useState(false);
-  const [endpointsOpen, setEndpointsOpen] = React.useState(false);
-  const showPrompt = usePrompt();
-
-  const {
-    locations,
-    activeLocationId,
-    setActiveLocation,
-    addLocation,
-    removeLocation,
-    isLoaded,
-    previewLocation,
-    setPreviewLocation
-  } = useMapLocations();
-
-  // Nominatim search function
-  const searchLocations = async (query: string) => {
-    if (!query.trim()) {
-      setSearchResults([]);
-      return;
-    }
-
-    setIsSearching(true);
-    try {
-      const response = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5&countrycodes=us&addressdetails=1&extratags=1`,
-        {
-          headers: {
-            'User-Agent': 'n-apt/1.0'
-          }
-        }
-      );
-
-      if (response.ok) {
-        const results = await response.json();
-
-        // Process results to be less granular - focus on city, state, and major landmarks
-        const processedResults = results.map((result: any) => {
-          const address = result.address || {};
-          let displayName = '';
-
-          // Priority order for US locations
-          if (address.city || address.town || address.village) {
-            const city = address.city || address.town || address.village;
-            const state = address.state || '';
-            displayName = state ? `${city}, ${state}` : city;
-          } else if (address.county && address.state) {
-            displayName = `${address.county.replace(' County', '')}, ${address.state}`;
-          } else if (address.state) {
-            displayName = address.state;
-          } else if (result.display_name) {
-            // Fallback but clean up the display name
-            displayName = result.display_name
-              .split(',')
-              .slice(0, 2) // Keep only first 2 parts
-              .join(',')
-              .replace(/, United States$/, '');
-          }
-
-          return {
-            ...result,
-            display_name: displayName || result.display_name,
-            simplified_name: displayName
-          };
-        }).filter((result: any) => result.simplified_name);
-
-        setSearchResults(processedResults);
-      }
-    } catch (error) {
-      console.error('Search error:', error);
-      setSearchResults([]);
-    } finally {
-      setIsSearching(false);
-    }
-  };
-
-  // Debounced search
-  React.useEffect(() => {
-    const timeoutId = setTimeout(() => {
-      searchLocations(searchValue);
-    }, 300);
-
-    return () => clearTimeout(timeoutId);
-  }, [searchValue]);
-
-  const onPlaceSelect = (place: any) => {
-    if (place && place.lat && place.lon) {
-      const name = place.display_name || place.name || "Unnamed Location";
-      const lat = parseFloat(place.lat);
-      const lng = parseFloat(place.lon);
-
-      setPreviewLocation({
-        id: "preview",
-        name,
-        lat,
-        lng,
-        zoom: 15,
-        color: "var(--color-text-primary)",
-      });
-      setSearchValue("");
-      setSearchResults([]);
-    }
-  };
-
-  const handleAddPreview = () => {
-    if (previewLocation) {
-      addLocation(previewLocation.name, previewLocation.lat, previewLocation.lng);
-      setPreviewLocation(null); // Clear preview after adding
-    }
-  };
-
-  const handleRemoveClick = (locationId: string, locationName: string) => {
-    showPrompt({
-      title: "Remove Location",
-      message: `Are you sure you want to remove "${locationName}" from your saved locations?`,
-      confirmText: "Remove",
-      cancelText: "Cancel",
-      onConfirm: () => removeLocation(locationId),
-      variant: "danger"
-    });
-  };
-
   return (
     <SidebarContainer>
       <Attribution>
@@ -389,119 +272,10 @@ export const MapEndpointsSidebar: React.FC = () => {
           OpenCelliD Project is licensed under a Creative Commons Attribution-ShareAlike 4.0 International License
         </AttributionDetail>
       </Attribution>
-      <SectionTitle>Locations</SectionTitle>
 
-      {isLoaded ? (
-        <div style={{ gridColumn: "1 / -1" }}>
-          <SearchInput
-            placeholder="Search for a location..."
-            value={searchValue}
-            onChange={(e) => setSearchValue(e.target.value)}
-          />
-          {searchResults.length > 0 && (
-            <SearchResults>
-              {searchResults.map((result, index) => (
-                <SearchResultItem
-                  key={index}
-                  onClick={() => onPlaceSelect(result)}
-                >
-                  {result.simplified_name}
-                </SearchResultItem>
-              ))}
-            </SearchResults>
-          )}
-        </div>
-      ) : (
-        <div style={{ gridColumn: "1 / -1" }}>
-          <SearchInput
-            placeholder="Loading Maps..."
-            disabled
-          />
-        </div>
-      )}
-
-      {previewLocation && (
-        <PreviewContainer>
-          <PreviewTitle>Preview Selection</PreviewTitle>
-          <PreviewName>{previewLocation.name}</PreviewName>
-          <AddButton onClick={handleAddPreview}>Add to Saved</AddButton>
-        </PreviewContainer>
-      )}
-
-      <PillGrid>
-        {locations.map((loc) => (
-          <PillWrapper key={loc.id}>
-            <Pill
-              $color={loc.color}
-              $active={activeLocationId === loc.id}
-              onClick={() => setActiveLocation(loc.id)}
-            >
-              {loc.name}
-            </Pill>
-            {loc.id !== "current" && (
-              <RemoveButton onClick={(e) => {
-                e.stopPropagation();
-                handleRemoveClick(loc.id, loc.name);
-              }}>
-                ×
-              </RemoveButton>
-            )}
-          </PillWrapper>
-        ))}
-      </PillGrid>
-
-      <CollapsibleTitle
-        label="Nearest Endpoints /"
-        isOpen={endpointsOpen}
-        onToggle={() => setEndpointsOpen((prev) => !prev)}
-      />
-      {endpointsOpen && (
-        <EndpointsListAndSearch />
-      )}
-
-
-      <CollapsibleTitle
-        label="Useful Links /"
-        isOpen={linksOpen}
-        onToggle={() => setLinksOpen((prev) => !prev)}
-      />
-      {linksOpen && (
-        <CollapsibleBody>
-          <Row label="Radio Reference">
-            <ExternalLink
-              href="https://www.radioreference.com/db/browse/"
-              target="_blank"
-              rel="noopener noreferrer"
-              title="Radio Reference Licenses/In Use Frequencies"
-            >
-              Licenses/In Use
-            </ExternalLink>
-          </Row>
-          <Row label="FCC Search">
-            <ExternalLink
-              href="https://wireless2.fcc.gov/UlsApp/UlsSearch/searchLicense.jsp"
-              target="_blank"
-              rel="noopener noreferrer"
-              title="FCC Universal Licensing System"
-            >
-              ULS Search
-            </ExternalLink>
-          </Row>
-          <Row label="FCC ASR">
-            <ExternalLink
-              href="https://wireless2.fcc.gov/UlsApp/AsrSearch/asrRegistrationSearch.jsp"
-              target="_blank"
-              rel="noopener noreferrer"
-              title="FCC Antenna Structure Registration"
-            >
-              ASR Search
-            </ExternalLink>
-          </Row>
-        </CollapsibleBody>
-      )}
-      <InfoParagraph>
-        There are over 2 million cell sites within the United States
-      </InfoParagraph>
+      <MapLocationsSection />
+      <MapNearestEndpointsSection />
+      <MapUsefulLinksSection />
     </SidebarContainer>
   );
 };
