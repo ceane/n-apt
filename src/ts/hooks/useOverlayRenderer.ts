@@ -29,6 +29,7 @@ const getCanvasThemeColors = () => ({
   offsetTickText: readCssColor("--color-fft-offset-tick-text", OFFSET_TICK_TEXT_COLOR),
   snapHwRateLine: readCssColor("--color-snap-hw-rate-line", SNAP_HW_RATE_LINE),
   snapHwRateText: readCssColor("--color-snap-hw-rate-text", SNAP_HW_RATE_TEXT),
+  centerLabelText: readCssColor("--color-snap-center-label-text", "#666"),
 });
 
 /**
@@ -406,12 +407,12 @@ export function useOverlayRenderer() {
         }
 
        ctx.save();
-       ctx.font = "12px JetBrains Mono";
+       ctx.font = "bold 12px JetBrains Mono";
        ctx.textAlign = "center";
        ctx.textBaseline = "alphabetic";
        const labelX = (FFT_AREA_MIN.x + fftAreaMax.x) / 2;
        const labelY = fftAreaMax.y + 25;
-       ctx.fillStyle = canvasTheme.textColor;
+       ctx.fillStyle = canvasTheme.centerLabelText;
        ctx.fillText(centerLabel, labelX, labelY);
        ctx.restore();
 

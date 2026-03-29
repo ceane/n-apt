@@ -235,19 +235,6 @@ export const SnapshotControlsSection: React.FC<
             </ToggleSwitch>
           </Row>
 
-          <Row label={<IconLabel icon={SquareDashedTopSolid} text="Waterfall" />}>
-            <ToggleSwitch>
-              <ToggleSwitchInput
-                type="checkbox"
-                checked={snapshotShowWaterfall}
-                onChange={(e) =>
-                  onSnapshotShowWaterfallChange(e.target.checked)
-                }
-              />
-              <ToggleSwitchSlider />
-            </ToggleSwitch>
-          </Row>
-
           <Row label={<IconLabel icon={Grid2X2} text="Grid" />}>
             <ToggleSwitch>
               <ToggleSwitchInput
