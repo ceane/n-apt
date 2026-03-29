@@ -6,6 +6,12 @@ import {
 } from "@n-apt/hooks/useSnapshot";
 import { fmtFreq } from "@n-apt/utils/rendering/formatters";
 import { renderHook, act } from "@testing-library/react";
+import { TestWrapper } from "./testUtils";
+
+jest.mock("@n-apt/components/ui/Theme", () => ({
+  ...jest.requireActual("@n-apt/components/ui/Theme"),
+  useResolvedThemeMode: jest.fn(() => "dark"),
+}));
 
 // ────────────────────────────────────────────────────────────────────────────
 // fmtFreq
@@ -145,13 +151,17 @@ describe("useSnapshot", () => {
   });
 
   it("should return handleSnapshot function", () => {
-    const { result } = renderHook(() => useSnapshot(null, false));
+    const { result } = renderHook(() => useSnapshot(null, false), {
+      wrapper: TestWrapper,
+    });
 
     expect(result.current.handleSnapshot).toBeInstanceOf(Function);
   });
 
   it("should handle snapshot when no data is available", async () => {
-    const { result } = renderHook(() => useSnapshot(null, false));
+    const { result } = renderHook(() => useSnapshot(null, false), {
+      wrapper: TestWrapper,
+    });
 
     const options = {
       whole: true,
