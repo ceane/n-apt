@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { useTexture } from "@react-three/drei";
 import styled from "styled-components";
@@ -8,9 +9,8 @@ import { getBaseUrl } from "@n-apt/md-preview/getBaseUrl";
 
 const BASE_URL = getBaseUrl();
 const BODY_CHARACTER_SRC = `${BASE_URL}/md-preview/body-attenuation-character.png`;
-import { theme } from "../../theme";
 
-const BACKGROUND_COLOR = theme.colors.background;
+
 
 const DEFAULTS = {
   transmitPowerDbm: -8,
@@ -269,8 +269,9 @@ const radioWaveFragmentShader = `
     // Silhouette edge outline glow when wave front is near
     float edgeDetect = bodyEdge(vUv, 0.008);
     float waveFrontX = progress - arcOffset;
-    float nearWave = smoothstep(0.35, 0.0, abs(vUv.x - waveFrontX));
-    float outlineAlpha = edgeDetect * nearWave * 0.8;
+    float nearWave = smoothstep(0.4, 0.0, abs(vUv.x - waveFrontX));
+    // The outline hits 100% only when the wave is exactly wiping over it
+    float outlineAlpha = edgeDetect * nearWave * 0.9;
 
     // Force field palette
     vec3 darkCore = vec3(0.02, 0.02, 0.03);
@@ -284,11 +285,24 @@ const radioWaveFragmentShader = `
     color += hotWhite * edge * 0.35;
     color += vec3(0.03) * trough;
 
-    // Outline color with shimmer
-    float outlineRipple = 0.5 + 0.5 * sin(vUv.y * 30.0 - uTime * 3.0);
-    vec3 outlineColor = mix(brightEdge, hotWhite, outlineRipple * 0.6);
-    color = mix(color, outlineColor, clamp(outlineAlpha, 0.0, 1.0));
-    float finalAlpha = clamp(alpha + outlineAlpha, 0.0, 0.85);
+    // Replace outline color with iridescent-to-white sweep
+    // Same iridescent soap bubble core palette used in the text
+    vec3 a = vec3(0.5, 0.5, 0.5);
+    vec3 b = vec3(0.5, 0.5, 0.5);
+    vec3 c = vec3(1.0, 1.0, 1.0);
+    vec3 d = vec3(0.00, 0.33, 0.67);
+    float paletteInput = vUv.x * 0.5 - uTime * 0.8;
+    vec3 iridescentOutline = a + b * cos(6.28318 * (c * paletteInput + d));
+    
+    // Core of the contour is pure white, edge bleeds into iridescence
+    float coreHighlight = smoothstep(0.2, 0.0, abs(vUv.x - waveFrontX));
+    vec3 outlineColor = mix(iridescentOutline, vec3(1.0, 1.0, 1.0), coreHighlight);
+    
+    // Mathematically correct semi-transparent blending (avoids making low-alpha edges appear black/muddy)
+    float finalAlpha = clamp(alpha + outlineAlpha, 0.0, 0.95);
+    if (finalAlpha > 0.0) {
+      color = mix(color, outlineColor, outlineAlpha / finalAlpha);
+    }
 
     gl_FragColor = vec4(color, finalAlpha);
   }
@@ -465,8 +479,8 @@ const computeModel = (endpointADistance: number, endpointBDistance: number) => {
   const distanceLossB = endpointBDistance * DEFAULTS.mediumLossRefDbPerCm * 0.015 * frequencyRatio;
   const bodyEntryLoss = (DEFAULTS.skinThicknessCm * DEFAULTS.skinLossRefDbPerCm + DEFAULTS.skullThicknessCm * DEFAULTS.skullLossRefDbPerCm) * 0.18 * frequencyRatio;
   const bodyTraversalLoss = (DEFAULTS.skinThicknessCm * DEFAULTS.skinLossRefDbPerCm + DEFAULTS.skullThicknessCm * DEFAULTS.skullLossRefDbPerCm) * 0.12 * frequencyRatio;
-  const endpointA = DEFAULTS.transmitPowerDbm - distanceLossA;
   const entry = -22;
+  const endpointA = entry + distanceLossA;
   const exit = entry - bodyTraversalLoss;
   const receive = exit - distanceLossB;
 
@@ -653,6 +667,201 @@ const PeelCharacter: React.FC<{
   );
 };
 
+
+
+const binaryRowVertexShader = `
+  varying vec2 vUv;
+  varying vec3 vWorldPosition;
+  void main() {
+    vUv = uv;
+    vec4 worldPos = modelMatrix * vec4(position, 1.0);
+    vWorldPosition = worldPos.xyz;
+    gl_Position = projectionMatrix * viewMatrix * worldPos;
+  }
+`;
+
+const binaryRowFragmentShader = `
+  uniform sampler2D uTexture;
+  uniform float uTime;
+  varying vec2 vUv;
+  varying vec3 vWorldPosition;
+
+  void main() {
+    vec4 texColor = texture2D(uTexture, vUv);
+    if (texColor.a < 0.1) discard;
+
+    float speed = 0.35;
+    float cycle = mod(uTime * speed, 2.2);
+    // Align wave progression identically to RadioWave
+    float progress = cycle - 0.6;
+
+    float normalizedX = vWorldPosition.x / 10.0 + 0.5;
+    float normalizedY = vWorldPosition.y / 6.5 + 0.5;
+    float arcOffset = 0.25 * pow(abs(normalizedY - 0.5) * 2.0, 2.2);
+    
+    float dist = (normalizedX + arcOffset) - progress;
+
+    // smoothstep(0.01, -0.01, dist) means 1 when wave has passed it (dist < 0), 0 before.
+    float revealedThisCycle = smoothstep(0.01, -0.01, dist);
+    
+    // Fade to zero gracefully as the cycle approaches its very end (between 2.0 and 2.2)
+    float fadeOut = smoothstep(2.2, 2.0, cycle);
+
+    // Sum previous cycle fade with current cycle reveal, clamp to 1.0.
+    float totalReveal = clamp(revealedThisCycle * fadeOut, 0.0, 1.0);
+
+    // Iridescent soap bubble effect
+    // a+b*cos(2π(c*t+d)) palette
+    vec3 a = vec3(0.5, 0.5, 0.5);
+    vec3 b = vec3(0.5, 0.5, 0.5);
+    vec3 c = vec3(1.0, 1.0, 1.0);
+    vec3 d = vec3(0.00, 0.33, 0.67);
+    float paletteInput = totalReveal + vWorldPosition.x * 0.15 - uTime * 0.8;
+    vec3 iridescent = a + b * cos(6.28318 * (c * paletteInput + d));
+    
+    // Add extra brightness at the wavefront (where dist is near 0)
+    float highlight = smoothstep(0.0, -0.05, dist) * smoothstep(-0.4, -0.05, dist);
+    vec3 litColor = mix(iridescent, vec3(1.0), 0.3 + highlight * 0.5);
+
+    // Base color heavily darkened
+    vec3 baseColor = vec3(0.18, 0.20, 0.22);
+    
+    // Completely hide until wiped over!
+    float finalAlpha = texColor.a * totalReveal;
+    gl_FragColor = vec4(litColor, finalAlpha);
+  }
+`;
+
+const BinaryRow = ({ x, y, widthWorld }: { x: number; y: number; widthWorld: number }) => {
+  const [cycleIndex, setCycleIndex] = useState(0);
+  
+  useFrame(({ clock }) => {
+    const activeCycle = Math.floor((clock.elapsedTime * 0.35) / 2.2);
+    if (activeCycle !== cycleIndex) {
+      setCycleIndex(activeCycle);
+    }
+  });
+
+  const { texture, width, height } = useMemo(() => {
+    // Randomize length between 7 and 18 characters. Since it always maps to the same world width, 
+    // fewer characters will stretch internally and appear physically larger, and more characters will appear smaller!
+    const length = 7 + Math.floor(Math.random() * 12);
+    const text = Array.from({ length }, () => (Math.random() > 0.5 ? '1' : '0')).join('');
+
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return { texture: null, width: 1, height: 1 };
+
+    // We can also randomly jitter the font size curve slightly
+    const startSize = 85 + Math.random() * 20;
+    const endSize = 20 + Math.random() * 10;
+    const chars = text.split("");
+    
+    // Calculate widths for decreasing font size
+    let totalWidth = 0;
+    const charMetrics = chars.map((char, index) => {
+      // Linear interpolation of font size from big to small
+      const size = startSize - ((startSize - endSize) * (index / Math.max(1, chars.length - 1)));
+      ctx.font = `normal ${size}px "JetBrains Mono", monospace`;
+      const m = ctx.measureText(char);
+      const charW = m.width + size * 0.45; // Adds kerning space between characters
+      totalWidth += charW;
+      return { char, size, charW };
+    });
+
+    const textHeight = startSize * 1.3;
+    canvas.width = Math.ceil(totalWidth);
+    canvas.height = Math.ceil(textHeight);
+
+    // Draw characters aligned to the vertical center (middle)
+    ctx.fillStyle = "#ffffff";
+    ctx.textBaseline = "middle";
+    
+    let currentX = 0;
+    charMetrics.forEach(({ char, size, charW }) => {
+      ctx.font = `normal ${size}px "JetBrains Mono", monospace`;
+      ctx.fillText(char, currentX, textHeight / 2);
+      currentX += charW;
+    });
+
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.minFilter = THREE.LinearFilter;
+    tex.magFilter = THREE.LinearFilter;
+    tex.generateMipmaps = true;
+
+    return { texture: tex, width: widthWorld, height: widthWorld * (canvas.height / canvas.width) };
+  }, [cycleIndex, widthWorld]);
+
+  const materialRef = useRef<THREE.ShaderMaterial>(null);
+
+  // Provide stable uniforms object to prevent R3F from losing track across re-renders
+  const uniforms = useMemo(() => ({
+    uTexture: { value: texture },
+    uTime: { value: 0 }
+  }), []); 
+
+  // Hot-swap the underlying texture without re-mounting the material
+  useEffect(() => {
+    if (materialRef.current && texture) {
+      materialRef.current.uniforms.uTexture.value = texture;
+      materialRef.current.uniformsNeedUpdate = true;
+    }
+  }, [texture]);
+
+  useFrame((state) => {
+    if (materialRef.current) {
+      materialRef.current.uniforms.uTime.value = state.clock.elapsedTime;
+    }
+  });
+
+  if (!texture) return null;
+
+  return (
+    <mesh position={[x + width / 2, y, 0.18]}>
+      <planeGeometry args={[width, height]} />
+      <shaderMaterial
+        ref={materialRef}
+        uniforms={uniforms}
+        vertexShader={binaryRowVertexShader}
+        fragmentShader={binaryRowFragmentShader}
+        transparent
+        depthWrite={false}
+        blending={THREE.AdditiveBlending}
+      />
+    </mesh>
+  );
+};
+
+const BinaryMatrixOverlay = () => {
+  const lineInfo = useMemo(() => {
+    const centerX = 0; 
+    const centerY = -0.38; 
+    const radiusX = 1.08; 
+
+    // Move substantially past the arm (radiusX does not account for extended hand)
+    const startX = centerX + radiusX + 0.65;
+    // Extend end further right
+    const endX = 4.85; 
+
+    const widthWorld = endX - startX;
+
+    return {
+      y: centerY - 0.25, // offset slightly to visibly center the text height
+      x: startX,
+      widthWorld: widthWorld
+    };
+  }, []);
+
+  if (!lineInfo) return null;
+
+  return (
+    <group>
+      <BinaryRow x={lineInfo.x} y={lineInfo.y} widthWorld={lineInfo.widthWorld} />
+    </group>
+  );
+};
+
 const SceneContents: React.FC<{
   characterFacingSide: -1 | 1;
   flipEffect: FlipEffectState;
@@ -702,14 +911,11 @@ const SceneContents: React.FC<{
 
   return (
     <>
-      <color attach="background" args={[BACKGROUND_COLOR]} />
-      <ambientLight intensity={1.8} />
+      {/* Removed <color attach="background" /> to show CSS grid behind the canvas */}
+      <ambientLight intensity={0.9} />
       <directionalLight position={[0, 0, 3]} intensity={1.25} color="#ffffff" />
 
-      <mesh position={[0, 0, -0.6]}>
-        <planeGeometry args={[10, 6.5]} />
-        <meshBasicMaterial color={BACKGROUND_COLOR} />
-      </mesh>
+
 
       <RadioWave bodyTexture={texture} facingSide={characterFacingSide} flipEffect={flipEffect} />
 
@@ -734,6 +940,8 @@ const SceneContents: React.FC<{
 
       <PeelCharacter facingSide={characterFacingSide} flipEffect={flipEffect} texture={texture} />
 
+      <BinaryMatrixOverlay />
+
       <group position={[previewMetrics.markerX, previewMetrics.markerY, 1.2]} rotation={[0, 0, getArrowRotation(previewMetrics)]} renderOrder={1000}>
         <CanvasText position={[0, 0, 0]} fontSize={0.52} color="#3d3d3d" anchorX="center" anchorY="middle" fontWeight={700} text="➤" />
       </group>
@@ -741,13 +949,12 @@ const SceneContents: React.FC<{
       <CanvasText position={[-3.0, 0.55, 0.45]} fontSize={0.42} color="#1a1a22" anchorX="center" anchorY="middle" fontWeight={900} letterSpacing={-0.02} text={formatDbm(model.entry)} />
       <CanvasText position={[-3.0, 0.22, 0.45]} fontSize={0.16} color="#3a3a42" anchorX="right" anchorY="middle" fontWeight={500} text="Entry" />
 
-      <CanvasText position={[3.0, -0.2, 0.45]} fontSize={0.42} color="#1a1a22" anchorX="center" anchorY="middle" fontWeight={900} letterSpacing={-0.02} text={formatDbm(model.receive)} />
-      <CanvasText position={[3.0, -0.53, 0.45]} fontSize={0.16} color="#3a3a42" anchorX="left" anchorY="middle" fontWeight={500} text="Power at Rx" />
+      <CanvasText position={[3.0, -2.0, 0.45]} fontSize={0.42} color="#1a1a22" anchorX="center" anchorY="middle" fontWeight={900} letterSpacing={-0.02} text={formatDbm(model.receive)} />
+      <CanvasText position={[3.0, -2.33, 0.45]} fontSize={0.16} color="#3a3a42" anchorX="left" anchorY="middle" fontWeight={500} text="Power at Rx" />
 
       <CanvasText position={[-4.2, -2.18, 0.45]} fontSize={0.26} color="#1a1a22" anchorX="left" anchorY="middle" fontWeight={900} letterSpacing={-0.02} text={formatFrequency(DEFAULTS.frequencyHz)} />
 
       <CanvasText position={[-4.2, -2.45, 0.45]} fontSize={0.15} color="#3a3a42" anchorX="left" anchorY="middle" fontWeight={500} letterSpacing={-0.01} text={`${getFrequencyClass(DEFAULTS.frequencyHz)} frequency`} />
-      <CanvasText position={[0, -3.2, 0.45]} fontSize={0.28} color="#1a1a22" anchorX="center" anchorY="middle" fontWeight={900} letterSpacing={-0.02} text="BODY ATTENUATION / ENTRY EXIT MODEL" />
     </>
   );
 };
@@ -848,8 +1055,6 @@ const BodyAttenuationWebGPUCanvas: React.FC = () => {
   return (
     <Frame>
       <div style={{ position: 'absolute', top: -9999, left: -9999, visibility: 'hidden' }}>
-        <span>BODY ATTENUATION / ENTRY EXIT MODEL</span>
-        <span>WEBGPU</span>
         <span>Endpoint A (Tx)</span>
         <span>Endpoint B (Rx)</span>
         <span>+24.0 dBm</span>
@@ -892,7 +1097,12 @@ const Frame = styled.div`
   border-radius: 16px;
   overflow: hidden;
   border: 1px solid rgba(12, 14, 18, 0.36);
-  background: ${BACKGROUND_COLOR};
+  background-color: #E0E0E2;
+  background-image:
+    linear-gradient(to right, #D7D8DA 2px, transparent 2px),
+    linear-gradient(to bottom, #D7D8DA 2px, transparent 2px);
+  background-size: 64px 64px;
+  background-position: center bottom;
   aspect-ratio: 10 / 6.4;
   position: relative;
 

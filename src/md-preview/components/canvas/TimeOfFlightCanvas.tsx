@@ -1,4 +1,6 @@
-import React, { useEffect, useMemo, useRef } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { prepareWithSegments, layoutNextLine } from '@chenglou/pretext';
+import CanvasImage from "./shared/CanvasImage";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { useTexture } from "@react-three/drei";
 import styled from "styled-components";
@@ -67,20 +69,14 @@ const radioWaveFragmentShader = `
 
     float distToAntenna = distance(vUv, uAntennaCenter);
 
-    // 3 overlapping waves, staggered by 1/3 of the cycle period
-    float speed = 0.28;
-    float cycleLen = 1.3;
-    float wave1R = mod(uTime * speed, cycleLen);
-    float wave2R = mod(uTime * speed + cycleLen / 3.0, cycleLen);
-    float wave3R = mod(uTime * speed + 2.0 * cycleLen / 3.0, cycleLen);
+    float speed = 0.35;
+    float pulsePhase = mod(uTime * speed, 2.0);
+    float waveR = pulsePhase <= 1.0 ? pulsePhase : 2.0 - pulsePhase;
 
-    float ring1 = waveRing(distToAntenna, wave1R);
-    float ring2 = waveRing(distToAntenna, wave2R);
-    float ring3 = waveRing(distToAntenna, wave3R);
-    float combinedRing = max(ring1, max(ring2, ring3));
+    float combinedRing = waveRing(distToAntenna, waveR);
 
     // Subtle ripple texture
-    float ripple = 0.5 + 0.5 * sin(distToAntenna * 60.0 - uTime * 4.0);
+    float ripple = 0.5 + 0.5 * sin(distToAntenna * 60.0 - uTime * 6.0);
     float detail = combinedRing * (0.7 + 0.3 * ripple);
 
     // Suppress inside body silhouette
@@ -90,10 +86,7 @@ const radioWaveFragmentShader = `
 
     // Edge outline glow when any wave front is near the body
     float edgeDetect = bodyEdge(vUv, 0.008);
-    float nearWave1 = smoothstep(0.15, 0.0, abs(distToAntenna - wave1R));
-    float nearWave2 = smoothstep(0.15, 0.0, abs(distToAntenna - wave2R));
-    float nearWave3 = smoothstep(0.15, 0.0, abs(distToAntenna - wave3R));
-    float nearWave = max(nearWave1, max(nearWave2, nearWave3));
+    float nearWave = smoothstep(0.15, 0.0, abs(distToAntenna - waveR));
     float outlineAlpha = edgeDetect * nearWave * 0.6;
 
     // Color: subtle grey-white arcs
@@ -195,22 +188,19 @@ const heatmapFragmentShader = `
 
     vec3 heatColor = thermalColor(density);
 
-    // Wave-driven reveal: compute closest wave front distance to this pixel
-    float speed = 0.28;
-    float cycleLen = 1.3;
-    float wave1R = mod(uTime * speed, cycleLen);
-    float wave2R = mod(uTime * speed + cycleLen / 3.0, cycleLen);
-    float wave3R = mod(uTime * speed + 2.0 * cycleLen / 3.0, cycleLen);
-
+    // Wave-driven reveal: wait until wave bounces back to reveal the heatmap footprint
+    float speed = 0.35;
+    float pulsePhase = mod(uTime * speed, 2.0);
+    float waveR = pulsePhase <= 1.0 ? pulsePhase : 2.0 - pulsePhase;
     float distToAntenna = distance(vUv, uAntennaCenter);
-    float near1 = smoothstep(0.18, 0.0, abs(distToAntenna - wave1R));
-    float near2 = smoothstep(0.18, 0.0, abs(distToAntenna - wave2R));
-    float near3 = smoothstep(0.18, 0.0, abs(distToAntenna - wave3R));
-    float waveProximity = max(near1, max(near2, near3));
+    
+    float isReturning = step(1.0, pulsePhase);
+    float hasPassedBack = isReturning * smoothstep(0.05, -0.05, waveR - distToAntenna);
+    float waveProximity = isReturning * smoothstep(0.18, 0.0, abs(distToAntenna - waveR));
 
-    // Base 10% opacity, ramp to full when wave passes through the character
+    // Base 10% opacity
     float baseAlpha = 0.10;
-    float revealAlpha = mix(baseAlpha, 1.0, waveProximity);
+    float revealAlpha = mix(baseAlpha, 1.0, max(waveProximity, hasPassedBack));
 
     float alpha = smoothstep(0.15, 0.30, bodyAlpha) * 0.92 * revealAlpha;
 
@@ -222,7 +212,7 @@ const RadioWave: React.FC<{ bodyTexture: THREE.Texture }> = ({ bodyTexture }) =>
   const materialRef = useRef<THREE.ShaderMaterial>(null);
 
   const uniforms = useMemo(() => {
-    const charWorldX = 3; // Character on the right (updated position)
+    const charWorldX = 2.8; // Character all the way to the right
     const charWorldY = -0.55;
     const halfW = CHARACTER_SIZE.width / 2;
     const halfH = CHARACTER_SIZE.height / 2;
@@ -267,66 +257,181 @@ const RadioWave: React.FC<{ bodyTexture: THREE.Texture }> = ({ bodyTexture }) =>
   );
 };
 
-const Antenna: React.FC = () => (
-  <group position={[-4.2, 0, 0.1]}>
-    {/* Pole stub — extends down and off-screen for cropped close-up feel */}
-    <mesh position={[0, -1.6, 0]}>
-      <cylinderGeometry args={[0.18, 0.20, 3.2, 16]} />
-      <meshStandardMaterial color="#5c5c5e" roughness={0.55} metalness={0.25} />
-    </mesh>
-    {/* Thin cable running along pole */}
-    <mesh position={[0.12, -1.2, 0.08]}>
-      <cylinderGeometry args={[0.025, 0.025, 2.6, 8]} />
-      <meshStandardMaterial color="#888" roughness={0.7} metalness={0.1} />
-    </mesh>
 
-    {/* Mounting collar / bracket ring */}
-    <mesh position={[0, 0.08, 0]}>
-      <cylinderGeometry args={[0.30, 0.30, 0.14, 16]} />
-      <meshStandardMaterial color="#6e6e70" roughness={0.45} metalness={0.30} />
-    </mesh>
 
-    {/* Main hexagonal radome — the star of the show */}
-    <group position={[0, 0.72, 0]} rotation={[0, Math.PI / 6, 0]}>
-      {/* Outer hex shell */}
-      <mesh>
-        <cylinderGeometry args={[0.62, 0.62, 1.1, 6]} />
-        <meshStandardMaterial color="#e2e2e4" roughness={0.28} metalness={0.12} flatShading />
-      </mesh>
-      {/* Inner hex inset — panel face detail */}
-      <mesh position={[0, 0, 0.01]} rotation={[0, 0, 0]}>
-        <cylinderGeometry args={[0.52, 0.52, 1.02, 6]} />
-        <meshStandardMaterial color="#d0d0d4" roughness={0.35} metalness={0.08} flatShading />
-      </mesh>
-      {/* Dark front panel slot */}
-      <mesh position={[0.0, 0.0, 0.28]} rotation={[Math.PI / 2, 0, 0]}>
-        <planeGeometry args={[0.38, 0.82]} />
-        <meshStandardMaterial color="#3a3a3c" roughness={0.6} metalness={0.15} />
-      </mesh>
-      {/* Status LED */}
-      <mesh position={[0.0, 0.38, 0.30]} rotation={[Math.PI / 2, 0, 0]}>
-        <circleGeometry args={[0.035, 16]} />
-        <meshBasicMaterial color="#44ee66" />
-      </mesh>
+const BINARY_STRING = Array.from({ length: 5000 }, () => (Math.random() > 0.5 ? '1' : '0')).join(' ');
+
+const binaryRowVertexShader = `
+  varying vec2 vUv;
+  varying vec3 vWorldPosition;
+  void main() {
+    vUv = uv;
+    vec4 worldPos = modelMatrix * vec4(position, 1.0);
+    vWorldPosition = worldPos.xyz;
+    gl_Position = projectionMatrix * viewMatrix * worldPos;
+  }
+`;
+
+const binaryRowFragmentShader = `
+  uniform sampler2D uTexture;
+  uniform float uTime;
+  uniform vec2 uAntennaCenter;
+  varying vec2 vUv;
+  varying vec3 vWorldPosition;
+
+  void main() {
+    vec4 texColor = texture2D(uTexture, vUv);
+    if (texColor.a < 0.1) discard;
+
+    vec2 screenUv = vec2(vWorldPosition.x / 10.0 + 0.5, vWorldPosition.y / 6.5 + 0.5);
+    float distToAntenna = distance(screenUv, uAntennaCenter);
+    
+    float speed = 0.35;
+    float pulsePhase = mod(uTime * speed, 2.0);
+    float waveR = pulsePhase <= 1.0 ? pulsePhase : 2.0 - pulsePhase;
+    float isReturning = step(1.0, pulsePhase);
+    float isGoingOut = 1.0 - isReturning;
+
+    float revealed = isReturning * smoothstep(0.05, -0.05, waveR - distToAntenna);
+    // fade away smoothly over the first 30% of the outgoing new pulse
+    float fadeOut = isGoingOut * smoothstep(0.3, 0.0, pulsePhase); 
+
+    float hit = clamp(revealed + fadeOut, 0.0, 1.0);
+    
+    vec3 baseColor = vec3(0.18, 0.20, 0.22);
+    vec3 litColor = vec3(0.0, 0.95, 0.4);
+    
+    vec3 finalColor = mix(baseColor, litColor, hit);
+    
+    gl_FragColor = vec4(finalColor, texColor.a * (0.05 + 0.95 * hit));
+  }
+`;
+
+const BinaryRow = ({ text, x, y, widthWorld }: { text: string; x: number; y: number; widthWorld: number }) => {
+  const { texture, width, height } = useMemo(() => {
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return { texture: null, width: 1, height: 1 };
+
+    const baseSize = 80;
+    ctx.font = `normal ${baseSize}px "JetBrains Mono", monospace`;
+    const metrics = ctx.measureText(text);
+    const textWidth = metrics.width;
+    const textHeight = baseSize * 1.2;
+
+    canvas.width = Math.ceil(textWidth);
+    canvas.height = Math.ceil(textHeight);
+
+    ctx.font = `normal ${baseSize}px "JetBrains Mono", monospace`;
+    ctx.fillStyle = "#ffffff";
+    ctx.textBaseline = "top";
+    ctx.fillText(text, 0, baseSize * 0.1);
+
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.minFilter = THREE.LinearFilter;
+    tex.magFilter = THREE.LinearFilter;
+    tex.generateMipmaps = true;
+
+    return { texture: tex, width: widthWorld, height: widthWorld * (canvas.height / canvas.width) };
+  }, [text, widthWorld]);
+
+  const materialRef = useRef<THREE.ShaderMaterial>(null);
+  
+  const uniforms = useMemo(() => ({
+    uTexture: { value: texture },
+    uTime: { value: 0 },
+    uAntennaCenter: { value: new THREE.Vector2(0.08, 0.61) } 
+  }), [texture]);
+
+  useFrame((state) => {
+    if (materialRef.current) {
+      materialRef.current.uniforms.uTime.value = state.clock.elapsedTime;
+    }
+  });
+
+  if (!texture) return null;
+
+  return (
+    <mesh position={[x + width / 2, y, 0.18]}>
+      <planeGeometry args={[width, height]} />
+      <shaderMaterial
+        ref={materialRef}
+        uniforms={uniforms}
+        vertexShader={binaryRowVertexShader}
+        fragmentShader={binaryRowFragmentShader}
+        transparent
+        depthWrite={false}
+        blending={THREE.AdditiveBlending}
+      />
+    </mesh>
+  );
+};
+
+const BinaryMatrixOverlay = () => {
+  const rows = useMemo(() => {
+    const ROW_HEIGHT = 0.55;
+    const FONT = '20px "JetBrains Mono", monospace';
+    const WORLD_TO_PX = 45; 
+    const prepared = prepareWithSegments(BINARY_STRING, FONT, { whiteSpace: 'normal' });
+    
+    let cursor = { segmentIndex: 0, graphemeIndex: 0 };
+    const rowData = [];
+    
+    const centerX = 2.8; 
+    const centerY = -0.55;
+    const radiusX = 1.6; 
+    const radiusY = 2.66;
+    const topY = centerY + radiusY;
+    const bottomY = centerY - radiusY;
+    
+    let currentY = topY - ROW_HEIGHT;
+    
+    while (currentY > bottomY) {
+      const normalizedY = (currentY - centerY) / radiusY;
+      const xOffset = radiusX * Math.sqrt(Math.max(0, 1 - normalizedY * normalizedY));
+      
+      const startX = -1.2; // Move numbers to the left of person
+      const endX = centerX - xOffset - 0.2; 
+      
+      const widthWorld = endX - startX;
+      if (widthWorld <= 0.2) {
+         currentY -= ROW_HEIGHT;
+         continue;
+      }
+      
+      const widthPx = widthWorld * WORLD_TO_PX;
+      
+      const line = layoutNextLine(prepared, cursor, widthPx);
+      if (!line) break;
+      
+      rowData.push({
+        y: currentY,
+        x: startX,
+        text: line.text,
+        widthWorld: widthWorld
+      });
+      
+      cursor = line.end;
+      currentY -= ROW_HEIGHT;
+    }
+    return rowData;
+  }, []);
+
+  return (
+    <group>
+      {rows.map((r, i) => (
+        <BinaryRow key={i} text={r.text} x={r.x} y={r.y} widthWorld={r.widthWorld} />
+      ))}
     </group>
-
-    {/* Top cap / lightning rod */}
-    <mesh position={[0, 1.38, 0]}>
-      <cylinderGeometry args={[0.08, 0.12, 0.18, 16]} />
-      <meshStandardMaterial color="#a0a0a2" roughness={0.4} metalness={0.20} />
-    </mesh>
-    <mesh position={[0, 1.56, 0]}>
-      <cylinderGeometry args={[0.03, 0.03, 0.22, 8]} />
-      <meshStandardMaterial color="#888" roughness={0.5} metalness={0.15} />
-    </mesh>
-  </group>
-);
+  );
+};
 
 const HeatmapOverlay: React.FC<{ bodyTexture: THREE.Texture }> = ({ bodyTexture }) => {
   const materialRef = useRef<THREE.ShaderMaterial>(null);
 
   const uniforms = useMemo(() => {
-    const charWorldX = 3; // Character on the right (updated position)
+    const charWorldX = 2.8; // Character all the way to the right
     const charWorldY = -0.55;
     const halfW = CHARACTER_SIZE.width / 2;
     const halfH = CHARACTER_SIZE.height / 2;
@@ -377,7 +482,7 @@ const HeatmapOverlay: React.FC<{ bodyTexture: THREE.Texture }> = ({ bodyTexture 
 
 const Character: React.FC<{ texture: THREE.Texture }> = ({ texture }) => {
   return (
-    <mesh position={[3, -0.55, 0.15]}>
+    <mesh position={[2.8, -0.55, 0.15]}>
       <planeGeometry args={[CHARACTER_SIZE.width, CHARACTER_SIZE.height]} />
       <meshBasicMaterial
         map={texture}
@@ -422,11 +527,13 @@ const SceneContents: React.FC = () => {
         <meshBasicMaterial color={BACKGROUND_COLOR} />
       </mesh>
 
-      {/* Antenna on the left */}
-      <Antenna />
+      
 
-      {/* Radio waves flowing left to right */}
+            {/* Radio waves flowing left to right */}
       <RadioWave bodyTexture={texture} />
+
+      {/* Binary string rows contouring right side of the body */}
+      <BinaryMatrixOverlay />
 
       {/* Character on the right */}
       <Character texture={texture} />
@@ -435,16 +542,80 @@ const SceneContents: React.FC = () => {
       <HeatmapOverlay bodyTexture={texture} />
 
       {/* Labels */}
-      <CanvasText position={[-4.2, 2.1, 0.35]} fontSize={0.24} color="#1e1e26" anchorX="center" anchorY="middle" fontWeight={700} text="Antenna" />
-      <CanvasText position={[3, 2.5, 0.35]} fontSize={0.24} color="#1e1e26" anchorX="center" anchorY="middle" fontWeight={700} text="Target" />
-      <CanvasText position={[0, -2.5, 0.35]} fontSize={0.26} color="#1e1e26" anchorX="center" anchorY="middle" fontWeight={700} text="Time of Flight" />
+      <CanvasText position={[-3.3, 2.05, 0.35]} fontSize={0.24} color="#1e1e26" anchorX="center" anchorY="middle" fontWeight={700} text="Antenna" />
+      <CanvasText position={[2.8, 2.5, 0.35]} fontSize={0.24} color="#1e1e26" anchorX="center" anchorY="middle" fontWeight={700} text="Target" />
+
+      <DynamicStatsOverlay />
     </>
+  );
+};
+
+const DynamicStatsOverlay = () => {
+  const [stats, setStats] = useState({
+    distance: "500m",
+    frequency: "15 MHz",
+    phase: "0°",
+    aperture: "50.00 m²"
+  });
+  const cycleRef = useRef<number>(-1);
+
+  useFrame((state) => {
+    const cycle = Math.floor(state.clock.elapsedTime * 0.35 / 2.0);
+    if (cycleRef.current !== cycle) {
+      cycleRef.current = cycle;
+
+      const dKm = 0.01 + Math.random() * 0.99;
+      const fMHz = 1 + Math.random() * 29;
+
+      const fspl = 20 * Math.log10(dKm) + 20 * Math.log10(fMHz) + 32.44;
+      const gainDb = fspl - 22 - 24; 
+      let aperture = (Math.pow(10, gainDb / 10) * 90000) / (4 * Math.PI * fMHz * fMHz);
+      let apertureStr = aperture > 10000 ? `${(aperture/10000).toFixed(2)} ha` : `${aperture.toFixed(2)} m²`;
+
+      const distStr = dKm < 1 ? `${Math.round(dKm * 1000)} m` : `${dKm.toFixed(2)} km`;
+      const freqStr = `${fMHz.toFixed(2)} MHz`;
+      const phaseStr = `${Math.round(Math.random() * 360)}°`;
+
+      setStats({
+        distance: distStr,
+        frequency: freqStr,
+        phase: phaseStr,
+        aperture: apertureStr
+      });
+    }
+  });
+
+  return (
+    <group position={[-2.4, 0.8, 0.4]}>
+      <CanvasText position={[0, 0.5, 0]} fontSize={0.16} color="#3a3a42" anchorX="left" fontWeight={700} text="Distance:" />
+      <CanvasText position={[2.7, 0.5, 0]} fontSize={0.16} color="#1a1a22" anchorX="right" text={stats.distance} />
+
+      <CanvasText position={[0, 0.1, 0]} fontSize={0.16} color="#3a3a42" anchorX="left" fontWeight={700} text="Frequency:" />
+      <CanvasText position={[2.7, 0.1, 0]} fontSize={0.16} color="#1a1a22" anchorX="right" text={stats.frequency} />
+
+      <CanvasText position={[0, -0.3, 0]} fontSize={0.16} color="#3a3a42" anchorX="left" fontWeight={700} text="Phase:" />
+      <CanvasText position={[2.7, -0.3, 0]} fontSize={0.16} color="#1a1a22" anchorX="right" text={stats.phase} />
+
+      <CanvasText position={[0, -0.7, 0]} fontSize={0.16} color="#3a3a42" anchorX="left" fontWeight={700} text="Aperture (for -22dBm):" />
+      <CanvasText position={[2.7, -1.0, 0]} fontSize={0.18} color="#1a1a22" anchorX="right" fontWeight={700} text={stats.aperture} />
+    </group>
   );
 };
 
 const TimeOfFlightCanvas: React.FC = () => {
   return (
     <Frame>
+      <RendererBadge>Time of Flight</RendererBadge>
+      <CanvasImage 
+        src="hex-small-cell-tower.svg" 
+        alt="Antenna" 
+        position="absolute"
+        left="4%" 
+        bottom="0px" 
+        height="65%" 
+        zIndex={10}
+        pointerEvents="none"
+      />
       <Canvas
         orthographic
         dpr={[1, 2]}
@@ -466,7 +637,12 @@ const Frame = styled.div`
   border-radius: ${theme.layout.borderRadius};
   overflow: hidden;
   border: 1px solid rgba(12, 14, 18, 0.36);
-  background: ${theme.colors.background};
+  background-color: #E0E0E2;
+  background-image:
+    linear-gradient(to right, #D7D8DA 2px, transparent 2px),
+    linear-gradient(to bottom, #D7D8DA 2px, transparent 2px);
+  background-size: 64px 64px;
+  background-position: center bottom;
   aspect-ratio: 10 / 6.4;
   position: relative;
 
@@ -487,7 +663,15 @@ const Frame = styled.div`
 `;
 
 const RendererBadge = styled.div`
-  display: none;
+  position: absolute;
+  top: 14px;
+  left: 16px;
+  font-size: ${theme.fontSizes.canvasTitle};
+  letter-spacing: 0.04em;
+  font-family: ${theme.fonts.mono};
+  color: ${theme.colors.text};
+  z-index: 20;
+  pointer-events: none;
 `;
 
 export { TimeOfFlightCanvas };

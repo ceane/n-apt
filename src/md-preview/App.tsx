@@ -11,7 +11,7 @@ import katex from "katex";
 import * as lucideIcons from "lucide-react";
 import "highlight.js/styles/github-dark.css";
 import "katex/dist/katex.min.css";
-import { AmplitudeModulationCanvas, FrequencyModulationCanvas, HeterodyningCanvas, MultipathCanvas, PhaseShiftingCanvas, TimeOfFlightCanvas, ImpedanceCanvas, BodyAttenuationCanvas } from "./components/canvas";
+import { AmplitudeModulationCanvas, FrequencyModulationCanvas, HeterodyningCanvas, MultipathCanvas, PhaseShiftingCanvas, TimeOfFlightCanvas, ImpedanceCanvas, BodyAttenuationCanvas, EndpointRangeCanvas } from "./components/canvas";
 import remarkBodyAttenuationBlocks from "@n-apt/md-preview/remarkBodyAttenuationBlocks";
 import remarkTimeOfFlightBlocks from "@n-apt/md-preview/remarkTimeOfFlightBlocks";
 import remarkSignalCanvasBlocks from "@n-apt/md-preview/remarkSignalCanvasBlocks";
@@ -283,6 +283,7 @@ const App: React.FC = () => {
     "amplitude-modulation-canvas": AmplitudeModulationCanvas,
     "multipath-canvas": MultipathCanvas,
     "heterodyning-canvas": HeterodyningCanvas,
+    "endpoint-range-canvas": EndpointRangeCanvas,
     "icon-inline": IconInline,
   }), []);
 

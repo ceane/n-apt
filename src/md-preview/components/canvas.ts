@@ -9,4 +9,5 @@ export { HeterodyningCanvas } from "./canvas/HeterodyningCanvas";
 export { TimeOfFlightCanvas } from "./canvas/TimeOfFlightCanvas";
 export { ImpedanceCanvas } from "./canvas/ImpedanceCanvas";
 export { BodyAttenuationCanvas } from "./canvas/BodyAttenuationCanvas";
+export { EndpointRangeCanvas } from "./canvas/EndpointRangeCanvas";
 export * from "./canvas/shared";
