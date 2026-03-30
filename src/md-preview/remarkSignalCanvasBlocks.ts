@@ -7,6 +7,7 @@ const SIGNAL_TAGS: Record<string, string> = {
   "canvas::amplitudemodulation": "<amplitude-modulation-canvas></amplitude-modulation-canvas>",
   "canvas::multipath": "<multipath-canvas></multipath-canvas>",
   "canvas::heterodyning": "<heterodyning-canvas></heterodyning-canvas>",
+  "canvas::endpointrange": "<endpoint-range-canvas></endpoint-range-canvas>",
 };
 
 const remarkSignalCanvasBlocks: Plugin = () => (tree) => {
