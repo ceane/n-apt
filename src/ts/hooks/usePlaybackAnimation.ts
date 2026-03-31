@@ -1,12 +1,13 @@
 import { useEffect, useRef, useCallback } from "react";
+import type { LiveFrameData } from "@n-apt/consts/schemas/websocket";
 
 interface UsePlaybackAnimationProps {
   hasStitchedData: boolean;
   isPaused: boolean;
   activeChannel: number;
   allChannelsRef: React.MutableRefObject<any[]>;
-  precomputedFrames: React.MutableRefObject<any[]>;
-  fftCanvasDataRef: React.MutableRefObject<any>;
+  precomputedFrames: React.MutableRefObject<Array<LiveFrameData | null>>;
+  fftCanvasDataRef: React.MutableRefObject<LiveFrameData | null>;
   displayMode: "fft" | "iq";
 }
 
@@ -15,9 +16,9 @@ export const usePlaybackAnimation = ({
   isPaused,
   activeChannel,
   allChannelsRef,
-  precomputedFrames,
+  precomputedFrames: _precomputedFrames,
   fftCanvasDataRef,
-  displayMode,
+  displayMode: _displayMode,
 }: UsePlaybackAnimationProps) => {
   const isPausedRef = useRef(isPaused);
   isPausedRef.current = isPaused;
@@ -28,9 +29,18 @@ export const usePlaybackAnimation = ({
   // Update activeChannel ref when it changes
   useEffect(() => {
     activeChannelRef.current = activeChannel;
+    iqFrameIdxRef.current = 0;
+    lastFrameTimeRef.current = null;
   }, [activeChannel]);
 
   const iqFrameIdxRef = useRef(0);
+
+  useEffect(() => {
+    if (!hasStitchedData) {
+      iqFrameIdxRef.current = 0;
+      lastFrameTimeRef.current = null;
+    }
+  }, [hasStitchedData]);
 
   const animateFrame = useCallback((timestamp: number) => {
     if (!lastFrameTimeRef.current) lastFrameTimeRef.current = timestamp;
@@ -42,32 +52,31 @@ export const usePlaybackAnimation = ({
       const frameInterval = 1000 / frameRate;
 
       if (elapsed >= frameInterval) {
-        if (displayMode === "iq") {
-          const iqData = channelData.iq_data || channelData.iq;
-          if (iqData && iqData.length > 0) {
-            // FFTCanvas expects Uint8Array for IQ processing
-            const fullIq = iqData instanceof Uint8Array ? iqData : new Uint8Array(iqData);
-            // Chunk into fftSize*2 byte windows (I/Q pairs) for frame-by-frame playback
-            const fftSize = channelData.bins_per_frame || 2048;
-            const chunkSize = fftSize * 2;
-            const totalFrames = Math.max(1, Math.floor(fullIq.length / chunkSize));
-            const frameIdx = iqFrameIdxRef.current % totalFrames;
-            const offset = frameIdx * chunkSize;
-            const chunk = fullIq.subarray(offset, offset + chunkSize);
-            iqFrameIdxRef.current = frameIdx + 1;
-            fftCanvasDataRef.current = { iq_data: chunk, data_type: "iq_raw" };
-          }
-        } else {
-          const frames = precomputedFrames.current;
-          if (frames.length > 0) {
-            const frameIdx = Math.floor(timestamp / frameInterval) % frames.length;
-            fftCanvasDataRef.current = frames[frameIdx];
+        const iqData = channelData.iq_data || channelData.iq;
+        if (iqData && iqData.length > 0) {
+          const fullIq = iqData instanceof Uint8Array ? iqData : new Uint8Array(iqData);
+          const fftSize = channelData.bins_per_frame || 2048;
+          const chunkSize = fftSize * 2;
+          const totalFrames = Math.max(1, Math.floor(fullIq.length / chunkSize));
+          const frameIdx = iqFrameIdxRef.current % totalFrames;
+          const offset = frameIdx * chunkSize;
+          const chunk = fullIq.subarray(offset, Math.min(fullIq.length, offset + chunkSize));
+          iqFrameIdxRef.current = frameIdx + 1;
+
+          if (chunk.length >= 2) {
+            fftCanvasDataRef.current = {
+              type: "spectrum",
+              center_frequency_hz: channelData.center_freq_hz,
+              sample_rate: channelData.sample_rate_hz,
+              data_type: "iq_raw",
+              iq_data: chunk,
+            };
           }
         }
         lastFrameTimeRef.current = timestamp;
       }
     }
-  }, [displayMode, allChannelsRef, precomputedFrames, fftCanvasDataRef]);
+  }, [allChannelsRef, fftCanvasDataRef]);
 
   useEffect(() => {
     if (!hasStitchedData || isPaused) return;

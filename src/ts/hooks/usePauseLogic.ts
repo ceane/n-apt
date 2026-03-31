@@ -22,10 +22,7 @@ export interface PauseLogicOptions {
     width: number;
     height: number;
   } | null>;
-  dataRef: React.MutableRefObject<{ waveform?: number[]; iq_data?: Uint8Array; data_type?: string } | null>;
-  ensureFloat32Waveform: (
-    spectrumData: number[] | Float32Array | null | undefined,
-  ) => Float32Array;
+  dataRef: React.MutableRefObject<{ iq_data?: Uint8Array; data_type?: string } | null>;
   forceRender: () => void;
   // Additional options for waterfall validation
   fftSize?: number;
@@ -41,7 +38,6 @@ export function usePauseLogic({
   waterfallBufferRef,
   waterfallDimsRef,
   dataRef,
-  ensureFloat32Waveform,
   forceRender,
   fftSize,
   sampleRate,
@@ -52,13 +48,6 @@ export function usePauseLogic({
 
   const saveFrameData = useCallback(() => {
     try {
-      const waveform = renderWaveformRef.current || waveformFloatRef.current;
-      if (waveform && waveform.length > 0) {
-        sessionStorage.setItem(
-          storageKeys.waveform,
-          JSON.stringify(Array.from(waveform)),
-        );
-      }
       const data = dataRef.current;
       if (data?.iq_data) {
         const iq = data.iq_data;
@@ -116,29 +105,16 @@ export function usePauseLogic({
     dataRef,
     fftSize,
     isPaused,
-    renderWaveformRef,
     sampleRate,
     storageKeys.iq,
     storageKeys.waterfall,
     storageKeys.waterfallDims,
-    storageKeys.waveform,
     waterfallBufferRef,
     waterfallDimsRef,
-    waveformFloatRef,
   ]);
 
   const restoreWaveformFromStorage = useCallback(() => {
     try {
-      const waveformJson = sessionStorage.getItem(storageKeys.waveform);
-      if (waveformJson) {
-        const arr = JSON.parse(waveformJson) as number[];
-        const restored = Float32Array.from(arr);
-        if (restored.length > 0) {
-          renderWaveformRef.current = restored;
-          waveformFloatRef.current = restored;
-        }
-      }
-
       const iqBase64 = sessionStorage.getItem(storageKeys.iq);
       if (iqBase64) {
         const binary = atob(iqBase64);
@@ -177,31 +153,15 @@ export function usePauseLogic({
     storageKeys.iq,
     storageKeys.waterfall,
     storageKeys.waterfallDims,
-    storageKeys.waveform,
     waveformFloatRef,
     waterfallBufferRef,
     waterfallDimsRef,
   ]);
 
   const ensurePausedFrame = useCallback(() => {
-    const existing = renderWaveformRef.current;
-    if (existing && existing.length > 0) return true;
     const data = dataRef.current;
-    const waveformData = data?.waveform ?? data?.iq_data ?? waveformFloatRef.current;
-    if (!waveformData) return false;
-    const waveform =
-      waveformData instanceof Float32Array
-        ? waveformData
-        : (data?.waveform ? ensureFloat32Waveform(data.waveform) : null);
-    
-    // If we only have iq_data, we can't process it here without the hooks, 
-    // but onRenderFrame will handle it if we return false here and it's there.
-    if (!waveform || waveform.length === 0) return false;
-
-    renderWaveformRef.current = new Float32Array(waveform);
-    waveformFloatRef.current = renderWaveformRef.current;
-    return true;
-  }, [renderWaveformRef, waveformFloatRef, dataRef, ensureFloat32Waveform]);
+    return !!(data?.iq_data && data.iq_data.length > 0);
+  }, [dataRef]);
 
   useEffect(() => {
     if (!isPaused) return;

@@ -165,8 +165,6 @@ export const DemodAPTFFTs: React.FC<AptDemodVizProps> = ({
               awaitingDeviceData={false}
               fftSize={2048}
               snapshotGridPreference={true}
-              hideWaterfall={true}
-              hideSliders={true}
             />
           )}
         </CanvasContainer>
@@ -187,8 +185,6 @@ export const DemodAPTFFTs: React.FC<AptDemodVizProps> = ({
               fftSize={2048}
               fftMin={-80}
               snapshotGridPreference={true}
-              hideWaterfall={true}
-              hideSliders={true}
             />
           )}
         </CanvasContainer>
@@ -209,8 +205,6 @@ export const DemodAPTFFTs: React.FC<AptDemodVizProps> = ({
               fftSize={2048}
               fftMin={-80}
               snapshotGridPreference={true}
-              hideWaterfall={true}
-              hideSliders={true}
             />
           )}
         </CanvasContainer>

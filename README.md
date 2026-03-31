@@ -1,6 +1,11 @@
 # :brain: n-apt
 
+--- 
+
+[![Hippocratic License HL3-LAW-SUP-SV](https://img.shields.io/static/v1?label=Hippocratic%20License&message=HL3-LAW-SUP-SV&labelColor=5e2751&color=bc8c3d)](https://firstdonoharm.dev/version/3/0/law-sup-sv.html)
+
 <img src="images/icon.svg" alt="n-apt icon" width="128" height="128">
+
 
 N-APT stands for: **N**euro **A**utomatic **P**icture **T**ransmission.
 
@@ -14,23 +19,59 @@ N-APT originates from the National Security Agency (NSA) and are signals that ap
 
 Meaning full featured experiences, interactivity, communication and more!
 
+Beyond public challenges from the NSA such as their frequent puzzles or the yearly [codebreaker challenge](https://nsa-codebreaker.org/home), this neurotechnology was buried in a deeply horrendous surveillance nightmare as some sort of cryptological challenge.
+
 <br>
 
 ![N-APT signal visualization](images/n-apt-signal.png)
 _Real live, on person capture of N-APT signals via SDR++ with an RTL-SDR (FFT Size 131072, PPM = 1, Gain = +49.06dB)_
 <br>
 
+## Prerequisites
+
+<details>
+<summary>Click to expand dependency installation instructions</summary>
+
+### Node.js
+
+- **Version**: 18.0 or higher
+- **Installation**:
+  - **macOS**: `brew install node`
+  - **Ubuntu/Debian**: `sudo apt update && sudo apt install nodejs npm`
+  - **Windows**: Download from [nodejs.org](https://nodejs.org/)
+- **Verification**: `node --version && npm --version`
+
+### Rust
+
+- **Installation**:
+  - **macOS/Linux**: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
+  - **Windows**: Download from [rustup.rs](https://rustup.rs/)
+- **Verification**: `rustc --version && cargo --version`
+
+### Additional Tools
+
+- **Redis** (optional, for tower data caching):
+  - **macOS**: `brew install redis`
+  - **Ubuntu/Debian**: `sudo apt install redis-server`
+  - **Windows**: Download from [redis.io](https://redis.io/)
+
+</details>
+
 ## Get Started
 
 You don't have access to N-APT, however you can get started with the app to analyze the signals from I/Q captures in the repo. They are very large captures (+300MB), which I had to capture at 3.2MHz slices and stitch them together for a full capture of at about a 30MHz window of signals.
 
-### Installation
+### Quick Start
 
 ```bash
-git clone https://github.com/ceane_of/n-apt.git
+git clone https://github.com/ceane/n-apt.git
 cd n-apt
-npm install
+npm run setup  # sets up .env.local
+npm i          # installs dependencies  
+npm run dev    # starts app
 ```
+
+The `npm run setup` command creates a `.env.local` file with default environment configuration for easy development setup.
 
 ### Running the App
 

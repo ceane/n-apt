@@ -5,6 +5,7 @@ import {
   COLORS,
   STITCHER_BUTTON_STYLE,
 } from "@n-apt/consts/components";
+import { FFT_MIN_DB, FFT_MAX_DB } from "@n-apt/consts";
 
 const SlidersGrid = styled.div`
   display: grid;
@@ -98,8 +99,12 @@ export const VisualizerSliders: React.FC<VisualizerSlidersProps> = ({
 }) => {
   // Calculate appropriate ranges based on power scale
   const isDbm = powerScale === "dBm";
-  const maxDbRange = isDbm ? { min: -100, max: 30 } : { min: -150, max: 0 };
-  const minDbRange = isDbm ? { min: -120, max: -10 } : { min: -150, max: -10 };
+  const maxDbRange = isDbm
+    ? { min: -100, max: 30 }
+    : { min: FFT_MIN_DB, max: FFT_MAX_DB };
+  const minDbRange = isDbm
+    ? { min: -120, max: -10 }
+    : { min: FFT_MIN_DB, max: -10 };
   const dbUnit = isDbm ? "dBm" : "dB";
   return (
     <SlidersGrid>
@@ -138,7 +143,6 @@ export const VisualizerSliders: React.FC<VisualizerSlidersProps> = ({
         step={0.1}
         onChange={onZoomChange}
         formatValue={(v) => `${v.toFixed(1)}x`}
-        logarithmic
         orientation="vertical"
         labelPlacement="bottom"
       />

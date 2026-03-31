@@ -1,4 +1,4 @@
-import type { FC } from "react";
+import { FC, Suspense } from "react";
 import styled from "styled-components";
 
 const WaterfallSection = styled.div`
@@ -64,7 +64,6 @@ const HighlightBand = styled.div<{ $left: number; $width: number }>`
 interface FIFOWaterfallCanvasProps {
   isPaused: boolean;
   setWaterfallGpuCanvasNode: (node: HTMLCanvasElement | null) => void;
-  setWaterfallCanvasNode: (node: HTMLCanvasElement | null) => void;
   setWaterfallOverlayCanvasNode: (node: HTMLCanvasElement | null) => void;
   heterodyningHighlightedBins?: Array<{ start: number; end: number }>;
 }
@@ -72,42 +71,39 @@ interface FIFOWaterfallCanvasProps {
 const FIFOWaterfallCanvas: FC<FIFOWaterfallCanvasProps> = ({
   isPaused,
   setWaterfallGpuCanvasNode,
-  setWaterfallCanvasNode,
   setWaterfallOverlayCanvasNode,
   heterodyningHighlightedBins = [],
 }) => {
   return (
-    <WaterfallSection>
-      <SectionTitle>
-        Waterfall Display {isPaused && "(Paused)"}
-      </SectionTitle>
-      <CanvasWrapper>
-        <CanvasLayer
-          ref={setWaterfallGpuCanvasNode}
-          id="fft-waterfall-canvas-webgpu"
-        />
-        <CanvasLayer
-          ref={setWaterfallCanvasNode}
-          id="fft-waterfall-canvas-2d"
-        />
-        <CanvasLayer
-          ref={setWaterfallOverlayCanvasNode}
-          id="fft-waterfall-canvas-overlay"
-        />
-        {heterodyningHighlightedBins.length > 0 && (
-          <HighlightOverlay data-testid="fifo-waterfall-highlight-overlay">
-            {heterodyningHighlightedBins.map((bin, index) => (
-              <HighlightBand
-                key={`waterfall-highlight-${index}`}
-                data-testid="fifo-waterfall-highlight-band"
-                $left={Math.max(0, Math.min(100, bin.start * 100))}
-                $width={Math.max(0.2, Math.min(100, (bin.end - bin.start) * 100))}
-              />
-            ))}
-          </HighlightOverlay>
-        )}
-      </CanvasWrapper>
-    </WaterfallSection>
+    <Suspense fallback={<div>Loading waterfall...</div>}>
+      <WaterfallSection>
+        <SectionTitle>
+          Waterfall Display {isPaused && "(Paused)"}
+        </SectionTitle>
+        <CanvasWrapper>
+          <CanvasLayer
+            ref={setWaterfallGpuCanvasNode}
+            id="fft-waterfall-canvas-webgpu"
+          />
+          <CanvasLayer
+            ref={setWaterfallOverlayCanvasNode}
+            id="fft-waterfall-canvas-overlay"
+          />
+          {heterodyningHighlightedBins.length > 0 && (
+            <HighlightOverlay data-testid="fifo-waterfall-highlight-overlay">
+              {heterodyningHighlightedBins.map((bin, index) => (
+                <HighlightBand
+                  key={`waterfall-highlight-${index}`}
+                  data-testid="fifo-waterfall-highlight-band"
+                  $left={Math.max(0, Math.min(100, bin.start * 100))}
+                  $width={Math.max(0.2, Math.min(100, (bin.end - bin.start) * 100))}
+                />
+              ))}
+            </HighlightOverlay>
+          )}
+        </CanvasWrapper>
+      </WaterfallSection>
+    </Suspense>
   );
 };
 

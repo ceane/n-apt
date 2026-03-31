@@ -13,6 +13,9 @@ import { DrawSignalRoute } from "@n-apt/routes/DrawSignalRoute";
 import { Model3DRoute } from "@n-apt/routes/Model3DRoute";
 import { MapEndpointsRoute } from "@n-apt/routes/MapEndpointsRoute";
 import { StitchTestRoute } from "@n-apt/routes/StitchTestRoute";
+import { PretextDemoRoute } from "@n-apt/routes/PretextDemoRoute";
+import { VFOGridDemoRoute } from "@n-apt/routes/VFOGridDemoRoute";
+import { TransformersRoute } from "@n-apt/routes/TransformersRoute";
 import { Model3DProvider } from "@n-apt/hooks/useModel3D";
 import { Model3DInteractionProvider as HotspotEditorProvider } from "@n-apt/hooks/useHotspotEditor";
 
@@ -126,6 +129,18 @@ export const AppRoutes: React.FC = () => {
             <StitchTestRoute />
           </MainLayout>
         }
+      />
+      <Route
+        path="/pretext-demo"
+        element={<PretextDemoRoute />}
+      />
+      <Route
+        path="/vfo-grid-demo"
+        element={<VFOGridDemoRoute />}
+      />
+      <Route
+        path="/transformers"
+        element={<TransformersRoute />}
       />
     </Routes>
   );

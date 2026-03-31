@@ -13,7 +13,7 @@ import {
   validateAutoFftOptions,
   isValidSpectrumFrame 
 } from "@n-apt/validation";
-import { loadPersistedAutoFftOptions } from '../middleware/localStorageMiddleware';
+import { loadPersistedAutoFftOptions } from '@n-apt/redux/middleware/localStorageMiddleware';
 
 const shallowEqualObject = (
   a: Record<string, unknown> | null | undefined,

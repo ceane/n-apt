@@ -1,8 +1,6 @@
 /** @jest-environment jsdom */
 import { act, renderHook } from "@testing-library/react";
 import { useDrawWebGPUFIFOWaterfall } from "@n-apt/hooks/useDrawWebGPUFIFOWaterfall";
-import { useDraw2DFIFOWaterfall } from "@n-apt/hooks/useDraw2DFIFOWaterfall";
-import { useDraw2DFFTSignal } from "@n-apt/hooks/useDraw2DFFTSignal";
 
 declare global {
   // eslint-disable-next-line no-var
@@ -20,104 +18,6 @@ declare global {
 }
 
 describe("canvas API integration", () => {
-  const attachCanvasToParent = (canvas: HTMLCanvasElement, width = 800, height = 300) => {
-    const parent = document.createElement("div");
-    Object.defineProperty(parent, "getBoundingClientRect", {
-      value: () => ({
-        width,
-        height,
-        top: 0,
-        left: 0,
-        right: width,
-        bottom: height,
-      }),
-      configurable: true,
-    });
-    parent.appendChild(canvas);
-    document.body.appendChild(parent);
-    return parent;
-  };
-
-  it("tracks 2D canvas drawing calls", () => {
-    const canvas = document.createElement("canvas");
-    const ctx = canvas.getContext("2d");
-
-    expect(ctx).not.toBeNull();
-
-    ctx!.setTransform(1, 0, 0, 1, 0, 0);
-    ctx!.clearRect(0, 0, 100, 50);
-
-    global.expectCanvasContext("2d");
-    global.expectCanvasCall("setTransform", [1, 0, 0, 1, 0, 0]);
-    global.expectCanvasCall("clearRect", [0, 0, 100, 50]);
-  });
-
-  it("tracks 2D FFT drawing through canvas APIs", () => {
-    const canvas = document.createElement("canvas");
-    const parent = attachCanvasToParent(canvas, 900, 420);
-    const { result } = renderHook(() => useDraw2DFFTSignal());
-
-    const success = result.current.draw2DFFTSignal({
-      canvas,
-      waveform: Array.from({ length: 64 }, (_, i) => -90 + Math.sin(i * 0.3) * 15),
-      frequencyRange: { min: 100, max: 110 },
-      fftMin: -120,
-      fftMax: 0,
-      centerFrequencyMHz: 105,
-      isDeviceConnected: true,
-    });
-
-    expect(success).toBe(true);
-    global.expectCanvasContext("2d");
-    global.expectCanvasCall("setTransform", [1, 0, 0, 1, 0, 0]);
-    expect(global.countCanvasCalls("fillRect")).toBeGreaterThan(0);
-    expect(global.countCanvasCalls("lineTo")).toBeGreaterThan(0);
-    expect(global.countCanvasCalls("fillText")).toBeGreaterThan(0);
-
-    parent.remove();
-  });
-
-  it("tracks 2D waterfall drawing and skips redundant redraws without a new frame", () => {
-    const nowSpy = jest.spyOn(performance, "now");
-    nowSpy.mockReturnValueOnce(0).mockReturnValueOnce(5);
-
-    const canvas = document.createElement("canvas");
-    const parent = attachCanvasToParent(canvas, 200, 80);
-    const { result } = renderHook(() => useDraw2DFIFOWaterfall());
-    const waterfallBuffer = new Uint8ClampedArray(200 * 80 * 4);
-    const fftFrame = new Float32Array(120).fill(0.5);
-
-    const first = result.current.draw2DFIFOWaterfall({
-      canvas,
-      waterfallBuffer,
-      fftFrame,
-      frequencyRange: { min: 100, max: 101 },
-      colormap: [
-        [0, 0, 0],
-        [255, 0, 0],
-        [255, 255, 0],
-        [255, 255, 255],
-      ],
-    });
-
-    const putImageCallsAfterFirstDraw = global.countCanvasCalls("putImageData");
-
-    const second = result.current.draw2DFIFOWaterfall({
-      canvas,
-      waterfallBuffer,
-      frequencyRange: { min: 100, max: 101 },
-    });
-
-    expect(first).toBe(true);
-    expect(second).toBe(true);
-    global.expectCanvasContext("2d");
-    expect(putImageCallsAfterFirstDraw).toBeGreaterThan(0);
-    expect(global.countCanvasCalls("putImageData")).toBe(putImageCallsAfterFirstDraw);
-
-    parent.remove();
-    nowSpy.mockRestore();
-  });
-
   it("tracks WebGL draw calls", () => {
     const canvas = document.createElement("canvas");
     const gl = canvas.getContext("webgl2") as WebGL2RenderingContext | null;

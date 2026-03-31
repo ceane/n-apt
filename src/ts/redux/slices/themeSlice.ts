@@ -1,5 +1,5 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
-import { THEME_TOKENS } from '../../../rs/consts/theme';
+import { THEME_TOKENS } from "@n-apt/consts/theme";
 
 export type AppMode = "system" | "dark" | "light";
 

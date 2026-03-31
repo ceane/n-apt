@@ -4,6 +4,7 @@ import { execSync } from "node:child_process";
 import path from "path";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import glsl from "vite-plugin-glsl";
 
 // https://vite.dev/config/
 import { fileURLToPath } from 'node:url';
@@ -48,7 +49,10 @@ const fsAllow = Array.from(
 );
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), glsl({
+    defaultExtension: 'wgsl',
+    compress: false,
+  })],
   root: "./src/ts",
   envDir: "../../",
   publicDir: "../../public",

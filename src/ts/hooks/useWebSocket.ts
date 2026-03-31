@@ -10,6 +10,7 @@ import {
   CaptureRequest,
   CaptureStatus,
   SpectrumFrame,
+  LiveFrameData,
   AutoFftOptionsResponse,
   DeviceProfile,
   SdrSettingsConfig,
@@ -44,7 +45,7 @@ export type WebSocketData = {
   maxSampleRateHz: number | null;
   sampleRateHz: number | null;
   sdrSettings: SdrSettingsConfig | null;
-  dataRef: React.MutableRefObject<any>;
+  dataRef: React.MutableRefObject<LiveFrameData | null>;
   spectrumFrames: SpectrumFrame[];
   captureStatus: CaptureStatus;
   autoFftOptions: AutoFftOptionsResponse | null;
@@ -79,7 +80,7 @@ type WsState = {
   maxSampleRateHz: number | null;
   sampleRateHz: number | null;
   sdrSettings: SdrSettingsConfig | null;
-  data: any;
+  data: LiveFrameData | null;
   spectrumFrames: SpectrumFrame[];
   captureStatus: CaptureStatus;
   autoFftOptions: AutoFftOptionsResponse | null;
@@ -95,7 +96,7 @@ type WsAction =
   | { type: "STATUS"; updates: Partial<WsState> }
   | { type: "CAPTURE_STATUS"; status: CaptureStatus }
   | { type: "AUTO_FFT_OPTIONS"; options: AutoFftOptionsResponse }
-  | { type: "DATA"; data: any }
+  | { type: "DATA"; data: LiveFrameData | null }
   | { type: "CRYPTO_CORRUPTED" };
 
 const INITIAL_WS_STATE: WsState = {
@@ -172,7 +173,7 @@ export const useWebSocket = (
   aesKeyRef.current = aesKey;
 
   // Mutable ref for high-frequency spectrum data to avoid React re-renders
-  const dataRef = useRef<any>(null);
+  const dataRef = useRef<LiveFrameData | null>(null);
 
   useEffect(() => {
     // Shared cleanup: close any existing connection and cancel pending reconnects
@@ -241,41 +242,28 @@ export const useWebSocket = (
                 decryptBinaryPayload(aesKeyRef.current, encryptedPayload)
                   .then((decryptedBytes) => {
                     if (disposed) return;
-                    
-                    // 4. Process based on data type
-                    if (dataType === 1) {
-                      // I/Q data: keep as Uint8Array for WebGPU processing
-                      const spectrumData = {
-                        type: "spectrum",
-                        waveform: new Float32Array(decryptedBytes.length / 2), // Placeholder for compatibility
-                        is_mock_apt: false,
-                        center_frequency_hz: centerFrequencyHz,
-                        waveform_span_mhz: null,
-                        timestamp: timestamp,
-                        data_type: "iq_raw",
-                        sample_rate: sampleRate,
-                        iq_data: decryptedBytes, // Raw I/Q data for WebGPU
-                      };
-                      dataRef.current = spectrumData;
-                    } else {
-                      // Spectrum data: convert to Float32Array as before
-                      const waveform = new Float32Array(
-                        decryptedBytes.buffer,
-                        decryptedBytes.byteOffset,
-                        decryptedBytes.byteLength / 4,
-                      );
-                      const spectrumData = {
-                        type: "spectrum",
-                        waveform: waveform,
-                        is_mock_apt: false,
-                        center_frequency_hz: centerFrequencyHz,
-                        waveform_span_mhz: null,
-                        timestamp: timestamp,
-                        data_type: "spectrum_db",
-                        sample_rate: sampleRate,
-                      };
-                      dataRef.current = spectrumData;
+
+                    if (dataType !== 1) {
+                      console.warn("Ignoring unexpected non-IQ binary payload", {
+                        dataType,
+                        centerFrequencyHz,
+                        sampleRate,
+                        byteLength: decryptedBytes.byteLength,
+                      });
+                      return;
                     }
+
+                    const spectrumData: LiveFrameData = {
+                      type: "spectrum",
+                      is_mock_apt: false,
+                      center_frequency_hz: centerFrequencyHz,
+                      waveform_span_mhz: null,
+                      timestamp: timestamp,
+                      data_type: "iq_raw",
+                      sample_rate: sampleRate,
+                      iq_data: decryptedBytes,
+                    };
+                    dataRef.current = spectrumData;
                   })
                   .catch((e) => {
                     console.error("Binary decryption failed:", e);
@@ -456,7 +444,7 @@ export const useWebSocket = (
                 }
                 dispatch({ type: "CAPTURE_STATUS", status: newStatus });
               }
-            } catch (e) {
+            } catch {
               // Silently handle JSON parsing errors
             }
           }
@@ -476,7 +464,7 @@ export const useWebSocket = (
                 };
                 dispatch({ type: "AUTO_FFT_OPTIONS", options });
               }
-            } catch (e) {
+            } catch {
               // Silently handle JSON parsing errors
             }
           }

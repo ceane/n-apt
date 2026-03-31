@@ -2,11 +2,13 @@ import React from "react";
 import styled from "styled-components";
 import { useAuthentication } from "@n-apt/hooks/useAuthentication";
 import { useGeolocation } from "@n-apt/hooks/useGeolocation";
+import { useDispatch } from "react-redux";
 import type {
   CaptureStatus,
   CaptureFileType,
   DeviceState,
 } from "@n-apt/hooks/useWebSocket";
+import { addNotification, updateNotification } from "@n-apt/redux/slices/notificationsSlice";
 import {
   Clock,
   File as FileIcon,
@@ -16,6 +18,7 @@ import {
   PanelLeftDashed,
   Scan,
   Trash2,
+  Download,
   type LucideIcon,
 } from "lucide-react";
 
@@ -301,6 +304,8 @@ const StatusDownloadsCard = styled.div`
   border-radius: 8px;
   padding: 12px;
   min-width: 0;
+  z-index: 10;
+  position: relative;
 `;
 
 const InfoCardTitle = styled.div`
@@ -442,6 +447,7 @@ export const IQCaptureControlsSection: React.FC<
   onClearStatus,
 }) => {
     const { isAuthenticated, sessionToken } = useAuthentication();
+    const dispatch = useDispatch();
     const {
       isSupported,
       requestPermission,
@@ -451,6 +457,66 @@ export const IQCaptureControlsSection: React.FC<
     const hasOnscreenSelected = activeCaptureAreas.includes("Onscreen");
     const hasChannelSelected = activeCaptureAreas.some((a) => a !== "Onscreen");
     const onscreenOnly = hasOnscreenSelected && !hasChannelSelected;
+
+    // Helper function to format file sizes
+    const formatFileSize = (bytes: number): string => {
+      if (bytes === 0) return '0 B';
+      const k = 1024;
+      const sizes = ['B', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      const value = bytes / Math.pow(k, i);
+      // Show decimal places for KB and above, but not for bytes
+      if (i === 0) {
+        return `${Math.round(value)} ${sizes[i]}`;
+      }
+      return `${value.toFixed(2)} ${sizes[i]}`;
+    };
+
+    // Notification effect for capture status changes
+    React.useEffect(() => {
+      const captureNotificationId = `capture-${captureStatus?.jobId || 'unknown'}`;
+
+      if (captureStatus?.status === "started") {
+        dispatch(addNotification({
+          id: captureNotificationId,
+          type: 'info',
+          title: 'Capturing...',
+          message: captureStatus.message || 'I/Q capture in progress',
+          duration: 0, // Don't auto-dismiss while capturing
+        }));
+      } else if (captureStatus?.status === "progress") {
+        // Update notification with progress if available
+        dispatch(updateNotification({
+          id: captureNotificationId,
+          updates: {
+            message: captureStatus.message || 'Processing...',
+          }
+        }));
+      } else if (captureStatus?.status === "done") {
+        dispatch(updateNotification({
+          id: captureNotificationId,
+          updates: {
+            type: 'success',
+            title: 'Capture Complete',
+            message: captureStatus.filename
+              ? `New capture ready for download\n${captureStatus.fileSize ? formatFileSize(captureStatus.fileSize) : ''}`
+              : 'I/Q capture completed successfully',
+            duration: 5000, // Auto-dismiss after 5 seconds
+            icon: <Download size={16} />
+          }
+        }));
+      } else if (captureStatus?.status === "failed") {
+        dispatch(updateNotification({
+          id: captureNotificationId,
+          updates: {
+            type: 'error',
+            title: 'Capture Failed',
+            message: captureStatus.error || captureStatus.message || 'I/Q capture failed',
+            duration: 8000, // Keep error notification longer
+          }
+        }));
+      }
+    }, [captureStatus, dispatch]);
 
     // Calculate capture range span to determine appropriate mode
     const captureRangeSpan = captureRange.max - captureRange.min;

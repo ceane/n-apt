@@ -10,10 +10,10 @@ export function configureWebGPUCanvas(
   device: GPUDevice,
   format: GPUTextureFormat,
   alphaMode: GPUCanvasAlphaMode = "premultiplied",
-): GPUCanvasContext {
+): GPUCanvasContext | null {
   const ctx = canvas.getContext("webgpu");
   if (!ctx) {
-    throw new Error("WebGPU context not available");
+    return null;
   }
   ctx.configure({
     device,

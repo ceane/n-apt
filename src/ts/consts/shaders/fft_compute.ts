@@ -99,6 +99,7 @@ fn twiddle_factor(k: u32, n: u32, direction: i32) -> Complex {
 @group(0) @binding(1) var<storage, read_write> output_buffer: array<Complex>;
 @group(0) @binding(2) var<storage, read_write> temp_buffer: array<Complex>;
 @group(0) @binding(3) var<uniform> params: FFTParams;
+@group(0) @binding(4) var<storage, read> raw_iq_buffer: array<u32>;
 
 // Butterfly operation for FFT
 fn butterfly(a: Complex, b: Complex, twiddle: Complex) -> Complex {
@@ -322,6 +323,18 @@ fn rtl_sdr_windowed_complex_iq(idx: u32, sample: Complex) -> Complex {
   return Complex(sample.real * window_val, sample.imag * window_val);
 }
 
+fn unpack_raw_iq_sample(idx: u32) -> Complex {
+  let byte_index = idx * 2u;
+  let word_index = byte_index / 4u;
+  let byte_offset = byte_index % 4u;
+  let word = raw_iq_buffer[word_index];
+
+  let i_byte = f32((word >> (byte_offset * 8u)) & 0xffu);
+  let q_byte = f32((word >> ((byte_offset + 1u) * 8u)) & 0xffu);
+
+  return Complex((i_byte - 128.0) / 128.0, (q_byte - 128.0) / 128.0);
+}
+
 fn rtl_sdr_complex_power(sample: Complex) -> f32 {
   return sample.real * sample.real + sample.imag * sample.imag;
 }
@@ -400,11 +413,11 @@ fn calibrated_dbm(sample: Complex, idx: u32) -> f32 {
 fn rtl_sdr_iq_to_dbm(@builtin(global_invocation_id) global_id: vec3<u32>) {
   let idx = global_id.x;
 
-  if (idx >= params.input_size / 2u) {
+  if (idx >= params.input_size) {
     return;
   }
 
-  let iq_sample = input_buffer[idx];
+  let iq_sample = unpack_raw_iq_sample(idx);
   output_buffer[idx] = rtl_sdr_windowed_complex_iq(idx, iq_sample);
 }
 

@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Transformers.js Test</title>
+    <script type="module">
+        // Test transformers.js basic functionality
+        async function testTransformers() {
+            try {
+                console.log('Loading transformers.js...');
+                const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.0');
+                
+                console.log('Creating sentiment analysis pipeline...');
+                const classifier = await pipeline('sentiment-analysis');
+                
+                console.log('Analyzing text...');
+                const result = await classifier('I love transformers!');
+                console.log('Result:', result);
+                
+                document.getElementById('result').textContent = JSON.stringify(result, null, 2);
+                document.getElementById('status').textContent = 'Success!';
+            } catch (error) {
+                console.error('Error:', error);
+                document.getElementById('status').textContent = 'Error: ' + error.message;
+            }
+        }
+        
+        // Run test when page loads
+        window.onload = testTransformers;
+    </script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .container {
+            background: #f5f5f5;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        #result {
+            background: #fff;
+            padding: 15px;
+            border-radius: 4px;
+            white-space: pre-wrap;
+            font-family: monospace;
+        }
+        .status {
+            font-weight: bold;
+            color: #333;
+        }
+    </style>
+</head>
+<body>
+    <h1>Transformers.js Test</h1>
+    <div class="container">
+        <h2>Status: <span id="status" class="status">Loading...</span></h2>
+        <h3>Result:</h3>
+        <div id="result">Waiting for result...</div>
+    </div>
+</body>
+</html>

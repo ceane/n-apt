@@ -9,6 +9,7 @@ import { useAppDispatch } from "@n-apt/redux";
 import { setActivePlaybackMetadata, clearActivePlaybackMetadata } from "@n-apt/redux";
 import type { FFTVisualizerMachine } from "@n-apt/utils/fftVisualizerMachine";
 import { buildPlaybackSeedFrame } from "@n-apt/utils/playbackSeedFrame";
+import type { LiveFrameData } from "@n-apt/consts/schemas/websocket";
 
 interface FFTPlaybackCanvasProps {
   selectedFiles: { id: string; name: string; downloadUrl?: string }[];
@@ -178,7 +179,7 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(({
    * React state.  FFTCanvas reads this ref on every rAF, identical to the
    * live-view data path in useWebSocket → dataRef.current.
    */
-  const fftCanvasDataRef = useRef<any>(null);
+  const fftCanvasDataRef = useRef<LiveFrameData | null>(null);
 
   // ── Playback animation hook ──
   usePlaybackAnimation({

@@ -64,7 +64,7 @@ describe('WebGPU Utilities', () => {
       ]);
     });
 
-    test('should throw error when WebGPU context is not available', () => {
+    test('should return null when WebGPU context is not available', () => {
       // Mock getContext to return null for webgpu
       const originalGetContext = HTMLCanvasElement.prototype.getContext;
       HTMLCanvasElement.prototype.getContext = jest.fn(() => null);
@@ -72,13 +72,13 @@ describe('WebGPU Utilities', () => {
       const canvas = document.createElement('canvas');
       const mockDevice = {};
 
-      expect(() => {
+      expect(
         configureWebGPUCanvas(
           canvas,
           mockDevice as GPUDevice,
           'rgba8unorm' as GPUTextureFormat
-        );
-      }).toThrow('WebGPU context not available');
+        )
+      ).toBeNull();
 
       // Restore original getContext
       HTMLCanvasElement.prototype.getContext = originalGetContext;

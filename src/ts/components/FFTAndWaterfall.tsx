@@ -1,4 +1,4 @@
-import { forwardRef, useMemo, useState } from "react";
+import { forwardRef, useState } from "react";
 import styled from "styled-components";
 import FFTCanvas, {
   type FFTCanvasHandle,
@@ -49,31 +49,21 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTCanvasProps>(
     const wfSmoothEnabled = useAppSelector(
       (reduxState) => reduxState.spectrum.wfSmoothEnabled,
     );
-    const [waterfallCanvasNode, setWaterfallCanvasNode] =
-      useState<HTMLCanvasElement | null>(null);
     const [waterfallGpuCanvasNode, setWaterfallGpuCanvasNode] =
       useState<HTMLCanvasElement | null>(null);
     const [waterfallOverlayCanvasNode, setWaterfallOverlayCanvasNode] =
       useState<HTMLCanvasElement | null>(null);
+
+    const waterfallCanvasBindings: FFTCanvasWaterfallBindings = {
+      waterfallGpuCanvasNode,
+      waterfallOverlayCanvasNode,
+      setWaterfallGpuCanvasNode,
+      setWaterfallOverlayCanvasNode,
+    };
+
     const zoom = props.vizZoom ?? 1;
     const dbMin = props.fftMin ?? -120;
-    const dbMax = props.fftMax ?? (props.powerScale === "dBm" ? 30 : 0);
-
-    const waterfallCanvasBindings = useMemo<FFTCanvasWaterfallBindings>(
-      () => ({
-        waterfallCanvasNode,
-        waterfallGpuCanvasNode,
-        waterfallOverlayCanvasNode,
-        setWaterfallCanvasNode,
-        setWaterfallGpuCanvasNode,
-        setWaterfallOverlayCanvasNode,
-      }),
-      [
-        waterfallCanvasNode,
-        waterfallGpuCanvasNode,
-        waterfallOverlayCanvasNode,
-      ],
-    );
+    const dbMax = props.fftMax ?? 0;
 
     return (
       <Container>
@@ -81,13 +71,10 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTCanvasProps>(
           <FFTCanvas
             ref={ref}
             {...props}
-            hideWaterfall={true}
-            hideSliders={true}
             waterfallCanvasBindings={waterfallCanvasBindings}
           />
           <FIFOWaterfallCanvas
             isPaused={props.isPaused}
-            setWaterfallCanvasNode={setWaterfallCanvasNode}
             setWaterfallGpuCanvasNode={setWaterfallGpuCanvasNode}
             setWaterfallOverlayCanvasNode={setWaterfallOverlayCanvasNode}
             heterodyningHighlightedBins={props.heterodyningHighlightedBins}

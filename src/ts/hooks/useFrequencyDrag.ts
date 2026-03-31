@@ -2,10 +2,7 @@ import { useRef, useEffect } from "react";
 import type { FrequencyRange } from "@n-apt/consts/types";
 
 export interface FrequencyDragOptions {
-  spectrumCanvasRef: React.RefObject<HTMLCanvasElement | null>;
   spectrumGpuCanvasRef: React.RefObject<HTMLCanvasElement | null>;
-  /** Pass the canvas DOM node state values so the effect re-runs when they mount */
-  spectrumCanvasNode?: HTMLCanvasElement | null;
   spectrumGpuCanvasNode?: HTMLCanvasElement | null;
   /** Container div wrapping the canvases (receives pointer events since canvas has pointer-events:none) */
   spectrumContainerRef?: React.RefObject<HTMLDivElement | null>;
@@ -27,9 +24,7 @@ export interface FrequencyDragOptions {
 }
 
 export function useFrequencyDrag({
-  spectrumCanvasRef,
   spectrumGpuCanvasRef,
-  spectrumCanvasNode,
   spectrumGpuCanvasNode,
   spectrumContainerRef,
   frequencyRangeRef,
@@ -58,25 +53,16 @@ export function useFrequencyDrag({
   const selectionBoxRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    // The canvas layers have pointer-events:none so we must attach to the
-    // container div (CanvasWrapper) which sits behind all canvas layers and
+    // The canvas layer has pointer-events:none so we must attach to the
+    // container div (CanvasWrapper) which sits behind the canvas and
     // naturally receives all pointer events.
     const getContainer = (): HTMLElement | null => {
       if (spectrumContainerRef?.current) return spectrumContainerRef.current;
-      // Fallback: use the parent element of whichever canvas is active
-      const canvas = spectrumWebgpuEnabled
-        ? spectrumGpuCanvasRef.current
-        : spectrumCanvasRef.current;
-      return canvas?.parentElement ?? null;
+      return spectrumGpuCanvasRef.current?.parentElement ?? null;
     };
 
-    // For getBoundingClientRect we still use the canvas dimensions (same as container in practice)
     const getActiveSpectrumCanvas = (): HTMLElement | null => {
-      if (spectrumWebgpuEnabled) {
-        return spectrumGpuCanvasRef.current ?? getContainer();
-      } else {
-        return spectrumCanvasRef.current ?? getContainer();
-      }
+      return spectrumGpuCanvasRef.current ?? getContainer();
     };
 
     const handlePointerMove = (e: PointerEvent) => {
@@ -187,7 +173,7 @@ export function useFrequencyDrag({
           }
         }
 
-        // Standard behavior or fallback: Clamp to max allowable pan (stay within window)
+        // Standard behavior: Clamp to max allowable pan (stay within window)
         const clampedPan = Math.max(-maxPan, Math.min(maxPan, desiredPan));
         onVizPanChange(clampedPan);
       } else if (onFrequencyRangeChange) {
@@ -246,8 +232,6 @@ export function useFrequencyDrag({
         onFrequencyRangeChange(newRange);
 
       } else if (onVizPanChange) {
-        // View-only mode (file stitcher, zoom === 1): bounded visual pan so the
-        // frequency window never leaves the file's actual frequency span.
         const maxPan = fullRange / 2 - visualRange / 2;
         let newPan = dragStartPanRef.current - freqChange;
         newPan = Math.max(-maxPan, Math.min(maxPan, newPan));
@@ -461,12 +445,8 @@ export function useFrequencyDrag({
     onFrequencyRangeChange,
     activeSignalArea,
     spectrumWebgpuEnabled,
-    spectrumCanvasRef,
     spectrumGpuCanvasRef,
     spectrumContainerRef,
-    // Canvas nodes (state values) ensure the effect re-runs when the DOM
-    // elements actually mount, so event listeners are attached correctly.
-    spectrumCanvasNode,
     spectrumGpuCanvasNode,
     frequencyRangeRef,
     vizZoomRef,
@@ -482,10 +462,7 @@ export function useFrequencyDrag({
   useEffect(() => {
     const getContainer = (): HTMLElement | null => {
       if (spectrumContainerRef?.current) return spectrumContainerRef.current;
-      const canvas = spectrumWebgpuEnabled
-        ? spectrumGpuCanvasRef.current
-        : spectrumCanvasRef.current;
-      return canvas?.parentElement ?? null;
+      return spectrumGpuCanvasRef.current?.parentElement ?? null;
     };
     const container = getContainer();
     if (container && !isDraggingRef.current) {
@@ -493,7 +470,6 @@ export function useFrequencyDrag({
     }
   }, [
     spectrumWebgpuEnabled,
-    spectrumCanvasRef,
     spectrumGpuCanvasRef,
     spectrumContainerRef,
   ]);

@@ -232,24 +232,38 @@ const radioWaveFragmentShader = `
     float progress = mod(uTime * speed, 2.2) - 0.6;
 
     float bodyAlpha = sampleBody(vUv);
-    bool insideBody = bodyAlpha > 0.15;
-
-    // Radio wave arc shape
+    bool insideBody = bodyAlpha > 0.15;    // Two Radio wave arc ripples (Double Pulse)
     float arcOffset = 0.25 * pow(abs(vUv.y - 0.5) * 2.0, 2.2);
-    float dist = (vUv.x + arcOffset) - progress;
+    float dist1 = (vUv.x + arcOffset) - progress;
+    float dist2 = (vUv.x + arcOffset) - (progress - 0.12);
 
-    // Sharp front, smooth tail
-    float bodyStrength = smoothstep(0.02, 0.0, dist) * smoothstep(-0.5, 0.0, dist);
+    float bodyStrength1 = smoothstep(0.015, 0.0, dist1) * smoothstep(-0.35, 0.0, dist1);
+    float bodyStrength2 = smoothstep(0.015, 0.0, dist2) * smoothstep(-0.35, 0.0, dist2);
+    float bodyStrength = max(bodyStrength1, bodyStrength2);
 
-    // Rippling distortion
+    // Background center line that ripples into two diverging/converging sine waves
+    float centerY = 0.5;
+    // They peak together at vUv.x = 0.48 (body position) with longer wavelengths (approx 1 cycle shown)
+    float sineDist1 = sin((vUv.x - 0.48) * 7.5 - uTime * 8.0) * bodyStrength * 0.15;
+    float sineDist2 = sin((vUv.x - 0.48) * 5.0 - uTime * 8.0) * bodyStrength * 0.15;
+    
+    float lineMask1 = smoothstep(0.007, 0.0, abs(vUv.y - centerY - sineDist1));
+    float lineMask2 = smoothstep(0.007, 0.0, abs(vUv.y - centerY - sineDist2));
+    
+    // Brighten the intersection point for constructive interference feel
+    float intersection = lineMask1 * lineMask2;
+    vec3 lineColor = mix(vec3(0.66, 0.18, 0.9) * 0.48, vec3(1.0, 0.88, 1.0), intersection * 0.82);
+    float bgLineAlpha = max(lineMask1, lineMask2) * 0.65;
+
+    // Rippling distortion for volume
     float ripple1 = sin((vUv.x * 7.5) - (uTime * 2.6) + (vUv.y * 2.8));
     float ripple2 = sin((vUv.x * 13.0) + (vUv.y * 4.0) - (uTime * 4.2));
     float ripple3 = sin((vUv.x * 4.0) - (vUv.y * 9.0) + (uTime * 1.5));
     float ripple = ripple1 * 0.42 + ripple2 * 0.33 + ripple3 * 0.25;
     float wave = ripple * 0.5 + 0.5;
 
-    float edge = smoothstep(0.03, 0.0, abs(dist));
-    float edgeFalloff = smoothstep(0.18, -0.06, dist);
+    float edge = smoothstep(0.02, 0.0, abs(dist1)) + smoothstep(0.02, 0.0, abs(dist2));
+    float edgeFalloff = smoothstep(0.18, -0.06, dist1) + smoothstep(0.18, -0.06, dist2);
     float bodyDepth = smoothstep(0.0, 0.78, bodyStrength);
 
     float fresnel = pow(1.0 - clamp(abs(vUv.y - 0.5) * 1.9, 0.0, 1.0), 2.4);
@@ -257,7 +271,10 @@ const radioWaveFragmentShader = `
     float trough = (1.0 - wave) * bodyStrength * 0.08;
     float caustics = smoothstep(0.28, 0.96, wave) * bodyStrength * 0.12;
 
-    float alpha = (bodyStrength * 0.02 + caustics + crest + fresnel * 0.22) * edgeFalloff;
+    float alpha = (bodyStrength * 0.02 + caustics + crest + fresnel * 0.22) * clamp(edgeFalloff, 0.0, 1.0);
+    // Incorporate background lines
+    alpha = max(alpha, bgLineAlpha);
+    
     alpha *= smoothstep(-0.15, 0.15, vUv.x + arcOffset - progress + 0.5);
     alpha *= smoothstep(1.15, 0.85, vUv.x);
 
@@ -273,17 +290,18 @@ const radioWaveFragmentShader = `
     // The outline hits 100% only when the wave is exactly wiping over it
     float outlineAlpha = edgeDetect * nearWave * 0.9;
 
-    // Force field palette
-    vec3 darkCore = vec3(0.02, 0.02, 0.03);
-    vec3 midTone = vec3(0.18, 0.19, 0.22);
-    vec3 brightEdge = vec3(0.92, 0.94, 0.96);
-    vec3 hotWhite = vec3(1.0, 0.98, 0.95);
+    // Purple force field palette
+    vec3 darkCore = vec3(0.04, 0.02, 0.06);
+    vec3 midTone = vec3(0.38, 0.18, 0.6); 
+    vec3 brightEdge = vec3(0.85, 0.6, 0.98); 
+    vec3 hotWhite = vec3(1.0, 0.92, 1.0); 
 
     vec3 waveBody = mix(darkCore, midTone, wave * 0.5 + bodyDepth * 0.3);
     vec3 edgeGlow = mix(midTone, brightEdge, fresnel * 0.8 + crest * 1.0);
     vec3 color = mix(waveBody, edgeGlow, clamp(fresnel + crest * 0.9, 0.0, 1.0));
     color += hotWhite * edge * 0.35;
     color += vec3(0.03) * trough;
+    color = mix(color, lineColor, bgLineAlpha);
 
     // Replace outline color with iridescent-to-white sweep
     // Same iridescent soap bubble core palette used in the text
@@ -694,37 +712,35 @@ const binaryRowFragmentShader = `
     float cycle = mod(uTime * speed, 2.2);
     // Align wave progression identically to RadioWave
     float progress = cycle - 0.6;
-
     float normalizedX = vWorldPosition.x / 10.0 + 0.5;
-    float normalizedY = vWorldPosition.y / 6.5 + 0.5;
-    float arcOffset = 0.25 * pow(abs(normalizedY - 0.5) * 2.0, 2.2);
     
-    float dist = (normalizedX + arcOffset) - progress;
-
-    // smoothstep(0.01, -0.01, dist) means 1 when wave has passed it (dist < 0), 0 before.
-    float revealedThisCycle = smoothstep(0.01, -0.01, dist);
+    // Wavefront UV is 'progress'. Dist < 0 means wave has passed.
+    // Use local vUv.x to give the digit itself a sense of being 'swiped' into existence
+    // as the wave front overtakes its horizontal span.
+    float dist = normalizedX - progress;
+    float localWipeShift = (vUv.x - 0.5) * 0.15; // slightly lead the wipe across the char width
+    float revealedThisCycle = smoothstep(0.12, -0.05, dist + localWipeShift);
     
     // Fade to zero gracefully as the cycle approaches its very end (between 2.0 and 2.2)
-    float fadeOut = smoothstep(2.2, 2.0, cycle);
+    float fadeOut = smoothstep(2.2, 1.9, cycle);
 
     // Sum previous cycle fade with current cycle reveal, clamp to 1.0.
     float totalReveal = clamp(revealedThisCycle * fadeOut, 0.0, 1.0);
 
-    // Iridescent soap bubble effect
-    // a+b*cos(2π(c*t+d)) palette
-    vec3 a = vec3(0.5, 0.5, 0.5);
-    vec3 b = vec3(0.5, 0.5, 0.5);
+    // Purple Iridescent Palette
+    vec3 a = vec3(0.5, 0.4, 0.6);
+    vec3 b = vec3(0.4, 0.2, 0.5);
     vec3 c = vec3(1.0, 1.0, 1.0);
-    vec3 d = vec3(0.00, 0.33, 0.67);
-    float paletteInput = totalReveal + vWorldPosition.x * 0.15 - uTime * 0.8;
+    vec3 d = vec3(0.35, 0.1, 0.5);
+    float paletteInput = totalReveal + vWorldPosition.x * 0.15 - uTime * 0.6;
     vec3 iridescent = a + b * cos(6.28318 * (c * paletteInput + d));
     
-    // Add extra brightness at the wavefront (where dist is near 0)
-    float highlight = smoothstep(0.0, -0.05, dist) * smoothstep(-0.4, -0.05, dist);
-    vec3 litColor = mix(iridescent, vec3(1.0), 0.3 + highlight * 0.5);
-
+    // Brightness highlight
+    float highlight = smoothstep(0.1, -0.05, dist) * smoothstep(-0.5, -0.05, dist);
+    vec3 litColor = mix(iridescent, vec3(1.0, 0.9, 1.0), 0.2 + highlight * 0.6);
+    
     // Base color heavily darkened
-    vec3 baseColor = vec3(0.18, 0.20, 0.22);
+    vec3 baseColor = vec3(0.08, 0.04, 0.12);
     
     // Completely hide until wiped over!
     float finalAlpha = texColor.a * totalReveal;
@@ -743,18 +759,16 @@ const BinaryRow = ({ x, y, widthWorld }: { x: number; y: number; widthWorld: num
   });
 
   const { texture, width, height } = useMemo(() => {
-    // Randomize length between 7 and 18 characters. Since it always maps to the same world width, 
-    // fewer characters will stretch internally and appear physically larger, and more characters will appear smaller!
-    const length = 7 + Math.floor(Math.random() * 12);
-    const text = Array.from({ length }, () => (Math.random() > 0.5 ? '1' : '0')).join('');
+    // Only one zero or one, randomly chosen
+    const text = Math.random() > 0.5 ? '1' : '0';
 
     const canvas = document.createElement("canvas");
     const ctx = canvas.getContext("2d");
     if (!ctx) return { texture: null, width: 1, height: 1 };
 
-    // We can also randomly jitter the font size curve slightly
-    const startSize = 85 + Math.random() * 20;
-    const endSize = 20 + Math.random() * 10;
+    // Varies in size too per loop
+    const startSize = 90 + Math.random() * 110;
+    const endSize = startSize;
     const chars = text.split("");
     
     // Calculate widths for decreasing font size
@@ -809,16 +823,62 @@ const BinaryRow = ({ x, y, widthWorld }: { x: number; y: number; widthWorld: num
     }
   }, [texture]);
 
-  useFrame((state) => {
+  const meshRef = useRef<THREE.Mesh>(null);
+
+  useFrame(({ clock }) => {
     if (materialRef.current) {
-      materialRef.current.uniforms.uTime.value = state.clock.elapsedTime;
+      materialRef.current.uniforms.uTime.value = clock.elapsedTime;
+    }
+    
+    // Calculate horizontal 'travel' displacement to stay on the wavefront
+    if (meshRef.current) {
+      const speed = 0.35;
+      const cycle = (clock.elapsedTime * speed % 2.2);
+      const progress = cycle - 0.6;
+      
+      // We use the start position passed via props
+      const startWorldX = x;
+      
+      // Correct Wavefront World X (progress is the UV position [0..1 approx])
+      const waveWorldX = (progress - 0.5) * 10.0;
+      
+      // Update mesh horizontal position: locked slightly behind wavefront to stay in reveal zone
+      const currentX = Math.max(startWorldX, waveWorldX - 0.05);
+      meshRef.current.position.x = currentX;
+      
+      const uvX = currentX / 10.0 + 0.5;
+      const arcOffset = 0.25 * Math.pow(Math.abs(y / 6.5) * 2.0, 2.2); 
+      
+      const waveUvX = uvX + arcOffset;
+      const dist1 = waveUvX - progress;
+      const dist2 = waveUvX - (progress - 0.12);
+      
+      // Body strength (reveal window)
+      const bodyS = Math.max(
+        Math.max(0, 1.0 - Math.abs(dist1 * 8.0)),
+        Math.max(0, 1.0 - Math.abs(dist2 * 8.0))
+      );
+
+      // Same sine math as background lines, but with extra amplitude to be at the 'peak'
+      const sine1 = Math.sin((uvX - 0.48) * 7.5 - clock.elapsedTime * 8.0);
+      const sine2 = Math.sin((uvX - 0.48) * 5.0 - clock.elapsedTime * 8.0);
+      
+      // Surf the peaks: use the sum + an offset to stay prominently on top
+      const surfHeight = (sine1 + sine2) * 0.75 * bodyS;
+      meshRef.current.position.y = y + 0.38 + surfHeight;
+      
+      // Properly time the visibility: hide before reset and until wavefront arrives
+      // 1.9 is the fadeOut threshold from the shader
+      const isLoopClosing = cycle > 1.92 || cycle < 0.1;
+      const waveArrival = currentX > startWorldX - 0.02;
+      meshRef.current.visible = waveArrival && !isLoopClosing;
     }
   });
 
   if (!texture) return null;
 
   return (
-    <mesh position={[x + width / 2, y, 0.18]}>
+    <mesh ref={meshRef} position={[x, y, 0.65]}>
       <planeGeometry args={[width, height]} />
       <shaderMaterial
         ref={materialRef}
@@ -839,15 +899,12 @@ const BinaryMatrixOverlay = () => {
     const centerY = -0.38; 
     const radiusX = 1.08; 
 
-    // Move substantially past the arm (radiusX does not account for extended hand)
-    const startX = centerX + radiusX + 0.65;
-    // Extend end further right
-    const endX = 4.85; 
-
-    const widthWorld = endX - startX;
+    // Move to just outside the body silhouette for the 'exit' effect
+    const startX = centerX + radiusX + 0.12;
+    const widthWorld = 1.2; // Width of the texture itself
 
     return {
-      y: centerY - 0.25, // offset slightly to visibly center the text height
+      y: centerY - 0.25, 
       x: startX,
       widthWorld: widthWorld
     };

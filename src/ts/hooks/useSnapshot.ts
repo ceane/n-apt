@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { FFT_AREA_MIN } from "@n-apt/consts";
-import { THEME_TOKENS } from "../../rs/consts/theme";
+import { THEME_TOKENS } from "@n-apt/consts";
 import { useAppSelector } from "@n-apt/redux";
 import { useResolvedThemeMode } from "@n-apt/components/ui/Theme";
 import type { SnapshotData } from "@n-apt/components/FFTCanvas";

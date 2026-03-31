@@ -892,11 +892,7 @@ impl WebSocketServer {
               let device_type = processor.device_type().to_string();
               let power_scale = processor.get_power_scale();
               let sample_rate = processor.get_sample_rate();
-              let raw_iq = if matches!(power_scale, PowerScale::DBm) {
-                processor.frame.last_frame_raw_iq.clone()
-              } else {
-                vec![]
-              };
+              let raw_iq = processor.frame.last_frame_raw_iq.clone();
               let fps = processor.display_frame_rate;
               Ok((
                 waveform,
@@ -916,7 +912,7 @@ impl WebSocketServer {
 
       match process_result {
         Ok(Ok((
-          waveform,
+          _waveform,
           timestamp,
           center_frequency,
           is_mock_apt,
@@ -944,37 +940,21 @@ impl WebSocketServer {
             }
           }
 
-          let spectrum_message = if matches!(power_scale, PowerScale::DBm) {
-            if raw_iq.is_empty() {
-              warn!("Raw I/Q data is empty in dBm mode - this may cause data stream freeze");
-            }
+          if raw_iq.is_empty() {
+            warn!("Raw I/Q data is empty in live stream - this may cause data stream freeze");
+          }
 
-            SpectrumData {
-              message_type: "spectrum".to_string(),
-              waveform: waveform.clone(),
-              is_mock_apt,
-              center_frequency_hz: Some(center_frequency),
-              waveform_span_mhz: None,
-              timestamp,
-              data_type: Some("iq_raw".to_string()),
-              sample_rate: Some(sample_rate),
-              power_scale: Some(PowerScale::DBm),
-              iq_data: raw_iq,
-            }
-          } else {
-            // Normal mode: send processed spectrum data
-            SpectrumData {
-              message_type: "spectrum".to_string(),
-              waveform,
-              is_mock_apt,
-              center_frequency_hz: Some(center_frequency),
-              waveform_span_mhz: None,
-              timestamp,
-              data_type: Some("spectrum_db".to_string()),
-              sample_rate: Some(sample_rate),
-              power_scale: Some(power_scale),
-              iq_data: vec![], // Empty for spectrum data
-            }
+          let spectrum_message = SpectrumData {
+            message_type: "spectrum".to_string(),
+            waveform: Vec::new(),
+            is_mock_apt,
+            center_frequency_hz: Some(center_frequency),
+            waveform_span_mhz: None,
+            timestamp,
+            data_type: Some("iq_raw".to_string()),
+            sample_rate: Some(sample_rate),
+            power_scale: Some(power_scale),
+            iq_data: raw_iq,
           };
 
           // Broadcast to all connected WebSocket clients

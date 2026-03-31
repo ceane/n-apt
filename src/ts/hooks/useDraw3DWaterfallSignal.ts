@@ -11,7 +11,7 @@ export interface Draw3DWaterfallSignalOptions {
   canvas: HTMLCanvasElement;
   device: GPUDevice;
   format: GPUTextureFormat;
-  waveform: Float32Array;
+  waveform: Float32Array | Uint8Array;
   frequencyRange: { min: number; max: number };
   fftMin?: number;
   fftMax?: number;
@@ -49,9 +49,10 @@ export function useDraw3DWaterfallSignal() {
     } = options;
 
     try {
+      const waveformArray = waveform instanceof Uint8Array ? Float32Array.from(waveform) : waveform;
       // Validate waveform data on first frame or when paused
       if (isFirstFrame || isPaused) {
-        const validationResult = validateSpectrumDataComprehensive(waveform, {
+        const validationResult = validateSpectrumDataComprehensive(waveformArray, {
           fftSize,
           sampleRate,
           centerFrequencyHz,
@@ -72,7 +73,7 @@ export function useDraw3DWaterfallSignal() {
         }
       }
       
-      frameHistoryRef.current.push(waveform.slice());
+      frameHistoryRef.current.push(waveformArray.slice());
       if (frameHistoryRef.current.length > maxFramesParam) {
         frameHistoryRef.current.shift();
       }

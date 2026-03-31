@@ -392,6 +392,7 @@ pub struct ScanProgressResponse {
 pub struct SpectrumData {
   #[serde(rename = "type")]
   pub message_type: String,
+  #[serde(skip_serializing_if = "Vec::is_empty")]
   pub waveform: Vec<f32>,
   pub is_mock_apt: bool,
   #[serde(skip_serializing_if = "Option::is_none")]

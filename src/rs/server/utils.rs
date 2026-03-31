@@ -267,15 +267,6 @@ pub fn save_capture_file_multi(
       payload_plaintext.extend_from_slice(&ch.iq_data);
       let iq_len = ch.iq_data.len();
 
-      let offset_spectrum = payload_plaintext.len();
-      let spec_bytes: Vec<u8> = ch
-        .spectrum_data
-        .iter()
-        .flat_map(|&v| v.to_le_bytes())
-        .collect();
-      payload_plaintext.extend_from_slice(&spec_bytes);
-      let spec_len = spec_bytes.len();
-
       channel_metas.push(serde_json::json!({
           "center_freq_hz": ch.center_freq_hz,
           "sample_rate_hz": ch.sample_rate_hz,
@@ -283,8 +274,6 @@ pub fn save_capture_file_multi(
           "requested_max_freq_hz": ch.requested_max_freq_hz,
           "offset_iq": offset_iq,
           "iq_length": iq_len,
-          "offset_spectrum": offset_spectrum,
-          "spectrum_length": spec_len,
           "bins_per_frame": ch.bins_per_frame,
       }));
     }
@@ -321,6 +310,8 @@ pub fn save_capture_file_multi(
     file
       .write_all(&encrypted_data)
       .map_err(|e| format!("Failed to write encrypted data: {}", e))?;
+    
+    file.sync_all().map_err(|e| format!("Failed to sync file: {}", e))?;
   } else {
     // Write WAV with multi-channel chunks
     let mut file = std::fs::File::create(&path)
@@ -360,10 +351,8 @@ pub fn save_capture_file_multi(
     // We'll calculate sizes and parts
     // Part 0 (Standard data chunk) = channels[0].iq_data
     // Extra Part IQ (nIQ1, nIQ2...)
-    // Extra Part Spectrum (nSP0, nSP1...)
 
     let mut iq_chunks = Vec::new();
-    let mut spectrum_chunks = Vec::new();
     let mut riff_total_delta: u32 = 0;
 
     for (i, ch) in result.channels.iter().enumerate() {
@@ -382,29 +371,9 @@ pub fn save_capture_file_multi(
       };
       iq_chunks.push((tag, iq_size, iq_padding));
       riff_total_delta += 8 + iq_size + iq_padding;
-
-      // Spectrum Data
-      let spec_tag = if i == 0 {
-        "nSPC".to_string()
-      } else {
-        format!("nSP{}", i)
-      };
-      let spec_bytes: Vec<u8> = ch
-        .spectrum_data
-        .iter()
-        .flat_map(|&v| v.to_le_bytes())
-        .collect();
-      let spec_size = spec_bytes.len() as u32;
-      let spec_padding = if spec_size.is_multiple_of(2) {
-        0u32
-      } else {
-        1u32
-      };
-      spectrum_chunks.push((spec_tag, spec_bytes, spec_padding));
-      riff_total_delta += 8 + spec_size + spec_padding;
     }
 
-    // RIFF size = 4 (WAVE) + fmt(24) + nAPT(8+meta) + iq_chunks + spectrum_chunks
+    // RIFF size = 4 (WAVE) + fmt(24) + nAPT(8+meta) + iq_chunks
     let riff_size = 4 + 24 + (8 + meta_chunk_size) + riff_total_delta;
 
     // RIFF header
@@ -462,22 +431,10 @@ pub fn save_capture_file_multi(
         file.write_all(&[0u8]).map_err(|e| e.to_string())?;
       }
     }
-
-    // Write Spectrum Chunks
-    for (tag, bytes, padding) in spectrum_chunks {
-      file.write_all(tag.as_bytes()).map_err(|e| e.to_string())?;
-      file
-        .write_all(&(bytes.len() as u32).to_le_bytes())
-        .map_err(|e| e.to_string())?;
-      file.write_all(&bytes).map_err(|e| e.to_string())?;
-      if padding > 0 {
-        file.write_all(&[0u8]).map_err(|e| e.to_string())?;
-      }
-    }
   }
 
   info!("Saved capture file: {}", path.display());
-  let file_size = std::fs::metadata(&path).unwrap().len();
+  let file_size = std::fs::metadata(&path).map_err(|e| e.to_string())?.len();
   Ok(CaptureArtifact { filename, path, file_size })
 }
 
@@ -542,6 +499,22 @@ mod save_tests {
       content_napt.contains(r#""frequency_range":[136.3,138.7]"#),
       "Missing frequency_range in .napt metadata"
     );
+    assert!(
+      content_napt.contains(r#""offset_iq":0"#),
+      "Missing IQ offset metadata"
+    );
+    assert!(
+      content_napt.contains(r#""iq_length":100"#),
+      "Missing IQ length metadata"
+    );
+    assert!(
+      !content_napt.contains(r#""offset_spectrum""#),
+      "Unexpected spectrum offset metadata in IQ-only capture"
+    );
+    assert!(
+      !content_napt.contains(r#""spectrum_length""#),
+      "Unexpected spectrum length metadata in IQ-only capture"
+    );
 
     // Test .wav unencrypted
     let result_wav_struct = CaptureResult {
@@ -600,8 +573,12 @@ mod save_tests {
       wav_str.contains(r#""channels""#),
       "Missing channels array in .wav"
     );
+    assert!(wav_str.contains("data"), "Missing primary IQ data chunk in .wav");
     assert!(wav_str.contains("nIQ1"), "Missing nIQ1 chunk in .wav");
-    assert!(wav_str.contains("nSP1"), "Missing nSP1 chunk in .wav");
+    assert!(
+      !wav_str.contains("nSPC") && !wav_str.contains("nSP1"),
+      "Unexpected spectrum chunk in IQ-only .wav"
+    );
 
     // Clean up
     let _ = fs::remove_file(result_napt.path);

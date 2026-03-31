@@ -1,13 +1,14 @@
-import React, { useCallback } from "react";
+import React from "react";
 import styled from "styled-components";
-import { useSpectrumStore, LIVE_CONTROL_DEFAULTS } from "@n-apt/hooks/useSpectrumStore";
 import { useSdrSettings } from "@n-apt/hooks/useSdrSettings";
+import { Unplug, ChevronsLeftRightEllipsis } from "lucide-react";
 
 import { SignalDisplaySection } from "@n-apt/components/sidebar/SignalDisplaySection";
 import { SourceSettingsSection } from "@n-apt/components/sidebar/SourceSettingsSection";
 import { ConnectionStatusSection, PauseButton } from "@n-apt/components/sidebar/ConnectionStatusSection";
 import SourceInput from "@n-apt/components/sidebar/SourceInput";
 import { Channels } from "@n-apt/components/sidebar/Channels";
+import { SidebarSectionTitle } from "@n-apt/components/ui/Collapsible";
 import { usePrompt } from "@n-apt/components/ui";
 
 const SidebarContent = styled.div`
@@ -20,26 +21,16 @@ const SidebarContent = styled.div`
   max-width: 100%;
 `;
 
-const Section = styled.div<{ $marginBottom?: string }>`
+const Section = styled.div<{ $fileMode?: boolean }>`
   display: grid;
   grid-template-columns: subgrid;
   grid-column: 1 / -1;
   gap: inherit;
-  margin-bottom: ${({ $marginBottom }) => $marginBottom || "0"};
-  box-sizing: border-box;
-  width: 100%;
-`;
-
-const SectionTitle = styled.div<{ $fileMode?: boolean }>`
-  font-size: 11px;
-  color: ${(props) => (props.$fileMode ? props.theme.fileMode : props.theme.metadataLabel)};
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  margin-top: 1rem;
-  margin-bottom: 0;
-  font-weight: 600;
-  font-family: ${(props) => props.theme.typography.mono};
-  grid-column: 1 / -1;
+  background-color: ${(props) => props.$fileMode ? props.theme.surface : 'transparent'};
+  padding: ${(props) => props.$fileMode ? '12px' : '0'};
+  border-radius: ${(props) => props.$fileMode ? '8px' : '0'};
+  border: ${(props) => props.$fileMode ? `1px solid ${props.theme.border}` : 'none'};
+  margin: ${(props) => props.$fileMode ? '8px 0' : '0'};
 `;
 
 const MultiFrameButton = styled(PauseButton)`
@@ -148,10 +139,8 @@ export const SDRTestSidebar: React.FC = () => {
 
   return (
     <SidebarContent>
-      <Section>
-        <SectionTitle $fileMode={state.sourceMode === "file"}>
-          Source
-        </SectionTitle>
+      <Section $fileMode={state.sourceMode === "file"}>
+        <SidebarSectionTitle icon={<Unplug size={14} />} title="Source" />
         <SourceInput
           sourceMode={state.sourceMode}
           backend={backend}
@@ -209,7 +198,7 @@ export const SDRTestSidebar: React.FC = () => {
           </PauseButton>
 
           <Section>
-            <SectionTitle>Channel</SectionTitle>
+            <SidebarSectionTitle icon={<ChevronsLeftRightEllipsis size={14} />} title="Channel" />
             <Channels />
           </Section>
 

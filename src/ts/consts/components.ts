@@ -3,7 +3,10 @@
  * General styling and configuration values
  */
 
-import { THEME_TOKENS } from "../../rs/consts/theme";
+import { THEME_TOKENS } from "./theme";
+
+// Export THEME_TOKENS for namespace compliance
+export { THEME_TOKENS };
 
 // Shared transform constants for the human model scene
 export const MODEL_ROOT_POSITION = [0, 0.95, 0] as const;

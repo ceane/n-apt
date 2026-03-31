@@ -9,7 +9,7 @@ import themeSlice from "../../src/ts/redux/slices/themeSlice";
 import settingsSlice from "../../src/ts/redux/slices/settingsSlice";
 import websocketSlice from "../../src/ts/redux/slices/websocketSlice";
 import { buildAppTheme } from "../../src/ts/components/ui/Theme";
-import { THEME_TOKENS } from "../../src/rs/consts/theme";
+import { THEME_TOKENS } from "../../src/ts/consts";
 
 const defaultTheme = buildAppTheme({
   accentColor: THEME_TOKENS.colors.dark.primary,

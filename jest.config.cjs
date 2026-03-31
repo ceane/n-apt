@@ -76,7 +76,8 @@ module.exports = {
         },
       },
     ],
+    "\\.wgsl$": "jest-transform-stub"
   },
-  transformIgnorePatterns: ["node_modules/(?!(.*\\.mjs$))"],
+  transformIgnorePatterns: ["node_modules/(?!(.*\\.mjs$|@chenglou/pretext))"],
   moduleFileExtensions: ["ts", "tsx", "js", "jsx", "json"],
 };

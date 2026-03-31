@@ -85,13 +85,16 @@ const Section = styled.div`
 
 const SectionTitle = styled.div<{ $fileMode?: boolean }>`
   font-size: 11px;
-  color: ${(props) => (props.$fileMode ? props.theme.fileMode : props.theme.metadataLabel)};
+  color: ${(props) => props.theme.metadataLabel};
   text-transform: uppercase;
   letter-spacing: 1px;
   margin-bottom: 16px;
   font-weight: 600;
   font-family: ${(props) => props.theme.typography.mono};
   grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 `;
 
 const AuthStatusText = styled.div<{ $status: string }>`
@@ -109,42 +112,6 @@ const SettingValueText = styled.div`
   font-size: 12px;
   color: ${(props) => props.theme.textPrimary};
   font-weight: 500;
-`;
-
-const CapturingIndicator = styled.div`
-  position: fixed;
-  top: 24px;
-  right: 24px;
-  background-color: ${(props) => props.theme.danger};
-  color: ${(props) => props.theme.textPrimary};
-  padding: 8px 12px;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 600;
-  font-family: ${(props) => props.theme.typography.mono};
-  z-index: 1000;
-  box-shadow: 0 2px 8px ${(props) => `${props.theme.danger}4d`};
-  display: grid;
-  grid-auto-flow: column;
-  align-items: center;
-  gap: 8px;
-`;
-
-const CapturingDot = styled.div`
-  width: 8px;
-  height: 8px;
-  background-color: white;
-  border-radius: 50%;
-  animation: pulse 1.5s infinite;
-
-  @keyframes pulse {
-    from {
-      opacity: 1;
-    }
-    to {
-      opacity: 0.4;
-    }
-  }
 `;
 
 const HeterodyningContainer = styled.div`
@@ -840,14 +807,6 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <SidebarContent>
-      {/* Capturing indicator */}
-      {captureStatus?.status === "started" && (
-        <CapturingIndicator>
-          <CapturingDot />
-          Capturing... {captureStatus.jobId}
-        </CapturingIndicator>
-      )}
-
       {activeTab === "draw" && (
         <>
           {sourceMode === "live" && (
@@ -1197,14 +1156,6 @@ const Sidebar: React.FC<SidebarProps> = ({
           )}
         </>
       )
-      }
-      {
-        captureStatus?.status === "started" && (
-          <CapturingIndicator>
-            <CapturingDot />
-            Capturing...
-          </CapturingIndicator>
-        )
       }
     </SidebarContent >
   );

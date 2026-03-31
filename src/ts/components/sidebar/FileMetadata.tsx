@@ -1,6 +1,9 @@
 import React from "react";
 import styled from "styled-components";
+import { ScrollText } from "lucide-react";
+import { SidebarSectionTitle } from "@n-apt/components/ui/Collapsible";
 import { Tooltip } from "@n-apt/components/ui";
+import type { NaptMetadata } from "./FileMetadata";
 import { GeolocationData, AptChannelMetadata } from "@n-apt/consts/schemas/websocket";
 import { useAppSelector } from "@n-apt/redux";
 
@@ -41,18 +44,6 @@ const Section = styled.div<{ $marginTop?: string }>`
   grid-column: 1 / -1;
   gap: inherit;
   margin-top: ${(props) => props.$marginTop || "0"};
-`;
-
-const SectionTitle = styled.div<{ $fileMode?: boolean }>`
-  font-size: 11px;
-  color: ${(props) => (props.$fileMode ? props.theme.primary : props.theme.metadataLabel)};
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  margin-top: 20px;
-  margin-bottom: 0;
-  font-weight: 600;
-  font-family: ${(props) => props.theme.typography.mono};
-  grid-column: 1 / -1;
 `;
 
 const SettingRow = styled.div`
@@ -205,14 +196,14 @@ export const FileMetadata: React.FC<FileMetadataProps> = ({
   const activePlaybackMetadata = useAppSelector(
     (state) => state.waterfall.activePlaybackMetadata,
   );
-  
+
   const displayedCenterFrequencyHz =
     activePlaybackMetadata?.center_frequency_hz ||
     naptMetadata?.center_frequency_hz ||
     (naptMetadata?.center_frequency
       ? naptMetadata.center_frequency * 1_000_000
       : 0);
-      
+
   const displayedCaptureRateHz =
     activePlaybackMetadata?.capture_sample_rate_hz ||
     (naptMetadata?.channels?.length === 1 &&
@@ -222,13 +213,13 @@ export const FileMetadata: React.FC<FileMetadataProps> = ({
       naptMetadata?.sample_rate_hz ||
       naptMetadata?.sample_rate ||
       0);
-      
+
   const displayedFrameRate = activePlaybackMetadata?.frame_rate ?? naptMetadata?.frame_rate;
 
   return (
     <Section>
-      {showTitle && <SectionTitle $fileMode>Metadata</SectionTitle>}
-      
+      {showTitle && <SidebarSectionTitle icon={<ScrollText size={14} />} title="Metadata" />}
+
       {selectedNaptFile && (
         <SettingRow style={{ height: 'auto', padding: '12px' }}>
           <SettingLabelContainer style={{ alignSelf: 'start', paddingTop: '4px' }}>
