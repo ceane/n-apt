@@ -52,45 +52,9 @@ const SidebarContent = styled.div`
   grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
   align-content: start;
   gap: 16px;
-  padding: 0 24px 24px 24px;
+  padding: calc(24px + env(safe-area-inset-top, 0px)) 24px 24px 24px;
   box-sizing: border-box;
   max-width: 100%;
-`;
-
-const CapturingIndicator = styled.div`
-  position: fixed;
-  top: 24px;
-  right: 24px;
-  background-color: ${(props: any) => props.theme.danger};
-  color: ${(props: any) => props.theme.textPrimary};
-  padding: 8px 12px;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 600;
-  font-family: ${(props: any) => props.theme.typography.mono};
-  z-index: 1000;
-  box-shadow: 0 2px 8px ${(props: any) => `${props.theme.danger}4d`};
-  display: grid;
-  grid-auto-flow: column;
-  align-items: center;
-  gap: 8px;
-`;
-
-const CapturingDot = styled.div`
-  width: 8px;
-  height: 8px;
-  background-color: white;
-  border-radius: 50%;
-  animation: pulse 1.5s infinite;
-
-  @keyframes pulse {
-    from {
-      opacity: 1;
-    }
-    to {
-      opacity: 0.4;
-    }
-  }
 `;
 
 const Section = styled.div<{ $marginBottom?: string }>`
@@ -105,7 +69,7 @@ const Section = styled.div<{ $marginBottom?: string }>`
 
 const SectionTitle = styled.div<{ $fileMode?: boolean }>`
   font-size: 11px;
-  color: ${(props: any) => (props.$fileMode ? props.theme.fileMode : props.theme.metadataLabel)};
+  color: ${(props: any) => props.theme.metadataLabel};
   text-transform: uppercase;
   letter-spacing: 1px;
   margin-top: 1rem;
@@ -125,11 +89,15 @@ const SectionIcon = styled.div`
   width: 14px;
   height: 14px;
   color: ${(props: any) => props.theme.metadataLabel};
+justify - content: center;
+width: 14px;
+height: 14px;
+color: ${(props: any) => props.theme.metadataLabel};
 `;
 
 const SectionText = styled.span`
-  display: flex;
-  align-items: center;
+display: flex;
+align - items: center;
 `;
 
 type NaptMetadata = {
@@ -414,10 +382,10 @@ export const SpectrumSidebar: React.FC = () => {
           dispatch(clearWaterfall());
 
           // 3. Fetch the file
-          const url = `${liveCaptureStatus.downloadUrl}&token=${encodeURIComponent(sessionToken || "")}`;
+          const url = `${liveCaptureStatus.downloadUrl}& token=${encodeURIComponent(sessionToken || "")} `;
           const response = await fetch(url);
           if (!response.ok)
-            throw new Error(`HTTP error! status: ${response.status}`);
+            throw new Error(`HTTP error! status: ${response.status} `);
           const blob = await response.blob();
           const filename = liveCaptureStatus.filename || "capture.napt";
           const file = new File([blob], filename, {
@@ -675,7 +643,7 @@ export const SpectrumSidebar: React.FC = () => {
         : acquisitionMode;
 
     const req: CaptureRequest = {
-      jobId: `cap_${Date.now()}`,
+      jobId: `cap_${Date.now()} `,
       fragments,
       durationS: Math.max(1, Math.round(captureDurationS)),
       fileType: captureFileTypeState,
@@ -874,12 +842,6 @@ export const SpectrumSidebar: React.FC = () => {
 
   return (
     <SidebarContent>
-      {liveCaptureStatus?.status === "started" && (
-        <CapturingIndicator>
-          <CapturingDot />
-          Capturing...
-        </CapturingIndicator>
-      )}
       <Section>
         <SectionTitle $fileMode={sourceMode === "file"}>
           <SectionIcon>

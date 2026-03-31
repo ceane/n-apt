@@ -24,7 +24,7 @@ const getCanvasThemeColors = () => ({
 
 export interface Draw2DFFTSignalOptions {
   canvas: HTMLCanvasElement;
-  waveform: number[];
+  waveform: Uint8Array | Float32Array | number[];
   frequencyRange: { min: number; max: number };
   fftMin?: number;
   fftMax?: number;
@@ -48,6 +48,14 @@ export function useDraw2DFFTSignal() {
     height: number;
     waveformLength: number;
   } | null>(null);
+
+  const toFloat32Waveform = useCallback(
+    (waveform: Uint8Array | Float32Array | number[]) => {
+      if (waveform instanceof Float32Array) return waveform;
+      return Float32Array.from(waveform);
+    },
+    [],
+  );
 
   // Inline rendering functions
   const drawSpectrumGrid = useCallback(
@@ -307,19 +315,20 @@ export function useDraw2DFFTSignal() {
       ctx: CanvasRenderingContext2D,
       width: number,
       height: number,
-      waveform: number[],
+      waveform: Uint8Array | Float32Array | number[],
       fftMin: number,
       fftMax: number,
       displayMode: "fft" | "iq" = "fft",
     ) => {
       const dpr = window.devicePixelRatio || 1;
-      if (!waveform || !Array.isArray(waveform) || waveform.length === 0)
+      const waveformArray = toFloat32Waveform(waveform);
+      if (!waveformArray || waveformArray.length === 0)
         return;
 
       const fftAreaMax = { x: width - 40, y: height - 40 };
       const fftHeight = fftAreaMax.y - FFT_AREA_MIN.y;
       const plotWidth = fftAreaMax.x - FFT_AREA_MIN.x;
-      const dataWidth = waveform.length;
+      const dataWidth = waveformArray.length;
       const vertRange = fftMax - fftMin;
       const scaleFactor = fftHeight / vertRange;
 
@@ -344,7 +353,7 @@ export function useDraw2DFFTSignal() {
       ctx.beginPath();
       ctx.moveTo(Math.round(idxToX(0)), fftAreaMax.y);
       for (let i = 0; i < dataWidth; i++) {
-        ctx.lineTo(Math.round(idxToX(i)), Math.round(clampY(waveform[i])));
+        ctx.lineTo(Math.round(idxToX(i)), Math.round(clampY(waveformArray[i])));
       }
       ctx.lineTo(Math.round(idxToX(dataWidth - 1)), fftAreaMax.y);
       ctx.closePath();
@@ -357,7 +366,7 @@ export function useDraw2DFFTSignal() {
       ctx.beginPath();
       for (let i = 0; i < dataWidth; i++) {
         const x = Math.round(idxToX(i));
-        const y = Math.round(clampY(waveform[i]));
+        const y = Math.round(clampY(waveformArray[i]));
         if (i === 0) ctx.moveTo(x, y);
         else ctx.lineTo(x, y);
       }
@@ -480,7 +489,8 @@ export function useDraw2DFFTSignal() {
       } = options;
 
       const ctx = canvas.getContext("2d");
-      if (!ctx || !waveform || waveform.length === 0) return false;
+      const waveformArray = toFloat32Waveform(waveform);
+      if (!ctx || waveformArray.length === 0) return false;
 
       const dpr = window.devicePixelRatio || 1;
       const rect = canvas.parentElement?.getBoundingClientRect();
@@ -524,7 +534,7 @@ export function useDraw2DFFTSignal() {
           }
 
           // Simple line drawing for performance
-          drawSpectrumTrace(ctx, cssWidth, cssHeight, waveform, fftMin, fftMax, displayMode);
+          drawSpectrumTrace(ctx, cssWidth, cssHeight, waveformArray, fftMin, fftMax, displayMode);
         } else {
           // Full quality mode: complete spectrum rendering
           if (showGrid && displayMode === "fft") {
@@ -544,7 +554,7 @@ export function useDraw2DFFTSignal() {
             ctx.fillStyle = "#000000";
             ctx.fillRect(0, 0, cssWidth, cssHeight);
           }
-          drawSpectrumTrace(ctx, cssWidth, cssHeight, waveform, fftMin, fftMax, displayMode);
+          drawSpectrumTrace(ctx, cssWidth, cssHeight, waveformArray, fftMin, fftMax, displayMode);
         }
 
         // Draw markers if needed

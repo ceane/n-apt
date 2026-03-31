@@ -10,7 +10,7 @@ describe("useFrequencyDrag Hook", () => {
   const mockOnFftDbLimitsChange = jest.fn();
 
   const frequencyRangeRef = { current: { min: 100, max: 110 } };
-  const spectrumCanvasRef = { current: { getBoundingClientRect: () => ({ left: 0, top: 0, width: 1000, height: 600 }) } } as any;
+  const spectrumGpuCanvasRef = { current: { getBoundingClientRect: () => ({ left: 0, top: 0, width: 1000, height: 600 }) } } as any;
   const spectrumContainerRef = {
     current: {
       getBoundingClientRect: () => ({ left: 0, top: 0, width: 1000, height: 600 }),
@@ -24,13 +24,11 @@ describe("useFrequencyDrag Hook", () => {
   } as any;
 
   const defaultOptions: any = {
-    spectrumCanvasRef,
-    spectrumGpuCanvasRef: { current: null },
-    spectrumCanvasNode: spectrumCanvasRef.current,
-    spectrumGpuCanvasNode: null,
+    spectrumGpuCanvasRef,
+    spectrumGpuCanvasNode: spectrumGpuCanvasRef.current,
     spectrumContainerRef,
     frequencyRangeRef,
-    spectrumWebgpuEnabled: false,
+    spectrumWebgpuEnabled: true,
     activeSignalArea: "TEST",
     signalAreaBounds: { TEST: { min: 0, max: 1000 } },
     onFrequencyRangeChange: mockOnFrequencyRangeChange,

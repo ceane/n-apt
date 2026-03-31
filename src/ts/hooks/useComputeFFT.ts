@@ -1,5 +1,5 @@
 import { useCallback, useRef, useEffect, useState } from "react";
-import { FFT_COMPUTE_SHADER } from "@n-apt/consts/shaders/fft_compute";
+import { FFT_COMPUTE_SHADER } from "@n-apt/shaders";
 
 export interface ComputeFFTOptions {
   device: GPUDevice | null;

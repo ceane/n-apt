@@ -1,8 +1,10 @@
 import React, { useRef } from "react";
 import styled from "styled-components";
 import { Button } from "@n-apt/components/ui";
-import { Activity, Download, Trash2, CheckCircle2, Play, Pause, Loader2 } from "lucide-react";
+import { CheckCircle2, Play, Pause, Loader2 } from "lucide-react";
 import FileMetadata from "./FileMetadata";
+import FileSelection from "./FileSelection";
+import SelectedFiles from "./SelectedFiles";
 
 import { fileRegistry } from "../../utils/fileRegistry";
 import { useDragAndDropFiles } from "@n-apt/hooks/useDragAndDropFiles";
@@ -16,18 +18,6 @@ const Section = styled.div<{ $marginTop?: string }>`
   grid-column: 1 / -1;
   gap: inherit;
   margin-top: ${(props) => props.$marginTop || "0"};
-`;
-
-const SectionTitle = styled.div<{ $fileMode?: boolean }>`
-  font-size: 11px;
-  color: ${(props) => (props.$fileMode ? props.theme.primary : props.theme.metadataLabel)};
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  margin-top: 20px;
-  margin-bottom: 0;
-  font-weight: 600;
-  font-family: ${(props) => props.theme.typography.mono};
-  grid-column: 1 / -1;
 `;
 
 const SettingRow = styled.div`
@@ -203,7 +193,7 @@ const FileIcon = styled.div`
   display: flex;
   align-items: center;
   justify-content: center;
-  color: ${(props) => props.theme.primary};
+  color: ${(props) => props.theme.metadataLabel};
 `;
 
 const FileTitle = styled.div`
@@ -388,72 +378,18 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
     >
       {isDragging && <DropOverlay>Drop files here</DropOverlay>}
       <Section>
-        <SectionTitle $fileMode>File selection</SectionTitle>
-        <SettingRow>
-          <SettingLabelContainer>
-            <SettingLabel>Choose or drag files...</SettingLabel>
-          </SettingLabelContainer>
-          <FileInputActions>
-            <HiddenFileInput
-              type="file"
-              accept=".napt,.wav,.c64"
-              multiple
-              id="fileInput"
-              onChange={handleFileChange}
-            />
-            <Button
-              $variant="secondary"
-              onClick={() => document.getElementById("fileInput")?.click()}
-            >
-              Browse
-            </Button>
-          </FileInputActions>
-        </SettingRow>
+        <FileSelection onFileChange={handleFileChange} />
       </Section>
 
       {selectedFiles.length > 0 && (
         <>
           <Section>
-            <SectionTitle $fileMode>
-              Selected files ({selectedFiles.length})
-            </SectionTitle>
-            {selectedFiles.map((file, index) => (
-              <FileCard key={`${file.name}-${index}`}>
-                <FileItemHeader>
-                  <FileIcon>
-                    <Activity size={18} strokeWidth={2.5} />
-                  </FileIcon>
-                  <FileTitle>
-                    {renderFileName(file.name)}
-                  </FileTitle>
-                </FileItemHeader>
-                <FileInfoRow>
-                  <FileInfoActions>
-                    <LoadedLabel>
-                      <CheckCircle2 size={12} /> Loaded
-                    </LoadedLabel>
-                    {file.downloadUrl && (
-                      <DownloadActionLink
-                        href={`${file.downloadUrl}${sessionToken ? `&token=${encodeURIComponent(sessionToken)}` : ''}`}
-                        download={file.name}
-                      >
-                        <Download size={12} /> Download
-                      </DownloadActionLink>
-                    )}
-                  </FileInfoActions>
-                  <RemoveActionButton onClick={() => removeFile(index)}>
-                    <Trash2 size={12} /> Remove?
-                  </RemoveActionButton>
-                </FileInfoRow>
-              </FileCard>
-            ))}
-            {selectedFiles.length > 0 && (
-              <ClearAllContainer>
-                <ClearAllLink onClick={onClear}>
-                  Clear all?
-                </ClearAllLink>
-              </ClearAllContainer>
-            )}
+            <SelectedFiles
+              selectedFiles={selectedFiles}
+              onRemoveFile={removeFile}
+              onClear={onClear}
+              sessionToken={sessionToken}
+            />
           </Section>
 
           <ActionsContainer>

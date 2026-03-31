@@ -258,16 +258,16 @@ const loadPersistedSdrSettings = (): Partial<SpectrumState> => {
     const raw = sessionStorage.getItem(SDR_SETTINGS_KEY);
     if (!raw) return {};
     const parsed = JSON.parse(raw);
+    if ("powerScale" in parsed) {
+      delete parsed.powerScale;
+    }
     // Ensure lastKnownRanges is an object
     if (parsed.lastKnownRanges && typeof parsed.lastKnownRanges !== "object") {
       parsed.lastKnownRanges = {};
     }
 
     // Fix outdated cached dB ranges
-    if (parsed.powerScale === "dBm" && parsed.fftMaxDb !== 30) {
-      parsed.fftMaxDb = 30;
-      parsed.fftMinDb = -100;
-    } else if (parsed.powerScale === "dB" && parsed.fftMaxDb !== 0) {
+    if (parsed.fftMaxDb !== 0) {
       parsed.fftMaxDb = 0;
       parsed.fftMinDb = -120;
     }
@@ -854,7 +854,6 @@ export const SpectrumProvider: React.FC<SpectrumProviderProps> = ({
       activeSignalArea: state.activeSignalArea,
       lastKnownRanges: state.lastKnownRanges,
       displayTemporalResolution: state.displayTemporalResolution,
-      powerScale: state.powerScale,
       snapshotGridPreference: state.snapshotGridPreference,
       sampleRateHz: state.sampleRateHz,
     };

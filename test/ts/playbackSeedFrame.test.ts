@@ -1,4 +1,4 @@
-import { buildPlaybackSeedFrame } from "@n-apt/utils/playbackSeedFrame";
+import { buildPlaybackSeedFrame } from "../../src/ts/utils/playbackSeedFrame";
 
 describe("buildPlaybackSeedFrame", () => {
   it("uses the first precomputed FFT frame in fft mode", () => {
@@ -26,6 +26,9 @@ describe("buildPlaybackSeedFrame", () => {
         },
       }),
     ).toEqual({
+      type: "spectrum",
+      center_frequency_hz: undefined,
+      sample_rate: undefined,
       iq_data: new Uint8Array([1, 2, 3, 4]),
       data_type: "iq_raw",
     });

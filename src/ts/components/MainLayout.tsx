@@ -1,5 +1,7 @@
 import React, { useState } from "react";
 import styled from "styled-components";
+import { NAPTSidebarHeader } from "@n-apt/components/sidebar/NAPTSidebarHeader";
+import { CollapsedToggleButton } from "@n-apt/components/sidebar/SidebarToggle";
 import { ContentArea } from "@n-apt/components/Layout";
 import { useLocation } from "react-router-dom";
 import { useSidebarNavigationScroll } from "@n-apt/hooks/useSidebarNavigationScroll";
@@ -19,33 +21,7 @@ const NavigationContainer = styled.div`
   overflow-x: visible;
   box-sizing: border-box;
   resize: horizontal;
-`;
-
-const SidebarToggle = styled.button`
-  position: sticky;
-  top: ${(props) => props.theme.spacing.xxl};
-  margin: ${(props) => props.theme.spacing.xxl};
-  z-index: 1000;
-  background-color: ${(props) => props.theme.surface};
-  border: 1px solid ${(props) => props.theme.primary};
-  border-radius: 6px;
-  padding: ${(props) => `${props.theme.spacing.sm} ${props.theme.spacing.md}`};
-  color: ${(props) => props.theme.primary};
-  font-family: ${(props) => props.theme.typography.mono};
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  user-select: none;
-  width: max-content;
-  display: inline-block;
-`;
-
-const CollapsedToggle = styled(SidebarToggle)`
-  position: fixed;
-  top: ${(props) => props.theme.spacing.xxl};
-  left: ${(props) => props.theme.spacing.xxl};
-  margin: 0;
+  transition: width 0.3s ease, opacity 0.3s ease, transform 0.3s ease;
 `;
 
 const NavigationTabs = styled.div`
@@ -116,9 +92,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
   return (
     <>
       {!isSidebarOpen && (
-        <CollapsedToggle onClick={() => setIsSidebarOpen(true)}>
-          ▶ Sidebar
-        </CollapsedToggle>
+        <CollapsedToggleButton onClick={() => setIsSidebarOpen(true)} />
       )}
       <div
         style={{
@@ -126,13 +100,15 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
           width: "100%",
           height: "100vh",
           overflow: "hidden",
+          transition: "all 0.3s ease",
         }}
       >
         {isSidebarOpen && (
           <NavigationContainer ref={navigationContainerRef}>
-            <SidebarToggle ref={sidebarToggleRef} onClick={() => setIsSidebarOpen(false)}>
-              ◀ Sidebar
-            </SidebarToggle>
+            <NAPTSidebarHeader
+              onToggleClick={() => setIsSidebarOpen(false)}
+              toggleRef={sidebarToggleRef}
+            />
             <NavigationTabs>
               <NavigationTab
                 $isActive={path === "/" || path === "/visualizer"}

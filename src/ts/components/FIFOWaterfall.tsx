@@ -1,6 +1,5 @@
 import { memo, useRef, useEffect } from "react";
 import styled from "styled-components";
-// TODO: Update to use useDraw2DFIFOWaterfall hook instead of direct rendering
 import {
   WATERFALL_CANVAS_BG,
   WATERFALL_HISTORY_LIMIT,

@@ -29,6 +29,7 @@ require('jest-canvas-mock');
 global.__WEBGL_CALLS__ = [];
 global.__WEBGPU_CALLS__ = [];
 global.__CANVAS_CALLS__ = [];
+global.__CANVAS_DATA_STORAGE__ = new Map(); // Store large buffers by a unique ID or hash if needed, or just keep them in the call log
 
 /**
  * Helper function to log method calls with their arguments.
@@ -39,7 +40,19 @@ global.__CANVAS_CALLS__ = [];
  */
 // ---- HELPER TO LOG CALLS ----
 function logCall(store, name, args) {
-  store.push({ name, args: Array.from(args) });
+  const callArgs = Array.from(args);
+  // Specifically clone typed arrays to preserve data for inspection
+  const processedArgs = callArgs.map(arg => {
+    if (arg instanceof Int8Array || arg instanceof Uint8Array || arg instanceof Uint8ClampedArray ||
+        arg instanceof Int16Array || arg instanceof Uint16Array ||
+        arg instanceof Int32Array || arg instanceof Uint32Array ||
+        arg instanceof Float32Array || arg instanceof Float64Array ||
+        arg instanceof ArrayBuffer) {
+      return arg.slice ? arg.slice() : new Uint8Array(arg).slice();
+    }
+    return arg;
+  });
+  store.push({ name, args: processedArgs, timestamp: Date.now() });
 }
 
 /**
@@ -54,6 +67,7 @@ global.clearCanvasCalls = () => {
   global.__WEBGL_CALLS__ = [];
   global.__WEBGPU_CALLS__ = [];
   global.__CANVAS_CALLS__ = [];
+  global.__CANVAS_DATA_STORAGE__.clear();
 };
 
 /**
@@ -1169,6 +1183,45 @@ global.getWebGPUCalls = (callName) => {
 
 global.getCanvasCalls = (callName) => {
   return global.__CANVAS_CALLS__.filter(c => c.name === callName);
+};
+
+/**
+ * Helper to retrieve binary data from a specific WebGL call.
+ * 
+ * @param {string} callName - The name of the WebGL method (e.g., 'texImage2D', 'bufferData')
+ * @param {number} [index=0] - The index of the call to check
+ * @returns {TypedArray|ArrayBuffer|null} The captured data or null
+ */
+global.getWebGLData = (callName, index = 0) => {
+  const calls = global.getWebGLCalls(callName);
+  if (!calls[index]) return null;
+  // Attempt to find a TypedArray or ArrayBuffer in the arguments
+  return calls[index].args.find(arg => 
+    arg instanceof Int8Array || arg instanceof Uint8Array || arg instanceof Uint8ClampedArray ||
+    arg instanceof Int16Array || arg instanceof Uint16Array ||
+    arg instanceof Int32Array || arg instanceof Uint32Array ||
+    arg instanceof Float32Array || arg instanceof Float64Array ||
+    arg instanceof ArrayBuffer
+  ) || null;
+};
+
+/**
+ * Helper to retrieve binary data from a specific WebGPU call.
+ * 
+ * @param {string} callName - The name of the WebGPU method (e.g., 'writeBuffer', 'writeTexture')
+ * @param {number} [index=0] - The index of the call to check
+ * @returns {TypedArray|ArrayBuffer|null} The captured data or null
+ */
+global.getWebGPUData = (callName, index = 0) => {
+  const calls = global.getWebGPUCalls(callName);
+  if (!calls[index]) return null;
+  return calls[index].args.find(arg => 
+    arg instanceof Int8Array || arg instanceof Uint8Array || arg instanceof Uint8ClampedArray ||
+    arg instanceof Int16Array || arg instanceof Uint16Array ||
+    arg instanceof Int32Array || arg instanceof Uint32Array ||
+    arg instanceof Float32Array || arg instanceof Float64Array ||
+    arg instanceof ArrayBuffer
+  ) || null;
 };
 
 /**

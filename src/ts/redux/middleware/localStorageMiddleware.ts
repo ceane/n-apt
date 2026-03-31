@@ -30,7 +30,6 @@ const LOCAL_STORAGE_PERSISTENCE = {
     'activeSignalArea',
     'lastKnownRanges',
     'displayTemporalResolution',
-    'powerScale',
     'sampleRateHz',
   ],
   waterfall: ['snapshotGridPreference'],
@@ -103,7 +102,6 @@ const createLocalStorageMiddleware = (): Middleware<{}, any> => (store) => (next
       activeSignalArea: spectrumState.activeSignalArea,
       lastKnownRanges: spectrumState.lastKnownRanges,
       displayTemporalResolution: spectrumState.displayTemporalResolution,
-      powerScale: spectrumState.powerScale,
       sampleRateHz: spectrumState.sampleRateHz,
     };
     safeSetItem(STORAGE_KEYS.SDR_SETTINGS, JSON.stringify(settingsData));
@@ -174,11 +172,12 @@ export const loadPersistedSdrSettings = () => {
       parsed.lastKnownRanges = {};
     }
 
+    if ('powerScale' in parsed) {
+      delete parsed.powerScale;
+    }
+
     // Fix outdated cached dB ranges
-    if (parsed.powerScale === "dBm" && parsed.fftMaxDb !== 30) {
-      parsed.fftMaxDb = 30;
-      parsed.fftMinDb = -100;
-    } else if (parsed.powerScale === "dB" && parsed.fftMaxDb !== 0) {
+    if (parsed.fftMaxDb !== 0) {
       parsed.fftMaxDb = 0;
       parsed.fftMinDb = -120;
     }

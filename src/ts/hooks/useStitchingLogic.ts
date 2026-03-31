@@ -45,10 +45,16 @@ export const useStitchingLogic = ({
 }: UseStitchingLogicProps): StitchingResult => {
   const { aesKey } = useAuthentication();
   const aesKeyRef = useRef(aesKey);
+  const onStitchStatusRef = useRef(onStitchStatus);
+  const restoredSessionKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     aesKeyRef.current = aesKey;
   }, [aesKey]);
+
+  useEffect(() => {
+    onStitchStatusRef.current = onStitchStatus;
+  }, [onStitchStatus]);
 
   // State
   const [hasStitchedData, setHasStitchedData] = useState(false);
@@ -64,18 +70,24 @@ export const useStitchingLogic = ({
   stitchSourceSettingsRef.current = stitchSourceSettings;
   const lastTriggerRef = useRef<number | null>(null);
   const lastProcessedFilesRef = useRef<string[]>([]);
+  const selectedFileNamesKey = useMemo(
+    () => selectedFiles.map((f) => f.name).sort().join("|"),
+    [selectedFiles],
+  );
 
   // Reset stitched state when file selection changes
   useEffect(() => {
-    const currentFileNames = selectedFiles.map((f) => f.name).sort();
+    const currentFileNames = selectedFileNamesKey.length > 0
+      ? selectedFileNamesKey.split("|")
+      : [];
     const lastFileNames = lastProcessedFilesRef.current;
     if (JSON.stringify(currentFileNames) !== JSON.stringify(lastFileNames)) {
       setHasStitchedData(false);
-      onStitchStatus?.("");
+      onStitchStatusRef.current?.("");
       // Update this so we don't keep resetting until the next process
       lastProcessedFilesRef.current = currentFileNames;
     }
-  }, [selectedFiles, onStitchStatus]);
+  }, [selectedFileNamesKey]);
 
   // Worker data refs
   const workerFileDataCache = useRef<[string, number[]][]>([]);
@@ -95,18 +107,17 @@ export const useStitchingLogic = ({
     [fftSize, sampleRateOptions, selectedFiles, stitchSourceSettings],
   );
 
-  const setStitchStatus = useCallback(
-    (status: string) => {
-      onStitchStatus?.(status);
-    },
-    [onStitchStatus],
-  );
+  const setStitchStatus = useCallback((status: string) => {
+    onStitchStatusRef.current?.(status);
+  }, []);
 
   useEffect(() => {
     if (selectedFiles.length === 0) return;
 
     const cachedSession = getStitchSession(stitchSessionKey);
     if (!cachedSession) return;
+    if (restoredSessionKeyRef.current === stitchSessionKey) return;
+    restoredSessionKeyRef.current = stitchSessionKey;
 
     workerFileDataCache.current = cachedSession.workerFileDataCache;
     workerFreqMap.current = cachedSession.workerFreqMap;
@@ -148,6 +159,7 @@ export const useStitchingLogic = ({
     }
 
     try {
+      restoredSessionKeyRef.current = null;
       // Use file worker for stitching
       const result = await fileWorkerManager.stitchFiles(
         currentFiles,

@@ -65,6 +65,7 @@ const SliderContainer = styled.div<{ $isActive: boolean }>`
   transition: border-color 0.2s ease, background-color 0.2s ease;
   box-sizing: border-box;
   min-width: 0;
+  touch-action: none;
 `;
 
 const RangeTrack = styled.div`
@@ -113,6 +114,7 @@ const VisibleWindow = styled.div<{ $isActive: boolean; $readOnly?: boolean; $isS
   min-width: min-content;
   overflow: visible;
   transition: background-color 0.3s ease, border-color 0.3s ease;
+  touch-action: none;
 `;
 
 const WindowLabel = styled.span<{ $isActive: boolean }>`
@@ -453,6 +455,16 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
     dragStartMaxWindowStartRef.current = logicalMaxWindowStart;
   };
 
+  const handleTrackMouseDown = (e: React.MouseEvent) => {
+    if (readOnly) return;
+
+    if (e.target === thumbRef.current || thumbRef.current?.contains(e.target as Node)) {
+      return;
+    }
+
+    handleMouseDown(e);
+  };
+
   const handleContainerClick = (e: React.MouseEvent) => {
     if (readOnly) return; // Disable clicking in read-only mode
     if (
@@ -472,6 +484,7 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
         ref={containerRef}
         $isActive={isActive}
         onClick={handleContainerClick}
+        onMouseDown={handleTrackMouseDown}
         tabIndex={0}
       >
         <RangeTrack ref={trackRef} className="range-track">

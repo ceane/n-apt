@@ -225,58 +225,27 @@ pub async fn handle_ws_connection(
         match spectrum_result {
           Ok(spectrum_data) => {
             let timestamp: u64 = spectrum_data.timestamp as u64; // i64 to u64
-            let center_frequency: u64 = spectrum_data.center_frequency_hz.unwrap_or(0) as u64;
+             let center_frequency: u64 = spectrum_data.center_frequency_hz.unwrap_or(0) as u64;
 
-            // Determine data type and payload
-            let data_type_str = spectrum_data.data_type.as_deref();
-            let is_iq_data = data_type_str == Some("iq_raw");
+            let data_type = 1u32;
+            let sample_rate = spectrum_data.sample_rate.unwrap_or(0) as u32;
+            let iq_bytes = &spectrum_data.iq_data;
 
-            let (_data_type, frame_bytes) = if is_iq_data {
-              let data_type = 1u32;
-              let sample_rate = spectrum_data.sample_rate.unwrap_or(0) as u32;
-              let iq_bytes = &spectrum_data.iq_data;
+            // Construct header: [timestamp: 8][center_freq: 8][data_type: 4][sample_rate: 4]
+            let mut binary_payload = Vec::with_capacity(24 + iq_bytes.len());
+            binary_payload.extend_from_slice(&timestamp.to_le_bytes());
+            binary_payload.extend_from_slice(&center_frequency.to_le_bytes());
+            binary_payload.extend_from_slice(&data_type.to_le_bytes());
+            binary_payload.extend_from_slice(&sample_rate.to_le_bytes());
 
-              // Construct header: [timestamp: 8][center_freq: 8][data_type: 4][sample_rate: 4]
-              let mut binary_payload = Vec::with_capacity(24 + iq_bytes.len());
-              binary_payload.extend_from_slice(&timestamp.to_le_bytes());
-              binary_payload.extend_from_slice(&center_frequency.to_le_bytes());
-              binary_payload.extend_from_slice(&data_type.to_le_bytes());
-              binary_payload.extend_from_slice(&sample_rate.to_le_bytes());
-
-              // Encrypt actual I/Q data
-              match crypto::encrypt_payload_binary(&enc_key, iq_bytes) {
-                Ok(encrypted_iq) => {
-                  binary_payload.extend_from_slice(&encrypted_iq);
-                  (data_type, binary_payload)
-                }
-                Err(_) => {
-                  error!("I/Q data encryption failed");
-                  continue;
-                }
+            let frame_bytes = match crypto::encrypt_payload_binary(&enc_key, iq_bytes) {
+              Ok(encrypted_iq) => {
+                binary_payload.extend_from_slice(&encrypted_iq);
+                binary_payload
               }
-            } else {
-              // Spectrum data: normal processing
-              let frame = &spectrum_data.waveform;
-              let frame_bytes_slice: &[u8] = bytemuck::cast_slice(frame);
-              let data_type = 0u32;
-              let sample_rate = spectrum_data.sample_rate.unwrap_or(0) as u32;
-
-              // Construct payload: [timestamp: 8][center_freq: 8][data_type: 4][sample_rate: 4][spectrum: N]
-              let mut binary_payload = Vec::with_capacity(24 + frame_bytes_slice.len());
-              binary_payload.extend_from_slice(&timestamp.to_le_bytes());
-              binary_payload.extend_from_slice(&center_frequency.to_le_bytes());
-              binary_payload.extend_from_slice(&data_type.to_le_bytes());
-              binary_payload.extend_from_slice(&sample_rate.to_le_bytes());
-
-              match crypto::encrypt_payload_binary(&enc_key, frame_bytes_slice) {
-                Ok(encrypted_frame) => {
-                  binary_payload.extend_from_slice(&encrypted_frame);
-                  (data_type, binary_payload)
-                }
-                Err(_) => {
-                  error!("Spectrum data encryption failed");
-                  continue;
-                }
+              Err(_) => {
+                error!("I/Q data encryption failed");
+                continue;
               }
             };
 

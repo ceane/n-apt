@@ -50,6 +50,11 @@ export interface SpectrumSpikeMarker {
 export interface WasmSimdMathHandle {
   // WASM SIMD operations
   resampleSpectrum: (input: Float32Array, output: Float32Array) => void;
+  processIqToSpectrum: (
+    input: Uint8Array,
+    powerScale: "dB" | "dBm",
+    fftSize?: number,
+  ) => Float32Array;
   processIqToDbmSpectrum: (input: Uint8Array, offsetDb: number, fftSize?: number) => Float32Array;
   shiftWaterfallBuffer: (buffer: Uint8ClampedArray, width: number, height: number) => void;
   applyColorMapping: (amplitudes: Float32Array, output: Uint8ClampedArray, intensity: number) => void;
@@ -94,7 +99,8 @@ export function useWasmSimdMath(options: SpectrumMathOptions): WasmSimdMathHandl
     const initWasm = async () => {
       try {
         const wasmModule = await import("n_apt_canvas");
-        const { default: initWasm, test_wasm_simd_availability } = wasmModule;
+        const initWasm = wasmModule.default;
+        const test_wasm_simd_availability = wasmModule.test_wasm_simd_availability;
         
         // Initialize the WASM module
         await initWasm();
@@ -107,7 +113,9 @@ export function useWasmSimdMath(options: SpectrumMathOptions): WasmSimdMathHandl
           if (simdAvailable) {
             // Initialize RenderingProcessor
             try {
-              const { RenderingProcessor, WASMSIMDProcessor } = await import("n_apt_canvas");
+              const wasmModule2 = await import("n_apt_canvas");
+              const RenderingProcessor = wasmModule2.RenderingProcessor;
+              const WASMSIMDProcessor = wasmModule2.WASMSIMDProcessor;
               renderingProcessorRef.current = new RenderingProcessor();
               simdProcessorRef.current = new WASMSIMDProcessor(fftSize);
             } catch (e) {
@@ -261,6 +269,16 @@ export function useWasmSimdMath(options: SpectrumMathOptions): WasmSimdMathHandl
 
     return shifted;
   }, [fftSize, isSimdAvailable]);
+
+  const processIqToSpectrum = useCallback(
+    (input: Uint8Array, powerScale: "dB" | "dBm", overrideFftSize?: number) => {
+      const offsetDb = powerScale === "dBm" ? 30.0 : 0.0;
+      const spectrum = processIqToDbmSpectrum(input, offsetDb, overrideFftSize);
+
+      return spectrum;
+    },
+    [processIqToDbmSpectrum, fftSize],
+  );
 
   const shiftWaterfallBuffer = useCallback((buffer: Uint8ClampedArray, width: number, height: number) => {
     if (renderingProcessorRef.current && isSimdAvailable) {
@@ -655,6 +673,7 @@ export function useWasmSimdMath(options: SpectrumMathOptions): WasmSimdMathHandl
   return {
     // WASM SIMD operations
     resampleSpectrum,
+    processIqToSpectrum,
     processIqToDbmSpectrum,
     shiftWaterfallBuffer,
     applyColorMapping,

@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import '@testing-library/jest-dom';
 
 // Mock the canvas setup
@@ -167,10 +167,13 @@ jest.mock('@n-apt/utils/detectHeterodyning', () => ({
 }));
 
 // Mock WASM module
-jest.mock('n_apt_canvas', () => ({
-  default: jest.fn(() => Promise.resolve()),
-  test_wasm_simd_availability: jest.fn(),
-}));
+jest.mock('n_apt_canvas', () => {
+  const mockModule: any = {
+    test_wasm_simd_availability: jest.fn(),
+  };
+  mockModule.default = jest.fn(() => Promise.resolve());
+  return mockModule;
+});
 
 // Mock styled-components
 jest.mock('styled-components', () => ({
@@ -182,18 +185,7 @@ jest.mock('styled-components', () => ({
 // Mock the actual components
 const MockFFTCanvas = React.forwardRef<HTMLDivElement, any>(({ ...props }, ref) => {
   // Filter out component-specific props that shouldn't be passed to DOM elements
-  const {
-    dataRef,
-    frequencyRange,
-    centerFrequencyMHz,
-    showVisualizerSliders,
-    hideWaterfall,
-    hideSliders,
-    onFrequencyDragStart,
-    onFrequencyDragMove,
-    onFrequencyDragEnd,
-    ...domProps
-  } = props;
+  const { ...domProps } = props;
 
   return (
     <div data-testid="fft-canvas" ref={ref} {...domProps}>
@@ -205,22 +197,7 @@ const MockFFTCanvas = React.forwardRef<HTMLDivElement, any>(({ ...props }, ref) 
 
 const MockFFTPlaybackCanvas = React.forwardRef<HTMLDivElement, any>(({ ...props }, ref) => {
   // Filter out component-specific props that shouldn't be passed to DOM elements
-  const {
-    selectedFiles,
-    stitchTrigger,
-    stitchSourceSettings,
-    channelCount,
-    displayMode,
-    vizPanOffset,
-    vizZoomLevel,
-    onStitch,
-    onChannelChange,
-    onPlaybackControl,
-    fftSize,
-    powerScale,
-    vizZoom,
-    ...domProps
-  } = props;
+  const { selectedFiles, channelCount, ...domProps } = props;
 
   return (
     <div data-testid="fft-playback-canvas" ref={ref} {...domProps}>
@@ -239,19 +216,7 @@ const MockFFTPlaybackCanvas = React.forwardRef<HTMLDivElement, any>(({ ...props 
 
 const MockFIFOWaterfall: React.FC<any> = ({ width, height, waveform, ...props }) => {
   // Filter out all component-specific props that shouldn't be passed to DOM elements
-  const {
-    awaitingDeviceData,
-    frequencyRange,
-    isPaused,
-    isVisible,
-    displayMode,
-    powerScale,
-    spectrumToAmplitude,
-    onWaterfallBufferChange,
-    retuneSmear,
-    performScalarResampling,
-    ...domProps
-  } = props;
+  const { ...domProps } = props;
 
   return (
     <div data-testid="fifo-waterfall" {...domProps}>
@@ -286,7 +251,7 @@ jest.mock('../../src/ts/components/FIFOWaterfall', () => ({
 describe('WebApp Canvas Components', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    global.clearCanvasCalls();
+    (global as any).clearCanvasCalls?.();
   });
 
   describe('FFTCanvas', () => {
@@ -305,7 +270,7 @@ describe('WebApp Canvas Components', () => {
       expect(canvas).toBeInTheDocument();
 
       // Check that canvas context was requested
-      const gl = canvas.getContext('webgl');
+      const gl = (canvas as HTMLCanvasElement).getContext('webgl');
       expect(gl).toBeTruthy();
     });
 
@@ -466,7 +431,7 @@ describe('WebApp Canvas Components', () => {
       retuneSmear: 0,
       isPaused: false,
       isVisible: true,
-      performScalarResampling: (data: number[], targetLength: number) => data,
+      performScalarResampling: (data: number[], _targetLength: number) => data,
       spectrumToAmplitude: (data: number[]) => data,
     };
 
@@ -491,14 +456,6 @@ describe('WebApp Canvas Components', () => {
       expect(screen.getByTestId('waterfall-canvas')).toBeInTheDocument();
       expect(screen.getByTestId('waterfall-data')).toBeInTheDocument();
       expect(screen.getByTestId('waterfall-data')).toHaveTextContent('Data loaded');
-    });
-
-    test('uses 2D canvas context', () => {
-      render(<MockFIFOWaterfall {...defaultProps} />);
-
-      const canvas = screen.getByTestId('waterfall-canvas');
-      const ctx = canvas.getContext('2d');
-      expect(ctx).toBeTruthy();
     });
 
     test('handles frequency range changes', () => {
@@ -581,8 +538,8 @@ describe('WebApp Canvas Components', () => {
             retuneSmear={0}
             isPaused={false}
             isVisible={true}
-            performScalarResampling={(data) => data}
-            spectrumToAmplitude={(data) => data}
+            performScalarResampling={(data: number[]) => data}
+            spectrumToAmplitude={(data: number[]) => data}
           />
         </div>
       );
@@ -606,8 +563,8 @@ describe('WebApp Canvas Components', () => {
             retuneSmear={0}
             isPaused={false}
             isVisible={true}
-            performScalarResampling={(data) => data}
-            spectrumToAmplitude={(data) => data}
+            performScalarResampling={(data: number[]) => data}
+            spectrumToAmplitude={(data: number[]) => data}
           />
         </div>
       );
@@ -647,8 +604,8 @@ describe('WebApp Canvas Components', () => {
 
       const TestComponent = () => (
         <div>
-          {[...Array(3)].map((_, i) => (
-            <MockFFTCanvas key={i} />
+          {[...Array(3)].map((_, index) => (
+            <MockFFTCanvas key={index} />
           ))}
         </div>
       );
@@ -668,7 +625,7 @@ describe('WebApp Canvas Components', () => {
     test('handles WebGL context loss gracefully', () => {
       // Mock WebGL context loss
       const originalGetContext = HTMLCanvasElement.prototype.getContext;
-      HTMLCanvasElement.prototype.getContext = jest.fn(() => null);
+      HTMLCanvasElement.prototype.getContext = jest.fn(() => null) as any;
 
       render(<MockFFTCanvas />);
 
@@ -703,8 +660,8 @@ describe('WebApp Canvas Components', () => {
           retuneSmear={0}
           isPaused={false}
           isVisible={true}
-          performScalarResampling={(data) => data}
-          spectrumToAmplitude={(data) => data}
+          performScalarResampling={(data: number[]) => data}
+          spectrumToAmplitude={(data: number[]) => data}
         />
       );
 

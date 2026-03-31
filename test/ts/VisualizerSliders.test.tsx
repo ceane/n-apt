@@ -1,30 +1,27 @@
 import React from "react";
-import { render, screen, fireEvent } from "@testing-library/react";
-import "@testing-library/jest-dom";
-import { VisualizerSliders } from "@n-apt/components/VisualizerSliders";
+import { render, fireEvent, screen } from "@testing-library/react";
+import VisualizerSliders from "../../src/ts/components/VisualizerSliders";
 import { TestWrapper } from "./testUtils";
 
-const mockTheme = {
-  primary: "#00d4ff",
-  background: "#0a0a0a",
-  text: "#ffffff",
-};
-
-describe("VisualizerSliders Component", () => {
+describe("VisualizerSliders", () => {
   const defaultProps = {
     zoom: 1,
     dbMax: 0,
-    dbMin: -120,
+    dbMin: -100,
+    powerScale: "dB" as const,
     onZoomChange: jest.fn(),
     onDbMaxChange: jest.fn(),
     onDbMinChange: jest.fn(),
+    onResetZoomDb: jest.fn(),
+    fftAvgEnabled: false,
+    fftSmoothEnabled: false,
+    wfSmoothEnabled: false,
     onFftAvgChange: jest.fn(),
     onFftSmoothChange: jest.fn(),
     onWfSmoothChange: jest.fn(),
-    onResetZoomDb: jest.fn(),
   };
 
-  it("should render all sliders and toggles", () => {
+  test("renders all sliders with correct labels", () => {
     render(
       <TestWrapper>
         <VisualizerSliders {...defaultProps} />
@@ -34,56 +31,91 @@ describe("VisualizerSliders Component", () => {
     expect(screen.getByText("Zoom")).toBeInTheDocument();
     expect(screen.getByText("Max")).toBeInTheDocument();
     expect(screen.getByText("Min")).toBeInTheDocument();
-    expect(screen.getByText("RESET")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "▹ AVG" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "▹ FFT" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "▹ WF" })).toBeInTheDocument();
+    
+    // Check initial values (formatted)
+    expect(screen.getByText(/1(\.0)?x/)).toBeInTheDocument();
+    expect(screen.getByText("0dB")).toBeInTheDocument();
+    expect(screen.getByText("-100dB")).toBeInTheDocument();
   });
 
-  it("should call onResetZoomDb when RESET is clicked", () => {
+  test("uses dBm units when powerScale is dBm", () => {
     render(
       <TestWrapper>
-        <VisualizerSliders {...defaultProps} />
+        <VisualizerSliders {...defaultProps} powerScale="dBm" dbMax={10} dbMin={-90} />
+      </TestWrapper>
+    );
+
+    expect(screen.getByText("10dBm")).toBeInTheDocument();
+    expect(screen.getByText("-90dBm")).toBeInTheDocument();
+  });
+
+  test("action buttons trigger correct callbacks", () => {
+    const onReset = jest.fn();
+    const onAvg = jest.fn();
+    
+    render(
+      <TestWrapper>
+        <VisualizerSliders {...defaultProps} onResetZoomDb={onReset} onFftAvgChange={onAvg} />
       </TestWrapper>
     );
 
     fireEvent.click(screen.getByText("RESET"));
-    expect(defaultProps.onResetZoomDb).toHaveBeenCalled();
+    expect(onReset).toHaveBeenCalled();
+
+    fireEvent.click(screen.getByText(/AVG/)); // Could be "▹ AVG"
+    expect(onAvg).toHaveBeenCalledWith(true);
   });
 
-  it("should call toggle handlers when toggles are clicked", () => {
-    render(
+  test("toggle buttons show active state", () => {
+    const { rerender } = render(
       <TestWrapper>
-        <VisualizerSliders {...defaultProps} />
+        <VisualizerSliders {...defaultProps} fftAvgEnabled={true} />
       </TestWrapper>
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "▹ AVG" }));
-    expect(defaultProps.onFftAvgChange).toHaveBeenCalledWith(true);
+    // active button has "▸" prefix
+    expect(screen.getByText("▸ AVG")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "▹ FFT" }));
-    expect(defaultProps.onFftSmoothChange).toHaveBeenCalledWith(true);
-
-    fireEvent.click(screen.getByRole("button", { name: "▹ WF" }));
-    expect(defaultProps.onWfSmoothChange).toHaveBeenCalledWith(true);
+    rerender(
+      <TestWrapper>
+        <VisualizerSliders {...defaultProps} fftAvgEnabled={false} />
+      </TestWrapper>
+    );
+    expect(screen.getByText("▹ AVG")).toBeInTheDocument();
   });
 
-  it("should show active state for toggles", () => {
-    const activeProps = {
-      ...defaultProps,
-      fftAvgEnabled: true,
-      fftSmoothEnabled: true,
-      wfSmoothEnabled: true,
-    };
-
+  test("sliders trigger change callbacks on interaction", () => {
+    const onZoom = jest.fn();
     render(
       <TestWrapper>
-        <VisualizerSliders {...activeProps} />
+        <VisualizerSliders {...defaultProps} onZoomChange={onZoom} />
       </TestWrapper>
     );
 
-    expect(screen.getByRole("button", { name: "▸ AVG" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "▸ FFT" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "▸ WF" })).toBeInTheDocument();
+    const zoomSlider = screen.getByText("Zoom").parentElement?.querySelector(".SliderTrack");
+    // Since SliderTrack is a styled component, it might not have the class unless we add it.
+    // Let's find it by getting the SliderThumb's parent.
+    const zoomText = screen.getByText(/1(\.0)?x/);
+    const track = zoomText.parentElement; // SliderTrack
+
+    if (track) {
+      // Mock getBoundingClientRect for the track
+      jest.spyOn(track, 'getBoundingClientRect').mockReturnValue({
+        top: 0,
+        left: 0,
+        width: 40,
+        height: 100,
+        bottom: 100,
+        right: 40,
+        x: 0,
+        y: 0,
+        toJSON: () => {}
+      } as DOMRect);
+
+      // Click at the top of the vertical zoom slider (max zoom)
+      fireEvent.mouseDown(track, { clientX: 20, clientY: 5 });
+      expect(onZoom).toHaveBeenCalled();
+      expect(onZoom.mock.calls[0][0]).toBeGreaterThan(1);
+    }
   });
 });

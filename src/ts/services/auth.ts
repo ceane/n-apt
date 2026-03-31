@@ -10,7 +10,7 @@ import {
   BACKEND_HTTP_URL,
   WS_URL,
   SESSION_KEY as ENV_SESSION_KEY,
-} from "../consts/env";
+} from "@n-apt/consts/env";
 import {
   validateAuthInfo,
   validateAuthResult,

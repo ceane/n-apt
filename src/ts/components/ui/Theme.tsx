@@ -4,7 +4,7 @@ import {
   THEME_TOKENS,
   type ThemeMode,
   type ThemeColorToken,
-} from "../../../rs/consts/theme";
+} from "@n-apt/consts/theme";
 
 type AppMode = "system" | ThemeMode;
 

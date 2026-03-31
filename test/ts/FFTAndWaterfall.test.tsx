@@ -39,6 +39,10 @@ jest.mock("@n-apt/redux", () => ({
         fftSmoothEnabled: false,
         wfSmoothEnabled: false,
       },
+      theme: {
+        fftColor: "#00d4ff",
+        waterfallTheme: "classic",
+      },
     }),
   useAppDispatch: () => jest.fn(),
   spectrumActions: {
@@ -63,8 +67,7 @@ describe("FFTAndWaterfall", () => {
 
     expect(fftCanvasMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        hideWaterfall: true,
-        hideSliders: true,
+        waterfallCanvasBindings: expect.any(Object),
       }),
     );
     expect(screen.getByTestId("fifo-waterfall-canvas")).toBeInTheDocument();

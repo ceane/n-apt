@@ -1,4 +1,4 @@
-import { THEME_TOKENS } from "../../rs/consts/theme";
+import { THEME_TOKENS } from "./theme";
 
 const BASE_COLORS = THEME_TOKENS.colors.light;
 

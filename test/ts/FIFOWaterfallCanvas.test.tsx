@@ -11,7 +11,6 @@ const mockTheme = {
 describe("FIFOWaterfallCanvas", () => {
   it("renders the paused title, all waterfall layers, and heterodyning highlights", () => {
     const setWaterfallGpuCanvasNode = jest.fn();
-    const setWaterfallCanvasNode = jest.fn();
     const setWaterfallOverlayCanvasNode = jest.fn();
 
     const { container } = render(
@@ -19,7 +18,6 @@ describe("FIFOWaterfallCanvas", () => {
         <FIFOWaterfallCanvas
           isPaused={true}
           setWaterfallGpuCanvasNode={setWaterfallGpuCanvasNode}
-          setWaterfallCanvasNode={setWaterfallCanvasNode}
           setWaterfallOverlayCanvasNode={setWaterfallOverlayCanvasNode}
           heterodyningHighlightedBins={[
             { start: 0.1, end: 0.2 },
@@ -31,13 +29,9 @@ describe("FIFOWaterfallCanvas", () => {
 
     expect(screen.getByText(/Waterfall Display \(Paused\)/i)).toBeInTheDocument();
     expect(container.querySelector("#fft-waterfall-canvas-webgpu")).toBeInTheDocument();
-    expect(container.querySelector("#fft-waterfall-canvas-2d")).toBeInTheDocument();
     expect(container.querySelector("#fft-waterfall-canvas-overlay")).toBeInTheDocument();
     expect(screen.getAllByTestId("fifo-waterfall-highlight-band")).toHaveLength(2);
     expect(setWaterfallGpuCanvasNode).toHaveBeenCalledWith(
-      expect.any(HTMLCanvasElement),
-    );
-    expect(setWaterfallCanvasNode).toHaveBeenCalledWith(
       expect.any(HTMLCanvasElement),
     );
     expect(setWaterfallOverlayCanvasNode).toHaveBeenCalledWith(
@@ -47,7 +41,6 @@ describe("FIFOWaterfallCanvas", () => {
 
   it("cleans up ref callbacks on unmount", () => {
     const setWaterfallGpuCanvasNode = jest.fn();
-    const setWaterfallCanvasNode = jest.fn();
     const setWaterfallOverlayCanvasNode = jest.fn();
 
     const { unmount } = render(
@@ -55,7 +48,6 @@ describe("FIFOWaterfallCanvas", () => {
         <FIFOWaterfallCanvas
           isPaused={false}
           setWaterfallGpuCanvasNode={setWaterfallGpuCanvasNode}
-          setWaterfallCanvasNode={setWaterfallCanvasNode}
           setWaterfallOverlayCanvasNode={setWaterfallOverlayCanvasNode}
         />
       </ThemeProvider>,
@@ -64,7 +56,6 @@ describe("FIFOWaterfallCanvas", () => {
     unmount();
 
     expect(setWaterfallGpuCanvasNode.mock.calls.at(-1)?.[0]).toBeNull();
-    expect(setWaterfallCanvasNode.mock.calls.at(-1)?.[0]).toBeNull();
     expect(setWaterfallOverlayCanvasNode.mock.calls.at(-1)?.[0]).toBeNull();
   });
 });

@@ -10,7 +10,7 @@ import { SpectrumProvider } from "@n-apt/hooks/useSpectrumStore";
 import { AuthRoute } from "@n-apt/routes/AuthRoute";
 import ReduxThemeProvider from "@n-apt/components/ReduxThemeProvider";
 import ReduxProvider from "@n-apt/components/ReduxProvider";
-import { PromptProvider } from "@n-apt/components/ui";
+import { PromptProvider, ReduxNotifications } from "@n-apt/components/ui";
 import "katex/dist/katex.min.css";
 
 // Main App component with BrowserRouter wrapper
@@ -18,8 +18,18 @@ const App: React.FC = () => {
   return (
     <>
       <Helmet>
-        <title>n-apt - Signal Analysis Tool</title>
-        <meta name="description" content="Advanced signal analysis and processing tool" />
+        <title>N-APT</title>
+        <meta name="title" content="N-APT" />
+        <meta name="description" content="Visualize FFTs/waterfalls, capture a snapshot or I/Q capture & more, tailored toward N-APT signals. Analyze, learn, record, document & demodulate N-APT signals." />
+
+        <meta property="og:type" content="website" />
+        <meta property="og:title" content="N-APT" />
+        <meta property="og:description" content="Visualize FFTs/waterfalls, capture a snapshot or I/Q capture & more, tailored toward N-APT signals. Analyze, learn, record, document & demodulate N-APT signals." />
+        <meta property="og:site_name" content="N-APT" />
+
+        <meta property="twitter:card" content="summary_large_image" />
+        <meta property="twitter:title" content="N-APT" />
+        <meta property="twitter:description" content="Visualize FFTs/waterfalls, capture a snapshot or I/Q capture & more, tailored toward N-APT signals. Analyze, learn, record, document & demodulate N-APT signals." />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
       </Helmet>
       <Router>
@@ -29,13 +39,14 @@ const App: React.FC = () => {
               <AuthRoute>
                 <PromptProvider>
                   <AppRoutes />
+                  <ReduxNotifications />
                 </PromptProvider>
               </AuthRoute>
             </SpectrumProvider>
           </AuthProvider>
         </ReduxThemeProvider>
       </Router>
-      {(process.env.NODE_ENV === "development" || true) && (
+      {/* {(process.env.NODE_ENV === "development" || true) && (
         <>
           <Agentation
             className="agentation-toolbar"
@@ -45,7 +56,7 @@ const App: React.FC = () => {
             }}
           />
         </>
-      )}
+      )} */}
     </>
   );
 };

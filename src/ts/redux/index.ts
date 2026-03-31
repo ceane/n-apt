@@ -166,8 +166,6 @@ export {
   clearActivePlaybackMetadata,
   triggerStitch,
   toggleStitchPause,
-  startTrainingCapture,
-  stopTrainingCapture,
   resetDrawParams,
   resetTrainingCapture,
   setGlobalNoiseFloor,
@@ -251,11 +249,60 @@ export const websocketActions = {
   setPaused,
 };
 
-// Export thunks
-export * from './thunks/websocketThunks';
+// Export thunks - explicit exports to prevent Safari issues
+export {
+  connectWebSocket,
+  disconnectWebSocket,
+  sendFrequencyRange,
+  sendCenterFrequency,
+  sendPauseCommand,
+  sendSettings,
+  sendRestartDevice,
+  sendTrainingCommand,
+  sendGetAutoFftOptions,
+  sendPowerScaleCommand,
+  sendCaptureCommand,
+  sendScanCommand,
+  sendDemodulateCommand,
+  toggleVisualizerPause,
+} from './thunks/websocketThunks';
 
-// Export selectors
-export * from './selectors/performanceSelectors';
+// Export selectors - explicit exports to prevent Safari issues
+export {
+  selectAuthState,
+  selectSpectrumState,
+  selectWaterfallState,
+  selectThemeState,
+  selectSettingsState,
+  selectWebSocketState,
+  selectIsAuthenticated,
+  selectAuthError,
+  selectSessionToken,
+  selectHasPasskeys,
+  selectFrequencyRange,
+  selectActiveSignalArea,
+  selectPowerScale,
+  selectFftSettings,
+  selectVisualizationSettings,
+  selectSdrSettings,
+  selectDrawParams,
+  selectActiveDrawParams,
+  selectTrainingCaptureState,
+  selectStitchState,
+  selectThemeColors,
+  selectConnectionState,
+  selectDeviceState,
+  selectDeviceSettings,
+  selectSpectrumData,
+  selectEffectiveFrequencyRange,
+  selectSampleRateMHz,
+  selectSignalAreaBounds,
+  selectIsVisualizerRouteActive,
+  selectThemeObject,
+  selectHighFrequencyData,
+  selectIsWebSocketReady,
+  selectDeviceCapabilities,
+} from './selectors/performanceSelectors';
 
 // Export middleware (for advanced usage)
 export { default as websocketMiddleware } from './middleware/websocketMiddleware';

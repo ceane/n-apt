@@ -1,6 +1,5 @@
 import { memo, useRef, useEffect, useCallback } from "react";
 import styled from "styled-components";
-import { useDraw2DFFTSignal } from "@n-apt/hooks/useDraw2DFFTSignal";
 import { useDrawWebGPUFFTSignal } from "@n-apt/hooks/useDrawWebGPUFFTSignal";
 import { useDraw3DWaterfallSignal } from "@n-apt/hooks/useDraw3DWaterfallSignal";
 
@@ -45,8 +44,6 @@ export const FFTSpectrum = memo<FFTSpectrumProps>(
   }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
 
-    // Use appropriate rendering hook based on WebGPU availability and 3D mode
-    const { draw2DFFTSignal } = useDraw2DFFTSignal();
     const { drawWebGPUFFTSignal } = useDrawWebGPUFFTSignal();
     const { draw3DWaterfallSignal } = useDraw3DWaterfallSignal();
 
@@ -94,20 +91,7 @@ export const FFTSpectrum = memo<FFTSpectrumProps>(
           onRenderComplete?.();
         }
       } else {
-        // Use 2D Canvas rendering
-        const success = draw2DFFTSignal({
-          canvas,
-          waveform: waveformArray,
-          frequencyRange,
-          showGrid,
-          centerFrequencyMHz,
-          isDeviceConnected,
-          highPerformanceMode: false,
-        });
-
-        if (success) {
-          onRenderComplete?.();
-        }
+        return;
       }
     }, [
       width,
@@ -121,7 +105,6 @@ export const FFTSpectrum = memo<FFTSpectrumProps>(
       centerFrequencyMHz,
       isDeviceConnected,
       drawSignal3D,
-      draw2DFFTSignal,
       drawWebGPUFFTSignal,
       draw3DWaterfallSignal,
       onRenderComplete,

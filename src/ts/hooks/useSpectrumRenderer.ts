@@ -1,6 +1,5 @@
 import { useCallback, useRef } from "react";
 import { useDrawWebGPUFFTSignal } from "@n-apt/hooks/useDrawWebGPUFFTSignal";
-import { useDraw2DFFTSignal } from "@n-apt/hooks/useDraw2DFFTSignal";
 import { useDraw3DWaterfallSignal } from "@n-apt/hooks/useDraw3DWaterfallSignal";
 import { useOverlayRenderer } from "@n-apt/hooks/useOverlayRenderer";
 import { OverlayTextureRenderer } from "@n-apt/hooks/useWebGPUInit";
@@ -10,7 +9,7 @@ import type { SpectrumSpikeMarker } from "@n-apt/hooks/useWasmSimdMath";
 const OVERLAY_MIN_INTERVAL_MS = 50;
 
 export interface SpectrumRendererOptions {
-  /** The target canvas element (WebGPU or 2D) */
+  /** The target canvas element (WebGPU) */
   canvas: HTMLCanvasElement | null;
   
   /** Whether WebGPU is currently enabled and available */
@@ -22,8 +21,8 @@ export interface SpectrumRendererOptions {
   /** WebGPU preferred canvas format */
   format?: GPUTextureFormat | null;
   
-  /** The FFT waveform data to visualize */
-  waveform: Float32Array | number[];
+  /** Render input data to visualize (live I/Q bytes or precomputed spectrum floats) */
+  waveform: Uint8Array | Float32Array;
   /** The current frequency range (min/max MHz) to display on the X-axis */
   frequencyRange: { min: number; max: number };
   /** Minimum dB value for the Y-axis */
@@ -66,9 +65,6 @@ export interface SpectrumRendererOptions {
   /** Visual customization: Canvas background color */
   backgroundColor?: string;
 
-  /** (2D only) Whether to use high performance (minimal) drawing mode */
-  highPerformanceMode?: boolean;
-  
   /** Whether to render in 3D waterfall mode */
   drawSignal3D?: boolean;
   /** Display mode: FFT or IQ */
@@ -76,15 +72,14 @@ export interface SpectrumRendererOptions {
 }
 
 /**
- * A unified hook that abstracts away the complexity of switching between
- * WebGPU and Canvas2D rendering for the FFT spectrum.
+ * A unified hook that abstracts away the complexity of rendering the FFT
+ * spectrum with WebGPU and the associated overlays.
  * 
  * It handles throttled overlay updates, backend selection, and coordinate
  * normalization across both rendering paths.
  */
 export function useSpectrumRenderer() {
   const { drawWebGPUFFTSignal, cleanup: cleanupGPU } = useDrawWebGPUFFTSignal();
-  const { draw2DFFTSignal, cleanup: cleanup2D } = useDraw2DFFTSignal();
   const { draw3DWaterfallSignal, cleanup: cleanup3D } = useDraw3DWaterfallSignal();
   const { drawGridOnContext, drawMarkersOnContext, drawSpikeMarkersOnContext } = useOverlayRenderer();
   
@@ -117,16 +112,12 @@ export function useSpectrumRenderer() {
       lineColor,
       fillColor,
       backgroundColor,
-      highPerformanceMode = false,
       drawSignal3D = false,
-      displayMode = "fft"
     } = options;
 
     if (!canvas) return false;
 
-    // VERY IMPORTANT: If WebGPU is still initializing, we MUST NOT attempt
-    // to get ANY context from the canvas yet. Once a '2d' context is requested,
-    // a 'webgpu' context can NEVER be requested on the same canvas (and vice versa).
+    // VERY IMPORTANT: If WebGPU is still initializing, we must not render yet.
     if (isInitializingWebGPU) return false;
 
     if (drawSignal3D) {
@@ -134,7 +125,7 @@ export function useSpectrumRenderer() {
         canvas,
         device: device ?? ({} as GPUDevice),
         format: format ?? ("bgra8unorm" as GPUTextureFormat),
-        waveform: waveform instanceof Float32Array ? waveform : new Float32Array(waveform),
+        waveform,
         frequencyRange,
         fftMin,
         fftMax,
@@ -144,7 +135,7 @@ export function useSpectrumRenderer() {
       });
     }
 
-    if (webgpuEnabled && device && format) {
+    if (device && format) {
       const now = performance.now();
       const shouldShowSpikes = showSpikeOverlay && isDeviceConnected;
       const dpr = window.devicePixelRatio || 1;
@@ -224,7 +215,7 @@ export function useSpectrumRenderer() {
         canvas,
         device,
         format,
-        waveform: waveform instanceof Float32Array ? waveform : new Float32Array(waveform),
+        waveform,
         frequencyRange,
         fftMin,
         fftMax,
@@ -239,33 +230,21 @@ export function useSpectrumRenderer() {
         backgroundColor
       });
     } else {
-      // Fallback to traditional Canvas 2D
-      return draw2DFFTSignal({
-        canvas,
-        waveform: Array.from(waveform),
-        frequencyRange,
-        fftMin,
-        fftMax,
-        powerScale,
-        showGrid: true,
-        centerFrequencyMHz,
-        isDeviceConnected,
-        hardwareSampleRateHz,
-        fullCaptureRange,
-        isIqRecordingActive,
-        limitMarkers,
-        highPerformanceMode,
-        displayMode
-      });
+      return false;
     }
-  }, [drawWebGPUFFTSignal, draw2DFFTSignal, draw3DWaterfallSignal, drawGridOnContext, drawMarkersOnContext, drawSpikeMarkersOnContext]);
+  }, [
+    drawWebGPUFFTSignal,
+    draw3DWaterfallSignal,
+    drawGridOnContext,
+    drawMarkersOnContext,
+    drawSpikeMarkersOnContext,
+  ]);
 
   const cleanup = useCallback(() => {
     cleanupGPU();
-    cleanup2D();
     cleanup3D();
     lastOverlayUploadMsRef.current = { grid: 0, markers: 0, spikes: 0 };
-  }, [cleanupGPU, cleanup2D, cleanup3D]);
+  }, [cleanupGPU, cleanup3D]);
 
   return { 
     drawSpectrum, 

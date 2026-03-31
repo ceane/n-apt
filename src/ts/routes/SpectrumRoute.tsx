@@ -61,6 +61,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
       sendPowerScaleCommand: _sendPowerScaleCommand,
     },
     sampleRateHzEffective,
+    toggleVisualizerPause,
   } = useSpectrumStore();
 
   const [vizZoom, setVizZoom] = [
@@ -82,6 +83,25 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
       window.dispatchEvent(new Event("resize"));
     });
   }, [activeTab]);
+
+  // Global keyboard event listener for spacebar to pause/resume
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Only handle spacebar when not in an input field
+      if (event.code === 'Space' &&
+        !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName || '') &&
+        !(document.activeElement as HTMLElement)?.isContentEditable) {
+        event.preventDefault();
+        event.stopPropagation();
+        toggleVisualizerPause();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [toggleVisualizerPause]);
 
 
   // Device connection state management

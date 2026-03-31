@@ -94,6 +94,19 @@ export type SpectrumFrame = {
   description: string;
 };
 
+export type IqRawFrame = {
+  type: "spectrum";
+  is_mock_apt?: boolean;
+  center_frequency_hz?: number;
+  waveform_span_mhz?: number | null;
+  timestamp?: number;
+  data_type: "iq_raw";
+  sample_rate?: number;
+  iq_data: Uint8Array;
+};
+
+export type LiveFrameData = IqRawFrame;
+
 export type CaptureFileType = ".napt" | ".wav";
 
 export type CaptureRequest = {

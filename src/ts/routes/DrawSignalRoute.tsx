@@ -4,7 +4,7 @@ import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 import { useDrawMockNAPTSignal } from "@n-apt/hooks/useDrawMockNAPTSignal";
 import { useWebGPUInit } from "@n-apt/hooks/useWebGPUInit";
 import { useSpectrumRenderer } from "@n-apt/hooks/useSpectrumRenderer";
-import { RESAMPLE_WGSL } from "@n-apt/consts/shaders/resample";
+import { RESAMPLE_WGSL } from "@n-apt/shaders";
 import { FFT_CANVAS_BG } from "@n-apt/consts";
 import { PolarRadioWaveWebGPU } from "@n-apt/components/3D/PolarRadioWaveWebGPU";
 import { RadiationLobe3D } from "@n-apt/components/3D/RadiationLobe3D";
@@ -184,7 +184,6 @@ export const DrawSignalRoute: React.FC = () => {
     gridOverlayRendererRef,
     markersOverlayRendererRef,
   } = useWebGPUInit({
-    force2D: false,
     spectrumGpuCanvasRef: canvasRef,
     waterfallGpuCanvasRef,
     resampleWgsl: RESAMPLE_WGSL,

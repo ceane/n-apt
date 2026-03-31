@@ -60,6 +60,7 @@ export {
   isValidFloat32Array,
   isValidUint8ClampedArray,
   isValidSpectrumData,
+  validateSpectrumData,
   isValidWaterfallData,
   validateWaterfallData,
   validateSpectrumDataComprehensive,
@@ -100,8 +101,12 @@ export {
   performValidationHealthCheck,
 } from "@n-apt/validation/middleware";
 
-// Re-export for convenience
-export * from "@n-apt/validation/types";
-export * from "@n-apt/validation/schemas";
-export * from "@n-apt/validation/guards";
-export * from "@n-apt/validation/middleware";
+// Additional exports not explicitly covered above - explicit exports to prevent Safari issues
+// Basic type guards from guards module
+export {
+  isString,
+  isNumber,
+  isBoolean,
+  isObject,
+  isArray,
+} from "@n-apt/validation/guards";

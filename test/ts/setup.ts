@@ -8,6 +8,19 @@ const { TextEncoder, TextDecoder } = require("util");
 global.TextEncoder = TextEncoder;
 global.TextDecoder = TextDecoder;
 
+// WebCrypto polyfill for Node/Jest environment
+const crypto = require("node:crypto");
+if (!global.crypto) {
+  Object.defineProperty(global, "crypto", {
+    value: crypto.webcrypto,
+  });
+}
+if (!global.crypto.subtle && crypto.webcrypto) {
+  Object.defineProperty(global.crypto, "subtle", {
+    value: crypto.webcrypto.subtle,
+  });
+}
+
 jest.mock("three/webgpu", () => ({
   WebGPURenderer: jest.fn().mockImplementation(() => ({
     init: jest.fn().mockResolvedValue(undefined),
@@ -214,12 +227,8 @@ Element.prototype.getBoundingClientRect = jest.fn(() => ({
 }));
 
 // Mock WebSocket
-global.WebSocket = jest.fn().mockImplementation(() => ({
-  readyState: WebSocket.CONNECTING,
-  CONNECTING: 0,
-  OPEN: 1,
-  CLOSING: 2,
-  CLOSED: 3,
+const MockWebSocket = jest.fn().mockImplementation(() => ({
+  readyState: 0, // MockWebSocket.CONNECTING
   close: jest.fn(),
   send: jest.fn(),
   addEventListener: jest.fn(),
@@ -230,6 +239,13 @@ global.WebSocket = jest.fn().mockImplementation(() => ({
   onmessage: null,
   onerror: null,
 }));
+
+(MockWebSocket as any).CONNECTING = 0;
+(MockWebSocket as any).OPEN = 1;
+(MockWebSocket as any).CLOSING = 2;
+(MockWebSocket as any).CLOSED = 3;
+
+global.WebSocket = MockWebSocket as any;
 
 // JSDOM provides Event and MessageEvent, only polyfill if missing
 if (typeof (global as any).MessageEvent === "undefined") {
@@ -294,12 +310,14 @@ if (typeof performance !== "undefined" && !performance.clearMarks) {
 }
 
 // Mock WASM modules
-jest.mock("n_apt_canvas", () => ({
-  __esModule: true,
-  default: jest.fn(() => Promise.resolve()),
-  RenderingProcessor: class {
-    process = jest.fn();
-    destroy = jest.fn();
-  },
-  test_wasm_simd_availability: jest.fn(() => false),
-}), { virtual: true });
+jest.mock("n_apt_canvas", () => {
+  const mockModule: any = {
+    RenderingProcessor: class {
+      process = jest.fn();
+      destroy = jest.fn();
+    },
+    test_wasm_simd_availability: jest.fn(() => false),
+  };
+  mockModule.default = jest.fn(() => Promise.resolve());
+  return mockModule;
+}, { virtual: true });

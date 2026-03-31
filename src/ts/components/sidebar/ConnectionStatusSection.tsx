@@ -89,12 +89,25 @@ export const PauseButton = styled.button<{ $paused: boolean }>`
   text-align: center;
   transition: all 0.2s ease;
   user-select: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
 
   &:hover {
     background-color: ${(props) => props.theme.primary}0d;
     border-color: ${(props) => props.theme.primary};
     color: ${(props) => props.theme.primary};
   }
+`;
+
+const SpaceHint = styled.span`
+  font-size: 9px;
+  color: ${(props) => props.theme.textSecondary};
+  opacity: 0.6;
+  line-height: 1;
+  margin-top: 3px;
 `;
 
 export const WarningButton = styled(PauseButton) <{
@@ -216,6 +229,7 @@ export const ConnectionStatusSection: React.FC<
               !hidePauseButton && (
                 <PauseButton $paused={isPaused} onClick={onPauseToggle}>
                   {cryptoCorrupted ? "Corrupted" : isPaused ? "Resume" : "Pause"}
+                  <SpaceHint>[Space]</SpaceHint>
                 </PauseButton>
               )
             ))}

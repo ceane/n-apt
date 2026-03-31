@@ -36,7 +36,7 @@
 import { useCallback, useRef } from "react";
 import { OverlayTextureRenderer } from "@n-apt/hooks/useWebGPUInit";
 import { LINE_COLOR, SHADOW_COLOR, FFT_AREA_MIN } from "@n-apt/consts";
-import { SPECTRUM_SHADER } from "@n-apt/consts/shaders/spectrum";
+import { SPECTRUM_SHADER } from "@n-apt/shaders";
 import { configureWebGPUCanvas, parseCssColorToRgba } from "@n-apt/utils/webgpu";
 
 const readCssColor = (name: string, fallback: string) => {
@@ -82,7 +82,7 @@ export interface WebGPUFFTSignalOptions {
   canvas: HTMLCanvasElement;
   device: GPUDevice;
   format: GPUTextureFormat;
-  waveform: Float32Array;
+  waveform: Float32Array | Uint8Array;
   frequencyRange: { min: number; max: number };
   fftMin?: number;
   fftMax?: number;
@@ -109,8 +109,11 @@ export function useDrawWebGPUFFTSignal() {
       canvas: HTMLCanvasElement,
       device: GPUDevice,
       format: GPUTextureFormat,
-    ): FFTWebGPUState => {
+    ): FFTWebGPUState | null => {
       const ctx = configureWebGPUCanvas(canvas, device, format);
+      if (!ctx) {
+        return null;
+      }
 
       const bindGroupLayout = device.createBindGroupLayout({
         entries: [
@@ -245,10 +248,13 @@ export function useDrawWebGPUFFTSignal() {
         backgroundColor = readCssColor("--color-fft-background", "#0a0a0a"),
       } = options;
 
-      // Initialize renderer state if needed
       if (!rendererRef.current) {
+        if (!canvas || !device || !format) return false;
+
         try {
-          rendererRef.current = createFFTWebGPUState(canvas, device, format);
+          const nextState = createFFTWebGPUState(canvas, device, format);
+          if (!nextState) return false;
+          rendererRef.current = nextState;
         } catch (error) {
           console.error("Failed to create WebGPU FFT renderer:", error);
           return false;
@@ -258,20 +264,19 @@ export function useDrawWebGPUFFTSignal() {
       const state = rendererRef.current;
       if (!state) return false;
 
+      const waveformData = waveform instanceof Uint8Array
+        ? Float32Array.from(waveform)
+        : waveform;
+
+      if (waveformData.length === 0) return false;
+
       try {
-        // Update waveform data
-        if (waveform.length === 0) return false;
-
-        if (!state.waveformBuffer || waveform.length !== state.waveformLength) {
-          const createWaveformBuffer = (length: number): GPUBuffer => {
-            return state.device.createBuffer({
-              size: length * Float32Array.BYTES_PER_ELEMENT,
-              usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-            });
-          };
-
-          state.waveformBuffer = createWaveformBuffer(waveform.length);
-          state.waveformLength = waveform.length;
+        if (!state.waveformBuffer || waveformData.length !== state.waveformLength) {
+          state.waveformBuffer = state.device.createBuffer({
+            size: waveformData.length * Float32Array.BYTES_PER_ELEMENT,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+          });
+          state.waveformLength = waveformData.length;
           state.bindGroup = state.device.createBindGroup({
             layout: state.bindGroupLayout,
             entries: [
@@ -284,62 +289,30 @@ export function useDrawWebGPUFFTSignal() {
         state.device.queue.writeBuffer(
           state.waveformBuffer,
           0,
-          waveform.buffer as ArrayBuffer,
-          waveform.byteOffset,
-          waveform.byteLength,
+          waveformData.buffer as ArrayBuffer,
+          waveformData.byteOffset,
+          waveformData.byteLength,
         );
 
-        // Prepare render parameters
         const logicalWidth = canvas.clientWidth || 1;
         const logicalHeight = canvas.clientHeight || 1;
-        const dpr = window.devicePixelRatio || 1;
-
         const fftAreaMax = { x: logicalWidth - 40, y: logicalHeight - 40 };
 
-        const params: SpectrumRenderParams = {
-          canvasWidth: logicalWidth,
-          canvasHeight: logicalHeight,
-          dpr,
-          plotLeft: FFT_AREA_MIN.x, 
-          plotRight: fftAreaMax.x,
-          plotTop: FFT_AREA_MIN.y, 
-          plotBottom: fftAreaMax.y,
-          dbMin: fftMin,
-          dbMax: fftMax,
-          lineColor: lineColor,
-          fillColor: fillColor,
-          backgroundColor: backgroundColor,
-        };
+        const plotMinX = (FFT_AREA_MIN.x / logicalWidth) * 2 - 1;
+        const plotMaxX = (fftAreaMax.x / logicalWidth) * 2 - 1;
+        const yToNdc = (y: number) => 1 - (y / logicalHeight) * 2;
+        const plotMaxY = yToNdc(FFT_AREA_MIN.y);
+        const plotMinY = yToNdc(fftAreaMax.y);
 
-        // Prepare overlays (overlays are rendered by FFTCanvas using useOverlayRenderer)
-        const overlays = {
-          pre: showGrid ? gridOverlayRenderer : null,
-          post: markersOverlayRenderer,
-          spikes: spikesOverlayRenderer,
-        };
-
-        // Render spectrum using WebGPU (inlined render logic)
-        if (!state.waveformBuffer || state.waveformLength < 2) return false;
-
-        const plotMinX = (params.plotLeft / params.canvasWidth) * 2 - 1;
-        const plotMaxX = (params.plotRight / params.canvasWidth) * 2 - 1;
-        const yToNdc = (y: number) => 1 - (y / params.canvasHeight) * 2;
-        const plotMaxY = yToNdc(params.plotTop);
-        const plotMinY = yToNdc(params.plotBottom);
-
-        const [lineR, lineG, lineB, lineA] = parseCssColorToRgba(
-          params.lineColor,
-        );
-        const [fillR, fillG, fillB, fillA] = parseCssColorToRgba(
-          params.fillColor,
-        );
+        const [lineR, lineG, lineB, lineA] = parseCssColorToRgba(lineColor);
+        const [fillR, fillG, fillB, fillA] = parseCssColorToRgba(fillColor);
 
         state.uniformValues[0] = plotMinX;
         state.uniformValues[1] = plotMinY;
         state.uniformValues[2] = plotMaxX;
         state.uniformValues[3] = plotMaxY;
-        state.uniformValues[4] = params.dbMin;
-        state.uniformValues[5] = params.dbMax;
+        state.uniformValues[4] = fftMin;
+        state.uniformValues[5] = fftMax;
         state.uniformValues[6] = state.waveformLength;
         state.uniformValues[7] = 0;
         state.uniformValues[8] = lineR;
@@ -361,11 +334,7 @@ export function useDrawWebGPUFFTSignal() {
 
         const encoder = state.device.createCommandEncoder();
         const view = state.ctx.getCurrentTexture().createView();
-
-        const [bgR, bgG, bgB, bgA] = parseCssColorToRgba(
-          params.backgroundColor,
-        );
-
+        const [bgR, bgG, bgB, bgA] = parseCssColorToRgba(backgroundColor);
         const pass = encoder.beginRenderPass({
           colorAttachments: [
             {
@@ -377,30 +346,22 @@ export function useDrawWebGPUFFTSignal() {
           ],
         });
 
-        // Draw underlay first (e.g. grid)
-        if (overlays?.pre) {
-          overlays.pre.renderInPass(pass);
+        if (showGrid && gridOverlayRenderer) {
+          gridOverlayRenderer.renderInPass(pass);
         }
-
         pass.setBindGroup(0, state.bindGroup);
-
         pass.setPipeline(state.pipelineFill);
         pass.draw(state.waveformLength * 2);
-
         pass.setPipeline(state.pipelineLine);
         pass.draw(state.waveformLength);
-
-        // Draw overlay last (e.g. markers/labels)
-        if (overlays?.post) {
-          overlays.post.renderInPass(pass);
+        if (markersOverlayRenderer) {
+          markersOverlayRenderer.renderInPass(pass);
         }
-        if (overlays?.spikes) {
-          overlays.spikes.renderInPass(pass);
+        if (spikesOverlayRenderer) {
+          spikesOverlayRenderer.renderInPass(pass);
         }
-
         pass.end();
         state.device.queue.submit([encoder.finish()]);
-
         return true;
       } catch (error) {
         console.error("WebGPU FFT rendering failed:", error);

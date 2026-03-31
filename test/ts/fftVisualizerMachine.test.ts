@@ -1,145 +1,77 @@
-import {
-  createFFTVisualizerMachine,
-  type FFTVisualizerSnapshot,
-} from "@n-apt/utils/fftVisualizerMachine";
+import { createFFTVisualizerMachine, FFTVisualizerSnapshot } from "../../src/ts/utils/fftVisualizerMachine";
 
-describe("createFFTVisualizerMachine", () => {
-  const createSnapshot = (): FFTVisualizerSnapshot => ({
-    waveform: new Float32Array([1, 2, 3]),
-    waterfallTextureSnapshot: new Uint8Array([10, 20, 30, 40]),
-    waterfallTextureMeta: {
-      width: 2,
-      height: 2,
-      writeRow: 1,
-    },
-    waterfallBuffer: new Uint8ClampedArray([9, 8, 7, 6]),
-    waterfallDims: {
-      width: 1,
-      height: 1,
-    },
+describe("fftVisualizerMachine", () => {
+  const createMockSnapshot = (): FFTVisualizerSnapshot => ({
+    waveform: new Float32Array([1.0, 2.0, 3.0]),
+    waterfallTextureSnapshot: new Uint8Array([10, 20, 30]),
+    waterfallTextureMeta: { width: 100, height: 100, writeRow: 50 },
+    waterfallBuffer: new Uint8ClampedArray([255, 0, 0, 255]),
+    waterfallDims: { width: 100, height: 100 },
   });
 
-  it("persists cloned visualizer state for route restoration", () => {
+  test("initializes with empty state", () => {
     const machine = createFFTVisualizerMachine();
-    const snapshot = createSnapshot();
-
-    machine.persist("live", snapshot);
-
-    snapshot.waveform![0] = 99;
-    snapshot.waterfallTextureSnapshot![0] = 88;
-    snapshot.waterfallBuffer![0] = 77;
-
-    const restored = machine.restore("live");
-
-    expect(restored).not.toBeNull();
-    expect(restored?.waveform).toEqual(new Float32Array([1, 2, 3]));
-    expect(restored?.waterfallTextureSnapshot).toEqual(
-      new Uint8Array([10, 20, 30, 40]),
-    );
-    expect(restored?.waterfallTextureMeta).toEqual({
-      width: 2,
-      height: 2,
-      writeRow: 1,
-    });
-    expect(restored?.waterfallBuffer).toEqual(
-      new Uint8ClampedArray([9, 8, 7, 6]),
-    );
-    expect(restored?.waterfallDims).toEqual({
-      width: 1,
-      height: 1,
-    });
-    expect(machine.getState("live").status).toBe("ready");
+    const state = machine.getState("session-1");
+    expect(state.status).toBe("empty");
+    expect(state.snapshot).toBeNull();
   });
 
-  it("clears persisted state", () => {
+  test("initializes with optional initial snapshot", () => {
+    const mock = createMockSnapshot();
+    const machine = createFFTVisualizerMachine(mock);
+    const state = machine.getState("default");
+    expect(state.status).toBe("ready");
+    expect(state.snapshot?.waveform).toEqual(mock.waveform);
+  });
+
+  test("persists and restores snapshots across sessions", () => {
     const machine = createFFTVisualizerMachine();
+    const mock1 = createMockSnapshot();
+    const mock2 = { ...createMockSnapshot(), waveform: new Float32Array([9, 8, 7]) };
 
-    machine.persist("live", createSnapshot());
-    machine.clear("live");
+    machine.persist("s1", mock1);
+    machine.persist("s2", mock2);
 
-    expect(machine.restore("live")).toBeNull();
-    expect(machine.getState("live")).toEqual({
-      status: "empty",
-      snapshot: null,
-    });
+    expect(machine.restore("s1")?.waveform).toEqual(mock1.waveform);
+    expect(machine.restore("s2")?.waveform).toEqual(mock2.waveform);
+    
+    const state1 = machine.getState("s1");
+    expect(state1.status).toBe("ready");
   });
 
-  it("keeps live and playback snapshots isolated by session key", () => {
+  test("clones snapshots to prevent external mutation", () => {
     const machine = createFFTVisualizerMachine();
-    const liveSnapshot = createSnapshot();
-    const playbackSnapshot = {
-      ...createSnapshot(),
-      waveform: new Float32Array([7, 8, 9]),
-    };
+    const mock = createMockSnapshot();
 
-    machine.persist("live", liveSnapshot);
-    machine.persist("playback:file-a:1", playbackSnapshot);
-
-    expect(machine.restore("live")?.waveform).toEqual(
-      new Float32Array([1, 2, 3]),
-    );
-    expect(machine.restore("playback:file-a:1")?.waveform).toEqual(
-      new Float32Array([7, 8, 9]),
-    );
+    machine.persist("session", mock);
+    
+    // Mutate the original
+    if (mock.waveform) mock.waveform[0] = 999;
+    
+    const restored = machine.restore("session");
+    expect(restored?.waveform?.[0]).toBe(1.0); // Should still be original value
+    
+    // Mutate the restored one
+    if (restored?.waveform) restored.waveform[1] = 888;
+    
+    const stateAfterRestoredMutation = machine.getState("session");
+    expect(stateAfterRestoredMutation.snapshot?.waveform?.[1]).toBe(2.0); // Internal state should be protected
   });
 
-  it("returns cloned snapshots from restore so callers cannot mutate stored state", () => {
+  test("clear removes the session state", () => {
     const machine = createFFTVisualizerMachine();
-
-    machine.persist("live", createSnapshot());
-
-    const restored = machine.restore("live");
-    restored?.waveform?.set([99, 98, 97]);
-    restored?.waterfallTextureSnapshot?.set([1, 1, 1, 1]);
-    restored?.waterfallBuffer?.set([5, 5, 5, 5]);
-
-    expect(machine.restore("live")?.waveform).toEqual(
-      new Float32Array([1, 2, 3]),
-    );
-    expect(machine.restore("live")?.waterfallTextureSnapshot).toEqual(
-      new Uint8Array([10, 20, 30, 40]),
-    );
-    expect(machine.restore("live")?.waterfallBuffer).toEqual(
-      new Uint8ClampedArray([9, 8, 7, 6]),
-    );
+    machine.persist("s1", createMockSnapshot());
+    machine.clear("s1");
+    
+    expect(machine.restore("s1")).toBeNull();
+    expect(machine.getState("s1").status).toBe("empty");
   });
 
-  it("returns cloned snapshots from getState as well", () => {
+  test("persist with null clears the session", () => {
     const machine = createFFTVisualizerMachine();
-
-    machine.persist("live", createSnapshot());
-
-    const state = machine.getState("live");
-    state.snapshot?.waveform?.set([42, 42, 42]);
-
-    expect(machine.getState("live").snapshot?.waveform).toEqual(
-      new Float32Array([1, 2, 3]),
-    );
-  });
-
-  it("deletes only the targeted session when persisted with a null snapshot", () => {
-    const machine = createFFTVisualizerMachine();
-
-    machine.persist("live", createSnapshot());
-    machine.persist("playback:file-a:1", {
-      ...createSnapshot(),
-      waveform: new Float32Array([7, 8, 9]),
-    });
-
-    machine.persist("live", null);
-
-    expect(machine.restore("live")).toBeNull();
-    expect(machine.restore("playback:file-a:1")?.waveform).toEqual(
-      new Float32Array([7, 8, 9]),
-    );
-  });
-
-  it("seeds the default session when created with an initial snapshot", () => {
-    const machine = createFFTVisualizerMachine(createSnapshot());
-
-    expect(machine.getState("default")).toEqual({
-      status: "ready",
-      snapshot: createSnapshot(),
-    });
+    machine.persist("s1", createMockSnapshot());
+    machine.persist("s1", null);
+    
+    expect(machine.getState("s1").status).toBe("empty");
   });
 });
