@@ -1,41 +1,54 @@
-import React from "react";
+import React, { useEffect, useRef } from "react";
 import styled from "styled-components";
 
-const Overlay = styled.div`
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100vw;
-  height: 100vh;
-  background: rgba(0, 0, 0, 0.8);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 99999;
-  backdrop-filter: blur(4px);
-`;
-
-const PromptContainer = styled.div`
-  background: #1a1a1a;
-  border: 1px solid #333;
+const Dialog = styled.dialog`
+  background: ${({ theme }) => theme.surface};
+  border: 1px solid ${({ theme }) => theme.border};
   border-radius: 12px;
   padding: 24px;
   min-width: 320px;
   max-width: 90vw;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.9);
-  font-family: "JetBrains Mono", monospace;
+  font-family: ${({ theme }) => theme.typography?.mono || "JetBrains Mono"};
+  color: ${({ theme }) => theme.textPrimary};
+  outline: none;
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  margin: 0;
+
+  &::backdrop {
+    background: rgba(0, 0, 0, 0.8);
+    backdrop-filter: blur(4px);
+    animation: fadeIn 0.2s ease-out;
+  }
+
+  &[open] {
+    animation: scaleIn 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  @keyframes scaleIn {
+    from { transform: translate(-50%, -50%) scale(0.9) opacity: 0; }
+    to { transform: translate(-50%, -50%) scale(1) opacity: 1; }
+  }
 `;
 
 const Title = styled.div`
   font-size: 16px;
   font-weight: 700;
-  color: #fff;
+  color: ${({ theme }) => theme.textPrimary};
   margin-bottom: 12px;
 `;
 
 const Message = styled.div`
   font-size: 13px;
-  color: #ccc;
+  color: ${({ theme }) => theme.textSecondary};
   line-height: 1.5;
   margin-bottom: 20px;
 `;
@@ -47,27 +60,46 @@ const ButtonRow = styled.div`
 `;
 
 const Button = styled.button<{ $variant?: "primary" | "danger" }>`
-  background: ${(props) =>
-    props.$variant === "danger" ? "#ff4444" :
-      props.$variant === "primary" ? "#00d4ff" : "#333"
-  };
-  color: ${(props) =>
-    props.$variant === "danger" || props.$variant === "primary" ? "#000" : "#ccc"
-  };
+  background: ${(props) => {
+    const { $variant = "primary", theme } = props;
+    if ($variant === "danger") {
+      return theme.danger;
+    }
+    if ($variant === "primary") {
+      return theme.primary;
+    }
+    return theme.surfaceHover;
+  }};
+  color: ${(props) => {
+    const { $variant = "primary", theme } = props;
+    if ($variant === "danger") {
+      return "#fff";
+    }
+    if ($variant === "primary") {
+      return theme.mode === "light" ? "#fff" : "#000";
+    }
+    return "#fff";
+  }};
   border: none;
   border-radius: 6px;
   padding: 10px 16px;
   font-size: 12px;
   font-weight: 600;
-  font-family: inherit;
+  font-family: ${({ theme }) => theme.typography?.mono || "JetBrains Mono"};
   cursor: pointer;
   transition: all 0.2s ease;
 
   &:hover {
-    background: ${(props) =>
-    props.$variant === "danger" ? "#ff6666" :
-      props.$variant === "primary" ? "#fff" : "#444"
-  };
+    background: ${(props) => {
+    const { $variant = "primary", theme } = props;
+    if ($variant === "danger") {
+      return theme.mode === "light" ? "#e53e3e" : "#ff6666";
+    }
+    if ($variant === "primary") {
+      return theme.mode === "light" ? "#0044cc" : "#fff";
+    }
+    return theme.mode === "light" ? "#e2e8f0" : "#444";
+  }};
     transform: translateY(-1px);
   }
 
@@ -103,30 +135,50 @@ export const Prompt: React.FC<PromptProps> = ({
   onCancel,
   variant = "primary"
 }) => {
-  if (!open) return null;
+  const dialogRef = useRef<HTMLDialogElement>(null);
 
-  const handleConfirm = () => {
-    onConfirm();
-  };
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
 
-  const handleCancel = () => {
+    if (open) {
+      if (!dialog.open) {
+        dialog.showModal();
+      }
+    } else {
+      if (dialog.open) {
+        dialog.close();
+      }
+    }
+  }, [open]);
+
+  const handleCancel = (e: React.MouseEvent | React.SyntheticEvent) => {
+    e.stopPropagation();
     onCancel();
   };
 
+  const handleBackdropClick = (e: React.MouseEvent<HTMLDialogElement>) => {
+    if (e.target === dialogRef.current) {
+      onCancel();
+    }
+  };
+
   return (
-    <Overlay onClick={handleCancel}>
-      <PromptContainer onClick={(e) => e.stopPropagation()}>
-        <Title>{title}</Title>
-        <Message>{message}</Message>
-        <ButtonRow>
-          <Button onClick={handleCancel}>
-            {cancelText}
-          </Button>
-          <Button $variant={variant} onClick={handleConfirm}>
-            {confirmText}
-          </Button>
-        </ButtonRow>
-      </PromptContainer>
-    </Overlay>
+    <Dialog
+      ref={dialogRef}
+      onClose={onCancel}
+      onClick={handleBackdropClick}
+    >
+      <Title>{title}</Title>
+      <Message>{message}</Message>
+      <ButtonRow>
+        <Button onClick={handleCancel}>
+          {cancelText}
+        </Button>
+        <Button $variant={variant} onClick={onConfirm}>
+          {confirmText}
+        </Button>
+      </ButtonRow>
+    </Dialog>
   );
 };

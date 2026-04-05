@@ -2,6 +2,83 @@ import React from 'react';
 import { Brain } from 'lucide-react';
 import { formatFrequency } from '@n-apt/utils/frequency';
 import { useSpectrumStore } from '@n-apt/hooks/useSpectrumStore';
+import styled from 'styled-components';
+
+const AnalysisContainer = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: ${({ theme }) => theme.spacing.sm};
+  min-width: 220px;
+  text-align: left;
+`;
+
+const AnalysisHeader = styled.div`
+  display: flex;
+  align-items: center;
+  gap: ${({ theme }) => theme.spacing.sm};
+  margin-bottom: 4px;
+`;
+
+const IconContainer = styled.div`
+  padding: 6px;
+  background: ${({ theme }) => theme.colors.primary}22;
+  border-radius: 4px;
+`;
+
+const TitleContainer = styled.div`
+  display: flex;
+  flex-direction: column;
+`;
+
+const MainTitle = styled.div`
+  font-size: 12px;
+  font-weight: bold;
+  color: ${({ theme }) => theme.colors.primary};
+`;
+
+const Subtitle = styled.div`
+  font-size: 9px;
+  opacity: 0.6;
+  font-family: ${({ theme }) => theme.typography.mono};
+`;
+
+const ContentBox = styled.div`
+  background: ${({ theme }) => theme.colors.background}44;
+  border: 1px solid ${({ theme }) => theme.colors.border}11;
+  border-radius: 6px;
+  padding: 10px;
+  font-size: 11px;
+  display: flex;
+  flex-direction: column;
+  gap: ${({ theme }) => theme.spacing.sm};
+`;
+
+const FrequencySpan = styled.div`
+  flex: 1;
+`;
+
+const FrequencyLabel = styled.div`
+  opacity: 0.6;
+`;
+
+const FrequencyValue = styled.div`
+  color: ${({ theme }) => theme.colors.primary};
+  font-weight: 700;
+`;
+
+const SnrRow = styled.div`
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+`;
+
+const SummaryText = styled.div`
+  font-size: 10px;
+  line-height: 1.4;
+  margin-top: 4px;
+  border-top: 1px solid ${({ theme }) => theme.colors.border}11;
+  padding-top: 8px;
+`;
 
 interface AnalysisNodeProps {
   data: {
@@ -52,39 +129,30 @@ export const AnalysisNode: React.FC<AnalysisNodeProps> = ({ data }) => {
   if (!result) return null;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', minWidth: '220px', textAlign: 'left' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-        <div style={{ padding: '6px', background: '#e100ff22', borderRadius: '4px' }}>
-          <Brain size={16} color="#e100ff" />
-        </div>
-        <div>
-          <div style={{ fontSize: '12px', fontWeight: 'bold', color: '#e100ff' }}>BASELINE ANALYSIS</div>
-          <div style={{ fontSize: '9px', opacity: 0.6, fontFamily: 'monospace' }}>Neural Vector Result</div>
-        </div>
-      </div>
+    <AnalysisContainer>
+      <AnalysisHeader>
+        <IconContainer>
+          <Brain size={16} />
+        </IconContainer>
+        <TitleContainer>
+          <MainTitle>BASELINE ANALYSIS</MainTitle>
+          <Subtitle>Neural Vector Result</Subtitle>
+        </TitleContainer>
+      </AnalysisHeader>
 
-      <div style={{
-        background: '#00000044',
-        border: '1px solid #ffffff11',
-        borderRadius: '6px',
-        padding: '10px',
-        fontSize: '11px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '8px'
-      }}>
-        <div style={{ flex: 1 }}>
-          <div style={{ opacity: 0.6 }}>Frequency Span</div>
-          <div style={{ color: '#00d4ff', fontWeight: 700 }}>{formatFrequency(freqRange.min)} - {formatFrequency(freqRange.max)}</div>
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <ContentBox>
+        <FrequencySpan>
+          <FrequencyLabel>Frequency Span</FrequencyLabel>
+          <FrequencyValue>{formatFrequency(freqRange.min)} - {formatFrequency(freqRange.max)}</FrequencyValue>
+        </FrequencySpan>
+        <SnrRow>
           <span style={{ opacity: 0.6 }}>SNR Delta:</span>
           <span style={{ fontFamily: 'monospace' }}>{result.snrDelta}</span>
-        </div>
-        <div style={{ fontSize: '10px', lineHeight: 1.4, marginTop: '4px', borderTop: '1px solid #ffffff11', paddingTop: '8px' }}>
+        </SnrRow>
+        <SummaryText>
           {result.summary}
-        </div>
-      </div>
-    </div>
+        </SummaryText>
+      </ContentBox>
+    </AnalysisContainer>
   );
 };

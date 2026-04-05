@@ -1,13 +1,15 @@
-import React from "react";
+import React, { useCallback } from "react";
 import styled from "styled-components";
-import { useAppSelector } from "@n-apt/redux";
+import { useAppSelector, useAppDispatch, setPaused } from "@n-apt/redux";
+import { sendRestartDevice } from "@n-apt/redux/thunks/websocketThunks";
+import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 import { SourceSidebar } from "@n-apt/components/sidebar/SourceSidebar";
+import FileSelectionSidebar from "@n-apt/components/sidebar/FileSelectionSidebar";
 import { ConnectionStatusSection } from "@n-apt/components/sidebar/ConnectionStatusSection";
 import { ScanningProgress } from "@n-apt/components/sidebar/ScanningProgress";
 import { DemodulationMathSidebar } from "@n-apt/components/sidebar/DemodulationMathSidebar";
 import { DemodSidebarNodes } from "@n-apt/components/sidebar/DemodSidebarNodes";
 import { DemodulationFlows } from "@n-apt/components/sidebar/DemodulationFlows";
-
 import type { SourceMode } from "@n-apt/hooks/useSpectrumStore";
 
 const SidebarContent = styled.div`
@@ -63,14 +65,17 @@ interface DemodulateSidebarProps {
 }
 
 export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
-  sourceMode = "live",
-  onSourceModeChange,
   isScanning = false,
   scanProgress = 0,
   scanCurrentFreq,
   scanRange,
   detectedRegions = 0,
 }) => {
+  const dispatch = useAppDispatch();
+  const { toggleVisualizerPause, manualVisualizerPaused, wsConnection, state: liveState, dispatch: storeDispatch } = useSpectrumStore();
+
+  const { sourceMode, selectedFiles } = liveState;
+
   // Get real device data from Redux store
   const isConnected = useAppSelector((s) => s.websocket.isConnected);
   const deviceState = useAppSelector((s) => s.websocket.deviceState);
@@ -80,25 +85,57 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
   const backend = useAppSelector((s) => s.websocket.backend);
   const cryptoCorrupted = useAppSelector((s) => s.websocket.cryptoCorrupted);
 
+  const liveIsPaused = manualVisualizerPaused ?? wsConnection.isPaused ?? isPaused;
+
+  const togglePause = useCallback(() => {
+    toggleVisualizerPause();
+    dispatch(setPaused(!liveIsPaused));
+  }, [dispatch, liveIsPaused, toggleVisualizerPause]);
+
+  const handleSourceModeChange = (mode: SourceMode) => {
+    storeDispatch({ type: "SET_SOURCE_MODE", mode });
+  };
 
   return (
     <SidebarContent>
       <SourceSidebar
         sourceMode={sourceMode}
-        onSourceModeChange={onSourceModeChange}
+        onSourceModeChange={handleSourceModeChange}
         backend={backend}
         deviceName={deviceName}
       />
 
-      <ConnectionStatusSection
-        isConnected={isConnected}
-        deviceState={deviceState}
-        deviceLoadingReason={deviceLoadingReason}
-        isPaused={isPaused}
-        cryptoCorrupted={cryptoCorrupted}
-        onPauseToggle={() => { }}
-        onRestartDevice={() => { }}
-      />
+      {sourceMode === "file" && (
+        <FileSelectionSidebar
+          selectedFiles={selectedFiles}
+          onSelectedFilesChange={(files: any) => {
+            storeDispatch({ type: "SET_SELECTED_FILES", files });
+          }}
+          // Passing mock stitching status parameters as Demodulate does not currently stitch back files via WS directly
+          stitchStatus=""
+          isStitchPaused={true}
+          onStitch={() => {}}
+          onClear={() => storeDispatch({ type: "SET_SELECTED_FILES", files: [] })}
+          onStitchPauseToggle={() => {}}
+          selectedPrimaryFile={selectedFiles[0] || null}
+          // Hide metadata in demod mode
+          naptMetadata={null}
+          naptMetadataError={null}
+          showMetadata={false}
+        />
+      )}
+
+      {sourceMode === "live" && (
+        <ConnectionStatusSection
+          isConnected={isConnected}
+          deviceState={deviceState}
+          deviceLoadingReason={deviceLoadingReason}
+          isPaused={liveIsPaused}
+          cryptoCorrupted={cryptoCorrupted}
+          onPauseToggle={togglePause}
+          onRestartDevice={() => dispatch(sendRestartDevice())}
+        />
+      )}
 
       <ScanningProgress
         isScanning={isScanning}

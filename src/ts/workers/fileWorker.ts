@@ -284,7 +284,7 @@ function buildCombinedFrame(
   fftSize: number = currentFftSize,
   maxSampleRateHz: number = 3200000,
 ) {
-  const allFileNames = new Set([...fileDataCache.keys()]);
+  const allFileNames = new Set(fileDataCache.keys());
   if (allFileNames.size === 0) return null;
 
   let minFreq = Infinity;

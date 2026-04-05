@@ -765,14 +765,16 @@ export const SpectrumProvider: React.FC<SpectrumProviderProps> = ({
 
   // Track active spectrum route globally
   const isVisualizerRoute =
-    location.pathname === "/" || location.pathname === "/visualizer";
+    location.pathname === "/" || 
+    location.pathname === "/visualizer" ||
+    location.pathname === "/demodulate";
 
   const [manualVisualizerPaused, setManualVisualizerPaused] = useState(() => {
     if (typeof window === "undefined") return false;
     // On the visualizer route, always start unpaused so the first render
     // doesn't race with the mount effect and send a stale pause=true.
     const path = window.location.pathname;
-    if (path === "/" || path === "/visualizer") return false;
+    if (path === "/" || path === "/visualizer" || path === "/demodulate") return false;
     return sessionStorage.getItem(MANUAL_VISUALIZER_PAUSE_KEY) === "true";
   });
 
@@ -807,7 +809,7 @@ export const SpectrumProvider: React.FC<SpectrumProviderProps> = ({
 
   // 1. Clear manual pause on EXACTLY / if on fresh mount
   useEffect(() => {
-    if (location.pathname === "/") {
+    if (location.pathname === "/" || location.pathname === "/demodulate" || location.pathname === "/visualizer") {
       setManualVisualizerPaused(false);
       sessionStorage.setItem(MANUAL_VISUALIZER_PAUSE_KEY, "false");
     }

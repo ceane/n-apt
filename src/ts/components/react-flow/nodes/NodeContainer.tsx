@@ -2,15 +2,15 @@ import React from 'react';
 import styled from 'styled-components';
 
 const NodeContainerWrapper = styled.div`
-  background: #1a1a1a;
-  border: 1px solid #333;
+  background: ${({ theme }) => theme.colors.surface};
+  border: 1px solid ${({ theme }) => theme.colors.border};
   border-radius: 8px;
-  padding: 12px;
+  padding: ${({ theme }) => theme.spacing.md};
   min-width: 200px;
-  font-family: var(--font-mono, monospace);
+  font-family: ${({ theme }) => theme.typography.mono};
   
   &:hover {
-    border-color: #444;
+    border-color: ${({ theme }) => theme.colors.borderHover};
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
   }
 `;

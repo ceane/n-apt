@@ -70,7 +70,7 @@ export interface AptChannelMetadata {
   centerFreqHz: number;
   signalStrengthDb: number;
   snr: number;
-  demodProcessor: String;
+  demodProcessor: string;
 }
 
 export interface SdrProcessorSettings {
