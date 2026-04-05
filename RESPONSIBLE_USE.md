@@ -19,6 +19,7 @@ Licensee **may not use the Software or any derivatives** for purposes that:
 
 3. **Cause psychological, emotional, or physical harm**  
    - Manipulation, coercion, harassment, cyberbullying, intimidation, or emotional abuse.  
+   - Licensee must **avoid use that imposes extreme, disproportionate, or sustained harm, or exploits individuals or systems in ways beyond legitimate purposes**.
 
 4. **Use in offensive military or weaponized applications**  
    - Direct or indirect development, deployment, or enabling of harmful weapons.  
