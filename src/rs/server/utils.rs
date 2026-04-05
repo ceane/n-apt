@@ -435,7 +435,23 @@ pub fn save_capture_file_multi(
 
   info!("Saved capture file: {}", path.display());
   let file_size = std::fs::metadata(&path).map_err(|e| e.to_string())?.len();
-  Ok(CaptureArtifact { filename, path, file_size })
+  
+  // Calculate SHA256 checksum
+  use std::io::Read;
+  use sha2::Digest;
+  let mut file = std::fs::File::open(&path).map_err(|e| format!("Failed to open file for checksum: {}", e))?;
+  let mut hasher = sha2::Sha256::new();
+  let mut buffer = [0u8; 8192];
+  loop {
+    let bytes_read = file.read(&mut buffer).map_err(|e| format!("Failed to read file for checksum: {}", e))?;
+    if bytes_read == 0 {
+      break;
+    }
+    hasher.update(&buffer[..bytes_read]);
+  }
+  let checksum = format!("{:x}", hasher.finalize());
+  
+  Ok(CaptureArtifact { filename, path, file_size, checksum })
 }
 
 #[cfg(test)]
@@ -443,6 +459,207 @@ mod save_tests {
   use super::*;
   use crate::sdr::processor::{CaptureChannel, CaptureResult};
   use std::fs;
+
+  #[test]
+  fn test_save_capture_file_multi_checksum() {
+    let result = CaptureResult {
+      job_id: "test_checksum".to_string(),
+      channels: vec![CaptureChannel {
+        center_freq_hz: 137.5e6,
+        sample_rate_hz: 2.4e6,
+        requested_min_freq_hz: None,
+        requested_max_freq_hz: None,
+        iq_data: vec![1u8; 200], // Different data to ensure unique checksum
+        spectrum_data: vec![0f32; 10],
+        bins_per_frame: 10,
+      }],
+      file_type: ".wav".to_string(), // Test unencrypted format
+      acquisition_mode: "stepwise".to_string(),
+      encrypted: false,
+      fft_size: 2048,
+      duration_s: 1.0,
+      actual_frame_count: 60,
+      fft_window: "Hanning".to_string(),
+      gain: 1.0,
+      ppm: 0,
+      tuner_agc: false,
+      rtl_agc: false,
+      source_device: "Test SDR".to_string(),
+      hardware_sample_rate_hz: 2.4e6,
+      overall_center_frequency_hz: 137.5e6,
+      overall_capture_sample_rate_hz: 2.4e6,
+      geolocation: None,
+      frequency_range: Some((136.3, 138.7)),
+      is_ephemeral: false,
+      ref_based_demod_baseline: None,
+    };
+
+    let artifact = save_capture_file_multi(&result, &[0u8; 32])
+      .expect("save multi .wav with checksum");
+
+    // Verify checksum is present and is a valid SHA256 hash (64 hex characters)
+    assert!(!artifact.checksum.is_empty(), "Checksum should not be empty");
+    assert_eq!(artifact.checksum.len(), 64, "SHA256 checksum should be 64 hex characters");
+    assert!(
+      artifact.checksum.chars().all(|c| c.is_ascii_hexdigit()),
+      "Checksum should only contain hex characters"
+    );
+
+    // Verify the checksum is consistent by calculating it again
+    use sha2::Digest;
+    let file_content = fs::read(&artifact.path).expect("read file for checksum verification");
+    let expected_checksum = format!("{:x}", sha2::Sha256::digest(&file_content));
+    assert_eq!(
+      artifact.checksum, expected_checksum,
+      "Stored checksum should match calculated checksum"
+    );
+
+    // Verify file size is still correct
+    assert_eq!(artifact.file_size, file_content.len() as u64);
+
+    // Clean up
+    let _ = fs::remove_file(artifact.path);
+  }
+
+  #[test]
+  fn test_save_capture_file_multi_checksum_encrypted() {
+    let result = CaptureResult {
+      job_id: "test_checksum_enc".to_string(),
+      channels: vec![CaptureChannel {
+        center_freq_hz: 137.5e6,
+        sample_rate_hz: 2.4e6,
+        requested_min_freq_hz: None,
+        requested_max_freq_hz: None,
+        iq_data: vec![2u8; 150], // Different data for encrypted test
+        spectrum_data: vec![0f32; 10],
+        bins_per_frame: 10,
+      }],
+      file_type: ".napt".to_string(), // Test encrypted format
+      acquisition_mode: "interleaved".to_string(),
+      encrypted: true,
+      fft_size: 2048,
+      duration_s: 1.0,
+      actual_frame_count: 60,
+      fft_window: "Hanning".to_string(),
+      gain: 1.0,
+      ppm: 0,
+      tuner_agc: false,
+      rtl_agc: false,
+      source_device: "Test Encrypted SDR".to_string(),
+      hardware_sample_rate_hz: 2.4e6,
+      overall_center_frequency_hz: 137.5e6,
+      overall_capture_sample_rate_hz: 2.4e6,
+      geolocation: None,
+      frequency_range: Some((136.3, 138.7)),
+      is_ephemeral: false,
+      ref_based_demod_baseline: None,
+    };
+
+    let artifact = save_capture_file_multi(&result, &[0u8; 32])
+      .expect("save multi .napt with checksum");
+
+    // Verify checksum is present and valid for encrypted files too
+    assert!(!artifact.checksum.is_empty(), "Checksum should not be empty for encrypted files");
+    assert_eq!(artifact.checksum.len(), 64, "SHA256 checksum should be 64 hex characters");
+    assert!(
+      artifact.checksum.chars().all(|c| c.is_ascii_hexdigit()),
+      "Checksum should only contain hex characters"
+    );
+
+    // Verify the checksum matches the actual file content
+    use sha2::Digest;
+    let file_content = fs::read(&artifact.path).expect("read encrypted file for checksum verification");
+    let expected_checksum = format!("{:x}", sha2::Sha256::digest(&file_content));
+    assert_eq!(
+      artifact.checksum, expected_checksum,
+      "Stored checksum should match calculated checksum for encrypted files"
+    );
+
+    // Clean up
+    let _ = fs::remove_file(artifact.path);
+  }
+
+  #[test]
+  fn test_save_capture_file_multi_checksum_uniqueness() {
+    let result1 = CaptureResult {
+      job_id: "test_unique1".to_string(),
+      channels: vec![CaptureChannel {
+        center_freq_hz: 137.5e6,
+        sample_rate_hz: 2.4e6,
+        requested_min_freq_hz: None,
+        requested_max_freq_hz: None,
+        iq_data: vec![1u8; 100], // Different data
+        spectrum_data: vec![0f32; 10],
+        bins_per_frame: 10,
+      }],
+      file_type: ".wav".to_string(),
+      acquisition_mode: "stepwise".to_string(),
+      encrypted: false,
+      fft_size: 2048,
+      duration_s: 1.0,
+      actual_frame_count: 60,
+      fft_window: "Hanning".to_string(),
+      gain: 1.0,
+      ppm: 0,
+      tuner_agc: false,
+      rtl_agc: false,
+      source_device: "Test SDR".to_string(),
+      hardware_sample_rate_hz: 2.4e6,
+      overall_center_frequency_hz: 137.5e6,
+      overall_capture_sample_rate_hz: 2.4e6,
+      geolocation: None,
+      frequency_range: Some((136.3, 138.7)),
+      is_ephemeral: false,
+      ref_based_demod_baseline: None,
+    };
+
+    let result2 = CaptureResult {
+      job_id: "test_unique2".to_string(),
+      channels: vec![CaptureChannel {
+        center_freq_hz: 137.5e6,
+        sample_rate_hz: 2.4e6,
+        requested_min_freq_hz: None,
+        requested_max_freq_hz: None,
+        iq_data: vec![2u8; 100], // Different data
+        spectrum_data: vec![0f32; 10],
+        bins_per_frame: 10,
+      }],
+      file_type: ".wav".to_string(),
+      acquisition_mode: "stepwise".to_string(),
+      encrypted: false,
+      fft_size: 2048,
+      duration_s: 1.0,
+      actual_frame_count: 60,
+      fft_window: "Hanning".to_string(),
+      gain: 1.0,
+      ppm: 0,
+      tuner_agc: false,
+      rtl_agc: false,
+      source_device: "Test SDR".to_string(),
+      hardware_sample_rate_hz: 2.4e6,
+      overall_center_frequency_hz: 137.5e6,
+      overall_capture_sample_rate_hz: 2.4e6,
+      geolocation: None,
+      frequency_range: Some((136.3, 138.7)),
+      is_ephemeral: false,
+      ref_based_demod_baseline: None,
+    };
+
+    let artifact1 = save_capture_file_multi(&result1, &[0u8; 32])
+      .expect("save first file");
+    let artifact2 = save_capture_file_multi(&result2, &[0u8; 32])
+      .expect("save second file");
+
+    // Verify checksums are different for different files
+    assert_ne!(
+      artifact1.checksum, artifact2.checksum,
+      "Different files should have different checksums"
+    );
+
+    // Clean up
+    let _ = fs::remove_file(artifact1.path);
+    let _ = fs::remove_file(artifact2.path);
+  }
 
   #[test]
   fn test_save_capture_file_multi_metadata() {

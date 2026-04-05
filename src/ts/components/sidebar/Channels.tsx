@@ -209,6 +209,8 @@ interface ChannelsProps {
   scanRange?: FrequencyRange;
   onScanStart?: () => void;
   onScanStop?: () => void;
+  /** When true, hides the Channels section header. Useful for embedding in constrained areas. */
+  hideTitle?: boolean;
 }
 
 export const Channels: React.FC<ChannelsProps> = ({
@@ -221,6 +223,7 @@ export const Channels: React.FC<ChannelsProps> = ({
   scanRange,
   onScanStart: _onScanStart,
   onScanStop: _onScanStop,
+  hideTitle = false,
 }) => {
   const reduxDispatch = useAppDispatch();
   const spectrumFrames = useAppSelector((s) => s.websocket.spectrumFrames);
@@ -247,10 +250,12 @@ export const Channels: React.FC<ChannelsProps> = ({
   if (variant === "spectrum") {
     return (
       <ChannelsSection>
-        <ChannelsSectionTitle $fileMode={fileMode}>
-          <ChevronsLeftRightEllipsis size={14} />
-          <SectionText>Channels</SectionText>
-        </ChannelsSectionTitle>
+        {!hideTitle && (
+          <ChannelsSectionTitle $fileMode={fileMode}>
+            <ChevronsLeftRightEllipsis size={14} />
+            <SectionText>Channels</SectionText>
+          </ChannelsSectionTitle>
+        )}
         <ChannelsSpectrumGrid>
           {Array.isArray(liveFramesToUse) && liveFramesToUse.length > 0 ? (
             liveFramesToUse.map((frame) => {

@@ -13,7 +13,12 @@ import notificationsSlice from "@n-apt/redux/slices/notificationsSlice";
 
 // Import middleware (will be created next)
 import websocketMiddleware from "@n-apt/redux/middleware/websocketMiddleware";
-import localStorageMiddleware from "@n-apt/redux/middleware/localStorageMiddleware";
+import localStorageMiddleware, { loadPersistedSdrSettings, loadPersistedTheme } from "@n-apt/redux/middleware/localStorageMiddleware";
+
+const preloadedState = {
+  spectrum: loadPersistedSdrSettings(),
+  theme: loadPersistedTheme() || undefined,
+};
 
 export const store = configureStore({
   reducer: {
@@ -26,6 +31,7 @@ export const store = configureStore({
     noteCards: noteCardsSlice,
     notifications: notificationsSlice,
   },
+  preloadedState,
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware({
       serializableCheck: {

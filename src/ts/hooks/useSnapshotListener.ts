@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import type { SDRSettings } from "@n-apt/consts/schemas/websocket";
 import type { SnapshotData } from "@n-apt/components/FFTCanvas";
-import type { FrequencyRange } from "@n-apt/hooks/useWebSocket";
+import type { SnapshotOptions } from "@n-apt/hooks/useSnapshot";
 
 interface UseSnapshotListenerOptions {
   takeSnapshot: (options: SnapshotOptions) => void;
@@ -18,18 +18,9 @@ interface UseSnapshotListenerOptions {
     visualRange: { min: number; max: number };
   }>>;
   getSnapshotData: () => SnapshotData | null;
-}
-
-interface SnapshotOptions {
-  whole?: boolean;
-  grid?: boolean;
-  showGeolocation?: boolean;
-  geolocation?: {
-    latitude: number;
-    longitude: number;
-    accuracy?: number;
-  };
-  [key: string]: any;
+  getVideoSourceCanvases?: SnapshotOptions["getVideoSourceCanvases"];
+  refreshVideoFrame?: SnapshotOptions["refreshVideoFrame"];
+  prepareVideoRecording?: SnapshotOptions["prepareVideoRecording"];
 }
 
 /**
@@ -48,6 +39,9 @@ export const useSnapshotListener = ({
   deviceName,
   captureWholeChannelSegments,
   getSnapshotData,
+  getVideoSourceCanvases,
+  refreshVideoFrame,
+  prepareVideoRecording,
 }: UseSnapshotListenerOptions) => {
   useEffect(() => {
     const listener = async (e: Event) => {
@@ -55,14 +49,10 @@ export const useSnapshotListener = ({
       let sdrSettingsLabel: string | undefined;
 
       if (effectiveSdrSettings) {
-        const agcOn =
-          effectiveSdrSettings.gain?.rtl_agc ||
-          effectiveSdrSettings.gain?.tuner_agc;
-        const gainStr = agcOn
-          ? "Auto"
-          : effectiveSdrSettings.gain?.tuner_gain
-            ? `${effectiveSdrSettings.gain.tuner_gain} dB`
-            : "N/A";
+        const gainValue = typeof effectiveSdrSettings.gain === "number"
+          ? effectiveSdrSettings.gain
+          : null;
+        const gainStr = gainValue !== null ? `${gainValue} dB` : "Auto";
         const ppmStr =
           effectiveSdrSettings.ppm !== undefined
             ? effectiveSdrSettings.ppm.toString()
@@ -88,6 +78,9 @@ export const useSnapshotListener = ({
         sdrSettingsLabel,
         showGeolocation: options.showGeolocation,
         geolocation: options.geolocation,
+        getVideoSourceCanvases,
+        refreshVideoFrame,
+        prepareVideoRecording,
       });
     };
 

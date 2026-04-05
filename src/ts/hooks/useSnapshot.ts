@@ -17,7 +17,7 @@ export type SnapshotOptions = {
   showGeolocation: boolean;
   geolocation?: { lat: string; lon: string } | null;
   showGrid: boolean;
-  format: "png" | "svg";
+  format: "png" | "svg" | SnapshotVideoFormat;
   getSnapshotData: () => SnapshotData | null;
   signalAreaBounds?: Record<string, { min: number; max: number }> | null;
   activeSignalArea?: string;
@@ -28,7 +28,34 @@ export type SnapshotOptions = {
     data: SnapshotData;
     visualRange: { min: number; max: number };
   }>;
+  getVideoSourceCanvases?: () => {
+    spectrum: HTMLCanvasElement | null;
+    waterfall?: HTMLCanvasElement | null;
+  };
+  prepareVideoRecording?: () => void | Promise<void> | (() => void | Promise<void>);
 };
+
+export type SnapshotVideoFormat = "mp4" | "webm";
+
+const SNAPSHOT_VIDEO_MIME_TYPES: Record<SnapshotVideoFormat, string[]> = {
+  webm: ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"],
+  mp4: ["video/mp4;codecs=avc1.42E01E,mp4a.40.2", "video/mp4;codecs=avc1.42E01E", "video/mp4"],
+};
+
+export function getSupportedSnapshotVideoFormat(): SnapshotVideoFormat | null {
+  if (typeof window === "undefined" || typeof MediaRecorder === "undefined") {
+    return null;
+  }
+
+  const candidates: SnapshotVideoFormat[] = ["mp4", "webm"];
+  for (const format of candidates) {
+    if (SNAPSHOT_VIDEO_MIME_TYPES[format].some((type) => MediaRecorder.isTypeSupported(type))) {
+      return format;
+    }
+  }
+
+  return null;
+}
 
 // ── Zoom/pan slice ──────────────────────────────────────────────────────────
 
@@ -71,6 +98,87 @@ export function getZoomedSlice(
   return { slicedWaveform, visualRange };
 }
 
+function downloadBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.download = filename;
+  link.href = url;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+async function recordSnapshotFramesToVideo(
+  renderFrame: () => Promise<HTMLCanvasElement>,
+  baseFilename: string,
+  durationMs = 1000,
+  preferredFormat: SnapshotVideoFormat | null = null,
+): Promise<void> {
+  await new Promise<void>((resolve) => {
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => resolve());
+    });
+  });
+
+  const firstFrame = await renderFrame();
+  const recordingCanvas = document.createElement("canvas");
+  recordingCanvas.width = Math.max(1, firstFrame.width);
+  recordingCanvas.height = Math.max(1, firstFrame.height);
+  const ctx = recordingCanvas.getContext("2d");
+  if (!ctx) throw new Error("Unable to initialize the video recording canvas.");
+
+  ctx.drawImage(firstFrame, 0, 0);
+
+  const stream = recordingCanvas.captureStream(30);
+  const supportedMimeTypes = preferredFormat
+    ? SNAPSHOT_VIDEO_MIME_TYPES[preferredFormat]
+    : [...SNAPSHOT_VIDEO_MIME_TYPES.mp4, ...SNAPSHOT_VIDEO_MIME_TYPES.webm];
+  const mimeType =
+    supportedMimeTypes.find((type) =>
+      typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(type),
+    ) ?? "";
+
+  if (!mimeType) {
+    throw new Error("Your browser cannot record this canvas as a video.");
+  }
+
+  const recorder = new MediaRecorder(stream, { mimeType });
+  const chunks: BlobPart[] = [];
+
+  const stop = await new Promise<Blob>((resolve, reject) => {
+    recorder.ondataavailable = (event) => {
+      if (event.data.size > 0) chunks.push(event.data);
+    };
+    recorder.onerror = () => reject(new Error("Video recording failed."));
+    recorder.onstop = () => resolve(new Blob(chunks, { type: mimeType }));
+    recorder.start(250);
+
+    let rafId = 0;
+    const tick = () => {
+      void renderFrame().then((frame) => {
+        if (recordingCanvas.width !== frame.width) recordingCanvas.width = Math.max(1, frame.width);
+        if (recordingCanvas.height !== frame.height) recordingCanvas.height = Math.max(1, frame.height);
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.clearRect(0, 0, recordingCanvas.width, recordingCanvas.height);
+        ctx.drawImage(frame, 0, 0);
+      });
+      rafId = window.requestAnimationFrame(tick);
+    };
+    tick();
+
+    window.setTimeout(() => {
+      window.cancelAnimationFrame(rafId);
+      try {
+        recorder.stop();
+      } catch (error) {
+        reject(error);
+      }
+    }, durationMs);
+  });
+
+  const extension = mimeType.startsWith("video/mp4") ? "mp4" : "webm";
+  downloadBlob(stop, `${baseFilename}.${extension}`);
+}
+
 
 // THEME constant removed - now computed dynamically inside useSnapshot hook
 
@@ -84,7 +192,7 @@ function renderSpectrumSnapshot(
   showGrid: boolean,
   pixelWidth: number,
   pixelHeight: number,
-  format: "png" | "svg",
+  format: "png" | "svg" | SnapshotVideoFormat,
   fullCaptureRange?: Range,
    statsLines?: string[],
    waveform?: Float32Array,
@@ -722,6 +830,140 @@ export function useSnapshot(
       link.click();
       URL.revokeObjectURL(url);
       return;
+    }
+
+    if (options.format === "mp4" || options.format === "webm") {
+      const restoreRecordingState = options.prepareVideoRecording
+        ? await options.prepareVideoRecording()
+        : undefined;
+
+      try {
+        const baseFilename = `spectrum-snapshot-${timestamp}`;
+        await recordSnapshotFramesToVideo(async () => {
+          const currentData = options.getSnapshotData();
+          if (!currentData || !currentData.waveform || currentData.waveform.length === 0) {
+            throw new Error("No waveform data available for video snapshot.");
+          }
+
+          let currentWaveform: Float32Array;
+          let currentRange: Range;
+          if (options.whole) {
+            currentWaveform = currentData.fullChannelWaveform ?? currentData.waveform;
+            const area = options.activeSignalArea?.toLowerCase();
+            const bounds = area ? options.signalAreaBounds?.[area] : null;
+            currentRange = bounds ?? currentData.frequencyRange;
+          } else if (currentData.vizZoom > 1) {
+            const { slicedWaveform, visualRange } = getZoomedSlice(
+              currentData.waveform,
+              currentData.frequencyRange,
+              currentData.vizZoom,
+              currentData.vizPanOffset,
+            );
+            currentWaveform = slicedWaveform;
+            currentRange = visualRange;
+          } else {
+            currentWaveform = currentData.waveform;
+            currentRange = currentData.frequencyRange;
+          }
+
+          const currentCenterFreq = (currentRange.min + currentRange.max) / 2;
+          let currentCaptureRange: Range;
+          if (currentData.hardwareSampleRateHz && Number.isFinite(currentCenterFreq)) {
+            const hwSpanMHz = currentData.hardwareSampleRateHz / 1e6;
+            const dataSpan = currentRange.max - currentRange.min;
+            if (dataSpan > hwSpanMHz + 0.001) {
+              currentCaptureRange = currentRange;
+            } else {
+              currentCaptureRange = {
+                min: currentCenterFreq - currentData.hardwareSampleRateHz / 2e6,
+                max: currentCenterFreq + currentData.hardwareSampleRateHz / 2e6,
+              };
+            }
+          } else {
+            currentCaptureRange = currentData.frequencyRange;
+          }
+
+          const currentDbUnit = getDbUnit(currentData);
+          const currentStatsLines = options.showStats ? [
+            `${fmtFreq(currentRange.min)} – ${fmtFreq(currentRange.max)}`,
+            fmtTimestamp(),
+            `${options.modeLabel ?? (options.whole ? "Whole Channel" : "Onscreen")} | ${currentDbUnit}: ${currentData.dbMin} to ${currentData.dbMax}`,
+            `FFT: ${currentData.fftSize ?? "?"} | Window: ${currentData.fftWindow ?? "?"}`,
+            `Source: ${options.sourceName || "Unknown"}`,
+            ...(options.sdrSettingsLabel ? [options.sdrSettingsLabel] : []),
+          ] : [];
+
+          if (options.showStats && options.showGeolocation) {
+            if (options.geolocation) {
+              currentStatsLines.push(`Location: ${options.geolocation.lat}, ${options.geolocation.lon}`);
+            }
+          }
+
+          const currentWholeSpectrumCanvas =
+            options.whole && options.wholeChannelSegments?.length
+              ? composeWholeChannelSpectrumCanvas(
+                  options.wholeChannelSegments,
+                  currentRange,
+                  options.showGrid,
+                  PIXEL_WIDTH,
+                  PIXEL_SPECTRUM_H,
+                  currentCaptureRange,
+                  currentStatsLines,
+                  theme,
+                )
+              : null;
+          const currentWholeWaterfallCanvas =
+            options.showWaterfall && options.whole && options.wholeChannelSegments?.length
+              ? composeWholeChannelWaterfallCanvas(
+                  options.wholeChannelSegments,
+                  currentRange,
+                  PIXEL_WIDTH,
+                  PIXEL_WATERFALL_H,
+                  waterfallBg,
+                )
+              : null;
+
+          const totalPixelH = options.showWaterfall ? PIXEL_SPECTRUM_H + PIXEL_WATERFALL_H : PIXEL_SPECTRUM_H;
+          const frameCanvas = document.createElement("canvas");
+          frameCanvas.width = PIXEL_WIDTH;
+          frameCanvas.height = totalPixelH;
+          const frameCtx = frameCanvas.getContext("2d");
+          if (!frameCtx) throw new Error("Unable to initialize the snapshot frame canvas.");
+          frameCtx.fillStyle = theme.bg;
+          frameCtx.fillRect(0, 0, PIXEL_WIDTH, totalPixelH);
+          const spectrumCanvas =
+            currentWholeSpectrumCanvas ??
+            renderSpectrumSnapshotCanvas(
+              { ...currentData, waveform: currentWaveform },
+              currentRange,
+              options.showGrid,
+              PIXEL_WIDTH,
+              PIXEL_SPECTRUM_H,
+              currentCaptureRange,
+              currentStatsLines,
+              currentWaveform,
+              theme,
+            );
+          frameCtx.drawImage(spectrumCanvas, 0, 0);
+          if (options.showWaterfall) {
+            const waterfallCanvas =
+              currentWholeWaterfallCanvas ??
+              renderWaterfallSnapshotCanvas(currentData, PIXEL_WIDTH, PIXEL_WATERFALL_H, {
+                waterfallBg,
+                marginY: 0,
+              });
+            if (waterfallCanvas) {
+              frameCtx.drawImage(waterfallCanvas, 0, PIXEL_SPECTRUM_H);
+            }
+          }
+          return frameCanvas;
+        }, baseFilename, 1000, options.format);
+        return;
+      } finally {
+        if (restoreRecordingState) {
+          await restoreRecordingState();
+        }
+      }
     }
 
     // ── PNG path ──────────────────────────────────────────────────────────

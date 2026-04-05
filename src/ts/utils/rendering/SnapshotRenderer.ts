@@ -300,6 +300,7 @@ export class SnapshotRenderer {
     const dbRange = this.mapper.getDbRange();
 
     dc.setTextAlign("right");
+    dc.setTextBaseline("middle");
     dc.setFill(this.theme.text);
     dc.setFont("12px JetBrains Mono");
 
@@ -312,7 +313,7 @@ export class SnapshotRenderer {
       if (i === 0) {
         label += unit;
       }
-      dc.fillText(label, area.x - 15, y + 3);
+      dc.fillText(label, area.x - 10, y);
     }
   }
 
@@ -411,52 +412,43 @@ export class SnapshotRenderer {
     const freqRange = this.mapper.getFreqRange();
     const dataRange = visualRange || freqRange;
 
-    const pixelsPerBin = (area.width * (dataRange.max - dataRange.min)) / (freqRange.max - freqRange.min) / dataWidth;
-    const isSteps = pixelsPerBin >= 3;
+    const isSteps = (area.width / dataWidth) >= 3;
     const decimated = this.decimateWaveform(waveform, Math.ceil(area.width));
 
     if (isSteps) {
-      this.drawTraceSteps(dc, decimated, pixelsPerBin, dataRange);
+      this.drawTraceSteps(dc, decimated);
     } else {
       this.drawTraceSmooth(dc, decimated, dataRange);
     }
   }
 
-  private drawTraceSteps(dc: DrawingContext, waveform: number[] | Float32Array, binW: number, dataRange: Range): void {
+  private drawTraceSteps(dc: DrawingContext, waveform: number[] | Float32Array): void {
     const area = this.mapper.getPlotArea();
     const dataWidth = waveform.length;
+    const binW = area.width / Math.max(1, dataWidth);
 
     dc.save();
     dc.clipRect(area.x, area.y, area.width, area.height);
 
     dc.setFill(this.theme.shadow);
     for (let i = 0; i < dataWidth; i++) {
-        const x = Math.round(area.x + i * binW);
-        const nextX = i === dataWidth - 1 ? area.x + area.width : Math.round(area.x + (i + 1) * binW);
-        const w = nextX - x;
-        const y = Math.round(this.mapper.clampY(waveform[i]));
-        const h = area.y + area.height - y;
-        dc.fillRect(x, y, w, h);
+      const x = Math.round(area.x + i * binW);
+      const nextX = i === dataWidth - 1 ? area.x + area.width : Math.round(area.x + (i + 1) * binW);
+      const w = Math.max(1, nextX - x);
+      const y = Math.round(this.mapper.clampY(waveform[i]));
+      const h = area.y + area.height - y;
+      dc.fillRect(x, y, w, h);
     }
 
     dc.setStroke(this.theme.line, 1 / this.mapper.getDPR());
     dc.beginPath();
+    dc.moveTo(area.x, Math.round(this.mapper.clampY(waveform[0])));
     for (let i = 0; i < dataWidth; i++) {
-      const freq = dataRange.min + (i / (dataWidth - 1)) * (dataRange.max - dataRange.min);
-      const x = Math.round(this.mapper.freqToX(freq));
-      
-      const nextFreq = dataRange.min + ((i + 1) / (dataWidth - 1)) * (dataRange.max - dataRange.min);
-      const nextX = i === dataWidth - 1 ? this.mapper.freqToX(dataRange.max) : Math.round(this.mapper.freqToX(nextFreq));
-      
       const y = Math.round(this.mapper.clampY(waveform[i]));
-      
-      if (i === 0) {
-        dc.moveTo(x, y);
-      } else {
-        const prevY = Math.round(this.mapper.clampY(waveform[i - 1]));
-        dc.lineTo(x, prevY);
-        dc.lineTo(x, y);
-      }
+      const x = Math.round(area.x + i * binW);
+      const nextX = i === dataWidth - 1 ? area.x + area.width : Math.round(area.x + (i + 1) * binW);
+
+      dc.lineTo(x, y);
       dc.lineTo(nextX, y);
     }
     dc.stroke();
@@ -556,7 +548,7 @@ export class SnapshotRenderer {
     dc.restore();
   }
 
-  drawStatsBox(dc: DrawingContext, statsLines: string[], waveform: number[] | Float32Array): void {
+  drawStatsBox(dc: DrawingContext, statsLines: string[], _waveform: number[] | Float32Array): void {
     const area = this.mapper.getPlotArea();
     // Use up to 70% of width to avoid truncation, text will scale down if needed
     const maxAllowedW = area.width * 0.7;
@@ -587,7 +579,7 @@ export class SnapshotRenderer {
     const boxW = Math.max(...linesWithScaling.map(l => l.width)) + paddingX * 2;
     const boxH = statsLines.length * lineHeight + paddingY * 2;
 
-    const pos = this.findOptimalStatsBoxPosition(waveform, boxW, boxH);
+    const pos = this.findOptimalStatsBoxPosition(boxW, boxH);
 
     dc.setFill("rgba(0, 0, 0, 0.75)");
     dc.roundRect(pos.x, pos.y, boxW, boxH, 4);
@@ -603,33 +595,13 @@ export class SnapshotRenderer {
     });
   }
 
-  private findOptimalStatsBoxPosition(waveform: number[] | Float32Array, boxW: number, boxH: number): { x: number, y: number } {
+  private findOptimalStatsBoxPosition(boxW: number, boxH: number): { x: number, y: number } {
     const area = this.mapper.getPlotArea();
-    const paddingX = 8;
-    const paddingBottom = 24;
-    
-    const corners = [
-      { x: area.x + paddingX, y: area.y + area.height - boxH - paddingBottom }, // Bottom-Left
-      { x: area.x + area.width - boxW - paddingX, y: area.y + area.height - boxH - paddingBottom }, // Bottom-Right
-    ];
-
-    if (!waveform || waveform.length === 0) return corners[1];
-
-    const getScore = (corner: { x: number, y: number }) => {
-      let intersections = 0;
-      let sumY = 0;
-      const startIdx = Math.max(0, Math.floor(((corner.x - area.x) / area.width) * waveform.length));
-      const endIdx = Math.min(waveform.length - 1, Math.ceil(((corner.x + boxW - area.x) / area.width) * waveform.length));
-      const count = endIdx - startIdx + 1;
-
-      for (let i = startIdx; i <= endIdx; i++) {
-        const y = this.mapper.clampY(waveform[i]);
-        if (y >= corner.y - 10 && y <= corner.y + boxH + 10) intersections++;
-        sumY += y;
-      }
-      return (intersections * 10000) + (count > 0 ? sumY / count : 0);
-    };
-
-    return getScore(corners[1]) <= getScore(corners[0]) ? corners[1] : corners[0];
+    const paddingX = 12;
+    const paddingY = 12;
+    const labelBand = 28;
+    const x = Math.max(area.x + paddingX, area.x + area.width - boxW - paddingX);
+    const y = Math.max(area.y + paddingY, area.y + area.height - boxH - labelBand);
+    return { x, y };
   }
 }

@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
+import { getSupportedSnapshotVideoFormat, type SnapshotVideoFormat } from "@n-apt/hooks/useSnapshot";
 import styled from "styled-components";
 import { ClipboardPen } from "lucide-react";
 import FrequencyRangeSlider from "@n-apt/components/sidebar/FrequencyRangeSlider";
@@ -225,7 +226,7 @@ interface SidebarProps {
     whole: boolean;
     showWaterfall: boolean;
     showStats: boolean;
-    format: "png" | "svg";
+    format: "png" | "svg" | SnapshotVideoFormat;
     grid: boolean;
   }) => void;
   vizZoom?: number;
@@ -402,14 +403,18 @@ const Sidebar: React.FC<SidebarProps> = ({
   const [captureGeolocation, setCaptureGeolocation] = useState(false);
 
   // Snapshot UI state
-  const [snapshotOpen, setSnapshotOpen] = useState(false);
-
   // Signal features UI state
   const [signalFeaturesOpen] = useState(false);
   const [snapshotWhole, setSnapshotWhole] = useState(false);
   const [snapshotShowWaterfall, setSnapshotShowWaterfall] = useState(false);
   const [snapshotShowStats, setSnapshotShowStats] = useState(true);
-  const [snapshotFormat, setSnapshotFormat] = useState<"png" | "svg">("png");
+  const supportedSnapshotVideoFormat = useMemo(
+    () => getSupportedSnapshotVideoFormat(),
+    [],
+  );
+  const [snapshotFormat, setSnapshotFormat] = useState<"png" | "svg" | SnapshotVideoFormat>(
+    supportedSnapshotVideoFormat ?? "png",
+  );
 
   // NAPT metadata state
   const [naptMetadata, setNaptMetadata] = useState<NaptMetadata | null>(null);
@@ -940,14 +945,13 @@ const Sidebar: React.FC<SidebarProps> = ({
           )}
 
           <SnapshotControlsSection
-            isOpen={snapshotOpen}
-            onToggle={() => setSnapshotOpen(!snapshotOpen)}
             snapshotWhole={snapshotWhole}
             snapshotShowWaterfall={snapshotShowWaterfall}
             snapshotShowStats={snapshotShowStats}
             snapshotShowGeolocation={false}
             snapshotGeolocationError={null}
             snapshotFormat={snapshotFormat}
+            supportedSnapshotVideoFormat={supportedSnapshotVideoFormat}
             snapshotGridPreference={snapshotGridPreference ?? true}
             onSnapshotWholeChange={setSnapshotWhole}
             onSnapshotShowWaterfallChange={setSnapshotShowWaterfall}

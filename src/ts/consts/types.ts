@@ -12,6 +12,7 @@ export interface CaptureResult {
   isEphemeral: boolean;
   timestamp?: number;
   fileSize?: number;
+  duration?: number; // milliseconds
   confidence: number;
   matchRate: number;
   snrDelta: string;
