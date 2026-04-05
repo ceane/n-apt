@@ -51,16 +51,19 @@ interface FileSelectionSidebarProps {
   naptMetadata: NaptMetadata | null;
   naptMetadataError: string | null;
   sessionToken?: string | null;
+  showMetadata?: boolean;
 }
 
 export const FileSelectionSidebar: React.FC<FileSelectionSidebarProps> = ({
   selectedPrimaryFile,
+  showMetadata = true,
   ...rest
 }) => {
   return (
     <Section>
       <FileProcessingSection
         selectedNaptFile={selectedPrimaryFile}
+        showMetadata={showMetadata}
         {...rest}
       />
     </Section>

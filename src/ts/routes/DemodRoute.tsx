@@ -1,7 +1,7 @@
 import React from "react";
 import styled from "styled-components";
-import { DemodRouteSection } from "@n-apt/components/analysis/DemodRouteSection";
-import { VisionScene } from "@n-apt/components/analysis/VisionScene";
+import { DemodRouteSection } from "@n-apt/components/DemodRouteSection";
+import { VisionScene } from "@n-apt/components/3D/VisionScene";
 import { useDemod } from "@n-apt/contexts/DemodContext";
 
 const DemodContainer = styled.div`

@@ -191,4 +191,13 @@ export const GlobalThemeStyle = createGlobalStyle`
   .katex .mopen, .katex .mclose, .katex .mrel, .katex .mbin, .katex .mpunct, .katex .mord, .katex .msupsub, .katex .mfrac, .katex .mrule, .katex .mtable, .katex .mtr, .katex .mtd {
     color: ${({ theme }) => theme.colors.textPrimary} !important;
   }
+
+  /* Map tiles background fix */
+  .leaflet-container {
+    background: ${({ theme }) => theme.colors.surface} !important;
+  }
+  
+  .leaflet-tile-pane {
+    background: ${({ theme }) => theme.colors.surface} !important;
+  }
 `;

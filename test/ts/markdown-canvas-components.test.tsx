@@ -120,7 +120,7 @@ describe('Markdown Canvas Components', () => {
       expect(screen.getByText('rx distance')).toBeInTheDocument();
       expect(screen.getByText('frequency')).toBeInTheDocument();
       expect(screen.getByText('total path loss')).toBeInTheDocument();
-      expect(screen.getByText('13\.56 MHz')).toBeInTheDocument();
+      expect(screen.getByText('13.56 MHz')).toBeInTheDocument();
     });
 
     test('handles pointer interactions', async () => {

@@ -280,6 +280,7 @@ interface FileProcessingSectionProps {
   onClear: () => void;
   onStitchPauseToggle: () => void;
   sessionToken?: string | null;
+  showMetadata?: boolean;
 }
 
 const renderFileName = (name: string) => {
@@ -309,6 +310,7 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
   onClear,
   onStitchPauseToggle,
   sessionToken,
+  showMetadata = true,
 }) => {
 
   const stitchButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -437,7 +439,7 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
         </>
       )}
 
-      {selectedFiles.length > 0 && (
+      {selectedFiles.length > 0 && showMetadata && (
         <FileMetadata
           selectedNaptFile={selectedNaptFile}
           naptMetadata={naptMetadata}
