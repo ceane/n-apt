@@ -6,7 +6,7 @@ import { ContentArea } from "@n-apt/components/Layout";
 import { useLocation } from "react-router-dom";
 import { useSidebarNavigationScroll } from "@n-apt/hooks/useSidebarNavigationScroll";
 
-const NavigationContainer = styled.div`
+const NavigationContainer = styled.nav`
   display: flex;
   flex-direction: column;
   width: ${(props) => `${props.theme.layout.sidebarWidth}px`};
@@ -21,7 +21,6 @@ const NavigationContainer = styled.div`
   overflow-x: visible;
   box-sizing: border-box;
   resize: horizontal;
-  transition: width 0.3s ease, opacity 0.3s ease, transform 0.3s ease;
 `;
 
 const NavigationTabs = styled.div`

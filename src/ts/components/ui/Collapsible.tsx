@@ -121,7 +121,10 @@ export const Collapsible: React.FC<CollapsibleProps> = ({
     <>
       <CollapsibleTitleContainer type="button" onClick={handleToggle}>
         {title ? (
-          <CollapsibleTitleLabel>{title}</CollapsibleTitleLabel>
+          <CollapsibleTitleContent>
+            {icon && <CollapsibleTitleIcon>{icon}</CollapsibleTitleIcon>}
+            <CollapsibleTitleLabel>{title}</CollapsibleTitleLabel>
+          </CollapsibleTitleContent>
         ) : (
           <CollapsibleTitleContent>
             {icon && <CollapsibleTitleIcon>{icon}</CollapsibleTitleIcon>}
@@ -160,7 +163,10 @@ export const CollapsibleTitle: React.FC<CollapsibleTitleProps> = ({
 }) => (
   <CollapsibleTitleContainer type="button" onClick={onToggle} {...props}>
     {title ? (
-      <CollapsibleTitleLabel>{title}</CollapsibleTitleLabel>
+      <CollapsibleTitleContent>
+        {icon && <CollapsibleTitleIcon>{icon}</CollapsibleTitleIcon>}
+        <CollapsibleTitleLabel>{title}</CollapsibleTitleLabel>
+      </CollapsibleTitleContent>
     ) : (
       <CollapsibleTitleContent>
         {icon && <CollapsibleTitleIcon>{icon}</CollapsibleTitleIcon>}

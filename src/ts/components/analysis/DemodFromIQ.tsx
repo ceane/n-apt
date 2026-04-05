@@ -11,11 +11,6 @@ const TriggersContainer = styled.div`
   margin-bottom: 20px;
 `;
 
-const MainGrid = styled.div`
-  display: flex;
-  flex-direction: column;
-`;
-
 const ControlSection = styled.div`
   display: grid;
   grid-template-columns: subgrid;
@@ -517,7 +512,7 @@ export const DemodFromIQ: React.FC = () => {
         <VersionLabel>v2.4.0-BASELINE</VersionLabel>
       </HeaderContainer>
 
-      <MainGrid>
+      <div style={{ display: 'flex', flexDirection: 'column' }}>
         <PreviewSection>
           <MediaOverlay>Media Playback Interface</MediaOverlay>
 
@@ -658,7 +653,7 @@ export const DemodFromIQ: React.FC = () => {
             </WaitingContainer>
           )}
         </ControlSection>
-      </MainGrid>
+      </div>
     </TriggersContainer>
   );
 };

@@ -2,6 +2,7 @@ import React, { useMemo, useState, useEffect, useCallback } from "react";
 import styled from "styled-components";
 import { useAppSelector, useAppDispatch } from "@n-apt/redux";
 import { Unplug } from "lucide-react";
+import { getSupportedSnapshotVideoFormat, type SnapshotVideoFormat } from "@n-apt/hooks/useSnapshot";
 import {
   setSourceMode,
   setSelectedFiles,
@@ -350,14 +351,17 @@ export const SpectrumSidebar: React.FC = () => {
   const [captureGeolocation, setCaptureGeolocation] = useState(false);
 
   // Snapshot UI state
-  const [snapshotOpen, setSnapshotOpen] = useState(false);
   const [snapshotWhole, setSnapshotWhole] = useState(false);
   const [snapshotShowWaterfall, setSnapshotShowWaterfall] = useState(false);
   const [snapshotShowStats, setSnapshotShowStats] = useState(true);
   const [snapshotShowGeolocation, setSnapshotShowGeolocation] = useState(false);
   const [snapshotGeolocationError, setSnapshotGeolocationError] = useState<string | null>(null);
   const [snapshotGeolocationPosition, setSnapshotGeolocationPosition] = useState<{ lat: string, lon: string } | null>(null);
-  const [snapshotFormat, setSnapshotFormat] = useState<"png" | "svg">("png");
+  const supportedSnapshotVideoFormat = useMemo(
+    () => getSupportedSnapshotVideoFormat(),
+    [],
+  );
+  const [snapshotFormat, setSnapshotFormat] = useState<"png" | "svg" | SnapshotVideoFormat>("png");
 
   // NAPT metadata state
   const [naptMetadata, setNaptMetadata] = useState<NaptMetadata | null>(null);
@@ -985,14 +989,13 @@ export const SpectrumSidebar: React.FC = () => {
           />
 
           <SnapshotControlsSection
-            isOpen={snapshotOpen}
-            onToggle={() => setSnapshotOpen(!snapshotOpen)}
             snapshotWhole={snapshotWhole}
             snapshotShowWaterfall={snapshotShowWaterfall}
             snapshotShowStats={snapshotShowStats}
             snapshotShowGeolocation={snapshotShowGeolocation}
             snapshotGeolocationError={snapshotGeolocationError}
             snapshotFormat={snapshotFormat}
+            supportedSnapshotVideoFormat={supportedSnapshotVideoFormat}
             snapshotGridPreference={snapshotGridPreference}
             onSnapshotWholeChange={setSnapshotWhole}
             onSnapshotShowWaterfallChange={setSnapshotShowWaterfall}

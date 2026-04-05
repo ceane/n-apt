@@ -1166,7 +1166,7 @@ impl WebSocketServer {
               let timestamp = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
-                .as_secs();
+                .as_millis() as u64;
 
               let msg = serde_json::json!({
                   "type": "capture_status",
@@ -1177,7 +1177,8 @@ impl WebSocketServer {
                       "filename": file_name,
                       "downloadUrl": format!("/api/capture/download?jobId={}", result.job_id),
                       "timestamp": timestamp,
-                      "fileSize": artifact.file_size
+                      "fileSize": artifact.file_size,
+                      "checksum": artifact.checksum
                   }
               });
               let _ = bcast.send(msg.to_string());

@@ -10,6 +10,7 @@ import {
   Scan,
   SquareDashedTopSolid,
 } from "lucide-react";
+import type { SnapshotVideoFormat } from "@n-apt/hooks/useSnapshot";
 
 const Section = styled.div`
   display: grid;
@@ -171,15 +172,16 @@ interface SnapshotControlsSectionProps {
   snapshotWhole: boolean;
   snapshotShowWaterfall: boolean;
   snapshotShowStats: boolean;
-  snapshotFormat: "png" | "svg";
+  snapshotFormat: "png" | "svg" | SnapshotVideoFormat;
   snapshotGridPreference: boolean;
   snapshotShowGeolocation: boolean;
   snapshotGeolocationError: string | null;
+  supportedSnapshotVideoFormat: SnapshotVideoFormat | null;
   onSnapshotWholeChange: (value: boolean) => void;
   onSnapshotShowWaterfallChange: (value: boolean) => void;
   onSnapshotShowStatsChange: (value: boolean) => void;
   onSnapshotShowGeolocationChange: (value: boolean) => void;
-  onSnapshotFormatChange: (value: "png" | "svg") => void;
+  onSnapshotFormatChange: (value: "png" | "svg" | SnapshotVideoFormat) => void;
   onSnapshotGridPreferenceChange: (value: boolean) => void;
   onSnapshot: () => void;
 }
@@ -194,6 +196,7 @@ export const SnapshotControlsSection: React.FC<
   snapshotGridPreference,
   snapshotShowGeolocation,
   snapshotGeolocationError,
+  supportedSnapshotVideoFormat,
   onSnapshotWholeChange,
   onSnapshotShowWaterfallChange,
   onSnapshotShowStatsChange,
@@ -282,12 +285,17 @@ export const SnapshotControlsSection: React.FC<
             <SettingSelect
               value={snapshotFormat}
               onChange={(e) =>
-                onSnapshotFormatChange(e.target.value as "png" | "svg")
+                onSnapshotFormatChange(e.target.value as "png" | "svg" | SnapshotVideoFormat)
               }
               style={{ minWidth: "110px" }}
             >
               <option value="png">PNG</option>
               <option value="svg">SVG</option>
+              {supportedSnapshotVideoFormat && (
+                <option value={supportedSnapshotVideoFormat}>
+                  {supportedSnapshotVideoFormat === "mp4" ? ".MP4 1s" : ".WEBM 1s"}
+                </option>
+              )}
             </SettingSelect>
           </Row>
 

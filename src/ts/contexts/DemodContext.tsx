@@ -38,6 +38,10 @@ interface DemodContextValue {
   // FM demodulation state
   selectedAlgorithm: string;
   setSelectedAlgorithm: (algorithm: string) => void;
+
+  // React Flow node management
+  setNodes: (nodes: any[]) => void;
+  setEdges: (edges: any[]) => void;
 }
 
 const DemodContext = createContext<DemodContextValue | null>(null);
@@ -57,6 +61,8 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [analysisSession, setAnalysisSession] = useState<AnalysisSession>({ state: 'idle' });
   const [selectedBaseline, setSelectedBaseline] = useState<AnalysisType>('audio');
   const [selectedAlgorithm, setSelectedAlgorithm] = useState('fm');
+  const [nodes, setNodes] = useState<any[]>([]);
+  const [edges, setEdges] = useState<any[]>([]);
 
   const { state, wsConnection } = useSpectrumStore();
   const { sendCaptureCommand, sendScanCommand, sendDemodulateCommand } = wsConnection;
@@ -110,10 +116,11 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         state: 'result',
         result: {
           jobId: captureStatus.jobId,
-          naptFilePath: captureStatus.downloadUrl ? captureStatus.filename : undefined,
+          naptFilePath: captureStatus.downloadUrl ?? undefined,
           isEphemeral: captureStatus.ephemeral || false,
-          timestamp: captureStatus.timestamp,
+          timestamp: captureStatus.timestamp ?? Date.now(),
           fileSize: captureStatus.fileSize,
+          duration: prev.startTime ? Date.now() - prev.startTime : undefined,
           confidence: 0.85 + Math.random() * 0.1,
           matchRate: 0.92 + Math.random() * 0.05,
           snrDelta: (Math.random() * 10).toFixed(2) + ' dB',
@@ -287,6 +294,9 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                   jobId,
                   naptFilePath: isLive ? undefined : `/captures/${jobId}.napt`,
                   isEphemeral: isLive,
+                  timestamp: Date.now(),
+                  fileSize: isLive ? undefined : Math.round(4.8e6 + Math.random() * 1.5e6),
+                  duration: prev.startTime ? Date.now() - prev.startTime : undefined,
                   confidence: 0.85 + Math.random() * 0.1,
                   matchRate: 0.92 + Math.random() * 0.05,
                   snrDelta: (Math.random() * 10).toFixed(2) + ' dB',
@@ -326,10 +336,12 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     stopScan,
     selectedAlgorithm,
     setSelectedAlgorithm,
+    setNodes,
+    setEdges,
   }), [
     windowSizeHz, stepSizeHz, audioThreshold, scanner, audioPlayback,
     currentIQData, scanRange, analysisSession, selectedBaseline, startAnalysis, clearAnalysis, startScan, stopScan,
-    selectedAlgorithm,
+    selectedAlgorithm, setNodes, setEdges
   ]);
 
   return <DemodContext.Provider value={value}>{children}</DemodContext.Provider>;

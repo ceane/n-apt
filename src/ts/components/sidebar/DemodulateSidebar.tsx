@@ -3,11 +3,11 @@ import styled from "styled-components";
 import { useAppSelector } from "@n-apt/redux";
 import { SourceSidebar } from "@n-apt/components/sidebar/SourceSidebar";
 import { ConnectionStatusSection } from "@n-apt/components/sidebar/ConnectionStatusSection";
-import { Channels } from "@n-apt/components/sidebar/Channels";
 import { ScanningProgress } from "@n-apt/components/sidebar/ScanningProgress";
-import { AudioDemodOptionsSidebar } from "@n-apt/components/sidebar/AudioDemodOptionsSidebar";
 import { DemodulationMathSidebar } from "@n-apt/components/sidebar/DemodulationMathSidebar";
-import { DemodDownloads } from "@n-apt/components/sidebar/DemodDownloads";
+import { DemodSidebarNodes } from "@n-apt/components/sidebar/DemodSidebarNodes";
+import { DemodulationFlows } from "@n-apt/components/sidebar/DemodulationFlows";
+
 import type { SourceMode } from "@n-apt/hooks/useSpectrumStore";
 
 const SidebarContent = styled.div`
@@ -20,22 +20,13 @@ const SidebarContent = styled.div`
   max-width: 100%;
 `;
 
-const Section = styled.div`
-  display: grid;
-  grid-template-columns: subgrid;
-  grid-column: 1 / -1;
-  gap: inherit;
-  margin-bottom: 0;
-  box-sizing: border-box;
-`;
-
-
 const InfoBox = styled.div`
   background: ${(props) => props.theme.primaryAnchor};
   border: 1px solid ${(props) => props.theme.primaryAlpha};
   border-radius: 8px;
   padding: 16px;
   margin-top: 24px;
+  grid-column: 1 / -1;
 `;
 
 const InfoTitle = styled.div`
@@ -51,7 +42,6 @@ const InfoText = styled.div`
   font-size: 11px;
   line-height: 1.5;
 `;
-
 
 interface DemodulateSidebarProps {
   sourceMode?: SourceMode;
@@ -75,19 +65,11 @@ interface DemodulateSidebarProps {
 export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
   sourceMode = "live",
   onSourceModeChange,
-  windowSizeHz = 25000,
-  stepSizeHz = 10000,
-  audioThreshold = 0.3,
-  onWindowSizeChange,
-  onStepSizeChange,
-  onAudioThresholdChange,
   isScanning = false,
   scanProgress = 0,
   scanCurrentFreq,
   scanRange,
   detectedRegions = 0,
-  onScanStart,
-  onScanStop,
 }) => {
   // Get real device data from Redux store
   const isConnected = useAppSelector((s) => s.websocket.isConnected);
@@ -108,29 +90,15 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
         deviceName={deviceName}
       />
 
-      <Section>
-        <ConnectionStatusSection
-          isConnected={isConnected}
-          deviceState={deviceState}
-          deviceLoadingReason={deviceLoadingReason}
-          isPaused={isPaused}
-          cryptoCorrupted={cryptoCorrupted}
-          onPauseToggle={() => { }}
-          onRestartDevice={() => { }}
-        />
-      </Section>
-
-
-      <Section>
-        <Channels
-          isScanning={isScanning}
-          scanProgress={scanProgress}
-          scanCurrentFreq={scanCurrentFreq}
-          scanRange={scanRange}
-          onScanStart={onScanStart}
-          onScanStop={onScanStop}
-        />
-      </Section>
+      <ConnectionStatusSection
+        isConnected={isConnected}
+        deviceState={deviceState}
+        deviceLoadingReason={deviceLoadingReason}
+        isPaused={isPaused}
+        cryptoCorrupted={cryptoCorrupted}
+        onPauseToggle={() => { }}
+        onRestartDevice={() => { }}
+      />
 
       <ScanningProgress
         isScanning={isScanning}
@@ -140,19 +108,9 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
         detectedRegions={detectedRegions}
       />
 
-      <AudioDemodOptionsSidebar
-        windowSizeHz={windowSizeHz}
-        stepSizeHz={stepSizeHz}
-        audioThreshold={audioThreshold}
-        onWindowSizeChange={onWindowSizeChange}
-        onStepSizeChange={onStepSizeChange}
-        onAudioThresholdChange={onAudioThresholdChange}
-        isScanning={isScanning}
-        onScanStart={onScanStart}
-        onScanStop={onScanStop}
-      />
+      <DemodulationFlows />
 
-      <DemodDownloads />
+      <DemodSidebarNodes />
 
       <InfoBox>
         <InfoTitle>Demodulation</InfoTitle>

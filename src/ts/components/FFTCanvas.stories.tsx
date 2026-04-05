@@ -5,7 +5,11 @@ import { ThemeProvider } from "styled-components";
 import FFTCanvas from "@n-apt/components/FFTCanvas";
 import type { FFTCanvasHandle } from "@n-apt/components/FFTCanvas";
 import { SnapshotControlsSection } from "@n-apt/components/sidebar/SnapshotControlsSection";
-import { useSnapshot } from "@n-apt/hooks/useSnapshot";
+import {
+  useSnapshot,
+  getSupportedSnapshotVideoFormat,
+  type SnapshotVideoFormat,
+} from "@n-apt/hooks/useSnapshot";
 
 const mockThemeSlice = createSlice({
   name: "theme",
@@ -205,14 +209,23 @@ export const Snapshot = () => {
   const fftCanvasRef = React.useRef<FFTCanvasHandle | null>(null);
   const { handleSnapshot } = useSnapshot(BASE_PROPS.frequencyRange, true);
 
-  const [snapshotOpen, setSnapshotOpen] = React.useState(true);
   const [snapshotWhole, setSnapshotWhole] = React.useState(false);
   const [snapshotShowWaterfall, setSnapshotShowWaterfall] = React.useState(true);
   const [snapshotShowStats, setSnapshotShowStats] = React.useState(true);
   const [snapshotShowGeolocation, setSnapshotShowGeolocation] = React.useState(false);
-  const [snapshotFormat, setSnapshotFormat] = React.useState<"png" | "svg">("png");
+  const [snapshotFormat, setSnapshotFormat] = React.useState<"png" | "svg" | SnapshotVideoFormat>("png");
   const [snapshotGridPreference, setSnapshotGridPreference] = React.useState(true);
   const [snapshotGeolocationError, setSnapshotGeolocationError] = React.useState<string | null>(null);
+  const supportedSnapshotVideoFormat = React.useMemo(
+    () => getSupportedSnapshotVideoFormat(),
+    [],
+  );
+  const handleSnapshotFormatChange = React.useCallback(
+    (value: "png" | "svg" | SnapshotVideoFormat) => {
+      setSnapshotFormat(value);
+    },
+    [],
+  );
 
   const triggerSnapshot = React.useCallback(() => {
     const snapshotData = fftCanvasRef.current?.getSnapshotData() ?? null;
@@ -291,14 +304,13 @@ export const Snapshot = () => {
           }}
         >
           <SnapshotControlsSection
-            isOpen={snapshotOpen}
-            onToggle={() => setSnapshotOpen((value) => !value)}
             snapshotWhole={snapshotWhole}
             snapshotShowWaterfall={snapshotShowWaterfall}
             snapshotShowStats={snapshotShowStats}
             snapshotShowGeolocation={snapshotShowGeolocation}
             snapshotGeolocationError={snapshotGeolocationError}
             snapshotFormat={snapshotFormat}
+            supportedSnapshotVideoFormat={supportedSnapshotVideoFormat}
             snapshotGridPreference={snapshotGridPreference}
             onSnapshotWholeChange={setSnapshotWhole}
             onSnapshotShowWaterfallChange={setSnapshotShowWaterfall}
@@ -307,7 +319,7 @@ export const Snapshot = () => {
               setSnapshotShowGeolocation(value);
               setSnapshotGeolocationError(null);
             }}
-            onSnapshotFormatChange={setSnapshotFormat}
+            onSnapshotFormatChange={handleSnapshotFormatChange}
             onSnapshotGridPreferenceChange={setSnapshotGridPreference}
             onSnapshot={triggerSnapshot}
           />

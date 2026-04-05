@@ -20,6 +20,7 @@ import { Model3DProvider } from "@n-apt/hooks/useModel3D";
 import { Model3DInteractionProvider as HotspotEditorProvider } from "@n-apt/hooks/useHotspotEditor";
 
 import { DemodProvider, useDemod } from "@n-apt/contexts/DemodContext";
+import { ReactFlowProvider } from "@xyflow/react";
 
 // Create a wrapper component to manage scanner state
 const DemodRouteWithSidebarContent: React.FC = () => {
@@ -58,7 +59,9 @@ const DemodRouteWithSidebarContent: React.FC = () => {
 
 const DemodRouteWithSidebar: React.FC = () => (
   <DemodProvider>
-    <DemodRouteWithSidebarContent />
+    <ReactFlowProvider>
+      <DemodRouteWithSidebarContent />
+    </ReactFlowProvider>
   </DemodProvider>
 );
 import { Model3DSidebar } from "@n-apt/components/sidebar/Model3DSidebar";

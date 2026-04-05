@@ -700,7 +700,7 @@ export const IQCaptureControlsSection: React.FC<
             </SettingSelect>
           </Row>
 
-          <Row label={<IconLabel icon={LockKeyhole} text="Encrypted" />}>
+          <Row label={<IconLabel icon={LockKeyhole} text="Encrypted (AES-256-GCM)" />}>
             <ToggleSwitch $disabled={captureFileType === ".napt"}>
               <ToggleSwitchInput
                 type="checkbox"

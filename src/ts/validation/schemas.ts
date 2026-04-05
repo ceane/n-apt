@@ -126,6 +126,8 @@ export const CaptureStatusSchema = z.object({
   filename: z.string().optional(),
   fileCount: z.number().optional(),
   ephemeral: z.boolean().optional(),
+  timestamp: z.number().optional(),
+  fileSize: z.number().optional(),
 });
 
 export const AutoFftOptionsResponseSchema = z.object({

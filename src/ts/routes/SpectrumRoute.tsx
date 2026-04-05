@@ -143,6 +143,28 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
     deviceName: deviceName ?? undefined,
     captureWholeChannelSegments,
     getSnapshotData: () => fftCanvasRef.current?.getSnapshotData() ?? undefined,
+    getVideoSourceCanvases: () => {
+      const spectrumCanvas = fftCanvasRef.current?.getSpectrumCanvas() ?? null;
+      const waterfallCanvas = fftCanvasRef.current?.getWaterfallCanvas() ?? null;
+      return {
+        spectrum: spectrumCanvas,
+        waterfall: waterfallCanvas,
+      };
+    },
+    refreshVideoFrame: () => {
+      fftCanvasRef.current?.triggerSnapshotRender();
+    },
+    prepareVideoRecording: () => {
+      const wasPaused = manualVisualizerPaused;
+      if (!wasPaused) {
+        return undefined;
+      }
+
+      toggleVisualizerPause();
+      return () => {
+        toggleVisualizerPause();
+      };
+    },
   });
 
   const handleFrequencyRangeChange = useCallback(

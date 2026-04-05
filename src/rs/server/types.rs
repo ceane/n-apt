@@ -614,6 +614,7 @@ pub struct CaptureArtifact {
   pub filename: String,
   pub path: std::path::PathBuf,
   pub file_size: u64,
+  pub checksum: String,
 }
 
 // REST auth request/response types

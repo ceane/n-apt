@@ -5,7 +5,6 @@ import { SlidersVertical } from "lucide-react";
 const SidebarToggle = styled.button`
   position: sticky;
   top: ${(props) => props.theme.spacing.xxl};
-  margin: ${(props) => props.theme.spacing.xxl};
   z-index: 1000;
   background-color: ${(props) => props.theme.surface};
   border: 1px solid ${(props) => props.theme.primary};

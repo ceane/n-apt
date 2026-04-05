@@ -73,7 +73,7 @@ export function useOverlayRenderer() {
 
       const clampLabelX = (x: number, text: string) => {
         const tw = ctx.measureText(text).width;
-        const leftBound = FFT_AREA_MIN.x + tw / 2 + 2;
+        const leftBound = FFT_AREA_MIN.x + tw / 2 + 8;
         const rightBound = fftAreaMax.x - tw / 2 - 2;
         return Math.max(leftBound, Math.min(rightBound, x));
       };
@@ -115,13 +115,13 @@ export function useOverlayRenderer() {
         let label = `${Math.round(line)}`;
         // Append unit only to the top-most label (the first one in our array)
         if (line === labels[0]) {
-          label += powerScale === "dBm" ? " dBm" : " dB";
+          label += powerScale === "dBm" ? "dBm" : "dB";
         }
 
         ctx.fillText(
           label,
-          FFT_AREA_MIN.x - 10,
-          Math.round(yPos + 3),
+          FFT_AREA_MIN.x - 8,
+          Math.round(yPos + 1),
         );
       }
 
@@ -387,9 +387,9 @@ export function useOverlayRenderer() {
  
        const visualCenterFreq = (minFreq + maxFreq) / 2;
        const centerLabel =
-         Number.isNaN(visualCenterFreq) || !Number.isFinite(visualCenterFreq)
-           ? "✋  -- MHz"
-           : `✋  ${formatFreq(visualCenterFreq)}`;
+        Number.isNaN(visualCenterFreq) || !Number.isFinite(visualCenterFreq)
+          ? "✋--MHz"
+          : `✋${formatFreq(visualCenterFreq)}`;
 
         if (
           centerFrequencyMHz !== undefined &&

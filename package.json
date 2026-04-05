@@ -7,19 +7,38 @@
   "keywords": [
     "N-APT",
     "Neuro Automatic Picture Transmission",
+    "radio waves",
     "APT",
     "Automatic Picture Transmission",
     "sdr visualizer",
-    "i/q playback",
+    "I/Q playback",
     "signal processing",
     "I/Q capture",
     "neurotechnology",
+    "beat frequencies",
     "heterodyning",
+    "heterodyning in free space",
+    "heterodyning in an aperture",
+    "linear interference",
+    "interference modulation",
+    "constructive interference",
     "brainwaves",
     "neuronal waves",
     "impedance",
     "frequency modulation",
     "amplitude modulation",
+    "time of flight",
+    "line of sight",
+    "loW latency",
+    "feature rich",
+    "decipher exploitation",
+    "demodulate n-apt",
+    "first-person",
+    "consciousness",
+    "physiology",
+    "brain",
+    "nervous system",
+    "neuroscience",
     "3d human anatomy",
     "endpoint map",
     "osint",
@@ -80,10 +99,12 @@
     "@chenglou/pretext": "^0.0.2",
     "@huggingface/transformers": "^3.8.1",
     "@inkjs/ui": "^2.0.0",
+    "@radix-ui/react-context-menu": "^2.2.16",
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.5.0",
     "@react-three/postprocessing": "^3.0.4",
     "@reduxjs/toolkit": "^2.11.2",
+    "@xyflow/react": "^12.10.2",
     "autoprefixer": "^10.4.27",
     "chalk": "^5.3.0",
     "csv-parse": "^6.2.0",
@@ -102,9 +123,10 @@
     "marked": "^17.0.4",
     "marked-highlight": "^2.2.3",
     "n_apt_canvas": "file:./packages/n_apt_canvas",
-    "react": "^19.2.4",
+    "react": "^16.8.4 || ^17.0.0 || ^18.0.0 || ^19.0.0",
     "react-devtools-core": "^6.1.2",
     "react-dom": "^19.2.4",
+    "react-flow": "^1.0.3",
     "react-helmet-async": "^3.0.0",
     "react-katex": "^3.1.0",
     "react-leaflet": "^5.0.0",
@@ -155,5 +177,18 @@
     "vite": "^7.2.4",
     "vite-plugin-glsl": "^1.5.6",
     "vitest": "^4.1.0"
+  },
+  "peerDependencies": {
+    "react": "^16.8.4 || ^17.0.0 || ^18.0.0 || ^19.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": false
+    }
+  },
+  "overrides": {
+    "react-inspector": {
+      "react": "^19.2.4"
+    }
   }
 }
