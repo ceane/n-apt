@@ -1,7 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import styled from 'styled-components';
+import { z } from 'zod';
 import { useDemod } from '@n-apt/contexts/DemodContext';
 import type { AnalysisType } from '@n-apt/consts/types';
+
+const durationSchema = z.number().min(5).max(60);
 
 const SCRIPT_VARIANTS = [
   "The quick brown fox jumps over the lazy dog",
@@ -291,9 +294,9 @@ const ResetButton = styled.button`
 
 const BaselineVectorContainer = styled.div`
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 1fr 65px auto;
   gap: 10px;
-  align-items: end;
+  align-items: stretch;
 `;
 
 const BaselineVectorLabel = styled.div`
@@ -340,49 +343,93 @@ const APTPreviewSub = styled.div`
   opacity: 0.75;
 `;
 
+const StimulusInput = styled.input`
+  flex: 1;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  background: ${({ theme }) => theme.colors.background};
+  color: ${({ theme }) => theme.colors.primary};
+  font-family: ${({ theme }) => theme.typography.mono};
+  font-size: 12px;
+  
+  &:focus {
+    outline: none;
+    border-color: ${({ theme }) => theme.colors.primary};
+  }
+
+  &[aria-invalid="true"] {
+    border-color: ${({ theme }) => theme.colors.danger};
+    color: ${({ theme }) => theme.colors.danger};
+  }
+`;
+
 export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
   const { analysisSession, selectedBaseline, setSelectedBaseline, liveMode, setLiveMode, startAnalysis, clearAnalysis } = useDemod();
   const [previewMode, setPreviewMode] = useState<AnalysisType>(selectedBaseline);
   const [scriptIndex, setScriptIndex] = useState(0);
   const [countdown, setCountdown] = useState(0);
   const [progress, setProgress] = useState(0);
+  const [durationS, setDurationS] = useState(5);
+  const [durationError, setDurationError] = useState<string | null>(null);
 
   const isBusy = analysisSession.state !== 'idle' && analysisSession.state !== 'result';
+  const isStarting = analysisSession.state === 'starting';
   const isCapturing = analysisSession.state === 'capturing';
 
-  // Countdown timer logic
+  const handleDurationChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = parseInt(e.target.value, 10);
+    if (isNaN(val)) {
+      setDurationS(0);
+      setDurationError('Must be a number');
+      return;
+    }
+
+    setDurationS(val);
+
+    const result = durationSchema.safeParse(val);
+    if (!result.success) {
+      setDurationError(result.error.errors[0].message);
+    } else {
+      setDurationError(null);
+    }
+  };
+
+  // Countdown timer logic (internal UI sync only)
   useEffect(() => {
-    if (isCapturing) {
-      // Start with 5 second countdown
-      setCountdown(5);
-      setProgress(0);
-
-      const countdownInterval = setInterval(() => {
-        setCountdown(prev => {
-          if (prev <= 1) {
-            clearInterval(countdownInterval);
-            // After countdown, start progress for capture duration (5 seconds)
-            const progressInterval = setInterval(() => {
-              setProgress(prev => {
-                if (prev >= 100) {
-                  clearInterval(progressInterval);
-                  return 100;
-                }
-                return prev + 20; // 20% per second for 5 seconds
-              });
-            }, 1000);
-            return 0;
-          }
-          return prev - 1;
-        });
+    if (isStarting) {
+      setCountdown(3);
+      const interval = setInterval(() => {
+        setCountdown(prev => Math.max(0, prev - 1));
       }, 1000);
-
-      return () => clearInterval(countdownInterval);
+      return () => clearInterval(interval);
     } else {
       setCountdown(0);
+    }
+  }, [isStarting]);
+
+  // Capture progress bar logic
+  useEffect(() => {
+    if (isCapturing) {
+      setProgress(0);
+      const startTime = analysisSession.startTime || Date.now();
+      const totalMs = durationS * 1000;
+
+      const progressInterval = setInterval(() => {
+        const elapsed = Date.now() - startTime;
+        const p = Math.min(100, (elapsed / totalMs) * 100);
+        
+        setProgress(p);
+        
+        if (p >= 100) {
+          clearInterval(progressInterval);
+        }
+      }, 100); // 100ms updates
+      return () => clearInterval(progressInterval);
+    } else {
       setProgress(0);
     }
-  }, [isCapturing]);
+  }, [isCapturing, durationS, analysisSession.startTime]);
 
   // Animation state for speech bars
   const [, forceUpdate] = useState({});
@@ -404,30 +451,35 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
     // Smooth fade in/out to avoid clicking
     gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
     gainNode.gain.linearRampToValueAtTime(0.5, audioCtx.currentTime + 0.1);
-    gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 10); // Longer play
+    gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + durationS); // Play for duration
 
     oscillator.connect(gainNode);
     gainNode.connect(audioCtx.destination);
 
     oscillator.start();
-    oscillator.stop(audioCtx.currentTime + 10);
-  }, []);
+    oscillator.stop(audioCtx.currentTime + durationS);
+  }, [durationS]);
 
   const handleTrigger = () => {
-    // If audio-related, we need to wait for the actual capture start (after 3s countdown)
-    // but the startAnalysis function handles its own internal timing.
-    // To ensure sound is heard during capture, we'll delay it.
-    if (previewMode === 'audio' || previewMode === 'internal') {
-      setTimeout(() => playTone(), 3000); // Wait for countdown
-    }
+    if (durationError) return;
 
+    // Delay audio to start when capture officially starts
+    // We send command after 3s, server takes ~0-1s, so ~4s total delay
+    // But better to trigger playTone() when state becomes 'capturing'
     if (previewMode === 'internal' || previewMode === 'speech') {
       setScriptIndex(Math.floor(Math.random() * SCRIPT_VARIANTS.length));
     }
 
     setSelectedBaseline(previewMode);
-    startAnalysis(previewMode, liveMode);
+    startAnalysis(previewMode, liveMode, durationS);
   };
+
+  // Tone trigger switch
+  useEffect(() => {
+    if (isCapturing && (previewMode === 'audio' || previewMode === 'internal')) {
+      playTone();
+    }
+  }, [isCapturing, previewMode, playTone]);
 
   return (
     <StimulusContainer>
@@ -496,25 +548,25 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
               </APTPreviewSub>
             </APTPreviewContainer>
           )}
-        </StimulusPreview>
 
-        {(countdown > 0 || progress > 0) && (
-          <CountdownContainer>
-            {countdown > 0 ? (
-              <>
-                <CountdownNumber>{countdown}</CountdownNumber>
-                <ProgressLabel>Starting...</ProgressLabel>
-              </>
-            ) : (
-              <>
-                <ProgressBar $progress={progress}>
-                  <ProgressFill $progress={progress} />
-                </ProgressBar>
-                <ProgressLabel>{progress < 100 ? 'Capturing...' : 'Complete!'}</ProgressLabel>
-              </>
-            )}
-          </CountdownContainer>
-        )}
+          {(countdown > 0 || progress > 0) && (
+            <CountdownContainer>
+              {countdown > 0 ? (
+                <>
+                  <CountdownNumber>{countdown}</CountdownNumber>
+                  <ProgressLabel>Starting...</ProgressLabel>
+                </>
+              ) : (
+                <>
+                  <ProgressBar $progress={progress}>
+                    <ProgressFill $progress={progress} />
+                  </ProgressBar>
+                  <ProgressLabel>{progress < 100 ? 'Capturing...' : 'Complete!'}</ProgressLabel>
+                </>
+              )}
+            </CountdownContainer>
+          )}
+        </StimulusPreview>
 
         <BaselineVectorContainer>
           <div>
@@ -531,7 +583,22 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
               ))}
             </StimulusSelect>
           </div>
-          <StimulusButton onClick={handleTrigger} disabled={isBusy} $disabled={isBusy}>
+          <div>
+            <BaselineVectorLabel style={{ color: durationError ? '#ff4d4d' : undefined }}>
+              Dur (s)
+            </BaselineVectorLabel>
+            <StimulusInput 
+              type="number" 
+              value={durationS || ''} 
+              onChange={handleDurationChange}
+              disabled={isBusy}
+              min={5}
+              max={60}
+              aria-invalid={durationError !== null}
+              style={{ padding: '9px 8px' }}
+            />
+          </div>
+          <StimulusButton onClick={handleTrigger} disabled={isBusy} $disabled={isBusy} style={{ alignSelf: 'end' }}>
             TRIGGER
           </StimulusButton>
         </BaselineVectorContainer>

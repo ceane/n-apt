@@ -28,7 +28,7 @@ interface DemodContextValue {
   setSelectedBaseline: (type: AnalysisType) => void;
   liveMode: boolean;
   setLiveMode: (mode: boolean) => void;
-  startAnalysis: (type: AnalysisType, liveMode?: boolean, scriptContent?: string, mediaContent?: string, baselineVector?: number[]) => void;
+  startAnalysis: (type: AnalysisType, liveMode?: boolean, durationS?: number, scriptContent?: string, mediaContent?: string, baselineVector?: number[]) => void;
   clearAnalysis: () => void;
 
   startScan: () => Promise<void>;
@@ -38,6 +38,11 @@ interface DemodContextValue {
   selectedAlgorithm: string;
   setSelectedAlgorithm: (algorithm: string) => void;
 
+  // Flow persistence
+  flowNodes: any[];
+  setFlowNodes: (nodes: any[] | ((prev: any[]) => any[])) => void;
+  flowEdges: any[];
+  setFlowEdges: (edges: any[] | ((prev: any[]) => any[])) => void;
 }
 
 const DemodContext = createContext<DemodContextValue | null>(null);
@@ -99,28 +104,50 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, []);
 
   // Listen for capture status changes from Redux
+  // Listen for capture status changes from Redux
   const captureStatus = useAppSelector(state => state.websocket.captureStatus);
 
   useEffect(() => {
-    if (captureStatus && captureStatus.status === 'done' && analysisSession.state === 'analyzing') {
-      // Update analysis session with real capture result
+    if (!captureStatus) return;
+
+    if (captureStatus.status === 'started' && (analysisSession.state as any) === 'starting') {
+      // Backend confirmed capture has officially started
       setAnalysisSession(prev => ({
         ...prev,
-        state: 'result',
-        result: {
-          jobId: captureStatus.jobId,
-          naptFilePath: captureStatus.downloadUrl ?? undefined,
-          fileName: captureStatus.filename ?? undefined,
-          isEphemeral: captureStatus.ephemeral || false,
-          timestamp: captureStatus.timestamp ?? Date.now(),
-          fileSize: captureStatus.fileSize,
-          duration: prev.startTime ? Date.now() - prev.startTime : undefined,
-          confidence: 0.85 + Math.random() * 0.1,
-          matchRate: 0.92 + Math.random() * 0.05,
-          snrDelta: (Math.random() * 10).toFixed(2) + ' dB',
-          summary: captureStatus.message || `Capture ${captureStatus.jobId} completed successfully.`
-        }
+        state: 'capturing',
+        jobId: captureStatus.jobId,
+        startTime: captureStatus.timestamp || Date.now() // Use server time if available
       }));
+    } else if (captureStatus.status === 'done' && (analysisSession.state === 'analyzing' || analysisSession.state === 'capturing')) {
+      // Update analysis session with real capture result
+      setAnalysisSession(prev => {
+        // Favor the requested durationS for the report to match user input,
+        // but calculate server-side elapsed time as fallback.
+        let finalDuration = prev.durationS ? prev.durationS * 1000 : undefined;
+        
+        // If we want the absolute truth from the server timestamps (including overhead):
+        // finalDuration = (captureStatus.timestamp && prev.startTime) 
+        //   ? captureStatus.timestamp - prev.startTime 
+        //   : (prev.durationS ? prev.durationS * 1000 : undefined);
+
+        return {
+          ...prev,
+          state: 'result',
+          result: {
+            jobId: captureStatus.jobId,
+            naptFilePath: captureStatus.downloadUrl ?? undefined,
+            fileName: captureStatus.filename ?? undefined,
+            isEphemeral: captureStatus.ephemeral || false,
+            timestamp: captureStatus.timestamp ?? Date.now(),
+            fileSize: captureStatus.fileSize,
+            duration: finalDuration,
+            confidence: 0.85 + Math.random() * 0.1,
+            matchRate: 0.92 + Math.random() * 0.05,
+            snrDelta: (Math.random() * 10).toFixed(2) + ' dB',
+            summary: captureStatus.message || `Capture ${captureStatus.jobId} completed successfully.`
+          }
+        };
+      });
     }
   }, [captureStatus, analysisSession.state]);
 
@@ -190,6 +217,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const startAnalysis = useCallback((
     type: AnalysisType,
     isLive: boolean = false,
+    durationS: number = 5.0,
     scriptContent?: string,
     mediaContent?: string,
     baselineVector?: number[]
@@ -199,8 +227,9 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     // Start with a countdown
     let count = 3;
     setAnalysisSession({
-      state: 'capturing',
+      state: 'starting',
       type,
+      durationS,
       countdown: count,
       startTime: Date.now(),
       scriptContent,
@@ -253,6 +282,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                   confidence: 0.85 + Math.random() * 0.1,
                   matchRate: 0.92 + Math.random() * 0.05,
                   snrDelta: (Math.random() * 10).toFixed(2) + ' dB',
+                  duration: prev.startTime ? Date.now() - prev.startTime : undefined,
                   summary: `APT analysis for ${type} baseline completed. Pattern analysis detected multiple signal characteristics.`
                 } as CaptureResult
               }));
@@ -271,7 +301,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           sendCaptureCommand({
             jobId,
             fragments, // current range
-            durationS: 5.0,
+            durationS: durationS,
             fileType: '.napt',
             acquisitionMode: 'whole_sample',
             encrypted: true,
@@ -284,11 +314,14 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           // Transition to analyzing after 5 seconds of capture
           progressIntervalRef.current = setTimeout(() => {
             setAnalysisSession(prev => ({ ...prev, state: 'analyzing', countdown: undefined }));
-          }, 5500); // 5s capture + 0.5s margin
+          }, (durationS * 1000) + 500); // Dynamic capture duration + 0.5s margin
         }
       }
     }, 1000);
   }, [sendCaptureCommand, clearAnalysis, state.frequencyRange]);
+
+  const [flowNodes, setFlowNodes] = useState<any[]>([]);
+  const [flowEdges, setFlowEdges] = useState<any[]>([]);
 
   const value = useMemo(() => ({
     windowSizeHz,
@@ -314,10 +347,15 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     stopScan,
     selectedAlgorithm,
     setSelectedAlgorithm,
+    flowNodes,
+    setFlowNodes,
+    flowEdges,
+    setFlowEdges
   }), [
     windowSizeHz, stepSizeHz, audioThreshold, scanner, audioPlayback,
-    currentIQData, scanRange, analysisSession, selectedBaseline, startAnalysis, clearAnalysis, startScan, stopScan,
-    selectedAlgorithm
+    currentIQData, scanRange, analysisSession, selectedBaseline, liveMode,
+    startAnalysis, clearAnalysis, startScan, stopScan,
+    selectedAlgorithm, flowNodes, flowEdges
   ]);
 
   return <DemodContext.Provider value={value}>{children}</DemodContext.Provider>;

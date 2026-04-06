@@ -58,11 +58,7 @@ const DemodRouteWithSidebarContent: React.FC = () => {
 };
 
 const DemodRouteWithSidebar: React.FC = () => (
-  <DemodProvider>
-    <ReactFlowProvider>
-      <DemodRouteWithSidebarContent />
-    </ReactFlowProvider>
-  </DemodProvider>
+    <DemodRouteWithSidebarContent />
 );
 import { Model3DSidebar } from "@n-apt/components/sidebar/Model3DSidebar";
 import { SDRTestSidebar } from "@n-apt/components/sidebar/SDRTestSidebar";
@@ -72,79 +68,83 @@ const TestRouteSidebar: React.FC = () => <div data-testid="route-sidebar" />;
 
 export const AppRoutes: React.FC = () => {
   return (
-    <Routes>
-      <Route
-        path="/"
-        element={
-          <MainLayout sidebar={<SpectrumSidebar />}>
-            <SpectrumRoute activeTab="visualizer" />
-          </MainLayout>
-        }
-      />
-      <Route
-        path="/visualizer"
-        element={
-          <MainLayout sidebar={<SpectrumSidebar />}>
-            <SpectrumRoute activeTab="visualizer" />
-          </MainLayout>
-        }
-      />
-      <Route
-        path="/demodulate"
-        element={<DemodRouteWithSidebar />}
-      />
-      <Route
-        path="/draw-signal"
-        element={
-          <MainLayout
-            sidebar={<DrawSignalSidebar />}
-          >
-            <DrawSignalRoute />
-          </MainLayout>
-        }
-      />
-      <Route
-        path="/3d-model"
-        element={
-          <Model3DProvider>
-            <HotspotEditorProvider>
-              <MainLayout sidebar={process.env.NODE_ENV === "test" ? <TestRouteSidebar /> : <Model3DSidebar />}>
-                <Model3DRoute />
+    <DemodProvider>
+      <ReactFlowProvider>
+        <Routes>
+          <Route
+            path="/"
+            element={
+              <MainLayout sidebar={<SpectrumSidebar />}>
+                <SpectrumRoute activeTab="visualizer" />
               </MainLayout>
-            </HotspotEditorProvider>
-          </Model3DProvider>
-        }
-      />
-      <Route
-        path="/map-endpoints"
-        element={
-          <MapLocationsProvider>
-            <MainLayout sidebar={<MapEndpointsSidebar />}>
-              <MapEndpointsRoute />
-            </MainLayout>
-          </MapLocationsProvider>
-        }
-      />
-      <Route
-        path="/stitch-test"
-        element={
-          <MainLayout sidebar={<SDRTestSidebar />}>
-            <StitchTestRoute />
-          </MainLayout>
-        }
-      />
-      <Route
-        path="/pretext-demo"
-        element={<PretextDemoRoute />}
-      />
-      <Route
-        path="/vfo-grid-demo"
-        element={<VFOGridDemoRoute />}
-      />
-      <Route
-        path="/transformers"
-        element={<TransformersRoute />}
-      />
-    </Routes>
+            }
+          />
+          <Route
+            path="/visualizer"
+            element={
+              <MainLayout sidebar={<SpectrumSidebar />}>
+                <SpectrumRoute activeTab="visualizer" />
+              </MainLayout>
+            }
+          />
+          <Route
+            path="/demodulate"
+            element={<DemodRouteWithSidebar />}
+          />
+          <Route
+            path="/draw-signal"
+            element={
+              <MainLayout
+                sidebar={<DrawSignalSidebar />}
+              >
+                <DrawSignalRoute />
+              </MainLayout>
+            }
+          />
+          <Route
+            path="/3d-model"
+            element={
+              <Model3DProvider>
+                <HotspotEditorProvider>
+                  <MainLayout sidebar={process.env.NODE_ENV === "test" ? <TestRouteSidebar /> : <Model3DSidebar />}>
+                    <Model3DRoute />
+                  </MainLayout>
+                </HotspotEditorProvider>
+              </Model3DProvider>
+            }
+          />
+          <Route
+            path="/map-endpoints"
+            element={
+              <MapLocationsProvider>
+                <MainLayout sidebar={<MapEndpointsSidebar />}>
+                  <MapEndpointsRoute />
+                </MainLayout>
+              </MapLocationsProvider>
+            }
+          />
+          <Route
+            path="/stitch-test"
+            element={
+              <MainLayout sidebar={<SDRTestSidebar />}>
+                <StitchTestRoute />
+              </MainLayout>
+            }
+          />
+          <Route
+            path="/pretext-demo"
+            element={<PretextDemoRoute />}
+          />
+          <Route
+            path="/vfo-grid-demo"
+            element={<VFOGridDemoRoute />}
+          />
+          <Route
+            path="/transformers"
+            element={<TransformersRoute />}
+          />
+        </Routes>
+      </ReactFlowProvider>
+    </DemodProvider>
   );
 };
