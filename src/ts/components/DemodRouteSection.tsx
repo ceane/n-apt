@@ -101,6 +101,40 @@ const PlayButton = styled.button`
   }
 `;
 
+const ContextMenuPanel = styled.div`
+  position: fixed;
+  background: ${({ theme }) => theme.colors.surface};
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  padding: 5px;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 140px;
+  font-family: ${({ theme }) => theme.typography.sans};
+`;
+
+const ContextMenuItem = styled.button`
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  padding: 8px 12px;
+  color: ${({ theme }) => theme.colors.textPrimary};
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  &:hover {
+    background: ${({ theme }) => theme.colors.surfaceHover};
+    color: ${({ theme }) => theme.colors.primary};
+  }
+`;
+
 const StyledReactFlow = styled(ReactFlow)`
   width: 100%;
   height: 100%;
@@ -218,9 +252,9 @@ const CustomNode: React.FC<{ data: any; id: string }> = ({ data, id }) => {
 
 // Inner component that uses React Flow hooks
 const DemodRouteSectionInner: React.FC = () => {
-  const { setNodes, setEdges, analysisSession } = useDemod();
+  const { analysisSession } = useDemod();
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
-  const { deleteElements, fitView } = useReactFlow();
+  const { deleteElements, fitView, screenToFlowPosition } = useReactFlow();
 
   const hasLaidOut = useRef(false);
 
@@ -345,6 +379,25 @@ const DemodRouteSectionInner: React.FC = () => {
   const [edges, setEdgesLocal, onEdgesChange] = useEdgesState(initialEdges);
   const [isLaidOut, setIsLaidOut] = React.useState(false);
 
+  const [menu, setMenu] = React.useState<{ id: string, type: string, top: number, left: number } | null>(null);
+
+  const onNodeContextMenu = useCallback(
+    (event: React.MouseEvent, node: Node) => {
+      event.preventDefault();
+      setMenu({
+        id: node.id,
+        type: node.type || "default",
+        top: event.clientY,
+        left: event.clientX,
+      });
+    },
+    []
+  );
+
+  const onPaneClick = useCallback(() => {
+    setMenu(null);
+  }, []);
+
   const measureAndLayout = useCallback(async () => {
     if (!reactFlowWrapper.current) return;
     const wrapper = reactFlowWrapper.current;
@@ -412,11 +465,11 @@ const DemodRouteSectionInner: React.FC = () => {
       };
 
       const layoutedGraph = await elk.layout(graph);
-      
+
       setNodesLocal((nds) => {
         const stimulusElkNode = layoutedGraph.children?.find((n) => n.id === 'stimulus');
         const stimulusCenterX = stimulusElkNode && stimulusElkNode.x !== undefined && stimulusElkNode.width !== undefined
-          ? stimulusElkNode.x + stimulusElkNode.width / 2 
+          ? stimulusElkNode.x + stimulusElkNode.width / 2
           : 0;
 
         return nds.map((node) => {
@@ -425,13 +478,13 @@ const DemodRouteSectionInner: React.FC = () => {
           if (!layoutNode || layoutNode.x === undefined || layoutNode.y === undefined) return node;
 
           let targetX = layoutNode.x;
-          
+
           // Force vertical visual centering for the top chain relative to the Stimulus node
           const isTopChain = ['source', 'channel', 'signalOptions'].includes(node.id);
           if (isTopChain && stimulusCenterX > 0 && layoutNode.width) {
             targetX = stimulusCenterX - layoutNode.width / 2;
           }
-          
+
           return {
             ...node,
             position: { x: targetX, y: layoutNode.y },
@@ -467,9 +520,8 @@ const DemodRouteSectionInner: React.FC = () => {
   }, [measureAndLayout]);
 
   useEffect(() => {
-    setNodes(nodes);
-    setEdges(edges);
-  }, [nodes, edges, setNodes, setEdges]);
+    // Keep local React Flow state as the source of truth.
+  }, [nodes, edges]);
 
   // Track which sessions have already produced an output node
   const processedSessionsRef = useRef<Set<string>>(new Set());
@@ -566,14 +618,14 @@ const DemodRouteSectionInner: React.FC = () => {
 
       const nodeData = JSON.parse(type);
 
-      // Calculate position
-      const reactFlowBounds = reactFlowWrapper.current?.getBoundingClientRect();
-      if (!reactFlowBounds) return;
+      const position = screenToFlowPosition({
+        x: event.clientX,
+        y: event.clientY,
+      });
 
-      const position = {
-        x: event.clientX - reactFlowBounds.left - 75,
-        y: event.clientY - reactFlowBounds.top - 40,
-      };
+      // Offset slightly so mouse drops in the center of a typical node
+      position.x -= 75;
+      position.y -= 40;
 
       const newNode: Node = {
         id: `${nodeData.id}-${Date.now()}`,
@@ -584,7 +636,7 @@ const DemodRouteSectionInner: React.FC = () => {
 
       setNodesLocal((nds) => nds.concat(newNode));
     },
-    [setNodesLocal]
+    [setNodesLocal, screenToFlowPosition]
   );
 
   // Handle keyboard shortcuts
@@ -618,6 +670,8 @@ const DemodRouteSectionInner: React.FC = () => {
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
+        onNodeContextMenu={onNodeContextMenu}
+        onPaneClick={onPaneClick}
         nodeTypes={nodeTypes}
         connectionMode={ConnectionMode.Loose}
         attributionPosition="bottom-left"
@@ -635,6 +689,54 @@ const DemodRouteSectionInner: React.FC = () => {
           <Play size={20} />
         </PlayButton>
       </BottomControlBar>
+
+      {menu && (
+        <ContextMenuPanel style={{ top: menu.top, left: menu.left }}>
+          <ContextMenuItem
+            onClick={() => {
+              const node = nodes.find((n) => n.id === menu.id);
+              if (node) {
+                const newNode = {
+                  ...node,
+                  id: `${node.id}-copy-${Date.now()}`,
+                  position: { x: node.position.x + 50, y: node.position.y + 50 },
+                  selected: false,
+                };
+                setNodesLocal((nds) => [...nds, newNode as Node]);
+              }
+              setMenu(null);
+            }}
+          >
+            Duplicate Node
+          </ContextMenuItem>
+
+          {(menu.type === 'bitstream' || menu.type === 'symbols') && (
+            <ContextMenuItem
+              onClick={() => {
+                const nodeEl = document.querySelector(`.react-flow__node[data-id="${menu.id}"]`);
+                if (nodeEl) {
+                  const maximizeIcon = nodeEl.querySelector('svg.lucide-maximize');
+                  const btn = maximizeIcon?.closest('button');
+                  if (btn) btn.click();
+                }
+                setMenu(null);
+              }}
+            >
+              Open Fullscreen
+            </ContextMenuItem>
+          )}
+
+          <ContextMenuItem
+            style={{ color: '#ff4444' }}
+            onClick={() => {
+              deleteElements({ nodes: [{ id: menu.id }] });
+              setMenu(null);
+            }}
+          >
+            Delete Node
+          </ContextMenuItem>
+        </ContextMenuPanel>
+      )}
     </FlowContainer>
   );
 };

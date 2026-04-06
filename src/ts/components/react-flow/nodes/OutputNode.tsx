@@ -1,6 +1,7 @@
 import React from 'react';
 import styled from 'styled-components';
 import { Brain } from 'lucide-react';
+import { useAuthentication } from '@n-apt/hooks/useAuthentication';
 
 const NodeWrapper = styled.div`
   display: flex;
@@ -62,6 +63,53 @@ const Metrics = styled.div`
   gap: 7px;
 `;
 
+const DownloadButton = styled.button`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 4px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid ${({ theme }) => theme.colors.primary};
+  color: ${({ theme }) => theme.colors.primary};
+  text-decoration: none;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: transparent;
+  cursor: pointer;
+  font-family: inherit;
+
+  &:hover {
+    background: ${({ theme }) => theme.colors.primary}18;
+  }
+`;
+
+const MetadataList = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 10px;
+  font-family: ${({ theme }) => theme.typography.mono};
+`;
+
+const MetadataRow = styled.div`
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+`;
+
+const MetadataLabel = styled.span`
+  opacity: 0.55;
+`;
+
+const MetadataValue = styled.span`
+  text-align: right;
+  word-break: break-word;
+`;
+
 const MetricRow = styled.div`
   display: flex;
   justify-content: space-between;
@@ -82,15 +130,42 @@ interface OutputNodeProps {
   data: {
     label?: string;
     vector?: string;
+    naptFilePath?: string;
     result: {
       jobId: string;
       confidence: number;
+      timestamp?: string | number;
+      summary?: string;
+      fileName?: string;
+      naptFilePath?: string;
+      fileSize?: number;
+      matchRate?: number;
+      snrDelta?: string;
     };
   };
 }
 
 export const OutputNode: React.FC<OutputNodeProps> = ({ data }) => {
+  const { sessionToken } = useAuthentication();
   const { result, state } = data as any; // Using any for additional fields like state
+  const naptFilePath = data.naptFilePath || result?.naptFilePath;
+  const downloadHref = React.useMemo(() => {
+    if (!naptFilePath) return undefined;
+    let urlStr = naptFilePath;
+    try {
+      urlStr = new URL(naptFilePath, window.location.origin).toString();
+    } catch {
+      // Ignored
+    }
+    if (sessionToken) {
+      if (urlStr.includes('?')) {
+        urlStr += `&token=${encodeURIComponent(sessionToken)}`;
+      } else {
+        urlStr += `?token=${encodeURIComponent(sessionToken)}`;
+      }
+    }
+    return urlStr;
+  }, [naptFilePath, sessionToken]);
 
   if (!result) {
     const isProcessing = state && state !== 'idle' && state !== 'result';
@@ -135,7 +210,78 @@ export const OutputNode: React.FC<OutputNodeProps> = ({ data }) => {
           <MetricLabel>Confidence</MetricLabel>
           <MetricValue>{(result.confidence * 100).toFixed(1)}%</MetricValue>
         </MetricRow>
+        {result.matchRate !== undefined && (
+          <MetricRow>
+            <MetricLabel>Match rate</MetricLabel>
+            <MetricValue>{(result.matchRate * 100).toFixed(1)}%</MetricValue>
+          </MetricRow>
+        )}
+        {result.snrDelta && (
+          <MetricRow>
+            <MetricLabel>SNR Δ</MetricLabel>
+            <MetricValue>{result.snrDelta}</MetricValue>
+          </MetricRow>
+        )}
       </Metrics>
+
+      {(naptFilePath || result.fileName || result.timestamp || result.summary) && (
+        <MetadataList>
+          {naptFilePath && (
+            <MetadataRow>
+              <MetadataLabel>File path</MetadataLabel>
+              <MetadataValue>{naptFilePath}</MetadataValue>
+            </MetadataRow>
+          )}
+          {result.fileName && (
+            <MetadataRow>
+              <MetadataLabel>File</MetadataLabel>
+              <MetadataValue>{result.fileName}</MetadataValue>
+            </MetadataRow>
+          )}
+          {result.timestamp && (
+            <MetadataRow>
+              <MetadataLabel>Timestamp</MetadataLabel>
+              <MetadataValue>
+                {typeof result.timestamp === 'number'
+                  ? new Date(result.timestamp).toLocaleString()
+                  : result.timestamp}
+              </MetadataValue>
+            </MetadataRow>
+          )}
+          {result.summary && (
+            <MetadataRow>
+              <MetadataLabel>Summary</MetadataLabel>
+              <MetadataValue>{result.summary}</MetadataValue>
+            </MetadataRow>
+          )}
+        </MetadataList>
+      )}
+
+      {downloadHref && (
+        <DownloadButton
+          className="nodrag nopan"
+          onClick={(e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            // Open in new tab, the backend Content-Disposition headers will force it to download.
+            // This is the most reliable cross-origin / cross-port bypass.
+            window.open(downloadHref, '_blank', 'noopener,noreferrer');
+          }}
+        >
+          Download .napt
+        </DownloadButton>
+      )}
+
+      {result.fileSize !== undefined && (
+        <MetadataRow style={{ marginTop: 4 }}>
+          <MetadataLabel>File size</MetadataLabel>
+          <MetadataValue>
+            {result.fileSize < 1024 * 100
+              ? `${(result.fileSize / 1024).toFixed(1)} KB`
+              : `${(result.fileSize / (1024 * 1024)).toFixed(2)} MB`}
+          </MetadataValue>
+        </MetadataRow>
+      )}
     </NodeWrapper>
   );
 };

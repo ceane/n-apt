@@ -191,20 +191,20 @@ const availableNodes: NodeType[] = [
   {
     id: 'stimulus',
     type: 'custom',
-    label: 'Stimulus',
-    description: 'Baseline stimulus selection',
+    label: 'Stimulus (N-APT)',
+    description: 'Record I/Q captures of N-APT channels using a baseline media content to detect where is what.',
     icon: <Volume2 size={16} />,
     position: { x: 150, y: 550 },
-    data: { label: 'Stimulus', description: 'Baseline stimulus selection', stimulusOptions: true }
+    data: { label: 'Stimulus', description: 'Record I/Q captures of N-APT channels using a baseline media content to detect where is what.', stimulusOptions: true }
   },
   {
     id: 'tempo-note-stimulus',
     type: 'custom',
-    label: 'Tempo/Note Stimulus',
-    description: 'Musical measures stimulus',
+    label: 'Tempo/Note Stimulus (N-APT)',
+    description: 'Record I/Q captures of N-APT channels using rich sound to detect where is what.',
     icon: <Music size={16} />,
     position: { x: 350, y: 550 },
-    data: { label: 'Tempo/Note Stimulus', description: 'Musical measures stimulus', tempoNoteOptions: true }
+    data: { label: 'Tempo/Note Stimulus', description: 'Record I/Q captures of N-APT channels using rich sound to detect where is what.', tempoNoteOptions: true }
   },
   {
     id: 'radio',
