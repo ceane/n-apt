@@ -46,6 +46,7 @@ pub async fn ws_upgrade_handler(
   let spectrum_tx = state.spectrum_tx.clone();
   let cmd_tx = state.cmd_tx.clone();
   let enc_key = session.encryption_key;
+  let session_token = params.token.clone();
 
   ws.on_upgrade(move |socket| {
     handle_ws_connection(
@@ -55,6 +56,7 @@ pub async fn ws_upgrade_handler(
       spectrum_tx,
       cmd_tx,
       enc_key,
+      session_token,
     )
   })
 }
@@ -81,6 +83,7 @@ pub async fn handle_ws_connection(
   spectrum_tx: broadcast::Sender<Arc<super::types::SpectrumData>>,
   cmd_tx: std::sync::mpsc::Sender<super::types::SdrCommand>,
   enc_key: [u8; 32],
+  _session_token: String,
 ) {
   let (mut ws_sender, mut ws_receiver) = socket.split();
   let mut broadcast_rx = broadcast_tx.subscribe();

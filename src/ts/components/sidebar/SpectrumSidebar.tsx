@@ -386,7 +386,10 @@ export const SpectrumSidebar: React.FC = () => {
           dispatch(clearWaterfall());
 
           // 3. Fetch the file
-          const url = `${liveCaptureStatus.downloadUrl}& token=${encodeURIComponent(sessionToken || "")} `;
+          const url = liveCaptureStatus.downloadUrl
+            ? `${liveCaptureStatus.downloadUrl}&token=${encodeURIComponent(sessionToken || "")}`
+            : undefined;
+          if (!url) throw new Error("Missing capture download URL");
           const response = await fetch(url);
           if (!response.ok)
             throw new Error(`HTTP error! status: ${response.status} `);

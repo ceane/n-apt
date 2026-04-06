@@ -438,7 +438,10 @@ const Sidebar: React.FC<SidebarProps> = ({
           onClear();
 
           // 3. Fetch the file
-          const url = `${captureStatus.downloadUrl}&token=${encodeURIComponent(sessionToken || "")}`;
+          const url = captureStatus.downloadUrl
+            ? `${captureStatus.downloadUrl}&token=${encodeURIComponent(sessionToken || "")}`
+            : undefined;
+          if (!url) throw new Error("Missing capture download URL");
           const response = await fetch(url);
           if (!response.ok)
             throw new Error(`HTTP error! status: ${response.status}`);

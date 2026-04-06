@@ -1,11 +1,10 @@
-import React, { createContext, useContext, useCallback, useRef, useState, useEffect, useMemo } from "react";
-import { useAppSelector, useAppDispatch } from "@n-apt/redux";
-import { sendCaptureCommand } from "@n-apt/redux/thunks/websocketThunks";
+import React, { createContext, useContext, useCallback, useState, useEffect, useMemo } from "react";
+import { useAppSelector } from "@n-apt/redux";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 import { useFrequencyScanner, FrequencyScannerHandle } from "@n-apt/hooks/useFrequencyScanner";
 import { useAudioExtraction, AudioPlaybackHandle } from "@n-apt/hooks/useAudioExtraction";
 import { scannerWorkerManager } from "@n-apt/workers/scannerWorkerManager";
-import { AnalysisSession, AnalysisType, AnalysisSessionState, CaptureResult } from "@n-apt/consts/types";
+import { AnalysisSession, AnalysisType, CaptureResult } from "@n-apt/consts/types";
 
 interface DemodContextValue {
   windowSizeHz: number;
@@ -39,9 +38,6 @@ interface DemodContextValue {
   selectedAlgorithm: string;
   setSelectedAlgorithm: (algorithm: string) => void;
 
-  // React Flow node management
-  setNodes: (nodes: any[]) => void;
-  setEdges: (edges: any[]) => void;
 }
 
 const DemodContext = createContext<DemodContextValue | null>(null);
@@ -61,9 +57,6 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [analysisSession, setAnalysisSession] = useState<AnalysisSession>({ state: 'idle' });
   const [selectedBaseline, setSelectedBaseline] = useState<AnalysisType>('audio');
   const [selectedAlgorithm, setSelectedAlgorithm] = useState('fm');
-  const [nodes, setNodes] = useState<any[]>([]);
-  const [edges, setEdges] = useState<any[]>([]);
-
   const { state, wsConnection } = useSpectrumStore();
   const { sendCaptureCommand, sendScanCommand, sendDemodulateCommand } = wsConnection;
 
@@ -117,6 +110,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         result: {
           jobId: captureStatus.jobId,
           naptFilePath: captureStatus.downloadUrl ?? undefined,
+          fileName: captureStatus.filename ?? undefined,
           isEphemeral: captureStatus.ephemeral || false,
           timestamp: captureStatus.timestamp ?? Date.now(),
           fileSize: captureStatus.fileSize,
@@ -268,9 +262,15 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         } else {
           // Original capture flow for non-APT types
           const jobId = `ref_${type}_${Date.now()}`;
+          // Calculate fragments from current range
+          const fragments = state.frequencyRange ? [{
+            minFreq: state.frequencyRange.min,
+            maxFreq: state.frequencyRange.max
+          }] : [];
+
           sendCaptureCommand({
             jobId,
-            fragments: [], // current range
+            fragments, // current range
             durationS: 5.0,
             fileType: '.napt',
             acquisitionMode: 'whole_sample',
@@ -284,33 +284,11 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           // Transition to analyzing after 5 seconds of capture
           progressIntervalRef.current = setTimeout(() => {
             setAnalysisSession(prev => ({ ...prev, state: 'analyzing', countdown: undefined }));
-
-            // Transition to result after 3 seconds of "analyzing"
-            progressIntervalRef.current = setTimeout(() => {
-              setAnalysisSession(prev => ({
-                ...prev,
-                state: 'result',
-                result: {
-                  jobId,
-                  naptFilePath: isLive ? undefined : `/captures/${jobId}.napt`,
-                  isEphemeral: isLive,
-                  timestamp: Date.now(),
-                  fileSize: isLive ? undefined : Math.round(4.8e6 + Math.random() * 1.5e6),
-                  duration: prev.startTime ? Date.now() - prev.startTime : undefined,
-                  confidence: 0.85 + Math.random() * 0.1,
-                  matchRate: 0.92 + Math.random() * 0.05,
-                  snrDelta: (Math.random() * 10).toFixed(2) + ' dB',
-                  summary: isLive
-                    ? `Live analysis for ${type} baseline completed. Data processed in-memory and discarded.`
-                    : `Capture ${jobId} identified ${type} baseline characteristics. Metadata successfully tagged in .napt artifact.`
-                }
-              }));
-            }, 3000);
           }, 5500); // 5s capture + 0.5s margin
         }
       }
     }, 1000);
-  }, [sendCaptureCommand, clearAnalysis]);
+  }, [sendCaptureCommand, clearAnalysis, state.frequencyRange]);
 
   const value = useMemo(() => ({
     windowSizeHz,
@@ -336,12 +314,10 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     stopScan,
     selectedAlgorithm,
     setSelectedAlgorithm,
-    setNodes,
-    setEdges,
   }), [
     windowSizeHz, stepSizeHz, audioThreshold, scanner, audioPlayback,
     currentIQData, scanRange, analysisSession, selectedBaseline, startAnalysis, clearAnalysis, startScan, stopScan,
-    selectedAlgorithm, setNodes, setEdges
+    selectedAlgorithm
   ]);
 
   return <DemodContext.Provider value={value}>{children}</DemodContext.Provider>;
