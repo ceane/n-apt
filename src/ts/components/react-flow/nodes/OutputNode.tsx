@@ -224,20 +224,8 @@ export const OutputNode: React.FC<OutputNodeProps> = ({ data }) => {
         )}
       </Metrics>
 
-      {(naptFilePath || result.fileName || result.timestamp || result.summary) && (
+      {(result.timestamp || result.duration || result.fileSize !== undefined || result.summary) && (
         <MetadataList>
-          {naptFilePath && (
-            <MetadataRow>
-              <MetadataLabel>File path</MetadataLabel>
-              <MetadataValue>{naptFilePath}</MetadataValue>
-            </MetadataRow>
-          )}
-          {result.fileName && (
-            <MetadataRow>
-              <MetadataLabel>File</MetadataLabel>
-              <MetadataValue>{result.fileName}</MetadataValue>
-            </MetadataRow>
-          )}
           {result.timestamp && (
             <MetadataRow>
               <MetadataLabel>Timestamp</MetadataLabel>
@@ -248,6 +236,29 @@ export const OutputNode: React.FC<OutputNodeProps> = ({ data }) => {
               </MetadataValue>
             </MetadataRow>
           )}
+
+          {result.duration && (
+            <MetadataRow>
+              <MetadataLabel>Duration</MetadataLabel>
+              <MetadataValue>
+                {typeof result.duration === 'number'
+                  ? `${(result.duration / 1000).toFixed(1)}s`
+                  : result.duration}
+              </MetadataValue>
+            </MetadataRow>
+          )}
+
+          {result.fileSize !== undefined && (
+            <MetadataRow>
+              <MetadataLabel>File size</MetadataLabel>
+              <MetadataValue>
+                {result.fileSize < 1024 * 100
+                  ? `${(result.fileSize / 1024).toFixed(1)} KB`
+                  : `${(result.fileSize / (1024 * 1024)).toFixed(2)} MB`}
+              </MetadataValue>
+            </MetadataRow>
+          )}
+
           {result.summary && (
             <MetadataRow>
               <MetadataLabel>Summary</MetadataLabel>
@@ -263,24 +274,11 @@ export const OutputNode: React.FC<OutputNodeProps> = ({ data }) => {
           onClick={(e) => {
             e.stopPropagation();
             e.preventDefault();
-            // Open in new tab, the backend Content-Disposition headers will force it to download.
-            // This is the most reliable cross-origin / cross-port bypass.
             window.open(downloadHref, '_blank', 'noopener,noreferrer');
           }}
         >
           Download .napt
         </DownloadButton>
-      )}
-
-      {result.fileSize !== undefined && (
-        <MetadataRow style={{ marginTop: 4 }}>
-          <MetadataLabel>File size</MetadataLabel>
-          <MetadataValue>
-            {result.fileSize < 1024 * 100
-              ? `${(result.fileSize / 1024).toFixed(1)} KB`
-              : `${(result.fileSize / (1024 * 1024)).toFixed(2)} MB`}
-          </MetadataValue>
-        </MetadataRow>
       )}
     </NodeWrapper>
   );

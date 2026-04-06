@@ -20,9 +20,10 @@ export interface CaptureResult {
 }
 
 export interface AnalysisSession {
-  state: 'idle' | 'capturing' | 'analyzing' | 'result';
+  state: 'idle' | 'starting' | 'capturing' | 'analyzing' | 'result';
   type?: 'audio' | 'internal' | 'speech' | 'vision' | 'apt';
   startTime?: number;
+  durationS?: number; // The requested duration in seconds
   countdown?: number; // 3, 2, 1...
   result?: CaptureResult;
   scriptContent?: string; // Content of the script for analysis
@@ -33,7 +34,7 @@ export interface AnalysisSession {
 }
 
 export type AnalysisType = 'audio' | 'internal' | 'speech' | 'vision' | 'apt';
-export type AnalysisSessionState = 'idle' | 'capturing' | 'analyzing' | 'result';
+export type AnalysisSessionState = 'idle' | 'starting' | 'capturing' | 'analyzing' | 'result';
 
 export interface FrequencyRange {
   min: number;

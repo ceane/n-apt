@@ -252,11 +252,11 @@ const CustomNode: React.FC<{ data: any; id: string }> = ({ data, id }) => {
 
 // Inner component that uses React Flow hooks
 const DemodRouteSectionInner: React.FC = () => {
-  const { analysisSession } = useDemod();
+  const { analysisSession, flowNodes, setFlowNodes, flowEdges, setFlowEdges } = useDemod();
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const { deleteElements, fitView, screenToFlowPosition } = useReactFlow();
 
-  const hasLaidOut = useRef(false);
+  const hasLaidOut = useRef(flowNodes.length > 0);
 
   // Define node types
   const nodeTypes = useMemo(() => ({
@@ -375,9 +375,19 @@ const DemodRouteSectionInner: React.FC = () => {
     },
   ], []);
 
-  const [nodes, setNodesLocal, onNodesChange] = useNodesState(initialNodes);
-  const [edges, setEdgesLocal, onEdgesChange] = useEdgesState(initialEdges);
-  const [isLaidOut, setIsLaidOut] = React.useState(false);
+  const [nodes, setNodesLocal, onNodesChange] = useNodesState(flowNodes.length > 0 ? flowNodes : initialNodes);
+  const [edges, setEdgesLocal, onEdgesChange] = useEdgesState(flowEdges.length > 0 ? flowEdges : initialEdges);
+
+  // Sync with global context to survive navigation
+  useEffect(() => {
+    setFlowNodes(nodes);
+  }, [nodes, setFlowNodes]);
+
+  useEffect(() => {
+    setFlowEdges(edges);
+  }, [edges, setFlowEdges]);
+
+  const [isLaidOut, setIsLaidOut] = React.useState(flowNodes.length > 0);
 
   const [menu, setMenu] = React.useState<{ id: string, type: string, top: number, left: number } | null>(null);
 

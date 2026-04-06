@@ -286,6 +286,8 @@ export const sendCaptureCommand = createAsyncThunk(
             fftSize: req.fftSize,
             fftWindow: req.fftWindow,
             geolocation: req.geolocation,
+            liveMode: req.liveMode,
+            refBasedDemodBaseline: req.refBasedDemodBaseline,
           },
         },
       });
