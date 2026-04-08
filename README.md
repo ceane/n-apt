@@ -11,15 +11,15 @@ N-APT stands for: **N**euro **A**utomatic **P**icture **T**ransmission.
 
 More on [Automatic Picture Transmission](https://www.sigidwiki.com/wiki/Automatic_Picture_Transmission_(APT))
 
-N-APT originates from the National Security Agency (NSA) and are signals that appear like Automatic Picture Transmission (APT) signals used by NOAA satellites (decomissioned in 2025), however are a special formula of directional radio waves that are an unprecedented and full featured neurotechnology able to fully
+N-APT originates from the National Security Agency (NSA) and are signals that appear like Automatic Picture Transmission (APT) signals used by NOAA satellites (decomissioned in 2025), however are a special formula of very simple directional radio waves that translate into an unprecedented and full featured neurotechnology able to fully
 
 - intercept,
 - process,
 - and alter the brain and nervous system real-time...
 
-Meaning full featured experiences, interactivity, communication and more!
+Meaning full featured experiences, interactivity, communication and more.
 
-Beyond public challenges from the NSA such as their frequent puzzles or the yearly [codebreaker challenge](https://nsa-codebreaker.org/home), this neurotechnology was buried in a deeply horrendous surveillance nightmare as some sort of cryptological challenge.
+Beyond public challenges from the NSA such as their frequent puzzles or the yearly [codebreaker challenge](https://nsa-codebreaker.org/home), this neurotechnology was buried in a deeply horrendous long-running surveillance nightmare as some sort of extreme life challenge/political production.
 
 <br>
 

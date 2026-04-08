@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { execSync } from 'node:child_process';
 
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 12;
@@ -29,6 +30,18 @@ function getPasswords() {
     latex: latexMatch ? latexMatch[1].trim() : null,
     demod: demodMatch ? demodMatch[1].trim() : null,
   };
+}
+
+function getCurrentBranch(): string | null {
+  try {
+    return execSync('git branch --show-current', { encoding: 'utf8' }).trim();
+  } catch {
+    return null;
+  }
+}
+
+function shouldRunEncryptedModules(): boolean {
+  return getCurrentBranch() === 'encrypted-modules';
 }
 
 function deriveKey(password: string, salt: Buffer): Buffer {
@@ -157,6 +170,15 @@ function decryptBundle(
 
 const mode = process.argv[2]; // 'encrypt', 'decrypt', or 'decrypt-if-needed'
 const forceFlag = process.argv.includes('--force');
+
+if (!shouldRunEncryptedModules()) {
+  if (mode === 'decrypt-if-needed') {
+    process.exit(0);
+  }
+
+  console.log('ℹ [skip] Encrypted module operations only run on the `encrypted-modules` branch.');
+  process.exit(0);
+}
 
 const { latex, demod } = getPasswords();
 
