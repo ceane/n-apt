@@ -279,6 +279,7 @@ export const sendCaptureCommand = createAsyncThunk(
           data: {
             jobId: req.jobId,
             fragments: req.fragments,
+            durationMode: req.durationMode,
             durationS: req.durationS,
             fileType: req.fileType,
             acquisitionMode: req.acquisitionMode,
@@ -294,6 +295,23 @@ export const sendCaptureCommand = createAsyncThunk(
     }
     
     return req;
+  }
+);
+
+// Send capture stop command (for manual mode)
+export const sendCaptureStopCommand = createAsyncThunk(
+  'websocket/sendCaptureStopCommand',
+  async (jobId: string | undefined, { dispatch, getState }) => {
+    const state = getState() as RootState;
+    if (state.websocket.isConnected) {
+      dispatch({
+        type: 'websocket/sendMessage',
+        payload: {
+          type: 'capture_stop',
+          jobId,
+        },
+      });
+    }
   }
 );
 

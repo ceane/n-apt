@@ -105,7 +105,8 @@ export const CaptureRequestSchema = z.object({
     minFreq: z.number(),
     maxFreq: z.number(),
   })),
-  durationS: z.number(),
+  durationMode: z.enum(['timed', 'manual']),
+  durationS: z.number().optional(),
   fileType: z.enum(['.napt', '.wav']),
   acquisitionMode: z.enum(['stepwise', 'interleaved', 'whole_sample']),
   encrypted: z.boolean(),
@@ -218,6 +219,10 @@ export const WebSocketMessageSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('capture'),
   }).merge(CaptureRequestSchema.partial()),
+  z.object({
+    type: z.literal('capture_stop'),
+    jobId: z.string().optional(),
+  }),
   z.object({
     type: z.literal('get_auto_fft_options'),
     screenWidth: z.number(),

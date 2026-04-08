@@ -109,10 +109,13 @@ export type LiveFrameData = IqRawFrame;
 
 export type CaptureFileType = ".napt" | ".wav";
 
+export type CaptureDurationMode = "timed" | "manual";
+
 export type CaptureRequest = {
   jobId: string;
   fragments: { minFreq: number; maxFreq: number }[];
-  durationS: number;
+  durationMode: CaptureDurationMode;
+  durationS?: number;
   fileType: CaptureFileType;
   acquisitionMode: "stepwise" | "interleaved" | "whole_sample";
   encrypted: boolean;
@@ -176,4 +179,5 @@ export type WebSocketMessage =
   | { type: "restart_device" }
   | { type: "training_capture"; action: "start" | "stop"; label: "target" | "noise"; signalArea: string }
   | ({ type: "capture" } & CaptureRequest)
+  | { type: "capture_stop"; jobId?: string }
   | { type: "get_auto_fft_options"; screenWidth: number };

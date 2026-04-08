@@ -193,6 +193,47 @@ mod integration_tests {
   }
 
   #[tokio::test]
+  async fn test_manual_capture_metadata_uses_elapsed_duration_and_snapshot_fft_size()
+  -> Result<()> {
+    let mut processor = SdrProcessor::new_mock_apt()?;
+    processor.initialize()?;
+
+    let capture_request = CaptureRequest {
+      job_id: "test-job-manual-metadata".to_string(),
+      fragments: vec![n_apt_backend::server::types::CaptureFragment {
+        min_freq_mhz: 100.0,
+        max_freq_mhz: 103.2,
+      }],
+      duration_s: 1.0,
+      file_type: ".napt".to_string(),
+      acquisition_mode: "stepwise".to_string(),
+      encrypted: false,
+      fft_size: 2048,
+      fft_window: "Rectangular".to_string(),
+      geolocation: None,
+    };
+
+    processor.start_capture(capture_request)?;
+
+    // Simulate the live FFT size changing after capture start.
+    processor.apply_settings(SdrProcessorSettings {
+      fft_size: Some(32768),
+      ..Default::default()
+    })?;
+
+    sleep(Duration::from_millis(150)).await;
+
+    let capture_result = processor.stop_capture().expect("manual stop should return a result");
+
+    assert_eq!(capture_result.duration_mode, "manual");
+    assert!(capture_result.duration_s >= 0.1);
+    assert!(capture_result.duration_s < 5.0);
+    assert_eq!(capture_result.fft_size, 2048);
+
+    Ok(())
+  }
+
+  #[tokio::test]
   async fn test_multi_fragment_capture_sample_rate_consistency() -> Result<()> {
     let mut processor = SdrProcessor::new_mock_apt()?;
     processor.initialize()?;

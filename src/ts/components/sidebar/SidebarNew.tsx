@@ -135,6 +135,7 @@ interface SidebarProps {
     recommended: number;
   } | null;
   onCaptureCommand: (req: CaptureRequest) => void;
+  onStopCaptureCommand?: () => void;
   spectrumFrames?: Array<{
     id: string;
     label: string;
@@ -197,6 +198,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   captureStatus,
   autoFftOptions,
   onCaptureCommand,
+  onStopCaptureCommand,
   spectrumFrames,
   activeTab,
   drawParams,
@@ -337,6 +339,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   const [acquisitionMode, setAcquisitionMode] = useState<
     "stepwise" | "interleaved" | "whole_sample"
   >("whole_sample");
+  const [captureDurationMode, setCaptureDurationMode] = useState<"timed" | "manual">("timed");
   const [captureDurationS, setCaptureDurationS] = useState(1);
   const setCaptureFileType = (fileType: CaptureFileType) => {
     setCaptureFileTypeState(fileType);
@@ -569,7 +572,8 @@ const Sidebar: React.FC<SidebarProps> = ({
     const req: CaptureRequest = {
       jobId,
       fragments: captureRange.segments.map(s => ({ minFreq: s.min, maxFreq: s.max })),
-      durationS: Math.max(1, Math.round(Number(captureDurationS) || 1)),
+      durationMode: captureDurationMode,
+      durationS: captureDurationMode === "timed" ? Math.max(1, Math.round(Number(captureDurationS) || 1)) : undefined,
       fileType: captureFileTypeState,
       acquisitionMode: effectiveAcquisitionMode,
       encrypted: captureFileTypeState === ".napt" ? true : captureEncrypted,
@@ -583,6 +587,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     deviceState,
     isAuthenticated,
     acquisitionMode,
+    captureDurationMode,
     activeCaptureAreas,
     captureEncrypted,
     captureGeolocation,
@@ -820,6 +825,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                 ...((spectrumFrames || []).map(f => ({ label: f.label, min: f.min_mhz, max: f.max_mhz })))
               ]}
               acquisitionMode={acquisitionMode}
+              captureDurationMode={captureDurationMode}
               captureDurationS={captureDurationS}
               captureFileType={captureFileTypeState}
               captureEncrypted={captureEncrypted}
@@ -832,12 +838,14 @@ const Sidebar: React.FC<SidebarProps> = ({
               deviceState={deviceState}
               onActiveCaptureAreasChange={setActiveCaptureAreas}
               onAcquisitionModeChange={setAcquisitionMode}
+              onCaptureDurationModeChange={setCaptureDurationMode}
               onCaptureDurationSChange={setCaptureDurationS}
               onCaptureFileTypeChange={setCaptureFileType}
               onCaptureEncryptedChange={setCaptureEncrypted}
               onCapturePlaybackChange={setCapturePlayback}
               onCaptureGeolocationChange={setCaptureGeolocation}
               onCapture={handleCapture}
+              onStopCapture={onStopCaptureCommand}
               onClearStatus={() => {
                 if (onClearCaptureStatus) {
                   onClearCaptureStatus();

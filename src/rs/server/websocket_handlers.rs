@@ -324,6 +324,8 @@ pub async fn handle_ws_connection(
     }
   }
 
+  let _ = cmd_tx.send(super::types::SdrCommand::StopCapture { job_id: None });
+
   shared.authenticated_count.fetch_sub(1, Ordering::Relaxed);
   shared.client_count.fetch_sub(1, Ordering::Relaxed);
 }
@@ -538,6 +540,10 @@ pub fn handle_message(
       }
     }
     "capture" => {
+      let duration_mode = message
+        .duration_mode
+        .clone()
+        .unwrap_or_else(|| "timed".to_string());
       let capture_cmd = super::types::SdrCommand::StartCapture {
         job_id: message.job_id.clone().unwrap_or_else(|| {
           format!(
@@ -563,6 +569,7 @@ pub fn handle_message(
           .into_iter()
           .map(|f| (f.min_freq, f.max_freq))
           .collect(),
+        duration_mode,
         duration_s: message.duration_s.unwrap_or(1.0),
         file_type: message
           .file_type
@@ -584,6 +591,12 @@ pub fn handle_message(
       };
       log::info!("Client requested capture: {:?}", capture_cmd);
       let _ = cmd_tx.send(capture_cmd);
+    }
+    "capture_stop" => {
+      info!("Client requested capture stop");
+      let _ = cmd_tx.send(super::types::SdrCommand::StopCapture {
+        job_id: message.job_id.clone(),
+      });
     }
     "scan" => {
       if let (Some(min_freq), Some(max_freq), Some(job_id)) =

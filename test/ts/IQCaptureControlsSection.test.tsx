@@ -16,6 +16,7 @@ const defaultProps = {
   activeCaptureAreas: [],
   availableCaptureAreas: [{ label: "Area A", min: 10, max: 20 }],
   captureDurationS: 5,
+  captureDurationMode: "timed" as const,
   captureFileType: ".napt" as const,
   acquisitionMode: "stepwise" as const,
   captureEncrypted: true,
@@ -34,6 +35,7 @@ const defaultProps = {
   onCapturePlaybackChange: jest.fn(),
   onCaptureGeolocationChange: jest.fn(),
   onCapture: jest.fn(),
+  onStopCapture: jest.fn(),
   onClearStatus: jest.fn(),
 };
 
@@ -95,6 +97,26 @@ describe("IQCaptureControlsSection", () => {
 
     const button = screen.getByText("Capture");
     expect(button).toBeDisabled();
+  });
+
+  it("should keep Stop enabled during an active capture and call the stop handler", () => {
+    render(
+      <TestWrapper>
+        <IQCaptureControlsSection
+          {...defaultProps}
+          captureStatus={{ status: "started", jobId: "job-1" }}
+        />
+      </TestWrapper>
+    );
+
+    fireEvent.click(screen.getByText("IQ Capture Controls"));
+
+    const stopButton = screen.getByText("Stop");
+    expect(stopButton).toBeEnabled();
+
+    fireEvent.click(stopButton);
+    expect(defaultProps.onStopCapture).toHaveBeenCalled();
+    expect(defaultProps.onCapture).not.toHaveBeenCalled();
   });
 
   it("should show 'Capturing...' status", () => {

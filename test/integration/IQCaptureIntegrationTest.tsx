@@ -16,6 +16,7 @@ export const IQCaptureIntegrationTest: React.FC = () => {
   // Mock state for testing
   const [activeCaptureAreas, setActiveCaptureAreas] = React.useState<string[]>([]);
   const [captureDurationS, setCaptureDurationS] = React.useState(5);
+  const [captureDurationMode, setCaptureDurationMode] = React.useState<"timed" | "manual">("timed");
   const [captureFileType, setCaptureFileType] = React.useState<CaptureFileType>(".napt");
   const [acquisitionMode, setAcquisitionMode] = React.useState<"stepwise" | "interleaved" | "whole_sample">("stepwise");
   const [captureEncrypted, setCaptureEncrypted] = React.useState(false);
@@ -120,6 +121,7 @@ export const IQCaptureIntegrationTest: React.FC = () => {
       <IQCaptureControlsSection
         activeCaptureAreas={activeCaptureAreas}
         availableCaptureAreas={mockAvailableCaptureAreas}
+        captureDurationMode={captureDurationMode}
         captureDurationS={captureDurationS}
         captureFileType={captureFileType}
         acquisitionMode={acquisitionMode}
@@ -132,6 +134,7 @@ export const IQCaptureIntegrationTest: React.FC = () => {
         isConnected={isConnected || false}
         deviceState={deviceState || "disconnected"}
         onActiveCaptureAreasChange={setActiveCaptureAreas}
+        onCaptureDurationModeChange={setCaptureDurationMode}
         onCaptureDurationSChange={setCaptureDurationS}
         onCaptureFileTypeChange={setCaptureFileType}
         onAcquisitionModeChange={setAcquisitionMode}
