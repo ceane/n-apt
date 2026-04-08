@@ -73,7 +73,7 @@ fn broadcast_device_status(
   let device_loading = *shared.device_loading.lock().unwrap();
   let device_loading_reason =
     shared.device_loading_reason.lock().unwrap().clone();
-  let paused = shared.is_paused.load(Ordering::Relaxed);
+  let paused = shared.is_paused.load(Ordering::SeqCst);
   let sdr_settings = shared.sdr_settings.lock().unwrap().clone();
   let channels = shared.channels.lock().unwrap().clone();
   let device_profile = shared.device_profile.lock().unwrap().clone();
@@ -478,7 +478,7 @@ impl WebSocketServer {
             }
 
             // Auto-unpause for capture
-            shared_state.is_paused.store(false, Ordering::Relaxed);
+            shared_state.is_paused.store(false, Ordering::SeqCst);
 
             info!(
               "Started capture job {} for {}s (auto-unpaused)",
@@ -849,7 +849,7 @@ impl WebSocketServer {
       }
 
       // If the stream is paused by the client, don't read from SDR or broadcast
-      if shared_state.is_paused.load(Ordering::Relaxed) {
+      if shared_state.is_paused.load(Ordering::SeqCst) {
         tokio::time::sleep(Duration::from_millis(100)).await;
         continue;
       }

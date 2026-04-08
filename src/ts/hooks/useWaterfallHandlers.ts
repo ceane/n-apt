@@ -1,8 +1,10 @@
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 import { useRef, useCallback, useMemo } from "react";
 import { useAppSelector } from "@n-apt/redux";
 import { WATERFALL_COLORMAPS } from "@n-apt/consts/colormaps";
 import { useDrawWebGPUFIFOWaterfall } from "@n-apt/hooks/useDrawWebGPUFIFOWaterfall";
 import type { FrequencyRange } from "@n-apt/consts/types";
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 import {
   resolvePendingWaterfallRestore,
   type PendingWaterfallRestore,
@@ -93,6 +95,7 @@ export const useWaterfallHandlers = ({
 
   // Redux state
   const waterfallTheme = useAppSelector((reduxState) => reduxState.theme.waterfallTheme);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const colormap = useMemo(() => WATERFALL_COLORMAPS[waterfallTheme], [waterfallTheme]);
 
   // Waterfall processing refs

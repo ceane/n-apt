@@ -12,6 +12,8 @@ export { SpanNode } from './SpanNode';
 export { StimulusNode } from './StimulusNode';
 export { AnalysisNode } from './AnalysisNode';
 export { SignalConfigNode } from './SignalConfigNode';
+export { MetadataNode } from './MetadataNode';
+export { SignalPreviewNode } from './SignalPreviewNode';
 export { AptNode } from './AptNode';
 export { FmNode } from './FmNode';
 export { FileOptionsNode } from './FileOptionsNode';

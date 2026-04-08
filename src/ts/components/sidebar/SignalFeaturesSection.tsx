@@ -43,8 +43,6 @@ interface SignalFeaturesSectionProps {
   deviceState: string;
   isConnected: boolean;
   selectedFilesCount: number;
-  showSpikeOverlay: boolean;
-  onShowSpikeOverlayChange: (enabled: boolean) => void;
   heterodyningStatusText: string;
   heterodyningVerifyDisabled: boolean;
   onVerifyHeterodyning: () => void;
@@ -60,19 +58,6 @@ const ClassifyButton = styled.button<{ $disabled?: boolean }>`
   border: 1px solid ${(props) => props.theme.borderHover};
   border-radius: 6px;
   color: ${({ $disabled, theme }) => ($disabled ? theme.textMuted : theme.primary)};
-  font-family: ${(props) => props.theme.typography.mono};
-`;
-
-const ToggleButton = styled.button<{ $active: boolean; $disabled?: boolean }>`
-  font-size: 11px;
-  padding: 6px 12px;
-  min-width: 80px;
-  opacity: ${({ $disabled }) => ($disabled ? 0.5 : 1)};
-  cursor: ${({ $disabled }) => ($disabled ? "not-allowed" : "pointer")};
-  background-color: ${({ $active, theme }) => ($active ? theme.danger + "2e" : theme.surface)};
-  border: 1px solid ${({ $active, theme }) => ($active ? theme.danger : theme.borderHover)};
-  border-radius: 6px;
-  color: ${({ $active, $disabled, theme }) => ($disabled ? theme.textMuted : ($active ? theme.danger : theme.textPrimary))};
   font-family: ${(props) => props.theme.typography.mono};
 `;
 
@@ -95,8 +80,6 @@ export const SignalFeaturesSection: React.FC<SignalFeaturesSectionProps> = ({
   deviceState,
   isConnected,
   selectedFilesCount,
-  showSpikeOverlay,
-  onShowSpikeOverlayChange,
   heterodyningStatusText,
   heterodyningVerifyDisabled,
   onVerifyHeterodyning,
@@ -114,8 +97,6 @@ export const SignalFeaturesSection: React.FC<SignalFeaturesSectionProps> = ({
   const classificationDisabled = isFileSource
     ? selectedFilesCount === 0
     : !isConnected || deviceState !== "connected";
-  const spikesVisible = !isFileSource && isConnected && deviceState === "connected";
-  const spikesDisabled = !spikesVisible;
 
   return (
     <Section>
@@ -151,24 +132,6 @@ export const SignalFeaturesSection: React.FC<SignalFeaturesSectionProps> = ({
               </VerifyButton>
             </HeterodyningContainer>
           </Row>
-
-          {spikesVisible && (
-            <Row
-              label="Spikes"
-              tooltipTitle="Spike Overlay"
-              tooltip="Detects prominent live FFT peaks and overlays a contrasting dot on the WebGPU spectrum. Dot size scales with the spike's relative prominence above the local baseline."
-            >
-              <ToggleButton
-                type="button"
-                $active={showSpikeOverlay}
-                $disabled={spikesDisabled}
-                disabled={spikesDisabled}
-                onClick={() => onShowSpikeOverlayChange(!showSpikeOverlay)}
-              >
-                {showSpikeOverlay ? "On" : "Off"}
-              </ToggleButton>
-            </Row>
-          )}
         </>
       </Collapsible>
     </Section>

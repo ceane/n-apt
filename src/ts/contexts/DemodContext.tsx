@@ -1,9 +1,14 @@
-import React, { createContext, useContext, useCallback, useState, useEffect, useMemo } from "react";
+import React, { createContext, useContext, useCallback, useState, useEffect, useMemo, Dispatch, SetStateAction } from "react";
 import { useAppSelector } from "@n-apt/redux";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 import { useFrequencyScanner, FrequencyScannerHandle } from "@n-apt/hooks/useFrequencyScanner";
 import { useAudioExtraction, AudioPlaybackHandle } from "@n-apt/hooks/useAudioExtraction";
+import { useAudioDemodFM } from "@n-apt/hooks/useAudioDemodFM";
+import { useAudioDemodAPT } from "@n-apt/hooks/useAudioDemodAPT";
+import { liveDataRef } from "@n-apt/redux/middleware/websocketMiddleware";
 import { scannerWorkerManager } from "@n-apt/workers/scannerWorkerManager";
+import { Node, Edge, OnNodesChange, OnEdgesChange, useNodesState, useEdgesState } from "@xyflow/react";
+import { buildDemodFlowGraph } from "@n-apt/components/react-flow/flows/demodFlowModel";
 import { AnalysisSession, AnalysisType, CaptureResult } from "@n-apt/consts/types";
 
 interface DemodContextValue {
@@ -35,14 +40,18 @@ interface DemodContextValue {
   stopScan: () => void;
 
   // FM demodulation state
-  selectedAlgorithm: string;
-  setSelectedAlgorithm: (algorithm: string) => void;
+  selectedAlgorithm: 'fm' | 'apt';
+  setSelectedAlgorithm: (algorithm: 'fm' | 'apt') => void;
 
-  // Flow persistence
-  flowNodes: any[];
-  setFlowNodes: (nodes: any[] | ((prev: any[]) => any[])) => void;
-  flowEdges: any[];
-  setFlowEdges: (edges: any[] | ((prev: any[]) => any[])) => void;
+  // React Flow state
+  nodes: Node[];
+  edges: Edge[];
+  onNodesChange: OnNodesChange;
+  onEdgesChange: OnEdgesChange;
+  setNodes: Dispatch<SetStateAction<Node[]>>;
+  setEdges: Dispatch<SetStateAction<Edge[]>>;
+  setFlow: (flowId: string, customNodes?: Node[], customEdges?: Edge[]) => void;
+  flowVersion: number;
 }
 
 const DemodContext = createContext<DemodContextValue | null>(null);
@@ -61,9 +70,56 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [scanRange, setScanRange] = useState<{ min: number; max: number } | undefined>();
   const [analysisSession, setAnalysisSession] = useState<AnalysisSession>({ state: 'idle' });
   const [selectedBaseline, setSelectedBaseline] = useState<AnalysisType>('audio');
-  const [selectedAlgorithm, setSelectedAlgorithm] = useState('fm');
+  const [selectedAlgorithm, setSelectedAlgorithm] = useState<'fm' | 'apt'>('fm');
   const { state, wsConnection } = useSpectrumStore();
   const { sendCaptureCommand, sendScanCommand, sendDemodulateCommand } = wsConnection;
+
+  const demodState = useAppSelector(state => state.demod) ?? {
+    isListening: false,
+    algorithm: 'fm' as const,
+  };
+  const dataFrameCounter = useAppSelector(state => state.websocket.dataFrameCounter);
+
+  // React Flow state moved to context for global access (e.g. sidebar templates)
+  const initialFlow = useMemo(() => buildDemodFlowGraph(state.sourceMode || 'live'), [state.sourceMode]);
+  const [nodes, setNodes, onNodesChange] = useNodesState(initialFlow.nodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(initialFlow.edges);
+  const [flowVersion, setFlowVersion] = useState(0);
+
+  const setFlow = useCallback((_flowId: string, customNodes?: Node[], customEdges?: Edge[]) => {
+    if (customNodes && customEdges) {
+      // Reset node positions to trigger ELK layout recalculation
+      const nodesWithResetPositions = customNodes.map(node => ({
+        ...node,
+        position: { x: 0, y: 0 }
+      }));
+      setNodes(nodesWithResetPositions);
+      setEdges(customEdges);
+      // Increment flow version to force layout re-trigger
+      setFlowVersion(v => v + 1);
+      return;
+    }
+    // Fallback or preset logic can go here if needed
+  }, [setNodes, setEdges]);
+
+  const fmDemod = useAudioDemodFM({ targetSampleRate: 48000, bufferSize: 4096 });
+  const aptDemod = useAudioDemodAPT({ targetSampleRate: 48000, bufferSize: 4096 });
+
+  // Listen for real-time IQ data and process it
+  useEffect(() => {
+    if (!demodState.isListening || !liveDataRef.current) return;
+
+    const iqData = liveDataRef.current.iq_data as Uint8Array;
+    const sampleRate = liveDataRef.current.sample_rate || 3200000;
+
+    if (demodState.algorithm === 'fm') {
+      fmDemod.processIQData(iqData, sampleRate);
+      fmDemod.playAudio();
+    } else if (demodState.algorithm === 'apt') {
+      aptDemod.processIQData(iqData, sampleRate);
+      aptDemod.playAudio();
+    }
+  }, [dataFrameCounter, demodState.isListening, demodState.algorithm]);
 
   // Initialize the scanner manager with the WS sender functions
   React.useEffect(() => {
@@ -124,7 +180,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         // Favor the requested durationS for the report to match user input,
         // but calculate server-side elapsed time as fallback.
         let finalDuration = prev.durationS ? prev.durationS * 1000 : undefined;
-        
+
         // If we want the absolute truth from the server timestamps (including overhead):
         // finalDuration = (captureStatus.timestamp && prev.startTime) 
         //   ? captureStatus.timestamp - prev.startTime 
@@ -217,24 +273,32 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const startAnalysis = useCallback((
     type: AnalysisType,
     isLive: boolean = false,
-    durationS: number = 5.0,
-    scriptContent?: string,
-    mediaContent?: string,
+    durationSOrScriptContent: number | string = 5.0,
+    scriptContentOrMediaContent?: string,
+    mediaContentOrBaselineVector?: string | number[],
     baselineVector?: number[]
   ) => {
+    const legacySignature = typeof durationSOrScriptContent === 'string';
+    const durationS = legacySignature ? 5.0 : durationSOrScriptContent;
+    const scriptContent = legacySignature ? durationSOrScriptContent : scriptContentOrMediaContent;
+    const mediaContent = legacySignature ? scriptContentOrMediaContent : (typeof mediaContentOrBaselineVector === 'string' ? mediaContentOrBaselineVector : undefined);
+    const resolvedBaselineVector = legacySignature
+      ? (Array.isArray(mediaContentOrBaselineVector) ? mediaContentOrBaselineVector : baselineVector)
+      : baselineVector;
+
     clearAnalysis();
 
     // Start with a countdown
     let count = 3;
     setAnalysisSession({
-      state: 'starting',
+      state: type === 'apt' ? 'capturing' : 'starting',
       type,
       durationS,
       countdown: count,
       startTime: Date.now(),
       scriptContent,
       mediaContent,
-      baselineVector,
+      baselineVector: resolvedBaselineVector,
       aptProgress: 0.0,
       aptStage: 'initializing'
     });
@@ -320,9 +384,6 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }, 1000);
   }, [sendCaptureCommand, clearAnalysis, state.frequencyRange]);
 
-  const [flowNodes, setFlowNodes] = useState<any[]>([]);
-  const [flowEdges, setFlowEdges] = useState<any[]>([]);
-
   const value = useMemo(() => ({
     windowSizeHz,
     setWindowSizeHz,
@@ -347,15 +408,18 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     stopScan,
     selectedAlgorithm,
     setSelectedAlgorithm,
-    flowNodes,
-    setFlowNodes,
-    flowEdges,
-    setFlowEdges
+    nodes,
+    edges,
+    onNodesChange,
+    onEdgesChange,
+    setNodes,
+    setEdges,
+    setFlow,
+    flowVersion,
   }), [
     windowSizeHz, stepSizeHz, audioThreshold, scanner, audioPlayback,
-    currentIQData, scanRange, analysisSession, selectedBaseline, liveMode,
-    startAnalysis, clearAnalysis, startScan, stopScan,
-    selectedAlgorithm, flowNodes, flowEdges
+    currentIQData, scanRange, analysisSession, selectedBaseline, startAnalysis, clearAnalysis, startScan, stopScan,
+    selectedAlgorithm, nodes, edges, onNodesChange, onEdgesChange, setNodes, setEdges, setFlow, flowVersion
   ]);
 
   return <DemodContext.Provider value={value}>{children}</DemodContext.Provider>;

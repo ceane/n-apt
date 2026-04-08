@@ -223,6 +223,26 @@ pub struct WebSocketMessage {
   pub power_scale: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "liveMode")]
   pub live_mode: Option<bool>,
+  /// Hardware frequency range info (get_hardware_info)
+  #[serde(skip_serializing_if = "Option::is_none", alias = "hardwareFreqRange")]
+  pub hardware_freq_range: Option<HardwareFreqRange>,
+}
+
+/// Hardware frequency range info response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HardwareFreqRange {
+  pub min: f64,
+  pub max: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HardwareInfoResponse {
+  #[serde(rename = "type")]
+  pub message_type: String,
+  #[serde(rename = "hardwareFreqRange")]
+  pub hardware_freq_range: HardwareFreqRange,
+  #[serde(rename = "sampleRate")]
+  pub sample_rate: u32,
 }
 
 /// Auto FFT size options response

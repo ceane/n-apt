@@ -1,12 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import styled from 'styled-components';
-import { useSpectrumStore } from '@n-apt/hooks/useSpectrumStore';
 import { useAppSelector } from '@n-apt/redux';
-import { useFFTPointsGrid } from '@n-apt/hooks/useFFTPointsGrid';
+import { liveDataRef } from '@n-apt/redux/middleware/websocketMiddleware';
 import { formatFrequency } from '@n-apt/utils/frequency';
 import { ChevronLeft, ChevronRight, Maximize } from 'lucide-react';
 import { FullscreenModal } from '@n-apt/components/react-flow/nodes/FullscreenModal';
+import {
+  computeBitstreamLayout,
+  getIqDataView,
+  readVisibleIQSample,
+  resolveAvailableSampleCount,
+} from '@n-apt/components/react-flow/nodes/tableLayout';
 
 const OuterContainer = styled.div`
   display: flex;
@@ -115,13 +120,13 @@ const MetaInfoLabel = styled.span`
   margin-right: 6px;
 `;
 
-const SubHeader = styled.div`
+const SubHeader = styled.div<{ $addressWidth: number; $gap: number }>`
   display: grid;
-  grid-template-columns: 160px 1fr;
+  grid-template-columns: ${({ $addressWidth }) => `${$addressWidth}px minmax(0, 1fr)`};
   border-bottom: 1px solid ${({ theme }) => theme.colors.border};
   background: ${({ theme }) => theme.colors.background};
   padding: 6px 12px;
-  gap: 20px;
+  gap: ${({ $gap }) => `${$gap}px`};
 `;
 
 const SubHeaderCol = styled.div`
@@ -139,12 +144,12 @@ const GridArea = styled.div`
   padding: 8px 12px;
 `;
 
-const HexRow = styled.div`
+const HexRow = styled.div<{ $addressWidth: number; $gap: number; $rowHeight: number }>`
   display: grid;
-  grid-template-columns: 160px 1fr;
+  grid-template-columns: ${({ $addressWidth }) => `${$addressWidth}px minmax(0, 1fr)`};
   align-items: center;
-  min-height: 36px;
-  gap: 20px;
+  min-height: ${({ $rowHeight }) => `${$rowHeight}px`};
+  gap: ${({ $gap }) => `${$gap}px`};
   border-bottom: 1px solid ${({ theme }) => theme.colors.border}11;
 
   &:hover {
@@ -169,10 +174,10 @@ const AddrFreq = styled.div`
   opacity: 0.6;
 `;
 
-const ByteGrid = styled.div`
+const ByteGrid = styled.div<{ $columns: number; $gap: number }>`
   display: grid;
-  grid-template-columns: repeat(8, 1fr);
-  gap: 4px;
+  grid-template-columns: ${({ $columns }) => `repeat(${$columns}, minmax(0, 1fr))`};
+  gap: ${({ $gap }) => `${$gap}px`};
   align-items: center;
 `;
 
@@ -242,13 +247,13 @@ interface BitstreamViewerProps {
   frequencyRange: { min: number; max: number } | null;
 }
 
-// 4 IQ pairs per row = 8 hex bytes per row
-const IQ_PAIRS_PER_ROW = 4;
-
 export const BitstreamViewer: React.FC<BitstreamViewerProps> = ({ frequencyRange }) => {
-  const { wsConnection } = useSpectrumStore();
   const reduxDeviceName = useAppSelector((s) => s.websocket.deviceName);
   const fftSize = useAppSelector(state => state.spectrum.fftSize);
+  const activePlaybackMetadata = useAppSelector((state) => state.waterfall.activePlaybackMetadata);
+  const playbackFrameCounter = useAppSelector((state) => state.waterfall.playbackFrameCounter);
+  const dataFrameCounter = useAppSelector((state) => state.websocket.dataFrameCounter);
+  const sourceMode = useAppSelector((state) => state.waterfall.sourceMode);
 
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [containerDims, setContainerDims] = useState({ width: 0, height: 0 });
@@ -265,17 +270,43 @@ export const BitstreamViewer: React.FC<BitstreamViewerProps> = ({ frequencyRange
     return () => ob.disconnect();
   }, []);
 
-  const rowHeight = 40; // slightly taller rows to fit freq sub-label
-  const rowsCount = Math.max(1, Math.floor((containerDims.height - 16) / rowHeight));
-
-  const totalSamples = fftSize || 2048;
-  // Each row needs IQ_PAIRS_PER_ROW samples
-  const totalPages = Math.ceil(totalSamples / (rowsCount * IQ_PAIRS_PER_ROW)) || 1;
+  const fallbackWidth = typeof window === 'undefined'
+    ? 440
+    : isFullscreen
+      ? Math.max(960, window.innerWidth - 160)
+      : 440;
+  const fallbackHeight = typeof window === 'undefined'
+    ? 320
+    : isFullscreen
+      ? Math.max(420, window.innerHeight - 260)
+      : 320;
+  const layout = computeBitstreamLayout({
+    width: isFullscreen ? fallbackWidth : (containerDims.width || fallbackWidth),
+    height: isFullscreen ? fallbackHeight : (containerDims.height || fallbackHeight),
+  });
+  const rowHeight = layout.rowHeight;
+  const rowsCount = layout.rowsCount;
+  const iqPairsPerRow = layout.iqPairsPerRow;
+  const frameIqData = React.useMemo(() => {
+    if (sourceMode === "file" && playbackFrameCounter === 0) {
+      return undefined;
+    }
+    return liveDataRef.current?.iq_data as Uint8Array | undefined;
+  }, [dataFrameCounter, playbackFrameCounter, sourceMode]);
+  const iqDataView = React.useMemo(() => getIqDataView(frameIqData), [frameIqData]);
+  const totalSamples = React.useMemo(
+    () => resolveAvailableSampleCount(frameIqData, fftSize || 2048),
+    [fftSize, frameIqData],
+  );
+  const pageSampleSize = rowsCount * iqPairsPerRow;
+  const totalPages = Math.ceil(totalSamples / pageSampleSize) || 1;
   const currentPage = Math.min(page, totalPages - 1);
-  const offsetCurrentBase = currentPage * rowsCount * IQ_PAIRS_PER_ROW;
+  const offsetCurrentBase = currentPage * pageSampleSize;
 
   // We fetch IQ_PAIRS_PER_ROW samples per row
-  const { isLive, points } = useFFTPointsGrid(rowsCount * IQ_PAIRS_PER_ROW, offsetCurrentBase);
+  const fileFrameRate = activePlaybackMetadata?.frame_rate;
+  const liveIqData = frameIqData;
+  const isLive = sourceMode === "live" && Boolean(liveIqData && liveIqData.length > 0);
 
   const [hoveredByte, setHoveredByte] = useState<{
     hex: string;
@@ -286,20 +317,25 @@ export const BitstreamViewer: React.FC<BitstreamViewerProps> = ({ frequencyRange
     y: number;
   } | null>(null);
 
-  const freqMin = frequencyRange?.min ?? 18.000;
-  const freqMax = frequencyRange?.max ?? 18.200;
+  const effectiveFrequencyRange = activePlaybackMetadata?.frequency_range
+    ? {
+        min: activePlaybackMetadata.frequency_range[0],
+        max: activePlaybackMetadata.frequency_range[1],
+      }
+    : frequencyRange;
+  const freqMin = effectiveFrequencyRange?.min ?? 18.000;
+  const freqMax = effectiveFrequencyRange?.max ?? 18.200;
   const totalSpan = freqMax - freqMin;
 
   const handleNextPage = () => setPage(p => Math.min(p + 1, totalPages - 1));
   const handlePrevPage = () => setPage(p => Math.max(0, p - 1));
 
-  const deviceName = wsConnection.deviceName || reduxDeviceName || "SDR Device";
+  const deviceName = reduxDeviceName || "SDR Device";
 
-  // Build rows: each row = IQ_PAIRS_PER_ROW points → 8 hex values
-  const rows = [];
+  // Build rows: each row = iqPairsPerRow points → 2 bytes per point
+  const rows: React.ReactNode[] = [];
   for (let rowIdx = 0; rowIdx < rowsCount; rowIdx++) {
-    const sampleBase = offsetCurrentBase + rowIdx * IQ_PAIRS_PER_ROW;
-    const rowPoints = points.slice(rowIdx * IQ_PAIRS_PER_ROW, (rowIdx + 1) * IQ_PAIRS_PER_ROW);
+    const sampleBase = offsetCurrentBase + rowIdx * iqPairsPerRow;
 
     // Address: byte offset = sampleBase * 2 (each IQ pair = 2 bytes)
     const byteOffset = sampleBase * 2;
@@ -307,12 +343,12 @@ export const BitstreamViewer: React.FC<BitstreamViewerProps> = ({ frequencyRange
 
     // Frequency range for this row
     const rowFreqStart = freqMin + (sampleBase / totalSamples) * totalSpan;
-    const rowFreqEnd = freqMin + ((sampleBase + IQ_PAIRS_PER_ROW) / totalSamples) * totalSpan;
+    const rowFreqEnd = freqMin + ((sampleBase + iqPairsPerRow) / totalSamples) * totalSpan;
 
-    // Build the 8 hex bytes: alternating I and Q
+    // Build the row bytes: alternating I and Q
     const hexBytes: { hex: string; decimal: number; type: 'I' | 'Q'; freq: number }[] = [];
-    for (let pairIdx = 0; pairIdx < IQ_PAIRS_PER_ROW; pairIdx++) {
-      const p = rowPoints[pairIdx];
+    for (let pairIdx = 0; pairIdx < iqPairsPerRow; pairIdx++) {
+      const p = readVisibleIQSample(iqDataView, sampleBase + pairIdx);
       const sampleFreq = freqMin + ((sampleBase + pairIdx) / totalSamples) * totalSpan;
       if (p) {
         hexBytes.push({ hex: p.i.toString(16).padStart(2, '0').toUpperCase(), decimal: p.i, type: 'I', freq: sampleFreq });
@@ -324,12 +360,17 @@ export const BitstreamViewer: React.FC<BitstreamViewerProps> = ({ frequencyRange
     }
 
     rows.push(
-      <HexRow key={rowIdx}>
+      <HexRow
+        key={rowIdx}
+        $addressWidth={layout.addressColumnWidth}
+        $gap={layout.gap}
+        $rowHeight={rowHeight}
+      >
         <AddrCell>
           <AddrLabel>{addrHex}</AddrLabel>
           <AddrFreq>{formatFrequency(rowFreqStart)} – {formatFrequency(rowFreqEnd)}</AddrFreq>
         </AddrCell>
-        <ByteGrid>
+        <ByteGrid $columns={layout.bytesPerRow} $gap={Math.max(4, Math.floor(layout.gap / 2))}>
           {hexBytes.map((b, byteIdx) => (
             <HexByte
               key={byteIdx}
@@ -376,6 +417,9 @@ export const BitstreamViewer: React.FC<BitstreamViewerProps> = ({ frequencyRange
         <MetaInfo>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <div><MetaInfoLabel>FFT SIZE:</MetaInfoLabel> {fftSize}</div>
+            {typeof fileFrameRate === 'number' && Number.isFinite(fileFrameRate) && fileFrameRate > 0 && (
+              <div><MetaInfoLabel>FPS:</MetaInfoLabel> {fileFrameRate.toFixed(1)}</div>
+            )}
             {!full && (
               <button
                 onClick={() => setIsFullscreen(true)}
@@ -397,7 +441,7 @@ export const BitstreamViewer: React.FC<BitstreamViewerProps> = ({ frequencyRange
         </MetaInfo>
       </Header>
 
-      <SubHeader>
+      <SubHeader $addressWidth={layout.addressColumnWidth} $gap={layout.gap}>
         <SubHeaderCol>Memory Offset</SubHeaderCol>
         <SubHeaderCol>Raw High-Density Signal Buffer (Hex)</SubHeaderCol>
       </SubHeader>
@@ -442,7 +486,7 @@ export const BitstreamViewer: React.FC<BitstreamViewerProps> = ({ frequencyRange
       {renderContent(false)}
       {isFullscreen && (
         <FullscreenModal title="Bitstream Analysis" onClose={() => setIsFullscreen(false)}>
-          <div style={{ height: 'calc(95vh - 100px)' }}>
+          <div style={{ height: 'calc(95vh - 140px)' }}>
             {renderContent(true)}
           </div>
         </FullscreenModal>

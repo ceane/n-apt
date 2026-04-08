@@ -4,7 +4,7 @@ version = "0.2.5"
 license = "Hippocratic-3.0"
 edition = "2021"
 authors = ["Ceane Lamerez"]
-descrption = "Visualize FFTs/waterfalls, capture a snapshot or I/Q capture & more, tailored toward N-APT signals. Analyze, learn, record, document & demodulate N-APT signals."
+description = "Visualize FFTs/waterfalls, capture a snapshot or I/Q capture & more, tailored toward N-APT signals. Analyze, learn, record, document & demodulate N-APT signals."
 
 [lib]
 name = "n_apt_backend"

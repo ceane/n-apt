@@ -26,7 +26,7 @@ export const PretextVFODisplay: React.FC<PretextVFODisplayProps> = ({
   borderRadius = 4,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  
+
   const { metrics, isReady, getDPIScaledMetrics } = usePretextText({
     text: formatFrequency(frequency),
     font: 'bold JetBrains Mono, monospace',
@@ -42,7 +42,6 @@ export const PretextVFODisplay: React.FC<PretextVFODisplayProps> = ({
     if (!ctx) return;
 
     const dpr = window.devicePixelRatio || 1;
-    const scaledMetrics = getDPIScaledMetrics();
 
     // Set canvas size for DPI
     canvas.width = (metrics.width + padding * 2) * dpr;

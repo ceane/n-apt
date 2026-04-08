@@ -19,6 +19,9 @@ export interface FormatFrequencyOptions {
 const trimNumericString = (value: string): string =>
   value.includes(".") ? value.replace(/\.?0+$/, "") : value;
 
+const formatIntegerWithSeparators = (value: number): string =>
+  Math.round(value).toLocaleString("en-US");
+
 export const formatFrequency = (
   freqMHz: number,
   showUnitsOrOptions: boolean | FormatFrequencyOptions = true,
@@ -59,6 +62,16 @@ export const formatFrequency = (
     ? trimNumericString(val.toFixed(precision))
     : val.toFixed(precision);
   return formattedNumber + (showUnits ? " " + unit : "");
+};
+
+/**
+ * Plain Hertz formatting for UI fields that should preserve raw numeric scale.
+ * @param freqHz Frequency in Hertz
+ * @returns Formatted raw Hertz string
+ */
+export const formatFrequencyHz = (freqHz: number): string => {
+  if (!Number.isFinite(freqHz)) return "0";
+  return formatIntegerWithSeparators(freqHz);
 };
 
 /**

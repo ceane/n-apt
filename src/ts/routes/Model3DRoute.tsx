@@ -4,7 +4,7 @@ import { MainContent } from "@n-apt/components/Layout";
 
 export const Model3DRoute: React.FC = () => {
   return (
-    <MainContent>
+    <MainContent data-testid="model3d-route">
       <Model3DCanvas />
     </MainContent>
   );

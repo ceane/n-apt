@@ -164,6 +164,7 @@ export {
   setStitchSourceSettings,
   setActivePlaybackMetadata,
   clearActivePlaybackMetadata,
+  incrementPlaybackFrameCounter,
   triggerStitch,
   toggleStitchPause,
   resetDrawParams,

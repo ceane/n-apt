@@ -15,6 +15,7 @@ import { useAppSelector, useAppDispatch, setTemporalResolution, setPowerScale, s
 import { useSdrSettings } from "@n-apt/hooks/useSdrSettings";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 import { fileRegistry } from "@n-apt/utils/fileRegistry";
+import { formatFrequencyHz } from "@n-apt/utils/frequency";
 import FileMetadata from "@n-apt/components/sidebar/FileMetadata";
 import { useAuthentication } from "@n-apt/hooks/useAuthentication";
 import type { NaptMetadata } from "@n-apt/components/sidebar/FileMetadata";
@@ -151,11 +152,9 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
   } = wsConnection;
 
   const {
-    maxFrameRate,
     fftSizeOptions,
     setFftSize,
     setFftWindow: handleFftWindow,
-    setFftFrameRate,
     setGain,
     setPpm,
     scheduleCoupledAdjustment
@@ -321,21 +320,15 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
           <SettingRow>
             <SettingLabel>
               <GalleryHorizontal size={12} />
-              Frame Rate
+              Sample Size
             </SettingLabel>
             <InputGroup>
               <SettingInput
-                type="number"
-                value={spectrum.fftFrameRate}
-                onChange={(e) => {
-                  const val = Math.max(1, Math.min(maxFrameRate, Math.floor(Number(e.target.value) || 1)));
-                  setFftFrameRate(val);
-                  scheduleCoupledAdjustment("frameRate", spectrum.fftSize, val);
-                }}
-                min="1"
-                max={maxFrameRate}
+                type="text"
+                readOnly
+                value={formatFrequencyHz(spectrum.sample_size ?? spectrum.sampleRateHz)}
               />
-              <UnitLabel>fps</UnitLabel>
+              <UnitLabel>Hz</UnitLabel>
             </InputGroup>
           </SettingRow>
 

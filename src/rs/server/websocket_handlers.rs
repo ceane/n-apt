@@ -147,6 +147,8 @@ pub async fn handle_ws_connection(
     if lower.contains("rtl-sdr blog")
       || lower.contains("rtl2832")
       || lower.contains("rtl-sdr")
+      || lower.contains("generic")
+      || lower.contains("rtl2382u")
     {
       return "RTL-SDR".to_string();
     }
@@ -227,6 +229,10 @@ pub async fn handle_ws_connection(
       spectrum_result = spectrum_rx.recv() => {
         match spectrum_result {
           Ok(spectrum_data) => {
+            if shared.is_paused.load(Ordering::SeqCst) {
+              continue;
+            }
+
             let timestamp: u64 = spectrum_data.timestamp as u64; // i64 to u64
              let center_frequency: u64 = spectrum_data.center_frequency_hz.unwrap_or(0) as u64;
 
@@ -286,8 +292,28 @@ pub async fn handle_ws_connection(
                     }
                   }
                 }
+              } else if message.message_type == "get_hardware_info" {
+                info!("Client requested hardware info");
+                let _device_connected = shared.device_connected.load(Ordering::Relaxed);
+                let sample_rate = shared.sdr_settings.lock().unwrap().sample_rate;
+                
+                // Hardware range: 0 to 1.7e9 as requested for RTL-SDR and mock
+                let response = super::types::HardwareInfoResponse {
+                  message_type: "hardware_info".to_string(),
+                  hardware_freq_range: super::types::HardwareFreqRange {
+                    min: 0.0,
+                    max: 1_700_000_000.0,
+                  },
+                  sample_rate,
+                };
+
+                if let Ok(response_json) = serde_json::to_string(&response) {
+                  if ws_sender.send(Message::Text(response_json)).await.is_err() {
+                    break;
+                  }
+                }
               } else {
-                handle_message(&cmd_tx, &shared, message);
+                handle_message(&cmd_tx, &shared, &broadcast_tx, message);
               }
             }
           }
@@ -307,10 +333,11 @@ pub async fn handle_ws_connection(
 pub fn handle_message(
   cmd_tx: &std::sync::mpsc::Sender<super::types::SdrCommand>,
   shared: &Arc<SharedState>,
+  broadcast_tx: &tokio::sync::broadcast::Sender<String>,
   message: WebSocketMessage,
 ) {
   match message.message_type.as_str() {
-    "frequency_range" | "set_frequency_range" => {
+    "frequency_range" | "set_frequency_range" | "demod_tune" => {
       if let (Some(min_freq), Some(_max_freq)) =
         (message.min_freq, message.max_freq)
       {
@@ -334,7 +361,52 @@ pub fn handle_message(
     }
     "pause" => {
       if let Some(paused) = message.paused {
-        shared.is_paused.store(paused, Ordering::Relaxed);
+        shared.is_paused.store(paused, Ordering::SeqCst);
+
+        let device_connected = shared.device_connected.load(Ordering::SeqCst);
+        let device_info = shared.device_info.lock().unwrap().clone();
+        let device_loading = *shared.device_loading.lock().unwrap();
+        let device_loading_reason =
+          shared.device_loading_reason.lock().unwrap().clone();
+        let device_state = reconcile_device_state(
+          device_connected,
+          &shared.device_state.lock().unwrap().clone(),
+        );
+        let channels = shared.channels.lock().unwrap().clone();
+        let sdr_settings = shared.sdr_settings.lock().unwrap().clone();
+        let device_name = if device_connected {
+          device_info
+            .split(" - ")
+            .next()
+            .unwrap_or("RTL-SDR")
+            .to_string()
+        } else {
+          "Mock APT SDR".to_string()
+        };
+
+        let status = super::types::StatusMessage {
+          message_type: "status".to_string(),
+          device_connected,
+          device_info,
+          device_name,
+          device_loading,
+          device_loading_reason,
+          device_state,
+          paused,
+          max_sample_rate: sdr_settings.sample_rate,
+          channels,
+          sdr_settings,
+          device: if device_connected {
+            "rtl-sdr".to_string()
+          } else {
+            "mock_apt".to_string()
+          },
+          device_profile: shared.device_profile.lock().unwrap().clone(),
+        };
+
+        if let Ok(status_json) = serde_json::to_string(&status) {
+          let _ = broadcast_tx.send(status_json);
+        }
       }
     }
     "gain" => {

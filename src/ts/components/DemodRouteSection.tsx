@@ -7,8 +7,6 @@ import {
   Edge,
   Background,
   Controls,
-  useNodesState,
-  useEdgesState,
   addEdge,
   useReactFlow,
   Connection,
@@ -20,10 +18,11 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useDemod } from "@n-apt/contexts/DemodContext";
-import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
+import { useAppSelector } from "@n-apt/redux";
 import {
   StimulusNode,
   SignalConfigNode,
+  MetadataNode,
   SourceNode,
   CoreMLNode,
   SpikeNode,
@@ -46,6 +45,9 @@ import {
   SymbolsTable,
   BitstreamViewer
 } from "@n-apt/components/react-flow/nodes";
+// Removed local buildDemodFlowGraph call
+
+const VisibleFrequencyRangeContext = React.createContext<{ min: number; max: number } | null>(null);
 
 const FlowContainer = styled.div`
   width: 100%;
@@ -165,73 +167,83 @@ const StyledReactFlow = styled(ReactFlow)`
 // Helper component for Signal Options Node
 // Removed local SignalOptions component — now imported from @n-apt/components/react-flow/nodes
 
-const CustomNode: React.FC<{ data: any; id: string }> = ({ data, id }) => {
-  // Node-level state and logic handled by delegated components
+const calculateVisibleFrequencyRange = ({
+  activeSignalArea,
+  frequencyRange,
+  lastKnownRanges,
+  sampleRateHz,
+  vizZoom,
+  vizPanOffset,
+}: {
+  activeSignalArea: string;
+  frequencyRange: { min: number; max: number } | null;
+  lastKnownRanges: Record<string, { min: number; max: number }>;
+  sampleRateHz: number;
+  vizZoom: number;
+  vizPanOffset: number;
+}) => {
+  const minFreq = 0;
+  const maxFreq = 2000;
+  const hardwareSpan = sampleRateHz > 0 ? sampleRateHz / 1_000_000 : 3.2;
+  const areaKey = activeSignalArea || "A";
+  const safeZoom = Number.isFinite(vizZoom) && vizZoom > 0 ? vizZoom : 1;
 
-  const renderNodeContent = () => {
-    const { state: spectrumState, sampleRateMHz } = useSpectrumStore();
-    const { activeSignalArea, frequencyRange, lastKnownRanges, vizZoom, vizPanOffset } = spectrumState;
-    const areaKey = activeSignalArea || "A";
+  if (!frequencyRange) {
+    return lastKnownRanges[areaKey] || { min: minFreq, max: minFreq + hardwareSpan };
+  }
 
-    const calculateVisible = () => {
-      const minFreq = 0;
-      const maxFreq = 2000;
-      const hardwareSpan = sampleRateMHz || 3.2;
+  const hardwareCenter = (frequencyRange.min + frequencyRange.max) / 2;
+  const visualSpan = hardwareSpan / safeZoom;
+  const halfVisualSpan = visualSpan / 2;
+  let visualCenter = hardwareCenter + vizPanOffset;
 
-      const safeZoom = (Number.isFinite(vizZoom) && vizZoom > 0) ? vizZoom : 1;
+  visualCenter = Math.max(
+    minFreq + halfVisualSpan,
+    Math.min(maxFreq - halfVisualSpan, visualCenter),
+  );
 
-      if (!frequencyRange) {
-        return lastKnownRanges[areaKey] || { min: minFreq, max: minFreq + hardwareSpan };
-      }
+  return {
+    min: visualCenter - halfVisualSpan,
+    max: visualCenter + halfVisualSpan,
+  };
+};
 
-      const hardwareCenter = (frequencyRange.min + frequencyRange.max) / 2;
-      const visualSpan = hardwareSpan / safeZoom;
-      const halfVisualSpan = visualSpan / 2;
-      let visualCenter = hardwareCenter + vizPanOffset;
+const CustomNode = React.memo(({ data, id, frequencyRange }: { data: any; id: string; frequencyRange: { min: number; max: number } | null }) => {
+  const inheritedFrequencyRange = React.useContext(VisibleFrequencyRangeContext);
+  const effectiveFrequencyRange = frequencyRange ?? inheritedFrequencyRange;
+  let content: React.ReactNode;
 
-      visualCenter = Math.max(
-        minFreq + halfVisualSpan,
-        Math.min(maxFreq - halfVisualSpan, visualCenter),
-      );
-
-      return {
-        min: visualCenter - halfVisualSpan,
-        max: visualCenter + halfVisualSpan,
-      };
-    };
-
-    const freqRange = calculateVisible();
-
-    if (data.sourceNode) return <SourceNode data={data} />;
-    if (data.coremlOptions) return <CoreMLNode data={data} />;
-    if (data.spikeOptions) return <SpikeNode data={data} />;
-    if (data.beatOptions) return <BeatNode data={data} />;
-    if (data.fftOptions) return <FFTNode data={data} />;
-    if (data.waterfallOptions) return <WaterfallNode data={data} />;
-    if (data.spectogramOptions) return <SpectogramNode data={data} />;
-    if (data.channelNode) return <ChannelNode data={data} />;
-    if (data.signalOptions) return <SignalConfigNode data={data} />;
-    if (data.channelOptions) return <ChannelOptionsNode data={data} />;
-    if (data.spanOptions) return <SpanNode data={data} />;
-    if (data.stimulusOptions) return <StimulusNode data={data} />;
-    if (data.tempoNoteOptions) return <TempoNoteNode data={data} />;
-    if (data.radioOptions) return <RadioNode data={data} />;
-    if (data.streamOptions) return <StreamNode data={data} />;
-    if (data.analysisOptions) return <AnalysisNode data={data} />;
-    if (data.aptOptions) return <AptNode data={data} />;
-    if (data.fmOptions) return <FmNode data={data} />;
-    if (data.fileOptions) return <FileOptionsNode data={data} />;
-    if (data.outputNode) return <OutputNode data={data} />;
-    if (data.symbolOptions) return <SymbolsTable frequencyRange={freqRange} />;
-    if (data.bitstreamOptions) return <BitstreamViewer frequencyRange={freqRange} />;
-
-    return (
+  if (data.sourceNode) content = <SourceNode data={data} />;
+  else if (data.coremlOptions) content = <CoreMLNode data={data} />;
+  else if (data.spikeOptions) content = <SpikeNode data={data} />;
+  else if (data.beatOptions) content = <BeatNode data={data} />;
+  else if (data.fftOptions) content = <FFTNode data={data} />;
+  else if (data.waterfallOptions) content = <WaterfallNode data={data} />;
+  else if (data.spectogramOptions) content = <SpectogramNode data={data} />;
+  else if (data.channelNode) content = <ChannelNode data={data} />;
+  else if (data.signalOptions) content = <SignalConfigNode data={data} />;
+  else if (data.metadataNode) content = <MetadataNode data={data} />;
+  else if (data.channelOptions) content = <ChannelOptionsNode data={data} />;
+  else if (data.spanOptions) content = <SpanNode data={data} />;
+  else if (data.stimulusOptions) content = <StimulusNode data={data} />;
+  else if (data.tempoNoteOptions) content = <TempoNoteNode data={data} />;
+  else if (data.radioOptions) content = <RadioNode data={data} />;
+  else if (data.streamOptions) content = <StreamNode data={data} />;
+  else if (data.analysisOptions) content = <AnalysisNode data={data} />;
+  else if (data.aptOptions) content = <AptNode data={data} />;
+  else if (data.fmOptions) content = <FmNode data={data} />;
+  else if (data.fileOptions) content = <FileOptionsNode data={data} />;
+  else if (data.outputNode) content = <OutputNode data={data} />;
+  else if (data.symbolOptions) content = <SymbolsTable frequencyRange={effectiveFrequencyRange} />;
+  else if (data.bitstreamOptions) content = <BitstreamViewer frequencyRange={effectiveFrequencyRange} />;
+  else {
+    content = (
       <div className="node-container">
         <div className="node-title">{data.label}</div>
         <div className="node-description">{data.description}</div>
       </div>
     );
-  };
+  }
 
   return (
     <NodeContainer data-nodeid={id}>
@@ -240,7 +252,7 @@ const CustomNode: React.FC<{ data: any; id: string }> = ({ data, id }) => {
         position={Position.Top}
         style={{ background: '#666', border: '1px solid #999', width: '8px', height: '8px' }}
       />
-      {renderNodeContent()}
+      {content}
       <Handle
         type="source"
         position={Position.Bottom}
@@ -248,148 +260,68 @@ const CustomNode: React.FC<{ data: any; id: string }> = ({ data, id }) => {
       />
     </NodeContainer>
   );
+});
+
+const NODE_TYPES = {
+  custom: (nodeProps: { data: any; id: string }) => (
+    <CustomNode {...nodeProps} frequencyRange={null} />
+  ),
 };
 
 // Inner component that uses React Flow hooks
 const DemodRouteSectionInner: React.FC = () => {
-  const { analysisSession, flowNodes, setFlowNodes, flowEdges, setFlowEdges } = useDemod();
+  const { analysisSession, flowVersion } = useDemod();
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const { deleteElements, fitView, screenToFlowPosition } = useReactFlow();
+  const sourceMode = useAppSelector((state) => state.waterfall.sourceMode);
+  const activeSignalArea = useAppSelector((state) => state.spectrum.activeSignalArea);
+  const frequencyRange = useAppSelector((state) => state.spectrum.frequencyRange);
+  const lastKnownRanges = useAppSelector((state) => state.spectrum.lastKnownRanges);
+  const sampleRateHz = useAppSelector((state) => state.spectrum.sampleRateHz);
+  const vizZoom = useAppSelector((state) => state.spectrum.vizZoom);
+  const vizPanOffset = useAppSelector((state) => state.spectrum.vizPanOffset);
+  const nodesRef = useRef<Node[]>([]);
+  const edgesRef = useRef<Edge[]>([]);
 
-  const hasLaidOut = useRef(flowNodes.length > 0);
+  const hasLaidOut = useRef(false);
+  const layoutFrameRef = useRef<number | null>(null);
+  const lastMeasuredSizesRef = useRef<Map<string, { w: number; h: number }>>(new Map());
+  const elkRef = useRef<any>(null);
+  const layoutRunIdRef = useRef(0);
+  const shouldFitAfterLayoutRef = useRef(true);
+  const layoutCacheRef = useRef<Map<string, any>>(new Map()); // Cache layout results
+  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Define node types
-  const nodeTypes = useMemo(() => ({
-    custom: CustomNode,
-  }), []);
+  const visibleFrequencyRange = useMemo(
+    () =>
+      calculateVisibleFrequencyRange({
+        activeSignalArea,
+        frequencyRange,
+        lastKnownRanges,
+        sampleRateHz,
+        vizZoom,
+        vizPanOffset,
+      }),
+    [activeSignalArea, frequencyRange, lastKnownRanges, sampleRateHz, vizZoom, vizPanOffset],
+  );
 
-  // Define initial nodes — Source → Channel → Signal Config fan-out
-  const initialNodes: Node[] = useMemo(() => [
-    {
-      id: 'source',
-      type: 'custom',
-      position: { x: 250, y: 50 },
-      data: {
-        label: 'Source',
-        sourceNode: true,
-        nonRemovable: true,
-      },
-    },
-    {
-      id: 'channel',
-      type: 'custom',
-      position: { x: 250, y: 260 },
-      data: {
-        label: 'Channel',
-        channelNode: true,
-        nonRemovable: true,
-      },
-    },
-    {
-      id: 'signalOptions',
-      type: 'custom',
-      position: { x: 250, y: 480 },
-      data: {
-        label: 'Signal Configuration',
-        signalOptions: true,
-      },
-    },
-    {
-      id: 'symbols',
-      type: 'custom',
-      position: { x: 50, y: 860 },
-      data: {
-        label: 'Symbol (I/Q) Analysis',
-        symbolOptions: true,
-      },
-    },
-    {
-      id: 'bitstream',
-      type: 'custom',
-      position: { x: 250, y: 860 },
-      data: {
-        label: 'Bitstream Analysis',
-        bitstreamOptions: true,
-      },
-    },
-    {
-      id: 'stimulus',
-      type: 'custom',
-      position: { x: 450, y: 860 },
-      data: {
-        label: 'Stimulus',
-        stimulusOptions: true,
-        subtext: 'Capture N-APT signals with a know baseline for demod later. Media is played while recording in order to learn what is where.',
-      },
-    },
-    {
-      id: 'output',
-      type: 'custom',
-      position: { x: 450, y: 1260 },
-      data: { outputNode: true, state: 'idle' },
-    },
-  ], []);
+  const {
+    nodes,
+    edges,
+    onNodesChange,
+    onEdgesChange,
+    setNodes: setNodesLocal,
+    setEdges: setEdgesLocal
+  } = useDemod();
 
-  const initialEdges: Edge[] = useMemo(() => [
-    {
-      id: 'e-source-channel',
-      source: 'source',
-      target: 'channel',
-      animated: true,
-      style: { stroke: '#00d4ff', strokeWidth: 2 },
-    },
-    {
-      id: 'e-channel-signalOptions',
-      source: 'channel',
-      target: 'signalOptions',
-      animated: true,
-      style: { stroke: '#00d4ffaa', strokeWidth: 2, strokeDasharray: '5 5' },
-    },
-    {
-      id: 'e-signalOptions-symbols',
-      source: 'signalOptions',
-      target: 'symbols',
-      animated: true,
-      style: { stroke: '#00d4ffaa', strokeWidth: 2, strokeDasharray: '5 5' },
-    },
-    {
-      id: 'e-signalOptions-bitstream',
-      source: 'signalOptions',
-      target: 'bitstream',
-      animated: true,
-      style: { stroke: '#00d4ffaa', strokeWidth: 2, strokeDasharray: '5 5' },
-    },
-    {
-      id: 'e-signalOptions-stimulus',
-      source: 'signalOptions',
-      target: 'stimulus',
-      animated: true,
-      style: { stroke: '#a855f7', strokeWidth: 2 },
-    },
-    {
-      id: 'e-stimulus-output',
-      source: 'stimulus',
-      target: 'output',
-      animated: true,
-      style: { stroke: '#e100ff', strokeWidth: 2 },
-    },
-  ], []);
-
-  const [nodes, setNodesLocal, onNodesChange] = useNodesState(flowNodes.length > 0 ? flowNodes : initialNodes);
-  const [edges, setEdgesLocal, onEdgesChange] = useEdgesState(flowEdges.length > 0 ? flowEdges : initialEdges);
-
-  // Sync with global context to survive navigation
-  useEffect(() => {
-    setFlowNodes(nodes);
-  }, [nodes, setFlowNodes]);
-
-  useEffect(() => {
-    setFlowEdges(edges);
-  }, [edges, setFlowEdges]);
-
-  const [isLaidOut, setIsLaidOut] = React.useState(flowNodes.length > 0);
+  const [isLaidOut, setIsLaidOut] = React.useState(false);
 
   const [menu, setMenu] = React.useState<{ id: string, type: string, top: number, left: number } | null>(null);
+
+  useEffect(() => {
+    nodesRef.current = nodes;
+    edgesRef.current = edges;
+  }, [nodes, edges]);
 
   const onNodeContextMenu = useCallback(
     (event: React.MouseEvent, node: Node) => {
@@ -408,9 +340,10 @@ const DemodRouteSectionInner: React.FC = () => {
     setMenu(null);
   }, []);
 
-  const measureAndLayout = useCallback(async () => {
+  const measureAndLayout = useCallback(async (force: boolean = false) => {
     if (!reactFlowWrapper.current) return;
     const wrapper = reactFlowWrapper.current;
+    const currentRunId = ++layoutRunIdRef.current;
 
     // Use React Flow's built-in measurements if available, else fallback to DOM, else 400x300
     const sizeMap = new Map<string, { w: number; h: number }>();
@@ -437,16 +370,70 @@ const DemodRouteSectionInner: React.FC = () => {
       return { w: 400, h: 300 };
     };
 
-    try {
-      const ELKModule = await import('elkjs/lib/elk.bundled.js');
-      // Handle both ES module default and direct export
-      const ELKConstructor = ELKModule.default || (ELKModule as any);
-      const elk = new ELKConstructor();
+    const sizesChanged = (() => {
+      if (sizeMap.size !== lastMeasuredSizesRef.current.size) return true;
 
-      // Sort nodes to guarantee Bitstream -> Stimulus -> Symbols ordering in ELK's eyes
-      const sortedNodes = [...nodes].sort((a, b) => {
-        const order = ['source', 'channel', 'signalOptions', 'bitstream', 'stimulus', 'symbols', 'output'];
-        return order.indexOf(a.id) - order.indexOf(b.id);
+      for (const [id, size] of sizeMap.entries()) {
+        const prev = lastMeasuredSizesRef.current.get(id);
+        if (!prev || prev.w !== size.w || prev.h !== size.h) {
+          return true;
+        }
+      }
+
+      return false;
+    })();
+
+    if (!force && !sizesChanged && hasLaidOut.current) {
+      return;
+    }
+
+    lastMeasuredSizesRef.current = sizeMap;
+
+    // Create cache key from node IDs, sizes, and edges
+    const cacheKey = JSON.stringify({
+      nodes: nodesRef.current.map(n => ({ id: n.id, type: n.type })),
+      edges: edgesRef.current.map(e => ({ source: e.source, target: e.target })),
+      sizes: Array.from(sizeMap.entries())
+    });
+
+    // Check cache for existing layout
+    const cachedLayout = layoutCacheRef.current.get(cacheKey);
+    if (cachedLayout && !force) {
+      setNodesLocal((nds: Node[]) => {
+        return nds.map((node: Node) => {
+          const cachedNode = cachedLayout.find((n: any) => n.id === node.id);
+          if (cachedNode) {
+            return {
+              ...node,
+              position: { x: cachedNode.x, y: cachedNode.y }
+            };
+          }
+          return node;
+        });
+      });
+      hasLaidOut.current = true;
+      setIsLaidOut(true);
+      if (shouldFitAfterLayoutRef.current) {
+        shouldFitAfterLayoutRef.current = false;
+        void fitView({ padding: 0.15, includeHiddenNodes: false, duration: 0, minZoom: 0.3, maxZoom: 1.2 });
+      }
+      return;
+    }
+
+    try {
+      if (!elkRef.current) {
+        const ELKModule = await import('elkjs/lib/elk.bundled.js');
+        const ELKConstructor = ELKModule.default || (ELKModule as any);
+        elkRef.current = new ELKConstructor();
+      }
+      const elk = elkRef.current;
+
+      // Sort nodes to guarantee the intended demodulation order in ELK's eyes
+      const layoutOrder = sourceMode === "file"
+        ? ["source", "metadata", "fft", "symbols", "bitstream", "stimulus", "output"]
+        : ["source", "channel", "signalOptions", "spike", "beat", "fft", "symbols", "bitstream", "stimulus", "output"];
+      const sortedNodes = [...nodesRef.current].sort((a, b) => {
+        return layoutOrder.indexOf(a.id) - layoutOrder.indexOf(b.id);
       });
 
       const graph = {
@@ -467,7 +454,7 @@ const DemodRouteSectionInner: React.FC = () => {
             height: dims.h
           };
         }),
-        edges: edges.map((edge) => ({
+        edges: edgesRef.current.map((edge) => ({
           id: edge.id,
           sources: [edge.source],
           targets: [edge.target],
@@ -475,63 +462,139 @@ const DemodRouteSectionInner: React.FC = () => {
       };
 
       const layoutedGraph = await elk.layout(graph);
+      if (layoutRunIdRef.current !== currentRunId) {
+        return;
+      }
 
-      setNodesLocal((nds) => {
+      // Cache the layout result
+      layoutCacheRef.current.set(cacheKey, layoutedGraph.children);
+
+      setNodesLocal((nds: Node[]) => {
         const stimulusElkNode = layoutedGraph.children?.find((n) => n.id === 'stimulus');
         const stimulusCenterX = stimulusElkNode && stimulusElkNode.x !== undefined && stimulusElkNode.width !== undefined
           ? stimulusElkNode.x + stimulusElkNode.width / 2
           : 0;
 
-        return nds.map((node) => {
+        let hasPositionChanges = false;
+        const nextNodes = nds.map((node: Node) => {
           const layoutNode = layoutedGraph.children?.find((n) => n.id === node.id);
           // If ELK failed to position this node, preserve its current position to avoid stacking at 0,0
           if (!layoutNode || layoutNode.x === undefined || layoutNode.y === undefined) return node;
 
           let targetX = layoutNode.x;
 
-          // Force vertical visual centering for the top chain relative to the Stimulus node
-          const isTopChain = ['source', 'channel', 'signalOptions'].includes(node.id);
+          // Force vertical visual centering for the top chain relative to the FFT node
+          const topChain = sourceMode === "file"
+            ? ["source", "metadata"]
+            : ["source", "channel", "signalOptions"];
+          const isTopChain = topChain.includes(node.id);
           if (isTopChain && stimulusCenterX > 0 && layoutNode.width) {
             targetX = stimulusCenterX - layoutNode.width / 2;
           }
 
-          return {
+          const nextNode = {
             ...node,
             position: { x: targetX, y: layoutNode.y },
           };
+
+          if (
+            Math.abs(node.position.x - nextNode.position.x) > 0.5 ||
+            Math.abs(node.position.y - nextNode.position.y) > 0.5
+          ) {
+            hasPositionChanges = true;
+          }
+
+          return nextNode;
         });
+
+        return hasPositionChanges ? nextNodes : nds;
       });
 
-      // Fit after positions settle
-      setTimeout(() => {
+      if (typeof window !== "undefined") {
+        window.requestAnimationFrame(() => {
+          if (layoutRunIdRef.current !== currentRunId) {
+            return;
+          }
+          hasLaidOut.current = true;
+          setIsLaidOut(true);
+          if (shouldFitAfterLayoutRef.current) {
+            shouldFitAfterLayoutRef.current = false;
+            void fitView({ padding: 0.15, includeHiddenNodes: false, duration: 0, minZoom: 0.3, maxZoom: 1.2 });
+          }
+        });
+      } else {
+        hasLaidOut.current = true;
         setIsLaidOut(true);
-        void fitView({ padding: 0.15, includeHiddenNodes: false, duration: 200, minZoom: 0.3, maxZoom: 1.2 });
-      }, 50);
+      }
     } catch (error) {
       console.error("ELK Layout failed:", error);
+      setIsLaidOut(true);
     }
-  }, [nodes, edges, fitView, setNodesLocal]);
+  }, [fitView, setNodesLocal, sourceMode]);
 
-  // After first render, measure real DOM sizes and reposition
+  const scheduleMeasureAndLayout = useCallback((force: boolean = false) => {
+    if (layoutFrameRef.current !== null && typeof window !== "undefined") {
+      window.cancelAnimationFrame(layoutFrameRef.current);
+    }
+
+    if (typeof window === "undefined") {
+      void measureAndLayout(force);
+      return;
+    }
+
+    layoutFrameRef.current = window.requestAnimationFrame(() => {
+      layoutFrameRef.current = null;
+      void measureAndLayout(force);
+    });
+  }, [measureAndLayout]);
+
   useEffect(() => {
-    if (hasLaidOut.current) return;
+    hasLaidOut.current = false;
+    setIsLaidOut(false);
+    shouldFitAfterLayoutRef.current = true;
+    lastMeasuredSizesRef.current = new Map();
+    // Defer initial layout to prevent blocking render
     const timer = setTimeout(() => {
-      hasLaidOut.current = true;
-      measureAndLayout();
-    }, 300);
+      scheduleMeasureAndLayout(true);
+    }, 100);
     return () => clearTimeout(timer);
-  }, [measureAndLayout]);
+  }, [edges.length, nodes.length, flowVersion, scheduleMeasureAndLayout, sourceMode]);
 
-  // Re-layout on window resize
+  // Re-layout on window resize with debouncing
   useEffect(() => {
-    const onResize = () => measureAndLayout();
+    const onResize = () => {
+      // Clear existing timer
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+      // Debounce resize to 200ms
+      debounceTimerRef.current = setTimeout(() => {
+        shouldFitAfterLayoutRef.current = true;
+        scheduleMeasureAndLayout(true);
+      }, 200);
+    };
     window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-  }, [measureAndLayout]);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+    };
+  }, [scheduleMeasureAndLayout]);
 
   useEffect(() => {
     // Keep local React Flow state as the source of truth.
   }, [nodes, edges]);
+
+  useEffect(() => {
+    const onNodeResize = () => {
+      shouldFitAfterLayoutRef.current = true;
+      scheduleMeasureAndLayout(true);
+    };
+
+    window.addEventListener("demod-flow-node-resize", onNodeResize);
+    return () => window.removeEventListener("demod-flow-node-resize", onNodeResize);
+  }, [scheduleMeasureAndLayout]);
 
   // Track which sessions have already produced an output node
   const processedSessionsRef = useRef<Set<string>>(new Set());
@@ -552,7 +615,7 @@ const DemodRouteSectionInner: React.FC = () => {
 
     if (idx === 0) {
       // Update the static 'output' node in-place
-      setNodesLocal(nds => nds.map(n => {
+      setNodesLocal((nds: Node[]) => nds.map((n: Node) => {
         if (n.id !== 'output') return n;
         return {
           ...n,
@@ -589,8 +652,8 @@ const DemodRouteSectionInner: React.FC = () => {
         style: { stroke: '#888', strokeWidth: 1.5, strokeDasharray: '5 3' },
       };
 
-      setNodesLocal(nds => [...nds, newNode]);
-      setEdgesLocal(eds => [...eds, newEdge]);
+      setNodesLocal((nds: Node[]) => [...nds, newNode]);
+      setEdgesLocal((eds: Edge[]) => [...eds, newEdge]);
     }
   }, [analysisSession, setNodesLocal, setEdgesLocal]);
 
@@ -599,14 +662,12 @@ const DemodRouteSectionInner: React.FC = () => {
     if (analysisSession.state === 'idle') {
       processedSessionsRef.current = new Set();
       outputCountRef.current = 0;
-      setNodesLocal(initialNodes);
-      setEdgesLocal(initialEdges);
+      // Note: Flow reset is now handled via explicit setFlow or context initial state
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [analysisSession.state]);
 
   const onConnect = useCallback(
-    (params: Connection) => setEdgesLocal((eds) => addEdge(params, eds)),
+    (params: Connection) => setEdgesLocal((eds: Edge[]) => addEdge(params, eds)),
     [setEdgesLocal]
   );
 
@@ -644,7 +705,7 @@ const DemodRouteSectionInner: React.FC = () => {
         data: nodeData.data,
       };
 
-      setNodesLocal((nds) => nds.concat(newNode));
+      setNodesLocal((nds: Node[]) => nds.concat(newNode));
     },
     [setNodesLocal, screenToFlowPosition]
   );
@@ -673,26 +734,28 @@ const DemodRouteSectionInner: React.FC = () => {
       onDragOver={onDragOver}
       onDrop={onDrop}
     >
-      <StyledReactFlow
-        nodes={nodes}
-        edges={edges}
-        style={{ opacity: isLaidOut ? 1 : 0, transition: 'opacity 0.2s ease-in' }}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        onConnect={onConnect}
-        onNodeContextMenu={onNodeContextMenu}
-        onPaneClick={onPaneClick}
-        nodeTypes={nodeTypes}
-        connectionMode={ConnectionMode.Loose}
-        attributionPosition="bottom-left"
-        panOnDrag={true}
-        selectionOnDrag={false}
-        elementsSelectable={true}
-        fitView={false}
-      >
-        <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#666" />
-        <Controls />
-      </StyledReactFlow>
+      <VisibleFrequencyRangeContext.Provider value={visibleFrequencyRange}>
+        <StyledReactFlow
+          nodes={nodes}
+          edges={edges}
+          style={{ opacity: isLaidOut ? 1 : 0, transition: 'opacity 0.2s ease-in' }}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onConnect={onConnect}
+          onNodeContextMenu={onNodeContextMenu}
+          onPaneClick={onPaneClick}
+          nodeTypes={NODE_TYPES}
+          connectionMode={ConnectionMode.Loose}
+          attributionPosition="bottom-left"
+          panOnDrag={true}
+          selectionOnDrag={false}
+          elementsSelectable={true}
+          fitView={false}
+        >
+          <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#666" />
+          <Controls />
+        </StyledReactFlow>
+      </VisibleFrequencyRangeContext.Provider>
 
       <BottomControlBar>
         <PlayButton onClick={() => console.log('Play button clicked')}>
@@ -712,7 +775,7 @@ const DemodRouteSectionInner: React.FC = () => {
                   position: { x: node.position.x + 50, y: node.position.y + 50 },
                   selected: false,
                 };
-                setNodesLocal((nds) => [...nds, newNode as Node]);
+                setNodesLocal((nds: Node[]) => [...nds, newNode as Node]);
               }
               setMenu(null);
             }}

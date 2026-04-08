@@ -9,6 +9,7 @@ interface UsePlaybackAnimationProps {
   precomputedFrames: React.MutableRefObject<Array<LiveFrameData | null>>;
   fftCanvasDataRef: React.MutableRefObject<LiveFrameData | null>;
   displayMode: "fft" | "iq";
+  onFrameEmitted?: () => void;
 }
 
 export const usePlaybackAnimation = ({
@@ -19,6 +20,7 @@ export const usePlaybackAnimation = ({
   precomputedFrames: _precomputedFrames,
   fftCanvasDataRef,
   displayMode: _displayMode,
+  onFrameEmitted,
 }: UsePlaybackAnimationProps) => {
   const isPausedRef = useRef(isPaused);
   isPausedRef.current = isPaused;
@@ -71,12 +73,13 @@ export const usePlaybackAnimation = ({
               data_type: "iq_raw",
               iq_data: chunk,
             };
+            onFrameEmitted?.();
           }
         }
         lastFrameTimeRef.current = timestamp;
       }
     }
-  }, [allChannelsRef, fftCanvasDataRef]);
+  }, [allChannelsRef, fftCanvasDataRef, onFrameEmitted]);
 
   useEffect(() => {
     if (!hasStitchedData || isPaused) return;

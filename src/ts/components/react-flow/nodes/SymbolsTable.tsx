@@ -1,12 +1,17 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import styled from 'styled-components';
-import { useSpectrumStore } from '@n-apt/hooks/useSpectrumStore';
 import { useAppSelector } from '@n-apt/redux';
-import { useFFTPointsGrid } from '@n-apt/hooks/useFFTPointsGrid';
+import { liveDataRef } from '@n-apt/redux/middleware/websocketMiddleware';
 import { formatFrequency } from '@n-apt/utils/frequency';
 import { ChevronLeft, ChevronRight, Maximize } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { FullscreenModal } from '@n-apt/components/react-flow/nodes/FullscreenModal';
+import {
+  computeSymbolsLayout,
+  getIqDataView,
+  readVisibleIQSample,
+  resolveAvailableSampleCount,
+} from '@n-apt/components/react-flow/nodes/tableLayout';
 
 const OuterContainer = styled.div`
   display: flex;
@@ -112,11 +117,11 @@ const MetaInfoLabel = styled.span`
 
 const SubHeader = styled.div`
   display: grid;
-  grid-template-columns: 140px 100px 180px 100px 1fr;
+  grid-template-columns: minmax(92px, 0.95fr) minmax(72px, 0.8fr) minmax(132px, 1.2fr) minmax(82px, 0.85fr) minmax(112px, 1fr);
   border-bottom: 1px solid ${({ theme }) => theme.colors.border};
   background: ${({ theme }) => theme.colors.background};
   padding: 6px 12px;
-  gap: 12px;
+  gap: 10px;
 `;
 
 const SubHeaderCol = styled.div<{ $alignRight?: boolean }>`
@@ -135,13 +140,13 @@ const GridArea = styled.div`
   padding: 8px 12px;
 `;
 
-const SymbolRow = styled.div`
+const SymbolRow = styled.div<{ $rowHeight: number }>`
   display: grid;
-  grid-template-columns: 140px 100px 180px 100px 1fr;
+  grid-template-columns: minmax(92px, 0.95fr) minmax(72px, 0.8fr) minmax(132px, 1.2fr) minmax(82px, 0.85fr) minmax(112px, 1fr);
   align-items: center;
   font-size: 13px;
-  height: 32px;
-  gap: 12px;
+  height: ${({ $rowHeight }) => `${$rowHeight}px`};
+  gap: 10px;
   border-bottom: 1px solid ${({ theme }) => theme.colors.border}11;
 
   &:hover {
@@ -164,9 +169,10 @@ const ColSymbol = styled.div`
 
 const ColIQ = styled.div`
   display: flex;
-  gap: 12px;
+  gap: 8px;
   color: ${({ theme }) => theme.colors.textSecondary};
-  font-size: 12px;
+  font-size: 11px;
+  min-width: 0;
 `;
 
 const IVal = styled.span`
@@ -179,6 +185,7 @@ const QVal = styled.span`
 
 const ColPhase = styled.div`
   color: ${({ theme }) => theme.colors.textPrimary};
+  white-space: nowrap;
 `;
 
 const ColPower = styled.div<{ $magnitude: number }>`
@@ -244,9 +251,12 @@ interface SymbolsTableProps {
 }
 
 export const SymbolsTable: React.FC<SymbolsTableProps> = ({ frequencyRange }) => {
-  const { wsConnection } = useSpectrumStore();
   const reduxDeviceName = useAppSelector((s) => s.websocket.deviceName);
   const fftSize = useAppSelector(state => state.spectrum.fftSize);
+  const activePlaybackMetadata = useAppSelector((state) => state.waterfall.activePlaybackMetadata);
+  const playbackFrameCounter = useAppSelector((state) => state.waterfall.playbackFrameCounter);
+  const dataFrameCounter = useAppSelector((state) => state.websocket.dataFrameCounter);
+  const sourceMode = useAppSelector((state) => state.waterfall.sourceMode);
 
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [containerDims, setContainerDims] = useState({ width: 0, height: 0 });
@@ -265,15 +275,36 @@ export const SymbolsTable: React.FC<SymbolsTableProps> = ({ frequencyRange }) =>
     return () => ob.disconnect();
   }, []);
 
-  const rowHeight = 33; // 32px + 1px border
-  const rowsCount = Math.max(1, Math.floor((containerDims.height - 16) / rowHeight));
-
-  const totalSamples = fftSize || 2048;
+  const fallbackWidth = typeof window === 'undefined'
+    ? 420
+    : isFullscreen
+      ? Math.max(920, window.innerWidth - 160)
+      : 420;
+  const fallbackHeight = typeof window === 'undefined'
+    ? 320
+    : isFullscreen
+      ? Math.max(420, window.innerHeight - 260)
+      : 320;
+  const layout = computeSymbolsLayout({
+    width: isFullscreen ? fallbackWidth : (containerDims.width || fallbackWidth),
+    height: isFullscreen ? fallbackHeight : (containerDims.height || fallbackHeight),
+  });
+  const rowHeight = layout.rowHeight;
+  const rowsCount = layout.rowsCount;
+  const frameIqData = React.useMemo(() => {
+    if (sourceMode === "file" && playbackFrameCounter === 0) {
+      return undefined;
+    }
+    return liveDataRef.current?.iq_data as Uint8Array | undefined;
+  }, [dataFrameCounter, playbackFrameCounter, sourceMode]);
+  const iqDataView = React.useMemo(() => getIqDataView(frameIqData), [frameIqData]);
+  const totalSamples = React.useMemo(
+    () => resolveAvailableSampleCount(frameIqData, fftSize || 2048),
+    [fftSize, frameIqData],
+  );
   const totalPages = Math.ceil(totalSamples / rowsCount) || 1;
   const currentPage = Math.min(page, totalPages - 1);
   const offsetCurrentBase = currentPage * rowsCount;
-
-  const { points } = useFFTPointsGrid(rowsCount, offsetCurrentBase);
 
   const [hoveredCell, setHoveredCell] = useState<{
     symbol: string,
@@ -286,15 +317,21 @@ export const SymbolsTable: React.FC<SymbolsTableProps> = ({ frequencyRange }) =>
   } | null>(null);
 
   // Frequency range step calculations
-  const freqMin = frequencyRange?.min ?? 18.000;
-  const freqMax = frequencyRange?.max ?? 18.200;
+  const effectiveFrequencyRange = activePlaybackMetadata?.frequency_range
+    ? {
+        min: activePlaybackMetadata.frequency_range[0],
+        max: activePlaybackMetadata.frequency_range[1],
+      }
+    : frequencyRange;
+  const freqMin = effectiveFrequencyRange?.min ?? 18.000;
+  const freqMax = effectiveFrequencyRange?.max ?? 18.200;
   const totalSpan = freqMax - freqMin;
   const stepPerSample = totalSpan / totalSamples;
 
   const handleNextPage = () => setPage(p => Math.min(p + 1, totalPages - 1));
   const handlePrevPage = () => setPage(p => Math.max(0, p - 1));
 
-  const deviceName = wsConnection.deviceName || reduxDeviceName || "SDR Device";
+  const deviceName = reduxDeviceName || "SDR Device";
 
   const renderTable = (full: boolean = false) => (
     <OuterContainer style={full ? { border: 'none', borderRadius: 0 } : {}}>
@@ -349,21 +386,35 @@ export const SymbolsTable: React.FC<SymbolsTableProps> = ({ frequencyRange }) =>
       </SubHeader>
 
       <GridArea ref={full ? null : gridRef}>
-        {(full || containerDims.height > 0) && points.map((p, idx) => {
+        {(full || containerDims.height > 0) && Array.from({ length: rowsCount }, (_, idx) => {
           const absoluteSampleIndex = offsetCurrentBase + idx;
+          const sample = readVisibleIQSample(iqDataView, absoluteSampleIndex);
+          if (!sample) {
+            return null;
+          }
           const rowFreq = freqMin + (absoluteSampleIndex * stepPerSample);
+          const sI = sample.i >= 128 ? "+" : "-";
+          const sQ = sample.q >= 128 ? "+" : "-";
+          const phaseRad = Math.atan2(sample.q - 128, sample.i - 128);
+          const phaseDeg = ((phaseRad * 180) / Math.PI + 360) % 360;
+          const magnitude = Math.sqrt(
+            Math.pow((sample.i - 128) / 128, 2) + Math.pow((sample.q - 128) / 128, 2),
+          );
+          const powerDbm = -70 + (magnitude * 50);
+          const symbol = `(${sI}, ${sQ})`;
 
           return (
             <SymbolRow
               key={idx}
+              $rowHeight={rowHeight}
               onMouseEnter={(e) => {
                 const rect = e.currentTarget.getBoundingClientRect();
                 setHoveredCell({
-                  symbol: p.symbol,
+                  symbol,
                   freq: rowFreq,
-                  i: p.i,
-                  q: p.q,
-                  power: p.powerDbm,
+                  i: sample.i,
+                  q: sample.q,
+                  power: powerDbm,
                   x: rect.left + rect.width / 2,
                   y: rect.top
                 });
@@ -371,21 +422,21 @@ export const SymbolsTable: React.FC<SymbolsTableProps> = ({ frequencyRange }) =>
               onMouseLeave={() => setHoveredCell(null)}
             >
               <ColFrequency>{formatFrequency(rowFreq)}</ColFrequency>
-              <ColSymbol>{p.symbol}</ColSymbol>
+              <ColSymbol>{symbol}</ColSymbol>
               <ColIQ>
-                <IVal>{p.i.toString().padStart(3, ' ')}</IVal>
+                <IVal>{sample.i.toString().padStart(3, ' ')}</IVal>
                 <span style={{ opacity: 0.3 }}>|</span>
-                <QVal>{p.q.toString().padStart(3, ' ')}</QVal>
+                <QVal>{sample.q.toString().padStart(3, ' ')}</QVal>
               </ColIQ>
-              <ColPhase>{p.phaseDeg.toFixed(1)}°</ColPhase>
-              <ColPower $magnitude={p.powerDbm}>
-                {p.powerDbm.toFixed(3)} dBm
+              <ColPhase>{phaseDeg.toFixed(1)}°</ColPhase>
+              <ColPower $magnitude={powerDbm}>
+                {powerDbm.toFixed(3)} dBm
               </ColPower>
             </SymbolRow>
           );
         })}
-        {points.length === 0 && Array(rowsCount).fill(0).map((_, i) => (
-          <SymbolRow key={i}>
+        {!iqDataView && Array(rowsCount).fill(0).map((_, i) => (
+          <SymbolRow key={i} $rowHeight={rowHeight}>
             <ColFrequency>--.--- ---</ColFrequency>
             <ColSymbol>--</ColSymbol>
             <ColIQ><IVal>--</IVal> | <QVal>--</QVal></ColIQ>
@@ -430,7 +481,7 @@ export const SymbolsTable: React.FC<SymbolsTableProps> = ({ frequencyRange }) =>
       {renderTable(false)}
       {isFullscreen && (
         <FullscreenModal title="Symbol (I/Q) Analysis" onClose={() => setIsFullscreen(false)}>
-          <div style={{ height: 'calc(95vh - 100px)' }}>
+          <div style={{ height: 'calc(95vh - 140px)' }}>
             {renderTable(true)}
           </div>
         </FullscreenModal>

@@ -289,7 +289,7 @@ export const DrawSignalRoute: React.FC = () => {
   }, [cleanup]);
 
   return (
-    <PageContainer>
+    <PageContainer data-testid="draw-signal-route">
       <Header>
         <Title>Draw N-APT Signal Simulator</Title>
         <Subtitle>

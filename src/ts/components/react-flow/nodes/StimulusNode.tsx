@@ -110,11 +110,18 @@ const SpeechBarsContainer = styled.div`
 
 const SpeechBar = styled.div<{ $isCapturing: boolean }>`
   width: 4px;
-  height: ${props => props.$isCapturing ? 'var(--bar-height, 4px)' : '4px'};
+  height: 38px;
   background: ${props => props.$isCapturing ? props.theme.colors.success : props.theme.colors.border};
-  transition: height 0.05s ease;
+  transform-origin: bottom center;
   box-shadow: ${props => props.$isCapturing ? `0 0 10px ${props.theme.colors.success}33` : 'none'};
   border-radius: 2px;
+  animation: ${props => props.$isCapturing ? 'speechPulse 0.9s infinite ease-in-out' : 'none'};
+
+  @keyframes speechPulse {
+    0%, 100% { transform: scaleY(0.18); opacity: 0.45; }
+    40% { transform: scaleY(1); opacity: 1; }
+    70% { transform: scaleY(0.55); opacity: 0.75; }
+  }
 `;
 
 // Vision preview components
@@ -431,15 +438,6 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
     }
   }, [isCapturing, durationS, analysisSession.startTime]);
 
-  // Animation state for speech bars
-  const [, forceUpdate] = useState({});
-  useEffect(() => {
-    if (isCapturing) {
-      const interval = setInterval(() => forceUpdate({}), 50);
-      return () => clearInterval(interval);
-    }
-  }, [isCapturing]);
-
   const playTone = useCallback(() => {
     const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
     const oscillator = audioCtx.createOscillator();
@@ -518,12 +516,11 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
               </ScriptText>
               <SpeechBarsContainer>
                 {[...Array(20)].map((_, i) => {
-                  const barHeight = isCapturing ? (10 + Math.sin(Date.now() * 0.01 + i * 0.3) * 25 + 25) : 4;
                   return (
                     <SpeechBar
                       key={i}
                       $isCapturing={isCapturing}
-                      style={{ '--bar-height': `${barHeight}px` } as React.CSSProperties}
+                      style={{ animationDelay: `${i * 0.05}s` }}
                     />
                   );
                 })}

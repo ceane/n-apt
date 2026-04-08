@@ -143,12 +143,12 @@ const BuildOrchestrator = () => {
   const [buildState, setBuildState] = useState<BuildState>({
     processes: [
       { name: 'Cleaning up existing processes', status: 'pending' },
-      { name: 'Starting frontend server...', status: 'pending' },
       { name: 'Starting Redis database server...', status: 'pending' },
       { name: 'Swapping Redis Database...', status: 'pending' },
       { name: 'Building WASM SIMD module...', status: 'pending' },
       { name: 'N-APT Encrypted Modules...', status: 'pending' },
       { name: 'Starting Rust backend...', status: 'pending' },
+      { name: 'Starting frontend server...', status: 'pending' },
     ],
     currentStep: 0,
     isBuilding: false,
@@ -403,17 +403,6 @@ sleep 1
       },
       {
         index: 1,
-        command: `bash -lc '
-set -euo pipefail
-rm -rf node_modules/.vite
-exec node_modules/.bin/vite dev --host --force
-'`,
-        description: 'Starting frontend server',
-        isBackground: true,
-        pidKey: 'vitePid' as const,
-      },
-      {
-        index: 2,
         command: `bash -lc "
 set -euo pipefail
 REDIS_PORT=6379
@@ -439,7 +428,7 @@ fi
         pidKey: 'redisPid' as const,
       },
       {
-        index: 3,
+        index: 2,
         command: `bash -lc '
 set -euo pipefail
 REDIS_PORT="${'${'}REDIS_PORT:-6379}"
@@ -450,33 +439,36 @@ if [ ! -f "scripts/redis/download_opencellid_cached.cjs" ]; then
   echo "scripts/redis/download_opencellid_cached.cjs missing; skipping tower import"
   exit 0
 fi
-if npm run towers:download:cached; then
-  TEMP_FAST=${'$'}(redis-cli -p "$REDIS_PORT" -n 0 dbsize 2>/dev/null || echo 0)
-  TEMP_FULL=${'$'}(redis-cli -p "$REDIS_PORT" -n 1 dbsize 2>/dev/null || echo 0)
-  if [ "$TEMP_FAST" -eq 0 ] || [ "$TEMP_FULL" -eq 0 ]; then
-    echo "Tower download skipped or produced no data; leaving existing DBs untouched."
-    exit 0
-  fi
-  redis-cli -p "$REDIS_PORT" swapdb 0 2 >/dev/null
-  redis-cli -p "$REDIS_PORT" swapdb 1 3 >/dev/null
+
+# Add timeout to prevent hanging (30 seconds instead of 5 minutes)
+timeout 30 npm run towers:download:cached || {
+  echo "Tower download timed out or failed; skipping tower import"
+  exit 0
+}
+
+TEMP_FAST=${'$'}(redis-cli -p "$REDIS_PORT" -n 0 dbsize 2>/dev/null || echo 0)
+TEMP_FULL=${'$'}(redis-cli -p "$REDIS_PORT" -n 1 dbsize 2>/dev/null || echo 0)
+if [ "$TEMP_FAST" -eq 0 ] || [ "$TEMP_FULL" -eq 0 ]; then
+  echo "Tower download skipped or produced no data; leaving existing DBs untouched."
   exit 0
 fi
-echo "Failed to load tower data"
-exit 1
+redis-cli -p "$REDIS_PORT" swapdb 0 2 >/dev/null
+redis-cli -p "$REDIS_PORT" swapdb 1 3 >/dev/null
+exit 0
 '`,
         description: 'Swapping Redis Database...',
         isBackground: false,
         pidKey: undefined,
       },
       {
-        index: 4,
+        index: 3,
         command: 'npm run build:wasm -- --force',
         description: 'Building WASM SIMD module',
         isBackground: false,
         pidKey: undefined,
       },
       {
-        index: 5,
+        index: 4,
         command: `bash -lc '
 set -euo pipefail
 if npm run decrypt-modules >/dev/null 2>&1; then
@@ -495,11 +487,49 @@ exit 1
         pidKey: undefined,
       },
       {
-        index: 6,
-        command: 'cargo run --bin n-apt-backend',
+        index: 5,
+        command: 'cargo run --bin n-apt-backend --profile dev-fast',
         description: 'Starting Rust backend',
         isBackground: true,
         pidKey: 'rustPid' as const,
+      },
+      {
+        index: 6,
+        command: `bash -lc '
+set -euo pipefail
+# Wait for backend to be ready by checking the /status endpoint
+MAX_RETRIES=30
+RETRY_DELAY=1
+RETRY_COUNT=0
+
+echo "Waiting for backend to be ready..."
+while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+  if curl -s -o /dev/null -w "%{http_code}" http://localhost:8765/status 2>/dev/null | grep -q "200"; then
+    echo "Backend is ready!"
+    exit 0
+  fi
+  RETRY_COUNT=$((RETRY_COUNT + 1))
+  sleep $RETRY_DELAY
+done
+
+echo "Backend failed to become ready after $MAX_RETRIES retries"
+exit 1
+'`,
+        description: 'Waiting for backend to be ready',
+        isBackground: false,
+        pidKey: undefined,
+      },
+      {
+        index: 7,
+        command: `bash -lc '
+set -euo pipefail
+# Don't clear Vite cache - it causes significant startup latency
+# rm -rf node_modules/.vite
+exec node_modules/.bin/vite dev --host --force
+'`,
+        description: 'Starting frontend server',
+        isBackground: true,
+        pidKey: 'vitePid' as const,
       },
     ];
 
@@ -507,7 +537,7 @@ exit 1
       updateProcessStatus(step.index, 'running');
 
       let success: boolean;
-      const stepLabelBase = step.index === 3 ? getTowerLoadDescription() : step.description;
+      const stepLabelBase = step.index === 2 ? getTowerLoadDescription() : step.description;
       const stepLabel = step.index === 0 ? stepLabelBase : withEllipsis(stepLabelBase);
       updateProcessStatus(step.index, 'running', undefined, stepLabel);
 
@@ -521,20 +551,14 @@ exit 1
       }
 
       if (success) {
-        if (step.index === 3) {
+        if (step.index === 2) {
           const { count, source } = getTowerCountLabel(stepLabel);
           updateProcessStatus(step.index, 'success', `(${count} towers in DB / ${source})`, stepLabel);
-        } else if (step.index === 5) {
-          updateProcessStatus(step.index, 'success', undefined, 'N-APT Encrypted Modules...');
         } else {
           updateProcessStatus(step.index, 'success', undefined, stepLabel);
         }
       } else {
-        if (step.index === 5) {
-          updateProcessStatus(step.index, 'error', undefined, 'N-APT Encrypted Modules...');
-        } else {
-          updateProcessStatus(step.index, 'error', undefined, stepLabel);
-        }
+        updateProcessStatus(step.index, 'error', undefined, stepLabel);
         appendErrorDetail(`${step.description} failed`);
       }
 
