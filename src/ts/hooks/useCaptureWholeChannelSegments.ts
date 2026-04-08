@@ -1,5 +1,6 @@
 import { useCallback } from "react";
 import type { SnapshotData } from "@n-apt/components/FFTCanvas";
+import type { FFTCanvasHandle } from "@n-apt/components";
 import type { FrequencyRange } from "@n-apt/hooks/useWebSocket";
 
 interface UseCaptureWholeChannelSegmentsOptions {
@@ -13,7 +14,7 @@ interface UseCaptureWholeChannelSegmentsOptions {
   vizZoom: number;
   dispatch: (action: any) => void;
   sendFrequencyRange: (range: FrequencyRange) => void;
-  fftCanvasRef: React.RefObject<{ getSnapshotData?: () => SnapshotData | null }>;
+  fftCanvasRef: React.RefObject<FFTCanvasHandle | null>;
 }
 
 /**

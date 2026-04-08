@@ -11,7 +11,6 @@ interface FFTSpectrumProps {
   webgpuEnabled: boolean;
   webgpuDevice?: GPUDevice | null;
   webgpuFormat?: GPUTextureFormat | null;
-  resampleSpectrumInto: (_source: Float32Array, target: Float32Array) => void;
   onRenderComplete?: () => void;
   centerFrequencyMHz?: number;
   isDeviceConnected?: boolean;
@@ -38,7 +37,6 @@ export const FFTSpectrum = memo<FFTSpectrumProps>(
     webgpuEnabled,
     webgpuDevice,
     webgpuFormat,
-    resampleSpectrumInto: _resampleSpectrumInto,
     onRenderComplete,
     centerFrequencyMHz,
     isDeviceConnected = true,

@@ -12,10 +12,10 @@ const Section = styled.div<{ $marginTop?: string }>`
 `;
 
 const FileCard = styled.div`
-  background-color: ${(props) => props.theme.surface};
-  padding: 16px;
-  border-radius: 8px;
-  border: 1px solid ${(props) => props.theme.border};
+  background-color: rgba(255, 255, 255, 0.03);
+  padding: 18px 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
   box-sizing: border-box;
   width: 100%;
   max-width: 100%;
@@ -35,8 +35,9 @@ const FileInfoRow = styled.div`
 
 const FileItemHeader = styled.div`
   display: flex;
-  align-items: center;
-  gap: 8px;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 12px;
 `;
 
 const FileIcon = styled.div`
@@ -50,21 +51,22 @@ const FileIcon = styled.div`
 `;
 
 const FileTitle = styled.div`
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
   color: ${(props) => props.theme.textPrimary};
   white-space: normal;
   word-wrap: break-word;
   word-break: break-word;
-  line-height: 1.3;
+  line-height: 1.45;
   flex: 1;
   min-width: 0;
 `;
 
 const FileInfoActions = styled.div`
   display: flex;
-  gap: 12px;
+  gap: 14px;
   align-items: center;
+  flex-wrap: wrap;
 `;
 
 const LoadedLabel = styled.div`
@@ -72,12 +74,12 @@ const LoadedLabel = styled.div`
   align-items: center;
   gap: 4px;
   font-size: 11px;
-  color: ${(props) => props.theme.success};
+  color: ${(props) => props.theme.textSecondary};
   font-weight: 500;
 `;
 
 const DownloadActionLink = styled.a`
-  color: ${(props) => props.theme.primary};
+  color: #44cfff;
   font-size: 11px;
   display: flex;
   align-items: center;
@@ -92,13 +94,15 @@ const DownloadActionLink = styled.a`
 const RemoveActionButton = styled.button`
   background: none;
   border: none;
-  color: ${(props) => props.theme.danger};
+  color: #ff6b6b;
   font-size: 11px;
   cursor: pointer;
   display: flex;
   align-items: center;
   gap: 4px;
   text-decoration: underline;
+  padding: 0;
+  outline: none;
   
   &:hover {
     opacity: 0.8;
@@ -106,7 +110,7 @@ const RemoveActionButton = styled.button`
 `;
 
 const ClearAllContainer = styled.div`
-  margin-top: 12px;
+  margin-top: 10px;
   display: flex;
   justify-content: flex-end;
   grid-column: 1 / -1;
@@ -115,10 +119,12 @@ const ClearAllContainer = styled.div`
 const ClearAllLink = styled.button`
   background: none;
   border: none;
-  color: ${(props) => props.theme.primary};
+  color: #44cfff;
   font-size: 11px;
   cursor: pointer;
   text-decoration: underline;
+  padding: 0;
+  outline: none;
   
   &:hover {
     opacity: 0.8;

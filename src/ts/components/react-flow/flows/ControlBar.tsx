@@ -9,11 +9,11 @@ const ControlBarContainer = styled.div`
   transform: translateX(-50%);
   display: flex;
   gap: 12px;
-  padding: 12px;
-  background: rgba(0, 0, 0, 0.8);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 12px;
+  padding: 10px;
+  background: rgba(10, 10, 10, 0.78);
+  backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
   z-index: 10;
 `;
 
@@ -21,8 +21,8 @@ const PlayButton = styled.button`
   background-color: ${(props) => props.theme.primary};
   color: white;
   border: none;
-  border-radius: 8px;
-  padding: 12px 16px;
+  border-radius: 10px;
+  padding: 12px 18px;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -30,10 +30,22 @@ const PlayButton = styled.button`
   font-size: 14px;
   font-weight: 600;
   transition: all 0.2s ease;
+  outline: none;
+  box-shadow: none;
+
+  &:focus,
+  &:focus-visible {
+    outline: none;
+    box-shadow: none;
+  }
 
   &:hover {
     background-color: ${(props) => props.theme.primaryHover};
     transform: scale(1.05);
+  }
+
+  &:active {
+    transform: scale(1.02);
   }
 `;
 

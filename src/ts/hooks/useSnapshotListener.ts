@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import type { SDRSettings } from "@n-apt/consts/schemas/websocket";
+import type { SdrSettingsConfig } from "@n-apt/consts/schemas/websocket";
 import type { SnapshotData } from "@n-apt/components/FFTCanvas";
 import type { SnapshotOptions } from "@n-apt/hooks/useSnapshot";
 
@@ -11,16 +11,19 @@ interface UseSnapshotListenerOptions {
   sourceMode: "live" | "file";
   backend?: string;
   deviceInfo?: string;
-  effectiveSdrSettings?: SDRSettings;
+  effectiveSdrSettings?: SdrSettingsConfig;
   deviceName?: string;
   captureWholeChannelSegments: () => Promise<Array<{
     data: SnapshotData;
     visualRange: { min: number; max: number };
   }>>;
-  getSnapshotData: () => SnapshotData | null;
-  getVideoSourceCanvases?: SnapshotOptions["getVideoSourceCanvases"];
-  refreshVideoFrame?: SnapshotOptions["refreshVideoFrame"];
-  prepareVideoRecording?: SnapshotOptions["prepareVideoRecording"];
+  getSnapshotData: () => SnapshotData | null | undefined;
+  getVideoSourceCanvases?: () => {
+    spectrum: HTMLCanvasElement | null;
+    waterfall: HTMLCanvasElement | null;
+  };
+  refreshVideoFrame?: () => void;
+  prepareVideoRecording?: () => (() => void) | undefined;
 }
 
 /**

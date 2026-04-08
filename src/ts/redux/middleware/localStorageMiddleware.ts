@@ -11,31 +11,6 @@ const STORAGE_KEYS = {
   AUTO_FFT_OPTIONS: 'napt-auto-fft-options',
 } as const;
 
-// State slices to persist in localStorage
-const LOCAL_STORAGE_PERSISTENCE = {
-  theme: ['appMode', 'accentColor', 'fftColor', 'waterfallTheme'],
-  spectrum: [
-    'fftSize',
-    'fftWindow', 
-    'fftFrameRate',
-    'gain',
-    'ppm',
-    'tunerAGC',
-    'rtlAGC',
-    'vizZoom',
-    'vizPanOffset',
-    'fftMinDb',
-    'fftMaxDb',
-    'frequencyRange',
-    'activeSignalArea',
-    'lastKnownRanges',
-    'displayTemporalResolution',
-    'sampleRateHz',
-  ],
-  waterfall: ['snapshotGridPreference'],
-  websocket: ['dataRef', 'sdrSettings', 'autoFftOptions'], // Cached data refs
-};
-
 // Safe localStorage operations
 const safeSetItem = (key: string, value: string): boolean => {
   try {

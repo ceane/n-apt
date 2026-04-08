@@ -34,8 +34,8 @@ const StatusDot = styled.div<{
   $loading?: boolean;
   $color?: string;
 }>`
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
   background-color: ${(props) =>
     props.$color

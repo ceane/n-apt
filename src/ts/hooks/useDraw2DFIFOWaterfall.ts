@@ -109,11 +109,11 @@ export function useDraw2DFIFOWaterfall() {
         canvas,
         waterfallBuffer,
         fftFrame,
-        frequencyRange,
+        frequencyRange: _frequencyRange,
         waterfallMin = -80,
         waterfallMax = 20,
         driftAmount = 0,
-        driftDirection = 0,
+        driftDirection: _driftDirection = 0,
         colormap = [[0, 0, 0], [255, 255, 255]],
         fftSize,
         sampleRate,
@@ -171,7 +171,7 @@ export function useDraw2DFIFOWaterfall() {
         if (fftFrame && fftFrame.length > 0) {
           // Convert spectrum to amplitude (0-1 range)
           const amplitudes = spectrumToAmplitude(
-            fftFrame,
+            Array.isArray(fftFrame) ? fftFrame : Array.from(fftFrame),
             waterfallMin,
             waterfallMax,
           );

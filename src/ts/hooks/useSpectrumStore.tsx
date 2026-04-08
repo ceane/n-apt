@@ -63,6 +63,79 @@ export type SourceMode = "live" | "file";
 export type SelectedFile = { id: string; name: string; downloadUrl?: string };
 
 const MANUAL_VISUALIZER_PAUSE_KEY = "napt-visualizer-manual-paused";
+const VISUALIZER_FRAME_RATE_KEY = "napt-visualizer-frame-rate";
+
+const getPersistedNumber = (key: string): number | null => {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = sessionStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  } catch {
+    return null;
+  }
+};
+
+const estimateRefreshRateFromSamples = (samples: number[]): number | null => {
+  if (samples.length === 0) return null;
+
+  const sorted = [...samples].filter((value) => Number.isFinite(value) && value > 0).sort((a, b) => a - b);
+  if (sorted.length === 0) return null;
+
+  // Use the fastest stable cluster to approximate the display's max refresh.
+  // Average-based estimates are easily pulled down by occasional dropped frames.
+  const fastestClusterSize = Math.max(5, Math.floor(sorted.length * 0.25));
+  const fastestCluster = sorted.slice(0, fastestClusterSize);
+  const medianOfFastestCluster = fastestCluster[Math.floor(fastestCluster.length / 2)];
+
+  if (!medianOfFastestCluster || medianOfFastestCluster <= 0) return null;
+
+  const estimatedFps = 1000 / medianOfFastestCluster;
+
+  // Snap to common refresh rates when we're close enough to them.
+  const commonRates = [24, 30, 48, 50, 60, 90, 120, 144, 165, 240];
+  const nearest = commonRates.reduce(
+    (best, rate) => {
+      const distance = Math.abs(rate - estimatedFps);
+      return distance < best.distance ? { rate, distance } : best;
+    },
+    { rate: estimatedFps, distance: Number.POSITIVE_INFINITY },
+  );
+
+  return nearest.distance <= 3 ? nearest.rate : estimatedFps;
+};
+
+const detectRefreshRate = async (sampleCount = 180): Promise<number | null> => {
+  if (typeof window === "undefined") return null;
+
+  return await new Promise((resolve) => {
+    const samples: number[] = [];
+    let last = performance.now();
+    let rafId = 0;
+
+    const finish = () => {
+      if (rafId) {
+        cancelAnimationFrame(rafId);
+      }
+      resolve(estimateRefreshRateFromSamples(samples));
+    };
+
+    const loop = (now: number) => {
+      samples.push(now - last);
+      last = now;
+
+      if (samples.length >= sampleCount) {
+        finish();
+        return;
+      }
+
+      rafId = requestAnimationFrame(loop);
+    };
+
+    rafId = requestAnimationFrame(loop);
+  });
+};
 
 export const LIVE_CONTROL_DEFAULTS = {
   displayTemporalResolution: "medium" as const,
@@ -115,6 +188,7 @@ export type SpectrumState = {
   stitchSourceSettings: { gain: number; ppm: number };
   isStitchPaused: boolean;
   fftFrameRate: number;
+  detectedFrameRate: number | null;
   isAutoFftApplied: boolean;
   isWaterfallCleared: boolean;
   vizZoom: number;
@@ -177,6 +251,7 @@ export type SpectrumAction =
   | { type: "SET_STITCH_PAUSED"; paused: boolean }
   | { type: "LEAVE_VISUALIZER" }
   | { type: "SET_FFT_FRAME_RATE"; fftFrameRate: number }
+  | { type: "SET_DETECTED_FRAME_RATE"; detectedFrameRate: number | null }
   | { type: "SET_AUTO_FFT_APPLIED"; applied: boolean }
   | { type: "CLEAR_WATERFALL" }
   | { type: "RESET_WATERFALL_CLEARED" }
@@ -238,6 +313,7 @@ export const INITIAL_SPECTRUM_STATE: SpectrumState = {
   stitchSourceSettings: { gain: 10, ppm: 0 },
   isStitchPaused: false,
   fftFrameRate: 60,
+  detectedFrameRate: null,
   isAutoFftApplied: false,
   isWaterfallCleared: false,
   vizZoom: 1,
@@ -413,6 +489,8 @@ export function spectrumReducer(
       return { ...state, isStitchPaused: action.paused };
     case "SET_FFT_FRAME_RATE":
       return { ...state, fftFrameRate: action.fftFrameRate };
+    case "SET_DETECTED_FRAME_RATE":
+      return { ...state, detectedFrameRate: action.detectedFrameRate };
     case "SET_AUTO_FFT_APPLIED":
       return { ...state, isAutoFftApplied: action.applied };
     case "LEAVE_VISUALIZER":
@@ -927,6 +1005,7 @@ export const SpectrumProvider: React.FC<SpectrumProviderProps> = ({
       fftSize: state.fftSize,
       fftWindow: state.fftWindow,
       fftFrameRate: state.fftFrameRate,
+      detectedFrameRate: state.detectedFrameRate,
       gain: state.gain,
       ppm: state.ppm,
       tunerAGC: state.tunerAGC,
@@ -948,6 +1027,7 @@ export const SpectrumProvider: React.FC<SpectrumProviderProps> = ({
     state.fftSize,
     state.fftWindow,
     state.fftFrameRate,
+    state.detectedFrameRate,
     state.gain,
     state.ppm,
     state.tunerAGC,
@@ -972,6 +1052,22 @@ export const SpectrumProvider: React.FC<SpectrumProviderProps> = ({
     wsConnection.sendPowerScaleCommand(state.powerScale);
     lastSentPowerScaleRef.current = state.powerScale;
   }, [isConnected, wsConnection.sendPowerScaleCommand, state.powerScale]);
+
+  const lastSentFrameRateRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!isConnected || state.detectedFrameRate == null) return;
+    if (lastSentFrameRateRef.current === state.detectedFrameRate) return;
+    reduxDispatch({
+      type: "websocket/sendMessage",
+      payload: {
+        type: "frame_rate",
+        data: {
+          frameRate: Math.round(state.detectedFrameRate),
+        },
+      },
+    });
+    lastSentFrameRateRef.current = state.detectedFrameRate;
+  }, [isConnected, reduxDispatch, state.detectedFrameRate]);
 
   // Revert power scale to dB if not supported by the current device
   useEffect(() => {
@@ -1133,6 +1229,34 @@ export const SpectrumProvider: React.FC<SpectrumProviderProps> = ({
       };
     }
   }, [isVisualizerRoute, isConnected, wsConnection.sendGetAutoFftOptions, autoFftOptions]);
+
+  useEffect(() => {
+    if (!isVisualizerRoute) return;
+    if (state.detectedFrameRate != null) return;
+
+    const persistedFrameRate = getPersistedNumber(VISUALIZER_FRAME_RATE_KEY);
+    if (persistedFrameRate != null) {
+      storeDispatch({ type: "SET_DETECTED_FRAME_RATE", detectedFrameRate: persistedFrameRate });
+      return;
+    }
+
+    let cancelled = false;
+    void detectRefreshRate().then((frameRate) => {
+      if (cancelled || frameRate == null) return;
+
+      const rounded = Math.round(frameRate);
+      storeDispatch({ type: "SET_DETECTED_FRAME_RATE", detectedFrameRate: rounded });
+      try {
+        sessionStorage.setItem(VISUALIZER_FRAME_RATE_KEY, String(rounded));
+      } catch {
+        /* ignore */
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isVisualizerRoute, state.detectedFrameRate, storeDispatch]);
 
   const toggleVisualizerPause = useCallback(() => {
     const nextPaused = !manualVisualizerPaused;

@@ -193,6 +193,10 @@ export const WebSocketMessageSchema = z.discriminatedUnion('type', [
     ppm: z.number(),
   }),
   z.object({
+    type: z.literal('frame_rate'),
+    frameRate: z.number(),
+  }),
+  z.object({
     type: z.literal('settings'),
     fftSize: z.number().optional(),
     fftWindow: z.string().optional(),

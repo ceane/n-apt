@@ -1,6 +1,5 @@
 import { useRef, useCallback } from "react";
 import { useAppSelector } from "@n-apt/redux";
-import { FFT_MIN_DB } from "@n-apt/consts";
 import type { LiveFrameData } from "@n-apt/consts/schemas/websocket";
 import type { FrequencyRange } from "@n-apt/consts/types";
 import type { SdrLimitMarker } from "@n-apt/utils/sdrLimitMarkers";
@@ -33,7 +32,6 @@ export interface FFTHandlersState {
   // Rendering functions
   drawSpectrum: ReturnType<typeof useSpectrumRenderer>["drawSpectrum"];
   cleanupSpectrum: ReturnType<typeof useSpectrumRenderer>["cleanup"];
-  resampleSpectrumInto: (input: Float32Array, output: Float32Array) => void;
   processIqToDbmSpectrum: (iqData: Uint8Array, offsetDb: number, fftSize: number) => Float32Array;
   detectProminentSpikes: ReturnType<typeof useWasmSimdMath>["detectProminentSpikes"];
 
@@ -70,36 +68,29 @@ export interface FFTHandlersProps {
 const LOADING_PLACEHOLDER_TEXT = "Loading data from source...";
 const LOADING_PLACEHOLDER_FONT = "24px 'JetBrains Mono', monospace";
 const LOADING_PLACEHOLDER_COLOR = "#888888";
-const _FULL_CHANNEL_BINS = 4096;
-
 export const useFFTHandlers = ({
-  dataRef,
+  dataRef: _dataRef,
   fftSize = 32768,
   fftWindow = "Rectangular",
-  isPaused,
-  displayTemporalResolution = "medium",
+  isPaused: _isPaused,
+  displayTemporalResolution: _displayTemporalResolution = "medium",
   isDeviceConnected = true,
-  showSpikeOverlay,
-  awaitingDeviceData,
+  showSpikeOverlay: _showSpikeOverlay,
+  awaitingDeviceData: _awaitingDeviceData,
   hardwareSampleRateHz,
   isIqRecordingActive = false,
-  limitMarkers,
-  canvasState,
+  limitMarkers: _limitMarkers,
+  canvasState: _canvasState,
   visualizationState,
-  webgpuEnabled,
-  isInitializingWebGPU,
-  webgpuDeviceRef,
-  webgpuFormatRef,
-  gridOverlayRendererRef,
-  markersOverlayRendererRef,
-  spikesOverlayRendererRef,
-  overlayDirtyRef,
+  webgpuEnabled: _webgpuEnabled,
+  isInitializingWebGPU: _isInitializingWebGPU,
+  webgpuDeviceRef: _webgpuDeviceRef,
+  webgpuFormatRef: _webgpuFormatRef,
+  gridOverlayRendererRef: _gridOverlayRendererRef,
+  markersOverlayRendererRef: _markersOverlayRendererRef,
+  spikesOverlayRendererRef: _spikesOverlayRendererRef,
+  overlayDirtyRef: _overlayDirtyRef,
 }: FFTHandlersProps): FFTHandlersState => {
-  // Canvas refs (for future use)
-  const _spectrumCanvasRef = canvasState.spectrumCanvasRef;
-  const _spectrumGpuCanvasRef = canvasState.spectrumGpuCanvasRef;
-  const _spectrumOverlayCanvasRef = canvasState.spectrumOverlayCanvasRef;
-
   const {
     vizDbMinRef,
     vizDbMaxRef,
@@ -110,9 +101,9 @@ export const useFFTHandlers = ({
   } = visualizationState;
 
   // Redux state (for future use)
-  const fftColor = useAppSelector((reduxState) => reduxState.theme.fftColor);
-  const fftAvgEnabled = useAppSelector((reduxState) => reduxState.spectrum.fftAvgEnabled);
-  const fftSmoothEnabled = useAppSelector((reduxState) => reduxState.spectrum.fftSmoothEnabled);
+  useAppSelector((reduxState) => reduxState.theme.fftColor);
+  useAppSelector((reduxState) => reduxState.spectrum.fftAvgEnabled);
+  useAppSelector((reduxState) => reduxState.spectrum.fftSmoothEnabled);
 
   // const fillColor = useMemo(() => {
   //   if (fftColor.startsWith("#")) {
@@ -131,7 +122,6 @@ export const useFFTHandlers = ({
 
   // Processing buffers
   const frameBufferRef = useRef<Float32Array[]>([]);
-  const maxFrameBufferSize = 1;
   const fftAvgBufferRef = useRef<Float32Array | null>(null);
   const fftProcessedBufferRef = useRef<Float32Array | null>(null);
   const fftSmoothedBufferRef = useRef<Float32Array | null>(null);
@@ -144,10 +134,8 @@ export const useFFTHandlers = ({
 
   // Initialize WASM SIMD for optimized data processing
   const {
-    resampleSpectrum: wasmResampleSpectrum,
     processIqToDbmSpectrum,
     detectProminentSpikes,
-    isSimdAvailable
   } = useWasmSimdMath({
     fftSize: 4096,
     enableSimd: true,
@@ -188,41 +176,6 @@ export const useFFTHandlers = ({
     [],
   );
 
-  // WASM SIMD optimized resampling with CPU fallback
-  const resampleSpectrumInto = useCallback(
-    (input: Float32Array, output: Float32Array) => {
-      const srcLen = input.length;
-      const outLen = output.length;
-      if (srcLen === 0 || outLen === 0) return;
-
-      // Use WASM SIMD when available for 3-10x performance boost
-      if (isSimdAvailable) {
-        wasmResampleSpectrum(input, output);
-      } else {
-        // CPU fallback with max-pooling
-        for (let x = 0; x < outLen; x++) {
-          const start = Math.floor((x * srcLen) / outLen);
-          const end = Math.max(
-            start + 1,
-            Math.floor(((x + 1) * srcLen) / outLen),
-          );
-          let maxVal = -Infinity;
-          for (let i = start; i < end && i < srcLen; i++) {
-            const v = input[i];
-            if (Number.isFinite(v)) {
-              if (v > maxVal) maxVal = v;
-            }
-          }
-          output[x] =
-            maxVal !== -Infinity
-              ? maxVal
-              : (input[Math.min(start, srcLen - 1)] ?? FFT_MIN_DB);
-        }
-      }
-    },
-    [isSimdAvailable, wasmResampleSpectrum],
-  );
-
   const buildSnapshotData = useCallback(() => {
     const waveform = renderWaveformRef.current;
     const frequencyRangeCurrent = frequencyRangeRef.current;
@@ -248,12 +201,24 @@ export const useFFTHandlers = ({
       waterfallTextureMeta: null,
       waterfallBuffer: null,
       waterfallDims: null,
-      webgpuEnabled,
+      webgpuEnabled: _webgpuEnabled,
       hardwareSampleRateHz,
       isIqRecordingActive,
-      colormap: [],
+      colormap: [] as number[][],
     };
-  }, [fftSize, fftWindow, isDeviceConnected, webgpuEnabled, hardwareSampleRateHz, isIqRecordingActive, visualizationState]);
+  }, [
+    fftSize,
+    fftWindow,
+    centerFreqRef,
+    hardwareSampleRateHz,
+    isDeviceConnected,
+    isIqRecordingActive,
+    visualizationState,
+    _webgpuEnabled,
+    frequencyRangeRef,
+    vizDbMinRef,
+    vizDbMaxRef,
+  ]);
 
   return {
     // Processing refs
@@ -279,7 +244,6 @@ export const useFFTHandlers = ({
     // Rendering functions
     drawSpectrum,
     cleanupSpectrum,
-    resampleSpectrumInto,
     processIqToDbmSpectrum,
     detectProminentSpikes,
 

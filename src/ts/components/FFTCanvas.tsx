@@ -809,10 +809,8 @@ const FFTCanvas = memo(
 
     // Initialize WASM SIMD for optimized data processing
     const {
-      resampleSpectrum: wasmResampleSpectrum,
       processIqToDbmSpectrum,
       detectProminentSpikes,
-      isSimdAvailable
     } = useWasmSimdMath({
       fftSize: 4096,
       enableSimd: true,
@@ -852,41 +850,6 @@ const FFTCanvas = memo(
       const fallbackWaveform = new Float32Array(1024).fill(FFT_MIN_DB);
       renderWaveformRef.current = fallbackWaveform;
     });
-
-    // WASM SIMD optimized resampling with CPU fallback
-    const resampleSpectrumInto = useCallback(
-      (input: Float32Array, output: Float32Array) => {
-        const srcLen = input.length;
-        const outLen = output.length;
-        if (srcLen === 0 || outLen === 0) return;
-
-        // Use WASM SIMD when available for 3-10x performance boost
-        if (isSimdAvailable) {
-          wasmResampleSpectrum(input, output);
-        } else {
-          // CPU fallback with max-pooling
-          for (let x = 0; x < outLen; x++) {
-            const start = Math.floor((x * srcLen) / outLen);
-            const end = Math.max(
-              start + 1,
-              Math.floor(((x + 1) * srcLen) / outLen),
-            );
-            let maxVal = -Infinity;
-            for (let i = start; i < end && i < srcLen; i++) {
-              const v = input[i];
-              if (Number.isFinite(v)) {
-                if (v > maxVal) maxVal = v;
-              }
-            }
-            output[x] =
-              maxVal !== -Infinity
-                ? maxVal
-                : (input[Math.min(start, srcLen - 1)] ?? FFT_MIN_DB);
-          }
-        }
-      },
-      [isSimdAvailable, wasmResampleSpectrum],
-    );
 
     /**
      * Animation loop for continuous spectrum and waterfall updates
@@ -1458,7 +1421,6 @@ const FFTCanvas = memo(
         drawWebGPUFIFOWaterfall,
         isPaused,
         displayTemporalResolution,
-        resampleSpectrumInto,
         spectrumWebgpuEnabled,
         webgpuEnabled,
         webgpuDeviceRef,

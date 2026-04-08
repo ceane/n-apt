@@ -44,11 +44,11 @@ export function useOverlayRenderer() {
       ctx: OffscreenCanvasRenderingContext2D,
       width: number,
       height: number,
-      frequencyRange: { min: number; max: number },
-      fftMin: number,
-      fftMax: number,
+      _frequencyRange: { min: number; max: number },
+      _fftMin: number,
+      _fftMax: number,
       powerScale: "dB" | "dBm" = "dB",
-      hardwareSampleRateHz?: number,
+      _hardwareSampleRateHz?: number,
       fullCaptureRange?: { min: number; max: number },
       _isIqRecordingActive?: boolean,
     ) => {
@@ -58,12 +58,12 @@ export function useOverlayRenderer() {
       const fftHeight = fftAreaMax.y - FFT_AREA_MIN.y;
       const plotWidth = fftAreaMax.x - FFT_AREA_MIN.x;
 
-      const vertRange = fftMax - fftMin;
+      const vertRange = _fftMax - _fftMin;
       const scaleFactor = fftHeight / vertRange;
 
-      if (!frequencyRange) return;
-      const minFreq = frequencyRange.min;
-      const maxFreq = frequencyRange.max;
+      if (!_frequencyRange) return;
+      const minFreq = _frequencyRange.min;
+      const maxFreq = _frequencyRange.max;
       const viewBandwidth2 = maxFreq - minFreq;
 
       const fullSpan = fullCaptureRange ? (fullCaptureRange.max - fullCaptureRange.min) : 0;
@@ -88,21 +88,21 @@ export function useOverlayRenderer() {
 
       // Ensure we start labeling from a clean multiple of VERTICAL_RANGE
       // We use a small epsilon to catch cases where fftMax is very close to a tick
-      const labelStart = Math.floor((fftMax + 0.1) / VERTICAL_RANGE) * VERTICAL_RANGE;
+      const labelStart = Math.floor((_fftMax + 0.1) / VERTICAL_RANGE) * VERTICAL_RANGE;
       
       // Always include the actual fftMax as the top label, even if it's not on a VERTICAL_RANGE boundary
       const labels = [];
-      if (Math.abs(fftMax - labelStart) > 0.1) {
-        labels.push(fftMax); // Add the actual max as first label
+      if (Math.abs(_fftMax - labelStart) > 0.1) {
+        labels.push(_fftMax); // Add the actual max as first label
       }
       
       // Add the regular grid labels
-      for (let line = labelStart; line >= fftMin - 1; line -= VERTICAL_RANGE) {
+      for (let line = labelStart; line >= _fftMin - 1; line -= VERTICAL_RANGE) {
         labels.push(line);
       }
 
       for (const line of labels) {
-        const yPos = fftAreaMax.y - (line - fftMin) * scaleFactor;
+        const yPos = fftAreaMax.y - (line - _fftMin) * scaleFactor;
         
         // Bounds check with small padding
         if (yPos < FFT_AREA_MIN.y - 2 || yPos > fftAreaMax.y + 2) continue;
@@ -280,9 +280,9 @@ export function useOverlayRenderer() {
       ctx.stroke();
 
       // Draw mathematical hardware block boundaries if applicable
-      const anchorRange = fullCaptureRange || frequencyRange;
+      const anchorRange = fullCaptureRange || _frequencyRange;
       const totalSpan = anchorRange.max - anchorRange.min;
-        const hwSpanMHz = hardwareSampleRateHz ? hardwareSampleRateHz / 1e6 : 0;
+        const hwSpanMHz = _hardwareSampleRateHz ? _hardwareSampleRateHz / 1e6 : 0;
         const shouldShowHWGrid = totalSpan > hwSpanMHz + 0.001 && hwSpanMHz > 0;
         
         if (shouldShowHWGrid) {
@@ -359,98 +359,74 @@ export function useOverlayRenderer() {
       ctx: OffscreenCanvasRenderingContext2D,
       width: number,
       height: number,
-      frequencyRange: { min: number; max: number },
-      centerFrequencyMHz?: number,
-      isDeviceConnected: boolean = true,
-      fullCaptureRange?: { min: number; max: number },
-      limitMarkers: SdrLimitMarker[] = [],
+      _frequencyRange: { min: number; max: number },
+      _centerFrequencyMHz: number,
+      _isDeviceConnected: boolean,
+      _hardwareSampleRateHz?: number,
+      _fullCaptureRange?: { min: number; max: number },
+      _isIqRecordingActive?: boolean,
+      _limitMarkers?: SdrLimitMarker[],
     ) => {
       const dpr = window.devicePixelRatio || 1;
       const canvasTheme = getCanvasThemeColors();
       const fftAreaMax = { x: width - 40, y: height - 40 };
-      const plotWidth = fftAreaMax.x - FFT_AREA_MIN.x;
-      if (!frequencyRange) return;
-      const minFreq = frequencyRange.min;
-      const maxFreq = frequencyRange.max;
+      if (!_frequencyRange) return;
+      const minFreq = _frequencyRange.min;
+      const maxFreq = _frequencyRange.max;
       if (!Number.isFinite(minFreq) || !Number.isFinite(maxFreq)) return;
-      const viewBandwidth = maxFreq - minFreq;
-      if (viewBandwidth <= 0) return;
-
-      const fullSpan = fullCaptureRange ? (fullCaptureRange.max - fullCaptureRange.min) : 0;
-      const zoom = fullSpan > 0 ? fullSpan / viewBandwidth : 1;
+      const plotWidth = fftAreaMax.x - FFT_AREA_MIN.x;
+      const fullSpan = _fullCaptureRange ? _fullCaptureRange.max - _fullCaptureRange.min : 0;
+      const zoom = fullSpan > 0 ? fullSpan / (maxFreq - minFreq) : 1;
       const useHighResLabels = zoom >= 100;
+      const formatFreq = (f: number) =>
+        useHighResLabels ? formatFrequencyHighRes(f) : formatFrequency(f);
 
-      const formatFreq = (f: number) => useHighResLabels ? formatFrequencyHighRes(f) : formatFrequency(f);
+      const centerLabel = formatFreq((minFreq + maxFreq) / 2);
+      const centerX = (FFT_AREA_MIN.x + fftAreaMax.x) / 2;
 
-      const freqToX = (freq: number) =>
-        FFT_AREA_MIN.x + ((freq - minFreq) / viewBandwidth) * plotWidth;
- 
-       const visualCenterFreq = (minFreq + maxFreq) / 2;
-       const centerLabel =
-        Number.isNaN(visualCenterFreq) || !Number.isFinite(visualCenterFreq)
-          ? "✋--MHz"
-          : `✋${formatFreq(visualCenterFreq)}`;
+      ctx.save();
+      ctx.fillStyle = canvasTheme.centerLabelText;
+      ctx.font = "bold 12px JetBrains Mono";
+      ctx.textAlign = "center";
+      ctx.fillText(`👋  ${centerLabel}`, centerX, fftAreaMax.y + 25);
+      ctx.restore();
 
-        if (
-          centerFrequencyMHz !== undefined &&
-          Number.isFinite(centerFrequencyMHz)
-        ) {
-          const cx = Math.round((FFT_AREA_MIN.x + fftAreaMax.x) / 2) + 0.5;
-          ctx.save();
-          ctx.strokeStyle = canvasTheme.centerLineColor;
-          ctx.lineWidth = 1 / dpr;
+      ctx.save();
+      ctx.strokeStyle = canvasTheme.centerLineColor;
+      ctx.lineWidth = Math.max(.5 / dpr, 1);
+      ctx.beginPath();
+      ctx.moveTo(centerX, FFT_AREA_MIN.y);
+      ctx.lineTo(centerX, fftAreaMax.y);
+      ctx.stroke();
+      ctx.restore();
+
+      if (_limitMarkers?.length) {
+        const viewBandwidth = maxFreq - minFreq;
+        const freqToX = (freq: number) =>
+          FFT_AREA_MIN.x + ((freq - minFreq) / viewBandwidth) * plotWidth;
+
+        ctx.save();
+        ctx.strokeStyle = "rgba(220, 38, 38, 0.75)";
+        ctx.setLineDash([6, 4]);
+        ctx.fillStyle = canvasTheme.textColor;
+        ctx.font = "10px JetBrains Mono";
+        ctx.textAlign = "center";
+
+        for (const marker of _limitMarkers) {
+          if (!Number.isFinite(marker.freq)) continue;
+          if (marker.freq < minFreq || marker.freq > maxFreq) continue;
+          const x = Math.round(freqToX(marker.freq));
           ctx.beginPath();
-          ctx.moveTo(cx, FFT_AREA_MIN.y);
-          ctx.lineTo(cx, fftAreaMax.y);
+          ctx.moveTo(x, FFT_AREA_MIN.y);
+          ctx.lineTo(x, fftAreaMax.y);
           ctx.stroke();
-          ctx.restore();
+          ctx.fillText(marker.label, x, FFT_AREA_MIN.y + 20);
         }
 
-       ctx.save();
-       ctx.font = "bold 12px JetBrains Mono";
-       ctx.textAlign = "center";
-       ctx.textBaseline = "alphabetic";
-       const labelX = (FFT_AREA_MIN.x + fftAreaMax.x) / 2;
-       const labelY = fftAreaMax.y + 25;
-       ctx.fillStyle = canvasTheme.centerLabelText;
-       ctx.fillText(centerLabel, labelX, labelY);
-       ctx.restore();
-
-       if (isDeviceConnected) {
-         ctx.save();
-         ctx.strokeStyle = "rgba(220, 38, 38, 0.75)";
-         ctx.fillStyle = canvasTheme.textColor;
-         ctx.lineWidth = 1 / dpr;
-         ctx.font = "10px JetBrains Mono";
-         ctx.textAlign = "center";
-         ctx.textBaseline = "top";
-
-         for (const marker of limitMarkers) {
-           if (!Number.isFinite(marker.freq)) continue;
-           if (marker.freq < minFreq || marker.freq > maxFreq) continue;
-
-           const x = Math.round(freqToX(marker.freq)) + 0.5;
-           ctx.beginPath();
-           ctx.moveTo(x, FFT_AREA_MIN.y);
-           ctx.lineTo(x, fftAreaMax.y);
-           ctx.stroke();
-
-           const textX = Math.max(FFT_AREA_MIN.x + 45, Math.min(fftAreaMax.x - 45, x));
-           ctx.fillText(marker.label, textX, FFT_AREA_MIN.y + 20);
-         }
-         ctx.restore();
-       }
-
-       // Use isDeviceConnected and freqToX to satisfy lints if needed, 
-       // but for now center line is the main one.
-       if (!isDeviceConnected) {
-         // potential future markers for disconnected state
-       }
-       if (freqToX(minFreq) > 0) {
-         // anchor use
-       }
+        ctx.restore();
+      }
     },
-    [formatFrequency, formatFrequencyHighRes],
+    [],
   );
 
   const drawSpikeMarkersOnContext = useCallback(
