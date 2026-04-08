@@ -263,6 +263,7 @@ export {
   sendGetAutoFftOptions,
   sendPowerScaleCommand,
   sendCaptureCommand,
+  sendCaptureStopCommand,
   sendScanCommand,
   sendDemodulateCommand,
   toggleVisualizerPause,

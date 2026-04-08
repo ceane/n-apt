@@ -133,7 +133,7 @@ describe("I/Q Capture Integration Tests", () => {
     });
 
     it("should send capture workflow parameters with valid sample rate", async () => {
-      render(
+      const { container } = render(
         <TestWrapper>
           <IQCaptureIntegrationTest />
         </TestWrapper>
@@ -143,7 +143,9 @@ describe("I/Q Capture Integration Tests", () => {
       fireEvent.click(screen.getByText("IQ Capture Controls"));
 
       fireEvent.click(screen.getByLabelText("Area A"));
-      fireEvent.change(screen.getByDisplayValue("5"), { target: { value: "10" } });
+      fireEvent.change(container.querySelector('input[type="number"]') as HTMLInputElement, {
+        target: { value: "10" },
+      });
 
       await act(async () => {
         fireEvent.click(screen.getByText("Capture"));
@@ -252,7 +254,7 @@ describe("I/Q Capture Integration Tests", () => {
     });
 
     it("should handle invalid duration values", async () => {
-      render(
+      const { container } = render(
         <TestWrapper>
           <IQCaptureIntegrationTest />
         </TestWrapper>
@@ -262,7 +264,7 @@ describe("I/Q Capture Integration Tests", () => {
       fireEvent.click(screen.getByText("IQ Capture Controls"));
 
       fireEvent.click(screen.getByLabelText("Area A"));
-      const durationInput = screen.getByDisplayValue("5");
+      const durationInput = container.querySelector('input[type="number"]') as HTMLInputElement;
 
       fireEvent.change(durationInput, { target: { value: "0" } });
       expect(screen.getByDisplayValue("1")).toBeInTheDocument();

@@ -11,6 +11,10 @@ describe('Frequency Utilities', () => {
       expect(formatFrequency(0.001)).toBe('1 kHz');
     });
 
+    test('should format sub-MHz metadata frequencies without awkward decimal MHz values', () => {
+      expect(formatFrequency(0.018, { trimTrailingZeros: true })).toBe('18 kHz');
+    });
+
     test('should format frequencies in MHz', () => {
       expect(formatFrequency(1.5)).toBe('1.500 MHz');
       expect(formatFrequency(100)).toBe('100.000 MHz');

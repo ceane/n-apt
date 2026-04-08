@@ -56,6 +56,7 @@ export type WebSocketData = {
   sendSettings: (settings: SDRSettings) => void;
   sendRestartDevice: () => void;
   sendCaptureCommand: (req: CaptureRequest) => void;
+  sendCaptureStopCommand: (jobId?: string) => void;
   sendTrainingCommand: (
     action: "start" | "stop",
     label: "target" | "noise",
@@ -648,6 +649,7 @@ export const useWebSocket = (
           type: "capture",
           jobId: req.jobId,
           fragments: req.fragments,
+          durationMode: req.durationMode,
           durationS: req.durationS,
           fileType: req.fileType,
           acquisitionMode: req.acquisitionMode,
@@ -661,6 +663,39 @@ export const useWebSocket = (
     },
     [dispatch],
   );
+
+  const sendCaptureStopCommand = useCallback(
+    (jobId?: string) => {
+      const ws = wsRef.current;
+
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        const message = JSON.stringify({
+          type: "capture_stop",
+          jobId,
+        });
+        ws.send(message);
+      }
+    },
+    [dispatch],
+  );
+
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      const currentJobId = state.captureStatus?.jobId;
+      if (currentJobId) {
+        const ws = wsRef.current;
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: "capture_stop", jobId: currentJobId }));
+        }
+      }
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      handleBeforeUnload();
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, [state.captureStatus?.jobId]);
 
   // Function to send power scale command to the server
   const sendPowerScaleCommand = useCallback((scale: "dB" | "dBm") => {
@@ -684,6 +719,7 @@ export const useWebSocket = (
     sendSettings,
     sendRestartDevice,
     sendCaptureCommand,
+    sendCaptureStopCommand,
     sendTrainingCommand,
     sendGetAutoFftOptions,
     sendPowerScaleCommand,

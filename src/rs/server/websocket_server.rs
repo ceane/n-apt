@@ -313,6 +313,7 @@ impl WebSocketServer {
           crate::server::types::SdrCommand::StartCapture {
             job_id,
             fragments,
+            duration_mode,
             duration_s,
             file_type,
             acquisition_mode,
@@ -330,6 +331,8 @@ impl WebSocketServer {
             processor.capture_pre_center_freq =
               Some(processor.get_center_frequency());
             processor.capture_job_id = Some(job_id.clone());
+            processor.capture_is_manual_mode = duration_mode == "manual";
+            processor.capture_manual_stop = false;
             processor.capture_duration_s = duration_s;
             processor.capture_file_type = file_type;
             processor.capture_ref_based_demod_baseline =
@@ -349,7 +352,23 @@ impl WebSocketServer {
             processor.capture_encrypted = encrypted;
             processor.capture_start = Some(std::time::Instant::now());
             processor.capture_actual_frames = 0;
-            // Snapshot current settings
+            // Apply and snapshot the FFT size requested for this capture.
+            // This ensures the capture runs at the user-selected FFT size even if
+            // the live stream was using a different size.
+            if fft_size > 0 && (fft_size & (fft_size - 1)) == 0 {
+              if processor.fft_processor.config().fft_size != fft_size {
+                if let Err(e) = processor.apply_settings(crate::server::types::SdrProcessorSettings {
+                  fft_size: Some(fft_size),
+                  ..Default::default()
+                }) {
+                  log::warn!("[CAPTURE] Failed to apply requested fft_size={}: {}", fft_size, e);
+                } else {
+                  processor.flush_read_queue();
+                  processor.frame.avg_spectrum = None;
+                }
+              }
+            }
+            processor.capture_fft_size = processor.fft_processor.config().fft_size;
             processor.capture_fft_window = fft_window;
             processor.capture_gain = processor.current_gain_db;
             processor.capture_ppm = processor.current_ppm;
@@ -494,6 +513,94 @@ impl WebSocketServer {
                 }
             });
             let _ = _broadcast_tx.send(msg.to_string());
+          }
+          crate::server::types::SdrCommand::StopCapture { job_id } => {
+            let mut processor = sdr_processor.lock().await;
+            if let Some(stopped_job_id) = job_id.as_ref() {
+              if processor.capture_job_id.as_ref() != Some(stopped_job_id) {
+                info!(
+                  "Ignoring StopCapture for stale job_id={}, current={:?}",
+                  stopped_job_id,
+                  processor.capture_job_id
+                );
+                continue;
+              }
+            }
+
+            if let Some(result) = processor.stop_capture() {
+              let enc_key = shared_state.encryption_key;
+              let shared_clone = shared_state.clone();
+              let bcast = _broadcast_tx.clone();
+
+              let processing_msg = serde_json::json!({
+                "type": "capture_status",
+                "status": {
+                  "jobId": result.job_id,
+                  "status": "progress",
+                  "message": "Processing stopped capture..."
+                }
+              });
+              let _ = bcast.send(processing_msg.to_string());
+
+              tokio::task::spawn_blocking(move || {
+                if result.is_ephemeral {
+                  let msg = serde_json::json!({
+                      "type": "capture_status",
+                      "status": {
+                          "jobId": result.job_id,
+                          "status": "done",
+                          "message": "Capture stopped",
+                          "ephemeral": true
+                      }
+                  });
+                  let _ = bcast.send(msg.to_string());
+                  return;
+                }
+
+                match crate::server::utils::save_capture_file_multi(&result, &enc_key) {
+                  Ok(artifact) => {
+                    let mut artifacts = shared_clone.capture_artifacts.lock().unwrap();
+                    artifacts
+                      .entry(result.job_id.clone())
+                      .or_default()
+                      .push(artifact.clone());
+
+                    let timestamp = std::time::SystemTime::now()
+                      .duration_since(std::time::UNIX_EPOCH)
+                      .unwrap()
+                      .as_millis() as u64;
+
+                    let msg = serde_json::json!({
+                        "type": "capture_status",
+                        "status": {
+                            "jobId": result.job_id,
+                            "status": "done",
+                            "message": "Capture stopped",
+                            "filename": artifact.filename,
+                            "downloadUrl": format!("/api/capture/download?jobId={}", result.job_id),
+                            "timestamp": timestamp,
+                            "fileSize": artifact.file_size,
+                            "checksum": artifact.checksum
+                        }
+                    });
+                    let _ = bcast.send(msg.to_string());
+                  }
+                  Err(e) => {
+                    error!("Failed to save stopped capture file: {}", e);
+                    let msg = serde_json::json!({
+                        "type": "capture_status",
+                        "status": {
+                            "jobId": result.job_id,
+                            "status": "failed",
+                            "message": "Capture failed",
+                            "error": e.to_string()
+                        }
+                    });
+                    let _ = bcast.send(msg.to_string());
+                  }
+                }
+              });
+            }
           }
           crate::server::types::SdrCommand::SetPowerScale { scale } => {
             let mut processor = sdr_processor.lock().await;

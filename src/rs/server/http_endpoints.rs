@@ -1476,6 +1476,7 @@ async fn handle_start_capture(
   let capture_cmd = super::types::SdrCommand::StartCapture {
     job_id: job_id.to_string(),
     fragments: fragments.clone(),
+    duration_mode: "timed".to_string(),
     duration_s,
     file_type: file_type.to_string(),
     acquisition_mode: acquisition_mode.to_string(),

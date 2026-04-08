@@ -235,6 +235,24 @@ const DurationRow = styled.div`
   gap: 4px;
 `;
 
+const DurationModeRow = styled.div`
+  display: grid;
+  grid-template-columns: repeat(2, max-content);
+  align-items: center;
+  gap: 10px;
+`;
+
+const DurationModeLabel = styled.label`
+  font-size: 11px;
+  color: ${(props) => props.theme.textPrimary};
+  white-space: nowrap;
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+`;
+
 const DurationUnit = styled.span`
   font-size: 12px;
   color: ${(props) => props.theme.textPrimary};
@@ -398,6 +416,7 @@ interface CaptureRange {
 interface IQCaptureControlsSectionProps {
   activeCaptureAreas: string[];
   availableCaptureAreas: Array<{ label: string; min: number; max: number }>;
+  captureDurationMode: "timed" | "manual";
   captureDurationS: number;
   captureFileType: CaptureFileType;
   acquisitionMode: "stepwise" | "interleaved" | "whole_sample";
@@ -410,6 +429,7 @@ interface IQCaptureControlsSectionProps {
   isConnected: boolean;
   deviceState: DeviceState;
   onActiveCaptureAreasChange: (areas: string[]) => void;
+  onCaptureDurationModeChange?: (mode: "timed" | "manual") => void;
   onCaptureDurationSChange: (value: number) => void;
   onCaptureFileTypeChange: (value: CaptureFileType) => void;
   onAcquisitionModeChange: (mode: "stepwise" | "interleaved" | "whole_sample") => void;
@@ -417,6 +437,7 @@ interface IQCaptureControlsSectionProps {
   onCapturePlaybackChange: (value: boolean) => void;
   onCaptureGeolocationChange: (value: boolean) => void;
   onCapture: () => void;
+  onStopCapture?: () => void;
   onClearStatus: () => void;
 }
 
@@ -425,6 +446,7 @@ export const IQCaptureControlsSection: React.FC<
 > = ({
   activeCaptureAreas,
   availableCaptureAreas,
+  captureDurationMode,
   captureDurationS,
   captureFileType,
   acquisitionMode,
@@ -437,6 +459,7 @@ export const IQCaptureControlsSection: React.FC<
   isConnected,
   deviceState,
   onActiveCaptureAreasChange,
+  onCaptureDurationModeChange,
   onCaptureDurationSChange,
   onCaptureFileTypeChange,
   onAcquisitionModeChange,
@@ -444,6 +467,7 @@ export const IQCaptureControlsSection: React.FC<
   onCapturePlaybackChange,
   onCaptureGeolocationChange,
   onCapture,
+  onStopCapture,
   onClearStatus,
 }) => {
     const { isAuthenticated, sessionToken } = useAuthentication();
@@ -560,12 +584,12 @@ export const IQCaptureControlsSection: React.FC<
             ? "In progress..."
             : "Idle";
     const hasSelectedCaptureAreas = activeCaptureAreas.length > 0;
+    const isCaptureActive = captureStatus?.status === "started";
     const isCaptureDisabled =
-      !hasSelectedCaptureAreas ||
       !isConnected ||
       deviceState === "loading" ||
       !isAuthenticated ||
-      captureStatus?.status === "started";
+      (!isCaptureActive && !hasSelectedCaptureAreas);
 
     const formatSampleRateLabel = (hz: number) => {
       if (!hz || Number.isNaN(hz)) {
@@ -587,7 +611,9 @@ export const IQCaptureControlsSection: React.FC<
     };
     const sampleRateLabel = formatSampleRateLabel(maxSampleRate);
     const capturePhaseMessage = captureStatus?.message;
-    const captureButtonLabel = "Capture";
+    const captureButtonLabel = isCaptureActive ? "Stop" : "Capture";
+    const handleCaptureClick = isCaptureActive ? (onStopCapture ?? onCapture) : onCapture;
+    const handleDurationModeChange = onCaptureDurationModeChange ?? (() => undefined);
 
     return (
       <Section>
@@ -652,18 +678,46 @@ export const IQCaptureControlsSection: React.FC<
           </RangeRowContainer>
 
           <Row label={<IconLabel icon={Clock} text="Duration" />}>
-            <DurationRow>
-              <SettingInput
-                type="number"
-                min="1"
-                step="1"
-                value={Math.round(captureDurationS)}
-                onChange={(e) =>
-                  onCaptureDurationSChange(parseInt(e.target.value) || 1)
-                }
-              />
-              <DurationUnit>s</DurationUnit>
-            </DurationRow>
+            <div style={{ display: "grid", gap: 8, width: "100%" }}>
+              <DurationModeRow>
+                <DurationModeLabel htmlFor="iq-capture-duration-timed">
+                  <input
+                    id="iq-capture-duration-timed"
+                    type="radio"
+                    name="iq-capture-duration-mode"
+                    checked={captureDurationMode === "timed"}
+                    onChange={() => handleDurationModeChange("timed")}
+                  />
+                  Time-based
+                </DurationModeLabel>
+                <DurationModeLabel htmlFor="iq-capture-duration-manual">
+                  <input
+                    id="iq-capture-duration-manual"
+                    type="radio"
+                    name="iq-capture-duration-mode"
+                    checked={captureDurationMode === "manual"}
+                    onChange={() => handleDurationModeChange("manual")}
+                  />
+                  Manual
+                </DurationModeLabel>
+              </DurationModeRow>
+              {captureDurationMode === "timed" ? (
+                <DurationRow>
+                  <SettingInput
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={Math.round(captureDurationS)}
+                    onChange={(e) =>
+                      onCaptureDurationSChange(parseInt(e.target.value) || 1)
+                    }
+                  />
+                  <DurationUnit>s</DurationUnit>
+                </DurationRow>
+              ) : (
+                <SettingValue>Capture runs until you press Stop.</SettingValue>
+              )}
+            </div>
           </Row>
 
           <Row label={<IconLabel icon={FileIcon} text="File type" />}>
@@ -740,7 +794,7 @@ export const IQCaptureControlsSection: React.FC<
             <CaptureButton
               $paused={false}
               $disabled={isCaptureDisabled}
-              onClick={onCapture}
+              onClick={handleCaptureClick}
               disabled={isCaptureDisabled}
             >
               {captureButtonLabel}

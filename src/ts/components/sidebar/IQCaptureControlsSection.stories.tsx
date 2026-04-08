@@ -14,6 +14,7 @@ const baseProps = {
   isOpen: true,
   onToggle: () => undefined,
   activeCaptureAreas: ["Onscreen", "A"],
+  captureDurationMode: "timed" as const,
   availableCaptureAreas: [
     { label: "Onscreen", min: 0.5, max: 4.37 },
     { label: "A", min: 24.72, max: 29.88 },
@@ -39,6 +40,7 @@ const baseProps = {
   isConnected: true,
   deviceState: "connected" as const,
   onActiveCaptureAreasChange: () => undefined,
+  onCaptureDurationModeChange: () => undefined,
   onCaptureDurationSChange: () => undefined,
   onCaptureFileTypeChange: () => undefined,
   onAcquisitionModeChange: () => undefined,

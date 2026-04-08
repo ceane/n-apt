@@ -82,9 +82,13 @@ pub enum SdrCommand {
     signal_area: String,
   },
   StopTraining,
+  StopCapture {
+    job_id: Option<String>,
+  },
   StartCapture {
     job_id: String,
     fragments: Vec<(f64, f64)>,
+    duration_mode: String,
     duration_s: f64,
     file_type: String,
     acquisition_mode: String,
@@ -204,6 +208,8 @@ pub struct WebSocketMessage {
   pub action: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "jobId")]
   pub job_id: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "durationMode")]
+  pub duration_mode: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "durationS")]
   pub duration_s: Option<f64>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "fileType")]

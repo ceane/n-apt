@@ -125,6 +125,7 @@ pub struct CaptureResult {
   pub channels: Vec<CaptureChannel>,
   pub file_type: String,
   pub acquisition_mode: String,
+  pub duration_mode: String,
   pub encrypted: bool,
   pub fft_size: u32,
   pub duration_s: f64,
@@ -174,6 +175,10 @@ pub struct SdrProcessor {
   pub training_samples: Vec<crate::stitching::TrainingSample>,
   /// Whether capture is active
   pub capture_active: bool,
+  /// Whether this capture uses manual stop mode (vs timed)
+  pub capture_is_manual_mode: bool,
+  /// Set to true when a stop command has been received for the active capture
+  pub capture_manual_stop: bool,
   /// Current capture job ID
   pub capture_job_id: Option<String>,
   /// Capture start time
@@ -202,6 +207,8 @@ pub struct SdrProcessor {
   pub capture_gain: f64,
   /// Snapshot of PPM at capture start
   pub capture_ppm: i32,
+  /// Snapshot of FFT size at capture start
+  pub capture_fft_size: usize,
   /// Snapshot of tuner AGC at capture start
   pub capture_tuner_agc: bool,
   /// Snapshot of RTL AGC at capture start
@@ -286,6 +293,8 @@ impl SdrProcessor {
       training_stitcher: None,
       training_samples: Vec::new(),
       capture_active: false,
+      capture_is_manual_mode: false,
+      capture_manual_stop: false,
       capture_job_id: None,
       capture_start: None,
       capture_duration_s: 0.0,
@@ -300,6 +309,7 @@ impl SdrProcessor {
       capture_actual_frames: 0,
       capture_gain: 0.0,
       capture_ppm: 0,
+      capture_fft_size: fft_size,
       capture_tuner_agc: false,
       capture_rtl_agc: false,
       capture_fft_window: String::from("Rectangular"),
@@ -1062,208 +1072,178 @@ impl SdrProcessor {
     Ok(())
   }
 
+  /// Stop an active capture immediately.
+  pub fn stop_capture(&mut self) -> Option<CaptureResult> {
+    if !self.capture_active {
+      return None;
+    }
+
+    self.capture_manual_stop = true;
+    self.check_capture_completion()
+  }
+
   /// Check capture completion and return multi-channel result
   pub fn check_capture_completion(&mut self) -> Option<CaptureResult> {
     if !self.capture_active {
       return None;
     }
 
-    if let Some(start) = self.capture_start {
-      let elapsed = start.elapsed().as_secs_f64();
-      if elapsed >= self.capture_duration_s {
-        self.capture_active = false;
-        let job_id = self
-          .capture_job_id
-          .take()
-          .unwrap_or_else(|| "unknown".to_string());
-
-        if let Some(pre_freq) = self.capture_pre_center_freq.take() {
-          if let Err(e) = self.set_center_frequency(pre_freq) {
-            warn!("Failed to restore pre-capture center frequency: {}", e);
-          }
+    if !self.capture_manual_stop {
+      if self.capture_is_manual_mode {
+        return None;
+      }
+      if let Some(start) = self.capture_start {
+        if start.elapsed().as_secs_f64() < self.capture_duration_s {
+          return None;
         }
-
-        self.capture_last_hop = None;
-        self.capture_fragments.clear();
-        self.capture_current_fragment = 0;
-        self.capture_start = None;
-
-        let mut channels = std::mem::take(&mut self.capture_channels);
-
-        info!(
-          "[CAPTURE COMPLETE] job={}, mode={}, num_channels={}",
-          job_id,
-          self.capture_acquisition_mode,
-          channels.len()
-        );
-        let fft_size_dbg = self.fft_processor.config().fft_size;
-        for (idx, ch) in channels.iter().enumerate() {
-          let num_frames = if fft_size_dbg > 0 {
-            ch.spectrum_data.len() / fft_size_dbg
-          } else {
-            0
-          };
-          info!("  ch[{}]: center={:.3}MHz, sr={:.3}MHz, spectrum_frames={}, iq_bytes={}", 
-                        idx, ch.center_freq_hz / 1e6, ch.sample_rate_hz / 1e6, num_frames, ch.iq_data.len());
-        }
-
-        if channels.len() > 1 {
-          let fft_size = self.fft_processor.config().fft_size;
-
-          for i in 1..channels.len() {
-            let prev_max = channels[i - 1].center_freq_hz
-              + channels[i - 1].sample_rate_hz / 2.0;
-            let curr_min =
-              channels[i].center_freq_hz - channels[i].sample_rate_hz / 2.0;
-            let overlap_hz = prev_max - curr_min;
-
-            if overlap_hz > 0.0 {
-              let midpoint_hz = (prev_max + curr_min) / 2.0;
-
-              let prev_overlap_hz = prev_max - midpoint_hz;
-              let prev_trim_fraction =
-                prev_overlap_hz / channels[i - 1].sample_rate_hz;
-              let prev_trim_bins =
-                (fft_size as f64 * prev_trim_fraction).round() as usize;
-
-              if prev_trim_bins > 0
-                && prev_trim_bins < (channels[i - 1].bins_per_frame as usize)
-              {
-                if !channels[i - 1].spectrum_data.is_empty() {
-                  let old_bins = channels[i - 1].bins_per_frame as usize;
-                  let new_bins = old_bins - prev_trim_bins;
-                  let num_frames =
-                    channels[i - 1].spectrum_data.len() / old_bins;
-                  let mut new_spectrum =
-                    Vec::with_capacity(num_frames * new_bins);
-
-                  for f in 0..num_frames {
-                    let start = f * old_bins;
-                    let end = start + new_bins;
-                    new_spectrum.extend_from_slice(
-                      &channels[i - 1].spectrum_data[start..end],
-                    );
-                  }
-                  channels[i - 1].spectrum_data = new_spectrum;
-                  channels[i - 1].bins_per_frame = new_bins as u32;
-                }
-                channels[i - 1].sample_rate_hz -= prev_overlap_hz;
-                channels[i - 1].center_freq_hz -= prev_overlap_hz / 2.0;
-              }
-
-              let curr_overlap_hz = midpoint_hz - curr_min;
-              let curr_trim_fraction =
-                curr_overlap_hz / channels[i].sample_rate_hz;
-              let curr_trim_bins =
-                (fft_size as f64 * curr_trim_fraction).round() as usize;
-
-              if curr_trim_bins > 0 && curr_trim_bins < fft_size {
-                if !channels[i].spectrum_data.is_empty() {
-                  let num_frames = channels[i].spectrum_data.len() / fft_size;
-                  let new_bins = fft_size - curr_trim_bins;
-                  let mut new_spectrum =
-                    Vec::with_capacity(num_frames * new_bins);
-
-                  for f in 0..num_frames {
-                    let start = f * fft_size + curr_trim_bins;
-                    let end = (f + 1) * fft_size;
-                    new_spectrum.extend_from_slice(
-                      &channels[i].spectrum_data[start..end],
-                    );
-                  }
-                  channels[i].spectrum_data = new_spectrum;
-                  channels[i].bins_per_frame = new_bins as u32;
-                } else {
-                  channels[i].bins_per_frame =
-                    (fft_size - curr_trim_bins) as u32;
-                }
-                channels[i].sample_rate_hz -= curr_overlap_hz;
-                channels[i].center_freq_hz += curr_overlap_hz / 2.0;
-              }
-            } else {
-              if channels[i].bins_per_frame == 0 {
-                channels[i].bins_per_frame = fft_size as u32;
-              }
-            }
-          }
-
-          for i in 1..channels.len() {
-            let prev_bins = channels[i - 1].bins_per_frame as usize;
-            let curr_bins = channels[i].bins_per_frame as usize;
-
-            if prev_bins == 0
-              || curr_bins == 0
-              || channels[i - 1].spectrum_data.is_empty()
-              || channels[i].spectrum_data.is_empty()
-            {
-              continue;
-            }
-
-            let seam_window = prev_bins.min(curr_bins).min(256);
-            if seam_window == 0 {
-              continue;
-            }
-
-            let prev_frames = channels[i - 1].spectrum_data.len() / prev_bins;
-            let curr_frames = channels[i].spectrum_data.len() / curr_bins;
-            let seam_frames = prev_frames.min(curr_frames);
-
-            for f in 0..seam_frames {
-              let prev_frame_start = f * prev_bins;
-              let curr_frame_start = f * curr_bins;
-
-              for k in 0..seam_window {
-                let t = (1.0
-                  - ((k as f32 / seam_window as f32) * std::f32::consts::PI)
-                    .cos())
-                  / 2.0;
-                let prev_idx = prev_frame_start + (prev_bins - seam_window + k);
-                let curr_idx = curr_frame_start + k;
-                let prev_val = channels[i - 1].spectrum_data[prev_idx];
-                let curr_val = channels[i].spectrum_data[curr_idx];
-
-                channels[i - 1].spectrum_data[prev_idx] =
-                  prev_val * (1.0 - t) + curr_val * t;
-                channels[i].spectrum_data[curr_idx] =
-                  prev_val * (1.0 - t) + curr_val * t;
-              }
-            }
-          }
-        }
-
-        if !channels.is_empty() && channels[0].bins_per_frame == 0 {
-          channels[0].bins_per_frame =
-            self.fft_processor.config().fft_size as u32;
-        }
-
-        return Some(CaptureResult {
-          job_id,
-          channels,
-          file_type: self.capture_file_type.clone(),
-          acquisition_mode: self.capture_acquisition_mode.clone(),
-          encrypted: self.capture_encrypted,
-          fft_size: self.fft_processor.config().fft_size as u32,
-          duration_s: self.capture_duration_s,
-          actual_frame_count: self.capture_actual_frames,
-          fft_window: self.capture_fft_window.clone(),
-          gain: self.capture_gain,
-          ppm: self.capture_ppm,
-          tuner_agc: self.capture_tuner_agc,
-          rtl_agc: self.capture_rtl_agc,
-          source_device: self.device_type().to_string(),
-          hardware_sample_rate_hz: self.get_sample_rate() as f64,
-          overall_center_frequency_hz: self.capture_overall_center_hz,
-          overall_capture_sample_rate_hz: self.capture_overall_span_hz,
-          geolocation: self.capture_geolocation.clone(),
-          frequency_range: self.capture_requested_range,
-          ref_based_demod_baseline: self
-            .capture_ref_based_demod_baseline
-            .take(),
-          is_ephemeral: self.capture_is_ephemeral,
-        });
+      } else {
+        return None;
       }
     }
-    None
+
+    self.capture_active = false;
+    let duration_mode = if self.capture_is_manual_mode {
+      "manual"
+    } else {
+      "timed"
+    }
+    .to_string();
+    let actual_duration_s = if self.capture_is_manual_mode {
+      self
+        .capture_start
+        .map(|start| start.elapsed().as_secs_f64())
+        .unwrap_or(self.capture_duration_s)
+    } else {
+      self.capture_duration_s
+    };
+    self.capture_is_manual_mode = false;
+    self.capture_manual_stop = false;
+    let job_id = self
+      .capture_job_id
+      .take()
+      .unwrap_or_else(|| "unknown".to_string());
+
+    if let Some(pre_freq) = self.capture_pre_center_freq.take() {
+      if let Err(e) = self.set_center_frequency(pre_freq) {
+        warn!("Failed to restore pre-capture center frequency: {}", e);
+      }
+    }
+
+    self.capture_last_hop = None;
+    self.capture_fragments.clear();
+    self.capture_current_fragment = 0;
+    self.capture_start = None;
+
+    let mut channels = std::mem::take(&mut self.capture_channels);
+
+    info!(
+      "[CAPTURE COMPLETE] job={}, mode={}, num_channels={}",
+      job_id,
+      self.capture_acquisition_mode,
+      channels.len()
+    );
+
+    let fft_size_dbg = self.fft_processor.config().fft_size;
+    for (idx, ch) in channels.iter().enumerate() {
+      let num_frames = if fft_size_dbg > 0 {
+        ch.spectrum_data.len() / fft_size_dbg
+      } else {
+        0
+      };
+      info!("  ch[{}]: center={:.3}MHz, sr={:.3}MHz, spectrum_frames={}, iq_bytes={}", idx, ch.center_freq_hz / 1e6, ch.sample_rate_hz / 1e6, num_frames, ch.iq_data.len());
+    }
+
+    if channels.len() > 1 {
+      let fft_size = self.fft_processor.config().fft_size;
+
+      for i in 1..channels.len() {
+        let prev_max = channels[i - 1].center_freq_hz + channels[i - 1].sample_rate_hz / 2.0;
+        let curr_min = channels[i].center_freq_hz - channels[i].sample_rate_hz / 2.0;
+        let overlap_hz = prev_max - curr_min;
+
+        if overlap_hz > 0.0 {
+          let midpoint_hz = (prev_max + curr_min) / 2.0;
+
+          let prev_overlap_hz = prev_max - midpoint_hz;
+          let prev_trim_fraction = prev_overlap_hz / channels[i - 1].sample_rate_hz;
+          let prev_trim_bins = (fft_size as f64 * prev_trim_fraction).round() as usize;
+
+          if prev_trim_bins > 0 && prev_trim_bins < (channels[i - 1].bins_per_frame as usize) {
+            if !channels[i - 1].spectrum_data.is_empty() {
+              let old_bins = channels[i - 1].bins_per_frame as usize;
+              let new_bins = old_bins - prev_trim_bins;
+              let num_frames = channels[i - 1].spectrum_data.len() / old_bins;
+              let mut new_spectrum = Vec::with_capacity(num_frames * new_bins);
+
+              for f in 0..num_frames {
+                let start = f * old_bins;
+                let end = start + new_bins;
+                new_spectrum.extend_from_slice(&channels[i - 1].spectrum_data[start..end]);
+              }
+              channels[i - 1].spectrum_data = new_spectrum;
+              channels[i - 1].bins_per_frame = new_bins as u32;
+            }
+            channels[i - 1].sample_rate_hz -= prev_overlap_hz;
+            channels[i - 1].center_freq_hz -= prev_overlap_hz / 2.0;
+          }
+
+          let curr_overlap_hz = midpoint_hz - curr_min;
+          let curr_trim_fraction = curr_overlap_hz / channels[i].sample_rate_hz;
+          let curr_trim_bins = (fft_size as f64 * curr_trim_fraction).round() as usize;
+
+          if curr_trim_bins > 0 && curr_trim_bins < fft_size {
+            if !channels[i].spectrum_data.is_empty() {
+              let num_frames = channels[i].spectrum_data.len() / fft_size;
+              let new_bins = fft_size - curr_trim_bins;
+              let mut new_spectrum = Vec::with_capacity(num_frames * new_bins);
+
+              for f in 0..num_frames {
+                let start = f * fft_size + curr_trim_bins;
+                let end = (f + 1) * fft_size;
+                new_spectrum.extend_from_slice(&channels[i].spectrum_data[start..end]);
+              }
+              channels[i].spectrum_data = new_spectrum;
+              channels[i].bins_per_frame = new_bins as u32;
+            } else {
+              channels[i].bins_per_frame = (fft_size - curr_trim_bins) as u32;
+            }
+            channels[i].sample_rate_hz -= curr_overlap_hz;
+            channels[i].center_freq_hz += curr_overlap_hz / 2.0;
+          }
+        } else if channels[i].bins_per_frame == 0 {
+          channels[i].bins_per_frame = fft_size as u32;
+        }
+      }
+    }
+
+    if !channels.is_empty() && channels[0].bins_per_frame == 0 {
+      channels[0].bins_per_frame = self.fft_processor.config().fft_size as u32;
+    }
+
+    Some(CaptureResult {
+      job_id,
+      channels,
+      file_type: self.capture_file_type.clone(),
+      acquisition_mode: self.capture_acquisition_mode.clone(),
+      duration_mode,
+      encrypted: self.capture_encrypted,
+      fft_size: self.capture_fft_size as u32,
+      duration_s: actual_duration_s,
+      actual_frame_count: self.capture_actual_frames,
+      fft_window: self.capture_fft_window.clone(),
+      gain: self.capture_gain,
+      ppm: self.capture_ppm,
+      tuner_agc: self.capture_tuner_agc,
+      rtl_agc: self.capture_rtl_agc,
+      source_device: self.device_type().to_string(),
+      hardware_sample_rate_hz: self.get_sample_rate() as f64,
+      overall_center_frequency_hz: self.capture_overall_center_hz,
+      overall_capture_sample_rate_hz: self.capture_overall_span_hz,
+      geolocation: self.capture_geolocation.clone(),
+      frequency_range: self.capture_requested_range,
+      ref_based_demod_baseline: self.capture_ref_based_demod_baseline.take(),
+      is_ephemeral: self.capture_is_ephemeral,
+    })
   }
 
   #[cfg(rs_decrypted)]

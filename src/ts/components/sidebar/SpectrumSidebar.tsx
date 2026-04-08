@@ -23,6 +23,7 @@ import { setSnapshotGrid as setSettingsSnapshotGrid } from "@n-apt/redux";
 import {
   sendRestartDevice,
   sendCaptureCommand,
+  sendCaptureStopCommand,
 } from "@n-apt/redux/thunks/websocketThunks";
 import { deriveStateFromConfig, useSdrSettings } from "@n-apt/hooks/useSdrSettings";
 import { useAuthentication } from "@n-apt/hooks/useAuthentication";
@@ -340,6 +341,7 @@ export const SpectrumSidebar: React.FC = () => {
   const showPrompt = usePrompt();
   const [activeCaptureAreas, setActiveCaptureAreas] = useState<string[]>(["Onscreen"]);
   const [acquisitionMode, setAcquisitionMode] = useState<"stepwise" | "interleaved" | "whole_sample">("stepwise");
+  const [captureDurationMode, setCaptureDurationMode] = useState<"timed" | "manual">("timed");
   const [captureDurationS, setCaptureDurationS] = useState(1);
   const [captureFileTypeState, setCaptureFileTypeState] =
     useState<CaptureFileType>(".napt");
@@ -605,6 +607,10 @@ export const SpectrumSidebar: React.FC = () => {
   }, [availableCaptureAreas, activeCaptureAreas, visibleOnscreenRange]);
 
   // Handlers
+  const handleStopCapture = useCallback(() => {
+    dispatch(sendCaptureStopCommand(liveCaptureStatus?.jobId));
+  }, [dispatch, liveCaptureStatus?.jobId]);
+
   const handleCapture = useCallback(async () => {
     if (!isServerConnected || liveDeviceState === "loading" || !isAuthenticated) return;
 
@@ -648,6 +654,7 @@ export const SpectrumSidebar: React.FC = () => {
     const req: CaptureRequest = {
       jobId: `cap_${Date.now()} `,
       fragments,
+      durationMode: captureDurationMode,
       durationS: Math.max(1, Math.round(captureDurationS)),
       fileType: captureFileTypeState,
       acquisitionMode: effectiveAcquisitionMode,
@@ -664,6 +671,7 @@ export const SpectrumSidebar: React.FC = () => {
     activeFragments,
     activeCaptureAreas,
     visibleOnscreenRange,
+    captureDurationMode,
     captureDurationS,
     captureFileTypeState,
     acquisitionMode,
@@ -963,6 +971,7 @@ export const SpectrumSidebar: React.FC = () => {
           <IQCaptureControlsSection
             activeCaptureAreas={activeCaptureAreas}
             availableCaptureAreas={availableCaptureAreas}
+            captureDurationMode={captureDurationMode}
             captureDurationS={captureDurationS}
             captureFileType={captureFileTypeState}
             acquisitionMode={acquisitionMode}
@@ -975,6 +984,7 @@ export const SpectrumSidebar: React.FC = () => {
             isConnected={isServerConnected}
             deviceState={liveDeviceState}
             onActiveCaptureAreasChange={setActiveCaptureAreas}
+            onCaptureDurationModeChange={setCaptureDurationMode}
             onCaptureDurationSChange={setCaptureDurationS}
             onCaptureFileTypeChange={setCaptureFileTypeState}
             onAcquisitionModeChange={setAcquisitionMode}
@@ -982,6 +992,7 @@ export const SpectrumSidebar: React.FC = () => {
             onCapturePlaybackChange={setCapturePlayback}
             onCaptureGeolocationChange={setCaptureGeolocation}
             onCapture={handleCapture}
+            onStopCapture={handleStopCapture}
             onClearStatus={() => dispatch(setCaptureStatus(null))}
           />
 

@@ -3,7 +3,7 @@ import styled from "styled-components";
 import { ScrollText } from "lucide-react";
 import { SidebarSectionTitle } from "@n-apt/components/ui/Collapsible";
 import { Tooltip } from "@n-apt/components/ui";
-import type { NaptMetadata } from "./FileMetadata";
+import { formatFrequency } from "@n-apt/utils/frequency";
 import { GeolocationData, AptChannelMetadata } from "@n-apt/consts/schemas/websocket";
 import { useAppSelector } from "@n-apt/redux";
 
@@ -189,9 +189,9 @@ export const FileMetadata: React.FC<FileMetadataProps> = ({
   selectedNaptFile,
   naptMetadata,
   naptMetadataError,
-  sessionToken,
+  sessionToken: _sessionToken,
   showTitle = true,
-  compact = false,
+  compact: _compact = false,
 }) => {
   const activePlaybackMetadata = useAppSelector(
     (state) => state.waterfall.activePlaybackMetadata,
@@ -248,8 +248,9 @@ export const FileMetadata: React.FC<FileMetadataProps> = ({
               />
             </MetadataLabel>
             <MetadataValue>
-              {(displayedCenterFrequencyHz / 1000000).toFixed(3)}{" "}
-              MHz
+              {formatFrequency(displayedCenterFrequencyHz / 1000000, {
+                trimTrailingZeros: true,
+              })}
             </MetadataValue>
           </MetadataItem>
           <MetadataItem>
@@ -261,15 +262,18 @@ export const FileMetadata: React.FC<FileMetadataProps> = ({
               />
             </MetadataLabel>
             <MetadataValue>
-              {displayedCaptureRateHz / 1000000}{" "}
-              MHz
+              {formatFrequency(displayedCaptureRateHz / 1000000, {
+                trimTrailingZeros: true,
+              })}
             </MetadataValue>
           </MetadataItem>
           <MetadataItem>
             <MetadataLabel>Start Freq</MetadataLabel>
             <MetadataValue>
               {displayedFrequencyRange
-                ? `${displayedFrequencyRange[0].toFixed(3)} MHz`
+                ? formatFrequency(displayedFrequencyRange[0], {
+                  trimTrailingZeros: true,
+                })
                 : "N/A"}
             </MetadataValue>
           </MetadataItem>
@@ -277,7 +281,9 @@ export const FileMetadata: React.FC<FileMetadataProps> = ({
             <MetadataLabel>End Freq</MetadataLabel>
             <MetadataValue>
               {displayedFrequencyRange
-                ? `${displayedFrequencyRange[1].toFixed(3)} MHz`
+                ? formatFrequency(displayedFrequencyRange[1], {
+                  trimTrailingZeros: true,
+                })
                 : "N/A"}
             </MetadataValue>
           </MetadataItem>
@@ -290,7 +296,10 @@ export const FileMetadata: React.FC<FileMetadataProps> = ({
               />
             </MetadataLabel>
             <MetadataValue>
-              {(naptMetadata.hardware_sample_rate_hz || 0) / 1000000} MHz
+              {formatFrequency(
+                (naptMetadata.hardware_sample_rate_hz || 0) / 1000000,
+                { trimTrailingZeros: true },
+              )}
             </MetadataValue>
           </MetadataItem>
           <MetadataItem>
