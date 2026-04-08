@@ -12,7 +12,7 @@ const ToggleContainer = styled.div<{ $disabled?: boolean }>`
 const Switch = styled.div<{ $active: boolean }>`
   width: 32px;
   height: 18px;
-  background-color: ${(props) => (props.$active ? props.theme.primary : "#333")};
+  background-color: ${(props) => (props.$active ? props.theme.primary : props.theme.borderHover)};
   border-radius: 9px;
   position: relative;
   transition: background-color 0.2s ease;
@@ -31,10 +31,10 @@ const Switch = styled.div<{ $active: boolean }>`
 `;
 
 const Label = styled.span`
-  font-family: "JetBrains Mono", monospace;
+  font-family: ${(props) => props.theme.typography.mono};
   font-size: 11px;
   font-weight: 500;
-  color: #ccc;
+  color: ${(props) => props.theme.textPrimary};
   user-select: none;
 `;
 

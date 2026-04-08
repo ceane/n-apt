@@ -7,8 +7,9 @@ tab_spaces = 2
 max_width = 80
 use_small_heuristics = "Default"
 
-# Misc
-remove_nested_parens = true
+# Performance optimizations (stable only)
+merge_derives = true
 use_try_shorthand = false
 use_field_init_shorthand = true
 force_explicit_abi = true
+remove_nested_parens = true

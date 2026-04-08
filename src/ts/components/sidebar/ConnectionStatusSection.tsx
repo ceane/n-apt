@@ -11,9 +11,9 @@ const ConnectionStatusContainer = styled.div`
   grid-column: 1 / -1;
   gap: 12px;
   align-items: center;
-  background-color: #141414;
+  background-color: ${(props) => props.theme.surface};
   border-radius: 8px;
-  border: 1px solid #1a1a1a;
+  border: 1px solid ${(props) => props.theme.border};
   padding: 12px;
   box-sizing: border-box;
   width: 100%;
@@ -34,25 +34,25 @@ const StatusDot = styled.div<{
   $loading?: boolean;
   $color?: string;
 }>`
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
   background-color: ${(props) =>
     props.$color
       ? props.$color
       : props.$loading
-        ? "#ffaa00"
+        ? props.theme.warning
         : props.$connected
           ? props.theme.primary
-          : "#ff4444"};
+          : props.theme.danger};
   box-shadow: ${(props) => {
     const c = props.$color
       ? props.$color
       : props.$loading
-        ? "#ffaa00"
+        ? props.theme.warning
         : props.$connected
           ? props.theme.primary
-          : "#ff4444";
+          : props.theme.danger;
     return `0 0 8px ${c}`;
   }};
   flex-shrink: 0;
@@ -70,7 +70,7 @@ const StatusDot = styled.div<{
 
 const StatusText = styled.span`
   font-size: 12px;
-  color: #888;
+  color: ${(props) => props.theme.textSecondary};
   font-weight: 500;
 `;
 
@@ -78,17 +78,22 @@ export const PauseButton = styled.button<{ $paused: boolean }>`
   max-width: 100%;
   box-sizing: border-box;
   padding: 12px 8px;
-  background-color: ${(props) => (props.$paused ? props.theme.primaryAnchor : "#1a1a1a")};
-  border: 1px solid ${(props) => (props.$paused ? props.theme.primary : "#2a2a2a")};
+  background-color: ${(props) => (props.$paused ? props.theme.primaryAnchor : props.theme.surface)};
+  border: 1px solid ${(props) => (props.$paused ? props.theme.primary : props.theme.borderHover)};
   border-radius: 8px;
-  color: ${(props) => (props.$paused ? props.theme.primary : "#ccc")};
-  font-family: "JetBrains Mono", monospace;
+  color: ${(props) => (props.$paused ? props.theme.primary : props.theme.textPrimary)};
+  font-family: ${(props) => props.theme.typography.mono};
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
   text-align: center;
   transition: all 0.2s ease;
   user-select: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
 
   &:hover {
     background-color: ${(props) => props.theme.primary}0d;
@@ -97,12 +102,20 @@ export const PauseButton = styled.button<{ $paused: boolean }>`
   }
 `;
 
+const SpaceHint = styled.span`
+  font-size: 9px;
+  color: ${(props) => props.theme.textSecondary};
+  opacity: 0.6;
+  line-height: 1;
+  margin-top: 3px;
+`;
+
 export const WarningButton = styled(PauseButton) <{
   $narrow?: boolean;
   $isDisabled?: boolean;
 }>`
-  border-color: #ffaa00;
-  color: #ffaa00;
+  border-color: ${(props) => props.theme.warning};
+  color: ${(props) => props.theme.warning};
   ${(props) => props.$narrow && `width: 100%;`}
   ${(props) =>
     props.$isDisabled &&
@@ -112,8 +125,8 @@ export const WarningButton = styled(PauseButton) <{
   `}
 
   &:hover {
-    border-color: #ffaa00;
-    color: #ffaa00;
+    border-color: ${(props) => props.theme.warning};
+    color: ${(props) => props.theme.warning};
   }
 `;
 
@@ -157,9 +170,9 @@ export const ConnectionStatusSection: React.FC<
             $loading={deviceState === "loading" || deviceState === "stale"}
             $color={
               cryptoCorrupted
-                ? (deviceState === "connected" ? "#ff4444" : "#ffaa00")
+                ? (deviceState === "connected" ? "var(--color-danger)" : "var(--color-warning)")
                 : isConnected && deviceState === "disconnected"
-                  ? "#ff8800"
+                  ? "var(--color-secondary)"
                   : undefined
             }
           />
@@ -216,6 +229,7 @@ export const ConnectionStatusSection: React.FC<
               !hidePauseButton && (
                 <PauseButton $paused={isPaused} onClick={onPauseToggle}>
                   {cryptoCorrupted ? "Corrupted" : isPaused ? "Resume" : "Pause"}
+                  <SpaceHint>[Space]</SpaceHint>
                 </PauseButton>
               )
             ))}

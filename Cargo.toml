@@ -1,7 +1,10 @@
 [package]
 name = "n-apt-backend"
-version = "0.1.0"
+version = "0.2.5"
+license = "Hippocratic-3.0"
 edition = "2021"
+authors = ["Ceane Lamerez"]
+description = "Visualize FFTs/waterfalls, capture a snapshot or I/Q capture & more, tailored toward N-APT signals. Analyze, learn, record, document & demodulate N-APT signals."
 
 [lib]
 name = "n_apt_backend"
@@ -41,11 +44,17 @@ path = "test/rust/capture_stitch_tests.rs"
 name = "live_stream_test"
 path = "src/rs/bin/live_stream_test.rs"
 
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(rs_decrypted)'] }
+
 [dependencies]
+paste = "1.0"
+
 # Core dependencies (always included)
 rustfft = "6"
 num-complex = "0.4"
 rand = "0.8"
+rayon = "1.10"
 getrandom = { version = "0.2", features = ["js"] }
 anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }
@@ -123,18 +132,19 @@ wasm-opt = false
 [package.metadata.wasm-pack.profile.dev]
 wasm-opt = false
 
+[profile.dev]
+opt-level = 0
+incremental = true
+debug = true
+codegen-units = 16
+
 [profile.release]
 opt-level = 3
-lto = true
-codegen-units = 1
+lto = "thin"
+codegen-units = 8
 panic = "abort"
 strip = true
 overflow-checks = false
-
-[profile.dev]
-opt-level = 1
-incremental = false
-debug = true
 
 [profile.dev-fast]
 inherits = "dev"

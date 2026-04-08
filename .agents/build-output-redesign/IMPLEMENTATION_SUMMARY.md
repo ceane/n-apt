@@ -33,19 +33,17 @@ Successfully implemented a comprehensive build output redesign for the N-APT pro
 
 ### New Scripts
 
-- `scripts/build_orchestrator.sh` - Full-featured build orchestrator
-- `scripts/simple_visual_build.sh` - Demo version for visual testing
+- `scripts/build/build-orchestrator.tsx` - Full-featured build orchestrator
 - `scripts/test_visual_output.sh` - Visual output testing
 
 ### Modified Files
 
-- `scripts/dev.sh` - Updated to use build orchestrator
+- `package.json` - Added the Ink-based `dev` script
 - `package.json` - Added new npm scripts
 
 ### New NPM Scripts
 
-- `npm run dev:visual` - Full visual build orchestrator
-- `npm run dev:visual-demo` - Simple demo version
+- `npm run dev` - Full Ink-based build orchestrator
 
 ## Visual Output Example
 
@@ -113,19 +111,19 @@ running in 1.2s
 ### Quick Demo
 
 ```bash
-npm run dev:visual-demo
+npm run dev
 ```
 
 ### Full Implementation
 
 ```bash
-npm run dev:visual
+npm run dev
 ```
 
 ### Traditional Development
 
 ```bash
-npm run dev:hot
+npm run dev
 ```
 
 ## Benefits Achieved

@@ -1,5 +1,5 @@
 import React from "react";
-import { Prompt } from "./Prompt";
+import { Prompt } from "@n-apt/components/ui";
 
 export const Info = () => {
   const [open, setOpen] = React.useState(true);

@@ -67,7 +67,7 @@ export function useAudioExtraction(options: AudioExtractionOptions): AudioPlayba
       
       // Create audio buffer
       const buffer = audioContext.createBuffer(1, processedBuffer.length, sampleRate);
-      buffer.copyToChannel(processedBuffer, 0);
+      buffer.copyToChannel(new Float32Array(processedBuffer), 0);
       
       // Create source node
       const sourceNode = audioContext.createBufferSource();
@@ -107,7 +107,7 @@ export function useAudioExtraction(options: AudioExtractionOptions): AudioPlayba
     if (sourceNodeRef.current) {
       try {
         sourceNodeRef.current.stop();
-      } catch (_error) {
+      } catch {
         // Already stopped
       }
       sourceNodeRef.current = null;

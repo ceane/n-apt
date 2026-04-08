@@ -16,6 +16,7 @@ use log::info;
 use std::env;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::thread::JoinHandle;
 use std::time::Duration;
 use tokio::sync::broadcast;
 use tower_http::cors::CorsLayer;
@@ -54,10 +55,37 @@ pub struct AppState {
   pub broadcast_tx: broadcast::Sender<String>,
   pub spectrum_tx: broadcast::Sender<Arc<types::SpectrumData>>,
   pub cmd_tx: std::sync::mpsc::Sender<types::SdrCommand>,
-  pub sdr_processor: Arc<tokio::sync::Mutex<crate::sdr::processor::SdrProcessor>>,
+  pub sdr_processor:
+    Arc<tokio::sync::Mutex<crate::sdr::processor::SdrProcessor>>,
 }
 
 impl websocket_server::WebSocketServer {
+  fn spawn_sdr_thread(
+    websocket_server: websocket_server::WebSocketServer,
+    cmd_rx: std::sync::mpsc::Receiver<crate::server::types::SdrCommand>,
+  ) -> JoinHandle<()> {
+    std::thread::Builder::new()
+      .name("n-apt-sdr-io".to_string())
+      .spawn(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+          .enable_all()
+          .build()
+          .expect("Failed to create SDR thread runtime");
+
+        runtime.block_on(async move {
+          if let Err(e) = websocket_server.run(cmd_rx).await {
+            log::error!("WebSocket server error: {}", e);
+          }
+        });
+      })
+      .expect("Failed to spawn SDR thread")
+  }
+
+  #[cfg(test)]
+  fn sdr_thread_name() -> &'static str {
+    "n-apt-sdr-io"
+  }
+
   /// Create the Axum app with all routes and middleware
   pub fn create_app(state: Arc<AppState>) -> Router {
     // CORS configuration - strict origin validation using APP_URL
@@ -192,6 +220,7 @@ impl websocket_server::WebSocketServer {
   pub async fn run_server(
     self,
     websocket_server: websocket_server::WebSocketServer,
+    listener: tokio::net::TcpListener,
   ) -> Result<()> {
     let shared = websocket_server.get_shared_state();
     let broadcast_tx = websocket_server.get_broadcast_tx();
@@ -239,15 +268,10 @@ impl websocket_server::WebSocketServer {
     let port = ws_port();
 
     info!("Starting server on {}:{}", host, port);
-    let listener = tokio::net::TcpListener::bind((host, port)).await?;
 
-    // Pass the command receiver to the WebSocket server's run loop
-    let websocket_server_clone = websocket_server.clone();
-    tokio::spawn(async move {
-      if let Err(e) = websocket_server_clone.run(cmd_rx).await {
-        log::error!("WebSocket server error: {}", e);
-      }
-    });
+    // Run SDR + websocket streaming on a dedicated OS thread so blocking I/O
+    // and device work never compete with the main HTTP runtime.
+    let _sdr_thread = Self::spawn_sdr_thread(websocket_server.clone(), cmd_rx);
 
     axum::serve(listener, app).await?;
 
@@ -264,6 +288,11 @@ pub async fn run_server() -> Result<()> {
   .init();
 
   info!("Starting N-APT Rust Backend Server");
+
+  let host = ws_host();
+  let port = ws_port();
+  info!("Binding HTTP listener on {}:{}", host, port);
+  let listener = tokio::net::TcpListener::bind((host, port)).await?;
 
   // Create WebSocket server with integrated SDR processor
   let websocket_server = websocket_server::WebSocketServer::new();
@@ -299,8 +328,21 @@ pub async fn run_server() -> Result<()> {
   // HTTP server runs in the main thread, WebSocket server runs in a spawned thread (handled in run_server)
   websocket_server
     .clone()
-    .run_server(websocket_server.clone())
+    .run_server(websocket_server.clone(), listener)
     .await?;
 
   Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn sdr_thread_has_stable_name() {
+    assert_eq!(
+      websocket_server::WebSocketServer::sdr_thread_name(),
+      "n-apt-sdr-io"
+    );
+  }
 }

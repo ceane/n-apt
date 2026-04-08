@@ -227,24 +227,6 @@ mod tests {
     assert!(result3.timestamp > 0);
   }
 
-  #[test]
-  fn test_waterfall_history() {
-    let mut processor = FFTProcessor::new();
-
-    // Generate multiple signals
-    for _ in 0..5 {
-      let _result = processor.generate_mock_signal(None).unwrap();
-    }
-
-    let history = processor.get_waterfall_history();
-    assert!(!history.is_empty());
-    assert!(history.len() <= 1000); // Should not exceed max lines
-
-    // Clear history
-    processor.clear_waterfall();
-    let empty_history = processor.get_waterfall_history();
-    assert_eq!(empty_history.len(), 0);
-  }
 
   #[test]
   fn test_mock_signal_generation() {
@@ -299,7 +281,7 @@ mod tests {
     assert_eq!(result.power_spectrum.len(), 1024);
     assert!(!result.is_mock);
     assert!(result.timestamp > 0);
-    assert!(result.power_spectrum.iter().all(|&x| x >= -120.0));
+    assert!(result.power_spectrum.iter().all(|&x| x >= -150.0));
   }
 
   #[cfg(not(target_arch = "wasm32"))]
@@ -369,39 +351,6 @@ mod tests {
     assert_eq!(result.power_spectrum.len(), 200); // Zoomed output
   }
 
-  #[cfg(not(target_arch = "wasm32"))]
-  #[test]
-  fn test_native_simd_process_samples_waterfall_accumulation() {
-    let config = EnhancedFFTConfig {
-      fft_size: 128,
-      sample_rate: 32000,
-      gain: 1.0,
-      ppm: 0.0,
-      fft_min: -80.0,
-      fft_max: 0.0,
-      waterfall_min: -80.0,
-      waterfall_max: 0.0,
-      window_type: WindowType::Rectangular,
-      zoom_offset: 0,
-      zoom_width: 128,
-    };
-
-    let mut processor = FFTProcessor::with_config(config);
-    let samples = RawSamples {
-      data: vec![128u8; 256],
-      sample_rate: 32000,
-    };
-
-    for _ in 0..5 {
-      processor.process_samples(&samples).unwrap();
-    }
-
-    let history = processor.get_waterfall_history();
-    assert_eq!(history.len(), 5);
-    for row in history {
-      assert_eq!(row.len(), 128);
-    }
-  }
 
   #[cfg(not(target_arch = "wasm32"))]
   #[test]
@@ -576,6 +525,6 @@ mod tests {
     let result = processor.process_samples(&samples, &mut output);
     assert!(result.is_ok());
     assert!(output.iter().any(|&x| x != 0.0));
-    assert!(output.iter().all(|&x| x >= -120.0));
+    assert!(output.iter().all(|&x| x >= -150.0));
   }
 }

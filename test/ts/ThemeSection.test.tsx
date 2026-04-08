@@ -32,7 +32,7 @@ describe("ThemeSection Component", () => {
     );
 
     expect(screen.getByText("App Theme")).toBeInTheDocument();
-    expect(screen.getByText("Accent")).toBeInTheDocument();
+    expect(screen.getByText("Accent Color")).toBeInTheDocument();
     expect(screen.getByText("Waterfall")).toBeInTheDocument();
   });
 

@@ -4,48 +4,54 @@ import {
   useCallback,
   forwardRef,
   useImperativeHandle,
-  useState,
   useMemo,
   memo,
+  Suspense,
 } from "react";
 import styled from "styled-components";
 import { useFFTAnimation } from "@n-apt/hooks/useFFTAnimation";
 import { usePauseLogic } from "@n-apt/hooks/usePauseLogic";
 import { useSpectrumRenderer } from "@n-apt/hooks/useSpectrumRenderer";
-import { RESAMPLE_WGSL } from "@n-apt/consts/shaders/resample";
+import { useUnifiedFFTWaterfall } from "@n-apt/hooks/useUnifiedFFTWaterfall";
+import { RESAMPLE_WGSL } from "@n-apt/shaders";
 import { useDrawWebGPUFIFOWaterfall } from "@n-apt/hooks/useDrawWebGPUFIFOWaterfall";
 import { useFrequencyDrag } from "@n-apt/hooks/useFrequencyDrag";
 import { useWebGPUInit } from "@n-apt/hooks/useWebGPUInit";
 import { useWasmSimdMath } from "@n-apt/hooks/useWasmSimdMath";
-import { useUnifiedFFTWaterfall } from "@n-apt/hooks/useUnifiedFFTWaterfall";
-import { useAppSelector, useAppDispatch } from "@n-apt/redux";
+import { useAppSelector } from "@n-apt/redux";
 import { WATERFALL_COLORMAPS } from "@n-apt/consts/colormaps";
+import type { DeviceProfile } from "@n-apt/consts/schemas/websocket";
+import type { LiveFrameData } from "@n-apt/consts/schemas/websocket";
 import type { FrequencyRange } from "@n-apt/consts/types";
 import type { SdrLimitMarker } from "@n-apt/utils/sdrLimitMarkers";
-import { VisualizerSliders } from "@n-apt/components/VisualizerSliders";
-import { spectrumActions } from "@n-apt/redux";
+// New hooks
+import { useCanvasState } from "@n-apt/hooks/useCanvasState";
+import { useWaterfallBufferPool } from "@n-apt/hooks/useWaterfallBufferPool";
 // spectrumToAmplitude removed — dB normalisation now handled in the waterfall WGSL shader
 import {
-  VISUALIZER_PADDING,
   VISUALIZER_GAP,
   SECTION_TITLE_COLOR,
   SECTION_TITLE_AFTER_COLOR,
-  CANVAS_BORDER_COLOR,
-  FFT_AREA_MIN,
   FFT_MIN_DB,
   FFT_MAX_DB,
 } from "@n-apt/consts";
+import { detectHeterodyningFromHistory } from "@n-apt/utils/detectHeterodyning";
+import type {
+  FFTVisualizerMachine,
+  FFTVisualizerSnapshot,
+} from "@n-apt/utils/fftVisualizerMachine";
 import {
-  saveWaterfallSnapshot,
-  loadWaterfallSnapshot,
-  clearWaterfallSnapshot,
-} from "@n-apt/utils/waterfallStore";
+  resolvePendingWaterfallRestore,
+  type PendingWaterfallRestore,
+} from "@n-apt/utils/waterfallRestore";
+import { getWaterfallMotion } from "@n-apt/utils/waterfallMotion";
 
 // Use dynamic import for WASM module loading
 (async () => {
   try {
     const wasmModule = await import("n_apt_canvas");
-    const { default: initWasm, test_wasm_simd_availability } = wasmModule;
+    const initWasm = wasmModule.default;
+    const test_wasm_simd_availability = wasmModule.test_wasm_simd_availability;
 
     // Initialize the WASM module first
     await initWasm();
@@ -69,12 +75,9 @@ const VisualizerContainer = styled.div`
   flex: 1;
   display: flex;
   flex-direction: row;
-  background-color: #0a0a0a;
+  background-color: ${(props) => props.theme.background};
   position: relative;
   overflow: hidden;
-  padding: ${VISUALIZER_PADDING}px;
-  gap: ${VISUALIZER_GAP}px;
-  align-items: stretch;
 `;
 
 const VisualizerContent = styled.div`
@@ -85,23 +88,9 @@ const VisualizerContent = styled.div`
   min-height: 0;
 `;
 
-const SlidersRail = styled.div`
-  width: 64px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-`;
 
 const SpectrumSection = styled.div`
   flex: 2;
-  display: flex;
-  flex-direction: column;
-  position: relative;
-  min-height: 0;
-`;
-
-const WaterfallSection = styled.div`
-  flex: 1;
   display: flex;
   flex-direction: column;
   position: relative;
@@ -128,7 +117,7 @@ const CanvasWrapper = styled.div`
   position: relative;
   flex: 1;
   min-height: 0;
-  border: 1px solid ${CANVAS_BORDER_COLOR};
+  border: 1px solid ${(props) => props.theme.canvasBorder};
   border-radius: 8px;
   overflow: hidden;
   background-color: ${(props) => props.theme.background};
@@ -151,13 +140,92 @@ const CanvasLayer = styled.canvas`
   will-change: width, height;
 `;
 
-// const WATERFALL_TEXTURE_SNAPSHOT_KEY = "napt-waterfall-texture-snapshot";
-// const WATERFALL_TEXTURE_META_KEY = "napt-waterfall-texture-meta";
+const HighlightOverlay = styled.div`
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+`;
+
+const HighlightBand = styled.div<{ $left: number; $width: number; $waterfall?: boolean }>`
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: ${({ $left }) => `${$left}%`};
+  width: ${({ $width }) => `${$width}%`};
+  background: ${({ $waterfall }) =>
+    $waterfall ? "rgba(255, 206, 84, 0.18)" : "rgba(255, 206, 84, 0.12)"};
+  box-shadow: inset 0 0 0 1px rgba(255, 206, 84, 0.7);
+`;
+
+const LOADING_PLACEHOLDER_TEXT = "Loading data from source...";
+const LOADING_PLACEHOLDER_FONT = "24px 'JetBrains Mono', monospace";
+const WATERFALL_PLACEHOLDER_FONT = "20px 'JetBrains Mono', monospace";
+const LOADING_PLACEHOLDER_COLOR = "#888888";
+const MIN_FFT_DB_SPAN = 5;
+
+const DB_MAX_RANGE: Record<"dB" | "dBm", { min: number; max: number }> = {
+  dB: { min: FFT_MIN_DB, max: FFT_MAX_DB },
+  dBm: { min: -100, max: 30 },
+};
+
+const DB_MIN_RANGE: Record<"dB" | "dBm", { min: number; max: number }> = {
+  dB: { min: FFT_MIN_DB, max: -10 },
+  dBm: { min: -120, max: -10 },
+};
+
+const clampDbMaxValue = (value: number, scale: "dB" | "dBm") => {
+  const bounds = DB_MAX_RANGE[scale];
+  return Math.min(Math.max(value, bounds.min), bounds.max);
+};
+
+const clampDbMinValue = (value: number, scale: "dB" | "dBm") => {
+  const bounds = DB_MIN_RANGE[scale];
+  return Math.min(Math.max(value, bounds.min), bounds.max);
+};
+
+const ensureValidDbRange = (
+  minVal: number,
+  maxVal: number,
+  scale: "dB" | "dBm",
+) => {
+  let nextMin = clampDbMinValue(minVal, scale);
+  let nextMax = clampDbMaxValue(maxVal, scale);
+
+  if (nextMax - nextMin < MIN_FFT_DB_SPAN) {
+    nextMax = clampDbMaxValue(nextMin + MIN_FFT_DB_SPAN, scale);
+    if (nextMax - nextMin < MIN_FFT_DB_SPAN) {
+      nextMin = clampDbMinValue(nextMax - MIN_FFT_DB_SPAN, scale);
+    }
+  }
+
+  return { min: nextMin, max: nextMax };
+};
+
+const toUnifiedWindowType = (
+  windowType?: string,
+): "rectangular" | "hanning" | "hamming" | "blackman" | "nuttall" => {
+  switch ((windowType ?? "Rectangular").toLowerCase()) {
+    case "rectangular":
+    case "none":
+      return "rectangular";
+    case "hann":
+    case "hanning":
+      return "hanning";
+    case "hamming":
+      return "hamming";
+    case "blackman":
+      return "blackman";
+    case "nuttall":
+      return "nuttall";
+    default:
+      return "rectangular";
+  }
+};
 
 /**
  * Props for FFTCanvas component
  */
-interface FFTCanvasProps {
+export interface FFTCanvasProps {
   /** Reference to FFT data containing waveform and metadata */
   dataRef: React.MutableRefObject<any>;
   /** Frequency range to display */
@@ -180,8 +248,6 @@ interface FFTCanvasProps {
   /** Callback for frequency range changes */
   onFrequencyRangeChange?: (range: FrequencyRange) => void;
   displayTemporalResolution?: "low" | "medium" | "high";
-  /** Force 2D canvas rendering (skip WebGPU). Used by file-selection mode. */
-  force2D?: boolean;
   /** Callback to trigger a snapshot render for the sidebar */
   onSnapshot?: (data: {
     waveform: Float32Array;
@@ -196,6 +262,8 @@ interface FFTCanvasProps {
   }) => void;
   /** Grid preference for snapshot rendering (affects 2D shadow canvases) */
   snapshotGridPreference: boolean;
+  /** Whether to hide title and use compact layout (for node integration) */
+  compact?: boolean;
   showSpikeOverlay?: boolean;
   vizZoom?: number;
   vizPanOffset?: number;
@@ -206,12 +274,39 @@ interface FFTCanvasProps {
   onFftDbLimitsChange?: (min: number, max: number) => void;
   /** Function to request auto FFT options from server */
   sendGetAutoFftOptions?: (screenWidth: number) => void;
+  /** Auto FFT options from server/cache */
+  autoFftOptions?: {
+    type: "auto_fft_options";
+    autoSizes: number[];
+    recommended: number;
+  } | null;
   hardwareSampleRateHz?: number;
+  deviceProfile?: DeviceProfile | null;
+  tunerGainDb?: number;
   /** Whether I/Q recording is active */
   isIqRecordingActive?: boolean;
   limitMarkers?: SdrLimitMarker[];
   isWaterfallCleared?: boolean;
   onResetWaterfallCleared?: () => void;
+  heterodyningVerifyRequestId?: number;
+  heterodyningHighlightedBins?: Array<{ start: number; end: number }>;
+  onHeterodyningAnalyzed?: (result: {
+    detected: boolean;
+    confidence: number | null;
+    statusText: string;
+    highlightedBins: Array<{ start: number; end: number }>;
+  }) => void;
+  awaitingDeviceData?: boolean;
+  visualizerMachine?: FFTVisualizerMachine;
+  visualizerSessionKey?: string;
+  waterfallCanvasBindings?: FFTCanvasWaterfallBindings;
+}
+
+export interface FFTCanvasWaterfallBindings {
+  waterfallGpuCanvasNode: HTMLCanvasElement | null;
+  waterfallOverlayCanvasNode: HTMLCanvasElement | null;
+  setWaterfallGpuCanvasNode: (node: HTMLCanvasElement | null) => void;
+  setWaterfallOverlayCanvasNode: (node: HTMLCanvasElement | null) => void;
 }
 
 /**
@@ -220,9 +315,12 @@ interface FFTCanvasProps {
  */
 export type SnapshotData = {
   waveform: Float32Array | null;
+  fullChannelWaveform: Float32Array | null;
   frequencyRange: FrequencyRange;
   dbMin: number;
   dbMax: number;
+  fftSize?: number;
+  fftWindow?: string;
   centerFrequencyMHz: number;
   isDeviceConnected: boolean;
   vizZoom: number;
@@ -246,6 +344,7 @@ export type FFTCanvasHandle = {
   getWaterfallCanvas: () => HTMLCanvasElement | null;
   triggerSnapshotRender: () => void;
   getSnapshotData: () => SnapshotData | null;
+  getCompositeSnapshot: () => { dataUrl: string; width: number; height: number } | null;
 };
 
 const FFTCanvas = memo(
@@ -264,7 +363,6 @@ const FFTCanvas = memo(
       isDeviceConnected = true,
       onFrequencyRangeChange,
       displayTemporalResolution = "medium",
-      force2D = false,
       onSnapshot: _onSnapshot,
       snapshotGridPreference,
       showSpikeOverlay = false,
@@ -276,18 +374,23 @@ const FFTCanvas = memo(
       fftMax,
       onFftDbLimitsChange,
       sendGetAutoFftOptions,
+      autoFftOptions,
       hardwareSampleRateHz,
       isIqRecordingActive = false,
       limitMarkers = [],
       isWaterfallCleared = false,
       onResetWaterfallCleared,
+      heterodyningVerifyRequestId = 0,
+      heterodyningHighlightedBins = [],
+      onHeterodyningAnalyzed,
+      awaitingDeviceData = false,
+      visualizerMachine,
+      visualizerSessionKey = "default",
+      waterfallCanvasBindings,
+      compact = false,
     } = props;
     const fftColor = useAppSelector((reduxState) => reduxState.theme.fftColor);
     const waterfallTheme = useAppSelector((reduxState) => reduxState.theme.waterfallTheme);
-
-    // Theme/smoothing remain in Redux, but live visualizer controls come from SpectrumProvider
-    const reduxDispatch = useAppDispatch();
-
     const fillColor = useMemo(() => {
       if (fftColor.startsWith("#")) {
         return `${fftColor}33`; // 20% opacity
@@ -296,69 +399,72 @@ const FFTCanvas = memo(
     }, [fftColor]);
 
     const colormap = useMemo(() => WATERFALL_COLORMAPS[waterfallTheme], [waterfallTheme]);
-    const [spectrumCanvasNode, setSpectrumCanvasNode] =
-      useState<HTMLCanvasElement | null>(null);
-    const [spectrumGpuCanvasNode, setSpectrumGpuCanvasNode] =
-      useState<HTMLCanvasElement | null>(null);
-    const [waterfallCanvasNode, setWaterfallCanvasNode] =
-      useState<HTMLCanvasElement | null>(null);
-    const [waterfallGpuCanvasNode, setWaterfallGpuCanvasNode] =
-      useState<HTMLCanvasElement | null>(null);
 
-    // Maintain refs for internal hook usage that don't need to trigger re-renders
-    const spectrumCanvasRef = useRef<HTMLCanvasElement | null>(null);
-    const spectrumGpuCanvasRef = useRef<HTMLCanvasElement | null>(null);
-    const waterfallCanvasRef = useRef<HTMLCanvasElement | null>(null);
-    const waterfallGpuCanvasRef = useRef<HTMLCanvasElement | null>(null);
-    // Ref to the CanvasWrapper div for the spectrum section — receives pointer
-    // events since all CanvasLayer elements have pointer-events:none.
-    const spectrumContainerRef = useRef<HTMLDivElement | null>(null);
+    // Use new hooks for state management
+    const canvasState = useCanvasState(waterfallCanvasBindings);
+    const {
+      spectrumGpuCanvasNode,
+      setSpectrumGpuCanvasNode,
+      setSpectrumOverlayCanvasNode: _setSpectrumOverlayCanvasNode,
+      waterfallGpuCanvasNode,
+      setWaterfallGpuCanvasNode: _setWaterfallGpuCanvasNode,
+      setWaterfallOverlayCanvasNode: _setWaterfallOverlayCanvasNode,
+      spectrumGpuCanvasRef,
+      spectrumOverlayCanvasRef,
+      waterfallGpuCanvasRef,
+      waterfallOverlayCanvasRef,
+      spectrumContainerRef,
+    } = canvasState;
 
-    // Sync state to refs
-    useEffect(() => {
-      spectrumCanvasRef.current = spectrumCanvasNode;
-    }, [spectrumCanvasNode]);
-    useEffect(() => {
-      spectrumGpuCanvasRef.current = spectrumGpuCanvasNode;
-    }, [spectrumGpuCanvasNode]);
-    useEffect(() => {
-      waterfallCanvasRef.current = waterfallCanvasNode;
-    }, [waterfallCanvasNode]);
-    useEffect(() => {
-      waterfallGpuCanvasRef.current = waterfallGpuCanvasNode;
-    }, [waterfallGpuCanvasNode]);
+    // Sync state to refs (this is now handled inside useCanvasState hook)
 
     const lastRenderedPowerScaleRef = useRef<"dB" | "dBm" | null>(null);
+    const lastIncomingFrameRef = useRef<LiveFrameData | null>(null);
+    const liveGpuProcessInFlightRef = useRef(false);
 
-    // Simplified buffer management
-    const waterfallBufferRef = useRef<Uint8ClampedArray | null>(null);
-    const waterfallDataWidthRef = useRef<number | null>(null);
-    const bufferPoolRef = useRef<Uint8ClampedArray[]>([]);
-    const maxBufferPoolSize = 3;
+    const {
+      waterfallBufferRef,
+      waterfallDataWidthRef,
+      getBufferFromPool,
+      returnBufferToPool,
+    } = useWaterfallBufferPool();
+
+    const waterfallCappedBufferRef = useRef<Float32Array | null>(null);
 
     // Track canvas dimensions for cache management
     const spectrumWidthRef = useRef<number>(0);
     const spectrumHeightRef = useRef<number>(0);
 
-    const getBufferFromPool = (size: number): Uint8ClampedArray => {
-      const pool = bufferPoolRef.current;
-      for (let i = 0; i < pool.length; i++) {
-        const buffer = pool[i];
-        if (buffer.length === size) {
-          pool.splice(i, 1);
-          buffer.fill(0);
-          return buffer;
-        }
-      }
-      return new Uint8ClampedArray(size);
-    };
+    const clearOverlayCanvas = useCallback((canvas: HTMLCanvasElement | null) => {
+      if (!canvas) return;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }, []);
 
-    const returnBufferToPool = (buffer: Uint8ClampedArray) => {
-      const pool = bufferPoolRef.current;
-      if (pool.length < maxBufferPoolSize) {
-        pool.push(buffer);
-      }
-    };
+    const drawLoadingPlaceholder = useCallback(
+      (canvas: HTMLCanvasElement | null, fontOverride?: string) => {
+        if (!canvas) return;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const dpr = window.devicePixelRatio || 1;
+        const logicalWidth = canvas.width / dpr;
+        const logicalHeight = canvas.height / dpr;
+        ctx.save();
+        ctx.font = fontOverride ?? LOADING_PLACEHOLDER_FONT;
+        ctx.fillStyle = LOADING_PLACEHOLDER_COLOR;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(
+          LOADING_PLACEHOLDER_TEXT,
+          logicalWidth / 2,
+          logicalHeight / 2,
+        );
+        ctx.restore();
+      },
+      [],
+    );
 
     const lastWaterfallRowRef = useRef<Float32Array | null>(null);
     const pausedWaterfallRowRef = useRef<Float32Array | null>(null);
@@ -368,12 +474,11 @@ const FFTCanvas = memo(
       height: number;
       writeRow: number;
     } | null>(null);
-    const pendingWaterfallRestoreRef = useRef<{
-      data: Uint8Array;
-      width: number;
-      height: number;
-      writeRow: number;
-    } | null>(null);
+    const heterodyningHistoryRef = useRef<Float32Array[]>([]);
+    const lastHeterodyningRequestIdRef = useRef(0);
+    const pendingWaterfallRestoreRef = useRef<PendingWaterfallRestore | null>(
+      null,
+    );
     const restoredWaterfallRef = useRef(false);
 
     // Simplified frame management
@@ -386,9 +491,46 @@ const FFTCanvas = memo(
 
     const retuneSmearRef = useRef(0);
     const retuneDriftPxRef = useRef(0);
+    const lastWaterfallVisualRangeRef = useRef<FrequencyRange | null>(null);
 
-    const vizDbMax = fftMax ?? FFT_MAX_DB;
-    const vizDbMin = fftMin ?? FFT_MIN_DB;
+    const effectivePowerScale = powerScale ?? "dB";
+    const baseDbMin = Number.isFinite(fftMin) ? (fftMin as number) : FFT_MIN_DB;
+    const baseDbMax = Number.isFinite(fftMax) ? (fftMax as number) : FFT_MAX_DB;
+    const validatedDbRange = useMemo(
+      () => ensureValidDbRange(baseDbMin, baseDbMax, effectivePowerScale),
+      [baseDbMin, baseDbMax, effectivePowerScale],
+    );
+    const vizDbMin = validatedDbRange.min;
+    const vizDbMax = validatedDbRange.max;
+
+    const applyDbLimits = useCallback(
+      (minValue: number, maxValue: number) => {
+        if (!onFftDbLimitsChange) return;
+        const next = ensureValidDbRange(minValue, maxValue, effectivePowerScale);
+        onFftDbLimitsChange(next.min, next.max);
+      },
+      [onFftDbLimitsChange, effectivePowerScale],
+    );
+
+    useEffect(() => {
+      if (!onFftDbLimitsChange) return;
+      const normalized = { min: vizDbMin, max: vizDbMax };
+      const lastEmitted = lastEmittedDbLimitsRef.current;
+      const shouldEmit =
+        baseDbMin !== normalized.min ||
+        baseDbMax !== normalized.max;
+
+      if (
+        shouldEmit &&
+        (!lastEmitted ||
+          lastEmitted.min !== normalized.min ||
+          lastEmitted.max !== normalized.max)
+      ) {
+        lastEmittedDbLimitsRef.current = normalized;
+        onFftDbLimitsChange(vizDbMin, vizDbMax);
+      }
+    }, [baseDbMin, baseDbMax, vizDbMin, vizDbMax, onFftDbLimitsChange]);
+
     const currentVizZoom = vizZoom ?? 1;
 
     const fftAvgEnabled = useAppSelector((reduxState) => reduxState.spectrum.fftAvgEnabled);
@@ -398,14 +540,25 @@ const FFTCanvas = memo(
     // Clear waterfall effect
     useEffect(() => {
       if (isWaterfallCleared) {
-        clearWaterfallSnapshot();
+        visualizerMachine?.clear(visualizerSessionKey);
+        waterfallBufferRef.current = null;
+        waterfallTextureSnapshotRef.current = null;
+        waterfallTextureMetaRef.current = null;
+        lastWaterfallRowRef.current = null;
+        pausedWaterfallRowRef.current = null;
+        pendingWaterfallRestoreRef.current = null;
+        restoredWaterfallRef.current = false;
+        heterodyningHistoryRef.current = [];
         onResetWaterfallCleared?.();
       }
-    }, [isWaterfallCleared, onResetWaterfallCleared]);
-    const waterfallCappedBufferRef = useRef<Float32Array | null>(null);
-    const fftAvgBufferRef = useRef<Float32Array | null>(null);
+    }, [
+      isWaterfallCleared,
+      onResetWaterfallCleared,
+      visualizerMachine,
+      visualizerSessionKey,
+    ]);
     const fftProcessedBufferRef = useRef<Float32Array | null>(null);
-    const fftSmoothedBufferRef = useRef<Float32Array | null>(null);
+    const _fftSmoothedBufferRef = useRef<Float32Array | null>(null);
     const spikePersistenceRef = useRef<Float32Array | null>(null);
 
     const setVizZoom = useCallback(
@@ -431,6 +584,8 @@ const FFTCanvas = memo(
     const vizDbMaxRef = useRef(vizDbMax);
     const vizDbMinRef = useRef(vizDbMin);
     const vizPanOffsetRef = useRef(vizPanOffset);
+    const previousPowerScaleRef = useRef(effectivePowerScale);
+    const lastEmittedDbLimitsRef = useRef<{ min: number; max: number } | null>(null);
     vizZoomRef.current = currentVizZoom;
     vizDbMaxRef.current = vizDbMax;
     vizDbMinRef.current = vizDbMin;
@@ -488,7 +643,7 @@ const FFTCanvas = memo(
         };
 
         if (zoom < 1) {
-          const paddedWaveform = new Float32Array(visibleBins).fill(-120);
+          const paddedWaveform = new Float32Array(visibleBins).fill(FFT_MIN_DB);
           const destOffset = Math.max(0, -startBin);
           const dataToCopy = Math.min(totalBins, visibleBins - destOffset);
           const srcOffset = Math.max(0, startBin);
@@ -524,7 +679,9 @@ const FFTCanvas = memo(
     }, [snapshotGridPreference]);
     const waveformFloatRef = useRef<Float32Array | null>(null);
     const renderWaveformRef = useRef<Float32Array | null>(null);
-    const spectrumResampleBufRef = useRef<Float32Array | null>(null);
+    const FULL_CHANNEL_BINS = 4096;
+    const fullChannelWaveformRef = useRef<Float32Array | null>(null);
+    const fullChannelRangeRef = useRef<FrequencyRange | null>(null);
     const waterfallDimsRef = useRef<{ width: number; height: number } | null>(
       null,
     );
@@ -532,7 +689,6 @@ const FFTCanvas = memo(
       width: number;
       height: number;
     } | null>(null);
-    // OVERLAY_MIN_INTERVAL_MS moved to useSpectrumRenderer hook
 
     // Simplified WebGPU references
     const resampleComputePipelineRef = useRef<GPUComputePipeline | null>(null);
@@ -549,7 +705,6 @@ const FFTCanvas = memo(
       spikesOverlayRendererRef,
       overlayDirtyRef,
     } = useWebGPUInit({
-      force2D,
       spectrumGpuCanvasRef,
       waterfallGpuCanvasRef,
       resampleWgsl: RESAMPLE_WGSL,
@@ -559,34 +714,17 @@ const FFTCanvas = memo(
     });
     const spectrumWebgpuEnabled = webgpuEnabled;
     const effectiveFftSize = fftSize ?? 32768;
-    const effectivePowerScale = powerScale ?? "dB";
     const activeScaleDbMin = vizDbMin;
     const activeScaleDbMax = vizDbMax;
-    const effectiveFftWindowRaw = (fftWindow ?? "Rectangular").toLowerCase();
-    const effectiveFftWindow:
-      | "rectangular"
-      | "hanning"
-      | "hamming"
-      | "blackman"
-      | "nuttall" =
-      effectiveFftWindowRaw === "rectangular" ||
-        effectiveFftWindowRaw === "hanning" ||
-        effectiveFftWindowRaw === "hamming" ||
-        effectiveFftWindowRaw === "blackman" ||
-        effectiveFftWindowRaw === "nuttall"
-        ? effectiveFftWindowRaw
-        : "rectangular";
+    const gpuProcessingDevice = webgpuDeviceRef.current;
 
-    // Initialize unified FFT and waterfall when WebGPU is available
-    const unifiedFFTSize = effectiveFftSize;
-    const unifiedFFT = useUnifiedFFTWaterfall({
-      device: webgpuDeviceRef.current,
-      fftSize: unifiedFFTSize,
-      waterfallHeight: 512,
-      windowType: effectiveFftWindow,
-      enableAveraging: fftAvgEnabled,
-      enableSmoothing: fftSmoothEnabled,
-      normalizationFactor: 1.0
+    const { processUnified } = useUnifiedFFTWaterfall({
+      device: webgpuDeviceRef.current ?? null,
+      fftSize: effectiveFftSize,
+      waterfallHeight: 1,
+      windowType: toUnifiedWindowType(fftWindow),
+      enableAveraging: false,
+      enableSmoothing: false,
     });
 
     // Compute zoomed frequency range from the full range (visual only, don't retune)
@@ -616,7 +754,7 @@ const FFTCanvas = memo(
 
     // Screen width detection for auto FFT options
     useEffect(() => {
-      if (sendGetAutoFftOptions) {
+      if (sendGetAutoFftOptions && !autoFftOptions) {
         const detectScreenWidth = () => {
           const cssWidth =
             window.innerWidth ||
@@ -643,12 +781,10 @@ const FFTCanvas = memo(
           clearTimeout(resizeTimeout);
         };
       }
-    }, [sendGetAutoFftOptions]);
+    }, [sendGetAutoFftOptions, autoFftOptions]);
 
     useFrequencyDrag({
-      spectrumCanvasRef,
       spectrumGpuCanvasRef,
-      spectrumCanvasNode,
       spectrumGpuCanvasNode,
       spectrumContainerRef,
       frequencyRangeRef,
@@ -666,17 +802,15 @@ const FFTCanvas = memo(
       },
       vizDbMinRef,
       vizDbMaxRef,
-      onFftDbLimitsChange,
+      onFftDbLimitsChange: applyDbLimits,
       onVizZoomChange: setVizZoom,
       renderWaveformRef,
     });
 
     // Initialize WASM SIMD for optimized data processing
     const {
-      resampleSpectrum: wasmResampleSpectrum,
       processIqToDbmSpectrum,
       detectProminentSpikes,
-      isSimdAvailable
     } = useWasmSimdMath({
       fftSize: 4096,
       enableSimd: true,
@@ -691,91 +825,31 @@ const FFTCanvas = memo(
 
     // Redundant overlay logic removed (now handled by useSpectrumRenderer)
 
-    const ensureFloat32Waveform = useCallback(
-      (spectrumData: ArrayLike<number> | null | undefined) => {
-        if (!spectrumData || spectrumData.length === 0) {
-          return new Float32Array(1024).fill(-120);
-        }
-
-        // Validate data contains at least one finite number
-        let hasValidData = false;
-        for (let i = 0; i < spectrumData.length; i++) {
-          const v = spectrumData[i];
-          if (Number.isFinite(v)) {
-            hasValidData = true;
-            break;
-          }
-        }
-        if (!hasValidData) {
-          return new Float32Array(1024).fill(-120);
-        }
-
-        if (spectrumData instanceof Float32Array) {
-          return spectrumData;
-        }
-
-        // If it's a regular array, we shouldn't return a reference to renderWaveformRef.current
-        // directly because the caller (onRenderFrame) assumes it's returning a fresh waveform
-        // that it will THEN copy/blend into renderWaveformRef.current.
-        // Returning renderWaveformRef.current here causes aliasing issues where the previous
-        // frame and current frame point to the exact same memory, breaking the blending math
-        // and causing an empty/frozen screen.
-        return Float32Array.from(spectrumData);
-      },
-      [],
-    );
-
     const restoreWaveformFromStorageRef = useRef<() => void>(() => {
-      // When paused and no current waveform, try to restore from last valid data
-      if (lastProcessedDataRef.current?.waveform) {
-        const waveform = ensureFloat32Waveform(
-          lastProcessedDataRef.current.waveform,
+      // When paused and no current IQ data, try to reprocess from last valid frame
+      // using the CPU path (authoritative spectrum source).
+      const lastData = lastProcessedDataRef.current;
+      if (
+        lastData?.iq_data &&
+        lastData.iq_data.length >= 2
+      ) {
+        const isDbm = effectivePowerScale === "dBm";
+        const restored = processIqToDbmSpectrum(
+          lastData.iq_data,
+          isDbm ? 30.0 : 0.0,
+          effectiveFftSize,
+          fftWindow,
         );
-        if (waveform && waveform.length > 0) {
-          renderWaveformRef.current = new Float32Array(waveform);
+        if (restored.length > 0) {
+          renderWaveformRef.current = new Float32Array(restored);
           return;
         }
       }
 
       // If no previous data, create a fallback waveform
-      const fallbackWaveform = new Float32Array(1024).fill(-120);
+      const fallbackWaveform = new Float32Array(1024).fill(FFT_MIN_DB);
       renderWaveformRef.current = fallbackWaveform;
     });
-
-    // WASM SIMD optimized resampling with CPU fallback
-    const resampleSpectrumInto = useCallback(
-      (input: Float32Array, output: Float32Array) => {
-        const srcLen = input.length;
-        const outLen = output.length;
-        if (srcLen === 0 || outLen === 0) return;
-
-        // Use WASM SIMD when available for 3-10x performance boost
-        if (isSimdAvailable) {
-          wasmResampleSpectrum(input, output);
-        } else {
-          // CPU fallback with max-pooling
-          for (let x = 0; x < outLen; x++) {
-            const start = Math.floor((x * srcLen) / outLen);
-            const end = Math.max(
-              start + 1,
-              Math.floor(((x + 1) * srcLen) / outLen),
-            );
-            let maxVal = -Infinity;
-            for (let i = start; i < end && i < srcLen; i++) {
-              const v = input[i];
-              if (Number.isFinite(v)) {
-                if (v > maxVal) maxVal = v;
-              }
-            }
-            output[x] =
-              maxVal !== -Infinity
-                ? maxVal
-                : (input[Math.min(start, srcLen - 1)] ?? -120);
-          }
-        }
-      },
-      [isSimdAvailable, wasmResampleSpectrum],
-    );
 
     /**
      * Animation loop for continuous spectrum and waterfall updates
@@ -789,65 +863,102 @@ const FFTCanvas = memo(
       (_runId: number) => {
         performance.clearMeasures();
         const spectrumGpuCanvas = spectrumGpuCanvasRef.current;
-        const spectrumCanvas = spectrumCanvasRef.current;
         const waterfallGpuCanvas = waterfallGpuCanvasRef.current;
+        const spectrumOverlayCanvas = spectrumOverlayCanvasRef.current;
+        const waterfallOverlayCanvas = waterfallOverlayCanvasRef.current;
 
         const currentData = dataRef.current;
+
+        const hasRenderableWaveform = !!(
+          renderWaveformRef.current &&
+          renderWaveformRef.current.length > 0
+        );
+        const hasIncomingData = !!(
+          currentData &&
+          (currentData.iq_data?.length ?? 0) > 0
+        );
+        const showLoadingPlaceholder = awaitingDeviceData &&
+          !hasRenderableWaveform &&
+          !hasIncomingData &&
+          !(isPaused && pendingWaterfallRestoreRef.current);
+
+        if (showLoadingPlaceholder) {
+          drawLoadingPlaceholder(spectrumOverlayCanvas);
+          drawLoadingPlaceholder(waterfallOverlayCanvas, WATERFALL_PLACEHOLDER_FONT);
+          return;
+        }
+
+        clearOverlayCanvas(spectrumOverlayCanvas);
+        clearOverlayCanvas(waterfallOverlayCanvas);
 
         const powerScale = effectivePowerScale;
         const isDbmMode = powerScale === "dBm";
         const powerScaleChanged = lastRenderedPowerScaleRef.current !== powerScale;
         const hasNewData = !isPaused && currentData && currentData !== lastProcessedDataRef.current &&
-          (!!currentData.waveform || !!currentData.iq_data);
+          !!currentData.iq_data;
         const shouldReprocessCurrentFrame = !!(
-          !isPaused &&
           currentData &&
-          currentData === lastProcessedDataRef.current &&
+          (currentData === lastProcessedDataRef.current || isPaused) &&
           powerScaleChanged &&
-          (!!currentData.waveform || !!currentData.iq_data)
+          !!currentData.iq_data
         );
 
         if (hasNewData || shouldReprocessCurrentFrame) {
-          const isIqRaw = currentData?.data_type === "iq_raw";
-          const shouldUseIqRaw = isDbmMode && isIqRaw && !!currentData?.iq_data;
-          // Handle I/Q data for dBm mode
-          let waveform: Float32Array;
-          let gpuInput: Float32Array | null = null;
-          let gpuInputMode: "real" | "complex_iq" = "real";
+          // Unified IQ→spectrum path: all live data is iq_data (Uint8Array).
+          // The only variable is the dB offset for the power scale.
+          const iqBytes = currentData?.iq_data;
+          if (!iqBytes || iqBytes.length < 2) return;
 
-          if (shouldUseIqRaw) {
-            const iqBytes = currentData.iq_data as Uint8Array;
-
-            // Produce a CPU/WASM spectrum for the line plot in dBm mode and clamp
-            // to the canonical dBm viewport so the axis stays stable on restore/toggle.
-            const cpuSpectrum = processIqToDbmSpectrum(iqBytes, effectiveFftSize);
-            const minClamp = activeScaleDbMin;
-            const maxClamp = activeScaleDbMax;
-            for (let i = 0; i < cpuSpectrum.length; i++) {
-              const val = cpuSpectrum[i];
-              cpuSpectrum[i] = Math.min(maxClamp, Math.max(minClamp, val));
+          if (gpuProcessingDevice && webgpuEnabled && !isInitializingWebGPU) {
+            if (!liveGpuProcessInFlightRef.current) {
+              liveGpuProcessInFlightRef.current = true;
+              const currentFrame = currentData;
+              const liveChunkSize = effectiveFftSize * 2;
+              const liveIqChunk =
+                iqBytes.length > liveChunkSize
+                  ? iqBytes.subarray(0, liveChunkSize)
+                  : iqBytes;
+              // GPU unified path: drives the waterfall texture only.
+              // Do NOT write spectrumData back to waveformFloatRef — the CPU
+              // processIqToDbmSpectrum path below is the authoritative spectrum
+              // source and uses a different normalization / FFT implementation.
+              // Letting the async GPU result overwrite the CPU result causes
+              // dB mode to draw with dBm-shaped values (race condition).
+              void processUnified(liveIqChunk, {
+                inputMode: "complex_iq",
+                powerMode: isDbmMode ? "dbm" : "db",
+                minDb: activeScaleDbMin,
+                maxDb: activeScaleDbMax,
+                hardwareSampleRateHz: currentFrame.sample_rate,
+                centerFrequencyHz: currentFrame.center_frequency_hz,
+              })
+                .finally(() => {
+                  liveGpuProcessInFlightRef.current = false;
+                })
+                .catch(() => {
+                  liveGpuProcessInFlightRef.current = false;
+                });
             }
-            waveform = cpuSpectrum;
-
-            // GPU Path: Convert Uint8 offset-binary to Float32 complex pairs
-            const pairCount = Math.min(effectiveFftSize, Math.floor(iqBytes.length / 2));
-            gpuInput = new Float32Array(pairCount * 2);
-            for (let i = 0; i < pairCount; i++) {
-              gpuInput[i * 2] = (iqBytes[i * 2] - 127.5) / 127.5;     // I
-              gpuInput[i * 2 + 1] = (iqBytes[i * 2 + 1] - 127.5) / 127.5; // Q
-            }
-            gpuInputMode = "complex_iq";
-          } else if (!isIqRaw && currentData && currentData.waveform) {
-            // Use regular spectrum data
-            waveform = ensureFloat32Waveform(currentData.waveform);
-            gpuInput = waveform;
-            gpuInputMode = "real";
-          } else {
-            // Ignore mismatched mode/data packets during power-scale transitions
-            return;
           }
 
-          const canUseUnifiedFFT = (gpuInputMode === "complex_iq" ? gpuInput!.length / 2 : gpuInput!.length) === unifiedFFTSize;
+          let waveform: Float32Array;
+
+          const offsetDb = isDbmMode ? 30.0 : 0.0;
+          const rawSpectrum = processIqToDbmSpectrum(
+            iqBytes,
+            offsetDb,
+            effectiveFftSize,
+            fftWindow,
+          );
+          const cpuSpectrum = new Float32Array(rawSpectrum.length);
+
+          const minClamp = activeScaleDbMin;
+          const maxClamp = activeScaleDbMax;
+
+          for (let i = 0; i < rawSpectrum.length; i++) {
+            cpuSpectrum[i] = Math.min(maxClamp, Math.max(minClamp, rawSpectrum[i]));
+          }
+          waveform = cpuSpectrum;
 
           // Validate waveform before processing
           if (waveform && waveform.length > 0) {
@@ -855,24 +966,52 @@ const FFTCanvas = memo(
             lastProcessedDataRef.current = currentData;
             lastRenderedPowerScaleRef.current = effectivePowerScale;
 
-            // Process with unified GPU FFT when available
-            // ONLY if we have raw I/Q data. If we have a regular spectrum, 
-            // the unified logic would perform a recursive FFT (flicker).
-            if (canUseUnifiedFFT && gpuInputMode === "complex_iq" && unifiedFFT.isInitialized && !unifiedFFT.isProcessing) {
-              const processOptions = {
-                inputMode: gpuInputMode,
-                powerMode: isDbmMode ? "dbm" : "db" as "db" | "dbm",
-                minDb: activeScaleDbMin,
-                maxDb: activeScaleDbMax
-              };
+            // Accumulate into full-channel composite buffer for Whole Channel snapshots
+            {
+              const channelRange = frequencyRangeRef.current;
+              const channelSpan = channelRange.max - channelRange.min;
+              const hopCenterHz = currentData.center_frequency_hz;
+              const hopSampleRate = currentData.sample_rate;
+              if (
+                channelSpan > 0 &&
+                typeof hopCenterHz === "number" && hopCenterHz > 0 &&
+                typeof hopSampleRate === "number" && hopSampleRate > 0
+              ) {
+                const hopCenterMHz = hopCenterHz / 1_000_000;
+                const hopSpanMHz = hopSampleRate / 1_000_000;
+                const hopMin = hopCenterMHz - hopSpanMHz / 2;
+                const hopMax = hopCenterMHz + hopSpanMHz / 2;
 
-              unifiedFFT.processUnified(gpuInput!, {
-                ...processOptions,
-                hardwareSampleRateHz,
-              } as any).catch((error: Error) => {
-                console.warn('Unified GPU FFT failed, falling back to CPU:', error);
-              });
+                // Reset if channel range changed
+                if (
+                  !fullChannelRangeRef.current ||
+                  fullChannelRangeRef.current.min !== channelRange.min ||
+                  fullChannelRangeRef.current.max !== channelRange.max
+                ) {
+                  fullChannelWaveformRef.current = new Float32Array(FULL_CHANNEL_BINS).fill(-200);
+                  fullChannelRangeRef.current = { ...channelRange };
+                }
+
+                const buf = fullChannelWaveformRef.current!;
+                const startRatio = Math.max(0, (hopMin - channelRange.min) / channelSpan);
+                const endRatio = Math.min(1, (hopMax - channelRange.min) / channelSpan);
+                const destStart = Math.round(startRatio * FULL_CHANNEL_BINS);
+                const destEnd = Math.round(endRatio * FULL_CHANNEL_BINS);
+                const destCount = Math.max(1, destEnd - destStart);
+                const srcLen = waveform.length;
+
+                for (let i = 0; i < destCount; i++) {
+                  const srcIdx = Math.min(srcLen - 1, Math.round((i / destCount) * srcLen));
+                  buf[destStart + i] = waveform[srcIdx];
+                }
+              }
             }
+
+            // Keep a single active spectrum pipeline here.
+            // The direct drawSpectrum path is the authoritative visible renderer.
+            // Launching unifiedFFT.processUnified in parallel causes a second,
+            // stateful GPU processing path to race the visible renderer, which
+            // manifests as flashing/color shifts during dBm and dB-range changes.
 
             // Add frame to buffer for smooth rendering - reuse arrays to save memory
             const frameBuffer = frameBufferRef.current;
@@ -929,27 +1068,33 @@ const FFTCanvas = memo(
           }
         } else if (
           isPaused &&
-          currentData?.waveform &&
-          currentData !== lastProcessedDataRef.current &&
-          (force2D || !renderWaveformRef.current)
+          currentData?.iq_data &&
+          (currentData !== lastProcessedDataRef.current || powerScaleChanged)
         ) {
           // Paused: ingest once to avoid blank frames (file mode or first paused frame)
-          const waveform = ensureFloat32Waveform(currentData.waveform);
+          const processedWaveform = processIqToDbmSpectrum(
+            currentData.iq_data,
+            isDbmMode ? 30.0 : 0.0,
+            effectiveFftSize,
+            fftWindow,
+          );
 
           // Validate waveform before processing
-          if (!waveform || waveform.length === 0) {
+          if (!processedWaveform || processedWaveform.length === 0) {
             return;
           }
 
-          waveformFloatRef.current = waveform;
+          waveformFloatRef.current = processedWaveform;
           lastProcessedDataRef.current = currentData;
+          lastRenderedPowerScaleRef.current = powerScale;
 
-          // Clear previous buffer before creating new one
           const prev = renderWaveformRef.current;
-          if (prev) {
+          if (!prev || prev.length !== processedWaveform.length) {
+            renderWaveformRef.current = new Float32Array(processedWaveform);
+          } else {
             prev.fill(0);
+            prev.set(processedWaveform);
           }
-          renderWaveformRef.current = new Float32Array(waveform);
         }
 
         const waveform = renderWaveformRef.current;
@@ -971,7 +1116,6 @@ const FFTCanvas = memo(
         const currentWaveform = renderWaveformRef.current;
 
         if (currentWaveform && currentWaveform.length > 0) {
-          const canUseUnifiedFFT = currentWaveform.length === unifiedFFTSize;
           const {
             slicedWaveform: rawSlicedWaveform,
             visualRange,
@@ -1006,75 +1150,55 @@ const FFTCanvas = memo(
               const processed = fftProcessedBufferRef.current;
               processed.set(baseSpectrumWaveform);
 
-              let prev = fftAvgBufferRef.current;
-              if (!prev || prev.length !== processed.length) {
-                prev = new Float32Array(processed);
-                fftAvgBufferRef.current = prev;
-              } else {
-                const alpha = 0.2;
-                for (let i = 0; i < processed.length; i++) {
-                  processed[i] = prev[i] * (1 - alpha) + processed[i] * alpha;
-                }
-                prev.set(processed);
-              }
+              // Disable FFT averaging to prevent noise floor animation when moving dB sliders
+              // let prev = fftAvgBufferRef.current;
+              // if (!prev || prev.length !== processed.length) {
+              //   prev = new Float32Array(processed);
+              //   fftAvgBufferRef.current = prev;
+              // } else {
+              //   const alpha = 0.2;
+              //   for (let i = 0; i < processed.length; i++) {
+              //     processed[i] = prev[i] * (1 - alpha) + processed[i] * alpha;
+              //   }
+              //   prev.set(processed);
+              // }
               slicedWaveform = processed;
             }
 
-            if (fftSmoothEnabled && slicedWaveform.length > 4) {
-              if (
-                !fftSmoothedBufferRef.current ||
-                fftSmoothedBufferRef.current.length !== slicedWaveform.length
-              ) {
-                fftSmoothedBufferRef.current = new Float32Array(slicedWaveform.length);
-              }
-              const smoothed = fftSmoothedBufferRef.current;
-              for (let i = 0; i < slicedWaveform.length; i++) {
-                let sum = 0;
-                let count = 0;
-                for (
-                  let j = Math.max(0, i - 2);
-                  j <= Math.min(slicedWaveform.length - 1, i + 2);
-                  j++
-                ) {
-                  sum += slicedWaveform[j];
-                  count++;
-                }
-                smoothed[i] = sum / count;
-              }
-              slicedWaveform = smoothed;
-            }
+            // Disable FFT smoothing to prevent noise floor animation when moving dB sliders
+            // if (fftSmoothEnabled && slicedWaveform.length > 4) {
+            //   if (
+            //     !fftSmoothedBufferRef.current ||
+            //     fftSmoothedBufferRef.current.length !== slicedWaveform.length
+            //   ) {
+            //     fftSmoothedBufferRef.current = new Float32Array(slicedWaveform.length);
+            //   }
+            //   const smoothed = fftSmoothedBufferRef.current;
+            //   for (let i = 0; i < slicedWaveform.length; i++) {
+            //     let sum = 0;
+            //     let count = 0;
+            //     for (
+            //       let j = Math.max(0, i - 2);
+            //       j <= Math.min(slicedWaveform.length - 1, i + 2);
+            //       j++
+            //     ) {
+            //       sum += slicedWaveform[j];
+            //       count++;
+            //     }
+            //     smoothed[i] = sum / count;
+            //   }
+            //   slicedWaveform = smoothed;
+            // }
           }
           // Spectrum render (using unified hook)
-          if (spectrumGpuCanvas || spectrumCanvas) {
-            const rect = (spectrumGpuCanvas || spectrumCanvas)?.parentElement?.getBoundingClientRect();
-            const width = rect?.width || (spectrumGpuCanvas || spectrumCanvas)?.width || 1;
-            const displayWidth = Math.max(1, Math.floor(width - FFT_AREA_MIN.x - 40));
-
-            // Resample for performance and visual clarity
-            if (!spectrumResampleBufRef.current || spectrumResampleBufRef.current.length !== displayWidth) {
-              if (spectrumResampleBufRef.current) spectrumResampleBufRef.current.fill(0);
-              spectrumResampleBufRef.current = new Float32Array(displayWidth);
-            }
-            const outBuf = spectrumResampleBufRef.current;
-
-            if (slicedWaveform.length === displayWidth) {
-              outBuf.set(slicedWaveform);
-            } else {
-              resampleSpectrumInto(slicedWaveform, outBuf);
-            }
-
-            // Sanitise data for shader
-            for (let i = 0; i < outBuf.length; i++) {
-              if (!Number.isFinite(outBuf[i])) outBuf[i] = vizDbMinRef.current;
-            }
-
+          if (spectrumGpuCanvas) {
             drawSpectrum({
-              canvas: (spectrumWebgpuEnabled ? spectrumGpuCanvas : spectrumCanvas) as HTMLCanvasElement,
+              canvas: spectrumGpuCanvas,
               webgpuEnabled: spectrumWebgpuEnabled,
               isInitializingWebGPU,
               device: webgpuDeviceRef.current,
               format: webgpuFormatRef.current,
-              waveform: outBuf,
+              waveform: slicedWaveform,
               frequencyRange: visualRange,
               fftMin: activeScaleDbMin,
               fftMax: activeScaleDbMax,
@@ -1092,16 +1216,16 @@ const FFTCanvas = memo(
               showSpikeOverlay,
               spikeMarkers: showSpikeOverlay
                 ? detectProminentSpikes({
-                    spectrumData: outBuf,
-                    dbMin: activeScaleDbMin,
-                    dbMax: activeScaleDbMax,
-                    maxMarkers: Math.max(24, Math.floor(outBuf.length / 12)),
-                    frequencyRange: visualRange,
-                    temporalPersistence:
-                      spikePersistenceRef.current && spikePersistenceRef.current.length === outBuf.length
-                        ? spikePersistenceRef.current
-                        : (spikePersistenceRef.current = new Float32Array(outBuf.length)),
-                  })
+                  spectrumData: slicedWaveform,
+                  dbMin: activeScaleDbMin,
+                  dbMax: activeScaleDbMax,
+                  maxMarkers: Math.max(24, Math.floor(slicedWaveform.length / 12)),
+                  frequencyRange: visualRange,
+                  temporalPersistence:
+                    spikePersistenceRef.current && spikePersistenceRef.current.length === slicedWaveform.length
+                      ? spikePersistenceRef.current
+                      : (spikePersistenceRef.current = new Float32Array(slicedWaveform.length)),
+                })
                 : [],
               lineColor: fftColor,
               fillColor: fillColor,
@@ -1119,7 +1243,16 @@ const FFTCanvas = memo(
           ) {
             const dims = waterfallGpuDimsRef.current;
             if (dims && currentData) {
-              const shouldUpdateWaterfallRow = hasNewData && !isPaused;
+              const waterfallMotion = getWaterfallMotion({
+                previousVisualRange: lastWaterfallVisualRangeRef.current,
+                currentVisualRange: visualRange,
+                textureWidth: 4096,
+              });
+              const shouldUpdateWaterfallRow =
+                !isPaused && (hasNewData || waterfallMotion.shouldPaintMotionRow);
+              retuneDriftPxRef.current = waterfallMotion.driftBins;
+              retuneSmearRef.current = waterfallMotion.smearRows;
+
               // ALWAYS resample to a constant width (4096 bins)
               // This 'bakes' the current zoom into the row permanently and avoids
               // resetting the WebGPU texture when the zoom level changes.
@@ -1162,7 +1295,16 @@ const FFTCanvas = memo(
                 } else {
                   lastWaterfallRowRef.current.set(waterfallBins);
                 }
+                if (hasNewData) {
+                  heterodyningHistoryRef.current.push(new Float32Array(waterfallBins));
+                  if (heterodyningHistoryRef.current.length > 96) {
+                    heterodyningHistoryRef.current.shift();
+                  }
+                }
+                lastWaterfallVisualRangeRef.current = { ...visualRange };
               } else {
+                retuneDriftPxRef.current = 0;
+                retuneSmearRef.current = 0;
                 waterfallBins = lastWaterfallRowRef.current ?? processed;
               }
 
@@ -1184,6 +1326,11 @@ const FFTCanvas = memo(
               }
               const meta = waterfallTextureMetaRef.current;
               const snapshot = waterfallTextureSnapshotRef.current;
+              const restoreTexture = resolvePendingWaterfallRestore({
+                pendingRestore: pendingWaterfallRestoreRef.current,
+                shouldUpdateWaterfallRow,
+                hasRenderedRestore: restoredWaterfallRef.current,
+              });
               if (shouldUpdateWaterfallRow && meta && snapshot && meta.width === FIXED_WATERFALL_BINS) {
                 const rowBytes = new Uint8Array(
                   waterfallBins.buffer,
@@ -1203,6 +1350,8 @@ const FFTCanvas = memo(
                   snapshot.set(rowBytes, offset);
                 }
                 meta.writeRow = (meta.writeRow + 1) % dims.height;
+                pendingWaterfallRestoreRef.current = null;
+                restoredWaterfallRef.current = false;
               }
 
               // Pass 4096 bins to hook — shader handles pixel mapping
@@ -1211,16 +1360,18 @@ const FFTCanvas = memo(
                 device: webgpuDeviceRef.current,
                 format: webgpuFormatRef.current,
                 fftData: waterfallBins,
-                frequencyRange: frequencyRangeRef.current,
                 fftMin: activeScaleDbMin,
                 fftMax: activeScaleDbMax,
                 driftAmount: retuneSmearRef.current,
-                driftDirection: retuneDriftPxRef.current,
                 freeze: !shouldUpdateWaterfallRow,
+                restoreTexture,
                 wfSmooth: wfSmoothEnabled,
                 colormap: colormap,
                 colormapName: waterfallTheme,
               });
+              if (restoreTexture) {
+                restoredWaterfallRef.current = true;
+              }
             } else if (isPaused) {
               const restore = pendingWaterfallRestoreRef.current ?? undefined;
               const FIXED_WATERFALL_BINS = 4096;
@@ -1237,9 +1388,9 @@ const FFTCanvas = memo(
                     pausedWaterfallRowRef.current = new Float32Array(
                       targetWidth,
                     );
-                    pausedWaterfallRowRef.current.fill(-200);
+                    pausedWaterfallRowRef.current.fill(-120);
                   } else {
-                    pausedWaterfallRowRef.current.fill(-200);
+                    pausedWaterfallRowRef.current.fill(-120);
                   }
                   restoredWaterfallRef.current = true;
                 }
@@ -1249,14 +1400,12 @@ const FFTCanvas = memo(
               if (rowBuffer) {
                 drawWebGPUFIFOWaterfall({
                   canvas: waterfallGpuCanvas,
-                  device: webgpuDeviceRef.current,
-                  format: webgpuFormatRef.current,
+                  device: webgpuDeviceRef.current!,
+                  format: webgpuFormatRef.current!,
                   fftData: rowBuffer,
-                  frequencyRange: visualRange,
                   fftMin: activeScaleDbMin,
                   fftMax: activeScaleDbMax,
                   driftAmount: retuneSmearRef.current,
-                  driftDirection: retuneDriftPxRef.current,
                   freeze: true,
                   restoreTexture: restore,
                   colormap,
@@ -1271,9 +1420,7 @@ const FFTCanvas = memo(
         drawSpectrum,
         drawWebGPUFIFOWaterfall,
         isPaused,
-        ensureFloat32Waveform,
         displayTemporalResolution,
-        resampleSpectrumInto,
         spectrumWebgpuEnabled,
         webgpuEnabled,
         webgpuDeviceRef,
@@ -1281,9 +1428,7 @@ const FFTCanvas = memo(
         gridOverlayRendererRef,
         markersOverlayRendererRef,
         isDeviceConnected,
-        spectrumCanvasNode,
         spectrumGpuCanvasNode,
-        waterfallCanvasNode,
         waterfallGpuCanvasNode,
         fftColor,
         fillColor,
@@ -1296,6 +1441,10 @@ const FFTCanvas = memo(
         activeScaleDbMin,
         activeScaleDbMax,
         showSpikeOverlay,
+        awaitingDeviceData,
+        drawLoadingPlaceholder,
+        clearOverlayCanvas,
+        WATERFALL_PLACEHOLDER_FONT,
       ],
     );
 
@@ -1311,20 +1460,48 @@ const FFTCanvas = memo(
       targetFPS: fftFrameRate,
     });
 
+    // Handle component unmounting
     useEffect(() => {
+      return () => {
+      };
+    }, []);
+
+    useEffect(() => {
+      const hasPendingWaterfallRestore = !!pendingWaterfallRestoreRef.current;
       lastProcessedDataRef.current = null;
-      pausedWaterfallRowRef.current = null;
-      restoredWaterfallRef.current = false;
-      pendingWaterfallRestoreRef.current = null;
+      if (!isPaused || !hasPendingWaterfallRestore) {
+        pausedWaterfallRowRef.current = null;
+        restoredWaterfallRef.current = false;
+      }
 
       const currentWaveform = waveformFloatRef.current;
       if (currentWaveform && currentWaveform.length > 0) {
         renderWaveformRef.current = new Float32Array(currentWaveform);
+      } else if (isPaused && dataRef.current?.iq_data) {
+        // Trigger a re-process of paused I/Q data
+        lastProcessedDataRef.current = null;
       }
 
       forceRender();
     }, [displayTemporalResolution, forceRender]);
 
+    useEffect(() => {
+      forceRender();
+    }, [awaitingDeviceData, forceRender]);
+
+
+    useEffect(() => {
+      if (!onHeterodyningAnalyzed) return;
+      if (heterodyningVerifyRequestId <= 0) return;
+      if (heterodyningVerifyRequestId === lastHeterodyningRequestIdRef.current) {
+        return;
+      }
+
+      lastHeterodyningRequestIdRef.current = heterodyningVerifyRequestId;
+      onHeterodyningAnalyzed(
+        detectHeterodyningFromHistory(heterodyningHistoryRef.current),
+      );
+    }, [heterodyningVerifyRequestId, onHeterodyningAnalyzed]);
 
     useEffect(() => {
       if (!showSpikeOverlay) {
@@ -1341,59 +1518,121 @@ const FFTCanvas = memo(
       waterfallBufferRef,
       waterfallDimsRef,
       dataRef,
-      ensureFloat32Waveform,
       forceRender,
+      snapshotScope: visualizerSessionKey,
     });
 
     restoreWaveformFromStorageRef.current = restoreWaveformFromStorage;
 
-    const saveWaterfallTextureSnapshot = useCallback(async () => {
-      const snapshot = waterfallTextureSnapshotRef.current;
-      const meta = waterfallTextureMetaRef.current;
-      if (!snapshot || !meta) return;
-      try {
-        await saveWaterfallSnapshot(snapshot, meta);
-      } catch (e) {
-        console.error("Failed to save waterfall snapshot to IndexedDB:", e);
-      }
-    }, []);
+    const buildVisualizerSessionSnapshot = useCallback((): FFTVisualizerSnapshot | null => {
+      const waveform = renderWaveformRef.current ?? waveformFloatRef.current;
+      const waterfallTextureSnapshot = waterfallTextureSnapshotRef.current;
+      const waterfallTextureMeta = waterfallTextureMetaRef.current;
+      const waterfallBuffer = waterfallBufferRef.current;
+      const waterfallDims = waterfallDimsRef.current;
 
-    const loadWaterfallTextureSnapshot = useCallback(async () => {
-      if (pendingWaterfallRestoreRef.current || restoredWaterfallRef.current)
-        return;
       if (
-        waterfallTextureSnapshotRef.current &&
-        waterfallTextureMetaRef.current
-      )
-        return;
-      try {
-        const snapshot = await loadWaterfallSnapshot();
-        if (!snapshot) return;
-
-        pendingWaterfallRestoreRef.current = {
-          data: snapshot.data,
-          width: snapshot.meta.width,
-          height: snapshot.meta.height,
-          writeRow: snapshot.meta.writeRow,
-        };
-      } catch (err) {
-        console.error("Failed to load waterfall snapshot from IndexedDB:", err);
+        !waveform &&
+        !waterfallTextureSnapshot &&
+        !waterfallTextureMeta &&
+        !waterfallBuffer &&
+        !waterfallDims
+      ) {
+        return null;
       }
+
+      return {
+        waveform: waveform ? new Float32Array(waveform) : null,
+        waterfallTextureSnapshot: waterfallTextureSnapshot
+          ? new Uint8Array(waterfallTextureSnapshot)
+          : null,
+        waterfallTextureMeta: waterfallTextureMeta
+          ? { ...waterfallTextureMeta }
+          : null,
+        waterfallBuffer: waterfallBuffer
+          ? new Uint8ClampedArray(waterfallBuffer)
+          : null,
+        waterfallDims: waterfallDims ? { ...waterfallDims } : null,
+      };
     }, []);
+
+    const restoreVisualizerSessionSnapshot = useCallback(
+      (snapshot: FFTVisualizerSnapshot | null) => {
+        if (!snapshot) {
+          return false;
+        }
+
+        let restored = false;
+
+        if (snapshot.waveform && snapshot.waveform.length > 0) {
+          const waveform = new Float32Array(snapshot.waveform);
+          renderWaveformRef.current = waveform;
+          waveformFloatRef.current = new Float32Array(snapshot.waveform);
+          restored = true;
+        }
+
+        if (snapshot.waterfallBuffer && snapshot.waterfallDims) {
+          waterfallBufferRef.current = new Uint8ClampedArray(
+            snapshot.waterfallBuffer,
+          );
+          waterfallDimsRef.current = { ...snapshot.waterfallDims };
+          restored = true;
+        }
+
+        if (
+          snapshot.waterfallTextureSnapshot &&
+          snapshot.waterfallTextureMeta
+        ) {
+          waterfallTextureSnapshotRef.current = new Uint8Array(
+            snapshot.waterfallTextureSnapshot,
+          );
+          waterfallTextureMetaRef.current = { ...snapshot.waterfallTextureMeta };
+          pendingWaterfallRestoreRef.current = {
+            data: new Uint8Array(snapshot.waterfallTextureSnapshot),
+            width: snapshot.waterfallTextureMeta.width,
+            height: snapshot.waterfallTextureMeta.height,
+            writeRow: snapshot.waterfallTextureMeta.writeRow,
+          };
+          restoredWaterfallRef.current = false;
+          restored = true;
+        }
+
+        return restored;
+      },
+      [],
+    );
+
+    const persistVisualizerSession = useCallback(() => {
+      if (!visualizerMachine) {
+        return;
+      }
+
+      visualizerMachine.persist(
+        visualizerSessionKey,
+        buildVisualizerSessionSnapshot(),
+      );
+    }, [buildVisualizerSessionSnapshot, visualizerMachine, visualizerSessionKey]);
 
     useEffect(() => {
-      // Restore waterfall history unconditionally on mount (no longer tied to isPaused).
-      // This allows returning to a tab with old context without tossing the buffer out
-      const timeoutId = setTimeout(() => {
-        loadWaterfallTextureSnapshot();
-      }, 100);
+      const restoredFromMachine = restoreVisualizerSessionSnapshot(
+        visualizerMachine?.restore(visualizerSessionKey) ?? null,
+      );
+      if (restoredFromMachine) {
+        forceRender();
+      }
 
       return () => {
-        clearTimeout(timeoutId);
-        saveWaterfallTextureSnapshot();
+        persistVisualizerSession();
         cleanupSpectrum();
       };
-    }, [saveWaterfallTextureSnapshot, cleanupSpectrum]);
+    }, [
+      cleanupSpectrum,
+      forceRender,
+      persistVisualizerSession,
+      restoreVisualizerSessionSnapshot,
+      visualizerMachine,
+      visualizerSessionKey,
+    ]);
 
     // Reset cached waveforms and trigger grid redraw when frequency range changes
     useEffect(() => {
@@ -1407,18 +1646,31 @@ const FFTCanvas = memo(
         lastProcessedDataRef.current = null;
         renderWaveformRef.current = null;
         waveformFloatRef.current = null;
+        fullChannelWaveformRef.current = null;
+        fullChannelRangeRef.current = null;
         frameBufferRef.current = [];
-        spectrumResampleBufRef.current?.fill(0);
-        spikePersistenceRef.current = null;
+      }
 
-        overlayDirtyRef.current.grid = true;
-        overlayDirtyRef.current.markers = true;
+      if (isPaused) {
+        forceRender();
+      }
+    }, [frequencyRange, isPaused, forceRender]);
 
+    useEffect(() => {
+      const currentData = dataRef.current;
+      const hasData = !!(currentData && currentData.iq_data);
+
+      if (hasData && currentData !== lastIncomingFrameRef.current) {
+        lastIncomingFrameRef.current = currentData;
         if (isPaused) {
           forceRender();
         }
       }
-    }, [frequencyRange, isPaused, forceRender]);
+
+      if (!hasData) {
+        lastIncomingFrameRef.current = null;
+      }
+    }, [dataRef, isPaused, forceRender]);
 
     // Handle canvas resizing
     useEffect(() => {
@@ -1426,19 +1678,17 @@ const FFTCanvas = memo(
         const dpr = window.devicePixelRatio || 1;
 
         const spectrumRect =
-          spectrumCanvasRef.current?.parentElement?.getBoundingClientRect() ??
           spectrumGpuCanvasRef.current?.parentElement?.getBoundingClientRect();
         const waterfallRect =
-          waterfallCanvasRef.current?.parentElement?.getBoundingClientRect() ??
           waterfallGpuCanvasRef.current?.parentElement?.getBoundingClientRect();
 
         if (
           spectrumRect &&
           spectrumRect.width > 0 &&
           spectrumRect.height > 0 &&
-          spectrumCanvasRef.current
+          spectrumOverlayCanvasRef.current
         ) {
-          const canvas = spectrumCanvasRef.current;
+          const canvas = spectrumOverlayCanvasRef.current;
           canvas.width = spectrumRect.width * dpr;
           canvas.height = spectrumRect.height * dpr;
           canvas.style.width = `${spectrumRect.width}px`;
@@ -1465,13 +1715,14 @@ const FFTCanvas = memo(
           overlayDirtyRef.current.markers = true;
         }
 
+
         if (
           waterfallRect &&
           waterfallRect.width > 0 &&
           waterfallRect.height > 0 &&
-          waterfallCanvasRef.current
+          waterfallOverlayCanvasRef.current
         ) {
-          const canvas = waterfallCanvasRef.current;
+          const canvas = waterfallOverlayCanvasRef.current;
           canvas.width = waterfallRect.width * dpr;
           canvas.height = waterfallRect.height * dpr;
           canvas.style.width = `${waterfallRect.width}px`;
@@ -1522,12 +1773,8 @@ const FFTCanvas = memo(
       window.addEventListener("resize", handleResize);
 
       const resizeObserver = new ResizeObserver(() => handleResize());
-      const spectrumParent =
-        spectrumCanvasRef.current?.parentElement ??
-        spectrumGpuCanvasRef.current?.parentElement;
-      const waterfallParent =
-        waterfallCanvasRef.current?.parentElement ??
-        waterfallGpuCanvasRef.current?.parentElement;
+      const spectrumParent = spectrumGpuCanvasRef.current?.parentElement;
+      const waterfallParent = waterfallGpuCanvasRef.current?.parentElement;
       if (spectrumParent) resizeObserver.observe(spectrumParent);
       if (waterfallParent) resizeObserver.observe(waterfallParent);
 
@@ -1551,7 +1798,7 @@ const FFTCanvas = memo(
           }
         }
 
-        if (waveformFloatRef.current && !dataRef.current?.waveform) {
+        if (waveformFloatRef.current && !dataRef.current?.iq_data) {
           waveformFloatRef.current = null;
         }
       }, 30000);
@@ -1573,145 +1820,162 @@ const FFTCanvas = memo(
       forceRender();
     }, [isPaused, webgpuEnabled, forceRender]);
 
-    const snapshotNeededRef = useRef(false);
-
-    const triggerSnapshotRender = useCallback(() => {
-      snapshotNeededRef.current = true;
-    }, []);
-
     useEffect(() => {
       overlayDirtyRef.current.grid = true;
       overlayDirtyRef.current.markers = true;
-      forceRender();
-    }, [vizDbMin, vizDbMax, currentVizZoom, vizPanOffset, forceRender]);
+      if (isPaused) {
+        forceRender();
+      }
+    }, [vizDbMin, vizDbMax, currentVizZoom, vizPanOffset, isPaused, forceRender]);
 
     // Separate effect for powerScale changes to ensure immediate overlay updates
     useEffect(() => {
+      if (previousPowerScaleRef.current === effectivePowerScale) {
+        return;
+      }
+      previousPowerScaleRef.current = effectivePowerScale;
       lastProcessedDataRef.current = null;
       lastRenderedPowerScaleRef.current = null;
-      waveformFloatRef.current = null;
-      renderWaveformRef.current = null;
-      spectrumResampleBufRef.current = null;
-      frameBufferRef.current = [];
-      lastWaterfallRowRef.current = null;
-      pausedWaterfallRowRef.current = null;
-      waterfallBufferRef.current = null;
-      waterfallTextureSnapshotRef.current = null;
-      waterfallTextureMetaRef.current = null;
-      pendingWaterfallRestoreRef.current = null;
-      restoredWaterfallRef.current = false;
-      fftAvgBufferRef.current = null;
-      fftProcessedBufferRef.current = null;
-      fftSmoothedBufferRef.current = null;
-      spikePersistenceRef.current = null;
+      // Keep render buffers intact so the new power scale can redraw immediately
+      // from the existing live IQ frame instead of flashing a blank placeholder.
       overlayDirtyRef.current.grid = true;
       overlayDirtyRef.current.markers = true;
-      forceRender();
-    }, [effectivePowerScale, forceRender]);
+      if (isPaused) {
+        forceRender();
+      }
+    }, [effectivePowerScale, isPaused, forceRender]);
+
+    const buildSnapshotData = useCallback((): SnapshotData | null => {
+      const waveform = renderWaveformRef.current;
+      const frequencyRangeCurrent = frequencyRangeRef.current;
+      if (!waveform || waveform.length === 0 || !frequencyRangeCurrent) {
+        return null;
+      }
+
+      return {
+        waveform: new Float32Array(waveform),
+        fullChannelWaveform: fullChannelWaveformRef.current
+          ? new Float32Array(fullChannelWaveformRef.current)
+          : null,
+        frequencyRange: { ...frequencyRangeCurrent },
+        dbMin: vizDbMinRef.current,
+        dbMax: vizDbMaxRef.current,
+        fftSize: effectiveFftSize,
+        fftWindow: fftWindow ?? "Rectangular",
+        centerFrequencyMHz: centerFreqRef.current,
+        isDeviceConnected,
+        vizZoom: vizZoomRef.current,
+        vizPanOffset: vizPanOffsetRef.current,
+        waterfallTextureSnapshot: waterfallTextureSnapshotRef.current
+          ? new Uint8Array(waterfallTextureSnapshotRef.current)
+          : null,
+        waterfallTextureMeta: waterfallTextureMetaRef.current
+          ? { ...waterfallTextureMetaRef.current }
+          : null,
+        waterfallBuffer: waterfallBufferRef.current
+          ? new Uint8ClampedArray(waterfallBufferRef.current)
+          : null,
+        waterfallDims: waterfallDimsRef.current
+          ? { ...waterfallDimsRef.current }
+          : null,
+        webgpuEnabled,
+        hardwareSampleRateHz,
+        isIqRecordingActive,
+        colormap: colormap || [],
+      };
+    }, [
+      colormap,
+      effectiveFftSize,
+      fftWindow,
+      hardwareSampleRateHz,
+      isDeviceConnected,
+      isIqRecordingActive,
+      webgpuEnabled,
+    ]);
+
+    const getCompositeSnapshot = useCallback(() => {
+      const spectrumCanvas = spectrumGpuCanvasRef.current;
+      const waterfallCanvas = waterfallGpuCanvasRef.current;
+
+      if (!spectrumCanvas) {
+        return null;
+      }
+
+      const width = spectrumCanvas.width;
+      const waterfallHeight = waterfallCanvas?.height ?? 0;
+      const height = spectrumCanvas.height + waterfallHeight;
+      const compositeCanvas = document.createElement("canvas");
+      compositeCanvas.width = width;
+      compositeCanvas.height = height;
+      const ctx = compositeCanvas.getContext("2d");
+      if (!ctx) {
+        return null;
+      }
+
+      ctx.drawImage(spectrumCanvas, 0, 0);
+      if (waterfallCanvas) {
+        ctx.drawImage(waterfallCanvas, 0, spectrumCanvas.height);
+      }
+
+      return {
+        dataUrl: compositeCanvas.toDataURL("image/png"),
+        width,
+        height,
+      };
+    }, [spectrumWebgpuEnabled, webgpuEnabled]);
 
     useImperativeHandle(ref, () => ({
-      getSpectrumCanvas: () => spectrumCanvasRef.current,
-      getWaterfallCanvas: () => waterfallCanvasRef.current,
-      triggerSnapshotRender,
-      getSnapshotData: () => {
-        const waveform = renderWaveformRef.current;
-        if (!waveform || waveform.length === 0) return null;
-        return {
-          waveform: new Float32Array(waveform),
-          frequencyRange: { ...frequencyRangeRef.current },
-          dbMin: vizDbMinRef.current,
-          dbMax: vizDbMaxRef.current,
-          centerFrequencyMHz: centerFreqRef.current,
-          isDeviceConnected,
-          vizZoom: vizZoomRef.current,
-          vizPanOffset: vizPanOffsetRef.current,
-          waterfallTextureSnapshot: waterfallTextureSnapshotRef.current
-            ? new Uint8Array(waterfallTextureSnapshotRef.current)
-            : null,
-          waterfallTextureMeta: waterfallTextureMetaRef.current
-            ? { ...waterfallTextureMetaRef.current }
-            : null,
-          waterfallBuffer: waterfallBufferRef.current
-            ? new Uint8ClampedArray(waterfallBufferRef.current)
-            : null,
-          waterfallDims: waterfallDimsRef.current
-            ? { ...waterfallDimsRef.current }
-            : null,
-          webgpuEnabled,
-          hardwareSampleRateHz,
-          isIqRecordingActive,
-          colormap: colormap || [],
-        };
+      getSpectrumCanvas: () => spectrumGpuCanvasRef.current,
+      getWaterfallCanvas: () => waterfallGpuCanvasRef.current,
+      triggerSnapshotRender: () => {
+        forceRender();
       },
-    }));
+      getSnapshotData: buildSnapshotData,
+      getCompositeSnapshot,
+    }), [spectrumWebgpuEnabled, webgpuEnabled, buildSnapshotData, getCompositeSnapshot]);
 
     return (
-      <VisualizerContainer>
-        <VisualizerContent>
-          <SpectrumSection>
-            <SectionTitle>
-              FFT Signal Display {isPaused && "(Paused)"}
-            </SectionTitle>
-            <SpectrumRow>
-              <CanvasWrapper ref={spectrumContainerRef}>
-                {!isInitializingWebGPU && spectrumWebgpuEnabled && (
-                  <CanvasLayer
-                    ref={setSpectrumGpuCanvasNode}
-                    id="fft-spectrum-canvas-webgpu"
-                  />
-                )}
-                {!isInitializingWebGPU && !spectrumWebgpuEnabled && (
-                  <CanvasLayer
-                    ref={setSpectrumCanvasNode}
-                    id="fft-spectrum-canvas-2d"
-                  />
-                )}
-              </CanvasWrapper>
-            </SpectrumRow>
-          </SpectrumSection>
-          <WaterfallSection>
-            <SectionTitle>
-              Waterfall Display {isPaused && "(Paused)"}
-            </SectionTitle>
-            <CanvasWrapper>
-              {!isInitializingWebGPU && webgpuEnabled && (
-                <CanvasLayer
-                  ref={setWaterfallGpuCanvasNode}
-                  id="fft-waterfall-canvas-webgpu"
-                />
+      <Suspense fallback={<div>Loading FFT visualization...</div>}>
+        <VisualizerContainer style={compact ? { backgroundColor: 'transparent' } : {}}>
+          <VisualizerContent style={compact ? { gap: 0 } : {}}>
+            <SpectrumSection>
+              {!compact && (
+                <SectionTitle>
+                  FFT Signal Display {isPaused && "(Paused)"}
+                </SectionTitle>
               )}
-              {!isInitializingWebGPU && !webgpuEnabled && (
-                <CanvasLayer
-                  ref={setWaterfallCanvasNode}
-                  id="fft-waterfall-canvas-2d"
-                />
-              )}
-            </CanvasWrapper>
-          </WaterfallSection>
-        </VisualizerContent>
-        <SlidersRail>
-          <VisualizerSliders
-            zoom={currentVizZoom}
-            dbMax={vizDbMax}
-            dbMin={vizDbMin}
-            powerScale={effectivePowerScale}
-            onZoomChange={(zoom) => setVizZoom(zoom)}
-            onDbMaxChange={(max) => onFftDbLimitsChange?.(vizDbMinRef.current, max)}
-            onDbMinChange={(min) => onFftDbLimitsChange?.(min, vizDbMaxRef.current)}
-            fftAvgEnabled={fftAvgEnabled}
-            fftSmoothEnabled={fftSmoothEnabled}
-            wfSmoothEnabled={wfSmoothEnabled}
-            onFftAvgChange={(enabled) => reduxDispatch(spectrumActions.setFftAvgEnabled(enabled))}
-            onFftSmoothChange={(enabled) => reduxDispatch(spectrumActions.setFftSmoothEnabled(enabled))}
-            onWfSmoothChange={(enabled) => reduxDispatch(spectrumActions.setWfSmoothEnabled(enabled))}
-            onResetZoomDb={() => {
-              onVizZoomChange?.(1);
-              onVizPanChange?.(0);
-              onFftDbLimitsChange?.(FFT_MIN_DB, FFT_MAX_DB);
-            }}
-          />
-        </SlidersRail>
-      </VisualizerContainer>
+              <SpectrumRow>
+                <CanvasWrapper ref={spectrumContainerRef}>
+                  {!isInitializingWebGPU && (
+                    <CanvasLayer
+                      ref={setSpectrumGpuCanvasNode}
+                      id="fft-spectrum-canvas-webgpu"
+                    />
+                  )}
+                  <CanvasLayer
+                    ref={_setSpectrumOverlayCanvasNode}
+                    id="fft-spectrum-canvas-overlay"
+                  />
+                  {heterodyningHighlightedBins.length > 0 && (
+                    <HighlightOverlay>
+                      {heterodyningHighlightedBins.map((bin, index) => (
+                        <HighlightBand
+                          key={`spectrum-highlight-${index}`}
+                          $left={Math.max(0, Math.min(100, bin.start * 100))}
+                          $width={Math.max(
+                            0.2,
+                            Math.min(100, (bin.end - bin.start) * 100),
+                          )}
+                        />
+                      ))}
+                    </HighlightOverlay>
+                  )}
+                </CanvasWrapper>
+              </SpectrumRow>
+            </SpectrumSection>
+          </VisualizerContent>
+        </VisualizerContainer>
+      </Suspense>
     );
   })
 );

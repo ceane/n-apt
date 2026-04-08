@@ -8,7 +8,7 @@ export const CheckboxContainer = styled.label<{ $disabled?: boolean }>`
   cursor: ${({ $disabled }) => ($disabled ? "not-allowed" : "pointer")};
   opacity: ${({ $disabled }) => ($disabled ? 0.5 : 1)};
   font-size: 11px;
-  color: #ccc;
+  color: ${(props) => props.theme.textPrimary};
   user-select: none;
 `;
 
@@ -36,8 +36,8 @@ export const StyledCheckbox = styled.div<{ $checked: boolean }>`
   display: inline-block;
   width: 16px;
   height: 16px;
-  background: ${({ $checked }) => ($checked ? "#0088cc" : "#212121")};
-  border: 1px solid ${({ $checked }) => ($checked ? "#0088cc" : "#333")};
+  background: ${({ $checked, theme }) => ($checked ? theme.primary : theme.surface)};
+  border: 1px solid ${({ $checked, theme }) => ($checked ? theme.primary : theme.borderHover)};
   border-radius: 4px;
   transition: all 150ms;
   display: flex;
@@ -45,7 +45,7 @@ export const StyledCheckbox = styled.div<{ $checked: boolean }>`
   justify-content: center;
 
   ${HiddenCheckbox}:focus + & {
-    box-shadow: 0 0 0 2px rgba(0, 136, 204, 0.3);
+    box-shadow: 0 0 0 2px ${({ theme }) => `${theme.primary}4d`};
   }
 
   ${Icon} {

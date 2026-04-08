@@ -1,5 +1,5 @@
 import React from "react";
-import Slider from "./Slider";
+import { Slider } from "@n-apt/components/ui";
 
 export const Horizontal = () => {
   const [value, setValue] = React.useState(50);

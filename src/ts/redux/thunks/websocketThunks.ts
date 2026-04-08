@@ -1,5 +1,5 @@
 import { createAsyncThunk } from '@reduxjs/toolkit';
-import { RootState } from '../store';
+import { RootState } from '@n-apt/redux/store';
 import {
   FrequencyRange,
   SDRSettings,
@@ -224,6 +224,13 @@ export const sendGetAutoFftOptions = createAsyncThunk(
   'websocket/sendGetAutoFftOptions',
   async (screenWidth: number, { dispatch, getState }) => {
     const state = getState() as RootState;
+    
+    // Check if we already have cached auto FFT options
+    if (state.websocket.autoFftOptions) {
+      console.log('Using cached auto FFT options, skipping request');
+      return screenWidth;
+    }
+    
     if (state.websocket.isConnected) {
       dispatch({
         type: 'websocket/sendMessage',
@@ -272,6 +279,7 @@ export const sendCaptureCommand = createAsyncThunk(
           data: {
             jobId: req.jobId,
             fragments: req.fragments,
+            durationMode: req.durationMode,
             durationS: req.durationS,
             fileType: req.fileType,
             acquisitionMode: req.acquisitionMode,
@@ -279,12 +287,75 @@ export const sendCaptureCommand = createAsyncThunk(
             fftSize: req.fftSize,
             fftWindow: req.fftWindow,
             geolocation: req.geolocation,
+            liveMode: req.liveMode,
+            refBasedDemodBaseline: req.refBasedDemodBaseline,
           },
         },
       });
     }
     
     return req;
+  }
+);
+
+// Send capture stop command (for manual mode)
+export const sendCaptureStopCommand = createAsyncThunk(
+  'websocket/sendCaptureStopCommand',
+  async (jobId: string | undefined, { dispatch, getState }) => {
+    const state = getState() as RootState;
+    if (state.websocket.isConnected) {
+      dispatch({
+        type: 'websocket/sendMessage',
+        payload: {
+          type: 'capture_stop',
+          jobId,
+        },
+      });
+    }
+  }
+);
+
+// Send scan command
+export const sendScanCommand = createAsyncThunk(
+  'websocket/sendScan',
+  async (
+    { jobId, minFreq, maxFreq, options }: { jobId: string; minFreq: number; maxFreq: number; options?: any },
+    { dispatch, getState }
+  ) => {
+    const state = getState() as RootState;
+    if (state.websocket.isConnected) {
+      dispatch({
+        type: 'websocket/sendMessage',
+        payload: {
+          type: 'scan',
+          job_id: jobId,
+          min_freq: minFreq,
+          max_freq: maxFreq,
+          options,
+        },
+      });
+    }
+  }
+);
+
+// Send demodulate command
+export const sendDemodulateCommand = createAsyncThunk(
+  'websocket/sendDemodulate',
+  async (
+    { jobId, region }: { jobId: string; region: any },
+    { dispatch, getState }
+  ) => {
+    const state = getState() as RootState;
+    if (state.websocket.isConnected) {
+      dispatch({
+        type: 'websocket/sendMessage',
+        payload: {
+          type: 'demodulate',
+          job_id: jobId,
+          region,
+        },
+      });
+    }
   }
 );
 

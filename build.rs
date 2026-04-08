@@ -5,6 +5,13 @@ fn main() {
 
   #[cfg(not(target_arch = "wasm32"))]
   link_rtlsdr();
+
+  // Check for decrypted modules (Surgical Encryption)
+  let decrypted_marker =
+    Path::new("src/encrypted-modules/tmp/rs/simd/fast_math.rs");
+  if decrypted_marker.exists() {
+    println!("cargo:rustc-cfg=rs_decrypted");
+  }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -18,7 +25,9 @@ fn link_rtlsdr() {
   #[cfg(target_os = "macos")]
   {
     if Path::new("/opt/homebrew/opt/librtlsdr/lib").exists() {
-      println!("cargo:rustc-link-search=native=/opt/homebrew/opt/librtlsdr/lib");
+      println!(
+        "cargo:rustc-link-search=native=/opt/homebrew/opt/librtlsdr/lib"
+      );
       println!("cargo:include=/opt/homebrew/opt/librtlsdr/include");
       return;
     }

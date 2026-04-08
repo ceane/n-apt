@@ -7,7 +7,6 @@ use std::sync::Arc;
 
 use super::types::*;
 use crate::consts::fft::{NUM_SAMPLES, SAMPLE_RATE};
-use crate::simd::UnifiedProcessor;
 
 /**
  * SDR++ style FFT configuration with enhanced parameters
@@ -60,10 +59,14 @@ impl Default for EnhancedFFTConfig {
  * Enhanced FFT processor with SDR++ style features and SIMD optimization
  */
 pub struct FFTProcessor {
-  /// FFT algorithm instance
-  fft: Arc<dyn rustfft::Fft<f32>>,
-  /// Inverse FFT plan
-  ifft: Arc<dyn rustfft::Fft<f32>>,
+  /// FFT algorithm instance (lazy — only needed for correlation / phase / mock paths)
+  fft: Option<Arc<dyn rustfft::Fft<f32>>>,
+  /// Inverse FFT plan (lazy)
+  ifft: Option<Arc<dyn rustfft::Fft<f32>>>,
+  /// Cache for FFT plans to avoid recreation on size changes
+  fft_plan_cache: std::collections::HashMap<usize, Arc<dyn rustfft::Fft<f32>>>,
+  /// Cache for IFFT plans to avoid recreation on size changes
+  ifft_plan_cache: std::collections::HashMap<usize, Arc<dyn rustfft::Fft<f32>>>,
   /// Current FFT configuration
   config: EnhancedFFTConfig,
   /// Time counter for mock signal generation
@@ -72,14 +75,8 @@ pub struct FFTProcessor {
   rng: rand::rngs::StdRng,
   /// Peak hold data (optional)
   fft_hold: Option<Vec<f32>>,
-  /// Waterfall history buffer with circular buffer optimization
-  waterfall_history: Vec<Vec<f32>>,
-  /// Maximum number of waterfall lines to keep (optimized for memory)
-  max_waterfall_lines: usize,
-  /// Current position in circular buffer (for memory efficiency)
-  waterfall_pos: usize,
-  /// Unified SIMD processor for both WASM and native targets
-  simd_processor: Option<UnifiedProcessor>,
+  /// Native SIMD processor for signal processing
+  simd_processor: Option<crate::simd::NativeProcessor>,
 }
 
 impl Default for FFTProcessor {
@@ -90,6 +87,48 @@ impl Default for FFTProcessor {
 
 #[allow(dead_code)]
 impl FFTProcessor {
+  fn configure_simd_processor(
+    simd_proc: &mut crate::simd::NativeProcessor,
+    config: &EnhancedFFTConfig,
+  ) {
+    simd_proc.set_gain(config.gain);
+    simd_proc.set_ppm(config.ppm);
+    simd_proc.set_window_type(config.window_type);
+  }
+
+  fn ensure_fft_plans(&mut self) {
+    let fft_size = self.config.fft_size;
+    
+    // Check cache first
+    if let Some(cached_fft) = self.fft_plan_cache.get(&fft_size) {
+      self.fft = Some(Arc::clone(cached_fft));
+    } else {
+      let mut planner = FftPlanner::<f32>::new();
+      let fft_plan = planner.plan_fft_forward(fft_size);
+      self.fft_plan_cache.insert(fft_size, Arc::clone(&fft_plan));
+      self.fft = Some(fft_plan);
+    }
+    
+    // Check cache for IFFT
+    if let Some(cached_ifft) = self.ifft_plan_cache.get(&fft_size) {
+      self.ifft = Some(Arc::clone(cached_ifft));
+    } else {
+      let mut planner = FftPlanner::<f32>::new();
+      let ifft_plan = planner.plan_fft_inverse(fft_size);
+      self.ifft_plan_cache.insert(fft_size, Arc::clone(&ifft_plan));
+      self.ifft = Some(ifft_plan);
+    }
+  }
+
+  fn ensure_simd_processor(&mut self) -> &mut crate::simd::NativeProcessor {
+    let config = self.config.clone();
+    self.simd_processor.get_or_insert_with(|| {
+      let mut simd_proc = crate::simd::NativeProcessor::new(config.fft_size);
+      Self::configure_simd_processor(&mut simd_proc, &config);
+      simd_proc
+    })
+  }
+
   /// Create a new FFT processor with default configuration
   ///
   /// # Returns
@@ -102,30 +141,17 @@ impl FFTProcessor {
   /// - Native targets: Standard FFT performance
   pub fn new() -> Self {
     let config = EnhancedFFTConfig::default();
-    let fft_size = config.fft_size;
-
-    // Lazy initialization to speed up startup
-    let (fft, ifft) = {
-      // Use a smaller FFT size for initial planning to speed up startup
-      let mut planner = FftPlanner::<f32>::new();
-      (planner.plan_fft_forward(fft_size), planner.plan_fft_inverse(fft_size))
-    };
-
-    // Pre-allocate all buffers to avoid runtime allocations
-    let mut waterfall_history = Vec::with_capacity(100);
-    waterfall_history.resize(100, Vec::with_capacity(fft_size));
 
     Self {
-      fft,
-      ifft,
+      fft: None,
+      ifft: None,
+      fft_plan_cache: std::collections::HashMap::new(),
+      ifft_plan_cache: std::collections::HashMap::new(),
       config,
       time: 0.0,
       rng: rand::rngs::StdRng::from_entropy(),
       fft_hold: None,
-      waterfall_history,
-      max_waterfall_lines: 100, // Reduced for faster startup
-      waterfall_pos: 0,
-      simd_processor: Some(UnifiedProcessor::new(fft_size)),
+      simd_processor: None,
     }
   }
 
@@ -164,48 +190,16 @@ impl FFTProcessor {
   ///
   /// New FFTProcessor with SIMD optimization enabled on WASM targets
   pub fn with_config(config: EnhancedFFTConfig) -> Self {
-    let fft_size = config.fft_size;
-    let mut planner = FftPlanner::<f32>::new();
-    let fft = planner.plan_fft_forward(fft_size);
-    let ifft = planner.plan_fft_inverse(fft_size);
-
-    let simd_processor = {
-      let mut p = UnifiedProcessor::new(fft_size);
-      #[cfg(not(target_arch = "wasm32"))]
-      {
-        p.set_gain(config.gain);
-        p.set_ppm(config.ppm);
-        p.set_window_type(config.window_type);
-      }
-      #[cfg(target_arch = "wasm32")]
-      {
-        p.set_gain(config.gain);
-        p.set_ppm(config.ppm);
-        // WASM processor uses string for window type
-        let window_str = match config.window_type {
-          WindowType::Hanning => "hanning",
-          WindowType::Hamming => "hamming",
-          WindowType::Blackman => "blackman",
-          WindowType::Nuttall => "nuttall",
-          WindowType::Rectangular => "rectangular",
-          WindowType::None => "none",
-        };
-        p.set_window_type(window_str);
-      }
-      p
-    };
-
     Self {
-      fft,
-      ifft,
+      fft: None,
+      ifft: None,
+      fft_plan_cache: std::collections::HashMap::new(),
+      ifft_plan_cache: std::collections::HashMap::new(),
       config,
       time: 0.0,
       rng: rand::rngs::StdRng::from_entropy(),
       fft_hold: None,
-      waterfall_history: Vec::with_capacity(1000),
-      max_waterfall_lines: 1000,
-      waterfall_pos: 0,
-      simd_processor: Some(simd_processor),
+      simd_processor: None,
     }
   }
 
@@ -215,43 +209,21 @@ impl FFTProcessor {
   ///
   /// * `config` - New FFT configuration
   pub fn update_config(&mut self, config: EnhancedFFTConfig) {
+    let size_changed = config.fft_size != self.config.fft_size;
     self.config = config.clone();
-    // Recreate FFT if size changed
-    if config.fft_size != self.fft.len() {
-      let (fft, ifft) = {
-        let mut planner = FftPlanner::<f32>::new();
-        (planner.plan_fft_forward(config.fft_size), planner.plan_fft_inverse(config.fft_size))
-      };
-      self.fft = fft;
-      self.ifft = ifft;
-      self.simd_processor = Some(UnifiedProcessor::new(config.fft_size));
+
+    if size_changed {
+      // Invalidate plans — they will be recreated lazily on next use
+      self.fft = None;
+      self.ifft = None;
+      self.simd_processor = None;
+      self.fft_hold = None;
     }
 
     // Update processor settings
     if let Some(ref mut simd_proc) = self.simd_processor {
-      #[cfg(not(target_arch = "wasm32"))]
-      {
-        simd_proc.set_gain(config.gain);
-        simd_proc.set_ppm(config.ppm);
-        simd_proc.set_window_type(config.window_type);
-      }
-      #[cfg(target_arch = "wasm32")]
-      {
-        simd_proc.set_gain(config.gain);
-        simd_proc.set_ppm(config.ppm);
-        let window_str = match config.window_type {
-          WindowType::Hanning => "hanning",
-          WindowType::Hamming => "hamming",
-          WindowType::Blackman => "blackman",
-          WindowType::Nuttall => "nuttall",
-          WindowType::Rectangular => "rectangular",
-          WindowType::None => "none",
-        };
-        simd_proc.set_window_type(window_str);
-      }
+      Self::configure_simd_processor(simd_proc, &config);
     }
-
-    // Configuration updated
   }
 
   /// Enable/disable FFT hold (peak hold functionality)
@@ -261,39 +233,14 @@ impl FFTProcessor {
     }
   }
 
-  pub fn simd_processor_mut(&mut self) -> Option<&mut UnifiedProcessor> {
+  pub fn simd_processor_mut(&mut self) -> Option<&mut crate::simd::NativeProcessor> {
     self.simd_processor.as_mut()
-  }
-
-  /// Clear waterfall history
-  pub fn clear_waterfall(&mut self) {
-    self.waterfall_history.clear();
-  }
-
-  /// Get waterfall history (properly ordered for circular buffer)
-  pub fn get_waterfall_history(&self) -> Vec<Vec<f32>> {
-    if self.waterfall_history.len() <= self.max_waterfall_lines {
-      // Buffer not full yet, return as-is
-      self.waterfall_history.clone()
-    } else {
-      // Buffer is full, return in correct chronological order
-      // Oldest data is at waterfall_pos, newest is at waterfall_pos - 1 (wrapping around)
-      let mut result = Vec::with_capacity(self.max_waterfall_lines);
-
-      // First part: from current position (oldest) to end
-      result.extend_from_slice(&self.waterfall_history[self.waterfall_pos..]);
-
-      // Second part: from beginning to current position (newest)
-      result.extend_from_slice(&self.waterfall_history[..self.waterfall_pos]);
-
-      result
-    }
   }
 
   /// Process raw samples into FFT result with SDR++ style enhancements
   ///
-  /// This function uses unified SIMD acceleration on both WASM and native targets.
-  /// No scalar fallbacks - SIMD is required.
+  /// This function uses native SIMD acceleration.
+  /// FFT processing uses GPU compute shaders instead of WASM SIMD.
   ///
   /// # Arguments
   ///
@@ -305,34 +252,25 @@ impl FFTProcessor {
   ///
   /// # Performance
   ///
-  /// - WASM SIMD: 30-50% faster
   /// - Native SIMD: 2-4x faster (NEON/SSE)
   pub fn process_samples(&mut self, samples: &RawSamples) -> Result<FFTResult> {
-    // Unified SIMD processing
-    if let Some(ref mut simd_proc) = self.simd_processor {
-      #[cfg(not(target_arch = "wasm32"))]
-      {
-        let mut power = vec![0.0; self.config.fft_size];
-        match simd_proc.process_samples(samples, &mut power) {
-          Ok(()) => {
-            return self.finalize_spectrum(power, false);
-          }
-          Err(e) => {
-            return Err(anyhow::anyhow!("SIMD processing failed: {}", e));
-          }
-        }
-      }
-      #[cfg(target_arch = "wasm32")]
-      {
-        let power = simd_proc.process_samples(&samples.data);
+    let fft_size = self.config.fft_size;
+    let mut power = vec![0.0; fft_size];
+    let simd_result = {
+      let simd_proc = self.ensure_simd_processor();
+      simd_proc.process_samples(samples, &mut power)
+    };
+    match simd_result {
+      Ok(()) => {
         return self.finalize_spectrum(power, false);
       }
+      Err(e) => {
+        return Err(anyhow::anyhow!("SIMD processing failed: {}", e));
+      }
     }
-
-    Err(anyhow::anyhow!("SIMD processor not available"))
   }
 
-  /// Common post-processing: zoom, hold, waterfall, and result construction
+  /// Common post-processing: zoom, hold, and result construction
   fn finalize_spectrum(
     &mut self,
     power: Vec<f32>,
@@ -361,15 +299,6 @@ impl FFTProcessor {
       self.fft_hold = Some(zoomed_power.clone());
     }
 
-    // Update waterfall history with circular buffer optimization
-    if self.waterfall_history.len() < self.max_waterfall_lines {
-      self.waterfall_history.push(zoomed_power.clone());
-    } else {
-      // Use circular buffer to avoid reallocations
-      self.waterfall_history[self.waterfall_pos] = zoomed_power.clone();
-      self.waterfall_pos = (self.waterfall_pos + 1) % self.max_waterfall_lines;
-    }
-
     Ok(FFTResult {
       power_spectrum: zoomed_power.clone(),
       waterfall: zoomed_power,
@@ -389,15 +318,20 @@ impl FFTProcessor {
   /// # Returns
   ///
   /// FFT result with power spectrum and optionally phase spectrum
-  pub fn process_samples_with_phase(&mut self, samples: &RawSamples, include_phase: bool) -> Result<FFTResult> {
+  pub fn process_samples_with_phase(
+    &mut self,
+    samples: &RawSamples,
+    include_phase: bool,
+  ) -> Result<FFTResult> {
     // Get the regular FFT result first
     let mut result = self.process_samples(samples)?;
-    
+
     // Calculate phase spectrum if requested
     if include_phase {
-      result.phase_spectrum = Some(self.calculate_phase_spectrum(&samples.data)?);
+      result.phase_spectrum =
+        Some(self.calculate_phase_spectrum(&samples.data)?);
     }
-    
+
     Ok(result)
   }
 
@@ -413,40 +347,40 @@ impl FFTProcessor {
   fn calculate_phase_spectrum(&self, iq_data: &[u8]) -> Result<Vec<f32>> {
     let fft_size = self.config.fft_size;
     let mut phase_spectrum = vec![0.0f32; fft_size];
-    
+
     // Convert I/Q samples to complex numbers
     let mut complex_samples: Vec<Complex<f32>> = Vec::with_capacity(fft_size);
-    
+
     for chunk in iq_data.chunks_exact(2).take(fft_size) {
       if chunk.len() < 2 {
         break;
       }
-      
+
       // Convert from offset binary u8 to float (-1.0 to 1.0)
-      let i_f = (chunk[0] as f32 - 128.0) / 127.0;
-      let q_f = (chunk[1] as f32 - 128.0) / 127.0;
-      
+      let i_f = (chunk[0] as f32 - 128.0) / 128.0;
+      let q_f = (chunk[1] as f32 - 128.0) / 128.0;
+
       complex_samples.push(Complex::new(i_f, q_f));
     }
-    
+
     // Pad with zeros if we don't have enough samples
     while complex_samples.len() < fft_size {
       complex_samples.push(Complex::new(0.0, 0.0));
     }
-    
+
     // Apply window function
     self.apply_window(&mut complex_samples);
-    
+
     // Perform FFT
     let mut planner = FftPlanner::new();
     let fft = planner.plan_fft_forward(fft_size);
     fft.process(&mut complex_samples);
-    
+
     // Calculate phase for each frequency bin
     for (i, complex_val) in complex_samples.iter().enumerate() {
       phase_spectrum[i] = complex_val.arg();
     }
-    
+
     Ok(phase_spectrum)
   }
 
@@ -475,43 +409,49 @@ impl FFTProcessor {
         is_aligned: false,
       };
     }
-    
+
     let fft_size = phase1.len();
     let start_bin = fft_size / 2 - overlap_bins / 2;
     let end_bin = start_bin + overlap_bins;
-    
+
     // Calculate phase differences in overlap region
     let mut phase_diffs = Vec::new();
     for i in start_bin..end_bin.min(fft_size) {
       let diff = phase2[i] - phase1[i];
       // Wrap phase difference to [-π, π]
-      let wrapped_diff = ((diff + std::f32::consts::PI) % (2.0 * std::f32::consts::PI)) - std::f32::consts::PI;
+      let wrapped_diff = ((diff + std::f32::consts::PI)
+        % (2.0 * std::f32::consts::PI))
+        - std::f32::consts::PI;
       phase_diffs.push(wrapped_diff);
     }
-    
+
     // Calculate average phase difference
     let avg_phase_diff = if phase_diffs.is_empty() {
       0.0
     } else {
       phase_diffs.iter().sum::<f32>() / phase_diffs.len() as f32
     };
-    
+
     // Calculate coherence score based on variance of phase differences
     let variance = if phase_diffs.is_empty() {
       0.0
     } else {
       let mean = avg_phase_diff;
-      phase_diffs.iter()
+      phase_diffs
+        .iter()
         .map(|diff| (diff - mean).powi(2))
-        .sum::<f32>() / phase_diffs.len() as f32
+        .sum::<f32>()
+        / phase_diffs.len() as f32
     };
-    
+
     // Coherence score: lower variance = higher coherence
     let coherence_score = (-variance).exp();
-    
+
     // Determine if alignment is acceptable (within 30 degrees and good coherence)
-    let is_aligned = avg_phase_diff.abs() < (30.0 * std::f32::consts::PI / 180.0) && coherence_score > 0.7;
-    
+    let is_aligned = avg_phase_diff.abs()
+      < (30.0 * std::f32::consts::PI / 180.0)
+      && coherence_score > 0.7;
+
     PhaseCoherenceResult {
       phase_diff: avg_phase_diff,
       coherence_score,
@@ -529,14 +469,20 @@ impl FFTProcessor {
       WindowType::Hanning => {
         let len = samples.len();
         for (i, sample) in samples.iter_mut().enumerate() {
-          let window = 0.5 - 0.5 * (2.0 * std::f32::consts::PI * i as f32 / (len - 1) as f32).cos();
+          let window = 0.5
+            - 0.5
+              * (2.0 * std::f32::consts::PI * i as f32 / (len - 1) as f32)
+                .cos();
           *sample *= window;
         }
       }
       WindowType::Hamming => {
         let len = samples.len();
         for (i, sample) in samples.iter_mut().enumerate() {
-          let window = 0.54 - 0.46 * (2.0 * std::f32::consts::PI * i as f32 / (len - 1) as f32).cos();
+          let window = 0.54
+            - 0.46
+              * (2.0 * std::f32::consts::PI * i as f32 / (len - 1) as f32)
+                .cos();
           *sample *= window;
         }
       }
@@ -552,9 +498,9 @@ impl FFTProcessor {
         let len = samples.len();
         for (i, sample) in samples.iter_mut().enumerate() {
           let phase = 2.0 * std::f32::consts::PI * i as f32 / (len - 1) as f32;
-          let window = 0.3535533905932738 - 0.4877762677078954 * phase.cos() 
-                    + 0.1455559608136613 * (2.0 * phase).cos() 
-                    - 0.0131142424856482 * (3.0 * phase).cos();
+          let window = 0.3535533905932738 - 0.4877762677078954 * phase.cos()
+            + 0.1455559608136613 * (2.0 * phase).cos()
+            - 0.0131142424856482 * (3.0 * phase).cos();
           *sample *= window;
         }
       }
@@ -567,14 +513,14 @@ impl FFTProcessor {
   /// Convert raw I/Q samples to complex numbers
   pub fn iq_to_complex(&self, iq_data: &[u8]) -> Vec<Complex<f32>> {
     let mut complex_samples = Vec::with_capacity(iq_data.len() / 2);
-    
+
     for chunk in iq_data.chunks_exact(2) {
       // Convert from offset binary u8 to float (-1.0 to 1.0)
-      let i_f = (chunk[0] as f32 - 128.0) / 127.0;
-      let q_f = (chunk[1] as f32 - 128.0) / 127.0;
+      let i_f = (chunk[0] as f32 - 128.0) / 128.0;
+      let q_f = (chunk[1] as f32 - 128.0) / 128.0;
       complex_samples.push(Complex::new(i_f, q_f));
     }
-    
+
     complex_samples
   }
 
@@ -582,29 +528,32 @@ impl FFTProcessor {
   pub fn analyze_signal_quality(&self, iq_data: &[u8]) -> SignalQualityMetrics {
     let complex_samples = self.iq_to_complex(iq_data);
     let sample_rate = self.config.sample_rate as f32;
-    
+
     // Estimate bandwidth using FFT
     let bandwidth_hz = self.estimate_bandwidth(&complex_samples);
-    
+
     // Estimate SNR
     let snr_db = self.estimate_snr(&complex_samples);
-    
+
     // Estimate frequency offset
-    let frequency_offset_hz = self.estimate_frequency_offset(&complex_samples, sample_rate);
-    
+    let frequency_offset_hz =
+      self.estimate_frequency_offset(&complex_samples, sample_rate);
+
     // Detect modulation types
-    let (has_am_modulation, has_angular_modulation) = self.detect_modulation_types(&complex_samples);
-    
+    let (has_am_modulation, has_angular_modulation) =
+      self.detect_modulation_types(&complex_samples);
+
     // Recommend correlation method based on signal characteristics
     let recommended_method = self.recommend_correlation_method(
-      frequency_offset_hz, 
-      has_am_modulation, 
-      has_angular_modulation
+      frequency_offset_hz,
+      has_am_modulation,
+      has_angular_modulation,
     );
-    
+
     // Recommend window size based on bandwidth
-    let recommended_window_size = self.recommend_window_size(bandwidth_hz, sample_rate);
-    
+    let recommended_window_size =
+      self.recommend_window_size(bandwidth_hz, sample_rate);
+
     SignalQualityMetrics {
       bandwidth_hz,
       snr_db,
@@ -621,37 +570,38 @@ impl FFTProcessor {
     if samples.len() < 64 {
       return 0.0;
     }
-    
+
     // Perform FFT
     let mut fft_samples = samples.to_vec();
     self.apply_window(&mut fft_samples);
-    
+
     let mut planner = FftPlanner::new();
     let fft = planner.plan_fft_forward(fft_samples.len());
     fft.process(&mut fft_samples);
-    
+
     // Calculate power spectrum
-    let mut power_spectrum: Vec<f32> = fft_samples.iter()
+    let power_spectrum: Vec<f32> = fft_samples
+      .iter()
       .map(|c| (c.re * c.re + c.im * c.im).sqrt())
       .collect();
-    
+
     // Find noise floor (median of lower 25%)
     let mut sorted_power = power_spectrum.clone();
     sorted_power.sort_by(|a, b| a.partial_cmp(b).unwrap());
     let noise_floor_idx = power_spectrum.len() / 4;
-    let noise_floor = if noise_floor_idx < sorted_power.len() {
+    let _noise_floor = if noise_floor_idx < sorted_power.len() {
       sorted_power[noise_floor_idx]
     } else {
       0.0
     };
-    
+
     // Find -3dB bandwidth points
     let peak_power = power_spectrum.iter().fold(0.0f32, |a, &b| a.max(b));
     let threshold = peak_power * 0.707; // -3dB point
-    
+
     let mut start_bin = 0;
     let mut end_bin = power_spectrum.len() - 1;
-    
+
     // Find lower -3dB point
     for (i, &power) in power_spectrum.iter().enumerate() {
       if power > threshold {
@@ -659,7 +609,7 @@ impl FFTProcessor {
         break;
       }
     }
-    
+
     // Find upper -3dB point
     for (i, &power) in power_spectrum.iter().enumerate().rev() {
       if power > threshold {
@@ -667,11 +617,12 @@ impl FFTProcessor {
         break;
       }
     }
-    
+
     let bandwidth_bins = (end_bin - start_bin) as f32;
     let sample_rate = self.config.sample_rate as f32;
-    let bandwidth_hz = bandwidth_bins * sample_rate / power_spectrum.len() as f32;
-    
+    let bandwidth_hz =
+      bandwidth_bins * sample_rate / power_spectrum.len() as f32;
+
     bandwidth_hz
   }
 
@@ -680,17 +631,18 @@ impl FFTProcessor {
     if samples.is_empty() {
       return 0.0;
     }
-    
+
     // Calculate signal power (average magnitude)
-    let signal_power: f32 = samples.iter()
+    let signal_power: f32 = samples
+      .iter()
       .map(|c| (c.re * c.re + c.im * c.im).sqrt())
-      .sum::<f32>() / samples.len() as f32;
-    
+      .sum::<f32>()
+      / samples.len() as f32;
+
     // Estimate noise power (variance of imaginary part for noise-like signals)
-    let noise_power: f32 = samples.iter()
-      .map(|c| c.im * c.im)
-      .sum::<f32>() / samples.len() as f32;
-    
+    let noise_power: f32 =
+      samples.iter().map(|c| c.im * c.im).sum::<f32>() / samples.len() as f32;
+
     if noise_power > 0.001 {
       20.0 * (signal_power / noise_power).log10()
     } else {
@@ -699,18 +651,22 @@ impl FFTProcessor {
   }
 
   /// Estimate frequency offset using phase progression
-  fn estimate_frequency_offset(&self, samples: &[Complex<f32>], sample_rate: f32) -> f32 {
+  fn estimate_frequency_offset(
+    &self,
+    samples: &[Complex<f32>],
+    sample_rate: f32,
+  ) -> f32 {
     if samples.len() < 100 {
       return 0.0;
     }
-    
+
     // Calculate phase differences between consecutive samples
     let mut phase_diffs = Vec::new();
     for window in samples.windows(2) {
       let phase1 = window[0].arg();
       let phase2 = window[1].arg();
       let mut diff = phase2 - phase1;
-      
+
       // Wrap to [-π, π]
       while diff > std::f32::consts::PI {
         diff -= 2.0 * std::f32::consts::PI;
@@ -718,14 +674,16 @@ impl FFTProcessor {
       while diff < -std::f32::consts::PI {
         diff += 2.0 * std::f32::consts::PI;
       }
-      
+
       phase_diffs.push(diff);
     }
-    
+
     // Average phase difference gives frequency offset
-    let avg_phase_diff = phase_diffs.iter().sum::<f32>() / phase_diffs.len() as f32;
-    let frequency_offset = avg_phase_diff * sample_rate / (2.0 * std::f32::consts::PI);
-    
+    let avg_phase_diff =
+      phase_diffs.iter().sum::<f32>() / phase_diffs.len() as f32;
+    let frequency_offset =
+      avg_phase_diff * sample_rate / (2.0 * std::f32::consts::PI);
+
     frequency_offset.abs()
   }
 
@@ -734,30 +692,32 @@ impl FFTProcessor {
     if samples.len() < 100 {
       return (false, false);
     }
-    
+
     // Calculate amplitude variations
-    let amplitudes: Vec<f32> = samples.iter()
+    let amplitudes: Vec<f32> = samples
+      .iter()
       .map(|c| (c.re * c.re + c.im * c.im).sqrt())
       .collect();
-    
+
     let amplitude_variance = self.calculate_variance(&amplitudes);
-    let amplitude_mean = amplitudes.iter().sum::<f32>() / amplitudes.len() as f32;
+    let amplitude_mean =
+      amplitudes.iter().sum::<f32>() / amplitudes.len() as f32;
     let amplitude_cv = if amplitude_mean > 0.0 {
       amplitude_variance.sqrt() / amplitude_mean
     } else {
       0.0
     };
-    
+
     // Calculate phase variations
     let phases: Vec<f32> = samples.iter().map(|c| c.arg()).collect();
     let phase_variance = self.calculate_variance(&phases);
-    
+
     // Detect AM modulation (coefficient of variation > 0.1)
     let has_am_modulation = amplitude_cv > 0.1;
-    
+
     // Detect angular modulation (phase variance > 0.1 rad²)
     let has_angular_modulation = phase_variance > 0.1;
-    
+
     (has_am_modulation, has_angular_modulation)
   }
 
@@ -766,21 +726,20 @@ impl FFTProcessor {
     if values.is_empty() {
       return 0.0;
     }
-    
+
     let mean = values.iter().sum::<f32>() / values.len() as f32;
-    let variance = values.iter()
-      .map(|v| (v - mean) * (v - mean))
-      .sum::<f32>() / values.len() as f32;
-    
+    let variance = values.iter().map(|v| (v - mean) * (v - mean)).sum::<f32>()
+      / values.len() as f32;
+
     variance
   }
 
   /// Recommend correlation method based on signal characteristics
   fn recommend_correlation_method(
-    &self, 
-    frequency_offset_hz: f32, 
-    has_am_modulation: bool, 
-    has_angular_modulation: bool
+    &self,
+    frequency_offset_hz: f32,
+    has_am_modulation: bool,
+    has_angular_modulation: bool,
   ) -> CorrelationMethod {
     // If frequency offset is large, use robust methods
     if frequency_offset_hz > 1000.0 {
@@ -805,7 +764,11 @@ impl FFTProcessor {
   }
 
   /// Recommend window size based on bandwidth
-  fn recommend_window_size(&self, bandwidth_hz: f32, sample_rate: f32) -> usize {
+  fn recommend_window_size(
+    &self,
+    bandwidth_hz: f32,
+    sample_rate: f32,
+  ) -> usize {
     // Base window size on bandwidth and sample rate
     // Higher bandwidth allows smaller windows
     if bandwidth_hz > 0.1 * sample_rate {
@@ -822,35 +785,46 @@ impl FFTProcessor {
 
   /// Perform comprehensive stitching validation between two I/Q signals
   pub fn validate_stitching(
-    &self,
+    &mut self,
     signal1: &[u8],
     signal2: &[u8],
     overlap_samples: usize,
   ) -> Result<StitchingValidationResult> {
     // Analyze signal quality
     let signal_quality = self.analyze_signal_quality(signal1);
-    
+
     // Perform primary correlation using recommended method
     let primary_correlation = self.correlate_signals(
-      signal1, 
-      signal2, 
-      overlap_samples, 
-      signal_quality.recommended_method
+      signal1,
+      signal2,
+      overlap_samples,
+      signal_quality.recommended_method,
     )?;
-    
+
     // Perform secondary correlation for cross-validation
-    let secondary_correlation = if signal_quality.recommended_method != CorrelationMethod::Amplitude {
-      Some(self.correlate_signals(signal1, signal2, overlap_samples, CorrelationMethod::Amplitude)?)
-    } else {
-      None
-    };
-    
+    let secondary_correlation =
+      if signal_quality.recommended_method != CorrelationMethod::Amplitude {
+        Some(self.correlate_signals(
+          signal1,
+          signal2,
+          overlap_samples,
+          CorrelationMethod::Amplitude,
+        )?)
+      } else {
+        None
+      };
+
     // Calculate overall quality score
-    let overall_quality = self.calculate_overall_quality(&primary_correlation, &secondary_correlation, &signal_quality);
-    
+    let overall_quality = self.calculate_overall_quality(
+      &primary_correlation,
+      &secondary_correlation,
+      &signal_quality,
+    );
+
     // Generate recommendation
-    let recommendation = self.generate_stitching_recommendation(&primary_correlation, &signal_quality);
-    
+    let recommendation = self
+      .generate_stitching_recommendation(&primary_correlation, &signal_quality);
+
     Ok(StitchingValidationResult {
       primary_correlation,
       secondary_correlation,
@@ -862,7 +836,7 @@ impl FFTProcessor {
 
   /// Correlate two I/Q signals using specified method
   pub fn correlate_signals(
-    &self,
+    &mut self,
     signal1: &[u8],
     signal2: &[u8],
     overlap_samples: usize,
@@ -870,76 +844,102 @@ impl FFTProcessor {
   ) -> Result<CorrelationResult> {
     let samples1 = self.iq_to_complex(&signal1[..overlap_samples * 2]);
     let samples2 = self.iq_to_complex(&signal2[..overlap_samples * 2]);
-    
+
     match method {
       CorrelationMethod::Complex => {
         // Prefer FFT-based correlation if signal size matches FFT size
-        if samples1.len() == self.fft.len() && samples2.len() == self.fft.len() {
+        self.ensure_fft_plans();
+        let fft_len = self.fft.as_ref().map_or(0, |f| f.len());
+        if samples1.len() == fft_len && samples2.len() == fft_len {
           self.fft_correlation(&samples1, &samples2)
         } else {
           self.complex_correlation(&samples1, &samples2)
         }
-      },
-      CorrelationMethod::Amplitude => self.amplitude_correlation(&samples1, &samples2),
+      }
+      CorrelationMethod::Amplitude => {
+        self.amplitude_correlation(&samples1, &samples2)
+      }
       CorrelationMethod::Phase => self.phase_correlation(&samples1, &samples2),
-      CorrelationMethod::PhaseDifference => self.phase_difference_correlation(&samples1, &samples2),
+      CorrelationMethod::PhaseDifference => {
+        self.phase_difference_correlation(&samples1, &samples2)
+      }
     }
   }
 
   /// FFT-based correlation: IFFT(FFT(s₁) · FFT(s₂*))
-  fn fft_correlation(&self, signal1: &[Complex<f32>], signal2: &[Complex<f32>]) -> Result<CorrelationResult> {
-    let n = self.fft.len();
+  fn fft_correlation(
+    &mut self,
+    signal1: &[Complex<f32>],
+    signal2: &[Complex<f32>],
+  ) -> Result<CorrelationResult> {
+    self.ensure_fft_plans();
+    let fft = self
+      .fft
+      .as_ref()
+      .expect("FFT plan must exist after ensure_fft_plans");
+    let ifft = self
+      .ifft
+      .as_ref()
+      .expect("IFFT plan must exist after ensure_fft_plans");
+    let n = fft.len();
     let mut a = signal1.to_vec();
     let mut b = signal2.to_vec();
-    
+
     // 1. FFT of both signals
-    self.fft.process(&mut a);
-    self.fft.process(&mut b);
-    
+    fft.process(&mut a);
+    fft.process(&mut b);
+
     // 2. Element-wise product: A · B*
     let mut c = Vec::with_capacity(n);
     for i in 0..n {
       c.push(a[i] * b[i].conj());
     }
-    
+
     // 3. Inverse FFT
-    self.ifft.process(&mut c);
-    
+    ifft.process(&mut c);
+
     // 4. Find peak in circular correlation
     let mut best_score = 0.0f32;
     let mut best_lag = 0isize;
-    
+
     let norm = n as f32;
     let scores: Vec<f32> = c.iter().map(|v| v.norm() / norm).collect();
-    
+
     for (lag, &score) in scores.iter().enumerate() {
       if score > best_score {
         best_score = score;
         best_lag = lag as isize;
       }
     }
-    
+
     // Convert lag to range [-n/2, n/2]
     if best_lag > (n / 2) as isize {
       best_lag -= n as isize;
     }
-    
+
     let sample_rate = self.config.sample_rate as f64;
-    let (fractional_offset, interpolated_score) = if best_lag.abs() < (n / 2) as isize {
-       // Use parabolic interpolation
-       let y_mid = best_score;
-       let prev_idx = if best_lag <= -(n as isize / 2) + 1 { n - 1 } else { ((best_lag - 1 + n as isize) as usize) % n };
-       let next_idx = ((best_lag + 1 + n as isize) as usize) % n;
-       
-       self.estimate_fractional_delay(scores[prev_idx], y_mid, scores[next_idx])
+    let (fractional_offset, interpolated_score) = if best_lag.abs()
+      < (n / 2) as isize
+    {
+      // Use parabolic interpolation
+      let y_mid = best_score;
+      let prev_idx = if best_lag <= -(n as isize / 2) + 1 {
+        n - 1
+      } else {
+        ((best_lag - 1 + n as isize) as usize) % n
+      };
+      let next_idx = ((best_lag + 1 + n as isize) as usize) % n;
+
+      self.estimate_fractional_delay(scores[prev_idx], y_mid, scores[next_idx])
     } else {
-       (0.0, best_score)
+      (0.0, best_score)
     };
 
     Ok(CorrelationResult {
       correlation_score: interpolated_score,
       time_delay_samples: best_lag,
-      time_delay_seconds: (best_lag as f64 + fractional_offset as f64) / sample_rate,
+      time_delay_seconds: (best_lag as f64 + fractional_offset as f64)
+        / sample_rate,
       fractional_delay_samples: fractional_offset,
       method: CorrelationMethod::Complex,
       snr_estimate: self.estimate_snr(signal1),
@@ -948,20 +948,26 @@ impl FFTProcessor {
   }
 
   /// Complex correlation: |∑ s₁(t) · s₂*(t+τ)|
-  fn complex_correlation(&self, signal1: &[Complex<f32>], signal2: &[Complex<f32>]) -> Result<CorrelationResult> {
+  fn complex_correlation(
+    &self,
+    signal1: &[Complex<f32>],
+    signal2: &[Complex<f32>],
+  ) -> Result<CorrelationResult> {
     let max_delay = signal1.len().min(signal2.len()) / 4;
     let mut best_correlation = 0.0f32;
     let mut best_delay = 0isize;
-    
+
     for delay in 0..=max_delay {
       // Test both positive and negative delays
       for sign in [-1, 1] {
         let actual_delay = sign * delay as isize;
-        if sign == -1 && delay == 0 { continue; } // Avoid double-counting zero delay
+        if sign == -1 && delay == 0 {
+          continue;
+        } // Avoid double-counting zero delay
 
         let mut correlation = Complex::new(0.0, 0.0);
         let mut count = 0usize;
-        
+
         for i in 0..signal1.len() {
           let j = i as isize + actual_delay;
           if j >= 0 && j < signal2.len() as isize {
@@ -970,7 +976,7 @@ impl FFTProcessor {
             count += 1;
           }
         }
-        
+
         if count > 0 {
           let score = correlation.norm() / count as f32;
           if score > best_correlation {
@@ -980,38 +986,44 @@ impl FFTProcessor {
         }
       }
     }
-    
+
     let sample_rate = self.config.sample_rate as f64;
-    
+
     // Estimate fractional delay using parabolic interpolation
-    let (fractional_offset, interpolated_score) = if best_delay.abs() > 0 && best_delay.abs() < max_delay as isize {
+    let (fractional_offset, interpolated_score) =
+      if best_delay.abs() > 0 && best_delay.abs() < max_delay as isize {
         // Helper to calculate score at a specific delay
         let calc_score = |d: isize| {
-            let mut correlation = Complex::new(0.0, 0.0);
-            let mut count = 0usize;
-            for i in 0..signal1.len() {
-                let j = i as isize + d;
-                if j >= 0 && j < signal2.len() as isize {
-                    let j = j as usize;
-                    correlation += signal1[i] * signal2[j].conj();
-                    count += 1;
-                }
+          let mut correlation = Complex::new(0.0, 0.0);
+          let mut count = 0usize;
+          for i in 0..signal1.len() {
+            let j = i as isize + d;
+            if j >= 0 && j < signal2.len() as isize {
+              let j = j as usize;
+              correlation += signal1[i] * signal2[j].conj();
+              count += 1;
             }
-            if count > 0 { correlation.norm() / count as f32 } else { 0.0 }
+          }
+          if count > 0 {
+            correlation.norm() / count as f32
+          } else {
+            0.0
+          }
         };
 
         let y_prev = calc_score(best_delay - 1);
         let y_mid = best_correlation;
         let y_next = calc_score(best_delay + 1);
-        
-        self.estimate_fractional_delay(y_prev, y_mid, y_next)
-    } else {
-        (0.0f32, best_correlation)
-    };
 
-    let time_delay_seconds = (best_delay as f64 + fractional_offset as f64) / sample_rate;
+        self.estimate_fractional_delay(y_prev, y_mid, y_next)
+      } else {
+        (0.0f32, best_correlation)
+      };
+
+    let time_delay_seconds =
+      (best_delay as f64 + fractional_offset as f64) / sample_rate;
     let snr_estimate = self.estimate_snr(signal1);
-    
+
     Ok(CorrelationResult {
       correlation_score: interpolated_score,
       time_delay_samples: best_delay,
@@ -1024,33 +1036,42 @@ impl FFTProcessor {
   }
 
   /// Estimate fractional delay component using parabolic interpolation
-  fn estimate_fractional_delay(&self, y_prev: f32, y_mid: f32, y_next: f32) -> (f32, f32) {
+  fn estimate_fractional_delay(
+    &self,
+    y_prev: f32,
+    y_mid: f32,
+    y_next: f32,
+  ) -> (f32, f32) {
     if (2.0 * y_mid - y_prev - y_next).abs() < 1e-6 {
       return (0.0, y_mid);
     }
-    
+
     let offset = 0.5 * (y_prev - y_next) / (y_prev - 2.0 * y_mid + y_next);
     let interpolated_y = y_mid - 0.25 * (y_prev - y_next) * offset;
-    
+
     (offset, interpolated_y)
   }
 
   /// Amplitude correlation: ∑ |s₁(t)| · |s₂(t+τ)|
-  fn amplitude_correlation(&self, signal1: &[Complex<f32>], signal2: &[Complex<f32>]) -> Result<CorrelationResult> {
+  fn amplitude_correlation(
+    &self,
+    signal1: &[Complex<f32>],
+    signal2: &[Complex<f32>],
+  ) -> Result<CorrelationResult> {
     let amplitudes1: Vec<f32> = signal1.iter().map(|c| c.norm()).collect();
     let amplitudes2: Vec<f32> = signal2.iter().map(|c| c.norm()).collect();
-    
+
     let max_delay = amplitudes1.len().min(amplitudes2.len()) / 4;
     let mut best_correlation = 0.0f32;
     let mut best_delay = 0isize;
-    
+
     for delay in 0..=max_delay {
       // Test both positive and negative delays
       for sign in [-1, 1] {
         let actual_delay = sign * delay as isize;
         let mut correlation = 0.0f32;
         let mut count = 0usize;
-        
+
         for i in 0..amplitudes1.len() {
           let j = i as isize + actual_delay;
           if j >= 0 && j < amplitudes2.len() as isize {
@@ -1059,7 +1080,7 @@ impl FFTProcessor {
             count += 1;
           }
         }
-        
+
         if count > 0 {
           correlation /= count as f32;
           if correlation > best_correlation {
@@ -1069,11 +1090,11 @@ impl FFTProcessor {
         }
       }
     }
-    
+
     let sample_rate = self.config.sample_rate as f64;
     let time_delay_seconds = best_delay as f64 / sample_rate;
     let snr_estimate = self.estimate_snr(signal1);
-    
+
     Ok(CorrelationResult {
       correlation_score: best_correlation,
       time_delay_samples: best_delay,
@@ -1086,21 +1107,25 @@ impl FFTProcessor {
   }
 
   /// Phase correlation: ∑ ∠s₁(t) · ∠s₂(t+τ)
-  fn phase_correlation(&self, signal1: &[Complex<f32>], signal2: &[Complex<f32>]) -> Result<CorrelationResult> {
+  fn phase_correlation(
+    &self,
+    signal1: &[Complex<f32>],
+    signal2: &[Complex<f32>],
+  ) -> Result<CorrelationResult> {
     let phases1: Vec<f32> = signal1.iter().map(|c| c.arg()).collect();
     let phases2: Vec<f32> = signal2.iter().map(|c| c.arg()).collect();
-    
+
     let max_delay = phases1.len().min(phases2.len()) / 4;
     let mut best_correlation = 0.0f32;
     let mut best_delay = 0isize;
-    
+
     for delay in 0..=max_delay {
       // Test both positive and negative delays
       for sign in [-1, 1] {
         let actual_delay = sign * delay as isize;
         let mut correlation = 0.0f32;
         let mut count = 0usize;
-        
+
         for i in 0..phases1.len() {
           let j = i as isize + actual_delay;
           if j >= 0 && j < phases2.len() as isize {
@@ -1109,7 +1134,7 @@ impl FFTProcessor {
             count += 1;
           }
         }
-        
+
         if count > 0 {
           correlation /= count as f32;
           if correlation > best_correlation {
@@ -1119,11 +1144,11 @@ impl FFTProcessor {
         }
       }
     }
-    
+
     let sample_rate = self.config.sample_rate as f64;
     let time_delay_seconds = best_delay as f64 / sample_rate;
     let snr_estimate = self.estimate_snr(signal1);
-    
+
     Ok(CorrelationResult {
       correlation_score: best_correlation,
       time_delay_samples: best_delay,
@@ -1136,14 +1161,18 @@ impl FFTProcessor {
   }
 
   /// Phase difference correlation: ∑ [∠s₁(t) - ∠s₁(t-1)] · [∠s₂(t+τ) - ∠s₂(t-1+τ)]
-  fn phase_difference_correlation(&self, signal1: &[Complex<f32>], signal2: &[Complex<f32>]) -> Result<CorrelationResult> {
+  fn phase_difference_correlation(
+    &self,
+    signal1: &[Complex<f32>],
+    signal2: &[Complex<f32>],
+  ) -> Result<CorrelationResult> {
     let phases1: Vec<f32> = signal1.iter().map(|c| c.arg()).collect();
     let phases2: Vec<f32> = signal2.iter().map(|c| c.arg()).collect();
-    
+
     // Calculate phase differences
     let mut phase_diffs1 = Vec::with_capacity(phases1.len() - 1);
     let mut phase_diffs2 = Vec::with_capacity(phases2.len() - 1);
-    
+
     for i in 1..phases1.len() {
       let mut diff = phases1[i] - phases1[i - 1];
       // Wrap to [-π, π]
@@ -1155,7 +1184,7 @@ impl FFTProcessor {
       }
       phase_diffs1.push(diff);
     }
-    
+
     for i in 1..phases2.len() {
       let mut diff = phases2[i] - phases2[i - 1];
       // Wrap to [-π, π]
@@ -1167,18 +1196,18 @@ impl FFTProcessor {
       }
       phase_diffs2.push(diff);
     }
-    
+
     let max_delay = phase_diffs1.len().min(phase_diffs2.len()) / 4;
     let mut best_correlation = 0.0f32;
     let mut best_delay = 0isize;
-    
+
     for delay in 0..=max_delay {
       // Test both positive and negative delays
       for sign in [-1, 1] {
         let actual_delay = sign * delay as isize;
         let mut correlation = 0.0f32;
         let mut count = 0usize;
-        
+
         for i in 0..phase_diffs1.len() {
           let j = i as isize + actual_delay;
           if j >= 0 && j < phase_diffs2.len() as isize {
@@ -1187,7 +1216,7 @@ impl FFTProcessor {
             count += 1;
           }
         }
-        
+
         if count > 0 {
           correlation /= count as f32;
           if correlation > best_correlation {
@@ -1197,11 +1226,11 @@ impl FFTProcessor {
         }
       }
     }
-    
+
     let sample_rate = self.config.sample_rate as f64;
     let time_delay_seconds = best_delay as f64 / sample_rate;
     let snr_estimate = self.estimate_snr(signal1);
-    
+
     Ok(CorrelationResult {
       correlation_score: best_correlation,
       time_delay_samples: best_delay,
@@ -1221,9 +1250,12 @@ impl FFTProcessor {
     signal_quality: &SignalQualityMetrics,
   ) -> f32 {
     let primary_score = primary.correlation_score;
-    let secondary_score = secondary.as_ref().map(|s| s.correlation_score).unwrap_or(0.0);
+    let secondary_score = secondary
+      .as_ref()
+      .map(|s| s.correlation_score)
+      .unwrap_or(0.0);
     let snr_factor = (signal_quality.snr_db / 20.0).min(1.0).max(0.0); // Normalize to 0-1
-    
+
     // Weighted combination
     0.6 * primary_score + 0.2 * secondary_score + 0.2 * snr_factor
   }
@@ -1234,19 +1266,22 @@ impl FFTProcessor {
     correlation: &CorrelationResult,
     signal_quality: &SignalQualityMetrics,
   ) -> StitchingRecommendation {
-    if correlation.is_acceptable {
-      StitchingRecommendation::Accept
-    } else if correlation.correlation_score > 0.5 {
+    if correlation.correlation_score > 0.5 {
       // Moderate correlation - try correction
-      let total_offset_samples = correlation.time_delay_samples as f32 + correlation.fractional_delay_samples;
+      let total_offset_samples = correlation.time_delay_samples as f32
+        + correlation.fractional_delay_samples;
       if total_offset_samples.abs() > 0.1 {
-        StitchingRecommendation::ApplyTimeCorrection(correlation.time_delay_seconds)
+        StitchingRecommendation::ApplyTimeCorrection(
+          correlation.time_delay_seconds,
+        )
       } else {
         StitchingRecommendation::Accept // Negligible delay, accept anyway
       }
     } else if signal_quality.frequency_offset_hz > 1000.0 {
       // High frequency offset - try alternative method
-      StitchingRecommendation::UseAlternativeMethod(CorrelationMethod::PhaseDifference)
+      StitchingRecommendation::UseAlternativeMethod(
+        CorrelationMethod::PhaseDifference,
+      )
     } else {
       StitchingRecommendation::Reject
     }
@@ -1284,16 +1319,35 @@ impl FFTProcessor {
     self.time += self.config.fft_size as f32 / self.config.sample_rate as f32;
 
     // Perform FFT
-    self.fft.process(&mut buf);
+    self.ensure_fft_plans();
+    self
+      .fft
+      .as_ref()
+      .expect("FFT plan must exist")
+      .process(&mut buf);
 
-    // Calculate power spectrum with proper normalization
+    // Calculate power spectrum with proper normalization for true dBFS
+    // We normalize by the sum of window coefficients (Coherent Power Gain compensation)
     let mut power = Vec::with_capacity(self.config.fft_size);
-    let norm = (self.config.fft_size as f32) * (self.config.fft_size as f32);
+
+    // Calculate window sum for normalization
+    let window_sum = match self.config.window_type {
+      WindowType::Rectangular => self.config.fft_size as f32,
+      WindowType::Hanning => self.config.fft_size as f32 * 0.5,
+      WindowType::Hamming => self.config.fft_size as f32 * 0.54,
+      WindowType::Blackman => self.config.fft_size as f32 * 0.42,
+      WindowType::Nuttall => self.config.fft_size as f32 * 0.355768,
+      WindowType::None => self.config.fft_size as f32,
+    };
+
+    let norm_sq = window_sum * window_sum;
+    let epsilon = 1e-15; // Support down to -150dB
+
     for c in &buf {
-      let mag = c.norm_sqr() / norm;
-      // Convert to dB and clamp to reasonable range (-120dB to 0dB)
-      let db_value = 10.0 * mag.log10().max(-120.0);
-      power.push(db_value.min(0.0)); // Clamp to 0dB maximum
+      let mag_sq = c.norm_sqr() / norm_sq;
+      // Convert to dB and clamp to reasonable range (-150dB to 0dB)
+      let db_value = 10.0 * (mag_sq + epsilon).log10();
+      power.push(db_value.clamp(-150.0, 0.0));
     }
 
     // Shift FFT: Move DC to the center
@@ -1314,15 +1368,6 @@ impl FFTProcessor {
     } else {
       power.clone()
     };
-
-    // Update waterfall history with circular buffer optimization
-    if self.waterfall_history.len() < self.max_waterfall_lines {
-      self.waterfall_history.push(zoomed_power.clone());
-    } else {
-      // Use circular buffer to avoid reallocations
-      self.waterfall_history[self.waterfall_pos] = zoomed_power.clone();
-      self.waterfall_pos = (self.waterfall_pos + 1) % self.max_waterfall_lines;
-    }
 
     Ok(FFTResult {
       power_spectrum: zoomed_power,
@@ -1893,12 +1938,12 @@ mod tests {
   #[test]
   fn test_fractional_delay_estimation() {
     let processor = FFTProcessor::new();
-    
+
     // Test case 1: Exact integer delay
     let (offset1, score1) = processor.estimate_fractional_delay(0.5, 1.0, 0.5);
     assert!((offset1 - 0.0).abs() < 1e-6);
     assert!((score1 - 1.0).abs() < 1e-6);
-    
+
     // Test case 2: Shifted right by 0.25 samples
     // y = -x^2 + 1, at x=-1.25, -0.25, 0.75
     // But parabolic interpolation assumes y_mid is the peak.
@@ -1907,7 +1952,8 @@ mod tests {
     // y(-1) = -(-1.25)^2 + 1 = -0.5625
     // y(0) = -(-0.25)^2 + 1 = 0.9375
     // y(1) = -(0.75)^2 + 1 = 0.4375
-    let (offset2, score2) = processor.estimate_fractional_delay(-0.5625, 0.9375, 0.4375);
+    let (offset2, score2) =
+      processor.estimate_fractional_delay(-0.5625, 0.9375, 0.4375);
     assert!((offset2 - 0.25).abs() < 0.01);
     assert!((score2 - 1.0).abs() < 0.01);
 
@@ -1916,7 +1962,8 @@ mod tests {
     // y(-1) = -(-0.5)^2 + 1 = 0.75
     // y(0) = -(0.5)^2 + 1 = 0.75
     // y(1) = -(1.5)^2 + 1 = -1.25
-    let (offset3, score3) = processor.estimate_fractional_delay(0.75, 0.75, -1.25);
+    let (offset3, score3) =
+      processor.estimate_fractional_delay(0.75, 0.75, -1.25);
     assert!((offset3 - (-0.5)).abs() < 0.01);
     assert!((score3 - 1.0).abs() < 0.01);
   }

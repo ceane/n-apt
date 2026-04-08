@@ -10,6 +10,7 @@ import {
   CaptureRequest,
   CaptureStatus,
   SpectrumFrame,
+  LiveFrameData,
   AutoFftOptionsResponse,
   DeviceProfile,
   SdrSettingsConfig,
@@ -44,7 +45,7 @@ export type WebSocketData = {
   maxSampleRateHz: number | null;
   sampleRateHz: number | null;
   sdrSettings: SdrSettingsConfig | null;
-  dataRef: React.MutableRefObject<any>;
+  dataRef: React.MutableRefObject<LiveFrameData | null>;
   spectrumFrames: SpectrumFrame[];
   captureStatus: CaptureStatus;
   autoFftOptions: AutoFftOptionsResponse | null;
@@ -55,6 +56,7 @@ export type WebSocketData = {
   sendSettings: (settings: SDRSettings) => void;
   sendRestartDevice: () => void;
   sendCaptureCommand: (req: CaptureRequest) => void;
+  sendCaptureStopCommand: (jobId?: string) => void;
   sendTrainingCommand: (
     action: "start" | "stop",
     label: "target" | "noise",
@@ -79,7 +81,7 @@ type WsState = {
   maxSampleRateHz: number | null;
   sampleRateHz: number | null;
   sdrSettings: SdrSettingsConfig | null;
-  data: any;
+  data: LiveFrameData | null;
   spectrumFrames: SpectrumFrame[];
   captureStatus: CaptureStatus;
   autoFftOptions: AutoFftOptionsResponse | null;
@@ -95,7 +97,7 @@ type WsAction =
   | { type: "STATUS"; updates: Partial<WsState> }
   | { type: "CAPTURE_STATUS"; status: CaptureStatus }
   | { type: "AUTO_FFT_OPTIONS"; options: AutoFftOptionsResponse }
-  | { type: "DATA"; data: any }
+  | { type: "DATA"; data: LiveFrameData | null }
   | { type: "CRYPTO_CORRUPTED" };
 
 const INITIAL_WS_STATE: WsState = {
@@ -172,7 +174,7 @@ export const useWebSocket = (
   aesKeyRef.current = aesKey;
 
   // Mutable ref for high-frequency spectrum data to avoid React re-renders
-  const dataRef = useRef<any>(null);
+  const dataRef = useRef<LiveFrameData | null>(null);
 
   useEffect(() => {
     // Shared cleanup: close any existing connection and cancel pending reconnects
@@ -241,41 +243,28 @@ export const useWebSocket = (
                 decryptBinaryPayload(aesKeyRef.current, encryptedPayload)
                   .then((decryptedBytes) => {
                     if (disposed) return;
-                    
-                    // 4. Process based on data type
-                    if (dataType === 1) {
-                      // I/Q data: keep as Uint8Array for WebGPU processing
-                      const spectrumData = {
-                        type: "spectrum",
-                        waveform: new Float32Array(decryptedBytes.length / 2), // Placeholder for compatibility
-                        is_mock_apt: false,
-                        center_frequency_hz: centerFrequencyHz,
-                        waveform_span_mhz: null,
-                        timestamp: timestamp,
-                        data_type: "iq_raw",
-                        sample_rate: sampleRate,
-                        iq_data: decryptedBytes, // Raw I/Q data for WebGPU
-                      };
-                      dataRef.current = spectrumData;
-                    } else {
-                      // Spectrum data: convert to Float32Array as before
-                      const waveform = new Float32Array(
-                        decryptedBytes.buffer,
-                        decryptedBytes.byteOffset,
-                        decryptedBytes.byteLength / 4,
-                      );
-                      const spectrumData = {
-                        type: "spectrum",
-                        waveform: waveform,
-                        is_mock_apt: false,
-                        center_frequency_hz: centerFrequencyHz,
-                        waveform_span_mhz: null,
-                        timestamp: timestamp,
-                        data_type: "spectrum_db",
-                        sample_rate: sampleRate,
-                      };
-                      dataRef.current = spectrumData;
+
+                    if (dataType !== 1) {
+                      console.warn("Ignoring unexpected non-IQ binary payload", {
+                        dataType,
+                        centerFrequencyHz,
+                        sampleRate,
+                        byteLength: decryptedBytes.byteLength,
+                      });
+                      return;
                     }
+
+                    const spectrumData: LiveFrameData = {
+                      type: "spectrum",
+                      is_mock_apt: false,
+                      center_frequency_hz: centerFrequencyHz,
+                      waveform_span_mhz: null,
+                      timestamp: timestamp,
+                      data_type: "iq_raw",
+                      sample_rate: sampleRate,
+                      iq_data: decryptedBytes,
+                    };
+                    dataRef.current = spectrumData;
                   })
                   .catch((e) => {
                     console.error("Binary decryption failed:", e);
@@ -456,7 +445,7 @@ export const useWebSocket = (
                 }
                 dispatch({ type: "CAPTURE_STATUS", status: newStatus });
               }
-            } catch (e) {
+            } catch {
               // Silently handle JSON parsing errors
             }
           }
@@ -476,7 +465,7 @@ export const useWebSocket = (
                 };
                 dispatch({ type: "AUTO_FFT_OPTIONS", options });
               }
-            } catch (e) {
+            } catch {
               // Silently handle JSON parsing errors
             }
           }
@@ -606,6 +595,12 @@ export const useWebSocket = (
 
   // Function to request auto FFT options from the server
   const sendGetAutoFftOptions = useCallback((screenWidth: number) => {
+    // Check if we already have auto FFT options cached
+    if (state.autoFftOptions) {
+      console.log('Auto FFT options already cached, skipping WebSocket request');
+      return;
+    }
+    
     const ws = wsRef.current;
     if (ws && ws.readyState === WebSocket.OPEN) {
       const message = JSON.stringify({
@@ -614,7 +609,7 @@ export const useWebSocket = (
       });
       ws.send(message);
     }
-  }, []);
+  }, [state.autoFftOptions]);
 
   // Function to send pause/resume commands to the server
   const sendPauseCommand = useCallback((isPaused: boolean) => {
@@ -654,6 +649,7 @@ export const useWebSocket = (
           type: "capture",
           jobId: req.jobId,
           fragments: req.fragments,
+          durationMode: req.durationMode,
           durationS: req.durationS,
           fileType: req.fileType,
           acquisitionMode: req.acquisitionMode,
@@ -667,6 +663,39 @@ export const useWebSocket = (
     },
     [dispatch],
   );
+
+  const sendCaptureStopCommand = useCallback(
+    (jobId?: string) => {
+      const ws = wsRef.current;
+
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        const message = JSON.stringify({
+          type: "capture_stop",
+          jobId,
+        });
+        ws.send(message);
+      }
+    },
+    [dispatch],
+  );
+
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      const currentJobId = state.captureStatus?.jobId;
+      if (currentJobId) {
+        const ws = wsRef.current;
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: "capture_stop", jobId: currentJobId }));
+        }
+      }
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      handleBeforeUnload();
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, [state.captureStatus?.jobId]);
 
   // Function to send power scale command to the server
   const sendPowerScaleCommand = useCallback((scale: "dB" | "dBm") => {
@@ -690,6 +719,7 @@ export const useWebSocket = (
     sendSettings,
     sendRestartDevice,
     sendCaptureCommand,
+    sendCaptureStopCommand,
     sendTrainingCommand,
     sendGetAutoFftOptions,
     sendPowerScaleCommand,

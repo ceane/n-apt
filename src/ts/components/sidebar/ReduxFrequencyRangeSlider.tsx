@@ -3,7 +3,7 @@ import styled from "styled-components";
 import { useAppDispatch } from "@n-apt/redux";
 import { spectrumActions } from "@n-apt/redux";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
-import FrequencyRangeSlider from "./FrequencyRangeSlider";
+import FrequencyRangeSlider from "@n-apt/components/sidebar/FrequencyRangeSlider";
 
 // Styled Components
 const Container = styled.div`
@@ -17,39 +17,52 @@ const Container = styled.div`
 
 interface ReduxFrequencyRangeSliderProps {
   label: string;
+  /** Match `activeSignalArea` / `lastKnownRanges` when `label` is empty (e.g. demod hides duplicate letter). */
+  signalAreaKey?: string;
   minFreq: number;
   maxFreq: number;
   sampleRateMHz?: number | null;
   limitMarkers?: Array<{ freq: number; label: string }>;
   isActive?: boolean;
   onActivate?: () => void;
+  readOnly?: boolean;
+  scanProgress?: number;
+  scanCurrentFreq?: number;
 }
 
 const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
   label,
+  signalAreaKey,
   minFreq,
   maxFreq,
   sampleRateMHz,
   limitMarkers,
-  isActive = false,
+  isActive,
   onActivate,
+  readOnly,
+  scanProgress,
+  scanCurrentFreq,
 }) => {
   const dispatch = useAppDispatch();
   const { state, dispatch: storeDispatch, wsConnection } = useSpectrumStore();
+
+  const areaKey = signalAreaKey ?? label;
 
   const frequencyRange = state.frequencyRange;
   const activeSignalArea = state.activeSignalArea;
   const lastKnownRanges = state.lastKnownRanges;
   const vizZoom = state.vizZoom;
   const vizPanOffset = state.vizPanOffset;
-  const isCurrentActive = label.toLowerCase() === activeSignalArea?.toLowerCase();
+  const isCurrentActive =
+    areaKey.length > 0 &&
+    areaKey.toLowerCase() === activeSignalArea?.toLowerCase();
   const span = maxFreq - minFreq;
   const hardwareSpan =
     typeof sampleRateMHz === "number" && Number.isFinite(sampleRateMHz)
       ? Math.min(sampleRateMHz, span)
       : span;
   const rememberedRange =
-    lastKnownRanges[label] ?? lastKnownRanges[label.toLowerCase()] ?? null;
+    lastKnownRanges[areaKey] ?? lastKnownRanges[areaKey.toLowerCase()] ?? null;
   const externalFrequencyRange =
     isCurrentActive && (Number.isFinite(vizZoom) ? vizZoom : 1) > 1
       ? null
@@ -184,10 +197,13 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
             : null
         }
         limitMarkers={limitMarkers}
-        isActive={isActive}
+        isActive={isActive ?? isCurrentActive}
         onActivate={onActivate ?? (() => { })}
         onRangeChange={handleRangeChange}
         externalFrequencyRange={externalFrequencyRange ?? undefined}
+        readOnly={readOnly}
+        scanProgress={scanProgress}
+        scanCurrentFreq={scanCurrentFreq}
       />
     </Container>
   );

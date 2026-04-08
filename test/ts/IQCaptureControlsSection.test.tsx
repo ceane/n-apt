@@ -1,7 +1,7 @@
 import React from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import { IQCaptureControlsSection } from "@n-apt/components/sidebar/IQCaptureControlsSection";
+import { IQCaptureControlsSection } from "../../src/ts/components/sidebar/IQCaptureControlsSection";
 import { TestWrapper } from "./testUtils";
 
 // Mock useAuthentication
@@ -12,24 +12,19 @@ jest.mock("@n-apt/hooks/useAuthentication", () => ({
   }),
 }));
 
-const mockTheme = {
-  primary: "#00d4ff",
-  primaryAnchor: "rgba(0, 212, 255, 0.1)",
-};
-
 const defaultProps = {
-  isOpen: true,
-  onToggle: jest.fn(),
   activeCaptureAreas: [],
   availableCaptureAreas: [{ label: "Area A", min: 10, max: 20 }],
   captureDurationS: 5,
+  captureDurationMode: "timed" as const,
   captureFileType: ".napt" as const,
   acquisitionMode: "stepwise" as const,
   captureEncrypted: true,
   capturePlayback: false,
+  captureGeolocation: false,
   captureRange: { min: 10, max: 20, segments: [{ label: "Area A", min: 10, max: 20 }] },
   maxSampleRate: 3200000,
-  captureStatus: { status: "idle" as const },
+  captureStatus: null,
   isConnected: true,
   deviceState: "connected" as const,
   onActiveCaptureAreasChange: jest.fn(),
@@ -38,7 +33,10 @@ const defaultProps = {
   onAcquisitionModeChange: jest.fn(),
   onCaptureEncryptedChange: jest.fn(),
   onCapturePlaybackChange: jest.fn(),
+  onCaptureGeolocationChange: jest.fn(),
   onCapture: jest.fn(),
+  onStopCapture: jest.fn(),
+  onClearStatus: jest.fn(),
 };
 
 describe("IQCaptureControlsSection", () => {
@@ -48,6 +46,9 @@ describe("IQCaptureControlsSection", () => {
         <IQCaptureControlsSection {...defaultProps} />
       </TestWrapper>
     );
+
+    // Open the collapsible section
+    fireEvent.click(screen.getByText("IQ Capture Controls"));
 
     expect(screen.getByText("Area A")).toBeInTheDocument();
     expect(screen.getByDisplayValue("5")).toBeInTheDocument();
@@ -61,6 +62,9 @@ describe("IQCaptureControlsSection", () => {
       </TestWrapper>
     );
 
+    // Open the collapsible section
+    fireEvent.click(screen.getByText("IQ Capture Controls"));
+
     const checkbox = screen.getByLabelText("Area A");
     fireEvent.click(checkbox);
     expect(defaultProps.onActiveCaptureAreasChange).toHaveBeenCalledWith(["Area A"]);
@@ -72,6 +76,9 @@ describe("IQCaptureControlsSection", () => {
         <IQCaptureControlsSection {...defaultProps} />
       </TestWrapper>
     );
+
+    // Open the collapsible section
+    fireEvent.click(screen.getByText("IQ Capture Controls"));
 
     const input = screen.getByDisplayValue("5");
     fireEvent.change(input, { target: { value: "10" } });
@@ -85,8 +92,31 @@ describe("IQCaptureControlsSection", () => {
       </TestWrapper>
     );
 
+    // Open the collapsible section
+    fireEvent.click(screen.getByText("IQ Capture Controls"));
+
     const button = screen.getByText("Capture");
     expect(button).toBeDisabled();
+  });
+
+  it("should keep Stop enabled during an active capture and call the stop handler", () => {
+    render(
+      <TestWrapper>
+        <IQCaptureControlsSection
+          {...defaultProps}
+          captureStatus={{ status: "started", jobId: "job-1" }}
+        />
+      </TestWrapper>
+    );
+
+    fireEvent.click(screen.getByText("IQ Capture Controls"));
+
+    const stopButton = screen.getByText("Stop");
+    expect(stopButton).toBeEnabled();
+
+    fireEvent.click(stopButton);
+    expect(defaultProps.onStopCapture).toHaveBeenCalled();
+    expect(defaultProps.onCapture).not.toHaveBeenCalled();
   });
 
   it("should show 'Capturing...' status", () => {
@@ -99,7 +129,10 @@ describe("IQCaptureControlsSection", () => {
       </TestWrapper>
     );
 
-    expect(screen.getByText("Capturing...")).toBeInTheDocument();
+    // Open the collapsible section
+    fireEvent.click(screen.getByText("IQ Capture Controls"));
+
+    expect(screen.getByText("Capturing now...")).toBeInTheDocument();
   });
 
   it("should show success status and download link", () => {
@@ -116,6 +149,9 @@ describe("IQCaptureControlsSection", () => {
         />
       </TestWrapper>
     );
+
+    // Open the collapsible section
+    fireEvent.click(screen.getByText("IQ Capture Controls"));
 
     expect(screen.getByText("Complete")).toBeInTheDocument();
     expect(screen.getByText("test.napt")).toBeInTheDocument();

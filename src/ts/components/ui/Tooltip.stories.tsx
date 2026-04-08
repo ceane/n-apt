@@ -1,5 +1,4 @@
-import React from "react";
-import Tooltip from "./Tooltip";
+import Tooltip from "@n-apt/components/ui/Tooltip";
 
 export const Default = () => (
   <div style={{ padding: "100px", background: "#0a0a0a", display: "flex", alignItems: "center", gap: "10px" }}>

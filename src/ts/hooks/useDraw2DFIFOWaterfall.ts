@@ -1,16 +1,21 @@
 import { useCallback, useRef } from "react";
+import { validateWaterfallDataComprehensive } from "@n-apt/validation";
 import { spectrumToAmplitude } from "@n-apt/consts/types";
 
 export interface Draw2DFIFOWaterfallOptions {
   canvas: HTMLCanvasElement;
   waterfallBuffer: Uint8ClampedArray;
+  fftFrame?: number[] | Float32Array;
   frequencyRange: { min: number; max: number };
   waterfallMin?: number;
   waterfallMax?: number;
   driftAmount?: number;
   driftDirection?: number;
-  fftFrame?: number[]; // Optional new FFT frame data
   colormap?: number[][];
+  fftSize?: number;
+  sampleRate?: number;
+  centerFrequencyHz?: number;
+  isPaused?: boolean;
 }
 
 export function useDraw2DFIFOWaterfall() {
@@ -103,11 +108,17 @@ export function useDraw2DFIFOWaterfall() {
       const {
         canvas,
         waterfallBuffer,
+        fftFrame,
+        frequencyRange: _frequencyRange,
         waterfallMin = -80,
         waterfallMax = 20,
         driftAmount = 0,
-        fftFrame,
-        colormap = [],
+        driftDirection: _driftDirection = 0,
+        colormap = [[0, 0, 0], [255, 255, 255]],
+        fftSize,
+        sampleRate,
+        centerFrequencyHz,
+        isPaused = false,
       } = options;
 
       const ctx = canvas.getContext("2d");
@@ -160,7 +171,7 @@ export function useDraw2DFIFOWaterfall() {
         if (fftFrame && fftFrame.length > 0) {
           // Convert spectrum to amplitude (0-1 range)
           const amplitudes = spectrumToAmplitude(
-            fftFrame,
+            Array.isArray(fftFrame) ? fftFrame : Array.from(fftFrame),
             waterfallMin,
             waterfallMax,
           );
@@ -176,6 +187,32 @@ export function useDraw2DFIFOWaterfall() {
             waterfallMax,
             colormap,
           );
+
+          // Validate waterfall data on first frame or when paused
+          const isFirstFrame = !lastBufferRef.current;
+          if (isFirstFrame || isPaused) {
+            const validationResult = validateWaterfallDataComprehensive(waterfallBuffer, {
+              width: waterfallWidth,
+              height: waterfallHeight,
+              fftSize,
+              sampleRate,
+              centerFrequencyHz,
+              timestamp: Date.now(),
+              isPaused,
+              isFirstFrame
+            });
+            
+            if (!validationResult.isValid) {
+              console.error(`Waterfall validation failed (${isFirstFrame ? 'first frame' : 'paused'}):`, validationResult.errors);
+            } else if (validationResult.warnings.length > 0) {
+              console.warn(`Waterfall validation warnings (${isFirstFrame ? 'first frame' : 'paused'}):`, validationResult.warnings);
+            }
+            
+            // Log validation metadata for debugging (only in development)
+            if (process.env.NODE_ENV === 'development') {
+              console.log('Waterfall validation metadata:', validationResult.metadata);
+            }
+          }
         }
 
         // Draw the waterfall content using physical pixels

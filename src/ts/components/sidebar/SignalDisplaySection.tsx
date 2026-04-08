@@ -1,5 +1,16 @@
 import React from "react";
 import styled from "styled-components";
+import { Row } from "@n-apt/components/ui";
+import {
+  Blend,
+  Columns3Cog,
+  Frame,
+  GalleryHorizontal,
+  Gauge,
+  Image as ImageIcon,
+  Zap,
+  type LucideIcon,
+} from "lucide-react";
 import type { DeviceProfile } from "@n-apt/consts/schemas/websocket";
 
 const Section = styled.div`
@@ -13,21 +24,27 @@ const Section = styled.div`
 
 const SectionTitle = styled.div`
   font-size: 11px;
-  color: #555;
+  color: ${(props) => props.theme.metadataLabel};
   text-transform: uppercase;
   letter-spacing: 1px;
   margin-top: 1rem;
   margin-bottom: 0;
   font-weight: 600;
-  font-family: "JetBrains Mono", monospace;
+  font-family: ${(props) => props.theme.typography.mono};
   grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 `;
 
-import { Row } from "@n-apt/components/ui";
+const SectionText = styled.span`
+  display: flex;
+  align-items: center;
+`;
 
 const SettingValue = styled.span`
   font-size: 12px;
-  color: #ccc;
+  color: ${(props) => props.theme.textPrimary};
   font-weight: 500;
   justify-self: end;
 `;
@@ -36,8 +53,8 @@ const SettingSelect = styled.select`
   background-color: transparent;
   border: 1px solid transparent;
   border-radius: 4px;
-  color: #ccc;
-  font-family: "JetBrains Mono", monospace;
+  color: ${(props) => props.theme.textPrimary};
+  font-family: ${(props) => props.theme.typography.mono};
   font-size: 12px;
   font-weight: 500;
   padding: 2px 6px;
@@ -53,7 +70,7 @@ const SettingSelect = styled.select`
   max-width: 100%;
 
   &:hover {
-    border-color: #2a2a2a;
+    border-color: ${(props) => props.theme.borderHover};
   }
 
   &:focus {
@@ -63,22 +80,23 @@ const SettingSelect = styled.select`
   }
 
   option {
-    background-color: #1a1a1a;
-    color: #ccc;
-    font-family: "JetBrains Mono", monospace;
+    background-color: ${(props) => props.theme.surface};
+    color: ${(props) => props.theme.textPrimary};
+    font-family: ${(props) => props.theme.typography.mono};
   }
 `;
 
 const SettingInput = styled.input`
   background-color: transparent;
-  border: 1px solid #2a2a2a;
+  border: 1px solid ${(props) => props.theme.borderHover};
   border-radius: 4px;
-  color: #ccc;
-  font-family: "JetBrains Mono", monospace;
+  color: ${(props) => props.theme.textPrimary};
+  font-family: ${(props) => props.theme.typography.mono};
   font-size: 12px;
   font-weight: 500;
   padding: 4px 6px;
-  width: 70px;
+  width: 100%;
+  max-width: 80px;
   text-align: right;
   box-sizing: border-box;
   max-width: 100%;
@@ -104,13 +122,36 @@ const InputGroup = styled.div`
 
 const UnitLabel = styled.span`
   font-size: 12px;
-  color: #ccc;
+  color: ${(props) => props.theme.textPrimary};
   font-weight: 500;
 `;
 
 const WideSettingSelect = styled(SettingSelect)`
-  min-width: 120px;
+  min-width: 100px;
+  width: 100%;
+  text-align-last: right;
 `;
+
+const LabelWithIcon = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  line-height: 1.2;
+
+  svg {
+    width: 14px;
+    height: 14px;
+    color: ${(props) => props.theme.textSecondary};
+    opacity: 0.5;
+  }
+`;
+
+const IconLabel: React.FC<{ icon: LucideIcon; text: string }> = ({ icon: IconComponent, text }) => (
+  <LabelWithIcon>
+    <IconComponent size={14} strokeWidth={1.75} aria-hidden="true" />
+    {text}
+  </LabelWithIcon>
+);
 
 interface SignalDisplaySectionProps {
   sourceMode: "live" | "file";
@@ -145,7 +186,6 @@ interface SignalDisplaySectionProps {
 export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
   sourceMode,
   maxSampleRate,
-  fileCapturedRange,
   fftFrameRate,
   maxFrameRate,
   fftSize,
@@ -200,140 +240,143 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
 
   return (
     <Section>
-      <SectionTitle>Signal display</SectionTitle>
-      <Row label="Sample Size" tooltipTitle="Sample Size (Bandwidth)" tooltip="Radio signal bandwidth capacity. Determines the range of frequencies that can be intercepted and processed from transmissions.">
-        <SettingValue>
-          {sourceMode === "file"
-            ? fileCapturedRange
-              ? `${(fileCapturedRange.max - fileCapturedRange.min).toFixed(2)}MHz`
-              : "No files"
-            : `${(maxSampleRate / 1000000).toFixed(1)}MHz`}
-        </SettingValue>
-      </Row>
-      {sourceMode === "file" && fileCapturedRange && (
-        <Row label="Captured Range" tooltipTitle="Captured Frequency Range" tooltip="The frequency range covered by the selected I/Q capture files, derived from the center frequencies encoded in the filenames.">
-          <SettingValue>
-            {fileCapturedRange.min.toFixed(2)}MHz to{" "}
-            {fileCapturedRange.max.toFixed(2)}MHz
-          </SettingValue>
-        </Row>
-      )}
-      {sourceMode === "live" ? (
-        <Row label="Frame rate (logical)" tooltipTitle="Frame Rate" tooltip={`Signal processing speed. Higher rates provide more real-time analysis of transmissions. Current maximum theoretical rate: ${maxFrameRate} fps based on current FFT size and bandwidth capacity.`}>
-          <InputGroup>
-            <SettingInput
-              type="number"
-              value={fftFrameRate}
-              onChange={(e) => {
-                const val = Math.max(
-                  1,
-                  Math.min(
-                    maxFrameRate,
-                    Math.floor(Number(e.target.value) || 1),
-                  ),
-                );
-                onFftFrameRateChange(val);
-                scheduleCoupledAdjustment("frameRate", fftSize, val);
-              }}
-              onKeyDown={(e) => {
-                if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
-                e.preventDefault();
-                e.stopPropagation();
-                const step = 1; // Always use 1-frame rate steps for precision
-                const delta = e.key === "ArrowUp" ? step : -step;
-                const next = Math.max(
-                  1,
-                  Math.min(
-                    maxFrameRate,
-                    Math.floor((fftFrameRate || 0) + delta),
-                  ),
-                );
-                onFftFrameRateChange(next);
-                scheduleCoupledAdjustment("frameRate", fftSize, next);
-              }}
-              min="1"
-              max={maxFrameRate}
-            />
-            <UnitLabel>fps</UnitLabel>
-          </InputGroup>
-        </Row>
-      ) : (
-        <Row label="Frame rate (logical)">
-          <SettingValue>4 fps</SettingValue>
-        </Row>
-      )}
-      {sourceMode === "live" ? (
-        <Row label="FFT Size" tooltipTitle="FFT Size" tooltip="Frequency resolution. Larger sizes provide better detection of specific signal patterns in transmissions but reduce processing speed.">
-          <SettingSelect
-            value={fftSize}
-            onChange={(e) => {
-              const val = Number(e.target.value);
-              onFftSizeChange(val);
-              scheduleCoupledAdjustment("fftSize", val, fftFrameRate);
-            }}
+      <SectionTitle>
+        <Columns3Cog size={14} />
+        <SectionText>Signal display</SectionText>
+      </SectionTitle>
+      {sourceMode === "live" && (
+        <>
+          <Row
+            label={<IconLabel icon={Frame} text="Sample Size" />}
+            tooltipTitle="Sample Size (Bandwidth)"
+            tooltip="Radio signal bandwidth capacity. Determines the range of frequencies that can be intercepted and processed from transmissions."
           >
-            {autoFftSizeOptions.length > 0 ? (
-              <>
-                {autoFftSizeOptions.map((size) => (
-                  <option key={`auto-${size}`} value={size}>
-                    {size} (Auto)
-                  </option>
-                ))}
-                {manualFftOptions.length > 0 && <option disabled>---</option>}
-                {manualFftOptions.map((size) => (
-                  <option key={`manual-${size}`} value={size}>
-                    {size}
-                  </option>
-                ))}
-              </>
-            ) : (
-              <>
-                {manualFftOptions.map((size) => (
-                  <option key={`manual-${size}`} value={size}>
-                    {size}
-                  </option>
-                ))}
-              </>
-            )}
-          </SettingSelect>
-        </Row>
-      ) : (
-        <Row label="FFT Size">
-          <SettingValue>1024</SettingValue>
-        </Row>
+            <SettingValue>
+              {`${(maxSampleRate / 1000000).toFixed(1)}MHz`}
+            </SettingValue>
+          </Row>
+          <Row
+            label={<IconLabel icon={GalleryHorizontal} text="Frame rate (logical)" />}
+            tooltipTitle="Frame Rate"
+            tooltip={`Signal processing speed. Higher rates provide more real-time analysis of transmissions. Current maximum theoretical rate: ${maxFrameRate} fps based on current FFT size and bandwidth capacity.`}
+          >
+            <InputGroup>
+              <SettingInput
+                type="number"
+                value={fftFrameRate}
+                onChange={(e) => {
+                  const val = Math.max(
+                    1,
+                    Math.min(
+                      maxFrameRate,
+                      Math.floor(Number(e.target.value) || 1),
+                    ),
+                  );
+                  onFftFrameRateChange(val);
+                  scheduleCoupledAdjustment("frameRate", fftSize, val);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                  const step = 1; // Always use 1-frame rate steps for precision
+                  const delta = e.key === "ArrowUp" ? step : -step;
+                  const next = Math.max(
+                    1,
+                    Math.min(
+                      maxFrameRate,
+                      Math.floor((fftFrameRate || 0) + delta),
+                    ),
+                  );
+                  onFftFrameRateChange(next);
+                  scheduleCoupledAdjustment("frameRate", fftSize, next);
+                }}
+                min="1"
+                max={maxFrameRate}
+              />
+              <UnitLabel>fps</UnitLabel>
+            </InputGroup>
+          </Row>
+          <Row
+            label={<IconLabel icon={ImageIcon} text="FFT Size" />}
+            tooltipTitle="FFT Size"
+            tooltip="Frequency resolution. Larger sizes provide better detection of specific signal patterns in transmissions but reduce processing speed."
+          >
+            <SettingSelect
+              value={fftSize}
+              onChange={(e) => {
+                const val = Number(e.target.value);
+                onFftSizeChange(val);
+                scheduleCoupledAdjustment("fftSize", val, fftFrameRate);
+              }}
+            >
+              {autoFftSizeOptions.length > 0 ? (
+                <>
+                  {autoFftSizeOptions.map((size) => (
+                    <option key={`auto-${size}`} value={size}>
+                      {size} (Auto)
+                    </option>
+                  ))}
+                  {manualFftOptions.length > 0 && <option disabled>---</option>}
+                  {manualFftOptions.map((size) => (
+                    <option key={`manual-${size}`} value={size}>
+                      {size}
+                    </option>
+                  ))}
+                </>
+              ) : (
+                <>
+                  {manualFftOptions.map((size) => (
+                    <option key={`manual-${size}`} value={size}>
+                      {size}
+                    </option>
+                  ))}
+                </>
+              )}
+            </SettingSelect>
+          </Row>
+          <Row
+            label={<IconLabel icon={Blend} text="FFT Window" />}
+            tooltipTitle="FFT Window"
+            tooltip="Signal filtering. Different windows optimize for detecting specific types of patterns and interactions in transmissions."
+          >
+            <WideSettingSelect
+              value={fftWindow}
+              onChange={(e) => {
+                const val = e.target.value;
+                onFftWindowChange(val);
+              }}
+            >
+              <option value="Rectangular">Rectangular</option>
+              <option value="Nuttall">Nuttall</option>
+              <option value="Hamming">Hamming</option>
+              <option value="Hanning">Hanning</option>
+              <option value="Blackman">Blackman</option>
+            </WideSettingSelect>
+          </Row>
+          <Row
+            label={<IconLabel icon={Gauge} text="Temporal Resolution" />}
+            tooltipTitle="Display Temporal Resolution"
+            tooltip="Signal visualization precision. Low blends signal patterns, medium shows averaged activity, high displays exact signal interactions with sharp transitions, with the ability to see patterns (like dots) in the waterfall as the signal rises and falls sharply."
+          >
+            <WideSettingSelect
+              value={temporalResolution}
+              onChange={(e) => {
+                onTemporalResolutionChange(
+                  e.target.value as "low" | "medium" | "high",
+                );
+              }}
+            >
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+            </WideSettingSelect>
+          </Row>
+        </>
       )}
-      <Row label="FFT Window" tooltipTitle="FFT Window" tooltip="Signal filtering. Different windows optimize for detecting specific types of patterns and interactions in transmissions.">
-        <WideSettingSelect
-          value={fftWindow}
-          onChange={(e) => {
-            const val = e.target.value;
-            onFftWindowChange(val);
-          }}
-        >
-          <option value="Rectangular">Rectangular</option>
-          <option value="Nuttall">Nuttall</option>
-          <option value="Hamming">Hamming</option>
-          <option value="Hanning">Hanning</option>
-          <option value="Blackman">Blackman</option>
-        </WideSettingSelect>
-      </Row>
-      <Row label="Temporal Resolution" tooltipTitle="Display Temporal Resolution" tooltip="Signal visualization precision. Low blends signal patterns, medium shows averaged activity, high displays exact signal interactions with sharp transitions, with the ability to see patterns (like dots) in the waterfall as the signal rises and falls sharply.">
-        <WideSettingSelect
-          value={temporalResolution}
-          onChange={(e) => {
-            onTemporalResolutionChange(
-              e.target.value as "low" | "medium" | "high",
-            );
-          }}
-        >
-          <option value="low">Low</option>
-          <option value="medium">Medium</option>
-          <option value="high">High</option>
-        </WideSettingSelect>
-      </Row>
-      {/* RTL-SDR specific power scale toggle - temporarily enabled for testing */}
-      {showsApproxDbmToggle && (
-        <Row label="Power Scale" tooltipTitle="Power Scale Mode" tooltip="Signal power measurement: dB (relative scale) or Approximated dBm (raw RTL-SDR I/Q based estimate). Approximated dBm is useful for stable absolute-like comparisons, but it is not lab-calibrated true dBm.">
+      {/* RTL-SDR specific power scale toggle - enabled for testing and file mode */}
+      {(showsApproxDbmToggle || sourceMode === "file") && (
+        <Row label={<IconLabel icon={Zap} text="Power Scale" />} tooltipTitle="Power Scale Mode" tooltip="Signal power measurement: dB (relative scale) or Approximated dBm (raw RTL-SDR I/Q based estimate). RTL-SDR readings are more accurate than rlt_power and are around ±3-5dBm within accuracy of signal's measured power. Approximated dBm is useful for stable absolute-like comparisons, but it is not lab-calibrated true dBm.">
           <WideSettingSelect
             value={powerScale}
             onChange={(e) => {
@@ -341,7 +384,7 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
             }}
           >
             <option value="dB">dB (relative)</option>
-            <option value="dBm">Approximated dBm</option>
+            <option value="dBm">dBm (approximate)</option>
           </WideSettingSelect>
         </Row>
       )}

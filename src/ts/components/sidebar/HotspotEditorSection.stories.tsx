@@ -1,5 +1,5 @@
-import { HotspotEditorSection } from "./HotspotEditorSection";
-import { HotspotEditorProvider } from "@n-apt/hooks/useHotspotEditor";
+import { HotspotEditorSection } from "@n-apt/components/sidebar/HotspotEditorSection";
+import { Model3DInteractionProvider } from "@n-apt/hooks/useHotspotEditor";
 import { ThemeProvider } from "styled-components";
 
 const theme = {
@@ -11,9 +11,9 @@ const theme = {
 export const Default = () => (
   <ThemeProvider theme={theme}>
     <div style={{ padding: "20px", background: "#0a0a0a", width: "350px", display: "grid", gap: "2px" }}>
-      <HotspotEditorProvider>
+      <Model3DInteractionProvider>
         <HotspotEditorSection />
-      </HotspotEditorProvider>
+      </Model3DInteractionProvider>
     </div>
   </ThemeProvider>
 );

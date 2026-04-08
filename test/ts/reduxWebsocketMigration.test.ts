@@ -115,10 +115,12 @@ describe('Redux WebSocket Migration', () => {
       expect(liveDataRef).toBeDefined();
       expect(liveDataRef.current).toBeNull();
 
-      // Simulate a spectrum frame write
+      // Simulate an IQ frame write
       const mockFrame = {
         type: 'spectrum',
-        waveform: new Float32Array([1, 2, 3]),
+        data_type: 'iq_raw',
+        iq_data: new Uint8Array([127, 129, 130, 126]),
+        sample_rate: 2_400_000,
         center_frequency_hz: 100_000_000,
         timestamp: Date.now(),
       };

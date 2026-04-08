@@ -270,7 +270,6 @@ export class GPUMemoryManager {
     recommendations: string[];
     status: 'good' | 'warning' | 'critical';
   } {
-    const _usageMB = this.stats.totalAllocated / (1024 * 1024);
     const usagePercent = this.getMemoryUsagePercentage();
     const efficiency = 100 - (this.stats.fragmentationRatio * 100);
     

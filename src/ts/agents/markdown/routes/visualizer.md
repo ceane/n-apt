@@ -63,7 +63,7 @@ The Spectrum Visualizer provides real-time FFT analysis of N-APT neuro-biologica
 
 ## Data Formats
 
-- **Input**: .napt (encrypted), .c64, .npy I/Q files
+- **Input**: .napt (encrypted), .wav, .c64, .npy I/Q files
 - **Output**: PNG/SVG images, JSON metadata, CSV analysis data
 - **Real-time**: WebSocket streaming of FFT data
 

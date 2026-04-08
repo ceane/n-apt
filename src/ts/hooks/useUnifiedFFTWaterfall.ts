@@ -1,5 +1,5 @@
 import { useCallback, useRef, useEffect, useState } from "react";
-import { FFT_COMPUTE_SHADER } from "@n-apt/consts/shaders/fft_compute";
+import { FFT_COMPUTE_SHADER } from "@n-apt/shaders";
 
 export interface UnifiedFFTWaterfallOptions {
   device: GPUDevice | null;
@@ -16,10 +16,17 @@ export interface UnifiedProcessOptions {
   powerMode?: "db" | "dbm";
   minDb?: number;
   maxDb?: number;
+  hardwareSampleRateHz?: number;
+  centerFrequencyHz?: number;
+  tunerGainDb?: number;
+  calibrationMode?: "generic" | "rtl_sdr";
+  baseCalibrationDb?: number;
+  chainLossDb?: number;
 }
 
 export interface UnifiedBuffers {
   // FFT processing buffers
+  rawIqBuffer: GPUBuffer;
   fftInputBuffer: GPUBuffer;
   fftOutputBuffer: GPUBuffer;
   fftTempBuffer: GPUBuffer;
@@ -76,10 +83,9 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
   
   // State management
   const [isInitialized, setIsInitialized] = useState(!!device);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [lastResult, setLastResult] = useState<UnifiedProcessingResult | null>(null);
+  const isProcessingRef = useRef(false);
+  const lastResultRef = useRef<UnifiedProcessingResult | null>(null);
   const frameCountRef = useRef(0);
-  const lastIqLogTimeRef = useRef(0);
   
   // Window type mapping
   const windowTypeMap = {
@@ -90,23 +96,45 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
     nuttall: 4
   };
   
+  const calibrationModeMap = {
+    generic: 0,
+    rtl_sdr: 1,
+  } as const;
+  
   // Initialize unified buffers
   const initializeBuffers = useCallback(() => {
     if (!device) {
       console.warn('GPU device not available for unified buffer initialization');
       return;
     }
+
+    if (buffersRef.current) {
+      buffersRef.current.rawIqBuffer.destroy();
+      buffersRef.current.fftInputBuffer.destroy();
+      buffersRef.current.fftOutputBuffer.destroy();
+      buffersRef.current.fftTempBuffer.destroy();
+      buffersRef.current.fftParamsBuffer.destroy();
+      buffersRef.current.waterfallBuffer.destroy();
+      buffersRef.current.sharedSpectrumBuffer.destroy();
+      buffersRef.current.waterfallTexture.destroy();
+    }
     
     // Cap waterfall width to hardware limits (e.g. 16384 on many GPUs)
     const maxTextureWidth = device.limits.maxTextureDimension2D || 16384;
     const waterfallWidth = Math.min(fftSize, maxTextureWidth);
     
+    const rawIqSize = Math.ceil((fftSize * 2) / 4) * 4;
     const complexSize = fftSize * 8; // Complex number = 2 floats * 4 bytes each
     const paramsSize = 64; // FFTParams struct size
     // Each Complex in output_buffer can hold one packed u32 color in .real
     const waterfallBufferSize = waterfallWidth * 8; 
     
     // FFT processing buffers
+    const rawIqBuffer = device.createBuffer({
+      size: rawIqSize,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+
     const fftInputBuffer = device.createBuffer({
       size: complexSize,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
@@ -148,6 +176,7 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
     });
     
     buffersRef.current = {
+      rawIqBuffer,
       fftInputBuffer,
       fftOutputBuffer,
       fftTempBuffer,
@@ -255,9 +284,9 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
       bindGroupsRef.current.rtlIqWindow = device.createBindGroup({
         layout: rtlIqWindowPipelineRef.current.getBindGroupLayout(0),
         entries: [
-          { binding: 0, resource: { buffer: buffers.fftInputBuffer } },
           { binding: 1, resource: { buffer: buffers.fftTempBuffer } },
-          { binding: 3, resource: { buffer: buffers.fftParamsBuffer } }
+          { binding: 3, resource: { buffer: buffers.fftParamsBuffer } },
+          { binding: 4, resource: { buffer: buffers.rawIqBuffer } },
         ]
       });
       
@@ -330,7 +359,7 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
       throw error;
     }
   }, [device, enableAveraging, enableSmoothing]);
-  
+
   // Update FFT parameters
   const updateParams = useCallback((
     stage: number,
@@ -338,40 +367,60 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
     windowTypeValue?: number,
     minDbValue?: number,
     maxDbValue?: number,
-    normalizationOverride?: number
+    normalizationOverride?: number,
+    calibrationOptions?: {
+      centerFrequencyHz?: number;
+      sampleRateHz?: number;
+      tunerGainDb?: number;
+      baseCalibrationDb?: number;
+      chainLossDb?: number;
+      calibrationMode?: "generic" | "rtl_sdr";
+    }
   ) => {
     if (!device || !buffersRef.current) return;
     
     const maxTextureWidth = device.limits.maxTextureDimension2D || 16384;
     const waterfallWidth = Math.min(fftSize, maxTextureWidth);
 
-    const params = new Float32Array([
-      stage,                    // stage
-      direction,                // direction
-      fftSize,                  // input_size
-      windowTypeValue ?? windowTypeMap[windowType as keyof typeof windowTypeMap], // window_type
-      normalizationOverride ?? normalizationFactor, // normalization
-      minDbValue ?? -120.0,     // min_db
-      maxDbValue ?? 0.0,        // max_db
-      waterfallWidth,           // waterfall_width
-    ]);
+    const paramsBuffer = new ArrayBuffer(64);
+    const floatView = new Float32Array(paramsBuffer);
+    const uintView = new Uint32Array(paramsBuffer);
+
+    uintView[0] = stage;
+    int32View(paramsBuffer)[1] = direction;
+    uintView[2] = fftSize;
+    uintView[3] = windowTypeValue ?? windowTypeMap[windowType as keyof typeof windowTypeMap];
+    floatView[4] = normalizationOverride ?? normalizationFactor;
+    floatView[5] = minDbValue ?? -120.0;
+    floatView[6] = maxDbValue ?? 0.0;
+    uintView[7] = waterfallWidth;
+    floatView[8] = calibrationOptions?.centerFrequencyHz ?? 0.0;
+    floatView[9] = calibrationOptions?.sampleRateHz ?? 0.0;
+    floatView[10] = calibrationOptions?.tunerGainDb ?? 0.0;
+    floatView[11] = calibrationOptions?.baseCalibrationDb ?? 0.0;
+    floatView[12] = calibrationOptions?.chainLossDb ?? 0.0;
+    uintView[13] = calibrationModeMap[calibrationOptions?.calibrationMode ?? "generic"];
+    uintView[14] = 0;
+    uintView[15] = 0;
     
     device.queue.writeBuffer(
       buffersRef.current.fftParamsBuffer,
       0,
-      params.buffer
+      paramsBuffer
     );
   }, [device, fftSize, windowType, normalizationFactor, windowTypeMap]);
-  
+
   // Unified FFT and waterfall processing
   const processUnified = useCallback(async (
-    inputData: Float32Array,
+    inputData: Float32Array | Uint8Array,
     processOptions?: UnifiedProcessOptions,
   ): Promise<UnifiedProcessingResult> => {
     if (!isInitialized || !device || !buffersRef.current) {
       throw new Error("Unified FFT/Waterfall system not initialized");
     }
     
+    isProcessingRef.current = true;
+
     const inputMode = processOptions?.inputMode ?? "real";
     const powerMode = processOptions?.powerMode ?? "db";
     const minDb = processOptions?.minDb ?? -120.0;
@@ -383,26 +432,24 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
     // Calculate PSD normalization factor for dBm mode (Ps = P / (Fs * N))
     let activeNormalization = normalizationFactor;
     if (powerMode === "dbm" && inputMode === "complex_iq") {
-      const sampleRate = (processOptions as any).hardwareSampleRateHz || 2400000;
+      const sampleRate = processOptions?.hardwareSampleRateHz || 2400000;
       activeNormalization = sampleRate * fftSize;
     }
 
-    // Debug logging for I/Q data and normalization
-    const lastLogTime = lastIqLogTimeRef.current;
-    const now = performance.now();
-    if (now - lastLogTime > 5000) {
-      lastIqLogTimeRef.current = now;
-      console.log(`[useUnifiedFFT] Debug (mode=${powerMode}, N=${fftSize}):`, {
-        iq_samples_slice: inputData.slice(0, 10),
-        norm_factor: activeNormalization,
-        sample_rate: (processOptions as any).hardwareSampleRateHz,
-        minDb,
-        maxDb
-      });
-    }
+    const calibrationMode = processOptions?.calibrationMode ?? "generic";
+    const baseCalibrationDb = processOptions?.baseCalibrationDb ?? -30.0;
+    const chainLossDb = processOptions?.chainLossDb ?? 2.5;
+    const calibrationOptions = {
+      centerFrequencyHz: processOptions?.centerFrequencyHz ?? 0,
+      sampleRateHz: processOptions?.hardwareSampleRateHz ?? 0,
+      tunerGainDb: processOptions?.tunerGainDb ?? 0,
+      baseCalibrationDb,
+      chainLossDb,
+      calibrationMode,
+    };
 
     const updateParamsWithVals = (s: number, d: number = 1, w?: number, l?: number, h?: number) => {
-      updateParams(s, d, w, l, h, activeNormalization);
+      updateParams(s, d, w, l, h, activeNormalization, calibrationOptions);
     };
 
     try {
@@ -413,26 +460,32 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
         throw new Error(`Input size mismatch: expected ${expectedInputLength}, got ${inputData.length}`);
       }
 
-      const complexInput = new Float32Array(fftSize * 2);
       if (inputMode === "complex_iq") {
-        complexInput.set(inputData);
+        const rawIqBytes = inputData instanceof Uint8Array ? inputData : new Uint8Array(inputData.buffer, inputData.byteOffset, inputData.byteLength);
+        device.queue.writeBuffer(
+          buffersRef.current.rawIqBuffer,
+          0,
+          rawIqBytes.buffer,
+          rawIqBytes.byteOffset,
+          rawIqBytes.byteLength,
+        );
       } else {
+        const complexInput = new Float32Array(fftSize * 2);
         for (let i = 0; i < fftSize; i++) {
           complexInput[i * 2] = inputData[i];
           complexInput[i * 2 + 1] = 0;
         }
+        device.queue.writeBuffer(
+          buffersRef.current.fftInputBuffer,
+          0,
+          complexInput.buffer,
+        );
       }
-      
-      device.queue.writeBuffer(
-        buffersRef.current.fftInputBuffer,
-        0,
-        complexInput.buffer
-      );
       
       const encoder = device.createCommandEncoder();
       
       // Stage 1: Apply window function
-      updateParams(0, 1, undefined, minDb, maxDb);
+      updateParams(0, 1, undefined, minDb, maxDb, activeNormalization, calibrationOptions);
       const windowPass = encoder.beginComputePass();
       if (inputMode === "complex_iq" && rtlIqWindowPipelineRef.current && bindGroupsRef.current.rtlIqWindow) {
         windowPass.setPipeline(rtlIqWindowPipelineRef.current);
@@ -461,9 +514,9 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
         // Swap buffers for next stage
         if (stage < numStages - 1) {
           encoder.copyBufferToBuffer(
-            buffersRef.current! .fftOutputBuffer,
+            buffersRef.current!.fftOutputBuffer,
             0,
-            buffersRef.current! .fftTempBuffer,
+            buffersRef.current!.fftTempBuffer,
             0,
             fftSize * 8
           );
@@ -499,14 +552,14 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
         
         // Copy averaged result back to sharedSpectrumBuffer (readback + waterfall source)
         encoder.copyBufferToBuffer(
-          buffersRef.current! .fftOutputBuffer, 0,
-          buffersRef.current! .sharedSpectrumBuffer, 0,
+          buffersRef.current!.fftOutputBuffer, 0,
+          buffersRef.current!.sharedSpectrumBuffer, 0,
           fftSize * 8
         );
         // Persist averaged result to fftTempBuffer for next frame's "previous"
         encoder.copyBufferToBuffer(
-          buffersRef.current! .fftOutputBuffer, 0,
-          buffersRef.current! .fftTempBuffer, 0,
+          buffersRef.current!.fftOutputBuffer, 0,
+          buffersRef.current!.fftTempBuffer, 0,
           fftSize * 8
         );
       }
@@ -525,8 +578,8 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
         
         // Copy smoothed result back to sharedSpectrumBuffer
         encoder.copyBufferToBuffer(
-          buffersRef.current! .fftOutputBuffer, 0,
-          buffersRef.current! .sharedSpectrumBuffer, 0,
+          buffersRef.current!.fftOutputBuffer, 0,
+          buffersRef.current!.sharedSpectrumBuffer, 0,
           fftSize * 8
         );
       }
@@ -602,46 +655,48 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
         processedAt: performance.now(),
         frameCount: frameCountRef.current
       };
+
+      if (!spectrumData || spectrumData.length === 0 || !spectrumData.some((v) => Number.isFinite(v))) {
+        console.error("Unified FFT produced invalid spectrum data", {
+          inputMode,
+          powerMode,
+          fftSize,
+          minDb,
+          maxDb,
+          frameCount: frameCountRef.current,
+        });
+      }
       
-      setLastResult(result);
+      lastResultRef.current = result;
       return result;
       
     } finally {
-      setIsProcessing(false);
+      isProcessingRef.current = false;
     }
   }, [isInitialized, device, fftSize, waterfallHeight, windowType, enableAveraging, enableSmoothing, normalizationFactor, updateParams]);
-  
-  // Initialize buffers once when device becomes available
+
+  // Initialize buffers and pipelines when device or dependencies change
   useEffect(() => {
     if (!device) return;
     try {
       initializeBuffers();
+      createPipelines().then(() => {
+        setIsInitialized(true);
+      }).catch((e) => {
+        console.error("Failed to create unified pipelines:", e);
+        setIsInitialized(false);
+      });
     } catch (error) {
       console.error("Failed to initialize unified buffers:", error);
+      setIsInitialized(false);
     }
-  }, [device, initializeBuffers]);
-  
-  // Create/recreate pipelines when device or toggle flags change (without destroying buffers)
-  useEffect(() => {
-    const init = async () => {
-      if (!device || !buffersRef.current) return;
-      
-      try {
-        await createPipelines();
-        setIsInitialized(true);
-      } catch (error) {
-        console.error("Failed to create unified pipelines:", error);
-        setIsInitialized(false);
-      }
-    };
-    
-    init();
-  }, [device, createPipelines]);
-  
+  }, [device, initializeBuffers, createPipelines]);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
       if (buffersRef.current) {
+        buffersRef.current.rawIqBuffer.destroy();
         buffersRef.current.fftInputBuffer.destroy();
         buffersRef.current.fftOutputBuffer.destroy();
         buffersRef.current.fftTempBuffer.destroy();
@@ -660,11 +715,11 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
       });
     };
   }, []);
-  
+
   return {
     isInitialized,
-    isProcessing,
-    lastResult,
+    isProcessing: isProcessingRef.current,
+    lastResult: lastResultRef.current,
     processUnified,
     getWaterfallTexture: useCallback(() => buffersRef.current?.waterfallTexture || null, []),
     getBuffers: useCallback(() => buffersRef.current, []),
@@ -675,7 +730,11 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
       enableAveraging,
       enableSmoothing,
       frameCount: frameCountRef.current,
-      lastProcessedAt: lastResult?.processedAt || null
-    }), [fftSize, waterfallHeight, windowType, enableAveraging, enableSmoothing, lastResult])
+      lastProcessedAt: lastResultRef.current?.processedAt || null
+    }), [fftSize, waterfallHeight, windowType, enableAveraging, enableSmoothing])
   };
+}
+
+function int32View(buffer: ArrayBuffer) {
+  return new Int32Array(buffer);
 }

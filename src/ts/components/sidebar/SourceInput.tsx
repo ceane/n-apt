@@ -7,8 +7,8 @@ const SettingSelect = styled.select`
   background-color: transparent;
   border: 1px solid transparent;
   border-radius: 4px;
-  color: #ccc;
-  font-family: "JetBrains Mono", monospace;
+  color: ${(props) => props.theme.textPrimary};
+  font-family: ${(props) => props.theme.typography.mono};
   font-size: 12px;
   font-weight: 500;
   padding: 2px 6px;
@@ -22,7 +22,7 @@ const SettingSelect = styled.select`
   padding-right: 20px;
 
   &:hover {
-    border-color: #2a2a2a;
+    border-color: ${(props) => props.theme.borderHover};
   }
 
   &:focus {
@@ -32,9 +32,9 @@ const SettingSelect = styled.select`
   }
 
   option {
-    background-color: ${(props) => props.theme.fftBackground || "#0a0a0a"};
-    color: #ccc;
-    font-family: "JetBrains Mono", monospace;
+    background-color: ${(props) => props.theme.fftBackground || props.theme.background};
+    color: ${(props) => props.theme.textPrimary};
+    font-family: ${(props) => props.theme.typography.mono};
   }
 `;
 
@@ -50,7 +50,12 @@ const getLiveInputLabel = (
   backend: string | null,
   deviceName?: string | null,
 ) => {
-  if (deviceName && deviceName.trim().length > 0) return deviceName;
+  // Use device_name directly if available
+  if (deviceName && deviceName.trim().length > 0) {
+    return deviceName.trim();
+  }
+
+  // Fallback to backend-specific names
   if (
     backend === "rtl-sdr" ||
     backend === "rtlsdr" ||
@@ -59,8 +64,10 @@ const getLiveInputLabel = (
   ) {
     return "RTL-SDR";
   }
+
   if (backend?.includes("mock")) return "Mock APT SDR";
-  return backend || "Mock SDR";
+
+  return backend || "Mock APT SDR";
 };
 
 export const SourceInput: React.FC<SourceInputProps> = ({

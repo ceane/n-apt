@@ -1,21 +1,30 @@
 import { useCallback, useRef } from "react";
 import {
-  FFT_GRID_COLOR,
   LINE_COLOR,
   SHADOW_COLOR,
-  FFT_TEXT_COLOR,
   VERTICAL_RANGE,
   FFT_AREA_MIN,
-  FFT_CANVAS_BG,
   formatFrequency,
   formatFrequencyHighRes,
   findBestFrequencyRange,
 } from "@n-apt/consts";
 import type { SdrLimitMarker } from "@n-apt/utils/sdrLimitMarkers";
 
+const readCssColor = (name: string, fallback: string) => {
+  if (typeof window === "undefined" || typeof document === "undefined") return fallback;
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return value || fallback;
+};
+
+const getCanvasThemeColors = () => ({
+  backgroundColor: readCssColor("--color-fft-background", "#000"),
+  textColor: readCssColor("--color-fft-text", "#fff"),
+  gridColor: readCssColor("--color-fft-grid", "rgba(50,50,50,1)"),
+});
+
 export interface Draw2DFFTSignalOptions {
   canvas: HTMLCanvasElement;
-  waveform: number[];
+  waveform: Uint8Array | Float32Array | number[];
   frequencyRange: { min: number; max: number };
   fftMin?: number;
   fftMax?: number;
@@ -28,6 +37,9 @@ export interface Draw2DFFTSignalOptions {
   fullCaptureRange?: { min: number; max: number };
   isIqRecordingActive?: boolean;
   limitMarkers?: SdrLimitMarker[];
+  displayMode?: "fft" | "iq";
+  textColor?: string;
+  backgroundColor?: string;
 }
 
 export function useDraw2DFFTSignal() {
@@ -36,6 +48,14 @@ export function useDraw2DFFTSignal() {
     height: number;
     waveformLength: number;
   } | null>(null);
+
+  const toFloat32Waveform = useCallback(
+    (waveform: Uint8Array | Float32Array | number[]) => {
+      if (waveform instanceof Float32Array) return waveform;
+      return Float32Array.from(waveform);
+    },
+    [],
+  );
 
   // Inline rendering functions
   const drawSpectrumGrid = useCallback(
@@ -46,16 +66,19 @@ export function useDraw2DFFTSignal() {
       frequencyRange: { min: number; max: number },
       fftMin: number,
       fftMax: number,
-      powerScale: "dB" | "dBm",
+      _powerScale: "dB" | "dBm",
       clearBackground: boolean,
       hardwareSampleRateHz?: number,
       fullCaptureRange?: { min: number; max: number },
       limitMarkers: SdrLimitMarker[] = [],
+      textColor?: string,
+      backgroundColor?: string,
     ) => {
       const dpr = window.devicePixelRatio || 1;
+      const canvasTheme = getCanvasThemeColors();
 
       if (clearBackground) {
-        ctx.fillStyle = FFT_CANVAS_BG;
+        ctx.fillStyle = backgroundColor ?? canvasTheme.backgroundColor;
         ctx.fillRect(0, 0, width, height);
       }
 
@@ -76,8 +99,8 @@ export function useDraw2DFFTSignal() {
       const freqToX = (freq: number) =>
         FFT_AREA_MIN.x + ((freq - minFreq) / viewBandwidth) * plotWidth;
 
-      ctx.strokeStyle = FFT_GRID_COLOR;
-      ctx.fillStyle = FFT_TEXT_COLOR;
+      ctx.strokeStyle = canvasTheme.gridColor;
+      ctx.fillStyle = textColor ?? canvasTheme.textColor;
       ctx.font = "12px JetBrains Mono";
       ctx.textAlign = "right";
       ctx.lineWidth = 1 / dpr;
@@ -149,14 +172,14 @@ export function useDraw2DFFTSignal() {
         const ix = Math.round(xPos);
 
         // Grid line
-        ctx.strokeStyle = FFT_GRID_COLOR;
+        ctx.strokeStyle = canvasTheme.gridColor;
         ctx.beginPath();
         ctx.moveTo(ix, FFT_AREA_MIN.y);
         ctx.lineTo(ix, fftAreaMax.y);
         ctx.stroke();
 
         // Tick mark
-        ctx.strokeStyle = FFT_TEXT_COLOR;
+        ctx.strokeStyle = textColor ?? canvasTheme.textColor;
         ctx.beginPath();
         ctx.moveTo(ix, fftAreaMax.y);
         ctx.lineTo(ix, fftAreaMax.y + 7);
@@ -176,7 +199,7 @@ export function useDraw2DFFTSignal() {
         }
       }
 
-      ctx.strokeStyle = FFT_TEXT_COLOR;
+      ctx.strokeStyle = canvasTheme.textColor;
       ctx.lineWidth = 1.0 / dpr;
       ctx.beginPath();
       ctx.moveTo(FFT_AREA_MIN.x, fftAreaMax.y);
@@ -224,7 +247,7 @@ export function useDraw2DFFTSignal() {
         ctx.strokeStyle = "rgba(220, 220, 220, 0.54)"; // User specified color
         ctx.setLineDash([4, 4]); // Dashed line
         ctx.lineWidth = 1 / dpr;
-        ctx.fillStyle = "#ffb669";
+        ctx.fillStyle = textColor ?? canvasTheme.textColor;
         ctx.font = "10px JetBrains Mono";
         ctx.textAlign = "center";
         ctx.textBaseline = "top";
@@ -292,18 +315,20 @@ export function useDraw2DFFTSignal() {
       ctx: CanvasRenderingContext2D,
       width: number,
       height: number,
-      waveform: number[],
+      waveform: Uint8Array | Float32Array | number[],
       fftMin: number,
       fftMax: number,
+      displayMode: "fft" | "iq" = "fft",
     ) => {
       const dpr = window.devicePixelRatio || 1;
-      if (!waveform || !Array.isArray(waveform) || waveform.length === 0)
+      const waveformArray = toFloat32Waveform(waveform);
+      if (!waveformArray || waveformArray.length === 0)
         return;
 
       const fftAreaMax = { x: width - 40, y: height - 40 };
       const fftHeight = fftAreaMax.y - FFT_AREA_MIN.y;
       const plotWidth = fftAreaMax.x - FFT_AREA_MIN.x;
-      const dataWidth = waveform.length;
+      const dataWidth = waveformArray.length;
       const vertRange = fftMax - fftMin;
       const scaleFactor = fftHeight / vertRange;
 
@@ -313,6 +338,13 @@ export function useDraw2DFFTSignal() {
       };
 
       const clampY = (dbVal: number) => {
+        if (displayMode === "iq") {
+          // I/Q values are typically in range [-1, 1] or similar
+          // We'll normalize them to the canvas height. 
+          // Let's assume the input is already somewhat scaled or we can just draw it centered.
+          const y = (height / 2) - (dbVal * (height / 3)); // Scale 1.0 to 1/3 height
+          return Math.max(0, Math.min(height, y));
+        }
         const y = fftAreaMax.y - (dbVal - fftMin) * scaleFactor;
         return Math.max(FFT_AREA_MIN.y + 1, Math.min(fftAreaMax.y, y));
       };
@@ -321,7 +353,7 @@ export function useDraw2DFFTSignal() {
       ctx.beginPath();
       ctx.moveTo(Math.round(idxToX(0)), fftAreaMax.y);
       for (let i = 0; i < dataWidth; i++) {
-        ctx.lineTo(Math.round(idxToX(i)), Math.round(clampY(waveform[i])));
+        ctx.lineTo(Math.round(idxToX(i)), Math.round(clampY(waveformArray[i])));
       }
       ctx.lineTo(Math.round(idxToX(dataWidth - 1)), fftAreaMax.y);
       ctx.closePath();
@@ -334,7 +366,7 @@ export function useDraw2DFFTSignal() {
       ctx.beginPath();
       for (let i = 0; i < dataWidth; i++) {
         const x = Math.round(idxToX(i));
-        const y = Math.round(clampY(waveform[i]));
+        const y = Math.round(clampY(waveformArray[i]));
         if (i === 0) ctx.moveTo(x, y);
         else ctx.lineTo(x, y);
       }
@@ -453,10 +485,12 @@ export function useDraw2DFFTSignal() {
         hardwareSampleRateHz,
         fullCaptureRange,
         limitMarkers = [],
+        displayMode = "fft",
       } = options;
 
       const ctx = canvas.getContext("2d");
-      if (!ctx || !waveform || waveform.length === 0) return false;
+      const waveformArray = toFloat32Waveform(waveform);
+      if (!ctx || waveformArray.length === 0) return false;
 
       const dpr = window.devicePixelRatio || 1;
       const rect = canvas.parentElement?.getBoundingClientRect();
@@ -500,10 +534,10 @@ export function useDraw2DFFTSignal() {
           }
 
           // Simple line drawing for performance
-          drawSpectrumTrace(ctx, cssWidth, cssHeight, waveform, fftMin, fftMax);
+          drawSpectrumTrace(ctx, cssWidth, cssHeight, waveformArray, fftMin, fftMax, displayMode);
         } else {
           // Full quality mode: complete spectrum rendering
-          if (showGrid) {
+          if (showGrid && displayMode === "fft") {
             drawSpectrumGrid(
               ctx,
               cssWidth,
@@ -520,7 +554,7 @@ export function useDraw2DFFTSignal() {
             ctx.fillStyle = "#000000";
             ctx.fillRect(0, 0, cssWidth, cssHeight);
           }
-          drawSpectrumTrace(ctx, cssWidth, cssHeight, waveform, fftMin, fftMax);
+          drawSpectrumTrace(ctx, cssWidth, cssHeight, waveformArray, fftMin, fftMax, displayMode);
         }
 
         // Draw markers if needed

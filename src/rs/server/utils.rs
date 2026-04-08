@@ -237,6 +237,10 @@ pub fn save_capture_file_multi(
     "spectrum_shifted": true,
   });
 
+  if let Some(baseline) = &result.ref_based_demod_baseline {
+    meta_obj["ref_based_demod_baseline"] = serde_json::json!(baseline);
+  }
+
   if let Some((min_mhz, max_mhz)) = result.frequency_range {
     meta_obj["frequency_range"] = serde_json::json!([min_mhz, max_mhz]);
   }
@@ -263,15 +267,6 @@ pub fn save_capture_file_multi(
       payload_plaintext.extend_from_slice(&ch.iq_data);
       let iq_len = ch.iq_data.len();
 
-      let offset_spectrum = payload_plaintext.len();
-      let spec_bytes: Vec<u8> = ch
-        .spectrum_data
-        .iter()
-        .flat_map(|&v| v.to_le_bytes())
-        .collect();
-      payload_plaintext.extend_from_slice(&spec_bytes);
-      let spec_len = spec_bytes.len();
-
       channel_metas.push(serde_json::json!({
           "center_freq_hz": ch.center_freq_hz,
           "sample_rate_hz": ch.sample_rate_hz,
@@ -279,8 +274,6 @@ pub fn save_capture_file_multi(
           "requested_max_freq_hz": ch.requested_max_freq_hz,
           "offset_iq": offset_iq,
           "iq_length": iq_len,
-          "offset_spectrum": offset_spectrum,
-          "spectrum_length": spec_len,
           "bins_per_frame": ch.bins_per_frame,
       }));
     }
@@ -317,6 +310,8 @@ pub fn save_capture_file_multi(
     file
       .write_all(&encrypted_data)
       .map_err(|e| format!("Failed to write encrypted data: {}", e))?;
+    
+    file.sync_all().map_err(|e| format!("Failed to sync file: {}", e))?;
   } else {
     // Write WAV with multi-channel chunks
     let mut file = std::fs::File::create(&path)
@@ -356,10 +351,8 @@ pub fn save_capture_file_multi(
     // We'll calculate sizes and parts
     // Part 0 (Standard data chunk) = channels[0].iq_data
     // Extra Part IQ (nIQ1, nIQ2...)
-    // Extra Part Spectrum (nSP0, nSP1...)
 
     let mut iq_chunks = Vec::new();
-    let mut spectrum_chunks = Vec::new();
     let mut riff_total_delta: u32 = 0;
 
     for (i, ch) in result.channels.iter().enumerate() {
@@ -371,28 +364,16 @@ pub fn save_capture_file_multi(
       };
       let iq_data = &ch.iq_data;
       let iq_size = iq_data.len() as u32;
-      let iq_padding = if iq_size.is_multiple_of(2) { 0u32 } else { 1u32 };
+      let iq_padding = if iq_size.is_multiple_of(2) {
+        0u32
+      } else {
+        1u32
+      };
       iq_chunks.push((tag, iq_size, iq_padding));
       riff_total_delta += 8 + iq_size + iq_padding;
-
-      // Spectrum Data
-      let spec_tag = if i == 0 {
-        "nSPC".to_string()
-      } else {
-        format!("nSP{}", i)
-      };
-      let spec_bytes: Vec<u8> = ch
-        .spectrum_data
-        .iter()
-        .flat_map(|&v| v.to_le_bytes())
-        .collect();
-      let spec_size = spec_bytes.len() as u32;
-      let spec_padding = if spec_size.is_multiple_of(2) { 0u32 } else { 1u32 };
-      spectrum_chunks.push((spec_tag, spec_bytes, spec_padding));
-      riff_total_delta += 8 + spec_size + spec_padding;
     }
 
-    // RIFF size = 4 (WAVE) + fmt(24) + nAPT(8+meta) + iq_chunks + spectrum_chunks
+    // RIFF size = 4 (WAVE) + fmt(24) + nAPT(8+meta) + iq_chunks
     let riff_size = 4 + 24 + (8 + meta_chunk_size) + riff_total_delta;
 
     // RIFF header
@@ -450,29 +431,239 @@ pub fn save_capture_file_multi(
         file.write_all(&[0u8]).map_err(|e| e.to_string())?;
       }
     }
-
-    // Write Spectrum Chunks
-    for (tag, bytes, padding) in spectrum_chunks {
-      file.write_all(tag.as_bytes()).map_err(|e| e.to_string())?;
-      file
-        .write_all(&(bytes.len() as u32).to_le_bytes())
-        .map_err(|e| e.to_string())?;
-      file.write_all(&bytes).map_err(|e| e.to_string())?;
-      if padding > 0 {
-        file.write_all(&[0u8]).map_err(|e| e.to_string())?;
-      }
-    }
   }
 
   info!("Saved capture file: {}", path.display());
-  Ok(CaptureArtifact { filename, path })
+  let file_size = std::fs::metadata(&path).map_err(|e| e.to_string())?.len();
+  
+  // Calculate SHA256 checksum
+  use std::io::Read;
+  use sha2::Digest;
+  let mut file = std::fs::File::open(&path).map_err(|e| format!("Failed to open file for checksum: {}", e))?;
+  let mut hasher = sha2::Sha256::new();
+  let mut buffer = [0u8; 8192];
+  loop {
+    let bytes_read = file.read(&mut buffer).map_err(|e| format!("Failed to read file for checksum: {}", e))?;
+    if bytes_read == 0 {
+      break;
+    }
+    hasher.update(&buffer[..bytes_read]);
+  }
+  let checksum = format!("{:x}", hasher.finalize());
+  
+  Ok(CaptureArtifact { filename, path, file_size, checksum })
 }
 
 #[cfg(test)]
 mod save_tests {
   use super::*;
   use crate::sdr::processor::{CaptureChannel, CaptureResult};
-  use std::fs; // Add these imports
+  use std::fs;
+
+  #[test]
+  fn test_save_capture_file_multi_checksum() {
+    let result = CaptureResult {
+      job_id: "test_checksum".to_string(),
+      channels: vec![CaptureChannel {
+        center_freq_hz: 137.5e6,
+        sample_rate_hz: 2.4e6,
+        requested_min_freq_hz: None,
+        requested_max_freq_hz: None,
+        iq_data: vec![1u8; 200], // Different data to ensure unique checksum
+        spectrum_data: vec![0f32; 10],
+        bins_per_frame: 10,
+      }],
+      file_type: ".wav".to_string(), // Test unencrypted format
+      acquisition_mode: "stepwise".to_string(),
+      duration_mode: "timed".to_string(),
+      encrypted: false,
+      fft_size: 2048,
+      duration_s: 1.0,
+      actual_frame_count: 60,
+      fft_window: "Hanning".to_string(),
+      gain: 1.0,
+      ppm: 0,
+      tuner_agc: false,
+      rtl_agc: false,
+      source_device: "Test SDR".to_string(),
+      hardware_sample_rate_hz: 2.4e6,
+      overall_center_frequency_hz: 137.5e6,
+      overall_capture_sample_rate_hz: 2.4e6,
+      geolocation: None,
+      frequency_range: Some((136.3, 138.7)),
+      is_ephemeral: false,
+      ref_based_demod_baseline: None,
+    };
+
+    let artifact = save_capture_file_multi(&result, &[0u8; 32])
+      .expect("save multi .wav with checksum");
+
+    // Verify checksum is present and is a valid SHA256 hash (64 hex characters)
+    assert!(!artifact.checksum.is_empty(), "Checksum should not be empty");
+    assert_eq!(artifact.checksum.len(), 64, "SHA256 checksum should be 64 hex characters");
+    assert!(
+      artifact.checksum.chars().all(|c| c.is_ascii_hexdigit()),
+      "Checksum should only contain hex characters"
+    );
+
+    // Verify the checksum is consistent by calculating it again
+    use sha2::Digest;
+    let file_content = fs::read(&artifact.path).expect("read file for checksum verification");
+    let expected_checksum = format!("{:x}", sha2::Sha256::digest(&file_content));
+    assert_eq!(
+      artifact.checksum, expected_checksum,
+      "Stored checksum should match calculated checksum"
+    );
+
+    // Verify file size is still correct
+    assert_eq!(artifact.file_size, file_content.len() as u64);
+
+    // Clean up
+    let _ = fs::remove_file(artifact.path);
+  }
+
+  #[test]
+  fn test_save_capture_file_multi_checksum_encrypted() {
+    let result = CaptureResult {
+      job_id: "test_checksum_enc".to_string(),
+      channels: vec![CaptureChannel {
+        center_freq_hz: 137.5e6,
+        sample_rate_hz: 2.4e6,
+        requested_min_freq_hz: None,
+        requested_max_freq_hz: None,
+        iq_data: vec![2u8; 150], // Different data for encrypted test
+        spectrum_data: vec![0f32; 10],
+        bins_per_frame: 10,
+      }],
+      file_type: ".napt".to_string(), // Test encrypted format
+      acquisition_mode: "interleaved".to_string(),
+      duration_mode: "timed".to_string(),
+      encrypted: true,
+      fft_size: 2048,
+      duration_s: 1.0,
+      actual_frame_count: 60,
+      fft_window: "Hanning".to_string(),
+      gain: 1.0,
+      ppm: 0,
+      tuner_agc: false,
+      rtl_agc: false,
+      source_device: "Test Encrypted SDR".to_string(),
+      hardware_sample_rate_hz: 2.4e6,
+      overall_center_frequency_hz: 137.5e6,
+      overall_capture_sample_rate_hz: 2.4e6,
+      geolocation: None,
+      frequency_range: Some((136.3, 138.7)),
+      is_ephemeral: false,
+      ref_based_demod_baseline: None,
+    };
+
+    let artifact = save_capture_file_multi(&result, &[0u8; 32])
+      .expect("save multi .napt with checksum");
+
+    // Verify checksum is present and valid for encrypted files too
+    assert!(!artifact.checksum.is_empty(), "Checksum should not be empty for encrypted files");
+    assert_eq!(artifact.checksum.len(), 64, "SHA256 checksum should be 64 hex characters");
+    assert!(
+      artifact.checksum.chars().all(|c| c.is_ascii_hexdigit()),
+      "Checksum should only contain hex characters"
+    );
+
+    // Verify the checksum matches the actual file content
+    use sha2::Digest;
+    let file_content = fs::read(&artifact.path).expect("read encrypted file for checksum verification");
+    let expected_checksum = format!("{:x}", sha2::Sha256::digest(&file_content));
+    assert_eq!(
+      artifact.checksum, expected_checksum,
+      "Stored checksum should match calculated checksum for encrypted files"
+    );
+
+    // Clean up
+    let _ = fs::remove_file(artifact.path);
+  }
+
+  #[test]
+  fn test_save_capture_file_multi_checksum_uniqueness() {
+    let result1 = CaptureResult {
+      job_id: "test_unique1".to_string(),
+      channels: vec![CaptureChannel {
+        center_freq_hz: 137.5e6,
+        sample_rate_hz: 2.4e6,
+        requested_min_freq_hz: None,
+        requested_max_freq_hz: None,
+        iq_data: vec![1u8; 100], // Different data
+        spectrum_data: vec![0f32; 10],
+        bins_per_frame: 10,
+      }],
+      file_type: ".wav".to_string(),
+      acquisition_mode: "stepwise".to_string(),
+      duration_mode: "timed".to_string(),
+      encrypted: false,
+      fft_size: 2048,
+      duration_s: 1.0,
+      actual_frame_count: 60,
+      fft_window: "Hanning".to_string(),
+      gain: 1.0,
+      ppm: 0,
+      tuner_agc: false,
+      rtl_agc: false,
+      source_device: "Test SDR".to_string(),
+      hardware_sample_rate_hz: 2.4e6,
+      overall_center_frequency_hz: 137.5e6,
+      overall_capture_sample_rate_hz: 2.4e6,
+      geolocation: None,
+      frequency_range: Some((136.3, 138.7)),
+      is_ephemeral: false,
+      ref_based_demod_baseline: None,
+    };
+
+    let result2 = CaptureResult {
+      job_id: "test_unique2".to_string(),
+      channels: vec![CaptureChannel {
+        center_freq_hz: 137.5e6,
+        sample_rate_hz: 2.4e6,
+        requested_min_freq_hz: None,
+        requested_max_freq_hz: None,
+        iq_data: vec![2u8; 100], // Different data
+        spectrum_data: vec![0f32; 10],
+        bins_per_frame: 10,
+      }],
+      file_type: ".wav".to_string(),
+      acquisition_mode: "stepwise".to_string(),
+      duration_mode: "timed".to_string(),
+      encrypted: false,
+      fft_size: 2048,
+      duration_s: 1.0,
+      actual_frame_count: 60,
+      fft_window: "Hanning".to_string(),
+      gain: 1.0,
+      ppm: 0,
+      tuner_agc: false,
+      rtl_agc: false,
+      source_device: "Test SDR".to_string(),
+      hardware_sample_rate_hz: 2.4e6,
+      overall_center_frequency_hz: 137.5e6,
+      overall_capture_sample_rate_hz: 2.4e6,
+      geolocation: None,
+      frequency_range: Some((136.3, 138.7)),
+      is_ephemeral: false,
+      ref_based_demod_baseline: None,
+    };
+
+    let artifact1 = save_capture_file_multi(&result1, &[0u8; 32])
+      .expect("save first file");
+    let artifact2 = save_capture_file_multi(&result2, &[0u8; 32])
+      .expect("save second file");
+
+    // Verify checksums are different for different files
+    assert_ne!(
+      artifact1.checksum, artifact2.checksum,
+      "Different files should have different checksums"
+    );
+
+    // Clean up
+    let _ = fs::remove_file(artifact1.path);
+    let _ = fs::remove_file(artifact2.path);
+  }
 
   #[test]
   fn test_save_capture_file_multi_metadata() {
@@ -489,6 +680,7 @@ mod save_tests {
       }],
       file_type: ".napt".to_string(),
       acquisition_mode: "interleaved".to_string(),
+      duration_mode: "timed".to_string(),
       encrypted: true,
       fft_size: 2048,
       duration_s: 1.0,
@@ -504,6 +696,8 @@ mod save_tests {
       overall_capture_sample_rate_hz: 2.4e6,
       geolocation: None,
       frequency_range: Some((136.3, 138.7)),
+      is_ephemeral: false,
+      ref_based_demod_baseline: None,
     };
 
     let result_napt =
@@ -526,6 +720,22 @@ mod save_tests {
     assert!(
       content_napt.contains(r#""frequency_range":[136.3,138.7]"#),
       "Missing frequency_range in .napt metadata"
+    );
+    assert!(
+      content_napt.contains(r#""offset_iq":0"#),
+      "Missing IQ offset metadata"
+    );
+    assert!(
+      content_napt.contains(r#""iq_length":100"#),
+      "Missing IQ length metadata"
+    );
+    assert!(
+      !content_napt.contains(r#""offset_spectrum""#),
+      "Unexpected spectrum offset metadata in IQ-only capture"
+    );
+    assert!(
+      !content_napt.contains(r#""spectrum_length""#),
+      "Unexpected spectrum length metadata in IQ-only capture"
     );
 
     // Test .wav unencrypted
@@ -553,6 +763,7 @@ mod save_tests {
       ],
       file_type: ".wav".to_string(),
       acquisition_mode: "stepwise".to_string(),
+      duration_mode: "timed".to_string(),
       encrypted: false,
       fft_size: 2048,
       duration_s: 1.0,
@@ -568,6 +779,8 @@ mod save_tests {
       overall_capture_sample_rate_hz: 4.9e6,
       geolocation: None,
       frequency_range: Some((136.3, 141.2)),
+      is_ephemeral: false,
+      ref_based_demod_baseline: None,
     };
 
     let result_wav = save_capture_file_multi(&result_wav_struct, &[0u8; 32])
@@ -583,8 +796,12 @@ mod save_tests {
       wav_str.contains(r#""channels""#),
       "Missing channels array in .wav"
     );
+    assert!(wav_str.contains("data"), "Missing primary IQ data chunk in .wav");
     assert!(wav_str.contains("nIQ1"), "Missing nIQ1 chunk in .wav");
-    assert!(wav_str.contains("nSP1"), "Missing nSP1 chunk in .wav");
+    assert!(
+      !wav_str.contains("nSPC") && !wav_str.contains("nSP1"),
+      "Unexpected spectrum chunk in IQ-only .wav"
+    );
 
     // Clean up
     let _ = fs::remove_file(result_napt.path);

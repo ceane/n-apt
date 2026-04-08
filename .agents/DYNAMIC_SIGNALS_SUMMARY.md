@@ -77,7 +77,7 @@ Initialized 15 mock signals
 ### **Start Development Server**
 
 ```bash
-npm run dev:hot
+npm run dev
 ```
 
 ### **Edit Configuration**

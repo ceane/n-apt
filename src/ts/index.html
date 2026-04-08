@@ -5,19 +5,41 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>N-APT</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-    <link rel="manifest" href="/manifest.json">
-    <meta name="theme-color" content="#0a0a0a">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="N-APT">
-    <link rel="apple-touch-icon" href="/icon-192.png">
-    <link rel="apple-touch-icon" sizes="512x512" href="/icon-512.png">
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+      crossorigin=""
+    />
+    <style>
+      .custom-popup .leaflet-popup-content-wrapper {
+        border: none;
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+      }
+      
+      .custom-popup .leaflet-popup-content {
+        margin: 0;
+        padding: 0;
+      }
+      
+      .custom-popup .leaflet-popup-tip {
+        background: #fff;
+        border: none;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+      }
+      
+      .custom-popup .leaflet-popup-tip-container {
+        margin: 0;
+        left: 43%;
+      }
+    </style>
     <style>
       * {
         margin: 0;
@@ -35,15 +57,29 @@
 
       body {
         font-family: "JetBrains Mono", monospace;
-        background-color: #0a0a0a;
-        color: #e0e0e0;
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
+      }
+      
+      /* Light mode (default) */
+      @media (prefers-color-scheme: light) {
+        body {
+          background-color: #f7f9fc;
+          color: #1a1a1a;
+        }
+      }
+      
+      /* Dark mode */
+      @media (prefers-color-scheme: dark) {
+        body {
+          background-color: #0a0a0a;
+          color: #e0e0e0;
+        }
       }
     </style>
   </head>
   <body>
     <main id="root"></main>
-    <script type="module" src="./Main.tsx"></script>
+    <script type="module" src="./App.tsx"></script>
   </body>
 </html>

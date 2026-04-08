@@ -1,26 +1,29 @@
 import React, { useMemo, useState, useEffect, useCallback } from "react";
-import styled, { useTheme } from "styled-components";
+import styled from "styled-components";
 import { useAppSelector, useAppDispatch } from "@n-apt/redux";
+import { Unplug } from "lucide-react";
+import { getSupportedSnapshotVideoFormat, type SnapshotVideoFormat } from "@n-apt/hooks/useSnapshot";
 import {
   setSourceMode,
   setSelectedFiles,
   triggerStitch,
   clearWaterfall,
   setStitchPaused,
-  setSignalAreaAndRange,
   setFftFrameRate as setFftFrameRateAction,
   resetZoomAndDb,
-  resetLiveControls as resetLiveControlsAction,
   setTemporalResolution,
   setPowerScale,
   setSdrSettingsBundle,
   setStitchSourceSettings as setStitchSourceSettingsAction,
-  setPaused,
+  setCaptureStatus,
+  setDisplayMode,
+  setFftWindow as setFftWindowAction,
 } from "@n-apt/redux";
 import { setSnapshotGrid as setSettingsSnapshotGrid } from "@n-apt/redux";
 import {
   sendRestartDevice,
   sendCaptureCommand,
+  sendCaptureStopCommand,
 } from "@n-apt/redux/thunks/websocketThunks";
 import { deriveStateFromConfig, useSdrSettings } from "@n-apt/hooks/useSdrSettings";
 import { useAuthentication } from "@n-apt/hooks/useAuthentication";
@@ -29,65 +32,29 @@ import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 import type {
   CaptureRequest,
   CaptureFileType,
-  GeolocationData,
 } from "@n-apt/consts/schemas/websocket";
+import { type GeolocationData } from "@n-apt/consts/schemas/websocket";
 import { SignalDisplaySection } from "@n-apt/components/sidebar/SignalDisplaySection";
 import { IQCaptureControlsSection } from "@n-apt/components/sidebar/IQCaptureControlsSection";
 import { SnapshotControlsSection } from "@n-apt/components/sidebar/SnapshotControlsSection";
 import { SourceSettingsSection } from "@n-apt/components/sidebar/SourceSettingsSection";
-import FileProcessingSection from "@n-apt/components/sidebar/FileProcessingSection";
-import { SignalFeaturesSection } from "@n-apt/components/sidebar/SignalFeaturesSection";
+import FileSelectionSidebar from "@n-apt/components/sidebar/FileSelectionSidebar";
 import { ConnectionStatusSection, PauseButton } from "@n-apt/components/sidebar/ConnectionStatusSection";
 import { ThemeSection } from "@n-apt/components/sidebar/ThemeSection";
-import ReduxFrequencyRangeSlider from "@n-apt/components/sidebar/ReduxFrequencyRangeSlider";
+import { Channels } from "@n-apt/components/sidebar/Channels";
 import SourceInput from "@n-apt/components/sidebar/SourceInput";
 import { buildSdrLimitMarkers } from "@n-apt/utils/sdrLimitMarkers";
-import { usePrompt } from "@n-apt/components/ui";
+import { usePrompt } from "@n-apt/components/ui/PromptProvider";
+import { fileRegistry } from "@n-apt/utils/fileRegistry";
 
 const SidebarContent = styled.div`
   display: grid;
   grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
   align-content: start;
   gap: 16px;
-  padding: 0 24px 24px 24px;
+  padding: calc(24px + env(safe-area-inset-top, 0px)) 24px 24px 24px;
   box-sizing: border-box;
   max-width: 100%;
-`;
-
-const CapturingIndicator = styled.div`
-  position: fixed;
-  top: 24px;
-  right: 24px;
-  background-color: ${(props) => props.theme.danger || "#ff4444"};
-  color: white;
-  padding: 8px 12px;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 600;
-  font-family: "JetBrains Mono", monospace;
-  z-index: 1000;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-  display: grid;
-  grid-auto-flow: column;
-  align-items: center;
-  gap: 8px;
-`;
-
-const CapturingDot = styled.div`
-  width: 8px;
-  height: 8px;
-  background-color: white;
-  border-radius: 50%;
-  animation: pulse 1.5s infinite;
-
-  @keyframes pulse {
-    from {
-      opacity: 1;
-    }
-    to {
-      opacity: 0.4;
-    }
-  }
 `;
 
 const Section = styled.div<{ $marginBottom?: string }>`
@@ -102,7 +69,7 @@ const Section = styled.div<{ $marginBottom?: string }>`
 
 const SectionTitle = styled.div<{ $fileMode?: boolean }>`
   font-size: 11px;
-  color: ${(props) => (props.$fileMode ? props.theme.fileMode : props.theme.metadataLabel)};
+  color: ${(props: any) => props.theme.metadataLabel};
   text-transform: uppercase;
   letter-spacing: 1px;
   margin-top: 1rem;
@@ -110,6 +77,27 @@ const SectionTitle = styled.div<{ $fileMode?: boolean }>`
   font-weight: 600;
   font-family: "JetBrains Mono", monospace;
   grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+`;
+
+const SectionIcon = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  color: ${(props: any) => props.theme.metadataLabel};
+justify - content: center;
+width: 14px;
+height: 14px;
+color: ${(props: any) => props.theme.metadataLabel};
+`;
+
+const SectionText = styled.span`
+display: flex;
+align - items: center;
 `;
 
 type NaptMetadata = {
@@ -177,6 +165,7 @@ export const SpectrumSidebar: React.FC = () => {
     snapshotGridPreference,
     vizZoom,
     vizPanOffset,
+    displayMode,
   } = liveState;
 
   const isConnected = useAppSelector((s) => s.websocket.isConnected);
@@ -195,7 +184,6 @@ export const SpectrumSidebar: React.FC = () => {
 
   const { isAuthenticated, sessionToken, aesKey } = useAuthentication();
   const { getLocation } = useGeolocation();
-  const theme = useTheme();
 
   const liveBackend = wsConnection.backend ?? backend;
   const liveDeviceState = wsConnection.deviceState ?? deviceState;
@@ -225,11 +213,8 @@ export const SpectrumSidebar: React.FC = () => {
     () =>
       liveIsConnected ||
       connectionStatus === "connected" ||
-      connectionStatus === "reconnecting" ||
-      liveBackend !== null ||
-      liveDeviceNameToUse !== null ||
-      liveDeviceState !== null,
-    [liveIsConnected, connectionStatus, liveBackend, liveDeviceNameToUse, liveDeviceState],
+      connectionStatus === "reconnecting",
+    [liveIsConnected, connectionStatus],
   );
 
   const sendLiveSettings = useCallback(
@@ -252,7 +237,6 @@ export const SpectrumSidebar: React.FC = () => {
     maxFrameRate,
     fftSizeOptions,
     setFftSize,
-    setFftWindow,
     setFftFrameRate,
     setGain,
     setPpm,
@@ -354,10 +338,10 @@ export const SpectrumSidebar: React.FC = () => {
   ]);
 
   // Capture UI state
-  const [captureOpen, setCaptureOpen] = useState(false);
   const showPrompt = usePrompt();
   const [activeCaptureAreas, setActiveCaptureAreas] = useState<string[]>(["Onscreen"]);
   const [acquisitionMode, setAcquisitionMode] = useState<"stepwise" | "interleaved" | "whole_sample">("stepwise");
+  const [captureDurationMode, setCaptureDurationMode] = useState<"timed" | "manual">("timed");
   const [captureDurationS, setCaptureDurationS] = useState(1);
   const [captureFileTypeState, setCaptureFileTypeState] =
     useState<CaptureFileType>(".napt");
@@ -366,11 +350,17 @@ export const SpectrumSidebar: React.FC = () => {
   const [captureGeolocation, setCaptureGeolocation] = useState(false);
 
   // Snapshot UI state
-  const [snapshotOpen, setSnapshotOpen] = useState(false);
   const [snapshotWhole, setSnapshotWhole] = useState(false);
   const [snapshotShowWaterfall, setSnapshotShowWaterfall] = useState(false);
   const [snapshotShowStats, setSnapshotShowStats] = useState(true);
-  const [snapshotFormat, setSnapshotFormat] = useState<"png" | "svg">("png");
+  const [snapshotShowGeolocation, setSnapshotShowGeolocation] = useState(false);
+  const [snapshotGeolocationError, setSnapshotGeolocationError] = useState<string | null>(null);
+  const [snapshotGeolocationPosition, setSnapshotGeolocationPosition] = useState<{ lat: string, lon: string } | null>(null);
+  const supportedSnapshotVideoFormat = useMemo(
+    () => getSupportedSnapshotVideoFormat(),
+    [],
+  );
+  const [snapshotFormat, setSnapshotFormat] = useState<"png" | "svg" | SnapshotVideoFormat>("png");
 
   // NAPT metadata state
   const [naptMetadata, setNaptMetadata] = useState<NaptMetadata | null>(null);
@@ -395,10 +385,13 @@ export const SpectrumSidebar: React.FC = () => {
           dispatch(clearWaterfall());
 
           // 3. Fetch the file
-          const url = `${liveCaptureStatus.downloadUrl}&token=${encodeURIComponent(sessionToken || "")}`;
+          const url = liveCaptureStatus.downloadUrl
+            ? `${liveCaptureStatus.downloadUrl}&token=${encodeURIComponent(sessionToken || "")}`
+            : undefined;
+          if (!url) throw new Error("Missing capture download URL");
           const response = await fetch(url);
           if (!response.ok)
-            throw new Error(`HTTP error! status: ${response.status}`);
+            throw new Error(`HTTP error! status: ${response.status} `);
           const blob = await response.blob();
           const filename = liveCaptureStatus.filename || "capture.napt";
           const file = new File([blob], filename, {
@@ -406,18 +399,17 @@ export const SpectrumSidebar: React.FC = () => {
           });
 
           // 4. Update selected files
-          dispatch(setSelectedFiles([{
+          const id = fileRegistry.register(file);
+          const serializedFile = {
+            id,
             name: filename,
-            file,
             downloadUrl: liveCaptureStatus.downloadUrl
-          }]));
+          };
+
+          dispatch(setSelectedFiles([serializedFile]));
           storeDispatch({
             type: "SET_SELECTED_FILES",
-            files: [{
-              name: filename,
-              file,
-              downloadUrl: liveCaptureStatus.downloadUrl,
-            }],
+            files: [serializedFile],
           });
 
           // 5. Trigger stitching/playback
@@ -436,8 +428,7 @@ export const SpectrumSidebar: React.FC = () => {
   // Toggle visualizer pause
   const toggleVisualizerPause = useCallback(() => {
     toggleLiveVisualizerPause();
-    dispatch(setPaused(!liveIsPaused));
-  }, [dispatch, liveIsPaused, toggleLiveVisualizerPause]);
+  }, [toggleLiveVisualizerPause]);
 
   // Memoized values for sections
   const selectedPrimaryFile = useMemo(() => {
@@ -616,8 +607,15 @@ export const SpectrumSidebar: React.FC = () => {
   }, [availableCaptureAreas, activeCaptureAreas, visibleOnscreenRange]);
 
   // Handlers
+  const handleStopCapture = useCallback(() => {
+    dispatch(sendCaptureStopCommand(liveCaptureStatus?.jobId));
+  }, [dispatch, liveCaptureStatus?.jobId]);
+
   const handleCapture = useCallback(async () => {
     if (!isServerConnected || liveDeviceState === "loading" || !isAuthenticated) return;
+
+    // Clear previous capture status before starting new one
+    dispatch(setCaptureStatus(null));
 
     // Default to the overall range if no active fragments
     let fragments = activeFragments;
@@ -654,8 +652,9 @@ export const SpectrumSidebar: React.FC = () => {
         : acquisitionMode;
 
     const req: CaptureRequest = {
-      jobId: `cap_${Date.now()}`,
+      jobId: `cap_${Date.now()} `,
       fragments,
+      durationMode: captureDurationMode,
       durationS: Math.max(1, Math.round(captureDurationS)),
       fileType: captureFileTypeState,
       acquisitionMode: effectiveAcquisitionMode,
@@ -672,6 +671,7 @@ export const SpectrumSidebar: React.FC = () => {
     activeFragments,
     activeCaptureAreas,
     visibleOnscreenRange,
+    captureDurationMode,
     captureDurationS,
     captureFileTypeState,
     acquisitionMode,
@@ -691,12 +691,60 @@ export const SpectrumSidebar: React.FC = () => {
           whole: snapshotWhole,
           showWaterfall: snapshotShowWaterfall,
           showStats: snapshotShowStats,
+          showGeolocation: snapshotShowGeolocation && snapshotShowStats,
+          geolocation: snapshotGeolocationPosition,
           format: snapshotFormat,
           grid: snapshotGridPreference,
         },
       }),
     );
   };
+
+  const handleSnapshotGeolocationToggle = useCallback((enabled: boolean) => {
+    if (!enabled) {
+      setSnapshotShowGeolocation(false);
+      setSnapshotGeolocationError(null);
+      return;
+    }
+
+    // Pre-flight check
+    if (!navigator.geolocation) {
+      setSnapshotGeolocationError("Not supported by browser");
+      return;
+    }
+
+    setSnapshotShowGeolocation(true);
+    setSnapshotGeolocationError(null);
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        // Success - we have permission and it works
+        setSnapshotGeolocationPosition({
+          lat: pos.coords.latitude.toFixed(6),
+          lon: pos.coords.longitude.toFixed(6)
+        });
+        setSnapshotGeolocationError(null);
+      },
+      (err) => {
+        // Map specific technical errors to user-friendly messages
+        let msg = err.message || "Permission denied";
+        if (msg.includes("kCLErrorLocationUnknown")) {
+          msg = "Location currently unavailable (System error)";
+        } else if (err.code === 1) {
+          msg = "Permission denied (User blocked)";
+        } else if (err.code === 2) {
+          msg = "Position unavailable (Check GPS/Network)";
+        } else if (err.code === 3) {
+          msg = "Timeout fetching location";
+        }
+
+        setSnapshotGeolocationError(msg);
+        setSnapshotShowGeolocation(false);
+        setSnapshotGeolocationPosition(null);
+      },
+      { timeout: 8000, maximumAge: 60000, enableHighAccuracy: false }
+    );
+  }, []);
 
   // NAPT/WAV Metadata Effect
   useEffect(() => {
@@ -717,7 +765,10 @@ export const SpectrumSidebar: React.FC = () => {
 
     const run = async () => {
       try {
-        const buf = await selectedPrimaryFile.file.arrayBuffer();
+        const fileObj = fileRegistry.get(selectedPrimaryFile.id);
+        if (!fileObj) throw new Error("File not found in registry");
+
+        const buf = await fileObj.arrayBuffer();
 
         if (isNapt && aesKey) {
           // Read the first 2048 bytes (header size)
@@ -741,7 +792,7 @@ export const SpectrumSidebar: React.FC = () => {
           // Parse WAV RIFF for nAPT chunk
           const view = new DataView(buf);
           const text = (off: number, len: number) =>
-            String.fromCharCode(...new Uint8Array(buf, off, len));
+            String.fromCharCode(...Array.from(new Uint8Array(buf, off, len)));
 
           if (text(0, 4) === "RIFF" && text(8, 4) === "WAVE") {
             let offset = 12;
@@ -787,44 +838,10 @@ export const SpectrumSidebar: React.FC = () => {
     [liveSdrSettingsToUse],
   );
 
-  const liveDefaults = useMemo(
-    () => ({
-      fftSize: liveSdrSettingsToUse?.fft?.default_size ?? 32768,
-      fftFrameRate: liveSdrSettingsToUse?.fft?.default_frame_rate ?? 60,
-      fftWindow: "Rectangular",
-      gain: liveSdrSettingsToUse?.gain?.tuner_gain ?? 49.6,
-      ppm:
-        typeof liveSdrSettingsToUse?.ppm === "number"
-          ? liveSdrSettingsToUse.ppm
-          : 1,
-      tunerAGC: liveSdrSettingsToUse?.gain?.tuner_agc ?? false,
-      rtlAGC: liveSdrSettingsToUse?.gain?.rtl_agc ?? false,
-    }),
-    [liveSdrSettingsToUse],
-  );
-
   const resetLiveControls = useCallback(() => {
-    dispatch(resetLiveControlsAction({
-      fftSize: liveDefaults.fftSize,
-      fftFrameRate: liveDefaults.fftFrameRate,
-    }));
-    storeDispatch({
-      type: "RESET_LIVE_CONTROLS",
-      fftSize: liveDefaults.fftSize,
-      fftFrameRate: liveDefaults.fftFrameRate,
-    });
     dispatch(resetZoomAndDb());
     storeDispatch({ type: "RESET_ZOOM_AND_DB" });
-    sendLiveSettings({
-      fftSize: liveDefaults.fftSize,
-      fftWindow: liveDefaults.fftWindow,
-      frameRate: liveDefaults.fftFrameRate,
-      gain: liveDefaults.gain,
-      ppm: liveDefaults.ppm,
-      tunerAGC: liveDefaults.tunerAGC,
-      rtlAGC: liveDefaults.rtlAGC,
-    });
-  }, [dispatch, liveDefaults, sendLiveSettings, storeDispatch]);
+  }, [dispatch, storeDispatch]);
 
   useEffect(() => {
     setActiveCaptureAreas((current) => {
@@ -836,21 +853,18 @@ export const SpectrumSidebar: React.FC = () => {
 
   return (
     <SidebarContent>
-      {liveCaptureStatus?.status === "started" && (
-        <CapturingIndicator>
-          <CapturingDot />
-          Capturing...
-        </CapturingIndicator>
-      )}
       <Section>
         <SectionTitle $fileMode={sourceMode === "file"}>
-          Source
+          <SectionIcon>
+            <Unplug size={14} />
+          </SectionIcon>
+          <SectionText>Source</SectionText>
         </SectionTitle>
         <SourceInput
           sourceMode={sourceMode}
           backend={liveBackend}
           deviceName={liveDeviceNameToUse}
-          fileModeColor={theme.fileMode}
+          fileModeColor="var(--color-file-mode)"
           onSourceModeChange={(mode) => {
             dispatch(setSourceMode(mode));
             storeDispatch({ type: "SET_SOURCE_MODE", mode });
@@ -859,10 +873,10 @@ export const SpectrumSidebar: React.FC = () => {
       </Section>
 
       {sourceMode === "file" && (
-        <Section>
-          <FileProcessingSection
+        <>
+          <FileSelectionSidebar
             selectedFiles={selectedFiles}
-            onSelectedFilesChange={(files) => {
+            onSelectedFilesChange={(files: { id: string; name: string; downloadUrl?: string }[]) => {
               dispatch(setSelectedFiles(files));
               storeDispatch({ type: "SET_SELECTED_FILES", files });
             }}
@@ -881,12 +895,47 @@ export const SpectrumSidebar: React.FC = () => {
               dispatch(setStitchPaused(!isStitchPaused));
               storeDispatch({ type: "SET_STITCH_PAUSED", paused: !isStitchPaused });
             }}
-            selectedNaptFile={selectedPrimaryFile}
+            selectedPrimaryFile={selectedPrimaryFile}
             naptMetadata={naptMetadata}
             naptMetadataError={naptMetadataError}
             sessionToken={sessionToken}
           />
-        </Section>
+          <SignalDisplaySection
+            sourceMode={sourceMode}
+            maxSampleRate={maxSampleRate}
+            fileCapturedRange={fileCapturedRange}
+            fftFrameRate={4}
+            maxFrameRate={4}
+            fftSize={1024}
+            fftSizeOptions={[1024]}
+            fftWindow={fftWindow || "Rectangular"}
+            temporalResolution={displayTemporalResolution}
+            autoFftOptions={null}
+            backend={null}
+            deviceProfile={null}
+            powerScale={powerScale}
+            displayMode={displayMode || "fft"}
+            onFftFrameRateChange={() => { }}
+            onFftSizeChange={() => { }}
+            onFftWindowChange={(win) => {
+              dispatch(setFftWindowAction(win));
+              storeDispatch({ type: "SET_FFT_WINDOW", fftWindow: win });
+            }}
+            onTemporalResolutionChange={(res) => {
+              dispatch(setTemporalResolution(res));
+              storeDispatch({ type: "SET_TEMPORAL_RESOLUTION", resolution: res });
+            }}
+            onPowerScaleChange={(ps) => {
+              dispatch(setPowerScale(ps));
+              storeDispatch({ type: "SET_POWER_SCALE", powerScale: ps });
+            }}
+            onDisplayModeChange={(mode) => {
+              dispatch(setDisplayMode(mode));
+              storeDispatch({ type: "SET_DISPLAY_MODE", displayMode: mode });
+            }}
+            scheduleCoupledAdjustment={() => { }}
+          />
+        </>
       )}
 
       {sourceMode === "live" && (
@@ -920,10 +969,9 @@ export const SpectrumSidebar: React.FC = () => {
           </div>
 
           <IQCaptureControlsSection
-            isOpen={captureOpen}
-            onToggle={() => setCaptureOpen(!captureOpen)}
             activeCaptureAreas={activeCaptureAreas}
             availableCaptureAreas={availableCaptureAreas}
+            captureDurationMode={captureDurationMode}
             captureDurationS={captureDurationS}
             captureFileType={captureFileTypeState}
             acquisitionMode={acquisitionMode}
@@ -936,6 +984,7 @@ export const SpectrumSidebar: React.FC = () => {
             isConnected={isServerConnected}
             deviceState={liveDeviceState}
             onActiveCaptureAreasChange={setActiveCaptureAreas}
+            onCaptureDurationModeChange={setCaptureDurationMode}
             onCaptureDurationSChange={setCaptureDurationS}
             onCaptureFileTypeChange={setCaptureFileTypeState}
             onAcquisitionModeChange={setAcquisitionMode}
@@ -943,19 +992,23 @@ export const SpectrumSidebar: React.FC = () => {
             onCapturePlaybackChange={setCapturePlayback}
             onCaptureGeolocationChange={setCaptureGeolocation}
             onCapture={handleCapture}
+            onStopCapture={handleStopCapture}
+            onClearStatus={() => dispatch(setCaptureStatus(null))}
           />
 
           <SnapshotControlsSection
-            isOpen={snapshotOpen}
-            onToggle={() => setSnapshotOpen(!snapshotOpen)}
             snapshotWhole={snapshotWhole}
             snapshotShowWaterfall={snapshotShowWaterfall}
             snapshotShowStats={snapshotShowStats}
+            snapshotShowGeolocation={snapshotShowGeolocation}
+            snapshotGeolocationError={snapshotGeolocationError}
             snapshotFormat={snapshotFormat}
+            supportedSnapshotVideoFormat={supportedSnapshotVideoFormat}
             snapshotGridPreference={snapshotGridPreference}
             onSnapshotWholeChange={setSnapshotWhole}
             onSnapshotShowWaterfallChange={setSnapshotShowWaterfall}
             onSnapshotShowStatsChange={setSnapshotShowStats}
+            onSnapshotShowGeolocationChange={handleSnapshotGeolocationToggle}
             onSnapshotFormatChange={setSnapshotFormat}
             onSnapshotGridPreferenceChange={(pref) => {
               dispatch(setSettingsSnapshotGrid(pref));
@@ -965,93 +1018,45 @@ export const SpectrumSidebar: React.FC = () => {
           />
 
           <Section>
-            <SectionTitle>Signal areas of interest</SectionTitle>
-            <div style={{ display: "grid", gap: "16px", width: "100%", gridColumn: "1 / -1" }}>
-              {Array.isArray(liveFramesToUse) && liveFramesToUse.length > 0 ? (
-                liveFramesToUse.map((frame) => {
-                  const label = frame.label;
-                  const min = frame.min_mhz;
-                  const max = frame.max_mhz;
-                  const span = max - min;
-
-                  // If this is the active frame and we are zoomed in,
-                  // calculate the visual range based on zoom and pan offset
-                  // NOTE: Use frequencyRange (SDR center) not frame min/max for center calculation
-                  return (
-                    <ReduxFrequencyRangeSlider
-                      key={frame.id}
-                      label={label}
-                      minFreq={min}
-                      maxFreq={max}
-                      sampleRateMHz={sampleRateMHz}
-                      limitMarkers={limitMarkers}
-                      isActive={activeSignalArea === label}
-                      onActivate={() => {
-                        const rememberedRange =
-                          liveState.lastKnownRanges[label] ??
-                          liveState.lastKnownRanges[label.toLowerCase()];
-                        const nextRange = rememberedRange ?? {
-                          min,
-                          max:
-                            min +
-                            (typeof sampleRateMHz === "number"
-                              ? Math.min(sampleRateMHz, span)
-                              : span),
-                        };
-                        dispatch(setSignalAreaAndRange({ area: label, range: nextRange }));
-                        storeDispatch({
-                          type: "SET_SIGNAL_AREA_AND_RANGE",
-                          area: label,
-                          range: nextRange,
-                        });
-                      }}
-                    />
-                  );
-                })) : (
-                <div
-                  style={{ color: "#777", fontSize: "12px", fontStyle: "italic" }}
-                >
-                  No active signal areas
-                </div>
-              )}
-            </div>
+            <Channels
+              variant="spectrum"
+              fileMode={false}
+              limitMarkers={limitMarkers}
+            />
           </Section>
 
-          <SignalFeaturesSection
-            sourceMode={sourceMode}
-            deviceState={liveDeviceState || "disconnected"}
-            isConnected={isServerConnected}
-            selectedFilesCount={selectedFiles.length}
-            showSpikeOverlay={liveState.showSpikeOverlay}
-            onShowSpikeOverlayChange={(enabled) =>
-              storeDispatch({ type: "SET_SHOW_SPIKE_OVERLAY", enabled })
-            }
-          />
-
           <SignalDisplaySection
-            sourceMode="live"
+            sourceMode={sourceMode}
             maxSampleRate={maxSampleRate}
             fileCapturedRange={fileCapturedRange}
             fftFrameRate={fftFrameRate}
             maxFrameRate={maxFrameRate}
             fftSize={fftSize}
             fftSizeOptions={fftSizeOptions}
-            fftWindow={fftWindow}
+            fftWindow={fftWindow || "Rectangular"}
             temporalResolution={displayTemporalResolution}
             autoFftOptions={liveAutoFftOptions}
             backend={liveBackend}
             deviceProfile={liveDeviceProfileToUse}
             powerScale={powerScale}
+            displayMode={displayMode || "fft"}
             onFftFrameRateChange={setFftFrameRate}
             onFftSizeChange={setFftSize}
-            onFftWindowChange={setFftWindow}
+            onFftWindowChange={(win) => {
+              dispatch(setFftWindowAction(win));
+              storeDispatch({ type: "SET_FFT_WINDOW", fftWindow: win });
+            }}
             onTemporalResolutionChange={(res) => {
               dispatch(setTemporalResolution(res));
               storeDispatch({ type: "SET_TEMPORAL_RESOLUTION", resolution: res });
             }}
-            onPowerScaleChange={(powerScale) => {
-              dispatch(setPowerScale(powerScale));
-              storeDispatch({ type: "SET_POWER_SCALE", powerScale });
+            onPowerScaleChange={(ps) => {
+              dispatch(setPowerScale(ps));
+              storeDispatch({ type: "SET_POWER_SCALE", powerScale: ps });
+            }}
+            onDisplayModeChange={(mode) => {
+              dispatch(setDisplayMode(mode));
+              storeDispatch({ type: "SET_DISPLAY_MODE", displayMode: mode });
             }}
             scheduleCoupledAdjustment={scheduleCoupledAdjustment}
           />
@@ -1083,6 +1088,7 @@ export const SpectrumSidebar: React.FC = () => {
           />
         </>
       )}
+
       <ThemeSection />
     </SidebarContent>
   );

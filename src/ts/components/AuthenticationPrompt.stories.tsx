@@ -1,4 +1,4 @@
-import AuthenticationPrompt from './AuthenticationPrompt';
+import AuthenticationPrompt from "@n-apt/components/AuthenticationPrompt";
 
 export default {
   title: 'Auth/AuthenticationPrompt',
@@ -12,9 +12,9 @@ export const PasswordLogin = () => (
     authState="ready"
     error={null}
     hasPasskeys={false}
-    onPasswordSubmit={() => {}}
-    onPasskeyAuth={() => {}}
-    onRegisterPasskey={() => {}}
+    onPasswordSubmit={() => { }}
+    onPasskeyAuth={() => { }}
+    onRegisterPasskey={() => { }}
   />
 );
 
@@ -23,9 +23,9 @@ export const PasskeyFirst = () => (
     authState="ready"
     error={null}
     hasPasskeys={true}
-    onPasswordSubmit={() => {}}
-    onPasskeyAuth={() => {}}
-    onRegisterPasskey={() => {}}
+    onPasswordSubmit={() => { }}
+    onPasskeyAuth={() => { }}
+    onRegisterPasskey={() => { }}
   />
 );
 
@@ -34,9 +34,9 @@ export const AuthenticationFailed = () => (
     authState="failed"
     error="Invalid password. Re-enter the local dev key to unlock the live SDR session."
     hasPasskeys={false}
-    onPasswordSubmit={() => {}}
-    onPasskeyAuth={() => {}}
-    onRegisterPasskey={() => {}}
+    onPasswordSubmit={() => { }}
+    onPasskeyAuth={() => { }}
+    onRegisterPasskey={() => { }}
   />
 );
 
@@ -45,8 +45,8 @@ export const Authenticating = () => (
     authState="authenticating"
     error={null}
     hasPasskeys={true}
-    onPasswordSubmit={() => {}}
-    onPasskeyAuth={() => {}}
-    onRegisterPasskey={() => {}}
+    onPasswordSubmit={() => { }}
+    onPasskeyAuth={() => { }}
+    onRegisterPasskey={() => { }}
   />
 );

@@ -1,6 +1,11 @@
 import React from "react";
 import styled from "styled-components";
-import { Slider } from "./ui";
+import { Slider } from "@n-apt/components/ui";
+import {
+  COLORS,
+  STITCHER_BUTTON_STYLE,
+} from "@n-apt/consts/components";
+import { FFT_MIN_DB, FFT_MAX_DB } from "@n-apt/consts";
 
 const SlidersGrid = styled.div`
   display: grid;
@@ -20,27 +25,31 @@ const ActionButtonsContainer = styled.div`
 `;
 
 const ActionButton = styled.button<{ $active?: boolean }>`
-  font-family: "JetBrains Mono", monospace;
+  font-family: ${STITCHER_BUTTON_STYLE.fontFamily};
   font-size: 9px;
-  font-weight: 600;
+  font-weight: ${STITCHER_BUTTON_STYLE.fontWeight};
   letter-spacing: 0.4px;
   text-transform: uppercase;
   white-space: nowrap;
   padding: 6px 10px;
-  border-radius: 8px;
-  border: 1px solid ${({ $active }) => ($active ? "rgba(0,0,0,0.2)" : "#333")};
-  background: ${({ $active }) =>
-    $active ? "linear-gradient(135deg, #00c853, #009688)" : "#212121"};
-  color: ${({ $active }) => ($active ? "#fff" : "#888")};
+  border-radius: ${STITCHER_BUTTON_STYLE.borderRadius};
+  border: 1px solid ${(props) =>
+    props.$active ? props.theme.primary : COLORS.borderHover};
+  background: ${(props) =>
+    props.$active
+      ? props.theme.activeBackground
+      : props.theme.surface};
+  color: ${(props) =>
+    props.$active ? props.theme.primary : props.theme.textSecondary};
   cursor: pointer;
   transition: all 0.15s ease;
   width: 100%;
   text-align: center;
 
   &:hover {
-    background: ${({ $active }) =>
-    $active ? "linear-gradient(135deg, #00e676, #26a69a)" : "#2a2a2a"};
-    color: ${({ $active }) => ($active ? "#fff" : "#aaa")};
+    background: ${(props) =>
+    props.$active ? props.theme.activeBackground : props.theme.surfaceHover};
+    color: ${(props) => (props.$active ? props.theme.primary : props.theme.textPrimary)};
   }
 
   &:active {
@@ -90,8 +99,12 @@ export const VisualizerSliders: React.FC<VisualizerSlidersProps> = ({
 }) => {
   // Calculate appropriate ranges based on power scale
   const isDbm = powerScale === "dBm";
-  const maxDbRange = isDbm ? { min: -80, max: 30 } : { min: -80, max: 0 };
-  const minDbRange = isDbm ? { min: -120, max: -10 } : { min: -120, max: -10 };
+  const maxDbRange = isDbm
+    ? { min: -100, max: 30 }
+    : { min: FFT_MIN_DB, max: FFT_MAX_DB };
+  const minDbRange = isDbm
+    ? { min: -120, max: -10 }
+    : { min: FFT_MIN_DB, max: -10 };
   const dbUnit = isDbm ? "dBm" : "dB";
   return (
     <SlidersGrid>
@@ -130,7 +143,6 @@ export const VisualizerSliders: React.FC<VisualizerSlidersProps> = ({
         step={0.1}
         onChange={onZoomChange}
         formatValue={(v) => `${v.toFixed(1)}x`}
-        logarithmic
         orientation="vertical"
         labelPlacement="bottom"
       />

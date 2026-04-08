@@ -1,4 +1,4 @@
-import VisualizerSliders from './VisualizerSliders';
+import VisualizerSliders from "@n-apt/components/VisualizerSliders";
 
 export default {
   title: 'Components/VisualizerSliders',

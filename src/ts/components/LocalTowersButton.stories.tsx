@@ -1,5 +1,5 @@
 import React from 'react';
-import { LocalTowersButton } from './LocalTowersButton';
+import { LocalTowersButton } from "@n-apt/components/LocalTowersButton";
 
 interface LocalTowersResult {
   loaded: number;

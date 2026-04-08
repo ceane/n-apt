@@ -41,6 +41,21 @@ export const authActions = {
   setInitialAuthCheckComplete,
 };
 
+export {
+  createNoteCardFromSpectrum,
+  hydrateNoteCards,
+  updateNoteCardText,
+  updateNoteCardPosition,
+  updateNoteCardSize,
+  attachNoteCardSnapshot,
+  setActiveNoteCard,
+  removeNoteCard,
+  clearNoteCards,
+  setNoteCardsCollapsed,
+} from './slices/noteCardsSlice';
+
+export { selectNoteCards, selectActiveNoteCard, selectNoteCardsCollapsed } from './slices/noteCardsSlice';
+
 // Import spectrum actions for collective export
 import {
   setFrequencyRange,
@@ -48,6 +63,7 @@ import {
   setSignalAreaAndRange,
   setVizZoom,
   setVizPan,
+  setDisplayMode,
   setFftDbLimits,
   setFftSize,
   setFftSizeOptions,
@@ -80,6 +96,7 @@ export {
   setSignalAreaAndRange,
   setVizZoom,
   setVizPan,
+  setDisplayMode,
   setFftDbLimits,
   setFftSize,
   setFftSizeOptions,
@@ -112,6 +129,7 @@ export const spectrumActions = {
   setSignalAreaAndRange,
   setVizZoom,
   setVizPan,
+  setDisplayMode,
   setFftDbLimits,
   setFftSize,
   setFftSizeOptions,
@@ -146,10 +164,9 @@ export {
   setStitchSourceSettings,
   setActivePlaybackMetadata,
   clearActivePlaybackMetadata,
+  incrementPlaybackFrameCounter,
   triggerStitch,
   toggleStitchPause,
-  startTrainingCapture,
-  stopTrainingCapture,
   resetDrawParams,
   resetTrainingCapture,
   setGlobalNoiseFloor,
@@ -233,15 +250,64 @@ export const websocketActions = {
   setPaused,
 };
 
-// Export thunks
-export * from './thunks/websocketThunks';
+// Export thunks - explicit exports to prevent Safari issues
+export {
+  connectWebSocket,
+  disconnectWebSocket,
+  sendFrequencyRange,
+  sendCenterFrequency,
+  sendPauseCommand,
+  sendSettings,
+  sendRestartDevice,
+  sendTrainingCommand,
+  sendGetAutoFftOptions,
+  sendPowerScaleCommand,
+  sendCaptureCommand,
+  sendCaptureStopCommand,
+  sendScanCommand,
+  sendDemodulateCommand,
+  toggleVisualizerPause,
+} from './thunks/websocketThunks';
 
-// Export selectors
-export * from './selectors/performanceSelectors';
+// Export selectors - explicit exports to prevent Safari issues
+export {
+  selectAuthState,
+  selectSpectrumState,
+  selectWaterfallState,
+  selectThemeState,
+  selectSettingsState,
+  selectWebSocketState,
+  selectIsAuthenticated,
+  selectAuthError,
+  selectSessionToken,
+  selectHasPasskeys,
+  selectFrequencyRange,
+  selectActiveSignalArea,
+  selectPowerScale,
+  selectFftSettings,
+  selectVisualizationSettings,
+  selectSdrSettings,
+  selectDrawParams,
+  selectActiveDrawParams,
+  selectTrainingCaptureState,
+  selectStitchState,
+  selectThemeColors,
+  selectConnectionState,
+  selectDeviceState,
+  selectDeviceSettings,
+  selectSpectrumData,
+  selectEffectiveFrequencyRange,
+  selectSampleRateMHz,
+  selectSignalAreaBounds,
+  selectIsVisualizerRouteActive,
+  selectThemeObject,
+  selectHighFrequencyData,
+  selectIsWebSocketReady,
+  selectDeviceCapabilities,
+} from './selectors/performanceSelectors';
 
 // Export middleware (for advanced usage)
 export { default as websocketMiddleware } from './middleware/websocketMiddleware';
-export { default as indexedDBMiddleware } from './middleware/indexedDBMiddleware';
 export { default as localStorageMiddleware } from './middleware/localStorageMiddleware';
 
 // Export persistence helpers
@@ -252,10 +318,3 @@ export {
   loadPersistedSpectrumFrames,
   loadPersistedSdrSettingsCache,
 } from './middleware/localStorageMiddleware';
-
-export {
-  loadPersistedWaterfallData,
-  loadPersistedWebSocketData,
-  clearIndexedDBData,
-  cleanupIndexedDBData,
-} from './middleware/indexedDBMiddleware';

@@ -1,8 +1,10 @@
 import * as React from "react";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import FFTCanvas from "@n-apt/components/FFTCanvas";
-import { FrequencyRange } from "@n-apt/consts/types";
+import FFTCanvas from "../../src/ts/components/FFTCanvas";
+import { FrequencyRange } from "../../src/ts/consts/types";
+import { MemoryRouter } from "react-router-dom";
+import { TestWrapper } from "./testUtils";
 
 // Mock the hooks that FFTCanvas uses
 jest.mock("@n-apt/hooks/useFFTAnimation", () => ({
@@ -15,22 +17,9 @@ jest.mock("@n-apt/hooks/useFFTAnimation", () => ({
 
 jest.mock("@n-apt/hooks/usePauseLogic", () => ({
   usePauseLogic: () => ({
-    isPaused: false,
-    togglePause: jest.fn(),
-  }),
-}));
-
-jest.mock("@n-apt/hooks/useDraw2DFFTSignal", () => ({
-  useDraw2DFFTSignal: () => ({
-    draw2DFFTSignal: jest.fn(),
-    cleanup: jest.fn(),
-  }),
-}));
-
-jest.mock("@n-apt/hooks/useDraw2DFIFOWaterfall", () => ({
-  useDraw2DFIFOWaterfall: () => ({
-    draw2DFIFOWaterfall: jest.fn(),
-    cleanup: jest.fn(),
+    saveFrameData: jest.fn(),
+    restoreWaveformFromStorage: jest.fn(),
+    ensurePausedFrame: jest.fn(() => false),
   }),
 }));
 
@@ -89,16 +78,12 @@ jest.mock("@n-apt/hooks/useFFTAnimation", () => ({
 }));
 
 // Mock other hooks
-jest.mock("@n-apt/hooks/usePauseLogic", () => ({
-  usePauseLogic: () => ({ isPaused: false }),
-}));
-
 jest.mock("@n-apt/hooks/useSpectrumRendering", () => ({
   useSpectrumRendering: () => ({ renderSpectrum: jest.fn() }),
 }));
 
 jest.mock("@n-apt/hooks/useFrequencyDrag", () => ({
-  useFrequencyDrag: () => {},
+  useFrequencyDrag: () => { },
 }));
 
 describe("FFTCanvas Pause Functionality", () => {
@@ -107,25 +92,48 @@ describe("FFTCanvas Pause Functionality", () => {
     max: 3.2,
   };
 
-  const mockProps = {
-    data: {
+  const mockDataRef = {
+    current: {
       waveform: Array.from(
         { length: 1024 },
         (_, i) => -60 + Math.sin(i * 0.1) * 20,
       ),
-    },
+    }
+  };
+
+  const mockProps = {
+    dataRef: mockDataRef,
     frequencyRange: mockFrequencyRange,
+    centerFrequencyMHz: 100,
     activeSignalArea: "test-area",
     isPaused: false,
     isDeviceConnected: true,
+    snapshotGridPreference: false,
   };
+
+  const renderFFTCanvas = (props: any = mockProps) =>
+    render(
+      <TestWrapper>
+        <MemoryRouter>
+          <FFTCanvas {...props} />
+        </MemoryRouter>
+      </TestWrapper>
+    );
+
+  const wrapFFTCanvas = (props: any) => (
+    <TestWrapper>
+      <MemoryRouter>
+        <FFTCanvas {...props} />
+      </MemoryRouter>
+    </TestWrapper>
+  );
 
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
   it("should render normally when not paused", () => {
-    render(<FFTCanvas {...mockProps} />);
+    renderFFTCanvas();
 
     expect(screen.queryByText(/\(Paused\)/)).not.toBeInTheDocument();
   });
@@ -133,10 +141,10 @@ describe("FFTCanvas Pause Functionality", () => {
   it("should show paused status when isPaused is true", () => {
     const pausedProps = { ...mockProps, isPaused: true };
 
-    render(<FFTCanvas {...pausedProps} />);
+    renderFFTCanvas(pausedProps);
 
     expect(
-      screen.getByText((content, element) => {
+      screen.getByText((content, _element) => {
         return (
           content.includes("FFT Signal Display") && content.includes("(Paused)")
         );
@@ -147,20 +155,21 @@ describe("FFTCanvas Pause Functionality", () => {
   it("should preserve last frame when paused with valid data", () => {
     const pausedProps = { ...mockProps, isPaused: true };
 
-    render(<FFTCanvas {...pausedProps} />);
+    renderFFTCanvas(pausedProps);
 
     // Should not show black screen - should have canvas elements
     expect(screen.queryByText(/No data available/)).not.toBeInTheDocument();
   });
 
   it("should handle pause state with null data gracefully", () => {
+    const nullDataRef = { current: null };
     const pausedProps = {
       ...mockProps,
       isPaused: true,
-      data: null,
+      dataRef: nullDataRef,
     };
 
-    expect(() => render(<FFTCanvas {...pausedProps} />)).not.toThrow();
+    expect(() => renderFFTCanvas(pausedProps)).not.toThrow();
   });
 
   it("should handle pause state with disconnected device", () => {
@@ -170,7 +179,7 @@ describe("FFTCanvas Pause Functionality", () => {
       isDeviceConnected: false,
     };
 
-    expect(() => render(<FFTCanvas {...pausedProps} />)).not.toThrow();
+    expect(() => renderFFTCanvas(pausedProps)).not.toThrow();
   });
 
   it("should handle pause state with mock backend", () => {
@@ -180,20 +189,20 @@ describe("FFTCanvas Pause Functionality", () => {
       isDeviceConnected: false,
     };
 
-    render(<FFTCanvas {...pausedProps} />);
+    renderFFTCanvas(pausedProps);
 
     // Should still render UI elements even in mock mode + paused
-    expect(screen.getAllByText(/\(Paused\)/)).toHaveLength(2);
+    expect(screen.getByText(/\(Paused\)/)).toBeInTheDocument();
   });
 
   it("should transition from paused to unpaused correctly", async () => {
-    const { rerender } = render(<FFTCanvas {...mockProps} isPaused={true} />);
+    const { rerender } = renderFFTCanvas({ ...mockProps, isPaused: true });
 
     // Initially paused
-    expect(screen.getAllByText(/\(Paused\)/)).toHaveLength(2);
+    expect(screen.getByText(/\(Paused\)/)).toBeInTheDocument();
 
     // Unpause
-    rerender(<FFTCanvas {...mockProps} isPaused={false} />);
+    rerender(wrapFFTCanvas({ ...mockProps, isPaused: false }));
 
     await waitFor(() => {
       expect(screen.queryByText(/\(Paused\)/)).not.toBeInTheDocument();
@@ -201,27 +210,27 @@ describe("FFTCanvas Pause Functionality", () => {
   });
 
   it("should transition from unpaused to paused correctly", async () => {
-    const { rerender } = render(<FFTCanvas {...mockProps} isPaused={false} />);
+    const { rerender } = renderFFTCanvas({ ...mockProps, isPaused: false });
 
     // Initially not paused
     expect(screen.queryByText(/\(Paused\)/)).not.toBeInTheDocument();
 
     // Pause
-    rerender(<FFTCanvas {...mockProps} isPaused={true} />);
+    rerender(wrapFFTCanvas({ ...mockProps, isPaused: true }));
 
     await waitFor(() => {
-      expect(screen.getAllByText(/\(Paused\)/)).toHaveLength(2);
+      expect(screen.getByText(/\(Paused\)/)).toBeInTheDocument();
     });
   });
 
   it("should handle rapid pause/unpause toggles", async () => {
-    const { rerender } = render(<FFTCanvas {...mockProps} isPaused={false} />);
+    const { rerender } = renderFFTCanvas({ ...mockProps, isPaused: false });
 
     // Rapid toggles
-    rerender(<FFTCanvas {...mockProps} isPaused={true} />);
-    rerender(<FFTCanvas {...mockProps} isPaused={false} />);
-    rerender(<FFTCanvas {...mockProps} isPaused={true} />);
-    rerender(<FFTCanvas {...mockProps} isPaused={false} />);
+    rerender(wrapFFTCanvas({ ...mockProps, isPaused: true }));
+    rerender(wrapFFTCanvas({ ...mockProps, isPaused: false }));
+    rerender(wrapFFTCanvas({ ...mockProps, isPaused: true }));
+    rerender(wrapFFTCanvas({ ...mockProps, isPaused: false }));
 
     await waitFor(() => {
       expect(screen.queryByText(/\(Paused\)/)).not.toBeInTheDocument();
@@ -229,13 +238,13 @@ describe("FFTCanvas Pause Functionality", () => {
   });
 
   it("should maintain waveform data during pause transitions", () => {
-    const { rerender } = render(<FFTCanvas {...mockProps} isPaused={false} />);
+    const { rerender } = renderFFTCanvas({ ...mockProps, isPaused: false });
 
     // Pause with data
-    rerender(<FFTCanvas {...mockProps} isPaused={true} />);
+    rerender(wrapFFTCanvas({ ...mockProps, isPaused: true }));
 
     // Unpause - should still have data
-    rerender(<FFTCanvas {...mockProps} isPaused={false} />);
+    rerender(wrapFFTCanvas({ ...mockProps, isPaused: false }));
 
     expect(screen.queryByText(/No data available/)).not.toBeInTheDocument();
   });

@@ -5,11 +5,11 @@ use axum::response::IntoResponse;
 use axum::Json;
 use log::{error, info, warn};
 use redis::Client as RedisClient;
+use rustfft::{num_complex::Complex, FftPlanner};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::env;
-use rustfft::{num_complex::Complex, FftPlanner};
-use std::sync::{Arc, atomic::Ordering};
+use std::sync::{atomic::Ordering, Arc};
 use std::time::Instant;
 use tokio_util::io::ReaderStream;
 
@@ -23,45 +23,47 @@ use super::types::{
 // Haversine distance calculation for tower filtering
 fn haversine_distance(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
   const EARTH_RADIUS: f64 = 6371.0; // Earth's radius in kilometers
-  
+
   let lat1_rad = lat1.to_radians();
   let lat2_rad = lat2.to_radians();
   let delta_lat = (lat2 - lat1).to_radians();
   let delta_lon = (lon2 - lon1).to_radians();
-  
-  let a = (delta_lat / 2.0).sin().powi(2) +
-          lat1_rad.cos() * lat2_rad.cos() *
-          (delta_lon / 2.0).sin().powi(2);
+
+  let a = (delta_lat / 2.0).sin().powi(2)
+    + lat1_rad.cos() * lat2_rad.cos() * (delta_lon / 2.0).sin().powi(2);
   let c = 2.0 * a.sqrt().atan2((1.0 - a).sqrt());
-  
+
   EARTH_RADIUS * c
 }
 
 /// Sample towers evenly across the area when zoomed out
-fn sample_towers_evenly(towers: &[TowerRecord], max_count: usize) -> Vec<TowerRecord> {
+fn sample_towers_evenly(
+  towers: &[TowerRecord],
+  max_count: usize,
+) -> Vec<TowerRecord> {
   if towers.len() <= max_count {
     return towers.to_vec();
   }
 
   let step = towers.len() / max_count;
   let mut sampled = Vec::with_capacity(max_count);
-  
+
   for i in (0..towers.len()).step_by(step.max(1)) {
     sampled.push(towers[i].clone());
     if sampled.len() >= max_count {
       break;
     }
   }
-  
+
   sampled
 }
 
 /// Sample towers by distance from center when zoomed in
 fn sample_towers_by_distance(
-  towers: &[TowerRecord], 
-  center_lat: f64, 
-  center_lng: f64, 
-  max_count: usize
+  towers: &[TowerRecord],
+  center_lat: f64,
+  center_lng: f64,
+  max_count: usize,
 ) -> Vec<TowerRecord> {
   if towers.len() <= max_count {
     return towers.to_vec();
@@ -70,14 +72,16 @@ fn sample_towers_by_distance(
   let mut towers_with_distance: Vec<(f64, &TowerRecord)> = towers
     .iter()
     .map(|tower| {
-      let distance = haversine_distance(center_lat, center_lng, tower.lat, tower.lon);
+      let distance =
+        haversine_distance(center_lat, center_lng, tower.lat, tower.lon);
       (distance, tower)
     })
     .collect();
 
   // Sort by distance and take the closest ones
-  towers_with_distance.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
-  
+  towers_with_distance
+    .sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+
   towers_with_distance
     .into_iter()
     .take(max_count)
@@ -256,7 +260,10 @@ pub async fn towers_bounds_handler(
   if let Err(e) = redis::cmd("SELECT").arg(2).query::<()>(&mut con) {
     error!("Failed to select Redis DB 2: {}", e);
   } else {
-    if let Ok(keys) = redis::cmd("KEYS").arg("tower:*").query::<Vec<String>>(&mut con) {
+    if let Ok(keys) = redis::cmd("KEYS")
+      .arg("tower:*")
+      .query::<Vec<String>>(&mut con)
+    {
       all_tower_keys.extend(keys);
     }
   }
@@ -265,12 +272,20 @@ pub async fn towers_bounds_handler(
   if let Err(e) = redis::cmd("SELECT").arg(4).query::<()>(&mut con) {
     error!("Failed to select Redis DB 4: {}", e);
   } else {
-    if let Ok(keys) = redis::cmd("KEYS").arg("local:*").query::<Vec<String>>(&mut con) {
+    if let Ok(keys) = redis::cmd("KEYS")
+      .arg("local:*")
+      .query::<Vec<String>>(&mut con)
+    {
       for local_key in keys {
         if local_key.ends_with(":data") {
           continue;
         }
-        if let Ok(tower_ids) = redis::cmd("ZRANGE").arg(&local_key).arg(0).arg(-1).query::<Vec<String>>(&mut con) {
+        if let Ok(tower_ids) = redis::cmd("ZRANGE")
+          .arg(&local_key)
+          .arg(0)
+          .arg(-1)
+          .query::<Vec<String>>(&mut con)
+        {
           all_tower_keys.extend(tower_ids);
         }
       }
@@ -299,16 +314,16 @@ pub async fn towers_bounds_handler(
     }
 
     // Get tower data as JSON string (try DB 2, then DB 4)
-    let tower_json: redis::RedisResult<String> = redis::cmd("GET")
-      .arg(&tower_key)
-      .query::<String>(&mut con);
-    
+    let tower_json: redis::RedisResult<String> =
+      redis::cmd("GET").arg(&tower_key).query::<String>(&mut con);
+
     let tower_json = match tower_json {
       Ok(json) => json,
       Err(_) => {
         // Try DB 4 if not found in DB 2
         let _ = redis::cmd("SELECT").arg(4).query::<()>(&mut con);
-        let local_json = redis::cmd("GET").arg(&tower_key).query::<String>(&mut con);
+        let local_json =
+          redis::cmd("GET").arg(&tower_key).query::<String>(&mut con);
         let _ = redis::cmd("SELECT").arg(2).query::<()>(&mut con);
 
         match local_json {
@@ -319,16 +334,19 @@ pub async fn towers_bounds_handler(
     };
 
     // Parse JSON tower data
-    let tower_data: serde_json::Value = match serde_json::from_str(&tower_json) {
+    let tower_data: serde_json::Value = match serde_json::from_str(&tower_json)
+    {
       Ok(data) => data,
       Err(_) => continue,
     };
 
     // Extract tower fields
-    let lat = tower_data.get("lat")
+    let lat = tower_data
+      .get("lat")
       .and_then(|v| v.as_f64())
       .unwrap_or(0.0);
-    let lon = tower_data.get("lon")
+    let lon = tower_data
+      .get("lon")
       .and_then(|v| v.as_f64())
       .unwrap_or(0.0);
 
@@ -338,7 +356,11 @@ pub async fn towers_bounds_handler(
     }
 
     // Check if tower is within bounding box (quick filter)
-    if lat < query.sw_lat || lat > query.ne_lat || lon < query.sw_lng || lon > query.ne_lng {
+    if lat < query.sw_lat
+      || lat > query.ne_lat
+      || lon < query.sw_lng
+      || lon > query.ne_lng
+    {
       continue;
     }
 
@@ -349,29 +371,36 @@ pub async fn towers_bounds_handler(
     }
 
     // Extract other fields
-    let mcc = tower_data.get("mcc")
+    let mcc = tower_data
+      .get("mcc")
       .and_then(|v| v.as_u64())
       .unwrap_or(0)
       .to_string();
-    let mnc = tower_data.get("mnc")
+    let mnc = tower_data
+      .get("mnc")
       .and_then(|v| v.as_u64())
       .unwrap_or(0)
       .to_string();
-    let lac = tower_data.get("lac")
+    let lac = tower_data
+      .get("lac")
       .and_then(|v| v.as_u64())
       .unwrap_or(0)
       .to_string();
-    let cell_id = tower_data.get("cellId")
+    let cell_id = tower_data
+      .get("cellId")
       .and_then(|v| v.as_u64())
       .unwrap_or(0)
       .to_string();
-    let tech = tower_data.get("type")
+    let tech = tower_data
+      .get("type")
       .and_then(|v| v.as_str())
       .unwrap_or("unknown");
-    let samples = tower_data.get("samples")
+    let samples = tower_data
+      .get("samples")
       .and_then(|v| v.as_u64())
       .unwrap_or(0);
-    let range = tower_data.get("range")
+    let range = tower_data
+      .get("range")
       .and_then(|v| v.as_f64())
       .unwrap_or(0.0);
 
@@ -390,13 +419,18 @@ pub async fn towers_bounds_handler(
     // Apply technology filter
     if let Some(tech_filter) = &query.tech {
       let tech_filter_parts: Vec<&str> = tech_filter.split(',').collect();
-      if !tech_filter_parts.iter().any(|&t| normalize_tech_key(t) == normalize_tech_key(tech)) {
+      if !tech_filter_parts
+        .iter()
+        .any(|&t| normalize_tech_key(t) == normalize_tech_key(tech))
+      {
         continue;
       }
     }
 
     // Apply range filter
-    if !range_filter.is_empty() && !range_filter.contains(&(range as u32).to_string()) {
+    if !range_filter.is_empty()
+      && !range_filter.contains(&(range as u32).to_string())
+    {
       continue;
     }
 
@@ -412,15 +446,17 @@ pub async fn towers_bounds_handler(
       lon,
       lat,
       samples: samples.to_string(),
-      created: tower_data.get("created")
+      created: tower_data
+        .get("created")
         .and_then(|v| v.as_u64())
         .map(|v| v.to_string())
         .unwrap_or_default(),
-      updated: tower_data.get("updated")
+      updated: tower_data
+        .get("updated")
         .and_then(|v| v.as_u64())
         .map(|v| v.to_string())
         .unwrap_or_default(),
-      state: None, // Can be derived from coordinates if needed
+      state: None,  // Can be derived from coordinates if needed
       region: None, // Can be derived from coordinates if needed
       tech: Some(tech.to_string()),
     });
@@ -431,7 +467,7 @@ pub async fn towers_bounds_handler(
   // Apply tower count limits to prevent browser crashes
   const MAX_TOWERS: usize = 1000;
   let total_found = towers.len();
-  
+
   if towers.len() > MAX_TOWERS {
     // Smart sampling for large areas
     let sampled_towers = if query.zoom.unwrap_or(10) < 8 {
@@ -441,7 +477,7 @@ pub async fn towers_bounds_handler(
       // When zoomed in, take closest towers to center
       sample_towers_by_distance(&towers, center_lat, center_lng, MAX_TOWERS)
     };
-    
+
     warn!(
       "Tower query truncated: {} -> {} towers (zoom: {}, area: {}x{} km)",
       total_found,
@@ -450,7 +486,7 @@ pub async fn towers_bounds_handler(
       (lat_km * 2.0) as i32,
       (lon_km * 2.0) as i32
     );
-    
+
     Json(TowerBoundsResponse {
       count: sampled_towers.len(),
       towers: sampled_towers,
@@ -835,7 +871,6 @@ pub async fn execute_webmcp_tool_handler(
   Json(result)
 }
 
-
 /// POST /api/debug/stitch-diagnostic — Run a 2-hop capture and return stitching data
 /// Calculate the phase offset between two raw IQ frames in their overlap region.
 /// Returns the correction angle in degrees that should be added to Hop 2 to align it with Hop 1.
@@ -880,7 +915,7 @@ fn calculate_overlap_phase_offset(
     return (0.0, 0.0, 0.0, 0.0);
   }
 
-  let mut sum_product = Complex::new(0.0f32, 0.0f32);
+  let _sum_product = Complex::new(0.0f32, 0.0f32);
   // 1. Compute Cross-Power Spectrum in the overlap region
   let mut cross_power = Vec::with_capacity(overlap_len);
   for i in 0..overlap_len {
@@ -905,7 +940,8 @@ fn calculate_overlap_phase_offset(
   let mut sum_base = Complex::new(0.0f32, 0.0f32);
   for i in 0..overlap_len {
     // Rotation applied to counteract the phase slope and align perfectly to base phase
-    let detrend_rot = Complex::new(0.0, -phase_slope_per_bin * (i as f32)).exp();
+    let detrend_rot =
+      Complex::new(0.0, -phase_slope_per_bin * (i as f32)).exp();
     sum_base += cross_power[i] * detrend_rot;
   }
   let base_phase_offset = sum_base.arg();
@@ -915,7 +951,7 @@ fn calculate_overlap_phase_offset(
   let mut dominant_phase1 = 0.0;
   let mut dominant_phase2 = 0.0;
   let mut dominant_bin = 0;
-  
+
   // Also track absolute separate peaks for FM Deviation
   let mut max_pwr1 = -1.0;
   let mut bin1 = 0;
@@ -926,19 +962,19 @@ fn calculate_overlap_phase_offset(
     let pwr1 = c1[offset_bins + i].norm_sqr();
     let pwr2 = c2[i].norm_sqr();
     let pwr_combined = pwr1 + pwr2;
-    
+
     if pwr_combined > max_combined_pwr {
       max_combined_pwr = pwr_combined;
       dominant_phase1 = c1[offset_bins + i].arg();
       dominant_phase2 = c2[i].arg();
       dominant_bin = i;
     }
-    
+
     if pwr1 > max_pwr1 {
       max_pwr1 = pwr1;
       bin1 = i;
     }
-    
+
     if pwr2 > max_pwr2 {
       max_pwr2 = pwr2;
       bin2 = i;
@@ -952,12 +988,14 @@ fn calculate_overlap_phase_offset(
 
   // Calculate the EXACT phase shift modeled for Hop 2 at the dominant frequency!
   // Phase Rotation in frequency domain: X_corr(f) = X(f) * exp(j * (\theta_0 + slope * f))
-  let shift_at_dominant = base_phase_offset + phase_slope_per_bin * (dominant_bin as f32);
+  let shift_at_dominant =
+    base_phase_offset + phase_slope_per_bin * (dominant_bin as f32);
 
   // Wrap to [-180, 180] strictly
   // Use rem_euclid to restrict strictly to [0, 360) first
-  let mut correction_angle_deg = shift_at_dominant.to_degrees().rem_euclid(360.0);
-  
+  let mut correction_angle_deg =
+    shift_at_dominant.to_degrees().rem_euclid(360.0);
+
   if correction_angle_deg > 180.0 {
     correction_angle_deg -= 360.0;
   }
@@ -966,7 +1004,7 @@ fn calculate_overlap_phase_offset(
     correction_angle_deg,
     dominant_phase1.to_degrees(),
     dominant_phase2.to_degrees(),
-    fm_deviation_khz
+    fm_deviation_khz,
   )
 }
 
@@ -987,12 +1025,18 @@ pub async fn stitch_diagnostic_handler(
   let mut effective_center1 = center_hz_override;
   if let Some(label) = signal_area_override {
     let channels = state.shared.channels.lock().unwrap().clone();
-    if let Some(ch) = channels.iter().find(|c| c.label.to_uppercase() == label.to_uppercase()) {
+    if let Some(ch) = channels
+      .iter()
+      .find(|c| c.label.to_uppercase() == label.to_uppercase())
+    {
       // Anchor center1 so that the hardware capture starts exactly at the channel's min_mhz
       // center = min + (sample_rate / 2)
       let sr_hz = processor.get_sample_rate() as f64;
       let anchored_hz = (ch.min_mhz * 1_000_000.0 + (sr_hz / 2.0)) as u32;
-      info!("Anchoring diagnostic center1 to {} Hz for area {}", anchored_hz, label);
+      info!(
+        "Anchoring diagnostic center1 to {} Hz for area {}",
+        anchored_hz, label
+      );
       effective_center1 = Some(anchored_hz);
     }
   }
@@ -1012,17 +1056,17 @@ pub async fn stitch_diagnostic_handler(
         }
       }
     }
-    
+
     let sample_rate = processor.get_sample_rate() as f64;
     (
       processor.get_center_frequency(),
       sample_rate / 1_000_000.0,
       sample_rate,
       processor.get_device_info(),
-      was_paused
+      was_paused,
     )
   };
-  
+
   const NUM_FRAMES: usize = 60;
   let mut hop1_frames = Vec::with_capacity(NUM_FRAMES);
   let mut hop2_frames = Vec::with_capacity(NUM_FRAMES);
@@ -1032,7 +1076,7 @@ pub async fn stitch_diagnostic_handler(
   // 1. Capture Hop 1
   {
     // Clear any stale pending frequency to avoid accidental retunes
-    processor.pending_freq = None;
+    processor.frame.pending_freq = None;
     // Flush to clear any stale data before we start the "real" capture
     processor.flush_read_queue();
 
@@ -1040,25 +1084,31 @@ pub async fn stitch_diagnostic_handler(
       match processor.read_and_process_frame() {
         Ok(f) => {
           // Collect the raw IQ bytes the device just read (set by read_and_process_frame)
-          hop1_raw_iq.extend_from_slice(&processor.last_frame_raw_iq);
+          hop1_raw_iq.extend_from_slice(&processor.frame.last_frame_raw_iq);
           hop1_frames.push(f);
         }
         Err(e) => {
           state.shared.is_paused.store(was_paused, Ordering::Relaxed);
-          return (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to capture hop 1: {}", e)).into_response();
+          return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to capture hop 1: {}", e),
+          )
+            .into_response();
         }
       }
     }
   }
-
-
 
   // 2. Tune and Capture Hop 2 (offset by 1.2MHz)
   let center2 = center1 + 1_200_000;
   {
     if let Err(e) = processor.set_center_frequency(center2) {
       state.shared.is_paused.store(was_paused, Ordering::Relaxed);
-      return (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to tune to hop 2: {}", e)).into_response();
+      return (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        format!("Failed to tune to hop 2: {}", e),
+      )
+        .into_response();
     }
 
     // Flush to clear any data from the old frequency
@@ -1067,13 +1117,17 @@ pub async fn stitch_diagnostic_handler(
     for _ in 0..NUM_FRAMES {
       match processor.read_and_process_frame() {
         Ok(f) => {
-          hop2_raw_iq.extend_from_slice(&processor.last_frame_raw_iq);
+          hop2_raw_iq.extend_from_slice(&processor.frame.last_frame_raw_iq);
           hop2_frames.push(f);
         }
         Err(e) => {
           let _ = processor.set_center_frequency(center1); // Restore
           state.shared.is_paused.store(was_paused, Ordering::Relaxed);
-          return (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to capture hop 2: {}", e)).into_response();
+          return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to capture hop 2: {}", e),
+          )
+            .into_response();
         }
       }
     }
@@ -1082,43 +1136,49 @@ pub async fn stitch_diagnostic_handler(
   }
 
   // Compute phase coherence / alignment offset in the overlap region
-  let (correction_angle_deg, hop1_phase_deg, hop2_phase_deg, fm_deviation_khz) = calculate_overlap_phase_offset(&mut processor, &hop1_raw_iq, &hop2_raw_iq);
+  let (correction_angle_deg, hop1_phase_deg, hop2_phase_deg, fm_deviation_khz) =
+    calculate_overlap_phase_offset(&mut processor, &hop1_raw_iq, &hop2_raw_iq);
 
   // Restore previous pause state
   state.shared.is_paused.store(was_paused, Ordering::Relaxed);
 
   // 4. Seamless Crossfade Stitching
   let jump_hz = (center2 - center1) as f64 / 1_000_000.0;
-  let fft_size = if !hop1_frames.is_empty() { hop1_frames[0].len() } else { 1024 };
+  let fft_size = if !hop1_frames.is_empty() {
+    hop1_frames[0].len()
+  } else {
+    1024
+  };
 
   // Calculate dynamic overlap bounds based strictly on the center frequency jump
-  let offset_bins = ((fft_size as f64) * (jump_hz / hop_bw_mhz)).round() as usize;
+  let offset_bins =
+    ((fft_size as f64) * (jump_hz / hop_bw_mhz)).round() as usize;
   let overlap_bins = fft_size.saturating_sub(offset_bins);
-    // 4. Midpoint Cut Stitching (No Blending)
-    let mut stitched_frames = Vec::with_capacity(NUM_FRAMES);
-    let midpoint_bin = overlap_bins / 2;
+  // 4. Midpoint Cut Stitching (No Blending)
+  let mut stitched_frames = Vec::with_capacity(NUM_FRAMES);
+  let midpoint_bin = overlap_bins / 2;
 
-    for i in 0..NUM_FRAMES {
-      let f1 = &hop1_frames[i];
-      let f2 = &hop2_frames[i];
-      
-      let mut stitched = Vec::with_capacity(fft_size + offset_bins);
-      
-      if f1.len() < fft_size || f2.len() < fft_size {
-        stitched.extend_from_slice(f1);
-        stitched_frames.push(stitched);
-        continue;
-      }
+  for i in 0..NUM_FRAMES {
+    let f1 = &hop1_frames[i];
+    let f2 = &hop2_frames[i];
 
-      // 1. Hop 1 up to the midpoint of the overlap
-      stitched.extend_from_slice(&f1[..offset_bins + midpoint_bin]);
-      
-      // 2. Hop 2 from the midpoint of the overlap onwards
-      // The overlap in f2 starts at index 0. So midpoint in overlap is index midpoint_bin.
-      stitched.extend_from_slice(&f2[midpoint_bin..]);
-      
+    let mut stitched = Vec::with_capacity(fft_size + offset_bins);
+
+    if f1.len() < fft_size || f2.len() < fft_size {
+      stitched.extend_from_slice(f1);
       stitched_frames.push(stitched);
+      continue;
     }
+
+    // 1. Hop 1 up to the midpoint of the overlap
+    stitched.extend_from_slice(&f1[..offset_bins + midpoint_bin]);
+
+    // 2. Hop 2 from the midpoint of the overlap onwards
+    // The overlap in f2 starts at index 0. So midpoint in overlap is index midpoint_bin.
+    stitched.extend_from_slice(&f2[midpoint_bin..]);
+
+    stitched_frames.push(stitched);
+  }
 
   // Frequency ranges
   let hop1_start = (center1 as f32 - (sample_rate as f32 / 2.0)) / 1_000_000.0;
@@ -1129,7 +1189,11 @@ pub async fn stitch_diagnostic_handler(
   let total_latency_ms = start_time.elapsed().as_secs_f32() * 1000.0;
   let slice_duration_ms = (fft_size as f32 / sample_rate as f32) * 1000.0;
   // Mock uses 0ms settle, real hardware usually ~3-10ms based on post_retune_discard_frames
-  let settle_time_ms = if device_info.contains("Mock") { 0.0 } else { 10.0 }; 
+  let settle_time_ms = if device_info.contains("Mock") {
+    0.0
+  } else {
+    10.0
+  };
 
   Json(StitchDiagnosticResponse {
     hop1_frames,
@@ -1412,6 +1476,7 @@ async fn handle_start_capture(
   let capture_cmd = super::types::SdrCommand::StartCapture {
     job_id: job_id.to_string(),
     fragments: fragments.clone(),
+    duration_mode: "timed".to_string(),
     duration_s,
     file_type: file_type.to_string(),
     acquisition_mode: acquisition_mode.to_string(),
@@ -1419,6 +1484,8 @@ async fn handle_start_capture(
     fft_size,
     fft_window: fft_window.to_string(),
     geolocation: None, // HTTP endpoints don't have geolocation data
+    ref_based_demod_baseline: None,
+    is_ephemeral: false,
   };
 
   if let Err(e) = state.cmd_tx.send(capture_cmd) {

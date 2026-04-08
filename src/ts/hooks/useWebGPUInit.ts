@@ -1,7 +1,6 @@
 import { useRef, useEffect, useCallback, useState } from "react";
 import { useAsyncShaderCache } from "@n-apt/hooks/useAsyncShaderCache";
 import { useSharedBufferManager } from "@n-apt/hooks/useSharedBufferManager";
-import { SPECTRUM_SHADER } from "@n-apt/consts/shaders/spectrum";
 
 // Inlined OverlayTextureRenderer shader
 const overlayShader = `
@@ -211,7 +210,6 @@ function getPreferredCanvasFormat(): GPUTextureFormat {
 }
 
 export interface WebGPUInitOptions {
-  force2D: boolean;
   spectrumGpuCanvasRef: React.RefObject<HTMLCanvasElement | null>;
   waterfallGpuCanvasRef: React.RefObject<HTMLCanvasElement | null>;
   resampleWgsl: string;
@@ -221,7 +219,6 @@ export interface WebGPUInitOptions {
 }
 
 export function useWebGPUInit({
-  force2D,
   spectrumGpuCanvasRef: _spectrumGpuCanvasRef,
   waterfallGpuCanvasRef: _waterfallGpuCanvasRef,
   resampleWgsl,
@@ -232,9 +229,7 @@ export function useWebGPUInit({
   const [isInitialized, setIsInitialized] = useState(false);
   const [webgpuReady, setWebgpuReady] = useState(false);
   const [webgpuEnabled, setWebgpuEnabled] = useState(false);
-  const [isInitializingWebGPU, setIsInitializingWebGPU] = useState(
-    !force2D && isWebGPUSupported(),
-  );
+  const [isInitializingWebGPU, setIsInitializingWebGPU] = useState(isWebGPUSupported());
 
   const webgpuDeviceRef = useRef<GPUDevice | null>(null);
   const webgpuFormatRef = useRef<GPUTextureFormat | null>(null);
@@ -325,7 +320,7 @@ export function useWebGPUInit({
   );
 
   const initializeWebGPU = useCallback(async () => {
-    if (webgpuReady || force2D) return;
+    if (webgpuReady) return;
 
     try {
       const device = await getWebGPUDevice();
@@ -347,18 +342,17 @@ export function useWebGPUInit({
       console.error("WebGPU initialization failed:", error);
       setWebgpuReady(false);
     }
-  }, [webgpuReady, force2D, initializeResamplePipeline, gpuBufferPoolRef]);
+  }, [webgpuReady, initializeResamplePipeline, gpuBufferPoolRef]);
 
   useEffect(() => {
-    if (!isInitialized && !force2D) {
+    if (!isInitialized) {
       setIsInitialized(true);
       initializeWebGPU();
     }
-  }, [isInitialized, initializeWebGPU, force2D]);
+  }, [isInitialized, initializeWebGPU]);
 
   useEffect(() => {
     if (!isWebGPUSupported()) return;
-    if (force2D) return;
 
     let cancelled = false;
     const doInit = async (retryCount = 0) => {
@@ -428,7 +422,7 @@ export function useWebGPUInit({
     return () => {
       cancelled = true;
     };
-  }, [force2D]);
+  }, []);
 
   // Create overlay renderers once device/format are ready
   useEffect(() => {

@@ -8,6 +8,12 @@ import {
   DeviceProfile,
   CaptureStatus,
 } from '@n-apt/consts/schemas/websocket';
+import { 
+  validateCaptureStatus,
+  validateAutoFftOptions,
+  isValidSpectrumFrame 
+} from "@n-apt/validation";
+import { loadPersistedAutoFftOptions } from '@n-apt/redux/middleware/localStorageMiddleware';
 
 const shallowEqualObject = (
   a: Record<string, unknown> | null | undefined,
@@ -45,6 +51,21 @@ const equalSpectrumFrames = (
     }
   }
   return true;
+};
+
+// Enhanced validation for spectrum frames with integrity checks
+const validateSpectrumFrames = (frames: unknown[]): SpectrumFrame[] => {
+  return frames.filter(isValidSpectrumFrame);
+};
+
+// Enhanced validation for capture status
+const validateCaptureStatusEnhanced = (status: unknown): CaptureStatus | null => {
+  return validateCaptureStatus(status) ? (status as CaptureStatus) : null;
+};
+
+// Enhanced validation for auto FFT options
+const validateAutoFftOptionsEnhanced = (options: unknown): AutoFftOptionsResponse | null => {
+  return validateAutoFftOptions(options) ? (options as AutoFftOptionsResponse) : null;
 };
 
 const equalValue = (current: unknown, next: unknown): boolean => {
@@ -93,6 +114,7 @@ export interface WebSocketState {
   
   // Data
   spectrumFrames: SpectrumFrame[];
+  dataFrameCounter: 0; // Increment when live data arrives
   
   // Capture and processing
   captureStatus: CaptureStatus;
@@ -130,9 +152,10 @@ const initialState: WebSocketState = {
   sdrSettings: null,
   
   spectrumFrames: [],
+  dataFrameCounter: 0,
   
   captureStatus: null,
-  autoFftOptions: null,
+  autoFftOptions: loadPersistedAutoFftOptions(), // Load cached options on startup
   
   error: null,
   cryptoCorrupted: false,
@@ -196,17 +219,40 @@ const websocketSlice = createSlice({
     
     // Spectrum frames
     setSpectrumFrames: (state, action: PayloadAction<SpectrumFrame[]>) => {
-      state.spectrumFrames = action.payload;
+      // Validate spectrum frames before storing
+      const validatedFrames = validateSpectrumFrames(action.payload);
+      if (validatedFrames.length !== action.payload.length) {
+        console.warn(`Filtered ${action.payload.length - validatedFrames.length} invalid spectrum frames`);
+      }
+      state.spectrumFrames = validatedFrames;
     },
     
     // Capture status
-    setCaptureStatus: (state, action: PayloadAction<CaptureStatus>) => {
-      state.captureStatus = action.payload;
+    setCaptureStatus: (state, action: PayloadAction<CaptureStatus | null>) => {
+      // Allow null to clear capture status
+      if (action.payload === null) {
+        state.captureStatus = null;
+        return;
+      }
+      
+      // Validate capture status before storing
+      const validatedStatus = validateCaptureStatusEnhanced(action.payload);
+      if (validatedStatus) {
+        state.captureStatus = validatedStatus;
+      } else {
+        console.error('Invalid capture status rejected:', action.payload);
+      }
     },
     
     // Auto FFT options
     setAutoFftOptions: (state, action: PayloadAction<AutoFftOptionsResponse>) => {
-      state.autoFftOptions = action.payload;
+      // Validate auto FFT options before storing
+      const validatedOptions = validateAutoFftOptionsEnhanced(action.payload);
+      if (validatedOptions) {
+        state.autoFftOptions = validatedOptions;
+      } else {
+        console.error('Invalid auto FFT options rejected:', action.payload);
+      }
     },
     
     // Crypto corruption
@@ -230,6 +276,11 @@ const websocketSlice = createSlice({
     setPaused: (state, action: PayloadAction<boolean>) => {
       state.isPaused = action.payload;
     },
+    
+    // Data frame counter - increment when live data arrives
+    incrementDataFrameCounter: (state) => {
+      state.dataFrameCounter += 1;
+    },
   },
 });
 
@@ -249,6 +300,7 @@ export const {
   queueMessage,
   clearQueuedMessages,
   setPaused,
+  incrementDataFrameCounter,
 } = websocketSlice.actions;
 
 export default websocketSlice.reducer;

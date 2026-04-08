@@ -1,7 +1,7 @@
 import React from "react";
 import { IQCaptureControlsSection } from "../../src/ts/components/sidebar/IQCaptureControlsSection";
 import { useWebSocket } from "../../src/ts/hooks/useWebSocket";
-import type { CaptureStatus, CaptureFileType, DeviceState } from "../../src/ts/consts/schemas/websocket";
+import type { CaptureFileType } from "../../src/ts/consts/schemas/websocket";
 
 export const IQCaptureIntegrationTest: React.FC = () => {
   const {
@@ -11,11 +11,12 @@ export const IQCaptureIntegrationTest: React.FC = () => {
     maxSampleRateHz,
     dataRef,
     sendCaptureCommand,
-  } = useWebSocket();
+  } = useWebSocket("", null);
 
   // Mock state for testing
   const [activeCaptureAreas, setActiveCaptureAreas] = React.useState<string[]>([]);
   const [captureDurationS, setCaptureDurationS] = React.useState(5);
+  const [captureDurationMode, setCaptureDurationMode] = React.useState<"timed" | "manual">("timed");
   const [captureFileType, setCaptureFileType] = React.useState<CaptureFileType>(".napt");
   const [acquisitionMode, setAcquisitionMode] = React.useState<"stepwise" | "interleaved" | "whole_sample">("stepwise");
   const [captureEncrypted, setCaptureEncrypted] = React.useState(false);
@@ -118,10 +119,9 @@ export const IQCaptureIntegrationTest: React.FC = () => {
 
       {/* Main Capture Controls */}
       <IQCaptureControlsSection
-        isOpen={true}
-        onToggle={() => { }}
         activeCaptureAreas={activeCaptureAreas}
         availableCaptureAreas={mockAvailableCaptureAreas}
+        captureDurationMode={captureDurationMode}
         captureDurationS={captureDurationS}
         captureFileType={captureFileType}
         acquisitionMode={acquisitionMode}
@@ -134,6 +134,7 @@ export const IQCaptureIntegrationTest: React.FC = () => {
         isConnected={isConnected || false}
         deviceState={deviceState || "disconnected"}
         onActiveCaptureAreasChange={setActiveCaptureAreas}
+        onCaptureDurationModeChange={setCaptureDurationMode}
         onCaptureDurationSChange={setCaptureDurationS}
         onCaptureFileTypeChange={setCaptureFileType}
         onAcquisitionModeChange={setAcquisitionMode}
@@ -141,6 +142,7 @@ export const IQCaptureIntegrationTest: React.FC = () => {
         onCapturePlaybackChange={setCapturePlayback}
         onCaptureGeolocationChange={setCaptureGeolocation}
         onCapture={handleCapture}
+        onClearStatus={() => { }}
       />
     </div>
   );

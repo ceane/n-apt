@@ -1,8 +1,7 @@
 import React, { useState } from "react";
 import styled from "styled-components";
-import { useAppSelector, useAppDispatch } from "@n-apt/redux";
-import { waterfallActions } from "@n-apt/redux";
-import { Row, CollapsibleTitle } from "@n-apt/components/ui";
+import { useAppSelector, useAppDispatch, setDrawSignal3D } from "@n-apt/redux";
+import { Row, Collapsible } from "@n-apt/components/ui";
 import { Toggle } from "@n-apt/components/ui/Toggle";
 
 const Section = styled.div`
@@ -10,8 +9,14 @@ const Section = styled.div`
   grid-template-columns: subgrid;
   grid-column: 1 / -1;
   gap: inherit;
+  padding: ${(props) => (props.theme.mode === "light" ? props.theme.spacing.sm : 0)};
+  background-color: ${(props) => (props.theme.mode === "light" ? props.theme.surface : "transparent")};
+  border-radius: 8px;
+  border: ${(props) =>
+    props.theme.mode === "light" ? `1px solid ${props.theme.border}` : "none"};
   box-sizing: border-box;
   width: 100%;
+  color: ${(props) => props.theme.textPrimary};
 `;
 
 interface FFTWaterfallSectionProps {
@@ -27,7 +32,7 @@ export const FFTWaterfallSection: React.FC<FFTWaterfallSectionProps> = ({
   isConnected: _isConnected,
   selectedFilesCount,
 }) => {
-  const [isOpen, setIsOpen] = useState(false);
+  const [isOpen] = useState(false);
   const dispatch = useAppDispatch();
   const drawSignal3D = useAppSelector(state => state.waterfall.drawSignal3D);
 
@@ -35,18 +40,15 @@ export const FFTWaterfallSection: React.FC<FFTWaterfallSectionProps> = ({
   const isDisabled = isFileSource ? selectedFilesCount === 0 : false;
 
   const handleToggle = () => {
-    dispatch(waterfallActions.setDrawSignal3D(!drawSignal3D));
+    dispatch(setDrawSignal3D(!drawSignal3D));
   };
 
   return (
     <Section>
-      <CollapsibleTitle
+      <Collapsible
         label="FFT/Waterfall Drawing options"
-        isOpen={isOpen}
-        onToggle={() => setIsOpen((prev) => !prev)}
-      />
-
-      {isOpen && (
+        defaultOpen={isOpen}
+      >
         <Row
           label="Draw Signal 3D"
           tooltipTitle="3D FFT Waterfall"
@@ -60,7 +62,7 @@ export const FFTWaterfallSection: React.FC<FFTWaterfallSectionProps> = ({
             {drawSignal3D ? "ON" : "OFF"}
           </Toggle>
         </Row>
-      )}
+      </Collapsible>
     </Section>
   );
 };

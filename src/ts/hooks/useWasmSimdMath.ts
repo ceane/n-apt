@@ -45,12 +45,26 @@ export interface SpectrumSpikeMarker {
   value: number;
   prominence: number;
   radius: number;
+  frequency?: number;
+  x?: number;
+  y?: number;
 }
 
 export interface WasmSimdMathHandle {
   // WASM SIMD operations
   resampleSpectrum: (input: Float32Array, output: Float32Array) => void;
-  processIqToDbmSpectrum: (input: Uint8Array, fftSize?: number) => Float32Array;
+  processIqToSpectrum: (
+    input: Uint8Array,
+    powerScale: "dB" | "dBm",
+    fftSize?: number,
+    windowType?: string,
+  ) => Float32Array;
+  processIqToDbmSpectrum: (
+    input: Uint8Array,
+    offsetDb: number,
+    fftSize?: number,
+    windowType?: string,
+  ) => Float32Array;
   shiftWaterfallBuffer: (buffer: Uint8ClampedArray, width: number, height: number) => void;
   applyColorMapping: (amplitudes: Float32Array, output: Uint8ClampedArray, intensity: number) => void;
   
@@ -78,6 +92,140 @@ export interface WasmSimdMathHandle {
   isWasmLoaded: boolean;
 };
 
+const normalizeWindowType = (windowType?: string) => {
+  switch ((windowType ?? "hanning").toLowerCase()) {
+    case "none":
+    case "rectangular":
+      return "rectangular";
+    case "hann":
+    case "hanning":
+      return "hanning";
+    case "hamming":
+      return "hamming";
+    case "blackman":
+      return "blackman";
+    case "nuttall":
+      return "nuttall";
+    default:
+      return "hanning";
+  }
+};
+
+const getWindowValue = (
+  index: number,
+  size: number,
+  windowType?: string,
+) => {
+  if (size <= 1) return 1;
+
+  const normalized = normalizeWindowType(windowType);
+  const t = index / (size - 1);
+
+  switch (normalized) {
+    case "rectangular":
+      return 1;
+    case "hamming":
+      return 0.54 - 0.46 * Math.cos(2 * Math.PI * t);
+    case "blackman":
+      return 0.42 - 0.5 * Math.cos(2 * Math.PI * t) + 0.08 * Math.cos(4 * Math.PI * t);
+    case "nuttall":
+      return 0.355768
+        - 0.487396 * Math.cos(2 * Math.PI * t)
+        + 0.144232 * Math.cos(4 * Math.PI * t)
+        - 0.012604 * Math.cos(6 * Math.PI * t);
+    case "hanning":
+    default:
+      return 0.5 - 0.5 * Math.cos(2 * Math.PI * t);
+  }
+};
+
+export function computeIqToDbSpectrumScalar(
+  input: Uint8Array,
+  options: {
+    fftSize: number;
+    offsetDb: number;
+    windowType?: string;
+  },
+): Float32Array {
+  const { fftSize, offsetDb, windowType } = options;
+  const numSamples = Math.max(1, Math.min(fftSize, Math.floor(input.length / 2)));
+  const real = new Float32Array(numSamples);
+  const imag = new Float32Array(numSamples);
+  let windowSum = 0;
+
+  for (let i = 0; i < numSamples; i++) {
+    const windowVal = getWindowValue(i, numSamples, windowType);
+    real[i] = ((input[i * 2] - 128) / 128) * windowVal;
+    imag[i] = ((input[i * 2 + 1] - 128) / 128) * windowVal;
+    windowSum += windowVal;
+  }
+
+  const fftLen = Math.pow(2, Math.ceil(Math.log2(numSamples)));
+  const paddedReal = new Float32Array(fftLen);
+  const paddedImag = new Float32Array(fftLen);
+  paddedReal.set(real);
+  paddedImag.set(imag);
+
+  const bits = Math.log2(fftLen);
+  const bitReverse = (x: number, b: number) => {
+    let y = 0;
+    for (let i = 0; i < b; i++) {
+      y = (y << 1) | (x & 1);
+      x >>= 1;
+    }
+    return y;
+  };
+
+  for (let i = 0; i < fftLen; i++) {
+    const j = bitReverse(i, bits);
+    if (j > i) {
+      [paddedReal[i], paddedReal[j]] = [paddedReal[j], paddedReal[i]];
+      [paddedImag[i], paddedImag[j]] = [paddedImag[j], paddedImag[i]];
+    }
+  }
+
+  for (let s = 1; s <= bits; s++) {
+    const m = 1 << s;
+    const halfM = m >> 1;
+    const wAngle = (-2 * Math.PI) / m;
+    const wStepReal = Math.cos(wAngle);
+    const wStepImag = Math.sin(wAngle);
+
+    for (let k = 0; k < fftLen; k += m) {
+      let wReal = 1;
+      let wImag = 0;
+      for (let j = 0; j < halfM; j++) {
+        const uReal = paddedReal[k + j];
+        const uImag = paddedImag[k + j];
+        const vr = paddedReal[k + j + halfM] * wReal - paddedImag[k + j + halfM] * wImag;
+        const vi = paddedReal[k + j + halfM] * wImag + paddedImag[k + j + halfM] * wReal;
+        paddedReal[k + j] = uReal + vr;
+        paddedImag[k + j] = uImag + vi;
+        paddedReal[k + j + halfM] = uReal - vr;
+        paddedImag[k + j + halfM] = uImag - vi;
+        const nextWReal = wReal * wStepReal - wImag * wStepImag;
+        wImag = wReal * wStepImag + wImag * wStepReal;
+        wReal = nextWReal;
+      }
+    }
+  }
+
+  const normSq = Math.max(windowSum * windowSum, 1e-12);
+  const output = new Float32Array(fftLen);
+  for (let i = 0; i < fftLen; i++) {
+    const magSq = (paddedReal[i] * paddedReal[i] + paddedImag[i] * paddedImag[i]) / normSq;
+    output[i] = 10 * Math.log10(magSq + 1e-15) + offsetDb;
+  }
+
+  const half = fftLen / 2;
+  const shifted = new Float32Array(fftLen);
+  for (let i = 0; i < fftLen; i++) {
+    shifted[(i + half) % fftLen] = output[i];
+  }
+
+  return shifted;
+}
+
 export function useWasmSimdMath(options: SpectrumMathOptions): WasmSimdMathHandle {
   const { fftSize, enableSimd, fallbackToScalar } = options;
   
@@ -87,32 +235,24 @@ export function useWasmSimdMath(options: SpectrumMathOptions): WasmSimdMathHandl
   
   // WASM processor references
   const renderingProcessorRef = useRef<any>(null);
-  const simdProcessorRef = useRef<any>(null);
   
   // Initialize WASM SIMD module
   useEffect(() => {
     const initWasm = async () => {
       try {
         const wasmModule = await import("n_apt_canvas");
-        const { default: initWasm, test_wasm_simd_availability } = wasmModule;
+        const initWasm = wasmModule.default;
         
         // Initialize the WASM module
         await initWasm();
         
-        // Test SIMD availability
-        if (test_wasm_simd_availability && enableSimd) {
-          const simdAvailable = test_wasm_simd_availability();
-          setIsSimdAvailable(simdAvailable);
-          
-          if (simdAvailable) {
-            // Initialize RenderingProcessor
-            try {
-              const { RenderingProcessor, WASMSIMDProcessor } = await import("n_apt_canvas");
-              renderingProcessorRef.current = new RenderingProcessor();
-              simdProcessorRef.current = new WASMSIMDProcessor(fftSize);
-            } catch (e) {
-              console.warn("RenderingProcessor not available, using fallbacks");
-            }
+        if (enableSimd) {
+          setIsSimdAvailable(true);
+          try {
+            const RenderingProcessor = wasmModule.RenderingProcessor;
+            renderingProcessorRef.current = new RenderingProcessor();
+          } catch {
+            console.warn("RenderingProcessor not available, using fallbacks");
           }
         }
         
@@ -150,59 +290,56 @@ export function useWasmSimdMath(options: SpectrumMathOptions): WasmSimdMathHandl
           }
         }
         
-        output[x] = maxVal !== -Infinity ? maxVal : (input[Math.min(start, srcLen - 1)] ?? -120);
+        output[x] = maxVal !== -Infinity ? maxVal : (input[Math.min(start, srcLen - 1)] ?? -150);
       }
     }
   }, [isSimdAvailable]);
 
-  const processIqToDbmSpectrum = useCallback((input: Uint8Array, overrideFftSize?: number) => {
-    if (simdProcessorRef.current && isSimdAvailable) {
-      if (
-        typeof overrideFftSize === "number" &&
-        Number.isFinite(overrideFftSize) &&
-        simdProcessorRef.current.fft_size &&
-        simdProcessorRef.current.fft_size() !== overrideFftSize
-      ) {
-        try {
-          const ctor = simdProcessorRef.current.constructor;
-          simdProcessorRef.current = new ctor(overrideFftSize);
-        } catch (error) {
-          console.warn("Failed to recreate WASM SIMD processor for FFT size:", error);
-        }
-      }
-
+  const processIqToDbmSpectrum = useCallback((
+    input: Uint8Array,
+    offsetDb: number,
+    overrideFftSize?: number,
+    windowType?: string,
+  ) => {
+    if (renderingProcessorRef.current && isSimdAvailable) {
       try {
-        return new Float32Array(simdProcessorRef.current.process_samples(input));
+        const processor = renderingProcessorRef.current as {
+          process_iq_to_dbm_spectrum?: (input: Uint8Array, offsetDb: number) => Float32Array | Float32Array;
+        };
+        if (typeof processor.process_iq_to_dbm_spectrum === "function") {
+          return new Float32Array(processor.process_iq_to_dbm_spectrum(input, offsetDb));
+        }
       } catch (error) {
         console.warn("WASM SIMD I/Q dBm fallback failed, using scalar path:", error);
       }
     }
 
-    const fftOutSize = Math.max(
-      1,
-      Math.min(overrideFftSize ?? fftSize, Math.floor(input.length / 2)),
-    );
-    const output = new Float32Array(fftOutSize);
-    const pairCount = Math.floor(input.length / 2);
-    const samplesPerBin = Math.max(1, Math.floor(pairCount / fftOutSize));
-
-    for (let bin = 0; bin < fftOutSize; bin++) {
-      let powerSum = 0;
-      const start = bin * samplesPerBin;
-      const end = Math.min(pairCount, start + samplesPerBin);
-
-      for (let i = start; i < end; i++) {
-        const ii = (input[i * 2] - 128) / 128;
-        const qq = (input[i * 2 + 1] - 128) / 128;
-        powerSum += ii * ii + qq * qq;
-      }
-
-      const avgPower = powerSum / Math.max(1, end - start);
-      output[bin] = avgPower > 1e-12 ? 10 * Math.log10(avgPower) : -120;
-    }
-
-    return output;
+    return computeIqToDbSpectrumScalar(input, {
+      fftSize: overrideFftSize ?? fftSize,
+      offsetDb,
+      windowType,
+    });
   }, [fftSize, isSimdAvailable]);
+
+  const processIqToSpectrum = useCallback(
+    (
+      input: Uint8Array,
+      powerScale: "dB" | "dBm",
+      overrideFftSize?: number,
+      windowType?: string,
+    ) => {
+      const offsetDb = powerScale === "dBm" ? 30.0 : 0.0;
+      const spectrum = processIqToDbmSpectrum(
+        input,
+        offsetDb,
+        overrideFftSize,
+        windowType,
+      );
+
+      return spectrum;
+    },
+    [processIqToDbmSpectrum],
+  );
 
   const shiftWaterfallBuffer = useCallback((buffer: Uint8ClampedArray, width: number, height: number) => {
     if (renderingProcessorRef.current && isSimdAvailable) {
@@ -322,7 +459,7 @@ export function useWasmSimdMath(options: SpectrumMathOptions): WasmSimdMathHandl
       };
       
       if (zoom < 1) {
-        const paddedWaveform = new Float32Array(visibleBins).fill(-120);
+        const paddedWaveform = new Float32Array(visibleBins).fill(-150);
         const destOffset = Math.max(0, -startBin);
         const dataToCopy = Math.min(totalBins, visibleBins - destOffset);
         const srcOffset = Math.max(0, startBin);
@@ -445,8 +582,6 @@ export function useWasmSimdMath(options: SpectrumMathOptions): WasmSimdMathHandl
   const detectProminentSpikes = useCallback((params: SpikeDetectionParams) => {
     const {
       spectrumData,
-      dbMin,
-      dbMax,
       maxMarkers = 96,
       frequencyRange,
       temporalPersistence,
@@ -454,8 +589,7 @@ export function useWasmSimdMath(options: SpectrumMathOptions): WasmSimdMathHandl
     const length = spectrumData.length;
     if (length < 5) return [];
 
-    const dynamicRange = Math.max(1, dbMax - dbMin);
-
+    // Calculate window size
     let w = Math.max(2, Math.floor(length * 0.015));
     if (frequencyRange) {
       const spanMHz = frequencyRange.max - frequencyRange.min;
@@ -466,26 +600,44 @@ export function useWasmSimdMath(options: SpectrumMathOptions): WasmSimdMathHandl
       }
     }
 
-    const eroded = new Float32Array(length);
+    // Z-score based approach
+    const zScores = new Float32Array(length);
+    const localMeans = new Float32Array(length);
+    const localStdDevs = new Float32Array(length);
+    
+    // Pass 1: compute local mean and std dev using sliding window
     for (let i = 0; i < length; i++) {
-      let minVal = Infinity;
+      let sum = 0;
+      let sumSq = 0;
+      let count = 0;
       const start = Math.max(0, i - w);
       const end = Math.min(length - 1, i + w);
+      
       for (let j = start; j <= end; j++) {
-        if (spectrumData[j] < minVal) minVal = spectrumData[j];
+        const val = spectrumData[j];
+        if (Number.isFinite(val)) {
+          sum += val;
+          sumSq += val * val;
+          count++;
+        }
       }
-      eroded[i] = minVal;
+      
+      if (count > 0) {
+        const mean = sum / count;
+        localMeans[i] = mean;
+        // variance = E[X^2] - (E[X])^2
+        const variance = Math.max(0, (sumSq / count) - (mean * mean));
+        const stdDev = Math.sqrt(variance);
+        localStdDevs[i] = Math.max(0.1, stdDev); // Prevent division by zero
+      }
     }
-
-    const baseline = new Float32Array(length);
+    
+    // Pass 2: calculate z-scores
     for (let i = 0; i < length; i++) {
-      let maxVal = -Infinity;
-      const start = Math.max(0, i - w);
-      const end = Math.min(length - 1, i + w);
-      for (let j = start; j <= end; j++) {
-        if (eroded[j] > maxVal) maxVal = eroded[j];
+      const val = spectrumData[i];
+      if (Number.isFinite(val)) {
+        zScores[i] = (val - localMeans[i]) / localStdDevs[i];
       }
-      baseline[i] = maxVal;
     }
 
     const persistence =
@@ -494,27 +646,22 @@ export function useWasmSimdMath(options: SpectrumMathOptions): WasmSimdMathHandl
         : null;
     const decay = 0.9;
     const persistenceSpread = Math.max(1, Math.min(4, Math.floor(length / 1024)));
-    const residual = new Float32Array(length);
 
-    for (let i = 0; i < length; i++) {
-      const prominence = Math.max(0, spectrumData[i] - baseline[i]);
-      residual[i] = prominence;
-      if (persistence) {
-        persistence[i] *= decay;
-      }
-    }
-
+    // Update persistence
     if (persistence) {
       for (let i = 0; i < length; i++) {
-        const prominence = residual[i];
-        if (prominence <= 0) continue;
+        persistence[i] *= decay;
+      }
+      for (let i = 0; i < length; i++) {
+        const score = zScores[i];
+        if (score <= 0) continue;
         for (
           let j = Math.max(0, i - persistenceSpread);
           j <= Math.min(length - 1, i + persistenceSpread);
           j++
         ) {
           const weight = j === i ? 1 : 0.72;
-          const boosted = prominence * weight;
+          const boosted = score * weight;
           if (boosted > persistence[j]) {
             persistence[j] = boosted;
           }
@@ -522,33 +669,35 @@ export function useWasmSimdMath(options: SpectrumMathOptions): WasmSimdMathHandl
       }
     }
 
-    const minProminence = Math.max(2.2, dynamicRange * 0.032);
+    const minZScore = 2.5; // Z-score threshold for spikes
     const candidates: SpectrumSpikeMarker[] = [];
 
     for (let i = 2; i < length - 2; i++) {
       const center = spectrumData[i];
       if (!Number.isFinite(center)) continue;
 
-      const effectiveProminence = residual[i] + (persistence ? persistence[i] * 0.65 : 0);
-      if (effectiveProminence < minProminence) continue;
+      const effectiveScore = zScores[i] + (persistence ? persistence[i] * 0.65 : 0);
+      if (effectiveScore < minZScore) continue;
 
+      // Peak detection (local maximum in the effective score)
       if (
-        effectiveProminence <= residual[i - 1] + (persistence ? persistence[i - 1] * 0.65 : 0) ||
-        effectiveProminence <= residual[i + 1] + (persistence ? persistence[i + 1] * 0.65 : 0)
+        effectiveScore <= zScores[i - 1] + (persistence ? persistence[i - 1] * 0.65 : 0) ||
+        effectiveScore <= zScores[i + 1] + (persistence ? persistence[i + 1] * 0.65 : 0)
       ) {
         continue;
       }
 
-      const normalized = Math.max(
+      // Base radius on Z-score magnitude
+      const normalizedScore = Math.max(
         0,
-        Math.min(1, effectiveProminence / Math.max(10, dynamicRange * 0.3)),
+        Math.min(1, (effectiveScore - minZScore) / 5.0)
       );
 
       candidates.push({
         index: i,
         value: center,
-        prominence: effectiveProminence,
-        radius: 3.5 + normalized * 7.5,
+        prominence: effectiveScore, // use z-score as prominence metric
+        radius: 3.5 + normalizedScore * 7.5,
       });
     }
 
@@ -585,6 +734,7 @@ export function useWasmSimdMath(options: SpectrumMathOptions): WasmSimdMathHandl
   return {
     // WASM SIMD operations
     resampleSpectrum,
+    processIqToSpectrum,
     processIqToDbmSpectrum,
     shiftWaterfallBuffer,
     applyColorMapping,
