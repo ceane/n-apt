@@ -113,9 +113,10 @@ export const TransformersRoute: React.FC = () => {
           break;
         case 'feature-extraction':
           output = await pipeline(inputText);
+          const embeddingData = Array.from(output.data?.slice(0, 5) ?? []) as number[];
           output = {
             embedding_shape: output.data?.shape || [0],
-            embedding_sample: Array.from(output.data?.slice(0, 5) || []).map((n: number) => n.toFixed(6))
+            embedding_sample: embeddingData.map((n) => n.toFixed(6))
           };
           break;
         case 'question-answering':

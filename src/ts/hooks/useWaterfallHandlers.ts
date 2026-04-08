@@ -1,14 +1,8 @@
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-import { useRef, useCallback, useMemo } from "react";
+import { useRef, useCallback } from "react";
 import { useAppSelector } from "@n-apt/redux";
-import { WATERFALL_COLORMAPS } from "@n-apt/consts/colormaps";
 import { useDrawWebGPUFIFOWaterfall } from "@n-apt/hooks/useDrawWebGPUFIFOWaterfall";
 import type { FrequencyRange } from "@n-apt/consts/types";
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-import {
-  resolvePendingWaterfallRestore,
-  type PendingWaterfallRestore,
-} from "@n-apt/utils/waterfallRestore";
+import type { PendingWaterfallRestore } from "@n-apt/utils/waterfallRestore";
 import type { CanvasState } from "./useCanvasState";
 import type { VisualizationState } from "./useVisualizationState";
 
@@ -44,7 +38,7 @@ export interface WaterfallHandlersState {
   lastWaterfallVisualRangeRef: React.MutableRefObject<FrequencyRange | null>;
 
   // Rendering functions
-  drawWebGPUFIFOWaterfall: ReturnType<typeof useDrawWebGPUFIFOWaterfall>;
+  drawWebGPUFIFOWaterfall: ReturnType<typeof useDrawWebGPUFIFOWaterfall>["drawWebGPUFIFOWaterfall"];
 
   // Utility functions
   getBufferFromPool: (size: number) => Uint8ClampedArray;
@@ -65,38 +59,24 @@ export interface WaterfallHandlersProps {
   wfSmoothEnabled?: boolean;
 }
 
-const WATERFALL_PLACEHOLDER_FONT = "20px 'JetBrains Mono', monospace";
-
 export const useWaterfallHandlers = ({
-  isPaused,
+  isPaused: _isPaused,
   isWaterfallCleared = false,
   onResetWaterfallCleared,
-  heterodyningVerifyRequestId = 0,
+  heterodyningVerifyRequestId: _heterodyningVerifyRequestId = 0,
   canvasState,
   visualizationState,
-  webgpuEnabled,
-  webgpuDeviceRef,
-  webgpuFormatRef,
-  wfSmoothEnabled = false,
+  webgpuEnabled: _webgpuEnabled,
+  webgpuDeviceRef: _webgpuDeviceRef,
+  webgpuFormatRef: _webgpuFormatRef,
+  wfSmoothEnabled: _wfSmoothEnabled = false,
 }: WaterfallHandlersProps): WaterfallHandlersState => {
-  const {
-    waterfallCanvasRef,
-    waterfallGpuCanvasRef,
-    waterfallOverlayCanvasRef,
-  } = canvasState;
+  const { waterfallGpuCanvasRef: _waterfallGpuCanvasRef } = canvasState;
 
-  const {
-    vizDbMinRef,
-    vizDbMaxRef,
-    frequencyRangeRef,
-    centerFreqRef,
-    effectivePowerScale,
-  } = visualizationState;
+  const { effectivePowerScale: _effectivePowerScale } = visualizationState;
 
   // Redux state
-  const waterfallTheme = useAppSelector((reduxState) => reduxState.theme.waterfallTheme);
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const colormap = useMemo(() => WATERFALL_COLORMAPS[waterfallTheme], [waterfallTheme]);
+  useAppSelector((reduxState) => reduxState.theme.waterfallTheme);
 
   // Waterfall processing refs
   const lastWaterfallRowRef = useRef<Float32Array | null>(null);

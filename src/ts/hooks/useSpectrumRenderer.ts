@@ -88,7 +88,7 @@ export function useSpectrumRenderer() {
   const drawSpectrum = useCallback((options: SpectrumRendererOptions) => {
     const {
       canvas,
-      webgpuEnabled,
+      webgpuEnabled: _webgpuEnabled,
       isInitializingWebGPU,
       device,
       format,
@@ -173,7 +173,9 @@ export function useSpectrumRenderer() {
             frequencyRange,
             centerFrequencyMHz,
             isDeviceConnected,
+            hardwareSampleRateHz,
             fullCaptureRange,
+            isIqRecordingActive,
             limitMarkers,
           );
         }

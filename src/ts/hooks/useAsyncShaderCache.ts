@@ -284,13 +284,6 @@ export function useAsyncShaderCache(options: AsyncShaderCacheOptions) {
   useEffect(() => {
     if (!enableHotReload) return;
     
-    const handleHotReload = () => {
-      // Clear cache on hot reload
-      pipelineCacheRef.current.clear();
-      compilationQueueRef.current = [];
-      console.log('🔄 Shader cache cleared for hot reload');
-    };
-    
     // Listen for hot reload events (development only)
     if (process.env.NODE_ENV === 'development') {
       // Note: Hot reload functionality disabled in Jest

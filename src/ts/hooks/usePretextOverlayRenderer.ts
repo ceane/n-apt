@@ -1,6 +1,5 @@
 import { useCallback } from "react";
 import { usePretextText } from "@n-apt/hooks/usePretextText";
-import { setupCanvasForDPI } from "@n-apt/utils/canvasDPIScaling";
 import {
   FFT_GRID_COLOR,
   FFT_TEXT_COLOR,
@@ -47,8 +46,8 @@ export function usePretextOverlayRenderer() {
       fftMin: number,
       fftMax: number,
       powerScale: "dB" | "dBm" = "dB",
-      hardwareSampleRateHz?: number,
-      fullCaptureRange?: { min: number; max: number },
+      _hardwareSampleRateHz?: number,
+      _fullCaptureRange?: { min: number; max: number },
       _isIqRecordingActive?: boolean,
     ) => {
       const dpr = window.devicePixelRatio || 1;
@@ -65,7 +64,7 @@ export function usePretextOverlayRenderer() {
       const maxFreq = frequencyRange.max;
       const viewBandwidth2 = maxFreq - minFreq;
 
-      const fullSpan = fullCaptureRange ? (fullCaptureRange.max - fullCaptureRange.min) : 0;
+      const fullSpan = _fullCaptureRange ? (_fullCaptureRange.max - _fullCaptureRange.min) : 0;
       const zoom = fullSpan > 0 ? fullSpan / viewBandwidth2 : 1;
       const useHighRes = zoom >= 100;
       const formatFreq = (f: number) => useHighRes ? formatFrequencyHighRes(f) : formatFrequency(f);
@@ -143,14 +142,14 @@ export function usePretextOverlayRenderer() {
         : formatFreq(visualCenterFreq);
 
       // Draw start/end frequency labels with pretext
-      const { metrics: startMetrics } = usePretextText({
+      const { metrics: _startMetrics } = usePretextText({
         text: startLabel,
         font: '12px JetBrains Mono',
         fontSize: 12,
         color: canvasTheme.textColor,
       });
 
-      const { metrics: endMetrics } = usePretextText({
+      const { metrics: _endMetrics } = usePretextText({
         text: endLabel,
         font: '12px JetBrains Mono',
         fontSize: 12,
@@ -234,13 +233,13 @@ export function usePretextOverlayRenderer() {
       ctx: OffscreenCanvasRenderingContext2D,
       width: number,
       height: number,
-      frequencyRange: { min: number; max: number },
+      _frequencyRange: { min: number; max: number },
       centerFrequencyMHz: number,
-      isDeviceConnected: boolean,
-      hardwareSampleRateHz?: number,
-      fullCaptureRange?: { min: number; max: number },
-      isIqRecordingActive?: boolean,
-      limitMarkers?: SdrLimitMarker[],
+      _isDeviceConnected: boolean,
+      _hardwareSampleRateHz?: number,
+      _fullCaptureRange?: { min: number; max: number },
+      _isIqRecordingActive?: boolean,
+      _limitMarkers?: SdrLimitMarker[],
     ) => {
       // Implementation for markers with pretext
       // This would include VFO frequency display, limit markers, etc.
@@ -249,14 +248,14 @@ export function usePretextOverlayRenderer() {
       ctx.scale(dpr, dpr);
 
       // VFO frequency display using pretext
-      const { metrics: vfoMetrics } = usePretextText({
+      const { metrics: _vfoMetrics } = usePretextText({
         text: formatFrequency(centerFrequencyMHz),
         font: 'bold 14px JetBrains Mono',
         fontSize: 14,
         color: '#ffff00',
       });
 
-      if (vfoMetrics) {
+      if (_vfoMetrics) {
         ctx.font = `${14 * dpr}px JetBrains Mono`;
         ctx.fillStyle = '#ffff00';
         ctx.textAlign = 'center';
@@ -271,10 +270,10 @@ export function usePretextOverlayRenderer() {
       ctx: OffscreenCanvasRenderingContext2D,
       width: number,
       height: number,
-      spikeMarkers: SpectrumSpikeMarker[],
-      frequencyRange: { min: number; max: number },
-      fftMin: number,
-      fftMax: number,
+      _spikeMarkers: SpectrumSpikeMarker[],
+      _frequencyRange: { min: number; max: number },
+      _fftMin: number,
+      _fftMax: number,
     ) => {
       // Implementation for spike markers with pretext
       const dpr = window.devicePixelRatio || 1;
@@ -282,19 +281,19 @@ export function usePretextOverlayRenderer() {
       ctx.scale(dpr, dpr);
 
       // Draw spike markers using pretext for labels
-      spikeMarkers.forEach((marker) => {
-        const { metrics: spikeMetrics } = usePretextText({
-          text: `${marker.frequency.toFixed(2)} MHz`,
+      _spikeMarkers.forEach((marker: SpectrumSpikeMarker) => {
+        const { metrics: _spikeMetrics } = usePretextText({
+          text: `${(marker.frequency ?? 0).toFixed(2)} MHz`,
           font: '10px JetBrains Mono',
           fontSize: 10,
           color: '#ff6b6b',
         });
 
-        if (spikeMetrics) {
+        if (_spikeMetrics) {
           // Draw marker and label
           ctx.font = `${10 * dpr}px JetBrains Mono`;
           ctx.fillStyle = '#ff6b6b';
-          ctx.fillText(`${marker.frequency.toFixed(2)} MHz`, marker.x / dpr, marker.y / dpr);
+          ctx.fillText(`${(marker.frequency ?? 0).toFixed(2)} MHz`, (marker.x ?? 0) / dpr, (marker.y ?? 0) / dpr);
         }
       });
     },

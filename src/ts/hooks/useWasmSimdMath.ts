@@ -45,6 +45,9 @@ export interface SpectrumSpikeMarker {
   value: number;
   prominence: number;
   radius: number;
+  frequency?: number;
+  x?: number;
+  y?: number;
 }
 
 export interface WasmSimdMathHandle {
@@ -232,7 +235,6 @@ export function useWasmSimdMath(options: SpectrumMathOptions): WasmSimdMathHandl
   
   // WASM processor references
   const renderingProcessorRef = useRef<any>(null);
-  const simdProcessorRef = useRef<any>(null);
   
   // Initialize WASM SIMD module
   useEffect(() => {
@@ -240,27 +242,17 @@ export function useWasmSimdMath(options: SpectrumMathOptions): WasmSimdMathHandl
       try {
         const wasmModule = await import("n_apt_canvas");
         const initWasm = wasmModule.default;
-        const test_wasm_simd_availability = wasmModule.test_wasm_simd_availability;
         
         // Initialize the WASM module
         await initWasm();
         
-        // Test SIMD availability
-        if (test_wasm_simd_availability && enableSimd) {
-          const simdAvailable = test_wasm_simd_availability();
-          setIsSimdAvailable(simdAvailable);
-          
-          if (simdAvailable) {
-            // Initialize RenderingProcessor
-            try {
-              const wasmModule2 = await import("n_apt_canvas");
-              const RenderingProcessor = wasmModule2.RenderingProcessor;
-              const WASMSIMDProcessor = wasmModule2.WASMSIMDProcessor;
-              renderingProcessorRef.current = new RenderingProcessor();
-              simdProcessorRef.current = new WASMSIMDProcessor(fftSize);
-            } catch (e) {
-              console.warn("RenderingProcessor not available, using fallbacks");
-            }
+        if (enableSimd) {
+          setIsSimdAvailable(true);
+          try {
+            const RenderingProcessor = wasmModule.RenderingProcessor;
+            renderingProcessorRef.current = new RenderingProcessor();
+          } catch {
+            console.warn("RenderingProcessor not available, using fallbacks");
           }
         }
         
@@ -309,26 +301,14 @@ export function useWasmSimdMath(options: SpectrumMathOptions): WasmSimdMathHandl
     overrideFftSize?: number,
     windowType?: string,
   ) => {
-    if (simdProcessorRef.current && isSimdAvailable) {
-      if (
-        typeof overrideFftSize === "number" &&
-        Number.isFinite(overrideFftSize) &&
-        simdProcessorRef.current.fft_size &&
-        simdProcessorRef.current.fft_size() !== overrideFftSize
-      ) {
-        try {
-          const ctor = simdProcessorRef.current.constructor;
-          simdProcessorRef.current = new ctor(overrideFftSize);
-        } catch (error) {
-          console.warn("Failed to recreate WASM SIMD processor for FFT size:", error);
-        }
-      }
-
+    if (renderingProcessorRef.current && isSimdAvailable) {
       try {
-        if (typeof simdProcessorRef.current.set_window_type === "function") {
-          simdProcessorRef.current.set_window_type(normalizeWindowType(windowType));
+        const processor = renderingProcessorRef.current as {
+          process_iq_to_dbm_spectrum?: (input: Uint8Array, offsetDb: number) => Float32Array | Float32Array;
+        };
+        if (typeof processor.process_iq_to_dbm_spectrum === "function") {
+          return new Float32Array(processor.process_iq_to_dbm_spectrum(input, offsetDb));
         }
-        return new Float32Array(simdProcessorRef.current.process_iq_to_dbm_spectrum(input, offsetDb));
       } catch (error) {
         console.warn("WASM SIMD I/Q dBm fallback failed, using scalar path:", error);
       }

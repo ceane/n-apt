@@ -194,10 +194,8 @@ const MapEventHandler: React.FC<{
 
 // Helper component for map center/zoom sync
 const MapController: React.FC<{
-  center: { lat: number; lng: number };
-  zoom: number;
   onMapLoad: (map: L.Map) => void;
-}> = ({ _center, _zoom, onMapLoad }) => {
+}> = ({ onMapLoad }) => {
   const map = useMap();
 
   useEffect(() => {
@@ -284,10 +282,6 @@ export const MapEndpointsRoute: React.FC = () => {
 
   const onLoad = useCallback((mapInstance: L.Map) => {
     setMap(mapInstance);
-  }, []);
-
-  const _onUnmount = useCallback(() => {
-    setMap(null);
   }, []);
 
   const toggleTech = useCallback((tech: string) => {
@@ -472,11 +466,7 @@ export const MapEndpointsRoute: React.FC = () => {
               onMapClick={() => setSelectedTower(null)}
             />
 
-            <MapController
-              center={center}
-              zoom={zoom}
-              onMapLoad={onLoad}
-            />
+            <MapController onMapLoad={onLoad} />
 
             {center.lat !== 0 && !previewLocation && (
               <Marker

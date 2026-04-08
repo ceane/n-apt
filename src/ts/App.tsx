@@ -3,7 +3,6 @@ import { BrowserRouter as Router } from "react-router-dom";
 import ReactDOM from "react-dom/client";
 import { HelmetProvider } from "react-helmet-async";
 import { Helmet } from "react-helmet-async";
-import { Agentation } from "agentation";
 import { AppRoutes } from "@n-apt/routes/Routes";
 import { AuthProvider } from "@n-apt/hooks/useAuthentication";
 import { SpectrumProvider } from "@n-apt/hooks/useSpectrumStore";
@@ -14,7 +13,7 @@ import { PromptProvider, ReduxNotifications } from "@n-apt/components/ui";
 import "katex/dist/katex.min.css";
 
 // Main App component with BrowserRouter wrapper
-const App: React.FC = () => {
+export const App: React.FC = () => {
   return (
     <>
       <Helmet>

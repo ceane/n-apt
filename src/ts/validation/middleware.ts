@@ -66,12 +66,6 @@ function measureValidationTime<T>(
 }
 
 // Logging utilities
-function logValidationSuccess(operation: string, data: any): void {
-  if (VALIDATION_CONFIG.enableLogging) {
-    console.debug(`✅ Validation passed: ${operation}`, data);
-  }
-}
-
 function logValidationFailure(operation: string, data: unknown, error?: string): void {
   if (VALIDATION_CONFIG.logValidationFailures) {
     console.error(`❌ Validation failed: ${operation}`, data, error || '');
@@ -101,9 +95,7 @@ export function validateWebSocketMessage(data: unknown): boolean {
     // Full validation for control messages
     const isValid = isValidWebSocketMessageWithIntegrity(data);
     
-    if (isValid) {
-      logValidationSuccess('WebSocket message', data);
-    } else {
+    if (!isValid) {
       logValidationFailure('WebSocket message', data);
     }
     
@@ -116,9 +108,7 @@ export function validateStatusMessage(data: unknown): boolean {
   return measureValidationTime(() => {
     const isValid = isValidStatusMessageEnhanced(data);
     
-    if (isValid) {
-      logValidationSuccess('Status message', data);
-    } else {
+    if (!isValid) {
       logValidationFailure('Status message', data);
     }
     
@@ -131,9 +121,7 @@ export function validateCaptureStatus(data: unknown): boolean {
   return measureValidationTime(() => {
     const isValid = isValidCaptureStatus(data);
     
-    if (isValid) {
-      logValidationSuccess('Capture status', data);
-    } else {
+    if (!isValid) {
       logValidationFailure('Capture status', data);
     }
     
@@ -146,9 +134,7 @@ export function validateAutoFftOptions(data: unknown): boolean {
   return measureValidationTime(() => {
     const isValid = isValidAutoFftOptions(data);
     
-    if (isValid) {
-      logValidationSuccess('Auto FFT options', data);
-    } else {
+    if (!isValid) {
       logValidationFailure('Auto FFT options', data);
     }
     
@@ -162,7 +148,6 @@ export function validateAuthInfo(data: unknown): data is { has_passkeys: boolean
     const result = AuthInfoSchema.safeParse(data);
     
     if (result.success) {
-      logValidationSuccess('Auth info', data);
       return true;
     } else {
       logValidationFailure('Auth info', data, result.error.message);
@@ -176,7 +161,6 @@ export function validateAuthResult(data: unknown): data is { token: string; expi
     const result = AuthResultSchema.safeParse(data);
     
     if (result.success) {
-      logValidationSuccess('Auth result', data);
       return true;
     } else {
       logValidationFailure('Auth result', data, result.error.message);
@@ -190,7 +174,6 @@ export function validateSessionValidation(data: unknown): data is { valid: boole
     const result = SessionValidationSchema.safeParse(data);
     
     if (result.success) {
-      logValidationSuccess('Session validation', data);
       return true;
     } else {
       logValidationFailure('Session validation', data, result.error.message);

@@ -2,7 +2,6 @@ import React from "react";
 import styled from "styled-components";
 import { Row } from "@n-apt/components/ui";
 import {
-  Activity,
   Blend,
   Columns3Cog,
   Frame,
@@ -172,13 +171,11 @@ interface SignalDisplaySectionProps {
   backend: string | null;
   deviceProfile?: DeviceProfile | null;
   powerScale: "dB" | "dBm";
-  displayMode: "fft" | "iq";
   onFftFrameRateChange: (value: number) => void;
   onFftSizeChange: (value: number) => void;
   onFftWindowChange: (value: string) => void;
   onTemporalResolutionChange: (value: "low" | "medium" | "high") => void;
   onPowerScaleChange: (value: "dB" | "dBm") => void;
-  onDisplayModeChange: (value: "fft" | "iq") => void;
   scheduleCoupledAdjustment: (
     trigger: "fftSize" | "frameRate",
     fftSize: number,
@@ -199,13 +196,11 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
   backend,
   deviceProfile,
   powerScale,
-  displayMode,
   onFftFrameRateChange,
   onFftSizeChange,
   onFftWindowChange,
   onTemporalResolutionChange,
   onPowerScaleChange,
-  onDisplayModeChange,
   scheduleCoupledAdjustment,
 }) => {
   const showsApproxDbmToggle =
@@ -390,19 +385,6 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
           >
             <option value="dB">dB (relative)</option>
             <option value="dBm">dBm (approximate)</option>
-          </WideSettingSelect>
-        </Row>
-      )}
-      {sourceMode === "file" && (
-        <Row label={<IconLabel icon={Activity} text="Display Mode" />} tooltipTitle="Visualization Display Mode" tooltip="Toggle between spectral analysis (FFT) and raw time-domain waveforms (I/Q).">
-          <WideSettingSelect
-            value={displayMode}
-            onChange={(e) => {
-              onDisplayModeChange(e.target.value as "fft" | "iq");
-            }}
-          >
-            <option value="fft">Spectral (FFT)</option>
-            <option value="iq">Time Domain (I/Q)</option>
           </WideSettingSelect>
         </Row>
       )}

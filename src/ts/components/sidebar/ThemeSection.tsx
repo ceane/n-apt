@@ -43,11 +43,6 @@ const IconLabel: React.FC<{ icon: React.ComponentType<any>; text: string }> = ({
   </LabelWithIcon>
 );
 
-const SectionText = styled.span`
-  display: flex;
-  align-items: center;
-`;
-
 const ColorSquare = styled.input`
   appearance: none;
   width: 24px;

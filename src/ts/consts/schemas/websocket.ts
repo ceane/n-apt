@@ -172,6 +172,7 @@ export type WebSocketMessage =
   | { type: "gain"; gain: number }
   | { type: "ppm"; ppm: number }
   | ({ type: "settings" } & SDRSettings)
+  | { type: "frame_rate"; frameRate: number }
   | { type: "restart_device" }
   | { type: "training_capture"; action: "start" | "stop"; label: "target" | "noise"; signalArea: string }
   | ({ type: "capture" } & CaptureRequest)

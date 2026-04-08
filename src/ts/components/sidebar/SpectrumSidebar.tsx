@@ -337,7 +337,6 @@ export const SpectrumSidebar: React.FC = () => {
   ]);
 
   // Capture UI state
-  const [captureOpen, setCaptureOpen] = useState(false);
   const showPrompt = usePrompt();
   const [activeCaptureAreas, setActiveCaptureAreas] = useState<string[]>(["Onscreen"]);
   const [acquisitionMode, setAcquisitionMode] = useState<"stepwise" | "interleaved" | "whole_sample">("stepwise");
@@ -962,8 +961,6 @@ export const SpectrumSidebar: React.FC = () => {
           </div>
 
           <IQCaptureControlsSection
-            isOpen={captureOpen}
-            onToggle={() => setCaptureOpen(!captureOpen)}
             activeCaptureAreas={activeCaptureAreas}
             availableCaptureAreas={availableCaptureAreas}
             captureDurationS={captureDurationS}
@@ -1012,7 +1009,7 @@ export const SpectrumSidebar: React.FC = () => {
           <Section>
             <Channels
               variant="spectrum"
-              fileMode={sourceMode === "file"}
+              fileMode={false}
               limitMarkers={limitMarkers}
             />
           </Section>
