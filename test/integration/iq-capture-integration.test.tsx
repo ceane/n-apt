@@ -18,7 +18,7 @@ const mockWebSocketState: {
 } = {
   isConnected: true,
   deviceState: "connected",
-  captureStatus: { status: "idle", jobId: "" },
+  captureStatus: null,
   maxSampleRateHz: 3200000,
   dataRef: { current: { deviceInfo: "Mock Device" } },
   sendCaptureCommand: mockSendCaptureCommand,
@@ -40,22 +40,25 @@ describe("I/Q Capture Integration Tests", () => {
     jest.clearAllMocks();
     mockWebSocketState.isConnected = true;
     mockWebSocketState.deviceState = "connected";
-    mockWebSocketState.captureStatus = { status: "idle", jobId: "" };
+    mockWebSocketState.captureStatus = null;
     mockWebSocketState.maxSampleRateHz = 3200000;
     mockWebSocketState.dataRef = { current: { deviceInfo: "Mock Device" } };
     mockWebSocketState.sendCaptureCommand = mockSendCaptureCommand;
   });
 
   describe("Sample Rate Validation", () => {
-    it("should enforce 3.2MHz maximum sample rate", () => {
+    it("should enforce 3.2MHz maximum sample rate", async () => {
       render(
         <TestWrapper>
           <IQCaptureIntegrationTest />
         </TestWrapper>
       );
 
-      expect(screen.getByText("3.2MHz")).toBeInTheDocument();
-      expect(screen.getByText("Capture")).not.toBeDisabled();
+      // Open the collapsible section
+      fireEvent.click(screen.getByText("IQ Capture Controls"));
+
+      expect(screen.getByLabelText("Hardware sample rate")).toHaveTextContent("3.2MHz");
+      expect(screen.getByRole("button", { name: "Capture" })).toBeDisabled();
     });
 
     it("should block capture requests exceeding 3.2MHz", async () => {
@@ -66,6 +69,9 @@ describe("I/Q Capture Integration Tests", () => {
           <IQCaptureIntegrationTest />
         </TestWrapper>
       );
+
+      // Open the collapsible section
+      fireEvent.click(screen.getByText("IQ Capture Controls"));
 
       fireEvent.click(screen.getByLabelText("Area A"));
 
@@ -91,6 +97,9 @@ describe("I/Q Capture Integration Tests", () => {
         </TestWrapper>
       );
 
+      // Open the collapsible section
+      fireEvent.click(screen.getByText("IQ Capture Controls"));
+
       await waitFor(() => {
         expect(screen.getByText("test-capture.napt")).toBeInTheDocument();
       });
@@ -107,6 +116,9 @@ describe("I/Q Capture Integration Tests", () => {
         </TestWrapper>
       );
 
+      // Open the collapsible section
+      fireEvent.click(screen.getByText("IQ Capture Controls"));
+
       fireEvent.click(screen.getByLabelText("Onscreen"));
 
       await act(async () => {
@@ -121,14 +133,19 @@ describe("I/Q Capture Integration Tests", () => {
     });
 
     it("should send capture workflow parameters with valid sample rate", async () => {
-      render(
+      const { container } = render(
         <TestWrapper>
           <IQCaptureIntegrationTest />
         </TestWrapper>
       );
 
+      // Open the collapsible section
+      fireEvent.click(screen.getByText("IQ Capture Controls"));
+
       fireEvent.click(screen.getByLabelText("Area A"));
-      fireEvent.change(screen.getByDisplayValue("5"), { target: { value: "10" } });
+      fireEvent.change(container.querySelector('input[type="number"]') as HTMLInputElement, {
+        target: { value: "10" },
+      });
 
       await act(async () => {
         fireEvent.click(screen.getByText("Capture"));
@@ -150,6 +167,9 @@ describe("I/Q Capture Integration Tests", () => {
           <IQCaptureIntegrationTest />
         </TestWrapper>
       );
+
+      // Open the collapsible section
+      fireEvent.click(screen.getByText("IQ Capture Controls"));
 
       mockWebSocketState.captureStatus = { status: "progress", jobId: "test-job-1", progress: 25 };
       view.rerender(
@@ -189,6 +209,9 @@ describe("I/Q Capture Integration Tests", () => {
         </TestWrapper>
       );
 
+      // Open the collapsible section
+      fireEvent.click(screen.getByText("IQ Capture Controls"));
+
       mockWebSocketState.isConnected = false;
       mockWebSocketState.deviceState = "disconnected";
       mockWebSocketState.captureStatus = {
@@ -216,11 +239,10 @@ describe("I/Q Capture Integration Tests", () => {
         </TestWrapper>
       );
 
-      await act(async () => {
-        fireEvent.click(screen.getByText("Capture"));
-      });
+      // Open the collapsible section
+      fireEvent.click(screen.getByText("IQ Capture Controls"));
 
-      expect(alertSpy).toHaveBeenCalledWith("Please select at least one capture area");
+      expect(screen.getByRole("button", { name: "Capture" })).toBeDisabled();
 
       fireEvent.click(screen.getByLabelText("Area A"));
 
@@ -232,14 +254,17 @@ describe("I/Q Capture Integration Tests", () => {
     });
 
     it("should handle invalid duration values", async () => {
-      render(
+      const { container } = render(
         <TestWrapper>
           <IQCaptureIntegrationTest />
         </TestWrapper>
       );
 
+      // Open the collapsible section
+      fireEvent.click(screen.getByText("IQ Capture Controls"));
+
       fireEvent.click(screen.getByLabelText("Area A"));
-      const durationInput = screen.getByDisplayValue("5");
+      const durationInput = container.querySelector('input[type="number"]') as HTMLInputElement;
 
       fireEvent.change(durationInput, { target: { value: "0" } });
       expect(screen.getByDisplayValue("1")).toBeInTheDocument();
@@ -263,8 +288,11 @@ describe("I/Q Capture Integration Tests", () => {
         </TestWrapper>
       );
 
+      // Open the collapsible section
+      fireEvent.click(screen.getByText("IQ Capture Controls"));
+
       fireEvent.change(screen.getByDisplayValue(".napt"), { target: { value: ".wav" } });
-      expect(screen.getByText("3.2MHz")).toBeInTheDocument();
+      expect(screen.getByLabelText("Hardware sample rate")).toHaveTextContent("3.2MHz");
 
       fireEvent.click(screen.getByLabelText("Area A"));
 
@@ -293,6 +321,9 @@ describe("I/Q Capture Integration Tests", () => {
         </TestWrapper>
       );
 
+      // Open the collapsible section
+      fireEvent.click(screen.getByText("IQ Capture Controls"));
+
       await waitFor(() => {
         const downloadLink = screen.getByText("test-capture.napt");
         expect(downloadLink).toBeInTheDocument();
@@ -314,8 +345,11 @@ describe("I/Q Capture Integration Tests", () => {
         </TestWrapper>
       );
 
+      // Open the collapsible section
+      fireEvent.click(screen.getByText("IQ Capture Controls"));
+
       expect(screen.getByText("Mock APT Device")).toBeInTheDocument();
-      expect(screen.getByText("3.2MHz")).toBeInTheDocument();
+      expect(screen.getByLabelText("Hardware sample rate")).toHaveTextContent("3.2MHz");
 
       fireEvent.click(screen.getByLabelText("Area A"));
 

@@ -1,9 +1,14 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { fileWorkerManager } from "@n-apt/workers/fileWorkerManager";
 import { useAuthentication } from "@n-apt/hooks/useAuthentication";
+import {
+  createStitchSessionKey,
+  getStitchSession,
+  setStitchSession,
+} from "@n-apt/utils/stitchSessionCache";
 
 interface UseStitchingLogicProps {
-  selectedFiles: { name: string; file: File }[];
+  selectedFiles: { id: string; name: string }[];
   stitchTrigger: number | null;
   stitchSourceSettings: { gain: number; ppm: number };
   fftSize: number;
@@ -18,7 +23,7 @@ interface StitchingResult {
   activeChannel: number;
   hardwareSampleRateHz?: number;
   allChannelsRef: React.MutableRefObject<any[]>;
-  workerFileDataCache: React.MutableRefObject<[string, number[]][]>;
+  workerFileDataCache: React.MutableRefObject<[string, Uint8Array | number[]][]>;
   workerFreqMap: React.MutableRefObject<[string, number][]>;
   workerMetadataMap: React.MutableRefObject<[string, any][]>;
   precomputedFrames: React.MutableRefObject<any[]>;
@@ -40,10 +45,16 @@ export const useStitchingLogic = ({
 }: UseStitchingLogicProps): StitchingResult => {
   const { aesKey } = useAuthentication();
   const aesKeyRef = useRef(aesKey);
+  const onStitchStatusRef = useRef(onStitchStatus);
+  const restoredSessionKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     aesKeyRef.current = aesKey;
   }, [aesKey]);
+
+  useEffect(() => {
+    onStitchStatusRef.current = onStitchStatus;
+  }, [onStitchStatus]);
 
   // State
   const [hasStitchedData, setHasStitchedData] = useState(false);
@@ -59,33 +70,68 @@ export const useStitchingLogic = ({
   stitchSourceSettingsRef.current = stitchSourceSettings;
   const lastTriggerRef = useRef<number | null>(null);
   const lastProcessedFilesRef = useRef<string[]>([]);
+  const selectedFileNamesKey = useMemo(
+    () => selectedFiles.map((f) => f.name).sort().join("|"),
+    [selectedFiles],
+  );
 
   // Reset stitched state when file selection changes
   useEffect(() => {
-    const currentFileNames = selectedFiles.map((f) => f.name).sort();
+    const currentFileNames = selectedFileNamesKey.length > 0
+      ? selectedFileNamesKey.split("|")
+      : [];
     const lastFileNames = lastProcessedFilesRef.current;
     if (JSON.stringify(currentFileNames) !== JSON.stringify(lastFileNames)) {
       setHasStitchedData(false);
-      onStitchStatus?.("");
+      onStitchStatusRef.current?.("");
       // Update this so we don't keep resetting until the next process
       lastProcessedFilesRef.current = currentFileNames;
     }
-  }, [selectedFiles, onStitchStatus]);
+  }, [selectedFileNamesKey]);
 
   // Worker data refs
-  const workerFileDataCache = useRef<[string, number[]][]>([]);
+  const workerFileDataCache = useRef<[string, Uint8Array | number[]][]>([]);
   const workerFreqMap = useRef<[string, number][]>([]);
   const workerMetadataMap = useRef<[string, any][]>([]);
   const precomputedFrames = useRef<any[]>([]);
   const maxFrames = useRef<number>(0);
   const allChannelsRef = useRef<any[]>([]);
-
-  const setStitchStatus = useCallback(
-    (status: string) => {
-      onStitchStatus?.(status);
-    },
-    [onStitchStatus],
+  const stitchSessionKey = useMemo(
+    () =>
+      createStitchSessionKey({
+        selectedFiles,
+        settings: stitchSourceSettings,
+        fftSize,
+        sampleRateOptions,
+      }),
+    [fftSize, sampleRateOptions, selectedFiles, stitchSourceSettings],
   );
+
+  const setStitchStatus = useCallback((status: string) => {
+    onStitchStatusRef.current?.(status);
+  }, []);
+
+  useEffect(() => {
+    if (selectedFiles.length === 0) return;
+
+    const cachedSession = getStitchSession(stitchSessionKey);
+    if (!cachedSession) return;
+    if (restoredSessionKeyRef.current === stitchSessionKey) return;
+    restoredSessionKeyRef.current = stitchSessionKey;
+
+    workerFileDataCache.current = cachedSession.workerFileDataCache;
+    workerFreqMap.current = cachedSession.workerFreqMap;
+    workerMetadataMap.current = cachedSession.workerMetadataMap;
+    precomputedFrames.current = cachedSession.precomputedFrames;
+    maxFrames.current = cachedSession.maxFrames;
+    allChannelsRef.current = cachedSession.allChannels;
+    setFrequencyRange(cachedSession.frequencyRange);
+    setChannelCount(cachedSession.channelCount);
+    setActiveChannel(cachedSession.activeChannel);
+    setHardwareSampleRateHz(cachedSession.hardwareSampleRateHz);
+    setHasStitchedData(cachedSession.hasStitchedData);
+    setStitchStatus(cachedSession.stitchStatus);
+  }, [selectedFiles.length, setStitchStatus, stitchSessionKey]);
 
   const stitchFiles = useCallback(async () => {
     const currentFiles = selectedFilesRef.current;
@@ -113,6 +159,7 @@ export const useStitchingLogic = ({
     }
 
     try {
+      restoredSessionKeyRef.current = null;
       // Use file worker for stitching
       const result = await fileWorkerManager.stitchFiles(
         currentFiles,
@@ -184,12 +231,32 @@ export const useStitchingLogic = ({
       }
 
       setHasStitchedData(true);
-      setStitchStatus(currentFiles.length > 1 ? "Stitched Successfully" : "Processed Successfully");
+      const nextStitchStatus =
+        currentFiles.length > 1
+          ? "Stitched Successfully"
+          : "Processed Successfully";
+      setStitchStatus(nextStitchStatus);
+      setStitchSession(stitchSessionKey, {
+        hasStitchedData: true,
+        frequencyRange: firstChannelRange
+          ? { min: firstChannelRange[0], max: firstChannelRange[1] }
+          : result.range ?? frequencyRange,
+        channelCount: channels.length,
+        activeChannel: 0,
+        hardwareSampleRateHz: hwHz,
+        workerFileDataCache: result.fileDataCache,
+        workerFreqMap: result.freqMap,
+        workerMetadataMap: result.metadataMap || [],
+        precomputedFrames: result.precomputedFrames,
+        maxFrames: result.maxFrames,
+        allChannels: channels,
+        stitchStatus: nextStitchStatus,
+      });
     } catch (error: any) {
       console.error("Stitch error:", error);
       setStitchStatus(`Stitch failed: ${error.message}`);
     }
-  }, [setStitchStatus, fftSize]);
+  }, [fftSize, frequencyRange, sampleRateOptions, setStitchStatus, stitchSessionKey]);
 
   // Trigger: respond to parent's stitch button click
   useEffect(() => {

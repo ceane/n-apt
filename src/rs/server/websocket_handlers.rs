@@ -46,6 +46,7 @@ pub async fn ws_upgrade_handler(
   let spectrum_tx = state.spectrum_tx.clone();
   let cmd_tx = state.cmd_tx.clone();
   let enc_key = session.encryption_key;
+  let session_token = params.token.clone();
 
   ws.on_upgrade(move |socket| {
     handle_ws_connection(
@@ -55,6 +56,7 @@ pub async fn ws_upgrade_handler(
       spectrum_tx,
       cmd_tx,
       enc_key,
+      session_token,
     )
   })
 }
@@ -81,6 +83,7 @@ pub async fn handle_ws_connection(
   spectrum_tx: broadcast::Sender<Arc<super::types::SpectrumData>>,
   cmd_tx: std::sync::mpsc::Sender<super::types::SdrCommand>,
   enc_key: [u8; 32],
+  _session_token: String,
 ) {
   let (mut ws_sender, mut ws_receiver) = socket.split();
   let mut broadcast_rx = broadcast_tx.subscribe();
@@ -141,7 +144,12 @@ pub async fn handle_ws_connection(
       return format!("RTL-SDR {}", format!("v{}", version));
     }
 
-    if lower.contains("rtl-sdr blog") || lower.contains("rtl2832") || lower.contains("rtl-sdr") {
+    if lower.contains("rtl-sdr blog")
+      || lower.contains("rtl2832")
+      || lower.contains("rtl-sdr")
+      || lower.contains("generic")
+      || lower.contains("rtl2382u")
+    {
       return "RTL-SDR".to_string();
     }
 
@@ -221,59 +229,32 @@ pub async fn handle_ws_connection(
       spectrum_result = spectrum_rx.recv() => {
         match spectrum_result {
           Ok(spectrum_data) => {
+            if shared.is_paused.load(Ordering::SeqCst) {
+              continue;
+            }
+
             let timestamp: u64 = spectrum_data.timestamp as u64; // i64 to u64
-            let center_frequency: u64 = spectrum_data.center_frequency_hz.unwrap_or(0) as u64;
-            
-            // Determine data type and payload
-            let data_type_str = spectrum_data.data_type.as_deref();
-            let is_iq_data = data_type_str == Some("iq_raw");
-            
-            let (data_type, frame_bytes) = if is_iq_data {
-              let data_type = 1u32;
-              let sample_rate = spectrum_data.sample_rate.unwrap_or(0) as u32;
-              let iq_bytes = &spectrum_data.iq_data;
-              
-              // Construct header: [timestamp: 8][center_freq: 8][data_type: 4][sample_rate: 4]
-              let mut binary_payload = Vec::with_capacity(24 + iq_bytes.len());
-              binary_payload.extend_from_slice(&timestamp.to_le_bytes());
-              binary_payload.extend_from_slice(&center_frequency.to_le_bytes());
-              binary_payload.extend_from_slice(&data_type.to_le_bytes());
-              binary_payload.extend_from_slice(&sample_rate.to_le_bytes());
-              
-              // Encrypt actual I/Q data
-              match crypto::encrypt_payload_binary(&enc_key, iq_bytes) {
-                Ok(encrypted_iq) => {
-                  binary_payload.extend_from_slice(&encrypted_iq);
-                  (data_type, binary_payload)
-                }
-                Err(_) => {
-                  error!("I/Q data encryption failed");
-                  continue;
-                }
+             let center_frequency: u64 = spectrum_data.center_frequency_hz.unwrap_or(0) as u64;
+
+            let data_type = 1u32;
+            let sample_rate = spectrum_data.sample_rate.unwrap_or(0) as u32;
+            let iq_bytes = &spectrum_data.iq_data;
+
+            // Construct header: [timestamp: 8][center_freq: 8][data_type: 4][sample_rate: 4]
+            let mut binary_payload = Vec::with_capacity(24 + iq_bytes.len());
+            binary_payload.extend_from_slice(&timestamp.to_le_bytes());
+            binary_payload.extend_from_slice(&center_frequency.to_le_bytes());
+            binary_payload.extend_from_slice(&data_type.to_le_bytes());
+            binary_payload.extend_from_slice(&sample_rate.to_le_bytes());
+
+            let frame_bytes = match crypto::encrypt_payload_binary(&enc_key, iq_bytes) {
+              Ok(encrypted_iq) => {
+                binary_payload.extend_from_slice(&encrypted_iq);
+                binary_payload
               }
-            } else {
-              // Spectrum data: normal processing
-              let frame = &spectrum_data.waveform;
-              let frame_bytes_slice: &[u8] = bytemuck::cast_slice(frame);
-              let data_type = 0u32;
-              let sample_rate = spectrum_data.sample_rate.unwrap_or(0) as u32;
-              
-              // Construct payload: [timestamp: 8][center_freq: 8][data_type: 4][sample_rate: 4][spectrum: N]
-              let mut binary_payload = Vec::with_capacity(24 + frame_bytes_slice.len());
-              binary_payload.extend_from_slice(&timestamp.to_le_bytes());
-              binary_payload.extend_from_slice(&center_frequency.to_le_bytes());
-              binary_payload.extend_from_slice(&data_type.to_le_bytes());
-              binary_payload.extend_from_slice(&sample_rate.to_le_bytes());
-              
-              match crypto::encrypt_payload_binary(&enc_key, frame_bytes_slice) {
-                Ok(encrypted_frame) => {
-                  binary_payload.extend_from_slice(&encrypted_frame);
-                  (data_type, binary_payload)
-                }
-                Err(_) => {
-                  error!("Spectrum data encryption failed");
-                  continue;
-                }
+              Err(_) => {
+                error!("I/Q data encryption failed");
+                continue;
               }
             };
 
@@ -311,8 +292,28 @@ pub async fn handle_ws_connection(
                     }
                   }
                 }
+              } else if message.message_type == "get_hardware_info" {
+                info!("Client requested hardware info");
+                let _device_connected = shared.device_connected.load(Ordering::Relaxed);
+                let sample_rate = shared.sdr_settings.lock().unwrap().sample_rate;
+                
+                // Hardware range: 0 to 1.7e9 as requested for RTL-SDR and mock
+                let response = super::types::HardwareInfoResponse {
+                  message_type: "hardware_info".to_string(),
+                  hardware_freq_range: super::types::HardwareFreqRange {
+                    min: 0.0,
+                    max: 1_700_000_000.0,
+                  },
+                  sample_rate,
+                };
+
+                if let Ok(response_json) = serde_json::to_string(&response) {
+                  if ws_sender.send(Message::Text(response_json)).await.is_err() {
+                    break;
+                  }
+                }
               } else {
-                handle_message(&cmd_tx, &shared, message);
+                handle_message(&cmd_tx, &shared, &broadcast_tx, message);
               }
             }
           }
@@ -323,6 +324,8 @@ pub async fn handle_ws_connection(
     }
   }
 
+  let _ = cmd_tx.send(super::types::SdrCommand::StopCapture { job_id: None });
+
   shared.authenticated_count.fetch_sub(1, Ordering::Relaxed);
   shared.client_count.fetch_sub(1, Ordering::Relaxed);
 }
@@ -332,10 +335,11 @@ pub async fn handle_ws_connection(
 pub fn handle_message(
   cmd_tx: &std::sync::mpsc::Sender<super::types::SdrCommand>,
   shared: &Arc<SharedState>,
+  broadcast_tx: &tokio::sync::broadcast::Sender<String>,
   message: WebSocketMessage,
 ) {
   match message.message_type.as_str() {
-    "frequency_range" | "set_frequency_range" => {
+    "frequency_range" | "set_frequency_range" | "demod_tune" => {
       if let (Some(min_freq), Some(_max_freq)) =
         (message.min_freq, message.max_freq)
       {
@@ -359,7 +363,52 @@ pub fn handle_message(
     }
     "pause" => {
       if let Some(paused) = message.paused {
-        shared.is_paused.store(paused, Ordering::Relaxed);
+        shared.is_paused.store(paused, Ordering::SeqCst);
+
+        let device_connected = shared.device_connected.load(Ordering::SeqCst);
+        let device_info = shared.device_info.lock().unwrap().clone();
+        let device_loading = *shared.device_loading.lock().unwrap();
+        let device_loading_reason =
+          shared.device_loading_reason.lock().unwrap().clone();
+        let device_state = reconcile_device_state(
+          device_connected,
+          &shared.device_state.lock().unwrap().clone(),
+        );
+        let channels = shared.channels.lock().unwrap().clone();
+        let sdr_settings = shared.sdr_settings.lock().unwrap().clone();
+        let device_name = if device_connected {
+          device_info
+            .split(" - ")
+            .next()
+            .unwrap_or("RTL-SDR")
+            .to_string()
+        } else {
+          "Mock APT SDR".to_string()
+        };
+
+        let status = super::types::StatusMessage {
+          message_type: "status".to_string(),
+          device_connected,
+          device_info,
+          device_name,
+          device_loading,
+          device_loading_reason,
+          device_state,
+          paused,
+          max_sample_rate: sdr_settings.sample_rate,
+          channels,
+          sdr_settings,
+          device: if device_connected {
+            "rtl-sdr".to_string()
+          } else {
+            "mock_apt".to_string()
+          },
+          device_profile: shared.device_profile.lock().unwrap().clone(),
+        };
+
+        if let Ok(status_json) = serde_json::to_string(&status) {
+          let _ = broadcast_tx.send(status_json);
+        }
       }
     }
     "gain" => {
@@ -423,18 +472,20 @@ pub fn handle_message(
         return;
       }
 
-      let _ = cmd_tx.send(super::types::SdrCommand::ApplySettings(super::types::SdrProcessorSettings {
-        fft_size,
-        fft_window: message.fft_window,
-        frame_rate,
-        gain,
-        ppm,
-        tuner_agc: message.tuner_agc,
-        rtl_agc: message.rtl_agc,
-        offset_tuning: message.offset_tuning,
-        direct_sampling: message.direct_sampling,
-        tuner_bandwidth: message.tuner_bandwidth,
-      }));
+      let _ = cmd_tx.send(super::types::SdrCommand::ApplySettings(
+        super::types::SdrProcessorSettings {
+          fft_size,
+          fft_window: message.fft_window,
+          frame_rate,
+          gain,
+          ppm,
+          tuner_agc: message.tuner_agc,
+          rtl_agc: message.rtl_agc,
+          offset_tuning: message.offset_tuning,
+          direct_sampling: message.direct_sampling,
+          tuner_bandwidth: message.tuner_bandwidth,
+        },
+      ));
 
       // Update the shared settings so that future status broadcasts
       // reflect the new settings requested by the client.
@@ -489,6 +540,10 @@ pub fn handle_message(
       }
     }
     "capture" => {
+      let duration_mode = message
+        .duration_mode
+        .clone()
+        .unwrap_or_else(|| "timed".to_string());
       let capture_cmd = super::types::SdrCommand::StartCapture {
         job_id: message.job_id.clone().unwrap_or_else(|| {
           format!(
@@ -514,6 +569,7 @@ pub fn handle_message(
           .into_iter()
           .map(|f| (f.min_freq, f.max_freq))
           .collect(),
+        duration_mode,
         duration_s: message.duration_s.unwrap_or(1.0),
         file_type: message
           .file_type
@@ -530,9 +586,65 @@ pub fn handle_message(
           .clone()
           .unwrap_or_else(|| "hann".to_string()),
         geolocation: message.geolocation,
+        ref_based_demod_baseline: message.ref_based_demod_baseline,
+        is_ephemeral: message.live_mode.unwrap_or(false),
       };
       log::info!("Client requested capture: {:?}", capture_cmd);
       let _ = cmd_tx.send(capture_cmd);
+    }
+    "capture_stop" => {
+      info!("Client requested capture stop");
+      let _ = cmd_tx.send(super::types::SdrCommand::StopCapture {
+        job_id: message.job_id.clone(),
+      });
+    }
+    "scan" => {
+      if let (Some(min_freq), Some(max_freq), Some(job_id)) =
+        (message.min_freq, message.max_freq, message.job_id.clone())
+      {
+        let window_size_hz = 25000.0; // Default
+        let step_size_hz = 10000.0; // Default
+        let audio_threshold = 0.3; // Default
+
+        let _ = cmd_tx.send(super::types::SdrCommand::ScanForAudio {
+          job_id,
+          frequency_range: (min_freq, max_freq),
+          window_size_hz,
+          step_size_hz,
+          audio_threshold,
+        });
+      }
+    }
+    "demodulate" => {
+      // Logic would be here if there's a specific demod message from frontend
+      // For now, scan results might trigger demodulation
+    }
+    "apt_analysis" => {
+      if let Some(job_id) = message.job_id.clone() {
+        // Parse APT analysis configuration from message
+        // For now, create a basic config - in a real implementation,
+        // this would parse from message fields
+        let apt_config = super::types::AptAnalysisConfig {
+          content_type: super::types::AptContentType::AudioHearing, // Default
+          window_size_hz: message
+            .min_freq
+            .map(|f| (message.max_freq.unwrap_or(f) - f) * 1000.0)
+            .unwrap_or(25000.0),
+          sub_channel_range: (
+            message.min_freq.unwrap_or(0.0) * 1000.0 + 350000.0,
+            message.min_freq.unwrap_or(0.0) * 1000.0 + 500000.0,
+          ),
+          script_content: None, // Would be parsed from message
+          media_content: None,  // Would be parsed from message
+          baseline_vector: None, // Would be parsed from message
+          demod_processor: "APT Pipeline v1.0".to_string(),
+        };
+
+        let _ = cmd_tx.send(super::types::SdrCommand::StartAptAnalysis {
+          job_id,
+          config: apt_config,
+        });
+      }
     }
     "power_scale" => {
       if let Some(scale_str) = message.power_scale.as_deref() {

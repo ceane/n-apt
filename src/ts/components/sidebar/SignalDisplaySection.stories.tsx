@@ -1,5 +1,5 @@
 import React from "react";
-import { SignalDisplaySection } from "./SignalDisplaySection";
+import { SignalDisplaySection } from "@n-apt/components/sidebar/SignalDisplaySection";
 import { ThemeProvider } from "styled-components";
 
 const theme = {
@@ -59,10 +59,10 @@ const Template = () => {
           onTemporalResolutionChange={setRes}
           onPowerScaleChange={setScale}
           scheduleCoupledAdjustment={(trigger, size, rate) => {
-             if (trigger === "fftSize") {
-               const recommendedRate = (statusPayload.sdr_settings.fft.size_to_frame_rate as any)[size] || rate;
-               setFrameRate(recommendedRate);
-             }
+            if (trigger === "fftSize") {
+              const recommendedRate = (statusPayload.sdr_settings.fft.size_to_frame_rate as any)[size] || rate;
+              setFrameRate(recommendedRate);
+            }
           }}
         />
       </div>

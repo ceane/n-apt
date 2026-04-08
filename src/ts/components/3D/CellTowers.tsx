@@ -233,7 +233,7 @@ export const HexagonalSmallCell = forwardRef<Group>((props, ref) => (
     </mesh>
 
     {/* Hexagonal Antenna pointing exactly +X */}
-    <mesh position={[0, 10, 0]} rotation={[0, Math.PI / 6, 0]}>
+    <mesh position={[0, 10.2, 0]} rotation={[0, Math.PI / 6, 0]}>
       {/* 
         To make the hexagonal faces well-defined, we're doing two things:
         1. Using a slightly darker material so lights interact better.
@@ -241,18 +241,18 @@ export const HexagonalSmallCell = forwardRef<Group>((props, ref) => (
            However, cylinderGeometry natively creates smooth normals on the sides. We can force flat faces 
            by switching out standard material config, or relying on lighting with lower roughness.
       */}
-      <cylinderGeometry args={[0.6, 0.6, 2, 6]} />
-      <meshStandardMaterial color="#dddddd" roughness={0.6} flatShading={true} />
+      <cylinderGeometry args={[0.82, 0.82, 2.3, 6]} />
+      <meshStandardMaterial color="#f2f2f2" roughness={0.42} metalness={0.08} flatShading={true} />
     </mesh>
 
     {/* Top cap */}
-    <mesh position={[0, 11, 0]}>
-      <cylinderGeometry args={[0.2, 0.2, 0.1, 16]} />
-      {MAT_POLE}
+    <mesh position={[0, 11.28, 0]}>
+      <cylinderGeometry args={[0.3, 0.3, 0.16, 16]} />
+      <meshStandardMaterial color="#bdbdbd" roughness={0.35} metalness={0.12} />
     </mesh>
 
     {/* Wires connected to underside of hex body and routing perfectly down to boxes */}
-    <Wire start={[-0.2, 9, 0]} end={[-0.35, 7.25, 0]} />
+    <Wire start={[-0.25, 9.05, 0]} end={[-0.35, 7.25, 0]} />
     <Wire start={[-0.35, 5.75, 0]} end={[-0.35, 4.75, 0]} />
   </group>
 ));

@@ -2,6 +2,31 @@
 
 This file provides guidance for AI coding agents working on N-APT (RF spectrum analyzer).
 
+## Token Efficiency
+
+- DO NOT RERUN THE DEV SERVER!
+- Never re-read files you just wrote or edited. You know the contents.
+- Never re-run commands to "verify" unless the outcome was uncertain.
+- Don't echo back large blocks of code or file contents unless asked.
+- Batch related edits into single operations. Don't make 5 edits when 1 handles it.
+- Skip confirmations like "I'll continue..." Lust do it.
+- If a task needs 1 tool call, don't use 3. Plan before acting.
+- Do not summarize what you just did unless the result is ambiguous or you need additional input.
+
+## Documentation Guidelines
+
+### Feature Documentation Location
+
+When creating markdown files for completed features, work done, or implementation summaries, **always place them in the `.agents/` directory**.
+
+**Examples:**
+
+- `/.agents/MARKDOWN_FOR_AGENTS_AND_MCP.md` - Implementation summaries
+- `/.agents/FEATURE_COMPLETION_SUMMARY.md` - Feature completion documentation
+- `/.agents/WORK_SESSION_NOTES.md` - Work session notes and progress
+
+This keeps all agent-focused documentation organized and separate from user-facing content while maintaining a clear record of work completed.
+
 ## Project Overview
 
 N-APT is an RF spectrum analyzer that processes signal data from SDR hardware. It consists of:
@@ -16,11 +41,9 @@ N-APT is an RF spectrum analyzer that processes signal data from SDR hardware. I
 ### Frontend
 
 ```bash
-npm run dev          # Full dev with WASM build
-npm run dev:fast     # Fast dev (no WASM rebuild)
-npm run dev:hot      # Dev with hot config reload
+npm run dev          # Full dev with Ink build orchestrator
+npm run dev:markdown # Markdown preview server
 npm run build        # Production build
-npm run preview      # Preview production build
 ```
 
 ### Testing
@@ -59,7 +82,44 @@ npm run lint:fix     # Fix issues
 npm run format       # oxfmt
 npm run format:check # Check formatting
 npm run typecheck    # TypeScript
+
+# Rust formatting (optimized)
+npm run format:rust      # Parallel formatting for all files
+npm run format:rust:fast # Incremental formatting for changed files only
+npm run format:rust:check # Check formatting without changes
+rustfmt                  # Standard rustfmt
 ```
+
+## Rustfmt Performance Optimization
+
+The project includes optimized Rustfmt configurations to address slow formatting performance:
+
+### Optimized Configuration (`rustfmt.toml`)
+
+- Disabled expensive features: comment formatting, doc attribute normalization
+- Enabled performance optimizations: `merge_derives = true`, disabled string formatting
+- Reduced formatting overhead with minimal configuration
+
+### Fast Formatting Scripts
+
+**Parallel Formatting** (`scripts/rust/rustfmt-parallel.sh`):
+
+- Uses `xargs -P` to format multiple files simultaneously
+- Leverages all CPU cores for faster processing
+- Best for full codebase formatting
+
+**Incremental Formatting** (`scripts/rust/rustfmt-fast.sh`):
+
+- Only formats files changed since last run
+- Uses timestamp-based caching to skip unchanged files
+- Ideal for frequent development formatting
+
+### Usage Recommendations
+- **During development**: `npm run format:rust:fast` for quick incremental formatting
+- **Before commits**: `npm run format:rust` for full parallel formatting  
+- **CI/CD**: `npm run format:rust:check` to verify formatting
+
+These optimizations significantly speed up Rustfmt, especially for the 90+ Rust files in the codebase.
 
 ## Code Style
 
@@ -178,7 +238,7 @@ n-apt/
 
 1. **Hot Reload**: Edit `mock_signals.yaml` while server runs - changes apply automatically
 2. **WASM Changes**: Use `npm run dev` (rebuilds WASM)
-3. **Fast Iteration**: Use `npm run dev:fast` (skips WASM)
+3. **Fast Iteration**: Use `npm run dev` (single orchestrated flow)
 4. **Before Commit**: Run `npm run test:all`
 5. **Encryption**: WebSocket uses AES-256-GCM, auth via WebAuthn passkeys or password
 
@@ -189,3 +249,57 @@ n-apt/
 - React: 19.x with hooks
 - Rust: 2021 edition, tokio async
 - WebSocket: Authenticated with token in URL query param
+
+## Server Configuration
+
+The project has multiple server configurations:
+
+### Main Application Server
+- **Start**: `npm run dev` (runs decrypt-modules-if-needed and build_orchestrator)
+- **Development**: `npm run server:dev`
+- **Build-only**: `npm run server:build`
+- Full-stack with backend integration
+
+### Markdown Preview Server (Separate)
+- **Start**: `npm run dev:markdown`
+- **Config**: `vite.markdown.config.ts`
+- **Port**: 5174
+- **Purpose**: Markdown preview functionality
+- **Note**: This is a separate server from the main application
+
+### Other Key Commands
+- **Lint (TS/JS)**: `npm run lint`
+- **Lint & Fix Rust**: `npm run lint:fix:rust`
+- **Test TypeScript**: `npm run test`
+- **Test Rust**: `npm run test:rust`
+- **Test WASM**: `npm run test:wasm`
+- **Login password**: `n-apt-dev-key`
+
+## WindSurf Ignore Rules
+
+The following paths should be ignored by WindSurf:
+```
+node_modules/
+dist/
+scripts/dist/
+package-lock.json
+coverage/
+*.svg
+*.csv
+```
+
+## React Doctor
+
+Run after making React changes to catch issues early. Use when reviewing code, finishing a feature, or fixing bugs in a React project.
+
+Scans your React codebase for security, performance, correctness, and architecture issues. Outputs a 0-100 score with actionable diagnostics.
+
+### Usage
+
+```bash
+npx -y react-doctor@latest . --verbose --diff
+```
+
+### Workflow
+
+Run after making changes to catch issues early. Fix errors first, then re-run to verify the score improved.

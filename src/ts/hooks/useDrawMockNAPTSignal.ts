@@ -1,5 +1,15 @@
 import { useCallback } from "react";
-import calculateX from "@n-apt/math/napt-spike-eq";
+
+let calculateX: any = null;
+const loadMath = async () => {
+  try {
+    const mod = await import("@n-apt/encrypted-modules/tmp/ts/math/napt-spike-eq");
+    calculateX = mod.default;
+  } catch (e) {
+    console.warn("LaTeX math module not decrypted, fallback to zero signal");
+  }
+};
+loadMath();
 
 export interface BeatParams {
   offsetHz: number;
@@ -41,7 +51,7 @@ export function useDrawMockNAPTSignal() {
       let maxClumpSignal = 0;
       for (const clump of clumps) {
         // Base signal for this clump
-        let clumpSum = calculateX(t, clump);
+        let clumpSum = calculateX ? calculateX(t, clump) : 0;
         
         // Add beats (heterodyne)
         if (clump.beats && clump.beats.length > 0) {
@@ -51,7 +61,7 @@ export function useDrawMockNAPTSignal() {
               ...clump, 
               centerOffset: clump.centerOffset + (beat.offsetHz / 1_000_000) 
             };
-            clumpSum += calculateX(t, beatClump);
+            clumpSum += calculateX ? calculateX(t, beatClump) : 0;
           }
           // Normalize power: total sum / (1 original + N beats)
           clumpSum /= (1 + clump.beats.length);

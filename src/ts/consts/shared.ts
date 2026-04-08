@@ -2,7 +2,7 @@
  * Shared constants used across multiple modules
  * Common values that are used in both FFT and waterfall rendering
  */
-import { formatFrequency, formatFrequencyHighRes } from "../utils/frequency";
+import { formatFrequency, formatFrequencyHighRes } from "@n-apt/utils/frequency";
 
 // Shared frequency ranges for optimal grid display
 export const FREQUENCY_RANGES = [

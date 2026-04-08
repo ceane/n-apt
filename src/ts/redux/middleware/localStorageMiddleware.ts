@@ -8,33 +8,8 @@ const STORAGE_KEYS = {
   VISUALIZER_PAUSE: 'napt-visualizer-manual-paused',
   SPECTRUM_FRAMES: 'napt-spectrum-frames',
   SDR_SETTINGS_CACHE: 'napt-sdr-settings',
+  AUTO_FFT_OPTIONS: 'napt-auto-fft-options',
 } as const;
-
-// State slices to persist in localStorage
-const LOCAL_STORAGE_PERSISTENCE = {
-  theme: ['appMode', 'accentColor', 'fftColor', 'waterfallTheme'],
-  spectrum: [
-    'fftSize',
-    'fftWindow', 
-    'fftFrameRate',
-    'gain',
-    'ppm',
-    'tunerAGC',
-    'rtlAGC',
-    'vizZoom',
-    'vizPanOffset',
-    'fftMinDb',
-    'fftMaxDb',
-    'frequencyRange',
-    'activeSignalArea',
-    'lastKnownRanges',
-    'displayTemporalResolution',
-    'powerScale',
-    'sampleRateHz',
-  ],
-  waterfall: ['snapshotGridPreference'],
-  websocket: ['dataRef', 'sdrSettings'], // Cached data refs
-};
 
 // Safe localStorage operations
 const safeSetItem = (key: string, value: string): boolean => {
@@ -102,7 +77,6 @@ const createLocalStorageMiddleware = (): Middleware<{}, any> => (store) => (next
       activeSignalArea: spectrumState.activeSignalArea,
       lastKnownRanges: spectrumState.lastKnownRanges,
       displayTemporalResolution: spectrumState.displayTemporalResolution,
-      powerScale: spectrumState.powerScale,
       sampleRateHz: spectrumState.sampleRateHz,
     };
     safeSetItem(STORAGE_KEYS.SDR_SETTINGS, JSON.stringify(settingsData));
@@ -137,6 +111,11 @@ const createLocalStorageMiddleware = (): Middleware<{}, any> => (store) => (next
     if (action.type === 'websocket/updateDeviceState' && websocketState.sdrSettings) {
       safeSetItem(STORAGE_KEYS.SDR_SETTINGS_CACHE, JSON.stringify(websocketState.sdrSettings));
     }
+    
+    // Cache auto FFT options
+    if (action.type === 'websocket/setAutoFftOptions' && websocketState.autoFftOptions) {
+      safeSetItem(STORAGE_KEYS.AUTO_FFT_OPTIONS, JSON.stringify(websocketState.autoFftOptions));
+    }
   }
 
   return result;
@@ -168,11 +147,12 @@ export const loadPersistedSdrSettings = () => {
       parsed.lastKnownRanges = {};
     }
 
+    if ('powerScale' in parsed) {
+      delete parsed.powerScale;
+    }
+
     // Fix outdated cached dB ranges
-    if (parsed.powerScale === "dBm" && parsed.fftMaxDb !== 30) {
-      parsed.fftMaxDb = 30;
-      parsed.fftMinDb = -100;
-    } else if (parsed.powerScale === "dB" && parsed.fftMaxDb !== 0) {
+    if (parsed.fftMaxDb !== 0) {
       parsed.fftMaxDb = 0;
       parsed.fftMinDb = -120;
     }
@@ -213,6 +193,29 @@ export const loadPersistedSdrSettingsCache = () => {
   } catch (error) {
     console.warn('Failed to parse persisted SDR settings cache:', error);
     safeRemoveItem(STORAGE_KEYS.SDR_SETTINGS_CACHE);
+    return null;
+  }
+};
+
+export const loadPersistedAutoFftOptions = () => {
+  const stored = safeGetItem(STORAGE_KEYS.AUTO_FFT_OPTIONS);
+  if (!stored) return null;
+  
+  try {
+    const parsed = JSON.parse(stored);
+    // Validate the structure
+    if (parsed && 
+        parsed.type === 'auto_fft_options' && 
+        Array.isArray(parsed.autoSizes) && 
+        typeof parsed.recommended === 'number') {
+      return parsed;
+    }
+    // If invalid, remove it
+    safeRemoveItem(STORAGE_KEYS.AUTO_FFT_OPTIONS);
+    return null;
+  } catch (error) {
+    console.warn('Failed to parse persisted auto FFT options:', error);
+    safeRemoveItem(STORAGE_KEYS.AUTO_FFT_OPTIONS);
     return null;
   }
 };

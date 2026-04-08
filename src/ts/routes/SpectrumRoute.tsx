@@ -1,10 +1,11 @@
 import React, { useEffect, useCallback, useRef, useMemo } from "react";
-import { FFTCanvas } from "@n-apt/components";
+import styled from "styled-components";
+import { FFTAndWaterfall } from "@n-apt/components";
 import type { FFTCanvasHandle } from "@n-apt/components";
-import ClassificationControls from "@n-apt/components/ClassificationControls";
 import FFTPlaybackCanvas from "@n-apt/components/FFTPlaybackCanvas";
 import { useSnapshot } from "@n-apt/hooks/useSnapshot";
 import type { FrequencyRange } from "@n-apt/hooks/useWebSocket";
+
 import {
   InitializingContainer,
   InitializingTitle,
@@ -12,16 +13,38 @@ import {
 } from "@n-apt/components/Layout";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 import { buildSdrLimitMarkers } from "@n-apt/utils/sdrLimitMarkers";
+import { calculateCenterFrequency } from "@n-apt/utils/centerFrequency";
+import { useSnapshotListener } from "@n-apt/hooks/useSnapshotListener";
+import { useDeviceConnectionState } from "@n-apt/hooks/useDeviceConnectionState";
+import { useCaptureWholeChannelSegments } from "@n-apt/hooks/useCaptureWholeChannelSegments";
 
 interface SpectrumRouteProps {
   activeTab: "visualizer" | "analysis" | "draw";
 }
+
+const SpectrumContainer = styled.div`
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+  user-select: none;
+`;
+
+const SpectrumContent = styled.div`
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+`;
 
 export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
   const fftCanvasRef = useRef<FFTCanvasHandle | null>(null);
   const {
     state,
     dispatch,
+    fftVisualizerMachine,
     manualVisualizerPaused,
     effectiveSdrSettings,
     signalAreaBounds,
@@ -31,14 +54,14 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
       backend,
       deviceInfo,
       deviceName,
+      deviceProfile,
       sendFrequencyRange,
-      sendTrainingCommand,
-      sendGetAutoFftOptions,
       dataRef,
       captureStatus,
       sendPowerScaleCommand: _sendPowerScaleCommand,
     },
     sampleRateHzEffective,
+    toggleVisualizerPause,
   } = useSpectrumStore();
 
   const [vizZoom, setVizZoom] = [
@@ -53,6 +76,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
     () => buildSdrLimitMarkers(effectiveSdrSettings ?? null),
     [effectiveSdrSettings],
   );
+  // themeState removed — FFTCanvas now handles theme reactivity internally
 
   useEffect(() => {
     requestAnimationFrame(() => {
@@ -60,82 +84,88 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
     });
   }, [activeTab]);
 
-
+  // Global keyboard event listener for spacebar to pause/resume
   useEffect(() => {
-    if (deviceState !== "connected" && state.showSpikeOverlay) {
-      dispatch({ type: "SET_SHOW_SPIKE_OVERLAY", enabled: false });
-    }
-  }, [deviceState, state.showSpikeOverlay, dispatch]);
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Only handle spacebar when not in an input field
+      if (event.code === 'Space' &&
+        !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName || '') &&
+        !(document.activeElement as HTMLElement)?.isContentEditable) {
+        event.preventDefault();
+        event.stopPropagation();
+        toggleVisualizerPause();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [toggleVisualizerPause]);
+
+
+  // Device connection state management
+  useDeviceConnectionState({
+    deviceState: deviceState || 'disconnected',
+    showSpikeOverlay: state.showSpikeOverlay,
+    dispatch,
+  });
 
   const { handleSnapshot: takeSnapshot } = useSnapshot(
     state.frequencyRange ?? null,
     isConnected,
   );
 
+  const captureWholeChannelSegments = useCaptureWholeChannelSegments({
+    frequencyRange: state.frequencyRange,
+    sourceMode: state.sourceMode,
+    sampleRateHzEffective,
+    activeSignalArea: state.activeSignalArea,
+    signalAreaBounds,
+    fftFrameRate: state.fftFrameRate,
+    vizPanOffset: state.vizPanOffset,
+    vizZoom: state.vizZoom,
+    dispatch,
+    sendFrequencyRange,
+    fftCanvasRef,
+  });
+
   // Snapshot listener for sidebar events
-  useEffect(() => {
-    const listener = (e: Event) => {
-      const options = (e as CustomEvent).detail;
-      let sdrSettingsLabel: string | undefined;
-      if (effectiveSdrSettings) {
-        const agcOn =
-          effectiveSdrSettings.gain?.rtl_agc ||
-          effectiveSdrSettings.gain?.tuner_agc;
-        const gainStr = agcOn
-          ? "Auto"
-          : effectiveSdrSettings.gain?.tuner_gain
-            ? `${effectiveSdrSettings.gain.tuner_gain} dB`
-            : "N/A";
-        const ppmStr =
-          effectiveSdrSettings.ppm !== undefined
-            ? effectiveSdrSettings.ppm.toString()
-            : "0";
-        sdrSettingsLabel = `Gain: ${gainStr} | PPM: ${ppmStr}`;
+  useSnapshotListener({
+    takeSnapshot: (options) => takeSnapshot(options).catch(console.error),
+    snapshotGridPreference: state.snapshotGridPreference,
+    signalAreaBounds,
+    activeSignalArea: state.activeSignalArea,
+    sourceMode: state.sourceMode,
+    backend: backend ?? undefined,
+    deviceInfo: deviceInfo ?? undefined,
+    effectiveSdrSettings: effectiveSdrSettings ?? undefined,
+    deviceName: deviceName ?? undefined,
+    captureWholeChannelSegments,
+    getSnapshotData: () => fftCanvasRef.current?.getSnapshotData() ?? undefined,
+    getVideoSourceCanvases: () => {
+      const spectrumCanvas = fftCanvasRef.current?.getSpectrumCanvas() ?? null;
+      const waterfallCanvas = fftCanvasRef.current?.getWaterfallCanvas() ?? null;
+      return {
+        spectrum: spectrumCanvas,
+        waterfall: waterfallCanvas,
+      };
+    },
+    refreshVideoFrame: () => {
+      fftCanvasRef.current?.triggerSnapshotRender();
+    },
+    prepareVideoRecording: () => {
+      const wasPaused = manualVisualizerPaused;
+      if (!wasPaused) {
+        return undefined;
       }
 
-      takeSnapshot({
-        ...options,
-        showGrid: options.grid ?? state.snapshotGridPreference,
-        getSnapshotData: () => fftCanvasRef.current?.getSnapshotData() ?? null,
-        signalAreaBounds,
-        activeSignalArea: state.activeSignalArea,
-        sourceName: deviceName || backend || deviceInfo || undefined,
-        sdrSettingsLabel,
-      });
-    };
-    window.addEventListener("napt-snapshot", listener);
-    return () => window.removeEventListener("napt-snapshot", listener);
-  }, [
-    takeSnapshot,
-    state.snapshotGridPreference,
-    signalAreaBounds,
-    state.activeSignalArea,
-    backend,
-    deviceInfo,
-    effectiveSdrSettings,
-  ]);
-
-  const handleTrainingCaptureStart = useCallback(
-    (label: "target" | "noise") => {
-      dispatch({ type: "TRAINING_START", label });
-      sendTrainingCommand("start", label, state.activeSignalArea);
+      toggleVisualizerPause();
+      return () => {
+        toggleVisualizerPause();
+      };
     },
-    [sendTrainingCommand, state.activeSignalArea, dispatch],
-  );
-
-  const handleTrainingCaptureStop = useCallback(() => {
-    dispatch({ type: "TRAINING_STOP" });
-    sendTrainingCommand(
-      "stop",
-      state.trainingCaptureLabel ?? "target",
-      state.activeSignalArea,
-    );
-  }, [
-    sendTrainingCommand,
-    state.trainingCaptureLabel,
-    state.activeSignalArea,
-    dispatch,
-  ]);
+  });
 
   const handleFrequencyRangeChange = useCallback(
     (range: FrequencyRange) => {
@@ -146,48 +176,17 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
   );
 
   const centerFrequencyMHz = useMemo(() => {
-    if (!state.frequencyRange) return null;
-    const min = state.frequencyRange.min;
-    const max = state.frequencyRange.max;
-    if (!Number.isFinite(min) || !Number.isFinite(max)) return null;
-    return (min + max) / 2;
+    return calculateCenterFrequency(state.frequencyRange);
   }, [state.frequencyRange]);
 
   return (
-    <div
-      style={{
-        flex: 1,
-        display: "flex",
-        flexDirection: "column",
-        overflow: "hidden",
-        position: "relative",
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          flex: 1,
-          overflow: "hidden",
-          position: "relative",
-        }}
-      >
+    <SpectrumContainer>
+      <SpectrumContent>
         {state.sourceMode === "live" &&
           state.frequencyRange &&
           centerFrequencyMHz !== null && (
             <>
-              {deviceState === "connected" && (
-                <ClassificationControls
-                  isDeviceConnected={deviceState === "connected"}
-                  activeSignalArea={state.activeSignalArea}
-                  isCapturing={state.isTrainingCapturing}
-                  captureLabel={state.trainingCaptureLabel}
-                  capturedSamples={state.trainingCapturedSamples}
-                  onCaptureStart={handleTrainingCaptureStart}
-                  onCaptureStop={handleTrainingCaptureStop}
-                />
-              )}
-              <FFTCanvas
+              <FFTAndWaterfall
                 ref={fftCanvasRef}
                 dataRef={dataRef}
                 frequencyRange={state.frequencyRange}
@@ -195,6 +194,8 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
                 activeSignalArea={state.activeSignalArea}
                 signalAreaBounds={signalAreaBounds ?? undefined}
                 hardwareSampleRateHz={sampleRateHzEffective ?? undefined}
+                deviceProfile={deviceProfile}
+                tunerGainDb={effectiveSdrSettings?.gain?.tuner_gain}
                 isIqRecordingActive={captureStatus?.status === "started"}
                 limitMarkers={limitMarkers}
                 isPaused={manualVisualizerPaused}
@@ -216,12 +217,30 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
                 onSnapshot={() => { }}
                 snapshotGridPreference={state.snapshotGridPreference}
                 showSpikeOverlay={state.showSpikeOverlay}
+                heterodyningVerifyRequestId={state.heterodyningVerifyRequestId}
+                heterodyningHighlightedBins={state.heterodyningHighlightedBins}
+                onHeterodyningAnalyzed={(result) =>
+                  dispatch({
+                    type: "SET_HETERODYNING_RESULT",
+                    detected: result.detected,
+                    confidence: result.confidence,
+                    statusText: result.statusText,
+                    highlightedBins: result.highlightedBins,
+                  })
+                }
                 fftFrameRate={state.fftFrameRate}
-                sendGetAutoFftOptions={sendGetAutoFftOptions}
                 isWaterfallCleared={state.isWaterfallCleared}
                 onResetWaterfallCleared={() =>
                   dispatch({ type: "RESET_WATERFALL_CLEARED" })
                 }
+                awaitingDeviceData={
+                  isConnected &&
+                  deviceState !== "connected" &&
+                  deviceState !== "loading" &&
+                  deviceState !== "stale"
+                }
+                visualizerMachine={fftVisualizerMachine}
+                visualizerSessionKey="live"
               />
             </>
           )}
@@ -244,6 +263,8 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
             stitchSourceSettings={state.stitchSourceSettings}
             isPaused={state.isStitchPaused}
             fftSize={state.fftSize}
+            displayMode={state.displayMode}
+            powerScale={state.powerScale}
             onStitchStatus={(status) =>
               dispatch({ type: "SET_STITCH_STATUS", status })
             }
@@ -257,9 +278,10 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
             onFftDbLimitsChange={(min, max) =>
               dispatch({ type: "SET_FFT_DB_LIMITS", min, max })
             }
+            visualizerMachine={fftVisualizerMachine}
           />
         )}
-      </div>
-    </div>
+      </SpectrumContent>
+    </SpectrumContainer>
   );
 };

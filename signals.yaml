@@ -1,6 +1,14 @@
 # Signals Configuration for N-APT
 # This file contains mock signal generation, n-apt frame definitions, and SDR settings
 # Can be edited while the server is running to test different configurations
+#
+# Backend Usage (src/rs/server/utils.rs):
+# - Loaded at startup via signals_config() using serde_yaml
+# - n_apt.channels are parsed and converted to SpectrumFrameMessage objects
+# - These messages are sent via WebSocket to the frontend to display N-APT channel boundaries
+# - The frontend uses these channel definitions to visualize frequency ranges on the spectrum display
+# - SDR settings (sample_rate, center_frequency, gain, etc.) are loaded and applied to the hardware
+# - Mock APT settings are used for generating test signals when no real SDR is connected
 
 signals:
   # SDR hardware and processing settings
@@ -36,12 +44,12 @@ signals:
       default_frame_rate: 60
       # Logical mapping of FFT sizes to achievable frame rates
       size_to_frame_rate:
-        8192: 60     # Tiny FFT = max frame rate
-        16384: 60    # Very small FFT = max frame rate
-        32768: 60    # Small FFT = high frame rate
-        65536: 48    # Smaller FFT = higher frame rate
-        131072: 24  # Medium FFT = medium frame rate
-        262144: 12  # Large FFT = lower frame rate
+        8192: 60        # Tiny FFT = max frame rate
+        16384: 60       # Very small FFT = max frame rate
+        32768: 60       # Small FFT = high frame rate
+        65536: 48       # Smaller FFT = higher frame rate
+        131072: 24      # Medium FFT = medium frame rate
+        262144: 12      # Large FFT = lower frame rate
       # Logical maximum values for UI limits
       max_size: 262144  # Largest practical FFT size
       max_frame_rate: 60  # Maximum achievable frame rate
@@ -90,13 +98,13 @@ signals:
     strength_ranges:
       weak:
         min: -80.0
-        max: -60.0
+        max: -70.0
       medium:
-        min: -60.0
-        max: -40.0
+        min: -70.0
+        max: -50.0
       strong:
-        min: -40.0
-        max: -20.0
+        min: -50.0
+        max: -30.0
 
     # Signal shape configurations for realistic signal generation
     signal_shapes:

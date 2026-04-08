@@ -9,7 +9,7 @@ const spin = `
 
 export const Button = styled.button<{ $variant?: "primary" | "secondary" | "danger" }>`
   ${spin}
-  font-family: "JetBrains Mono", monospace;
+  font-family: ${(props) => props.theme.typography.mono};
   font-size: 12px;
   font-weight: 500;
   padding: 10px 16px;
@@ -40,7 +40,7 @@ export const Button = styled.button<{ $variant?: "primary" | "secondary" | "dang
         return `
           background-color: ${surface};
           border: 1px solid ${primary};
-          color: #fff;
+          color: ${theme.textPrimary};
           
           &:hover {
             background-color: ${primary}1a;
@@ -55,7 +55,7 @@ export const Button = styled.button<{ $variant?: "primary" | "secondary" | "dang
           
           &:hover {
             background-color: ${danger}1a;
-            color: #fff;
+            color: ${theme.textPrimary};
             box-shadow: 0 0 15px ${danger}22;
           }
         `;
@@ -64,7 +64,7 @@ export const Button = styled.button<{ $variant?: "primary" | "secondary" | "dang
         return `
           background-color: ${surface};
           border: 1px solid ${border};
-          color: #ccc;
+          color: ${theme.textPrimary};
           
           &:hover {
             border-color: ${primary};

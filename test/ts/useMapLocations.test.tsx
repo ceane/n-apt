@@ -2,12 +2,30 @@ import React from "react";
 import { renderHook, act } from "@testing-library/react";
 import { MapLocationsProvider, useMapLocations } from "@n-apt/hooks/useMapLocations";
 
-// Mock @react-google-maps/api
-jest.mock("@react-google-maps/api", () => ({
-  useJsApiLoader: () => ({
-    isLoaded: true,
-    loadError: null,
+// Mock Leaflet
+jest.mock("react-leaflet", () => ({
+  MapContainer: ({ children }: any) => <div>{children}</div>,
+  TileLayer: () => <div />,
+  Marker: () => <div />,
+  Popup: ({ children }: any) => <div>{children}</div>,
+  useMap: () => ({
+    setView: jest.fn(),
+    getBounds: jest.fn(() => ({
+      getNorthEast: () => ({ lat: 1, lng: 2 }),
+      getSouthWest: () => ({ lat: 3, lng: 4 }),
+    })),
+    getZoom: () => 15,
   }),
+  useMapEvents: () => null,
+}));
+
+jest.mock("leaflet", () => ({
+  Map: jest.fn(),
+  TileLayer: jest.fn(),
+  Marker: jest.fn(),
+  Popup: jest.fn(),
+  divIcon: jest.fn(),
+  latLng: jest.fn(),
 }));
 
 // Mock @n-apt/utils/env
@@ -59,7 +77,7 @@ describe("useMapLocations Hook", () => {
     });
 
     expect(result.current.locations).toHaveLength(2);
-    expect(result.current.locations.find(l => l.name === "Test Spot")).toBeDefined();
+    expect(result.current.locations.find(({ name }: { name: string }) => name === "Test Spot")).toBeDefined();
     expect(result.current.activeLocationId).toMatch(/^loc_/);
   });
 

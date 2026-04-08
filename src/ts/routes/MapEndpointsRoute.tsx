@@ -1,30 +1,33 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import styled from "styled-components";
 import {
-  GoogleMap,
+  MapContainer,
   Marker,
-  InfoWindow,
-} from "@react-google-maps/api";
+  Popup,
+  TileLayer,
+  useMap,
+  useMapEvents
+} from "react-leaflet";
+import L from "leaflet";
 import { useMapLocations } from "@n-apt/hooks/useMapLocations";
 import { type TowerRecord, useTowers } from "@n-apt/hooks/useTowers";
 import { getCarrierName, getPotentialLeasee } from "@n-apt/utils/cellData";
 
 const InfoWindowContent = styled.div`
-  background: #000;
-  color: #fff;
+  background: ${(props) => props.theme.surface};
+  color: ${(props) => props.theme.textPrimary};
   padding: 12px;
   font-family: "JetBrains Mono", monospace;
   font-size: 11px;
   min-width: 200px;
-  border: 1px solid #333;
 `;
 
 const InfoTitle = styled.div`
-  color: #00d4ff;
+  color: ${(props) => props.theme.primary};
   font-size: 14px;
   font-weight: 700;
   margin-bottom: 8px;
-  border-bottom: 1px solid #333;
+  border-bottom: 1px solid ${(props) => props.theme.border};
   padding-bottom: 4px;
 `;
 
@@ -35,33 +38,32 @@ const InfoRow = styled.div`
 `;
 
 const InfoLabel = styled.span`
-  color: #888;
+  color: ${(props) => props.theme.textSecondary};
 `;
 
 const InfoValue = styled.span`
-  color: #eee;
+  color: ${(props) => props.theme.textPrimary};
   font-weight: 500;
 `;
 
 const LeaseeBadge = styled.div`
   margin-top: 10px;
   padding: 6px;
-  background: #1a1a1a;
-  border-radius: 4px;
-  border-left: 3px solid #00d4ff;
-  color: #bbb;
+  background: ${(props) => props.theme.surfaceHover};
+  border-left: 3px solid ${(props) => props.theme.primary};
+  color: ${(props) => props.theme.textSecondary};
   font-size: 10px;
   font-style: italic;
 `;
 
 const ControlSection = styled.div`
   margin-top: 12px;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  border-top: 1px solid ${(props) => props.theme.border};
   padding-top: 12px;
 `;
 
 const SectionTitle = styled.div`
-  color: #888;
+  color: ${(props) => props.theme.textSecondary};
   margin-bottom: 8px;
   font-weight: bold;
   text-transform: uppercase;
@@ -71,9 +73,9 @@ const SectionTitle = styled.div`
 
 const CarrierSelect = styled.select`
   width: 100%;
-  background: #111;
-  color: #eee;
-  border: 1px solid #333;
+  background: ${(props) => props.theme.surface};
+  color: ${(props) => props.theme.textPrimary};
+  border: 1px solid ${(props) => props.theme.border};
   border-radius: 4px;
   padding: 4px 8px;
   font-family: inherit;
@@ -82,7 +84,7 @@ const CarrierSelect = styled.select`
   cursor: pointer;
 
   &:focus {
-    border-color: #00d4ff;
+    border-color: ${(props) => props.theme.primary};
   }
 `;
 
@@ -94,9 +96,9 @@ const CustomCarrierRow = styled.div`
 
 const CarrierInput = styled.input`
   flex: 1;
-  background: #111;
-  color: #eee;
-  border: 1px solid #333;
+  background: ${(props) => props.theme.surface};
+  color: ${(props) => props.theme.textPrimary};
+  border: 1px solid ${(props) => props.theme.border};
   border-radius: 4px;
   padding: 4px;
   font-family: inherit;
@@ -105,7 +107,7 @@ const CarrierInput = styled.input`
   outline: none;
 
   &:focus {
-    border-color: #00d4ff;
+    border-color: ${(props) => props.theme.primary};
   }
 `;
 
@@ -114,15 +116,15 @@ const PageContainer = styled.div`
   flex-direction: column;
   height: 100%;
   width: 100%;
-  background-color: #050505;
-  color: #fff;
+  background-color: ${(props) => props.theme.background};
+  color: ${(props) => props.theme.textPrimary};
   box-sizing: border-box;
 `;
 
 const MapWrapper = styled.div`
   flex: 1;
   position: relative;
-  background-color: #1a1a1a;
+  background-color: ${(props) => props.theme.surface};
   overflow: hidden;
 `;
 
@@ -135,22 +137,22 @@ const LoadingOverlay = styled.div`
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.7);
+  background: ${(props) => props.theme.background}b3;
   z-index: 10;
   font-family: "JetBrains Mono", monospace;
-  color: #888;
+  color: ${(props) => props.theme.textSecondary};
 `;
 
 const ControlsPanel = styled.div`
   position: absolute;
   top: 12px;
   right: 12px;
-  z-index: 11;
+  z-index: 1000;
   min-width: 220px;
   padding: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid ${(props) => props.theme.border};
   border-radius: 8px;
-  background: rgba(5, 5, 5, 0.85);
+  background: ${(props) => props.theme.surface}d9;
   backdrop-filter: blur(2px);
   font-family: "JetBrains Mono", monospace;
   font-size: 12px;
@@ -167,6 +169,7 @@ const FilterLabel = styled.label`
   align-items: center;
   gap: 4px;
   cursor: pointer;
+  color: ${(props) => props.theme.textSecondary};
 `;
 
 const mapContainerStyle = {
@@ -174,56 +177,70 @@ const mapContainerStyle = {
   height: "100%",
 };
 
-const darkMapStyles = [
-  { elementType: "geometry", stylers: [{ color: "#242f3e" }] },
-  { elementType: "labels", stylers: [{ visibility: "off" }] },
-  {
-    featureType: "road",
-    elementType: "geometry",
-    stylers: [{ color: "#38414e" }],
-  },
-  {
-    featureType: "road",
-    elementType: "geometry.stroke",
-    stylers: [{ color: "#212a37" }],
-  },
-  {
-    featureType: "road.highway",
-    elementType: "geometry",
-    stylers: [{ color: "#746855" }],
-  },
-  {
-    featureType: "road.highway",
-    elementType: "geometry.stroke",
-    stylers: [{ color: "#1f2835" }],
-  },
-  {
-    featureType: "water",
-    elementType: "geometry",
-    stylers: [{ color: "#17263c" }],
-  },
-  {
-    featureType: "poi",
-    stylers: [{ visibility: "off" }],
-  },
-  {
-    featureType: "transit",
-    stylers: [{ visibility: "off" }],
-  },
-  {
-    featureType: "administrative",
-    stylers: [{ visibility: "off" }]
-  }
-];
+import { MapEndpointsHUD } from "@n-apt/components/MapEndpointsHUD";
 
-import { TowerControlPanel } from "@n-apt/components/TowerControlPanel";
+// Helper component for map events
+const MapEventHandler: React.FC<{
+  onMapIdle: () => void;
+  onMapClick: () => void;
+}> = ({ onMapIdle, onMapClick }) => {
+  useMapEvents({
+    moveend: onMapIdle,
+    zoomend: onMapIdle,
+    click: onMapClick,
+  });
+  return null;
+};
+
+// Helper component for map center/zoom sync
+const MapController: React.FC<{
+  onMapLoad: (map: L.Map) => void;
+}> = ({ onMapLoad }) => {
+  const map = useMap();
+
+  useEffect(() => {
+    onMapLoad(map);
+  }, [map, onMapLoad]);
+
+  return null;
+};
+
+// Helper component for theme-aware tiles
+const ThemedTileLayer: React.FC = () => {
+  const [isDark, setIsDark] = React.useState(false);
+
+  React.useEffect(() => {
+    // Check if we're in dark mode
+    const checkTheme = () => {
+      const isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      setIsDark(isDarkMode);
+    };
+
+    checkTheme();
+
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    mediaQuery.addEventListener('change', checkTheme);
+
+    return () => mediaQuery.removeEventListener('change', checkTheme);
+  }, []);
+
+  return (
+    <TileLayer
+      attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+      url={isDark
+        ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+        : "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
+      }
+    />
+  );
+};
 
 export const MapEndpointsRoute: React.FC = () => {
   const { locations, activeLocationId, isLoaded, loadError, previewLocation } = useMapLocations();
   const { towers, loading: towersLoading, error: towersError, truncated, totalFound, fetchTowersInBounds } = useTowers();
   const [center, setCenter] = useState({ lat: 37.7749, lng: -122.4194 }); // Default to SF for safety
   const [zoom, setZoom] = useState(15);
-  const [map, setMap] = useState<google.maps.Map | null>(null);
+  const [map, setMap] = useState<L.Map | null>(null);
   const [selectedTech, setSelectedTech] = useState<string[]>(["LTE", "NR"]);
   const [selectedTower, setSelectedTower] = useState<TowerRecord | null>(null);
   const [mcc, setMcc] = useState<string>("");
@@ -248,7 +265,7 @@ export const MapEndpointsRoute: React.FC = () => {
 
   // Sync with active or preview location
   useEffect(() => {
-    if (!isLoaded) return;
+    if (!isLoaded || !map) return;
 
     let targetLoc: any = previewLocation;
     if (!targetLoc) {
@@ -256,21 +273,15 @@ export const MapEndpointsRoute: React.FC = () => {
     }
 
     if (targetLoc && targetLoc.lat !== 0 && targetLoc.lng !== 0) {
-      const newCenter = { lat: targetLoc.lat, lng: targetLoc.lng };
-      setCenter(newCenter);
+      const newCenter = L.latLng(targetLoc.lat, targetLoc.lng);
+      setCenter({ lat: targetLoc.lat, lng: targetLoc.lng });
       setZoom(targetLoc.zoom);
-      if (map) {
-        map.panTo(newCenter);
-      }
+      map.setView(newCenter, targetLoc.zoom);
     }
   }, [activeLocationId, locations, map, isLoaded, previewLocation]);
 
-  const onLoad = useCallback((m: google.maps.Map) => {
-    setMap(m);
-  }, []);
-
-  const onUnmount = useCallback(() => {
-    setMap(null);
+  const onLoad = useCallback((mapInstance: L.Map) => {
+    setMap(mapInstance);
   }, []);
 
   const toggleTech = useCallback((tech: string) => {
@@ -292,10 +303,10 @@ export const MapEndpointsRoute: React.FC = () => {
     const sw = bounds.getSouthWest();
 
     fetchTowersInBounds({
-      neLat: ne.lat(),
-      neLng: ne.lng(),
-      swLat: sw.lat(),
-      swLng: sw.lng(),
+      neLat: ne.lat,
+      neLng: ne.lng,
+      swLat: sw.lat,
+      swLng: sw.lng,
       zoom: map.getZoom() ?? zoom,
       tech: techFilter,
       range: "0,-1",
@@ -338,14 +349,11 @@ export const MapEndpointsRoute: React.FC = () => {
               ? "#ef4444"
               : "#9ca3af";
 
-    return {
-      path: google.maps.SymbolPath.CIRCLE,
-      scale: 4,
-      fillColor,
-      fillOpacity: 0.8,
-      strokeColor: "#ffffff",
-      strokeWeight: 1,
-    };
+    return L.divIcon({
+      html: `<div style="background-color: ${fillColor}; width: 24px; height: 24px; border-radius: 50%; border: 2px solid #ffffff; opacity: 0.8;"></div>`,
+      iconSize: [24, 24],
+      className: "tower-marker"
+    });
   }, []);
 
   const carrierPresetValue = useMemo(() => {
@@ -357,10 +365,10 @@ export const MapEndpointsRoute: React.FC = () => {
   }, [mcc, mnc]);
 
   return (
-    <PageContainer>
+    <PageContainer data-testid="map-endpoints-route">
       <MapWrapper>
         <ControlsPanel>
-          <TowerControlPanel
+          <MapEndpointsHUD
             currentCount={towers.length}
             truncated={truncated}
             totalFound={totalFound}
@@ -440,69 +448,72 @@ export const MapEndpointsRoute: React.FC = () => {
         </ControlsPanel>
         {loadError && (
           <LoadingOverlay>
-            Error loading Google Maps: {loadError.message}
+            Error loading map: {loadError.message}
           </LoadingOverlay>
         )}
         {!isLoaded ? (
-          <LoadingOverlay>Loading Engine...</LoadingOverlay>
+          <LoadingOverlay>Loading maps...</LoadingOverlay>
         ) : (
-          <GoogleMap
-            mapContainerStyle={mapContainerStyle}
-            center={center}
+          <MapContainer
+            center={[center.lat, center.lng]}
             zoom={zoom}
-            onLoad={onLoad}
-            onUnmount={onUnmount}
-            onIdle={onMapIdle}
-            onClick={() => setSelectedTower(null)}
-            options={{
-              styles: darkMapStyles,
-              disableDefaultUI: false,
-              backgroundColor: "#1a1a1a",
-            }}
+            style={mapContainerStyle}
           >
+            <ThemedTileLayer />
+
+            <MapEventHandler
+              onMapIdle={onMapIdle}
+              onMapClick={() => setSelectedTower(null)}
+            />
+
+            <MapController onMapLoad={onLoad} />
+
             {center.lat !== 0 && !previewLocation && (
               <Marker
-                position={center}
+                position={[center.lat, center.lng]}
                 title="Active Location"
-                icon={{
-                  path: google.maps.SymbolPath.CIRCLE,
-                  scale: 8,
-                  fillColor: "#00d4ff",
-                  fillOpacity: 1,
-                  strokeColor: "#fff",
-                  strokeWeight: 2,
+                icon={L.divIcon({
+                  html: `<div style="background-color: #00d4ff; width: 16px; height: 16px; border-radius: 50%; border: 2px solid #fff;"></div>`,
+                  iconSize: [16, 16],
+                  className: "active-location-marker"
+                })}
+                eventHandlers={{
+                  click: () => setSelectedTower(null)
                 }}
               />
             )}
+
             {previewLocation && (
               <Marker
-                position={{ lat: previewLocation.lat, lng: previewLocation.lng }}
+                position={[previewLocation.lat, previewLocation.lng]}
                 title="Preview"
-                animation={google.maps.Animation.BOUNCE}
-                icon={{
-                  path: google.maps.SymbolPath.BACKWARD_CLOSED_ARROW,
-                  scale: 7,
-                  fillColor: "#fff",
-                  fillOpacity: 1,
-                  strokeColor: "#00d4ff",
-                  strokeWeight: 2,
+                icon={L.divIcon({
+                  html: `<div style="background-color: #fff; width: 14px; height: 14px; border-radius: 50%; border: 2px solid #00d4ff; animation: bounce 1s infinite;"></div>`,
+                  iconSize: [14, 14],
+                  className: "preview-marker"
+                })}
+                eventHandlers={{
+                  click: () => setSelectedTower(null)
                 }}
               />
             )}
+
             {towers.map((tower) => (
               <Marker
                 key={tower.id}
-                position={{ lat: tower.lat, lng: tower.lon }}
+                position={[tower.lat, tower.lon]}
                 title={`${tower.radio} ${tower.mcc}-${tower.mnc} LAC ${tower.lac} CELL ${tower.cell}`}
                 icon={towerIcon(tower)}
-                onClick={() => setSelectedTower(tower)}
+                eventHandlers={{
+                  click: () => setSelectedTower(tower)
+                }}
               />
             ))}
 
             {selectedTower && (
-              <InfoWindow
-                position={{ lat: selectedTower.lat, lng: selectedTower.lon }}
-                onCloseClick={() => setSelectedTower(null)}
+              <Popup
+                position={[selectedTower.lat, selectedTower.lon]}
+                className="custom-popup"
               >
                 <InfoWindowContent>
                   <InfoTitle>{getCarrierName(selectedTower.mcc, selectedTower.mnc)}</InfoTitle>
@@ -530,9 +541,9 @@ export const MapEndpointsRoute: React.FC = () => {
                     Infrastructure provided by {getPotentialLeasee(selectedTower.id)} (Est.)
                   </LeaseeBadge>
                 </InfoWindowContent>
-              </InfoWindow>
+              </Popup>
             )}
-          </GoogleMap>
+          </MapContainer>
         )}
       </MapWrapper>
     </PageContainer>

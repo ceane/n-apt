@@ -15,7 +15,11 @@ async fn test_device_freeze_detection() {
     supports_approx_dbm: false,
     supports_raw_iq_stream: false,
   };
-  shared_state.update_device_status(false, "Freeze simulated".to_string(), mock_profile);
+  shared_state.update_device_status(
+    false,
+    "Freeze simulated".to_string(),
+    mock_profile,
+  );
 
   // Check that device state is updated correctly
   {
@@ -56,7 +60,11 @@ async fn test_mock_mode_fallback() {
     supports_approx_dbm: true,
     supports_raw_iq_stream: true,
   };
-  shared_state.update_device_status(true, "Initial real device".to_string(), rtl_profile);
+  shared_state.update_device_status(
+    true,
+    "Initial real device".to_string(),
+    rtl_profile,
+  );
 
   // Simulate device freeze - should fallback to mock
   let mock_profile = n_apt_backend::server::types::DeviceProfile {
@@ -65,8 +73,11 @@ async fn test_mock_mode_fallback() {
     supports_approx_dbm: false,
     supports_raw_iq_stream: false,
   };
-  shared_state
-    .update_device_status(false, "Mock fallback simulated".to_string(), mock_profile);
+  shared_state.update_device_status(
+    false,
+    "Mock fallback simulated".to_string(),
+    mock_profile,
+  );
 
   // Verify mock mode activation
   {

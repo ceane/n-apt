@@ -20,9 +20,7 @@
 
 ```json
 {
-  "dev": "concurrently \"npm run build:wasm ...\" \"npm run server:dev\" \"vite ...\"",
-  "dev:fast": "concurrently \"npm run server:dev\" \"vite ...\"",
-  "dev:hot": "./scripts/dev.sh",
+  "dev": "npm run decrypt-modules || true && npm --silent run build_orchestrator",
   "server:dev": "./start_server.sh --dev",
   "server:build": "./start_server.sh --build-only"
 }
@@ -45,14 +43,12 @@
 ### Primary Development Command
 
 ```bash
-npm run dev:hot
+npm run dev
 ```
 
 ### Alternative Commands
 
 ```bash
-npm run dev:fast    # Backend-only development
-npm run dev         # Full development with WASM
 npm run server:dev  # Backend only
 ```
 
@@ -68,7 +64,7 @@ npm run server:dev  # Backend only
 
 ### Hot Reload Testing
 
-1. Start: `npm run dev:hot`
+1. Start: `npm run dev`
 2. Edit: `mock_signals.yaml`
 3. See: Changes apply immediately
 
@@ -91,8 +87,7 @@ signals:
 
 ## ✅ Verification
 
-- [x] `npm run dev:hot` works correctly
-- [x] `npm run dev:fast` builds with dev profile
+- [x] `npm run dev` works correctly
 - [x] `./start_server.sh --dev` passes dev flag
 - [x] Hot reload file watcher functional
 - [x] WebSocket reload command works

@@ -1,7 +1,0 @@
-# .windsurfrules
-node_modules/
-dist/
-package-lock.json
-coverage/
-*.svg
-*.csv

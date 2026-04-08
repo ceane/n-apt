@@ -30,7 +30,7 @@ describe("FileWorkerManager", () => {
   });
 
   it("should load file", async () => {
-    const mockFile = new File(["test data"], "test.c64", {
+    const mockFile = new File(["test data"], "test.napt", {
       type: "application/octet-stream",
     });
     const onProgress = jest.fn();
@@ -38,12 +38,12 @@ describe("FileWorkerManager", () => {
     const result = await manager.loadFile(mockFile, onProgress);
 
     expect(result).toBeDefined();
-    expect(result.name).toBe("test.c64");
+    expect(result.name).toBe("test.napt");
     expect(result.data).toBeInstanceOf(ArrayBuffer);
   });
 
   it("should handle file loading progress", async () => {
-    const mockFile = new File(["test data"], "test.c64", {
+    const mockFile = new File(["test data"], "test.napt", {
       type: "application/octet-stream",
     });
     const onProgress = jest.fn();
@@ -67,7 +67,7 @@ describe("FileWorkerManager", () => {
   });
 
   it("should handle file loading errors", async () => {
-    const mockFile = new File(["test data"], "test.c64", {
+    const mockFile = new File(["test data"], "test.napt", {
       type: "application/octet-stream",
     });
 
@@ -83,8 +83,8 @@ describe("FileWorkerManager", () => {
   });
 
   it("should build frames", async () => {
-    const fileDataCache = new Map([["test.c64", new Uint8Array(1024)]]);
-    const freqMap = new Map([["test.c64", 1.6]]);
+    const fileDataCache = new Map([["test.napt", new Uint8Array(1024)]]);
+    const freqMap = new Map([["test.napt", 1.6]]);
 
     const result = await manager.buildFrame(0, fileDataCache, freqMap);
 
@@ -94,8 +94,8 @@ describe("FileWorkerManager", () => {
   });
 
   it("should handle frame building errors", async () => {
-    const fileDataCache = new Map([["test.c64", new Uint8Array(1024)]]);
-    const freqMap = new Map([["test.c64", 1.6]]);
+    const fileDataCache = new Map([["test.napt", new Uint8Array(1024)]]);
+    const freqMap = new Map([["test.napt", 1.6]]);
 
     // Simulate frame building error
     manager.simulateError("framebuilding", "Frame building failed");
@@ -109,7 +109,7 @@ describe("FileWorkerManager", () => {
   });
 
   it("should handle worker timeout", async () => {
-    const mockFile = new File(["test data"], "test.c64", {
+    const mockFile = new File(["test data"], "test.napt", {
       type: "application/octet-stream",
     });
 
@@ -125,16 +125,16 @@ describe("FileWorkerManager", () => {
   });
 
   it("should handle multiple concurrent requests", async () => {
-    const mockFile1 = new File(["data1"], "test1.c64");
-    const mockFile2 = new File(["data2"], "test2.c64");
+    const mockFile1 = new File(["data1"], "test1.napt");
+    const mockFile2 = new File(["data2"], "test2.wav");
 
     const promise1 = manager.loadFile(mockFile1);
     const promise2 = manager.loadFile(mockFile2);
 
     const [result1, result2] = await Promise.all([promise1, promise2]);
 
-    expect(result1.name).toBe("test1.c64");
-    expect(result2.name).toBe("test2.c64");
+    expect(result1.name).toBe("test1.napt");
+    expect(result2.name).toBe("test2.wav");
   });
 
   it("should terminate worker properly", () => {
@@ -149,7 +149,7 @@ describe("FileWorkerManager", () => {
   });
 
   it("should handle worker recreation after termination", async () => {
-    const mockFile = new File(["test data"], "test.c64", {
+    const mockFile = new File(["test data"], "test.napt", {
       type: "application/octet-stream",
     });
 
@@ -163,7 +163,7 @@ describe("FileWorkerManager", () => {
   });
 
   it("should handle worker message routing", async () => {
-    const mockFile = new File(["test data"], "test.c64", {
+    const mockFile = new File(["test data"], "test.napt", {
       type: "application/octet-stream",
     });
     const onProgress = jest.fn();
@@ -171,12 +171,12 @@ describe("FileWorkerManager", () => {
     const result = await manager.loadFile(mockFile, onProgress);
 
     expect(onProgress).toHaveBeenCalled();
-    expect(result.name).toBe("test.c64");
+    expect(result.name).toBe("test.napt");
   });
 
   it("should handle transferable objects", async () => {
     const largeData = new ArrayBuffer(1024 * 1024); // 1MB
-    const mockFile = new File([largeData], "large.c64", {
+    const mockFile = new File([largeData], "large.napt", {
       type: "application/octet-stream",
     });
 
@@ -202,7 +202,7 @@ describe("FileWorkerManager", () => {
   });
 
   it("should clean up pending requests on termination", () => {
-    const mockFile = new File(["test data"], "test.c64", {
+    const mockFile = new File(["test data"], "test.napt", {
       type: "application/octet-stream",
     });
     const promise = manager.loadFile(mockFile);
@@ -215,7 +215,7 @@ describe("FileWorkerManager", () => {
   });
 
   it("should handle worker message parsing errors", async () => {
-    const mockFile = new File(["test data"], "test.c64", {
+    const mockFile = new File(["test data"], "test.napt", {
       type: "application/octet-stream",
     });
 
@@ -224,8 +224,8 @@ describe("FileWorkerManager", () => {
   });
 
   it("should maintain request queue", async () => {
-    const mockFile1 = new File(["data1"], "test1.c64");
-    const mockFile2 = new File(["data2"], "test2.c64");
+    const mockFile1 = new File(["data1"], "test1.napt");
+    const mockFile2 = new File(["data2"], "test2.wav");
 
     // Start multiple requests
     const promise1 = manager.loadFile(mockFile1);
@@ -233,7 +233,7 @@ describe("FileWorkerManager", () => {
 
     const [result1, result2] = await Promise.all([promise1, promise2]);
 
-    expect(result1.name).toBe("test1.c64");
-    expect(result2.name).toBe("test2.c64");
+    expect(result1.name).toBe("test1.napt");
+    expect(result2.name).toBe("test2.wav");
   });
 });

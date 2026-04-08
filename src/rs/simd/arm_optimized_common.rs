@@ -130,7 +130,7 @@ impl ARMOptimizedSIMD {
 
     // Handle zoom < 1 (padding case)
     if zoom < 1.0 {
-      let mut sliced_waveform = vec![-120.0f32; visible_bins];
+      let mut sliced_waveform = vec![-150.0f32; visible_bins];
       let dest_offset = 0;
       let data_to_copy = (full_waveform.len() as isize)
         .min(visible_bins as isize - dest_offset as isize);
@@ -214,7 +214,7 @@ impl ARMOptimizedSIMD {
       let end_idx = (((i + 1) as f32 * scale) as usize).min(input_len);
 
       if start_idx >= input_len {
-        output[i] = -120.0;
+        output[i] = -150.0;
         continue;
       }
 
@@ -263,34 +263,34 @@ impl ARMOptimizedSIMD {
     let input_len = input.len();
 
     unsafe {
-        for (i, item) in output.iter_mut().enumerate().take(width) {
-          let start_idx = (i as f32 * scale) as usize;
-          let end_idx = (((i + 1) as f32 * scale) as usize).min(input_len);
+      for (i, item) in output.iter_mut().enumerate().take(width) {
+        let start_idx = (i as f32 * scale) as usize;
+        let end_idx = (((i + 1) as f32 * scale) as usize).min(input_len);
 
-          if start_idx >= input_len {
-            *item = -120.0;
-            continue;
-          }
-
-          let mut max_val = -f32::INFINITY;
-          let mut j = start_idx;
-          while j + 4 <= end_idx {
-            let v = vld1q_f32(input.as_ptr().add(j));
-            let m01 = vmax_f32(vget_low_f32(v), vget_high_f32(v));
-            let m = vmax_f32(m01, vrev64_f32(m01));
-            max_val = max_val.max(vget_lane_f32(m, 0));
-            j += 4;
-          }
-          while j < end_idx {
-            max_val = max_val.max(input[j]);
-            j += 1;
-          }
-          *item = if max_val == -f32::INFINITY {
-            input[start_idx.min(input_len - 1)]
-          } else {
-            max_val
-          };
+        if start_idx >= input_len {
+          *item = -150.0;
+          continue;
         }
+
+        let mut max_val = -f32::INFINITY;
+        let mut j = start_idx;
+        while j + 4 <= end_idx {
+          let v = vld1q_f32(input.as_ptr().add(j));
+          let m01 = vmax_f32(vget_low_f32(v), vget_high_f32(v));
+          let m = vmax_f32(m01, vrev64_f32(m01));
+          max_val = max_val.max(vget_lane_f32(m, 0));
+          j += 4;
+        }
+        while j < end_idx {
+          max_val = max_val.max(input[j]);
+          j += 1;
+        }
+        *item = if max_val == -f32::INFINITY {
+          input[start_idx.min(input_len - 1)]
+        } else {
+          max_val
+        };
+      }
     }
   }
 
@@ -306,7 +306,7 @@ impl ARMOptimizedSIMD {
       let end = ((i + 1) as f32 * ratio) as usize;
       let clamped_end = end.min(input_len);
       if start >= input_len {
-        *item = -120.0;
+        *item = -150.0;
         continue;
       }
       if start < clamped_end {
@@ -862,9 +862,9 @@ impl ARMOptimizedSIMD {
     use std::arch::aarch64::*;
     unsafe {
       let v_inv_norm = vdupq_n_f32(inv_norm);
-      let v_eps = vdupq_n_f32(1e-12);
+      let v_eps = vdupq_n_f32(1e-15);
       let v_ten = vdupq_n_f32(10.0);
-      let v_min = vdupq_n_f32(-120.0);
+      let v_min = vdupq_n_f32(-150.0);
       let v_max = vdupq_n_f32(0.0);
 
       let mut i = 0;
@@ -892,7 +892,7 @@ impl ARMOptimizedSIMD {
         let mag_sq = (complex_re[i] * complex_re[i]
           + complex_im[i] * complex_im[i])
           * inv_norm;
-        output[i] = 10.0 * (mag_sq + 1e-12).log10().clamp(-120.0, 0.0);
+        output[i] = 10.0 * (mag_sq + 1e-15).log10().clamp(-150.0, 0.0);
         i += 1;
       }
     }
@@ -910,9 +910,9 @@ impl ARMOptimizedSIMD {
     use std::arch::wasm32::*;
     unsafe {
       let v_inv_norm = f32x4(inv_norm, inv_norm, inv_norm, inv_norm);
-      let v_eps = f32x4(1e-12, 1e-12, 1e-12, 1e-12);
+      let v_eps = f32x4(1e-15, 1e-15, 1e-15, 1e-15);
       let v_ten = f32x4(10.0, 10.0, 10.0, 10.0);
-      let v_min = f32x4(-120.0, -120.0, -120.0, -120.0);
+      let v_min = f32x4(-150.0, -150.0, -150.0, -150.0);
       let v_max = f32x4(0.0, 0.0, 0.0, 0.0);
 
       let mut i = 0;
@@ -939,7 +939,7 @@ impl ARMOptimizedSIMD {
         let mag_sq = (complex_re[i] * complex_re[i]
           + complex_im[i] * complex_im[i])
           * inv_norm;
-        output[i] = 10.0 * (mag_sq + 1e-12).log10().max(-120.0).min(0.0);
+        output[i] = 10.0 * (mag_sq + 1e-15).log10().max(-150.0).min(0.0);
         i += 1;
       }
     }
@@ -957,7 +957,7 @@ impl ARMOptimizedSIMD {
       let mag_sq = (complex_re[i] * complex_re[i]
         + complex_im[i] * complex_im[i])
         * inv_norm;
-      output[i] = 10.0 * (mag_sq + 1e-12).log10().clamp(-120.0, 0.0);
+      output[i] = 10.0 * (mag_sq + 1e-15).log10().clamp(-150.0, 0.0);
     }
   }
 

@@ -3,7 +3,9 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use super::types::{CaptureArtifact, DeviceProfile, SpectrumFrameMessage};
+use super::types::{
+  CaptureArtifact, DeviceProfile, SdrProcessorSettings, SpectrumFrameMessage,
+};
 use super::utils::{load_channels, load_sdr_settings};
 
 /// How often to probe for a newly attached RTL-SDR while running in mock mode.
@@ -77,6 +79,12 @@ pub struct SharedState {
   /// Timestamp of the last successful frame read from real hardware.
   /// Used to detect stale streams.
   pub last_successful_read: Mutex<Option<Instant>>,
+
+  /// Fast-path settings slot: written by the command handler WITHOUT the
+  /// processor lock, read and applied by the blocking frame loop BEFORE
+  /// the slow device read. This lets FFT size changes take effect
+  /// immediately instead of waiting for the current frame to finish.
+  pub pending_fast_settings: Mutex<Vec<SdrProcessorSettings>>,
 }
 
 impl SharedState {
@@ -85,6 +93,7 @@ impl SharedState {
       .or_else(|_| std::env::var("UNSAFE_LOCAL_USER_PASSWORD"))
       .unwrap_or_else(|_| DEFAULT_PASSKEY.to_string());
     let encryption_key = crate::crypto::derive_key(&passkey);
+    let sdr_settings = load_sdr_settings();
     log::info!(
       "Encryption key derived from passkey (PBKDF2-HMAC-SHA256, {} iterations)",
       100_000
@@ -96,15 +105,15 @@ impl SharedState {
       client_count: AtomicUsize::new(0),
       authenticated_count: AtomicUsize::new(0),
       is_paused: AtomicBool::new(false),
-      pending_center_freq: AtomicU32::new(load_sdr_settings().center_frequency),
+      pending_center_freq: AtomicU32::new(sdr_settings.center_frequency),
       pending_center_freq_dirty: AtomicBool::new(false),
       shutdown: AtomicBool::new(false),
       device_info: Mutex::new(String::new()),
       device_profile: Mutex::new(DeviceProfile {
         kind: "mock_apt".to_string(),
         is_rtl_sdr: false,
-        supports_approx_dbm: false,
-        supports_raw_iq_stream: false,
+        supports_approx_dbm: true,
+        supports_raw_iq_stream: true,
       }),
       device_loading: Mutex::new(false),
       device_loading_reason: Mutex::new(None),
@@ -112,11 +121,12 @@ impl SharedState {
       encryption_key,
       pending_challenges: Mutex::new(HashMap::new()),
       channels: Mutex::new(load_channels()),
-      sdr_settings: Mutex::new(load_sdr_settings().clone()),
+      sdr_settings: Mutex::new(sdr_settings.clone()),
       capture_artifacts: Mutex::new(HashMap::new()),
       health_failure_streak: AtomicU32::new(0),
       recovery_attempts: AtomicU32::new(0),
       last_successful_read: Mutex::new(None),
+      pending_fast_settings: Mutex::new(Vec::new()),
     })
   }
 
@@ -146,11 +156,7 @@ impl SharedState {
   /// Transition device_state and immediately update the loading fields.
   /// This is the single source of truth for state transitions so the
   /// frontend always sees a consistent snapshot.
-  pub fn set_device_state(
-    &self,
-    state: &str,
-    loading_reason: Option<&str>,
-  ) {
+  pub fn set_device_state(&self, state: &str, loading_reason: Option<&str>) {
     *self.device_state.lock().unwrap() = state.to_string();
     let is_loading = state == "loading";
     *self.device_loading.lock().unwrap() = is_loading;

@@ -9,7 +9,6 @@ interface FFTCanvasProps {
   isDeviceConnected?: boolean;
   onFrequencyRangeChange?: (range: any) => void;
   displayTemporalResolution?: "low" | "medium" | "high";
-  force2D?: boolean;
 }
 
 export default function FFTCanvas({
@@ -21,14 +20,13 @@ export default function FFTCanvas({
   isDeviceConnected = true,
   onFrequencyRangeChange,
   displayTemporalResolution = "medium",
-  force2D = false,
 }: FFTCanvasProps) {
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
-  const [webgpuEnabled, setWebgpuEnabled] = React.useState(!force2D);
+  const [webgpuEnabled, setWebgpuEnabled] = React.useState(false);
 
   React.useEffect(() => {
     // Simulate WebGPU initialization
-    if (!force2D && typeof navigator !== "undefined" && "gpu" in navigator) {
+    if (typeof navigator !== "undefined" && "gpu" in navigator) {
       setTimeout(() => {
         setWebgpuEnabled(true);
         console.log(
@@ -39,7 +37,7 @@ export default function FFTCanvas({
       console.log("📱 WebGPU not supported - using 2D canvas rendering");
       setWebgpuEnabled(false);
     }
-  }, [force2D]);
+  }, []);
 
   React.useEffect(() => {
     // Simulate canvas rendering

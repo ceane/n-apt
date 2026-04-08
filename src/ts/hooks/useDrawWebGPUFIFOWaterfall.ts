@@ -1,5 +1,5 @@
 import { useCallback, useRef } from "react";
-import { FFT_CANVAS_BG } from "@n-apt/consts";
+import { validateSpectrumDataComprehensive } from "@n-apt/validation";
 
 function alignTo(value: number, alignment: number): number {
   return Math.ceil(value / alignment) * alignment;
@@ -40,6 +40,12 @@ function parseCssColorToRgba(color: string): [number, number, number, number] {
     ];
   }
   return [0, 0, 0, 1];
+}
+
+function readCssColor(name: string, fallback: string): string {
+  if (typeof window === "undefined" || typeof document === "undefined") return fallback;
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return value || fallback;
 }
 
 // ---------------------------------------------------------------------------
@@ -175,13 +181,10 @@ export interface WebGPUFIFOWaterfallOptions {
   canvas: HTMLCanvasElement;
   device: GPUDevice;
   format: GPUTextureFormat;
-  /** Raw dB Float32Array — MUST be a fixed width (e.g. 4096) to avoid resets */
   fftData: Float32Array;
-  frequencyRange: { min: number; max: number };
   fftMin?: number;
   fftMax?: number;
   driftAmount?: number;
-  driftDirection?: number;
   freeze?: boolean;
   wfSmooth?: boolean;
   restoreTexture?: {
@@ -189,13 +192,15 @@ export interface WebGPUFIFOWaterfallOptions {
     width: number;
     height: number;
     writeRow: number;
-    minDb?: number;
-    maxDb?: number;
-    colormap?: number[][];
   };
   colormap?: number[][];
   colormapName?: string;
   backgroundColor?: string;
+  fftSize?: number;
+  sampleRate?: number;
+  centerFrequencyHz?: number;
+  isPaused?: boolean;
+  isFirstFrame?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -295,7 +300,12 @@ export function useDrawWebGPUFIFOWaterfall() {
         restoreTexture,
         colormap,
         colormapName,
-        backgroundColor = FFT_CANVAS_BG,
+        backgroundColor = readCssColor("--color-fft-background", "#0a0a0a"),
+        fftSize,
+        sampleRate,
+        centerFrequencyHz,
+        isPaused = false,
+        isFirstFrame = false,
       } = options;
 
       if (!stateRef.current) {
@@ -427,6 +437,29 @@ export function useDrawWebGPUFIFOWaterfall() {
         // updateWaterfall() — push one row of raw dB into buffer
         // =========================================================
         if (!freeze && s.dataTex && fftData.length > 0) {
+          // Validate FFT data on first frame or when paused
+          if (isFirstFrame || isPaused) {
+            const validationResult = validateSpectrumDataComprehensive(fftData, {
+              fftSize,
+              sampleRate,
+              centerFrequencyHz,
+              timestamp: Date.now(),
+              isPaused,
+              isFirstFrame
+            });
+            
+            if (!validationResult.isValid) {
+              console.error(`WebGPU waterfall FFT validation failed (${isFirstFrame ? 'first frame' : 'paused'}):`, validationResult.errors);
+            } else if (validationResult.warnings.length > 0) {
+              console.warn(`WebGPU waterfall FFT validation warnings (${isFirstFrame ? 'first frame' : 'paused'}):`, validationResult.warnings);
+            }
+            
+            // Log validation metadata for debugging (only in development)
+            if (process.env.NODE_ENV === 'development') {
+              console.log('WebGPU waterfall FFT validation metadata:', validationResult.metadata);
+            }
+          }
+          
           const smear = Math.max(
             0,
             Math.min(Math.floor(driftAmount || 0), s.texH - 1),

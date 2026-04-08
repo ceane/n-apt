@@ -1,6 +1,5 @@
 import { memo, useRef, useEffect, useCallback } from "react";
 import styled from "styled-components";
-import { useDraw2DFFTSignal } from "@n-apt/hooks/useDraw2DFFTSignal";
 import { useDrawWebGPUFFTSignal } from "@n-apt/hooks/useDrawWebGPUFFTSignal";
 import { useDraw3DWaterfallSignal } from "@n-apt/hooks/useDraw3DWaterfallSignal";
 
@@ -12,19 +11,21 @@ interface FFTSpectrumProps {
   webgpuEnabled: boolean;
   webgpuDevice?: GPUDevice | null;
   webgpuFormat?: GPUTextureFormat | null;
-  resampleSpectrumInto: (_source: Float32Array, target: Float32Array) => void;
   onRenderComplete?: () => void;
   centerFrequencyMHz?: number;
   isDeviceConnected?: boolean;
   showGrid?: boolean;
   drawSignal3D?: boolean;
+  powerScale?: "dB" | "dBm";
+  fftMin?: number;
+  fftMax?: number;
 }
 
 const SpectrumCanvas = styled.canvas<{ $width: number; $height: number }>`
   display: block;
   width: ${({ $width }) => $width}px;
   height: ${({ $height }) => $height}px;
-  background-color: #0a0a0a;
+  background-color: ${(props) => props.theme.fftBackground};
 `;
 
 export const FFTSpectrum = memo<FFTSpectrumProps>(
@@ -36,17 +37,17 @@ export const FFTSpectrum = memo<FFTSpectrumProps>(
     webgpuEnabled,
     webgpuDevice,
     webgpuFormat,
-    resampleSpectrumInto: _resampleSpectrumInto,
     onRenderComplete,
     centerFrequencyMHz,
     isDeviceConnected = true,
     showGrid = true,
     drawSignal3D = false,
+    powerScale = "dB",
+    fftMin = powerScale === "dBm" ? -100 : -120,
+    fftMax = powerScale === "dBm" ? 30 : 0,
   }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
 
-    // Use appropriate rendering hook based on WebGPU availability and 3D mode
-    const { draw2DFFTSignal } = useDraw2DFFTSignal();
     const { drawWebGPUFFTSignal } = useDrawWebGPUFFTSignal();
     const { draw3DWaterfallSignal } = useDraw3DWaterfallSignal();
 
@@ -67,8 +68,8 @@ export const FFTSpectrum = memo<FFTSpectrumProps>(
           format: webgpuFormat,
           waveform: new Float32Array(waveformArray),
           frequencyRange,
-          fftMin: -120,
-          fftMax: 0,
+          fftMin,
+          fftMax,
           showGrid,
           centerFrequencyMHz,
           isDeviceConnected,
@@ -94,20 +95,7 @@ export const FFTSpectrum = memo<FFTSpectrumProps>(
           onRenderComplete?.();
         }
       } else {
-        // Use 2D Canvas rendering
-        const success = draw2DFFTSignal({
-          canvas,
-          waveform: waveformArray,
-          frequencyRange,
-          showGrid,
-          centerFrequencyMHz,
-          isDeviceConnected,
-          highPerformanceMode: false,
-        });
-
-        if (success) {
-          onRenderComplete?.();
-        }
+        return;
       }
     }, [
       width,
@@ -121,7 +109,6 @@ export const FFTSpectrum = memo<FFTSpectrumProps>(
       centerFrequencyMHz,
       isDeviceConnected,
       drawSignal3D,
-      draw2DFFTSignal,
       drawWebGPUFFTSignal,
       draw3DWaterfallSignal,
       onRenderComplete,

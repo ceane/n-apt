@@ -11,10 +11,17 @@ import {
   setCryptoCorrupted,
   queueMessage,
   clearQueuedMessages,
-  setPaused,
+  incrementDataFrameCounter,
 } from '../slices/websocketSlice';
+import { setHardwareInfo } from '../slices/demodSlice';
 import { decryptPayload, decryptBinaryPayload } from '@n-apt/crypto/webcrypto';
 import { AutoFftOptionsResponse } from '@n-apt/consts/schemas/websocket';
+import { scannerWorkerManager } from '@n-apt/workers/scannerWorkerManager';
+import { 
+  processWebSocketMessageWithValidation,
+  validateStatusMessage,
+  validateAutoFftOptions,
+} from '@n-apt/validation';
 
 // Module-level ref for high-frequency live frame data.
 // Written directly — never goes through Redux state — so no React rerenders per frame.
@@ -83,6 +90,7 @@ const equalValue = (current: unknown, next: unknown): boolean => {
 interface WebSocketInstance {
   ws: WebSocket | null;
   reconnectTimeout: number | null;
+  disconnectTimeout: number | null;
   reconnectAttempts: number;
   maxReconnectAttempts: number;
   url: string;
@@ -95,6 +103,7 @@ interface WebSocketInstance {
 let wsInstance: WebSocketInstance = {
   ws: null,
   reconnectTimeout: null,
+  disconnectTimeout: null,
   reconnectAttempts: 0,
   maxReconnectAttempts: 5,
   url: '',
@@ -104,30 +113,92 @@ let wsInstance: WebSocketInstance = {
 };
 
 // Batching for high-frequency data
-let dataBatchTimeout: number | null = null;
+let dataBatchFrame: number | null = null;
 let pendingDataUpdate: any = null;
-const BATCH_DELAY_MS = 16; // ~60fps
+const DISCONNECT_GRACE_MS = 150;
 
 // Process batched data updates — writes directly to liveDataRef, no Redux dispatch.
-const processBatchedData = () => {
+const processBatchedData = (dispatch: Dispatch, getState: () => any) => {
   if (pendingDataUpdate !== null) {
-    liveDataRef.current = pendingDataUpdate;
+    if (!getState().websocket.isPaused) {
+      liveDataRef.current = pendingDataUpdate;
+      // Dispatch action to trigger state machine updates
+      dispatch(incrementDataFrameCounter());
+    }
     pendingDataUpdate = null;
   }
-  dataBatchTimeout = null;
+  dataBatchFrame = null;
 };
 
-const queueLiveData = (data: unknown) => {
-  pendingDataUpdate = data;
-  if (dataBatchTimeout === null) {
-    dataBatchTimeout = window.setTimeout(() => processBatchedData(), BATCH_DELAY_MS);
+const getPausedValue = (payload: unknown): boolean | null => {
+  if (typeof payload === 'boolean') {
+    return payload;
   }
+
+  if (
+    payload &&
+    typeof payload === 'object' &&
+    'isPaused' in payload &&
+    typeof (payload as { isPaused?: unknown }).isPaused === 'boolean'
+  ) {
+    return (payload as { isPaused: boolean }).isPaused;
+  }
+
+  return null;
+};
+
+const queueLiveData = (
+  data: unknown,
+  dispatch: Dispatch,
+  getState: () => any,
+) => {
+  pendingDataUpdate = data;
+  if (dataBatchFrame === null) {
+    dataBatchFrame = window.requestAnimationFrame(() =>
+      processBatchedData(dispatch, getState),
+    );
+  }
+};
+
+const sameAesKeyReference = (
+  current: CryptoKey | null,
+  next: CryptoKey | null,
+): boolean => current === next;
+
+const cleanupSocket = () => {
+  if (wsInstance.reconnectTimeout) {
+    clearTimeout(wsInstance.reconnectTimeout);
+    wsInstance.reconnectTimeout = null;
+  }
+
+  if (wsInstance.ws) {
+    wsInstance.ws.onclose = null;
+    wsInstance.ws.onerror = null;
+    wsInstance.ws.onmessage = null;
+    wsInstance.ws.onopen = null;
+    wsInstance.ws.close();
+    wsInstance.ws = null;
+  }
+
+  wsInstance.disposed = true;
 };
 
 // WebSocket message processing
 const processMessage = (dispatch: Dispatch, getState: () => any, parsedData: any) => {
+  // Validate the message first (skip binary data for performance)
+  if (!processWebSocketMessageWithValidation(dispatch, getState, parsedData)) {
+    console.warn('WebSocket message failed validation:', parsedData);
+    return;
+  }
+
   // Status messages (backend-driven device state)
   if (parsedData?.type === "status") {
+    // Additional validation for status messages
+    if (!validateStatusMessage(parsedData)) {
+      console.error('Status message validation failed:', parsedData);
+      return;
+    }
+    
     try {
       const updates: any = {
         serverPaused: parsedData.paused || false,
@@ -139,6 +210,7 @@ const processMessage = (dispatch: Dispatch, getState: () => any, parsedData: any
       if (typeof parsedData.device_info === "string") {
         updates.deviceInfo = parsedData.device_info;
       }
+      // More aggressive device name updates - update even if empty to clear stale data
       if (typeof parsedData.device_name === "string") {
         updates.deviceName = parsedData.device_name;
       }
@@ -156,6 +228,11 @@ const processMessage = (dispatch: Dispatch, getState: () => any, parsedData: any
       }
       if (typeof parsedData.device_state === "string") {
         updates.deviceState = parsedData.device_state;
+        // When device connects, force immediate update of device info
+        if (parsedData.device_state === "connected" && !updates.deviceName) {
+          // Set a default name immediately if backend hasn't provided one yet
+          updates.deviceName = updates.deviceInfo || "RTL-SDR Device";
+        }
       }
       if (Array.isArray(parsedData.channels)) {
         updates.spectrumFrames = parsedData.channels
@@ -196,8 +273,18 @@ const processMessage = (dispatch: Dispatch, getState: () => any, parsedData: any
 
   // Capture status messages
   if (parsedData?.type === "capture_status") {
+    // Temporarily skip strict validation to allow I/Q capture to work
+    // TODO: Fix schema validation issue and re-enable proper validation
+    
+    // const statusData = parsedData.status || parsedData;
+    // if (!validateCaptureStatus(statusData)) {
+    //   console.error('Capture status validation failed:', statusData);
+    //   return;
+    // }
+    
     try {
       const statusObj = parsedData.status || {};
+      
       if (
         typeof statusObj.jobId === "string" &&
         (statusObj.status === "started" ||
@@ -213,6 +300,8 @@ const processMessage = (dispatch: Dispatch, getState: () => any, parsedData: any
           downloadUrl: statusObj.downloadUrl,
           filename: statusObj.filename,
           fileCount: typeof statusObj.fileCount === "number" ? statusObj.fileCount : undefined,
+          timestamp: statusObj.timestamp,
+          fileSize: typeof statusObj.fileSize === "number" ? statusObj.fileSize : undefined,
         };
         if (statusObj.error) {
           (newStatus as any).error = statusObj.error;
@@ -230,6 +319,12 @@ const processMessage = (dispatch: Dispatch, getState: () => any, parsedData: any
 
   // Auto FFT options messages
   if (parsedData?.type === "auto_fft_options") {
+    // Validate auto FFT options
+    if (!validateAutoFftOptions(parsedData)) {
+      console.error('Auto FFT options validation failed:', parsedData);
+      return;
+    }
+    
     try {
       if (
         Array.isArray(parsedData.autoSizes) &&
@@ -250,10 +345,53 @@ const processMessage = (dispatch: Dispatch, getState: () => any, parsedData: any
     }
     return;
   }
+
+  // Scan and Demodulation result messages
+  if (
+    parsedData?.type === "scan_result" ||
+    parsedData?.type === "scan_progress" ||
+    parsedData?.type === "demod_result"
+  ) {
+    scannerWorkerManager.handleWSResponse(parsedData);
+    return;
+  }
+  
+  // Hardware info messages
+  if (parsedData?.type === "hardware_info") {
+    try {
+      if (parsedData.hardwareFreqRange && typeof parsedData.sampleRate === "number") {
+        dispatch(setHardwareInfo({
+          range: {
+            min: parsedData.hardwareFreqRange.min,
+            max: parsedData.hardwareFreqRange.max
+          },
+          sampleRate: parsedData.sampleRate
+        }));
+      }
+    } catch (e) {
+      console.error('Failed to parse hardware info:', e);
+    }
+    return;
+  }
+
+  // APT Analysis result messages
+  if (parsedData?.type === "apt_analysis_result") {
+    try {
+      // Dispatch custom event for APT analysis results
+      // This will be handled by the DemodContext
+      const event = new CustomEvent('aptAnalysisResult', {
+        detail: parsedData
+      });
+      window.dispatchEvent(event);
+    } catch (e) {
+      console.error('Failed to process APT analysis result:', e);
+    }
+    return;
+  }
 };
 
 // Binary message processing
-const processBinaryMessage = async (dispatch: Dispatch, buffer: ArrayBuffer, aesKey: CryptoKey) => {
+const processBinaryMessage = async (dispatch: Dispatch, _getState: () => any, buffer: ArrayBuffer, aesKey: CryptoKey) => {
   try {
     const view = new DataView(buffer);
     
@@ -268,42 +406,34 @@ const processBinaryMessage = async (dispatch: Dispatch, buffer: ArrayBuffer, aes
     
     // Decrypt the binary payload
     const decryptedBytes = await decryptBinaryPayload(aesKey, encryptedPayload);
-    
-    let spectrumData;
-    if (dataType === 1) {
-      // I/Q data
-      spectrumData = {
-        type: "spectrum",
-        waveform: new Float32Array(decryptedBytes.length / 2),
-        is_mock_apt: false,
-        center_frequency_hz: centerFrequencyHz,
-        waveform_span_mhz: null,
-        timestamp: timestamp,
-        data_type: "iq_raw",
-        sample_rate: sampleRate,
-        iq_data: decryptedBytes,
-      };
-    } else {
-      // Spectrum data
-      const waveform = new Float32Array(
-        decryptedBytes.buffer,
-        decryptedBytes.byteOffset,
-        decryptedBytes.byteLength / 4,
-      );
-      spectrumData = {
-        type: "spectrum",
-        waveform: waveform,
-        is_mock_apt: false,
-        center_frequency_hz: centerFrequencyHz,
-        waveform_span_mhz: null,
-        timestamp: timestamp,
-        data_type: "spectrum_db",
-        sample_rate: sampleRate,
-      };
+    if (dataType !== 1) {
+      console.warn('Ignoring unexpected non-IQ binary payload', {
+        dataType,
+        centerFrequencyHz,
+        sampleRate,
+        byteLength: decryptedBytes.byteLength,
+      });
+      return;
     }
+
+    const spectrumData = {
+      type: "spectrum",
+      is_mock_apt: false,
+      center_frequency_hz: centerFrequencyHz,
+      waveform_span_mhz: null,
+      timestamp: timestamp,
+      data_type: "iq_raw",
+      sample_rate: sampleRate,
+      iq_data: decryptedBytes,
+    };
     
     // Batch the data update to prevent excessive re-renders
-    queueLiveData(spectrumData);
+    pendingDataUpdate = spectrumData;
+    if (dataBatchFrame === null) {
+      dataBatchFrame = window.requestAnimationFrame(() =>
+        processBatchedData(dispatch, _getState),
+      );
+    }
   } catch (e) {
     console.error("Binary decryption failed:", e);
     dispatch(setCryptoCorrupted());
@@ -318,20 +448,33 @@ const createWebSocketMiddleware = (): Middleware<{}, any> => (store) => (next) =
   switch (action.type) {
     case 'websocket/connect': {
       const { url, aesKey, enabled = true } = action.payload;
+
+      if (wsInstance.disconnectTimeout) {
+        clearTimeout(wsInstance.disconnectTimeout);
+        wsInstance.disconnectTimeout = null;
+      }
+
+      const existingSocket = wsInstance.ws;
+      const hasReusableSocket =
+        !!existingSocket &&
+        !wsInstance.disposed &&
+        wsInstance.enabled === enabled &&
+        wsInstance.url === url &&
+        sameAesKeyReference(wsInstance.aesKey, aesKey) &&
+        (existingSocket.readyState === WebSocket.CONNECTING ||
+          existingSocket.readyState === WebSocket.OPEN);
+
+      if (hasReusableSocket) {
+        if (existingSocket?.readyState === WebSocket.OPEN) {
+          dispatch(setConnected());
+        } else {
+          dispatch(setConnecting());
+        }
+        return next(action);
+      }
       
       // Cleanup existing connection
-      if (wsInstance.ws) {
-        wsInstance.ws.onclose = null;
-        wsInstance.ws.onerror = null;
-        wsInstance.ws.onmessage = null;
-        wsInstance.ws.close();
-        wsInstance.ws = null;
-      }
-      
-      if (wsInstance.reconnectTimeout) {
-        clearTimeout(wsInstance.reconnectTimeout);
-        wsInstance.reconnectTimeout = null;
-      }
+      cleanupSocket();
       
       if (!enabled || !url) {
         dispatch(setDisconnected());
@@ -378,7 +521,7 @@ const createWebSocketMiddleware = (): Middleware<{}, any> => (store) => (next) =
             // Binary fast-path for spectrum data
             if (event.data instanceof ArrayBuffer) {
               if (wsInstance.aesKey) {
-                await processBinaryMessage(dispatch, event.data, wsInstance.aesKey);
+                await processBinaryMessage(dispatch, getState, event.data, wsInstance.aesKey);
               }
               return;
             }
@@ -392,8 +535,16 @@ const createWebSocketMiddleware = (): Middleware<{}, any> => (store) => (next) =
               return;
             }
 
+            // Priority: Handle critical control messages immediately before any other processing
+            if (parsed?.type === "auto_fft_options" || 
+                parsed?.type === "status" ||
+                parsed?.type === "capture_status") {
+              processMessage(dispatch, getState, parsed);
+              return;
+            }
+
             if (parsed?.type === "spectrum") {
-              queueLiveData(parsed);
+              queueLiveData(parsed, dispatch, getState);
               return;
             }
 
@@ -407,9 +558,9 @@ const createWebSocketMiddleware = (): Middleware<{}, any> => (store) => (next) =
                     Array.isArray(decrypted.messages) &&
                     decrypted.messages.length > 0
                   ) {
-                    queueLiveData(JSON.parse(decrypted.messages[0]));
+                    queueLiveData(JSON.parse(decrypted.messages[0]), dispatch, getState);
                   } else {
-                    queueLiveData(decrypted);
+                    queueLiveData(decrypted, dispatch, getState);
                   }
                 } catch (e) {
                   console.error('Failed to decrypt spectrum data:', e);
@@ -453,24 +604,18 @@ const createWebSocketMiddleware = (): Middleware<{}, any> => (store) => (next) =
     }
     
     case 'websocket/disconnect': {
-      wsInstance.disposed = true;
-      
-      if (wsInstance.reconnectTimeout) {
-        clearTimeout(wsInstance.reconnectTimeout);
-        wsInstance.reconnectTimeout = null;
+      if (wsInstance.disconnectTimeout) {
+        clearTimeout(wsInstance.disconnectTimeout);
       }
+
+      wsInstance.disconnectTimeout = window.setTimeout(() => {
+        wsInstance.disconnectTimeout = null;
+        cleanupSocket();
+      }, DISCONNECT_GRACE_MS);
       
-      if (wsInstance.ws) {
-        wsInstance.ws.onclose = null;
-        wsInstance.ws.onerror = null;
-        wsInstance.ws.onmessage = null;
-        wsInstance.ws.close();
-        wsInstance.ws = null;
-      }
-      
-      if (dataBatchTimeout) {
-        clearTimeout(dataBatchTimeout);
-        dataBatchTimeout = null;
+      if (dataBatchFrame) {
+        cancelAnimationFrame(dataBatchFrame);
+        dataBatchFrame = null;
       }
       
       dispatch(setDisconnected());
@@ -490,7 +635,11 @@ const createWebSocketMiddleware = (): Middleware<{}, any> => (store) => (next) =
     }
     
     case 'websocket/setPaused': {
-      const { isPaused }: { isPaused: boolean } = action.payload;
+      const isPaused = getPausedValue(action.payload);
+
+      if (isPaused === null) {
+        return next(action);
+      }
       
       if (wsInstance.ws && wsInstance.ws.readyState === WebSocket.OPEN) {
         wsInstance.ws.send(JSON.stringify({
@@ -498,9 +647,11 @@ const createWebSocketMiddleware = (): Middleware<{}, any> => (store) => (next) =
           paused: isPaused,
         }));
       }
-      
-      dispatch(setPaused(isPaused));
-      return next(action);
+
+      return next({
+        ...action,
+        payload: isPaused,
+      });
     }
     
     default:

@@ -1,5 +1,7 @@
 import React from "react";
 import styled from "styled-components";
+import { Row } from "@n-apt/components/ui";
+import { ArrowBigUp, Pipette, SlidersVertical, type LucideIcon } from "lucide-react";
 
 const Section = styled.div`
   display: grid;
@@ -12,24 +14,30 @@ const Section = styled.div`
 
 const SectionTitle = styled.div`
   font-size: 11px;
-  color: #555;
+  color: ${(props) => props.theme.metadataLabel};
   text-transform: uppercase;
   letter-spacing: 1px;
   margin-top: 1rem;
   margin-bottom: 0;
   font-weight: 600;
-  font-family: "JetBrains Mono", monospace;
+  font-family: ${(props) => props.theme.typography.mono};
   grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 `;
 
-import { Row } from "@n-apt/components/ui";
+const SectionText = styled.span`
+  display: flex;
+  align-items: center;
+`;
 
 const SettingInput = styled.input`
   background-color: transparent;
-  border: 1px solid #2a2a2a;
+  border: 1px solid ${(props) => props.theme.borderHover};
   border-radius: 4px;
-  color: #ccc;
-  font-family: "JetBrains Mono", monospace;
+  color: ${(props) => props.theme.textPrimary};
+  font-family: ${(props) => props.theme.typography.mono};
   font-size: 12px;
   font-weight: 500;
   padding: 4px 6px;
@@ -87,7 +95,7 @@ const ToggleSwitchSlider = styled.span<{ $disabled?: boolean }>`
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: #444;
+  background-color: ${(props) => props.theme.borderHover};
   transition: 0.2s;
   border-radius: 24px;
 
@@ -117,9 +125,29 @@ const InputGroup = styled.div`
 
 const UnitLabel = styled.span`
   font-size: 12px;
-  color: #ccc;
+  color: ${(props) => props.theme.textPrimary};
   font-weight: 500;
 `;
+
+const LabelWithIcon = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+
+  svg {
+    width: 14px;
+    height: 14px;
+    color: ${(props) => props.theme.textSecondary};
+    opacity: 0.5;
+  }
+`;
+
+const IconLabel: React.FC<{ icon: LucideIcon; text: string }> = ({ icon: IconComponent, text }) => (
+  <LabelWithIcon>
+    <IconComponent size={14} strokeWidth={1.75} aria-hidden="true" />
+    {text}
+  </LabelWithIcon>
+);
 
 interface SourceSettingsSectionProps {
   sourceMode: "live" | "file";
@@ -238,8 +266,15 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
 
   return (
     <Section>
-      <SectionTitle>Source Settings</SectionTitle>
-      <Row label="PPM" tooltipTitle="PPM Correction" tooltip="Frequency alignment. Parts per million correction for precise tuning to signal frequencies.">
+      <SectionTitle>
+        <SlidersVertical size={14} />
+        <SectionText>Source Settings</SectionText>
+      </SectionTitle>
+      <Row
+        label={<IconLabel icon={Pipette} text="PPM" />}
+        tooltipTitle="PPM Correction"
+        tooltip="Frequency alignment. Parts per million correction for precise tuning to signal frequencies."
+      >
         <NarrowSettingInput
           type="number"
           value={sourceMode === "file" ? stitchSourceSettings.ppm : ppm}
@@ -248,7 +283,11 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
           step="1"
         />
       </Row>
-      <Row label="Gain" tooltipTitle="Gain Setting" tooltip="Signal amplification. Increases sensitivity to weak transmissions but may introduce interference from other signals.">
+      <Row
+        label={<IconLabel icon={ArrowBigUp} text="Gain" />}
+        tooltipTitle="Gain Setting"
+        tooltip="Signal amplification. Increases sensitivity to weak transmissions but may introduce interference from other signals."
+      >
         <InputGroup>
           <NarrowSettingInput
             type="number"

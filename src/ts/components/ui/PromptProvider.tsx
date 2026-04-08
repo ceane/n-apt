@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, ReactNode } from "react";
+import { Prompt } from "./Prompt";
 
 interface PromptOptions {
   title: string;
@@ -66,106 +67,19 @@ export const PromptProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     });
   };
 
-  const handleCancel = () => {
-    promptState.onCancel();
-  };
-
-  const handleConfirm = () => {
-    promptState.onConfirm();
-  };
-
   return (
     <PromptContext.Provider value={{ showPrompt }}>
       {children}
-      {promptState.open && (
-        <div
-          style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            width: "100vw",
-            height: "100vh",
-            background: "rgba(0, 0, 0, 0.8)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 99999,
-            backdropFilter: "blur(4px)",
-          }}
-          onClick={handleCancel}
-        >
-          <div
-            style={{
-              background: "#1a1a1a",
-              border: "1px solid #333",
-              borderRadius: "12px",
-              padding: "24px",
-              minWidth: "320px",
-              maxWidth: "90vw",
-              boxShadow: "0 20px 60px rgba(0, 0, 0, 0.9)",
-              fontFamily: "'JetBrains Mono', monospace",
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div style={{
-              fontSize: "16px",
-              fontWeight: "700",
-              color: "#fff",
-              marginBottom: "12px",
-            }}>
-              {promptState.title}
-            </div>
-            <div style={{
-              fontSize: "13px",
-              color: "#ccc",
-              lineHeight: "1.5",
-              marginBottom: "20px",
-            }}>
-              {promptState.message}
-            </div>
-            <div style={{
-              display: "flex",
-              gap: "12px",
-              justifyContent: "flex-end",
-            }}>
-              <button
-                onClick={handleCancel}
-                style={{
-                  background: "#333",
-                  color: "#ccc",
-                  border: "none",
-                  borderRadius: "6px",
-                  padding: "10px 16px",
-                  fontSize: "12px",
-                  fontWeight: "600",
-                  fontFamily: "inherit",
-                  cursor: "pointer",
-                  transition: "all 0.2s ease",
-                }}
-              >
-                {promptState.cancelText}
-              </button>
-              <button
-                onClick={handleConfirm}
-                style={{
-                  background: promptState.variant === "danger" ? "#ff4444" : "#00d4ff",
-                  color: "#000",
-                  border: "none",
-                  borderRadius: "6px",
-                  padding: "10px 16px",
-                  fontSize: "12px",
-                  fontWeight: "600",
-                  fontFamily: "inherit",
-                  cursor: "pointer",
-                  transition: "all 0.2s ease",
-                }}
-              >
-                {promptState.confirmText}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <Prompt
+        open={promptState.open}
+        title={promptState.title}
+        message={promptState.message}
+        confirmText={promptState.confirmText}
+        cancelText={promptState.cancelText}
+        onConfirm={promptState.onConfirm}
+        onCancel={promptState.onCancel}
+        variant={promptState.variant}
+      />
     </PromptContext.Provider>
   );
 };

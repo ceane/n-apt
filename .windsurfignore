@@ -3,6 +3,7 @@ node_modules/
 target/
 venv/
 dist/
+scripts/dist/
 package-lock.json
 Cargo.lock
 .cache

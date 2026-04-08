@@ -143,9 +143,9 @@ const BaseButton = styled.button`
   gap: 10px;
   padding: 10px 12px;
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.06);
-  color: rgba(255, 255, 255, 0.92);
+  border: 1px solid ${(props) => props.theme.border};
+  background: ${(props) => props.theme.surface};
+  color: ${(props) => props.theme.textPrimary};
   font-size: 12px;
   line-height: 1.1;
   text-align: left;
@@ -158,8 +158,8 @@ const BaseButton = styled.button`
     box-shadow 120ms ease;
 
   &:hover {
-    background: rgba(255, 255, 255, 0.1);
-    border-color: rgba(255, 255, 255, 0.18);
+    background: ${(props) => props.theme.surfaceHover};
+    border-color: ${(props) => props.theme.borderHover};
   }
 
   &:active {
@@ -175,13 +175,13 @@ const BaseButton = styled.button`
 `;
 
 const SelectableButton = styled(BaseButton) <{ $isSelected: boolean }>`
-  background: ${(props) => (props.$isSelected ? props.theme.primaryAlpha : "rgba(255,255,255,0.06)")};
-  border-color: ${(props) => (props.$isSelected ? props.theme.primary : "rgba(255,255,255,0.10)")};
+  background: ${(props) => (props.$isSelected ? props.theme.primaryAnchor : props.theme.surface)};
+  border-color: ${(props) => (props.$isSelected ? props.theme.primary : props.theme.border)};
   box-shadow: ${(props) => (props.$isSelected ? `0 0 0 1px ${props.theme.primaryAlpha}` : "none")};
 
   &:hover {
-    background: ${(props) => (props.$isSelected ? props.theme.primaryAlpha : "rgba(255,255,255,0.10)")};
-    border-color: ${(props) => (props.$isSelected ? props.theme.primary : "rgba(255,255,255,0.18)")};
+    background: ${(props) => (props.$isSelected ? props.theme.primaryAnchor : props.theme.surfaceHover)};
+    border-color: ${(props) => (props.$isSelected ? props.theme.primary : props.theme.borderHover)};
   }
 
   &:focus {
@@ -203,15 +203,15 @@ const SelectionIndicator = styled.span<{ $isSelected: boolean }>`
   background: ${(props) =>
     props.$isSelected
       ? props.theme.primary
-      : "rgba(255, 255, 255, 0.18)"};
+      : props.theme.borderHover};
 `;
 
 const ChevronIndicator = styled.span<{ $isSelected: boolean }>`
   font-size: 14px;
   color: ${(props) =>
     props.$isSelected
-      ? "rgba(255, 255, 255, 0.85)"
-      : "rgba(255, 255, 255, 0.35)"};
+      ? props.theme.textPrimary
+      : props.theme.textMuted};
   transform: ${(props) => (props.$isSelected ? "translateX(0)" : "translateX(-2px)")};
   transition: transform 120ms ease, color 120ms ease;
 `;

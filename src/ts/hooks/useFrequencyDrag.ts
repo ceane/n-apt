@@ -2,10 +2,7 @@ import { useRef, useEffect } from "react";
 import type { FrequencyRange } from "@n-apt/consts/types";
 
 export interface FrequencyDragOptions {
-  spectrumCanvasRef: React.RefObject<HTMLCanvasElement | null>;
   spectrumGpuCanvasRef: React.RefObject<HTMLCanvasElement | null>;
-  /** Pass the canvas DOM node state values so the effect re-runs when they mount */
-  spectrumCanvasNode?: HTMLCanvasElement | null;
   spectrumGpuCanvasNode?: HTMLCanvasElement | null;
   /** Container div wrapping the canvases (receives pointer events since canvas has pointer-events:none) */
   spectrumContainerRef?: React.RefObject<HTMLDivElement | null>;
@@ -16,6 +13,7 @@ export interface FrequencyDragOptions {
   onFrequencyRangeChange?: (range: FrequencyRange) => void;
   vizZoomRef?: React.MutableRefObject<number>;
   vizPanOffsetRef?: React.MutableRefObject<number>;
+  clampedVizRangeRef?: React.MutableRefObject<FrequencyRange>;
   onVizPanChange?: (pan: number) => void;
   vizDbMinRef?: React.MutableRefObject<number>;
   vizDbMaxRef?: React.MutableRefObject<number>;
@@ -26,9 +24,7 @@ export interface FrequencyDragOptions {
 }
 
 export function useFrequencyDrag({
-  spectrumCanvasRef,
   spectrumGpuCanvasRef,
-  spectrumCanvasNode,
   spectrumGpuCanvasNode,
   spectrumContainerRef,
   frequencyRangeRef,
@@ -38,6 +34,7 @@ export function useFrequencyDrag({
   onFrequencyRangeChange,
   vizZoomRef,
   vizPanOffsetRef,
+  clampedVizRangeRef,
   onVizPanChange,
   vizDbMinRef,
   vizDbMaxRef,
@@ -56,25 +53,16 @@ export function useFrequencyDrag({
   const selectionBoxRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    // The canvas layers have pointer-events:none so we must attach to the
-    // container div (CanvasWrapper) which sits behind all canvas layers and
+    // The canvas layer has pointer-events:none so we must attach to the
+    // container div (CanvasWrapper) which sits behind the canvas and
     // naturally receives all pointer events.
     const getContainer = (): HTMLElement | null => {
       if (spectrumContainerRef?.current) return spectrumContainerRef.current;
-      // Fallback: use the parent element of whichever canvas is active
-      const canvas = spectrumWebgpuEnabled
-        ? spectrumGpuCanvasRef.current
-        : spectrumCanvasRef.current;
-      return canvas?.parentElement ?? null;
+      return spectrumGpuCanvasRef.current?.parentElement ?? null;
     };
 
-    // For getBoundingClientRect we still use the canvas dimensions (same as container in practice)
     const getActiveSpectrumCanvas = (): HTMLElement | null => {
-      if (spectrumWebgpuEnabled) {
-        return spectrumGpuCanvasRef.current ?? getContainer();
-      } else {
-        return spectrumCanvasRef.current ?? getContainer();
-      }
+      return spectrumGpuCanvasRef.current ?? getContainer();
     };
 
     const handlePointerMove = (e: PointerEvent) => {
@@ -185,7 +173,7 @@ export function useFrequencyDrag({
           }
         }
 
-        // Standard behavior or fallback: Clamp to max allowable pan (stay within window)
+        // Standard behavior: Clamp to max allowable pan (stay within window)
         const clampedPan = Math.max(-maxPan, Math.min(maxPan, desiredPan));
         onVizPanChange(clampedPan);
       } else if (onFrequencyRangeChange) {
@@ -244,8 +232,6 @@ export function useFrequencyDrag({
         onFrequencyRangeChange(newRange);
 
       } else if (onVizPanChange) {
-        // View-only mode (file stitcher, zoom === 1): bounded visual pan so the
-        // frequency window never leaves the file's actual frequency span.
         const maxPan = fullRange / 2 - visualRange / 2;
         let newPan = dragStartPanRef.current - freqChange;
         newPan = Math.max(-maxPan, Math.min(maxPan, newPan));
@@ -301,19 +287,55 @@ export function useFrequencyDrag({
           if (boxWidth > 10 && boxHeight > 10 && onVizZoomChange && onVizPanChange && onFftDbLimitsChange) {
             const zoom = vizZoomRef?.current || 1;
             const fullRange = frequencyRangeRef.current.max - frequencyRangeRef.current.min;
-            const visualRange = fullRange / zoom;
-            const visualCenter = (frequencyRangeRef.current.min + frequencyRangeRef.current.max) / 2 + (vizPanOffsetRef?.current || 0);
-            const visualMin = visualCenter - visualRange / 2;
+            
+            // Use the actual clamped visual range from the renderer for precise mapping
+            const currentVisualRange = clampedVizRangeRef?.current || {
+              min: frequencyRangeRef.current.min,
+              max: frequencyRangeRef.current.max
+            };
+            const visualMin = currentVisualRange.min;
+            const visualRangeSpan = currentVisualRange.max - currentVisualRange.min;
             
             const left = Math.min(startX, currentX);
             const top = Math.min(startY, currentY);
 
-            // Calculate new frequency bounds
-            const newFreqMin = visualMin + (left / rect.width) * visualRange;
-            const newFreqMax = visualMin + ((left + boxWidth) / rect.width) * visualRange;
+            // Account for FFT plot area margins (in CSS pixels).
+            // The overlay renderer and 2D spectrum trace both use:
+            //   Left:   FFT_AREA_MIN.x = 50 CSS px
+            //   Top:    FFT_AREA_MIN.y = 20 CSS px
+            //   Right:  containerWidth - 40 CSS px
+            //   Bottom: containerHeight - 40 CSS px
+            const plotLeftCSS = 50;
+            const plotRightCSS = rect.width - 40;
+            const plotTopCSS = 20;
+            const plotBottomCSS = rect.height - 40;
+            const plotWidthCSS = plotRightCSS - plotLeftCSS;
+            const plotHeightCSS = plotBottomCSS - plotTopCSS;
+
+            // Clamp selection coordinates to the plot area
+            const selLeft = Math.max(left, plotLeftCSS);
+            const selRight = Math.min(left + boxWidth, plotRightCSS);
+            const selTop = Math.max(top, plotTopCSS);
+            const selBottom = Math.min(top + boxHeight, plotBottomCSS);
+
+            const clampedBoxWidth = selRight - selLeft;
+            const clampedBoxHeight = selBottom - selTop;
+
+            if (clampedBoxWidth < 5 || clampedBoxHeight < 5) {
+              // Too small after clamping to plot area
+              selectionBoxRef.current.remove();
+              selectionBoxRef.current = null;
+              return;
+            }
+
+            // Map plot-area-relative coordinates to frequency
+            const freqFracLeft = (selLeft - plotLeftCSS) / plotWidthCSS;
+            const freqFracRight = (selRight - plotLeftCSS) / plotWidthCSS;
+            const newFreqMin = visualMin + freqFracLeft * visualRangeSpan;
+            const newFreqMax = visualMin + freqFracRight * visualRangeSpan;
             
-            // Zoom multiplier based on ratio of canvas width to box width
-            const newZoomMultiplier = rect.width / boxWidth;
+            // Zoom multiplier based on ratio of plot width to selection width
+            const newZoomMultiplier = plotWidthCSS / clampedBoxWidth;
             const newZoomRaw = zoom * newZoomMultiplier;
             const newZoom = Math.max(1, Math.min(1000, newZoomRaw));
             
@@ -327,15 +349,16 @@ export function useFrequencyDrag({
             const maxPan = fullRange / 2 - clampedVisualRange / 2;
             newPan = Math.max(-maxPan, Math.min(maxPan, newPan));
 
-            // Calculate dB bounds
+            // Calculate dB bounds from plot-area-relative Y coordinates
             const currentDbMax = vizDbMaxRef?.current ?? 0;
             const currentDbMin = vizDbMinRef?.current ?? -120;
             const dbRange = currentDbMax - currentDbMin;
 
-            // Y is inverted (0 is top, rect.height is bottom)
-            // dB is also inverted visually (maxDb is top, minDb is bottom)
-            const newDbMax = Math.round(currentDbMax - (top / rect.height) * dbRange);
-            const newDbMin = Math.round(currentDbMax - ((top + boxHeight) / rect.height) * dbRange);
+            // Y is inverted: top of plot area = dbMax, bottom = dbMin
+            const dbFracTop = (selTop - plotTopCSS) / plotHeightCSS;
+            const dbFracBottom = (selBottom - plotTopCSS) / plotHeightCSS;
+            const newDbMax = Math.round(currentDbMax - dbFracTop * dbRange);
+            const newDbMin = Math.round(currentDbMax - dbFracBottom * dbRange);
 
             // Check if there is actual signal intersecting this box
             let hasSignal = true;
@@ -422,12 +445,8 @@ export function useFrequencyDrag({
     onFrequencyRangeChange,
     activeSignalArea,
     spectrumWebgpuEnabled,
-    spectrumCanvasRef,
     spectrumGpuCanvasRef,
     spectrumContainerRef,
-    // Canvas nodes (state values) ensure the effect re-runs when the DOM
-    // elements actually mount, so event listeners are attached correctly.
-    spectrumCanvasNode,
     spectrumGpuCanvasNode,
     frequencyRangeRef,
     vizZoomRef,
@@ -443,10 +462,7 @@ export function useFrequencyDrag({
   useEffect(() => {
     const getContainer = (): HTMLElement | null => {
       if (spectrumContainerRef?.current) return spectrumContainerRef.current;
-      const canvas = spectrumWebgpuEnabled
-        ? spectrumGpuCanvasRef.current
-        : spectrumCanvasRef.current;
-      return canvas?.parentElement ?? null;
+      return spectrumGpuCanvasRef.current?.parentElement ?? null;
     };
     const container = getContainer();
     if (container && !isDraggingRef.current) {
@@ -454,7 +470,6 @@ export function useFrequencyDrag({
     }
   }, [
     spectrumWebgpuEnabled,
-    spectrumCanvasRef,
     spectrumGpuCanvasRef,
     spectrumContainerRef,
   ]);

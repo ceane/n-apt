@@ -5,9 +5,6 @@ import { formatFrequency } from "@n-apt/consts/sdr";
 import {
   STEP_SIZE,
   RANGE_TRACK_HEIGHT,
-  RANGE_TRACK_BACKGROUND,
-  RANGE_TRACK_BORDER,
-  RANGE_LABELS_COLOR,
   RANGE_LABELS_PADDING,
   RANGE_LABELS_FONT_SIZE,
 } from "@n-apt/consts";
@@ -25,6 +22,9 @@ interface FrequencyRangeSliderProps {
   onRangeChange: (range: FrequencyRange) => void;
   isDeviceConnected?: boolean;
   externalFrequencyRange?: FrequencyRange; // Add external frequency range for VFO sync
+  readOnly?: boolean; // Add read-only mode for scanning progress
+  scanProgress?: number; // Scan progress for visual feedback
+  scanCurrentFreq?: number; // Current scanning frequency
 }
 
 // Styled Components
@@ -65,13 +65,14 @@ const SliderContainer = styled.div<{ $isActive: boolean }>`
   transition: border-color 0.2s ease, background-color 0.2s ease;
   box-sizing: border-box;
   min-width: 0;
+  touch-action: none;
 `;
 
 const RangeTrack = styled.div`
   position: relative;
   height: ${RANGE_TRACK_HEIGHT}px;
-  background-color: ${RANGE_TRACK_BACKGROUND};
-  border: 1px solid ${RANGE_TRACK_BORDER};
+  background-color: ${(props) => props.theme.rangeTrackBackground};
+  border: 1px solid ${(props) => props.theme.rangeTrackBorder};
   border-radius: 4px;
   overflow: hidden;
   user-select: none;
@@ -89,19 +90,22 @@ const RangeLabels = styled.div`
   align-items: center;
   padding: ${RANGE_LABELS_PADDING};
   font-size: ${RANGE_LABELS_FONT_SIZE};
-  color: ${RANGE_LABELS_COLOR};
+  color: ${(props) => props.theme.rangeLabels};
   pointer-events: none;
   user-select: none;
 `;
 
-const VisibleWindow = styled.div<{ $isActive: boolean }>`
+const VisibleWindow = styled.div<{ $isActive: boolean; $readOnly?: boolean; $isScanning?: boolean }>`
   position: absolute;
   top: 2px;
   bottom: 2px;
   background-color: ${(props) =>
-    props.$isActive ? props.theme.activeBackground : props.theme.inactiveBackground};
-  border: 1px solid ${(props) => (props.$isActive ? props.theme.primary : props.theme.textMuted)};
-  cursor: grab;
+    props.$isScanning ? `${props.theme.success}30` :
+      props.$isActive ? props.theme.activeBackground : props.theme.inactiveBackground};
+  border: 1px solid ${(props) =>
+    props.$isScanning ? props.theme.success :
+      props.$isActive ? props.theme.primary : props.theme.textMuted};
+  cursor: ${props => props.$readOnly ? "default" : "grab"};
   display: grid;
   align-items: center;
   justify-items: center;
@@ -109,6 +113,8 @@ const VisibleWindow = styled.div<{ $isActive: boolean }>`
   box-sizing: border-box;
   min-width: min-content;
   overflow: visible;
+  transition: background-color 0.3s ease, border-color 0.3s ease;
+  touch-action: none;
 `;
 
 const WindowLabel = styled.span<{ $isActive: boolean }>`
@@ -137,6 +143,9 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   externalFrequencyRange,
   sampleRateMHz = null,
   limitMarkers: _limitMarkers,
+  readOnly = false,
+  scanProgress = 0,
+  scanCurrentFreq,
 }) => {
   const totalRange = maxFreq - minFreq;
   const safeTotalRange = Number.isFinite(totalRange) && totalRange > 0 ? totalRange : 1;
@@ -178,6 +187,13 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   const internalChangeIdRef = useRef(0);
   const lastNotifiedChangeIdRef = useRef(0);
   const [isDragging, setIsDragging] = useState(false);
+
+  // Calculate scan position if scanning
+  const scanWindowStart = readOnly && scanCurrentFreq !== undefined
+    ? (scanCurrentFreq - minFreq) / safeTotalRange
+    : windowStart;
+
+  const isScanning = readOnly && scanProgress > 0;
 
   const [trackWidth, setTrackWidth] = useState(1000);
   const [windowLabelWidth, setWindowLabelWidth] = useState(0);
@@ -240,15 +256,20 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   const renderedThumbWidth = Math.max(logicalThumbWidth, minContentThumbWidth);
   const logicalMaxWindowStart = Math.max(0, 1 - windowWidth);
   const clampedWindowStart = Math.max(0, Math.min(logicalMaxWindowStart, windowStart));
+
+  // Use scan position for visual feedback when scanning
+  const effectiveWindowStart = isScanning ? scanWindowStart : clampedWindowStart;
+  const effectiveMaxWindowStart = isScanning ? 1 - windowWidth : logicalMaxWindowStart;
+
   let visualRatio = 0;
-  if (logicalMaxWindowStart > 0) {
-    visualRatio = Math.max(0, Math.min(1, clampedWindowStart / logicalMaxWindowStart));
+  if (effectiveMaxWindowStart > 0) {
+    visualRatio = Math.max(0, Math.min(1, effectiveWindowStart / effectiveMaxWindowStart));
   }
 
   const draggableTrackWidth = Math.max(0, trackWidth - renderedThumbWidth);
   let thumbLeftPx = visualRatio * draggableTrackWidth;
-  if (logicalMaxWindowStart <= 0) {
-    thumbLeftPx = clampedWindowStart * trackWidth;
+  if (effectiveMaxWindowStart <= 0) {
+    thumbLeftPx = effectiveWindowStart * trackWidth;
   }
 
   const currentMin = Math.max(minFreq, minFreq + windowStart * safeTotalRange);
@@ -421,6 +442,7 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   }, [windowWidth, notifyParent]);
 
   const handleMouseDown = (e: React.MouseEvent) => {
+    if (readOnly) return; // Disable dragging in read-only mode
     e.stopPropagation();
     onActivate?.();
     isDraggingRef.current = true;
@@ -433,7 +455,18 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
     dragStartMaxWindowStartRef.current = logicalMaxWindowStart;
   };
 
+  const handleTrackMouseDown = (e: React.MouseEvent) => {
+    if (readOnly) return;
+
+    if (e.target === thumbRef.current || thumbRef.current?.contains(e.target as Node)) {
+      return;
+    }
+
+    handleMouseDown(e);
+  };
+
   const handleContainerClick = (e: React.MouseEvent) => {
+    if (readOnly) return; // Disable clicking in read-only mode
     if (
       e.target === containerRef.current ||
       (e.target as HTMLElement).closest(".range-track")
@@ -451,6 +484,7 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
         ref={containerRef}
         $isActive={isActive}
         onClick={handleContainerClick}
+        onMouseDown={handleTrackMouseDown}
         tabIndex={0}
       >
         <RangeTrack ref={trackRef} className="range-track">
@@ -476,6 +510,8 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
           <VisibleWindow
             ref={thumbRef}
             $isActive={isActive}
+            $readOnly={readOnly}
+            $isScanning={isScanning}
             style={{
               left: `${thumbLeftPx}px`,
               width: `max(${widthPercent}%, ${minContentThumbWidth}px)`,

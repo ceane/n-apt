@@ -5,7 +5,8 @@
  * exchanged between the client and server.
  */
 
-import { GeolocationData } from "@n-apt/types/geolocation";
+import { type GeolocationData } from "../../types/geolocation";
+export { type GeolocationData };
 
 export type DeviceState =
   | "connected"
@@ -60,6 +61,31 @@ export type SdrSettingsConfig = {
   };
 };
 
+export type AptContentType = "audio_hearing" | "audio_internal" | "speech" | "video_vision";
+
+export interface AptChannelMetadata {
+  windowSizeHz: number;
+  contentType: AptContentType;
+  subChannelRange: [number, number];
+  centerFreqHz: number;
+  signalStrengthDb: number;
+  snr: number;
+  demodProcessor: string;
+}
+
+export interface SdrProcessorSettings {
+  fft_size?: number;
+  fft_window?: string;
+  frame_rate?: number;
+  gain?: number;
+  ppm?: number;
+  tuner_agc?: boolean;
+  rtl_agc?: boolean;
+  offset_tuning?: boolean;
+  direct_sampling?: number;
+  tuner_bandwidth?: number;
+}
+
 export type SpectrumFrame = {
   id: string;
   label: string;
@@ -68,18 +94,36 @@ export type SpectrumFrame = {
   description: string;
 };
 
+export type IqRawFrame = {
+  type: "spectrum";
+  is_mock_apt?: boolean;
+  center_frequency_hz?: number;
+  waveform_span_mhz?: number | null;
+  timestamp?: number;
+  data_type: "iq_raw";
+  sample_rate?: number;
+  iq_data: Uint8Array;
+};
+
+export type LiveFrameData = IqRawFrame;
+
 export type CaptureFileType = ".napt" | ".wav";
+
+export type CaptureDurationMode = "timed" | "manual";
 
 export type CaptureRequest = {
   jobId: string;
   fragments: { minFreq: number; maxFreq: number }[];
-  durationS: number;
+  durationMode: CaptureDurationMode;
+  durationS?: number;
   fileType: CaptureFileType;
   acquisitionMode: "stepwise" | "interleaved" | "whole_sample";
   encrypted: boolean;
   fftSize: number;
   fftWindow: string;
   geolocation?: GeolocationData;
+  refBasedDemodBaseline?: "audio_hearing" | "audio_internal" | "speech" | "vision";
+  liveMode?: boolean;
 };
 
 export type CaptureStatus = {
@@ -91,6 +135,9 @@ export type CaptureStatus = {
   downloadUrl?: string;
   filename?: string;
   fileCount?: number;
+  ephemeral?: boolean;
+  timestamp?: number;
+  fileSize?: number;
 } | null;
 
 export type AutoFftOptionsResponse = {
@@ -128,7 +175,9 @@ export type WebSocketMessage =
   | { type: "gain"; gain: number }
   | { type: "ppm"; ppm: number }
   | ({ type: "settings" } & SDRSettings)
+  | { type: "frame_rate"; frameRate: number }
   | { type: "restart_device" }
   | { type: "training_capture"; action: "start" | "stop"; label: "target" | "noise"; signalArea: string }
   | ({ type: "capture" } & CaptureRequest)
+  | { type: "capture_stop"; jobId?: string }
   | { type: "get_auto_fft_options"; screenWidth: number };

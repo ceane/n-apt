@@ -1,11 +1,6 @@
 import "styled-components";
+import type { AppStyledTheme } from "@n-apt/components/ui/Theme";
 
 declare module "styled-components" {
-  export interface DefaultTheme {
-    primary: string;
-    fft: string;
-    mode: string;
-    // Include existing COLORS if they are used via theme
-    [key: string]: any;
-  }
+  export interface DefaultTheme extends AppStyledTheme {}
 }

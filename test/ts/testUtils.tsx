@@ -1,28 +1,23 @@
-import React from 'react';
-import { Provider } from 'react-redux';
-import { configureStore } from '@reduxjs/toolkit';
-import { ThemeProvider } from 'styled-components';
-import authSlice from '../../src/ts/redux/slices/authSlice';
-import spectrumSlice from '../../src/ts/redux/slices/spectrumSlice';
-import waterfallSlice from '../../src/ts/redux/slices/waterfallSlice';
-import themeSlice from '../../src/ts/redux/slices/themeSlice';
-import settingsSlice from '../../src/ts/redux/slices/settingsSlice';
-import websocketSlice from '../../src/ts/redux/slices/websocketSlice';
+import React from "react";
+import { Provider } from "react-redux";
+import { configureStore } from "@reduxjs/toolkit";
+import { ThemeProvider } from "styled-components";
+import authSlice from "../../src/ts/redux/slices/authSlice";
+import spectrumSlice from "../../src/ts/redux/slices/spectrumSlice";
+import waterfallSlice from "../../src/ts/redux/slices/waterfallSlice";
+import themeSlice from "../../src/ts/redux/slices/themeSlice";
+import settingsSlice from "../../src/ts/redux/slices/settingsSlice";
+import websocketSlice from "../../src/ts/redux/slices/websocketSlice";
+import { buildAppTheme } from "../../src/ts/components/ui/Theme";
+import { THEME_TOKENS } from "../../src/ts/consts";
 
-const defaultTheme = {
-  background: '#000000',
-  surface: '#141414',
-  border: '#1a1a1a',
-  textPrimary: '#cccccc',
-  textSecondary: '#888888',
-  primary: '#4a9eff',
-  success: '#4ade80',
-  danger: '#ff4444',
-  warning: '#fbbf24',
-  metadataLabel: '#555555',
-  metadataValue: '#cccccc',
-  fileMode: '#d9aa34',
-};
+const defaultTheme = buildAppTheme({
+  accentColor: THEME_TOKENS.colors.dark.primary,
+  fftColor: THEME_TOKENS.colors.dark.fftLine,
+  appMode: "system",
+  resolvedMode: "dark",
+  waterfallTheme: "classic",
+});
 
 export function createTestStore() {
   return configureStore({

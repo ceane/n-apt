@@ -13,22 +13,22 @@ const FormGrid = styled.div`
 
 const SectionTitle = styled.div`
   font-size: 11px;
-  color: #555;
+  color: ${(props) => props.theme.metadataLabel};
   text-transform: uppercase;
   letter-spacing: 1px;
   margin-top: 1.5rem;
   margin-bottom: 12px;
   font-weight: 600;
-  font-family: "JetBrains Mono", monospace;
+  font-family: ${(props) => props.theme.typography.mono};
   grid-column: 1 / -1;
 `;
 
 const SettingInput = styled.input`
-  background-color: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background-color: ${(props) => props.theme.surface};
+  border: 1px solid ${(props) => props.theme.border};
   border-radius: 4px;
-  color: #ccc;
-  font-family: "JetBrains Mono", monospace;
+  color: ${(props) => props.theme.textPrimary};
+  font-family: ${(props) => props.theme.typography.mono};
   font-size: 11px;
   font-weight: 500;
   padding: 4px 8px;
@@ -37,7 +37,7 @@ const SettingInput = styled.input`
   transition: all 0.2s ease;
 
   &:hover {
-    border-color: rgba(255, 255, 255, 0.15);
+    border-color: ${(props) => props.theme.borderHover};
   }
 
   &:focus {
@@ -48,11 +48,11 @@ const SettingInput = styled.input`
 `;
 
 const SettingSelect = styled.select`
-  background-color: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background-color: ${(props) => props.theme.surface};
+  border: 1px solid ${(props) => props.theme.border};
   border-radius: 4px;
-  color: #ccc;
-  font-family: "JetBrains Mono", monospace;
+  color: ${(props) => props.theme.textPrimary};
+  font-family: ${(props) => props.theme.typography.mono};
   font-size: 11px;
   font-weight: 500;
   padding: 4px 8px;
@@ -68,7 +68,7 @@ const SettingSelect = styled.select`
   transition: all 0.2s ease;
 
   &:hover {
-    border-color: rgba(255, 255, 255, 0.15);
+    border-color: ${(props) => props.theme.borderHover};
   }
 
   &:focus {
@@ -78,8 +78,8 @@ const SettingSelect = styled.select`
   }
 
   option {
-    background-color: #1a1a1a;
-    color: #ccc;
+    background-color: ${(props) => props.theme.surface};
+    color: ${(props) => props.theme.textPrimary};
   }
 `;
 
@@ -88,7 +88,7 @@ const Button = styled.button<{ $variant?: "primary" | "danger" | "warning" }>`
   padding: 8px 12px;
   border: none;
   border-radius: 6px;
-  font-family: "JetBrains Mono", monospace;
+  font-family: ${(props) => props.theme.typography.mono};
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
@@ -101,35 +101,35 @@ const Button = styled.button<{ $variant?: "primary" | "danger" | "warning" }>`
       case "primary":
         return `
           background-color: ${props.theme.primary};
-          color: #000;
+          color: ${props.theme.background};
           &:hover {
             opacity: 0.9;
           }
         `;
       case "danger":
         return `
-          background-color: #ff4444;
-          color: #fff;
+          background-color: ${props.theme.danger};
+          color: ${props.theme.textPrimary};
           &:hover {
-            background-color: #ff6666;
+            background-color: ${props.theme.danger}cc;
           }
         `;
       case "warning":
         return `
-          background-color: #ff6b6b;
-          color: #fff;
+          background-color: ${props.theme.warning};
+          color: ${props.theme.background};
           &:hover {
-            background-color: #ff8888;
+            background-color: ${props.theme.warning}cc;
           }
         `;
       default:
         return `
-          background-color: #2a2a2a;
-          color: #ccc;
-          border: 1px solid #444;
+          background-color: ${props.theme.surfaceHover};
+          color: ${props.theme.textPrimary};
+          border: 1px solid ${props.theme.borderHover};
           &:hover {
-            background-color: #333;
-            border-color: #555;
+            background-color: ${props.theme.surface};
+            border-color: ${props.theme.primary};
           }
         `;
     }
@@ -146,48 +146,57 @@ const HotspotList = styled.div`
 `;
 
 const HotspotItem = styled.div<{ $selected: boolean }>`
-  background-color: ${(props) => (props.$selected ? "rgba(255, 255, 255, 0.08)" : "rgba(255, 255, 255, 0.03)")};
-  border: 1px solid ${(props) => (props.$selected ? props.theme.primary : "rgba(255, 255, 255, 0.08)")};
+  background-color: ${(props) => (props.$selected ? props.theme.primaryAnchor : props.theme.surface)};
+  border: 1px solid ${(props) => (props.$selected ? props.theme.primary : props.theme.border)};
   border-radius: 6px;
   padding: 10px 12px;
   cursor: pointer;
   transition: all 0.2s ease;
 
   &:hover {
-    background-color: rgba(255, 255, 255, 0.05);
-    border-color: rgba(255, 255, 255, 0.15);
+    background-color: ${(props) => props.theme.surfaceHover};
+    border-color: ${(props) => props.theme.borderHover};
   }
 `;
 
 const HotspotName = styled.div`
-  color: #ccc;
+  color: ${(props) => props.theme.textPrimary};
   font-weight: 600;
   font-size: 12px;
   margin-bottom: 4px;
 `;
 
 const HotspotPosition = styled.div`
-  color: #666;
+  color: ${(props) => props.theme.textMuted};
   font-size: 11px;
-  font-family: "JetBrains Mono", monospace;
+  font-family: ${(props) => props.theme.typography.mono};
 `;
 
 const DeleteButton = styled.button`
   margin-top: 8px;
   padding: 4px 8px;
-  background-color: rgba(255, 68, 68, 0.1);
-  border: 1px solid rgba(255, 68, 68, 0.2);
-  color: #ff4444;
+  background-color: ${(props) => `${props.theme.danger}1a`};
+  border: 1px solid ${(props) => `${props.theme.danger}33`};
+  color: ${(props) => props.theme.danger};
   border-radius: 4px;
   cursor: pointer;
   font-size: 10px;
-  font-family: "JetBrains Mono", monospace;
+  font-family: ${(props) => props.theme.typography.mono};
   transition: all 0.2s ease;
 
   &:hover {
-    background-color: rgba(255, 68, 68, 0.2);
-    border-color: rgba(255, 68, 68, 0.3);
+    background-color: ${(props) => `${props.theme.danger}33`};
+    border-color: ${(props) => `${props.theme.danger}4d`};
   }
+`;
+
+const InlineHint = styled.div`
+  margin-left: 12px;
+  margin-bottom: 8px;
+  color: ${(props) => props.theme.textMuted};
+  font-family: ${(props) => props.theme.typography.mono};
+  font-size: 10px;
+  grid-column: 1 / -1;
 `;
 
 export const HotspotEditorSection: React.FC = () => {
@@ -251,31 +260,22 @@ export const HotspotEditorSection: React.FC = () => {
         <Row label="Multi-Select">
           <input
             type="checkbox"
-            style={{ accentColor: "var(--primary-color, #00d4ff)" }}
+            style={{ accentColor: "var(--color-primary)" }}
             checked={isMultiSelectMode}
             onChange={(e) => setIsMultiSelectMode(e.target.checked)}
           />
         </Row>
 
         {isMultiSelectMode && (
-          <div
-            style={{
-              marginLeft: "12px",
-              marginBottom: "8px",
-              color: "#666",
-              fontFamily: "JetBrains Mono",
-              fontSize: "10px",
-              gridColumn: "1 / -1",
-            }}
-          >
+          <InlineHint>
             Selected: {multiSelectedHotspots.length}
-          </div>
+          </InlineHint>
         )}
 
         <Row label="Show Grid">
           <input
             type="checkbox"
-            style={{ accentColor: "var(--primary-color, #00d4ff)" }}
+            style={{ accentColor: "var(--color-primary)" }}
             checked={showGrid}
             onChange={(e) => setShowGrid(e.target.checked)}
           />

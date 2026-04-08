@@ -16,6 +16,7 @@ export interface SpectrumState {
   powerScale: PowerScale;
   vizZoom: number;
   vizPanOffset: number;
+  displayMode: "fft" | "iq";
   
   // FFT settings
   fftMinDb: number;
@@ -73,9 +74,10 @@ const initialState: SpectrumState = {
   powerScale: "dB",
   vizZoom: 1,
   vizPanOffset: 0,
+  displayMode: "fft",
   
   fftMinDb: -120,
-  fftMaxDb: 0,
+  fftMaxDb: 0, // This will be updated based on powerScale
   fftSize: 32768,
   fftSizeOptions: [],
   fftWindow: "Rectangular",
@@ -140,10 +142,10 @@ const spectrumSlice = createSlice({
       
       // Auto-adjust dB limits when switching scales
       if (isSwitchingToDbm && state.powerScale !== "dBm") {
-        state.fftMinDb = -100;
+        state.fftMinDb = -120;
         state.fftMaxDb = 30;
       } else if (!isSwitchingToDbm && state.powerScale === "dBm") {
-        state.fftMinDb = -120;
+        state.fftMinDb = -150;
         state.fftMaxDb = 0;
       }
       
@@ -156,6 +158,10 @@ const spectrumSlice = createSlice({
     
     setVizPan: (state, action: PayloadAction<number>) => {
       state.vizPanOffset = action.payload;
+    },
+    
+    setDisplayMode: (state, action: PayloadAction<"fft" | "iq">) => {
+      state.displayMode = action.payload;
     },
     
     // FFT settings
@@ -257,26 +263,32 @@ const spectrumSlice = createSlice({
       const isDbm = state.powerScale === "dBm";
       state.vizZoom = 1;
       state.vizPanOffset = 0;
+      // dBm reset: 30dBm to -100dBm
+      // dB reset: 0dB to -120dB
       state.fftMinDb = isDbm ? -100 : -120;
       state.fftMaxDb = isDbm ? 30 : 0;
     },
     
     resetLiveControls: (state, action: PayloadAction<{ fftSize?: number; fftFrameRate?: number }>) => {
-      state.displayTemporalResolution = LIVE_CONTROL_DEFAULTS.displayTemporalResolution;
-      state.powerScale = LIVE_CONTROL_DEFAULTS.powerScale;
-      state.vizZoom = LIVE_CONTROL_DEFAULTS.vizZoom;
-      state.vizPanOffset = LIVE_CONTROL_DEFAULTS.vizPanOffset;
-      state.fftMinDb = LIVE_CONTROL_DEFAULTS.fftMinDb;
-      state.fftMaxDb = LIVE_CONTROL_DEFAULTS.fftMaxDb;
-      state.fftSize = action.payload.fftSize ?? state.fftSize;
-      state.fftFrameRate = action.payload.fftFrameRate ?? state.fftFrameRate;
-      state.fftWindow = LIVE_CONTROL_DEFAULTS.fftWindow;
-      state.fftAvgEnabled = false;
-      state.fftSmoothEnabled = false;
-      state.wfSmoothEnabled = false;
-      state.gain = LIVE_CONTROL_DEFAULTS.gain;
-      state.ppm = LIVE_CONTROL_DEFAULTS.ppm;
-      state.tunerAGC = LIVE_CONTROL_DEFAULTS.tunerAGC;
+      const isDbm = state.powerScale === "dBm";
+      return {
+        ...state,
+        displayTemporalResolution: LIVE_CONTROL_DEFAULTS.displayTemporalResolution,
+        vizZoom: LIVE_CONTROL_DEFAULTS.vizZoom,
+        vizPanOffset: LIVE_CONTROL_DEFAULTS.vizPanOffset,
+        fftMinDb: isDbm ? -100 : -150,
+        fftMaxDb: isDbm ? 30 : 0,
+        fftWindow: LIVE_CONTROL_DEFAULTS.fftWindow,
+        gain: LIVE_CONTROL_DEFAULTS.gain,
+        ppm: LIVE_CONTROL_DEFAULTS.ppm,
+        tunerAGC: LIVE_CONTROL_DEFAULTS.tunerAGC,
+        rtlAGC: LIVE_CONTROL_DEFAULTS.rtlAGC,
+        fftAvgEnabled: false,
+        fftSmoothEnabled: false,
+        wfSmoothEnabled: false,
+        fftSize: action.payload.fftSize ?? state.fftSize,
+        fftFrameRate: action.payload.fftFrameRate ?? state.fftFrameRate,
+      };
       state.rtlAGC = LIVE_CONTROL_DEFAULTS.rtlAGC;
     },
   },
@@ -290,6 +302,7 @@ export const {
   setPowerScale,
   setVizZoom,
   setVizPan,
+  setDisplayMode,
   setFftDbLimits,
   setFftSize,
   setFftSizeOptions,

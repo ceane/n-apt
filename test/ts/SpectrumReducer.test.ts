@@ -71,10 +71,6 @@ jest.mock("@n-apt/hooks/useHotspotEditor", () => ({
     children,
 }));
 
-jest.mock("@n-apt/components/sidebar/SidebarForRoute", () => ({
-  SidebarForRoute: () => null,
-}));
-
 
 
 
@@ -276,5 +272,3 @@ describe("spectrumReducer", () => {
     expect(next).toBe(INITIAL_SPECTRUM_STATE);
   });
 });
-
-

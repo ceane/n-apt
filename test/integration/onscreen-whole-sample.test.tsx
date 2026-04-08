@@ -36,6 +36,9 @@ describe("Onscreen Whole Sample Capture", () => {
       </TestWrapper>,
     );
 
+    // Open the collapsible section
+    fireEvent.click(screen.getByText("IQ Capture Controls"));
+
     fireEvent.click(screen.getByLabelText("Onscreen"));
 
     await act(async () => {

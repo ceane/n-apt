@@ -112,8 +112,8 @@ impl RtlSdrDevice {
     // Set mandatory default sample rate (3.2MHz is the peak rate for RTL2832U)
     let _ = device.set_sample_rate(3_200_000);
 
-    // RTL-SDR Blog V4 and other R828D devices need a moment to settle their 
-    // I2C bridge after being powered on/opened, otherwise subsequent commands 
+    // RTL-SDR Blog V4 and other R828D devices need a moment to settle their
+    // I2C bridge after being powered on/opened, otherwise subsequent commands
     // may return LIBUSB_ERROR_NO_DEVICE (-4) or LIBUSB_ERROR_IO (-5).
     thread::sleep(std::time::Duration::from_millis(250));
 
@@ -218,23 +218,26 @@ impl RtlSdrDevice {
   }
 
   /// RTL-SDR specific FFT power spectrum calculation for calibrated dBm output
-  /// 
+  ///
   /// This function implements rtl_power style dBm conversion using:
   /// - Raw I/Q samples (8-bit unsigned, offset-binary)
   /// - Current tuner gain for calibration
   /// - Proper power spectral density calculation
-  /// 
+  ///
   /// Formula: dbm = 10 * log10(power / (sample_rate * fft_size)) + gain_calibration
-  /// 
+  ///
   /// # Arguments
   /// * `samples` - Raw I/Q samples from RTL-SDR device
-  /// 
+  ///
   /// # Returns
   /// * `Vec<f32>` - Power spectrum in calibrated dBm
-  pub fn rtl_sdr_fft_power_spectrum_dbm(&self, samples: &crate::fft::types::RawSamples) -> Result<Vec<f32>> {
+  pub fn rtl_sdr_fft_power_spectrum_dbm(
+    &self,
+    samples: &crate::fft::types::RawSamples,
+  ) -> Result<Vec<f32>> {
     use rustfft::{num_complex::Complex, FftPlanner};
     use std::f32::consts::PI;
-    
+
     let fft_size = samples.data.len() / 2; // I/Q pairs
     if fft_size == 0 || !fft_size.is_power_of_two() {
       return Err(anyhow!("Invalid FFT size: {}", fft_size));
@@ -264,14 +267,15 @@ impl RtlSdrDevice {
     let mut power_spectrum: Vec<f32> = Vec::with_capacity(fft_size);
     let sample_rate = samples.sample_rate as f32;
     let current_gain = self.get_tuner_gain() as f32 / 10.0; // Convert from tenths of dB
-    
+
     // RTL-SDR gain calibration table (dBm offset for different gain settings)
     // These values are typical for RTL-SDR R820T/R860 tuners
     let gain_calibration = self.get_gain_calibration_offset(current_gain);
 
     for complex_val in iq_samples {
-      let power = complex_val.re * complex_val.re + complex_val.im * complex_val.im;
-      
+      let power =
+        complex_val.re * complex_val.re + complex_val.im * complex_val.im;
+
       // Power spectral density calculation (rtl_power style)
       // dbm = 10 * log10(power / (sample_rate * fft_size)) + gain_calibration
       let normalized_power = power / (sample_rate * fft_size as f32);
@@ -280,7 +284,7 @@ impl RtlSdrDevice {
       } else {
         -120.0 // Floor value for very low power
       };
-      
+
       power_spectrum.push(dbm);
     }
 
@@ -288,13 +292,13 @@ impl RtlSdrDevice {
   }
 
   /// Get gain calibration offset for RTL-SDR dBm conversion
-  /// 
+  ///
   /// This provides frequency-independent gain correction based on RTL-SDR characteristics.
   /// Values are empirically derived for typical RTL-SDR R820T tuners.
-  /// 
+  ///
   /// # Arguments
   /// * `gain_db` - Current tuner gain in dB
-  /// 
+  ///
   /// # Returns
   /// * `f32` - Calibration offset in dBm
   fn get_gain_calibration_offset(&self, gain_db: f32) -> f32 {
@@ -302,24 +306,30 @@ impl RtlSdrDevice {
     // Based on typical R820T tuner characteristics
     // These values compensate for the tuner's non-linear gain response
     match gain_db as i32 {
-      0 => -10.5,    // 0 dB gain
-      9 => -5.2,     // 9 dB gain  
-      14 => -2.8,    // 14 dB gain
-      18 => -1.5,    // 18 dB gain
-      21 => -0.8,    // 21 dB gain
-      25 => -0.3,    // 25 dB gain
-      28 => 0.0,     // 28 dB gain (reference point)
-      34 => 0.2,     // 34 dB gain
-      37 => 0.3,     // 37 dB gain
-      40 => 0.4,     // 40 dB gain
-      43 => 0.45,    // 43 dB gain
-      47 => 0.48,    // 47 dB gain
-      49 => 0.5,     // 49 dB gain
+      0 => -10.5, // 0 dB gain
+      9 => -5.2,  // 9 dB gain
+      14 => -2.8, // 14 dB gain
+      18 => -1.5, // 18 dB gain
+      21 => -0.8, // 21 dB gain
+      25 => -0.3, // 25 dB gain
+      28 => 0.0,  // 28 dB gain (reference point)
+      34 => 0.2,  // 34 dB gain
+      37 => 0.3,  // 37 dB gain
+      40 => 0.4,  // 40 dB gain
+      43 => 0.45, // 43 dB gain
+      47 => 0.48, // 47 dB gain
+      49 => 0.5,  // 49 dB gain
       _ => {
         // Linear interpolation for non-standard gain values
-        let gains = vec![0.0, 9.0, 14.0, 18.0, 21.0, 25.0, 28.0, 34.0, 37.0, 40.0, 43.0, 47.0, 49.0];
-        let offsets = vec![-10.5, -5.2, -2.8, -1.5, -0.8, -0.3, 0.0, 0.2, 0.3, 0.4, 0.45, 0.48, 0.5];
-        
+        let gains = vec![
+          0.0, 9.0, 14.0, 18.0, 21.0, 25.0, 28.0, 34.0, 37.0, 40.0, 43.0, 47.0,
+          49.0,
+        ];
+        let offsets = vec![
+          -10.5, -5.2, -2.8, -1.5, -0.8, -0.3, 0.0, 0.2, 0.3, 0.4, 0.45, 0.48,
+          0.5,
+        ];
+
         for i in 0..gains.len() - 1 {
           if gain_db >= gains[i] && gain_db <= gains[i + 1] {
             let ratio = (gain_db - gains[i]) / (gains[i + 1] - gains[i]);
@@ -775,7 +785,8 @@ impl SdrDevice for RtlSdrDevice {
   }
 
   fn set_offset_tuning(&mut self, enabled: bool) -> Result<()> {
-    let ret = unsafe { ffi::rtlsdr_set_offset_tuning(self.dev, enabled as i32) };
+    let ret =
+      unsafe { ffi::rtlsdr_set_offset_tuning(self.dev, enabled as i32) };
     if ret != 0 {
       return Err(anyhow!("Failed to set offset tuning (code {})", ret));
     }

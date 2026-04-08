@@ -10,12 +10,8 @@ function parseFrequencyFromFilename(filename: string): number {
   return match ? parseFloat(match[1]) : 0.0;
 }
 
-function loadC64File(fileData: ArrayBuffer, _fileName: string): number[] {
-  // Convert ArrayBuffer to number array
-  const view = new DataView(fileData);
-  return Array.from({ length: fileData.byteLength }, (_, i) =>
-    view.getUint8(i),
-  );
+function loadC64File(fileData: ArrayBuffer, _fileName: string): Uint8Array {
+  return new Uint8Array(fileData);
 }
 
 type FileMetadata = {
@@ -44,24 +40,21 @@ type FileMetadata = {
     requested_max_freq_hz?: number;
     offset_iq?: number;
     iq_length?: number;
-    offset_spectrum?: number;
-    spectrum_length?: number;
     bins_per_frame?: number;
   }[];
 };
 
 type WavLoadResult = {
-  raw: number[];
+  raw: Uint8Array;
   metadata: FileMetadata | null;
-  nSpcFrames: Float32Array[] | null;
   channels?: {
-    iq_data: number[];
-    spectrum_frames: Float32Array[];
+    iq_data: Uint8Array;
     center_freq_hz: number;
     sample_rate_hz: number;
     frequency_range?: [number, number];
     frame_rate?: number;
     hardware_sample_rate_hz?: number;
+    bins_per_frame?: number;
   }[];
 };
 
@@ -84,11 +77,9 @@ function loadWavFile(fileData: ArrayBuffer): WavLoadResult {
   let dataStart = 0;
   let dataSize = 0;
   let metadata: FileMetadata | null = null;
-  let nSpcFrames: Float32Array[] | null = null;
-  
+
   // Storage for additional channels
   const extraIqChunks: Map<number, Uint8Array> = new Map();
-  const extraSpcChunks: Map<number, Uint8Array> = new Map();
 
   while (offset + 8 <= fileData.byteLength) {
     const chunkId = text(offset, 4);
@@ -106,11 +97,6 @@ function loadWavFile(fileData: ArrayBuffer): WavLoadResult {
       if (!isNaN(idx)) {
         extraIqChunks.set(idx, new Uint8Array(fileData, chunkDataStart, safeSize));
       }
-    } else if (chunkId.startsWith("nSP")) {
-        const idx = chunkId === "nSPC" ? 0 : parseInt(chunkId.substring(3));
-        if (!isNaN(idx)) {
-            extraSpcChunks.set(idx, new Uint8Array(fileData, chunkDataStart, safeSize));
-        }
     } else if (chunkId === "nAPT") {
       try {
         const metaBytes = new Uint8Array(fileData, chunkDataStart, safeSize);
@@ -133,69 +119,41 @@ function loadWavFile(fileData: ArrayBuffer): WavLoadResult {
   if (dataStart === 0) throw new Error("No data chunk in WAV");
   
   const mainIqBytes = new Uint8Array(fileData, dataStart, Math.max(0, dataSize));
-  const raw = Array.prototype.slice.call(mainIqBytes);
-
-  // Parse spectrum frames for all channels
-  const defaultFftSize = metadata?.fft_size || 2048;
-  const parseSpectrum = (bytes: Uint8Array, customFftSize?: number) => {
-    const fftSize = customFftSize || defaultFftSize;
-    const numFloats = bytes.byteLength / 4;
-    const numFrames = Math.floor(numFloats / fftSize);
-    if (numFrames <= 0) return [];
-    
-    // Ensure alignment
-    const floatBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + numFrames * fftSize * 4);
-    const floatView = new Float32Array(floatBuffer);
-    const frames = [];
-    for (let i = 0; i < numFrames; i++) {
-        frames.push(floatView.slice(i * fftSize, (i + 1) * fftSize));
-    }
-    return frames;
-  };
-
-  if (extraSpcChunks.has(0)) {
-    const ch0Meta = metadata?.channels?.[0];
-    nSpcFrames = parseSpectrum(extraSpcChunks.get(0)!, ch0Meta?.bins_per_frame);
-  }
+  const raw = mainIqBytes.slice(); // Owned copy (source buffer may be transferred)
 
   // Construct channels array
   const channels: WavLoadResult["channels"] = [];
   if (metadata?.channels && metadata.channels.length > 0) {
     for (let i = 0; i < metadata.channels.length; i++) {
       const chMeta = metadata.channels[i];
-      let iq: number[] = [];
-      let spec: Float32Array[] = [];
+      let iq: Uint8Array = new Uint8Array(0);
 
       if (i === 0) {
         iq = raw;
-        spec = nSpcFrames || [];
       } else {
         const iqBytes = extraIqChunks.get(i);
-        if (iqBytes) iq = Array.prototype.slice.call(iqBytes);
-
-        const spcBytes = extraSpcChunks.get(i);
-        if (spcBytes) spec = parseSpectrum(spcBytes, chMeta.bins_per_frame);
+        if (iqBytes) iq = iqBytes.slice(); // Owned copy
       }
 
       channels.push({
         iq_data: iq,
-        spectrum_frames: spec,
         center_freq_hz: chMeta.center_freq_hz,
         sample_rate_hz: chMeta.sample_rate_hz,
+        bins_per_frame: chMeta.bins_per_frame,
       });
     }
   }
 
-  return { raw, metadata, nSpcFrames, channels };
+  return { raw, metadata, channels };
 }
 
 function processToSpectrum(
-  rawData: number[],
+  rawData: Uint8Array | number[],
   frame: number = 0,
   gain: number = 0,
   fftSize: number = 8192,
 ): number[] {
-  const spectrum = new Array(fftSize).fill(-120);
+  const spectrum = new Array(fftSize).fill(-150);
   const windowSize = fftSize * 2;
   const windowStep = windowSize * 4;
   const maxChunks = 4;
@@ -235,13 +193,13 @@ function processToSpectrum(
   const gainOffset = gain > 0 ? 20 * Math.log10(gain) : 0;
 
   for (let i = 0; i < fftSize; i++) {
-    let dbValue = -120;
+    let dbValue = -150;
     if (counts[i] > 0) {
       let meanEnergy = powerBins[i] / counts[i];
       meanEnergy = meanEnergy / fftSize;
-      dbValue = 10 * Math.log10(meanEnergy + 1e-12) + gainOffset;
+      dbValue = 10 * Math.log10(meanEnergy + 1e-15) + gainOffset;
     }
-    spectrum[i] = Math.max(-120, Math.min(0, dbValue));
+    spectrum[i] = Math.max(-150, Math.min(0, dbValue));
   }
   return spectrum;
 }
@@ -299,41 +257,11 @@ function stitchAdjacentChannels(channels: any[], _defaultFftSize: number, maxSam
       .map((c: any) => c.frequency_range?.[1])
       .filter((v: number | undefined) => Number.isFinite(v));
     
-    // Ensure all channels have the same number of frames by truncating to the shortest channel.
-    // This prevents asymmetric padding at the end of the waterfall, which the user saw as solid
-    // blocks of "clipping" on either the left or right edge depending on which channel was shorter.
-    const numFrames = Math.min(...group.map((c: any) => c.spectrum_frames?.length || Number.MAX_SAFE_INTEGER));
-    if (numFrames === 0 || numFrames === Number.MAX_SAFE_INTEGER) return group[0];
-    const stitchedFrames: Float32Array[] = [];
-    
-    for (let f = 0; f < numFrames; f++) {
-      // Simply concatenate — backend already trimmed overlapping data
-      const slices: Float32Array[] = [];
-      for (const ch of group) {
-        let frameData = ch.spectrum_frames?.[f];
-        if (!frameData) {
-          // Pad with noise if this channel is shorter than the others
-          const binCount = ch.spectrum_frames?.[0]?.length || ch.bins_per_frame || _defaultFftSize;
-          frameData = new Float32Array(binCount).fill(-100);
-        }
-        slices.push(frameData);
-      }
-      
-      const totalBins = slices.reduce((sum, s) => sum + s.length, 0);
-      const combinedFrame = new Float32Array(totalBins);
-      let offset = 0;
-      for (const s of slices) {
-        combinedFrame.set(s, offset);
-        offset += s.length;
-      }
-      stitchedFrames.push(combinedFrame);
-    }
-    
     return {
-      iq: group[0].iq,
-      spectrum_frames: stitchedFrames,
+      iq_data: group[0].iq_data || group[0].iq,
       center_freq_hz: newCenter,
       sample_rate_hz: totalSpan,
+      bins_per_frame: group[0].bins_per_frame || _defaultFftSize,
       frequency_range:
         requestedMins.length > 0 && requestedMaxs.length > 0
           ? [Math.min(...requestedMins), Math.max(...requestedMaxs)]
@@ -345,15 +273,14 @@ function stitchAdjacentChannels(channels: any[], _defaultFftSize: number, maxSam
 }
 
 function buildCombinedFrame(
-  fileDataCache: Map<string, number[]>,
+  fileDataCache: Map<string, Uint8Array | number[]>,
   freqMap: Map<string, number>,
   frame: number,
   metadataMap: Map<string, FileMetadata> = new Map(),
   fftSize: number = currentFftSize,
-  nSpcCache: Map<string, Float32Array[]> = new Map(),
   maxSampleRateHz: number = 3200000,
 ) {
-  const allFileNames = new Set([...fileDataCache.keys(), ...nSpcCache.keys()]);
+  const allFileNames = new Set(fileDataCache.keys());
   if (allFileNames.size === 0) return null;
 
   let minFreq = Infinity;
@@ -386,29 +313,20 @@ function buildCombinedFrame(
 
   if (minFreq === Infinity) return null;
 
-  const combinedWaveform = new Float32Array(fftSize).fill(-120);
+  const combinedWaveform = new Float32Array(fftSize).fill(-150);
   const totalFreqSpan = maxFreq - minFreq || 1;
 
   for (const name of allFileNames) {
     const range = fileRanges.get(name);
     if (!range) continue;
 
-    const nSpcFrames = nSpcCache.get(name);
-    let spectrum;
-    if (nSpcFrames && nSpcFrames.length > 0) {
-      const frameIdx = Math.min(frame, nSpcFrames.length - 1);
-      spectrum = nSpcFrames[frameIdx];
-    } else {
-      const raw = fileDataCache.get(name);
-      if (!raw) continue;
-      spectrum = processToSpectrum(raw, frame, 0, fftSize);
-    }
+    const raw = fileDataCache.get(name);
+    if (!raw) continue;
+    const spectrum = processToSpectrum(raw, frame, 0, fftSize);
 
     if (!spectrum) continue;
 
-    // Check if spectrum data is already fftshifted (from NAPT backend processing)
-    const meta = metadataMap.get(name);
-    const isPreShifted = !!(meta as any)?.spectrum_shifted && nSpcFrames && nSpcFrames.length > 0;
+    const isPreShifted = false;
 
     const startBin = Math.floor(
       ((range.min - minFreq) / totalFreqSpan) * fftSize,
@@ -459,13 +377,17 @@ self.onmessage = async function (e) {
   try {
     switch (type) {
       case "loadFile": {
-        const { fileData, fileName, aesKey, sampleRateOptions } = data;
+        const { fileData, fileName, aesKey } = data;
         const lower = fileName.toLowerCase();
-        let rawData: number[] = [];
+        let rawData: Uint8Array = new Uint8Array(0);
         if (lower.endsWith(".wav")) {
           const res = loadWavFile(fileData);
-          rawData = res.raw;
-          self.postMessage({ type: "result", id, data: { rawData, fileName, metadata: res.metadata } });
+          rawData = res.raw; // res.raw is already Uint8Array from loadWavFile
+          
+          (self as any).postMessage(
+            { type: "result", id, data: { rawData, fileName, metadata: res.metadata } },
+            [rawData.buffer],
+          );
         } else if (lower.endsWith(".napt") && aesKey) {
           const MAX_HEADER_READ = Math.min(8192, fileData.byteLength);
           const maxHeaderBytes = new Uint8Array(fileData, 0, MAX_HEADER_READ);
@@ -475,28 +397,43 @@ self.onmessage = async function (e) {
           const jsonStr = new TextDecoder().decode(maxHeaderBytes.slice(0, newlineIdx));
           const metaObj = JSON.parse(jsonStr);
           
-          const channels = metaObj.channels || [{ offset_iq: metaObj.offset_iq, offset_spectrum: metaObj.offset_spectrum }];
+          // Check for channels at top-level OR inside metadata
+          const channels = metaObj.channels || metaObj.metadata?.channels || [
+            { 
+              offset_iq: metaObj.offset_iq ?? metaObj.metadata?.offset_iq, 
+              iq_length: metaObj.iq_length ?? metaObj.metadata?.iq_length
+            }
+          ];
           const firstChannel = channels[0];
 
-          if (firstChannel && firstChannel.offset_iq !== undefined && firstChannel.offset_spectrum !== undefined) {
+          if (firstChannel && firstChannel.offset_iq !== undefined) {
             // Determine actual padding size. Backend now uses 4096, previously used 2048.
-            const headerSize = metaObj.channels ? 4096 : 2048;
+            // Force 4096 if metaObj.metadata.channels exists as hinted by the user's header dump
+            const headerSize = (metaObj.metadata?.channels || metaObj.channels) ? 4096 : 2048;
 
             const encryptedData = new Uint8Array(fileData, headerSize);
             const iv = encryptedData.slice(0, 12);
             const ciphertext = encryptedData.slice(12);
-            const decryptedData = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, aesKey, ciphertext);
-            const payloadArray = new Uint8Array(decryptedData);
             
-            const chOffsetIq = firstChannel.offset_iq;
-            const chOffsetSpec = firstChannel.offset_spectrum;
-            
-            const iqByteLength = firstChannel.iq_length ?? (chOffsetSpec - chOffsetIq);
-            rawData = Array.from(payloadArray.slice(chOffsetIq, chOffsetIq + iqByteLength));
-            const metadata = metaObj.metadata || metaObj;
-            self.postMessage({ type: "result", id, data: { rawData, fileName, metadata } });
+            try {
+              const decryptedData = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, aesKey, ciphertext);
+              const payloadArray = new Uint8Array(decryptedData);
+              
+              const chOffsetIq = firstChannel.offset_iq;
+              const iqByteLength = firstChannel.iq_length ?? (payloadArray.length - chOffsetIq);
+              
+              const iqPart = payloadArray.slice(chOffsetIq, chOffsetIq + iqByteLength);
+              const metadata = metaObj.metadata || metaObj;
+              
+              const responseData = { rawData: iqPart, fileName, metadata };
+              (self as any).postMessage({ type: "result", id, data: responseData }, [iqPart.buffer]);
+            } catch (decryptErr: any) {
+              console.error("NAPT Load - Decryption Failed:", decryptErr);
+              throw new Error(`Decryption failed: ${decryptErr.message || decryptErr}`);
+            }
           } else {
-            throw new Error("Missing offset_iq or offset_spectrum in header channels");
+            console.error("NAPT Load - Invalid channel offsets", { firstChannel });
+            throw new Error("Missing offset_iq in header channels");
           }
         } else {
           rawData = loadC64File(fileData, fileName);
@@ -511,10 +448,8 @@ self.onmessage = async function (e) {
         
         // DERIVE MAX SAMPLE RATE FROM OPTIONS OR FALLBACK TO 3.2MHz
         const maxSampleRateHz = sampleRateOptions?.maxSampleRateHz || 3200000;
-        const currentSampleRateHz = sampleRateOptions?.currentSampleRateHz || maxSampleRateHz;
         
         const fileDataCache = new Map();
-        const nSpcCache = new Map();
         const freqMap = new Map();
         const metadataMap = new Map();
 
@@ -524,15 +459,13 @@ self.onmessage = async function (e) {
           const file = files[i];
           try {
             const lower = file.fileName.toLowerCase();
-            let rawData: number[] = [];
+            let rawData: Uint8Array = new Uint8Array(0);
             let metadata: FileMetadata | null = null;
-            let nSpcFrames: Float32Array[] | null = null;
 
             if (lower.endsWith(".wav")) {
-              const { raw, metadata: wavMeta, nSpcFrames: wavFrames, channels } = loadWavFile(file.fileData);
+              const { raw, metadata: wavMeta, channels } = loadWavFile(file.fileData);
               rawData = raw;
               metadata = wavMeta as FileMetadata;
-              nSpcFrames = wavFrames;
               
               // VALIDATE SAMPLE RATE AGAINST MAXIMUM (DYNAMIC, NOT HARDCODED)
               const sampleRate = metadata?.capture_sample_rate_hz || metadata?.sample_rate_hz || maxSampleRateHz;
@@ -566,9 +499,7 @@ self.onmessage = async function (e) {
               if (!channelsMetadata && metaObj.offset_iq !== undefined) {
                   channelsMetadata = [{
                       offset_iq: metaObj.offset_iq,
-                      offset_spectrum: metaObj.offset_spectrum,
-                      iq_length: metaObj.offset_spectrum - metaObj.offset_iq,
-                      spectrum_length: undefined,
+                      iq_length: metaObj.iq_length,
                       center_freq_hz: metadata?.center_frequency_hz || 0,
                       sample_rate_hz: metadata?.capture_sample_rate_hz || 0
                   }];
@@ -606,32 +537,16 @@ self.onmessage = async function (e) {
                 for (let j = 0; j < channelsMetadata.length; j++) {
                     const ch = channelsMetadata[j];
                     const chOffsetIq = ch.offset_iq;
-                    const chOffsetSpec = ch.offset_spectrum;
-                    const iqLength = ch.iq_length ?? 0;
+                    const nextOffsetIq = j + 1 < channelsMetadata.length
+                      ? channelsMetadata[j + 1].offset_iq
+                      : payloadArray.length;
+                    const iqLength = ch.iq_length ?? Math.max(0, nextOffsetIq - chOffsetIq);
                     const iqBytes = payloadArray.slice(chOffsetIq, chOffsetIq + iqLength);
-                    const iq = Array.prototype.slice.call(iqBytes);
-
-                    const specLength = ch.spectrum_length || (j + 1 < channelsMetadata.length ? channelsMetadata[j+1].offset_iq - ch.offset_spectrum : payloadArray.length - chOffsetSpec);
-                    const specBytes = payloadArray.slice(chOffsetSpec, chOffsetSpec + specLength);
-                    
-                    const frames: Float32Array[] = [];
-                    const globalFftSize = metadata?.fft_size || (metadata as any)?.fft?.size || 2048;
-                    const chFftSize = ch.bins_per_frame || globalFftSize;
-                    if (specBytes.length > 0) {
-                        const numFrames = Math.floor((specBytes.length / 4) / chFftSize);
-                        if (numFrames > 0) {
-                            const floatBuffer = specBytes.buffer.slice(specBytes.byteOffset, specBytes.byteOffset + numFrames * chFftSize * 4);
-                            const floatView = new Float32Array(floatBuffer);
-                            for (let f = 0; f < numFrames; f++) {
-                                frames.push(floatView.slice(f * chFftSize, (f + 1) * chFftSize));
-                            }
-                        }
-                    }
                     parsedChannels.push({
-                        iq,
-                        spectrum_frames: frames,
+                        iq_data: iqBytes, // Already an owned Uint8Array from .slice()
                         center_freq_hz: ch.center_freq_hz,
                         sample_rate_hz: ch.sample_rate_hz,
+                        bins_per_frame: ch.bins_per_frame,
                         frame_rate: metadata?.frame_rate,
                         hardware_sample_rate_hz: metadata?.hardware_sample_rate_hz,
                         frequency_range:
@@ -653,98 +568,51 @@ self.onmessage = async function (e) {
                 const stitchedChannelsWithRange = stitchAdjacentChannels(parsedChannels, actualFftSize, maxSampleRateHz);
                 (metadata as any).channels_data = stitchedChannelsWithRange;
                 
-                // Register each stitched group as a separate entry for buildCombinedFrame.
-                // Previously only the first raw channel was stored, causing the waterfall to
-                // show only one hop's bandwidth (~3.2MHz) mapped to the full capture range,
-                // with everything beyond that hop at -120dB ("clipping at sample rate edge").
-                if (stitchedChannelsWithRange.length === 1 && stitchedChannelsWithRange[0].spectrum_frames?.length > 0) {
-                    // Single stitched group — use it directly as the file's spectrum
-                    const onlyGroup = stitchedChannelsWithRange[0];
-                    nSpcFrames = onlyGroup.spectrum_frames;
-                    // Update metadata to match the requested frequency range if available,
-                    // otherwise fall back to the stitched group's bounds (which may be
-                    // wider than requested due to hop expansion).
-                    if (metadata) {
-                        const freqRange = onlyGroup.frequency_range || metadata.frequency_range;
-                        if (freqRange && freqRange.length === 2) {
-                            const rangeMinHz = freqRange[0] * 1_000_000;
-                            const rangeMaxHz = freqRange[1] * 1_000_000;
-                            const spanHz = rangeMaxHz - rangeMinHz;
-                            (metadata as any).center_frequency_hz = rangeMinHz + spanHz / 2;
-                            (metadata as any).capture_sample_rate_hz = spanHz;
-                            (metadata as any).sample_rate_hz = spanHz;
-                            (metadata as any).frequency_range = freqRange;
-                        } else {
-                            (metadata as any).center_frequency_hz = onlyGroup.center_freq_hz;
-                            (metadata as any).capture_sample_rate_hz = onlyGroup.sample_rate_hz;
-                            (metadata as any).sample_rate_hz = onlyGroup.sample_rate_hz;
-                        }
-                    }
-                } else if (stitchedChannelsWithRange.length > 1) {
-                    // Multiple stitched groups (e.g., group capture with non-adjacent regions A+B)
-                    // Register first group as the base file
-                    const firstGroup = stitchedChannelsWithRange[0];
-                    if (firstGroup.spectrum_frames?.length > 0) {
-                        nSpcFrames = firstGroup.spectrum_frames;
-                        if (metadata) {
-                            const freqRange = firstGroup.frequency_range || metadata.frequency_range;
-                            if (freqRange && freqRange.length === 2) {
-                                const rangeMinHz = freqRange[0] * 1_000_000;
-                                const rangeMaxHz = freqRange[1] * 1_000_000;
-                                const spanHz = rangeMaxHz - rangeMinHz;
-                                (metadata as any).center_frequency_hz = rangeMinHz + spanHz / 2;
-                                (metadata as any).capture_sample_rate_hz = spanHz;
-                                (metadata as any).sample_rate_hz = spanHz;
-                                (metadata as any).frequency_range = freqRange;
-                            } else {
-                                (metadata as any).center_frequency_hz = firstGroup.center_freq_hz;
-                                (metadata as any).capture_sample_rate_hz = firstGroup.sample_rate_hz;
-                                (metadata as any).sample_rate_hz = firstGroup.sample_rate_hz;
-                            }
-                        }
-                    }
-                    // Register additional groups as virtual files
-                    for (let g = 1; g < stitchedChannelsWithRange.length; g++) {
-                        const group = stitchedChannelsWithRange[g];
-                        if (group.spectrum_frames?.length > 0) {
-                            const virtualName = `${file.fileName}__group${g}`;
-                            nSpcCache.set(virtualName, group.spectrum_frames);
-                            const groupRange = group.frequency_range;
-                            const virtualCenterHz =
-                              groupRange && groupRange.length === 2
-                                ? ((groupRange[0] + groupRange[1]) / 2) * 1_000_000
-                                : group.center_freq_hz;
-                            const virtualSpanHz =
-                              groupRange && groupRange.length === 2
-                                ? (groupRange[1] - groupRange[0]) * 1_000_000
-                                : group.sample_rate_hz;
-                            freqMap.set(virtualName, virtualCenterHz / 1e6);
-                            const virtualMeta = { ...metadata, 
-                                center_frequency_hz: virtualCenterHz, 
-                                capture_sample_rate_hz: virtualSpanHz,
-                                sample_rate_hz: virtualSpanHz,
-                                frequency_range: groupRange ?? metadata?.frequency_range,
-                            };
-                            metadataMap.set(virtualName, virtualMeta as any);
-                        }
-                    }
-                }
-                
                 // Keep first channel IQ for audio playback
                 if (parsedChannels.length > 0) {
-                    rawData = parsedChannels[0].iq;
-                    // Fallback: if no stitched spectrum, use first raw channel
-                    if (!nSpcFrames) nSpcFrames = parsedChannels[0].spectrum_frames;
+                    rawData = parsedChannels[0].iq_data;
                 }
+
+                const groupsToRegister = stitchedChannelsWithRange.length > 0
+                  ? stitchedChannelsWithRange
+                  : parsedChannels;
+
+                groupsToRegister.forEach((group, groupIndex) => {
+                  const groupIq = group.iq_data || group.iq;
+                  if (!groupIq || groupIq.length === 0) return;
+                  const entryName = groupIndex === 0 ? file.fileName : `${file.fileName}__group${groupIndex}`;
+                  const groupRange = group.frequency_range;
+                  const entryCenterHz =
+                    groupRange && groupRange.length === 2
+                      ? ((groupRange[0] + groupRange[1]) / 2) * 1_000_000
+                      : group.center_freq_hz;
+                  const entrySpanHz =
+                    groupRange && groupRange.length === 2
+                      ? (groupRange[1] - groupRange[0]) * 1_000_000
+                      : group.sample_rate_hz;
+
+                  fileDataCache.set(entryName, groupIq);
+                  freqMap.set(entryName, entryCenterHz / 1e6);
+                  metadataMap.set(entryName, {
+                    ...metadata,
+                    center_frequency_hz: entryCenterHz,
+                    capture_sample_rate_hz: entrySpanHz,
+                    sample_rate_hz: entrySpanHz,
+                    frequency_range: groupRange ?? metadata?.frequency_range,
+                  } as any);
+                });
               }
             } else {
               rawData = loadC64File(file.fileData, file.fileName);
             }
 
-            if ((rawData && rawData.length > 0) || (nSpcFrames && nSpcFrames.length > 0)) {
-              if (rawData) fileDataCache.set(file.fileName, rawData);
-              if (metadata) metadataMap.set(file.fileName, metadata);
-              if (nSpcFrames) nSpcCache.set(file.fileName, nSpcFrames);
+            if (rawData && rawData.length > 0) {
+              if (!fileDataCache.has(file.fileName)) {
+                fileDataCache.set(file.fileName, rawData);
+              }
+              if (metadata && !metadataMap.has(file.fileName)) {
+                metadataMap.set(file.fileName, metadata);
+              }
               loadedCount++;
             }
 
@@ -761,23 +629,17 @@ self.onmessage = async function (e) {
         if (loadedCount === 0) throw new Error("No files could be loaded successfully");
 
         const internalFftSize = fftSize || currentFftSize;
-        const windowStep = internalFftSize * 8;
+        const chunkSize = internalFftSize * 2; // IQ pair per bin
         const maxFrames = Math.max(1, Math.min(...Array.from(fileDataCache.keys()).map(name => {
-            const nSpcFrames = nSpcCache.get(name);
-            if (nSpcFrames) return nSpcFrames.length;
             const raw = fileDataCache.get(name);
-            return raw ? Math.floor(raw.length / windowStep) : 1;
+            return raw ? Math.floor(raw.length / chunkSize) : 1;
         })));
 
-        const precomputedFrames = [];
-        for (let frame = 0; frame < maxFrames; frame++) {
-          const result = buildCombinedFrame(fileDataCache, freqMap, frame, metadataMap, internalFftSize, nSpcCache, maxSampleRateHz);
-          precomputedFrames.push(result);
-          if (frame % Math.max(1, Math.floor(maxFrames / 20)) === 0) {
-            const progress = Math.floor((frame / maxFrames) * 100);
-            self.postMessage({ type: "progress", id, data: { current: progress, total: 100, status: `Pre-computing frames... ${progress}%` } });
-          }
-        }
+        // Only compute the first frame for the seed display.
+        // The playback animation emits raw IQ chunks per frame —
+        // FFTCanvas / GPU shader handles FFT, windowing, and dB conversion.
+        const firstFrame = buildCombinedFrame(fileDataCache, freqMap, 0, metadataMap, internalFftSize, maxSampleRateHz);
+        const precomputedFrames = firstFrame ? [firstFrame] : [];
 
         const firstMeta = metadataMap.values().next().value;
         const initialChannels = firstMeta?.channels_data || [];
@@ -786,7 +648,7 @@ self.onmessage = async function (e) {
           type: "result",
           id,
           data: {
-            stitchedData: precomputedFrames[0],
+            stitchedData: firstFrame,
             fileDataCache: Array.from(fileDataCache.entries()),
             freqMap: Array.from(freqMap.entries()),
             metadataMap: Array.from(metadataMap.entries()),

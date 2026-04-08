@@ -109,6 +109,17 @@ impl WindowFunctions {
       WindowType::Rectangular | WindowType::None => Self::rectangular(fft_size),
     }
   }
+
+  /// Get the sum of window coefficients (Coherent Power Gain factor)
+  pub fn get_window_sum(window_type: WindowType, fft_size: usize) -> f32 {
+    match window_type {
+      WindowType::Rectangular | WindowType::None => fft_size as f32,
+      WindowType::Hanning => fft_size as f32 * 0.5,
+      WindowType::Hamming => fft_size as f32 * 0.54,
+      WindowType::Blackman => fft_size as f32 * 0.42,
+      WindowType::Nuttall => fft_size as f32 * 0.355768,
+    }
+  }
 }
 
 /// Common power spectrum calculation utilities
@@ -119,14 +130,14 @@ impl PowerSpectrum {
   pub fn to_power_spectrum_db(
     complex_buffer: &[Complex<f32>],
     output: &mut [f32],
+    window_type: WindowType,
   ) {
-    let n = complex_buffer.len() as f32;
-    // Normalize power exactly identically to how standard processor does it:
-    let inv_norm = 1.0 / (n * n);
+    let n = complex_buffer.len();
+    let window_sum = WindowFunctions::get_window_sum(window_type, n);
+    // Normalize power by coherent power gain (sum of window coefficients squared):
+    let inv_norm = 1.0 / (window_sum * window_sum);
 
     // We split complex_buffer into real and imaginary arrays to allow SIMD processing.
-    // In a future refactor, complex_buffer should ideally be pre-split (Structure of Arrays)
-    // to avoid this copy pass, but this is still faster than doing scalar log10/magnitude.
     let len = complex_buffer.len().min(output.len());
     let mut re = vec![0.0; len];
     let mut im = vec![0.0; len];
@@ -225,17 +236,10 @@ impl IQConverter {
     let mut complex_re = vec![0.0f32; fft_size];
     let mut complex_im = vec![0.0f32; fft_size];
 
-    // PPM correction shifts the LO. At frequency f, the shift is f * ppm / 1e6 Hz.
-    // Digital rotation by theta per sample shifts spectrum by theta * fs / (2 * PI) Hz.
-    // So theta = 2 * PI * (f * ppm / 1e6) / fs.
-    // We use the center_frequency as the base for this shift.
     let phase_step = 2.0
       * std::f32::consts::PI
       * (center_frequency as f32 * ppm / 1_000_000.0)
       / sample_rate as f32;
-    // We pass 1.0 + phase_step to the ARM optimized function which expects a "ppm_factor"
-    // Wait, the ARM function uses: phase = 2.0 * PI * (ppm_factor - 1.0) * i / fft_size.
-    // I should change the ARM function to accept actual phase_step per sample.
 
     ARMOptimizedSIMD::convert_to_complex_arm_optimized(
       data,
@@ -262,7 +266,6 @@ impl IQConverter {
     window_coeffs: &[f32],
   ) {
     let len = complex_buffer.len().min(window_coeffs.len());
-    // Same as above: SoA would be vastly superior, but we construct it here.
     let mut re = vec![0.0; len];
     let mut im = vec![0.0; len];
     for i in 0..len {
@@ -312,7 +315,11 @@ mod tests {
     ];
 
     let mut power = [0.0; 4];
-    PowerSpectrum::to_power_spectrum_db(&complex_data, &mut power);
+    PowerSpectrum::to_power_spectrum_db(
+      &complex_data,
+      &mut power,
+      WindowType::Rectangular,
+    );
 
     // All should be 0 dB (magnitude = 1.0)
     for &value in &power {

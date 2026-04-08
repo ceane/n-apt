@@ -1,15 +1,22 @@
 import React, { useEffect, useLayoutEffect, useRef, useMemo, forwardRef } from "react";
 import styled from "styled-components";
-import { FFTCanvas } from "@n-apt/components";
+import { FFTAndWaterfall } from "@n-apt/components";
 import type { FFTCanvasHandle } from "@n-apt/components/FFTCanvas";
 import { useStitchingLogic } from "@n-apt/hooks/useStitchingLogic";
 import { usePlaybackAnimation } from "@n-apt/hooks/usePlaybackAnimation";
 import { useChannelManagement } from "@n-apt/hooks/useChannelManagement";
 import { useAppDispatch } from "@n-apt/redux";
-import { setActivePlaybackMetadata, clearActivePlaybackMetadata } from "@n-apt/redux";
+import {
+  setActivePlaybackMetadata,
+  clearActivePlaybackMetadata,
+  incrementPlaybackFrameCounter,
+} from "@n-apt/redux";
+import type { FFTVisualizerMachine } from "@n-apt/utils/fftVisualizerMachine";
+import { buildPlaybackSeedFrame } from "@n-apt/utils/playbackSeedFrame";
+import type { LiveFrameData } from "@n-apt/consts/schemas/websocket";
 
 interface FFTPlaybackCanvasProps {
-  selectedFiles: { name: string; file: File }[];
+  selectedFiles: { id: string; name: string; downloadUrl?: string }[];
   stitchTrigger: number | null;
   stitchSourceSettings: { gain: number; ppm: number };
   isPaused: boolean;
@@ -23,13 +30,16 @@ interface FFTPlaybackCanvasProps {
   fftMin?: number;
   fftMax?: number;
   onFftDbLimitsChange?: (min: number, max: number) => void;
+  displayMode: "fft" | "iq";
+  powerScale?: "dB" | "dBm";
+  visualizerMachine?: FFTVisualizerMachine;
 }
 
 const StitcherContainer = styled.div`
   flex: 1;
   display: flex;
   flex-direction: column;
-  background-color: #0a0a0a;
+  background-color: ${(props) => props.theme.background};
   position: relative;
 `;
 
@@ -47,7 +57,7 @@ const EmptyContainer = styled.div`
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  color: #444;
+  color: ${(props) => props.theme.colors?.textSecondary ?? "#666"};
   font-size: 14px;
   text-align: center;
   padding: 40px;
@@ -59,7 +69,7 @@ const FileCountText = styled.div`
 
 const HelpText = styled.div`
   font-size: 12px;
-  color: #666;
+  color: ${(props) => props.theme.colors?.textTertiary ?? "#666"};
 `;
 
 // Extracted memoized ChannelSelector component
@@ -82,16 +92,16 @@ const ChannelSelector = React.memo<ChannelSelectorProps>(({
       top: "4px",
       right: "105px",
       transform: "none",
-      backgroundColor: "rgb(41 41 41 / 80%)",
+      backgroundColor: "var(--color-surface, rgb(41 41 41 / 80%))",
       padding: "8px 12px",
       borderRadius: "20px",
       display: "flex",
       alignItems: "center",
       gap: "12px",
-      color: "#fff",
+      color: "var(--color-text-primary, #fff)",
       fontFamily: "JetBrains Mono",
       fontSize: "12px",
-      border: "1px solid #333",
+      border: "1px solid var(--color-border)",
       zIndex: 10,
       userSelect: "none"
     }}>
@@ -129,6 +139,9 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(({
   fftMin,
   fftMax,
   onFftDbLimitsChange,
+  displayMode,
+  powerScale,
+  visualizerMachine,
 }, forwardedRef) => {
   const dispatch = useAppDispatch();
   // ── Custom hooks for separated concerns ──
@@ -170,7 +183,7 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(({
    * React state.  FFTCanvas reads this ref on every rAF, identical to the
    * live-view data path in useWebSocket → dataRef.current.
    */
-  const fftCanvasDataRef = useRef<any>(null);
+  const fftCanvasDataRef = useRef<LiveFrameData | null>(null);
 
   // ── Playback animation hook ──
   usePlaybackAnimation({
@@ -180,6 +193,10 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(({
     allChannelsRef,
     precomputedFrames,
     fftCanvasDataRef,
+    displayMode,
+    onFrameEmitted: () => {
+      dispatch(incrementPlaybackFrameCounter());
+    },
   });
 
   // ── Channel management hook ──
@@ -222,6 +239,13 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(({
     new Set(selectedFiles.map(f => f.name)),
     [selectedFiles]
   );
+  const visualizerSessionKey = useMemo(() => {
+    const fileIdentity = selectedFiles
+      .map((file) => file.id || file.name)
+      .sort()
+      .join("|");
+    return `playback:${displayMode}:${stitchTrigger ?? 0}:${fileIdentity}`;
+  }, [displayMode, selectedFiles, stitchTrigger]);
 
   useEffect(() => {
     const nameKey = Array.from(fileNamesSet).sort().join("|");
@@ -237,7 +261,19 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(({
     allChannelsRef.current = [];
   }, [fileNamesSet, setChannelCount, setActiveChannel, dispatch]);
 
-  // ── Cleanup worker data on unmount ──
+  // ── Handle stitched data state changes ──
+  useEffect(() => {
+    if (hasStitchedData) {
+      const channelData =
+        allChannelsRef.current[activeChannel] ?? allChannelsRef.current[0];
+      fftCanvasDataRef.current = buildPlaybackSeedFrame({
+        displayMode,
+        precomputedFrames: precomputedFrames.current,
+        channelData,
+      });
+    }
+  }, [activeChannel, allChannelsRef, displayMode, hasStitchedData, precomputedFrames]);
+
   useEffect(() => {
     return () => {
       workerFileDataCache.current = [];
@@ -255,7 +291,7 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(({
     <StitcherContainer>
       {hasStitchedData ? (
         <VisualizationContainer>
-          <FFTCanvas
+          <FFTAndWaterfall
             ref={forwardedRef}
             dataRef={fftCanvasDataRef}
             frequencyRange={frequencyRange}
@@ -273,6 +309,9 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(({
             hardwareSampleRateHz={hardwareSampleRateHz}
             isIqRecordingActive={true}
             fftFrameRate={allChannelsRef.current[activeChannel]?.frame_rate}
+            powerScale={powerScale}
+            visualizerMachine={visualizerMachine}
+            visualizerSessionKey={visualizerSessionKey}
           />
           <ChannelSelector
             channelCount={channelCount}

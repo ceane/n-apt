@@ -2,17 +2,24 @@ import { configureStore } from '@reduxjs/toolkit';
 import { TypedUseSelectorHook, useDispatch, useSelector } from 'react-redux';
 
 // Import slices (will be created next)
-import authSlice from './slices/authSlice';
-import spectrumSlice from './slices/spectrumSlice';
-import waterfallSlice from './slices/waterfallSlice';
-import themeSlice from './slices/themeSlice';
-import settingsSlice from './slices/settingsSlice';
-import websocketSlice from './slices/websocketSlice';
+import authSlice from "@n-apt/redux/slices/authSlice";
+import spectrumSlice from "@n-apt/redux/slices/spectrumSlice";
+import waterfallSlice from "@n-apt/redux/slices/waterfallSlice";
+import themeSlice from "@n-apt/redux/slices/themeSlice";
+import settingsSlice from "@n-apt/redux/slices/settingsSlice";
+import websocketSlice from "@n-apt/redux/slices/websocketSlice";
+import noteCardsSlice from "@n-apt/redux/slices/noteCardsSlice";
+import notificationsSlice from "@n-apt/redux/slices/notificationsSlice";
+import demodSlice from "@n-apt/redux/slices/demodSlice";
 
 // Import middleware (will be created next)
-import websocketMiddleware from './middleware/websocketMiddleware';
-import indexedDBMiddleware from './middleware/indexedDBMiddleware';
-import localStorageMiddleware from './middleware/localStorageMiddleware';
+import websocketMiddleware from "@n-apt/redux/middleware/websocketMiddleware";
+import localStorageMiddleware, { loadPersistedSdrSettings, loadPersistedTheme } from "@n-apt/redux/middleware/localStorageMiddleware";
+
+const preloadedState = {
+  spectrum: loadPersistedSdrSettings(),
+  theme: loadPersistedTheme() || undefined,
+};
 
 export const store = configureStore({
   reducer: {
@@ -22,7 +29,11 @@ export const store = configureStore({
     theme: themeSlice,
     settings: settingsSlice,
     websocket: websocketSlice,
+    noteCards: noteCardsSlice,
+    notifications: notificationsSlice,
+    demod: demodSlice,
   },
+  preloadedState,
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware({
       serializableCheck: {
@@ -44,7 +55,6 @@ export const store = configureStore({
       },
     }).concat(
       websocketMiddleware,
-      indexedDBMiddleware,
       localStorageMiddleware
     ),
   devTools: process.env.NODE_ENV !== 'production',

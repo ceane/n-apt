@@ -49,7 +49,7 @@ All controls from the Spectrum Visualizer are available:
 
 ## Data Formats
 
-- **Input**: Same as visualizer (.napt, .c64, .npy, live streams)
+- **Input**: Same as visualizer (.napt, .wav, .c64, .npy, live streams)
 - **Output**:
   - JSON classifications with confidence scores
   - CSV feature extraction data

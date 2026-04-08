@@ -1,21 +1,21 @@
 import React, { useState, useEffect, useRef } from "react";
 import styled from "styled-components";
 
-const Container = styled.div`
+const ControlsContainer = styled.div`
   display: flex;
-  align-items: center;
+  flex-wrap: wrap;
   gap: 12px;
   padding: 8px 16px;
-  background: #0d0d0d;
-  border-bottom: 1px solid #1a1a1a;
+  background: ${(props) => props.theme.surface};
+  border-bottom: 1px solid ${(props) => props.theme.border};
   font-family: "JetBrains Mono", monospace;
   font-size: 12px;
-  color: #999;
+  color: ${(props) => props.theme.textSecondary};
   min-height: 40px;
 `;
 
 const Label = styled.span`
-  color: #666;
+  color: ${(props) => props.theme.textMuted};
   font-size: 11px;
   font-weight: 500;
   white-space: nowrap;
@@ -80,8 +80,8 @@ const StatusBadge = styled.span<{ $capturing: boolean }>`
   padding: 3px 10px;
   border-radius: 3px;
   background: ${(props) => (props.$capturing ? "rgba(0, 212, 255, 0.1)" : "transparent")};
-  border: 1px solid ${(props) => (props.$capturing ? "#00d4ff33" : "#222")};
-  color: ${(props) => (props.$capturing ? "#00d4ff" : "#555")};
+  border: 1px solid ${(props) => (props.$capturing ? `${props.theme.primary}33` : props.theme.border)};
+  color: ${(props) => (props.$capturing ? props.theme.primary : props.theme.textMuted)};
   font-size: 10px;
   font-weight: 500;
   white-space: nowrap;
@@ -166,7 +166,7 @@ const ClassificationControls: React.FC<ClassificationControlsProps> = ({
   };
 
   return (
-    <Container>
+    <ControlsContainer>
       <Label>Train [{activeSignalArea}]</Label>
 
       <CaptureButton
@@ -197,7 +197,7 @@ const ClassificationControls: React.FC<ClassificationControlsProps> = ({
       )}
 
       <SamplesCount>{capturedSamples} samples</SamplesCount>
-    </Container>
+    </ControlsContainer>
   );
 };
 

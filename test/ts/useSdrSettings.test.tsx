@@ -5,6 +5,7 @@ import { useSdrSettings } from "@n-apt/hooks/useSdrSettings";
 import { SpectrumProvider } from "@n-apt/hooks/useSpectrumStore";
 import { AuthProvider } from "@n-apt/hooks/useAuthentication";
 import type { SdrSettingsConfig } from "@n-apt/hooks/useWebSocket";
+import type { SpectrumState } from "@n-apt/hooks/useSpectrumStore";
 import { TestWrapper } from "./testUtils";
 
 jest.mock("@n-apt/hooks/useAuthentication", () => ({
@@ -46,14 +47,22 @@ jest.mock("@n-apt/hooks/useWebSocket", () => ({
 
 type HookHarnessProps = {
   sdrSettings: SdrSettingsConfig;
+  spectrumStateOverride?: Pick<
+    SpectrumState,
+    "fftSize" | "fftWindow" | "fftFrameRate" | "gain" | "ppm" | "tunerAGC" | "rtlAGC"
+  >;
 };
 
-const HookHarness: React.FC<HookHarnessProps> = ({ sdrSettings }) => {
+const HookHarness: React.FC<HookHarnessProps> = ({
+  sdrSettings,
+  spectrumStateOverride,
+}) => {
   const { fftSize, fftFrameRate, gain, ppm, tunerAGC, rtlAGC, fftSizeOptions } =
     useSdrSettings({
       maxSampleRate: sdrSettings.sample_rate,
       onSettingsChange: jest.fn(),
       sdrSettings,
+      spectrumStateOverride,
     });
 
   return (
@@ -118,5 +127,32 @@ describe("useSdrSettings", () => {
     expect(screen.getByTestId("fftSizeOptions")).toHaveTextContent(
       "8192,16384",
     );
+  });
+
+  it("does not overwrite an existing fft size with the config default", () => {
+    render(
+      <TestWrapper>
+        <MemoryRouter>
+          <AuthProvider>
+            <SpectrumProvider>
+              <HookHarness
+                sdrSettings={mockSdrSettings}
+                spectrumStateOverride={{
+                  fftSize: 8192,
+                  fftWindow: "Rectangular",
+                  fftFrameRate: 42,
+                  gain: 49.6,
+                  ppm: 2,
+                  tunerAGC: false,
+                  rtlAGC: true,
+                }}
+              />
+            </SpectrumProvider>
+          </AuthProvider>
+        </MemoryRouter>
+      </TestWrapper>,
+    );
+
+    expect(screen.getByTestId("fftSize")).toHaveTextContent("8192");
   });
 });

@@ -5,12 +5,13 @@ import {
   LINE_COLOR,
   SHADOW_COLOR,
 } from "@n-apt/consts";
+import { validateSpectrumDataComprehensive } from "@n-apt/validation";
 
 export interface Draw3DWaterfallSignalOptions {
   canvas: HTMLCanvasElement;
   device: GPUDevice;
   format: GPUTextureFormat;
-  waveform: Float32Array;
+  waveform: Float32Array | Uint8Array;
   frequencyRange: { min: number; max: number };
   fftMin?: number;
   fftMax?: number;
@@ -19,6 +20,12 @@ export interface Draw3DWaterfallSignalOptions {
   isDeviceConnected?: boolean;
   maxFrames?: number;
   frameSpacing?: number;
+  // Validation options
+  fftSize?: number;
+  sampleRate?: number;
+  centerFrequencyHz?: number;
+  isPaused?: boolean;
+  isFirstFrame?: boolean;
 }
 
 export function useDraw3DWaterfallSignal() {
@@ -30,14 +37,43 @@ export function useDraw3DWaterfallSignal() {
       canvas,
       waveform,
       frequencyRange: _frequencyRange,
-      fftMin = -120,
+      fftMin = -150,
       fftMax = 0,
       maxFrames: maxFramesParam = maxFrames,
       frameSpacing = 10,
+      fftSize,
+      sampleRate,
+      centerFrequencyHz,
+      isPaused = false,
+      isFirstFrame = false,
     } = options;
 
     try {
-      frameHistoryRef.current.push(waveform.slice());
+      const waveformArray = waveform instanceof Uint8Array ? Float32Array.from(waveform) : waveform;
+      // Validate waveform data on first frame or when paused
+      if (isFirstFrame || isPaused) {
+        const validationResult = validateSpectrumDataComprehensive(waveformArray, {
+          fftSize,
+          sampleRate,
+          centerFrequencyHz,
+          timestamp: Date.now(),
+          isPaused,
+          isFirstFrame
+        });
+        
+        if (!validationResult.isValid) {
+          console.error(`3D waterfall validation failed (${isFirstFrame ? 'first frame' : 'paused'}):`, validationResult.errors);
+        } else if (validationResult.warnings.length > 0) {
+          console.warn(`3D waterfall validation warnings (${isFirstFrame ? 'first frame' : 'paused'}):`, validationResult.warnings);
+        }
+        
+        // Log validation metadata for debugging (only in development)
+        if (process.env.NODE_ENV === 'development') {
+          console.log('3D waterfall validation metadata:', validationResult.metadata);
+        }
+      }
+      
+      frameHistoryRef.current.push(waveformArray.slice());
       if (frameHistoryRef.current.length > maxFramesParam) {
         frameHistoryRef.current.shift();
       }
