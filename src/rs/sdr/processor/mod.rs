@@ -6,6 +6,7 @@
 use anyhow::Result;
 use log::{info, warn};
 use rustfft::num_complex::Complex;
+use std::collections::VecDeque;
 use std::time::Instant;
 
 use crate::fft::{
@@ -38,11 +39,14 @@ pub struct SdrFrameState {
   pub post_retune_discard_frames: usize,
   pub last_stable_spectrum: Option<Vec<f32>>,
   pub last_frame_raw_iq: Vec<u8>,
+  pub raw_iq_history: VecDeque<Vec<u8>>,
+  pub raw_iq_history_capacity: usize,
 }
 
 impl SdrFrameState {
   fn new(fft_size: usize) -> Self {
     let reserve = fft_size.max(1).saturating_mul(2);
+    let raw_iq_history_capacity = Self::default_raw_iq_history_capacity(fft_size);
     Self {
       frame_counter: 0,
       avg_spectrum: None,
@@ -57,7 +61,48 @@ impl SdrFrameState {
       post_retune_discard_frames: 0,
       last_stable_spectrum: None,
       last_frame_raw_iq: Vec::with_capacity(reserve),
+      raw_iq_history: VecDeque::with_capacity(raw_iq_history_capacity),
+      raw_iq_history_capacity,
     }
+  }
+
+  fn default_raw_iq_history_capacity(fft_size: usize) -> usize {
+    let bytes_per_frame = fft_size.max(1).saturating_mul(2);
+    let target_seconds = 20usize;
+    let max_frame_rate = SdrProcessor::calculate_valid_frame_rate(fft_size).max(1) as usize;
+    target_seconds
+      .saturating_mul(max_frame_rate)
+      .max(1)
+      .min(12_000)
+      .max(1)
+      .min(usize::MAX / bytes_per_frame.max(1))
+  }
+
+  fn resize_raw_iq_history(&mut self, fft_size: usize) {
+    let desired_capacity = Self::default_raw_iq_history_capacity(fft_size);
+    self.raw_iq_history_capacity = desired_capacity;
+
+    while self.raw_iq_history.len() > desired_capacity {
+      self.raw_iq_history.pop_front();
+    }
+
+    if self.raw_iq_history.capacity() < desired_capacity {
+      let mut resized = VecDeque::with_capacity(desired_capacity);
+      resized.extend(self.raw_iq_history.drain(..));
+      self.raw_iq_history = resized;
+    }
+  }
+
+  fn push_raw_iq_frame(&mut self, frame: Vec<u8>) {
+    if self.raw_iq_history_capacity == 0 {
+      return;
+    }
+
+    if self.raw_iq_history.len() == self.raw_iq_history_capacity {
+      self.raw_iq_history.pop_front();
+    }
+
+    self.raw_iq_history.push_back(frame);
   }
 }
 
@@ -516,6 +561,7 @@ impl SdrProcessor {
       self.capture_actual_frames += 1;
     }
 
+    self.frame.push_raw_iq_frame(display_samples_data.clone());
     self.frame.last_frame_raw_iq = display_samples_data;
     self.frame.last_stable_spectrum = Some(final_spectrum.clone());
 
@@ -565,6 +611,7 @@ impl SdrProcessor {
           self.frame.iq_accumulator.reserve_exact(reserve_samples);
           self.frame.iq_frame.reserve_exact(reserve_samples);
           self.frame.last_frame_raw_iq.reserve_exact(reserve_samples);
+          self.frame.resize_raw_iq_history(size);
         }
       } else {
         warn!("Invalid FFT size {} (must be power of 2), ignoring", size);
@@ -717,6 +764,7 @@ impl SdrProcessor {
     self.device.flush_read_queue();
     self.frame.iq_accumulator.clear();
     self.frame.iq_frame.clear();
+    self.frame.raw_iq_history.clear();
   }
 
   /// Validate stitching between two captured channels using correlation
@@ -1003,6 +1051,7 @@ impl SdrProcessor {
     self.frame.iq_accumulator.clear();
     self.frame.iq_offset = 0;
     self.frame.avg_spectrum = None;
+    self.frame.raw_iq_history.clear();
     Ok(())
   }
 
