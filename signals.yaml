@@ -1,6 +1,14 @@
 # Signals Configuration for N-APT
 # This file contains mock signal generation, n-apt frame definitions, and SDR settings
 # Can be edited while the server is running to test different configurations
+#
+# Backend Usage (src/rs/server/utils.rs):
+# - Loaded at startup via signals_config() using serde_yaml
+# - n_apt.channels are parsed and converted to SpectrumFrameMessage objects
+# - These messages are sent via WebSocket to the frontend to display N-APT channel boundaries
+# - The frontend uses these channel definitions to visualize frequency ranges on the spectrum display
+# - SDR settings (sample_rate, center_frequency, gain, etc.) are loaded and applied to the hardware
+# - Mock APT settings are used for generating test signals when no real SDR is connected
 
 signals:
   # SDR hardware and processing settings
