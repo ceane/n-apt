@@ -23,7 +23,7 @@ interface StitchingResult {
   activeChannel: number;
   hardwareSampleRateHz?: number;
   allChannelsRef: React.MutableRefObject<any[]>;
-  workerFileDataCache: React.MutableRefObject<[string, number[]][]>;
+  workerFileDataCache: React.MutableRefObject<[string, Uint8Array | number[]][]>;
   workerFreqMap: React.MutableRefObject<[string, number][]>;
   workerMetadataMap: React.MutableRefObject<[string, any][]>;
   precomputedFrames: React.MutableRefObject<any[]>;
@@ -90,7 +90,7 @@ export const useStitchingLogic = ({
   }, [selectedFileNamesKey]);
 
   // Worker data refs
-  const workerFileDataCache = useRef<[string, number[]][]>([]);
+  const workerFileDataCache = useRef<[string, Uint8Array | number[]][]>([]);
   const workerFreqMap = useRef<[string, number][]>([]);
   const workerMetadataMap = useRef<[string, any][]>([]);
   const precomputedFrames = useRef<any[]>([]);

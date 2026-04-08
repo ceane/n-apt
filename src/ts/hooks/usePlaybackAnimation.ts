@@ -33,14 +33,23 @@ export const usePlaybackAnimation = ({
     activeChannelRef.current = activeChannel;
     iqFrameIdxRef.current = 0;
     lastFrameTimeRef.current = null;
+    cachedChannelIdRef.current = null; // Force cache rebuild for new channel
   }, [activeChannel]);
 
   const iqFrameIdxRef = useRef(0);
+
+  // Cached per-channel derived values — avoids recomputing on every rAF tick
+  const cachedIqRef = useRef<Uint8Array | null>(null);
+  const cachedTotalFramesRef = useRef(0);
+  const cachedChunkSizeRef = useRef(0);
+  const cachedChannelIdRef = useRef<any>(null); // identity check for channel object
 
   useEffect(() => {
     if (!hasStitchedData) {
       iqFrameIdxRef.current = 0;
       lastFrameTimeRef.current = null;
+      cachedIqRef.current = null;
+      cachedChannelIdRef.current = null;
     }
   }, [hasStitchedData]);
 
@@ -54,12 +63,25 @@ export const usePlaybackAnimation = ({
       const frameInterval = 1000 / frameRate;
 
       if (elapsed >= frameInterval) {
-        const iqData = channelData.iq_data || channelData.iq;
-        if (iqData && iqData.length > 0) {
-          const fullIq = iqData instanceof Uint8Array ? iqData : new Uint8Array(iqData);
-          const fftSize = channelData.bins_per_frame || 2048;
-          const chunkSize = fftSize * 2;
-          const totalFrames = Math.max(1, Math.floor(fullIq.length / chunkSize));
+        // Rebuild cached values only when the channel object changes
+        if (cachedChannelIdRef.current !== channelData) {
+          cachedChannelIdRef.current = channelData;
+          const iqData = channelData.iq_data || channelData.iq;
+          if (iqData && iqData.length > 0) {
+            // Zero-copy when already Uint8Array (our worker now always provides this)
+            cachedIqRef.current = iqData instanceof Uint8Array ? iqData : new Uint8Array(iqData);
+            const fftSize = channelData.bins_per_frame || 2048;
+            cachedChunkSizeRef.current = fftSize * 2;
+            cachedTotalFramesRef.current = Math.max(1, Math.floor(cachedIqRef.current.length / cachedChunkSizeRef.current));
+          } else {
+            cachedIqRef.current = null;
+          }
+        }
+
+        const fullIq = cachedIqRef.current;
+        if (fullIq) {
+          const chunkSize = cachedChunkSizeRef.current;
+          const totalFrames = cachedTotalFramesRef.current;
           const frameIdx = iqFrameIdxRef.current % totalFrames;
           const offset = frameIdx * chunkSize;
           const chunk = fullIq.subarray(offset, Math.min(fullIq.length, offset + chunkSize));
