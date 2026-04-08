@@ -4,7 +4,7 @@ export interface StitchSessionData {
   channelCount: number;
   activeChannel: number;
   hardwareSampleRateHz?: number;
-  workerFileDataCache: [string, number[]][];
+  workerFileDataCache: [string, Uint8Array | number[]][];
   workerFreqMap: [string, number][];
   workerMetadataMap: [string, any][];
   precomputedFrames: any[];

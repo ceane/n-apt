@@ -10,12 +10,8 @@ function parseFrequencyFromFilename(filename: string): number {
   return match ? parseFloat(match[1]) : 0.0;
 }
 
-function loadC64File(fileData: ArrayBuffer, _fileName: string): number[] {
-  // Convert ArrayBuffer to number array
-  const view = new DataView(fileData);
-  return Array.from({ length: fileData.byteLength }, (_, i) =>
-    view.getUint8(i),
-  );
+function loadC64File(fileData: ArrayBuffer, _fileName: string): Uint8Array {
+  return new Uint8Array(fileData);
 }
 
 type FileMetadata = {
@@ -49,10 +45,10 @@ type FileMetadata = {
 };
 
 type WavLoadResult = {
-  raw: number[];
+  raw: Uint8Array;
   metadata: FileMetadata | null;
   channels?: {
-    iq_data: number[];
+    iq_data: Uint8Array;
     center_freq_hz: number;
     sample_rate_hz: number;
     frequency_range?: [number, number];
@@ -123,20 +119,20 @@ function loadWavFile(fileData: ArrayBuffer): WavLoadResult {
   if (dataStart === 0) throw new Error("No data chunk in WAV");
   
   const mainIqBytes = new Uint8Array(fileData, dataStart, Math.max(0, dataSize));
-  const raw = Array.prototype.slice.call(mainIqBytes);
+  const raw = mainIqBytes.slice(); // Owned copy (source buffer may be transferred)
 
   // Construct channels array
   const channels: WavLoadResult["channels"] = [];
   if (metadata?.channels && metadata.channels.length > 0) {
     for (let i = 0; i < metadata.channels.length; i++) {
       const chMeta = metadata.channels[i];
-      let iq: number[] = [];
+      let iq: Uint8Array = new Uint8Array(0);
 
       if (i === 0) {
         iq = raw;
       } else {
         const iqBytes = extraIqChunks.get(i);
-        if (iqBytes) iq = Array.prototype.slice.call(iqBytes);
+        if (iqBytes) iq = iqBytes.slice(); // Owned copy
       }
 
       channels.push({
@@ -152,7 +148,7 @@ function loadWavFile(fileData: ArrayBuffer): WavLoadResult {
 }
 
 function processToSpectrum(
-  rawData: number[],
+  rawData: Uint8Array | number[],
   frame: number = 0,
   gain: number = 0,
   fftSize: number = 8192,
@@ -277,7 +273,7 @@ function stitchAdjacentChannels(channels: any[], _defaultFftSize: number, maxSam
 }
 
 function buildCombinedFrame(
-  fileDataCache: Map<string, number[]>,
+  fileDataCache: Map<string, Uint8Array | number[]>,
   freqMap: Map<string, number>,
   frame: number,
   metadataMap: Map<string, FileMetadata> = new Map(),
@@ -383,13 +379,15 @@ self.onmessage = async function (e) {
       case "loadFile": {
         const { fileData, fileName, aesKey } = data;
         const lower = fileName.toLowerCase();
-        let rawData: Uint8Array | number[] = []; // Change type to allow Uint8Array
+        let rawData: Uint8Array = new Uint8Array(0);
         if (lower.endsWith(".wav")) {
           const res = loadWavFile(fileData);
           rawData = res.raw; // res.raw is already Uint8Array from loadWavFile
           
-          const transferables = (rawData && (rawData as any).buffer) ? [(rawData as any).buffer] : [];
-          (self as any).postMessage({ type: "result", id, data: { rawData, fileName, metadata: res.metadata } }, transferables);
+          (self as any).postMessage(
+            { type: "result", id, data: { rawData, fileName, metadata: res.metadata } },
+            [rawData.buffer],
+          );
         } else if (lower.endsWith(".napt") && aesKey) {
           const MAX_HEADER_READ = Math.min(8192, fileData.byteLength);
           const maxHeaderBytes = new Uint8Array(fileData, 0, MAX_HEADER_READ);
@@ -461,7 +459,7 @@ self.onmessage = async function (e) {
           const file = files[i];
           try {
             const lower = file.fileName.toLowerCase();
-            let rawData: number[] = [];
+            let rawData: Uint8Array = new Uint8Array(0);
             let metadata: FileMetadata | null = null;
 
             if (lower.endsWith(".wav")) {
@@ -545,7 +543,7 @@ self.onmessage = async function (e) {
                     const iqLength = ch.iq_length ?? Math.max(0, nextOffsetIq - chOffsetIq);
                     const iqBytes = payloadArray.slice(chOffsetIq, chOffsetIq + iqLength);
                     parsedChannels.push({
-                        iq_data: Array.prototype.slice.call(iqBytes),
+                        iq_data: iqBytes, // Already an owned Uint8Array from .slice()
                         center_freq_hz: ch.center_freq_hz,
                         sample_rate_hz: ch.sample_rate_hz,
                         bins_per_frame: ch.bins_per_frame,
@@ -631,21 +629,17 @@ self.onmessage = async function (e) {
         if (loadedCount === 0) throw new Error("No files could be loaded successfully");
 
         const internalFftSize = fftSize || currentFftSize;
-        const windowStep = internalFftSize * 8;
+        const chunkSize = internalFftSize * 2; // IQ pair per bin
         const maxFrames = Math.max(1, Math.min(...Array.from(fileDataCache.keys()).map(name => {
             const raw = fileDataCache.get(name);
-            return raw ? Math.floor(raw.length / windowStep) : 1;
+            return raw ? Math.floor(raw.length / chunkSize) : 1;
         })));
 
-        const precomputedFrames = [];
-        for (let frame = 0; frame < maxFrames; frame++) {
-          const result = buildCombinedFrame(fileDataCache, freqMap, frame, metadataMap, internalFftSize, maxSampleRateHz);
-          precomputedFrames.push(result);
-          if (frame % Math.max(1, Math.floor(maxFrames / 20)) === 0) {
-            const progress = Math.floor((frame / maxFrames) * 100);
-            self.postMessage({ type: "progress", id, data: { current: progress, total: 100, status: `Pre-computing frames... ${progress}%` } });
-          }
-        }
+        // Only compute the first frame for the seed display.
+        // The playback animation emits raw IQ chunks per frame —
+        // FFTCanvas / GPU shader handles FFT, windowing, and dB conversion.
+        const firstFrame = buildCombinedFrame(fileDataCache, freqMap, 0, metadataMap, internalFftSize, maxSampleRateHz);
+        const precomputedFrames = firstFrame ? [firstFrame] : [];
 
         const firstMeta = metadataMap.values().next().value;
         const initialChannels = firstMeta?.channels_data || [];
@@ -654,7 +648,7 @@ self.onmessage = async function (e) {
           type: "result",
           id,
           data: {
-            stitchedData: precomputedFrames[0],
+            stitchedData: firstFrame,
             fileDataCache: Array.from(fileDataCache.entries()),
             freqMap: Array.from(freqMap.entries()),
             metadataMap: Array.from(metadataMap.entries()),
