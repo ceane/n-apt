@@ -17,10 +17,10 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   if (x >= params.out_len) {
     return;
   }
-  
-  let start = u32(floor(f32(x * params.src_len) / f32(params.out_len)));
-  let end = min(start + 1, u32(floor(f32((x + 1) * params.src_len) / f32(params.out_len))));
-  
+
+  let start = u32(floor(f32(x) * f32(params.src_len) / f32(params.out_len)));
+  let end = max(start + 1, u32(ceil(f32(x + 1u) * f32(params.src_len) / f32(params.out_len))));
+
   var max_val: f32 = -3.402823466e38; // f32::MIN
   for (var i = start; i < end && i < params.src_len; i = i + 1) {
     let v = input_buffer[i];

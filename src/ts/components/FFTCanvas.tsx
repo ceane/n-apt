@@ -32,7 +32,6 @@ import {
   VISUALIZER_GAP,
   SECTION_TITLE_COLOR,
   SECTION_TITLE_AFTER_COLOR,
-  FFT_AREA_MIN,
   FFT_MIN_DB,
   FFT_MAX_DB,
 } from "@n-apt/consts";
@@ -683,7 +682,6 @@ const FFTCanvas = memo(
     const FULL_CHANNEL_BINS = 4096;
     const fullChannelWaveformRef = useRef<Float32Array | null>(null);
     const fullChannelRangeRef = useRef<FrequencyRange | null>(null);
-    const spectrumResampleBufRef = useRef<Float32Array | null>(null);
     const waterfallDimsRef = useRef<{ width: number; height: number } | null>(
       null,
     );
@@ -831,31 +829,23 @@ const FFTCanvas = memo(
 
     const restoreWaveformFromStorageRef = useRef<() => void>(() => {
       // When paused and no current IQ data, try to reprocess from last valid frame
+      // using the CPU path (authoritative spectrum source).
       const lastData = lastProcessedDataRef.current;
       if (
         lastData?.iq_data &&
-        lastData.iq_data.length >= 2 &&
-        gpuProcessingDevice &&
-        webgpuEnabled &&
-        !isInitializingWebGPU
+        lastData.iq_data.length >= 2
       ) {
-        void processUnified(lastData.iq_data, {
-          inputMode: "complex_iq",
-          powerMode: "db",
-          minDb: activeScaleDbMin,
-          maxDb: activeScaleDbMax,
-          hardwareSampleRateHz: lastData.sample_rate,
-          centerFrequencyHz: lastData.center_frequency_hz,
-        })
-          .then((result) => {
-            if (result.spectrumData && result.spectrumData.length > 0) {
-              renderWaveformRef.current = new Float32Array(result.spectrumData);
-            }
-          })
-          .catch(() => {
-            // Keep the fallback below if GPU processing is unavailable.
-          });
-        return;
+        const isDbm = effectivePowerScale === "dBm";
+        const restored = processIqToDbmSpectrum(
+          lastData.iq_data,
+          isDbm ? 30.0 : 0.0,
+          effectiveFftSize,
+          fftWindow,
+        );
+        if (restored.length > 0) {
+          renderWaveformRef.current = new Float32Array(restored);
+          return;
+        }
       }
 
       // If no previous data, create a fallback waveform
@@ -965,6 +955,12 @@ const FFTCanvas = memo(
                 iqBytes.length > liveChunkSize
                   ? iqBytes.subarray(0, liveChunkSize)
                   : iqBytes;
+              // GPU unified path: drives the waterfall texture only.
+              // Do NOT write spectrumData back to waveformFloatRef — the CPU
+              // processIqToDbmSpectrum path below is the authoritative spectrum
+              // source and uses a different normalization / FFT implementation.
+              // Letting the async GPU result overwrite the CPU result causes
+              // dB mode to draw with dBm-shaped values (race condition).
               void processUnified(liveIqChunk, {
                 inputMode: "complex_iq",
                 powerMode: isDbmMode ? "dbm" : "db",
@@ -973,18 +969,6 @@ const FFTCanvas = memo(
                 hardwareSampleRateHz: currentFrame.sample_rate,
                 centerFrequencyHz: currentFrame.center_frequency_hz,
               })
-                .then((result) => {
-                  if (
-                    currentFrame === dataRef.current &&
-                    result.spectrumData &&
-                    result.spectrumData.length > 0
-                  ) {
-                    const waveform = result.spectrumData;
-                    waveformFloatRef.current = waveform;
-                    lastProcessedDataRef.current = currentFrame;
-                    lastRenderedPowerScaleRef.current = effectivePowerScale;
-                  }
-                })
                 .finally(() => {
                   liveGpuProcessInFlightRef.current = false;
                 })
@@ -1013,13 +997,6 @@ const FFTCanvas = memo(
           }
           waveform = cpuSpectrum;
 
-          // GPU Path: Convert Uint8 offset-binary to Float32 complex pairs
-          const pairCount = Math.min(effectiveFftSize, Math.floor(iqBytes.length / 2));
-          const gpuInput = new Float32Array(pairCount * 2);
-          for (let i = 0; i < pairCount; i++) {
-            gpuInput[i * 2] = (iqBytes[i * 2] - 128.0) / 128.0;     // I
-            gpuInput[i * 2 + 1] = (iqBytes[i * 2 + 1] - 128.0) / 128.0; // Q
-          }
           // Validate waveform before processing
           if (waveform && waveform.length > 0) {
             waveformFloatRef.current = waveform;
@@ -1252,35 +1229,13 @@ const FFTCanvas = memo(
           }
           // Spectrum render (using unified hook)
           if (spectrumGpuCanvas) {
-            const rect = spectrumGpuCanvas.parentElement?.getBoundingClientRect();
-            const width = rect?.width || spectrumGpuCanvas.width || 1;
-            const displayWidth = Math.max(1, Math.floor(width - FFT_AREA_MIN.x - 40));
-
-            // Resample for performance and visual clarity
-            if (!spectrumResampleBufRef.current || spectrumResampleBufRef.current.length !== displayWidth) {
-              if (spectrumResampleBufRef.current) spectrumResampleBufRef.current.fill(0);
-              spectrumResampleBufRef.current = new Float32Array(displayWidth);
-            }
-            const outBuf = spectrumResampleBufRef.current;
-
-            if (slicedWaveform.length === displayWidth) {
-              outBuf.set(slicedWaveform);
-            } else {
-              resampleSpectrumInto(slicedWaveform, outBuf);
-            }
-
-            // Sanitise data for shader
-            for (let i = 0; i < outBuf.length; i++) {
-              if (!Number.isFinite(outBuf[i])) outBuf[i] = vizDbMinRef.current;
-            }
-
             drawSpectrum({
               canvas: spectrumGpuCanvas,
               webgpuEnabled: spectrumWebgpuEnabled,
               isInitializingWebGPU,
               device: webgpuDeviceRef.current,
               format: webgpuFormatRef.current,
-              waveform: outBuf,
+              waveform: slicedWaveform,
               frequencyRange: visualRange,
               fftMin: activeScaleDbMin,
               fftMax: activeScaleDbMax,
@@ -1298,15 +1253,15 @@ const FFTCanvas = memo(
               showSpikeOverlay,
               spikeMarkers: showSpikeOverlay
                 ? detectProminentSpikes({
-                  spectrumData: outBuf,
+                  spectrumData: slicedWaveform,
                   dbMin: activeScaleDbMin,
                   dbMax: activeScaleDbMax,
-                  maxMarkers: Math.max(24, Math.floor(outBuf.length / 12)),
+                  maxMarkers: Math.max(24, Math.floor(slicedWaveform.length / 12)),
                   frequencyRange: visualRange,
                   temporalPersistence:
-                    spikePersistenceRef.current && spikePersistenceRef.current.length === outBuf.length
+                    spikePersistenceRef.current && spikePersistenceRef.current.length === slicedWaveform.length
                       ? spikePersistenceRef.current
-                      : (spikePersistenceRef.current = new Float32Array(outBuf.length)),
+                      : (spikePersistenceRef.current = new Float32Array(slicedWaveform.length)),
                 })
                 : [],
               lineColor: fftColor,
@@ -1732,7 +1687,6 @@ const FFTCanvas = memo(
         fullChannelWaveformRef.current = null;
         fullChannelRangeRef.current = null;
         frameBufferRef.current = [];
-        spectrumResampleBufRef.current?.fill(0);
       }
 
       if (isPaused) {
