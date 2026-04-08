@@ -46,7 +46,7 @@ type AuthAction =
 const getInitialHasPasskeys = () => {
   try {
     return localStorage.getItem("n_apt_has_passkeys") === "true";
-  } catch (e) {
+  } catch {
     // Safari private mode or localStorage blocked
     console.warn("localStorage unavailable, assuming no passkeys (likely Safari private mode)");
     return false;
@@ -183,7 +183,7 @@ const useAuthenticationInternal = (
         localStorage.setItem("test", "test");
         localStorage.removeItem("test");
         return false;
-      } catch (e) {
+      } catch {
         return true;
       }
     })();
@@ -254,18 +254,18 @@ const useAuthenticationInternal = (
                 "n_apt_has_passkeys",
                 effectiveHasPasskeys ? "true" : "false",
               );
-            } catch (e) {
+            } catch {
               // Safari private mode - localStorage not available
-              console.debug("localStorage unavailable for passkey state");
+              console.debug("localStorage unavailable for auth state");
             }
             dispatch({
               type: "SET_PASSKEYS",
               hasPasskeys: effectiveHasPasskeys,
             });
           }
-        } catch (error) {
+        } catch {
           if (!cancelled) {
-            console.debug("Auth info retry failed:", error);
+            console.debug("Auth info retry failed:");
             scheduleAuthInfoRetry(attempt + 1);
           }
         }
@@ -286,13 +286,13 @@ const useAuthenticationInternal = (
                 aesKey: key,
               });
               return;
-            } catch (error) {
-              console.warn("Stored session cannot be resumed securely:", error);
+            } catch {
+              console.warn("Stored session cannot be resumed securely:");
               clearSession();
             }
           }
-        } catch (error) {
-          console.warn("Session validation failed:", error);
+        } catch {
+          console.warn("Session validation failed:");
           clearSession();
         }
       }
@@ -307,15 +307,15 @@ const useAuthenticationInternal = (
               "n_apt_has_passkeys",
               effectiveHasPasskeys ? "true" : "false",
             );
-          } catch (e) {
+          } catch {
             // Safari private mode - localStorage not available
-            console.debug("localStorage unavailable for passkey state");
+            console.debug("localStorage unavailable for session persistence");
           }
           dispatch({ type: "READY", hasPasskeys: effectiveHasPasskeys });
         }
-      } catch (error) {
+      } catch {
         if (!cancelled) {
-          console.warn("Backend unavailable, showing auth prompt:", error);
+          console.warn("Backend unavailable, showing auth prompt:");
           dispatch({ type: "READY" });
           scheduleAuthInfoRetry();
         }

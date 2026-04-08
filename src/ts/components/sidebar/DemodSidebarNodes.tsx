@@ -1,7 +1,7 @@
 import React from "react";
 import styled from "styled-components";
 import { Collapsible } from "@n-apt/components/ui";
-import { ToyBrick, Plus, Radio, Settings, Wifi, Volume2, Play, Image, RadioIcon, Brain, Activity, Zap, Cpu, Waves, BarChart3, Music, Camera, Binary, Signal } from "lucide-react";
+import { ToyBrick, Plus, Radio, Settings, Wifi, Volume2, Play, Image, RadioIcon, Brain, Activity, Zap, Cpu, Waves, BarChart3, Music, Camera, Binary, Signal, FileBox } from "lucide-react";
 
 const NodePaletteContainer = styled.div`
   display: flex;
@@ -105,6 +105,19 @@ const availableNodes: NodeType[] = [
       label: 'Signal Configuration',
       description: 'Hardware sampling and FFT settings',
       signalOptions: true
+    }
+  },
+  {
+    id: 'metadata',
+    type: 'custom',
+    label: 'Metadata',
+    description: 'Recorded file metadata, frequency span, and capture properties.',
+    icon: <FileBox size={16} />,
+    position: { x: 250, y: 250 },
+    data: {
+      label: 'Metadata',
+      description: 'Recorded file metadata, frequency span, and capture properties.',
+      metadataNode: true
     }
   },
   {

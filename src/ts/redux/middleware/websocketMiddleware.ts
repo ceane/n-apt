@@ -13,6 +13,7 @@ import {
   clearQueuedMessages,
   incrementDataFrameCounter,
 } from '../slices/websocketSlice';
+import { setHardwareInfo } from '../slices/demodSlice';
 import { decryptPayload, decryptBinaryPayload } from '@n-apt/crypto/webcrypto';
 import { AutoFftOptionsResponse } from '@n-apt/consts/schemas/websocket';
 import { scannerWorkerManager } from '@n-apt/workers/scannerWorkerManager';
@@ -112,20 +113,21 @@ let wsInstance: WebSocketInstance = {
 };
 
 // Batching for high-frequency data
-let dataBatchTimeout: number | null = null;
+let dataBatchFrame: number | null = null;
 let pendingDataUpdate: any = null;
-const BATCH_DELAY_MS = 16; // ~60fps
 const DISCONNECT_GRACE_MS = 150;
 
 // Process batched data updates — writes directly to liveDataRef, no Redux dispatch.
-const processBatchedData = (dispatch: Dispatch) => {
+const processBatchedData = (dispatch: Dispatch, getState: () => any) => {
   if (pendingDataUpdate !== null) {
-    liveDataRef.current = pendingDataUpdate;
+    if (!getState().websocket.isPaused) {
+      liveDataRef.current = pendingDataUpdate;
+      // Dispatch action to trigger state machine updates
+      dispatch(incrementDataFrameCounter());
+    }
     pendingDataUpdate = null;
-    // Dispatch action to trigger state machine updates
-    dispatch(incrementDataFrameCounter());
   }
-  dataBatchTimeout = null;
+  dataBatchFrame = null;
 };
 
 const getPausedValue = (payload: unknown): boolean | null => {
@@ -145,10 +147,16 @@ const getPausedValue = (payload: unknown): boolean | null => {
   return null;
 };
 
-const queueLiveData = (data: unknown, dispatch: Dispatch) => {
+const queueLiveData = (
+  data: unknown,
+  dispatch: Dispatch,
+  getState: () => any,
+) => {
   pendingDataUpdate = data;
-  if (dataBatchTimeout === null) {
-    dataBatchTimeout = window.setTimeout(() => processBatchedData(dispatch), BATCH_DELAY_MS);
+  if (dataBatchFrame === null) {
+    dataBatchFrame = window.requestAnimationFrame(() =>
+      processBatchedData(dispatch, getState),
+    );
   }
 };
 
@@ -347,6 +355,24 @@ const processMessage = (dispatch: Dispatch, getState: () => any, parsedData: any
     scannerWorkerManager.handleWSResponse(parsedData);
     return;
   }
+  
+  // Hardware info messages
+  if (parsedData?.type === "hardware_info") {
+    try {
+      if (parsedData.hardwareFreqRange && typeof parsedData.sampleRate === "number") {
+        dispatch(setHardwareInfo({
+          range: {
+            min: parsedData.hardwareFreqRange.min,
+            max: parsedData.hardwareFreqRange.max
+          },
+          sampleRate: parsedData.sampleRate
+        }));
+      }
+    } catch (e) {
+      console.error('Failed to parse hardware info:', e);
+    }
+    return;
+  }
 
   // APT Analysis result messages
   if (parsedData?.type === "apt_analysis_result") {
@@ -403,8 +429,10 @@ const processBinaryMessage = async (dispatch: Dispatch, _getState: () => any, bu
     
     // Batch the data update to prevent excessive re-renders
     pendingDataUpdate = spectrumData;
-    if (dataBatchTimeout === null) {
-      dataBatchTimeout = window.setTimeout(() => processBatchedData(dispatch), BATCH_DELAY_MS);
+    if (dataBatchFrame === null) {
+      dataBatchFrame = window.requestAnimationFrame(() =>
+        processBatchedData(dispatch, _getState),
+      );
     }
   } catch (e) {
     console.error("Binary decryption failed:", e);
@@ -516,7 +544,7 @@ const createWebSocketMiddleware = (): Middleware<{}, any> => (store) => (next) =
             }
 
             if (parsed?.type === "spectrum") {
-              queueLiveData(parsed, dispatch);
+              queueLiveData(parsed, dispatch, getState);
               return;
             }
 
@@ -530,9 +558,9 @@ const createWebSocketMiddleware = (): Middleware<{}, any> => (store) => (next) =
                     Array.isArray(decrypted.messages) &&
                     decrypted.messages.length > 0
                   ) {
-                    queueLiveData(JSON.parse(decrypted.messages[0]), dispatch);
+                    queueLiveData(JSON.parse(decrypted.messages[0]), dispatch, getState);
                   } else {
-                    queueLiveData(decrypted, dispatch);
+                    queueLiveData(decrypted, dispatch, getState);
                   }
                 } catch (e) {
                   console.error('Failed to decrypt spectrum data:', e);
@@ -585,9 +613,9 @@ const createWebSocketMiddleware = (): Middleware<{}, any> => (store) => (next) =
         cleanupSocket();
       }, DISCONNECT_GRACE_MS);
       
-      if (dataBatchTimeout) {
-        clearTimeout(dataBatchTimeout);
-        dataBatchTimeout = null;
+      if (dataBatchFrame) {
+        cancelAnimationFrame(dataBatchFrame);
+        dataBatchFrame = null;
       }
       
       dispatch(setDisconnected());

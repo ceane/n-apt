@@ -15,6 +15,8 @@ module.exports = {
     "^@n-apt/components/(.*)$": "<rootDir>/src/ts/components/$1",
     "^@n-apt/hooks/(.*)$": "<rootDir>/src/ts/hooks/$1",
     "^@n-apt/(.*)$": "<rootDir>/src/ts/$1",
+    "\\.(gif|jpg|jpeg|png|svg|webp)$": "<rootDir>/test/ts/__mocks__/fileMock.cjs",
+    "\\.css$": "<rootDir>/test/ts/__mocks__/styleMock.cjs",
   },
   testMatch: [
     "<rootDir>/test/ts/**/*.test.ts", 

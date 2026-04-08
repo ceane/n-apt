@@ -10,6 +10,7 @@ import settingsSlice from "@n-apt/redux/slices/settingsSlice";
 import websocketSlice from "@n-apt/redux/slices/websocketSlice";
 import noteCardsSlice from "@n-apt/redux/slices/noteCardsSlice";
 import notificationsSlice from "@n-apt/redux/slices/notificationsSlice";
+import demodSlice from "@n-apt/redux/slices/demodSlice";
 
 // Import middleware (will be created next)
 import websocketMiddleware from "@n-apt/redux/middleware/websocketMiddleware";
@@ -30,6 +31,7 @@ export const store = configureStore({
     websocket: websocketSlice,
     noteCards: noteCardsSlice,
     notifications: notificationsSlice,
+    demod: demodSlice,
   },
   preloadedState,
   middleware: (getDefaultMiddleware) =>

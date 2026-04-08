@@ -215,6 +215,8 @@ export const FileMetadata: React.FC<FileMetadataProps> = ({
       0);
 
   const displayedFrameRate = activePlaybackMetadata?.frame_rate ?? naptMetadata?.frame_rate;
+  const displayedFrequencyRange =
+    activePlaybackMetadata?.frequency_range ?? naptMetadata?.frequency_range ?? null;
 
   return (
     <Section>
@@ -261,6 +263,22 @@ export const FileMetadata: React.FC<FileMetadataProps> = ({
             <MetadataValue>
               {displayedCaptureRateHz / 1000000}{" "}
               MHz
+            </MetadataValue>
+          </MetadataItem>
+          <MetadataItem>
+            <MetadataLabel>Start Freq</MetadataLabel>
+            <MetadataValue>
+              {displayedFrequencyRange
+                ? `${displayedFrequencyRange[0].toFixed(3)} MHz`
+                : "N/A"}
+            </MetadataValue>
+          </MetadataItem>
+          <MetadataItem>
+            <MetadataLabel>End Freq</MetadataLabel>
+            <MetadataValue>
+              {displayedFrequencyRange
+                ? `${displayedFrequencyRange[1].toFixed(3)} MHz`
+                : "N/A"}
             </MetadataValue>
           </MetadataItem>
           <MetadataItem>

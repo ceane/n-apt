@@ -197,7 +197,7 @@ const MapController: React.FC<{
   center: { lat: number; lng: number };
   zoom: number;
   onMapLoad: (map: L.Map) => void;
-}> = ({ center, zoom, onMapLoad }) => {
+}> = ({ _center, _zoom, onMapLoad }) => {
   const map = useMap();
 
   useEffect(() => {
@@ -286,7 +286,7 @@ export const MapEndpointsRoute: React.FC = () => {
     setMap(mapInstance);
   }, []);
 
-  const onUnmount = useCallback(() => {
+  const _onUnmount = useCallback(() => {
     setMap(null);
   }, []);
 
@@ -371,7 +371,7 @@ export const MapEndpointsRoute: React.FC = () => {
   }, [mcc, mnc]);
 
   return (
-    <PageContainer>
+    <PageContainer data-testid="map-endpoints-route">
       <MapWrapper>
         <ControlsPanel>
           <MapEndpointsHUD
@@ -464,9 +464,6 @@ export const MapEndpointsRoute: React.FC = () => {
             center={[center.lat, center.lng]}
             zoom={zoom}
             style={mapContainerStyle}
-            whenReady={(mapInstance) => {
-              onLoad(mapInstance.target);
-            }}
           >
             <ThemedTileLayer />
 

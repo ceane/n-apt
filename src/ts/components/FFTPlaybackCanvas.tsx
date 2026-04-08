@@ -6,7 +6,11 @@ import { useStitchingLogic } from "@n-apt/hooks/useStitchingLogic";
 import { usePlaybackAnimation } from "@n-apt/hooks/usePlaybackAnimation";
 import { useChannelManagement } from "@n-apt/hooks/useChannelManagement";
 import { useAppDispatch } from "@n-apt/redux";
-import { setActivePlaybackMetadata, clearActivePlaybackMetadata } from "@n-apt/redux";
+import {
+  setActivePlaybackMetadata,
+  clearActivePlaybackMetadata,
+  incrementPlaybackFrameCounter,
+} from "@n-apt/redux";
 import type { FFTVisualizerMachine } from "@n-apt/utils/fftVisualizerMachine";
 import { buildPlaybackSeedFrame } from "@n-apt/utils/playbackSeedFrame";
 import type { LiveFrameData } from "@n-apt/consts/schemas/websocket";
@@ -190,6 +194,9 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(({
     precomputedFrames,
     fftCanvasDataRef,
     displayMode,
+    onFrameEmitted: () => {
+      dispatch(incrementPlaybackFrameCounter());
+    },
   });
 
   // ── Channel management hook ──

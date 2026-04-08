@@ -17,6 +17,9 @@ interface FFTSpectrumProps {
   isDeviceConnected?: boolean;
   showGrid?: boolean;
   drawSignal3D?: boolean;
+  powerScale?: "dB" | "dBm";
+  fftMin?: number;
+  fftMax?: number;
 }
 
 const SpectrumCanvas = styled.canvas<{ $width: number; $height: number }>`
@@ -41,6 +44,9 @@ export const FFTSpectrum = memo<FFTSpectrumProps>(
     isDeviceConnected = true,
     showGrid = true,
     drawSignal3D = false,
+    powerScale = "dB",
+    fftMin = powerScale === "dBm" ? -100 : -120,
+    fftMax = powerScale === "dBm" ? 30 : 0,
   }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -64,8 +70,8 @@ export const FFTSpectrum = memo<FFTSpectrumProps>(
           format: webgpuFormat,
           waveform: new Float32Array(waveformArray),
           frequencyRange,
-          fftMin: -120,
-          fftMax: 0,
+          fftMin,
+          fftMax,
           showGrid,
           centerFrequencyMHz,
           isDeviceConnected,

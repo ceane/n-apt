@@ -47,6 +47,7 @@ export interface WaterfallState {
   stitchSourceSettings: { gain: number; ppm: number };
   isStitchPaused: boolean;
   activePlaybackMetadata: ActivePlaybackMetadata | null;
+  playbackFrameCounter: number;
   
   // Training capture
   isTrainingCapturing: boolean;
@@ -85,6 +86,7 @@ const initialState: WaterfallState = {
   stitchSourceSettings: { gain: 10, ppm: 0 },
   isStitchPaused: false,
   activePlaybackMetadata: null,
+  playbackFrameCounter: 0,
   
   isTrainingCapturing: false,
   trainingCaptureLabel: null,
@@ -105,15 +107,22 @@ const waterfallSlice = createSlice({
         state.sourceMode = action.payload;
         state.stitchStatus = "";
         state.isStitchPaused = true;
+        state.activePlaybackMetadata = null;
+        state.playbackFrameCounter = 0;
         // Keep selectedFiles so they're still there when returning
       } else {
         state.sourceMode = action.payload;
+        if (action.payload === "file") {
+          state.activePlaybackMetadata = null;
+          state.playbackFrameCounter = 0;
+        }
       }
     },
     
     setSelectedFiles: (state, action: PayloadAction<SelectedFile[]>) => {
       state.selectedFiles = action.payload;
       state.activePlaybackMetadata = null;
+      state.playbackFrameCounter = 0;
     },
     
     setSnapshotGrid: (state, action: PayloadAction<boolean>) => {
@@ -148,6 +157,7 @@ const waterfallSlice = createSlice({
       state.isStitchPaused = true;
       state.stitchStatus = "";
       state.stitchTrigger += 1;
+      state.playbackFrameCounter = 0;
     },
     
     toggleStitchPause: (state) => {
@@ -168,6 +178,11 @@ const waterfallSlice = createSlice({
 
     clearActivePlaybackMetadata: (state) => {
       state.activePlaybackMetadata = null;
+      state.playbackFrameCounter = 0;
+    },
+
+    incrementPlaybackFrameCounter: (state) => {
+      state.playbackFrameCounter += 1;
     },
     
     // Training capture
@@ -225,6 +240,7 @@ export const {
   setStitchPaused,
   setActivePlaybackMetadata,
   clearActivePlaybackMetadata,
+  incrementPlaybackFrameCounter,
   startTrainingCapture,
   stopTrainingCapture,
   setDrawSignal3D,

@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import { useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { Line } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
@@ -10,17 +10,17 @@ export function SignalLine({ width = 200, areaPositions = [] }: { width?: number
     for (let i = 0; i < numPoints; i++) {
       const t = i / numPoints;
       const x = (t - 0.5) * width;
-      
+
       // Baseline noise
       let y = Math.random() * 0.08 + 0.02;
-      
+
       // Synthesize the N-APT signal pattern based on the SVG characteristics
       // 1. Dense minor peaks (high frequency)
       y += Math.pow(Math.sin(t * Math.PI * 800), 10) * 0.15;
-      
+
       // 2. Medium regular peaks
       y += Math.pow(Math.sin(t * Math.PI * 200), 40) * 0.4;
-      
+
       // 3. Major regular peaks (the deep spikes in the SVG)
       y += Math.pow(Math.sin(t * Math.PI * 60), 150) * 1.2;
 
@@ -62,7 +62,7 @@ export function SignalLine({ width = 200, areaPositions = [] }: { width?: number
       vertices[i * 6 + 5] = 0;
     }
     geo.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
-    
+
     const indices = [];
     for (let i = 0; i < points.length - 1; i++) {
       const i2 = i * 2;
@@ -76,10 +76,10 @@ export function SignalLine({ width = 200, areaPositions = [] }: { width?: number
 
   return (
     <group position={[0, -2, 0]}>
-      <Line 
-        points={points} 
-        color="#60A5FA" 
-        lineWidth={1.5} 
+      <Line
+        points={points}
+        color="#60A5FA"
+        lineWidth={1.5}
       />
       <mesh geometry={fillGeometry}>
         <meshBasicMaterial color="#DBEAFE" side={THREE.DoubleSide} />
@@ -103,22 +103,20 @@ export function DashedLine({ activeX }: { activeX: number }) {
 
   return (
     <group ref={lineRef}>
-      <Line 
-        points={points} 
-        color="#111827" 
-        lineWidth={1.5} 
-        dashed={true} 
-        dashScale={1} 
-        dashSize={0.2} 
-        gapSize={0.2} 
+      <Line
+        points={points}
+        color="#111827"
+        lineWidth={1.5}
+        dashed={true}
+        dashScale={1}
+        dashSize={0.2}
+        gapSize={0.2}
       />
     </group>
   );
 }
 
 export default function SignalMockupCanvas() {
-  const [activeX, setActiveX] = useState(0);
-
   return (
     <div className="w-full h-full bg-gray-50 rounded-lg overflow-hidden">
       <div className="w-full h-full">

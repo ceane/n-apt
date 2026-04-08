@@ -54,8 +54,14 @@ export interface WasmSimdMathHandle {
     input: Uint8Array,
     powerScale: "dB" | "dBm",
     fftSize?: number,
+    windowType?: string,
   ) => Float32Array;
-  processIqToDbmSpectrum: (input: Uint8Array, offsetDb: number, fftSize?: number) => Float32Array;
+  processIqToDbmSpectrum: (
+    input: Uint8Array,
+    offsetDb: number,
+    fftSize?: number,
+    windowType?: string,
+  ) => Float32Array;
   shiftWaterfallBuffer: (buffer: Uint8ClampedArray, width: number, height: number) => void;
   applyColorMapping: (amplitudes: Float32Array, output: Uint8ClampedArray, intensity: number) => void;
   
@@ -82,6 +88,140 @@ export interface WasmSimdMathHandle {
   isSimdAvailable: boolean;
   isWasmLoaded: boolean;
 };
+
+const normalizeWindowType = (windowType?: string) => {
+  switch ((windowType ?? "hanning").toLowerCase()) {
+    case "none":
+    case "rectangular":
+      return "rectangular";
+    case "hann":
+    case "hanning":
+      return "hanning";
+    case "hamming":
+      return "hamming";
+    case "blackman":
+      return "blackman";
+    case "nuttall":
+      return "nuttall";
+    default:
+      return "hanning";
+  }
+};
+
+const getWindowValue = (
+  index: number,
+  size: number,
+  windowType?: string,
+) => {
+  if (size <= 1) return 1;
+
+  const normalized = normalizeWindowType(windowType);
+  const t = index / (size - 1);
+
+  switch (normalized) {
+    case "rectangular":
+      return 1;
+    case "hamming":
+      return 0.54 - 0.46 * Math.cos(2 * Math.PI * t);
+    case "blackman":
+      return 0.42 - 0.5 * Math.cos(2 * Math.PI * t) + 0.08 * Math.cos(4 * Math.PI * t);
+    case "nuttall":
+      return 0.355768
+        - 0.487396 * Math.cos(2 * Math.PI * t)
+        + 0.144232 * Math.cos(4 * Math.PI * t)
+        - 0.012604 * Math.cos(6 * Math.PI * t);
+    case "hanning":
+    default:
+      return 0.5 - 0.5 * Math.cos(2 * Math.PI * t);
+  }
+};
+
+export function computeIqToDbSpectrumScalar(
+  input: Uint8Array,
+  options: {
+    fftSize: number;
+    offsetDb: number;
+    windowType?: string;
+  },
+): Float32Array {
+  const { fftSize, offsetDb, windowType } = options;
+  const numSamples = Math.max(1, Math.min(fftSize, Math.floor(input.length / 2)));
+  const real = new Float32Array(numSamples);
+  const imag = new Float32Array(numSamples);
+  let windowSum = 0;
+
+  for (let i = 0; i < numSamples; i++) {
+    const windowVal = getWindowValue(i, numSamples, windowType);
+    real[i] = ((input[i * 2] - 128) / 128) * windowVal;
+    imag[i] = ((input[i * 2 + 1] - 128) / 128) * windowVal;
+    windowSum += windowVal;
+  }
+
+  const fftLen = Math.pow(2, Math.ceil(Math.log2(numSamples)));
+  const paddedReal = new Float32Array(fftLen);
+  const paddedImag = new Float32Array(fftLen);
+  paddedReal.set(real);
+  paddedImag.set(imag);
+
+  const bits = Math.log2(fftLen);
+  const bitReverse = (x: number, b: number) => {
+    let y = 0;
+    for (let i = 0; i < b; i++) {
+      y = (y << 1) | (x & 1);
+      x >>= 1;
+    }
+    return y;
+  };
+
+  for (let i = 0; i < fftLen; i++) {
+    const j = bitReverse(i, bits);
+    if (j > i) {
+      [paddedReal[i], paddedReal[j]] = [paddedReal[j], paddedReal[i]];
+      [paddedImag[i], paddedImag[j]] = [paddedImag[j], paddedImag[i]];
+    }
+  }
+
+  for (let s = 1; s <= bits; s++) {
+    const m = 1 << s;
+    const halfM = m >> 1;
+    const wAngle = (-2 * Math.PI) / m;
+    const wStepReal = Math.cos(wAngle);
+    const wStepImag = Math.sin(wAngle);
+
+    for (let k = 0; k < fftLen; k += m) {
+      let wReal = 1;
+      let wImag = 0;
+      for (let j = 0; j < halfM; j++) {
+        const uReal = paddedReal[k + j];
+        const uImag = paddedImag[k + j];
+        const vr = paddedReal[k + j + halfM] * wReal - paddedImag[k + j + halfM] * wImag;
+        const vi = paddedReal[k + j + halfM] * wImag + paddedImag[k + j + halfM] * wReal;
+        paddedReal[k + j] = uReal + vr;
+        paddedImag[k + j] = uImag + vi;
+        paddedReal[k + j + halfM] = uReal - vr;
+        paddedImag[k + j + halfM] = uImag - vi;
+        const nextWReal = wReal * wStepReal - wImag * wStepImag;
+        wImag = wReal * wStepImag + wImag * wStepReal;
+        wReal = nextWReal;
+      }
+    }
+  }
+
+  const normSq = Math.max(windowSum * windowSum, 1e-12);
+  const output = new Float32Array(fftLen);
+  for (let i = 0; i < fftLen; i++) {
+    const magSq = (paddedReal[i] * paddedReal[i] + paddedImag[i] * paddedImag[i]) / normSq;
+    output[i] = 10 * Math.log10(magSq + 1e-15) + offsetDb;
+  }
+
+  const half = fftLen / 2;
+  const shifted = new Float32Array(fftLen);
+  for (let i = 0; i < fftLen; i++) {
+    shifted[(i + half) % fftLen] = output[i];
+  }
+
+  return shifted;
+}
 
 export function useWasmSimdMath(options: SpectrumMathOptions): WasmSimdMathHandle {
   const { fftSize, enableSimd, fallbackToScalar } = options;
@@ -163,7 +303,12 @@ export function useWasmSimdMath(options: SpectrumMathOptions): WasmSimdMathHandl
     }
   }, [isSimdAvailable]);
 
-  const processIqToDbmSpectrum = useCallback((input: Uint8Array, offsetDb: number, overrideFftSize?: number) => {
+  const processIqToDbmSpectrum = useCallback((
+    input: Uint8Array,
+    offsetDb: number,
+    overrideFftSize?: number,
+    windowType?: string,
+  ) => {
     if (simdProcessorRef.current && isSimdAvailable) {
       if (
         typeof overrideFftSize === "number" &&
@@ -180,104 +325,40 @@ export function useWasmSimdMath(options: SpectrumMathOptions): WasmSimdMathHandl
       }
 
       try {
+        if (typeof simdProcessorRef.current.set_window_type === "function") {
+          simdProcessorRef.current.set_window_type(normalizeWindowType(windowType));
+        }
         return new Float32Array(simdProcessorRef.current.process_iq_to_dbm_spectrum(input, offsetDb));
       } catch (error) {
         console.warn("WASM SIMD I/Q dBm fallback failed, using scalar path:", error);
       }
     }
 
-    // FFT Fallback with correct normalization
-    const numSamples = Math.max(
-      1,
-      Math.min(overrideFftSize ?? fftSize, Math.floor(input.length / 2)),
-    );
-    const real = new Float32Array(numSamples);
-    const imag = new Float32Array(numSamples);
-    let windowSum = 0;
-
-    for (let i = 0; i < numSamples; i++) {
-        const t = i / (numSamples - 1);
-        const windowVal = 0.5 - 0.5 * Math.cos(2 * Math.PI * t);
-        real[i] = ((input[i * 2] - 128) / 128) * windowVal;
-        imag[i] = ((input[i * 2 + 1] - 128) / 128) * windowVal;
-        windowSum += windowVal;
-    }
-
-    // Pad to power of 2 for this simple CT implementation to avoid NaN
-    const fftLen = Math.pow(2, Math.ceil(Math.log2(numSamples)));
-    const paddedReal = new Float32Array(fftLen);
-    const paddedImag = new Float32Array(fftLen);
-    paddedReal.set(real);
-    paddedImag.set(imag);
-
-    const bits = Math.log2(fftLen);
-    const bitReverse = (x: number, b: number) => {
-        let y = 0;
-        for (let i = 0; i < b; i++) {
-            y = (y << 1) | (x & 1);
-            x >>= 1;
-        }
-        return y;
-    };
-
-    for (let i = 0; i < fftLen; i++) {
-        const j = bitReverse(i, bits);
-        if (j > i) {
-            [paddedReal[i], paddedReal[j]] = [paddedReal[j], paddedReal[i]];
-            [paddedImag[i], paddedImag[j]] = [paddedImag[j], paddedImag[i]];
-        }
-    }
-
-    for (let s = 1; s <= bits; s++) {
-        const m = 1 << s;
-        const halfM = m >> 1;
-        const wAngle = (-2 * Math.PI) / m;
-        const wStepReal = Math.cos(wAngle);
-        const wStepImag = Math.sin(wAngle);
-
-        for (let k = 0; k < fftLen; k += m) {
-            let wReal = 1;
-            let wImag = 0;
-            for (let j = 0; j < halfM; j++) {
-                const uReal = paddedReal[k + j];
-                const uImag = paddedImag[k + j];
-                const vr = paddedReal[k + j + halfM] * wReal - paddedImag[k + j + halfM] * wImag;
-                const vi = paddedReal[k + j + halfM] * wImag + paddedImag[k + j + halfM] * wReal;
-                paddedReal[k + j] = uReal + vr;
-                paddedImag[k + j] = uImag + vi;
-                paddedReal[k + j + halfM] = uReal - vr;
-                paddedImag[k + j + halfM] = uImag - vi;
-                const nextWReal = wReal * wStepReal - wImag * wStepImag;
-                wImag = wReal * wStepImag + wImag * wStepReal;
-                wReal = nextWReal;
-            }
-        }
-    }
-
-    const normSq = windowSum * windowSum;
-    const output = new Float32Array(fftLen);
-    for (let i = 0; i < fftLen; i++) {
-        const magSq = (paddedReal[i] * paddedReal[i] + paddedImag[i] * paddedImag[i]) / normSq;
-        output[i] = 10 * Math.log10(magSq + 1e-15) + offsetDb;
-    }
-
-    const half = fftLen / 2;
-    const shifted = new Float32Array(fftLen);
-    for (let i = 0; i < fftLen; i++) {
-        shifted[(i + half) % fftLen] = output[i];
-    }
-
-    return shifted;
+    return computeIqToDbSpectrumScalar(input, {
+      fftSize: overrideFftSize ?? fftSize,
+      offsetDb,
+      windowType,
+    });
   }, [fftSize, isSimdAvailable]);
 
   const processIqToSpectrum = useCallback(
-    (input: Uint8Array, powerScale: "dB" | "dBm", overrideFftSize?: number) => {
+    (
+      input: Uint8Array,
+      powerScale: "dB" | "dBm",
+      overrideFftSize?: number,
+      windowType?: string,
+    ) => {
       const offsetDb = powerScale === "dBm" ? 30.0 : 0.0;
-      const spectrum = processIqToDbmSpectrum(input, offsetDb, overrideFftSize);
+      const spectrum = processIqToDbmSpectrum(
+        input,
+        offsetDb,
+        overrideFftSize,
+        windowType,
+      );
 
       return spectrum;
     },
-    [processIqToDbmSpectrum, fftSize],
+    [processIqToDbmSpectrum],
   );
 
   const shiftWaterfallBuffer = useCallback((buffer: Uint8ClampedArray, width: number, height: number) => {

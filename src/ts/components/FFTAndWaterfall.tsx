@@ -62,8 +62,9 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTCanvasProps>(
     };
 
     const zoom = props.vizZoom ?? 1;
-    const dbMin = props.fftMin ?? -120;
-    const dbMax = props.fftMax ?? 0;
+    const powerScale = props.powerScale ?? "dB";
+    const dbMin = props.fftMin ?? (powerScale === "dBm" ? -100 : -120);
+    const dbMax = props.fftMax ?? (powerScale === "dBm" ? 30 : 0);
 
     return (
       <Container>

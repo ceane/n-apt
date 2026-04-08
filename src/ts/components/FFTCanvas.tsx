@@ -202,6 +202,27 @@ const ensureValidDbRange = (
   return { min: nextMin, max: nextMax };
 };
 
+const toUnifiedWindowType = (
+  windowType?: string,
+): "rectangular" | "hanning" | "hamming" | "blackman" | "nuttall" => {
+  switch ((windowType ?? "Rectangular").toLowerCase()) {
+    case "rectangular":
+    case "none":
+      return "rectangular";
+    case "hann":
+    case "hanning":
+      return "hanning";
+    case "hamming":
+      return "hamming";
+    case "blackman":
+      return "blackman";
+    case "nuttall":
+      return "nuttall";
+    default:
+      return "rectangular";
+  }
+};
+
 /**
  * Props for FFTCanvas component
  */
@@ -242,6 +263,8 @@ export interface FFTCanvasProps {
   }) => void;
   /** Grid preference for snapshot rendering (affects 2D shadow canvases) */
   snapshotGridPreference: boolean;
+  /** Whether to hide title and use compact layout (for node integration) */
+  compact?: boolean;
   showSpikeOverlay?: boolean;
   vizZoom?: number;
   vizPanOffset?: number;
@@ -365,6 +388,7 @@ const FFTCanvas = memo(
       visualizerMachine,
       visualizerSessionKey = "default",
       waterfallCanvasBindings,
+      compact = false,
     } = props;
     const fftColor = useAppSelector((reduxState) => reduxState.theme.fftColor);
     const waterfallTheme = useAppSelector((reduxState) => reduxState.theme.waterfallTheme);
@@ -700,6 +724,7 @@ const FFTCanvas = memo(
       device: webgpuDeviceRef.current ?? null,
       fftSize: effectiveFftSize,
       waterfallHeight: 1,
+      windowType: toUnifiedWindowType(fftWindow),
       enableAveraging: false,
       enableSmoothing: false,
     });
@@ -972,7 +997,12 @@ const FFTCanvas = memo(
           let waveform: Float32Array;
 
           const offsetDb = isDbmMode ? 30.0 : 0.0;
-          const rawSpectrum = processIqToDbmSpectrum(iqBytes, offsetDb, effectiveFftSize);
+          const rawSpectrum = processIqToDbmSpectrum(
+            iqBytes,
+            offsetDb,
+            effectiveFftSize,
+            fftWindow,
+          );
           const cpuSpectrum = new Float32Array(rawSpectrum.length);
 
           const minClamp = activeScaleDbMin;
@@ -1106,6 +1136,7 @@ const FFTCanvas = memo(
             currentData.iq_data,
             isDbmMode ? 30.0 : 0.0,
             effectiveFftSize,
+            fftWindow,
           );
 
           // Validate waveform before processing
@@ -1989,12 +2020,14 @@ const FFTCanvas = memo(
 
     return (
       <Suspense fallback={<div>Loading FFT visualization...</div>}>
-        <VisualizerContainer>
-          <VisualizerContent>
+        <VisualizerContainer style={compact ? { backgroundColor: 'transparent' } : {}}>
+          <VisualizerContent style={compact ? { gap: 0 } : {}}>
             <SpectrumSection>
-              <SectionTitle>
-                FFT Signal Display {isPaused && "(Paused)"}
-              </SectionTitle>
+              {!compact && (
+                <SectionTitle>
+                  FFT Signal Display {isPaused && "(Paused)"}
+                </SectionTitle>
+              )}
               <SpectrumRow>
                 <CanvasWrapper ref={spectrumContainerRef}>
                   {!isInitializingWebGPU && (

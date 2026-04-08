@@ -22,11 +22,25 @@ import { useAuthentication } from "@n-apt/hooks/useAuthentication";
 import { buildWsUrl } from "@n-apt/services/auth";
 import { useLocation } from "react-router-dom";
 import { useAppDispatch, useAppSelector } from "@n-apt/redux/store";
+import {
+  clearWaterfall,
+  resetTrainingCapture,
+  resetWaterfallCleared,
+  setDrawSignal3D as setWaterfallDrawSignal3D,
+  setGlobalNoiseFloor as setWaterfallGlobalNoiseFloor,
+  setSelectedFiles as setWaterfallSelectedFiles,
+  setSnapshotGrid as setWaterfallSnapshotGrid,
+  setSourceMode as setWaterfallSourceMode,
+  setStitchPaused as setWaterfallStitchPaused,
+  setStitchSourceSettings as setWaterfallStitchSourceSettings,
+  setStitchStatus as setWaterfallStitchStatus,
+  toggleStitchPause as toggleWaterfallStitchPause,
+  triggerStitch as triggerWaterfallStitch,
+} from "@n-apt/redux";
 import { liveDataRef } from "@n-apt/redux/middleware/websocketMiddleware";
 import {
   connectWebSocket,
   disconnectWebSocket,
-  sendPauseCommand as sendPauseCommandThunk,
   sendPowerScaleCommand as sendPowerScaleCommandThunk,
   sendGetAutoFftOptions as sendGetAutoFftOptionsThunk,
   sendTrainingCommand as sendTrainingCommandThunk,
@@ -38,6 +52,7 @@ import {
   sendDemodulateCommand as sendDemodulateCommandThunk,
 } from "@n-apt/redux/thunks/websocketThunks";
 import { deriveStateFromConfig } from "@n-apt/hooks/useSdrSettings";
+import { applyWaterfallStateOverrides } from "@n-apt/hooks/spectrumStoreOverrides";
 import {
   createFFTVisualizerMachine,
   type FFTVisualizerMachine,
@@ -114,6 +129,7 @@ export type SpectrumState = {
   tunerAGC: boolean;
   rtlAGC: boolean;
   sampleRateHz: number;
+  sample_size: number;
   heterodyningVerifyRequestId: number;
   heterodyningStatusText: string;
   heterodyningVerifyDisabled: boolean;
@@ -236,6 +252,7 @@ export const INITIAL_SPECTRUM_STATE: SpectrumState = {
   tunerAGC: false,
   rtlAGC: false,
   sampleRateHz: 3_200_000,
+  sample_size: 3_200_000,
   heterodyningVerifyRequestId: 0,
   heterodyningStatusText: "Idle",
   heterodyningVerifyDisabled: false,
@@ -249,6 +266,8 @@ export const INITIAL_SPECTRUM_STATE: SpectrumState = {
   drawSignal3D: false,
   displayMode: "fft",
 };
+
+export { applyWaterfallStateOverrides } from "@n-apt/hooks/spectrumStoreOverrides";
 
 const SDR_SETTINGS_KEY = "napt-sdr-settings-v2";
 
@@ -415,9 +434,15 @@ export function spectrumReducer(
     case "SET_SHOW_SPIKE_OVERLAY":
       return { ...state, showSpikeOverlay: action.enabled };
     case "SET_SAMPLE_RATE":
-      return { ...state, sampleRateHz: action.sampleRateHz };
+      return { ...state, sampleRateHz: action.sampleRateHz, sample_size: action.sampleRateHz };
     case "SET_SDR_SETTINGS_BUNDLE":
-      return { ...state, ...action.settings };
+      return {
+        ...state,
+        ...action.settings,
+        sample_size: typeof action.settings.sampleRateHz === "number"
+          ? action.settings.sampleRateHz
+          : state.sample_size,
+      };
     case "REQUEST_HETERODYNING_VERIFY":
       return {
         ...state,
@@ -614,8 +639,63 @@ export const SpectrumProvider: React.FC<SpectrumProviderProps> = ({
   const autoFftOptions = useAppSelector((s) => s.websocket.autoFftOptions);
   const error = useAppSelector((s) => s.websocket.error);
   const deviceState = useAppSelector((s) => s.websocket.deviceState);
+  const waterfallState = useAppSelector((s) => s.waterfall);
   // liveDataRef is written directly by the middleware — never goes through Redux.
   const dataRef = liveDataRef;
+
+  const mergedState = useMemo(
+    () => applyWaterfallStateOverrides(state, waterfallState),
+    [state, waterfallState],
+  );
+
+  const storeDispatch = useCallback(
+    (action: SpectrumAction) => {
+      switch (action.type) {
+        case "SET_SOURCE_MODE":
+          reduxDispatch(setWaterfallSourceMode(action.mode));
+          return;
+        case "SET_SELECTED_FILES":
+          reduxDispatch(setWaterfallSelectedFiles(action.files));
+          return;
+        case "SET_SNAPSHOT_GRID":
+          reduxDispatch(setWaterfallSnapshotGrid(action.preference));
+          return;
+        case "SET_GLOBAL_NOISE_FLOOR":
+          reduxDispatch(setWaterfallGlobalNoiseFloor(action.noise));
+          return;
+        case "SET_STITCH_STATUS":
+          reduxDispatch(setWaterfallStitchStatus(action.status));
+          return;
+        case "TRIGGER_STITCH":
+          reduxDispatch(triggerWaterfallStitch());
+          return;
+        case "TOGGLE_STITCH_PAUSE":
+          reduxDispatch(toggleWaterfallStitchPause());
+          return;
+        case "SET_STITCH_SOURCE_SETTINGS":
+          reduxDispatch(setWaterfallStitchSourceSettings(action.settings));
+          return;
+        case "SET_STITCH_PAUSED":
+          reduxDispatch(setWaterfallStitchPaused(action.paused));
+          return;
+        case "CLEAR_WATERFALL":
+          reduxDispatch(clearWaterfall());
+          return;
+        case "RESET_WATERFALL_CLEARED":
+          reduxDispatch(resetWaterfallCleared());
+          return;
+        case "SET_DRAW_SIGNAL_3D":
+          reduxDispatch(setWaterfallDrawSignal3D(action.enabled));
+          return;
+        case "TRAINING_STOP":
+          reduxDispatch(resetTrainingCapture());
+          return;
+        default:
+          dispatch(action);
+      }
+    },
+    [reduxDispatch],
+  );
 
   useEffect(() => {
     reduxDispatch(
@@ -639,7 +719,10 @@ export const SpectrumProvider: React.FC<SpectrumProviderProps> = ({
 
   const sendPauseCommand = useCallback(
     (paused: boolean) => {
-      reduxDispatch(sendPauseCommandThunk(paused));
+      reduxDispatch({
+        type: "websocket/setPaused",
+        payload: { isPaused: paused },
+      });
     },
     [reduxDispatch],
   );
@@ -765,7 +848,7 @@ export const SpectrumProvider: React.FC<SpectrumProviderProps> = ({
 
   // Track active spectrum route globally
   const isVisualizerRoute =
-    location.pathname === "/" || 
+    location.pathname === "/" ||
     location.pathname === "/visualizer" ||
     location.pathname === "/demodulate";
 
@@ -825,10 +908,10 @@ export const SpectrumProvider: React.FC<SpectrumProviderProps> = ({
 
   // 3. Sync store visualizerPaused with manualVisualizerPaused
   useEffect(() => {
-    if (state.visualizerPaused !== manualVisualizerPaused) {
-      dispatch({ type: "SET_VISUALIZER_PAUSED", paused: manualVisualizerPaused });
+    if (mergedState.visualizerPaused !== manualVisualizerPaused) {
+      storeDispatch({ type: "SET_VISUALIZER_PAUSED", paused: manualVisualizerPaused });
     }
-  }, [manualVisualizerPaused, state.visualizerPaused, dispatch]);
+  }, [manualVisualizerPaused, mergedState.visualizerPaused, storeDispatch]);
 
   // 4. Sync backend with manualVisualizerPaused
   useEffect(() => {
@@ -856,8 +939,9 @@ export const SpectrumProvider: React.FC<SpectrumProviderProps> = ({
       activeSignalArea: state.activeSignalArea,
       lastKnownRanges: state.lastKnownRanges,
       displayTemporalResolution: state.displayTemporalResolution,
-      snapshotGridPreference: state.snapshotGridPreference,
+      snapshotGridPreference: mergedState.snapshotGridPreference,
       sampleRateHz: state.sampleRateHz,
+      sample_size: state.sample_size,
     };
     sessionStorage.setItem(SDR_SETTINGS_KEY, JSON.stringify(settingsToPersist));
   }, [
@@ -877,8 +961,9 @@ export const SpectrumProvider: React.FC<SpectrumProviderProps> = ({
     state.lastKnownRanges,
     state.displayTemporalResolution,
     state.powerScale,
-    state.snapshotGridPreference,
+    mergedState.snapshotGridPreference,
     state.sampleRateHz,
+    state.sample_size,
   ]);
 
   const lastSentPowerScaleRef = useRef<"dB" | "dBm" | null>(null);
@@ -891,9 +976,9 @@ export const SpectrumProvider: React.FC<SpectrumProviderProps> = ({
   // Revert power scale to dB if not supported by the current device
   useEffect(() => {
     if (deviceProfile && !deviceProfile.supports_approx_dbm && state.powerScale === "dBm") {
-      dispatch({ type: "SET_POWER_SCALE", powerScale: "dB" });
+      storeDispatch({ type: "SET_POWER_SCALE", powerScale: "dB" });
     }
-  }, [deviceProfile, state.powerScale, dispatch]);
+  }, [deviceProfile, state.powerScale, storeDispatch]);
 
   useEffect(() => {
     if (wsSpectrumFrames.length === 0) return;
@@ -922,9 +1007,9 @@ export const SpectrumProvider: React.FC<SpectrumProviderProps> = ({
   useEffect(() => {
     const rate = sdrSettings?.sample_rate ?? sampleRateHz ?? maxSampleRateHz;
     if (typeof rate === "number" && rate > 0 && rate !== state.sampleRateHz) {
-      dispatch({ type: "SET_SAMPLE_RATE", sampleRateHz: rate });
+      storeDispatch({ type: "SET_SAMPLE_RATE", sampleRateHz: rate });
     }
-  }, [sdrSettings?.sample_rate, sampleRateHz, maxSampleRateHz, state.sampleRateHz, dispatch]);
+  }, [sdrSettings?.sample_rate, sampleRateHz, maxSampleRateHz, state.sampleRateHz, storeDispatch]);
 
   const effectiveFrames =
     wsSpectrumFrames.length > 0 ? wsSpectrumFrames : cachedFrames;
@@ -953,7 +1038,7 @@ export const SpectrumProvider: React.FC<SpectrumProviderProps> = ({
   // and the current sample rate. This is placed after variable
   // declarations to satisfy closure requirements.
   useEffect(() => {
-    if (state.frequencyRange) return;
+    if (mergedState.frequencyRange) return;
     if (!Array.isArray(effectiveFrames) || effectiveFrames.length === 0) return;
 
     const primaryFrame =
@@ -970,14 +1055,15 @@ export const SpectrumProvider: React.FC<SpectrumProviderProps> = ({
     const range = nextRange;
     if (lastSentFrequencyRangeRef.current?.min === range.min && lastSentFrequencyRangeRef.current?.max === range.max) return;
 
-    dispatch({ type: "SET_FREQUENCY_RANGE", range: nextRange });
+    storeDispatch({ type: "SET_FREQUENCY_RANGE", range: nextRange });
     wsConnection.sendFrequencyRange(nextRange);
     lastSentFrequencyRangeRef.current = nextRange;
   }, [
-    state.frequencyRange,
+    mergedState.frequencyRange,
     sampleRateMHz,
     effectiveFrames,
     wsConnection.sendFrequencyRange,
+    storeDispatch,
   ]);
 
   // Execute exactly once to absorb backend default configurations (like signals.yaml gain)
@@ -999,21 +1085,21 @@ export const SpectrumProvider: React.FC<SpectrumProviderProps> = ({
       sampleRateHzEffective ?? 0,
       sdrSettings,
     );
-    dispatch({
+    storeDispatch({
       type: "SET_SDR_SETTINGS_BUNDLE",
       settings: derived,
     });
-  }, [sdrSettings, sampleRateHzEffective, dispatch]);
+  }, [sdrSettings, sampleRateHzEffective, storeDispatch]);
 
   const lastSentFrequencyRangeRef = useRef<FrequencyRange | null>(null);
   useEffect(() => {
-    if (!isConnected || !state.frequencyRange) return;
-    const range = state.frequencyRange;
+    if (!isConnected || !mergedState.frequencyRange) return;
+    const range = mergedState.frequencyRange;
     if (lastSentFrequencyRangeRef.current?.min === range.min && lastSentFrequencyRangeRef.current?.max === range.max) return;
 
     wsConnection.sendFrequencyRange(range);
     lastSentFrequencyRangeRef.current = range;
-  }, [isConnected, state.frequencyRange, wsConnection.sendFrequencyRange]);
+  }, [isConnected, mergedState.frequencyRange, wsConnection.sendFrequencyRange]);
 
   // Screen width detection for auto FFT options
   useEffect(() => {
@@ -1054,19 +1140,19 @@ export const SpectrumProvider: React.FC<SpectrumProviderProps> = ({
     sessionStorage.setItem(MANUAL_VISUALIZER_PAUSE_KEY, String(nextPaused));
 
     // Force an immediate update of the store state
-    dispatch({ type: "SET_VISUALIZER_PAUSED", paused: nextPaused });
+    storeDispatch({ type: "SET_VISUALIZER_PAUSED", paused: nextPaused });
 
     // Send command immediately for responsiveness
     if (isConnected) {
       wsConnection.sendPauseCommand(nextPaused);
       lastSentPauseRef.current = nextPaused;
     }
-  }, [manualVisualizerPaused, isConnected, wsConnection.sendPauseCommand]);
+  }, [manualVisualizerPaused, isConnected, wsConnection.sendPauseCommand, storeDispatch]);
 
   const value = useMemo(
     () => ({
-      state,
-      dispatch,
+      state: mergedState,
+      dispatch: storeDispatch,
       fftVisualizerMachine,
       manualVisualizerPaused,
       setManualVisualizerPaused,
@@ -1083,7 +1169,8 @@ export const SpectrumProvider: React.FC<SpectrumProviderProps> = ({
       deviceProfile,
     }),
     [
-      state,
+      mergedState,
+      storeDispatch,
       fftVisualizerMachine,
       manualVisualizerPaused,
       effectiveFrames,

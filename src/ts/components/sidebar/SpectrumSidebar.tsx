@@ -15,7 +15,6 @@ import {
   setPowerScale,
   setSdrSettingsBundle,
   setStitchSourceSettings as setStitchSourceSettingsAction,
-  setPaused,
   setCaptureStatus,
   setDisplayMode,
   setFftWindow as setFftWindowAction,
@@ -39,7 +38,6 @@ import { IQCaptureControlsSection } from "@n-apt/components/sidebar/IQCaptureCon
 import { SnapshotControlsSection } from "@n-apt/components/sidebar/SnapshotControlsSection";
 import { SourceSettingsSection } from "@n-apt/components/sidebar/SourceSettingsSection";
 import FileSelectionSidebar from "@n-apt/components/sidebar/FileSelectionSidebar";
-import { SignalFeaturesSection } from "@n-apt/components/sidebar/SignalFeaturesSection";
 import { ConnectionStatusSection, PauseButton } from "@n-apt/components/sidebar/ConnectionStatusSection";
 import { ThemeSection } from "@n-apt/components/sidebar/ThemeSection";
 import { Channels } from "@n-apt/components/sidebar/Channels";
@@ -429,8 +427,7 @@ export const SpectrumSidebar: React.FC = () => {
   // Toggle visualizer pause
   const toggleVisualizerPause = useCallback(() => {
     toggleLiveVisualizerPause();
-    dispatch(setPaused(!liveIsPaused));
-  }, [dispatch, liveIsPaused, toggleLiveVisualizerPause]);
+  }, [toggleLiveVisualizerPause]);
 
   // Memoized values for sections
   const selectedPrimaryFile = useMemo(() => {
@@ -1019,27 +1016,6 @@ export const SpectrumSidebar: React.FC = () => {
               limitMarkers={limitMarkers}
             />
           </Section>
-
-          <SignalFeaturesSection
-            sourceMode={sourceMode}
-            deviceState={liveDeviceState || "disconnected"}
-            isConnected={isServerConnected}
-            selectedFilesCount={selectedFiles.length}
-            showSpikeOverlay={liveState.showSpikeOverlay}
-            onShowSpikeOverlayChange={(enabled) =>
-              storeDispatch({ type: "SET_SHOW_SPIKE_OVERLAY", enabled })
-            }
-            heterodyningStatusText={liveState.heterodyningStatusText}
-            heterodyningVerifyDisabled={
-              sourceMode !== "live" ||
-              !isServerConnected ||
-              (liveDeviceState || "disconnected") !== "connected" ||
-              liveState.heterodyningVerifyDisabled
-            }
-            onVerifyHeterodyning={() =>
-              storeDispatch({ type: "REQUEST_HETERODYNING_VERIFY" })
-            }
-          />
 
           <SignalDisplaySection
             sourceMode={sourceMode}

@@ -19,7 +19,7 @@ export interface AudioDemodFMHandle {
  * Handles FM demodulation from I/Q data and real-time audio playback
  */
 export function useAudioDemodFM(options: AudioDemodFMOptions): AudioDemodFMHandle {
-  const { targetSampleRate, bufferSize } = options;
+  const { targetSampleRate } = options;
   
   const [isPlaying, setIsPlaying] = useState(false);
   const [volume, setVolumeState] = useState(0.8);
@@ -38,7 +38,7 @@ export function useAudioDemodFM(options: AudioDemodFMOptions): AudioDemodFMHandl
   }, []);
 
   // FM demodulation algorithm using phase discriminator
-  const demodulateFM = useCallback((iqData: Uint8Array, inputSampleRate: number): Float32Array => {
+  const demodulateFM = useCallback((iqData: Uint8Array, _inputSampleRate: number): Float32Array => {
     const samples = iqData.length / 2;
     const audioBuffer = new Float32Array(samples);
     
@@ -149,7 +149,7 @@ export function useAudioDemodFM(options: AudioDemodFMOptions): AudioDemodFMHandl
       
       // Create audio buffer
       const buffer = audioContext.createBuffer(1, processedAudioBufferRef.current.length, targetSampleRate);
-      buffer.copyToChannel(processedAudioBufferRef.current, 0);
+      buffer.copyToChannel(processedAudioBufferRef.current as any, 0);
       
       // Create source node
       const sourceNode = audioContext.createBufferSource();

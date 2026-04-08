@@ -1,7 +1,7 @@
-//! # Unified SIMD Module
+//! # SIMD Module
 //!
 //! High-performance SIMD-accelerated signal processing for native targets.
-//! WASM SIMD processing is handled by the unified UnifiedProcessor type.
+//! FFT processing uses GPU compute shaders instead of WASM SIMD.
 
 pub mod arm_optimized_common;
 pub mod common;
@@ -25,12 +25,6 @@ pub use rendering_processor::RenderingProcessor;
 pub use common::{IQConverter, PowerSpectrum, SIMDProcessor, WindowFunctions};
 pub use downsampler::{downsample_spectrum_simd, SpectrumDownsampler};
 
-/// Unified SIMD processor that works on both WASM and native targets
-#[cfg(target_arch = "wasm32")]
-pub type UnifiedProcessor = crate::wasm::WASMSIMDProcessor;
-
-#[cfg(not(target_arch = "wasm32"))]
+/// Native SIMD processor for signal processing
+/// Note: FFT processing uses GPU compute shaders instead of WASM SIMD
 pub type UnifiedProcessor = NativeProcessor;
-
-/// Re-export for backward compatibility
-pub use UnifiedProcessor as FFTProcessor;

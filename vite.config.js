@@ -79,19 +79,90 @@ export default defineConfig({
     proxy: {
       "/ws": {
         target: "ws://localhost:8765",
-        ws: true
+        ws: true,
+        changeOrigin: true,
+        timeout: 10000,
+        proxyTimeout: 10000
       },
       "/auth": {
-        target: "http://localhost:8765"
+        target: "http://localhost:8765",
+        changeOrigin: true,
+        timeout: 10000,
+        configure: (proxy, _options) => {
+          proxy.on('error', (err, req, res) => {
+            if (err.code === 'ECONNREFUSED') {
+              // Backend not ready yet, don't log error as it's expected during startup
+              // The request will be retried by the browser
+              if (!res.headersSent) {
+                res.writeHead(503, { 'Content-Type': 'text/plain' });
+                res.end('Backend not ready yet, please retry');
+              }
+            } else if (err.code === 'ECONNRESET') {
+              // Connection reset by backend, also expected during startup/restarts
+              if (!res.headersSent) {
+                res.writeHead(503, { 'Content-Type': 'text/plain' });
+                res.end('Backend connection reset, please retry');
+              }
+            } else {
+              console.error('Proxy error:', err);
+            }
+          });
+          proxy.on('proxyReq', (_proxyReq, _req, _res) => {
+            // Log successful proxy requests for debugging
+            // console.log(`Proxying ${req.method} ${req.url} to backend`);
+          });
+        }
       },
       "/status": {
-        target: "http://localhost:8765"
+        target: "http://localhost:8765",
+        changeOrigin: true,
+        timeout: 10000,
+        configure: (proxy, _options) => {
+          proxy.on('error', (err, req, res) => {
+            if (err.code === 'ECONNREFUSED') {
+              if (!res.headersSent) {
+                res.writeHead(503, { 'Content-Type': 'text/plain' });
+                res.end('Backend not ready yet, please retry');
+              }
+            } else {
+              console.error('Proxy error:', err);
+            }
+          });
+        }
       },
       "/capture": {
-        target: "http://localhost:8765"
+        target: "http://localhost:8765",
+        changeOrigin: true,
+        timeout: 10000,
+        configure: (proxy, _options) => {
+          proxy.on('error', (err, req, res) => {
+            if (err.code === 'ECONNREFUSED') {
+              if (!res.headersSent) {
+                res.writeHead(503, { 'Content-Type': 'text/plain' });
+                res.end('Backend not ready yet, please retry');
+              }
+            } else {
+              console.error('Proxy error:', err);
+            }
+          });
+        }
       },
       "/api": {
-        target: "http://localhost:8765"
+        target: "http://localhost:8765",
+        changeOrigin: true,
+        timeout: 10000,
+        configure: (proxy, _options) => {
+          proxy.on('error', (err, req, res) => {
+            if (err.code === 'ECONNREFUSED') {
+              if (!res.headersSent) {
+                res.writeHead(503, { 'Content-Type': 'text/plain' });
+                res.end('Backend not ready yet, please retry');
+              }
+            } else {
+              console.error('Proxy error:', err);
+            }
+          });
+        }
       }
     }
   }

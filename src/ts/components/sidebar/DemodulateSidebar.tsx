@@ -1,6 +1,11 @@
-import React, { useCallback } from "react";
+import React, { useCallback, useEffect, useRef } from "react";
 import styled from "styled-components";
-import { useAppSelector, useAppDispatch, setPaused } from "@n-apt/redux";
+import {
+  useAppSelector,
+  useAppDispatch,
+  setStitchPaused,
+  triggerStitch,
+} from "@n-apt/redux";
 import { sendRestartDevice } from "@n-apt/redux/thunks/websocketThunks";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 import { SourceSidebar } from "@n-apt/components/sidebar/SourceSidebar";
@@ -11,6 +16,7 @@ import { DemodulationMathSidebar } from "@n-apt/components/sidebar/DemodulationM
 import { DemodSidebarNodes } from "@n-apt/components/sidebar/DemodSidebarNodes";
 import { DemodulationFlows } from "@n-apt/components/sidebar/DemodulationFlows";
 import type { SourceMode } from "@n-apt/hooks/useSpectrumStore";
+import { liveDataRef } from "@n-apt/redux/middleware/websocketMiddleware";
 
 const SidebarContent = styled.div`
   display: grid;
@@ -64,6 +70,8 @@ interface DemodulateSidebarProps {
   onScanStop?: () => void;
 }
 
+import { useDemod } from "@n-apt/contexts/DemodContext";
+
 export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
   isScanning = false,
   scanProgress = 0,
@@ -72,9 +80,16 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
   detectedRegions = 0,
 }) => {
   const dispatch = useAppDispatch();
+  const { setFlow } = useDemod();
   const { toggleVisualizerPause, manualVisualizerPaused, wsConnection, state: liveState, dispatch: storeDispatch } = useSpectrumStore();
 
+  const handleFlowSelect = useCallback((flow: any) => {
+    setFlow(flow.id, flow.nodes, flow.edges);
+  }, [setFlow]);
+
   const { sourceMode, selectedFiles } = liveState;
+  const stitchStatus = useAppSelector((state) => state.waterfall.stitchStatus);
+  const isStitchPaused = useAppSelector((state) => state.waterfall.isStitchPaused);
 
   // Get real device data from Redux store
   const isConnected = useAppSelector((s) => s.websocket.isConnected);
@@ -86,15 +101,41 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
   const cryptoCorrupted = useAppSelector((s) => s.websocket.cryptoCorrupted);
 
   const liveIsPaused = manualVisualizerPaused ?? wsConnection.isPaused ?? isPaused;
+  const wasLivePausedBeforeFileModeRef = useRef<boolean>(liveIsPaused);
+  const previousSourceModeRef = useRef<SourceMode>(
+    sourceMode === "file" ? "live" : sourceMode,
+  );
 
   const togglePause = useCallback(() => {
     toggleVisualizerPause();
-    dispatch(setPaused(!liveIsPaused));
-  }, [dispatch, liveIsPaused, toggleVisualizerPause]);
+  }, [toggleVisualizerPause]);
 
   const handleSourceModeChange = (mode: SourceMode) => {
     storeDispatch({ type: "SET_SOURCE_MODE", mode });
   };
+
+  useEffect(() => {
+    const previousSourceMode = previousSourceModeRef.current;
+    previousSourceModeRef.current = sourceMode;
+
+    if (previousSourceMode === sourceMode) return;
+
+    if (sourceMode === "file") {
+      wasLivePausedBeforeFileModeRef.current = liveIsPaused;
+      dispatch(setStitchPaused(true));
+      storeDispatch({ type: "SET_STITCH_PAUSED", paused: true });
+      liveDataRef.current = null;
+      if (!manualVisualizerPaused) {
+        toggleVisualizerPause();
+      }
+      return;
+    }
+
+    liveDataRef.current = null;
+    if (wasLivePausedBeforeFileModeRef.current !== manualVisualizerPaused) {
+      toggleVisualizerPause();
+    }
+  }, [dispatch, liveIsPaused, manualVisualizerPaused, sourceMode, storeDispatch, toggleVisualizerPause]);
 
   return (
     <SidebarContent>
@@ -111,14 +152,19 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
           onSelectedFilesChange={(files: any) => {
             storeDispatch({ type: "SET_SELECTED_FILES", files });
           }}
-          // Passing mock stitching status parameters as Demodulate does not currently stitch back files via WS directly
-          stitchStatus=""
-          isStitchPaused={true}
-          onStitch={() => {}}
+          stitchStatus={stitchStatus}
+          isStitchPaused={isStitchPaused}
+          onStitch={() => {
+            dispatch(triggerStitch());
+            storeDispatch({ type: "TRIGGER_STITCH" });
+          }}
           onClear={() => storeDispatch({ type: "SET_SELECTED_FILES", files: [] })}
-          onStitchPauseToggle={() => {}}
-          selectedPrimaryFile={selectedFiles[0] || null}
-          // Hide metadata in demod mode
+          onStitchPauseToggle={() => {
+            const nextPaused = !isStitchPaused;
+            dispatch(setStitchPaused(nextPaused));
+            storeDispatch({ type: "SET_STITCH_PAUSED", paused: nextPaused });
+          }}
+          selectedPrimaryFile={null}
           naptMetadata={null}
           naptMetadataError={null}
           showMetadata={false}
@@ -145,7 +191,7 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
         detectedRegions={detectedRegions}
       />
 
-      <DemodulationFlows />
+      <DemodulationFlows onFlowSelect={handleFlowSelect} />
 
       <DemodSidebarNodes />
 

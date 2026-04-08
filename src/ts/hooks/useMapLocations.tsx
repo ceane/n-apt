@@ -1,5 +1,4 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from "react";
-import { getGoogleMapsApiKey } from "@n-apt/utils/env";
 
 export interface MapLocation {
   id: string;
