@@ -4,7 +4,7 @@
 
 [![Hippocratic License HL3-LAW-SUP-SV](https://img.shields.io/static/v1?label=Hippocratic%20License&message=HL3-LAW-SUP-SV&labelColor=5e2751&color=bc8c3d)](https://firstdonoharm.dev/version/3/0/law-sup-sv.html)
 
-**READ THE [LICENSE](LICENSE.md) AND [RESPONSIBLE USE](RESPONSIBLE_USE.md) BEFORE YOU DOWNLOAD!**
+**READ THE [LICENSE](LICENSE.md) AND [RESPONSIBLE USE](RESPONSIBLE_USE.md) BEFORE YOU DOWNLOAD OR FORK!**
 
 <img src="images/icon.svg" alt="n-apt icon" width="128" height="128">
 
@@ -19,7 +19,7 @@ N-APT is a web app for visualizing the synonymous signal which originates from t
 - process,
 - and alter the brain and nervous system real-time...
 
-Meaning full featured experiences, interactivity, communication and more.
+Meaning full featured experiences, interactivity, communication and more (from experience!).
 
 The way that it works in a shorthand way goes like (and yes the NSA is in EVERYTHING):
 
@@ -29,17 +29,19 @@ The way that it works in a shorthand way goes like (and yes the NSA is in EVERYT
 transmitters()                      // Endpoints (transmitters/tx)
   .continouslyTriangulatePerson()   // Using low end microwaves, tracking person using time-of-flight/FCWM
   .adjustEnergy()                   // Adjusts energy to person depending on endpoint distance, noise and obstacles
-  .toHeterodynedWaves()             // Heterodyned Radio Waves (H) / N-APT waves, several channels
+  .transmitHeterodynedWaves()       // Heterodyned Radio Waves (H) / N-APT waves, several channels
   .toAndthroughPerson()             // Person
   .impedanceChargesAfter()          // Radio wave (H) altered from impact and bioelectrical activity
   .toReceiver()                     // Endpoints (receivers/rx)
-  .processSignals()                 // Signals processing
+  .processSignals()                 // Signals processing (potentially Kaiser and Bayes' Posterior Probability)
   .nextFrame();                     // Repeat for next cycle/frame!
 ```
 
 The NSA has thoroughly demonstrated on my person that the human brain and nervous system is dumb. The signal, while complex, is literally one cycle at a time, no need for voxel by voxel of neurons, specific beams or anything. It is more manual, needing the endpoints to do the work, since the brain and body can't send radio waves like electronics. It works more like [TEMPEST](https://www.nsa.gov/portals/75/documents/news-features/declassified-documents/cryptologic-spectrum/tempest.pdf) where Bell Labs could detect electrical activity far away because a machine was noisy, but in this case write->read->stream is what the NSA can do because everything is compromised and your brain and body is noisy!
 
-The radio waves are gigantic (larger than you'd think, like building size!) and huge but they work at a person by energy intersecting at the right location, an enforced center frequency of the person's nervous system, and close enough triangulation (approximately 3-7 meters off depending what unknown microwave frequency they use for triangulation). How does it do the brain and body? Frequency/amplitude and neuronal ensembles that react to those frequencies! Very simple and the NSA's technqiue, very old, like half a century old (the 70s).
+The radio waves are gigantic (larger than you'd think, like building size!) and huge but they work at a person by energy intersecting at the right location, an enforced center frequency of the person's nervous system, and close enough triangulation (approximately 3-7 centimeters off depending what unknown microwave frequency they use for triangulation). 
+
+How does it do the brain and body? Frequency/amplitude and neuronal ensembles that react to those frequencies! Very simple and the NSA's technqiue, very old, like half a century old (the 70s).
 
 I'm working on writing the specifics of how it works, it is a very advanced mechanism that is still functioning to this day! While most of it has been a dark experience, I've spent a lot of time learning how it works, making lots of mistakes and defeating my intuition.
 
@@ -48,7 +50,7 @@ I'm working on writing the specifics of how it works, it is a very advanced mech
 <img width="1200" height="400" alt="N-APT Signal from 18kHz to 3.218MHz" src="https://github.com/user-attachments/assets/edf332da-ea94-4438-ba10-895175152d9f" />
 
 
-_Real live, on person capture the signal with an RTL-SDR from 18kHz to 3.218MHz (FFT Size 131072, PPM = 1, Gain = +49.06dB)_
+_Real live, on person capture the signal with an RTL-SDR from 18kHz to 3.218MHz, partial channel "A" (FFT Size 32768, PPM = 1, Gain = +49.06dB)_
 <br>
 
 
@@ -157,9 +159,9 @@ This purpose of this repository is to provide tooling to inspect, visualize, and
 
 I do not volunteer lightly to share a potential live capture of my brain to the world. All I/Q samples are real captures of the signal, of my person and others' inside of the 24/7 livestream that's both an interactive and moderated-like group call.
 
-N-APT is a project born out of being attacked and held hostage by the NSA because I was doing things on the streets of San Francisco while working my tech job. Only when I was about to leave, they started this interactive and I discovered they were there my whole life!
+N-APT is a project born out of being attacked and held hostage by the NSA because I was adventuring on the streets of San Francisco while working my tech job. Only when I was about to leave, they started this interactive and I discovered they were there my whole life (a dark political act)! Through endless narrative capture, unethical interactive spatial displays, senseless violence and disfigurement, unfathomable harassment and abuse, repeated sexual assaults, confusion, gaslighting, and at the extremes of unlimited political psychopathy and surveillance, I survived and could scrape together enough to build this app.
 
-The experience is like a movie but severely changes psychology and physiology (expression, muscles, etc.). The parental, demonic DoD (now DoW)-NSA experience and interactive started formless and I not knowing anything while the NSA showing off a lot of the functionality and the capability by trapping me all day in it for years. It works anywhere, everywhere and all day, unfortunately due to the use of low frequencies (LF/MF/HF) that travel through objects and buildings or reflect gracefully without too much attenuation.
+The experience is like a movie but totally changes psychology (emotions, thoughts, perception) and physiology (expression, muscles, etc.), it is like a prison of mind and body. The parental, demonic DoD (now DoW)-NSA experience and interactive started formless and I not knowing anything while the NSA showing off a lot of the functionality and the capability early on and continuing by trapping me all day in it for years. It works anywhere, everywhere and all day, unfortunately due to the use of low frequencies (LF/MF/HF) that travel through objects and buildings or reflect gracefully without too much attenuation.
 
 I've learned a lot going from nothing to having a more solid understanding of how it works and took a lot of time to get to this point.
 
