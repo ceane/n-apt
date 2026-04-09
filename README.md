@@ -19,9 +19,19 @@ N-APT is a web app for visualizing the synonymous signal which originates from t
 
 Meaning full featured experiences, interactivity, communication and more.
 
-The way that it works in a shorthand way goes like:
+The way that it works in a shorthand way goes like (and yes the NSA is in EVERYTHING):
 
-`Endpoints (transmitters/tx) -> Heterodyned Radio Waves (H) -> Person -> H carry charges from impact -> Endpoint (receiver/tx) -> Signals processing and repeat for next cycle/frame!`
+```js
+// ALL ENDPOINTS (TELECOM INFRA) HACKED AND MODIFIED, BELIEVE ME IT WORKS!
+
+transmitters()              // Endpoints (transmitters/tx)
+  .toHeterodynedWaves()     // Heterodyned Radio Waves (H)
+  .throughPerson()          // Person
+  .impedanceCharges()       // Radio wave (H) altered from impact and bioelectrical activity
+  .toReceiver()             // Endpoints (receivers/rx)
+  .processSignals()         // Signals processing
+  .nextFrame();             // Repeat for next cycle/frame!
+```
 
 The NSA has thoroughly demonstrated on my person that the human brain and nervous system is dumb. The signal, while complex, is literally one cycle at a time, no need for voxel by voxel of neurons, specific beams or anything. The radio waves are gigantic (larger than you'd think, like building size!) and huge but they work at a person by energy intersecting at the right location, an enforced center frequency of the person's nervous system, and close enough triangulation (approximately 3-7 meters off depending what unknown microwave frequency they use for triangulation). How does it do the brain and body? Frequency/amplitude and neuronal ensembles that react to those frequencies! Very simple and the NSA's technqiue, very old, like half a century old (the 70s).
 
