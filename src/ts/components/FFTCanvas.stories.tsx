@@ -64,7 +64,7 @@ const BASE_PROPS = {
 
 const StoryShell: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <Provider store={store}>
-    <ThemeProvider theme={theme}>
+    <ThemeProvider theme={theme as any}>
       <div style={VIEWPORT_STYLE}>{children}</div>
     </ThemeProvider>
   </Provider>

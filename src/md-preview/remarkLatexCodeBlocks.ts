@@ -33,7 +33,7 @@ const collectExpressions = (value: string) => {
 
 const serializeExpressions = (expressions: string[]) => encodeURIComponent(JSON.stringify(expressions));
 
-const remarkLatexCodeBlocks: Plugin = () => (tree) => {
+const remarkLatexCodeBlocks: Plugin = (() => (tree: any) => {
   visitMdastNodes<Code>(tree, "code", (node: Code, index, parent: Parent) => {
     if (!parent || typeof index !== "number") {
       return;
@@ -54,6 +54,6 @@ const remarkLatexCodeBlocks: Plugin = () => (tree) => {
     parent.children.splice(index, 1, replacement);
     return index + 1;
   });
-};
+}) as any;
 
 export default remarkLatexCodeBlocks;

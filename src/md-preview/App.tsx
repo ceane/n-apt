@@ -288,7 +288,7 @@ const App: React.FC = () => {
   }), []);
 
   return (
-    <ThemeProvider theme={theme}>
+    <ThemeProvider theme={theme as any}>
       <GlobalStyle />
       <Page>
         <ArticleContent>
@@ -296,10 +296,10 @@ const App: React.FC = () => {
             remarkPlugins={[
               remarkGfm,
               remarkIconShortcodes,
-              remarkLatexCodeBlocks,
-              remarkBodyAttenuationBlocks,
+              remarkLatexCodeBlocks as any,
+              remarkBodyAttenuationBlocks as any,
               remarkTimeOfFlightBlocks,
-              remarkSignalCanvasBlocks,
+              remarkSignalCanvasBlocks as any,
             ]}
             rehypePlugins={[rehypeRaw, rehypeHighlight, rehypeKatex]}
             components={markdownComponents}

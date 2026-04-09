@@ -4,7 +4,6 @@ import { gsap } from "gsap";
 import { PersonStanding, Blend, Bone, NotebookPen, DraftingCompass } from "lucide-react";
 import { BodyAreasSection } from "@n-apt/components/sidebar/BodyAreasSection";
 import { HotspotEditorSection } from "@n-apt/components/sidebar/HotspotEditorSection";
-import { useHotspotEditor } from "@n-apt/hooks/useHotspotEditor";
 import { useModel3D } from "@n-apt/hooks/useModel3D";
 import { Collapsible } from "@n-apt/components/ui";
 import {
@@ -88,11 +87,10 @@ const ResetButton = styled.button`
 `;
 
 export const Model3DSidebar: React.FC = () => {
-  const { setSidebarTab } = useHotspotEditor();
   const { controlsRef, setSelectedArea } = useModel3D();
 
   // Unified accordion state
-  const [openSection, setOpenSection] = React.useState<string>("physiology");
+  const [openSection] = React.useState<string>("physiology");
 
   const handleResetCamera = () => {
     if (controlsRef?.current) {

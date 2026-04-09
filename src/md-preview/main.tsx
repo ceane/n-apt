@@ -1,4 +1,4 @@
-import React from "react";
+// React entry point for markdown preview app
 import { createRoot } from "react-dom/client";
 import App from "@n-apt/md-preview/App";
 

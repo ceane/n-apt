@@ -92,7 +92,7 @@ export function DashedLine({ activeX }: { activeX: number }) {
   const lineRef = useRef<THREE.Group>(null);
   const currentX = useRef(activeX);
 
-  useFrame((state, delta) => {
+  useFrame((_state, delta) => {
     currentX.current = THREE.MathUtils.damp(currentX.current, activeX, 6, delta);
     if (lineRef.current) {
       lineRef.current.position.x = currentX.current;

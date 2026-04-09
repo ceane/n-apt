@@ -1,10 +1,9 @@
 import type { Code, Content, Parent } from "mdast";
-import { getBaseUrl } from "./getBaseUrl";
 import { visitMdastNodes } from "./visitMdastNodes";
 
 const BODY_ATTENUATION_LANG = "canvas::bodyattenuation";
 
-const remarkBodyAttenuationBlocks: Plugin = () => (tree) => {
+const remarkBodyAttenuationBlocks: Plugin = (() => (tree: any) => {
   visitMdastNodes<Code>(tree, "code", (node: Code, index, parent: Parent) => {
     if (!parent || typeof index !== "number") {
       return;
@@ -23,6 +22,6 @@ const remarkBodyAttenuationBlocks: Plugin = () => (tree) => {
     parent.children.splice(index, 1, replacement);
     return index + 1;
   });
-};
+}) as any;
 
 export default remarkBodyAttenuationBlocks;

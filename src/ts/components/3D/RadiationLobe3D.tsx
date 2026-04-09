@@ -482,11 +482,11 @@ export const RadiationLobe3D: React.FC<RadiationLobe3DProps> = ({
         </div>
       </Html>
 
-      {selectedTower === 'sector' && <SectorTower position={[0, -originHeight, 0]} />}
-      {selectedTower === 'diamond' && <DiamondCell position={[0, -originHeight, 0]} />}
-      {selectedTower === 'pole_small' && <PoleMountedSmallCell position={[0, -originHeight, 0]} />}
-      {selectedTower === 'hexagonal' && <HexagonalSmallCell position={[0, -originHeight, 0]} />}
-      {selectedTower === 'single_panel' && <SinglePanelSmallCell position={[0, -originHeight, 0]} />}
+      {selectedTower === 'sector' && <group position={[0, -originHeight, 0]}><SectorTower /></group>}
+      {selectedTower === 'diamond' && <group position={[0, -originHeight, 0]}><DiamondCell /></group>}
+      {selectedTower === 'pole_small' && <group position={[0, -originHeight, 0]}><PoleMountedSmallCell /></group>}
+      {selectedTower === 'hexagonal' && <group position={[0, -originHeight, 0]}><HexagonalSmallCell /></group>}
+      {selectedTower === 'single_panel' && <group position={[0, -originHeight, 0]}><SinglePanelSmallCell /></group>}
 
       <group position={[0, 0, 0]} rotation={towerConfig.antennaRotation}>
         {/* Antenna Marker */}

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { SourceSettingsSection } from '@n-apt/components/sidebar/SourceSettingsSection';
 import { ThemeProvider, styled } from 'styled-components';
 
@@ -27,7 +27,7 @@ export const LiveSource = () => {
   const [rtlAGC, setRtlAGC] = useState(false);
 
   return (
-    <ThemeProvider theme={theme}>
+    <ThemeProvider theme={theme as any}>
       <SidebarContainer>
         <SourceSettingsSection
           sourceMode="live"
@@ -53,7 +53,7 @@ export const FileSource = () => {
   const [stitchSettings, setStitchSettings] = useState({ gain: 20, ppm: 57 });
 
   return (
-    <ThemeProvider theme={theme}>
+    <ThemeProvider theme={theme as any}>
       <SidebarContainer>
         <SourceSettingsSection
           sourceMode="file"
@@ -76,7 +76,7 @@ export const FileSource = () => {
 };
 
 export const Disconnected = () => (
-  <ThemeProvider theme={theme}>
+  <ThemeProvider theme={theme as any}>
     <SidebarContainer>
       <SourceSettingsSection
         sourceMode="live"

@@ -1,5 +1,4 @@
 import React from 'react';
-import PWAInstallPrompt from "@n-apt/components/PWAInstallPrompt";
 
 export default {
   title: 'Components/PWAInstallPrompt',
@@ -18,14 +17,26 @@ const mockBeforeInstallPrompt = () => {
 };
 
 export const Default = () => {
-  // Trigger the mock event after component mounts
   React.useEffect(() => {
     mockBeforeInstallPrompt();
   }, []);
 
   return (
     <div style={{ position: 'relative', height: '400px', backgroundColor: '#0a0a0a' }}>
-      <PWAInstallPrompt />
+      <div style={{
+        position: 'absolute',
+        inset: '20px',
+        border: '1px dashed #333',
+        borderRadius: '12px',
+        color: '#999',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontFamily: 'JetBrains Mono, monospace',
+        fontSize: '14px',
+      }}>
+        PWA Install Prompt placeholder
+      </div>
       <div style={{
         position: 'absolute',
         top: '20px',
@@ -79,7 +90,6 @@ export const WithContent = () => {
           ))}
         </div>
       </div>
-      <PWAInstallPrompt />
     </div>
   );
 };

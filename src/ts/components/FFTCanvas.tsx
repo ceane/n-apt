@@ -558,7 +558,6 @@ const FFTCanvas = memo(
       visualizerSessionKey,
     ]);
     const fftProcessedBufferRef = useRef<Float32Array | null>(null);
-    const _fftSmoothedBufferRef = useRef<Float32Array | null>(null);
     const spikePersistenceRef = useRef<Float32Array | null>(null);
 
     const setVizZoom = useCallback(

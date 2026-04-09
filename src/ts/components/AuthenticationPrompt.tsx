@@ -169,9 +169,6 @@ const binaryTravel = keyframes`
   }
 `;
 
-// Placeholder since we are moving to a single animation
-const placeholderKeyframes = keyframes`from{opacity:1}to{opacity:1}`;
-
 const BinaryDigitContainer = styled.div<{ $delay: number; $duration: number }>`
   position: absolute;
   pointer-events: none;
@@ -383,7 +380,7 @@ const AuthenticationPrompt = ({
       const isWaveA = i < 24;
       digits.push({
         id: i,
-        value: Math.random() > 0.5 ? '1' : '0',
+        value: (Math.random() > 0.5 ? '1' : '0') as '0' | '1',
         y: isWaveA ? (40 + Math.random() * 8) : (52 + Math.random() * 8), // Lane-based Y
         size: 8 + Math.random() * 16,
         delay: -(Math.random() * 20), // Significant negative delay to spread them across the screen immediately
@@ -450,7 +447,7 @@ const AuthenticationPrompt = ({
   const wavePathB = makeWavePath(waveWidth, 130, amplitudeB, frequencyB, phaseB);
 
   // No-op useEffect as digits are now persistent and purely CSS driven
-  useEffect(() => {}, []);
+  useEffect(() => { }, []);
 
   const handlePasswordSubmit = useCallback(
     (e: React.FormEvent) => {

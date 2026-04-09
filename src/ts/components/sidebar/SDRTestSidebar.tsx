@@ -1,7 +1,9 @@
-import React from "react";
+import React, { useCallback } from "react";
 import styled from "styled-components";
 import { useSdrSettings } from "@n-apt/hooks/useSdrSettings";
 import { Unplug, ChevronsLeftRightEllipsis } from "lucide-react";
+
+import { useSpectrumStore, LIVE_CONTROL_DEFAULTS } from "@n-apt/hooks/useSpectrumStore";
 
 import { SignalDisplaySection } from "@n-apt/components/sidebar/SignalDisplaySection";
 import { SourceSettingsSection } from "@n-apt/components/sidebar/SourceSettingsSection";
