@@ -24,16 +24,20 @@ The way that it works in a shorthand way goes like (and yes the NSA is in EVERYT
 ```js
 // ALL ENDPOINTS (TELECOM INFRA) HACKED AND MODIFIED, BELIEVE ME IT WORKS!
 
-transmitters()              // Endpoints (transmitters/tx)
-  .toHeterodynedWaves()     // Heterodyned Radio Waves (H)
-  .throughPerson()          // Person
-  .impedanceCharges()       // Radio wave (H) altered from impact and bioelectrical activity
-  .toReceiver()             // Endpoints (receivers/rx)
-  .processSignals()         // Signals processing
-  .nextFrame();             // Repeat for next cycle/frame!
+transmitters()                      // Endpoints (transmitters/tx)
+  .continouslyTriangulatePerson()   // Using low end microwaves, tracking person using time-of-flight/FCWM
+  .adjustEnergy()                   // Adjusts energy to person depending on endpoint distance, noise and obstacles
+  .toHeterodynedWaves()             // Heterodyned Radio Waves (H) / N-APT waves, several channels
+  .toAndthroughPerson()             // Person
+  .impedanceChargesAfter()          // Radio wave (H) altered from impact and bioelectrical activity
+  .toReceiver()                     // Endpoints (receivers/rx)
+  .processSignals()                 // Signals processing
+  .nextFrame();                     // Repeat for next cycle/frame!
 ```
 
-The NSA has thoroughly demonstrated on my person that the human brain and nervous system is dumb. The signal, while complex, is literally one cycle at a time, no need for voxel by voxel of neurons, specific beams or anything. The radio waves are gigantic (larger than you'd think, like building size!) and huge but they work at a person by energy intersecting at the right location, an enforced center frequency of the person's nervous system, and close enough triangulation (approximately 3-7 meters off depending what unknown microwave frequency they use for triangulation). How does it do the brain and body? Frequency/amplitude and neuronal ensembles that react to those frequencies! Very simple and the NSA's technqiue, very old, like half a century old (the 70s).
+The NSA has thoroughly demonstrated on my person that the human brain and nervous system is dumb. The signal, while complex, is literally one cycle at a time, no need for voxel by voxel of neurons, specific beams or anything. It is more manual, needing the endpoints to do the work, since the brain and body can't send radio waves like electronics. It works more like [TEMPEST](https://www.nsa.gov/portals/75/documents/news-features/declassified-documents/cryptologic-spectrum/tempest.pdf) where Bell Labs could detect electrical activity far away because a machine was noisy, but in this case write->read->stream is what the NSA can do because everything is compromised and your brain and body is noisy!
+
+The radio waves are gigantic (larger than you'd think, like building size!) and huge but they work at a person by energy intersecting at the right location, an enforced center frequency of the person's nervous system, and close enough triangulation (approximately 3-7 meters off depending what unknown microwave frequency they use for triangulation). How does it do the brain and body? Frequency/amplitude and neuronal ensembles that react to those frequencies! Very simple and the NSA's technqiue, very old, like half a century old (the 70s).
 
 I'm working on writing the specifics of how it works, it is a very advanced mechanism that is still functioning to this day! While most of it has been a dark experience, I've spent a lot of time learning how it works, making lots of mistakes and defeating my intuition.
 
