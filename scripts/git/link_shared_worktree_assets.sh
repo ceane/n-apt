@@ -10,7 +10,7 @@ declare -a EXTRA_PATHS=()
 
 usage() {
     cat <<EOF
-Link heavy worktree directories (target/node_modules/redis) to a shared cache.
+Link heavy worktree assets (target/node_modules/.env.local/redis data files) to a shared cache.
 
 Usage: $SCRIPT_NAME [--shared-dir <path>] [--include <relative-path>] [--dry-run] [--status]
 
@@ -23,7 +23,7 @@ Options:
   -h, --help            Show this help text.
 
 Examples:
-  # Link default directories to the shared cache
+  # Link default assets to the shared cache
   $SCRIPT_NAME
 
   # Use a custom shared cache directory
@@ -106,12 +106,13 @@ SHARED_DIR=$(resolve_path "$SHARED_DIR")
 BASE_PATHS=(
     "target"
     "node_modules"
+    ".env.local"
     "redis/data"
     "redis/backups"
     ".redis_data"
 )
 
-ALL_PATHS=("${BASE_PATHS[@]}" "${EXTRA_PATHS[@]}")
+ALL_PATHS=("${BASE_PATHS[@]}" "${EXTRA_PATHS[@]-}")
 
 if [[ ${#ALL_PATHS[@]} -eq 0 ]]; then
     echo "No paths specified to manage" >&2
@@ -141,16 +142,6 @@ if [[ $STATUS_ONLY -eq 1 ]]; then
     exit 0
 fi
 
-require_rsync() {
-    if command -v rsync >/dev/null 2>&1; then
-        echo "rsync"
-    else
-        echo ""
-    fi
-}
-
-RSYNC_BIN=$(require_rsync)
-
 is_linked_to_shared() {
     local rel="$1"
     local source_path="$REPO_ROOT/$rel"
@@ -179,60 +170,29 @@ link_path() {
     local target_parent
     target_parent=$(dirname "$target_path")
 
-    if [[ "$source_path" == "$target_path" ]]; then
-        printf "Skipping %-20s (already points to shared cache)\n" "$rel"
-        return
-    fi
-
     printf "Linking %-20s" "$rel"
     if [[ $DRY_RUN -eq 1 ]]; then
         echo " (dry run)"
-        echo "  would ensure $target_path exists"
+        echo "  would ensure $target_parent exists"
         echo "  would link $source_path -> $target_path"
         return
     fi
 
     mkdir -p "$target_parent"
-    mkdir -p "$target_path"
 
-    if [[ -L "$source_path" ]]; then
-        local current_target
-        current_target=$(readlink "$source_path")
-        if [[ "$current_target" == "$target_path" ]]; then
-            echo " already linked"
-            return
+    # Create the backing path only if it does not already exist.
+    # Do not copy repo contents into the shared cache; the cache should stay
+    # empty until the application writes build/runtime artifacts there.
+    if [[ ! -e "$target_path" ]]; then
+        if [[ "$rel" == ".env.local" ]]; then
+            touch "$target_path"
         else
-            rm "$source_path"
+            mkdir -p "$target_path"
         fi
     fi
 
-    if [[ -e "$source_path" ]]; then
-        if [[ -n "$RSYNC_BIN" && -d "$source_path" ]]; then
-            if $RSYNC_BIN -a "$source_path"/ "$target_path"/; then
-                rm -rf "$source_path"
-            else
-                echo " (copy failed, leaving local path in place)"
-                return
-            fi
-        else
-            if [[ ! -e "$target_path" || -z $(ls -A "$target_path" 2>/dev/null) ]]; then
-                if mv "$source_path" "$target_path"; then
-                    :
-                else
-                    echo " (move failed, leaving local path in place)"
-                    return
-                fi
-            else
-                local backup="$target_path.migrated.$(date +%s)"
-                echo " (conflict detected, moving local copy to $backup)"
-                if ! mv "$source_path" "$backup"; then
-                    echo " (backup move failed, leaving local path in place)"
-                    return
-                fi
-            fi
-        fi
-    else
-        mkdir -p "$target_path"
+    if [[ -e "$source_path" || -L "$source_path" ]]; then
+        rm -rf "$source_path"
     fi
 
     if ln -sfn "$target_path" "$source_path"; then

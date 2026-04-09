@@ -85,13 +85,20 @@ pub struct SharedState {
 
 impl SharedState {
   pub fn new() -> Arc<Self> {
-    let passkey = std::env::var("N_APT_PASSKEY")
-      .or_else(|_| std::env::var("UNSAFE_LOCAL_USER_PASSWORD"))
-      .unwrap_or_else(|_| {
-        panic!(
-          "Missing passkey. Set N_APT_PASSKEY or UNSAFE_LOCAL_USER_PASSWORD in .env.local"
-        )
-      });
+    let passkey = std::env::var("UNSAFE_LOCAL_USER_PASSWORD").unwrap_or_else(|_| {
+      let cwd = std::env::current_dir()
+        .ok()
+        .and_then(|path| path.into_os_string().into_string().ok())
+        .unwrap_or_else(|| "<unknown>".to_string());
+      let env_local_exists = std::path::Path::new(".env.local").exists();
+      let env_exists = std::path::Path::new(".env").exists();
+      panic!(
+        "Missing UNSAFE_LOCAL_USER_PASSWORD. The backend loads .env.local on startup and then checks the process environment. Current directory: {}. .env.local exists: {}. .env exists: {}. If you expected the value from .env.local, verify the backend started from the repo root and that .env.local contains UNSAFE_LOCAL_USER_PASSWORD.",
+        cwd,
+        env_local_exists,
+        env_exists,
+      )
+    });
     let encryption_key = crate::crypto::derive_key(&passkey);
     let sdr_settings = load_sdr_settings();
     log::info!(

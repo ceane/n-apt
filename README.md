@@ -47,6 +47,7 @@ _Real live, on person capture of N-APT signals via SDR++ with an RTL-SDR (FFT Si
   - **macOS/Linux**: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
   - **Windows**: Download from [rustup.rs](https://rustup.rs/)
 - **Verification**: `rustc --version && cargo --version`
+- **If Rust build issues appear**: run `cargo fix --lib -p n-apt-backend`
 
 ### Additional Tools
 
@@ -74,7 +75,7 @@ You don't have access to N-APT, however you can get started with the app to anal
 git clone https://github.com/ceane/n-apt.git
 cd n-apt
 npm run setup  # sets up .env.local
-npm i          # installs dependencies  
+npm i          # installs dependencies, postinstall script will install rust dependencies
 npm run dev    # starts app
 ```
 
