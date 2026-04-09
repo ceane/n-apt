@@ -155,10 +155,12 @@ pub unsafe fn fast_log10q_f32(x: v128) -> v128 {
   let exp_bias = i32x4(0x3F800000, 0x3F800000, 0x3F800000, 0x3F800000);
   let bias_val = i32x4(127, 127, 127, 127);
 
-  // xi = bitcast(x) - we'll just treat x as i32x4 since it's v128
-  let e = i32x4_sub(u32x4_shr(x, 23), bias_val); // exponent
+  // Reinterpret the incoming SIMD lanes as signed integers so we can use the
+  // standard wasm32 integer shift intrinsic before converting back to floats.
+  let x_i = x;
+  let e = i32x4_sub(i32x4_shr(x_i, 23), bias_val); // exponent
 
-  let m_i = v128_or(v128_and(x, m_mask), exp_bias);
+  let m_i = v128_or(v128_and(x_i, m_mask), exp_bias);
   let m = m_i; // treat as f32x4
 
   let c3 = f32x4(-0.034436006, -0.034436006, -0.034436006, -0.034436006);

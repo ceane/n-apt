@@ -13,7 +13,6 @@ use crate::fft::{
   CorrelationMethod, CorrelationResult, FFTProcessor, PhaseCoherenceResult,
   StitchingValidationResult,
 };
-use crate::server::types::{FrequencyRegion, ScanProgressResponse};
 #[cfg(rs_decrypted)]
 use crate::simd::demod_kernels;
 use crate::stitching::SignalStitcher;

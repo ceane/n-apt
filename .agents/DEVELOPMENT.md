@@ -18,6 +18,39 @@ npm run dev
 | `npm run server:dev`   | Backend only in dev mode                           | Backend-only work        |
 | `npm run server:build` | Build backend without running                      | CI/CD or pre-deployment  |
 
+## Worktree Workflow
+
+Use the worktree utilities when you want isolated branches without duplicating heavy build artifacts.
+
+### Setup and inspect worktrees
+
+```bash
+bash scripts/git/setup_worktrees.sh
+bash scripts/git/worktree_manager.sh list
+bash scripts/git/worktree_manager.sh status
+```
+
+### Link shared assets safely
+
+```bash
+bash scripts/git/link_shared_worktree_assets.sh
+bash scripts/git/link_shared_worktree_assets.sh --status
+```
+
+### Useful worktree commands
+
+- **`setup`**: creates the standard worktrees under `../worktrees`
+- **`list`**: shows all configured worktrees
+- **`status`**: shows the current worktree and branch
+- **`clean`**: prunes stale worktrees
+- **`goto <branch|path>`**: jumps to a worktree quickly
+
+### Notes
+
+- **Prefer the shared asset linker** instead of manually creating symlinks for `target`, `node_modules`, and Redis data.
+- **Let the script handle symlink edge cases** if the repository is inside a worktree or nested path.
+- **Use `--status` first** if you’re not sure whether assets are already linked.
+
 ## Hot Reloading Features
 
 ### Configuration Hot Reload

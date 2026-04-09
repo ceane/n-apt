@@ -597,7 +597,6 @@ export const useWebSocket = (
   const sendGetAutoFftOptions = useCallback((screenWidth: number) => {
     // Check if we already have auto FFT options cached
     if (state.autoFftOptions) {
-      console.log('Auto FFT options already cached, skipping WebSocket request');
       return;
     }
     

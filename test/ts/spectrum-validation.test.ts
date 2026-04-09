@@ -5,8 +5,7 @@
 import { 
   validateSpectrumData,
   validateSpectrumDataComprehensive,
-  isValidFloat32Array,
-} from "@n-apt/validation";
+} from "../../src/ts/validation";
 
 describe('Spectrum Data Validation', () => {
   describe('Basic Validation', () => {

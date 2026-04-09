@@ -61,15 +61,6 @@ async function connectRedis() {
   }
 }
 
-function getStateRegion(state) {
-  for (const [region, states] of Object.entries(REGION_GROUPS)) {
-    if (states.includes(state)) {
-      return region;
-    }
-  }
-  return 'unknown';
-}
-
 function getRegionFromState(state) {
   for (const [region, states] of Object.entries(REGION_GROUPS)) {
     if (states.includes(state)) {
@@ -87,7 +78,7 @@ function parseTowerRecord(line, state) {
   if (fields[0] === 'radio') return null;
 
   // CSV format: radio,mcc,mnc,lac,cell,range,lon,lat,samples,change,created,updated,averageSignal
-  const [radio, mcc, mnc, lac, cell, range, lon, lat, samples, change, created, updated, averageSignal] = fields;
+  const [radio, mcc, mnc, lac, cell, range, lon, lat, samples, _change, created, updated, _averageSignal] = fields;
   
   // Validate coordinates
   const lonNum = parseFloat(lon);

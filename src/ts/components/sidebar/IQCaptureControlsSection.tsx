@@ -348,6 +348,13 @@ const InfoLabel = styled.div`
   min-width: 0;
 `;
 
+const DownloadMeta = styled.div`
+  margin-top: 4px;
+  font-size: 11px;
+  color: ${(props) => props.theme.textSecondary};
+  font-family: ${(props) => props.theme.typography.mono};
+`;
+
 const DownloadCard = styled.div`
   display: grid;
   gap: 12px;
@@ -823,14 +830,19 @@ export const IQCaptureControlsSection: React.FC<
             {captureStatus?.downloadUrl && isAuthenticated ? (
               <DownloadCard>
                 <InfoRow>
-                  <DownloadLink
-                    href={`${captureStatus.downloadUrl}&token=${encodeURIComponent(sessionToken || "")}`}
-                    download={captureStatus.filename || "capture"}
-                    rel="noopener noreferrer"
-                    title={captureStatus.filename || "Download"}
-                  >
-                    {captureStatus.filename || "Download"}
-                  </DownloadLink>
+                  <div style={{ minWidth: 0 }}>
+                    <DownloadLink
+                      href={`${captureStatus.downloadUrl}&token=${encodeURIComponent(sessionToken || "")}`}
+                      download={captureStatus.filename || "capture"}
+                      rel="noopener noreferrer"
+                      title={captureStatus.filename || "Download"}
+                    >
+                      {captureStatus.filename || "Download"}
+                    </DownloadLink>
+                    {typeof captureStatus.fileSize === "number" && (
+                      <DownloadMeta>{formatFileSize(captureStatus.fileSize)}</DownloadMeta>
+                    )}
+                  </div>
                   <StatusValue
                     $tone={
                       captureStatus?.status === "done"

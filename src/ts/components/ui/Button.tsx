@@ -9,7 +9,7 @@ const spin = `
 
 export const Button = styled.button<{ $variant?: "primary" | "secondary" | "danger" }>`
   ${spin}
-  font-family: ${(props) => props.theme.typography.mono};
+  font-family: ${(props) => props.theme?.typography?.mono ?? "monospace"};
   font-size: 12px;
   font-weight: 500;
   padding: 10px 16px;
@@ -30,17 +30,18 @@ export const Button = styled.button<{ $variant?: "primary" | "secondary" | "dang
 
   ${(props) => {
     const { $variant = "secondary", theme } = props;
-    const primary = theme.primary || "#00d4ff";
-    const danger = theme.danger || "#ff4444";
-    const surface = theme.surface || "#1a1a1a";
-    const border = theme.border || "#2a2a2a";
+    const primary = theme?.primary || "#00d4ff";
+    const danger = theme?.danger || "#ff4444";
+    const surface = theme?.surface || "#1a1a1a";
+    const border = theme?.border || "#2a2a2a";
+    const textPrimary = theme?.textPrimary || "#ffffff";
 
     switch ($variant) {
       case "primary":
         return `
           background-color: ${surface};
           border: 1px solid ${primary};
-          color: ${theme.textPrimary};
+          color: ${textPrimary};
           
           &:hover {
             background-color: ${primary}1a;
@@ -55,7 +56,7 @@ export const Button = styled.button<{ $variant?: "primary" | "secondary" | "dang
           
           &:hover {
             background-color: ${danger}1a;
-            color: ${theme.textPrimary};
+            color: ${textPrimary};
             box-shadow: 0 0 15px ${danger}22;
           }
         `;
@@ -64,7 +65,7 @@ export const Button = styled.button<{ $variant?: "primary" | "secondary" | "dang
         return `
           background-color: ${surface};
           border: 1px solid ${border};
-          color: ${theme.textPrimary};
+          color: ${textPrimary};
           
           &:hover {
             border-color: ${primary};

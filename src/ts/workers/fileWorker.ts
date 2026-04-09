@@ -206,16 +206,14 @@ function processToSpectrum(
 
 function stitchAdjacentChannels(channels: any[], _defaultFftSize: number, maxSampleRateHz: number = 3200000) {
   if (!channels || channels.length <= 1) return channels;
-  
-  // Sort by center frequency
-  const sorted = [...channels].sort((a, b) => (a.center_freq_hz || 0) - (b.center_freq_hz || 0));
-  
-  // Group adjacent/touching channels
+
+  // Preserve the original entry order from the source file/config.
+  // Group adjacent/touching channels without reordering them numerically.
   const grouped: any[][] = [];
-  let currentGroup = [sorted[0]];
+  let currentGroup = [channels[0]];
   
-  for (let i = 1; i < sorted.length; i++) {
-    const ch = sorted[i];
+  for (let i = 1; i < channels.length; i++) {
+    const ch = channels[i];
     const prev = currentGroup[currentGroup.length - 1];
     
     // ENFORCE MAXIMUM SAMPLE RATE (DYNAMIC, NOT HARDCODED)

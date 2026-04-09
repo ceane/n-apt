@@ -229,7 +229,11 @@ pub async fn handle_ws_connection(
       spectrum_result = spectrum_rx.recv() => {
         match spectrum_result {
           Ok(spectrum_data) => {
-            if shared.is_paused.load(Ordering::SeqCst) {
+            let allow_next_paused_frame = shared
+              .allow_next_paused_frame
+              .swap(false, Ordering::SeqCst);
+            let is_paused = shared.is_paused.load(Ordering::SeqCst);
+            if is_paused && !allow_next_paused_frame {
               continue;
             }
 
@@ -357,9 +361,12 @@ pub fn handle_message(
           .pending_center_freq_dirty
           .store(true, Ordering::Relaxed);
 
-        let _ =
-          cmd_tx.send(super::types::SdrCommand::SetFrequency(center_freq));
+        let _ = cmd_tx.send(super::types::SdrCommand::SetFrequency(center_freq));
       }
+    }
+    "request_next_frame" => {
+      shared.allow_next_paused_frame.store(true, Ordering::SeqCst);
+      let _ = cmd_tx.send(super::types::SdrCommand::RequestNextFrame);
     }
     "pause" => {
       if let Some(paused) = message.paused {

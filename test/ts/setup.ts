@@ -87,6 +87,19 @@ jest.mock("@react-three/postprocessing", () => ({
   Bloom: () => null,
 }), { virtual: true });
 
+jest.mock("@chenglou/pretext", () => ({
+  prepareWithSegments: jest.fn((text: string) => ({ text })),
+  layout: jest.fn(() => ({ height: 20, lineCount: 1 })),
+  layoutWithLines: jest.fn(() => ({
+    height: 20,
+    lines: [{ text: "mock line", width: 80 }],
+  })),
+  layoutNextLine: jest.fn(() => ({
+    text: "mock line",
+    end: { segmentIndex: 0, graphemeIndex: 0 },
+  })),
+}), { virtual: true });
+
 jest.mock("leva", () => ({
   LevaPanel: () => null,
   useControls: jest.fn(() => ({})),
@@ -277,7 +290,7 @@ global.FileReader = class FileReader {
   onloadstart: any;
   onprogress: any;
 
-  readAsArrayBuffer(blob: Blob) {
+  readAsArrayBuffer(_blob: Blob) {
     // Mock implementation
     setTimeout(() => {
       this.readyState = FileReader.DONE;
@@ -286,7 +299,7 @@ global.FileReader = class FileReader {
     }, 0);
   }
 
-  readAsText(blob: Blob) {
+  readAsText(_blob: Blob) {
     // Mock implementation
     setTimeout(() => {
       this.readyState = FileReader.DONE;

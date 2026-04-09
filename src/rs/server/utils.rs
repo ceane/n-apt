@@ -53,11 +53,6 @@ pub fn load_channels() -> Vec<super::types::SpectrumFrameMessage> {
       description: f.description,
     });
   }
-  out.sort_by(|a, b| {
-    a.min_mhz
-      .partial_cmp(&b.min_mhz)
-      .unwrap_or(std::cmp::Ordering::Equal)
-  });
   out
 }
 
@@ -191,6 +186,85 @@ mod tests {
     std::env::set_current_dir(&original_dir).expect("restore dir");
     let _ = std::fs::remove_dir_all(&temp_dir);
     assert_eq!(settings.sample_rate, parsed.unwrap().sample_rate);
+  }
+
+  #[test]
+  fn load_channels_preserves_config_entry_order() {
+    let yaml = r#"
+signals:
+  mock_apt:
+    global_settings:
+      noise_floor_base: 0.0
+      noise_floor_variation: 0.0
+      signal_drift_rate: 0.0
+      signal_modulation_rate: 0.0
+      signal_appearance_chance: 0.0
+      signal_disappearance_chance: 0.0
+      signal_strength_variation: 0.0
+      dynamic_generation: false
+      signals_per_area: 0
+      area_a_density: 0.0
+      area_b_density: 0.0
+    bandwidths:
+      narrow: 1
+      medium: 2
+      wide: 3
+    strength_ranges:
+      weak:
+        min: 0.0
+        max: 1.0
+      medium:
+        min: 1.0
+        max: 2.0
+      strong:
+        min: 2.0
+        max: 3.0
+    signals: []
+    training_areas: {}
+  n_apt:
+    channels:
+      c:
+        label: "C"
+        freq_range_mhz: [11.0, 23.0]
+        description: "C"
+      a:
+        label: "A"
+        freq_range_mhz: [0.018, 4.37]
+        description: "A"
+      b:
+        label: "B"
+        freq_range_mhz: [24.72, 29.88]
+        description: "B"
+  sdr:
+    sample_rate: 3200000
+    center_frequency: 137500000
+    gain:
+      tuner_gain: 0.0
+      rtl_agc: false
+      tuner_agc: false
+    ppm: 0.0
+    fft:
+      default_size: 2048
+      default_frame_rate: 60
+      max_size: 32768
+      max_frame_rate: 60
+      size_to_frame_rate: {}
+    display:
+      min_db: -120
+      max_db: 0
+      padding: 0
+"#;
+
+    let config: crate::server::types::SignalsConfig = serde_yaml::from_str(yaml).expect("parse test config");
+    let ordered_ids: Vec<String> = config.signals.n_apt.channels.keys().cloned().collect();
+    assert_eq!(ordered_ids, vec!["c", "a", "b"]);
+
+    let mut out = Vec::new();
+    for (id, f) in config.signals.n_apt.channels.clone() {
+      out.push((id, f.label));
+    }
+
+    assert_eq!(out, vec![("c".to_string(), "C".to_string()), ("a".to_string(), "A".to_string()), ("b".to_string(), "B".to_string())]);
   }
 }
 
