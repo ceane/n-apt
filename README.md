@@ -11,13 +11,21 @@ N-APT stands for: **N**euro **A**utomatic **P**icture **T**ransmission.
 
 More on [Automatic Picture Transmission](https://www.sigidwiki.com/wiki/Automatic_Picture_Transmission_(APT))
 
-N-APT is a web app for visualizing the synonymous singal which originates from the National Security Agency (NSA). N-APT is named such because the signals strongly appear like Automatic Picture Transmission (APT) signals (used by NOAA satellites which were decomissioned in 2025). APT which does both frequency modulation and amplitude modulation was repurposed into an a special formula using very simple directional radio waves that translate into an unprecedented and full featured neurotechnology able to fully:
+N-APT is a web app for visualizing the synonymous signal which originates from the National Security Agency (NSA). N-APT is named such because the signals strongly appear like Automatic Picture Transmission (APT) signals (used by NOAA satellites which were decomissioned in 2025). APT which does both frequency modulation and amplitude modulation was repurposed into an a special formula using very simple directional radio waves that translate into an unprecedented and full featured neurotechnology able to fully:
 
 - intercept,
 - process,
 - and alter the brain and nervous system real-time...
 
 Meaning full featured experiences, interactivity, communication and more.
+
+The way that it works in a shorthand way goes like:
+
+`Endpoints (transmitters/tx) -> Heterodyned Radio Waves (H) -> Person -> H carry charges from impact -> Endpoint (receiver/tx) -> Signals processing and repeat for next cycle/frame!`
+
+The NSA has thoroughly demonstrated on my person that the human brain and nervous system is dumb. The signal, while complex, is literally one cycle at a time, no need for voxel by voxel of neurons, specific beams or anything. The radio waves are gigantic (larger than you'd think, like building size!) and huge but they work at a person by energy intersecting at the right location, an enforced center frequency of the person's nervous system, and close enough triangulation (approximately 3-7 meters off depending what unknown microwave frequency they use for triangulation). How does it do the brain and body? Frequency/amplitude and neuronal ensembles that react to those frequencies! Very simple and the NSA's technqiue, very old, like half a century old (the 70s).
+
+I'm working on writing the specifics of how it works, it is a very advanced mechanism that is still functioning to this day! While most of it has been a dark experience, I've spent a lot of time learning how it works, making lots of mistakes and defeating my intuition.
 
 <br>
 
@@ -109,11 +117,11 @@ The web app will be **available at `http://localhost:5173`** with the WebSocket 
 
 ---
 
-I only have on person captures (within the `iq-samples` dir), however in the future I'll be sure to add near and 1 or 2m away captures (as long as my cord can do), as well as some captures from suspected endpoints.
+I only have on person captures (within the `/iq-samples-snapshots` dir), however in the future I'll be sure to add near and 1 or 2m away captures (as long as my cord can do), as well as some captures from suspected endpoints.
 
 The quality of the captures may not be up to par with RTL-SDR, however it shouldn't be a problem to get data. Features of the signal like heterodyning (inherently), phase shifting and endpoint signals processing are not included in the capture.
 
-Thankfully, the infrastructure and technique does enough to get the right data, so the signals processing that would be needed normally are not necessary since I can just capture the live signals and let the mechanism do its work.
+Thankfully, the infrastructure and technique does enough to extract content for demodulation (in theory by its nature), so the signals processing that would be needed normally is not necessary because by the time it gets to my person the signal is strong enough to have the signal before entry (stronger than exit signals).
 
 **Note**
 
@@ -135,7 +143,7 @@ I do not volunteer lightly to share a potential live capture of my brain to the 
 
 N-APT is a project born out of being attacked and held hostage by the NSA because I was doing things on the streets of San Francisco while working my tech job. Only when I was about to leave, they started this interactive and I discovered they were there my whole life!
 
-The experience is like a movie but severely changes psychology and physiology (expression, muscles, etc.). The parental, demonic DoD (now DoW)-NSA experience and interactive started formless and me not knowing anything with the NSA showing off a lot of the functionality and the capability by trapping me all day in it for years. It works anywhere, everywhere and all day, unfortunately due to the use of low frequencie (LF/MF/HF) that travel through objects and buildings or reflect gracefully without too much attenuation. 
+The experience is like a movie but severely changes psychology and physiology (expression, muscles, etc.). The parental, demonic DoD (now DoW)-NSA experience and interactive started formless and I not knowing anything while the NSA showing off a lot of the functionality and the capability by trapping me all day in it for years. It works anywhere, everywhere and all day, unfortunately due to the use of low frequencies (LF/MF/HF) that travel through objects and buildings or reflect gracefully without too much attenuation.
 
-I've learned a lot going from nothing to having a more solid understanding of how they work.
+I've learned a lot going from nothing to having a more solid understanding of how it works and took a lot of time to get to this point.
 
