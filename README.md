@@ -11,7 +11,7 @@ N-APT stands for: **N**euro **A**utomatic **P**icture **T**ransmission.
 
 More on [Automatic Picture Transmission](https://www.sigidwiki.com/wiki/Automatic_Picture_Transmission_(APT))
 
-N-APT originates from the National Security Agency (NSA) and are signals that appear like Automatic Picture Transmission (APT) signals used by NOAA satellites (decomissioned in 2025), however are a special formula of very simple directional radio waves that translate into an unprecedented and full featured neurotechnology able to fully
+N-APT is a web app for visualizing the synonymous singal which originates from the National Security Agency (NSA). N-APT is named such because the signals strongly appear like Automatic Picture Transmission (APT) signals (used by NOAA satellites which were decomissioned in 2025). APT which does both frequency modulation and amplitude modulation was repurposed into an a special formula using very simple directional radio waves that translate into an unprecedented and full featured neurotechnology able to fully:
 
 - intercept,
 - process,
@@ -19,13 +19,22 @@ N-APT originates from the National Security Agency (NSA) and are signals that ap
 
 Meaning full featured experiences, interactivity, communication and more.
 
-Beyond public challenges from the NSA such as their frequent puzzles or the yearly [codebreaker challenge](https://nsa-codebreaker.org/home), this neurotechnology was buried in a deeply horrendous long-running surveillance nightmare as some sort of extreme life challenge/political production.
-
 <br>
 
-![N-APT signal visualization](images/n-apt-signal.png)
-_Real live, on person capture of N-APT signals via SDR++ with an RTL-SDR (FFT Size 131072, PPM = 1, Gain = +49.06dB)_
+<img width="1200" height="400" alt="N-APT Signal from 18kHz to 3.218MHz" src="https://github.com/user-attachments/assets/edf332da-ea94-4438-ba10-895175152d9f" />
+
+
+_Real live, on person capture the signal with an RTL-SDR from 18kHz to 3.218MHz (FFT Size 131072, PPM = 1, Gain = +49.06dB)_
 <br>
+
+
+This app is primarily an SDR visualizer app using RTL-SDR to visualize N-APT signals, which is for a very specific and narrow case –– The NSA going all out and you not knowing what, how or why. Much of my frustration for building this was that other SDR software couldn't record I/Q captures of the spectrum with the settings that I had, nor did they have encryption.
+
+<img width="1229" height="848" alt="Screenshot 2026-04-09 at 00 37 03" src="https://github.com/user-attachments/assets/b9a586ee-e441-46d9-b3a5-1f3862625a92" />
+
+The whole discovery of how it functioned was non-intuitive and a complete nightmare beyond what you can image. Since I was new to signals and radio waves, trapped by the mystery in a bad spot, I was forced into the unknown. Beyond public challenges from the NSA such as their frequent cryptological puzzles or the yearly [codebreaker challenge](https://nsa-codebreaker.org/home), this neurotechnology was buried in a deeply horrendous long-running surveillance nightmare as some sort of extreme life challenge/political production.
+
+I spent a few months working on this app, optimizing for performance and adding features to stem frustration from current SDR software, so I could get a better look at the NSA's signals and also add features tailored for the physical nature and new class of experience that they can do.
 
 ## Prerequisites
 
@@ -67,10 +76,6 @@ _Real live, on person capture of N-APT signals via SDR++ with an RTL-SDR (FFT Si
 
 ## Get Started
 
-You don't have access to N-APT, however you can get started with the app to analyze the signals from I/Q captures in the repo. They are very large captures (+300MB), which I had to capture at 3.2MHz slices and stitch them together for a full capture of at about a 30MHz window of signals.
-
-### Quick Start
-
 ```bash
 git clone https://github.com/ceane/n-apt.git
 cd n-apt
@@ -93,30 +98,14 @@ npm run dev
 
 **Important:** `npm run dev` is the only supported way to run and use the app.
 
-**Hardware Requirement:** the app only works with an **RTL-SDR v4 or .napt captures. The rust backend auto detects an RTL-SDR device plugged in, otherwise the Mock APT stream runs.**.
+**Hardware Requirement:** the app only works with an **RTL-SDR v4 or .napt captures. The rust backend auto detects an RTL-SDR device plugged in, otherwise the Mock APT stream runs.**
 
-**Development Features:**
+The web app will be **available at `http://localhost:5173`** with the WebSocket server running on `ws://localhost:8765`.
 
-- 🚀 Fast Rust builds with incremental compilation
-- 🔄 Hot reload for signal configuration (`mock_signals.yaml`)
-- ⚡ Real-time configuration changes without server restart
-- 📊 WebSocket reload command: `{"type":"reload_config"}`
+> **💡 Tip:** If you do not have an RTL-SDR v4, the backend will just stream a Mock APT stream. You can simply use the app (be sure to set the .env.local UNSAFE_LOCAL_USER_PASSWORD to a password for the .napt files).
 
-This command will:
+> **⚠ Hardware warning:** I use my RTL-SDR through a flaky USB hub, and it disconnects or errors out more often than I’d like, so I added support for restarting the device if it goes stale or throws an error, however that does not fix bad USB connections. For best results, keep the RTL-SDR connected directly or use a better cable/hub, and avoid moving it around while the app is running. I took a lot of time to fix my frustrations with other SDR apps, if it's not showing up, then it's more likely that the hardware connection is bad.
 
-1. **Target only this project** - Kills processes by name and port (n-apt-backend, :5173, :8765)
-2. **Avoid interfering** with other Vite instances or applications
-3. **Start fresh servers** to prevent port conflicts
-4. **Launch both** the Rust backend and Vite frontend concurrently
-5. **Enable hot reload** for configuration changes (dev modes)
-
-The web app will be available at `http://localhost:5173` with the WebSocket server running on `ws://localhost:8765`.
-
-> **💡 Tip:** If you do not have an RTL-SDR v4, the backend will just stream a Mock APT stream. You can simply use the app (if you set your .env.local UNSAFE_LOCAL_USER_PASSWORD to a password the app can use to decrpyt files).
-
-> **⚠ Hardware warning:** I use my RTL-SDR through a flaky USB hub, and it can disconnect or error out more often than I’d like. I added support for restarting the device if it goes stale or throws an error, but that does not fix bad USB connections. For best results, keep the RTL-SDR connected directly or use a better cable/hub, and avoid moving it around while the app is running. I took a lot of time to fix my frustrations with other apps, if it's not showing up, then it's more likely that the hardware connection is bad.
-
-For detailed development instructions, see [.agents/DEVELOPMENT.md](.agents/DEVELOPMENT.md).
 
 ---
 
@@ -134,7 +123,7 @@ To ensure the best captures, use the maximum setting on your SDR (even if unstab
 
 ## This repo is a signals intelligence problem.
 
-The how and why and science of N-APT is a long story, to keep it short checkout the [Background](BACKGROUND.md). There are no answers, you can hit up as many LLMs, search engines as possible, but they will not help.
+The how and why and science of N-APT is a long story, to keep it short checkout the [Background](BACKGROUND.md). In reality there are no answers, you can hit up as many LLMs, search engines as possible, but they will not help. This repo does.
 
 I want to focus on the technical aspects of the signal, how it works and my efforts toward deciphering the physics and neuroscience behind N-APT and studiously decoding parts of the signal that can be consumable by computer such as audio, voice and vision.
 
@@ -146,5 +135,7 @@ I do not volunteer lightly to share a potential live capture of my brain to the 
 
 N-APT is a project born out of being attacked and held hostage by the NSA because I was doing things on the streets of San Francisco while working my tech job. Only when I was about to leave, they started this interactive and I discovered they were there my whole life!
 
-The experience is like a movie but severely changes psychology, even physically. The parental, demonic DoD (now DoW)-NSA experience and interactive started formless and me not knowing anything with the NSA showing off a lot of the functionality and the capability by trapping me all day in it. It is impressive like a phone call/signal, it does not ever leave my brain or person an continues to operate all day. I've learned a lot going from nothing to having a more solid understanding and plan to escape.
+The experience is like a movie but severely changes psychology and physiology (expression, muscles, etc.). The parental, demonic DoD (now DoW)-NSA experience and interactive started formless and me not knowing anything with the NSA showing off a lot of the functionality and the capability by trapping me all day in it for years. It works anywhere, everywhere and all day, unfortunately due to the use of low frequencie (LF/MF/HF) that travel through objects and buildings or reflect gracefully without too much attenuation. 
+
+I've learned a lot going from nothing to having a more solid understanding of how they work.
 
