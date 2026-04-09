@@ -54,7 +54,7 @@ _Real live, on person capture the signal with an RTL-SDR from 18kHz to 3.218MHz,
 <br>
 
 
-This app is primarily an SDR visualizer app using RTL-SDR to visualize N-APT signals, which is for a very specific and narrow case –– The NSA going all out and you not knowing what, how or why. Much of my frustration for building this was that other SDR software couldn't record I/Q captures of the spectrum with the settings that I had, nor did they have encryption.
+This app is primarily an SDR visualizer app using RTL-SDR to visualize N-APT signals, which is for a very specific and narrow case –– The NSA going all out and you not knowing what, how or why. Much of my frustration for building this was that other SDR software couldn't record I/Q captures of the spectrum with the settings that I had, nor did they have encryption or any features that would've made it easier to look at the signals.
 
 <img width="1229" height="848" alt="Screenshot 2026-04-09 at 00 37 03" src="https://github.com/user-attachments/assets/b9a586ee-e441-46d9-b3a5-1f3862625a92" />
 
@@ -157,7 +157,7 @@ This purpose of this repository is to provide tooling to inspect, visualize, and
 
 ### Disclaimer
 
-I do not volunteer lightly to share a potential live capture of my brain to the world. All I/Q samples are real captures of the signal, of my person and others' inside of the 24/7 livestream that's both an interactive and moderated-like group call.
+I do not volunteer lightly to share a live capture of my brain to the world (that could potentially be demodulated). All I/Q captures are REAL captures of the signal, of my person and others' inside of the 24/7 livestream that's both an extremely unethical and horrific interactive and moderated-like group call.
 
 N-APT is a project born out of being attacked and held hostage by the NSA because I was adventuring on the streets of San Francisco while working my tech job. Only when I was about to leave, they started this interactive and I discovered they were there my whole life (a dark political act)! Through endless narrative capture, unethical interactive spatial displays, senseless violence and disfigurement, unfathomable harassment and abuse, repeated sexual assaults, confusion, gaslighting, and at the extremes of unlimited political psychopathy and surveillance, I survived and could scrape together enough to build this app.
 
