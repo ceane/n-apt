@@ -9,6 +9,16 @@ use log::{error, info, LevelFilter};
 
 use n_apt_backend::live_stream_test::LiveStreamTester;
 
+fn default_passkey() -> String {
+  std::env::var("UNSAFE_LOCAL_USER_PASSWORD")
+    .or_else(|_| std::env::var("N_APT_PASSKEY"))
+    .unwrap_or_default()
+}
+
+fn default_passkey_ref() -> &'static str {
+  Box::leak(default_passkey().into_boxed_str())
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
   // Parse command line arguments
@@ -29,7 +39,7 @@ async fn main() -> Result<()> {
                 .long("passkey")
                 .value_name("PASSWORD")
                 .help("Authentication password")
-                .default_value("n-apt-dev-key")
+                .default_value(default_passkey_ref())
         )
         .arg(
             Arg::new("verbose")

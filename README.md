@@ -55,6 +55,13 @@ _Real live, on person capture of N-APT signals via SDR++ with an RTL-SDR (FFT Si
   - **Ubuntu/Debian**: `sudo apt install redis-server`
   - **Windows**: Download from [redis.io](https://redis.io/)
 
+### Platform Notes
+
+- **Windows users**: use **WSL2** for development if possible.
+- **WSL2** behaves like Linux for this repository and is the recommended Windows environment.
+- **Native Windows shells** (`cmd.exe` / PowerShell) are **not** the intended environment for the main dev workflow because parts of the build still rely on Unix-style tools and shell behavior.
+- **Best compatibility**: run Node, Rust, Redis, and the build scripts all inside the same WSL distribution.
+
 </details>
 
 ## Get Started
@@ -71,6 +78,8 @@ npm i          # installs dependencies
 npm run dev    # starts app
 ```
 
+> **Windows note:** if you are on Windows, run the steps above inside **WSL2** instead of native PowerShell/CMD.
+
 The `npm run setup` command creates a `.env.local` file with default environment configuration for easy development setup.
 
 ### Running the App
@@ -80,6 +89,10 @@ The `npm run setup` command creates a `.env.local` file with default environment
 ```bash
 npm run dev
 ```
+
+**Important:** `npm run dev` is the only supported way to run and use the app.
+
+**Hardware Requirement:** the app only works with an **RTL-SDR v4 or .napt captures.**.
 
 **Development Features:**
 
@@ -96,11 +109,13 @@ This command will:
 4. **Launch both** the Rust backend and Vite frontend concurrently
 5. **Enable hot reload** for configuration changes (dev modes)
 
-The app will be available at `http://localhost:5173` with the WebSocket server running on `ws://localhost:8765`.
+The web app will be available at `http://localhost:5173` with the WebSocket server running on `ws://localhost:8765`.
 
-> **💡 Tip:** Use `npm run dev` for the best development experience with the Ink-based build orchestrator.
+> **💡 Tip:** If you do not have an RTL-SDR v4, the backend will just stream a Mock APT stream. You can simply use the app (if you set your .env.local UNSAFE_LOCAL_USER_PASSWORD to a password the app can use to decrpyt files).
 
 For detailed development instructions, see [.agents/DEVELOPMENT.md](.agents/DEVELOPMENT.md).
+
+---
 
 I only have on person captures (within the `iq-samples` dir), however in the future I'll be sure to add near and 1 or 2m away captures (as long as my cord can do), as well as some captures from suspected endpoints.
 
@@ -130,4 +145,3 @@ N-APT is a project born out of being attacked and held hostage by the NSA becaus
 
 The experience is like a movie but severely changes psychology, even physically. The parental, demonic DoD (now DoW)-NSA experience and interactive started formless and me not knowing anything with the NSA showing off a lot of the functionality and the capability by trapping me all day in it. It is impressive like a phone call/signal, it does not ever leave my brain or person an continues to operate all day. I've learned a lot going from nothing to having a more solid understanding and plan to escape.
 
-#### I warn you not to fuck around in life, have your shit together! Very important that you own an RV, have a lot of savings, and own Macbook Pro and a bunch of SDRs to look at signals. The NSA doesn't attack like you think, it's an impoverishing military disciplining!

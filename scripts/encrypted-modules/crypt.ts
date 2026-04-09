@@ -92,7 +92,7 @@ function bundle(dir: string): FileBundle {
       if (entry.isDirectory()) {
         getFiles(fullPath);
       } else {
-        const relativePath = path.relative(dir, fullPath);
+        const relativePath = path.relative(dir, fullPath).split(path.sep).join('/');
         const content = fs.readFileSync(fullPath).toString('base64');
         bundle.files.push({ path: relativePath, content });
       }
@@ -105,7 +105,8 @@ function bundle(dir: string): FileBundle {
 function unbundle(bundle: FileBundle, targetDir: string) {
   if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
   for (const file of bundle.files) {
-    const fullPath = path.join(targetDir, file.path);
+    const normalizedPath = file.path.split('/').join(path.sep);
+    const fullPath = path.join(targetDir, normalizedPath);
     fs.mkdirSync(path.dirname(fullPath), { recursive: true });
     fs.writeFileSync(fullPath, Buffer.from(file.content, 'base64'));
   }

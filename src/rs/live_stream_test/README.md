@@ -33,20 +33,20 @@ cargo run --bin live_stream_test
 # Custom server URL
 cargo run --bin live_stream_test -- --server localhost:8080
 
-# Custom authentication passkey
-cargo run --bin live_stream_test -- --passkey "your-passkey"
+# Custom authentication passkey from .env.local
+cargo run --bin live_stream_test -- --passkey "$UNSAFE_LOCAL_USER_PASSWORD"
 
 # Verbose logging
 cargo run --bin live_stream_test -- --verbose
 
 # All options combined
-cargo run --bin live_stream_test -- --server ws://localhost:8080 --passkey n-apt-dev-key --verbose
+cargo run --bin live_stream_test -- --server ws://localhost:8080 --passkey "$UNSAFE_LOCAL_USER_PASSWORD" --verbose
 ```
 
 ### Command Line Options
 
 - `-s, --server <URL>`: WebSocket server URL (default: `localhost:8080`)
-- `-p, --passkey <PASSKEY>`: Authentication passkey (default: `n-apt-dev-key`)
+- `-p, --passkey <PASSKEY>`: Authentication passkey (default: `UNSAFE_LOCAL_USER_PASSWORD` from `.env.local`)
 - `-v, --verbose`: Enable verbose logging
 - `-h, --help`: Show help information
 
@@ -68,7 +68,7 @@ The test client will display:
 ```
 🚀 n-apt Live Stream Test Client
 📡 Server: localhost:8080
-🔐 Passkey: n-apt-dev-key
+🔐 Passkey: UNSAFE_LOCAL_USER_PASSWORD
 ──────────────────────────────────────────────────
 🧪 Running example algorithms...
 📊 Processing live data stream...

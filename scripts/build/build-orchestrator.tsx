@@ -4,6 +4,7 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { render } from 'ink';
 import { Box, Text, useApp, useInput } from 'ink';
 import { spawn, spawnSync } from 'child_process';
+import os from 'node:os';
 import chalk from 'chalk';
 
 // Types
@@ -55,6 +56,13 @@ const encryptedModulesStatus = {
   success: '✔ N-APT Encrypted Modules Built',
   error: '✗ Build error with N-APT Encrypted Modules',
 };
+
+const isWindows = process.platform === 'win32';
+const isWsl = process.platform === 'linux' && (
+  Boolean(process.env.WSL_DISTRO_NAME) ||
+  os.release().toLowerCase().includes('microsoft')
+);
+const isNativeWindows = isWindows && !isWsl;
 
 const withEllipsis = (label: string) => (label.endsWith('...') ? label : `${label}...`);
 
@@ -385,7 +393,7 @@ const BuildOrchestrator = () => {
     const steps = [
       {
         index: 0,
-        command: `bash -lc "
+        command: isNativeWindows ? 'echo Windows cleanup is skipped; use manual process cleanup if needed.' : `bash -lc "
 set -euo pipefail
 pkill -f 'n-apt-backend' 2>/dev/null || true
 pkill -f 'target/debug/n-apt-backend' 2>/dev/null || true
@@ -429,7 +437,7 @@ fi
       },
       {
         index: 2,
-        command: `bash -lc '
+        command: isNativeWindows ? 'echo Redis tower swap requires bash/redis-cli on non-Windows environments.' : `bash -lc '
 set -euo pipefail
 REDIS_PORT="${'${'}REDIS_PORT:-6379}"
 if ! [[ "$REDIS_PORT" =~ ^[0-9]+$ ]] || [ "$REDIS_PORT" -le 0 ] || [ "$REDIS_PORT" -gt 65535 ]; then
@@ -469,7 +477,7 @@ exit 0
       },
       {
         index: 4,
-        command: `bash -lc '
+        command: isNativeWindows ? 'echo Encrypted module decrypt step is not supported in this Windows shell path.' : `bash -lc '
 set -euo pipefail
 if npm run decrypt-modules >/dev/null 2>&1; then
   if [ -f "src/encrypted-modules/tmp/rs/simd/fast_math.rs" ]; then
@@ -495,7 +503,7 @@ exit 1
       },
       {
         index: 6,
-        command: `bash -lc '
+        command: isNativeWindows ? 'echo Backend readiness check via bash/curl is skipped on Windows in this orchestrator.' : `bash -lc '
 set -euo pipefail
 # Wait for backend to be ready by checking the /status endpoint
 MAX_RETRIES=30
@@ -521,7 +529,7 @@ exit 1
       },
       {
         index: 7,
-        command: `bash -lc '
+        command: isNativeWindows ? 'npx vite dev --host --force' : `bash -lc '
 set -euo pipefail
 # Don't clear Vite cache - it causes significant startup latency
 # rm -rf node_modules/.vite

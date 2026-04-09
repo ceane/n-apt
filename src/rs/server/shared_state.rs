@@ -24,10 +24,6 @@ pub const DISCONNECT_FAILURE_THRESHOLD: u32 = 5;
 /// before giving up and falling back to mock.
 pub const MAX_RECOVERY_ATTEMPTS: u32 = 2;
 
-/// Passkey for AES-256-GCM encryption. Read from N_APT_PASSKEY env var at startup.
-/// Falls back to UNSAFE_LOCAL_USER_PASSWORD (env) or a default for development.
-pub const DEFAULT_PASSKEY: &str = "n-apt-dev-key";
-
 /// Shared state visible to the async runtime (lock-free where possible)
 pub struct SharedState {
   /// Latest spectrum data produced by the I/O thread
@@ -91,7 +87,11 @@ impl SharedState {
   pub fn new() -> Arc<Self> {
     let passkey = std::env::var("N_APT_PASSKEY")
       .or_else(|_| std::env::var("UNSAFE_LOCAL_USER_PASSWORD"))
-      .unwrap_or_else(|_| DEFAULT_PASSKEY.to_string());
+      .unwrap_or_else(|_| {
+        panic!(
+          "Missing passkey. Set N_APT_PASSKEY or UNSAFE_LOCAL_USER_PASSWORD in .env.local"
+        )
+      });
     let encryption_key = crate::crypto::derive_key(&passkey);
     let sdr_settings = load_sdr_settings();
     log::info!(

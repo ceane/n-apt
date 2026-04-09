@@ -55,7 +55,7 @@ const envConfig = {
   'OPENCELLID_FORCE_REFRESH': '0',
   
   // Development passkey (for encrypted modules)
-  'N_APT_PASSKEY': 'n-apt-dev-key',
+  'UNSAFE_LOCAL_USER_PASSWORD': '',
   
   // Rust logging
   'RUST_LOG': 'info'
@@ -92,7 +92,7 @@ function createEnvContent() {
   
   content += '# Development Passkey\n';
   content += '# Used for decrypting encrypted modules in development\n';
-  content += `N_APT_PASSKEY=${envConfig.N_APT_PASSKEY}\n\n`;
+  content += `UNSAFE_LOCAL_USER_PASSWORD=${envConfig.UNSAFE_LOCAL_USER_PASSWORD}\n\n`;
   
   content += '# Rust Logging\n';
   content += '# Log level for Rust backend (debug, info, warn, error)\n';
@@ -153,7 +153,7 @@ function showNextSteps() {
   log('\n1. Start the development server:', 'blue');
   log('   npm run dev', 'cyan');
   log('\n2. Login with the development password:', 'blue');
-  log('   n-apt-dev-key', 'cyan');
+  log('   Set UNSAFE_LOCAL_USER_PASSWORD in .env.local', 'cyan');
   log('\n3. Optional: Configure OpenCellID API token for tower data:', 'blue');
   log('   - Get token from https://opencellid.org/');
   log('   - Edit .env.local and replace "your_opencellid_api_token_here"');
