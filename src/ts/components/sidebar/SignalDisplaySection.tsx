@@ -171,11 +171,13 @@ interface SignalDisplaySectionProps {
   backend: string | null;
   deviceProfile?: DeviceProfile | null;
   powerScale: "dB" | "dBm";
+  displayMode?: "fft" | "iq";
   onFftFrameRateChange: (value: number) => void;
   onFftSizeChange: (value: number) => void;
   onFftWindowChange: (value: string) => void;
   onTemporalResolutionChange: (value: "low" | "medium" | "high") => void;
   onPowerScaleChange: (value: "dB" | "dBm") => void;
+  onDisplayModeChange?: (value: "fft" | "iq") => void;
   scheduleCoupledAdjustment: (
     trigger: "fftSize" | "frameRate",
     fftSize: number,
@@ -196,11 +198,13 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
   backend,
   deviceProfile,
   powerScale,
+  displayMode: _displayMode,
   onFftFrameRateChange,
   onFftSizeChange,
   onFftWindowChange,
   onTemporalResolutionChange,
   onPowerScaleChange,
+  onDisplayModeChange: _onDisplayModeChange,
   scheduleCoupledAdjustment,
 }) => {
   const showsApproxDbmToggle =

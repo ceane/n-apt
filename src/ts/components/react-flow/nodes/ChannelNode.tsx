@@ -9,7 +9,7 @@ interface ChannelNodeProps {
   };
 }
 
-export const ChannelNode: React.FC<ChannelNodeProps> = ({ data }) => {
+export const ChannelNode: React.FC<ChannelNodeProps> = ({ data: _data }) => {
   return (
     <div style={{ minWidth: '260px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>

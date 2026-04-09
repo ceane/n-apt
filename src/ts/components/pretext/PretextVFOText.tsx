@@ -1,5 +1,5 @@
-import React, { useMemo, forwardRef } from 'react';
-import { PretextCanvasText, type PretextCanvasTextRef } from '@n-apt/components/pretext/PretextCanvasText';
+import React, { useMemo } from 'react';
+import { PretextCanvasText } from '@n-apt/components/pretext/PretextCanvasText';
 import type { PretextVFOTextProps } from '@n-apt/components/pretext/PretextTypes';
 
 const formatFrequency = (frequency: number, unit: string = 'Hz', precision: number = 2, showUnit: boolean = true): string => {

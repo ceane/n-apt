@@ -1,11 +1,13 @@
 import { useCallback } from "react";
 
-let calculateX: any = null;
+type CalculateXFn = (t: number, clump: MockNAPTParams) => number;
+
+let calculateX: CalculateXFn | null = null;
 const loadMath = async () => {
   try {
-    const mod = await import("@n-apt/encrypted-modules/tmp/ts/math/napt-spike-eq");
-    calculateX = mod.default;
-  } catch (e) {
+    const mod = await import("@n-apt/encrypted-modules/tmp/ts/math/napt-spike-eq").catch(() => null);
+    calculateX = (mod?.default ?? null) as CalculateXFn | null;
+  } catch {
     console.warn("LaTeX math module not decrypted, fallback to zero signal");
   }
 };
