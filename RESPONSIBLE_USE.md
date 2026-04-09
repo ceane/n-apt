@@ -69,9 +69,9 @@ The following scenarios illustrate **potential ethical dilemmas specific to this
 
 ---
 
-### Scenario 1 — Indirect Harm to the United States
+### Scenario 1 — Direct or Indirect Harm to the United States
 
-**Situation:** A Licensee uses the Software, models, or algorithms in a manner that could indirectly affect U.S. government systems, national infrastructure, or operations critical to public safety.  
+**Situation:** A Licensee uses the Software, models, or algorithms in a manner that could directly or indirectly affect U.S. government systems, national infrastructure, or operations critical to public safety.  
 
 **Issue:** Even if the Software itself is unclassified, misuse could unintentionally compromise U.S. systems, violate laws, or create risks to security, privacy, or societal well-being.  
 
