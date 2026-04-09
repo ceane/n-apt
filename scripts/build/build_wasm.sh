@@ -4,11 +4,16 @@
 # This script compiles the Rust code to WebAssembly with SIMD support
 # Uses WASM_OUT env (default packages/n_apt_canvas) as output dir for consistency
 
-set -e
+set -euo pipefail
+
+if [[ "${OS:-}" == "Windows_NT" && -z "${WSL_DISTRO_NAME:-}" ]]; then
+    echo "❌ build_wasm.sh is intended for WSL or Unix-like shells, not native Windows cmd/powershell."
+    exit 1
+fi
 
 # Parse arguments
 FORCE_BUILD=false
-while [[ "$1" == --* ]]; do
+while [[ "${1:-}" == --* ]]; do
     case "$1" in
         --force)
             FORCE_BUILD=true

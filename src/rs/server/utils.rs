@@ -201,7 +201,7 @@ pub fn save_capture_file_multi(
   encryption_key: &[u8; 32],
 ) -> Result<CaptureArtifact, String> {
   // Create temp directory if it doesn't exist
-  let temp_dir = std::path::PathBuf::from("/tmp/n-apt-captures");
+  let temp_dir = std::env::temp_dir().join("n-apt-captures");
   std::fs::create_dir_all(&temp_dir)
     .map_err(|e| format!("Failed to create temp dir: {}", e))?;
 

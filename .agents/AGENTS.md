@@ -273,7 +273,7 @@ The project has multiple server configurations:
 - **Test TypeScript**: `npm run test`
 - **Test Rust**: `npm run test:rust`
 - **Test WASM**: `npm run test:wasm`
-- **Login password**: `n-apt-dev-key`
+- Login password comes from `UNSAFE_LOCAL_USER_PASSWORD` in `.env.local`
 
 ## WindSurf Ignore Rules
 

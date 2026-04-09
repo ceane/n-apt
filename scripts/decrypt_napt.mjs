@@ -4,7 +4,11 @@ import dotenv from 'dotenv';
 
 // Load .env.local
 const env = dotenv.parse(fs.readFileSync('.env.local'));
-const password = env.UNSAFE_LOCAL_USER_PASSWORD || 'n-apt-dev-key';
+const password = env.UNSAFE_LOCAL_USER_PASSWORD;
+
+if (!password) {
+  throw new Error('Missing UNSAFE_LOCAL_USER_PASSWORD in .env.local');
+}
 
 const SALT = Buffer.from("n-apt-aes-salt-v1");
 const ITERATIONS = 100_000;
