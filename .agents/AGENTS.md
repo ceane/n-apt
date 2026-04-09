@@ -49,13 +49,14 @@ npm run build        # Production build
 ### Testing
 
 ```bash
-npm test                          # Run all tests
+npm test                         # Run all tests
 npm run test:watch               # Watch mode
 npm run test:coverage            # Coverage report
 npm test -- --testPathPattern=FileWorker  # Single test file
-npm test -- -t "test name"                # Tests matching name pattern
-npm run test:rust                  # Rust tests (cargo test)
-npm run test:all                   # Both npm test && cargo test
+npm run test -- --onlyFailures   # Run only failing tests (reruns previous failures instead of all tests)
+npm test -- -t "test name"       # Tests matching name pattern
+npm run test:rust                # Rust tests (cargo test)
+npm run test:all                 # Both npm test && cargo test
 
 # Run specific Jest test files
 npm test -- test/ts/FFTCanvas.test.tsx
@@ -67,9 +68,19 @@ npm test -- test/ts/useWebSocket.test.tsx
 ```bash
 npm run server:dev   # Dev with auto-reload
 npm run server:build # Build only
+
+# Rust checks
+cargo check --bin n-apt-backend  # Check for compilation errors
+
+# Rust tests
 cargo test           # Run tests
 cargo test fft       # Run tests matching "fft"
 cargo test --release # Release mode tests
+
+cargo clean          # Clean build artifacts
+
+cargo fix --lib -p n-apt-backend  # Applies all safe autofixes the rust compiler already knows how to do, can fix dependency or code issues.
+
 cargo fmt            # Format
 cargo clippy         # Lint
 ```
@@ -296,6 +307,14 @@ After making changes on in Typescript/JavaScript, run:
 npm run format   # oxfmt
 npm run lint # Essentailly oxlint
 ```
+
+OR
+
+```bash
+npx run oxfmt
+npx run oxlint
+```
+
 
 ### React Doctor
 

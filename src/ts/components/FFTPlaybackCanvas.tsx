@@ -263,15 +263,16 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(({
 
   // ── Handle stitched data state changes ──
   useEffect(() => {
-    if (hasStitchedData) {
-      const channelData =
-        allChannelsRef.current[activeChannel] ?? allChannelsRef.current[0];
-      fftCanvasDataRef.current = buildPlaybackSeedFrame({
-        displayMode,
-        precomputedFrames: precomputedFrames.current,
-        channelData,
-      });
+    if (!hasStitchedData) {
+      return;
     }
+
+    const channelData = allChannelsRef.current[activeChannel] ?? allChannelsRef.current[0];
+    fftCanvasDataRef.current = buildPlaybackSeedFrame({
+      displayMode,
+      precomputedFrames: precomputedFrames.current,
+      channelData,
+    });
   }, [activeChannel, allChannelsRef, displayMode, hasStitchedData, precomputedFrames]);
 
   useEffect(() => {

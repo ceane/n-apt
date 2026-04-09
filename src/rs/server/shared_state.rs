@@ -36,6 +36,8 @@ pub struct SharedState {
   pub authenticated_count: AtomicUsize,
   /// Whether streaming is paused
   pub is_paused: AtomicBool,
+  /// Allow exactly one spectrum frame through while paused after a one-frame request
+  pub allow_next_paused_frame: AtomicBool,
   /// Latest requested center frequency (MHz -> Hz), coalesced atomically
   pub pending_center_freq: AtomicU32,
   /// Whether there is a pending frequency change
@@ -112,6 +114,7 @@ impl SharedState {
       client_count: AtomicUsize::new(0),
       authenticated_count: AtomicUsize::new(0),
       is_paused: AtomicBool::new(false),
+      allow_next_paused_frame: AtomicBool::new(false),
       pending_center_freq: AtomicU32::new(sdr_settings.center_frequency),
       pending_center_freq_dirty: AtomicBool::new(false),
       shutdown: AtomicBool::new(false),

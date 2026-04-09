@@ -51,7 +51,11 @@ import { getWaterfallMotion } from "@n-apt/utils/waterfallMotion";
   try {
     const wasmModule = await import("n_apt_canvas");
     const initWasm = wasmModule.default;
-    const test_wasm_simd_availability = wasmModule.test_wasm_simd_availability;
+    const test_wasm_simd_availability = (
+      wasmModule as typeof wasmModule & {
+        test_wasm_simd_availability?: () => void;
+      }
+    ).test_wasm_simd_availability;
 
     // Initialize the WASM module first
     await initWasm();
@@ -391,6 +395,7 @@ const FFTCanvas = memo(
     } = props;
     const fftColor = useAppSelector((reduxState) => reduxState.theme.fftColor);
     const waterfallTheme = useAppSelector((reduxState) => reduxState.theme.waterfallTheme);
+    const dataFrameCounter = useAppSelector((reduxState) => reduxState.websocket.dataFrameCounter);
     const fillColor = useMemo(() => {
       if (fftColor.startsWith("#")) {
         return `${fftColor}33`; // 20% opacity
@@ -1669,7 +1674,7 @@ const FFTCanvas = memo(
       if (!hasData) {
         lastIncomingFrameRef.current = null;
       }
-    }, [dataRef, isPaused, forceRender]);
+    }, [dataRef, isPaused, forceRender, dataFrameCounter]);
 
     // Handle canvas resizing
     useEffect(() => {

@@ -9,7 +9,6 @@ import type {
   DeviceState,
 } from "@n-apt/hooks/useWebSocket";
 import { addNotification, updateNotification } from "@n-apt/redux/slices/notificationsSlice";
-import { formatFileSize } from "@n-apt/utils/formatters";
 import {
   Clock,
   File as FileIcon,

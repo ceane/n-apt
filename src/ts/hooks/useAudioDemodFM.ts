@@ -189,7 +189,7 @@ export function useAudioDemodFM(options: AudioDemodFMOptions): AudioDemodFMHandl
     if (sourceNodeRef.current) {
       try {
         sourceNodeRef.current.stop();
-      } catch (_error) {
+      } catch {
         // Already stopped
       }
       sourceNodeRef.current = null;

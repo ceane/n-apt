@@ -207,6 +207,7 @@ impl WebSocketServer {
     let mut last_failure_at: Option<Instant> = None;
     let mut target_fps: u32 = 30; // sensible default until first frame
     let retry_cooldown = Duration::from_secs(30);
+    let mut allow_next_paused_frame = false;
     loop {
       let start_time = Instant::now();
       // 1. Process pending commands
@@ -224,6 +225,9 @@ impl WebSocketServer {
               .lock()
               .unwrap()
               .push(settings);
+          }
+          crate::server::types::SdrCommand::RequestNextFrame => {
+            allow_next_paused_frame = true;
           }
           crate::server::types::SdrCommand::SetFrequency(freq) => {
             // Frequency change is fast (just sets a pending field), so use brief lock
@@ -956,10 +960,12 @@ impl WebSocketServer {
       }
 
       // If the stream is paused by the client, don't read from SDR or broadcast
-      if shared_state.is_paused.load(Ordering::SeqCst) {
+      // unless the frontend explicitly requested one fresh frame.
+      if shared_state.is_paused.load(Ordering::SeqCst) && !allow_next_paused_frame {
         tokio::time::sleep(Duration::from_millis(100)).await;
         continue;
       }
+      allow_next_paused_frame = false;
 
       // 2. Read and process one frame from SDR
       let process_result = {
