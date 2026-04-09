@@ -81,5 +81,6 @@ module.exports = {
     "\\.wgsl$": "jest-transform-stub"
   },
   transformIgnorePatterns: ["node_modules/(?!(.*\\.mjs$|@chenglou/pretext))"],
+  modulePathIgnorePatterns: ["<rootDir>/.shared-worktree-cache/"],
   moduleFileExtensions: ["ts", "tsx", "js", "jsx", "json"],
 };

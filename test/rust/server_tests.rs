@@ -9,8 +9,15 @@ use tokio::sync::broadcast;
 use url::Url;
 use webauthn_rs::prelude::*;
 
+fn ensure_test_password() {
+  if std::env::var("UNSAFE_LOCAL_USER_PASSWORD").is_err() {
+    std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
+  }
+}
+
 #[tokio::test]
 async fn test_server_status_endpoint() {
+  ensure_test_password();
   // Setup mock AppState
   let (broadcast_tx, _mbr) = broadcast::channel(100);
   let (spectrum_tx, _sbr) = broadcast::channel(100);
@@ -63,6 +70,7 @@ async fn test_server_status_endpoint() {
 
 #[tokio::test]
 async fn test_auth_challenge_flow() {
+  ensure_test_password();
   let (broadcast_tx, _) = broadcast::channel(10);
   let (spectrum_tx, _) = broadcast::channel(10);
   let (cmd_tx, _) = std::sync::mpsc::channel();
@@ -122,6 +130,7 @@ async fn test_auth_challenge_flow() {
 
 #[tokio::test]
 async fn test_auth_info_endpoint() {
+  ensure_test_password();
   let (broadcast_tx, _) = broadcast::channel(10);
   let (spectrum_tx, _) = broadcast::channel(10);
   let (cmd_tx, _) = std::sync::mpsc::channel();

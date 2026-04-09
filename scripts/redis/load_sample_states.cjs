@@ -79,7 +79,7 @@ function parseTowerRecord(line, state) {
   if (fields[0] === 'radio') return null;
 
   // CSV format: radio,mcc,mnc,lac,cell,range,lon,lat,samples,change,created,updated,averageSignal
-  const [radio, mcc, mnc, lac, cell, range, lon, lat, samples, change, created, updated, averageSignal] = fields;
+  const [radio, mcc, mnc, lac, cell, range, lon, lat, samples, _change, created, updated, _averageSignal] = fields;
   
   // Validate coordinates
   const lonNum = parseFloat(lon);

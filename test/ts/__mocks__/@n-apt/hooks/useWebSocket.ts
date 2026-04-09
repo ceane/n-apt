@@ -127,16 +127,16 @@ export function useWebSocket(
     setSdrSettings(null);
   }, [url, enabled]);
 
-  const sendFrequencyRange = useCallback((range: FrequencyRange) => {}, []);
+  const sendFrequencyRange = useCallback((_range: FrequencyRange) => {}, []);
   const sendPauseCommand = useCallback((paused: boolean) => {
     setIsPaused(paused);
     setServerPaused(paused);
   }, []);
-  const sendSettings = useCallback((settings: SDRSettings) => {}, []);
+  const sendSettings = useCallback((_settings: SDRSettings) => {}, []);
   const sendRestartDevice = useCallback(() => {}, []);
   const sendTrainingCommand = useCallback(() => {}, []);
-  const sendCaptureCommand = useCallback((req: any) => {}, []);
-  const sendGetAutoFftOptions = useCallback((screenWidth: number) => {}, []);
+  const sendCaptureCommand = useCallback((_req: any) => {}, []);
+  const sendGetAutoFftOptions = useCallback((_screenWidth: number) => {}, []);
 
   const simulateError = useCallback(
     (errorType: "connection" | "timeout" | "device") => {

@@ -13,12 +13,12 @@ interface FFTCanvasProps {
 
 export default function FFTCanvas({
   data,
-  frequencyRange,
-  centerFrequencyMHz,
-  activeSignalArea,
+  frequencyRange: _frequencyRange,
+  centerFrequencyMHz: _centerFrequencyMHz,
+  activeSignalArea: _activeSignalArea,
   isPaused,
   isDeviceConnected = true,
-  onFrequencyRangeChange,
+  onFrequencyRangeChange: _onFrequencyRangeChange,
   displayTemporalResolution = "medium",
 }: FFTCanvasProps) {
   const canvasRef = React.useRef<HTMLCanvasElement>(null);

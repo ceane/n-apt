@@ -180,7 +180,7 @@ export function useAudioDemodAPT(options: AudioDemodAPTOptions): AudioDemodAPTHa
 
   const stopAudio = useCallback(() => {
     if (sourceNodeRef.current) {
-      try { sourceNodeRef.current.stop(); } catch (_e) {}
+      try { sourceNodeRef.current.stop(); } catch {}
       sourceNodeRef.current = null;
     }
     if (gainNodeRef.current) {

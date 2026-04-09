@@ -195,7 +195,7 @@ signals:
       # to process since my sample rate is smaller than the channel
       # nyquist rate prevents me from seeing the correct form
       # So I skip Channel C unitl further review
-      # c:
-      #   label: "C"
-      #   freq_range_mhz: [5, 22]
-      #   description: "Area C: 5-22 MHz range"
+      c:
+        label: "C"
+        freq_range_mhz: [11, 23]
+        description: "Area C: 11-22 MHz range"

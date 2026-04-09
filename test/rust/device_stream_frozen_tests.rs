@@ -2,9 +2,21 @@ use n_apt_backend::server::shared_state::SharedState;
 use n_apt_backend::server::utils::reconcile_device_state;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::sync::Once;
+
+fn ensure_test_password() {
+  static INIT: Once = Once::new();
+
+  INIT.call_once(|| {
+    if std::env::var("UNSAFE_LOCAL_USER_PASSWORD").is_err() {
+      std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
+    }
+  });
+}
 
 #[tokio::test]
 async fn test_device_freeze_detection() {
+  ensure_test_password();
   // Test that the system can detect when a device becomes unresponsive
   let shared_state = Arc::new(SharedState::new());
 
@@ -32,6 +44,7 @@ async fn test_device_freeze_detection() {
 
 #[tokio::test]
 async fn test_stream_freeze_recovery() {
+  ensure_test_password();
   // Test recovery from frozen stream
   let shared_state = Arc::new(SharedState::new());
 
@@ -50,6 +63,7 @@ async fn test_stream_freeze_recovery() {
 
 #[tokio::test]
 async fn test_mock_mode_fallback() {
+  ensure_test_password();
   // Test fallback to mock mode when real device freezes
   let shared_state = Arc::new(SharedState::new());
 
@@ -99,6 +113,7 @@ async fn test_mock_mode_fallback() {
 
 #[tokio::test]
 async fn test_io_thread_freeze_handling() {
+  ensure_test_password();
   // Test handling of I/O thread freeze
   let shared_state = Arc::new(SharedState::new());
 
@@ -112,6 +127,7 @@ async fn test_io_thread_freeze_handling() {
 
 #[tokio::test]
 async fn test_device_reconnection_after_freeze() {
+  ensure_test_password();
   // Test device reconnection after freeze
   let shared_state = Arc::new(SharedState::new());
 
@@ -139,6 +155,7 @@ async fn test_device_reconnection_after_freeze() {
 
 #[tokio::test]
 async fn test_spectrum_data_validation() {
+  ensure_test_password();
   // Test spectrum data validation during freeze scenarios
   let shared_state = Arc::new(SharedState::new());
 
@@ -178,6 +195,7 @@ async fn test_spectrum_data_validation() {
 
 #[tokio::test]
 async fn test_pause_state_during_freeze() {
+  ensure_test_password();
   // Test pause state handling during device freeze
   let shared_state = Arc::new(SharedState::new());
 
@@ -199,8 +217,17 @@ async fn test_pause_state_during_freeze() {
 }
 
 #[tokio::test]
+async fn test_one_shot_paused_frame_flag_defaults_to_disabled() {
+  ensure_test_password();
+  let shared_state = Arc::new(SharedState::new());
+
+  assert!(!shared_state.allow_next_paused_frame.load(Ordering::SeqCst));
+}
+
+#[tokio::test]
 async fn test_frequency_changes_during_freeze() {
-  // Test frequency parameter changes during freeze
+  ensure_test_password();
+  // Test frequency changes during device freeze
   let shared_state = Arc::new(SharedState::new());
 
   // Set initial frequency
@@ -233,6 +260,7 @@ async fn test_frequency_changes_during_freeze() {
 
 #[tokio::test]
 async fn test_client_count_during_freeze() {
+  ensure_test_password();
   // Test client count handling during device freeze
   let shared_state = Arc::new(SharedState::new());
 
@@ -253,6 +281,7 @@ async fn test_client_count_during_freeze() {
 
 #[tokio::test]
 async fn test_device_loading_state_during_freeze() {
+  ensure_test_password();
   // Test device loading state during freeze scenarios
   let shared_state = Arc::new(SharedState::new());
 
@@ -318,6 +347,7 @@ async fn test_device_loading_state_during_freeze() {
 
 #[tokio::test]
 async fn test_stale_state_recovery() {
+  ensure_test_password();
   // Test recovery from stale device state
   let shared_state = Arc::new(SharedState::new());
 
@@ -342,6 +372,7 @@ async fn test_stale_state_recovery() {
 
 #[tokio::test]
 async fn test_encryption_key_preservation() {
+  ensure_test_password();
   // Test that encryption key is preserved during freeze scenarios
   let shared_state = Arc::new(SharedState::new());
 
@@ -360,6 +391,7 @@ async fn test_encryption_key_preservation() {
 
 #[tokio::test]
 async fn test_channels_preservation() {
+  ensure_test_password();
   // Test that channels configuration is preserved during freeze
   let shared_state = Arc::new(SharedState::new());
 
@@ -387,6 +419,7 @@ async fn test_channels_preservation() {
 
 #[tokio::test]
 async fn test_memory_cleanup_during_freeze() {
+  ensure_test_password();
   // Test memory cleanup during device freeze scenarios
   let shared_state = Arc::new(SharedState::new());
 

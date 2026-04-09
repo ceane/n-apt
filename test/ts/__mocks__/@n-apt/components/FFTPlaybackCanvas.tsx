@@ -2,8 +2,8 @@ import * as React from "react";
 
 export default function FFTPlaybackCanvas(props: any) {
   const [hasData, setHasData] = React.useState(false);
-  const [isStitching, setIsStitching] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
+  const [, setIsStitching] = React.useState(false);
+  const [, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     if (props.selectedFiles && props.selectedFiles.length > 0) {

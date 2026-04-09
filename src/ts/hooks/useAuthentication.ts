@@ -397,7 +397,7 @@ const useAuthenticationInternal = (
           "n_apt_has_passkeys",
           effectiveHasPasskeys ? "true" : "false",
         );
-      } catch (e) {
+      } catch {
         // Safari private mode - localStorage not available
         console.debug("localStorage unavailable for passkey state");
       }
