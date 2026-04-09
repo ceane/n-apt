@@ -10,6 +10,12 @@ import {
 } from '@n-apt/redux';
 import { themeActions, authActions, spectrumActions, websocketActions } from '@n-apt/redux';
 
+declare global {
+  interface Window {
+    __reduxProviderInitialized?: boolean;
+  }
+}
+
 interface ReduxProviderProps {
   children: React.ReactNode;
 }

@@ -1,4 +1,3 @@
-import React from "react";
 import { ThemeSection } from "@n-apt/components/sidebar/ThemeSection";
 import { Provider } from "react-redux";
 import { configureStore, createSlice } from "@reduxjs/toolkit";
@@ -39,7 +38,7 @@ const theme = {
 
 export const Default = () => (
   <Provider store={store}>
-    <ThemeProvider theme={theme}>
+    <ThemeProvider theme={theme as any}>
       <div style={{ padding: "20px", background: "#0a0a0a", width: "350px" }}>
         <ThemeSection />
       </div>

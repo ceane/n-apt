@@ -1,74 +1,94 @@
-import { marked } from "marked";
-import { markedHighlight } from "marked-highlight";
-import hljs from "highlight.js/lib/core";
-import javascript from "highlight.js/lib/languages/javascript";
-import typescript from "highlight.js/lib/languages/typescript";
-import json from "highlight.js/lib/languages/json";
-import bash from "highlight.js/lib/languages/bash";
-import markdown from "highlight.js/lib/languages/markdown";
-import rust from "highlight.js/lib/languages/rust";
-
-const registerLanguage = (name: string, language: (hljs?: typeof import("highlight.js")) => any) => {
-  if (!hljs.getLanguage(name)) {
-    hljs.registerLanguage(name, language);
-  }
-};
-
-registerLanguage("javascript", javascript);
-registerLanguage("js", javascript);
-registerLanguage("typescript", typescript);
-registerLanguage("ts", typescript);
-registerLanguage("json", json);
-registerLanguage("bash", bash);
-registerLanguage("shell", bash);
-registerLanguage("md", markdown);
-registerLanguage("markdown", markdown);
-registerLanguage("rust", rust);
-registerLanguage("rs", rust);
-
 const BLEND_IMAGE_PATTERNS = ["bart-line-drawing", "first-installment-nsa"];
 const HERO_IMAGE_PATTERNS = ["hero-light", "hero-dark"];
 
-const renderer = new marked.Renderer();
-renderer.image = ({ href, text, title }) => {
-  const normalizedHref = href.toLowerCase();
-  const normalizedText = text.toLowerCase();
-  
-  const shouldBlend = BLEND_IMAGE_PATTERNS.some((pattern) =>
-    normalizedHref.includes(pattern) || normalizedText.includes(pattern)
-  );
+const escapeHtml = (value: string) =>
+  value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 
-  const isHero = HERO_IMAGE_PATTERNS.some((pattern) =>
-    normalizedHref.includes(pattern) || normalizedText.includes(pattern)
-  );
+const renderMarkdownToHtml = (markdownText: string) => {
+  const lines = markdownText.split(/\r?\n/);
+  const html: string[] = [];
+  let inCodeBlock = false;
+  let codeBuffer: string[] = [];
 
-  let className = "markdown-figure";
-  if (shouldBlend) className += " blend-image";
-  if (isHero) className += " hero-image";
+  const flushParagraph = (paragraph: string[]) => {
+    if (paragraph.length === 0) return;
+    html.push(`<p>${paragraph.map(escapeHtml).join("<br>")}</p>`);
+  };
 
-  return `<figure class="${className}"><img src="${href}" alt="${text}" ${title ? `title="${title}"` : ""}></figure>`;
-};
+  let paragraph: string[] = [];
 
-marked.use(
-  { renderer },
-  markedHighlight({
-    langPrefix: "hljs language-",
-    highlight(code, lang) {
-      if (lang && hljs.getLanguage(lang)) {
-        return hljs.highlight(code, { language: lang }).value;
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    if (trimmed.startsWith("```")) {
+      if (inCodeBlock) {
+        html.push(`<pre><code>${escapeHtml(codeBuffer.join("\n"))}</code></pre>`);
+        codeBuffer = [];
+      } else {
+        flushParagraph(paragraph);
+        paragraph = [];
       }
+      inCodeBlock = !inCodeBlock;
+      continue;
+    }
 
-      return hljs.highlightAuto(code).value;
-    },
-  }),
-);
+    if (inCodeBlock) {
+      codeBuffer.push(line);
+      continue;
+    }
 
-marked.setOptions({
-  gfm: true,
-  breaks: false,
-  mangle: false,
-  headerIds: true,
-});
+    if (!trimmed) {
+      flushParagraph(paragraph);
+      paragraph = [];
+      continue;
+    }
+
+    const headingMatch = trimmed.match(/^(#{1,6})\s+(.*)$/);
+    if (headingMatch) {
+      flushParagraph(paragraph);
+      paragraph = [];
+      const level = headingMatch[1].length;
+      html.push(`<h${level} id="${escapeHtml(headingMatch[2].toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, ""))}">${escapeHtml(headingMatch[2])}</h${level}>`);
+      continue;
+    }
+
+    if (trimmed.startsWith("![](") || trimmed.startsWith("![")) {
+      flushParagraph(paragraph);
+      paragraph = [];
+      const match = trimmed.match(/^!\[(.*?)\]\((.*?)\)$/);
+      if (match) {
+        const [, alt, href] = match;
+        const normalizedHref = href.toLowerCase();
+        const normalizedAlt = alt.toLowerCase();
+        const shouldBlend = BLEND_IMAGE_PATTERNS.some((pattern) =>
+          normalizedHref.includes(pattern) || normalizedAlt.includes(pattern)
+        );
+        const isHero = HERO_IMAGE_PATTERNS.some((pattern) =>
+          normalizedHref.includes(pattern) || normalizedAlt.includes(pattern)
+        );
+        const className = ["markdown-figure", shouldBlend ? "blend-image" : null, isHero ? "hero-image" : null]
+          .filter(Boolean)
+          .join(" ");
+        html.push(`<figure class="${className}"><img src="${escapeHtml(href)}" alt="${escapeHtml(alt)}"></figure>`);
+      }
+      continue;
+    }
+
+    paragraph.push(line);
+  }
+
+  flushParagraph(paragraph);
+  if (codeBuffer.length > 0) {
+    html.push(`<pre><code>${escapeHtml(codeBuffer.join("\n"))}</code></pre>`);
+  }
+
+  return html.join("\n");
+};
 
 export interface MarkdownRendererOptions {
   target: HTMLElement;
@@ -92,7 +112,7 @@ export class MarkdownRenderer {
     this.#spinnerTemplate = spinnerTemplate;
   }
 
-  async render() {
+  async render(): Promise<void> {
     this.#setLoading(true);
 
     try {
@@ -105,7 +125,7 @@ export class MarkdownRenderer {
       }
 
       const markdownText = await response.text();
-      const html = marked.parse(markdownText);
+      const html = renderMarkdownToHtml(markdownText);
 
       this.#target.innerHTML = html;
       this.#target.classList.add("markdown-ready");

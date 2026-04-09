@@ -326,7 +326,7 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
               <SettingInput
                 type="text"
                 readOnly
-                value={formatFrequencyHz(spectrum.sample_size ?? spectrum.sampleRateHz)}
+                value={formatFrequencyHz(spectrum.sampleRateHz)}
               />
               <UnitLabel>Hz</UnitLabel>
             </InputGroup>

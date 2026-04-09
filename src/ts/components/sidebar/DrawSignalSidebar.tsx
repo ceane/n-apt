@@ -270,9 +270,15 @@ const BEAT_SNAP_RANGES = [
   { label: "Voice", min: 120, max: 180, color: "rgba(100, 255, 255, 0.1)" },
 ];
 
-const DrawMath = React.lazy(() => import("@n-apt/encrypted-modules/tmp/ts/components/math/DrawMath").catch(() => ({
-  default: () => <DecryptionFallback moduleName="Draw Math" />
-})));
+const DrawMath = React.lazy(async () => {
+  try {
+    return await import("@n-apt/encrypted-modules/tmp/ts/components/math/DrawMath");
+  } catch {
+    return {
+      default: () => <DecryptionFallback moduleName="Draw Math" />,
+    };
+  }
+});
 
 export const DrawSignalSidebar: React.FC = () => {
   const { state, dispatch } = useSpectrumStore();

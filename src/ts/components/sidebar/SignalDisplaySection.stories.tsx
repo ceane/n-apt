@@ -38,7 +38,7 @@ const Template = () => {
   const [scale, setScale] = React.useState<"dB" | "dBm">("dB");
 
   return (
-    <ThemeProvider theme={theme}>
+    <ThemeProvider theme={theme as any}>
       <div style={{ padding: "20px", background: "#0a0a0a", width: "350px" }}>
         <SignalDisplaySection
           sourceMode="live"

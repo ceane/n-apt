@@ -18,9 +18,15 @@ const MathFallback = styled.div`
   color: ${(props) => props.theme.textSecondary};
 `;
 
-const DemodMath = React.lazy(() => import("@n-apt/encrypted-modules/tmp/ts/components/math/DemodMath").catch(() => ({
-  default: () => <DecryptionFallback moduleName="Demod Math" />
-})));
+const DemodMath = React.lazy(async () => {
+  try {
+    return await import("@n-apt/encrypted-modules/tmp/ts/components/math/DemodMath");
+  } catch {
+    return {
+      default: () => <DecryptionFallback moduleName="Demod Math" />,
+    };
+  }
+});
 
 export const DemodulationMathSidebar: React.FC = () => {
   return (

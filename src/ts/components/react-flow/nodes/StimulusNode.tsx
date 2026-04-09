@@ -396,7 +396,7 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
 
     const result = durationSchema.safeParse(val);
     if (!result.success) {
-      setDurationError(result.error.errors[0].message);
+      setDurationError(result.error.issues[0].message);
     } else {
       setDurationError(null);
     }
@@ -425,9 +425,9 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
       const progressInterval = setInterval(() => {
         const elapsed = Date.now() - startTime;
         const p = Math.min(100, (elapsed / totalMs) * 100);
-        
+
         setProgress(p);
-        
+
         if (p >= 100) {
           clearInterval(progressInterval);
         }
@@ -584,9 +584,9 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
             <BaselineVectorLabel style={{ color: durationError ? '#ff4d4d' : undefined }}>
               Dur (s)
             </BaselineVectorLabel>
-            <StimulusInput 
-              type="number" 
-              value={durationS || ''} 
+            <StimulusInput
+              type="number"
+              value={durationS || ''}
               onChange={handleDurationChange}
               disabled={isBusy}
               min={5}

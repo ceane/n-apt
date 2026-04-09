@@ -9,7 +9,7 @@ This file provides guidance for AI coding agents working on N-APT (RF spectrum a
 - Never re-run commands to "verify" unless the outcome was uncertain.
 - Don't echo back large blocks of code or file contents unless asked.
 - Batch related edits into single operations. Don't make 5 edits when 1 handles it.
-- Skip confirmations like "I'll continue..." Lust do it.
+- Skip confirmations like "I'll continue..." Just do it.
 - If a task needs 1 tool call, don't use 3. Plan before acting.
 - Do not summarize what you just did unless the result is ambiguous or you need additional input.
 
@@ -230,7 +230,7 @@ n-apt/
 │   ├── wasm_simd/        # WASM SIMD implementations
 │   ├── rtlsdr/           # RTL-SDR device interface
 │   └── credentials/      # Auth/password handling
-├── mock_signals.yaml     # Hot-reloadable signal config
+├── signals.yaml     # Hot-reloadable signal config
 └── package.json
 ```
 
@@ -288,13 +288,22 @@ coverage/
 *.csv
 ```
 
-## React Doctor
+## Linting
+
+After making changes on in Typescript/JavaScript, run:
+
+```bash
+npm run format   # oxfmt
+npm run lint # Essentailly oxlint
+```
+
+### React Doctor
 
 Run after making React changes to catch issues early. Use when reviewing code, finishing a feature, or fixing bugs in a React project.
 
 Scans your React codebase for security, performance, correctness, and architecture issues. Outputs a 0-100 score with actionable diagnostics.
 
-### Usage
+**Usage**
 
 ```bash
 npx -y react-doctor@latest . --verbose --diff

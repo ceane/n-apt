@@ -232,7 +232,7 @@ export function setupSpectrumToolHandlers(sidebarProps: any) {
   });
 
   // Signal Features
-  toolHandlers.register("classifySignal", async (params) => {
+  toolHandlers.register("classifySignal", async (_params) => {
     // Implementation depends on ML system
     return {
       success: true,
@@ -387,7 +387,7 @@ export function setupHotspotToolHandlers(hotspotProps: any) {
   });
 
   toolHandlers.register("importHotspots", async (params) => {
-    const { jsonData } = params;
+    const { jsonData: _jsonData } = params;
     // Implementation depends on import system
     return {
       success: true,

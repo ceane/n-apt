@@ -24,6 +24,7 @@ import { ConnectionStatusSection, PauseButton } from "@n-apt/components/sidebar/
 import { SignalDisplaySection } from "@n-apt/components/sidebar/SignalDisplaySection";
 import { BodyAreasSection } from "@n-apt/components/sidebar/BodyAreasSection";
 import { HotspotEditorSection } from "@n-apt/components/sidebar/HotspotEditorSection";
+import { SignalFeaturesSection } from "@n-apt/components/sidebar/SignalFeaturesSection";
 
 import FileProcessingSection from "@n-apt/components/sidebar/FileProcessingSection";
 import { IQCaptureControlsSection } from "@n-apt/components/sidebar/IQCaptureControlsSection";
@@ -201,8 +202,8 @@ const Sidebar: React.FC<SidebarProps> = ({
   onStopCaptureCommand,
   spectrumFrames,
   activeTab,
-  drawParams,
-  onDrawParamsChange,
+  drawParams: _drawParams,
+  onDrawParamsChange: _onDrawParamsChange,
   sourceMode,
   onSourceModeChange,
   stitchStatus,
@@ -753,17 +754,6 @@ const Sidebar: React.FC<SidebarProps> = ({
             </PauseButton>
           )}
           <DrawSignalSidebar
-            drawParams={drawParams}
-            activeClumpIndex={state.activeClumpIndex}
-            globalNoiseFloor={state.globalNoiseFloor}
-            onDrawParamsChange={onDrawParamsChange}
-            onActiveClumpIndexChange={(index) =>
-              dispatch({ type: "SET_ACTIVE_CLUMP_INDEX", index })
-            }
-            onGlobalNoiseFloorChange={(noise) =>
-              dispatch({ type: "SET_GLOBAL_NOISE_FLOOR", noise })
-            }
-            onResetParams={() => dispatch({ type: "RESET_DRAW_PARAMS" })}
           />
         </>
       )}
@@ -882,14 +872,14 @@ const Sidebar: React.FC<SidebarProps> = ({
           {sourceMode === "file" ? (
             <>
               <FileProcessingSection
-                selectedFiles={selectedFiles}
-                onSelectedFilesChange={onSelectedFilesChange}
+                selectedFiles={selectedFiles as any}
+                onSelectedFilesChange={onSelectedFilesChange as any}
                 stitchStatus={stitchStatus}
                 isStitchPaused={isStitchPaused}
                 onStitch={onStitch}
                 onClear={onClear}
                 onStitchPauseToggle={onStitchPauseToggle}
-                selectedNaptFile={selectedFiles.length > 0 && selectedFiles[0].name.endsWith(".napt") ? selectedFiles[0] : null}
+                selectedNaptFile={selectedNaptFile as any}
                 naptMetadata={naptMetadata}
                 naptMetadataError={naptMetadataError}
               />
@@ -1023,7 +1013,15 @@ const Sidebar: React.FC<SidebarProps> = ({
                 </div>
               </Section>
 
-              <SignalFeaturesSection />
+              <SignalFeaturesSection
+                sourceMode={sourceMode ?? "live"}
+                deviceState={deviceState ?? "disconnected"}
+                isConnected={isConnected}
+                selectedFilesCount={selectedFiles.length}
+                heterodyningStatusText="Not verified"
+                heterodyningVerifyDisabled={true}
+                onVerifyHeterodyning={() => { }}
+              />
 
               <SignalDisplaySection
                 sourceMode={sourceMode}
@@ -1070,9 +1068,8 @@ const Sidebar: React.FC<SidebarProps> = ({
             </>
           )}
         </>
-      )
-      }
-    </SidebarContent >
+      )}
+    </SidebarContent>
   );
 };
 

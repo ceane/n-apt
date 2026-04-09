@@ -52,7 +52,7 @@ const baseProps = {
 };
 
 export const Default = () => (
-  <ThemeProvider theme={theme}>
+  <ThemeProvider theme={theme as any}>
     <div style={{ width: 360, padding: 20, background: "#0a0a0a" }}>
       <IQCaptureControlsSection {...baseProps} />
     </div>
