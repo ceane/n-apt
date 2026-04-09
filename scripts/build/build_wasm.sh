@@ -33,6 +33,10 @@ echo ""
 # Ensure we're using rustup version of Rust
 export PATH="$HOME/.cargo/bin:$PATH"
 WASM_OUT=${WASM_OUT:-packages/n_apt_canvas}
+PROJECT_ROOT=$(cd "$(dirname "$0")/../.." && pwd)
+export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$PROJECT_ROOT/target}"
+
+mkdir -p "$CARGO_TARGET_DIR"
 
 # Check if wasm-pack is installed
 if ! command -v wasm-pack &> /dev/null; then

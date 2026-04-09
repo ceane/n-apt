@@ -96,7 +96,7 @@
     "build-ladle": "ladle build"
   },
   "dependencies": {
-    "@chenglou/pretext": "^0.0.2",
+    "@chenglou/pretext": "^0.0.5",
     "@huggingface/transformers": "^3.8.1",
     "@inkjs/ui": "^2.0.0",
     "@radix-ui/react-context-menu": "^2.2.16",

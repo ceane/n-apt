@@ -9,6 +9,7 @@ import type {
   DeviceState,
 } from "@n-apt/hooks/useWebSocket";
 import { addNotification, updateNotification } from "@n-apt/redux/slices/notificationsSlice";
+import { formatFileSize } from "@n-apt/utils/formatters";
 import {
   Clock,
   File as FileIcon,
@@ -346,6 +347,13 @@ const InfoLabel = styled.div`
   font-size: 12px;
   color: ${(props) => props.theme.textPrimary};
   min-width: 0;
+`;
+
+const DownloadMeta = styled.div`
+  margin-top: 4px;
+  font-size: 11px;
+  color: ${(props) => props.theme.textSecondary};
+  font-family: ${(props) => props.theme.typography.mono};
 `;
 
 const DownloadCard = styled.div`
@@ -823,14 +831,19 @@ export const IQCaptureControlsSection: React.FC<
             {captureStatus?.downloadUrl && isAuthenticated ? (
               <DownloadCard>
                 <InfoRow>
-                  <DownloadLink
-                    href={`${captureStatus.downloadUrl}&token=${encodeURIComponent(sessionToken || "")}`}
-                    download={captureStatus.filename || "capture"}
-                    rel="noopener noreferrer"
-                    title={captureStatus.filename || "Download"}
-                  >
-                    {captureStatus.filename || "Download"}
-                  </DownloadLink>
+                  <div style={{ minWidth: 0 }}>
+                    <DownloadLink
+                      href={`${captureStatus.downloadUrl}&token=${encodeURIComponent(sessionToken || "")}`}
+                      download={captureStatus.filename || "capture"}
+                      rel="noopener noreferrer"
+                      title={captureStatus.filename || "Download"}
+                    >
+                      {captureStatus.filename || "Download"}
+                    </DownloadLink>
+                    {typeof captureStatus.fileSize === "number" && (
+                      <DownloadMeta>{formatFileSize(captureStatus.fileSize)}</DownloadMeta>
+                    )}
+                  </div>
                   <StatusValue
                     $tone={
                       captureStatus?.status === "done"
