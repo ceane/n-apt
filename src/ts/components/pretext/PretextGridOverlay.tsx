@@ -28,12 +28,12 @@ export const PretextGridOverlay: React.FC<PretextGridOverlayProps> = ({
   width,
   height,
   frequencyRange,
-  fftMin,
-  fftMax,
-  powerScale = "dB",
-  hardwareSampleRateHz,
+  fftMin: _fftMin,
+  fftMax: _fftMax,
+  powerScale: _powerScale = "dB",
+  hardwareSampleRateHz: _hardwareSampleRateHz,
   fullCaptureRange,
-  isIqRecordingActive,
+  isIqRecordingActive: _isIqRecordingActive,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 

@@ -2,11 +2,7 @@ import React from 'react';
 import styled from 'styled-components';
 import {
   ReactFlow as BaseReactFlow,
-  Background,
-  Controls,
-  MiniMap,
   ConnectionMode,
-  BackgroundVariant,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 

@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useCallback, useState } from 'react';
 import { usePretextText } from '@n-apt/hooks/usePretextText';
-import { setupCanvasForDPI, isHighDPI, getOptimalTextRenderingSettings } from '@n-apt/utils/canvasDPIScaling';
+import { isHighDPI } from '@n-apt/utils/canvasDPIScaling';
 
 export const SimplePretextDemo: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -13,8 +13,6 @@ export const SimplePretextDemo: React.FC = () => {
     fontSize: 16,
     color: '#ffff00',
   });
-
-  const canvasSetupRef = useRef<{ devicePixelRatio: number; scale: number } | null>(null);
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current;

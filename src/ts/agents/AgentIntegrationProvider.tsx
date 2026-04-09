@@ -30,7 +30,6 @@ export const AgentIntegrationProvider: React.FC<
   hotspotProps,
 }) => {
     const location = useLocation();
-    const [isWebMCPEnabled, setIsWebMCPEnabled] = useState(false);
     const [agentStatus, setAgentStatus] = useState<
       "detecting" | "enabled" | "disabled"
     >("detecting");
@@ -40,7 +39,6 @@ export const AgentIntegrationProvider: React.FC<
       const initialize = async () => {
         // Check if WebMCP is available
         const webmcpAvailable = initializeWebMCP();
-        setIsWebMCPEnabled(webmcpAvailable);
         setAgentStatus(webmcpAvailable ? "enabled" : "disabled");
 
         if (!webmcpAvailable) return;
@@ -93,9 +91,7 @@ export const AgentIntegrationProvider: React.FC<
     ]);
 
     // Get WebMCP tools for current route
-    const { isRegistered, availableTools, lastResult } = useWebMCP(
-      location.pathname,
-    );
+    const { isRegistered, availableTools, lastResult } = useWebMCP();
 
     // Debug information for development
     useEffect(() => {
@@ -108,7 +104,7 @@ export const AgentIntegrationProvider: React.FC<
         if (availableTools.length > 0) {
           console.log(
             "🔧 Available WebMCP Tools:",
-            availableTools.map((t) => t.name),
+            availableTools.map((t: { name: string }) => t.name),
           );
         }
       }
@@ -159,7 +155,6 @@ export function useAgentIntegration() {
   useEffect(() => {
     // Detect if current user is an AI agent
     const userAgent = navigator.userAgent.toLowerCase();
-    const acceptHeader = ""; // Would need to get from request headers
 
     const agentPatterns = [
       "claude-",

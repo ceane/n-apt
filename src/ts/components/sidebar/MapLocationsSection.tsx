@@ -254,7 +254,7 @@ export const MapLocationsSection: React.FC = () => {
 
   const handleAddPreview = () => {
     if (previewLocation) {
-      addLocation(previewLocation);
+      addLocation(previewLocation.name, previewLocation.lat, previewLocation.lng);
       setPreviewLocation(null);
     }
   };

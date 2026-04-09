@@ -1,7 +1,6 @@
-import React, { useEffect, useRef, useMemo, useState } from "react";
+import { useEffect, useRef, useMemo, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Html } from "@react-three/drei";
-import { Flex, Box } from "@react-three/flex";
 import * as THREE from "three";
 import styled, { keyframes } from "styled-components";
 
@@ -265,34 +264,6 @@ const gridFragment = /* glsl */ `
   }
 `;
 
-// ── Arrow with glow ──────────────────────────────────────────────────────────
-const arrowFragment = /* glsl */ `
-  uniform float uTime;
-  uniform vec2 uResolution;
-  varying vec2 vUv;
-
-  void main() {
-    vec2 uv = vUv;
-    float aspect = uResolution.x / uResolution.y;
-    uv.x *= aspect;
-
-    // Arrow head
-    float headSize = 0.22;
-    float headDist = length(uv - vec2(0.5, 0.5));
-    float headAlpha = smoothstep(headSize, headSize * 0.1, headDist);
-
-    // Arrow shaft
-    float shaftSize = 0.018;
-    float shaftDist = abs(uv.y - 0.5);
-    float shaftAlpha = smoothstep(shaftSize, shaftSize * 0.1, shaftDist);
-
-    vec3 color = vec3(0.5, 0.45, 0.72);
-    float alpha = headAlpha + shaftAlpha;
-
-    gl_FragColor = vec4(color, alpha);
-  }
-`;
-
 // STYLED COMPONENTS
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -339,21 +310,6 @@ const TopBar = styled.div`
   gap: 4px;
 `;
 
-const TagPill = styled.span`
-  display: inline-block;
-  font-family: ${FONTS.mono};
-  font-size: clamp(0.45rem, 0.8vw, 0.62rem);
-  font-weight: 600;
-  color: ${COLORS.textSecondary};
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  background: ${COLORS.backgroundLight};
-  border: 1px solid ${COLORS.borderPrimary};
-  border-radius: 20px;
-  padding: 3px 14px;
-  backdrop-filter: blur(4px);
-`;
-
 const Title = styled.div`
   font-family: ${FONTS.mono};
   font-size: clamp(.85rem, 2vw, 1.85rem);
@@ -362,14 +318,6 @@ const Title = styled.div`
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.45);
   letter-spacing: -0.02em;
   margin-top: 4px;
-`;
-
-const Subtitle = styled.div`
-  font-family: "Inter", -apple-system, system-ui, sans-serif;
-  font-size: clamp(0.55rem, 1vw, 0.78rem);
-  font-weight: 400;
-  color: rgba(200, 190, 220, 0.5);
-  letter-spacing: 0.02em;
 `;
 
 const LabelRow = styled.div`
@@ -381,7 +329,7 @@ const LabelRow = styled.div`
   margin-top: 5%;
 `;
 
-const LabelCell = styled.div`
+const LabelCell = styled.div<{ $align?: string }>`
   display: flex;
   flex-direction: column;
   align-items: ${({ $align }) =>
@@ -512,7 +460,7 @@ const MetaDot = styled.span`
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const ParticleField = () => {
-  const matRef = useRef(null);
+  const matRef = useRef<any>(null);
   const { size } = useThree();
   const uniforms = useMemo(() => ({
     uTime: { value: 0 },
@@ -547,7 +495,7 @@ const ParticleField = () => {
 };
 
 const GridOverlay = () => {
-  const matRef = useRef(null);
+  const matRef = useRef<any>(null);
   const { size } = useThree();
   const uniforms = useMemo(() => ({
     uResolution: { value: new THREE.Vector2(size.width, size.height) },
@@ -575,7 +523,7 @@ const GridOverlay = () => {
 };
 
 const MovingWave = () => {
-  const matRef = useRef(null);
+  const matRef = useRef<any>(null);
   const { size } = useThree();
 
   const uniforms = useMemo(() => ({
@@ -606,8 +554,8 @@ const MovingWave = () => {
   );
 };
 
-const GhostWave = ({ index }) => {
-  const matRef = useRef(null);
+const GhostWave = ({ index }: { index: number }) => {
+  const matRef = useRef<any>(null);
 
   const uniforms = useMemo(() => ({
     uTime: { value: 0 },
@@ -638,8 +586,8 @@ const GhostWave = ({ index }) => {
 };
 
 const ImpedanceObject = () => {
-  const innerRef = useRef(null);
-  const rimRef = useRef(null);
+  const innerRef = useRef<any>(null);
+  const rimRef = useRef<any>(null);
 
   const innerUniforms = useMemo(() => ({ uTime: { value: 0 } }), []);
   const rimUniforms = useMemo(() => ({ uTime: { value: 0 } }), []);
@@ -690,7 +638,7 @@ const ImpedanceObject = () => {
 };
 
 // ── Arrow with glow ──────────────────────────────────────────────────────────
-const ArrowLine = ({ from, to, headSize = 0.22, color = "#4a4570", glowColor = "#6b5acd" }) => {
+const ArrowLine = ({ from, to, headSize = 0.22, color = "#4a4570", glowColor = "#6b5acd" }: { from: [number, number, number]; to: [number, number, number]; headSize?: number; color?: string; glowColor?: string }) => {
   const geo = useMemo(() => {
     const dir = new THREE.Vector3(to[0] - from[0], to[1] - from[1], 0).normalize();
     const perp = new THREE.Vector3(-dir.y, dir.x, 0);

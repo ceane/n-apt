@@ -1,4 +1,3 @@
-import React from "react";
 import { RadiationLobe3D } from "@n-apt/components/3D/RadiationLobe3D";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";

@@ -470,14 +470,14 @@ const DemodRouteSectionInner: React.FC = () => {
       layoutCacheRef.current.set(cacheKey, layoutedGraph.children);
 
       setNodesLocal((nds: Node[]) => {
-        const stimulusElkNode = layoutedGraph.children?.find((n) => n.id === 'stimulus');
+        const stimulusElkNode = layoutedGraph.children?.find((n: { id: string }) => n.id === 'stimulus');
         const stimulusCenterX = stimulusElkNode && stimulusElkNode.x !== undefined && stimulusElkNode.width !== undefined
           ? stimulusElkNode.x + stimulusElkNode.width / 2
           : 0;
 
         let hasPositionChanges = false;
         const nextNodes = nds.map((node: Node) => {
-          const layoutNode = layoutedGraph.children?.find((n) => n.id === node.id);
+          const layoutNode = layoutedGraph.children?.find((n: { id: string }) => n.id === node.id);
           // If ELK failed to position this node, preserve its current position to avoid stacking at 0,0
           if (!layoutNode || layoutNode.x === undefined || layoutNode.y === undefined) return node;
 

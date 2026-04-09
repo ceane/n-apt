@@ -1,7 +1,6 @@
 import React from "react";
 import styled from "styled-components";
 import { useDemod } from "@n-apt/contexts/DemodContext";
-import { CaptureResult } from "@n-apt/consts/types";
 
 const Section = styled.div`
   display: grid;
@@ -44,13 +43,6 @@ const ResultCard = styled.div`
   padding: 8px;
   border-radius: 4px;
   margin-top: 4px;
-`;
-
-const ResultLabel = styled.div`
-  font-size: 10px;
-  color: ${(props) => props.theme.textSecondary};
-  margin-bottom: 8px;
-  font-family: ${(props) => props.theme.typography.mono};
 `;
 
 const DownloadCaptureLink = styled.button`

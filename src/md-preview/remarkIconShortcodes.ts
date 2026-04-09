@@ -1,5 +1,4 @@
 import type { Plugin } from "unified";
-import { getBaseUrl } from "./getBaseUrl";
 import type { Content, Parent, Text } from "mdast";
 import { visitMdastNodes } from "./visitMdastNodes";
 

@@ -153,7 +153,7 @@ interface NearestEndpoint {
 }
 
 export const EndpointsListAndSearch: React.FC = () => {
-  const { activeLocationId, locations, setActiveLocation } = useMapLocations();
+  const { activeLocationId, locations } = useMapLocations();
   const [nearestEndpoints, setNearestEndpoints] = useState<NearestEndpoint[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -287,7 +287,7 @@ export const EndpointsListAndSearch: React.FC = () => {
 
       {!loading && !error && nearestEndpoints.length > 0 && (
         <EndpointsList>
-          {nearestEndpoints.map((endpoint, index) => (
+          {nearestEndpoints.map((endpoint) => (
             <EndpointItem
               key={endpoint.tower.id}
               onClick={() => handleEndpointClick(endpoint)}

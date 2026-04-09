@@ -10,7 +10,7 @@ const SIGNAL_TAGS: Record<string, string> = {
   "canvas::endpointrange": "<endpoint-range-canvas></endpoint-range-canvas>",
 };
 
-const remarkSignalCanvasBlocks: Plugin = () => (tree) => {
+const remarkSignalCanvasBlocks: Plugin = (() => (tree: any) => {
   visitMdastNodes<Code>(tree, "code", (node: Code, index, parent: Parent) => {
     if (!parent || typeof index !== "number") {
       return;
@@ -34,6 +34,6 @@ const remarkSignalCanvasBlocks: Plugin = () => (tree) => {
     parent.children.splice(index, 1, replacement);
     return index + 1;
   });
-};
+}) as any;
 
 export default remarkSignalCanvasBlocks;

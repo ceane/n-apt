@@ -1,5 +1,4 @@
 import React from "react";
-import * as THREE from "three";
 
 export const IBarMarker: React.FC<{
   position: [number, number, number];

@@ -365,6 +365,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           sendCaptureCommand({
             jobId,
             fragments, // current range
+            durationMode: durationS ? 'timed' : 'manual',
             durationS: durationS,
             fileType: '.napt',
             acquisitionMode: 'whole_sample',

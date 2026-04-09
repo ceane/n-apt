@@ -70,6 +70,7 @@ export const PretextDemo: React.FC = () => {
       <PretextCanvasText
         ref={textRef}
         text="Hello from Pretext! This is a multiline text example that demonstrates precise layout without DOM measurements."
+        font='"JetBrains Mono", monospace'
         fontSize={16}
         color="#00ff00"
         x={50}
@@ -78,6 +79,8 @@ export const PretextDemo: React.FC = () => {
       />
 
       <PretextVFOText
+        text={`${(frequency / 1e6).toFixed(2)} MHz`}
+        font='"JetBrains Mono", monospace'
         frequency={frequency}
         fontSize={20}
         color="#ffff00"

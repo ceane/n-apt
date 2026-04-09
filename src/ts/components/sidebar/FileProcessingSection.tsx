@@ -20,105 +20,6 @@ const Section = styled.div<{ $marginTop?: string }>`
   margin-top: ${(props) => props.$marginTop || "0"};
 `;
 
-const SettingRow = styled.div`
-  display: grid;
-  grid-template-columns: subgrid;
-  grid-column: 1 / -1;
-  align-items: center;
-  padding: 10px 12px;
-  background-color: ${(props) => props.theme.surface};
-  border-radius: 6px;
-  border: 1px solid ${(props) => props.theme.border};
-  user-select: none;
-  gap: inherit;
-  box-sizing: border-box;
-  width: 100%;
-  position: relative;
-  z-index: 1;
-`;
-
-const SettingLabelContainer = styled.div`
-  display: grid;
-  grid-auto-flow: column;
-  align-items: center;
-  gap: 8px;
-  justify-content: start;
-`;
-
-const SettingLabel = styled.span`
-  font-size: 12px;
-  color: ${(props) => props.theme.textPrimary};
-  opacity: 0.8;
-  max-width: 210px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
-`;
-
-const SettingValue = styled.span`
-  font-size: 12px;
-  color: ${(props) => props.theme.textPrimary};
-  font-weight: 500;
-  justify-self: end;
-`;
-
-const FileInputActions = styled.div`
-  display: grid;
-  grid-auto-flow: column;
-  align-items: center;
-  gap: 8px;
-  justify-content: end;
-`;
-
-const HiddenFileInput = styled.input`
-  display: none;
-`;
-
-const DownloadLink = styled.a`
-  color: ${(props) => props.theme.primary};
-  font-size: 11px;
-`;
-
-const LoadedLabel = styled.span`
-  font-size: 11px;
-  color: ${(props) => props.theme.success};
-  display: flex;
-  align-items: center;
-  gap: 4px;
-`;
-
-const RemoveButton = styled.button`
-  background: none;
-  color: ${(props) => props.theme.danger};
-  border: none;
-  cursor: pointer;
-  font-size: 11px;
-  text-decoration: underline;
-  padding: 2px 4px;
-  opacity: 0.8;
-  
-  &:hover {
-    opacity: 1;
-    filter: brightness(1.2);
-  }
-`;
-
-const ClearAllLink = styled.button`
-  background: none;
-  border: none;
-  color: ${(props) => props.theme.primary};
-  font-size: 11px;
-  cursor: pointer;
-  text-decoration: underline;
-  padding: 2px 4px;
-  margin-top: 8px;
-  
-  &:hover {
-    filter: brightness(1.2);
-  }
-`;
-
 const ActionsContainer = styled.div`
   display: flex;
   flex-direction: column;
@@ -160,57 +61,6 @@ const DropOverlay = styled.div`
   backdrop-filter: blur(2px);
 `;
 
-const FileCard = styled.div`
-  background-color: ${(props) => props.theme.surface};
-  padding: 16px;
-  border-radius: 8px;
-  border: 1px solid ${(props) => props.theme.border};
-  margin-bottom: 12px;
-  display: grid;
-  gap: 12px;
-  grid-column: 1 / -1;
-  position: relative;
-  z-index: 1;
-`;
-
-const FileInfoRow = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-`;
-
-const FileItemHeader = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 8px;
-`;
-
-const FileIcon = styled.div`
-  width: 24px;
-  height: 24px;
-  background-color: transparent;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: ${(props) => props.theme.metadataLabel};
-`;
-
-const FileTitle = styled.div`
-  font-size: 14px;
-  font-weight: 600;
-  color: ${(props) => props.theme.textPrimary};
-  white-space: normal;
-  word-break: break-all;
-  line-height: 1.3;
-  flex: 1;
-
-  .extension {
-    display: inline-block;
-    white-space: nowrap;
-  }
-`;
-
 const StitchStatusMessage = styled.div<{ $isError: boolean }>`
   grid-column: 1 / -1;
   margin-bottom: 8px;
@@ -224,46 +74,6 @@ const StitchStatusMessage = styled.div<{ $isError: boolean }>`
   border: 1px solid
     ${(props) => (props.$isError ? `${props.theme.danger}33` : `${props.theme.success}33`)};
   text-align: center;
-`;
-
-const WrappedSettingValue = styled(SettingValue)`
-  white-space: normal;
-  word-break: break-all;
-  line-height: 1.4;
-  padding: 4px 0;
-  text-align: left;
-  justify-self: start;
-  max-width: 100%;
-
-  .extension {
-    display: inline-block;
-    white-space: nowrap;
-  }
-`;
-
-const FileInfoActions = styled.div`
-  display: flex;
-  gap: 12px;
-  align-items: center;
-`;
-
-const DownloadActionLink = styled(DownloadLink)`
-  text-decoration: underline;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-`;
-
-const RemoveActionButton = styled(RemoveButton)`
-  display: flex;
-  align-items: center;
-  gap: 4px;
-`;
-
-const ClearAllContainer = styled.div`
-  display: flex;
-  justify-content: flex-start;
-  grid-column: 1 / -1;
 `;
 
 interface FileProcessingSectionProps {
@@ -282,21 +92,6 @@ interface FileProcessingSectionProps {
   sessionToken?: string | null;
   showMetadata?: boolean;
 }
-
-const renderFileName = (name: string) => {
-  const lastDotIndex = name.lastIndexOf(".");
-  if (lastDotIndex === -1) return name;
-
-  const base = name.substring(0, lastDotIndex);
-  const ext = name.substring(lastDotIndex);
-
-  return (
-    <>
-      {base}
-      <span className="extension">{ext}</span>
-    </>
-  );
-};
 
 export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
   selectedFiles,

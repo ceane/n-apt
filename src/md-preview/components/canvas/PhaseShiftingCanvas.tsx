@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef, Suspense } from 'react';
+import { useState, useMemo, useRef, Suspense } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { Text, Line, OrthographicCamera } from '@react-three/drei';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
@@ -207,7 +207,7 @@ function Waves({ frequency }: { frequency: number }) {
   const [animatedPhase, setAnimatedPhase] = useState((phaseShift * Math.PI) / 180);
   const phaseOffsetRef = useRef(0);
 
-  useFrame((state, delta) => {
+  useFrame((_state, delta) => {
     if (animate) {
       phaseOffsetRef.current = (phaseOffsetRef.current + delta * speed) % (Math.PI * 2);
     }
