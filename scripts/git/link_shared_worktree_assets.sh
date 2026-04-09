@@ -77,12 +77,31 @@ fi
 COMMON_ROOT=$(cd "$COMMON_DIR/.." && pwd)
 DEFAULT_SHARED="$COMMON_ROOT/.shared-worktree-cache"
 
+resolve_path() {
+    local input_path="$1"
+    if command -v realpath >/dev/null 2>&1; then
+        realpath "$input_path" 2>/dev/null && return 0
+    fi
+    if command -v python3 >/dev/null 2>&1; then
+        python3 - <<'PY' "$input_path"
+import os
+import sys
+print(os.path.realpath(sys.argv[1]))
+PY
+        return 0
+    fi
+    (cd "$input_path" && pwd)
+}
+
+REPO_ROOT=$(resolve_path "$REPO_ROOT")
+DEFAULT_SHARED=$(resolve_path "$DEFAULT_SHARED")
+
 if [[ -z "$SHARED_DIR" ]]; then
     SHARED_DIR="$DEFAULT_SHARED"
 fi
 
 mkdir -p "$SHARED_DIR"
-SHARED_DIR=$(cd "$SHARED_DIR" && pwd)
+SHARED_DIR=$(resolve_path "$SHARED_DIR")
 
 BASE_PATHS=(
     "target"
@@ -160,6 +179,11 @@ link_path() {
     local target_parent
     target_parent=$(dirname "$target_path")
 
+    if [[ "$source_path" == "$target_path" ]]; then
+        printf "Skipping %-20s (already points to shared cache)\n" "$rel"
+        return
+    fi
+
     printf "Linking %-20s" "$rel"
     if [[ $DRY_RUN -eq 1 ]]; then
         echo " (dry run)"
@@ -169,6 +193,7 @@ link_path() {
     fi
 
     mkdir -p "$target_parent"
+    mkdir -p "$target_path"
 
     if [[ -L "$source_path" ]]; then
         local current_target
@@ -182,25 +207,39 @@ link_path() {
     fi
 
     if [[ -e "$source_path" ]]; then
-        mkdir -p "$target_path"
         if [[ -n "$RSYNC_BIN" && -d "$source_path" ]]; then
-            $RSYNC_BIN -a "$source_path"/ "$target_path"/
-            rm -rf "$source_path"
+            if $RSYNC_BIN -a "$source_path"/ "$target_path"/; then
+                rm -rf "$source_path"
+            else
+                echo " (copy failed, leaving local path in place)"
+                return
+            fi
         else
             if [[ ! -e "$target_path" || -z $(ls -A "$target_path" 2>/dev/null) ]]; then
-                mv "$source_path" "$target_path"
+                if mv "$source_path" "$target_path"; then
+                    :
+                else
+                    echo " (move failed, leaving local path in place)"
+                    return
+                fi
             else
                 local backup="$target_path.migrated.$(date +%s)"
                 echo " (conflict detected, moving local copy to $backup)"
-                mv "$source_path" "$backup"
+                if ! mv "$source_path" "$backup"; then
+                    echo " (backup move failed, leaving local path in place)"
+                    return
+                fi
             fi
         fi
     else
         mkdir -p "$target_path"
     fi
 
-    ln -sfn "$target_path" "$source_path"
-    echo " linked"
+    if ln -sfn "$target_path" "$source_path"; then
+        echo " linked"
+    else
+        echo " (symlink failed, keeping expanded path)"
+    fi
 }
 
 echo "Repo root : $REPO_ROOT"
