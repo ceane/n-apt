@@ -3,13 +3,11 @@ import {
   render,
   screen,
   fireEvent,
-  waitFor,
-  act,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom";
-import AuthenticationPrompt from "@n-apt/components/AuthenticationPrompt";
-import type { AuthState } from "@n-apt/components/AuthenticationPrompt";
+import AuthenticationPrompt from "../../src/ts/components/AuthenticationPrompt";
+import type { AuthState } from "../../src/ts/components/AuthenticationPrompt";
 
 describe("AuthenticationPrompt Component", () => {
   const defaultProps = {
@@ -53,6 +51,7 @@ describe("AuthenticationPrompt Component", () => {
         {...defaultProps}
         authState="failed"
         error={errorMessage}
+        hasPasskeys={false}
       />,
     );
     expect(screen.getByText(errorMessage)).toBeInTheDocument();
@@ -60,7 +59,13 @@ describe("AuthenticationPrompt Component", () => {
   });
 
   it("should show timeout state", () => {
-    render(<AuthenticationPrompt {...defaultProps} authState="timeout" />);
+    render(
+      <AuthenticationPrompt
+        {...defaultProps}
+        authState="timeout"
+        hasPasskeys={false}
+      />,
+    );
     expect(
       screen.getByText("Authentication timed out — please retry"),
     ).toBeInTheDocument();
@@ -99,9 +104,7 @@ describe("AuthenticationPrompt Component", () => {
     // Click to show password form
     fireEvent.click(screen.getByText("Use password instead"));
 
-    expect(
-      screen.getByRole("textbox", { name: /Password/ }),
-    ).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Password")).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /Authenticate/ }),
     ).toBeInTheDocument();
@@ -118,7 +121,7 @@ describe("AuthenticationPrompt Component", () => {
       />,
     );
 
-    const passwordInput = screen.getByRole("textbox", { name: /Password/ });
+    const passwordInput = screen.getByPlaceholderText("Password");
     const submitButton = screen.getByRole("button", { name: /Authenticate/ });
 
     await userEvent.type(passwordInput, "test-password");
@@ -169,7 +172,7 @@ describe("AuthenticationPrompt Component", () => {
     const submitButton = screen.getByRole("button", { name: /Authenticate/ });
     expect(submitButton).toBeDisabled();
 
-    const passwordInput = screen.getByRole("textbox", { name: /Password/ });
+    const passwordInput = screen.getByPlaceholderText("Password");
     await userEvent.type(passwordInput, "test");
 
     expect(submitButton).not.toBeDisabled();

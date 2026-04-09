@@ -158,7 +158,7 @@ export const StitchTestRoute: React.FC = () => {
   const decimateWaveform = (waveform: number[], targetWidth: number): number[] => {
     const len = waveform.length;
     if (len <= targetWidth * 1.5 || targetWidth <= 0) return waveform;
-    const out = new Array(targetWidth).fill(0);
+    const out = Array.from({ length: targetWidth }, () => 0);
     const factor = len / targetWidth;
     for (let i = 0; i < targetWidth; i++) {
       const start = Math.floor(i * factor);

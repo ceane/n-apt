@@ -272,7 +272,17 @@ const BEAT_SNAP_RANGES = [
 
 const DrawMath = React.lazy(async () => {
   try {
-    return await import("@n-apt/encrypted-modules/tmp/ts/components/math/DrawMath");
+    const modulePath = [
+      "@n-apt",
+      "encrypted-modules",
+      "tmp",
+      "ts",
+      "components",
+      "math",
+      "DrawMath",
+    ].join("/");
+
+    return await import(/* @vite-ignore */ modulePath);
   } catch {
     return {
       default: () => <DecryptionFallback moduleName="Draw Math" />,

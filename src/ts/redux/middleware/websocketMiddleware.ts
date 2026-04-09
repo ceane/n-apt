@@ -115,15 +115,18 @@ let wsInstance: WebSocketInstance = {
 // Batching for high-frequency data
 let dataBatchFrame: number | null = null;
 let pendingDataUpdate: any = null;
+let allowNextPausedFrame = false;
 const DISCONNECT_GRACE_MS = 150;
 
 // Process batched data updates — writes directly to liveDataRef, no Redux dispatch.
 const processBatchedData = (dispatch: Dispatch, getState: () => any) => {
   if (pendingDataUpdate !== null) {
-    if (!getState().websocket.isPaused) {
+    const isPaused = getState().websocket.isPaused;
+    if (!isPaused || allowNextPausedFrame) {
       liveDataRef.current = pendingDataUpdate;
       // Dispatch action to trigger state machine updates
       dispatch(incrementDataFrameCounter());
+      allowNextPausedFrame = false;
     }
     pendingDataUpdate = null;
   }
@@ -624,6 +627,9 @@ const createWebSocketMiddleware = (): Middleware<{}, any> => (store) => (next) =
     
     case 'websocket/sendMessage': {
       const { type, data }: { type: string; data: any } = action.payload;
+      if (type === 'request_next_frame') {
+        allowNextPausedFrame = true;
+      }
       
       if (wsInstance.ws && wsInstance.ws.readyState === WebSocket.OPEN) {
         wsInstance.ws.send(JSON.stringify({ type, ...data }));
@@ -633,7 +639,7 @@ const createWebSocketMiddleware = (): Middleware<{}, any> => (store) => (next) =
       }
       return next(action);
     }
-    
+
     case 'websocket/setPaused': {
       const isPaused = getPausedValue(action.payload);
 

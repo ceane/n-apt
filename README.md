@@ -47,6 +47,7 @@ _Real live, on person capture of N-APT signals via SDR++ with an RTL-SDR (FFT Si
   - **macOS/Linux**: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
   - **Windows**: Download from [rustup.rs](https://rustup.rs/)
 - **Verification**: `rustc --version && cargo --version`
+- **If Rust build issues appear**: run `cargo fix --lib -p n-apt-backend`
 
 ### Additional Tools
 
@@ -74,7 +75,7 @@ You don't have access to N-APT, however you can get started with the app to anal
 git clone https://github.com/ceane/n-apt.git
 cd n-apt
 npm run setup  # sets up .env.local
-npm i          # installs dependencies  
+npm i          # installs dependencies, postinstall script will install rust dependencies
 npm run dev    # starts app
 ```
 
@@ -92,7 +93,7 @@ npm run dev
 
 **Important:** `npm run dev` is the only supported way to run and use the app.
 
-**Hardware Requirement:** the app only works with an **RTL-SDR v4 or .napt captures.**.
+**Hardware Requirement:** the app only works with an **RTL-SDR v4 or .napt captures. The rust backend auto detects an RTL-SDR device plugged in, otherwise the Mock APT stream runs.**.
 
 **Development Features:**
 
@@ -112,6 +113,8 @@ This command will:
 The web app will be available at `http://localhost:5173` with the WebSocket server running on `ws://localhost:8765`.
 
 > **💡 Tip:** If you do not have an RTL-SDR v4, the backend will just stream a Mock APT stream. You can simply use the app (if you set your .env.local UNSAFE_LOCAL_USER_PASSWORD to a password the app can use to decrpyt files).
+
+> **⚠ Hardware warning:** I use my RTL-SDR through a flaky USB hub, and it can disconnect or error out more often than I’d like. I added support for restarting the device if it goes stale or throws an error, but that does not fix bad USB connections. For best results, keep the RTL-SDR connected directly or use a better cable/hub, and avoid moving it around while the app is running. I took a lot of time to fix my frustrations with other apps, if it's not showing up, then it's more likely that the hardware connection is bad.
 
 For detailed development instructions, see [.agents/DEVELOPMENT.md](.agents/DEVELOPMENT.md).
 

@@ -4,6 +4,8 @@ import { ScrollText } from "lucide-react";
 import { SidebarSectionTitle } from "@n-apt/components/ui/Collapsible";
 import { Tooltip } from "@n-apt/components/ui";
 import { formatFrequency } from "@n-apt/utils/frequency";
+import { formatDuration, formatFileSize } from "@n-apt/utils/formatters";
+import { fileRegistry } from "@n-apt/utils/fileRegistry";
 import { GeolocationData, AptChannelMetadata } from "@n-apt/consts/schemas/websocket";
 import { useAppSelector } from "@n-apt/redux";
 
@@ -217,6 +219,7 @@ export const FileMetadata: React.FC<FileMetadataProps> = ({
   const displayedFrameRate = activePlaybackMetadata?.frame_rate ?? naptMetadata?.frame_rate;
   const displayedFrequencyRange =
     activePlaybackMetadata?.frequency_range ?? naptMetadata?.frequency_range ?? null;
+  const selectedFileSize = selectedNaptFile ? fileRegistry.get(selectedNaptFile.id)?.size : undefined;
 
   return (
     <Section>
@@ -227,9 +230,16 @@ export const FileMetadata: React.FC<FileMetadataProps> = ({
           <SettingLabelContainer style={{ alignSelf: 'start', paddingTop: '4px' }}>
             <SettingLabel>File</SettingLabel>
           </SettingLabelContainer>
-          <WrappedSettingValue title={selectedNaptFile.name}>
-            {renderFileName(selectedNaptFile.name)}
-          </WrappedSettingValue>
+          <div style={{ display: "grid", gap: 4, justifySelf: "end", textAlign: "right", minWidth: 0 }}>
+            <WrappedSettingValue title={selectedNaptFile.name}>
+              {renderFileName(selectedNaptFile.name)}
+            </WrappedSettingValue>
+            {typeof selectedFileSize === "number" && (
+              <SettingValue style={{ opacity: 0.75 }}>
+                {formatFileSize(selectedFileSize)}
+              </SettingValue>
+            )}
+          </div>
         </SettingRow>
       )}
 
@@ -343,7 +353,7 @@ export const FileMetadata: React.FC<FileMetadataProps> = ({
           <MetadataItem>
             <MetadataLabel>Duration</MetadataLabel>
             <MetadataValue>
-              {naptMetadata.duration_s?.toFixed(2) || "0.00"} s
+              {formatDuration(naptMetadata.duration_s ?? 0)}
             </MetadataValue>
           </MetadataItem>
           <MetadataItem>

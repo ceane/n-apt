@@ -75,6 +75,22 @@ export const sendFrequencyRange = createAsyncThunk(
   }
 );
 
+export const requestNextLiveFrame = createAsyncThunk(
+  'websocket/requestNextLiveFrame',
+  async (_, { dispatch, getState }) => {
+    const state = getState() as RootState;
+    if (state.websocket.isConnected) {
+      dispatch({
+        type: 'websocket/sendMessage',
+        payload: {
+          type: 'request_next_frame',
+          data: {},
+        },
+      });
+    }
+  }
+);
+
 export const sendCenterFrequency = createAsyncThunk(
   'websocket/sendCenterFrequency',
   async (centerMHz: number, { dispatch, getState }) => {

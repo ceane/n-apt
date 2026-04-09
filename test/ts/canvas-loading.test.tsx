@@ -1,7 +1,6 @@
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
-import { createRoot } from 'react-dom/client';
 
 // Mock WebGPU and WebGL contexts
 const mockGPU = {
@@ -101,7 +100,7 @@ Object.defineProperty(window, 'import', {
 });
 
 // Mock import.meta.env directly
-global.import = {
+(globalThis as any).import = {
   meta: {
     env: {
       BASE_URL: '/',

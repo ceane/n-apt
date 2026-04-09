@@ -76,6 +76,7 @@ pub enum SdrCommand {
   SetRtlAGC(bool),
   SetOffsetTuning(bool),
   SetDirectSampling(u8),
+  RequestNextFrame,
   RestartDevice,
   StartTraining {
     label: String,
