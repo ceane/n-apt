@@ -65,6 +65,7 @@ log = "0.4"
 clap = { version = "4.0", features = ["derive"] }
 byteorder = "1.4"
 env_logger = "0.10"
+dotenvy = "0.15"
 
 # WASM dependencies (only when targeting WASM)
 [target.'cfg(target_arch = "wasm32")'.dependencies]
