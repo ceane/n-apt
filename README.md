@@ -2,11 +2,11 @@
 
 [![Hippocratic License HL3-LAW-SUP-SV](https://img.shields.io/static/v1?label=Hippocratic%20License&message=HL3-LAW-SUP-SV&labelColor=5e2751&color=bc8c3d)](https://firstdonoharm.dev/version/3/0/law-sup-sv.html)
 
+<img src="images/icon.svg" alt="n-apt icon" width="128" height="128">
+
 **READ THE [LICENSE](LICENSE.md) AND [RESPONSIBLE USE](RESPONSIBLE_USE.md) BEFORE YOU DOWNLOAD OR FORK!**
 
 **This repo is part disclosue, part exposure, to read more on how and why and what's going on, visit my X [@ceane_of](x.com/ceane_of).**
-
-<img src="images/icon.svg" alt="n-apt icon" width="128" height="128">
 
 
 N-APT stands for: **N**euro **A**utomatic **P**icture **T**ransmission.
