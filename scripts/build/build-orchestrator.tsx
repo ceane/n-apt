@@ -506,7 +506,7 @@ exit 1
         command: isNativeWindows ? 'echo Backend readiness check via bash/curl is skipped on Windows in this orchestrator.' : `bash -lc '
 set -euo pipefail
 # Wait for backend to be ready by checking the /status endpoint
-MAX_RETRIES=30
+MAX_RETRIES=180
 RETRY_DELAY=1
 RETRY_COUNT=0
 

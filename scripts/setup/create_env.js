@@ -54,9 +54,12 @@ const envConfig = {
   // Force refresh flags
   'OPENCELLID_FORCE_REFRESH': '0',
   
-  // Development passkey (for encrypted modules)
+  // Password for decrypting streaming frames and files
+  // Ensure to set the correct password for the files here
   'UNSAFE_LOCAL_USER_PASSWORD': '',
-  
+  'UNSAFE_LOCAL_DEMOD_PASSWORD': '',
+  'UNSAFE_LOCAL_LATEX_PASSWORD': '',
+
   // Rust logging
   'RUST_LOG': 'info'
 };
@@ -90,9 +93,15 @@ function createEnvContent() {
   content += '# Set to 1 to force refresh OpenCellID data\n';
   content += `OPENCELLID_FORCE_REFRESH=${envConfig.OPENCELLID_FORCE_REFRESH}\n\n`;
   
-  content += '# Development Passkey\n';
-  content += '# Used for decrypting encrypted modules in development\n';
+  content += '# Streaming Frames and Files Decryption\n';
+  content += '# Used for decrypting streaming frames and files\n';
+  content += '# Ensure to set the correct password for the files here\n';
   content += `UNSAFE_LOCAL_USER_PASSWORD=${envConfig.UNSAFE_LOCAL_USER_PASSWORD}\n\n`;
+
+  content += '# Encrypted Modules Decryption\n';
+  content += '# Used for decrypting encrypted modules\n';
+  content += `UNSAFE_LOCAL_DEMOD_PASSWORD=${envConfig.UNSAFE_LOCAL_DEMOD_PASSWORD}\n`;
+  content += `UNSAFE_LOCAL_LATEX_PASSWORD=${envConfig.UNSAFE_LOCAL_LATEX_PASSWORD}\n\n`;
   
   content += '# Rust Logging\n';
   content += '# Log level for Rust backend (debug, info, warn, error)\n';
