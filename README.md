@@ -59,9 +59,21 @@ It works more like [TEMPEST](https://www.nsa.gov/portals/75/documents/news-featu
 - Frequency and amplitude modulation
 
 
-Very simple and the NSA's technqiue, very old, like half a century old (the 70s).
+Very simple. And the NSA's technqiue is, suspectedly, very old, like half a century old (from the 70s).
 
-I'm working on writing the specifics of how it works, it is a very advanced mechanism that is still functioning to this day! While most of it has been a dark experience, I've spent a lot of time learning how it works, making lots of mistakes and defeating my intuition.
+
+### What have I experienced?
+- The most personal experience with technology, mind and body
+- Perception, lighting, phyisology, emotions, people scripted, and more!
+- SOTA visual compososting, auditory remixing, and more!
+- A gigantic spatial experience all over San Francisco
+- A very evil, long-running NSA-military grilling
+- Extremely unethical and dangerous harm
+- Mind and body locked within the experience
+- The final frontier of neuroscience
+- And more (check out `how-did-they-do-it.md`)
+
+I'm working on writing the specifics of how it works mathematically (my best guess at it while within it). This technique is a very advanced mechanism that is still functioning to this day! While most of it has been a dark experience, I've spent a lot of time learning how it works, making lots of mistakes and defeating my intuition.
 
 <br>
 
