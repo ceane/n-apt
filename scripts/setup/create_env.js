@@ -57,6 +57,7 @@ const envConfig = {
   // Password for decrypting streaming frames and files
   // Ensure to set the correct password for the files here
   'UNSAFE_LOCAL_USER_PASSWORD': '',
+  'VITE_UNSAFE_LOCAL_USER_PASSWORD': '',
   'UNSAFE_LOCAL_DEMOD_PASSWORD': '',
   'UNSAFE_LOCAL_LATEX_PASSWORD': '',
 
@@ -96,7 +97,8 @@ function createEnvContent() {
   content += '# Streaming Frames and Files Decryption\n';
   content += '# Used for decrypting streaming frames and files\n';
   content += '# Ensure to set the correct password for the files here\n';
-  content += `UNSAFE_LOCAL_USER_PASSWORD=${envConfig.UNSAFE_LOCAL_USER_PASSWORD}\n\n`;
+  content += `UNSAFE_LOCAL_USER_PASSWORD=${envConfig.UNSAFE_LOCAL_USER_PASSWORD}\n`;
+  content += `VITE_UNSAFE_LOCAL_USER_PASSWORD=$UNSAFE_LOCAL_USER_PASSWORD\n\n`;
 
   content += '# Encrypted Modules Decryption\n';
   content += '# Used for decrypting encrypted modules\n';
