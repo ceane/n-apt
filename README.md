@@ -4,10 +4,13 @@
 
 <img src="images/icon.svg" alt="n-apt icon" width="128" height="128">
 
+---
+
 **READ THE [LICENSE](LICENSE.md) AND [RESPONSIBLE USE](RESPONSIBLE_USE.md) BEFORE YOU DOWNLOAD OR FORK!**
 
 **This repo is part disclosue, part exposure, to read more on how and why and what's going on, visit my X [@ceane_of](x.com/ceane_of).**
 
+---
 
 N-APT stands for: **N**euro **A**utomatic **P**icture **T**ransmission.
 
