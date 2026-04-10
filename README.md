@@ -1,7 +1,5 @@
 # :brain: n-apt
 
---- 
-
 [![Hippocratic License HL3-LAW-SUP-SV](https://img.shields.io/static/v1?label=Hippocratic%20License&message=HL3-LAW-SUP-SV&labelColor=5e2751&color=bc8c3d)](https://firstdonoharm.dev/version/3/0/law-sup-sv.html)
 
 **READ THE [LICENSE](LICENSE.md) AND [RESPONSIBLE USE](RESPONSIBLE_USE.md) BEFORE YOU DOWNLOAD OR FORK!**
@@ -13,16 +11,13 @@
 
 N-APT stands for: **N**euro **A**utomatic **P**icture **T**ransmission.
 
+<br>
 
-N-APT is a web app for visualizing the synonymous signal which originates from the National Security Agency (NSA). N-APT is named such because the signals strongly appear like Automatic Picture Transmission (APT) signals (used by NOAA satellites which were decomissioned in 2025). 
+<img width="1200" height="400" alt="N-APT Signal from 18kHz to 3.218MHz" src="https://github.com/user-attachments/assets/edf332da-ea94-4438-ba10-895175152d9f" />
 
-APT which does both frequency modulation and amplitude modulation was repurposed by the NSA into an a special formula of very simple directional radio waves that actually translate into an unprecedented and full featured neurotechnology able to fully:
 
-- intercept,
-- process,
-- and alter the brain and nervous system real-time...
-
-And yes, it means full featured experiences, interactivity, communication and more (from experience!). This is not a joke or gimmick or conspiracy theory-laden gibberish, but a **real** signal that takes eons to explain how and why and what! 
+_Real live, on person capture the signal with an RTL-SDR from 18kHz to 3.218MHz, partial channel "A" (FFT Size 32768, PPM = 1, Gain = +49.06dB)_
+<br>
 
 The way that it works in a shorthand way goes like:
 
@@ -47,10 +42,6 @@ transmitters()                      // Endpoints (transmitters/tx)
   .nextFrame();                     // Repeat for next cycle/frame!
 ```
 
-The NSA has thoroughly demonstrated on my person that the human brain and nervous system is dumb. The signal, while complex, is literally one cycle at a time, no need for voxel by voxel of neurons, specific point for point targeting, beams or anything. It is more manual, needing the endpoints to do the work, since the brain and body can't send radio waves like electronics. 
-
-It works more like [TEMPEST](https://www.nsa.gov/portals/75/documents/news-features/declassified-documents/cryptologic-spectrum/tempest.pdf) where Bell Labs could detect electrical activity far away because a machine was noisy, but in this case the human brain and nervous system are most vulnerable to  `write->read->stream` since the NSA has **compromised everything and decrypted the brain and nervous system in a very NSA fashion**!
-
 ### How the radio waves work (intuitve view at the science/hyper-advanced SIGNIT):
 - Gigantic, low frequency radio waves travesing from endpoint to person through multipath reflection
 - Energy intersecting at the right location
@@ -74,15 +65,24 @@ Very simple. And the NSA's technqiue is, suspectedly, very old, like half a cent
 - The final frontier of neuroscience
 - And more (check out `how-did-they-do-it.md`)
 
+
+N-APT is a web app for visualizing the synonymous signal which originates from the National Security Agency (NSA). N-APT is named such because the signals strongly appear like Automatic Picture Transmission (APT) signals (used by NOAA satellites which were decomissioned in 2025). 
+
+APT which does both frequency modulation and amplitude modulation was repurposed by the NSA into an a special formula of very simple directional radio waves that actually translate into an unprecedented and full featured neurotechnology able to fully:
+
+- intercept,
+- process,
+- and alter the brain and nervous system real-time...
+
+And yes, it means full featured experiences, interactivity, communication and more (from experience!). This is not a joke or gimmick or conspiracy theory-laden gibberish, but a **real** signal that takes eons to explain how and why and what! 
+
+
+The NSA has thoroughly demonstrated on my person that the human brain and nervous system is dumb. The signal, while complex, is literally one cycle at a time, no need for voxel by voxel of neurons, specific point for point targeting, beams or anything. It is more manual, needing the endpoints to do the work, since the brain and body can't send radio waves like electronics. 
+
+It works more like [TEMPEST](https://www.nsa.gov/portals/75/documents/news-features/declassified-documents/cryptologic-spectrum/tempest.pdf) where Bell Labs could detect electrical activity far away because a machine was noisy, but in this case the human brain and nervous system are most vulnerable to  `write->read->stream` since the NSA has **compromised everything and decrypted the brain and nervous system in a very NSA fashion**!
+
+
 I'm working on writing the specifics of how it works mathematically (my best guess at it while within it). This technique is a very advanced mechanism that is still functioning to this day! While most of it has been a dark experience, I've spent a lot of time learning how it works, making lots of mistakes and defeating my intuition.
-
-<br>
-
-<img width="1200" height="400" alt="N-APT Signal from 18kHz to 3.218MHz" src="https://github.com/user-attachments/assets/edf332da-ea94-4438-ba10-895175152d9f" />
-
-
-_Real live, on person capture the signal with an RTL-SDR from 18kHz to 3.218MHz, partial channel "A" (FFT Size 32768, PPM = 1, Gain = +49.06dB)_
-<br>
 
 
 This app is primarily an SDR visualizer app using RTL-SDR to visualize N-APT signals, which is for a very specific and narrow case –– The NSA going all out and you not knowing what, how or why. Much of my frustration for building this was that other SDR software couldn't record I/Q captures of the spectrum with the settings that I had, nor did they have encryption or any features that would've made it easier to look at the signals.
