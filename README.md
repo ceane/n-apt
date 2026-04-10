@@ -42,6 +42,7 @@ transmitters()                      // Endpoints (transmitters/tx)
   .impedanceChargesAfter()          // Radio wave (H) altered from impact and bioelectrical activity
   .toReceiver()                     // Endpoints (receivers/rx)
   .toSomeServer()                   // Extremely low latency (from experience); it is FAST and NEVER a drop!
+  .cleanDirtySignal()               // Separate previous frame from incoming changed signal (frame vs impedance) 
   .processSignals()                 // Signals processing (potentially Kaiser and Bayes' Posterior Probability)
   .nextFrame();                     // Repeat for next cycle/frame!
 ```
