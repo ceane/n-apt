@@ -454,6 +454,8 @@ interface IQCaptureControlsSectionProps {
   onCapture: () => void;
   onStopCapture?: () => void;
   onClearStatus: () => void;
+  channels?: ChannelDescriptor[];
+  onCaptureWithChannels?: (channels: ChannelDescriptor[]) => void;
 }
 
 export const IQCaptureControlsSection: React.FC<
@@ -511,7 +513,7 @@ export const IQCaptureControlsSection: React.FC<
     const triggerWithChannels = () => {
       onCapture();
       if (typeof onCaptureWithChannels === 'function') {
-        onCaptureWithChannels({ channels: channelsPayload });
+        onCaptureWithChannels(channelsPayload);
       }
     };
     const { isAuthenticated, sessionToken } = useAuthentication();

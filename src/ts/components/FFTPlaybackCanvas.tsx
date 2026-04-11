@@ -12,6 +12,7 @@ import {
   setPlaybackChannels,
   clearActivePlaybackMetadata,
   incrementPlaybackFrameCounter,
+  setActiveSignalArea,
 } from "@n-apt/redux";
 import type { FFTVisualizerMachine } from "@n-apt/utils/fftVisualizerMachine";
 import { buildPlaybackSeedFrame } from "@n-apt/utils/playbackSeedFrame";
@@ -275,6 +276,9 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(({
       hardware_sample_rate_hz: ch.hardware_sample_rate_hz ?? hardwareSampleRateHz,
       frequency_range: activeRange,
     }));
+
+    // Ensure sidebar's selector matches our restored/paged state
+    dispatch(setActiveSignalArea(channelLabel));
   }, [hasStitchedData, activeChannel, channelCount, hardwareSampleRateHz, dispatch]);
 
   // Sync activeSignalArea (from sidebar) to activeChannel (index)
