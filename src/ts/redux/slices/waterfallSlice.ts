@@ -6,6 +6,7 @@ export type TrainingLabel = "target" | "noise";
 export type ActivePlaybackMetadata = {
   activeChannel: number;
   channelCount: number;
+  channelLabel?: string;
   center_frequency_hz?: number;
   capture_sample_rate_hz?: number;
   frame_rate?: number;
@@ -116,7 +117,6 @@ const waterfallSlice = createSlice({
       } else {
         state.sourceMode = action.payload;
         if (action.payload === "file") {
-          state.activePlaybackMetadata = null;
           state.playbackFrameCounter = 0;
         }
       }
