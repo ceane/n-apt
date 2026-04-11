@@ -6,6 +6,12 @@ import { Box, Text, useApp, useInput } from 'ink';
 import { spawn, spawnSync } from 'child_process';
 import os from 'node:os';
 import chalk from 'chalk';
+import notifier from 'node-notifier';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Types
 interface ProcessStatus {
@@ -506,7 +512,7 @@ exit 1
         command: isNativeWindows ? 'echo Backend readiness check via bash/curl is skipped on Windows in this orchestrator.' : `bash -lc '
 set -euo pipefail
 # Wait for backend to be ready by checking the /status endpoint
-MAX_RETRIES=180
+MAX_RETRIES=300
 RETRY_DELAY=1
 RETRY_COUNT=0
 
@@ -630,20 +636,33 @@ exec node_modules/.bin/vite dev --host --force
   }, [buildState.isBuilding]);
 
   const hasErrors = buildState.processes.some(p => p.status === 'error');
+  const hasCompilationErrors = buildState.errorDetails.length > 0;
   const allComplete = buildState.processes.every(p => p.status === 'success' || p.status === 'error');
   const runtimeSeconds = Math.floor((Date.now() - buildState.startTime) / 1000);
-  const statusLabel = hasErrors ? '✗ Stopped' : '✓ Running';
-  const statusColor = hasErrors ? 'red' : 'green';
+  const statusLabel = (hasErrors || hasCompilationErrors) ? '✗ Stopped' : '✓ Running';
+  const statusColor = (hasErrors || hasCompilationErrors) ? 'red' : 'green';
   const vitePidText = buildState.vitePid ?? '—';
   const rustPidText = buildState.rustPid ?? '—';
   const redisPidText = buildState.redisPid ?? '—';
+
+  // Send notification on successful build completion
+  useEffect(() => {
+    if (allComplete && !hasErrors && !hasCompilationErrors && buildState.vitePid && buildState.rustPid && buildState.redisPid) {
+      notifier.notify({
+        title: 'N-APT  🧠',
+        message: '✓ Finished building and running at http://localhost:5173',
+        icon: path.join(__dirname, 'public/icon-5112.png'),
+        open: 'http://localhost:5173',
+      });
+    }
+  }, [allComplete, hasErrors, hasCompilationErrors, buildState.vitePid, buildState.rustPid, buildState.redisPid]);
 
   return (
     <Box flexDirection="column" padding={1}>
       <Logo />
 
       <Box flexDirection="column" marginTop={1} alignItems="flex-start">
-        <Text color="white" bold>N-APT Build Orchestrator - Ink Version</Text>
+        <Text color="white" bold>N-APT - SDR Visualizer and studio for N-APT signals</Text>
         <Text color="gray">Press 'q' or ESC to exit</Text>
       </Box>
 
@@ -713,15 +732,18 @@ exec node_modules/.bin/vite dev --host --force
                   <Text>
                     <Text color="white" bold>N-APT </Text>🧠{' '}
                     <Text color={accentColors.vite}>http://localhost:5173</Text>{' '}
-                    <Text color="gray">(site)</Text>
+                    <Text color="gray">(Site / Vite Server)</Text>
                   </Text>
                   <Text color="gray">cmd + click to open in default browser</Text>
                   <Text> </Text>
                   <Text>
-                    <Text color={accentColors.rust}>http://localhost:8765</Text>{' '}
-                    <Text color="gray">(websockets backend)</Text>
+                    <Text color={accentColors.rust}>ws://localhost:8765</Text>{' '}
+                    <Text color="gray">(Rust WebSockets backend)</Text>
                   </Text>
-                  <Text color="gray">packages/n_apt_canvas (WebGPU wasm_simd build)</Text>
+                  <Text>
+                    <Text color={accentColors.wasm}>packages/n_apt_canvas </Text>{' '}
+                    <Text color="gray">(WebGPU wasm_simd build)</Text>
+                  </Text>
                   <Text>
                     <Text color={accentColors.redis}>redis://localhost:6379</Text>{' '}
                     <Text color="gray">(Redis service)</Text>

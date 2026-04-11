@@ -3,6 +3,7 @@ import { useSelector, useDispatch } from 'react-redux';
 import { Notification } from './Notification';
 import { selectNotifications, removeNotification } from '@n-apt/redux/slices/notificationsSlice';
 import styled from 'styled-components';
+import * as LucideIcons from 'lucide-react';
 
 const NotificationContainer = styled.div`
   position: fixed;
@@ -13,11 +14,20 @@ const NotificationContainer = styled.div`
   gap: 12px;
   z-index: 99999;
   pointer-events: none;
-  
+
   & > * {
     pointer-events: auto;
   }
 `;
+
+const getIconComponent = (iconName?: string): React.ReactNode => {
+  if (!iconName) return undefined;
+  const IconComponent = (LucideIcons as any)[iconName];
+  if (IconComponent) {
+    return <IconComponent size={16} />;
+  }
+  return undefined;
+};
 
 export const ReduxNotifications: React.FC = () => {
   const notifications = useSelector(selectNotifications);
@@ -37,7 +47,7 @@ export const ReduxNotifications: React.FC = () => {
           title={notification.title}
           message={notification.message}
           duration={notification.duration}
-          icon={notification.icon}
+          icon={getIconComponent(notification.iconName)}
           onClose={handleClose}
         />
       ))}

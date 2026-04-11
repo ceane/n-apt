@@ -7,7 +7,7 @@ export interface NotificationState {
   message?: string;
   duration?: number;
   timestamp: number;
-  icon?: React.ReactNode;
+  iconName?: string;
 }
 
 interface NotificationsState {
