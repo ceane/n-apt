@@ -249,6 +249,15 @@ export const FileMetadata: React.FC<FileMetadataProps> = ({
         </MetadataErrorBox>
       ) : naptMetadata ? (
         <MetadataGrid>
+          {activePlaybackMetadata && (activePlaybackMetadata.channelCount ?? 0) > 1 && (
+            <MetadataItem style={{ gridColumn: '1 / -1' }}>
+              <MetadataLabel>Active Channel</MetadataLabel>
+              <MetadataValue style={{ fontWeight: 600 }}>
+                {activePlaybackMetadata.channelLabel || `Channel ${activePlaybackMetadata.activeChannel + 1}`}
+                {' '}/ {activePlaybackMetadata.channelCount}
+              </MetadataValue>
+            </MetadataItem>
+          )}
           <MetadataItem>
             <MetadataLabel>
               Center Freq

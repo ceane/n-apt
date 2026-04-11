@@ -47,6 +47,7 @@ export interface WaterfallState {
   stitchSourceSettings: { gain: number; ppm: number };
   isStitchPaused: boolean;
   activePlaybackMetadata: ActivePlaybackMetadata | null;
+  playbackChannels: any[]; 
   playbackFrameCounter: number;
   
   // Training capture
@@ -86,6 +87,7 @@ const initialState: WaterfallState = {
   stitchSourceSettings: { gain: 10, ppm: 0 },
   isStitchPaused: false,
   activePlaybackMetadata: null,
+  playbackChannels: [],
   playbackFrameCounter: 0,
   
   isTrainingCapturing: false,
@@ -108,6 +110,7 @@ const waterfallSlice = createSlice({
         state.stitchStatus = "";
         state.isStitchPaused = true;
         state.activePlaybackMetadata = null;
+        state.playbackChannels = [];
         state.playbackFrameCounter = 0;
         // Keep selectedFiles so they're still there when returning
       } else {
@@ -176,6 +179,10 @@ const waterfallSlice = createSlice({
       state.activePlaybackMetadata = action.payload;
     },
 
+    setPlaybackChannels: (state, action: PayloadAction<any[]>) => {
+      state.playbackChannels = action.payload;
+    },
+
     clearActivePlaybackMetadata: (state) => {
       state.activePlaybackMetadata = null;
       state.playbackFrameCounter = 0;
@@ -239,6 +246,7 @@ export const {
   setStitchSourceSettings,
   setStitchPaused,
   setActivePlaybackMetadata,
+  setPlaybackChannels,
   clearActivePlaybackMetadata,
   incrementPlaybackFrameCounter,
   startTrainingCapture,

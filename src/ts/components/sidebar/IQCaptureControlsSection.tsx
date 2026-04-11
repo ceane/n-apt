@@ -18,7 +18,6 @@ import {
   PanelLeftDashed,
   Scan,
   Trash2,
-  Download,
   type LucideIcon,
 } from "lucide-react";
 
@@ -30,6 +29,15 @@ const Section = styled.div`
 `;
 
 import { Row, Collapsible, Range } from "@n-apt/components/ui";
+
+// Channel descriptor used to trim a multi-channel capture header end-to-end
+export interface ChannelDescriptor {
+  center_freq_hz: number;
+  size_hz: number;
+  offset_bytes?: number;
+  iq_length_bytes?: number;
+  label?: string;
+}
 
 const SettingValue = styled.span`
   font-size: 12px;
@@ -476,7 +484,36 @@ export const IQCaptureControlsSection: React.FC<
   onCapture,
   onStopCapture,
   onClearStatus,
+  channels,
+  onCaptureWithChannels,
 }) => {
+    // Build derived channels from the capture range segments when channels aren't provided
+    const derivedChannels: ChannelDescriptor[] = React.useMemo(() => {
+      if (!captureRange?.segments) return []
+      return captureRange.segments.map((seg, idx) => {
+        const minMHz = seg.min;
+        const maxMHz = seg.max;
+        const centerHz = Math.round(((minMHz + maxMHz) / 2) * 1_000_000);
+        const widthHz = Math.round((maxMHz - minMHz) * 1_000_000);
+        return {
+          center_freq_hz: centerHz,
+          size_hz: widthHz,
+          label: seg.label ?? `Ch${idx + 1}`
+        } as ChannelDescriptor
+      })
+    }, [captureRange?.segments]);
+
+    // Final channels payload to pass to backend (UI-chosen or derived)
+    const channelsPayload: ChannelDescriptor[] = (typeof channels !== 'undefined' && channels && channels.length > 0)
+      ? channels
+      : derivedChannels
+
+    const triggerWithChannels = () => {
+      onCapture();
+      if (typeof onCaptureWithChannels === 'function') {
+        onCaptureWithChannels({ channels: channelsPayload });
+      }
+    };
     const { isAuthenticated, sessionToken } = useAuthentication();
     const dispatch = useDispatch();
     const {
@@ -533,7 +570,6 @@ export const IQCaptureControlsSection: React.FC<
               ? `New capture ready for download\n${captureStatus.fileSize ? formatFileSize(captureStatus.fileSize) : ''}`
               : 'I/Q capture completed successfully',
             duration: 5000, // Auto-dismiss after 5 seconds
-            icon: <Download size={16} />
           }
         }));
       } else if (captureStatus?.status === "failed") {
@@ -619,7 +655,7 @@ export const IQCaptureControlsSection: React.FC<
     const sampleRateLabel = formatSampleRateLabel(maxSampleRate);
     const capturePhaseMessage = captureStatus?.message;
     const captureButtonLabel = isCaptureActive ? "Stop" : "Capture";
-    const handleCaptureClick = isCaptureActive ? (onStopCapture ?? onCapture) : onCapture;
+    const handleCaptureClick = isCaptureActive ? (onStopCapture ?? triggerWithChannels) : triggerWithChannels;
     const handleDurationModeChange = onCaptureDurationModeChange ?? (() => undefined);
 
     return (

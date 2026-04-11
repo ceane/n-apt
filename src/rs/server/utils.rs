@@ -4,7 +4,7 @@ use serde_yaml::Value;
 use std::io::Write;
 use std::sync::OnceLock;
 
-use super::types::CaptureArtifact;
+use super::types::{CaptureArtifact, ChannelSpec};
 
 /// Downsample spectrum data to a target length using averaging
 #[allow(dead_code)]
@@ -31,6 +31,26 @@ pub fn signals_config() -> &'static super::types::SignalsConfig {
       .expect("signals.yaml must be present alongside the binary or in CARGO_MANIFEST_DIR");
     serde_yaml::from_str(&content).expect("Failed to parse signals.yaml")
   })
+}
+
+/// Trim a list of ChannelSpec against a selected subset to produce header channels
+pub fn trim_channels_for_header(
+  all: &[ChannelSpec],
+  selected: &[ChannelSpec],
+) -> Vec<ChannelSpec> {
+  // If no selection is provided, preserve all
+  if selected.is_empty() {
+    return all.to_vec();
+  }
+  let mut out: Vec<ChannelSpec> = Vec::new();
+  for cs in selected {
+    if let Some(found) = all.iter().find(|a| {
+      a.center_freq_hz == cs.center_freq_hz && a.size_hz == cs.size_hz
+    }) {
+      out.push(found.clone());
+    }
+  }
+  out
 }
 
 pub fn load_channels() -> Vec<super::types::SpectrumFrameMessage> {
@@ -255,8 +275,10 @@ signals:
       padding: 0
 "#;
 
-    let config: crate::server::types::SignalsConfig = serde_yaml::from_str(yaml).expect("parse test config");
-    let ordered_ids: Vec<String> = config.signals.n_apt.channels.keys().cloned().collect();
+    let config: crate::server::types::SignalsConfig =
+      serde_yaml::from_str(yaml).expect("parse test config");
+    let ordered_ids: Vec<String> =
+      config.signals.n_apt.channels.keys().cloned().collect();
     assert_eq!(ordered_ids, vec!["c", "a", "b"]);
 
     let mut out = Vec::new();
@@ -264,7 +286,14 @@ signals:
       out.push((id, f.label));
     }
 
-    assert_eq!(out, vec![("c".to_string(), "C".to_string()), ("a".to_string(), "A".to_string()), ("b".to_string(), "B".to_string())]);
+    assert_eq!(
+      out,
+      vec![
+        ("c".to_string(), "C".to_string()),
+        ("a".to_string(), "A".to_string()),
+        ("b".to_string(), "B".to_string())
+      ]
+    );
   }
 }
 
@@ -349,6 +378,7 @@ pub fn save_capture_file_multi(
           "offset_iq": offset_iq,
           "iq_length": iq_len,
           "bins_per_frame": ch.bins_per_frame,
+          "label": ch.label,
       }));
     }
 
@@ -384,8 +414,10 @@ pub fn save_capture_file_multi(
     file
       .write_all(&encrypted_data)
       .map_err(|e| format!("Failed to write encrypted data: {}", e))?;
-    
-    file.sync_all().map_err(|e| format!("Failed to sync file: {}", e))?;
+
+    file
+      .sync_all()
+      .map_err(|e| format!("Failed to sync file: {}", e))?;
   } else {
     // Write WAV with multi-channel chunks
     let mut file = std::fs::File::create(&path)
@@ -410,6 +442,7 @@ pub fn save_capture_file_multi(
           "center_freq_hz": ch.center_freq_hz,
           "sample_rate_hz": ch.sample_rate_hz,
           "bins_per_frame": ch.bins_per_frame,
+          "label": ch.label,
       }));
     }
     meta_with_channels["channels"] = serde_json::Value::Array(chan_list);
@@ -509,23 +542,31 @@ pub fn save_capture_file_multi(
 
   info!("Saved capture file: {}", path.display());
   let file_size = std::fs::metadata(&path).map_err(|e| e.to_string())?.len();
-  
+
   // Calculate SHA256 checksum
-  use std::io::Read;
   use sha2::Digest;
-  let mut file = std::fs::File::open(&path).map_err(|e| format!("Failed to open file for checksum: {}", e))?;
+  use std::io::Read;
+  let mut file = std::fs::File::open(&path)
+    .map_err(|e| format!("Failed to open file for checksum: {}", e))?;
   let mut hasher = sha2::Sha256::new();
   let mut buffer = [0u8; 8192];
   loop {
-    let bytes_read = file.read(&mut buffer).map_err(|e| format!("Failed to read file for checksum: {}", e))?;
+    let bytes_read = file
+      .read(&mut buffer)
+      .map_err(|e| format!("Failed to read file for checksum: {}", e))?;
     if bytes_read == 0 {
       break;
     }
     hasher.update(&buffer[..bytes_read]);
   }
   let checksum = format!("{:x}", hasher.finalize());
-  
-  Ok(CaptureArtifact { filename, path, file_size, checksum })
+
+  Ok(CaptureArtifact {
+    filename,
+    path,
+    file_size,
+    checksum,
+  })
 }
 
 #[cfg(test)]
@@ -573,8 +614,15 @@ mod save_tests {
       .expect("save multi .wav with checksum");
 
     // Verify checksum is present and is a valid SHA256 hash (64 hex characters)
-    assert!(!artifact.checksum.is_empty(), "Checksum should not be empty");
-    assert_eq!(artifact.checksum.len(), 64, "SHA256 checksum should be 64 hex characters");
+    assert!(
+      !artifact.checksum.is_empty(),
+      "Checksum should not be empty"
+    );
+    assert_eq!(
+      artifact.checksum.len(),
+      64,
+      "SHA256 checksum should be 64 hex characters"
+    );
     assert!(
       artifact.checksum.chars().all(|c| c.is_ascii_hexdigit()),
       "Checksum should only contain hex characters"
@@ -582,8 +630,10 @@ mod save_tests {
 
     // Verify the checksum is consistent by calculating it again
     use sha2::Digest;
-    let file_content = fs::read(&artifact.path).expect("read file for checksum verification");
-    let expected_checksum = format!("{:x}", sha2::Sha256::digest(&file_content));
+    let file_content =
+      fs::read(&artifact.path).expect("read file for checksum verification");
+    let expected_checksum =
+      format!("{:x}", sha2::Sha256::digest(&file_content));
     assert_eq!(
       artifact.checksum, expected_checksum,
       "Stored checksum should match calculated checksum"
@@ -635,8 +685,15 @@ mod save_tests {
       .expect("save multi .napt with checksum");
 
     // Verify checksum is present and valid for encrypted files too
-    assert!(!artifact.checksum.is_empty(), "Checksum should not be empty for encrypted files");
-    assert_eq!(artifact.checksum.len(), 64, "SHA256 checksum should be 64 hex characters");
+    assert!(
+      !artifact.checksum.is_empty(),
+      "Checksum should not be empty for encrypted files"
+    );
+    assert_eq!(
+      artifact.checksum.len(),
+      64,
+      "SHA256 checksum should be 64 hex characters"
+    );
     assert!(
       artifact.checksum.chars().all(|c| c.is_ascii_hexdigit()),
       "Checksum should only contain hex characters"
@@ -644,8 +701,10 @@ mod save_tests {
 
     // Verify the checksum matches the actual file content
     use sha2::Digest;
-    let file_content = fs::read(&artifact.path).expect("read encrypted file for checksum verification");
-    let expected_checksum = format!("{:x}", sha2::Sha256::digest(&file_content));
+    let file_content = fs::read(&artifact.path)
+      .expect("read encrypted file for checksum verification");
+    let expected_checksum =
+      format!("{:x}", sha2::Sha256::digest(&file_content));
     assert_eq!(
       artifact.checksum, expected_checksum,
       "Stored checksum should match calculated checksum for encrypted files"
@@ -723,10 +782,10 @@ mod save_tests {
       ref_based_demod_baseline: None,
     };
 
-    let artifact1 = save_capture_file_multi(&result1, &[0u8; 32])
-      .expect("save first file");
-    let artifact2 = save_capture_file_multi(&result2, &[0u8; 32])
-      .expect("save second file");
+    let artifact1 =
+      save_capture_file_multi(&result1, &[0u8; 32]).expect("save first file");
+    let artifact2 =
+      save_capture_file_multi(&result2, &[0u8; 32]).expect("save second file");
 
     // Verify checksums are different for different files
     assert_ne!(
@@ -870,7 +929,10 @@ mod save_tests {
       wav_str.contains(r#""channels""#),
       "Missing channels array in .wav"
     );
-    assert!(wav_str.contains("data"), "Missing primary IQ data chunk in .wav");
+    assert!(
+      wav_str.contains("data"),
+      "Missing primary IQ data chunk in .wav"
+    );
     assert!(wav_str.contains("nIQ1"), "Missing nIQ1 chunk in .wav");
     assert!(
       !wav_str.contains("nSPC") && !wav_str.contains("nSP1"),

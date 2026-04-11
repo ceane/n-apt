@@ -37,6 +37,7 @@ export const createStitchSessionKey = ({
     ppm: settings.ppm,
     fftSize,
     sampleRateOptions: sampleRateOptions ?? null,
+    cache_version: 2, // Force cache invalidation to apply worker updates
   });
 };
 

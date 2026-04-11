@@ -7,6 +7,7 @@ interface UseChannelManagementProps {
   onChannelMetadataChange?: (meta: {
     activeChannel: number;
     channelCount: number;
+    channelLabel?: string;
     center_frequency_hz?: number;
     capture_sample_rate_hz?: number;
     frame_rate?: number;
@@ -40,9 +41,11 @@ export const useChannelManagement = ({
     const derivedCaptureRateHz = freqRange
       ? (freqRange[1] - freqRange[0]) * 1_000_000
       : ch.sample_rate_hz;
+    const channelLabel = ch.label || `Channel ${newIdx + 1}`;
     onChannelMetadataChange?.({
       activeChannel: newIdx,
       channelCount: allChannelsRef.current.length,
+      channelLabel,
       center_frequency_hz: derivedCenterHz,
       capture_sample_rate_hz: derivedCaptureRateHz,
       frame_rate: ch.frame_rate,

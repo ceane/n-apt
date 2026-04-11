@@ -239,12 +239,29 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
         const buf = await fileObj.arrayBuffer();
 
         if (isNapt && aesKey) {
-          const headerSize = Math.min(2048, buf.byteLength);
-          const headerBytes = new Uint8Array(buf, 0, headerSize);
+          const maxHeaderRead = Math.min(8192, buf.byteLength);
+          const headerBytes = new Uint8Array(buf, 0, maxHeaderRead);
           const newlineIdx = headerBytes.indexOf(10);
-          if (newlineIdx <= 0) throw new Error("Invalid NAPT header");
 
-          const jsonStr = new TextDecoder().decode(headerBytes.slice(0, newlineIdx));
+          let jsonStr: string;
+          if (newlineIdx > 0) {
+            jsonStr = new TextDecoder().decode(headerBytes.slice(0, newlineIdx));
+          } else {
+            const headerText = new TextDecoder().decode(headerBytes);
+            let braceDepth = 0, inStr = false, esc = false, jsonEnd = -1;
+            for (let ci = 0; ci < headerText.length; ci++) {
+              const c = headerText[ci];
+              if (esc) { esc = false; continue; }
+              if (c === '\\') { esc = true; continue; }
+              if (c === '"') { inStr = !inStr; continue; }
+              if (inStr) continue;
+              if (c === '{') braceDepth++;
+              if (c === '}') { braceDepth--; if (braceDepth === 0) { jsonEnd = ci + 1; break; } }
+            }
+            if (jsonEnd <= 0) throw new Error("Invalid NAPT header");
+            jsonStr = headerText.slice(0, jsonEnd);
+          }
+
           const metaObj = JSON.parse(jsonStr);
 
           if (!cancelled) {

@@ -99,6 +99,7 @@ pub enum SdrCommand {
     geolocation: Option<GeolocationData>,
     ref_based_demod_baseline: Option<String>,
     is_ephemeral: bool,
+    channels: Option<Vec<ChannelSpec>>,
   },
   ApplySettings(SdrProcessorSettings),
   SetPowerScale {
@@ -154,6 +155,16 @@ pub struct GeolocationData {
   #[serde(skip_serializing_if = "Option::is_none")]
   pub altitude: Option<f64>,
   pub timestamp: f64, // JavaScript timestamp in milliseconds
+}
+
+/// Channel descriptor for per-channel selection (Patch B)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChannelSpec {
+  pub center_freq_hz: u64,
+  pub size_hz: u64,
+  pub offset_bytes: Option<u32>,
+  pub iq_length_bytes: Option<u32>,
+  pub label: Option<String>,
 }
 
 /// WebSocket message structure for client-server communication
@@ -230,8 +241,13 @@ pub struct WebSocketMessage {
   pub power_scale: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "liveMode")]
   pub live_mode: Option<bool>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub channels: Option<Vec<ChannelSpec>>,
   /// Hardware frequency range info (get_hardware_info)
-  #[serde(skip_serializing_if = "Option::is_none", alias = "hardwareFreqRange")]
+  #[serde(
+    skip_serializing_if = "Option::is_none",
+    alias = "hardwareFreqRange"
+  )]
   pub hardware_freq_range: Option<HardwareFreqRange>,
 }
 

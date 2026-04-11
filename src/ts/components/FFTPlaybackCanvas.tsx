@@ -1,13 +1,15 @@
-import React, { useEffect, useLayoutEffect, useRef, useMemo, forwardRef } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useMemo, forwardRef, useCallback } from "react";
 import styled from "styled-components";
 import { FFTAndWaterfall } from "@n-apt/components";
 import type { FFTCanvasHandle } from "@n-apt/components/FFTCanvas";
 import { useStitchingLogic } from "@n-apt/hooks/useStitchingLogic";
 import { usePlaybackAnimation } from "@n-apt/hooks/usePlaybackAnimation";
 import { useChannelManagement } from "@n-apt/hooks/useChannelManagement";
+import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 import { useAppDispatch } from "@n-apt/redux";
 import {
   setActivePlaybackMetadata,
+  setPlaybackChannels,
   clearActivePlaybackMetadata,
   incrementPlaybackFrameCounter,
 } from "@n-apt/redux";
@@ -76,15 +78,18 @@ const HelpText = styled.div`
 interface ChannelSelectorProps {
   channelCount: number;
   activeChannel: number;
+  channelLabel?: string;
   onChannelChange: (newIdx: number) => void;
 }
 
 const ChannelSelector = React.memo<ChannelSelectorProps>(({
   channelCount,
   activeChannel,
+  channelLabel,
   onChannelChange
 }) => {
   if (channelCount <= 1) return null;
+  const displayLabel = channelLabel || `Channel ${activeChannel + 1}`;
 
   return (
     <div style={{
@@ -111,7 +116,7 @@ const ChannelSelector = React.memo<ChannelSelectorProps>(({
       >
         &lt;
       </span>
-      <span>Channel {activeChannel + 1} / {channelCount}</span>
+      <span>{displayLabel} / {channelCount}</span>
       <span
         style={{ cursor: "pointer", opacity: activeChannel < channelCount - 1 ? 1 : 0.3 }}
         onClick={() => activeChannel < channelCount - 1 && onChannelChange(activeChannel + 1)}
@@ -144,6 +149,8 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(({
   visualizerMachine,
 }, forwardedRef) => {
   const dispatch = useAppDispatch();
+  const { state: spectrumState, dispatch: storeDispatch } = useSpectrumStore();
+  const { activeSignalArea } = spectrumState;
   // ── Custom hooks for separated concerns ──
   const {
     hasStitchedData,
@@ -165,6 +172,17 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(({
     stitchSourceSettings,
     fftSize,
     onStitchStatus,
+    onChannelsChange: (channels) => {
+      // Strip non-serializable binary data for Redux
+      const metadataOnly = channels.map(ch => ({
+        label: ch.label || `Channel ${channels.indexOf(ch) + 1}`,
+        center_freq_hz: ch.center_freq_hz,
+        sample_rate_hz: ch.sample_rate_hz,
+        frequency_range: ch.frequency_range,
+        id: ch.id
+      }));
+      dispatch(setPlaybackChannels(metadataOnly));
+    },
   });
 
   // Refs for data that changes rapidly (no re-render cascades)
@@ -176,7 +194,6 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(({
   isPausedRef.current = isPaused;
   const stitchSourceSettingsRef = useRef(stitchSourceSettings);
   stitchSourceSettingsRef.current = stitchSourceSettings;
-  const prevFileNamesRef = useRef<string>("");
 
   /**
    * Hot-path data ref — written directly by the animation loop, never via
@@ -185,8 +202,20 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(({
    */
   const fftCanvasDataRef = useRef<LiveFrameData | null>(null);
 
+  // ── Memoized callbacks for hook stability ──
+  const handleFrameEmitted = useCallback(() => {
+    dispatch(incrementPlaybackFrameCounter());
+  }, [dispatch]);
+
+  const handleChannelMetadataChange = useCallback(
+    (meta: any) => {
+      dispatch(setActivePlaybackMetadata(meta));
+    },
+    [dispatch],
+  );
+
   // ── Playback animation hook ──
-  usePlaybackAnimation({
+  const { animateFrame } = usePlaybackAnimation({
     hasStitchedData,
     isPaused,
     activeChannel,
@@ -194,9 +223,7 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(({
     precomputedFrames,
     fftCanvasDataRef,
     displayMode,
-    onFrameEmitted: () => {
-      dispatch(incrementPlaybackFrameCounter());
-    },
+    onFrameEmitted: handleFrameEmitted,
   });
 
   // ── Channel management hook ──
@@ -204,9 +231,7 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(({
     allChannelsRef,
     setActiveChannel,
     setFrequencyRange,
-    onChannelMetadataChange: (meta) => {
-      dispatch(setActivePlaybackMetadata(meta));
-    },
+    onChannelMetadataChange: handleChannelMetadataChange,
   });
 
   useLayoutEffect(() => {
@@ -219,9 +244,12 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(({
         Number.isFinite(ch.frequency_range[1])
         ? ch.frequency_range
         : undefined;
+    // Derive channel label: use channel.label if available, otherwise "Channel N"
+    const channelLabel = ch.label || `Channel ${activeChannel + 1}`;
     dispatch(setActivePlaybackMetadata({
       activeChannel,
       channelCount,
+      channelLabel,
       center_frequency_hz: activeRange
         ? ((activeRange[0] + activeRange[1]) / 2) * 1_000_000
         : ch.center_freq_hz,
@@ -233,6 +261,29 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(({
       frequency_range: activeRange,
     }));
   }, [activeChannel, channelCount, hardwareSampleRateHz, allChannelsRef, dispatch]);
+
+  // Sync activeSignalArea (from sidebar) to activeChannel (index)
+  useEffect(() => {
+    if (!activeSignalArea || allChannelsRef.current.length === 0) return;
+    
+    // Find index by label
+    const idx = allChannelsRef.current.findIndex(ch => {
+      const label = ch.label || `Channel ${allChannelsRef.current.indexOf(ch) + 1}`;
+      return label === activeSignalArea;
+    });
+    
+    if (idx !== -1 && idx !== activeChannel) {
+      switchChannel(idx);
+    }
+  }, [activeSignalArea, activeChannel, switchChannel, allChannelsRef]);
+
+  // Set initial active area in store when data loads
+  useEffect(() => {
+    if (hasStitchedData && !activeSignalArea && allChannelsRef.current.length > 0) {
+      const firstLabel = allChannelsRef.current[0].label || "Channel 1";
+      storeDispatch({ type: "SET_SIGNAL_AREA", area: firstLabel });
+    }
+  }, [hasStitchedData, activeSignalArea, allChannelsRef, storeDispatch]);
 
   // ── Clear when file selection actually changes ──
   const fileNamesSet = useMemo(() =>
@@ -247,10 +298,17 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(({
     return `playback:${displayMode}:${stitchTrigger ?? 0}:${fileIdentity}`;
   }, [displayMode, selectedFiles, stitchTrigger]);
 
+  const initialFileNamesKey = useMemo(
+    () => Array.from(fileNamesSet).sort().join("|"),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+  const prevFileNamesRef2 = useRef(initialFileNamesKey);
+
   useEffect(() => {
     const nameKey = Array.from(fileNamesSet).sort().join("|");
-    if (nameKey === prevFileNamesRef.current) return;
-    prevFileNamesRef.current = nameKey;
+    if (nameKey === prevFileNamesRef2.current) return;
+    prevFileNamesRef2.current = nameKey;
 
     fftCanvasDataRef.current = null;
     setChannelCount(0);
@@ -259,7 +317,7 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(({
     fileDataCache.current.clear();
     freqMapRef.current.clear();
     allChannelsRef.current = [];
-  }, [fileNamesSet, setChannelCount, setActiveChannel, dispatch]);
+  }, [fileNamesSet, setChannelCount, setActiveChannel, dispatch, allChannelsRef]);
 
   // ── Handle stitched data state changes ──
   useEffect(() => {
@@ -273,7 +331,20 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(({
       precomputedFrames: precomputedFrames.current,
       channelData,
     });
-  }, [activeChannel, allChannelsRef, displayMode, hasStitchedData, precomputedFrames]);
+
+    // If paused, manually trigger one frame update to reflect channel/mode changes
+    if (isPaused) {
+      animateFrame(performance.now(), true);
+    }
+  }, [
+    activeChannel,
+    allChannelsRef,
+    displayMode,
+    hasStitchedData,
+    precomputedFrames,
+    isPaused,
+    animateFrame,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -317,6 +388,7 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(({
           <ChannelSelector
             channelCount={channelCount}
             activeChannel={activeChannel}
+            channelLabel={allChannelsRef.current[activeChannel]?.label || `Channel ${activeChannel + 1}`}
             onChannelChange={switchChannel}
           />
         </VisualizationContainer>

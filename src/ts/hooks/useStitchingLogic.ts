@@ -13,6 +13,8 @@ interface UseStitchingLogicProps {
   stitchSourceSettings: { gain: number; ppm: number };
   fftSize: number;
   onStitchStatus?: (status: string) => void;
+  onChannelsChange?: (channels: any[]) => void;
+  onProcessedDataChange?: (hasData: boolean) => void;
   sampleRateOptions?: { maxSampleRateHz: number; currentSampleRateHz: number };
 }
 
@@ -41,6 +43,8 @@ export const useStitchingLogic = ({
   stitchSourceSettings,
   fftSize,
   onStitchStatus,
+  onChannelsChange,
+  onProcessedDataChange,
   sampleRateOptions,
 }: UseStitchingLogicProps): StitchingResult => {
   const { aesKey } = useAuthentication();
@@ -69,10 +73,12 @@ export const useStitchingLogic = ({
   const stitchSourceSettingsRef = useRef(stitchSourceSettings);
   stitchSourceSettingsRef.current = stitchSourceSettings;
   const lastTriggerRef = useRef<number | null>(null);
-  const lastProcessedFilesRef = useRef<string[]>([]);
   const selectedFileNamesKey = useMemo(
     () => selectedFiles.map((f) => f.name).sort().join("|"),
     [selectedFiles],
+  );
+  const lastProcessedFilesRef = useRef<string[]>(
+    selectedFileNamesKey ? selectedFileNamesKey.split("|") : []
   );
 
   // Reset stitched state when file selection changes
@@ -115,7 +121,17 @@ export const useStitchingLogic = ({
     if (selectedFiles.length === 0) return;
 
     const cachedSession = getStitchSession(stitchSessionKey);
-    if (!cachedSession) return;
+    if (!cachedSession) {
+      if (restoredSessionKeyRef.current !== stitchSessionKey) {
+        restoredSessionKeyRef.current = stitchSessionKey;
+        setHasStitchedData(false);
+        onStitchStatus?.("");
+        onChannelsChange?.([]);
+        onProcessedDataChange?.(false);
+      }
+      return;
+    }
+    
     if (restoredSessionKeyRef.current === stitchSessionKey) return;
     restoredSessionKeyRef.current = stitchSessionKey;
 
@@ -131,7 +147,9 @@ export const useStitchingLogic = ({
     setHardwareSampleRateHz(cachedSession.hardwareSampleRateHz);
     setHasStitchedData(cachedSession.hasStitchedData);
     setStitchStatus(cachedSession.stitchStatus);
-  }, [selectedFiles.length, setStitchStatus, stitchSessionKey]);
+    onChannelsChange?.(cachedSession.allChannels);
+    onProcessedDataChange?.(true);
+  }, [selectedFiles.length, setStitchStatus, stitchSessionKey, onStitchStatus, onChannelsChange, onProcessedDataChange]);
 
   const stitchFiles = useCallback(async () => {
     const currentFiles = selectedFilesRef.current;
@@ -235,7 +253,9 @@ export const useStitchingLogic = ({
         currentFiles.length > 1
           ? "Stitched Successfully"
           : "Processed Successfully";
-      setStitchStatus(nextStitchStatus);
+      onStitchStatus(nextStitchStatus);
+      onChannelsChange?.(channels);
+      onProcessedDataChange?.(true);
       setStitchSession(stitchSessionKey, {
         hasStitchedData: true,
         frequencyRange: firstChannelRange
