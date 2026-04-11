@@ -209,10 +209,18 @@ function processToSpectrum(
  * Returns true if both represent the same requested channel range.
  */
 function sameLogicalChannel(rangeA: any, rangeB: any, labelA: any, labelB: any): boolean {
-  if (labelA && labelB && labelA !== labelB) return false;
-  if (!rangeA || !rangeB) return true; // If either is missing, fall back to proximity
-  if (!Array.isArray(rangeA) || !Array.isArray(rangeB)) return true;
-  if (rangeA.length < 2 || rangeB.length < 2) return true;
+  // If labels are provided and differ, they are definitely different channels
+  if (labelA !== labelB) return false;
+  
+  // If both ranges are missing, let the proximity check (frequency distance) decide
+  if (!rangeA && !rangeB) return true;
+  
+  // If one has a range and the other doesn't, treat them as different
+  if (!rangeA || !rangeB) return false;
+  
+  if (!Array.isArray(rangeA) || !Array.isArray(rangeB)) return false;
+  if (rangeA.length < 2 || rangeB.length < 2) return false;
+
   // Allow small epsilon for floating-point rounding (0.001 MHz = 1 kHz)
   return (
     Math.abs(rangeA[0] - rangeB[0]) < 0.001 &&
@@ -581,6 +589,9 @@ self.onmessage = async function (e) {
                       : payloadArray.length;
                     const iqLength = ch.iq_length ?? Math.max(0, nextOffsetIq - chOffsetIq);
                     const iqBytes = payloadArray.slice(chOffsetIq, chOffsetIq + iqLength);
+                    const reqMin = ch.requested_min_freq_hz ?? ch.requested_min_hz ?? ch.min_freq_hz;
+                    const reqMax = ch.requested_max_freq_hz ?? ch.requested_max_hz ?? ch.max_freq_hz;
+
                     parsedChannels.push({
                         iq_data: iqBytes,
                         center_freq_hz: ch.center_freq_hz,
@@ -590,9 +601,9 @@ self.onmessage = async function (e) {
                         frame_rate: metadata?.frame_rate,
                         hardware_sample_rate_hz: metadata?.hardware_sample_rate_hz,
                         frequency_range:
-                          Number.isFinite(ch.requested_min_freq_hz) &&
-                          Number.isFinite(ch.requested_max_freq_hz)
-                            ? [ch.requested_min_freq_hz / 1_000_000, ch.requested_max_freq_hz / 1_000_000]
+                          Number.isFinite(reqMin) &&
+                          Number.isFinite(reqMax)
+                            ? [reqMin / 1_000_000, reqMax / 1_000_000]
                             : undefined,
                     });
                 }

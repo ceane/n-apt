@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useRef, useMemo, forwardRef, useCallback } from "react";
+import React, { useEffect, useRef, useMemo, forwardRef, useCallback } from "react";
 import styled from "styled-components";
 import { FFTAndWaterfall } from "@n-apt/components";
 import type { FFTCanvasHandle } from "@n-apt/components/FFTCanvas";
@@ -234,9 +234,15 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(({
     onChannelMetadataChange: handleChannelMetadataChange,
   });
 
-  useLayoutEffect(() => {
+  // Single effect to populate metadata - runs on mount and when relevant state changes
+  // Handles both channel switching and file -> live -> file navigation
+  useEffect(() => {
+    // Guard: only populate if we have stitched data and channels
+    if (!hasStitchedData || channelCount === 0) return;
+
     const ch = allChannelsRef.current[activeChannel];
     if (!ch) return;
+
     const activeRange =
       Array.isArray(ch.frequency_range) &&
         ch.frequency_range.length === 2 &&
@@ -244,8 +250,17 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(({
         Number.isFinite(ch.frequency_range[1])
         ? ch.frequency_range
         : undefined;
-    // Derive channel label: use channel.label if available, otherwise "Channel N"
+
     const channelLabel = ch.label || `Channel ${activeChannel + 1}`;
+
+    console.log("[FFTPlaybackCanvas] Updating metadata", {
+      activeChannel,
+      channelCount,
+      chLabel: channelLabel,
+      chSampleRate: ch.sample_rate_hz,
+      chCenter: ch.center_freq_hz,
+      hasStitchedData
+    });
     dispatch(setActivePlaybackMetadata({
       activeChannel,
       channelCount,
@@ -260,18 +275,18 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(({
       hardware_sample_rate_hz: ch.hardware_sample_rate_hz ?? hardwareSampleRateHz,
       frequency_range: activeRange,
     }));
-  }, [activeChannel, channelCount, hardwareSampleRateHz, allChannelsRef, dispatch]);
+  }, [hasStitchedData, activeChannel, channelCount, hardwareSampleRateHz, dispatch]);
 
   // Sync activeSignalArea (from sidebar) to activeChannel (index)
   useEffect(() => {
     if (!activeSignalArea || allChannelsRef.current.length === 0) return;
-    
+
     // Find index by label
     const idx = allChannelsRef.current.findIndex(ch => {
       const label = ch.label || `Channel ${allChannelsRef.current.indexOf(ch) + 1}`;
       return label === activeSignalArea;
     });
-    
+
     if (idx !== -1 && idx !== activeChannel) {
       switchChannel(idx);
     }
