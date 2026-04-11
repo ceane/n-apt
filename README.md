@@ -47,15 +47,27 @@ transmitters()                      // Endpoints (transmitters/tx)
 
 ### How the radio waves work (intuitve view at the science/hyper-advanced SIGNIT):
 - Gigantic, low frequency radio waves travesing from endpoint to person through multipath reflection
+  - (You can think of them as 3 or so spotlights concentrating on a person, the shape of the radio waves are different like an orb but like that)
+  - (Radio waves are essentially light, you can somewhat use visual light as intuition)
 - Energy intersecting at the right location
 - An enforced center frequency of the person's brain and nervous system
 - Close enough triangulation (approximately 3-7 centimeters off depending what unknown microwave frequency the NSA uses for triangulation)
 - Targeting neuronal ensembles sequentially for write to read with spikes and valleys (or APT-like lines) and energy
+  - (i.e. This is X energy, these neurons respond with a brainwave of that energy)
+  - Yes, neurons can understand and process and do from a simple 2D wave! 
+  - EVERYTHING POSSIBLE HAS HAPPENED! FINAL FRONTIER!
 - Frequency and amplitude modulation
-
 
 Very simple. And the NSA's technqiue is, suspectedly, very old, like half a century old (from the 70s).
 
+### Constraints
+- Bandwidth
+- Frequency vs Attenuation
+- Available endpoints > radiating elements/ports
+- Heavy reliance on multipath reflection/energy
+- Heavy duty fiber-linked compromised infrastructure
+- Ethernet/infra access vs use of the Internet/IPs for extremely low latency
+- One pretty pissed off American
 
 ### What have I experienced?
 - The most personal experience with technology, mind and body
