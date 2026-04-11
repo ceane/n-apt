@@ -587,6 +587,7 @@ mod save_tests {
         iq_data: vec![1u8; 200], // Different data to ensure unique checksum
         spectrum_data: vec![0f32; 10],
         bins_per_frame: 10,
+        label: None,
       }],
       file_type: ".wav".to_string(), // Test unencrypted format
       acquisition_mode: "stepwise".to_string(),
@@ -658,6 +659,7 @@ mod save_tests {
         iq_data: vec![2u8; 150], // Different data for encrypted test
         spectrum_data: vec![0f32; 10],
         bins_per_frame: 10,
+        label: None,
       }],
       file_type: ".napt".to_string(), // Test encrypted format
       acquisition_mode: "interleaved".to_string(),
@@ -726,6 +728,7 @@ mod save_tests {
         iq_data: vec![1u8; 100], // Different data
         spectrum_data: vec![0f32; 10],
         bins_per_frame: 10,
+        label: None,
       }],
       file_type: ".wav".to_string(),
       acquisition_mode: "stepwise".to_string(),
@@ -759,6 +762,7 @@ mod save_tests {
         iq_data: vec![2u8; 100], // Different data
         spectrum_data: vec![0f32; 10],
         bins_per_frame: 10,
+        label: None,
       }],
       file_type: ".wav".to_string(),
       acquisition_mode: "stepwise".to_string(),
@@ -810,6 +814,7 @@ mod save_tests {
         iq_data: vec![0u8; 100],
         spectrum_data: vec![0f32; 10],
         bins_per_frame: 10,
+        label: None,
       }],
       file_type: ".napt".to_string(),
       acquisition_mode: "interleaved".to_string(),
@@ -883,6 +888,7 @@ mod save_tests {
           iq_data: vec![0u8; 100],
           spectrum_data: vec![0f32; 10],
           bins_per_frame: 10,
+          label: None,
         },
         CaptureChannel {
           center_freq_hz: 140.0e6,
@@ -892,6 +898,7 @@ mod save_tests {
           iq_data: vec![1u8; 100],
           spectrum_data: vec![1f32; 10],
           bins_per_frame: 10,
+          label: None,
         },
       ],
       file_type: ".wav".to_string(),
