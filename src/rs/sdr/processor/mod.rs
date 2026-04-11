@@ -13,6 +13,7 @@ use crate::fft::{
   CorrelationMethod, CorrelationResult, FFTProcessor, PhaseCoherenceResult,
   StitchingValidationResult,
 };
+use crate::server::types::ChannelSpec;
 #[cfg(rs_decrypted)]
 use crate::simd::demod_kernels;
 use crate::stitching::SignalStitcher;
@@ -42,10 +43,79 @@ pub struct SdrFrameState {
   pub raw_iq_history_capacity: usize,
 }
 
+// Helper: trim a list of CaptureChannel to a subset matching ChannelSpec[]
+pub fn trim_channels_by_spec(
+  all: &[CaptureChannel],
+  selected: &[ChannelSpec],
+) -> Vec<CaptureChannel> {
+  if selected.is_empty() {
+    return all.to_vec();
+  }
+  let mut out: Vec<CaptureChannel> = Vec::new();
+  for cs in selected {
+    // Try to match by center frequency in Hz with a small tolerance
+    let mut found = None;
+    for ch in all {
+      if (ch.center_freq_hz - (cs.center_freq_hz as f64)).abs() < 1000.0 {
+        found = Some(ch.clone());
+        break;
+      }
+    }
+    if let Some(ch) = found {
+      let mut c = ch.clone();
+      c.label = cs.label.clone();
+      out.push(c);
+    }
+  }
+  out
+}
+
+#[cfg(test)]
+mod patch_b_tests {
+  use super::*;
+  use crate::server::types::ChannelSpec;
+
+  #[test]
+  fn test_trim_channels_by_spec_basic() {
+    let ch1 = CaptureChannel {
+      center_freq_hz: 1_000_000.0,
+      sample_rate_hz: 2_000_000.0,
+      requested_min_freq_hz: None,
+      requested_max_freq_hz: None,
+      iq_data: vec![0u8; 4],
+      spectrum_data: vec![0.0f32],
+      bins_per_frame: 1,
+      label: None,
+    };
+    let ch2 = CaptureChannel {
+      center_freq_hz: 1_010_000.0,
+      sample_rate_hz: 2_000_000.0,
+      requested_min_freq_hz: None,
+      requested_max_freq_hz: None,
+      iq_data: vec![1u8; 4],
+      spectrum_data: vec![0.0f32],
+      bins_per_frame: 1,
+      label: None,
+    };
+    let all = vec![ch1.clone(), ch2.clone()];
+    let cs = ChannelSpec {
+      center_freq_hz: 1_000_000,
+      size_hz: 2_000_000,
+      offset_bytes: None,
+      iq_length_bytes: None,
+      label: None,
+    };
+    let trimmed = trim_channels_by_spec(&all, &[cs]);
+    assert_eq!(trimmed.len(), 1);
+    assert_eq!(trimmed[0].center_freq_hz, ch1.center_freq_hz);
+  }
+}
+
 impl SdrFrameState {
   fn new(fft_size: usize) -> Self {
     let reserve = fft_size.max(1).saturating_mul(2);
-    let raw_iq_history_capacity = Self::default_raw_iq_history_capacity(fft_size);
+    let raw_iq_history_capacity =
+      Self::default_raw_iq_history_capacity(fft_size);
     Self {
       frame_counter: 0,
       avg_spectrum: None,
@@ -68,7 +138,8 @@ impl SdrFrameState {
   fn default_raw_iq_history_capacity(fft_size: usize) -> usize {
     let bytes_per_frame = fft_size.max(1).saturating_mul(2);
     let target_seconds = 20usize;
-    let max_frame_rate = SdrProcessor::calculate_valid_frame_rate(fft_size).max(1) as usize;
+    let max_frame_rate =
+      SdrProcessor::calculate_valid_frame_rate(fft_size).max(1) as usize;
     target_seconds
       .saturating_mul(max_frame_rate)
       .max(1)
@@ -115,6 +186,7 @@ pub struct CaptureChannel {
   pub iq_data: Vec<u8>,
   pub spectrum_data: Vec<f32>,
   pub bins_per_frame: u32,
+  pub label: Option<String>,
 }
 
 /// Result returned from check_capture_completion
@@ -244,6 +316,7 @@ pub struct SdrProcessor {
   pub capture_pre_center_freq: Option<u32>,
   /// Current power scale mode for spectrum display (dB or dBm)
   pub power_scale: crate::server::types::PowerScale,
+  pub capture_requested_channels: Option<Vec<ChannelSpec>>,
 }
 
 impl SdrProcessor {
@@ -327,6 +400,7 @@ impl SdrProcessor {
       enable_phase_stitching: true,
       capture_pre_center_freq: None,
       power_scale: crate::server::types::PowerScale::DB, // Default to dB mode
+      capture_requested_channels: None,
     };
 
     let mut processor = processor;
@@ -1134,6 +1208,10 @@ impl SdrProcessor {
     self.capture_start = None;
 
     let mut channels = std::mem::take(&mut self.capture_channels);
+    // Apply frontend channel selection trimming if provided (Patch B)
+    if let Some(sel) = self.capture_requested_channels.as_ref() {
+      channels = trim_channels_by_spec(&channels, sel);
+    }
 
     info!(
       "[CAPTURE COMPLETE] job={}, mode={}, num_channels={}",
@@ -1156,18 +1234,24 @@ impl SdrProcessor {
       let fft_size = self.fft_processor.config().fft_size;
 
       for i in 1..channels.len() {
-        let prev_max = channels[i - 1].center_freq_hz + channels[i - 1].sample_rate_hz / 2.0;
-        let curr_min = channels[i].center_freq_hz - channels[i].sample_rate_hz / 2.0;
+        let prev_max =
+          channels[i - 1].center_freq_hz + channels[i - 1].sample_rate_hz / 2.0;
+        let curr_min =
+          channels[i].center_freq_hz - channels[i].sample_rate_hz / 2.0;
         let overlap_hz = prev_max - curr_min;
 
         if overlap_hz > 0.0 {
           let midpoint_hz = (prev_max + curr_min) / 2.0;
 
           let prev_overlap_hz = prev_max - midpoint_hz;
-          let prev_trim_fraction = prev_overlap_hz / channels[i - 1].sample_rate_hz;
-          let prev_trim_bins = (fft_size as f64 * prev_trim_fraction).round() as usize;
+          let prev_trim_fraction =
+            prev_overlap_hz / channels[i - 1].sample_rate_hz;
+          let prev_trim_bins =
+            (fft_size as f64 * prev_trim_fraction).round() as usize;
 
-          if prev_trim_bins > 0 && prev_trim_bins < (channels[i - 1].bins_per_frame as usize) {
+          if prev_trim_bins > 0
+            && prev_trim_bins < (channels[i - 1].bins_per_frame as usize)
+          {
             if !channels[i - 1].spectrum_data.is_empty() {
               let old_bins = channels[i - 1].bins_per_frame as usize;
               let new_bins = old_bins - prev_trim_bins;
@@ -1177,7 +1261,9 @@ impl SdrProcessor {
               for f in 0..num_frames {
                 let start = f * old_bins;
                 let end = start + new_bins;
-                new_spectrum.extend_from_slice(&channels[i - 1].spectrum_data[start..end]);
+                new_spectrum.extend_from_slice(
+                  &channels[i - 1].spectrum_data[start..end],
+                );
               }
               channels[i - 1].spectrum_data = new_spectrum;
               channels[i - 1].bins_per_frame = new_bins as u32;
@@ -1188,7 +1274,8 @@ impl SdrProcessor {
 
           let curr_overlap_hz = midpoint_hz - curr_min;
           let curr_trim_fraction = curr_overlap_hz / channels[i].sample_rate_hz;
-          let curr_trim_bins = (fft_size as f64 * curr_trim_fraction).round() as usize;
+          let curr_trim_bins =
+            (fft_size as f64 * curr_trim_fraction).round() as usize;
 
           if curr_trim_bins > 0 && curr_trim_bins < fft_size {
             if !channels[i].spectrum_data.is_empty() {
@@ -1199,7 +1286,8 @@ impl SdrProcessor {
               for f in 0..num_frames {
                 let start = f * fft_size + curr_trim_bins;
                 let end = (f + 1) * fft_size;
-                new_spectrum.extend_from_slice(&channels[i].spectrum_data[start..end]);
+                new_spectrum
+                  .extend_from_slice(&channels[i].spectrum_data[start..end]);
               }
               channels[i].spectrum_data = new_spectrum;
               channels[i].bins_per_frame = new_bins as u32;

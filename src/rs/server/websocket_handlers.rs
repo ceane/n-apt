@@ -300,7 +300,7 @@ pub async fn handle_ws_connection(
                 info!("Client requested hardware info");
                 let _device_connected = shared.device_connected.load(Ordering::Relaxed);
                 let sample_rate = shared.sdr_settings.lock().unwrap().sample_rate;
-                
+
                 // Hardware range: 0 to 1.7e9 as requested for RTL-SDR and mock
                 let response = super::types::HardwareInfoResponse {
                   message_type: "hardware_info".to_string(),
@@ -361,7 +361,8 @@ pub fn handle_message(
           .pending_center_freq_dirty
           .store(true, Ordering::Relaxed);
 
-        let _ = cmd_tx.send(super::types::SdrCommand::SetFrequency(center_freq));
+        let _ =
+          cmd_tx.send(super::types::SdrCommand::SetFrequency(center_freq));
       }
     }
     "request_next_frame" => {
@@ -595,6 +596,7 @@ pub fn handle_message(
         geolocation: message.geolocation,
         ref_based_demod_baseline: message.ref_based_demod_baseline,
         is_ephemeral: message.live_mode.unwrap_or(false),
+        channels: message.channels.clone(),
       };
       log::info!("Client requested capture: {:?}", capture_cmd);
       let _ = cmd_tx.send(capture_cmd);

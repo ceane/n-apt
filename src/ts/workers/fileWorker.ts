@@ -204,11 +204,38 @@ function processToSpectrum(
   return spectrum;
 }
 
-function stitchAdjacentChannels(channels: any[], _defaultFftSize: number, maxSampleRateHz: number = 3200000) {
+/**
+ * Helper: compare two frequency_range arrays for logical channel identity.
+ * Returns true if both represent the same requested channel range.
+ */
+function sameLogicalChannel(rangeA: any, rangeB: any, labelA: any, labelB: any): boolean {
+  // If labels are provided and differ, they are definitely different channels
+  if (labelA !== labelB) return false;
+  
+  // If both ranges are missing, let the proximity check (frequency distance) decide
+  if (!rangeA && !rangeB) return true;
+  
+  // If one has a range and the other doesn't, treat them as different
+  if (!rangeA || !rangeB) return false;
+  
+  if (!Array.isArray(rangeA) || !Array.isArray(rangeB)) return false;
+  if (rangeA.length < 2 || rangeB.length < 2) return false;
+
+  // Allow small epsilon for floating-point rounding (0.001 MHz = 1 kHz)
+  return (
+    Math.abs(rangeA[0] - rangeB[0]) < 0.001 &&
+    Math.abs(rangeA[1] - rangeB[1]) < 0.001
+  );
+}
+
+function stitchAdjacentChannels(channels: any[], _defaultFftSize: number, _maxSampleRateHz: number = 3200000) {
   if (!channels || channels.length <= 1) return channels;
 
   // Preserve the original entry order from the source file/config.
-  // Group adjacent/touching channels without reordering them numerically.
+  // Group adjacent/touching channels that belong to the SAME logical channel.
+  // Two hops belong to the same logical channel if they share the same
+  // frequency_range (requested_min/max from the backend). This prevents
+  // merging hops from different channel selections (e.g. C and B).
   const grouped: any[][] = [];
   let currentGroup = [channels[0]];
   
@@ -216,9 +243,17 @@ function stitchAdjacentChannels(channels: any[], _defaultFftSize: number, maxSam
     const ch = channels[i];
     const prev = currentGroup[currentGroup.length - 1];
     
-    // ENFORCE MAXIMUM SAMPLE RATE (DYNAMIC, NOT HARDCODED)
-    const prevSampleRate = Math.min(prev.sample_rate_hz || maxSampleRateHz, maxSampleRateHz);
-    const chSampleRate = Math.min(ch.sample_rate_hz || maxSampleRateHz, maxSampleRateHz);
+    // FIRST CHECK: logical channel boundary via requested frequency_range.
+    // Hops from different logical channels must NEVER be merged.
+    if (!sameLogicalChannel(prev.frequency_range, ch.frequency_range, prev.label, ch.label)) {
+      grouped.push(currentGroup);
+      currentGroup = [ch];
+      continue;
+    }
+    
+    // Use actual sample rates for adjacency (no clamping — these are hardware hops)
+    const prevSampleRate = prev.sample_rate_hz || _maxSampleRateHz;
+    const chSampleRate = ch.sample_rate_hz || _maxSampleRateHz;
     
     const prevMax = (prev.center_freq_hz || 0) + prevSampleRate / 2;
     const chMin = (ch.center_freq_hz || 0) - chSampleRate / 2;
@@ -240,9 +275,9 @@ function stitchAdjacentChannels(channels: any[], _defaultFftSize: number, maxSam
     const first = group[0];
     const last = group[group.length - 1];
     
-    // ENFORCE MAXIMUM SAMPLE RATE (DYNAMIC, NOT HARDCODED)
-    const firstSampleRate = Math.min(first.sample_rate_hz || maxSampleRateHz, maxSampleRateHz);
-    const lastSampleRate = Math.min(last.sample_rate_hz || maxSampleRateHz, maxSampleRateHz);
+    // Use actual sample rates (no clamping)
+    const firstSampleRate = first.sample_rate_hz || _maxSampleRateHz;
+    const lastSampleRate = last.sample_rate_hz || _maxSampleRateHz;
     
     const minFreq = (first.center_freq_hz || 0) - firstSampleRate / 2;
     const maxFreq = (last.center_freq_hz || 0) + lastSampleRate / 2;
@@ -266,6 +301,7 @@ function stitchAdjacentChannels(channels: any[], _defaultFftSize: number, maxSam
           : undefined,
       frame_rate: first.frame_rate,
       hardware_sample_rate_hz: first.hardware_sample_rate_hz,
+      label: first.label,
     };
   });
 }
@@ -276,7 +312,7 @@ function buildCombinedFrame(
   frame: number,
   metadataMap: Map<string, FileMetadata> = new Map(),
   fftSize: number = currentFftSize,
-  maxSampleRateHz: number = 3200000,
+  _maxSampleRateHz: number = 3200000,
 ) {
   const allFileNames = new Set(fileDataCache.keys());
   if (allFileNames.size === 0) return null;
@@ -289,15 +325,10 @@ function buildCombinedFrame(
     const freq = freqMap.get(name) ?? 0;
     const meta = metadataMap.get(name);
     
-    // ENFORCE MAXIMUM SAMPLE RATE (DYNAMIC, NOT HARDCODED)
-    const rawSampleRate = meta?.capture_sample_rate_hz || meta?.sample_rate_hz || maxSampleRateHz;
-    
-    // VALIDATE AND WARN IF SAMPLE RATE EXCEEDS MAXIMUM
-    if (rawSampleRate > maxSampleRateHz) {
-      console.warn(`⚠️ Sample rate exceeds maximum: ${rawSampleRate / 1000000}MHz. Clamping to ${maxSampleRateHz / 1000000}MHz for file: ${name}`);
-    }
-    
-    const sampleRate = Math.min(rawSampleRate, maxSampleRateHz);
+    // Use the actual sample rate from metadata — multi-channel captures
+    // legitimately have sample rates larger than the hardware rate because
+    // they represent the full channel span from multiple stitched hops.
+    const sampleRate = meta?.capture_sample_rate_hz || meta?.sample_rate_hz || _maxSampleRateHz;
     
     const halfSpan = sampleRate / 1000000 / 2;
 
@@ -389,10 +420,33 @@ self.onmessage = async function (e) {
         } else if (lower.endsWith(".napt") && aesKey) {
           const MAX_HEADER_READ = Math.min(8192, fileData.byteLength);
           const maxHeaderBytes = new Uint8Array(fileData, 0, MAX_HEADER_READ);
-          const newlineIdx = maxHeaderBytes.indexOf(10);
-          if (newlineIdx <= 0) throw new Error("Invalid NAPT header");
-
-          const jsonStr = new TextDecoder().decode(maxHeaderBytes.slice(0, newlineIdx));
+          let newlineIdx = maxHeaderBytes.indexOf(10);
+          
+          // Robust header parsing: try newline first, then find JSON boundary
+          let jsonStr: string;
+          if (newlineIdx > 0) {
+            jsonStr = new TextDecoder().decode(maxHeaderBytes.slice(0, newlineIdx));
+          } else {
+            // Fallback: find the end of the root JSON object by looking for the
+            // closing brace that isn't inside a string
+            const headerText = new TextDecoder().decode(maxHeaderBytes);
+            let braceDepth = 0;
+            let inString = false;
+            let escape = false;
+            let jsonEnd = -1;
+            for (let ci = 0; ci < headerText.length; ci++) {
+              const c = headerText[ci];
+              if (escape) { escape = false; continue; }
+              if (c === '\\') { escape = true; continue; }
+              if (c === '"') { inString = !inString; continue; }
+              if (inString) continue;
+              if (c === '{') braceDepth++;
+              if (c === '}') { braceDepth--; if (braceDepth === 0) { jsonEnd = ci + 1; break; } }
+            }
+            if (jsonEnd <= 0) throw new Error("Invalid NAPT header: no JSON boundary found");
+            jsonStr = headerText.slice(0, jsonEnd);
+          }
+          
           const metaObj = JSON.parse(jsonStr);
           
           // Check for channels at top-level OR inside metadata
@@ -465,20 +519,9 @@ self.onmessage = async function (e) {
               rawData = raw;
               metadata = wavMeta as FileMetadata;
               
-              // VALIDATE SAMPLE RATE AGAINST MAXIMUM (DYNAMIC, NOT HARDCODED)
-              const sampleRate = metadata?.capture_sample_rate_hz || metadata?.sample_rate_hz || maxSampleRateHz;
-              if (sampleRate > maxSampleRateHz) {
-                console.warn(`⚠️ WAV file sample rate exceeds maximum: ${sampleRate / 1000000}MHz. Clamping to ${maxSampleRateHz / 1000000}MHz. File: ${file.fileName}`);
-                // Clamp to maximum for processing AND UPDATE METADATA
-                if (metadata) {
-                  metadata.capture_sample_rate_hz = maxSampleRateHz;
-                  metadata.sample_rate_hz = maxSampleRateHz;
-                  // Also update any hardware sample rate if present
-                  if ((metadata as any).hardware_sample_rate_hz) {
-                    (metadata as any).hardware_sample_rate_hz = maxSampleRateHz;
-                  }
-                }
-              }
+              // Multi-channel WAV files legitimately have sample rates larger
+              // than the hardware rate because they represent stitched channel
+              // spans. Do NOT clamp per-channel or file-level sample rates.
               
               if (channels && channels.length > 0) {
                  (metadata as any).channels_data = stitchAdjacentChannels(channels, metadata?.fft_size || 8192, maxSampleRateHz);
@@ -486,11 +529,32 @@ self.onmessage = async function (e) {
             } else if (lower.endsWith(".napt") && aesKey) {
               const MAX_HEADER_READ = Math.min(8192, file.fileData.byteLength);
               const maxHeaderBytes = new Uint8Array(file.fileData, 0, MAX_HEADER_READ);
-              const newlineIdx = maxHeaderBytes.indexOf(10);
-              if (newlineIdx <= 0) throw new Error("Invalid NAPT header");
-
-              const jsonStr = new TextDecoder().decode(maxHeaderBytes.slice(0, newlineIdx));
-              const metaObj = JSON.parse(jsonStr);
+              let naptNewlineIdx = maxHeaderBytes.indexOf(10);
+              
+              // Robust header parsing: try newline first, then find JSON boundary
+              let naptJsonStr: string;
+              if (naptNewlineIdx > 0) {
+                naptJsonStr = new TextDecoder().decode(maxHeaderBytes.slice(0, naptNewlineIdx));
+              } else {
+                const headerText = new TextDecoder().decode(maxHeaderBytes);
+                let braceDepth = 0;
+                let inString = false;
+                let escape = false;
+                let jsonEnd = -1;
+                for (let ci = 0; ci < headerText.length; ci++) {
+                  const c = headerText[ci];
+                  if (escape) { escape = false; continue; }
+                  if (c === '\\') { escape = true; continue; }
+                  if (c === '"') { inString = !inString; continue; }
+                  if (inString) continue;
+                  if (c === '{') braceDepth++;
+                  if (c === '}') { braceDepth--; if (braceDepth === 0) { jsonEnd = ci + 1; break; } }
+                }
+                if (jsonEnd <= 0) throw new Error("Invalid NAPT header: no JSON boundary found");
+                naptJsonStr = headerText.slice(0, jsonEnd);
+              }
+              
+              const metaObj = JSON.parse(naptJsonStr);
               metadata = metaObj.metadata || metaObj;
 
               let channelsMetadata = metadata?.channels || metaObj.channels;
@@ -504,24 +568,9 @@ self.onmessage = async function (e) {
               }
 
               if (channelsMetadata && channelsMetadata.length > 0) {
-                // VALIDATE SAMPLE RATE AGAINST MAXIMUM (DYNAMIC, NOT HARDCODED) FOR NAPT FILES
-                const sampleRate = metadata?.capture_sample_rate_hz || metadata?.sample_rate_hz || maxSampleRateHz;
-                if (sampleRate > maxSampleRateHz) {
-                  console.warn(`⚠️ NAPT file sample rate exceeds maximum: ${sampleRate / 1000000}MHz. Clamping to ${maxSampleRateHz / 1000000}MHz. File: ${file.fileName}`);
-                  // Clamp to maximum for processing AND UPDATE METADATA
-                  if (metadata) {
-                    metadata.capture_sample_rate_hz = maxSampleRateHz;
-                    metadata.sample_rate_hz = maxSampleRateHz;
-                    // Also update any hardware sample rate if present
-                    if ((metadata as any).hardware_sample_rate_hz) {
-                      (metadata as any).hardware_sample_rate_hz = maxSampleRateHz;
-                    }
-                  }
-                  // Also update channel metadata
-                  channelsMetadata.forEach((ch: any) => {
-                    ch.sample_rate_hz = Math.min(ch.sample_rate_hz || maxSampleRateHz, maxSampleRateHz);
-                  });
-                }
+                // Multi-channel NAPT files legitimately have sample rates larger
+                // than the hardware rate because they represent stitched channel
+                // spans. Do NOT clamp per-channel or file-level sample rates.
                 
                 const headerSize = metaObj.channels || metadata?.channels ? 4096 : 2048;
 
@@ -540,17 +589,21 @@ self.onmessage = async function (e) {
                       : payloadArray.length;
                     const iqLength = ch.iq_length ?? Math.max(0, nextOffsetIq - chOffsetIq);
                     const iqBytes = payloadArray.slice(chOffsetIq, chOffsetIq + iqLength);
+                    const reqMin = ch.requested_min_freq_hz ?? ch.requested_min_hz ?? ch.min_freq_hz;
+                    const reqMax = ch.requested_max_freq_hz ?? ch.requested_max_hz ?? ch.max_freq_hz;
+
                     parsedChannels.push({
-                        iq_data: iqBytes, // Already an owned Uint8Array from .slice()
+                        iq_data: iqBytes,
                         center_freq_hz: ch.center_freq_hz,
                         sample_rate_hz: ch.sample_rate_hz,
+                        label: ch.label,
                         bins_per_frame: ch.bins_per_frame,
                         frame_rate: metadata?.frame_rate,
                         hardware_sample_rate_hz: metadata?.hardware_sample_rate_hz,
                         frequency_range:
-                          Number.isFinite(ch.requested_min_freq_hz) &&
-                          Number.isFinite(ch.requested_max_freq_hz)
-                            ? [ch.requested_min_freq_hz / 1_000_000, ch.requested_max_freq_hz / 1_000_000]
+                          Number.isFinite(reqMin) &&
+                          Number.isFinite(reqMax)
+                            ? [reqMin / 1_000_000, reqMax / 1_000_000]
                             : undefined,
                     });
                 }

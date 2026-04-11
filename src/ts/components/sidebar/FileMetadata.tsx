@@ -199,16 +199,17 @@ export const FileMetadata: React.FC<FileMetadataProps> = ({
     (state) => state.waterfall.activePlaybackMetadata,
   );
 
-  const displayedCenterFrequencyHz =
-    activePlaybackMetadata?.center_frequency_hz ||
-    naptMetadata?.center_frequency_hz ||
+  const isFileMode = useAppSelector((state) => state.waterfall.sourceMode === "file");
+  const displayedCenterFrequencyHz = isFileMode && activePlaybackMetadata
+    ? activePlaybackMetadata.center_frequency_hz
+    : naptMetadata?.center_frequency_hz ||
     (naptMetadata?.center_frequency
       ? naptMetadata.center_frequency * 1_000_000
       : 0);
 
-  const displayedCaptureRateHz =
-    activePlaybackMetadata?.capture_sample_rate_hz ||
-    (naptMetadata?.channels?.length === 1 &&
+  const displayedCaptureRateHz = isFileMode && activePlaybackMetadata
+    ? activePlaybackMetadata.capture_sample_rate_hz
+    : (naptMetadata?.channels?.length === 1 &&
       typeof naptMetadata.channels[0]?.sample_rate_hz === "number"
       ? naptMetadata.channels[0].sample_rate_hz
       : naptMetadata?.capture_sample_rate_hz ||
@@ -216,7 +217,9 @@ export const FileMetadata: React.FC<FileMetadataProps> = ({
       naptMetadata?.sample_rate ||
       0);
 
-  const displayedFrameRate = activePlaybackMetadata?.frame_rate ?? naptMetadata?.frame_rate;
+  const displayedFrameRate = (isFileMode && activePlaybackMetadata)
+    ? activePlaybackMetadata.frame_rate
+    : naptMetadata?.frame_rate;
   const displayedFrequencyRange =
     activePlaybackMetadata?.frequency_range ?? naptMetadata?.frequency_range ?? null;
   const selectedFileSize = selectedNaptFile ? fileRegistry.get(selectedNaptFile.id)?.size : undefined;
@@ -249,6 +252,15 @@ export const FileMetadata: React.FC<FileMetadataProps> = ({
         </MetadataErrorBox>
       ) : naptMetadata ? (
         <MetadataGrid>
+          {activePlaybackMetadata && (activePlaybackMetadata.channelCount ?? 0) > 1 && (
+            <MetadataItem style={{ gridColumn: '1 / -1' }}>
+              <MetadataLabel>Active Channel</MetadataLabel>
+              <MetadataValue style={{ fontWeight: 600 }}>
+                {activePlaybackMetadata.channelLabel || `Channel ${activePlaybackMetadata.activeChannel + 1}`}
+                {' '}/ {activePlaybackMetadata.channelCount}
+              </MetadataValue>
+            </MetadataItem>
+          )}
           <MetadataItem>
             <MetadataLabel>
               Center Freq

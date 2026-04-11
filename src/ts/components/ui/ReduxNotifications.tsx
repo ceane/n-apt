@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { Notification } from './Notification';
-import { selectNotifications, removeNotification } from '@n-apt/redux/slices/notificationsSlice';
+import { selectNotifications, removeNotification, clearAllNotifications } from '@n-apt/redux/slices/notificationsSlice';
 import styled from 'styled-components';
 
 const NotificationContainer = styled.div`
@@ -23,6 +23,11 @@ export const ReduxNotifications: React.FC = () => {
   const notifications = useSelector(selectNotifications);
   const dispatch = useDispatch();
 
+  // Clear legacy notifications with non-serializable icon values on mount
+  useEffect(() => {
+    dispatch(clearAllNotifications());
+  }, [dispatch]);
+
   const handleClose = (id: string) => {
     dispatch(removeNotification(id));
   };
@@ -37,7 +42,6 @@ export const ReduxNotifications: React.FC = () => {
           title={notification.title}
           message={notification.message}
           duration={notification.duration}
-          icon={notification.icon}
           onClose={handleClose}
         />
       ))}

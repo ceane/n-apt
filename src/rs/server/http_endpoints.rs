@@ -7,6 +7,7 @@ use log::{error, info, warn};
 use redis::Client as RedisClient;
 use rustfft::{num_complex::Complex, FftPlanner};
 use serde::{Deserialize, Serialize};
+use serde_json;
 use std::collections::HashSet;
 use std::env;
 use std::sync::{atomic::Ordering, Arc};
@@ -14,6 +15,7 @@ use std::time::Instant;
 use tokio_util::io::ReaderStream;
 
 use crate::sdr::rtlsdr::RtlSdrDevice;
+use crate::server::types::ChannelSpec;
 
 use super::types::{
   CaptureDownloadParams, SpectrumFrameMessage, WebMCPToolRequest,
@@ -1473,6 +1475,11 @@ async fn handle_start_capture(
     .and_then(|w| w.as_str())
     .unwrap_or("hann");
 
+  // Parse optional channel selections from request payload
+  let channels_opt: Option<Vec<ChannelSpec>> = params
+    .get("channels")
+    .and_then(|v| serde_json::from_value(v.clone()).ok());
+
   let capture_cmd = super::types::SdrCommand::StartCapture {
     job_id: job_id.to_string(),
     fragments: fragments.clone(),
@@ -1486,6 +1493,7 @@ async fn handle_start_capture(
     geolocation: None, // HTTP endpoints don't have geolocation data
     ref_based_demod_baseline: None,
     is_ephemeral: false,
+    channels: channels_opt,
   };
 
   if let Err(e) = state.cmd_tx.send(capture_cmd) {

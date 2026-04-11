@@ -771,15 +771,35 @@ export const SpectrumSidebar: React.FC = () => {
         const buf = await fileObj.arrayBuffer();
 
         if (isNapt && aesKey) {
-          // Read the first 2048 bytes (header size)
-          const headerSize = Math.min(2048, buf.byteLength);
-          const headerBytes = new Uint8Array(buf, 0, headerSize);
+          // Read up to 8192 bytes to cover both 2048 and 4096-byte padded headers
+          const maxHeaderRead = Math.min(8192, buf.byteLength);
+          const headerBytes = new Uint8Array(buf, 0, maxHeaderRead);
           const newlineIdx = headerBytes.indexOf(10); // Find newline terminator
-          if (newlineIdx <= 0) throw new Error("Invalid NAPT header");
 
-          const jsonStr = new TextDecoder().decode(
-            headerBytes.slice(0, newlineIdx),
-          );
+          // Robust parsing: try newline first, then JSON boundary detection
+          let jsonStr: string;
+          if (newlineIdx > 0) {
+            jsonStr = new TextDecoder().decode(headerBytes.slice(0, newlineIdx));
+          } else {
+            // Fallback: find the closing brace of the root JSON object
+            const headerText = new TextDecoder().decode(headerBytes);
+            let braceDepth = 0;
+            let inString = false;
+            let escape = false;
+            let jsonEnd = -1;
+            for (let ci = 0; ci < headerText.length; ci++) {
+              const c = headerText[ci];
+              if (escape) { escape = false; continue; }
+              if (c === '\\') { escape = true; continue; }
+              if (c === '"') { inString = !inString; continue; }
+              if (inString) continue;
+              if (c === '{') braceDepth++;
+              if (c === '}') { braceDepth--; if (braceDepth === 0) { jsonEnd = ci + 1; break; } }
+            }
+            if (jsonEnd <= 0) throw new Error("Invalid NAPT header");
+            jsonStr = headerText.slice(0, jsonEnd);
+          }
+
           const metaObj = JSON.parse(jsonStr);
 
           if (!cancelled) {

@@ -114,6 +114,15 @@ BASE_PATHS=(
 
 ALL_PATHS=("${BASE_PATHS[@]}" "${EXTRA_PATHS[@]-}")
 
+# Filter out empty strings from ALL_PATHS
+FILTERED_PATHS=()
+for path in "${ALL_PATHS[@]}"; do
+    if [[ -n "$path" ]]; then
+        FILTERED_PATHS+=("$path")
+    fi
+done
+ALL_PATHS=("${FILTERED_PATHS[@]}")
+
 if [[ ${#ALL_PATHS[@]} -eq 0 ]]; then
     echo "No paths specified to manage" >&2
     exit 1
@@ -165,10 +174,26 @@ fi
 
 link_path() {
     local rel="$1"
+    
+    # Safety check: prevent empty or malformed relative paths
+    if [[ -z "$rel" || "$rel" == "/" || "$rel" == /* ]]; then
+        echo "ERROR: Invalid relative path: '$rel'" >&2
+        return 1
+    fi
+    
+    # Safety check: prevent path traversal
+    if [[ "$rel" == *".."* ]]; then
+        echo "ERROR: Path traversal not allowed: '$rel'" >&2
+        return 1
+    fi
+    
     local source_path="$REPO_ROOT/$rel"
     local target_path="$SHARED_DIR/$rel"
     local target_parent
     target_parent=$(dirname "$target_path")
+    local trash_dir="$SHARED_DIR/.trash"
+    
+    mkdir -p "$trash_dir"
 
     printf "Linking %-20s" "$rel"
     if [[ $DRY_RUN -eq 1 ]]; then
@@ -180,19 +205,35 @@ link_path() {
 
     mkdir -p "$target_parent"
 
-    # Create the backing path only if it does not already exist.
-    # Do not copy repo contents into the shared cache; the cache should stay
-    # empty until the application writes build/runtime artifacts there.
+    # If source exists and has content, move it to shared cache first
+    if [[ -e "$source_path" && ! -L "$source_path" ]]; then
+        if [[ ! -e "$target_path" || -z "$(ls -A "$target_path" 2>/dev/null)" ]]; then
+            # Target doesn't exist or is empty, move source content to target
+            mv "$source_path" "$target_path" 2>/dev/null || {
+                echo "ERROR: Failed to move to shared cache: $source_path" >&2
+                return 1
+            }
+        else
+            # Both exist and have content, move source to trash
+            local timestamp=$(date +%s)
+            local trash_path="$trash_dir/${rel//\//_}_$timestamp"
+            mv "$source_path" "$trash_path" 2>/dev/null || {
+                echo "ERROR: Failed to move to trash: $source_path" >&2
+                return 1
+            }
+        fi
+    elif [[ -L "$source_path" ]]; then
+        # Source is already a symlink, remove it to recreate
+        rm "$source_path"
+    fi
+
+    # Create the backing path if it does not already exist
     if [[ ! -e "$target_path" ]]; then
         if [[ "$rel" == ".env.local" ]]; then
             touch "$target_path"
         else
             mkdir -p "$target_path"
         fi
-    fi
-
-    if [[ -e "$source_path" || -L "$source_path" ]]; then
-        rm -rf "$source_path"
     fi
 
     if ln -sfn "$target_path" "$source_path"; then
