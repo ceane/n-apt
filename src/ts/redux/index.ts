@@ -163,6 +163,7 @@ export {
   setStitchStatus,
   setStitchSourceSettings,
   setActivePlaybackMetadata,
+  setPlaybackChannels,
   clearActivePlaybackMetadata,
   incrementPlaybackFrameCounter,
   triggerStitch,

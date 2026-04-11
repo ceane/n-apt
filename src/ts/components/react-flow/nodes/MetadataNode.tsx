@@ -80,13 +80,30 @@ export const MetadataNode: React.FC<MetadataNodeProps> = ({ data }) => {
         const buffer = await fileObj.arrayBuffer();
 
         if (isNapt) {
-          const headerSize = Math.min(2048, buffer.byteLength);
-          const headerBytes = new Uint8Array(buffer, 0, headerSize);
+          const maxHeaderRead = Math.min(8192, buffer.byteLength);
+          const headerBytes = new Uint8Array(buffer, 0, maxHeaderRead);
           const newlineIndex = headerBytes.indexOf(10);
-          if (newlineIndex <= 0) throw new Error("Invalid NAPT header");
 
-          const json = new TextDecoder().decode(headerBytes.slice(0, newlineIndex));
-          const parsed = JSON.parse(json);
+          let jsonStr: string;
+          if (newlineIndex > 0) {
+            jsonStr = new TextDecoder().decode(headerBytes.slice(0, newlineIndex));
+          } else {
+            const headerText = new TextDecoder().decode(headerBytes);
+            let braceDepth = 0, inStr = false, esc = false, jsonEnd = -1;
+            for (let ci = 0; ci < headerText.length; ci++) {
+              const c = headerText[ci];
+              if (esc) { esc = false; continue; }
+              if (c === '\\') { esc = true; continue; }
+              if (c === '"') { inStr = !inStr; continue; }
+              if (inStr) continue;
+              if (c === '{') braceDepth++;
+              if (c === '}') { braceDepth--; if (braceDepth === 0) { jsonEnd = ci + 1; break; } }
+            }
+            if (jsonEnd <= 0) throw new Error("Invalid NAPT header");
+            jsonStr = headerText.slice(0, jsonEnd);
+          }
+
+          const parsed = JSON.parse(jsonStr);
           if (!cancelled) {
             setNaptMetadata((parsed.metadata || parsed) as NaptMetadata);
             setNaptMetadataError(null);

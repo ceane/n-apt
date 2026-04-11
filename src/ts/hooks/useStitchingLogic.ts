@@ -13,6 +13,8 @@ interface UseStitchingLogicProps {
   stitchSourceSettings: { gain: number; ppm: number };
   fftSize: number;
   onStitchStatus?: (status: string) => void;
+  onChannelsChange?: (channels: any[]) => void;
+  onProcessedDataChange?: (hasData: boolean) => void;
   sampleRateOptions?: { maxSampleRateHz: number; currentSampleRateHz: number };
 }
 
@@ -41,6 +43,8 @@ export const useStitchingLogic = ({
   stitchSourceSettings,
   fftSize,
   onStitchStatus,
+  onChannelsChange,
+  onProcessedDataChange,
   sampleRateOptions,
 }: UseStitchingLogicProps): StitchingResult => {
   const { aesKey } = useAuthentication();
@@ -56,38 +60,19 @@ export const useStitchingLogic = ({
     onStitchStatusRef.current = onStitchStatus;
   }, [onStitchStatus]);
 
-  // State
-  const [hasStitchedData, setHasStitchedData] = useState(false);
-  const [frequencyRange, setFrequencyRange] = useState({ min: 0.0, max: 3.2 });
-  const [channelCount, setChannelCount] = useState(0);
-  const [activeChannel, setActiveChannel] = useState(0);
-  const [hardwareSampleRateHz, setHardwareSampleRateHz] = useState<number | undefined>(undefined);
-
   // Refs for data that changes rapidly
   const selectedFilesRef = useRef(selectedFiles);
   selectedFilesRef.current = selectedFiles;
   const stitchSourceSettingsRef = useRef(stitchSourceSettings);
   stitchSourceSettingsRef.current = stitchSourceSettings;
   const lastTriggerRef = useRef<number | null>(null);
-  const lastProcessedFilesRef = useRef<string[]>([]);
   const selectedFileNamesKey = useMemo(
     () => selectedFiles.map((f) => f.name).sort().join("|"),
     [selectedFiles],
   );
-
-  // Reset stitched state when file selection changes
-  useEffect(() => {
-    const currentFileNames = selectedFileNamesKey.length > 0
-      ? selectedFileNamesKey.split("|")
-      : [];
-    const lastFileNames = lastProcessedFilesRef.current;
-    if (JSON.stringify(currentFileNames) !== JSON.stringify(lastFileNames)) {
-      setHasStitchedData(false);
-      onStitchStatusRef.current?.("");
-      // Update this so we don't keep resetting until the next process
-      lastProcessedFilesRef.current = currentFileNames;
-    }
-  }, [selectedFileNamesKey]);
+  const lastProcessedFilesRef = useRef<string[]>(
+    selectedFileNamesKey ? selectedFileNamesKey.split("|") : []
+  );
 
   // Worker data refs
   const workerFileDataCache = useRef<[string, Uint8Array | number[]][]>([]);
@@ -107,31 +92,66 @@ export const useStitchingLogic = ({
     [fftSize, sampleRateOptions, selectedFiles, stitchSourceSettings],
   );
 
+  // Unify restoration and trigger logic
+  // Restore from cache immediately to prevent 1-frame flickering
+  const cachedOnMount = useMemo(() => getStitchSession(stitchSessionKey), [stitchSessionKey]);
+
+  // State - initialize from cache if available
+  const [hasStitchedData, setHasStitchedData] = useState(!!cachedOnMount);
+  const [frequencyRange, setFrequencyRange] = useState(
+    cachedOnMount?.frequencyRange || { min: 0.0, max: 3.2 }
+  );
+  const [channelCount, setChannelCount] = useState(cachedOnMount?.channelCount || 0);
+  const [activeChannel, setActiveChannel] = useState(cachedOnMount?.activeChannel || 0);
+  const [hardwareSampleRateHz, setHardwareSampleRateHz] = useState<number | undefined>(
+    cachedOnMount?.hardwareSampleRateHz
+  );
+
   const setStitchStatus = useCallback((status: string) => {
     onStitchStatusRef.current?.(status);
   }, []);
 
+  // Reset stitched state when file selection changes
   useEffect(() => {
-    if (selectedFiles.length === 0) return;
+    const currentFileNames = selectedFileNamesKey.length > 0
+      ? selectedFileNamesKey.split("|")
+      : [];
+    const lastFileNames = lastProcessedFilesRef.current;
+    if (JSON.stringify(currentFileNames) !== JSON.stringify(lastFileNames)) {
+      setHasStitchedData(false);
+      onStitchStatusRef.current?.("");
+      // Update this so we don't keep resetting until the next process
+      lastProcessedFilesRef.current = currentFileNames;
+    }
+  }, [selectedFileNamesKey]);
 
-    const cachedSession = getStitchSession(stitchSessionKey);
-    if (!cachedSession) return;
-    if (restoredSessionKeyRef.current === stitchSessionKey) return;
+  // Persist session changes (paged channels, etc.) back to cache
+  useEffect(() => {
+    if (!hasStitchedData) return;
+    const session = getStitchSession(stitchSessionKey);
+    if (session) {
+      setStitchSession(stitchSessionKey, {
+        ...session,
+        activeChannel,
+        frequencyRange,
+      });
+    }
+  }, [activeChannel, frequencyRange, hasStitchedData, stitchSessionKey]);
+
+  // Sync refs if we have a cache on mount
+  if (cachedOnMount && !restoredSessionKeyRef.current) {
+    workerFileDataCache.current = cachedOnMount.workerFileDataCache;
+    workerFreqMap.current = cachedOnMount.workerFreqMap;
+    workerMetadataMap.current = cachedOnMount.workerMetadataMap;
+    precomputedFrames.current = cachedOnMount.precomputedFrames;
+    maxFrames.current = cachedOnMount.maxFrames;
+    allChannelsRef.current = cachedOnMount.allChannels;
     restoredSessionKeyRef.current = stitchSessionKey;
-
-    workerFileDataCache.current = cachedSession.workerFileDataCache;
-    workerFreqMap.current = cachedSession.workerFreqMap;
-    workerMetadataMap.current = cachedSession.workerMetadataMap;
-    precomputedFrames.current = cachedSession.precomputedFrames;
-    maxFrames.current = cachedSession.maxFrames;
-    allChannelsRef.current = cachedSession.allChannels;
-    setFrequencyRange(cachedSession.frequencyRange);
-    setChannelCount(cachedSession.channelCount);
-    setActiveChannel(cachedSession.activeChannel);
-    setHardwareSampleRateHz(cachedSession.hardwareSampleRateHz);
-    setHasStitchedData(cachedSession.hasStitchedData);
-    setStitchStatus(cachedSession.stitchStatus);
-  }, [selectedFiles.length, setStitchStatus, stitchSessionKey]);
+    
+    // Trigger callback once on mount
+    onChannelsChange?.(cachedOnMount.allChannels);
+    onProcessedDataChange?.(true);
+  }
 
   const stitchFiles = useCallback(async () => {
     const currentFiles = selectedFilesRef.current;
@@ -201,9 +221,13 @@ export const useStitchingLogic = ({
       setChannelCount(channels.length);
       setActiveChannel(0);
 
-      // Prefer the first stitched channel's requested range on initial render.
-      // This avoids briefly showing the file-wide multi-channel span before the
-      // active-channel metadata catches up.
+      console.log("[useStitchingLogic] Channels identified:", channels.map((c: any, i: number) => ({
+        index: i,
+        label: c.label,
+        center: c.center_freq_hz,
+        rate: c.sample_rate_hz,
+        range: c.frequency_range
+      })));
       const firstChannel = channels.length > 0 ? channels[0] : null;
       const firstChannelRange =
         Array.isArray(firstChannel?.frequency_range) &&
@@ -235,7 +259,9 @@ export const useStitchingLogic = ({
         currentFiles.length > 1
           ? "Stitched Successfully"
           : "Processed Successfully";
-      setStitchStatus(nextStitchStatus);
+      onStitchStatus?.(nextStitchStatus);
+      onChannelsChange?.(channels);
+      onProcessedDataChange?.(true);
       setStitchSession(stitchSessionKey, {
         hasStitchedData: true,
         frequencyRange: firstChannelRange
@@ -256,7 +282,7 @@ export const useStitchingLogic = ({
       console.error("Stitch error:", error);
       setStitchStatus(`Stitch failed: ${error.message}`);
     }
-  }, [fftSize, frequencyRange, sampleRateOptions, setStitchStatus, stitchSessionKey]);
+  }, [fftSize, frequencyRange, sampleRateOptions, setStitchStatus, stitchSessionKey, setHasStitchedData, setHardwareSampleRateHz, setChannelCount, setActiveChannel, setFrequencyRange, onStitchStatus, onChannelsChange, onProcessedDataChange]);
 
   // Trigger: respond to parent's stitch button click
   useEffect(() => {

@@ -327,8 +327,11 @@ impl WebSocketServer {
             geolocation,
             ref_based_demod_baseline,
             is_ephemeral,
+            channels,
           } => {
             let mut processor = sdr_processor.lock().await;
+            // Bind the channels payload to the processor for Patch B trimming
+            processor.capture_requested_channels = channels;
             // fft_size is used by the SDR processor for FFT configuration
             info!("[CAPTURE] FFT size: {}", fft_size);
             // Save current center frequency so we can restore it after capture
@@ -361,18 +364,25 @@ impl WebSocketServer {
             // the live stream was using a different size.
             if fft_size > 0 && (fft_size & (fft_size - 1)) == 0 {
               if processor.fft_processor.config().fft_size != fft_size {
-                if let Err(e) = processor.apply_settings(crate::server::types::SdrProcessorSettings {
-                  fft_size: Some(fft_size),
-                  ..Default::default()
-                }) {
-                  log::warn!("[CAPTURE] Failed to apply requested fft_size={}: {}", fft_size, e);
+                if let Err(e) = processor.apply_settings(
+                  crate::server::types::SdrProcessorSettings {
+                    fft_size: Some(fft_size),
+                    ..Default::default()
+                  },
+                ) {
+                  log::warn!(
+                    "[CAPTURE] Failed to apply requested fft_size={}: {}",
+                    fft_size,
+                    e
+                  );
                 } else {
                   processor.flush_read_queue();
                   processor.frame.avg_spectrum = None;
                 }
               }
             }
-            processor.capture_fft_size = processor.fft_processor.config().fft_size;
+            processor.capture_fft_size =
+              processor.fft_processor.config().fft_size;
             processor.capture_fft_window = fft_window;
             processor.capture_gain = processor.current_gain_db;
             processor.capture_ppm = processor.current_ppm;
@@ -417,6 +427,7 @@ impl WebSocketServer {
                   iq_data: Vec::new(),
                   spectrum_data: Vec::new(),
                   bins_per_frame: 0,
+                  label: None,
                 });
               } else {
                 // Sliding window with overlap: first hop starts at its "usable" min,
@@ -438,6 +449,7 @@ impl WebSocketServer {
                       iq_data: Vec::new(),
                       spectrum_data: Vec::new(),
                       bins_per_frame: 0,
+                      label: None,
                     },
                   );
                 } else {
@@ -468,6 +480,7 @@ impl WebSocketServer {
                         iq_data: Vec::new(),
                         spectrum_data: Vec::new(),
                         bins_per_frame: 0,
+                        label: None,
                       },
                     );
                   }
@@ -524,8 +537,7 @@ impl WebSocketServer {
               if processor.capture_job_id.as_ref() != Some(stopped_job_id) {
                 info!(
                   "Ignoring StopCapture for stale job_id={}, current={:?}",
-                  stopped_job_id,
-                  processor.capture_job_id
+                  stopped_job_id, processor.capture_job_id
                 );
                 continue;
               }
@@ -561,9 +573,12 @@ impl WebSocketServer {
                   return;
                 }
 
-                match crate::server::utils::save_capture_file_multi(&result, &enc_key) {
+                match crate::server::utils::save_capture_file_multi(
+                  &result, &enc_key,
+                ) {
                   Ok(artifact) => {
-                    let mut artifacts = shared_clone.capture_artifacts.lock().unwrap();
+                    let mut artifacts =
+                      shared_clone.capture_artifacts.lock().unwrap();
                     artifacts
                       .entry(result.job_id.clone())
                       .or_default()
@@ -961,7 +976,9 @@ impl WebSocketServer {
 
       // If the stream is paused by the client, don't read from SDR or broadcast
       // unless the frontend explicitly requested one fresh frame.
-      if shared_state.is_paused.load(Ordering::SeqCst) && !allow_next_paused_frame {
+      if shared_state.is_paused.load(Ordering::SeqCst)
+        && !allow_next_paused_frame
+      {
         tokio::time::sleep(Duration::from_millis(100)).await;
         continue;
       }
