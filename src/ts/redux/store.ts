@@ -49,8 +49,9 @@ export const store = configureStore({
           'websocket/disconnect/rejected',
           'persist/PERSIST',
           'persist/REHYDRATE',
+          'waterfall/setPlaybackChannels',
         ],
-        ignoredPaths: ['persistedState', 'notifications'],
+        ignoredPaths: ['persistedState', 'notifications', 'waterfall.playbackChannels'],
         ignoredActionPaths: ['payload.aesKey', 'meta.arg.aesKey'],
       },
     }).concat(

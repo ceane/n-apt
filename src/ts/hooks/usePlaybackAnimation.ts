@@ -25,17 +25,8 @@ export const usePlaybackAnimation = ({
   const isPausedRef = useRef(isPaused);
   isPausedRef.current = isPaused;
   
-  const activeChannelRef = useRef(activeChannel);
   const lastFrameTimeRef = useRef<number | null>(null);
   
-  // Update activeChannel ref when it changes
-  useEffect(() => {
-    activeChannelRef.current = activeChannel;
-    iqFrameIdxRef.current = 0;
-    lastFrameTimeRef.current = null;
-    cachedChannelIdRef.current = null; // Force cache rebuild for new channel
-  }, [activeChannel]);
-
   const iqFrameIdxRef = useRef(0);
 
   // Cached per-channel derived values — avoids recomputing on every rAF tick
@@ -53,16 +44,16 @@ export const usePlaybackAnimation = ({
     }
   }, [hasStitchedData]);
 
-  const animateFrame = useCallback((timestamp: number) => {
+  const animateFrame = useCallback((timestamp: number, forceFrame = false) => {
     if (!lastFrameTimeRef.current) lastFrameTimeRef.current = timestamp;
     const elapsed = timestamp - lastFrameTimeRef.current;
 
-    const channelData = allChannelsRef.current[activeChannelRef.current];
+    const channelData = allChannelsRef.current[activeChannel];
     if (channelData) {
       const frameRate = channelData.frame_rate || 30;
       const frameInterval = 1000 / frameRate;
 
-      if (elapsed >= frameInterval) {
+      if (elapsed >= frameInterval || forceFrame) {
         // Rebuild cached values only when the channel object changes
         if (cachedChannelIdRef.current !== channelData) {
           cachedChannelIdRef.current = channelData;
@@ -73,6 +64,9 @@ export const usePlaybackAnimation = ({
             const fftSize = channelData.bins_per_frame || 2048;
             cachedChunkSizeRef.current = fftSize * 2;
             cachedTotalFramesRef.current = Math.max(1, Math.floor(cachedIqRef.current.length / cachedChunkSizeRef.current));
+            
+            // Auto-reset frame index when channel changes or at start
+            iqFrameIdxRef.current = 0;
           } else {
             cachedIqRef.current = null;
           }
@@ -101,7 +95,7 @@ export const usePlaybackAnimation = ({
         lastFrameTimeRef.current = timestamp;
       }
     }
-  }, [allChannelsRef, fftCanvasDataRef, onFrameEmitted]);
+  }, [allChannelsRef, activeChannel, fftCanvasDataRef, onFrameEmitted]);
 
   useEffect(() => {
     if (!hasStitchedData || isPaused) return;
