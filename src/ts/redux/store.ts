@@ -50,7 +50,7 @@ export const store = configureStore({
           'persist/PERSIST',
           'persist/REHYDRATE',
         ],
-        ignoredPaths: ['persistedState'],
+        ignoredPaths: ['persistedState', 'notifications'],
         ignoredActionPaths: ['payload.aesKey', 'meta.arg.aesKey'],
       },
     }).concat(
