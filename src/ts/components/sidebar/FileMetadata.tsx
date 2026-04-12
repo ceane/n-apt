@@ -224,6 +224,17 @@ export const FileMetadata: React.FC<FileMetadataProps> = ({
     activePlaybackMetadata?.frequency_range ?? naptMetadata?.frequency_range ?? null;
   const selectedFileSize = selectedNaptFile ? fileRegistry.get(selectedNaptFile.id)?.size : undefined;
 
+  const captureStatus = useAppSelector((state) => state.websocket.captureStatus);
+  const fileRowDurationSeconds =
+    selectedNaptFile &&
+    captureStatus?.status === "done" &&
+    captureStatus.filename === selectedNaptFile.name &&
+    typeof captureStatus.duration === "number"
+      ? captureStatus.duration
+      : typeof naptMetadata?.duration_s === "number"
+        ? naptMetadata.duration_s
+        : undefined;
+
   return (
     <Section>
       {showTitle && <SidebarSectionTitle icon={<ScrollText size={14} />} title="Metadata" />}
@@ -237,11 +248,17 @@ export const FileMetadata: React.FC<FileMetadataProps> = ({
             <WrappedSettingValue title={selectedNaptFile.name}>
               {renderFileName(selectedNaptFile.name)}
             </WrappedSettingValue>
-            {typeof selectedFileSize === "number" && (
-              <SettingValue style={{ opacity: 0.75 }}>
-                {formatFileSize(selectedFileSize)}
-              </SettingValue>
-            )}
+
+            <SettingValue style={{ opacity: 0.75 }}>
+              {typeof selectedFileSize === "number" && (
+                formatFileSize(selectedFileSize)
+              )}
+              { "  /  " }
+              {typeof fileRowDurationSeconds === "number" &&
+                Number.isFinite(fileRowDurationSeconds) && (
+                formatDuration(fileRowDurationSeconds)
+              )}
+            </SettingValue>
           </div>
         </SettingRow>
       )}

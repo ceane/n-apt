@@ -331,3 +331,13 @@ npx -y react-doctor@latest . --verbose --diff
 ### Workflow
 
 Run after making changes to catch issues early. Fix errors first, then re-run to verify the score improved.
+
+## Learned User Preferences
+
+- When adding Vite aliases for static assets (for example `@n-apt/images`), keep Jest `moduleNameMapper` aligned so tests stub those imports instead of loading raw files.
+
+## Learned Workspace Facts
+
+- Jest applies `moduleNameMapper` in first-match order; an `@n-apt/images/*` alias that resolves to real `.svg` files can run before the generic image rule and make Jest parse XML as JavaScript (`Unexpected token '<'`). Point that alias at the shared image `fileMock` like other static assets.
+- Unit tests that import `@n-apt/routes/AuthenticationRoute` may need `jest.mock("@n-apt/hooks/useAuthentication", ...)` because the real hook uses `import.meta`, which Jest does not handle.
+- `AuthRoute.tsx` was removed; `AuthenticationRoute.tsx` is the canonical auth route module.

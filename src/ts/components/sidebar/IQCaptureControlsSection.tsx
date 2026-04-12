@@ -9,6 +9,7 @@ import type {
   DeviceState,
 } from "@n-apt/hooks/useWebSocket";
 import { addNotification, updateNotification } from "@n-apt/redux/slices/notificationsSlice";
+import { formatDuration } from "@n-apt/utils/formatters";
 import {
   Clock,
   File as FileIcon,
@@ -357,7 +358,7 @@ const InfoLabel = styled.div`
 `;
 
 const DownloadMeta = styled.div`
-  margin-top: 4px;
+  margin-top: 7px;
   font-size: 11px;
   color: ${(props) => props.theme.textSecondary};
   font-family: ${(props) => props.theme.typography.mono};
@@ -877,9 +878,16 @@ export const IQCaptureControlsSection: React.FC<
                     >
                       {captureStatus.filename || "Download"}
                     </DownloadLink>
-                    {typeof captureStatus.fileSize === "number" && (
-                      <DownloadMeta>{formatFileSize(captureStatus.fileSize)}</DownloadMeta>
-                    )}
+                    <DownloadMeta>
+                      {typeof captureStatus.fileSize === "number" && (
+                        formatFileSize(captureStatus.fileSize)
+                      )}
+                      { " / " }
+                      {typeof captureStatus.duration === "number" && (
+                        formatDuration(captureStatus.duration)
+                      )}
+                    </DownloadMeta>
+                   
                   </div>
                   <StatusValue
                     $tone={

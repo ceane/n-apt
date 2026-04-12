@@ -138,6 +138,8 @@ export type CaptureStatus = {
   ephemeral?: boolean;
   timestamp?: number;
   fileSize?: number;
+  /** Capture length in seconds (server-computed). */
+  duration?: number;
 } | null;
 
 export type AutoFftOptionsResponse = {
