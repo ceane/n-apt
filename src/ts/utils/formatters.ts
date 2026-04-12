@@ -33,3 +33,22 @@ export const formatDuration = (seconds: number): string => {
 
   return parts.join(" ");
 };
+
+// Millisecond-aware duration formatter
+export const formatDurationMs = (duration: number): string => {
+  // Normalize to a human-friendly string:
+  // - If duration >= 1 second: show seconds, but drop trailing zeros (e.g., 2 -> "2 s", 2.5 -> "2.5 s")
+  // - If duration < 1 second: show milliseconds (e.g., 0.45 -> 450 ms)
+  if (!Number.isFinite(duration) || duration <= 0) return "0 ms";
+  if (duration >= 1) {
+    if (Number.isInteger(duration)) {
+      return `${Math.round(duration)} s`;
+    }
+    const rounded = duration.toFixed(2).replace(/\.0+$/, "").replace(/\.$/, "");
+    // remove trailing zeros after decimal
+    const compact = rounded.replace(/\.?0+$/, "");
+    return `${compact} s`;
+  }
+  const ms = duration * 1000;
+  return `${Math.round(ms)} ms`;
+};

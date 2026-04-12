@@ -76,10 +76,9 @@ import { getWaterfallMotion } from "@n-apt/utils/waterfallMotion";
 
 
 const VisualizerContainer = styled.div`
-  flex: 1;
+  flex: 1.25;
   display: flex;
   flex-direction: row;
-  background-color: ${(props) => props.theme.background};
   position: relative;
   overflow: hidden;
 `;
