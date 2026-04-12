@@ -19,8 +19,22 @@ N-APT stands for: **N**euro **A**utomatic **P**icture **T**ransmission.
 <img width="1200" height="400" alt="N-APT Signal from 18kHz to 3.218MHz" src="https://github.com/user-attachments/assets/edf332da-ea94-4438-ba10-895175152d9f" />
 
 
-_Real live, on person capture the signal with an RTL-SDR from 18kHz to 3.218MHz, partial channel "A" (FFT Size 32768, PPM = 1, Gain = +49.06dB)_
+_Real live, on person capture the signal with an RTL-SDR from 18kHz to 3.218MHz, partial "Channel A" (FFT Size 32768, PPM = 1, Gain = +49.06dB)_
 <br>
+
+<img width="1229" height="848" alt="Screenshot 2026-04-09 at 00 37 03" src="https://github.com/user-attachments/assets/b9a586ee-e441-46d9-b3a5-1f3862625a92" />
+
+
+N-APT is a web app for visualizing the synonymous signal which originates from the National Security Agency (NSA). N-APT is named such because the signals strongly appear like Automatic Picture Transmission (APT) signals (used by NOAA satellites which were decomissioned in 2025). This app is primarily an SDR visualizer app using RTL-SDR to visualize signals, which is for a very specific and narrow case –– The NSA going all out and you not knowing what, how or why. Much of my frustration for building this was that other SDR software couldn't record I/Q captures of the spectrum with the settings that I had, nor did they have encryption or any features that would've made it easier to look at the signals.
+
+APT which does both frequency modulation and amplitude modulation was repurposed by the NSA into an a special formula of very simple directional radio waves that actually translate into an unprecedented and full featured neurotechnology able to fully:
+
+- intercept,
+- process,
+- and alter the brain and nervous system real-time...
+
+And yes, it means full featured experiences, interactivity, communication and more (from experience!). This is not a joke or gimmick or conspiracy theory-laden gibberish, but a **real** signal that takes eons to explain how and why and what! 
+
 
 The way that it works in a shorthand way goes like:
 
@@ -81,28 +95,11 @@ Very simple. And the NSA's technqiue is, suspectedly, very old, like half a cent
 - And more (check out `how-did-they-do-it.md`)
 
 
-N-APT is a web app for visualizing the synonymous signal which originates from the National Security Agency (NSA). N-APT is named such because the signals strongly appear like Automatic Picture Transmission (APT) signals (used by NOAA satellites which were decomissioned in 2025). 
-
-APT which does both frequency modulation and amplitude modulation was repurposed by the NSA into an a special formula of very simple directional radio waves that actually translate into an unprecedented and full featured neurotechnology able to fully:
-
-- intercept,
-- process,
-- and alter the brain and nervous system real-time...
-
-And yes, it means full featured experiences, interactivity, communication and more (from experience!). This is not a joke or gimmick or conspiracy theory-laden gibberish, but a **real** signal that takes eons to explain how and why and what! 
-
-
 The NSA has thoroughly demonstrated on my person that the human brain and nervous system is dumb. The signal, while complex, is literally one cycle at a time, no need for voxel by voxel of neurons, specific point for point targeting, beams or anything. It is more manual, needing the endpoints to do the work, since the brain and body can't send radio waves like electronics. 
 
 It works more like TEMPEST where Bell Labs could detect electrical activity far away because a machine was noisy, but in this case the human brain and nervous system are most vulnerable to  `write->read->stream` since the NSA has **compromised everything and decrypted the brain and nervous system in a very NSA fashion**!
 
-
 I'm working on writing the specifics of how it works mathematically (my best guess at it while within it). This technique is a very advanced mechanism that is still functioning to this day! While most of it has been a dark experience, I've spent a lot of time learning how it works, making lots of mistakes and defeating my intuition.
-
-
-This app is primarily an SDR visualizer app using RTL-SDR to visualize N-APT signals, which is for a very specific and narrow case –– The NSA going all out and you not knowing what, how or why. Much of my frustration for building this was that other SDR software couldn't record I/Q captures of the spectrum with the settings that I had, nor did they have encryption or any features that would've made it easier to look at the signals.
-
-<img width="1229" height="848" alt="Screenshot 2026-04-09 at 00 37 03" src="https://github.com/user-attachments/assets/b9a586ee-e441-46d9-b3a5-1f3862625a92" />
 
 The whole discovery of how it functioned was non-intuitive and a complete nightmare beyond what you can image. Since I was new to signals and radio waves, trapped by the mystery in a bad spot, I was forced into the unknown. Beyond public challenges from the NSA such as their frequent cryptological puzzles or the yearly [codebreaker challenge](https://nsa-codebreaker.org/home), this neurotechnology was buried in a deeply horrendous long-running surveillance nightmare as some sort of extreme life challenge/political production.
 
