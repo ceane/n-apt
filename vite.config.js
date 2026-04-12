@@ -55,23 +55,23 @@ export default defineConfig({
   })],
   root: "./src/ts",
   envDir: "../../",
-  publicDir: "../../public",
+  publicDir: path.resolve(dirname, "public"),
   build: {
-    outDir: "../../dist"
+    outDir: "./dist"
   },
   resolve: {
     alias: [{
       find: /^@n-apt\/encrypted-modules\/(.*)$/,
-      replacement: `${path.resolve(__dirname, "src/encrypted-modules")}/$1`
+      replacement: `${path.resolve(dirname, "src/encrypted-modules")}/$1`
     }, {
-      find:  /^@n-apt\/images\/(.*)$/,
-      replacement: `${path.resolve(__dirname, "images")}/$1`
+      find:  /^@n-apt\/public\/(.*)$/,
+      replacement: path.resolve(dirname, "public/$1")
     }, {
       find: /^@n-apt\/(.*)$/,
-      replacement: `${path.resolve(__dirname, "src/ts")}/$1`
+      replacement: path.resolve(dirname, "src/ts/$1")
     }, {
       find: "@n-apt",
-      replacement: path.resolve(__dirname, "src/ts")
+      replacement: path.resolve(dirname, "src/ts")
     }]
   },
   server: {

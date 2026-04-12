@@ -122,6 +122,9 @@ const spectrumSlice = createSlice({
       
       state.frequencyRange = action.payload;
       if (state.activeSignalArea) {
+        if (!state.lastKnownRanges || typeof state.lastKnownRanges !== 'object') {
+          state.lastKnownRanges = {};
+        }
         state.lastKnownRanges[state.activeSignalArea] = action.payload;
       }
     },
@@ -129,6 +132,9 @@ const spectrumSlice = createSlice({
     setSignalAreaAndRange: (state, action: PayloadAction<{ area: string; range: FrequencyRange }>) => {
       state.activeSignalArea = action.payload.area;
       state.frequencyRange = action.payload.range;
+      if (!state.lastKnownRanges || typeof state.lastKnownRanges !== 'object') {
+        state.lastKnownRanges = {};
+      }
       state.lastKnownRanges[action.payload.area] = action.payload.range;
     },
     

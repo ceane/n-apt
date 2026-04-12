@@ -8,7 +8,7 @@ import { CanvasText } from "@n-apt/md-preview/CanvasText";
 import { getBaseUrl } from "@n-apt/md-preview/getBaseUrl";
 
 const BASE_URL = getBaseUrl();
-const BODY_CHARACTER_SRC = `${BASE_URL}/md-preview/body-attenuation-character.png`;
+const BODY_CHARACTER_SRC = `${BASE_URL}/images/body-attenuation-character.png`;
 
 
 
@@ -750,7 +750,7 @@ const binaryRowFragmentShader = `
 
 const BinaryRow = ({ x, y, widthWorld }: { x: number; y: number; widthWorld: number }) => {
   const [cycleIndex, setCycleIndex] = useState(0);
-  
+
   useFrame(({ clock }) => {
     const activeCycle = Math.floor((clock.elapsedTime * 0.35) / 2.2);
     if (activeCycle !== cycleIndex) {
@@ -770,7 +770,7 @@ const BinaryRow = ({ x, y, widthWorld }: { x: number; y: number; widthWorld: num
     const startSize = 90 + Math.random() * 110;
     const endSize = startSize;
     const chars = text.split("");
-    
+
     // Calculate widths for decreasing font size
     let totalWidth = 0;
     const charMetrics = chars.map((char, index) => {
@@ -790,7 +790,7 @@ const BinaryRow = ({ x, y, widthWorld }: { x: number; y: number; widthWorld: num
     // Draw characters aligned to the vertical center (middle)
     ctx.fillStyle = "#ffffff";
     ctx.textBaseline = "middle";
-    
+
     let currentX = 0;
     charMetrics.forEach(({ char, size, charW }) => {
       ctx.font = `normal ${size}px "JetBrains Mono", monospace`;
@@ -813,7 +813,7 @@ const BinaryRow = ({ x, y, widthWorld }: { x: number; y: number; widthWorld: num
   const uniforms = useMemo(() => ({
     uTexture: { value: texture },
     uTime: { value: 0 }
-  }), []); 
+  }), []);
 
   // Hot-swap the underlying texture without re-mounting the material
   useEffect(() => {
@@ -829,30 +829,30 @@ const BinaryRow = ({ x, y, widthWorld }: { x: number; y: number; widthWorld: num
     if (materialRef.current) {
       materialRef.current.uniforms.uTime.value = clock.elapsedTime;
     }
-    
+
     // Calculate horizontal 'travel' displacement to stay on the wavefront
     if (meshRef.current) {
       const speed = 0.35;
       const cycle = (clock.elapsedTime * speed % 2.2);
       const progress = cycle - 0.6;
-      
+
       // We use the start position passed via props
       const startWorldX = x;
-      
+
       // Correct Wavefront World X (progress is the UV position [0..1 approx])
       const waveWorldX = (progress - 0.5) * 10.0;
-      
+
       // Update mesh horizontal position: locked slightly behind wavefront to stay in reveal zone
       const currentX = Math.max(startWorldX, waveWorldX - 0.05);
       meshRef.current.position.x = currentX;
-      
+
       const uvX = currentX / 10.0 + 0.5;
-      const arcOffset = 0.25 * Math.pow(Math.abs(y / 6.5) * 2.0, 2.2); 
-      
+      const arcOffset = 0.25 * Math.pow(Math.abs(y / 6.5) * 2.0, 2.2);
+
       const waveUvX = uvX + arcOffset;
       const dist1 = waveUvX - progress;
       const dist2 = waveUvX - (progress - 0.12);
-      
+
       // Body strength (reveal window)
       const bodyS = Math.max(
         Math.max(0, 1.0 - Math.abs(dist1 * 8.0)),
@@ -862,11 +862,11 @@ const BinaryRow = ({ x, y, widthWorld }: { x: number; y: number; widthWorld: num
       // Same sine math as background lines, but with extra amplitude to be at the 'peak'
       const sine1 = Math.sin((uvX - 0.48) * 7.5 - clock.elapsedTime * 8.0);
       const sine2 = Math.sin((uvX - 0.48) * 5.0 - clock.elapsedTime * 8.0);
-      
+
       // Surf the peaks: use the sum + an offset to stay prominently on top
       const surfHeight = (sine1 + sine2) * 0.75 * bodyS;
       meshRef.current.position.y = y + 0.38 + surfHeight;
-      
+
       // Properly time the visibility: hide before reset and until wavefront arrives
       // 1.9 is the fadeOut threshold from the shader
       const isLoopClosing = cycle > 1.92 || cycle < 0.1;
@@ -895,16 +895,16 @@ const BinaryRow = ({ x, y, widthWorld }: { x: number; y: number; widthWorld: num
 
 const BinaryMatrixOverlay = () => {
   const lineInfo = useMemo(() => {
-    const centerX = 0; 
-    const centerY = -0.38; 
-    const radiusX = 1.08; 
+    const centerX = 0;
+    const centerY = -0.38;
+    const radiusX = 1.08;
 
     // Move to just outside the body silhouette for the 'exit' effect
     const startX = centerX + radiusX + 0.12;
     const widthWorld = 1.2; // Width of the texture itself
 
     return {
-      y: centerY - 0.25, 
+      y: centerY - 0.25,
       x: startX,
       widthWorld: widthWorld
     };
@@ -1130,16 +1130,18 @@ const BodyAttenuationWebGPUCanvas: React.FC = () => {
         camera={{ position: [0, 0, 10] }}
         gl={{ antialias: true, alpha: true }}
       >
-        <SceneContents
-          characterFacingSide={characterFacingSide}
-          flipEffect={flipEffect}
-          metrics={metrics}
-          model={model}
-          previewMetrics={previewMetrics}
-          onPointerDown={handlePointerDown}
-          onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerUp}
-        />
+        <React.Suspense fallback={null}>
+          <SceneContents
+            characterFacingSide={characterFacingSide}
+            flipEffect={flipEffect}
+            metrics={metrics}
+            model={model}
+            previewMetrics={previewMetrics}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+          />
+        </React.Suspense>
       </Canvas>
       <RendererBadge>WebGL</RendererBadge>
     </Frame>

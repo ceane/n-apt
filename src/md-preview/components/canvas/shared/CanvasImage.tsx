@@ -74,7 +74,7 @@ export const CanvasImage: React.FC<CanvasImageProps> = ({
   opacity,
 }) => {
   // Construct the full URL with base path
-  const fullSrc = `${BASE_URL}/md-preview/${src}`;
+  const fullSrc = `${BASE_URL}/images/${src}`;
 
   return (
     <StyledImage

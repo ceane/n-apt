@@ -316,13 +316,16 @@ export const Channels: React.FC<ChannelsProps> = ({
   }, [activeSignalArea, isPaused, reduxDispatch]);
 
   const channels = useMemo(() => {
+    if (!Array.isArray(effectiveFrames)) return [];
     return effectiveFrames.filter(f => ["A", "B"].includes(f.label));
   }, [effectiveFrames]);
 
   // Compute information for the active channel box
   // Resolve the active frame robustly from both sources
-  const activeFrame = (effectiveFrames.find((f: any) => f.label === activeSignalArea) 
-    || channels.find((f: any) => f.label === activeSignalArea)) as any;
+  const activeFrame = Array.isArray(effectiveFrames)
+    ? (effectiveFrames.find((f: any) => f.label === activeSignalArea)
+      || channels.find((f: any) => f.label === activeSignalArea))
+    : undefined;
   const activeDescription: string = activeFrame?.description ?? "";
   // Bandwidth estimation: 1 byte per Hz, width in MHz -> MB/s
   const widthMHz = activeFrame
