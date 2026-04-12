@@ -7,6 +7,7 @@ import { requestNextLiveFrame } from "@n-apt/redux/thunks/websocketThunks";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 import { formatFrequency } from "@n-apt/utils/frequency";
 import ReduxFrequencyRangeSlider from "@n-apt/components/sidebar/ReduxFrequencyRangeSlider";
+import Tooltip from "@n-apt/components/ui/Tooltip";
 import type { FrequencyRange } from "@n-apt/hooks/useWebSocket";
 
 /** Matches sidebar `Section`: participates in parent subgrid so nested `ReduxFrequencyRangeSlider` subgrid works. */
@@ -141,8 +142,13 @@ const ActiveChannelBandwidthList = styled.div`
 
 // Mono value span for JetBrains Mono after '='
 const MonoValue = styled.span`
+  display: inline-block;
   font-family: "JetBrains Mono", monospace;
   font-weight: bold;
+  background: ${(props) => props.theme.surface}; 
+  padding: .1rem .25rem;
+  margin: .1rem 0;
+  border-radius: 8px;
 `;
 
 const FrequencyInputContainer = styled.div`
@@ -231,6 +237,13 @@ const EmptyStateText = styled.div`
   color: ${(props) => props.theme.textSecondary};
   font-size: 12px;
   font-style: italic;
+`;
+
+const Divider = styled.hr`
+    border: 0;
+    height: 1px;
+    background: ${(props) => props.theme.borderHover};
+    margin: 8px 0 12px;
 `;
 
 export type ChannelsVariant = "demod" | "spectrum";
@@ -351,6 +364,16 @@ export const Channels: React.FC<ChannelsProps> = ({
     return `${mb.toFixed(0)} MB`;
   };
 
+  const iqSize = 2; // I, Q = u8 + u8 = 2 bytes
+  const iqDataRateMBps = formatBWperSec(bandwidthMBps * iqSize);
+  const formattedDataBandwidth = formatBWperSec(bandwidthMBps);
+  const formattedSignalBandwidth = widthMHz.toFixed(2);
+
+  const IQExplainerTooltip = () =>
+    <Tooltip 
+      title=""
+      content="I/Q data makes up the signal (what comes out of the antenna and is in the air) <br /><br /> I and Q are pairs of bytes, both from 0-255 that represent one point that make up points of a signal.<br ><br />Example: I = 2, Q = 100 at 4kHz <br /><br /> I = In-phase component (the “main” wave direction) <br /> Q = Quadrature component (the part shifted by 90° — like a “sideways” version of the wave)<br />" />
+
   if (variant === "spectrum") {
     return (
       <ChannelsSection>
@@ -411,12 +434,13 @@ export const Channels: React.FC<ChannelsProps> = ({
               <>
                 <ActiveChannelInfoTitle>Channel {activeFrame.label}</ActiveChannelInfoTitle>
                 <ActiveChannelDescription>{activeDescription}</ActiveChannelDescription>
-                <hr style={{ border: 0, height: 1, backgroundColor: '#555', margin: '8px 0 12px' }} />
+                <Divider />
               </>
             ) : null}
             
             <ActiveChannelBandwidthList>
-              Naive Bandwidth = <MonoValue>{formatBWperSec(bandwidthMBps)}</MonoValue> of <MonoValue>{widthMHz.toFixed(2)} MHz</MonoValue><br />
+              <IQExplainerTooltip /> Naive Signal Bandwidth (I/Q) = <MonoValue>{iqDataRateMBps}</MonoValue> <br />
+              Naive Data Bandwidth = <MonoValue>{formattedDataBandwidth}</MonoValue> of <MonoValue>{formattedSignalBandwidth} MHz</MonoValue><br />
               5 mins = <MonoValue>{formatMBValue(minutes5MB)}</MonoValue><br />
               1 hour = <MonoValue>{formatMBValue(hourMB)}</MonoValue><br />
               24 hours = <MonoValue>{formatMBValue(dayMB)}</MonoValue>
