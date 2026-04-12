@@ -1,4 +1,4 @@
-import AuthenticationRoute from "@n-apt/routes/AuthenticationRoute";
+import { AuthenticationUI } from "@n-apt/routes/AuthenticationRoute";
 
 export default {
   title: 'Auth/AuthenticationRoute',
@@ -8,7 +8,7 @@ export default {
 };
 
 export const PasswordLogin = () => (
-  <AuthenticationRoute
+  <AuthenticationUI
     authState="ready"
     error={null}
     hasPasskeys={false}
@@ -19,7 +19,7 @@ export const PasswordLogin = () => (
 );
 
 export const PasskeyFirst = () => (
-  <AuthenticationRoute
+  <AuthenticationUI
     authState="ready"
     error={null}
     hasPasskeys={true}
@@ -30,7 +30,7 @@ export const PasskeyFirst = () => (
 );
 
 export const AuthenticationFailed = () => (
-  <AuthenticationRoute
+  <AuthenticationUI
     authState="failed"
     error="Invalid password. Re-enter the local dev key to unlock the live SDR session."
     hasPasskeys={false}
@@ -41,7 +41,7 @@ export const AuthenticationFailed = () => (
 );
 
 export const Authenticating = () => (
-  <AuthenticationRoute
+  <AuthenticationUI
     authState="authenticating"
     error={null}
     hasPasskeys={true}

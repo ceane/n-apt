@@ -1,7 +1,6 @@
 import React from "react";
 import { MainLayout } from "@n-apt/components/MainLayout";
-import type { DrawParams, SourceMode } from "@n-apt/hooks/useSpectrumStore";
-import type { CaptureRequest, CaptureStatus, FrequencyRange } from "@n-apt/hooks/useWebSocket";
+
 
 import { useLadleContext, useLink } from "@ladle/react";
 import { useLocation } from "react-router-dom";
@@ -75,16 +74,6 @@ const statusPayload = {
 
 const getStatusPayloadForTab = (activeTab: string) => {
   if (activeTab === "visualizer") {
-    return statusPayload;
-  }
-
-  return {
-    ...statusPayload,
-    device_connected: true,
-    device_state: "connected" as const,
-  };
-};
-
 const routeToTab = (route: string) => {
   if (route.includes("draw")) return "draw";
   if (route.includes("demod")) return "analysis";
@@ -129,82 +118,34 @@ const LocationSync = () => {
 };
 
 const SidebarShell = ({ activeTab }: { activeTab: string }) => {
-  const currentStatusPayload = React.useMemo(
-    () => getStatusPayloadForTab(activeTab),
-    [activeTab],
-  );
-  const [sourceMode, setSourceMode] = React.useState<SourceMode>("live");
-  const [activeSignalArea, setActiveSignalArea] = React.useState(
-    currentStatusPayload.channels[0]?.label ?? "A",
-  );
-  const [frequencyRange, setFrequencyRange] = React.useState<FrequencyRange | null>({
-    min: currentStatusPayload.channels[0]?.min_mhz ?? 0,
-    max: currentStatusPayload.channels[0]?.max_mhz ?? 0,
-  });
-  const [drawParams, setDrawParams] = React.useState<DrawParams[]>([]);
-  const [selectedFiles, setSelectedFiles] = React.useState<{ name: string; file: File }[]>([]);
-  const [stitchStatus, setStitchStatus] = React.useState("Idle");
-  const [stitchSourceSettings, setStitchSourceSettings] = React.useState({
-    gain: currentStatusPayload.sdr_settings.gain.tuner_gain,
-    ppm: currentStatusPayload.sdr_settings.ppm,
-  });
-  const [isPaused, setIsPaused] = React.useState(currentStatusPayload.paused);
-  const [isStitchPaused, setIsStitchPaused] = React.useState(false);
-  const [captureStatus, setCaptureStatus] = React.useState<CaptureStatus>(null);
-
+  // Refactor: Replace the removed SidebarNew with a lightweight, layout-compatible shell
+  // that cooperates with MainLayout. This keeps type-safety intact while providing
+  // a placeholder UI for the Ladle app shell in stories.
   return (
-    <SidebarNew
-      isConnected={currentStatusPayload.device_connected}
-      deviceState={currentStatusPayload.device_state}
-      deviceLoadingReason={currentStatusPayload.device_loading_reason}
-      isPaused={isPaused}
-      backend={currentStatusPayload.device}
-      maxSampleRateHz={currentStatusPayload.max_sample_rate}
-      sampleRateHz={currentStatusPayload.sdr_settings.sample_rate}
-      sdrSettings={currentStatusPayload.sdr_settings}
-      captureStatus={captureStatus}
-      autoFftOptions={null}
-      onCaptureCommand={(req: CaptureRequest) => {
-        setCaptureStatus({
-          status: "started",
-          jobId: req.jobId ?? "ladle-capture",
-        });
+    <div
+      style={{
+        width: 320,
+        height: "100%",
+        display: "flex",
+        flexDirection: "column",
+        borderRight: "1px solid #333",
+        padding: 12,
+        boxSizing: "border-box",
+        backgroundColor: "#111",
+        color: "#eaeaea",
       }}
-      spectrumFrames={currentStatusPayload.channels}
-      activeTab={activeTab}
-      drawParams={drawParams}
-      onDrawParamsChange={setDrawParams}
-      sourceMode={sourceMode}
-      onSourceModeChange={setSourceMode}
-      stitchStatus={stitchStatus}
-      activeSignalArea={activeSignalArea}
-      onSignalAreaChange={setActiveSignalArea}
-      onFrequencyRangeChange={setFrequencyRange}
-      frequencyRange={frequencyRange ?? undefined}
-      onPauseToggle={() => setIsPaused((value) => !value)}
-      onSettingsChange={() => { }}
-      displayTemporalResolution="medium"
-      onDisplayTemporalResolutionChange={() => { }}
-      selectedFiles={selectedFiles}
-      onSelectedFilesChange={setSelectedFiles}
-      stitchSourceSettings={stitchSourceSettings}
-      onStitchSourceSettingsChange={setStitchSourceSettings}
-      isStitchPaused={isStitchPaused}
-      onStitchPauseToggle={() => setIsStitchPaused((value) => !value)}
-      onStitch={() => setStitchStatus("Stitch requested")}
-      onClear={() => {
-        setSelectedFiles([]);
-        setStitchStatus("Cleared");
-      }}
-      onRestartDevice={() => { }}
-      snapshotGridPreference={true}
-      onSnapshotGridPreferenceChange={() => { }}
-      onSnapshot={() => { }}
-      vizZoom={1}
-      vizPanOffset={0}
-      onVizPanChange={() => { }}
-      onClearCaptureStatus={() => setCaptureStatus(null)}
-    />
+    >
+      <div style={{ fontWeight: 700, marginBottom: 8 }}>Ladle Sidebar</div>
+      <div style={{ fontSize: 12, color: "#aaa" }}>Active tab: {activeTab}</div>
+      <div style={{ height: 1, background: "#333", margin: "12px 0" }} />
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <div style={{ fontSize: 12, color: "#bbb" }}>Tabs</div>
+        <div>visualizer</div>
+        <div>demodulate</div>
+        <div>draw-signal</div>
+        <div>map-endpoints</div>
+      </div>
+    </div>
   );
 };
 
