@@ -9,7 +9,7 @@ import type {
   DeviceState,
 } from "@n-apt/hooks/useWebSocket";
 import { addNotification, updateNotification } from "@n-apt/redux/slices/notificationsSlice";
-import { formatDuration, formatDurationMs } from "@n-apt/utils/formatters";
+import { formatDurationMs } from "@n-apt/utils/formatters";
 import {
   Clock,
   File as FileIcon,
@@ -106,33 +106,6 @@ const SettingSelect = styled.select`
     background-color: ${(props) => props.theme.surface};
     color: ${(props) => props.theme.textPrimary};
     font-family: ${(props) => props.theme.typography.mono};
-  }
-`;
-
-const SettingInput = styled.input`
-  background-color: transparent;
-  border: 1px solid ${(props) => props.theme.borderHover};
-  border-radius: 4px;
-  color: ${(props) => props.theme.textPrimary};
-  font-family: ${(props) => props.theme.typography.mono};
-  font-size: 12px;
-  font-weight: 500;
-  padding: 4px 6px;
-  width: 70px;
-  text-align: right;
-  box-sizing: border-box;
-  max-width: 100%;
-  min-width: 0;
-
-  /* Hide number input spinners */
-  &::-webkit-outer-spin-button,
-  &::-webkit-inner-spin-button {
-    -webkit-appearance: none;
-    margin: 0;
-  }
-
-  &[type="number"] {
-    -moz-appearance: textfield;
   }
 `;
 
@@ -238,37 +211,6 @@ const RangeGrid = styled.div`
   align-items: flex-start;
 `;
 
-const DurationRow = styled.div`
-  display: grid;
-  grid-auto-flow: column;
-  align-items: center;
-  gap: 0px;
-`;
-
-const DurationInlineGroup = styled.div`
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-`;
-
-const DurationModeRow = styled.div`
-  display: grid;
-  grid-template-columns: repeat(2, max-content);
-  align-items: center;
-  gap: 10px;
-`;
-
-const DurationModeLabel = styled.label`
-  font-size: 11px;
-  color: ${(props) => props.theme.textPrimary};
-  white-space: nowrap;
-  margin: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  cursor: pointer;
-`;
-
 const DurationUnit = styled.span`
   font-size: 12px;
   color: ${(props) => props.theme.textPrimary};
@@ -291,13 +233,6 @@ const DurationManualCenter = styled.div`
   align-items: center;
   justify-content: center;
   height: 100%;
-  width: 100%;
-`;
-
-const DurationControlsWrapper = styled.div`
-  display: grid;
-  grid-template-rows: auto auto;
-  row-gap: 6px;
   width: 100%;
 `;
 

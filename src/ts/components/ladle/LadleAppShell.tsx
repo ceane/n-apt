@@ -1,6 +1,5 @@
 import React from "react";
 import { MainLayout } from "@n-apt/components/MainLayout";
-import SidebarNew from "@n-apt/components/sidebar/SidebarNew";
 import type { DrawParams, SourceMode } from "@n-apt/hooks/useSpectrumStore";
 import type { CaptureRequest, CaptureStatus, FrequencyRange } from "@n-apt/hooks/useWebSocket";
 

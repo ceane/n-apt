@@ -36,6 +36,9 @@ import {
   setStitchStatus as setWaterfallStitchStatus,
   toggleStitchPause as toggleWaterfallStitchPause,
   triggerStitch as triggerWaterfallStitch,
+  setSdrSettingsBundle as setSdrSettingsBundleAction,
+  resetLiveControls as resetLiveControlsAction,
+  resetZoomAndDb as resetZoomAndDbAction,
 } from "@n-apt/redux";
 import { liveDataRef } from "@n-apt/redux/middleware/websocketMiddleware";
 import {
@@ -216,6 +219,9 @@ export type SpectrumState = {
   diagnosticTrigger: number;
   drawSignal3D: boolean;
   displayMode: "fft" | "iq";
+  fftAvgEnabled: boolean;
+  fftSmoothEnabled: boolean;
+  wfSmoothEnabled: boolean;
 };
 
 export type SpectrumAction =
@@ -341,6 +347,9 @@ export const INITIAL_SPECTRUM_STATE: SpectrumState = {
   diagnosticTrigger: 0,
   drawSignal3D: false,
   displayMode: "fft",
+  fftAvgEnabled: false,
+  fftSmoothEnabled: false,
+  wfSmoothEnabled: false,
 };
 
 export { applyWaterfallStateOverrides } from "@n-apt/hooks/spectrumStoreOverrides";
@@ -582,6 +591,9 @@ export function spectrumReducer(
         ppm: LIVE_CONTROL_DEFAULTS.ppm,
         tunerAGC: LIVE_CONTROL_DEFAULTS.tunerAGC,
         rtlAGC: LIVE_CONTROL_DEFAULTS.rtlAGC,
+        fftAvgEnabled: false,
+        fftSmoothEnabled: false,
+        wfSmoothEnabled: false,
         fftSize: action.fftSize ?? state.fftSize,
         fftFrameRate: action.fftFrameRate ?? state.fftFrameRate,
         globalNoiseFloor: isDbm ? -120 : -150,
@@ -764,6 +776,18 @@ export const SpectrumProvider: React.FC<SpectrumProviderProps> = ({
           return;
         case "SET_DRAW_SIGNAL_3D":
           reduxDispatch(setWaterfallDrawSignal3D(action.enabled));
+          return;
+        case "SET_SDR_SETTINGS_BUNDLE":
+          reduxDispatch(setSdrSettingsBundleAction(action.settings as any));
+          dispatch(action);
+          return;
+        case "RESET_LIVE_CONTROLS":
+          reduxDispatch(resetLiveControlsAction({ fftSize: action.fftSize, fftFrameRate: action.fftFrameRate }));
+          dispatch(action);
+          return;
+        case "RESET_ZOOM_AND_DB":
+          reduxDispatch(resetZoomAndDbAction());
+          dispatch(action);
           return;
         case "TRAINING_STOP":
           reduxDispatch(resetTrainingCapture());
