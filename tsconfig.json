@@ -38,6 +38,6 @@
       "@n-apt/validation/*": ["src/ts/validation/*"]
     }
   },
-  "include": ["src/ts", "src/md-preview", "src/encrypted-modules", "src/ts/types"],
+  "include": ["src/ts", "src/md-preview", "src/encrypted-modules", "src/ts/types", "src/types"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }
