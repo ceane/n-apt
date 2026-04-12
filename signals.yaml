@@ -170,27 +170,50 @@ signals:
   #
   # These are the real frequencies and channels that are used for N-APT
   # approximated by looking at the spectrum and adjusting the center frequency 
-  # to see the signal's form of spikes and valleys
+  # to see the signal's stable form of APT-like spikes and valleys
   #
-  # These frequencies are surprisingly low because they are in the LF/HF range
+  # These frequencies are surprisingly low in the LF/MF/HF range
   # My hypothesis is that they are used because they attenuate far less 
   # (lose less energy) as they travel through objects, obstacles,
   # and the skull/tissue before they make it back to an endpoint
   #
+  # Features experienced include:
+  #   - Mental inference
+  #   - Auditory thought
+  #   - Hearing
+  #   - Voice
+  #   - Audio
+  #   - Speech
+  #   - Reasoning
+  #   - Memory (short and long term)
+  #   - Perception
+  #   - Behavior
+  #   - Emotion
+  #   - Sense of self
+  #   - Awareness
+  #   - Neurotransmitters
+  #   - State of mind
+  #   - 5 Senses (smell, sight, sound, touch, taste)
+  #   - Physiological expression (muscles, haptics, etc.)
+  #   - Vitals (heart, breathing, hunger, libido, etc.)
+  #   - Imagination (visual, perceptual)
+  #   - Vision
+  #   - Dreams
+  #
   n_apt:
-    # A and B look nearly identical for about the first 4MHz except for a spur in A
-    # B is larger and has a different shape after the identical shape
+    # Add new channels (e.g. c) and the app will pick them up on rebuild
+    # and via backend hot-reload when available.
     channels:
-      # Add new channels (e.g. c) and the app will pick them up on rebuild
-      # and via backend hot-reload when available.
+      # A and B look nearly identical for about the first 4MHz except for a spur in B
+      # B is larger and has a different shape after the identical section
       a:
         label: "A"
         freq_range_mhz: [0.018, 4.37]
-        description: "Area A: 18kHz-4.47 MHz range"
+        description: "The potentially primary N-APT channel, encompassing features like audio, voice, physiological effects and more."
       b:
         label: "B"
         freq_range_mhz: [24.72, 29.88]
-        description: "Area B: 24.72-29.88 MHz range"
+        description: "This channel is sometimes identical to Channel A but has more powerful spikes, potentially due to operating on others further distant (known effects are speech, slight physiology, atttention, etc.)."
       # Channel C is in between (~5MHz to about ~22MHz) but it's more difficult
       # to process since my sample rate is smaller than the channel
       # nyquist rate prevents me from seeing the correct form
@@ -198,4 +221,4 @@ signals:
       c:
         label: "C"
         freq_range_mhz: [11, 23]
-        description: "Area C: 11-22 MHz range"
+        description: "This channel is the assumed largest N-APT channel, carrying visual data like vision, imagination (including dreams) and more."

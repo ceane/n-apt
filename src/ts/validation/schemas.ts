@@ -129,6 +129,7 @@ export const CaptureStatusSchema = z.object({
   ephemeral: z.boolean().optional(),
   timestamp: z.number().optional(),
   fileSize: z.number().optional(),
+  duration: z.number().optional(),
 });
 
 export const AutoFftOptionsResponseSchema = z.object({

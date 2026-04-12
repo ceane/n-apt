@@ -200,22 +200,22 @@ export const FileMetadata: React.FC<FileMetadataProps> = ({
   );
 
   const isFileMode = useAppSelector((state) => state.waterfall.sourceMode === "file");
-  const displayedCenterFrequencyHz = isFileMode && activePlaybackMetadata
+  const displayedCenterFrequencyHz = (isFileMode && activePlaybackMetadata
     ? activePlaybackMetadata.center_frequency_hz
-    : naptMetadata?.center_frequency_hz ||
+    : naptMetadata?.center_frequency_hz ??
     (naptMetadata?.center_frequency
       ? naptMetadata.center_frequency * 1_000_000
-      : 0);
+      : 0)) ?? 0;
 
-  const displayedCaptureRateHz = isFileMode && activePlaybackMetadata
+  const displayedCaptureRateHz = (isFileMode && activePlaybackMetadata
     ? activePlaybackMetadata.capture_sample_rate_hz
     : (naptMetadata?.channels?.length === 1 &&
       typeof naptMetadata.channels[0]?.sample_rate_hz === "number"
       ? naptMetadata.channels[0].sample_rate_hz
-      : naptMetadata?.capture_sample_rate_hz ||
-      naptMetadata?.sample_rate_hz ||
-      naptMetadata?.sample_rate ||
-      0);
+      : naptMetadata?.capture_sample_rate_hz ??
+      naptMetadata?.sample_rate_hz ??
+      naptMetadata?.sample_rate ??
+      0)) ?? 0;
 
   const displayedFrameRate = (isFileMode && activePlaybackMetadata)
     ? activePlaybackMetadata.frame_rate
@@ -223,6 +223,17 @@ export const FileMetadata: React.FC<FileMetadataProps> = ({
   const displayedFrequencyRange =
     activePlaybackMetadata?.frequency_range ?? naptMetadata?.frequency_range ?? null;
   const selectedFileSize = selectedNaptFile ? fileRegistry.get(selectedNaptFile.id)?.size : undefined;
+
+  const captureStatus = useAppSelector((state) => state.websocket.captureStatus);
+  const fileRowDurationSeconds =
+    selectedNaptFile &&
+    captureStatus?.status === "done" &&
+    captureStatus.filename === selectedNaptFile.name &&
+    typeof captureStatus.duration === "number"
+      ? captureStatus.duration
+      : typeof naptMetadata?.duration_s === "number"
+        ? naptMetadata.duration_s
+        : undefined;
 
   return (
     <Section>
@@ -237,11 +248,17 @@ export const FileMetadata: React.FC<FileMetadataProps> = ({
             <WrappedSettingValue title={selectedNaptFile.name}>
               {renderFileName(selectedNaptFile.name)}
             </WrappedSettingValue>
-            {typeof selectedFileSize === "number" && (
-              <SettingValue style={{ opacity: 0.75 }}>
-                {formatFileSize(selectedFileSize)}
-              </SettingValue>
-            )}
+
+            <SettingValue style={{ opacity: 0.75 }}>
+              {typeof selectedFileSize === "number" && (
+                formatFileSize(selectedFileSize)
+              )}
+              { "  /  " }
+              {typeof fileRowDurationSeconds === "number" &&
+                Number.isFinite(fileRowDurationSeconds) && (
+                formatDuration(fileRowDurationSeconds)
+              )}
+            </SettingValue>
           </div>
         </SettingRow>
       )}

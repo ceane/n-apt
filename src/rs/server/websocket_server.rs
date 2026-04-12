@@ -566,7 +566,8 @@ impl WebSocketServer {
                           "jobId": result.job_id,
                           "status": "done",
                           "message": "Capture stopped",
-                          "ephemeral": true
+                          "ephemeral": true,
+                          "duration": result.duration_s
                       }
                   });
                   let _ = bcast.send(msg.to_string());
@@ -599,6 +600,7 @@ impl WebSocketServer {
                             "downloadUrl": format!("/api/capture/download?jobId={}", result.job_id),
                             "timestamp": timestamp,
                             "fileSize": artifact.file_size,
+                            "duration": result.duration_s,
                             "checksum": artifact.checksum
                         }
                     });
@@ -1264,7 +1266,8 @@ impl WebSocketServer {
                     "jobId": result.job_id,
                     "status": "done",
                     "message": "Processing data...",
-                    "ephemeral": true
+                    "ephemeral": true,
+                    "duration": result.duration_s
                 }
             });
             let _ = bcast.send(msg.to_string());
@@ -1308,6 +1311,7 @@ impl WebSocketServer {
                       "downloadUrl": format!("/api/capture/download?jobId={}", result.job_id),
                       "timestamp": timestamp,
                       "fileSize": artifact.file_size,
+                      "duration": result.duration_s,
                       "checksum": artifact.checksum
                   }
               });

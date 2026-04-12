@@ -428,7 +428,7 @@ export const useWebSocket = (
                   statusObj.status === "done" ||
                   statusObj.status === "failed")
               ) {
-                const newStatus: any = {
+                const newStatus: CaptureStatus = {
                   jobId: statusObj.jobId,
                   status: statusObj.status,
                   message: statusObj.message,
@@ -438,6 +438,22 @@ export const useWebSocket = (
                   fileCount:
                     typeof statusObj.fileCount === "number"
                       ? statusObj.fileCount
+                      : undefined,
+                  ephemeral:
+                    typeof statusObj.ephemeral === "boolean"
+                      ? statusObj.ephemeral
+                      : undefined,
+                  timestamp:
+                    typeof statusObj.timestamp === "number"
+                      ? statusObj.timestamp
+                      : undefined,
+                  fileSize:
+                    typeof statusObj.fileSize === "number"
+                      ? statusObj.fileSize
+                      : undefined,
+                  duration:
+                    typeof statusObj.duration === "number"
+                      ? statusObj.duration
                       : undefined,
                 };
                 if (statusObj.error) {
