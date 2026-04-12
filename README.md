@@ -2,7 +2,7 @@
 
 [![Hippocratic License HL3-LAW-SUP-SV](https://img.shields.io/static/v1?label=Hippocratic%20License&message=HL3-LAW-SUP-SV&labelColor=5e2751&color=bc8c3d)](https://firstdonoharm.dev/version/3/0/law-sup-sv.html)
 
-<img src="images/icon.svg" alt="n-apt icon" width="128" height="128">
+<img src="public/images/icon.svg" alt="n-apt icon" width="128" height="128">
 
 ---
 

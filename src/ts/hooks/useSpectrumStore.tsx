@@ -365,8 +365,8 @@ const loadPersistedSdrSettings = (): Partial<SpectrumState> => {
     if ("powerScale" in parsed) {
       delete parsed.powerScale;
     }
-    // Ensure lastKnownRanges is an object
-    if (parsed.lastKnownRanges && typeof parsed.lastKnownRanges !== "object") {
+    // Ensure lastKnownRanges is a valid object (not null, undefined, or non-object)
+    if (!parsed.lastKnownRanges || typeof parsed.lastKnownRanges !== "object" || Array.isArray(parsed.lastKnownRanges)) {
       parsed.lastKnownRanges = {};
     }
 
@@ -397,19 +397,21 @@ export function spectrumReducer(
       ) {
         return state;
       }
+      const safeRanges = state.lastKnownRanges && typeof state.lastKnownRanges === 'object' ? state.lastKnownRanges : {};
       return {
         ...state,
         frequencyRange: action.range,
         lastKnownRanges: state.activeSignalArea
-          ? { ...state.lastKnownRanges, [state.activeSignalArea]: action.range }
-          : state.lastKnownRanges,
+          ? { ...safeRanges, [state.activeSignalArea]: action.range }
+          : safeRanges,
       };
     case "SET_SIGNAL_AREA_AND_RANGE":
+      const safeRanges2 = state.lastKnownRanges && typeof state.lastKnownRanges === 'object' ? state.lastKnownRanges : {};
       return {
         ...state,
         activeSignalArea: action.area,
         frequencyRange: action.range,
-        lastKnownRanges: { ...state.lastKnownRanges, [action.area]: action.range },
+        lastKnownRanges: { ...safeRanges2, [action.area]: action.range },
       };
     case "SET_TEMPORAL_RESOLUTION":
       return {
@@ -1131,8 +1133,10 @@ export const SpectrumProvider: React.FC<SpectrumProviderProps> = ({
     }
   }, [sdrSettings?.sample_rate, sampleRateHz, maxSampleRateHz, state.sampleRateHz, storeDispatch]);
 
-  const effectiveFrames =
-    wsSpectrumFrames.length > 0 ? wsSpectrumFrames : cachedFrames;
+  const effectiveFrames: SpectrumFrame[] =
+    Array.isArray(wsSpectrumFrames) && wsSpectrumFrames.length > 0
+      ? wsSpectrumFrames
+      : (Array.isArray(cachedFrames) ? cachedFrames : []);
   const effectiveSdrSettings = sdrSettings ?? cachedSdrSettings;
 
   const sampleRateHzEffective = state.sampleRateHz;

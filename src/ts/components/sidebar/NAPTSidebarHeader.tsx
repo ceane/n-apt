@@ -1,7 +1,7 @@
 import React from "react";
 import styled from "styled-components";
 import { SidebarToggleButton } from "./SidebarToggle";
-import nAptLogo from "../../../../images/icon.svg";
+import nAptLogo from "@n-apt/public/images/icon.svg";
 
 const HeaderContainer = styled.div`
   display: flex;
