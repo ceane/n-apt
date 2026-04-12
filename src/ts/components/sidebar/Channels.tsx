@@ -7,7 +7,7 @@ import { requestNextLiveFrame } from "@n-apt/redux/thunks/websocketThunks";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 import { formatFrequency } from "@n-apt/utils/frequency";
 import ReduxFrequencyRangeSlider from "@n-apt/components/sidebar/ReduxFrequencyRangeSlider";
-import Tooltip from "@n-apt/components/ui/Tooltip";
+import { Collapsible, Tooltip } from "@n-apt/components/ui"
 import type { FrequencyRange } from "@n-apt/hooks/useWebSocket";
 
 /** Matches sidebar `Section`: participates in parent subgrid so nested `ReduxFrequencyRangeSlider` subgrid works. */
@@ -113,7 +113,7 @@ const SampleRateValue = styled.span`
 const ActiveChannelInfoBox = styled.div`
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 8px;
-  padding: 16px;
+  padding: 0 16px 16px;
   margin-right: 20px;
   grid-column: 1 / -1;
   font-family: sans-serif;
@@ -430,21 +430,28 @@ export const Channels: React.FC<ChannelsProps> = ({
         {/* Active Channel Description & Stats Box */}
         {activeFrame && (
           <ActiveChannelInfoBox>
-            {activeDescription ? (
-              <>
-                <ActiveChannelInfoTitle>Channel {activeFrame.label}</ActiveChannelInfoTitle>
-                <ActiveChannelDescription>{activeDescription}</ActiveChannelDescription>
-                <Divider />
-              </>
-            ) : null}
-            
-            <ActiveChannelBandwidthList>
-              <IQExplainerTooltip /> Naive Signal Bandwidth (I/Q) = <MonoValue>{iqDataRateMBps}</MonoValue> <br />
-              Naive Data Bandwidth = <MonoValue>{formattedDataBandwidth}</MonoValue> of <MonoValue>{formattedSignalBandwidth} MHz</MonoValue><br />
-              5 mins = <MonoValue>{formatMBValue(minutes5MB)}</MonoValue><br />
-              1 hour = <MonoValue>{formatMBValue(hourMB)}</MonoValue><br />
-              24 hours = <MonoValue>{formatMBValue(dayMB)}</MonoValue>
-            </ActiveChannelBandwidthList>
+            <Collapsible
+              title="Channel Description">
+                {activeDescription ? (
+                  <>
+                    <br />
+                    <ActiveChannelInfoTitle>Channel {activeFrame.label}</ActiveChannelInfoTitle>
+                    <ActiveChannelDescription>{activeDescription}</ActiveChannelDescription>
+                    <Divider />
+                  </>
+                ) : null}
+                
+                <Collapsible
+                  title="More...">
+                  <ActiveChannelBandwidthList>
+                    <IQExplainerTooltip /> Naive Signal Bandwidth (I/Q) = <MonoValue>{iqDataRateMBps}</MonoValue> <br />
+                    Naive Data Bandwidth = <MonoValue>{formattedDataBandwidth}</MonoValue> of <MonoValue>{formattedSignalBandwidth} MHz</MonoValue><br />
+                    5 mins = <MonoValue>{formatMBValue(minutes5MB)}</MonoValue><br />
+                    1 hour = <MonoValue>{formatMBValue(hourMB)}</MonoValue><br />
+                    24 hours = <MonoValue>{formatMBValue(dayMB)}</MonoValue>
+                  </ActiveChannelBandwidthList>     
+                </Collapsible>
+            </Collapsible>
           </ActiveChannelInfoBox>
         )}
       </ChannelsSection>
