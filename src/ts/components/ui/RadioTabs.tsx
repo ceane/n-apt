@@ -39,7 +39,7 @@ const TabButton = styled.button<{ $active?: boolean; $isLeft?: boolean }>`
   white-space: nowrap;
 `;
 
-export const RadioTabs: React.FC<RadioTabsProps> = ({ value, onChange, options, name, className }) => {
+export const RadioTabs: React.FC<RadioTabsProps> = ({ value, onChange, options, className }) => {
   return (
     <TabGroup className={className} role="radiogroup" aria-label="Radio tabs">
       {options.map((opt, idx) => (

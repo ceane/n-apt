@@ -276,7 +276,7 @@ const spectrumSlice = createSlice({
         displayTemporalResolution: LIVE_CONTROL_DEFAULTS.displayTemporalResolution,
         vizZoom: LIVE_CONTROL_DEFAULTS.vizZoom,
         vizPanOffset: LIVE_CONTROL_DEFAULTS.vizPanOffset,
-        fftMinDb: isDbm ? -100 : -150,
+        fftMinDb: isDbm ? -100 : -120,
         fftMaxDb: isDbm ? 30 : 0,
         fftWindow: LIVE_CONTROL_DEFAULTS.fftWindow,
         gain: LIVE_CONTROL_DEFAULTS.gain,

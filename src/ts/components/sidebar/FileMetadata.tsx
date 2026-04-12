@@ -200,22 +200,22 @@ export const FileMetadata: React.FC<FileMetadataProps> = ({
   );
 
   const isFileMode = useAppSelector((state) => state.waterfall.sourceMode === "file");
-  const displayedCenterFrequencyHz = isFileMode && activePlaybackMetadata
+  const displayedCenterFrequencyHz = (isFileMode && activePlaybackMetadata
     ? activePlaybackMetadata.center_frequency_hz
-    : naptMetadata?.center_frequency_hz ||
+    : naptMetadata?.center_frequency_hz ??
     (naptMetadata?.center_frequency
       ? naptMetadata.center_frequency * 1_000_000
-      : 0);
+      : 0)) ?? 0;
 
-  const displayedCaptureRateHz = isFileMode && activePlaybackMetadata
+  const displayedCaptureRateHz = (isFileMode && activePlaybackMetadata
     ? activePlaybackMetadata.capture_sample_rate_hz
     : (naptMetadata?.channels?.length === 1 &&
       typeof naptMetadata.channels[0]?.sample_rate_hz === "number"
       ? naptMetadata.channels[0].sample_rate_hz
-      : naptMetadata?.capture_sample_rate_hz ||
-      naptMetadata?.sample_rate_hz ||
-      naptMetadata?.sample_rate ||
-      0);
+      : naptMetadata?.capture_sample_rate_hz ??
+      naptMetadata?.sample_rate_hz ??
+      naptMetadata?.sample_rate ??
+      0)) ?? 0;
 
   const displayedFrameRate = (isFileMode && activePlaybackMetadata)
     ? activePlaybackMetadata.frame_rate

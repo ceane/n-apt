@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect, useCallback } from "react";
 import styled from "styled-components";
-import { useAppSelector, useAppDispatch } from "@n-apt/redux";
 import { Unplug } from "lucide-react";
+import { useAppSelector, useAppDispatch } from "@n-apt/redux";
 import { getSupportedSnapshotVideoFormat, type SnapshotVideoFormat } from "@n-apt/hooks/useSnapshot";
 import {
   setSourceMode,
@@ -10,7 +10,6 @@ import {
   clearWaterfall,
   setStitchPaused,
   setFftFrameRate as setFftFrameRateAction,
-  resetZoomAndDb,
   setTemporalResolution,
   setPowerScale,
   setSdrSettingsBundle,
@@ -39,7 +38,8 @@ import { IQCaptureControlsSection } from "@n-apt/components/sidebar/IQCaptureCon
 import { SnapshotControlsSection } from "@n-apt/components/sidebar/SnapshotControlsSection";
 import { SourceSettingsSection } from "@n-apt/components/sidebar/SourceSettingsSection";
 import FileSelectionSidebar from "@n-apt/components/sidebar/FileSelectionSidebar";
-import { ConnectionStatusSection, PauseButton } from "@n-apt/components/sidebar/ConnectionStatusSection";
+import { ConnectionStatusSection } from "@n-apt/components/sidebar/ConnectionStatusSection";
+import { Button } from "@n-apt/components/ui/Button";
 import { ThemeSection } from "@n-apt/components/sidebar/ThemeSection";
 import { Channels } from "@n-apt/components/sidebar/Channels";
 import SourceInput from "@n-apt/components/sidebar/SourceInput";
@@ -89,15 +89,20 @@ const SectionIcon = styled.div`
   width: 14px;
   height: 14px;
   color: ${(props: any) => props.theme.metadataLabel};
-justify - content: center;
-width: 14px;
-height: 14px;
-color: ${(props: any) => props.theme.metadataLabel};
+  justify - content: center;
+  width: 14px;
+  height: 14px;
+  color: ${(props: any) => props.theme.metadataLabel};
 `;
 
 const SectionText = styled.span`
-display: flex;
-align - items: center;
+  display: flex;
+  align - items: center;
+`;
+
+const ResetButton = styled(Button)`
+  width: 100%;
+  border: 1px solid ${(props) => props.theme.borderHover};
 `;
 
 type NaptMetadata = {
@@ -859,9 +864,8 @@ export const SpectrumSidebar: React.FC = () => {
   );
 
   const resetLiveControls = useCallback(() => {
-    dispatch(resetZoomAndDb());
-    storeDispatch({ type: "RESET_ZOOM_AND_DB" });
-  }, [dispatch, storeDispatch]);
+    storeDispatch({ type: "RESET_LIVE_CONTROLS", fftSize, fftFrameRate });
+  }, [storeDispatch, fftSize, fftFrameRate]);
 
   useEffect(() => {
     setActiveCaptureAreas((current) => {
@@ -970,12 +974,11 @@ export const SpectrumSidebar: React.FC = () => {
             onRestartDevice={() => dispatch(sendRestartDevice())}
           />
           <div style={{ gridColumn: "1 / -1", width: "100%" }}>
-            <PauseButton
-              $paused={false}
+            <ResetButton 
               onClick={() => {
                 showPrompt({
-                  title: "Reset Options to Defaults",
-                  message: "Reset all live options to defaults?",
+                  title: "Reset Options to Defaults?",
+                  message: "Reset options like zoom, signal display, source settings and all other options to the app's default settings?",
                   confirmText: "Reset",
                   cancelText: "Cancel",
                   variant: "danger",
@@ -985,7 +988,7 @@ export const SpectrumSidebar: React.FC = () => {
               title="Reset sidebar and visualizer options to defaults"
             >
               Reset Options to Defaults
-            </PauseButton>
+            </ResetButton>
           </div>
 
           <IQCaptureControlsSection
