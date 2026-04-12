@@ -95,6 +95,7 @@ export const AnalysisNode: React.FC<AnalysisNodeProps> = ({ data }) => {
   const { state: spectrumState, sampleRateMHz } = useSpectrumStore();
   const { activeSignalArea, frequencyRange, lastKnownRanges, vizZoom, vizPanOffset } = spectrumState;
   const areaKey = activeSignalArea || "A";
+  const safeLastKnownRanges = lastKnownRanges && typeof lastKnownRanges === 'object' ? lastKnownRanges : {};
 
   // Calculate visible frequency range based on zoom and pan for labeling
   const calculateVisible = () => {
@@ -105,7 +106,7 @@ export const AnalysisNode: React.FC<AnalysisNodeProps> = ({ data }) => {
     const safeZoom = (Number.isFinite(vizZoom) && vizZoom > 0) ? vizZoom : 1;
 
     if (!frequencyRange) {
-      return lastKnownRanges[areaKey] || { min: minFreq, max: minFreq + hardwareSpan };
+      return safeLastKnownRanges[areaKey] || { min: minFreq, max: minFreq + hardwareSpan };
     }
 
     const hardwareCenter = (frequencyRange.min + frequencyRange.max) / 2;

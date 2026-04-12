@@ -141,12 +141,13 @@ const useAuthenticationInternal = (
 
   const deriveConfiguredAesKey = useCallback(async (): Promise<CryptoKey> => {
     const configuredPassword = import.meta.env.VITE_UNSAFE_LOCAL_USER_PASSWORD;
+
     if (
       typeof configuredPassword !== "string" ||
       configuredPassword.trim().length === 0
     ) {
       throw new Error(
-        "Missing VITE_UNSAFE_LOCAL_USER_PASSWORD; cannot derive the AES session key for encrypted WebSocket data.",
+        "Missing VITE_UNSAFE_LOCAL_USER_PASSWORD, cannot derive the AES session key for encrypted WebSocket data.",
       );
     }
     return deriveAesKey(configuredPassword);

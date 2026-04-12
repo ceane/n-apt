@@ -168,7 +168,10 @@ export const selectEffectiveFrequencyRange = createSelector(
     if (frequencyRange) return frequencyRange;
     
     // Fallback to last known range for active area
-    const lastKnown = spectrum.lastKnownRanges[activeSignalArea];
+    const lastKnownRanges = spectrum.lastKnownRanges;
+    const lastKnown = lastKnownRanges && typeof lastKnownRanges === 'object'
+      ? lastKnownRanges[activeSignalArea]
+      : null;
     return lastKnown || null;
   }
 );

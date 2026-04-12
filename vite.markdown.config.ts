@@ -42,11 +42,27 @@ const pagesMiddleware: Plugin = {
 
       if (req.url?.startsWith("/md-preview/")) {
         const assetPath = req.url.replace(/^\/md-preview\//, "");
-        const filePath = path.join(publicDir, "md-preview", assetPath);
-        if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
-          res.setHeader("Content-Type", "application/octet-stream");
-          fs.createReadStream(filePath).pipe(res);
-          return;
+        const searchPaths = [
+          path.join(publicDir, "md-preview", assetPath),
+          path.join(publicDir, assetPath), // Direct fallback to public root
+        ];
+
+        for (const filePath of searchPaths) {
+          if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+            const ext = path.extname(filePath).toLowerCase();
+            const contentType = {
+              '.svg': 'image/svg+xml',
+              '.png': 'image/png',
+              '.jpg': 'image/jpeg',
+              '.jpeg': 'image/jpeg',
+              '.webp': 'image/webp',
+              '.glb': 'application/octet-stream'
+            }[ext] || 'application/octet-stream';
+            
+            res.setHeader("Content-Type", contentType);
+            fs.createReadStream(filePath).pipe(res);
+            return;
+          }
         }
       }
       next();
@@ -81,6 +97,9 @@ export default defineConfig({
     }, {
       find: /^@n-apt\/md-preview\/(.*)$/,
       replacement: `${path.resolve(dirname, "src/md-preview")}/$1`
+    }, {
+      find: /^@n-apt\/public\/(.*)$/,
+      replacement: `${path.resolve(dirname, "public")}/$1`
     }, {
       find: /^@n-apt\/(.*)$/,
       replacement: `${path.resolve(dirname, "src/ts")}/$1`

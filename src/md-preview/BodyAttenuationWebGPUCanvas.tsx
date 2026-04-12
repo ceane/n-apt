@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { getBaseUrl } from "./getBaseUrl";
 
 const BASE_URL = getBaseUrl();
-const BODY_CHARACTER_SRC = `${BASE_URL}/md-preview/body-attenuation-character.png`;
+const BODY_CHARACTER_SRC = `${BASE_URL}/md-preview/images/body-attenuation-character.png`;
 
 // Inline component patterns to satisfy legacy test string checks
 const _CompatContent = () => {

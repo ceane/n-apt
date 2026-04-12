@@ -9,7 +9,7 @@ import { CanvasText } from "../../CanvasText";
 import { theme } from "../../theme";
 
 const BASE_URL = "";
-const BODY_CHARACTER_SRC = `${BASE_URL}/md-preview/body-attenuation-character.png`;
+const BODY_CHARACTER_SRC = `${BASE_URL}/md-preview/images/body-attenuation-character.png`;
 
 const BACKGROUND_COLOR = theme.colors.background;
 
@@ -337,11 +337,11 @@ const BinaryRow = ({ text, x, y, widthWorld }: { text: string; x: number; y: num
   }, [text, widthWorld]);
 
   const materialRef = useRef<THREE.ShaderMaterial>(null);
-  
+
   const uniforms = useMemo(() => ({
     uTexture: { value: texture },
     uTime: { value: 0 },
-    uAntennaCenter: { value: new THREE.Vector2(0.08, 0.61) } 
+    uAntennaCenter: { value: new THREE.Vector2(0.08, 0.61) }
   }), [texture]);
 
   useFrame((state) => {
@@ -372,46 +372,46 @@ const BinaryMatrixOverlay = () => {
   const rows = useMemo(() => {
     const ROW_HEIGHT = 0.55;
     const FONT = '20px "JetBrains Mono", monospace';
-    const WORLD_TO_PX = 45; 
+    const WORLD_TO_PX = 45;
     const prepared = prepareWithSegments(BINARY_STRING, FONT, { whiteSpace: 'normal' });
-    
+
     let cursor = { segmentIndex: 0, graphemeIndex: 0 };
     const rowData = [];
-    
-    const centerX = 2.8; 
+
+    const centerX = 2.8;
     const centerY = -0.55;
-    const radiusX = 1.6; 
+    const radiusX = 1.6;
     const radiusY = 2.66;
     const topY = centerY + radiusY;
     const bottomY = centerY - radiusY;
-    
+
     let currentY = topY - ROW_HEIGHT;
-    
+
     while (currentY > bottomY) {
       const normalizedY = (currentY - centerY) / radiusY;
       const xOffset = radiusX * Math.sqrt(Math.max(0, 1 - normalizedY * normalizedY));
-      
+
       const startX = -1.2; // Move numbers to the left of person
-      const endX = centerX - xOffset - 0.2; 
-      
+      const endX = centerX - xOffset - 0.2;
+
       const widthWorld = endX - startX;
       if (widthWorld <= 0.2) {
-         currentY -= ROW_HEIGHT;
-         continue;
+        currentY -= ROW_HEIGHT;
+        continue;
       }
-      
+
       const widthPx = widthWorld * WORLD_TO_PX;
-      
+
       const line = layoutNextLine(prepared, cursor, widthPx);
       if (!line) break;
-      
+
       rowData.push({
         y: currentY,
         x: startX,
         text: line.text,
         widthWorld: widthWorld
       });
-      
+
       cursor = line.end;
       currentY -= ROW_HEIGHT;
     }
@@ -527,9 +527,9 @@ const SceneContents: React.FC = () => {
         <meshBasicMaterial color={BACKGROUND_COLOR} />
       </mesh>
 
-      
 
-            {/* Radio waves flowing left to right */}
+
+      {/* Radio waves flowing left to right */}
       <RadioWave bodyTexture={texture} />
 
       {/* Binary string rows contouring right side of the body */}
@@ -568,9 +568,9 @@ const DynamicStatsOverlay = () => {
       const fMHz = 1 + Math.random() * 29;
 
       const fspl = 20 * Math.log10(dKm) + 20 * Math.log10(fMHz) + 32.44;
-      const gainDb = fspl - 22 - 24; 
+      const gainDb = fspl - 22 - 24;
       let aperture = (Math.pow(10, gainDb / 10) * 90000) / (4 * Math.PI * fMHz * fMHz);
-      let apertureStr = aperture > 10000 ? `${(aperture/10000).toFixed(2)} ha` : `${aperture.toFixed(2)} m²`;
+      let apertureStr = aperture > 10000 ? `${(aperture / 10000).toFixed(2)} ha` : `${aperture.toFixed(2)} m²`;
 
       const distStr = dKm < 1 ? `${Math.round(dKm * 1000)} m` : `${dKm.toFixed(2)} km`;
       const freqStr = `${fMHz.toFixed(2)} MHz`;
@@ -606,13 +606,13 @@ const TimeOfFlightCanvas: React.FC = () => {
   return (
     <Frame>
       <RendererBadge>Time of Flight</RendererBadge>
-      <CanvasImage 
-        src="hex-small-cell-tower.svg" 
-        alt="Antenna" 
+      <CanvasImage
+        src="hex-small-cell-tower.svg"
+        alt="Antenna"
         position="absolute"
-        left="4%" 
-        bottom="0px" 
-        height="65%" 
+        left="4%"
+        bottom="0px"
+        height="65%"
         zIndex={10}
         pointerEvents="none"
       />
@@ -622,7 +622,9 @@ const TimeOfFlightCanvas: React.FC = () => {
         camera={{ position: [0, 0, 10] }}
         gl={{ antialias: true, alpha: true }}
       >
-        <SceneContents />
+        <React.Suspense fallback={null}>
+          <SceneContents />
+        </React.Suspense>
       </Canvas>
       <RendererBadge>WebGPU</RendererBadge>
     </Frame>
