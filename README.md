@@ -25,7 +25,12 @@ _Real live, on person capture the signal with an RTL-SDR from 18kHz to 3.218MHz,
 <img width="1229" height="848" alt="Screenshot 2026-04-09 at 00 37 03" src="https://github.com/user-attachments/assets/b9a586ee-e441-46d9-b3a5-1f3862625a92" />
 
 
-N-APT is a web app for visualizing the synonymous signal which originates from the National Security Agency (NSA). N-APT is named such because the signals strongly appear like Automatic Picture Transmission (APT) signals (used by NOAA satellites which were decomissioned in 2025). This app is primarily an SDR visualizer app using RTL-SDR to visualize signals, which is for a very specific and narrow case –– The NSA going all out and you not knowing what, how or why. Much of my frustration for building this was that other SDR software couldn't record I/Q captures of the spectrum with the settings that I had, nor did they have encryption or any features that would've made it easier to look at the signals.
+N-APT is a web app for visualizing the synonymous signal which originates from the National Security Agency (NSA). N-APT is named such because the signals strongly appear like Automatic Picture Transmission (APT) signals (used by NOAA satellites which were decomissioned in 2025). 
+
+
+This app is primarily an SDR visualizer app using RTL-SDR to visualize signals, which is for a very specific and narrow case –– **The NSA going all out and you not knowing what, how or why.**
+
+Much of my frustration for building this was that other SDR software couldn't record I/Q captures of the spectrum with the settings that I had, nor did they have encryption for a senstive signal as such, nor did any OSS software have any features that would've made it easier to look at the signals.
 
 APT which does both frequency modulation and amplitude modulation was repurposed by the NSA into an a special formula of very simple directional radio waves that actually translate into an unprecedented and full featured neurotechnology able to fully:
 
