@@ -20,7 +20,7 @@ describe('Markdown Preview Assets', () => {
 
   describe('Asset Files', () => {
     test('should have all required image assets', () => {
-      const publicDir = path.join(__dirname, '../../public/md-preview');
+      const publicDir = path.join(__dirname, '../../public/images');
       
       // Check if the directory exists
       expect(fs.existsSync(publicDir)).toBe(true);
@@ -45,7 +45,7 @@ describe('Markdown Preview Assets', () => {
     });
 
     test('should have valid image file formats', () => {
-      const publicDir = path.join(__dirname, '../../public/md-preview');
+      const publicDir = path.join(__dirname, '../../public/images');
       const imageFiles = fs.readdirSync(publicDir).filter(file => 
         file.endsWith('.png') || file.endsWith('.jpg') || file.endsWith('.jpeg')
       );

@@ -8,7 +8,7 @@ import {
   InitializingTitle,
   InitializingText,
 } from "@n-apt/components/Layout";
-import nAptLogo from "@n-apt/images/icon.svg";
+import nAptLogo from "@n-apt/public/images/icon.svg";
 
 export type AuthState =
   | "connecting"

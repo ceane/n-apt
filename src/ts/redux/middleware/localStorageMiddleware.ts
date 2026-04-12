@@ -142,8 +142,8 @@ export const loadPersistedSdrSettings = () => {
   try {
     const parsed = JSON.parse(stored);
     
-    // Ensure lastKnownRanges is an object
-    if (parsed.lastKnownRanges && typeof parsed.lastKnownRanges !== 'object') {
+    // Ensure lastKnownRanges is a valid object
+    if (!parsed.lastKnownRanges || typeof parsed.lastKnownRanges !== 'object' || Array.isArray(parsed.lastKnownRanges)) {
       parsed.lastKnownRanges = {};
     }
 

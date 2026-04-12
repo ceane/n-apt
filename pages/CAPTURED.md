@@ -16,7 +16,7 @@ This runs `rtl_sdr_capture.py` by capturing IQ samples from an RTL-SDR device ac
 
 To get live captures you need an [RTL-SDR](https://www.rtl-sdr.com) (pictured below). A software defined radio (SDR) is an important piece of technology. It is a radio that allows one to see signals in the environment. It's recommened to also have a FM Bandpass filter (attached to the RTL-SDR in the photo) to filter out strong FM signals and get a cleaner capture, I had some partial interference with RTL-SDR. Currently I don't have an upconverter, which would capture and shift the signals to a higher frequency to get a cleaner capture.
 
-![RTL-SDR](images/rtl-sdr.jpg)
+![rtl-sdr](/md-preview/images/rtl-sdr.jpg)
 
 **📡 Frequencies Captured**
 
