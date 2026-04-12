@@ -1,5 +1,5 @@
 import React, { useMemo, useReducer, useEffect, useCallback, useRef, createContext, useContext } from "react";
-import type { AuthState } from "@n-apt/components/AuthenticationPrompt";
+import type { AuthState } from "@n-apt/routes/AuthenticationRoute";
 import { deriveAesKey } from "@n-apt/crypto/webcrypto";
 import {
   getStoredSession,

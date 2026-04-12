@@ -6,10 +6,26 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom";
-import AuthenticationPrompt from "../../src/ts/components/AuthenticationPrompt";
-import type { AuthState } from "../../src/ts/components/AuthenticationPrompt";
 
-describe("AuthenticationPrompt Component", () => {
+jest.mock("@n-apt/hooks/useAuthentication", () => ({
+  useAuthentication: jest.fn(() => ({
+    authState: "ready" as const,
+    isAuthenticated: false,
+    authError: null,
+    hasPasskeys: true,
+    isInitialAuthCheck: false,
+    handlePasswordAuth: jest.fn(),
+    handlePasskeyAuth: jest.fn(),
+    handleRegisterPasskey: jest.fn(),
+  })),
+}));
+
+import {
+  AuthenticationUI,
+  type AuthState,
+} from "@n-apt/routes/AuthenticationRoute";
+
+describe("AuthenticationRoute", () => {
   const defaultProps = {
     authState: "ready" as AuthState,
     error: null,
@@ -24,7 +40,7 @@ describe("AuthenticationPrompt Component", () => {
   });
 
   it("should render authentication prompt correctly", () => {
-    render(<AuthenticationPrompt {...defaultProps} />);
+    render(<AuthenticationUI {...defaultProps} />);
     expect(
       screen.getByText("Secure Access Required for N-APT"),
     ).toBeInTheDocument();
@@ -32,13 +48,13 @@ describe("AuthenticationPrompt Component", () => {
 
   it("should show loading state during authentication", () => {
     render(
-      <AuthenticationPrompt {...defaultProps} authState="authenticating" />,
+      <AuthenticationUI {...defaultProps} authState="authenticating" />,
     );
     expect(screen.getByText("Authenticating...")).toBeInTheDocument();
   });
 
   it("should show success state", () => {
-    render(<AuthenticationPrompt {...defaultProps} authState="success" />);
+    render(<AuthenticationUI {...defaultProps} authState="success" />);
     expect(
       screen.getByText("Authentication successful — starting stream..."),
     ).toBeInTheDocument();
@@ -47,7 +63,7 @@ describe("AuthenticationPrompt Component", () => {
   it("should show error state", () => {
     const errorMessage = "Invalid credentials";
     render(
-      <AuthenticationPrompt
+      <AuthenticationUI
         {...defaultProps}
         authState="failed"
         error={errorMessage}
@@ -60,7 +76,7 @@ describe("AuthenticationPrompt Component", () => {
 
   it("should show timeout state", () => {
     render(
-      <AuthenticationPrompt
+      <AuthenticationUI
         {...defaultProps}
         authState="timeout"
         hasPasskeys={false}
@@ -73,7 +89,7 @@ describe("AuthenticationPrompt Component", () => {
   });
 
   it("should display passkey option when available", () => {
-    render(<AuthenticationPrompt {...defaultProps} hasPasskeys={true} />);
+    render(<AuthenticationUI {...defaultProps} hasPasskeys={true} />);
     expect(
       screen.getByRole("button", { name: /Sign in with Passkey/ }),
     ).toBeInTheDocument();
@@ -81,7 +97,7 @@ describe("AuthenticationPrompt Component", () => {
   });
 
   it("should not display passkey option when not available", () => {
-    render(<AuthenticationPrompt {...defaultProps} hasPasskeys={false} />);
+    render(<AuthenticationUI {...defaultProps} hasPasskeys={false} />);
     expect(
       screen.queryByRole("button", { name: /Sign in with Passkey/ }),
     ).not.toBeInTheDocument();
@@ -91,7 +107,7 @@ describe("AuthenticationPrompt Component", () => {
   });
 
   it("should show password form when passkey available and user clicks 'Use password instead'", () => {
-    render(<AuthenticationPrompt {...defaultProps} hasPasskeys={true} />);
+    render(<AuthenticationUI {...defaultProps} hasPasskeys={true} />);
 
     // Initially passkey form should be shown
     expect(
@@ -114,7 +130,7 @@ describe("AuthenticationPrompt Component", () => {
   it("should handle password submission", async () => {
     const mockPasswordSubmit = jest.fn();
     render(
-      <AuthenticationPrompt
+      <AuthenticationUI
         {...defaultProps}
         onPasswordSubmit={mockPasswordSubmit}
         hasPasskeys={false}
@@ -133,7 +149,7 @@ describe("AuthenticationPrompt Component", () => {
   it("should handle passkey authentication", () => {
     const mockPasskeyAuth = jest.fn();
     render(
-      <AuthenticationPrompt
+      <AuthenticationUI
         {...defaultProps}
         onPasskeyAuth={mockPasskeyAuth}
         hasPasskeys={true}
@@ -151,7 +167,7 @@ describe("AuthenticationPrompt Component", () => {
   it("should handle passkey registration", () => {
     const mockRegisterPasskey = jest.fn();
     render(
-      <AuthenticationPrompt
+      <AuthenticationUI
         {...defaultProps}
         onRegisterPasskey={mockRegisterPasskey}
         hasPasskeys={false}
@@ -167,7 +183,7 @@ describe("AuthenticationPrompt Component", () => {
   });
 
   it("should disable submit button when password is empty", async () => {
-    render(<AuthenticationPrompt {...defaultProps} hasPasskeys={false} />);
+    render(<AuthenticationUI {...defaultProps} hasPasskeys={false} />);
 
     const submitButton = screen.getByRole("button", { name: /Authenticate/ });
     expect(submitButton).toBeDisabled();
@@ -200,7 +216,7 @@ describe("AuthenticationPrompt Component", () => {
 
     testCases.forEach(({ state, expectedMessage }) => {
       const { unmount } = render(
-        <AuthenticationPrompt {...defaultProps} authState={state} />,
+        <AuthenticationUI {...defaultProps} authState={state} />,
       );
       expect(screen.getByText(expectedMessage)).toBeInTheDocument();
       unmount();
@@ -208,7 +224,7 @@ describe("AuthenticationPrompt Component", () => {
   });
 
   it("should show different message for ready state without passkeys", () => {
-    render(<AuthenticationPrompt {...defaultProps} hasPasskeys={false} />);
+    render(<AuthenticationUI {...defaultProps} hasPasskeys={false} />);
     expect(
       screen.getByText("Enter password to authenticate and start streaming"),
     ).toBeInTheDocument();

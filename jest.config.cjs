@@ -14,6 +14,8 @@ module.exports = {
     "^@n-apt/md-preview/(.*)$": "<rootDir>/src/md-preview/$1",
     "^@n-apt/components/(.*)$": "<rootDir>/src/ts/components/$1",
     "^@n-apt/hooks/(.*)$": "<rootDir>/src/ts/hooks/$1",
+    // Stub like other static assets: alias must not point at raw .svg or Jest parses XML as JS.
+    "^@n-apt/images/(.*)$": "<rootDir>/test/ts/__mocks__/fileMock.cjs",
     "^@n-apt/(.*)$": "<rootDir>/src/ts/$1",
     "\\.(gif|jpg|jpeg|png|svg|webp)$": "<rootDir>/test/ts/__mocks__/fileMock.cjs",
     "\\.css$": "<rootDir>/test/ts/__mocks__/styleMock.cjs",

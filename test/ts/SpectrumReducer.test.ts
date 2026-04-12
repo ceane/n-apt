@@ -42,8 +42,10 @@ jest.mock("@n-apt/components/sidebar/SidebarNew", () => ({
   default: () => null,
 }));
 
-jest.mock("@n-apt/components/AuthenticationPrompt", () => ({
+jest.mock("@n-apt/routes/AuthenticationRoute", () => ({
   default: () => null,
+  AuthenticationRoute: () => null,
+  AuthenticationUI: () => null,
 }));
 
 jest.unmock("@n-apt/hooks/useSpectrumStore");
