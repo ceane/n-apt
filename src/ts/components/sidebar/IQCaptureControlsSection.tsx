@@ -9,7 +9,7 @@ import type {
   DeviceState,
 } from "@n-apt/hooks/useWebSocket";
 import { addNotification, updateNotification } from "@n-apt/redux/slices/notificationsSlice";
-import { formatDuration } from "@n-apt/utils/formatters";
+import { formatDuration, formatDurationMs } from "@n-apt/utils/formatters";
 import {
   Clock,
   File as FileIcon,
@@ -30,6 +30,7 @@ const Section = styled.div`
 `;
 
 import { Row, Collapsible, Range } from "@n-apt/components/ui";
+import { RadioTabs } from "@n-apt/components/ui/RadioTabs";
 
 // Channel descriptor used to trim a multi-channel capture header end-to-end
 export interface ChannelDescriptor {
@@ -241,7 +242,13 @@ const DurationRow = styled.div`
   display: grid;
   grid-auto-flow: column;
   align-items: center;
-  gap: 4px;
+  gap: 0px;
+`;
+
+const DurationInlineGroup = styled.div`
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 `;
 
 const DurationModeRow = styled.div`
@@ -266,6 +273,46 @@ const DurationUnit = styled.span`
   font-size: 12px;
   color: ${(props) => props.theme.textPrimary};
   font-weight: 500;
+  margin-left: 6px;
+  display: inline-flex;
+  align-items: baseline;
+`;
+
+// Fixed-height container for duration controls to prevent layout thrash
+const DurationBlock = styled.div`
+  height: 6rem;
+  display: grid;
+  grid-template-columns: 1fr;
+  align-items: center;
+`;
+
+const DurationManualCenter = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  width: 100%;
+`;
+
+const DurationControlsWrapper = styled.div`
+  display: grid;
+  grid-template-rows: auto auto;
+  row-gap: 6px;
+  width: 100%;
+`;
+
+const DurationInputBox = styled.input`
+  width: 3.5rem;
+  height: 2rem;
+  background: #2f2f2f;
+  border: 1px solid #555;
+  border-radius: 6px;
+  color: #fff;
+  font-family: ${(props) => props.theme.typography.mono};
+  font-size: 14px;
+  text-align: right;
+  padding: 0;
+  outline: none;
 `;
 
 const CaptureActions = styled.div`
@@ -723,47 +770,33 @@ export const IQCaptureControlsSection: React.FC<
             </RangeRowBody>
           </RangeRowContainer>
 
-          <Row label={<IconLabel icon={Clock} text="Duration" />}>
-            <div style={{ display: "grid", gap: 8, width: "100%" }}>
-              <DurationModeRow>
-                <DurationModeLabel htmlFor="iq-capture-duration-timed">
-                  <input
-                    id="iq-capture-duration-timed"
-                    type="radio"
-                    name="iq-capture-duration-mode"
-                    checked={captureDurationMode === "timed"}
-                    onChange={() => handleDurationModeChange("timed")}
-                  />
-                  Time-based
-                </DurationModeLabel>
-                <DurationModeLabel htmlFor="iq-capture-duration-manual">
-                  <input
-                    id="iq-capture-duration-manual"
-                    type="radio"
-                    name="iq-capture-duration-mode"
-                    checked={captureDurationMode === "manual"}
-                    onChange={() => handleDurationModeChange("manual")}
-                  />
-                  Manual
-                </DurationModeLabel>
-              </DurationModeRow>
+          <Row label={<IconLabel icon={Clock} text="Duration" />}> 
+            <DurationBlock>
+              <RadioTabs
+                value={captureDurationMode}
+                onChange={(v) => handleDurationModeChange(v as "timed" | "manual")}
+                options={[
+                  { value: "timed", label: "Timed" },
+                  { value: "manual", label: "Manual" },
+                ]}
+              />
               {captureDurationMode === "timed" ? (
-                <DurationRow>
-                  <SettingInput
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
+                  <DurationInputBox
                     type="number"
                     min="1"
                     step="1"
                     value={Math.round(captureDurationS)}
-                    onChange={(e) =>
-                      onCaptureDurationSChange(parseInt(e.target.value) || 1)
-                    }
+                    onChange={(e) => onCaptureDurationSChange(parseInt(e.target.value) || 1)}
                   />
                   <DurationUnit>s</DurationUnit>
-                </DurationRow>
+                </div>
               ) : (
-                <SettingValue>Capture runs until you press Stop.</SettingValue>
+                <DurationManualCenter>
+                  <SettingValue>I/Q Capture runs until <br /> you press Stop.</SettingValue>
+                </DurationManualCenter>
               )}
-            </div>
+            </DurationBlock>
           </Row>
 
           <Row label={<IconLabel icon={FileIcon} text="File type" />}>
@@ -884,7 +917,7 @@ export const IQCaptureControlsSection: React.FC<
                       )}
                       { " / " }
                       {typeof captureStatus.duration === "number" && (
-                        formatDuration(captureStatus.duration)
+                        formatDurationMs(captureStatus.duration)
                       )}
                     </DownloadMeta>
                    

@@ -108,6 +108,43 @@ const SampleRateValue = styled.span`
   color: ${(props) => props.theme.primary};
 `;
 
+// Box to describe the currently active channel and show bandwidth stats
+const ActiveChannelInfoBox = styled.div`
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 16px;
+  margin-right: 20px;
+  grid-column: 1 / -1;
+  font-family: sans-serif;
+  font-size: 12px;
+`;
+
+const ActiveChannelInfoTitle = styled.div`
+  color: ${(props) => props.theme.primary};
+  font-size: 12px;
+  font-weight: 600;
+  font-family: sans-serif;
+  margin-bottom: 8px;
+`;
+
+const ActiveChannelDescription = styled.p`
+  margin: 0 0 8px 0;
+  color: ${(props) => props.theme.textSecondary};
+  font-size: 12px;
+  line-height: 1.5;
+`;
+
+const ActiveChannelBandwidthList = styled.div`
+  color: ${(props) => props.theme.textSecondary};
+  line-height: 1.8;
+`;
+
+// Mono value span for JetBrains Mono after '='
+const MonoValue = styled.span`
+  font-family: "JetBrains Mono", monospace;
+  font-weight: bold;
+`;
+
 const FrequencyInputContainer = styled.div`
   display: flex;
   align-items: center;
@@ -269,6 +306,51 @@ export const Channels: React.FC<ChannelsProps> = ({
     return effectiveFrames.filter(f => ["A", "B"].includes(f.label));
   }, [effectiveFrames]);
 
+  // Compute information for the active channel box
+  // Resolve the active frame robustly from both sources
+  const activeFrame = (effectiveFrames.find((f: any) => f.label === activeSignalArea) 
+    || channels.find((f: any) => f.label === activeSignalArea)) as any;
+  const activeDescription: string = activeFrame?.description ?? "";
+  // Bandwidth estimation: 1 byte per Hz, width in MHz -> MB/s
+  const widthMHz = activeFrame
+    ? Math.max(0, Number(activeFrame.max_mhz) - Number(activeFrame.min_mhz))
+    : 0;
+  const bandwidthMBps = Math.max(0, widthMHz);
+  const minutes5MB = bandwidthMBps * 300; // 5 minutes
+  const hourMB = bandwidthMBps * 3600; // 1 hour
+  const dayMB = bandwidthMBps * 86400; // 24 hours
+
+  // Helpers to format bandwidth values with human-friendly units
+  const formatBWperSec = (mbPerSec: number) => {
+  const bps = mbPerSec * 1_000_000; // convert MB/s to B/s
+  const tb = mbPerSec / 1024;
+  if (tb >= 0.8) {
+    // Show near-next-TB values with a single decimal (e.g., 0.9 TB)
+    return `${tb.toFixed(1)} TB/s`;
+  }
+  if (bps >= 1_000_000_000_000) {
+      return `${(bps / 1_000_000_000_000).toFixed(2)} TB/s`;
+    }
+    if (bps >= 1_000_000_000) {
+      return `${(bps / 1_000_000_000).toFixed(2)} GB/s`;
+    }
+    if (bps >= 1_000_000) {
+      return `${(bps / 1_000_000).toFixed(2)} MB/s`;
+    }
+    if (bps >= 1_000) {
+      return `${(bps / 1_000).toFixed(2)} KB/s`;
+    }
+    return `${bps.toFixed(0)} B/s`;
+  };
+  const formatMBValue = (mb: number) => {
+    // MB -> GB/TB when large
+    const gb = mb / 1024;
+    const tb = gb / 1024;
+    if (tb >= 1) return `${tb.toFixed(2)} TB`;
+    if (gb >= 1) return `${gb.toFixed(2)} GB`;
+    return `${mb.toFixed(0)} MB`;
+  };
+
   if (variant === "spectrum") {
     return (
       <ChannelsSection>
@@ -321,6 +403,26 @@ export const Channels: React.FC<ChannelsProps> = ({
             <EmptyStateText>No active signal areas</EmptyStateText>
           )}
         </ChannelsSpectrumGrid>
+
+        {/* Active Channel Description & Stats Box */}
+        {activeFrame && (
+          <ActiveChannelInfoBox>
+            {activeDescription ? (
+              <>
+                <ActiveChannelInfoTitle>Channel {activeFrame.label}</ActiveChannelInfoTitle>
+                <ActiveChannelDescription>{activeDescription}</ActiveChannelDescription>
+                <hr style={{ border: 0, height: 1, backgroundColor: '#555', margin: '8px 0 12px' }} />
+              </>
+            ) : null}
+            
+            <ActiveChannelBandwidthList>
+              Naive Bandwidth = <MonoValue>{formatBWperSec(bandwidthMBps)}</MonoValue> of <MonoValue>{widthMHz.toFixed(2)} MHz</MonoValue><br />
+              5 mins = <MonoValue>{formatMBValue(minutes5MB)}</MonoValue><br />
+              1 hour = <MonoValue>{formatMBValue(hourMB)}</MonoValue><br />
+              24 hours = <MonoValue>{formatMBValue(dayMB)}</MonoValue>
+            </ActiveChannelBandwidthList>
+          </ActiveChannelInfoBox>
+        )}
       </ChannelsSection>
     );
   }
@@ -451,9 +553,9 @@ export const Channels: React.FC<ChannelsProps> = ({
                   }
                 />
               )}
-            </React.Fragment>
-          );
-        })}
+              </React.Fragment>
+            );
+          })}
 
         <SampleRateLabel>
           Hardware sample rate: <SampleRateValue>{sampleRateMHz ? formatFrequency(sampleRateMHz) : "X.X MHz"}</SampleRateValue>
