@@ -38,9 +38,7 @@ jest.mock("@n-apt/services/auth", () => ({
   buildWsUrl: jest.fn(),
 }));
 
-jest.mock("@n-apt/components/sidebar/SidebarNew", () => ({
-  default: () => null,
-}));
+// SidebarNew is removed; no mock needed
 
 jest.mock("@n-apt/routes/AuthenticationRoute", () => ({
   default: () => null,
