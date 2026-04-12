@@ -1,14 +1,14 @@
-import AuthenticationPrompt from "@n-apt/components/AuthenticationPrompt";
+import { AuthenticationUI } from "@n-apt/routes/AuthenticationRoute";
 
 export default {
-  title: 'Auth/AuthenticationPrompt',
+  title: 'Auth/AuthenticationRoute',
   parameters: {
     layout: 'fullscreen',
   },
 };
 
 export const PasswordLogin = () => (
-  <AuthenticationPrompt
+  <AuthenticationUI
     authState="ready"
     error={null}
     hasPasskeys={false}
@@ -19,7 +19,7 @@ export const PasswordLogin = () => (
 );
 
 export const PasskeyFirst = () => (
-  <AuthenticationPrompt
+  <AuthenticationUI
     authState="ready"
     error={null}
     hasPasskeys={true}
@@ -30,7 +30,7 @@ export const PasskeyFirst = () => (
 );
 
 export const AuthenticationFailed = () => (
-  <AuthenticationPrompt
+  <AuthenticationUI
     authState="failed"
     error="Invalid password. Re-enter the local dev key to unlock the live SDR session."
     hasPasskeys={false}
@@ -41,7 +41,7 @@ export const AuthenticationFailed = () => (
 );
 
 export const Authenticating = () => (
-  <AuthenticationPrompt
+  <AuthenticationUI
     authState="authenticating"
     error={null}
     hasPasskeys={true}
