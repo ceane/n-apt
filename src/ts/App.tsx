@@ -6,7 +6,7 @@ import { Helmet } from "react-helmet-async";
 import { AppRoutes } from "@n-apt/routes/Routes";
 import { AuthProvider } from "@n-apt/hooks/useAuthentication";
 import { SpectrumProvider } from "@n-apt/hooks/useSpectrumStore";
-import { AuthRoute } from "@n-apt/routes/AuthRoute";
+import { AuthenticationRoute as AuthRoute } from "@n-apt/routes/AuthenticationRoute";
 import ReduxThemeProvider from "@n-apt/components/ReduxThemeProvider";
 import ReduxProvider from "@n-apt/components/ReduxProvider";
 import { PromptProvider, ReduxNotifications } from "@n-apt/components/ui";

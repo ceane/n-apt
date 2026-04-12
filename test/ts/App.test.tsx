@@ -47,14 +47,15 @@ jest.mock("@n-apt/routes/Routes", () => ({
   ),
 }));
 
-// Mock providers and AuthRoute
+// Mock providers and AuthenticationRoute
 jest.mock("@n-apt/hooks/useAuthentication", () => ({
   AuthProvider: ({ children }: { children: React.ReactNode }) => children,
   useAuthentication: () => ({ isAuthenticated: true }),
 }));
 
-jest.mock("@n-apt/routes/AuthRoute", () => ({
-  AuthRoute: ({ children }: { children: React.ReactNode }) => children,
+jest.mock("@n-apt/routes/AuthenticationRoute", () => ({
+  AuthenticationRoute: ({ children }: { children: React.ReactNode }) =>
+    children,
 }));
 
 jest.mock("@n-apt/hooks/useSpectrumStore", () => ({

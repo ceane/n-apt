@@ -2,7 +2,13 @@ import React, { useState, useCallback, useRef, useEffect } from "react";
 import styled, { keyframes } from "styled-components";
 import { Button } from "@n-apt/components/ui/Button";
 import { Lock } from "lucide-react";
-import nAptLogo from "../../../images/icon.svg";
+import { useAuthentication } from "@n-apt/hooks/useAuthentication";
+import {
+  InitializingContainer,
+  InitializingTitle,
+  InitializingText,
+} from "@n-apt/components/Layout";
+import nAptLogo from "@n-apt/images/icon.svg";
 
 export type AuthState =
   | "connecting"
@@ -13,13 +19,8 @@ export type AuthState =
   | "failed"
   | "timeout";
 
-interface AuthenticationPromptProps {
-  authState: AuthState;
-  error: string | null;
-  hasPasskeys: boolean;
-  onPasswordSubmit: (password: string) => void;
-  onPasskeyAuth: () => void;
-  onRegisterPasskey: () => void;
+interface AuthenticationRouteProps {
+  children: React.ReactNode;
 }
 
 const pulse = keyframes`
@@ -199,6 +200,8 @@ const TextBackdrop = styled.div`
   padding: 20px 24px;
   backdrop-filter: blur(4px) saturate(140%);
   -webkit-backdrop-filter: blur(16px) saturate(140%);
+  mask-image: radial-gradient(circle, black 60%, transparent 100%);
+  -webkit-mask-image: radial-gradient(circle, black 60%, transparent 100%);
 `;
 
 const Title = styled.h2`
@@ -350,14 +353,23 @@ const Logo = styled.img`
   }
 `;
 
-const AuthenticationPrompt = ({
+interface AuthenticationUIProps {
+  authState: AuthState;
+  error: string | null;
+  hasPasskeys: boolean;
+  onPasswordSubmit: (password: string) => void;
+  onPasskeyAuth: () => void;
+  onRegisterPasskey: () => void;
+}
+
+export const AuthenticationUI = ({
   authState,
   error,
   hasPasskeys,
   onPasswordSubmit,
   onPasskeyAuth,
   onRegisterPasskey,
-}: AuthenticationPromptProps) => {
+}: AuthenticationUIProps) => {
   const [password, setPassword] = useState("");
   const [showPasswordForm, setShowPasswordForm] = useState<boolean | null>(
     null,
@@ -368,19 +380,22 @@ const AuthenticationPrompt = ({
   );
   const [binaryDigits] = useState<Array<{
     id: number;
-    value: '0' | '1';
+    value: string;
     y: number;
     size: number;
     delay: number;
     duration: number;
   }>>(() => {
     const digits = [];
-    // Generate pool of 40 persistent digits
-    for (let i = 0; i < 40; i++) {
+    // Generate pool of 12 persistent hex bytes
+    for (let i = 0; i < 12; i++) {
       const isWaveA = i < 24;
+      // Generate random hex byte like "7A 0B"
+      const byte1 = Math.floor(Math.random() * 256).toString(16).toUpperCase().padStart(2, '0');
+      const byte2 = Math.floor(Math.random() * 256).toString(16).toUpperCase().padStart(2, '0');
       digits.push({
         id: i,
-        value: (Math.random() > 0.5 ? '1' : '0') as '0' | '1',
+        value: `${byte1} ${byte2}`,
         y: isWaveA ? (40 + Math.random() * 8) : (52 + Math.random() * 8), // Lane-based Y
         size: 8 + Math.random() * 16,
         delay: -(Math.random() * 20), // Significant negative delay to spread them across the screen immediately
@@ -620,4 +635,45 @@ const AuthenticationPrompt = ({
   );
 };
 
-export default AuthenticationPrompt;
+export const AuthenticationRoute: React.FC<AuthenticationRouteProps> = ({
+  children,
+}) => {
+  const {
+    authState,
+    isAuthenticated,
+    authError,
+    hasPasskeys,
+    isInitialAuthCheck,
+    handlePasswordAuth,
+    handlePasskeyAuth,
+    handleRegisterPasskey,
+  } = useAuthentication();
+
+  if (isInitialAuthCheck) {
+    return (
+      <InitializingContainer>
+        <InitializingTitle>Initializing N-APT</InitializingTitle>
+        <InitializingText>
+          Establishing secure connection and verifying session...
+        </InitializingText>
+      </InitializingContainer>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <AuthenticationUI
+        authState={authState}
+        error={authError}
+        hasPasskeys={hasPasskeys}
+        onPasswordSubmit={handlePasswordAuth}
+        onPasskeyAuth={handlePasskeyAuth}
+        onRegisterPasskey={handleRegisterPasskey}
+      />
+    );
+  }
+
+  return <>{children}</>;
+};
+
+export default AuthenticationRoute;
