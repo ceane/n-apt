@@ -28,6 +28,7 @@ export type SnapshotOptions = {
     data: SnapshotData;
     visualRange: { min: number; max: number };
   }>;
+  beginWholeChannelSweep?: () => void | Promise<void>;
   getVideoSourceCanvases?: () => {
     spectrum: HTMLCanvasElement | null;
     waterfall?: HTMLCanvasElement | null;
@@ -836,6 +837,11 @@ export function useSnapshot(
       const restoreRecordingState = options.prepareVideoRecording
         ? await options.prepareVideoRecording()
         : undefined;
+
+      if (options.whole && options.beginWholeChannelSweep) {
+        await options.beginWholeChannelSweep();
+        await new Promise<void>((resolve) => setTimeout(resolve, 1200));
+      }
 
       try {
         const baseFilename = `spectrum-snapshot-${timestamp}`;
