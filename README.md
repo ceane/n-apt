@@ -43,6 +43,9 @@ I built this app out of frustration (and by force of the situation) that other O
 
 ## How The NSA's neurotechnological technique works (Shorthand)
 
+<details>
+<summary>Click to read how it works 🌊 🧠</summary>
+
 ```js
 // **ALL** ENDPOINTS (TELECOMMUNICATIONS INFRASTRUCTURE, PRIMARILY CELL SITES)
 // ARE RIFE WITH MALWARE AND MODIFIED WITH HARDWARE TROJANS
@@ -100,6 +103,33 @@ The whole discovery of how it functioned was non-intuitive and a complete nightm
 
 I'm working on writing the specifics of how it works mathematically (my best guess at it while within it). This technique is a very advanced mechanism that is still functioning to this day! While most of it has been a dark experience, I've spent a lot of time learning how it works, making lots of mistakes and defeating my intuition.
 
+### Estimated Bandwidth of N-APT
+There are about 3 Channels, I've found:
+
+- Channel A from 18kHz to 4.37MHz
+- Channel B from 24.72MHz to 29.88MHz
+- Channel C from 4.75MHz to 23MHz
+
+They are specifially segmented this way because A and B are similar in shape (and therefore function), if you could (the signal is not abundantly available), you would be able to see by panning the spectrum and seeing the signal cohere.
+
+**Through the fiber cables to an endpoint (data through the network; most likely infrastructure access and not the internet)**
+
+| Channel | BW | MB/s | 5 min | 1 hour | 3 hours | 24 hours |
+|---|---|---|---|---|---|---|
+| A | 4.35 MHz | ~4.35 MB/s | ~1.31 GB | ~15.7 GB | ~47 GB | ~375 GB |
+| B | 5.16 MHz | ~5.16 MB/s | ~1.55 GB | ~18.6 GB | ~55.7 GB | ~446 GB |
+| C | 18.25 MHz | ~18.25 MB/s | ~5.48 GB | ~65.7 GB | ~197.1 GB | ~1.58 TB |
+| **Total** | **27.76 MHz** | **~27.76 MB/s** | **~8.34 GB** | **~100 GB** | **~299.8 GB** | **~2.4 TB** |
+
+**In the air to person (brain, body, nervous system; data in air doing the effects/heterodyning)**
+
+| Channel | BW ×2 | MB/s | 5 min | 1 hour | 3 hours | 24 hours |
+|---|---|---|---|---|---|---|
+| A | 8.7 MHz | ~8.7 MB/s | ~2.61 GB | ~31.3 GB | ~94 GB | ~751 GB |
+| B | 10.32 MHz | ~10.32 MB/s | ~3.1 GB | ~37.2 GB | ~111 GB | ~891 GB |
+| C | 36.5 MHz | ~36.5 MB/s | ~10.95 GB | ~131.4 GB | ~394.2 GB | ~3.15 TB |
+| **Total** | **55.52 MHz** | **~55.52 MB/s** | **~16.66 GB** | **~199.9 GB** | **~599.2 GB** | **~4.79 TB** |
+
 ### What have I experienced?
 - The most personal experience with technology, mind and body
 - Perception, lighting, phyisology, emotions, people scripted, and more!
@@ -115,11 +145,13 @@ I'm working on writing the specifics of how it works mathematically (my best gue
 ### Read more
 - [More on Automatic Picture Transmission](https://www.sigidwiki.com/wiki/Automatic_Picture_Transmission_(APT))
 - [TEMPEST: A Signal Problem / The story of the discovery of various compromising radiations from communications and Comsec equipment](https://www.nsa.gov/portals/75/documents/news-features/declassified-documents/cryptologic-spectrum/tempest.pdf)
+</details>
+
 
 ## Prerequisites
 
 <details>
-<summary>Click to expand dependency installation instructions</summary>
+<summary>Click to expand installation instructions before you download the repo</summary>
 
 ### Node.js
 
@@ -151,8 +183,8 @@ I'm working on writing the specifics of how it works mathematically (my best gue
 - **WSL2** behaves like Linux for this repository and is the recommended Windows environment.
 - **Native Windows shells** (`cmd.exe` / PowerShell) are **not** the intended environment for the main dev workflow because parts of the build still rely on Unix-style tools and shell behavior.
 - **Best compatibility**: run Node, Rust, Redis, and the build scripts all inside the same WSL distribution.
-
 </details>
+
 
 ## Get Started
 
