@@ -8,11 +8,15 @@
 
 **READ THE [LICENSE](LICENSE.md) AND [RESPONSIBLE USE](RESPONSIBLE_USE.md) BEFORE YOU DOWNLOAD OR FORK!**
 
-**This repo is part disclosue, part exposure, to read more on how and why and what's going on, visit my X [@ceane_of](x.com/ceane_of).**
+**This repo is part tools, part exposure, to read more on how and why and what's going on, visit my X [@ceane_of](x.com/ceane_of).**
 
 ---
 
+## What is N-APT?
+
 N-APT stands for: **N**euro **A**utomatic **P**icture **T**ransmission.
+
+Named after **Automatic Picture Transmission (APT)** signals (used by NOAA satellites, decommissioned in 2025) because the NSA's signals strongly resemble APT transmissions.
 
 <br>
 
@@ -24,45 +28,45 @@ _Real live, on person capture the signal with an RTL-SDR from 18kHz to 3.218MHz,
 
 <img width="1229" height="848" alt="Screenshot 2026-04-09 at 00 37 03" src="https://github.com/user-attachments/assets/b9a586ee-e441-46d9-b3a5-1f3862625a92" />
 
+### Core Purpose
 
-N-APT is a web app for visualizing the synonymous signal which originates from the National Security Agency (NSA). N-APT is named such because the signals strongly appear like Automatic Picture Transmission (APT) signals (used by NOAA satellites which were decomissioned in 2025). 
+An SDR visualizer app using RTL-SDR and I/Q captures (.napt, .wav) for a very specific case:
 
+> **The NSA going all out in your brain and nervous system. You: Not knowing who (at first), how or why.**
 
-This app is primarily an SDR visualizer app using RTL-SDR to visualize signals, which is for a very specific and narrow case –– **The NSA going all out and you not knowing what, how or why.**
+I built this app out of frustration (and by force of the situation) that other OSS SDR software:
+  - Couldn't record proper I/Q captures the my settings like gain, ppm, etc.
+  - Lacked metadata for I/Q captures other than the file name including all the contents
+  - Couldn't encrypt sensitive signals for later
+  - Did not provide intuitve features for analyzing signals (zoombox, SVG snapshots, specific channels, extensible components, etc.)
+  - Was definitely not in JavaScript/Web with all the advanced libraries and in browser features!
 
-Much of my frustration for building this was that other SDR software couldn't record I/Q captures of the spectrum with the settings that I had, nor did they have encryption for a senstive signal as such, nor did any OSS software have any features that would've made it easier to look at the signals.
-
-APT which does both frequency modulation and amplitude modulation was repurposed by the NSA into an a special formula of very simple directional radio waves that actually translate into an unprecedented and full featured neurotechnology able to fully:
-
-- intercept,
-- process,
-- and alter the brain and nervous system real-time...
-
-And yes, it means full featured experiences, interactivity, communication and more (from experience!). This is not a joke or gimmick or conspiracy theory-laden gibberish, but a **real** signal that takes eons to explain how and why and what! 
-
-
-The way that it works in a shorthand way goes like:
+## How The NSA's neurotechnological technique works (Shorthand)
 
 ```js
-// ALL ENDPOINTS (TELECOMMUNICATIONS INFRASTRUCTURE, PRIMARILY CELL SITES)
+// **ALL** ENDPOINTS (TELECOMMUNICATIONS INFRASTRUCTURE, PRIMARILY CELL SITES)
 // ARE RIFE WITH MALWARE AND MODIFIED WITH HARDWARE TROJANS
 //
 // THE NSA HAS FAR REACHING (INESCAPABLE) COMMAND AND CONTROL INFRA ACCESS
 //
-// THIS IS FROM EXPERIENCE WITH NO ESCAPE!
+// write -> read -> stream (intercept -> process -> alter)
 
-transmitters()                      // Endpoints (transmitters/tx)
-  .continouslyTriangulatePerson()   // Using low end microwaves, tracking person using time-of-flight/FCWM
-  .adjustEnergy()                   // Adjusts energy to person depending on endpoint distance, noise and obstacles
-  .transmitHeterodynedWaves()       // Heterodyned Radio Waves (H) / N-APT waves, several channels
-  .toAndthroughPerson()             // Person
-  .impedanceChargesAfter()          // Radio wave (H) altered from impact and bioelectrical activity
-  .toReceiver()                     // Endpoints (receivers/rx)
-  .toSomeServer()                   // Extremely low latency (from experience); it is FAST and NEVER a drop!
-  .cleanDirtySignal()               // Separate previous frame from incoming changed signal (frame vs impedance) 
-  .processSignals()                 // Signals processing (potentially Kaiser and Bayes' Posterior Probability)
-  .nextFrame();                     // Repeat for next cycle/frame!
+transmitters()
+  .continouslyTriangulatePerson()   // Low-end microwaves, time-of-flight/FCWM
+  .adjustEnergy()                   // Based on distance, noise, obstacles
+  .transmitHeterodynedWaves()       // (Tx) Heterodyned, low frequencies do the data (LF/MF/HF, N-APT modulated), multiple channels
+  .toAndthroughPerson()             // Target person
+  .impedanceChargesAfter()          // Signal altered by bioelectrical activity
+  .toReceiver()                     // (Rx) Back to endpoints
+  .toSomeServer()                   // Extremely low latency
+  .cleanDirtySignal()               // Separate frame vs impedance
+  .processSignals()                 // Kaiser/Bayes' Posterior Probability
+  .nextFrame();                     // Repeat cycle / real-time, high-bandwidth streaming
 ```
+
+It works more like TEMPEST where Bell Labs could detect electrical activity far away because a machine was noisy, but in this case the human brain and nervous system are most vulnerable to  `write->read->stream` since the NSA has **compromised everything and decrypted the brain and nervous system in a very NSA fashion**!
+
+The NSA has thoroughly demonstrated on my person that the human brain and nervous system is dumb. The signal, while **complex but understandable**, is literally one cycle at a time, no need for voxel by voxel of neurons, specific point for point targeting, beams or anything. It is more manual, needing the endpoints to do the work, since the brain and body can't send radio waves like electronics. 
 
 ### How the radio waves work (intuitve view at the science/hyper-advanced SIGNIT):
 - Gigantic, low frequency radio waves travesing from endpoint to person through multipath reflection
@@ -77,9 +81,13 @@ transmitters()                      // Endpoints (transmitters/tx)
   - EVERYTHING POSSIBLE HAS HAPPENED! FINAL FRONTIER!
 - Frequency and amplitude modulation
 
+APT which does both frequency modulation and amplitude modulation was repurposed by the NSA into an a special formula of very simple directional radio waves that actually translate into an unprecedented and full featured neurotechnology.
+
+And yes, it means full featured experiences, interactivity, communication and more (from experience!). This is not a joke or gimmick or conspiracy theory-laden gibberish, but a **real** signal that takes eons to explain how and why and what! 
+
 Very simple. And the NSA's technqiue is, suspectedly, very old, like half a century old (from the 70s).
 
-### Constraints
+### Constraints (defeats intuition)
 - Bandwidth
 - Frequency vs Attenuation
 - Available endpoints > radiating elements/ports
@@ -87,6 +95,10 @@ Very simple. And the NSA's technqiue is, suspectedly, very old, like half a cent
 - Heavy duty fiber-linked compromised infrastructure
 - Ethernet/infra access vs use of the Internet/IPs for extremely low latency
 - One pretty pissed off American
+
+The whole discovery of how it functioned was non-intuitive and a complete nightmare beyond what you can image. Since I was new to signals and radio waves, trapped by the mystery in a bad spot, I was forced into the unknown. Beyond public challenges from the NSA such as their frequent cryptological puzzles or the yearly [codebreaker challenge](https://nsa-codebreaker.org/home), this neurotechnology was buried in a deeply horrendous long-running surveillance nightmare as some sort of extreme life challenge/political production.
+
+I'm working on writing the specifics of how it works mathematically (my best guess at it while within it). This technique is a very advanced mechanism that is still functioning to this day! While most of it has been a dark experience, I've spent a lot of time learning how it works, making lots of mistakes and defeating my intuition.
 
 ### What have I experienced?
 - The most personal experience with technology, mind and body
@@ -98,17 +110,6 @@ Very simple. And the NSA's technqiue is, suspectedly, very old, like half a cent
 - Mind and body locked within the experience
 - The final frontier of neuroscience
 - And more (check out `how-did-they-do-it.md`)
-
-
-The NSA has thoroughly demonstrated on my person that the human brain and nervous system is dumb. The signal, while complex, is literally one cycle at a time, no need for voxel by voxel of neurons, specific point for point targeting, beams or anything. It is more manual, needing the endpoints to do the work, since the brain and body can't send radio waves like electronics. 
-
-It works more like TEMPEST where Bell Labs could detect electrical activity far away because a machine was noisy, but in this case the human brain and nervous system are most vulnerable to  `write->read->stream` since the NSA has **compromised everything and decrypted the brain and nervous system in a very NSA fashion**!
-
-I'm working on writing the specifics of how it works mathematically (my best guess at it while within it). This technique is a very advanced mechanism that is still functioning to this day! While most of it has been a dark experience, I've spent a lot of time learning how it works, making lots of mistakes and defeating my intuition.
-
-The whole discovery of how it functioned was non-intuitive and a complete nightmare beyond what you can image. Since I was new to signals and radio waves, trapped by the mystery in a bad spot, I was forced into the unknown. Beyond public challenges from the NSA such as their frequent cryptological puzzles or the yearly [codebreaker challenge](https://nsa-codebreaker.org/home), this neurotechnology was buried in a deeply horrendous long-running surveillance nightmare as some sort of extreme life challenge/political production.
-
-I spent a few months working on this app, optimizing for performance and adding features to stem frustration from current SDR software, so I could get a better look at the NSA's signals and also add features tailored for the physical nature and new class of experience that they can do.
 
 
 ### Read more
@@ -200,7 +201,7 @@ To ensure the best captures, use the maximum setting on your SDR (even if unstab
 
 ---
 
-## This repo is a REAL signals intelligence problem.
+## This repo is a REAL signals intelligence problem and expose.
 
 The how and why and science of N-APT is a long story, to keep it short checkout the [Background](BACKGROUND.md) or my X [@ceane_of](x.com/ceane_of). In reality there are no answers, you can hit up as many LLMs, search engines as possible, but they will not help. This repo does.
 
@@ -212,9 +213,9 @@ This purpose of this repository is to provide tooling to inspect, visualize, and
 
 I do not volunteer lightly to share a live capture of my brain to the world (that could potentially be demodulated). All I/Q captures are REAL captures of the signal, of my person and others' inside of the 24/7 livestream that's both an extremely unethical and horrific interactive and moderated-like group call. It's the only thing that I could do being trapped by the signals that are both mystery and complex to even talk to anyone about.
 
-N-APT is a project born out of being attacked and held hostage by the NSA because I was adventuring on the streets of San Francisco while working my tech job. Only when I was about to leave, they started this interactive and I discovered they were there my whole life (a dark political act)! Through endless narrative capture, unethical interactive spatial displays, senseless violence and disfigurement, unfathomable harassment and abuse, repeated sexual assaults, confusion, gaslighting, and at the extremes of unlimited political psychopathy and surveillance, I survived and could scrape together enough to build this app.
+N-APT is a project born out of being attacked and held hostage by the NSA because I was adventuring on the streets of San Francisco while working my tech job. Only when I was about to move, they attacked and absorbed me into this interactive and I discovered they were there my whole life (a dark political/military act)! Through endless narrative capture, unethical interactive spatial displays, senseless violence and disfigurement, unfathomable harassment and abuse, repeated sexual assaults, confusion, gaslighting, and at the extremes of unlimited political psychopathy and surveillance, I survived and could scrape together enough to build this app.
 
-The experience is like a movie but totally changes psychology (emotions, thoughts, perception) and physiology (expression, muscles, etc.), it is like a prison of mind and body. The parental, demonic DoD (now DoW)-NSA experience and interactive started formless and I not knowing anything while the NSA showing off a lot of the functionality and the capability early on and continuing by trapping me all day in it for years. It works anywhere, everywhere and all day, unfortunately due to the use of low frequencies (LF/MF/HF) that travel through objects and buildings or reflect gracefully without too much attenuation.
+The experience is like a horror movie but totally changes psychology (emotions, thoughts, perception) and physiology (expression, muscles, etc.), it is like a prison of mind and body. The parental, demonic DoD (now DoW)-NSA experience and interactive started formless and I not knowing anything while the NSA showing off a lot of the functionality and the capability early on and continuing by trapping me all day in it for years. It works anywhere, everywhere and all day, unfortunately due to the use of low frequencies (LF/MF/HF) that travel through objects and buildings or reflect gracefully without too much attenuation.
 
 I've learned a lot going from nothing to having a more solid understanding of how it works and took a lot of time to get to this point.
 
