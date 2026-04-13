@@ -29,7 +29,7 @@ _Real live, on person capture the signal with an RTL-SDR from 18kHz to 3.218MHz,
 **Awesome SDR app AND studio to view N-APT effects, mathematics, potential endpoints and more.**
 <img width="1229" height="848" alt="Screenshot 2026-04-09 at 00 37 03" src="https://github.com/user-attachments/assets/b9a586ee-e441-46d9-b3a5-1f3862625a92" />
 
-**Secure streaming and files!***
+**Secure streaming and files!**
 <img width="1218" height="878" alt="Screenshot 2026-04-12 at 21 03 35" src="https://github.com/user-attachments/assets/c59cc0ee-a3b8-424c-a14d-3cb87f143bca" />
 
 
