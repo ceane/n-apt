@@ -120,7 +120,7 @@ export const CoreMLNode: React.FC<CoreMLNodeProps> = ({ data }) => {
     const response = await fetch(`${endpointBase}${path}`, {
       headers: {
         'Content-Type': 'application/json',
-        ...(init?.headers ?? {}),
+        ...init?.headers,
       },
       ...init,
     });

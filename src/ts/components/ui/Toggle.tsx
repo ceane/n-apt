@@ -7,6 +7,7 @@ const ToggleContainer = styled.div<{ $disabled?: boolean }>`
   gap: 8px;
   cursor: ${(props) => (props.$disabled ? "not-allowed" : "pointer")};
   opacity: ${(props) => (props.$disabled ? 0.6 : 1)};
+  user-select: none;
 `;
 
 const Switch = styled.div<{ $active: boolean }>`
@@ -16,6 +17,7 @@ const Switch = styled.div<{ $active: boolean }>`
   border-radius: 9px;
   position: relative;
   transition: background-color 0.2s ease;
+  pointer-events: auto;
 
   &::after {
     content: "";
@@ -27,6 +29,7 @@ const Switch = styled.div<{ $active: boolean }>`
     background-color: white;
     border-radius: 50%;
     transition: left 0.2s ease;
+    pointer-events: none;
   }
 `;
 
@@ -53,11 +56,34 @@ export const Toggle: React.FC<ToggleProps> = ({
   children,
   title,
 }) => {
+  const handleClick = (e: React.MouseEvent | React.KeyboardEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!disabled && onClick) {
+      onClick();
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!disabled && onClick) {
+        onClick();
+      }
+    }
+  };
+
   return (
     <ToggleContainer
       $disabled={disabled}
-      onClick={() => !disabled && onClick?.()}
+      onClick={handleClick}
+      onKeyDown={handleKeyDown}
       title={title}
+      role="switch"
+      aria-checked={$active}
+      aria-disabled={disabled}
+      tabIndex={disabled ? -1 : 0}
     >
       <Switch $active={$active} />
       {children && <Label>{children}</Label>}

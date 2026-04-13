@@ -751,6 +751,7 @@ export const SpectrumProvider: React.FC<SpectrumProviderProps> = ({
           return;
         case "SET_SNAPSHOT_GRID":
           reduxDispatch(setWaterfallSnapshotGrid(action.preference));
+          dispatch(action);
           return;
         case "SET_GLOBAL_NOISE_FLOOR":
           reduxDispatch(setWaterfallGlobalNoiseFloor(action.noise));
