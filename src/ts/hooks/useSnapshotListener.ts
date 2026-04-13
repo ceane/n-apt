@@ -64,15 +64,22 @@ export const useSnapshotListener = ({
       }
 
       const modeLabel = options.whole ? "Whole Channel" : "Onscreen";
+      const isVideoFormat = options.format === "mp4" || options.format === "webm";
       const wholeChannelSegments =
-        options.whole && sourceMode === "live"
+        options.whole && sourceMode === "live" && !isVideoFormat
           ? await captureWholeChannelSegments()
           : [];
+
+      const beginWholeChannelSweep =
+        options.whole && sourceMode === "live" && isVideoFormat
+          ? captureWholeChannelSegments
+          : undefined;
 
       takeSnapshot({
         ...options,
         modeLabel,
         wholeChannelSegments,
+        beginWholeChannelSweep,
         showGrid: options.grid ?? snapshotGridPreference,
         getSnapshotData: () => getSnapshotData(), // Use the provided function
         signalAreaBounds,
