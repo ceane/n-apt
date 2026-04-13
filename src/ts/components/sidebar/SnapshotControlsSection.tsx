@@ -1,6 +1,7 @@
 import React from "react";
 import styled from "styled-components";
 import { Row, Collapsible } from "@n-apt/components/ui";
+import { Toggle as ToggleBase } from "@n-apt/components/ui/Toggle";
 import {
   BookA,
   Fullscreen,
@@ -11,6 +12,26 @@ import {
   SquareDashedTopSolid,
 } from "lucide-react";
 import type { SnapshotVideoFormat } from "@n-apt/hooks/useSnapshot";
+
+const ToggleWrapper = styled.div`
+  display: flex;
+  align-items: center;
+  pointer-events: auto;
+`;
+
+const StyledToggle = (props: { $active: boolean; onClick?: () => void; disabled?: boolean; children?: React.ReactNode; title?: string }) => (
+  <ToggleWrapper
+    onClick={(e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!props.disabled && props.onClick) {
+        props.onClick();
+      }
+    }}
+  >
+    <ToggleBase {...props} />
+  </ToggleWrapper>
+);
 
 const Section = styled.div`
   display: grid;
@@ -76,57 +97,6 @@ const SettingSelect = styled.select`
     background-color: ${(props) => props.theme.surface};
     color: ${(props) => props.theme.textPrimary};
     font-family: ${(props) => props.theme.typography.mono};
-  }
-`;
-
-const ToggleSwitch = styled.label`
-  position: relative;
-  display: inline-block;
-  width: 44px;
-  height: 24px;
-  cursor: pointer;
-`;
-
-const ToggleSwitchInput = styled.input`
-  opacity: 0;
-  width: 44px;
-  height: 24px;
-  position: absolute;
-  z-index: 2;
-  margin: 0;
-  padding: 0;
-  cursor: pointer;
-
-  &:checked + span {
-    background-color: ${(props) => props.theme.primary};
-  }
-
-  &:checked + span:before {
-    transform: translateX(20px);
-  }
-`;
-
-const ToggleSwitchSlider = styled.span`
-  position: absolute;
-  cursor: pointer;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: ${(props) => props.theme.borderHover};
-  transition: 0.2s;
-  border-radius: 24px;
-
-  &:before {
-    position: absolute;
-    content: "";
-    height: 18px;
-    width: 18px;
-    left: 3px;
-    bottom: 3px;
-    background-color: white;
-    transition: 0.2s;
-    border-radius: 50%;
   }
 `;
 
@@ -226,53 +196,33 @@ export const SnapshotControlsSection: React.FC<
           </Row>
 
           <Row label={<IconLabel icon={SquareDashedTopSolid} text="Waterfall" />}>
-            <ToggleSwitch>
-              <ToggleSwitchInput
-                type="checkbox"
-                checked={snapshotShowWaterfall}
-                onChange={(e) =>
-                  onSnapshotShowWaterfallChange(e.target.checked)
-                }
-              />
-              <ToggleSwitchSlider />
-            </ToggleSwitch>
+            <StyledToggle
+              $active={snapshotShowWaterfall}
+              onClick={() => onSnapshotShowWaterfallChange(!snapshotShowWaterfall)}
+            />
           </Row>
 
-          <Row label={<IconLabel icon={Grid2X2} text="Grid" />}>
-            <ToggleSwitch>
-              <ToggleSwitchInput
-                type="checkbox"
-                checked={snapshotGridPreference}
-                onChange={(e) =>
-                  onSnapshotGridPreferenceChange(e.target.checked)
-                }
-              />
-              <ToggleSwitchSlider />
-            </ToggleSwitch>
+<Row label={<IconLabel icon={Grid2X2} text="Grid" />}>
+            <StyledToggle
+              $active={snapshotGridPreference}
+              onClick={() => onSnapshotGridPreferenceChange(!snapshotGridPreference)}
+            />
           </Row>
 
           <Row label={<IconLabel icon={BookA} text="Stats" />}>
-            <ToggleSwitch>
-              <ToggleSwitchInput
-                type="checkbox"
-                checked={snapshotShowStats}
-                onChange={(e) => onSnapshotShowStatsChange(e.target.checked)}
-              />
-              <ToggleSwitchSlider />
-            </ToggleSwitch>
+            <StyledToggle
+              $active={snapshotShowStats}
+              onClick={() => onSnapshotShowStatsChange(!snapshotShowStats)}
+            />
           </Row>
 
           <div style={{ display: 'contents', opacity: (snapshotShowStats && !snapshotGeolocationError) ? 1 : 0.5 }}>
             <Row label={<IconLabel icon={MapPin} text="Geolocation" />}>
-              <ToggleSwitch>
-                <ToggleSwitchInput
-                  type="checkbox"
-                  checked={snapshotShowGeolocation && snapshotShowStats && !snapshotGeolocationError}
-                  disabled={!snapshotShowStats || !!snapshotGeolocationError}
-                  onChange={(e) => onSnapshotShowGeolocationChange(e.target.checked)}
-                />
-                <ToggleSwitchSlider />
-              </ToggleSwitch>
+              <StyledToggle
+              $active={snapshotShowGeolocation && snapshotShowStats && !snapshotGeolocationError}
+              onClick={() => onSnapshotShowGeolocationChange(!snapshotShowGeolocation)}
+              disabled={!snapshotShowStats || !!snapshotGeolocationError}
+            />
             </Row>
             {snapshotGeolocationError && (
               <Row label="">
