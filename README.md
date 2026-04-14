@@ -46,7 +46,9 @@ I built this app out of frustration (and by force of the situation) that other O
   - Did not provide intuitve features for analyzing signals (zoombox, SVG snapshots, specific channels, extensible components, etc.)
   - Was definitely not in JavaScript/Web with all the advanced libraries and in browser features!
 
-**By default 99.9% of people will not be able to see a real, live N-APT signal, whatever comes out of your RTL-SDR will be different (unless you don't have it connected, then it's just Mock APT signals). The I/Q captures are encrypted and password protected, if you want the password you can just send ne a message and at my discretion I'll give the password (Read [RESPONSIBLE USE](RESPONSIBLE_USE.md)).**
+---
+**By default 99.9% of people will not be able to see a real, live N-APT signal, whatever comes out of your RTL-SDR will be different (or just Mock APT signals what the app will show when an RTL-SDR device isn't plugged in). The I/Q captures are encrypted and password protected, if you want the password you can just send ne a message and at my discretion I'll give the password (Read [RESPONSIBLE USE](RESPONSIBLE_USE.md)).**
+---
 
 ## How The NSA's neurotechnological technique works (Shorthand)
 
