@@ -319,7 +319,7 @@ const BuildOrchestrator = () => {
         resolve({ success: false, output: '' });
       }
     });
-  }, [addLog, appendErrorDetail, appendWarningDetail, clearErrorDetails]);
+  }, [addLog, appendErrorDetail]);
 
   const startBackgroundProcess = useCallback((command: string, description: string, pidKey: 'vitePid' | 'rustPid' | 'redisPid'): Promise<boolean> => {
     return new Promise((resolve) => {
@@ -387,7 +387,7 @@ const BuildOrchestrator = () => {
         resolve(false);
       }
     });
-  }, [addLog, appendErrorDetail, appendWarningDetail]);
+  }, [addLog, appendErrorDetail, appendWarningDetail, clearErrorDetails]);
 
   const runBuild = useCallback(async () => {
     setBuildState(prev => ({ ...prev, isBuilding: true }));

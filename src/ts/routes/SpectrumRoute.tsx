@@ -12,7 +12,6 @@ import {
   InitializingText,
 } from "@n-apt/components/Layout";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
-import { useAppSelector } from "@n-apt/redux";
 import { buildSdrLimitMarkers } from "@n-apt/utils/sdrLimitMarkers";
 import { calculateCenterFrequency } from "@n-apt/utils/centerFrequency";
 import { useSnapshotListener } from "@n-apt/hooks/useSnapshotListener";
@@ -64,9 +63,6 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
     sampleRateHzEffective,
     toggleVisualizerPause,
   } = useSpectrumStore();
-
-  // Get Redux state for data frame counter (increments when FFT data arrives)
-  const dataFrameCounter = useAppSelector((reduxState) => reduxState.websocket.dataFrameCounter);
 
   const [vizZoom, setVizZoom] = [
     state.vizZoom,
@@ -120,12 +116,6 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
     isConnected,
   );
 
-  // Memoize the takeSnapshot wrapper to prevent useSnapshotListener from re-registering
-  const memoizedTakeSnapshot = useCallback(
-    (options: Parameters<typeof takeSnapshot>[0]) => takeSnapshot(options).catch(console.error),
-    [takeSnapshot]
-  );
-
   const captureWholeChannelSegments = useCaptureWholeChannelSegments({
     frequencyRange: state.frequencyRange,
     sourceMode: state.sourceMode,
@@ -142,7 +132,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
 
   // Snapshot listener for sidebar events
   useSnapshotListener({
-    takeSnapshot: memoizedTakeSnapshot,
+    takeSnapshot: (options) => takeSnapshot(options).catch(console.error),
     snapshotGridPreference: state.snapshotGridPreference,
     signalAreaBounds,
     activeSignalArea: state.activeSignalArea,
@@ -154,7 +144,6 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
     fftFrameRate: state.fftFrameRate,
     captureWholeChannelSegments,
     getSnapshotData: () => fftCanvasRef.current?.getSnapshotData() ?? undefined,
-    getDataFrameCounter: () => dataFrameCounter,
     getVideoSourceCanvases: () => {
       const spectrumCanvas = fftCanvasRef.current?.getSpectrumCanvas() ?? null;
       const waterfallCanvas = fftCanvasRef.current?.getWaterfallCanvas() ?? null;
