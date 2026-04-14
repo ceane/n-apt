@@ -98,7 +98,7 @@ impl FFTProcessor {
 
   fn ensure_fft_plans(&mut self) {
     let fft_size = self.config.fft_size;
-    
+
     // Check cache first
     if let Some(cached_fft) = self.fft_plan_cache.get(&fft_size) {
       self.fft = Some(Arc::clone(cached_fft));
@@ -108,14 +108,16 @@ impl FFTProcessor {
       self.fft_plan_cache.insert(fft_size, Arc::clone(&fft_plan));
       self.fft = Some(fft_plan);
     }
-    
+
     // Check cache for IFFT
     if let Some(cached_ifft) = self.ifft_plan_cache.get(&fft_size) {
       self.ifft = Some(Arc::clone(cached_ifft));
     } else {
       let mut planner = FftPlanner::<f32>::new();
       let ifft_plan = planner.plan_fft_inverse(fft_size);
-      self.ifft_plan_cache.insert(fft_size, Arc::clone(&ifft_plan));
+      self
+        .ifft_plan_cache
+        .insert(fft_size, Arc::clone(&ifft_plan));
       self.ifft = Some(ifft_plan);
     }
   }
@@ -233,7 +235,9 @@ impl FFTProcessor {
     }
   }
 
-  pub fn simd_processor_mut(&mut self) -> Option<&mut crate::simd::NativeProcessor> {
+  pub fn simd_processor_mut(
+    &mut self,
+  ) -> Option<&mut crate::simd::NativeProcessor> {
     self.simd_processor.as_mut()
   }
 

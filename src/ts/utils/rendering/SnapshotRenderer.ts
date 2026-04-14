@@ -6,6 +6,7 @@ export interface DrawingContext {
   setStroke(color: string, width: number, dash?: number[]): void;
   setFill(color: string): void;
   setFont(font: string): void;
+  setScaledFont(baseFontSize: number, scale: number): void;
   setTextAlign(align: "left" | "right" | "center" | "start" | "end"): void;
   setTextBaseline(baseline: "top" | "bottom" | "middle" | "alphabetic"): void;
   setLineJoin(join: "round" | "bevel" | "miter"): void;
@@ -40,6 +41,11 @@ export class CanvasDrawingContext implements DrawingContext {
 
   setFont(font: string): void {
     this.ctx.font = font;
+  }
+
+  setScaledFont(baseFontSize: number, scale: number): void {
+    const scaledSize = Math.round(baseFontSize * scale);
+    this.ctx.font = `${scaledSize}px JetBrains Mono, monospace`;
   }
 
   setTextAlign(align: "left" | "right" | "center" | "start" | "end"): void {
@@ -137,6 +143,11 @@ export class SVGDrawingContext implements DrawingContext {
 
   setFont(font: string): void {
     this.currentFont = font;
+  }
+
+  setScaledFont(baseFontSize: number, scale: number): void {
+    const scaledSize = Math.round(baseFontSize * scale);
+    this.currentFont = `${scaledSize}px JetBrains Mono, monospace`;
   }
 
   setTextAlign(align: "left" | "right" | "center" | "start" | "end"): void {
@@ -295,14 +306,14 @@ export class SnapshotRenderer {
     dc.stroke();
   }
 
-  drawDbMarkers(dc: DrawingContext, dbMarkers: number[], unit: string = "dB"): void {
+  drawDbMarkers(dc: DrawingContext, dbMarkers: number[], unit: string = "dB", fontScale: number = 1): void {
     const area = this.mapper.getPlotArea();
     const dbRange = this.mapper.getDbRange();
 
     dc.setTextAlign("right");
     dc.setTextBaseline("middle");
     dc.setFill(this.theme.text);
-    dc.setFont("12px JetBrains Mono");
+    dc.setScaledFont(12, fontScale);
 
     for (let i = 0; i < dbMarkers.length; i++) {
       const db = dbMarkers[i];
@@ -317,7 +328,7 @@ export class SnapshotRenderer {
     }
   }
 
-  drawFrequencyLabels(dc: DrawingContext, zoom: number, centerFrequencyMHz: number): void {
+  drawFrequencyLabels(dc: DrawingContext, zoom: number, centerFrequencyMHz: number, fontScale: number = 1): void {
     const area = this.mapper.getPlotArea();
     const freqRange = this.mapper.getFreqRange();
     const bandwidth = freqRange.max - freqRange.min;
@@ -326,7 +337,7 @@ export class SnapshotRenderer {
     const FREQ_LABEL_Y = area.y + area.height + 25;
 
     dc.setFill(this.theme.text);
-    dc.setFont("12px JetBrains Mono");
+    dc.setScaledFont(12, fontScale);
 
     const startLabel = fmtFreq(freqRange.min, zoom);
     const endLabel = fmtFreq(freqRange.max, zoom);
@@ -380,7 +391,7 @@ export class SnapshotRenderer {
 
     // Center label - Always white
     const centerLabel = `○  ${centerLabelText}`;
-    dc.setFont("bold 12px JetBrains Mono");
+    dc.setScaledFont(12, fontScale);
     dc.setFill(this.theme.cfText);
     dc.setTextAlign("center");
     dc.fillText(centerLabel, area.x + area.width / 2, FREQ_LABEL_Y);
@@ -548,14 +559,14 @@ export class SnapshotRenderer {
     dc.restore();
   }
 
-  drawStatsBox(dc: DrawingContext, statsLines: string[], _waveform: number[] | Float32Array): void {
+  drawStatsBox(dc: DrawingContext, statsLines: string[], _waveform: number[] | Float32Array, fontScale: number = 1): void {
     const area = this.mapper.getPlotArea();
     // Use up to 70% of width to avoid truncation, text will scale down if needed
     const maxAllowedW = area.width * 0.7;
-    const baseFontSize = 12;
-    const paddingX = 12;
-    const paddingY = 10;
-    const lineHeight = 18;
+    const baseFontSize = Math.round(12 * fontScale);
+    const paddingX = Math.round(12 * fontScale);
+    const paddingY = Math.round(10 * fontScale);
+    const lineHeight = Math.round(18 * fontScale);
 
     // Calculate required box width and individual line font sizes
     const linesWithScaling = statsLines.map(line => {
