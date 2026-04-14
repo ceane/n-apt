@@ -29,8 +29,54 @@ pub fn signals_config() -> &'static super::types::SignalsConfig {
   SIGNALS_CONFIG.get_or_init(|| {
     let content = read_config_file("signals.yaml")
       .expect("signals.yaml must be present alongside the binary or in CARGO_MANIFEST_DIR");
-    serde_yaml::from_str(&content).expect("Failed to parse signals.yaml")
+    serde_yaml::from_str(&content).unwrap_or_else(|e| {
+      eprintln!("\n❌ INVALID signals.yaml CONFIGURATION");
+      eprintln!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+      
+      // Parse the error to extract location info
+      let error_msg = e.to_string();
+      if let Some(line_col) = extract_yaml_location(&error_msg) {
+        eprintln!("Location: {}", line_col);
+      }
+      
+      eprintln!("Error: {}", error_msg);
+      eprintln!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+      eprintln!("\nCommon issues:");
+      eprintln!("  • Missing required fields: global_settings, bandwidths, strength_ranges, signals, training_areas");
+      eprintln!("  • Incorrect YAML indentation (use 2 or 4 spaces, be consistent)");
+      eprintln!("  • Invalid field order in mock_apt section");
+      eprintln!("  • Duplicate field names");
+      eprintln!("\nExpected mock_apt structure:");
+      eprintln!("  mock_apt:");
+      eprintln!("    global_settings: ...");
+      eprintln!("    bandwidths: ...");
+      eprintln!("    strength_ranges: ...");
+      eprintln!("    signals: [...]");
+      eprintln!("    training_areas: ...");
+      eprintln!("    channels: ...  # optional");
+      eprintln!();
+      panic!("Invalid signals.yaml configuration");
+    })
   })
+}
+
+/// Extract line and column numbers from serde_yaml error message
+fn extract_yaml_location(error_msg: &str) -> Option<String> {
+  // Error format: "field: description", line: X, column: Y"
+  if let Some(line_start) = error_msg.rfind("line: ") {
+    let line_part = &error_msg[line_start + 6..];
+    if let Some(comma) = line_part.find(',') {
+      let line_num = line_part[..comma].trim();
+      if let Some(col_start) = error_msg.rfind("column: ") {
+        let col_part = &error_msg[col_start + 8..];
+        if let Some(quote) = col_part.find('"') {
+          let col_num = col_part[..quote].trim();
+          return Some(format!("signals.yaml:{}:{}", line_num, col_num));
+        }
+      }
+    }
+  }
+  None
 }
 
 /// Trim a list of ChannelSpec against a selected subset to produce header channels

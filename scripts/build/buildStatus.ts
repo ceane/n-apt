@@ -1,13 +1,16 @@
+export type FailingServices = 'Vite' | 'Rust' | 'Redis' | 'WebAssembly';
+
 interface RuntimeSummaryStateArgs {
   hasErrors: boolean;
   hasCompilationErrors: boolean;
   vitePid?: number;
   rustPid?: number;
   redisPid?: number;
+  failingServices?: FailingServices[];
 }
 
 interface RuntimeSummaryState {
-  label: '✓ Running' | '▲ HAS ERRORS BUT RUNNING' | '✗ Stopped';
+  label: string;
   color: 'green' | 'yellow' | 'red';
 }
 
@@ -19,7 +22,9 @@ const recoverySignalPatterns = [
   /\bpage reload\b/i,
   /\bbuilt in\b/i,
   /\bready in\b/i,
-  /\bcompiled successfully\b/i
+  /\bcompiled successfully\b/i,
+  /\bvite\b.*\bready\b/i,
+  /\blocal:\s+http/i,
 ];
 
 export const isRuntimeRecoverySignal = (output: string): boolean => {
@@ -28,11 +33,11 @@ export const isRuntimeRecoverySignal = (output: string): boolean => {
     return false;
   }
 
-  if (/\berror\b/i.test(trimmed)) {
-    return false;
+  if (recoverySignalPatterns.some((pattern) => pattern.test(trimmed))) {
+    return true;
   }
 
-  return recoverySignalPatterns.some((pattern) => pattern.test(trimmed));
+  return false;
 };
 
 export const getRuntimeSummaryState = ({
@@ -40,22 +45,29 @@ export const getRuntimeSummaryState = ({
   hasCompilationErrors,
   vitePid,
   rustPid,
-  redisPid
+  redisPid,
+  failingServices = []
 }: RuntimeSummaryStateArgs): RuntimeSummaryState => {
   const hasAnyErrors = hasErrors || hasCompilationErrors;
   const isRunning =
     hasValidPid(vitePid) && hasValidPid(rustPid) && hasValidPid(redisPid);
 
   if (hasAnyErrors && isRunning) {
+    const serviceList = failingServices.length > 0
+      ? ` - ${failingServices.join(', ')}`
+      : '';
     return {
-      label: '▲ HAS ERRORS BUT RUNNING',
+      label: `▲ HAS ERRORS BUT RUNNING${serviceList}`,
       color: 'yellow'
     };
   }
 
   if (hasAnyErrors || !isRunning) {
+    const serviceList = failingServices.length > 0
+      ? ` - ${failingServices.join(', ')}`
+      : '';
     return {
-      label: '✗ Stopped',
+      label: `✗ Stopped${serviceList}`,
       color: 'red'
     };
   }

@@ -212,7 +212,7 @@ Object.defineProperty(HTMLCanvasElement.prototype, "width", {
   get() {
     return 800;
   },
-  set(value) {
+  set(_value) {
     /* do nothing */
   },
 });
@@ -221,7 +221,7 @@ Object.defineProperty(HTMLCanvasElement.prototype, "height", {
   get() {
     return 600;
   },
-  set(value) {
+  set(_value) {
     /* do nothing */
   },
 });

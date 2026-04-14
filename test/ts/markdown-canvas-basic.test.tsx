@@ -4,7 +4,6 @@
  */
 
 import React from 'react';
-import { render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom';
 
 // Mock the canvas setup
@@ -58,7 +57,7 @@ describe('Markdown Canvas Components - Basic Tests', () => {
   test('WebGPU calls are tracked', async () => {
     const adapter = await navigator.gpu.requestAdapter();
     const device = await adapter.requestDevice();
-    const buffer = device.createBuffer({ size: 512, usage: 4 });
+    const _buffer = device.createBuffer({ size: 512, usage: 4 });
 
     // Check that WebGPU calls were tracked
     expect(global.countWebGPUCalls('requestAdapter')).toBe(1);
@@ -83,7 +82,7 @@ describe('Markdown Canvas Components - Basic Tests', () => {
   });
 
   test('WebGPU helper functions work', async () => {
-    const adapter = await navigator.gpu.requestAdapter();
+    const _adapter = await navigator.gpu?.requestAdapter();
 
     // Test expectWebGPUCall
     expect(() => global.expectWebGPUCall('requestAdapter')).not.toThrow();
