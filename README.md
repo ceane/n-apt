@@ -183,7 +183,7 @@ They are specifially segmented this way because A and B are similar in shape (an
 
 ### Additional Tools
 
-- **Redis** (optional, for tower data caching):
+- **Redis** (optional, for cell towers points and data):
   - **macOS**: `brew install redis`
   - **Ubuntu/Debian**: `sudo apt install redis-server`
   - **Windows**: Download from [redis.io](https://redis.io/)
@@ -213,17 +213,13 @@ The `npm run setup` command creates a `.env.local` file with default environment
 
 ### Running the App
 
-#### For Development (Recommended)
-
 ```bash
 npm run dev
 ```
 
-**Important:** `npm run dev` is the only supported way to run and use the app.
+The web app will be **available at `http://localhost:5173`** with the WebSocket server running on `ws://localhost:8765`.
 
 **Hardware Requirement:** the app only works with an **RTL-SDR v4 or .napt captures. The rust backend auto detects an RTL-SDR device plugged in, otherwise the Mock APT stream runs.**
-
-The web app will be **available at `http://localhost:5173`** with the WebSocket server running on `ws://localhost:8765`.
 
 > **💡 Tip:** If you do not have an RTL-SDR v4, the backend will just stream a Mock APT stream. You can simply use the app (be sure to set the .env.local UNSAFE_LOCAL_USER_PASSWORD to a password for the .napt files).
 
