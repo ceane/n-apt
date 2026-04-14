@@ -8,10 +8,13 @@ import {
   Grid2X2,
   Image as ImageIcon,
   MapPin,
+  Ratio,
   Scan,
   SquareDashedTopSolid,
 } from "lucide-react";
 import type { SnapshotVideoFormat } from "@n-apt/hooks/useSnapshot";
+
+export type SnapshotAspectRatio = "default" | "4:3" | "16:10" | "16:9" | "19.5:9";
 
 const ToggleWrapper = styled.div`
   display: flex;
@@ -147,12 +150,14 @@ interface SnapshotControlsSectionProps {
   snapshotShowGeolocation: boolean;
   snapshotGeolocationError: string | null;
   supportedSnapshotVideoFormat: SnapshotVideoFormat | null;
+  snapshotAspectRatio: SnapshotAspectRatio;
   onSnapshotWholeChange: (value: boolean) => void;
   onSnapshotShowWaterfallChange: (value: boolean) => void;
   onSnapshotShowStatsChange: (value: boolean) => void;
   onSnapshotShowGeolocationChange: (value: boolean) => void;
   onSnapshotFormatChange: (value: "png" | "svg" | SnapshotVideoFormat) => void;
   onSnapshotGridPreferenceChange: (value: boolean) => void;
+  onSnapshotAspectRatioChange: (value: SnapshotAspectRatio) => void;
   onSnapshot: () => void;
 }
 
@@ -167,12 +172,14 @@ export const SnapshotControlsSection: React.FC<
   snapshotShowGeolocation,
   snapshotGeolocationError,
   supportedSnapshotVideoFormat,
+  snapshotAspectRatio,
   onSnapshotWholeChange,
   onSnapshotShowWaterfallChange,
   onSnapshotShowStatsChange,
   onSnapshotShowGeolocationChange,
   onSnapshotFormatChange,
   onSnapshotGridPreferenceChange,
+  onSnapshotAspectRatioChange,
   onSnapshot,
 }) => {
     return (
@@ -190,19 +197,12 @@ export const SnapshotControlsSection: React.FC<
               }
               style={{ minWidth: "120px" }}
             >
-              <option value="onscreen">On screen</option>
+<option value="onscreen">On screen</option>
               <option value="whole">Whole Channel</option>
             </SettingSelect>
           </Row>
 
-          <Row label={<IconLabel icon={SquareDashedTopSolid} text="Waterfall" />}>
-            <StyledToggle
-              $active={snapshotShowWaterfall}
-              onClick={() => onSnapshotShowWaterfallChange(!snapshotShowWaterfall)}
-            />
-          </Row>
-
-<Row label={<IconLabel icon={Grid2X2} text="Grid" />}>
+          <Row label={<IconLabel icon={Grid2X2} text="Grid" />}>
             <StyledToggle
               $active={snapshotGridPreference}
               onClick={() => onSnapshotGridPreferenceChange(!snapshotGridPreference)}
@@ -230,6 +230,29 @@ export const SnapshotControlsSection: React.FC<
               </Row>
             )}
           </div>
+
+          <Row label={<IconLabel icon={SquareDashedTopSolid} text="Waterfall" />}>
+            <StyledToggle
+              $active={snapshotShowWaterfall}
+              onClick={() => onSnapshotShowWaterfallChange(!snapshotShowWaterfall)}
+            />
+          </Row>
+
+          <Row label={<IconLabel icon={Ratio} text="Aspect Ratio" />}>
+            <SettingSelect
+              value={snapshotAspectRatio}
+              onChange={(e) =>
+                onSnapshotAspectRatioChange(e.target.value as SnapshotAspectRatio)
+              }
+              style={{ minWidth: "100px" }}
+            >
+              <option value="default">Default</option>
+              <option value="4:3">4:3</option>
+              <option value="16:10">16:10</option>
+              <option value="16:9">16:9</option>
+              <option value="19.5:9">19.5:9</option>
+            </SettingSelect>
+          </Row>
 
           <Row label={<IconLabel icon={ImageIcon} text="Format" />}>
             <SettingSelect

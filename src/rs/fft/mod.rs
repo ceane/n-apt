@@ -1,7 +1,9 @@
+pub mod anti_aliasing;
 pub mod processor;
 pub mod types;
 pub mod types_rust;
 
+pub use anti_aliasing::*;
 pub use processor::*;
 pub use types::*;
 pub use types_rust::SAMPLE_RATE;

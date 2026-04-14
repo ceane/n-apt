@@ -366,6 +366,7 @@ export const SpectrumSidebar: React.FC = () => {
     [],
   );
   const [snapshotFormat, setSnapshotFormat] = useState<"png" | "svg" | SnapshotVideoFormat>("png");
+  const [snapshotAspectRatio, setSnapshotAspectRatio] = useState<"default" | "4:3" | "16:10" | "16:9" | "19.5:9">("default");
 
   // NAPT metadata state
   const [naptMetadata, setNaptMetadata] = useState<NaptMetadata | null>(null);
@@ -700,6 +701,7 @@ export const SpectrumSidebar: React.FC = () => {
           geolocation: snapshotGeolocationPosition,
           format: snapshotFormat,
           grid: snapshotGridPreference,
+          aspectRatio: snapshotAspectRatio,
         },
       }),
     );
@@ -1028,6 +1030,7 @@ export const SpectrumSidebar: React.FC = () => {
             snapshotFormat={snapshotFormat}
             supportedSnapshotVideoFormat={supportedSnapshotVideoFormat}
             snapshotGridPreference={snapshotGridPreference}
+            snapshotAspectRatio={snapshotAspectRatio}
             onSnapshotWholeChange={setSnapshotWhole}
             onSnapshotShowWaterfallChange={setSnapshotShowWaterfall}
             onSnapshotShowStatsChange={setSnapshotShowStats}
@@ -1037,6 +1040,7 @@ export const SpectrumSidebar: React.FC = () => {
               dispatch(setSettingsSnapshotGrid(pref));
               storeDispatch({ type: "SET_SNAPSHOT_GRID", preference: pref });
             }}
+            onSnapshotAspectRatioChange={setSnapshotAspectRatio}
             onSnapshot={handleSnapshot}
           />
 

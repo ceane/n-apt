@@ -9,6 +9,10 @@ import chalk from 'chalk';
 import notifier from 'node-notifier';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  getRuntimeSummaryState,
+  isRuntimeRecoverySignal
+} from './buildStatus';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -200,6 +204,20 @@ const BuildOrchestrator = () => {
     });
   }, []);
 
+  const clearErrorDetails = useCallback(() => {
+    setBuildState(prev => {
+      if (prev.errorDetails.length === 0) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        errorDetails: [],
+        errorCount: 0
+      };
+    });
+  }, []);
+
   const updateProcessStatus = useCallback((index: number, status: ProcessStatus['status'], message?: string, label?: string) => {
     setBuildState(prev => ({
       ...prev,
@@ -301,7 +319,7 @@ const BuildOrchestrator = () => {
         resolve({ success: false, output: '' });
       }
     });
-  }, [addLog, appendErrorDetail, appendWarningDetail]);
+  }, [addLog, appendErrorDetail, appendWarningDetail, clearErrorDetails]);
 
   const startBackgroundProcess = useCallback((command: string, description: string, pidKey: 'vitePid' | 'rustPid' | 'redisPid'): Promise<boolean> => {
     return new Promise((resolve) => {
@@ -320,6 +338,9 @@ const BuildOrchestrator = () => {
           if (/warning:/i.test(output)) {
             appendWarningDetail(output);
           }
+          if (pidKey === 'vitePid' && isRuntimeRecoverySignal(output)) {
+            clearErrorDetails();
+          }
         });
 
         child.stderr?.on('data', (data: any) => {
@@ -330,6 +351,11 @@ const BuildOrchestrator = () => {
           }
           if (/error/i.test(output)) {
             appendErrorDetail(output);
+          } else if (
+            pidKey === 'vitePid' &&
+            isRuntimeRecoverySignal(output)
+          ) {
+            clearErrorDetails();
           }
         });
 
@@ -639,8 +665,15 @@ exec node_modules/.bin/vite dev --host --force
   const hasCompilationErrors = buildState.errorDetails.length > 0;
   const allComplete = buildState.processes.every(p => p.status === 'success' || p.status === 'error');
   const runtimeSeconds = Math.floor((Date.now() - buildState.startTime) / 1000);
-  const statusLabel = (hasErrors || hasCompilationErrors) ? '✗ Stopped' : '✓ Running';
-  const statusColor = (hasErrors || hasCompilationErrors) ? 'red' : 'green';
+  const runtimeSummary = getRuntimeSummaryState({
+    hasErrors,
+    hasCompilationErrors,
+    vitePid: buildState.vitePid,
+    rustPid: buildState.rustPid,
+    redisPid: buildState.redisPid
+  });
+  const statusLabel = runtimeSummary.label;
+  const statusColor = runtimeSummary.color;
   const vitePidText = buildState.vitePid ?? '—';
   const rustPidText = buildState.rustPid ?? '—';
   const redisPidText = buildState.redisPid ?? '—';
