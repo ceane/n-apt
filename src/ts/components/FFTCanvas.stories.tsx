@@ -243,7 +243,6 @@ export const Snapshot = () => {
       showGrid: snapshotGridPreference,
       format: snapshotFormat,
       getSnapshotData: () => snapshotData,
-      getDataFrameCounter: () => 0, // Stories don't do video snapshots
       signalAreaBounds: { main: BASE_PROPS.frequencyRange },
       activeSignalArea: "main",
       sourceName: `FFTCanvas Ladle (${signalType})`,
