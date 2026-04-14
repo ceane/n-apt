@@ -2,7 +2,7 @@ import React, { useMemo, useState, useEffect, useCallback } from "react";
 import styled from "styled-components";
 import { Unplug } from "lucide-react";
 import { useAppSelector, useAppDispatch } from "@n-apt/redux";
-import { getSupportedSnapshotVideoFormat, type SnapshotVideoFormat } from "@n-apt/hooks/useSnapshot";
+import { getSupportedSnapshotVideoFormat, type SnapshotVideoFormat, type SnapshotAspectRatio } from "@n-apt/hooks/useSnapshot";
 import {
   setSourceMode,
   setSelectedFiles,
@@ -366,7 +366,7 @@ export const SpectrumSidebar: React.FC = () => {
     [],
   );
   const [snapshotFormat, setSnapshotFormat] = useState<"png" | "svg" | SnapshotVideoFormat>("png");
-  const [snapshotAspectRatio, setSnapshotAspectRatio] = useState<"default" | "4:3" | "16:10" | "16:9" | "19.5:9">("default");
+  const [snapshotAspectRatio, setSnapshotAspectRatio] = useState<SnapshotAspectRatio>("default");
 
   // NAPT metadata state
   const [naptMetadata, setNaptMetadata] = useState<NaptMetadata | null>(null);
@@ -976,7 +976,7 @@ export const SpectrumSidebar: React.FC = () => {
             onRestartDevice={() => dispatch(sendRestartDevice())}
           />
           <div style={{ gridColumn: "1 / -1", width: "100%" }}>
-            <ResetButton 
+            <ResetButton
               onClick={() => {
                 showPrompt({
                   title: "Reset Options to Defaults?",
