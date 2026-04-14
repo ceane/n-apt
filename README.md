@@ -49,7 +49,7 @@ I built this app out of frustration (and by force of the situation) that other O
 
 > **By default 99.9% of people will not be able to see a real, live N-APT signal, whatever comes out of your RTL-SDR will be different (or just Mock APT signals what the app will show when an RTL-SDR device isn't plugged in).**
 >
-> **The I/Q captures are encrypted and password protected, if you want the password you can just send ne a message and at my discretion I'll give the password (Read [RESPONSIBLE USE](RESPONSIBLE_USE.md)).**
+> **The I/Q captures are encrypted and password protected, if you want the password you can just send me a message and at my discretion I'll give the right people (university researcher, RF enthusiast, civil society, tech journalists, etc.) the password (Read [RESPONSIBLE USE](RESPONSIBLE_USE.md)).**
 
 
 ## How The NSA's neurotechnological technique works (Shorthand)
