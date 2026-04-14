@@ -304,15 +304,8 @@ coverage/
 After making changes on in Typescript/JavaScript, run:
 
 ```bash
-npm run format   # oxfmt
-npm run lint # Essentailly oxlint
-```
-
-OR
-
-```bash
-npx run oxfmt
-npx run oxlint
+npm run format  # or npx oxfmt
+npm run lint    # or npx oxlint
 ```
 
 

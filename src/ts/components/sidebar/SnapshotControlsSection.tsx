@@ -1,40 +1,17 @@
 import React from "react";
-import styled from "styled-components";
+import styled, { keyframes } from "styled-components";
 import { Row, Collapsible } from "@n-apt/components/ui";
-import { Toggle as ToggleBase } from "@n-apt/components/ui/Toggle";
 import {
   BookA,
   Fullscreen,
   Grid2X2,
   Image as ImageIcon,
   MapPin,
-  Ratio,
   Scan,
   SquareDashedTopSolid,
 } from "lucide-react";
+import { useAppSelector } from "@n-apt/redux";
 import type { SnapshotVideoFormat } from "@n-apt/hooks/useSnapshot";
-
-export type SnapshotAspectRatio = "default" | "4:3" | "16:10" | "16:9" | "19.5:9";
-
-const ToggleWrapper = styled.div`
-  display: flex;
-  align-items: center;
-  pointer-events: auto;
-`;
-
-const StyledToggle = (props: { $active: boolean; onClick?: () => void; disabled?: boolean; children?: React.ReactNode; title?: string }) => (
-  <ToggleWrapper
-    onClick={(e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (!props.disabled && props.onClick) {
-        props.onClick();
-      }
-    }}
-  >
-    <ToggleBase {...props} />
-  </ToggleWrapper>
-);
 
 const Section = styled.div`
   display: grid;
@@ -103,6 +80,57 @@ const SettingSelect = styled.select`
   }
 `;
 
+const ToggleSwitch = styled.label`
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+  cursor: pointer;
+`;
+
+const ToggleSwitchInput = styled.input`
+  opacity: 0;
+  width: 44px;
+  height: 24px;
+  position: absolute;
+  z-index: 2;
+  margin: 0;
+  padding: 0;
+  cursor: pointer;
+
+  &:checked + span {
+    background-color: ${(props) => props.theme.primary};
+  }
+
+  &:checked + span:before {
+    transform: translateX(20px);
+  }
+`;
+
+const ToggleSwitchSlider = styled.span`
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: ${(props) => props.theme.borderHover};
+  transition: 0.2s;
+  border-radius: 24px;
+
+  &:before {
+    position: absolute;
+    content: "";
+    height: 18px;
+    width: 18px;
+    left: 3px;
+    bottom: 3px;
+    background-color: white;
+    transition: 0.2s;
+    border-radius: 50%;
+  }
+`;
+
 const PauseButton = styled.button<{ $paused: boolean }>`
   flex: 0 0 25%;
   height: 100%;
@@ -134,6 +162,28 @@ const SnapshotActionButton = styled(PauseButton)`
   align-self: stretch;
 `;
 
+const blink = keyframes`
+  0% { opacity: 0.25; transform: scale(0.9); }
+  50% { opacity: 1; transform: scale(1); }
+  100% { opacity: 0.25; transform: scale(0.9); }
+`;
+
+const SnapshotButtonContent = styled.span`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+`;
+
+const SnapshotStatusDot = styled.span<{ $active: boolean }>`
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: ${(props) => props.theme.primary};
+  opacity: ${(props) => (props.$active ? 1 : 0)};
+  animation: ${(props) => (props.$active ? blink : "none")} 1s ease-in-out infinite;
+`;
+
 const ErrorText = styled.div`
   color: ${(props) => props.theme.danger};
   font-size: 10px;
@@ -150,14 +200,12 @@ interface SnapshotControlsSectionProps {
   snapshotShowGeolocation: boolean;
   snapshotGeolocationError: string | null;
   supportedSnapshotVideoFormat: SnapshotVideoFormat | null;
-  snapshotAspectRatio: SnapshotAspectRatio;
   onSnapshotWholeChange: (value: boolean) => void;
   onSnapshotShowWaterfallChange: (value: boolean) => void;
   onSnapshotShowStatsChange: (value: boolean) => void;
   onSnapshotShowGeolocationChange: (value: boolean) => void;
   onSnapshotFormatChange: (value: "png" | "svg" | SnapshotVideoFormat) => void;
   onSnapshotGridPreferenceChange: (value: boolean) => void;
-  onSnapshotAspectRatioChange: (value: SnapshotAspectRatio) => void;
   onSnapshot: () => void;
 }
 
@@ -172,16 +220,24 @@ export const SnapshotControlsSection: React.FC<
   snapshotShowGeolocation,
   snapshotGeolocationError,
   supportedSnapshotVideoFormat,
-  snapshotAspectRatio,
   onSnapshotWholeChange,
   onSnapshotShowWaterfallChange,
   onSnapshotShowStatsChange,
   onSnapshotShowGeolocationChange,
   onSnapshotFormatChange,
   onSnapshotGridPreferenceChange,
-  onSnapshotAspectRatioChange,
   onSnapshot,
 }) => {
+    const progress = useAppSelector((state) => state.snapshot);
+    const isCapturing =
+      progress.stage === "started" ||
+      progress.stage === "collecting" ||
+      progress.stage === "encoding";
+
+    const buttonLabel = isCapturing
+      ? progress.message ?? "Saving snapshot"
+      : "Save snapshot";
+
     return (
       <Section>
         <Collapsible
@@ -197,32 +253,59 @@ export const SnapshotControlsSection: React.FC<
               }
               style={{ minWidth: "120px" }}
             >
-<option value="onscreen">On screen</option>
+              <option value="onscreen">On screen</option>
               <option value="whole">Whole Channel</option>
             </SettingSelect>
           </Row>
 
+          <Row label={<IconLabel icon={SquareDashedTopSolid} text="Waterfall" />}>
+            <ToggleSwitch>
+              <ToggleSwitchInput
+                type="checkbox"
+                checked={snapshotShowWaterfall}
+                onChange={(e) =>
+                  onSnapshotShowWaterfallChange(e.target.checked)
+                }
+              />
+              <ToggleSwitchSlider />
+            </ToggleSwitch>
+          </Row>
+
           <Row label={<IconLabel icon={Grid2X2} text="Grid" />}>
-            <StyledToggle
-              $active={snapshotGridPreference}
-              onClick={() => onSnapshotGridPreferenceChange(!snapshotGridPreference)}
-            />
+            <ToggleSwitch>
+              <ToggleSwitchInput
+                type="checkbox"
+                checked={snapshotGridPreference}
+                onChange={(e) =>
+                  onSnapshotGridPreferenceChange(e.target.checked)
+                }
+              />
+              <ToggleSwitchSlider />
+            </ToggleSwitch>
           </Row>
 
           <Row label={<IconLabel icon={BookA} text="Stats" />}>
-            <StyledToggle
-              $active={snapshotShowStats}
-              onClick={() => onSnapshotShowStatsChange(!snapshotShowStats)}
-            />
+            <ToggleSwitch>
+              <ToggleSwitchInput
+                type="checkbox"
+                checked={snapshotShowStats}
+                onChange={(e) => onSnapshotShowStatsChange(e.target.checked)}
+              />
+              <ToggleSwitchSlider />
+            </ToggleSwitch>
           </Row>
 
           <div style={{ display: 'contents', opacity: (snapshotShowStats && !snapshotGeolocationError) ? 1 : 0.5 }}>
             <Row label={<IconLabel icon={MapPin} text="Geolocation" />}>
-              <StyledToggle
-              $active={snapshotShowGeolocation && snapshotShowStats && !snapshotGeolocationError}
-              onClick={() => onSnapshotShowGeolocationChange(!snapshotShowGeolocation)}
-              disabled={!snapshotShowStats || !!snapshotGeolocationError}
-            />
+              <ToggleSwitch>
+                <ToggleSwitchInput
+                  type="checkbox"
+                  checked={snapshotShowGeolocation && snapshotShowStats && !snapshotGeolocationError}
+                  disabled={!snapshotShowStats || !!snapshotGeolocationError}
+                  onChange={(e) => onSnapshotShowGeolocationChange(e.target.checked)}
+                />
+                <ToggleSwitchSlider />
+              </ToggleSwitch>
             </Row>
             {snapshotGeolocationError && (
               <Row label="">
@@ -230,29 +313,6 @@ export const SnapshotControlsSection: React.FC<
               </Row>
             )}
           </div>
-
-          <Row label={<IconLabel icon={SquareDashedTopSolid} text="Waterfall" />}>
-            <StyledToggle
-              $active={snapshotShowWaterfall}
-              onClick={() => onSnapshotShowWaterfallChange(!snapshotShowWaterfall)}
-            />
-          </Row>
-
-          <Row label={<IconLabel icon={Ratio} text="Aspect Ratio" />}>
-            <SettingSelect
-              value={snapshotAspectRatio}
-              onChange={(e) =>
-                onSnapshotAspectRatioChange(e.target.value as SnapshotAspectRatio)
-              }
-              style={{ minWidth: "100px" }}
-            >
-              <option value="default">Default</option>
-              <option value="4:3">4:3</option>
-              <option value="16:10">16:10</option>
-              <option value="16:9">16:9</option>
-              <option value="19.5:9">19.5:9</option>
-            </SettingSelect>
-          </Row>
 
           <Row label={<IconLabel icon={ImageIcon} text="Format" />}>
             <SettingSelect
@@ -277,7 +337,10 @@ export const SnapshotControlsSection: React.FC<
             onClick={onSnapshot}
             style={{ marginTop: "8px" }}
           >
-            Save snapshot
+            <SnapshotButtonContent>
+              <SnapshotStatusDot $active={isCapturing} />
+              {buttonLabel}
+            </SnapshotButtonContent>
           </SnapshotActionButton>
         </Collapsible >
       </Section >

@@ -1,16 +1,20 @@
 import { useCallback } from "react";
 import { FFT_AREA_MIN } from "@n-apt/consts";
 import { THEME_TOKENS } from "@n-apt/consts";
-import { useAppSelector } from "@n-apt/redux";
+import {
+  clearSnapshotProgress,
+  setSnapshotProgress,
+  useAppDispatch,
+  useAppSelector,
+} from "@n-apt/redux";
 import { useResolvedThemeMode } from "@n-apt/components/ui/Theme";
 import type { SnapshotData } from "@n-apt/components/FFTCanvas";
+import type { WholeChannelSnapshotSegment } from "@n-apt/hooks/useCaptureWholeChannelSegments";
 import { CoordinateMapper, Range } from "@n-apt/utils/rendering/CoordinateMapper";
 import { CanvasDrawingContext, SnapshotRenderer, SnapshotTheme, SVGDrawingContext, DrawingContext } from "@n-apt/utils/rendering/SnapshotRenderer";
 import { fmtFreq, fmtTimestamp } from "@n-apt/utils/rendering/formatters";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
-
-export type SnapshotAspectRatio = "default" | "4:3" | "16:10" | "16:9" | "19.5:9";
 
 export type SnapshotOptions = {
   whole: boolean;
@@ -20,17 +24,19 @@ export type SnapshotOptions = {
   geolocation?: { lat: string; lon: string } | null;
   showGrid: boolean;
   format: "png" | "svg" | SnapshotVideoFormat;
-  aspectRatio?: SnapshotAspectRatio;
   getSnapshotData: () => SnapshotData | null;
   signalAreaBounds?: Record<string, { min: number; max: number }> | null;
   activeSignalArea?: string;
   sourceName?: string;
   sdrSettingsLabel?: string;
   modeLabel?: string;
-  wholeChannelSegments?: Array<{
-    data: SnapshotData;
-    visualRange: { min: number; max: number };
-  }>;
+  wholeChannelSegments?: WholeChannelSnapshotSegment[];
+  getWholeChannelSegmentFrames?: () => AsyncGenerator<
+    WholeChannelSnapshotSegment[],
+    void,
+    void
+  >;
+  videoFrameRate?: number;
   getVideoSourceCanvases?: () => {
     spectrum: HTMLCanvasElement | null;
     waterfall?: HTMLCanvasElement | null;
@@ -110,11 +116,39 @@ function downloadBlob(blob: Blob, filename: string): void {
   URL.revokeObjectURL(url);
 }
 
+export function normalizeSnapshotVideoFrameRate(frameRate?: number): number {
+  return Number.isFinite(frameRate) && frameRate! > 0
+    ? Math.round(frameRate!)
+    : 30;
+}
+
+export function getWholeChannelRenderRange(
+  data: SnapshotData,
+  options: Pick<SnapshotOptions, "activeSignalArea" | "signalAreaBounds">,
+  segments?: WholeChannelSnapshotSegment[],
+): Range {
+  const area = options.activeSignalArea?.toLowerCase();
+  const bounds = area ? options.signalAreaBounds?.[area] : null;
+  if (bounds) {
+    return bounds;
+  }
+
+  if (segments?.length) {
+    return {
+      min: Math.min(...segments.map((segment) => segment.visualRange.min)),
+      max: Math.max(...segments.map((segment) => segment.visualRange.max)),
+    };
+  }
+
+  return data.frequencyRange;
+}
+
 async function recordSnapshotFramesToVideo(
   renderFrame: () => Promise<HTMLCanvasElement>,
   baseFilename: string,
   durationMs = 1000,
   preferredFormat: SnapshotVideoFormat | null = null,
+  frameRate = 30,
 ): Promise<void> {
   await new Promise<void>((resolve) => {
     window.requestAnimationFrame(() => {
@@ -131,7 +165,8 @@ async function recordSnapshotFramesToVideo(
 
   ctx.drawImage(firstFrame, 0, 0);
 
-  const stream = recordingCanvas.captureStream(30);
+  const safeFrameRate = normalizeSnapshotVideoFrameRate(frameRate);
+  const stream = recordingCanvas.captureStream(safeFrameRate);
   const supportedMimeTypes = preferredFormat
     ? SNAPSHOT_VIDEO_MIME_TYPES[preferredFormat]
     : [...SNAPSHOT_VIDEO_MIME_TYPES.mp4, ...SNAPSHOT_VIDEO_MIME_TYPES.webm];
@@ -182,6 +217,83 @@ async function recordSnapshotFramesToVideo(
   downloadBlob(stop, `${baseFilename}.${extension}`);
 }
 
+async function recordCanvasFramesToVideo(
+  frames: HTMLCanvasElement[],
+  baseFilename: string,
+  preferredFormat: SnapshotVideoFormat | null = null,
+  frameRate = 30,
+): Promise<void> {
+  if (!frames.length) {
+    throw new Error("No frames available for video snapshot.");
+  }
+
+  const safeFrameRate = normalizeSnapshotVideoFrameRate(frameRate);
+  const recordingCanvas = document.createElement("canvas");
+  recordingCanvas.width = Math.max(1, frames[0].width);
+  recordingCanvas.height = Math.max(1, frames[0].height);
+  const ctx = recordingCanvas.getContext("2d");
+  if (!ctx) throw new Error("Unable to initialize the video recording canvas.");
+
+  const supportedMimeTypes = preferredFormat
+    ? SNAPSHOT_VIDEO_MIME_TYPES[preferredFormat]
+    : [...SNAPSHOT_VIDEO_MIME_TYPES.mp4, ...SNAPSHOT_VIDEO_MIME_TYPES.webm];
+  const mimeType =
+    supportedMimeTypes.find((type) =>
+      typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(type),
+    ) ?? "";
+
+  if (!mimeType) {
+    throw new Error("Your browser cannot record this canvas as a video.");
+  }
+
+  const stream = recordingCanvas.captureStream(safeFrameRate);
+  const recorder = new MediaRecorder(stream, { mimeType });
+  const chunks: BlobPart[] = [];
+  const frameIntervalMs = 1000 / safeFrameRate;
+
+  const drawFrame = (frame: HTMLCanvasElement) => {
+    if (recordingCanvas.width !== frame.width) recordingCanvas.width = Math.max(1, frame.width);
+    if (recordingCanvas.height !== frame.height) recordingCanvas.height = Math.max(1, frame.height);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, recordingCanvas.width, recordingCanvas.height);
+    ctx.drawImage(frame, 0, 0);
+  };
+
+  drawFrame(frames[0]);
+
+  const blob = await new Promise<Blob>((resolve, reject) => {
+    recorder.ondataavailable = (event) => {
+      if (event.data.size > 0) chunks.push(event.data);
+    };
+    recorder.onerror = () => reject(new Error("Video recording failed."));
+    recorder.onstop = () => resolve(new Blob(chunks, { type: mimeType }));
+    recorder.start();
+
+    let frameIndex = 1;
+    const advance = () => {
+      if (frameIndex >= frames.length) {
+        window.setTimeout(() => {
+          try {
+            recorder.stop();
+          } catch (error) {
+            reject(error);
+          }
+        }, frameIntervalMs);
+        return;
+      }
+
+      drawFrame(frames[frameIndex]);
+      frameIndex += 1;
+      window.setTimeout(advance, frameIntervalMs);
+    };
+
+    window.setTimeout(advance, frameIntervalMs);
+  });
+
+  const extension = mimeType.startsWith("video/mp4") ? "mp4" : "webm";
+  downloadBlob(blob, `${baseFilename}.${extension}`);
+}
+
 
 // THEME constant removed - now computed dynamically inside useSnapshot hook
 
@@ -200,52 +312,43 @@ function renderSpectrumSnapshot(
    statsLines?: string[],
    waveform?: Float32Array,
    theme?: SnapshotTheme,
-   aspectRatio?: SnapshotAspectRatio,
 ): HTMLCanvasElement | string {
-const dpr = window.devicePixelRatio || 1;
-    const logicalW = pixelWidth / dpr;
-    const logicalH = pixelHeight / dpr;
-    const plotLeft = Math.max(FFT_AREA_MIN.x, 52);
-    const plotBottom = 38;
-  
-    // Calculate font scale and bottom padding based on aspect ratio
-    const defaultLogicalH = 400;
-    const heightRatio = logicalH / defaultLogicalH;
-    // Use gentle scaling: 1 + 0.25 of the extra ratio, capped at 1.4x max
-    const fontScale = Math.min(1.4, 1 + 0.25 * (heightRatio - 1));
-    // Bottom padding increases with taller canvas (for 4:3 and wider)
-const bottomPadding = Math.round(10 * heightRatio);
-  
+   const dpr = window.devicePixelRatio || 1;
+   const logicalW = pixelWidth / dpr;
+   const logicalH = pixelHeight / dpr;
+   const plotLeft = Math.max(FFT_AREA_MIN.x, 52);
+   const plotBottom = 38;
+ 
    const mapper = new CoordinateMapper(
      {
        x: plotLeft,
        y: FFT_AREA_MIN.y,
        width: logicalW - 40 - plotLeft,
-       height: logicalH - plotBottom - FFT_AREA_MIN.y - bottomPadding,
+       height: logicalH - plotBottom - FFT_AREA_MIN.y,
      },
      frequencyRange,
      { min: data.dbMin, max: data.dbMax },
      dpr
    );
  
-if (!theme) throw new Error("Snapshot theme is required");
-    const renderer = new SnapshotRenderer(mapper, theme);
+   if (!theme) throw new Error("Snapshot theme is required");
+   const renderer = new SnapshotRenderer(mapper, theme);
 
-   if (format === "svg") {
-     const dc = new SVGDrawingContext(logicalW, logicalH);
-     renderToDC(dc, renderer, data, frequencyRange, showGrid, fullCaptureRange, statsLines, waveform, fontScale);
-     return dc.getSVG();
-   } else {
-     const canvas = document.createElement("canvas");
-     canvas.width = pixelWidth;
-     canvas.height = pixelHeight;
-     const ctx = canvas.getContext("2d")!;
-     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  if (format === "svg") {
+    const dc = new SVGDrawingContext(logicalW, logicalH);
+    renderToDC(dc, renderer, data, frequencyRange, showGrid, fullCaptureRange, statsLines, waveform);
+    return dc.getSVG();
+  } else {
+    const canvas = document.createElement("canvas");
+    canvas.width = pixelWidth;
+    canvas.height = pixelHeight;
+    const ctx = canvas.getContext("2d")!;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-     const dc = new CanvasDrawingContext(ctx);
-     renderToDC(dc, renderer, data, frequencyRange, showGrid, fullCaptureRange, statsLines, waveform, fontScale);
-     return canvas;
-   }
+    const dc = new CanvasDrawingContext(ctx);
+    renderToDC(dc, renderer, data, frequencyRange, showGrid, fullCaptureRange, statsLines, waveform);
+    return canvas;
+  }
 }
 
 function renderToDC(
@@ -257,7 +360,6 @@ function renderToDC(
   fullCaptureRange?: Range,
   statsLines?: string[],
   waveform?: Float32Array,
-  fontScale: number = 1,
 ): void {
   const vertRange = 10;
   const startLabel = Math.floor((data.dbMax + 0.1) / vertRange) * vertRange;
@@ -270,7 +372,7 @@ function renderToDC(
   renderer.drawBackground(dc);
   renderer.drawAxes(dc);
   if (showGrid) renderer.drawGridLines(dc, markers);
-  renderer.drawDbMarkers(dc, markers, unit, fontScale);
+  renderer.drawDbMarkers(dc, markers, unit);
   renderer.drawHardwareGrid(dc, data.hardwareSampleRateHz || 0, fullCaptureRange);
 
   const traceWaveform = waveform ?? data.waveform;
@@ -278,9 +380,9 @@ function renderToDC(
     renderer.drawTrace(dc, traceWaveform);
   }
 
-  renderer.drawFrequencyLabels(dc, 1, (frequencyRange.min + frequencyRange.max) / 2, fontScale);
+  renderer.drawFrequencyLabels(dc, 1, (frequencyRange.min + frequencyRange.max) / 2);
   if (statsLines && traceWaveform) {
-    renderer.drawStatsBox(dc, statsLines, traceWaveform, fontScale);
+    renderer.drawStatsBox(dc, statsLines, traceWaveform);
   }
 }
 
@@ -470,7 +572,6 @@ function renderSpectrumSnapshotCanvas(
   statsLines?: string[],
   waveform?: Float32Array,
   theme?: SnapshotTheme,
-  aspectRatio?: SnapshotAspectRatio,
 ): HTMLCanvasElement {
   return renderSpectrumSnapshot(
     data,
@@ -483,30 +584,11 @@ function renderSpectrumSnapshotCanvas(
     statsLines,
     waveform,
     theme,
-    aspectRatio,
-  );
+  ) as HTMLCanvasElement;
 }
 
-// Cache for segment positions in waterfall composition
-// Key: segments array reference + fullRange + pixelWidth + pixelHeight
-// Value: cached position calculations
-const waterfallPositionCache = new WeakMap<
-  object,
-  Array<{
-    targetX: number;
-    targetWidth: number;
-    plotPixelW: number;
-    plotPixelH: number;
-    plotPixelX: number;
-    plotPixelY: number;
-  }>
->();
-
 function composeWholeChannelWaterfallCanvas(
-  segments: Array<{
-    data: SnapshotData;
-    visualRange: { min: number; max: number };
-  }>,
+  segments: WholeChannelSnapshotSegment[],
   fullRange: { min: number; max: number },
   pixelWidth: number,
   pixelHeight: number,
@@ -537,39 +619,18 @@ function composeWholeChannelWaterfallCanvas(
   const plotPixelX = Math.round(marginStart * dpr);
   const plotPixelY = Math.round(marginY * dpr);
 
-  // Check if we have cached positions for these segments
-  let cachedPositions = waterfallPositionCache.get(segments);
-  
-  // Validate cache: if dimensions changed, invalidate
-  if (cachedPositions && cachedPositions.length === segments.length) {
-    const firstPos = cachedPositions[0];
-    if (firstPos.plotPixelW !== plotPixelW || firstPos.plotPixelH !== plotPixelH) {
-      cachedPositions = undefined;
-    }
-  }
-
-  // Build cache if not available
-  if (!cachedPositions) {
-    cachedPositions = segments.map((segment) => {
-      const startRatio = (segment.visualRange.min - fullRange.min) / totalSpan;
-      const endRatio = (segment.visualRange.max - fullRange.min) / totalSpan;
-      const targetX = Math.round(Math.min(startRatio, endRatio) * plotPixelW);
-      const targetRight = Math.round(Math.max(startRatio, endRatio) * plotPixelW);
-      const targetWidth = Math.max(1, targetRight - targetX);
-      return { targetX, targetWidth, plotPixelW, plotPixelH, plotPixelX, plotPixelY };
-    });
-    waterfallPositionCache.set(segments, cachedPositions);
-  }
-
   let renderedAny = false;
-  for (let i = 0; i < segments.length; i++) {
-    const segment = segments[i];
-    const positions = cachedPositions[i];
+  for (const segment of segments) {
+    const startRatio = (segment.visualRange.min - fullRange.min) / totalSpan;
+    const endRatio = (segment.visualRange.max - fullRange.min) / totalSpan;
+    const targetX = Math.round(Math.min(startRatio, endRatio) * plotPixelW);
+    const targetRight = Math.round(Math.max(startRatio, endRatio) * plotPixelW);
+    const targetWidth = Math.max(1, targetRight - targetX);
 
     // Render segment to its own width
     const segmentCanvas = renderWaterfallSnapshotCanvas(
       segment.data,
-      positions.targetWidth,
+      targetWidth,
       plotPixelH,
       { marginX: 0, marginY: 0, noBackground: true, waterfallBg }
     );
@@ -581,9 +642,9 @@ function composeWholeChannelWaterfallCanvas(
       0,
       segmentCanvas.width,
       segmentCanvas.height,
-      positions.plotPixelX + positions.targetX,
-      positions.plotPixelY,
-      positions.targetWidth,
+      plotPixelX + targetX,
+      plotPixelY,
+      targetWidth,
       plotPixelH,
     );
     renderedAny = true;
@@ -592,28 +653,8 @@ function composeWholeChannelWaterfallCanvas(
   return renderedAny ? canvas : null;
 }
 
-// Cache for spectrum stitching metadata
-// Key: segments array reference
-// Value: cached stitching parameters (positions only, NOT src indices since waveform length changes each frame)
-const spectrumStitchCache = new WeakMap<
-  object,
-  {
-    stitchedBins: number;
-    totalSpan: number;
-    dbMin: number;
-    segmentCaches: Array<{
-      destStart: number;
-      destEnd: number;
-      destCount: number;
-    }>;
-  }
->();
-
 function composeWholeChannelSpectrumCanvas(
-  segments: Array<{
-    data: SnapshotData;
-    visualRange: Range;
-  }>,
+  segments: WholeChannelSnapshotSegment[],
   fullRange: Range,
   showGrid: boolean,
   pixelWidth: number,
@@ -627,108 +668,56 @@ function composeWholeChannelSpectrumCanvas(
   const totalSpan = fullRange.max - fullRange.min;
   if (!(totalSpan > 0)) return null;
   const first = segments[0];
-  
-  // Check cache for stitching metadata
-  let stitchCache = spectrumStitchCache.get(segments);
-  
-  // Validate cache: if parameters changed, invalidate
-  if (stitchCache && Math.abs(stitchCache.totalSpan - totalSpan) > 0.001) {
-    stitchCache = undefined;
-  }
-  
-  let stitchedBins: number;
-  let segmentCaches: typeof stitchCache extends infer T ? T extends { segmentCaches: infer S } ? S : never : never;
-  
-  if (stitchCache) {
-    // Use cached stitching parameters
-    stitchedBins = stitchCache.stitchedBins;
-    segmentCaches = stitchCache.segmentCaches;
-  } else {
-    // Calculate stitching parameters
-    const baseBins = Math.max(
-      2048,
-      ...segments.map((segment) => segment.data.waveform?.length ?? 0),
-    );
-    stitchedBins = Math.max(
-      baseBins,
-      Math.round(
-        baseBins *
-          segments.reduce((maxRatio, segment) => {
-            const segSpan = segment.visualRange.max - segment.visualRange.min;
-            return Math.max(maxRatio, segSpan > 0 ? totalSpan / segSpan : 1);
-          }, 1),
-      ),
-    );
-    
-    // Pre-calculate segment position mappings
-    segmentCaches = segments.map((segment) => {
-      const startRatio = Math.max(
-        0,
-        (segment.visualRange.min - fullRange.min) / totalSpan,
-      );
-      const endRatio = Math.min(
-        1,
-        (segment.visualRange.max - fullRange.min) / totalSpan,
-      );
-      const destStart = Math.max(
-        0,
-        Math.min(stitchedBins - 1, Math.round(startRatio * stitchedBins)),
-      );
-      const destEnd = Math.max(
-        destStart + 1,
-        Math.min(stitchedBins, Math.round(endRatio * stitchedBins)),
-      );
-      const destCount = Math.max(1, destEnd - destStart);
-      
-      // Return position info only - src indices calculated dynamically each frame
-      // since waveform length changes between frames
-      return { destStart, destEnd, destCount };
-    });
-    
-    // Store in cache
-    spectrumStitchCache.set(segments, {
-      stitchedBins,
-      totalSpan,
-      dbMin: first.data.dbMin,
-      segmentCaches,
-    });
-  }
-  
+  const baseBins = Math.max(
+    2048,
+    ...segments.map((segment) => segment.data.waveform?.length ?? 0),
+  );
+  const stitchedBins = Math.max(
+    baseBins,
+    Math.round(
+      baseBins *
+        segments.reduce((maxRatio, segment) => {
+          const segSpan = segment.visualRange.max - segment.visualRange.min;
+          return Math.max(maxRatio, segSpan > 0 ? totalSpan / segSpan : 1);
+        }, 1),
+    ),
+  );
   const stitched = new Float32Array(stitchedBins).fill(first.data.dbMin);
-  const BLEND_BINS = 16;
+  let filledAny = false;
 
-  function hannWindow(t: number): number {
-    return 0.5 - 0.5 * Math.cos(Math.PI * t);
-  }
-
-  // Use cached position data for stitching
-  for (let segIdx = 0; segIdx < segments.length; segIdx++) {
-    const segment = segments[segIdx];
+  for (const segment of segments) {
     const waveform = segment.data.waveform;
     if (!waveform?.length) continue;
 
-    const { destStart, destCount } = segmentCaches[segIdx];
+    const startRatio = Math.max(
+      0,
+      (segment.visualRange.min - fullRange.min) / totalSpan,
+    );
+    const endRatio = Math.min(
+      1,
+      (segment.visualRange.max - fullRange.min) / totalSpan,
+    );
+    const destStart = Math.max(
+      0,
+      Math.min(stitchedBins - 1, Math.round(startRatio * stitchedBins)),
+    );
+    const destEnd = Math.max(
+      destStart + 1,
+      Math.min(stitchedBins, Math.round(endRatio * stitchedBins)),
+    );
+    const destCount = Math.max(1, destEnd - destStart);
 
     for (let i = 0; i < destCount; i++) {
-      // Calculate src index dynamically based on current waveform length
       const srcIdx = Math.min(
         waveform.length - 1,
         Math.round((i / Math.max(1, destCount - 1)) * (waveform.length - 1)),
       );
-      const incoming = waveform[srcIdx];
-
-      const existing = stitched[destStart + i];
-      if (existing !== first.data.dbMin && BLEND_BINS > 0) {
-        const blendFactor = hannWindow(i / BLEND_BINS);
-        stitched[destStart + i] = existing * (1 - blendFactor) + incoming * blendFactor;
-      } else {
-        stitched[destStart + i] = incoming;
-      }
+      stitched[destStart + i] = waveform[srcIdx];
     }
+    filledAny = true;
   }
 
-  const hasData = stitched.some(x => x !== first.data.dbMin);
-  if (!hasData) return null;
+  if (!filledAny) return null;
 
   return renderSpectrumSnapshotCanvas(
     {
@@ -755,6 +744,7 @@ export function useSnapshot(
   _isConnected: boolean,
 ) {
   const appMode = useAppSelector((state) => state.theme.appMode);
+  const dispatch = useAppDispatch();
   const resolvedMode = useResolvedThemeMode(appMode);
   const themeColors = THEME_TOKENS.colors[resolvedMode];
 
@@ -772,11 +762,24 @@ export function useSnapshot(
   const waterfallBg = themeColors.waterfallBackground;
 
   const handleSnapshot = useCallback(async (options: SnapshotOptions) => {
-    const data = options.getSnapshotData();
-    if (!data || !data.waveform || data.waveform.length === 0) {
-      console.warn("[Snapshot] No waveform data available");
-      return;
-    }
+    dispatch(setSnapshotProgress({
+      stage: "started",
+      message: "Preparing snapshot",
+      current: null,
+      total: null,
+    }));
+    try {
+      const data = options.getSnapshotData();
+      if (!data || !data.waveform || data.waveform.length === 0) {
+        console.warn("[Snapshot] No waveform data available");
+        dispatch(setSnapshotProgress({
+          stage: "error",
+          message: "No waveform data available",
+          current: null,
+          total: null,
+        }));
+        return;
+      }
 
     // Determine waveform + range
     let waveformToRender: Float32Array;
@@ -784,9 +787,11 @@ export function useSnapshot(
 
     if (options.whole) {
       waveformToRender = data.fullChannelWaveform ?? data.waveform;
-      const area = options.activeSignalArea?.toLowerCase();
-      const bounds = area ? options.signalAreaBounds?.[area] : null;
-      rangeToRender = bounds ?? data.frequencyRange;
+      rangeToRender = getWholeChannelRenderRange(
+        data,
+        options,
+        options.wholeChannelSegments,
+      );
     } else {
       if (data.vizZoom > 1) {
         const { slicedWaveform, visualRange } = getZoomedSlice(
@@ -881,42 +886,151 @@ export function useSnapshot(
       }
     }
 
-    const totalPixelH = hasWaterfall
-      ? PIXEL_SPECTRUM_H + PIXEL_WATERFALL_H
-      : PIXEL_SPECTRUM_H;
+    const buildRenderState = (
+      currentData: SnapshotData,
+      wholeChannelSegments?: WholeChannelSnapshotSegment[],
+    ) => {
+      let currentWaveform: Float32Array;
+      let currentRange: Range;
 
-    // Determine final canvas dimensions based on aspect ratio (cover mode)
-    // Calculate BEFORE rendering so we render at target size from the start
-    let finalPixelW = PIXEL_WIDTH;
-    let finalPixelH = totalPixelH;
-    let targetSpectrumH = PIXEL_SPECTRUM_H;
-    let targetWaterfallH = PIXEL_WATERFALL_H;
-    if (options.aspectRatio && options.aspectRatio !== "default") {
-      const targetRatio = options.aspectRatio === "4:3" ? 4/3 : (options.aspectRatio === "16:10" ? 16/10 : (options.aspectRatio === "16:9" ? 16/9 : 19.5/9));
-      const currentRatio = PIXEL_WIDTH / totalPixelH;
-      if (currentRatio > targetRatio) {
-        finalPixelH = Math.round(PIXEL_WIDTH / targetRatio);
-        if (hasWaterfall) {
-          const spectrumRatio = PIXEL_SPECTRUM_H / (PIXEL_SPECTRUM_H + PIXEL_WATERFALL_H);
-          targetSpectrumH = Math.round(finalPixelH * spectrumRatio);
-          targetWaterfallH = finalPixelH - targetSpectrumH;
+      if (options.whole) {
+        currentWaveform = currentData.fullChannelWaveform ?? currentData.waveform ?? new Float32Array();
+        currentRange = getWholeChannelRenderRange(
+          currentData,
+          options,
+          wholeChannelSegments,
+        );
+      } else if (currentData.vizZoom > 1 && currentData.waveform) {
+        const { slicedWaveform, visualRange } = getZoomedSlice(
+          currentData.waveform,
+          currentData.frequencyRange,
+          currentData.vizZoom,
+          currentData.vizPanOffset,
+        );
+        currentWaveform = slicedWaveform;
+        currentRange = visualRange;
+      } else {
+        currentWaveform = currentData.waveform ?? new Float32Array();
+        currentRange = currentData.frequencyRange;
+      }
+
+      const currentCenterFreq = (currentRange.min + currentRange.max) / 2;
+      let currentCaptureRange: Range;
+      if (currentData.hardwareSampleRateHz && Number.isFinite(currentCenterFreq)) {
+        const hwSpanMHz = currentData.hardwareSampleRateHz / 1e6;
+        const dataSpan = currentRange.max - currentRange.min;
+        if (dataSpan > hwSpanMHz + 0.001) {
+          currentCaptureRange = currentRange;
         } else {
-          targetSpectrumH = finalPixelH;
-          targetWaterfallH = 0;
+          currentCaptureRange = {
+            min: currentCenterFreq - currentData.hardwareSampleRateHz / 2e6,
+            max: currentCenterFreq + currentData.hardwareSampleRateHz / 2e6,
+          };
         }
       } else {
-        finalPixelW = Math.round(totalPixelH * targetRatio);
-        if (hasWaterfall) {
-          targetSpectrumH = PIXEL_SPECTRUM_H;
-          targetWaterfallH = PIXEL_WATERFALL_H;
-        } else {
-          targetSpectrumH = totalPixelH;
-          targetWaterfallH = 0;
+        currentCaptureRange = currentData.frequencyRange;
+      }
+
+      const currentDbUnit = getDbUnit(currentData);
+      const currentStatsLines = options.showStats ? [
+        `${fmtFreq(currentRange.min)} – ${fmtFreq(currentRange.max)}`,
+        fmtTimestamp(),
+        `${options.modeLabel ?? (options.whole ? "Whole Channel" : "Onscreen")} | ${currentDbUnit}: ${currentData.dbMin} to ${currentData.dbMax}`,
+        `FFT: ${currentData.fftSize ?? "?"} | Window: ${currentData.fftWindow ?? "?"}`,
+        `Source: ${options.sourceName || "Unknown"}`,
+        ...(options.sdrSettingsLabel ? [options.sdrSettingsLabel] : []),
+      ] : [];
+
+      if (options.showStats && options.showGeolocation && options.geolocation) {
+        currentStatsLines.push(`Location: ${options.geolocation.lat}, ${options.geolocation.lon}`);
+      }
+
+      return {
+        currentWaveform,
+        currentRange,
+        currentCaptureRange,
+        currentStatsLines,
+      };
+    };
+
+    const renderVideoFrameCanvas = (
+      currentData: SnapshotData,
+      wholeChannelSegments?: WholeChannelSnapshotSegment[],
+    ) => {
+      const {
+        currentWaveform,
+        currentRange,
+        currentCaptureRange,
+        currentStatsLines,
+      } = buildRenderState(currentData, wholeChannelSegments);
+      const frameSegments = wholeChannelSegments?.length
+        ? wholeChannelSegments
+        : options.wholeChannelSegments;
+
+      const currentWholeSpectrumCanvas =
+        options.whole && frameSegments?.length
+          ? composeWholeChannelSpectrumCanvas(
+              frameSegments,
+              currentRange,
+              options.showGrid,
+              PIXEL_WIDTH,
+              PIXEL_SPECTRUM_H,
+              currentCaptureRange,
+              currentStatsLines,
+              theme,
+            )
+          : null;
+      const currentWholeWaterfallCanvas =
+        options.showWaterfall && options.whole && frameSegments?.length
+          ? composeWholeChannelWaterfallCanvas(
+              frameSegments,
+              currentRange,
+              PIXEL_WIDTH,
+              PIXEL_WATERFALL_H,
+              waterfallBg,
+            )
+          : null;
+
+      const totalPixelH = options.showWaterfall
+        ? PIXEL_SPECTRUM_H + PIXEL_WATERFALL_H
+        : PIXEL_SPECTRUM_H;
+      const frameCanvas = document.createElement("canvas");
+      frameCanvas.width = PIXEL_WIDTH;
+      frameCanvas.height = totalPixelH;
+      const frameCtx = frameCanvas.getContext("2d");
+      if (!frameCtx) throw new Error("Unable to initialize the snapshot frame canvas.");
+      frameCtx.fillStyle = theme.bg;
+      frameCtx.fillRect(0, 0, PIXEL_WIDTH, totalPixelH);
+
+      const spectrumCanvas =
+        currentWholeSpectrumCanvas ??
+        renderSpectrumSnapshotCanvas(
+          { ...currentData, waveform: currentWaveform },
+          currentRange,
+          options.showGrid,
+          PIXEL_WIDTH,
+          PIXEL_SPECTRUM_H,
+          currentCaptureRange,
+          currentStatsLines,
+          currentWaveform,
+          theme,
+        );
+      frameCtx.drawImage(spectrumCanvas, 0, 0);
+
+      if (options.showWaterfall) {
+        const waterfallCanvas =
+          currentWholeWaterfallCanvas ??
+          renderWaterfallSnapshotCanvas(currentData, PIXEL_WIDTH, PIXEL_WATERFALL_H, {
+            waterfallBg,
+            marginY: 0,
+          });
+        if (waterfallCanvas) {
+          frameCtx.drawImage(waterfallCanvas, 0, PIXEL_SPECTRUM_H);
         }
       }
-    }
 
-    console.log(options.wholeChannelSegments)
+      return frameCanvas;
+    };
 
     const wholeChannelSpectrumCanvas =
       options.whole && options.wholeChannelSegments?.length
@@ -924,8 +1038,8 @@ export function useSnapshot(
             options.wholeChannelSegments,
             rangeToRender,
             options.showGrid,
-            finalPixelW,
-            targetSpectrumH,
+            PIXEL_WIDTH,
+            PIXEL_SPECTRUM_H,
             captureRange,
             statsLines,
             theme,
@@ -936,78 +1050,45 @@ export function useSnapshot(
         ? composeWholeChannelWaterfallCanvas(
             options.wholeChannelSegments,
             rangeToRender,
-            finalPixelW,
-            targetWaterfallH,
+            PIXEL_WIDTH,
+            PIXEL_WATERFALL_H,
             waterfallBg,
           )
         : null;
 
     // ── SVG Vector path ───────────────────────────────────────────────────
     if (options.format === "svg") {
-      const totalHLogical = hasWaterfall
+      const totalH = hasWaterfall
         ? LOGICAL_SPECTRUM_H + LOGICAL_WATERFALL_H
         : LOGICAL_SPECTRUM_H;
 
-      // Determine final canvas dimensions based on aspect ratio (cover mode)
-      // Recalculate heights and re-render at target sizes (not scale)
-      let finalLogicalW = LOGICAL_WIDTH;
-      let finalLogicalH = totalHLogical;
-      let targetSpectrumH = LOGICAL_SPECTRUM_H;
-      let targetWaterfallH = LOGICAL_WATERFALL_H;
-      if (options.aspectRatio && options.aspectRatio !== "default") {
-        const targetRatio = options.aspectRatio === "4:3" ? 4/3 : (options.aspectRatio === "16:10" ? 16/10 : (options.aspectRatio === "16:9" ? 16/9 : 19.5/9));
-        const currentRatio = LOGICAL_WIDTH / totalHLogical;
-        if (currentRatio > targetRatio) {
-          finalLogicalH = Math.round(LOGICAL_WIDTH / targetRatio);
-          if (hasWaterfall) {
-            const spectrumRatio = LOGICAL_SPECTRUM_H / (LOGICAL_SPECTRUM_H + LOGICAL_WATERFALL_H);
-            targetSpectrumH = Math.round(finalLogicalH * spectrumRatio);
-            targetWaterfallH = finalLogicalH - targetSpectrumH;
-          } else {
-            targetSpectrumH = finalLogicalH;
-            targetWaterfallH = 0;
-          }
-        } else {
-          finalLogicalW = Math.round(totalHLogical * targetRatio);
-          if (hasWaterfall) {
-            targetSpectrumH = LOGICAL_SPECTRUM_H;
-            targetWaterfallH = LOGICAL_WATERFALL_H;
-          } else {
-            targetSpectrumH = totalHLogical;
-            targetWaterfallH = 0;
-          }
-        }
-      }
-
-      // Render spectrum at target height (re-render, not scale)
       const spectrumSvg = renderSpectrumSnapshot(
         { ...data, waveform: waveformToRender },
         rangeToRender,
         options.showGrid,
-        finalLogicalW,
-        targetSpectrumH,
+        PIXEL_WIDTH,
+        PIXEL_SPECTRUM_H,
         "svg",
         captureRange,
         statsLines,
         waveformToRender,
         theme,
-        options.aspectRatio,
       ) as string;
  
-      // Render waterfall at target height (re-render, not scale)
+      // Waterfall as embedded PNG bitmap
       let waterfallSection = "";
       if (hasWaterfall) {
         const wfCanvas =
           wholeChannelWaterfallCanvas ??
-          renderWaterfallSnapshotCanvas(data, finalLogicalW, targetWaterfallH, { waterfallBg, marginY: 0 });
+          renderWaterfallSnapshotCanvas(data, PIXEL_WIDTH, PIXEL_WATERFALL_H, { waterfallBg, marginY: 0 });
 
         if (wfCanvas) {
           const wfDataUrl = wfCanvas.toDataURL("image/png");
-          waterfallSection = `<image href="${wfDataUrl}" x="0" y="${targetSpectrumH}" width="${finalLogicalW}" height="${targetWaterfallH}"/>`;
+          waterfallSection = `<image href="${wfDataUrl}" x="0" y="${LOGICAL_SPECTRUM_H}" width="${LOGICAL_WIDTH}" height="${LOGICAL_WATERFALL_H}"/>`;
         }
       }
 
-      const svgContent = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${finalLogicalW} ${finalLogicalH}" width="${finalLogicalW}" height="${finalLogicalH}">
+      const svgContent = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${LOGICAL_WIDTH} ${totalH}" width="${LOGICAL_WIDTH}" height="${totalH}">
   ${spectrumSvg}
   ${waterfallSection}
 </svg>`;
@@ -1019,6 +1100,13 @@ export function useSnapshot(
       link.href = url;
       link.click();
       URL.revokeObjectURL(url);
+      dispatch(setSnapshotProgress({
+        stage: "done",
+        message: "Snapshot saved",
+        current: null,
+        total: null,
+      }));
+      window.setTimeout(() => dispatch(clearSnapshotProgress()), 1200);
       return;
     }
 
@@ -1029,189 +1117,101 @@ export function useSnapshot(
 
       try {
         const baseFilename = `spectrum-snapshot-${timestamp}`;
-        
-        // Pre-allocate mutable data template to avoid GC pressure during video recording
-        // This object will be reused and updated for each frame
-        const mutableDataTemplate: SnapshotData | null = options.wholeChannelSegments?.length 
-          ? { ...options.wholeChannelSegments[0].data }
-          : null;
-        
+        const videoFrameRate = normalizeSnapshotVideoFrameRate(options.videoFrameRate);
+
+        if (options.whole && options.getWholeChannelSegmentFrames) {
+          const renderedFrames: HTMLCanvasElement[] = [];
+          const videoFrameRate = options.videoFrameRate ?? 30;
+          const expectedFrames = normalizeSnapshotVideoFrameRate(videoFrameRate);
+          const maxIterations = expectedFrames * 2;
+          let iterationCount = 0;
+
+          for await (const wholeChannelFrameSegments of options.getWholeChannelSegmentFrames()) {
+            iterationCount++;
+            if (iterationCount > maxIterations) {
+              break;
+            }
+            if (!wholeChannelFrameSegments.length) {
+              continue;
+            }
+            dispatch(setSnapshotProgress({
+              stage: "collecting",
+              message: `Rendering stitched frame ${renderedFrames.length + 1} of ${expectedFrames}`,
+              current: renderedFrames.length + 1,
+              total: expectedFrames,
+            }));
+            renderedFrames.push(
+              renderVideoFrameCanvas(
+                wholeChannelFrameSegments[0].data,
+                wholeChannelFrameSegments,
+              ),
+            );
+            if (renderedFrames.length >= expectedFrames) {
+              break;
+            }
+          }
+
+          if (!renderedFrames.length && options.wholeChannelSegments?.length) {
+            renderedFrames.push(
+              renderVideoFrameCanvas(
+                options.wholeChannelSegments[0].data,
+                options.wholeChannelSegments,
+              ),
+            );
+          }
+
+          if (!renderedFrames.length) {
+            dispatch(setSnapshotProgress({
+              stage: "error",
+              message: "No stitched whole-channel frames were captured",
+              current: null,
+              total: null,
+            }));
+            throw new Error("No stitched whole-channel frames were captured for video snapshot.");
+          }
+
+          dispatch(setSnapshotProgress({
+            stage: "encoding",
+            message: `Encoding ${renderedFrames.length} frames`,
+            current: renderedFrames.length,
+            total: renderedFrames.length,
+          }));
+          await recordCanvasFramesToVideo(
+            renderedFrames,
+            baseFilename,
+            options.format,
+            videoFrameRate,
+          );
+          dispatch(setSnapshotProgress({
+            stage: "done",
+            message: "Video snapshot saved",
+            current: null,
+            total: null,
+          }));
+          window.setTimeout(() => dispatch(clearSnapshotProgress()), 1200);
+          return;
+        }
+
+        dispatch(setSnapshotProgress({
+          stage: "encoding",
+          message: "Recording video snapshot",
+          current: null,
+          total: null,
+        }));
         await recordSnapshotFramesToVideo(async () => {
           const currentData = options.getSnapshotData();
           if (!currentData || !currentData.waveform || currentData.waveform.length === 0) {
             throw new Error("No waveform data available for video snapshot.");
           }
-
-          let currentWaveform: Float32Array;
-          let currentRange: Range;
-          if (options.whole) {
-            currentWaveform = currentData.fullChannelWaveform ?? currentData.waveform;
-            const area = options.activeSignalArea?.toLowerCase();
-            const bounds = area ? options.signalAreaBounds?.[area] : null;
-            currentRange = bounds ?? currentData.frequencyRange;
-          } else if (currentData.vizZoom > 1) {
-            const { slicedWaveform, visualRange } = getZoomedSlice(
-              currentData.waveform,
-              currentData.frequencyRange,
-              currentData.vizZoom,
-              currentData.vizPanOffset,
-            );
-            currentWaveform = slicedWaveform;
-            currentRange = visualRange;
-          } else {
-            currentWaveform = currentData.waveform;
-            currentRange = currentData.frequencyRange;
-          }
-
-          const currentCenterFreq = (currentRange.min + currentRange.max) / 2;
-          let currentCaptureRange: Range;
-          if (currentData.hardwareSampleRateHz && Number.isFinite(currentCenterFreq)) {
-            const hwSpanMHz = currentData.hardwareSampleRateHz / 1e6;
-            const dataSpan = currentRange.max - currentRange.min;
-            if (dataSpan > hwSpanMHz + 0.001) {
-              currentCaptureRange = currentRange;
-            } else {
-              currentCaptureRange = {
-                min: currentCenterFreq - currentData.hardwareSampleRateHz / 2e6,
-                max: currentCenterFreq + currentData.hardwareSampleRateHz / 2e6,
-              };
-            }
-          } else {
-            currentCaptureRange = currentData.frequencyRange;
-          }
-
-          // Calculate total height based on whether waterfall is shown
-          const totalPixelH = options.showWaterfall
-            ? PIXEL_SPECTRUM_H + PIXEL_WATERFALL_H
-            : PIXEL_SPECTRUM_H;
-
-          // Use aspect ratio from options if set, otherwise default (no change)
-          const videoAspectRatio = options.aspectRatio ?? "default";
-          
-          // Determine final canvas dimensions based on aspect ratio (cover mode)
-          let finalVideoPixelW = PIXEL_WIDTH;
-          let finalVideoPixelH = totalPixelH;
-          let targetSpectrumH = PIXEL_SPECTRUM_H;
-          let targetWaterfallH = options.showWaterfall ? PIXEL_WATERFALL_H : 0;
-          if (videoAspectRatio && videoAspectRatio !== "default") {
-            const targetRatio = options.aspectRatio === "4:3" ? 4/3 : (options.aspectRatio === "16:10" ? 16/10 : (options.aspectRatio === "16:9" ? 16/9 : 19.5/9));
-            const currentRatio = PIXEL_WIDTH / totalPixelH;
-            if (currentRatio > targetRatio) {
-              finalVideoPixelH = Math.round(PIXEL_WIDTH / targetRatio);
-              if (options.showWaterfall) {
-                const spectrumRatio = PIXEL_SPECTRUM_H / (PIXEL_SPECTRUM_H + PIXEL_WATERFALL_H);
-                targetSpectrumH = Math.round(finalVideoPixelH * spectrumRatio);
-                targetWaterfallH = finalVideoPixelH - targetSpectrumH;
-              } else {
-                targetSpectrumH = finalVideoPixelH;
-                targetWaterfallH = 0;
-              }
-            } else {
-              finalVideoPixelW = Math.round(totalPixelH * targetRatio);
-              if (options.showWaterfall) {
-                targetSpectrumH = PIXEL_SPECTRUM_H;
-                targetWaterfallH = PIXEL_WATERFALL_H;
-              } else {
-                targetSpectrumH = totalPixelH;
-                targetWaterfallH = 0;
-              }
-            }
-          }
-
-          const videoDbUnit = getDbUnit(currentData);
-          const videoStatsLines = options.showStats ? [
-            `${fmtFreq(currentRange.min)} – ${fmtFreq(currentRange.max)}`,
-            fmtTimestamp(),
-            `${options.modeLabel ?? (options.whole ? "Whole Channel" : "Onscreen")} | ${videoDbUnit}: ${currentData.dbMin} to ${currentData.dbMax}`,
-            `FFT: ${currentData.fftSize ?? "?"} | Window: ${currentData.fftWindow ?? "?"}`,
-            `Source: ${options.sourceName || "Unknown"}`,
-            ...(options.sdrSettingsLabel ? [options.sdrSettingsLabel] : []),
-          ] : [];
-
-          if (options.showStats && options.showGeolocation) {
-            if (options.geolocation) {
-              videoStatsLines.push(`Location: ${options.geolocation.lat}, ${options.geolocation.lon}`);
-            }
-          }
-
-          // For whole channel video, update segments with fresh data for each frame
-          // This creates a dynamic video instead of a static image
-          // Optimization: Reuse segment objects and data template to reduce GC pressure
-          let segmentsToRender = options.wholeChannelSegments;
-          if (options.whole && mutableDataTemplate && segmentsToRender?.length) {
-            // Update the mutable template with fresh data (reuses same object)
-            mutableDataTemplate.waveform = currentData.fullChannelWaveform ?? currentData.waveform;
-            mutableDataTemplate.waterfallTextureSnapshot = currentData.waterfallTextureSnapshot;
-            mutableDataTemplate.waterfallTextureMeta = currentData.waterfallTextureMeta;
-            mutableDataTemplate.waterfallBuffer = currentData.waterfallBuffer;
-            mutableDataTemplate.waterfallDims = currentData.waterfallDims;
-            // Update all segments with the mutable template (avoids creating new objects)
-            for (let i = 0; i < segmentsToRender.length; i++) {
-              (segmentsToRender[i] as { data: SnapshotData }).data = mutableDataTemplate;
-            }
-          }
-
-          const currentWholeSpectrumCanvas =
-            options.whole && segmentsToRender?.length
-              ? composeWholeChannelSpectrumCanvas(
-                  segmentsToRender,
-                  currentRange,
-                  options.showGrid,
-                  finalVideoPixelW,
-                  targetSpectrumH,
-                  currentCaptureRange,
-                  videoStatsLines,
-                  theme,
-                )
-              : null;
-          const currentWholeWaterfallCanvas =
-            options.showWaterfall && options.whole && segmentsToRender?.length
-              ? composeWholeChannelWaterfallCanvas(
-                  segmentsToRender,
-                  currentRange,
-                  finalVideoPixelW,
-                  targetWaterfallH,
-                  waterfallBg,
-                )
-              : null;
-
-          const frameCanvas = document.createElement("canvas");
-          frameCanvas.width = finalVideoPixelW;
-          frameCanvas.height = finalVideoPixelH;
-          const frameCtx = frameCanvas.getContext("2d");
-          if (!frameCtx) throw new Error("Unable to initialize the snapshot frame canvas.");
-          frameCtx.fillStyle = theme.bg;
-          frameCtx.fillRect(0, 0, finalVideoPixelW, finalVideoPixelH);
-          
-          // Draw re-rendered content at target size
-          const spectrumCanvas =
-            currentWholeSpectrumCanvas ??
-            renderSpectrumSnapshotCanvas(
-              { ...currentData, waveform: currentWaveform },
-              currentRange,
-              options.showGrid,
-              finalVideoPixelW,
-              targetSpectrumH,
-              currentCaptureRange,
-              videoStatsLines,
-              currentWaveform,
-              theme,
-              options.aspectRatio,
-            );
-          frameCtx.drawImage(spectrumCanvas, 0, 0);
-          if (options.showWaterfall) {
-            const waterfallCanvas =
-              currentWholeWaterfallCanvas ??
-              renderWaterfallSnapshotCanvas(currentData, finalVideoPixelW, targetWaterfallH, {
-                waterfallBg,
-                marginY: 0,
-              });
-            if (waterfallCanvas) {
-              frameCtx.drawImage(waterfallCanvas, 0, targetSpectrumH);
-            }
-          }
-          return frameCanvas;
-        }, baseFilename, 1000, options.format);
+          return renderVideoFrameCanvas(currentData);
+        }, baseFilename, 1000, options.format, videoFrameRate);
+        dispatch(setSnapshotProgress({
+          stage: "done",
+          message: "Video snapshot saved",
+          current: null,
+          total: null,
+        }));
+        window.setTimeout(() => dispatch(clearSnapshotProgress()), 1200);
         return;
       } finally {
         if (restoreRecordingState) {
@@ -1220,9 +1220,12 @@ export function useSnapshot(
       }
     }
 
-// ── PNG path ──────────────────────────────────────────────────────────
+    // ── PNG path ──────────────────────────────────────────────────────────
 
-    // Render spectrum at target size
+    const totalPixelH = hasWaterfall
+      ? PIXEL_SPECTRUM_H + PIXEL_WATERFALL_H
+      : PIXEL_SPECTRUM_H;
+
     const renderData = { ...data, waveform: waveformToRender };
     const spectrumCanvas =
       wholeChannelSpectrumCanvas ??
@@ -1230,35 +1233,36 @@ export function useSnapshot(
         renderData,
         rangeToRender,
         options.showGrid,
-        finalPixelW,
-        targetSpectrumH,
+        PIXEL_WIDTH,
+        PIXEL_SPECTRUM_H,
         captureRange,
         statsLines,
         waveformToRender,
         theme,
-        options.aspectRatio,
       );
-  
-    // Render waterfall at target size
+ 
+    // Waterfall
     let waterfallCanvas: HTMLCanvasElement | null = null;
     if (hasWaterfall) {
       waterfallCanvas =
         wholeChannelWaterfallCanvas ??
-        renderWaterfallSnapshotCanvas(data, finalPixelW, targetWaterfallH, { waterfallBg, marginY: 0 });
+        renderWaterfallSnapshotCanvas(data, PIXEL_WIDTH, PIXEL_WATERFALL_H, { waterfallBg, marginY: 0 });
     }
 
-    // Composite to final canvas (no scaling - already at target size)
+    // Composite
     const finalCanvas = document.createElement("canvas");
-    finalCanvas.width = finalPixelW;
-    finalCanvas.height = finalPixelH;
+    finalCanvas.width = PIXEL_WIDTH;
+    finalCanvas.height = totalPixelH;
     const ctx = finalCanvas.getContext("2d");
     if (!ctx) return;
 
+    // Fill with background to prevent gaps
     ctx.fillStyle = theme.bg;
-    ctx.fillRect(0, 0, finalPixelW, finalPixelH);
+    ctx.fillRect(0, 0, PIXEL_WIDTH, totalPixelH);
+
     ctx.drawImage(spectrumCanvas, 0, 0);
     if (waterfallCanvas) {
-      ctx.drawImage(waterfallCanvas, 0, targetSpectrumH);
+      ctx.drawImage(waterfallCanvas, 0, PIXEL_SPECTRUM_H);
     }
 
     // Export PNG
@@ -1267,7 +1271,24 @@ export function useSnapshot(
     link.download = `spectrum-snapshot-${timestamp}.png`;
     link.href = dataUrl;
     link.click();
-  }, [theme, waterfallBg]);
+    dispatch(setSnapshotProgress({
+      stage: "done",
+      message: "Snapshot saved",
+      current: null,
+      total: null,
+    }));
+    window.setTimeout(() => dispatch(clearSnapshotProgress()), 1200);
+    } catch (error) {
+      dispatch(setSnapshotProgress({
+        stage: "error",
+        message: error instanceof Error ? error.message : "Snapshot failed",
+        current: null,
+        total: null,
+      }));
+      window.setTimeout(() => dispatch(clearSnapshotProgress()), 1800);
+      throw error;
+    }
+  }, [dispatch, theme, waterfallBg]);
 
   return { handleSnapshot };
 }
