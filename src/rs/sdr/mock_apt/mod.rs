@@ -195,6 +195,15 @@ impl MockAptDevice {
 
     let sdr_settings = crate::server::utils::load_sdr_settings();
 
+    // Use per-channel noise floor if configured, otherwise use global setting
+    let noise_floor_db = mock_settings
+      .channels
+      .values()
+      .next()
+      .and_then(|ch| ch.noise_floor_db)
+      .unwrap_or(mock_settings.global_settings.noise_floor_base)
+      as f32;
+
     Self {
       center_freq: 1_600_000, // 1.6 MHz default
       sample_rate: 3_200_000, // 3.2 MSPS default
@@ -207,7 +216,7 @@ impl MockAptDevice {
       direct_sampling: 0,
       total_samples: 0,
       signals,
-      noise_floor_db: mock_settings.global_settings.noise_floor_base as f32,
+      noise_floor_db,
       signal_modulation_rate: mock_settings
         .global_settings
         .signal_modulation_rate as f32,
@@ -243,51 +252,106 @@ impl MockAptDevice {
       - mock_settings.strength_ranges.strong.min)
       * 0.5;
 
-    // Create signals across the spectrum
-    // Area A: 0.1 - 4.5 MHz (covering the first N-APT range)
-    for i in 0..10 {
-      let freq = 0.1 + (i as f64 * 0.45);
-      let strength_db = if i % 3 == 0 {
-        rng.gen_range((weak_mid - weak_span)..(weak_mid + weak_span))
-      } else {
-        rng.gen_range((medium_mid - medium_span)..(medium_mid + medium_span))
-      };
-      signals.push(MockAptSignal {
-        config: MockAptSignalConfig {
-          center_frequency_mhz: freq,
-          strength_db,
-        },
-        modulation_phase: rng.gen_range(0.0..=2.0 * PI),
-        drift_offset: rng.gen_range(-10.0..=10.0),
-        active: true,
-        bandwidth_hz: 30000.0,
-        phase: rng.gen_range(0.0..=2.0 * PI64),
-        phase_side_low: rng.gen_range(0.0..=2.0 * PI64),
-        phase_side_high: rng.gen_range(0.0..=2.0 * PI64),
-      });
+    // Create signals based on configured channels
+    for (_channel_id, channel_config) in &mock_settings.channels {
+      if channel_config.freq_range_mhz.len() < 2 {
+        continue;
+      }
+
+      let min_freq = channel_config.freq_range_mhz[0];
+      let max_freq = channel_config.freq_range_mhz[1];
+      let freq_span = max_freq - min_freq;
+
+      // Determine signal count based on density or default
+      let signal_density =
+        channel_config.signal_density.unwrap_or(1.0).clamp(0.0, 1.0);
+      let base_signals_per_area =
+        mock_settings.global_settings.signals_per_area as f64;
+      let signal_count =
+        (base_signals_per_area * signal_density).round() as usize;
+
+      // Generate signals distributed across the channel's frequency range
+      for i in 0..signal_count {
+        let freq_offset = if signal_count > 1 {
+          (i as f64 / (signal_count - 1) as f64) * freq_span
+        } else {
+          freq_span / 2.0
+        };
+        let freq = min_freq + freq_offset;
+
+        // Vary strength based on channel density
+        let strength_db = if i % 3 == 0 {
+          rng.gen_range((weak_mid - weak_span)..(weak_mid + weak_span))
+        } else if i % 2 == 0 {
+          rng.gen_range((medium_mid - medium_span)..(medium_mid + medium_span))
+        } else {
+          rng.gen_range((strong_mid - strong_span)..(strong_mid + strong_span))
+        };
+
+        signals.push(MockAptSignal {
+          config: MockAptSignalConfig {
+            center_frequency_mhz: freq,
+            strength_db,
+          },
+          modulation_phase: rng.gen_range(0.0..=2.0 * PI),
+          drift_offset: rng.gen_range(-50.0..=50.0),
+          active: true,
+          bandwidth_hz: (freq_span * 1_000_000.0 / signal_count as f64)
+            .clamp(15000.0, 200000.0),
+          phase: rng.gen_range(0.0..=2.0 * PI64),
+          phase_side_low: rng.gen_range(0.0..=2.0 * PI64),
+          phase_side_high: rng.gen_range(0.0..=2.0 * PI64),
+        });
+      }
     }
 
-    // Area B: 24.7 - 30.0 MHz (covering the second N-APT range)
-    for i in 0..11 {
-      let freq = 24.7 + (i as f64 * 0.5);
-      let strength_db = if i % 3 == 0 {
-        rng.gen_range((medium_mid - medium_span)..(medium_mid + medium_span))
-      } else {
-        rng.gen_range((strong_mid - strong_span)..(strong_mid + strong_span))
-      };
-      signals.push(MockAptSignal {
-        config: MockAptSignalConfig {
-          center_frequency_mhz: freq,
-          strength_db,
-        },
-        drift_offset: rng.gen_range(-50.0..50.0),
-        modulation_phase: rng.gen_range(0.0..=2.0 * PI),
-        active: true,
-        bandwidth_hz: 100000.0,
-        phase: rng.gen_range(0.0..=2.0 * PI64),
-        phase_side_low: rng.gen_range(0.0..=2.0 * PI64),
-        phase_side_high: rng.gen_range(0.0..=2.0 * PI64),
-      });
+    // If no channels are configured, fall back to legacy behavior
+    if signals.is_empty() {
+      // Area A: 0.1 - 4.5 MHz (covering the first N-APT range)
+      for i in 0..10 {
+        let freq = 0.1 + (i as f64 * 0.45);
+        let strength_db = if i % 3 == 0 {
+          rng.gen_range((weak_mid - weak_span)..(weak_mid + weak_span))
+        } else {
+          rng.gen_range((medium_mid - medium_span)..(medium_mid + medium_span))
+        };
+        signals.push(MockAptSignal {
+          config: MockAptSignalConfig {
+            center_frequency_mhz: freq,
+            strength_db,
+          },
+          modulation_phase: rng.gen_range(0.0..=2.0 * PI),
+          drift_offset: rng.gen_range(-10.0..=10.0),
+          active: true,
+          bandwidth_hz: 30000.0,
+          phase: rng.gen_range(0.0..=2.0 * PI64),
+          phase_side_low: rng.gen_range(0.0..=2.0 * PI64),
+          phase_side_high: rng.gen_range(0.0..=2.0 * PI64),
+        });
+      }
+
+      // Area B: 24.7 - 30.0 MHz (covering the second N-APT range)
+      for i in 0..11 {
+        let freq = 24.7 + (i as f64 * 0.5);
+        let strength_db = if i % 3 == 0 {
+          rng.gen_range((medium_mid - medium_span)..(medium_mid + medium_span))
+        } else {
+          rng.gen_range((strong_mid - strong_span)..(strong_mid + strong_span))
+        };
+        signals.push(MockAptSignal {
+          config: MockAptSignalConfig {
+            center_frequency_mhz: freq,
+            strength_db,
+          },
+          drift_offset: rng.gen_range(-50.0..50.0),
+          modulation_phase: rng.gen_range(0.0..=2.0 * PI),
+          active: true,
+          bandwidth_hz: 100000.0,
+          phase: rng.gen_range(0.0..=2.0 * PI64),
+          phase_side_low: rng.gen_range(0.0..=2.0 * PI64),
+          phase_side_high: rng.gen_range(0.0..=2.0 * PI64),
+        });
+      }
     }
 
     signals

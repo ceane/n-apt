@@ -181,7 +181,7 @@ describe('Enhanced Canvas Mocking Tests', () => {
         });
 
         renderPass.end();
-        const commandBuffer = encoder.finish();
+        const _commandBuffer = encoder.finish();
 
         // Verify command encoder operations
         expectWebGPUCall('createCommandEncoder');

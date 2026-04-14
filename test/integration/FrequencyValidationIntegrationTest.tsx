@@ -5,12 +5,12 @@ import type { CaptureFileType } from "../../src/ts/consts/schemas/websocket";
 export const FrequencyValidationIntegrationTest: React.FC = () => {
   const {
     isConnected,
-    deviceState,
+    deviceState: _deviceState,
     captureStatus,
     maxSampleRateHz,
     dataRef,
     sendCaptureCommand,
-  } = useWebSocket();
+  } = useWebSocket("ws://test", null, false);
 
   // Mock state for frequency testing
   const [frequencyRanges, setFrequencyRanges] = React.useState<Array<{

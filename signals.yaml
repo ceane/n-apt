@@ -64,15 +64,6 @@ signals:
 
   # Mock APT signal configuration for testing
   mock_apt:
-    channels:
-        a:
-          label: "A"
-          freq_range_mhz: [0.018, 4.37]
-          description: "Area A: 18kHz-4.47 MHz range"
-        b:
-          label: "B"
-          freq_range_mhz: [24.72, 29.88]
-
     # Global settings for mock signal generation
     global_settings:
       noise_floor_base: -100.0
@@ -105,49 +96,6 @@ signals:
       strong:
         min: -50.0
         max: -30.0
-
-    # Signal shape configurations for realistic signal generation
-    signal_shapes:
-      apt_suspension_bridge:
-        type: "suspension_bridge"
-        flat_width_ratio: 0.6
-        curve_sharpness: 2.0
-        description: "APT-like suspension bridge shape with flat top and curved sides"
-      
-      gaussian_narrow:
-        type: "gaussian"
-        sigma: 0.8
-        description: "Narrow Gaussian bell curve for narrowband signals"
-      
-      gaussian_wide:
-        type: "gaussian"
-        sigma: 2.0
-        description: "Wide Gaussian bell curve for wideband signals"
-      
-      flat_top:
-        type: "flat_top"
-        edge_smoothness: 1.5
-        description: "Flat top with smooth edges for wideband carriers"
-
-    # Predefined signal templates with APT-like shapes
-    signal_templates:
-      apt_channel_a:
-        shape: "apt_suspension_bridge"
-        bandwidth: "medium"
-        strength_range: "medium"
-        description: "APT Channel A - suspension bridge shape"
-      
-      apt_channel_b:
-        shape: "apt_suspension_bridge"
-        bandwidth: "wide"
-        strength_range: "strong"
-        description: "APT Channel B - wider suspension bridge shape"
-      
-      narrow_carrier:
-        shape: "gaussian_narrow"
-        bandwidth: "narrow"
-        strength_range: "weak"
-        description: "Narrowband carrier signal"
 
     # No predefined signals - using dynamic generation with templates
     signals: []

@@ -4,7 +4,6 @@ import {
   screen,
   fireEvent,
   waitFor,
-  act,
 } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import FFTPlaybackCanvas from "@n-apt/components/FFTPlaybackCanvas";

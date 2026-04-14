@@ -3,8 +3,6 @@ import remarkTimeOfFlightBlocks from '../../src/md-preview/remarkTimeOfFlightBlo
 import remarkSignalCanvasBlocks from '../../src/md-preview/remarkSignalCanvasBlocks';
 import remarkLatexCodeBlocks from '../../src/md-preview/remarkLatexCodeBlocks';
 import remarkIconShortcodes from '../../src/md-preview/remarkIconShortcodes';
-import type { Code } from 'mdast';
-import type { Parent } from 'mdast';
 
 // Mock the unified processor for testing
 const createMockTree = (markdown: string, explicitLang?: string): any => ({
@@ -36,7 +34,7 @@ const createMockTree = (markdown: string, explicitLang?: string): any => ({
 describe('Markdown Remark Plugins - Simple Tests', () => {
   describe('Body Attenuation Plugin', () => {
     test('should identify and replace body attenuation blocks', () => {
-      const plugin = remarkBodyAttenuationBlocks();
+      const _plugin = remarkBodyAttenuationBlocks();
       const tree = createMockTree('canvas::bodyattenuation');
       
       // Simulate the visitor pattern
@@ -60,7 +58,7 @@ describe('Markdown Remark Plugins - Simple Tests', () => {
     });
 
     test('should ignore non-body attenuation blocks', () => {
-      const plugin = remarkBodyAttenuationBlocks();
+      const _plugin = remarkBodyAttenuationBlocks();
       const tree = createMockTree('canvas::other');
       
       // Should not modify the tree
@@ -74,7 +72,7 @@ describe('Markdown Remark Plugins - Simple Tests', () => {
 
   describe('Time of Flight Plugin', () => {
     test('should identify and replace time of flight blocks', () => {
-      const plugin = remarkTimeOfFlightBlocks();
+      const _plugin = remarkTimeOfFlightBlocks();
       const tree = createMockTree('canvas::timeofflight');
       
       const visitNode = (node: any, index: number, parent: any) => {
@@ -99,7 +97,7 @@ describe('Markdown Remark Plugins - Simple Tests', () => {
 
   describe('Signal Canvas Plugin', () => {
     test('should identify and replace signal canvas blocks', () => {
-      const plugin = remarkSignalCanvasBlocks();
+      const _plugin = remarkSignalCanvasBlocks();
       const tree = createMockTree('canvas::amplitudemodulation');
       
       const visitNode = (node: any, index: number, parent: any) => {
@@ -124,7 +122,7 @@ describe('Markdown Remark Plugins - Simple Tests', () => {
 
   describe('LaTeX Plugin', () => {
     test('should process LaTeX expressions correctly', () => {
-      const plugin = remarkLatexCodeBlocks();
+      const _plugin = remarkLatexCodeBlocks();
       const tree = createMockTree('\\[E = mc^2\\]', 'latex');
       
       const visitNode = (node: any, index: number, parent: any) => {
@@ -149,7 +147,7 @@ describe('Markdown Remark Plugins - Simple Tests', () => {
     });
 
     test('should handle multiple LaTeX expressions', () => {
-      const plugin = remarkLatexCodeBlocks();
+      const _plugin = remarkLatexCodeBlocks();
       const tree = createMockTree('$$\\alpha + \\beta = \\gamma$$$$\\sin^2(\\theta) + \\cos^2(\\theta) = 1$$', 'latex');
       
       const visitNode = (node: any, index: number, parent: any) => {
@@ -178,7 +176,7 @@ describe('Markdown Remark Plugins - Simple Tests', () => {
     });
 
     test('should handle display math delimiters', () => {
-      const plugin = remarkLatexCodeBlocks();
+      const _plugin = remarkLatexCodeBlocks();
       const tree = createMockTree('\\[\\int_{-\\infty}^{\\infty} e^{-x^2} dx = \\sqrt{\\pi}\\]', 'latex');
       
       const visitNode = (node: any, index: number, parent: any) => {
@@ -206,7 +204,7 @@ describe('Markdown Remark Plugins - Simple Tests', () => {
 
   describe('Icon Shortcodes Plugin', () => {
     test('should replace icon shortcodes with HTML elements', () => {
-      const plugin = remarkIconShortcodes();
+      const _plugin = remarkIconShortcodes();
       const tree = {
         type: 'root',
         children: [
@@ -248,7 +246,7 @@ describe('Markdown Remark Plugins - Simple Tests', () => {
     });
 
     test('should ignore text that looks like shortcodes but isn\'t valid', () => {
-      const plugin = remarkIconShortcodes();
+      const _plugin = remarkIconShortcodes();
       
       const processText = (text: string): string => {
         return text

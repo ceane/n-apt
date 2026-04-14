@@ -5,7 +5,6 @@
 import { 
   validateWaterfallData,
   validateWaterfallDataComprehensive,
-  isValidUint8ClampedArray,
 } from "@n-apt/validation";
 
 describe('Waterfall Data Validation', () => {

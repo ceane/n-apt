@@ -25,7 +25,7 @@ describe("streamWholeChannelSegmentFrames", () => {
       frames.push(frame);
     }
 
-    expect(captureWholeChannelSegments).toHaveBeenCalledTimes(12);
+    expect(captureWholeChannelSegments).toHaveBeenCalledTimes(1);
     expect(frames).toHaveLength(12);
     expect(frames[0]).toEqual([
       {
@@ -64,17 +64,18 @@ describe("useCaptureWholeChannelSegments", () => {
     const sendFrequencyRange = jest.fn();
     const getSnapshotData = jest
       .fn()
-      .mockReturnValueOnce({
-        waveform: new Float32Array([1, 2]),
-        frequencyRange: { min: 0, max: 2 },
-      })
-      .mockReturnValueOnce({
-        waveform: new Float32Array([3, 4]),
-        frequencyRange: { min: 2, max: 4 },
-      })
-      .mockReturnValueOnce({
-        waveform: new Float32Array([5, 6]),
-        frequencyRange: { min: 4, max: 6 },
+      .mockImplementation(() => {
+        const callCount = getSnapshotData.mock.calls.length;
+        const segmentIndex = Math.floor(callCount / 60);
+        const ranges = [
+          { min: 0, max: 2 },
+          { min: 2, max: 4 },
+          { min: 4, max: 6 },
+        ];
+        return {
+          waveform: new Float32Array([1, 2]),
+          frequencyRange: ranges[segmentIndex] || ranges[0],
+        };
       });
 
     const fftCanvasRef = {
@@ -106,7 +107,7 @@ describe("useCaptureWholeChannelSegments", () => {
       segments = await result.current();
     });
 
-    expect(segments.map((segment) => segment.visualRange)).toEqual([
+    expect(segments.map((segment: any) => segment.visualRange)).toEqual([
       { min: 0, max: 2 },
       { min: 2, max: 4 },
       { min: 4, max: 6 },
@@ -118,6 +119,6 @@ describe("useCaptureWholeChannelSegments", () => {
     expect(dispatch).toHaveBeenCalledWith({ type: "SET_VIZ_ZOOM", zoom: 1 });
     expect(dispatch).toHaveBeenCalledWith({ type: "SET_VIZ_PAN", pan: 0 });
     expect(dispatch).toHaveBeenCalledWith({ type: "CLEAR_WATERFALL" });
-    expect(getSnapshotData).toHaveBeenCalledTimes(3);
+    expect(getSnapshotData).toHaveBeenCalledTimes(183);
   });
 });

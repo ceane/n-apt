@@ -1,5 +1,4 @@
 import * as React from "react";
-import { render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 
 // Mock WebSocket for integration testing
@@ -75,7 +74,7 @@ describe("End-to-End Pipeline Integration", () => {
       { paused: true, description: "User pauses again" },
     ];
 
-    pauseTransitions.forEach(({ paused, description }) => {
+    pauseTransitions.forEach(({ paused }) => {
       const statusMessage = {
         message_type: "status",
         device_connected: true,
