@@ -1056,26 +1056,36 @@ export function useSnapshot(
           )
         : null;
 
-    // ── SVG Vector path ───────────────────────────────────────────────────
+// ── SVG Vector path ───────────────────────────────────────────────────
     if (options.format === "svg") {
       const totalH = hasWaterfall
         ? LOGICAL_SPECTRUM_H + LOGICAL_WATERFALL_H
         : LOGICAL_SPECTRUM_H;
 
-      const spectrumSvg = renderSpectrumSnapshot(
-        { ...data, waveform: waveformToRender },
-        rangeToRender,
-        options.showGrid,
-        PIXEL_WIDTH,
-        PIXEL_SPECTRUM_H,
-        "svg",
-        captureRange,
-        statsLines,
-        waveformToRender,
-        theme,
-      ) as string;
- 
-      // Waterfall as embedded PNG bitmap
+      let spectrumSvg = "";
+      if (options.whole && wholeChannelSpectrumCanvas) {
+        const tempCanvas = document.createElement("canvas");
+        tempCanvas.width = wholeChannelSpectrumCanvas.width;
+        tempCanvas.height = wholeChannelSpectrumCanvas.height;
+        const tempCtx = tempCanvas.getContext("2d");
+        if (tempCtx) tempCtx.drawImage(wholeChannelSpectrumCanvas, 0, 0);
+        spectrumSvg = `<image href="${tempCanvas.toDataURL("image/png")}" x="0" y="0" width="${LOGICAL_WIDTH}" height="${LOGICAL_SPECTRUM_H}"/>`;
+      } else {
+        const svgResult = renderSpectrumSnapshot(
+          { ...data, waveform: waveformToRender },
+          rangeToRender,
+          options.showGrid,
+          PIXEL_WIDTH,
+          PIXEL_SPECTRUM_H,
+          "svg",
+          captureRange,
+          statsLines,
+          waveformToRender,
+          theme,
+        );
+        spectrumSvg = typeof svgResult === "string" ? svgResult : "";
+      }
+
       let waterfallSection = "";
       if (hasWaterfall) {
         const wfCanvas =
@@ -1108,116 +1118,6 @@ export function useSnapshot(
       }));
       window.setTimeout(() => dispatch(clearSnapshotProgress()), 1200);
       return;
-    }
-
-    if (options.format === "mp4" || options.format === "webm") {
-      const restoreRecordingState = options.prepareVideoRecording
-        ? await options.prepareVideoRecording()
-        : undefined;
-
-      try {
-        const baseFilename = `spectrum-snapshot-${timestamp}`;
-        const videoFrameRate = normalizeSnapshotVideoFrameRate(options.videoFrameRate);
-
-        if (options.whole && options.getWholeChannelSegmentFrames) {
-          const renderedFrames: HTMLCanvasElement[] = [];
-          const videoFrameRate = options.videoFrameRate ?? 30;
-          const expectedFrames = normalizeSnapshotVideoFrameRate(videoFrameRate);
-          const maxIterations = expectedFrames * 2;
-          let iterationCount = 0;
-
-          for await (const wholeChannelFrameSegments of options.getWholeChannelSegmentFrames()) {
-            iterationCount++;
-            if (iterationCount > maxIterations) {
-              break;
-            }
-            if (!wholeChannelFrameSegments.length) {
-              continue;
-            }
-            dispatch(setSnapshotProgress({
-              stage: "collecting",
-              message: `Rendering stitched frame ${renderedFrames.length + 1} of ${expectedFrames}`,
-              current: renderedFrames.length + 1,
-              total: expectedFrames,
-            }));
-            renderedFrames.push(
-              renderVideoFrameCanvas(
-                wholeChannelFrameSegments[0].data,
-                wholeChannelFrameSegments,
-              ),
-            );
-            if (renderedFrames.length >= expectedFrames) {
-              break;
-            }
-          }
-
-          if (!renderedFrames.length && options.wholeChannelSegments?.length) {
-            renderedFrames.push(
-              renderVideoFrameCanvas(
-                options.wholeChannelSegments[0].data,
-                options.wholeChannelSegments,
-              ),
-            );
-          }
-
-          if (!renderedFrames.length) {
-            dispatch(setSnapshotProgress({
-              stage: "error",
-              message: "No stitched whole-channel frames were captured",
-              current: null,
-              total: null,
-            }));
-            throw new Error("No stitched whole-channel frames were captured for video snapshot.");
-          }
-
-          dispatch(setSnapshotProgress({
-            stage: "encoding",
-            message: `Encoding ${renderedFrames.length} frames`,
-            current: renderedFrames.length,
-            total: renderedFrames.length,
-          }));
-          await recordCanvasFramesToVideo(
-            renderedFrames,
-            baseFilename,
-            options.format,
-            videoFrameRate,
-          );
-          dispatch(setSnapshotProgress({
-            stage: "done",
-            message: "Video snapshot saved",
-            current: null,
-            total: null,
-          }));
-          window.setTimeout(() => dispatch(clearSnapshotProgress()), 1200);
-          return;
-        }
-
-        dispatch(setSnapshotProgress({
-          stage: "encoding",
-          message: "Recording video snapshot",
-          current: null,
-          total: null,
-        }));
-        await recordSnapshotFramesToVideo(async () => {
-          const currentData = options.getSnapshotData();
-          if (!currentData || !currentData.waveform || currentData.waveform.length === 0) {
-            throw new Error("No waveform data available for video snapshot.");
-          }
-          return renderVideoFrameCanvas(currentData);
-        }, baseFilename, 1000, options.format, videoFrameRate);
-        dispatch(setSnapshotProgress({
-          stage: "done",
-          message: "Video snapshot saved",
-          current: null,
-          total: null,
-        }));
-        window.setTimeout(() => dispatch(clearSnapshotProgress()), 1200);
-        return;
-      } finally {
-        if (restoreRecordingState) {
-          await restoreRecordingState();
-        }
-      }
     }
 
     // ── PNG path ──────────────────────────────────────────────────────────

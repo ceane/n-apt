@@ -205,7 +205,15 @@ export class SVGDrawingContext implements DrawingContext {
   }
 
   fillText(text: string, x: number, y: number): void {
-    const escaped = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const escaped = text
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/•/g, "&#x2022;")
+      .replace(/●/g, "&#x25CF;")
+      .replace(/○/g, "&#x25CB;")
+      .replace(/–/g, "&#x2013;")
+      .replace(/—/g, "&#x2014;");
     const fontSizeMatch = this.currentFont.match(/(\d+)px/);
     const fontSize = fontSizeMatch ? parseInt(fontSizeMatch[1]) : 12;
     const style = this.currentFont.includes("JetBrains Mono") 

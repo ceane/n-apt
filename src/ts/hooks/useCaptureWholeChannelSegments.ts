@@ -14,7 +14,7 @@ export async function* streamWholeChannelSegmentFrames(
   captureWholeChannelSegments: () => Promise<WholeChannelSnapshotSegment[]>,
   frameRate: number,
   durationMs = 1000,
-): AsyncGenerator<WholeChannelSnapshotSegment[][], void, void> {
+): AsyncGenerator<WholeChannelSnapshotSegment[], void, void> {
   const safeFrameRate =
     Number.isFinite(frameRate) && frameRate > 0 ? Math.round(frameRate) : 30;
   const totalVideoFrames = Math.max(
