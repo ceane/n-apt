@@ -35,6 +35,15 @@ const getFailingServices = (errorDetails: string[]): FailingServices[] => {
   return failing;
 };
 
+const isDeviceDisconnectedError = (details: string[]): boolean => {
+  return details.some(d =>
+    d.includes('SDR read error') ||
+    d.includes('Timeout waiting for async SDR') ||
+    d.includes('Device DISCONNECTED') ||
+    d.includes('disconnected but running')
+  );
+};
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -79,9 +88,9 @@ const processSuffixes: Record<string, { text: string; color: string }> = {
   'Starting Redis database server...': { text: ' Redis.', color: accentColors.redis },
   'Swapping Redis Database...': { text: ' Redis.', color: accentColors.redis },
   'Building WASM SIMD module...': { text: ' Rust → WebAssembly.', color: accentColors.wasm },
-  'N-APT Encrypted Modules...': { text: ' Rust.', color: accentColors.rust },
-  'Building and starting Rust backend': { text: ' Rust.', color: accentColors.rust },
-  'Starting frontend server': { text: ' Vite.', color: accentColors.vite },
+  'Building (or skipping if missing) N-APT Encrypted Modules...': { text: ' Rust.', color: accentColors.rust },
+  'Building and starting Rust backend...': { text: ' Rust.', color: accentColors.rust },
+  'Starting frontend server...': { text: ' Vite.', color: accentColors.vite },
 };
 
 const encryptedModulesStatus = {
@@ -861,6 +870,7 @@ exec node_modules/.bin/vite dev --host --force
 
   const hasErrors = buildState.processes.some(p => p.status === 'error');
   const hasCompilationErrors = buildState.errorDetails.length > 0;
+  const hasDeviceDisconnected = isDeviceDisconnectedError(buildState.errorDetails);
   const allComplete = buildState.processes.every(p => p.status === 'success' || p.status === 'error');
   const runtimeSeconds = Math.floor((Date.now() - buildState.startTime) / 1000);
   const runtimeSummary = getRuntimeSummaryState({
@@ -871,23 +881,29 @@ exec node_modules/.bin/vite dev --host --force
     redisPid: buildState.redisPid,
     failingServices: hasErrors || hasCompilationErrors ? getFailingServices(buildState.errorDetails) : []
   });
-  const statusLabel = runtimeSummary.label;
-  const statusColor = runtimeSummary.color;
+  const statusLabel = hasDeviceDisconnected ? '▲ Device DISCONNECTED but RUNNING' : runtimeSummary.label;
+  const statusColor = hasDeviceDisconnected ? 'yellow' : runtimeSummary.color;
   const vitePidText = buildState.vitePid ?? '—';
   const rustPidText = buildState.rustPid ?? '—';
   const redisPidText = buildState.redisPid ?? '—';
 
-  // Send notification on successful build completion
+  // Note: If Do Not Disturb is enabled or Terminal lacks notification permissions,
+  // the system notification won't fire. Open http://localhost:5173 manually in that case.
   useEffect(() => {
-    if (allComplete && !hasErrors && !hasCompilationErrors && buildState.vitePid && buildState.rustPid && buildState.redisPid) {
+    const canNotify = !hasErrors && buildState.vitePid && buildState.rustPid && buildState.redisPid;
+    if (allComplete && canNotify) {
+      const msg = hasDeviceDisconnected 
+        ? '✓ Finished (SDR device disconnected - using mock at http://localhost:5173)' 
+        : '✓ Finished at http://localhost:5173';
+      
       notifier.notify({
         title: 'N-APT  🧠',
-        message: '✓ Finished building and running at http://localhost:5173',
+        message: msg,
         icon: path.join(__dirname, 'public/icon-5112.png'),
         open: 'http://localhost:5173',
       });
     }
-  }, [allComplete, hasErrors, hasCompilationErrors, buildState.vitePid, buildState.rustPid, buildState.redisPid]);
+  }, [allComplete, hasErrors, hasDeviceDisconnected, buildState.vitePid, buildState.rustPid, buildState.redisPid]);
 
   const [expandedOutputStep, setExpandedOutputStep] = useState<number | null>(null);
 
@@ -900,8 +916,8 @@ exec node_modules/.bin/vite dev --host --force
       <Logo />
 
       <Box flexDirection="column" marginTop={1} alignItems="flex-start">
-        <Text color="white" bold>N-APT / SDR Visualizer and studio for 🧠 N-APT signals (the NSA's neurotechnology via radio waves)</Text>
-        <Text color="white">N-APT works as low frequency radio waves (really huge but intersects at person's body, heterodyned and APT-like) that writes to both alter and read then streams (write/read on repeat) a person's brain and nervous system.</Text>
+        <Text color="white" bold>N-APT / 📉 SDR Visualizer and studio for N-APT signals</Text>
+        <Text color="white" bold italic>(the NSA's neurotechnology 🧠 via radio waves)</Text>
         <Text color="white">Read more at https://github.com/ceane/n-apt</Text>
         <Text color="gray">Press 'q' or ESC to exit</Text>
       </Box>
