@@ -1,6 +1,7 @@
 import { useRef, useEffect, useCallback, useState } from "react";
 import { useAsyncShaderCache } from "@n-apt/hooks/useAsyncShaderCache";
 import { useSharedBufferManager } from "@n-apt/hooks/useSharedBufferManager";
+import { resampleShader } from "@n-apt/shaders";
 
 // Inlined OverlayTextureRenderer shader
 const overlayShader = `
@@ -259,23 +260,26 @@ export function useWebGPUInit({
     if (webgpuDeviceRef.current && webgpuFormatRef.current && shaderCache.isInitialized) {
       const preloadShaders = async () => {
         try {
-          // Temporarily disable shader preloading to isolate FFT shader issues
-          // TODO: Re-enable once FFT shader issues are resolved
-          console.log('Shader preloading temporarily disabled for FFT debugging');
-          
-          // Preload common shader variants
-          // await shaderCache.preloadShaders([
-          //   {
-          //     vertexCode: SPECTRUM_SHADER,
-          //     fragmentCode: SPECTRUM_SHADER.includes('fs_line') ? undefined : SPECTRUM_SHADER,
-          //     uniforms: { resolution: [1, 1], time: 0 }
-          //   }
-          // ]);
+          // Preload compute shaders (vertexCode is used for compute shader detection)
+          // Note: fft_compute.wgsl has multiple entry points (fft_compute, fft_window, etc.)
+          // spectrum.wgsl has entry points (vs_line, vs_fill) not matching default "vs"
+          // waterfall3d shaders have entry point "main" not matching default "vs"
+          // These will be compiled on-demand with correct entry points.
+          await shaderCache.preloadShaders([
+            {
+              vertexCode: resampleShader,
+              computeCode: resampleShader,
+              uniforms: {},
+              workgroupSize: [256, 1, 1],
+            },
+          ]);
+
+          console.log('Shader preloading completed successfully');
         } catch (error) {
           console.warn('Failed to preload shaders:', error);
         }
       };
-      
+
       preloadShaders();
     }
   }, [webgpuDeviceRef.current, webgpuFormatRef.current, shaderCache.isInitialized]);
