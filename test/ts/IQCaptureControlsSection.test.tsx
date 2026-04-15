@@ -48,7 +48,7 @@ describe("IQCaptureControlsSection", () => {
     );
 
     // Open the collapsible section
-    fireEvent.click(screen.getByText("IQ Capture Controls"));
+    fireEvent.click(screen.getByText("Take an I/Q Capture"));
 
     expect(screen.getByText("Area A")).toBeInTheDocument();
     expect(screen.getByDisplayValue("5")).toBeInTheDocument();
@@ -63,7 +63,7 @@ describe("IQCaptureControlsSection", () => {
     );
 
     // Open the collapsible section
-    fireEvent.click(screen.getByText("IQ Capture Controls"));
+    fireEvent.click(screen.getByText("Take an I/Q Capture"));
 
     const checkbox = screen.getByLabelText("Area A");
     fireEvent.click(checkbox);
@@ -78,7 +78,7 @@ describe("IQCaptureControlsSection", () => {
     );
 
     // Open the collapsible section
-    fireEvent.click(screen.getByText("IQ Capture Controls"));
+    fireEvent.click(screen.getByText("Take an I/Q Capture"));
 
     const input = screen.getByDisplayValue("5");
     fireEvent.change(input, { target: { value: "10" } });
@@ -93,7 +93,7 @@ describe("IQCaptureControlsSection", () => {
     );
 
     // Open the collapsible section
-    fireEvent.click(screen.getByText("IQ Capture Controls"));
+    fireEvent.click(screen.getByText("Take an I/Q Capture"));
 
     const button = screen.getByText("Capture");
     expect(button).toBeDisabled();
@@ -109,7 +109,7 @@ describe("IQCaptureControlsSection", () => {
       </TestWrapper>
     );
 
-    fireEvent.click(screen.getByText("IQ Capture Controls"));
+    fireEvent.click(screen.getByText("Take an I/Q Capture"));
 
     const stopButton = screen.getByText("Stop");
     expect(stopButton).toBeEnabled();
@@ -130,7 +130,7 @@ describe("IQCaptureControlsSection", () => {
     );
 
     // Open the collapsible section
-    fireEvent.click(screen.getByText("IQ Capture Controls"));
+    fireEvent.click(screen.getByText("Take an I/Q Capture"));
 
     expect(screen.getByText("Capturing now...")).toBeInTheDocument();
   });
@@ -151,7 +151,7 @@ describe("IQCaptureControlsSection", () => {
     );
 
     // Open the collapsible section
-    fireEvent.click(screen.getByText("IQ Capture Controls"));
+    fireEvent.click(screen.getByText("Take an I/Q Capture"));
 
     expect(screen.getByText("Complete")).toBeInTheDocument();
     expect(screen.getByText("test.napt")).toBeInTheDocument();

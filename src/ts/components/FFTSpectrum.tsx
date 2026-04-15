@@ -21,12 +21,12 @@ interface FFTSpectrumProps {
   fftMax?: number;
 }
 
-const SpectrumCanvas = styled.canvas<{ $width: number; $height: number }>`
+const SpectrumCanvas = memo(styled.canvas<{ $width: number; $height: number }>`
   display: block;
   width: ${({ $width }) => $width}px;
   height: ${({ $height }) => $height}px;
   background-color: ${(props) => props.theme.fftBackground};
-`;
+`);
 
 export const FFTSpectrum = memo<FFTSpectrumProps>(
   ({

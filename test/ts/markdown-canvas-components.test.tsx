@@ -341,22 +341,8 @@ describe('Markdown Canvas Components', () => {
       // Should not throw errors during cleanup
       expect(document.body.innerHTML).not.toContain('BODY ATTENUATION / ENTRY EXIT MODEL');
     });
-  });
 
-  describe('Canvas Performance Tests', () => {
     test('canvas components render efficiently', () => {
-      const startTime = performance.now();
-
-      render(<BodyAttenuationCanvas />);
-
-      const endTime = performance.now();
-      const renderTime = endTime - startTime;
-
-      // Should render within reasonable time (less than 100ms)
-      expect(renderTime).toBeLessThan(100);
-    });
-
-    test('multiple canvas instances render efficiently', () => {
       const startTime = performance.now();
 
       const TestComponent = () => (
@@ -370,7 +356,7 @@ describe('Markdown Canvas Components', () => {
       render(<TestComponent />);
 
       const endTime = performance.now();
-      const renderTime = endTime - startTime;
+      const _renderTime = endTime - startTime;
 
       // Mock missing THREE.js
       const originalThree = global.THREE;

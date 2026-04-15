@@ -49,7 +49,7 @@ describe("useWebSocket Hook", () => {
   });
 
   it("should handle disabled state", () => {
-    const { result } = renderHook(() => useWebSocket("ws://test", null, false));
+    const { result: _result } = renderHook(() => useWebSocket("ws://test", null, false));
 
     // When disabled, should not attempt connection
     expect(global.WebSocket).not.toHaveBeenCalled();

@@ -31,7 +31,7 @@ describe("VisualizerSliders", () => {
     expect(screen.getByText("Zoom")).toBeInTheDocument();
     expect(screen.getByText("Max")).toBeInTheDocument();
     expect(screen.getByText("Min")).toBeInTheDocument();
-    
+
     // Check initial values (formatted)
     expect(screen.getByText(/1(\.0)?x/)).toBeInTheDocument();
     expect(screen.getByText("0dB")).toBeInTheDocument();
@@ -52,7 +52,7 @@ describe("VisualizerSliders", () => {
   test("action buttons trigger correct callbacks", () => {
     const onReset = jest.fn();
     const onAvg = jest.fn();
-    
+
     render(
       <TestWrapper>
         <VisualizerSliders {...defaultProps} onResetZoomDb={onReset} onFftAvgChange={onAvg} />
@@ -92,7 +92,7 @@ describe("VisualizerSliders", () => {
       </TestWrapper>
     );
 
-    const zoomSlider = screen.getByText("Zoom").parentElement?.querySelector(".SliderTrack");
+    const _zoomSlider = screen.getByText("Zoom").parentElement?.querySelector(".SliderTrack");
     // Since SliderTrack is a styled component, it might not have the class unless we add it.
     // Let's find it by getting the SliderThumb's parent.
     const zoomText = screen.getByText(/1(\.0)?x/);
@@ -109,7 +109,7 @@ describe("VisualizerSliders", () => {
         right: 40,
         x: 0,
         y: 0,
-        toJSON: () => {}
+        toJSON: () => { }
       } as DOMRect);
 
       // Click at the top of the vertical zoom slider (max zoom)

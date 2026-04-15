@@ -183,6 +183,11 @@ export {
   resetTheme,
 } from './slices/themeSlice';
 
+export {
+  setSnapshotProgress,
+  clearSnapshotProgress,
+} from './slices/snapshotSlice';
+
 // Import theme actions for collective export
 import {
   setAppMode,

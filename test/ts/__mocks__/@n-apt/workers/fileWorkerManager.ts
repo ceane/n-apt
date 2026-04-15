@@ -88,7 +88,7 @@ export class FileWorkerManager {
   async buildFrame(
     frame: number,
     fileDataCache: Map<string, Uint8Array>,
-    freqMap: Map<string, number>,
+    _freqMap: Map<string, number>,
   ): Promise<any> {
     if (this.isTerminated) {
       throw new Error("Worker terminated");
@@ -144,7 +144,7 @@ export class FileWorkerManager {
     this.worker = null;
 
     // Reject all pending requests
-    this.pendingRequests.forEach((request, id) => {
+    this.pendingRequests.forEach((request, _id) => {
       if (request.reject) {
         request.reject(new Error("Worker terminated"));
       }
@@ -161,7 +161,7 @@ export class FileWorkerManager {
       case "timeout":
         // Set very short timeout and reject all pending requests
         this.REQUEST_TIMEOUT = 1;
-        this.pendingRequests.forEach((request, id) => {
+        this.pendingRequests.forEach((request, _id) => {
           if (request.reject) {
             request.reject(new Error("Worker request timed out"));
           }
@@ -173,7 +173,7 @@ export class FileWorkerManager {
         break;
       case "memory":
         // Simulate memory error
-        this.pendingRequests.forEach((request, id) => {
+        this.pendingRequests.forEach((request, _id) => {
           if (request.reject) {
             request.reject(new Error("Out of memory"));
           }

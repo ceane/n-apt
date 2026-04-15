@@ -365,7 +365,7 @@ export const FileWorker3Point2MHzTest: React.FC = () => {
       addResult("Testing corrupted metadata handling...");
 
       // Simulate corrupted metadata
-      const corruptedMetadata = {
+      const _corruptedMetadata = {
         center_frequency_hz: undefined,
         capture_sample_rate_hz: undefined
       };

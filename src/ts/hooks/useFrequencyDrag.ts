@@ -52,23 +52,41 @@ export function useFrequencyDrag({
   const boxCurrentRef = useRef({ x: 0, y: 0 });
   const selectionBoxRef = useRef<HTMLDivElement | null>(null);
 
+  const containerRefCacheRef = useRef<HTMLElement | null>(null);
+  const containerRectRef = useRef<DOMRect | null>(null);
+
   useEffect(() => {
-    // The canvas layer has pointer-events:none so we must attach to the
-    // container div (CanvasWrapper) which sits behind the canvas and
-    // naturally receives all pointer events.
     const getContainer = (): HTMLElement | null => {
-      if (spectrumContainerRef?.current) return spectrumContainerRef.current;
-      return spectrumGpuCanvasRef.current?.parentElement ?? null;
+      if (containerRefCacheRef.current) return containerRefCacheRef.current;
+      if (spectrumContainerRef?.current) {
+        containerRefCacheRef.current = spectrumContainerRef.current;
+        return spectrumContainerRef.current;
+      }
+      const el = spectrumGpuCanvasRef.current?.parentElement ?? null;
+      containerRefCacheRef.current = el;
+      return el;
     };
 
     const getActiveSpectrumCanvas = (): HTMLElement | null => {
       return spectrumGpuCanvasRef.current ?? getContainer();
     };
 
+    const updateContainerRect = () => {
+      const container = getContainer();
+      if (container) {
+        containerRectRef.current = container.getBoundingClientRect();
+      }
+    };
+
     const handlePointerMove = (e: PointerEvent) => {
       const container = getContainer();
       if (!container) return;
-      const rect = container.getBoundingClientRect();
+
+      let rect = containerRectRef.current;
+      if (!rect) {
+        rect = container.getBoundingClientRect();
+        containerRectRef.current = rect;
+      }
 
       if (isBoxDraggingRef.current) {
         boxCurrentRef.current = { x: e.clientX, y: e.clientY };
@@ -431,10 +449,16 @@ export function useFrequencyDrag({
     container.addEventListener("pointerleave", handlePointerLeave);
     container.style.cursor = "crosshair";
 
+    const resizeObserver = new ResizeObserver(updateContainerRect);
+    resizeObserver.observe(container);
+
     window.addEventListener("pointermove", handlePointerMove);
     window.addEventListener("pointerup", handlePointerUp);
 
     return () => {
+      resizeObserver.disconnect();
+      containerRefCacheRef.current = null;
+      containerRectRef.current = null;
       container.removeEventListener("pointerdown", handlePointerDown);
       container.removeEventListener("pointermove", handlePointerMoveForCursor);
       container.removeEventListener("pointerleave", handlePointerLeave);

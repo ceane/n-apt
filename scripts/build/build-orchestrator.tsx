@@ -9,6 +9,40 @@ import chalk from 'chalk';
 import notifier from 'node-notifier';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  getRuntimeSummaryState,
+  isRuntimeRecoverySignal,
+  type FailingServices
+} from './buildStatus';
+
+const getFailingServices = (errorDetails: string[]): FailingServices[] => {
+  const failing: FailingServices[] = [];
+  const errorText = errorDetails.join(' ').toLowerCase();
+
+  if (errorText.includes('vite') || errorText.includes('dev server') || errorText.includes('frontend')) {
+    if (!failing.includes('Vite')) failing.push('Vite');
+  }
+  if (errorText.includes('rust') || errorText.includes('cargo') || errorText.includes('backend') || errorText.includes('n-apt-backend')) {
+    if (!failing.includes('Rust')) failing.push('Rust');
+  }
+  if (errorText.includes('redis')) {
+    if (!failing.includes('Redis')) failing.push('Redis');
+  }
+  if (errorText.includes('wasm') || errorText.includes('webassembly')) {
+    if (!failing.includes('WebAssembly')) failing.push('WebAssembly');
+  }
+
+  return failing;
+};
+
+const isDeviceDisconnectedError = (details: string[]): boolean => {
+  return details.some(d =>
+    d.includes('SDR read error') ||
+    d.includes('Timeout waiting for async SDR') ||
+    d.includes('Device DISCONNECTED') ||
+    d.includes('disconnected but running')
+  );
+};
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -20,6 +54,7 @@ interface ProcessStatus {
   message?: string;
   label?: string;
   pid?: number;
+  buildOutput?: string[];
 }
 
 interface BuildState {
@@ -35,6 +70,7 @@ interface BuildState {
   warningCount: number;
   errorDetails: string[];
   warningDetails: string[];
+  activeBuildOutputStep?: number;
 }
 
 // Simple spinner animation
@@ -52,8 +88,8 @@ const processSuffixes: Record<string, { text: string; color: string }> = {
   'Starting Redis database server...': { text: ' Redis.', color: accentColors.redis },
   'Swapping Redis Database...': { text: ' Redis.', color: accentColors.redis },
   'Building WASM SIMD module...': { text: ' Rust → WebAssembly.', color: accentColors.wasm },
-  'N-APT Encrypted Modules...': { text: ' Rust.', color: accentColors.rust },
-  'Starting Rust backend...': { text: ' Rust.', color: accentColors.rust },
+  'Building (or skipping if missing) N-APT Encrypted Modules...': { text: ' Rust.', color: accentColors.rust },
+  'Building and starting Rust backend...': { text: ' Rust.', color: accentColors.rust },
 };
 
 const encryptedModulesStatus = {
@@ -92,7 +128,13 @@ const Logo = () => (
 );
 
 // Process Step Component
-const ProcessStep = ({ process, isActive, spinnerFrame }: { process: ProcessStatus; isActive: boolean; spinnerFrame: number }) => {
+const ProcessStep = ({ process, isActive, spinnerFrame, showOutput, onToggleOutput }: {
+  process: ProcessStatus;
+  isActive: boolean;
+  spinnerFrame: number;
+  showOutput?: boolean;
+  onToggleOutput?: () => void;
+}) => {
   const getStatusIcon = () => {
     switch (process.status) {
       case 'pending': return chalk.gray('○');
@@ -123,27 +165,54 @@ const ProcessStep = ({ process, isActive, spinnerFrame }: { process: ProcessStat
     }
   };
 
+  const _processColor = process.name.toLowerCase().includes('rust') ? accentColors.rust
+    : process.name.toLowerCase().includes('vite') || process.name.toLowerCase().includes('frontend') ? accentColors.vite
+      : process.name.toLowerCase().includes('redis') ? accentColors.redis
+        : process.name.toLowerCase().includes('wasm') ? accentColors.wasm
+          : undefined;
+
+  const isLongRunning = process.name.toLowerCase().includes('rust');
+
   return (
-    <Box flexDirection="row" marginBottom={0}>
-      <Text>
-        <Text color={getStatusColor()}>
-          {getStatusIcon()} {process.label ?? getStatusText()}
-        </Text>
-        {process.name === 'Swapping Redis Database...' ? (
-          <Text color={accentColors.redis}> Redis.</Text>
-        ) : processSuffixes[process.name] && (
-          <Text color={processSuffixes[process.name].color}>{processSuffixes[process.name].text}</Text>
-        )}
-        {process.message && process.name !== 'N-APT Encrypted Modules...' && (
-          <Text
-            color={process.message.startsWith('⚠') ? 'yellow' : process.message.startsWith('✗') ? 'red' : process.message.startsWith('✔') ? 'green' : 'gray'}
-          >
-            {` ${process.message}`}
+    <Box flexDirection="column" marginBottom={0}>
+      <Box flexDirection="row">
+        <Text>
+          <Text color={getStatusColor()}>
+            {getStatusIcon()} {process.label ?? getStatusText()}
           </Text>
+          {process.name === 'Swapping Redis Database...' ? (
+            <Text color={accentColors.redis}> Redis.</Text>
+          ) : processSuffixes[process.name] && (
+            <Text color={processSuffixes[process.name].color}>{processSuffixes[process.name].text}</Text>
+          )}
+          {process.message && process.name !== 'N-APT Encrypted Modules...' && (
+            <Text
+              color={process.message.startsWith('⚠') ? 'yellow' : process.message.startsWith('✗') ? 'red' : process.message.startsWith('✔') ? 'green' : 'gray'}
+            >
+              {` ${process.message}`}
+            </Text>
+          )}
+        </Text>
+        {isActive && process.status === 'running' && (
+          <Text color="blue"> {spinnerFrames[spinnerFrame % spinnerFrames.length]}</Text>
         )}
-      </Text>
-      {isActive && process.status === 'running' && (
-        <Text color="blue"> {spinnerFrames[spinnerFrame % spinnerFrames.length]}</Text>
+        {process.status === 'success' && isLongRunning && process.buildOutput && process.buildOutput.length > 0 && onToggleOutput && (
+          <Text color="gray" bold> {showOutput ? '▼' : '▶'} </Text>
+        )}
+      </Box>
+      {isActive && process.buildOutput && process.buildOutput.length > 0 && (
+        <Box flexDirection="column" marginLeft={4} marginTop={0}>
+          {process.buildOutput.slice(-10).map((line, idx) => (
+            <Text key={idx} color="gray" dim>{line}</Text>
+          ))}
+        </Box>
+      )}
+      {!isActive && showOutput && process.buildOutput && process.buildOutput.length > 0 && (
+        <Box flexDirection="column" marginLeft={4} marginTop={0}>
+          {process.buildOutput.slice(-10).map((line, idx) => (
+            <Text key={idx} color="gray" dim>{line}</Text>
+          ))}
+        </Box>
       )}
     </Box>
   );
@@ -153,7 +222,9 @@ const ProcessStep = ({ process, isActive, spinnerFrame }: { process: ProcessStat
 const BuildOrchestrator = () => {
   const { exit } = useApp();
   const shutdownRequestedRef = useRef(false);
+  const hadServicesRef = useRef(false);
   const activeChildrenRef = useRef<Array<ReturnType<typeof spawn>>>([]);
+  const buildStartedRef = useRef(false);
   const [buildState, setBuildState] = useState<BuildState>({
     processes: [
       { name: 'Cleaning up existing processes', status: 'pending' },
@@ -161,8 +232,8 @@ const BuildOrchestrator = () => {
       { name: 'Swapping Redis Database...', status: 'pending' },
       { name: 'Building WASM SIMD module...', status: 'pending' },
       { name: 'N-APT Encrypted Modules...', status: 'pending' },
-      { name: 'Starting Rust backend...', status: 'pending' },
-      { name: 'Starting frontend server...', status: 'pending' },
+      { name: 'Building and starting Rust backend', status: 'pending' },
+      { name: 'Starting frontend server', status: 'pending' },
     ],
     currentStep: 0,
     isBuilding: false,
@@ -175,6 +246,7 @@ const BuildOrchestrator = () => {
     warningCount: 0,
     errorDetails: [],
     warningDetails: [],
+    activeBuildOutputStep: undefined,
   });
 
   const addLog = useCallback((_message: string) => {
@@ -200,11 +272,40 @@ const BuildOrchestrator = () => {
     });
   }, []);
 
-  const updateProcessStatus = useCallback((index: number, status: ProcessStatus['status'], message?: string, label?: string) => {
+  const clearErrorDetails = useCallback(() => {
+    setBuildState(prev => {
+      if (prev.errorDetails.length === 0) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        errorDetails: [],
+        errorCount: 0
+      };
+    });
+  }, []);
+
+  const _setActiveBuildOutput = useCallback((stepIndex: number | undefined) => {
+    setBuildState(prev => ({ ...prev, activeBuildOutputStep: stepIndex }));
+  }, []);
+
+  const appendBuildOutput = useCallback((stepIndex: number, line: string) => {
+    setBuildState(prev => {
+      const processes = [...prev.processes];
+      const process = { ...processes[stepIndex] };
+      const buildOutput = process.buildOutput ? [...process.buildOutput, line] : [line];
+      process.buildOutput = buildOutput.slice(-50);
+      processes[stepIndex] = process;
+      return { ...prev, processes };
+    });
+  }, []);
+
+  const updateProcessStatus = useCallback((index: number, status: ProcessStatus['status'], message?: string, label?: string, buildOutput?: string[]) => {
     setBuildState(prev => ({
       ...prev,
       processes: prev.processes.map((proc, i) =>
-        i === index ? { ...proc, status, message, label } : proc
+        i === index ? { ...proc, status, message, label, buildOutput } : proc
       ),
     }));
   }, []);
@@ -250,7 +351,9 @@ const BuildOrchestrator = () => {
           detached: true,
         });
 
-        activeChildrenRef.current.push(child);
+        if (activeChildrenRef.current) {
+          activeChildrenRef.current.push(child);
+        }
         let stdout = '';
         let stderr = '';
 
@@ -267,7 +370,7 @@ const BuildOrchestrator = () => {
         });
 
         child.on('close', (code) => {
-          activeChildrenRef.current = activeChildrenRef.current.filter((proc) => proc !== child);
+          activeChildrenRef.current = activeChildrenRef.current ? activeChildrenRef.current.filter((proc) => proc !== child) : [];
           if (shutdownRequestedRef.current) {
             resolve({ success: false, output: stdout });
             return;
@@ -289,7 +392,7 @@ const BuildOrchestrator = () => {
         });
 
         child.on('error', (error: any) => {
-          activeChildrenRef.current = activeChildrenRef.current.filter((proc) => proc !== child);
+          activeChildrenRef.current = activeChildrenRef.current ? activeChildrenRef.current.filter((proc) => proc !== child) : [];
           addLog(chalk.red(`Error in ${description}: ${error.message}`));
           appendErrorDetail(`${description}: ${error.message}`);
           resolve({ success: false, output: '' });
@@ -301,7 +404,81 @@ const BuildOrchestrator = () => {
         resolve({ success: false, output: '' });
       }
     });
-  }, [addLog, appendErrorDetail, appendWarningDetail]);
+  }, [addLog, appendErrorDetail]);
+
+  const executeForegroundCommand = useCallback((command: string, description: string, stepIndex: number): Promise<{ success: boolean; output: string }> => {
+    return new Promise((resolve) => {
+      try {
+        updateProcessStatus(stepIndex, 'running', undefined, 'Building backend... Rust.');
+        setBuildState(prev => ({ ...prev, activeBuildOutputStep: stepIndex }));
+
+        addLog(chalk.blue(`Executing foreground: ${command}`));
+        const child = spawn(command, [], {
+          shell: true,
+          cwd: './',
+          stdio: ['ignore', 'pipe', 'pipe'],
+        });
+
+        if (activeChildrenRef.current) {
+          activeChildrenRef.current.push(child);
+        }
+        let stdout = '';
+        let stderr = '';
+
+        child.stdout?.on('data', (data: Buffer) => {
+          const chunk = data.toString();
+          stdout += chunk;
+          appendBuildOutput(stepIndex, chunk.trim());
+          addLog(chunk.trim());
+        });
+
+        child.stderr?.on('data', (data: Buffer) => {
+          const chunk = data.toString();
+          stderr += chunk;
+          appendBuildOutput(stepIndex, chunk.trim());
+          addLog(chalk.red(chunk.trim()));
+        });
+
+        child.on('close', (code) => {
+          activeChildrenRef.current = activeChildrenRef.current ? activeChildrenRef.current.filter((proc) => proc !== child) : [];
+          setBuildState(prev => ({ ...prev, activeBuildOutputStep: undefined }));
+
+          if (shutdownRequestedRef.current) {
+            resolve({ success: false, output: stdout });
+            return;
+          }
+
+          if (code === 0) {
+            if (stdout.trim()) {
+              addLog(chalk.green(stdout.trim()));
+            }
+            addLog(chalk.green(`${description} completed successfully`));
+            resolve({ success: true, output: stdout });
+            return;
+          }
+
+          const errorMessage = stderr.trim() || stdout.trim() || `Command exited with code ${code ?? 'unknown'}`;
+          addLog(chalk.red(`Error in ${description}: ${errorMessage}`));
+          appendErrorDetail(`${description}: ${errorMessage}`);
+          resolve({ success: false, output: stdout });
+        });
+
+        child.on('error', (error: any) => {
+          activeChildrenRef.current = activeChildrenRef.current ? activeChildrenRef.current.filter((proc) => proc !== child) : [];
+          setBuildState(prev => ({ ...prev, activeBuildOutputStep: undefined }));
+          addLog(chalk.red(`Error in ${description}: ${error.message}`));
+          appendErrorDetail(`${description}: ${error.message}`);
+          resolve({ success: false, output: '' });
+        });
+
+      } catch (error: any) {
+        setBuildState(prev => ({ ...prev, activeBuildOutputStep: undefined }));
+        addLog(chalk.red(`Error in ${description}: ${error.message}`));
+        appendErrorDetail(`${description}: ${error.message}`);
+        resolve({ success: false, output: '' });
+      }
+    });
+  }, [addLog, appendErrorDetail, appendBuildOutput, updateProcessStatus]);
 
   const startBackgroundProcess = useCallback((command: string, description: string, pidKey: 'vitePid' | 'rustPid' | 'redisPid'): Promise<boolean> => {
     return new Promise((resolve) => {
@@ -320,6 +497,9 @@ const BuildOrchestrator = () => {
           if (/warning:/i.test(output)) {
             appendWarningDetail(output);
           }
+          if (pidKey === 'vitePid' && isRuntimeRecoverySignal(output)) {
+            clearErrorDetails();
+          }
         });
 
         child.stderr?.on('data', (data: any) => {
@@ -328,7 +508,10 @@ const BuildOrchestrator = () => {
           if (/warning:/i.test(output)) {
             appendWarningDetail(output);
           }
-          if (/error/i.test(output)) {
+          const isViteRecovery = pidKey === 'vitePid' && isRuntimeRecoverySignal(output);
+          if (isViteRecovery) {
+            clearErrorDetails();
+          } else if (/error/i.test(output)) {
             appendErrorDetail(output);
           }
         });
@@ -345,7 +528,10 @@ const BuildOrchestrator = () => {
             addLog(chalk.green(`${description} started (PID: ${child.pid})`));
             // Store the PID
             setBuildState(prev => ({ ...prev, [pidKey]: child.pid }));
-            activeChildrenRef.current.push(child);
+            // Guard against undefined ref
+            if (activeChildrenRef.current) {
+              activeChildrenRef.current.push(child);
+            }
             child.unref(); // Allow parent to exit
             resolve(true);
           } else {
@@ -361,10 +547,84 @@ const BuildOrchestrator = () => {
         resolve(false);
       }
     });
-  }, [addLog, appendErrorDetail, appendWarningDetail]);
+  }, [addLog, appendErrorDetail, appendWarningDetail, clearErrorDetails]);
+
+  const executeCompositeRustStep = useCallback(async (stepIndex: number): Promise<boolean> => {
+    setBuildState(prev => ({ ...prev, activeBuildOutputStep: stepIndex }));
+
+    try {
+      // Step 1: Build
+      addLog(chalk.blue(`Building Rust backend...`));
+      const buildResult = await executeForegroundCommand(
+        'cargo build --bin n-apt-backend --profile dev-fast',
+        'Building Rust backend',
+        stepIndex
+      );
+
+      if (!buildResult.success) {
+        return false;
+      }
+
+      // Step 2: Start backend in background using startBackgroundProcess
+      addLog(chalk.blue(`Starting Rust backend...`));
+      const startResult = await startBackgroundProcess(
+        isNativeWindows ? 'echo Windows' : 'cargo run --bin n-apt-backend --profile dev-fast',
+        'Rust backend',
+        'rustPid'
+      );
+      if (!startResult) {
+        return false;
+      }
+
+      // Give the backend a moment to start listening
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      // Step 3: Wait for backend readiness
+      addLog(chalk.blue(`Waiting for backend to be ready...`));
+      const waitCommand = isNativeWindows
+        ? 'echo Backend readiness check skipped on Windows'
+        : `bash -lc '
+set +e
+MAX_RETRIES=30
+RETRY_DELAY=1
+RETRY_COUNT=0
+
+echo "Checking backend health..."
+while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+  HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8765/status 2>/dev/null || echo "000")
+  if [ "$HTTP_CODE" = "200" ]; then
+    echo "Backend ready!"
+    exit 0
+  fi
+  RETRY_COUNT=$((RETRY_COUNT + 1))
+  sleep $RETRY_DELAY
+done
+echo "Backend failed to respond after $MAX_RETRIES retries"
+exit 1
+'`;
+
+      const waitResult = await executeForegroundCommand(waitCommand, 'Waiting for backend', stepIndex);
+      if (!waitResult.success) {
+        return false;
+      }
+
+      addLog(chalk.green('Rust backend fully initialized and ready'));
+      return true;
+
+    } catch (error: any) {
+      addLog(chalk.red(`Error in composite Rust step: ${error.message}`));
+      appendErrorDetail(`Composite Rust backend setup failed: ${error.message}`);
+      return false;
+    } finally {
+      setBuildState(prev => ({ ...prev, activeBuildOutputStep: undefined }));
+    }
+  }, [executeForegroundCommand, startBackgroundProcess, addLog, appendErrorDetail]);
 
   const runBuild = useCallback(async () => {
     setBuildState(prev => ({ ...prev, isBuilding: true }));
+    
+    // Check if services were already running before this build
+    hadServicesRef.current = !!(buildState.vitePid || buildState.rustPid);
 
     const localOpenCellIdPath = process.env.LOCAL_OPENCELLID_CSV_DIR || 'data/opencellid';
     const redisPort = process.env.REDIS_PORT || '6379';
@@ -502,39 +762,15 @@ exit 1
       },
       {
         index: 5,
-        command: 'cargo run --bin n-apt-backend --profile dev-fast',
+        command: undefined, // Will execute composite command in handler
         description: 'Starting Rust backend',
-        isBackground: true,
-        pidKey: 'rustPid' as const,
+        isBackground: false,
+        pidKey: undefined,
+        label: 'Building and starting backend... Rust.',
+        isCompositeRustStep: true,
       },
       {
         index: 6,
-        command: isNativeWindows ? 'echo Backend readiness check via bash/curl is skipped on Windows in this orchestrator.' : `bash -lc '
-set -euo pipefail
-# Wait for backend to be ready by checking the /status endpoint
-MAX_RETRIES=300
-RETRY_DELAY=1
-RETRY_COUNT=0
-
-echo "Waiting for backend to be ready..."
-while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-  if curl -s -o /dev/null -w "%{http_code}" http://localhost:8765/status 2>/dev/null | grep -q "200"; then
-    echo "Backend is ready!"
-    exit 0
-  fi
-  RETRY_COUNT=$((RETRY_COUNT + 1))
-  sleep $RETRY_DELAY
-done
-
-echo "Backend failed to become ready after $MAX_RETRIES retries"
-exit 1
-'`,
-        description: 'Waiting for backend to be ready',
-        isBackground: false,
-        pidKey: undefined,
-      },
-      {
-        index: 7,
         command: isNativeWindows ? 'npx vite dev --host --force' : `bash -lc '
 set -euo pipefail
 # Don't clear Vite cache - it causes significant startup latency
@@ -544,6 +780,7 @@ exec node_modules/.bin/vite dev --host --force
         description: 'Starting frontend server',
         isBackground: true,
         pidKey: 'vitePid' as const,
+        showOutput: false,
       },
     ];
 
@@ -553,13 +790,18 @@ exec node_modules/.bin/vite dev --host --force
       let success: boolean;
       const stepLabelBase = step.index === 2 ? getTowerLoadDescription() : step.description;
       const stepLabel = step.index === 0 ? stepLabelBase : withEllipsis(stepLabelBase);
-      updateProcessStatus(step.index, 'running', undefined, stepLabel);
+      const runningLabel = step.label ?? stepLabel;
+      updateProcessStatus(step.index, 'running', undefined, runningLabel);
 
-      if (step.isBackground && step.pidKey) {
+      if (step.isCompositeRustStep) {
+        // Execute composite Rust build → start → wait sequence
+        success = await executeCompositeRustStep(step.index);
+      } else if (step.isBackground && step.pidKey) {
         success = await startBackgroundProcess(step.command, step.description, step.pidKey);
       } else if (step.isBackground) {
         success = await startBackgroundProcess(step.command, step.description, 'vitePid');
       } else {
+        const _stepIndex = step.index;
         const result = await executeCommand(step.command, stepLabel);
         success = result.success;
       }
@@ -568,6 +810,8 @@ exec node_modules/.bin/vite dev --host --force
         if (step.index === 2) {
           const { count, source } = getTowerCountLabel(stepLabel);
           updateProcessStatus(step.index, 'success', `(${count} towers in DB / ${source})`, stepLabel);
+        } else if (step.index === 5) {
+          updateProcessStatus(step.index, 'success', undefined, 'Rust backend running...');
         } else {
           updateProcessStatus(step.index, 'success', undefined, stepLabel);
         }
@@ -591,7 +835,7 @@ exec node_modules/.bin/vite dev --host --force
     }
 
     setBuildState(prev => ({ ...prev, isBuilding: false }));
-  }, [updateProcessStatus, executeCommand, startBackgroundProcess, appendErrorDetail]);
+  }, [updateProcessStatus, executeCommand, startBackgroundProcess, appendErrorDetail, executeCompositeRustStep]);
 
   // Handle keyboard input
   useInput((input, key) => {
@@ -617,10 +861,11 @@ exec node_modules/.bin/vite dev --host --force
 
   // Auto-start build on mount
   useEffect(() => {
-    if (!buildState.isBuilding && buildState.currentStep === 0) {
+    if (!buildStartedRef.current && !buildState.isBuilding && buildState.currentStep === 0) {
+      buildStartedRef.current = true;
       runBuild();
     }
-  }, []);
+  }, [runBuild, buildState.isBuilding, buildState.currentStep]);
 
   // Spinner animation
   useEffect(() => {
@@ -637,32 +882,67 @@ exec node_modules/.bin/vite dev --host --force
 
   const hasErrors = buildState.processes.some(p => p.status === 'error');
   const hasCompilationErrors = buildState.errorDetails.length > 0;
+  const hasDeviceDisconnected = isDeviceDisconnectedError(buildState.errorDetails);
   const allComplete = buildState.processes.every(p => p.status === 'success' || p.status === 'error');
   const runtimeSeconds = Math.floor((Date.now() - buildState.startTime) / 1000);
-  const statusLabel = (hasErrors || hasCompilationErrors) ? '✗ Stopped' : '✓ Running';
-  const statusColor = (hasErrors || hasCompilationErrors) ? 'red' : 'green';
+  const runtimeSummary = getRuntimeSummaryState({
+    hasErrors,
+    hasCompilationErrors,
+    vitePid: buildState.vitePid,
+    rustPid: buildState.rustPid,
+    redisPid: buildState.redisPid,
+    failingServices: hasErrors || hasCompilationErrors ? getFailingServices(buildState.errorDetails) : []
+  });
+  const statusLabel = hasDeviceDisconnected ? '▲ Device DISCONNECTED but RUNNING' : runtimeSummary.label;
+  const statusColor = hasDeviceDisconnected ? 'yellow' : runtimeSummary.color;
   const vitePidText = buildState.vitePid ?? '—';
   const rustPidText = buildState.rustPid ?? '—';
   const redisPidText = buildState.redisPid ?? '—';
 
-  // Send notification on successful build completion
+  // Note: If Do Not Disturb is enabled or Terminal lacks notification permissions,
+  // the system notification won't fire. Open http://localhost:5173 manually in that case.
+  const checkDeviceStatus = useCallback(async (): Promise<string> => {
+    try {
+      const response = await fetch('http://localhost:8765/status');
+      const data = await response.json();
+      return data.device_connected ? 'RTL-SDR Connected' : 'RTL-SDR Disconnected, Mock APT Running';
+    } catch {
+      return 'Backend not responding';
+    }
+  }, []);
+
   useEffect(() => {
-    if (allComplete && !hasErrors && !hasCompilationErrors && buildState.vitePid && buildState.rustPid && buildState.redisPid) {
-      notifier.notify({
-        title: 'N-APT  🧠',
-        message: '✓ Finished building and running at http://localhost:5173',
-        icon: path.join(__dirname, 'public/icon-5112.png'),
-        open: 'http://localhost:5173',
+    const canNotify = buildState.vitePid && buildState.rustPid && buildState.redisPid;
+    
+    if (allComplete && canNotify) {
+      checkDeviceStatus().then(deviceStatus => {
+        const msg = !hadServicesRef.current 
+          ? `✓ Finished building and running at http://localhost:5173`
+          : `✓ ${deviceStatus}`;
+        notifier.notify({
+          title: 'N-APT  🧠',
+          message: msg,
+          icon: path.join(__dirname, 'public/icon-5112.png'),
+          open: 'http://localhost:5173',
+        });
       });
     }
-  }, [allComplete, hasErrors, hasCompilationErrors, buildState.vitePid, buildState.rustPid, buildState.redisPid]);
+  }, [allComplete, buildState.vitePid, buildState.rustPid, buildState.redisPid, checkDeviceStatus]);
+
+  const [expandedOutputStep, setExpandedOutputStep] = useState<number | null>(null);
+
+  const toggleOutput = useCallback((index: number) => {
+    setExpandedOutputStep(prev => prev === index ? null : index);
+  }, []);
 
   return (
     <Box flexDirection="column" padding={1}>
       <Logo />
 
       <Box flexDirection="column" marginTop={1} alignItems="flex-start">
-        <Text color="white" bold>N-APT - SDR Visualizer and studio for N-APT signals</Text>
+        <Text color="white" bold>N-APT / 📉 General purpose SDR visualizer and studio tailored for N-APT signals</Text>
+        <Text color="white" bold italic>(The NSA's neurotechnology 🧠 via radio waves and telecommunications infrastructure)</Text>
+        <Text color="white">Read more at https://github.com/ceane/n-apt</Text>
         <Text color="gray">Press 'q' or ESC to exit</Text>
       </Box>
 
@@ -673,6 +953,8 @@ exec node_modules/.bin/vite dev --host --force
             process={process}
             isActive={index === buildState.currentStep && buildState.isBuilding}
             spinnerFrame={buildState.spinnerFrame}
+            showOutput={expandedOutputStep === index}
+            onToggleOutput={() => toggleOutput(index)}
           />
         ))}
       </Box>

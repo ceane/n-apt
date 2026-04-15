@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, waitFor } from '@testing-library/react';
+import { render } from '@testing-library/react';
 import '@testing-library/jest-dom';
 
 // Mock WebGPU and WebGL contexts
@@ -196,7 +196,7 @@ describe('Canvas Component Loading Tests (Simple)', () => {
         expect(() => {
           render(<BodyAttenuationCanvas />, { container });
         }).not.toThrow();
-      } catch (error) {
+      } catch {
         // If import fails, that's expected - just ensure it doesn't crash the test
         expect(true).toBe(true);
       }
@@ -221,7 +221,7 @@ describe('Canvas Component Loading Tests (Simple)', () => {
         expect(() => {
           render(<signalCanvases.MultipathCanvas />, { container });
         }).not.toThrow();
-      } catch (error) {
+      } catch {
         // If import fails, that's expected - just ensure it doesn't crash the test
         expect(true).toBe(true);
       }
@@ -233,7 +233,7 @@ describe('Canvas Component Loading Tests (Simple)', () => {
       try {
         const bodyAttenuationModule = await import('../../src/md-preview/BodyAttenuationCanvas');
         expect(bodyAttenuationModule.default).toBeDefined();
-      } catch (error) {
+      } catch {
         // Import might fail due to dependencies, but that's ok for this test
         expect(true).toBe(true);
       }
@@ -244,7 +244,7 @@ describe('Canvas Component Loading Tests (Simple)', () => {
         expect(signalCanvasesModule.FrequencyModulationCanvas).toBeDefined();
         expect(signalCanvasesModule.HeterodyningCanvas).toBeDefined();
         expect(signalCanvasesModule.MultipathCanvas).toBeDefined();
-      } catch (error) {
+      } catch {
         // Import might fail due to dependencies, but that's ok for this test
         expect(true).toBe(true);
       }

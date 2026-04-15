@@ -11,6 +11,7 @@ import websocketSlice from "@n-apt/redux/slices/websocketSlice";
 import noteCardsSlice from "@n-apt/redux/slices/noteCardsSlice";
 import notificationsSlice from "@n-apt/redux/slices/notificationsSlice";
 import demodSlice from "@n-apt/redux/slices/demodSlice";
+import snapshotSlice from "@n-apt/redux/slices/snapshotSlice";
 
 // Import middleware (will be created next)
 import websocketMiddleware from "@n-apt/redux/middleware/websocketMiddleware";
@@ -32,6 +33,7 @@ export const store = configureStore({
     noteCards: noteCardsSlice,
     notifications: notificationsSlice,
     demod: demodSlice,
+    snapshot: snapshotSlice,
   },
   preloadedState,
   middleware: (getDefaultMiddleware) =>
@@ -49,9 +51,8 @@ export const store = configureStore({
           'websocket/disconnect/rejected',
           'persist/PERSIST',
           'persist/REHYDRATE',
-          'waterfall/setPlaybackChannels',
         ],
-        ignoredPaths: ['persistedState', 'notifications', 'waterfall.playbackChannels'],
+        ignoredPaths: ['persistedState'],
         ignoredActionPaths: ['payload.aesKey', 'meta.arg.aesKey'],
       },
     }).concat(

@@ -103,6 +103,7 @@ uuid = { version = "1", features = ["v4"] }
 # Hot reloading and configuration
 notify = "6.0"
 serde_yaml = "0.9"
+regex = "1"
 indexmap = { version = "2.0", features = ["serde"] }
 crossbeam-channel = "0.5"
 yawc = { version = "0.3.3", features = ["axum", "zlib"] }

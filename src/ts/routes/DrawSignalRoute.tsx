@@ -9,6 +9,7 @@ import { FFT_CANVAS_BG } from "@n-apt/consts";
 import { PolarRadioWaveWebGPU } from "@n-apt/components/3D/PolarRadioWaveWebGPU";
 import { RadiationLobe3D } from "@n-apt/components/3D/RadiationLobe3D";
 import { CollapsibleTitle } from "@n-apt/components/ui/Collapsible";
+import { DecryptionFallback } from "@n-apt/components/ui/DecryptionFallback";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 
@@ -87,6 +88,21 @@ const InfoBox = styled.div`
   pointer-events: none;
 `;
 
+const MathOverlay = styled.div`
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 5;
+  pointer-events: none;
+  aspect-ratio: 4 / 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+`;
+
 const InfoItem = styled.div`
   display: flex;
   align-items: center;
@@ -162,7 +178,7 @@ const CardTitle = styled.div`
 export const DrawSignalRoute: React.FC = () => {
   const { state, sampleRateHzEffective } = useSpectrumStore();
   const { drawParams } = state;
-  const { generateMockNAPTData } = useDrawMockNAPTSignal();
+  const { generateMockNAPTData, mathLoaded } = useDrawMockNAPTSignal();
   const { drawSpectrum, cleanup } = useSpectrumRenderer();
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -298,9 +314,15 @@ export const DrawSignalRoute: React.FC = () => {
       </Header>
 
       <VisualizerWrapper ref={containerRef}>
+        {mathLoaded ? (
+          <CanvasElement ref={canvasRef} />
+        ) : (
+          <MathOverlay>
+            <DecryptionFallback moduleName="Spike-EQ Math" />
+          </MathOverlay>
+        )}
 
-        <CanvasElement ref={canvasRef} />
-
+        {mathLoaded && (
         <InfoBox>
           <InfoItem>
             Clumps: <InfoValue>{drawParams.length}</InfoValue>
@@ -318,6 +340,7 @@ export const DrawSignalRoute: React.FC = () => {
             Envelope: <InfoValue>{(drawParams[state.activeClumpIndex]?.envelopeWidth ?? 0).toFixed(1)}</InfoValue>
           </InfoItem>
         </InfoBox>
+        )}
       </VisualizerWrapper>
 
       <PolarSectionContainer>

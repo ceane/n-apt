@@ -8,9 +8,9 @@ const mockDevice = {
 };
 
 // Mock console methods to avoid noise in tests
-const mockConsoleWarn = jest.spyOn(console, 'warn').mockImplementation();
-const mockConsoleError = jest.spyOn(console, 'error').mockImplementation();
-const mockConsoleLog = jest.spyOn(console, 'log').mockImplementation();
+const _mockConsoleWarn = jest.spyOn(console, 'warn').mockImplementation();
+const _mockConsoleError = jest.spyOn(console, 'error').mockImplementation();
+const _mockConsoleLog = jest.spyOn(console, 'log').mockImplementation();
 
 // Declare global helper functions from jest.canvasSetup.cjs
 declare global {
@@ -180,7 +180,7 @@ describe('GPUMemoryManager', () => {
       mockDevice.createBuffer.mockReturnValue(mockBuffer);
 
       // Create and track a buffer
-      const buffer = memoryManager.createOptimizedBuffer(1024, GPUBufferUsage.VERTEX, 'test-buffer');
+      const _buffer = memoryManager.createOptimizedBuffer(1024, GPUBufferUsage.VERTEX, 'test-buffer');
       
       // Release the resource
       memoryManager.releaseResource('test-buffer');

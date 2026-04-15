@@ -1,8 +1,8 @@
-import React, { useMemo, useState, useEffect, useCallback } from "react";
+import React, { useMemo, useState, useEffect, useCallback, memo } from "react";
 import styled from "styled-components";
 import { Unplug } from "lucide-react";
 import { useAppSelector, useAppDispatch } from "@n-apt/redux";
-import { getSupportedSnapshotVideoFormat, type SnapshotVideoFormat } from "@n-apt/hooks/useSnapshot";
+import { getSupportedSnapshotVideoFormat, type SnapshotVideoFormat, type SnapshotAspectRatio } from "@n-apt/hooks/useSnapshot";
 import {
   setSourceMode,
   setSelectedFiles,
@@ -47,7 +47,7 @@ import { buildSdrLimitMarkers } from "@n-apt/utils/sdrLimitMarkers";
 import { usePrompt } from "@n-apt/components/ui/PromptProvider";
 import { fileRegistry } from "@n-apt/utils/fileRegistry";
 
-const SidebarContent = styled.div`
+const SidebarContent = memo(styled.div`
   display: grid;
   grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
   align-content: start;
@@ -55,9 +55,9 @@ const SidebarContent = styled.div`
   padding: calc(24px + env(safe-area-inset-top, 0px)) 24px 24px 24px;
   box-sizing: border-box;
   max-width: 100%;
-`;
+`);
 
-const Section = styled.div<{ $marginBottom?: string }>`
+const Section = memo(styled.div<{ $marginBottom?: string }>`
   display: grid;
   grid-template-columns: subgrid;
   grid-column: 1 / -1;
@@ -65,9 +65,9 @@ const Section = styled.div<{ $marginBottom?: string }>`
   margin-bottom: ${({ $marginBottom }) => $marginBottom || "0"};
   box-sizing: border-box;
   width: 100%;
-`;
+`);
 
-const SectionTitle = styled.div<{ $fileMode?: boolean }>`
+const SectionTitle = memo(styled.div<{ $fileMode?: boolean }>`
   font-size: 11px;
   color: ${(props: any) => props.theme.metadataLabel};
   text-transform: uppercase;
@@ -80,30 +80,26 @@ const SectionTitle = styled.div<{ $fileMode?: boolean }>`
   display: flex;
   align-items: center;
   gap: 8px;
-`;
+`);
 
-const SectionIcon = styled.div`
+const SectionIcon = memo(styled.div`
   display: flex;
   align-items: center;
   justify-content: center;
   width: 14px;
   height: 14px;
   color: ${(props: any) => props.theme.metadataLabel};
-  justify - content: center;
-  width: 14px;
-  height: 14px;
-  color: ${(props: any) => props.theme.metadataLabel};
-`;
+`);
 
-const SectionText = styled.span`
+const SectionText = memo(styled.span`
   display: flex;
-  align - items: center;
-`;
+  align-items: center;
+`);
 
-const ResetButton = styled(Button)`
+const ResetButton = memo(styled(Button)`
   width: 100%;
   border: 1px solid ${(props) => props.theme.borderHover};
-`;
+`);
 
 type NaptMetadata = {
   sample_rate?: number;
@@ -366,6 +362,7 @@ export const SpectrumSidebar: React.FC = () => {
     [],
   );
   const [snapshotFormat, setSnapshotFormat] = useState<"png" | "svg" | SnapshotVideoFormat>("png");
+  const [snapshotAspectRatio, setSnapshotAspectRatio] = useState<SnapshotAspectRatio>("default");
 
   // NAPT metadata state
   const [naptMetadata, setNaptMetadata] = useState<NaptMetadata | null>(null);
@@ -700,6 +697,10 @@ export const SpectrumSidebar: React.FC = () => {
           geolocation: snapshotGeolocationPosition,
           format: snapshotFormat,
           grid: snapshotGridPreference,
+          aspectRatio: snapshotAspectRatio,
+          fileTimestamp: sourceMode === "file" && naptMetadata?.timestamp_utc
+            ? naptMetadata.timestamp_utc
+            : undefined,
         },
       }),
     );
@@ -884,6 +885,7 @@ export const SpectrumSidebar: React.FC = () => {
           </SectionIcon>
           <SectionText>Source</SectionText>
         </SectionTitle>
+
         <SourceInput
           sourceMode={sourceMode}
           backend={liveBackend}
@@ -923,6 +925,31 @@ export const SpectrumSidebar: React.FC = () => {
             naptMetadata={naptMetadata}
             naptMetadataError={naptMetadataError}
             sessionToken={sessionToken}
+          />
+
+          <SnapshotControlsSection
+            snapshotWhole={snapshotWhole}
+            snapshotShowWaterfall={snapshotShowWaterfall}
+            snapshotShowStats={snapshotShowStats}
+            snapshotShowGeolocation={snapshotShowGeolocation}
+            snapshotGeolocationError={snapshotGeolocationError}
+            snapshotFormat={snapshotFormat}
+            supportedSnapshotVideoFormat={supportedSnapshotVideoFormat}
+            snapshotGridPreference={snapshotGridPreference}
+            snapshotAspectRatio={snapshotAspectRatio}
+            onSnapshotWholeChange={setSnapshotWhole}
+            onSnapshotShowWaterfallChange={setSnapshotShowWaterfall}
+            onSnapshotShowStatsChange={setSnapshotShowStats}
+            onSnapshotShowGeolocationChange={handleSnapshotGeolocationToggle}
+            onSnapshotFormatChange={setSnapshotFormat}
+            onSnapshotGridPreferenceChange={(pref) => {
+              dispatch(setSettingsSnapshotGrid(pref));
+              storeDispatch({ type: "SET_SNAPSHOT_GRID", preference: pref });
+            }}
+            onSnapshotAspectRatioChange={setSnapshotAspectRatio}
+            onSnapshot={handleSnapshot}
+            isFileMode={true}
+            hasFileLoaded={!!selectedPrimaryFile}
           />
           <SignalDisplaySection
             sourceMode={sourceMode}
@@ -973,8 +1000,9 @@ export const SpectrumSidebar: React.FC = () => {
             onPauseToggle={toggleVisualizerPause}
             onRestartDevice={() => dispatch(sendRestartDevice())}
           />
-          <div style={{ gridColumn: "1 / -1", width: "100%" }}>
-            <ResetButton 
+
+          <Section>
+            <ResetButton
               onClick={() => {
                 showPrompt({
                   title: "Reset Options to Defaults?",
@@ -989,7 +1017,7 @@ export const SpectrumSidebar: React.FC = () => {
             >
               Reset Options to Defaults
             </ResetButton>
-          </div>
+          </Section>
 
           <IQCaptureControlsSection
             activeCaptureAreas={activeCaptureAreas}
@@ -1028,6 +1056,7 @@ export const SpectrumSidebar: React.FC = () => {
             snapshotFormat={snapshotFormat}
             supportedSnapshotVideoFormat={supportedSnapshotVideoFormat}
             snapshotGridPreference={snapshotGridPreference}
+            snapshotAspectRatio={snapshotAspectRatio}
             onSnapshotWholeChange={setSnapshotWhole}
             onSnapshotShowWaterfallChange={setSnapshotShowWaterfall}
             onSnapshotShowStatsChange={setSnapshotShowStats}
@@ -1037,16 +1066,15 @@ export const SpectrumSidebar: React.FC = () => {
               dispatch(setSettingsSnapshotGrid(pref));
               storeDispatch({ type: "SET_SNAPSHOT_GRID", preference: pref });
             }}
+            onSnapshotAspectRatioChange={setSnapshotAspectRatio}
             onSnapshot={handleSnapshot}
           />
 
-          <Section>
-            <Channels
-              variant="spectrum"
-              fileMode={false}
-              limitMarkers={limitMarkers}
-            />
-          </Section>
+          <Channels
+            variant="spectrum"
+            fileMode={false}
+            limitMarkers={limitMarkers}
+          />
 
           <SignalDisplaySection
             sourceMode={sourceMode}

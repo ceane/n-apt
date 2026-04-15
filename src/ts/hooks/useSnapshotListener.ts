@@ -2,6 +2,11 @@ import { useEffect } from "react";
 import type { SdrSettingsConfig } from "@n-apt/consts/schemas/websocket";
 import type { SnapshotData } from "@n-apt/components/FFTCanvas";
 import type { SnapshotOptions } from "@n-apt/hooks/useSnapshot";
+import {
+  streamWholeChannelSegmentFrames,
+  type WholeChannelSnapshotSegment,
+} from "@n-apt/hooks/useCaptureWholeChannelSegments";
+import { setSnapshotProgress, useAppDispatch } from "@n-apt/redux";
 
 interface UseSnapshotListenerOptions {
   takeSnapshot: (options: SnapshotOptions) => void;
@@ -13,10 +18,8 @@ interface UseSnapshotListenerOptions {
   deviceInfo?: string;
   effectiveSdrSettings?: SdrSettingsConfig;
   deviceName?: string;
-  captureWholeChannelSegments: () => Promise<Array<{
-    data: SnapshotData;
-    visualRange: { min: number; max: number };
-  }>>;
+  fftFrameRate: number;
+  captureWholeChannelSegments: () => Promise<WholeChannelSnapshotSegment[]>;
   getSnapshotData: () => SnapshotData | null | undefined;
   getVideoSourceCanvases?: () => {
     spectrum: HTMLCanvasElement | null;
@@ -40,21 +43,28 @@ export const useSnapshotListener = ({
   deviceInfo,
   effectiveSdrSettings,
   deviceName,
+  fftFrameRate,
   captureWholeChannelSegments,
   getSnapshotData,
   getVideoSourceCanvases,
   refreshVideoFrame,
   prepareVideoRecording,
 }: UseSnapshotListenerOptions) => {
+  const dispatchProgress = useAppDispatch();
+
   useEffect(() => {
     const listener = async (e: Event) => {
       const options = (e as CustomEvent).detail;
+      dispatchProgress(setSnapshotProgress({
+        stage: "started",
+        message: "Preparing snapshot",
+        current: null,
+        total: null,
+      }));
       let sdrSettingsLabel: string | undefined;
 
       if (effectiveSdrSettings) {
-        const gainValue = typeof effectiveSdrSettings.gain === "number"
-          ? effectiveSdrSettings.gain
-          : null;
+        const gainValue = (effectiveSdrSettings.gain?.tuner_gain != null) ? effectiveSdrSettings.gain.tuner_gain : null;
         const gainStr = gainValue !== null ? `${gainValue} dB` : "Auto";
         const ppmStr =
           effectiveSdrSettings.ppm !== undefined
@@ -64,8 +74,9 @@ export const useSnapshotListener = ({
       }
 
       const modeLabel = options.whole ? "Whole Channel" : "Onscreen";
+      const isVideo = options.format === "mp4" || options.format === "webm";
       const wholeChannelSegments =
-        options.whole && sourceMode === "live"
+        options.whole && sourceMode === "live" && !isVideo
           ? await captureWholeChannelSegments()
           : [];
 
@@ -81,6 +92,15 @@ export const useSnapshotListener = ({
         sdrSettingsLabel,
         showGeolocation: options.showGeolocation,
         geolocation: options.geolocation,
+        videoFrameRate: isVideo ? 30 : fftFrameRate,
+        getWholeChannelSegmentFrames:
+          options.whole && sourceMode === "live" && isVideo
+            ? () =>
+                streamWholeChannelSegmentFrames(
+                  captureWholeChannelSegments,
+                  30,
+                )
+            : undefined,
         getVideoSourceCanvases,
         refreshVideoFrame,
         prepareVideoRecording,
@@ -98,6 +118,8 @@ export const useSnapshotListener = ({
     backend,
     deviceInfo,
     effectiveSdrSettings,
+    dispatchProgress,
+    fftFrameRate,
     captureWholeChannelSegments,
     deviceName,
     getSnapshotData,
