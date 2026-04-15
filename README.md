@@ -47,7 +47,7 @@ I built this app out of frustration (and by force of the situation) that other O
   - Was definitely not in JavaScript/Web with all the advanced libraries and in browser features!
 
 
-> **By default 99.9% of people will not be able to see a real, live N-APT signal, whatever comes out of your RTL-SDR will be different (or just Mock APT signals what the app will show when an RTL-SDR device isn't plugged in).**
+> **By default 99.9% of people will not be able to see a real, live N-APT signal (unless you find me around San Francisco and are EVIL), whatever comes out of your RTL-SDR will be different (or just Mock APT signals what the app will show when an RTL-SDR device isn't plugged in).**
 >
 > **The I/Q captures are encrypted and password protected, if you want the password you can just send me a message and at my discretion I'll give the right people (university researcher, RF enthusiast, civil society, tech journalists, etc.) the password (Read [RESPONSIBLE USE](RESPONSIBLE_USE.md)).**
 
