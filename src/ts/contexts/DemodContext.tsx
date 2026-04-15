@@ -102,9 +102,8 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     // Fallback or preset logic can go here if needed
   }, [setNodes, setEdges]);
 
-  const centerFreqHz = liveDataRef.current?.center_frequency_hz || 0;
-  const fmDemod = useAudioDemodFM({ 
-    targetSampleRate: 48000, 
+  const fmDemod = useAudioDemodFM({
+    targetSampleRate: 48000,
     bufferSize: 4096,
     bandwidth: (demodState.bandwidthKhz || 200) * 1000,
   });
