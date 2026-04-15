@@ -222,7 +222,9 @@ const ProcessStep = ({ process, isActive, spinnerFrame, showOutput, onToggleOutp
 const BuildOrchestrator = () => {
   const { exit } = useApp();
   const shutdownRequestedRef = useRef(false);
+  const hadServicesRef = useRef(false);
   const activeChildrenRef = useRef<Array<ReturnType<typeof spawn>>>([]);
+  const buildStartedRef = useRef(false);
   const [buildState, setBuildState] = useState<BuildState>({
     processes: [
       { name: 'Cleaning up existing processes', status: 'pending' },
@@ -349,7 +351,9 @@ const BuildOrchestrator = () => {
           detached: true,
         });
 
-        activeChildrenRef.current.push(child);
+        if (activeChildrenRef.current) {
+          activeChildrenRef.current.push(child);
+        }
         let stdout = '';
         let stderr = '';
 
@@ -366,7 +370,7 @@ const BuildOrchestrator = () => {
         });
 
         child.on('close', (code) => {
-          activeChildrenRef.current = activeChildrenRef.current.filter((proc) => proc !== child);
+          activeChildrenRef.current = activeChildrenRef.current ? activeChildrenRef.current.filter((proc) => proc !== child) : [];
           if (shutdownRequestedRef.current) {
             resolve({ success: false, output: stdout });
             return;
@@ -388,7 +392,7 @@ const BuildOrchestrator = () => {
         });
 
         child.on('error', (error: any) => {
-          activeChildrenRef.current = activeChildrenRef.current.filter((proc) => proc !== child);
+          activeChildrenRef.current = activeChildrenRef.current ? activeChildrenRef.current.filter((proc) => proc !== child) : [];
           addLog(chalk.red(`Error in ${description}: ${error.message}`));
           appendErrorDetail(`${description}: ${error.message}`);
           resolve({ success: false, output: '' });
@@ -415,7 +419,9 @@ const BuildOrchestrator = () => {
           stdio: ['ignore', 'pipe', 'pipe'],
         });
 
-        activeChildrenRef.current.push(child);
+        if (activeChildrenRef.current) {
+          activeChildrenRef.current.push(child);
+        }
         let stdout = '';
         let stderr = '';
 
@@ -434,7 +440,7 @@ const BuildOrchestrator = () => {
         });
 
         child.on('close', (code) => {
-          activeChildrenRef.current = activeChildrenRef.current.filter((proc) => proc !== child);
+          activeChildrenRef.current = activeChildrenRef.current ? activeChildrenRef.current.filter((proc) => proc !== child) : [];
           setBuildState(prev => ({ ...prev, activeBuildOutputStep: undefined }));
 
           if (shutdownRequestedRef.current) {
@@ -458,7 +464,7 @@ const BuildOrchestrator = () => {
         });
 
         child.on('error', (error: any) => {
-          activeChildrenRef.current = activeChildrenRef.current.filter((proc) => proc !== child);
+          activeChildrenRef.current = activeChildrenRef.current ? activeChildrenRef.current.filter((proc) => proc !== child) : [];
           setBuildState(prev => ({ ...prev, activeBuildOutputStep: undefined }));
           addLog(chalk.red(`Error in ${description}: ${error.message}`));
           appendErrorDetail(`${description}: ${error.message}`);
@@ -522,7 +528,10 @@ const BuildOrchestrator = () => {
             addLog(chalk.green(`${description} started (PID: ${child.pid})`));
             // Store the PID
             setBuildState(prev => ({ ...prev, [pidKey]: child.pid }));
-            activeChildrenRef.current.push(child);
+            // Guard against undefined ref
+            if (activeChildrenRef.current) {
+              activeChildrenRef.current.push(child);
+            }
             child.unref(); // Allow parent to exit
             resolve(true);
           } else {
@@ -613,6 +622,9 @@ exit 1
 
   const runBuild = useCallback(async () => {
     setBuildState(prev => ({ ...prev, isBuilding: true }));
+    
+    // Check if services were already running before this build
+    hadServicesRef.current = !!(buildState.vitePid || buildState.rustPid);
 
     const localOpenCellIdPath = process.env.LOCAL_OPENCELLID_CSV_DIR || 'data/opencellid';
     const redisPort = process.env.REDIS_PORT || '6379';
@@ -849,10 +861,11 @@ exec node_modules/.bin/vite dev --host --force
 
   // Auto-start build on mount
   useEffect(() => {
-    if (!buildState.isBuilding && buildState.currentStep === 0) {
+    if (!buildStartedRef.current && !buildState.isBuilding && buildState.currentStep === 0) {
+      buildStartedRef.current = true;
       runBuild();
     }
-  }, []);
+  }, [runBuild, buildState.isBuilding, buildState.currentStep]);
 
   // Spinner animation
   useEffect(() => {
@@ -888,21 +901,33 @@ exec node_modules/.bin/vite dev --host --force
 
   // Note: If Do Not Disturb is enabled or Terminal lacks notification permissions,
   // the system notification won't fire. Open http://localhost:5173 manually in that case.
-  useEffect(() => {
-    const canNotify = !hasErrors && buildState.vitePid && buildState.rustPid && buildState.redisPid;
-    if (allComplete && canNotify) {
-      const msg = hasDeviceDisconnected
-        ? '✓ Finished (SDR device disconnected - using mock at http://localhost:5173)'
-        : '✓ Finished at http://localhost:5173';
+  const checkDeviceStatus = useCallback(async (): Promise<string> => {
+    try {
+      const response = await fetch('http://localhost:8765/status');
+      const data = await response.json();
+      return data.device_connected ? 'RTL-SDR Connected' : 'RTL-SDR Disconnected, Mock APT Running';
+    } catch {
+      return 'Backend not responding';
+    }
+  }, []);
 
-      notifier.notify({
-        title: 'N-APT  🧠',
-        message: msg,
-        icon: path.join(__dirname, 'public/icon-5112.png'),
-        open: 'http://localhost:5173',
+  useEffect(() => {
+    const canNotify = buildState.vitePid && buildState.rustPid && buildState.redisPid;
+    
+    if (allComplete && canNotify) {
+      checkDeviceStatus().then(deviceStatus => {
+        const msg = !hadServicesRef.current 
+          ? `✓ Finished building and running at http://localhost:5173`
+          : `✓ ${deviceStatus}`;
+        notifier.notify({
+          title: 'N-APT  🧠',
+          message: msg,
+          icon: path.join(__dirname, 'public/icon-5112.png'),
+          open: 'http://localhost:5173',
+        });
       });
     }
-  }, [allComplete, hasErrors, hasDeviceDisconnected, buildState.vitePid, buildState.rustPid, buildState.redisPid]);
+  }, [allComplete, buildState.vitePid, buildState.rustPid, buildState.redisPid, checkDeviceStatus]);
 
   const [expandedOutputStep, setExpandedOutputStep] = useState<number | null>(null);
 
@@ -916,7 +941,7 @@ exec node_modules/.bin/vite dev --host --force
 
       <Box flexDirection="column" marginTop={1} alignItems="flex-start">
         <Text color="white" bold>N-APT / 📉 General purpose SDR visualizer and studio tailored for N-APT signals</Text>
-        <Text color="white" bold italic>(the NSA's neurotechnology 🧠 via radio waves)</Text>
+        <Text color="white" bold italic>(The NSA's neurotechnology 🧠 via radio waves and telecommunications infrastructure)</Text>
         <Text color="white">Read more at https://github.com/ceane/n-apt</Text>
         <Text color="gray">Press 'q' or ESC to exit</Text>
       </Box>

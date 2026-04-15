@@ -14,20 +14,20 @@ signals:
   # SDR hardware and processing settings
   sdr:
     limits:
-      lower_limit_mhz: 0.5
-      upper_limit_mhz: 28.8
+      lower_limit_mhz: !frequency 500kHz
+      upper_limit_mhz: !frequency 28.8MHz
       lower_limit_label: "RTL-SDR v4 lower limit"
       upper_limit_label: "Potential hardware spur"
-    # Sample rate for SDR processing (Hz)
-    sample_rate: 3200000  # 3.2 MHz - RTL-SDR compatible sample rate
+    # Sample rate for SDR processing
+    sample_rate: !frequency 3.2MHz  # RTL-SDR compatible sample rate
     
-    # Center frequency for SDR (Hz)
-    center_frequency: 1600000  # 1.6MHz is the center of the sample rate, hence center frequency
+    # Center frequency for SDR
+    center_frequency: !frequency 1.6MHz  # center of the sample rate
     
     # SDR gain settings
     gain:
       # Tuner gain in dB
-      tuner_gain: 49.6
+      tuner_gain: !dB 49.6dB
       # RTL-SDR gain mode
       rtl_agc: false
       # Tuner AGC
@@ -57,61 +57,59 @@ signals:
     # Display settings
     display:
       # dB range for spectrum display
-      min_db: -120
-      max_db: 0
+      min_db: !dB -120dB
+      max_db: !dB 0dB
       # Visualizer padding
       padding: 20
 
   # Mock APT signal configuration for testing
   mock_apt:
-    # Global settings for mock signal generation
-    global_settings:
-      noise_floor_base: -100.0
-      noise_floor_variation: 10.0
-      signal_drift_rate: 2.0
-      signal_modulation_rate: 0.05
-      signal_appearance_chance: 0.02
-      signal_disappearance_chance: 0.01
-      signal_strength_variation: 1.0
-      # Dynamic generation settings
-      dynamic_generation: true
-      signals_per_area: 11
-      area_a_density: 1.0 # Equal density for even distribution
-      area_b_density: 1.0 # Equal density for even distribution
+      # Global settings for mock signal generation
+      global_settings:
+        noise_floor_base: !dB -100dB
+        noise_floor_variation: !dB 10dB
+        signal_drift_rate: 2.0
+        signal_modulation_rate: 0.05
+        signal_appearance_chance: 0.02
+        signal_disappearance_chance: 0.01
+        signal_strength_variation: !dB 1dB
+        # Dynamic generation settings
+        dynamic_generation: true
+        signals_per_area: 11
+        area_a_density: 1.0 # Equal density for even distribution
+        area_b_density: 1.0 # Equal density for even distribution
 
-    # Signal bandwidths
-    bandwidths:
-      narrow: 15
-      medium: 45
-      wide: 120
+      # Signal bandwidths
+      bandwidths:
+        narrow: 15
+        medium: 45
+        wide: 120
 
-    # Signal strength ranges (dB)
-    strength_ranges:
-      weak:
-        min: -80.0
-        max: -70.0
-      medium:
-        min: -70.0
-        max: -50.0
-      strong:
-        min: -50.0
-        max: -30.0
+      # Signal strength ranges (dB)
+      strength_ranges:
+        weak: !dB_range -80dB..-70dB
+        medium: !dB_range -70dB..-50dB
+        strong: !dB_range -50dB..-30dB
 
-    # No predefined signals - using dynamic generation with templates
-    signals: []
+      # No predefined signals - using dynamic generation with templates
+      signals: []
 
-    # Training signal areas
-    training_areas:
-      area_a:
-        freq_range_mhz: [0.018, 4.47]
-        description: "Area A: 18kHz-4.47 MHz range"
-        signal_types: []
-        base_strength_range: [-80.0, -20.0]
-      area_b:
-        freq_range_mhz: [24.72, 29.88]
-        description: "Area B: 24.72-29.88 MHz range"
-        signal_types: []
-        base_strength_range: [-80.0, -20.0]
+      # Training signal areas
+      training_areas:
+        area_a:
+          freq_range_mhz: !frequency_range 18kHz..4.47MHz
+          description: "Area A: 18kHz-4.47 MHz range"
+          signal_types: []
+          base_strength_range: !dB_range -80dB..-20dB
+        area_b:
+          freq_range_mhz: !frequency_range 24.72MHz..29.88MHz
+          description: "Area B: 24.72-29.88 MHz range"
+          signal_types: []
+          base_strength_range: !dB_range -80dB..-20dB
+
+  triangulation:
+    static:
+      freq_range_mhz: !frequency_range 2.3GHz..2.344GHz
 
 
   # N-APT spectrum channel definitions
@@ -152,21 +150,21 @@ signals:
     # Add new channels (e.g. c) and the app will pick them up on rebuild
     # and via backend hot-reload when available.
     channels:
-      # A and B look nearly identical for about the first 4MHz except for a spur in B
-      # B is larger and has a different shape after the identical section
-      a:
-        label: "A"
-        freq_range_mhz: [0.018, 4.37]
-        description: "The potentially primary N-APT channel, encompassing features like audio, voice, physiological effects and more."
-      b:
-        label: "B"
-        freq_range_mhz: [24.72, 29.88]
-        description: "This channel is sometimes identical to Channel A but has more powerful spikes, potentially due to operating on others further distant (known effects are speech, slight physiology, atttention, etc.)."
-      # Channel C is in between (~5MHz to about ~22MHz) but it's more difficult
-      # to process since my sample rate is smaller than the channel
-      # nyquist rate prevents me from seeing the correct form
-      # So I skip Channel C unitl further review
-      c:
-        label: "C"
-        freq_range_mhz: [4.75, 23]
-        description: "This channel is the assumed largest N-APT channel, carrying heavy content and data like vision (read-only), imagination (read and write), dreams and potentially more. APT-spikes are less visible but spikes are visible."
+        # A and B look nearly identical for about the first 4MHz except for a spur in B
+        # B is larger and has a different shape after the identical section
+        a:
+          label: "A"
+          freq_range_mhz: !frequency_range 18kHz..4.37MHz
+          description: "The potentially primary N-APT channel, encompassing features like audio, voice, physiological effects and more."
+        b:
+          label: "B"
+          freq_range_mhz: !frequency_range 24.72MHz..29.88MHz
+          description: "This channel is sometimes identical to Channel A but has more powerful spikes, potentially due to operating on others further distant (known effects are speech, slight physiology, atttention, etc.)."
+        # Channel C is in between (~5MHz to about ~22MHz) but it's more difficult
+        # to process since my sample rate is smaller than the channel
+        # nyquist rate prevents me from seeing the correct form
+        # So I skip Channel C unitl further review
+        c:
+          label: "C"
+          freq_range_mhz: !frequency_range 4.75MHz..23MHz
+          description: "This channel is the assumed largest N-APT channel, carrying heavy content and data like vision (read-only), imagination (read and write), dreams and potentially more. APT-spikes are less visible but spikes are visible."

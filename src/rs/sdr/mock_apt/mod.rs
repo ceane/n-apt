@@ -191,7 +191,7 @@ impl MockAptDevice {
   /// Create a new mock APT SDR device
   pub fn new() -> Self {
     let mock_settings = crate::server::utils::load_mock_apt_settings();
-    let signals = Self::create_signals(mock_settings);
+    let signals = Self::create_signals(&mock_settings);
 
     let sdr_settings = crate::server::utils::load_sdr_settings();
 
