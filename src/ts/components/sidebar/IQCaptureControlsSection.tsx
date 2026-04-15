@@ -647,7 +647,7 @@ export const IQCaptureControlsSection: React.FC<
       <Section>
         <Collapsible
           icon={<FileSignal size={14} />}
-          label="IQ Capture Controls"
+          label="Take an I/Q Capture"
           defaultOpen={false}
         >
           <RangeRowContainer>
@@ -705,7 +705,7 @@ export const IQCaptureControlsSection: React.FC<
             </RangeRowBody>
           </RangeRowContainer>
 
-          <Row label={<IconLabel icon={Clock} text="Duration" />}> 
+          <Row label={<IconLabel icon={Clock} text="Duration" />}>
             <DurationBlock>
               <RadioTabs
                 value={captureDurationMode}
@@ -850,12 +850,12 @@ export const IQCaptureControlsSection: React.FC<
                       {typeof captureStatus.fileSize === "number" && (
                         formatFileSize(captureStatus.fileSize)
                       )}
-                      { " / " }
+                      {" / "}
                       {typeof captureStatus.duration === "number" && (
                         formatDurationMs(captureStatus.duration)
                       )}
                     </DownloadMeta>
-                   
+
                   </div>
                   <StatusValue
                     $tone={

@@ -37,7 +37,7 @@ describe("Onscreen Whole Sample Capture", () => {
     );
 
     // Open the collapsible section
-    fireEvent.click(screen.getByText("IQ Capture Controls"));
+    fireEvent.click(screen.getByText("Take an I/Q Capture"));
 
     fireEvent.click(screen.getByLabelText("Onscreen"));
 
