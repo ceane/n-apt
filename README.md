@@ -72,7 +72,7 @@ transmitters()
   .toAndthroughPerson()             // Target person
   .impedanceChargesAfter()          // Signal altered by bioelectrical activity
   .toReceiver()                     // (Rx) Back to endpoints
-  .toSomeServer()                   // Extremely low latency
+  .toSomeServer()                   // Extremely low latency (NSA has the backhaul & fiber / "upstream collection", "partnerships", national security letters/NSLs to punk telecoms into total submission)
   .cleanDirtySignal()               // Separate frame vs impedance
   .processSignals()                 // Kaiser/Bayes' Posterior Probability
   .nextFrame();                     // Repeat cycle / real-time, high-bandwidth streaming
