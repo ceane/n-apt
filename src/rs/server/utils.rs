@@ -1,10 +1,80 @@
 use anyhow::Result;
 use log::info;
+use regex::Regex;
 use serde_yaml::Value;
 use std::io::Write;
-use std::sync::OnceLock;
+use std::sync::RwLock;
 
 use super::types::{CaptureArtifact, ChannelSpec};
+
+fn parse_frequency_mhz(s: &str) -> f64 {
+  let s = s.trim();
+  let (num_str, unit) = if let Some(idx) = s.find(|c: char| c.is_alphabetic()) {
+    (&s[..idx], &s[idx..])
+  } else {
+    (s, "")
+  };
+
+  let num: f64 = num_str.parse().unwrap_or(0.0);
+  let unit_upper = unit.to_uppercase();
+
+  match unit_upper.as_str() {
+    "GHZ" => num * 1000.0,
+    "MHZ" => num,
+    "KHZ" => num / 1000.0,
+    "HZ" => num / 1_000_000.0,
+    _ => num,
+  }
+}
+
+fn preprocess_frequency_tags(content: &str) -> String {
+  let re_single =
+    Regex::new(r"!frequency\s+([\d.]+)\s*([kKmMgG]?Hz)\b").unwrap();
+  let content = re_single
+    .replace_all(content, |caps: &regex::Captures| {
+      let value: f64 = caps[1].parse().unwrap_or(0.0);
+      let unit = caps[2].to_uppercase();
+      let multiplier = match unit.as_str() {
+        "GHZ" => 1e9,
+        "MHZ" => 1e6,
+        "KHZ" => 1e3,
+        "HZ" => 1.0,
+        _ => 1.0,
+      };
+      (value * multiplier).to_string()
+    })
+    .to_string();
+
+  let re_range = Regex::new(r"!frequency_range\s+(\d+\.?\d*[kKmMgG]?Hz)\s*\.\.\s*(\d+\.?\d*[kKmMgG]?Hz)").unwrap();
+  let content = re_range
+    .replace_all(&content, |caps: &regex::Captures| {
+      let start = parse_frequency_mhz(&caps[1]);
+      let end = parse_frequency_mhz(&caps[2]);
+      format!("[{}, {}]", start, end)
+    })
+    .to_string();
+
+  let re_db = Regex::new(
+    r"!(dB|decibels|dBm|decibel_milliwatts)\s+(-?[\d.]+)\s*(dB|dBm)\b",
+  )
+  .unwrap();
+  let content = re_db
+    .replace_all(&content, |caps: &regex::Captures| caps[2].to_string())
+    .to_string();
+
+  let re_db_range = Regex::new(
+    r"(\w+):\s*!dB_range\s+(-?[\d.]+)\s*(?:dB|dBm)?\s*\.\.\s*(-?[\d.]+)\s*(?:dB|dBm)?",
+  )
+  .unwrap();
+  re_db_range
+    .replace_all(&content, |caps: &regex::Captures| {
+      format!(
+        "{}:\n          min: {}\n          max: {}",
+        &caps[1], &caps[2], &caps[3]
+      )
+    })
+    .to_string()
+}
 
 /// Downsample spectrum data to a target length using averaging
 #[allow(dead_code)]
@@ -12,52 +82,136 @@ fn downsample_spectrum(data: &[f32], target_len: usize) -> Vec<f32> {
   crate::simd::downsample_spectrum_simd(data, target_len)
 }
 
-fn read_config_file(filename: &str) -> Option<String> {
-  if let Ok(content) = std::fs::read_to_string(filename) {
-    return Some(content);
-  }
+fn read_config_file(filename: &str) -> Option<(String, std::time::SystemTime)> {
+  let path = std::path::Path::new(filename);
+  let content = if path.exists() {
+    std::fs::read_to_string(path).ok()
+  } else {
+    let manifest_path =
+      std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(filename);
+    std::fs::read_to_string(manifest_path).ok()
+  }?;
 
-  let manifest_path =
-    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(filename);
-  std::fs::read_to_string(manifest_path).ok()
+  let modified =
+    path.metadata().and_then(|m| m.modified()).ok().or_else(|| {
+      let manifest_path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(filename);
+      manifest_path.metadata().and_then(|m| m.modified()).ok()
+    });
+
+  modified.map(|m| (content, m))
 }
 
-/// Load and cache the entire signals.yaml. Panics if missing or malformed.
-static SIGNALS_CONFIG: OnceLock<super::types::SignalsConfig> = OnceLock::new();
+struct CachedSignalsConfig {
+  config: super::types::SignalsConfig,
+  modified: std::time::SystemTime,
+  filename: String,
+}
 
-pub fn signals_config() -> &'static super::types::SignalsConfig {
-  SIGNALS_CONFIG.get_or_init(|| {
-    let content = read_config_file("signals.yaml")
-      .expect("signals.yaml must be present alongside the binary or in CARGO_MANIFEST_DIR");
-    serde_yaml::from_str(&content).unwrap_or_else(|e| {
-      eprintln!("\n❌ INVALID signals.yaml CONFIGURATION");
-      eprintln!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-      
-      // Parse the error to extract location info
-      let error_msg = e.to_string();
-      if let Some(line_col) = extract_yaml_location(&error_msg) {
-        eprintln!("Location: {}", line_col);
+static SIGNALS_CONFIG: RwLock<Option<CachedSignalsConfig>> = RwLock::new(None);
+
+fn reload_signals_config() -> CachedSignalsConfig {
+  let filename = if std::path::Path::new("signals.yaml").exists() {
+    "signals.yaml".to_string()
+  } else {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+      .join("signals.yaml")
+      .to_string_lossy()
+      .to_string()
+  };
+
+  let (content, modified) = read_config_file(&filename)
+    .expect("signals.yaml must be present alongside the binary or in CARGO_MANIFEST_DIR");
+
+  let processed = preprocess_frequency_tags(&content);
+
+  let config = serde_yaml::from_str(&processed).unwrap_or_else(|e| {
+    eprintln!("\n❌ INVALID signals.yaml CONFIGURATION");
+    eprintln!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    
+    let error_msg = e.to_string();
+    if let Some(line_col) = extract_yaml_location(&error_msg) {
+      eprintln!("Location: {}", line_col);
+    }
+    
+    eprintln!("Error: {}", error_msg);
+    eprintln!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    eprintln!("\nCommon issues:");
+    eprintln!("  • Missing required fields: global_settings, bandwidths, strength_ranges, signals, training_areas");
+    eprintln!("  • Incorrect YAML indentation (use 2 or 4 spaces, be consistent)");
+    eprintln!("  • Invalid field order in mock_apt section");
+    eprintln!("  • Duplicate field names");
+    eprintln!("  • Invalid !frequency tag values (use: !frequency 18kHz, 20MHz, 2.3GHz, 30Hz)");
+    eprintln!("\nExpected mock_apt structure:");
+    eprintln!("  mock_apt:");
+    eprintln!("    global_settings: ...");
+    eprintln!("    bandwidths: ...");
+    eprintln!("    strength_ranges: ...");
+    eprintln!("    signals: [...]");
+    eprintln!("    training_areas: ...");
+    eprintln!("    channels: ...  # optional");
+    eprintln!("\nFrequency tag examples:");
+    eprintln!("  center_frequency: !frequency 137.5MHz");
+    eprintln!("  sample_rate: !frequency 2.4MHz");
+    eprintln!();
+    panic!("Invalid signals.yaml configuration");
+  });
+
+  log::info!("Loaded signals.yaml (modified: {:?})", modified);
+  CachedSignalsConfig {
+    config,
+    modified,
+    filename,
+  }
+}
+
+/// Get signals config with hot reloading support.
+/// Automatically reloads if signals.yaml has been modified.
+pub fn signals_config() -> super::types::SignalsConfig {
+  // Check if we need to reload
+  let needs_reload = {
+    let guard = SIGNALS_CONFIG.read().unwrap();
+    match guard.as_ref() {
+      Some(cached) => {
+        if let Some((_, modified)) = read_config_file(&cached.filename) {
+          modified > cached.modified
+        } else {
+          false
+        }
       }
-      
-      eprintln!("Error: {}", error_msg);
-      eprintln!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-      eprintln!("\nCommon issues:");
-      eprintln!("  • Missing required fields: global_settings, bandwidths, strength_ranges, signals, training_areas");
-      eprintln!("  • Incorrect YAML indentation (use 2 or 4 spaces, be consistent)");
-      eprintln!("  • Invalid field order in mock_apt section");
-      eprintln!("  • Duplicate field names");
-      eprintln!("\nExpected mock_apt structure:");
-      eprintln!("  mock_apt:");
-      eprintln!("    global_settings: ...");
-      eprintln!("    bandwidths: ...");
-      eprintln!("    strength_ranges: ...");
-      eprintln!("    signals: [...]");
-      eprintln!("    training_areas: ...");
-      eprintln!("    channels: ...  # optional");
-      eprintln!();
-      panic!("Invalid signals.yaml configuration");
-    })
-  })
+      None => true,
+    }
+  };
+
+  if needs_reload {
+    let mut guard = SIGNALS_CONFIG.write().unwrap();
+    // Double-check after acquiring write lock
+    let should_reload = match guard.as_ref() {
+      Some(cached) => {
+        if let Some((_, modified)) = read_config_file(&cached.filename) {
+          modified > cached.modified
+        } else {
+          false
+        }
+      }
+      None => true,
+    };
+
+    if should_reload {
+      log::info!("🔄 signals.yaml changed, reloading...");
+      let cached = reload_signals_config();
+      *guard = Some(cached);
+    }
+  }
+
+  // Return owned config - callers can clone if needed
+  SIGNALS_CONFIG
+    .read()
+    .unwrap()
+    .as_ref()
+    .unwrap()
+    .config
+    .clone()
 }
 
 /// Extract line and column numbers from serde_yaml error message
@@ -123,13 +277,13 @@ pub fn load_channels() -> Vec<super::types::SpectrumFrameMessage> {
 }
 
 /// Load SDR settings (panic if missing/malformed)
-pub fn load_sdr_settings() -> &'static super::types::SdrConfig {
-  &signals_config().signals.sdr
+pub fn load_sdr_settings() -> super::types::SdrConfig {
+  signals_config().signals.sdr.clone()
 }
 
 /// Load mock APT signal settings (panic if missing/malformed)
-pub fn load_mock_apt_settings() -> &'static super::types::MockAptSignalsConfig {
-  &signals_config().signals.mock_apt
+pub fn load_mock_apt_settings() -> super::types::MockAptSignalsConfig {
+  signals_config().signals.mock_apt.clone()
 }
 
 #[allow(dead_code)]
@@ -239,8 +393,9 @@ mod tests {
       env!("CARGO_MANIFEST_DIR")
     );
     let content = content.expect("signals.yaml content");
+    let processed = preprocess_frequency_tags(&content.0);
     let value: serde_yaml::Value =
-      serde_yaml::from_str(&content).expect("parse signals.yaml into value");
+      serde_yaml::from_str(&processed).expect("parse signals.yaml into value");
     let sdr_value = value.get("signals").and_then(|v| v.get("sdr")).cloned();
     assert!(sdr_value.is_some(), "expected signals.sdr in signals.yaml");
     let parsed: Result<crate::server::types::SdrConfig, _> =
@@ -321,8 +476,9 @@ signals:
       padding: 0
 "#;
 
+    let processed = preprocess_frequency_tags(yaml);
     let config: crate::server::types::SignalsConfig =
-      serde_yaml::from_str(yaml).expect("parse test config");
+      serde_yaml::from_str(&processed).expect("parse test config");
     let ordered_ids: Vec<String> =
       config.signals.n_apt.channels.keys().cloned().collect();
     assert_eq!(ordered_ids, vec!["c", "a", "b"]);
@@ -340,6 +496,182 @@ signals:
         ("b".to_string(), "B".to_string())
       ]
     );
+  }
+
+  #[test]
+  fn test_preprocess_frequency_tags() {
+    let yaml = r#"
+signals:
+  sdr:
+    sample_rate: !frequency 2.4MHz
+    center_frequency: !frequency 137.5MHz
+    gain:
+      tuner_gain: 49.6
+      rtl_agc: false
+      tuner_agc: false
+    ppm: 1.0
+    fft:
+      default_size: 32768
+      default_frame_rate: 60
+      max_size: 262144
+      max_frame_rate: 60
+      size_to_frame_rate: {}
+    display:
+      min_db: -120
+      max_db: 0
+      padding: 20
+"#;
+
+    let processed = preprocess_frequency_tags(yaml);
+    let value: serde_yaml::Value =
+      serde_yaml::from_str(&processed).expect("parse yaml");
+    let sdr = value
+      .get("signals")
+      .and_then(|v| v.get("sdr"))
+      .expect("get sdr");
+    let config: crate::server::types::SdrConfig =
+      serde_yaml::from_value(sdr.clone()).expect("parse frequency test");
+
+    assert_eq!(config.sample_rate, 2_400_000);
+    assert_eq!(config.center_frequency, 137_500_000);
+  }
+
+  #[test]
+  fn test_preprocess_frequency_tags_ghz() {
+    let yaml = r#"
+signals:
+  sdr:
+    sample_rate: !frequency 2.4GHz
+    center_frequency: !frequency 1.6GHz
+    gain:
+      tuner_gain: 0.0
+      rtl_agc: false
+      tuner_agc: false
+    ppm: 0.0
+    fft:
+      default_size: 2048
+      default_frame_rate: 60
+      max_size: 32768
+      max_frame_rate: 60
+      size_to_frame_rate: {}
+    display:
+      min_db: -120
+      max_db: 0
+      padding: 20
+"#;
+
+    let processed = preprocess_frequency_tags(yaml);
+    let value: serde_yaml::Value =
+      serde_yaml::from_str(&processed).expect("parse yaml");
+    let sdr = value
+      .get("signals")
+      .and_then(|v| v.get("sdr"))
+      .expect("get sdr");
+    let config: crate::server::types::SdrConfig =
+      serde_yaml::from_value(sdr.clone()).expect("parse GHz test");
+
+    assert_eq!(config.sample_rate, 2_400_000_000);
+    assert_eq!(config.center_frequency, 1_600_000_000);
+  }
+
+  #[test]
+  fn test_preprocess_frequency_tags_khz() {
+    let yaml = r#"
+signals:
+  sdr:
+    sample_rate: !frequency 100kHz
+    center_frequency: !frequency 18kHz
+    gain:
+      tuner_gain: 0.0
+      rtl_agc: false
+      tuner_agc: false
+    ppm: 0.0
+    fft:
+      default_size: 2048
+      default_frame_rate: 60
+      max_size: 32768
+      max_frame_rate: 60
+      size_to_frame_rate: {}
+    display:
+      min_db: -120
+      max_db: 0
+      padding: 20
+"#;
+
+    let processed = preprocess_frequency_tags(yaml);
+    // Debug: print first 500 chars of processed YAML
+    eprintln!(
+      "Processed YAML (first 500 chars):\n{}",
+      &processed[..processed.len().min(500)]
+    );
+    let value: serde_yaml::Value =
+      serde_yaml::from_str(&processed).expect("parse yaml");
+    let sdr = value
+      .get("signals")
+      .and_then(|v| v.get("sdr"))
+      .expect("get sdr");
+    let config: crate::server::types::SdrConfig =
+      serde_yaml::from_value(sdr.clone()).expect("parse kHz test");
+
+    assert_eq!(config.sample_rate, 100_000);
+    assert_eq!(config.center_frequency, 18_000);
+  }
+
+  #[test]
+  fn test_preprocess_frequency_range_syntax() {
+    let yaml = r#"
+n_apt:
+  channels:
+    a:
+      label: "A"
+      freq_range_mhz: !frequency_range 18kHz..4.47MHz
+      description: "Test"
+"#;
+
+    let processed = preprocess_frequency_tags(yaml);
+    let value: serde_yaml::Value =
+      serde_yaml::from_str(&processed).expect("parse yaml");
+    let channel = value
+      .get("n_apt")
+      .and_then(|v| v.get("channels"))
+      .and_then(|v| v.get("a"))
+      .expect("get channel");
+
+    let freq_range = channel.get("freq_range_mhz").expect("get freq_range");
+    let arr = freq_range.as_sequence().expect("should be array");
+
+    assert_eq!(arr.len(), 2);
+    assert_eq!(arr[0].as_f64().expect("start"), 0.018);
+    assert_eq!(arr[1].as_f64().expect("end"), 4.47);
+  }
+
+  #[test]
+  fn test_preprocess_debug_real_yaml() {
+    let path =
+      std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("signals.yaml");
+    let content = std::fs::read_to_string(path).expect("read signals.yaml");
+    let processed = preprocess_frequency_tags(&content);
+    let value: serde_yaml::Value =
+      serde_yaml::from_str(&processed).expect("parse yaml");
+    let signals = value.get("signals").expect("get signals");
+    let mock_apt = signals.get("mock_apt");
+    assert!(mock_apt.is_some(), "mock_apt should exist");
+    let n_apt = signals.get("n_apt");
+    assert!(n_apt.is_some(), "n_apt should exist");
+    let sdr = signals.get("sdr");
+    assert!(sdr.is_some(), "sdr should exist");
+
+    // Check specific values
+    let n_apt = n_apt.unwrap();
+    let channels = n_apt.get("channels").unwrap();
+    let channel_a = channels.get("a").unwrap();
+    let freq_range = channel_a.get("freq_range_mhz").unwrap();
+    let arr = freq_range.as_sequence().unwrap();
+    let start = arr[0].as_f64().unwrap();
+    let end = arr[1].as_f64().unwrap();
+    eprintln!("Channel A freq_range: [{}, {}]", start, end);
+    assert_eq!(start, 0.018, "start should be 18kHz = 0.018 MHz");
+    assert_eq!(end, 4.37, "end should be 4.37MHz");
   }
 }
 

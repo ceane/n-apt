@@ -3,10 +3,23 @@ import { useCallback } from "react";
 type CalculateXFn = (t: number, clump: MockNAPTParams) => number;
 
 let calculateX: CalculateXFn | null = null;
+let mathLoaded = false;
 const loadMath = async () => {
   try {
-    const mod = await import("@n-apt/encrypted-modules/tmp/ts/math/napt-spike-eq").catch(() => null);
-    calculateX = (mod?.default ?? null) as CalculateXFn | null;
+    const modulePath = [
+      "@n-apt",
+      "encrypted-modules",
+      "tmp",
+      "ts",
+      "math",
+      "napt-spike-eq",
+    ].join("/");
+
+    const mod = await import(/* @vite-ignore */ modulePath).catch(() => null);
+    if (mod?.default) {
+      calculateX = mod.default as CalculateXFn;
+      mathLoaded = true;
+    }
   } catch {
     console.warn("LaTeX math module not decrypted, fallback to zero signal");
   }
@@ -32,6 +45,8 @@ export interface MockNAPTParams {
 
 export function useDrawMockNAPTSignal() {
   const generateMockNAPTData = useCallback((clumps: MockNAPTParams[], globalNoiseFloor: number) => {
+    if (!mathLoaded) return [];
+
     const rawSamples: Array<{ t: number; freq: number; signal: number }> = [];
     let maxSignal = Number.NEGATIVE_INFINITY;
     let minSignal = Number.POSITIVE_INFINITY;
@@ -110,5 +125,5 @@ export function useDrawMockNAPTSignal() {
     });
   }, []);
 
-  return { generateMockNAPTData };
+  return { generateMockNAPTData, mathLoaded };
 }
