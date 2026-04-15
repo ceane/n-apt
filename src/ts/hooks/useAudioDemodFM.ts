@@ -149,7 +149,7 @@ export function useAudioDemodFM(options: AudioDemodFMOptions): AudioDemodFMHandl
       
       // Always create buffer at targetSampleRate (e.g., 48000) for proper playback speed
       const buffer = audioContext.createBuffer(1, audioData.length, targetSampleRate);
-      buffer.copyToChannel(audioData, 0);
+      buffer.copyToChannel(new Float32Array(audioData), 0);
       
       // Create source node
       const sourceNode = audioContext.createBufferSource();
@@ -224,7 +224,7 @@ export function useAudioDemodFM(options: AudioDemodFMOptions): AudioDemodFMHandl
       
       // Create audio buffer at targetSampleRate (e.g., 48000)
       const buffer = audioContext.createBuffer(1, audioData.length, targetSampleRate);
-      buffer.copyToChannel(audioData, 0);
+      buffer.copyToChannel(new Float32Array(audioData), 0);
       
       // Create source node
       const sourceNode = audioContext.createBufferSource();
