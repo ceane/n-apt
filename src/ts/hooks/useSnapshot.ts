@@ -45,6 +45,7 @@ export type SnapshotOptions = {
   };
   prepareVideoRecording?: () => void | Promise<void> | (() => void | Promise<void>);
   aspectRatio?: SnapshotAspectRatio;
+  fileTimestamp?: string;
 };
 
 export type SnapshotVideoFormat = "mp4" | "webm";
@@ -871,9 +872,12 @@ export function useSnapshot(
       );
 
     const dbUnit = getDbUnit(data);
+    const timestampLabel = options.fileTimestamp 
+      ? options.fileTimestamp.replace("T", " ").slice(0, 19)
+      : fmtTimestamp();
     const statsLines = options.showStats ? [
       `${fmtFreq(rangeToRender.min)} – ${fmtFreq(rangeToRender.max)}`,
-      fmtTimestamp(),
+      timestampLabel,
       `${modeLabel} | ${dbUnit}: ${data.dbMin} to ${data.dbMax}`,
       `FFT: ${data.fftSize ?? "?"} | Window: ${data.fftWindow ?? "?"}`,
       `Source: ${options.sourceName || "Unknown"}`,
@@ -947,9 +951,12 @@ export function useSnapshot(
       }
 
       const currentDbUnit = getDbUnit(currentData);
+      const currentTimestampLabel = options.fileTimestamp 
+        ? options.fileTimestamp.replace("T", " ").slice(0, 19)
+        : fmtTimestamp();
       const currentStatsLines = options.showStats ? [
         `${fmtFreq(currentRange.min)} – ${fmtFreq(currentRange.max)}`,
-        fmtTimestamp(),
+        currentTimestampLabel,
         `${options.modeLabel ?? (options.whole ? "Whole Channel" : "Onscreen")} | ${currentDbUnit}: ${currentData.dbMin} to ${currentData.dbMax}`,
         `FFT: ${currentData.fftSize ?? "?"} | Window: ${currentData.fftWindow ?? "?"}`,
         `Source: ${options.sourceName || "Unknown"}`,

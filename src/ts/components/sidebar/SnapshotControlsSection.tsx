@@ -46,17 +46,17 @@ const IconLabel: React.FC<{ icon: React.ComponentType<any>; text: string }> = ({
   </LabelWithIcon>
 );
 
-const SettingSelect = styled.select`
+const SettingSelect = styled.select<{ $disabled?: boolean }>`
   background-color: transparent;
   border: 1px solid transparent;
   border-radius: 4px;
-  color: ${(props) => props.theme.textPrimary};
+  color: ${(props) => props.$disabled ? props.theme.textMuted : props.theme.textPrimary};
   font-family: ${(props) => props.theme.typography.mono};
   font-size: 12px;
   font-weight: 500;
   padding: 2px 6px;
   min-width: 80px;
-  cursor: pointer;
+  cursor: ${(props) => props.$disabled ? "not-allowed" : "pointer"};
   appearance: none;
   background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ccc' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6,9 12,15 18,9'%3e%3c/polyline%3e%3c/svg%3e");
   background-repeat: no-repeat;
@@ -65,9 +65,10 @@ const SettingSelect = styled.select`
   padding-right: 20px;
   box-sizing: border-box;
   max-width: 100%;
+  opacity: ${(props) => props.$disabled ? 0.5 : 1};
 
   &:hover {
-    border-color: ${(props) => props.theme.borderHover};
+    border-color: ${(props) => props.$disabled ? "transparent" : props.theme.borderHover};
   }
 
   &:focus {
@@ -212,6 +213,8 @@ interface SnapshotControlsSectionProps {
   onSnapshotGridPreferenceChange: (value: boolean) => void;
   onSnapshotAspectRatioChange: (value: SnapshotAspectRatio) => void;
   onSnapshot: () => void;
+  isFileMode?: boolean;
+  hasFileLoaded?: boolean;
 }
 
 export const SnapshotControlsSection: React.FC<
@@ -234,6 +237,8 @@ export const SnapshotControlsSection: React.FC<
   onSnapshotGridPreferenceChange,
   onSnapshotAspectRatioChange,
   onSnapshot,
+  isFileMode = false,
+  hasFileLoaded = false,
 }) => {
     const progress = useAppSelector((state) => state.snapshot);
     const isCapturing =
@@ -245,11 +250,13 @@ export const SnapshotControlsSection: React.FC<
       ? progress.message ?? "Saving snapshot"
       : "Save snapshot";
 
+    const isDisabled = isFileMode && !hasFileLoaded;
+
     return (
       <Section>
         <Collapsible
           icon={<Fullscreen size={14} />}
-          label="Snapshot Controls"
+          label="Take a Snapshot"
           defaultOpen={false}
         >
           <Row label={<IconLabel icon={Scan} text="Range" />}>
@@ -259,6 +266,7 @@ export const SnapshotControlsSection: React.FC<
                 onSnapshotWholeChange(e.target.value === "whole")
               }
               style={{ minWidth: "120px" }}
+              $disabled={isDisabled}
             >
               <option value="onscreen">On screen</option>
               <option value="whole">Whole Channel</option>
@@ -270,6 +278,7 @@ export const SnapshotControlsSection: React.FC<
               <ToggleSwitchInput
                 type="checkbox"
                 checked={snapshotShowWaterfall}
+                disabled={isDisabled}
                 onChange={(e) =>
                   onSnapshotShowWaterfallChange(e.target.checked)
                 }
@@ -284,6 +293,7 @@ export const SnapshotControlsSection: React.FC<
               <ToggleSwitchInput
                 type="checkbox"
                 checked={snapshotGridPreference}
+                disabled={isDisabled}
                 onChange={(e) =>
                   onSnapshotGridPreferenceChange(e.target.checked)
                 }
@@ -297,6 +307,7 @@ export const SnapshotControlsSection: React.FC<
               <ToggleSwitchInput
                 type="checkbox"
                 checked={snapshotShowStats}
+                disabled={isDisabled}
                 onChange={(e) => onSnapshotShowStatsChange(e.target.checked)}
               />
               <ToggleSwitchSlider />
@@ -309,7 +320,7 @@ export const SnapshotControlsSection: React.FC<
                 <ToggleSwitchInput
                   type="checkbox"
                   checked={snapshotShowGeolocation && snapshotShowStats && !snapshotGeolocationError}
-                  disabled={!snapshotShowStats || !!snapshotGeolocationError}
+                  disabled={!snapshotShowStats || !!snapshotGeolocationError || isDisabled}
                   onChange={(e) => onSnapshotShowGeolocationChange(e.target.checked)}
                 />
                 <ToggleSwitchSlider />
@@ -329,6 +340,7 @@ export const SnapshotControlsSection: React.FC<
                 onSnapshotAspectRatioChange(e.target.value as SnapshotAspectRatio)
               }
               style={{ minWidth: "100px" }}
+              $disabled={isDisabled}
             >
               <option value="default">Default</option>
               <option value="4:3">4:3</option>
@@ -345,6 +357,7 @@ export const SnapshotControlsSection: React.FC<
                 onSnapshotFormatChange(e.target.value as "png" | "svg" | SnapshotVideoFormat)
               }
               style={{ minWidth: "110px" }}
+              $disabled={isDisabled}
             >
               <option value="png">PNG</option>
               <option value="svg">SVG</option>
@@ -360,10 +373,11 @@ export const SnapshotControlsSection: React.FC<
             $paused={false}
             onClick={onSnapshot}
             style={{ marginTop: "8px" }}
+            disabled={isDisabled}
           >
             <SnapshotButtonContent>
               <SnapshotStatusDot $active={isCapturing} />
-              {buttonLabel}
+              {isDisabled ? "Load a file to capture" : buttonLabel}
             </SnapshotButtonContent>
           </SnapshotActionButton>
         </Collapsible >

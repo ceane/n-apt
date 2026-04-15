@@ -8,6 +8,7 @@ import glsl from "vite-plugin-glsl";
 
 // https://vite.dev/config/
 import { fileURLToPath } from 'node:url';
+// import { reactDevtools } from 'agent-react-devtools/vite';
 const dirname = typeof __dirname !== 'undefined' ? __dirname : path.dirname(fileURLToPath(import.meta.url));
 
 const resolveGitRoot = () => {
@@ -49,7 +50,8 @@ const fsAllow = Array.from(
 );
 
 export default defineConfig({
-  plugins: [react(), glsl({
+  plugins: [
+    /* reactDevtools(), */ react(), glsl({
     defaultExtension: 'wgsl',
     compress: false,
   })],

@@ -7,6 +7,7 @@ import React, {
   useState,
   useMemo,
   useCallback,
+  memo,
 } from "react";
 import type {
   FrequencyRange,
@@ -688,7 +689,7 @@ interface SpectrumProviderProps {
   mockValue?: SpectrumStoreContextValue;
 }
 
-export const SpectrumProvider: React.FC<SpectrumProviderProps> = ({
+export const SpectrumProvider: React.FC<SpectrumProviderProps> = memo(({
   children,
   mockValue,
 }) => {
@@ -1344,4 +1345,4 @@ export const SpectrumProvider: React.FC<SpectrumProviderProps> = ({
       {children}
     </SpectrumStoreContext.Provider>
   );
-};
+});

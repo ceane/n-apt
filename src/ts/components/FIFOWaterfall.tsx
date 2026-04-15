@@ -1,5 +1,5 @@
 import { memo, useRef, useEffect } from "react";
-import styled from "styled-components";
+import styled, { memo as styledMemo } from "styled-components";
 import {
   WATERFALL_CANVAS_BG,
   WATERFALL_HISTORY_LIMIT,
@@ -31,12 +31,12 @@ interface FIFOWaterfallProps {
   awaitingDeviceData?: boolean;
 }
 
-const WaterfallCanvas = styled.canvas<{ $width: number; $height: number }>`
+const WaterfallCanvas = styledMemo(styled.canvas<{ $width: number; $height: number }>`
   display: block;
   width: ${({ $width }) => $width}px;
   height: ${({ $height }) => $height}px;
   background-color: ${({ theme }) => theme.colors?.waterfallBackground ?? WATERFALL_CANVAS_BG};
-`;
+`);
 
 const WATERFALL_PLACEHOLDER_TEXT = "Loading data from source...";
 const WATERFALL_PLACEHOLDER_COLOR = "#888888";

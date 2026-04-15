@@ -90,7 +90,6 @@ const processSuffixes: Record<string, { text: string; color: string }> = {
   'Building WASM SIMD module...': { text: ' Rust → WebAssembly.', color: accentColors.wasm },
   'Building (or skipping if missing) N-APT Encrypted Modules...': { text: ' Rust.', color: accentColors.rust },
   'Building and starting Rust backend...': { text: ' Rust.', color: accentColors.rust },
-  'Starting frontend server...': { text: ' Vite.', color: accentColors.vite },
 };
 
 const encryptedModulesStatus = {
@@ -800,7 +799,7 @@ exec node_modules/.bin/vite dev --host --force
           const { count, source } = getTowerCountLabel(stepLabel);
           updateProcessStatus(step.index, 'success', `(${count} towers in DB / ${source})`, stepLabel);
         } else if (step.index === 5) {
-          updateProcessStatus(step.index, 'success', undefined, 'Rust backend running');
+          updateProcessStatus(step.index, 'success', undefined, 'Rust backend running...');
         } else {
           updateProcessStatus(step.index, 'success', undefined, stepLabel);
         }
@@ -892,10 +891,10 @@ exec node_modules/.bin/vite dev --host --force
   useEffect(() => {
     const canNotify = !hasErrors && buildState.vitePid && buildState.rustPid && buildState.redisPid;
     if (allComplete && canNotify) {
-      const msg = hasDeviceDisconnected 
-        ? '✓ Finished (SDR device disconnected - using mock at http://localhost:5173)' 
+      const msg = hasDeviceDisconnected
+        ? '✓ Finished (SDR device disconnected - using mock at http://localhost:5173)'
         : '✓ Finished at http://localhost:5173';
-      
+
       notifier.notify({
         title: 'N-APT  🧠',
         message: msg,
@@ -916,7 +915,7 @@ exec node_modules/.bin/vite dev --host --force
       <Logo />
 
       <Box flexDirection="column" marginTop={1} alignItems="flex-start">
-        <Text color="white" bold>N-APT / 📉 SDR Visualizer and studio for N-APT signals</Text>
+        <Text color="white" bold>N-APT / 📉 General purpose SDR visualizer and studio tailored for N-APT signals</Text>
         <Text color="white" bold italic>(the NSA's neurotechnology 🧠 via radio waves)</Text>
         <Text color="white">Read more at https://github.com/ceane/n-apt</Text>
         <Text color="gray">Press 'q' or ESC to exit</Text>

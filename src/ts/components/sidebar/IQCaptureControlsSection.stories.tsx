@@ -60,5 +60,5 @@ export const Default = () => (
 );
 
 export default {
-  title: "Sidebar/IQ Capture Controls",
+  title: "Sidebar/Take an I/Q Capture",
 };
