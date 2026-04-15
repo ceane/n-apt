@@ -14,7 +14,7 @@ const getEnvVar = (key: string): string | undefined => {
     if (meta && meta.env && meta.env[key]) {
       return meta.env[key];
     }
-  } catch (_e) {
+  } catch {
     // Ignore errors (like when import.meta is not available)
   }
 

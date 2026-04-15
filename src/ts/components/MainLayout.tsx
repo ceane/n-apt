@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { memo } from "react";
 import styled from "styled-components";
 import { NAPTSidebarHeader } from "@n-apt/components/sidebar/NAPTSidebarHeader";
 import { CollapsedToggleButton } from "@n-apt/components/sidebar/SidebarToggle";
@@ -6,7 +7,7 @@ import { ContentArea } from "@n-apt/components/Layout";
 import { useLocation } from "react-router-dom";
 import { useSidebarNavigationScroll } from "@n-apt/hooks/useSidebarNavigationScroll";
 
-const NavigationContainer = styled.nav`
+const NavigationContainer = memo(styled.nav`
   display: flex;
   flex-direction: column;
   width: ${(props) => `${props.theme.layout.sidebarWidth}px`};
@@ -21,16 +22,16 @@ const NavigationContainer = styled.nav`
   overflow-x: visible;
   box-sizing: border-box;
   resize: horizontal;
-`;
+`);
 
-const NavigationTabs = styled.div`
+const NavigationTabs = memo(styled.div`
   display: flex;
   flex-direction: column;
   gap: ${(props) => props.theme.spacing.sm};
   padding: 0 ${(props) => props.theme.spacing.xxl} ${(props) => props.theme.spacing.lg} ${(props) => props.theme.spacing.xxl};
-`;
+`);
 
-const NavigationTab = styled.button<{ $isActive: boolean }>`
+const NavigationTab = memo(styled.button<{ $isActive: boolean }>`
   padding: ${(props) => `${props.theme.spacing.md} ${props.theme.spacing.lg}`};
   border: 1px solid ${(props) => (props.$isActive ? props.theme.borderHover : "transparent")};
   border-radius: 8px;
@@ -50,14 +51,14 @@ const NavigationTab = styled.button<{ $isActive: boolean }>`
     background-color: ${(props) => props.theme.surfaceHover};
     color: ${(props) => props.theme.textSecondary};
   }
-`;
+`);
 
-const SidebarContent = styled.div`
+const SidebarContent = memo(styled.div`
   flex: 1;
   display: flex;
   flex-direction: column;
   padding-bottom: calc(${(props) => props.theme.spacing.xxl} + env(safe-area-inset-bottom, 0px));
-`;
+`);
 
 interface MainLayoutProps {
   children: React.ReactNode;

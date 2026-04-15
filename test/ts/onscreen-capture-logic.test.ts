@@ -440,7 +440,7 @@ describe("frequency_range metadata override (Bug: -382kHz to 4.77MHz)", () => {
     };
 
     // Stitched channel has expanded hop bounds
-    const stitchedChannel = {
+    const _stitchedChannel = {
       center_freq_hz: 2194000, // from hops
       sample_rate_hz: 5152000, // hop0 start to hop1 end = -382kHz to 4.77MHz = 5.152 MHz
     };
@@ -496,7 +496,7 @@ describe("frequency_range metadata override (Bug: -382kHz to 4.77MHz)", () => {
     const maxFreq = 29.88;
     const span = maxFreq - minFreq; // 5.16
 
-    const numHops = Math.ceil(span / usableBwMhz); // ceil(2.15) = 3
+    const _numHops = Math.ceil(span / usableBwMhz); // ceil(2.15) = 3
     const firstCenter = minFreq + usableBwMhz / 2; // 25.92
     const lastCenter = maxFreq - usableBwMhz / 2;  // 28.68
     const hop0Start = firstCenter - hwBwMhz / 2; // 24.32

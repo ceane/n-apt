@@ -222,7 +222,7 @@ async function loadLocalTowers(centerLat, centerLng, radiusKm = 25) {
           };
           
           allTowers.push(tower);
-        } catch (error) {
+        } catch {
           // Skip invalid tower records
           continue;
         }

@@ -141,6 +141,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
     deviceInfo: deviceInfo ?? undefined,
     effectiveSdrSettings: effectiveSdrSettings ?? undefined,
     deviceName: deviceName ?? undefined,
+    fftFrameRate: state.fftFrameRate,
     captureWholeChannelSegments,
     getSnapshotData: () => fftCanvasRef.current?.getSnapshotData() ?? undefined,
     getVideoSourceCanvases: () => {

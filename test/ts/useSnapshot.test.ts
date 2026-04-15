@@ -2,6 +2,7 @@
 import {
   getZoomedSlice,
   dbToColor,
+  getWholeChannelRenderRange,
   useSnapshot,
 } from "@n-apt/hooks/useSnapshot";
 import { fmtFreq } from "@n-apt/utils/rendering/formatters";
@@ -125,6 +126,32 @@ describe("dbToColor", () => {
   });
 });
 
+describe("getWholeChannelRenderRange", () => {
+  it("uses the captured segment span when whole-channel segments are available", () => {
+    const range = getWholeChannelRenderRange(
+      {
+        frequencyRange: { min: 10, max: 12 },
+      } as any,
+      {
+        activeSignalArea: undefined,
+        signalAreaBounds: null,
+      },
+      [
+        {
+          data: {} as any,
+          visualRange: { min: 0, max: 2 },
+        },
+        {
+          data: {} as any,
+          visualRange: { min: 2, max: 6 },
+        },
+      ],
+    );
+
+    expect(range).toEqual({ min: 0, max: 6 });
+  });
+});
+
 // ────────────────────────────────────────────────────────────────────────────
 // useSnapshot Hook
 // ────────────────────────────────────────────────────────────────────────────
@@ -179,4 +206,3 @@ describe("useSnapshot", () => {
     // Should not crash even if data is null
   });
 });
-

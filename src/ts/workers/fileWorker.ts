@@ -153,7 +153,7 @@ function processToSpectrum(
   gain: number = 0,
   fftSize: number = 8192,
 ): number[] {
-  const spectrum = new Array(fftSize).fill(-150);
+  const spectrum = Array.from({ length: fftSize }, () => -150);
   const windowSize = fftSize * 2;
   const windowStep = windowSize * 4;
   const maxChunks = 4;
@@ -165,8 +165,8 @@ function processToSpectrum(
   );
   const chunks = Math.min(maxChunks, availableChunks);
 
-  const powerBins = new Array(fftSize).fill(0);
-  const counts = new Array(fftSize).fill(0);
+  const powerBins = Array.from({ length: fftSize }, () => 0);
+  const counts = Array.from({ length: fftSize }, () => 0);
 
   for (let c = 0; c < chunks; c++) {
     const span = Math.max(1, chunks - 1);

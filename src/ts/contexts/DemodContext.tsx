@@ -102,24 +102,34 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     // Fallback or preset logic can go here if needed
   }, [setNodes, setEdges]);
 
-  const fmDemod = useAudioDemodFM({ targetSampleRate: 48000, bufferSize: 4096 });
+  const fmDemod = useAudioDemodFM({
+    targetSampleRate: 48000,
+    bufferSize: 4096,
+    bandwidth: (demodState.bandwidthKhz || 200) * 1000,
+  });
   const aptDemod = useAudioDemodAPT({ targetSampleRate: 48000, bufferSize: 4096 });
 
   // Listen for real-time IQ data and process it
   useEffect(() => {
-    if (!demodState.isListening || !liveDataRef.current) return;
+    if (!demodState.isListening || !demodState.centerFreqMHz || !liveDataRef.current) return;
 
     const iqData = liveDataRef.current.iq_data as Uint8Array;
     const sampleRate = liveDataRef.current.sample_rate || 3200000;
 
     if (demodState.algorithm === 'fm') {
-      fmDemod.processIQData(iqData, sampleRate);
-      fmDemod.playAudio();
+      const audioData = fmDemod.processIQData(iqData, sampleRate);
+      if (audioData) {
+        fmDemod.playAudio(audioData);
+      }
     } else if (demodState.algorithm === 'apt') {
       aptDemod.processIQData(iqData, sampleRate);
       aptDemod.playAudio();
     }
-  }, [dataFrameCounter, demodState.isListening, demodState.algorithm]);
+
+    return () => {
+      fmDemod.stopAudio();
+    };
+  }, [dataFrameCounter, demodState.isListening, demodState.centerFreqMHz, demodState.algorithm]);
 
   // Initialize the scanner manager with the WS sender functions
   React.useEffect(() => {

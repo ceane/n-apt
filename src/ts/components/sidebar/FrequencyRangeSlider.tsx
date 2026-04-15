@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import styled from "styled-components";
 import { FrequencyRange } from "@n-apt/hooks/useWebSocket";
 import { formatFrequency } from "@n-apt/consts/sdr";
@@ -226,7 +226,6 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
     let desiredStart = windowStart;
     if (externalFrequencyRange) {
       desiredStart = (externalFrequencyRange.min - minFreq) / safeTotalRange;
-      lastNotifiedRangeRef.current = externalFrequencyRange;
     } else {
       desiredStart = (clampedVisibleMin - minFreq) / safeTotalRange;
     }
@@ -257,44 +256,39 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   const logicalMaxWindowStart = Math.max(0, 1 - windowWidth);
   const clampedWindowStart = Math.max(0, Math.min(logicalMaxWindowStart, windowStart));
 
-  // Use scan position for visual feedback when scanning
   const effectiveWindowStart = isScanning ? scanWindowStart : clampedWindowStart;
   const effectiveMaxWindowStart = isScanning ? 1 - windowWidth : logicalMaxWindowStart;
 
-  let visualRatio = 0;
-  if (effectiveMaxWindowStart > 0) {
-    visualRatio = Math.max(0, Math.min(1, effectiveWindowStart / effectiveMaxWindowStart));
-  }
+  const visualRatio = useMemo(() => {
+    if (effectiveMaxWindowStart > 0) {
+      return Math.max(0, Math.min(1, effectiveWindowStart / effectiveMaxWindowStart));
+    }
+    return 0;
+  }, [effectiveMaxWindowStart, effectiveWindowStart]);
 
   const draggableTrackWidth = Math.max(0, trackWidth - renderedThumbWidth);
-  let thumbLeftPx = visualRatio * draggableTrackWidth;
-  if (effectiveMaxWindowStart <= 0) {
-    thumbLeftPx = effectiveWindowStart * trackWidth;
-  }
+  const thumbLeftPx = useMemo(() => {
+    if (effectiveMaxWindowStart <= 0) {
+      return effectiveWindowStart * trackWidth;
+    }
+    return visualRatio * draggableTrackWidth;
+  }, [effectiveMaxWindowStart, effectiveWindowStart, trackWidth, visualRatio, draggableTrackWidth]);
+
+  const labelPositions = useMemo(() => {
+    const windowLeft = thumbLeftPx;
+    const windowRight = thumbLeftPx + renderedThumbWidth;
+    const leftLabelEnd = 50;
+    const rightLabelStart = trackWidth - 50;
+    const hideLeftLabel = windowLeft < leftLabelEnd + 10;
+    const hideRightLabel = windowRight > rightLabelStart - 10;
+    return { hideLeftLabel, hideRightLabel };
+  }, [thumbLeftPx, renderedThumbWidth, trackWidth]);
 
   const currentMin = Math.max(minFreq, minFreq + windowStart * safeTotalRange);
   const currentMax = Math.min(
     maxFreq,
     minFreq + (windowStart + windowWidth) * safeTotalRange,
   );
-
-  // Calculate label positions to avoid collision
-  const calculateLabelPositions = useCallback(() => {
-    const windowLeft = thumbLeftPx;
-    const windowRight = thumbLeftPx + renderedThumbWidth;
-
-    // Calculate label positions (approximately 50px from edges for padding)
-    const leftLabelEnd = 50; // Left label occupies ~0-50px
-    const rightLabelStart = trackWidth - 50; // Right label occupies ~trackWidth-50 to trackWidth
-
-    // Check if window actually overlaps with labels (more conservative buffer)
-    const hideLeftLabel = windowLeft < leftLabelEnd + 10; // 10px buffer
-    const hideRightLabel = windowRight > rightLabelStart - 10; // 10px buffer
-
-    return { hideLeftLabel, hideRightLabel };
-  }, [thumbLeftPx, renderedThumbWidth, trackWidth]);
-
-  const labelPositions = calculateLabelPositions();
 
   const notifyParent = useCallback(() => {
     if (isActive && onRangeChange) {

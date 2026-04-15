@@ -75,32 +75,32 @@ import { getWaterfallMotion } from "@n-apt/utils/waterfallMotion";
 })();
 
 
-const VisualizerContainer = styled.div`
+const VisualizerContainer = memo(styled.div`
   flex: 1.25;
   display: flex;
   flex-direction: row;
   position: relative;
   overflow: hidden;
-`;
+`);
 
-const VisualizerContent = styled.div`
+const VisualizerContent = memo(styled.div`
   flex: 1;
   display: flex;
   flex-direction: column;
   gap: ${VISUALIZER_GAP}px;
   min-height: 0;
-`;
+`);
 
 
-const SpectrumSection = styled.div`
+const SpectrumSection = memo(styled.div`
   flex: 2;
   display: flex;
   flex-direction: column;
   position: relative;
   min-height: 0;
-`;
+`);
 
-const SectionTitle = styled.div`
+const SectionTitle = memo(styled.div`
   font-size: 11px;
   color: ${SECTION_TITLE_COLOR};
   text-transform: uppercase;
@@ -114,9 +114,9 @@ const SectionTitle = styled.div`
     content: "/";
     color: ${SECTION_TITLE_AFTER_COLOR};
   }
-`;
+`);
 
-const CanvasWrapper = styled.div`
+const CanvasWrapper = memo(styled.div`
   position: relative;
   flex: 1;
   min-height: 0;
@@ -124,16 +124,16 @@ const CanvasWrapper = styled.div`
   border-radius: 8px;
   overflow: hidden;
   background-color: ${(props) => props.theme.background};
-`;
+`);
 
-const SpectrumRow = styled.div`
+const SpectrumRow = memo(styled.div`
   display: flex;
   flex-direction: row;
   flex: 1;
   min-height: 0;
-`;
+`);
 
-const CanvasLayer = styled.canvas`
+const CanvasLayer = memo(styled.canvas`
   position: absolute;
   top: 0;
   left: 0;
@@ -141,15 +141,15 @@ const CanvasLayer = styled.canvas`
   height: 100%;
   pointer-events: none;
   will-change: width, height;
-`;
+`);
 
-const HighlightOverlay = styled.div`
+const HighlightOverlay = memo(styled.div`
   position: absolute;
   inset: 0;
   pointer-events: none;
-`;
+`);
 
-const HighlightBand = styled.div<{ $left: number; $width: number; $waterfall?: boolean }>`
+const HighlightBand = memo(styled.div<{ $left: number; $width: number; $waterfall?: boolean }>`
   position: absolute;
   top: 0;
   bottom: 0;
@@ -158,7 +158,7 @@ const HighlightBand = styled.div<{ $left: number; $width: number; $waterfall?: b
   background: ${({ $waterfall }) =>
     $waterfall ? "rgba(255, 206, 84, 0.18)" : "rgba(255, 206, 84, 0.12)"};
   box-shadow: inset 0 0 0 1px rgba(255, 206, 84, 0.7);
-`;
+`);
 
 const LOADING_PLACEHOLDER_TEXT = "Loading data from source...";
 const LOADING_PLACEHOLDER_FONT = "24px 'JetBrains Mono', monospace";
@@ -726,8 +726,8 @@ const FFTCanvas = memo(
       fftSize: effectiveFftSize,
       waterfallHeight: 1,
       windowType: toUnifiedWindowType(fftWindow),
-      enableAveraging: false,
-      enableSmoothing: false,
+      enableAveraging: fftAvgEnabled,
+      enableSmoothing: fftSmoothEnabled,
     });
 
     // Compute zoomed frequency range from the full range (visual only, don't retune)

@@ -312,6 +312,7 @@ export const Snapshot = () => {
             snapshotFormat={snapshotFormat}
             supportedSnapshotVideoFormat={supportedSnapshotVideoFormat}
             snapshotGridPreference={snapshotGridPreference}
+            snapshotAspectRatio="default"
             onSnapshotWholeChange={setSnapshotWhole}
             onSnapshotShowWaterfallChange={setSnapshotShowWaterfall}
             onSnapshotShowStatsChange={setSnapshotShowStats}
@@ -321,6 +322,7 @@ export const Snapshot = () => {
             }}
             onSnapshotFormatChange={handleSnapshotFormatChange}
             onSnapshotGridPreferenceChange={setSnapshotGridPreference}
+            onSnapshotAspectRatioChange={() => {}}
             onSnapshot={triggerSnapshot}
           />
         </div>

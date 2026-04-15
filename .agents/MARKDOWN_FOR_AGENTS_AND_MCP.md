@@ -41,7 +41,7 @@ I have successfully implemented both Markdown for Agents and WebMCP features for
 - Signal Features: `classifySignal`
 - Signal Display: `setFftSize`
 - Source Settings: `setGain`
-- Snapshot Controls: `takeSnapshot`
+- Take a Snapshot: `takeSnapshot`
 
 **Analysis Tab (3 tools)**:
 

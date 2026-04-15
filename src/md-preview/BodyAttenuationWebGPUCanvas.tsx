@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { getBaseUrl } from "./getBaseUrl";
 
 const BASE_URL = getBaseUrl();

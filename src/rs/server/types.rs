@@ -530,6 +530,8 @@ pub struct MockAptSignalsConfig {
   pub strength_ranges: MockAptStrengthRanges,
   pub signals: Vec<MockAptSignalConfig>,
   pub training_areas: HashMap<String, MockAptTrainingArea>,
+  #[serde(default)]
+  pub channels: IndexMap<String, MockAptChannelConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -614,6 +616,23 @@ pub struct MockAptStrengthRanges {
 pub struct StrengthRange {
   pub min: f64,
   pub max: f64,
+}
+
+/// Per-channel mock APT configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MockAptChannelConfig {
+  pub label: String,
+  pub freq_range_mhz: Vec<f64>,
+  pub description: String,
+  /// Optional: override noise floor for this channel (dB)
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub noise_floor_db: Option<f64>,
+  /// Optional: override noise floor variation for this channel
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub noise_floor_variation: Option<f64>,
+  /// Optional: signal density (0.0 to 1.0) for this channel
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub signal_density: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

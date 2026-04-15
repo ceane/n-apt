@@ -152,7 +152,7 @@ const createMockSpectrumStoreValue = (
   };
 
   const noop = () => { };
-  const noopPromise = async () => { };
+  const _noopPromise = async () => { };
 
   return {
     state: spectrumState,

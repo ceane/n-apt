@@ -1,34 +1,35 @@
 import styled from "styled-components";
+import { memo } from "react";
 
-export const AppContainer = styled.div`
+export const AppContainer = memo(styled.div`
   display: flex;
   width: 100%;
   height: 100vh;
   background-color: ${(props) => props.theme.background};
-`;
+`);
 
-export const AppWrapper = styled.div`
+export const AppWrapper = memo(styled.div`
   display: flex;
   flex-direction: column;
   width: 100%;
   height: 100%;
-`;
+`);
 
-export const MainContent = styled.section`
+export const MainContent = memo(styled.section`
   flex: 1;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   position: relative;
-`;
+`);
 
-export const ContentArea = styled.div`
+export const ContentArea = memo(styled.div`
   flex: 1;
   display: flex;
   overflow: hidden;
-`;
+`);
 
-export const InitializingContainer = styled.div`
+export const InitializingContainer = memo(styled.div`
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -38,9 +39,9 @@ export const InitializingContainer = styled.div`
   padding: 40px;
   gap: 32px;
   min-height: 100vh;
-`;
+`);
 
-export const InitializingTitle = styled.h2`
+export const InitializingTitle = memo(styled.h2`
   font-family: "JetBrains Mono", monospace;
   font-size: 18px;
   font-weight: 600;
@@ -60,9 +61,9 @@ export const InitializingTitle = styled.h2`
       opacity: 0.4;
     }
   }
-`;
+`);
 
-export const InitializingText = styled.p`
+export const InitializingText = memo(styled.p`
   font-family: "JetBrains Mono", monospace;
   font-size: 12px;
   color: ${(props) => props.theme.textSecondary};
@@ -70,4 +71,4 @@ export const InitializingText = styled.p`
   text-align: center;
   max-width: 400px;
   line-height: 1.6;
-`;
+`);
