@@ -47,6 +47,7 @@ I built this app out of frustration (and by force of the situation) that other O
   - Was definitely not in JavaScript/Web with all the advanced libraries and in browser features!
 
 
+> [!NOTE]
 > **By default 99.9% of people will not be able to see a real, live N-APT signal (unless you find me around San Francisco and are EVIL)**, whatever comes out of your RTL-SDR will be different (or just Mock APT signals what the app will show when an RTL-SDR device isn't plugged in).
 >
 > **The I/Q captures are encrypted and password protected**, if you want the password you can just send me a message and at my discretion I'll give the right people (university researcher, RF enthusiast, civil society, tech journalists, etc.) the password (Read [RESPONSIBLE USE](RESPONSIBLE_USE.md)).
@@ -207,7 +208,8 @@ npm i          # installs dependencies, postinstall script will install rust dep
 npm run dev    # starts app
 ```
 
-> **Windows note:** if you are on Windows, run the steps above inside **WSL2** instead of native PowerShell/CMD.
+> [!NOTE]
+> **Windows:** if you are on Windows, run the steps above inside **WSL2** instead of native PowerShell/CMD.
 
 The `npm run setup` command creates a `.env.local` file with default environment configuration for easy development setup.
 
@@ -234,9 +236,8 @@ The quality of the captures may not be up to par with RTL-SDR, however it should
 
 Thankfully, the infrastructure and technique does enough to extract content for demodulation (in theory by its nature), so the signals processing that would be needed normally is not necessary because by the time it gets to my person the signal is strong enough to have the signal before entry (stronger than exit signals).
 
-**Note**
-
-To ensure the best captures, use the maximum setting on your SDR (even if unstable). Nyquist theorem requires the sampling rate to be at least twice the highest frequency component of the signal to avoid aliasing, hence why the spikes may not be present with lower bandwidths.
+> [!NOTE]
+> To ensure the best captures, use the maximum setting on your SDR (even if unstable). Nyquist theorem states that your sample rate must be >= 2× the signal bandwidth (i.e. 3.2 MHz → ~1.4–1.5 MHz usable; leave guard band), or frequency components will overlap (alias), hence why the spikes may not be present with lower sample rates.
 
 ---
 
