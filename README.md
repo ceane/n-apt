@@ -15,7 +15,7 @@
 
 N-APT stands for: **N**euro **A**utomatic **P**icture **T**ransmission.
 
-Named after **Automatic Picture Transmission (APT)** signals (used by NOAA satellites, decommissioned in 2025) because these signals, which originate from the National Security Agency (NSA/CSS), strongly resemble APT transmissions.
+Named after **Automatic Picture Transmission (APT)** signals (used by NOAA satellites, decommissioned in 2025) because these signals, which originate from the `National Security Agency (NSA/CSS)`, strongly resemble APT transmissions.
 
 <br>
 
