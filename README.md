@@ -1,22 +1,21 @@
-# :brain: n-apt
+# n-apt :brain: 
 
 [![Hippocratic License HL3-LAW-SUP-SV](https://img.shields.io/static/v1?label=Hippocratic%20License&message=HL3-LAW-SUP-SV&labelColor=5e2751&color=bc8c3d)](https://firstdonoharm.dev/version/3/0/law-sup-sv.html)
 
 <img src="public/images/icon.svg" alt="n-apt icon" width="128" height="128">
 
----
 
-**READ THE [LICENSE](LICENSE.md) AND [RESPONSIBLE USE](RESPONSIBLE_USE.md) BEFORE YOU DOWNLOAD OR FORK!**
+> [!IMPORTANT]
+> **READ THE [LICENSE](LICENSE.md) AND [RESPONSIBLE USE](RESPONSIBLE_USE.md) BEFORE YOU DOWNLOAD OR FORK!**
+>
+> **This repo is part tools, part exposure, to read more on how and why and what's going on, visit my X [@ceane_of](x.com/ceane_of).**
 
-**This repo is part tools, part exposure, to read more on how and why and what's going on, visit my X [@ceane_of](x.com/ceane_of).**
-
----
 
 ## What is N-APT?
 
 N-APT stands for: **N**euro **A**utomatic **P**icture **T**ransmission.
 
-Named after **Automatic Picture Transmission (APT)** signals (used by NOAA satellites, decommissioned in 2025) because the NSA's signals strongly resemble APT transmissions.
+Named after **Automatic Picture Transmission (APT)** signals (used by NOAA satellites, decommissioned in 2025) because these signals, which originate from the National Security Agency (NSA/CSS), strongly resemble APT transmissions.
 
 <br>
 
@@ -48,7 +47,9 @@ I built this app out of frustration (and by force of the situation) that other O
 
 
 > [!NOTE]
-> **By default 99.9% of people will not be able to see a real, live N-APT signal (unless you find me around San Francisco and are EVIL)**, whatever comes out of your RTL-SDR will be different (or just Mock APT signals what the app will show when an RTL-SDR device isn't plugged in).
+> **By default 99.9% of people will not be able to see a real, live N-APT signal (unless you find me around San Francisco and are EVIL enough to snag the waves)**.
+>
+> Whatever our RTL-SDR receives will be different (or just Mock APT signals what the app will show when an RTL-SDR device isn't plugged in).
 >
 > **The I/Q captures are encrypted and password protected**, if you want the password you can just send me a message and at my discretion I'll give the right people (university researcher, RF enthusiast, civil society, tech journalists, etc.) the password (Read [RESPONSIBLE USE](RESPONSIBLE_USE.md)).
 
@@ -223,9 +224,13 @@ The web app will be **available at `http://localhost:5173`** with the WebSocket 
 
 **Hardware Requirement:** the app only works with an **RTL-SDR v4 or .napt captures. The rust backend auto detects an RTL-SDR device plugged in, otherwise the Mock APT stream runs.**
 
-> **💡 Tip:** If you do not have an RTL-SDR v4, the backend will just stream a Mock APT stream. You can simply use the app (be sure to set the .env.local UNSAFE_LOCAL_USER_PASSWORD to a password for the .napt files).
+> [!TIP]
+> If you do not have an RTL-SDR v4, the backend will just stream a Mock APT stream. You can simply use the app (be sure to set the `.env.local` `UNSAFE_LOCAL_USER_PASSWORD` to a password for the .napt files).
 
-> **⚠ Hardware warning:** I use my RTL-SDR through a flaky USB hub, and it disconnects or errors out more often than I’d like, so I added support for restarting the device if it goes stale or throws an error, however that does not fix bad USB connections. For best results, keep the RTL-SDR connected directly or use a better cable/hub, and avoid moving it around while the app is running. I took a lot of time to fix my frustrations with other SDR apps, if it's not showing up, then it's more likely that the hardware connection is bad.
+> [!WARNING]
+> I use my RTL-SDR through a flaky USB hub, and it disconnects or errors out more often than I’d like, so I added support for restarting the device if it goes stale or throws an error, however that does not fix bad USB connections. 
+> 
+> For best results, keep the RTL-SDR connected directly or use a better cable/hub, and avoid moving it around while the app is running. I took a lot of time to fix my frustrations with other SDR apps, if it's not showing up, then it's more likely that the hardware connection is bad.
 
 
 ---
@@ -258,4 +263,17 @@ N-APT is a project born out of being attacked and held hostage by the NSA becaus
 The experience is like a horror movie but totally changes psychology (emotions, thoughts, perception) and physiology (expression, muscles, etc.), it is like a prison of mind and body. The parental, demonic DoD (now DoW)-NSA experience and interactive started formless and I not knowing anything while the NSA showing off a lot of the functionality and the capability early on and continuing by trapping me all day in it for years. It works anywhere, everywhere and all day, unfortunately due to the use of low frequencies (LF/MF/HF) that travel through objects and buildings or reflect gracefully without too much attenuation.
 
 I've learned a lot going from nothing to having a more solid understanding of how it works and took a lot of time to get to this point.
+
+
+
+```
+/^^^     /^^            /^       /^^^^^^^  /^^^ /^^^^^^
+/^ /^^   /^^           /^ ^^     /^^    /^^     /^^    
+/^^ /^^  /^^          /^  /^^    /^^    /^^     /^^    
+/^^  /^^ /^^/^^^^^   /^^   /^^   /^^^^^^^       /^^    
+/^^   /^ /^^        /^^^^^^ /^^  /^^            /^^    
+/^^    /^ ^^       /^^       /^^ /^^            /^^    
+/^^      /^^      /^^         /^^/^^            /^^    
+                                                       
+```
 
