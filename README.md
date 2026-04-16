@@ -36,7 +36,9 @@ _Real live, on person capture the signal with an RTL-SDR from 18kHz to 3.218MHz,
 
 An SDR visualizer app using RTL-SDR and I/Q captures (.napt, .wav) for a very specific case:
 
-> **The NSA:** Going all out in your brain and nervous system, SIGINT pimp hand strong. **You:** Not knowing who (at first), how or why.
+> **The NSA:** Going all out in your brain and nervous system, SIGINT pimp hand strong.
+> 
+> **You:** Not knowing who (at first), how or why.
 
 I built this app out of frustration (and by force of the situation) that other OSS SDR software:
   - Couldn't record proper I/Q captures the my settings like gain, ppm, etc.
