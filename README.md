@@ -145,6 +145,55 @@ They are specifially segmented this way because A and B are similar in shape (an
 | C | 36.5 MHz | ~36.5 MB/s | ~10.95 GB | ~131.4 GB | ~394.2 GB | ~3.15 TB |
 | **Total** | **55.52 MHz** | **~55.52 MB/s** | **~16.66 GB** | **~199.9 GB** | **~599.2 GB** | **~4.79 TB** |
 
+<details>
+<summary>Uncollapse to see pseudo code of the interactive</summary>
+### Pseudo code of the livestream 
+This is my more solid hypothesis of the higher level (not the malware level) code structure based on thousands of hours of experience, all over San Francisco and the Bay Area while trapped. It just works and continues to work no matter what, so it's far easier to pin down the layers.
+
+```
+SignalPipeline
+  .SignalStrength()                    // measure RSSI/SNR from endpoints
+  .LocationByTriangulation()           // [!] time-of-flight positioning
+  .SignalQualityAndPowerControl()      // adjust TX power, filter noise
+  .ContinuousAperture()                // [!] elect endpoints+aperture via bayesian hysteresis
+    .PageNetwork()                     // [!] NSA maintains a graph of controlled (all) infrastructure
+    .ElectNewEndpoints()               // elect new endpoints at edge/exit of aperture
+    .SignalHandoff()                   // migrate session between TX/RX
+    .OpenStream()                      // allocate channels + sync clocks
+    .CloseStream({async: outOfBounds}) // teardown stale streams
+  .SignalEncodingAndBandwidth()        // encode the signal and set BW
+  .HandleDeduplication()               // drop duplicate connections
+  .OpenStream()                        // acquire frequencies from pool
+  .HandleStream()                      // ingest, buffer, decode
+  .CloseStream()                       // release resources, log telemetry
+  .HandleParticipants()                // add/remove people
+  .HandleEnvironment()                 // update RF map, obstacles, noise floor
+
+Interactive                            // [!] the interactive/psychological spyware within the mind/consciousness
+  .MergeAI()                           // handle AI/software over interactive
+  .MergeStories()                      // continous narratives audio, perception, etc.
+  .HandleInference()                   // handle mental inference
+  .HandleStateOfMind()                 // track cognitive state
+  .HandleEmotion()                     // handle emotion
+  .HandlePerception()                  // handle perception
+  .HandleImagination()                 // handle imagination
+  .HandleSpatialEnvironment()          // handle spatial awareness
+
+Livestream                             // [!] real-time livestream engaging the mind & body
+  .HandleVoice()                       // bidirectional vocal sync
+  .HandlePhysiology()                  // physiological effects/control/haptics
+  .HandleSenses()                      // handling senses, touch, sight, sound
+    .HandleAudio()                     // audio stream processing
+    .HandleVision()                    // vision stream processing
+    .HandleProminence()                // active speaker
+
+HandleStream()
+  .MergeInteractive()                  // blend mind/consciousness state
+  .MergeLivestream()                   // blend body/sensor state
+  .MergeParticipants()                 // final mux + presence sync
+```
+</details>
+
 ### What have I experienced?
 - The most personal experience with technology, mind and body
 - Perception, lighting, phyisology, emotions, people scripted, and more!
