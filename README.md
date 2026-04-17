@@ -146,7 +146,8 @@ They are specifially segmented this way because A and B are similar in shape (an
 | **Total** | **55.52 MHz** | **~55.52 MB/s** | **~16.66 GB** | **~199.9 GB** | **~599.2 GB** | **~4.79 TB** |
 
 <details>
-<summary>Uncollapse to see pseudo code of the interactive</summary>
+<summary>Uncollapse to see pseudo code of the interactive</summary>\
+
 ### Pseudo code of the livestream 
 This is my more solid hypothesis of the higher level (not the malware level) code structure based on thousands of hours of experience, all over San Francisco and the Bay Area while trapped. It just works and continues to work no matter what, so it's far easier to pin down the layers.
 
