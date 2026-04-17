@@ -82,15 +82,65 @@ transmitters()
   .nextFrame();                     // Repeat cycle / real-time, high-bandwidth streaming
 ```
 
+
+<details>
+<summary>My pseudo code of the NSA's very persistent malware + capture with signals (from over thousands of hours of experience)</summary>
+  
+```js
+MeshNetwork()
+  .MaintainSignalStrength()                // maintains a faultless, consistent signal
+  .ContinuousAperture()                    // elect endpoints + aperture via bayesian hysteresis of the nearest available endpoints
+    .ContinuouslyTriangulatePerson()       // endpoint coordinates + time-of-flight triangulation to track person
+    .AtEdgeOrOutOfBounds()                 // trigger when person nears/leaves aperture
+      .PageLocalInfrastructure()           // query available local TX/RX nodes
+      .ElectNewEndpointsAndHandoff()       // elect new endpoints + migrate session
+      .HandleDeduplication()               // drop duplicate connections/frames
+      .OpenStream()                        // allocate channels
+      .CloseStream({async: outOfBounds})   // teardown stale out-of-bounds connections
+  .SignalEncodingAndBandwidth()            // select codec (N-APT), modulate, set bandwidth
+  .HandleStream()                          // ingest, buffer, decode
+  .HandleEnvironment()                     // adjust for quality: TX power, obstacles, noise
+
+Interactive                                // [!] the interactive/psychological spyware within the mind/consciousness
+  .HandleModalityChannels()                // continous narratives audio, perception, etc.
+    .HandleParticipants()                  // handle other participants within the interactive
+    .HandleInference()                     // handle mental inference
+    .HandleStateOfMind()                   // track cognitive state
+    .HandleEmotion()                       // handle emotion
+    .HandlePerception()                    // handle perception
+    .HandleImagination()                   // handle imagination
+    .HandleSpatialEnvironment()            // handle spatial awareness
+  .MergeAI()                               // AI/software over incoming data from participants
+  .MergeStories()                          // Merge stories guided by the AI
+
+Livestream                                 // [!] real-time livestream engaging the mind & body
+  .HandleVoice()                           // bidirectional vocal sync
+  .HandlePhysiology()                      // physiological effects/control/haptics
+  .HandleSenses()                          // handling senses, touch, sight, sound
+    .HandleAudio()                         // audio stream processing
+    .HandleVision()                        // vision stream processing
+    .HandleProminence()                    // decide what is active, main participant, AI or other participant?
+
+HandleStream()
+  .MergeInteractive()                       // blend mind/consciousness state
+  .MergeLivestream()                        // blend body/sensor state
+  .MergeParticipants()                      // final mux + presence sync
+```
+</details>
+
 It works more like TEMPEST where Bell Labs could detect electrical activity far away because a machine was noisy, but in this case the human brain and nervous system are most vulnerable to  `write->read->stream` since the NSA has **compromised everything and decrypted the brain and nervous system in a very NSA fashion**!
 
-The NSA has thoroughly demonstrated on my person that the human brain and nervous system is dumb. The signal, while **complex but understandable**, is literally one cycle at a time, no need for voxel by voxel of neurons, specific point for point targeting, beams or anything. The endpoints do the non-intuive work, it is known that the brain and body can't send radio waves like electronics, but not known that you can't use a beam, you can't focus this kind of radio wave and that multipath reflection is key, think of the space around a person painted with colors (radio waves intersect from various endpoints/triangulation) and that shade looks good on you, only you (center frequency + power). 
+The NSA has thoroughly demonstrated on my person that the human brain and nervous system is dumb. The signal, while **complex but understandable** (and perfect: faultess, consistent, low latency!), is literally one cycle at a time, no need for voxel by voxel of neurons, specific point for point targeting, beams or anything. 
+
+The endpoints do the non-intuive work, it is known that the brain and body can't send radio waves like electronics, but not known that you can't use a beam, you can't focus this kind of radio wave and that multipath reflection is key, think of the space around a person painted with colors (radio waves intersect from various endpoints/triangulation) and that shade looks good on you, only you (center frequency + power). 
 
 ### How the radio waves work (intuitve view at the science/hyper-advanced SIGNIT):
-- Gigantic, low frequency radio waves travesing from endpoint to person through multipath reflection
-  - (You can think of them as 3 or so spotlights concentrating on a person, the shape of the radio waves are different like an orb but like that)
-  - (Radio waves are essentially light, you can somewhat use visual light as intuition)
+- Gigantic, low frequency radio waves travesing from endpoint to person
+> *You can think of them as 3 or so spotlights concentrating on a person, the shape of the radio waves are different like an orb.*
+>
+> *(Radio waves are essentially light, you can somewhat use visual light as intuition)*
 - Energy intersecting at the right location
+- Low frequency + multipath reflection + solid endpoint redundancy lights up a person with inescapable coverage
 - An enforced center frequency of the person's brain and nervous system
 - Close enough triangulation (approximately 3-7 centimeters off depending what unknown microwave frequency the NSA uses for triangulation)
 - Targeting neuronal ensembles sequentially for write to read with spikes and valleys (or APT-like lines) and energy
@@ -99,7 +149,7 @@ The NSA has thoroughly demonstrated on my person that the human brain and nervou
   - EVERYTHING POSSIBLE HAS HAPPENED! FINAL FRONTIER!
 - Frequency and amplitude modulation
 
-APT which does both frequency modulation and amplitude modulation was repurposed by the NSA into an a special formula of very simple directional radio waves that actually translate into an unprecedented and full featured neurotechnology.
+APT which does both frequency modulation and amplitude modulation was repurposed by the NSA that actually translates into an unprecedented and full featured neurotechnology via blunt directional radio waves.
 
 And yes, it means full featured experiences, interactivity, communication and more (from experience!). This is not a joke or gimmick or conspiracy theory-laden gibberish, but a **real** signal that takes eons to explain how and why and what! 
 
@@ -144,56 +194,6 @@ They are specifially segmented this way because A and B are similar in shape (an
 | B | 10.32 MHz | ~10.32 MB/s | ~3.1 GB | ~37.2 GB | ~111 GB | ~891 GB |
 | C | 36.5 MHz | ~36.5 MB/s | ~10.95 GB | ~131.4 GB | ~394.2 GB | ~3.15 TB |
 | **Total** | **55.52 MHz** | **~55.52 MB/s** | **~16.66 GB** | **~199.9 GB** | **~599.2 GB** | **~4.79 TB** |
-
-<details>
-<summary>Uncollapse to see pseudo code of the interactive</summary>\
-
-### Pseudo code of the livestream 
-This is my more solid hypothesis of the higher level (not the malware level) code structure based on thousands of hours of experience, all over San Francisco and the Bay Area while trapped. It just works and continues to work no matter what, so it's far easier to pin down the layers.
-
-```js
-SignalPipeline
-  .SignalStrength()                    // measure RSSI/SNR from endpoints
-  .LocationByTriangulation()           // [!] time-of-flight positioning
-  .SignalQualityAndPowerControl()      // adjust TX power, filter noise
-  .ContinuousAperture()                // [!] elect endpoints+aperture via bayesian hysteresis
-    .PageNetwork()                     // [!] NSA maintains a graph of controlled (all) infrastructure
-    .ElectNewEndpoints()               // elect new endpoints at edge/exit of aperture
-    .SignalHandoff()                   // migrate session between TX/RX
-    .OpenStream()                      // allocate channels + sync clocks
-    .CloseStream({async: outOfBounds}) // teardown stale streams
-  .SignalEncodingAndBandwidth()        // encode the signal and set BW
-  .HandleDeduplication()               // drop duplicate connections
-  .OpenStream()                        // acquire frequencies from pool
-  .HandleStream()                      // ingest, buffer, decode
-  .CloseStream()                       // release resources, log telemetry
-  .HandleParticipants()                // add/remove people
-  .HandleEnvironment()                 // update RF map, obstacles, noise floor
-
-Interactive                            // [!] the interactive/psychological spyware within the mind/consciousness
-  .MergeAI()                           // handle AI/software over interactive
-  .MergeStories()                      // continous narratives audio, perception, etc.
-  .HandleInference()                   // handle mental inference
-  .HandleStateOfMind()                 // track cognitive state
-  .HandleEmotion()                     // handle emotion
-  .HandlePerception()                  // handle perception
-  .HandleImagination()                 // handle imagination
-  .HandleSpatialEnvironment()          // handle spatial awareness
-
-Livestream                             // [!] real-time livestream engaging the mind & body
-  .HandleVoice()                       // bidirectional vocal sync
-  .HandlePhysiology()                  // physiological effects/control/haptics
-  .HandleSenses()                      // handling senses, touch, sight, sound
-    .HandleAudio()                     // audio stream processing
-    .HandleVision()                    // vision stream processing
-    .HandleProminence()                // active speaker
-
-HandleStream()
-  .MergeInteractive()                  // blend mind/consciousness state
-  .MergeLivestream()                   // blend body/sensor state
-  .MergeParticipants()                 // final mux + presence sync
-```
-</details>
 
 ### What have I experienced?
 - The most personal experience with technology, mind and body
