@@ -151,7 +151,7 @@ They are specifially segmented this way because A and B are similar in shape (an
 ### Pseudo code of the livestream 
 This is my more solid hypothesis of the higher level (not the malware level) code structure based on thousands of hours of experience, all over San Francisco and the Bay Area while trapped. It just works and continues to work no matter what, so it's far easier to pin down the layers.
 
-```
+```js
 SignalPipeline
   .SignalStrength()                    // measure RSSI/SNR from endpoints
   .LocationByTriangulation()           // [!] time-of-flight positioning
