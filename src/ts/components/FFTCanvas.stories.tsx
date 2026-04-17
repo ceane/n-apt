@@ -213,7 +213,7 @@ export const Snapshot = () => {
   const [snapshotShowWaterfall, setSnapshotShowWaterfall] = React.useState(true);
   const [snapshotShowStats, setSnapshotShowStats] = React.useState(true);
   const [snapshotShowGeolocation, setSnapshotShowGeolocation] = React.useState(false);
-  const [snapshotFormat, setSnapshotFormat] = React.useState<"png" | "svg" | SnapshotVideoFormat>("png");
+  const [snapshotFormat, setSnapshotFormat] = React.useState<"png" | "svg" | SnapshotVideoFormat | "animated-svg">("png");
   const [snapshotGridPreference, setSnapshotGridPreference] = React.useState(true);
   const [snapshotGeolocationError, setSnapshotGeolocationError] = React.useState<string | null>(null);
   const supportedSnapshotVideoFormat = React.useMemo(
@@ -221,7 +221,7 @@ export const Snapshot = () => {
     [],
   );
   const handleSnapshotFormatChange = React.useCallback(
-    (value: "png" | "svg" | SnapshotVideoFormat) => {
+    (value: "png" | "svg" | SnapshotVideoFormat | "animated-svg") => {
       setSnapshotFormat(value);
     },
     [],
