@@ -75,11 +75,11 @@ type FFTWebGPUState = {
   bindGroup: GPUBindGroup;
   bindGroupLayout: GPUBindGroupLayout;
   uniformValues: Float32Array;
-  // Compute resample state
+  // Compute resample state: GPU-side waveform downsampling before render
   resamplePipeline: GPUComputePipeline;
   resampleBindGroupLayout: GPUBindGroupLayout;
-  resampleInputBuffer: GPUBuffer | null;
-  resampleOutputBuffer: GPUBuffer | null;
+  resampleInputBuffer: GPUBuffer | null; // Raw waveform data (variable length)
+  resampleOutputBuffer: GPUBuffer | null; // Resampled to display width (fixed)
   resampleParamsBuffer: GPUBuffer;
   resampleBindGroup: GPUBindGroup | null;
   resampleInputLength: number;
@@ -102,7 +102,6 @@ export interface WebGPUFFTSignalOptions {
   showGrid?: boolean;
   lineColor?: string;
   fillColor?: string;
-  backgroundColor?: string;
 }
 
 export function useDrawWebGPUFFTSignal() {
@@ -193,12 +192,15 @@ export function useDrawWebGPUFFTSignal() {
         }
       });
 
+      // Uniform buffer holds 16 floats: plot bounds (4), dB range (2), length (1),
+      // padding (1), line color RGBA (4), fill color RGBA (4)
       const uniformValues = new Float32Array(16);
       const uniformBuffer = device.createBuffer({
         size: uniformValues.byteLength,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       });
 
+      // Dummy buffer for initial bind group creation - replaced with actual resampled data later
       const dummyWaveformBuffer = device.createBuffer({
         size: Float32Array.BYTES_PER_ELEMENT,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
@@ -212,7 +214,7 @@ export function useDrawWebGPUFFTSignal() {
         ],
       });
 
-      // --- Compute resample pipeline ---
+      // --- Compute resample pipeline: downsample high-res waveform to display pixels ---
       const resampleBindGroupLayout = device.createBindGroupLayout({
         entries: [
           { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
@@ -227,8 +229,9 @@ export function useDrawWebGPUFFTSignal() {
         compute: { module: resampleModule, entryPoint: "main" },
       });
 
+      // Resample params: [src_len, out_len, reserved, reserved] for compute shader
       const resampleParamsBuffer = device.createBuffer({
-        size: 4 * Uint32Array.BYTES_PER_ELEMENT, // src_len, out_len, reserved1, reserved2
+        size: 4 * Uint32Array.BYTES_PER_ELEMENT,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       });
 
@@ -271,8 +274,11 @@ export function useDrawWebGPUFFTSignal() {
         showGrid = true,
         lineColor = LINE_COLOR,
         fillColor = SHADOW_COLOR,
-        backgroundColor = readCssColor("--color-fft-background", "#0a0a0a"),
       } = options;
+
+      // Background color from CSS variable - not configurable per-call to ensure
+      // snapshot consistency (snapshots capture waveform data, not background)
+      const backgroundColor = readCssColor("--color-fft-background", "#0a0a0a");
 
       if (!rendererRef.current) {
         if (!canvas || !device || !format) return false;
@@ -297,7 +303,8 @@ export function useDrawWebGPUFFTSignal() {
       if (waveformData.length === 0) return false;
 
       try {
-        // Compute displayWidth matching the CPU-side formula
+        // Calculate target display width (CSS width minus 40px margins)
+        // Must match CPU-side calculation for coordinate consistency
         const rect = canvas.parentElement?.getBoundingClientRect();
         const displayWidth = Math.max(
           1,
@@ -307,7 +314,7 @@ export function useDrawWebGPUFFTSignal() {
         const srcLen = waveformData.length;
         let buffersChanged = false;
 
-        // --- Resample input buffer (holds raw waveform) ---
+        // --- Resample input buffer: recreate when waveform length changes ---
         if (!state.resampleInputBuffer || srcLen !== state.resampleInputLength) {
           state.resampleInputBuffer?.destroy();
           state.resampleInputBuffer = state.device.createBuffer({
@@ -318,7 +325,8 @@ export function useDrawWebGPUFFTSignal() {
           buffersChanged = true;
         }
 
-        // --- Resample output buffer (holds resampled waveform, used by render) ---
+        // --- Resample output buffer: recreate when display width changes ---
+        // This buffer holds the downsampled data that the render shader reads
         if (!state.resampleOutputBuffer || displayWidth !== state.resampleOutputLength) {
           state.resampleOutputBuffer?.destroy();
           state.resampleOutputBuffer = state.device.createBuffer({
@@ -329,8 +337,10 @@ export function useDrawWebGPUFFTSignal() {
           buffersChanged = true;
         }
 
-        // --- Rebuild resample bind group when any buffer changed ---
+        // --- Rebuild bind groups when buffers change ---
+        // Bind groups are immutable, so we must recreate them when buffer handles change
         if (buffersChanged || !state.resampleBindGroup) {
+          // Compute bind group: raw input → resampled output
           state.resampleBindGroup = state.device.createBindGroup({
             layout: state.resampleBindGroupLayout,
             entries: [
@@ -340,7 +350,7 @@ export function useDrawWebGPUFFTSignal() {
             ],
           });
 
-          // Rebuild render bind group to point at resample output
+          // Render bind group: resampled output + uniforms
           state.bindGroup = state.device.createBindGroup({
             layout: state.bindGroupLayout,
             entries: [
@@ -369,21 +379,24 @@ export function useDrawWebGPUFFTSignal() {
           paramsData.byteLength,
         );
 
-        // --- Build command encoder for compute + render ---
+        // --- Build command encoder: compute (resample) then render ---
         const encoder = state.device.createCommandEncoder();
 
-        // Compute pass: resample waveform
+        // Compute pass: GPU downsamples waveform from srcLen to displayWidth
+        // Workgroup size 64 means we need ceil(displayWidth/64) dispatches
         const computePass = encoder.beginComputePass();
         computePass.setPipeline(state.resamplePipeline);
         computePass.setBindGroup(0, state.resampleBindGroup);
         computePass.dispatchWorkgroups(Math.ceil(displayWidth / 64));
         computePass.end();
 
-        // Render pass: draw from resampled output
+        // --- Prepare render parameters ---
+        // Convert CSS pixel coordinates to WebGPU Normalized Device Coordinates (-1 to +1) space
         const logicalWidth = canvas.clientWidth || 1;
         const logicalHeight = canvas.clientHeight || 1;
         const fftAreaMax = { x: logicalWidth - 40, y: logicalHeight - 40 };
 
+        // Plot bounds in NDC: X is [-1, 1], Y is [+1, -1] (Y flipped for screen coords)
         const plotMinX = (FFT_AREA_MIN.x / logicalWidth) * 2 - 1;
         const plotMaxX = (fftAreaMax.x / logicalWidth) * 2 - 1;
         const yToNdc = (y: number) => 1 - (y / logicalHeight) * 2;
@@ -393,13 +406,19 @@ export function useDrawWebGPUFFTSignal() {
         const [lineR, lineG, lineB, lineA] = parseCssColorToRgba(lineColor);
         const [fillR, fillG, fillB, fillA] = parseCssColorToRgba(fillColor);
 
+        // Pack uniforms into Float32Array (layout must match shader)
+        // [0-3]: plot bounds (minX, minY, maxX, maxY)
+        // [4-5]: dB range (min, max)
+        // [6-7]: waveform length + padding
+        // [8-11]: line color RGBA
+        // [12-15]: fill color RGBA
         state.uniformValues[0] = plotMinX;
         state.uniformValues[1] = plotMinY;
         state.uniformValues[2] = plotMaxX;
         state.uniformValues[3] = plotMaxY;
         state.uniformValues[4] = fftMin;
         state.uniformValues[5] = fftMax;
-        state.uniformValues[6] = displayWidth; // waveform length = resampled length
+        state.uniformValues[6] = displayWidth;
         state.uniformValues[7] = 0;
         state.uniformValues[8] = lineR;
         state.uniformValues[9] = lineG;
@@ -418,6 +437,7 @@ export function useDrawWebGPUFFTSignal() {
           state.uniformValues.byteLength,
         );
 
+        // --- Render pass: clear → grid → fill → line → markers → spikes ---
         const view = state.ctx.getCurrentTexture().createView();
         const [bgR, bgG, bgB, bgA] = parseCssColorToRgba(backgroundColor);
         const pass = encoder.beginRenderPass({
@@ -431,14 +451,19 @@ export function useDrawWebGPUFFTSignal() {
           ],
         });
 
+        // Grid first (background layer)
         if (showGrid && gridOverlayRenderer) {
           gridOverlayRenderer.renderInPass(pass);
         }
+
+        // Main FFT visualization: fill under the curve, then line on top
         pass.setBindGroup(0, state.bindGroup);
         pass.setPipeline(state.pipelineFill);
-        pass.draw(displayWidth * 2);
+        pass.draw(displayWidth * 2); // 2 vertices per point for triangle strip
         pass.setPipeline(state.pipelineLine);
-        pass.draw(displayWidth);
+        pass.draw(displayWidth); // 1 vertex per point for line strip
+
+        // Overlays on top (frequency markers, spike detections)
         if (markersOverlayRenderer) {
           markersOverlayRenderer.renderInPass(pass);
         }

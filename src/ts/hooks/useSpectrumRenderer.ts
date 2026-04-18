@@ -62,8 +62,6 @@ export interface SpectrumRendererOptions {
   lineColor?: string;
   /** Visual customization: Signal fill/shadow color */
   fillColor?: string;
-  /** Visual customization: Canvas background color */
-  backgroundColor?: string;
 
   /** Whether to render in 3D waterfall mode */
   drawSignal3D?: boolean;
@@ -111,7 +109,6 @@ export function useSpectrumRenderer() {
       spikeMarkers = [],
       lineColor,
       fillColor,
-      backgroundColor,
       drawSignal3D = false,
     } = options;
 
@@ -229,7 +226,6 @@ export function useSpectrumRenderer() {
         showGrid: true, // Internal to drawWebGPU - handled by the overlays above
         lineColor,
         fillColor,
-        backgroundColor
       });
     } else {
       return false;
