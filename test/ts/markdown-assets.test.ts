@@ -263,7 +263,7 @@ describe('Markdown Preview Assets', () => {
         'utf8'
       );
       expect(webgpuContent).toMatch(/body-attenuation-character\.png/);
-      expect(webgpuContent).toMatch(/BASE_URL/);
+      expect(webgpuContent).toMatch(/assetImageUrl/);
     });
   });
 

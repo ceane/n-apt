@@ -115,9 +115,10 @@ export default defineConfig(({ mode }) => {
   
   return {
     mode: isProd ? "production" : "development",
-    define: isProd ? {
-      "__DEV__": "false",
-    } : {},
+    define: {
+      "__APP_BASE_URL__": JSON.stringify(isProd ? "/n-apt/" : "/md-preview/"),
+      "__DEV__": JSON.stringify(!isProd),
+    },
     esbuild: {
       jsx: "automatic",
       drop: isProd ? ["console", "debugger"] : [],
