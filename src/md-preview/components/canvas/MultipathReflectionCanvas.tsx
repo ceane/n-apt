@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import CanvasHarness from './CanvasHarness';
 
 const useTime = (speed = 1) => {
   const [time, setTime] = useState(0);
@@ -110,9 +111,8 @@ export default function MultipathReflectionCanvas() {
   const time = useTime(1);
 
   return (
-    <div className="w-full h-full bg-[#E0E0E2] rounded-lg overflow-hidden">
+    <CanvasHarness aspectRatio="16/9">
       <div className="w-full h-full">
-        <canvas aria-hidden="true" style={{ display: 'none' }} />
         <svg viewBox="0 0 900 600" className="w-full h-auto block">
           <defs>
             <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
@@ -162,6 +162,6 @@ export default function MultipathReflectionCanvas() {
 
         </svg>
       </div>
-    </div>
+    </CanvasHarness>
   );
 }

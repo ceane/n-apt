@@ -66,12 +66,7 @@ Object.defineProperty(navigator, 'gpu', {
   writable: true,
 });
 
-// Mock IntersectionObserver
-global.IntersectionObserver = jest.fn().mockImplementation(() => ({
-  observe: jest.fn(),
-  unobserve: jest.fn(),
-  disconnect: jest.fn(),
-}));
+
 
 // Mock ResizeObserver
 global.ResizeObserver = jest.fn().mockImplementation(() => ({
@@ -150,7 +145,7 @@ describe('Canvas Component Loading Tests', () => {
 
   describe('Body Attenuation Canvas', () => {
     test('should load and render BodyAttenuationCanvas', async () => {
-      const { default: BodyAttenuationCanvas } = await import('../../src/md-preview/BodyAttenuationCanvas');
+      const { BodyAttenuationCanvas } = await import('../../src/md-preview/components/canvas');
 
       render(<BodyAttenuationCanvas />, { container });
 
@@ -161,7 +156,7 @@ describe('Canvas Component Loading Tests', () => {
     });
 
     test('should load and render BodyAttenuationCanvas', async () => {
-      const { default: BodyAttenuationCanvas } = await import('../../src/md-preview/BodyAttenuationCanvas');
+      const { BodyAttenuationCanvas } = await import('../../src/md-preview/components/canvas');
 
       render(<BodyAttenuationCanvas />, { container });
 
@@ -209,14 +204,14 @@ describe('Canvas Component Loading Tests', () => {
       render(<MultipathCanvas />, { container });
 
       await waitFor(() => {
-        expect(container.querySelector('canvas')).toBeInTheDocument();
+        expect(container.querySelector('svg')).toBeInTheDocument();
       });
     });
   });
 
   describe('Other Canvas Components', () => {
     test('should load and render ImpedanceCanvas', async () => {
-      const { default: ImpedanceCanvas } = await import('../../src/md-preview/ImpedanceCanvas');
+      const { ImpedanceCanvas } = await import('../../src/md-preview/components/canvas');
 
       render(<ImpedanceCanvas />, { container });
 
@@ -226,7 +221,7 @@ describe('Canvas Component Loading Tests', () => {
     });
 
     test('should load and render TimeOfFlightCanvas', async () => {
-      const { default: TimeOfFlightCanvas } = await import('../../src/md-preview/TimeOfFlightCanvas');
+      const { TimeOfFlightCanvas } = await import('../../src/md-preview/components/canvas');
 
       render(<TimeOfFlightCanvas />, { container });
 
@@ -254,7 +249,7 @@ describe('Canvas Component Loading Tests', () => {
         writable: true,
       });
 
-      const { default: BodyAttenuationCanvas } = await import('../../src/md-preview/BodyAttenuationCanvas');
+      const { BodyAttenuationCanvas } = await import('../../src/md-preview/components/canvas');
 
       // Should not throw error
       expect(() => {
@@ -269,7 +264,7 @@ describe('Canvas Component Loading Tests', () => {
         writable: true,
       });
 
-      const { default: BodyAttenuationCanvas } = await import('../../src/md-preview/BodyAttenuationCanvas');
+      const { BodyAttenuationCanvas } = await import('../../src/md-preview/components/canvas');
 
       // Should not throw error
       expect(() => {
@@ -280,24 +275,26 @@ describe('Canvas Component Loading Tests', () => {
 
   describe('Canvas Integration', () => {
     test('should integrate all canvas components together', async () => {
-      const canvasModules = await Promise.all([
-        import('../../src/md-preview/BodyAttenuationCanvas'),
-        import('../../src/md-preview/BodyAttenuationCanvas'),
-        import('../../src/md-preview/components/canvas'),
-        import('../../src/md-preview/ImpedanceCanvas'),
-        import('../../src/md-preview/TimeOfFlightCanvas'),
-      ]);
+      const { 
+        BodyAttenuationCanvas, 
+        AmplitudeModulationCanvas, 
+        FrequencyModulationCanvas, 
+        HeterodyningCanvas, 
+        MultipathCanvas, 
+        PhaseShiftingCanvas, 
+        ImpedanceCanvas, 
+        TimeOfFlightCanvas 
+      } = await import('../../src/md-preview/components/canvas');
 
       const components = [
-        canvasModules[0].default, // BodyAttenuationCanvas
-        canvasModules[1].default, // BodyAttenuationCanvas
-        canvasModules[2].AmplitudeModulationCanvas,
-        canvasModules[2].FrequencyModulationCanvas,
-        canvasModules[2].HeterodyningCanvas,
-        canvasModules[2].MultipathCanvas,
-        canvasModules[2].PhaseShiftingCanvas,
-        canvasModules[3].default, // ImpedanceCanvas
-        canvasModules[4].default, // TimeOfFlightCanvas
+        BodyAttenuationCanvas,
+        AmplitudeModulationCanvas,
+        FrequencyModulationCanvas,
+        HeterodyningCanvas,
+        MultipathCanvas,
+        PhaseShiftingCanvas,
+        ImpedanceCanvas,
+        TimeOfFlightCanvas,
       ];
 
       // Render all components
@@ -313,13 +310,13 @@ describe('Canvas Component Loading Tests', () => {
       });
 
       // All components should render without throwing
-      expect(components.length).toBe(9);
+      expect(components.length).toBe(8);
     });
   });
 
   describe('Canvas Performance', () => {
     test('should render canvases within reasonable time', async () => {
-      const { default: BodyAttenuationCanvas } = await import('../../src/md-preview/BodyAttenuationCanvas');
+      const { BodyAttenuationCanvas } = await import('../../src/md-preview/components/canvas');
 
       const startTime = performance.now();
 

@@ -1,17 +1,16 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { prepareWithSegments, layoutNextLine } from '@chenglou/pretext';
-import CanvasImage from "./shared/CanvasImage";
+import CanvasImage from "@n-apt/md-preview/components/canvas/shared/CanvasImage";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { useTexture } from "@react-three/drei";
 import styled from "styled-components";
 import * as THREE from "three";
-import { CanvasText } from "../../CanvasText";
-import { theme } from "../../theme";
+import { CanvasText } from "@n-apt/md-preview/components/CanvasText";
+import { theme } from "@n-apt/md-preview/consts/theme";
+import CanvasHarness from "@n-apt/md-preview/components/canvas/CanvasHarness";
 
-const BASE_URL = "";
-const BODY_CHARACTER_SRC = `${BASE_URL}/md-preview/images/body-attenuation-character.png`;
-
-const BACKGROUND_COLOR = theme.colors.background;
+import { assetImageUrl } from "@n-apt/md-preview/utils/asset-helpers";
+const BODY_CHARACTER_SRC = assetImageUrl("body-attenuation-character.png");
 
 const CHARACTER_SIZE = {
   width: 2.91,
@@ -259,7 +258,7 @@ const RadioWave: React.FC<{ bodyTexture: THREE.Texture }> = ({ bodyTexture }) =>
 
 
 
-const BINARY_STRING = Array.from({ length: 5000 }, () => (Math.random() > 0.5 ? '1' : '0')).join(' ');
+const BINARY_STRING = Array.from({ length: 2500 }, () => Math.random() > 0.5 ? "A4" : "F2").join(' '); // Just placeholder, will be replaced inside BinaryRow
 
 const binaryRowVertexShader = `
   varying vec2 vUv;
@@ -293,29 +292,37 @@ const binaryRowFragmentShader = `
     float isGoingOut = 1.0 - isReturning;
 
     float revealed = isReturning * smoothstep(0.05, -0.05, waveR - distToAntenna);
-    // fade away smoothly over the first 30% of the outgoing new pulse
-    float fadeOut = isGoingOut * smoothstep(0.3, 0.0, pulsePhase); 
 
-    float hit = clamp(revealed + fadeOut, 0.0, 1.0);
+    float hit = clamp(revealed, 0.0, 1.0);
     
-    vec3 baseColor = vec3(0.18, 0.20, 0.22);
-    vec3 litColor = vec3(0.0, 0.95, 0.4);
+    vec3 a = vec3(0.5, 0.5, 0.5);
+    vec3 b = vec3(0.5, 0.5, 0.5);
+    vec3 c = vec3(1.0, 1.0, 1.0);
+    vec3 d = vec3(0.263, 0.416, 0.557);
+    vec3 litColor = a + b * cos(6.28318 * (c * (uTime * 0.4 + vWorldPosition.x * 0.1 + vWorldPosition.y * 0.1) + d));
     
-    vec3 finalColor = mix(baseColor, litColor, hit);
-    
-    gl_FragColor = vec4(finalColor, texColor.a * (0.05 + 0.95 * hit));
+    gl_FragColor = vec4(litColor, texColor.a * hit);
   }
 `;
 
 const BinaryRow = ({ text, x, y, widthWorld }: { text: string; x: number; y: number; widthWorld: number }) => {
+  const [cycle, setCycle] = useState(0);
+
   const { texture, width, height } = useMemo(() => {
     const canvas = document.createElement("canvas");
     const ctx = canvas.getContext("2d");
     if (!ctx) return { texture: null, width: 1, height: 1 };
 
-    const baseSize = 80;
+    const chars = "0123456789ABCDEF";
+    let dynamicText = "";
+    for (let i = 0; i < text.length; i++) {
+       if (text[i] === ' ') dynamicText += ' ';
+       else dynamicText += chars[Math.floor(Math.random() * 16)];
+    }
+
+    const baseSize = 40 + Math.random() * 60;
     ctx.font = `normal ${baseSize}px "JetBrains Mono", monospace`;
-    const metrics = ctx.measureText(text);
+    const metrics = ctx.measureText(dynamicText);
     const textWidth = metrics.width;
     const textHeight = baseSize * 1.2;
 
@@ -325,7 +332,7 @@ const BinaryRow = ({ text, x, y, widthWorld }: { text: string; x: number; y: num
     ctx.font = `normal ${baseSize}px "JetBrains Mono", monospace`;
     ctx.fillStyle = "#ffffff";
     ctx.textBaseline = "top";
-    ctx.fillText(text, 0, baseSize * 0.1);
+    ctx.fillText(dynamicText, 0, baseSize * 0.1);
 
     const tex = new THREE.CanvasTexture(canvas);
     tex.colorSpace = THREE.SRGBColorSpace;
@@ -334,7 +341,7 @@ const BinaryRow = ({ text, x, y, widthWorld }: { text: string; x: number; y: num
     tex.generateMipmaps = true;
 
     return { texture: tex, width: widthWorld, height: widthWorld * (canvas.height / canvas.width) };
-  }, [text, widthWorld]);
+  }, [text, widthWorld, cycle]);
 
   const materialRef = useRef<THREE.ShaderMaterial>(null);
 
@@ -348,6 +355,8 @@ const BinaryRow = ({ text, x, y, widthWorld }: { text: string; x: number; y: num
     if (materialRef.current) {
       materialRef.current.uniforms.uTime.value = state.clock.elapsedTime;
     }
+    const newCycle = Math.floor(state.clock.elapsedTime * 0.35 / 2.0);
+    if (newCycle !== cycle) setCycle(newCycle);
   });
 
   if (!texture) return null;
@@ -518,14 +527,8 @@ const SceneContents: React.FC = () => {
 
   return (
     <>
-      <color attach="background" args={[BACKGROUND_COLOR]} />
       <ambientLight intensity={1.8} />
       <directionalLight position={[0, 0, 3]} intensity={1.25} color="#ffffff" />
-
-      <mesh position={[0, 0, -0.6]}>
-        <planeGeometry args={[10, 6.5]} />
-        <meshBasicMaterial color={BACKGROUND_COLOR} />
-      </mesh>
 
 
 
@@ -586,7 +589,7 @@ const DynamicStatsOverlay = () => {
   });
 
   return (
-    <group position={[-2.4, 0.8, 0.4]}>
+    <group position={[-4.1, -1.6, 0.4]}>
       <CanvasText position={[0, 0.5, 0]} fontSize={0.16} color="#3a3a42" anchorX="left" fontWeight={700} text="Distance:" />
       <CanvasText position={[2.7, 0.5, 0]} fontSize={0.16} color="#1a1a22" anchorX="right" text={stats.distance} />
 
@@ -604,67 +607,37 @@ const DynamicStatsOverlay = () => {
 
 const TimeOfFlightCanvas: React.FC = () => {
   return (
-    <Frame>
-      <RendererBadge>Time of Flight</RendererBadge>
-      <CanvasImage
-        src="hex-small-cell-tower.svg"
-        alt="Antenna"
-        position="absolute"
-        left="4%"
-        bottom="0px"
-        height="65%"
-        zIndex={10}
-        pointerEvents="none"
-      />
-      <Canvas
-        orthographic
-        dpr={[1, 2]}
-        camera={{ position: [0, 0, 10] }}
-        gl={{ antialias: true, alpha: true }}
-      >
-        <React.Suspense fallback={null}>
-          <SceneContents />
-        </React.Suspense>
-      </Canvas>
-      <RendererBadge>WebGPU</RendererBadge>
-    </Frame>
+    <CanvasHarness aspectRatio="10 / 6.4">
+      <div style={{ width: '100%', height: '100%', position: 'relative' }}>
+        <RendererBadgeText>Time of Flight</RendererBadgeText>
+        <CanvasImage
+          src="hex-small-cell-tower.svg"
+          alt="Antenna"
+          position="absolute"
+          left="4%"
+          bottom="0px"
+          height="65%"
+          zIndex={10}
+          pointerEvents="none"
+        />
+        <Canvas
+          style={{ position: 'relative', zIndex: 20 }}
+          orthographic
+          dpr={[1, 2]}
+          camera={{ position: [0, 0, 10] }}
+          gl={{ antialias: true, alpha: true }}
+        >
+          <React.Suspense fallback={null}>
+            <SceneContents />
+          </React.Suspense>
+        </Canvas>
+      </div>
+    </CanvasHarness>
   );
 };
 
-const Frame = styled.div`
-  width: 100%;
-  max-width: 100%;
-  min-width: 0;
-  margin: 2rem 0;
-  border-radius: ${theme.layout.borderRadius};
-  overflow: hidden;
-  border: 1px solid rgba(12, 14, 18, 0.36);
-  background-color: #E0E0E2;
-  background-image:
-    linear-gradient(to right, #D7D8DA 2px, transparent 2px),
-    linear-gradient(to bottom, #D7D8DA 2px, transparent 2px);
-  background-size: 64px 64px;
-  background-position: center bottom;
-  aspect-ratio: 10 / 6.4;
-  position: relative;
-
-  > div {
-    width: 100% !important;
-    height: 100% !important;
-    min-width: 0;
-  }
-
-  canvas {
-    display: block;
-    width: 100% !important;
-    height: 100% !important;
-    min-width: 0;
-    cursor: default;
-    touch-action: none;
-  }
-`;
-
-const RendererBadge = styled.div`
+// Frame removed because CanvasHarness handles the container, aspect ratio, and background logic.
+const RendererBadgeText = styled.div`
   position: absolute;
   top: 14px;
   left: 16px;

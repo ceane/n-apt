@@ -1,5 +1,5 @@
 import styled from "styled-components";
-import { theme } from "../../../theme";
+import { theme } from "@n-apt/md-preview/consts/theme";
 
 export const OverlayText = styled.div<{
   $top?: string;

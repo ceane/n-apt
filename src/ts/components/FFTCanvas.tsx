@@ -516,6 +516,8 @@ const FFTCanvas = memo(
       [onFftDbLimitsChange, effectivePowerScale],
     );
 
+    // Effect: Synchronizes validated dB range back to parent when it changes.
+    // Prevents infinite loops by only emitting when values actually differ from last emitted.
     useEffect(() => {
       if (!onFftDbLimitsChange) return;
       const normalized = { min: vizDbMin, max: vizDbMax };
@@ -541,7 +543,8 @@ const FFTCanvas = memo(
     const fftSmoothEnabled = useAppSelector((reduxState) => reduxState.spectrum.fftSmoothEnabled);
     const wfSmoothEnabled = useAppSelector((reduxState) => reduxState.spectrum.wfSmoothEnabled);
 
-    // Clear waterfall effect
+    // Effect: Clears all waterfall state when isWaterfallCleared becomes true.
+    // This resets the visualizer to a blank state and notifies the parent.
     useEffect(() => {
       if (isWaterfallCleared) {
         visualizerMachine?.clear(visualizerSessionKey);
@@ -595,6 +598,8 @@ const FFTCanvas = memo(
     vizPanOffsetRef.current = vizPanOffset;
 
     // Compute zoomed visual frequency range and waveform slice
+    // When zoom > 1: shows a subset of bins (magnified view)
+    // When zoom < 1: pads the waveform with minimum dB values (zoomed out view)
     const getZoomedData = useCallback(
       (
         fullWaveform: Float32Array,
@@ -606,6 +611,7 @@ const FFTCanvas = memo(
         visualRange: FrequencyRange;
         clampedPan: number;
       } => {
+        // Fast path: no zoom means show the full waveform unmodified
         if (zoom === 1) {
           return {
             slicedWaveform: fullWaveform,
@@ -620,12 +626,14 @@ const FFTCanvas = memo(
         const fullSpan = fullRange.max - fullRange.min;
         const halfSpan = fullSpan / (2 * zoom);
 
-        // Calculate max allowed pan so visual window doesn't exceed hardware window
+        // Clamp pan offset so the visual window never exceeds the hardware frequency range
         const maxPan = fullSpan / 2 - halfSpan;
         let clampedPan = panOffset;
         if (maxPan >= 0) {
           clampedPan = Math.max(-maxPan, Math.min(maxPan, panOffset));
         } else {
+          // Edge case: when zoom is very small, maxPan becomes negative
+          // Invert and use as symmetric bounds
           const outPan = -maxPan;
           clampedPan = Math.max(-outPan, Math.min(outPan, panOffset));
         }
@@ -633,7 +641,7 @@ const FFTCanvas = memo(
         const centerFreq = (fullRange.min + fullRange.max) / 2;
         const visualCenter = centerFreq + clampedPan;
 
-        // Convert visual center to bin index
+        // Convert visual center frequency to bin index in the full waveform
         const visualCenterBin = Math.round(
           ((visualCenter - fullRange.min) / fullSpan) * totalBins,
         );
@@ -645,6 +653,7 @@ const FFTCanvas = memo(
           max: visualCenter + halfSpan,
         };
 
+        // Zoom < 1: Pad with minimum dB values to fill the display
         if (zoom < 1) {
           const paddedWaveform = new Float32Array(visibleBins).fill(FFT_MIN_DB);
           const destOffset = Math.max(0, -startBin);
@@ -660,7 +669,7 @@ const FFTCanvas = memo(
           return { slicedWaveform: paddedWaveform, visualRange, clampedPan };
         }
 
-        // Clamp startBin to valid array bounds for zoom > 1
+        // Zoom > 1: Extract a subarray of the waveform (clamped to valid bounds)
         startBin = Math.max(0, Math.min(totalBins - visibleBins, startBin));
 
         const slicedWaveform = fullWaveform.subarray(
@@ -676,7 +685,7 @@ const FFTCanvas = memo(
     // Ref to track snapshot grid preference (for 2D shadow renders)
     const snapshotGridPreferenceRef = useRef(true);
 
-    // Update ref when prop changes
+    // Effect: Sync snapshotGridPreference prop to ref for access in callbacks without dependency churn
     useEffect(() => {
       snapshotGridPreferenceRef.current = snapshotGridPreference;
     }, [snapshotGridPreference]);
@@ -730,32 +739,35 @@ const FFTCanvas = memo(
       enableSmoothing: fftSmoothEnabled,
     });
 
-    // Compute zoomed frequency range from the full range (visual only, don't retune)
+    // Effect: When hardware frequency range changes, mark overlays for redraw
+    // and sync the ref used by drag/render logic. Note: this does NOT retune the device.
     useEffect(() => {
-      // Frequency range changes affect both overlays
       overlayDirtyRef.current.grid = true;
       overlayDirtyRef.current.markers = true;
-      // Sync internal refs used by drag/render logic
       frequencyRangeRef.current = frequencyRange;
     }, [frequencyRange, overlayDirtyRef]);
 
+    // Effect: When center frequency changes, only mark markers overlay for redraw
+    // (grid lines stay at same positions, but frequency labels shift)
     useEffect(() => {
-      // Center frequency changes only affect marker overlay.
       overlayDirtyRef.current.markers = true;
       centerFreqRef.current = centerFrequencyMHz;
     }, [centerFrequencyMHz, overlayDirtyRef]);
 
+    // Effect: When device connection state changes, redraw markers overlay
+    // to show/hide red limit lines indicating hardware boundaries
     useEffect(() => {
-      // Device connectivity toggles whether red limit lines should display.
       overlayDirtyRef.current.markers = true;
     }, [isDeviceConnected]);
 
+    // Effect: Recording state or sample rate changes trigger grid redraw
+    // to update the recording indicator visual elements
     useEffect(() => {
-      // Recording state change should trigger grid redraw
       overlayDirtyRef.current.grid = true;
     }, [isIqRecordingActive, hardwareSampleRateHz]);
 
-    // Screen width detection for auto FFT options
+    // Effect: Detect screen width to request optimal FFT size from server
+    // Calculates CSS width × DPR for accurate pixel coverage. Debounced at 500ms.
     useEffect(() => {
       if (sendGetAutoFftOptions && !autoFftOptions) {
         const detectScreenWidth = () => {
@@ -767,10 +779,8 @@ const FFTCanvas = memo(
           sendGetAutoFftOptions(Math.round(cssWidth * dpr));
         };
 
-        // Initial detection
         detectScreenWidth();
 
-        // Listen for resize events (with debouncing)
         let resizeTimeout: NodeJS.Timeout;
         const handleResize = () => {
           clearTimeout(resizeTimeout);
@@ -969,7 +979,9 @@ const FFTCanvas = memo(
             lastProcessedDataRef.current = currentData;
             lastRenderedPowerScaleRef.current = effectivePowerScale;
 
-            // Accumulate into full-channel composite buffer for Whole Channel snapshots
+            // Accumulate frequency-hop data into full-channel composite buffer.
+            // This builds a 4096-bin representation of the entire channel span
+            // from individual hop-sized I/Q chunks for "Whole Channel" snapshots.
             {
               const channelRange = frequencyRangeRef.current;
               const channelSpan = channelRange.max - channelRange.min;
@@ -985,7 +997,7 @@ const FFTCanvas = memo(
                 const hopMin = hopCenterMHz - hopSpanMHz / 2;
                 const hopMax = hopCenterMHz + hopSpanMHz / 2;
 
-                // Reset if channel range changed
+                // Reset the full-channel buffer when the channel range changes
                 if (
                   !fullChannelRangeRef.current ||
                   fullChannelRangeRef.current.min !== channelRange.min ||
@@ -995,6 +1007,7 @@ const FFTCanvas = memo(
                   fullChannelRangeRef.current = { ...channelRange };
                 }
 
+                // Map this hop's frequency range into the full-channel bin indices
                 const buf = fullChannelWaveformRef.current!;
                 const startRatio = Math.max(0, (hopMin - channelRange.min) / channelSpan);
                 const endRatio = Math.min(1, (hopMax - channelRange.min) / channelSpan);
@@ -1003,6 +1016,7 @@ const FFTCanvas = memo(
                 const destCount = Math.max(1, destEnd - destStart);
                 const srcLen = waveform.length;
 
+                // Resample the hop's waveform into the destination bin range
                 for (let i = 0; i < destCount; i++) {
                   const srcIdx = Math.min(srcLen - 1, Math.round((i / destCount) * srcLen));
                   buf[destStart + i] = waveform[srcIdx];
@@ -1010,13 +1024,13 @@ const FFTCanvas = memo(
               }
             }
 
-            // Keep a single active spectrum pipeline here.
+            // Architecture note: Only one active spectrum pipeline here.
             // The direct drawSpectrum path is the authoritative visible renderer.
-            // Launching unifiedFFT.processUnified in parallel causes a second,
-            // stateful GPU processing path to race the visible renderer, which
-            // manifests as flashing/color shifts during dBm and dB-range changes.
+            // Launching unifiedFFT.processUnified in parallel causes a second
+            // GPU processing path that races the visible renderer, causing
+            // flashing and color shifts during dBm/dB-range transitions.
 
-            // Add frame to buffer for smooth rendering - reuse arrays to save memory
+            // Frame buffering: reuse existing arrays to minimize GC pressure during animation
             const frameBuffer = frameBufferRef.current;
             let newFrame: Float32Array;
 
@@ -1034,18 +1048,21 @@ const FFTCanvas = memo(
 
             frameBuffer.push(newFrame);
 
-            // Keep buffer size limited
+            // Keep buffer size limited and clear dropped arrays to help GC
             if (frameBuffer.length > maxFrameBufferSize) {
               const dropped = frameBuffer.shift();
               if (dropped) {
-                dropped.fill(0); // Clear dropped array to help GC
+                dropped.fill(0);
               }
             }
 
+            // Apply temporal smoothing based on resolution setting
+            // high: no smoothing (direct copy)
+            // medium: 0.4 alpha blend
+            // low: 0.15 alpha blend (heavier smoothing)
             if (displayTemporalResolution === "high") {
               const prev = renderWaveformRef.current;
               if (!prev || prev.length !== waveform.length) {
-                // Clear previous buffer before creating new one
                 if (prev) {
                   prev.fill(0);
                 }
@@ -1057,12 +1074,12 @@ const FFTCanvas = memo(
               const alpha = displayTemporalResolution === "low" ? 0.15 : 0.4;
               const prev = renderWaveformRef.current;
               if (!prev || prev.length !== waveform.length) {
-                // Clear previous buffer before creating new one
                 if (prev) {
                   prev.fill(0);
                 }
                 renderWaveformRef.current = new Float32Array(waveform);
               } else {
+                // Exponential moving average: new = alpha*current + (1-alpha)*previous
                 for (let i = 0; i < waveform.length; i++) {
                   prev[i] = alpha * waveform[i] + (1.0 - alpha) * prev[i];
                 }
@@ -1256,9 +1273,10 @@ const FFTCanvas = memo(
               retuneDriftPxRef.current = waterfallMotion.driftBins;
               retuneSmearRef.current = waterfallMotion.smearRows;
 
-              // ALWAYS resample to a constant width (4096 bins)
-              // This 'bakes' the current zoom into the row permanently and avoids
-              // resetting the WebGPU texture when the zoom level changes.
+              // Waterfall texture strategy: Always resample to constant 4096 bins.
+              // This 'bakes' the zoom into each row permanently, avoiding WebGPU
+              // texture resets when zoom changes. The shader handles the final
+              // mapping from 4096 bins to display pixels.
               const FIXED_WATERFALL_BINS = 4096;
               let waterfallBins: Float32Array;
 
@@ -1274,7 +1292,8 @@ const FFTCanvas = memo(
               const processed = waterfallCappedBufferRef.current;
 
               if (shouldUpdateWaterfallRow) {
-                // Peak-resampling to 4096 bins
+                // Peak-resampling: for each output bin, take the max of the
+                // corresponding input bin range. Preserves spikes better than averaging.
                 const srcLen = slicedWaveform.length;
                 const ratio = srcLen / FIXED_WATERFALL_BINS;
                 for (let i = 0; i < FIXED_WATERFALL_BINS; i++) {
@@ -1289,7 +1308,7 @@ const FFTCanvas = memo(
                 }
                 waterfallBins = processed;
 
-                // Keep a copy of the last row for pause/snapshot
+                // Cache the last row for pause state and snapshots
                 if (
                   !lastWaterfallRowRef.current ||
                   lastWaterfallRowRef.current.length !== waterfallBins.length
@@ -1298,6 +1317,7 @@ const FFTCanvas = memo(
                 } else {
                   lastWaterfallRowRef.current.set(waterfallBins);
                 }
+                // Accumulate history for heterodyning detection (96 frames max)
                 if (hasNewData) {
                   heterodyningHistoryRef.current.push(new Float32Array(waterfallBins));
                   if (heterodyningHistoryRef.current.length > 96) {
@@ -1306,12 +1326,14 @@ const FFTCanvas = memo(
                 }
                 lastWaterfallVisualRangeRef.current = { ...visualRange };
               } else {
+                // Paused or no new data: reset drift and use cached row
                 retuneDriftPxRef.current = 0;
                 retuneSmearRef.current = 0;
                 waterfallBins = lastWaterfallRowRef.current ?? processed;
               }
 
-              // Snapshot tracking (always 4096 bins wide)
+              // Snapshot tracking: maintain a CPU-side copy of the waterfall texture
+              // for session persistence. Always 4096 bins wide × RGBA.
               const textureBytesPerRow = FIXED_WATERFALL_BINS * 4;
               const textureByteSize = textureBytesPerRow * dims.height;
               if (
@@ -1463,12 +1485,15 @@ const FFTCanvas = memo(
       targetFPS: fftFrameRate,
     });
 
-    // Handle component unmounting
+    // Effect: Cleanup placeholder. Most cleanup is handled by useFFTAnimation and other hooks.
+    // Intentionally minimal - actual resources are managed by child hooks and their own cleanup.
     useEffect(() => {
       return () => {
       };
     }, []);
 
+    // Effect: When temporal resolution (smoothing) changes, reset processing state.
+    // Preserves paused waterfall restore if one is pending.
     useEffect(() => {
       const hasPendingWaterfallRestore = !!pendingWaterfallRestoreRef.current;
       lastProcessedDataRef.current = null;
@@ -1488,11 +1513,14 @@ const FFTCanvas = memo(
       forceRender();
     }, [displayTemporalResolution, forceRender]);
 
+    // Effect: Trigger render when awaitingDeviceData changes (shows/hides loading placeholder)
     useEffect(() => {
       forceRender();
     }, [awaitingDeviceData, forceRender]);
 
 
+    // Effect: Runs heterodyning detection when a new verify request comes in.
+    // Deduplicates identical request IDs to avoid redundant analysis.
     useEffect(() => {
       if (!onHeterodyningAnalyzed) return;
       if (heterodyningVerifyRequestId <= 0) return;
@@ -1506,6 +1534,8 @@ const FFTCanvas = memo(
       );
     }, [heterodyningVerifyRequestId, onHeterodyningAnalyzed]);
 
+    // Effect: Toggle spike detection overlay. Clears persistence buffer when disabled
+    // to reset temporal smoothing state for next enable.
     useEffect(() => {
       if (!showSpikeOverlay) {
         spikePersistenceRef.current = null;
@@ -1527,19 +1557,20 @@ const FFTCanvas = memo(
 
     restoreWaveformFromStorageRef.current = restoreWaveformFromStorage;
 
+    // Build a serializable snapshot of current visualizer state for session persistence.
+    // Includes waveform data, waterfall texture, and dimensional metadata.
     const buildVisualizerSessionSnapshot = useCallback((): FFTVisualizerSnapshot | null => {
       const waveform = renderWaveformRef.current ?? waveformFloatRef.current;
       const waterfallTextureSnapshot = waterfallTextureSnapshotRef.current;
       const waterfallTextureMeta = waterfallTextureMetaRef.current;
       const waterfallBuffer = waterfallBufferRef.current;
-      const waterfallDims = waterfallDimsRef.current;
 
       if (
         !waveform &&
         !waterfallTextureSnapshot &&
         !waterfallTextureMeta &&
         !waterfallBuffer &&
-        !waterfallDims
+        !waterfallDimsRef.current
       ) {
         return null;
       }
@@ -1555,10 +1586,12 @@ const FFTCanvas = memo(
         waterfallBuffer: waterfallBuffer
           ? new Uint8ClampedArray(waterfallBuffer)
           : null,
-        waterfallDims: waterfallDims ? { ...waterfallDims } : null,
+        waterfallDims: waterfallDimsRef.current ? { ...waterfallDimsRef.current } : null,
       };
     }, []);
 
+    // Restore visualizer state from a previously saved snapshot.
+    // Handles three data formats: waveform, legacy waterfall buffer, and WebGPU texture snapshot.
     const restoreVisualizerSessionSnapshot = useCallback(
       (snapshot: FFTVisualizerSnapshot | null) => {
         if (!snapshot) {
@@ -1574,6 +1607,7 @@ const FFTCanvas = memo(
           restored = true;
         }
 
+        // Legacy waterfall buffer path (2D canvas mode)
         if (snapshot.waterfallBuffer && snapshot.waterfallDims) {
           waterfallBufferRef.current = new Uint8ClampedArray(
             snapshot.waterfallBuffer,
@@ -1582,6 +1616,7 @@ const FFTCanvas = memo(
           restored = true;
         }
 
+        // WebGPU texture snapshot path (modern mode)
         if (
           snapshot.waterfallTextureSnapshot &&
           snapshot.waterfallTextureMeta
@@ -1616,6 +1651,8 @@ const FFTCanvas = memo(
       );
     }, [buildVisualizerSessionSnapshot, visualizerMachine, visualizerSessionKey]);
 
+    // Effect: On mount: restore visualizer state from machine if available.
+    // On unmount: persist current state to machine and cleanup resources.
     useEffect(() => {
       const restoredFromMachine = restoreVisualizerSessionSnapshot(
         visualizerMachine?.restore(visualizerSessionKey) ?? null,
@@ -1637,7 +1674,9 @@ const FFTCanvas = memo(
       visualizerSessionKey,
     ]);
 
-    // Reset cached waveforms and trigger grid redraw when frequency range changes
+    // Effect: When hardware frequency range changes, invalidate all cached waveforms
+    // and buffers since they represent data from a different frequency span.
+    // If paused, force a re-render to update the visual state.
     useEffect(() => {
       const prevRange = frequencyRangeRef.current;
       frequencyRangeRef.current = frequencyRange;
@@ -1659,6 +1698,8 @@ const FFTCanvas = memo(
       }
     }, [frequencyRange, isPaused, forceRender]);
 
+    // Effect: Tracks when new data frames arrive while paused.
+    // dataFrameCounter ensures this runs even when dataRef object identity doesn't change.
     useEffect(() => {
       const currentData = dataRef.current;
       const hasData = !!(currentData && currentData.iq_data);
@@ -1675,7 +1716,8 @@ const FFTCanvas = memo(
       }
     }, [dataRef, isPaused, forceRender, dataFrameCounter]);
 
-    // Handle canvas resizing
+    // Effect: Manages canvas dimensions, DPR scaling, and overlay dirty flags on resize.
+    // Uses both window resize event and ResizeObserver for container changes.
     useEffect(() => {
       const handleResize = () => {
         const dpr = window.devicePixelRatio || 1;
@@ -1787,9 +1829,10 @@ const FFTCanvas = memo(
       };
     }, [forceRender, spectrumWebgpuEnabled, isPaused, ensurePausedFrame]);
 
+    // Effect: Periodic memory cleanup (every 30s). Returns oversized buffers to pool
+    // and clears stale waveform data. Skips cleanup when paused to preserve snapshot state.
     useEffect(() => {
       const cleanupInterval = setInterval(() => {
-        // Avoid clearing buffers while paused so the snapshot can be restored
         if (isPaused) return;
 
         if (waterfallBufferRef.current && waterfallDimsRef.current) {
@@ -1815,7 +1858,8 @@ const FFTCanvas = memo(
       isPaused,
     ]);
 
-    // When paused, draw the restored frame once WebGPU is ready
+    // Effect: When paused with WebGPU becoming ready, trigger a render to show
+    // the restored/snapshot state on the newly initialized canvas.
     useEffect(() => {
       if (!isPaused) return;
       if (!webgpuEnabled) return;
@@ -1823,6 +1867,8 @@ const FFTCanvas = memo(
       forceRender();
     }, [isPaused, webgpuEnabled, forceRender]);
 
+    // Effect: When visualization parameters change (dB limits, zoom, pan),
+    // mark overlays dirty and trigger paused re-render to update immediately.
     useEffect(() => {
       overlayDirtyRef.current.grid = true;
       overlayDirtyRef.current.markers = true;
@@ -1831,7 +1877,8 @@ const FFTCanvas = memo(
       }
     }, [vizDbMin, vizDbMax, currentVizZoom, vizPanOffset, isPaused, forceRender]);
 
-    // Separate effect for powerScale changes to ensure immediate overlay updates
+    // Effect: Handles power scale (dB vs dBm) switches separately for immediate updates.
+    // Preserves render buffers to redraw from existing IQ frame rather than showing blank.
     useEffect(() => {
       if (previousPowerScaleRef.current === effectivePowerScale) {
         return;
