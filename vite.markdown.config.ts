@@ -82,7 +82,7 @@ const copyPagesPlugin: Plugin = {
     fs.cpSync(pagesDir, targetDir, { recursive: true });
 
     // In production build, we need to transform paths within the copied markdown files
-    const productionBase = "/"; // This can be changed to "/n-apt/" if needed for GH Pages project sites
+    const productionBase = "/n-apt/"; // Correct base for GitHub Pages project site (https://ceane.github.io/n-apt/)
     const devBase = "/md-preview/";
 
     const transformFile = (filePath: string) => {
@@ -123,7 +123,7 @@ export default defineConfig(({ mode }) => {
       jsx: "automatic",
       drop: isProd ? ["console", "debugger"] : [],
     },
-    base: isProd ? "/" : "/md-preview/",
+    base: isProd ? "/n-apt/" : "/md-preview/",
     root: path.resolve(dirname, "src/md-preview"),
     envDir: dirname,
     publicDir: path.resolve(dirname, "public"),
