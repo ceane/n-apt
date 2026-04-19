@@ -1,8 +1,8 @@
-import remarkBodyAttenuationBlocks from '../../src/md-preview/remarkBodyAttenuationBlocks';
-import remarkTimeOfFlightBlocks from '../../src/md-preview/remarkTimeOfFlightBlocks';
-import remarkSignalCanvasBlocks from '../../src/md-preview/remarkSignalCanvasBlocks';
-import remarkLatexCodeBlocks from '../../src/md-preview/remarkLatexCodeBlocks';
-import remarkIconShortcodes from '../../src/md-preview/remarkIconShortcodes';
+import remarkBodyAttenuationBlocks from '../../src/md-preview/utils/remarkBodyAttenuationBlocks';
+import remarkTimeOfFlightBlocks from '../../src/md-preview/utils/remarkTimeOfFlightBlocks';
+import remarkSignalCanvasBlocks from '../../src/md-preview/utils/remarkSignalCanvasBlocks';
+import remarkLatexCodeBlocks from '../../src/md-preview/utils/remarkLatexCodeBlocks';
+import remarkIconShortcodes from '../../src/md-preview/utils/remarkIconShortcodes';
 
 // Mock the unified processor for testing
 const createMockTree = (markdown: string, explicitLang?: string): any => ({

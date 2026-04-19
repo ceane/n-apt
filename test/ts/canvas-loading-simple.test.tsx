@@ -66,12 +66,7 @@ Object.defineProperty(navigator, 'gpu', {
   writable: true,
 });
 
-// Mock IntersectionObserver
-global.IntersectionObserver = jest.fn().mockImplementation(() => ({
-  observe: jest.fn(),
-  unobserve: jest.fn(),
-  disconnect: jest.fn(),
-}));
+
 
 // Mock ResizeObserver
 global.ResizeObserver = jest.fn().mockImplementation(() => ({
@@ -191,7 +186,7 @@ describe('Canvas Component Loading Tests (Simple)', () => {
   describe('Basic Canvas Loading', () => {
     test('should load BodyAttenuationCanvas without crashing', async () => {
       try {
-        const { default: BodyAttenuationCanvas } = await import('../../src/md-preview/BodyAttenuationCanvas');
+        const { BodyAttenuationCanvas } = await import('../../src/md-preview/components/canvas');
 
         expect(() => {
           render(<BodyAttenuationCanvas />, { container });
@@ -204,7 +199,7 @@ describe('Canvas Component Loading Tests (Simple)', () => {
 
     test('should load SignalCanvases components without crashing', async () => {
       try {
-        const signalCanvases = await import('../../src/md-preview/SignalCanvases');
+        const signalCanvases = await import('../../src/md-preview/components/canvas');
 
         expect(() => {
           render(<signalCanvases.AmplitudeModulationCanvas />, { container });
@@ -231,15 +226,15 @@ describe('Canvas Component Loading Tests (Simple)', () => {
   describe('Canvas Component Exports', () => {
     test('should export all canvas components', async () => {
       try {
-        const bodyAttenuationModule = await import('../../src/md-preview/BodyAttenuationCanvas');
-        expect(bodyAttenuationModule.default).toBeDefined();
+        const bodyAttenuationModule = await import('../../src/md-preview/components/canvas');
+        expect(bodyAttenuationModule.BodyAttenuationCanvas).toBeDefined();
       } catch {
         // Import might fail due to dependencies, but that's ok for this test
         expect(true).toBe(true);
       }
 
       try {
-        const signalCanvasesModule = await import('../../src/md-preview/SignalCanvases');
+        const signalCanvasesModule = await import('../../src/md-preview/components/canvas');
         expect(signalCanvasesModule.AmplitudeModulationCanvas).toBeDefined();
         expect(signalCanvasesModule.FrequencyModulationCanvas).toBeDefined();
         expect(signalCanvasesModule.HeterodyningCanvas).toBeDefined();
@@ -264,7 +259,7 @@ describe('Canvas Component Loading Tests (Simple)', () => {
         'PhaseShiftingCanvas.tsx',
         'FrequencyModulationCanvas.tsx',
         'AmplitudeModulationCanvas.tsx',
-        'MultipathCanvas.tsx',
+        'MultipathReflectionCanvas.tsx',
         'HeterodyningCanvas.tsx',
         'TimeOfFlightCanvas.tsx',
         'ImpedanceCanvas.tsx',

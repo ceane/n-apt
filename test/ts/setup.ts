@@ -153,6 +153,24 @@ global.ResizeObserver = class ResizeObserver {
   }
 };
 
+// Mock IntersectionObserver for testing (e.g. CanvasHarness lazy loading)
+global.IntersectionObserver = class IntersectionObserver {
+  constructor(callback: any) {
+    this.callback = callback;
+  }
+  callback: any;
+  observe(target: Element) {
+    // Synchronously trigger intersection to mount components immediately in tests
+    this.callback([{ target, isIntersecting: true }]);
+  }
+  unobserve() {
+    // Mock implementation
+  }
+  disconnect() {
+    // Mock implementation
+  }
+};
+
 // Mock ImageData for canvas testing
 global.ImageData = class ImageData {
   width: number;
