@@ -17,8 +17,12 @@ export const assetUrl = (path: string): string => {
 
   const baseUrl = getBaseUrl();
   
-  // Strip environment-specific prefix if hardcoded, then ensure it's root-relative
+  // Clean the path: remove any existing /md-preview/ or the current baseUrl prefix
   let cleaned = path.replace(/^\/md-preview\//, "/");
+  if (baseUrl !== "/" && cleaned.startsWith(baseUrl)) {
+    cleaned = cleaned.slice(baseUrl.length - 1);
+  }
+  
   if (!cleaned.startsWith("/")) cleaned = `/${cleaned}`;
 
   return `${baseUrl}${cleaned.slice(1)}`;

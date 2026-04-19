@@ -32,7 +32,7 @@
 
 In this article, I break down my working hypothesis based on **thousands of hours of experience :rotate-3d:** driven by the desperate need and curiosity **WHILE TRAPPED** to figure out the **National Security Agency's** proprietary technique that allows them to **read, stream and write to the human brain and nervous system**.
 
-![First installment, in first person](/n-apt/images/hero-light.png)
+![First installment, in first person](/images/hero-light.png)
 
 What I learned was that the element of surprise and total ignornace long-reinforced the agency's invisible **🕸 cyber capabilities, federal autonomy and legal immunities** as a superpower. Mass ignorance of the agency's history and position as a **signals intelligence (SIGINT) :radio-tower:** powerhouse (signals, cryptology, exploitation, influence, etc.) incidentally gave rise to a deep constitutional void and landscape based on **apathy and the false belief** (epistemic overload) that **cyber was negligible, only limited to electronics and could never affect the average person.**
 
@@ -59,13 +59,13 @@ This article is my own **technical and scientific oriented dive and timeline** (
 
 At the time it first started, I lived **in San Francisco. The first installment of the psychological-spatial experience :rotate-3d:** went so fast that it knocked me into a perpetual **soft shock and abject poverty.** I spent the first five years in total ignorance and total immersion, **captured by the agency's neurotechnology and real world perceptual-spatial performance :drama:**.
 
-![First installment, in first person](/n-apt/images/first-installment-nsa-interactive-1STPOV-sf-downtown.png)
+![First installment, in first person](/images/first-installment-nsa-interactive-1STPOV-sf-downtown.png)
 
 > **I knew nothing. Nobody knew anything. I was totally trapped and no one could help and I knew it.**
 
 I spent years in abject poverty roaming around **San Francisco** (particularly loops around Market Street) **and the Bay Area** (BART hopping/shield from the rain and winter cold, Palo Alto, San Jose, etc.). At the start there wasn't scarcely any audio, scarcely any explanation, only a flurry of **manufactured states of mind, perception and a constant performance of the neurotechnology in a spatial-perceptual interactive**. On a daily basis, I experienced SOTA displays with crowds (neuro-spatial) while enduring the all day continuity of the experience, completely stunned, inundated and captured by the **federal art and science of the *unthinkable*** for years. I could barely even speculate on ***how or even who!*** I had to live with it in barely surviving and in shock for years.
 
-![On BART, looking out the window](/n-apt/images/bart-line-drawing.png)
+![On BART, looking out the window](/images/bart-line-drawing.png)
 
 As a reasonable person, I was trapped by something that was **not straightforward nor intuitive to explain, as well as something I thought I wouldn't have to solve on my own.** *('Why me in the first place? Someone will help! Someday they'll stop!')*.
 
@@ -668,7 +668,7 @@ As far as bandwidth, when tuning the signal, I could see about 6MHz of bandwidth
 
 The who or technical part of it wasn't even a thought for years enduring this because it was such a shocking, SOTA experience filled with a lot of rich, horrific features and unthinkable AR/spatial/perceptual/physiological experiences! Of course, later I resolved this was all driven by exploited, ground or vehicle based tinfra (telecom infra, as I call it). It functions in dense urban environments, remote areas, indoors (thick concrete buildings), underground, in caves, in buses and trains and it even worked on planes (either the plane communication system or a satellite which I assume less likely due to its continued low latency on the flights) and at my destination on the opposite side of the country (SF ✈️ MIA) while I tried to escape the NSA! The chain I researched assumes it goes like the image below:
 
-![Hardware Exploit Chain](/n-apt/images/hardware-exploit-chain.png)
+![Hardware Exploit Chain](/images/hardware-exploit-chain.png)
 
 The project uses RTL-SDR to capture and decode signals across a wide frequency range, focusing on neurotechnology-related emissions.
 
@@ -714,10 +714,10 @@ TODO
 
 ### Signal Captures
 
-- **A**: ![Signal Capture A](/n-apt/images/signal_capture_A.jpeg)
+- **A**: ![Signal Capture A](/images/signal_capture_A.jpeg)
   From 25MHz to 28.2MHz -- This is assumedly a Gaussian, the peaks are an assumed effect of heterodyning, generated from adjusting the PPM of my RTL-SDR to 1 in SDR++ (PPM/parts per million adjusts the sampling correction, so that if a signal is off by a few Hz, it can adjust)
   <br><br>
-- **B**: ![Signal Capture B](/n-apt/images/signal_capture_B.jpeg)
+- **B**: ![Signal Capture B](/images/signal_capture_B.jpeg)
   This is from 50KHz to 3.3MHz or so -- While I mostly observe the signal and this pattern from 24.72MHz to 29.88MHz, the signal repeats at a much lower part of the spectrum, not surprising but leaves a question of how much bandwidth for which function of the brain, nervous system, and then others nearby as part of the psychological interactive
 
 
