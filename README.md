@@ -6,9 +6,9 @@
 
 
 > [!IMPORTANT]
-> **READ THE [LICENSE](LICENSE.md) AND [RESPONSIBLE USE](RESPONSIBLE_USE.md) BEFORE YOU DOWNLOAD OR FORK!**
+> **READ THE [LICENSE](LICENSE.md) and [RESPONSIBLE USE](RESPONSIBLE_USE.md) BEFORE YOU DOWNLOAD OR FORK!**
 >
-> Check out the [article](https://ceane.github.io/n-apt/) or my [X / @ceane_of](https://x.com/ceane_of) to read more. *In reality there are no answers but here, you can hit up as many LLMs, search engines, file as many FOIAs as possible, but they will not help. This repo, my firsthand experience and efforts help.*
+> Check out the [ARTICLE](https://ceane.github.io/n-apt/) or my [X / @ceane_of](https://x.com/ceane_of) to read more. *In reality there are no answers but here, you can hit up as many LLMs, search engines, file as many FOIAs as possible, but they will not help. This repo, my firsthand experience and efforts help.*
 >
 > As of now, this repo **CANNOT** demodulate (signal->media) N-APT, I have extremely limited resources and it's a work in progress.
 
