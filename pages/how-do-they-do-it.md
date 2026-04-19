@@ -691,7 +691,6 @@ TODO
 Some neuronal ensembles have smaller data throughput, where spikes and clumps are more compressed and closer together.
 
 
-
 ### Signals processing
 
 In order to read anything that comes back, the NSA uses advanced signals processing to decode neuronal

@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { assetImageUrl } from "./utils/asset-helpers";
 const BODY_CHARACTER_SRC = assetImageUrl("body-attenuation-character.png");
 
