@@ -90,15 +90,6 @@ const renderDisplayExpression = (expression: string) => katex.renderToString(exp
   output: "html",
 });
 
-type HotModuleApi = {
-  on: (event: string, callback: (payload: { path?: string }) => void) => void;
-  off?: (event: string, callback: (payload: { path?: string }) => void) => void;
-};
-
-const getHotModuleApi = () => {
-  return (globalThis as typeof globalThis & { import?: { meta?: { hot?: HotModuleApi } } }).import?.meta?.hot;
-};
-
 type LatexBlockProps = React.HTMLAttributes<HTMLElement> & {
   "data-expressions"?: string;
 };
@@ -272,7 +263,7 @@ const App: React.FC = () => {
   }, [activeSource, fetchMarkdown]);
 
   useEffect(() => {
-    const hot = getHotModuleApi();
+    const hot = import.meta.hot;
     if (!hot) {
       return;
     }
@@ -289,7 +280,7 @@ const App: React.FC = () => {
 
     hot.on("pages:update", handleUpdate);
     return () => {
-      hot.off?.("pages:update", handleUpdate);
+      hot.off("pages:update", handleUpdate);
     };
   }, [activeSource, fetchMarkdown]);
 
@@ -339,6 +330,7 @@ const App: React.FC = () => {
     <ThemeProvider theme={theme as any}>
       <GlobalStyle />
       <Page>
+        <ScrollToContents href="#table-of-contents">Scroll to Contents</ScrollToContents>
         <ArticleContent>
           <ReactMarkdown
             remarkPlugins={[
@@ -385,6 +377,31 @@ const Page = styled.div`
   flex-direction: column;
   padding: 0;
   min-width: 0;
+`;
+
+const ScrollToContents = styled.a`
+  position: fixed;
+  right: 24px;
+  top: 50px;
+  color: #9eaeff;
+  text-decoration: none;
+  font-size: 0.85rem;
+  background: rgba(40, 55, 128, 0.85);
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(158, 174, 255, 0.2);
+  z-index: 100;
+  transition: all 0.2s ease;
+  backdrop-filter: blur(4px);
+
+  &:hover {
+    background: rgba(40, 55, 128, 0.95);
+    border-color: rgba(158, 174, 255, 0.4);
+  }
+
+  @media (max-width: 768px) {
+    display: none;
+  }
 `;
 
 const ArticleContent = styled.article`

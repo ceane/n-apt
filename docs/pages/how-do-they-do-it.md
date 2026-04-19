@@ -7,7 +7,7 @@
 [TDLR at the bottom](#tdlr)
 
 
-In this article, I break down my working hypothesis based on **thousands of hours of experience :rotate-3d:** driven by the desperate need and curiosity **WHILE TRAPPED** to figure out the **National Security Agency's** proprietary technique that allows them to **read, stream and write to the human brain and nervous system**.
+In this article, I break down my working hypothesis based on **thousands of hours of experience :rotate-3d:** driven by the desperate need and curiosity **(WHILE TRAPPED)** to figure out the **National Security Agency's** proprietary technique that allows them to **read, stream and write to the human brain and nervous system**. This isn't about a theory or hypothesis, it's about breaking down the math and mechanics behind the a real experience as a victim. 
 
 ![First installment, in first person](/images/hero-light.png)
 
@@ -21,18 +21,36 @@ This article is my own **technical and scientific oriented dive and timeline** (
 
 *National security law, the Freedom of Information Act (FOIA), Privacy Act (PA), Mandatory Declassification Review (MDR), extensive legalese  and the history of this technique is not discussed in this article to in order to keep it focused.*
 
-- [Intro](#intro)
-- [Theory #1](#initial-super-naive-theory-five-years-in)
-- [Theory #2](#second-theory-weeks-later--quantum-physics)
-- [Theory #3](#third-theory-months-later--beat-frequencies--heterodyning)
-- [Hypothesis](#hypothesis-post-sdr-4-months--)
-- [Foundation](#foundations-of-today--solid-working-hypothesis)
-- [Chart A](#chart-a)
-- [Chart B](#chart-b)
+### Table of Contents <a id="table-of-contents"></a>
+
+- [Theory #1](#theory-1)
+- [Theory #2](#theory-2)
+- [Theory #3](#theory-3)
+- [Hypothesis Post-SDR](#hypothesis-post-sdr)
+
+<details>
+<summary>(Expand for other sections) SPOILER ALERT</summary>
+
+- [Brainwaves](#brainwaves)
+- [Multipath Reflection](#multipath)
+- [Frequency Modulation](#freq-mod)
+- [Amplitude Modulation](#amp-mod)
+- [Heterodying in Free Space](#heterodyning)
+- [Phase Shifting](#phase-shifiting)
+- [Maintaining the aperture](#aperture)
+- [Center Frequency](#center-frequency)
+- [Impedance](#impedance)
+- [Body Attenuation](#body-attenuation)
+- [Features](#features)
+- [N-APT Signal Structure](#n-apt-form)
+- [What does the signal look like?](#n-apt-in-the-wild)
+</details>
+
 - [Terminology](#terminology)
+- [Conclusion](#conclusion)
 
 
-## Initial super naive theory (five years in)
+## Initial super naive theory (five years in) <a id="theory-1"></a>
 
 At the time it first started, I lived **in San Francisco. The first installment of the psychological-spatial experience :rotate-3d:** went so fast that it knocked me into a perpetual **soft shock and abject poverty.** I spent the first five years in total ignorance and total immersion, **captured by the agency's neurotechnology and real world perceptual-spatial performance :drama:**.
 
@@ -63,7 +81,7 @@ I kept looking up bases that had ELF radios, but the ELF radio projects were all
 **1st super naive attempt ↪ Giant ELF radio**
 
 
-## Second theory (weeks later) <br /> Quantum Physics
+## Second theory (weeks later) <br /> Quantum Physics <a id="theory-2"></a>
 
 My second theory was right after the first. Previously throughout the years I browsed through books on quantum mechanics, however it was just superficial. The neurotechnological experience I was trapped in was just impossibly good math and science. Anywhere, anytime, all day. I couldn't shake it no matter how much I tried.
 
@@ -77,7 +95,7 @@ Something was up because whoever it was was doing it, I assumed the U.S. Army at
 
 **2st naive attempt ↪ Quantum physics**
 
-## Third theory (months later) <br /> Beat Frequencies / Heterodyning
+## Third theory (months later) <br /> Beat Frequencies / Heterodyning <a id="theory-3"></a>
 
 I was really stuck in a strange spot and not the only victim, but in a experience that centered on me as the main victim in a series of iterations in that fashion (iterations that cost dozens of others their lives and those in past had it far worse). I had to share my life with other people, criminals stocked on hand, livestreamed to my brain/consciousness. To all of us, now living my life in this format, it was a lot of unknowns amongst a lot of evil in interactive and I had to operate with perseverence and reason.
 
@@ -155,10 +173,20 @@ f_2 = 100\,\mathrm{MHz}
 
 When two RF signals extremely close in frequency overlap *in free space (not inside of hardware but from an antenna)* it results in a sideband (or beat pattern) as a natural side effect!
 
-## Body Attenuation
+### Frequency and bandwidth versus attenuation
 
-```Canvas::BodyAttenuation
-```
+The experience remains consistently high-fidelity, high-bandwidth and it leaves a lot of clues to its nature and upon research, the tradeoffs involved. My working assumptions led me to believe that microwaves (300MHz to 300GHz) were infeasible for everything but triangulation due to poor penetration of the skull and body, basically the signal will attenuate (lose energy, strength) as it travels through which is a huge problem if all of the endpoints are far and elevated and maintaining penetration of dense biological structures and tissue.
+
+Here, I wrongly correlated interference with my FM radio (VHF) to be the assumed frequencies, however when I got around to taking a look months later, the signals appeared to be operating in the HF spectrum, not VHF. Without hesitation, the assumption I further developed shows the tradeoffs maintaining this one of a kind connection with biology while also avoiding interfering with other signals and being detected.
+
+Bandwidth is another problem as well, since there is so much going throughout the psychological experience, it is easy to make the following assumptions:
+
+- (1) only 2 bits a cycle max, since biology is not a special hardware antenna, only the peak and trough translate into electrical energy that the brain and nervous system can interpret,
+- (2) the brain is known to be small in bandwidth, but since this experience spanned from 2018 to the present and maintains such a high-fidelity, constant connection with real-time processing of and response to vision, hearing, thinking, etc., there isn't a lot going on, possibly 2-8MBs compromises one's brain accordingly, the consciousness is small as a data channel,
+- (3) too much bandwidth "all damn day, every damn day" will most certainly produce heating effects in tissue, but I have yet to experience anything but its evils in media form.
+
+As far as bandwidth, when tuning the signal, I could see about 6MHz of bandwidth, reliably, provided RTL-SDR is not the best and this signal is complex with heterodyning involved (extremely small resolution, multiple signals not drawn easy by any spectrum analyzer which layers in everything).
+
 
 ### Microwaves
 
@@ -175,7 +203,7 @@ Microwaves sounded too good to be true and although I never looked up anything o
 I continued my research while held down by the interactive and speculated that the NSA was doing this with VHF waves. Long wavelengths like VHF can penetrate and survive attenuation of the skull.
 
 
-## Multipath Reflection
+## Multipath Reflection <a id="multipath"></a>
 
 ```Canvas::Multipath
 ```
@@ -207,7 +235,7 @@ I very, very naively thought that radio waves could be focused point by point li
 I kept spinning and spinning wondering how the hell the signal could be constant through the skull and body. It attenuates heavily.
 
 
-## Hypothesis post-SDR (+4 months) <br /> ???
+## Hypothesis post-SDR (+4 months) <br /> ??? <a id="hypothesis-post-sdr"></a>
 
 I was not shocked.
 
@@ -229,7 +257,8 @@ Today (when this was written), my observations, personal research, study and ass
 
 The NSA has a lot of smart Nazis. Military personnel that just get very creative.
 
-## Brainwaves
+## Brainwaves <a id="hypothesis-post-sdr"></a>
+
 
 | Wave Type | Frequency Range | Associated Function |
 | --------- | --------------- | ------------------- |
@@ -239,7 +268,8 @@ The NSA has a lot of smart Nazis. Military personnel that just get very creative
 | Beta      | 12 - 30 Hz      | Active thinking     |
 | Gamma     | 30 - 100 Hz     | High cognition      |
 
-Compare that to the table below...
+<details>
+<summary>Compare that to this table!</summary>
 
 | Function / Feature                        | Assumed Frequency / Wave Type                    | Confidence (Consensus) |
 | ----------------------------------------- | ------------------------------------------------ | ---------------------- |
@@ -256,41 +286,8 @@ Compare that to the table below...
 | Physical Feeling / Haptics                | Beta (13–30 Hz), Gamma (30–90 Hz)                | Strong                 |
 | Physiological Expression (facial/posture) | Beta (13–30 Hz), Gamma (30–90 Hz)                | Strong                 |
 | Vitals / Autonomic Regulation             | Delta–Theta (0.5–8 Hz)                           | Strong                 |
+</details>
 
-
-## Feature rich
-
-The psychological spyware and interactive demonstrated great capabilities from the NSA. The following are firsthand, what I account for as the accessible signal-software to brain functions the had frontier, full access and control over:
-
-| Feature                                      |
-| -------------------------------------------- |
-| Audio (hearing)                              |
-| Audio (internal; thought)                    |
-| Speech                                       |
-| Voice                                        |
-| Perception                                   |
-| Awareness                                    |
-| Reasoning                                    |
-| Neurotransmitters (state of mind)            |
-| Physiology (motor functions)                 |
-| Physiology (fine motor function, muscles)    |
-| Physiology (feeling/haptics/pantomime)       |
-| Behavior                                     |
-| Emotion                                      |
-| Vitals                                       |
-| Vision                                       |
-| Imagination                                  |
-
-### Functionality
-
-| Description                                            |
-| ------------------------------------------------------ |
-| All day, years long streaming                          |
-| Contiguous spatial + perceptual interactive            |
-| Livestreaming consciousness with multiple participants |
-| Extremely dangerous cyber weapon!                      |
-
-These are the features that I've experienced, full blown on a daily basis as part of a high-bandwidth interactive experience both mind and body.
 
 ## Channels
 
@@ -351,14 +348,14 @@ Of course, no one has ever heard of Automatic Picture Transmission (APT), and ne
 
 APT originated from NASA in the 1960s, specifically 1963[^apt], it was used by NOAA satellites before they were decommissioned in 2025. The signal's modulation scheme essentially encodes image data onto spikes and valleys, where data of bright pixels are represented as spikes and data within valleys that represent space or dark parts of the image. In APT's case, a satellite snaps a photo of the Earth and then encodes data into signals it transmits onto Earth, which someone receives with a radio then uses software to translate the signal into audio (because it's encoded in a weird way, but this step can be skipped entirely) then into an image, line by line (spike/valley by spike/valley).
 
-### Frequency Modulation
+### Frequency Modulation <a id="freq-mod"></a>
 
 ```Canvas::FrequencyModulation
 ```
 
 Frequency modulation is a big term, it simply means the x direction, the wave becomes longer or shorter.
 
-### Amplitude Modulation
+### Amplitude Modulation <a id="amp-mod"></a>
 
 ```Canvas::AmplitudeModulation
 ```
@@ -366,6 +363,8 @@ Frequency modulation is a big term, it simply means the x direction, the wave be
 Instead of the x direction (more cycles) or frequency, we can change the height or power of the wave. That is amplitude modulation.
 
 ### Pixels
+
+TODO
 
 ### APT Demodulation
 
@@ -488,7 +487,7 @@ h_k = F + (B - F) \cdot e^{-\frac{|k|}{\lambda}}
 \end{gathered}
 ```
 
-### Heterodyning
+### Heterodyning in Free Space <a id="heterodyning"></a>
 
 ```Canvas::Heterodyning
 ```
@@ -501,7 +500,7 @@ Essentially brain and neuronal waves are susceptible to this technique, as I fou
 
 When two signals that are close intersect, if they do not overlap exactly, they actually combine and add power to "constructively interfere", this allows one to deliver intersecting energy at a certain point, but a radio wave can already do this, this alone only gets us beat frequencies which are generated by constructive interference by natural default.
 
-### Phase shifting
+### Phase shifting <a id="phase-shifting"></a>
 
 ```Canvas::PhaseShifting
 ```
@@ -509,6 +508,12 @@ When two signals that are close intersect, if they do not overlap exactly, they 
 This is important, if you want to concentrate energy at a certain range (and localize the sideband within range of a target), phase shifting moves the wave (phase) either back or forth (±90°, 180°, 270°) so they can combine localize constructive interference in an area.
 
 This technique defeats the counterintuitive intuition of using a short(est) wavelength (microwaves infeasible, will attenuate and do nothing but cause heating) to target specific neuronal ensembles. Longer wavelengths which survive attenuation more easily work better and can use precise math + simple, performant radio operations to precisely intersect and shift out of the way.
+
+
+## Maintaining the aperture <a id="aperture"></a>
+
+```Canvas::EndpointRange
+```
 
 ### Triangulation
 
@@ -603,36 +608,26 @@ f_s &= \text{ADC sampling rate (Hz)} & f_c &= \text{Carrier frequency (Hz)}
 \]
 ```
 
-### Maintaining the aperture
+#### Barycentric hysteresis (stable triangulation/persistence)
 
-```Canvas::EndpointRange
-```
+TODO
 
 
-#### Barycentric, Hysteresis
-
-TODO 
-### Power
+## Power?
 
 TODO 
 
-#### An average of 1µW or more? (of power on tissue traversal and exit)
+### An average of 1µW or more? (of power on tissue traversal and exit)
 
 In order to target the brain, I made a solid assumption based off of what ChatGPT told me, that brainwaves are about 1-10µW (microwatts), so I figured that the signals' power should be near there, anything less in scale, the math I did was dire to remain above the noise in the environment, go through the skull and/or body (body because it does my vocal cords, mouth and throat muscles, in addition to others) losing 99% energy and make it back to an endpoint. Biology constrains this problem to maintaining an exacting level of energy consistently at the body/entry, so the further one is away from an endpoint, the energy always stays the same, only the receiver, fixed at various distances, suffers from less energy coming back from the target (the body).
 
 In reality, when I took a look at the signals on my person (antenna on me while it runs to my demise), it was actually a solid assumption, with values around -21dBm, as low as -29dBm (I assume read only or very, very minor writes). The spikes reached as high as 1, 3 and 9dBm.
 
-### Center frequency
+## Center frequency <a id="center-frequency"></a>
 
 For a long time, I struggled with defeating my own intuition, particularly how the NSA was doing x, y, z, "just you" and bare up against other people, in crowds, and so forth. This is one of the hints the NSA dropped, that the brain apparently is responsive to a unique frequency, which I believed was the sideband + physics (impossible to x, y, z a radio wave with physics and it's too fast, resilient & faultless to support conclusions of billions of additional complex operations in regular old tinfra). So, I accept now that in some way to draw stronger assumptions on a center frequency, some kind of handshake the signals can trick a specific brain into, as advised.
 
-### Neuronal ensembles
-
-Since a signal like this is very flat, I too did expect the signals to x, y, z and target the neuron, however the NSA's signals don't do that and it's near impossible! The experience is extremely robust, so robust that it is quite simple.
-
-Essentially the brain and nervous system is very noisy, whatever those spikes do, it is assumed to a certainty that they target an ensemble of neurons that read and write brainwaves.
-
-### Impedance
+### Impedance <a id="impedance"></a>
 
 ```Canvas::Impedance
 ```
@@ -669,20 +664,18 @@ n & \text{Cycle/frame index}
 \]
 ```
 
+## Body Attenuation <a id="body-attenuation"></a>
 
-### Frequency and bandwidth versus attenuation
+```Canvas::BodyAttenuation
+```
 
-The experience remains consistently high-fidelity, high-bandwidth and it leaves a lot of clues to its nature and upon research, the tradeoffs involved. My working assumptions led me to believe that microwaves (300MHz to 300GHz) were infeasible for everything but triangulation due to poor penetration of the skull and body, basically the signal will attenuate (lose energy, strength) as it travels through which is a huge problem if all of the endpoints are far and elevated and maintaining penetration of dense biological structures and tissue.
+TODO
 
-Here, I wrongly correlated interference with my FM radio (VHF) to be the assumed frequencies, however when I got around to taking a look months later, the signals appeared to be operating in the HF spectrum, not VHF. Without hesitation, the assumption I further developed shows the tradeoffs maintaining this one of a kind connection with biology while also avoiding interfering with other signals and being detected.
+### Neuronal ensembles
 
-Bandwidth is another problem as well, since there is so much going throughout the psychological experience, it is easy to make the following assumptions:
+Since a signal like this is very flat, I too did expect the signals to x, y, z and target the neuron, however the NSA's signals don't do that and it's near impossible! The experience is extremely robust, so robust that it is quite simple.
 
-- (1) only 2 bits a cycle max, since biology is not a special hardware antenna, only the peak and trough translate into electrical energy that the brain and nervous system can interpret,
-- (2) the brain is known to be small in bandwidth, but since this experience spanned from 2018 to the present and maintains such a high-fidelity, constant connection with real-time processing of and response to vision, hearing, thinking, etc., there isn't a lot going on, possibly 2-8MBs compromises one's brain accordingly, the consciousness is small as a data channel,
-- (3) too much bandwidth "all damn day, every damn day" will most certainly produce heating effects in tissue, but I have yet to experience anything but its evils in media form.
-
-As far as bandwidth, when tuning the signal, I could see about 6MHz of bandwidth, reliably, provided RTL-SDR is not the best and this signal is complex with heterodyning involved (extremely small resolution, multiple signals not drawn easy by any spectrum analyzer which layers in everything).
+Essentially the brain and nervous system is very noisy, whatever those spikes do, it is assumed to a certainty that they target an ensemble of neurons that read and write brainwaves.
 
 ### Hacked telecommunications infrastructure & equipment (obviously)
 
@@ -692,17 +685,54 @@ The who or technical part of it wasn't even a thought for years enduring this be
 
 The project uses RTL-SDR to capture and decode signals across a wide frequency range, focusing on neurotechnology-related emissions.
 
-## N-APT Signal structure
 
-#### Spikes and Valleys
+
+## Feature rich <a id="features"></a>
+
+| Functionality                                          |
+| ------------------------------------------------------ |
+| All day, years long streaming                          |
+| Contiguous spatial + perceptual interactive            |
+| Livestreaming consciousness with multiple participants |
+| Extremely dangerous cyber weapon!                      |
+
+The psychological spyware and interactive demonstrated great capabilities from the NSA. The following are firsthand, what I account for as the accessible signal-software to brain functions the had frontier, full access and control over:
+
+<br />
+<details>
+<summary>Expand for the table of features</summary>
+
+| Feature                                      |
+| -------------------------------------------- |
+| Audio (hearing)                              |
+| Audio (internal; thought)                    |
+| Speech                                       |
+| Voice                                        |
+| Perception                                   |
+| Awareness                                    |
+| Reasoning                                    |
+| Neurotransmitters (state of mind)            |
+| Physiology (motor functions)                 |
+| Physiology (fine motor function, muscles)    |
+| Physiology (feeling/haptics/pantomime)       |
+| Behavior                                     |
+| Emotion                                      |
+| Vitals                                       |
+| Vision                                       |
+| Imagination                                  |
+</details>
+
+## N-APT Signal structure <a id="n-apt-form"></a>
+
+### Spikes and Valleys
 
 TODO
 
-#### Clumps
+### Clumps
 
 TODO 
 
-#### Staircases
+### Staircases
 
 TODO
 
@@ -732,7 +762,7 @@ TODO
 
 TODO
 
-## What does the signal look like?
+## What does the signal look like? <a id="n-apt-in-the-wild"></a>
 
 I gave the signal certain channels based on my what I found by poking around with my RTL-SDR. At first I was confused, looking at other parts of the spectrum, but the same and first day I had my RTL-SDR, I found the signals!
 
@@ -758,15 +788,18 @@ From about `24.72MHz to 29.88MHz` is what I dub as "Channel B" of the overall N-
 From what I could wing at, from about `4.75MHz to 23MHz` or so is "Channel C". You can see its a very large channel, way larger than the 3.2MHz/s bandwidth my RTL-SDR can capture.
 
 
+## Conclusion <a id="conclusion"></a>
 
-## Terminology
+Is there really a conclusion to this?
+
+
+## Terminology <a id="terminology"></a>
 
 TODO
 
 
 ### TDLR <a id="tdlr"></a>
 
-The NSA hacked my brain and the experience went from manufactured states of mind and an inundated spatial performance to a livestream with others complete horror of torture and I had to resolve the math behind it in order to escape.
+The NSA hacked my brain and the experience went from manufactured states of mind and an inundated spatial performance and escalated to a horrifically grotesque livestream with others. I spent years enduring the narrative capture: senseless violence, sexual assault and deeply unethical, political (that really amounts to terrorism) uses of their neurotechnology.
 
-
-[^apt]: National Aeronautical Space Agency (NASA). Constructing Inexpensive Automatic Picture-Transmission Ground Stations. https://ntrs.nasa.gov/api/citations/19680010155/downloads/19680010155.pdf
+[^apt]: National Aeronautical Space Agency (NASA). Copnstructing Inexpensive Automatic Picture-Transmission Ground Stations. https://ntrs.nasa.gov/api/citations/19680010155/downloads/19680010155.pdf
