@@ -3,7 +3,8 @@ import { Canvas } from "@react-three/fiber";
 import styled from "styled-components";
 import * as THREE from "three";
 import { WebGPURenderer } from "three/webgpu";
-import { theme } from "../../../theme";
+import { theme } from "@n-apt/md-preview/consts/theme";
+import CanvasHarness from "@n-apt/md-preview/components/canvas/CanvasHarness";
 
 const Frame = styled.div`
   width: 100%;
@@ -63,13 +64,13 @@ export const SignalCanvasFrame: React.FC<React.PropsWithChildren<{ title: string
   title,
   overlay,
 }) => (
-  <Frame>
+  <CanvasHarness aspectRatio={theme.layout.aspectRatio}>
     <CanvasHost>{children}</CanvasHost>
     <Overlay>
       <RendererBadge>{title}</RendererBadge>
       {overlay}
     </Overlay>
-  </Frame>
+  </CanvasHarness>
 );
 
 export const SignalGraphFrame: React.FC<React.PropsWithChildren<{ title: string; overlay?: React.ReactNode }>> = ({
@@ -77,13 +78,13 @@ export const SignalGraphFrame: React.FC<React.PropsWithChildren<{ title: string;
   title,
   overlay,
 }) => (
-  <Frame>
+  <CanvasHarness aspectRatio={theme.layout.aspectRatio}>
     {children}
     <Overlay>
       <RendererBadge>{title}</RendererBadge>
       {overlay}
     </Overlay>
-  </Frame>
+  </CanvasHarness>
 );
 
 export const CanvasHost: React.FC<React.PropsWithChildren> = ({ children }) => {

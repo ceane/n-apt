@@ -4,7 +4,8 @@ import { Html } from "@react-three/drei";
 import * as THREE from "three";
 import styled, { keyframes } from "styled-components";
 
-import { theme } from "../../theme";
+import { theme } from "@n-apt/md-preview/consts/theme";
+import CanvasHarness from "@n-apt/md-preview/components/canvas/CanvasHarness";
 
 const BACKGROUND = theme.colors.background;
 
@@ -272,25 +273,12 @@ const subtlePulse = keyframes`
   50% { opacity: 1; }
 `;
 
-const Frame = styled.div`
+// Frame removed because CanvasHarness handles the container, aspect ratio, and background logic.
+const InnerContainer = styled.div`
   width: 100%;
-  margin: 0;
-  border-radius: 18px;
-  overflow: hidden;
-  background: ${BACKGROUND};
-  aspect-ratio: 1.7 / 1;
+  height: 100%;
   position: relative;
-  border: 1px solid rgba(107, 90, 205, 0.15);
-  box-shadow:
-    0 0 60px rgba(107, 90, 205, 0.08),
-    0 4px 24px rgba(0, 0, 0, 0.3),
-    inset 0 1px 0 rgba(255, 255, 255, 0.03);
-
-  canvas {
-    display: block;
-    width: 100% !important;
-    height: 100% !important;
-  }
+  overflow: hidden;
 `;
 
 const Overlay = styled.div`
@@ -767,15 +755,16 @@ const ImpedanceCanvas = () => {
   }, []);
 
   return (
-    <Frame>
-      <Canvas
-        orthographic
-        dpr={[1, 2]}
-        camera={{ position: [0, 0, 10] }}
-        gl={{ antialias: true, alpha: true }}
-      >
-        <SceneContents />
-      </Canvas>
+    <CanvasHarness aspectRatio="1.7 / 1">
+      <InnerContainer>
+        <Canvas
+          orthographic
+          dpr={[1, 2]}
+          camera={{ position: [0, 0, 10] }}
+          gl={{ antialias: true, alpha: true }}
+        >
+          <SceneContents />
+        </Canvas>
 
       <Overlay>
         <TopBar>
@@ -813,7 +802,8 @@ const ImpedanceCanvas = () => {
           <MetaText>Amplitude attenuates</MetaText>
         </BottomMeta>
       </Overlay>
-    </Frame>
+      </InnerContainer>
+    </CanvasHarness>
   );
 };
 

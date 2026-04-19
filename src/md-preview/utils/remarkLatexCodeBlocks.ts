@@ -1,5 +1,5 @@
 import type { Code, Content, Parent } from "mdast";
-import { visitMdastNodes } from "./visitMdastNodes";
+import { visitMdastNodes } from "@n-apt/md-preview/utils/visitMdastNodes";
 
 const LATEX_LANGS = new Set(["latex", "tex"]);
 
