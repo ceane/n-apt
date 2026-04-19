@@ -6,34 +6,6 @@ import { WebGPURenderer } from "three/webgpu";
 import { theme } from "@n-apt/md-preview/consts/theme";
 import CanvasHarness from "@n-apt/md-preview/components/canvas/CanvasHarness";
 
-const Frame = styled.div`
-  width: 100%;
-  min-width: min(100%, 320px);
-  margin: ${theme.spacing.containerMargin};
-  border-radius: ${theme.layout.borderRadius};
-  overflow: hidden;
-  border: 1px solid ${theme.colors.gridBorder};
-  background: ${theme.colors.background};
-  position: relative;
-  aspect-ratio: ${theme.layout.aspectRatio};
-
-  @media (max-width: 640px) {
-    aspect-ratio: ${theme.layout.mobileAspectRatio};
-  }
-
-  > div {
-    width: 100% !important;
-    height: 100% !important;
-  }
-
-  canvas {
-    display: block;
-    width: 100% !important;
-    height: 100% !important;
-    cursor: default;
-  }
-`;
-
 const RendererBadge = styled.div`
   position: absolute;
   top: 14px;

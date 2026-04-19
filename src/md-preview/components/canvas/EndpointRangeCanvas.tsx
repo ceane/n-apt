@@ -1,11 +1,11 @@
 import { useMemo, useRef, useCallback, useEffect, useState } from 'react';
 import styled, { keyframes } from 'styled-components';
-import { LevaPanel, useControls, useCreateStore } from 'leva';
-import { motion } from 'framer-motion';
+import { useControls, useCreateStore } from 'leva';
 import { CanvasImage } from './shared';
 import CanvasHarness from './CanvasHarness';
 import { PretextCanvasText, type PretextCanvasTextRef } from '../../../ts/components/pretext/PretextCanvasText';
-import { generateBinaryString } from "@n-apt/md-preview/utils/canvas-math";
+import { formatFrequency } from '../../../ts/utils/frequency';
+import { generateHexString } from "@n-apt/md-preview/utils/canvas-math";
 
 const COLORS = {
   bg: '#F3F4F6',
@@ -156,7 +156,6 @@ export function EndpointRangeCanvas() {
   };
 
   const [dim, setDim] = useState({ w: 800, h: 450 });
-  const [panelKey, setPanelKey] = useState(0);
   const particlesRef = useRef<{ char: string, x: number, y: number, vx: number, vy: number, opacity: number }[]>([]);
   const wavesRef = useRef<{ angle: number, wavelength: number, amplitude: number, speed: number, offsetX: number, offsetY: number }[]>([]);
 
@@ -282,7 +281,7 @@ export function EndpointRangeCanvas() {
     // Particle spawning (radiating all around the endpoint, reaching lower boundaries)
     if (Math.random() < 0.25) {
       particlesRef.current.push({
-        char: generateBinaryString(1),
+        char: generateHexString(2),
         x: antennaOrigin.x + (Math.random() * antennaOrigin.width - antennaOrigin.width / 2),
         y: antennaOrigin.y + (Math.random() * antennaOrigin.height - antennaOrigin.height / 2),
         vx: (Math.random() - 0.7) * 4, // mostly left, some right
@@ -346,7 +345,7 @@ export function EndpointRangeCanvas() {
   const gap = fontSizeVar * 1.8; // Adjusted to be 1.8 ratio to compensate for smaller font but retain space
   const fontFam = '"JetBrains Mono", monospace';
 
-  const freqStr = Number(freq.toFixed(3));
+  const freqStr = formatFrequency(freq);
   const powerStr = Number(power.toFixed(3));
 
   // Range text logic
@@ -389,7 +388,7 @@ export function EndpointRangeCanvas() {
       />
       <PretextCanvasText
         ref={setRef('row1V')}
-        text={`${freqStr}MHz`}
+        text={freqStr}
         fontSize={fontSizeVar}
         color="#000"
         x={colXValue}

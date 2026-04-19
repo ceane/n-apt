@@ -1,7 +1,7 @@
 import React, { useMemo } from "react";
 import { useThree } from "@react-three/fiber";
 import * as THREE from "three";
-import { SignalCanvasFrame, ZeroLine, WaveLabel, WaveTube, GridBackdrop } from "@n-apt/md-preview/components/canvas/shared";
+import { SignalCanvasFrame, ZeroLine, WaveLabel, WaveTube } from "@n-apt/md-preview/components/canvas/shared";
 import { theme } from "@n-apt/md-preview/consts/theme";
 
 const AmplitudeModulationScene: React.FC = () => {
@@ -27,7 +27,6 @@ const AmplitudeModulationScene: React.FC = () => {
 
   return (
     <>
-      <GridBackdrop />
       <WaveTube points={amWave} color={theme.colors.accent} thickness={0.028} z={0.12} segments={2200} />
     </>
   );

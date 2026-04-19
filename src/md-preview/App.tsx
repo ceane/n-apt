@@ -69,7 +69,7 @@ const MarkdownImage: React.FC<MarkdownImageProps> = ({ src = "", alt = "", ...im
 
   return (
     <Figure $blend={shouldBlend} $hero={isHero}>
-      <img src={assetUrl(src)} alt={alt} {...imgProps} />
+      <img src={assetUrl(src)} alt={alt} loading="lazy" {...imgProps} />
     </Figure>
   );
 };
@@ -111,6 +111,24 @@ const LatexBlock: React.FC<LatexBlockProps> = ({ "data-expressions": serializedE
   );
   const blockRef = useRef<HTMLDivElement | null>(null);
   const expressionRefs = useRef<Array<HTMLDivElement | null>>([]);
+  const [isVisible, setIsVisible] = useState(false);
+  const [hasLoaded, setHasLoaded] = useState(false);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          setIsVisible(true);
+          setHasLoaded(true);
+        } else {
+          setIsVisible(false);
+        }
+      });
+    }, { rootMargin: '200px 0px 200px 0px', threshold: 0 });
+
+    if (blockRef.current) observer.observe(blockRef.current);
+    return () => observer.disconnect();
+  }, []);
 
   useLayoutEffect(() => {
     const resizeExpressions = () => {
@@ -167,15 +185,24 @@ const LatexBlock: React.FC<LatexBlockProps> = ({ "data-expressions": serializedE
 
   return (
     <LatexBlockContainer ref={blockRef}>
-      {renderedExpressions.map((html, index) => (
-        <LatexExpressionRow
-          key={`${index}-${expressions[index] ?? ""}`}
-          ref={(node: HTMLDivElement | null) => {
-            expressionRefs.current[index] = node;
-          }}
-          dangerouslySetInnerHTML={{ __html: html }}
-        />
-      ))}
+      {hasLoaded && (
+        <div style={{
+          width: '100%',
+          opacity: isVisible ? 1 : 0,
+          pointerEvents: isVisible ? 'auto' : 'none',
+          transition: 'opacity 0.3s ease'
+        }}>
+          {renderedExpressions.map((html, index) => (
+            <LatexExpressionRow
+              key={`${index}-${expressions[index] ?? ""}`}
+              ref={(node: HTMLDivElement | null) => {
+                expressionRefs.current[index] = node;
+              }}
+              dangerouslySetInnerHTML={{ __html: html }}
+            />
+          ))}
+        </div>
+      )}
     </LatexBlockContainer>
   );
 };
@@ -668,6 +695,10 @@ const LatexBlockContainer = styled.div`
   min-width: 0;
   overflow: hidden;
   margin: 1.5em 0;
+  will-change: transform, opacity;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 100px;
+  isolation: isolate;
 `;
 
 const LatexExpressionRow = styled.div`

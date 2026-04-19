@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { useTexture } from "@react-three/drei";
-import styled from "styled-components";
 import * as THREE from "three";
 import { CanvasText } from "@n-apt/md-preview/components/CanvasText";
 import { assetImageUrl } from "@n-apt/md-preview/utils/asset-helpers";
@@ -691,8 +690,8 @@ const BinaryRow = ({ x, y, widthWorld }: { x: number; y: number; widthWorld: num
   });
 
   const { texture, width, height } = useMemo(() => {
-    // Only one zero or one, randomly chosen
-    const text = CanvasMath.generateBinaryString(1);
+    // Only one hex char or one, randomly chosen
+    const text = CanvasMath.generateHexString(2);
 
     const canvas = document.createElement("canvas");
     const ctx = canvas.getContext("2d");
@@ -1081,10 +1080,5 @@ const BodyAttenuationWebGPUCanvas: React.FC = () => {
     </CanvasHarness>
   );
 };
-
-// Removed local Frame as it is replaced by CanvasHarness.
-const RendererBadge = styled.div`
-  display: none;
-`;
 
 export { BodyAttenuationWebGPUCanvas as BodyAttenuationCanvas };
