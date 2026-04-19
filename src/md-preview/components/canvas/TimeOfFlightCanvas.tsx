@@ -8,8 +8,8 @@ import * as THREE from "three";
 import { CanvasText } from "../../CanvasText";
 import { theme } from "../../theme";
 
-const BASE_URL = "";
-const BODY_CHARACTER_SRC = `${BASE_URL}/md-preview/images/body-attenuation-character.png`;
+import { assetImageUrl } from "@n-apt/md-preview/utils/asset-helpers";
+const BODY_CHARACTER_SRC = assetImageUrl("body-attenuation-character.png");
 
 const BACKGROUND_COLOR = theme.colors.background;
 

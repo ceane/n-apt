@@ -36,8 +36,7 @@
 import { useCallback, useRef } from "react";
 import { OverlayTextureRenderer } from "@n-apt/hooks/useWebGPUInit";
 import { LINE_COLOR, SHADOW_COLOR, FFT_AREA_MIN } from "@n-apt/consts";
-import { SPECTRUM_SHADER } from "@n-apt/shaders";
-import { RESAMPLE_WGSL } from "@n-apt/consts/shaders/resample";
+import { SPECTRUM_SHADER, RESAMPLE_WGSL } from "@n-apt/shaders";
 import { configureWebGPUCanvas, parseCssColorToRgba } from "@n-apt/utils/webgpu";
 
 const readCssColor = (name: string, fallback: string) => {
@@ -46,7 +45,7 @@ const readCssColor = (name: string, fallback: string) => {
   return value || fallback;
 };
 
-// Shaders are imported from @n-apt/consts/shaders/
+// Shaders imported from @n-apt/shaders/
 
 export type SpectrumRenderParams = {
   canvasWidth: number;
