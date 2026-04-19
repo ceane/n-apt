@@ -2,14 +2,13 @@
 <html lang="en">
   <head>
     <!-- Google Analytics -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-R2QV8V8GZG"></script>
     <script>
-      if (!['localhost', '127.0.0.1'].includes(location.hostname)) {
-        document.write('<script async src="https://www.googletagmanager.com/gtag/js?id=G-R2QV8V8GZG"><\/script>');
-        window.dataLayer = window.dataLayer || [];
-        function gtag(){dataLayer.push(arguments);}
-        gtag('js', new Date());
-        gtag('config', 'G-R2QV8V8GZG');
-      }
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+
+      gtag('config', 'G-R2QV8V8GZG');
     </script>
     <style>
       .repo-banner {
