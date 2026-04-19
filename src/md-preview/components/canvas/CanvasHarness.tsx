@@ -32,6 +32,17 @@ const HarnessContainer = styled.div<{ $aspectRatio: string }>`
     aspect-ratio: unset;
     margin: 0;
   }
+
+  @media (max-width: 640px) {
+    width: 100vw;
+    margin-left: 50%;
+    transform: translateX(-50%);
+    border: none;
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+    margin-right: calc(-50vw + 100%);
+  }
 `;
 
 const TextOverlayContainer = styled.div`
@@ -175,12 +186,12 @@ export function CanvasHarness({
 
       {store && showToggleDot && (
         <>
-          <ControlsToggleDot 
+          <ControlsToggleDot
             onClick={handleToggleControls}
             title={showControls ? "Hide Controls" : "Show Controls"}
-            style={{ 
-              opacity: showControls ? 0 : 1, 
-              pointerEvents: showControls ? 'none' : 'auto' 
+            style={{
+              opacity: showControls ? 0 : 1,
+              pointerEvents: showControls ? 'none' : 'auto'
             }}
           />
 
@@ -223,7 +234,7 @@ export function CanvasHarness({
           </AnimatePresence>
         </>
       )}
-      
+
       {/* Optional Fullscreen Toggle could be added here in the future */}
     </HarnessContainer>
   );
