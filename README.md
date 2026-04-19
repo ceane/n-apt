@@ -311,7 +311,7 @@ N-APT is a project born out of being attacked and held hostage by the NSA becaus
 The experience is like a horror movie but totally changes psychology (emotions, thoughts, perception) and physiology (expression, muscles, neurotransmitters, etc.), it is a prison of mind and body. The parental, demonic DoD (now DoW)-NSA experience and interactive started formless and I not knowing anything while the NSA showing off a lot of the functionality and the capability early on and continuing by trapping me all day in it for years. It's a total nightmare they just put you through and you have to figure it out. 
 
 
-All within this interactive, it functions moment to moment, effect by effect streaming in and out. Through endless narrative capture, unethical interactive spatial displays, senseless violence and disfigurement, unfathomable harassment and abuse, repeated sexual assaults, confusion, gaslighting, and at the extremes of unlimited political psychopathy and surveillance, I survived and could scrape together enough to build this app.
+All within this interactive, it functions moment to moment, tons of layered effects and/or narrative/scripting, all streaming in and out of the mind and body. Through endless narrative capture, unethical interactive spatial displays, senseless violence and disfigurement, unfathomable harassment and abuse, repeated sexual assaults, confusion, gaslighting, and at the extremes of unlimited political psychopathy and surveillance, I survived and could scrape together enough to build this app.
 
 
 I've learned a lot going from nothing to having a more solid understanding of how it works and took a lot of time to get to this point.
