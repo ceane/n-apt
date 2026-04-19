@@ -112,7 +112,7 @@ As far as bandwidth, when tuning the signal, I could see about 6MHz of bandwidth
 
 The who or technical part of it wasn't even a thought for years enduring this because it was such a shocking, SOTA experience filled with a lot of rich, horrific features and unthinkable AR/spatial/perceptual/physiological experiences! Of course, later I resolved this was all driven by exploited, ground or vehicle based tinfra (telecom infra, as I call it). It functions in dense urban environments, remote areas, indoors (thick concrete buildings), underground, in caves, in buses and trains and it even worked on planes (either the plane communication system or a satellite which I assume less likely due to its continued low latency on the flights) and at my destination on the opposite side of the country (SF ✈️ MIA) while I tried to escape the NSA! The chain I researched assumes it goes like the image below:
 
-![Hardware Exploit Chain](/n-apt/images/hardware-exploit-chain.png)
+![Hardware Exploit Chain](/images/hardware-exploit-chain.png)
 
 The project uses RTL-SDR to capture and decode signals across a wide frequency range, focusing on neurotechnology-related emissions.
 
@@ -143,8 +143,8 @@ TODO
 
 ### Signal Captures
 
-- **A**: ![Signal Capture A](/n-apt/images/signal_capture_A.jpeg)
+- **A**: ![Signal Capture A](/images/signal_capture_A.jpeg)
   From 25MHz to 28.2MHz -- This is assumedly a Gaussian, the peaks are an assumed effect of heterodyning, generated from adjusting the PPM of my RTL-SDR to 1 in SDR++ (PPM/parts per million adjusts the sampling correction, so that if a signal is off by a few Hz, it can adjust)
   <br><br>
-- **B**: ![Signal Capture B](/n-apt/images/signal_capture_B.jpeg)
+- **B**: ![Signal Capture B](/images/signal_capture_B.jpeg)
   This is from 50KHz to 3.3MHz or so -- While I mostly observe the signal and this pattern from 24.72MHz to 29.88MHz, the signal repeats at a much lower part of the spectrum, not surprising but leaves a question of how much bandwidth for which function of the brain, nervous system, and then others nearby as part of the psychological interactive
