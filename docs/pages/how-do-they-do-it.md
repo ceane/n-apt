@@ -102,9 +102,9 @@ Something was up because whoever it was was doing it, I assumed the U.S. Army at
 
 ## Third theory (months later) <br /> Beat Frequencies / Heterodyning
 
-I was really stuck in a strange spot and not the only victim, but in a experience that centered on me as the main victim. I had to share my life with other people, criminals, livestreamed to my brain/consciousness. To all of us, it was an lot of unknowns and a lot going on.
+I was really stuck in a strange spot and not the only victim, but in a experience that centered on me as the main victim in a series of iterations in that fashion (iterations that cost dozens of others their lives and those in past had it far worse). I had to share my life with other people, criminals stocked on hand, livestreamed to my brain/consciousness. To all of us, now living my life in this format, it was a lot of unknowns amongst a lot of evil in interactive and I had to operate with perseverence and reason.
 
-The livestream experience at this point was brutal, brutal enough to distract from the fact that each of my 5 senses–vision (they could see EVERYTHING), audio (they could hear EVERYTHING), touch, smell and taste (rare for them to experience)–were exposed to the others on the other end.
+The livestream experience at this point was brutal, brutal enough to distract from the fact that each of my 5 senses–vision (the others could see EVERYTHING), audio (the others could hear EVERYTHING), touch, smell and taste (rare for the others to experience)–were exposed to the others on the other end. This is not lore or fiction, do not mistake me, yes the federal government's powers and psychotic, artistic passions extended this far.
 
 Nothing explained how such a **high-bandwidth, feature rich neurotechnological experience** could have worked. It was continually a mystery. It was location-independent, what I was doing didn't matter, nor where I was, it just worked flawlessly. It didn't drop a frame or lower quality if I was underground on BART, throughout the years, nor if I was on top of Twin Peaks or within deep ravine like Stevens Creek Reservoir (when it was drained). Going into natural, wooded areas it continued to work. It was impossible to shake.
 
