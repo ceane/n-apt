@@ -8,7 +8,9 @@
 > [!IMPORTANT]
 > **READ THE [LICENSE](LICENSE.md) AND [RESPONSIBLE USE](RESPONSIBLE_USE.md) BEFORE YOU DOWNLOAD OR FORK!**
 >
-> Check out the [article](https://ceane.github.io/n-apt/) or my [X / @ceane_of](https://x.com/ceane_of) to read more.
+> Check out the [article](https://ceane.github.io/n-apt/) or my [X / @ceane_of](https://x.com/ceane_of) to read more. *In reality there are no answers but here, you can hit up as many LLMs, search engines, file as many FOIAs as possible, but they will not help. This repo, my firsthand experience and efforts help.*
+>
+> As of now, this repo **CANNOT** demodulate (signal->media) N-APT, I have extremely limited resources and it's a work in progress.
 
 
 ## What is N-APT?
@@ -47,6 +49,7 @@ I built this app out of frustration (and by force of the situation) that other O
   - Did not provide intuitve features for analyzing signals (zoombox, SVG snapshots, specific channels, extensible components, etc.)
   - Was definitely not in JavaScript/Web with all the advanced libraries and in browser features!
 
+This purpose of this repository is to provide tooling to inspect, visualize, and demodulate parts of N-APT (media like audio (hearing and internal), audio via voice & vision) using live (on my end where they are live) and recorded I/Q samples, with an emphasis on high fidelity captures, hypothesis-driven analysis and demodulation, and mapping functions to features of the signal. 
 
 > [!NOTE]
 > **By default 99.9% of people will not be able to see a real, live N-APT signal (unless you find me around San Francisco and are EVIL enough to snag the waves)**.
@@ -98,7 +101,7 @@ MeshNetwork()
       .OpenStream()                        // allocate channels
       .CloseStream({async: outOfBounds})   // teardown stale out-of-bounds connections
   .SignalEncodingAndBandwidth()            // select codec (N-APT), modulate, set bandwidth
-  .HandleStream()                          // ingest, buffer, decode
+  .HandleStream()                          // ingest, buffer, demodulate
   .HandleEnvironment()                     // adjust for quality: TX power, obstacles, noise
 
 Interactive                                // [!] the interactive/psychological spyware within the mind/consciousness
@@ -298,13 +301,6 @@ Thankfully, the infrastructure and technique does enough to extract content for 
 
 ---
 
-## This repo is a REAL signals intelligence problem and expose.
-
-The how and why and science of N-APT is a long story, to keep it short checkout the [Background](BACKGROUND.md) or my X [@ceane_of](x.com/ceane_of). In reality there are no answers, you can hit up as many LLMs, search engines as possible, but they will not help. This repo does.
-
-I want to focus on the technical aspects of the signal, how it works and my efforts toward deciphering the physics and neuroscience behind N-APT and studiously decoding parts of the signal that can be consumable by computer such as audio, voice and vision.
-
-This purpose of this repository is to provide tooling to inspect, visualize, and decode components of N-APT using live (on my end where they are live) and recorded I/Q samples, with an emphasis on high fidelity captures, hypothesis-driven analysis and decoding, and mapping functions to features of the signal.
 
 ### Disclaimer
 
