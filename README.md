@@ -329,3 +329,27 @@ I've learned a lot going from nothing to having a more solid understanding of ho
                                                        
 ```
 
+
+### AI Model Usage
+
+I worked tirelessly, while going through the NSA's hell in mind-body interactive, using AI to build this app. 99% of the code is AI generated with significant direction and input (and money) from me. Each model had its own strengths and weaknesses and I used them accordingly.
+
+Of course, modern day prompt engineering with large, structured prompts did not really pan out for one shot solutions, instead my intution based on the economics sufficed—one focus at a time and carefully (before it gets lost in context). Below are a table of the most models that I used in order of impact and contribution:
+
+
+| Model                         | Contribution                     |
+|------------------------------|----------------------------------|
+| GPT 5.4 Low Thinking         | High (waterfall complexity)      |
+| GPT 5.4 Mini                | High                             |
+| Claude Opus 4.6             | Major (FFT, I/O, etc.)           |
+| Gemini 3.1 Pro Low Thinking  | Major                            |
+| Gemini 3 Flash               | Moderate                         |
+| SWE 1.5                      | Moderate                         |
+| GPT 5*                      | Tertiary                         |
+| Claude Haiku 4.5            | Tertiary                         |
+| MiniMax M2.5                | Tertiary                         |
+
+
+Of course being in a rough spot of deadly poor was not anything anyone capable of this would put themselves through. My efforts were partially forced by design. AI helped immensely to get this done and made me feel as if I had progress, but code is only one thing, legal work (and truer to freedom) is another.
+
+
