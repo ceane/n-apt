@@ -26,17 +26,14 @@ import remarkSignalCanvasBlocks from "@n-apt/md-preview/remarkSignalCanvasBlocks
 import remarkIconShortcodes from "@n-apt/md-preview/remarkIconShortcodes";
 import remarkLatexCodeBlocks from "@n-apt/md-preview/remarkLatexCodeBlocks";
 import GiscusComments from "@n-apt/md-preview/GiscusComments";
-import { assetUrl, assetPageUrl, getBaseUrl } from "./utils/asset-helpers";
+import { assetUrl, assetPageUrl } from "./utils/asset-helpers";
 
 const LEGACY_CANVAS_IMPORT_PATH = "@n-apt/ts/components/canvas";
 
 const DEFAULT_SOURCE = "/pages/how-do-they-do-it.md";
-const BASE_URL = getBaseUrl();
 void LEGACY_CANVAS_IMPORT_PATH;
 
-const candidateAssetPaths = (relativePath: string) => {
-  return [assetUrl(relativePath)];
-};
+
 
 const BLEND_IMAGE_PATTERNS = ["bart-line-drawing", "first-installment-nsa"];
 const HERO_IMAGE_PATTERNS = ["hero-light", "hero-dark"];
@@ -320,7 +317,7 @@ const App: React.FC = () => {
           >
             {markdown || "_Fetching markdown…_"}
           </ReactMarkdown>
-          {!import.meta.env.DEV && activeSource && (
+          {!__DEV__ && activeSource && (
             <GiscusComments pageId={activeSource} />
           )}
         </ArticleContent>
