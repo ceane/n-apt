@@ -1,3 +1,5 @@
+*(This is a clear work in progress, expect updates.)*
+
 ```Canvas::EndpointRange
 ```
 
@@ -28,7 +30,10 @@
 
 # How did they do it?
 
+*April 18th, 2026*
+
 [TDLR at the bottom](#tdlr)
+
 
 In this article, I break down my working hypothesis based on **thousands of hours of experience :rotate-3d:** driven by the desperate need and curiosity **WHILE TRAPPED** to figure out the **National Security Agency's** proprietary technique that allows them to **read, stream and write to the human brain and nervous system**.
 
