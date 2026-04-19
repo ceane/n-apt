@@ -2,6 +2,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig, type Plugin } from "vite";
 import fs from "node:fs";
+import react from "@vitejs/plugin-react";
 
 const dirname = typeof __dirname !== "undefined" ? __dirname : path.dirname(fileURLToPath(import.meta.url));
 
@@ -30,8 +31,11 @@ const pagesMiddleware: Plugin = {
     const publicDir = path.resolve(dirname, "public");
 
     server.middlewares.use((req, res, next) => {
-      if (req.url?.startsWith("/pages/")) {
-        const filePath = path.join(dirname, req.url);
+      const url = req.url || "";
+      const isPages = url.startsWith("/pages/") || url.startsWith("/md-preview/pages/");
+      if (isPages) {
+        const relativeUrl = url.startsWith("/md-preview/") ? url.slice("/md-preview".length) : url;
+        const filePath = path.join(dirname, relativeUrl);
         if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
           const content = fs.readFileSync(filePath, "utf-8");
           res.setHeader("Content-Type", "text/plain; charset=utf-8");
@@ -55,8 +59,7 @@ const pagesMiddleware: Plugin = {
               '.png': 'image/png',
               '.jpg': 'image/jpeg',
               '.jpeg': 'image/jpeg',
-              '.webp': 'image/webp',
-              '.glb': 'application/octet-stream'
+              '.webp': 'image/webp'
             }[ext] || 'application/octet-stream';
             
             res.setHeader("Content-Type", contentType);
@@ -74,25 +77,71 @@ const copyPagesPlugin: Plugin = {
   name: "copy-pages-to-dist",
   apply: "build",
   closeBundle() {
-    const targetDir = path.resolve(dirname, "dist/md-preview/pages");
+    const targetDir = path.resolve(dirname, "docs/pages");
     fs.rmSync(targetDir, { recursive: true, force: true });
     fs.cpSync(pagesDir, targetDir, { recursive: true });
+
+    // In production build, we need to transform paths within the copied markdown files
+    const productionBase = "/"; // This can be changed to "/n-apt/" if needed for GH Pages project sites
+    const devBase = "/md-preview/";
+
+    const transformFile = (filePath: string) => {
+      if (fs.statSync(filePath).isDirectory()) {
+        fs.readdirSync(filePath).forEach(file => transformFile(path.join(filePath, file)));
+        return;
+      }
+      if (path.extname(filePath) === ".md") {
+        let content = fs.readFileSync(filePath, "utf-8");
+        // Replace dev base with production base
+        content = content.split(devBase).join(productionBase);
+        fs.writeFileSync(filePath, content, "utf-8");
+      }
+    };
+
+    if (fs.existsSync(targetDir)) {
+      transformFile(targetDir);
+    }
+
+    // Exclude transformers-test.html from the build output
+    const testFile = path.resolve(dirname, "docs/transformers-test.html");
+    if (fs.existsSync(testFile)) {
+      fs.unlinkSync(testFile);
+    }
   },
 };
 
-export default defineConfig({
-  base: "/md-preview/",
-  root: path.resolve(dirname, "src/md-preview"),
-  envDir: dirname,
-  publicDir: path.resolve(dirname, "public"),
-  build: {
-    outDir: path.resolve(dirname, "dist/md-preview"),
-    emptyOutDir: true,
-    assetsDir: "assets",
-  },
-  resolve: {
-    alias: [{
-      find: /^@n-apt\/encrypted-modules\/(.*)$/,
+export default defineConfig(({ mode }) => {
+  const isProd = mode === "production" || process.env.NODE_ENV === "production";
+  
+  return {
+    mode: isProd ? "production" : "development",
+    define: isProd ? {
+      "process.env.NODE_ENV": JSON.stringify("production"),
+      "__DEV__": "false",
+    } : {},
+    esbuild: {
+      jsx: "automatic",
+      drop: isProd ? ["console", "debugger"] : [],
+    },
+    base: isProd ? "/" : "/md-preview/",
+    root: path.resolve(dirname, "src/md-preview"),
+    envDir: dirname,
+    publicDir: path.resolve(dirname, "public"),
+    build: {
+      outDir: path.resolve(dirname, "docs"),
+      emptyOutDir: true,
+      assetsDir: "assets",
+      minify: "esbuild",
+      sourcemap: !isProd,
+    },
+    resolve: {
+      alias: [
+        ...(isProd ? [{
+          find: "react/jsx-dev-runtime",
+          replacement: "react/jsx-runtime"
+        }] : []),
+        {
+          find: /^@n-apt\/encrypted-modules\/(.*)$/,
       replacement: `${path.resolve(dirname, "src/encrypted-modules")}/$1`
     }, {
       find: /^@n-apt\/md-preview\/(.*)$/,
@@ -118,5 +167,21 @@ export default defineConfig({
   preview: {
     port: 4174,
   },
-  plugins: [pagesMiddleware, copyPagesPlugin],
+  plugins: [
+    react({
+      jsxRuntime: "automatic",
+    }),
+    pagesMiddleware,
+    copyPagesPlugin,
+    {
+      name: "strip-tailwind-cdn",
+      transformIndexHtml(html) {
+        if (isProd) {
+          return html.replace(/<script src="https:\/\/cdn\.tailwindcss\.com"><\/script>/, "");
+        }
+        return html;
+      }
+    }
+  ],
+  };
 });

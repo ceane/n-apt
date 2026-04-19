@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, lazy, Suspense } from "react";
 import styled, { createGlobalStyle, css, ThemeProvider } from "styled-components";
 import { theme } from "./theme";
 import ReactMarkdown from "react-markdown";
@@ -8,17 +8,25 @@ import rehypeHighlight from "rehype-highlight";
 import rehypeRaw from "rehype-raw";
 import rehypeKatex from "rehype-katex";
 import katex from "katex";
-import * as lucideIcons from "lucide-react";
+import * as lucideIcons from "lucide-react"; // We'll keep this for now but it's large; usually one would use dynamic imports here too if many icons are needed.
 import "highlight.js/styles/github-dark.css";
 import "katex/dist/katex.min.css";
-import { AmplitudeModulationCanvas, FrequencyModulationCanvas, HeterodyningCanvas, MultipathCanvas, PhaseShiftingCanvas, TimeOfFlightCanvas, ImpedanceCanvas, BodyAttenuationCanvas, EndpointRangeCanvas } from "./components/canvas";
+const AmplitudeModulationCanvas = lazy(() => import("./components/canvas").then(m => ({ default: m.AmplitudeModulationCanvas })));
+const FrequencyModulationCanvas = lazy(() => import("./components/canvas").then(m => ({ default: m.FrequencyModulationCanvas })));
+const HeterodyningCanvas = lazy(() => import("./components/canvas").then(m => ({ default: m.HeterodyningCanvas })));
+const MultipathCanvas = lazy(() => import("./components/canvas").then(m => ({ default: m.MultipathCanvas })));
+const PhaseShiftingCanvas = lazy(() => import("./components/canvas").then(m => ({ default: m.PhaseShiftingCanvas })));
+const TimeOfFlightCanvas = lazy(() => import("./components/canvas").then(m => ({ default: m.TimeOfFlightCanvas })));
+const ImpedanceCanvas = lazy(() => import("./components/canvas").then(m => ({ default: m.ImpedanceCanvas })));
+const BodyAttenuationCanvas = lazy(() => import("./components/canvas").then(m => ({ default: m.BodyAttenuationCanvas })));
+const EndpointRangeCanvas = lazy(() => import("./components/canvas").then(m => ({ default: m.EndpointRangeCanvas })));
 import remarkBodyAttenuationBlocks from "@n-apt/md-preview/remarkBodyAttenuationBlocks";
 import remarkTimeOfFlightBlocks from "@n-apt/md-preview/remarkTimeOfFlightBlocks";
 import remarkSignalCanvasBlocks from "@n-apt/md-preview/remarkSignalCanvasBlocks";
 import remarkIconShortcodes from "@n-apt/md-preview/remarkIconShortcodes";
 import remarkLatexCodeBlocks from "@n-apt/md-preview/remarkLatexCodeBlocks";
 import GiscusComments from "@n-apt/md-preview/GiscusComments";
-import { getBaseUrl } from "@n-apt/md-preview/getBaseUrl";
+import { assetUrl, assetPageUrl, getBaseUrl } from "./utils/asset-helpers";
 
 const LEGACY_CANVAS_IMPORT_PATH = "@n-apt/ts/components/canvas";
 
@@ -27,20 +35,28 @@ const BASE_URL = getBaseUrl();
 void LEGACY_CANVAS_IMPORT_PATH;
 
 const candidateAssetPaths = (relativePath: string) => {
-  const sanitized = relativePath.replace(/^\/+/, "");
-  const dedupe = new Set<string>();
-  const add = (path: string) => dedupe.add(path.replace(/\/+/g, "/"));
-
-  if (BASE_URL && BASE_URL !== "/") {
-    add(`${BASE_URL}/${sanitized}`);
-  }
-  add(`/${sanitized}`);
-
-  return Array.from(dedupe);
+  return [assetUrl(relativePath)];
 };
 
 const BLEND_IMAGE_PATTERNS = ["bart-line-drawing", "first-installment-nsa"];
 const HERO_IMAGE_PATTERNS = ["hero-light", "hero-dark"];
+const CanvasPlaceholder = styled.div`
+  width: 100%;
+  height: 400px;
+  background: rgba(172, 186, 255, 0.05);
+  border: 1px dashed rgba(172, 186, 255, 0.2);
+  border-radius: 12px;
+  margin: 1.5em 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  &:after {
+    content: "Loading visualization...";
+    color: #acbaff;
+    font-size: 0.9em;
+    opacity: 0.5;
+  }
+`;
 
 const MarkdownImage: React.FC<MarkdownImageProps> = ({ src = "", alt = "", ...imgProps }) => {
   const normalizedSrc = src.toLowerCase();
@@ -56,7 +72,7 @@ const MarkdownImage: React.FC<MarkdownImageProps> = ({ src = "", alt = "", ...im
 
   return (
     <Figure $blend={shouldBlend} $hero={isHero}>
-      <img src={src} alt={alt} {...imgProps} />
+      <img src={assetUrl(src)} alt={alt} {...imgProps} />
     </Figure>
   );
 };
@@ -173,24 +189,22 @@ const App: React.FC = () => {
 
   const fetchMarkdown = useCallback(async (path: string) => {
     const normalizedPath = path.trim() || DEFAULT_SOURCE;
-    for (const assetPath of candidateAssetPaths(normalizedPath)) {
-      try {
-        const response = await fetch(assetPath, { headers: { "Cache-Control": "no-cache" } });
-        if (response.ok) {
-          const contentType = response.headers.get("content-type") ?? "";
-          if (contentType.includes("text/html")) {
-            throw new Error("Received HTML fallback instead of markdown");
-          }
-
-          const text = await response.text();
-          setMarkdown(text);
-          return;
+    const url = assetPageUrl(normalizedPath);
+    try {
+      const response = await fetch(url, { headers: { "Cache-Control": "no-cache" } });
+      if (response.ok) {
+        const contentType = response.headers.get("content-type") ?? "";
+        if (contentType.includes("text/html")) {
+          throw new Error("Received HTML fallback instead of markdown");
         }
-      } catch {
-        // Silently try next candidate
+
+        const text = await response.text();
+        setMarkdown(text);
+        return;
       }
+    } catch {
+      // Silently fail; UI will show fallback message
     }
-    // Silently fail; UI will show fallback message
   }, []);
 
   useEffect(() => {
@@ -275,15 +289,15 @@ const App: React.FC = () => {
     },
     img: ({ node: _node, ...props }) => <MarkdownImage {...props} />,
     "latex-block": (props: any) => <LatexBlock {...(props as LatexBlockProps)} />,
-    "body-attenuation-canvas": BodyAttenuationCanvas,
-    "impedance-canvas": ImpedanceCanvas,
-    "time-of-flight-canvas": TimeOfFlightCanvas,
-    "phase-shifting-canvas": PhaseShiftingCanvas,
-    "frequency-modulation-canvas": FrequencyModulationCanvas,
-    "amplitude-modulation-canvas": AmplitudeModulationCanvas,
-    "multipath-canvas": MultipathCanvas,
-    "heterodyning-canvas": HeterodyningCanvas,
-    "endpoint-range-canvas": EndpointRangeCanvas,
+    "body-attenuation-canvas": (props: any) => <Suspense fallback={<CanvasPlaceholder />}> <BodyAttenuationCanvas {...props} /> </Suspense>,
+    "impedance-canvas": (props: any) => <Suspense fallback={<CanvasPlaceholder />}> <ImpedanceCanvas {...props} /> </Suspense>,
+    "time-of-flight-canvas": (props: any) => <Suspense fallback={<CanvasPlaceholder />}> <TimeOfFlightCanvas {...props} /> </Suspense>,
+    "phase-shifting-canvas": (props: any) => <Suspense fallback={<CanvasPlaceholder />}> <PhaseShiftingCanvas {...props} /> </Suspense>,
+    "frequency-modulation-canvas": (props: any) => <Suspense fallback={<CanvasPlaceholder />}> <FrequencyModulationCanvas {...props} /> </Suspense>,
+    "amplitude-modulation-canvas": (props: any) => <Suspense fallback={<CanvasPlaceholder />}> <AmplitudeModulationCanvas {...props} /> </Suspense>,
+    "multipath-canvas": (props: any) => <Suspense fallback={<CanvasPlaceholder />}> <MultipathCanvas {...props} /> </Suspense>,
+    "heterodyning-canvas": (props: any) => <Suspense fallback={<CanvasPlaceholder />}> <HeterodyningCanvas {...props} /> </Suspense>,
+    "endpoint-range-canvas": (props: any) => <Suspense fallback={<CanvasPlaceholder />}> <EndpointRangeCanvas {...props} /> </Suspense>,
     "icon-inline": IconInline,
   }), []);
 
@@ -306,7 +320,7 @@ const App: React.FC = () => {
           >
             {markdown || "_Fetching markdown…_"}
           </ReactMarkdown>
-          {activeSource && (
+          {!import.meta.env.DEV && activeSource && (
             <GiscusComments pageId={activeSource} />
           )}
         </ArticleContent>

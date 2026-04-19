@@ -1,8 +1,6 @@
 import React from 'react';
 import styled from 'styled-components';
-import { getBaseUrl } from '../../../getBaseUrl';
-
-const BASE_URL = getBaseUrl();
+import { assetImageUrl } from '../../../utils/asset-helpers';
 
 interface CanvasImageProps {
   src: string; // Relative path from public/md-preview/, e.g., "omni-tower.svg"
@@ -73,8 +71,7 @@ export const CanvasImage: React.FC<CanvasImageProps> = ({
   pointerEvents,
   opacity,
 }) => {
-  // Construct the full URL with base path
-  const fullSrc = `${BASE_URL}/images/${src}`;
+  const fullSrc = assetImageUrl(src);
 
   return (
     <StyledImage

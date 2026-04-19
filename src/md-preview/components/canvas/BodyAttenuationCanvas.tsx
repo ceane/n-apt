@@ -5,10 +5,8 @@ import { useTexture } from "@react-three/drei";
 import styled from "styled-components";
 import * as THREE from "three";
 import { CanvasText } from "@n-apt/md-preview/CanvasText";
-import { getBaseUrl } from "@n-apt/md-preview/getBaseUrl";
-
-const BASE_URL = getBaseUrl();
-const BODY_CHARACTER_SRC = `${BASE_URL}/images/body-attenuation-character.png`;
+import { assetImageUrl } from "@n-apt/md-preview/utils/asset-helpers";
+const BODY_CHARACTER_SRC = assetImageUrl("body-attenuation-character.png");
 
 
 
