@@ -91,6 +91,7 @@ export const CanvasImage: React.FC<CanvasImageProps> = ({
       $zIndex={zIndex}
       $pointerEvents={pointerEvents}
       $opacity={opacity}
+      loading="lazy"
     />
   );
 };

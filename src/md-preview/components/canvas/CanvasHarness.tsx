@@ -1,13 +1,17 @@
-import React, { useRef, useEffect, useState, ReactNode } from 'react';
+import { useRef, useEffect, useState, ReactNode } from 'react';
 import styled from 'styled-components';
 import { LevaPanel } from 'leva';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, useDragControls } from 'framer-motion';
 
 const HarnessContainer = styled.div<{ $aspectRatio: string }>`
   width: 100%;
   position: relative;
   overflow: hidden;
   contain: strict;
+  will-change: transform, opacity;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 400px;
+  isolation: isolate;
   border-radius: 12px;
   background-color: #E0E0E2;
   background-image:
@@ -43,16 +47,6 @@ const HarnessContainer = styled.div<{ $aspectRatio: string }>`
     border-right: none;
     margin-right: calc(-50vw + 100%);
   }
-`;
-
-const TextOverlayContainer = styled.div`
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-  z-index: 8;
 `;
 
 const ControlPanel = styled(motion.div)`
@@ -105,20 +99,6 @@ const ControlsToggleDot = styled.div`
   }
 `;
 
-const ErrorBoundaryFallback = styled.div`
-  padding: 2rem;
-  color: #ef4444;
-  font-family: monospace;
-  background: rgba(239, 68, 68, 0.1);
-  border-radius: 0.5rem;
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-`;
-
 interface CanvasHarnessProps {
   children: ReactNode;
   store?: any; // Leva store instance
@@ -138,8 +118,11 @@ export function CanvasHarness({
 }: CanvasHarnessProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isVisible, setIsVisible] = useState(false);
+  const [hasLoaded, setHasLoaded] = useState(false);
   const [showControls, setShowControls] = useState(false);
-  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isFullscreen] = useState(false);
+  const [panelKey, setPanelKey] = useState(0);
+  const dragControls = useDragControls();
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -148,6 +131,7 @@ export function CanvasHarness({
           // Add a small buffer to start loading slightly before coming into view
           if (entry.isIntersecting) {
             setIsVisible(true);
+            setHasLoaded(true);
           } else {
             // Unmount if out of viewport entirely
             setIsVisible(false);
@@ -168,6 +152,14 @@ export function CanvasHarness({
     setShowControls(prev => !prev);
   };
 
+  const handleDotClick = () => {
+    if (showControls) {
+      setPanelKey(k => k + 1);
+    } else {
+      setShowControls(true);
+    }
+  };
+
   return (
     <HarnessContainer
       ref={containerRef}
@@ -175,10 +167,21 @@ export function CanvasHarness({
       className={`${className || ''} ${isFullscreen ? 'fullscreen' : ''}`}
     >
       {/* 
-        Only mount the heavy canvas children when visible.
-        This fixes the out-of-memory issue for many heavy WebGPU/Three.js canvases.
+        Only mount the heavy canvas children when visible initially.
+        Once loaded, toggle visibility rather than destroying the WebGL Context, giving instantly snappy performance.
       */}
-      {isVisible ? children : (
+      {hasLoaded && (
+        <div style={{
+          width: '100%', height: '100%',
+          opacity: isVisible ? 1 : 0,
+          pointerEvents: isVisible ? 'auto' : 'none',
+          transition: 'opacity 0.3s ease',
+          position: 'absolute', top: 0, left: 0
+        }}>
+          {children}
+        </div>
+      )}
+      {!hasLoaded && (
         <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           {fallbackContent}
         </div>
@@ -187,24 +190,32 @@ export function CanvasHarness({
       {store && showToggleDot && (
         <>
           <ControlsToggleDot
-            onClick={handleToggleControls}
-            title={showControls ? "Hide Controls" : "Show Controls"}
+            onClick={handleDotClick}
+            title={showControls ? "Reset Position" : "Show Controls"}
             style={{
-              opacity: showControls ? 0 : 1,
-              pointerEvents: showControls ? 'none' : 'auto'
+              opacity: 1,
+              pointerEvents: 'auto'
             }}
           />
 
           <AnimatePresence>
             {showControls && (
               <ControlPanel
+                key={`panel-${panelKey}`} // Remounts panel on dot click when open to reset drag pos
                 initial={{ opacity: 0, scale: 0.9, y: 20 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.9, y: 20 }}
                 drag
+                dragControls={dragControls}
+                dragListener={false}
                 dragMomentum={false}
                 style={{ touchAction: 'none' }}
               >
+                {/* Drag handle spanning title bar */}
+                <div 
+                  onPointerDown={(e) => dragControls.start(e)}
+                  style={{ position: 'absolute', top: 0, left: 0, right: '2rem', height: '42px', zIndex: 15, cursor: 'grab', touchAction: 'none' }} 
+                />
                 {/* Close button inside the panel to revert to the dot */}
                 <div style={{ position: 'absolute', top: '0.5rem', right: '0.5rem', zIndex: 20, cursor: 'pointer' }} onClick={handleToggleControls}>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

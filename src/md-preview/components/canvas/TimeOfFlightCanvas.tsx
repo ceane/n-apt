@@ -7,13 +7,10 @@ import styled from "styled-components";
 import * as THREE from "three";
 import { CanvasText } from "@n-apt/md-preview/components/CanvasText";
 import { theme } from "@n-apt/md-preview/consts/theme";
-import { generateBinaryString } from "@n-apt/md-preview/utils/canvas-math";
 import CanvasHarness from "@n-apt/md-preview/components/canvas/CanvasHarness";
 
 import { assetImageUrl } from "@n-apt/md-preview/utils/asset-helpers";
 const BODY_CHARACTER_SRC = assetImageUrl("body-attenuation-character.png");
-
-const BACKGROUND_COLOR = theme.colors.background;
 
 const CHARACTER_SIZE = {
   width: 2.91,
@@ -261,7 +258,7 @@ const RadioWave: React.FC<{ bodyTexture: THREE.Texture }> = ({ bodyTexture }) =>
 
 
 
-const BINARY_STRING = generateBinaryString(5000, ' ');
+const BINARY_STRING = Array.from({ length: 2500 }, () => Math.random() > 0.5 ? "A4" : "F2").join(' '); // Just placeholder, will be replaced inside BinaryRow
 
 const binaryRowVertexShader = `
   varying vec2 vUv;
@@ -295,29 +292,37 @@ const binaryRowFragmentShader = `
     float isGoingOut = 1.0 - isReturning;
 
     float revealed = isReturning * smoothstep(0.05, -0.05, waveR - distToAntenna);
-    // fade away smoothly over the first 30% of the outgoing new pulse
-    float fadeOut = isGoingOut * smoothstep(0.3, 0.0, pulsePhase); 
 
-    float hit = clamp(revealed + fadeOut, 0.0, 1.0);
+    float hit = clamp(revealed, 0.0, 1.0);
     
-    vec3 baseColor = vec3(0.18, 0.20, 0.22);
-    vec3 litColor = vec3(0.0, 0.95, 0.4);
+    vec3 a = vec3(0.5, 0.5, 0.5);
+    vec3 b = vec3(0.5, 0.5, 0.5);
+    vec3 c = vec3(1.0, 1.0, 1.0);
+    vec3 d = vec3(0.263, 0.416, 0.557);
+    vec3 litColor = a + b * cos(6.28318 * (c * (uTime * 0.4 + vWorldPosition.x * 0.1 + vWorldPosition.y * 0.1) + d));
     
-    vec3 finalColor = mix(baseColor, litColor, hit);
-    
-    gl_FragColor = vec4(finalColor, texColor.a * (0.05 + 0.95 * hit));
+    gl_FragColor = vec4(litColor, texColor.a * hit);
   }
 `;
 
 const BinaryRow = ({ text, x, y, widthWorld }: { text: string; x: number; y: number; widthWorld: number }) => {
+  const [cycle, setCycle] = useState(0);
+
   const { texture, width, height } = useMemo(() => {
     const canvas = document.createElement("canvas");
     const ctx = canvas.getContext("2d");
     if (!ctx) return { texture: null, width: 1, height: 1 };
 
-    const baseSize = 80;
+    const chars = "0123456789ABCDEF";
+    let dynamicText = "";
+    for (let i = 0; i < text.length; i++) {
+       if (text[i] === ' ') dynamicText += ' ';
+       else dynamicText += chars[Math.floor(Math.random() * 16)];
+    }
+
+    const baseSize = 40 + Math.random() * 60;
     ctx.font = `normal ${baseSize}px "JetBrains Mono", monospace`;
-    const metrics = ctx.measureText(text);
+    const metrics = ctx.measureText(dynamicText);
     const textWidth = metrics.width;
     const textHeight = baseSize * 1.2;
 
@@ -327,7 +332,7 @@ const BinaryRow = ({ text, x, y, widthWorld }: { text: string; x: number; y: num
     ctx.font = `normal ${baseSize}px "JetBrains Mono", monospace`;
     ctx.fillStyle = "#ffffff";
     ctx.textBaseline = "top";
-    ctx.fillText(text, 0, baseSize * 0.1);
+    ctx.fillText(dynamicText, 0, baseSize * 0.1);
 
     const tex = new THREE.CanvasTexture(canvas);
     tex.colorSpace = THREE.SRGBColorSpace;
@@ -336,7 +341,7 @@ const BinaryRow = ({ text, x, y, widthWorld }: { text: string; x: number; y: num
     tex.generateMipmaps = true;
 
     return { texture: tex, width: widthWorld, height: widthWorld * (canvas.height / canvas.width) };
-  }, [text, widthWorld]);
+  }, [text, widthWorld, cycle]);
 
   const materialRef = useRef<THREE.ShaderMaterial>(null);
 
@@ -350,6 +355,8 @@ const BinaryRow = ({ text, x, y, widthWorld }: { text: string; x: number; y: num
     if (materialRef.current) {
       materialRef.current.uniforms.uTime.value = state.clock.elapsedTime;
     }
+    const newCycle = Math.floor(state.clock.elapsedTime * 0.35 / 2.0);
+    if (newCycle !== cycle) setCycle(newCycle);
   });
 
   if (!texture) return null;
@@ -520,14 +527,8 @@ const SceneContents: React.FC = () => {
 
   return (
     <>
-      <color attach="background" args={[BACKGROUND_COLOR]} />
       <ambientLight intensity={1.8} />
       <directionalLight position={[0, 0, 3]} intensity={1.25} color="#ffffff" />
-
-      <mesh position={[0, 0, -0.6]}>
-        <planeGeometry args={[10, 6.5]} />
-        <meshBasicMaterial color={BACKGROUND_COLOR} />
-      </mesh>
 
 
 
@@ -588,7 +589,7 @@ const DynamicStatsOverlay = () => {
   });
 
   return (
-    <group position={[-2.4, 0.8, 0.4]}>
+    <group position={[-4.1, -1.6, 0.4]}>
       <CanvasText position={[0, 0.5, 0]} fontSize={0.16} color="#3a3a42" anchorX="left" fontWeight={700} text="Distance:" />
       <CanvasText position={[2.7, 0.5, 0]} fontSize={0.16} color="#1a1a22" anchorX="right" text={stats.distance} />
 
@@ -620,6 +621,7 @@ const TimeOfFlightCanvas: React.FC = () => {
           pointerEvents="none"
         />
         <Canvas
+          style={{ position: 'relative', zIndex: 20 }}
           orthographic
           dpr={[1, 2]}
           camera={{ position: [0, 0, 10] }}
