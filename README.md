@@ -8,7 +8,7 @@
 > [!IMPORTANT]
 > **READ THE [LICENSE](LICENSE.md) AND [RESPONSIBLE USE](RESPONSIBLE_USE.md) BEFORE YOU DOWNLOAD OR FORK!**
 >
-> **This repo is part tools, part exposure, to read more on how and why and what's going on, visit my X [@ceane_of](x.com/ceane_of).**
+> Check out the [article](https://ceane.github.io/n-apt/) or my [X / @ceane_of](https://x.com/ceane_of) to read more.
 
 
 ## What is N-APT?
