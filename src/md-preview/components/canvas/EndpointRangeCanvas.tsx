@@ -3,7 +3,9 @@ import styled, { keyframes } from 'styled-components';
 import { LevaPanel, useControls, useCreateStore } from 'leva';
 import { motion } from 'framer-motion';
 import { CanvasImage } from './shared';
+import CanvasHarness from './CanvasHarness';
 import { PretextCanvasText, type PretextCanvasTextRef } from '../../../ts/components/pretext/PretextCanvasText';
+import { generateBinaryString } from "@n-apt/md-preview/utils/canvas-math";
 
 const COLORS = {
   bg: '#F3F4F6',
@@ -12,21 +14,12 @@ const COLORS = {
   accent: '#3B82F6',
 };
 
-const CanvasContainer = styled.div`
+// CanvasContainer removed because CanvasHarness handles the container, aspect ratio, and grid background.
+const InnerContainer = styled.div`
   width: 100%;
   height: 100%;
-  overflow: hidden;
-  contain: strict;
   position: relative;
-  background-color: #E0E0E2;
-  background-image:
-    linear-gradient(to right, #D7D8DA 2px, transparent 2px),
-    linear-gradient(to bottom, #D7D8DA 2px, transparent 2px);
-  background-size: 64px 64px;
-  background-position: center bottom;
-  aspect-ratio: 16/9;
-  font-family: 'JetBrains Mono', 'DM Mono', monospace;
-  color: ${COLORS.text};
+  overflow: hidden;
 `;
 
 const pulse = keyframes`
@@ -42,14 +35,14 @@ const radiate = keyframes`
   100% { transform: translate(50%, -50%) scale(1.4); opacity: 0; }
 `;
 
-const BlobCoverage = styled.div<{ size: number; color: string }>`
+const BlobCoverage = styled.div<{ $size: number; $color: string }>`
   position: absolute;
   right: 15%;
   top: 50%;
-  width: ${props => props.size}%;
-  height: ${props => props.size * 1.5}%;
-  background: ${props => props.color};
-  box-shadow: 0 0 100px 50px ${props => props.color};
+  width: ${props => props.$size}%;
+  height: ${props => props.$size * 1.5}%;
+  background: ${props => props.$color};
+  box-shadow: 0 0 100px 50px ${props => props.$color};
   border-radius: 40% 60% 70% 30% / 40% 50% 60% 50%;
   transform: translate(50%, -50%);
   filter: blur(40px);
@@ -58,12 +51,12 @@ const BlobCoverage = styled.div<{ size: number; color: string }>`
   animation: ${pulse} 4s ease-in-out infinite;
 `;
 
-const RainbowWave = styled.div<{ range: number }>`
+const RainbowWave = styled.div<{ $range: number }>`
   position: absolute;
   right: 15%;
   top: 25%; /* align with tower antenna */
-  width: ${props => props.range * 1.2}%;
-  height: ${props => props.range * 1.2 * 1.5}%;
+  width: ${props => props.$range * 1.2}%;
+  height: ${props => props.$range * 1.2 * 1.5}%;
   transform: translate(50%, -50%);
   border-radius: 50%;
   background: radial-gradient(
@@ -81,23 +74,7 @@ const RainbowWave = styled.div<{ range: number }>`
   animation: ${radiate} 2.5s ease-out infinite;
 `;
 
-const ControlPanel = styled(motion.div)`
-  position: absolute;
-  bottom: 1.5rem;
-  right: 1.5rem;
-  z-index: 10;
-  width: 20rem;
-  max-width: calc(100vw - 2rem);
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-  border-radius: 0.5rem;
-  overflow: hidden;
-  border: 1px solid rgba(42, 42, 42, 0.3);
-  background-color: rgba(255, 255, 255, 0.8);
-  cursor: grab;
-  &:active {
-    cursor: grabbing;
-  }
-`;
+// ControlPanel removed because CanvasHarness provides a standardized, toggleable Leva panel.
 
 const PretextLayer = styled.canvas`
   position: absolute;
@@ -109,21 +86,7 @@ const PretextLayer = styled.canvas`
   z-index: 8;
 `;
 
-const ResetDot = styled.div`
-  position: absolute;
-  bottom: 1.5rem;
-  right: 1.5rem;
-  width: 1rem;
-  height: 1rem;
-  background-color: rgba(42, 42, 42, 0.3);
-  border-radius: 50%;
-  cursor: pointer;
-  z-index: 9;
-  transition: background-color 0.2s;
-  &:hover {
-    background-color: rgba(42, 42, 42, 0.6);
-  }
-`;
+// ResetDot removed as it's being replaced by the toggleable panel in CanvasHarness.
 
 export function EndpointRangeCanvas() {
   const shouldUseStaticFallback = typeof process !== 'undefined' && process.env.JEST_WORKER_ID !== undefined;
@@ -319,7 +282,7 @@ export function EndpointRangeCanvas() {
     // Particle spawning (radiating all around the endpoint, reaching lower boundaries)
     if (Math.random() < 0.25) {
       particlesRef.current.push({
-        char: Math.random() > 0.5 ? '1' : '0',
+        char: generateBinaryString(1),
         x: antennaOrigin.x + (Math.random() * antennaOrigin.width - antennaOrigin.width / 2),
         y: antennaOrigin.y + (Math.random() * antennaOrigin.height - antennaOrigin.height / 2),
         vx: (Math.random() - 0.7) * 4, // mostly left, some right
@@ -410,8 +373,9 @@ export function EndpointRangeCanvas() {
   const { distStr: r22, scale: s22 } = formatRange(range22Val);
 
   return (
-    <CanvasContainer ref={containerRef}>
-      <PretextLayer ref={canvasRef} />
+    <CanvasHarness store={store} aspectRatio="16/9">
+      <InnerContainer ref={containerRef}>
+        <PretextLayer ref={canvasRef} />
 
       {/* Info Rows */}
       <PretextCanvasText
@@ -637,8 +601,8 @@ export function EndpointRangeCanvas() {
       />
       {/* -------------------------------------------------------------------------------------- */}
 
-      <RainbowWave range={coverageSize * 1.5} />
-      <BlobCoverage size={coverageSize} color={blobColor} />
+      <RainbowWave $range={coverageSize * 1.5} />
+      <BlobCoverage $size={coverageSize} $color={blobColor} />
 
       {!shouldUseStaticFallback && (
         <CanvasImage
@@ -654,32 +618,8 @@ export function EndpointRangeCanvas() {
         />
       )}
 
-      {!shouldUseStaticFallback && (
-        <ResetDot onClick={() => setPanelKey(k => k + 1)} title="Reset Controls" />
-      )}
-
-      {!shouldUseStaticFallback && (
-        <ControlPanel key={panelKey} drag dragMomentum={false} style={{ touchAction: 'none' }}>
-          <LevaPanel
-            store={store}
-            fill
-            flat
-            titleBar={{ title: 'Controls', filter: false }}
-            theme={{
-              colors: {
-                elevation1: 'rgba(255, 255, 255, 0.8)',
-                elevation2: '#E0E0E2',
-                elevation3: 'rgba(42, 42, 42, 0.3)',
-                accent1: COLORS.accent,
-                highlight1: COLORS.text,
-                toolTipBackground: 'rgba(255, 255, 255, 0.8)',
-                toolTipText: COLORS.text,
-              }
-            }}
-          />
-        </ControlPanel>
-      )}
-    </CanvasContainer>
+      </InnerContainer>
+    </CanvasHarness>
   );
 }
 

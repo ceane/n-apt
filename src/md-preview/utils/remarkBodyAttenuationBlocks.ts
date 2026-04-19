@@ -1,5 +1,5 @@
 import type { Code, Content, Parent } from "mdast";
-import { visitMdastNodes } from "./visitMdastNodes";
+import { visitMdastNodes } from "@n-apt/md-preview/utils/visitMdastNodes";
 
 const BODY_ATTENUATION_LANG = "canvas::bodyattenuation";
 

@@ -4,8 +4,11 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { useTexture } from "@react-three/drei";
 import styled from "styled-components";
 import * as THREE from "three";
-import { CanvasText } from "@n-apt/md-preview/CanvasText";
+import { CanvasText } from "@n-apt/md-preview/components/CanvasText";
 import { assetImageUrl } from "@n-apt/md-preview/utils/asset-helpers";
+import * as External from "@n-apt/md-preview/externalImports";
+import * as CanvasMath from "@n-apt/md-preview/utils/canvas-math";
+import CanvasHarness from "@n-apt/md-preview/components/canvas/CanvasHarness";
 const BODY_CHARACTER_SRC = assetImageUrl("body-attenuation-character.png");
 
 
@@ -397,78 +400,6 @@ const clamp = (value: number, min: number, max: number) => Math.min(max, Math.ma
 const formatDbm = (value: number) => `${value >= 0 ? "+" : ""}${value.toFixed(2)}dBm`;
 const formatDistance = (valueCm: number) => `${(valueCm / 100).toFixed(0)}m away`;
 
-const logNormalize = (value: number, maxAbs: number) => {
-  const safeMax = Math.max(maxAbs, 0.0001);
-  const normalized = clamp(Math.abs(value) / safeMax, 0, 1);
-  return Math.log1p(normalized * 8) / Math.log1p(8);
-};
-
-const toEndpointADistanceCm = (x: number) => {
-  const minDistance = 3000;
-  const maxDistance = DEFAULTS.maxDistanceCm;
-  const response = logNormalize(x, Math.max(Math.abs(SCENE_BOUNDS.left), Math.abs(SCENE_BOUNDS.right)));
-  return clamp(minDistance + response * (maxDistance - minDistance), DEFAULTS.minDistanceCm, DEFAULTS.maxDistanceCm);
-};
-
-const toEndpointBDistanceCm = (y: number) => {
-  const minDistance = 3000;
-  const maxDistance = DEFAULTS.maxDistanceCm;
-  const response = logNormalize(y, Math.max(Math.abs(SCENE_BOUNDS.bottom), Math.abs(SCENE_BOUNDS.top)));
-  return clamp(minDistance + response * (maxDistance - minDistance), DEFAULTS.minDistanceCm, DEFAULTS.maxDistanceCm);
-};
-
-const formatFrequency = (valueHz: number) => {
-  if (valueHz >= 1e9) {
-    return `${(valueHz / 1e9).toFixed(2).replace(/\.00$/, "").replace(/(\.\d)0$/, "$1")}GHz`;
-  }
-
-  if (valueHz >= 1e6) {
-    return `${(valueHz / 1e6).toFixed(2).replace(/\.00$/, "").replace(/(\.\d)0$/, "$1")}MHz`;
-  }
-
-  if (valueHz >= 1e3) {
-    return `${(valueHz / 1e3).toFixed(2).replace(/\.00$/, "").replace(/(\.\d)0$/, "$1")}kHz`;
-  }
-
-  return `${valueHz.toFixed(0)}Hz`;
-};
-
-const getFrequencyClass = (valueHz: number) => {
-  if (valueHz < 3e5) {
-    return "LF";
-  }
-
-  if (valueHz < 3e6) {
-    return "MF";
-  }
-
-  if (valueHz < 3e7) {
-    return "HF";
-  }
-
-  if (valueHz < 3e8) {
-    return "VHF";
-  }
-
-  if (valueHz < 1e9) {
-    return "Low end microwave (pre L band)";
-  }
-
-  if (valueHz < 2e9) {
-    return "L-band Microwave (1-2GHz)";
-  }
-
-  if (valueHz < 4e9) {
-    return "S-band Microwave (2-4GHz)";
-  }
-
-  if (valueHz < 12e9) {
-    return "X-band (8-12GHz)";
-  }
-
-  return "Microwave";
-};
-
 const getEllipseTopY = (x: number) => {
   const normalizedX = clamp((x - BODY_BOUNDS.centerX) / BODY_BOUNDS.radiusX, -1, 1);
   const normalizedY = Math.sqrt(Math.max(0, 1 - normalizedX * normalizedX));
@@ -524,14 +455,17 @@ type LayoutMetrics = {
 
 const toMetrics = (x: number, y: number): LayoutMetrics => {
   const point = constrainMarker(x, y);
+  
+  const distA = CanvasMath.toEndpointADistanceCm(point.x, SCENE_BOUNDS.left, SCENE_BOUNDS.right, 3000, DEFAULTS.maxDistanceCm, DEFAULTS.minDistanceCm, DEFAULTS.maxDistanceCm);
+  const distB = CanvasMath.toEndpointBDistanceCm(point.y, SCENE_BOUNDS.bottom, SCENE_BOUNDS.top, 3000, DEFAULTS.maxDistanceCm, DEFAULTS.minDistanceCm, DEFAULTS.maxDistanceCm);
 
   return {
     markerX: point.x,
     markerY: point.y,
-    endpointADistance: toEndpointADistanceCm(point.x),
-    endpointBDistance: toEndpointBDistanceCm(point.y),
-    txDistance: toEndpointADistanceCm(point.x),
-    rxDistance: toEndpointBDistanceCm(point.y),
+    endpointADistance: distA,
+    endpointBDistance: distB,
+    txDistance: distA,
+    rxDistance: distB,
     side: point.x < BODY_BOUNDS.centerX ? -1 : 1,
   };
 };
@@ -758,7 +692,7 @@ const BinaryRow = ({ x, y, widthWorld }: { x: number; y: number; widthWorld: num
 
   const { texture, width, height } = useMemo(() => {
     // Only one zero or one, randomly chosen
-    const text = Math.random() > 0.5 ? '1' : '0';
+    const text = CanvasMath.generateBinaryString(1);
 
     const canvas = document.createElement("canvas");
     const ctx = canvas.getContext("2d");
@@ -1007,9 +941,9 @@ const SceneContents: React.FC<{
       <CanvasText position={[3.0, -2.0, 0.45]} fontSize={0.42} color="#1a1a22" anchorX="center" anchorY="middle" fontWeight={900} letterSpacing={-0.02} text={formatDbm(model.receive)} />
       <CanvasText position={[3.0, -2.33, 0.45]} fontSize={0.16} color="#3a3a42" anchorX="left" anchorY="middle" fontWeight={500} text="Power at Rx" />
 
-      <CanvasText position={[-4.2, -2.18, 0.45]} fontSize={0.26} color="#1a1a22" anchorX="left" anchorY="middle" fontWeight={900} letterSpacing={-0.02} text={formatFrequency(DEFAULTS.frequencyHz)} />
+      <CanvasText position={[-4.2, -2.18, 0.45]} fontSize={0.26} color="#1a1a22" anchorX="left" anchorY="middle" fontWeight={900} letterSpacing={-0.02} text={External.formatFrequency(DEFAULTS.frequencyHz / 1e6)} />
 
-      <CanvasText position={[-4.2, -2.45, 0.45]} fontSize={0.15} color="#3a3a42" anchorX="left" anchorY="middle" fontWeight={500} letterSpacing={-0.01} text={`${getFrequencyClass(DEFAULTS.frequencyHz)} frequency`} />
+      <CanvasText position={[-4.2, -2.45, 0.45]} fontSize={0.15} color="#3a3a42" anchorX="left" anchorY="middle" fontWeight={500} letterSpacing={-0.01} text={`${External.getFrequencyClass(DEFAULTS.frequencyHz)} frequency`} />
     </>
   );
 };
@@ -1108,77 +1042,47 @@ const BodyAttenuationWebGPUCanvas: React.FC = () => {
   }, [flipEffect.active, flipEffect.toSide]);
 
   return (
-    <Frame>
-      <div style={{ position: 'absolute', top: -9999, left: -9999, visibility: 'hidden' }}>
-        <span>Endpoint A (Tx)</span>
-        <span>Endpoint B (Rx)</span>
-        <span>+24.0 dBm</span>
-        <span>-48.0 dBm</span>
-        <span>tx distance</span>
-        <span>rx distance</span>
-        <span>frequency</span>
-        <span>13.56 MHz</span>
-        <span>total path loss</span>
-        <span>drag inside the panel to move the target cursor</span>
-        <img src="data:image/png;base64," alt="Body attenuation visualization" />
+    <CanvasHarness aspectRatio="10 / 6.4">
+      <div style={{ width: '100%', height: '100%', position: 'relative' }}>
+        <div style={{ position: 'absolute', top: -9999, left: -9999, visibility: 'hidden' }}>
+          <span>Endpoint A (Tx)</span>
+          <span>Endpoint B (Rx)</span>
+          <span>+24.0 dBm</span>
+          <span>-48.0 dBm</span>
+          <span>tx distance</span>
+          <span>rx distance</span>
+          <span>frequency</span>
+          <span>13.56 MHz</span>
+          <span>total path loss</span>
+          <span>drag inside the panel to move the target cursor</span>
+          <img src="data:image/png;base64," alt="Body attenuation visualization" />
+        </div>
+        <Canvas
+          orthographic
+          dpr={[1, 2]}
+          camera={{ position: [0, 0, 10] }}
+          gl={{ antialias: true, alpha: true }}
+          style={{ cursor: 'none', touchAction: 'none' }}
+        >
+          <React.Suspense fallback={null}>
+            <SceneContents
+              characterFacingSide={characterFacingSide}
+              flipEffect={flipEffect}
+              metrics={metrics}
+              model={model}
+              previewMetrics={previewMetrics}
+              onPointerDown={handlePointerDown}
+              onPointerMove={handlePointerMove}
+              onPointerUp={handlePointerUp}
+            />
+          </React.Suspense>
+        </Canvas>
       </div>
-      <Canvas
-        orthographic
-        dpr={[1, 2]}
-        camera={{ position: [0, 0, 10] }}
-        gl={{ antialias: true, alpha: true }}
-      >
-        <React.Suspense fallback={null}>
-          <SceneContents
-            characterFacingSide={characterFacingSide}
-            flipEffect={flipEffect}
-            metrics={metrics}
-            model={model}
-            previewMetrics={previewMetrics}
-            onPointerDown={handlePointerDown}
-            onPointerMove={handlePointerMove}
-            onPointerUp={handlePointerUp}
-          />
-        </React.Suspense>
-      </Canvas>
-      <RendererBadge>WebGL</RendererBadge>
-    </Frame>
+    </CanvasHarness>
   );
 };
 
-const Frame = styled.div`
-  width: 100%;
-  max-width: 100%;
-  min-width: 0;
-  margin: 2rem 0;
-  border-radius: 16px;
-  overflow: hidden;
-  border: 1px solid rgba(12, 14, 18, 0.36);
-  background-color: #E0E0E2;
-  background-image:
-    linear-gradient(to right, #D7D8DA 2px, transparent 2px),
-    linear-gradient(to bottom, #D7D8DA 2px, transparent 2px);
-  background-size: 64px 64px;
-  background-position: center bottom;
-  aspect-ratio: 10 / 6.4;
-  position: relative;
-
-  > div {
-    width: 100% !important;
-    height: 100% !important;
-    min-width: 0;
-  }
-
-  canvas {
-    display: block;
-    width: 100% !important;
-    height: 100% !important;
-    min-width: 0;
-    cursor: none;
-    touch-action: none;
-  }
-`;
-
+// Removed local Frame as it is replaced by CanvasHarness.
 const RendererBadge = styled.div`
   display: none;
 `;

@@ -1,6 +1,6 @@
 import type { Plugin } from "unified";
 import type { Content, Parent, Text } from "mdast";
-import { visitMdastNodes } from "./visitMdastNodes";
+import { visitMdastNodes } from "@n-apt/md-preview/utils/visitMdastNodes";
 
 const ICON_PATTERN = /:((?:icon-)?[a-z0-9-]+):/gi;
 

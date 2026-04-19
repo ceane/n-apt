@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, lazy, Suspense } from "react";
 import styled, { createGlobalStyle, css, ThemeProvider } from "styled-components";
-import { theme } from "./theme";
+import { theme } from "@n-apt/md-preview/consts/theme";
 import ReactMarkdown from "react-markdown";
 import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -11,22 +11,22 @@ import katex from "katex";
 import * as lucideIcons from "lucide-react"; // We'll keep this for now but it's large; usually one would use dynamic imports here too if many icons are needed.
 import "highlight.js/styles/github-dark.css";
 import "katex/dist/katex.min.css";
-const AmplitudeModulationCanvas = lazy(() => import("./components/canvas").then(m => ({ default: m.AmplitudeModulationCanvas })));
-const FrequencyModulationCanvas = lazy(() => import("./components/canvas").then(m => ({ default: m.FrequencyModulationCanvas })));
-const HeterodyningCanvas = lazy(() => import("./components/canvas").then(m => ({ default: m.HeterodyningCanvas })));
-const MultipathCanvas = lazy(() => import("./components/canvas").then(m => ({ default: m.MultipathCanvas })));
-const PhaseShiftingCanvas = lazy(() => import("./components/canvas").then(m => ({ default: m.PhaseShiftingCanvas })));
-const TimeOfFlightCanvas = lazy(() => import("./components/canvas").then(m => ({ default: m.TimeOfFlightCanvas })));
-const ImpedanceCanvas = lazy(() => import("./components/canvas").then(m => ({ default: m.ImpedanceCanvas })));
-const BodyAttenuationCanvas = lazy(() => import("./components/canvas").then(m => ({ default: m.BodyAttenuationCanvas })));
-const EndpointRangeCanvas = lazy(() => import("./components/canvas").then(m => ({ default: m.EndpointRangeCanvas })));
-import remarkBodyAttenuationBlocks from "@n-apt/md-preview/remarkBodyAttenuationBlocks";
-import remarkTimeOfFlightBlocks from "@n-apt/md-preview/remarkTimeOfFlightBlocks";
-import remarkSignalCanvasBlocks from "@n-apt/md-preview/remarkSignalCanvasBlocks";
-import remarkIconShortcodes from "@n-apt/md-preview/remarkIconShortcodes";
-import remarkLatexCodeBlocks from "@n-apt/md-preview/remarkLatexCodeBlocks";
-import GiscusComments from "@n-apt/md-preview/GiscusComments";
-import { assetUrl, assetPageUrl } from "./utils/asset-helpers";
+const AmplitudeModulationCanvas = lazy(() => import("@n-apt/md-preview/components/canvas").then(m => ({ default: m.AmplitudeModulationCanvas })));
+const FrequencyModulationCanvas = lazy(() => import("@n-apt/md-preview/components/canvas").then(m => ({ default: m.FrequencyModulationCanvas })));
+const HeterodyningCanvas = lazy(() => import("@n-apt/md-preview/components/canvas").then(m => ({ default: m.HeterodyningCanvas })));
+const MultipathCanvas = lazy(() => import("@n-apt/md-preview/components/canvas").then(m => ({ default: m.MultipathCanvas })));
+const PhaseShiftingCanvas = lazy(() => import("@n-apt/md-preview/components/canvas").then(m => ({ default: m.PhaseShiftingCanvas })));
+const TimeOfFlightCanvas = lazy(() => import("@n-apt/md-preview/components/canvas").then(m => ({ default: m.TimeOfFlightCanvas })));
+const ImpedanceCanvas = lazy(() => import("@n-apt/md-preview/components/canvas").then(m => ({ default: m.ImpedanceCanvas })));
+const BodyAttenuationCanvas = lazy(() => import("@n-apt/md-preview/components/canvas").then(m => ({ default: m.BodyAttenuationCanvas })));
+const EndpointRangeCanvas = lazy(() => import("@n-apt/md-preview/components/canvas").then(m => ({ default: m.EndpointRangeCanvas })));
+import remarkBodyAttenuationBlocks from "@n-apt/md-preview/utils/remarkBodyAttenuationBlocks";
+import remarkTimeOfFlightBlocks from "@n-apt/md-preview/utils/remarkTimeOfFlightBlocks";
+import remarkSignalCanvasBlocks from "@n-apt/md-preview/utils/remarkSignalCanvasBlocks";
+import remarkIconShortcodes from "@n-apt/md-preview/utils/remarkIconShortcodes";
+import remarkLatexCodeBlocks from "@n-apt/md-preview/utils/remarkLatexCodeBlocks";
+import GiscusComments from "@n-apt/md-preview/components/GiscusComments";
+import { assetUrl, assetPageUrl } from "@n-apt/md-preview/utils/asset-helpers";
 
 const LEGACY_CANVAS_IMPORT_PATH = "@n-apt/ts/components/canvas";
 
@@ -284,18 +284,28 @@ const App: React.FC = () => {
 
       return <MarkdownLink target="_blank" rel="noreferrer" {...props} />;
     },
+    p: ({ node: _node, ...props }) => {
+      const { children } = props;
+      // If the paragraph contains block-level components (images, canvases, latex),
+      // we 'plop them out' by returning only the children without the <p> wrapper.
+      // This maintains valid HTML hierarchy.
+      const hasBlockElement = React.Children.toArray(children).some(
+        (child) => React.isValidElement(child) && typeof child.type !== "string"
+      );
+      return hasBlockElement ? <>{children}</> : <p {...props} className="markdown-para" />;
+    },
     img: ({ node: _node, ...props }) => <MarkdownImage {...props} />,
-    "latex-block": (props: any) => <LatexBlock {...(props as LatexBlockProps)} />,
-    "body-attenuation-canvas": (props: any) => <Suspense fallback={<CanvasPlaceholder />}> <BodyAttenuationCanvas {...props} /> </Suspense>,
-    "impedance-canvas": (props: any) => <Suspense fallback={<CanvasPlaceholder />}> <ImpedanceCanvas {...props} /> </Suspense>,
-    "time-of-flight-canvas": (props: any) => <Suspense fallback={<CanvasPlaceholder />}> <TimeOfFlightCanvas {...props} /> </Suspense>,
-    "phase-shifting-canvas": (props: any) => <Suspense fallback={<CanvasPlaceholder />}> <PhaseShiftingCanvas {...props} /> </Suspense>,
-    "frequency-modulation-canvas": (props: any) => <Suspense fallback={<CanvasPlaceholder />}> <FrequencyModulationCanvas {...props} /> </Suspense>,
-    "amplitude-modulation-canvas": (props: any) => <Suspense fallback={<CanvasPlaceholder />}> <AmplitudeModulationCanvas {...props} /> </Suspense>,
-    "multipath-canvas": (props: any) => <Suspense fallback={<CanvasPlaceholder />}> <MultipathCanvas {...props} /> </Suspense>,
-    "heterodyning-canvas": (props: any) => <Suspense fallback={<CanvasPlaceholder />}> <HeterodyningCanvas {...props} /> </Suspense>,
-    "endpoint-range-canvas": (props: any) => <Suspense fallback={<CanvasPlaceholder />}> <EndpointRangeCanvas {...props} /> </Suspense>,
-    "icon-inline": IconInline,
+    "latex-block": ({ node: _node, ...props }: any) => <LatexBlock {...(props as LatexBlockProps)} />,
+    "body-attenuation-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder />}> <BodyAttenuationCanvas {...props} /> </Suspense>,
+    "impedance-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder />}> <ImpedanceCanvas {...props} /> </Suspense>,
+    "time-of-flight-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder />}> <TimeOfFlightCanvas {...props} /> </Suspense>,
+    "phase-shifting-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder />}> <PhaseShiftingCanvas {...props} /> </Suspense>,
+    "frequency-modulation-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder />}> <FrequencyModulationCanvas {...props} /> </Suspense>,
+    "amplitude-modulation-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder />}> <AmplitudeModulationCanvas {...props} /> </Suspense>,
+    "multipath-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder />}> <MultipathCanvas {...props} /> </Suspense>,
+    "heterodyning-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder />}> <HeterodyningCanvas {...props} /> </Suspense>,
+    "endpoint-range-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder />}> <EndpointRangeCanvas {...props} /> </Suspense>,
+    "icon-inline": ({ node: _node, ...props }: any) => <IconInline {...props} />,
   }), []);
 
   return (
@@ -327,8 +337,6 @@ const App: React.FC = () => {
 };
 
 const GlobalStyle = createGlobalStyle`
-  @import url("https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=JetBrains+Mono:wght@300;400;500;600;700&family=Inter:wght@500;600;700&display=swap");
-
   :root { color-scheme: dark; }
   * { box-sizing: border-box; }
   html {
@@ -390,7 +398,8 @@ const ArticleContent = styled.article`
     font-size: clamp(1.3rem, 3vw, 1.8rem);
   }
 
-  p {
+  p,
+  .markdown-para {
     margin: 1.2em 0;
     font-family: "DM Mono", monospace;
     font-weight: 300;

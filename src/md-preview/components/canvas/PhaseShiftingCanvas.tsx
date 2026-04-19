@@ -1,10 +1,13 @@
 import { useState, useMemo, useRef, Suspense } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
-import { Text, Line, OrthographicCamera } from '@react-three/drei';
+import { Line, OrthographicCamera } from '@react-three/drei';
+import { CanvasText } from '@n-apt/md-preview/components/CanvasText';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import * as THREE from 'three';
-import { Leva, useControls } from 'leva';
+import { Leva, useControls, useCreateStore } from 'leva';
 import styled from 'styled-components';
+import { formatPiLabel } from '../../utils/canvas-math';
+import CanvasHarness from './CanvasHarness';
 
 const FONT_URL = 'https://cdn.jsdelivr.net/gh/JetBrains/JetBrainsMono@master/fonts/ttf/JetBrainsMono-Regular.ttf';
 
@@ -18,14 +21,12 @@ const COLORS = {
   accent: '#1180FF' // Arrow and degrees
 };
 
-const CanvasContainer = styled.div`
+// CanvasContainer removed because CanvasHarness handles the container, aspect ratio, and grid background.
+const InnerContainer = styled.div`
   width: 100%;
   height: 100%;
-  overflow: hidden;
   position: relative;
-  background-color: ${COLORS.bg};
-  aspect-ratio: 16/9;
-  font-family: 'JetBrains Mono', 'DM Mono', monospace;
+  overflow: hidden;
 `;
 
 const TextOverlay = styled.div`
@@ -66,39 +67,9 @@ const SubLabel = styled.div`
   font-family: 'JetBrains Mono', 'DM Mono', monospace;
 `;
 
-const ControlPanel = styled.div`
-  position: absolute;
-  top: 1.5rem;
-  right: 1.5rem;
-  z-index: 10;
-  width: 20rem;
-  max-width: calc(100vw - 2rem);
-  pointer-events: auto;
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-  border-radius: 0.5rem;
-  overflow: hidden;
-  border: 1px solid rgba(42, 42, 42, 0.3);
-  background-color: rgba(255, 255, 255, 0.8);
-`;
+// ControlPanel removed because CanvasHarness provides a standardized, toggleable Leva panel.
 
-function formatPiLabel(i: number, f: number) {
-  let n = Math.round(i * 10);
-  let d = Math.round(4 * f * 10);
-  const gcd = (a: number, b: number): number => b === 0 ? a : gcd(b, a % b);
-  const divisor = gcd(Math.abs(n), Math.abs(d));
-  n = n / divisor;
-  d = d / divisor;
 
-  if (n === 0) return '0';
-
-  let numStr = '';
-  if (n === 1) numStr = 'π';
-  else if (n === -1) numStr = '-π';
-  else numStr = `${n}π`;
-
-  if (d === 1) return numStr;
-  return `${numStr}/${d}`;
-}
 
 function Grid2D({ frequency }: { frequency: number }) {
   const lines = [];
@@ -173,15 +144,15 @@ function Axes({ frequency }: { frequency: number }) {
       <Line points={[[0, -15, 0], [0, 15, 0]]} color={COLORS.axis} lineWidth={2} />
 
       {/* Labels */}
-      <Text font={FONT_URL} position={[33.5, 0.4, 0]} fontSize={0.3} color={COLORS.text}>x</Text>
-      <Text font={FONT_URL} position={[0.4, 14.5, 0]} fontSize={0.3} color={COLORS.text}>y</Text>
-      <Text font={FONT_URL} position={[-0.3, -0.3, 0]} fontSize={0.2} color={COLORS.text}>0</Text>
+      <CanvasText position={[33.5, 0.4, 0]} fontSize={0.3} color={COLORS.text} text="x" />
+      <CanvasText position={[0.4, 14.5, 0]} fontSize={0.3} color={COLORS.text} text="y" />
+      <CanvasText position={[-0.3, -0.3, 0]} fontSize={0.2} color={COLORS.text} text="0" />
 
       {/* Tick marks X */}
       {xLabels.map(({ pos, label }, i) => (
         <group key={`x-${i}`} position={[pos, 0, 0]}>
           <Line points={[[0, -0.15, 0], [0, 0.15, 0]]} color={COLORS.axis} lineWidth={2} />
-          {label && <Text font={FONT_URL} position={[0, -0.5, 0]} fontSize={0.2} color={COLORS.text}>{label}</Text>}
+          {label && <CanvasText position={[0, -0.5, 0]} fontSize={0.2} color={COLORS.text} text={label} />}
         </group>
       ))}
 
@@ -189,20 +160,20 @@ function Axes({ frequency }: { frequency: number }) {
       {yLabels.map(({ pos, label }, i) => (
         <group key={`y-${i}`} position={[0, pos, 0]}>
           <Line points={[[-0.15, 0, 0], [0.15, 0, 0]]} color={COLORS.axis} lineWidth={2} />
-          <Text font={FONT_URL} position={[-0.6, 0, 0]} fontSize={0.2} color={COLORS.text}>{label}</Text>
+          <CanvasText position={[-0.6, 0, 0]} fontSize={0.2} color={COLORS.text} text={label} />
         </group>
       ))}
     </group>
   );
 }
 
-function Waves({ frequency }: { frequency: number }) {
+function Waves({ frequency, store }: { frequency: number, store: any }) {
   const { phaseShift, amplitude, animate, speed } = useControls({
     phaseShift: { value: 90, min: -360, max: 360, step: 1, label: 'Phase Shift (Phi, φ)' },
     amplitude: { value: 1, min: 0.1, max: 3, step: 0.1 },
     animate: { value: false, label: 'Auto Animate' },
     speed: { value: 1, min: 0.1, max: 5, step: 0.1, render: (get) => get('animate') }
-  });
+  }, { store });
 
   const [animatedPhase, setAnimatedPhase] = useState((phaseShift * Math.PI) / 180);
   const phaseOffsetRef = useRef(0);
@@ -299,22 +270,18 @@ function Waves({ frequency }: { frequency: number }) {
             lineWidth={1}
             dashed dashSize={0.05} gapSize={0.05} opacity={0.5} transparent
           />
-          <Text font={FONT_URL} position={[arrowStart, arrowY + 0.4, 1]} fontSize={0.4} color={COLORS.dashed}>
-            0°
-          </Text>
-          <Text font={FONT_URL} position={[arrowEnd, arrowY + 0.4, 1]} fontSize={0.4} color={COLORS.accent}>
-            {`${displayDegrees}°`}
-          </Text>
+          <CanvasText position={[arrowStart, arrowY + 0.4, 1]} fontSize={0.4} color={COLORS.dashed} text="0°" />
+          <CanvasText position={[arrowEnd, arrowY + 0.4, 1]} fontSize={0.4} color={COLORS.accent} text={`${displayDegrees}°`} />
         </group>
       )}
     </group>
   );
 }
 
-function Scene() {
+function Scene({ store }: { store: any }) {
   const { frequency } = useControls({
     frequency: { value: 1, min: 0.1, max: 3, step: 0.1 }
-  });
+  }, { store });
 
   return (
     <>
@@ -323,7 +290,7 @@ function Scene() {
 
       <Grid2D frequency={frequency} />
       <Axes frequency={frequency} />
-      <Waves frequency={frequency} />
+      <Waves frequency={frequency} store={store} />
 
       <EffectComposer>
         <Bloom luminanceThreshold={0.8} luminanceSmoothing={0.9} intensity={0.5} mipmapBlur />
@@ -352,9 +319,11 @@ function PhaseShiftingFallback() {
 
 function PhaseShiftingCanvas() {
   const shouldUseStaticFallback = typeof process !== 'undefined' && process.env.JEST_WORKER_ID !== undefined;
+  const store = useCreateStore();
 
   return (
-    <CanvasContainer>
+    <CanvasHarness store={store} aspectRatio="16/9">
+      <InnerContainer>
       <TextOverlay>
         <Title style={{
           fontSize: "20px",
@@ -381,33 +350,7 @@ function PhaseShiftingCanvas() {
         <SubLabel>A = Amplitude</SubLabel>
       </div>
 
-      {!shouldUseStaticFallback && (
-        <ControlPanel>
-          <Leva
-            fill
-            flat
-            titleBar={{ title: 'Controls', filter: false }}
-            theme={{
-              colors: {
-                elevation1: 'rgba(255, 255, 255, 0.8)',
-                elevation2: '#E0E0E2',
-                elevation3: 'rgba(42, 42, 42, 0.3)',
-                accent1: COLORS.accent,
-                accent2: COLORS.solid,
-                accent3: '#f59e0b',
-                highlight1: COLORS.text,
-                highlight2: '#6B7280',
-                highlight3: '#9ca3af',
-                vivid1: COLORS.accent,
-                folderWidgetColor: '#6B7280',
-                folderTextColor: COLORS.text,
-                toolTipBackground: 'rgba(255, 255, 255, 0.8)',
-                toolTipText: COLORS.text,
-              }
-            }}
-          />
-        </ControlPanel>
-      )}
+
 
       {shouldUseStaticFallback ? (
         <>
@@ -417,14 +360,15 @@ function PhaseShiftingCanvas() {
           </div>
         </>
       ) : (
-        <Canvas data-testid="r3f-canvas">
-          <OrthographicCamera makeDefault position={[0, 0, 10]} zoom={50} />
-          <Suspense fallback={null}>
-            <Scene />
-          </Suspense>
-        </Canvas>
-      )}
-    </CanvasContainer>
+          <Canvas data-testid="r3f-canvas">
+            <OrthographicCamera makeDefault position={[0, 0, 10]} zoom={50} />
+            <Suspense fallback={null}>
+              <Scene store={store} />
+            </Suspense>
+          </Canvas>
+        )}
+      </InnerContainer>
+    </CanvasHarness>
   );
 }
 

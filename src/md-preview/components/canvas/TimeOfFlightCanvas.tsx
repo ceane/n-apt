@@ -1,12 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { prepareWithSegments, layoutNextLine } from '@chenglou/pretext';
-import CanvasImage from "./shared/CanvasImage";
+import CanvasImage from "@n-apt/md-preview/components/canvas/shared/CanvasImage";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { useTexture } from "@react-three/drei";
 import styled from "styled-components";
 import * as THREE from "three";
-import { CanvasText } from "../../CanvasText";
-import { theme } from "../../theme";
+import { CanvasText } from "@n-apt/md-preview/components/CanvasText";
+import { theme } from "@n-apt/md-preview/consts/theme";
+import { generateBinaryString } from "@n-apt/md-preview/utils/canvas-math";
+import CanvasHarness from "@n-apt/md-preview/components/canvas/CanvasHarness";
 
 import { assetImageUrl } from "@n-apt/md-preview/utils/asset-helpers";
 const BODY_CHARACTER_SRC = assetImageUrl("body-attenuation-character.png");
@@ -259,7 +261,7 @@ const RadioWave: React.FC<{ bodyTexture: THREE.Texture }> = ({ bodyTexture }) =>
 
 
 
-const BINARY_STRING = Array.from({ length: 5000 }, () => (Math.random() > 0.5 ? '1' : '0')).join(' ');
+const BINARY_STRING = generateBinaryString(5000, ' ');
 
 const binaryRowVertexShader = `
   varying vec2 vUv;
@@ -604,67 +606,36 @@ const DynamicStatsOverlay = () => {
 
 const TimeOfFlightCanvas: React.FC = () => {
   return (
-    <Frame>
-      <RendererBadge>Time of Flight</RendererBadge>
-      <CanvasImage
-        src="hex-small-cell-tower.svg"
-        alt="Antenna"
-        position="absolute"
-        left="4%"
-        bottom="0px"
-        height="65%"
-        zIndex={10}
-        pointerEvents="none"
-      />
-      <Canvas
-        orthographic
-        dpr={[1, 2]}
-        camera={{ position: [0, 0, 10] }}
-        gl={{ antialias: true, alpha: true }}
-      >
-        <React.Suspense fallback={null}>
-          <SceneContents />
-        </React.Suspense>
-      </Canvas>
-      <RendererBadge>WebGPU</RendererBadge>
-    </Frame>
+    <CanvasHarness aspectRatio="10 / 6.4">
+      <div style={{ width: '100%', height: '100%', position: 'relative' }}>
+        <RendererBadgeText>Time of Flight</RendererBadgeText>
+        <CanvasImage
+          src="hex-small-cell-tower.svg"
+          alt="Antenna"
+          position="absolute"
+          left="4%"
+          bottom="0px"
+          height="65%"
+          zIndex={10}
+          pointerEvents="none"
+        />
+        <Canvas
+          orthographic
+          dpr={[1, 2]}
+          camera={{ position: [0, 0, 10] }}
+          gl={{ antialias: true, alpha: true }}
+        >
+          <React.Suspense fallback={null}>
+            <SceneContents />
+          </React.Suspense>
+        </Canvas>
+      </div>
+    </CanvasHarness>
   );
 };
 
-const Frame = styled.div`
-  width: 100%;
-  max-width: 100%;
-  min-width: 0;
-  margin: 2rem 0;
-  border-radius: ${theme.layout.borderRadius};
-  overflow: hidden;
-  border: 1px solid rgba(12, 14, 18, 0.36);
-  background-color: #E0E0E2;
-  background-image:
-    linear-gradient(to right, #D7D8DA 2px, transparent 2px),
-    linear-gradient(to bottom, #D7D8DA 2px, transparent 2px);
-  background-size: 64px 64px;
-  background-position: center bottom;
-  aspect-ratio: 10 / 6.4;
-  position: relative;
-
-  > div {
-    width: 100% !important;
-    height: 100% !important;
-    min-width: 0;
-  }
-
-  canvas {
-    display: block;
-    width: 100% !important;
-    height: 100% !important;
-    min-width: 0;
-    cursor: default;
-    touch-action: none;
-  }
-`;
-
-const RendererBadge = styled.div`
+// Frame removed because CanvasHarness handles the container, aspect ratio, and background logic.
+const RendererBadgeText = styled.div`
   position: absolute;
   top: 14px;
   left: 16px;

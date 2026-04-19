@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import styled from "styled-components";
-import { SignalCanvasFrame, OverlayText, GridBackdrop, DottedWave, DashedWave, useWavePoints } from "./shared";
-import { theme } from "../../theme";
+import { SignalCanvasFrame, OverlayText, GridBackdrop, DottedWave, DashedWave, useWavePoints } from "@n-apt/md-preview/components/canvas/shared";
+import { theme } from "@n-apt/md-preview/consts/theme";
 
 const waveAColor = "#7c3aed"; // Vibrant Violet for Wave A
 const waveBColor = "#ec4899"; // Vibrant Pink for Wave B
