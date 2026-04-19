@@ -51,9 +51,7 @@ export const assetUrl = (path: string): string => {
   let cleaned = path.replace(/^\/md-preview\//, "/");
   if (baseUrl !== "/" && cleaned.startsWith(baseUrl)) {
     // If baseUrl is /n-apt/ and path is /n-apt/img.png, we want /img.png first
-    if (cleaned.startsWith(baseUrl)) {
-        cleaned = cleaned.slice(baseUrl.length - 1);
-    }
+    cleaned = cleaned.slice(baseUrl.length - 1);
   }
   
   if (!cleaned.startsWith("/")) cleaned = `/${cleaned}`;
