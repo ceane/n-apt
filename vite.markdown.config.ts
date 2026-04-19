@@ -116,7 +116,6 @@ export default defineConfig(({ mode }) => {
   return {
     mode: isProd ? "production" : "development",
     define: isProd ? {
-      "process.env.NODE_ENV": JSON.stringify("production"),
       "__DEV__": "false",
     } : {},
     esbuild: {
@@ -138,7 +137,7 @@ export default defineConfig(({ mode }) => {
       alias: [
         ...(isProd ? [{
           find: "react/jsx-dev-runtime",
-          replacement: "react/jsx-runtime"
+          replacement: path.resolve(dirname, "src/md-preview/jsx-shim.js")
         }] : []),
         {
           find: /^@n-apt\/encrypted-modules\/(.*)$/,
