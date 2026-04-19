@@ -306,11 +306,13 @@ Thankfully, the infrastructure and technique does enough to extract content for 
 
 I do not volunteer lightly to share a live capture of my brain to the world (that could potentially be demodulated). All I/Q captures are REAL captures of the signal, of my person and others' inside of the 24/7 livestream that's both an extremely unethical and horrific interactive and moderated-like group call. It's the only thing that I could do being trapped by the signals that are both mystery and complex to even talk to anyone about.
 
-N-APT is a project born out of being attacked and held hostage by the NSA because I was adventuring on the streets of San Francisco while working my tech job. Only when I was about to move, they attacked and absorbed me into this interactive and I discovered they were there my whole life (a dark political/military act)! Through endless narrative capture, unethical interactive spatial displays, senseless violence and disfigurement, unfathomable harassment and abuse, repeated sexual assaults, confusion, gaslighting, and at the extremes of unlimited political psychopathy and surveillance, I survived and could scrape together enough to build this app.
+N-APT is a project born out of being attacked and held hostage by the NSA because I was adventuring on the streets of San Francisco while working my tech job. Only when I was about to move, they attacked and absorbed me into this interactive and I discovered they were there my whole life (a dark political/military act)! The experience works anywhere, everywhere and all day, unfortunately due to the use of low frequencies (LF/MF/HF) that travel through objects and buildings or reflect gracefully without too much attenuation.
 
 The experience is like a horror movie but totally changes psychology (emotions, thoughts, perception) and physiology (expression, muscles, neurotransmitters, etc.), it is a prison of mind and body. The parental, demonic DoD (now DoW)-NSA experience and interactive started formless and I not knowing anything while the NSA showing off a lot of the functionality and the capability early on and continuing by trapping me all day in it for years. It's a total nightmare they just put you through and you have to figure it out. 
 
-The experience works anywhere, everywhere and all day, unfortunately due to the use of low frequencies (LF/MF/HF) that travel through objects and buildings or reflect gracefully without too much attenuation.
+
+All within this interactive, it functions moment to moment, effect by effect streaming in and out. Through endless narrative capture, unethical interactive spatial displays, senseless violence and disfigurement, unfathomable harassment and abuse, repeated sexual assaults, confusion, gaslighting, and at the extremes of unlimited political psychopathy and surveillance, I survived and could scrape together enough to build this app.
+
 
 I've learned a lot going from nothing to having a more solid understanding of how it works and took a lot of time to get to this point.
 
