@@ -171,9 +171,9 @@ I'm working on writing the specifics of how it works mathematically (my best gue
 ### Estimated Bandwidth of N-APT
 There are about 3 Channels, I've found:
 
-- Channel A from 18kHz to 4.37MHz
-- Channel B from 24.72MHz to 29.88MHz
-- Channel C from 4.75MHz to 23MHz
+- Channel A from `18kHz to 4.37MHz`
+- Channel B from `24.72MHz to 29.88MHz`
+- Channel C from `4.75MHz to 23MHz`
 
 They are specifially segmented this way because A and B are similar in shape (and therefore function), if you could (the signal is not abundantly available), you would be able to see by panning the spectrum and seeing the signal cohere.
 
