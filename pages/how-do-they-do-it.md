@@ -4,10 +4,10 @@
 
 *April 18th, 2026*
 
-[TDLR at the bottom](#tdlr)
+[⠿ TDLR at the bottom](#tdlr)
 
 
-In this article, I break down my working hypothesis based on **thousands of hours of experience :rotate-3d:** driven by the desperate need and curiosity **(WHILE TRAPPED)** to figure out the **National Security Agency's** proprietary technique that allows them to **read, stream and write to the human brain and nervous system**. This isn't about a theory or hypothesis, it's about breaking down the math and mechanics behind the a real experience as a victim. 
+In this article, I break down my working hypothesis based on **thousands of hours of experience :rotate-3d:** driven by the desperate need and curiosity **(WHILE TRAPPED)** to figure out the **National Security Agency's** proprietary technique that allows them to **write to, read and stream the human brain and nervous system**. This isn't about a theory or hypothesis, it's about breaking down the math and mechanics behind the a real experience as a victim. 
 
 ![First installment, in first person](/md-preview/images/hero-light.png)
 
@@ -15,13 +15,13 @@ What I learned was that the element of surprise and total ignornace long-reinfor
 
 **Unfortunately, that is a deeply pathological mental model of reality!**
 
-**Fort Meade** (the agency's headquarters in Maryland on the west end of an Army base 20 miles northeast of D.C.) had secretly built and mass distributed **:bug: malware and hardware trojans** while acquiring and maintaining **access to infrastructure at scale (international AND domestic). :server-crash: :radio-tower:** For a long time, energy, compute power and other tools.
+**Fort Meade** *(the agency's headquarters in Maryland on the west end of an Army base 20 miles northeast of D.C.)*, and potentially **Friendship Annex** *(the  agency's only publicly unacknowledged bastard campus)*, had secretly built and mass distributed **:bug: malware and hardware trojans** while acquiring and maintaining **access to infrastructure at scale (international AND domestic). :server-crash: :radio-tower:** For a long time, energy, compute power and other tools.
 
 This article is my own **technical and scientific oriented dive and timeline** (with a partial background for context) into these signals that are like chains which long extended the agency's powers (and psychopathy) into the unthinkable.
 
 *National security law, the Freedom of Information Act (FOIA), Privacy Act (PA), Mandatory Declassification Review (MDR), extensive legalese  and the history of this technique is not discussed in this article to in order to keep it focused.*
 
-### Table of Contents <a id="table-of-contents"></a>
+### ⠿ Table of Contents <a id="table-of-contents"></a>
 
 - [Theory #1](#theory-1)
 - [Theory #2](#theory-2)
@@ -110,7 +110,7 @@ Yes, the federal government's powers and corrupt, art-crime-political passions e
 Nothing explained how such a **high-bandwidth, full feature neurotechnological experience** was working the way it did. It was continually a mystery that I just suffered under. The experience was inescapable–location-independent–what I was doing didn't matter, nor where I was, it just worked flawlessly. It didn't drop a frame or lower quality if I was underground on BART, throughout the years, nor if I was on top of Twin Peaks or within deep ravine like Stevens Creek Reservoir (when it was drained in 2022). Going into natural or remote areas (Concord, Half Moon Bay, Fort Funston, etc.) it continued to work without error. It was impossible to shake.
 
 ![Golden Gate Bridge](/md-preview/images/2_26_2025.jpeg)
-*I walked across the Golden Gate Bridge and back, still on––All of us in my head in the livestream (also being physically/psychologically hurt and disrutped the whole time; and yes the others could see through my vision the whole time!).*
+*This was snapped before walked across the Golden Gate Bridge (which I've done several times throughout this) to Sausilito and back, still on ⠿⠿⠿ All of us in my head in the livestream (also being physically/psychologically hurt and disrutped the whole time; and yes the others could see through my vision the whole time!).*
 <br />
 <br />
 <br />
@@ -260,7 +260,7 @@ I nervously decided to purchase a RTL-SDR. Nervous because I didn't know if it w
 
 I plugged it in and poked around. My first bet was to go to where I was thinking and where I received interference on my FM radio, around `93.3MHz, 102.9MHz, 104.1MHz, 107.9MHz` or so. When I was browsing around the spectrum and I didn't see anything that made sense because my suspicious were about bandwidth though I was desperate to find why there was interference in the first place and the damn thing was on.
 
-I didn't feel dejected, I felt cautious. I had a lot of large range I could view, up to `1.7Ghz` (and I could even see higher but it was aliased). So I kept looking around and playing with the settings in SDR++. I kept browsing and looking and getting deeper but I actually quickly found something interesting...
+I didn't feel dejected, I felt cautious. I had a lot of large range I could view, up to `1.7GHz` (and I could even see higher but it was aliased). So I kept looking around and playing with the settings in SDR++. I kept browsing and looking and getting deeper but I actually quickly found something interesting...
 
 ### What the hell... these are the spikes...?
 
@@ -531,7 +531,7 @@ h_k = F + (B - F) \cdot e^{-\frac{|k|}{\lambda}}
 ```Canvas::Heterodyning
 ```
 
-Heterodyning or beat frequencies are what occur when signals interfere and generate a sideband (or third signal) as a natural side effect of two signals overlapping in the right way, for instance `Signal A + Signal B` (B +30Hz higher) playing from the same antenna with the same amount of power per signal, generates a 30Hz signal no matter what frequencies A or B are, as long as B is offset by that much.
+Heterodyning or beat frequencies are what occur when signals interfere and generate a sideband (or third signal) as a natural side effect of two signals overlapping in the right way, for instance `Signal A + Signal B` (B `+30Hz` higher) playing from the same antenna with the same amount of power per signal, generates a `30Hz` signal no matter what frequencies A or B are, as long as B is offset by that much.
 
 Essentially brain and neuronal waves are susceptible to this technique, as I found this was the only math that was possible and could explain how what was happening was happening.
 
@@ -734,45 +734,66 @@ On the software front, social media companies were also idiotic, especially comp
 | All day, years long streaming                          |
 | Contiguous spatial + perceptual interactive            |
 | Livestreaming consciousness with multiple participants |
+| Spans psychology, pereception, physiology and spatial (combo of neuro + electronics) |
+| Total and frontier control/platform over the brain and nervous system  |
 | Extremely dangerous cyber weapon!                      |
 
-The psychological spyware and interactive demonstrated great capabilities from the NSA. The following are firsthand, what I account for as the accessible signal-software to brain functions the had frontier, full access and control over:
+The egrerious **psychological spyware and interactive** demonstrated great capabilities and even greater psychopathy from the NSA. The following are firsthand, what I account for as the accessible signal-software to brain functions the had frontier, full access and control over:
 
 <br />
 <details>
 <summary>Expand for the table of features</summary>
 
-| Feature                                      |
-| -------------------------------------------- |
-| Audio (hearing)                              |
-| Audio (internal; thought)                    |
-| Speech                                       |
-| Voice                                        |
-| Perception                                   |
-| Awareness                                    |
-| Reasoning                                    |
-| Neurotransmitters (state of mind)            |
-| Physiology (motor functions)                 |
-| Physiology (fine motor function, muscles)    |
-| Physiology (feeling/haptics/pantomime)       |
-| Behavior                                     |
-| Emotion                                      |
-| Vitals                                       |
-| Vision                                       |
-| Imagination                                  |
+| Feature                                           |
+| ------------------------------------------------- |
+| Audio (hearing)                                   |
+| Audio (internal, thought)                         |
+| Voice                                             |
+| Speech                                            |
+| Mental inference                                  |
+| Perception                                        |
+| Awareness                                         |
+| Sense of Self                                     |
+| Neurotransmitters (state of mind, chemistry)      |
+| 5 senses (touch, sight, sound, taste, hearing)    |
+| Physiology (motor functions)                      |
+| Physiology (fine motor function, muscles)         |
+| Physiology (feeling/haptics/pantomime)            |
+| Memory (short-term)                               |
+| Reasoning                                         |
+| Behavior                                          |
+| Emotion                                           |
+| Vitals                                            |
+| Vision                                            |
+| Imagination                                       |
+| Dreams                                            |
 </details>
 
 ## N-APT Signal structure <a id="n-apt-form"></a>
 
+### Suspension Bridge-like form
+
+![Suspension Bridge A](/md-preview/images/snapshot-suspension-bridge-a.png)
+![Suspension Bridge B](/md-preview/images/snapshot-suspension-bridge-b.png)
+
 ### Spikes and Valleys
 
-TODO
+![Spikes and Valleys](/md-preview/images/snapshot-spikes-valleys-a.png)
+![Spikes and Valleys](/md-preview/images/snapshot-spikes-valleys-a-zoom.png)
+![Spikes and Valleys](/md-preview/images/snapshot-spikes-valleys-a-zoom2.png)
+*Real spikes and valleys of N-APT, tall spikes strongly assumed to activate neuronal ensembles and valleys packed with data*
 
 ### Clumps
 
+![Clumps](/md-preview/images/snapshot-clumps-a.png)
+![Clumps](/md-preview/images/snapshot-clumps-b.png)
+
 TODO 
 
-### Staircases
+### Subspikes
+
+![Clumps](/md-preview/images/snapshot-subspikes-a.png)
+![Clumps](/md-preview/images/snapshot-subspikes-b.png)
 
 TODO
 
@@ -783,8 +804,7 @@ Some neuronal ensembles have smaller data throughput, where spikes and clumps ar
 
 ### Signals processing
 
-In order to read anything that comes back, the NSA uses advanced signals processing to decode neuronal
-data. The unknown and unimaginable become a reality. Below are several theorized techniques used in the pipeline to take an advanced formula of radio waves and decode brain and neuronal data.
+In order to read anything that comes back, the NSA uses advanced signals processing to demodulate neuronal data. Apparently the NSA has world-class signals engineers and cryptologist, who have unlocked the secret to the human brain and nervous system. The unknown and unimaginable become a reality. Below are several theorized techniques used in the pipeline to take an advanced formula of radio waves and demodulate brain and neuronal data.
 
 #### Kaiser + Fast Fourier Transform (FFT)?
 
@@ -804,7 +824,7 @@ TODO
 
 ## What does the signal look like? <a id="n-apt-in-the-wild"></a>
 
-I gave the signal certain channels based on my what I found by poking around with my RTL-SDR. At first I was confused, looking at other parts of the spectrum, but the same and first day I had my RTL-SDR, I found the signals!
+I labeled the signal with certain channels based on my what I found by poking around with my RTL-SDR. At first I was confused, looking at other parts of the spectrum, but just two days after I had my RTL-SDR, I found the signals!
 
 There are about 3 Channels, I've found:
 
@@ -816,28 +836,94 @@ They are specifially segmented this way because A and B are similar in shape (an
 
 ### Channel A
 
-![Channel A](/md-preview/images/snapshot-channel-a-partial.png)
-*Partial capture of the channel*
+![Channel A, partial (at the hardware limit)](/md-preview/images/snapshot-channel-a-partial.png)
+*Partial capture of the channel (looks different because the signal shifts)*
+
+![Channel A (stitched)](/md-preview/images/snapshot-channel-a.png)
+*A whole snapshot of Channel A (composed and stitched together)*
+
+<br />
+<br />
+<br />
 
 From about `18kHz to 4.37MHz` this is what I dub "Channel A" of the signals. You can clearly see the APT-like spikes and valleys.
 
+At first I ignored Channel A, I didn't see it this way at all. I was using SDR++ and sliding around, the spikes would form or disappear due to sampling and the signal's strucutre. Channel B had a more reliable structure that was easier to tune to, therefore I thought Channel A was responsible for the "Ghost in the Machine" spatial experience which briefly scripted others around me either a short script, facial expression, or rarely layered over their speech for an extended time. As I kept looking around and taking hints from the interactive (hundreds of times, being hurt right out the gate to the extreme in the morning), the unmasked operator pointed over there after several brutal disfiguring sessions of my brain and body.
+
+I took a closer look because I was looking for easier to tell features like audio and I found that Channel A was indeed the channel that had audio! I just saw music/hearing, not the internal audio or voice, but it was easy to assume that a cluster of spikes were probably responsible for the voice as an interface (syncronized voice, vocal modulation) feature. 
+
+As far as features that were present, I could only guess, but I was sure that Channel A was me and Channel B were likely other people. Due to the features I experienced in the interactive, I put together all that the agency's frontier neurotechnology and technique could do. I believe that Channel A was responsible for the following:
+
+| Feature                                           |
+| ------------------------------------------------- |
+| Audio (hearing)                                   |
+| Audio (internal, thought)                         |
+| Voice                                             |
+| Speech                                            |
+| Mental inference                                  |
+| Perception                                        |
+| Awareness                                         |
+| Sense of Self                                     |
+| Neurotransmitters (state of mind, chemistry)      |
+| 5 senses (touch, sight, sound, taste, hearing)    |
+| Physiology (motor functions)                      |
+| Physiology (fine motor function, muscles)         |
+| Physiology (feeling/haptics/pantomime)            |
+| Memory (short-term)                               |
+| Reasoning                                         |
+| Behavior                                          |
+| Emotion                                           |
+| Vitals                                            |
+</details>
+
 ### Channel B
 
-![Channel B](/md-preview/images/snapshot-channel-b-partial.png)
-*Partial capture of the channel*
+![Channel B, partial (at the hardware limit)](/md-preview/images/snapshot-channel-b-partial.png)
+*Partial capture of the channel (spikes and clumps may shift because of the signals' structure relative to sampling)*
 
-From about `24.72MHz to 29.88MHz` is what I dub as "Channel B" of the overall N-APT signals. You can also clearly see same signal structure as Channel A.
+![Channel B (stitched)](/md-preview/images/snapshot-channel-b.png)
+*A whole snapshot of Channel B*
+
+<br />
+<br />
+<br />
+
+From about `24.72MHz to 29.88MHz` is what I dub as "Channel B" of the overall N-APT signals. You can also clearly see an identical signal structure as Channel A.
+
+I believe Channel B is identical to Channel A, except who it targets momentarily here and there or persistently, either the software forming a neurofence or an operator/interative poking around, both experienced. Of course all the N-APT channels likely cannot triangulate all on their own, the signals are not a one stop shop of scan-and-stare, triangulate & content. Instead, it is likely that there are close enough, low-end microwaves that maintain triangulation and dictate the power of the N-APT channels relative to the distance (which in power always remains constant at person).
 
 ### Channel C
 
-![Channel C](/md-preview/images/snapshot-channel-c-aliased.jpeg)
-*Whole capture of the channel but heavily aliased (bending/folding around the edges of the hardware limits)*
 
-From what I could wing at, from about `4.75MHz to 23MHz` or so is "Channel C". You can see its a very large channel, way larger than the 3.2MHz/s bandwidth my RTL-SDR can capture.
+![Channel C, partial (at the hardware limit)](/md-preview/images/snapshot-channel-c-partial.png)
+*Partial capture of the channel, notice the spikes and power is less, potentially because it's read-only*
+
+
+![Channel C](/md-preview/images/snapshot-channel-c-aliased.png)
+![Channel C (taller aspect ratio))](/md-preview/images/snapshot-channel-c-tall.png)
+*(two different aspect ratios because it's a very wide signal) Whole capture of the channel but heavily aliased (bending/folding around the edges of the hardware limits)*
+
+<br />
+<br />
+<br />
+
+From what I could wing at, from about `4.75MHz to 23MHz` or so is "Channel C". You can see its a very large channel, way larger than the `3.2MHz/s` bandwidth my RTL-SDR can capture.
+
+It's very different from the other channels, which always have prominent spikes, these spikes are less, but much of the time I don't see them at all (possibly hardware settings due to wider beats; usually at `PPM = 1`, but this may require larger PPM to see the spikes).
+
+![Channel C, partial (at the hardware limit) and flat](/md-preview/images/snapshot-channel-c-flat.png)
+*Partial capture of the channel, notice the spikes don't appear but it's definitely not noise!*
+
+| Feature                                           |
+| ------------------------------------------------- |
+| Vision                                            |
+| Imagination                                       |
+| Dreams                                            |
+</details>
 
 ### Estimated data
 
-Using the obvious and what I've seen, it was pretty easy to give a solid estimate of the data that was intercepted and coming through the my brain and nervous system. These numbers are **the minimum** that are physically possible  and likely the only formula to be used, since **the brain does not process signals like electronics** *(one cycle is more than up down with electronics)*.
+Using the obvious and what I've seen, it was pretty easy to give a solid estimate of the data that was intercepted and coming through the my brain and nervous system. These numbers are **the minimum** that are physically possible  and likely the only formula to be used, since **the brain does not process signals like electronics** *(one cycle = more than up down with electronics)*.
 
 <br />
 <br />
