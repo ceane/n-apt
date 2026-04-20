@@ -78,7 +78,6 @@ const Container = styled.div`
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  overflow: hidden;
   background-color: ${(props) => props.theme.background};
   padding: 40px;
   gap: 32px;
