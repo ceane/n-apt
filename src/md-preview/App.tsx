@@ -90,6 +90,46 @@ const renderDisplayExpression = (expression: string) => katex.renderToString(exp
   output: "html",
 });
 
+type HotModuleApi = {
+  on: (event: string, callback: (payload: { path?: string }) => void) => void;
+  off?: (event: string, callback: (payload: { path?: string }) => void) => void;
+};
+
+const getHotModuleApi = () => {
+  // Prefer using a test shim if present (test environment provides
+  // global.import.meta). This avoids referencing import.meta directly which
+  // causes a parse error in non-module Jest environments.
+  const shim = (globalThis as any).import?.meta?.hot as HotModuleApi | undefined;
+  if (shim) return shim;
+
+  // In real Vite dev, import.meta.hot is available. We access it via eval so
+  // the literal `import.meta` doesn't appear at module parse time (which
+  // would break Jest). Wrap in try/catch in case the runtime doesn't support
+  // import.meta.
+  try {
+    // Use an indirect eval (via the comma operator) to reduce chance of build
+    // tooling rewriting the literal. Some runtimes disallow direct import.meta
+    // usage inside eval, so guard this and return undefined if it throws.
+    // eslint-disable-next-line no-eval
+    const meta = (0, eval)("import.meta") as any;
+    if (__DEV__) {
+      try {
+        // eslint-disable-next-line no-console
+        console.debug("HMR: import.meta.hot present:", !!meta?.hot, "shim:", !!shim);
+      } catch {}
+    }
+    return meta?.hot as HotModuleApi | undefined;
+  } catch {
+    if (__DEV__) {
+      try {
+        // eslint-disable-next-line no-console
+        console.debug("HMR: import.meta access failed; HMR unavailable");
+      } catch {}
+    }
+    return undefined;
+  }
+};
+
 type LatexBlockProps = React.HTMLAttributes<HTMLElement> & {
   "data-expressions"?: string;
 };
@@ -263,7 +303,7 @@ const App: React.FC = () => {
   }, [activeSource, fetchMarkdown]);
 
   useEffect(() => {
-    const hot = import.meta.hot;
+    const hot = getHotModuleApi();
     if (!hot) {
       return;
     }
@@ -280,7 +320,7 @@ const App: React.FC = () => {
 
     hot.on("pages:update", handleUpdate);
     return () => {
-      hot.off("pages:update", handleUpdate);
+      hot.off?.("pages:update", handleUpdate);
     };
   }, [activeSource, fetchMarkdown]);
 

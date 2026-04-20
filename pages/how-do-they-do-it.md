@@ -70,11 +70,13 @@ Months after it turned on full blast, the only thing I cared about was to briefl
 
 ### ⠿ Years and years of "I don't care, I want out!"
 
-Several years later, the experience spontaneously shifted (on a certain day, approximately 38,040 hours in) into a **livestream (!) and narrative-based format (!!)** with intense all day harm, a hellish auditory-inferential puzzle-like narrative with others added within the livestream. **It was a total nightmare** — to keep it short,  **thousands of effects and experiences, thousands of hours**. At that point, there was audio but accompanied by intense harm and thorough abuse of the neurotechnology in unimaginable ways. Initally, there was no immediate way to tell how or who or why. Then, as the narrative kept unfolding, the why became apparent–politicitization of the agency's powers.
+Several years later, the experience spontaneously shifted (on a certain day, approximately 38,040 hours in) into a **livestream (!) and narrative-based format (!!)** with intense all day harm streaming tons of effects to my mind and body with a hellish series of narratives. Throughout this period, the operators introduced others within the livestream. **It was a total nightmare** — to keep it short,  **thousands of effects and experiences, thousands of hours**. At that point, there was structured and defined audio (as well as perception and mental inference) but accompanied by intense, moment-to-moment harm thorough structural abuse and antagonism within the software in unimaginable ways. 
 
-My first attempt to decipher the *how* while enduring the unthinkable was not serious, but I looked into brainwaves and I intuitively (and naively) came to the assumption that somehow the experience happening through **ELF frequencies (0 - 300Hz) since they encompassed brainwave frequencies (0 - 40Hz)**. So I assumed someone (military), somewhere (on some base) had an ELF radio with tons of antennas and that it was long-range (the hardware wasn't nearby to me at this point) because the wavelengths I were thinking of at the time were very long, however I was stuck wondering how bandwidth worked.
+Initally, there was no immediate way to tell how or who or why. Then, as the narrative kept unfolding, getting creepier, more outlandish, more violent, the why became apparent–**pressured politicitization of the agency's powers.**
 
-This was my initial super naive theory that *didn't last long*, because as I kept thinking this theory kept running into bandwidth and delivery problems, in addition to the fact that the technology or some kind of indicators would have been discoverable.
+My first attempt to decipher the *how*, while severely compromised by it's malware-like operation on mind and body, was not serious, but I looked into brainwaves and I intuitively (and naively) came to the assumption that somehow the experience happening through **ELF frequencies (0 - 300Hz) since they encompassed brainwave frequencies (0 - 40Hz)**. So I assumed someone (military), somewhere (on some base) had an ELF radio with tons of antennas and that it was long-range (the hardware wasn't nearby to me at this point) because the wavelengths I were thinking of at the time were very long, however I was stuck wondering how bandwidth worked.
+
+This was my initial super naive theory that *didn't last long*, because as I kept thinking this theory kept running into bandwidth and delivery problems, in addition to the fact that the technology or some kind of indicators would have been discoverable for such egregrious corruption that strikes in this way.
 
 I kept looking up bases that had ELF radios, but the ELF radio projects were all out of commission and the bandwidth for that spectrum was infinitesimal compared to the full experience.
 
@@ -83,11 +85,11 @@ I kept looking up bases that had ELF radios, but the ELF radio projects were all
 
 ## Second theory (weeks later) <br /> Quantum Physics <a id="theory-2"></a>
 
-My second theory was right after the first. Previously throughout the years I browsed through books on quantum mechanics, however it was just superficial. The neurotechnological experience I was trapped in was just impossibly good math and science. Anywhere, anytime, all day. I couldn't shake it no matter how much I tried.
+My second theory was right after the first. Previously throughout the years while the spatial performance playeed out while wrecking my life to trap me in it, I browsed through many books on quantum mechanics, however it was just superficial. The neurotechnological experience I was trapped in was just impossibly good math and science. Anywhere, anytime, all day. I couldn't shake it no matter how much I tried.
 
-There was no viable quantum teleportation or quantum entanglement research that seemed to be something at least easy enough to pin the method down. How were they doing it? Transporting energy to my head? Neuron for neuron? Entangled states of energy? A full on shadow copy of enough charges/neurons to my brain?
+There was no viable quantum teleportation or entanglement research that seemed to be something at least easy enough to pin the method down. How were they doing it? Transporting energy to my head? Neuron for neuron? Entangled states of energy? A full on shadow copy of charges/neurons to my brain?
 
-I thought hard about it. Quantum entanglement did not transfer energy, only states like spin and polarization, an inert technique limited to computers and could not reasonably align to what was happening.
+I thought hard about it. Quantum entanglement did not transfer energy, only states like spin and polarization, inert states limited to computers and could not reasonably align to what was happening.
 
 Any quantum method required quantum computing, which unfortunately cannot process millions, let alone billions of qubits today. I projected that even if millions of bits were leaving my brain, the quantum method was too fragile for the high-bandwidth experience that it was, leaving the brain an untenable territory for quantum physics. Additionally, quantum methods required classical communication, meaning a fragile radio wave (new methods use lasers) had to exist for it to work, which didn't seem tenable.
 
@@ -95,19 +97,34 @@ Something was up because whoever it was was doing it, I assumed the U.S. Army at
 
 **2st naive attempt ↪ Quantum physics**
 
-## Third theory (months later) <br /> Beat Frequencies / Heterodyning <a id="theory-3"></a>
+## Third theory (a few months later) <br /> Beat Frequencies / Heterodyning <a id="theory-3"></a>
 
-I was really stuck in a strange spot and not the only victim, but in a experience that centered on me as the main victim in a series of iterations in that fashion (iterations that cost dozens of others their lives and those in past had it far worse). I had to share my life with other people, criminals stocked on hand, livestreamed to my brain/consciousness. To all of us, now living my life in this format, it was a lot of unknowns amongst a lot of evil in interactive and I had to operate with perseverence and reason.
+I was really stuck in a strange spot and not the only victim, but in a experience that centered on me as the main victim in a series of iterations in that fashion (iterations that cost dozens of others their lives and those in past had it far worse). I had to share my life with other people, criminals stocked on hand, livestreamed to my brain/consciousness. To all of us, now living my life in this format and cyber weapon, it was a lot of unknowns amongst a lot of evil in interactive and I had to operate with perseverence and reason.
 
-The livestream experience at this point was brutal, brutal enough to distract from the fact that each of my 5 senses–vision (the others could see EVERYTHING), audio (the others could hear EVERYTHING), touch, smell and taste (rare for the others to experience)–were exposed to the others on the other end. This is not lore or fiction, do not mistake me, yes the federal government's powers and psychotic, artistic passions extended this far.
+The livestream experience at this point was brutal, brutal enough to distract from the fact that each of my 5 senses–vision (the others could see EVERYTHING), audio (the others could hear EVERYTHING), touch, smell and taste (rare for the others to experience but happened)–were exposed to the others on the other end. 
 
-Nothing explained how such a **high-bandwidth, feature rich neurotechnological experience** could have worked. It was continually a mystery. It was location-independent, what I was doing didn't matter, nor where I was, it just worked flawlessly. It didn't drop a frame or lower quality if I was underground on BART, throughout the years, nor if I was on top of Twin Peaks or within deep ravine like Stevens Creek Reservoir (when it was drained). Going into natural, wooded areas it continued to work. It was impossible to shake.
+Yes, this happened (San Francisco, 2023-present)–this is not lore or fiction, do not mistake me. 
 
-This time I researched more about radio waves, I was pressed and very concerned that there had to be some way a radio wave could generate frequencies that matched and interacted with brainwaves. Quite self-evidently and obviously, no amount of radio waves can interact with brain activity, with the whole world shrouded with various radio waves everyday, this would have been known.
+Yes, the federal government's powers and corrupt, art-crime-political passions extended this far (take a guess).
 
-There was one exception...
+Nothing explained how such a **high-bandwidth, full feature neurotechnological experience** was working the way it did. It was continually a mystery that I just suffered under. The experience was inescapable–location-independent–what I was doing didn't matter, nor where I was, it just worked flawlessly. It didn't drop a frame or lower quality if I was underground on BART, throughout the years, nor if I was on top of Twin Peaks or within deep ravine like Stevens Creek Reservoir (when it was drained in 2022). Going into natural or remote areas (Concord, Half Moon Bay, Fort Funston, etc.) it continued to work without error. It was impossible to shake.
 
-I didn't quite head-on search for "brainwaves and radio waves", or anything like that. I was looking at **the building blocks of physics and how** I could get to the technology that could interact with brainwaves that was operating in the real world, real time, very present, in my mind and nerves.
+![Golden Gate Bridge](/md-preview/images/2_26_2025.jpeg)
+*I walked across the Golden Gate Bridge and back, still on––All of us in my head in the livestream (also being physically/psychologically hurt and disrutped the whole time; and yes the others could see through my vision the whole time!).*
+<br />
+<br />
+<br />
+
+
+This time I researched more about radio waves, I was pressed and very concerned that there had to be some way radio waves could generate frequencies that matched and interacted with brainwaves. 
+
+Quite self-evidently and obviously, no amount of radio waves can interact with brain activity. The whole world is shrouded with various radio waves everyday, this would have been known.
+
+<br />
+
+**Except, there was one exception...**
+
+I didn't quite head-on search for "brainwaves and radio waves", or anything like that. I was looking at **the building blocks of physics and how** (obviously from the outset avoiding conspiracy theory or dismantiling something classified like it's out in the open). This smart way of breaking down egregious power could get to the technology that was very much real and present, in my mind and nerves.
 
 Throughout my research I found **beat frequencies**, which worked mathematically like:
 
@@ -171,18 +188,20 @@ f_2 = 100\,\mathrm{MHz}
 {\Large f_{\text{beat}} = |f_1 - f_2| \quad} = 30\,\mathrm{Hz}
 ```
 
-When two RF signals extremely close in frequency overlap *in free space (not inside of hardware but from an antenna)* it results in a sideband (or beat pattern) as a natural side effect!
+When two RF signals extremely close in frequency overlap *in free space (not inside of hardware like the `local oscillator` but from the `frequency synthesizer → antenna`)* it results in an envelope (or beat pattern) as a natural side effect!
 
 ### Frequency and bandwidth versus attenuation
 
-The experience remains consistently high-fidelity, high-bandwidth and it leaves a lot of clues to its nature and upon research, the tradeoffs involved. My working assumptions led me to believe that microwaves (300MHz to 300GHz) were infeasible for everything but triangulation due to poor penetration of the skull and body, basically the signal will attenuate (lose energy, strength) as it travels through which is a huge problem if all of the endpoints are far and elevated and maintaining penetration of dense biological structures and tissue.
+The experience remained **consistently high-fidelity, high-bandwidth** and it left a lot of clues to its nature, and upon research the tradeoffs involved. 
+
+My working assumptions led me to believe how it functioned. Microwaves as a candidate for frequency (`300MHz to 300GHz`) were infeasible for everything but triangulation due to poor penetration of the skull and body, basically the signal will attenuate (lose energy, strength) as it travels through which is a huge problem if all of the endpoints are far and elevated and maintaining penetration of dense biological structures and tissue. Clearly the energy would have also been a major problem as well due to the inherently manual nature of the mechanism: the brain and nervous system can't send.
 
 Here, I wrongly correlated interference with my FM radio (VHF) to be the assumed frequencies, however when I got around to taking a look months later, the signals appeared to be operating in the HF spectrum, not VHF. Without hesitation, the assumption I further developed shows the tradeoffs maintaining this one of a kind connection with biology while also avoiding interfering with other signals and being detected.
 
 Bandwidth is another problem as well, since there is so much going throughout the psychological experience, it is easy to make the following assumptions:
 
-- (1) only 2 bits a cycle max, since biology is not a special hardware antenna, only the peak and trough translate into electrical energy that the brain and nervous system can interpret,
-- (2) the brain is known to be small in bandwidth, but since this experience spanned from 2018 to the present and maintains such a high-fidelity, constant connection with real-time processing of and response to vision, hearing, thinking, etc., there isn't a lot going on, possibly 2-8MBs compromises one's brain accordingly, the consciousness is small as a data channel,
+- (1) only 2 bits a cycle max, since biology is not a special hardware antenna, only the **peak and trough of a cycle translate into electrical energy that the brain and nervous system can interpret**,
+- (2) the brain is known to be small in bandwidth, but since this experience spanned from 2018 to the present and maintains such a high-fidelity, constant connection with real-time processing of and response to vision, hearing, thinking, etc., there isn't a lot going on, possibly 2-8MB/s compromises one's brain accordingly, the consciousness is small as a data channel,
 - (3) too much bandwidth "all damn day, every damn day" will most certainly produce heating effects in tissue, but I have yet to experience anything but its evils in media form.
 
 As far as bandwidth, when tuning the signal, I could see about 6MHz of bandwidth, reliably, provided RTL-SDR is not the best and this signal is complex with heterodyning involved (extremely small resolution, multiple signals not drawn easy by any spectrum analyzer which layers in everything).
@@ -192,7 +211,7 @@ As far as bandwidth, when tuning the signal, I could see about 6MHz of bandwidth
 
 Since **the experience was so high-bandwidth**, I did manual calculations based on what was happening. I didn't have any money, just my iPhone, and AI chat apps were a nascent technology. I continued putting together a theory of how, knowing that the NSA didn't just do this to me, fuck my life over, and I couldn't figure it out. That the NSA wasn't doing what they were doing to me because it was easy to attack people.
 
-**It was some kind of sick, extreme game, figure out the tech.** If it was truly dropped in my lap (I don't have a degree, but I went to college dropped out and became a front-end engineer in tech), then it was something, SOMETHING that I could piece together.
+**It was some kind of sick, extreme game–figure out the tech, argue for your freedom.** I had believed what was truly dropped in my lap *(I don't have a degree, I was college dropped out turned front-end engineer)* was something, SOMETHING that I could piece together.
 
 Microwaves allowed a high amount of bandwidth – we use them everyday to communicate and receive tons of webpages, videos, messages, and all sorts of media and content on the Internet. However, I quickly discovered microwaves *attenuate* heavily in the skull and body (entry points for any signal of this kind), so naturally, I thought of increasing the power. Unfortunately, I discovered there were heating effects.
 
@@ -200,7 +219,7 @@ Microwaves sounded too good to be true and although I never looked up anything o
 
 ### VHF waves
 
-I continued my research while held down by the interactive and speculated that the NSA was doing this with VHF waves. Long wavelengths like VHF can penetrate and survive attenuation of the skull.
+I continued my research while held down (and dirt poor) by the interactive and speculated that the NSA was using VHF waves. Long wavelengths like VHF can penetrate and survive attenuation of the skull, and generally did not require as much power as microwaves.
 
 
 ## Multipath Reflection <a id="multipath"></a>
@@ -235,18 +254,35 @@ I very, very naively thought that radio waves could be focused point by point li
 I kept spinning and spinning wondering how the hell the signal could be constant through the skull and body. It attenuates heavily.
 
 
-## Hypothesis post-SDR (+4 months) <br /> ??? <a id="hypothesis-post-sdr"></a>
+## <a id="hypothesis-post-sdr"></a> Hypothesis post-SDR (+4 months) <br />
 
-I was not shocked.
+Around late December 2025, after 7 years or over 61,320 hours within the interactive enforced within abject poverty and very very little resources, I decided to buy the cheapest, most viable SDR I could get.
+
+I nervously decided to purchase a RTL-SDR. Nervous because I didn't know if it was going to help. When I picked up my RTL-SDR and headed back home.
+
+Within a certain period of time, when I felt good enough, I plugged it in and poked around. My first bet was to go to where I was thinking and where I received interference on my FM radio, around `93.3MHz, 102.9MHz, 104.1MHz, 107.9MHz` or so. When I was browsing around the spectrum and I didn't see anything peculiar though I was desperate to find why there was interference in the first place and the damn thing was on.
+
+I didn't feel dejected, I felt cautious. I had a lot of large range I could view, up to `1.7Ghz` (and I could even see higher but it was aliased). So I kept looking around and playing with the settings in SDR++. I kept browsing and looking and getting deeper but I actually quickly found something interesting...
+
+### What the hell, these are the spikes...?
+
+By this point, I strongly suspected the signal had to have some kind of huge spike or pattern because the skull heavily attenuated the signal. When I got to the spectrum, I magically saw this form of spikes shaped like a suspension bridge!
+
+The signal didn't look damped, but had an effect close enough. 
+
 
 ### HF-MF-LF Waves
 
 THIS IS WHERE IT WAS AT.
 
+#### Harmonics
 
-### What the hell, THESE are the spikes...?
+TODO
 
-Damping wasn't it.
+#### Test
+
+![Stanford Wu Tsai before Christmas](/md-preview/images/12_23_2025.png)
+*I went to Stanford to show off and take a photo of the discovery after longsuffering through AIDS, abject poverty and hopelessness.*
 
 ## Foundations of today: <br /> Solid working hypothesis
 
@@ -288,7 +324,6 @@ The NSA has a lot of smart Nazis. Military personnel that just get very creative
 | Vitals / Autonomic Regulation             | Delta–Theta (0.5–8 Hz)                           | Strong                 |
 </details>
 
-
 ## Channels
 
 A channel is an area a signal occupies, very simply when people ask "What's the frequency?" a signal could be from Point A to Point B.
@@ -299,7 +334,8 @@ The signal occupies a bandwidth and maintains near-perfect, consistent power at 
 
 Radio waves are around us everyday, primarily for communications, however they have niche applications in science and medicine.
 
-### Automatic Picture Transmission / APT (the least intuitive hint of the signals–yes signals not signal)
+### Automatic Picture Transmission / APT. 
+*(the least intuitive hint of the signals––yes signals not signal)*
 
 
 ```LaTex
@@ -505,7 +541,7 @@ When two signals that are close intersect, if they do not overlap exactly, they 
 ```Canvas::PhaseShifting
 ```
 
-This is important, if you want to concentrate energy at a certain range (and localize the sideband within range of a target), phase shifting moves the wave (phase) either back or forth (±90°, 180°, 270°) so they can combine localize constructive interference in an area.
+This is important, if you want to concentrate energy at a certain range (and localize the sideband within range of a target), phase shifting moves the wave (phase) either back or forth (`±90°, 180°, 270°`) so they can combine localize constructive interference in an area.
 
 This technique defeats the counterintuitive intuition of using a short(est) wavelength (microwaves infeasible, will attenuate and do nothing but cause heating) to target specific neuronal ensembles. Longer wavelengths which survive attenuation more easily work better and can use precise math + simple, performant radio operations to precisely intersect and shift out of the way.
 
@@ -612,7 +648,6 @@ f_s &= \text{ADC sampling rate (Hz)} & f_c &= \text{Carrier frequency (Hz)}
 
 TODO
 
-
 ## Power?
 
 TODO 
@@ -621,7 +656,7 @@ TODO
 
 In order to target the brain, I made a solid assumption based off of what ChatGPT told me, that brainwaves are about 1-10µW (microwatts), so I figured that the signals' power should be near there, anything less in scale, the math I did was dire to remain above the noise in the environment, go through the skull and/or body (body because it does my vocal cords, mouth and throat muscles, in addition to others) losing 99% energy and make it back to an endpoint. Biology constrains this problem to maintaining an exacting level of energy consistently at the body/entry, so the further one is away from an endpoint, the energy always stays the same, only the receiver, fixed at various distances, suffers from less energy coming back from the target (the body).
 
-In reality, when I took a look at the signals on my person (antenna on me while it runs to my demise), it was actually a solid assumption, with values around -21dBm, as low as -29dBm (I assume read only or very, very minor writes). The spikes reached as high as 1, 3 and 9dBm.
+In reality, when I took a look at the signals on my person (antenna on me while it runs to my demise), it was actually a solid assumption, with values around `-21dBm`, as low as `-29dBm` (I assume read only or very, very minor writes). The spikes reached as high as 1, 3 and 9dBm.
 
 ## Center frequency <a id="center-frequency"></a>
 
@@ -679,13 +714,13 @@ Essentially the brain and nervous system is very noisy, whatever those spikes do
 
 ### Hacked telecommunications infrastructure & equipment (obviously)
 
-The who or technical part of it wasn't even a thought for years enduring this because it was such a shocking, SOTA experience filled with a lot of rich, horrific features and unthinkable AR/spatial/perceptual/physiological experiences! Of course, later I resolved this was all driven by exploited, ground or vehicle based tinfra (telecom infra, as I call it). It functions in dense urban environments, remote areas, indoors (thick concrete buildings), underground, in caves, in buses and trains and it even worked on planes (either the plane communication system or a satellite which I assume less likely due to its continued low latency on the flights) and at my destination on the opposite side of the country (SF ✈️ MIA) while I tried to escape the NSA! The chain I researched assumes it goes like the image below:
+The who or technical part of it wasn't even a thought for years enduring this because it was such a shocking, SOTA experience filled with a lot of rich, horrific features and unthinkable AR/spatial, perceptual, psychological, and physiological experiences! 
+
+Of course, later I resolved this was all driven by exploited, ground or vehicle based tinfra (telecom infra, as I call it). It functions in dense urban environments, remote areas, indoors (thick concrete buildings), underground, in caves, in buses and trains and it even worked on planes (either the plane communication system or a satellite which I assume less likely due to its continued low latency on the flights) and at my destination on the opposite side of the country (SF ✈️ MIA) while I tried to escape the NSA! The chain I researched assumes it goes like the image below:
 
 ![Hardware Exploit Chain](/md-preview/images/hardware-exploit-chain.png)
 
 The project uses RTL-SDR to capture and decode signals across a wide frequency range, focusing on neurotechnology-related emissions.
-
-
 
 ## Feature rich <a id="features"></a>
 
@@ -766,6 +801,14 @@ TODO
 
 I gave the signal certain channels based on my what I found by poking around with my RTL-SDR. At first I was confused, looking at other parts of the spectrum, but the same and first day I had my RTL-SDR, I found the signals!
 
+There are about 3 Channels, I've found:
+
+- Channel A from `18kHz to 4.37MHz`
+- Channel B from `24.72MHz to 29.88MHz`
+- Channel C from `4.75MHz to 23MHz`
+
+They are specifially segmented this way because A and B are similar in shape (and therefore function), if you could (the signal is not abundantly available), you would be able to see by panning the spectrum and seeing the signal cohere.
+
 ### Channel A
 
 ![Channel A](/md-preview/images/snapshot-channel-a-partial.png)
@@ -787,16 +830,44 @@ From about `24.72MHz to 29.88MHz` is what I dub as "Channel B" of the overall N-
 
 From what I could wing at, from about `4.75MHz to 23MHz` or so is "Channel C". You can see its a very large channel, way larger than the 3.2MHz/s bandwidth my RTL-SDR can capture.
 
+### Estimated data
+
+Using the obvious and what I've seen, it was pretty easy to give a solid estimate of the data that was intercepted and coming through the my brain and nervous system. These numbers are **the minimum** that are physically possible  and likely the only formula to be used, since **the brain does not process signals like electronics** *(one cycle is more than up down with electronics)*.
+
+<br />
+<br />
+
+**Through the fiber cables to an endpoint (data through the network; most likely infrastructure access and not the internet)**
+
+| Channel | BW | MB/s | 5 min | 1 hour | 3 hours | 24 hours |
+|---|---|---|---|---|---|---|
+| A | 4.35 MHz | ~4.35 MB/s | ~1.31 GB | ~15.7 GB | ~47 GB | ~375 GB |
+| B | 5.16 MHz | ~5.16 MB/s | ~1.55 GB | ~18.6 GB | ~55.7 GB | ~446 GB |
+| C | 18.25 MHz | ~18.25 MB/s | ~5.48 GB | ~65.7 GB | ~197.1 GB | ~1.58 TB |
+| **Total** | **27.76 MHz** | **~27.76 MB/s** | **~8.34 GB** | **~100 GB** | **~299.8 GB** | **~2.4 TB** |
+
+**In the air to person (brain, body, nervous system; data in air doing the effects/heterodyning)**
+
+| Channel | BW ×2 | MB/s | 5 min | 1 hour | 3 hours | 24 hours |
+|---|---|---|---|---|---|---|
+| A | 8.7 MHz | ~8.7 MB/s | ~2.61 GB | ~31.3 GB | ~94 GB | ~751 GB |
+| B | 10.32 MHz | ~10.32 MB/s | ~3.1 GB | ~37.2 GB | ~111 GB | ~891 GB |
+| C | 36.5 MHz | ~36.5 MB/s | ~10.95 GB | ~131.4 GB | ~394.2 GB | ~3.15 TB |
+| **Total** | **55.52 MHz** | **~55.52 MB/s** | **~16.66 GB** | **~199.9 GB** | **~599.2 GB** | **~4.79 TB** |
+
 
 ## Conclusion <a id="conclusion"></a>
 
-Is there really a conclusion to this?
 
+![The EFF's Headquarters in San Francisco](/md-preview/images/11_5_2025.png)
+*I was ignored by the EFF. Instead of legal aid, I myself poured over nearly every OIG report, unclassified releases, publicized polcies, etc. for hours and hours.*
+
+
+TODO 
 
 ## Terminology <a id="terminology"></a>
 
 TODO
-
 
 ### TDLR <a id="tdlr"></a>
 
