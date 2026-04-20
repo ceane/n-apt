@@ -116,7 +116,7 @@ const getHotModuleApi = () => {
       try {
         // eslint-disable-next-line no-console
         console.debug("HMR: import.meta.hot present:", !!meta?.hot, "shim:", !!shim);
-      } catch {}
+      } catch { }
     }
     return meta?.hot as HotModuleApi | undefined;
   } catch {
@@ -124,7 +124,7 @@ const getHotModuleApi = () => {
       try {
         // eslint-disable-next-line no-console
         console.debug("HMR: import.meta access failed; HMR unavailable");
-      } catch {}
+      } catch { }
     }
     return undefined;
   }
@@ -472,6 +472,7 @@ const ArticleContent = styled.article`
 
   h1 {
     font-size: clamp(2rem, 5vw, 3.2rem);
+    margin-top: 1.5rem;
   }
 
   h2 {
@@ -616,6 +617,15 @@ const ArticleContent = styled.article`
 
   tr:last-child td {
     border-bottom: none;
+  }
+
+  .table-dense {
+    th, td {
+      padding: 1rem .25rem;
+      font-size: .75rem;
+      text-align: center;
+      text-transform: none;
+    }
   }
 
   hr {
