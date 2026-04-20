@@ -99,7 +99,7 @@ Something was up because whoever it was was doing it, I assumed the U.S. Army at
 
 ## Third theory (a few months later) <br /> Beat Frequencies / Heterodyning <a id="theory-3"></a>
 
-I was really stuck in a strange spot and not the only victim, but in a experience that centered on me as the main victim in a series of iterations in that fashion (iterations that cost dozens of others their lives and those in past had it far worse). I had to share my life with other people, criminals stocked on hand, livestreamed to my brain/consciousness. To all of us, now living my life in this format and cyber weapon, it was a lot of unknowns amongst a lot of evil in interactive and I had to operate with perseverence and reason.
+I was really stuck in a strange spot and not the only victim, but in a experience that centered on me as the main victim in a series of iterations in that fashion (iterations that cost dozens of others their lives and those in past had it far worse). I had to share my life with other people (they NSA cowwardly preyed upon those who've done time and who were doing time as support), livestreamed to my brain/consciousness. To all of us, now living my life in this format and cyber weapon, it was a lot of unknowns amongst a lot of evil in interactive and I had to operate with perseverence and reason.
 
 The livestream experience at this point was brutal, brutal enough to distract from the fact that each of my 5 senses–vision (the others could see EVERYTHING), audio (the others could hear EVERYTHING), touch, smell and taste (rare for the others to experience but happened)–were exposed to the others on the other end. 
 
@@ -201,10 +201,8 @@ Here, I wrongly correlated interference with my FM radio (VHF) to be the assumed
 Bandwidth is another problem as well, since there is so much going throughout the psychological experience, it is easy to make the following assumptions:
 
 - (1) only 2 bits a cycle max, since biology is not a special hardware antenna, only the **peak and trough of a cycle translate into electrical energy that the brain and nervous system can interpret**,
-- (2) the brain is known to be small in bandwidth, but since this experience spanned from 2018 to the present and maintains such a high-fidelity, constant connection with real-time processing of and response to vision, hearing, thinking, etc., there isn't a lot going on, possibly 2-8MB/s compromises one's brain accordingly, the consciousness is small as a data channel,
-- (3) too much bandwidth "all damn day, every damn day" will most certainly produce heating effects in tissue, but I have yet to experience anything but its evils in media form.
-
-As far as bandwidth, when tuning the signal, I could see about 6MHz of bandwidth, reliably, provided RTL-SDR is not the best and this signal is complex with heterodyning involved (extremely small resolution, multiple signals not drawn easy by any spectrum analyzer which layers in everything).
+- (2) it is a certainty that conciousness is small as a data channel as I experienced in full the totality of real-time streaming software applied to the human mind, with constant and flawless connection and real-time interception, processing and responsiveness to vision, inference, instinct, perception with tons of other features; for this to have functioned for so long strongly suggests the brain is small and that possibly 2-8MB/s compromises one's brain accordingly
+- (3) it may be safe to start with the assumption that too much bandwidth "all damn day, every damn day" will most certainly produce heating effects in tissue, however I have yet to experience anything but structed harms in its software, not side effects from its mechanics.
 
 
 ### Microwaves
@@ -260,33 +258,38 @@ Around late December 2025, after 7 years or over 61,320 hours within the interac
 
 I nervously decided to purchase a RTL-SDR. Nervous because I didn't know if it was going to help. When I picked up my RTL-SDR and headed back home.
 
-Within a certain period of time, when I felt good enough, I plugged it in and poked around. My first bet was to go to where I was thinking and where I received interference on my FM radio, around `93.3MHz, 102.9MHz, 104.1MHz, 107.9MHz` or so. When I was browsing around the spectrum and I didn't see anything peculiar though I was desperate to find why there was interference in the first place and the damn thing was on.
+I plugged it in and poked around. My first bet was to go to where I was thinking and where I received interference on my FM radio, around `93.3MHz, 102.9MHz, 104.1MHz, 107.9MHz` or so. When I was browsing around the spectrum and I didn't see anything that made sense because my suspicious were about bandwidth though I was desperate to find why there was interference in the first place and the damn thing was on.
 
 I didn't feel dejected, I felt cautious. I had a lot of large range I could view, up to `1.7Ghz` (and I could even see higher but it was aliased). So I kept looking around and playing with the settings in SDR++. I kept browsing and looking and getting deeper but I actually quickly found something interesting...
 
-### What the hell, these are the spikes...?
+### What the hell... these are the spikes...?
 
-By this point, I strongly suspected the signal had to have some kind of huge spike or pattern because the skull heavily attenuated the signal. When I got to the spectrum, I magically saw this form of spikes shaped like a suspension bridge!
+![The spikes...](/md-preview/images/12_11_2025_6PM.jpeg)
+*(December 11, 2025, 6:00 PM)*
 
-The signal didn't look damped, but had an effect close enough. 
+By this point, I strongly suspected the signal had to have some kind of huge spike or pattern because the skull heavily attenuated the signal. When I got to the spectrum, I magically saw a form of spikes shaped like a suspension bridge!
+
+This was the biggest break and I finally found where and which frequencies the NSA was using, as I compared the signals to what signals were authorized and what type of signal was generally there. The signal didn't look damped but had an effect close enough to make assumptions about either the attenuation of the body or activation of features. Since damping essentially wasted bandwidth, the signals' structure had strongly hinted the latter.
+
+As far as bandwidth, when tuning the signal, I could see about 6MHz of bandwidth, reliably, provided RTL-SDR is not the best and this signal is complex with heterodyning involved (extremely small resolution, multiple signals not drawn easy by any spectrum analyzer which layers in everything).
 
 
 ### HF-MF-LF Waves
 
-THIS IS WHERE IT WAS AT.
+TODO
 
 #### Harmonics
 
 TODO
 
-#### Test
+#### Stanford
 
-![Stanford Wu Tsai before Christmas](/md-preview/images/12_23_2025.png)
+![Stanford Wu Tsai before Christmas](/md-preview/images/12_23_2025.jpeg)
 *I went to Stanford to show off and take a photo of the discovery after longsuffering through AIDS, abject poverty and hopelessness.*
 
 ## Foundations of today: <br /> Solid working hypothesis
 
-Today (when this was written), my observations, personal research, study and assumptions are in a much more solid position for a well-formed hypothesis. The agency continued to do so much over the course over thousands of hours (and a lifetime). Let's go over directly what I hypothesize how the very real signals that have persisted tirelessly and flawlessly operate. 
+Today (when this was written), my observations, personal research, study and assumptions are in a much more solid position for a well-formed hypothesis with some assumptions invalidated, key ones survived and new ones possible. The agency continued to do so much over the course over thousands of hours (and a lifetime). Let's go over directly what I hypothesize how the very real signals that have persisted tirelessly and flawlessly operate. 
 
 
 ### Dominated by signals intelligence
@@ -720,7 +723,9 @@ Of course, later I resolved this was all driven by exploited, ground or vehicle 
 
 ![Hardware Exploit Chain](/md-preview/images/hardware-exploit-chain.png)
 
-The project uses RTL-SDR to capture and decode signals across a wide frequency range, focusing on neurotechnology-related emissions.
+The NSA's exploits depended on thousands of totally incompetent, ignorant professionals spanning across supply chains, manufacturers, telecommunications companies, in addition to many federeal agencies such as the FCC, CISA, and namely the FBI (who mysteriously let the NSA build a concealed, mass-networked cyber weapon and domestic surveillance apparatus). I almost felt bad for even acknowledging the staggering level of idiocy and cowardice within federal government and industry.
+
+On the software front, social media companies were also idiotic, especially companies like X.
 
 ## Feature rich <a id="features"></a>
 
@@ -858,12 +863,11 @@ Using the obvious and what I've seen, it was pretty easy to give a solid estimat
 
 ## Conclusion <a id="conclusion"></a>
 
+TODO
 
-![The EFF's Headquarters in San Francisco](/md-preview/images/11_5_2025.png)
+![The EFF's Headquarters in San Francisco](/md-preview/images/11_5_2025.jpeg)
 *I was ignored by the EFF. Instead of legal aid, I myself poured over nearly every OIG report, unclassified releases, publicized polcies, etc. for hours and hours.*
 
-
-TODO 
 
 ## Terminology <a id="terminology"></a>
 
@@ -871,6 +875,8 @@ TODO
 
 ### TDLR <a id="tdlr"></a>
 
-The NSA hacked my brain and the experience went from manufactured states of mind and an inundated spatial performance and escalated to a horrifically grotesque livestream with others. I spent years enduring the narrative capture: senseless violence, sexual assault and deeply unethical, political (that really amounts to terrorism) uses of their neurotechnology.
+The NSA hacked my brain and the experience went from manufactured states of mind and inundated by a spatial performance then escalated to a horrifically grotesque and even more shocking livestream part of the interactive and introduced others (it was really fucked in the head). I spent years (since late September 2018 when it activated) and went from techie to oppressed in poverty, enduring narrative capture: senseless violence, sexual assault and deeply unethical, political (that really amounts to terrorism) and deeply invasie neurotechnological experience.
+
+
 
 [^apt]: National Aeronautical Space Agency (NASA). Copnstructing Inexpensive Automatic Picture-Transmission Ground Stations. https://ntrs.nasa.gov/api/citations/19680010155/downloads/19680010155.pdf
