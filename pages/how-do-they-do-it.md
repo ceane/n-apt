@@ -44,6 +44,7 @@ This article is my own **technical and scientific oriented dive and timeline** (
 - [Features](#features)
 - [N-APT Signal Structure](#n-apt-form)
 - [What does the signal look like?](#n-apt-in-the-wild)
+- [Estimated Data](#data-estimate)
 </details>
 
 - [Terminology](#terminology)
@@ -657,7 +658,7 @@ TODO
 
 ### An average of 1µW or more? (of power on tissue traversal and exit)
 
-In order to target the brain, I made a solid assumption based off of what ChatGPT told me, that brainwaves are about 1-10µW (microwatts), so I figured that the signals' power should be near there, anything less in scale, the math I did was dire to remain above the noise in the environment, go through the skull and/or body (body because it does my vocal cords, mouth and throat muscles, in addition to others) losing 99% energy and make it back to an endpoint. Biology constrains this problem to maintaining an exacting level of energy consistently at the body/entry, so the further one is away from an endpoint, the energy always stays the same, only the receiver, fixed at various distances, suffers from less energy coming back from the target (the body).
+In order to target the brain, I made a solid assumption based off of what ChatGPT told me, that brainwaves are about 1-10µW (microwatts), so I figured that the signals' power should be near there, anything less in scale, the math I did was dire to remain above the noise in the environment, go through the skull and/or body (body because it does my vocal cords/vocal as an interface, mouth and throat muscles, in addition to others) losing 99% energy and make it back to an endpoint. Biology constrains this problem to maintaining an exacting level of energy consistently at the body/entry, so the further one is away from an endpoint, the energy always stays the same, only the receiver, fixed at various distances, suffers from less energy coming back from the target (the body).
 
 In reality, when I took a look at the signals on my person (antenna on me while it runs to my demise), it was actually a solid assumption, with values around `-21dBm`, as low as `-29dBm` (I assume read only or very, very minor writes). The spikes reached as high as 1, 3 and 9dBm.
 
@@ -711,7 +712,7 @@ TODO
 
 ### Neuronal ensembles
 
-Since a signal like this is very flat, I too did expect the signals to x, y, z and target the neuron, however the NSA's signals don't do that and it's near impossible! The experience is extremely robust, so robust that it is quite simple.
+This is where intuition is defeated. Radio waves are like walls of energy, they are mostly 2D. I did not know this and at first I expected the signals to x, y, z and target the voxel by voxel (group of neurons) in blocks like 3 x 3, however the NSA's signals don't do that and it's near impossible td do! The experience is extremely robust, so robust that it is quite simple.
 
 Essentially the brain and nervous system is very noisy, whatever those spikes do, it is assumed to a certainty that they target an ensemble of neurons that read and write brainwaves.
 
@@ -725,7 +726,9 @@ Of course, later I resolved this was all driven by exploited, ground or vehicle 
 
 The NSA's exploits depended on thousands of totally incompetent, ignorant professionals spanning across supply chains, manufacturers, telecommunications companies, in addition to many federeal agencies such as the FCC, CISA, and namely the FBI (who mysteriously let the NSA build a concealed, mass-networked cyber weapon and domestic surveillance apparatus). I almost felt bad for even acknowledging the staggering level of idiocy and cowardice within federal government and industry.
 
-On the software front, social media companies were also idiotic, especially companies like X.
+On the software front, social media companies were also idiotic, especially companies like X. I was constantly tripping the quality control system and yet no one would review my tweets by hand. I was clearly trapped and transcribing what was going on and notwithstanding what the software was pushing in my head, absolutely no one noticed a growing volume of public posts tagging federal authorities.
+
+I was truly trapped and a lot of people believed they were intelligent.
 
 ## Feature rich <a id="features"></a>
 
@@ -822,7 +825,7 @@ TODO
 
 TODO
 
-## What does the signal look like? <a id="n-apt-in-the-wild"></a>
+## What does the signal look like? <a id="n-apt-in-the-wild"></a> [^n-apt-app]
 
 I labeled the signal with certain channels based on my what I found by poking around with my RTL-SDR. At first I was confused, looking at other parts of the spectrum, but just two days after I had my RTL-SDR, I found the signals!
 
@@ -854,6 +857,9 @@ I took a closer look because I was looking for easier to tell features like audi
 
 As far as features that were present, I could only guess, but I was sure that Channel A was me and Channel B were likely other people. Due to the features I experienced in the interactive, I put together all that the agency's frontier neurotechnology and technique could do. I believe that Channel A was responsible for the following:
 
+<details>
+<summary>Click to expand, the table is long!</summary>
+
 | Feature                                           |
 | ------------------------------------------------- |
 | Audio (hearing)                                   |
@@ -875,6 +881,7 @@ As far as features that were present, I could only guess, but I was sure that Ch
 | Emotion                                           |
 | Vitals                                            |
 </details>
+
 
 ### Channel B
 
@@ -921,23 +928,33 @@ It's very different from the other channels, which always have prominent spikes,
 | Dreams                                            |
 </details>
 
-### Estimated data
+### Estimated data <a id="data-estimate"></a>
 
 Using the obvious and what I've seen, it was pretty easy to give a solid estimate of the data that was intercepted and coming through the my brain and nervous system. These numbers are **the minimum** that are physically possible  and likely the only formula to be used, since **the brain does not process signals like electronics** *(one cycle = more than up down with electronics)*.
 
 <br />
-<br />
 
 **Through the fiber cables to an endpoint (data through the network; most likely infrastructure access and not the internet)**
 
-| Channel | BW | MB/s | 5 min | 1 hour | 3 hours | 24 hours |
+<div class="table-dense">
+
+| Channel | Bandwidth | MB/s | 5 min | 1 hour | 3 hours | 24 hours |
 |---|---|---|---|---|---|---|
 | A | 4.35 MHz | ~4.35 MB/s | ~1.31 GB | ~15.7 GB | ~47 GB | ~375 GB |
 | B | 5.16 MHz | ~5.16 MB/s | ~1.55 GB | ~18.6 GB | ~55.7 GB | ~446 GB |
 | C | 18.25 MHz | ~18.25 MB/s | ~5.48 GB | ~65.7 GB | ~197.1 GB | ~1.58 TB |
 | **Total** | **27.76 MHz** | **~27.76 MB/s** | **~8.34 GB** | **~100 GB** | **~299.8 GB** | **~2.4 TB** |
 
+</div>
+
+That's right! Just **sitting somewhere for 5 mins is over 8GBs of data** by minimum of physics!
+
+<br />
+<br />
+
 **In the air to person (brain, body, nervous system; data in air doing the effects/heterodyning)**
+
+<div class="table-dense">
 
 | Channel | BW ×2 | MB/s | 5 min | 1 hour | 3 hours | 24 hours |
 |---|---|---|---|---|---|---|
@@ -946,23 +963,30 @@ Using the obvious and what I've seen, it was pretty easy to give a solid estimat
 | C | 36.5 MHz | ~36.5 MB/s | ~10.95 GB | ~131.4 GB | ~394.2 GB | ~3.15 TB |
 | **Total** | **55.52 MHz** | **~55.52 MB/s** | **~16.66 GB** | **~199.9 GB** | **~599.2 GB** | **~4.79 TB** |
 
+Due to how the signal has to be duplicated to play it twice (heterodyning), the endpoint is handling more than just *one data stream = one signal*, instead *one data stream = two signals*, so the endpoint will broadcast a signal twice. While the network carries the content, in the air, the content is multiplied by two!
+
+So yes, sitting somewhere for 5 minutes, the network did over 8GBs of data, but **the person receieved over 16GBs of data within that 5 minutes** because of technique's prerequisites!
+
+</div>
 
 ## Conclusion <a id="conclusion"></a>
 
 TODO
 
 ![The EFF's Headquarters in San Francisco](/md-preview/images/11_5_2025.jpeg)
-*I was ignored by the EFF. Instead of legal aid, I myself poured over nearly every OIG report, unclassified releases, publicized polcies, etc. for hours and hours.*
+*I was ignored by the EFF. Instead of legal aid, I myself poured over nearly every OIG report, unclassified release, publicized policy, etc. for hours and hours.*
 
 
 ## Terminology <a id="terminology"></a>
 
 TODO
 
-### TDLR <a id="tdlr"></a>
+### ⠿ TDLR <a id="tdlr"></a>
 
-The NSA hacked my brain and the experience went from manufactured states of mind and inundated by a spatial performance then escalated to a horrifically grotesque and even more shocking livestream part of the interactive and introduced others (it was really fucked in the head). I spent years (since late September 2018 when it activated) and went from techie to oppressed in poverty, enduring narrative capture: senseless violence, sexual assault and deeply unethical, political (that really amounts to terrorism) and deeply invasie neurotechnological experience.
+The NSA hacked my brain and the experience went from manufactured states of mind and inundated by a spatial performance then escalated to a horrifically grotesque and even more shocking livestream part of the interactive and introduced others (it was really fucked in the head). I spent years (since late September 2018 when it activated) and went from techie to oppressed in poverty, enduring narrative capture: senseless violence, sexual assault and deeply unethical, political (that really amounts to terrorism) and a deeply invasive neurotechnological reckoning/kidnapping.
 
 
 
-[^apt]: National Aeronautical Space Agency (NASA). Copnstructing Inexpensive Automatic Picture-Transmission Ground Stations. https://ntrs.nasa.gov/api/citations/19680010155/downloads/19680010155.pdf
+[^apt]: National Aeronautical Space Agency (NASA). Constructing Inexpensive Automatic Picture-Transmission Ground Stations. https://ntrs.nasa.gov/api/citations/19680010155/downloads/19680010155.pdf
+
+[^n-apt-app]: Ceane Lamerez April 20 2026. **Real signal snapshots** using the N-APT web app streaming from an RTL-SDR v4 https://github.com/ceane/n-apt/
