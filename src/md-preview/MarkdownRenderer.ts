@@ -1,4 +1,8 @@
-const BLEND_IMAGE_PATTERNS = ["bart-line-drawing", "first-installment-nsa"];
+const BLEND_IMAGE_MAP: Record<string, string> = {
+  "bart-line-drawing": "blend-image",
+  "first-installment-nsa": "blend-image",
+  "n-apt-channels-wavelength-comparison": "invert-color-dodge",
+};
 const HERO_IMAGE_PATTERNS = ["hero-light", "hero-dark"];
 
 const escapeHtml = (value: string) =>
@@ -65,13 +69,16 @@ const renderMarkdownToHtml = (markdownText: string) => {
         const [, alt, href] = match;
         const normalizedHref = href.toLowerCase();
         const normalizedAlt = alt.toLowerCase();
-        const shouldBlend = BLEND_IMAGE_PATTERNS.some((pattern) =>
+        const shouldBlend = Object.keys(BLEND_IMAGE_MAP).some((pattern) =>
           normalizedHref.includes(pattern) || normalizedAlt.includes(pattern)
         );
+        const blendClass = Object.entries(BLEND_IMAGE_MAP).find(([pattern]) =>
+          normalizedHref.includes(pattern) || normalizedAlt.includes(pattern)
+        )?.[1];
         const isHero = HERO_IMAGE_PATTERNS.some((pattern) =>
           normalizedHref.includes(pattern) || normalizedAlt.includes(pattern)
         );
-        const className = ["markdown-figure", shouldBlend ? "blend-image" : null, isHero ? "hero-image" : null]
+        const className = ["markdown-figure", shouldBlend ? blendClass : null, isHero ? "hero-image" : null]
           .filter(Boolean)
           .join(" ");
         html.push(`<figure class="${className}"><img src="${escapeHtml(href)}" alt="${escapeHtml(alt)}"></figure>`);
