@@ -202,7 +202,7 @@ Here, I wrongly correlated interference with my FM radio (VHF) to be the assumed
 Bandwidth is another problem as well, since there is so much going throughout the psychological experience, it is easy to make the following assumptions:
 
 - (1) only 2 bits a cycle max, since biology is not a special hardware antenna, only the **peak and trough of a cycle translate into electrical energy that the brain and nervous system can interpret**,
-- (2) it is a certainty that conciousness is small as a data channel as I experienced in full the totality of real-time streaming software applied to the human mind, with constant and flawless connection and real-time interception, processing and responsiveness to vision, inference, instinct, perception with tons of other features; for this to have functioned for so long strongly suggests the brain is small and that possibly 2-8MB/s compromises one's brain accordingly
+- (2) it is a certainty that **consciousness is small as a data channel** as I experienced in full the totality of real-time streaming software applied to the human mind, with constant and flawless connection and real-time interception, processing and responsiveness to vision, inference, instinct, perception with tons of other features; for this to have functioned for so long strongly suggests the brain is small and that possibly `2-8MB/s` compromises one's brain accordingly
 - (3) it may be safe to start with the assumption that too much bandwidth "all damn day, every damn day" will most certainly produce heating effects in tissue, however I have yet to experience anything but structed harms in its software, not side effects from its mechanics.
 
 
@@ -724,7 +724,7 @@ Of course, later I resolved this was all driven by exploited, ground or vehicle 
 
 ![Hardware Exploit Chain](/images/hardware-exploit-chain.png)
 
-The NSA's exploits depended on thousands of totally incompetent, ignorant professionals spanning across supply chains, manufacturers, telecommunications companies, in addition to many federeal agencies such as the FCC, CISA, and namely the FBI (who mysteriously let the NSA build a concealed, mass-networked cyber weapon and domestic surveillance apparatus). I almost felt bad for even acknowledging the staggering level of idiocy and cowardice within federal government and industry.
+The NSA's exploits depended on thousands of totally incompetent, grossly ignorant professionals spanning across supply chains, manufacturers, telecommunications companies, in addition to many federeal agencies such as the FCC, CISA, and namely the FBI (who mysteriously let the NSA build a concealed, aggressively mass-networked cyber weapon and domestic surveillance apparatus). I almost felt bad for even acknowledging the staggering level of idiocy and cowardice within federal government and industry.
 
 On the software front, social media companies were also idiotic, especially companies like X. I was constantly tripping the quality control system and yet no one would review my tweets by hand. I was clearly trapped and transcribing what was going on and notwithstanding what the software was pushing in my head, absolutely no one noticed a growing volume of public posts tagging federal authorities.
 
@@ -757,6 +757,7 @@ The egrerious **psychological spyware and interactive** demonstrated great capab
 | Perception                                        |
 | Awareness                                         |
 | Sense of Self                                     |
+| Sense of Time                                     |
 | Neurotransmitters (state of mind, chemistry)      |
 | 5 senses (touch, sight, sound, taste, hearing)    |
 | Physiology (motor functions)                      |
@@ -807,7 +808,7 @@ Some neuronal ensembles have smaller data throughput, where spikes and clumps ar
 
 ### Signals processing
 
-In order to read anything that comes back, the NSA uses advanced signals processing to demodulate neuronal data. Apparently the NSA has world-class signals engineers and cryptologist, who have unlocked the secret to the human brain and nervous system. The unknown and unimaginable become a reality. Below are several theorized techniques used in the pipeline to take an advanced formula of radio waves and demodulate brain and neuronal data.
+In order to read anything that comes back, the NSA uses advanced signals processing to demodulate neuronal data. Apparently the NSA has world-class signals engineers and cryptologists, who have undoubtedly unlocked the secret to the human brain and nervous system. The unknown and unimaginable become a reality. Below are several theorized techniques used in the pipeline to take an advanced formula of radio waves and demodulate brain and neuronal data.
 
 #### Kaiser + Fast Fourier Transform (FFT)?
 
@@ -829,13 +830,13 @@ TODO
 
 I labeled the signal with certain channels based on my what I found by poking around with my RTL-SDR. At first I was confused, looking at other parts of the spectrum, but just two days after I had my RTL-SDR, I found the signals!
 
-There are about 3 Channels, I've found:
+There are about **3 channels**, I've found:
 
-- Channel A from `18kHz to 4.37MHz`
-- Channel B from `24.72MHz to 29.88MHz`
-- Channel C from `4.75MHz to 23MHz`
+- **Channel A** from `18kHz to 4.37MHz`
+- **Channel B** from `24.72MHz to 29.88MHz`
+- **Channel C** from `4.75MHz to 23MHz`
 
-They are specifially segmented this way because A and B are similar in shape (and therefore function), if you could (the signal is not abundantly available), you would be able to see by panning the spectrum and seeing the signal cohere.
+They are specifially segmented this way because A and B are similar in shape and bandwidth (and therefore function, taking precedence over the range in between A and B). If you could (the signal is not abundantly available), you would be able to see by panning the spectrum and seeing the signal cohere and come to the same boundaries.
 
 ### Channel A
 
@@ -870,6 +871,7 @@ As far as features that were present, I could only guess, but I was sure that Ch
 | Perception                                        |
 | Awareness                                         |
 | Sense of Self                                     |
+| Sense of Time                                     |
 | Neurotransmitters (state of mind, chemistry)      |
 | 5 senses (touch, sight, sound, taste, hearing)    |
 | Physiology (motor functions)                      |
