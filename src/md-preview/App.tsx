@@ -33,9 +33,11 @@ const LEGACY_CANVAS_IMPORT_PATH = "@n-apt/ts/components/canvas";
 const DEFAULT_SOURCE = "/pages/how-do-they-do-it.md";
 void LEGACY_CANVAS_IMPORT_PATH;
 
-
-
-const BLEND_IMAGE_PATTERNS = ["bart-line-drawing", "first-installment-nsa"];
+const BLEND_IMAGE_MAP: Record<string, string> = {
+  "bart-line-drawing": "blend-image",
+  "first-installment-nsa": "blend-image",
+  "n-apt-channels-wavelength-comparison": "invert-lighten",
+};
 const HERO_IMAGE_PATTERNS = ["hero-light", "hero-dark"];
 const CanvasPlaceholder = styled.div`
   width: 100%;
@@ -59,16 +61,16 @@ const MarkdownImage: React.FC<MarkdownImageProps> = ({ src = "", alt = "", ...im
   const normalizedSrc = src.toLowerCase();
   const normalizedAlt = alt.toLowerCase();
 
-  const shouldBlend = BLEND_IMAGE_PATTERNS.some((pattern) =>
+  const blendClass = Object.entries(BLEND_IMAGE_MAP).find(([pattern]) =>
     normalizedSrc.includes(pattern) || normalizedAlt.includes(pattern)
-  );
+  )?.[1];
 
   const isHero = HERO_IMAGE_PATTERNS.some((pattern) =>
     normalizedSrc.includes(pattern) || normalizedAlt.includes(pattern)
   );
 
   return (
-    <Figure $blend={shouldBlend} $hero={isHero}>
+    <Figure $blendClass={blendClass} $hero={isHero}>
       <img src={assetUrl(src)} alt={alt} loading="lazy" {...imgProps} />
     </Figure>
   );
@@ -794,7 +796,7 @@ const LatexExpressionRow = styled.div`
   }
 `;
 
-const Figure = styled.figure<{ $blend?: boolean; $hero?: boolean }>`
+const Figure = styled.figure<{ $blendClass?: string | null; $hero?: boolean }>`
   margin: 1.5em 0;
   position: relative;
   width: 100%;
@@ -809,12 +811,29 @@ const Figure = styled.figure<{ $blend?: boolean; $hero?: boolean }>`
     border: ${({ $hero }) => ($hero ? "none" : "unset")};
   }
 
-  ${({ $blend }) =>
-    $blend &&
+  ${({ $blendClass }) =>
+    $blendClass === "blend-image" &&
     css`
       & > img {
         mix-blend-mode: multiply;
         filter: brightness(1.1) contrast(1.7);
+      }
+
+      &::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: 12px;
+        pointer-events: none;
+      }
+    `}
+
+  ${({ $blendClass }) =>
+    $blendClass === "invert-lighten" &&
+    css`
+      & > img {
+        mix-blend-mode: lighten;
+        filter: invert(1) brightness(1.2);
       }
 
       &::after {

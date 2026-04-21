@@ -901,8 +901,8 @@ From about `24.72MHz to 29.88MHz` is what I dub as "Channel B" of the overall N-
 
 I believe Channel B is identical to Channel A, except who it targets momentarily here and there or persistently, either the software forming a neurofence or an operator/interative poking around, both experienced. Of course all the N-APT channels likely cannot triangulate all on their own, the signals are not a one stop shop of scan-and-stare, triangulate & content. Instead, it is likely that there are close enough, low-end microwaves that maintain triangulation and dictate the power of the N-APT channels relative to the distance (which in power always remains constant at person).
 
-### Channel C
 
+### Channel C
 
 ![Channel C, partial (at the hardware limit)](/images/snapshot-channel-c-partial.png)
 *Partial capture of the channel, notice the spikes and power is less, potentially because it's read-only*
@@ -929,6 +929,19 @@ It's very different from the other channels, which always have prominent spikes,
 | Imagination                                       |
 | Dreams                                            |
 </details>
+
+<br />
+<br />
+<br />
+
+When it comes to all the channels, the wavelenghts are not intuitve to envision with this kind of functionality. These are large waves slamming and intersecting at the person thousands (kHz) to millions (MHz) of times a second!
+
+
+![Wavelength Comparison](/images/n-apt-channels-wavelength-comparison.png)
+
+
+<br />
+<br />
 
 ### Estimated data <a id="data-estimate"></a>
 
