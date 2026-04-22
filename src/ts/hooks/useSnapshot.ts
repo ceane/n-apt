@@ -872,8 +872,7 @@ function createAnimatedSvgFromFrames(frames: string[]): string {
   frames.forEach((frameContent, index) => {
     const content = extractSvgContent(frameContent);
     const frameStartTime = (index / frameCount) * totalDurationSeconds;
-    const frameEndTime = ((index + 1) / frameCount) * totalDurationSeconds;
-    const frameDuration = frameEndTime - frameStartTime;
+
     
     // Fade in at start, hold, fade out at end
     frameGroups += `  <g id="frame-${index}" opacity="0">
