@@ -249,6 +249,23 @@ They are specifially segmented this way because A and B are similar in shape (an
   - **Ubuntu/Debian**: `sudo apt install redis-server`
   - **Windows**: Download from [redis.io](https://redis.io/)
 
+### Downloading Cell Tower Dataset
+
+To use cell tower mapping features, download the [OpenCellID dataset](https://www.opencellid.org/downloads; search and grab all the US files after getting an API token). **The data should be unzipped and in your `~/Downloads` folder** (or `Downloads` folder on Windows): *(It looks like `310.csv, 314.csv`, etc.)*
+
+```bash
+# Download the latest OpenCellID dataset
+npm run towers:download:opencellid
+
+# Or use a cached version (faster)
+npm run towers:download:cached
+```
+
+You can also process tower data with:
+```bash
+npm run towers:process:opencellid
+```
+
 ### Platform Notes
 
 - **Windows users**: use **WSL2** for development if possible.
@@ -272,6 +289,7 @@ npm run dev    # starts app
 > **Windows:** if you are on Windows, run the steps above inside **WSL2** instead of native PowerShell/CMD.
 
 The `npm run setup` command creates a `.env.local` file with default environment configuration for easy development setup.
+
 
 ### Running the App
 
