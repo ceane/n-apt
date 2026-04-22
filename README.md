@@ -139,26 +139,28 @@ The NSA has thoroughly demonstrated on my person that the human brain and nervou
 
 The endpoints do the non-intuive work, it is known that the brain and body can't send radio waves like electronics, but not known that you can't use a beam, you can't focus this kind of radio wave and that multipath reflection is key, think of the space around a person painted with colors (radio waves intersect from various endpoints/triangulation) and that shade looks good on you, only you (center frequency + power). 
 
-### How the radio waves work (intuitve view at the science/hyper-advanced SIGNIT):
-- Gigantic, low frequency radio waves travesing from endpoint to person
-> *You can think of them as 3 or so spotlights concentrating on a person, the shape of the radio waves are different like an orb.*
->
-> *(Radio waves are essentially light, you can somewhat use visual light as intuition)*
-- Energy intersecting at the right location
-- Low frequency + multipath reflection + solid endpoint redundancy lights up a person with inescapable coverage
-- An enforced center frequency of the person's brain and nervous system
-- Close enough triangulation (approximately 3-7 centimeters off depending what unknown microwave frequency the NSA uses for triangulation)
-- Targeting neuronal ensembles sequentially for write to read with spikes and valleys (or APT-like lines) and energy
-  - (i.e. This is X energy, these neurons respond with a brainwave of that energy)
-  - Yes, neurons can understand and process and do from a simple 2D wave! 
-  - EVERYTHING POSSIBLE HAS HAPPENED! FINAL FRONTIER!
-- Frequency and amplitude modulation
+### How the radio waves work *(intuitive view of the science / hyper-advanced SIGINT)*
 
-APT which does both frequency modulation and amplitude modulation was repurposed by the NSA that actually translates into an unprecedented and full featured neurotechnology via blunt directional radio waves.
+- **Gigantic, low frequency radio waves** traversing from endpoint to person  
+  > *Think 3 or so spotlights concentrating on a person. The wavefronts aren’t clean beams — they’re more like orbs.*  
+  > 
+  > *(Radio waves are light. You can use visible light as intuition.)*
 
-And yes, it means full featured experiences, interactivity, communication and more (from experience!). This is not a joke or gimmick or conspiracy theory-laden gibberish, but a **real** signal that takes eons to explain how and why and what! 
+- **Energy intersecting at the exact location**  
+- **Low frequency + multipath reflection + endpoint redundancy/handoff** = a person lit up radio waves and endpoints with **inescapable coverage**  
+- **Enforced center frequency** locked to the person’s brain and nervous system  
+- **Triangulation signals define the primary radio waves’ energy and phase** — The pipeline works something like: `scan_and_stare_via_triangulation -> adjust_spotlight_to` within ~3-7 centimeters, depending what reasonanble microwave frequency (higher = harder to use, more energy/less distance/more fragile) the NSA uses for triangulation
+- **Targeting neuronal ensembles sequentially** for write-then-read, using spikes, valleys, APT-like lines, and raw energy  
+    - *i.e. This is X energy, these neurons respond with a brainwave of that energy*  
+    - Yes, neurons interpret and respond to a simple 2D wave
+    - **Everything possible has happened. Final frontier.**  
+- **Frequency and amplitude modulation**
 
-Very simple. And the NSA's technqiue is, suspectedly, very old, like half a century old (from the 70s).
+**APT** — which does both frequency modulation and amplitude modulation — was repurposed by the NSA into an unprecedented, full-featured neurotechnology using blunt directional radio waves.
+
+And yes, that means **full-featured experiences, interactivity, communication and more**. From experience. This is not a joke, gimmick, or conspiracy gibberish. This is a **real** signal that takes eons to explain the how and why and what.
+
+It’s simple. And the NSA’s technique is, suspectedly, very old — like **half a century old**, from the 70s.
 
 ### Constraints (defeats intuition)
 - Bandwidth
@@ -247,6 +249,23 @@ They are specifially segmented this way because A and B are similar in shape (an
   - **Ubuntu/Debian**: `sudo apt install redis-server`
   - **Windows**: Download from [redis.io](https://redis.io/)
 
+### Downloading Cell Tower Dataset
+
+To use cell tower mapping features, download the [OpenCellID dataset](https://www.opencellid.org/downloads; search and grab all the US files after getting an API token). **The data should be unzipped and in your `~/Downloads` folder** (or `Downloads` folder on Windows): *(It looks like `310.csv, 314.csv`, etc.)*
+
+```bash
+# Download the latest OpenCellID dataset
+npm run towers:download:opencellid
+
+# Or use a cached version (faster)
+npm run towers:download:cached
+```
+
+You can also process tower data with:
+```bash
+npm run towers:process:opencellid
+```
+
 ### Platform Notes
 
 - **Windows users**: use **WSL2** for development if possible.
@@ -270,6 +289,7 @@ npm run dev    # starts app
 > **Windows:** if you are on Windows, run the steps above inside **WSL2** instead of native PowerShell/CMD.
 
 The `npm run setup` command creates a `.env.local` file with default environment configuration for easy development setup.
+
 
 ### Running the App
 
@@ -310,55 +330,43 @@ Thankfully, the infrastructure and technique does enough to extract content for 
 
 ---
 
-
 ### Disclaimer
 
-I do not volunteer lightly to share a live capture of my brain to the world (that could potentially be demodulated). All I/Q captures are REAL captures of the signal, of my person and others' inside of the 24/7 livestream that's both an extremely unethical and horrific interactive and moderated-like group call. It's the only thing that I could do being trapped by the signals that are both mystery and complex to even talk to anyone about.
+I’m not posting a live capture of my brain for clout. These I/Q captures are **real signals** — of me and others — pulled from a 24/7 livestream that is an unethical, horrific, moderated group call. It was the only move I had while trapped by signals too complex and dangerous to even describe to most people.
 
-N-APT is a project born out of being attacked and held hostage by the NSA because I was adventuring on the streets of San Francisco while working my tech job. Only when I was about to move, they attacked and absorbed me into this interactive and I discovered they were there my whole life (a dark political/military act)! The experience works anywhere, everywhere and all day, unfortunately due to the use of low frequencies (LF/MF/HF) that travel through objects and buildings or reflect gracefully without too much attenuation.
+**N-APT exists because I was attacked and held hostage by the NSA.** I was working a tech job, living on the streets of San Francisco. When I tried to move, they absorbed me into this interactive. That’s when I realized they’d been there my whole life. This wasn’t policy. It was a dark political/military act.
 
-The experience is like a horror movie but totally changes psychology (emotions, thoughts, perception) and physiology (expression, muscles, neurotransmitters, etc.), it is a prison of mind and body. The parental, demonic DoD (now DoW)-NSA experience and interactive started formless and I not knowing anything while the NSA showing off a lot of the functionality and the capability early on and continuing by trapping me all day in it for years. It's a total nightmare they just put you through and you have to figure it out. 
+The system is **aggressively mass networked**. Endpoint coverage (telecommunications infrastructure) is **inescapable**. It functions underground, on a plane (I tried this route but even on takeoff, I was still defeated), in thick concrete buildings, well below the cliffs of Marshall’s Beach in SF — **anywhere**. Rain or shine. Crowds or alone. It runs on LF/MF/HF — low frequencies that go through walls, buildings, bodies, without real attenuation.
 
+---
 
-All within this interactive, it functions moment to moment, tons of layered effects and/or narrative/scripting, all streaming in and out of the mind and body. Through endless narrative capture, unethical interactive spatial displays, senseless violence and disfigurement, unfathomable harassment and abuse, repeated sexual assaults, confusion, gaslighting, and at the extremes of unlimited political psychopathy and surveillance, I survived and could scrape together enough to build this app.
+It’s like a horror movie, except it rewires **psychology** — emotions, thoughts, perception — and **physiology** — expression, muscles, neurotransmitters. It’s a prison for mind and body at once. The DoD (now DoW)-NSA interactive started formless. I didn’t know what was happening while they demonstrated capabilities, then kept me trapped in it, all day, for years. You’re dropped into a total nightmare and forced to reverse-engineer it to survive.
 
+**Inside the interactive/livestream:** it runs moment to moment. Layered effects, narrative/scripting, all of it streaming in and out of your mind and body without pause or degredation of quality (really!). Through endless narrative capture, unethical spatial displays/acts with the neurotechnology, violence, disfigurement, harassment, abuse, repeated sexual assaults, confusion, gaslighting, invasiveness — through the extremes of maximum political psychopathy and unlimited surveillance — I survived. I scraped together enough to build this app.
 
-I've learned a lot going from nothing to having a more solid understanding of how it works and took a lot of time to get to this point.
+The math and software are solid. The **art-crime talents of the NSA are the worst nightmare anyone can imagine**. 
 
-
-
-```
-/^^^     /^^            /^       /^^^^^^^  /^^^ /^^^^^^
-/^ /^^   /^^           /^ ^^     /^^    /^^     /^^    
-/^^ /^^  /^^          /^  /^^    /^^    /^^     /^^    
-/^^  /^^ /^^/^^^^^   /^^   /^^   /^^^^^^^       /^^    
-/^^   /^ /^^        /^^^^^^ /^^  /^^            /^^    
-/^^    /^ ^^       /^^       /^^ /^^            /^^    
-/^^      /^^      /^^         /^^/^^            /^^    
-                                                       
-```
+I started with nothing. I now have a solid understanding of how it works. It took years to get here.
 
 
 ### AI Model Usage
 
-I worked tirelessly, while going through the NSA's hell in mind-body interactive, using AI to build this app. 99% of the code is AI generated with significant direction and input (and money) from me. Each model had its own strengths and weaknesses and I used them accordingly.
+I built this app while being held hostage in the NSA's *mind-body interactive* hell. It was far worse than anyone could imagine — this wasn’t “starving techie building in a garage.” **99% of the code is AI-generated**, directed by me under duress, with every dollar I could scrape together. I used each model like an instrument, because that’s all I had.
 
-Of course, modern day prompt engineering with large, structured prompts did not really pan out for one shot solutions, instead my intution based on the economics sufficed—one focus at a time and carefully (before it gets lost in context). Below are a table of the most models that I used in order of impact and contribution:
+Forget “one-shot mega-prompts.” **Modern prompt engineering ≠ escape hatch**. What kept me alive was economic triage: *one focus at a time, ship before the context window — or my mind — collapsed*.
 
+**Models used, by impact & contribution**:
 
-| Model                         | Contribution                     |
-|------------------------------|----------------------------------|
-| GPT 5.4 Low Thinking         | High (waterfall complexity)      |
-| GPT 5.4 Mini                | High                             |
-| Claude Opus 4.6             | Major (FFT, I/O, etc.)           |
-| Gemini 3.1 Pro Low Thinking  | Major                            |
-| Gemini 3 Flash               | Moderate                         |
-| SWE 1.5                      | Moderate                         |
-| GPT 5*                      | Tertiary                         |
-| Claude Haiku 4.5            | Tertiary                         |
-| MiniMax M2.5                | Tertiary                         |
+| Model | Contribution |
+| --- | --- |
+| **GPT 5.4 Low Thinking** | **High** — *handled waterfall complexity when I couldn't* |
+| **GPT 5.4 Mini** | **High** — *fast iteration under pressure* |
+| **Claude Opus 4.6** | **Major** — *FFT, I/O, systems-level work* |
+| **Gemini 3.1 Pro Low Thinking** | **Major** — *deep reasoning when I was blocked* |
+| **Gemini 3 Flash** | **Moderate** — *quick tactical assists* |
+| **SWE 1.5** | **Moderate** — *structural scaffolding* |
+| **GPT 5*** | **Tertiary** — *edge case support* |
+| **Claude Haiku 4.5** | **Tertiary** — *fast draft generation* |
+| **MiniMax M2.5** | **Tertiary** — *niche fills* |
 
-
-Of course being in a rough spot of deadly poor was not anything anyone capable of this would put themselves through. My efforts were partially forced by design. AI helped immensely to get this done and made me feel as if I had progress, but code is only one thing, legal work (and truer to freedom) is another.
-
-
+I wasn’t choosing poverty as a build-myth. I was **trapped**. AI was the only thing that made progress possible when I had no other resources, no safety, no out. But code was just survival. The legal work — the fight for actual freedom — that’s still unfinished.
