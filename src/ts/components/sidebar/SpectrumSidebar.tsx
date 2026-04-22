@@ -361,7 +361,7 @@ export const SpectrumSidebar: React.FC = () => {
     () => getSupportedSnapshotVideoFormat(),
     [],
   );
-  const [snapshotFormat, setSnapshotFormat] = useState<"png" | "svg" | SnapshotVideoFormat>("png");
+  const [snapshotFormat, setSnapshotFormat] = useState<"png" | "svg" | SnapshotVideoFormat | "animated-svg">("png");
   const [snapshotAspectRatio, setSnapshotAspectRatio] = useState<SnapshotAspectRatio>("default");
 
   // NAPT metadata state
