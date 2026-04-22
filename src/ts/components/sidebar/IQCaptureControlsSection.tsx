@@ -42,7 +42,7 @@ export interface ChannelDescriptor {
 }
 
 const SettingValue = styled.span`
-  font-size: 12px;
+  font-size: 14px;
   color: ${(props) => props.theme.textPrimary};
   font-weight: 500;
   min-width: 0;
@@ -228,6 +228,14 @@ const DurationBlock = styled.div`
   align-items: center;
 `;
 
+const DurationInputOrTextRow = styled.div`
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  height: 3.5rem;
+`;
+
 const DurationManualCenter = styled.div`
   display: flex;
   align-items: center;
@@ -239,15 +247,19 @@ const DurationManualCenter = styled.div`
 const DurationInputBox = styled.input`
   width: 3.5rem;
   height: 2rem;
-  background: #2f2f2f;
-  border: 1px solid #555;
+  background: transparent;
+  border: 1px solid ${(props) => props.theme.borderHover};
   border-radius: 6px;
-  color: #fff;
+  color: ${(props) => props.theme.textPrimary};
   font-family: ${(props) => props.theme.typography.mono};
   font-size: 14px;
   text-align: right;
   padding: 0;
   outline: none;
+
+  &:hover {
+    border-color: ${(props) => props.theme.primary};
+  }
 `;
 
 const CaptureActions = styled.div`
@@ -715,22 +727,26 @@ export const IQCaptureControlsSection: React.FC<
                   { value: "manual", label: "Manual" },
                 ]}
               />
-              {captureDurationMode === "timed" ? (
-                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
-                  <DurationInputBox
-                    type="number"
-                    min="1"
-                    step="1"
-                    value={Math.round(captureDurationS)}
-                    onChange={(e) => onCaptureDurationSChange(parseInt(e.target.value) || 1)}
-                  />
-                  <DurationUnit>s</DurationUnit>
-                </div>
-              ) : (
-                <DurationManualCenter>
-                  <SettingValue>I/Q Capture runs until <br /> you press Stop.</SettingValue>
-                </DurationManualCenter>
-              )}
+
+              <DurationInputOrTextRow>
+                {captureDurationMode === "timed" ? (
+                  <div style={{}}>
+                    <DurationInputBox
+                      type="number"
+                      min="1"
+                      step="1"
+                      value={Math.round(captureDurationS)}
+                      name="iq-capture-duration"
+                      onChange={(e) => onCaptureDurationSChange(parseInt(e.target.value) || 1)}
+                    />
+                    <DurationUnit>s</DurationUnit>
+                  </div>
+                ) : (
+                  <DurationManualCenter>
+                    <SettingValue>I/Q Capture runs until <br /> you press Stop.</SettingValue>
+                  </DurationManualCenter>
+                )}
+              </DurationInputOrTextRow>
             </DurationBlock>
           </Row>
 
