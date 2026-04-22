@@ -9,6 +9,7 @@ type RadioTabsProps = {
   options: Option[];
   name?: string;
   className?: string;
+  variant?: "primary" | "fft";
 };
 
 // Pill-like radio tabs with two options. Visual styling is encapsulated here to
@@ -17,29 +18,40 @@ const TabGroup = styled.div`
   display: inline-flex;
   align-items: center;
   background: ${(p) => p.theme.surface};
-  border: 1px solid ${(p) => p.theme.border};
+  border: none;
   border-radius: 999px;
-  padding: 2px;
   gap: 0;
 `;
 
 const TabButton = styled.button<{ $active?: boolean; $isLeft?: boolean }>`
-  border: 1px solid ${(p) => (p.$active ? 'rgba(14,165,233,0.65)' : p.theme.border)};
-  background: ${(p) => (p.$active ? 'rgba(14,165,233,0.25)' : 'rgba(0,0,0,0.25)')};
-  color: ${(p) => (p.$active ? '#fff' : p.theme.textPrimary)};
+  border: none;
+  border: 1px solid
+    ${({ $active, $variant, theme }) => {
+    if ($active) {
+      return $variant === "primary" ? theme.primary : theme.fft;
+    }
+    return theme.borderHover;
+  }};
+  background-color: ${({ $active, $variant, theme }) => {
+    if ($active) {
+      return $variant === "primary" ? theme.primaryAnchor : theme.activeBackground;
+    }
+    return theme.surface;
+  }};
+  color: ${(props) => props.theme.textPrimary};
   padding: 8px 16px;
   font-family: ${(p) => p.theme.typography.mono};
   font-size: 12px;
   cursor: pointer;
   border-radius: ${(p) => (p.$isLeft ? '0' : '0')};
-  border-top-left-radius:${(p)=>p.$isLeft? '999px':'0'};
-  border-bottom-left-radius:${(p)=>p.$isLeft? '999px':'0'};
-  border-top-right-radius:${(p)=>p.$isLeft? '0':'999px'};
-  border-bottom-right-radius:${(p)=>p.$isLeft? '0':'999px'};
+  border-top-left-radius:${(p) => p.$isLeft ? '999px' : '0'};
+  border-bottom-left-radius:${(p) => p.$isLeft ? '999px' : '0'};
+  border-top-right-radius:${(p) => p.$isLeft ? '0' : '999px'};
+  border-bottom-right-radius:${(p) => p.$isLeft ? '0' : '999px'};
   white-space: nowrap;
 `;
 
-export const RadioTabs: React.FC<RadioTabsProps> = ({ value, onChange, options, className }) => {
+export const RadioTabs: React.FC<RadioTabsProps> = ({ value, onChange, options, className, variant }) => {
   return (
     <TabGroup className={className} role="radiogroup" aria-label="Radio tabs">
       {options.map((opt, idx) => (
@@ -48,6 +60,7 @@ export const RadioTabs: React.FC<RadioTabsProps> = ({ value, onChange, options, 
           onClick={() => onChange(opt.value)}
           $active={value === opt.value}
           $isLeft={idx === 0}
+          $variant={variant}
           aria-pressed={value === opt.value}
         >
           {opt.label}

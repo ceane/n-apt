@@ -127,9 +127,14 @@ global.Worker = jest.fn().mockImplementation(() => ({
       VITE_UNSAFE_LOCAL_USER_PASSWORD: "test-password",
       VITE_COREML_SERVER_URL: "http://localhost:9999",
       VITE_BACKEND_BASE_URL: "http://localhost:8765",
+      BASE_URL: "/",
     },
   },
 } as any;
+
+// Global base URL for asset helpers
+(global as any).__APP_BASE_URL__ = "/";
+(global as any).__DEV__ = true;
 
 // Mock ResizeObserver for testing
 global.ResizeObserver = class ResizeObserver {
@@ -139,6 +144,24 @@ global.ResizeObserver = class ResizeObserver {
   callback: any;
   observe() {
     // Mock implementation
+  }
+  unobserve() {
+    // Mock implementation
+  }
+  disconnect() {
+    // Mock implementation
+  }
+};
+
+// Mock IntersectionObserver for testing (e.g. CanvasHarness lazy loading)
+global.IntersectionObserver = class IntersectionObserver {
+  constructor(callback: any) {
+    this.callback = callback;
+  }
+  callback: any;
+  observe(target: Element) {
+    // Synchronously trigger intersection to mount components immediately in tests
+    this.callback([{ target, isIntersecting: true }]);
   }
   unobserve() {
     // Mock implementation

@@ -3,35 +3,8 @@ import { Canvas } from "@react-three/fiber";
 import styled from "styled-components";
 import * as THREE from "three";
 import { WebGPURenderer } from "three/webgpu";
-import { theme } from "../../../theme";
-
-const Frame = styled.div`
-  width: 100%;
-  min-width: min(100%, 320px);
-  margin: ${theme.spacing.containerMargin};
-  border-radius: ${theme.layout.borderRadius};
-  overflow: hidden;
-  border: 1px solid ${theme.colors.gridBorder};
-  background: ${theme.colors.background};
-  position: relative;
-  aspect-ratio: ${theme.layout.aspectRatio};
-
-  @media (max-width: 640px) {
-    aspect-ratio: ${theme.layout.mobileAspectRatio};
-  }
-
-  > div {
-    width: 100% !important;
-    height: 100% !important;
-  }
-
-  canvas {
-    display: block;
-    width: 100% !important;
-    height: 100% !important;
-    cursor: default;
-  }
-`;
+import { theme } from "@n-apt/md-preview/consts/theme";
+import CanvasHarness from "@n-apt/md-preview/components/canvas/CanvasHarness";
 
 const RendererBadge = styled.div`
   position: absolute;
@@ -63,13 +36,13 @@ export const SignalCanvasFrame: React.FC<React.PropsWithChildren<{ title: string
   title,
   overlay,
 }) => (
-  <Frame>
+  <CanvasHarness aspectRatio={theme.layout.aspectRatio}>
     <CanvasHost>{children}</CanvasHost>
     <Overlay>
       <RendererBadge>{title}</RendererBadge>
       {overlay}
     </Overlay>
-  </Frame>
+  </CanvasHarness>
 );
 
 export const SignalGraphFrame: React.FC<React.PropsWithChildren<{ title: string; overlay?: React.ReactNode }>> = ({
@@ -77,13 +50,13 @@ export const SignalGraphFrame: React.FC<React.PropsWithChildren<{ title: string;
   title,
   overlay,
 }) => (
-  <Frame>
+  <CanvasHarness aspectRatio={theme.layout.aspectRatio}>
     {children}
     <Overlay>
       <RendererBadge>{title}</RendererBadge>
       {overlay}
     </Overlay>
-  </Frame>
+  </CanvasHarness>
 );
 
 export const CanvasHost: React.FC<React.PropsWithChildren> = ({ children }) => {

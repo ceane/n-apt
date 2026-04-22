@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, lazy, Suspense } from "react";
 import styled, { createGlobalStyle, css, ThemeProvider } from "styled-components";
-import { theme } from "./theme";
+import { theme } from "@n-apt/md-preview/consts/theme";
 import ReactMarkdown from "react-markdown";
 import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -8,55 +8,70 @@ import rehypeHighlight from "rehype-highlight";
 import rehypeRaw from "rehype-raw";
 import rehypeKatex from "rehype-katex";
 import katex from "katex";
-import * as lucideIcons from "lucide-react";
+import * as lucideIcons from "lucide-react"; // We'll keep this for now but it's large; usually one would use dynamic imports here too if many icons are needed.
 import "highlight.js/styles/github-dark.css";
 import "katex/dist/katex.min.css";
-import { AmplitudeModulationCanvas, FrequencyModulationCanvas, HeterodyningCanvas, MultipathCanvas, PhaseShiftingCanvas, TimeOfFlightCanvas, ImpedanceCanvas, BodyAttenuationCanvas, EndpointRangeCanvas } from "./components/canvas";
-import remarkBodyAttenuationBlocks from "@n-apt/md-preview/remarkBodyAttenuationBlocks";
-import remarkTimeOfFlightBlocks from "@n-apt/md-preview/remarkTimeOfFlightBlocks";
-import remarkSignalCanvasBlocks from "@n-apt/md-preview/remarkSignalCanvasBlocks";
-import remarkIconShortcodes from "@n-apt/md-preview/remarkIconShortcodes";
-import remarkLatexCodeBlocks from "@n-apt/md-preview/remarkLatexCodeBlocks";
-import GiscusComments from "@n-apt/md-preview/GiscusComments";
-import { getBaseUrl } from "@n-apt/md-preview/getBaseUrl";
+const AmplitudeModulationCanvas = lazy(() => import("@n-apt/md-preview/components/canvas").then(m => ({ default: m.AmplitudeModulationCanvas })));
+const FrequencyModulationCanvas = lazy(() => import("@n-apt/md-preview/components/canvas").then(m => ({ default: m.FrequencyModulationCanvas })));
+const HeterodyningCanvas = lazy(() => import("@n-apt/md-preview/components/canvas").then(m => ({ default: m.HeterodyningCanvas })));
+const MultipathCanvas = lazy(() => import("@n-apt/md-preview/components/canvas").then(m => ({ default: m.MultipathCanvas })));
+const PhaseShiftingCanvas = lazy(() => import("@n-apt/md-preview/components/canvas").then(m => ({ default: m.PhaseShiftingCanvas })));
+const TimeOfFlightCanvas = lazy(() => import("@n-apt/md-preview/components/canvas").then(m => ({ default: m.TimeOfFlightCanvas })));
+const ImpedanceCanvas = lazy(() => import("@n-apt/md-preview/components/canvas").then(m => ({ default: m.ImpedanceCanvas })));
+const BodyAttenuationCanvas = lazy(() => import("@n-apt/md-preview/components/canvas").then(m => ({ default: m.BodyAttenuationCanvas })));
+const EndpointRangeCanvas = lazy(() => import("@n-apt/md-preview/components/canvas").then(m => ({ default: m.EndpointRangeCanvas })));
+import remarkBodyAttenuationBlocks from "@n-apt/md-preview/utils/remarkBodyAttenuationBlocks";
+import remarkTimeOfFlightBlocks from "@n-apt/md-preview/utils/remarkTimeOfFlightBlocks";
+import remarkSignalCanvasBlocks from "@n-apt/md-preview/utils/remarkSignalCanvasBlocks";
+import remarkIconShortcodes from "@n-apt/md-preview/utils/remarkIconShortcodes";
+import remarkLatexCodeBlocks from "@n-apt/md-preview/utils/remarkLatexCodeBlocks";
+import GiscusComments from "@n-apt/md-preview/components/GiscusComments";
+import { assetUrl, assetPageUrl } from "@n-apt/md-preview/utils/asset-helpers";
 
 const LEGACY_CANVAS_IMPORT_PATH = "@n-apt/ts/components/canvas";
 
 const DEFAULT_SOURCE = "/pages/how-do-they-do-it.md";
-const BASE_URL = getBaseUrl();
 void LEGACY_CANVAS_IMPORT_PATH;
 
-const candidateAssetPaths = (relativePath: string) => {
-  const sanitized = relativePath.replace(/^\/+/, "");
-  const dedupe = new Set<string>();
-  const add = (path: string) => dedupe.add(path.replace(/\/+/g, "/"));
-
-  if (BASE_URL && BASE_URL !== "/") {
-    add(`${BASE_URL}/${sanitized}`);
-  }
-  add(`/${sanitized}`);
-
-  return Array.from(dedupe);
+const BLEND_IMAGE_MAP: Record<string, string> = {
+  "bart-line-drawing": "blend-image",
+  "first-installment-nsa": "blend-image",
+  "n-apt-channels-wavelength-comparison": "invert-lighten",
 };
-
-const BLEND_IMAGE_PATTERNS = ["bart-line-drawing", "first-installment-nsa"];
 const HERO_IMAGE_PATTERNS = ["hero-light", "hero-dark"];
+const CanvasPlaceholder = styled.div`
+  width: 100%;
+  height: 400px;
+  background: rgba(172, 186, 255, 0.05);
+  border: 1px dashed rgba(172, 186, 255, 0.2);
+  border-radius: 12px;
+  margin: 1.5em 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  &:after {
+    content: "Loading visualization...";
+    color: #acbaff;
+    font-size: 0.9em;
+    opacity: 0.5;
+  }
+`;
 
 const MarkdownImage: React.FC<MarkdownImageProps> = ({ src = "", alt = "", ...imgProps }) => {
   const normalizedSrc = src.toLowerCase();
   const normalizedAlt = alt.toLowerCase();
 
-  const shouldBlend = BLEND_IMAGE_PATTERNS.some((pattern) =>
+  const blendClass = Object.entries(BLEND_IMAGE_MAP).find(([pattern]) =>
     normalizedSrc.includes(pattern) || normalizedAlt.includes(pattern)
-  );
+  )?.[1];
 
   const isHero = HERO_IMAGE_PATTERNS.some((pattern) =>
     normalizedSrc.includes(pattern) || normalizedAlt.includes(pattern)
   );
 
   return (
-    <Figure $blend={shouldBlend} $hero={isHero}>
-      <img src={src} alt={alt} {...imgProps} />
+    <Figure $blendClass={blendClass} $hero={isHero}>
+      <img src={assetUrl(src)} alt={alt} loading="lazy" {...imgProps} />
     </Figure>
   );
 };
@@ -83,7 +98,38 @@ type HotModuleApi = {
 };
 
 const getHotModuleApi = () => {
-  return (globalThis as typeof globalThis & { import?: { meta?: { hot?: HotModuleApi } } }).import?.meta?.hot;
+  // Prefer using a test shim if present (test environment provides
+  // global.import.meta). This avoids referencing import.meta directly which
+  // causes a parse error in non-module Jest environments.
+  const shim = (globalThis as any).import?.meta?.hot as HotModuleApi | undefined;
+  if (shim) return shim;
+
+  // In real Vite dev, import.meta.hot is available. We access it via eval so
+  // the literal `import.meta` doesn't appear at module parse time (which
+  // would break Jest). Wrap in try/catch in case the runtime doesn't support
+  // import.meta.
+  try {
+    // Use an indirect eval (via the comma operator) to reduce chance of build
+    // tooling rewriting the literal. Some runtimes disallow direct import.meta
+    // usage inside eval, so guard this and return undefined if it throws.
+    // eslint-disable-next-line no-eval
+    const meta = (0, eval)("import.meta") as any;
+    if (__DEV__) {
+      try {
+        // eslint-disable-next-line no-console
+        console.debug("HMR: import.meta.hot present:", !!meta?.hot, "shim:", !!shim);
+      } catch { }
+    }
+    return meta?.hot as HotModuleApi | undefined;
+  } catch {
+    if (__DEV__) {
+      try {
+        // eslint-disable-next-line no-console
+        console.debug("HMR: import.meta access failed; HMR unavailable");
+      } catch { }
+    }
+    return undefined;
+  }
 };
 
 type LatexBlockProps = React.HTMLAttributes<HTMLElement> & {
@@ -98,6 +144,24 @@ const LatexBlock: React.FC<LatexBlockProps> = ({ "data-expressions": serializedE
   );
   const blockRef = useRef<HTMLDivElement | null>(null);
   const expressionRefs = useRef<Array<HTMLDivElement | null>>([]);
+  const [isVisible, setIsVisible] = useState(false);
+  const [hasLoaded, setHasLoaded] = useState(false);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          setIsVisible(true);
+          setHasLoaded(true);
+        } else {
+          setIsVisible(false);
+        }
+      });
+    }, { rootMargin: '200px 0px 200px 0px', threshold: 0 });
+
+    if (blockRef.current) observer.observe(blockRef.current);
+    return () => observer.disconnect();
+  }, []);
 
   useLayoutEffect(() => {
     const resizeExpressions = () => {
@@ -154,15 +218,24 @@ const LatexBlock: React.FC<LatexBlockProps> = ({ "data-expressions": serializedE
 
   return (
     <LatexBlockContainer ref={blockRef}>
-      {renderedExpressions.map((html, index) => (
-        <LatexExpressionRow
-          key={`${index}-${expressions[index] ?? ""}`}
-          ref={(node: HTMLDivElement | null) => {
-            expressionRefs.current[index] = node;
-          }}
-          dangerouslySetInnerHTML={{ __html: html }}
-        />
-      ))}
+      {hasLoaded && (
+        <div style={{
+          width: '100%',
+          opacity: isVisible ? 1 : 0,
+          pointerEvents: isVisible ? 'auto' : 'none',
+          transition: 'opacity 0.3s ease'
+        }}>
+          {renderedExpressions.map((html, index) => (
+            <LatexExpressionRow
+              key={`${index}-${expressions[index] ?? ""}`}
+              ref={(node: HTMLDivElement | null) => {
+                expressionRefs.current[index] = node;
+              }}
+              dangerouslySetInnerHTML={{ __html: html }}
+            />
+          ))}
+        </div>
+      )}
     </LatexBlockContainer>
   );
 };
@@ -173,24 +246,22 @@ const App: React.FC = () => {
 
   const fetchMarkdown = useCallback(async (path: string) => {
     const normalizedPath = path.trim() || DEFAULT_SOURCE;
-    for (const assetPath of candidateAssetPaths(normalizedPath)) {
-      try {
-        const response = await fetch(assetPath, { headers: { "Cache-Control": "no-cache" } });
-        if (response.ok) {
-          const contentType = response.headers.get("content-type") ?? "";
-          if (contentType.includes("text/html")) {
-            throw new Error("Received HTML fallback instead of markdown");
-          }
-
-          const text = await response.text();
-          setMarkdown(text);
-          return;
+    const url = assetPageUrl(normalizedPath);
+    try {
+      const response = await fetch(url, { headers: { "Cache-Control": "no-cache" } });
+      if (response.ok) {
+        const contentType = response.headers.get("content-type") ?? "";
+        if (contentType.includes("text/html")) {
+          throw new Error("Received HTML fallback instead of markdown");
         }
-      } catch {
-        // Silently try next candidate
+
+        const text = await response.text();
+        setMarkdown(text);
+        return;
       }
+    } catch {
+      // Silently fail; UI will show fallback message
     }
-    // Silently fail; UI will show fallback message
   }, []);
 
   useEffect(() => {
@@ -273,24 +344,35 @@ const App: React.FC = () => {
 
       return <MarkdownLink target="_blank" rel="noreferrer" {...props} />;
     },
+    p: ({ node: _node, ...props }) => {
+      const { children } = props;
+      // If the paragraph contains block-level components (images, canvases, latex),
+      // we 'plop them out' by returning only the children without the <p> wrapper.
+      // This maintains valid HTML hierarchy.
+      const hasBlockElement = React.Children.toArray(children).some(
+        (child) => React.isValidElement(child) && typeof child.type !== "string"
+      );
+      return hasBlockElement ? <>{children}</> : <p {...props} className="markdown-para" />;
+    },
     img: ({ node: _node, ...props }) => <MarkdownImage {...props} />,
-    "latex-block": (props: any) => <LatexBlock {...(props as LatexBlockProps)} />,
-    "body-attenuation-canvas": BodyAttenuationCanvas,
-    "impedance-canvas": ImpedanceCanvas,
-    "time-of-flight-canvas": TimeOfFlightCanvas,
-    "phase-shifting-canvas": PhaseShiftingCanvas,
-    "frequency-modulation-canvas": FrequencyModulationCanvas,
-    "amplitude-modulation-canvas": AmplitudeModulationCanvas,
-    "multipath-canvas": MultipathCanvas,
-    "heterodyning-canvas": HeterodyningCanvas,
-    "endpoint-range-canvas": EndpointRangeCanvas,
-    "icon-inline": IconInline,
+    "latex-block": ({ node: _node, ...props }: any) => <LatexBlock {...(props as LatexBlockProps)} />,
+    "body-attenuation-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder />}> <BodyAttenuationCanvas {...props} /> </Suspense>,
+    "impedance-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder />}> <ImpedanceCanvas {...props} /> </Suspense>,
+    "time-of-flight-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder />}> <TimeOfFlightCanvas {...props} /> </Suspense>,
+    "phase-shifting-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder />}> <PhaseShiftingCanvas {...props} /> </Suspense>,
+    "frequency-modulation-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder />}> <FrequencyModulationCanvas {...props} /> </Suspense>,
+    "amplitude-modulation-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder />}> <AmplitudeModulationCanvas {...props} /> </Suspense>,
+    "multipath-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder />}> <MultipathCanvas {...props} /> </Suspense>,
+    "heterodyning-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder />}> <HeterodyningCanvas {...props} /> </Suspense>,
+    "endpoint-range-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder />}> <EndpointRangeCanvas {...props} /> </Suspense>,
+    "icon-inline": ({ node: _node, ...props }: any) => <IconInline {...props} />,
   }), []);
 
   return (
     <ThemeProvider theme={theme as any}>
       <GlobalStyle />
       <Page>
+        <ScrollToContents href="#table-of-contents">Scroll to Contents</ScrollToContents>
         <ArticleContent>
           <ReactMarkdown
             remarkPlugins={[
@@ -306,7 +388,7 @@ const App: React.FC = () => {
           >
             {markdown || "_Fetching markdown…_"}
           </ReactMarkdown>
-          {activeSource && (
+          {!__DEV__ && activeSource && (
             <GiscusComments pageId={activeSource} />
           )}
         </ArticleContent>
@@ -316,8 +398,6 @@ const App: React.FC = () => {
 };
 
 const GlobalStyle = createGlobalStyle`
-  @import url("https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=JetBrains+Mono:wght@300;400;500;600;700&family=Inter:wght@500;600;700&display=swap");
-
   :root { color-scheme: dark; }
   * { box-sizing: border-box; }
   html {
@@ -339,6 +419,31 @@ const Page = styled.div`
   flex-direction: column;
   padding: 0;
   min-width: 0;
+`;
+
+const ScrollToContents = styled.a`
+  position: fixed;
+  right: 24px;
+  top: 50px;
+  color: #9eaeff;
+  text-decoration: none;
+  font-size: 0.85rem;
+  background: rgba(40, 55, 128, 0.85);
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(158, 174, 255, 0.2);
+  z-index: 100;
+  transition: all 0.2s ease;
+  backdrop-filter: blur(4px);
+
+  &:hover {
+    background: rgba(40, 55, 128, 0.95);
+    border-color: rgba(158, 174, 255, 0.4);
+  }
+
+  @media (max-width: 768px) {
+    display: none;
+  }
 `;
 
 const ArticleContent = styled.article`
@@ -369,6 +474,7 @@ const ArticleContent = styled.article`
 
   h1 {
     font-size: clamp(2rem, 5vw, 3.2rem);
+    margin-top: 1.5rem;
   }
 
   h2 {
@@ -379,7 +485,8 @@ const ArticleContent = styled.article`
     font-size: clamp(1.3rem, 3vw, 1.8rem);
   }
 
-  p {
+  p,
+  .markdown-para {
     margin: 1.2em 0;
     font-family: "DM Mono", monospace;
     font-weight: 300;
@@ -512,6 +619,15 @@ const ArticleContent = styled.article`
 
   tr:last-child td {
     border-bottom: none;
+  }
+
+  .table-dense {
+    th, td {
+      padding: 1rem .25rem;
+      font-size: .75rem;
+      text-align: center;
+      text-transform: none;
+    }
   }
 
   hr {
@@ -648,6 +764,10 @@ const LatexBlockContainer = styled.div`
   min-width: 0;
   overflow: hidden;
   margin: 1.5em 0;
+  will-change: transform, opacity;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 100px;
+  isolation: isolate;
 `;
 
 const LatexExpressionRow = styled.div`
@@ -676,7 +796,7 @@ const LatexExpressionRow = styled.div`
   }
 `;
 
-const Figure = styled.figure<{ $blend?: boolean; $hero?: boolean }>`
+const Figure = styled.figure<{ $blendClass?: string | null; $hero?: boolean }>`
   margin: 1.5em 0;
   position: relative;
   width: 100%;
@@ -691,12 +811,29 @@ const Figure = styled.figure<{ $blend?: boolean; $hero?: boolean }>`
     border: ${({ $hero }) => ($hero ? "none" : "unset")};
   }
 
-  ${({ $blend }) =>
-    $blend &&
+  ${({ $blendClass }) =>
+    $blendClass === "blend-image" &&
     css`
       & > img {
         mix-blend-mode: multiply;
         filter: brightness(1.1) contrast(1.7);
+      }
+
+      &::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: 12px;
+        pointer-events: none;
+      }
+    `}
+
+  ${({ $blendClass }) =>
+    $blendClass === "invert-lighten" &&
+    css`
+      & > img {
+        mix-blend-mode: lighten;
+        filter: invert(1) brightness(1.2);
       }
 
       &::after {
