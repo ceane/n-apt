@@ -23,7 +23,7 @@ const TabGroup = styled.div`
   gap: 0;
 `;
 
-const TabButton = styled.button<{ $active?: boolean; $isLeft?: boolean }>`
+const TabButton = styled.button<{ $active?: boolean; $isLeft?: boolean; $variant?: "primary" | "fft" }>`
   border: none;
   border: 1px solid
     ${({ $active, $variant, theme }) => {
