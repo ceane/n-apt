@@ -286,6 +286,13 @@ The web app will be **available at `http://localhost:5173`** with the WebSocket 
 > I use my RTL-SDR through a flaky USB hub, and it disconnects or errors out more often than I’d like, so I added support for restarting the device if it goes stale or throws an error, however that does not fix bad USB connections. 
 > 
 > For best results, keep the RTL-SDR connected directly or use a better cable/hub, and avoid moving it around while the app is running. I took a lot of time to fix my frustrations with other SDR apps, if it's not showing up, then it's more likely that the hardware connection is bad.
+>
+> [!WARNING]
+> 
+> If you have the RTL-SDR plugged in but it doesn't automatically load on Mac, then do the following (this is what I do):
+>
+> Go to `About this Mac > More info... > (Scroll to the bottom) System Report > USB (at the bottom of "Hardware")` 
+> This forces macOS to look for currently USB devices and if you hit `Command + R` you can refresh to see if the USB connection improves and new devices show
 
 
 ---
