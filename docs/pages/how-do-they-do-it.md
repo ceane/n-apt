@@ -19,7 +19,9 @@ What I learned was that the element of surprise and total ignornace long-reinfor
 
 This article is my own **technical and scientific oriented dive and timeline** (with a partial background for context) into these signals that are like chains which long extended the agency's powers (and psychopathy) into the unthinkable.
 
-*National security law, the Freedom of Information Act (FOIA), Privacy Act (PA), Mandatory Declassification Review (MDR), extensive legalese  and the history of this technique is not discussed in this article to in order to keep it focused.*
+*National security law, the Freedom of Information Act (FOIA), Privacy Act (PA), Mandatory Declassification Review (MDR), extensive legalese  and the history of this technique is not discussed in this article to in order to keep it focused.
+
+To start, you should probably checkout the [NSA OIG reports](https://oig.nsa.gov/reports/) for legal research (2016 is the best one with relevant info).*
 
 ### ⠿ Table of Contents <a id="table-of-contents"></a>
 
@@ -204,6 +206,11 @@ Bandwidth is another problem as well, since there is so much going throughout th
 - (1) only 2 bits a cycle max, since biology is not a special hardware antenna, only the **peak and trough of a cycle translate into electrical energy that the brain and nervous system can interpret**,
 - (2) it is a certainty that **consciousness is small as a data channel** as I experienced in full the totality of real-time streaming software applied to the human mind, with constant and flawless connection and real-time interception, processing and responsiveness to vision, inference, instinct, perception with tons of other features; for this to have functioned for so long strongly suggests the brain is small and that possibly `2-8MB/s` compromises one's brain accordingly
 - (3) it may be safe to start with the assumption that too much bandwidth "all damn day, every damn day" will most certainly produce heating effects in tissue, however I have yet to experience anything but structed harms in its software, not side effects from its mechanics.
+
+
+Essentially this was solid ground to continue deducing how it worked, by this point it was easier. The radio wave essentially came out of the endpoint, intersected concentrated energy at the person and then it "punched through" the person one cycle at a time then that wave continued to another endpoint to read the difference.  had so much bandwidth or why anywhere and everywhere without a drop in the connection. With heterodyning, the body was responsive to this technique. That explained a lot of the mechanics by default since it was the only way to explain it, but not why it was so fast, why it
+
+![Radio Wave Body Attenuation](/images/radio-wave-body-attenuation.png)
 
 
 ### Microwaves
