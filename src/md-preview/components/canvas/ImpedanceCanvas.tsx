@@ -4,9 +4,8 @@ import { Html } from "@react-three/drei";
 import * as THREE from "three";
 import styled, { keyframes } from "styled-components";
 
-import { theme } from "../../theme";
-
-const BACKGROUND = theme.colors.background;
+import { theme } from "@n-apt/md-preview/consts/theme";
+import CanvasHarness from "@n-apt/md-preview/components/canvas/CanvasHarness";
 
 // Color variables
 const COLORS = {
@@ -244,26 +243,6 @@ const particleFragment = /* glsl */ `
   }
 `;
 
-// ── Grid overlay ─────────────────────────────────────────────────────────────
-const gridFragment = /* glsl */ `
-  uniform vec2 uResolution;
-  varying vec2 vUv;
-
-  void main() {
-    vec2 uv = vUv;
-    float aspect = uResolution.x / uResolution.y;
-    uv.x *= aspect;
-
-    float gridSize = 0.06;
-    vec2 grid = abs(fract(uv / gridSize - 0.5) - 0.5) / fwidth(uv / gridSize);
-    float line = min(grid.x, grid.y);
-    float gridAlpha = 1.0 - min(line, 1.0);
-
-    vec3 color = vec3(0.35, 0.32, 0.55);
-    gl_FragColor = vec4(color, gridAlpha * 0.06);
-  }
-`;
-
 // STYLED COMPONENTS
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -272,25 +251,24 @@ const subtlePulse = keyframes`
   50% { opacity: 1; }
 `;
 
-const Frame = styled.div`
-  width: 100%;
-  margin: 0;
-  border-radius: 18px;
-  overflow: hidden;
-  background: ${BACKGROUND};
-  aspect-ratio: 1.7 / 1;
-  position: relative;
-  border: 1px solid rgba(107, 90, 205, 0.15);
-  box-shadow:
-    0 0 60px rgba(107, 90, 205, 0.08),
-    0 4px 24px rgba(0, 0, 0, 0.3),
-    inset 0 1px 0 rgba(255, 255, 255, 0.03);
+const RendererBadgeText = styled.div`
+  position: absolute;
+  top: 14px;
+  left: 16px;
+  font-size: ${theme.fontSizes.canvasTitle};
+  letter-spacing: 0.04em;
+  font-family: ${theme.fonts.mono};
+  color: ${theme.colors.text};
+  z-index: 20;
+  pointer-events: none;
+`;
 
-  canvas {
-    display: block;
-    width: 100% !important;
-    height: 100% !important;
-  }
+// Frame removed because CanvasHarness handles the container, aspect ratio, and background logic.
+const InnerContainer = styled.div`
+  width: 100%;
+  height: 100%;
+  position: relative;
+  overflow: hidden;
 `;
 
 const Overlay = styled.div`
@@ -299,25 +277,6 @@ const Overlay = styled.div`
   pointer-events: none;
   display: flex;
   flex-direction: column;
-`;
-
-const TopBar = styled.div`
-  text-align: center;
-  padding-top: 3%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-`;
-
-const Title = styled.div`
-  font-family: ${FONTS.mono};
-  font-size: clamp(.85rem, 2vw, 1.85rem);
-  font-weight: 700;
-  color: ${COLORS.textPrimary};
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.45);
-  letter-spacing: -0.02em;
-  margin-top: 4px;
 `;
 
 const LabelRow = styled.div`
@@ -358,6 +317,12 @@ const ImprintLabel = styled.div`
   position: absolute;
   top: 35%;
   right: 16%;
+`;
+
+const OriginalLabel = styled.div`
+  position: absolute;
+  top: 35%;
+  left: 16%;
 `;
 
 const ImprintPill = styled.span`
@@ -428,7 +393,7 @@ const TargetLabelContainer = styled.div`
 
 const TargetMain = styled.span`
   font-family: ${FONTS.mono};
-  font-size: clamp(.75rem, 1.1vw, 1.55rem);
+  font-size: clamp(.5rem, 0.8vw, 1rem);
   font-weight: 700;
   color: ${COLORS.textPrimary};
   line-height: 1.2;
@@ -487,34 +452,6 @@ const ParticleField = () => {
         uniforms={uniforms}
         vertexShader={vertexShader}
         fragmentShader={particleFragment}
-        transparent
-        depthWrite={false}
-      />
-    </mesh>
-  );
-};
-
-const GridOverlay = () => {
-  const matRef = useRef<any>(null);
-  const { size } = useThree();
-  const uniforms = useMemo(() => ({
-    uResolution: { value: new THREE.Vector2(size.width, size.height) },
-  }), []);
-
-  useEffect(() => {
-    if (matRef.current) {
-      matRef.current.uniforms.uResolution.value.set(size.width, size.height);
-    }
-  }, [size]);
-
-  return (
-    <mesh position={[0, 0, -0.3]} frustumCulled={false}>
-      <planeGeometry args={[14, 8]} />
-      <shaderMaterial
-        ref={matRef}
-        uniforms={uniforms}
-        vertexShader={vertexShader}
-        fragmentShader={gridFragment}
         transparent
         depthWrite={false}
       />
@@ -736,9 +673,7 @@ const SceneContents = () => {
 
   return (
     <>
-      <color attach="background" args={[BACKGROUND]} />
       <ParticleField />
-      <GridOverlay />
       <GhostWave index={1} />
       <GhostWave index={2} />
       <MovingWave />
@@ -767,20 +702,19 @@ const ImpedanceCanvas = () => {
   }, []);
 
   return (
-    <Frame>
-      <Canvas
-        orthographic
-        dpr={[1, 2]}
-        camera={{ position: [0, 0, 10] }}
-        gl={{ antialias: true, alpha: true }}
-      >
-        <SceneContents />
-      </Canvas>
+    <CanvasHarness aspectRatio="1.7 / 1">
+      <InnerContainer>
+        <RendererBadgeText>Impedance</RendererBadgeText>
+        <Canvas
+          orthographic
+          dpr={[1, 2]}
+          camera={{ position: [0, 0, 10] }}
+          gl={{ antialias: true, alpha: true }}
+        >
+          <SceneContents />
+        </Canvas>
 
       <Overlay>
-        <TopBar>
-          <Title>Impedance</Title>
-        </TopBar>
 
         <LabelRow>
           <LabelCell $align="left">
@@ -794,9 +728,14 @@ const ImpedanceCanvas = () => {
         </LabelRow>
 
         {showImprint ? (
-          <ImprintLabel>
-            <ImprintPill>Original + Imprint</ImprintPill>
-          </ImprintLabel>
+          <>
+            <ImprintLabel>
+              <ImprintPill>Original + Imprint</ImprintPill>
+            </ImprintLabel>
+            <OriginalLabel>
+              <ImprintPill>Original</ImprintPill>
+            </OriginalLabel>
+          </>
         ) : null}
 
         <EquationBox>
@@ -813,7 +752,8 @@ const ImpedanceCanvas = () => {
           <MetaText>Amplitude attenuates</MetaText>
         </BottomMeta>
       </Overlay>
-    </Frame>
+      </InnerContainer>
+    </CanvasHarness>
   );
 };
 

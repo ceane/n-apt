@@ -105,3 +105,39 @@ export const formatFrequencyHighRes = (freqMHz: number): string => {
     return `${Math.round(freqMHz * 1000000)} Hz`;
   }
 };
+
+export const getFrequencyClass = (valueHz: number) => {
+  if (valueHz < 3e5) {
+    return "LF";
+  }
+
+  if (valueHz < 3e6) {
+    return "MF";
+  }
+
+  if (valueHz < 3e7) {
+    return "HF";
+  }
+
+  if (valueHz < 3e8) {
+    return "VHF";
+  }
+
+  if (valueHz < 1e9) {
+    return "Low end microwave (pre L band)";
+  }
+
+  if (valueHz < 2e9) {
+    return "L-band Microwave (1-2GHz)";
+  }
+
+  if (valueHz < 4e9) {
+    return "S-band Microwave (2-4GHz)";
+  }
+
+  if (valueHz < 12e9) {
+    return "X-band (8-12GHz)";
+  }
+
+  return "Microwave";
+};

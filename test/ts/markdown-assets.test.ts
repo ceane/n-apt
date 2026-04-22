@@ -7,10 +7,17 @@ describe('Markdown Preview Assets', () => {
   /** Root md-preview barrels that re-export — assert against implementation files. */
   const CANVAS_SOURCE_OVERRIDES: Record<string, string> = {
     'BodyAttenuationCanvas.tsx': 'components/canvas/BodyAttenuationCanvas.tsx',
+    'BodyAttenuationWebGPUCanvas.tsx': 'components/canvas/BodyAttenuationCanvas.tsx',
     'ImpedanceCanvas.tsx': 'components/canvas/ImpedanceCanvas.tsx',
     'TimeOfFlightCanvas.tsx': 'components/canvas/TimeOfFlightCanvas.tsx',
     'PhaseShfitingCanvas.tsx': 'components/canvas/PhaseShiftingCanvas.tsx',
     'SignalCanvases.tsx': 'components/canvas/FrequencyModulationCanvas.tsx',
+    'CanvasText.tsx': 'components/CanvasText.tsx',
+    'remarkBodyAttenuationBlocks.ts': 'utils/remarkBodyAttenuationBlocks.ts',
+    'remarkTimeOfFlightBlocks.ts': 'utils/remarkTimeOfFlightBlocks.ts',
+    'remarkSignalCanvasBlocks.ts': 'utils/remarkSignalCanvasBlocks.ts',
+    'remarkLatexCodeBlocks.ts': 'utils/remarkLatexCodeBlocks.ts',
+    'remarkIconShortcodes.ts': 'utils/remarkIconShortcodes.ts',
   };
 
   function resolveCanvasSourcePath(componentsDir: string, componentFile: string): string {
@@ -105,7 +112,7 @@ describe('Markdown Preview Assets', () => {
       ];
       
       requiredComponents.forEach(component => {
-        const componentPath = path.join(componentsDir, component);
+        const componentPath = resolveCanvasSourcePath(componentsDir, component);
         expect(fs.existsSync(componentPath)).toBe(true);
         
         // Check that files have content
@@ -150,7 +157,7 @@ describe('Markdown Preview Assets', () => {
       ];
       
       remarkPlugins.forEach(pluginFile => {
-        const pluginPath = path.join(componentsDir, pluginFile);
+        const pluginPath = resolveCanvasSourcePath(componentsDir, pluginFile);
         const content = fs.readFileSync(pluginPath, 'utf8');
         
         // Check for proper plugin structure
@@ -166,21 +173,21 @@ describe('Markdown Preview Assets', () => {
       
       // Check body attenuation plugin
       const bodyAttenuationContent = fs.readFileSync(
-        path.join(componentsDir, 'remarkBodyAttenuationBlocks.ts'), 
+        resolveCanvasSourcePath(componentsDir, 'remarkBodyAttenuationBlocks.ts'), 
         'utf8'
       );
       expect(bodyAttenuationContent).toMatch(/canvas::bodyattenuation/);
       
       // Check time of flight plugin
       const timeOfFlightContent = fs.readFileSync(
-        path.join(componentsDir, 'remarkTimeOfFlightBlocks.ts'), 
+        resolveCanvasSourcePath(componentsDir, 'remarkTimeOfFlightBlocks.ts'), 
         'utf8'
       );
       expect(timeOfFlightContent).toMatch(/canvas::timeofflight/);
       
       // Check signal canvas plugin for specific canvas types
       const signalCanvasContent = fs.readFileSync(
-        path.join(componentsDir, 'remarkSignalCanvasBlocks.ts'), 
+        resolveCanvasSourcePath(componentsDir, 'remarkSignalCanvasBlocks.ts'), 
         'utf8'
       );
       expect(signalCanvasContent).toMatch(/canvas::(phaseshifting|frequencymodulation|amplitudemodulation)/);
@@ -189,7 +196,7 @@ describe('Markdown Preview Assets', () => {
     test('should have proper LaTeX handling', () => {
       const componentsDir = path.join(__dirname, '../../src/md-preview');
       const latexContent = fs.readFileSync(
-        path.join(componentsDir, 'remarkLatexCodeBlocks.ts'), 
+        resolveCanvasSourcePath(componentsDir, 'remarkLatexCodeBlocks.ts'), 
         'utf8'
       );
       
@@ -211,7 +218,7 @@ describe('Markdown Preview Assets', () => {
     test('should have proper icon shortcode handling', () => {
       const componentsDir = path.join(__dirname, '../../src/md-preview');
       const iconContent = fs.readFileSync(
-        path.join(componentsDir, 'remarkIconShortcodes.ts'), 
+        resolveCanvasSourcePath(componentsDir, 'remarkIconShortcodes.ts'), 
         'utf8'
       );
       
@@ -257,13 +264,13 @@ describe('Markdown Preview Assets', () => {
       );
       expect(bodyAttenuationContent).toMatch(/body-attenuation-character\.png/);
       
-      // Check WebGPU canvas for proper asset handling
+      // Check WebGPU canvas for proper asset handling (BodyAttenuationCanvas handles both now)
       const webgpuContent = fs.readFileSync(
-        path.join(componentsDir, 'BodyAttenuationWebGPUCanvas.tsx'), 
+        resolveCanvasSourcePath(componentsDir, 'BodyAttenuationWebGPUCanvas.tsx'), 
         'utf8'
       );
       expect(webgpuContent).toMatch(/body-attenuation-character\.png/);
-      expect(webgpuContent).toMatch(/BASE_URL/);
+      expect(webgpuContent).toMatch(/assetImageUrl/);
     });
   });
 

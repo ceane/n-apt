@@ -8,12 +8,9 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 
 // Import canvas components
-import BodyAttenuationCanvas from '../../src/md-preview/BodyAttenuationCanvas';
-import BodyAttenuationWebGPUCanvas from '../../src/md-preview/BodyAttenuationWebGPUCanvas';
-import ImpedanceCanvas from '../../src/md-preview/ImpedanceCanvas';
-import TimeOfFlightCanvas from '../../src/md-preview/TimeOfFlightCanvas';
-import PhaseShfitingCanvas from '../../src/md-preview/PhaseShfitingCanvas';
-import remarkSignalCanvasBlocks from '../../src/md-preview/remarkSignalCanvasBlocks';
+import { BodyAttenuationCanvas, ImpedanceCanvas, TimeOfFlightCanvas, PhaseShiftingCanvas as PhaseShfitingCanvas } from '../../src/md-preview/components/canvas';
+import { BodyAttenuationCanvas as BodyAttenuationWebGPUCanvas } from '../../src/md-preview/components/canvas';
+import remarkSignalCanvasBlocks from '../../src/md-preview/utils/remarkSignalCanvasBlocks';
 
 // Mock Three.js and React Three Fiber
 jest.mock('three', () => ({
@@ -98,10 +95,10 @@ describe('Markdown Canvas Components', () => {
       expect(screen.getByText('drag inside the panel to move the target cursor')).toBeInTheDocument();
     });
 
-    test('displays WebGPU status correctly', () => {
+    test('displays WebGL/WebGPU canvas correctly', () => {
       render(<BodyAttenuationCanvas />);
 
-      expect(screen.getByText('WebGL')).toBeInTheDocument();
+      expect(screen.getByTestId('r3f-canvas')).toBeInTheDocument();
     });
 
     test('shows endpoint information', () => {

@@ -174,6 +174,7 @@ const useAuthenticationInternal = (
       userAgent.includes("Code") ||
       userAgent.includes("VSCode") ||
       userAgent.includes("Windsurf") ||
+      userAgent.includes("Cursor") ||
       (window.location.hostname === "localhost" &&
         window.location.port === "8080") ||
       window.location.search.includes("ide=true");

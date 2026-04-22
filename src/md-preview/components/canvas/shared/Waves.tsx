@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef } from "react";
 import { useThree } from "@react-three/fiber";
 import * as THREE from "three";
-import { theme } from "../../../theme";
+import { theme } from "@n-apt/md-preview/consts/theme";
 
 export const useWavePoints = (
   phase = 0,

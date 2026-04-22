@@ -51,6 +51,8 @@
     "decrypt-modules-if-needed": "npx tsx scripts/encrypted-modules/crypt.ts decrypt-if-needed",
     "encrypt-modules": "npx tsx scripts/encrypted-modules/crypt.ts encrypt",
     "dev:markdown": "vite --config vite.markdown.config.ts --port 5174",
+    "build:markdown": "vite build --config vite.markdown.config.ts",
+    "preview:markdown": "vite preview --config vite.markdown.config.ts --port 4174",
     "dev": "npm --silent run decrypt-modules-if-needed && npm --silent run build_orchestrator",
     "build_orchestrator": "npx tsx scripts/build/build-orchestrator.tsx",
     "build:rust": "cargo build --bin n-apt-backend --profile dev-fast",

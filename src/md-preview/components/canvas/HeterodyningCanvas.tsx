@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from "react";
 import styled from "styled-components";
-import { SignalCanvasFrame, OverlayText, GridBackdrop, DottedWave, DashedWave, useWavePoints } from "./shared";
-import { theme } from "../../theme";
+import { SignalCanvasFrame, OverlayText, DottedWave, WaveTube, useWavePoints } from "@n-apt/md-preview/components/canvas/shared";
+import { theme } from "@n-apt/md-preview/consts/theme";
 
-const waveAColor = "#7c3aed"; // Vibrant Violet for Wave A
-const waveBColor = "#ec4899"; // Vibrant Pink for Wave B
+const waveAColor = "#d282e3"; // Requested wave A color
+const waveBColor = "#1180ff"; // Contrasting Theme Blue for Wave B
 const sidebandColor = "#06b6d4"; // Vibrant Cyan for sideband
 
 const AnimationLabel = styled(OverlayText)`
@@ -75,7 +75,7 @@ const HeterodyningScene: React.FC = () => {
   useEffect(() => {
     let frame = 0;
     const tick = () => {
-      setPhase((value) => (value + 0.01) % (Math.PI * 2));
+      setPhase((value) => (value - 0.01));
       frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
@@ -88,9 +88,8 @@ const HeterodyningScene: React.FC = () => {
 
   return (
     <>
-      <GridBackdrop />
-      <DashedWave points={waveA} color={waveAColor} z={0.12} opacity={0.7} thickness={0.06} dashLength={8} gapLength={4} />
-      <DashedWave points={waveB} color={waveBColor} z={0.1} opacity={0.7} thickness={0.06} dashLength={8} gapLength={4} />
+      <WaveTube points={waveA} color={waveAColor} z={0.12} opacity={0.7} thickness={0.06} />
+      <WaveTube points={waveB} color={waveBColor} z={0.1} opacity={0.7} thickness={0.06} />
       <DottedWave points={sideband} color={sidebandColor} step={8} size={0.06} opacity={0.95} z={0.14} />
     </>
   );
