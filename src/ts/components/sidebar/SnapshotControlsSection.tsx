@@ -199,7 +199,7 @@ interface SnapshotControlsSectionProps {
   snapshotWhole: boolean;
   snapshotShowWaterfall: boolean;
   snapshotShowStats: boolean;
-  snapshotFormat: "png" | "svg" | SnapshotVideoFormat;
+  snapshotFormat: "png" | "svg" | SnapshotVideoFormat | "animated-svg";
   snapshotGridPreference: boolean;
   snapshotShowGeolocation: boolean;
   snapshotGeolocationError: string | null;
@@ -209,7 +209,7 @@ interface SnapshotControlsSectionProps {
   onSnapshotShowWaterfallChange: (value: boolean) => void;
   onSnapshotShowStatsChange: (value: boolean) => void;
   onSnapshotShowGeolocationChange: (value: boolean) => void;
-  onSnapshotFormatChange: (value: "png" | "svg" | SnapshotVideoFormat) => void;
+  onSnapshotFormatChange: (value: "png" | "svg" | SnapshotVideoFormat | "animated-svg") => void;
   onSnapshotGridPreferenceChange: (value: boolean) => void;
   onSnapshotAspectRatioChange: (value: SnapshotAspectRatio) => void;
   onSnapshot: () => void;
@@ -354,13 +354,14 @@ export const SnapshotControlsSection: React.FC<
             <SettingSelect
               value={snapshotFormat}
               onChange={(e) =>
-                onSnapshotFormatChange(e.target.value as "png" | "svg" | SnapshotVideoFormat)
+                onSnapshotFormatChange(e.target.value as "png" | "svg" | SnapshotVideoFormat | "animated-svg")
               }
               style={{ minWidth: "110px" }}
               $disabled={isDisabled}
             >
               <option value="png">PNG</option>
               <option value="svg">SVG</option>
+              <option value="animated-svg">Animated SVG (1s)</option>
               {supportedSnapshotVideoFormat && (
                 <option value={supportedSnapshotVideoFormat}>
                   {supportedSnapshotVideoFormat === "mp4" ? "MP4 1s" : "WEBM 1s"}

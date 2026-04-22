@@ -25,7 +25,7 @@ export type SnapshotOptions = {
   showGeolocation: boolean;
   geolocation?: { lat: string; lon: string } | null;
   showGrid: boolean;
-  format: "png" | "svg" | SnapshotVideoFormat;
+  format: "png" | "svg" | SnapshotVideoFormat | SnapshotAnimatedFormat;
   getSnapshotData: () => SnapshotData | null;
   signalAreaBounds?: Record<string, { min: number; max: number }> | null;
   activeSignalArea?: string;
@@ -49,6 +49,8 @@ export type SnapshotOptions = {
 };
 
 export type SnapshotVideoFormat = "mp4" | "webm";
+
+export type SnapshotAnimatedFormat = "animated-svg";
 
 const SNAPSHOT_VIDEO_MIME_TYPES: Record<SnapshotVideoFormat, string[]> = {
   webm: ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"],
@@ -753,6 +755,157 @@ function composeWholeChannelSpectrumCanvas(
 
 // SVG Vector Generation has been unified into SnapshotRenderer.
 
+// ── Animated SVG Generation ─────────────────────────────────────────────────
+
+async function recordSVGFramesToAnimatedSvg(
+  renderFrame: () => Promise<string>,
+  baseFilename: string,
+  durationMs = 1000,
+  frameRate = 30,
+): Promise<void> {
+  await new Promise<void>((resolve) => {
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => resolve());
+    });
+  });
+
+  const safeFrameRate = normalizeSnapshotVideoFrameRate(frameRate);
+  const frameIntervalMs = 1000 / safeFrameRate;
+  const totalFrames = Math.ceil((durationMs / 1000) * safeFrameRate);
+  
+  // Collect all frames
+  const frames: string[] = [];
+  let frameCount = 0;
+  
+  const collectFrame = async () => {
+    if (frameCount >= totalFrames) {
+      // All frames collected, sample down to 12-15 frames evenly spaced
+      const sampledFrames = sampleFramesEvenly(frames, 12);
+      const animatedSvg = createAnimatedSvgFromFrames(sampledFrames);
+      const blob = new Blob([animatedSvg], { type: "image/svg+xml" });
+      downloadBlob(blob, `${baseFilename}.svg`);
+      return;
+    }
+    
+    try {
+      const svgContent = await renderFrame();
+      frames.push(svgContent);
+      frameCount++;
+      window.setTimeout(collectFrame, frameIntervalMs);
+    } catch (error) {
+      console.error("Error rendering SVG frame:", error);
+    }
+  };
+  
+  await collectFrame();
+}
+
+function sampleFramesEvenly(frames: string[], targetCount: number): string[] {
+  if (frames.length <= targetCount) return frames;
+  
+  // Sample frames evenly across the entire capture duration
+  // E.g., if we have 60 frames and want 12, we take frames at indices: 0, 5, 10, 15, ..., 55
+  const sampled: string[] = [];
+  for (let i = 0; i < targetCount; i++) {
+    const index = Math.round((i / (targetCount - 1)) * (frames.length - 1));
+    sampled.push(frames[index]);
+  }
+  return sampled;
+}
+
+function extractSvgContent(svgString: string): string {
+  // Extract just the inner content from an SVG string
+  const match = svgString.match(/<svg[^>]*>([\s\S]*)<\/svg>/);
+  return match ? match[1].trim() : svgString;
+}
+
+function generateSvgWithSymbols(svgString: string): string {
+  // Takes a full SVG and wraps the content into a <symbol> structure
+  // for easy reuse with <use> elements
+  const svgMatch = svgString.match(/<svg[^>]*>/);
+  if (!svgMatch) return svgString;
+
+  const svgTag = svgMatch[0];
+  const viewBoxMatch = svgTag.match(/viewBox="([^"]*)"/);
+  const viewBox = viewBoxMatch ? viewBoxMatch[1] : "0 0 1200 700";
+  const content = extractSvgContent(svgString);
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}">
+  <defs>
+    <symbol id="spectrum-snapshot" viewBox="${viewBox}" preserveAspectRatio="xMidYMid meet">
+      ${content}
+    </symbol>
+  </defs>
+  <!-- Display the symbol by default -->
+  <use href="#spectrum-snapshot" width="100%" height="100%"/>
+  <!-- Or reference it externally with: <use href="snapshot.svg#spectrum-snapshot"/> -->
+</svg>`;
+}
+
+function createAnimatedSvgFromFrames(frames: string[]): string {
+  // Creates a smooth 1-second looping animation from sampled frames
+  // Using SMIL animate elements for reliable frame-by-frame playback
+  // Each frame fades in and out at the right time in the cycle
+  
+  if (!frames.length) return "";
+  
+  const firstSvgMatch = frames[0].match(/<svg[^>]*>/);
+  if (!firstSvgMatch) return "";
+  
+  const svgTag = firstSvgMatch[0];
+  const viewBoxMatch = svgTag.match(/viewBox="([^"]*)"/);
+  const viewBox = viewBoxMatch ? viewBoxMatch[1] : "0 0 1200 700";
+  const widthMatch = svgTag.match(/width="([^"]*)"/);
+  const heightMatch = svgTag.match(/height="([^"]*)"/);
+  const width = widthMatch ? widthMatch[1] : "1200";
+  const height = heightMatch ? heightMatch[1] : "700";
+  
+  const totalDurationSeconds = 1.0;
+  const frameCount = frames.length;
+  
+  // Extract first frame for fallback (shown when animations not supported)
+  const firstFrameContent = extractSvgContent(frames[0]);
+  
+  // Create individual group elements for each frame with SMIL animation
+  // Each frame gets its own begin time offset for sequential display
+  let frameGroups = "";
+  frames.forEach((frameContent, index) => {
+    const content = extractSvgContent(frameContent);
+    const frameStartTime = (index / frameCount) * totalDurationSeconds;
+
+    
+    // Fade in at start, hold, fade out at end
+    frameGroups += `  <g id="frame-${index}" opacity="0">
+    ${content}
+    <animate attributeName="opacity" 
+      values="0;1;1;0" 
+      dur="${totalDurationSeconds}s" 
+      begin="${frameStartTime}s" 
+      repeatCount="indefinite" />
+  </g>\n`;
+  });
+  
+  // Build the animated content with fallback
+  const animatedContent = `  <!-- Fallback: first frame (shown when animations are not supported) -->
+  <g id="fallback" class="fallback-frame">
+    ${firstFrameContent}
+  </g>
+  <!-- Animated frames -->
+${frameGroups}`;
+
+  // Wrap in symbol structure for reusability
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}" width="${width}" height="${height}">
+  <defs>
+    <symbol id="animated-spectrum-snapshot" viewBox="${viewBox}" preserveAspectRatio="xMidYMid meet">
+${animatedContent}
+    </symbol>
+  </defs>
+  <!-- Display the symbol by default -->
+  <use href="#animated-spectrum-snapshot" width="100%" height="100%"/>
+  <!-- Or reference it externally with: <use href="snapshot.svg#animated-spectrum-snapshot"/> -->
+</svg>`;
+}
+
 // ── Hook ────────────────────────────────────────────────────────────────────
 
 export function useSnapshot(
@@ -1192,18 +1345,21 @@ export function useSnapshot(
         }
       }
 
-      const svgContent = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${finalLogicalW} ${finalLogicalH}" width="${finalLogicalW}" height="${finalLogicalH}">
-  ${spectrumSvg}
-  ${waterfallSection}
-</svg>`;
+       const svgContent = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${finalLogicalW} ${finalLogicalH}" width="${finalLogicalW}" height="${finalLogicalH}">
+   ${spectrumSvg}
+   ${waterfallSection}
+ </svg>`;
 
-      const blob = new Blob([svgContent], { type: "image/svg+xml" });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.download = `spectrum-snapshot-${timestamp}.svg`;
-      link.href = url;
-      link.click();
-      URL.revokeObjectURL(url);
+       // Wrap in symbol structure for reusability
+       const wrappedSvgContent = generateSvgWithSymbols(svgContent);
+
+       const blob = new Blob([wrappedSvgContent], { type: "image/svg+xml" });
+       const url = URL.createObjectURL(blob);
+       const link = document.createElement("a");
+       link.download = `spectrum-snapshot-${timestamp}.svg`;
+       link.href = url;
+       link.click();
+       URL.revokeObjectURL(url);
       dispatch(setSnapshotProgress({
         stage: "done",
         message: "Snapshot saved",
@@ -1212,6 +1368,148 @@ export function useSnapshot(
       }));
       window.setTimeout(() => dispatch(clearSnapshotProgress()), 1200);
       return;
+    }
+
+    if (options.format === "animated-svg") {
+      const baseFilename = `spectrum-snapshot-${timestamp}`;
+      const animatedFrameRate = options.videoFrameRate || 30;
+
+      dispatch(setSnapshotProgress({
+        stage: "encoding",
+        message: "Rendering animated SVG",
+        current: null,
+        total: null,
+      }));
+
+      try {
+        const renderAnimatedSvgFrame = async () => {
+          const currentData = options.getSnapshotData();
+          if (!currentData || !currentData.waveform || currentData.waveform.length === 0) {
+            throw new Error("No waveform data available for animated SVG.");
+          }
+
+          const {
+            currentWaveform,
+            currentRange,
+            currentCaptureRange,
+            currentStatsLines,
+          } = buildRenderState(currentData);
+
+          // Determine final SVG dimensions based on aspect ratio
+          const totalHLogical = hasWaterfall
+            ? LOGICAL_SPECTRUM_H + LOGICAL_WATERFALL_H
+            : LOGICAL_SPECTRUM_H;
+
+          let finalLogicalW = LOGICAL_WIDTH;
+          let finalLogicalH = totalHLogical;
+          let targetSpectrumH = LOGICAL_SPECTRUM_H;
+          let targetWaterfallH = LOGICAL_WATERFALL_H;
+          if (options.aspectRatio && options.aspectRatio !== "default") {
+            const targetRatio = options.aspectRatio === "4:3" ? 4/3 : (options.aspectRatio === "16:10" ? 16/10 : (options.aspectRatio === "16:9" ? 16/9 : 19.5/9));
+            const currentRatio = LOGICAL_WIDTH / totalHLogical;
+            if (currentRatio > targetRatio) {
+              finalLogicalH = Math.round(LOGICAL_WIDTH / targetRatio);
+              if (hasWaterfall) {
+                const spectrumRatio = LOGICAL_SPECTRUM_H / (LOGICAL_SPECTRUM_H + LOGICAL_WATERFALL_H);
+                targetSpectrumH = Math.round(finalLogicalH * spectrumRatio);
+                targetWaterfallH = finalLogicalH - targetSpectrumH;
+              } else {
+                targetSpectrumH = finalLogicalH;
+                targetWaterfallH = 0;
+              }
+            } else {
+              finalLogicalW = Math.round(totalHLogical * targetRatio);
+              if (hasWaterfall) {
+                targetSpectrumH = LOGICAL_SPECTRUM_H;
+                targetWaterfallH = LOGICAL_WATERFALL_H;
+              } else {
+                targetSpectrumH = totalHLogical;
+                targetWaterfallH = 0;
+              }
+            }
+          }
+
+          const dpr = window.devicePixelRatio || 1;
+          const pixelW = Math.round(finalLogicalW * dpr);
+          const pixelSpectrumH = Math.round(targetSpectrumH * dpr);
+          const pixelWaterfallH = Math.round(targetWaterfallH * dpr);
+
+          const wholeChannelSpectrumCanvas =
+            options.whole && options.wholeChannelSegments?.length
+              ? composeWholeChannelSpectrumCanvas(
+                  options.wholeChannelSegments,
+                  currentRange,
+                  options.showGrid,
+                  pixelW,
+                  pixelSpectrumH,
+                  currentCaptureRange,
+                  currentStatsLines,
+                  theme,
+                )
+              : null;
+
+          let spectrumSvg = "";
+          if (options.whole && wholeChannelSpectrumCanvas) {
+            spectrumSvg = `<image href="${wholeChannelSpectrumCanvas.toDataURL("image/png")}" x="0" y="0" width="${finalLogicalW}" height="${targetSpectrumH}"/>`;
+          } else {
+            const svgResult = renderSpectrumSnapshot(
+              { ...currentData, waveform: currentWaveform },
+              currentRange,
+              options.showGrid,
+              pixelW,
+              pixelSpectrumH,
+              "svg",
+              currentCaptureRange,
+              currentStatsLines,
+              currentWaveform,
+              theme,
+              options.aspectRatio,
+            );
+            spectrumSvg = typeof svgResult === "string" ? svgResult : "";
+          }
+
+          let waterfallSection = "";
+          if (hasWaterfall) {
+            const wfCanvas = renderWaterfallSnapshotCanvas(currentData, pixelW, pixelWaterfallH, { waterfallBg, marginY: 0 });
+            if (wfCanvas) {
+              const wfDataUrl = wfCanvas.toDataURL("image/png");
+              waterfallSection = `<image href="${wfDataUrl}" x="0" y="${targetSpectrumH}" width="${finalLogicalW}" height="${targetWaterfallH}"/>`;
+            }
+          }
+
+          const svgContent = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${finalLogicalW} ${finalLogicalH}" width="${finalLogicalW}" height="${finalLogicalH}">
+  ${spectrumSvg}
+  ${waterfallSection}
+</svg>`;
+
+          return svgContent;
+        };
+
+        await recordSVGFramesToAnimatedSvg(
+          renderAnimatedSvgFrame,
+          baseFilename,
+          1000,
+          animatedFrameRate,
+        );
+
+        dispatch(setSnapshotProgress({
+          stage: "done",
+          message: "Animated SVG saved",
+          current: null,
+          total: null,
+        }));
+        window.setTimeout(() => dispatch(clearSnapshotProgress()), 1200);
+        return;
+      } catch (error) {
+        dispatch(setSnapshotProgress({
+          stage: "error",
+          message: error instanceof Error ? error.message : "Animated SVG generation failed",
+          current: null,
+          total: null,
+        }));
+        window.setTimeout(() => dispatch(clearSnapshotProgress()), 1800);
+        throw error;
+      }
     }
 
     if (options.format === "mp4" || options.format === "webm") {
