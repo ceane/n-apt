@@ -56,10 +56,10 @@ const envConfig = {
   
   // Password for decrypting streaming frames and files
   // Ensure to set the correct password for the files here
-  'UNSAFE_LOCAL_USER_PASSWORD': '',
-  'VITE_UNSAFE_LOCAL_USER_PASSWORD': '',
-  'UNSAFE_LOCAL_DEMOD_PASSWORD': '',
-  'UNSAFE_LOCAL_LATEX_PASSWORD': '',
+  'UNSAFE_LOCAL_USER_PASSWORD': 'your_password',
+  'VITE_UNSAFE_LOCAL_USER_PASSWORD': 'your_password',
+  'UNSAFE_LOCAL_DEMOD_PASSWORD': 'the_demod_password',
+  'UNSAFE_LOCAL_LATEX_PASSWORD': 'the_latex_password',
 
   // Rust logging
   'RUST_LOG': 'info'
