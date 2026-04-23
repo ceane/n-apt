@@ -87,9 +87,9 @@ signals:
         label: "C"
         freq_range_mhz: !frequency_range 4.75MHz..23MHz
         description: "Channel C mock signals - the largest N-APT channel carrying vision, imagination, dreams"
-        apt_spike_density: !frequency_range 25kHz..160kHz
+        apt_spike_density: !frequency_range 33kHz..60kHz
         noise_floor_db: !dB -100dB
-        signal_strength_range: !dB_range -80dB..-59dB
+        signal_strength_range: !dB_range -100dB..-60dB
 
   triangulation:
     static:

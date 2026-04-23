@@ -12,6 +12,7 @@ use rand::{Rng, SeedableRng};
 use std::f32::consts::PI;
 use std::f64::consts::PI as PI64;
 use std::thread::JoinHandle;
+use std::time::{Duration, Instant, SystemTime};
 
 use super::SdrDevice;
 
@@ -39,6 +40,8 @@ pub struct MockAptDevice {
   rng: StdRng,
   settle_time_samples: u64,
   samples_since_init: u64,
+  last_config_reload_check: Instant,
+  last_config_modified: Option<SystemTime>,
   rx_queue: Option<Receiver<Vec<u8>>>,
   async_thread: Option<JoinHandle<()>>,
   iq_overflow: Vec<u8>,
@@ -68,14 +71,7 @@ impl MockAptDevice {
   pub fn new() -> Self {
     let mock_settings = crate::server::utils::load_mock_apt_settings();
     let signals = Self::create_signals(&mock_settings);
-
-    // Use per-channel noise floor if configured, otherwise use -100dB default
-    let noise_floor_db = mock_settings
-      .channels
-      .values()
-      .filter_map(|ch| ch.noise_floor_db)
-      .next()
-      .unwrap_or(-100.0) as f32;
+    let noise_floor_db = Self::noise_floor_from_settings(&mock_settings);
 
     Self {
       center_freq: 1_600_000, // 1.6 MHz default
@@ -93,6 +89,8 @@ impl MockAptDevice {
       rng: StdRng::from_entropy(),
       settle_time_samples: 160_000, // 50ms at 3.2MSPS
       samples_since_init: 0,
+      last_config_reload_check: Instant::now(),
+      last_config_modified: crate::server::utils::signals_config_modified_at(),
       rx_queue: None,
       async_thread: None,
       iq_overflow: Vec::new(),
@@ -217,6 +215,42 @@ impl MockAptDevice {
 
     signals
   }
+
+  fn noise_floor_from_settings(
+    mock_settings: &crate::server::types::MockAptSignalsConfig,
+  ) -> f32 {
+    mock_settings
+      .channels
+      .values()
+      .filter_map(|ch| ch.noise_floor_db)
+      .next()
+      .unwrap_or(-100.0) as f32
+  }
+
+  fn reload_config_if_needed(&mut self) {
+    const CONFIG_POLL_INTERVAL: Duration = Duration::from_millis(250);
+
+    if self.last_config_reload_check.elapsed() < CONFIG_POLL_INTERVAL {
+      return;
+    }
+    self.last_config_reload_check = Instant::now();
+
+    let current_modified = crate::server::utils::signals_config_modified_at();
+    if current_modified == self.last_config_modified {
+      return;
+    }
+
+    let mock_settings = crate::server::utils::load_mock_apt_settings();
+    self.signals = Self::create_signals(&mock_settings);
+    self.noise_floor_db = Self::noise_floor_from_settings(&mock_settings);
+    self.last_config_modified =
+      crate::server::utils::signals_config_modified_at().or(current_modified);
+    log::info!(
+      "Reloaded mock APT config from signals.yaml ({} signals)",
+      self.signals.len()
+    );
+  }
+
 }
 
 impl SdrDevice for MockAptDevice {
@@ -250,6 +284,7 @@ impl SdrDevice for MockAptDevice {
   }
 
   fn read_samples(&mut self, fft_size: usize) -> Result<RawSamples> {
+    self.reload_config_if_needed();
     // For now, use the synchronous implementation which was working correctly
     // TODO: Fix async implementation and make it optional
     self.read_samples_sync(fft_size)
@@ -382,7 +417,8 @@ impl MockAptDevice {
     // Hardware RF & ADC Simulation Pipeline
     // 1. Calculate physical RF noise floor hitting the analog front-end
     let rf_noise_db = self.noise_floor_db as f64;
-    let frontend_noise_db = rf_noise_db;
+    let analog_gain = self.gain;
+    let frontend_noise_db = rf_noise_db + analog_gain;
 
     // 2. Incorporate the intrinsic 8-bit ADC quantization/thermal noise floor
     let adc_intrinsic_noise_db = -38.0;
@@ -431,9 +467,9 @@ impl MockAptDevice {
       }
 
       let modulation = (signal.modulation_phase as f64).sin() * 0.1 + 0.9;
-      let signal_db = signal.config.strength_db * modulation;
-      // Convert dB to amplitude (noise floor is the 0dB reference)
-      let mut amp = 10f64.powf(signal_db / 20.0);
+      let rf_signal_db = signal.config.strength_db * modulation;
+      let adc_signal_db = rf_signal_db + analog_gain;
+      let mut amp = 10f64.powf(adc_signal_db / 20.0);
       let mut amp_side = amp * 0.707;
 
       // Apply settle factor to signal amplitude during warm-up
@@ -572,5 +608,105 @@ impl MockAptDevice {
   /// Get settle time in samples
   pub fn get_settle_time(&self) -> u64 {
     self.settle_time_samples
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use std::fs;
+  use std::sync::{Mutex, OnceLock};
+  use std::thread::sleep;
+
+  fn cwd_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+  }
+
+  fn write_test_signals_yaml(
+    path: &std::path::Path,
+    spike_hz: u32,
+    noise_floor_db: i32,
+  ) {
+    let yaml = format!(
+      r#"
+signals:
+  sdr:
+    limits:
+      lower_limit_mhz: !frequency 500kHz
+      upper_limit_mhz: !frequency 28.8MHz
+      lower_limit_label: "low"
+      upper_limit_label: "high"
+    sample_rate: !frequency 3.2MHz
+    center_frequency: !frequency 1.6MHz
+    gain:
+      tuner_gain: !dB 49.6dB
+      rtl_agc: false
+      tuner_agc: false
+    ppm: 1.0
+    fft:
+      default_size: 32768
+      default_frame_rate: 60
+      size_to_frame_rate: {{32768: 60}}
+      max_size: 262144
+      max_frame_rate: 60
+    display:
+      min_db: !dB -120dB
+      max_db: !dB 0dB
+      padding: 20
+  mock_apt:
+    channels:
+      a:
+        label: "A"
+        freq_range_mhz: !frequency_range 18kHz..4.37MHz
+        description: "A"
+        apt_spike_density: !frequency {spike_hz}Hz
+        noise_floor_db: !dB {noise_floor_db}dB
+        signal_strength_range: !dB_range -80dB..-20dB
+  triangulation:
+    static:
+      freq_range_mhz: !frequency_range 2.3GHz..2.344GHz
+  n_apt:
+    channels:
+      a:
+        label: "A"
+        freq_range_mhz: !frequency_range 18kHz..4.37MHz
+        description: "A"
+"#
+    );
+    fs::write(path, yaml).expect("write test signals.yaml");
+  }
+
+  #[test]
+  fn reloads_mock_settings_when_signals_yaml_changes() {
+    let _guard = cwd_lock().lock().expect("cwd lock");
+    let original_dir = std::env::current_dir().expect("current dir");
+    let temp_dir = std::env::temp_dir().join(format!(
+      "napt-mock-reload-{}",
+      SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .expect("time")
+        .as_nanos()
+    ));
+    fs::create_dir_all(&temp_dir).expect("create temp dir");
+    std::env::set_current_dir(&temp_dir).expect("set current dir");
+
+    let yaml_path = temp_dir.join("signals.yaml");
+    write_test_signals_yaml(&yaml_path, 500_000, -95);
+    let mut device = MockAptDevice::new();
+    assert_eq!(device.signals.len(), 8);
+    assert_eq!(device.noise_floor_db, -95.0);
+
+    sleep(Duration::from_millis(300));
+    write_test_signals_yaml(&yaml_path, 1_000_000, -70);
+    sleep(Duration::from_millis(300));
+
+    device.reload_config_if_needed();
+
+    assert_eq!(device.signals.len(), 4);
+    assert_eq!(device.noise_floor_db, -70.0);
+
+    std::env::set_current_dir(&original_dir).expect("restore dir");
+    let _ = fs::remove_dir_all(&temp_dir);
   }
 }
