@@ -111,7 +111,10 @@ describe('Markdown Preview System', () => {
     await waitFor(() => {
       expect(fetch).toHaveBeenCalledWith(
         '/pages/how-do-they-do-it.md',
-        { headers: { 'Cache-Control': 'no-cache' } },
+        {
+          headers: { 'Cache-Control': 'no-cache' },
+          cache: 'no-store',
+        },
       );
     });
   });

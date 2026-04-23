@@ -281,6 +281,32 @@ pub fn load_mock_apt_settings() -> super::types::MockAptSignalsConfig {
   signals_config().signals.mock_apt.clone()
 }
 
+pub fn signals_config_modified_at() -> Option<std::time::SystemTime> {
+  let needs_reload = {
+    let guard = SIGNALS_CONFIG.read().unwrap();
+    match guard.as_ref() {
+      Some(cached) => {
+        if let Some((_, modified)) = read_config_file(&cached.filename) {
+          modified > cached.modified
+        } else {
+          false
+        }
+      }
+      None => true,
+    }
+  };
+
+  if needs_reload {
+    let _ = signals_config();
+  }
+
+  SIGNALS_CONFIG
+    .read()
+    .unwrap()
+    .as_ref()
+    .map(|cached| cached.modified)
+}
+
 #[allow(dead_code)]
 fn extract_channels_from_value(
   value: &Value,
