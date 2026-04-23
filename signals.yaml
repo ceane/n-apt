@@ -148,3 +148,7 @@ signals:
           label: "C"
           freq_range_mhz: !frequency_range 4.75MHz..23MHz
           description: "This channel is the assumed largest N-APT channel, carrying heavy content and data like vision (read-only), imagination (read and write), dreams and potentially more. APT-spikes are less visible but spikes are visible."
+        t:
+          label: "T"
+          freq_range_mhz: !frequency_range 1GHz..2.5GHz
+          description: "Triangulation microwaves"

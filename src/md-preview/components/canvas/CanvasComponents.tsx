@@ -9,5 +9,7 @@ export { TimeOfFlightCanvas } from "@n-apt/md-preview/components/canvas/TimeOfFl
 export { ImpedanceCanvas } from "@n-apt/md-preview/components/canvas/ImpedanceCanvas";
 export { BodyAttenuationCanvas } from "@n-apt/md-preview/components/canvas/BodyAttenuationCanvas";
 export { EndpointRangeCanvas } from "@n-apt/md-preview/components/canvas/EndpointRangeCanvas";
+export { TriangulationMapCanvas } from "@n-apt/md-preview/components/canvas/TriangulationMapCanvas";
+export { TriangulationCloseEnoughCanvas } from "@n-apt/md-preview/components/canvas/TriangulationCloseEnoughCanvas";
 
 export const CanvasComponents: React.FC<React.PropsWithChildren> = ({ children }) => <>{children}</>;

@@ -1,5 +1,11 @@
 *(This is a clear work in progress, expect updates.)*
 
+```Canvas::TriangulationMap
+```
+
+```Canvas::TriangulationCloseEnough
+```
+
 # How did they do it?
 
 *April 18th, 2026*

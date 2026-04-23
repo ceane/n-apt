@@ -208,6 +208,14 @@ impl WebSocketServer {
     let mut target_fps: u32 = 30; // sensible default until first frame
     let retry_cooldown = Duration::from_secs(30);
     let mut allow_next_paused_frame = false;
+
+    // ── Channel hot-reload state ──────────────────────────────────────
+    // Track the last known signals.yaml modification time so we can
+    // detect changes to n_apt.channels and broadcast updated channel
+    // definitions to all connected WebSocket clients automatically.
+    let mut last_channels_check = Instant::now();
+    let mut last_signals_modified =
+      crate::server::utils::signals_config_modified_at();
     loop {
       let start_time = Instant::now();
       // 1. Process pending commands
@@ -972,6 +980,38 @@ impl WebSocketServer {
               shared_state.set_device_state("connected", None);
               broadcast_device_status(&shared_state, &_broadcast_tx);
             }
+          }
+        }
+      }
+
+      // 1c. Hot-reload n_apt.channels when signals.yaml changes on disk.
+      //
+      // Piggybacks on the same 2-second health-check cadence. When the
+      // file's modification timestamp advances, we re-parse the channels
+      // section and, if it actually changed, update SharedState and
+      // broadcast a fresh status message so every connected frontend
+      // immediately picks up the new channel boundaries.
+      if last_channels_check.elapsed() >= Duration::from_secs(2) {
+        last_channels_check = Instant::now();
+        let current_modified =
+          crate::server::utils::signals_config_modified_at();
+        if current_modified != last_signals_modified {
+          last_signals_modified = current_modified;
+          let new_channels = crate::server::utils::load_channels();
+          let channels_changed = {
+            let guard = shared_state.channels.lock().unwrap();
+            *guard != new_channels
+          };
+          if channels_changed {
+            info!(
+              "signals.yaml changed — hot-reloading {} channel(s)",
+              new_channels.len()
+            );
+            {
+              let mut guard = shared_state.channels.lock().unwrap();
+              *guard = new_channels;
+            }
+            broadcast_device_status(&shared_state, &_broadcast_tx);
           }
         }
       }

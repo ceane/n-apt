@@ -682,7 +682,7 @@ pub struct SpectrumFrameConfig {
   pub description: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SpectrumFrameMessage {
   pub id: String,
   pub label: String,

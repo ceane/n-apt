@@ -16,6 +16,8 @@ const FrequencyModulationCanvas = lazy(() => import("@n-apt/md-preview/component
 const HeterodyningCanvas = lazy(() => import("@n-apt/md-preview/components/canvas").then(m => ({ default: m.HeterodyningCanvas })));
 const MultipathCanvas = lazy(() => import("@n-apt/md-preview/components/canvas").then(m => ({ default: m.MultipathCanvas })));
 const PhaseShiftingCanvas = lazy(() => import("@n-apt/md-preview/components/canvas").then(m => ({ default: m.PhaseShiftingCanvas })));
+const TriangulationMapCanvas = lazy(() => import("@n-apt/md-preview/components/canvas/TriangulationMapCanvas"));
+const TriangulationCloseEnoughCanvas = lazy(() => import("@n-apt/md-preview/components/canvas/TriangulationCloseEnoughCanvas"));
 const TimeOfFlightCanvas = lazy(() => import("@n-apt/md-preview/components/canvas").then(m => ({ default: m.TimeOfFlightCanvas })));
 const ImpedanceCanvas = lazy(() => import("@n-apt/md-preview/components/canvas").then(m => ({ default: m.ImpedanceCanvas })));
 const BodyAttenuationCanvas = lazy(() => import("@n-apt/md-preview/components/canvas").then(m => ({ default: m.BodyAttenuationCanvas })));
@@ -325,6 +327,8 @@ const App: React.FC = () => {
     "multipath-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder />}> <MultipathCanvas {...props} /> </Suspense>,
     "heterodyning-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder />}> <HeterodyningCanvas {...props} /> </Suspense>,
     "endpoint-range-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder />}> <EndpointRangeCanvas {...props} /> </Suspense>,
+    "triangulation-map-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder />}> <TriangulationMapCanvas {...props} /> </Suspense>,
+    "triangulation-close-enough-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder />}> <TriangulationCloseEnoughCanvas {...props} /> </Suspense>,
     "icon-inline": ({ node: _node, ...props }: any) => <IconInline {...props} />,
   }), []);
 
