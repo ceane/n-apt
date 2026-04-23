@@ -950,6 +950,12 @@ When it comes to all the channels, the wavelenghts are not intuitve to envision 
 <br />
 <br />
 
+These channels do not adjust from change in orientation or movement away from the endpoints, nor do the spikes vary or change. The power is perfectly persistent at my person every time I look at the signals, which is an eerie and powerful testament to the NSA's expertise and how far they will go in general, even in federal art-crime.
+
+Given what I've observed and experienced, right brain or left brain, left muscles or right muscles, there are no observable variances in power or structure at the outset, except minor spikes that switch from left to right.
+
+It's still a mystery to me how they are able to do haptics and physiological expression toward one side of the body. This is possibly explaiend as I was thinking with the nervous system processing differences in sides with frequency and timing.
+
 ### Estimated data <a id="data-estimate"></a>
 
 Using the obvious and what I've seen, it was pretty easy to give a solid estimate of the data that was intercepted and coming through the my brain and nervous system. These numbers are **the minimum** that are physically possible  and likely the only formula to be used, since **the brain does not process signals like electronics** *(one cycle = more than up down with electronics)*.

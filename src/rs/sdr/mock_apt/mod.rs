@@ -1,4 +1,4 @@
-//! # Mock APT SDR Device Implementation
+//! Mock APT SDR Device Implementation
 //!
 //! Provides a simulated SDR device that generates realistic signals for testing and demonstration.
 //! Uses bin-based frequency modeling for consistent FFT placement and dynamic signal behavior.
@@ -36,7 +36,6 @@ pub struct MockAptDevice {
   total_samples: u64,
   signals: Vec<MockAptSignal>,
   noise_floor_db: f32,
-  signal_modulation_rate: f32,
   rng: StdRng,
   settle_time_samples: u64,
   samples_since_init: u64,
@@ -64,150 +63,24 @@ impl Default for MockAptDevice {
   }
 }
 
-fn strength_range_midpoint(range: &crate::server::types::StrengthRange) -> f64 {
-  (range.min + range.max) * 0.5
-}
-
-/// Generate a block of mock samples with settle time behavior
-#[allow(dead_code)]
-fn generate_mock_block(
-  block_size: usize,
-  center_freq: u32,
-  sample_rate: u32,
-  gain: f64,
-  ppm: i32,
-  noise_floor_db: f32,
-  _signal_modulation_rate: f32,
-  settle_time_samples: u64,
-  total_samples: u64,
-  rng: &mut impl rand::Rng,
-  signals: &[MockAptSignal],
-) -> Vec<u8> {
-  let mut block = Vec::with_capacity(block_size);
-  let samples_per_block = block_size / 2;
-
-  // Calculate settle factor (0.0 to 1.0) for realistic warm-up
-  let settle_factor = if total_samples < settle_time_samples {
-    (total_samples as f64 / settle_time_samples as f64).powf(2.0)
-  } else {
-    1.0
-  };
-
-  let sample_rate_f = sample_rate as f64;
-  let center_freq_f = center_freq as f64;
-
-  // Hardware RF & ADC Simulation Pipeline
-  // Keep the noise floor anchored. Gain will be applied only to the signal terms.
-  let rf_noise_db = noise_floor_db as f64;
-  let frontend_noise_db = rf_noise_db;
-  let adc_intrinsic_noise_db = -38.0;
-  let total_adc_noise_power = 10f64.powf(frontend_noise_db / 10.0)
-    + 10f64.powf(adc_intrinsic_noise_db / 10.0);
-  let total_adc_noise_db = 10.0 * total_adc_noise_power.log10();
-  let noise_level = 10f64.powf(total_adc_noise_db / 20.0);
-
-  // Pre-calculate signal parameters
-  let mut cached_signals = Vec::new();
-  for signal in signals.iter() {
-    if !signal.active {
-      continue;
-    }
-
-    let abs_freq_hz = (signal.config.center_frequency_mhz * 1_000_000.0)
-      + (signal.drift_offset as f64);
-    let effective_center_freq =
-      center_freq_f * (1.0 - ppm as f64 / 1_000_000.0);
-    let rel_freq = abs_freq_hz - effective_center_freq;
-
-    if rel_freq.abs() > (sample_rate_f / 2.0) {
-      continue;
-    }
-
-    // The configured strength range is the baseline signal level; tuner gain increases
-    // contrast relative to the floor instead of lifting the floor itself.
-    let modulation = (signal.modulation_phase as f64).sin() * 0.1 + 0.9;
-    let target_signal_db = signal.config.strength_db * modulation;
-    let gain_norm = (gain / 49.6).clamp(0.0, 1.0);
-    let signal_boost_db = gain_norm * 18.0;
-    let mut amp = 10f64.powf((target_signal_db + signal_boost_db) / 20.0);
-    let mut _amp_side = amp * 0.707;
-
-    // Apply settle factor
-    amp *= settle_factor;
-    _amp_side *= settle_factor;
-
-    let (p_im, p_re) = signal.phase.sin_cos();
-    let phase_step = 2.0 * PI64 * rel_freq / sample_rate_f;
-    let (r_im, r_re) = phase_step.sin_cos();
-
-    cached_signals.push((amp, _amp_side, p_re, p_im, r_re, r_im));
-  }
-
-  let mut signal_states = cached_signals
-    .iter()
-    .map(|(_, _, p_re, p_im, _, _)| (*p_re, *p_im))
-    .collect::<Vec<_>>();
-
-  for _ in 0..samples_per_block {
-    let mut i_sample = 0.0f64;
-    let mut q_sample = 0.0f64;
-
-    if noise_level > 0.0 {
-      i_sample += (rng.gen::<f64>() - 0.5) * 2.0 * noise_level;
-      q_sample += (rng.gen::<f64>() - 0.5) * 2.0 * noise_level;
-    }
-
-    for (idx, (amp, _amp_side, _p_re, _p_im, r_re, r_im)) in
-      cached_signals.iter().enumerate()
-    {
-      // Update main signal
-      i_sample += amp * signal_states[idx].1;
-      q_sample += amp * signal_states[idx].0;
-
-      let (current_p_re, current_p_im) = &mut signal_states[idx];
-      let next_re = *current_p_re * r_re - *current_p_im * r_im;
-      let next_im = *current_p_im * r_re + *current_p_re * r_im;
-      *current_p_re = next_re;
-      *current_p_im = next_im;
-    }
-
-    // Fast linear clipping
-    let i_f = i_sample.clamp(-1.0, 1.0);
-    let q_f = q_sample.clamp(-1.0, 1.0);
-
-    // Convert to offset binary 8-bit
-    let i_u8 = (i_f * 127.0 + 128.5) as u8;
-    let q_u8 = (q_f * 127.0 + 128.5) as u8;
-
-    block.push(i_u8);
-    block.push(q_u8);
-  }
-
-  block
-}
-
-#[allow(dead_code)]
 impl MockAptDevice {
   /// Create a new mock APT SDR device
   pub fn new() -> Self {
     let mock_settings = crate::server::utils::load_mock_apt_settings();
     let signals = Self::create_signals(&mock_settings);
 
-    let sdr_settings = crate::server::utils::load_sdr_settings();
-
-    // Use per-channel noise floor if configured, otherwise use global setting
+    // Use per-channel noise floor if configured, otherwise use -100dB default
     let noise_floor_db = mock_settings
       .channels
       .values()
+      .filter_map(|ch| ch.noise_floor_db)
       .next()
-      .and_then(|ch| ch.noise_floor_db)
-      .unwrap_or(mock_settings.global_settings.noise_floor_base)
-      as f32;
+      .unwrap_or(-100.0) as f32;
 
     Self {
       center_freq: 1_600_000, // 1.6 MHz default
       sample_rate: 3_200_000, // 3.2 MSPS default
-      gain: sdr_settings.gain.tuner_gain,
+      gain: 49.6,
       ppm: 1,
       tuner_agc: false,
       rtl_agc: false,
@@ -217,9 +90,6 @@ impl MockAptDevice {
       total_samples: 0,
       signals,
       noise_floor_db,
-      signal_modulation_rate: mock_settings
-        .global_settings
-        .signal_modulation_rate as f32,
       rng: StdRng::from_entropy(),
       settle_time_samples: 160_000, // 50ms at 3.2MSPS
       samples_since_init: 0,
@@ -236,57 +106,56 @@ impl MockAptDevice {
     let mut signals = Vec::new();
     let mut rng = rand::thread_rng();
 
-    let weak_mid = strength_range_midpoint(&mock_settings.strength_ranges.weak);
-    let medium_mid =
-      strength_range_midpoint(&mock_settings.strength_ranges.medium);
-    let strong_mid =
-      strength_range_midpoint(&mock_settings.strength_ranges.strong);
-
-    let weak_span = (mock_settings.strength_ranges.weak.max
-      - mock_settings.strength_ranges.weak.min)
-      * 0.5;
-    let medium_span = (mock_settings.strength_ranges.medium.max
-      - mock_settings.strength_ranges.medium.min)
-      * 0.5;
-    let strong_span = (mock_settings.strength_ranges.strong.max
-      - mock_settings.strength_ranges.strong.min)
-      * 0.5;
+    // Default values
+    const DEFAULT_SPIKE_HZ: f64 = 33_000.0;
+    const DEFAULT_MIN_DB: f64 = -80.0;
+    const DEFAULT_MAX_DB: f64 = -20.0;
+    const MAX_SIGNALS_PER_CHANNEL: usize = 128;
 
     // Create signals based on configured channels
-    for (_channel_id, channel_config) in &mock_settings.channels {
+    for (_, channel_config) in &mock_settings.channels {
       if channel_config.freq_range_mhz.len() < 2 {
         continue;
       }
 
       let min_freq = channel_config.freq_range_mhz[0];
       let max_freq = channel_config.freq_range_mhz[1];
-      let freq_span = max_freq - min_freq;
+      let freq_span_hz = (max_freq - min_freq) * 1_000_000.0;
 
-      // Determine signal count based on density or default
-      let signal_density =
-        channel_config.signal_density.unwrap_or(1.0).clamp(0.0, 1.0);
-      let base_signals_per_area =
-        mock_settings.global_settings.signals_per_area as f64;
-      let signal_count =
-        (base_signals_per_area * signal_density).round() as usize;
+      // Get spike density (frequency spacing between signals)
+      // Can be single: !frequency 33kHz → Single(33000)
+      // Or range: !frequency_range 30kHz..40kHz → Range(30000, 40000)
+      let spike_hz = match &channel_config.apt_spike_density {
+        Some(crate::server::types::FrequencySpacing::Range(min_hz, max_hz)) => {
+          rng.gen_range(*min_hz..*max_hz)
+        }
+        Some(crate::server::types::FrequencySpacing::Single(hz)) => *hz,
+        _ => DEFAULT_SPIKE_HZ,
+      };
+
+      // Get signal strength range or use default
+      let (range_min, range_max) = match &channel_config.signal_strength_range {
+        Some(sr) if sr.len() >= 2 => (sr[0], sr[1]),
+        _ => (DEFAULT_MIN_DB, DEFAULT_MAX_DB),
+      };
+
+      // Calculate signal count from frequency span and spike spacing
+      let signal_count = ((freq_span_hz / spike_hz).max(1.0)) as usize;
+      let signal_count = signal_count.clamp(1, MAX_SIGNALS_PER_CHANNEL);
+
+      let mid = (range_min + range_max) * 0.5;
+      let span = (range_max - range_min) * 0.5;
 
       // Generate signals distributed across the channel's frequency range
       for i in 0..signal_count {
         let freq_offset = if signal_count > 1 {
-          (i as f64 / (signal_count - 1) as f64) * freq_span
+          (i as f64 / (signal_count - 1) as f64) * freq_span_hz
         } else {
-          freq_span / 2.0
+          freq_span_hz / 2.0
         };
-        let freq = min_freq + freq_offset;
+        let freq = min_freq + (freq_offset / 1_000_000.0);
 
-        // Vary strength based on channel density
-        let strength_db = if i % 3 == 0 {
-          rng.gen_range((weak_mid - weak_span)..(weak_mid + weak_span))
-        } else if i % 2 == 0 {
-          rng.gen_range((medium_mid - medium_span)..(medium_mid + medium_span))
-        } else {
-          rng.gen_range((strong_mid - strong_span)..(strong_mid + strong_span))
-        };
+        let strength_db = rng.gen_range((mid - span)..(mid + span));
 
         signals.push(MockAptSignal {
           config: MockAptSignalConfig {
@@ -296,7 +165,7 @@ impl MockAptDevice {
           modulation_phase: rng.gen_range(0.0..=2.0 * PI),
           drift_offset: rng.gen_range(-50.0..=50.0),
           active: true,
-          bandwidth_hz: (freq_span * 1_000_000.0 / signal_count as f64)
+          bandwidth_hz: (freq_span_hz / signal_count as f64)
             .clamp(15000.0, 200000.0),
           phase: rng.gen_range(0.0..=2.0 * PI64),
           phase_side_low: rng.gen_range(0.0..=2.0 * PI64),
@@ -307,14 +176,10 @@ impl MockAptDevice {
 
     // If no channels are configured, fall back to legacy behavior
     if signals.is_empty() {
-      // Area A: 0.1 - 4.5 MHz (covering the first N-APT range)
+      // Legacy Area A: 0.1 - 4.5 MHz
       for i in 0..10 {
         let freq = 0.1 + (i as f64 * 0.45);
-        let strength_db = if i % 3 == 0 {
-          rng.gen_range((weak_mid - weak_span)..(weak_mid + weak_span))
-        } else {
-          rng.gen_range((medium_mid - medium_span)..(medium_mid + medium_span))
-        };
+        let strength_db = rng.gen_range(-80.0..-70.0);
         signals.push(MockAptSignal {
           config: MockAptSignalConfig {
             center_frequency_mhz: freq,
@@ -330,14 +195,10 @@ impl MockAptDevice {
         });
       }
 
-      // Area B: 24.7 - 30.0 MHz (covering the second N-APT range)
+      // Legacy Area B: 24.7 - 30.0 MHz
       for i in 0..11 {
         let freq = 24.7 + (i as f64 * 0.5);
-        let strength_db = if i % 3 == 0 {
-          rng.gen_range((medium_mid - medium_span)..(medium_mid + medium_span))
-        } else {
-          rng.gen_range((strong_mid - strong_span)..(strong_mid + strong_span))
-        };
+        let strength_db = rng.gen_range(-70.0..-50.0);
         signals.push(MockAptSignal {
           config: MockAptSignalConfig {
             center_frequency_mhz: freq,
@@ -365,13 +226,13 @@ impl SdrDevice for MockAptDevice {
 
   fn get_device_info(&self) -> String {
     format!(
-            "Mock APT SDR - Freq: {} Hz, Rate: {} Hz (Sample Rate: {} Hz), Gain: {:.1} dB, PPM: {}",
-            self.center_freq,
-            self.sample_rate,
-            self.sample_rate,
-            self.gain,
-            self.ppm
-        )
+      "Mock APT SDR - Freq: {} Hz, Rate: {} Hz (Sample Rate: {} Hz), Gain: {:.1} dB, PPM: {}",
+      self.center_freq,
+      self.sample_rate,
+      self.sample_rate,
+      self.gain,
+      self.ppm
+    )
   }
 
   fn initialize(&mut self) -> Result<()> {
@@ -505,9 +366,6 @@ impl SdrDevice for MockAptDevice {
 impl MockAptDevice {
   /// Fallback synchronous read method
   fn read_samples_sync(&mut self, fft_size: usize) -> Result<RawSamples> {
-    // State updates now happen per-sample in read_samples loop
-    // for better continuity during hopping.
-
     let mut frame = Vec::with_capacity(fft_size * 2);
 
     let sample_rate = self.sample_rate as f64;
@@ -524,14 +382,9 @@ impl MockAptDevice {
     // Hardware RF & ADC Simulation Pipeline
     // 1. Calculate physical RF noise floor hitting the analog front-end
     let rf_noise_db = self.noise_floor_db as f64;
-    let analog_gain = self.gain;
-    let frontend_noise_db = rf_noise_db + analog_gain;
+    let frontend_noise_db = rf_noise_db;
 
     // 2. Incorporate the intrinsic 8-bit ADC quantization/thermal noise floor
-    // We set this to approx -38.0 dBFS instead of -50.0 to guarantee sufficient analog dither.
-    // If noise falls below 1/128 amplitude, the offset-binary u8 cast rounds everything
-    // to a perfectly solid 128, creating an artificial -120dB deep-null FFT cliff on empty channels
-    // compared to the -50dB quantization noise floor of channels carrying real signals.
     let adc_intrinsic_noise_db = -38.0;
     let total_adc_noise_power = 10f64.powf(frontend_noise_db / 10.0)
       + 10f64.powf(adc_intrinsic_noise_db / 10.0);
@@ -578,9 +431,9 @@ impl MockAptDevice {
       }
 
       let modulation = (signal.modulation_phase as f64).sin() * 0.1 + 0.9;
-      let rf_signal_db = signal.config.strength_db * modulation;
-      let adc_signal_db = rf_signal_db + analog_gain;
-      let mut amp = 10f64.powf(adc_signal_db / 20.0);
+      let signal_db = signal.config.strength_db * modulation;
+      // Convert dB to amplitude (noise floor is the 0dB reference)
+      let mut amp = 10f64.powf(signal_db / 20.0);
       let mut amp_side = amp * 0.707;
 
       // Apply settle factor to signal amplitude during warm-up
@@ -589,7 +442,7 @@ impl MockAptDevice {
 
       // Advance modulation phase once per frame instead of per sample
       // 8192 samples is ~4ms, plenty fast for modulation
-      signal.modulation_phase += self.signal_modulation_rate;
+      signal.modulation_phase += 0.05;
       if signal.modulation_phase > 2.0 * PI {
         signal.modulation_phase -= 2.0 * PI;
       }
@@ -711,106 +564,6 @@ impl MockAptDevice {
     })
   }
 
-  fn set_sample_rate(&mut self, rate: u32) -> Result<()> {
-    self.sample_rate = rate;
-    log::debug!("Mock device sample rate set to {} Hz", rate);
-    Ok(())
-  }
-
-  fn set_center_frequency(&mut self, freq: u32) -> Result<()> {
-    self.center_freq = freq;
-    log::debug!("Mock device center frequency set to {} Hz", freq);
-    Ok(())
-  }
-
-  fn set_gain(&mut self, gain: f64) -> Result<()> {
-    self.gain = gain;
-    log::debug!("Mock device gain set to {} dB", gain);
-    Ok(())
-  }
-
-  fn set_ppm(&mut self, ppm: i32) -> Result<()> {
-    self.ppm = ppm;
-    log::debug!("Mock device PPM set to {}", ppm);
-    Ok(())
-  }
-
-  fn set_tuner_agc(&mut self, enabled: bool) -> Result<()> {
-    self.tuner_agc = enabled;
-    log::debug!("Mock device tuner AGC set to {}", enabled);
-    Ok(())
-  }
-
-  fn set_rtl_agc(&mut self, enabled: bool) -> Result<()> {
-    self.rtl_agc = enabled;
-    log::debug!("Mock device RTL AGC set to {}", enabled);
-    Ok(())
-  }
-
-  fn set_offset_tuning(&mut self, enabled: bool) -> Result<()> {
-    self.offset_tuning = enabled;
-    log::debug!("Mock device offset tuning set to {}", enabled);
-    Ok(())
-  }
-
-  fn set_tuner_bandwidth(&mut self, bw: u32) -> Result<()> {
-    self.tuner_bandwidth = bw;
-    log::debug!("Mock device tuner bandwidth set to {} Hz", bw);
-    Ok(())
-  }
-
-  fn set_direct_sampling(&mut self, mode: u8) -> Result<()> {
-    self.direct_sampling = mode;
-    log::debug!("Mock device direct sampling set to {}", mode);
-    Ok(())
-  }
-
-  fn get_center_frequency(&self) -> u32 {
-    self.center_freq
-  }
-
-  fn get_sample_rate(&self) -> u32 {
-    self.sample_rate
-  }
-
-  fn reset_buffer(&mut self) -> Result<()> {
-    log::debug!("Mock APT device buffer reset");
-    self.total_samples = 0;
-    self.samples_since_init = 0;
-    Ok(())
-  }
-
-  fn cleanup(&mut self) -> Result<()> {
-    // Stop async thread if running
-    if let Some(handle) = self.async_thread.take() {
-      if !handle.is_finished() {
-        log::info!("Stopping mock APT async thread...");
-        // Note: In a real implementation, we'd need a cancellation mechanism
-        // For now, the thread will be detached when the handle is dropped
-      }
-    }
-
-    self.rx_queue = None;
-    self.iq_overflow.clear();
-    log::info!("Mock APT device cleanup completed");
-    Ok(())
-  }
-
-  fn is_healthy(&self) -> bool {
-    // Check if async thread is still running (if it exists)
-    if let Some(handle) = &self.async_thread {
-      !handle.is_finished()
-    } else {
-      true // Not initialized yet or sync mode
-    }
-  }
-
-  fn get_error(&self) -> Option<String> {
-    None
-  }
-}
-
-impl MockAptDevice {
   /// Set settle time in samples
   pub fn set_settle_time(&mut self, samples: u64) {
     self.settle_time_samples = samples;

@@ -68,10 +68,7 @@ fn preprocess_frequency_tags(content: &str) -> String {
   .unwrap();
   re_db_range
     .replace_all(&content, |caps: &regex::Captures| {
-      format!(
-        "{}:\n          min: {}\n          max: {}",
-        &caps[1], &caps[2], &caps[3]
-      )
+      format!("{}: [{}, {}]", &caps[1], &caps[2], &caps[3])
     })
     .to_string()
 }
@@ -137,24 +134,22 @@ fn reload_signals_config() -> CachedSignalsConfig {
     eprintln!("Error: {}", error_msg);
     eprintln!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     eprintln!("\nCommon issues:");
-    eprintln!("  • Missing required fields: global_settings, bandwidths, strength_ranges, signals, training_areas");
+    eprintln!("  • Missing or invalid mock_apt.channels configuration");
     eprintln!("  • Incorrect YAML indentation (use 2 or 4 spaces, be consistent)");
-    eprintln!("  • Invalid field order in mock_apt section");
-    eprintln!("  • Duplicate field names");
+    eprintln!("  • Invalid field names in channel config");
     eprintln!("  • Invalid !frequency tag values (use: !frequency 18kHz, 20MHz, 2.3GHz, 30Hz)");
     eprintln!("\nExpected mock_apt structure:");
     eprintln!("  mock_apt:");
-    eprintln!("    global_settings: ...");
-    eprintln!("    bandwidths: ...");
-    eprintln!("    strength_ranges: ...");
-    eprintln!("    signals: [...]");
-    eprintln!("    training_areas: ...");
-    eprintln!("    channels: ...  # optional");
+    eprintln!("    channels:");
+    eprintln!("      a:");
+    eprintln!("        freq_range_mhz: !frequency_range 18kHz..4.47MHz");
+    eprintln!("        signal_strength_range: !dB_range -80dB..-20dB");
+    eprintln!("        noise_floor_db: !dB -100dB");
+    eprintln!("        ...");
     eprintln!("\nFrequency tag examples:");
     eprintln!("  center_frequency: !frequency 137.5MHz");
     eprintln!("  sample_rate: !frequency 2.4MHz");
-    eprintln!();
-    panic!("Invalid signals.yaml configuration");
+    eprintln!();    panic!("Invalid signals.yaml configuration");
   });
 
   log::info!("Loaded signals.yaml (modified: {:?})", modified);
