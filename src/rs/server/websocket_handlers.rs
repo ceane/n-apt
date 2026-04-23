@@ -150,7 +150,7 @@ pub async fn handle_ws_connection(
       || lower.contains("generic")
       || lower.contains("rtl2382u")
     {
-      return "RTL-SDR".to_string();
+      return "RTL-SDR v4".to_string();
     }
 
     short_name.to_string()
