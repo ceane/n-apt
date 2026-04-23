@@ -63,49 +63,33 @@ signals:
       padding: 20
 
   # Mock APT signal configuration for testing
+  # Per-channel config controls where signals are generated
   mock_apt:
-      # Global settings for mock signal generation
-      global_settings:
-        noise_floor_base: !dB -100dB
-        noise_floor_variation: !dB 10dB
-        signal_drift_rate: 2.0
-        signal_modulation_rate: 0.05
-        signal_appearance_chance: 0.02
-        signal_disappearance_chance: 0.01
-        signal_strength_variation: !dB 1dB
-        # Dynamic generation settings
-        dynamic_generation: true
-        signals_per_area: 11
-        area_a_density: 1.0 # Equal density for even distribution
-        area_b_density: 1.0 # Equal density for even distribution
-
-      # Signal bandwidths
-      bandwidths:
-        narrow: 15
-        medium: 45
-        wide: 120
-
-      # Signal strength ranges (dB)
-      strength_ranges:
-        weak: !dB_range -80dB..-70dB
-        medium: !dB_range -70dB..-50dB
-        strong: !dB_range -50dB..-30dB
-
-      # No predefined signals - using dynamic generation with templates
-      signals: []
-
-      # Training signal areas
-      training_areas:
-        area_a:
-          freq_range_mhz: !frequency_range 18kHz..4.47MHz
-          description: "Area A: 18kHz-4.47 MHz range"
-          signal_types: []
-          base_strength_range: !dB_range -80dB..-20dB
-        area_b:
-          freq_range_mhz: !frequency_range 24.72MHz..29.88MHz
-          description: "Area B: 24.72-29.88 MHz range"
-          signal_types: []
-          base_strength_range: !dB_range -80dB..-20dB
+    # Per-channel mock APT configuration
+    # These channels define where mock signals are generated
+    # The keys (a, b, c) should match the n_apt.channels keys
+    channels:
+      a:
+        label: "A"
+        freq_range_mhz: !frequency_range 18kHz..4.47MHz
+        description: "Channel A mock signals"
+        apt_spike_density: !frequency 33kHz
+        noise_floor_db: !dB -100dB
+        signal_strength_range: !dB_range -80dB..-20dB
+      b:
+        label: "B"
+        freq_range_mhz: !frequency_range 24.72MHz..29.88MHz
+        description: "Channel B mock signals"
+        apt_spike_density: !frequency 33kHz
+        noise_floor_db: !dB -100dB
+        signal_strength_range: !dB_range -80dB..-20dB
+      c:
+        label: "C"
+        freq_range_mhz: !frequency_range 4.75MHz..23MHz
+        description: "Channel C mock signals - the largest N-APT channel carrying vision, imagination, dreams"
+        apt_spike_density: !frequency_range 25kHz..160kHz
+        noise_floor_db: !dB -100dB
+        signal_strength_range: !dB_range -80dB..-59dB
 
   triangulation:
     static:
@@ -160,10 +144,6 @@ signals:
           label: "B"
           freq_range_mhz: !frequency_range 24.72MHz..29.88MHz
           description: "This channel is sometimes identical to Channel A but has more powerful spikes, potentially due to operating on others further distant (known effects are speech, slight physiology, atttention, etc.)."
-        # Channel C is in between (~5MHz to about ~22MHz) but it's more difficult
-        # to process since my sample rate is smaller than the channel
-        # nyquist rate prevents me from seeing the correct form
-        # So I skip Channel C unitl further review
         c:
           label: "C"
           freq_range_mhz: !frequency_range 4.75MHz..23MHz
