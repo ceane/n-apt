@@ -78,15 +78,39 @@ fn broadcast_device_status(
   let channels = shared.channels.lock().unwrap().clone();
   let device_profile = shared.device_profile.lock().unwrap().clone();
 
+  let normalize_rtl_device_name = |raw_name: &str| {
+    let short_name = raw_name.split(" - ").next().unwrap_or("RTL-SDR").trim();
+    let lower = short_name.to_ascii_lowercase();
+
+    if let Some(version) = short_name.split_whitespace().find_map(|token| {
+      let cleaned = token
+        .trim_matches(|c: char| !c.is_ascii_alphanumeric())
+        .to_ascii_lowercase();
+      let version = cleaned.strip_prefix('v')?;
+      if !version.is_empty() && version.chars().all(|c| c.is_ascii_digit()) {
+        Some(version.to_string())
+      } else {
+        None
+      }
+    }) {
+      return format!("RTL-SDR {}", format!("v{}", version));
+    }
+
+    if lower.contains("rtl-sdr blog")
+      || lower.contains("rtl2832")
+      || lower.contains("rtl-sdr")
+      || lower.contains("generic")
+      || lower.contains("rtl2382u")
+    {
+      return "RTL-SDR v4".to_string();
+    }
+
+    short_name.to_string()
+  };
+
   // Extract short device name from device_info
   let device_name = if device_connected {
-    // Extract just the device name from the long device_info string
-    // device_info format: "Long Name - Freq: X Hz, Rate: Y Hz, ..."
-    device_info
-      .split(" - ")
-      .next()
-      .unwrap_or("RTL-SDR")
-      .to_string()
+    normalize_rtl_device_name(&device_info)
   } else {
     "Mock APT SDR".to_string()
   };
