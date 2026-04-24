@@ -53,6 +53,23 @@ I built this app out of frustration (and by force of the situation) that other O
 
 This purpose of this repository is to provide tooling to inspect, visualize, and demodulate parts of N-APT (media like audio (hearing and internal), audio via voice & vision) using live (on my end where they are live) and recorded I/Q samples, with an emphasis on high fidelity captures, hypothesis-driven analysis and demodulation, and mapping functions to features of the signal. 
 
+| Performance | Reason |
+| --- | --- |
+| **10-100MB of RAM/backend** | *From the app doing memory optimization and countering aggressive OS memory management* |
+| **35-100MB of RAM/frontend** | *From encrypted binary FFT frames, calculations & waterfall drawing/storage & lots closures in Redux/React surrounding the spectrum analyze* |
+| **300MB download** | *Assets, code, to build a highly performing and feature filled app* |
+| **7-15 (or higher)s load** | *Starting a 2 servers and compiling code*|
+
+| Features |
+| Full fidelity I/Q Captures with metadata (within sample rate; "Whole Channel" captures work but are variable) |
+| Ability to take snapshots |
+| Works by defined channels to keep signal structure |
+| Logically implemented features that 100% of SDR software miss (frame rate, temporal resolution, power scale, etc.) |
+| Whole app themes, not just dark mode! |
+| Whole suite tailored toward N-APT signals/domain |
+| **Responsibly with encryption as a baseline, not afterthought** |
+
+
 > [!NOTE]
 > **By default 99.9% of people will not be able to see a real, live N-APT signal (unless you find me around San Francisco and are EVIL enough to snag the waves)**.
 >
