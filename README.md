@@ -60,14 +60,20 @@ This purpose of this repository is to provide tooling to inspect, visualize, and
 | **300MB download** | *Assets, code, to build a highly performing and feature filled app* |
 | **7-15 (or higher)s load** | *Starting a 2 servers and compiling code*|
 
+<br />
+<br />
+<br />
+
+
 | Features |
+|--------|
 | Full fidelity I/Q Captures with metadata (within sample rate; "Whole Channel" captures work but are variable) |
 | Ability to take snapshots |
 | Works by defined channels to keep signal structure |
 | Logically implemented features that 100% of SDR software miss (frame rate, temporal resolution, power scale, etc.) |
 | Whole app themes, not just dark mode! |
 | Whole suite tailored toward N-APT signals/domain |
-| **Responsibly with encryption as a baseline, not afterthought** |
+| **Responsibly built with encryption as a baseline, not afterthought** |
 
 
 > [!NOTE]
