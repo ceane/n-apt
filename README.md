@@ -70,7 +70,7 @@ This purpose of this repository is to provide tooling to inspect, visualize, and
 | Full fidelity I/Q Captures with metadata (within sample rate; "Whole Channel" captures work but are variable) |
 | Ability to take snapshots |
 | Works by defined channels to keep signal structure |
-| Logically implemented features that 100% of SDR software miss (frame rate, temporal resolution, power scale, etc.) |
+| Logically implemented features that 100% of SDR software get wrong (frame rate, temporal resolution, power scale, etc.) |
 | Whole app themes, not just dark mode! |
 | Whole suite tailored toward N-APT signals/domain |
 | **Responsibly built with encryption as a baseline, not afterthought** |
