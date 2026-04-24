@@ -17,8 +17,12 @@ export function fmtFreqTick(mhz: number, stepMHz: number): string {
   return mhz.toFixed(3);
 }
 
-export function fmtTimestamp(): string {
+export function fmtTimestamp(includeTimezone: boolean = true): string {
   const d = new Date();
   const pad = (n: number) => n.toString().padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  const dateStr = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const timeStr = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  if (!includeTimezone) return `${dateStr} ${timeStr}`;
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return `${dateStr} ${timeStr} ${tz}`;
 }

@@ -616,11 +616,9 @@ export class SnapshotRenderer {
 
   private findOptimalStatsBoxPosition(boxW: number, boxH: number): { x: number, y: number } {
     const area = this.mapper.getPlotArea();
-    const paddingX = 12;
-    const paddingY = 12;
-    const labelBand = 28;
-    const x = Math.max(area.x + paddingX, area.x + area.width - boxW - paddingX);
-    const y = Math.max(area.y + paddingY, area.y + area.height - boxH - labelBand);
+    const padding = 12;
+    const x = Math.max(area.x + padding, area.x + area.width - boxW - padding);
+    const y = Math.min(area.y + padding, area.y + area.height - boxH - padding);
     return { x, y };
   }
 }

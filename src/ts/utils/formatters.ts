@@ -52,3 +52,16 @@ export const formatDurationMs = (duration: number): string => {
   const ms = duration * 1000;
   return `${Math.round(ms)} ms`;
 };
+
+export function formatTimestampWithTimezone(isoString: string): string {
+  try {
+    const date = new Date(isoString);
+    const pad = (n: number) => n.toString().padStart(2, "0");
+    const dateStr = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+    const timeStr = `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return `${dateStr} ${timeStr} ${tz}`;
+  } catch {
+    return isoString;
+  }
+}

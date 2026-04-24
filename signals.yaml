@@ -138,7 +138,7 @@ signals:
         # B is larger and has a different shape after the identical section
         a:
           label: "A"
-          freq_range_mhz: !frequency_range 18kHz..4.37MHz
+          freq_range_mhz: !frequency_range 18kHz..4.39MHz
           description: "The potentially primary N-APT channel, encompassing features like audio, voice, physiological effects and more."
         b:
           label: "B"
@@ -148,7 +148,3 @@ signals:
           label: "C"
           freq_range_mhz: !frequency_range 4.75MHz..23MHz
           description: "This channel is the assumed largest N-APT channel, carrying heavy content and data like vision (read-only), imagination (read and write), dreams and potentially more. APT-spikes are less visible but spikes are visible."
-        t:
-          label: "T"
-          freq_range_mhz: !frequency_range 1GHz..2.5GHz
-          description: "Triangulation microwaves"
