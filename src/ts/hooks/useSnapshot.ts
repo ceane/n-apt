@@ -13,6 +13,7 @@ import type { WholeChannelSnapshotSegment } from "@n-apt/hooks/useCaptureWholeCh
 import { CoordinateMapper, Range } from "@n-apt/utils/rendering/CoordinateMapper";
 import { CanvasDrawingContext, SnapshotRenderer, SnapshotTheme, SVGDrawingContext, DrawingContext } from "@n-apt/utils/rendering/SnapshotRenderer";
 import { fmtFreq, fmtTimestamp } from "@n-apt/utils/rendering/formatters";
+import { formatTimestampWithTimezone } from "@n-apt/utils/formatters";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -1025,8 +1026,8 @@ export function useSnapshot(
       );
 
     const dbUnit = getDbUnit(data);
-    const timestampLabel = options.fileTimestamp 
-      ? options.fileTimestamp.replace("T", " ").slice(0, 19)
+    const timestampLabel = options.fileTimestamp
+      ? formatTimestampWithTimezone(options.fileTimestamp)
       : fmtTimestamp();
     const statsLines = options.showStats ? [
       `${fmtFreq(rangeToRender.min)} – ${fmtFreq(rangeToRender.max)}`,
@@ -1104,8 +1105,8 @@ export function useSnapshot(
       }
 
       const currentDbUnit = getDbUnit(currentData);
-      const currentTimestampLabel = options.fileTimestamp 
-        ? options.fileTimestamp.replace("T", " ").slice(0, 19)
+      const currentTimestampLabel = options.fileTimestamp
+        ? formatTimestampWithTimezone(options.fileTimestamp)
         : fmtTimestamp();
       const currentStatsLines = options.showStats ? [
         `${fmtFreq(currentRange.min)} – ${fmtFreq(currentRange.max)}`,

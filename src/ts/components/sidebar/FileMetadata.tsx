@@ -4,7 +4,7 @@ import { ScrollText } from "lucide-react";
 import { Collapsible } from "@n-apt/components/ui/Collapsible";
 import { Tooltip } from "@n-apt/components/ui";
 import { formatFrequency } from "@n-apt/utils/frequency";
-import { formatDuration, formatFileSize } from "@n-apt/utils/formatters";
+import { formatDuration, formatFileSize, formatTimestampWithTimezone } from "@n-apt/utils/formatters";
 import { fileRegistry } from "@n-apt/utils/fileRegistry";
 import { GeolocationData, AptChannelMetadata } from "@n-apt/consts/schemas/websocket";
 import { useAppSelector } from "@n-apt/redux";
@@ -423,7 +423,7 @@ return (
                 <MetadataLabel>Timestamp</MetadataLabel>
                 <MetadataValue title={naptMetadata.timestamp_utc}>
                   {naptMetadata.timestamp_utc
-                    ? new Date(naptMetadata.timestamp_utc).toLocaleTimeString()
+                    ? formatTimestampWithTimezone(naptMetadata.timestamp_utc)
                     : "N/A"}
                 </MetadataValue>
               </MetadataItem>
