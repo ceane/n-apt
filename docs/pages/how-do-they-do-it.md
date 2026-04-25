@@ -306,7 +306,7 @@ TODO
 
 ## Foundations of today: <br /> Solid working hypothesis
 
-Today (when this was written), my observations, personal research, study and assumptions are in a much more solid position for a well-formed hypothesis with some assumptions invalidated, key ones survived and new ones possible. The agency continued to do so much over the course over thousands of hours (and a lifetime). Let's go over directly what I hypothesize how the very real signals that have persisted tirelessly and flawlessly operate. 
+Today (when this was written), my observations, personal research, study and assumptions are in a much more solid position for a well-formed hypothesis with some assumptions invalidated, key ones survived and new ones possible. The agency continued to do so much over the course over thousands of hours (and a lifetime). Let's go over directly what I hypothesize how the very real signals that have persisted tirelessly and flawlessly operate.
 
 
 ### Dominated by signals intelligence
@@ -865,6 +865,7 @@ The egrerious **psychological spyware and interactive** demonstrated great capab
 | Physiology (fine motor function, muscles)         |
 | Physiology (feeling/haptics/pantomime)            |
 | Memory (short-term)                               |
+| Memory (long-term)                                |
 | Reasoning                                         |
 | Behavior                                          |
 | Emotion                                           |
@@ -1123,39 +1124,50 @@ It boils down to these 8 simple terms.
 
 - **Hardware:** The physical parts of a computer or device you can touch, like CPU, RAM, and hard drives.
 - **Software:** The programs and code that run on hardware to perform tasks, like operating systems, apps and firmware.
-- **Telecommunications Infrastructure:** The physical systems like cell towers, fiber cables, and satellites that carry data over distances.
+- **Telecommunications infrastructure (or tinfra):** The physical systems like cell towers, fiber cables, and satellites that carry data over distances.
 - **Networking:** The links that connect devices together, either wired like Ethernet or wireless like Wi-Fi, so they can exchange data or "talk to each other".
 - **Malware:** Malicious software built to exploit vulnerabilities and compromise systems to steal data, disrupt operations, or gain control.
 - **Hardware Trojans:** Hidden malicious changes in a chip’s circuitry or component that adds features or expands functionality to exploit existing capabilities for attacks like data theft, remote control and/or different operational modes.
 - **Signals:** Formatted radio waves used to carry data between points or to probe environments through timing or reflection, like in triangulation or radar.
-- **Cryptology:** The discipline of finding patterns that turn code into meaning and meaning back into code, working to lock information away or unlock it when needed.
+- **Cryptology:** The discipline of recognizing and constructing patterns that obscure or reveal meaning, treating any structured information as something that can be hidden or made interpretable.
 
 ---
 
 **Medium**
 
 - **Triangulation:** Using signals from three or more known locations to pinpoint a position.
-- **Automatic Picture Transmission (APT):** A NASA-developed system from the 60s (decomissioned in 2025) that sends weather satellite images over radio using AM and FM modulation, where pictures are built from spikes and valleys in the signal.
+- **Automatic Picture Transmission (APT):** A NASA-developed system from the 1960s (decomissioned in 2025) that sends weather satellite images over radio using AM and FM modulation, where pictures are built from spikes and valleys in the signal.
 - **Heterodyning (in free space) / beat frequencies:**  Playing two radio signals together in space to create an envelope that mimics a new frequency at their sum and difference, these new frequencies called **beats**.
-- **Brainwaves:**  Patterns of electrical activity in the brain measured as waves of different frequencies, like alpha, beta, delta.
+- **Carrier Wave:** A radio signal used to carry information by having its amplitude, frequency, or phase intentionally varied. The information is contained in those variations, not in the unmodulated wave itself.
+- **Beats:** A low-frequency component that appears when two close radio frequencies are combined, corresponding to the difference between them, and showing up as a regular oscillation in the resulting waveform. For example, 24 MHz and 24,000,030 Hz produce a 30 Hz beat.
+- **LF/MF/HF frequencies:** Low, Medium, and High Frequency radio bands from 30 kHz to 30 MHz, often used for long-distance communication.
+
+<br />
+
+- **Brainwaves:** Rhythmic patterns of electrical activity in the brain occurring from ∼0.5 to 40 Hz, commonly categorized into bands such as delta, theta, alpha, and beta that are thought to correlate with different mental states, with gamma waves sometimes included up to ∼100 Hz though the upper limit is debated.
+- **Neuronal Waves:** Rhythmic electrical signals that travel through networks of neurons in the nervous system.
 - **Center Frequency:** The midpoint of a signal’s bandwidth where the signal is formed and most clearly visible on a spectrum.
 - **Encoding:** The process of converting information into a specific format so it can be transmitted, stored, or interpreted by whatever receives it.
-- **Attenuation:**The loss of signal strength as a wave travels through air, cables, or other materials.
-- **Impedance:** How much a material or circuit resists the flow of energy in a signal, determining how much gets through versus how much gets reflected back.
+- **Attenuation:** The loss of signal strength as a wave travels through air, cables, or other materials.
+- **Impedance:** How much a material or circuit resists the flow of energy in a signal, determining how much is transmitted, reflected, and how the signal is altered as it passes through.
 - **Intersect & Concentrate:** Directing multiple signal paths or energy beams to overlap at one point for stronger effect or coverage.
-- **LF/MF/HF frequencies:** Low, Medium, and High Frequency radio bands from 30 kHz to 30 MHz, often used for long-distance communication.
-- **Endpoint:** Hardware at the edge of a network that sends or receives data, like a phone, laptop, or sensor.
-- **Ad Hoc Network:** A network formed directly between devices as needed or programmed, without relying on fixed infrastructure, where connections exist as long as devices stay in range or a condition is satisfied.
-- **Cyber capability:** The tools, techniques, and skills used to conduct operations in cyberspace, like hacking, defense, or exploitation.
-- **First-person:** The perspective and state of being from one’s own point of view, directly experiencing events as a person, like in real-life, a game or narrative.
 
-- **Frequency:** The number of times a wave repeats per second, measured in Hertz (Hz) (kHz = 1000, MHz = 1 Million, GHz = 1 Billion).
+<br />
+
+- **Endpoint:** A hardware system at the edge of a network that sends or receives data, such as routers, towers, gateways, or user devices.
+- **Ad Hoc Network:** A temporary network formed directly between participants on demand, without fixed infrastructure, where connections exist only while needed or while conditions allow.
+- **Cyber capability:** The tools, techniques, and skills used to conduct operations in cyberspace, like hacking, defense, or exploitation, typically when discussed are under federal control or some state-level actor.
+- **First-person:** The perspective and state of being from one’s own point of view, directly experiencing events as a person, like in real-life, an interactive or a narrative.
+
+<br />
+
+- **Frequency:** The number of times a wave repeats per second, measured in Hertz (Hz) (kHz = 1 Thousand, MHz = 1 Million, GHz = 1 Billion).
 - **Cycle:** One complete wave oscillation from start to end before it repeats (higher frequency, shorter time & wavelength).
-- **Wavelength:** The physical distance between two identical points on consecutive waves, like peak to peak.
-- **Amplitude:** The height of a wave from its center line to its peak or trough, which determines the wave’s energy — higher amplitude means more energy.
-- **"Peak/Trough:"** The highest and lowest points of a wave, where its amplitude and energy are greatest.
-- **Bandwidth:** The range of frequencies a channel can carry, which determines how much data it can move at once.
+- **Wavelength (λ):** The physical distance between two identical points on consecutive waves, like peak to peak.
+- **Amplitude (A):** The height of a wave from its center line to its peak or trough, which determines the wave’s energy — higher amplitude means more energy.
+- **Peak/Trough:** The highest and lowest points of a wave, where its amplitude and energy are greatest.
 - **Channel:** A designated path or band of frequencies used to transmit signals between devices.
+- **Bandwidth:** The range of frequencies a channel can carry, which determines how much data it can move at once.
 
 ---
 
@@ -1165,25 +1177,47 @@ It boils down to these 8 simple terms.
 - **Amplitude Modulation:** Varying a carrier wave’s height to encode information, where the signal’s shape is visible in the peaks and valleys of the wave.
 - **Conductivity:** A material’s ability to let electrical current or signal energy flow through it, affecting how signals interact with or pass through surfaces.
 - **APT Pixels:** The individual light/dark points in a weather satellite image, each formed from spikes and valleys in the Automatic Picture Transmission signal.
+- **Neuronal Ensemble (specifically here and not by intersect/concentrate):** A group of neurons that act together as a coordinated unit, where their combined activity represents or encodes specific information, such as a perception, memory, or behavior, rather than relying on a single neuron alone.
 - **Multipath reflection:** When a signal reaches whatever receives it by bouncing off multiple surfaces and obstacles, creating copies that arrive at different times.
-- **Line of sight:** A clear, unblocked path between a transmitter and whatever receives it, needed for direct signal travel.
+- **Line of sight:** A clear, unblocked path between a transmitter and whatever receives it, needed for direct signal travel. For an antenna 20 ft high, the distance to the horizon is ∼5.5 miles, limiting terrestrial range without relays.
 - **Phase shifting:** Changing the timing position of a wave relative to another, used to steer beams or encode data.
-- **Time of Flight:** The time it takes a signal to travel from source to whatever receives it, used to calculate distance like in radar or triangulation.
+- **Time of Flight (ToF):** The time it takes a signal to travel from source to whatever receives it, used to calculate distance like in radar or triangulation.
 - **Frequency-Modulated Continuous Wave (FMCW):** A radar technique that transmits a continuous signal whose frequency steadily changes over time, so distance and speed are found by comparing the frequency shift of the echo to the current transmit frequency.
-- **Noise Floor:** The base level of unwanted signal or static present in a system, where any real signal has to be stronger to be seen or used.
-- **Harmonics:** Copies of a signal that appear at integer multiples of its base frequency, which can cause interference by showing up where other signals should be.
+
+<br />
 
 - **Frequency Synthesizer:** A circuit that generates precise, tunable frequencies from a reference to form signals at the center frequency.
 - **Low Noise Amplifier (LNA):** A device that boosts weak signals while adding as little noise as possible, so the signal remains visible above the noise floor.
 - **Radiating Element (RE):** The part of an antenna that actually transmits or receives signals by interacting with electromagnetic waves in space, usually like a bunch of circular objects in a grid behind the antenna panel.
 - **Radio Unit (RU):** The hardware that converts between radio signals and digital data, handling transmission and reception at the antenna.
-- **Baseband Unit (BBU):** The hardware that processes raw digital data and control signals before they’re sent to the Radio Unit or after they’re received.
+- **Baseband Unit (BBU):** The specialized computer or server at a cell site that handles all the digital processing for wireless signals, turning raw I/Q data into user traffic and running the protocols that control the radio network.
+- **Fronthaul:** The connection that carries data between the Radio Unit at the antenna and the Baseband Unit that processes it, handling the raw digital I/Q data before it becomes user traffic.
+- **Backhaul:** The links and equipment that carry processed user traffic from a cell site or access point back to the core network and servers, including the fiber, microwave, routers, and switches that move data toward the broader internet.
+
+<br />
+
+- **Interference:** Unwanted signals from other sources that overlap with or mix into a desired signal, altering its amplitude, phase, or structure and making it harder to isolate the original information.
+- **Noise:** Random, unwanted variations in a signal that are not part of the intended information, which obscure or distort the waveform and reduce clarity or accuracy.
+- **Noise Floor:** The base level of unwanted signal or static present in a system, where any real signal has to be stronger to be seen or used.
+- **Harmonics:** Copies of a signal that appear at integer multiples of its base frequency, which can cause interference by showing up where other signals should be.
+
+<br />
 
 - **dB (or decibel):** A relative unit used to compare or rate signal levels, like how strong one signal is versus another, used for gain, loss, attenuation, or just display.
-- **dBm** A dB measurement referenced to 1 milliwatt, used to express absolute power levels of a signal.
-- **I/Q (In-phase and Quadrature):** Two numbers, I and Q, that together describe a signal’s state at one moment — like I = 100 and Q = 20 on a 0–255 scale — telling you both size and direction.
+- **dBFS (decibels relative to full scale):** A relative unit used to measure signal levels against a system’s maximum possible value (full scale), where 0 dBFS represents the limit and all other values indicate how far below that limit a signal is. *Usually SDR software uses dB as a label but in reality dB = dBFS.*
+- **dBm:** A dB measurement referenced to 1 milliwatt, used to express absolute power levels of a signal.
+- **I/Q (In-phase and Quadrature):** A way of representing a radio wave as pairs of numbers (I and Q), where each pair captures the signal at a single moment. Together, they describe both the signal’s amplitude (its distance from zero) and its phase (direction), like a point on a 2D grid.
 - **FFT (Fast Fourier Transform):**  A process that takes points in time from a signal and shows you what frequencies make it up, turning a wavy line into a spectrum.
-- **Demodulation:** Pulling the original information back out of a carrier wave so it can be understood by whatever receives it.
+- **Demodulation:** The process of using math to turn a radio wave back into usable output, like sound or data.
+
+--- 
+
+**Bonus** *(not in the article)*
+
+- **Cyber History:** The evolution of electronic communication and networked systems, from early telecom infrastructure like telegraph and telephone networks, through ARPANET and the public World Wide Web launch in 1993, to smartphones with the iPhone in 2007 and the rise of AI systems such as ChatGPT in the 2020s.
+- **Selectors and Queries:** A structured way of identifying and requesting specific information from a larger system, where selectors define the conditions for filtering (what to focus on) and queries define the request itself (what to retrieve or analyze), together forming a mechanism for extracting relevant signals, data, or patterns from a broader information space.
+- **Tasking / Detasking:** A control process for assigning and removing objectives within a system, where tasking activates a specific goal, function, or analysis to be performed on selected inputs, and detasking deactivates or withdraws that objective, returning the system to an idle or baseline state.
+- **Minimization:** A process of restricting information use to only what is necessary for a defined purpose.
 
 
 ### ⠿ TDLR <a id="tdlr"></a>
