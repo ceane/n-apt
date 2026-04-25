@@ -1,14 +1,14 @@
 *(This is a clear work in progress, expect updates.)*
 
-```Canvas::TriangulationMap
+<!-- ```Canvas::TriangulationMap
 ```
 
 ```Canvas::TriangulationCloseEnough
-```
+``` -->
 
 # How did they do it?
 
-*April 18th, 2026*
+*by Ceane Lamerez ┊ April 18th, 2026*
 
 [⠿ TDLR at the bottom](#tdlr)
 
@@ -22,13 +22,13 @@ What I learned was that the element of surprise and total ignornace long-reinfor
 
 **Unfortunately, that is a deeply pathological mental model of reality!**
 
-**Fort Meade** *(the agency's headquarters in Maryland on the west end of an Army base 20 miles northeast of D.C.)*, and potentially **Friendship Annex** *(the  agency's only publicly unacknowledged bastard campus)*, had secretly built and mass distributed **:bug: malware and hardware trojans** while acquiring and maintaining **access to infrastructure at scale (international AND domestic). :server-crash: :radio-tower:** For a long time, energy, compute power and other tools.
+**Fort Meade** *(the agency's headquarters in Maryland on the west end of an Army base 20 miles northeast of D.C.)*, and potentially **Friendship Annex** *(the  agency's only publicly unacknowledged bastard campus)*, had secretly built and mass distributed **:bug: malware and hardware trojans** while acquiring and maintaining **access to infrastructure at scale (international AND domestic).** For a long time, energy, compute power and other tools.
 
 This article is my own **technical and scientific oriented dive and timeline** (with a partial background for context) into these signals that are like chains which long extended the agency's powers (and psychopathy) into the unthinkable.
 
-*National security law, the Freedom of Information Act (FOIA), Privacy Act (PA), Mandatory Declassification Review (MDR), extensive legalese  and the history of this technique is not discussed in this article to in order to keep it focused.
+*National security law, the Freedom of Information Act (FOIA), Privacy Act (PA), Mandatory Declassification Review (MDR), extensive legalese  and the history of this technique is not discussed in this article to in order to keep it focused.*
 
-To start, you should probably checkout the [NSA OIG reports](https://oig.nsa.gov/reports/) for legal research (2016 is the best one with relevant info).*
+*To start, you should probably checkout the [NSA OIG reports](https://oig.nsa.gov/reports/) for legal research (2016 is the best one with relevant info) if you are thinking of filing a [FOIA](https://www.foia.gov/how-to.html).*
 
 ### ⠿ Table of Contents <a id="table-of-contents"></a>
 
@@ -40,6 +40,7 @@ To start, you should probably checkout the [NSA OIG reports](https://oig.nsa.gov
 <details>
 <summary>(Expand for other sections) SPOILER ALERT</summary>
 
+- [Channels](#channels)
 - [Brainwaves](#brainwaves)
 - [Multipath Reflection](#multipath)
 - [Frequency Modulation](#freq-mod)
@@ -52,18 +53,18 @@ To start, you should probably checkout the [NSA OIG reports](https://oig.nsa.gov
 - [Impedance](#impedance)
 - [Body Attenuation](#body-attenuation)
 - [Features](#features)
-- [N-APT Signal Structure](#n-apt-form)
 - [What does the signal look like?](#n-apt-in-the-wild)
+- [The mysterious signals' structure](#n-apt-form)
 - [Estimated Data](#data-estimate)
 </details>
 
-- [Terminology](#terminology)
+- [Vocabulary](#vocab)
 - [Conclusion](#conclusion)
 
 
 ## Initial super naive theory (five years in) <a id="theory-1"></a>
 
-At the time it first started, I lived **in San Francisco. The first installment of the psychological-spatial experience :rotate-3d:** went so fast that it knocked me into a perpetual **soft shock and abject poverty.** I spent the first five years in total ignorance and total immersion, **captured by the agency's neurotechnology and real world perceptual-spatial performance :drama:**.
+At the time it first started, I lived **in San Francisco. The first installment of the psychological-spatial experience** went so fast that it knocked me into a perpetual **soft shock and abject poverty.** I spent the first five years in total ignorance and total immersion, **captured by the agency's neurotechnology and real world perceptual-spatial performance**.
 
 ![First installment, in first person](/md-preview/images/first-installment-nsa-interactive-1STPOV-sf-downtown.png)
 
@@ -312,8 +313,9 @@ Today (when this was written), my observations, personal research, study and ass
 
 The NSA has a lot of smart Nazis. Military personnel that just get very creative.
 
-## Brainwaves <a id="hypothesis-post-sdr"></a>
+##  <a id="brainwaves"></a> Brainwaves
 
+When looking up brainwave, you usually see something like this:
 
 | Wave Type | Frequency Range | Associated Function |
 | --------- | --------------- | ------------------- |
@@ -322,6 +324,8 @@ The NSA has a lot of smart Nazis. Military personnel that just get very creative
 | Alpha     | 8 - 12 Hz       | Calm awareness      |
 | Beta      | 12 - 30 Hz      | Active thinking     |
 | Gamma     | 30 - 100 Hz     | High cognition      |
+
+Of course that's not very useful for the content in this article! While no one knows but the NSA (and whoever else that comes to mind...), certain functions of the brain most certainly do run on a frequency, rather than states of mind which is very abstract and may be an incorrect view of brainwaves, given my experience.
 
 <details>
 <summary>Compare that to this table!</summary>
@@ -343,7 +347,7 @@ The NSA has a lot of smart Nazis. Military personnel that just get very creative
 | Vitals / Autonomic Regulation             | Delta–Theta (0.5–8 Hz)                           | Strong                 |
 </details>
 
-## Channels
+## <a id="channels"></a> Channels
 
 A channel is an area a signal occupies, very simply when people ask "What's the frequency?" a signal could be from Point A to Point B.
 
@@ -608,7 +612,7 @@ These signals inherently use some kind of triangulation to directly target the h
 ```Canvas::TimeOfFlight
 ```
 
-The key concept of time-of-flight (T-of-F) is that something, something will block your radio wave when it travels and when it comes back, parts of the received signal will be slower allowing one to gather an accurate shape or depth of what was received. Radio waves are essentially light, but not visible, so they travel at the speed of light but that does not mean they don't slow down. They scatter, they reflect, they attenuate or get absorbed when colliding with objects.
+The key concept of time-of-flight (ToF) is that something, something will block your radio wave when it travels and when it comes back, parts of the received signal will be slower allowing one to gather an accurate shape or depth of what was received. Radio waves are essentially light, but not visible, so they travel at the speed of light but that does not mean they don't slow down. They scatter, they reflect, they attenuate or get absorbed when colliding with objects.
 
 #### Frequency-Modulated Continuous Wave (FMCW) time-of-flight distance
 
@@ -870,39 +874,6 @@ The egrerious **psychological spyware and interactive** demonstrated great capab
 | Dreams                                            |
 </details>
 
-## N-APT Signal structure <a id="n-apt-form"></a>
-
-### Suspension Bridge-like form
-
-![Suspension Bridge A](/md-preview/images/snapshot-suspension-bridge-a.png)
-![Suspension Bridge B](/md-preview/images/snapshot-suspension-bridge-b.png)
-
-### Spikes and Valleys
-
-![Spikes and Valleys](/md-preview/images/snapshot-spikes-valleys-a.png)
-![Spikes and Valleys](/md-preview/images/snapshot-spikes-valleys-a-zoom.png)
-![Spikes and Valleys](/md-preview/images/snapshot-spikes-valleys-a-zoom2.png)
-*Real spikes and valleys of N-APT, tall spikes strongly assumed to activate neuronal ensembles and valleys packed with data*
-
-### Clumps
-
-![Clumps](/md-preview/images/snapshot-clumps-a.png)
-![Clumps](/md-preview/images/snapshot-clumps-b.png)
-
-TODO 
-
-### Subspikes
-
-![Clumps](/md-preview/images/snapshot-subspikes-a.png)
-![Clumps](/md-preview/images/snapshot-subspikes-b.png)
-
-TODO
-
-### Scrunched spikes and clumps
-
-Some neuronal ensembles have smaller data throughput, where spikes and clumps are more compressed and closer together.
-
-
 ### Signals processing
 
 In order to read anything that comes back, the NSA uses advanced signals processing to demodulate neuronal data. Apparently the NSA has world-class signals engineers and cryptologists, who have undoubtedly unlocked the secret to the human brain and nervous system. The unknown and unimaginable become a reality. Below are several theorized techniques used in the pipeline to take an advanced formula of radio waves and demodulate brain and neuronal data.
@@ -923,7 +894,7 @@ TODO
 
 TODO
 
-## What does the signal look like? <a id="n-apt-in-the-wild"></a> [^n-apt-app]
+## <a id="n-apt-in-the-wild"></a> What does the signal look like?[^n-apt-app]
 
 I labeled the signal with certain channels based on my what I found by poking around with my RTL-SDR. At first I was confused, looking at other parts of the spectrum, but just two days after I had my RTL-SDR, I found the signals!
 
@@ -941,7 +912,40 @@ The only problem with SDR++ is that I didn't have a rich feature set you'd think
 
 All of this hard work under a very difficult and physically painful/stressful (every second, every moment, wake to sleep to walk and smoke) situation made me feel more secure in understanding the how and the path forward to escaping the NSA's horrific psychological interactive and livestream.
 
-### Channel A
+### <a id="n-apt-form"></a> The mysterious signals' structure 
+
+#### Suspension Bridge-like form
+
+![Suspension Bridge A](/md-preview/images/snapshot-suspension-bridge-a.png)
+![Suspension Bridge B](/md-preview/images/snapshot-suspension-bridge-b.png)
+
+#### Spikes and Valleys
+
+![Spikes and Valleys](/md-preview/images/snapshot-spikes-valleys-a.png)
+![Spikes and Valleys](/md-preview/images/snapshot-spikes-valleys-a-zoom.png)
+![Spikes and Valleys](/md-preview/images/snapshot-spikes-valleys-a-zoom2.png)
+*Real spikes and valleys of N-APT, tall spikes strongly assumed to activate neuronal ensembles and valleys packed with data*
+
+#### Clumps
+
+![Clumps](/md-preview/images/snapshot-clumps-a.png)
+![Clumps](/md-preview/images/snapshot-clumps-b.png)
+
+TODO 
+
+#### Subspikes
+
+![Clumps](/md-preview/images/snapshot-subspikes-a.png)
+![Clumps](/md-preview/images/snapshot-subspikes-b.png)
+
+TODO
+
+#### Scrunched spikes and clumps
+
+Some neuronal ensembles have smaller data throughput, where spikes and clumps are more compressed and closer together.
+
+
+### Channels - Channel A
 
 ![Channel A, partial (at the hardware limit)](/md-preview/images/snapshot-channel-a-partial.png)
 *Partial capture of the channel (looks different because the signal shifts)*
@@ -1079,16 +1083,12 @@ Using the obvious and what I've seen, it was pretty easy to give a solid estimat
 
 **Through the fiber cables to an endpoint (data through the network; most likely infrastructure access and not the internet)**
 
-<div class="table-dense">
-
 | Channel | Bandwidth | MB/s | 5 min | 1 hour | 3 hours | 24 hours |
 |---|---|---|---|---|---|---|
 | A | 4.35 MHz | ~4.35 MB/s | ~1.31 GB | ~15.7 GB | ~47 GB | ~375 GB |
 | B | 5.16 MHz | ~5.16 MB/s | ~1.55 GB | ~18.6 GB | ~55.7 GB | ~446 GB |
 | C | 18.25 MHz | ~18.25 MB/s | ~5.48 GB | ~65.7 GB | ~197.1 GB | ~1.58 TB |
 | **Total** | **27.76 MHz** | **~27.76 MB/s** | **~8.34 GB** | **~100 GB** | **~299.8 GB** | **~2.4 TB** |
-
-</div>
 
 That's right! Just **sitting somewhere for 5 mins is over 8GBs of data** by minimum of physics!
 
@@ -1097,8 +1097,6 @@ That's right! Just **sitting somewhere for 5 mins is over 8GBs of data** by mini
 
 **In the air to person (brain, body, nervous system; data in air doing the effects/heterodyning)**
 
-<div class="table-dense">
-
 | Channel | BW ×2 | MB/s | 5 min | 1 hour | 3 hours | 24 hours |
 |---|---|---|---|---|---|---|
 | A | 8.7 MHz | ~8.7 MB/s | ~2.61 GB | ~31.3 GB | ~94 GB | ~751 GB |
@@ -1106,13 +1104,11 @@ That's right! Just **sitting somewhere for 5 mins is over 8GBs of data** by mini
 | C | 36.5 MHz | ~36.5 MB/s | ~10.95 GB | ~131.4 GB | ~394.2 GB | ~3.15 TB |
 | **Total** | **55.52 MHz** | **~55.52 MB/s** | **~16.66 GB** | **~199.9 GB** | **~599.2 GB** | **~4.79 TB** |
 
-Due to how the signal has to be duplicated to play it twice (heterodyning), the endpoint is handling more than just *one data stream = one signal*, instead *one data stream = two signals*, so the endpoint will broadcast a signal twice. While the network carries the content, in the air, the content is multiplied by two!
+Due to how the signal has to be "played twice" (heterodyning) for it to work on biology the endpoints are handling more than just *one data stream = one signal*, instead *one data stream = two signals*, so the endpoints will broadcast the same content twice, in the form of two different signals, nearly identical but slightly different. While the network carries the content, in the air, the signals' bandwidth is multiplied by two in the radio unit!
 
 So yes, sitting somewhere for 5 minutes, the network did over 8GBs of data, but **the person receieved over 16GBs of data within that 5 minutes** because of technique's prerequisites!
 
-</div>
-
-## Conclusion <a id="conclusion"></a>
+##<a id="conclusion"></a> Conclusion 
 
 TODO
 
@@ -1121,9 +1117,74 @@ TODO
 
 
 
-## Terminology <a id="terminology"></a>
+## <a id="vocab"></a> Vocabulary 
 
-TODO
+It boils down to these 8 simple terms.
+
+- **Hardware:** The physical parts of a computer or device you can touch, like CPU, RAM, and hard drives.
+- **Software:** The programs and code that run on hardware to perform tasks, like operating systems, apps and firmware.
+- **Telecommunications Infrastructure:** The physical systems like cell towers, fiber cables, and satellites that carry data over distances.
+- **Networking:** The links that connect devices together, either wired like Ethernet or wireless like Wi-Fi, so they can exchange data or "talk to each other".
+- **Malware:** Malicious software built to exploit vulnerabilities and compromise systems to steal data, disrupt operations, or gain control.
+- **Hardware Trojans:** Hidden malicious changes in a chip’s circuitry or component that adds features or expands functionality to exploit existing capabilities for attacks like data theft, remote control and/or different operational modes.
+- **Signals:** Formatted radio waves used to carry data between points or to probe environments through timing or reflection, like in triangulation or radar.
+- **Cryptology:** The discipline of finding patterns that turn code into meaning and meaning back into code, working to lock information away or unlock it when needed.
+
+---
+
+**Medium**
+
+- **Triangulation:** Using signals from three or more known locations to pinpoint a position.
+- **Automatic Picture Transmission (APT):** A NASA-developed system from the 60s (decomissioned in 2025) that sends weather satellite images over radio using AM and FM modulation, where pictures are built from spikes and valleys in the signal.
+- **Heterodyning (in free space) / beat frequencies:**  Playing two radio signals together in space to create an envelope that mimics a new frequency at their sum and difference, these new frequencies called **beats**.
+- **Brainwaves:**  Patterns of electrical activity in the brain measured as waves of different frequencies, like alpha, beta, delta.
+- **Center Frequency:** The midpoint of a signal’s bandwidth where the signal is formed and most clearly visible on a spectrum.
+- **Encoding:** The process of converting information into a specific format so it can be transmitted, stored, or interpreted by whatever receives it.
+- **Attenuation:**The loss of signal strength as a wave travels through air, cables, or other materials.
+- **Impedance:** How much a material or circuit resists the flow of energy in a signal, determining how much gets through versus how much gets reflected back.
+- **Intersect & Concentrate:** Directing multiple signal paths or energy beams to overlap at one point for stronger effect or coverage.
+- **LF/MF/HF frequencies:** Low, Medium, and High Frequency radio bands from 30 kHz to 30 MHz, often used for long-distance communication.
+- **Endpoint:** Hardware at the edge of a network that sends or receives data, like a phone, laptop, or sensor.
+- **Ad Hoc Network:** A network formed directly between devices as needed or programmed, without relying on fixed infrastructure, where connections exist as long as devices stay in range or a condition is satisfied.
+- **Cyber capability:** The tools, techniques, and skills used to conduct operations in cyberspace, like hacking, defense, or exploitation.
+- **First-person:** The perspective and state of being from one’s own point of view, directly experiencing events as a person, like in real-life, a game or narrative.
+
+- **Frequency:** The number of times a wave repeats per second, measured in Hertz (Hz) (kHz = 1000, MHz = 1 Million, GHz = 1 Billion).
+- **Cycle:** One complete wave oscillation from start to end before it repeats (higher frequency, shorter time & wavelength).
+- **Wavelength:** The physical distance between two identical points on consecutive waves, like peak to peak.
+- **Amplitude:** The height of a wave from its center line to its peak or trough, which determines the wave’s energy — higher amplitude means more energy.
+- **"Peak/Trough:"** The highest and lowest points of a wave, where its amplitude and energy are greatest.
+- **Bandwidth:** The range of frequencies a channel can carry, which determines how much data it can move at once.
+- **Channel:** A designated path or band of frequencies used to transmit signals between devices.
+
+---
+
+**Advanced**
+
+- **Frequency Modulation:** Varying a carrier wave’s frequency to encode information, where the signal’s shape is visible in how fast the wave oscillates.
+- **Amplitude Modulation:** Varying a carrier wave’s height to encode information, where the signal’s shape is visible in the peaks and valleys of the wave.
+- **Conductivity:** A material’s ability to let electrical current or signal energy flow through it, affecting how signals interact with or pass through surfaces.
+- **APT Pixels:** The individual light/dark points in a weather satellite image, each formed from spikes and valleys in the Automatic Picture Transmission signal.
+- **Multipath reflection:** When a signal reaches whatever receives it by bouncing off multiple surfaces and obstacles, creating copies that arrive at different times.
+- **Line of sight:** A clear, unblocked path between a transmitter and whatever receives it, needed for direct signal travel.
+- **Phase shifting:** Changing the timing position of a wave relative to another, used to steer beams or encode data.
+- **Time of Flight:** The time it takes a signal to travel from source to whatever receives it, used to calculate distance like in radar or triangulation.
+- **Frequency-Modulated Continuous Wave (FMCW):** A radar technique that transmits a continuous signal whose frequency steadily changes over time, so distance and speed are found by comparing the frequency shift of the echo to the current transmit frequency.
+- **Noise Floor:** The base level of unwanted signal or static present in a system, where any real signal has to be stronger to be seen or used.
+- **Harmonics:** Copies of a signal that appear at integer multiples of its base frequency, which can cause interference by showing up where other signals should be.
+
+- **Frequency Synthesizer:** A circuit that generates precise, tunable frequencies from a reference to form signals at the center frequency.
+- **Low Noise Amplifier (LNA):** A device that boosts weak signals while adding as little noise as possible, so the signal remains visible above the noise floor.
+- **Radiating Element (RE):** The part of an antenna that actually transmits or receives signals by interacting with electromagnetic waves in space, usually like a bunch of circular objects in a grid behind the antenna panel.
+- **Radio Unit (RU):** The hardware that converts between radio signals and digital data, handling transmission and reception at the antenna.
+- **Baseband Unit (BBU):** The hardware that processes raw digital data and control signals before they’re sent to the Radio Unit or after they’re received.
+
+- **dB (or decibel):** A relative unit used to compare or rate signal levels, like how strong one signal is versus another, used for gain, loss, attenuation, or just display.
+- **dBm** A dB measurement referenced to 1 milliwatt, used to express absolute power levels of a signal.
+- **I/Q (In-phase and Quadrature):** Two numbers, I and Q, that together describe a signal’s state at one moment — like I = 100 and Q = 20 on a 0–255 scale — telling you both size and direction.
+- **FFT (Fast Fourier Transform):**  A process that takes points in time from a signal and shows you what frequencies make it up, turning a wavy line into a spectrum.
+- **Demodulation:** Pulling the original information back out of a carrier wave so it can be understood by whatever receives it.
+
 
 ### ⠿ TDLR <a id="tdlr"></a>
 
@@ -1133,8 +1194,16 @@ The NSA hacked my brain and the experience went from manufactured states of mind
 
 [^apt]: National Aeronautical Space Agency (NASA). Constructing Inexpensive Automatic Picture-Transmission Ground Stations. https://ntrs.nasa.gov/api/citations/19680010155/downloads/19680010155.pdf
 
-[^n-apt-app]: Ceane Lamerez April 20 2026. **Real signal snapshots** using the N-APT web app streaming from an RTL-SDR v4 https://github.com/ceane/n-apt/
+[^n-apt-app]: Ceane Lamerez April 20 2026. ***Real signal snapshots** using the N-APT web app streaming from an RTL-SDR v4.* https://github.com/ceane/n-apt/
 
-[^math]: Mathematical equations generated by AI systems including ChatGPT (OpenAI), mostly, and Grok (xAI), initial research–not independently verified. April 2025–April 2026.
+[^math]: Mathematical equations generated by AI systems including ChatGPT (OpenAI), mostly, and Grok (xAI), initial research––not independently verified. April 2025–April 2026.
+
+---
 
 *No classified information was used for this article, only exposure to misclassified system(s).* 
+
+*This is not meant to be a guide to build a cyber weapon or surveillance system. This guide is for educational and public awareness purposes only. The author bears no responsibility for the information discolsed within this article. Any mathematical modeling, pseudo-code, or reconstructed mechanisms are inferred and intended for illustrative purposes only.*
+
+---
+
+*Lamerez, C. (2026). How did they do it? https://ceane.github.io/n-apt/*

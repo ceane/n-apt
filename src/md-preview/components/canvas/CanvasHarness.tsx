@@ -3,7 +3,7 @@ import styled from 'styled-components';
 import { LevaPanel } from 'leva';
 import { motion, AnimatePresence, useDragControls } from 'framer-motion';
 
-const HarnessContainer = styled.div<{ $aspectRatio: string }>`
+const HarnessContainer = styled.div<{ $aspectRatio: string; $transparent?: boolean }>`
   width: 100%;
   position: relative;
   overflow: hidden;
@@ -13,17 +13,18 @@ const HarnessContainer = styled.div<{ $aspectRatio: string }>`
   contain-intrinsic-size: auto 400px;
   isolation: isolate;
   border-radius: 12px;
-  background-color: #E0E0E2;
-  background-image:
+  background-color: ${(props) => props.$transparent ? 'transparent' : '#E0E0E2'};
+  background-image: ${(props) => props.$transparent ? 'none' : `
     linear-gradient(to right, #D7D8DA 2px, transparent 2px),
-    linear-gradient(to bottom, #D7D8DA 2px, transparent 2px);
-  background-size: 64px 64px;
+    linear-gradient(to bottom, #D7D8DA 2px, transparent 2px)
+  `};
+  background-size: ${(props) => props.$transparent ? 'auto' : '64px 64px'};
   background-position: center bottom;
   aspect-ratio: ${(props) => props.$aspectRatio};
   font-family: 'JetBrains Mono', 'DM Mono', monospace;
-  color: #111827;
+  color: ${(props) => props.$transparent ? 'inherit' : '#111827'};
   margin: 1.5rem 0;
-  border: 1px solid rgba(42, 42, 42, 0.1);
+  border: ${(props) => props.$transparent ? 'none' : '1px solid rgba(42, 42, 42, 0.1)'};
 
   &.fullscreen {
     position: fixed;
@@ -106,6 +107,7 @@ interface CanvasHarnessProps {
   className?: string;
   fallbackContent?: ReactNode;
   showToggleDot?: boolean;
+  transparent?: boolean;
 }
 
 export function CanvasHarness({
@@ -114,7 +116,8 @@ export function CanvasHarness({
   aspectRatio = '16/9',
   className,
   fallbackContent = <div>Loading Visualization...</div>,
-  showToggleDot = true
+  showToggleDot = true,
+  transparent = false
 }: CanvasHarnessProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isVisible, setIsVisible] = useState(false);
@@ -164,6 +167,7 @@ export function CanvasHarness({
     <HarnessContainer
       ref={containerRef}
       $aspectRatio={aspectRatio}
+      $transparent={transparent}
       className={`${className || ''} ${isFullscreen ? 'fullscreen' : ''}`}
     >
       {/* 
@@ -212,9 +216,9 @@ export function CanvasHarness({
                 style={{ touchAction: 'none' }}
               >
                 {/* Drag handle spanning title bar */}
-                <div 
+                <div
                   onPointerDown={(e) => dragControls.start(e)}
-                  style={{ position: 'absolute', top: 0, left: 0, right: '2rem', height: '42px', zIndex: 15, cursor: 'grab', touchAction: 'none' }} 
+                  style={{ position: 'absolute', top: 0, left: 0, right: '2rem', height: '42px', zIndex: 15, cursor: 'grab', touchAction: 'none' }}
                 />
                 {/* Close button inside the panel to revert to the dot */}
                 <div style={{ position: 'absolute', top: '0.5rem', right: '0.5rem', zIndex: 20, cursor: 'pointer' }} onClick={handleToggleControls}>

@@ -32,6 +32,7 @@ import remarkLatexCodeBlocks from "@n-apt/md-preview/utils/remarkLatexCodeBlocks
 import GiscusComments from "@n-apt/md-preview/components/GiscusComments";
 import { assetUrl, assetPageUrl } from "@n-apt/md-preview/utils/asset-helpers";
 import { registerMarkdownHotReload } from "@n-apt/md-preview/utils/hmr";
+import { CanvasHarness } from "@n-apt/md-preview/components/canvas/CanvasHarness";
 
 const LEGACY_CANVAS_IMPORT_PATH = "@n-apt/ts/components/canvas";
 
@@ -155,9 +156,7 @@ const LatexBlock: React.FC<LatexBlockProps> = ({ "data-expressions": serializedE
           return;
         }
 
-        displayNode.style.overflow = "hidden";
         displayNode.style.maxWidth = "100%";
-        expressionNode.style.overflow = "hidden";
         expressionNode.style.maxWidth = "100%";
 
         const availableWidth = expressionNode.clientWidth;
@@ -350,10 +349,17 @@ const App: React.FC = () => {
     "endpoint-range-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder />}> <EndpointRangeCanvas {...props} /> </Suspense>,
     "triangulation-map-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder />}> <TriangulationMapCanvas {...props} /> </Suspense>,
     "triangulation-close-enough-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder />}> <TriangulationCloseEnoughCanvas {...props} /> </Suspense>,
-    "hero-ascii-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder />}> <HeroAsciiCanvas {...props} /> </Suspense>,
+    "hero-ascii-canvas": ({ node: _node, ...props }: any) => (
+      <CanvasHarness aspectRatio="16/9" showToggleDot={false} transparent>
+        <Suspense fallback={<CanvasPlaceholder />}>
+          <HeroAsciiCanvas {...props} />
+        </Suspense>
+      </CanvasHarness>
+    ),
     "icon-inline": ({ node: _node, ...props }: any) => <IconInline {...props} />,
     "desktop-only": ({ node: _node, children, ...props }: any) => <DesktopOnly {...props}>{children}</DesktopOnly>,
     "mobile-only": ({ node: _node, children, ...props }: any) => <MobileOnly {...props}>{children}</MobileOnly>,
+    table: ({ node: _node, ...props }) => <div className="table-dense"><table {...props} /></div>,
   }), []);
 
   return (
@@ -418,7 +424,7 @@ const ScrollToContents = styled.a`
   color: #9eaeff;
   text-decoration: none;
   font-size: 0.85rem;
-  background: rgba(40, 55, 128, 0.85);
+  background: rgba(255, 255, 255, 0.05);
   padding: 8px 12px;
   border-radius: 8px;
   border: 1px solid rgba(158, 174, 255, 0.2);
@@ -612,6 +618,9 @@ const ArticleContent = styled.article`
   }
 
   .table-dense {
+    width: 100%;
+    
+
     th, td {
       padding: 1rem .25rem;
       font-size: .75rem;
@@ -749,14 +758,13 @@ const CitationLinkWrapper: React.FC<InternalLinkProps> = ({ children, href, $cit
 
 const LatexBlockContainer = styled.div`
   display: grid;
+
   width: 100%;
   max-width: 100%;
   min-width: 0;
-  overflow: hidden;
+  overflow: visible;
   margin: 1.5em 0;
   will-change: transform, opacity;
-  content-visibility: auto;
-  contain-intrinsic-size: auto 100px;
   isolation: isolate;
 `;
 
@@ -765,20 +773,19 @@ const LatexExpressionRow = styled.div`
   margin: 0 auto 1.25em;
   max-width: 100%;
   min-width: 0;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: visible;
 
   &:last-child {
     margin-bottom: 0;
   }
 
   & > .katex-display {
-
     width: fit-content;
     max-width: 100%;
     max-width: 100vw;
     margin-left: auto;
     margin-right: auto;
-    border: 1px solid orange;
     text-align: center;
     font-size: 1em;
   }
