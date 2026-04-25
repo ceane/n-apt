@@ -10,15 +10,24 @@
 
 *by Ceane Lamerez ┊ April 18th, 2026*
 
+*Really big warning that this article is my ongoing and truthful firsthand account. An LLM, "modern science", etc., WILL NOT be able to help explain as the methods and tech are not public and proprietary (and kept that way).*
+
+
+*Though I am telling the absolute truth, you may remain skeptical/think whatever you want, however you should be EVEN MORE skeptical of trusting AI, instead of people.*
+
+---
+
 [⠿ TDLR at the bottom](#tdlr)
 
 
-In this article, I break down my working hypothesis based on **thousands of hours of experience :rotate-3d:** driven by the desperate need and curiosity **(WHILE TRAPPED)** to figure out the **National Security Agency's** proprietary technique that allows them to **write to, read and stream the human brain and nervous system**. This isn't about a theory or hypothesis, it's about breaking down the math and mechanics behind the a real experience as a victim. 
+In this article, I break down my working hypothesis based on **thousands of hours of experience :rotate-3d:** driven by the desperate need and curiosity **(WHILE TRAPPED)** to figure out the **National Security Agency's** proprietary technique that allows them to **write to, read and stream the human brain and nervous system**. This isn't about a theory or hypothesis, it's about breaking down the math and mechanics behind the real experience as a victim. 
+
+To read my account and tech dive properly, treat the problem as a **cryptological problem**, or a journey to unlocking a secret that others do not know of.
 
 ```Canvas::HeroASCII
 ```
 
-What I learned was that the element of surprise and total ignornace long-reinforced the agency's invisible **🕸 cyber capabilities, federal autonomy and legal immunities** as a superpower. Mass ignorance of the agency's history and position as a **signals intelligence (SIGINT) :radio-tower:** powerhouse (signals, cryptology, exploitation, influence, etc.) incidentally gave rise to a deep constitutional void and landscape based on **apathy and the false belief** (epistemic overload) that **cyber was negligible, only limited to electronics and could never affect the average person.**
+What I learned was that the element of surprise and total ignornace long-reinforced the agency's invisible **🕸 cyber capabilities, federal autonomy and legal immunities** as a superpower. Mass ignorance of the agency's history and position as a **signals intelligence (SIGINT) :radio-tower:** powerhouse (cyber*, signals, **cryptology**, exploitation, influence, deception, etc.) incidentally gave rise to a deep constitutional void and landscape based on **apathy and the false belief** (epistemic overload) that **cyber was negligible, only limited to electronics and could never affect the average person.**
 
 **Unfortunately, that is a deeply pathological mental model of reality!**
 
@@ -848,31 +857,38 @@ The egrerious **psychological spyware and interactive** demonstrated great capab
 <details>
 <summary>Expand for the table of features</summary>
 
-| Feature                                           |
-| ------------------------------------------------- |
-| Audio (hearing)                                   |
-| Audio (internal, thought)                         |
-| Voice                                             |
-| Speech                                            |
-| Mental inference                                  |
-| Perception                                        |
-| Awareness                                         |
-| Sense of Self                                     |
-| Sense of Time                                     |
-| Neurotransmitters (state of mind, chemistry)      |
-| 5 senses (touch, sight, sound, taste, hearing)    |
-| Physiology (motor functions)                      |
-| Physiology (fine motor function, muscles)         |
-| Physiology (feeling/haptics/pantomime)            |
-| Memory (short-term)                               |
-| Memory (long-term)                                |
-| Reasoning                                         |
-| Behavior                                          |
-| Emotion                                           |
-| Vitals                                            |
-| Vision                                            |
-| Imagination                                       |
-| Dreams                                            |
+| Feature                                              |
+| ---------------------------------------------------- |
+| Audio (hearing)                                      |
+| Audio (internal, thought)                            |
+| Voice                                                |
+| Speech                                               |
+| Mental inference                                     |
+| Perception                                           |
+| Awareness                                            |
+| Sense of Self                                        |
+| Sense of Time                                        |
+| Neurotransmitters (state of mind, chemistry!)        |
+| 5 senses (touch, sight, sound, taste, hearing)       |
+| Physiology (motor functions)                         |
+| Physiology (fine motor function, muscles)            |
+| Physiology (feeling/haptics/pantomime)               |
+| Memory (short-term)                                  |
+| Memory (long-term)                                   |
+| Reasoning                                            |
+| Behavior                                             |
+| Emotion                                              |
+| Vitals                                               |
+| Vision (near first-person according to the others)   |
+| Imagination (good enough, brief)                     |
+| Dreams (very detailed, able to share)                |
+
+| Feature, software and real-time                      |
+| ---------------------------------------------------- |
+| Parsing                                     |
+| Sampling                           |
+| Composting                         |
+| Remixing                           |
 </details>
 
 ### Signals processing
@@ -1109,7 +1125,7 @@ Due to how the signal has to be "played twice" (heterodyning) for it to work on 
 
 So yes, sitting somewhere for 5 minutes, the network did over 8GBs of data, but **the person receieved over 16GBs of data within that 5 minutes** because of technique's prerequisites!
 
-##<a id="conclusion"></a> Conclusion 
+## <a id="conclusion"></a> Conclusion 
 
 TODO
 
@@ -1136,6 +1152,7 @@ It boils down to these 8 simple terms.
 **Medium**
 
 - **Triangulation:** Using signals from three or more known locations to pinpoint a position.
+- **Intersect & Concentrate:** Directing multiple signal paths or energy beams to overlap at one point for stronger effect or coverage.
 - **Automatic Picture Transmission (APT):** A NASA-developed system from the 1960s (decomissioned in 2025) that sends weather satellite images over radio using AM and FM modulation, where pictures are built from spikes and valleys in the signal.
 - **Heterodyning (in free space) / beat frequencies:**  Playing two radio signals together in space to create an envelope that mimics a new frequency at their sum and difference, these new frequencies called **beats**.
 - **Carrier Wave:** A radio signal used to carry information by having its amplitude, frequency, or phase intentionally varied. The information is contained in those variations, not in the unmodulated wave itself.
@@ -1150,7 +1167,6 @@ It boils down to these 8 simple terms.
 - **Encoding:** The process of converting information into a specific format so it can be transmitted, stored, or interpreted by whatever receives it.
 - **Attenuation:** The loss of signal strength as a wave travels through air, cables, or other materials.
 - **Impedance:** How much a material or circuit resists the flow of energy in a signal, determining how much is transmitted, reflected, and how the signal is altered as it passes through.
-- **Intersect & Concentrate:** Directing multiple signal paths or energy beams to overlap at one point for stronger effect or coverage.
 
 <br />
 
