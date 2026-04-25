@@ -525,11 +525,16 @@ pub struct SignalsData {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MockAptSignalsConfig {
-  pub global_settings: MockAptGlobalSettings,
-  pub bandwidths: MockAptBandwidths,
-  pub strength_ranges: MockAptStrengthRanges,
-  pub signals: Vec<MockAptSignalConfig>,
-  pub training_areas: HashMap<String, MockAptTrainingArea>,
+  #[serde(default)]
+  pub global_settings: Option<MockAptGlobalSettings>,
+  #[serde(default)]
+  pub bandwidths: Option<MockAptBandwidths>,
+  #[serde(default)]
+  pub strength_ranges: Option<MockAptStrengthRanges>,
+  #[serde(default)]
+  pub signals: Option<Vec<MockAptSignalConfig>>,
+  #[serde(default)]
+  pub training_areas: Option<HashMap<String, MockAptTrainingArea>>,
   #[serde(default)]
   pub channels: IndexMap<String, MockAptChannelConfig>,
 }
@@ -618,6 +623,14 @@ pub struct StrengthRange {
   pub max: f64,
 }
 
+/// Frequency spacing - accepts single Hz or [min, max] range
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum FrequencySpacing {
+  Range(f64, f64),
+  Single(f64),
+}
+
 /// Per-channel mock APT configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MockAptChannelConfig {
@@ -633,6 +646,13 @@ pub struct MockAptChannelConfig {
   /// Optional: signal density (0.0 to 1.0) for this channel
   #[serde(skip_serializing_if = "Option::is_none")]
   pub signal_density: Option<f64>,
+  /// Optional: APT spike frequency spacing - single Hz or [min, max] range
+  /// Examples: !frequency 33kHz or !frequency_range 30kHz..40kHz
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub apt_spike_density: Option<FrequencySpacing>,
+  /// Optional: signal strength range [min_dB, max_dB]
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub signal_strength_range: Option<Vec<f64>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -662,7 +682,7 @@ pub struct SpectrumFrameConfig {
   pub description: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SpectrumFrameMessage {
   pub id: String,
   pub label: String,

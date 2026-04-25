@@ -11,6 +11,26 @@
       ],
       "enabled": true,
       "environment": {}
+    },
+    "act": {
+      "type": "local",
+      "command": [
+        "act",
+        "mcp",
+        "serve"
+      ],
+      "enabled": true,
+      "environment": {}
+    },
+    "sequential-thinking": {
+      "type": "local",
+      "command": [
+        "npx",
+        "-y",
+        "@modelcontextprotocol/server-sequential-thinking"
+      ],
+      "enabled": true,
+      "environment": {}
     }
   }
 }

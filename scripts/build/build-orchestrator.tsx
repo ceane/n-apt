@@ -341,33 +341,42 @@ const BuildOrchestrator = () => {
   }, [exit]);
 
   const executeCommand = useCallback((command: string, description: string): Promise<{ success: boolean; output: string }> => {
-    return new Promise((resolve) => {
-      try {
-        addLog(chalk.blue(`Executing: ${command}`));
-        const child = spawn(command, [], {
-          shell: true,
-          cwd: './',
-          stdio: ['ignore', 'pipe', 'pipe'],
-          detached: true,
-        });
-
-        if (activeChildrenRef.current) {
-          activeChildrenRef.current.push(child);
-        }
-        let stdout = '';
-        let stderr = '';
-
-        child.stdout?.on('data', (data: Buffer) => {
-          const chunk = data.toString();
-          stdout += chunk;
-          addLog(chunk.trim());
-        });
-
-        child.stderr?.on('data', (data: Buffer) => {
-          const chunk = data.toString();
-          stderr += chunk;
-          addLog(chalk.red(chunk.trim()));
-        });
+      return new Promise((resolve) => {
+        try {
+          addLog(chalk.blue(`Executing: ${command}`));
+          const child = spawn(command, [], {
+            shell: true,
+            cwd: './',
+            stdio: ['ignore', 'pipe', 'pipe'],
+            detached: true,
+          });
+  
+          if (activeChildrenRef.current) {
+            activeChildrenRef.current.push(child);
+          }
+          let stdout = '';
+          let stderr = '';
+          const MAX_OUTPUT_CHARS = 50000;
+  
+          child.stdout?.on('data', (data: Buffer) => {
+            const chunk = data.toString();
+            if (stdout.length < MAX_OUTPUT_CHARS) {
+              stdout += chunk.slice(0, MAX_OUTPUT_CHARS - stdout.length);
+            } else {
+              stdout = stdout.slice(-MAX_OUTPUT_CHARS / 2) + chunk.slice(-MAX_OUTPUT_CHARS / 2);
+            }
+            addLog(chunk.trim());
+          });
+  
+          child.stderr?.on('data', (data: Buffer) => {
+            const chunk = data.toString();
+            if (stderr.length < MAX_OUTPUT_CHARS) {
+              stderr += chunk.slice(0, MAX_OUTPUT_CHARS - stderr.length);
+            } else {
+              stderr = stderr.slice(-MAX_OUTPUT_CHARS / 2) + chunk.slice(-MAX_OUTPUT_CHARS / 2);
+            }
+            addLog(chalk.red(chunk.trim()));
+          });
 
         child.on('close', (code) => {
           activeChildrenRef.current = activeChildrenRef.current ? activeChildrenRef.current.filter((proc) => proc !== child) : [];
@@ -406,38 +415,49 @@ const BuildOrchestrator = () => {
     });
   }, [addLog, appendErrorDetail]);
 
-  const executeForegroundCommand = useCallback((command: string, description: string, stepIndex: number): Promise<{ success: boolean; output: string }> => {
-    return new Promise((resolve) => {
-      try {
-        updateProcessStatus(stepIndex, 'running', undefined, 'Building backend... Rust.');
-        setBuildState(prev => ({ ...prev, activeBuildOutputStep: stepIndex }));
-
-        addLog(chalk.blue(`Executing foreground: ${command}`));
-        const child = spawn(command, [], {
-          shell: true,
-          cwd: './',
-          stdio: ['ignore', 'pipe', 'pipe'],
-        });
-
-        if (activeChildrenRef.current) {
-          activeChildrenRef.current.push(child);
-        }
-        let stdout = '';
-        let stderr = '';
-
-        child.stdout?.on('data', (data: Buffer) => {
-          const chunk = data.toString();
-          stdout += chunk;
-          appendBuildOutput(stepIndex, chunk.trim());
-          addLog(chunk.trim());
-        });
-
-        child.stderr?.on('data', (data: Buffer) => {
-          const chunk = data.toString();
-          stderr += chunk;
-          appendBuildOutput(stepIndex, chunk.trim());
-          addLog(chalk.red(chunk.trim()));
-        });
+    const executeForegroundCommand = useCallback((command: string, description: string, stepIndex: number): Promise<{ success: boolean; output: string }> => {
+      return new Promise((resolve) => {
+        try {
+          updateProcessStatus(stepIndex, 'running', undefined, 'Building backend... Rust.');
+          setBuildState(prev => ({ ...prev, activeBuildOutputStep: stepIndex }));
+  
+          addLog(chalk.blue(`Executing foreground: ${command}`));
+          const child = spawn(command, [], {
+            shell: true,
+            cwd: './',
+            stdio: ['ignore', 'pipe', 'pipe'],
+          });
+  
+          if (activeChildrenRef.current) {
+            activeChildrenRef.current.push(child);
+          }
+          let stdout = '';
+          let stderr = '';
+          const MAX_OUTPUT_CHARS = 50000; // Cap captured output
+  
+          child.stdout?.on('data', (data: Buffer) => {
+            const chunk = data.toString();
+            // Only keep tail of output to limit memory
+            if (stdout.length < MAX_OUTPUT_CHARS) {
+              stdout += chunk.slice(0, MAX_OUTPUT_CHARS - stdout.length);
+            } else {
+              stdout = stdout.slice(-MAX_OUTPUT_CHARS / 2) + chunk.slice(-MAX_OUTPUT_CHARS / 2);
+            }
+            appendBuildOutput(stepIndex, chunk.trim());
+            addLog(chunk.trim());
+          });
+  
+          child.stderr?.on('data', (data: Buffer) => {
+            const chunk = data.toString();
+            // Only keep tail of output to limit memory
+            if (stderr.length < MAX_OUTPUT_CHARS) {
+              stderr += chunk.slice(0, MAX_OUTPUT_CHARS - stderr.length);
+            } else {
+              stderr = stderr.slice(-MAX_OUTPUT_CHARS / 2) + chunk.slice(-MAX_OUTPUT_CHARS / 2);
+            }
+            appendBuildOutput(stepIndex, chunk.trim());
+            addLog(chalk.red(chunk.trim()));
+          });
 
         child.on('close', (code) => {
           activeChildrenRef.current = activeChildrenRef.current ? activeChildrenRef.current.filter((proc) => proc !== child) : [];
@@ -549,41 +569,47 @@ const BuildOrchestrator = () => {
     });
   }, [addLog, appendErrorDetail, appendWarningDetail, clearErrorDetails]);
 
-  const executeCompositeRustStep = useCallback(async (stepIndex: number): Promise<boolean> => {
-    setBuildState(prev => ({ ...prev, activeBuildOutputStep: stepIndex }));
+    const executeCompositeRustStep = useCallback(async (stepIndex: number): Promise<boolean> => {
+      setBuildState(prev => ({ ...prev, activeBuildOutputStep: stepIndex }));
+  
+      try {
+        // Build in the foreground so compiler output is visible, but start the
+        // long-running backend as a detached child. Running `cargo run` here
+        // keeps the orchestrator attached to server logs forever and causes the
+        // Rust step to appear hung while state churn grows over time.
+        addLog(chalk.blue('Building Rust backend binary...'));
+        const buildResult = await executeForegroundCommand(
+          'cargo build --bin n-apt-backend --profile dev-fast',
+          'Building Rust backend',
+          stepIndex
+        );
+  
+        if (!buildResult.success) {
+          return false;
+        }
 
-    try {
-      // Step 1: Build
-      addLog(chalk.blue(`Building Rust backend...`));
-      const buildResult = await executeForegroundCommand(
-        'cargo build --bin n-apt-backend --profile dev-fast',
-        'Building Rust backend',
-        stepIndex
-      );
+        addLog(chalk.blue('Starting Rust backend in background...'));
+        const startCommand = isNativeWindows
+          ? 'target\\dev-fast\\n-apt-backend.exe'
+          : 'bash -lc \'exec target/dev-fast/n-apt-backend\'';
+        const startResult = await startBackgroundProcess(
+          startCommand,
+          'Rust backend',
+          'rustPid'
+        );
 
-      if (!buildResult.success) {
-        return false;
-      }
-
-      // Step 2: Start backend in background using startBackgroundProcess
-      addLog(chalk.blue(`Starting Rust backend...`));
-      const startResult = await startBackgroundProcess(
-        isNativeWindows ? 'echo Windows' : 'cargo run --bin n-apt-backend --profile dev-fast',
-        'Rust backend',
-        'rustPid'
-      );
-      if (!startResult) {
-        return false;
-      }
-
-      // Give the backend a moment to start listening
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      // Step 3: Wait for backend readiness
-      addLog(chalk.blue(`Waiting for backend to be ready...`));
-      const waitCommand = isNativeWindows
-        ? 'echo Backend readiness check skipped on Windows'
-        : `bash -lc '
+        if (!startResult) {
+          return false;
+        }
+  
+        // Give the backend a moment to start listening
+        await new Promise(resolve => setTimeout(resolve, 1000));
+  
+        // Wait for backend readiness
+        addLog(chalk.blue(`Waiting for backend to be ready...`));
+        const waitCommand = isNativeWindows
+          ? 'echo Backend readiness check skipped on Windows'
+          : `bash -lc '
 set +e
 MAX_RETRIES=30
 RETRY_DELAY=1
@@ -602,23 +628,23 @@ done
 echo "Backend failed to respond after $MAX_RETRIES retries"
 exit 1
 '`;
-
-      const waitResult = await executeForegroundCommand(waitCommand, 'Waiting for backend', stepIndex);
-      if (!waitResult.success) {
+  
+        const waitResult = await executeCommand(waitCommand, 'Waiting for backend');
+        if (!waitResult.success) {
+          return false;
+        }
+  
+        addLog(chalk.green('Rust backend fully initialized and ready'));
+        return true;
+  
+      } catch (error: any) {
+        addLog(chalk.red(`Error in composite Rust step: ${error.message}`));
+        appendErrorDetail(`Composite Rust backend setup failed: ${error.message}`);
         return false;
+      } finally {
+        setBuildState(prev => ({ ...prev, activeBuildOutputStep: undefined }));
       }
-
-      addLog(chalk.green('Rust backend fully initialized and ready'));
-      return true;
-
-    } catch (error: any) {
-      addLog(chalk.red(`Error in composite Rust step: ${error.message}`));
-      appendErrorDetail(`Composite Rust backend setup failed: ${error.message}`);
-      return false;
-    } finally {
-      setBuildState(prev => ({ ...prev, activeBuildOutputStep: undefined }));
-    }
-  }, [executeForegroundCommand, startBackgroundProcess, addLog, appendErrorDetail]);
+    }, [executeForegroundCommand, executeCommand, startBackgroundProcess, appendErrorDetail]);
 
   const runBuild = useCallback(async () => {
     setBuildState(prev => ({ ...prev, isBuilding: true }));
@@ -660,18 +686,37 @@ exit 1
       {
         index: 0,
         command: isNativeWindows ? 'echo Windows cleanup is skipped; use manual process cleanup if needed.' : `bash -lc "
-set -euo pipefail
 pkill -f 'n-apt-backend' 2>/dev/null || true
 pkill -f 'target/debug/n-apt-backend' 2>/dev/null || true
 pkill -f 'target/release/n-apt-backend' 2>/dev/null || true
 pkill -f 'target/dev-fast/n-apt-backend' 2>/dev/null || true
 pkill -f 'vite' 2>/dev/null || true
 pkill -f 'node_modules/.bin/vite' 2>/dev/null || true
-lsof -ti:5173 | xargs kill -9 2>/dev/null || true
-lsof -ti:8765 | xargs kill -9 2>/dev/null || true
+lsof -ti :5173 | xargs kill -9 2>/dev/null || true
+lsof -ti :8765 | xargs kill -9 2>/dev/null || true
 sleep 1
 "`,
         description: 'Cleaning up existing processes',
+        isBackground: false,
+        pidKey: undefined,
+      },
+      {
+        index: 0.5,
+        command: isNativeWindows
+          ? 'echo Config validation not supported on Windows; skipping.'
+          : `bash -lc '
+set -euo pipefail
+echo "Validating signals.yaml..."
+cargo run --bin n-apt-backend --profile dev-fast -- --validate-config 2>&1
+if [ $? -eq 0 ]; then
+  echo "✅ signals.yaml is valid"
+  exit 0
+else
+  echo "❌ signals.yaml validation FAILED - aborting build"
+  exit 1
+fi
+'`,
+        description: 'Validating signals.yaml',
         isBackground: false,
         pidKey: undefined,
       },
@@ -771,12 +816,7 @@ exit 1
       },
       {
         index: 6,
-        command: isNativeWindows ? 'npx vite dev --host --force' : `bash -lc '
-set -euo pipefail
-# Don't clear Vite cache - it causes significant startup latency
-# rm -rf node_modules/.vite
-exec node_modules/.bin/vite dev --host --force
-'`,
+        command: isNativeWindows ? 'npx vite dev --host --force' : 'node_modules/.bin/vite dev --host --force',
         description: 'Starting frontend server',
         isBackground: true,
         pidKey: 'vitePid' as const,

@@ -11,30 +11,17 @@ const pagesDir = path.resolve(dirname, "pages");
 const pagesMiddleware: Plugin = {
   name: "pages-middleware",
   configureServer(server) {
-    const sendUpdate = (file: string) => {
-      if (!file.startsWith(pagesDir)) {
-        return;
-      }
-      const relative = path.relative(dirname, file).replace(/\\+/g, "/");
-      server.ws.send({
-        type: "custom",
-        event: "pages:update",
-        data: { path: `/${relative}` },
-      });
-    };
-
     server.watcher.add(pagesDir);
-    for (const event of ["add", "change", "unlink"]) {
-      server.watcher.on(event, sendUpdate);
-    }
 
     const publicDir = path.resolve(dirname, "public");
 
     server.middlewares.use((req, res, next) => {
-      const url = req.url || "";
+      const url = (req.url || "").split("?")[0].split("#")[0];
       const isPages = url.startsWith("/pages/") || url.startsWith("/md-preview/pages/");
       if (isPages) {
-        const relativeUrl = url.startsWith("/md-preview/") ? url.slice("/md-preview".length) : url;
+        const relativeUrl = url.startsWith("/md-preview/")
+          ? url.slice("/md-preview".length).replace(/^\//, "")
+          : url.replace(/^\//, "");
         const filePath = path.join(dirname, relativeUrl);
         if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
           const content = fs.readFileSync(filePath, "utf-8");
@@ -44,8 +31,8 @@ const pagesMiddleware: Plugin = {
         }
       }
 
-      if (req.url?.startsWith("/md-preview/")) {
-        const assetPath = req.url.replace(/^\/md-preview\//, "");
+        if (url.startsWith("/md-preview/")) {
+          const assetPath = url.replace(/^\/md-preview\//, "");
         const searchPaths = [
           path.join(publicDir, "md-preview", assetPath),
           path.join(publicDir, assetPath), // Direct fallback to public root
@@ -70,6 +57,20 @@ const pagesMiddleware: Plugin = {
       }
       next();
     });
+  },
+  handleHotUpdate({ file, server }) {
+    if (!file.startsWith(pagesDir)) {
+      return;
+    }
+
+    const relative = path.relative(dirname, file).replace(/\\+/g, "/");
+    server.ws.send({
+      type: "custom",
+      event: "pages:update",
+      data: { path: `/${relative}` },
+    });
+
+    return [];
   },
 };
 
@@ -176,10 +177,7 @@ export default defineConfig(({ mode }) => {
     {
       name: "strip-tailwind-cdn",
       transformIndexHtml(html) {
-        if (isProd) {
-          return html.replace(/<script src="https:\/\/cdn\.tailwindcss\.com"><\/script>/, "");
-        }
-        return html;
+        return html.replace(/<script src="https:\/\/cdn\.tailwindcss\.com"><\/script>/, "");
       }
     }
   ],
