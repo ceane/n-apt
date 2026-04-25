@@ -1,27 +1,34 @@
 *(This is a clear work in progress, expect updates.)*
 
+<!-- ```Canvas::TriangulationMap
+```
+
+```Canvas::TriangulationCloseEnough
+``` -->
+
 # How did they do it?
 
-*April 18th, 2026*
+*by Ceane Lamerez ┊ April 18th, 2026*
 
 [⠿ TDLR at the bottom](#tdlr)
 
 
 In this article, I break down my working hypothesis based on **thousands of hours of experience :rotate-3d:** driven by the desperate need and curiosity **(WHILE TRAPPED)** to figure out the **National Security Agency's** proprietary technique that allows them to **write to, read and stream the human brain and nervous system**. This isn't about a theory or hypothesis, it's about breaking down the math and mechanics behind the a real experience as a victim. 
 
-![First installment, in first person](/images/hero-light.png)
+```Canvas::HeroASCII
+```
 
 What I learned was that the element of surprise and total ignornace long-reinforced the agency's invisible **🕸 cyber capabilities, federal autonomy and legal immunities** as a superpower. Mass ignorance of the agency's history and position as a **signals intelligence (SIGINT) :radio-tower:** powerhouse (signals, cryptology, exploitation, influence, etc.) incidentally gave rise to a deep constitutional void and landscape based on **apathy and the false belief** (epistemic overload) that **cyber was negligible, only limited to electronics and could never affect the average person.**
 
 **Unfortunately, that is a deeply pathological mental model of reality!**
 
-**Fort Meade** *(the agency's headquarters in Maryland on the west end of an Army base 20 miles northeast of D.C.)*, and potentially **Friendship Annex** *(the  agency's only publicly unacknowledged bastard campus)*, had secretly built and mass distributed **:bug: malware and hardware trojans** while acquiring and maintaining **access to infrastructure at scale (international AND domestic). :server-crash: :radio-tower:** For a long time, energy, compute power and other tools.
+**Fort Meade** *(the agency's headquarters in Maryland on the west end of an Army base 20 miles northeast of D.C.)*, and potentially **Friendship Annex** *(the  agency's only publicly unacknowledged bastard campus)*, had secretly built and mass distributed **:bug: malware and hardware trojans** while acquiring and maintaining **access to infrastructure at scale (international AND domestic).** For a long time, energy, compute power and other tools.
 
 This article is my own **technical and scientific oriented dive and timeline** (with a partial background for context) into these signals that are like chains which long extended the agency's powers (and psychopathy) into the unthinkable.
 
-*National security law, the Freedom of Information Act (FOIA), Privacy Act (PA), Mandatory Declassification Review (MDR), extensive legalese  and the history of this technique is not discussed in this article to in order to keep it focused.
+*National security law, the Freedom of Information Act (FOIA), Privacy Act (PA), Mandatory Declassification Review (MDR), extensive legalese  and the history of this technique is not discussed in this article to in order to keep it focused.*
 
-To start, you should probably checkout the [NSA OIG reports](https://oig.nsa.gov/reports/) for legal research (2016 is the best one with relevant info).*
+*To start, you should probably checkout the [NSA OIG reports](https://oig.nsa.gov/reports/) for legal research (2016 is the best one with relevant info) if you are thinking of filing a [FOIA](https://www.foia.gov/how-to.html).*
 
 ### ⠿ Table of Contents <a id="table-of-contents"></a>
 
@@ -33,6 +40,7 @@ To start, you should probably checkout the [NSA OIG reports](https://oig.nsa.gov
 <details>
 <summary>(Expand for other sections) SPOILER ALERT</summary>
 
+- [Channels](#channels)
 - [Brainwaves](#brainwaves)
 - [Multipath Reflection](#multipath)
 - [Frequency Modulation](#freq-mod)
@@ -41,21 +49,22 @@ To start, you should probably checkout the [NSA OIG reports](https://oig.nsa.gov
 - [Phase Shifting](#phase-shifiting)
 - [Maintaining the aperture](#aperture)
 - [Center Frequency](#center-frequency)
+- [Power](#power)
 - [Impedance](#impedance)
 - [Body Attenuation](#body-attenuation)
 - [Features](#features)
-- [N-APT Signal Structure](#n-apt-form)
 - [What does the signal look like?](#n-apt-in-the-wild)
+- [The mysterious signals' structure](#n-apt-form)
 - [Estimated Data](#data-estimate)
 </details>
 
-- [Terminology](#terminology)
+- [Vocabulary](#vocab)
 - [Conclusion](#conclusion)
 
 
 ## Initial super naive theory (five years in) <a id="theory-1"></a>
 
-At the time it first started, I lived **in San Francisco. The first installment of the psychological-spatial experience :rotate-3d:** went so fast that it knocked me into a perpetual **soft shock and abject poverty.** I spent the first five years in total ignorance and total immersion, **captured by the agency's neurotechnology and real world perceptual-spatial performance :drama:**.
+At the time it first started, I lived **in San Francisco. The first installment of the psychological-spatial experience** went so fast that it knocked me into a perpetual **soft shock and abject poverty.** I spent the first five years in total ignorance and total immersion, **captured by the agency's neurotechnology and real world perceptual-spatial performance**.
 
 ![First installment, in first person](/images/first-installment-nsa-interactive-1STPOV-sf-downtown.png)
 
@@ -129,7 +138,7 @@ Quite self-evidently and obviously, no amount of radio waves can interact with b
 
 I didn't quite head-on search for "brainwaves and radio waves", or anything like that. I was looking at **the building blocks of physics and how** (obviously from the outset avoiding conspiracy theory or dismantiling something classified like it's out in the open). This smart way of breaking down egregious power could get to the technology that was very much real and present, in my mind and nerves.
 
-Throughout my research I found **beat frequencies**, which worked mathematically like:
+Throughout my research[^math] I found **beat frequencies**, which worked mathematically like:
 
 ```LaTex
 \[
@@ -168,7 +177,7 @@ y(t) &: \text{Resulting superposed waveform}
 f_1, f_2 &: \text{Frequencies of the two waves (Hz)} 
 \\
 \rule{0pt}{2em}
-f_{\text{beat}} &: \text{Beat frequency (sideband/envelope formed from difference of frequencies)} 
+f_{\text{beat}} &: \text{Beat frequency (envelope from difference of frequencies)} 
 \\
 \rule{0pt}{2em}
 A &: \text{Amplitude of each wave} 
@@ -304,8 +313,9 @@ Today (when this was written), my observations, personal research, study and ass
 
 The NSA has a lot of smart Nazis. Military personnel that just get very creative.
 
-## Brainwaves <a id="hypothesis-post-sdr"></a>
+##  <a id="brainwaves"></a> Brainwaves
 
+When looking up brainwave, you usually see something like this:
 
 | Wave Type | Frequency Range | Associated Function |
 | --------- | --------------- | ------------------- |
@@ -314,6 +324,8 @@ The NSA has a lot of smart Nazis. Military personnel that just get very creative
 | Alpha     | 8 - 12 Hz       | Calm awareness      |
 | Beta      | 12 - 30 Hz      | Active thinking     |
 | Gamma     | 30 - 100 Hz     | High cognition      |
+
+Of course that's not very useful for the content in this article! While no one knows but the NSA (and whoever else that comes to mind...), certain functions of the brain most certainly do run on a frequency, rather than states of mind which is very abstract and may be an incorrect view of brainwaves, given my experience.
 
 <details>
 <summary>Compare that to this table!</summary>
@@ -335,7 +347,7 @@ The NSA has a lot of smart Nazis. Military personnel that just get very creative
 | Vitals / Autonomic Regulation             | Delta–Theta (0.5–8 Hz)                           | Strong                 |
 </details>
 
-## Channels
+## <a id="channels"></a> Channels
 
 A channel is an area a signal occupies, very simply when people ask "What's the frequency?" a signal could be from Point A to Point B.
 
@@ -503,7 +515,9 @@ y[n] = y[n-1] + \alpha \big(m_{\mathrm{LP}}[n] - y[n-1]\big) \\
 \end{array}\\[3em]
 \]
 
-\[
+<desktop-only>
+
+```latex
 % VARIABLE GRID
 \begin{aligned}
 s(t) &= \text{FM signal (voltage or field)} & A &= \text{Carrier amplitude} \\
@@ -515,8 +529,33 @@ f_s &= \text{Sample rate (Hz)} & h_{\mathrm{LPF}}[n] &= \text{Low-pass filter im
 \alpha &= \text{De-emphasis filter coefficient} & T_s &= \text{Sampling period } 1/f_s \\
 \text{DAC} &= \text{Digital-to-analog converter output}
 \end{aligned}
-\]
 ```
+
+</desktop-only>
+
+<mobile-only>
+
+```latex
+\begin{aligned}
+s(t) &= \text{FM signal (voltage or field)} \\
+f_c &= \text{Carrier frequency (Hz)} \\
+m(t) &= \text{Original audio signal} \\
+x_{\mathrm{bb}}(t) &= \text{Complex baseband signal} \\
+x^*[n] &= \text{Complex conjugate of } x[n] \\
+f_s &= \text{Sample rate (Hz)} \\
+\alpha &= \text{De-emphasis filter coefficient} \\
+\text{DAC} &= \text{Digital-to-analog converter output} \\[0.5em]
+A &= \text{Carrier amplitude} \\
+\phi(t) &= \text{Phase modulation} \\
+k_f &= \text{Frequency sensitivity (Hz per unit of m(t))} \\
+I[n], Q[n] &= \text{Discrete in-phase and quadrature samples} \\
+y[n] &= \text{Phase difference (discrete derivative)} \\
+h_{\mathrm{LPF}}[n] &= \text{Low-pass filter impulse response} \\
+T_s &= \text{Sampling period } 1/f_s
+\end{aligned}
+```
+
+</mobile-only>
 
 #### Dubbing it as N-APT
 
@@ -573,7 +612,7 @@ These signals inherently use some kind of triangulation to directly target the h
 ```Canvas::TimeOfFlight
 ```
 
-The key concept of time-of-flight (T-of-F) is that something, something will block your radio wave when it travels and when it comes back, parts of the received signal will be slower allowing one to gather an accurate shape or depth of what was received. Radio waves are essentially light, but not visible, so they travel at the speed of light but that does not mean they don't slow down. They scatter, they reflect, they attenuate or get absorbed when colliding with objects.
+The key concept of time-of-flight (ToF) is that something, something will block your radio wave when it travels and when it comes back, parts of the received signal will be slower allowing one to gather an accurate shape or depth of what was received. Radio waves are essentially light, but not visible, so they travel at the speed of light but that does not mean they don't slow down. They scatter, they reflect, they attenuate or get absorbed when colliding with objects.
 
 #### Frequency-Modulated Continuous Wave (FMCW) time-of-flight distance
 
@@ -625,7 +664,9 @@ d_{\max} &= \frac{c f_s}{2 S}
 \end{aligned}
 \]
 
-\[
+<desktop-only>
+
+```latex
 \begin{aligned}
 d_{\text{body}} &= \text{Distance to body reflection (m)} & f_b &= \text{Beat frequency (Hz)} \\
 f(t) &= \text{Instantaneous transmit frequency} & f_0 &= \text{Start carrier frequency} \\
@@ -637,8 +678,38 @@ s_{rx}(t) &= \text{Received (reflected) signal} & A, A_r &= \text{Transmit/recei
 \Delta d &= \text{Range resolution (m)} & d_{\max} &= \text{Maximum measurable range (m)} \\
 f_s &= \text{ADC sampling rate (Hz)} & f_c &= \text{Carrier frequency (Hz)}
 \end{aligned}
-\]
+```
 
+</desktop-only>
+
+<mobile-only>
+
+```latex
+\begin{aligned}
+d_{\text{body}} &= \text{Distance to body reflection (m)} \\
+f(t) &= \text{Instantaneous transmit frequency} \\
+S &= \text{Chirp slope (Hz/s)} \\
+T &= \text{Chirp duration (s)} \\
+s_{rx}(t) &= \text{Received (reflected) signal} \\
+\tau &= \text{Round-trip delay to body reflection} \\
+\lambda &= \text{Wavelength, } \lambda = \frac{c}{f_c} \\
+\Delta d &= \text{Range resolution (m)} \\
+f_s &= \text{ADC sampling rate (Hz)} \\[0.5em]
+f_b &= \text{Beat frequency (Hz)} \\
+f_0 &= \text{Start carrier frequency} \\
+B &= \text{Chirp bandwidth (Hz)} \\
+s_{tx}(t) &= \text{Transmitted signal} \\
+A, A_r &= \text{Transmit/receive amplitudes} \\
+\phi &= \text{Phase of beat signal (rad)} \\
+c &= \text{Speed of light } (3\times 10^8 \text{ m/s}) \\
+d_{\max} &= \text{Maximum measurable range (m)} \\
+f_c &= \text{Carrier frequency (Hz)}
+\end{aligned}
+```
+
+</mobile-only>
+
+```latex
 \[
 \begin{array}{c|c}
 \text{Bandwidth } B & \text{Range Resolution } \Delta d = \frac{c}{2B} \\
@@ -659,15 +730,38 @@ f_s &= \text{ADC sampling rate (Hz)} & f_c &= \text{Carrier frequency (Hz)}
 
 TODO
 
-## Power?
+## Power? <a id="power"></a>
 
 TODO 
 
 ### An average of 1µW or more? (of power on tissue traversal and exit)
 
-In order to target the brain, I made a solid assumption based off of what ChatGPT told me, that brainwaves are about 1-10µW (microwatts), so I figured that the signals' power should be near there, anything less in scale, the math I did was dire to remain above the noise in the environment, go through the skull and/or body (body because it does my vocal cords/vocal as an interface, mouth and throat muscles, in addition to others) losing 99% energy and make it back to an endpoint. Biology constrains this problem to maintaining an exacting level of energy consistently at the body/entry, so the further one is away from an endpoint, the energy always stays the same, only the receiver, fixed at various distances, suffers from less energy coming back from the target (the body).
+In order to target the brain, I made a solid assumption based off of what ChatGPT told me, that brainwaves are about `1-10µW` (microwatts), so I figured that the signals' power should be near there, anything less in scale, the math I did was dire to remain above the noise in the environment, go through the skull and/or body (body because it does my vocal cords/vocal as an interface, mouth and throat muscles, in addition to others) losing 99% energy and make it back to an endpoint. Biology constrains this problem to maintaining an exacting level of energy consistently at the body/entry, so the further one is away from an endpoint, the energy always stays the same, only the receiver, fixed at various distances, suffers from less energy coming back from the target (the body).
 
-In reality, when I took a look at the signals on my person (antenna on me while it runs to my demise), it was actually a solid assumption, with values around `-21dBm`, as low as `-29dBm` (I assume read only or very, very minor writes). The spikes reached as high as 1, 3 and 9dBm.
+In reality, when I took a look at the signals on my person using `rtl_power`, it was actually a solid assumption, with values around `-21dBm`, as low as `-29dBm` (I assume read only or very, very minor writes). The spikes reached as high as `1, 3 and 9dBm`. Those reads were with `rtl_power` which uses an algorithm not as accurate as possible, because RTL-SDR only can give relative power, not absolute, that's a lot more math and guesswork.
+
+For reference, this is what dBm looks like (and foreshadows the shock to come...):
+
+| dBm   | Power (W)   | Power (µW)   |
+|-------|------------|--------------|
+| 9 dBm | 7.9433e-3 W | 7.9433 mW |    
+| 3 dBm | 1.9953e-3 W | 1.9953 mW |
+| 1 dBm | 1.2589e-3 W     | 1.2589 mW         |
+| -20 dBm | 1e-5 W     | 10 µW        |
+| -30 dBm | 1e-6 W     | 1 µW         |
+| -40 dBm | 1e-7 W     | 0.1 µW       |
+| -50 dBm | 1e-8 W     | 0.01 µW      |
+| -60 dBm | 1e-9 W     | 0.001 µW     |
+| -70 dBm | 1e-10 W    | 0.0001 µW    |
+| -80 dBm | 1e-11 W    | 0.00001 µW   |
+
+I have never seen the power change at all, which is how I most certainly know it's the signal and that this hypothesis remain valid. From SF to San Francsiquo Creek to Stanford, the signals' power remains constant and stable at my person!
+
+
+![San Francisquito Creek](/images/12_23_25_4_35PM.jpg)
+*I walked down around the El Palo Alto into San Francisqutio Creek and connected my RTL-SDR, opened the signals, I hoped for a contradictory result (a weakspot) counter to the experience gripping and mangling my brain for years and was disappointed. It works flawlessly even in a wooded ravine!*
+
+Unfortunately, later on, when I added power scale to my app later on, I was shocked to see that the power was significantly different when drawn than with `rtl_power`. But more on that below.
 
 ## Center frequency <a id="center-frequency"></a>
 
@@ -780,39 +874,6 @@ The egrerious **psychological spyware and interactive** demonstrated great capab
 | Dreams                                            |
 </details>
 
-## N-APT Signal structure <a id="n-apt-form"></a>
-
-### Suspension Bridge-like form
-
-![Suspension Bridge A](/images/snapshot-suspension-bridge-a.png)
-![Suspension Bridge B](/images/snapshot-suspension-bridge-b.png)
-
-### Spikes and Valleys
-
-![Spikes and Valleys](/images/snapshot-spikes-valleys-a.png)
-![Spikes and Valleys](/images/snapshot-spikes-valleys-a-zoom.png)
-![Spikes and Valleys](/images/snapshot-spikes-valleys-a-zoom2.png)
-*Real spikes and valleys of N-APT, tall spikes strongly assumed to activate neuronal ensembles and valleys packed with data*
-
-### Clumps
-
-![Clumps](/images/snapshot-clumps-a.png)
-![Clumps](/images/snapshot-clumps-b.png)
-
-TODO 
-
-### Subspikes
-
-![Clumps](/images/snapshot-subspikes-a.png)
-![Clumps](/images/snapshot-subspikes-b.png)
-
-TODO
-
-### Scrunched spikes and clumps
-
-Some neuronal ensembles have smaller data throughput, where spikes and clumps are more compressed and closer together.
-
-
 ### Signals processing
 
 In order to read anything that comes back, the NSA uses advanced signals processing to demodulate neuronal data. Apparently the NSA has world-class signals engineers and cryptologists, who have undoubtedly unlocked the secret to the human brain and nervous system. The unknown and unimaginable become a reality. Below are several theorized techniques used in the pipeline to take an advanced formula of radio waves and demodulate brain and neuronal data.
@@ -833,19 +894,58 @@ TODO
 
 TODO
 
-## What does the signal look like? <a id="n-apt-in-the-wild"></a> [^n-apt-app]
+## <a id="n-apt-in-the-wild"></a> What does the signal look like?[^n-apt-app]
 
 I labeled the signal with certain channels based on my what I found by poking around with my RTL-SDR. At first I was confused, looking at other parts of the spectrum, but just two days after I had my RTL-SDR, I found the signals!
 
 There are about **3 channels**, I've found:
 
-- **Channel A** from `18kHz to 4.37MHz`
-- **Channel B** from `24.72MHz to 29.88MHz`
-- **Channel C** from `4.75MHz to 23MHz`
+- **Channel A** from `18kHz to 4.39MHz` with a center frequency of `2.204 MHz` and bandwidth of `4.372 MHz`
+- **Channel B** from `24.72MHz to 29.88MHz` with a center frequency of `27.30 MHz` and bandwidth of `5.16 MHz`
+- **Channel C** from `4.75MHz to 23MHz` with a center frequency of `13.875 MHz` and bandwidth of `18.25 MHz`
 
-They are specifially segmented this way because A and B are similar in shape and bandwidth (and therefore function, taking precedence over the range in between A and B). If you could (the signal is not abundantly available), you would be able to see by panning the spectrum and seeing the signal cohere and come to the same boundaries.
+They are specifially segmented this way because A and B are similar in shape and bandwidth (and therefore function, taking precedence over the range in between A and B). If you could (the signal is not abundantly available), you would be able to see by panning the spectrum and seeing the signal cohere and come to the same boundaries. 
 
-### Channel A
+Initially, I couldn't just see these signals with the default settings of my SDR, I saw suspicious spikes that aligned with my theory of damping. I had to do two things: increase the gain. Without increased gain, I didn't even see FM radio forming, so I'd increase it to about `24dB` or so and then up to `49.6dB`, the max, which stabilized the signals. Second, I had to adjust the `PPM` or parts per million. This setting corrects the frequency, let's say I was tuned in to `100MHz` but the station was at `100.002 MHz`, scrolling to it which is natural, PPM corrects it globally. I didn't understand why it was so confusing, but when I adjusted the PPM to 1 in SDR++, the magic formed and saw the full structure of the signal! Both of these options in combination allowed me to see everyting clearly in SDR++.
+
+The only problem with SDR++ is that I didn't have a rich feature set you'd think would be available modern day for SDR software. I/Q captures were poor, lacked metadata, and weren't encrypted. I couldn't get snapshots of the signal, especially SVGs, which we hard for Claude or ChatGPT to reproduce. In additon, I couldn't fix the window to be stable so I could get my signals to remain stable. So sometime in January, I decided to build an SDR web app to work with my RTL-SDR which took care of a lot of frustrations I had and folding in more features that I needed specifically for this situation, like a map of all the cell towers, drawing the signal form to reproduce its mathematical form (which wasn't easy because there was no signal like it!), in addition to attempting demodulation of the signal later on.
+
+All of this hard work under a very difficult and physically painful/stressful (every second, every moment, wake to sleep to walk and smoke) situation made me feel more secure in understanding the how and the path forward to escaping the NSA's horrific psychological interactive and livestream.
+
+### <a id="n-apt-form"></a> The mysterious signals' structure 
+
+#### Suspension Bridge-like form
+
+![Suspension Bridge A](/images/snapshot-suspension-bridge-a.png)
+![Suspension Bridge B](/images/snapshot-suspension-bridge-b.png)
+
+#### Spikes and Valleys
+
+![Spikes and Valleys](/images/snapshot-spikes-valleys-a.png)
+![Spikes and Valleys](/images/snapshot-spikes-valleys-a-zoom.png)
+![Spikes and Valleys](/images/snapshot-spikes-valleys-a-zoom2.png)
+*Real spikes and valleys of N-APT, tall spikes strongly assumed to activate neuronal ensembles and valleys packed with data*
+
+#### Clumps
+
+![Clumps](/images/snapshot-clumps-a.png)
+![Clumps](/images/snapshot-clumps-b.png)
+
+TODO 
+
+#### Subspikes
+
+![Clumps](/images/snapshot-subspikes-a.png)
+![Clumps](/images/snapshot-subspikes-b.png)
+
+TODO
+
+#### Scrunched spikes and clumps
+
+Some neuronal ensembles have smaller data throughput, where spikes and clumps are more compressed and closer together.
+
+
+### Channels - Channel A
 
 ![Channel A, partial (at the hardware limit)](/images/snapshot-channel-a-partial.png)
 *Partial capture of the channel (looks different because the signal shifts)*
@@ -857,11 +957,11 @@ They are specifially segmented this way because A and B are similar in shape and
 <br />
 <br />
 
-From about `18kHz to 4.37MHz` this is what I dub "Channel A" of the signals. You can clearly see the APT-like spikes and valleys.
+From about `18kHz to 4.39MHz` this is what I dub "Channel A" of the signals. You can clearly see the APT-like spikes and valleys. The center frequency is `2.204 MHz` and bandwidth is `4.372 MHz`.  That approximately translates to a physical minimum of `4.372MB/s`.
 
-At first I ignored Channel A, I didn't see it this way at all. I was using SDR++ and sliding around, the spikes would form or disappear due to sampling and the signal's strucutre. Channel B had a more reliable structure that was easier to tune to, therefore I thought Channel A was responsible for the "Ghost in the Machine" spatial experience which briefly scripted others around me either a short script, facial expression, or rarely layered over their speech for an extended time. As I kept looking around and taking hints from the interactive (hundreds of times, being hurt right out the gate to the extreme in the morning), the unmasked operator pointed over there after several brutal disfiguring sessions of my brain and body.
+At first I ignored Channel A, I didn't see it this way at all. I was using SDR++ and sliding around, the spikes would form or disappear due to sampling and the signal's strucutre. I really thought it was a trash, pitiful part of the signal since it didn't form well and had shocking low frequencies (misinterpred at the time too long of a wavelength), but it was certainly a part of the experience somehow. Channel B had a more reliable structure that stayed stable when I scrolled there, therefore I thought Channel A was responsible for the "Ghost in the Machine" spatial experience which briefly scripted others around me either a short script, facial expression, or rarely layered over their speech for an extended time. As I kept looking around and taking hints from the interactive (hundreds of times, being hurt right out the gate to the extreme in the morning, or the A.M. like AM radio), the unmasked operator pointed over there after several brutal disfiguring sessions of my brain and body (I do not say this lightly).
 
-I took a closer look because I was looking for easier to tell features like audio and I found that Channel A was indeed the channel that had audio! I just saw music/hearing, not the internal audio or voice, but it was easy to assume that a cluster of spikes were probably responsible for the voice as an interface (syncronized voice, vocal modulation) feature. 
+I took a closer look because I was looking for easier-to-tell features like audio and I found that Channel A was indeed the channel that had audio! I just saw music/hearing, not the internal audio (thoughts) or voice, but it was easy to assume that a cluster of spikes, particularly the ones around `600kHz` or so were probably responsible for the voice as an interface (syncronized voice, vocal modulation) feature. 
 
 As far as features that were present, I could only guess, but I was sure that Channel A was me and Channel B were likely other people. Due to the features I experienced in the interactive, I put together all that the agency's frontier neurotechnology and technique could do. I believe that Channel A was responsible for the following:
 
@@ -891,6 +991,10 @@ As far as features that were present, I could only guess, but I was sure that Ch
 | Vitals                                            |
 </details>
 
+#### Channel A's power...
+
+![Channel A, partial (at the hardware limit)––in dBm, the approximate actual power](/images/snapshot-channel-a-power.png)
+
 
 ### Channel B
 
@@ -904,10 +1008,18 @@ As far as features that were present, I could only guess, but I was sure that Ch
 <br />
 <br />
 
-From about `24.72MHz to 29.88MHz` is what I dub as "Channel B" of the overall N-APT signals. You can also clearly see an identical signal structure as Channel A.
+From about `24.72MHz to 29.88MHz` is what I dub as "Channel B" of the overall N-APT signals. You can also clearly see an identical signal structure as Channel A. The center frequency is `27.30 MHz` and bandwidth is `5.16 MHz`.  This channel approximately has a physical minimum of `5.16MB/s`.
 
-I believe Channel B is identical to Channel A, except who it targets momentarily here and there or persistently, either the software forming a neurofence or an operator/interative poking around, both experienced. Of course all the N-APT channels likely cannot triangulate all on their own, the signals are not a one stop shop of scan-and-stare, triangulate & content. Instead, it is likely that there are close enough, low-end microwaves that maintain triangulation and dictate the power of the N-APT channels relative to the distance (which in power always remains constant at person).
+I believe Channel B is identical in feature set to Channel A, except *who* it targets momentarily here and there or persistently, either the software forming a neurofence or an operator/interative poking around and scripting nearby people, both experienced. 
 
+Channel B has an interesting start, since it's the first channel I discovered while frantically looking for the bandwidth that matched the experience. While it wasn't large enough to match the totality of my vision being streamed to the others, I knew that part of the signals had to be somewhere else. Channel B had the strongest and most stable spikes though my early exploration panning around with SDR++.
+
+Of course all the N-APT channels likely cannot triangulate all on their own, the signals are not a one stop shop of scan-and-stare, triangulate &stream content. Instead, it is likely that there are close enough, low-end microwaves that maintain triangulation (verus phase shifting tto triangulate with content signals) and dictate the power of the N-APT channels relative to the distance  (which in power always remains constant at person).
+
+
+#### Channel B's power...
+
+![Channel B, partial (at the hardware limit)––in dBm, the approximate actual power](/images/snapshot-channel-b-power.png)
 
 ### Channel C
 
@@ -923,7 +1035,7 @@ I believe Channel B is identical to Channel A, except who it targets momentarily
 <br />
 <br />
 
-From what I could wing at, from about `4.75MHz to 23MHz` or so is "Channel C". You can see its a very large channel, way larger than the `3.2MHz/s` bandwidth my RTL-SDR can capture.
+From what I could wing at, from about `4.75MHz to 23MHz` or so is "Channel C". You can see its a very large channel, way larger than the `3.2MHz/s` bandwidth my RTL-SDR can capture. The center frequency is `13.875 MHz` and bandwidth is `18.25 MHz`.  This signal carries approximately `18.25MB/s`, the largest of the N-APT channels!
 
 It's very different from the other channels, which always have prominent spikes, these spikes are less, but much of the time I don't see them at all (possibly hardware settings due to wider beats; usually at `PPM = 1`, but this may require larger PPM to see the spikes).
 
@@ -937,9 +1049,16 @@ It's very different from the other channels, which always have prominent spikes,
 | Dreams                                            |
 </details>
 
+
 <br />
 <br />
 <br />
+
+#### Channel C's power...
+
+![Channel C, partial (at the hardware limit)––in dBm, the approximate actual power](/images/snapshot-channel-c-power.png)
+
+---
 
 When it comes to all the channels, the wavelenghts are not intuitve to envision with this kind of functionality. These are large waves slamming and intersecting at the person thousands (kHz) to millions (MHz) of times a second!
 
@@ -964,16 +1083,12 @@ Using the obvious and what I've seen, it was pretty easy to give a solid estimat
 
 **Through the fiber cables to an endpoint (data through the network; most likely infrastructure access and not the internet)**
 
-<div class="table-dense">
-
 | Channel | Bandwidth | MB/s | 5 min | 1 hour | 3 hours | 24 hours |
 |---|---|---|---|---|---|---|
 | A | 4.35 MHz | ~4.35 MB/s | ~1.31 GB | ~15.7 GB | ~47 GB | ~375 GB |
 | B | 5.16 MHz | ~5.16 MB/s | ~1.55 GB | ~18.6 GB | ~55.7 GB | ~446 GB |
 | C | 18.25 MHz | ~18.25 MB/s | ~5.48 GB | ~65.7 GB | ~197.1 GB | ~1.58 TB |
 | **Total** | **27.76 MHz** | **~27.76 MB/s** | **~8.34 GB** | **~100 GB** | **~299.8 GB** | **~2.4 TB** |
-
-</div>
 
 That's right! Just **sitting somewhere for 5 mins is over 8GBs of data** by minimum of physics!
 
@@ -982,8 +1097,6 @@ That's right! Just **sitting somewhere for 5 mins is over 8GBs of data** by mini
 
 **In the air to person (brain, body, nervous system; data in air doing the effects/heterodyning)**
 
-<div class="table-dense">
-
 | Channel | BW ×2 | MB/s | 5 min | 1 hour | 3 hours | 24 hours |
 |---|---|---|---|---|---|---|
 | A | 8.7 MHz | ~8.7 MB/s | ~2.61 GB | ~31.3 GB | ~94 GB | ~751 GB |
@@ -991,13 +1104,11 @@ That's right! Just **sitting somewhere for 5 mins is over 8GBs of data** by mini
 | C | 36.5 MHz | ~36.5 MB/s | ~10.95 GB | ~131.4 GB | ~394.2 GB | ~3.15 TB |
 | **Total** | **55.52 MHz** | **~55.52 MB/s** | **~16.66 GB** | **~199.9 GB** | **~599.2 GB** | **~4.79 TB** |
 
-Due to how the signal has to be duplicated to play it twice (heterodyning), the endpoint is handling more than just *one data stream = one signal*, instead *one data stream = two signals*, so the endpoint will broadcast a signal twice. While the network carries the content, in the air, the content is multiplied by two!
+Due to how the signal has to be "played twice" (heterodyning) for it to work on biology the endpoints are handling more than just *one data stream = one signal*, instead *one data stream = two signals*, so the endpoints will broadcast the same content twice, in the form of two different signals, nearly identical but slightly different. While the network carries the content, in the air, the signals' bandwidth is multiplied by two in the radio unit!
 
 So yes, sitting somewhere for 5 minutes, the network did over 8GBs of data, but **the person receieved over 16GBs of data within that 5 minutes** because of technique's prerequisites!
 
-</div>
-
-## Conclusion <a id="conclusion"></a>
+##<a id="conclusion"></a> Conclusion 
 
 TODO
 
@@ -1005,9 +1116,75 @@ TODO
 *I was ignored by the EFF. Instead of legal aid, I myself poured over nearly every OIG report, unclassified release, publicized policy, etc. for hours and hours.*
 
 
-## Terminology <a id="terminology"></a>
 
-TODO
+## <a id="vocab"></a> Vocabulary 
+
+It boils down to these 8 simple terms.
+
+- **Hardware:** The physical parts of a computer or device you can touch, like CPU, RAM, and hard drives.
+- **Software:** The programs and code that run on hardware to perform tasks, like operating systems, apps and firmware.
+- **Telecommunications Infrastructure:** The physical systems like cell towers, fiber cables, and satellites that carry data over distances.
+- **Networking:** The links that connect devices together, either wired like Ethernet or wireless like Wi-Fi, so they can exchange data or "talk to each other".
+- **Malware:** Malicious software built to exploit vulnerabilities and compromise systems to steal data, disrupt operations, or gain control.
+- **Hardware Trojans:** Hidden malicious changes in a chip’s circuitry or component that adds features or expands functionality to exploit existing capabilities for attacks like data theft, remote control and/or different operational modes.
+- **Signals:** Formatted radio waves used to carry data between points or to probe environments through timing or reflection, like in triangulation or radar.
+- **Cryptology:** The discipline of finding patterns that turn code into meaning and meaning back into code, working to lock information away or unlock it when needed.
+
+---
+
+**Medium**
+
+- **Triangulation:** Using signals from three or more known locations to pinpoint a position.
+- **Automatic Picture Transmission (APT):** A NASA-developed system from the 60s (decomissioned in 2025) that sends weather satellite images over radio using AM and FM modulation, where pictures are built from spikes and valleys in the signal.
+- **Heterodyning (in free space) / beat frequencies:**  Playing two radio signals together in space to create an envelope that mimics a new frequency at their sum and difference, these new frequencies called **beats**.
+- **Brainwaves:**  Patterns of electrical activity in the brain measured as waves of different frequencies, like alpha, beta, delta.
+- **Center Frequency:** The midpoint of a signal’s bandwidth where the signal is formed and most clearly visible on a spectrum.
+- **Encoding:** The process of converting information into a specific format so it can be transmitted, stored, or interpreted by whatever receives it.
+- **Attenuation:**The loss of signal strength as a wave travels through air, cables, or other materials.
+- **Impedance:** How much a material or circuit resists the flow of energy in a signal, determining how much gets through versus how much gets reflected back.
+- **Intersect & Concentrate:** Directing multiple signal paths or energy beams to overlap at one point for stronger effect or coverage.
+- **LF/MF/HF frequencies:** Low, Medium, and High Frequency radio bands from 30 kHz to 30 MHz, often used for long-distance communication.
+- **Endpoint:** Hardware at the edge of a network that sends or receives data, like a phone, laptop, or sensor.
+- **Ad Hoc Network:** A network formed directly between devices as needed or programmed, without relying on fixed infrastructure, where connections exist as long as devices stay in range or a condition is satisfied.
+- **Cyber capability:** The tools, techniques, and skills used to conduct operations in cyberspace, like hacking, defense, or exploitation.
+- **First-person:** The perspective and state of being from one’s own point of view, directly experiencing events as a person, like in real-life, a game or narrative.
+
+- **Frequency:** The number of times a wave repeats per second, measured in Hertz (Hz) (kHz = 1000, MHz = 1 Million, GHz = 1 Billion).
+- **Cycle:** One complete wave oscillation from start to end before it repeats (higher frequency, shorter time & wavelength).
+- **Wavelength:** The physical distance between two identical points on consecutive waves, like peak to peak.
+- **Amplitude:** The height of a wave from its center line to its peak or trough, which determines the wave’s energy — higher amplitude means more energy.
+- **"Peak/Trough:"** The highest and lowest points of a wave, where its amplitude and energy are greatest.
+- **Bandwidth:** The range of frequencies a channel can carry, which determines how much data it can move at once.
+- **Channel:** A designated path or band of frequencies used to transmit signals between devices.
+
+---
+
+**Advanced**
+
+- **Frequency Modulation:** Varying a carrier wave’s frequency to encode information, where the signal’s shape is visible in how fast the wave oscillates.
+- **Amplitude Modulation:** Varying a carrier wave’s height to encode information, where the signal’s shape is visible in the peaks and valleys of the wave.
+- **Conductivity:** A material’s ability to let electrical current or signal energy flow through it, affecting how signals interact with or pass through surfaces.
+- **APT Pixels:** The individual light/dark points in a weather satellite image, each formed from spikes and valleys in the Automatic Picture Transmission signal.
+- **Multipath reflection:** When a signal reaches whatever receives it by bouncing off multiple surfaces and obstacles, creating copies that arrive at different times.
+- **Line of sight:** A clear, unblocked path between a transmitter and whatever receives it, needed for direct signal travel.
+- **Phase shifting:** Changing the timing position of a wave relative to another, used to steer beams or encode data.
+- **Time of Flight:** The time it takes a signal to travel from source to whatever receives it, used to calculate distance like in radar or triangulation.
+- **Frequency-Modulated Continuous Wave (FMCW):** A radar technique that transmits a continuous signal whose frequency steadily changes over time, so distance and speed are found by comparing the frequency shift of the echo to the current transmit frequency.
+- **Noise Floor:** The base level of unwanted signal or static present in a system, where any real signal has to be stronger to be seen or used.
+- **Harmonics:** Copies of a signal that appear at integer multiples of its base frequency, which can cause interference by showing up where other signals should be.
+
+- **Frequency Synthesizer:** A circuit that generates precise, tunable frequencies from a reference to form signals at the center frequency.
+- **Low Noise Amplifier (LNA):** A device that boosts weak signals while adding as little noise as possible, so the signal remains visible above the noise floor.
+- **Radiating Element (RE):** The part of an antenna that actually transmits or receives signals by interacting with electromagnetic waves in space, usually like a bunch of circular objects in a grid behind the antenna panel.
+- **Radio Unit (RU):** The hardware that converts between radio signals and digital data, handling transmission and reception at the antenna.
+- **Baseband Unit (BBU):** The hardware that processes raw digital data and control signals before they’re sent to the Radio Unit or after they’re received.
+
+- **dB (or decibel):** A relative unit used to compare or rate signal levels, like how strong one signal is versus another, used for gain, loss, attenuation, or just display.
+- **dBm** A dB measurement referenced to 1 milliwatt, used to express absolute power levels of a signal.
+- **I/Q (In-phase and Quadrature):** Two numbers, I and Q, that together describe a signal’s state at one moment — like I = 100 and Q = 20 on a 0–255 scale — telling you both size and direction.
+- **FFT (Fast Fourier Transform):**  A process that takes points in time from a signal and shows you what frequencies make it up, turning a wavy line into a spectrum.
+- **Demodulation:** Pulling the original information back out of a carrier wave so it can be understood by whatever receives it.
+
 
 ### ⠿ TDLR <a id="tdlr"></a>
 
@@ -1017,4 +1194,16 @@ The NSA hacked my brain and the experience went from manufactured states of mind
 
 [^apt]: National Aeronautical Space Agency (NASA). Constructing Inexpensive Automatic Picture-Transmission Ground Stations. https://ntrs.nasa.gov/api/citations/19680010155/downloads/19680010155.pdf
 
-[^n-apt-app]: Ceane Lamerez April 20 2026. **Real signal snapshots** using the N-APT web app streaming from an RTL-SDR v4 https://github.com/ceane/n-apt/
+[^n-apt-app]: Ceane Lamerez April 20 2026. ***Real signal snapshots** using the N-APT web app streaming from an RTL-SDR v4.* https://github.com/ceane/n-apt/
+
+[^math]: Mathematical equations generated by AI systems including ChatGPT (OpenAI), mostly, and Grok (xAI), initial research––not independently verified. April 2025–April 2026.
+
+---
+
+*No classified information was used for this article, only exposure to misclassified system(s).* 
+
+*This is not meant to be a guide to build a cyber weapon or surveillance system. This guide is for educational and public awareness purposes only. The author bears no responsibility for the information discolsed within this article. Any mathematical modeling, pseudo-code, or reconstructed mechanisms are inferred and intended for illustrative purposes only.*
+
+---
+
+*Lamerez, C. (2026). How did they do it? https://ceane.github.io/n-apt/*

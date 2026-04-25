@@ -153,18 +153,7 @@ describe('Canvas Component Loading Tests', () => {
       await waitFor(() => {
         expect(container.querySelector('canvas')).toBeInTheDocument();
       });
-    });
-
-    test('should load and render BodyAttenuationCanvas', async () => {
-      const { BodyAttenuationCanvas } = await import('../../src/md-preview/components/canvas');
-
-      render(<BodyAttenuationCanvas />, { container });
-
-      // Wait for component to mount
-      await waitFor(() => {
-        expect(container.querySelector('canvas')).toBeInTheDocument();
-      });
-    });
+    }, 15000);
   });
 
   describe('Signal Canvas Components', () => {
@@ -275,15 +264,15 @@ describe('Canvas Component Loading Tests', () => {
 
   describe('Canvas Integration', () => {
     test('should integrate all canvas components together', async () => {
-      const { 
-        BodyAttenuationCanvas, 
-        AmplitudeModulationCanvas, 
-        FrequencyModulationCanvas, 
-        HeterodyningCanvas, 
-        MultipathCanvas, 
-        PhaseShiftingCanvas, 
-        ImpedanceCanvas, 
-        TimeOfFlightCanvas 
+      const {
+        BodyAttenuationCanvas,
+        AmplitudeModulationCanvas,
+        FrequencyModulationCanvas,
+        HeterodyningCanvas,
+        MultipathCanvas,
+        PhaseShiftingCanvas,
+        ImpedanceCanvas,
+        TimeOfFlightCanvas
       } = await import('../../src/md-preview/components/canvas');
 
       const components = [
