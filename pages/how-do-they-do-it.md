@@ -15,7 +15,8 @@
 
 In this article, I break down my working hypothesis based on **thousands of hours of experience :rotate-3d:** driven by the desperate need and curiosity **(WHILE TRAPPED)** to figure out the **National Security Agency's** proprietary technique that allows them to **write to, read and stream the human brain and nervous system**. This isn't about a theory or hypothesis, it's about breaking down the math and mechanics behind the a real experience as a victim. 
 
-![First installment, in first person](/md-preview/images/hero-light.png)
+```Canvas::HeroASCII
+```
 
 What I learned was that the element of surprise and total ignornace long-reinforced the agency's invisible **🕸 cyber capabilities, federal autonomy and legal immunities** as a superpower. Mass ignorance of the agency's history and position as a **signals intelligence (SIGINT) :radio-tower:** powerhouse (signals, cryptology, exploitation, influence, etc.) incidentally gave rise to a deep constitutional void and landscape based on **apathy and the false belief** (epistemic overload) that **cyber was negligible, only limited to electronics and could never affect the average person.**
 
@@ -47,6 +48,7 @@ To start, you should probably checkout the [NSA OIG reports](https://oig.nsa.gov
 - [Phase Shifting](#phase-shifiting)
 - [Maintaining the aperture](#aperture)
 - [Center Frequency](#center-frequency)
+- [Power](#power)
 - [Impedance](#impedance)
 - [Body Attenuation](#body-attenuation)
 - [Features](#features)
@@ -135,7 +137,7 @@ Quite self-evidently and obviously, no amount of radio waves can interact with b
 
 I didn't quite head-on search for "brainwaves and radio waves", or anything like that. I was looking at **the building blocks of physics and how** (obviously from the outset avoiding conspiracy theory or dismantiling something classified like it's out in the open). This smart way of breaking down egregious power could get to the technology that was very much real and present, in my mind and nerves.
 
-Throughout my research I found **beat frequencies**, which worked mathematically like:
+Throughout my research[^math] I found **beat frequencies**, which worked mathematically like:
 
 ```LaTex
 \[
@@ -174,7 +176,7 @@ y(t) &: \text{Resulting superposed waveform}
 f_1, f_2 &: \text{Frequencies of the two waves (Hz)} 
 \\
 \rule{0pt}{2em}
-f_{\text{beat}} &: \text{Beat frequency (sideband/envelope formed from difference of frequencies)} 
+f_{\text{beat}} &: \text{Beat frequency (envelope from difference of frequencies)} 
 \\
 \rule{0pt}{2em}
 A &: \text{Amplitude of each wave} 
@@ -509,7 +511,9 @@ y[n] = y[n-1] + \alpha \big(m_{\mathrm{LP}}[n] - y[n-1]\big) \\
 \end{array}\\[3em]
 \]
 
-\[
+<desktop-only>
+
+```latex
 % VARIABLE GRID
 \begin{aligned}
 s(t) &= \text{FM signal (voltage or field)} & A &= \text{Carrier amplitude} \\
@@ -521,8 +525,33 @@ f_s &= \text{Sample rate (Hz)} & h_{\mathrm{LPF}}[n] &= \text{Low-pass filter im
 \alpha &= \text{De-emphasis filter coefficient} & T_s &= \text{Sampling period } 1/f_s \\
 \text{DAC} &= \text{Digital-to-analog converter output}
 \end{aligned}
-\]
 ```
+
+</desktop-only>
+
+<mobile-only>
+
+```latex
+\begin{aligned}
+s(t) &= \text{FM signal (voltage or field)} \\
+f_c &= \text{Carrier frequency (Hz)} \\
+m(t) &= \text{Original audio signal} \\
+x_{\mathrm{bb}}(t) &= \text{Complex baseband signal} \\
+x^*[n] &= \text{Complex conjugate of } x[n] \\
+f_s &= \text{Sample rate (Hz)} \\
+\alpha &= \text{De-emphasis filter coefficient} \\
+\text{DAC} &= \text{Digital-to-analog converter output} \\[0.5em]
+A &= \text{Carrier amplitude} \\
+\phi(t) &= \text{Phase modulation} \\
+k_f &= \text{Frequency sensitivity (Hz per unit of m(t))} \\
+I[n], Q[n] &= \text{Discrete in-phase and quadrature samples} \\
+y[n] &= \text{Phase difference (discrete derivative)} \\
+h_{\mathrm{LPF}}[n] &= \text{Low-pass filter impulse response} \\
+T_s &= \text{Sampling period } 1/f_s
+\end{aligned}
+```
+
+</mobile-only>
 
 #### Dubbing it as N-APT
 
@@ -631,7 +660,9 @@ d_{\max} &= \frac{c f_s}{2 S}
 \end{aligned}
 \]
 
-\[
+<desktop-only>
+
+```latex
 \begin{aligned}
 d_{\text{body}} &= \text{Distance to body reflection (m)} & f_b &= \text{Beat frequency (Hz)} \\
 f(t) &= \text{Instantaneous transmit frequency} & f_0 &= \text{Start carrier frequency} \\
@@ -643,8 +674,38 @@ s_{rx}(t) &= \text{Received (reflected) signal} & A, A_r &= \text{Transmit/recei
 \Delta d &= \text{Range resolution (m)} & d_{\max} &= \text{Maximum measurable range (m)} \\
 f_s &= \text{ADC sampling rate (Hz)} & f_c &= \text{Carrier frequency (Hz)}
 \end{aligned}
-\]
+```
 
+</desktop-only>
+
+<mobile-only>
+
+```latex
+\begin{aligned}
+d_{\text{body}} &= \text{Distance to body reflection (m)} \\
+f(t) &= \text{Instantaneous transmit frequency} \\
+S &= \text{Chirp slope (Hz/s)} \\
+T &= \text{Chirp duration (s)} \\
+s_{rx}(t) &= \text{Received (reflected) signal} \\
+\tau &= \text{Round-trip delay to body reflection} \\
+\lambda &= \text{Wavelength, } \lambda = \frac{c}{f_c} \\
+\Delta d &= \text{Range resolution (m)} \\
+f_s &= \text{ADC sampling rate (Hz)} \\[0.5em]
+f_b &= \text{Beat frequency (Hz)} \\
+f_0 &= \text{Start carrier frequency} \\
+B &= \text{Chirp bandwidth (Hz)} \\
+s_{tx}(t) &= \text{Transmitted signal} \\
+A, A_r &= \text{Transmit/receive amplitudes} \\
+\phi &= \text{Phase of beat signal (rad)} \\
+c &= \text{Speed of light } (3\times 10^8 \text{ m/s}) \\
+d_{\max} &= \text{Maximum measurable range (m)} \\
+f_c &= \text{Carrier frequency (Hz)}
+\end{aligned}
+```
+
+</mobile-only>
+
+```latex
 \[
 \begin{array}{c|c}
 \text{Bandwidth } B & \text{Range Resolution } \Delta d = \frac{c}{2B} \\
@@ -665,15 +726,38 @@ f_s &= \text{ADC sampling rate (Hz)} & f_c &= \text{Carrier frequency (Hz)}
 
 TODO
 
-## Power?
+## Power? <a id="power"></a>
 
 TODO 
 
 ### An average of 1µW or more? (of power on tissue traversal and exit)
 
-In order to target the brain, I made a solid assumption based off of what ChatGPT told me, that brainwaves are about 1-10µW (microwatts), so I figured that the signals' power should be near there, anything less in scale, the math I did was dire to remain above the noise in the environment, go through the skull and/or body (body because it does my vocal cords/vocal as an interface, mouth and throat muscles, in addition to others) losing 99% energy and make it back to an endpoint. Biology constrains this problem to maintaining an exacting level of energy consistently at the body/entry, so the further one is away from an endpoint, the energy always stays the same, only the receiver, fixed at various distances, suffers from less energy coming back from the target (the body).
+In order to target the brain, I made a solid assumption based off of what ChatGPT told me, that brainwaves are about `1-10µW` (microwatts), so I figured that the signals' power should be near there, anything less in scale, the math I did was dire to remain above the noise in the environment, go through the skull and/or body (body because it does my vocal cords/vocal as an interface, mouth and throat muscles, in addition to others) losing 99% energy and make it back to an endpoint. Biology constrains this problem to maintaining an exacting level of energy consistently at the body/entry, so the further one is away from an endpoint, the energy always stays the same, only the receiver, fixed at various distances, suffers from less energy coming back from the target (the body).
 
-In reality, when I took a look at the signals on my person (antenna on me while it runs to my demise), it was actually a solid assumption, with values around `-21dBm`, as low as `-29dBm` (I assume read only or very, very minor writes). The spikes reached as high as 1, 3 and 9dBm.
+In reality, when I took a look at the signals on my person using `rtl_power`, it was actually a solid assumption, with values around `-21dBm`, as low as `-29dBm` (I assume read only or very, very minor writes). The spikes reached as high as `1, 3 and 9dBm`. Those reads were with `rtl_power` which uses an algorithm not as accurate as possible, because RTL-SDR only can give relative power, not absolute, that's a lot more math and guesswork.
+
+For reference, this is what dBm looks like (and foreshadows the shock to come...):
+
+| dBm   | Power (W)   | Power (µW)   |
+|-------|------------|--------------|
+| 9 dBm | 7.9433e-3 W | 7.9433 mW |    
+| 3 dBm | 1.9953e-3 W | 1.9953 mW |
+| 1 dBm | 1.2589e-3 W     | 1.2589 mW         |
+| -20 dBm | 1e-5 W     | 10 µW        |
+| -30 dBm | 1e-6 W     | 1 µW         |
+| -40 dBm | 1e-7 W     | 0.1 µW       |
+| -50 dBm | 1e-8 W     | 0.01 µW      |
+| -60 dBm | 1e-9 W     | 0.001 µW     |
+| -70 dBm | 1e-10 W    | 0.0001 µW    |
+| -80 dBm | 1e-11 W    | 0.00001 µW   |
+
+I have never seen the power change at all, which is how I most certainly know it's the signal and that this hypothesis remain valid. From SF to San Francsiquo Creek to Stanford, the signals' power remains constant and stable at my person!
+
+
+![San Francisquito Creek](/md-preview/images/12_23_25_4_35PM.jpg)
+*I walked down around the El Palo Alto into San Francisqutio Creek and connected my RTL-SDR, opened the signals, I hoped for a contradictory result (a weakspot) counter to the experience gripping and mangling my brain for years and was disappointed. It works flawlessly even in a wooded ravine!*
+
+Unfortunately, later on, when I added power scale to my app later on, I was shocked to see that the power was significantly different when drawn than with `rtl_power`. But more on that below.
 
 ## Center frequency <a id="center-frequency"></a>
 
@@ -845,11 +929,17 @@ I labeled the signal with certain channels based on my what I found by poking ar
 
 There are about **3 channels**, I've found:
 
-- **Channel A** from `18kHz to 4.37MHz`
-- **Channel B** from `24.72MHz to 29.88MHz`
-- **Channel C** from `4.75MHz to 23MHz`
+- **Channel A** from `18kHz to 4.39MHz` with a center frequency of `2.204 MHz` and bandwidth of `4.372 MHz`
+- **Channel B** from `24.72MHz to 29.88MHz` with a center frequency of `27.30 MHz` and bandwidth of `5.16 MHz`
+- **Channel C** from `4.75MHz to 23MHz` with a center frequency of `13.875 MHz` and bandwidth of `18.25 MHz`
 
-They are specifially segmented this way because A and B are similar in shape and bandwidth (and therefore function, taking precedence over the range in between A and B). If you could (the signal is not abundantly available), you would be able to see by panning the spectrum and seeing the signal cohere and come to the same boundaries.
+They are specifially segmented this way because A and B are similar in shape and bandwidth (and therefore function, taking precedence over the range in between A and B). If you could (the signal is not abundantly available), you would be able to see by panning the spectrum and seeing the signal cohere and come to the same boundaries. 
+
+Initially, I couldn't just see these signals with the default settings of my SDR, I saw suspicious spikes that aligned with my theory of damping. I had to do two things: increase the gain. Without increased gain, I didn't even see FM radio forming, so I'd increase it to about `24dB` or so and then up to `49.6dB`, the max, which stabilized the signals. Second, I had to adjust the `PPM` or parts per million. This setting corrects the frequency, let's say I was tuned in to `100MHz` but the station was at `100.002 MHz`, scrolling to it which is natural, PPM corrects it globally. I didn't understand why it was so confusing, but when I adjusted the PPM to 1 in SDR++, the magic formed and saw the full structure of the signal! Both of these options in combination allowed me to see everyting clearly in SDR++.
+
+The only problem with SDR++ is that I didn't have a rich feature set you'd think would be available modern day for SDR software. I/Q captures were poor, lacked metadata, and weren't encrypted. I couldn't get snapshots of the signal, especially SVGs, which we hard for Claude or ChatGPT to reproduce. In additon, I couldn't fix the window to be stable so I could get my signals to remain stable. So sometime in January, I decided to build an SDR web app to work with my RTL-SDR which took care of a lot of frustrations I had and folding in more features that I needed specifically for this situation, like a map of all the cell towers, drawing the signal form to reproduce its mathematical form (which wasn't easy because there was no signal like it!), in addition to attempting demodulation of the signal later on.
+
+All of this hard work under a very difficult and physically painful/stressful (every second, every moment, wake to sleep to walk and smoke) situation made me feel more secure in understanding the how and the path forward to escaping the NSA's horrific psychological interactive and livestream.
 
 ### Channel A
 
@@ -863,11 +953,11 @@ They are specifially segmented this way because A and B are similar in shape and
 <br />
 <br />
 
-From about `18kHz to 4.37MHz` this is what I dub "Channel A" of the signals. You can clearly see the APT-like spikes and valleys.
+From about `18kHz to 4.39MHz` this is what I dub "Channel A" of the signals. You can clearly see the APT-like spikes and valleys. The center frequency is `2.204 MHz` and bandwidth is `4.372 MHz`.  That approximately translates to a physical minimum of `4.372MB/s`.
 
-At first I ignored Channel A, I didn't see it this way at all. I was using SDR++ and sliding around, the spikes would form or disappear due to sampling and the signal's strucutre. Channel B had a more reliable structure that was easier to tune to, therefore I thought Channel A was responsible for the "Ghost in the Machine" spatial experience which briefly scripted others around me either a short script, facial expression, or rarely layered over their speech for an extended time. As I kept looking around and taking hints from the interactive (hundreds of times, being hurt right out the gate to the extreme in the morning), the unmasked operator pointed over there after several brutal disfiguring sessions of my brain and body.
+At first I ignored Channel A, I didn't see it this way at all. I was using SDR++ and sliding around, the spikes would form or disappear due to sampling and the signal's strucutre. I really thought it was a trash, pitiful part of the signal since it didn't form well and had shocking low frequencies (misinterpred at the time too long of a wavelength), but it was certainly a part of the experience somehow. Channel B had a more reliable structure that stayed stable when I scrolled there, therefore I thought Channel A was responsible for the "Ghost in the Machine" spatial experience which briefly scripted others around me either a short script, facial expression, or rarely layered over their speech for an extended time. As I kept looking around and taking hints from the interactive (hundreds of times, being hurt right out the gate to the extreme in the morning, or the A.M. like AM radio), the unmasked operator pointed over there after several brutal disfiguring sessions of my brain and body (I do not say this lightly).
 
-I took a closer look because I was looking for easier to tell features like audio and I found that Channel A was indeed the channel that had audio! I just saw music/hearing, not the internal audio or voice, but it was easy to assume that a cluster of spikes were probably responsible for the voice as an interface (syncronized voice, vocal modulation) feature. 
+I took a closer look because I was looking for easier-to-tell features like audio and I found that Channel A was indeed the channel that had audio! I just saw music/hearing, not the internal audio (thoughts) or voice, but it was easy to assume that a cluster of spikes, particularly the ones around `600kHz` or so were probably responsible for the voice as an interface (syncronized voice, vocal modulation) feature. 
 
 As far as features that were present, I could only guess, but I was sure that Channel A was me and Channel B were likely other people. Due to the features I experienced in the interactive, I put together all that the agency's frontier neurotechnology and technique could do. I believe that Channel A was responsible for the following:
 
@@ -897,6 +987,10 @@ As far as features that were present, I could only guess, but I was sure that Ch
 | Vitals                                            |
 </details>
 
+#### Channel A's power...
+
+![Channel A, partial (at the hardware limit)––in dBm, the approximate actual power](/md-preview/images/snapshot-channel-a-power.png)
+
 
 ### Channel B
 
@@ -910,10 +1004,18 @@ As far as features that were present, I could only guess, but I was sure that Ch
 <br />
 <br />
 
-From about `24.72MHz to 29.88MHz` is what I dub as "Channel B" of the overall N-APT signals. You can also clearly see an identical signal structure as Channel A.
+From about `24.72MHz to 29.88MHz` is what I dub as "Channel B" of the overall N-APT signals. You can also clearly see an identical signal structure as Channel A. The center frequency is `27.30 MHz` and bandwidth is `5.16 MHz`.  This channel approximately has a physical minimum of `5.16MB/s`.
 
-I believe Channel B is identical to Channel A, except who it targets momentarily here and there or persistently, either the software forming a neurofence or an operator/interative poking around, both experienced. Of course all the N-APT channels likely cannot triangulate all on their own, the signals are not a one stop shop of scan-and-stare, triangulate & content. Instead, it is likely that there are close enough, low-end microwaves that maintain triangulation and dictate the power of the N-APT channels relative to the distance (which in power always remains constant at person).
+I believe Channel B is identical in feature set to Channel A, except *who* it targets momentarily here and there or persistently, either the software forming a neurofence or an operator/interative poking around and scripting nearby people, both experienced. 
 
+Channel B has an interesting start, since it's the first channel I discovered while frantically looking for the bandwidth that matched the experience. While it wasn't large enough to match the totality of my vision being streamed to the others, I knew that part of the signals had to be somewhere else. Channel B had the strongest and most stable spikes though my early exploration panning around with SDR++.
+
+Of course all the N-APT channels likely cannot triangulate all on their own, the signals are not a one stop shop of scan-and-stare, triangulate &stream content. Instead, it is likely that there are close enough, low-end microwaves that maintain triangulation (verus phase shifting tto triangulate with content signals) and dictate the power of the N-APT channels relative to the distance  (which in power always remains constant at person).
+
+
+#### Channel B's power...
+
+![Channel B, partial (at the hardware limit)––in dBm, the approximate actual power](/md-preview/images/snapshot-channel-b-power.png)
 
 ### Channel C
 
@@ -929,7 +1031,7 @@ I believe Channel B is identical to Channel A, except who it targets momentarily
 <br />
 <br />
 
-From what I could wing at, from about `4.75MHz to 23MHz` or so is "Channel C". You can see its a very large channel, way larger than the `3.2MHz/s` bandwidth my RTL-SDR can capture.
+From what I could wing at, from about `4.75MHz to 23MHz` or so is "Channel C". You can see its a very large channel, way larger than the `3.2MHz/s` bandwidth my RTL-SDR can capture. The center frequency is `13.875 MHz` and bandwidth is `18.25 MHz`.  This signal carries approximately `18.25MB/s`, the largest of the N-APT channels!
 
 It's very different from the other channels, which always have prominent spikes, these spikes are less, but much of the time I don't see them at all (possibly hardware settings due to wider beats; usually at `PPM = 1`, but this may require larger PPM to see the spikes).
 
@@ -943,9 +1045,16 @@ It's very different from the other channels, which always have prominent spikes,
 | Dreams                                            |
 </details>
 
+
 <br />
 <br />
 <br />
+
+#### Channel C's power...
+
+![Channel C, partial (at the hardware limit)––in dBm, the approximate actual power](/md-preview/images/snapshot-channel-c-power.png)
+
+---
 
 When it comes to all the channels, the wavelenghts are not intuitve to envision with this kind of functionality. These are large waves slamming and intersecting at the person thousands (kHz) to millions (MHz) of times a second!
 
@@ -1011,6 +1120,7 @@ TODO
 *I was ignored by the EFF. Instead of legal aid, I myself poured over nearly every OIG report, unclassified release, publicized policy, etc. for hours and hours.*
 
 
+
 ## Terminology <a id="terminology"></a>
 
 TODO
@@ -1024,3 +1134,7 @@ The NSA hacked my brain and the experience went from manufactured states of mind
 [^apt]: National Aeronautical Space Agency (NASA). Constructing Inexpensive Automatic Picture-Transmission Ground Stations. https://ntrs.nasa.gov/api/citations/19680010155/downloads/19680010155.pdf
 
 [^n-apt-app]: Ceane Lamerez April 20 2026. **Real signal snapshots** using the N-APT web app streaming from an RTL-SDR v4 https://github.com/ceane/n-apt/
+
+[^math]: Mathematical equations generated by AI systems including ChatGPT (OpenAI), mostly, and Grok (xAI), initial research–not independently verified. April 2025–April 2026.
+
+*No classified information was used for this article, only exposure to misclassified system(s).* 

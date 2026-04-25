@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, lazy, Suspense } from "react";
 import styled, { createGlobalStyle, css, ThemeProvider } from "styled-components";
+import { Agentation } from "agentation";
 import { theme } from "@n-apt/md-preview/consts/theme";
 import ReactMarkdown from "react-markdown";
 import type { Components } from "react-markdown";
@@ -22,6 +23,7 @@ const TimeOfFlightCanvas = lazy(() => import("@n-apt/md-preview/components/canva
 const ImpedanceCanvas = lazy(() => import("@n-apt/md-preview/components/canvas").then(m => ({ default: m.ImpedanceCanvas })));
 const BodyAttenuationCanvas = lazy(() => import("@n-apt/md-preview/components/canvas").then(m => ({ default: m.BodyAttenuationCanvas })));
 const EndpointRangeCanvas = lazy(() => import("@n-apt/md-preview/components/canvas").then(m => ({ default: m.EndpointRangeCanvas })));
+const HeroAsciiCanvas = lazy(() => import("@n-apt/md-preview/components/canvas").then(m => ({ default: m.HeroAsciiCanvas })));
 import remarkBodyAttenuationBlocks from "@n-apt/md-preview/utils/remarkBodyAttenuationBlocks";
 import remarkTimeOfFlightBlocks from "@n-apt/md-preview/utils/remarkTimeOfFlightBlocks";
 import remarkSignalCanvasBlocks from "@n-apt/md-preview/utils/remarkSignalCanvasBlocks";
@@ -99,6 +101,19 @@ type LatexBlockProps = React.HTMLAttributes<HTMLElement> & {
   "data-expressions"?: string;
 };
 
+const DesktopOnly = styled.div`
+  @media (max-width: 768px) {
+    display: none;
+  }
+`;
+
+const MobileOnly = styled.div`
+  display: none;
+  @media (max-width: 768px) {
+    display: block;
+  }
+`;
+
 const LatexBlock: React.FC<LatexBlockProps> = ({ "data-expressions": serializedExpressions = "" }) => {
   const expressions = useMemo(() => decodeExpressions(serializedExpressions), [serializedExpressions]);
   const renderedExpressions = useMemo(
@@ -140,10 +155,10 @@ const LatexBlock: React.FC<LatexBlockProps> = ({ "data-expressions": serializedE
           return;
         }
 
-        expressionNode.style.height = "";
-        displayNode.style.height = "";
-        katexNode.style.transform = "";
-        katexNode.style.transformOrigin = "left top";
+        displayNode.style.overflow = "hidden";
+        displayNode.style.maxWidth = "100%";
+        expressionNode.style.overflow = "hidden";
+        expressionNode.style.maxWidth = "100%";
 
         const availableWidth = expressionNode.clientWidth;
         const requiredWidth = katexNode.scrollWidth;
@@ -152,9 +167,15 @@ const LatexBlock: React.FC<LatexBlockProps> = ({ "data-expressions": serializedE
         if (availableWidth > 0 && requiredWidth > availableWidth) {
           const scale = Math.max((availableWidth / requiredWidth) * 0.98, 0.58);
           katexNode.style.transform = `scale(${scale})`;
+          katexNode.style.transformOrigin = "left top";
           const scaledHeight = naturalHeight * scale;
-          displayNode.style.height = `${scaledHeight}px`;
-          expressionNode.style.height = `${scaledHeight}px`;
+          displayNode.style.height = `${scaledHeight + 4}px`;
+          expressionNode.style.height = `${scaledHeight + 4}px`;
+        } else {
+          katexNode.style.transform = "";
+          katexNode.style.transformOrigin = "";
+          displayNode.style.height = "";
+          expressionNode.style.height = "";
         }
       });
     };
@@ -329,7 +350,10 @@ const App: React.FC = () => {
     "endpoint-range-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder />}> <EndpointRangeCanvas {...props} /> </Suspense>,
     "triangulation-map-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder />}> <TriangulationMapCanvas {...props} /> </Suspense>,
     "triangulation-close-enough-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder />}> <TriangulationCloseEnoughCanvas {...props} /> </Suspense>,
+    "hero-ascii-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder />}> <HeroAsciiCanvas {...props} /> </Suspense>,
     "icon-inline": ({ node: _node, ...props }: any) => <IconInline {...props} />,
+    "desktop-only": ({ node: _node, children, ...props }: any) => <DesktopOnly {...props}>{children}</DesktopOnly>,
+    "mobile-only": ({ node: _node, children, ...props }: any) => <MobileOnly {...props}>{children}</MobileOnly>,
   }), []);
 
   return (
@@ -356,6 +380,8 @@ const App: React.FC = () => {
             <GiscusComments pageId={activeSource} />
           )}
         </ArticleContent>
+        {process.env.NODE_ENV === "development" &&
+          <Agentation endpoint="http://localhost:4747" />}
       </Page>
     </ThemeProvider>
   );
@@ -735,28 +761,36 @@ const LatexBlockContainer = styled.div`
 `;
 
 const LatexExpressionRow = styled.div`
-  width: 100%;
+  width: fit-content;
+  margin: 0 auto 1.25em;
   max-width: 100%;
   min-width: 0;
   overflow: hidden;
-  margin: 0 0 1.25em;
 
   &:last-child {
     margin-bottom: 0;
   }
 
   & > .katex-display {
-    width: 100%;
+
+    width: fit-content;
     max-width: 100%;
-    margin: 0;
-    overflow: hidden;
+    max-width: 100vw;
+    margin-left: auto;
+    margin-right: auto;
+    border: 1px solid orange;
     text-align: center;
-    font-size: 1.18em;
+    font-size: 1em;
   }
 
   & > .katex-display > .katex {
     display: inline-block;
     max-width: 100%;
+    font-size: 0.95em;
+
+    @media (max-width: 768px) {
+      font-size: 0.75em;
+    }
   }
 `;
 

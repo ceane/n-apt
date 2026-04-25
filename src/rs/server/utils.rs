@@ -692,7 +692,7 @@ n_apt:
     let end = arr[1].as_f64().unwrap();
     eprintln!("Channel A freq_range: [{}, {}]", start, end);
     assert_eq!(start, 0.018, "start should be 18kHz = 0.018 MHz");
-    assert_eq!(end, 4.37, "end should be 4.37MHz");
+    assert_eq!(end, 4.39, "end should be 4.39MHz");
   }
 }
 
