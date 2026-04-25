@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, lazy, Suspense } from "react";
 import styled, { createGlobalStyle, css, ThemeProvider } from "styled-components";
+import { Agentation } from "agentation";
 import { theme } from "@n-apt/md-preview/consts/theme";
 import ReactMarkdown from "react-markdown";
 import type { Components } from "react-markdown";
@@ -16,10 +17,13 @@ const FrequencyModulationCanvas = lazy(() => import("@n-apt/md-preview/component
 const HeterodyningCanvas = lazy(() => import("@n-apt/md-preview/components/canvas").then(m => ({ default: m.HeterodyningCanvas })));
 const MultipathCanvas = lazy(() => import("@n-apt/md-preview/components/canvas").then(m => ({ default: m.MultipathCanvas })));
 const PhaseShiftingCanvas = lazy(() => import("@n-apt/md-preview/components/canvas").then(m => ({ default: m.PhaseShiftingCanvas })));
+const TriangulationMapCanvas = lazy(() => import("@n-apt/md-preview/components/canvas/TriangulationMapCanvas"));
+const TriangulationCloseEnoughCanvas = lazy(() => import("@n-apt/md-preview/components/canvas/TriangulationCloseEnoughCanvas"));
 const TimeOfFlightCanvas = lazy(() => import("@n-apt/md-preview/components/canvas").then(m => ({ default: m.TimeOfFlightCanvas })));
 const ImpedanceCanvas = lazy(() => import("@n-apt/md-preview/components/canvas").then(m => ({ default: m.ImpedanceCanvas })));
 const BodyAttenuationCanvas = lazy(() => import("@n-apt/md-preview/components/canvas").then(m => ({ default: m.BodyAttenuationCanvas })));
 const EndpointRangeCanvas = lazy(() => import("@n-apt/md-preview/components/canvas").then(m => ({ default: m.EndpointRangeCanvas })));
+const HeroAsciiCanvas = lazy(() => import("@n-apt/md-preview/components/canvas").then(m => ({ default: m.HeroAsciiCanvas })));
 import remarkBodyAttenuationBlocks from "@n-apt/md-preview/utils/remarkBodyAttenuationBlocks";
 import remarkTimeOfFlightBlocks from "@n-apt/md-preview/utils/remarkTimeOfFlightBlocks";
 import remarkSignalCanvasBlocks from "@n-apt/md-preview/utils/remarkSignalCanvasBlocks";
@@ -27,6 +31,8 @@ import remarkIconShortcodes from "@n-apt/md-preview/utils/remarkIconShortcodes";
 import remarkLatexCodeBlocks from "@n-apt/md-preview/utils/remarkLatexCodeBlocks";
 import GiscusComments from "@n-apt/md-preview/components/GiscusComments";
 import { assetUrl, assetPageUrl } from "@n-apt/md-preview/utils/asset-helpers";
+import { registerMarkdownHotReload } from "@n-apt/md-preview/utils/hmr";
+import { CanvasHarness } from "@n-apt/md-preview/components/canvas/CanvasHarness";
 
 const LEGACY_CANVAS_IMPORT_PATH = "@n-apt/ts/components/canvas";
 
@@ -92,49 +98,22 @@ const renderDisplayExpression = (expression: string) => katex.renderToString(exp
   output: "html",
 });
 
-type HotModuleApi = {
-  on: (event: string, callback: (payload: { path?: string }) => void) => void;
-  off?: (event: string, callback: (payload: { path?: string }) => void) => void;
-};
-
-const getHotModuleApi = () => {
-  // Prefer using a test shim if present (test environment provides
-  // global.import.meta). This avoids referencing import.meta directly which
-  // causes a parse error in non-module Jest environments.
-  const shim = (globalThis as any).import?.meta?.hot as HotModuleApi | undefined;
-  if (shim) return shim;
-
-  // In real Vite dev, import.meta.hot is available. We access it via eval so
-  // the literal `import.meta` doesn't appear at module parse time (which
-  // would break Jest). Wrap in try/catch in case the runtime doesn't support
-  // import.meta.
-  try {
-    // Use an indirect eval (via the comma operator) to reduce chance of build
-    // tooling rewriting the literal. Some runtimes disallow direct import.meta
-    // usage inside eval, so guard this and return undefined if it throws.
-    // eslint-disable-next-line no-eval
-    const meta = (0, eval)("import.meta") as any;
-    if (__DEV__) {
-      try {
-        // eslint-disable-next-line no-console
-        console.debug("HMR: import.meta.hot present:", !!meta?.hot, "shim:", !!shim);
-      } catch { }
-    }
-    return meta?.hot as HotModuleApi | undefined;
-  } catch {
-    if (__DEV__) {
-      try {
-        // eslint-disable-next-line no-console
-        console.debug("HMR: import.meta access failed; HMR unavailable");
-      } catch { }
-    }
-    return undefined;
-  }
-};
-
 type LatexBlockProps = React.HTMLAttributes<HTMLElement> & {
   "data-expressions"?: string;
 };
+
+const DesktopOnly = styled.div`
+  @media (max-width: 768px) {
+    display: none;
+  }
+`;
+
+const MobileOnly = styled.div`
+  display: none;
+  @media (max-width: 768px) {
+    display: block;
+  }
+`;
 
 const LatexBlock: React.FC<LatexBlockProps> = ({ "data-expressions": serializedExpressions = "" }) => {
   const expressions = useMemo(() => decodeExpressions(serializedExpressions), [serializedExpressions]);
@@ -177,10 +156,8 @@ const LatexBlock: React.FC<LatexBlockProps> = ({ "data-expressions": serializedE
           return;
         }
 
-        expressionNode.style.height = "";
-        displayNode.style.height = "";
-        katexNode.style.transform = "";
-        katexNode.style.transformOrigin = "left top";
+        displayNode.style.maxWidth = "100%";
+        expressionNode.style.maxWidth = "100%";
 
         const availableWidth = expressionNode.clientWidth;
         const requiredWidth = katexNode.scrollWidth;
@@ -189,9 +166,15 @@ const LatexBlock: React.FC<LatexBlockProps> = ({ "data-expressions": serializedE
         if (availableWidth > 0 && requiredWidth > availableWidth) {
           const scale = Math.max((availableWidth / requiredWidth) * 0.98, 0.58);
           katexNode.style.transform = `scale(${scale})`;
+          katexNode.style.transformOrigin = "left top";
           const scaledHeight = naturalHeight * scale;
-          displayNode.style.height = `${scaledHeight}px`;
-          expressionNode.style.height = `${scaledHeight}px`;
+          displayNode.style.height = `${scaledHeight + 4}px`;
+          expressionNode.style.height = `${scaledHeight + 4}px`;
+        } else {
+          katexNode.style.transform = "";
+          katexNode.style.transformOrigin = "";
+          displayNode.style.height = "";
+          expressionNode.style.height = "";
         }
       });
     };
@@ -243,12 +226,17 @@ const LatexBlock: React.FC<LatexBlockProps> = ({ "data-expressions": serializedE
 const App: React.FC = () => {
   const [activeSource] = useState(DEFAULT_SOURCE);
   const [markdown, setMarkdown] = useState<string>("");
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  const fetchMarkdown = useCallback(async (path: string) => {
+  const fetchMarkdown = useCallback(async (path: string, bustCache = false) => {
     const normalizedPath = path.trim() || DEFAULT_SOURCE;
     const url = assetPageUrl(normalizedPath);
+    const requestUrl = bustCache ? `${url}${url.includes("?") ? "&" : "?"}t=${Date.now()}` : url;
     try {
-      const response = await fetch(url, { headers: { "Cache-Control": "no-cache" } });
+      const response = await fetch(requestUrl, {
+        headers: { "Cache-Control": "no-cache" },
+        cache: "no-store",
+      });
       if (response.ok) {
         const contentType = response.headers.get("content-type") ?? "";
         if (contentType.includes("text/html")) {
@@ -257,10 +245,12 @@ const App: React.FC = () => {
 
         const text = await response.text();
         setMarkdown(text);
+        setLoadError(null);
         return;
       }
-    } catch {
-      // Silently fail; UI will show fallback message
+      throw new Error(`Failed to fetch markdown: ${response.status} ${response.statusText}`);
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : "Could not load markdown");
     }
   }, []);
 
@@ -305,25 +295,17 @@ const App: React.FC = () => {
   }, [activeSource, fetchMarkdown]);
 
   useEffect(() => {
-    const hot = getHotModuleApi();
-    if (!hot) {
-      return;
-    }
-
     const handleUpdate = (payload: { path?: string }) => {
       if (!payload?.path) {
         return;
       }
       const normalized = payload.path.startsWith("/") ? payload.path : `/${payload.path}`;
       if (normalized === activeSource) {
-        void fetchMarkdown(activeSource);
+        void fetchMarkdown(activeSource, true);
       }
     };
 
-    hot.on("pages:update", handleUpdate);
-    return () => {
-      hot.off?.("pages:update", handleUpdate);
-    };
+    return registerMarkdownHotReload(handleUpdate);
   }, [activeSource, fetchMarkdown]);
 
   const markdownComponents = useMemo<Components>(() => ({
@@ -365,7 +347,19 @@ const App: React.FC = () => {
     "multipath-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder />}> <MultipathCanvas {...props} /> </Suspense>,
     "heterodyning-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder />}> <HeterodyningCanvas {...props} /> </Suspense>,
     "endpoint-range-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder />}> <EndpointRangeCanvas {...props} /> </Suspense>,
+    "triangulation-map-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder />}> <TriangulationMapCanvas {...props} /> </Suspense>,
+    "triangulation-close-enough-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder />}> <TriangulationCloseEnoughCanvas {...props} /> </Suspense>,
+    "hero-ascii-canvas": ({ node: _node, ...props }: any) => (
+      <CanvasHarness aspectRatio="16/9" showToggleDot={false} transparent>
+        <Suspense fallback={<CanvasPlaceholder />}>
+          <HeroAsciiCanvas {...props} />
+        </Suspense>
+      </CanvasHarness>
+    ),
     "icon-inline": ({ node: _node, ...props }: any) => <IconInline {...props} />,
+    "desktop-only": ({ node: _node, children, ...props }: any) => <DesktopOnly {...props}>{children}</DesktopOnly>,
+    "mobile-only": ({ node: _node, children, ...props }: any) => <MobileOnly {...props}>{children}</MobileOnly>,
+    table: ({ node: _node, ...props }) => <div className="table-dense"><table {...props} /></div>,
   }), []);
 
   return (
@@ -386,12 +380,14 @@ const App: React.FC = () => {
             rehypePlugins={[rehypeRaw, rehypeHighlight, rehypeKatex]}
             components={markdownComponents}
           >
-            {markdown || "_Fetching markdown…_"}
+            {loadError ? `# Could not load markdown\n\n${loadError}` : (markdown || "_Fetching markdown…_")}
           </ReactMarkdown>
           {!__DEV__ && activeSource && (
             <GiscusComments pageId={activeSource} />
           )}
         </ArticleContent>
+        {process.env.NODE_ENV === "development" &&
+          <Agentation endpoint="http://localhost:4747" />}
       </Page>
     </ThemeProvider>
   );
@@ -428,7 +424,7 @@ const ScrollToContents = styled.a`
   color: #9eaeff;
   text-decoration: none;
   font-size: 0.85rem;
-  background: rgba(40, 55, 128, 0.85);
+  background: rgba(255, 255, 255, 0.05);
   padding: 8px 12px;
   border-radius: 8px;
   border: 1px solid rgba(158, 174, 255, 0.2);
@@ -622,6 +618,9 @@ const ArticleContent = styled.article`
   }
 
   .table-dense {
+    width: 100%;
+    
+
     th, td {
       padding: 1rem .25rem;
       font-size: .75rem;
@@ -759,40 +758,46 @@ const CitationLinkWrapper: React.FC<InternalLinkProps> = ({ children, href, $cit
 
 const LatexBlockContainer = styled.div`
   display: grid;
+
   width: 100%;
   max-width: 100%;
   min-width: 0;
-  overflow: hidden;
+  overflow: visible;
   margin: 1.5em 0;
   will-change: transform, opacity;
-  content-visibility: auto;
-  contain-intrinsic-size: auto 100px;
   isolation: isolate;
 `;
 
 const LatexExpressionRow = styled.div`
-  width: 100%;
+  width: fit-content;
+  margin: 0 auto 1.25em;
   max-width: 100%;
   min-width: 0;
-  overflow: hidden;
-  margin: 0 0 1.25em;
+  overflow-x: auto;
+  overflow-y: visible;
 
   &:last-child {
     margin-bottom: 0;
   }
 
   & > .katex-display {
-    width: 100%;
+    width: fit-content;
     max-width: 100%;
-    margin: 0;
-    overflow: hidden;
+    max-width: 100vw;
+    margin-left: auto;
+    margin-right: auto;
     text-align: center;
-    font-size: 1.18em;
+    font-size: 1em;
   }
 
   & > .katex-display > .katex {
     display: inline-block;
     max-width: 100%;
+    font-size: 0.95em;
+
+    @media (max-width: 768px) {
+      font-size: 0.75em;
+    }
   }
 `;
 

@@ -1,6 +1,5 @@
 use n_apt_backend::sdr::mock_apt::MockAptDevice;
 use n_apt_backend::sdr::SdrDevice;
-
 #[cfg(test)]
 mod tests {
   use super::*;

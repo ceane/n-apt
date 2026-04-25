@@ -8,6 +8,9 @@ const SIGNAL_TAGS: Record<string, string> = {
   "canvas::multipath": "<multipath-canvas></multipath-canvas>",
   "canvas::heterodyning": "<heterodyning-canvas></heterodyning-canvas>",
   "canvas::endpointrange": "<endpoint-range-canvas></endpoint-range-canvas>",
+  "canvas::triangulationmap": "<triangulation-map-canvas></triangulation-map-canvas>",
+  "canvas::triangulationcloseenough": "<triangulation-close-enough-canvas></triangulation-close-enough-canvas>",
+  "canvas::heroascii": "<hero-ascii-canvas></hero-ascii-canvas>",
 };
 
 const remarkSignalCanvasBlocks: Plugin = (() => (tree: any) => {

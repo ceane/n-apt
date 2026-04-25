@@ -40,8 +40,29 @@ fn load_dev_env() {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+  // Check for --validate-config flag (no server startup)
+  if std::env::args().any(|arg| arg == "--validate-config") {
+    return validate_config();
+  }
+
   load_dev_env();
 
   // Delegate to the actual server implementation
   n_apt_backend::run_server().await
+}
+
+fn validate_config() -> Result<()> {
+  // Load and parse signals.yaml without starting the server
+  match n_apt_backend::server::utils::signals_config() {
+    config => {
+      // Force evaluation by checking channels
+      let ch_count = config.signals.mock_apt.channels.len();
+      let n_apt_count = config.signals.n_apt.channels.len();
+      println!(
+        "✅ signals.yaml is valid (mock_apt channels: {}, n_apt channels: {})",
+        ch_count, n_apt_count
+      );
+      Ok(())
+    }
+  }
 }

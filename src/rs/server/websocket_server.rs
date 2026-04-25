@@ -78,15 +78,39 @@ fn broadcast_device_status(
   let channels = shared.channels.lock().unwrap().clone();
   let device_profile = shared.device_profile.lock().unwrap().clone();
 
+  let normalize_rtl_device_name = |raw_name: &str| {
+    let short_name = raw_name.split(" - ").next().unwrap_or("RTL-SDR").trim();
+    let lower = short_name.to_ascii_lowercase();
+
+    if let Some(version) = short_name.split_whitespace().find_map(|token| {
+      let cleaned = token
+        .trim_matches(|c: char| !c.is_ascii_alphanumeric())
+        .to_ascii_lowercase();
+      let version = cleaned.strip_prefix('v')?;
+      if !version.is_empty() && version.chars().all(|c| c.is_ascii_digit()) {
+        Some(version.to_string())
+      } else {
+        None
+      }
+    }) {
+      return format!("RTL-SDR {}", format!("v{}", version));
+    }
+
+    if lower.contains("rtl-sdr blog")
+      || lower.contains("rtl2832")
+      || lower.contains("rtl-sdr")
+      || lower.contains("generic")
+      || lower.contains("rtl2382u")
+    {
+      return "RTL-SDR v4".to_string();
+    }
+
+    short_name.to_string()
+  };
+
   // Extract short device name from device_info
   let device_name = if device_connected {
-    // Extract just the device name from the long device_info string
-    // device_info format: "Long Name - Freq: X Hz, Rate: Y Hz, ..."
-    device_info
-      .split(" - ")
-      .next()
-      .unwrap_or("RTL-SDR")
-      .to_string()
+    normalize_rtl_device_name(&device_info)
   } else {
     "Mock APT SDR".to_string()
   };
@@ -208,6 +232,14 @@ impl WebSocketServer {
     let mut target_fps: u32 = 30; // sensible default until first frame
     let retry_cooldown = Duration::from_secs(30);
     let mut allow_next_paused_frame = false;
+
+    // ── Channel hot-reload state ──────────────────────────────────────
+    // Track the last known signals.yaml modification time so we can
+    // detect changes to n_apt.channels and broadcast updated channel
+    // definitions to all connected WebSocket clients automatically.
+    let mut last_channels_check = Instant::now();
+    let mut last_signals_modified =
+      crate::server::utils::signals_config_modified_at();
     loop {
       let start_time = Instant::now();
       // 1. Process pending commands
@@ -972,6 +1004,38 @@ impl WebSocketServer {
               shared_state.set_device_state("connected", None);
               broadcast_device_status(&shared_state, &_broadcast_tx);
             }
+          }
+        }
+      }
+
+      // 1c. Hot-reload n_apt.channels when signals.yaml changes on disk.
+      //
+      // Piggybacks on the same 2-second health-check cadence. When the
+      // file's modification timestamp advances, we re-parse the channels
+      // section and, if it actually changed, update SharedState and
+      // broadcast a fresh status message so every connected frontend
+      // immediately picks up the new channel boundaries.
+      if last_channels_check.elapsed() >= Duration::from_secs(2) {
+        last_channels_check = Instant::now();
+        let current_modified =
+          crate::server::utils::signals_config_modified_at();
+        if current_modified != last_signals_modified {
+          last_signals_modified = current_modified;
+          let new_channels = crate::server::utils::load_channels();
+          let channels_changed = {
+            let guard = shared_state.channels.lock().unwrap();
+            *guard != new_channels
+          };
+          if channels_changed {
+            info!(
+              "signals.yaml changed — hot-reloading {} channel(s)",
+              new_channels.len()
+            );
+            {
+              let mut guard = shared_state.channels.lock().unwrap();
+              *guard = new_channels;
+            }
+            broadcast_device_status(&shared_state, &_broadcast_tx);
           }
         }
       }

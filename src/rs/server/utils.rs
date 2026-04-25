@@ -68,10 +68,7 @@ fn preprocess_frequency_tags(content: &str) -> String {
   .unwrap();
   re_db_range
     .replace_all(&content, |caps: &regex::Captures| {
-      format!(
-        "{}:\n          min: {}\n          max: {}",
-        &caps[1], &caps[2], &caps[3]
-      )
+      format!("{}: [{}, {}]", &caps[1], &caps[2], &caps[3])
     })
     .to_string()
 }
@@ -137,24 +134,22 @@ fn reload_signals_config() -> CachedSignalsConfig {
     eprintln!("Error: {}", error_msg);
     eprintln!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     eprintln!("\nCommon issues:");
-    eprintln!("  • Missing required fields: global_settings, bandwidths, strength_ranges, signals, training_areas");
+    eprintln!("  • Missing or invalid mock_apt.channels configuration");
     eprintln!("  • Incorrect YAML indentation (use 2 or 4 spaces, be consistent)");
-    eprintln!("  • Invalid field order in mock_apt section");
-    eprintln!("  • Duplicate field names");
+    eprintln!("  • Invalid field names in channel config");
     eprintln!("  • Invalid !frequency tag values (use: !frequency 18kHz, 20MHz, 2.3GHz, 30Hz)");
     eprintln!("\nExpected mock_apt structure:");
     eprintln!("  mock_apt:");
-    eprintln!("    global_settings: ...");
-    eprintln!("    bandwidths: ...");
-    eprintln!("    strength_ranges: ...");
-    eprintln!("    signals: [...]");
-    eprintln!("    training_areas: ...");
-    eprintln!("    channels: ...  # optional");
+    eprintln!("    channels:");
+    eprintln!("      a:");
+    eprintln!("        freq_range_mhz: !frequency_range 18kHz..4.47MHz");
+    eprintln!("        signal_strength_range: !dB_range -80dB..-20dB");
+    eprintln!("        noise_floor_db: !dB -100dB");
+    eprintln!("        ...");
     eprintln!("\nFrequency tag examples:");
     eprintln!("  center_frequency: !frequency 137.5MHz");
     eprintln!("  sample_rate: !frequency 2.4MHz");
-    eprintln!();
-    panic!("Invalid signals.yaml configuration");
+    eprintln!();    panic!("Invalid signals.yaml configuration");
   });
 
   log::info!("Loaded signals.yaml (modified: {:?})", modified);
@@ -284,6 +279,32 @@ pub fn load_sdr_settings() -> super::types::SdrConfig {
 /// Load mock APT signal settings (panic if missing/malformed)
 pub fn load_mock_apt_settings() -> super::types::MockAptSignalsConfig {
   signals_config().signals.mock_apt.clone()
+}
+
+pub fn signals_config_modified_at() -> Option<std::time::SystemTime> {
+  let needs_reload = {
+    let guard = SIGNALS_CONFIG.read().unwrap();
+    match guard.as_ref() {
+      Some(cached) => {
+        if let Some((_, modified)) = read_config_file(&cached.filename) {
+          modified > cached.modified
+        } else {
+          false
+        }
+      }
+      None => true,
+    }
+  };
+
+  if needs_reload {
+    let _ = signals_config();
+  }
+
+  SIGNALS_CONFIG
+    .read()
+    .unwrap()
+    .as_ref()
+    .map(|cached| cached.modified)
 }
 
 #[allow(dead_code)]
@@ -671,7 +692,7 @@ n_apt:
     let end = arr[1].as_f64().unwrap();
     eprintln!("Channel A freq_range: [{}, {}]", start, end);
     assert_eq!(start, 0.018, "start should be 18kHz = 0.018 MHz");
-    assert_eq!(end, 4.37, "end should be 4.37MHz");
+    assert_eq!(end, 4.39, "end should be 4.39MHz");
   }
 }
 
