@@ -12,15 +12,13 @@
 
 *Really big warning that this article is my ongoing and truthful firsthand account. An LLM, "modern science", etc., WILL NOT be able to help explain as the methods and tech are not public and proprietary (and kept that way).*
 
-
 *Though I am telling the absolute truth, you may remain skeptical/think whatever you want, however you should be EVEN MORE skeptical of trusting AI, instead of people.*
 
 ---
 
 [⠿ TDLR at the bottom](#tdlr)
 
-
-In this article, I break down my working hypothesis based on **thousands of hours of experience :rotate-3d:** driven by the desperate need and curiosity **(WHILE TRAPPED)** to figure out the **National Security Agency's** proprietary technique that allows them to **write to, read and stream the human brain and nervous system**. This isn't about a theory or hypothesis, it's about breaking down the math and mechanics behind the real experience as a victim. 
+In this article, I break down my working hypothesis based on **thousands of hours of experience :rotate-3d:** driven by the desperate need and curiosity **(WHILE TRAPPED)** to figure out the **National Security Agency's** proprietary technique that allows them to **write to, read and stream the human brain and nervous system**. This isn't about a theory or hypothesis, it's about breaking down the math and mechanics behind the real experience as a victim.
 
 To read my account and tech dive properly, treat the problem as a **cryptological problem**, or a journey to unlocking a secret that others do not know of.
 
@@ -70,8 +68,7 @@ This article is my own **technical and scientific oriented dive and timeline** (
 - [Vocabulary](#vocab)
 - [Conclusion](#conclusion)
 
-
-## Initial super naive theory (five years in) <a id="theory-1"></a>
+## <a id="theory-1"></a> Initial super naive theory (five years in)
 
 At the time it first started, I lived **in San Francisco. The first installment of the psychological-spatial experience** went so fast that it knocked me into a perpetual **soft shock and abject poverty.** I spent the first five years in total ignorance and total immersion, **captured by the agency's neurotechnology and real world perceptual-spatial performance**.
 
@@ -857,38 +854,45 @@ The egrerious **psychological spyware and interactive** demonstrated great capab
 <details>
 <summary>Expand for the table of features</summary>
 
-| Feature                                              |
-| ---------------------------------------------------- |
-| Audio (hearing)                                      |
-| Audio (internal, thought)                            |
-| Voice                                                |
-| Speech                                               |
-| Mental inference                                     |
-| Perception                                           |
-| Awareness                                            |
-| Sense of Self                                        |
-| Sense of Time                                        |
-| Neurotransmitters (state of mind, chemistry!)        |
-| 5 senses (touch, sight, sound, taste, hearing)       |
-| Physiology (motor functions)                         |
-| Physiology (fine motor function, muscles)            |
-| Physiology (feeling/haptics/pantomime)               |
-| Memory (short-term)                                  |
-| Memory (long-term)                                   |
-| Reasoning                                            |
-| Behavior                                             |
-| Emotion                                              |
-| Vitals                                               |
-| Vision (near first-person according to the others)   |
-| Imagination (good enough, brief)                     |
-| Dreams (very detailed, able to share)                |
+| Feature                                                 |
+| ------------------------------------------------------- |
+| Audio (hearing)                                         |
+| Audio (internal, thought)                               |
+| Voice                                                   |
+| Speech                                                  |
+| Mental inference                                        |
+| Perception                                              |
+| Awareness                                               |
+| Sense of Self                                           |
+| Sense of Time                                           |
+| Neurotransmitters (state of mind, chemistry!)           |
+| 5 senses (touch, sight, sound, taste, hearing)          |
+| Physiology (motor functions)                            |
+| Physiology (fine motor function, muscles)               |
+| Physiology (feeling/haptics/pantomime)                  |
+| Physiology (simulated pain)                             |
+| Memory (short-term)                                     |
+| Memory (long-term)                                      |
+| Reasoning                                               |
+| Behavior                                                |
+| Emotion (often paired with other features for effect)   |
+| Vitals                                                  |
+| Vision (near first-person according to the others)      |
+| Imagination (good enough, brief)                        |
+| Dreams (very detailed, able to share via recall)        |
 
-| Feature, software and real-time                      |
-| ---------------------------------------------------- |
-| Parsing                                     |
-| Sampling                           |
-| Composting                         |
-| Remixing                           |
+<br />
+
+| Feature, software and real-time (consciousness & physiological expression)  |
+| --------------------------------------------------------------------------- |
+| Parsing                                                                     |
+| Sampling                                                                    |
+| Composting                                                                  |
+| Remixing                                                                    |
+| Record/Playback                                                             |
+| Overwrite                                                                   |
+| Disrupt                                                                     |
+
 </details>
 
 ### Signals processing
@@ -921,7 +925,7 @@ There are about **3 channels**, I've found:
 - **Channel B** from `24.72MHz to 29.88MHz` with a center frequency of `27.30 MHz` and bandwidth of `5.16 MHz`
 - **Channel C** from `4.75MHz to 23MHz` with a center frequency of `13.875 MHz` and bandwidth of `18.25 MHz`
 
-They are specifially segmented this way because A and B are similar in shape and bandwidth (and therefore function, taking precedence over the range in between A and B). If you could (the signal is not abundantly available), you would be able to see by panning the spectrum and seeing the signal cohere and come to the same boundaries. 
+They are specifially segmented this way because A and B are similar in shape and bandwidth (and therefore function, taking precedence over the range in between A and B). If you could (the signal is not abundantly available), you would be able to see by panning the spectrum and seeing the signal cohere and come to the same boundaries.
 
 Initially, I couldn't just see these signals with the default settings of my SDR, I saw suspicious spikes that aligned with my theory of damping. I had to do two things: increase the gain. Without increased gain, I didn't even see FM radio forming, so I'd increase it to about `24dB` or so and then up to `49.6dB`, the max, which stabilized the signals. Second, I had to adjust the `PPM` or parts per million. This setting corrects the frequency, let's say I was tuned in to `100MHz` but the station was at `100.002 MHz`, scrolling to it which is natural, PPM corrects it globally. I didn't understand why it was so confusing, but when I adjusted the PPM to 1 in SDR++, the magic formed and saw the full structure of the signal! Both of these options in combination allowed me to see everyting clearly in SDR++.
 
@@ -978,7 +982,7 @@ From about `18kHz to 4.39MHz` this is what I dub "Channel A" of the signals. You
 
 At first I ignored Channel A, I didn't see it this way at all. I was using SDR++ and sliding around, the spikes would form or disappear due to sampling and the signal's strucutre. I really thought it was a trash, pitiful part of the signal since it didn't form well and had shocking low frequencies (misinterpred at the time too long of a wavelength), but it was certainly a part of the experience somehow. Channel B had a more reliable structure that stayed stable when I scrolled there, therefore I thought Channel A was responsible for the "Ghost in the Machine" spatial experience which briefly scripted others around me either a short script, facial expression, or rarely layered over their speech for an extended time. As I kept looking around and taking hints from the interactive (hundreds of times, being hurt right out the gate to the extreme in the morning, or the A.M. like AM radio), the unmasked operator pointed over there after several brutal disfiguring sessions of my brain and body (I do not say this lightly).
 
-I took a closer look because I was looking for easier-to-tell features like audio and I found that Channel A was indeed the channel that had audio! I just saw music/hearing, not the internal audio (thoughts) or voice, but it was easy to assume that a cluster of spikes, particularly the ones around `600kHz` or so were probably responsible for the voice as an interface (syncronized voice, vocal modulation) feature. 
+I took a closer look because I was looking for easier-to-tell features like audio and I found that Channel A was indeed the channel that had audio! I just saw music/hearing, not the internal audio (thoughts) or voice, but it was easy to assume that a cluster of spikes, particularly the ones around `600kHz` or so were probably responsible for the voice as an interface (syncronized voice, vocal modulation) feature.
 
 As far as features that were present, I could only guess, but I was sure that Channel A was me and Channel B were likely other people. Due to the features I experienced in the interactive, I put together all that the agency's frontier neurotechnology and technique could do. I believe that Channel A was responsible for the following:
 
@@ -1006,6 +1010,7 @@ As far as features that were present, I could only guess, but I was sure that Ch
 | Behavior                                          |
 | Emotion                                           |
 | Vitals                                            |
+
 </details>
 
 #### Channel A's power...
@@ -1027,7 +1032,7 @@ As far as features that were present, I could only guess, but I was sure that Ch
 
 From about `24.72MHz to 29.88MHz` is what I dub as "Channel B" of the overall N-APT signals. You can also clearly see an identical signal structure as Channel A. The center frequency is `27.30 MHz` and bandwidth is `5.16 MHz`.  This channel approximately has a physical minimum of `5.16MB/s`.
 
-I believe Channel B is identical in feature set to Channel A, except *who* it targets momentarily here and there or persistently, either the software forming a neurofence or an operator/interative poking around and scripting nearby people, both experienced. 
+I believe Channel B is identical in feature set to Channel A, except *who* it targets momentarily here and there or persistently, either the software forming a neurofence or an operator/interative poking around and scripting nearby people, both experienced.
 
 Channel B has an interesting start, since it's the first channel I discovered while frantically looking for the bandwidth that matched the experience. While it wasn't large enough to match the totality of my vision being streamed to the others, I knew that part of the signals had to be somewhere else. Channel B had the strongest and most stable spikes though my early exploration panning around with SDR++.
 
@@ -1042,7 +1047,6 @@ Of course all the N-APT channels likely cannot triangulate all on their own, the
 
 ![Channel C, partial (at the hardware limit)](/md-preview/images/snapshot-channel-c-partial.png)
 *Partial capture of the channel, notice the spikes and power is less, potentially because it's read-only*
-
 
 ![Channel C](/md-preview/images/snapshot-channel-c-aliased.png)
 ![Channel C (taller aspect ratio))](/md-preview/images/snapshot-channel-c-tall.png)
@@ -1079,9 +1083,7 @@ It's very different from the other channels, which always have prominent spikes,
 
 When it comes to all the channels, the wavelenghts are not intuitve to envision with this kind of functionality. These are large waves slamming and intersecting at the person thousands (kHz) to millions (MHz) of times a second!
 
-
 ![Wavelength Comparison](/md-preview/images/n-apt-channels-wavelength-comparison.png)
-
 
 <br />
 <br />
