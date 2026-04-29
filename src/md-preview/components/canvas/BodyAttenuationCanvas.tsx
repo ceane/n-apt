@@ -668,7 +668,7 @@ const binaryRowFragmentShader = `
     
     // Brightness highlight
     float highlight = smoothstep(0.1, -0.05, dist) * smoothstep(-0.5, -0.05, dist);
-    vec3 litColor = mix(iridescent, vec3(1.0, 0.9, 1.0), 0.2 + highlight * 0.6);
+    vec3 litColor = mix(iridescent, vec3(1.0, 0.9, 1.0), 0.5 + highlight * 0.5);
     
     // Base color heavily darkened
     vec3 baseColor = vec3(0.08, 0.04, 0.12);
@@ -709,7 +709,7 @@ const BinaryRow = ({ x, y, widthWorld }: { x: number; y: number; widthWorld: num
       const size = startSize - ((startSize - endSize) * (index / Math.max(1, chars.length - 1)));
       ctx.font = `normal ${size}px "JetBrains Mono", monospace`;
       const m = ctx.measureText(char);
-      const charW = m.width + size * 0.45; // Adds kerning space between characters
+      const charW = m.width + size * 0.05; // Adds kerning space between characters
       totalWidth += charW;
       return { char, size, charW };
     });
