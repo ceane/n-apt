@@ -40,5 +40,6 @@
     }
   },
   "include": ["src/ts", "src/md-preview", "src/encrypted-modules", "src/ts/types", "src/types"],
+  "exclude": ["src/md-preview/components/canvas/ascii-motion-animation.tsx"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }
