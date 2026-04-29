@@ -20,12 +20,12 @@
 
 In this article, I break down my working hypothesis based on **thousands of hours of experience :rotate-3d:** driven by the desperate need and curiosity **(WHILE TRAPPED)** to figure out the **National Security Agency's** proprietary technique that allows them to **write to, read and stream the human brain and nervous system**. This isn't about a theory or hypothesis, it's about breaking down the math and mechanics behind the real experience as a victim.
 
-To read my account and tech dive properly, treat the problem as a **cryptological problem**, or a journey to unlocking a secret that others do not know of.
+To read my account and tech dive properly, treat the problem as a **cryptological problem**, or a journey to unlocking a secret that others cannot possibly know of by design. In this instance, this "secret" is well-concealed, however, bureaucracy and process-obsessive dogma empowers loopholes and cracks that can be exploited.
 
 ```Canvas::HeroASCII
 ```
 
-What I learned was that the element of surprise and total ignornace long-reinforced the agency's invisible **🕸 cyber capabilities, federal autonomy and legal immunities** as a superpower. Mass ignorance of the agency's history and position as a **signals intelligence (SIGINT) :radio-tower:** powerhouse (cyber*, signals, **cryptology**, exploitation, influence, deception, etc.) incidentally gave rise to a deep constitutional void and landscape based on **apathy and the false belief** (epistemic overload) that **cyber was negligible, only limited to electronics and could never affect the average person.**
+What I learned was that the element of surprise and total ignornace long-reinforced the agency's invisible **🕸 cyber capabilities, federal autonomy and legal immunities** as a superpower. Mass ignorance of the agency's history and position as a **signals intelligence (SIGINT) :radio-tower:** powerhouse (cyber, signals, **cryptology**, exploitation, influence, deception, etc.) incidentally gave rise to a deep constitutional void and landscape based on **apathy and the false belief** (epistemic overload) that **cyber was negligible, only limited to electronics and could never affect the average person.**
 
 **Unfortunately, that is a deeply pathological mental model of reality!**
 
