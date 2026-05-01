@@ -11,7 +11,8 @@ import {
   OFFSET_TICK_TEXT_COLOR,
   CENTER_LINE_COLOR,
 } from "@n-apt/consts";
-import { formatFrequency, formatFrequencyHighRes } from "@n-apt/consts";
+import { formatFrequency, formatFrequencyHighRes } from "@n-apt/utils/frequency";
+import { tickPrecisionForStep } from "@n-apt/utils/rendering/formatters";
 import type { SdrLimitMarker } from "@n-apt/utils/sdrLimitMarkers";
 import type { SpectrumSpikeMarker } from "@n-apt/hooks/useWasmSimdMath";
 
@@ -126,13 +127,11 @@ export function useOverlayRenderer() {
       }
 
       const step = findBestFrequencyRange(viewBandwidth2, 10);
-      const formatTickLabel = (freq: number) => {
-        if (!Number.isFinite(freq)) return "---";
-        if (maxFreq < 1) return `${Math.round(freq * 1000)}kHz`;
-        if (step >= 0.5) return freq.toFixed(1);
-        if (step >= 0.01) return freq.toFixed(2);
-        return freq.toFixed(3);
-      };
+      const tickPrec = tickPrecisionForStep(step);
+      const formatTickLabel = (freq: number) =>
+        useHighRes
+          ? formatFrequencyHighRes(freq)
+          : formatFrequency(freq, { trimTrailingZeros: true, precisionMHz: tickPrec.precisionMHz, precisionKHz: tickPrec.precisionKHz });
       const lowerFreq2 = Math.ceil((minFreq + 0.000001) / step) * step;
       const upperFreq2 = maxFreq;
 
@@ -170,10 +169,14 @@ export function useOverlayRenderer() {
       const occupiedRects: { x1: number; x2: number }[] = [];
       const startLabel = formatFreq(minFreq);
       const endLabel = formatFreq(maxFreq);
+      const centerPrecMHz = Math.max(3, tickPrec.precisionMHz);
+      const centerPrecKHz = Math.max(3, tickPrec.precisionKHz);
       const centerLabelText =
         Number.isNaN(visualCenterFreq) || !Number.isFinite(visualCenterFreq)
-          ? "-- MHz"
-          : formatFreq(visualCenterFreq);
+          ? "--MHz"
+          : useHighRes
+            ? formatFrequencyHighRes(visualCenterFreq)
+            : formatFrequency(visualCenterFreq, { precisionMHz: centerPrecMHz, precisionKHz: centerPrecKHz });
 
       const startW = ctx.measureText(startLabel).width;
       const endW = ctx.measureText(endLabel).width;
@@ -383,7 +386,14 @@ export function useOverlayRenderer() {
       const formatFreq = (f: number) =>
         useHighResLabels ? formatFrequencyHighRes(f) : formatFrequency(f);
 
-      const centerLabel = formatFreq((minFreq + maxFreq) / 2);
+      const step = findBestFrequencyRange(maxFreq - minFreq, 10);
+      const tickPrec = tickPrecisionForStep(step);
+      const centerPrecMHz = Math.max(3, tickPrec.precisionMHz);
+      const centerPrecKHz = Math.max(3, tickPrec.precisionKHz);
+
+      const centerLabel = useHighResLabels
+        ? formatFrequencyHighRes((minFreq + maxFreq) / 2)
+        : formatFrequency((minFreq + maxFreq) / 2, { precisionMHz: centerPrecMHz, precisionKHz: centerPrecKHz });
       const centerX = (FFT_AREA_MIN.x + fftAreaMax.x) / 2;
 
       ctx.save();

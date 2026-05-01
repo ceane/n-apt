@@ -87,4 +87,31 @@ describe("useOverlayRenderer Hook", () => {
     const labels = mockCtx.fillText.mock.calls.map((c: any) => c[0]);
     expect(labels).not.toContain("Hardware Sample Rate");
   });
+
+  it("should draw frequency grid ticks in MHz with Hz input", () => {
+    const { result } = renderHook(() => useOverlayRenderer());
+    
+    const frequencyRange = { min: 90e6, max: 92e6 }; // 2MHz span
+    
+    jest.clearAllMocks();
+    result.current.drawGridOnContext(
+      mockCtx,
+      1000,
+      600,
+      frequencyRange,
+      -120,
+      0,
+      "dB"
+    );
+
+    const labels = mockCtx.fillText.mock.calls.map((c: any) => c[0]);
+    // With 2MHz span, step should be 250kHz (250,000 Hz)
+    // Ticks: 90.25, 90.50, 90.75, 91.00, etc.
+    // 91MHz will collide with the center label and be filtered out, which is expected.
+    // 90.25MHz -> 90.3MHz (rounded to 1 decimal)
+    // 90.75MHz -> 90.8MHz (rounded to 1 decimal)
+    expect(labels).toContain("90.3MHz");
+    expect(labels).toContain("90.8MHz");
+    expect(labels).not.toContain("91MHz"); // Collides with center
+  });
 });

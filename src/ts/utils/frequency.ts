@@ -31,13 +31,13 @@ export const formatFrequency = (
       ? { showUnits: showUnitsOrOptions }
       : showUnitsOrOptions;
   const showUnits = options.showUnits ?? true;
-  const precisionMHz = options.precisionMHz ?? 3;
-  const precisionGHz = options.precisionGHz ?? 3;
-  const precisionKHz = options.precisionKHz ?? 0;
+  const precisionMHz = options.precisionMHz ?? 1;
+  const precisionGHz = options.precisionGHz ?? 1;
+  const precisionKHz = options.precisionKHz ?? 1;
   const trimTrailingZeros = options.trimTrailingZeros ?? false;
 
   if (freqHz === undefined || freqHz === null || Number.isNaN(freqHz) || !Number.isFinite(freqHz)) {
-    return "---" + (showUnits ? " Hz" : "");
+    return "---" + (showUnits ? "Hz" : "");
   }
 
   const abs = Math.abs(freqHz);
@@ -70,7 +70,7 @@ export const formatFrequency = (
   const formattedNumber = trimTrailingZeros
     ? trimNumericString(val.toFixed(precision))
     : val.toFixed(precision);
-  return formattedNumber + (showUnits ? " " + unit : "");
+  return formattedNumber + (showUnits ? unit : "");
 };
 
 /**
@@ -90,31 +90,34 @@ export const formatFrequencyHz = (freqHz: number): string => {
  */
 export const formatFrequencyHighRes = (freqHz: number): string => {
   if (freqHz === undefined || freqHz === null || Number.isNaN(freqHz) || !Number.isFinite(freqHz)) {
-    return "--- Hz";
+    return "---Hz";
   }
   const abs = Math.abs(freqHz);
   
   if (abs >= 1_000_000_000) {
     // GHz.MHz.kHz.Hz
+    const unit = "GHz";
     const val = freqHz / 1_000_000_000;
     const fixed = val.toFixed(9);
     const [g, rest] = fixed.split(".");
-    return `${g}.${rest.slice(0, 3)}.${rest.slice(3, 6)}.${rest.slice(6, 9)} GHz`;
+    return `${g}.${rest.slice(0, 3)}.${rest.slice(3, 6)}.${rest.slice(6, 9)}${unit}`;
   } else if (abs >= 1_000_000) {
     // MHz.kHz.Hz
+    const unit = "MHz";
     const val = freqHz / 1_000_000;
     const fixed = val.toFixed(6);
     const [m, rest] = fixed.split(".");
-    return `${m}.${rest.slice(0, 3)}.${rest.slice(3, 6)} MHz`;
+    return `${m}.${rest.slice(0, 3)}.${rest.slice(3, 6)}${unit}`;
   } else if (abs >= 1000) {
     // kHz.Hz
+    const unit = "kHz";
     const val = freqHz / 1000;
     const fixed = val.toFixed(3);
     const [k, rest] = fixed.split(".");
-    return `${k}.${rest.slice(0, 3)} kHz`;
+    return `${k}.${rest.slice(0, 3)}${unit}`;
   } else {
     // Hz
-    return `${Math.round(freqHz)} Hz`;
+    return `${Math.round(freqHz)}Hz`;
   }
 };
 

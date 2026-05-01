@@ -12,7 +12,7 @@ import {
   OFFSET_TICK_TEXT_COLOR,
   CENTER_LINE_COLOR,
 } from "@n-apt/consts";
-import { formatFrequency, formatFrequencyHighRes } from "@n-apt/consts";
+import { formatFrequency, formatFrequencyHighRes } from "@n-apt/utils/frequency";
 import type { SdrLimitMarker } from "@n-apt/utils/sdrLimitMarkers";
 import type { SpectrumSpikeMarker } from "@n-apt/hooks/useWasmSimdMath";
 
