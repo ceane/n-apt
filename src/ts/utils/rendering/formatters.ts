@@ -5,18 +5,28 @@ import { formatFrequency, formatFrequencyHighRes } from "@n-apt/utils/frequency"
  * Precision depends on zoom level.
  */
 export function fmtFreq(hz: number, zoom: number = 1): string {
-  return zoom >= 100 ? formatFrequencyHighRes(hz) : formatFrequency(hz, { trimTrailingZeros: true, precisionKHz: 2 });
+  if (zoom >= 100) return formatFrequencyHighRes(hz);
+  return formatFrequency(hz, { trimTrailingZeros: true });
 }
 
 /**
  * Format a frequency for tick labels.
+ * Precision adapts to the step size so adjacent ticks are distinguishable.
  */
 export function fmtFreqTick(hz: number, stepHz: number): string {
-  if (!Number.isFinite(hz)) return "---";
-  const mhz = hz / 1_000_000;
-  if (stepHz >= 500_000) return mhz.toFixed(1);
-  if (stepHz >= 10_000) return mhz.toFixed(2);
-  return mhz.toFixed(3);
+  const { precisionMHz, precisionKHz } = tickPrecisionForStep(stepHz);
+  return formatFrequency(hz, { trimTrailingZeros: true, precisionMHz, precisionKHz });
+}
+
+/**
+ * Compute the minimum decimal precision needed for tick labels given
+ * a step size in Hz so that adjacent values format to different strings.
+ */
+export function tickPrecisionForStep(stepHz: number): { precisionMHz: number; precisionKHz: number } {
+  if (stepHz >= 100_000) return { precisionMHz: 1, precisionKHz: 0 };
+  if (stepHz >= 10_000)  return { precisionMHz: 2, precisionKHz: 1 };
+  if (stepHz >= 1_000)   return { precisionMHz: 3, precisionKHz: 2 };
+  return { precisionMHz: 4, precisionKHz: 3 };
 }
 
 export function fmtTimestamp(includeTimezone: boolean = true): string {

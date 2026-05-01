@@ -258,22 +258,22 @@ export function useFrequencyDrag({
     };
 
     const handlePointerDown = (e: PointerEvent) => {
-      const measurer = getActiveSpectrumCanvas();
       const container = getContainer();
-      if (!measurer || !container) return;
+      if (!container) return;
 
-      const rect = measurer.getBoundingClientRect();
+      const rect = container.getBoundingClientRect();
       const height = rect.height;
       const y = e.clientY - rect.top;
+      const vfoThreshold = 80;
       
-      // Bottom 60px is the VFO area
-      if (y >= height - 60) {
+      // Bottom area is the VFO area
+      if (y >= height - vfoThreshold) {
         isDraggingRef.current = true;
         dragStartXRef.current = e.clientX;
         dragStartFreqRef.current = frequencyRangeRef.current.min;
         dragStartPanRef.current = vizPanOffsetRef?.current || 0;
         dragStartRangeRef.current = { ...frequencyRangeRef.current };
-        container.style.cursor = "move";
+        container.style.cursor = "grabbing";
         container.setPointerCapture(e.pointerId);
       } else {
         // Upper area is for box zooming
@@ -419,20 +419,31 @@ export function useFrequencyDrag({
       }
 
       if (isDraggingRef.current && container) {
-        container.style.cursor = "default";
         container.releasePointerCapture(e.pointerId);
+        // After drag, update cursor based on current position
+        const rect = container.getBoundingClientRect();
+        const y = e.clientY - rect.top;
+        const vfoThreshold = 80;
+        container.style.cursor = y >= rect.height - vfoThreshold ? "grab" : "crosshair";
       }
       isDraggingRef.current = false;
     };
 
-    // Show grab cursor only in the bottom 60px VFO area, crosshair in upper area
+    // Show grab cursor only in the bottom VFO area, crosshair in upper area
     const handlePointerMoveForCursor = (e: PointerEvent) => {
-      const measurer = getActiveSpectrumCanvas();
       const container = getContainer();
-      if (!measurer || !container || isDraggingRef.current) return;
-      const rect = measurer.getBoundingClientRect();
+      if (!container || isDraggingRef.current) return;
+      
+      const rect = container.getBoundingClientRect();
       const y = e.clientY - rect.top;
-      container.style.cursor = y >= rect.height - 60 ? "grab" : "crosshair";
+      const vfoThreshold = 80; // Increased from 60 for better hit area
+      
+      const isOverVfo = y >= rect.height - vfoThreshold;
+      const nextCursor = isOverVfo ? "grab" : "crosshair";
+      
+      if (container.style.cursor !== nextCursor) {
+        container.style.cursor = nextCursor;
+      }
     };
 
     const handlePointerLeave = () => {
@@ -481,20 +492,5 @@ export function useFrequencyDrag({
     onFftDbLimitsChange,
     onVizZoomChange,
     renderWaveformRef,
-  ]);
-
-  useEffect(() => {
-    const getContainer = (): HTMLElement | null => {
-      if (spectrumContainerRef?.current) return spectrumContainerRef.current;
-      return spectrumGpuCanvasRef.current?.parentElement ?? null;
-    };
-    const container = getContainer();
-    if (container && !isDraggingRef.current) {
-      container.style.cursor = "crosshair";
-    }
-  }, [
-    spectrumWebgpuEnabled,
-    spectrumGpuCanvasRef,
-    spectrumContainerRef,
   ]);
 }

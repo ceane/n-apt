@@ -744,14 +744,11 @@ impl SdrProcessor {
         self.current_gain_db = g_db;
       }
 
-      if self.is_mock() {
-        let baseline_db =
-          crate::server::utils::load_sdr_settings().gain.tuner_gain;
-        let delta_db = g_db - baseline_db;
-        config.gain = 10f32.powf(delta_db as f32 / 20.0);
-      } else {
-        config.gain = 1.0;
-      }
+      // SIMD gain is always 1.0 (passthrough).
+      // Mock devices handle gain internally in IQ generation (signal amplitude
+      // scales with gain, noise floor stays fixed). Real hardware gain is
+      // applied by the physical tuner before ADC sampling.
+      config.gain = 1.0;
       config_changed = true;
     }
 

@@ -1,6 +1,7 @@
 import { CoordinateMapper, Range } from "@n-apt/utils/rendering/CoordinateMapper";
 import { findBestFrequencyRange } from "@n-apt/consts";
-import { fmtFreq, fmtFreqTick } from "./formatters";
+import { formatFrequency, formatFrequencyHighRes } from "@n-apt/utils/frequency";
+import { fmtFreq, fmtFreqTick, tickPrecisionForStep } from "./formatters";
 
 export interface DrawingContext {
   setStroke(color: string, width: number, dash?: number[]): void;
@@ -343,15 +344,21 @@ export class SnapshotRenderer {
     const range = findBestFrequencyRange(bandwidth, 10);
     const lowerFreq = Math.ceil(freqRange.min / range) * range;
     const FREQ_LABEL_Y = area.y + area.height + 25;
+    const useHighRes = zoom >= 100;
 
     dc.setFill(this.theme.text);
     dc.setScaledFont(12, fontScale);
 
-    const startLabel = fmtFreq(freqRange.min, zoom);
-    const endLabel = fmtFreq(freqRange.max, zoom);
+    const startLabel = useHighRes ? formatFrequencyHighRes(freqRange.min) : formatFrequency(freqRange.min, { trimTrailingZeros: true });
+    const endLabel = useHighRes ? formatFrequencyHighRes(freqRange.max) : formatFrequency(freqRange.max, { trimTrailingZeros: true });
+    const { precisionMHz: tickPrecMHz, precisionKHz: tickPrecKHz } = tickPrecisionForStep(range);
+    const centerPrecMHz = Math.max(3, tickPrecMHz);
+    const centerPrecKHz = Math.max(3, tickPrecKHz);
     const centerLabelText = Number.isNaN(centerFrequencyHz) || !Number.isFinite(centerFrequencyHz)
-      ? "-- MHz"
-      : fmtFreq(centerFrequencyHz, zoom);
+      ? "--MHz"
+      : useHighRes
+        ? formatFrequencyHighRes(centerFrequencyHz)
+        : formatFrequency(centerFrequencyHz, { precisionMHz: centerPrecMHz, precisionKHz: centerPrecKHz });
     
     // Collision detection
     const startW = dc.measureTextWidth(startLabel);
@@ -384,7 +391,7 @@ export class SnapshotRenderer {
       dc.stroke();
 
       // Label
-      const labelText = fmtFreqTick(freq, range);
+      const labelText = useHighRes ? formatFrequencyHighRes(freq) : fmtFreqTick(freq, range);
       if (!isColliding(x, labelText)) {
         dc.setTextAlign("center");
         dc.fillText(labelText, x, FREQ_LABEL_Y);
@@ -528,12 +535,7 @@ export class SnapshotRenderer {
     dc.setTextAlign("center");
     dc.setTextBaseline("top");
 
-    const fmtOff = (hz: number) => {
-      const abs = Math.abs(hz);
-      if (abs >= 1_000_000) return `${(hz / 1_000_000).toFixed(1)}MHz`;
-      if (abs >= 1_000) return `${Math.round(hz / 1_000)}kHz`;
-      return `${Math.round(hz)}Hz`;
-    };
+    const fmtOff = (hz: number) => formatFrequency(hz, { trimTrailingZeros: true });
 
     let cur = anchorRange.min;
     while (cur < anchorRange.max - 1) {
@@ -568,38 +570,55 @@ export class SnapshotRenderer {
     dc.restore();
   }
 
-  drawStatsBox(dc: DrawingContext, statsLines: string[], _waveform: number[] | Float32Array, fontScale: number = 1): void {
+  drawStatsBox(dc: DrawingContext, statsLines: string[], waveform: number[] | Float32Array, fontScale: number = 1): void {
     const area = this.mapper.getPlotArea();
-    // Use up to 70% of width to avoid truncation, text will scale down if needed
-    const maxAllowedW = area.width * 0.7;
-    const baseFontSize = Math.round(12 * fontScale);
-    const paddingX = Math.round(12 * fontScale);
-    const paddingY = Math.round(10 * fontScale);
-    const lineHeight = Math.round(18 * fontScale);
 
-    // Calculate required box width and individual line font sizes
-    const linesWithScaling = statsLines.map(line => {
-      dc.setFont(`${baseFontSize}px monospace`);
-      const width = dc.measureTextWidth(line);
-      let fontSize = baseFontSize;
-      let finalWidth = width;
-      
-      const maxTextW = maxAllowedW - paddingX * 2;
-      
-      if (width > maxTextW) {
-        // Calculate factor including a small safety margin
-        fontSize = Math.floor(baseFontSize * (maxTextW / width) * 0.98);
-        fontSize = Math.max(8, fontSize);
-        dc.setFont(`${fontSize}px monospace`);
-        finalWidth = dc.measureTextWidth(line);
+    // Try the primary font scale and a compact fallback to find the best fit
+    const scales = [fontScale, fontScale * 0.82];
+    let best: {
+      pos: { x: number; y: number };
+      boxW: number; boxH: number;
+      lines: { line: string; fontSize: number; width: number }[];
+      padX: number; padY: number; lh: number;
+      score: number;
+    } | null = null;
+
+    for (const scale of scales) {
+      const maxAllowedW = area.width * 0.7;
+      const baseFontSize = Math.round(12 * scale);
+      const padX = Math.round(12 * scale);
+      const padY = Math.round(10 * scale);
+      const lh = Math.round(18 * scale);
+
+      const lines = statsLines.map(line => {
+        dc.setFont(`${baseFontSize}px monospace`);
+        const width = dc.measureTextWidth(line);
+        let fontSize = baseFontSize;
+        let finalWidth = width;
+        const maxTextW = maxAllowedW - padX * 2;
+        if (width > maxTextW) {
+          fontSize = Math.max(8, Math.floor(baseFontSize * (maxTextW / width) * 0.98));
+          dc.setFont(`${fontSize}px monospace`);
+          finalWidth = dc.measureTextWidth(line);
+        }
+        return { line, fontSize, width: finalWidth };
+      });
+
+      const boxW = Math.max(...lines.map(l => l.width)) + padX * 2;
+      const boxH = statsLines.length * lh + padY * 2;
+      const candidates = this.generateCandidatePositions(boxW, boxH);
+
+      for (const pos of candidates) {
+        const score = this.scoreBoxPlacement(pos.x, pos.y, boxW, boxH, waveform);
+        if (!best || score > best.score) {
+          best = { pos, boxW, boxH, lines, padX, padY, lh, score };
+        }
       }
-      return { line, fontSize, width: finalWidth };
-    });
+    }
 
-    const boxW = Math.max(...linesWithScaling.map(l => l.width)) + paddingX * 2;
-    const boxH = statsLines.length * lineHeight + paddingY * 2;
+    if (!best) return;
 
-    const pos = this.findOptimalStatsBoxPosition(boxW, boxH);
+    const { pos, boxW, boxH, lines, padX, padY, lh } = best;
 
     dc.setFill("rgba(0, 0, 0, 0.75)");
     dc.roundRect(pos.x, pos.y, boxW, boxH, 4);
@@ -607,19 +626,111 @@ export class SnapshotRenderer {
     dc.setFill("#eee");
     dc.setTextAlign("left");
     dc.setTextBaseline("alphabetic");
-    
-    linesWithScaling.forEach((item, i) => {
+
+    lines.forEach((item, i) => {
       dc.setFont(`${item.fontSize}px monospace`);
-      // Use lineHeight for vertical spacing
-      dc.fillText(item.line, pos.x + paddingX, pos.y + paddingY + (i + 0.8) * lineHeight);
+      dc.fillText(item.line, pos.x + padX, pos.y + padY + (i + 0.8) * lh);
     });
   }
 
-  private findOptimalStatsBoxPosition(boxW: number, boxH: number): { x: number, y: number } {
+  /**
+   * Generate candidate positions across a 3×5 grid within the plot area.
+   */
+  private generateCandidatePositions(boxW: number, boxH: number): { x: number; y: number }[] {
     const area = this.mapper.getPlotArea();
-    const padding = 12;
-    const x = Math.max(area.x + padding, area.x + area.width - boxW - padding);
-    const y = Math.min(area.y + padding, area.y + area.height - boxH - padding);
-    return { x, y };
+    const pad = 8;
+    const candidates: { x: number; y: number }[] = [];
+
+    const xSlots = [
+      area.x + pad,
+      area.x + (area.width - boxW) / 2,
+      area.x + area.width - boxW - pad,
+    ];
+    const ySlots = [
+      area.y + pad,
+      area.y + (area.height - boxH) * 0.25,
+      area.y + (area.height - boxH) * 0.5,
+      area.y + (area.height - boxH) * 0.75,
+      area.y + area.height - boxH - pad,
+    ];
+
+    for (const x of xSlots) {
+      for (const y of ySlots) {
+        const cx = Math.max(area.x + pad, Math.min(area.x + area.width - boxW - pad, x));
+        const cy = Math.max(area.y + pad, Math.min(area.y + area.height - boxH - pad, y));
+        candidates.push({ x: cx, y: cy });
+      }
+    }
+    return candidates;
+  }
+
+  /**
+   * Score a candidate box position by measuring distance from the waveform
+   * trace and preferring corner placements.
+   *
+   * Higher score = better placement.
+   */
+  private scoreBoxPlacement(
+    bx: number, by: number, bw: number, bh: number,
+    waveform: number[] | Float32Array,
+  ): number {
+    const area = this.mapper.getPlotArea();
+    const dataLen = waveform?.length ?? 0;
+    const pad = 8;
+
+    // Fallback: no waveform → prefer top-right corner
+    if (dataLen < 2) {
+      const distToTopRight =
+        Math.abs(bx + bw - (area.x + area.width)) +
+        Math.abs(by - area.y);
+      return -distToTopRight;
+    }
+
+    const boxLeft = Math.max(bx, area.x);
+    const boxRight = Math.min(bx + bw, area.x + area.width);
+    if (boxRight <= boxLeft) return -100_000;
+
+    const boxTop = by;
+    const boxBottom = by + bh;
+    const boxCenterY = (boxTop + boxBottom) / 2;
+    const numSamples = Math.min(60, Math.max(8, Math.ceil(boxRight - boxLeft)));
+
+    let traceOverlapCount = 0;
+    let totalDistance = 0;
+    let validSamples = 0;
+
+    for (let i = 0; i < numSamples; i++) {
+      const px = boxLeft + (i / Math.max(1, numSamples - 1)) * (boxRight - boxLeft);
+      const frac = Math.max(0, Math.min(1, (px - area.x) / area.width));
+      const idx = Math.min(dataLen - 1, Math.max(0, Math.round(frac * (dataLen - 1))));
+      const waveY = this.mapper.clampY(waveform[idx]);
+      validSamples++;
+
+      // Trace passes through the box
+      if (waveY >= boxTop && waveY <= boxBottom) {
+        traceOverlapCount++;
+      }
+
+      // Distance from waveform trace to box center — further = better
+      totalDistance += Math.abs(waveY - boxCenterY);
+    }
+
+    if (validSamples === 0) return 0;
+
+    const overlapRatio = traceOverlapCount / validSamples;
+    const avgDistance = totalDistance / validSamples;
+
+    // Corner preference: bonus for being near any corner of the plot area
+    const cornerDistX = Math.min(
+      Math.abs(bx - (area.x + pad)),
+      Math.abs((bx + bw) - (area.x + area.width - pad)),
+    );
+    const cornerDistY = Math.min(
+      Math.abs(by - (area.y + pad)),
+      Math.abs((by + bh) - (area.y + area.height - pad)),
+    );
+    const cornerBonus = -(cornerDistX + cornerDistY) * 0.3;
+
+    return avgDistance + cornerBonus - overlapRatio * 1000;
   }
 }

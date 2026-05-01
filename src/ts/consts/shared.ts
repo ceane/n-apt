@@ -4,11 +4,14 @@
  */
 import { formatFrequency, formatFrequencyHighRes } from "@n-apt/utils/frequency";
 
-// Shared frequency ranges for optimal grid display
+// Shared frequency ranges for optimal grid display (in Hz)
 export const FREQUENCY_RANGES = [
-  0.001, 0.002, 0.005, 0.01, 0.02, 0.025, 0.05, 0.1, 0.2, 0.25, 0.5, 
-  1.0, 2.0, 2.5, 5.0, 10.0, 20.0, 25.0, 50.0, 100.0, 200.0, 250.0, 500.0,
-  1000.0, 2000.0, 2500.0, 5000.0, 10000.0, 20000.0, 25000.0, 50000.0,
+  // Hz
+  1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500,
+  // kHz
+  1_000, 2_000, 2_500, 5_000, 10_000, 20_000, 25_000, 50_000, 100_000, 200_000, 250_000, 500_000,
+  // MHz
+  1_000_000, 2_000_000, 2_500_000, 5_000_000, 10_000_000, 20_000_000, 25_000_000, 50_000_000, 100_000_000, 200_000_000, 250_000_000, 500_000_000,
 ];
 
 // Shared display constants

@@ -319,7 +319,7 @@ function renderSpectrumSnapshot(
   statsLines?: string[],
   waveform?: Float32Array,
   theme?: SnapshotTheme,
-  _aspectRatio?: SnapshotAspectRatio,
+  aspectRatio?: SnapshotAspectRatio,
 ): HTMLCanvasElement | string {
   const dpr = window.devicePixelRatio || 1;
   const logicalW = pixelWidth / dpr;
@@ -334,6 +334,10 @@ function renderSpectrumSnapshot(
   const fontScale = Math.min(1.4, 1 + 0.25 * (heightRatio - 1));
   // Bottom padding increases with taller canvas (for 4:3 and wider)
   const bottomPadding = Math.round(10 * heightRatio);
+
+  const fullSpan = fullCaptureRange ? (fullCaptureRange.max - fullCaptureRange.min) : 0;
+  const viewBandwidth = frequencyRange.max - frequencyRange.min;
+  const zoom = fullSpan > 0 ? (fullSpan / viewBandwidth) : 1;
 
   const mapper = new CoordinateMapper(
     {
@@ -352,7 +356,7 @@ function renderSpectrumSnapshot(
 
   if (format === "svg") {
     const dc = new SVGDrawingContext(logicalW, logicalH);
-    renderToDC(dc, renderer, data, frequencyRange, showGrid, fullCaptureRange, statsLines, waveform, fontScale);
+    renderToDC(dc, renderer, data, frequencyRange, showGrid, fullCaptureRange, statsLines, waveform, fontScale, zoom);
     return dc.getSVG();
   } else {
     const canvas = document.createElement("canvas");
@@ -362,7 +366,7 @@ function renderSpectrumSnapshot(
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     const dc = new CanvasDrawingContext(ctx);
-    renderToDC(dc, renderer, data, frequencyRange, showGrid, fullCaptureRange, statsLines, waveform, fontScale);
+    renderToDC(dc, renderer, data, frequencyRange, showGrid, fullCaptureRange, statsLines, waveform, fontScale, zoom);
     return canvas;
   }
 }
@@ -377,6 +381,7 @@ function renderToDC(
   statsLines?: string[],
   waveform?: Float32Array,
   fontScale: number = 1,
+  zoom: number = 1,
 ): void {
   const vertRange = 10;
   const startLabel = Math.floor((data.dbMax + 0.1) / vertRange) * vertRange;
@@ -397,7 +402,7 @@ function renderToDC(
     renderer.drawTrace(dc, traceWaveform);
   }
 
-  renderer.drawFrequencyLabels(dc, 1, (frequencyRange.min + frequencyRange.max) / 2, fontScale);
+  renderer.drawFrequencyLabels(dc, zoom, (frequencyRange.min + frequencyRange.max) / 2, fontScale);
   if (statsLines && traceWaveform) {
     renderer.drawStatsBox(dc, statsLines, traceWaveform, fontScale);
   }

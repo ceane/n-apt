@@ -7,7 +7,7 @@ import {
   FFT_AREA_MIN,
   findBestFrequencyRange,
 } from '@n-apt/consts';
-import { formatFrequency, formatFrequencyHighRes } from '@n-apt/consts';
+import { formatFrequency, formatFrequencyHighRes } from "@n-apt/utils/frequency";
 
 export interface PretextGridOverlayProps {
   width: number;

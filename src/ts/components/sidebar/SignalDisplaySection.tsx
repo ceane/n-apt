@@ -12,6 +12,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { DeviceProfile } from "@n-apt/consts/schemas/websocket";
+import { formatFrequency } from "@n-apt/utils/frequency";
 
 const Section = styled.div`
   display: grid;

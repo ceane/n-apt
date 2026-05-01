@@ -414,13 +414,14 @@ impl MockAptDevice {
       1.0
     };
 
-    // Hardware RF & ADC Simulation Pipeline
-    // 1. Calculate physical RF noise floor hitting the analog front-end
+    // Mock SDR ignores gain changes — always generates at the reference level.
+    // Realistic gain modeling in mock IQ is impractical (clipping artifacts,
+    // distortion, etc.), so the mock always produces its designed signal shape.
     let rf_noise_db = self.noise_floor_db as f64;
-    let analog_gain = self.gain;
-    let frontend_noise_db = rf_noise_db + analog_gain;
+    let analog_gain = 0.0_f64; // Fixed reference gain — ignores self.gain
 
-    // 2. Incorporate the intrinsic 8-bit ADC quantization/thermal noise floor
+    // Hardware RF & ADC Simulation Pipeline
+    let frontend_noise_db = rf_noise_db + analog_gain;
     let adc_intrinsic_noise_db = -38.0;
     let total_adc_noise_power = 10f64.powf(frontend_noise_db / 10.0)
       + 10f64.powf(adc_intrinsic_noise_db / 10.0);
