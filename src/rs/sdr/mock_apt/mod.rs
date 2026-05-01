@@ -19,7 +19,7 @@ use super::SdrDevice;
 /// Mock APT signal configuration
 #[derive(Debug, Clone)]
 struct MockAptSignalConfig {
-  center_frequency_mhz: f64,
+  center_frequency_hz: f64,
   strength_db: f64,
 }
 
@@ -112,13 +112,13 @@ impl MockAptDevice {
 
     // Create signals based on configured channels
     for (_, channel_config) in &mock_settings.channels {
-      if channel_config.freq_range_mhz.len() < 2 {
+      if channel_config.freq_range_hz.len() < 2 {
         continue;
       }
 
-      let min_freq = channel_config.freq_range_mhz[0];
-      let max_freq = channel_config.freq_range_mhz[1];
-      let freq_span_hz = (max_freq - min_freq) * 1_000_000.0;
+      let min_freq = channel_config.freq_range_hz[0];
+      let max_freq = channel_config.freq_range_hz[1];
+      let freq_span_hz = max_freq - min_freq;
 
       // Get spike density (frequency spacing between signals)
       // Can be single: !frequency 33kHz → Single(33000)
@@ -151,13 +151,13 @@ impl MockAptDevice {
         } else {
           freq_span_hz / 2.0
         };
-        let freq = min_freq + (freq_offset / 1_000_000.0);
+        let freq = min_freq + freq_offset;
 
         let strength_db = rng.gen_range((mid - span)..(mid + span));
 
         signals.push(MockAptSignal {
           config: MockAptSignalConfig {
-            center_frequency_mhz: freq,
+            center_frequency_hz: freq,
             strength_db,
           },
           modulation_phase: rng.gen_range(0.0..=2.0 * PI),
@@ -174,13 +174,13 @@ impl MockAptDevice {
 
     // If no channels are configured, fall back to legacy behavior
     if signals.is_empty() {
-      // Legacy Area A: 0.1 - 4.5 MHz
+      // Legacy Area A: 100kHz - 4.5MHz
       for i in 0..10 {
-        let freq = 0.1 + (i as f64 * 0.45);
+        let freq = 100_000.0 + (i as f64 * 450_000.0);
         let strength_db = rng.gen_range(-80.0..-70.0);
         signals.push(MockAptSignal {
           config: MockAptSignalConfig {
-            center_frequency_mhz: freq,
+            center_frequency_hz: freq,
             strength_db,
           },
           modulation_phase: rng.gen_range(0.0..=2.0 * PI),
@@ -193,13 +193,13 @@ impl MockAptDevice {
         });
       }
 
-      // Legacy Area B: 24.7 - 30.0 MHz
+      // Legacy Area B: 24.7MHz - 30.0MHz
       for i in 0..11 {
-        let freq = 24.7 + (i as f64 * 0.5);
+        let freq = 24_700_000.0 + (i as f64 * 500_000.0);
         let strength_db = rng.gen_range(-70.0..-50.0);
         signals.push(MockAptSignal {
           config: MockAptSignalConfig {
-            center_frequency_mhz: freq,
+            center_frequency_hz: freq,
             strength_db,
           },
           drift_offset: rng.gen_range(-50.0..50.0),
@@ -456,7 +456,7 @@ impl MockAptDevice {
       if !signal.active {
         continue;
       }
-      let abs_freq_hz = (signal.config.center_frequency_mhz * 1_000_000.0)
+      let abs_freq_hz = signal.config.center_frequency_hz
         + (signal.drift_offset as f64);
       // Simulate PPM error: f_effective = f_requested * (1.0 - ppm / 1e6)
       let effective_center_freq =
@@ -633,8 +633,8 @@ mod tests {
 signals:
   sdr:
     limits:
-      lower_limit_mhz: !frequency 500kHz
-      upper_limit_mhz: !frequency 28.8MHz
+      lower_limit_hz: !frequency 500kHz
+      upper_limit_hz: !frequency 28.8MHz
       lower_limit_label: "low"
       upper_limit_label: "high"
     sample_rate: !frequency 3.2MHz
@@ -658,19 +658,19 @@ signals:
     channels:
       a:
         label: "A"
-        freq_range_mhz: !frequency_range 18kHz..4.37MHz
+        freq_range_hz: !frequency_range 18kHz..4.37MHz
         description: "A"
         apt_spike_density: !frequency {spike_hz}Hz
         noise_floor_db: !dB {noise_floor_db}dB
         signal_strength_range: !dB_range -80dB..-20dB
   triangulation:
     static:
-      freq_range_mhz: !frequency_range 2.3GHz..2.344GHz
+      freq_range_hz: !frequency_range 2.3GHz..2.344GHz
   n_apt:
     channels:
       a:
         label: "A"
-        freq_range_mhz: !frequency_range 18kHz..4.37MHz
+        freq_range_hz: !frequency_range 18kHz..4.37MHz
         description: "A"
 "#
     );

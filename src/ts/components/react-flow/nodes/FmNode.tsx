@@ -108,13 +108,14 @@ interface FmNodeProps {
 
 export const FmNode: React.FC<FmNodeProps> = ({ data }) => {
   const dispatch = useAppDispatch();
-  const centerFreq = useAppSelector((state) => state.demod.centerFreqMHz);
+  const centerFreq = useAppSelector((state) => state.demod.centerFreqHz);
 
   const handleStationClick = (freqMHz: number) => {
     // Send frequency change command to server with ±100kHz range (200kHz total) for FM demodulation
+    const freqHz = freqMHz * 1_000_000;
     dispatch(sendFrequencyRange({
-      min: freqMHz - 0.10,
-      max: freqMHz + 0.10
+      min: freqHz - 100_000,
+      max: freqHz + 100_000
     }));
     // Set PPM to 0 for precise FM tuning
     dispatch({
@@ -133,7 +134,7 @@ export const FmNode: React.FC<FmNodeProps> = ({ data }) => {
       }
     });
     // Update local Redux state to keep the pill selected
-    dispatch(setCenterFreq(freqMHz));
+    dispatch(setCenterFreq(freqMHz * 1e6));
   };
 
   const fmIQ = useMemo(() => generateFMIQData(2048), []);
@@ -143,7 +144,7 @@ export const FmNode: React.FC<FmNodeProps> = ({ data }) => {
     center_frequency_hz: 88200000
   });
 
-  const fmRange = useMemo(() => ({ min: 88.0, max: 108.0 }), []);
+  const fmRange = useMemo(() => ({ min: 88_000_000, max: 108_000_000 }), []);
 
   return (
     <NodeContainer>
@@ -164,7 +165,7 @@ export const FmNode: React.FC<FmNodeProps> = ({ data }) => {
           {FM_STATIONS.map((station) => (
             <StationPill
               key={station}
-              $active={centerFreq !== null && Math.abs(centerFreq - station) < 0.1}
+              $active={centerFreq !== null && Math.abs(centerFreq - station * 1_000_000) < 100_000}
               onClick={() => handleStationClick(station)}
             >
               {station.toFixed(1)}
@@ -177,7 +178,7 @@ export const FmNode: React.FC<FmNodeProps> = ({ data }) => {
         <FFTCanvas
           dataRef={fmDataRef}
           frequencyRange={fmRange}
-          centerFrequencyMHz={centerFreq || 98.0}
+          centerFrequencyHz={centerFreq ? centerFreq : 98_000_000}
           activeSignalArea="fm-preview"
           isPaused={true}
           isDeviceConnected={true}

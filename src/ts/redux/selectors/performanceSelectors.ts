@@ -176,9 +176,9 @@ export const selectEffectiveFrequencyRange = createSelector(
   }
 );
 
-export const selectSampleRateMHz = createSelector(
+export const selectSampleRateHz = createSelector(
   [selectSpectrumState],
-  (spectrum) => spectrum.sampleRateHz / 1_000_000
+  (spectrum) => spectrum.sampleRateHz
 );
 
 export const selectSignalAreaBounds = createSelector(
@@ -192,8 +192,8 @@ export const selectSignalAreaBounds = createSelector(
     spectrumData.spectrumFrames.forEach((frame) => {
       const label = frame.label;
       if (!label) return;
-      bounds[label] = { min: frame.min_mhz, max: frame.max_mhz };
-      bounds[label.toLowerCase()] = { min: frame.min_mhz, max: frame.max_mhz };
+      bounds[label] = { min: frame.min_hz, max: frame.max_hz };
+      bounds[label.toLowerCase()] = { min: frame.min_hz, max: frame.max_hz };
     });
     return bounds;
   }

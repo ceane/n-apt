@@ -193,7 +193,7 @@ export const useFFTHandlers = ({
       dbMax: vizDbMaxRef.current,
       fftSize,
       fftWindow,
-      centerFrequencyMHz: centerFreqRef.current,
+      centerFrequencyHz: centerFreqRef.current,
       isDeviceConnected,
       vizZoom: visualizationState.vizZoomRef.current,
       vizPanOffset: visualizationState.vizPanOffsetRef.current,

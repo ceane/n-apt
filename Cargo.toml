@@ -40,9 +40,17 @@ path = "test/rust/server_tests.rs"
 name = "capture_stitch_tests"
 path = "test/rust/capture_stitch_tests.rs"
 
+[[test]]
+name = "frequency_scaling_e2e"
+path = "test/rust/frequency_scaling_e2e.rs"
+
 [[bin]]
 name = "live_stream_test"
 path = "src/rs/bin/live_stream_test.rs"
+
+[[bin]]
+name = "dump_config"
+path = "src/rs/bin/dump_config.rs"
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(rs_decrypted)'] }

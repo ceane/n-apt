@@ -176,7 +176,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
     [sendFrequencyRange, dispatch],
   );
 
-  const centerFrequencyMHz = useMemo(() => {
+  const centerFrequencyHz = useMemo(() => {
     return calculateCenterFrequency(state.frequencyRange);
   }, [state.frequencyRange]);
 
@@ -185,13 +185,13 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
       <SpectrumContent>
         {state.sourceMode === "live" &&
           state.frequencyRange &&
-          centerFrequencyMHz !== null && (
+          centerFrequencyHz !== null && (
             <>
               <FFTAndWaterfall
                 ref={fftCanvasRef}
                 dataRef={dataRef}
                 frequencyRange={state.frequencyRange}
-                centerFrequencyMHz={centerFrequencyMHz}
+                centerFrequencyHz={centerFrequencyHz}
                 activeSignalArea={state.activeSignalArea}
                 signalAreaBounds={signalAreaBounds ?? undefined}
                 hardwareSampleRateHz={sampleRateHzEffective ?? undefined}
@@ -246,7 +246,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
             </>
           )}
         {state.sourceMode === "live" &&
-          (!state.frequencyRange || centerFrequencyMHz === null) && (
+          (!state.frequencyRange || centerFrequencyHz === null) && (
             <InitializingContainer>
               <InitializingTitle>
                 Loading Signal Configuration

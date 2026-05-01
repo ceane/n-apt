@@ -252,6 +252,7 @@ n-apt/
 3. **Fast Iteration**: Use `npm run dev` (single orchestrated flow)
 4. **Before Commit**: Run `npm run test:all`
 5. **Encryption**: WebSocket uses AES-256-GCM, auth via WebAuthn passkeys or password
+6. **Frequencies in Hz**: ALWAYS use Hertz (Hz) instead of Megahertz (MHz) for all frequency variables throughout the codebase (both frontend and backend). When specifying raw numeric values, use numeric separators for readability (e.g., `3_218_000` instead of `3218000`).
 
 ## Environment
 

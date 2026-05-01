@@ -15,7 +15,7 @@ interface FrequencyRangeSliderProps {
   maxFreq: number;
   visibleMin: number;
   visibleMax: number;
-  sampleRateMHz?: number | null;
+  sampleRateHz?: number | null;
   limitMarkers?: Array<{ freq: number; label: string }>;
   isActive: boolean;
   onActivate: () => void;
@@ -141,7 +141,7 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   onRangeChange,
   isDeviceConnected: _isDeviceConnected = true,
   externalFrequencyRange,
-  sampleRateMHz = null,
+  sampleRateHz = null,
   limitMarkers: _limitMarkers,
   readOnly = false,
   scanProgress = 0,
@@ -152,8 +152,8 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   const clampedVisibleMin = Math.max(minFreq, Math.min(maxFreq, visibleMin));
   const requestedVisibleMax = Math.max(clampedVisibleMin, visibleMax);
   const rateLimitedMax =
-    typeof sampleRateMHz === "number" && Number.isFinite(sampleRateMHz)
-      ? Math.min(maxFreq, clampedVisibleMin + sampleRateMHz)
+    typeof sampleRateHz === "number" && Number.isFinite(sampleRateHz)
+      ? Math.min(maxFreq, clampedVisibleMin + sampleRateHz)
       : Math.min(maxFreq, requestedVisibleMax);
   const clampedVisibleMax = Math.max(clampedVisibleMin, rateLimitedMax);
   const windowWidth = Math.max(

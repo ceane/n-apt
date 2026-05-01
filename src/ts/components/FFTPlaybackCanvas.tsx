@@ -267,10 +267,10 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(({
       channelCount,
       channelLabel,
       center_frequency_hz: activeRange
-        ? ((activeRange[0] + activeRange[1]) / 2) * 1_000_000
+        ? ((activeRange[0] + activeRange[1]) / 2)
         : ch.center_freq_hz,
       capture_sample_rate_hz: activeRange
-        ? (activeRange[1] - activeRange[0]) * 1_000_000
+        ? (activeRange[1] - activeRange[0])
         : ch.sample_rate_hz,
       frame_rate: ch.frame_rate,
       hardware_sample_rate_hz: ch.hardware_sample_rate_hz ?? hardwareSampleRateHz,
@@ -386,7 +386,7 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(({
             ref={forwardedRef}
             dataRef={fftCanvasDataRef}
             frequencyRange={frequencyRange}
-            centerFrequencyMHz={(frequencyRange.min + frequencyRange.max) / 2}
+            centerFrequencyHz={(frequencyRange.min + frequencyRange.max) / 2}
             activeSignalArea="Stitched"
             isPaused={isPaused}
             snapshotGridPreference={snapshotGridPreference ?? true}

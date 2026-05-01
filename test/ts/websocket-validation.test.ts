@@ -71,8 +71,8 @@ describe('WebSocket Validation System', () => {
           {
             id: "channel1",
             label: "Test Channel",
-            min_mhz: 100,
-            max_mhz: 200,
+            min_hz: 100000000,
+            max_hz: 200000000,
             description: "Test description"
           }
         ],
@@ -410,8 +410,8 @@ describe('WebSocket Validation System', () => {
         channels: Array.from({ length: 100 }, (_, i) => ({
           id: `channel-${i}`,
           label: `Channel ${i}`,
-          min_mhz: i * 10,
-          max_mhz: (i + 1) * 10,
+          min_hz: i * 10000000,
+          max_hz: (i + 1) * 10000000,
           description: `Description for channel ${i}`
         })),
         sdr_settings: {
@@ -489,8 +489,8 @@ describe('WebSocket Validation System', () => {
         channels: [{
           id: "test",
           label: "test",
-          min_mhz: 0,
-          max_mhz: 6000, // 6000 MHz = 6 GHz - high but reasonable for SDR
+          min_hz: 0,
+          max_hz: 6000000000, // 6000 MHz = 6 GHz - high but reasonable for SDR
           description: "test"
         }],
         sdr_settings: {

@@ -111,7 +111,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   // Listen for real-time IQ data and process it
   useEffect(() => {
-    if (!demodState.isListening || !demodState.centerFreqMHz || !liveDataRef.current) return;
+    if (!demodState.isListening || !demodState.centerFreqHz || !liveDataRef.current) return;
 
     const iqData = liveDataRef.current.iq_data as Uint8Array;
     const sampleRate = liveDataRef.current.sample_rate || 3200000;
@@ -129,7 +129,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return () => {
       fmDemod.stopAudio();
     };
-  }, [dataFrameCounter, demodState.isListening, demodState.centerFreqMHz, demodState.algorithm]);
+  }, [dataFrameCounter, demodState.isListening, demodState.centerFreqHz, demodState.algorithm]);
 
   // Initialize the scanner manager with the WS sender functions
   React.useEffect(() => {
@@ -232,8 +232,8 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   });
 
   const channelRanges = useMemo(() => ({
-    A: { min: 0.018, max: 4.37 },
-    B: { min: 24.72, max: 29.88 }
+    A: { min: 18_000, max: 4_370_000 },
+    B: { min: 24_720_000, max: 29_880_000 }
   }), []);
 
   const startScan = useCallback(async () => {

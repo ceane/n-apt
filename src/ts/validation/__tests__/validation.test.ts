@@ -54,8 +54,8 @@ describe('Validation System', () => {
     test('should validate valid frequency range message', () => {
       const validMessage = {
         type: 'frequency_range',
-        min_mhz: 100.5,
-        max_mhz: 200.5,
+        min_hz: 100_500_000,
+        max_hz: 200_500_000,
       };
       
       expect(isValidWebSocketMessage(validMessage)).toBe(true);
@@ -73,8 +73,8 @@ describe('Validation System', () => {
     test('should reject invalid message type', () => {
       const invalidMessage = {
         type: 'invalid_type',
-        min_mhz: 100.5,
-        max_mhz: 200.5,
+        min_hz: 100_500_000,
+        max_hz: 200_500_000,
       };
       
       expect(isValidWebSocketMessage(invalidMessage)).toBe(false);
@@ -86,8 +86,8 @@ describe('Validation System', () => {
       const validFrame = {
         id: 'frame-1',
         label: 'Test Frame',
-        min_mhz: 100.5,
-        max_mhz: 200.5,
+        min_hz: 100_500_000,
+        max_hz: 200_500_000,
         description: 'Test description',
       };
       
@@ -98,8 +98,8 @@ describe('Validation System', () => {
       const invalidFrame = {
         id: 'frame-1',
         label: 'Test Frame',
-        min_mhz: 200.5, // Higher than max
-        max_mhz: 100.5,
+        min_hz: 200_500_000, // Higher than max
+        max_hz: 100_500_000,
         description: 'Test description',
       };
       
@@ -112,8 +112,8 @@ describe('Validation System', () => {
       const validRequest = {
         jobId: 'job-123',
         fragments: [
-          { minFreq: 100.0, maxFreq: 200.0 },
-          { minFreq: 300.0, maxFreq: 400.0 },
+          { minFreq: 100_000_000, maxFreq: 200_000_000 },
+          { minFreq: 300_000_000, maxFreq: 400_000_000 },
         ],
         durationS: 60.0,
         fileType: '.napt' as const,
@@ -125,12 +125,12 @@ describe('Validation System', () => {
       
       expect(isValidCaptureRequest(validRequest)).toBe(true);
     });
-
+ 
     test('should reject capture request with invalid fragments', () => {
       const invalidRequest = {
         jobId: 'job-123',
         fragments: [
-          { minFreq: 200.0, maxFreq: 100.0 }, // Invalid range
+          { minFreq: 200_000_000, maxFreq: 100_000_000 }, // Invalid range
         ],
         durationS: 60.0,
         fileType: '.napt' as const,

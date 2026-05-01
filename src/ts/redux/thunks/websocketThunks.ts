@@ -23,19 +23,19 @@ const getSampleRateHz = (state: RootState): number | null => {
 const buildTunedFrequencyPayload = (
   state: RootState,
   range: FrequencyRange,
-): { min_mhz: number; max_mhz: number } => {
-  const centerMHz = (range.min + range.max) / 2;
+): { min_hz: number; max_hz: number } => {
+  const centerHz = (range.min + range.max) / 2;
   const sampleRateHz = getSampleRateHz(state);
   if (!sampleRateHz) {
     return {
-      min_mhz: range.min,
-      max_mhz: range.max,
+      min_hz: range.min,
+      max_hz: range.max,
     };
   }
-  const halfSpanMHz = sampleRateHz / 2_000_000;
+  const halfSpanHz = sampleRateHz / 2;
   return {
-    min_mhz: centerMHz - halfSpanMHz,
-    max_mhz: centerMHz + halfSpanMHz,
+    min_hz: centerHz - halfSpanHz,
+    max_hz: centerHz + halfSpanHz,
   };
 };
 
@@ -93,17 +93,17 @@ export const requestNextLiveFrame = createAsyncThunk(
 
 export const sendCenterFrequency = createAsyncThunk(
   'websocket/sendCenterFrequency',
-  async (centerMHz: number, { dispatch, getState }) => {
+  async (centerHz: number, { dispatch, getState }) => {
     const state = getState() as RootState;
     const sampleRateHz = getSampleRateHz(state);
     const data = sampleRateHz
       ? {
-          min_mhz: centerMHz - sampleRateHz / 2_000_000,
-          max_mhz: centerMHz + sampleRateHz / 2_000_000,
+          min_hz: centerHz - sampleRateHz / 2,
+          max_hz: centerHz + sampleRateHz / 2,
         }
       : {
-          min_mhz: centerMHz,
-          max_mhz: centerMHz,
+          min_hz: centerHz,
+          max_hz: centerHz,
         };
     if (state.websocket.isConnected) {
       dispatch({
@@ -114,7 +114,7 @@ export const sendCenterFrequency = createAsyncThunk(
         },
       });
     }
-    return centerMHz;
+    return centerHz;
   }
 );
 

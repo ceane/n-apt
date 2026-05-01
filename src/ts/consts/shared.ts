@@ -35,5 +35,5 @@ export const findBestFrequencyRange = (
       return range;
     }
   }
-  return 50000000.0;
+  return 50_000_000.0;
 };

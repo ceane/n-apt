@@ -43,8 +43,8 @@ const equalSpectrumFrames = (
     if (
       left.id !== right.id ||
       left.label !== right.label ||
-      left.min_mhz !== right.min_mhz ||
-      left.max_mhz !== right.max_mhz ||
+      left.min_hz !== right.min_hz ||
+      left.max_hz !== right.max_hz ||
       left.description !== right.description
     ) {
       return false;

@@ -36,10 +36,10 @@ export const useChannelManagement = ({
         ? ch.frequency_range
         : undefined;
     const derivedCenterHz = freqRange
-      ? ((freqRange[0] + freqRange[1]) / 2) * 1_000_000
+      ? ((freqRange[0] + freqRange[1]) / 2)
       : ch.center_freq_hz;
     const derivedCaptureRateHz = freqRange
-      ? (freqRange[1] - freqRange[0]) * 1_000_000
+      ? (freqRange[1] - freqRange[0])
       : ch.sample_rate_hz;
     const channelLabel = ch.label || `Channel ${newIdx + 1}`;
     onChannelMetadataChange?.({
@@ -60,8 +60,8 @@ export const useChannelManagement = ({
       return;
     }
 
-    const span = (ch.sample_rate_hz || 3200000) / 1_000_000;
-    const center = (ch.center_freq_hz || 0) / 1_000_000;
+    const span = (ch.sample_rate_hz || 3_200_000);
+    const center = (ch.center_freq_hz || 0);
     setFrequencyRange({ min: center - span / 2, max: center + span / 2 });
   }, [setActiveChannel, setFrequencyRange, onChannelMetadataChange, allChannelsRef]);
 

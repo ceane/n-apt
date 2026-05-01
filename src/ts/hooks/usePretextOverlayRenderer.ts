@@ -234,7 +234,7 @@ export function usePretextOverlayRenderer() {
       width: number,
       height: number,
       _frequencyRange: { min: number; max: number },
-      centerFrequencyMHz: number,
+      centerFrequencyHz: number,
       _isDeviceConnected: boolean,
       _hardwareSampleRateHz?: number,
       _fullCaptureRange?: { min: number; max: number },
@@ -249,7 +249,7 @@ export function usePretextOverlayRenderer() {
 
       // VFO frequency display using pretext
       const { metrics: _vfoMetrics } = usePretextText({
-        text: formatFrequency(centerFrequencyMHz),
+        text: formatFrequency(centerFrequencyHz / 1e6),
         font: 'bold 14px JetBrains Mono',
         fontSize: 14,
         color: '#ffff00',
@@ -259,7 +259,7 @@ export function usePretextOverlayRenderer() {
         ctx.font = `${14 * dpr}px JetBrains Mono`;
         ctx.fillStyle = '#ffff00';
         ctx.textAlign = 'center';
-        ctx.fillText(formatFrequency(centerFrequencyMHz), width / (2 * dpr), 30 / dpr);
+        ctx.fillText(formatFrequency(centerFrequencyHz / 1e6), width / (2 * dpr), 30 / dpr);
       }
     },
     []

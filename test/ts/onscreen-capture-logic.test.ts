@@ -15,8 +15,8 @@ interface FrequencyRange {
 
 interface Frame {
   label: string;
-  min_mhz: number;
-  max_mhz: number;
+  min_hz: number;
+  max_hz: number;
 }
 
 /**
@@ -30,8 +30,8 @@ function computeVisibleOnscreenRange(
   vizPanOffset: number,
 ): FrequencyRange {
   const fallbackSpan = frequencyRange.max - frequencyRange.min;
-  const hardwareMin = activeFrame?.min_mhz ?? frequencyRange.min;
-  const hardwareMax = activeFrame?.max_mhz ?? frequencyRange.max;
+  const hardwareMin = activeFrame?.min_hz ?? frequencyRange.min;
+  const hardwareMax = activeFrame?.max_hz ?? frequencyRange.max;
   const hardwareSpan =
     typeof sampleRateMHz === "number" && Number.isFinite(sampleRateMHz)
       ? Math.min(sampleRateMHz, Math.max(0, hardwareMax - hardwareMin || fallbackSpan))
@@ -88,7 +88,7 @@ function resolveEffectiveAcquisitionMode(
 // ---------- Tests ----------
 
 describe("visibleOnscreenRange clamping", () => {
-  const frameA: Frame = { label: "A", min_mhz: 0.018, max_mhz: 4.37 };
+  const frameA: Frame = { label: "A", min_hz: 0.018, max_hz: 4.37 };
 
   it("clamps to hardware sample rate when zoom=1", () => {
     const range = computeVisibleOnscreenRange(
@@ -165,8 +165,8 @@ describe("visibleOnscreenRange clamping", () => {
     );
     const span = range.max - range.min;
     expect(span).toBeCloseTo(0.8, 2);
-    expect(range.min).toBeGreaterThanOrEqual(frameA.min_mhz);
-    expect(range.max).toBeLessThanOrEqual(frameA.max_mhz);
+    expect(range.min).toBeGreaterThanOrEqual(frameA.min_hz);
+    expect(range.max).toBeLessThanOrEqual(frameA.max_hz);
   });
 });
 
@@ -436,7 +436,7 @@ describe("frequency_range metadata override (Bug: -382kHz to 4.77MHz)", () => {
     const metadata: any = {
       center_frequency_hz: 2194000, // from overall requested
       capture_sample_rate_hz: 4352000,
-      frequency_range: [0.018, 4.37], // [min_mhz, max_mhz]
+      frequency_range: [0.018, 4.37], // [min_hz, max_hz]
     };
 
     // Stitched channel has expanded hop bounds

@@ -6,7 +6,7 @@ export interface DemodState {
   sampleRateHz: number | null;
   algorithm: 'fm' | 'apt';
   bandwidthKhz: number;
-  centerFreqMHz: number | null;
+  centerFreqHz: number | null;
   isListening: boolean;
 }
 
@@ -16,7 +16,7 @@ const initialState: DemodState = {
   sampleRateHz: null,
   algorithm: 'fm',
   bandwidthKhz: 200,
-  centerFreqMHz: null,
+  centerFreqHz: null,
   isListening: false,
 };
 
@@ -41,7 +41,7 @@ const demodSlice = createSlice({
       state.bandwidthKhz = action.payload;
     },
     setCenterFreq: (state, action: PayloadAction<number>) => {
-      state.centerFreqMHz = action.payload;
+      state.centerFreqHz = action.payload;
     },
     setListening: (state, action: PayloadAction<boolean>) => {
       state.isListening = action.payload;

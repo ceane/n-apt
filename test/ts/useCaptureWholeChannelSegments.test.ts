@@ -68,9 +68,9 @@ describe("useCaptureWholeChannelSegments", () => {
         const callCount = getSnapshotData.mock.calls.length;
         const segmentIndex = Math.floor(callCount / 60);
         const ranges = [
-          { min: 0, max: 2 },
-          { min: 2, max: 4 },
-          { min: 4, max: 6 },
+          { min: 0, max: 2e6 },
+          { min: 2e6, max: 4e6 },
+          { min: 4e6, max: 6e6 },
         ];
         return {
           waveform: new Float32Array([1, 2]),
@@ -87,7 +87,7 @@ describe("useCaptureWholeChannelSegments", () => {
     const { result } = renderHook(
       () =>
         useCaptureWholeChannelSegments({
-          frequencyRange: { min: 0, max: 6 },
+          frequencyRange: { min: 0, max: 6e6 },
           sourceMode: "live",
           sampleRateHzEffective: 2_000_000,
           activeSignalArea: undefined,
@@ -108,14 +108,14 @@ describe("useCaptureWholeChannelSegments", () => {
     });
 
     expect(segments.map((segment: any) => segment.visualRange)).toEqual([
-      { min: 0, max: 2 },
-      { min: 2, max: 4 },
-      { min: 4, max: 6 },
+      { min: 0, max: 2000000 },
+      { min: 2000000, max: 4000000 },
+      { min: 4000000, max: 6000000 },
     ]);
-    expect(sendFrequencyRange).toHaveBeenNthCalledWith(1, { min: 0, max: 2 });
-    expect(sendFrequencyRange).toHaveBeenNthCalledWith(2, { min: 2, max: 4 });
-    expect(sendFrequencyRange).toHaveBeenNthCalledWith(3, { min: 4, max: 6 });
-    expect(sendFrequencyRange).toHaveBeenLastCalledWith({ min: 0, max: 6 });
+    expect(sendFrequencyRange).toHaveBeenNthCalledWith(1, { min: 0, max: 2000000 });
+    expect(sendFrequencyRange).toHaveBeenNthCalledWith(2, { min: 2000000, max: 4000000 });
+    expect(sendFrequencyRange).toHaveBeenNthCalledWith(3, { min: 4000000, max: 6000000 });
+    expect(sendFrequencyRange).toHaveBeenLastCalledWith({ min: 0, max: 6e6 });
     expect(dispatch).toHaveBeenCalledWith({ type: "SET_VIZ_ZOOM", zoom: 1 });
     expect(dispatch).toHaveBeenCalledWith({ type: "SET_VIZ_PAN", pan: 0 });
     expect(dispatch).toHaveBeenCalledWith({ type: "CLEAR_WATERFALL" });

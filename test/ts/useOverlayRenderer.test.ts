@@ -20,7 +20,7 @@ describe("useOverlayRenderer Hook", () => {
   it("should draw hardware sample rate lines when appropriate", () => {
     const { result } = renderHook(() => useOverlayRenderer());
     
-    const frequencyRange = { min: 90, max: 110 }; // 20MHz span
+    const frequencyRange = { min: 90e6, max: 110e6 }; // 20MHz span
     const hardwareSampleRateHz = 10000000; // 10MHz
     // Span > SampleRate, so it should draw lines
 
@@ -46,7 +46,7 @@ describe("useOverlayRenderer Hook", () => {
   it("should draw 'Next Sample' for partial blocks at the end", () => {
     const { result } = renderHook(() => useOverlayRenderer());
     
-    const frequencyRange = { min: 90, max: 105 }; // 15MHz span
+    const frequencyRange = { min: 90e6, max: 105e6 }; // 15MHz span
     const hardwareSampleRateHz = 10000000; // 10MHz
     // First block: 90-100 (Full), Second block: 100-105 (Partial)
 
@@ -69,7 +69,7 @@ describe("useOverlayRenderer Hook", () => {
   it("should not draw hardware lines if span is smaller than sample rate", () => {
     const { result } = renderHook(() => useOverlayRenderer());
     
-    const frequencyRange = { min: 95, max: 100 }; // 5MHz span
+    const frequencyRange = { min: 95e6, max: 100e6 }; // 5MHz span
     const hardwareSampleRateHz = 10000000; // 10MHz
 
     jest.clearAllMocks();

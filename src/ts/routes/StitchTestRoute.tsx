@@ -119,7 +119,7 @@ export const StitchTestRoute: React.FC = () => {
     // tunes to whichever channel the user has selected in the sidebar.
     const range = state.frequencyRange;
     const center_hz = range
-      ? Math.round(((range.min + range.max) / 2) * 1_000_000)
+      ? Math.round((range.min + range.max) / 2)
       : undefined;
 
     try {
