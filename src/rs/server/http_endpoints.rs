@@ -98,13 +98,13 @@ fn format_frequency_range(frames: &[SpectrumFrameMessage]) -> Option<String> {
   let mut min = f64::INFINITY;
   let mut max = f64::NEG_INFINITY;
   for frame in frames {
-    min = min.min(frame.min_mhz);
-    max = max.max(frame.max_mhz);
+    min = min.min(frame.min_hz);
+    max = max.max(frame.max_hz);
   }
   if !min.is_finite() || !max.is_finite() || max <= min {
     return None;
   }
-  Some(format!("{:.3}-{:.3} MHz", min, max))
+  Some(format!("{:.0}-{:.0} Hz", min, max))
 }
 
 fn format_sample_rate(sample_rate: Option<u32>) -> Option<String> {
@@ -112,7 +112,7 @@ fn format_sample_rate(sample_rate: Option<u32>) -> Option<String> {
   if rate == 0 {
     return None;
   }
-  Some(format!("{:.3} MS/s", rate as f64 / 1_000_000.0))
+  Some(format!("{} S/s", rate))
 }
 
 #[derive(Debug, Deserialize)]
@@ -179,9 +179,9 @@ pub struct StitchDiagnosticResponse {
   pub hop1_frames: Vec<Vec<f32>>,
   pub hop2_frames: Vec<Vec<f32>>,
   pub stitched_frames: Vec<Vec<f32>>,
-  pub hop1_freq_mhz: [f32; 2],
-  pub hop2_freq_mhz: [f32; 2],
-  pub stitched_freq_mhz: [f32; 2],
+  pub hop1_freq_hz: [f32; 2],
+  pub hop2_freq_hz: [f32; 2],
+  pub stitched_freq_hz: [f32; 2],
   pub overlap_start: usize,
   pub overlap_end: usize,
   pub device_info: String,
@@ -812,7 +812,7 @@ pub async fn agent_status_handler(
       "capture_artifacts": shared.capture_artifacts.lock().unwrap().len()
     },
     "signals": {
-      "center_frequency_mhz": center_freq_hz as f64 / 1_000_000.0,
+      "center_frequency_hz": center_freq_hz as f64,
       "frequency_range": freq_range,
       "sample_rate": sample_rate_label
     },
@@ -1031,10 +1031,10 @@ pub async fn stitch_diagnostic_handler(
       .iter()
       .find(|c| c.label.to_uppercase() == label.to_uppercase())
     {
-      // Anchor center1 so that the hardware capture starts exactly at the channel's min_mhz
+      // Anchor center1 so that the hardware capture starts exactly at the channel's min_hz
       // center = min + (sample_rate / 2)
       let sr_hz = processor.get_sample_rate() as f64;
-      let anchored_hz = (ch.min_mhz * 1_000_000.0 + (sr_hz / 2.0)) as u32;
+      let anchored_hz = (ch.min_hz + (sr_hz / 2.0)) as u32;
       info!(
         "Anchoring diagnostic center1 to {} Hz for area {}",
         anchored_hz, label
@@ -1043,7 +1043,7 @@ pub async fn stitch_diagnostic_handler(
     }
   }
 
-  let (center1, hop_bw_mhz, sample_rate, device_info, was_paused) = {
+  let (center1, hop_bw_hz, sample_rate, device_info, was_paused) = {
     let was_paused = state.shared.is_paused.load(Ordering::Relaxed);
     // Pause during diagnostic to avoid hardware contention
     state.shared.is_paused.store(true, Ordering::Relaxed);
@@ -1062,7 +1062,7 @@ pub async fn stitch_diagnostic_handler(
     let sample_rate = processor.get_sample_rate() as f64;
     (
       processor.get_center_frequency(),
-      sample_rate / 1_000_000.0,
+      sample_rate,
       sample_rate,
       processor.get_device_info(),
       was_paused,
@@ -1154,7 +1154,7 @@ pub async fn stitch_diagnostic_handler(
 
   // Calculate dynamic overlap bounds based strictly on the center frequency jump
   let offset_bins =
-    ((fft_size as f64) * (jump_hz / hop_bw_mhz)).round() as usize;
+    ((fft_size as f64) * (jump_hz / hop_bw_hz)).round() as usize;
   let overlap_bins = fft_size.saturating_sub(offset_bins);
   // 4. Midpoint Cut Stitching (No Blending)
   let mut stitched_frames = Vec::with_capacity(NUM_FRAMES);
@@ -1201,9 +1201,9 @@ pub async fn stitch_diagnostic_handler(
     hop1_frames,
     hop2_frames,
     stitched_frames,
-    hop1_freq_mhz: [hop1_start, hop1_end],
-    hop2_freq_mhz: [hop2_start, hop2_end],
-    stitched_freq_mhz: [hop1_start, hop2_end],
+    hop1_freq_hz: [hop1_start, hop1_end],
+    hop2_freq_hz: [hop2_start, hop2_end],
+    stitched_freq_hz: [hop1_start, hop2_end],
     overlap_start: offset_bins,
     overlap_end: overlap_bins,
 

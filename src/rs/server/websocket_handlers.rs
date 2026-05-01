@@ -178,8 +178,8 @@ pub async fn handle_ws_connection(
       .map(|c| super::types::SpectrumFrameMessage {
         id: c.id,
         label: c.label,
-        min_mhz: c.min_mhz,
-        max_mhz: c.max_mhz,
+        min_hz: c.min_hz,
+        max_hz: c.max_hz,
         description: c.description,
       })
       .collect(),
@@ -352,7 +352,7 @@ pub fn handle_message(
         let sdr_settings_guard = shared.sdr_settings.lock().unwrap();
         let sample_rate = sdr_settings_guard.sample_rate as f64;
 
-        let center_freq = ((min_freq * 1000000.0) + (sample_rate / 2.0)) as u32;
+        let center_freq = (min_freq + (sample_rate / 2.0)) as u32;
 
         shared
           .pending_center_freq
@@ -663,11 +663,11 @@ pub fn handle_message(
           content_type: super::types::AptContentType::AudioHearing, // Default
           window_size_hz: message
             .min_freq
-            .map(|f| (message.max_freq.unwrap_or(f) - f) * 1000.0)
+            .map(|f| message.max_freq.unwrap_or(f) - f)
             .unwrap_or(25000.0),
           sub_channel_range: (
-            message.min_freq.unwrap_or(0.0) * 1000.0 + 350000.0,
-            message.min_freq.unwrap_or(0.0) * 1000.0 + 500000.0,
+            message.min_freq.unwrap_or(0.0) + 350000.0,
+            message.min_freq.unwrap_or(0.0) + 500000.0,
           ),
           script_content: None, // Would be parsed from message
           media_content: None,  // Would be parsed from message

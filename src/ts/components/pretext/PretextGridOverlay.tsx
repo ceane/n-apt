@@ -53,6 +53,7 @@ export const PretextGridOverlay: React.FC<PretextGridOverlayProps> = ({
     // Generate horizontal labels only - vertical labels handled by PretextDBScale
     const step = findBestFrequencyRange(viewBandwidth2, 10);
     const formatTickLabel = (freq: number) => {
+      if (!Number.isFinite(freq)) return "---";
       if (maxFreq < 1) return `${Math.round(freq * 1000)}kHz`;
       if (step >= 0.5) return freq.toFixed(1);
       if (step >= 0.01) return freq.toFixed(2);

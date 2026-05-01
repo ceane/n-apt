@@ -179,13 +179,13 @@ pub struct WebSocketMessage {
   #[serde(
     skip_serializing_if = "Option::is_none",
     alias = "minFreq",
-    alias = "min_mhz"
+    alias = "min_hz"
   )]
   pub min_freq: Option<f64>,
   #[serde(
     skip_serializing_if = "Option::is_none",
     alias = "maxFreq",
-    alias = "max_mhz"
+    alias = "max_hz"
   )]
   pub max_freq: Option<f64>,
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -440,9 +440,9 @@ pub struct SpectrumData {
   pub is_mock_apt: bool,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub center_frequency_hz: Option<u32>,
-  /// Actual span of the waveform in MHz (for live multi-hop captures)
+  /// Actual span of the waveform in Hz (for live multi-hop captures)
   #[serde(skip_serializing_if = "Option::is_none")]
-  pub waveform_span_mhz: Option<f64>,
+  pub waveform_span_hz: Option<f64>,
   pub timestamp: i64,
   /// Data type: "spectrum_db" for FFT power data, "iq_raw" for raw I/Q samples
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -581,8 +581,8 @@ pub struct SdrDisplayConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SdrLimitsConfig {
-  pub lower_limit_mhz: Option<f64>,
-  pub upper_limit_mhz: Option<f64>,
+  pub lower_limit_hz: Option<f64>,
+  pub upper_limit_hz: Option<f64>,
   pub lower_limit_label: Option<String>,
   pub upper_limit_label: Option<String>,
 }
@@ -635,7 +635,7 @@ pub enum FrequencySpacing {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MockAptChannelConfig {
   pub label: String,
-  pub freq_range_mhz: Vec<f64>,
+  pub freq_range_hz: Vec<f64>,
   pub description: String,
   /// Optional: override noise floor for this channel (dB)
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -662,7 +662,7 @@ pub struct MockAptSignalConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MockAptTrainingArea {
-  pub freq_range_mhz: Vec<f64>,
+  pub freq_range_hz: Vec<f64>,
   pub description: String,
   pub signal_types: Vec<String>,
   pub base_strength_range: Vec<f64>,
@@ -677,8 +677,8 @@ pub struct SpectrumFramesConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpectrumFrameConfig {
   pub label: String,
-  #[serde(rename = "freq_range_mhz")]
-  pub freq_range_mhz: Vec<f64>,
+  #[serde(rename = "freq_range_hz")]
+  pub freq_range_hz: Vec<f64>,
   pub description: String,
 }
 
@@ -686,8 +686,8 @@ pub struct SpectrumFrameConfig {
 pub struct SpectrumFrameMessage {
   pub id: String,
   pub label: String,
-  pub min_mhz: f64,
-  pub max_mhz: f64,
+  pub min_hz: f64,
+  pub max_hz: f64,
   pub description: String,
 }
 

@@ -12,7 +12,7 @@ const VIEWPORT_STYLE: React.CSSProperties = {
 
 const BASE_PROPS = {
   frequencyRange: { min: 2300, max: 2500 },
-  centerFrequencyMHz: 2400,
+  centerFrequencyHz: 2_400_000_000,
   activeSignalArea: "main",
   snapshotGridPreference: true,
 };

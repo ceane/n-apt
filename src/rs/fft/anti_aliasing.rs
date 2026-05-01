@@ -150,10 +150,10 @@ impl Measurement {
 /// Returns the true frequency that could produce all measurements
 pub fn reconstruct_frequency_crt(
   measurements: &[Measurement],
-  max_search_mhz: f64,
+  max_search_hz: f64,
   step_hz: f64,
 ) -> Option<f64> {
-  let max_search = max_search_mhz * 1_000_000.0;
+  let max_search = max_search_hz;
   let mut f = 0.0;
 
   while f < max_search {

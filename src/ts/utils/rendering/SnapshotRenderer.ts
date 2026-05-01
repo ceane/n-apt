@@ -336,7 +336,7 @@ export class SnapshotRenderer {
     }
   }
 
-  drawFrequencyLabels(dc: DrawingContext, zoom: number, centerFrequencyMHz: number, fontScale: number = 1): void {
+  drawFrequencyLabels(dc: DrawingContext, zoom: number, centerFrequencyHz: number, fontScale: number = 1): void {
     const area = this.mapper.getPlotArea();
     const freqRange = this.mapper.getFreqRange();
     const bandwidth = freqRange.max - freqRange.min;
@@ -349,9 +349,9 @@ export class SnapshotRenderer {
 
     const startLabel = fmtFreq(freqRange.min, zoom);
     const endLabel = fmtFreq(freqRange.max, zoom);
-    const centerLabelText = Number.isNaN(centerFrequencyMHz) || !Number.isFinite(centerFrequencyMHz)
+    const centerLabelText = Number.isNaN(centerFrequencyHz) || !Number.isFinite(centerFrequencyHz)
       ? "-- MHz"
-      : fmtFreq(centerFrequencyMHz, zoom);
+      : fmtFreq(centerFrequencyHz, zoom);
     
     // Collision detection
     const startW = dc.measureTextWidth(startLabel);
@@ -515,11 +515,11 @@ export class SnapshotRenderer {
   drawHardwareGrid(dc: DrawingContext, hardwareSampleRateHz: number, fullCaptureRange?: Range): void {
     const area = this.mapper.getPlotArea();
     const freqRange = this.mapper.getFreqRange();
-    const hwSpanMHz = hardwareSampleRateHz / 1e6;
+    const hwSpanHz = hardwareSampleRateHz;
     const anchorRange = fullCaptureRange || freqRange;
     const totalSpan = anchorRange.max - anchorRange.min;
 
-    if (totalSpan <= hwSpanMHz + 0.001 || hwSpanMHz <= 0) return;
+    if (totalSpan <= hwSpanHz + 1 || hwSpanHz <= 0) return;
 
     dc.save();
     dc.setStroke(this.theme.hwLine, 1 / this.mapper.getDPR(), [4, 4]);
@@ -528,21 +528,22 @@ export class SnapshotRenderer {
     dc.setTextAlign("center");
     dc.setTextBaseline("top");
 
-    const fmtOff = (mhz: number) => {
-      if (Math.abs(mhz) >= 1) return `${mhz.toFixed(1)}MHz`;
-      if (Math.abs(mhz) >= 0.001) return `${Math.round(mhz * 1000)}kHz`;
-      return `${Math.round(mhz * 1_000_000)}Hz`;
+    const fmtOff = (hz: number) => {
+      const abs = Math.abs(hz);
+      if (abs >= 1_000_000) return `${(hz / 1_000_000).toFixed(1)}MHz`;
+      if (abs >= 1_000) return `${Math.round(hz / 1_000)}kHz`;
+      return `${Math.round(hz)}Hz`;
     };
 
     let cur = anchorRange.min;
-    while (cur < anchorRange.max - 0.001) {
+    while (cur < anchorRange.max - 1) {
       const bStart = cur;
-      const bEnd = Math.min(bStart + hwSpanMHz, anchorRange.max);
+      const bEnd = Math.min(bStart + hwSpanHz, anchorRange.max);
       const bWidth = bEnd - bStart;
-      const isFull = bWidth >= hwSpanMHz - 0.001;
+      const isFull = bWidth >= hwSpanHz - 1;
 
       if (bEnd > freqRange.min && bStart < freqRange.max) {
-        if (bStart > anchorRange.min + 0.0001 && bStart >= freqRange.min && bStart <= freqRange.max) {
+        if (bStart > anchorRange.min + 0.001 && bStart >= freqRange.min && bStart <= freqRange.max) {
           const lx = Math.round(this.mapper.freqToX(bStart));
           dc.beginPath();
           dc.moveTo(lx, area.y);

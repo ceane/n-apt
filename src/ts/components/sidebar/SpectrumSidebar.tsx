@@ -46,6 +46,7 @@ import SourceInput from "@n-apt/components/sidebar/SourceInput";
 import { buildSdrLimitMarkers } from "@n-apt/utils/sdrLimitMarkers";
 import { usePrompt } from "@n-apt/components/ui/PromptProvider";
 import { fileRegistry } from "@n-apt/utils/fileRegistry";
+import { parseFrequency } from "@n-apt/utils/frequency";
 
 const SidebarContent = memo(styled.div`
   display: grid;
@@ -209,7 +210,7 @@ export const SpectrumSidebar: React.FC = () => {
     maxSampleRateHz ??
     liveSdrSettingsToUse?.sample_rate ??
     0;
-  const sampleRateMHz = maxSampleRate ? maxSampleRate / 1_000_000 : null;
+  const sampleRateHzLocal = maxSampleRate ? maxSampleRate : null;
   const isServerConnected = useMemo(
     () =>
       liveIsConnected ||
@@ -458,24 +459,24 @@ export const SpectrumSidebar: React.FC = () => {
     // If we have metadata for a single file, use that
     if (selectedFiles.length === 1 && naptMetadata) {
       const freq =
-        (naptMetadata.center_frequency_hz ||
-          naptMetadata.center_frequency ||
-          0) / 1_000_000;
+        naptMetadata.center_frequency_hz ||
+        naptMetadata.center_frequency ||
+        0;
       const sampleRate =
-        (naptMetadata.capture_sample_rate_hz ||
-          naptMetadata.sample_rate_hz ||
-          naptMetadata.sample_rate ||
-          0) / 1_000_000;
+        naptMetadata.capture_sample_rate_hz ||
+        naptMetadata.sample_rate_hz ||
+        naptMetadata.sample_rate ||
+        0;
       minFreq = freq - sampleRate / 2;
       maxFreq = freq + sampleRate / 2;
     }
 
     // Fallback to filename parsing
     for (const f of selectedFiles) {
-      const match = f.name.match(/iq_(\d+\.?\d*)MHz/);
+      const match = f.name.match(/iq_([\d._]+[a-zA-Z]*)/);
       if (match) {
-        const freq = parseFloat(match[1]);
-        const sampleRate = sampleRateMHz ?? 3.2; // Use current sample rate or fallback
+        const freq = parseFrequency(match[1], "MHz") || 0;
+        const sampleRate = sampleRateHzLocal ?? 3_200_000; // Use current sample rate or fallback
         minFreq = Math.min(minFreq, freq - sampleRate / 2);
         maxFreq = Math.max(maxFreq, freq + sampleRate / 2);
       }
@@ -492,11 +493,11 @@ export const SpectrumSidebar: React.FC = () => {
         typeof liveSdrSettingsToUse?.center_frequency === "number" &&
         typeof liveSdrSettingsToUse?.sample_rate === "number"
       ) {
-        const centerMHz = liveSdrSettingsToUse.center_frequency / 1_000_000;
-        const hardwareSpanMHz = liveSdrSettingsToUse.sample_rate / 1_000_000;
+        const centerFreq = liveSdrSettingsToUse.center_frequency;
+        const hardwareSpan = liveSdrSettingsToUse.sample_rate;
         return {
-          min: centerMHz - hardwareSpanMHz / 2,
-          max: centerMHz + hardwareSpanMHz / 2,
+          min: centerFreq - hardwareSpan / 2,
+          max: centerFreq + hardwareSpan / 2,
         };
       }
       return null;
@@ -509,11 +510,11 @@ export const SpectrumSidebar: React.FC = () => {
       ) ?? liveFramesToUse[0];
 
     const fallbackSpan = frequencyRange.max - frequencyRange.min;
-    const hardwareMin = activeFrame?.min_mhz ?? frequencyRange.min;
-    const hardwareMax = activeFrame?.max_mhz ?? frequencyRange.max;
+    const hardwareMin = activeFrame?.min_hz ?? frequencyRange.min;
+    const hardwareMax = activeFrame?.max_hz ?? frequencyRange.max;
     const hardwareSpan =
-      typeof sampleRateMHz === "number" && Number.isFinite(sampleRateMHz)
-        ? Math.min(sampleRateMHz, Math.max(0, hardwareMax - hardwareMin || fallbackSpan))
+      typeof sampleRateHzLocal === "number" && Number.isFinite(sampleRateHzLocal)
+        ? Math.min(sampleRateHzLocal, Math.max(0, hardwareMax - hardwareMin || fallbackSpan))
         : Math.max(0, hardwareMax - hardwareMin || fallbackSpan);
 
     const safeZoom = Number.isFinite(vizZoom) && vizZoom > 0 ? vizZoom : 1;
@@ -559,20 +560,20 @@ export const SpectrumSidebar: React.FC = () => {
       typeof liveSdrSettingsToUse?.center_frequency === "number" &&
       typeof liveSdrSettingsToUse?.sample_rate === "number"
     ) {
-      const centerMHz = liveSdrSettingsToUse.center_frequency / 1_000_000;
-      const spanMHz = liveSdrSettingsToUse.sample_rate / 1_000_000;
+      const centerFreq = liveSdrSettingsToUse.center_frequency;
+      const spanFreq = liveSdrSettingsToUse.sample_rate;
       areas.push({
         label: "Onscreen",
-        min: centerMHz - spanMHz / 2,
-        max: centerMHz + spanMHz / 2,
+        min: centerFreq - spanFreq / 2,
+        max: centerFreq + spanFreq / 2,
       });
     }
     if (Array.isArray(liveFramesToUse)) {
       liveFramesToUse.forEach((frame) => {
         areas.push({
           label: frame.label,
-          min: frame.min_mhz,
-          max: frame.max_mhz,
+          min: frame.min_hz,
+          max: frame.max_hz,
         });
       });
     }
@@ -645,11 +646,11 @@ export const SpectrumSidebar: React.FC = () => {
     const onscreenSpan = visibleOnscreenRange
       ? visibleOnscreenRange.max - visibleOnscreenRange.min
       : 0;
-    const hardwareSampleRateMHz = maxSampleRate / 1_000_000;
+    const hardwareSampleRateHz = maxSampleRate;
     const effectiveAcquisitionMode =
       onscreenIsActive &&
-        hardwareSampleRateMHz > 0 &&
-        Math.abs(onscreenSpan - hardwareSampleRateMHz) < 0.01
+        hardwareSampleRateHz > 0 &&
+        Math.abs(onscreenSpan - hardwareSampleRateHz) < 10_000
         ? "whole_sample"
         : acquisitionMode;
 

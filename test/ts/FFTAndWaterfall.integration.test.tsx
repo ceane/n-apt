@@ -15,7 +15,7 @@ describe("FFTAndWaterfall Integration", () => {
   const defaultProps = {
     dataRef: mockDataRef,
     frequencyRange: { min: 100, max: 102 },
-    centerFrequencyMHz: 101,
+    centerFrequencyHz: 101_000_000,
     activeSignalArea: "A",
     isPaused: false,
     powerScale: "dB" as const,

@@ -432,7 +432,7 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
     // Calculate PSD normalization factor for dBm mode (Ps = P / (Fs * N))
     let activeNormalization = normalizationFactor;
     if (powerMode === "dbm" && inputMode === "complex_iq") {
-      const sampleRate = processOptions?.hardwareSampleRateHz || 2400000;
+      const sampleRate = processOptions?.hardwareSampleRateHz || 2_400_000;
       activeNormalization = sampleRate * fftSize;
     }
 

@@ -284,7 +284,7 @@ export const Channels: React.FC<ChannelsProps> = ({
     state,
     dispatch: storeDispatch,
     effectiveFrames,
-    sampleRateMHz,
+    sampleRateHzEffective: sampleRateHz,
     wsConnection,
   } = useSpectrumStore();
 
@@ -293,7 +293,7 @@ export const Channels: React.FC<ChannelsProps> = ({
     [effectiveFrames, spectrumFrames],
   );
 
-  const [manualFrequency, setManualFrequency] = useState<string>("137.1"); // Default to APT frequency
+  const [manualFrequency, setManualFrequency] = useState<string>("137_100_000"); // Default to APT frequency in Hz
   const [isManualMode, setIsManualMode] = useState<boolean>(false);
   const lastRequestedSignalAreaRef = useRef<string | null>(null);
 
@@ -327,11 +327,11 @@ export const Channels: React.FC<ChannelsProps> = ({
       || channels.find((f: any) => f.label === activeSignalArea))
     : undefined;
   const activeDescription: string = activeFrame?.description ?? "";
-  // Bandwidth estimation: 1 byte per Hz, width in MHz -> MB/s
-  const widthMHz = activeFrame
-    ? Math.max(0, Number(activeFrame.max_mhz) - Number(activeFrame.min_mhz))
+  // Bandwidth estimation: 1 byte per Hz, width in Hz -> B/s -> MB/s
+  const widthHz = activeFrame
+    ? Math.max(0, Number(activeFrame.max_hz) - Number(activeFrame.min_hz))
     : 0;
-  const bandwidthMBps = Math.max(0, widthMHz);
+  const bandwidthMBps = Math.max(0, widthHz) / 1_000_000;
   const minutes5MB = bandwidthMBps * 300; // 5 minutes
   const hourMB = bandwidthMBps * 3600; // 1 hour
   const dayMB = bandwidthMBps * 86400; // 24 hours
@@ -370,7 +370,7 @@ export const Channels: React.FC<ChannelsProps> = ({
   const iqSize = 2; // I, Q = u8 + u8 = 2 bytes
   const iqDataRateMBps = formatBWperSec(bandwidthMBps * iqSize);
   const formattedDataBandwidth = formatBWperSec(bandwidthMBps);
-  const formattedSignalBandwidth = widthMHz.toFixed(2);
+  const formattedSignalBandwidth = (widthHz / 1_000_000).toFixed(2);
 
   const IQExplainerTooltip = () =>
     <Tooltip 
@@ -390,17 +390,17 @@ export const Channels: React.FC<ChannelsProps> = ({
           {Array.isArray(liveFramesToUse) && liveFramesToUse.length > 0 ? (
             liveFramesToUse.map((frame) => {
               const label = frame.label;
-              const min = frame.min_mhz;
-              const max = frame.max_mhz;
-              const span = max - min;
+              const minFreq = frame.min_hz;
+              const maxFreq = frame.max_hz;
+              const span = maxFreq - minFreq;
 
               return (
                 <ReduxFrequencyRangeSlider
                   key={frame.id}
                   label={label}
-                  minFreq={min}
-                  maxFreq={max}
-                  sampleRateMHz={sampleRateMHz}
+                  minFreq={minFreq}
+                  maxFreq={maxFreq}
+                  sampleRateHz={sampleRateHz}
                   limitMarkers={limitMarkers}
                   onActivate={() => {
                     const rememberedRange =
@@ -408,11 +408,11 @@ export const Channels: React.FC<ChannelsProps> = ({
                       state.lastKnownRanges[label.toLowerCase()];
                     const nextRange =
                       rememberedRange ?? {
-                        min,
+                        min: minFreq,
                         max:
-                          min +
-                          (typeof sampleRateMHz === "number"
-                            ? Math.min(sampleRateMHz, span)
+                          minFreq +
+                          (typeof sampleRateHz === "number"
+                            ? Math.min(sampleRateHz, span)
                             : span),
                       };
                     reduxDispatch(setSignalAreaAndRange({ area: label, range: nextRange }));
@@ -463,8 +463,8 @@ export const Channels: React.FC<ChannelsProps> = ({
 
   const handleTune = (frame: any) => {
     const range = {
-      min: frame.min_mhz,
-      max: sampleRateMHz ? Math.min(frame.max_mhz, frame.min_mhz + sampleRateMHz) : frame.max_mhz
+      min: frame.min_hz,
+      max: sampleRateHz ? Math.min(frame.max_hz, frame.min_hz + sampleRateHz) : frame.max_hz
     };
 
     storeDispatch({
@@ -482,10 +482,11 @@ export const Channels: React.FC<ChannelsProps> = ({
     if (isNaN(freq) || freq <= 0) return;
 
     // Use window size from demod context (default 25kHz if not available)
-    const windowSizeHz = 0.025; // 25kHz in MHz
+    const windowSizeHz = 25_000; // 25kHz in Hz
+    const freqHz = freq; // Raw Hz now
     const range = {
-      min: Math.max(0, freq - windowSizeHz / 2),
-      max: freq + windowSizeHz / 2
+      min: Math.max(0, freqHz - windowSizeHz / 2),
+      max: freqHz + windowSizeHz / 2
     };
 
     storeDispatch({
@@ -534,15 +535,15 @@ export const Channels: React.FC<ChannelsProps> = ({
         {/* Manual Frequency Input - Only show when Manual is selected */}
         {isManualMode && (
           <FrequencyInputContainer>
-            <FrequencyLabel>Manual Freq (MHz):</FrequencyLabel>
+            <FrequencyLabel>Manual Freq (Hz):</FrequencyLabel>
             <FrequencyInput
               type="number"
               value={manualFrequency}
               onChange={(e) => setManualFrequency(e.target.value)}
-              step="0.1"
-              min="0.1"
-              max="1000"
-              placeholder="137.1"
+              step="1000"
+              min="0"
+              max="20_000_000_000"
+              placeholder="137_100_000"
             />
             <TuneButton onClick={handleManualTune} disabled={isScanning}>
               Tune
@@ -554,8 +555,8 @@ export const Channels: React.FC<ChannelsProps> = ({
         {!isManualMode && channels.map(ch => {
           const isActive = state.activeSignalArea === ch.label;
           const isChannelScanning = isScanning && scanRange &&
-            ch.min_mhz * 1e6 <= (scanRange.max || 0) &&
-            ch.max_mhz * 1e6 >= (scanRange.min || 0);
+            ch.min_hz <= (scanRange.max || 0) &&
+            ch.max_hz >= (scanRange.min || 0);
 
           return (
             <React.Fragment key={ch.id}>
@@ -565,7 +566,7 @@ export const Channels: React.FC<ChannelsProps> = ({
               >
                 <ChannelLetter $isActive={isActive}>{ch.label}</ChannelLetter>
                 <ChannelFreq $isActive={isActive}>
-                  {formatFrequency(ch.min_mhz)} - {formatFrequency(ch.max_mhz)}
+                  {formatFrequency(ch.min_hz)} - {formatFrequency(ch.max_hz)}
                 </ChannelFreq>
               </ChannelBlock>
 
@@ -574,9 +575,9 @@ export const Channels: React.FC<ChannelsProps> = ({
                 <ReduxFrequencyRangeSlider
                   label=""
                   signalAreaKey={ch.label}
-                  minFreq={ch.min_mhz}
-                  maxFreq={ch.max_mhz}
-                  sampleRateMHz={sampleRateMHz}
+                  minFreq={ch.min_hz}
+                  maxFreq={ch.max_hz}
+                  sampleRateHz={sampleRateHz}
                   onActivate={() => handleTune(ch)}
                   readOnly={isChannelScanning}
                   scanProgress={isChannelScanning ? scanProgress : 0}
@@ -592,7 +593,7 @@ export const Channels: React.FC<ChannelsProps> = ({
           })}
 
         <SampleRateLabel>
-          Hardware sample rate: <SampleRateValue>{sampleRateMHz ? formatFrequency(sampleRateMHz) : "X.X MHz"}</SampleRateValue>
+          Hardware sample rate: <SampleRateValue>{sampleRateHz ? formatFrequency(sampleRateHz) : "X.X MHz"}</SampleRateValue>
         </SampleRateLabel>
       </ChannelsDemodBody>
     </ChannelsSection>

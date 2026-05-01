@@ -51,7 +51,7 @@ if (isValidAuthResult(data)) {
 
 // Validate spectrum frame
 if (isValidSpectrumFrame(frame)) {
-  console.log(frame.min_mhz, frame.max_mhz); // Safe access
+  console.log(frame.min_hz, frame.max_hz); // Safe access
 }
 ```
 

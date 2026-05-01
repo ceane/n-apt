@@ -982,14 +982,14 @@ export function useSnapshot(
     const centerFreqToRender = (rangeToRender.min + rangeToRender.max) / 2;
     let captureRange: Range;
     if (data.hardwareSampleRateHz && Number.isFinite(centerFreqToRender)) {
-      const hwSpanMHz = data.hardwareSampleRateHz / 1e6;
+      const hwSpanHz = data.hardwareSampleRateHz;
       const dataSpan = rangeToRender.max - rangeToRender.min;
-      if (dataSpan > hwSpanMHz + 0.001) {
+      if (dataSpan > hwSpanHz + 1) {
         captureRange = rangeToRender;
       } else {
         captureRange = { 
-          min: centerFreqToRender - (data.hardwareSampleRateHz / 2e6), 
-          max: centerFreqToRender + (data.hardwareSampleRateHz / 2e6) 
+          min: centerFreqToRender - (data.hardwareSampleRateHz / 2), 
+          max: centerFreqToRender + (data.hardwareSampleRateHz / 2) 
         };
       }
     } else {
@@ -998,14 +998,14 @@ export function useSnapshot(
 
     // Dimensions
     const dpr = window.devicePixelRatio || 1;
-    const hardwareSpanMHz =
+    const hardwareSpanHz =
       data.hardwareSampleRateHz && data.hardwareSampleRateHz > 0
-        ? data.hardwareSampleRateHz / 1_000_000
+        ? data.hardwareSampleRateHz
         : null;
-    const rangeSpanMHz = rangeToRender.max - rangeToRender.min;
+    const rangeSpanHz = rangeToRender.max - rangeToRender.min;
     const wholeWidthScale =
-      options.whole && hardwareSpanMHz && rangeSpanMHz > 0
-        ? Math.min(2.25, Math.max(1.15, rangeSpanMHz / hardwareSpanMHz))
+      options.whole && hardwareSpanHz && rangeSpanHz > 0
+        ? Math.min(2.25, Math.max(1.15, rangeSpanHz / hardwareSpanHz))
         : 1;
     const LOGICAL_WIDTH = Math.round(1200 * wholeWidthScale);
     const LOGICAL_SPECTRUM_H = 400;
@@ -1090,14 +1090,14 @@ export function useSnapshot(
       const currentCenterFreq = (currentRange.min + currentRange.max) / 2;
       let currentCaptureRange: Range;
       if (currentData.hardwareSampleRateHz && Number.isFinite(currentCenterFreq)) {
-        const hwSpanMHz = currentData.hardwareSampleRateHz / 1e6;
+        const hwSpanHz = currentData.hardwareSampleRateHz;
         const dataSpan = currentRange.max - currentRange.min;
-        if (dataSpan > hwSpanMHz + 0.001) {
+        if (dataSpan > hwSpanHz + 1) {
           currentCaptureRange = currentRange;
         } else {
           currentCaptureRange = {
-            min: currentCenterFreq - currentData.hardwareSampleRateHz / 2e6,
-            max: currentCenterFreq + currentData.hardwareSampleRateHz / 2e6,
+            min: currentCenterFreq - currentData.hardwareSampleRateHz / 2,
+            max: currentCenterFreq + currentData.hardwareSampleRateHz / 2,
           };
         }
       } else {

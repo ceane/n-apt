@@ -55,8 +55,8 @@ const equalSpectrumFrames = (
     if (
       left.id !== right.id ||
       left.label !== right.label ||
-      left.min_mhz !== right.min_mhz ||
-      left.max_mhz !== right.max_mhz ||
+      left.min_hz !== right.min_hz ||
+      left.max_hz !== right.max_hz ||
       left.description !== right.description
     ) {
       return false;
@@ -243,16 +243,16 @@ const processMessage = (dispatch: Dispatch, getState: () => any, parsedData: any
           .map((f: any) => ({
             id: f.id,
             label: typeof f.label === "string" ? f.label : "",
-            min_mhz: Number(f.min_mhz),
-            max_mhz: Number(f.max_mhz),
+            min_hz: Number(f.min_hz),
+            max_hz: Number(f.max_hz),
             description: typeof f.description === "string" ? f.description : "",
           }))
           .filter((f: any) =>
             typeof f.label === "string" &&
             f.label.length > 0 &&
-            Number.isFinite(f.min_mhz) &&
-            Number.isFinite(f.max_mhz) &&
-            f.max_mhz > f.min_mhz,
+            Number.isFinite(f.min_hz) &&
+            Number.isFinite(f.max_hz) &&
+            f.max_hz > f.min_hz,
           );
       }
       
@@ -428,7 +428,7 @@ const processBinaryMessage = async (dispatch: Dispatch, _getState: () => any, bu
       type: "spectrum",
       is_mock_apt: false,
       center_frequency_hz: centerFrequencyHz,
-      waveform_span_mhz: null,
+      waveform_span_hz: null,
       timestamp: timestamp,
       data_type: "iq_raw",
       sample_rate: sampleRate,

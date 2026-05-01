@@ -14,8 +14,8 @@ signals:
   # SDR hardware and processing settings
   sdr:
     limits:
-      lower_limit_mhz: !frequency 500kHz
-      upper_limit_mhz: !frequency 28.8MHz
+      lower_limit_hz: !frequency 500kHz
+      upper_limit_hz: !frequency 28.8MHz
       lower_limit_label: "RTL-SDR v4 lower limit"
       upper_limit_label: "Potential hardware spur"
     # Sample rate for SDR processing
@@ -71,21 +71,21 @@ signals:
     channels:
       a:
         label: "A"
-        freq_range_mhz: !frequency_range 18kHz..4.47MHz
+        freq_range_hz: !frequency_range 18kHz..4.47MHz
         description: "Channel A mock signals"
         apt_spike_density: !frequency 33kHz
         noise_floor_db: !dB -100dB
         signal_strength_range: !dB_range -80dB..-20dB
       b:
         label: "B"
-        freq_range_mhz: !frequency_range 24.72MHz..29.88MHz
+        freq_range_hz: !frequency_range 24.72MHz..29.88MHz
         description: "Channel B mock signals"
         apt_spike_density: !frequency 33kHz
         noise_floor_db: !dB -100dB
         signal_strength_range: !dB_range -80dB..-20dB
       c:
         label: "C"
-        freq_range_mhz: !frequency_range 4.75MHz..23MHz
+        freq_range_hz: !frequency_range 4.75MHz..23MHz
         description: "Channel C mock signals - the largest N-APT channel carrying vision, imagination, dreams"
         apt_spike_density: !frequency_range 33kHz..60kHz
         noise_floor_db: !dB -100dB
@@ -93,7 +93,7 @@ signals:
 
   triangulation:
     static:
-      freq_range_mhz: !frequency_range 2.3GHz..2.344GHz
+      freq_range_hz: !frequency_range 2.3GHz..2.344GHz
 
 
   # N-APT spectrum channel definitions
@@ -138,13 +138,13 @@ signals:
         # B is larger and has a different shape after the identical section
         a:
           label: "A"
-          freq_range_mhz: !frequency_range 18kHz..4.39MHz
+          freq_range_hz: !frequency_range 18kHz..4.39MHz
           description: "The potentially primary N-APT channel, encompassing features like audio, voice, physiological effects and more."
         b:
           label: "B"
-          freq_range_mhz: !frequency_range 24.72MHz..29.88MHz
+          freq_range_hz: !frequency_range 24.72MHz..29.88MHz
           description: "This channel is sometimes identical to Channel A but has more powerful spikes, potentially due to operating on others further distant (known effects are speech, slight physiology, atttention, etc.)."
         c:
           label: "C"
-          freq_range_mhz: !frequency_range 4.75MHz..23MHz
+          freq_range_hz: !frequency_range 4.75MHz..23MHz
           description: "This channel is the assumed largest N-APT channel, carrying heavy content and data like vision (read-only), imagination (read and write), dreams and potentially more. APT-spikes are less visible but spikes are visible."

@@ -114,7 +114,7 @@ export const RadioNode: React.FC<RadioNodeProps> = ({ data }) => {
   const algorithm = useAppSelector((state) => state.demod.algorithm);
   const bandwidth = useAppSelector((state) => state.demod.bandwidthKhz);
   const isListening = useAppSelector((state) => state.demod.isListening);
-  const centerFreq = useAppSelector((state) => state.demod.centerFreqMHz);
+  const centerFreq = useAppSelector((state) => state.demod.centerFreqHz);
 
   const { audioPlayback } = useDemod();
   const { getNodes, getEdges } = useReactFlow();
@@ -203,9 +203,9 @@ export const RadioNode: React.FC<RadioNodeProps> = ({ data }) => {
           <Label>Center Frequency</Label>
           <FrequencyDisplay>
             {hasFmNodeUpstream && centerFreq
-              ? `${centerFreq.toFixed(1)}FM (±100kHz)`
+              ? `${(centerFreq / 1e6).toFixed(1)}FM (±100kHz)`
               : centerFreq
-                ? formatFrequency(centerFreq)
+                ? formatFrequency(centerFreq / 1e6)
                 : 'From Span'}
           </FrequencyDisplay>
         </ControlItem>

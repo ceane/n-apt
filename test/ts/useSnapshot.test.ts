@@ -20,26 +20,26 @@ jest.mock("@n-apt/components/ui/Theme", () => ({
 
 describe("fmtFreq", () => {
   it("formats values >= 1 MHz with unit", () => {
-    expect(fmtFreq(3)).toBe("3 MHz");
-    expect(fmtFreq(1.6)).toBe("1.6 MHz");
+    expect(fmtFreq(3e6)).toBe("3 MHz");
+    expect(fmtFreq(1.6e6)).toBe("1.6 MHz");
   });
 
   it("formats values < 1 MHz as kHz", () => {
-    expect(fmtFreq(0.5)).toBe("500 kHz");
-    expect(fmtFreq(0.12345)).toBe("123.45 kHz");
+    expect(fmtFreq(0.5e6)).toBe("500 kHz");
+    expect(fmtFreq(0.12345e6)).toBe("123.45 kHz");
   });
 
   it("trims trailing zeros", () => {
-    expect(fmtFreq(3.0)).toBe("3 MHz");
-    expect(fmtFreq(0.5)).toBe("500 kHz");
+    expect(fmtFreq(3.0e6)).toBe("3 MHz");
+    expect(fmtFreq(0.5e6)).toBe("500 kHz");
   });
 
   it("handles zero", () => {
-    expect(fmtFreq(0)).toBe("0 kHz");
+    expect(fmtFreq(0)).toBe("0 Hz");
   });
 
   it("handles negative values < 1", () => {
-    const result = fmtFreq(-0.5);
+    const result = fmtFreq(-0.5e6);
     expect(result).toContain("kHz");
     expect(result).toContain("-500");
   });

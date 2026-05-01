@@ -10,6 +10,7 @@ import type {
 } from "@n-apt/hooks/useWebSocket";
 import { addNotification, updateNotification } from "@n-apt/redux/slices/notificationsSlice";
 import { formatDurationMs } from "@n-apt/utils/formatters";
+import { formatFrequency } from "@n-apt/utils/frequency";
 import {
   Clock,
   File as FileIcon,
@@ -488,10 +489,10 @@ export const IQCaptureControlsSection: React.FC<
     const derivedChannels: ChannelDescriptor[] = React.useMemo(() => {
       if (!captureRange?.segments) return []
       return captureRange.segments.map((seg, idx) => {
-        const minMHz = seg.min;
-        const maxMHz = seg.max;
-        const centerHz = Math.round(((minMHz + maxMHz) / 2) * 1_000_000);
-        const widthHz = Math.round((maxMHz - minMHz) * 1_000_000);
+        const minHz = seg.min;
+        const maxHz = seg.max;
+        const centerHz = Math.round((minHz + maxHz) / 2);
+        const widthHz = Math.round(maxHz - minHz);
         return {
           center_freq_hz: centerHz,
           size_hz: widthHz,
@@ -584,11 +585,11 @@ export const IQCaptureControlsSection: React.FC<
 
     // Calculate capture range span to determine appropriate mode
     const captureRangeSpan = captureRange.max - captureRange.min;
-    const hardwareSampleRateMHz = maxSampleRate / 1000000;
+    const hardwareSampleRateHz = maxSampleRate;
 
     // Determine which modes are available
-    const isOnscreenExactMatch = onscreenOnly && hardwareSampleRateMHz > 0 && Math.abs(captureRangeSpan - hardwareSampleRateMHz) < 0.01;
-    const isWiderThanHardware = captureRangeSpan > hardwareSampleRateMHz + 0.01;
+    const isOnscreenExactMatch = onscreenOnly && hardwareSampleRateHz > 0 && Math.abs(captureRangeSpan - hardwareSampleRateHz) < 10_000;
+    const isWiderThanHardware = captureRangeSpan > hardwareSampleRateHz + 10_000;
 
     // GUARDS: Determine appropriate capture mode based on capture type
     let effectiveAcquisitionMode = acquisitionMode;
@@ -633,9 +634,9 @@ export const IQCaptureControlsSection: React.FC<
 
     const formatSampleRateLabel = (hz: number) => {
       if (!hz || Number.isNaN(hz)) {
-        return "0MHz";
+        return "0 Hz";
       }
-      return `${(hz / 1_000_000).toFixed(1)}MHz`;
+      return formatFrequency(hz);
     };
 
     const handleGeolocationToggle = async (enabled: boolean) => {
@@ -678,16 +679,20 @@ export const IQCaptureControlsSection: React.FC<
                       ? activeCaptureAreas.filter((a) => a !== area.label)
                       : [...activeCaptureAreas, area.label];
 
-                    const nextOnscreenOnly = nextAreas.includes("Onscreen") && nextAreas.every((a) => a === "Onscreen");
-                    const nextHasChannel = nextAreas.some((a) => a !== "Onscreen");
-                    const nextSpan = captureRange.max - captureRange.min;
-                    const hwMHz = maxSampleRate / 1000000;
+                    const hwHz = maxSampleRate;
+                    const nextOnscreenOnly = nextAreas.includes("Onscreen") && nextAreas.length === 1;
+                    const nextHasChannel = nextAreas.some(a => a !== "Onscreen");
+                    
+                    const nextSelectedSegments = availableCaptureAreas.filter(a => nextAreas.includes(a.label));
+                    const nextMin = nextSelectedSegments.length > 0 ? Math.min(...nextSelectedSegments.map(s => s.min)) : 0;
+                    const nextMax = nextSelectedSegments.length > 0 ? Math.max(...nextSelectedSegments.map(s => s.max)) : 0;
+                    const nextSpan = nextMax - nextMin;
 
-                    if (nextOnscreenOnly && hwMHz > 0 && Math.abs(nextSpan - hwMHz) < 0.01) {
+                    if (nextOnscreenOnly && hwHz > 0 && Math.abs(nextSpan - hwHz) < 10_000) {
                       if (acquisitionMode !== "whole_sample") {
                         onAcquisitionModeChange("whole_sample");
                       }
-                    } else if (nextHasChannel && nextSpan > hwMHz + 0.01) {
+                    } else if (nextHasChannel && nextSpan > hwHz + 10_000) {
                       if (acquisitionMode === "whole_sample") {
                         onAcquisitionModeChange("stepwise");
                       }

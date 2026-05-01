@@ -247,8 +247,8 @@ export const useStitchingLogic = ({
       ) {
         setFrequencyRange({ min: requestedRange[0], max: requestedRange[1] });
       } else if (firstChannel) {
-        const span = (firstChannel.sample_rate_hz || 3200000) / 1_000_000;
-        const center = (firstChannel.center_freq_hz || 0) / 1_000_000;
+        const span = (firstChannel.sample_rate_hz || 3_200_000);
+        const center = (firstChannel.center_freq_hz || 0);
         setFrequencyRange({ min: center - span / 2, max: center + span / 2 });
       } else if (result.range) {
         setFrequencyRange(result.range);

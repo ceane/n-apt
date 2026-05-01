@@ -127,6 +127,7 @@ export function useOverlayRenderer() {
 
       const step = findBestFrequencyRange(viewBandwidth2, 10);
       const formatTickLabel = (freq: number) => {
+        if (!Number.isFinite(freq)) return "---";
         if (maxFreq < 1) return `${Math.round(freq * 1000)}kHz`;
         if (step >= 0.5) return freq.toFixed(1);
         if (step >= 0.01) return freq.toFixed(2);
@@ -140,24 +141,24 @@ export function useOverlayRenderer() {
 
       const visualCenterFreq = (minFreq + maxFreq) / 2;
 
-      // Top ticks
-      const centerTicksMHz: number[] = [];
-      if (viewBandwidth2 <= 5.0) centerTicksMHz.push(0.5);
-      if (viewBandwidth2 <= 1.0) centerTicksMHz.push(0.1);
-      if (viewBandwidth2 <= 0.5) {
-        centerTicksMHz.push(0.05);
-        centerTicksMHz.push(0.033);
+      const centerTicksHz: number[] = [];
+      if (viewBandwidth2 <= 5_000_000) centerTicksHz.push(500_000);
+      if (viewBandwidth2 <= 1_000_000) centerTicksHz.push(100_000);
+      if (viewBandwidth2 <= 500_000) {
+        centerTicksHz.push(50_000);
+        centerTicksHz.push(33_000);
       }
-      if (viewBandwidth2 <= 0.25) centerTicksMHz.push(0.025);
-      if (viewBandwidth2 <= 0.1) centerTicksMHz.push(0.01);
-      if (viewBandwidth2 <= 0.05) centerTicksMHz.push(0.005);
-      if (viewBandwidth2 <= 0.01) centerTicksMHz.push(0.001);
+      if (viewBandwidth2 <= 250_000) centerTicksHz.push(25_000);
+      if (viewBandwidth2 <= 100_000) centerTicksHz.push(10_000);
+      if (viewBandwidth2 <= 50_000) centerTicksHz.push(5_000);
+      if (viewBandwidth2 <= 10_000) centerTicksHz.push(1_000);
 
-      const formatOffset = (mhz: number) => {
-        const abs = Math.abs(mhz);
-        if (abs >= 1) return `${mhz.toFixed(1)}MHz`;
-        if (abs >= 0.001) return `${Math.round(mhz * 1000)}kHz`;
-        return `${Math.round(mhz * 1_000_000)}Hz`;
+      const formatOffset = (hz: number) => {
+        if (!Number.isFinite(hz)) return "---";
+        const abs = Math.abs(hz);
+        if (abs >= 1_000_000) return `${(hz / 1_000_000).toFixed(1)}MHz`;
+        if (abs >= 1_000) return `${Math.round(hz / 1_000)}kHz`;
+        return `${Math.round(hz)}Hz`;
       };
 
       ctx.strokeStyle = canvasTheme.gridColor;
@@ -242,7 +243,7 @@ export function useOverlayRenderer() {
       }
 
       // Top ticks
-      if (centerTicksMHz.length > 0 && Number.isFinite(visualCenterFreq)) {
+      if (centerTicksHz.length > 0 && Number.isFinite(visualCenterFreq)) {
         ctx.save();
         ctx.strokeStyle = canvasTheme.offsetTickLine;
         ctx.fillStyle = canvasTheme.offsetTickText;
@@ -250,7 +251,7 @@ export function useOverlayRenderer() {
         ctx.textAlign = "center";
         ctx.textBaseline = "top";
 
-        for (const s of centerTicksMHz) {
+        for (const s of centerTicksHz) {
           for (const sign of [-1, 1]) {
             const f = visualCenterFreq + s * sign;
             if (f <= minFreq || f >= maxFreq) continue;
@@ -282,8 +283,8 @@ export function useOverlayRenderer() {
       // Draw mathematical hardware block boundaries if applicable
       const anchorRange = fullCaptureRange || _frequencyRange;
       const totalSpan = anchorRange.max - anchorRange.min;
-        const hwSpanMHz = _hardwareSampleRateHz ? _hardwareSampleRateHz / 1e6 : 0;
-        const shouldShowHWGrid = totalSpan > hwSpanMHz + 0.001 && hwSpanMHz > 0;
+        const hwSpanHz = _hardwareSampleRateHz ? _hardwareSampleRateHz : 0;
+        const shouldShowHWGrid = totalSpan > hwSpanHz + 1 && hwSpanHz > 0;
         
         if (shouldShowHWGrid) {
           ctx.save();
@@ -295,19 +296,20 @@ export function useOverlayRenderer() {
           ctx.textAlign = "center";
           ctx.textBaseline = "top";
 
-          const formatOffset = (mhz: number) => {
-            const abs = Math.abs(mhz);
-            if (abs >= 1) return `${mhz.toFixed(1)}MHz`;
-            if (abs >= 0.001) return `${Math.round(mhz * 1000)}kHz`;
-            return `${Math.round(mhz * 1_000_000)}Hz`;
+          const formatOffset = (hz: number) => {
+            if (!Number.isFinite(hz)) return "---";
+            const abs = Math.abs(hz);
+            if (abs >= 1_000_000) return `${(hz / 1_000_000).toFixed(1)}MHz`;
+            if (abs >= 1_000) return `${Math.round(hz / 1_000)}kHz`;
+            return `${Math.round(hz)}Hz`;
           };
 
           let currentFreq = anchorRange.min;
-          while (currentFreq < anchorRange.max - 0.001) {
+          while (currentFreq < anchorRange.max - 1) {
             const blockStart = currentFreq;
-            const blockEnd = Math.min(blockStart + hwSpanMHz, anchorRange.max);
+            const blockEnd = Math.min(blockStart + hwSpanHz, anchorRange.max);
             const blockWidth = blockEnd - blockStart;
-            const isFullBlock = blockWidth >= hwSpanMHz - 0.001;
+            const isFullBlock = blockWidth >= hwSpanHz - 1;
 
             // Only draw if visible in the current zoomed frequency range
             if (blockEnd > minFreq && blockStart < maxFreq) {
@@ -360,7 +362,7 @@ export function useOverlayRenderer() {
       width: number,
       height: number,
       _frequencyRange: { min: number; max: number },
-      _centerFrequencyMHz: number,
+      _centerFrequencyHz: number,
       _isDeviceConnected: boolean,
       _hardwareSampleRateHz?: number,
       _fullCaptureRange?: { min: number; max: number },

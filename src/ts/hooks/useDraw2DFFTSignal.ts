@@ -30,7 +30,7 @@ export interface Draw2DFFTSignalOptions {
   fftMax?: number;
   powerScale?: "dB" | "dBm";
   showGrid?: boolean;
-  centerFrequencyMHz?: number;
+  centerFrequencyHz?: number;
   isDeviceConnected?: boolean;
   highPerformanceMode?: boolean;
   hardwareSampleRateHz?: number;
@@ -381,7 +381,7 @@ export function useDraw2DFFTSignal() {
       width: number,
       height: number,
       frequencyRange: { min: number; max: number },
-      centerFrequencyMHz: number,
+      centerFrequencyHz: number,
       isDeviceConnected: boolean,
       fullCaptureRange?: { min: number; max: number },
     ) => {
@@ -436,9 +436,9 @@ export function useDraw2DFFTSignal() {
         }
       }
 
-      if (Number.isFinite(centerFrequencyMHz)) {
+      if (Number.isFinite(centerFrequencyHz)) {
         // Always draw center line at the exact middle of the plot area
-        // Using freqToX(centerFrequencyMHz) causes drift when zoomed
+        // Using freqToX(centerFrequencyHz) causes drift when zoomed
         const cx = Math.round((FFT_AREA_MIN.x + fftAreaMax.x) / 2) + 0.5;
         ctx.save();
         ctx.strokeStyle = "rgba(220, 255, 0, 0.7)";
@@ -479,7 +479,7 @@ export function useDraw2DFFTSignal() {
         fftMax = 20,
         powerScale = "dB",
         showGrid = true,
-        centerFrequencyMHz,
+        centerFrequencyHz,
         isDeviceConnected = true,
         highPerformanceMode = false,
         hardwareSampleRateHz,
@@ -558,13 +558,13 @@ export function useDraw2DFFTSignal() {
         }
 
         // Draw markers if needed
-        if (centerFrequencyMHz !== undefined) {
+        if (centerFrequencyHz !== undefined) {
           drawSpectrumMarkers(
             ctx,
             cssWidth,
             cssHeight,
             frequencyRange,
-            centerFrequencyMHz,
+            centerFrequencyHz,
             isDeviceConnected,
             fullCaptureRange,
           );

@@ -10,7 +10,7 @@ type SpectrumSliceState = RootState["spectrum"];
 type WaterfallSliceState = RootState["waterfall"];
 
 export interface NoteCardStatsSnapshot {
-  centerFrequencyMHz: number | null;
+  centerFrequencyHz: number | null;
   frequencyRange: SpectrumSliceState["frequencyRange"];
   vizZoom: number;
   vizPanOffset: number;
@@ -81,15 +81,15 @@ export const buildStatsSnapshot = (
   waterfall: WaterfallSliceState,
 ): NoteCardStatsSnapshot => {
   const range = spectrum.frequencyRange;
-  const minMHz = range && Number.isFinite(range.min) ? range.min : null;
-  const maxMHz = range && Number.isFinite(range.max) ? range.max : null;
-  let centerFrequencyMHz: number | null = null;
-  if (minMHz !== null && maxMHz !== null && maxMHz >= minMHz) {
-    centerFrequencyMHz = (minMHz + maxMHz) / 2;
+  const minHz = range && Number.isFinite(range.min) ? range.min : null;
+  const maxHz = range && Number.isFinite(range.max) ? range.max : null;
+  let centerFrequencyHz: number | null = null;
+  if (minHz !== null && maxHz !== null && maxHz >= minHz) {
+    centerFrequencyHz = (minHz + maxHz) / 2;
   }
 
   return {
-    centerFrequencyMHz,
+    centerFrequencyHz,
     frequencyRange: range,
     vizZoom: spectrum.vizZoom,
     vizPanOffset: spectrum.vizPanOffset,

@@ -16,7 +16,7 @@ export interface Draw3DWaterfallSignalOptions {
   fftMin?: number;
   fftMax?: number;
   showGrid?: boolean;
-  centerFrequencyMHz?: number;
+  centerFrequencyHz?: number;
   isDeviceConnected?: boolean;
   maxFrames?: number;
   frameSpacing?: number;

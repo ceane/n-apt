@@ -2,6 +2,7 @@ import React from "react";
 import { IQCaptureControlsSection } from "../../src/ts/components/sidebar/IQCaptureControlsSection";
 import { useWebSocket } from "../../src/ts/hooks/useWebSocket";
 import type { CaptureFileType } from "../../src/ts/consts/schemas/websocket";
+import { formatFrequency } from "../../src/ts/utils/frequency";
 
 export const IQCaptureIntegrationTest: React.FC = () => {
   const {
@@ -111,7 +112,7 @@ export const IQCaptureIntegrationTest: React.FC = () => {
       {/* Capture Metadata Display */}
       {captureStatus?.status === "done" && (
         <div data-testid="capture-metadata">
-          Sample Rate: {(maxSampleRateHz || 3200000) / 1000000}MHz
+          Sample Rate: {formatFrequency(maxSampleRateHz || 3200000)}
           Duration: {captureDurationS}s
           Size: 1.02 MB
         </div>
