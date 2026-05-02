@@ -319,7 +319,7 @@ function renderSpectrumSnapshot(
   statsLines?: string[],
   waveform?: Float32Array,
   theme?: SnapshotTheme,
-  aspectRatio?: SnapshotAspectRatio,
+  _aspectRatio?: SnapshotAspectRatio,
 ): HTMLCanvasElement | string {
   const dpr = window.devicePixelRatio || 1;
   const logicalW = pixelWidth / dpr;
@@ -594,7 +594,7 @@ function renderSpectrumSnapshotCanvas(
   statsLines?: string[],
   waveform?: Float32Array,
   theme?: SnapshotTheme,
-  aspectRatio?: SnapshotAspectRatio,
+  _aspectRatio?: SnapshotAspectRatio,
 ): HTMLCanvasElement {
   return renderSpectrumSnapshot(
     data,
@@ -607,7 +607,7 @@ function renderSpectrumSnapshotCanvas(
     statsLines,
     waveform,
     theme,
-    aspectRatio,
+    _aspectRatio,
   ) as HTMLCanvasElement;
 }
 

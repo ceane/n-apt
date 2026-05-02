@@ -57,7 +57,7 @@ describe("I/Q Capture Integration Tests", () => {
       // Open the collapsible section
       fireEvent.click(screen.getByText("Take an I/Q Capture"));
 
-      expect(screen.getByLabelText("Hardware sample rate")).toHaveTextContent("3.200 MHz");
+      expect(screen.getByLabelText("Hardware sample rate")).toHaveTextContent("3.2MHz");
       expect(screen.getByRole("button", { name: "Capture" })).toBeDisabled();
     });
 
@@ -104,7 +104,7 @@ describe("I/Q Capture Integration Tests", () => {
         expect(screen.getByText("test-capture.napt")).toBeInTheDocument();
       });
 
-      expect(screen.getByTestId("capture-metadata")).toHaveTextContent("Sample Rate: 3.200 MHz");
+      expect(screen.getByTestId("capture-metadata")).toHaveTextContent("Sample Rate: 3.2MHz");
     });
   });
 
@@ -292,7 +292,7 @@ describe("I/Q Capture Integration Tests", () => {
       fireEvent.click(screen.getByText("Take an I/Q Capture"));
 
       fireEvent.change(screen.getByDisplayValue(".napt"), { target: { value: ".wav" } });
-      expect(screen.getByLabelText("Hardware sample rate")).toHaveTextContent("3.200 MHz");
+      expect(screen.getByLabelText("Hardware sample rate")).toHaveTextContent("3.2MHz");
 
       fireEvent.click(screen.getByLabelText("Area A"));
 
@@ -331,7 +331,7 @@ describe("I/Q Capture Integration Tests", () => {
       });
 
       expect(screen.getByTestId("capture-metadata")).toHaveTextContent("Duration: 5s");
-      expect(screen.getByTestId("capture-metadata")).toHaveTextContent("Sample Rate: 3.200 MHz");
+      expect(screen.getByTestId("capture-metadata")).toHaveTextContent("Sample Rate: 3.2MHz");
     });
   });
 
@@ -349,7 +349,7 @@ describe("I/Q Capture Integration Tests", () => {
       fireEvent.click(screen.getByText("Take an I/Q Capture"));
 
       expect(screen.getByText("Mock APT Device")).toBeInTheDocument();
-      expect(screen.getByLabelText("Hardware sample rate")).toHaveTextContent("3.200 MHz");
+      expect(screen.getByLabelText("Hardware sample rate")).toHaveTextContent("3.2MHz");
 
       fireEvent.click(screen.getByLabelText("Area A"));
 

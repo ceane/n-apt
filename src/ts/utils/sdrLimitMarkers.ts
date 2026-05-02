@@ -14,21 +14,21 @@ export function buildSdrLimitMarkers(
 
   const markers: SdrLimitMarker[] = [];
 
-  if (typeof limits.lower_limit_mhz === "number") {
+  if (typeof limits.lower_limit_hz === "number") {
     markers.push({
-      freq: limits.lower_limit_mhz,
+      freq: limits.lower_limit_hz,
       label:
         limits.lower_limit_label ??
-        `${formatFrequency(limits.lower_limit_mhz)} / Lower limit`,
+        `${formatFrequency(limits.lower_limit_hz)} / Lower limit`,
     });
   }
 
-  if (typeof limits.upper_limit_mhz === "number") {
+  if (typeof limits.upper_limit_hz === "number") {
     markers.push({
-      freq: limits.upper_limit_mhz,
+      freq: limits.upper_limit_hz,
       label:
         limits.upper_limit_label ??
-        `${formatFrequency(limits.upper_limit_mhz)} / Upper limit`,
+        `${formatFrequency(limits.upper_limit_hz)} / Upper limit`,
     });
   }
 
