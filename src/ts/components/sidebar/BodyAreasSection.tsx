@@ -2,6 +2,7 @@ import React, { useEffect } from "react";
 import styled from "styled-components";
 import { gsap } from "gsap";
 import { useModel3D } from "@n-apt/hooks/useModel3D";
+import { useHotspotEditor } from "@n-apt/hooks/useHotspotEditor";
 
 type Area = {
   name: string;
@@ -222,6 +223,11 @@ interface BodyAreasSectionProps {
 
 export const BodyAreasSection: React.FC<BodyAreasSectionProps> = () => {
   const { selectedArea, setSelectedArea, controlsRef } = useModel3D();
+  const { setSidebarTab } = useHotspotEditor();
+
+  useEffect(() => {
+    setSidebarTab("select-areas");
+  }, [setSidebarTab]);
 
   useEffect(() => {
     if (selectedArea && controlsRef?.current) {

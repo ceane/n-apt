@@ -117,7 +117,7 @@ export const HorizonFocusGlobe: React.FC<{ active?: boolean }> = ({ active = tru
     if (materialRef.current) {
       materialRef.current.uTime = state.clock.elapsedTime;
 
-      const targetScale = active ? new THREE.Vector3(3.6, 2.7, 3.6) : new THREE.Vector3(0.01, 0.01, 0.01);
+      const targetScale = active ? new THREE.Vector3(2.5, 2.0, 2.5) : new THREE.Vector3(0.01, 0.01, 0.01);
       const scaleLerp = active ? 0.05 : 0.15;
       meshRef.current?.scale.lerp(targetScale, scaleLerp);
 
@@ -129,7 +129,7 @@ export const HorizonFocusGlobe: React.FC<{ active?: boolean }> = ({ active = tru
   });
 
   return (
-    <mesh ref={meshRef} scale={[0.01, 0.01, 0.01]} position={[0, 0, 0]}>
+    <mesh ref={meshRef} scale={[0.01, 0.01, 0.01]} position={[0, 0.4, 0]}>
       <icosahedronGeometry ref={geoRef} args={[1, 1]} />
       {/* @ts-ignore */}
       <focusGlobeMaterial
