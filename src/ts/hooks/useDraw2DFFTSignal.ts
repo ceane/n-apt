@@ -7,6 +7,8 @@ import {
   formatFrequency,
   formatFrequencyHighRes,
   findBestFrequencyRange,
+  BOUNDARY_LINE_COLOR,
+  BOUNDARY_TEXT_COLOR,
 } from "@n-apt/consts";
 import type { SdrLimitMarker } from "@n-apt/utils/sdrLimitMarkers";
 
@@ -20,6 +22,8 @@ const getCanvasThemeColors = () => ({
   backgroundColor: readCssColor("--color-fft-background", "#000"),
   textColor: readCssColor("--color-fft-text", "#fff"),
   gridColor: readCssColor("--color-fft-grid", "rgba(50,50,50,1)"),
+  boundaryLine: readCssColor("--color-fft-boundary-line", BOUNDARY_LINE_COLOR),
+  boundaryText: readCssColor("--color-fft-boundary-text", BOUNDARY_TEXT_COLOR),
 });
 
 export interface Draw2DFFTSignalOptions {
@@ -212,8 +216,8 @@ export function useDraw2DFFTSignal() {
 
       if (limitMarkers.length > 0) {
         ctx.save();
-        ctx.strokeStyle = "rgba(220, 38, 38, 0.75)";
-        ctx.fillStyle = "rgba(255, 140, 140, 0.95)";
+        ctx.strokeStyle = canvasTheme.boundaryLine;
+        ctx.fillStyle = canvasTheme.boundaryText;
         ctx.lineWidth = 1 / dpr;
         ctx.font = "10px JetBrains Mono";
         ctx.textAlign = "center";
@@ -230,7 +234,7 @@ export function useDraw2DFFTSignal() {
           ctx.stroke();
 
           const textX = Math.max(FFT_AREA_MIN.x + 45, Math.min(fftAreaMax.x - 45, x));
-          ctx.fillText(marker.label, textX, FFT_AREA_MIN.y + 6);
+          ctx.fillText(marker.label, textX, FFT_AREA_MIN.y + 45);
         }
 
         ctx.restore();
@@ -386,6 +390,7 @@ export function useDraw2DFFTSignal() {
       fullCaptureRange?: { min: number; max: number },
     ) => {
       const dpr = window.devicePixelRatio || 1;
+      const canvasTheme = getCanvasThemeColors();
       const fftAreaMax = { x: width - 40, y: height - 40 };
       const plotWidth = fftAreaMax.x - FFT_AREA_MIN.x;
       const minFreq = frequencyRange?.min ?? 0;
@@ -411,7 +416,7 @@ export function useDraw2DFFTSignal() {
           if (m.freq < minFreq || m.freq > maxFreq) continue;
           const x = Math.round(freqToX(m.freq)) + 0.5;
           ctx.save();
-          ctx.strokeStyle = "rgba(220, 38, 38, 0.55)";
+          ctx.strokeStyle = canvasTheme.boundaryLine;
           ctx.lineWidth = 1 / dpr;
           ctx.beginPath();
           ctx.moveTo(x, FFT_AREA_MIN.y);
@@ -420,6 +425,7 @@ export function useDraw2DFFTSignal() {
           ctx.restore();
 
           ctx.save();
+          ctx.fillStyle = canvasTheme.boundaryText;
           ctx.font = "11px JetBrains Mono";
           ctx.textAlign = "center";
           ctx.textBaseline = "top";
@@ -428,10 +434,7 @@ export function useDraw2DFFTSignal() {
             FFT_AREA_MIN.x + tw / 2 + 4,
             Math.min(fftAreaMax.x - tw / 2 - 4, x),
           );
-          ctx.fillStyle = "rgba(10, 10, 10, 0.75)";
-          ctx.fillRect(lx - tw / 2 - 4, FFT_AREA_MIN.y + 4, tw + 8, 18);
-          ctx.fillStyle = "rgba(220, 38, 38, 0.9)";
-          ctx.fillText(m.label, lx, FFT_AREA_MIN.y + 6);
+          ctx.fillText(m.label, lx, FFT_AREA_MIN.y + 45);
           ctx.restore();
         }
       }

@@ -1,7 +1,7 @@
 import { CoordinateMapper, Range } from "@n-apt/utils/rendering/CoordinateMapper";
 import { findBestFrequencyRange } from "@n-apt/consts";
 import { formatFrequency, formatFrequencyHighRes } from "@n-apt/utils/frequency";
-import { fmtFreq, fmtFreqTick, tickPrecisionForStep } from "./formatters";
+import { fmtFreqTick, tickPrecisionForStep } from "./formatters";
 
 export interface DrawingContext {
   setStroke(color: string, width: number, dash?: number[]): void;

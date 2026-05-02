@@ -23,7 +23,6 @@ export interface Draw3DWaterfallSignalOptions {
   // Validation options
   fftSize?: number;
   sampleRate?: number;
-  centerFrequencyHz?: number;
   isPaused?: boolean;
   isFirstFrame?: boolean;
 }

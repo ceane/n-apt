@@ -10,6 +10,8 @@ import {
   OFFSET_TICK_LINE_COLOR,
   OFFSET_TICK_TEXT_COLOR,
   CENTER_LINE_COLOR,
+  BOUNDARY_LINE_COLOR,
+  BOUNDARY_TEXT_COLOR,
 } from "@n-apt/consts";
 import { formatFrequency, formatFrequencyHighRes } from "@n-apt/utils/frequency";
 import { tickPrecisionForStep } from "@n-apt/utils/rendering/formatters";
@@ -31,6 +33,8 @@ const getCanvasThemeColors = () => ({
   snapHwRateLine: readCssColor("--color-snap-hw-rate-line", SNAP_HW_RATE_LINE),
   snapHwRateText: readCssColor("--color-snap-hw-rate-text", SNAP_HW_RATE_TEXT),
   centerLabelText: readCssColor("--color-snap-center-label-text", "#666"),
+  boundaryLine: readCssColor("--color-fft-boundary-line", BOUNDARY_LINE_COLOR),
+  boundaryText: readCssColor("--color-fft-boundary-text", BOUNDARY_TEXT_COLOR),
 });
 
 /**
@@ -383,9 +387,6 @@ export function useOverlayRenderer() {
       const fullSpan = _fullCaptureRange ? _fullCaptureRange.max - _fullCaptureRange.min : 0;
       const zoom = fullSpan > 0 ? fullSpan / (maxFreq - minFreq) : 1;
       const useHighResLabels = zoom >= 100;
-      const formatFreq = (f: number) =>
-        useHighResLabels ? formatFrequencyHighRes(f) : formatFrequency(f);
-
       const step = findBestFrequencyRange(maxFreq - minFreq, 10);
       const tickPrec = tickPrecisionForStep(step);
       const centerPrecMHz = Math.max(3, tickPrec.precisionMHz);
@@ -418,11 +419,12 @@ export function useOverlayRenderer() {
           FFT_AREA_MIN.x + ((freq - minFreq) / viewBandwidth) * plotWidth;
 
         ctx.save();
-        ctx.strokeStyle = "rgba(220, 38, 38, 0.75)";
+        ctx.strokeStyle = canvasTheme.boundaryLine;
         ctx.setLineDash([6, 4]);
-        ctx.fillStyle = canvasTheme.textColor;
+        ctx.fillStyle = canvasTheme.boundaryText;
         ctx.font = "10px JetBrains Mono";
         ctx.textAlign = "center";
+        ctx.textBaseline = "top";
 
         for (const marker of _limitMarkers) {
           if (!Number.isFinite(marker.freq)) continue;
@@ -432,7 +434,7 @@ export function useOverlayRenderer() {
           ctx.moveTo(x, FFT_AREA_MIN.y);
           ctx.lineTo(x, fftAreaMax.y);
           ctx.stroke();
-          ctx.fillText(marker.label, x, FFT_AREA_MIN.y + 20);
+          ctx.fillText(marker.label, x, FFT_AREA_MIN.y + 45);
         }
 
         ctx.restore();
