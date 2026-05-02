@@ -29,7 +29,7 @@ import { ReactFlowProvider } from "@xyflow/react";
 import { MapLocationsProvider } from "@n-apt/hooks/useMapLocations";
 
 // Create a wrapper component to manage scanner state
-const DemodRouteWithSidebarContent: React.FC = () => {
+const DemodRouteWithSidebar: React.FC = () => {
   const {
     windowSizeHz, setWindowSizeHz,
     stepSizeHz, setStepSizeHz,
@@ -58,18 +58,12 @@ const DemodRouteWithSidebarContent: React.FC = () => {
         />
       }
     >
-      <DemodRoute />
+      <Suspense fallback={<RouteLoadingFallback>Loading...</RouteLoadingFallback>}>
+        <DemodRoute />
+      </Suspense>
     </MainLayout>
   );
 };
-
-const DemodRouteWithSidebar: React.FC = () => (
-  <DemodProvider>
-    <ReactFlowProvider>
-      <DemodRouteWithSidebarContent />
-    </ReactFlowProvider>
-  </DemodProvider>
-);
 const TestRouteSidebar: React.FC = () => <div data-testid="route-sidebar" />;
 
 const RouteLoadingFallback = styled.div`
@@ -83,107 +77,107 @@ const RouteLoadingFallback = styled.div`
 
 export const AppRoutes: React.FC = () => {
   return (
-    <Routes>
-      <Route
-        path="/"
-        element={
-          <MainLayout sidebar={<SpectrumSidebar />}>
-            <Suspense fallback={<RouteLoadingFallback>Loading...</RouteLoadingFallback>}>
-              <SpectrumRoute activeTab="visualizer" />
-            </Suspense>
-          </MainLayout>
-        }
-      />
-      <Route
-        path="/visualizer"
-        element={
-          <MainLayout sidebar={<SpectrumSidebar />}>
-            <Suspense fallback={<RouteLoadingFallback>Loading...</RouteLoadingFallback>}>
-              <SpectrumRoute activeTab="visualizer" />
-            </Suspense>
-          </MainLayout>
-        }
-      />
-      <Route
-        path="/demodulate"
-        element={
-          <Suspense fallback={<RouteLoadingFallback>Loading...</RouteLoadingFallback>}>
-            <DemodRouteWithSidebar />
-          </Suspense>
-        }
-      />
-      <Route
-        path="/draw-signal"
-        element={
-          <MainLayout
-            sidebar={<DrawSignalSidebar />}
-          >
-            <Suspense fallback={<RouteLoadingFallback>Loading...</RouteLoadingFallback>}>
-              <DrawSignalRoute />
-            </Suspense>
-          </MainLayout>
-        }
-      />
-      <Route
-        path="/3d-model"
-        element={
-          <Model3DProvider>
-            <HotspotEditorProvider>
-              <MainLayout sidebar={process.env.NODE_ENV === "test" ? <TestRouteSidebar /> : <Model3DSidebar />}>
-                <Suspense fallback={<RouteLoadingFallback>Loading...</RouteLoadingFallback>}>
-                  <Model3DRoute />
-                </Suspense>
-              </MainLayout>
-            </HotspotEditorProvider>
-          </Model3DProvider>
-        }
-      />
-      <Route
-        path="/map-endpoints"
-        element={
-          <MapLocationsProvider>
-            <MainLayout sidebar={<MapEndpointsSidebar />}>
-              <Suspense fallback={<RouteLoadingFallback>Loading...</RouteLoadingFallback>}>
-                <MapEndpointsRoute />
-              </Suspense>
-            </MainLayout>
-          </MapLocationsProvider>
-        }
-      />
-      <Route
-        path="/stitch-test"
-        element={
-          <MainLayout sidebar={<SDRTestSidebar />}>
-            <Suspense fallback={<RouteLoadingFallback>Loading...</RouteLoadingFallback>}>
-              <StitchTestRoute />
-            </Suspense>
-          </MainLayout>
-        }
-      />
-      <Route
-        path="/pretext-demo"
-        element={
-          <Suspense fallback={<RouteLoadingFallback>Loading...</RouteLoadingFallback>}>
-            <PretextDemoRoute />
-          </Suspense>
-        }
-      />
-      <Route
-        path="/vfo-grid-demo"
-        element={
-          <Suspense fallback={<RouteLoadingFallback>Loading...</RouteLoadingFallback>}>
-            <VFOGridDemoRoute />
-          </Suspense>
-        }
-      />
-      <Route
-        path="/transformers"
-        element={
-          <Suspense fallback={<RouteLoadingFallback>Loading...</RouteLoadingFallback>}>
-            <TransformersRoute />
-          </Suspense>
-        }
-      />
-    </Routes>
+    <DemodProvider>
+      <ReactFlowProvider>
+        <Model3DProvider>
+          <HotspotEditorProvider>
+            <MapLocationsProvider>
+              <Routes>
+                <Route
+                  path="/"
+                  element={
+                    <MainLayout sidebar={<SpectrumSidebar />}>
+                      <Suspense fallback={<RouteLoadingFallback>Loading...</RouteLoadingFallback>}>
+                        <SpectrumRoute activeTab="visualizer" />
+                      </Suspense>
+                    </MainLayout>
+                  }
+                />
+                <Route
+                  path="/visualizer"
+                  element={
+                    <MainLayout sidebar={<SpectrumSidebar />}>
+                      <Suspense fallback={<RouteLoadingFallback>Loading...</RouteLoadingFallback>}>
+                        <SpectrumRoute activeTab="visualizer" />
+                      </Suspense>
+                    </MainLayout>
+                  }
+                />
+                <Route
+                  path="/demodulate"
+                  element={<DemodRouteWithSidebar />}
+                />
+                <Route
+                  path="/draw-signal"
+                  element={
+                    <MainLayout
+                      sidebar={<DrawSignalSidebar />}
+                    >
+                      <Suspense fallback={<RouteLoadingFallback>Loading...</RouteLoadingFallback>}>
+                        <DrawSignalRoute />
+                      </Suspense>
+                    </MainLayout>
+                  }
+                />
+                <Route
+                  path="/3d-model"
+                  element={
+                    <MainLayout sidebar={process.env.NODE_ENV === "test" ? <TestRouteSidebar /> : <Model3DSidebar />}>
+                      <Suspense fallback={<RouteLoadingFallback>Loading...</RouteLoadingFallback>}>
+                        <Model3DRoute />
+                      </Suspense>
+                    </MainLayout>
+                  }
+                />
+                <Route
+                  path="/map-endpoints"
+                  element={
+                    <MainLayout sidebar={<MapEndpointsSidebar />}>
+                      <Suspense fallback={<RouteLoadingFallback>Loading...</RouteLoadingFallback>}>
+                        <MapEndpointsRoute />
+                      </Suspense>
+                    </MainLayout>
+                  }
+                />
+                <Route
+                  path="/stitch-test"
+                  element={
+                    <MainLayout sidebar={<SDRTestSidebar />}>
+                      <Suspense fallback={<RouteLoadingFallback>Loading...</RouteLoadingFallback>}>
+                        <StitchTestRoute />
+                      </Suspense>
+                    </MainLayout>
+                  }
+                />
+                <Route
+                  path="/pretext-demo"
+                  element={
+                    <Suspense fallback={<RouteLoadingFallback>Loading...</RouteLoadingFallback>}>
+                      <PretextDemoRoute />
+                    </Suspense>
+                  }
+                />
+                <Route
+                  path="/vfo-grid-demo"
+                  element={
+                    <Suspense fallback={<RouteLoadingFallback>Loading...</RouteLoadingFallback>}>
+                      <VFOGridDemoRoute />
+                    </Suspense>
+                  }
+                />
+                <Route
+                  path="/transformers"
+                  element={
+                    <Suspense fallback={<RouteLoadingFallback>Loading...</RouteLoadingFallback>}>
+                      <TransformersRoute />
+                    </Suspense>
+                  }
+                />
+              </Routes>
+            </MapLocationsProvider>
+          </HotspotEditorProvider>
+        </Model3DProvider>
+      </ReactFlowProvider>
+    </DemodProvider>
   );
 };
