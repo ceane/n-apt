@@ -137,12 +137,8 @@ jobs:
   # Integration tests
   integration-tests:
     runs-on: ubuntu-latest
-    needs: [detect-changes, frontend-tests, rust-tests]
-    if: |
-      needs.detect-changes.outputs.frontend-changed == 'true' || 
-      needs.detect-changes.outputs.rust-changed == 'true' ||
-      needs.detect-changes.outputs.wasm-changed == 'true' ||
-      needs.detect-changes.outputs.integration-changed == 'true'
+    needs: detect-changes
+    if: needs.detect-changes.outputs.frontend-changed == 'true' || needs.detect-changes.outputs.rust-changed == 'true' || needs.detect-changes.outputs.wasm-changed == 'true' || needs.detect-changes.outputs.integration-changed == 'true'
 
     steps:
       - name: Checkout code
@@ -190,10 +186,7 @@ jobs:
   always-run-tests:
     runs-on: ubuntu-latest
     needs: detect-changes
-    if: |
-      needs.detect-changes.outputs.frontend-changed == 'false' && 
-      needs.detect-changes.outputs.rust-changed == 'false' &&
-      needs.detect-changes.outputs.wasm-changed == 'false'
+    if: needs.detect-changes.outputs.frontend-changed == 'false' && needs.detect-changes.outputs.rust-changed == 'false' && needs.detect-changes.outputs.wasm-changed == 'false' && needs.detect-changes.outputs.integration-changed == 'false'
 
     steps:
       - name: Checkout code
@@ -209,4 +202,4 @@ jobs:
         run: npm ci --legacy-peer-deps
 
       - name: Quick smoke test
-        run: npm run lint && npm run typecheck && npm test -- --passWithNoTests
+        run: npm run lint && npm run typecheck && npm test -- --passWithNoTests && npm run test:integration -- --passWithNoTests
