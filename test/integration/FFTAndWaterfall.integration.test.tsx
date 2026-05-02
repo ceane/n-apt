@@ -1,8 +1,8 @@
 import React from "react";
 import { render, screen, act, waitFor } from "@testing-library/react";
 import FFTAndWaterfall from "@n-apt/components/FFTAndWaterfall";
-import { TestWrapper } from "./testUtils";
-import { getMockNaptBuffer } from "./mockNaptData";
+import { TestWrapper } from "../ts/testUtils";
+import { getMockNaptBuffer } from "../ts/mockNaptData";
 
 // Mock requestAnimationFrame to control the rendering loop
 const mockRaf = jest.spyOn(window, "requestAnimationFrame");
