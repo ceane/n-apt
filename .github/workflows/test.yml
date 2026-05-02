@@ -18,6 +18,7 @@ jobs:
       frontend-changed: ${{ steps.changes.outputs.frontend }}
       rust-changed: ${{ steps.changes.outputs.rust }}
       wasm-changed: ${{ steps.changes.outputs.wasm }}
+      integration-changed: ${{ steps.changes.outputs.integration }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -38,6 +39,8 @@ jobs:
               - 'vite.config.*'
               - 'tailwind.config.*'
               - 'postcss.config.*'
+            integration:
+              - 'test/integration/**'
             rust:
               - 'src/rs/**'
               - 'test/rust/**'
@@ -138,7 +141,8 @@ jobs:
     if: |
       needs.detect-changes.outputs.frontend-changed == 'true' || 
       needs.detect-changes.outputs.rust-changed == 'true' ||
-      needs.detect-changes.outputs.wasm-changed == 'true'
+      needs.detect-changes.outputs.wasm-changed == 'true' ||
+      needs.detect-changes.outputs.integration-changed == 'true'
 
     steps:
       - name: Checkout code
@@ -180,7 +184,7 @@ jobs:
         run: npm run build:wasm
 
       - name: Run integration tests
-        run: npm run test:all || echo "Some integration tests failed"
+        run: npm run test:integration
 
   # Always run tests (fallback for no changes detected)
   always-run-tests:
