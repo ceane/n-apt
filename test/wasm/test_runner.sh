@@ -36,7 +36,11 @@ run_node_tests() {
     if grep -q "wasm_bindgen_test_configure" src/lib.rs; then
         cp src/lib.rs src/lib.rs.bak
         # Temporarily remove browser configuration for Node.js testing
-        sed -i '' '/wasm_bindgen_test_configure/d' src/lib.rs
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            sed -i '' '/wasm_bindgen_test_configure/d' src/lib.rs
+        else
+            sed -i '/wasm_bindgen_test_configure/d' src/lib.rs
+        fi
     fi
     
     # Run Node.js tests
@@ -57,10 +61,14 @@ run_browser_tests() {
     # Ensure browser configuration is present
     if ! grep -q "wasm_bindgen_test_configure" src/lib.rs; then
         # Add browser configuration after the module declaration
-        sed -i.bak '/pub mod simple_wasm_tests;/a\
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            sed -i '' '/pub mod wasm_simd_processor_tests;/a\
 \
 #[cfg(test)]\
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);' src/lib.rs
+        else
+            sed -i '/pub mod wasm_simd_processor_tests;/a \\n#[cfg(test)]\\nwasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);' src/lib.rs
+        fi
     fi
     
     # Try Chrome first, fallback to Firefox if Chrome fails

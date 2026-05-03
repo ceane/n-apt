@@ -98,7 +98,7 @@ jobs:
           if [ "${{ github.ref }}" = "refs/heads/main" ]; then
             npm test
           else
-            npm test -- --onlyChanged --passWithNoTests
+            npm test -- --changedSince=origin/main --passWithNoTests
           fi
 
       - name: Upload coverage reports
@@ -234,5 +234,5 @@ jobs:
           if [ "${{ github.ref }}" = "refs/heads/main" ]; then
             npm run test:integration
           else
-            npm run test:integration -- --onlyChanged --passWithNoTests
+            npm run test:integration -- --changedSince=origin/main --passWithNoTests
           fi
