@@ -1129,18 +1129,19 @@ So yes, sitting somewhere for 5 minutes, the network did over 8GBs of data, but 
 
 ## <a id="conclusion"></a> Conclusion 
 
+TODO
+
 ```React::DaysSince
 ```
 *The data estimates are based upon the theoretical minimums of the psychological and physiological interactive livestream experience by the NSA, from the start of the interactive livestream up to the present, using the forumla in the table above.[^data-estimate]*
 
-TODO
 
 ![The EFF's Headquarters in San Francisco](/md-preview/images/11_5_2025.jpeg)
 *I was ignored by the EFF. Instead of legal aid, I myself poured over nearly every OIG report, unclassified release, publicized policy, etc. for hours and hours.*
 
 
 
-## <a id="vocab"></a> Vocabulary[^vocab]
+## ⠿ <a id="vocab"></a> Vocabulary[^vocab]
 
 It boils down to these 8 simple terms.
 
@@ -1155,14 +1156,17 @@ It boils down to these 8 simple terms.
 
 ---
 
-**Medium**
+<details>
+<summary>⠿⠿⠿⠿⠿ <b>Medium</b> ⠿⠿⠿⠿⠿ (click to expand)</summary>
+
 
 - **Triangulation:** Using signals from three or more known locations to pinpoint a position.
 - **Intersect & Concentrate:** Directing multiple signal paths or energy beams to overlap at one point for stronger effect or coverage.
+- **Line of sight (LoS):** A clear, unblocked path between a transmitter and whatever receives it, needed for direct signal travel. For an antenna 20 ft high, the distance to the horizon is ∼5.5 miles, limiting terrestrial range without relays.
 - **Automatic Picture Transmission (APT):** A NASA-developed system from the 1960s (decomissioned in 2025) that sends weather satellite images over radio using AM and FM modulation, where pictures are built from spikes and valleys in the signal.
 - **Heterodyning (in free space) / beat frequencies:**  Playing two radio signals together in space to create an envelope that mimics a new frequency at their sum and difference, these new frequencies called **beats**.
-- **Carrier Wave:** A radio signal used to carry information by having its amplitude, frequency, or phase intentionally varied. The information is contained in those variations, not in the unmodulated wave itself.
 - **Beats:** A low-frequency component that appears when two close radio frequencies are combined, corresponding to the difference between them, and showing up as a regular oscillation in the resulting waveform. For example, 24 MHz and 24,000,030 Hz produce a 30 Hz beat.
+- **Carrier Wave:** A radio signal used to carry information by having its amplitude, frequency, or phase intentionally varied. The information is contained in those variations, not in the unmodulated wave itself.
 - **LF/MF/HF frequencies:** Low, Medium, and High Frequency radio bands from 30 kHz to 30 MHz, often used for long-distance communication.
 
 <br />
@@ -1173,6 +1177,7 @@ It boils down to these 8 simple terms.
 - **Encoding:** The process of converting information into a specific format so it can be transmitted, stored, or interpreted by whatever receives it.
 - **Attenuation:** The loss of signal strength as a wave travels through air, cables, or other materials.
 - **Impedance:** How much a material or circuit resists the flow of energy in a signal, determining how much is transmitted, reflected, and how the signal is altered as it passes through.
+
 
 <br />
 
@@ -1191,18 +1196,24 @@ It boils down to these 8 simple terms.
 - **Channel:** A designated path or band of frequencies used to transmit signals between devices.
 - **Bandwidth:** The range of frequencies a channel can carry, which determines how much data it can move at once.
 
+</details>
+
 ---
 
-**Advanced**
+<details>
+<summary>⠿⠿⠿⠿⠿ <b>Advanced</b> ⠿⠿⠿⠿⠿ (click to expand)</summary>
 
-- **Frequency Modulation:** Varying a carrier wave’s frequency to encode information, where the signal’s shape is visible in how fast the wave oscillates.
+  - **Frequency Modulation:** Varying a carrier wave’s frequency to encode information, where the signal’s shape is visible in how fast the wave oscillates.
 - **Amplitude Modulation:** Varying a carrier wave’s height to encode information, where the signal’s shape is visible in the peaks and valleys of the wave.
 - **Conductivity:** A material’s ability to let electrical current or signal energy flow through it, affecting how signals interact with or pass through surfaces.
-- **APT Pixels:** The individual light/dark points in a weather satellite image, each formed from spikes and valleys in the Automatic Picture Transmission signal.
-- **Neuronal Ensemble (specifically here and not by intersect/concentrate):** A group of neurons that act together as a coordinated unit, where their combined activity represents or encodes specific information, such as a perception, memory, or behavior, rather than relying on a single neuron alone.
+- **Neuronal Ensemble (specifically here and not by intersect/concentrate/line of sight):** A group of neurons that act together as a coordinated unit, where their combined activity represents or encodes specific information, such as a perception, memory, or behavior, rather than relying on a single neuron alone.
+- **APT Pixels:** The individual light/dark points in a weather satellite image, each formed from spikes and valleys in the Automatic Picture Transmission signal. *This is how neuronal ensembles respond and coordinate with radio waves, as demonstrated by the NSA, a heterodyned wave (of unknown beats, so far) with sections (spikes and valleys) of energy.*
+
+<br />
+
+
+- **Phase shifting:** Changing the timing position of a wave relative to another, used to steer beams or encode data *(Radio waves are very broad, they cannot be focused like a laser beam, instead think of painting with a large brush instead of a needle)*.
 - **Multipath reflection:** When a signal reaches whatever receives it by bouncing off multiple surfaces and obstacles, creating copies that arrive at different times.
-- **Line of sight:** A clear, unblocked path between a transmitter and whatever receives it, needed for direct signal travel. For an antenna 20 ft high, the distance to the horizon is ∼5.5 miles, limiting terrestrial range without relays.
-- **Phase shifting:** Changing the timing position of a wave relative to another, used to steer beams or encode data.
 - **Time of Flight (ToF):** The time it takes a signal to travel from source to whatever receives it, used to calculate distance like in radar or triangulation.
 - **Frequency-Modulated Continuous Wave (FMCW):** A radar technique that transmits a continuous signal whose frequency steadily changes over time, so distance and speed are found by comparing the frequency shift of the echo to the current transmit frequency.
 
@@ -1231,6 +1242,8 @@ It boils down to these 8 simple terms.
 - **I/Q (In-phase and Quadrature):** A way of representing a radio wave as pairs of numbers (I and Q), where each pair captures the signal at a single moment. Together, they describe both the signal’s amplitude (its distance from zero) and its phase (direction), like a point on a 2D grid.
 - **FFT (Fast Fourier Transform):**  A process that takes points in time from a signal and shows you what frequencies make it up, turning a wavy line into a spectrum.
 - **Demodulation:** The process of using math to turn a radio wave back into usable output, like sound or data.
+
+</details>
 
 --- 
 
