@@ -391,31 +391,41 @@ impl WebSocketServer {
             processor.capture_encrypted = encrypted;
             processor.capture_start = Some(std::time::Instant::now());
             processor.capture_actual_frames = 0;
-            // Apply and snapshot the FFT size requested for this capture.
-            // This ensures the capture runs at the user-selected FFT size even if
-            // the live stream was using a different size.
+            // Apply and snapshot the FFT parameters requested for this capture.
+            // This ensures the capture runs at the user-selected FFT size and window
+            // even if the live stream was using different settings.
+            let mut capture_settings = crate::server::types::SdrProcessorSettings::default();
+            let mut settings_valid = false;
+
             if fft_size > 0 && (fft_size & (fft_size - 1)) == 0 {
-              if processor.fft_processor.config().fft_size != fft_size {
-                if let Err(e) = processor.apply_settings(
-                  crate::server::types::SdrProcessorSettings {
-                    fft_size: Some(fft_size),
-                    ..Default::default()
-                  },
-                ) {
-                  log::warn!(
-                    "[CAPTURE] Failed to apply requested fft_size={}: {}",
-                    fft_size,
-                    e
-                  );
-                } else {
-                  processor.flush_read_queue();
-                  processor.frame.avg_spectrum = None;
-                }
+              capture_settings.fft_size = Some(fft_size);
+              settings_valid = true;
+            }
+            if !fft_window.is_empty() {
+              capture_settings.fft_window = Some(fft_window.clone());
+              settings_valid = true;
+            }
+
+            if settings_valid {
+              if let Err(e) = processor.apply_settings(capture_settings) {
+                log::warn!(
+                  "[CAPTURE] Failed to apply requested FFT settings (size={}, window={}): {}",
+                  fft_size,
+                  fft_window,
+                  e
+                );
+              } else {
+                processor.flush_read_queue();
+                processor.frame.avg_spectrum = None;
               }
             }
             processor.capture_fft_size =
               processor.fft_processor.config().fft_size;
-            processor.capture_fft_window = fft_window;
+            processor.capture_fft_window = processor
+              .fft_processor
+              .config()
+              .window_type
+              .to_string();
             processor.capture_gain = processor.current_gain_db;
             processor.capture_ppm = processor.current_ppm;
             processor.capture_geolocation = geolocation;

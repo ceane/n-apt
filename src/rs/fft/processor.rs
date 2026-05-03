@@ -1770,6 +1770,12 @@ pub enum WindowType {
   None,
 }
 
+impl std::fmt::Display for WindowType {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "{:?}", self)
+  }
+}
+
 /// Calculate signal-to-noise ratio in dB
 /// @param signal - Signal data array
 /// @param noise_floor - Noise floor level

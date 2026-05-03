@@ -218,6 +218,7 @@ pub struct CaptureResult {
   pub frequency_range: Option<(f64, f64)>,
   /// Reference based demod baseline metadata
   pub ref_based_demod_baseline: Option<String>,
+  pub is_mock_apt: bool,
   pub is_ephemeral: bool,
 }
 
@@ -384,7 +385,7 @@ impl SdrProcessor {
       capture_fft_size: fft_size,
       capture_tuner_agc: false,
       capture_rtl_agc: false,
-      capture_fft_window: String::from("Rectangular"),
+      capture_fft_window: String::from("Hanning"),
       capture_geolocation: None,
       capture_overall_center_hz: 0.0,
       capture_overall_span_hz: 0.0,
@@ -598,9 +599,9 @@ impl SdrProcessor {
     let result = self.fft_processor.process_samples(&display_samples)?;
     let mut spectrum = result.power_spectrum;
 
-    // DC spike suppression
+    // DC spike suppression (skip for mock devices as they don't have hardware DC offset)
     let len = spectrum.len();
-    if len > 6 {
+    if len > 6 && !self.device.device_type().contains("Mock") {
       let center = len / 2;
       let left = spectrum[center - 3];
       let right = spectrum[center + 3];
@@ -1298,6 +1299,32 @@ impl SdrProcessor {
           channels[i].bins_per_frame = fft_size as u32;
         }
       }
+
+      for i in 1..channels.len() {
+        let (previous, rest) = channels.split_at_mut(i);
+        let prev = &previous[i - 1];
+        let curr = &mut rest[0];
+        if prev.spectrum_data.is_empty()
+          || curr.spectrum_data.is_empty()
+          || prev.bins_per_frame == 0
+          || curr.bins_per_frame == 0
+        {
+          continue;
+        }
+
+        let prev_bins = prev.bins_per_frame as usize;
+        let curr_bins = curr.bins_per_frame as usize;
+        let prev_frame_start =
+          prev.spectrum_data.len().saturating_sub(prev_bins);
+        let curr_frame_end = curr_bins.min(curr.spectrum_data.len());
+        let seam_bins = prev_bins.min(curr_bins).min(128);
+
+        crate::fft::match_noise_floor_db(
+          &prev.spectrum_data[prev_frame_start..],
+          &mut curr.spectrum_data[..curr_frame_end],
+          seam_bins,
+        );
+      }
     }
 
     if !channels.is_empty() && channels[0].bins_per_frame == 0 {
@@ -1326,6 +1353,7 @@ impl SdrProcessor {
       geolocation: self.capture_geolocation.clone(),
       frequency_range: self.capture_requested_range,
       ref_based_demod_baseline: self.capture_ref_based_demod_baseline.take(),
+      is_mock_apt: self.device.device_type().contains("Mock"),
       is_ephemeral: self.capture_is_ephemeral,
     })
   }
