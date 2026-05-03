@@ -31,7 +31,7 @@ import remarkIconShortcodes from "@n-apt/md-preview/utils/remarkIconShortcodes";
 import remarkLatexCodeBlocks from "@n-apt/md-preview/utils/remarkLatexCodeBlocks";
 import remarkReactDaysSinceBlocks from "@n-apt/md-preview/utils/remarkReactDaysSinceBlocks";
 import GiscusComments from "@n-apt/md-preview/components/GiscusComments";
-import { DaysSince } from "@n-apt/components/DaysSince";
+import { DaysSince } from "@n-apt/md-preview/components/DaysSince";
 import { assetUrl, assetPageUrl } from "@n-apt/md-preview/utils/asset-helpers";
 import { registerMarkdownHotReload } from "@n-apt/md-preview/utils/hmr";
 import { CanvasHarness } from "@n-apt/md-preview/components/canvas/CanvasHarness";

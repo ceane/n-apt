@@ -36,6 +36,17 @@ const DataContainer = styled.div`
   position: relative;
 `;
 
+const SectionLabel = styled.div`
+  font-family: "KaTeX_Main", serif;
+  font-size: 0.65rem;
+  letter-spacing: 0.25em;
+  color: var(--ds-text-dim);
+  font-weight: 700;
+  text-transform: uppercase;
+  margin-bottom: -2rem;
+  z-index: 1;
+`;
+
 const StatBox = styled(motion.div)`
   display: flex;
   flex-direction: column;
@@ -53,7 +64,7 @@ const Label = styled.small`
 
 const Value = styled.div`
   font-family: "KaTeX_Main", serif;
-  font-size: 2.4rem;
+  font-size: 2.3rem;
   font-weight: 400;
   color: var(--ds-text-primary);
   display: flex;
@@ -78,6 +89,11 @@ const SubValue = styled.small`
   letter-spacing: 0.02em;
   line-height: 1.3;
 `;
+
+const CostContainer = styled(DataContainer)`
+  margin-top: 0;
+`;
+
 
 const formatNumber = (num: number) => {
   return new Intl.NumberFormat('en-US', {
@@ -187,6 +203,28 @@ export const DaysSince: React.FC = () => {
     return `or approximately ${new Intl.NumberFormat().format(Math.round(totalGB))} GB`;
   }, [now]);
 
+  const costs = useMemo(() => {
+    const totalSeconds = (now.getTime() - START_DATE.getTime()) / 1000;
+    const totalGB = (totalSeconds * DATA_RATE_MB_PER_SEC) / 1024;
+    const dailyGB = 2.4 * 1024; // 2.4 TB in GB
+
+    const formatCurrency = (val: number) => {
+      if (val >= 1000000) {
+        return `$${(val / 1000000).toFixed(2)}M`;
+      }
+      return new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: 'USD',
+        maximumFractionDigits: 0,
+      }).format(val);
+    };
+
+    return {
+      total: `${formatCurrency(totalGB * 0.07)} – ${formatCurrency(totalGB * 0.12)}`,
+      daily: `${formatCurrency(dailyGB * 0.07)} – ${formatCurrency(dailyGB * 0.12)}`,
+    };
+  }, [now]);
+
   return (
     <Container>
       <TopRow>
@@ -255,6 +293,35 @@ export const DaysSince: React.FC = () => {
           <SubValue>{dailyComparisonText}</SubValue>
         </StatBox>
       </DataContainer>
+
+
+      <CostContainer>
+        <StatBox
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.5 }}
+        >
+          <Label>Data total Cost (to present)</Label>
+          <Value>
+            {costs.total}
+          </Value>
+        </StatBox>
+
+        <StatBox
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.6 }}
+        >
+          <Label>Data cost per Day</Label>
+          <Value>
+            {costs.daily}
+            <span className="unit">/day</span>
+          </Value>
+        </StatBox>
+      </CostContainer>
+      <SectionLabel style={{ marginTop: '-1rem', marginBottom: '0' }}>
+        Estimated Network Ingress/Egress Cost
+      </SectionLabel>
     </Container>
   );
 };
