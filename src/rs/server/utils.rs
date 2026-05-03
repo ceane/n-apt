@@ -619,6 +619,7 @@ signals:
       geolocation: None,
       frequency_range: Some((137_100_000.0, 137_900_000.0)),
       ref_based_demod_baseline: None,
+      is_mock_apt: false,
       is_ephemeral: false,
     };
 
@@ -1128,6 +1129,7 @@ mod save_tests {
       geolocation: None,
       frequency_range: Some((136.3, 138.7)),
       is_ephemeral: false,
+      is_mock_apt: false,
       ref_based_demod_baseline: None,
     };
 
@@ -1200,6 +1202,7 @@ mod save_tests {
       geolocation: None,
       frequency_range: Some((136.3, 138.7)),
       is_ephemeral: false,
+      is_mock_apt: false,
       ref_based_demod_baseline: None,
     };
 
@@ -1269,6 +1272,7 @@ mod save_tests {
       geolocation: None,
       frequency_range: Some((136.3, 138.7)),
       is_ephemeral: false,
+      is_mock_apt: false,
       ref_based_demod_baseline: None,
     };
 
@@ -1303,6 +1307,7 @@ mod save_tests {
       geolocation: None,
       frequency_range: Some((136.3, 138.7)),
       is_ephemeral: false,
+      is_mock_apt: false,
       ref_based_demod_baseline: None,
     };
 
@@ -1355,6 +1360,7 @@ mod save_tests {
       geolocation: None,
       frequency_range: Some((136.3, 138.7)),
       is_ephemeral: false,
+      is_mock_apt: true,
       ref_based_demod_baseline: None,
     };
 
@@ -1440,6 +1446,7 @@ mod save_tests {
       geolocation: None,
       frequency_range: Some((136.3, 141.2)),
       is_ephemeral: false,
+      is_mock_apt: true,
       ref_based_demod_baseline: None,
     };
 

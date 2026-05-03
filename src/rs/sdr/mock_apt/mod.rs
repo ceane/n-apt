@@ -414,19 +414,26 @@ impl MockAptDevice {
       1.0
     };
 
-    // Mock SDR ignores gain changes — always generates at the reference level.
-    // Realistic gain modeling in mock IQ is impractical (clipping artifacts,
-    // distortion, etc.), so the mock always produces its designed signal shape.
+    // Use the actual device gain for realistic modeling.
+    // In a real SDR, gain amplifies the RF signal and frontend noise,
+    // but the ADC has a fixed noise floor and clipping point.
+    // Reverting to 0.0 gain as requested by the user.
+    // Gain modeling currently doesn't replicate real signal behavior well enough in the mock device.
+    let analog_gain = 0.0;
     let rf_noise_db = self.noise_floor_db as f64;
-    let analog_gain = 0.0_f64; // Fixed reference gain — ignores self.gain
 
     // Hardware RF & ADC Simulation Pipeline
+    // SNR = Signal - (RF_Noise + Gain)
     let frontend_noise_db = rf_noise_db + analog_gain;
-    let adc_intrinsic_noise_db = -38.0;
+    let adc_intrinsic_noise_db = -38.0; // Fixed noise floor of the 8-bit ADC
+    
+    // Combine noise sources in linear power domain
     let total_adc_noise_power = 10f64.powf(frontend_noise_db / 10.0)
       + 10f64.powf(adc_intrinsic_noise_db / 10.0);
-    let total_adc_noise_db = 10.0 * total_adc_noise_power.log10();
-    let noise_level = 10f64.powf(total_adc_noise_db / 20.0);
+    // Split total noise power between I and Q components (total_power = E[I^2 + Q^2])
+    // For Uniform distribution [-A, A], Variance = A^2 / 3. 
+    // We want Var = power/2, so A = sqrt(1.5 * power).
+    let noise_amplitude = (1.5 * total_adc_noise_power).sqrt();
 
     // Optimization: Pre-calculate per-signal parameters out of the inner loop
     struct CachedSignal<'a> {
@@ -434,6 +441,7 @@ impl MockAptDevice {
       amp: f64,
       amp_side: f64,
       has_sidebands: bool,
+      modulation_phase_step: f64,
 
       // Phasor states (cos, sin)
       p_re: f64,
@@ -463,26 +471,28 @@ impl MockAptDevice {
       let effective_center_freq =
         center_freq * (1.0 - self.ppm as f64 / 1_000_000.0);
       let rel_freq = abs_freq_hz - effective_center_freq;
-      if rel_freq.abs() > (sample_rate / 2.0) {
+      
+      // Filter signals outside the current sample rate window
+      if rel_freq.abs() > (sample_rate / 2.0) + 100000.0 {
         continue;
       }
 
+      // 1.0 Hz modulation rate - sample-rate independent
+      let modulation_rate_hz = 1.0;
+      let modulation_phase_step = 2.0 * PI64 * modulation_rate_hz / sample_rate;
+      
       let modulation = (signal.modulation_phase as f64).sin() * 0.1 + 0.9;
       let rf_signal_db = signal.config.strength_db * modulation;
+      
+      // Apply analog gain to the RF signal
       let adc_signal_db = rf_signal_db + analog_gain;
+      
       let mut amp = 10f64.powf(adc_signal_db / 20.0);
       let mut amp_side = amp * 0.707;
 
       // Apply settle factor to signal amplitude during warm-up
       amp *= settle_factor;
       amp_side *= settle_factor;
-
-      // Advance modulation phase once per frame instead of per sample
-      // 8192 samples is ~4ms, plenty fast for modulation
-      signal.modulation_phase += 0.05;
-      if signal.modulation_phase > 2.0 * PI {
-        signal.modulation_phase -= 2.0 * PI;
-      }
 
       let (p_im, p_re) = signal.phase.sin_cos();
       let phase_step = 2.0 * PI64 * rel_freq / sample_rate;
@@ -518,6 +528,7 @@ impl MockAptDevice {
         amp,
         amp_side,
         has_sidebands,
+        modulation_phase_step,
         p_re,
         p_im,
         r_re,
@@ -534,13 +545,9 @@ impl MockAptDevice {
     }
 
     for _ in 0..fft_size {
-      let mut i_sample = 0.0f64;
-      let mut q_sample = 0.0f64;
-
-      if noise_level > 0.0 {
-        i_sample += (self.rng.gen::<f64>() - 0.5) * 2.0 * noise_level;
-        q_sample += (self.rng.gen::<f64>() - 0.5) * 2.0 * noise_level;
-      }
+      // Use pre-calculated noise amplitude for correct power distribution
+      let mut i_sample = (self.rng.gen::<f64>() - 0.5) * 2.0 * noise_amplitude;
+      let mut q_sample = (self.rng.gen::<f64>() - 0.5) * 2.0 * noise_amplitude;
 
       for sig in &mut cached_signals {
         // Update main signal
@@ -569,15 +576,18 @@ impl MockAptDevice {
           sig.sh_re = next_h_re;
           sig.sh_im = next_h_im;
         }
+        
+        // Advance modulation phase per sample for perfect continuity
+        sig.signal.modulation_phase += sig.modulation_phase_step as f32;
       }
 
       // Fast linear clipping instead of tanh
       let i_f = i_sample.clamp(-1.0, 1.0);
       let q_f = q_sample.clamp(-1.0, 1.0);
 
-      // Convert back to offset binary 8-bit output
-      let i_u8 = ((i_f * 128.0) + 128.0).clamp(0.0, 255.0) as u8;
-      let q_u8 = ((q_f * 128.0) + 128.0).clamp(0.0, 255.0) as u8;
+      // Convert back to offset binary 8-bit output (RTL-SDR format)
+      let i_u8 = ((i_f * 127.0) + 128.0).clamp(0.0, 255.0) as u8;
+      let q_u8 = ((q_f * 127.0) + 128.0).clamp(0.0, 255.0) as u8;
 
       frame.push(i_u8);
       frame.push(q_u8);
@@ -589,6 +599,11 @@ impl MockAptDevice {
       if sig.has_sidebands {
         sig.signal.phase_side_low = sig.sl_im.atan2(sig.sl_re);
         sig.signal.phase_side_high = sig.sh_im.atan2(sig.sh_re);
+      }
+      
+      // Wrap modulation phase
+      while sig.signal.modulation_phase > (2.0 * PI) as f32 {
+          sig.signal.modulation_phase -= (2.0 * PI) as f32;
       }
     }
     self.total_samples = self.total_samples.wrapping_add(fft_size as u64);

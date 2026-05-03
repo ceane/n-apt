@@ -29,7 +29,9 @@ import remarkTimeOfFlightBlocks from "@n-apt/md-preview/utils/remarkTimeOfFlight
 import remarkSignalCanvasBlocks from "@n-apt/md-preview/utils/remarkSignalCanvasBlocks";
 import remarkIconShortcodes from "@n-apt/md-preview/utils/remarkIconShortcodes";
 import remarkLatexCodeBlocks from "@n-apt/md-preview/utils/remarkLatexCodeBlocks";
+import remarkReactDaysSinceBlocks from "@n-apt/md-preview/utils/remarkReactDaysSinceBlocks";
 import GiscusComments from "@n-apt/md-preview/components/GiscusComments";
+import { DaysSince } from "@n-apt/components/DaysSince";
 import { assetUrl, assetPageUrl } from "@n-apt/md-preview/utils/asset-helpers";
 import { registerMarkdownHotReload } from "@n-apt/md-preview/utils/hmr";
 import { CanvasHarness } from "@n-apt/md-preview/components/canvas/CanvasHarness";
@@ -359,6 +361,7 @@ const App: React.FC = () => {
     "icon-inline": ({ node: _node, ...props }: any) => <IconInline {...props} />,
     "desktop-only": ({ node: _node, children, ...props }: any) => <DesktopOnly {...props}>{children}</DesktopOnly>,
     "mobile-only": ({ node: _node, children, ...props }: any) => <MobileOnly {...props}>{children}</MobileOnly>,
+    "days-since": () => <DaysSince />,
     table: ({ node: _node, ...props }) => <div className="table-dense"><table {...props} /></div>,
   }), []);
 
@@ -373,6 +376,7 @@ const App: React.FC = () => {
               remarkGfm,
               remarkIconShortcodes,
               remarkLatexCodeBlocks as any,
+              remarkReactDaysSinceBlocks as any,
               remarkBodyAttenuationBlocks as any,
               remarkTimeOfFlightBlocks,
               remarkSignalCanvasBlocks as any,

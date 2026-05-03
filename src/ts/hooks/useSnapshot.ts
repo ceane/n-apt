@@ -13,6 +13,7 @@ import type { WholeChannelSnapshotSegment } from "@n-apt/hooks/useCaptureWholeCh
 import { CoordinateMapper, Range } from "@n-apt/utils/rendering/CoordinateMapper";
 import { CanvasDrawingContext, SnapshotRenderer, SnapshotTheme, SVGDrawingContext, DrawingContext } from "@n-apt/utils/rendering/SnapshotRenderer";
 import { fmtFreq, fmtTimestamp } from "@n-apt/utils/rendering/formatters";
+import { stitchWholeChannelWaveform } from "@n-apt/utils/rendering/wholeChannelStitching";
 import { formatTimestampWithTimezone } from "@n-apt/utils/formatters";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -692,56 +693,22 @@ function composeWholeChannelSpectrumCanvas(
   const totalSpan = fullRange.max - fullRange.min;
   if (!(totalSpan > 0)) return null;
   const first = segments[0];
-  const baseBins = Math.max(
-    2048,
-    ...segments.map((segment) => segment.data.waveform?.length ?? 0),
+  const stitched = stitchWholeChannelWaveform(
+    segments
+      .flatMap((segment) => {
+        const waveform = segment.data.waveform;
+        return waveform?.length
+          ? [{
+              waveform,
+              visualRange: segment.visualRange,
+              dbMin: segment.data.dbMin,
+            }]
+          : [];
+      }),
+    fullRange,
   );
-  const stitchedBins = Math.max(
-    baseBins,
-    Math.round(
-      baseBins *
-        segments.reduce((maxRatio, segment) => {
-          const segSpan = segment.visualRange.max - segment.visualRange.min;
-          return Math.max(maxRatio, segSpan > 0 ? totalSpan / segSpan : 1);
-        }, 1),
-    ),
-  );
-  const stitched = new Float32Array(stitchedBins).fill(first.data.dbMin);
-  let filledAny = false;
 
-  for (const segment of segments) {
-    const waveform = segment.data.waveform;
-    if (!waveform?.length) continue;
-
-    const startRatio = Math.max(
-      0,
-      (segment.visualRange.min - fullRange.min) / totalSpan,
-    );
-    const endRatio = Math.min(
-      1,
-      (segment.visualRange.max - fullRange.min) / totalSpan,
-    );
-    const destStart = Math.max(
-      0,
-      Math.min(stitchedBins - 1, Math.round(startRatio * stitchedBins)),
-    );
-    const destEnd = Math.max(
-      destStart + 1,
-      Math.min(stitchedBins, Math.round(endRatio * stitchedBins)),
-    );
-    const destCount = Math.max(1, destEnd - destStart);
-
-    for (let i = 0; i < destCount; i++) {
-      const srcIdx = Math.min(
-        waveform.length - 1,
-        Math.round((i / Math.max(1, destCount - 1)) * (waveform.length - 1)),
-      );
-      stitched[destStart + i] = waveform[srcIdx];
-    }
-    filledAny = true;
-  }
-
-  if (!filledAny) return null;
+  if (!stitched.length) return null;
 
   return renderSpectrumSnapshotCanvas(
     {

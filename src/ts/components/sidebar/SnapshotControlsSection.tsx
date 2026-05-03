@@ -364,7 +364,7 @@ export const SnapshotControlsSection: React.FC<
               <option value="animated-svg">Animated SVG (1s)</option>
               {supportedSnapshotVideoFormat && (
                 <option value={supportedSnapshotVideoFormat}>
-                  {supportedSnapshotVideoFormat === "mp4" ? "MP4 1s" : "WEBM 1s"}
+                  {supportedSnapshotVideoFormat === "mp4" ? "MP4 (1s)" : "WebM (1s)"}
                 </option>
               )}
             </SettingSelect>

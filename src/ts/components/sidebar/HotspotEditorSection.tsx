@@ -2,8 +2,8 @@ import React from "react";
 import styled from "styled-components";
 import { useHotspotEditor } from "@n-apt/hooks/useHotspotEditor";
 import { Row } from "@n-apt/components/ui";
-import { RowContainer, RowLabel, RowControl } from "@n-apt/components/ui/Row";
-import { Pencil, Tag } from "lucide-react";
+import { RowLabel, RowControl } from "@n-apt/components/ui/Row";
+import { Pencil } from "lucide-react";
 
 const StyledRow = styled(Row)`
   &.clean-row {

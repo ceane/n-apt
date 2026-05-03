@@ -352,6 +352,10 @@ jest.mock("n_apt_canvas", () => {
       process = jest.fn();
       destroy = jest.fn();
     },
+    match_noise_floor_db_wasm: jest.fn((
+      _reference: Float32Array,
+      target: Float32Array,
+    ) => new Float32Array(target)),
     test_wasm_simd_availability: jest.fn(() => false),
   };
   mockModule.default = jest.fn(() => Promise.resolve());
