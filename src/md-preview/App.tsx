@@ -473,6 +473,10 @@ const ArticleContent = styled.article`
     margin-top: 2.5em;
     margin-bottom: 1.2em;
     color: #9eaeff;
+
+    sup {
+      font-size: 0.65em;
+    }
   }
 
   h1 {
