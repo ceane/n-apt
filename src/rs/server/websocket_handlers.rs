@@ -194,7 +194,7 @@ pub async fn handle_ws_connection(
   };
 
   if let Ok(status_json) = serde_json::to_string(&initial_status) {
-    if ws_sender.send(Message::Text(status_json)).await.is_err() {
+    if ws_sender.send(Message::Text(status_json.into())).await.is_err() {
       shared.authenticated_count.fetch_sub(1, Ordering::Relaxed);
       shared.client_count.fetch_sub(1, Ordering::Relaxed);
       return;
@@ -213,7 +213,7 @@ pub async fn handle_ws_connection(
             // Capture status messages also need to be plaintext for the frontend
             // to handle capture state updates properly.
             if plaintext_json.contains("\"type\":\"status\"") || plaintext_json.contains("\"type\":\"capture_status\"") {
-              if ws_sender.send(Message::Text(plaintext_json)).await.is_err() {
+              if ws_sender.send(Message::Text(plaintext_json.into())).await.is_err() {
                 break;
               }
               continue;
@@ -263,7 +263,7 @@ pub async fn handle_ws_connection(
             };
 
             // Send the binary message
-            if ws_sender.send(Message::Binary(frame_bytes)).await.is_err() {
+            if ws_sender.send(Message::Binary(frame_bytes.into())).await.is_err() {
               break;
             }
           }
@@ -291,7 +291,7 @@ pub async fn handle_ws_connection(
                   };
 
                   if let Ok(response_json) = serde_json::to_string(&response) {
-                    if ws_sender.send(Message::Text(response_json)).await.is_err() {
+                    if ws_sender.send(Message::Text(response_json.into())).await.is_err() {
                       break;
                     }
                   }
@@ -312,7 +312,7 @@ pub async fn handle_ws_connection(
                 };
 
                 if let Ok(response_json) = serde_json::to_string(&response) {
-                  if ws_sender.send(Message::Text(response_json)).await.is_err() {
+                  if ws_sender.send(Message::Text(response_json.into())).await.is_err() {
                     break;
                   }
                 }

@@ -1,6 +1,6 @@
 {
   "name": "n-apt",
-  "version": "0.2.5",
+  "version": "0.5.0",
   "description": "Visualize FFTs/waterfalls, capture a snapshot or I/Q capture & more, tailored toward N-APT signals. Analyze, learn, record, document & demodulate N-APT signals.",
   "license": "Hippocratic-3.0",
   "type": "module",
@@ -197,6 +197,9 @@
   "overrides": {
     "react-inspector": {
       "react": "^19.2.4"
-    }
+    },
+    "uuid": "^14.0.0",
+    "braces": "^3.0.3",
+    "micromatch": "^4.0.8"
   }
 }
