@@ -280,7 +280,8 @@ export const useStitchingLogic = ({
       });
     } catch (error: any) {
       console.error("Stitch error:", error);
-      setStitchStatus(`Stitch failed: ${error.message}`);
+      const msg = error.message || String(error);
+      setStitchStatus(msg.toLowerCase().includes("decryption") ? "Stitching failed: Decryption failed" : `Stitching failed: ${msg}`);
     }
   }, [fftSize, frequencyRange, sampleRateOptions, setStitchStatus, stitchSessionKey, setHasStitchedData, setHardwareSampleRateHz, setChannelCount, setActiveChannel, setFrequencyRange, onStitchStatus, onChannelsChange, onProcessedDataChange]);
 

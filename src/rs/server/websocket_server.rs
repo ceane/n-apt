@@ -162,12 +162,13 @@ pub struct WebSocketServer {
 
 impl Default for WebSocketServer {
   fn default() -> Self {
-    Self::new()
+    let redis_url = std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1/".to_string());
+    Self::new(&redis_url)
   }
 }
 
 impl WebSocketServer {
-  pub fn new() -> Self {
+  pub fn new(redis_url: &str) -> Self {
     info!("Creating WebSocket server with SDR processor");
 
     // Create SDR processor (will auto-select mock_apt or real device)
@@ -197,7 +198,7 @@ impl WebSocketServer {
     let (broadcast_tx, _) = broadcast::channel(1000);
     let (spectrum_tx, _) = broadcast::channel(1000);
 
-    let shared = SharedState::new();
+    let shared = SharedState::new(redis_url);
     // Sync initial state with SharedState
     shared.update_device_status(
       !sdr_processor.is_mock(),
@@ -616,12 +617,12 @@ impl WebSocketServer {
                   &result, &enc_key,
                 ) {
                   Ok(artifact) => {
-                    let mut artifacts =
-                      shared_clone.capture_artifacts.lock().unwrap();
-                    artifacts
-                      .entry(result.job_id.clone())
-                      .or_default()
-                      .push(artifact.clone());
+                    let mut artifacts = shared_clone.get_capture_artifacts(&result.job_id).unwrap_or_default();
+                    artifacts.push(artifact.clone());
+                    
+                    if let Err(e) = shared_clone.store_capture_artifacts(&result.job_id, &artifacts) {
+                      error!("Failed to store capture artifacts in Redis: {}", e);
+                    }
 
                     let timestamp = std::time::SystemTime::now()
                       .duration_since(std::time::UNIX_EPOCH)
@@ -1357,12 +1358,12 @@ impl WebSocketServer {
           match crate::server::utils::save_capture_file_multi(&result, &enc_key)
           {
             Ok(artifact) => {
-              let mut artifacts =
-                shared_clone.capture_artifacts.lock().unwrap();
-              artifacts
-                .entry(result.job_id.clone())
-                .or_default()
-                .push(artifact.clone());
+              let mut artifacts = shared_clone.get_capture_artifacts(&result.job_id).unwrap_or_default();
+              artifacts.push(artifact.clone());
+              
+              if let Err(e) = shared_clone.store_capture_artifacts(&result.job_id, &artifacts) {
+                error!("Failed to store capture artifacts in Redis: {}", e);
+              }
 
               let file_name = artifact.filename.clone();
 

@@ -153,7 +153,7 @@ const RemoveButton = styled.button`
 export const MapLocationsSection: React.FC = () => {
   const [searchValue, setSearchValue] = React.useState("");
   const [searchResults, setSearchResults] = React.useState<any[]>([]);
-  const showPrompt = usePrompt();
+  const { showPrompt } = usePrompt();
 
   const {
     locations,

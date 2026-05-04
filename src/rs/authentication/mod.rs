@@ -96,11 +96,26 @@ impl CredentialStore {
 }
 
 /// Get the n-apt config directory path (~/.n-apt).
+/// Canonicalizes the home directory to prevent path traversal attacks
+/// via a crafted HOME environment variable.
 fn dirs_path() -> Result<PathBuf, String> {
   let home = std::env::var("HOME")
     .or_else(|_| std::env::var("USERPROFILE"))
     .map_err(|_| "Cannot determine home directory".to_string())?;
-  Ok(PathBuf::from(home).join(".n-apt"))
+  let home_path = PathBuf::from(&home);
+  // Canonicalize resolves symlinks and normalizes the path,
+  // preventing ".." traversal attacks via a crafted HOME variable.
+  let canonical_home = home_path.canonicalize().map_err(|e| {
+    format!("Home directory '{}' is not a valid path: {}", home, e)
+  })?;
+  // Ensure the canonical path is actually a directory
+  if !canonical_home.is_dir() {
+    return Err(format!(
+      "Home path '{}' is not a directory",
+      canonical_home.display()
+    ));
+  }
+  Ok(canonical_home.join(".n-apt"))
 }
 
 pub mod auth_handlers;

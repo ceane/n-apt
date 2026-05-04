@@ -220,6 +220,8 @@ pub struct CaptureResult {
   pub ref_based_demod_baseline: Option<String>,
   pub is_mock_apt: bool,
   pub is_ephemeral: bool,
+  /// Per-file Data Encryption Key (DEK)
+  pub dek: Option<[u8; 32]>,
 }
 
 /// SDR processor that works with any SDR device implementation
@@ -1355,6 +1357,7 @@ impl SdrProcessor {
       ref_based_demod_baseline: self.capture_ref_based_demod_baseline.take(),
       is_mock_apt: self.device.device_type().contains("Mock"),
       is_ephemeral: self.capture_is_ephemeral,
+      dek: if self.capture_encrypted { Some(crate::crypto::generate_key()) } else { None },
     })
   }
 

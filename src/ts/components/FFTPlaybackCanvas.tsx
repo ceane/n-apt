@@ -6,7 +6,7 @@ import { useStitchingLogic } from "@n-apt/hooks/useStitchingLogic";
 import { usePlaybackAnimation } from "@n-apt/hooks/usePlaybackAnimation";
 import { useChannelManagement } from "@n-apt/hooks/useChannelManagement";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
-import { useAppDispatch } from "@n-apt/redux";
+import { useAppDispatch, useAppSelector } from "@n-apt/redux";
 import {
   setActivePlaybackMetadata,
   setPlaybackChannels,
@@ -130,6 +130,8 @@ const ChannelSelector = React.memo<ChannelSelectorProps>(({
 
 ChannelSelector.displayName = 'ChannelSelector';
 
+import { DecryptionFallback } from "./ui/DecryptionFallback";
+
 const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(({
   selectedFiles,
   stitchTrigger,
@@ -150,6 +152,7 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(({
   visualizerMachine,
 }, forwardedRef) => {
   const dispatch = useAppDispatch();
+  const stitchStatus = useAppSelector((state) => state.waterfall.stitchStatus);
   const { state: spectrumState, dispatch: storeDispatch } = useSpectrumStore();
   const { activeSignalArea } = spectrumState;
   // ── Custom hooks for separated concerns ──
@@ -418,11 +421,17 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(({
               ? "No files selected"
               : `${selectedFiles.length} file${selectedFiles.length > 1 ? "s" : ""} selected`}
           </FileCountText>
-          <HelpText>
-            {selectedFiles.length > 0
-              ? "Click Stitch/Process to visualize"
-              : "Drop .wav or .napt files here"}
-          </HelpText>
+          {stitchStatus.toLowerCase().includes("decryption") ? (
+            <div style={{ maxWidth: '400px', margin: '0 auto' }}>
+              <DecryptionFallback moduleName="File Processing" errorType="vault" />
+            </div>
+          ) : (
+            <HelpText>
+              {selectedFiles.length > 0
+                ? "Click Stitch/Process to visualize"
+                : "Drop .wav or .napt files here"}
+            </HelpText>
+          )}
         </EmptyContainer>
       )}
     </StitcherContainer>

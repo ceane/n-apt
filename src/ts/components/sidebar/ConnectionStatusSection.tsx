@@ -149,6 +149,8 @@ interface ConnectionStatusSectionProps {
   extraActions?: React.ReactNode;
 }
 
+import { DecryptionFallback } from "../ui/DecryptionFallback";
+
 export const ConnectionStatusSection: React.FC<
   ConnectionStatusSectionProps
 > = ({
@@ -163,82 +165,90 @@ export const ConnectionStatusSection: React.FC<
   extraActions,
 }) => {
     return (
-      <ConnectionStatusContainer>
-        <ConnectionStatus>
-          <StatusDot
-            $connected={isConnected && deviceState === "connected"}
-            $loading={deviceState === "loading" || deviceState === "stale"}
-            $color={
-              cryptoCorrupted
-                ? (deviceState === "connected" ? "var(--color-danger)" : "var(--color-warning)")
-                : isConnected && deviceState === "disconnected"
-                  ? "var(--color-secondary)"
-                  : undefined
-            }
-          />
-          <StatusText>
-            {cryptoCorrupted
-              ? "CRYPTO CORRUPTED"
-              : !isConnected
-                ? "Disconnected"
-                : deviceState === "loading"
-                  ? deviceLoadingReason === "restart"
-                    ? "Restarting device..."
-                    : "Loading device..."
-                  : deviceState === "stale"
-                    ? "Device stream frozen"
-                    : deviceState === "connected"
-                      ? "Connected to server and device"
-                      : "Connected to server but device not connected"}
-          </StatusText>
-        </ConnectionStatus>
+      <>
+        <ConnectionStatusContainer>
+          <ConnectionStatus>
+            <StatusDot
+              $connected={isConnected && deviceState === "connected"}
+              $loading={deviceState === "loading" || deviceState === "stale"}
+              $color={
+                cryptoCorrupted
+                  ? (deviceState === "connected" ? "var(--color-danger)" : "var(--color-warning)")
+                  : isConnected && deviceState === "disconnected"
+                    ? "var(--color-secondary)"
+                    : undefined
+              }
+            />
+            <StatusText>
+              {cryptoCorrupted
+                ? "CRYPTO CORRUPTED"
+                : !isConnected
+                  ? "Disconnected"
+                  : deviceState === "loading"
+                    ? deviceLoadingReason === "restart"
+                      ? "Restarting device..."
+                      : "Loading device..."
+                    : deviceState === "stale"
+                      ? "Device stream frozen"
+                      : deviceState === "connected"
+                        ? "Connected to server and device"
+                        : "Connected to server but device not connected"}
+            </StatusText>
+          </ConnectionStatus>
 
-        <ActionsColumn>
-          {isConnected &&
-            (deviceState === "stale" ? (
-              <WarningButton
-                $paused={false}
-                $narrow
-                onClick={() => onRestartDevice?.()}
-                title="Restart the SDR device connection"
-              >
-                Restart
-              </WarningButton>
-            ) : deviceState === "loading" && deviceLoadingReason === "restart" ? (
-              <WarningButton
-                $paused={false}
-                $narrow
-                $isDisabled
-                onClick={() => { }}
-                disabled={true}
-                title="Device is restarting..."
-              >
-                Restarting...
-              </WarningButton>
-            ) : deviceState === "loading" ? (
-              <WarningButton
-                $paused={false}
-                $isDisabled
-                onClick={() => { }}
-                disabled={true}
-                title="Device is being initialized..."
-              >
-                Loading...
-              </WarningButton>
-            ) : (
-              !hidePauseButton && (
-                <PauseButton $paused={isPaused} onClick={onPauseToggle}>
-                  {cryptoCorrupted ? "Corrupted" : isPaused ? "Resume" : "Pause"}
-                  <SpaceHint>[Space]</SpaceHint>
-                </PauseButton>
-              )
-            ))}
-        </ActionsColumn>
-        {extraActions && (
-          <div style={{ gridColumn: "1 / -1", width: "100%" }}>
-            {extraActions}
+          <ActionsColumn>
+            {isConnected &&
+              (deviceState === "stale" ? (
+                <WarningButton
+                  $paused={false}
+                  $narrow
+                  onClick={() => onRestartDevice?.()}
+                  title="Restart the SDR device connection"
+                >
+                  Restart
+                </WarningButton>
+              ) : deviceState === "loading" && deviceLoadingReason === "restart" ? (
+                <WarningButton
+                  $paused={false}
+                  $narrow
+                  $isDisabled
+                  onClick={() => { }}
+                  disabled={true}
+                  title="Device is restarting..."
+                >
+                  Restarting...
+                </WarningButton>
+              ) : deviceState === "loading" ? (
+                <WarningButton
+                  $paused={false}
+                  $isDisabled
+                  onClick={() => { }}
+                  disabled={true}
+                  title="Device is being initialized..."
+                >
+                  Loading...
+                </WarningButton>
+              ) : (
+                !hidePauseButton && (
+                  <PauseButton $paused={isPaused} onClick={onPauseToggle}>
+                    {cryptoCorrupted ? "Corrupted" : isPaused ? "Resume" : "Pause"}
+                    <SpaceHint>[Space]</SpaceHint>
+                  </PauseButton>
+                )
+              ))}
+          </ActionsColumn>
+          {extraActions && (
+            <div style={{ gridColumn: "1 / -1", width: "100%" }}>
+              {extraActions}
+            </div>
+          )}
+        </ConnectionStatusContainer>
+
+        {cryptoCorrupted && (
+          <div style={{ gridColumn: '1 / -1', marginTop: '8px' }}>
+            <DecryptionFallback moduleName="Live Stream" errorType="vault" />
           </div>
         )}
-      </ConnectionStatusContainer>
+      </>
     );
   };

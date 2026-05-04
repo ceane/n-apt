@@ -691,7 +691,7 @@ pub struct SpectrumFrameMessage {
   pub description: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CaptureArtifact {
   pub filename: String,
   pub path: std::path::PathBuf,
@@ -704,6 +704,11 @@ pub struct CaptureArtifact {
 pub struct AuthVerifyRequest {
   pub challenge_id: String,
   pub hmac: String,
+}
+
+#[derive(Serialize)]
+pub struct VaultKeyResponse {
+  pub vault_key: String, // base64
 }
 
 #[derive(Deserialize)]

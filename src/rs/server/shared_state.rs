@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use redis::Commands;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -57,15 +57,12 @@ pub struct SharedState {
   pub device_state: Mutex<String>,
   /// AES-256 encryption key derived from passkey (set once at startup)
   pub encryption_key: [u8; 32],
-  /// Pending auth challenges: challenge_id -> (nonce_bytes, created_at)
-  pub pending_challenges:
-    Mutex<HashMap<String, ([u8; 32], std::time::Instant)>>,
   /// Channels configuration loaded from signals.yaml
   pub channels: Mutex<Vec<SpectrumFrameMessage>>,
   /// SDR settings loaded from signals.yaml
   pub sdr_settings: Mutex<super::types::SdrConfig>,
-  /// Capture artifacts: job_id -> list of (filename, temp_path)
-  pub capture_artifacts: Mutex<HashMap<String, Vec<CaptureArtifact>>>,
+  /// Redis client for persistent metadata and sessions
+  pub redis_client: redis::Client,
 
   // ── Hotplug debounce state ──────────────────────────────────────────
   /// Consecutive health-check failures while in real-hardware mode.
@@ -86,23 +83,12 @@ pub struct SharedState {
 }
 
 impl SharedState {
-  pub fn new() -> Arc<Self> {
-    let passkey = std::env::var("UNSAFE_LOCAL_USER_PASSWORD").unwrap_or_else(|_| {
-      let cwd = std::env::current_dir()
-        .ok()
-        .and_then(|path| path.into_os_string().into_string().ok())
-        .unwrap_or_else(|| "<unknown>".to_string());
-      let env_local_exists = std::path::Path::new(".env.local").exists();
-      let env_exists = std::path::Path::new(".env").exists();
-      panic!(
-        "Missing UNSAFE_LOCAL_USER_PASSWORD. The backend loads .env.local on startup and then checks the process environment. Current directory: {}. .env.local exists: {}. .env exists: {}. If you expected the value from .env.local, verify the backend started from the repo root and that .env.local contains UNSAFE_LOCAL_USER_PASSWORD.",
-        cwd,
-        env_local_exists,
-        env_exists,
-      )
-    });
+  pub fn new(redis_url: &str) -> Arc<Self> {
+    let passkey = std::env::var("UNSAFE_LOCAL_USER_PASSWORD").expect("Missing UNSAFE_LOCAL_USER_PASSWORD");
     let encryption_key = crate::crypto::derive_key(&passkey);
     let sdr_settings = load_sdr_settings();
+    let redis_client = redis::Client::open(redis_url)
+      .expect("Failed to initialize Redis client");
     log::info!(
       "Encryption key derived from passkey (PBKDF2-HMAC-SHA256, {} iterations)",
       100_000
@@ -129,10 +115,9 @@ impl SharedState {
       device_loading_reason: Mutex::new(None),
       device_state: Mutex::new("disconnected".to_string()),
       encryption_key,
-      pending_challenges: Mutex::new(HashMap::new()),
       channels: Mutex::new(load_channels()),
       sdr_settings: Mutex::new(sdr_settings.clone()),
-      capture_artifacts: Mutex::new(HashMap::new()),
+      redis_client,
       health_failure_streak: AtomicU32::new(0),
       recovery_attempts: AtomicU32::new(0),
       last_successful_read: Mutex::new(None),
@@ -185,7 +170,75 @@ impl SharedState {
   }
 
   /// Increment the failure streak and return the new count.
-  pub fn record_health_failure(&self) -> u32 {
-    self.health_failure_streak.fetch_add(1, Ordering::Relaxed) + 1
+   pub fn record_health_failure(&self) -> u32 {
+     self.health_failure_streak.fetch_add(1, Ordering::Relaxed) + 1
+   }
+
+  /// Store an auth challenge nonce in Redis.
+  pub fn store_challenge(&self, challenge_id: &str, nonce: [u8; 32]) -> Result<(), String> {
+    let mut conn = self.redis_client.get_connection()
+      .map_err(|e| format!("Redis connection failed: {}", e))?;
+    
+    // Select DB 1 for metadata/auth
+    redis::cmd("SELECT").arg(1).query::<()>(&mut conn)
+      .map_err(|e| format!("Failed to select Redis DB 1: {}", e))?;
+
+    let key = format!("challenge:{}", challenge_id);
+    let _: () = conn.set_ex(key, nonce.to_vec(), 60) // 60s TTL
+      .map_err(|e| format!("Redis SETEX failed: {}", e))?;
+    
+    Ok(())
+  }
+
+  /// Retrieve and remove an auth challenge nonce from Redis.
+  pub fn take_challenge(&self, challenge_id: &str) -> Option<[u8; 32]> {
+    let mut conn = self.redis_client.get_connection().ok()?;
+    let _ = redis::cmd("SELECT").arg(1).query::<()>(&mut conn).ok()?;
+
+    let key = format!("challenge:{}", challenge_id);
+    let nonce_vec: Option<Vec<u8>> = conn.get(&key).ok()?;
+    
+    if let Some(vec) = nonce_vec {
+      let _: () = conn.del(key).ok()?; // Consume challenge
+      if vec.len() == 32 {
+        let mut arr = [0u8; 32];
+        arr.copy_from_slice(&vec);
+        return Some(arr);
+      }
+    }
+    None
+  }
+
+  /// Store capture artifacts in Redis for a job.
+  pub fn store_capture_artifacts(&self, job_id: &str, artifacts: &[CaptureArtifact]) -> Result<(), String> {
+    let mut conn = self.redis_client.get_connection()
+      .map_err(|e| format!("Redis connection failed: {}", e))?;
+    
+    // Select DB 1 for metadata
+    redis::cmd("SELECT").arg(1).query::<()>(&mut conn)
+      .map_err(|e| format!("Failed to select Redis DB 1: {}", e))?;
+
+    let key = format!("artifacts:{}", job_id);
+    let json = serde_json::to_string(artifacts)
+      .map_err(|e| format!("Serialization failed: {}", e))?;
+    
+    let _: () = conn.set(key, json)
+      .map_err(|e| format!("Redis SET failed: {}", e))?;
+    
+    Ok(())
+  }
+
+  /// Retrieve capture artifacts from Redis for a job.
+  pub fn get_capture_artifacts(&self, job_id: &str) -> Option<Vec<CaptureArtifact>> {
+    let mut conn = self.redis_client.get_connection().ok()?;
+    let _ = redis::cmd("SELECT").arg(1).query::<()>(&mut conn).ok()?;
+
+    let key = format!("artifacts:{}", job_id);
+    let json: Option<String> = conn.get(key).ok()?;
+    
+    match json {
+      Some(s) => serde_json::from_str::<Vec<CaptureArtifact>>(&s).ok(),
+      None => None,
+    }
   }
 }

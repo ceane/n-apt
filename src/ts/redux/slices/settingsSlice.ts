@@ -12,7 +12,6 @@ export interface SettingsState {
   // Device info (cached from WebSocket)
   deviceName: string | null;
   deviceProfile: any | null;
-  cryptoCorrupted: boolean;
 }
 
 const initialState: SettingsState = {
@@ -24,7 +23,6 @@ const initialState: SettingsState = {
   
   deviceName: null,
   deviceProfile: null,
-  cryptoCorrupted: false,
 };
 
 const settingsSlice = createSlice({
@@ -52,10 +50,6 @@ const settingsSlice = createSlice({
       state.deviceProfile = action.payload.deviceProfile;
     },
     
-    setCryptoCorrupted: (state, action: PayloadAction<boolean>) => {
-      state.cryptoCorrupted = action.payload;
-    },
-    
     resetSettings: (state) => {
       Object.assign(state, initialState);
     },
@@ -68,7 +62,6 @@ export const {
   setDiagnosticRunning,
   triggerDiagnostic,
   setDeviceInfo,
-  setCryptoCorrupted,
   resetSettings,
 } = settingsSlice.actions;
 

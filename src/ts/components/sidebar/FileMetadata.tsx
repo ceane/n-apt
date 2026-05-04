@@ -8,6 +8,7 @@ import { formatDuration, formatFileSize, formatTimestampWithTimezone } from "@n-
 import { fileRegistry } from "@n-apt/utils/fileRegistry";
 import { GeolocationData, AptChannelMetadata } from "@n-apt/consts/schemas/websocket";
 import { useAppSelector } from "@n-apt/redux";
+import { DecryptionFallback } from "../ui/DecryptionFallback";
 
 export type NaptMetadata = {
   sample_rate?: number;
@@ -266,9 +267,15 @@ return (
           )}
 
           {naptMetadataError ? (
-            <MetadataErrorBox>
-              {naptMetadataError}
-            </MetadataErrorBox>
+            <div className="mt-2">
+              {naptMetadataError.toLowerCase().includes("decryption") ? (
+                <DecryptionFallback moduleName="File Metadata" errorType="vault" />
+              ) : (
+                <MetadataErrorBox>
+                  {naptMetadataError}
+                </MetadataErrorBox>
+              )}
+            </div>
           ) : naptMetadata ? (
             <MetadataGrid>
               {activePlaybackMetadata && (activePlaybackMetadata.channelCount ?? 0) > 1 && (

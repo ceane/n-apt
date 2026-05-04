@@ -145,16 +145,20 @@
           stitchBtnEl.disabled = false;
           clearBtnEl.disabled = false;
 
-          fileItemsEl.innerHTML = selectedFiles
-            .map(
-              (file, index) => `
-                    <div class="file-item">
-                        <span>${file.name}</span>
-                        <button class="remove-btn" onclick="removeFile(${index})">Remove</button>
-                    </div>
-                `,
-            )
-            .join("");
+          fileItemsEl.textContent = '';
+          selectedFiles.forEach((file, index) => {
+            const item = document.createElement('div');
+            item.className = 'file-item';
+            const nameSpan = document.createElement('span');
+            nameSpan.textContent = file.name;  // textContent auto-escapes HTML
+            const removeBtn = document.createElement('button');
+            removeBtn.className = 'remove-btn';
+            removeBtn.textContent = 'Remove';
+            removeBtn.addEventListener('click', () => removeFile(index));
+            item.appendChild(nameSpan);
+            item.appendChild(removeBtn);
+            fileItemsEl.appendChild(item);
+          });
         }
       }
 
