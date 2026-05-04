@@ -54,8 +54,8 @@ export type SdrSettingsConfig = {
     padding: number;
   };
   limits?: {
-    lower_limit_mhz?: number;
-    upper_limit_mhz?: number;
+    lower_limit_hz?: number;
+    upper_limit_hz?: number;
     lower_limit_label?: string;
     upper_limit_label?: string;
   };
@@ -89,8 +89,8 @@ export interface SdrProcessorSettings {
 export type SpectrumFrame = {
   id: string;
   label: string;
-  min_mhz: number;
-  max_mhz: number;
+  min_hz: number;
+  max_hz: number;
   description: string;
 };
 
@@ -98,7 +98,7 @@ export type IqRawFrame = {
   type: "spectrum";
   is_mock_apt?: boolean;
   center_frequency_hz?: number;
-  waveform_span_mhz?: number | null;
+  waveform_span_hz?: number | null;
   timestamp?: number;
   data_type: "iq_raw";
   sample_rate?: number;
@@ -172,7 +172,7 @@ export interface StatusMessage {
 }
 
 export type WebSocketMessage =
-  | { type: "frequency_range" | "set_frequency_range"; min_mhz: number; max_mhz: number }
+  | { type: "frequency_range" | "set_frequency_range"; min_hz: number; max_hz: number }
   | { type: "pause"; paused: boolean }
   | { type: "gain"; gain: number }
   | { type: "ppm"; ppm: number }

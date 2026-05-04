@@ -172,7 +172,8 @@ const EndpointMarker: React.FC<{
     <group>
       {/* Connection beam to device (only when active) */}
       {isActive && (
-        <line ref={beamRef as any} geometry={beamGeometry}>
+        <line ref={beamRef as any}>
+          <primitive object={beamGeometry} attach="geometry" />
           <lineBasicMaterial
             color={color}
             transparent
@@ -255,7 +256,8 @@ const TriangulationLine: React.FC<{
   if (!isActive) return null;
 
   return (
-    <line ref={lineRef as any} geometry={geometry}>
+    <line ref={lineRef as any}>
+      <primitive object={geometry} attach="geometry" />
       <lineDashedMaterial
         color={color}
         transparent
@@ -278,8 +280,7 @@ const MovingDevice: React.FC<{
   const targetVelocityRef = useRef(new THREE.Vector2(0.5, 0.3));
   const changeDirTimer = useRef(0);
 
-  useFrame((state, delta) => {
-    const t = state.clock.elapsedTime;
+  useFrame((_state, delta) => {
 
     // Change direction periodically with some randomness
     changeDirTimer.current += delta;
@@ -358,7 +359,7 @@ const calculateActiveEndpoints = (
 const SceneContents: React.FC = () => {
   const { camera } = useThree();
   const [devicePosition, setDevicePosition] = useState(new THREE.Vector2(0, 0));
-  const [deviceVelocity, setDeviceVelocity] = useState(new THREE.Vector2(0.5, 0.3));
+  const [_deviceVelocity, setDeviceVelocity] = useState(new THREE.Vector2(0.5, 0.3));
   const [activeEndpoints, setActiveEndpoints] = useState<Set<number>>(new Set([0, 1, 2, 3]));
   const [warmUpEndpoints, setWarmUpEndpoints] = useState<Set<number>>(new Set([4, 5]));
 

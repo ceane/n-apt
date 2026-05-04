@@ -166,7 +166,7 @@ export type DrawParams = {
   spikesAmplitude: number; // Unit: dB (max 0)
   decayRate: number;
   envelopeWidth: number;
-  centerOffset: number;    // Unit: MHz
+  centerOffset: number;    // Unit: Hz
   peakAmplitude: number;   // Unit: dB (max 0)
   simulatedNoise: number;
   beats: BeatParams[];     // Up to 2 beats
@@ -302,7 +302,7 @@ export const INITIAL_SPECTRUM_STATE: SpectrumState = {
       spikesAmplitude: -10, // dB
       decayRate: 0.2,
       envelopeWidth: 10,
-      centerOffset: 1.5,
+      centerOffset: 1_500_000,
       peakAmplitude: -40,    // -40 dB
       simulatedNoise: 0.05,
       beats: [],
@@ -629,7 +629,6 @@ export type SpectrumStoreContextValue = {
   effectiveFrames: SpectrumFrame[];
   effectiveSdrSettings: SdrSettingsConfig | null | undefined;
   sampleRateHzEffective: number | null;
-  sampleRateMHz: number | null;
   signalAreaBounds: Record<string, { min: number; max: number }> | null;
   lastSentPauseRef: React.MutableRefObject<boolean | null>;
   wsConnection: {
@@ -1141,9 +1140,7 @@ export const SpectrumProvider: React.FC<SpectrumProviderProps> = memo(({
       : (Array.isArray(cachedFrames) ? cachedFrames : []);
   const effectiveSdrSettings = sdrSettings ?? cachedSdrSettings;
 
-  const sampleRateHzEffective = state.sampleRateHz;
-
-  const sampleRateMHz = sampleRateHzEffective / 1_000_000;
+  const sampleRateHzEffective = sampleRateHz;
 
   const signalAreaBounds = useMemo(() => {
     if (!Array.isArray(effectiveFrames) || effectiveFrames.length === 0) {
@@ -1153,8 +1150,8 @@ export const SpectrumProvider: React.FC<SpectrumProviderProps> = memo(({
     effectiveFrames.forEach((frame) => {
       const label = frame.label;
       if (!label) return;
-      bounds[label] = { min: frame.min_mhz, max: frame.max_mhz };
-      bounds[label.toLowerCase()] = { min: frame.min_mhz, max: frame.max_mhz };
+      bounds[label] = { min: frame.min_hz, max: frame.max_hz };
+      bounds[label.toLowerCase()] = { min: frame.min_hz, max: frame.max_hz };
     });
     return bounds;
   }, [effectiveFrames]);
@@ -1172,10 +1169,10 @@ export const SpectrumProvider: React.FC<SpectrumProviderProps> = memo(({
       effectiveFrames[0];
     if (!primaryFrame) return;
 
-    const min = primaryFrame.min_mhz;
-    const max = sampleRateMHz
-      ? Math.min(primaryFrame.max_mhz, min + sampleRateMHz)
-      : primaryFrame.max_mhz;
+    const min = primaryFrame.min_hz;
+    const max = sampleRateHz
+      ? Math.min(primaryFrame.max_hz, min + sampleRateHz)
+      : primaryFrame.max_hz;
     const nextRange = { min, max };
 
     const range = nextRange;
@@ -1186,7 +1183,7 @@ export const SpectrumProvider: React.FC<SpectrumProviderProps> = memo(({
     lastSentFrequencyRangeRef.current = nextRange;
   }, [
     mergedState.frequencyRange,
-    sampleRateMHz,
+    sampleRateHz,
     effectiveFrames,
     wsConnection.sendFrequencyRange,
     storeDispatch,
@@ -1313,7 +1310,6 @@ export const SpectrumProvider: React.FC<SpectrumProviderProps> = memo(({
       effectiveFrames,
       effectiveSdrSettings,
       sampleRateHzEffective,
-      sampleRateMHz,
       signalAreaBounds,
       lastSentPauseRef,
       wsConnection,
@@ -1330,7 +1326,6 @@ export const SpectrumProvider: React.FC<SpectrumProviderProps> = memo(({
       effectiveFrames,
       effectiveSdrSettings,
       sampleRateHzEffective,
-      sampleRateMHz,
       signalAreaBounds,
       wsConnection,
       toggleVisualizerPause,

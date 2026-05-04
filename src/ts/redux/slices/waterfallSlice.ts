@@ -25,7 +25,7 @@ export interface DrawParams {
   spikesAmplitude: number; // Unit: dB (max 0)
   decayRate: number;
   envelopeWidth: number;
-  centerOffset: number;    // Unit: MHz
+  centerOffset: number;    // Unit: Hz
   peakAmplitude: number;   // Unit: dB (max 0)
   simulatedNoise: number;
   beats: BeatParams[];     // Up to 2 beats
@@ -67,9 +67,9 @@ const INITIAL_DRAW_PARAMS: DrawParams = {
   centerSpikeBoost: 4.9,
   spikesAmplitude: -10, // dB
   decayRate: 0.2,
-  envelopeWidth: 10,
-  centerOffset: 1.5,
-  peakAmplitude: -40,    // -40 dB
+  envelopeWidth: 0.1,
+  centerOffset: 1_500_000,
+  peakAmplitude: 1.0,    // -40 dB
   simulatedNoise: 0.05,
   beats: [],
 };

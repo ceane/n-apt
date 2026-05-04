@@ -18,6 +18,7 @@ jobs:
       frontend-changed: ${{ steps.changes.outputs.frontend }}
       rust-changed: ${{ steps.changes.outputs.rust }}
       wasm-changed: ${{ steps.changes.outputs.wasm }}
+      integration-changed: ${{ steps.changes.outputs.integration }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -25,19 +26,26 @@ jobs:
           fetch-depth: 0
 
       - name: Detect file changes
-        uses: dorny/paths-filter@v2
+        uses: dorny/paths-filter@v3
         id: changes
         with:
           filters: |
             frontend:
               - 'src/ts/**'
+              - 'src/md-preview/**'
+              - 'src/types/**'
               - 'test/ts/**'
+              - 'packages/**'
               - 'package*.json'
               - 'tsconfig*.json'
               - 'jest.config.*'
               - 'vite.config.*'
               - 'tailwind.config.*'
               - 'postcss.config.*'
+            integration:
+              - 'test/integration/**'
+              - 'scripts/test/integration/**'
+              - 'signals.yaml'
             rust:
               - 'src/rs/**'
               - 'test/rust/**'
@@ -46,17 +54,20 @@ jobs:
               - 'build.rs'
               - 'rustfmt.toml'
               - 'clippy.toml'
+              - 'signals.yaml'
             wasm:
               - 'src/rs/lib.rs'
               - 'src/rs/wasm/**'
               - 'src/rs/simd/**'
-              - 'scripts/build_wasm.sh'
+              - 'test/wasm/**'
+              - 'Cargo-wasm.toml'
+              - 'scripts/build/build_wasm.sh'
 
-  # Frontend tests with Node matrix
+  # Frontend tests
   frontend-tests:
     runs-on: ubuntu-latest
     needs: detect-changes
-    if: needs.detect-changes.outputs.frontend-changed == 'true'
+    if: needs.detect-changes.outputs.frontend-changed == 'true' || github.ref == 'refs/heads/main'
     strategy:
       matrix:
         node-version: [22.x]
@@ -64,6 +75,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js ${{ matrix.node-version }}
         uses: actions/setup-node@v4
@@ -75,27 +88,32 @@ jobs:
         run: npm ci --legacy-peer-deps
 
       - name: Run linting
-        run: npm run lint || echo "Linting completed with errors (will be fixed later)"
+        run: npm run lint
 
       - name: Run type checking
-        run: npm run typecheck || echo "Type checking completed with warnings"
+        run: npm run typecheck
 
-      - name: Run tests
-        run: npm test
+      - name: Run tests (Affected Only on Branches)
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            npm test
+          else
+            npm test -- --changedSince=origin/main --passWithNoTests
+          fi
 
       - name: Upload coverage reports
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v4
         with:
           file: ./coverage/lcov.info
           flags: frontend
-          name: codecov-frontend-${{ matrix.node-version }}
+          token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
 
-  # Rust tests with caching
+  # Rust tests
   rust-tests:
     runs-on: ubuntu-latest
     needs: detect-changes
-    if: needs.detect-changes.outputs.rust-changed == 'true'
+    if: needs.detect-changes.outputs.rust-changed == 'true' || github.ref == 'refs/heads/main'
 
     steps:
       - name: Checkout code
@@ -106,8 +124,6 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable
 
       - name: Cache Rust dependencies
         uses: actions/cache@v4
@@ -121,28 +137,64 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
-      - name: Run Rust tests (dev-fast profile)
+      - name: Run Rust tests
         run: cargo test --profile dev-fast
 
       - name: Upload Rust coverage
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v4
         with:
           flags: rust
-          name: codecov-rust
+          token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
 
-  # Integration tests
-  integration-tests:
+  # WASM tests
+  wasm-tests:
     runs-on: ubuntu-latest
-    needs: [detect-changes, frontend-tests, rust-tests]
-    if: |
-      needs.detect-changes.outputs.frontend-changed == 'true' || 
-      needs.detect-changes.outputs.rust-changed == 'true' ||
-      needs.detect-changes.outputs.wasm-changed == 'true'
+    needs: detect-changes
+    if: needs.detect-changes.outputs.wasm-changed == 'true' || github.ref == 'refs/heads/main'
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          cache: "npm"
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        run: npm install -g wasm-pack
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Run WASM tests
+        run: npm run test:wasm
+
+  # Integration tests
+  integration-tests:
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: |
+      github.ref == 'refs/heads/main' ||
+      needs.detect-changes.outputs.frontend-changed == 'true' || 
+      needs.detect-changes.outputs.rust-changed == 'true' || 
+      needs.detect-changes.outputs.wasm-changed == 'true' || 
+      needs.detect-changes.outputs.integration-changed == 'true'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -155,8 +207,6 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable
 
       - name: Cache dependencies
         uses: actions/cache@v4
@@ -175,34 +225,14 @@ jobs:
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
 
-      - name: Build WASM (dev profile)
-        if: needs.detect-changes.outputs.wasm-changed == 'true'
+      - name: Build WASM (if changed)
+        if: needs.detect-changes.outputs.wasm-changed == 'true' || github.ref == 'refs/heads/main'
         run: npm run build:wasm
 
-      - name: Run integration tests
-        run: npm run test:all || echo "Some integration tests failed"
-
-  # Always run tests (fallback for no changes detected)
-  always-run-tests:
-    runs-on: ubuntu-latest
-    needs: detect-changes
-    if: |
-      needs.detect-changes.outputs.frontend-changed == 'false' && 
-      needs.detect-changes.outputs.rust-changed == 'false' &&
-      needs.detect-changes.outputs.wasm-changed == 'false'
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22.x'
-          cache: "npm"
-
-      - name: Install dependencies
-        run: npm ci --legacy-peer-deps
-
-      - name: Quick smoke test
-        run: npm run lint && npm run typecheck && npm test -- --passWithNoTests
+      - name: Run integration tests (Affected Only on Branches)
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            npm run test:integration
+          else
+            npm run test:integration -- --changedSince=origin/main --passWithNoTests
+          fi

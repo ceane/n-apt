@@ -10,8 +10,8 @@ import { formatFrequency } from '../../src/ts/utils/frequency';
 // Mock SdrSettingsConfig type
 interface MockSdrSettingsConfig {
   limits?: {
-    lower_limit_mhz?: number;
-    upper_limit_mhz?: number;
+    lower_limit_hz?: number;
+    upper_limit_hz?: number;
     lower_limit_label?: string;
     upper_limit_label?: string;
   } | null;
@@ -50,7 +50,7 @@ describe('SDR Limit Markers', () => {
     test('should create marker for lower limit only', () => {
       const sdrSettings: MockSdrSettingsConfig = {
         limits: {
-          lower_limit_mhz: 100,
+          lower_limit_hz: 100,
         },
       };
 
@@ -67,7 +67,7 @@ describe('SDR Limit Markers', () => {
     test('should create marker for upper limit only', () => {
       const sdrSettings: MockSdrSettingsConfig = {
         limits: {
-          upper_limit_mhz: 200,
+          upper_limit_hz: 200,
         },
       };
 
@@ -84,8 +84,8 @@ describe('SDR Limit Markers', () => {
     test('should create markers for both limits', () => {
       const sdrSettings: MockSdrSettingsConfig = {
         limits: {
-          lower_limit_mhz: 100,
-          upper_limit_mhz: 200,
+          lower_limit_hz: 100,
+          upper_limit_hz: 200,
         },
       };
 
@@ -107,8 +107,8 @@ describe('SDR Limit Markers', () => {
     test('should use custom labels when provided', () => {
       const sdrSettings: MockSdrSettingsConfig = {
         limits: {
-          lower_limit_mhz: 100,
-          upper_limit_mhz: 200,
+          lower_limit_hz: 100,
+          upper_limit_hz: 200,
           lower_limit_label: 'Custom Lower',
           upper_limit_label: 'Custom Upper',
         },
@@ -131,8 +131,8 @@ describe('SDR Limit Markers', () => {
     test('should use custom label for lower limit only', () => {
       const sdrSettings: MockSdrSettingsConfig = {
         limits: {
-          lower_limit_mhz: 100,
-          upper_limit_mhz: 200,
+          lower_limit_hz: 100,
+          upper_limit_hz: 200,
           lower_limit_label: 'Custom Lower',
         },
       };
@@ -154,8 +154,8 @@ describe('SDR Limit Markers', () => {
     test('should use custom label for upper limit only', () => {
       const sdrSettings: MockSdrSettingsConfig = {
         limits: {
-          lower_limit_mhz: 100,
-          upper_limit_mhz: 200,
+          lower_limit_hz: 100,
+          upper_limit_hz: 200,
           upper_limit_label: 'Custom Upper',
         },
       };
@@ -177,8 +177,8 @@ describe('SDR Limit Markers', () => {
     test('should handle zero frequency values', () => {
       const sdrSettings: MockSdrSettingsConfig = {
         limits: {
-          lower_limit_mhz: 0,
-          upper_limit_mhz: 0,
+          lower_limit_hz: 0,
+          upper_limit_hz: 0,
         },
       };
 
@@ -198,8 +198,8 @@ describe('SDR Limit Markers', () => {
     test('should handle negative frequency values', () => {
       const sdrSettings: MockSdrSettingsConfig = {
         limits: {
-          lower_limit_mhz: -100,
-          upper_limit_mhz: -50,
+          lower_limit_hz: -100,
+          upper_limit_hz: -50,
         },
       };
 
@@ -219,8 +219,8 @@ describe('SDR Limit Markers', () => {
     test('should handle very large frequency values', () => {
       const sdrSettings: MockSdrSettingsConfig = {
         limits: {
-          lower_limit_mhz: 1000000,
-          upper_limit_mhz: 2000000,
+          lower_limit_hz: 1000000,
+          upper_limit_hz: 2000000,
         },
       };
 
@@ -240,8 +240,8 @@ describe('SDR Limit Markers', () => {
     test('should handle decimal frequency values', () => {
       const sdrSettings: MockSdrSettingsConfig = {
         limits: {
-          lower_limit_mhz: 100.5,
-          upper_limit_mhz: 200.75,
+          lower_limit_hz: 100.5,
+          upper_limit_hz: 200.75,
         },
       };
 
@@ -261,8 +261,8 @@ describe('SDR Limit Markers', () => {
     test('should handle empty custom labels', () => {
       const sdrSettings: MockSdrSettingsConfig = {
         limits: {
-          lower_limit_mhz: 100,
-          upper_limit_mhz: 200,
+          lower_limit_hz: 100,
+          upper_limit_hz: 200,
           lower_limit_label: '',
           upper_limit_label: '',
         },
@@ -285,8 +285,8 @@ describe('SDR Limit Markers', () => {
     test('should maintain order: lower limit first, then upper limit', () => {
       const sdrSettings: MockSdrSettingsConfig = {
         limits: {
-          lower_limit_mhz: 100,
-          upper_limit_mhz: 200,
+          lower_limit_hz: 100,
+          upper_limit_hz: 200,
         },
       };
 

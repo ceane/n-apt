@@ -13,6 +13,7 @@ import type { WholeChannelSnapshotSegment } from "@n-apt/hooks/useCaptureWholeCh
 import { CoordinateMapper, Range } from "@n-apt/utils/rendering/CoordinateMapper";
 import { CanvasDrawingContext, SnapshotRenderer, SnapshotTheme, SVGDrawingContext, DrawingContext } from "@n-apt/utils/rendering/SnapshotRenderer";
 import { fmtFreq, fmtTimestamp } from "@n-apt/utils/rendering/formatters";
+import { stitchWholeChannelWaveform } from "@n-apt/utils/rendering/wholeChannelStitching";
 import { formatTimestampWithTimezone } from "@n-apt/utils/formatters";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -335,6 +336,10 @@ function renderSpectrumSnapshot(
   // Bottom padding increases with taller canvas (for 4:3 and wider)
   const bottomPadding = Math.round(10 * heightRatio);
 
+  const fullSpan = fullCaptureRange ? (fullCaptureRange.max - fullCaptureRange.min) : 0;
+  const viewBandwidth = frequencyRange.max - frequencyRange.min;
+  const zoom = fullSpan > 0 ? (fullSpan / viewBandwidth) : 1;
+
   const mapper = new CoordinateMapper(
     {
       x: plotLeft,
@@ -352,7 +357,7 @@ function renderSpectrumSnapshot(
 
   if (format === "svg") {
     const dc = new SVGDrawingContext(logicalW, logicalH);
-    renderToDC(dc, renderer, data, frequencyRange, showGrid, fullCaptureRange, statsLines, waveform, fontScale);
+    renderToDC(dc, renderer, data, frequencyRange, showGrid, fullCaptureRange, statsLines, waveform, fontScale, zoom);
     return dc.getSVG();
   } else {
     const canvas = document.createElement("canvas");
@@ -362,7 +367,7 @@ function renderSpectrumSnapshot(
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     const dc = new CanvasDrawingContext(ctx);
-    renderToDC(dc, renderer, data, frequencyRange, showGrid, fullCaptureRange, statsLines, waveform, fontScale);
+    renderToDC(dc, renderer, data, frequencyRange, showGrid, fullCaptureRange, statsLines, waveform, fontScale, zoom);
     return canvas;
   }
 }
@@ -377,6 +382,7 @@ function renderToDC(
   statsLines?: string[],
   waveform?: Float32Array,
   fontScale: number = 1,
+  zoom: number = 1,
 ): void {
   const vertRange = 10;
   const startLabel = Math.floor((data.dbMax + 0.1) / vertRange) * vertRange;
@@ -397,7 +403,7 @@ function renderToDC(
     renderer.drawTrace(dc, traceWaveform);
   }
 
-  renderer.drawFrequencyLabels(dc, 1, (frequencyRange.min + frequencyRange.max) / 2, fontScale);
+  renderer.drawFrequencyLabels(dc, zoom, (frequencyRange.min + frequencyRange.max) / 2, fontScale);
   if (statsLines && traceWaveform) {
     renderer.drawStatsBox(dc, statsLines, traceWaveform, fontScale);
   }
@@ -589,7 +595,7 @@ function renderSpectrumSnapshotCanvas(
   statsLines?: string[],
   waveform?: Float32Array,
   theme?: SnapshotTheme,
-  aspectRatio?: SnapshotAspectRatio,
+  _aspectRatio?: SnapshotAspectRatio,
 ): HTMLCanvasElement {
   return renderSpectrumSnapshot(
     data,
@@ -602,7 +608,7 @@ function renderSpectrumSnapshotCanvas(
     statsLines,
     waveform,
     theme,
-    aspectRatio,
+    _aspectRatio,
   ) as HTMLCanvasElement;
 }
 
@@ -687,56 +693,22 @@ function composeWholeChannelSpectrumCanvas(
   const totalSpan = fullRange.max - fullRange.min;
   if (!(totalSpan > 0)) return null;
   const first = segments[0];
-  const baseBins = Math.max(
-    2048,
-    ...segments.map((segment) => segment.data.waveform?.length ?? 0),
+  const stitched = stitchWholeChannelWaveform(
+    segments
+      .flatMap((segment) => {
+        const waveform = segment.data.waveform;
+        return waveform?.length
+          ? [{
+              waveform,
+              visualRange: segment.visualRange,
+              dbMin: segment.data.dbMin,
+            }]
+          : [];
+      }),
+    fullRange,
   );
-  const stitchedBins = Math.max(
-    baseBins,
-    Math.round(
-      baseBins *
-        segments.reduce((maxRatio, segment) => {
-          const segSpan = segment.visualRange.max - segment.visualRange.min;
-          return Math.max(maxRatio, segSpan > 0 ? totalSpan / segSpan : 1);
-        }, 1),
-    ),
-  );
-  const stitched = new Float32Array(stitchedBins).fill(first.data.dbMin);
-  let filledAny = false;
 
-  for (const segment of segments) {
-    const waveform = segment.data.waveform;
-    if (!waveform?.length) continue;
-
-    const startRatio = Math.max(
-      0,
-      (segment.visualRange.min - fullRange.min) / totalSpan,
-    );
-    const endRatio = Math.min(
-      1,
-      (segment.visualRange.max - fullRange.min) / totalSpan,
-    );
-    const destStart = Math.max(
-      0,
-      Math.min(stitchedBins - 1, Math.round(startRatio * stitchedBins)),
-    );
-    const destEnd = Math.max(
-      destStart + 1,
-      Math.min(stitchedBins, Math.round(endRatio * stitchedBins)),
-    );
-    const destCount = Math.max(1, destEnd - destStart);
-
-    for (let i = 0; i < destCount; i++) {
-      const srcIdx = Math.min(
-        waveform.length - 1,
-        Math.round((i / Math.max(1, destCount - 1)) * (waveform.length - 1)),
-      );
-      stitched[destStart + i] = waveform[srcIdx];
-    }
-    filledAny = true;
-  }
-
-  if (!filledAny) return null;
+  if (!stitched.length) return null;
 
   return renderSpectrumSnapshotCanvas(
     {
@@ -982,14 +954,14 @@ export function useSnapshot(
     const centerFreqToRender = (rangeToRender.min + rangeToRender.max) / 2;
     let captureRange: Range;
     if (data.hardwareSampleRateHz && Number.isFinite(centerFreqToRender)) {
-      const hwSpanMHz = data.hardwareSampleRateHz / 1e6;
+      const hwSpanHz = data.hardwareSampleRateHz;
       const dataSpan = rangeToRender.max - rangeToRender.min;
-      if (dataSpan > hwSpanMHz + 0.001) {
+      if (dataSpan > hwSpanHz + 1) {
         captureRange = rangeToRender;
       } else {
         captureRange = { 
-          min: centerFreqToRender - (data.hardwareSampleRateHz / 2e6), 
-          max: centerFreqToRender + (data.hardwareSampleRateHz / 2e6) 
+          min: centerFreqToRender - (data.hardwareSampleRateHz / 2), 
+          max: centerFreqToRender + (data.hardwareSampleRateHz / 2) 
         };
       }
     } else {
@@ -998,14 +970,14 @@ export function useSnapshot(
 
     // Dimensions
     const dpr = window.devicePixelRatio || 1;
-    const hardwareSpanMHz =
+    const hardwareSpanHz =
       data.hardwareSampleRateHz && data.hardwareSampleRateHz > 0
-        ? data.hardwareSampleRateHz / 1_000_000
+        ? data.hardwareSampleRateHz
         : null;
-    const rangeSpanMHz = rangeToRender.max - rangeToRender.min;
+    const rangeSpanHz = rangeToRender.max - rangeToRender.min;
     const wholeWidthScale =
-      options.whole && hardwareSpanMHz && rangeSpanMHz > 0
-        ? Math.min(2.25, Math.max(1.15, rangeSpanMHz / hardwareSpanMHz))
+      options.whole && hardwareSpanHz && rangeSpanHz > 0
+        ? Math.min(2.25, Math.max(1.15, rangeSpanHz / hardwareSpanHz))
         : 1;
     const LOGICAL_WIDTH = Math.round(1200 * wholeWidthScale);
     const LOGICAL_SPECTRUM_H = 400;
@@ -1090,14 +1062,14 @@ export function useSnapshot(
       const currentCenterFreq = (currentRange.min + currentRange.max) / 2;
       let currentCaptureRange: Range;
       if (currentData.hardwareSampleRateHz && Number.isFinite(currentCenterFreq)) {
-        const hwSpanMHz = currentData.hardwareSampleRateHz / 1e6;
+        const hwSpanHz = currentData.hardwareSampleRateHz;
         const dataSpan = currentRange.max - currentRange.min;
-        if (dataSpan > hwSpanMHz + 0.001) {
+        if (dataSpan > hwSpanHz + 1) {
           currentCaptureRange = currentRange;
         } else {
           currentCaptureRange = {
-            min: currentCenterFreq - currentData.hardwareSampleRateHz / 2e6,
-            max: currentCenterFreq + currentData.hardwareSampleRateHz / 2e6,
+            min: currentCenterFreq - currentData.hardwareSampleRateHz / 2,
+            max: currentCenterFreq + currentData.hardwareSampleRateHz / 2,
           };
         }
       } else {

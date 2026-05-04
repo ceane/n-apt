@@ -48,7 +48,7 @@ if (!isValidSpectrumData(waveform)) {
 // Thorough validation when performance impact is acceptable
 const validationResult = validateSpectrumDataComprehensive(waveform, {
   fftSize: 2048,
-  sampleRate: 2048000,
+  sampleRate: 2_048_000,
   centerFrequencyHz: 100000000,
   timestamp: Date.now(),
   isPaused: true,
@@ -67,7 +67,7 @@ const validationResult = validateSpectrumDataComprehensive(waveform, {
   metadata: {
     dataPoints: 2048,
     fftSize: 2048,
-    sampleRate: 2048000,
+    sampleRate: 2_048_000,
     centerFrequencyHz: 100000000,
     validationTime: 0.234
   }
@@ -84,7 +84,7 @@ const validationResult = validateSpectrumDataComprehensive(waveform, {
   ],
   warnings: [
     "Data length (1000) is not a power of 2, unusual for FFT data",
-    "Very high sample rate: 20000000 Hz"
+    "Very high sample rate: 20_000_000 Hz"
   ],
   metadata: { ... }
 }
@@ -131,7 +131,7 @@ import { validateSpectrumDataComprehensive } from '@n-apt/validation';
 // Validate paused spectrum data
 const result = validateSpectrumDataComprehensive(spectrumData, {
   fftSize: 2048,
-  sampleRate: 2048000,
+  sampleRate: 2_048_000,
   centerFrequencyHz: 100000000,
   timestamp: Date.now(),
   isPaused: true,

@@ -5,10 +5,15 @@ interface PlaybackSeedFrameOptions {
 }
 
 export const buildPlaybackSeedFrame = ({
-  displayMode: _displayMode,
+  displayMode,
   precomputedFrames,
   channelData,
 }: PlaybackSeedFrameOptions) => {
+  const stitchedFrame = precomputedFrames.length > 0 ? precomputedFrames[0] : null;
+  if (stitchedFrame && displayMode === "iq" && channelData?.is_mock_apt) {
+    return stitchedFrame;
+  }
+
   const iqData = channelData?.iq_data || channelData?.iq;
   if (iqData && iqData.length > 0) {
     const fullIq = iqData instanceof Uint8Array ? iqData : new Uint8Array(iqData);
@@ -27,5 +32,5 @@ export const buildPlaybackSeedFrame = ({
     }
   }
 
-  return precomputedFrames.length > 0 ? precomputedFrames[0] : null;
+  return stitchedFrame;
 };

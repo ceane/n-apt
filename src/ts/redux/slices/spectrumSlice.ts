@@ -295,7 +295,6 @@ const spectrumSlice = createSlice({
         fftSize: action.payload.fftSize ?? state.fftSize,
         fftFrameRate: action.payload.fftFrameRate ?? state.fftFrameRate,
       };
-      state.rtlAGC = LIVE_CONTROL_DEFAULTS.rtlAGC;
     },
   },
 });

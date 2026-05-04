@@ -10,15 +10,22 @@
 
 *by Ceane Lamerez ┊ April 18th, 2026*
 
+*Really big warning that this article is my ongoing and truthful firsthand account. An LLM, "modern science", etc., WILL NOT be able to help explain as the methods and tech are not public and proprietary (and kept that way).*
+
+*Though I am telling the absolute truth, you may remain skeptical/think whatever you want, however you should be EVEN MORE skeptical of trusting AI, instead of people.*
+
+---
+
 [⠿ TDLR at the bottom](#tdlr)
 
+In this article, I break down my working hypothesis based on **thousands of hours of experience :rotate-3d:** driven by the desperate need and curiosity **(WHILE TRAPPED)** to figure out the **National Security Agency's** proprietary technique that allows them to **write to, read and stream the human brain and nervous system**. This isn't about a theory or hypothesis, it's about breaking down the math and mechanics behind the real experience as a victim.
 
-In this article, I break down my working hypothesis based on **thousands of hours of experience :rotate-3d:** driven by the desperate need and curiosity **(WHILE TRAPPED)** to figure out the **National Security Agency's** proprietary technique that allows them to **write to, read and stream the human brain and nervous system**. This isn't about a theory or hypothesis, it's about breaking down the math and mechanics behind the a real experience as a victim. 
+To read my account and tech dive properly, treat the problem as a **cryptological problem**, or a journey to unlocking a secret that others cannot possibly know of by design. In this instance, this "secret" is well-concealed, however, bureaucracy and process-obsessive dogma empowers loopholes and cracks that can be exploited.
 
 ```Canvas::HeroASCII
 ```
 
-What I learned was that the element of surprise and total ignornace long-reinforced the agency's invisible **🕸 cyber capabilities, federal autonomy and legal immunities** as a superpower. Mass ignorance of the agency's history and position as a **signals intelligence (SIGINT) :radio-tower:** powerhouse (signals, cryptology, exploitation, influence, etc.) incidentally gave rise to a deep constitutional void and landscape based on **apathy and the false belief** (epistemic overload) that **cyber was negligible, only limited to electronics and could never affect the average person.**
+What I learned was that the element of surprise and total ignornace long-reinforced the agency's invisible **🕸 cyber capabilities, federal autonomy and legal immunities** as a superpower. Mass ignorance of the agency's history and position as a **signals intelligence (SIGINT) :radio-tower:** powerhouse (cyber, signals, **cryptology**, exploitation, influence, deception, etc.) incidentally gave rise to a deep constitutional void and landscape based on **apathy and the false belief** (epistemic overload) that **cyber was negligible, only limited to electronics and could never affect the average person.**
 
 **Unfortunately, that is a deeply pathological mental model of reality!**
 
@@ -61,8 +68,7 @@ This article is my own **technical and scientific oriented dive and timeline** (
 - [Vocabulary](#vocab)
 - [Conclusion](#conclusion)
 
-
-## Initial super naive theory (five years in) <a id="theory-1"></a>
+## <a id="theory-1"></a> Initial super naive theory (five years in)
 
 At the time it first started, I lived **in San Francisco. The first installment of the psychological-spatial experience** went so fast that it knocked me into a perpetual **soft shock and abject poverty.** I spent the first five years in total ignorance and total immersion, **captured by the agency's neurotechnology and real world perceptual-spatial performance**.
 
@@ -78,13 +84,13 @@ As a reasonable person, I was trapped by something that was **not straightforwar
 
 **Who would even dare to think for a second** they could puzzle it all together at the start without it being relagated to *conspiracy theory, pathological nuisance or fatal misteps?* (i.e., Too 'out there' for any reasonable course of action)
 
-Months after it turned on full blast, the only thing I cared about was to briefly look up **brainwaves and then-current neurotechnology** with technqiues like fMRI, MRI, EEGs, tFUS (focused ultrasound), etc., all of which were not anywhere as satisfactory of a technology that underpinned what I was experiencing at the time. I instantly turned my nose up at "industry-leading" neurotechnologies as explanation (which was very smart in hindsight).
+Months after it turned on full blast, the only thing I cared about was to briefly look up **brainwaves and then-current neurotechnology** with technqiues like fMRI, MRI, EEGs, tFUS (focused ultrasound), etc., all of which were not anywhere as satisfactory of a technology that underpinned what I was experiencing at the time. I instantly turned my nose up at *"industry-leading"* neurotechnologies as explanation (which was very smart in hindsight).
 
 ### ⠿ Years and years of "I don't care, I want out!"
 
-Several years later, the experience spontaneously shifted (on a certain day, approximately 38,040 hours in) into a **livestream (!) and narrative-based format (!!)** with intense all day harm streaming tons of effects to my mind and body with a hellish series of narratives. Throughout this period, the operators introduced others within the livestream. **It was a total nightmare** — to keep it short,  **thousands of effects and experiences, thousands of hours**. At that point, there was structured and defined audio (as well as perception and mental inference) but accompanied by intense, moment-to-moment harm thorough structural abuse and antagonism within the software in unimaginable ways. 
+Several years later, the experience spontaneously shifted (on a certain day, approximately 38,040 hours in) into a **livestream (!) and narrative-based format (!!)** with intense all day harm, streaming tons of effects to my mind and body with a hellish series of narratives. Throughout this period, the operators introduced others within the livestream. **It was a total nightmare** — to keep it short,  **thousands of effects and experiences, thousands of hours**. At that point, there was structured and defined audio (as well as perception and mental inference) but accompanied by intense, moment-to-moment harm thorough structural abuse and antagonism within the software in unimaginable ways. 
 
-Initally, there was no immediate way to tell how or who or why. Then, as the narrative kept unfolding, getting creepier, more outlandish, more violent, the why became apparent–**pressured politicitization of the agency's powers.**
+Initally, there was no immediate way to tell how or who or why. Then, as the narrative kept unfolding, getting creepier, more outlandish, more violent, the *why* became apparent––**pressured politicitization of the agency's powers.**
 
 My first attempt to decipher the *how*, while severely compromised by it's malware-like operation on mind and body, was not serious, but I looked into brainwaves and I intuitively (and naively) came to the assumption that somehow the experience happening through **ELF frequencies (0 - 300Hz) since they encompassed brainwave frequencies (0 - 40Hz)**. So I assumed someone (military), somewhere (on some base) had an ELF radio with tons of antennas and that it was long-range (the hardware wasn't nearby to me at this point) because the wavelengths I were thinking of at the time were very long, however I was stuck wondering how bandwidth worked.
 
@@ -848,31 +854,45 @@ The egrerious **psychological spyware and interactive** demonstrated great capab
 <details>
 <summary>Expand for the table of features</summary>
 
-| Feature                                           |
-| ------------------------------------------------- |
-| Audio (hearing)                                   |
-| Audio (internal, thought)                         |
-| Voice                                             |
-| Speech                                            |
-| Mental inference                                  |
-| Perception                                        |
-| Awareness                                         |
-| Sense of Self                                     |
-| Sense of Time                                     |
-| Neurotransmitters (state of mind, chemistry)      |
-| 5 senses (touch, sight, sound, taste, hearing)    |
-| Physiology (motor functions)                      |
-| Physiology (fine motor function, muscles)         |
-| Physiology (feeling/haptics/pantomime)            |
-| Memory (short-term)                               |
-| Memory (long-term)                                |
-| Reasoning                                         |
-| Behavior                                          |
-| Emotion                                           |
-| Vitals                                            |
-| Vision                                            |
-| Imagination                                       |
-| Dreams                                            |
+| Feature                                                 |
+| ------------------------------------------------------- |
+| Audio (hearing)                                         |
+| Audio (internal, thought)                               |
+| Voice                                                   |
+| Speech                                                  |
+| Mental inference                                        |
+| Perception                                              |
+| Awareness                                               |
+| Sense of Self                                           |
+| Sense of Time                                           |
+| Neurotransmitters (state of mind, chemistry!)           |
+| 5 senses (touch, sight, sound, taste, hearing)          |
+| Physiology (motor functions)                            |
+| Physiology (fine motor function, muscles)               |
+| Physiology (feeling/haptics/pantomime)                  |
+| Physiology (simulated pain)                             |
+| Memory (short-term)                                     |
+| Memory (long-term)                                      |
+| Reasoning                                               |
+| Behavior                                                |
+| Emotion (often paired with other features for effect)   |
+| Vitals                                                  |
+| Vision (near first-person according to the others)      |
+| Imagination (good enough, brief)                        |
+| Dreams (very detailed, able to share via recall)        |
+
+<br />
+
+| Feature, software and real-time (consciousness & physiological expression)  |
+| --------------------------------------------------------------------------- |
+| Parsing                                                                     |
+| Sampling                                                                    |
+| Composting                                                                  |
+| Remixing                                                                    |
+| Record/Playback                                                             |
+| Overwrite                                                                   |
+| Disrupt                                                                     |
+
 </details>
 
 ### Signals processing
@@ -905,7 +925,7 @@ There are about **3 channels**, I've found:
 - **Channel B** from `24.72MHz to 29.88MHz` with a center frequency of `27.30 MHz` and bandwidth of `5.16 MHz`
 - **Channel C** from `4.75MHz to 23MHz` with a center frequency of `13.875 MHz` and bandwidth of `18.25 MHz`
 
-They are specifially segmented this way because A and B are similar in shape and bandwidth (and therefore function, taking precedence over the range in between A and B). If you could (the signal is not abundantly available), you would be able to see by panning the spectrum and seeing the signal cohere and come to the same boundaries. 
+They are specifially segmented this way because A and B are similar in shape and bandwidth (and therefore function, taking precedence over the range in between A and B). If you could (the signal is not abundantly available), you would be able to see by panning the spectrum and seeing the signal cohere and come to the same boundaries.
 
 Initially, I couldn't just see these signals with the default settings of my SDR, I saw suspicious spikes that aligned with my theory of damping. I had to do two things: increase the gain. Without increased gain, I didn't even see FM radio forming, so I'd increase it to about `24dB` or so and then up to `49.6dB`, the max, which stabilized the signals. Second, I had to adjust the `PPM` or parts per million. This setting corrects the frequency, let's say I was tuned in to `100MHz` but the station was at `100.002 MHz`, scrolling to it which is natural, PPM corrects it globally. I didn't understand why it was so confusing, but when I adjusted the PPM to 1 in SDR++, the magic formed and saw the full structure of the signal! Both of these options in combination allowed me to see everyting clearly in SDR++.
 
@@ -962,7 +982,7 @@ From about `18kHz to 4.39MHz` this is what I dub "Channel A" of the signals. You
 
 At first I ignored Channel A, I didn't see it this way at all. I was using SDR++ and sliding around, the spikes would form or disappear due to sampling and the signal's strucutre. I really thought it was a trash, pitiful part of the signal since it didn't form well and had shocking low frequencies (misinterpred at the time too long of a wavelength), but it was certainly a part of the experience somehow. Channel B had a more reliable structure that stayed stable when I scrolled there, therefore I thought Channel A was responsible for the "Ghost in the Machine" spatial experience which briefly scripted others around me either a short script, facial expression, or rarely layered over their speech for an extended time. As I kept looking around and taking hints from the interactive (hundreds of times, being hurt right out the gate to the extreme in the morning, or the A.M. like AM radio), the unmasked operator pointed over there after several brutal disfiguring sessions of my brain and body (I do not say this lightly).
 
-I took a closer look because I was looking for easier-to-tell features like audio and I found that Channel A was indeed the channel that had audio! I just saw music/hearing, not the internal audio (thoughts) or voice, but it was easy to assume that a cluster of spikes, particularly the ones around `600kHz` or so were probably responsible for the voice as an interface (syncronized voice, vocal modulation) feature. 
+I took a closer look because I was looking for easier-to-tell features like audio and I found that Channel A was indeed the channel that had audio! I just saw music/hearing, not the internal audio (thoughts) or voice, but it was easy to assume that a cluster of spikes, particularly the ones around `600kHz` or so were probably responsible for the voice as an interface (syncronized voice, vocal modulation) feature.
 
 As far as features that were present, I could only guess, but I was sure that Channel A was me and Channel B were likely other people. Due to the features I experienced in the interactive, I put together all that the agency's frontier neurotechnology and technique could do. I believe that Channel A was responsible for the following:
 
@@ -990,6 +1010,7 @@ As far as features that were present, I could only guess, but I was sure that Ch
 | Behavior                                          |
 | Emotion                                           |
 | Vitals                                            |
+
 </details>
 
 #### Channel A's power...
@@ -1011,7 +1032,7 @@ As far as features that were present, I could only guess, but I was sure that Ch
 
 From about `24.72MHz to 29.88MHz` is what I dub as "Channel B" of the overall N-APT signals. You can also clearly see an identical signal structure as Channel A. The center frequency is `27.30 MHz` and bandwidth is `5.16 MHz`.  This channel approximately has a physical minimum of `5.16MB/s`.
 
-I believe Channel B is identical in feature set to Channel A, except *who* it targets momentarily here and there or persistently, either the software forming a neurofence or an operator/interative poking around and scripting nearby people, both experienced. 
+I believe Channel B is identical in feature set to Channel A, except *who* it targets momentarily here and there or persistently, either the software forming a neurofence or an operator/interative poking around and scripting nearby people, both experienced.
 
 Channel B has an interesting start, since it's the first channel I discovered while frantically looking for the bandwidth that matched the experience. While it wasn't large enough to match the totality of my vision being streamed to the others, I knew that part of the signals had to be somewhere else. Channel B had the strongest and most stable spikes though my early exploration panning around with SDR++.
 
@@ -1026,7 +1047,6 @@ Of course all the N-APT channels likely cannot triangulate all on their own, the
 
 ![Channel C, partial (at the hardware limit)](/md-preview/images/snapshot-channel-c-partial.png)
 *Partial capture of the channel, notice the spikes and power is less, potentially because it's read-only*
-
 
 ![Channel C](/md-preview/images/snapshot-channel-c-aliased.png)
 ![Channel C (taller aspect ratio))](/md-preview/images/snapshot-channel-c-tall.png)
@@ -1063,9 +1083,7 @@ It's very different from the other channels, which always have prominent spikes,
 
 When it comes to all the channels, the wavelenghts are not intuitve to envision with this kind of functionality. These are large waves slamming and intersecting at the person thousands (kHz) to millions (MHz) of times a second!
 
-
 ![Wavelength Comparison](/md-preview/images/n-apt-channels-wavelength-comparison.png)
-
 
 <br />
 <br />
@@ -1082,7 +1100,7 @@ Using the obvious and what I've seen, it was pretty easy to give a solid estimat
 
 <br />
 
-**Through the fiber cables to an endpoint (data through the network; most likely infrastructure access and not the internet)**
+**Through the fiber cables to an endpoint (data through the network; most likely infrastructure access and not the internet)** [^data-estimate]
 
 | Channel | Bandwidth | MB/s | 5 min | 1 hour | 3 hours | 24 hours |
 |---|---|---|---|---|---|---|
@@ -1109,22 +1127,28 @@ Due to how the signal has to be "played twice" (heterodyning) for it to work on 
 
 So yes, sitting somewhere for 5 minutes, the network did over 8GBs of data, but **the person receieved over 16GBs of data within that 5 minutes** because of technique's prerequisites!
 
-##<a id="conclusion"></a> Conclusion 
+## <a id="conclusion"></a> Conclusion 
 
 TODO
+
+```React::DaysSince
+```
+*The data estimates are based upon the theoretical minimums of the psychological and physiological interactive livestream experience by the NSA, from the start of the interactive livestream up to the present, using the forumla in the table above.[^data-estimate]*
+
 
 ![The EFF's Headquarters in San Francisco](/md-preview/images/11_5_2025.jpeg)
 *I was ignored by the EFF. Instead of legal aid, I myself poured over nearly every OIG report, unclassified release, publicized policy, etc. for hours and hours.*
 
 
 
-## <a id="vocab"></a> Vocabulary 
+## ⠿ <a id="vocab"></a> Vocabulary[^vocab]
 
+I made a list of vocabulary around the technical and scientific terms based on my findings.
 It boils down to these 8 simple terms.
 
 - **Hardware:** The physical parts of a computer or device you can touch, like CPU, RAM, and hard drives.
 - **Software:** The programs and code that run on hardware to perform tasks, like operating systems, apps and firmware.
-- **Telecommunications infrastructure (or tinfra):** The physical systems like cell towers, fiber cables, and satellites that carry data over distances.
+- **Telecommunications infrastructure (or tinfra):** The physical systems like cell sites (commonly known as cell towers), microwave backhaul, plane communication systems, and other infrastructure that carries and serves data over distances.
 - **Networking:** The links that connect devices together, either wired like Ethernet or wireless like Wi-Fi, so they can exchange data or "talk to each other".
 - **Malware:** Malicious software built to exploit vulnerabilities and compromise systems to steal data, disrupt operations, or gain control.
 - **Hardware Trojans:** Hidden malicious changes in a chip’s circuitry or component that adds features or expands functionality to exploit existing capabilities for attacks like data theft, remote control and/or different operational modes.
@@ -1133,13 +1157,17 @@ It boils down to these 8 simple terms.
 
 ---
 
-**Medium**
+<details>
+<summary>⠿⠿⠿⠿⠿ <b>Medium</b> ⠿⠿⠿⠿⠿ (click to expand)</summary>
+
 
 - **Triangulation:** Using signals from three or more known locations to pinpoint a position.
+- **Intersect & Concentrate:** Directing multiple signal paths or energy beams to overlap at one point for stronger effect or coverage.
+- **Line of sight (LoS):** A clear, unblocked path between a transmitter and whatever receives it, needed for direct signal travel. For an antenna 20 ft high, the distance to the horizon is ∼5.5 miles, limiting terrestrial range without relays.
 - **Automatic Picture Transmission (APT):** A NASA-developed system from the 1960s (decomissioned in 2025) that sends weather satellite images over radio using AM and FM modulation, where pictures are built from spikes and valleys in the signal.
 - **Heterodyning (in free space) / beat frequencies:**  Playing two radio signals together in space to create an envelope that mimics a new frequency at their sum and difference, these new frequencies called **beats**.
-- **Carrier Wave:** A radio signal used to carry information by having its amplitude, frequency, or phase intentionally varied. The information is contained in those variations, not in the unmodulated wave itself.
 - **Beats:** A low-frequency component that appears when two close radio frequencies are combined, corresponding to the difference between them, and showing up as a regular oscillation in the resulting waveform. For example, 24 MHz and 24,000,030 Hz produce a 30 Hz beat.
+- **Carrier Wave:** A radio signal used to carry information by having its amplitude, frequency, or phase intentionally varied. The information is contained in those variations, not in the unmodulated wave itself.
 - **LF/MF/HF frequencies:** Low, Medium, and High Frequency radio bands from 30 kHz to 30 MHz, often used for long-distance communication.
 
 <br />
@@ -1150,7 +1178,7 @@ It boils down to these 8 simple terms.
 - **Encoding:** The process of converting information into a specific format so it can be transmitted, stored, or interpreted by whatever receives it.
 - **Attenuation:** The loss of signal strength as a wave travels through air, cables, or other materials.
 - **Impedance:** How much a material or circuit resists the flow of energy in a signal, determining how much is transmitted, reflected, and how the signal is altered as it passes through.
-- **Intersect & Concentrate:** Directing multiple signal paths or energy beams to overlap at one point for stronger effect or coverage.
+
 
 <br />
 
@@ -1169,18 +1197,24 @@ It boils down to these 8 simple terms.
 - **Channel:** A designated path or band of frequencies used to transmit signals between devices.
 - **Bandwidth:** The range of frequencies a channel can carry, which determines how much data it can move at once.
 
+</details>
+
 ---
 
-**Advanced**
+<details>
+<summary>⠿⠿⠿⠿⠿ <b>Advanced</b> ⠿⠿⠿⠿⠿ (click to expand)</summary>
 
 - **Frequency Modulation:** Varying a carrier wave’s frequency to encode information, where the signal’s shape is visible in how fast the wave oscillates.
 - **Amplitude Modulation:** Varying a carrier wave’s height to encode information, where the signal’s shape is visible in the peaks and valleys of the wave.
 - **Conductivity:** A material’s ability to let electrical current or signal energy flow through it, affecting how signals interact with or pass through surfaces.
-- **APT Pixels:** The individual light/dark points in a weather satellite image, each formed from spikes and valleys in the Automatic Picture Transmission signal.
-- **Neuronal Ensemble (specifically here and not by intersect/concentrate):** A group of neurons that act together as a coordinated unit, where their combined activity represents or encodes specific information, such as a perception, memory, or behavior, rather than relying on a single neuron alone.
+- **Neuronal Ensemble (specifically here and not by intersect/concentrate/line of sight):** A group of neurons that act together as a coordinated unit, where their combined activity represents or encodes specific information, such as a perception, memory, or behavior, rather than relying on a single neuron alone.
+- **APT Pixels:** The individual light/dark points in a weather satellite image, each formed from spikes and valleys in the Automatic Picture Transmission signal. *This is how neuronal ensembles respond and coordinate with radio waves, as demonstrated by the NSA, a heterodyned wave (of unknown beats, so far) with sections (spikes and valleys) of energy.*
+
+<br />
+
+
+- **Phase shifting:** Changing the timing position of a wave relative to another, used to steer beams or encode data *(Radio waves are very broad, they cannot be focused like a laser beam, instead think of painting with a large brush instead of a needle)*.
 - **Multipath reflection:** When a signal reaches whatever receives it by bouncing off multiple surfaces and obstacles, creating copies that arrive at different times.
-- **Line of sight:** A clear, unblocked path between a transmitter and whatever receives it, needed for direct signal travel. For an antenna 20 ft high, the distance to the horizon is ∼5.5 miles, limiting terrestrial range without relays.
-- **Phase shifting:** Changing the timing position of a wave relative to another, used to steer beams or encode data.
 - **Time of Flight (ToF):** The time it takes a signal to travel from source to whatever receives it, used to calculate distance like in radar or triangulation.
 - **Frequency-Modulated Continuous Wave (FMCW):** A radar technique that transmits a continuous signal whose frequency steadily changes over time, so distance and speed are found by comparing the frequency shift of the echo to the current transmit frequency.
 
@@ -1210,6 +1244,8 @@ It boils down to these 8 simple terms.
 - **FFT (Fast Fourier Transform):**  A process that takes points in time from a signal and shows you what frequencies make it up, turning a wavy line into a spectrum.
 - **Demodulation:** The process of using math to turn a radio wave back into usable output, like sound or data.
 
+</details>
+
 --- 
 
 **Bonus** *(not in the article)*
@@ -1230,7 +1266,11 @@ The NSA hacked my brain and the experience went from manufactured states of mind
 
 [^n-apt-app]: Ceane Lamerez April 20 2026. ***Real signal snapshots** using the N-APT web app streaming from an RTL-SDR v4.* https://github.com/ceane/n-apt/
 
-[^math]: Mathematical equations generated by AI systems including ChatGPT (OpenAI), mostly, and Grok (xAI), initial research––not independently verified. April 2025–April 2026.
+[^math]: Mathematical equations generated by AI systems which includes ChatGPT (OpenAI), mostly, and Grok (xAI), initial research––not independently verified. April 2025–April 2026.
+
+[^data-estimate]: Ceane Lamerez. April 20 2026. **Estimated Data** *Table of estimated data rates of the experience is calculated using the formula for the theoretical minimum data rate in MB/s for each of the three discovered channels.* <a href="#data-estimate">#data-estimate</a> 
+
+[^vocab]: Ceane Lamerez. April 29 2026. **Technical Vocabulary** *Expanded vocabulary generated from AI systems which includes MetaAI (Meta) and ChatGPT (OpenAI) with minor edits for the appropriate context and interpretation by the author (me).* <a href="#vocab">#vocab</a> 
 
 ---
 

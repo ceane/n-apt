@@ -1,0 +1,51 @@
+
+> n-apt@0.2.5 typecheck
+> tsc --noEmit --ignoreDeprecations 5.0
+
+src/md-preview/utils/asset-helpers.ts(27,14): error TS2304: Cannot find name 'jest'.
+src/ts/validation/__tests__/validation.test.ts(16,1): error TS2593: Cannot find name 'describe'. Do you need to install type definitions for a test runner? Try `npm i --save-dev @types/jest` or `npm i --save-dev @types/mocha` and then add 'jest' or 'mocha' to the types field in your tsconfig.
+src/ts/validation/__tests__/validation.test.ts(17,3): error TS2593: Cannot find name 'describe'. Do you need to install type definitions for a test runner? Try `npm i --save-dev @types/jest` or `npm i --save-dev @types/mocha` and then add 'jest' or 'mocha' to the types field in your tsconfig.
+src/ts/validation/__tests__/validation.test.ts(18,5): error TS2593: Cannot find name 'test'. Do you need to install type definitions for a test runner? Try `npm i --save-dev @types/jest` or `npm i --save-dev @types/mocha` and then add 'jest' or 'mocha' to the types field in your tsconfig.
+src/ts/validation/__tests__/validation.test.ts(23,7): error TS2304: Cannot find name 'expect'.
+src/ts/validation/__tests__/validation.test.ts(26,5): error TS2593: Cannot find name 'test'. Do you need to install type definitions for a test runner? Try `npm i --save-dev @types/jest` or `npm i --save-dev @types/mocha` and then add 'jest' or 'mocha' to the types field in your tsconfig.
+src/ts/validation/__tests__/validation.test.ts(31,7): error TS2304: Cannot find name 'expect'.
+src/ts/validation/__tests__/validation.test.ts(34,5): error TS2593: Cannot find name 'test'. Do you need to install type definitions for a test runner? Try `npm i --save-dev @types/jest` or `npm i --save-dev @types/mocha` and then add 'jest' or 'mocha' to the types field in your tsconfig.
+src/ts/validation/__tests__/validation.test.ts(40,7): error TS2304: Cannot find name 'expect'.
+src/ts/validation/__tests__/validation.test.ts(43,5): error TS2593: Cannot find name 'test'. Do you need to install type definitions for a test runner? Try `npm i --save-dev @types/jest` or `npm i --save-dev @types/mocha` and then add 'jest' or 'mocha' to the types field in your tsconfig.
+src/ts/validation/__tests__/validation.test.ts(49,7): error TS2304: Cannot find name 'expect'.
+src/ts/validation/__tests__/validation.test.ts(53,3): error TS2593: Cannot find name 'describe'. Do you need to install type definitions for a test runner? Try `npm i --save-dev @types/jest` or `npm i --save-dev @types/mocha` and then add 'jest' or 'mocha' to the types field in your tsconfig.
+src/ts/validation/__tests__/validation.test.ts(54,5): error TS2593: Cannot find name 'test'. Do you need to install type definitions for a test runner? Try `npm i --save-dev @types/jest` or `npm i --save-dev @types/mocha` and then add 'jest' or 'mocha' to the types field in your tsconfig.
+src/ts/validation/__tests__/validation.test.ts(61,7): error TS2304: Cannot find name 'expect'.
+src/ts/validation/__tests__/validation.test.ts(64,5): error TS2593: Cannot find name 'test'. Do you need to install type definitions for a test runner? Try `npm i --save-dev @types/jest` or `npm i --save-dev @types/mocha` and then add 'jest' or 'mocha' to the types field in your tsconfig.
+src/ts/validation/__tests__/validation.test.ts(70,7): error TS2304: Cannot find name 'expect'.
+src/ts/validation/__tests__/validation.test.ts(73,5): error TS2593: Cannot find name 'test'. Do you need to install type definitions for a test runner? Try `npm i --save-dev @types/jest` or `npm i --save-dev @types/mocha` and then add 'jest' or 'mocha' to the types field in your tsconfig.
+src/ts/validation/__tests__/validation.test.ts(80,7): error TS2304: Cannot find name 'expect'.
+src/ts/validation/__tests__/validation.test.ts(84,3): error TS2593: Cannot find name 'describe'. Do you need to install type definitions for a test runner? Try `npm i --save-dev @types/jest` or `npm i --save-dev @types/mocha` and then add 'jest' or 'mocha' to the types field in your tsconfig.
+src/ts/validation/__tests__/validation.test.ts(85,5): error TS2593: Cannot find name 'test'. Do you need to install type definitions for a test runner? Try `npm i --save-dev @types/jest` or `npm i --save-dev @types/mocha` and then add 'jest' or 'mocha' to the types field in your tsconfig.
+src/ts/validation/__tests__/validation.test.ts(94,7): error TS2304: Cannot find name 'expect'.
+src/ts/validation/__tests__/validation.test.ts(97,5): error TS2593: Cannot find name 'test'. Do you need to install type definitions for a test runner? Try `npm i --save-dev @types/jest` or `npm i --save-dev @types/mocha` and then add 'jest' or 'mocha' to the types field in your tsconfig.
+src/ts/validation/__tests__/validation.test.ts(106,7): error TS2304: Cannot find name 'expect'.
+src/ts/validation/__tests__/validation.test.ts(110,3): error TS2593: Cannot find name 'describe'. Do you need to install type definitions for a test runner? Try `npm i --save-dev @types/jest` or `npm i --save-dev @types/mocha` and then add 'jest' or 'mocha' to the types field in your tsconfig.
+src/ts/validation/__tests__/validation.test.ts(111,5): error TS2593: Cannot find name 'test'. Do you need to install type definitions for a test runner? Try `npm i --save-dev @types/jest` or `npm i --save-dev @types/mocha` and then add 'jest' or 'mocha' to the types field in your tsconfig.
+src/ts/validation/__tests__/validation.test.ts(126,7): error TS2304: Cannot find name 'expect'.
+src/ts/validation/__tests__/validation.test.ts(129,5): error TS2593: Cannot find name 'test'. Do you need to install type definitions for a test runner? Try `npm i --save-dev @types/jest` or `npm i --save-dev @types/mocha` and then add 'jest' or 'mocha' to the types field in your tsconfig.
+src/ts/validation/__tests__/validation.test.ts(143,7): error TS2304: Cannot find name 'expect'.
+src/ts/validation/__tests__/validation.test.ts(147,3): error TS2593: Cannot find name 'describe'. Do you need to install type definitions for a test runner? Try `npm i --save-dev @types/jest` or `npm i --save-dev @types/mocha` and then add 'jest' or 'mocha' to the types field in your tsconfig.
+src/ts/validation/__tests__/validation.test.ts(148,5): error TS2593: Cannot find name 'test'. Do you need to install type definitions for a test runner? Try `npm i --save-dev @types/jest` or `npm i --save-dev @types/mocha` and then add 'jest' or 'mocha' to the types field in your tsconfig.
+src/ts/validation/__tests__/validation.test.ts(149,7): error TS2304: Cannot find name 'expect'.
+src/ts/validation/__tests__/validation.test.ts(150,7): error TS2304: Cannot find name 'expect'.
+src/ts/validation/__tests__/validation.test.ts(151,7): error TS2304: Cannot find name 'expect'.
+src/ts/validation/__tests__/validation.test.ts(152,7): error TS2304: Cannot find name 'expect'.
+src/ts/validation/__tests__/validation.test.ts(153,7): error TS2304: Cannot find name 'expect'.
+src/ts/validation/__tests__/validation.test.ts(156,5): error TS2593: Cannot find name 'test'. Do you need to install type definitions for a test runner? Try `npm i --save-dev @types/jest` or `npm i --save-dev @types/mocha` and then add 'jest' or 'mocha' to the types field in your tsconfig.
+src/ts/validation/__tests__/validation.test.ts(157,7): error TS2304: Cannot find name 'expect'.
+src/ts/validation/__tests__/validation.test.ts(158,7): error TS2304: Cannot find name 'expect'.
+src/ts/validation/__tests__/validation.test.ts(159,7): error TS2304: Cannot find name 'expect'.
+src/ts/validation/__tests__/validation.test.ts(160,7): error TS2304: Cannot find name 'expect'.
+src/ts/validation/__tests__/validation.test.ts(164,3): error TS2593: Cannot find name 'describe'. Do you need to install type definitions for a test runner? Try `npm i --save-dev @types/jest` or `npm i --save-dev @types/mocha` and then add 'jest' or 'mocha' to the types field in your tsconfig.
+src/ts/validation/__tests__/validation.test.ts(165,5): error TS2593: Cannot find name 'test'. Do you need to install type definitions for a test runner? Try `npm i --save-dev @types/jest` or `npm i --save-dev @types/mocha` and then add 'jest' or 'mocha' to the types field in your tsconfig.
+src/ts/validation/__tests__/validation.test.ts(173,7): error TS2304: Cannot find name 'expect'.
+src/ts/validation/__tests__/validation.test.ts(174,7): error TS2304: Cannot find name 'expect'.
+src/ts/validation/__tests__/validation.test.ts(175,7): error TS2304: Cannot find name 'expect'.
+src/ts/validation/__tests__/validation.test.ts(176,7): error TS2304: Cannot find name 'expect'.
+src/ts/validation/__tests__/validation.test.ts(177,7): error TS2304: Cannot find name 'expect'.

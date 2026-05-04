@@ -26,8 +26,8 @@ export type DeviceLoadingReason = "connect" | "restart" | null;
 export type SpectrumFrame = {
   id: string;
   label: string;
-  min_mhz: number;
-  max_mhz: number;
+  min_hz: number;
+  max_hz: number;
   description: string;
 };
 

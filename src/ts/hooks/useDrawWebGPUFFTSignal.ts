@@ -96,7 +96,7 @@ export interface WebGPUFFTSignalOptions {
   gridOverlayRenderer?: OverlayTextureRenderer;
   markersOverlayRenderer?: OverlayTextureRenderer;
   spikesOverlayRenderer?: OverlayTextureRenderer;
-  centerFrequencyMHz?: number;
+  centerFrequencyHz?: number;
   isDeviceConnected?: boolean;
   showGrid?: boolean;
   lineColor?: string;

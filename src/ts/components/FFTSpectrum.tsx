@@ -12,7 +12,7 @@ interface FFTSpectrumProps {
   webgpuDevice?: GPUDevice | null;
   webgpuFormat?: GPUTextureFormat | null;
   onRenderComplete?: () => void;
-  centerFrequencyMHz?: number;
+  centerFrequencyHz?: number;
   isDeviceConnected?: boolean;
   showGrid?: boolean;
   drawSignal3D?: boolean;
@@ -38,7 +38,7 @@ export const FFTSpectrum = memo<FFTSpectrumProps>(
     webgpuDevice,
     webgpuFormat,
     onRenderComplete,
-    centerFrequencyMHz,
+    centerFrequencyHz,
     isDeviceConnected = true,
     showGrid = true,
     drawSignal3D = false,
@@ -71,7 +71,7 @@ export const FFTSpectrum = memo<FFTSpectrumProps>(
           fftMin,
           fftMax,
           showGrid,
-          centerFrequencyMHz,
+          centerFrequencyHz,
           isDeviceConnected,
         });
 
@@ -87,7 +87,7 @@ export const FFTSpectrum = memo<FFTSpectrumProps>(
           waveform: new Float32Array(waveformArray),
           frequencyRange,
           showGrid,
-          centerFrequencyMHz,
+          centerFrequencyHz,
           isDeviceConnected,
         });
 
@@ -106,7 +106,7 @@ export const FFTSpectrum = memo<FFTSpectrumProps>(
       webgpuDevice,
       webgpuFormat,
       showGrid,
-      centerFrequencyMHz,
+      centerFrequencyHz,
       isDeviceConnected,
       drawSignal3D,
       drawWebGPUFFTSignal,

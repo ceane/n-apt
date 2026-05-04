@@ -20,7 +20,7 @@ const formatFrequency = (frequency: number, unit: string = 'Hz', precision: numb
     }
   }
 
-  const formattedValue = value.toFixed(precision);
+  const formattedValue = Number.isFinite(value) ? value.toFixed(precision) : "---";
   return showUnit ? `${formattedValue} ${displayUnit}` : formattedValue;
 };
 

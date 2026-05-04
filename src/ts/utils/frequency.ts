@@ -4,7 +4,7 @@
 
 /**
  * Standard frequency formatting: 100.000 MHz or 500 kHz
- * @param freqMHz Frequency in MHz
+ * @param freqHz Frequency in Hz
  * @param showUnits Whether to append the unit string
  * @returns Formatted frequency string
  */
@@ -23,7 +23,7 @@ const formatIntegerWithSeparators = (value: number): string =>
   Math.round(value).toLocaleString("en-US");
 
 export const formatFrequency = (
-  freqMHz: number,
+  freqHz: number,
   showUnitsOrOptions: boolean | FormatFrequencyOptions = true,
 ): string => {
   const options =
@@ -31,37 +31,46 @@ export const formatFrequency = (
       ? { showUnits: showUnitsOrOptions }
       : showUnitsOrOptions;
   const showUnits = options.showUnits ?? true;
-  const precisionMHz = options.precisionMHz ?? 3;
-  const precisionGHz = options.precisionGHz ?? 3;
-  const precisionKHz = options.precisionKHz ?? 0;
+  const precisionMHz = options.precisionMHz ?? 1;
+  const precisionGHz = options.precisionGHz ?? 1;
+  const precisionKHz = options.precisionKHz ?? 1;
   const trimTrailingZeros = options.trimTrailingZeros ?? false;
-  const abs = Math.abs(freqMHz);
+
+  if (freqHz === undefined || freqHz === null || Number.isNaN(freqHz) || !Number.isFinite(freqHz)) {
+    return "---" + (showUnits ? "Hz" : "");
+  }
+
+  const abs = Math.abs(freqHz);
   let val: number;
   let unit: string;
   let precision: number;
 
-  if (freqMHz === 0) {
+  if (freqHz === 0) {
     val = 0;
+    unit = "Hz";
+    precision = 0;
+  } else if (abs < 1000) {
+    val = freqHz;
+    unit = "Hz";
+    precision = 0;
+  } else if (abs < 1_000_000) {
+    val = freqHz / 1000;
     unit = "kHz";
     precision = precisionKHz;
-  } else if (abs < 1) {
-    val = freqMHz * 1000;
-    unit = "kHz";
-    precision = precisionKHz;
-  } else if (abs >= 1000) {
-    val = freqMHz / 1000;
-    unit = "GHz";
-    precision = precisionGHz;
-  } else {
-    val = freqMHz;
+  } else if (abs < 1_000_000_000) {
+    val = freqHz / 1_000_000;
     unit = "MHz";
     precision = precisionMHz;
+  } else {
+    val = freqHz / 1_000_000_000;
+    unit = "GHz";
+    precision = precisionGHz;
   }
 
   const formattedNumber = trimTrailingZeros
     ? trimNumericString(val.toFixed(precision))
     : val.toFixed(precision);
-  return formattedNumber + (showUnits ? " " + unit : "");
+  return formattedNumber + (showUnits ? unit : "");
 };
 
 /**
@@ -76,33 +85,39 @@ export const formatFrequencyHz = (freqHz: number): string => {
 
 /**
  * High resolution frequency formatting: 100.000.000 MHz
- * @param freqMHz Frequency in MHz
+ * @param freqHz Frequency in Hz
  * @returns Formatted frequency string with dot separators for thousands
  */
-export const formatFrequencyHighRes = (freqMHz: number): string => {
-  const abs = Math.abs(freqMHz);
+export const formatFrequencyHighRes = (freqHz: number): string => {
+  if (freqHz === undefined || freqHz === null || Number.isNaN(freqHz) || !Number.isFinite(freqHz)) {
+    return "---Hz";
+  }
+  const abs = Math.abs(freqHz);
   
-  if (abs >= 1000) {
+  if (abs >= 1_000_000_000) {
     // GHz.MHz.kHz.Hz
-    const val = freqMHz / 1000;
+    const unit = "GHz";
+    const val = freqHz / 1_000_000_000;
     const fixed = val.toFixed(9);
     const [g, rest] = fixed.split(".");
-    return `${g}.${rest.slice(0, 3)}.${rest.slice(3, 6)}.${rest.slice(6, 9)} GHz`;
-  } else if (abs >= 1) {
+    return `${g}.${rest.slice(0, 3)}.${rest.slice(3, 6)}.${rest.slice(6, 9)}${unit}`;
+  } else if (abs >= 1_000_000) {
     // MHz.kHz.Hz
-    const val = freqMHz;
+    const unit = "MHz";
+    const val = freqHz / 1_000_000;
     const fixed = val.toFixed(6);
     const [m, rest] = fixed.split(".");
-    return `${m}.${rest.slice(0, 3)}.${rest.slice(3, 6)} MHz`;
-  } else if (abs >= 0.001) {
+    return `${m}.${rest.slice(0, 3)}.${rest.slice(3, 6)}${unit}`;
+  } else if (abs >= 1000) {
     // kHz.Hz
-    const val = freqMHz * 1000;
+    const unit = "kHz";
+    const val = freqHz / 1000;
     const fixed = val.toFixed(3);
     const [k, rest] = fixed.split(".");
-    return `${k}.${rest.slice(0, 3)} kHz`;
+    return `${k}.${rest.slice(0, 3)}${unit}`;
   } else {
     // Hz
-    return `${Math.round(freqMHz * 1000000)} Hz`;
+    return `${Math.round(freqHz)}Hz`;
   }
 };
 
@@ -140,4 +155,41 @@ export const getFrequencyClass = (valueHz: number) => {
   }
 
   return "Microwave";
+};
+
+/**
+ * Parse a frequency string with units (Hz, kHz, MHz, GHz) into a number of Hz.
+ * Supports numeric separators (underscores) and handles various unit cases.
+ * @param freqStr Frequency string (e.g. "137.5MHz", "2.4 GHz", "440_000")
+ * @param defaultUnit The unit to assume if none is found (default: Hz)
+ * @returns Frequency in Hz or NaN if invalid
+ */
+export const parseFrequency = (
+  freqStr: string,
+  defaultUnit: "Hz" | "kHz" | "MHz" | "GHz" = "Hz"
+): number => {
+  if (!freqStr) return NaN;
+  const normalized = freqStr.trim().replace(/_/g, "");
+  const match = normalized.match(/^([\d.]+)\s*([a-zA-Z]*)$/);
+  if (!match) return NaN;
+
+  const value = parseFloat(match[1]);
+  const unit = match[2].toLowerCase();
+
+  if (!unit) {
+    switch (defaultUnit) {
+      case "GHz": return value * 1_000_000_000;
+      case "MHz": return value * 1_000_000;
+      case "kHz": return value * 1_000;
+      case "Hz": return value;
+    }
+  }
+
+  switch (unit) {
+    case "ghz": return value * 1_000_000_000;
+    case "mhz": return value * 1_000_000;
+    case "khz": return value * 1000;
+    case "hz": return value;
+    default: return NaN;
+  }
 };

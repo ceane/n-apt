@@ -3,7 +3,7 @@ import * as React from "react";
 interface FFTCanvasProps {
   data: any;
   frequencyRange: { min: number; max: number };
-  centerFrequencyMHz: number;
+  centerFrequencyHz: number;
   activeSignalArea: string;
   isPaused: boolean;
   isDeviceConnected?: boolean;
@@ -14,7 +14,7 @@ interface FFTCanvasProps {
 export default function FFTCanvas({
   data,
   frequencyRange: _frequencyRange,
-  centerFrequencyMHz: _centerFrequencyMHz,
+  centerFrequencyHz: _centerFrequencyHz,
   activeSignalArea: _activeSignalArea,
   isPaused,
   isDeviceConnected = true,

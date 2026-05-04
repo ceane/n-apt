@@ -33,7 +33,7 @@ describe("FFTCanvas Component", () => {
   const defaultProps = {
     dataRef: { current: { waveform: new Float32Array(1024).fill(-50) } },
     frequencyRange: { min: 100, max: 110 },
-    centerFrequencyMHz: 105,
+    centerFrequencyHz: 105_000_000,
     activeSignalArea: "test",
     isPaused: false,
     snapshotGridPreference: true,

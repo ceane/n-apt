@@ -59,30 +59,34 @@ const InfoText = styled.div`
 `;
 
 const ResetButton = styled.button`
-  background: ${(props) => props.theme.primaryAlpha};
-  border: 1px solid ${(props) => props.theme.primary};
+  background: ${(props) => props.theme.surfaceHover};
+  border: 1px solid ${(props) => props.theme.border};
   border-radius: 6px;
-  color: ${(props) => props.theme.primary};
+  color: ${(props) => props.theme.textPrimary};
   font-size: 11px;
-  font-weight: 500;
+  font-weight: 600;
   font-family: ${(props) => props.theme.typography.mono};
-  padding: 8px 12px;
+  padding: 10px 16px;
   cursor: pointer;
   transition: all 0.2s ease;
-  margin-top: 12px;
+  margin-bottom: 12px;
   width: 100%;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 1px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
 
   &:hover {
-    background: ${(props) => props.theme.primary};
-    color: ${(props) => props.theme.background};
-    transform: translateY(-1px);
-    box-shadow: 0 2px 8px ${(props) => `${props.theme.primary}4d`};
+    background: ${(props) => props.theme.surface};
+    border-color: ${(props) => props.theme.primary};
+    color: ${(props) => props.theme.primary};
+    box-shadow: 0 4px 12px ${(props) => `${props.theme.primary}26`};
   }
 
   &:active {
-    transform: translateY(0);
+    transform: scale(0.98);
   }
 `;
 
@@ -183,7 +187,7 @@ export const Model3DSidebar: React.FC = () => {
           label="Make Hotspots /"
           defaultOpen={openSection === "hotspots"}
         >
-          <div style={{ padding: "0 12px", gridColumn: "1 / -1" }}>
+          <div style={{ gridColumn: "1 / -1" }}>
             <HotspotEditorSection />
           </div>
         </Collapsible>

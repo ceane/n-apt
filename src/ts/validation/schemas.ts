@@ -77,8 +77,8 @@ export const SdrSettingsConfigSchema = z.object({
     padding: z.number(),
   }).optional(),
   limits: z.object({
-    lower_limit_mhz: z.number().optional(),
-    upper_limit_mhz: z.number().optional(),
+    lower_limit_hz: z.number().optional(),
+    upper_limit_hz: z.number().optional(),
     lower_limit_label: z.string().optional(),
     upper_limit_label: z.string().optional(),
   }).optional(),
@@ -94,8 +94,8 @@ export const DeviceProfileSchema = z.object({
 export const SpectrumFrameSchema = z.object({
   id: z.string(),
   label: z.string(),
-  min_mhz: z.number(),
-  max_mhz: z.number(),
+  min_hz: z.number(),
+  max_hz: z.number(),
   description: z.string(),
 });
 
@@ -174,13 +174,13 @@ export const EnhancedCaptureRequestSchema = CaptureRequestSchema.extend({
 export const WebSocketMessageSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('frequency_range'),
-    min_mhz: z.number(),
-    max_mhz: z.number(),
+    min_hz: z.number(),
+    max_hz: z.number(),
   }),
   z.object({
     type: z.literal('set_frequency_range'),
-    min_mhz: z.number(),
-    max_mhz: z.number(),
+    min_hz: z.number(),
+    max_hz: z.number(),
   }),
   z.object({
     type: z.literal('pause'),

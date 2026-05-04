@@ -53,7 +53,7 @@ rustup target list --installed | grep wasm32-unknown-unknown >/dev/null || {
 
 # Build the WASM module only if needed or forced
 echo "🔍 Checking if WASM SIMD module needs to be built..."
-if [ "$FORCE_BUILD" = true ] || scripts/check_changes.sh "$WASM_OUT" "src/rs/lib.rs" "src/rs/simd/*.rs" "src/rs/wasm/*.rs" "Cargo.toml" "Cargo.lock"; then
+if [ "$FORCE_BUILD" = true ] || scripts/check_changes.sh "$WASM_OUT" "src/rs/lib.rs" "src/rs/fft/*.rs" "src/rs/simd/*.rs" "src/rs/wasm/*.rs" "Cargo.toml" "Cargo.lock"; then
     if [ "$FORCE_BUILD" = true ]; then
         echo "🔄 Force rebuild requested..."
     fi

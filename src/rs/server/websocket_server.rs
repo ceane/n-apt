@@ -391,31 +391,41 @@ impl WebSocketServer {
             processor.capture_encrypted = encrypted;
             processor.capture_start = Some(std::time::Instant::now());
             processor.capture_actual_frames = 0;
-            // Apply and snapshot the FFT size requested for this capture.
-            // This ensures the capture runs at the user-selected FFT size even if
-            // the live stream was using a different size.
+            // Apply and snapshot the FFT parameters requested for this capture.
+            // This ensures the capture runs at the user-selected FFT size and window
+            // even if the live stream was using different settings.
+            let mut capture_settings = crate::server::types::SdrProcessorSettings::default();
+            let mut settings_valid = false;
+
             if fft_size > 0 && (fft_size & (fft_size - 1)) == 0 {
-              if processor.fft_processor.config().fft_size != fft_size {
-                if let Err(e) = processor.apply_settings(
-                  crate::server::types::SdrProcessorSettings {
-                    fft_size: Some(fft_size),
-                    ..Default::default()
-                  },
-                ) {
-                  log::warn!(
-                    "[CAPTURE] Failed to apply requested fft_size={}: {}",
-                    fft_size,
-                    e
-                  );
-                } else {
-                  processor.flush_read_queue();
-                  processor.frame.avg_spectrum = None;
-                }
+              capture_settings.fft_size = Some(fft_size);
+              settings_valid = true;
+            }
+            if !fft_window.is_empty() {
+              capture_settings.fft_window = Some(fft_window.clone());
+              settings_valid = true;
+            }
+
+            if settings_valid {
+              if let Err(e) = processor.apply_settings(capture_settings) {
+                log::warn!(
+                  "[CAPTURE] Failed to apply requested FFT settings (size={}, window={}): {}",
+                  fft_size,
+                  fft_window,
+                  e
+                );
+              } else {
+                processor.flush_read_queue();
+                processor.frame.avg_spectrum = None;
               }
             }
             processor.capture_fft_size =
               processor.fft_processor.config().fft_size;
-            processor.capture_fft_window = fft_window;
+            processor.capture_fft_window = processor
+              .fft_processor
+              .config()
+              .window_type
+              .to_string();
             processor.capture_gain = processor.current_gain_db;
             processor.capture_ppm = processor.current_ppm;
             processor.capture_geolocation = geolocation;
@@ -424,12 +434,12 @@ impl WebSocketServer {
             processor.capture_rtl_agc = false;
 
             let hw_sample_rate = processor.get_sample_rate() as f64;
-            let hw_bw_mhz = hw_sample_rate / 1_000_000.0;
+            let hw_bw_hz = hw_sample_rate as f64;
 
             // Use only the center portion of the hardware bandwidth to avoid
             // the noisy/distorted edges of the RTL-SDR.
             const USABLE_BW_FRACTION: f64 = 0.75;
-            let usable_bw_mhz = hw_bw_mhz * USABLE_BW_FRACTION;
+            let usable_bw_hz = hw_bw_hz * USABLE_BW_FRACTION;
 
             let mut all_hops: Vec<(f64, f64)> = Vec::new();
             let mut capture_channels: Vec<
@@ -444,18 +454,17 @@ impl WebSocketServer {
               overall_max = overall_max.max(max_freq);
 
               let span = max_freq - min_freq;
-              if mode_str == "whole_sample" || span <= usable_bw_mhz {
+              if mode_str == "whole_sample" || span <= usable_bw_hz {
                 // Small span or whole_sample mode: center the window on the requested range
                 // But ensure we use the full HW bandwidth for the device tuning.
                 let center = (min_freq + max_freq) / 2.0;
-                let hop_start = center - hw_bw_mhz / 2.0;
-                all_hops.push((hop_start, hop_start + hw_bw_mhz));
+                let hop_start = center - hw_bw_hz / 2.0;
+                all_hops.push((hop_start, hop_start + hw_bw_hz));
                 capture_channels.push(crate::sdr::processor::CaptureChannel {
-                  center_freq_hz: (hop_start * 1_000_000.0)
-                    + (hw_sample_rate / 2.0),
+                  center_freq_hz: hop_start + (hw_sample_rate / 2.0),
                   sample_rate_hz: hw_sample_rate,
-                  requested_min_freq_hz: Some(min_freq * 1_000_000.0),
-                  requested_max_freq_hz: Some(max_freq * 1_000_000.0),
+                  requested_min_freq_hz: Some(min_freq),
+                  requested_max_freq_hz: Some(max_freq),
                   iq_data: Vec::new(),
                   spectrum_data: Vec::new(),
                   bins_per_frame: 0,
@@ -466,18 +475,17 @@ impl WebSocketServer {
                 // last hop ends at its "usable" max.
 
                 // Number of hops is based on USABLE bandwidth increments
-                let num_hops = (span / usable_bw_mhz).ceil() as usize;
+                let num_hops = (span / usable_bw_hz).ceil() as usize;
                 if num_hops <= 1 {
                   let center = (min_freq + max_freq) / 2.0;
-                  let hop_start = center - hw_bw_mhz / 2.0;
-                  all_hops.push((hop_start, hop_start + hw_bw_mhz));
+                  let hop_start = center - hw_bw_hz / 2.0;
+                  all_hops.push((hop_start, hop_start + hw_bw_hz));
                   capture_channels.push(
                     crate::sdr::processor::CaptureChannel {
-                      center_freq_hz: (hop_start * 1_000_000.0)
-                        + (hw_sample_rate / 2.0),
+                      center_freq_hz: hop_start + (hw_sample_rate / 2.0),
                       sample_rate_hz: hw_sample_rate,
-                      requested_min_freq_hz: Some(min_freq * 1_000_000.0),
-                      requested_max_freq_hz: Some(max_freq * 1_000_000.0),
+                      requested_min_freq_hz: Some(min_freq),
+                      requested_max_freq_hz: Some(max_freq),
                       iq_data: Vec::new(),
                       spectrum_data: Vec::new(),
                       bins_per_frame: 0,
@@ -492,23 +500,22 @@ impl WebSocketServer {
                   // 1st hop: usable_start = min_freq => center = min_freq + usable_bw/2
                   // Last hop: usable_end = max_freq => center = max_freq - usable_bw/2
 
-                  let first_center = min_freq + (usable_bw_mhz / 2.0);
-                  let last_center = max_freq - (usable_bw_mhz / 2.0);
+                  let first_center = min_freq + (usable_bw_hz / 2.0);
+                  let last_center = max_freq - (usable_bw_hz / 2.0);
                   let step =
                     (last_center - first_center) / ((num_hops - 1) as f64);
 
                   for i in 0..num_hops {
                     let center = first_center + (i as f64 * step);
-                    let start = center - (hw_bw_mhz / 2.0);
-                    let end = start + hw_bw_mhz;
+                    let start = center - (hw_bw_hz / 2.0);
+                    let end = start + hw_bw_hz;
                     all_hops.push((start, end));
                     capture_channels.push(
                       crate::sdr::processor::CaptureChannel {
-                        center_freq_hz: (start * 1_000_000.0)
-                          + (hw_sample_rate / 2.0),
+                        center_freq_hz: start + (hw_sample_rate / 2.0),
                         sample_rate_hz: hw_sample_rate,
-                        requested_min_freq_hz: Some(min_freq * 1_000_000.0),
-                        requested_max_freq_hz: Some(max_freq * 1_000_000.0),
+                        requested_min_freq_hz: Some(min_freq),
+                        requested_max_freq_hz: Some(max_freq),
                         iq_data: Vec::new(),
                         spectrum_data: Vec::new(),
                         bins_per_frame: 0,
@@ -521,9 +528,8 @@ impl WebSocketServer {
             }
 
             // Compute overall metadata from the REQUESTED range (not hops)
-            let overall_span_hz = (overall_max - overall_min) * 1_000_000.0;
-            let overall_center_hz =
-              ((overall_min + overall_max) / 2.0) * 1_000_000.0;
+            let overall_span_hz = overall_max - overall_min;
+            let overall_center_hz = (overall_min + overall_max) / 2.0;
 
             processor.capture_fragments = all_hops.clone();
             processor.capture_channels = capture_channels;
@@ -537,11 +543,11 @@ impl WebSocketServer {
             // Tune to the first hop if available
             if let Some(&(min_freq, max_freq)) = all_hops.first() {
               let center_freq =
-                ((min_freq * 1000000.0) + (hw_sample_rate / 2.0)) as u32;
+                (min_freq + (hw_sample_rate / 2.0)) as u32;
               if let Err(e) = processor.set_center_frequency(center_freq) {
                 error!("Failed to tune to first fragment: {}", e);
               } else {
-                info!("Tuned to initial capture fragment: {} MHz - {} MHz (center {} Hz, bandwidth {} MHz)", min_freq, max_freq, center_freq, hw_bw_mhz);
+                info!("Tuned to initial capture fragment: {} Hz - {} Hz (center {} Hz, bandwidth {} Hz)", min_freq, max_freq, center_freq, hw_bw_hz);
               }
             }
 
@@ -1145,7 +1151,7 @@ impl WebSocketServer {
             waveform: Vec::new(),
             is_mock_apt,
             center_frequency_hz: Some(center_frequency),
-            waveform_span_mhz: None,
+            waveform_span_hz: None,
             timestamp,
             data_type: Some("iq_raw".to_string()),
             sample_rate: Some(sample_rate),

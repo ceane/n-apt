@@ -94,7 +94,7 @@ describe('Redux WebSocket Migration', () => {
       await store.dispatch(
         sendCaptureCommand({
           jobId: 'new-job',
-          fragments: [{ min_mhz: 100, max_mhz: 102 }],
+          fragments: [{ min_hz: 100, max_hz: 102 }],
           durationS: 5,
           fileType: '.napt',
           acquisitionMode: 'stepwise',

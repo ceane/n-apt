@@ -1,6 +1,6 @@
 use crate::fft::now_millis;
 use anyhow::Result;
-use rand::Rng;
+use rand::RngExt;
 use rand::SeedableRng;
 use rustfft::{num_complex::Complex, FftPlanner};
 use std::sync::Arc;
@@ -151,7 +151,7 @@ impl FFTProcessor {
       ifft_plan_cache: std::collections::HashMap::new(),
       config,
       time: 0.0,
-      rng: rand::rngs::StdRng::from_entropy(),
+      rng: rand::rngs::StdRng::from_rng(&mut ::rand::rng()),
       fft_hold: None,
       simd_processor: None,
     }
@@ -199,7 +199,7 @@ impl FFTProcessor {
       ifft_plan_cache: std::collections::HashMap::new(),
       config,
       time: 0.0,
-      rng: rand::rngs::StdRng::from_entropy(),
+      rng: rand::rngs::StdRng::from_rng(&mut ::rand::rng()),
       fft_hold: None,
       simd_processor: None,
     }
@@ -1311,7 +1311,7 @@ impl FFTProcessor {
       }
 
       // Add noise
-      signal += (self.rng.gen::<f32>() - 0.5) * config.noise_level * 2.0;
+      signal += (self.rng.random::<f32>() - 0.5) * config.noise_level * 2.0;
 
       // Add some phase variation for realism
       let phase_variation = (2.0 * std::f32::consts::PI * 0.1 * t).sin() * 0.05;
@@ -1768,6 +1768,12 @@ pub enum WindowType {
   Hanning,
   Blackman,
   None,
+}
+
+impl std::fmt::Display for WindowType {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "{:?}", self)
+  }
 }
 
 /// Calculate signal-to-noise ratio in dB

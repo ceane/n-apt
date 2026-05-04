@@ -16,6 +16,7 @@ interface Hotspot {
   target: [number, number, number];
   meshName: string;
   size: "small" | "large";
+  category: "physiology" | "psychology" | "effects";
   selected?: boolean;
 }
 
@@ -31,6 +32,7 @@ interface HotspotState {
   isMultiSelectMode: boolean;
   multiSelectedHotspots: string[];
   sidebarTab: SidebarTab;
+  currentCategory: "physiology" | "psychology" | "effects";
 }
 
 type HotspotAction =
@@ -48,7 +50,8 @@ type HotspotAction =
   | { type: "RENAME"; hotspots: Hotspot[] }
   | { type: "CLEAR" }
   | { type: "TOGGLE_SELECT"; id: string }
-  | { type: "SET_SIDEBAR_TAB"; tab: SidebarTab };
+  | { type: "SET_SIDEBAR_TAB"; tab: SidebarTab }
+  | { type: "SET_CATEGORY"; category: "physiology" | "psychology" | "effects" };
 
 const STORAGE_KEY = "n-apt-hotspots";
 
@@ -103,6 +106,7 @@ const INITIAL_HOTSPOT_STATE: HotspotState = {
   isMultiSelectMode: false,
   multiSelectedHotspots: [],
   sidebarTab: "select-areas",
+  currentCategory: "physiology",
 };
 
 function hotspotReducer(
@@ -149,6 +153,8 @@ function hotspotReducer(
       };
     case "SET_SIDEBAR_TAB":
       return { ...state, sidebarTab: action.tab };
+    case "SET_CATEGORY":
+      return { ...state, currentCategory: action.category };
   }
 }
 
@@ -178,6 +184,8 @@ interface HotspotEditorContextType {
   handleClear: () => void;
   sidebarTab: SidebarTab;
   setSidebarTab: (tab: SidebarTab) => void;
+  currentCategory: "physiology" | "psychology" | "effects";
+  setCurrentCategory: (category: "physiology" | "psychology" | "effects") => void;
 }
 
 const HotspotEditorContext = createContext<
@@ -254,6 +262,7 @@ export const Model3DInteractionProvider: React.FC<Model3DInteractionProviderProp
         target: [point.x, point.y, point.z],
         meshName: "human_model_afro_male",
         size: state.hotspotSize,
+        category: state.currentCategory,
       };
 
       let updatedHotspots = [...state.hotspots, newHotspot];
@@ -266,6 +275,7 @@ export const Model3DInteractionProvider: React.FC<Model3DInteractionProviderProp
           target: [-point.x, point.y, point.z],
           meshName: "human_model_afro_male",
           size: state.hotspotSize,
+          category: state.currentCategory,
         };
         newHotspot.name = `${name} (Right)`;
         updatedHotspots = [...updatedHotspots, symmetricalHotspot];
@@ -277,6 +287,7 @@ export const Model3DInteractionProvider: React.FC<Model3DInteractionProviderProp
           target: [point.x, -point.y, point.z],
           meshName: "human_model_afro_male",
           size: state.hotspotSize,
+          category: state.currentCategory,
         };
         newHotspot.name = `${name} (Top)`;
         updatedHotspots = [...updatedHotspots, symmetricalHotspot];
@@ -353,6 +364,12 @@ export const Model3DInteractionProvider: React.FC<Model3DInteractionProviderProp
     [],
   );
 
+  const setCurrentCategory = useCallback(
+    (category: "physiology" | "psychology" | "effects") =>
+      dispatch({ type: "SET_CATEGORY", category }),
+    [],
+  );
+
   const handleClear = useCallback(() => {
     dispatch({ type: "CLEAR" });
     onHotspotsChange?.([]);
@@ -378,6 +395,8 @@ export const Model3DInteractionProvider: React.FC<Model3DInteractionProviderProp
       handleClear,
       sidebarTab: state.sidebarTab,
       setSidebarTab,
+      currentCategory: state.currentCategory,
+      setCurrentCategory,
     }),
     [
       state,
@@ -397,6 +416,7 @@ export const Model3DInteractionProvider: React.FC<Model3DInteractionProviderProp
       handleRename,
       handleClear,
       setSidebarTab,
+      setCurrentCategory,
     ],
   );
 

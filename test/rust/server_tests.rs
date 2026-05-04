@@ -56,7 +56,7 @@ async fn test_server_status_endpoint() {
   });
 
   let app = WebSocketServer::create_app(state);
-  let server = TestServer::new(app).unwrap();
+  let server = TestServer::new(app);
 
   // Test /status
   let response = server.get("/status").await;
@@ -103,7 +103,7 @@ async fn test_auth_challenge_flow() {
   });
 
   let app = WebSocketServer::create_app(state);
-  let server = TestServer::new(app).unwrap();
+  let server = TestServer::new(app);
 
   // 1. Get challenge
   let challenge_resp = server.post("/auth/challenge").await;
@@ -160,7 +160,7 @@ async fn test_auth_info_endpoint() {
   });
 
   let app = WebSocketServer::create_app(state);
-  let server = TestServer::new(app).unwrap();
+  let server = TestServer::new(app);
 
   let response = server.get("/auth/info").await;
   response.assert_status_ok();

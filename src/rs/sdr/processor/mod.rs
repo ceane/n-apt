@@ -214,10 +214,11 @@ pub struct CaptureResult {
   pub overall_capture_sample_rate_hz: f64,
   /// Geolocation data if available
   pub geolocation: Option<crate::server::types::GeolocationData>,
-  /// Requested frequency range [min_mhz, max_mhz] from the original capture fragments
+  /// Requested frequency range [min_hz, max_hz] from the original capture fragments
   pub frequency_range: Option<(f64, f64)>,
   /// Reference based demod baseline metadata
   pub ref_based_demod_baseline: Option<String>,
+  pub is_mock_apt: bool,
   pub is_ephemeral: bool,
 }
 
@@ -260,7 +261,7 @@ pub struct SdrProcessor {
   pub capture_file_type: String,
   /// Capture acquisition mode ('stepwise' or 'interleaved')
   pub capture_acquisition_mode: String,
-  /// List of fragments to capture (min_mhz, max_mhz)
+  /// List of fragments to capture (min_hz, max_hz)
   pub capture_fragments: Vec<(f64, f64)>,
   /// Index of the currently active capture fragment
   pub capture_current_fragment: usize,
@@ -292,7 +293,7 @@ pub struct SdrProcessor {
   pub capture_overall_center_hz: f64,
   /// Overall bandwidth of the requested capture range (Hz)
   pub capture_overall_span_hz: f64,
-  /// Requested frequency range [min_mhz, max_mhz] from original fragments
+  /// Requested frequency range [min_hz, max_hz] from original fragments
   pub capture_requested_range: Option<(f64, f64)>,
   /// Metadata for reference based demod baseline
   pub capture_ref_based_demod_baseline: Option<String>,
@@ -384,7 +385,7 @@ impl SdrProcessor {
       capture_fft_size: fft_size,
       capture_tuner_agc: false,
       capture_rtl_agc: false,
-      capture_fft_window: String::from("Rectangular"),
+      capture_fft_window: String::from("Hanning"),
       capture_geolocation: None,
       capture_overall_center_hz: 0.0,
       capture_overall_span_hz: 0.0,
@@ -557,7 +558,7 @@ impl SdrProcessor {
         let &(min_freq, _max_freq) = &self.capture_fragments[expected_segment];
 
         let new_center_freq =
-          ((min_freq * 1000000.0) + (sample_rate as f64 / 2.0)) as u32;
+          ((min_freq) + (sample_rate as f64 / 2.0)) as u32;
         if let Err(e) = self.set_center_frequency(new_center_freq) {
           warn!("Failed to hop capture frequency: {}", e);
         }
@@ -598,9 +599,9 @@ impl SdrProcessor {
     let result = self.fft_processor.process_samples(&display_samples)?;
     let mut spectrum = result.power_spectrum;
 
-    // DC spike suppression
+    // DC spike suppression (skip for mock devices as they don't have hardware DC offset)
     let len = spectrum.len();
-    if len > 6 {
+    if len > 6 && !self.device.device_type().contains("Mock") {
       let center = len / 2;
       let left = spectrum[center - 3];
       let right = spectrum[center + 3];
@@ -744,14 +745,11 @@ impl SdrProcessor {
         self.current_gain_db = g_db;
       }
 
-      if self.is_mock() {
-        let baseline_db =
-          crate::server::utils::load_sdr_settings().gain.tuner_gain;
-        let delta_db = g_db - baseline_db;
-        config.gain = 10f32.powf(delta_db as f32 / 20.0);
-      } else {
-        config.gain = 1.0;
-      }
+      // SIMD gain is always 1.0 (passthrough).
+      // Mock devices handle gain internally in IQ generation (signal amplitude
+      // scales with gain, noise floor stays fixed). Real hardware gain is
+      // applied by the physical tuner before ADC sampling.
+      config.gain = 1.0;
       config_changed = true;
     }
 
@@ -1227,7 +1225,7 @@ impl SdrProcessor {
       } else {
         0
       };
-      info!("  ch[{}]: center={:.3}MHz, sr={:.3}MHz, spectrum_frames={}, iq_bytes={}", idx, ch.center_freq_hz / 1e6, ch.sample_rate_hz / 1e6, num_frames, ch.iq_data.len());
+      info!("  ch[{}]: center={:.3}Hz, sr={:.3}Hz, spectrum_frames={}, iq_bytes={}", idx, ch.center_freq_hz, ch.sample_rate_hz, num_frames, ch.iq_data.len());
     }
 
     if channels.len() > 1 {
@@ -1301,6 +1299,32 @@ impl SdrProcessor {
           channels[i].bins_per_frame = fft_size as u32;
         }
       }
+
+      for i in 1..channels.len() {
+        let (previous, rest) = channels.split_at_mut(i);
+        let prev = &previous[i - 1];
+        let curr = &mut rest[0];
+        if prev.spectrum_data.is_empty()
+          || curr.spectrum_data.is_empty()
+          || prev.bins_per_frame == 0
+          || curr.bins_per_frame == 0
+        {
+          continue;
+        }
+
+        let prev_bins = prev.bins_per_frame as usize;
+        let curr_bins = curr.bins_per_frame as usize;
+        let prev_frame_start =
+          prev.spectrum_data.len().saturating_sub(prev_bins);
+        let curr_frame_end = curr_bins.min(curr.spectrum_data.len());
+        let seam_bins = prev_bins.min(curr_bins).min(128);
+
+        crate::fft::match_noise_floor_db(
+          &prev.spectrum_data[prev_frame_start..],
+          &mut curr.spectrum_data[..curr_frame_end],
+          seam_bins,
+        );
+      }
     }
 
     if !channels.is_empty() && channels[0].bins_per_frame == 0 {
@@ -1329,6 +1353,7 @@ impl SdrProcessor {
       geolocation: self.capture_geolocation.clone(),
       frequency_range: self.capture_requested_range,
       ref_based_demod_baseline: self.capture_ref_based_demod_baseline.take(),
+      is_mock_apt: self.device.device_type().contains("Mock"),
       is_ephemeral: self.capture_is_ephemeral,
     })
   }
@@ -1336,7 +1361,7 @@ impl SdrProcessor {
   #[cfg(rs_decrypted)]
   pub fn handle_scan(
     &mut self,
-    range_mhz: (f64, f64),
+    range_hz: (f64, f64),
     window_hz: f64,
     step_hz: f64,
     threshold: f32,
@@ -1351,8 +1376,8 @@ impl SdrProcessor {
     let sample_rate = self.get_sample_rate() as f32;
     let total_samples = (iq_samples.len() / 2) as f32;
 
-    let start_hz = range_mhz.0 * 1_000_000.0;
-    let end_hz = range_mhz.1 * 1_000_000.0;
+    let start_hz = range_hz.0;
+    let end_hz = range_hz.1;
     let total_steps = ((end_hz - start_hz) / step_hz).ceil() as usize;
 
     let mut regions = Vec::new();
@@ -1398,7 +1423,7 @@ impl SdrProcessor {
           message_type: "scan_progress".to_string(),
           job_id: job_id.to_string(),
           progress,
-          current_freq: center_hz / 1_000_000.0,
+          current_freq: center_hz,
           regions_length: regions.len(),
         };
         if let Ok(json) = serde_json::to_string(&prog_msg) {

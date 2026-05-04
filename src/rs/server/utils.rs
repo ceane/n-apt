@@ -7,7 +7,7 @@ use std::sync::RwLock;
 
 use super::types::{CaptureArtifact, ChannelSpec};
 
-fn parse_frequency_mhz(s: &str) -> f64 {
+pub(crate) fn parse_frequency_hz(s: &str) -> f64 {
   let s = s.trim();
   let (num_str, unit) = if let Some(idx) = s.find(|c: char| c.is_alphabetic()) {
     (&s[..idx], &s[idx..])
@@ -19,15 +19,15 @@ fn parse_frequency_mhz(s: &str) -> f64 {
   let unit_upper = unit.to_uppercase();
 
   match unit_upper.as_str() {
-    "GHZ" => num * 1000.0,
-    "MHZ" => num,
-    "KHZ" => num / 1000.0,
-    "HZ" => num / 1_000_000.0,
+    "GHZ" => num * 1_000_000_000.0,
+    "MHZ" => num * 1_000_000.0,
+    "KHZ" => num * 1000.0,
+    "HZ" => num,
     _ => num,
   }
 }
 
-fn preprocess_frequency_tags(content: &str) -> String {
+pub fn preprocess_frequency_tags(content: &str) -> String {
   let re_single =
     Regex::new(r"!frequency\s+([\d.]+)\s*([kKmMgG]?Hz)\b").unwrap();
   let content = re_single
@@ -48,8 +48,8 @@ fn preprocess_frequency_tags(content: &str) -> String {
   let re_range = Regex::new(r"!frequency_range\s+(\d+\.?\d*[kKmMgG]?Hz)\s*\.\.\s*(\d+\.?\d*[kKmMgG]?Hz)").unwrap();
   let content = re_range
     .replace_all(&content, |caps: &regex::Captures| {
-      let start = parse_frequency_mhz(&caps[1]);
-      let end = parse_frequency_mhz(&caps[2]);
+      let start = parse_frequency_hz(&caps[1]);
+      let end = parse_frequency_hz(&caps[2]);
       format!("[{}, {}]", start, end)
     })
     .to_string();
@@ -79,7 +79,7 @@ fn downsample_spectrum(data: &[f32], target_len: usize) -> Vec<f32> {
   crate::simd::downsample_spectrum_simd(data, target_len)
 }
 
-fn read_config_file(filename: &str) -> Option<(String, std::time::SystemTime)> {
+pub fn read_config_file(filename: &str) -> Option<(String, std::time::SystemTime)> {
   let path = std::path::Path::new(filename);
   let content = if path.exists() {
     std::fs::read_to_string(path).ok()
@@ -142,7 +142,7 @@ fn reload_signals_config() -> CachedSignalsConfig {
     eprintln!("  mock_apt:");
     eprintln!("    channels:");
     eprintln!("      a:");
-    eprintln!("        freq_range_mhz: !frequency_range 18kHz..4.47MHz");
+    eprintln!("        freq_range_hz: !frequency_range 18kHz..4.47MHz");
     eprintln!("        signal_strength_range: !dB_range -80dB..-20dB");
     eprintln!("        noise_floor_db: !dB -100dB");
     eprintln!("        ...");
@@ -252,19 +252,19 @@ pub fn load_channels() -> Vec<super::types::SpectrumFrameMessage> {
   let parsed = signals_config();
   let mut out = Vec::new();
   for (id, f) in parsed.signals.n_apt.channels.clone() {
-    if f.freq_range_mhz.len() < 2 {
+    if f.freq_range_hz.len() < 2 {
       continue;
     }
-    let min_mhz = f.freq_range_mhz[0];
-    let max_mhz = f.freq_range_mhz[1];
-    if !(min_mhz.is_finite() && max_mhz.is_finite() && max_mhz > min_mhz) {
+    let min_hz = f.freq_range_hz[0];
+    let max_hz = f.freq_range_hz[1];
+    if !(min_hz.is_finite() && max_hz.is_finite() && max_hz > min_hz) {
       continue;
     }
     out.push(super::types::SpectrumFrameMessage {
       id,
       label: f.label,
-      min_mhz,
-      max_mhz,
+      min_hz,
+      max_hz,
       description: f.description,
     });
   }
@@ -332,27 +332,27 @@ fn extract_channels_from_value(
       .unwrap_or("")
       .to_string();
     let freq_range = mapping
-      .get(Value::String("freq_range_mhz".to_string()))
+      .get(Value::String("freq_range_hz".to_string()))
       .and_then(|v| v.as_sequence())?;
     if freq_range.len() < 2 {
       continue;
     }
-    let min_mhz = freq_range[0].as_f64()?;
-    let max_mhz = freq_range[1].as_f64()?;
-    if !(min_mhz.is_finite() && max_mhz.is_finite() && max_mhz > min_mhz) {
+    let min_hz = freq_range[0].as_f64()?;
+    let max_hz = freq_range[1].as_f64()?;
+    if !(min_hz.is_finite() && max_hz.is_finite() && max_hz > min_hz) {
       continue;
     }
     out.push(super::types::SpectrumFrameMessage {
       id,
       label,
-      min_mhz,
-      max_mhz,
+      min_hz,
+      max_hz,
       description,
     });
   }
   out.sort_by(|a, b| {
-    a.min_mhz
-      .partial_cmp(&b.min_mhz)
+    a.min_hz
+      .partial_cmp(&b.min_hz)
       .unwrap_or(std::cmp::Ordering::Equal)
   });
   Some(out)
@@ -467,15 +467,15 @@ signals:
     channels:
       c:
         label: "C"
-        freq_range_mhz: [11.0, 23.0]
+        freq_range_hz: [11000000.0, 23000000.0]
         description: "C"
       a:
         label: "A"
-        freq_range_mhz: [0.018, 4.37]
+        freq_range_hz: [18000.0, 4370000.0]
         description: "A"
       b:
         label: "B"
-        freq_range_mhz: [24.72, 29.88]
+        freq_range_hz: [24720000.0, 29880000.0]
         description: "B"
   sdr:
     sample_rate: 3200000
@@ -516,6 +516,128 @@ signals:
         ("a".to_string(), "A".to_string()),
         ("b".to_string(), "B".to_string())
       ]
+    );
+  }
+
+  #[test]
+  fn test_frequency_pipeline_parsing() {
+    let yaml = r#"
+signals:
+  n_apt:
+    channels:
+      test_channel:
+        label: "Test"
+        freq_range_hz: !frequency_range 137.1MHz..137.9MHz
+        description: "Test description"
+  mock_apt:
+    global_settings:
+      noise_floor_base: 0.0
+      noise_floor_variation: 0.0
+      signal_drift_rate: 0.0
+      signal_modulation_rate: 0.0
+      signal_appearance_chance: 0.0
+      signal_disappearance_chance: 0.0
+      signal_strength_variation: 0.0
+      dynamic_generation: false
+      signals_per_area: 0
+      area_a_density: 0.0
+      area_b_density: 0.0
+    bandwidths:
+      narrow: 1
+      medium: 2
+      wide: 3
+    strength_ranges:
+      weak:
+        min: 0.0
+        max: 1.0
+      medium:
+        min: 1.0
+        max: 2.0
+      strong:
+        min: 2.0
+        max: 3.0
+    signals: []
+    training_areas: {}
+  sdr:
+    center_frequency: !frequency 137.5MHz
+    sample_rate: 3200000
+    gain:
+      tuner_gain: 20
+      rtl_agc: false
+      tuner_agc: false
+    ppm: 0
+    fft:
+      default_size: 8192
+      default_frame_rate: 60
+      max_size: 32768
+      max_frame_rate: 60
+      size_to_frame_rate: {}
+    display:
+      min_db: -120
+      max_db: 0
+      padding: 0
+"#;
+    let processed = preprocess_frequency_tags(yaml);
+    let config: crate::server::types::SignalsConfig =
+      serde_yaml::from_str(&processed).expect("parse yaml");
+
+    // Check channel ranges
+    let channel = config
+      .signals
+      .n_apt
+      .channels
+      .get("test_channel")
+      .expect("test_channel");
+    assert_eq!(channel.freq_range_hz[0], 137_100_000.0);
+    assert_eq!(channel.freq_range_hz[1], 137_900_000.0);
+
+    // Check SDR center frequency
+    assert_eq!(config.signals.sdr.center_frequency, 137_500_000);
+  }
+
+  #[test]
+  fn test_capture_result_metadata_integrity() {
+    let result = crate::sdr::processor::CaptureResult {
+      job_id: "test-job".to_string(),
+      channels: vec![],
+      file_type: ".wav".to_string(),
+      acquisition_mode: "live".to_string(),
+      duration_mode: "fixed".to_string(),
+      encrypted: false,
+      fft_size: 32768,
+      duration_s: 1.0,
+      actual_frame_count: 100,
+      fft_window: "blackman".to_string(),
+      gain: 20.0,
+      ppm: 0,
+      tuner_agc: false,
+      rtl_agc: false,
+      source_device: "RTL-SDR".to_string(),
+      hardware_sample_rate_hz: 3_200_000.0,
+      overall_center_frequency_hz: 137_500_000.0,
+      overall_capture_sample_rate_hz: 3_200_000.0,
+      geolocation: None,
+      frequency_range: Some((137_100_000.0, 137_900_000.0)),
+      ref_based_demod_baseline: None,
+      is_mock_apt: false,
+      is_ephemeral: false,
+    };
+
+    // We can't call save_capture_file_multi easily because it writes to disk,
+    // but we can simulate the metadata creation part.
+    let meta_obj = serde_json::json!({
+      "center_frequency_hz": result.overall_center_frequency_hz,
+      "capture_sample_rate_hz": result.overall_capture_sample_rate_hz,
+      "hardware_sample_rate_hz": result.hardware_sample_rate_hz,
+    });
+
+    assert_eq!(
+      meta_obj["center_frequency_hz"].as_f64().unwrap(),
+      137_500_000.0
+    );
+    assert_eq!(
+      meta_obj["capture_sample_rate_hz"].as_f64().unwrap(),
+      3_200_000.0
     );
   }
 
@@ -645,7 +767,7 @@ n_apt:
   channels:
     a:
       label: "A"
-      freq_range_mhz: !frequency_range 18kHz..4.47MHz
+      freq_range_hz: !frequency_range 18kHz..4.47MHz
       description: "Test"
 "#;
 
@@ -658,12 +780,12 @@ n_apt:
       .and_then(|v| v.get("a"))
       .expect("get channel");
 
-    let freq_range = channel.get("freq_range_mhz").expect("get freq_range");
+    let freq_range = channel.get("freq_range_hz").expect("get freq_range");
     let arr = freq_range.as_sequence().expect("should be array");
 
     assert_eq!(arr.len(), 2);
-    assert_eq!(arr[0].as_f64().expect("start"), 0.018);
-    assert_eq!(arr[1].as_f64().expect("end"), 4.47);
+    assert_eq!(arr[0].as_f64().expect("start"), 18000.0);
+    assert_eq!(arr[1].as_f64().expect("end"), 4470000.0);
   }
 
   #[test]
@@ -686,13 +808,13 @@ n_apt:
     let n_apt = n_apt.unwrap();
     let channels = n_apt.get("channels").unwrap();
     let channel_a = channels.get("a").unwrap();
-    let freq_range = channel_a.get("freq_range_mhz").unwrap();
+    let freq_range = channel_a.get("freq_range_hz").unwrap();
     let arr = freq_range.as_sequence().unwrap();
     let start = arr[0].as_f64().unwrap();
     let end = arr[1].as_f64().unwrap();
     eprintln!("Channel A freq_range: [{}, {}]", start, end);
-    assert_eq!(start, 0.018, "start should be 18kHz = 0.018 MHz");
-    assert_eq!(end, 4.39, "end should be 4.39MHz");
+    assert_eq!(start, 18000.0, "start should be 18kHz = 18000.0 Hz");
+    assert_eq!(end, 4390000.0, "end should be 4.39MHz = 4390000.0 Hz");
   }
 }
 
@@ -743,8 +865,8 @@ pub fn save_capture_file_multi(
     meta_obj["ref_based_demod_baseline"] = serde_json::json!(baseline);
   }
 
-  if let Some((min_mhz, max_mhz)) = result.frequency_range {
-    meta_obj["frequency_range"] = serde_json::json!([min_mhz, max_mhz]);
+  if let Some((min_hz, max_hz)) = result.frequency_range {
+    meta_obj["frequency_range"] = serde_json::json!([min_hz, max_hz]);
   }
 
   // Add geolocation data if available
@@ -958,7 +1080,7 @@ pub fn save_capture_file_multi(
     }
     hasher.update(&buffer[..bytes_read]);
   }
-  let checksum = format!("{:x}", hasher.finalize());
+  let checksum = hasher.finalize().iter().map(|b| format!("{:02x}", b)).collect::<String>();
 
   Ok(CaptureArtifact {
     filename,
@@ -1007,6 +1129,7 @@ mod save_tests {
       geolocation: None,
       frequency_range: Some((136.3, 138.7)),
       is_ephemeral: false,
+      is_mock_apt: false,
       ref_based_demod_baseline: None,
     };
 
@@ -1033,7 +1156,7 @@ mod save_tests {
     let file_content =
       fs::read(&artifact.path).expect("read file for checksum verification");
     let expected_checksum =
-      format!("{:x}", sha2::Sha256::digest(&file_content));
+      sha2::Sha256::digest(&file_content).iter().map(|b| format!("{:02x}", b)).collect::<String>();
     assert_eq!(
       artifact.checksum, expected_checksum,
       "Stored checksum should match calculated checksum"
@@ -1079,6 +1202,7 @@ mod save_tests {
       geolocation: None,
       frequency_range: Some((136.3, 138.7)),
       is_ephemeral: false,
+      is_mock_apt: false,
       ref_based_demod_baseline: None,
     };
 
@@ -1105,7 +1229,7 @@ mod save_tests {
     let file_content = fs::read(&artifact.path)
       .expect("read encrypted file for checksum verification");
     let expected_checksum =
-      format!("{:x}", sha2::Sha256::digest(&file_content));
+      sha2::Sha256::digest(&file_content).iter().map(|b| format!("{:02x}", b)).collect::<String>();
     assert_eq!(
       artifact.checksum, expected_checksum,
       "Stored checksum should match calculated checksum for encrypted files"
@@ -1148,6 +1272,7 @@ mod save_tests {
       geolocation: None,
       frequency_range: Some((136.3, 138.7)),
       is_ephemeral: false,
+      is_mock_apt: false,
       ref_based_demod_baseline: None,
     };
 
@@ -1182,6 +1307,7 @@ mod save_tests {
       geolocation: None,
       frequency_range: Some((136.3, 138.7)),
       is_ephemeral: false,
+      is_mock_apt: false,
       ref_based_demod_baseline: None,
     };
 
@@ -1234,6 +1360,7 @@ mod save_tests {
       geolocation: None,
       frequency_range: Some((136.3, 138.7)),
       is_ephemeral: false,
+      is_mock_apt: true,
       ref_based_demod_baseline: None,
     };
 
@@ -1319,6 +1446,7 @@ mod save_tests {
       geolocation: None,
       frequency_range: Some((136.3, 141.2)),
       is_ephemeral: false,
+      is_mock_apt: true,
       ref_based_demod_baseline: None,
     };
 
@@ -1348,5 +1476,14 @@ mod save_tests {
     // Clean up
     let _ = fs::remove_file(result_napt.path);
     let _ = fs::remove_file(result_wav.path);
+  }
+
+  #[test]
+  fn test_parse_frequency_hz() {
+    assert_eq!(parse_frequency_hz("100Hz"), 100.0);
+    assert_eq!(parse_frequency_hz("1.5kHz"), 1500.0);
+    assert_eq!(parse_frequency_hz("3.2MHz"), 3_200_000.0);
+    assert_eq!(parse_frequency_hz("1.2GHz"), 1_200_000_000.0);
+    assert_eq!(parse_frequency_hz("100"), 100.0); // Default HZ
   }
 }

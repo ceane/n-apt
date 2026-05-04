@@ -10,8 +10,11 @@ import {
   OFFSET_TICK_LINE_COLOR,
   OFFSET_TICK_TEXT_COLOR,
   CENTER_LINE_COLOR,
+  BOUNDARY_LINE_COLOR,
+  BOUNDARY_TEXT_COLOR,
 } from "@n-apt/consts";
-import { formatFrequency, formatFrequencyHighRes } from "@n-apt/consts";
+import { formatFrequency, formatFrequencyHighRes } from "@n-apt/utils/frequency";
+import { tickPrecisionForStep } from "@n-apt/utils/rendering/formatters";
 import type { SdrLimitMarker } from "@n-apt/utils/sdrLimitMarkers";
 import type { SpectrumSpikeMarker } from "@n-apt/hooks/useWasmSimdMath";
 
@@ -30,6 +33,8 @@ const getCanvasThemeColors = () => ({
   snapHwRateLine: readCssColor("--color-snap-hw-rate-line", SNAP_HW_RATE_LINE),
   snapHwRateText: readCssColor("--color-snap-hw-rate-text", SNAP_HW_RATE_TEXT),
   centerLabelText: readCssColor("--color-snap-center-label-text", "#666"),
+  boundaryLine: readCssColor("--color-fft-boundary-line", BOUNDARY_LINE_COLOR),
+  boundaryText: readCssColor("--color-fft-boundary-text", BOUNDARY_TEXT_COLOR),
 });
 
 /**
@@ -126,12 +131,11 @@ export function useOverlayRenderer() {
       }
 
       const step = findBestFrequencyRange(viewBandwidth2, 10);
-      const formatTickLabel = (freq: number) => {
-        if (maxFreq < 1) return `${Math.round(freq * 1000)}kHz`;
-        if (step >= 0.5) return freq.toFixed(1);
-        if (step >= 0.01) return freq.toFixed(2);
-        return freq.toFixed(3);
-      };
+      const tickPrec = tickPrecisionForStep(step);
+      const formatTickLabel = (freq: number) =>
+        useHighRes
+          ? formatFrequencyHighRes(freq)
+          : formatFrequency(freq, { trimTrailingZeros: true, precisionMHz: tickPrec.precisionMHz, precisionKHz: tickPrec.precisionKHz });
       const lowerFreq2 = Math.ceil((minFreq + 0.000001) / step) * step;
       const upperFreq2 = maxFreq;
 
@@ -140,24 +144,24 @@ export function useOverlayRenderer() {
 
       const visualCenterFreq = (minFreq + maxFreq) / 2;
 
-      // Top ticks
-      const centerTicksMHz: number[] = [];
-      if (viewBandwidth2 <= 5.0) centerTicksMHz.push(0.5);
-      if (viewBandwidth2 <= 1.0) centerTicksMHz.push(0.1);
-      if (viewBandwidth2 <= 0.5) {
-        centerTicksMHz.push(0.05);
-        centerTicksMHz.push(0.033);
+      const centerTicksHz: number[] = [];
+      if (viewBandwidth2 <= 5_000_000) centerTicksHz.push(500_000);
+      if (viewBandwidth2 <= 1_000_000) centerTicksHz.push(100_000);
+      if (viewBandwidth2 <= 500_000) {
+        centerTicksHz.push(50_000);
+        centerTicksHz.push(33_000);
       }
-      if (viewBandwidth2 <= 0.25) centerTicksMHz.push(0.025);
-      if (viewBandwidth2 <= 0.1) centerTicksMHz.push(0.01);
-      if (viewBandwidth2 <= 0.05) centerTicksMHz.push(0.005);
-      if (viewBandwidth2 <= 0.01) centerTicksMHz.push(0.001);
+      if (viewBandwidth2 <= 250_000) centerTicksHz.push(25_000);
+      if (viewBandwidth2 <= 100_000) centerTicksHz.push(10_000);
+      if (viewBandwidth2 <= 50_000) centerTicksHz.push(5_000);
+      if (viewBandwidth2 <= 10_000) centerTicksHz.push(1_000);
 
-      const formatOffset = (mhz: number) => {
-        const abs = Math.abs(mhz);
-        if (abs >= 1) return `${mhz.toFixed(1)}MHz`;
-        if (abs >= 0.001) return `${Math.round(mhz * 1000)}kHz`;
-        return `${Math.round(mhz * 1_000_000)}Hz`;
+      const formatOffset = (hz: number) => {
+        if (!Number.isFinite(hz)) return "---";
+        const abs = Math.abs(hz);
+        if (abs >= 1_000_000) return `${(hz / 1_000_000).toFixed(1)}MHz`;
+        if (abs >= 1_000) return `${Math.round(hz / 1_000)}kHz`;
+        return `${Math.round(hz)}Hz`;
       };
 
       ctx.strokeStyle = canvasTheme.gridColor;
@@ -169,10 +173,14 @@ export function useOverlayRenderer() {
       const occupiedRects: { x1: number; x2: number }[] = [];
       const startLabel = formatFreq(minFreq);
       const endLabel = formatFreq(maxFreq);
+      const centerPrecMHz = Math.max(3, tickPrec.precisionMHz);
+      const centerPrecKHz = Math.max(3, tickPrec.precisionKHz);
       const centerLabelText =
         Number.isNaN(visualCenterFreq) || !Number.isFinite(visualCenterFreq)
-          ? "-- MHz"
-          : formatFreq(visualCenterFreq);
+          ? "--MHz"
+          : useHighRes
+            ? formatFrequencyHighRes(visualCenterFreq)
+            : formatFrequency(visualCenterFreq, { precisionMHz: centerPrecMHz, precisionKHz: centerPrecKHz });
 
       const startW = ctx.measureText(startLabel).width;
       const endW = ctx.measureText(endLabel).width;
@@ -242,7 +250,7 @@ export function useOverlayRenderer() {
       }
 
       // Top ticks
-      if (centerTicksMHz.length > 0 && Number.isFinite(visualCenterFreq)) {
+      if (centerTicksHz.length > 0 && Number.isFinite(visualCenterFreq)) {
         ctx.save();
         ctx.strokeStyle = canvasTheme.offsetTickLine;
         ctx.fillStyle = canvasTheme.offsetTickText;
@@ -250,7 +258,7 @@ export function useOverlayRenderer() {
         ctx.textAlign = "center";
         ctx.textBaseline = "top";
 
-        for (const s of centerTicksMHz) {
+        for (const s of centerTicksHz) {
           for (const sign of [-1, 1]) {
             const f = visualCenterFreq + s * sign;
             if (f <= minFreq || f >= maxFreq) continue;
@@ -282,8 +290,8 @@ export function useOverlayRenderer() {
       // Draw mathematical hardware block boundaries if applicable
       const anchorRange = fullCaptureRange || _frequencyRange;
       const totalSpan = anchorRange.max - anchorRange.min;
-        const hwSpanMHz = _hardwareSampleRateHz ? _hardwareSampleRateHz / 1e6 : 0;
-        const shouldShowHWGrid = totalSpan > hwSpanMHz + 0.001 && hwSpanMHz > 0;
+        const hwSpanHz = _hardwareSampleRateHz ? _hardwareSampleRateHz : 0;
+        const shouldShowHWGrid = totalSpan > hwSpanHz + 1 && hwSpanHz > 0;
         
         if (shouldShowHWGrid) {
           ctx.save();
@@ -295,19 +303,20 @@ export function useOverlayRenderer() {
           ctx.textAlign = "center";
           ctx.textBaseline = "top";
 
-          const formatOffset = (mhz: number) => {
-            const abs = Math.abs(mhz);
-            if (abs >= 1) return `${mhz.toFixed(1)}MHz`;
-            if (abs >= 0.001) return `${Math.round(mhz * 1000)}kHz`;
-            return `${Math.round(mhz * 1_000_000)}Hz`;
+          const formatOffset = (hz: number) => {
+            if (!Number.isFinite(hz)) return "---";
+            const abs = Math.abs(hz);
+            if (abs >= 1_000_000) return `${(hz / 1_000_000).toFixed(1)}MHz`;
+            if (abs >= 1_000) return `${Math.round(hz / 1_000)}kHz`;
+            return `${Math.round(hz)}Hz`;
           };
 
           let currentFreq = anchorRange.min;
-          while (currentFreq < anchorRange.max - 0.001) {
+          while (currentFreq < anchorRange.max - 1) {
             const blockStart = currentFreq;
-            const blockEnd = Math.min(blockStart + hwSpanMHz, anchorRange.max);
+            const blockEnd = Math.min(blockStart + hwSpanHz, anchorRange.max);
             const blockWidth = blockEnd - blockStart;
-            const isFullBlock = blockWidth >= hwSpanMHz - 0.001;
+            const isFullBlock = blockWidth >= hwSpanHz - 1;
 
             // Only draw if visible in the current zoomed frequency range
             if (blockEnd > minFreq && blockStart < maxFreq) {
@@ -360,7 +369,7 @@ export function useOverlayRenderer() {
       width: number,
       height: number,
       _frequencyRange: { min: number; max: number },
-      _centerFrequencyMHz: number,
+      _centerFrequencyHz: number,
       _isDeviceConnected: boolean,
       _hardwareSampleRateHz?: number,
       _fullCaptureRange?: { min: number; max: number },
@@ -378,10 +387,14 @@ export function useOverlayRenderer() {
       const fullSpan = _fullCaptureRange ? _fullCaptureRange.max - _fullCaptureRange.min : 0;
       const zoom = fullSpan > 0 ? fullSpan / (maxFreq - minFreq) : 1;
       const useHighResLabels = zoom >= 100;
-      const formatFreq = (f: number) =>
-        useHighResLabels ? formatFrequencyHighRes(f) : formatFrequency(f);
+      const step = findBestFrequencyRange(maxFreq - minFreq, 10);
+      const tickPrec = tickPrecisionForStep(step);
+      const centerPrecMHz = Math.max(3, tickPrec.precisionMHz);
+      const centerPrecKHz = Math.max(3, tickPrec.precisionKHz);
 
-      const centerLabel = formatFreq((minFreq + maxFreq) / 2);
+      const centerLabel = useHighResLabels
+        ? formatFrequencyHighRes((minFreq + maxFreq) / 2)
+        : formatFrequency((minFreq + maxFreq) / 2, { precisionMHz: centerPrecMHz, precisionKHz: centerPrecKHz });
       const centerX = (FFT_AREA_MIN.x + fftAreaMax.x) / 2;
 
       ctx.save();
@@ -406,11 +419,12 @@ export function useOverlayRenderer() {
           FFT_AREA_MIN.x + ((freq - minFreq) / viewBandwidth) * plotWidth;
 
         ctx.save();
-        ctx.strokeStyle = "rgba(220, 38, 38, 0.75)";
+        ctx.strokeStyle = canvasTheme.boundaryLine;
         ctx.setLineDash([6, 4]);
-        ctx.fillStyle = canvasTheme.textColor;
+        ctx.fillStyle = canvasTheme.boundaryText;
         ctx.font = "10px JetBrains Mono";
         ctx.textAlign = "center";
+        ctx.textBaseline = "top";
 
         for (const marker of _limitMarkers) {
           if (!Number.isFinite(marker.freq)) continue;
@@ -420,7 +434,7 @@ export function useOverlayRenderer() {
           ctx.moveTo(x, FFT_AREA_MIN.y);
           ctx.lineTo(x, fftAreaMax.y);
           ctx.stroke();
-          ctx.fillText(marker.label, x, FFT_AREA_MIN.y + 20);
+          ctx.fillText(marker.label, x, FFT_AREA_MIN.y + 45);
         }
 
         ctx.restore();

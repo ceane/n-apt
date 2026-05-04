@@ -303,7 +303,7 @@ export {
   selectDeviceSettings,
   selectSpectrumData,
   selectEffectiveFrequencyRange,
-  selectSampleRateMHz,
+  selectSampleRateHz,
   selectSignalAreaBounds,
   selectIsVisualizerRouteActive,
   selectThemeObject,

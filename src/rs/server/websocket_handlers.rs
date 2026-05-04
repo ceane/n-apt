@@ -178,8 +178,8 @@ pub async fn handle_ws_connection(
       .map(|c| super::types::SpectrumFrameMessage {
         id: c.id,
         label: c.label,
-        min_mhz: c.min_mhz,
-        max_mhz: c.max_mhz,
+        min_hz: c.min_hz,
+        max_hz: c.max_hz,
         description: c.description,
       })
       .collect(),
@@ -194,7 +194,7 @@ pub async fn handle_ws_connection(
   };
 
   if let Ok(status_json) = serde_json::to_string(&initial_status) {
-    if ws_sender.send(Message::Text(status_json)).await.is_err() {
+    if ws_sender.send(Message::Text(status_json.into())).await.is_err() {
       shared.authenticated_count.fetch_sub(1, Ordering::Relaxed);
       shared.client_count.fetch_sub(1, Ordering::Relaxed);
       return;
@@ -213,7 +213,7 @@ pub async fn handle_ws_connection(
             // Capture status messages also need to be plaintext for the frontend
             // to handle capture state updates properly.
             if plaintext_json.contains("\"type\":\"status\"") || plaintext_json.contains("\"type\":\"capture_status\"") {
-              if ws_sender.send(Message::Text(plaintext_json)).await.is_err() {
+              if ws_sender.send(Message::Text(plaintext_json.into())).await.is_err() {
                 break;
               }
               continue;
@@ -263,7 +263,7 @@ pub async fn handle_ws_connection(
             };
 
             // Send the binary message
-            if ws_sender.send(Message::Binary(frame_bytes)).await.is_err() {
+            if ws_sender.send(Message::Binary(frame_bytes.into())).await.is_err() {
               break;
             }
           }
@@ -291,7 +291,7 @@ pub async fn handle_ws_connection(
                   };
 
                   if let Ok(response_json) = serde_json::to_string(&response) {
-                    if ws_sender.send(Message::Text(response_json)).await.is_err() {
+                    if ws_sender.send(Message::Text(response_json.into())).await.is_err() {
                       break;
                     }
                   }
@@ -312,7 +312,7 @@ pub async fn handle_ws_connection(
                 };
 
                 if let Ok(response_json) = serde_json::to_string(&response) {
-                  if ws_sender.send(Message::Text(response_json)).await.is_err() {
+                  if ws_sender.send(Message::Text(response_json.into())).await.is_err() {
                     break;
                   }
                 }
@@ -352,7 +352,7 @@ pub fn handle_message(
         let sdr_settings_guard = shared.sdr_settings.lock().unwrap();
         let sample_rate = sdr_settings_guard.sample_rate as f64;
 
-        let center_freq = ((min_freq * 1000000.0) + (sample_rate / 2.0)) as u32;
+        let center_freq = (min_freq + (sample_rate / 2.0)) as u32;
 
         shared
           .pending_center_freq
@@ -663,11 +663,11 @@ pub fn handle_message(
           content_type: super::types::AptContentType::AudioHearing, // Default
           window_size_hz: message
             .min_freq
-            .map(|f| (message.max_freq.unwrap_or(f) - f) * 1000.0)
+            .map(|f| message.max_freq.unwrap_or(f) - f)
             .unwrap_or(25000.0),
           sub_channel_range: (
-            message.min_freq.unwrap_or(0.0) * 1000.0 + 350000.0,
-            message.min_freq.unwrap_or(0.0) * 1000.0 + 500000.0,
+            message.min_freq.unwrap_or(0.0) + 350000.0,
+            message.min_freq.unwrap_or(0.0) + 500000.0,
           ),
           script_content: None, // Would be parsed from message
           media_content: None,  // Would be parsed from message

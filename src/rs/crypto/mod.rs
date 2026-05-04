@@ -1,13 +1,12 @@
 //! Cryptographic utilities for AES-256-GCM payload encryption and
 //! HMAC-based challenge–response authentication.
 
-use aes_gcm::aead::{Aead, KeyInit, OsRng};
+use aes_gcm::aead::{Aead, KeyInit as AeadKeyInit};
 use aes_gcm::{Aes256Gcm, Nonce};
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
-use hmac::Hmac;
-use hmac::Mac;
+use hmac::{Hmac, KeyInit as MacKeyInit, Mac};
 use pbkdf2::pbkdf2_hmac;
-use rand::RngCore;
+use rand::prelude::*;
 use sha2::Sha256;
 
 /// PBKDF2 iteration count — must match the frontend WebCrypto derivation.
@@ -32,13 +31,13 @@ pub fn derive_key(passkey: &str) -> [u8; 32] {
 /// Generate a random 32-byte nonce for the challenge–response handshake.
 pub fn generate_nonce() -> [u8; 32] {
   let mut nonce = [0u8; 32];
-  OsRng.fill_bytes(&mut nonce);
+  ::rand::rng().fill_bytes(&mut nonce);
   nonce
 }
 
 /// Compute HMAC-SHA256 over `data` using the given `key`.
 pub fn compute_hmac(key: &[u8; 32], data: &[u8]) -> Vec<u8> {
-  let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(key)
+  let mut mac: Hmac<Sha256> = MacKeyInit::new_from_slice(key)
     .expect("HMAC key length is always valid");
   mac.update(data);
   mac.finalize().into_bytes().to_vec()
@@ -46,7 +45,7 @@ pub fn compute_hmac(key: &[u8; 32], data: &[u8]) -> Vec<u8> {
 
 /// Verify an HMAC-SHA256 tag. Returns `true` when the tag is valid.
 pub fn verify_hmac(key: &[u8; 32], data: &[u8], tag: &[u8]) -> bool {
-  let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(key)
+  let mut mac: Hmac<Sha256> = MacKeyInit::new_from_slice(key)
     .expect("HMAC key length is always valid");
   mac.update(data);
   mac.verify_slice(tag).is_ok()
@@ -58,11 +57,11 @@ pub fn encrypt_payload_binary(
   key: &[u8; 32],
   plaintext: &[u8],
 ) -> Result<Vec<u8>, String> {
-  let cipher =
-    Aes256Gcm::new_from_slice(key).map_err(|e| format!("cipher init: {e}"))?;
+  let cipher: Aes256Gcm =
+    AeadKeyInit::new_from_slice(key).map_err(|e| format!("cipher init: {e}"))?;
 
   let mut iv_bytes = [0u8; 12];
-  OsRng.fill_bytes(&mut iv_bytes);
+  ::rand::rng().fill_bytes(&mut iv_bytes);
   let nonce = Nonce::from_slice(&iv_bytes);
 
   let ciphertext = cipher
@@ -83,11 +82,11 @@ pub fn encrypt_payload(
   key: &[u8; 32],
   plaintext: &[u8],
 ) -> Result<String, String> {
-  let cipher =
-    Aes256Gcm::new_from_slice(key).map_err(|e| format!("cipher init: {e}"))?;
+  let cipher: Aes256Gcm =
+    AeadKeyInit::new_from_slice(key).map_err(|e| format!("cipher init: {e}"))?;
 
   let mut iv_bytes = [0u8; 12];
-  OsRng.fill_bytes(&mut iv_bytes);
+  ::rand::rng().fill_bytes(&mut iv_bytes);
   let nonce = Nonce::from_slice(&iv_bytes);
 
   let ciphertext = cipher

@@ -2,36 +2,36 @@ import {
   formatFrequency,
   formatFrequencyHighRes,
   type FormatFrequencyOptions
-} from '../../src/ts/utils/frequency';
+} from '@n-apt/utils/frequency';
 
 describe('Frequency Utilities', () => {
   describe('formatFrequency', () => {
     test('should format frequencies in kHz', () => {
-      expect(formatFrequency(0.5)).toBe('500 kHz');
-      expect(formatFrequency(0.001)).toBe('1 kHz');
+      expect(formatFrequency(500000)).toBe('500.0kHz');
+      expect(formatFrequency(1000)).toBe('1.0kHz');
     });
 
     test('should format sub-MHz metadata frequencies without awkward decimal MHz values', () => {
-      expect(formatFrequency(0.018, { trimTrailingZeros: true })).toBe('18 kHz');
+      expect(formatFrequency(18000, { trimTrailingZeros: true })).toBe('18kHz');
     });
 
     test('should format frequencies in MHz', () => {
-      expect(formatFrequency(1.5)).toBe('1.500 MHz');
-      expect(formatFrequency(100)).toBe('100.000 MHz');
+      expect(formatFrequency(1500000)).toBe('1.5MHz');
+      expect(formatFrequency(100000000)).toBe('100.0MHz');
     });
 
     test('should format frequencies in GHz', () => {
-      expect(formatFrequency(1500)).toBe('1.500 GHz');
-      expect(formatFrequency(1000)).toBe('1.000 GHz');
+      expect(formatFrequency(1500000000)).toBe('1.5GHz');
+      expect(formatFrequency(1000000000)).toBe('1.0GHz');
     });
 
     test('should handle zero frequency', () => {
-      expect(formatFrequency(0)).toBe('0 kHz');
+      expect(formatFrequency(0)).toBe('0Hz');
     });
 
     test('should handle negative frequencies', () => {
-      expect(formatFrequency(-1.5)).toBe('-1.500 MHz');
-      expect(formatFrequency(-1500)).toBe('-1.500 GHz');
+      expect(formatFrequency(-1500000)).toBe('-1.5MHz');
+      expect(formatFrequency(-1500000000)).toBe('-1.5GHz');
     });
 
     test('should respect precision options', () => {
@@ -41,14 +41,24 @@ describe('Frequency Utilities', () => {
         precisionKHz: 1
       };
       
-      expect(formatFrequency(1.567, options)).toBe('1.6 MHz');
-      expect(formatFrequency(1567, options)).toBe('1.57 GHz');
-      expect(formatFrequency(0.567, options)).toBe('567.0 kHz');
+      expect(formatFrequency(1567000, options)).toBe('1.6MHz');
+      expect(formatFrequency(1567000000, options)).toBe('1.57GHz');
+      expect(formatFrequency(567000, options)).toBe('567.0kHz');
+    });
+
+    test('should format with 3 decimal precision when requested (center frequency style)', () => {
+      const options: FormatFrequencyOptions = {
+        precisionMHz: 3,
+        precisionKHz: 3
+      };
+      expect(formatFrequency(137500000, options)).toBe('137.500MHz');
+      expect(formatFrequency(137500100, options)).toBe('137.500MHz'); // Rounds to 137.500
+      expect(formatFrequency(500000, options)).toBe('500.000kHz');
     });
 
     test('should hide units when requested', () => {
-      expect(formatFrequency(1.5, false)).toBe('1.500');
-      expect(formatFrequency(1500, { showUnits: false })).toBe('1.500');
+      expect(formatFrequency(1500000, false)).toBe('1.5');
+      expect(formatFrequency(1500000000, { showUnits: false })).toBe('1.5');
     });
 
     test('should trim trailing zeros when requested', () => {
@@ -56,40 +66,54 @@ describe('Frequency Utilities', () => {
         trimTrailingZeros: true
       };
       
-      expect(formatFrequency(1.5, options)).toBe('1.5 MHz');
-      expect(formatFrequency(100, options)).toBe('100 MHz');
-      expect(formatFrequency(1.333, options)).toBe('1.333 MHz');
+      expect(formatFrequency(1500000, options)).toBe('1.5MHz');
+      expect(formatFrequency(100000000, options)).toBe('100MHz');
+      expect(formatFrequency(1333000, options)).toBe('1.3MHz'); // Default precisionMHz is now 1
+    });
+
+    test('should handle non-finite values gracefully', () => {
+      expect(formatFrequency(NaN)).toBe('---Hz');
+      expect(formatFrequency(undefined as any)).toBe('---Hz');
+      expect(formatFrequency(null as any)).toBe('---Hz');
+      expect(formatFrequency(Infinity)).toBe('---Hz');
     });
   });
 
   describe('formatFrequencyHighRes', () => {
     test('should format GHz frequencies with high resolution', () => {
-      expect(formatFrequencyHighRes(1500.123456789)).toBe('1.500.123.457 GHz');
-      expect(formatFrequencyHighRes(1000)).toBe('1.000.000.000 GHz');
+      expect(formatFrequencyHighRes(1500123456.789)).toBe('1.500.123.457GHz');
+      expect(formatFrequencyHighRes(1000000000)).toBe('1.000.000.000GHz');
     });
 
     test('should format MHz frequencies with high resolution', () => {
-      expect(formatFrequencyHighRes(100.123456)).toBe('100.123.456 MHz');
-      expect(formatFrequencyHighRes(1)).toBe('1.000.000 MHz');
+      expect(formatFrequencyHighRes(100123456)).toBe('100.123.456MHz');
+      expect(formatFrequencyHighRes(1000000)).toBe('1.000.000MHz');
     });
 
     test('should format kHz frequencies with high resolution', () => {
-      expect(formatFrequencyHighRes(0.123456)).toBe('123.456 kHz');
-      expect(formatFrequencyHighRes(0.001)).toBe('1.000 kHz');
+      expect(formatFrequencyHighRes(123456)).toBe('123.456kHz');
+      expect(formatFrequencyHighRes(1000)).toBe('1.000kHz');
     });
 
     test('should format Hz frequencies with high resolution', () => {
-      expect(formatFrequencyHighRes(0.000123)).toBe('123 Hz');
-      expect(formatFrequencyHighRes(0.000001)).toBe('1 Hz');
+      expect(formatFrequencyHighRes(123)).toBe('123Hz');
+      expect(formatFrequencyHighRes(1)).toBe('1Hz');
     });
 
     test('should handle negative frequencies', () => {
-      expect(formatFrequencyHighRes(-1.123456)).toBe('-1.123.456 MHz');
-      expect(formatFrequencyHighRes(-1500.123456789)).toBe('-1.500.123.457 GHz');
+      expect(formatFrequencyHighRes(-1123456)).toBe('-1.123.456MHz');
+      expect(formatFrequencyHighRes(-1500123456.789)).toBe('-1.500.123.457GHz');
     });
 
     test('should handle zero frequency', () => {
-      expect(formatFrequencyHighRes(0)).toBe('0 Hz');
+      expect(formatFrequencyHighRes(0)).toBe('0Hz');
+    });
+
+    test('should handle non-finite values gracefully', () => {
+      expect(formatFrequencyHighRes(NaN)).toBe('---Hz');
+      expect(formatFrequencyHighRes(undefined as any)).toBe('---Hz');
+      expect(formatFrequencyHighRes(null as any)).toBe('---Hz');
+      expect(formatFrequencyHighRes(Infinity)).toBe('---Hz');
     });
   });
 });

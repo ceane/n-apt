@@ -1,8 +1,8 @@
 import React from "react";
 import { render, screen, act, waitFor } from "@testing-library/react";
 import FFTAndWaterfall from "@n-apt/components/FFTAndWaterfall";
-import { TestWrapper } from "./testUtils";
-import { getMockNaptBuffer } from "./mockNaptData";
+import { TestWrapper } from "../ts/testUtils";
+import { getMockNaptBuffer } from "../ts/mockNaptData";
 
 // Mock requestAnimationFrame to control the rendering loop
 const mockRaf = jest.spyOn(window, "requestAnimationFrame");
@@ -15,7 +15,7 @@ describe("FFTAndWaterfall Integration", () => {
   const defaultProps = {
     dataRef: mockDataRef,
     frequencyRange: { min: 100, max: 102 },
-    centerFrequencyMHz: 101,
+    centerFrequencyHz: 101_000_000,
     activeSignalArea: "A",
     isPaused: false,
     powerScale: "dB" as const,

@@ -89,15 +89,15 @@ export const useCaptureWholeChannelSegments = ({
 
   return useCallback(async () => {
     const fullRange = frequencyRange;
-    const hardwareSpanMHz = sampleRateHzEffective
-      ? sampleRateHzEffective / 1_000_000
+    const hardwareSpanHz = sampleRateHzEffective
+      ? sampleRateHzEffective
       : null;
 
     if (
       !fullRange ||
       sourceMode !== "live" ||
-      !hardwareSpanMHz ||
-      !(hardwareSpanMHz > 0)
+      !hardwareSpanHz ||
+      !(hardwareSpanHz > 0)
     ) {
       return [];
     }
@@ -105,7 +105,7 @@ export const useCaptureWholeChannelSegments = ({
     const area = activeSignalArea?.toLowerCase();
     const channelRange = area ? signalAreaBounds?.[area] ?? fullRange : fullRange;
     const totalSpan = channelRange.max - channelRange.min;
-    if (!(totalSpan > hardwareSpanMHz + 0.0001)) {
+    if (!(totalSpan > hardwareSpanHz + 1)) {
       return [];
     }
 
@@ -121,7 +121,7 @@ export const useCaptureWholeChannelSegments = ({
     const segments: WholeChannelSnapshotSegment[] = [];
     const estimatedSegments = Math.max(
       1,
-      Math.ceil(totalSpan / hardwareSpanMHz),
+      Math.ceil(totalSpan / hardwareSpanHz),
     );
     const captureFps = 60;
     const framesToCapture = Math.round(captureFps * (settleMs / 1000));
@@ -136,17 +136,17 @@ export const useCaptureWholeChannelSegments = ({
 
       for (
         let segmentMin = channelRange.min;
-        segmentMin < channelRange.max - 0.0001;
-        segmentMin += hardwareSpanMHz
+        segmentMin < channelRange.max - 1;
+        segmentMin += hardwareSpanHz
       ) {
-        // Ensure the segment always has the full hardwareSpanMHz
+        // Ensure the segment always has the full hardwareSpanHz
         // If we reach the end, "slide" back so the segment covers the end boundaries
         let actualMin = segmentMin;
-        let actualMax = segmentMin + hardwareSpanMHz;
+        let actualMax = segmentMin + hardwareSpanHz;
 
         if (actualMax > channelRange.max) {
           actualMax = channelRange.max;
-          actualMin = Math.max(channelRange.min, actualMax - hardwareSpanMHz);
+          actualMin = Math.max(channelRange.min, actualMax - hardwareSpanHz);
         }
 
         const nextRange = {
@@ -194,7 +194,7 @@ export const useCaptureWholeChannelSegments = ({
         }
 
         // Break if we've reached the end to avoid redundant slides
-        if (actualMax >= channelRange.max - 0.0001) break;
+        if (actualMax >= channelRange.max - 1) break;
       }
     } finally {
       dispatch({ type: "SET_FREQUENCY_RANGE", range: originalRange });

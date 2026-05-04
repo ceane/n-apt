@@ -1,6 +1,6 @@
 [package]
 name = "n-apt-backend"
-version = "0.2.5"
+version = "0.5.0"
 license = "Hippocratic-3.0"
 edition = "2021"
 authors = ["Ceane Lamerez"]
@@ -40,9 +40,17 @@ path = "test/rust/server_tests.rs"
 name = "capture_stitch_tests"
 path = "test/rust/capture_stitch_tests.rs"
 
+[[test]]
+name = "frequency_scaling_e2e"
+path = "test/rust/frequency_scaling_e2e.rs"
+
 [[bin]]
 name = "live_stream_test"
 path = "src/rs/bin/live_stream_test.rs"
+
+[[bin]]
+name = "dump_config"
+path = "src/rs/bin/dump_config.rs"
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(rs_decrypted)'] }
@@ -53,9 +61,10 @@ paste = "1.0"
 # Core dependencies (always included)
 rustfft = "6"
 num-complex = "0.4"
-rand = "0.8"
+rand = "0.10"
 rayon = "1.12"
 getrandom = { version = "0.2", features = ["js"] }
+getrandom_04 = { package = "getrandom", version = "0.4", features = ["wasm_js"] }
 anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -64,37 +73,37 @@ url = "2"
 log = "0.4"
 clap = { version = "4.6", features = ["derive"] }
 byteorder = "1.5"
-env_logger = "0.10"
+env_logger = "0.11"
 dotenvy = "0.15"
 
 # WASM dependencies (only when targeting WASM)
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-wasm-bindgen = "0.2"
-js-sys = "0.3"
-web-sys = { version = "0.3", features = ["console"] }
+wasm-bindgen = "0.2.120"
+js-sys = "0.3.97"
+web-sys = { version = "0.3.97", features = ["console"] }
 
 # Server dependencies (only when not targeting WASM)
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio = { version = "1.52", features = ["full"] }
 tokio-util = { version = "0.7", features = ["io"] }
-tokio-tungstenite = "0.20"
-redis = "0.27"
-env_logger = "0.10"
+tokio-tungstenite = "0.29"
+redis = "0.29"
+env_logger = "0.11"
 futures-util = "0.3"
 chrono = { version = "0.4", features = ["serde", "wasmbind"] }
 # Encryption: AES-256-GCM for payload encryption, HMAC/PBKDF2 for auth
 aes-gcm = "0.10"
-hmac = "0.12"
-sha2 = "0.10"
-pbkdf2 = { version = "0.12", features = ["simple"] }
+hmac = "0.13"
+sha2 = "0.11"
+pbkdf2 = { version = "0.13", features = ["password-hash"] }
 base64 = "0.22"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 # HTTP client for CoreML service communication
-reqwest = { version = "0.11", features = ["json"] }
+reqwest = { version = "0.13", features = ["json"] }
 # HTTP + WebSocket server (axum replaces raw TcpListener + tokio-tungstenite)
-axum = { version = "0.7", features = ["ws"] }
-tower = "0.4"
-tower-http = { version = "0.5", features = ["cors", "set-header", "compression-gzip"] }
+axum = { version = "0.8", features = ["ws"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "set-header", "compression-gzip"] }
 # WebAuthn passkey authentication
 webauthn-rs = { version = "0.5", features = ["danger-allow-state-serialisation"] }
 webauthn-rs-proto = "0.5"
@@ -114,11 +123,11 @@ tempfile = "3"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio-test = "0.4"
-axum-test = "15.7"
-tower = "0.4"
+axum-test = "20"
+tower = "0.5"
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
-wasm-bindgen-test = "0.3"
+wasm-bindgen-test = "0.3.70"
 
 [build-dependencies]
 pkg-config = "0.3"

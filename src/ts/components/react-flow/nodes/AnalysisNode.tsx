@@ -92,7 +92,7 @@ interface AnalysisNodeProps {
 }
 
 export const AnalysisNode: React.FC<AnalysisNodeProps> = ({ data }) => {
-  const { state: spectrumState, sampleRateMHz } = useSpectrumStore();
+  const { state: spectrumState, sampleRateHzEffective: sampleRateHz } = useSpectrumStore();
   const { activeSignalArea, frequencyRange, lastKnownRanges, vizZoom, vizPanOffset } = spectrumState;
   const areaKey = activeSignalArea || "A";
   const safeLastKnownRanges = lastKnownRanges && typeof lastKnownRanges === 'object' ? lastKnownRanges : {};
@@ -101,7 +101,7 @@ export const AnalysisNode: React.FC<AnalysisNodeProps> = ({ data }) => {
   const calculateVisible = () => {
     const minFreq = 0;
     const maxFreq = 2000; // Cap
-    const hardwareSpan = sampleRateMHz || 3.2;
+    const hardwareSpan = sampleRateHz || 3_200_000;
 
     const safeZoom = (Number.isFinite(vizZoom) && vizZoom > 0) ? vizZoom : 1;
 

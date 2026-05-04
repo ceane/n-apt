@@ -29,7 +29,9 @@ import remarkTimeOfFlightBlocks from "@n-apt/md-preview/utils/remarkTimeOfFlight
 import remarkSignalCanvasBlocks from "@n-apt/md-preview/utils/remarkSignalCanvasBlocks";
 import remarkIconShortcodes from "@n-apt/md-preview/utils/remarkIconShortcodes";
 import remarkLatexCodeBlocks from "@n-apt/md-preview/utils/remarkLatexCodeBlocks";
+import remarkReactDaysSinceBlocks from "@n-apt/md-preview/utils/remarkReactDaysSinceBlocks";
 import GiscusComments from "@n-apt/md-preview/components/GiscusComments";
+import { DaysSince } from "@n-apt/md-preview/components/DaysSince";
 import { assetUrl, assetPageUrl } from "@n-apt/md-preview/utils/asset-helpers";
 import { registerMarkdownHotReload } from "@n-apt/md-preview/utils/hmr";
 import { CanvasHarness } from "@n-apt/md-preview/components/canvas/CanvasHarness";
@@ -359,6 +361,7 @@ const App: React.FC = () => {
     "icon-inline": ({ node: _node, ...props }: any) => <IconInline {...props} />,
     "desktop-only": ({ node: _node, children, ...props }: any) => <DesktopOnly {...props}>{children}</DesktopOnly>,
     "mobile-only": ({ node: _node, children, ...props }: any) => <MobileOnly {...props}>{children}</MobileOnly>,
+    "days-since": () => <DaysSince />,
     table: ({ node: _node, ...props }) => <div className="table-dense"><table {...props} /></div>,
   }), []);
 
@@ -373,6 +376,7 @@ const App: React.FC = () => {
               remarkGfm,
               remarkIconShortcodes,
               remarkLatexCodeBlocks as any,
+              remarkReactDaysSinceBlocks as any,
               remarkBodyAttenuationBlocks as any,
               remarkTimeOfFlightBlocks,
               remarkSignalCanvasBlocks as any,
@@ -394,7 +398,10 @@ const App: React.FC = () => {
 };
 
 const GlobalStyle = createGlobalStyle`
-  :root { color-scheme: dark; }
+  :root { 
+    color-scheme: dark;
+    --bg: #283780;
+  }
   * { box-sizing: border-box; }
   html {
     scroll-behavior: auto !important;
@@ -402,7 +409,7 @@ const GlobalStyle = createGlobalStyle`
   body {
     margin: 0;
     font-family: "DM Mono", "JetBrains Mono", "Space Grotesk", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-    background: #283780;
+    background: var(--bg);
     color: #f3f6ff;
     min-height: 100vh;
     scroll-behavior: auto !important;
@@ -466,6 +473,10 @@ const ArticleContent = styled.article`
     margin-top: 2.5em;
     margin-bottom: 1.2em;
     color: #9eaeff;
+
+    sup {
+      font-size: 0.65em;
+    }
   }
 
   h1 {
@@ -573,8 +584,8 @@ const ArticleContent = styled.article`
     border-spacing: 0;
     margin: 2em 0;
     font-size: 0.95em;
-    background: #1d2f7a;
-    border: 1px solid #1a275c;
+    background: color-mix(in srgb, var(--bg), black 20%);
+    border: 1px solid color-mix(in srgb, var(--bg), white 10%);
     border-radius: 12px;
     overflow: hidden;
     font-family: "DM Mono", monospace;
@@ -597,12 +608,12 @@ const ArticleContent = styled.article`
     letter-spacing: 0.04em;
     text-transform: uppercase;
     color: #9eaeff;
-    background: #263b8f;
+    background: color-mix(in srgb, var(--bg), white 5%);
   }
 
   td {
     color: #acbaff;
-    background: #0f1647;
+    background: color-mix(in srgb, var(--bg), black 60%);
   }
 
   td:first-child {
@@ -610,7 +621,7 @@ const ArticleContent = styled.article`
   }
 
   tr:nth-child(even) td {
-    background: #131d55;
+    background: color-mix(in srgb, var(--bg), black 50%);
   }
 
   tr:last-child td {
@@ -620,11 +631,16 @@ const ArticleContent = styled.article`
   .table-dense {
     width: 100%;
     
+    th {
+      padding: 1rem;
+    }
+    
+    td {
+      padding: 1rem;
+    }
 
     th, td {
-      padding: 1rem .25rem;
-      font-size: .75rem;
-      text-align: center;
+      font-size: 1rem;
       text-transform: none;
     }
   }
