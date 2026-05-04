@@ -1080,7 +1080,7 @@ pub fn save_capture_file_multi(
     }
     hasher.update(&buffer[..bytes_read]);
   }
-  let checksum = format!("{:x}", hasher.finalize());
+  let checksum = hasher.finalize().iter().map(|b| format!("{:02x}", b)).collect::<String>();
 
   Ok(CaptureArtifact {
     filename,
@@ -1156,7 +1156,7 @@ mod save_tests {
     let file_content =
       fs::read(&artifact.path).expect("read file for checksum verification");
     let expected_checksum =
-      format!("{:x}", sha2::Sha256::digest(&file_content));
+      sha2::Sha256::digest(&file_content).iter().map(|b| format!("{:02x}", b)).collect::<String>();
     assert_eq!(
       artifact.checksum, expected_checksum,
       "Stored checksum should match calculated checksum"
@@ -1229,7 +1229,7 @@ mod save_tests {
     let file_content = fs::read(&artifact.path)
       .expect("read encrypted file for checksum verification");
     let expected_checksum =
-      format!("{:x}", sha2::Sha256::digest(&file_content));
+      sha2::Sha256::digest(&file_content).iter().map(|b| format!("{:02x}", b)).collect::<String>();
     assert_eq!(
       artifact.checksum, expected_checksum,
       "Stored checksum should match calculated checksum for encrypted files"

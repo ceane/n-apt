@@ -1,0 +1,579 @@
+warning: Feature js of package getrandom has been obsolete in version 0.4.2
+warning: Feature simple of package pbkdf2 has been obsolete in version 0.13.0
+Name                                             Project                         Compat   Latest   Kind         Platform
+----                                             -------                         ------   ------   ----         --------
+aho-corasick->memchr                             2.8.0                           ---      Removed  Normal       ---
+android_system_properties->libc                  0.2.185                         0.2.186  0.2.186  Normal       ---
+arbitrary->derive_arbitrary                      1.4.2                           ---      Removed  Normal       ---
+arc-swap->rustversion                            1.0.22                          ---      Removed  Normal       ---
+async-compression->compression-codecs            0.4.37                          0.4.38   0.4.38   Normal       ---
+async-compression->compression-core              0.4.31                          0.4.32   0.4.32   Normal       ---
+async-trait->proc-macro2                         1.0.106                         ---      Removed  Normal       ---
+async-trait->quote                               1.0.45                          ---      Removed  Normal       ---
+async-trait->syn                                 2.0.117                         ---      Removed  Normal       ---
+axum                                             0.7.9                           ---      0.8.9    Normal       cfg(not(target_arch = "wasm32"))
+axum->async-trait                                0.1.89                          ---      Removed  Normal       ---
+axum->axum-core                                  0.4.5                           ---      0.5.6    Normal       ---
+axum->matchit                                    0.7.3                           ---      0.8.4    Normal       ---
+axum->rustversion                                1.0.22                          ---      Removed  Normal       ---
+axum->serde                                      1.0.228                         ---      Removed  Normal       ---
+axum->tokio-tungstenite                          0.24.0                          ---      0.29.0   Normal       ---
+axum-core->async-trait                           0.1.89                          ---      Removed  Normal       ---
+axum-core->futures-util                          0.3.32                          ---      Removed  Normal       ---
+axum-core->rustversion                           1.0.22                          ---      Removed  Normal       ---
+axum-test                                        15.7.4                          ---      20.0.0   Development  cfg(not(target_arch = "wasm32"))
+axum-test->auto-future                           1.0.0                           ---      Removed  Normal       ---
+axum-test->axum                                  0.7.9                           ---      0.8.9    Normal       ---
+axum-test->rust-multipart-rfc7578_2              0.6.1                           ---      0.9.0    Normal       ---
+axum-test->smallvec                              1.15.1                          ---      Removed  Normal       ---
+block-buffer->generic-array                      0.14.7                          ---      Removed  Normal       ---
+cc->find-msvc-tools                              0.1.9                           ---      Removed  Normal       ---
+cc->shlex                                        1.3.0                           ---      Removed  Normal       ---
+compression-codecs->compression-core             0.4.31                          0.4.32   0.4.32   Normal       ---
+core-foundation->core-foundation-sys             0.8.7                           ---      Removed  Normal       ---
+core-foundation->libc                            0.2.185                         0.2.186  Removed  Normal       ---
+cpufeatures->libc                                0.2.185                         0.2.186  0.2.186  Normal       aarch64-linux-android
+cpufeatures->libc                                0.2.185                         0.2.186  Removed  Normal       aarch64-linux-android
+crossbeam-channel->crossbeam-utils               0.8.21                          ---      Removed  Normal       ---
+crypto-common->generic-array                     0.14.7                          ---      Removed  Normal       ---
+crypto-common->rand_core                         0.6.4                           ---      Removed  Normal       ---
+crypto-common->typenum                           1.20.0                          ---      Removed  Normal       ---
+derive_arbitrary->proc-macro2                    1.0.106                         ---      Removed  Normal       ---
+derive_arbitrary->quote                          1.0.45                          ---      Removed  Normal       ---
+derive_arbitrary->syn                            2.0.117                         ---      Removed  Normal       ---
+digest->block-buffer                             0.10.4                          ---      0.12.0   Normal       ---
+digest->block-buffer                             0.10.4                          ---      Removed  Normal       ---
+digest->crypto-common                            0.1.7                           ---      0.2.1    Normal       ---
+digest->crypto-common                            0.1.7                           ---      Removed  Normal       ---
+digest->subtle                                   2.6.1                           ---      Removed  Normal       ---
+displaydoc->proc-macro2                          1.0.106                         ---      Removed  Normal       ---
+displaydoc->quote                                1.0.45                          ---      Removed  Normal       ---
+displaydoc->syn                                  2.0.117                         ---      Removed  Normal       ---
+env_logger                                       0.10.2                          ---      0.11.10  Normal       ---
+env_logger->humantime                            2.3.0                           ---      Removed  Normal       ---
+env_logger->is-terminal                          0.4.17                          ---      Removed  Normal       ---
+env_logger->regex                                1.12.3                          ---      Removed  Normal       ---
+env_logger->termcolor                            1.4.1                           ---      Removed  Normal       ---
+errno->libc                                      0.2.185                         0.2.186  0.2.186  Normal       cfg(target_os = "hermit")
+errno->libc                                      0.2.185                         0.2.186  Removed  Normal       cfg(target_os = "hermit")
+errno->windows-sys                               0.61.2                          ---      Removed  Normal       cfg(windows)
+filetime->cfg-if                                 1.0.4                           ---      Removed  Normal       ---
+filetime->libc                                   0.2.185                         0.2.186  Removed  Normal       cfg(unix)
+filetime->libredox                               0.1.16                          ---      Removed  Normal       cfg(target_os = "redox")
+foreign-types->foreign-types-shared              0.1.1                           ---      Removed  Normal       ---
+form_urlencoded->percent-encoding                2.3.2                           ---      Removed  Normal       ---
+fsevent-sys->libc                                0.2.185                         0.2.186  0.2.186  Normal       ---
+futures-channel->futures-core                    0.3.32                          ---      Removed  Normal       ---
+futures-channel->futures-sink                    0.3.32                          ---      Removed  Normal       ---
+futures-macro->proc-macro2                       1.0.106                         ---      Removed  Normal       ---
+futures-macro->quote                             1.0.45                          ---      Removed  Normal       ---
+futures-macro->syn                               2.0.117                         ---      Removed  Normal       ---
+futures-util->futures-channel                    0.3.32                          ---      Removed  Normal       ---
+futures-util->futures-core                       0.3.32                          ---      Removed  Normal       ---
+futures-util->futures-io                         0.3.32                          ---      Removed  Normal       ---
+futures-util->futures-macro                      0.3.32                          ---      Removed  Normal       ---
+futures-util->futures-sink                       0.3.32                          ---      Removed  Normal       ---
+futures-util->futures-task                       0.3.32                          ---      Removed  Normal       ---
+futures-util->memchr                             2.8.0                           ---      Removed  Normal       ---
+futures-util->pin-project-lite                   0.2.17                          ---      Removed  Normal       ---
+futures-util->slab                               0.4.12                          ---      Removed  Normal       ---
+generic-array->typenum                           1.20.0                          ---      Removed  Normal       ---
+generic-array->version_check                     0.9.5                           ---      Removed  Build        ---
+getrandom                                        0.2.17                          ---      0.4.2    Normal       ---
+getrandom->cfg-if                                1.0.4                           ---      Removed  Normal       ---
+getrandom->js-sys                                0.3.97                          ---      Removed  Normal       cfg(all(any(target_arch = "wasm32", target_arch = "wasm64"), target_os = "unknown"))
+getrandom->libc                                  0.2.185                         0.2.186  0.2.186  Normal       cfg(all(any(target_os = "linux", target_os = "android"), not(any(all(target_os = "linux", target_env = ""), getrandom_backend = "custom", getrandom_backend = "linux_raw", getrandom_backend = "rdrand", getrandom_backend = "rndr"))))
+getrandom->libc                                  0.2.185                         0.2.186  0.2.186  Normal       cfg(unix)
+getrandom->libc                                  0.2.185                         0.2.186  Removed  Normal       cfg(all(any(target_os = "linux", target_os = "android"), not(any(all(target_os = "linux", target_env = ""), getrandom_backend = "custom", getrandom_backend = "linux_raw", getrandom_backend = "rdrand", getrandom_backend = "rndr"))))
+getrandom->libc                                  0.2.185                         0.2.186  Removed  Normal       cfg(unix)
+getrandom->r-efi                                 6.0.0                           ---      Removed  Normal       cfg(all(target_os = "uefi", getrandom_backend = "efi_rng"))
+getrandom->wasi                                  0.11.1+wasi-snapshot-preview1   ---      Removed  Normal       cfg(target_os = "wasi")
+getrandom->wasip2                                1.0.3+wasi-0.2.9                ---      Removed  Normal       cfg(all(target_arch = "wasm32", target_os = "wasi", target_env = "p2"))
+getrandom->wasip3                                0.4.0+wasi-0.3.0-rc-2026-01-06  ---      Removed  Normal       cfg(all(target_arch = "wasm32", target_os = "wasi", target_env = "p3"))
+getrandom->wasm-bindgen                          0.2.120                         ---      Removed  Normal       cfg(all(any(target_arch = "wasm32", target_arch = "wasm64"), target_os = "unknown"))
+h2->bytes                                        1.11.1                          ---      Removed  Normal       ---
+h2->fnv                                          1.0.7                           ---      Removed  Normal       ---
+h2->futures-core                                 0.3.32                          ---      Removed  Normal       ---
+h2->futures-sink                                 0.3.32                          ---      Removed  Normal       ---
+h2->futures-util                                 0.3.32                          ---      Removed  Normal       ---
+h2->http                                         0.2.12                          ---      1.4.0    Normal       ---
+h2->http                                         0.2.12                          ---      Removed  Normal       ---
+h2->indexmap                                     2.14.0                          ---      Removed  Normal       ---
+h2->slab                                         0.4.12                          ---      Removed  Normal       ---
+h2->tokio                                        1.52.1                          ---      Removed  Normal       ---
+h2->tokio-util                                   0.7.18                          ---      Removed  Normal       ---
+h2->tracing                                      0.1.44                          ---      Removed  Normal       ---
+hashbrown->foldhash                              0.1.5                           ---      Removed  Normal       ---
+hmac                                             0.12.1                          ---      0.13.0   Normal       cfg(not(target_arch = "wasm32"))
+hmac->digest                                     0.10.7                          ---      0.11.3   Normal       ---
+http->bytes                                      1.11.1                          ---      Removed  Normal       ---
+http->fnv                                        1.0.7                           ---      Removed  Normal       ---
+http->itoa                                       1.0.18                          ---      Removed  Normal       ---
+http-body->bytes                                 1.11.1                          ---      Removed  Normal       ---
+http-body->http                                  0.2.12                          ---      1.4.0    Normal       ---
+http-body->http                                  0.2.12                          ---      Removed  Normal       ---
+http-body->http                                  1.4.0                           ---      Removed  Normal       ---
+http-body->pin-project-lite                      0.2.17                          ---      Removed  Normal       ---
+http-body-util->bytes                            1.11.1                          ---      Removed  Normal       ---
+http-body-util->futures-core                     0.3.32                          ---      Removed  Normal       ---
+http-body-util->http                             1.4.0                           ---      Removed  Normal       ---
+http-body-util->http-body                        1.0.1                           ---      Removed  Normal       ---
+http-body-util->pin-project-lite                 0.2.17                          ---      Removed  Normal       ---
+hyper->bytes                                     1.11.1                          ---      Removed  Normal       ---
+hyper->futures-channel                           0.3.32                          ---      Removed  Normal       ---
+hyper->futures-core                              0.3.32                          ---      Removed  Normal       ---
+hyper->futures-util                              0.3.32                          ---      Removed  Normal       ---
+hyper->h2                                        0.3.27                          ---      0.4.13   Normal       ---
+hyper->h2                                        0.3.27                          ---      Removed  Normal       ---
+hyper->http                                      0.2.12                          ---      1.4.0    Normal       ---
+hyper->http                                      0.2.12                          ---      Removed  Normal       ---
+hyper->http-body                                 0.4.6                           ---      1.0.1    Normal       ---
+hyper->http-body                                 0.4.6                           ---      Removed  Normal       ---
+hyper->httparse                                  1.10.1                          ---      Removed  Normal       ---
+hyper->httpdate                                  1.0.3                           ---      Removed  Normal       ---
+hyper->itoa                                      1.0.18                          ---      Removed  Normal       ---
+hyper->pin-project-lite                          0.2.17                          ---      Removed  Normal       ---
+hyper->socket2                                   0.5.10                          ---      Removed  Normal       ---
+hyper->tokio                                     1.52.1                          ---      Removed  Normal       ---
+hyper->tower-service                             0.3.3                           ---      Removed  Normal       ---
+hyper->tracing                                   0.1.44                          ---      Removed  Normal       ---
+hyper->want                                      0.3.1                           ---      Removed  Normal       ---
+hyper-tls->bytes                                 1.11.1                          ---      Removed  Normal       ---
+hyper-tls->hyper                                 0.14.32                         ---      Removed  Normal       ---
+hyper-tls->native-tls                            0.2.18                          ---      Removed  Normal       ---
+hyper-tls->tokio                                 1.52.1                          ---      Removed  Normal       ---
+hyper-tls->tokio-native-tls                      0.3.1                           ---      Removed  Normal       ---
+hyper-util->libc                                 0.2.185                         0.2.186  0.2.186  Normal       ---
+iana-time-zone-haiku->cc                         1.2.60                          1.2.61   1.2.61   Build        ---
+icu_collections->displaydoc                      0.2.5                           ---      Removed  Normal       ---
+icu_collections->potential_utf                   0.1.5                           ---      Removed  Normal       ---
+icu_collections->utf8_iter                       1.0.4                           ---      Removed  Normal       ---
+icu_collections->yoke                            0.8.2                           ---      Removed  Normal       ---
+icu_collections->zerofrom                        0.1.7                           ---      Removed  Normal       ---
+icu_collections->zerovec                         0.11.6                          ---      Removed  Normal       ---
+icu_locale_core->displaydoc                      0.2.5                           ---      Removed  Normal       ---
+icu_locale_core->litemap                         0.8.2                           ---      Removed  Normal       ---
+icu_locale_core->tinystr                         0.8.3                           ---      Removed  Normal       ---
+icu_locale_core->writeable                       0.6.3                           ---      Removed  Normal       ---
+icu_locale_core->zerovec                         0.11.6                          ---      Removed  Normal       ---
+icu_normalizer->icu_collections                  2.2.0                           ---      Removed  Normal       ---
+icu_normalizer->icu_normalizer_data              2.2.0                           ---      Removed  Normal       ---
+icu_normalizer->icu_properties                   2.2.0                           ---      Removed  Normal       ---
+icu_normalizer->icu_provider                     2.2.0                           ---      Removed  Normal       ---
+icu_normalizer->smallvec                         1.15.1                          ---      Removed  Normal       ---
+icu_normalizer->zerovec                          0.11.6                          ---      Removed  Normal       ---
+icu_properties->icu_collections                  2.2.0                           ---      Removed  Normal       ---
+icu_properties->icu_locale_core                  2.2.0                           ---      Removed  Normal       ---
+icu_properties->icu_properties_data              2.2.0                           ---      Removed  Normal       ---
+icu_properties->icu_provider                     2.2.0                           ---      Removed  Normal       ---
+icu_properties->zerotrie                         0.2.4                           ---      Removed  Normal       ---
+icu_properties->zerovec                          0.11.6                          ---      Removed  Normal       ---
+icu_provider->displaydoc                         0.2.5                           ---      Removed  Normal       ---
+icu_provider->icu_locale_core                    2.2.0                           ---      Removed  Normal       ---
+icu_provider->writeable                          0.6.3                           ---      Removed  Normal       ---
+icu_provider->yoke                               0.8.2                           ---      Removed  Normal       ---
+icu_provider->zerofrom                           0.1.7                           ---      Removed  Normal       ---
+icu_provider->zerotrie                           0.2.4                           ---      Removed  Normal       ---
+icu_provider->zerovec                            0.11.6                          ---      Removed  Normal       ---
+idna->idna_adapter                               1.2.1                           1.2.2    1.2.2    Normal       ---
+idna->idna_adapter                               1.2.1                           1.2.2    Removed  Normal       ---
+idna->smallvec                                   1.15.1                          ---      Removed  Normal       ---
+idna->utf8_iter                                  1.0.4                           ---      Removed  Normal       ---
+idna_adapter->icu_normalizer                     2.2.0                           ---      Removed  Normal       ---
+idna_adapter->icu_properties                     2.2.0                           ---      Removed  Normal       ---
+indexmap->equivalent                             1.0.2                           ---      Removed  Normal       ---
+indexmap->hashbrown                              0.17.0                          ---      Removed  Normal       ---
+indexmap->serde                                  1.0.228                         ---      Removed  Development  ---
+indexmap->serde_core                             1.0.228                         ---      Removed  Normal       ---
+inotify->bitflags                                1.3.2                           ---      2.11.1   Normal       ---
+inotify->libc                                    0.2.185                         0.2.186  0.2.186  Normal       ---
+inotify-sys->libc                                0.2.185                         0.2.186  0.2.186  Normal       ---
+is-terminal->hermit-abi                          0.5.2                           ---      Removed  Normal       cfg(target_os = "hermit")
+is-terminal->libc                                0.2.185                         0.2.186  Removed  Normal       cfg(any(unix, target_os = "wasi"))
+is-terminal->windows-sys                         0.61.2                          ---      Removed  Normal       cfg(windows)
+itertools->either                                1.15.0                          ---      Removed  Normal       ---
+js-sys->cfg-if                                   1.0.4                           ---      Removed  Normal       ---
+js-sys->futures-util                             0.3.32                          ---      Removed  Normal       ---
+js-sys->once_cell                                1.21.4                          ---      Removed  Normal       ---
+js-sys->wasm-bindgen                             0.2.120                         ---      Removed  Normal       ---
+kqueue->kqueue-sys                               1.0.4                           1.1.0    1.1.0    Normal       ---
+kqueue->libc                                     0.2.185                         0.2.186  0.2.186  Normal       ---
+kqueue-sys->bitflags                             1.3.2                           2.11.1   2.11.1   Normal       ---
+kqueue-sys->libc                                 0.2.185                         0.2.186  0.2.186  Normal       ---
+libredox->bitflags                               2.11.1                          ---      Removed  Normal       ---
+libredox->libc                                   0.2.185                         0.2.186  Removed  Normal       ---
+libredox->plain                                  0.2.3                           ---      Removed  Normal       ---
+libredox->redox_syscall                          0.7.4                           ---      Removed  Normal       ---
+lock_api->scopeguard                             1.2.0                           ---      Removed  Normal       ---
+mime_guess->mime                                 0.3.17                          ---      Removed  Normal       ---
+mime_guess->unicase                              2.9.0                           ---      Removed  Normal       ---
+minicov->cc                                      1.2.60                          1.2.61   1.2.61   Build        ---
+mio->libc                                        0.2.185                         0.2.186  0.2.186  Normal       cfg(any(unix, target_os = "hermit", target_os = "wasi"))
+mio->libc                                        0.2.185                         0.2.186  0.2.186  Normal       cfg(target_os = "wasi")
+mio->libc                                        0.2.185                         0.2.186  Removed  Normal       cfg(any(unix, target_os = "hermit", target_os = "wasi"))
+mio->wasi                                        0.11.1+wasi-snapshot-preview1   ---      Removed  Normal       cfg(target_os = "wasi")
+mio->windows-sys                                 0.48.0                          ---      0.61.2   Normal       cfg(windows)
+mio->windows-sys                                 0.61.2                          ---      Removed  Normal       cfg(windows)
+native-tls->libc                                 0.2.185                         0.2.186  Removed  Normal       cfg(target_vendor = "apple")
+native-tls->log                                  0.4.29                          ---      Removed  Normal       cfg(not(any(target_os = "windows", target_vendor = "apple")))
+native-tls->openssl                              0.10.78                         0.10.79  Removed  Normal       cfg(not(any(target_os = "windows", target_vendor = "apple")))
+native-tls->openssl-probe                        0.2.1                           ---      Removed  Normal       cfg(not(any(target_os = "windows", target_vendor = "apple")))
+native-tls->openssl-sys                          0.9.114                         0.9.115  Removed  Normal       cfg(not(any(target_os = "windows", target_vendor = "apple")))
+native-tls->schannel                             0.1.29                          ---      Removed  Normal       cfg(target_os = "windows")
+native-tls->security-framework                   3.7.0                           ---      Removed  Normal       cfg(target_vendor = "apple")
+native-tls->security-framework-sys               2.17.0                          ---      Removed  Normal       cfg(target_vendor = "apple")
+native-tls->tempfile                             3.27.0                          ---      Removed  Development  ---
+notify                                           6.1.1                           ---      8.2.0    Normal       cfg(not(target_arch = "wasm32"))
+notify->crossbeam-channel                        0.5.15                          ---      Removed  Normal       ---
+notify->filetime                                 0.2.27                          ---      Removed  Normal       ---
+notify->inotify                                  0.9.6                           ---      0.11.1   Normal       cfg(any(target_os = "linux", target_os = "android"))
+notify->libc                                     0.2.185                         0.2.186  0.2.186  Normal       ---
+notify->mio                                      0.8.11                          ---      1.2.0    Normal       cfg(any(target_os = "freebsd", target_os = "openbsd", target_os = "netbsd", target_os = "dragonflybsd"))
+notify->windows-sys                              0.48.0                          ---      0.60.2   Normal       cfg(windows)
+openssl->bitflags                                2.11.1                          ---      Removed  Normal       ---
+openssl->cfg-if                                  1.0.4                           ---      Removed  Normal       ---
+openssl->foreign-types                           0.3.2                           ---      Removed  Normal       ---
+openssl->libc                                    0.2.185                         0.2.186  0.2.186  Normal       ---
+openssl->libc                                    0.2.185                         0.2.186  Removed  Normal       ---
+openssl->once_cell                               1.21.4                          Removed  Removed  Normal       ---
+openssl->openssl-macros                          0.1.1                           ---      Removed  Normal       ---
+openssl->openssl-sys                             0.9.114                         0.9.115  0.9.115  Normal       ---
+openssl->openssl-sys                             0.9.114                         0.9.115  Removed  Normal       ---
+openssl-macros->proc-macro2                      1.0.106                         ---      Removed  Normal       ---
+openssl-macros->quote                            1.0.45                          ---      Removed  Normal       ---
+openssl-macros->syn                              2.0.117                         ---      Removed  Normal       ---
+openssl-sys->cc                                  1.2.60                          1.2.61   1.2.61   Build        ---
+openssl-sys->cc                                  1.2.60                          1.2.61   Removed  Build        ---
+openssl-sys->libc                                0.2.185                         0.2.186  0.2.186  Normal       ---
+openssl-sys->libc                                0.2.185                         0.2.186  Removed  Normal       ---
+openssl-sys->pkg-config                          0.3.33                          ---      Removed  Build        ---
+openssl-sys->vcpkg                               0.2.15                          ---      Removed  Build        ---
+parking_lot->lock_api                            0.4.14                          ---      Removed  Normal       ---
+parking_lot->parking_lot_core                    0.9.12                          ---      Removed  Normal       ---
+parking_lot_core->cfg-if                         1.0.4                           ---      Removed  Normal       ---
+parking_lot_core->libc                           0.2.185                         0.2.186  0.2.186  Normal       cfg(unix)
+parking_lot_core->libc                           0.2.185                         0.2.186  Removed  Normal       cfg(unix)
+parking_lot_core->redox_syscall                  0.5.18                          ---      Removed  Normal       cfg(target_os = "redox")
+parking_lot_core->smallvec                       1.15.1                          ---      Removed  Normal       ---
+parking_lot_core->windows-link                   0.2.1                           ---      Removed  Normal       cfg(windows)
+password-hash->base64ct                          1.8.3                           ---      Removed  Normal       ---
+password-hash->rand_core                         0.6.4                           ---      Removed  Normal       ---
+password-hash->subtle                            2.6.1                           ---      Removed  Normal       ---
+pbkdf2                                           0.12.2                          ---      0.13.0   Normal       cfg(not(target_arch = "wasm32"))
+pbkdf2->digest                                   0.10.7                          ---      0.11.3   Normal       ---
+pbkdf2->hmac                                     0.12.1                          ---      0.13.0   Normal       ---
+pbkdf2->password-hash                            0.5.0                           ---      Removed  Normal       ---
+pbkdf2->sha2                                     0.10.9                          ---      Removed  Normal       ---
+potential_utf->zerovec                           0.11.6                          ---      Removed  Normal       ---
+ppv-lite86->zerocopy                             0.8.48                          ---      Removed  Normal       ---
+prettyplease->proc-macro2                        1.0.106                         ---      Removed  Normal       ---
+prettyplease->syn                                2.0.117                         ---      Removed  Normal       ---
+proc-macro2->unicode-ident                       1.0.24                          ---      Removed  Normal       ---
+quote->proc-macro2                               1.0.106                         ---      Removed  Normal       ---
+rand                                             0.8.6                           ---      0.10.1   Normal       ---
+rand->libc                                       0.2.185                         0.2.186  0.2.186  Normal       cfg(unix)
+rand->libc                                       0.2.185                         0.2.186  Removed  Normal       cfg(unix)
+rand->rand_chacha                                0.3.1                           ---      0.9.0    Normal       ---
+rand->rand_chacha                                0.3.1                           ---      Removed  Normal       ---
+rand->rand_core                                  0.6.4                           ---      0.10.1   Normal       ---
+rand->rand_core                                  0.6.4                           ---      0.9.5    Normal       ---
+rand_chacha->ppv-lite86                          0.2.21                          ---      Removed  Normal       ---
+rand_chacha->rand_core                           0.6.4                           ---      0.9.5    Normal       ---
+rand_chacha->rand_core                           0.6.4                           ---      Removed  Normal       ---
+rand_core->getrandom                             0.2.17                          ---      0.3.4    Normal       ---
+rand_core->getrandom                             0.2.17                          ---      Removed  Normal       ---
+redis                                            0.27.6                          ---      1.2.1    Normal       cfg(not(target_arch = "wasm32"))
+redis->arc-swap                                  1.9.1                           ---      Removed  Normal       ---
+redis->itertools                                 0.13.0                          ---      Removed  Normal       ---
+redis->socket2                                   0.5.10                          ---      0.6.3    Normal       ---
+redox_syscall->bitflags                          2.11.1                          ---      Removed  Normal       ---
+regex->aho-corasick                              1.1.4                           ---      Removed  Normal       ---
+regex->memchr                                    2.8.0                           ---      Removed  Normal       ---
+regex->regex-automata                            0.4.14                          ---      Removed  Normal       ---
+regex->regex-syntax                              0.8.10                          ---      Removed  Normal       ---
+regex-automata->aho-corasick                     1.1.4                           ---      Removed  Normal       ---
+regex-automata->memchr                           2.8.0                           ---      Removed  Normal       ---
+regex-automata->regex-syntax                     0.8.10                          ---      Removed  Normal       ---
+reqwest                                          0.11.27                         ---      0.13.3   Normal       cfg(not(target_arch = "wasm32"))
+reqwest->base64                                  0.21.7                          ---      0.22.1   Normal       ---
+reqwest->futures-util                            0.3.32                          ---      Removed  Normal       ---
+reqwest->h2                                      0.3.27                          ---      0.4.13   Normal       cfg(not(target_arch = "wasm32"))
+reqwest->http                                    0.2.12                          ---      1.4.0    Normal       ---
+reqwest->http-body                               0.4.6                           ---      1.0.1    Normal       cfg(not(target_arch = "wasm32"))
+reqwest->hyper                                   0.14.32                         ---      1.9.0    Normal       cfg(not(target_arch = "wasm32"))
+reqwest->hyper-tls                               0.5.0                           ---      Removed  Normal       cfg(not(target_arch = "wasm32"))
+reqwest->ipnet                                   2.12.0                          ---      Removed  Normal       cfg(not(target_arch = "wasm32"))
+reqwest->native-tls                              0.2.18                          ---      Removed  Normal       cfg(not(target_arch = "wasm32"))
+reqwest->once_cell                               1.21.4                          ---      Removed  Normal       cfg(not(target_arch = "wasm32"))
+reqwest->rustls-pemfile                          1.0.4                           ---      Removed  Normal       cfg(not(target_arch = "wasm32"))
+reqwest->serde_urlencoded                        0.7.1                           ---      Removed  Normal       ---
+reqwest->sync_wrapper                            0.1.2                           ---      1.0.2    Normal       ---
+reqwest->system-configuration                    0.5.1                           ---      Removed  Normal       cfg(target_os = "macos")
+reqwest->tokio-native-tls                        0.3.1                           ---      Removed  Normal       cfg(not(target_arch = "wasm32"))
+reqwest->winreg                                  0.50.0                          ---      Removed  Normal       cfg(windows)
+ring->cc                                         1.2.60                          1.2.61   1.2.61   Build        ---
+ring->libc                                       0.2.185                         0.2.186  0.2.186  Normal       cfg(all(all(target_arch = "aarch64", target_endian = "little"), target_vendor = "apple", any(target_os = "ios", target_os = "macos", target_os = "tvos", target_os = "visionos", target_os = "watchos")))
+rust-multipart-rfc7578_2->http                   0.2.12                          ---      1.4.0    Normal       ---
+rust-multipart-rfc7578_2->mime_guess             2.0.5                           ---      Removed  Normal       ---
+rust-multipart-rfc7578_2->rand                   0.8.6                           ---      0.10.1   Normal       ---
+rust-multipart-rfc7578_2->thiserror              1.0.69                          ---      2.0.18   Normal       ---
+rustix->bitflags                                 2.11.1                          ---      Removed  Normal       ---
+rustix->errno                                    0.3.14                          ---      Removed  Development  ---
+rustix->libc                                     0.2.185                         0.2.186  0.2.186  Development  ---
+rustix->libc                                     0.2.185                         0.2.186  Removed  Development  ---
+rustix->linux-raw-sys                            0.12.1                          ---      Removed  Normal       cfg(all(any(target_os = "linux", target_os = "android"), any(rustix_use_libc, miri, not(all(target_os = "linux", any(target_endian = "little", any(target_arch = "s390x", target_arch = "powerpc")), any(target_arch = "arm", all(target_arch = "aarch64", target_pointer_width = "64"), target_arch = "riscv64", all(rustix_use_experimental_asm, target_arch = "powerpc"), all(rustix_use_experimental_asm, target_arch = "powerpc64"), all(rustix_use_experimental_asm, target_arch = "s390x"), all(rustix_use_experimental_asm, target_arch = "mips"), all(rustix_use_experimental_asm, target_arch = "mips32r6"), all(rustix_use_experimental_asm, target_arch = "mips64"), all(rustix_use_experimental_asm, target_arch = "mips64r6"), target_arch = "x86", all(target_arch = "x86_64", target_pointer_width = "64")))))))
+rustix->windows-sys                              0.61.2                          ---      Removed  Normal       cfg(windows)
+rustls->rustls-pki-types                         1.14.0                          1.14.1   1.14.1   Normal       ---
+rustls-pemfile->base64                           0.21.7                          ---      Removed  Normal       ---
+rustls-webpki->rustls-pki-types                  1.14.0                          1.14.1   1.14.1   Normal       ---
+schannel->windows-sys                            0.61.2                          ---      Removed  Normal       ---
+security-framework->bitflags                     2.11.1                          ---      Removed  Normal       ---
+security-framework->core-foundation              0.10.1                          ---      Removed  Normal       ---
+security-framework->core-foundation-sys          0.8.7                           ---      Removed  Normal       ---
+security-framework->libc                         0.2.185                         0.2.186  Removed  Normal       ---
+security-framework->security-framework-sys       2.17.0                          ---      Removed  Normal       ---
+security-framework-sys->core-foundation-sys      0.8.7                           ---      Removed  Normal       ---
+security-framework-sys->libc                     0.2.185                         0.2.186  Removed  Normal       ---
+serde->serde_core                                1.0.228                         ---      Removed  Normal       ---
+serde->serde_derive                              1.0.228                         ---      Removed  Normal       ---
+serde_core->serde_derive                         1.0.228                         ---      Removed  Development  ---
+serde_derive->proc-macro2                        1.0.106                         ---      Removed  Normal       ---
+serde_derive->quote                              1.0.45                          ---      Removed  Normal       ---
+serde_derive->syn                                2.0.117                         ---      Removed  Normal       ---
+serde_json->itoa                                 1.0.18                          ---      Removed  Normal       ---
+serde_json->memchr                               2.8.0                           ---      Removed  Normal       ---
+serde_json->serde                                1.0.228                         ---      Removed  Development  ---
+serde_json->serde_core                           1.0.228                         ---      Removed  Normal       ---
+serde_json->zmij                                 1.0.21                          ---      Removed  Normal       ---
+serde_urlencoded->form_urlencoded                1.2.2                           ---      Removed  Normal       ---
+serde_urlencoded->itoa                           1.0.18                          ---      Removed  Normal       ---
+serde_urlencoded->ryu                            1.0.23                          ---      Removed  Normal       ---
+serde_urlencoded->serde                          1.0.228                         ---      Removed  Normal       ---
+sha2                                             0.10.9                          ---      0.11.0   Normal       cfg(not(target_arch = "wasm32"))
+sha2->cfg-if                                     1.0.4                           ---      Removed  Normal       ---
+sha2->cpufeatures                                0.2.17                          ---      0.3.0    Normal       cfg(any(target_arch = "aarch64", target_arch = "x86_64", target_arch = "x86"))
+sha2->cpufeatures                                0.2.17                          ---      Removed  Normal       cfg(any(target_arch = "aarch64", target_arch = "x86_64", target_arch = "x86"))
+sha2->digest                                     0.10.7                          ---      0.11.3   Normal       ---
+sha2->digest                                     0.10.7                          ---      Removed  Normal       ---
+signal-hook-registry->errno                      0.3.14                          ---      Removed  Normal       ---
+signal-hook-registry->libc                       0.2.185                         0.2.186  0.2.186  Normal       ---
+signal-hook-registry->libc                       0.2.185                         0.2.186  Removed  Normal       ---
+socket2->libc                                    0.2.185                         0.2.186  0.2.186  Normal       cfg(any(unix, target_os = "wasi"))
+socket2->libc                                    0.2.185                         0.2.186  0.2.186  Normal       cfg(unix)
+socket2->libc                                    0.2.185                         0.2.186  Removed  Normal       cfg(any(unix, target_os = "wasi"))
+socket2->libc                                    0.2.185                         0.2.186  Removed  Normal       cfg(unix)
+socket2->windows-sys                             0.52.0                          ---      0.61.2   Normal       cfg(windows)
+socket2->windows-sys                             0.52.0                          ---      Removed  Normal       cfg(windows)
+socket2->windows-sys                             0.61.2                          ---      Removed  Normal       cfg(windows)
+syn->proc-macro2                                 1.0.106                         ---      Removed  Normal       ---
+syn->quote                                       1.0.45                          ---      Removed  Normal       ---
+syn->unicode-ident                               1.0.24                          ---      Removed  Normal       ---
+synstructure->proc-macro2                        1.0.106                         ---      Removed  Normal       ---
+synstructure->quote                              1.0.45                          ---      Removed  Normal       ---
+synstructure->syn                                2.0.117                         ---      Removed  Normal       ---
+system-configuration->bitflags                   1.3.2                           ---      Removed  Normal       ---
+system-configuration->core-foundation            0.9.4                           ---      Removed  Normal       ---
+system-configuration->system-configuration-sys   0.5.0                           ---      Removed  Normal       ---
+system-configuration-sys->core-foundation-sys    0.8.7                           ---      Removed  Normal       ---
+system-configuration-sys->libc                   0.2.185                         0.2.186  Removed  Normal       ---
+tempfile->fastrand                               2.4.1                           ---      Removed  Normal       ---
+tempfile->getrandom                              0.4.2                           ---      Removed  Normal       cfg(any(unix, windows, target_os = "wasi"))
+tempfile->once_cell                              1.21.4                          ---      Removed  Normal       ---
+tempfile->rustix                                 1.1.4                           ---      Removed  Normal       cfg(any(unix, target_os = "wasi"))
+tempfile->windows-sys                            0.61.2                          ---      Removed  Normal       cfg(windows)
+termcolor->winapi-util                           0.1.11                          ---      Removed  Normal       cfg(windows)
+thiserror->thiserror-impl                        1.0.69                          ---      2.0.18   Normal       ---
+thiserror->thiserror-impl                        2.0.18                          ---      Removed  Normal       ---
+thiserror-impl->proc-macro2                      1.0.106                         ---      Removed  Normal       ---
+thiserror-impl->quote                            1.0.45                          ---      Removed  Normal       ---
+thiserror-impl->syn                              2.0.117                         ---      Removed  Normal       ---
+tinystr->displaydoc                              0.2.5                           ---      Removed  Normal       ---
+tinystr->zerovec                                 0.11.6                          ---      Removed  Normal       ---
+tokio->bytes                                     1.11.1                          ---      Removed  Normal       ---
+tokio->libc                                      0.2.185                         0.2.186  0.2.186  Normal       cfg(all(tokio_unstable, target_os = "linux"))
+tokio->libc                                      0.2.185                         0.2.186  Removed  Normal       cfg(all(tokio_unstable, target_os = "linux"))
+tokio->mio                                       1.2.0                           ---      Removed  Normal       ---
+tokio->parking_lot                               0.12.5                          ---      Removed  Normal       ---
+tokio->pin-project-lite                          0.2.17                          ---      Removed  Normal       ---
+tokio->signal-hook-registry                      1.4.8                           ---      Removed  Normal       cfg(unix)
+tokio->socket2                                   0.6.3                           ---      Removed  Normal       cfg(any(not(target_family = "wasm"), all(target_os = "wasi", not(target_env = "p1"))))
+tokio->tokio-macros                              2.7.0                           ---      Removed  Normal       ---
+tokio->windows-sys                               0.61.2                          ---      Removed  Normal       cfg(windows)
+tokio-macros->proc-macro2                        1.0.106                         ---      Removed  Normal       ---
+tokio-macros->quote                              1.0.45                          ---      Removed  Normal       ---
+tokio-macros->syn                                2.0.117                         ---      Removed  Normal       ---
+tokio-native-tls->native-tls                     0.2.18                          ---      Removed  Normal       ---
+tokio-native-tls->tokio                          1.52.1                          ---      Removed  Normal       ---
+tokio-rustls->rustls                             0.23.39                         0.23.40  0.23.40  Normal       ---
+tokio-tungstenite                                0.20.1                          ---      0.29.0   Normal       cfg(not(target_arch = "wasm32"))
+tokio-tungstenite->tungstenite                   0.20.1                          ---      0.29.0   Normal       ---
+tokio-tungstenite->tungstenite                   0.24.0                          ---      0.29.0   Normal       ---
+tokio-util->bytes                                1.11.1                          ---      Removed  Normal       ---
+tokio-util->futures-core                         0.3.32                          ---      Removed  Normal       ---
+tokio-util->futures-sink                         0.3.32                          ---      Removed  Normal       ---
+tokio-util->pin-project-lite                     0.2.17                          ---      Removed  Normal       ---
+tokio-util->tokio                                1.52.1                          ---      Removed  Normal       ---
+tower                                            0.4.13                          ---      0.5.3    Normal       cfg(not(target_arch = "wasm32"))
+tower-http                                       0.5.2                           ---      0.6.8    Normal       cfg(not(target_arch = "wasm32"))
+tower-http->async-compression                    0.4.41                          0.4.42   0.4.42   Normal       ---
+tower-http->http-body-util                       0.1.3                           ---      Removed  Normal       ---
+tracing->log                                     0.4.29                          ---      Removed  Normal       ---
+tracing->pin-project-lite                        0.2.17                          ---      Removed  Normal       ---
+tracing->tracing-attributes                      0.1.31                          ---      Removed  Normal       ---
+tracing->tracing-core                            0.1.36                          ---      Removed  Normal       ---
+tracing-attributes->proc-macro2                  1.0.106                         ---      Removed  Normal       ---
+tracing-attributes->quote                        1.0.45                          ---      Removed  Normal       ---
+tracing-attributes->syn                          2.0.117                         ---      Removed  Normal       ---
+tracing-core->once_cell                          1.21.4                          ---      Removed  Normal       ---
+tungstenite->byteorder                           1.5.0                           ---      Removed  Normal       ---
+tungstenite->data-encoding                       2.10.0                          2.11.0   2.11.0   Normal       ---
+tungstenite->http                                0.2.12                          ---      1.4.0    Normal       ---
+tungstenite->rand                                0.8.6                           ---      0.9.4    Normal       ---
+tungstenite->thiserror                           1.0.69                          ---      2.0.18   Normal       ---
+tungstenite->url                                 2.5.8                           ---      Removed  Normal       ---
+tungstenite->utf-8                               0.7.6                           ---      Removed  Normal       ---
+url->form_urlencoded                             1.2.2                           ---      Removed  Normal       ---
+url->idna                                        1.1.0                           ---      Removed  Normal       ---
+url->percent-encoding                            2.3.2                           ---      Removed  Normal       ---
+url->serde                                       1.0.228                         ---      Removed  Normal       ---
+url->serde_derive                                1.0.228                         ---      Removed  Normal       ---
+want->try-lock                                   0.2.5                           ---      Removed  Normal       ---
+wasip2->wit-bindgen                              0.57.1                          ---      Removed  Normal       ---
+wasip3->wit-bindgen                              0.51.0                          ---      Removed  Normal       ---
+wasm-bindgen->cfg-if                             1.0.4                           ---      Removed  Normal       ---
+wasm-bindgen->once_cell                          1.21.4                          ---      Removed  Normal       ---
+wasm-bindgen->rustversion                        1.0.22                          ---      Removed  Build        ---
+wasm-bindgen->wasm-bindgen-macro                 0.2.120                         ---      Removed  Normal       ---
+wasm-bindgen->wasm-bindgen-shared                0.2.120                         ---      Removed  Normal       ---
+wasm-bindgen-macro->quote                        1.0.45                          ---      Removed  Normal       ---
+wasm-bindgen-macro->wasm-bindgen-macro-support   0.2.120                         ---      Removed  Normal       ---
+wasm-bindgen-macro-support->bumpalo              3.20.2                          ---      Removed  Normal       ---
+wasm-bindgen-macro-support->proc-macro2          1.0.106                         ---      Removed  Normal       ---
+wasm-bindgen-macro-support->quote                1.0.45                          ---      Removed  Normal       ---
+wasm-bindgen-macro-support->syn                  2.0.117                         ---      Removed  Normal       ---
+wasm-bindgen-macro-support->wasm-bindgen-shared  0.2.120                         ---      Removed  Normal       ---
+wasm-bindgen-shared->unicode-ident               1.0.24                          ---      Removed  Normal       ---
+wasm-encoder->leb128fmt                          0.1.0                           ---      Removed  Normal       ---
+wasm-encoder->wasmparser                         0.244.0                         ---      Removed  Normal       ---
+wasm-metadata->anyhow                            1.0.102                         ---      Removed  Normal       ---
+wasm-metadata->indexmap                          2.14.0                          ---      Removed  Normal       ---
+wasm-metadata->wasm-encoder                      0.244.0                         ---      Removed  Normal       ---
+wasm-metadata->wasmparser                        0.244.0                         ---      Removed  Normal       ---
+wasmparser->bitflags                             2.11.1                          ---      Removed  Normal       ---
+wasmparser->hashbrown                            0.15.5                          ---      Removed  Normal       ---
+wasmparser->indexmap                             2.14.0                          ---      Removed  Normal       ---
+wasmparser->semver                               1.0.28                          ---      Removed  Normal       ---
+webauthn-attestation-ca->base64urlsafedata       0.5.4                           0.5.5    0.5.5    Normal       ---
+webauthn-attestation-ca->openssl                 0.10.78                         0.10.79  0.10.79  Normal       ---
+webauthn-attestation-ca->openssl-sys             0.9.114                         0.9.115  0.9.115  Normal       ---
+webauthn-rs                                      0.5.4                           0.5.5    0.5.5    Normal       cfg(not(target_arch = "wasm32"))
+webauthn-rs->base64urlsafedata                   0.5.4                           0.5.5    0.5.5    Normal       ---
+webauthn-rs->webauthn-rs-core                    0.5.4                           0.5.5    0.5.5    Normal       ---
+webauthn-rs-core->base64urlsafedata              0.5.4                           0.5.5    0.5.5    Normal       ---
+webauthn-rs-core->openssl                        0.10.78                         0.10.79  0.10.79  Normal       ---
+webauthn-rs-core->openssl-sys                    0.9.114                         0.9.115  0.9.115  Normal       ---
+webauthn-rs-core->webauthn-attestation-ca        0.5.4                           0.5.5    0.5.5    Normal       ---
+webauthn-rs-core->webauthn-rs-proto              0.5.4                           0.5.5    0.5.5    Normal       ---
+webauthn-rs-proto                                0.5.4                           0.5.5    0.5.5    Normal       cfg(not(target_arch = "wasm32"))
+webauthn-rs-proto->base64urlsafedata             0.5.4                           0.5.5    0.5.5    Normal       ---
+webpki-roots->rustls-pki-types                   1.14.0                          1.14.1   1.14.1   Normal       ---
+winapi-util->windows-sys                         0.61.2                          ---      Removed  Normal       cfg(windows)
+windows-sys->windows-link                        0.2.1                           ---      Removed  Normal       ---
+windows-sys->windows-targets                     0.48.5                          ---      0.53.5   Normal       ---
+windows-sys->windows-targets                     0.48.5                          ---      Removed  Normal       ---
+windows-sys->windows-targets                     0.52.6                          ---      Removed  Normal       ---
+windows-targets->windows_aarch64_gnullvm         0.48.5                          ---      0.53.1   Normal       aarch64-pc-windows-gnullvm
+windows-targets->windows_aarch64_gnullvm         0.48.5                          ---      Removed  Normal       aarch64-pc-windows-gnullvm
+windows-targets->windows_aarch64_gnullvm         0.52.6                          ---      Removed  Normal       aarch64-pc-windows-gnullvm
+windows-targets->windows_aarch64_msvc            0.48.5                          ---      0.53.1   Normal       cfg(all(target_arch = "aarch64", target_env = "msvc", not(windows_raw_dylib)))
+windows-targets->windows_aarch64_msvc            0.48.5                          ---      Removed  Normal       cfg(all(target_arch = "aarch64", target_env = "msvc", not(windows_raw_dylib)))
+windows-targets->windows_aarch64_msvc            0.52.6                          ---      Removed  Normal       cfg(all(target_arch = "aarch64", target_env = "msvc", not(windows_raw_dylib)))
+windows-targets->windows_i686_gnu                0.48.5                          ---      0.53.1   Normal       cfg(all(target_arch = "x86", target_env = "gnu", not(windows_raw_dylib)))
+windows-targets->windows_i686_gnu                0.48.5                          ---      Removed  Normal       cfg(all(target_arch = "x86", target_env = "gnu", not(windows_raw_dylib)))
+windows-targets->windows_i686_gnu                0.52.6                          ---      Removed  Normal       cfg(all(target_arch = "x86", target_env = "gnu", not(target_abi = "llvm"), not(windows_raw_dylib)))
+windows-targets->windows_i686_gnullvm            0.52.6                          ---      Removed  Normal       i686-pc-windows-gnullvm
+windows-targets->windows_i686_msvc               0.48.5                          ---      0.53.1   Normal       cfg(all(target_arch = "x86", target_env = "msvc", not(windows_raw_dylib)))
+windows-targets->windows_i686_msvc               0.48.5                          ---      Removed  Normal       cfg(all(target_arch = "x86", target_env = "msvc", not(windows_raw_dylib)))
+windows-targets->windows_i686_msvc               0.52.6                          ---      Removed  Normal       cfg(all(target_arch = "x86", target_env = "msvc", not(windows_raw_dylib)))
+windows-targets->windows_x86_64_gnu              0.48.5                          ---      0.53.1   Normal       cfg(all(target_arch = "x86_64", target_env = "gnu", not(target_abi = "llvm"), not(windows_raw_dylib)))
+windows-targets->windows_x86_64_gnu              0.48.5                          ---      Removed  Normal       cfg(all(target_arch = "x86_64", target_env = "gnu", not(target_abi = "llvm"), not(windows_raw_dylib)))
+windows-targets->windows_x86_64_gnu              0.52.6                          ---      Removed  Normal       cfg(all(target_arch = "x86_64", target_env = "gnu", not(target_abi = "llvm"), not(windows_raw_dylib)))
+windows-targets->windows_x86_64_gnullvm          0.48.5                          ---      0.53.1   Normal       x86_64-pc-windows-gnullvm
+windows-targets->windows_x86_64_gnullvm          0.48.5                          ---      Removed  Normal       x86_64-pc-windows-gnullvm
+windows-targets->windows_x86_64_gnullvm          0.52.6                          ---      Removed  Normal       x86_64-pc-windows-gnullvm
+windows-targets->windows_x86_64_msvc             0.48.5                          ---      0.53.1   Normal       cfg(all(target_arch = "x86_64", target_env = "msvc", not(windows_raw_dylib)))
+windows-targets->windows_x86_64_msvc             0.48.5                          ---      Removed  Normal       cfg(all(target_arch = "x86_64", target_env = "msvc", not(windows_raw_dylib)))
+windows-targets->windows_x86_64_msvc             0.52.6                          ---      Removed  Normal       cfg(all(any(target_arch = "x86_64", target_arch = "arm64ec"), target_env = "msvc", not(windows_raw_dylib)))
+winreg->cfg-if                                   1.0.4                           ---      Removed  Normal       ---
+winreg->windows-sys                              0.48.0                          ---      Removed  Normal       ---
+wit-bindgen->wit-bindgen-rust-macro              0.51.0                          ---      Removed  Normal       ---
+wit-bindgen-core->anyhow                         1.0.102                         ---      Removed  Normal       ---
+wit-bindgen-core->heck                           0.5.0                           ---      Removed  Normal       ---
+wit-bindgen-core->wit-parser                     0.244.0                         ---      Removed  Normal       ---
+wit-bindgen-rust->anyhow                         1.0.102                         ---      Removed  Normal       ---
+wit-bindgen-rust->heck                           0.5.0                           ---      Removed  Normal       ---
+wit-bindgen-rust->indexmap                       2.14.0                          ---      Removed  Normal       ---
+wit-bindgen-rust->prettyplease                   0.2.37                          ---      Removed  Normal       ---
+wit-bindgen-rust->syn                            2.0.117                         ---      Removed  Normal       ---
+wit-bindgen-rust->wasm-metadata                  0.244.0                         ---      Removed  Normal       ---
+wit-bindgen-rust->wit-bindgen-core               0.51.0                          ---      Removed  Normal       ---
+wit-bindgen-rust->wit-component                  0.244.0                         ---      Removed  Normal       ---
+wit-bindgen-rust-macro->anyhow                   1.0.102                         ---      Removed  Normal       ---
+wit-bindgen-rust-macro->prettyplease             0.2.37                          ---      Removed  Normal       ---
+wit-bindgen-rust-macro->proc-macro2              1.0.106                         ---      Removed  Normal       ---
+wit-bindgen-rust-macro->quote                    1.0.45                          ---      Removed  Normal       ---
+wit-bindgen-rust-macro->syn                      2.0.117                         ---      Removed  Normal       ---
+wit-bindgen-rust-macro->wit-bindgen-core         0.51.0                          ---      Removed  Normal       ---
+wit-bindgen-rust-macro->wit-bindgen-rust         0.51.0                          ---      Removed  Normal       ---
+wit-component->anyhow                            1.0.102                         ---      Removed  Normal       ---
+wit-component->bitflags                          2.11.1                          ---      Removed  Normal       ---
+wit-component->indexmap                          2.14.0                          ---      Removed  Normal       ---
+wit-component->log                               0.4.29                          ---      Removed  Normal       ---
+wit-component->serde                             1.0.228                         ---      Removed  Normal       ---
+wit-component->serde_derive                      1.0.228                         ---      Removed  Normal       ---
+wit-component->serde_json                        1.0.149                         ---      Removed  Normal       ---
+wit-component->wasm-encoder                      0.244.0                         ---      Removed  Normal       ---
+wit-component->wasm-metadata                     0.244.0                         ---      Removed  Normal       ---
+wit-component->wasmparser                        0.244.0                         ---      Removed  Normal       ---
+wit-component->wit-parser                        0.244.0                         ---      Removed  Normal       ---
+wit-parser->anyhow                               1.0.102                         ---      Removed  Normal       ---
+wit-parser->id-arena                             2.3.0                           ---      Removed  Normal       ---
+wit-parser->indexmap                             2.14.0                          ---      Removed  Normal       ---
+wit-parser->log                                  0.4.29                          ---      Removed  Normal       ---
+wit-parser->semver                               1.0.28                          ---      Removed  Normal       ---
+wit-parser->serde                                1.0.228                         ---      Removed  Normal       ---
+wit-parser->serde_derive                         1.0.228                         ---      Removed  Normal       ---
+wit-parser->serde_json                           1.0.149                         ---      Removed  Normal       ---
+wit-parser->unicode-xid                          0.2.6                           ---      Removed  Normal       ---
+wit-parser->wasmparser                           0.244.0                         ---      Removed  Normal       ---
+x509-parser->data-encoding                       2.10.0                          2.11.0   2.11.0   Normal       ---
+yoke->stable_deref_trait                         1.2.1                           ---      Removed  Normal       ---
+yoke->yoke-derive                                0.8.2                           ---      Removed  Normal       ---
+yoke->zerofrom                                   0.1.7                           ---      Removed  Normal       ---
+yoke-derive->proc-macro2                         1.0.106                         ---      Removed  Normal       ---
+yoke-derive->quote                               1.0.45                          ---      Removed  Normal       ---
+yoke-derive->syn                                 2.0.117                         ---      Removed  Normal       ---
+yoke-derive->synstructure                        0.13.2                          ---      Removed  Normal       ---
+zerocopy->zerocopy-derive                        0.8.48                          ---      Removed  Normal       ---
+zerocopy-derive->proc-macro2                     1.0.106                         ---      Removed  Normal       ---
+zerocopy-derive->quote                           1.0.45                          ---      Removed  Normal       ---
+zerocopy-derive->syn                             2.0.117                         ---      Removed  Normal       ---
+zerofrom->zerofrom-derive                        0.1.7                           ---      Removed  Normal       ---
+zerofrom-derive->proc-macro2                     1.0.106                         ---      Removed  Normal       ---
+zerofrom-derive->quote                           1.0.45                          ---      Removed  Normal       ---
+zerofrom-derive->syn                             2.0.117                         ---      Removed  Normal       ---
+zerofrom-derive->synstructure                    0.13.2                          ---      Removed  Normal       ---
+zerotrie->displaydoc                             0.2.5                           ---      Removed  Normal       ---
+zerotrie->yoke                                   0.8.2                           ---      Removed  Normal       ---
+zerotrie->zerofrom                               0.1.7                           ---      Removed  Normal       ---
+zerovec->yoke                                    0.8.2                           ---      Removed  Normal       ---
+zerovec->zerofrom                                0.1.7                           ---      Removed  Normal       ---
+zerovec->zerovec-derive                          0.11.3                          ---      Removed  Normal       ---
+zerovec-derive->proc-macro2                      1.0.106                         ---      Removed  Normal       ---
+zerovec-derive->quote                            1.0.45                          ---      Removed  Normal       ---
+zerovec-derive->syn                              2.0.117                         ---      Removed  Normal       ---
+zip                                              2.4.2                           ---      8.6.0    Normal       cfg(not(target_arch = "wasm32"))
+zip->arbitrary                                   1.4.2                           ---      Removed  Normal       cfg(fuzzing)
+zip->crossbeam-utils                             0.8.21                          ---      Removed  Normal       cfg(any(all(target_arch = "arm", target_pointer_width = "32"), target_arch = "mips", target_arch = "powerpc"))
+zip->displaydoc                                  0.2.5                           ---      Removed  Normal       ---
+zip->thiserror                                   2.0.18                          ---      Removed  Normal       ---

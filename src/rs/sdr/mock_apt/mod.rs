@@ -8,7 +8,7 @@ use crate::fft::types::RawSamples;
 use anyhow::Result;
 use crossbeam_channel::Receiver;
 use rand::rngs::StdRng;
-use rand::{Rng, SeedableRng};
+use rand::{RngExt, SeedableRng};
 use std::f32::consts::PI;
 use std::f64::consts::PI as PI64;
 use std::thread::JoinHandle;
@@ -86,7 +86,7 @@ impl MockAptDevice {
       total_samples: 0,
       signals,
       noise_floor_db,
-      rng: StdRng::from_entropy(),
+      rng: StdRng::from_rng(&mut ::rand::rng()),
       settle_time_samples: 160_000, // 50ms at 3.2MSPS
       samples_since_init: 0,
       last_config_reload_check: Instant::now(),
@@ -102,7 +102,7 @@ impl MockAptDevice {
     mock_settings: &crate::server::types::MockAptSignalsConfig,
   ) -> Vec<MockAptSignal> {
     let mut signals = Vec::new();
-    let mut rng = rand::thread_rng();
+    let mut rng = ::rand::rng();
 
     // Default values
     const DEFAULT_SPIKE_HZ: f64 = 33_000.0;
@@ -125,7 +125,7 @@ impl MockAptDevice {
       // Or range: !frequency_range 30kHz..40kHz → Range(30000, 40000)
       let spike_hz = match &channel_config.apt_spike_density {
         Some(crate::server::types::FrequencySpacing::Range(min_hz, max_hz)) => {
-          rng.gen_range(*min_hz..*max_hz)
+          rng.random_range(*min_hz..*max_hz)
         }
         Some(crate::server::types::FrequencySpacing::Single(hz)) => *hz,
         _ => DEFAULT_SPIKE_HZ,
@@ -153,21 +153,21 @@ impl MockAptDevice {
         };
         let freq = min_freq + freq_offset;
 
-        let strength_db = rng.gen_range((mid - span)..(mid + span));
+        let strength_db = rng.random_range((mid - span)..(mid + span));
 
         signals.push(MockAptSignal {
           config: MockAptSignalConfig {
             center_frequency_hz: freq,
             strength_db,
           },
-          modulation_phase: rng.gen_range(0.0..=2.0 * PI),
-          drift_offset: rng.gen_range(-50.0..=50.0),
+          modulation_phase: rng.random_range(0.0..=2.0 * PI),
+          drift_offset: rng.random_range(-50.0..=50.0),
           active: true,
           bandwidth_hz: (freq_span_hz / signal_count as f64)
             .clamp(15000.0, 200000.0),
-          phase: rng.gen_range(0.0..=2.0 * PI64),
-          phase_side_low: rng.gen_range(0.0..=2.0 * PI64),
-          phase_side_high: rng.gen_range(0.0..=2.0 * PI64),
+          phase: rng.random_range(0.0..=2.0 * PI64),
+          phase_side_low: rng.random_range(0.0..=2.0 * PI64),
+          phase_side_high: rng.random_range(0.0..=2.0 * PI64),
         });
       }
     }
@@ -177,38 +177,38 @@ impl MockAptDevice {
       // Legacy Area A: 100kHz - 4.5MHz
       for i in 0..10 {
         let freq = 100_000.0 + (i as f64 * 450_000.0);
-        let strength_db = rng.gen_range(-80.0..-70.0);
+        let strength_db = rng.random_range(-80.0..-70.0);
         signals.push(MockAptSignal {
           config: MockAptSignalConfig {
             center_frequency_hz: freq,
             strength_db,
           },
-          modulation_phase: rng.gen_range(0.0..=2.0 * PI),
-          drift_offset: rng.gen_range(-10.0..=10.0),
+          modulation_phase: rng.random_range(0.0..=2.0 * PI),
+          drift_offset: rng.random_range(-10.0..=10.0),
           active: true,
           bandwidth_hz: 30000.0,
-          phase: rng.gen_range(0.0..=2.0 * PI64),
-          phase_side_low: rng.gen_range(0.0..=2.0 * PI64),
-          phase_side_high: rng.gen_range(0.0..=2.0 * PI64),
+          phase: rng.random_range(0.0..=2.0 * PI64),
+          phase_side_low: rng.random_range(0.0..=2.0 * PI64),
+          phase_side_high: rng.random_range(0.0..=2.0 * PI64),
         });
       }
 
       // Legacy Area B: 24.7MHz - 30.0MHz
       for i in 0..11 {
         let freq = 24_700_000.0 + (i as f64 * 500_000.0);
-        let strength_db = rng.gen_range(-70.0..-50.0);
+        let strength_db = rng.random_range(-70.0..-50.0);
         signals.push(MockAptSignal {
           config: MockAptSignalConfig {
             center_frequency_hz: freq,
             strength_db,
           },
-          drift_offset: rng.gen_range(-50.0..50.0),
-          modulation_phase: rng.gen_range(0.0..=2.0 * PI),
+          drift_offset: rng.random_range(-50.0..50.0),
+          modulation_phase: rng.random_range(0.0..=2.0 * PI),
           active: true,
           bandwidth_hz: 100000.0,
-          phase: rng.gen_range(0.0..=2.0 * PI64),
-          phase_side_low: rng.gen_range(0.0..=2.0 * PI64),
-          phase_side_high: rng.gen_range(0.0..=2.0 * PI64),
+          phase: rng.random_range(0.0..=2.0 * PI64),
+          phase_side_low: rng.random_range(0.0..=2.0 * PI64),
+          phase_side_high: rng.random_range(0.0..=2.0 * PI64),
         });
       }
     }
@@ -546,8 +546,8 @@ impl MockAptDevice {
 
     for _ in 0..fft_size {
       // Use pre-calculated noise amplitude for correct power distribution
-      let mut i_sample = (self.rng.gen::<f64>() - 0.5) * 2.0 * noise_amplitude;
-      let mut q_sample = (self.rng.gen::<f64>() - 0.5) * 2.0 * noise_amplitude;
+      let mut i_sample = (self.rng.random::<f64>() - 0.5) * 2.0 * noise_amplitude;
+      let mut q_sample = (self.rng.random::<f64>() - 0.5) * 2.0 * noise_amplitude;
 
       for sig in &mut cached_signals {
         // Update main signal

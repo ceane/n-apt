@@ -7,7 +7,7 @@ use crate::fft::types::RawSamples;
 #[cfg(any(target_arch = "wasm32", target_arch = "aarch64"))]
 use crate::simd::fast_math::fast_tanhq_f32;
 use anyhow::Result;
-use rand::Rng;
+use rand::RngExt;
 #[cfg(target_arch = "aarch64")]
 use std::arch::aarch64::*;
 #[cfg(target_arch = "wasm32")]
@@ -52,7 +52,7 @@ impl MockSignalGenerator {
   pub fn new() -> Self {
     Self {
       frame_counter: 0,
-      rng: rand::thread_rng(),
+      rng: ::rand::rng(),
       total_samples: 0,
     }
   }
@@ -179,8 +179,8 @@ impl MockSignalGenerator {
     let mut noise_i = Vec::with_capacity(fft_size);
     let mut noise_q = Vec::with_capacity(fft_size);
     for _ in 0..fft_size {
-      noise_i.push((self.rng.gen::<f32>() - 0.5) * 2.0 * noise_level);
-      noise_q.push((self.rng.gen::<f32>() - 0.5) * 2.0 * noise_level);
+      noise_i.push((self.rng.random::<f32>() - 0.5) * 2.0 * noise_level);
+      noise_q.push((self.rng.random::<f32>() - 0.5) * 2.0 * noise_level);
     }
 
     for i in 0..fft_size {
@@ -329,15 +329,15 @@ impl MockSignalGenerator {
         #[cfg(target_arch = "aarch64")]
         let (mut i_acc, mut q_acc) = {
           let noise_i =
-            vdupq_n_f32((self.rng.gen::<f32>() - 0.5) * 2.0 * noise_level);
+            vdupq_n_f32((self.rng.random::<f32>() - 0.5) * 2.0 * noise_level);
           let noise_q =
-            vdupq_n_f32((self.rng.gen::<f32>() - 0.5) * 2.0 * noise_level);
+            vdupq_n_f32((self.rng.random::<f32>() - 0.5) * 2.0 * noise_level);
           (noise_i, noise_q)
         };
         #[cfg(target_arch = "wasm32")]
         let (mut i_acc, mut q_acc) = {
-          let n_val_i = (self.rng.gen::<f32>() - 0.5) * 2.0 * noise_level;
-          let n_val_q = (self.rng.gen::<f32>() - 0.5) * 2.0 * noise_level;
+          let n_val_i = (self.rng.random::<f32>() - 0.5) * 2.0 * noise_level;
+          let n_val_q = (self.rng.random::<f32>() - 0.5) * 2.0 * noise_level;
           (
             f32x4(n_val_i, n_val_i, n_val_i, n_val_i),
             f32x4(n_val_q, n_val_q, n_val_q, n_val_q),
@@ -541,12 +541,12 @@ impl MockSignalGenerator {
   ) {
     for signal in signals.iter_mut() {
       if signal.active
-        && self.rng.gen::<f32>()
+        && self.rng.random::<f32>()
           < config.global_settings.signal_appearance_chance as f32
       {
         signal.active = false;
       } else if !signal.active
-        && self.rng.gen::<f32>()
+        && self.rng.random::<f32>()
           < config.global_settings.signal_disappearance_chance as f32
       {
         signal.active = true;
@@ -555,7 +555,7 @@ impl MockSignalGenerator {
       if signal.active {
         let drift = config.global_settings.signal_drift_rate as f32;
         if drift > 0.0 {
-          signal.drift_offset += self.rng.gen_range(-drift..drift);
+          signal.drift_offset += self.rng.random_range(-drift..drift);
         }
         signal.drift_offset = signal.drift_offset.clamp(-5.0, 5.0);
 
@@ -594,8 +594,8 @@ impl MockSignalGenerator {
     sample_rate: u32,
     fft_size: usize,
   ) -> (f32, f32) {
-    let mut i_acc = (self.rng.gen::<f32>() - 0.5) * 2.0 * noise_level;
-    let mut q_acc = (self.rng.gen::<f32>() - 0.5) * 2.0 * noise_level;
+    let mut i_acc = (self.rng.random::<f32>() - 0.5) * 2.0 * noise_level;
+    let mut q_acc = (self.rng.random::<f32>() - 0.5) * 2.0 * noise_level;
 
     for signal in signals {
       if !signal.active {
