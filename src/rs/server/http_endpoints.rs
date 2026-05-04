@@ -557,9 +557,8 @@ pub async fn capture_download_handler(
 
   // Get capture artifacts for this job
   let artifacts: Vec<crate::server::types::CaptureArtifact> = {
-    let artifacts_map = state.shared.capture_artifacts.lock().unwrap();
-    match artifacts_map.get(&params.job_id) {
-      Some(artifacts) => artifacts.clone(),
+    match state.shared.get_capture_artifacts(&params.job_id) {
+      Some(artifacts) => artifacts,
       None => {
         return (
           StatusCode::NOT_FOUND,
@@ -809,7 +808,7 @@ pub async fn agent_status_handler(
       "is_paused": is_paused,
       "active_clients": client_count,
       "authenticated_clients": authenticated_count,
-      "capture_artifacts": shared.capture_artifacts.lock().unwrap().len()
+      "redis_metadata_active": true
     },
     "signals": {
       "center_frequency_hz": center_freq_hz as f64,

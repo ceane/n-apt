@@ -4,7 +4,6 @@ use axum::response::IntoResponse;
 use axum::Json;
 use log::{error, info, warn};
 use std::sync::Arc;
-use std::time::Duration;
 use webauthn_rs::prelude::*;
 
 use crate::crypto;
@@ -13,6 +12,7 @@ use crate::server::types::{
   AuthSessionRequest, AuthVerifyRequest, PasskeyAuthFinishRequest,
   PasskeyRegisterFinishRequest,
 };
+use uuid::Uuid;
 
 /// GET /auth/info — returns whether passkeys are registered (so frontend
 /// knows whether to show passkey button vs password-only).
@@ -32,16 +32,23 @@ pub async fn auth_challenge_handler(
   let nonce = crypto::generate_nonce();
   let nonce_b64 = crypto::to_base64(&nonce);
 
-  // Store the nonce temporarily in a session (short-lived, 60s)
-  // We reuse the session store with a special prefix
+  // Store the nonce temporarily in Redis (short-lived, 60s)
   let challenge_id = Uuid::new_v4().to_string();
-  let mut challenges = state.shared.pending_challenges.lock().unwrap();
-  challenges.insert(challenge_id.clone(), (nonce, std::time::Instant::now()));
+  if let Err(e) = state.shared.store_challenge(&challenge_id, nonce) {
+    error!("Failed to store challenge in Redis: {}", e);
+    return (
+      StatusCode::INTERNAL_SERVER_ERROR,
+      Json(serde_json::json!({ "error": "redis_error" })),
+    ).into_response();
+  }
 
-  Json(serde_json::json!({
-    "challenge_id": challenge_id,
-    "nonce": nonce_b64,
-  }))
+  (
+    StatusCode::OK,
+    Json(serde_json::json!({
+      "challenge_id": challenge_id,
+      "nonce": nonce_b64,
+    })),
+  ).into_response()
 }
 
 /// POST /auth/verify — verify password-based HMAC response, return session token.
@@ -49,32 +56,18 @@ pub async fn auth_verify_handler(
   State(state): State<Arc<crate::server::AppState>>,
   Json(body): Json<AuthVerifyRequest>,
 ) -> impl IntoResponse {
-  // Look up the challenge nonce
-  let nonce = {
-    let mut challenges = state.shared.pending_challenges.lock().unwrap();
-    challenges.remove(&body.challenge_id)
-  };
+  // Look up the challenge nonce from Redis
+  let nonce = state.shared.take_challenge(&body.challenge_id);
 
-  let Some((nonce_bytes, created)) = nonce else {
+  let Some(nonce_bytes) = nonce else {
     return (
       StatusCode::UNAUTHORIZED,
       Json(serde_json::json!({
         "error": "invalid_challenge",
         "message": "Challenge not found or expired",
       })),
-    );
+    ).into_response();
   };
-
-  // Check challenge age (60s max)
-  if created.elapsed() > Duration::from_secs(60) {
-    return (
-      StatusCode::UNAUTHORIZED,
-      Json(serde_json::json!({
-        "error": "challenge_expired",
-        "message": "Challenge has expired",
-      })),
-    );
-  }
 
   // Verify HMAC
   let client_hmac = match crypto::from_base64(&body.hmac) {
@@ -86,7 +79,7 @@ pub async fn auth_verify_handler(
           "error": "invalid_hmac",
           "message": "Invalid HMAC encoding",
         })),
-      );
+      ).into_response();
     }
   };
 
@@ -102,7 +95,7 @@ pub async fn auth_verify_handler(
         "error": "auth_failed",
         "message": "Invalid passkey",
       })),
-    );
+    ).into_response();
   }
 
   // Authentication successful — create session
@@ -117,7 +110,7 @@ pub async fn auth_verify_handler(
       "token": token,
       "expires_in": 86400,
     })),
-  )
+  ).into_response()
 }
 
 /// POST /auth/session — validate an existing session token.
@@ -143,6 +136,49 @@ pub async fn auth_session_handler(
         "error": "session_expired",
       })),
     ),
+  }
+}
+
+#[derive(serde::Deserialize)]
+pub struct VaultKeyQuery {
+  pub token: String,
+}
+
+/// GET /auth/vault-key — returns the encryption key for the current session.
+pub async fn auth_vault_key_handler(
+  State(state): State<Arc<crate::server::AppState>>,
+  axum::extract::Query(query): axum::extract::Query<VaultKeyQuery>,
+) -> impl IntoResponse {
+  match state.session_store.validate(&query.token) {
+    Some(session) => {
+      info!("Vault key requested and session validated");
+      let enc_key: [u8; 32] = match session.encryption_key.try_into() {
+        Ok(k) => k,
+        Err(_) => {
+          log::error!("Session has invalid encryption key — cannot return vault key");
+          return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+              "error": "invalid_session_key",
+              "message": "Session encryption key is corrupted",
+            })),
+          ).into_response();
+        }
+      };
+      (
+        StatusCode::OK,
+        Json(crate::server::types::VaultKeyResponse {
+          vault_key: crypto::to_base64(&enc_key),
+        }),
+      ).into_response()
+    }
+    None => (
+      StatusCode::UNAUTHORIZED,
+      Json(serde_json::json!({
+        "error": "session_expired",
+        "message": "Invalid or expired session token",
+      })),
+    ).into_response(),
   }
 }
 

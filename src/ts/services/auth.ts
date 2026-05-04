@@ -149,6 +149,25 @@ export async function validateSession(
   };
 }
 
+/**
+ * Fetch the derived encryption key (Vault Key) for an authenticated session.
+ */
+export async function fetchVaultKey(token: string): Promise<string | null> {
+  const response = await fetch(
+    `${API_BASE}/auth/vault-key?token=${encodeURIComponent(token)}`,
+    {
+      method: "GET",
+    },
+  );
+
+  if (!response.ok) {
+    return null;
+  }
+
+  const data = await response.json();
+  return data.vault_key;
+}
+
 // ── Password authentication ────────────────────────────────────────────
 
 /** Full password auth flow: challenge → derive key → HMAC → verify → session. */

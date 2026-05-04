@@ -18,7 +18,7 @@ fn ensure_test_password() {
 async fn test_device_freeze_detection() {
   ensure_test_password();
   // Test that the system can detect when a device becomes unresponsive
-  let shared_state = Arc::new(SharedState::new());
+  let shared_state = Arc::new(SharedState::new("redis://127.0.0.1:6379"));
 
   // Simulate device freeze
   let mock_profile = n_apt_backend::server::types::DeviceProfile {
@@ -46,7 +46,7 @@ async fn test_device_freeze_detection() {
 async fn test_stream_freeze_recovery() {
   ensure_test_password();
   // Test recovery from frozen stream
-  let shared_state = Arc::new(SharedState::new());
+  let shared_state = Arc::new(SharedState::new("redis://127.0.0.1:6379"));
 
   // Simulate stream freeze
   shared_state.device_connected.store(false, Ordering::SeqCst);
@@ -65,7 +65,7 @@ async fn test_stream_freeze_recovery() {
 async fn test_mock_mode_fallback() {
   ensure_test_password();
   // Test fallback to mock mode when real device freezes
-  let shared_state = Arc::new(SharedState::new());
+  let shared_state = Arc::new(SharedState::new("redis://127.0.0.1:6379"));
 
   // Start with real device
   let rtl_profile = n_apt_backend::server::types::DeviceProfile {
@@ -115,7 +115,7 @@ async fn test_mock_mode_fallback() {
 async fn test_io_thread_freeze_handling() {
   ensure_test_password();
   // Test handling of I/O thread freeze
-  let shared_state = Arc::new(SharedState::new());
+  let shared_state = Arc::new(SharedState::new("redis://127.0.0.1:6379"));
 
   // Simulate I/O thread freeze by setting shutdown flag
   shared_state.shutdown.store(true, Ordering::SeqCst);
@@ -129,7 +129,7 @@ async fn test_io_thread_freeze_handling() {
 async fn test_device_reconnection_after_freeze() {
   ensure_test_password();
   // Test device reconnection after freeze
-  let shared_state = Arc::new(SharedState::new());
+  let shared_state = Arc::new(SharedState::new("redis://127.0.0.1:6379"));
 
   // Initial connected state
   shared_state.device_connected.store(true, Ordering::SeqCst);
@@ -157,7 +157,7 @@ async fn test_device_reconnection_after_freeze() {
 async fn test_spectrum_data_validation() {
   ensure_test_password();
   // Test spectrum data validation during freeze scenarios
-  let shared_state = Arc::new(SharedState::new());
+  let shared_state = Arc::new(SharedState::new("redis://127.0.0.1:6379"));
 
   // Test with valid data
   let valid_spectrum = vec![-60.0; 1024];
@@ -197,7 +197,7 @@ async fn test_spectrum_data_validation() {
 async fn test_pause_state_during_freeze() {
   ensure_test_password();
   // Test pause state handling during device freeze
-  let shared_state = Arc::new(SharedState::new());
+  let shared_state = Arc::new(SharedState::new("redis://127.0.0.1:6379"));
 
   // Set paused state
   shared_state.is_paused.store(true, Ordering::SeqCst);
@@ -219,7 +219,7 @@ async fn test_pause_state_during_freeze() {
 #[tokio::test]
 async fn test_one_shot_paused_frame_flag_defaults_to_disabled() {
   ensure_test_password();
-  let shared_state = Arc::new(SharedState::new());
+  let shared_state = Arc::new(SharedState::new("redis://127.0.0.1:6379"));
 
   assert!(!shared_state.allow_next_paused_frame.load(Ordering::SeqCst));
 }
@@ -228,7 +228,7 @@ async fn test_one_shot_paused_frame_flag_defaults_to_disabled() {
 async fn test_frequency_changes_during_freeze() {
   ensure_test_password();
   // Test frequency changes during device freeze
-  let shared_state = Arc::new(SharedState::new());
+  let shared_state = Arc::new(SharedState::new("redis://127.0.0.1:6379"));
 
   // Set initial frequency
   let initial_freq = 100_000_000;
@@ -262,7 +262,7 @@ async fn test_frequency_changes_during_freeze() {
 async fn test_client_count_during_freeze() {
   ensure_test_password();
   // Test client count handling during device freeze
-  let shared_state = Arc::new(SharedState::new());
+  let shared_state = Arc::new(SharedState::new("redis://127.0.0.1:6379"));
 
   // Simulate multiple clients
   shared_state.client_count.store(3, Ordering::SeqCst);
@@ -283,7 +283,7 @@ async fn test_client_count_during_freeze() {
 async fn test_device_loading_state_during_freeze() {
   ensure_test_password();
   // Test device loading state during freeze scenarios
-  let shared_state = Arc::new(SharedState::new());
+  let shared_state = Arc::new(SharedState::new("redis://127.0.0.1:6379"));
 
   // Set loading state
   {
@@ -349,7 +349,7 @@ async fn test_device_loading_state_during_freeze() {
 async fn test_stale_state_recovery() {
   ensure_test_password();
   // Test recovery from stale device state
-  let shared_state = Arc::new(SharedState::new());
+  let shared_state = Arc::new(SharedState::new("redis://127.0.0.1:6379"));
 
   // Set stale state
   {
@@ -374,7 +374,7 @@ async fn test_stale_state_recovery() {
 async fn test_encryption_key_preservation() {
   ensure_test_password();
   // Test that encryption key is preserved during freeze scenarios
-  let shared_state = Arc::new(SharedState::new());
+  let shared_state = Arc::new(SharedState::new("redis://127.0.0.1:6379"));
 
   // Verify encryption key is set
   assert_ne!(shared_state.encryption_key, [0u8; 32]);
@@ -393,7 +393,7 @@ async fn test_encryption_key_preservation() {
 async fn test_channels_preservation() {
   ensure_test_password();
   // Test that channels configuration is preserved during freeze
-  let shared_state = Arc::new(SharedState::new());
+  let shared_state = Arc::new(SharedState::new("redis://127.0.0.1:6379"));
 
   // Verify channels are loaded
   {
@@ -421,7 +421,7 @@ async fn test_channels_preservation() {
 async fn test_memory_cleanup_during_freeze() {
   ensure_test_password();
   // Test memory cleanup during device freeze scenarios
-  let shared_state = Arc::new(SharedState::new());
+  let shared_state = Arc::new(SharedState::new("redis://127.0.0.1:6379"));
 
   // Fill spectrum buffer with data
   let large_spectrum = vec![-60.0; 10000];

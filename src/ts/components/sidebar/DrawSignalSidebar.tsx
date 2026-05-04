@@ -285,7 +285,7 @@ const DrawMath = React.lazy(async () => {
     return await import(/* @vite-ignore */ modulePath);
   } catch {
     return {
-      default: () => <DecryptionFallback moduleName="Draw Math" />,
+      default: () => <DecryptionFallback moduleName="Draw Math" errorType="latex" />,
     };
   }
 });

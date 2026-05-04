@@ -45,7 +45,14 @@ pub async fn ws_upgrade_handler(
   let broadcast_tx = state.broadcast_tx.clone();
   let spectrum_tx = state.spectrum_tx.clone();
   let cmd_tx = state.cmd_tx.clone();
-  let enc_key = session.encryption_key;
+  let enc_key: [u8; 32] = match session.encryption_key.try_into() {
+    Ok(k) => k,
+    Err(_) => {
+      log::error!("Session has invalid encryption key length — rejecting WebSocket upgrade");
+      return (StatusCode::INTERNAL_SERVER_ERROR, "Invalid session key")
+        .into_response();
+    }
+  };
   let session_token = params.token.clone();
 
   ws.on_upgrade(move |socket| {

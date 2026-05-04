@@ -340,7 +340,7 @@ export const SpectrumSidebar: React.FC = () => {
   ]);
 
   // Capture UI state
-  const showPrompt = usePrompt();
+  const { showPrompt } = usePrompt();
   const [activeCaptureAreas, setActiveCaptureAreas] = useState<string[]>(["Onscreen"]);
   const [acquisitionMode, setAcquisitionMode] = useState<"stepwise" | "interleaved" | "whole_sample">("stepwise");
   const [captureDurationMode, setCaptureDurationMode] = useState<"timed" | "manual">("timed");

@@ -1,5 +1,5 @@
 use axum::{http::StatusCode, Json};
-use log::{error, info};
+use log::{debug, error, info};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::process::Command;
@@ -43,8 +43,9 @@ pub async fn load_local_radius_towers(
     return Err(StatusCode::BAD_REQUEST);
   }
 
-  info!(
-    "Loading local towers: lat={}, lng={}, radius={}km",
+  // Log at debug level with reduced precision to avoid exposing exact PII coordinates
+  debug!(
+    "Loading local towers: lat={:.1}, lng={:.1}, radius={}km",
     request.latitude, request.longitude, radius_km
   );
 

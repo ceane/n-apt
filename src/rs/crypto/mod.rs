@@ -35,6 +35,13 @@ pub fn generate_nonce() -> [u8; 32] {
   nonce
 }
 
+/// Generate a random 256-bit AES key.
+pub fn generate_key() -> [u8; 32] {
+  let mut key = [0u8; 32];
+  ::rand::rng().fill_bytes(&mut key);
+  key
+}
+
 /// Compute HMAC-SHA256 over `data` using the given `key`.
 pub fn compute_hmac(key: &[u8; 32], data: &[u8]) -> Vec<u8> {
   let mut mac: Hmac<Sha256> = MacKeyInit::new_from_slice(key)
@@ -99,6 +106,39 @@ pub fn encrypt_payload(
   out.extend_from_slice(&ciphertext);
 
   Ok(B64.encode(&out))
+}
+
+/// Decrypt `payload` with AES-256-GCM.
+/// Input raw bytes: `12-byte IV || ciphertext || 16-byte tag`.
+pub fn decrypt_payload_binary(
+  key: &[u8; 32],
+  payload: &[u8],
+) -> Result<Vec<u8>, String> {
+  if payload.len() < 12 {
+    return Err("payload too short for IV".to_string());
+  }
+
+  let cipher: Aes256Gcm =
+    AeadKeyInit::new_from_slice(key).map_err(|e| format!("cipher init: {e}"))?;
+
+  let (iv_bytes, ciphertext) = payload.split_at(12);
+  let nonce = Nonce::from_slice(iv_bytes);
+
+  let plaintext = cipher
+    .decrypt(nonce, ciphertext)
+    .map_err(|e| format!("decrypt: {e}"))?;
+
+  Ok(plaintext)
+}
+
+/// Decrypt `payload_base64` with AES-256-GCM.
+/// Input is `base64( 12-byte IV || ciphertext || 16-byte tag )`.
+pub fn decrypt_payload(
+  key: &[u8; 32],
+  payload_base64: &str,
+) -> Result<Vec<u8>, String> {
+  let payload = from_base64(payload_base64)?;
+  decrypt_payload_binary(key, &payload)
 }
 
 /// Encode raw bytes as base64.

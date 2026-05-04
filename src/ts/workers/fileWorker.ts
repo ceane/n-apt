@@ -3,8 +3,14 @@
  */
 
 import { parseFrequency } from "../utils/frequency";
+import { base64ToBytes } from "../crypto/webcrypto";
 
 let currentFftSize = 8192;
+
+/** Strip non-printable/control characters and cap length for safe display. */
+function sanitizeFilename(name: string): string {
+  return name.replace(/[^\x20-\x7E]/g, '').slice(0, 255);
+}
 
 // File processing functions
 function parseFrequencyFromFilename(filename: string): number {
@@ -473,7 +479,45 @@ self.onmessage = async function (e) {
             const ciphertext = encryptedData.slice(12);
             
             try {
-              const decryptedData = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, aesKey, ciphertext);
+              let decryptedData: ArrayBuffer;
+              
+              if (metaObj.wrapped_dek || (metaObj.metadata && metaObj.metadata.wrapped_dek)) {
+                const wrappedDekBase64 = metaObj.wrapped_dek || metaObj.metadata.wrapped_dek;
+                const wrappedDekBytes = base64ToBytes(wrappedDekBase64);
+                const ivDek = wrappedDekBytes.slice(0, 12);
+                const cipherDek = wrappedDekBytes.slice(12);
+                
+                // 1. Unwrap (decrypt) the DEK using the Vault Key (aesKey)
+                const decryptedDek = await crypto.subtle.decrypt(
+                  { name: "AES-GCM", iv: ivDek },
+                  aesKey,
+                  cipherDek
+                );
+                
+                // 2. Import the raw DEK
+                const dek = await crypto.subtle.importKey(
+                  "raw",
+                  decryptedDek,
+                  { name: "AES-GCM" },
+                  false,
+                  ["decrypt"]
+                );
+                
+                // 3. Decrypt the main payload using the DEK
+                decryptedData = await crypto.subtle.decrypt(
+                  { name: "AES-GCM", iv },
+                  dek,
+                  ciphertext
+                );
+              } else {
+                // Legacy file: Decrypt using the Vault Key directly
+                decryptedData = await crypto.subtle.decrypt(
+                  { name: "AES-GCM", iv },
+                  aesKey,
+                  ciphertext
+                );
+              }
+              
               const payloadArray = new Uint8Array(decryptedData);
               
               const chOffsetIq = firstChannel.offset_iq;
@@ -582,7 +626,45 @@ self.onmessage = async function (e) {
                 const encryptedData = new Uint8Array(file.fileData, headerSize);
                 const iv = encryptedData.slice(0, 12);
                 const ciphertext = encryptedData.slice(12);
-                const decryptedData = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, aesKey, ciphertext);
+                let decryptedData: ArrayBuffer;
+
+                if (metaObj.wrapped_dek || (metadata && (metadata as any).wrapped_dek)) {
+                  const wrappedDekBase64 = metaObj.wrapped_dek || (metadata as any).wrapped_dek;
+                  const wrappedDekBytes = base64ToBytes(wrappedDekBase64);
+                  const ivDek = wrappedDekBytes.slice(0, 12);
+                  const cipherDek = wrappedDekBytes.slice(12);
+
+                  // 1. Unwrap (decrypt) the DEK using the Vault Key (aesKey)
+                  const decryptedDek = await crypto.subtle.decrypt(
+                    { name: "AES-GCM", iv: ivDek },
+                    aesKey,
+                    cipherDek
+                  );
+
+                  // 2. Import the raw DEK
+                  const dek = await crypto.subtle.importKey(
+                    "raw",
+                    decryptedDek,
+                    { name: "AES-GCM" },
+                    false,
+                    ["decrypt"]
+                  );
+
+                  // 3. Decrypt the main payload using the DEK
+                  decryptedData = await crypto.subtle.decrypt(
+                    { name: "AES-GCM", iv },
+                    dek,
+                    ciphertext
+                  );
+                } else {
+                  // Legacy file: Decrypt using the Vault Key directly
+                  decryptedData = await crypto.subtle.decrypt(
+                    { name: "AES-GCM", iv },
+                    aesKey,
+                    ciphertext
+                  );
+                }
+
                 const payloadArray = new Uint8Array(decryptedData);
 
                 const parsedChannels: any[] = [];
@@ -676,9 +758,9 @@ self.onmessage = async function (e) {
             const frequency = baseFrequency * (1 + (settings.ppm || 0) * 1e-6);
             freqMap.set(file.fileName, frequency);
 
-            self.postMessage({ type: "progress", id, data: { current: i + 1, total: files.length, status: `Loaded ${file.fileName}` } });
+            self.postMessage({ type: "progress", id, data: { current: i + 1, total: files.length, status: `Loaded ${sanitizeFilename(file.fileName)}` } });
           } catch (error) {
-            console.warn(`Failed to load ${file.fileName}:`, error);
+            console.warn(`Failed to load ${sanitizeFilename(file.fileName)}:`, error);
           }
         }
 
