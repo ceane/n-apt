@@ -6,6 +6,7 @@ use n_apt_backend::server::websocket_server::WebSocketServer;
 use n_apt_backend::session::SessionStore;
 use std::sync::Arc;
 use tokio::sync::broadcast;
+use serial_test::serial;
 use url::Url;
 use webauthn_rs::prelude::*;
 
@@ -16,6 +17,7 @@ fn ensure_test_password() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_server_status_endpoint() {
   ensure_test_password();
   // Setup mock AppState
@@ -69,6 +71,7 @@ async fn test_server_status_endpoint() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_auth_challenge_flow() {
   ensure_test_password();
   let (broadcast_tx, _) = broadcast::channel(10);
@@ -129,6 +132,7 @@ async fn test_auth_challenge_flow() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_auth_info_endpoint() {
   ensure_test_password();
   let (broadcast_tx, _) = broadcast::channel(10);

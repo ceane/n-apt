@@ -4,7 +4,7 @@ import path from 'path';
 
 describe('Backend Health Integration', () => {
     let backendProcess: ChildProcess;
-    const PORT = 8765;
+    const PORT = 44999;
     const BASE_URL = `http://127.0.0.1:${PORT}`;
 
     beforeAll(async () => {
@@ -12,7 +12,7 @@ describe('Backend Health Integration', () => {
         const projectRoot = path.resolve(process.cwd());
         const binaryPath = path.join(projectRoot, 'target/debug/n-apt-backend');
         
-        backendProcess = spawn(binaryPath, [], {
+        backendProcess = spawn(binaryPath, ["--port", PORT.toString()], {
             cwd: projectRoot,
             env: {
                 ...process.env,
@@ -22,11 +22,11 @@ describe('Backend Health Integration', () => {
         });
 
         backendProcess.stdout?.on('data', (data) => {
-            console.log(`[Backend STDOUT] ${data}`);
+            process.stdout.write(`[Backend STDOUT] ${data}`);
         });
 
         backendProcess.stderr?.on('data', (data) => {
-            console.error(`[Backend STDERR] ${data}`);
+            process.stderr.write(`[Backend STDERR] ${data}`);
         });
 
         // Wait for it to start and respond to status check

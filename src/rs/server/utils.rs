@@ -961,7 +961,7 @@ pub fn save_capture_file_multi(
     // Header JSON for .napt
     let complete_json = format!(r#"{{"metadata":{}}}"#, meta_obj);
 
-    let mut file = std::fs::File::create(&path)
+    let file = std::fs::File::create(&path)
       .map_err(|e| format!("Failed to create file: {}", e))?;
     let mut writer = HashingWriter::new(file);
 
@@ -1005,7 +1005,7 @@ pub fn save_capture_file_multi(
       checksum,
     });
   } else {
-    let mut file = std::fs::File::create(&path)
+    let file = std::fs::File::create(&path)
       .map_err(|e| format!("Failed to create file: {}", e))?;
     let mut writer = HashingWriter::new(file);
 

@@ -126,6 +126,7 @@ yawc = { version = "0.3.3", features = ["axum", "zlib"] }
 [dev-dependencies]
 doc-comment = "0.3"
 tempfile = "3"
+serial_test = "3.2"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio-test = "0.4"
