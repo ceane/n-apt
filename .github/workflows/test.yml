@@ -115,6 +115,17 @@ jobs:
     needs: detect-changes
     if: needs.detect-changes.outputs.rust-changed == 'true' || github.ref == 'refs/heads/main'
 
+    services:
+      redis:
+        image: redis
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -139,6 +150,9 @@ jobs:
 
       - name: Run Rust tests
         run: cargo test --profile dev-fast
+        env:
+          REDIS_URL: redis://localhost:6379
+          UNSAFE_LOCAL_USER_PASSWORD: n-apt-dev-key
 
       - name: Upload Rust coverage
         uses: codecov/codecov-action@v4
@@ -190,6 +204,17 @@ jobs:
       needs.detect-changes.outputs.wasm-changed == 'true' || 
       needs.detect-changes.outputs.integration-changed == 'true'
 
+    services:
+      redis:
+        image: redis
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -236,3 +261,6 @@ jobs:
           else
             npm run test:integration -- --changedSince=origin/main --passWithNoTests
           fi
+        env:
+          REDIS_URL: redis://localhost:6379
+          UNSAFE_LOCAL_USER_PASSWORD: n-apt-dev-key
