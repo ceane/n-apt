@@ -617,10 +617,10 @@ export const IQCaptureControlsSection: React.FC<
 
     // Auto-switch to .wav if .napt is selected but invalid
     React.useEffect(() => {
-      if (captureFileType === ".napt" && !naptValidation.isValid) {
+      if (captureFileType === ".napt" && !naptValidation.isValid && activeCaptureAreas.length > 0) {
         onCaptureFileTypeChange(".wav");
       }
-    }, [naptValidation.isValid, captureFileType, onCaptureFileTypeChange]);
+    }, [naptValidation.isValid, captureFileType, onCaptureFileTypeChange, activeCaptureAreas.length]);
 
     // Helper function to format file sizes
     const formatFileSize = (bytes: number): string => {

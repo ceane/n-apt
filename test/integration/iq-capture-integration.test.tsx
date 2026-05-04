@@ -143,7 +143,8 @@ describe("I/Q Capture Integration Tests", () => {
       fireEvent.click(screen.getByText("Take an I/Q Capture"));
 
       fireEvent.click(screen.getByLabelText("Area A"));
-      fireEvent.change(container.querySelector('input[type="number"]') as HTMLInputElement, {
+      const durationInput = container.querySelector('input[type="number"]') as HTMLInputElement;
+      fireEvent.change(durationInput, {
         target: { value: "10" },
       });
 
@@ -291,7 +292,7 @@ describe("I/Q Capture Integration Tests", () => {
       // Open the collapsible section
       fireEvent.click(screen.getByText("Take an I/Q Capture"));
 
-      fireEvent.change(screen.getByDisplayValue(".napt"), { target: { value: ".wav" } });
+      fireEvent.change(screen.getByDisplayValue(/\.napt/), { target: { value: ".wav" } });
       expect(screen.getByLabelText("Hardware sample rate")).toHaveTextContent("3.2MHz");
 
       fireEvent.click(screen.getByLabelText("Area A"));

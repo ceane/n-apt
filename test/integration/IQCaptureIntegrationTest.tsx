@@ -26,17 +26,17 @@ export const IQCaptureIntegrationTest: React.FC = () => {
 
   // Mock data for testing
   const mockAvailableCaptureAreas = [
-    { label: "Onscreen", min: 0, max: 3.2 },
-    { label: "Area A", min: 10, max: 20 },
-    { label: "Area B", min: 20, max: 30 }
+    { label: "Onscreen", min: 0, max: 3200000 },
+    { label: "Area A", min: 10000000, max: 20000000 },
+    { label: "Area B", min: 25000000, max: 28000000 }
   ];
 
   const mockCaptureRange = {
-    min: 10,
-    max: 30,
+    min: 10000000,
+    max: 28000000,
     segments: [
-      { label: "Area A", min: 10, max: 20 },
-      { label: "Area B", min: 20, max: 30 }
+      { label: "Area A", min: 10000000, max: 20000000 },
+      { label: "Area B", min: 25000000, max: 28000000 }
     ]
   };
 
@@ -73,7 +73,7 @@ export const IQCaptureIntegrationTest: React.FC = () => {
         : 0;
     const effectiveAcquisitionMode =
       activeCaptureAreas.includes("Onscreen") &&
-        Math.abs(captureRangeSpan - sampleRateMHz) < 0.01
+        Math.abs(captureRangeSpan - sampleRate) < 1000
         ? "whole_sample"
         : acquisitionMode;
 

@@ -62,7 +62,7 @@
     "build": "npm run build:rust && npm run build:wasm && npm run build:frontend",
     "postinstall": "sh -c 'if [ -n \"$CI\" ]; then echo \"Skipping git hook and backend build during CI postinstall\"; else echo \"Installing Rust dependencies\"; cargo fetch; fi'",
     "test": "jest test/ts",
-    "test:integration": "jest test/integration",
+    "test:integration": "jest test/integration --runInBand",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "test:wasm": "bash ./test/wasm/test_runner.sh",
