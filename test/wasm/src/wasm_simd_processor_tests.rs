@@ -4,7 +4,6 @@
 //! works correctly in WebAssembly.
 
 use wasm_bindgen_test::wasm_bindgen_test;
-use wasm_bindgen::prelude::*;
 use crate::console_log;
 
 #[wasm_bindgen_test]
