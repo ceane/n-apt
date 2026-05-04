@@ -12,10 +12,11 @@ describe('Backend Health Integration', () => {
         const projectRoot = path.resolve(process.cwd());
         const binaryPath = path.join(projectRoot, 'target/debug/n-apt-backend');
         
-        backendProcess = spawn(binaryPath, ["--port", PORT.toString()], {
+        backendProcess = spawn(binaryPath, [], {
             cwd: projectRoot,
             env: {
                 ...process.env,
+                WEBSOCKETS_URL: `http://127.0.0.1:${PORT}`,
                 UNSAFE_LOCAL_USER_PASSWORD: 'test-password-123',
                 RUST_LOG: 'info'
             }

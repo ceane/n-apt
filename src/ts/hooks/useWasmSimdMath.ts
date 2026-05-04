@@ -235,6 +235,8 @@ export function computeIqToDbSpectrumScalar(
 export function useWasmSimdMath(options: SpectrumMathOptions): WasmSimdMathHandle {
   const { fftSize, enableSimd, fallbackToScalar } = options;
   
+  const isMountedRef = useRef(true);
+  
   // WASM module state
   const [isWasmLoaded, setIsWasmLoaded] = useState(false);
   const [isSimdAvailable, setIsSimdAvailable] = useState(false);
@@ -245,14 +247,18 @@ export function useWasmSimdMath(options: SpectrumMathOptions): WasmSimdMathHandl
   
   // Initialize WASM SIMD module
   useEffect(() => {
+    isMountedRef.current = true;
     const initWasm = async () => {
       try {
         const wasmModule = await import("n_apt_canvas");
+        if (!isMountedRef.current) return;
+        
         wasmModuleRef.current = wasmModule;
         const initWasm = wasmModule.default;
         
         // Initialize the WASM module
         await initWasm();
+        if (!isMountedRef.current) return;
         
         if (enableSimd) {
           setIsSimdAvailable(true);
@@ -266,6 +272,7 @@ export function useWasmSimdMath(options: SpectrumMathOptions): WasmSimdMathHandl
         
         setIsWasmLoaded(true);
       } catch (error) {
+        if (!isMountedRef.current) return;
         console.error("Failed to load WASM SIMD module:", error);
         if (fallbackToScalar) {
           setIsWasmLoaded(true); // Allow scalar fallback
@@ -274,6 +281,10 @@ export function useWasmSimdMath(options: SpectrumMathOptions): WasmSimdMathHandl
     };
     
     initWasm();
+
+    return () => {
+      isMountedRef.current = false;
+    };
   }, [fftSize, enableSimd, fallbackToScalar]);
   
   // WASM SIMD operations

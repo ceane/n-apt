@@ -354,9 +354,20 @@ if (typeof performance !== "undefined" && !performance.clearMarks) {
 // Mock WASM modules
 jest.mock("n_apt_canvas", () => {
   const mockModule: any = {
+    __esModule: true,
     RenderingProcessor: class {
       process = jest.fn();
       destroy = jest.fn();
+      resample_spectrum = jest.fn();
+      shift_waterfall_buffer = jest.fn();
+      apply_color_mapping = jest.fn();
+      get_zoomed_data = jest.fn(() => ({
+        slicedWaveform: new Float32Array(0),
+        visualRange: [0, 1],
+        clampedPan: 0
+      }));
+      transform_to_screen_coords = jest.fn(() => []);
+      process_iq_to_dbm_spectrum = jest.fn((input) => new Float32Array(input.length / 2));
     },
     match_noise_floor_db_wasm: jest.fn((
       _reference: Float32Array,
