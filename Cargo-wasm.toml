@@ -7,8 +7,8 @@ edition = "2021"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-wasm-bindgen = "0.2"
-js-sys = "0.3"
+wasm-bindgen = "0.2.120"
+js-sys = "0.3.97"
 rustfft = "6"
 num-complex = "0.4"
 anyhow = "1.0"
@@ -16,8 +16,8 @@ rand = "0.8"
 getrandom = { version = "0.2", features = ["js"] }
 
 [dev-dependencies]
-wasm-bindgen-test = "0.3"
+wasm-bindgen-test = "0.3.70"
 
 [dependencies.web-sys]
-version = "0.3"
+version = "0.3.97"
 features = ["console", "Performance", "Window"]
