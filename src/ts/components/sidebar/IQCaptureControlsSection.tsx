@@ -11,13 +11,12 @@ import type {
 import { addNotification, updateNotification } from "@n-apt/redux/slices/notificationsSlice";
 import { useAppSelector } from "@n-apt/redux/store";
 import { formatDurationMs } from "@n-apt/utils/formatters";
-import { formatFrequency, formatFrequencyHighRes } from "@n-apt/utils/frequency";
+import { formatFrequency } from "@n-apt/utils/frequency";
 import {
   AlertTriangle,
   Clock,
   File as FileIcon,
   FileSignal,
-  Info,
   LockKeyhole,
   MapPin,
   PanelLeftDashed,
