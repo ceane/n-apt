@@ -1,5 +1,4 @@
-#!/usr/bin/env node
-
+import 'dotenv/config';
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { render } from 'ink';
 import { Box, Text, useApp, useInput } from 'ink';
@@ -8,6 +7,7 @@ import os from 'node:os';
 import chalk from 'chalk';
 import notifier from 'node-notifier';
 import path from 'node:path';
+import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
   getRuntimeSummaryState,
@@ -266,16 +266,36 @@ const BuildOrchestrator = () => {
   const appendWarningDetail = useCallback((message: string) => {
     const trimmed = message?.trim();
     if (!trimmed) return;
+
+    // Filter out common non-critical Redis warnings that clutter the dashboard
+    const isRedisWarning = trimmed.includes('kern.ipc.somaxconn') || 
+                          trimmed.includes('TCP backlog') ||
+                          trimmed.includes('does not require authentication') ||
+                          trimmed.includes('accept connections from any local client');
+    
+    if (isRedisWarning) return;
+
     setBuildState(prev => {
       const warningDetails = [...prev.warningDetails, trimmed].slice(-6);
       return { ...prev, warningDetails, warningCount: warningDetails.length };
     });
   }, []);
 
-  const clearErrorDetails = useCallback(() => {
+  const clearErrorDetails = useCallback((filter?: string) => {
     setBuildState(prev => {
       if (prev.errorDetails.length === 0) {
         return prev;
+      }
+
+      if (filter) {
+        const lowerFilter = filter.toLowerCase();
+        const filteredDetails = prev.errorDetails.filter(d => !d.toLowerCase().includes(lowerFilter));
+        if (filteredDetails.length === prev.errorDetails.length) return prev;
+        return {
+          ...prev,
+          errorDetails: filteredDetails,
+          errorCount: filteredDetails.length
+        };
       }
 
       return {
@@ -518,7 +538,7 @@ const BuildOrchestrator = () => {
             appendWarningDetail(output);
           }
           if (pidKey === 'vitePid' && isRuntimeRecoverySignal(output)) {
-            clearErrorDetails();
+            clearErrorDetails('Vite');
           }
         });
 
@@ -530,7 +550,7 @@ const BuildOrchestrator = () => {
           }
           const isViteRecovery = pidKey === 'vitePid' && isRuntimeRecoverySignal(output);
           if (isViteRecovery) {
-            clearErrorDetails();
+            clearErrorDetails('Vite');
           } else if (/error/i.test(output)) {
             appendErrorDetail(output);
           }
@@ -542,9 +562,9 @@ const BuildOrchestrator = () => {
           resolve(false);
         });
 
-        // Give it a moment to start
+        // Give it a moment to start and check if it stayed alive
         setTimeout(() => {
-          if (child.pid) {
+          if (child.pid && child.exitCode === null) {
             addLog(chalk.green(`${description} started (PID: ${child.pid})`));
             // Store the PID
             setBuildState(prev => ({ ...prev, [pidKey]: child.pid }));
@@ -555,8 +575,9 @@ const BuildOrchestrator = () => {
             child.unref(); // Allow parent to exit
             resolve(true);
           } else {
-            addLog(chalk.red(`${description} failed to start`));
-            appendErrorDetail(`${description} failed to start`);
+            const exitMsg = child.exitCode !== null ? ` (exited with code ${child.exitCode})` : '';
+            addLog(chalk.red(`${description} failed to start or died immediately${exitMsg}`));
+            appendErrorDetail(`${description} failed to start or died immediately${exitMsg}`);
             resolve(false);
           }
         }, 2000);
@@ -591,7 +612,7 @@ const BuildOrchestrator = () => {
         addLog(chalk.blue('Starting Rust backend in background...'));
         const startCommand = isNativeWindows
           ? 'target\\dev-fast\\n-apt-backend.exe'
-          : 'bash -lc \'exec target/dev-fast/n-apt-backend\'';
+          : './target/dev-fast/n-apt-backend';
         const startResult = await startBackgroundProcess(
           startCommand,
           'Rust backend',
@@ -661,94 +682,124 @@ exit 1
       return Number.isFinite(parsed) ? parsed : 0;
     };
     const getTowerLoadDescription = () => {
-      if (process.env.LOCAL_OPENCELLID_CSV_DIR) {
-        return `Loading local OpenCellID data into Redis from ${localOpenCellIdPath}...`;
+      const homeDir = os.homedir();
+      const localOpenCellIdPath = process.env.LOCAL_OPENCELLID_CSV_DIR || 'data/opencellid';
+      const downloadsPath = path.join(homeDir, 'Downloads');
+      const isForce = process.argv.includes('--force');
+
+      const fastCount = readRedisTowerCount('2');
+      const wholeCount = readRedisTowerCount('3');
+      const hasPersistentData = fastCount > 0 || wholeCount > 0;
+
+      // If we have persistent data and NOT forcing a reload, we are restoring
+      if (hasPersistentData && !isForce) {
+        return 'Restoring OpenCellID tower database from disk...';
       }
 
-      return (readRedisTowerCount('2') > 0 || readRedisTowerCount('3') > 0)
+      const hasLocalFiles = fs.existsSync(localOpenCellIdPath) && 
+        fs.readdirSync(localOpenCellIdPath).some(f => f.startsWith('31') && f.endsWith('.csv'));
+      
+      const hasDownloadFiles = fs.existsSync(downloadsPath) && 
+        fs.readdirSync(downloadsPath).some(f => f.startsWith('31') && f.endsWith('.csv'));
+
+      if (hasLocalFiles) {
+        return `Loading local OpenCellID data from ${localOpenCellIdPath}...`;
+      }
+
+      if (hasDownloadFiles) {
+        return `Loading OpenCellID data from Downloads folder...`;
+      }
+
+      return hasPersistentData
         ? 'Swapping Redis Database...'
         : 'Downloading OpenCellID data and loading it into Redis...';
     };
 
     const getTowerCountLabel = (stepLabel: string) => {
-      if (stepLabel.startsWith('Swapping Redis Database')) {
-        return { count: readRedisTowerCount('2'), source: 'Fast DB' };
-      }
+      const fastCount = readRedisTowerCount('2');
+      const fastStr = fastCount.toLocaleString();
 
-      if (stepLabel.startsWith('Loading local OpenCellID data into Redis')) {
-        return { count: readRedisTowerCount('2'), source: 'Fast DB' };
-      }
-
-      return { count: readRedisTowerCount('3'), source: 'Whole DB' };
+      return {
+        message: `(${fastStr} towers in DB / Fast DB)`,
+        label: stepLabel
+      };
     };
 
     const steps = [
       {
         index: 0,
-        command: isNativeWindows ? 'echo Windows cleanup is skipped; use manual process cleanup if needed.' : `bash -lc "
-pkill -f 'n-apt-backend' 2>/dev/null || true
-pkill -f 'target/debug/n-apt-backend' 2>/dev/null || true
-pkill -f 'target/release/n-apt-backend' 2>/dev/null || true
-pkill -f 'target/dev-fast/n-apt-backend' 2>/dev/null || true
-pkill -f 'vite' 2>/dev/null || true
-pkill -f 'node_modules/.bin/vite' 2>/dev/null || true
-lsof -ti :5173 | xargs kill -9 2>/dev/null || true
-lsof -ti :8765 | xargs kill -9 2>/dev/null || true
-sleep 1
-"`,
+        command: isNativeWindows ? 'echo Windows cleanup is skipped; use manual process cleanup if needed.' : `
+# Kill by name (aggressive)
+pkill -9 -f 'n-apt-backend' || true
+pkill -9 -f 'vite' || true
+
+# Kill by port (safe & exhaustive)
+# Ports: 5173 (Vite), 8765 (Backend), 6379 (Redis)
+for port in 5173 8765 6379; do
+  pids=$(lsof -ti :$port)
+  if [ ! -z "$pids" ]; then
+    echo "Clearing port $port (PIDs: $pids)"
+    kill -9 $pids 2>/dev/null || true
+  fi
+done
+# Small settling delay
+sleep 0.5
+`,
         description: 'Cleaning up existing processes',
         isBackground: false,
         pidKey: undefined,
       },
       {
+        index: 0.25,
+        command: 'mkdir -p .redis_data',
+        description: 'Preparing Redis environment',
+        isBackground: false,
+      },
+      {
         index: 0.5,
         command: isNativeWindows
           ? 'echo Config validation not supported on Windows; skipping.'
-          : `bash -lc '
+          : `
 set -euo pipefail
 echo "Validating signals.yaml..."
-cargo run --bin n-apt-backend --profile dev-fast -- --validate-config 2>&1
-if [ $? -eq 0 ]; then
-  echo "✅ signals.yaml is valid"
-  exit 0
-else
+# Use direct execution instead of login shell to save time
+cargo run --bin n-apt-backend --profile dev-fast -- --validate-config 2>&1 || {
   echo "❌ signals.yaml validation FAILED - aborting build"
   exit 1
-fi
-'`,
+}
+echo "✅ signals.yaml is valid"
+`,
         description: 'Validating signals.yaml',
         isBackground: false,
         pidKey: undefined,
       },
       {
         index: 1,
-        command: `bash -lc "
+        command: `
 set -euo pipefail
 REDIS_PORT=6379
 DATA_DIR='.redis_data'
 mkdir -p "$DATA_DIR"
-if command -v redis-server >/dev/null 2>&1 && command -v redis-cli >/dev/null 2>&1; then
+if command -v redis-server >/dev/null 2>&1; then
+  # Final port check - if still blocked, the kill -9 failed (e.g. permission issue)
   if lsof -ti:$REDIS_PORT >/dev/null 2>&1; then
-    exit 0
-  fi
-  redis-server --port $REDIS_PORT --dir "$DATA_DIR" --daemonize yes --appendonly yes
-  sleep 2
-  if ! lsof -ti:$REDIS_PORT >/dev/null 2>&1; then
-    echo 'Failed to start redis-server'
+    echo "Error: Port $REDIS_PORT is still in use after cleanup. Please stop any system Redis services."
     exit 1
   fi
+  # Use both RDB and AOF for maximum persistence reliability
+  exec redis-server --port $REDIS_PORT --dir "$DATA_DIR" --daemonize no --appendonly yes --save 60 1 --dbfilename dump.rdb
 else
-  echo 'redis-server and redis-cli are required on PATH'
+  echo "redis-server is required on PATH"
   exit 1
 fi
-"`,
+`,
         description: 'Starting Redis database server',
         isBackground: true,
         pidKey: 'redisPid' as const,
       },
       {
         index: 2,
-        command: isNativeWindows ? 'echo Redis tower swap requires bash/redis-cli on non-Windows environments.' : `bash -lc '
+        command: isNativeWindows ? 'echo Redis tower swap requires bash/redis-cli on non-Windows environments.' : `
 set -euo pipefail
 REDIS_PORT="${'${'}REDIS_PORT:-6379}"
 if ! [[ "$REDIS_PORT" =~ ^[0-9]+$ ]] || [ "$REDIS_PORT" -le 0 ] || [ "$REDIS_PORT" -gt 65535 ]; then
@@ -760,8 +811,18 @@ if [ ! -f "scripts/redis/download_opencellid_cached.cjs" ]; then
 fi
 
 # Add timeout to prevent hanging (30 seconds instead of 5 minutes)
-timeout 30 npm run towers:download:cached || {
-  echo "Tower download timed out or failed; skipping tower import"
+# Pass the home directory and other paths explicitly if needed
+export LOCAL_OPENCELLID_CSV_DIR="${'${'}LOCAL_OPENCELLID_CSV_DIR:-data/opencellid}"
+if [ ! -d "$LOCAL_OPENCELLID_CSV_DIR" ] || [ -z "$(ls "$LOCAL_OPENCELLID_CSV_DIR"/31*.csv 2>/dev/null)" ]; then
+  # Try Downloads folder as a fallback
+  DOWNLOADS_DIR="$HOME/Downloads"
+  if [ -d "$DOWNLOADS_DIR" ] && [ ! -z "$(ls "$DOWNLOADS_DIR"/31*.csv 2>/dev/null)" ]; then
+    export LOCAL_OPENCELLID_CSV_DIR="$DOWNLOADS_DIR"
+  fi
+fi
+
+(npm run towers:download:cached) || {
+  echo "Tower download failed; skipping tower import"
   exit 0
 }
 
@@ -774,7 +835,7 @@ fi
 redis-cli -p "$REDIS_PORT" swapdb 0 2 >/dev/null
 redis-cli -p "$REDIS_PORT" swapdb 1 3 >/dev/null
 exit 0
-'`,
+`,
         description: 'Swapping Redis Database...',
         isBackground: false,
         pidKey: undefined,
@@ -788,7 +849,7 @@ exit 0
       },
       {
         index: 4,
-        command: isNativeWindows ? 'echo Encrypted module decrypt step is not supported in this Windows shell path.' : `bash -lc '
+        command: isNativeWindows ? 'echo Encrypted module decrypt step is not supported in this Windows shell path.' : `
 set -euo pipefail
 if npm run decrypt-modules >/dev/null 2>&1; then
   if [ -f "src/encrypted-modules/tmp/rs/simd/fast_math.rs" ]; then
@@ -800,7 +861,7 @@ if npm run decrypt-modules >/dev/null 2>&1; then
 fi
 echo "${encryptedModulesStatus.error}"
 exit 1
-'`,
+`,
         description: 'N-APT Encrypted Modules',
         isBackground: false,
         pidKey: undefined,
@@ -848,8 +909,8 @@ exit 1
 
       if (success) {
         if (step.index === 2) {
-          const { count, source } = getTowerCountLabel(stepLabel);
-          updateProcessStatus(step.index, 'success', `(${count} towers in DB / ${source})`, stepLabel);
+          const { message, label } = getTowerCountLabel(stepLabel);
+          updateProcessStatus(step.index, 'success', message, label);
         } else if (step.index === 5) {
           updateProcessStatus(step.index, 'success', undefined, 'Rust backend running...');
         } else {

@@ -527,15 +527,66 @@ pub async fn status_handler(
   let device_state = state.shared.device_state.lock().unwrap().clone();
   let device_loading_reason =
     state.shared.device_loading_reason.lock().unwrap().clone();
+  let device_loading = *state.shared.device_loading.lock().unwrap();
+  let paused = state.shared.is_paused.load(Ordering::SeqCst);
+  let sdr_settings = state.shared.sdr_settings.lock().unwrap().clone();
+  let channels = state.shared.channels.lock().unwrap().clone();
+  let device_profile = state.shared.device_profile.lock().unwrap().clone();
+
+  let normalize_rtl_device_name = |raw_name: &str| {
+    let short_name = raw_name.split(" - ").next().unwrap_or("RTL-SDR").trim();
+    let lower = short_name.to_ascii_lowercase();
+
+    if let Some(version) = short_name.split_whitespace().find_map(|token| {
+      let cleaned = token
+        .trim_matches(|c: char| !c.is_ascii_alphanumeric())
+        .to_ascii_lowercase();
+      let version = cleaned.strip_prefix('v')?;
+      if !version.is_empty() && version.chars().all(|c| c.is_ascii_digit()) {
+        Some(version.to_string())
+      } else {
+        None
+      }
+    }) {
+      return format!("RTL-SDR {}", format!("v{}", version));
+    }
+
+    if lower.contains("rtl-sdr blog")
+      || lower.contains("rtl2832")
+      || lower.contains("rtl-sdr")
+      || lower.contains("generic")
+      || lower.contains("rtl2382u")
+    {
+      return "RTL-SDR v4".to_string();
+    }
+
+    short_name.to_string()
+  };
+
+  // Extract short device name from device_info
+  let device_name = if device_connected {
+    normalize_rtl_device_name(&device_info)
+  } else {
+    "Mock APT SDR".to_string()
+  };
 
   Json(serde_json::json!({
+    "type": "status",
     "device_connected": device_connected,
     "device_present": device_present,
     "device_count": device_count,
     "device_state": device_state,
+    "device_loading": device_loading,
     "device_loading_reason": device_loading_reason,
     "device_info": device_info,
+    "device_name": device_name,
+    "paused": paused,
+    "max_sample_rate": sdr_settings.sample_rate,
+    "channels": channels,
+    "sdr_settings": sdr_settings,
+    "device": if device_connected { "rtl-sdr" } else { "mock_apt" },
     "backend": if device_connected { "rtl-sdr" } else { "mock_apt" },
+    "device_profile": device_profile,
     "clients": client_count,
     "authenticated_clients": authenticated_count,
   }))

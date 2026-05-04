@@ -760,7 +760,7 @@ self.onmessage = async function (e) {
 
             self.postMessage({ type: "progress", id, data: { current: i + 1, total: files.length, status: `Loaded ${sanitizeFilename(file.fileName)}` } });
           } catch (error) {
-            console.warn(`Failed to load ${sanitizeFilename(file.fileName)}:`, error);
+            console.warn("Failed to load file:", sanitizeFilename(file.fileName), error);
           }
         }
 
