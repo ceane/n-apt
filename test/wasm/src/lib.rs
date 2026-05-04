@@ -2,7 +2,9 @@
 //!
 //! Headless WASM unit tests for verifying WASM module functionality
 
+#[cfg(test)]
 pub mod simple_wasm_tests;
+#[cfg(test)]
 pub mod wasm_simd_processor_tests;
 
 #[cfg(test)]
