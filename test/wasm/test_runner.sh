@@ -16,7 +16,7 @@ cd "$(dirname "$0")"
 # Check if wasm-pack is installed
 if ! command -v wasm-pack &> /dev/null; then
     echo "❌ wasm-pack not found. Installing..."
-    curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+    npm install -g wasm-pack
 fi
 
 # Verify WASM target is installed
