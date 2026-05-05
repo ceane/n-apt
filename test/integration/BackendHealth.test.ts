@@ -10,7 +10,8 @@ describe('Backend Health Integration', () => {
     beforeAll(async () => {
         // Start the backend from project root
         const projectRoot = path.resolve(process.cwd());
-        const binaryPath = path.join(projectRoot, 'target/debug/n-apt-backend');
+        const binaryPath = process.env.BACKEND_BINARY_PATH || 
+                           path.join(projectRoot, 'target/dev-fast/n-apt-backend');
         
         backendProcess = spawn(binaryPath, [], {
             cwd: projectRoot,
