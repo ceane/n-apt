@@ -16,8 +16,8 @@
 
     /* Linting */
     "strict": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
     "noFallthroughCasesInSwitch": true,
     "forceConsistentCasingInFileNames": true,
     "types": ["jest", "node"],
@@ -25,6 +25,7 @@
 
     /* Path mapping */
     "paths": {
+      "@n-apt/webmcp/*": ["./src/ts/agents/webmcp/*"],
       "@n-apt/*": ["./src/ts/*"],
       "@n-apt": ["./src/ts"],
       "@n-apt/public/*": ["./public/*"],

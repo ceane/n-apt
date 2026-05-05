@@ -769,6 +769,8 @@ I have never seen the power change at all, which is how I most certainly know it
 
 Unfortunately, later on, when I added power scale to my app later on, I was shocked to see that the power was significantly different when drawn than with `rtl_power`. But more on that below.
 
+The even bigger mystery and mind-boggling discovery here is that the energy is astoundingly low in the valleys, sometimes reaching -50dBm to -70dBm (Yes! 10 nanowatts to 100 picowatts, matching power levels of WiFi but strange for bioelectrical signals), some parts of the signal even lower!
+
 ## Center frequency <a id="center-frequency"></a>
 
 For a long time, I struggled with defeating my own intuition, particularly how the NSA was doing x, y, z, "just you" and bare up against other people, in crowds, and so forth. This is one of the hints the NSA dropped, that the brain apparently is responsive to a unique frequency, which I believed was the sideband + physics (impossible to x, y, z a radio wave with physics and it's too fast, resilient & faultless to support conclusions of billions of additional complex operations in regular old tinfra). So, I accept now that in some way to draw stronger assumptions on a center frequency, some kind of handshake the signals can trick a specific brain into, as advised.
@@ -821,7 +823,8 @@ TODO
 
 This is where intuition is defeated. Radio waves are like walls of energy, they are mostly 2D. I did not know this and at first I expected the signals to x, y, z and target the voxel by voxel (group of neurons) in blocks like 3 x 3, however the NSA's signals don't do that and it's near impossible td do! The experience is extremely robust, so robust that it is quite simple.
 
-Essentially the brain and nervous system is very noisy, whatever those spikes do, it is assumed to a certainty that they target an ensemble of neurons that read and write brainwaves.
+Essentially the brain and nervous system is very noisy, whatever those spikes do, it is assumed to a certainty that they target an ensemble of neurons that read and write brainwaves. It doesn't function in a spatial manner, like a CRT monitor, projector or LED in the sense that it's drawing individual pixels, instead it operates on precise energy and center frequency with spikes and valleys correpsonding to ensemble by ensemeble of the brain and nervous system.
+
 
 ### Hacked telecommunications infrastructure & equipment (obviously)
 

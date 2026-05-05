@@ -28,7 +28,7 @@ import { DemodProvider, useDemod } from "@n-apt/contexts/DemodContext";
 import { ReactFlowProvider } from "@xyflow/react";
 import { MapLocationsProvider } from "@n-apt/hooks/useMapLocations";
 
-import { AgentIntegrationProvider } from "@n-apt/agents/AgentIntegrationProvider";
+
 
 // Create a wrapper component to manage scanner state
 const DemodRouteWithSidebar: React.FC = () => {
@@ -84,7 +84,6 @@ export const AppRoutes: React.FC = () => {
         <Model3DProvider>
           <HotspotEditorProvider>
             <MapLocationsProvider>
-              <AgentIntegrationProvider>
                 <Routes>
                   <Route
                     path="/"
@@ -177,7 +176,6 @@ export const AppRoutes: React.FC = () => {
                     }
                   />
                 </Routes>
-              </AgentIntegrationProvider>
             </MapLocationsProvider>
           </HotspotEditorProvider>
         </Model3DProvider>
