@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
-import { useWebMCP, initializeWebMCP } from "@n-apt/webmcp/integration";
-import {
+import { 
+  useWebMCP, 
+  initializeWebMCP,
   setupSpectrumToolHandlers,
   setupModel3DToolHandlers,
   setupHotspotToolHandlers,
   setupMapEndpointsToolHandlers,
-} from "./webmcp/integration";
+} from "@n-apt/webmcp/integration";
 import { useMapLocations } from "@n-apt/hooks/useMapLocations";
 import { useModel3D } from "@n-apt/hooks/useModel3D";
 import { useHotspotEditor } from "@n-apt/hooks/useHotspotEditor";
@@ -125,35 +126,6 @@ export const AgentIntegrationProvider: React.FC<
     return (
       <>
         {children}
-
-        {/* Development overlay for agent status */}
-        {process.env.NODE_ENV === "development" && (
-          <div
-            style={{
-              position: "fixed",
-              top: "10px",
-              right: "10px",
-              background: "rgba(0, 0, 0, 0.8)",
-              color: "#00d4ff",
-              padding: "8px 12px",
-              borderRadius: "6px",
-              fontSize: "11px",
-              fontFamily: "JetBrains Mono, monospace",
-              zIndex: 10000,
-              opacity: agentStatus === "enabled" ? 0.8 : 0.4,
-              transition: "opacity 0.3s ease",
-            }}
-          >
-            <div>🤖 Agents: {agentStatus}</div>
-            <div>📍 Route: {location.pathname}</div>
-            <div>🛠️ Tools: {availableTools.length}</div>
-            {lastResult && (
-              <div style={{ marginTop: "4px", fontSize: "10px", color: "#ccc" }}>
-                Last: {lastResult.success ? "✅" : "❌"} {lastResult.tool}
-              </div>
-            )}
-          </div>
-        )}
       </>
     );
   };

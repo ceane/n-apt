@@ -20,6 +20,7 @@ declare module "@n-apt/webmcp/integration" {
   export function setupDrawSignalToolHandlers(drawSignalProps: any): void;
   export function setupModel3DToolHandlers(model3DProps: any): void;
   export function setupHotspotToolHandlers(hotspotProps: any): void;
+  export function setupMapEndpointsToolHandlers(mapProps: any): void;
 }
 
 declare module "express" {

@@ -18,6 +18,10 @@ use super::utils::reconcile_device_state;
 
 /// Calculate optimal FFT sizes based on screen width (in physical pixels, i.e. CSS width × DPR).
 /// Returns (available_sizes, recommended_size).
+/// 
+/// RATIONALE:
+/// 1. Screen sizes are usually smaller than the FFT size; we keep them balanced since FFT is width-based.
+/// 2. Performance: Smaller FFTs are cheaper. Higher resolution is typically only needed when zooming.
 fn calculate_auto_fft_sizes(screen_width: u32) -> (Vec<usize>, usize) {
   let sizes = vec![2048, 4096];
   // Hi-DPI / Retina screens send width * dpr, typically >= 3000 physical pixels.
@@ -590,31 +594,23 @@ pub fn handle_message(
         .duration_mode
         .clone()
         .unwrap_or_else(|| "timed".to_string());
+      
+      let current_settings = shared.sdr_settings.lock().unwrap().clone();
+      
       let capture_cmd = super::types::SdrCommand::StartCapture {
-        job_id: message.job_id.clone().unwrap_or_else(|| {
-          format!(
-            "cap_{}",
-            std::time::SystemTime::now()
-              .duration_since(std::time::UNIX_EPOCH)
-              .unwrap()
-              .as_secs()
-          )
-        }),
+        job_id: message
+          .job_id
+          .clone()
+          .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
         fragments: message
           .fragments
-          .clone()
-          .unwrap_or_else(|| {
-            if let (Some(min_freq), Some(max_freq)) =
-              (message.min_freq, message.max_freq)
-            {
-              vec![super::types::FreqRange { min_freq, max_freq }]
-            } else {
-              vec![]
-            }
+          .as_ref()
+          .map(|f| {
+            f.iter()
+              .map(|fr| (fr.min_freq, fr.max_freq))
+              .collect::<Vec<(f64, f64)>>()
           })
-          .into_iter()
-          .map(|f| (f.min_freq, f.max_freq))
-          .collect(),
+          .unwrap_or_default(),
         duration_mode,
         duration_s: message.duration_s.unwrap_or(1.0),
         file_type: message
@@ -626,7 +622,7 @@ pub fn handle_message(
           .clone()
           .unwrap_or_else(|| "whole_sample".to_string()),
         encrypted: message.encrypted.unwrap_or(true),
-        fft_size: message.fft_size.unwrap_or(2048),
+        fft_size: message.fft_size.unwrap_or(current_settings.fft.default_size),
         fft_window: message
           .fft_window
           .clone()

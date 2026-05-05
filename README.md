@@ -45,11 +45,11 @@ An SDR visualizer app using RTL-SDR and I/Q captures (.napt, .wav) for a very sp
 > **You:** Not knowing who (at first), how or why.
 
 I built this app out of frustration (and by force of the situation) that other OSS SDR software:
-  - Couldn't record proper I/Q captures the my settings like gain, ppm, etc.
-  - Lacked metadata for I/Q captures other than the file name including all the contents
+  - Couldn't record proper I/Q captures with custom settings like gain, ppm, etc.
+  - Lacked metadata for I/Q captures other than using the file name
   - Couldn't encrypt sensitive signals for later
   - Did not provide intuitve features for analyzing signals (zoombox, SVG snapshots, specific channels, extensible components, etc.)
-  - Was definitely not in JavaScript/Web with all the advanced libraries and in browser features!
+  - Was definitely not coded for JavaScript/Web with all the advanced libraries and in browser features!
 
 This purpose of this repository is to provide tooling to inspect, visualize, and demodulate parts of N-APT (media like audio (hearing and internal), audio via voice & vision) using live (on my end where they are live) and recorded I/Q samples, with an emphasis on high fidelity captures, hypothesis-driven analysis and demodulation, and mapping functions to features of the signal. 
 
