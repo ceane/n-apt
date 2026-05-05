@@ -2,7 +2,7 @@ import { CoordinateMapper, Range } from "@n-apt/utils/rendering/CoordinateMapper
 import { findBestFrequencyRange } from "@n-apt/consts";
 import { formatFrequency, formatFrequencyHighRes } from "@n-apt/utils/frequency";
 import { fmtFreqTick, tickPrecisionForStep } from "./formatters";
-import { escapeAttr } from "../sanitization";
+import { escapeAttr, sanitizePath } from "../sanitization";
 
 export interface DrawingContext {
   setStroke(color: string, width: number, dash?: number[]): void;
@@ -178,7 +178,7 @@ export class SVGDrawingContext implements DrawingContext {
 
   stroke(): void {
     this.parts.push(
-      `<path d="${this.path}" fill="none" stroke="${escapeAttr(this.currentStroke)}" stroke-width="${escapeAttr(this.currentStrokeWidth)}" stroke-linejoin="${escapeAttr(this.lineJoin)}" ${
+      `<path d="${escapeAttr(sanitizePath(this.path))}" fill="none" stroke="${escapeAttr(this.currentStroke)}" stroke-width="${escapeAttr(this.currentStrokeWidth)}" stroke-linejoin="${escapeAttr(this.lineJoin)}" ${
         this.currentStrokeDash !== "none" ? `stroke-dasharray="${escapeAttr(this.currentStrokeDash)}"` : ""
       }/>`
     );
@@ -186,7 +186,7 @@ export class SVGDrawingContext implements DrawingContext {
 
   fill(): void {
     this.parts.push(
-      `<path d="${this.path}" fill="${escapeAttr(this.currentFill)}" stroke="none"/>`
+      `<path d="${escapeAttr(sanitizePath(this.path))}" fill="${escapeAttr(this.currentFill)}" stroke="none"/>`
     );
   }
 
@@ -218,16 +218,17 @@ export class SVGDrawingContext implements DrawingContext {
       .replace(/—/g, "&#x2014;");
     const fontSizeMatch = this.currentFont.match(/(\d+)px/);
     const fontSize = fontSizeMatch ? parseInt(fontSizeMatch[1]) : 12;
-    const style = this.currentFont.includes("JetBrains Mono") 
-      ? `font-family="JetBrains Mono, monospace" font-size="${fontSize}"` 
-      : `font-family="monospace" font-size="${fontSize}"`;
+    const fontFamily = this.currentFont.includes("JetBrains Mono") 
+      ? "JetBrains Mono, monospace" 
+      : "monospace";
+    
     // Offset Y for manual baseline alignment in SVG
     let dy = "0";
     if (this.textBaseline === "top") dy = "0.8em";
     else if (this.textBaseline === "middle") dy = "0.3em";
     
     this.parts.push(
-      `<text x="${escapeAttr(x)}" y="${escapeAttr(y)}" dy="${escapeAttr(dy)}" text-anchor="${escapeAttr(this.textAlign)}" fill="${escapeAttr(this.currentFill)}" ${style}>${escaped}</text>`
+      `<text x="${escapeAttr(x)}" y="${escapeAttr(y)}" dy="${escapeAttr(dy)}" text-anchor="${escapeAttr(this.textAlign)}" fill="${escapeAttr(this.currentFill)}" font-family="${escapeAttr(fontFamily)}" font-size="${escapeAttr(fontSize)}">${escaped}</text>`
     );
   }
 
