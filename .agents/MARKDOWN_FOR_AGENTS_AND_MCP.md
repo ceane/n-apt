@@ -17,10 +17,10 @@ I have successfully implemented both Markdown for Agents and WebMCP features for
 ### Documentation Created
 
 - `visualizer.md` - Spectrum visualization and SDR controls
-- `analysis.md` - ML signal processing and analysis
+- `analysis.md` - ML signal processing and demodulation
 - `draw-signal.md` - Mathematical/ML signal generation
 - `3d-model.md` - 3D human body visualization and areas
-- `hotspot-editor.md` - 3D hotspot creation and management
+- `map-endpoints.md` - Geographic location monitoring and manifests
 
 ### Technical Implementation
 
@@ -57,12 +57,17 @@ I have successfully implemented both Markdown for Agents and WebMCP features for
 - Camera Controls: `resetCamera`, `setViewMode`
 - Data Export: `exportModelData`
 
-**Hotspot Editor Tab (6 tools)**:
+**Hotspot Editor (Integrated) (6 tools)**:
 
 - Hotspot Creation: `createHotspot`
 - Creation Settings: `setSymmetryMode`
 - Hotspot Management: `selectHotspot`, `deleteHotspot`
 - Data Management: `exportHotspots`, `importHotspots`
+
+**Map Endpoints (4 tools)**:
+
+- Location Search: `searchLocation`
+- Manifest Management: `selectLocation`, `addLocation`, `removeLocation`
 
 ### Technical Implementation
 
@@ -83,7 +88,7 @@ src/agents/
 │       ├── analysis.md
 │       ├── draw-signal.md
 │       ├── 3d-model.md
-│       └── hotspot-editor.md
+│       └── map-endpoints.md
 ├── webmcp/
 │   ├── registry.ts               # Tool definitions (27 tools total)
 │   └── integration.ts            # Handlers and React integration
@@ -126,24 +131,23 @@ const result = await window.webmcp.executeTool("selectBodyArea", {
 
 ## 🔧 Integration Points
 
-### For Existing Components
+### Seamless Application Integration
 
-- **AgentIntegrationProvider**: Wrap existing route components
-- **Tool Handlers**: Connect to existing sidebar props and state
-- **Route Detection**: Automatic tool registration based on current route
-- **Development Overlay**: Debug information in development mode
-
-### Minimal Code Changes Required
+The integration has been simplified to a single wrapper around the application routes:
 
 ```tsx
-// Add to existing route components
-import { AgentIntegrationProvider } from "@n-apt/agents";
+// src/ts/routes/Routes.tsx
+import { AgentIntegrationProvider } from "@n-apt/agents/AgentIntegrationProvider";
 
-export const SpectrumRoute: React.FC = (props) => {
+export const AppRoutes: React.FC = () => {
   return (
-    <AgentIntegrationProvider spectrumProps={props}>
-      {/* Existing component content unchanged */}
-    </AgentIntegrationProvider>
+    <MapLocationsProvider>
+      <AgentIntegrationProvider>
+        <Routes>
+          {/* All routes automatically gain WebMCP capabilities */}
+        </Routes>
+      </AgentIntegrationProvider>
+    </MapLocationsProvider>
   );
 };
 ```
