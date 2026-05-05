@@ -238,6 +238,9 @@ jobs:
         if: needs.detect-changes.outputs.wasm == 'true' || github.ref == 'refs/heads/main'
         run: npm run build:wasm
 
+      - name: Build Rust Backend
+        run: npm run build:rust
+
       - name: Run integration tests (Affected Only on Branches)
         run: |
           if [ "${{ github.ref }}" = "refs/heads/main" ]; then
