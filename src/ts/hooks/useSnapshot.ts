@@ -15,6 +15,12 @@ import { CanvasDrawingContext, SnapshotRenderer, SnapshotTheme, SVGDrawingContex
 import { fmtFreq, fmtTimestamp } from "@n-apt/utils/rendering/formatters";
 import { stitchWholeChannelWaveform } from "@n-apt/utils/rendering/wholeChannelStitching";
 import { formatTimestampWithTimezone } from "@n-apt/utils/formatters";
+import { 
+  escapeAttr, 
+  sanitizeNumeric, 
+  sanitizeViewBox,
+  sanitizeSVG 
+} from "@n-apt/utils/sanitization";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -843,16 +849,18 @@ function createAnimatedSvgFromFrames(frames: string[]): string {
   // Each frame gets its own begin time offset for sequential display
   let frameGroups = "";
   frames.forEach((frameContent, index) => {
-    const content = extractSvgContent(frameContent);
-    const frameStartTime = (index / frameCount) * totalDurationSeconds;
+    // Sanitize frame content using DOMPurify
+    const content = sanitizeSVG(extractSvgContent(frameContent));
+    const frameStartTime = sanitizeNumeric((index / frameCount) * totalDurationSeconds);
+    const sanitizedIndex = sanitizeNumeric(index);
+    const sanitizedDuration = sanitizeNumeric(totalDurationSeconds);
 
-    
     // Fade in at start, hold, fade out at end
-    frameGroups += `  <g id="frame-${index}" opacity="0">
+    frameGroups += `  <g id="frame-${sanitizedIndex}" opacity="0">
     ${content}
     <animate attributeName="opacity" 
       values="0;1;1;0" 
-      dur="${totalDurationSeconds}s" 
+      dur="${sanitizedDuration}s" 
       begin="${frameStartTime}s" 
       repeatCount="indefinite" />
   </g>\n`;
@@ -866,10 +874,14 @@ function createAnimatedSvgFromFrames(frames: string[]): string {
   <!-- Animated frames -->
 ${frameGroups}`;
 
+  const sanitizedViewBox = sanitizeViewBox(viewBox);
+  const sanitizedWidth = sanitizeNumeric(width);
+  const sanitizedHeight = sanitizeNumeric(height);
+
   // Wrap in symbol structure for reusability
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}" width="${width}" height="${height}">
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${sanitizedViewBox}" width="${sanitizedWidth}" height="${sanitizedHeight}">
   <defs>
-    <symbol id="animated-spectrum-snapshot" viewBox="${viewBox}" preserveAspectRatio="xMidYMid meet">
+    <symbol id="animated-spectrum-snapshot" viewBox="${sanitizedViewBox}" preserveAspectRatio="xMidYMid meet">
 ${animatedContent}
     </symbol>
   </defs>
@@ -891,14 +903,14 @@ export function useSnapshot(
   const themeColors = THEME_TOKENS.colors[resolvedMode];
 
   const theme: SnapshotTheme = {
-    bg: themeColors.fftBackground,
-    grid: themeColors.fftGrid,
-    line: themeColors.fftLine,
-    shadow: themeColors.fftShadow,
-    text: themeColors.fftText,
-    hwLine: themeColors.snapHwRateLine,
-    hwText: themeColors.snapHwRateText,
-    cfText: themeColors.snapCenterLabelText,
+    bg: escapeAttr(themeColors.fftBackground),
+    grid: escapeAttr(themeColors.fftGrid),
+    line: escapeAttr(themeColors.fftLine),
+    shadow: escapeAttr(themeColors.fftShadow),
+    text: escapeAttr(themeColors.fftText),
+    hwLine: escapeAttr(themeColors.snapHwRateLine),
+    hwText: escapeAttr(themeColors.snapHwRateText),
+    cfText: escapeAttr(themeColors.snapCenterLabelText),
   };
 
   const waterfallBg = themeColors.waterfallBackground;

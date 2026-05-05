@@ -2,6 +2,7 @@ import { CoordinateMapper, Range } from "@n-apt/utils/rendering/CoordinateMapper
 import { findBestFrequencyRange } from "@n-apt/consts";
 import { formatFrequency, formatFrequencyHighRes } from "@n-apt/utils/frequency";
 import { fmtFreqTick, tickPrecisionForStep } from "./formatters";
+import { escapeAttr } from "../sanitization";
 
 export interface DrawingContext {
   setStroke(color: string, width: number, dash?: number[]): void;
@@ -177,15 +178,15 @@ export class SVGDrawingContext implements DrawingContext {
 
   stroke(): void {
     this.parts.push(
-      `<path d="${this.path}" fill="none" stroke="${this.currentStroke}" stroke-width="${this.currentStrokeWidth}" stroke-linejoin="${this.lineJoin}" ${
-        this.currentStrokeDash !== "none" ? `stroke-dasharray="${this.currentStrokeDash}"` : ""
+      `<path d="${this.path}" fill="none" stroke="${escapeAttr(this.currentStroke)}" stroke-width="${escapeAttr(this.currentStrokeWidth)}" stroke-linejoin="${escapeAttr(this.lineJoin)}" ${
+        this.currentStrokeDash !== "none" ? `stroke-dasharray="${escapeAttr(this.currentStrokeDash)}"` : ""
       }/>`
     );
   }
 
   fill(): void {
     this.parts.push(
-      `<path d="${this.path}" fill="${this.currentFill}" stroke="none"/>`
+      `<path d="${this.path}" fill="${escapeAttr(this.currentFill)}" stroke="none"/>`
     );
   }
 
@@ -195,13 +196,13 @@ export class SVGDrawingContext implements DrawingContext {
 
   fillRect(x: number, y: number, w: number, h: number): void {
     this.parts.push(
-      `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${this.currentFill}"/>`
+      `<rect x="${escapeAttr(x)}" y="${escapeAttr(y)}" width="${escapeAttr(w)}" height="${escapeAttr(h)}" fill="${escapeAttr(this.currentFill)}"/>`
     );
   }
 
   roundRect(x: number, y: number, w: number, h: number, r: number): void {
     this.parts.push(
-      `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${r}" fill="${this.currentFill}"/>`
+      `<rect x="${escapeAttr(x)}" y="${escapeAttr(y)}" width="${escapeAttr(w)}" height="${escapeAttr(h)}" rx="${escapeAttr(r)}" fill="${escapeAttr(this.currentFill)}"/>`
     );
   }
 
@@ -226,7 +227,7 @@ export class SVGDrawingContext implements DrawingContext {
     else if (this.textBaseline === "middle") dy = "0.3em";
     
     this.parts.push(
-      `<text x="${x}" y="${y}" dy="${dy}" text-anchor="${this.textAlign}" fill="${this.currentFill}" ${style}>${escaped}</text>`
+      `<text x="${escapeAttr(x)}" y="${escapeAttr(y)}" dy="${escapeAttr(dy)}" text-anchor="${escapeAttr(this.textAlign)}" fill="${escapeAttr(this.currentFill)}" ${style}>${escaped}</text>`
     );
   }
 
@@ -241,7 +242,9 @@ export class SVGDrawingContext implements DrawingContext {
   clipRect(_x: number, _y: number, _w: number, _h: number): void {}
 
   getSVG(): string {
-    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${this.width} ${this.height}" width="${this.width}" height="${this.height}">
+    const sw = escapeAttr(this.width);
+    const sh = escapeAttr(this.height);
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${sw} ${sh}" width="${sw}" height="${sh}">
   ${this.parts.join("\n  ")}
 </svg>`;
   }
