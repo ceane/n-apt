@@ -581,9 +581,9 @@ pub struct SdrDisplayConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SdrLimitsConfig {
-  #[serde(alias = "lower_limit_mhz")]
+  #[serde(rename = "lower_limit_hz", alias = "lower_limit_mhz")]
   pub lower_limit_hz: Option<f64>,
-  #[serde(alias = "upper_limit_mhz")]
+  #[serde(rename = "upper_limit_hz", alias = "upper_limit_mhz")]
   pub upper_limit_hz: Option<f64>,
   pub lower_limit_label: Option<String>,
   pub upper_limit_label: Option<String>,
@@ -637,7 +637,7 @@ pub enum FrequencySpacing {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MockAptChannelConfig {
   pub label: String,
-  #[serde(alias = "freq_range_mhz")]
+  #[serde(rename = "freq_range_hz", alias = "freq_range_mhz")]
   pub freq_range_hz: Vec<f64>,
   pub description: String,
   /// Optional: override noise floor for this channel (dB)
@@ -665,7 +665,7 @@ pub struct MockAptSignalConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MockAptTrainingArea {
-  #[serde(alias = "freq_range_mhz")]
+  #[serde(rename = "freq_range_hz", alias = "freq_range_mhz")]
   pub freq_range_hz: Vec<f64>,
   pub description: String,
   pub signal_types: Vec<String>,
