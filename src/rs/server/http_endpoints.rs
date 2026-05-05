@@ -7,20 +7,20 @@ use log::{error, info, warn};
 use redis::Client as RedisClient;
 use rustfft::{num_complex::Complex, FftPlanner};
 use serde::{Deserialize, Serialize};
-use serde_json;
 use std::collections::HashSet;
 use std::env;
-use std::sync::{atomic::Ordering, Arc};
+use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::Instant;
 use tokio_util::io::ReaderStream;
+use validator::Validate;
 
 use crate::sdr::rtlsdr::RtlSdrDevice;
-use crate::server::types::ChannelSpec;
-
 use super::types::{
-  CaptureDownloadParams, SpectrumFrameMessage, WebMCPToolRequest,
-  WebMCPToolResponse,
+  CaptureDownloadParams, ChannelSpec, SpectrumFrameMessage, TowerBoundsQuery,
+  WebMCPToolRequest, WebMCPToolResponse,
 };
+
 
 // Haversine distance calculation for tower filtering
 fn haversine_distance(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
@@ -115,18 +115,6 @@ fn format_sample_rate(sample_rate: Option<u32>) -> Option<String> {
   Some(format!("{} S/s", rate))
 }
 
-#[derive(Debug, Deserialize)]
-pub struct TowerBoundsQuery {
-  pub ne_lat: f64,
-  pub ne_lng: f64,
-  pub sw_lat: f64,
-  pub sw_lng: f64,
-  pub zoom: Option<u32>,
-  pub tech: Option<String>,
-  pub range: Option<String>,
-  pub mcc: Option<String>,
-  pub mnc: Option<String>,
-}
 
 #[derive(Debug, Serialize, Clone)]
 pub struct TowerRecord {
@@ -221,6 +209,17 @@ fn parse_filter_set(raw: &Option<String>) -> HashSet<String> {
 pub async fn towers_bounds_handler(
   Query(query): Query<TowerBoundsQuery>,
 ) -> impl IntoResponse {
+  if let Err(e) = query.validate() {
+    return (
+      StatusCode::BAD_REQUEST,
+      Json(serde_json::json!({
+        "error": "Validation failed",
+        "details": format!("{}", e)
+      })),
+    )
+      .into_response();
+  }
+
   if query.ne_lat < query.sw_lat || query.ne_lng < query.sw_lng {
     return (
       StatusCode::BAD_REQUEST,
@@ -598,6 +597,17 @@ pub async fn capture_download_handler(
   Query(params): Query<CaptureDownloadParams>,
   State(state): State<Arc<super::AppState>>,
 ) -> impl IntoResponse {
+  if let Err(e) = params.validate() {
+    return (
+      StatusCode::BAD_REQUEST,
+      Json(serde_json::json!({
+        "error": "Validation failed",
+        "details": format!("{}", e)
+      })),
+    )
+      .into_response();
+  }
+
   let _session = match state.session_store.validate(&params.token) {
     Some(s) => s,
     None => {
@@ -893,6 +903,17 @@ pub async fn execute_webmcp_tool_handler(
   State(state): State<Arc<super::AppState>>,
   Json(tool_request): Json<WebMCPToolRequest>,
 ) -> impl IntoResponse {
+  if let Err(e) = tool_request.validate() {
+    return (
+      StatusCode::BAD_REQUEST,
+      Json(serde_json::json!({
+        "error": "Validation failed",
+        "details": format!("{}", e)
+      })),
+    )
+      .into_response();
+  }
+
   info!("WebMCP tool execution requested: {}", tool_request.name);
 
   let tool_name = tool_request.name.as_str();
@@ -920,7 +941,7 @@ pub async fn execute_webmcp_tool_handler(
     }
   };
 
-  Json(result)
+  Json(result).into_response()
 }
 
 /// POST /api/debug/stitch-diagnostic — Run a 2-hop capture and return stitching data

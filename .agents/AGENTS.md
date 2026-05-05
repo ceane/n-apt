@@ -1,6 +1,6 @@
 # N-APT Development Guide
 
-This file provides guidance for AI coding agents working on N-APT (RF spectrum analyzer).
+This file provides guidance for AI coding agents working on N-APT (RF spectrum analyzer). Most of the app's features should have jsdoc or rustdoc comments, anything relevant to the build process, testing or any failures should be documented here in this AGENTS.md or .md files within the .agents/ directory.
 
 ## Token Efficiency
 
@@ -29,7 +29,7 @@ This keeps all agent-focused documentation organized and separate from user-faci
 
 ## Project Overview
 
-N-APT is an RF spectrum analyzer that processes signal data from SDR hardware. It consists of:
+N-APT is an RF spectrum analyzer that processes signal data from RTL-SDR hardware or I/Q Captures (.napt, .wav). It consists of:
 
 - **Frontend**: React 19 + TypeScript + Vite + styled-components
 - **Backend**: Rust (Axum WebSocket server with tokio)
@@ -44,6 +44,7 @@ N-APT is an RF spectrum analyzer that processes signal data from SDR hardware. I
 npm run dev          # Full dev with Ink build orchestrator
 npm run dev:markdown # Markdown preview server
 npm run build        # Production build
+npm run build:markdown # Build markdown app in /docs folder (for Github Pages)
 ```
 
 ### Testing
