@@ -3,10 +3,13 @@ use log::info;
 use regex::Regex;
 use serde_yaml::Value;
 use std::io::Write;
-use std::sync::RwLock;
+use std::sync::{OnceLock, RwLock};
 use sha2::Digest;
 
 use super::types::{CaptureArtifact, ChannelSpec};
+ 
+pub static RE_SAFE_ID: std::sync::LazyLock<Regex> =
+  std::sync::LazyLock::new(|| Regex::new(r"^[a-zA-Z0-9_-]+$").unwrap());
 
 pub(crate) fn parse_frequency_hz(s: &str) -> f64 {
   let s = s.trim();

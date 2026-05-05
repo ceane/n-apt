@@ -1,10 +1,12 @@
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use validator::Validate;
 
 /// WebMCP tool request from agents
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Validate)]
 pub struct WebMCPToolRequest {
+  #[validate(regex(path = *crate::server::utils::RE_SAFE_ID))]
   pub name: String,
   pub params: serde_json::Value,
 }
@@ -137,20 +139,45 @@ pub struct SdrProcessorSettings {
   pub tuner_bandwidth: Option<u32>,
 }
 
+#[derive(Debug, Deserialize, Validate)]
+pub struct TowerBoundsQuery {
+  #[validate(range(min = -90.0, max = 90.0))]
+  pub ne_lat: f64,
+  #[validate(range(min = -180.0, max = 180.0))]
+  pub ne_lng: f64,
+  #[validate(range(min = -90.0, max = 90.0))]
+  pub sw_lat: f64,
+  #[validate(range(min = -180.0, max = 180.0))]
+  pub sw_lng: f64,
+  #[validate(range(min = 1, max = 22))]
+  pub zoom: Option<u32>,
+  pub tech: Option<String>,
+  pub range: Option<String>,
+  #[validate(length(min = 3, max = 3))]
+  pub mcc: Option<String>,
+  #[validate(length(min = 2, max = 3))]
+  pub mnc: Option<String>,
+}
+
 /// Struct representing a frequency range
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct FreqRange {
   #[serde(alias = "minFreq")]
+  #[validate(range(min = 0.0, max = 30000000000.0))]
   pub min_freq: f64,
   #[serde(alias = "maxFreq")]
+  #[validate(range(min = 0.0, max = 30000000000.0))]
   pub max_freq: f64,
 }
 
 /// Geolocation data structure
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct GeolocationData {
+  #[validate(range(min = -90.0, max = 90.0))]
   pub latitude: f64,
+  #[validate(range(min = -180.0, max = 180.0))]
   pub longitude: f64,
+  #[validate(range(min = 0.0))]
   pub accuracy: f64,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub altitude: Option<f64>,
@@ -168,11 +195,12 @@ pub struct ChannelSpec {
 }
 
 /// WebSocket message structure for client-server communication
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct WebSocketMessage {
   #[serde(rename = "type")]
   pub message_type: String,
   #[serde(skip_serializing_if = "Option::is_none")]
+  #[validate(nested)]
   pub fragments: Option<Vec<FreqRange>>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "acquisitionMode")]
   pub acquisition_mode: Option<String>,
@@ -181,18 +209,22 @@ pub struct WebSocketMessage {
     alias = "minFreq",
     alias = "min_hz"
   )]
+  #[validate(range(min = 0.0, max = 30000000000.0))]
   pub min_freq: Option<f64>,
   #[serde(
     skip_serializing_if = "Option::is_none",
     alias = "maxFreq",
     alias = "max_hz"
   )]
+  #[validate(range(min = 0.0, max = 30000000000.0))]
   pub max_freq: Option<f64>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub paused: Option<bool>,
   #[serde(skip_serializing_if = "Option::is_none")]
+  #[validate(range(min = 0.0, max = 100.0))]
   pub gain: Option<f64>,
   #[serde(skip_serializing_if = "Option::is_none")]
+  #[validate(range(min = -1000, max = 1000))]
   pub ppm: Option<i32>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "tunerAGC")]
   pub tuner_agc: Option<bool>,
@@ -205,24 +237,29 @@ pub struct WebSocketMessage {
   #[serde(skip_serializing_if = "Option::is_none", alias = "tunerBandwidth")]
   pub tuner_bandwidth: Option<u32>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "fftSize")]
+  #[validate(range(min = 256, max = 262144))]
   pub fft_size: Option<usize>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "fftWindow")]
   pub fft_window: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "frameRate")]
+  #[validate(range(min = 1, max = 100))]
   pub frame_rate: Option<u32>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "liveRetune")]
   pub live_retune: Option<bool>,
   #[serde(skip_serializing_if = "Option::is_none")]
+  #[validate(length(max = 64))]
   pub label: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "signalArea")]
   pub signal_area: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub action: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "jobId")]
+  #[validate(regex(path = *crate::server::utils::RE_SAFE_ID, message = "Invalid job_id format"))]
   pub job_id: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "durationMode")]
   pub duration_mode: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "durationS")]
+  #[validate(range(min = 0.1, max = 3600.0))]
   pub duration_s: Option<f64>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "fileType")]
   pub file_type: Option<String>,
@@ -231,6 +268,7 @@ pub struct WebSocketMessage {
   #[serde(skip_serializing_if = "Option::is_none", alias = "screenWidth")]
   pub screen_width: Option<u32>,
   #[serde(skip_serializing_if = "Option::is_none")]
+  #[validate(nested)]
   pub geolocation: Option<GeolocationData>,
   #[serde(
     skip_serializing_if = "Option::is_none",
@@ -704,8 +742,9 @@ pub struct CaptureArtifact {
 }
 
 // REST auth request/response types
-#[derive(Deserialize)]
+#[derive(Deserialize, Validate)]
 pub struct AuthVerifyRequest {
+  #[validate(regex(path = *crate::server::utils::RE_SAFE_ID))]
   pub challenge_id: String,
   pub hmac: String,
 }
@@ -737,9 +776,10 @@ pub struct PasskeyAuthFinishRequest {
   pub credential: webauthn_rs::prelude::PublicKeyCredential,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Validate)]
 pub struct CaptureDownloadParams {
   pub token: String,
   #[serde(rename = "jobId")]
+  #[validate(regex(path = *crate::server::utils::RE_SAFE_ID))]
   pub job_id: String,
 }

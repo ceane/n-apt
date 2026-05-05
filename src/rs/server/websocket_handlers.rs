@@ -4,6 +4,7 @@ use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use futures_util::{SinkExt, StreamExt};
 use log::{debug, error, info, warn};
+use validator::Validate;
 use serde_json;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -285,6 +286,10 @@ pub async fn handle_ws_connection(
         match client_msg {
           Some(Ok(Message::Text(text))) => {
             if let Ok(message) = serde_json::from_str::<WebSocketMessage>(&text) {
+              if let Err(e) = message.validate() {
+                warn!("Invalid WebSocket message received: {}", e);
+                continue;
+              }
               // Handle auto FFT options directly in the connection loop
               if message.message_type == "get_auto_fft_options" {
                 if let Some(screen_width) = message.screen_width {
