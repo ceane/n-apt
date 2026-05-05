@@ -82,9 +82,10 @@ The Spectrum Visualizer provides real-time FFT analysis of N-APT neuro-biologica
 
 ## Related Routes
 
-- `/analysis` - Advanced ML signal processing
+- `/demodulate` - Advanced ML signal processing
 - `/draw-signal` - Generate synthetic N-APT signals
 - `/3d-model` - Biological target visualization
+- `/map-endpoints` - Geographic location monitoring
 
 ## Technical Specifications
 

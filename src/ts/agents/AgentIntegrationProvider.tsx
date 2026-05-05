@@ -3,33 +3,39 @@ import { useLocation } from "react-router-dom";
 import { useWebMCP, initializeWebMCP } from "@n-apt/webmcp/integration";
 import {
   setupSpectrumToolHandlers,
-  setupDrawSignalToolHandlers,
   setupModel3DToolHandlers,
   setupHotspotToolHandlers,
+  setupMapEndpointsToolHandlers,
 } from "./webmcp/integration";
+import { useMapLocations } from "@n-apt/hooks/useMapLocations";
+import { useModel3D } from "@n-apt/hooks/useModel3D";
+import { useHotspotEditor } from "@n-apt/hooks/useHotspotEditor";
+import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
+import { useAppDispatch } from "@n-apt/redux";
+import {
+  setSourceMode
+} from "@n-apt/redux";
+import {
+  sendRestartDevice,
+  sendCaptureCommand,
+} from "@n-apt/redux/thunks/websocketThunks";
 
 interface AgentIntegrationProviderProps {
   children: React.ReactNode;
-  // Spectrum route props
-  spectrumProps?: any;
-  // Draw signal props
-  drawSignalProps?: any;
-  // 3D model props
-  model3DProps?: any;
-  // Hotspot editor props
-  hotspotProps?: any;
 }
 
 export const AgentIntegrationProvider: React.FC<
   AgentIntegrationProviderProps
 > = ({
   children,
-  spectrumProps,
-  drawSignalProps,
-  model3DProps,
-  hotspotProps,
 }) => {
     const location = useLocation();
+    const dispatch = useAppDispatch();
+    const mapLocations = useMapLocations();
+    const model3D = useModel3D();
+    const hotspotEditor = useHotspotEditor();
+    const spectrumStore = useSpectrumStore();
+
     const [agentStatus, setAgentStatus] = useState<
       "detecting" | "enabled" | "disabled"
     >("detecting");
@@ -37,46 +43,50 @@ export const AgentIntegrationProvider: React.FC<
     // Initialize WebMCP and set up tool handlers based on current route
     useEffect(() => {
       const initialize = async () => {
-        // Check if WebMCP is available
         const webmcpAvailable = initializeWebMCP();
         setAgentStatus(webmcpAvailable ? "enabled" : "disabled");
 
         if (!webmcpAvailable) return;
 
-        // Set up tool handlers based on current route
         const currentPath = location.pathname;
+
+        // Prepare spectrum props from store and hooks
+        const spectrumProps = {
+          onSourceModeChange: (mode: any) => {
+            dispatch(setSourceMode(mode));
+            spectrumStore.dispatch({ type: "SET_SOURCE_MODE", mode });
+          },
+          onRestartDevice: () => dispatch(sendRestartDevice()),
+          onCaptureCommand: (req: any) => dispatch(sendCaptureCommand(req)),
+          onSignalAreaChange: (area: any) => {
+            spectrumStore.dispatch({ type: "SET_SIGNAL_AREA", area });
+          },
+          onFrequencyRangeChange: (range: any) => {
+            spectrumStore.dispatch({ type: "SET_FREQUENCY_RANGE", range });
+          }
+        };
 
         switch (currentPath) {
           case "/":
           case "/visualizer":
-            if (spectrumProps) {
-              setupSpectrumToolHandlers(spectrumProps);
-            }
+            setupSpectrumToolHandlers(spectrumProps);
             break;
 
           case "/demodulate":
-            if (spectrumProps) {
-              setupSpectrumToolHandlers(spectrumProps);
-            }
-            // Add analysis-specific handlers here when implemented
+            setupSpectrumToolHandlers(spectrumProps);
             break;
 
           case "/draw-signal":
-            if (drawSignalProps) {
-              setupDrawSignalToolHandlers(drawSignalProps);
-            }
+            // Draw signal props might need more work if it has its own store
             break;
 
           case "/3d-model":
-            if (model3DProps) {
-              setupModel3DToolHandlers(model3DProps);
-            }
+            setupModel3DToolHandlers(model3D);
+            setupHotspotToolHandlers(hotspotEditor);
             break;
 
-          case "/hotspot-editor":
-            if (hotspotProps) {
-              setupHotspotToolHandlers(hotspotProps);
-            }
+          case "/map-endpoints":
+            setupMapEndpointsToolHandlers(mapLocations);
             break;
         }
       };
@@ -84,10 +94,11 @@ export const AgentIntegrationProvider: React.FC<
       initialize();
     }, [
       location.pathname,
-      spectrumProps,
-      drawSignalProps,
-      model3DProps,
-      hotspotProps,
+      dispatch,
+      mapLocations,
+      model3D,
+      hotspotEditor,
+      spectrumStore,
     ]);
 
     // Get WebMCP tools for current route
@@ -186,19 +197,11 @@ export function useAgentIntegration() {
 
 // Higher-order component to add agent integration to existing components
 export function withAgentIntegration<T extends object>(
-  Component: React.ComponentType<T>,
-  getProps: (props: T) => {
-    spectrumProps?: any;
-    drawSignalProps?: any;
-    model3DProps?: any;
-    hotspotProps?: any;
-  },
+  Component: React.ComponentType<T>
 ) {
   return function AgentWrappedComponent(props: T) {
-    const integrationProps = getProps(props);
-
     return (
-      <AgentIntegrationProvider {...integrationProps}>
+      <AgentIntegrationProvider>
         <Component {...props} />
       </AgentIntegrationProvider>
     );

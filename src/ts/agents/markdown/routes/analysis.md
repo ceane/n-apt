@@ -1,8 +1,8 @@
-# N-APT Analysis - Machine Learning Signal Decoding
+# N-APT Demodulate - Machine Learning Signal Decoding
 
 ## Overview
 
-The Analysis interface provides advanced machine learning tools for decoding and interpreting N-APT neuro-biological radio signals. This route leverages sophisticated ML models to identify patterns, extract meaningful data, and classify signal types that affect brain and nervous system function.
+The Demodulate interface provides advanced machine learning tools for decoding and interpreting N-APT neuro-biological radio signals. This route leverages sophisticated ML models to identify patterns, extract meaningful data, and classify signal types that affect brain and nervous system function.
 
 ## Capabilities
 
@@ -99,6 +99,7 @@ All controls from the Spectrum Visualizer are available:
 - `/` - Spectrum visualization and capture
 - `/draw-signal` - Generate training signals
 - `/3d-model` - Biological target correlation
+- `/map-endpoints` - Geographic location monitoring
 
 ## Technical Specifications
 
