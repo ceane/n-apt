@@ -43,11 +43,8 @@ pub async fn load_local_radius_towers(
     return Err(StatusCode::BAD_REQUEST);
   }
 
-  // Log at debug level with reduced precision to avoid exposing exact PII coordinates
-  debug!(
-    "Loading local towers: lat={:.1}, lng={:.1}, radius={}km",
-    request.latitude, request.longitude, radius_km
-  );
+  // Log at debug level without exposing PII coordinates
+  debug!("Loading local towers: radius={}km", radius_km);
 
   // Check if already cached
   if let Ok(cached_result) =
