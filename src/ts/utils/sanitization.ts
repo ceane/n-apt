@@ -38,6 +38,14 @@ export function sanitizeNumeric(val: string | number): string {
 }
 
 /**
+ * Sanitizer for SVG path data.
+ */
+export function sanitizePath(val: string): string {
+  // Allow M, L, H, V, C, S, Q, T, A, Z, numbers, commas, spaces, dots, dashes
+  return val.replace(/[^\d. ,MLHVCSQTAZz-]/gi, '');
+}
+
+/**
  * Sanitizer for viewBox.
  */
 export function sanitizeViewBox(val: string): string {

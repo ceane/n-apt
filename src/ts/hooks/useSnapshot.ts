@@ -851,9 +851,9 @@ function createAnimatedSvgFromFrames(frames: string[]): string {
   frames.forEach((frameContent, index) => {
     // Sanitize frame content using DOMPurify
     const content = sanitizeSVG(extractSvgContent(frameContent));
-    const frameStartTime = sanitizeNumeric((index / frameCount) * totalDurationSeconds);
-    const sanitizedIndex = sanitizeNumeric(index);
-    const sanitizedDuration = sanitizeNumeric(totalDurationSeconds);
+    const frameStartTime = escapeAttr(sanitizeNumeric((index / frameCount) * totalDurationSeconds));
+    const sanitizedIndex = escapeAttr(sanitizeNumeric(index));
+    const sanitizedDuration = escapeAttr(sanitizeNumeric(totalDurationSeconds));
 
     // Fade in at start, hold, fade out at end
     frameGroups += `  <g id="frame-${sanitizedIndex}" opacity="0">
@@ -869,14 +869,14 @@ function createAnimatedSvgFromFrames(frames: string[]): string {
   // Build the animated content with fallback
   const animatedContent = `  <!-- Fallback: first frame (shown when animations are not supported) -->
   <g id="fallback" class="fallback-frame">
-    ${firstFrameContent}
+    ${sanitizeSVG(firstFrameContent)}
   </g>
   <!-- Animated frames -->
 ${frameGroups}`;
 
-  const sanitizedViewBox = sanitizeViewBox(viewBox);
-  const sanitizedWidth = sanitizeNumeric(width);
-  const sanitizedHeight = sanitizeNumeric(height);
+  const sanitizedViewBox = escapeAttr(sanitizeViewBox(viewBox));
+  const sanitizedWidth = escapeAttr(sanitizeNumeric(width));
+  const sanitizedHeight = escapeAttr(sanitizeNumeric(height));
 
   // Wrap in symbol structure for reusability
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${sanitizedViewBox}" width="${sanitizedWidth}" height="${sanitizedHeight}">
