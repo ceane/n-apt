@@ -30,16 +30,12 @@ pub fn derive_key(passkey: &str) -> [u8; 32] {
 
 /// Generate a random 32-byte nonce for the challenge–response handshake.
 pub fn generate_nonce() -> [u8; 32] {
-  let mut nonce = [0u8; 32];
-  ::rand::rng().fill_bytes(&mut nonce);
-  nonce
+  ::rand::random()
 }
 
 /// Generate a random 256-bit AES key.
 pub fn generate_key() -> [u8; 32] {
-  let mut key = [0u8; 32];
-  ::rand::rng().fill_bytes(&mut key);
-  key
+  ::rand::random()
 }
 
 /// Compute HMAC-SHA256 over `data` using the given `key`.
@@ -67,8 +63,7 @@ pub fn encrypt_payload_binary(
   let cipher: Aes256Gcm =
     AeadKeyInit::new_from_slice(key).map_err(|e| format!("cipher init: {e}"))?;
 
-  let mut iv_bytes = [0u8; 12];
-  ::rand::rng().fill_bytes(&mut iv_bytes);
+  let iv_bytes: [u8; 12] = ::rand::random();
   let nonce = Nonce::from_slice(&iv_bytes);
 
   let ciphertext = cipher
@@ -92,8 +87,7 @@ pub fn encrypt_payload(
   let cipher: Aes256Gcm =
     AeadKeyInit::new_from_slice(key).map_err(|e| format!("cipher init: {e}"))?;
 
-  let mut iv_bytes = [0u8; 12];
-  ::rand::rng().fill_bytes(&mut iv_bytes);
+  let iv_bytes: [u8; 12] = ::rand::random();
   let nonce = Nonce::from_slice(&iv_bytes);
 
   let ciphertext = cipher

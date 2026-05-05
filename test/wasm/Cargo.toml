@@ -2,6 +2,7 @@
 name = "wasm-tests"
 version = "0.5.0"
 edition = "2021"
+repository = "https://github.com/ceane/n-apt"
 
 [lib]
 crate-type = ["cdylib"]
