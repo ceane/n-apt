@@ -45,7 +45,7 @@ export async function deriveRawKey(passkey: string): Promise<ArrayBuffer> {
  */
 export async function deriveAesKey(passkey: string): Promise<CryptoKey> {
   const rawKey = await deriveRawKey(passkey);
-  return crypto.subtle.importKey("raw", rawKey, { name: "AES-GCM" }, false, [
+  return crypto.subtle.importKey("raw", rawKey, { name: "AES-GCM" }, true, [
     "decrypt",
   ]);
 }
@@ -54,7 +54,7 @@ export async function deriveAesKey(passkey: string): Promise<CryptoKey> {
  * Import a raw AES-256 key from an ArrayBuffer (e.g. received from backend).
  */
 export async function importAesKey(rawKey: ArrayBuffer): Promise<CryptoKey> {
-  return crypto.subtle.importKey("raw", rawKey, { name: "AES-GCM" }, false, [
+  return crypto.subtle.importKey("raw", rawKey, { name: "AES-GCM" }, true, [
     "decrypt",
   ]);
 }

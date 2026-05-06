@@ -331,7 +331,7 @@ export class SnapshotRenderer {
     dc.setStroke(this.theme.grid, 1 / this.mapper.getDPR());
     dc.beginPath();
     for (let freq = lowerFreq; freq < freqRange.max - 0.0001; freq += range) {
-      const x = Math.round(this.mapper.freqToX(freq));
+      const x = this.mapper.freqToX(freq);
       dc.moveTo(x, area.y);
       dc.lineTo(x, area.y + area.height);
     }
@@ -357,7 +357,7 @@ export class SnapshotRenderer {
       if (db < dbRange.min || db > dbRange.max) continue;
       const y = this.mapper.dbToY(db);
 
-      let label = `${Math.round(db)}`;
+      let label = `${db.toFixed(1)}`;
       if (i === 0) {
         label += unit;
       }
@@ -384,14 +384,22 @@ export class SnapshotRenderer {
 
     const startLabel = useHighRes
       ? formatFrequencyHighRes(freqRange.min)
-      : formatFrequency(freqRange.min, { trimTrailingZeros: true });
+      : formatFrequency(freqRange.min, {
+          precisionMHz: 4,
+          precisionKHz: 4,
+          trimTrailingZeros: true,
+        });
     const endLabel = useHighRes
       ? formatFrequencyHighRes(freqRange.max)
-      : formatFrequency(freqRange.max, { trimTrailingZeros: true });
+      : formatFrequency(freqRange.max, {
+          precisionMHz: 4,
+          precisionKHz: 4,
+          trimTrailingZeros: true,
+        });
     const { precisionMHz: tickPrecMHz, precisionKHz: tickPrecKHz } =
       tickPrecisionForStep(range);
-    const centerPrecMHz = Math.max(3, tickPrecMHz);
-    const centerPrecKHz = Math.max(3, tickPrecKHz);
+    const centerPrecMHz = Math.max(4, tickPrecMHz);
+    const centerPrecKHz = Math.max(4, tickPrecKHz);
     const centerLabelText =
       Number.isNaN(centerFrequencyHz) || !Number.isFinite(centerFrequencyHz)
         ? "--MHz"
@@ -426,7 +434,7 @@ export class SnapshotRenderer {
 
     // Draw Ticks and Labels
     for (let freq = lowerFreq; freq < freqRange.max - 0.0001; freq += range) {
-      const x = Math.round(this.mapper.freqToX(freq));
+      const x = this.mapper.freqToX(freq);
 
       // Tick mark
       dc.setStroke(this.theme.text, 1 / this.mapper.getDPR());
@@ -515,11 +523,11 @@ export class SnapshotRenderer {
 
     dc.setFill(this.theme.shadow);
     for (let i = 0; i < dataWidth; i++) {
-      const x = Math.round(area.x + i * binW);
+      const x = area.x + i * binW;
       const nextX =
         i === dataWidth - 1
           ? area.x + area.width
-          : Math.round(area.x + (i + 1) * binW);
+          : area.x + (i + 1) * binW;
       const w = Math.max(1, nextX - x);
       const y = Math.round(this.mapper.clampY(waveform[i]));
       const h = area.y + area.height - y;
@@ -621,7 +629,7 @@ export class SnapshotRenderer {
           bStart >= freqRange.min &&
           bStart <= freqRange.max
         ) {
-          const lx = Math.round(this.mapper.freqToX(bStart));
+          const lx = this.mapper.freqToX(bStart);
           dc.beginPath();
           dc.moveTo(lx, area.y);
           dc.lineTo(lx, area.y + area.height);
@@ -633,7 +641,7 @@ export class SnapshotRenderer {
         const visibleCenter = (visibleStart + visibleEnd) / 2;
 
         if (visibleCenter >= freqRange.min && visibleCenter <= freqRange.max) {
-          const cx = Math.round(this.mapper.freqToX(visibleCenter));
+          const cx = this.mapper.freqToX(visibleCenter);
           const label = isFull ? "Hardware Sample Rate" : "Next Sample";
           const subLabel = fmtOff(bWidth);
           dc.fillText(label, cx, area.y + 7);

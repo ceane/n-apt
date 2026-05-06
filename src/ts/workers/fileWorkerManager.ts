@@ -85,7 +85,7 @@ export class FileWorkerManager {
           this.pendingRequests.delete(id);
           reject(
             new Error(
-              `Worker request ${id} timed out after ${this.REQUEST_TIMEOUT}ms`,
+              `File timed out after ${this.REQUEST_TIMEOUT / 1000}s`,
             ),
           );
         }
@@ -128,10 +128,11 @@ export class FileWorkerManager {
     if (!file) throw new Error("File not found in registry");
 
     const fileData = await file.arrayBuffer();
+    const rawAesKey = aesKey ? await crypto.subtle.exportKey("raw", aesKey) : null;
     return this.sendMessage("loadFile", {
       fileData,
       fileName: file.name,
-      aesKey,
+      aesKey: rawAesKey,
     });
   }
 
@@ -166,7 +167,7 @@ export class FileWorkerManager {
         files: filesData,
         settings,
         fftSize,
-        aesKey,
+        aesKey: aesKey ? await crypto.subtle.exportKey("raw", aesKey) : null,
         sampleRateOptions, // Pass current sample rate options dynamically
       },
       onProgress,

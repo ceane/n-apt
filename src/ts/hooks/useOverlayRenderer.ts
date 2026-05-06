@@ -89,7 +89,13 @@ export function useOverlayRenderer() {
       const zoom = fullSpan > 0 ? fullSpan / viewBandwidth2 : 1;
       const useHighRes = zoom >= 100;
       const formatFreq = (f: number) =>
-        useHighRes ? formatFrequencyHighRes(f) : formatFrequency(f);
+        useHighRes
+          ? formatFrequencyHighRes(f)
+          : formatFrequency(f, {
+              precisionMHz: 4,
+              precisionKHz: 4,
+              trimTrailingZeros: true,
+            });
 
       const clampLabelX = (x: number, text: string) => {
         const tw = ctx.measureText(text).width;
@@ -149,10 +155,10 @@ export function useOverlayRenderer() {
           ? formatFrequencyHighRes(freq)
           : formatFrequency(freq, {
               trimTrailingZeros: true,
-              precisionMHz: tickPrec.precisionMHz,
-              precisionKHz: tickPrec.precisionKHz,
+              precisionMHz: 4,
+              precisionKHz: 4,
             });
-      const lowerFreq2 = Math.ceil((minFreq + 0.000001) / step) * step;
+      const lowerFreq2 = Math.ceil(minFreq / step) * step;
       const upperFreq2 = maxFreq;
 
       const freqToX2 = (freq: number) =>
@@ -176,8 +182,8 @@ export function useOverlayRenderer() {
         if (!Number.isFinite(hz)) return "---";
         const abs = Math.abs(hz);
         if (abs >= 1_000_000) return `${(hz / 1_000_000).toFixed(1)}MHz`;
-        if (abs >= 1_000) return `${Math.round(hz / 1_000)}kHz`;
-        return `${Math.round(hz)}Hz`;
+        if (abs >= 1_000) return `${(hz / 1_000).toFixed(1)}kHz`;
+        return `${hz.toFixed(1)}Hz`;
       };
 
       ctx.strokeStyle = canvasTheme.gridColor;
@@ -250,7 +256,7 @@ export function useOverlayRenderer() {
       ctx.textAlign = "center";
       for (let freq = lowerFreq2; freq < upperFreq2 - 0.0001; freq += step) {
         const xPos = freqToX2(freq);
-        const ix = Math.round(xPos);
+        const ix = xPos;
 
         // Grid line
         ctx.strokeStyle = canvasTheme.gridColor;
@@ -291,7 +297,7 @@ export function useOverlayRenderer() {
             const f = visualCenterFreq + s * sign;
             if (f <= minFreq || f >= maxFreq) continue;
 
-            const x = Math.round(freqToX2(f));
+            const x = freqToX2(f);
             ctx.beginPath();
             ctx.moveTo(x, FFT_AREA_MIN.y);
             ctx.lineTo(x, fftAreaMax.y);
@@ -354,7 +360,7 @@ export function useOverlayRenderer() {
               blockStart >= minFreq &&
               blockStart <= maxFreq
             ) {
-              const lx = Math.round(freqToX2(blockStart));
+              const lx = freqToX2(blockStart);
               ctx.beginPath();
               ctx.moveTo(lx, FFT_AREA_MIN.y);
               ctx.lineTo(lx, fftAreaMax.y);
@@ -367,7 +373,7 @@ export function useOverlayRenderer() {
               blockEnd >= minFreq &&
               blockEnd <= maxFreq
             ) {
-              const rx = Math.round(freqToX2(blockEnd));
+              const rx = freqToX2(blockEnd);
               ctx.beginPath();
               ctx.moveTo(rx, FFT_AREA_MIN.y);
               ctx.lineTo(rx, fftAreaMax.y);
@@ -380,7 +386,7 @@ export function useOverlayRenderer() {
             const visibleCenter = (visibleStart + visibleEnd) / 2;
 
             if (visibleCenter >= minFreq && visibleCenter <= maxFreq) {
-              const cx = Math.round(freqToX2(visibleCenter));
+              const cx = freqToX2(visibleCenter);
               const label = isFullBlock
                 ? "Hardware Sample Rate"
                 : "Next Sample";

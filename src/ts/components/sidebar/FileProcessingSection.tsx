@@ -165,6 +165,7 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
     stitchStatus?.includes("Processing") ||
     stitchStatus?.includes("computing");
   const hasProcessedData = stitchStatus?.includes("Successfully");
+  const isError = stitchStatus && !stitchingActive && !hasProcessedData && stitchStatus !== "No files selected for stitching";
 
   return (
     <DropZone
@@ -192,9 +193,7 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
           </Section>
 
           <ActionsContainer>
-            {stitchStatus &&
-              !stitchingActive &&
-              stitchStatus.startsWith("Stitching failed") && (
+            {isError && (
                 <div className="mt-2">
                   {stitchStatus.toLowerCase().includes("decryption") ? (
                     <DecryptionFallback
@@ -213,7 +212,7 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
               $variant={
                 stitchingActive
                   ? "secondary"
-                  : stitchStatus?.startsWith("Stitching failed")
+                  : isError
                     ? "danger"
                     : "primary"
               }
@@ -233,7 +232,7 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
                 <>
                   <Loader2 size={16} className="animate-spin" /> Processing...
                 </>
-              ) : stitchStatus?.startsWith("Stitching failed") ? (
+              ) : isError ? (
                 "Error"
               ) : hasProcessedData ? (
                 isStitchPaused ? (
