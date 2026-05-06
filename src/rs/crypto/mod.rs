@@ -3,25 +3,35 @@
 
 use aes_gcm::aead::{Aead, KeyInit as AeadKeyInit};
 use aes_gcm::{Aes256Gcm, Nonce};
+use anyhow::{anyhow, Result};
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 use hmac::{Hmac, KeyInit as MacKeyInit, Mac};
 use pbkdf2::pbkdf2_hmac;
-use rand::prelude::*;
 use sha2::Sha256;
+use std::sync::OnceLock;
 
 /// PBKDF2 iteration count — must match the frontend WebCrypto derivation.
 const PBKDF2_ITERATIONS: u32 = 100_000;
-/// Salt used for PBKDF2 key derivation (fixed, shared between client/server).
-/// In production this could be per-session, but a fixed salt is acceptable when
-/// the passkey itself has sufficient entropy.
-const PBKDF2_SALT: &[u8] = b"n-apt-aes-salt-v1";
+
+/// Global salt used for PBKDF2 key derivation.
+/// Defaults to a fixed value but can be overridden via NAPT_PBKDF2_SALT env var.
+static PBKDF2_SALT: OnceLock<Vec<u8>> = OnceLock::new();
+
+/// Get the PBKDF2 salt, either from NAPT_PBKDF2_SALT env var or the default value.
+pub fn get_pbkdf2_salt() -> &'static [u8] {
+  PBKDF2_SALT.get_or_init(|| {
+    std::env::var("NAPT_PBKDF2_SALT")
+      .map(|s| s.into_bytes())
+      .unwrap_or_else(|_| b"n-apt-aes-salt-v1".to_vec())
+  })
+}
 
 /// Derive a 256-bit AES key from a passkey using PBKDF2-HMAC-SHA256.
 pub fn derive_key(passkey: &str) -> [u8; 32] {
   let mut key = [0u8; 32];
   pbkdf2_hmac::<Sha256>(
     passkey.as_bytes(),
-    PBKDF2_SALT,
+    get_pbkdf2_salt(),
     PBKDF2_ITERATIONS,
     &mut key,
   );
@@ -59,16 +69,16 @@ pub fn verify_hmac(key: &[u8; 32], data: &[u8], tag: &[u8]) -> bool {
 pub fn encrypt_payload_binary(
   key: &[u8; 32],
   plaintext: &[u8],
-) -> Result<Vec<u8>, String> {
-  let cipher: Aes256Gcm =
-    AeadKeyInit::new_from_slice(key).map_err(|e| format!("cipher init: {e}"))?;
+) -> Result<Vec<u8>> {
+  let cipher: Aes256Gcm = AeadKeyInit::new_from_slice(key)
+    .map_err(|e| anyhow!("cipher init: {e}"))?;
 
   let iv_bytes: [u8; 12] = ::rand::random();
   let nonce = Nonce::from_slice(&iv_bytes);
 
   let ciphertext = cipher
     .encrypt(nonce, plaintext)
-    .map_err(|e| format!("encrypt: {e}"))?;
+    .map_err(|e| anyhow!("encrypt: {e}"))?;
 
   // Wire format: IV || ciphertext (which includes the GCM tag)
   let mut out = Vec::with_capacity(12 + ciphertext.len());
@@ -83,23 +93,9 @@ pub fn encrypt_payload_binary(
 pub fn encrypt_payload(
   key: &[u8; 32],
   plaintext: &[u8],
-) -> Result<String, String> {
-  let cipher: Aes256Gcm =
-    AeadKeyInit::new_from_slice(key).map_err(|e| format!("cipher init: {e}"))?;
-
-  let iv_bytes: [u8; 12] = ::rand::random();
-  let nonce = Nonce::from_slice(&iv_bytes);
-
-  let ciphertext = cipher
-    .encrypt(nonce, plaintext)
-    .map_err(|e| format!("encrypt: {e}"))?;
-
-  // Wire format: IV || ciphertext (which includes the GCM tag)
-  let mut out = Vec::with_capacity(12 + ciphertext.len());
-  out.extend_from_slice(&iv_bytes);
-  out.extend_from_slice(&ciphertext);
-
-  Ok(B64.encode(&out))
+) -> Result<String> {
+  let encrypted = encrypt_payload_binary(key, plaintext)?;
+  Ok(B64.encode(&encrypted))
 }
 
 /// Decrypt `payload` with AES-256-GCM.
@@ -107,20 +103,20 @@ pub fn encrypt_payload(
 pub fn decrypt_payload_binary(
   key: &[u8; 32],
   payload: &[u8],
-) -> Result<Vec<u8>, String> {
+) -> Result<Vec<u8>> {
   if payload.len() < 12 {
-    return Err("payload too short for IV".to_string());
+    return Err(anyhow!("payload too short for IV"));
   }
 
-  let cipher: Aes256Gcm =
-    AeadKeyInit::new_from_slice(key).map_err(|e| format!("cipher init: {e}"))?;
+  let cipher: Aes256Gcm = AeadKeyInit::new_from_slice(key)
+    .map_err(|e| anyhow!("cipher init: {e}"))?;
 
   let (iv_bytes, ciphertext) = payload.split_at(12);
   let nonce = Nonce::from_slice(iv_bytes);
 
   let plaintext = cipher
     .decrypt(nonce, ciphertext)
-    .map_err(|e| format!("decrypt: {e}"))?;
+    .map_err(|e| anyhow!("decrypt: {e}"))?;
 
   Ok(plaintext)
 }
@@ -130,9 +126,37 @@ pub fn decrypt_payload_binary(
 pub fn decrypt_payload(
   key: &[u8; 32],
   payload_base64: &str,
-) -> Result<Vec<u8>, String> {
+) -> Result<Vec<u8>> {
   let payload = from_base64(payload_base64)?;
   decrypt_payload_binary(key, &payload)
+}
+
+/// Decrypt f32 waveform data from encrypted payload
+pub fn decrypt_waveform(
+  key: &[u8; 32],
+  encrypted_data: &[u8],
+) -> Result<Vec<f32>> {
+  let decrypted_bytes = decrypt_payload_binary(key, encrypted_data)?;
+
+  if decrypted_bytes.len() % 4 != 0 {
+    return Err(anyhow!(
+      "Decrypted data length not divisible by 4 for f32 conversion"
+    ));
+  }
+
+  // Convert bytes to f32 array
+  let f32_slice: &[f32] = bytemuck::try_cast_slice(&decrypted_bytes)
+    .map_err(|e| anyhow!("Failed to cast bytes to f32: {}", e))?;
+
+  Ok(f32_slice.to_vec())
+}
+
+/// Decrypt raw I/Q data (remains as bytes)
+pub fn decrypt_iq_data(
+  key: &[u8; 32],
+  encrypted_data: &[u8],
+) -> Result<Vec<u8>> {
+  decrypt_payload_binary(key, encrypted_data)
 }
 
 /// Encode raw bytes as base64.
@@ -141,10 +165,10 @@ pub fn to_base64(data: &[u8]) -> String {
 }
 
 /// Decode base64 string to raw bytes.
-pub fn from_base64(encoded: &str) -> Result<Vec<u8>, String> {
+pub fn from_base64(encoded: &str) -> Result<Vec<u8>> {
   B64
     .decode(encoded)
-    .map_err(|e| format!("base64 decode: {e}"))
+    .map_err(|e| anyhow!("base64 decode: {e}"))
 }
 
 #[cfg(test)]

@@ -5,7 +5,6 @@
 
 pub mod algorithms;
 pub mod data_parser;
-pub mod decryption;
 pub mod types;
 pub mod websocket_client;
 
