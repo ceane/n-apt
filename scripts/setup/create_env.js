@@ -61,6 +61,11 @@ const envConfig = {
   'UNSAFE_LOCAL_DEMOD_PASSWORD': 'the_demod_password',
   'UNSAFE_LOCAL_LATEX_PASSWORD': 'the_latex_password',
 
+  // PBKDF2 Salts for cryptographic operations
+  // If not set, the application uses a default hard-coded salt (not recommended for production)
+  'NAPT_PBKDF2_SALT': 'napt_default_salt_change_this_in_production',
+  'VITE_PBKDF2_SALT': 'napt_default_salt_change_this_in_production',
+
   // Rust logging
   'RUST_LOG': 'info'
 };
@@ -108,6 +113,12 @@ function createEnvContent() {
   content += '# Rust Logging\n';
   content += '# Log level for Rust backend (debug, info, warn, error)\n';
   content += `RUST_LOG=${envConfig.RUST_LOG}\n\n`;
+
+  content += '# PBKDF2 Salts (Security Hardening)\n';
+  content += '# Used for key derivation in both backend and frontend\n';
+  content += '# RECOMMENDED: Change these to unique random strings in production\n';
+  content += `NAPT_PBKDF2_SALT=${envConfig.NAPT_PBKDF2_SALT}\n`;
+  content += `VITE_PBKDF2_SALT=$NAPT_PBKDF2_SALT\n\n`;
   
   content += '# Additional Development Settings\n';
   content += '# Uncomment and modify as needed:\n';

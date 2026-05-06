@@ -118,7 +118,6 @@ impl SessionStore {
 // commented-out source below for reference.
 #[cfg(test)]
 mod tests {
-  use super::*;
 
   /// Deterministic test key — avoids hard-coded byte arrays
   /// that CodeQL flags as "hard-coded cryptographic value".

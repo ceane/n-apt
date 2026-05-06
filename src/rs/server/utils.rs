@@ -3,7 +3,7 @@ use log::info;
 use regex::Regex;
 use serde_yaml::Value;
 use std::io::Write;
-use std::sync::{OnceLock, RwLock};
+use std::sync::RwLock;
 use sha2::Digest;
 
 use super::types::{CaptureArtifact, ChannelSpec};
