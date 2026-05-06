@@ -382,7 +382,11 @@ const App: React.FC = () => {
     "desktop-only": ({ node: _node, children, ...props }: any) => <DesktopOnly {...props}>{children}</DesktopOnly>,
     "mobile-only": ({ node: _node, children, ...props }: any) => <MobileOnly {...props}>{children}</MobileOnly>,
     "days-since": () => <DaysSince />,
-    table: ({ node: _node, ...props }) => <div className="table-dense"><table {...props} /></div>,
+    table: ({ node: _node, ...props }) => (
+      <div className="table-scroll-wrapper table-dense">
+        <table {...props} />
+      </div>
+    ),
   }), []);
 
   return (
@@ -648,20 +652,54 @@ const ArticleContent = styled.article`
     border-bottom: none;
   }
 
-  .table-dense {
+  .table-scroll-wrapper {
+    width: 100%;
+    overflow-x: auto;
+    margin: 2em 0;
+    -webkit-overflow-scrolling: touch;
+    
+    /* Custom scrollbar for tables */
+    &::-webkit-scrollbar {
+      height: 4px;
+    }
+    &::-webkit-scrollbar-track {
+      background: rgba(255, 255, 255, 0.05);
+    }
+    &::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: 2px;
+    }
+  }
+
+  .table-dense, .table-tiny {
     width: 100%;
     
-    th {
-      padding: 1rem;
-    }
-    
-    td {
-      padding: 1rem;
+    table {
+      table-layout: auto !important;
+      margin: 0 !important;
     }
 
     th, td {
-      font-size: 1rem;
+      padding: 0.75rem !important;
+      font-size: 0.9rem !important;
       text-transform: none;
+    }
+
+    @media (max-width: 768px) {
+      th, td {
+        padding: 0.5rem !important;
+        font-size: 0.8rem !important;
+      }
+    }
+  }
+
+  .table-tiny {
+    @media (max-width: 768px) {
+      th, td {
+        padding: 0.3rem 0.4rem !important;
+        font-size: 0.65rem !important;
+        letter-spacing: -0.01em;
+      }
     }
   }
 
