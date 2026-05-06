@@ -58,7 +58,7 @@ describe("FFTAndWaterfall", () => {
       <FFTAndWaterfall
         dataRef={{ current: null }}
         frequencyRange={{ min: 100, max: 101 }}
-        centerFrequencyMHz={100.5}
+        centerFrequencyHz={100_500_000}
         activeSignalArea="A"
         isPaused={false}
         snapshotGridPreference={true}

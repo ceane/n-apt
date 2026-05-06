@@ -258,7 +258,7 @@ export const useWebSocket = (
                       type: "spectrum",
                       is_mock_apt: false,
                       center_frequency_hz: centerFrequencyHz,
-                      waveform_span_mhz: null,
+                      waveform_span_hz: null,
                       timestamp: timestamp,
                       data_type: "iq_raw",
                       sample_rate: sampleRate,
@@ -279,7 +279,7 @@ export const useWebSocket = (
 
           const raw = event.data as string;
 
-          // JSON spectrum path for live multi-hop metadata (waveform_span_mhz)
+          // JSON spectrum path for live multi-hop metadata (waveform_span_hz)
           if (raw.includes('"type":"spectrum"')) {
             try {
               const parsedData = JSON.parse(raw);
@@ -388,8 +388,8 @@ export const useWebSocket = (
                   .map((f: any) => ({
                     id: f.id,
                     label: typeof f.label === "string" ? f.label : "",
-                    min_mhz: Number(f.min_mhz),
-                    max_mhz: Number(f.max_mhz),
+                    min_hz: Number(f.min_hz),
+                    max_hz: Number(f.max_hz),
                     description:
                       typeof f.description === "string" ? f.description : "",
                   }))
@@ -397,9 +397,9 @@ export const useWebSocket = (
                     (f: SpectrumFrame) =>
                       typeof f.label === "string" &&
                       f.label.length > 0 &&
-                      Number.isFinite(f.min_mhz) &&
-                      Number.isFinite(f.max_mhz) &&
-                      f.max_mhz > f.min_mhz,
+                      Number.isFinite(f.min_hz) &&
+                      Number.isFinite(f.max_hz) &&
+                      f.max_hz > f.min_hz,
                   );
               }
               const reason = parsedData.device_loading_reason;
@@ -644,8 +644,8 @@ export const useWebSocket = (
     if (ws && ws.readyState === WebSocket.OPEN) {
       const message = JSON.stringify({
         type: "frequency_range",
-        min_mhz: range.min,
-        max_mhz: range.max,
+        min_hz: range.min,
+        max_hz: range.max,
       });
       ws.send(message);
     }

@@ -1,5 +1,5 @@
 use axum::{http::StatusCode, Json};
-use log::{error, info};
+use log::{debug, error, info};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::process::Command;
@@ -43,10 +43,8 @@ pub async fn load_local_radius_towers(
     return Err(StatusCode::BAD_REQUEST);
   }
 
-  info!(
-    "Loading local towers: lat={}, lng={}, radius={}km",
-    request.latitude, request.longitude, radius_km
-  );
+  // Log at debug level without exposing PII coordinates
+  debug!("Loading local towers: radius={}km", radius_km);
 
   // Check if already cached
   if let Ok(cached_result) =

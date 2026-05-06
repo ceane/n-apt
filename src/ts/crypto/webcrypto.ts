@@ -47,6 +47,15 @@ export async function deriveAesKey(passkey: string): Promise<CryptoKey> {
 }
 
 /**
+ * Import a raw AES-256 key from an ArrayBuffer (e.g. received from backend).
+ */
+export async function importAesKey(rawKey: ArrayBuffer): Promise<CryptoKey> {
+  return crypto.subtle.importKey("raw", rawKey, { name: "AES-GCM" }, false, [
+    "decrypt",
+  ]);
+}
+
+/**
  * Compute HMAC-SHA256 over `data` using a key derived from the passkey.
  * Returns the HMAC as a base64 string.
  */

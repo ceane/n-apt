@@ -6,6 +6,7 @@ use n_apt_backend::server::websocket_server::WebSocketServer;
 use n_apt_backend::session::SessionStore;
 use std::sync::Arc;
 use tokio::sync::broadcast;
+use serial_test::serial;
 use url::Url;
 use webauthn_rs::prelude::*;
 
@@ -16,6 +17,7 @@ fn ensure_test_password() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_server_status_endpoint() {
   ensure_test_password();
   // Setup mock AppState
@@ -27,10 +29,10 @@ async fn test_server_status_endpoint() {
   let temp_dir = tempfile::tempdir().unwrap();
   std::env::set_var("HOME", temp_dir.path());
 
-  let shared = SharedState::new();
+  let shared = SharedState::new("redis://127.0.0.1:6379");
   let credential_store =
     CredentialStore::new().expect("Failed to create credential store");
-  let session_store = SessionStore::new();
+  let session_store = SessionStore::new("redis://127.0.0.1:6379").unwrap();
 
   // Initialize WebAuthn with dummy values
   let rp_id = "localhost";
@@ -56,7 +58,7 @@ async fn test_server_status_endpoint() {
   });
 
   let app = WebSocketServer::create_app(state);
-  let server = TestServer::new(app).unwrap();
+  let server = TestServer::new(app);
 
   // Test /status
   let response = server.get("/status").await;
@@ -69,6 +71,7 @@ async fn test_server_status_endpoint() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_auth_challenge_flow() {
   ensure_test_password();
   let (broadcast_tx, _) = broadcast::channel(10);
@@ -78,9 +81,9 @@ async fn test_auth_challenge_flow() {
   let temp_dir = tempfile::tempdir().unwrap();
   std::env::set_var("HOME", temp_dir.path());
 
-  let shared = SharedState::new();
+  let shared = SharedState::new("redis://127.0.0.1:6379");
   let credential_store = CredentialStore::new().unwrap();
-  let session_store = SessionStore::new();
+  let session_store = SessionStore::new("redis://127.0.0.1:6379").unwrap();
   let webauthn =
     WebauthnBuilder::new("localhost", &Url::parse("http://localhost").unwrap())
       .unwrap()
@@ -103,7 +106,7 @@ async fn test_auth_challenge_flow() {
   });
 
   let app = WebSocketServer::create_app(state);
-  let server = TestServer::new(app).unwrap();
+  let server = TestServer::new(app);
 
   // 1. Get challenge
   let challenge_resp = server.post("/auth/challenge").await;
@@ -129,6 +132,7 @@ async fn test_auth_challenge_flow() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_auth_info_endpoint() {
   ensure_test_password();
   let (broadcast_tx, _) = broadcast::channel(10);
@@ -138,14 +142,14 @@ async fn test_auth_info_endpoint() {
   let temp_dir = tempfile::tempdir().unwrap();
   std::env::set_var("HOME", temp_dir.path());
 
-  let shared = SharedState::new();
+  let shared = SharedState::new("redis://127.0.0.1:6379");
   let sdr_processor = Arc::new(tokio::sync::Mutex::new(
     n_apt_backend::sdr::processor::SdrProcessor::new_mock_apt().unwrap(),
   ));
   let state = Arc::new(AppState {
     shared,
     credential_store: CredentialStore::new().unwrap(),
-    session_store: SessionStore::new(),
+    session_store: SessionStore::new("redis://127.0.0.1:6379").unwrap(),
     webauthn: WebauthnBuilder::new(
       "localhost",
       &Url::parse("http://localhost").unwrap(),
@@ -160,7 +164,7 @@ async fn test_auth_info_endpoint() {
   });
 
   let app = WebSocketServer::create_app(state);
-  let server = TestServer::new(app).unwrap();
+  let server = TestServer::new(app);
 
   let response = server.get("/auth/info").await;
   response.assert_status_ok();

@@ -224,13 +224,16 @@ export interface NoteCardsProps {
 
 const formatRange = (range: { min: number; max: number } | null) => {
   if (!range) return "Unavailable";
-  return `${range.min.toFixed(3)}-${range.max.toFixed(3)} MHz`;
+  const min = Number.isFinite(range.min) ? range.min.toFixed(3) : "---";
+  const max = Number.isFinite(range.max) ? range.max.toFixed(3) : "---";
+  return `${min}-${max} MHz`;
 };
 
 const formatSummary = (card: ReturnType<typeof selectNoteCards>[number]) => {
-  const center = card.stats.centerFrequencyMHz;
-  const centerText = center !== null ? `${center.toFixed(3)}MHz` : "Unavailable";
-  return `${centerText}\n${card.stats.vizZoom.toFixed(1)}x zoom\n${card.stats.fftDbMin} to ${card.stats.fftDbMax}${card.stats.powerScale}`;
+  const center = card.stats.centerFrequencyHz;
+  const centerText = Number.isFinite(center) ? `${(center! / 1e6).toFixed(3)}MHz` : "Unavailable";
+  const zoomText = Number.isFinite(card.stats.vizZoom) ? card.stats.vizZoom.toFixed(1) : "---";
+  return `${centerText}\n${zoomText}x zoom\n${card.stats.fftDbMin} to ${card.stats.fftDbMax}${card.stats.powerScale}`;
 };
 
 const useNoteCardPersistence = (
@@ -483,16 +486,16 @@ export const NoteCards: React.FC<NoteCardsProps> = ({ fftCanvasRef }) => {
             <StatsGrid>
               <Label>Center Frequency</Label>
               <Value>
-                {activeCard.stats.centerFrequencyMHz !== null
-                  ? `${activeCard.stats.centerFrequencyMHz.toFixed(3)}MHz`
+                {Number.isFinite(activeCard.stats.centerFrequencyHz)
+                  ? `${(activeCard.stats.centerFrequencyHz! / 1e6).toFixed(3)}MHz`
                   : "Unavailable"}
               </Value>
               <Label>Sample Rate</Label>
-              <Value>{(activeCard.stats.sampleRateHz / 1_000_000).toFixed(1)} MHz</Value>
+              <Value>{Number.isFinite(activeCard.stats.sampleRateHz) ? (activeCard.stats.sampleRateHz / 1_000_000).toFixed(1) : "---"} MHz</Value>
               <Label>Heterodyned?</Label>
               <Value>{activeCard.stats.heterodyningDetected ? "Yes" : activeCard.stats.heterodyningStatusText}</Value>
               <Label>Current Zoom</Label>
-              <Value>{activeCard.stats.vizZoom.toFixed(1)}x</Value>
+              <Value>{Number.isFinite(activeCard.stats.vizZoom) ? activeCard.stats.vizZoom.toFixed(1) : "---"}x</Value>
             </StatsGrid>
           </ScrollBody>
 

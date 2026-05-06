@@ -21,23 +21,23 @@ export const fetchHardwareInfo = createAsyncThunk(
 // Send demod_tune command to server (sets hardware center freq)
 export const tuneDemod = createAsyncThunk(
   'demod/tune',
-  async (range: { min_mhz: number; max_mhz: number }, { dispatch, getState }) => {
+  async (range: { min_hz: number; max_hz: number }, { dispatch, getState }) => {
     const state = getState() as RootState;
     if (state.websocket.isConnected) {
       dispatch({
         type: 'websocket/sendMessage',
         payload: {
           type: 'demod_tune',
-          min_freq: range.min_mhz,
-          max_freq: range.max_mhz,
+          min_freq: range.min_hz,
+          max_freq: range.max_hz,
         },
       });
       
       // Also update local state for the span
-      dispatch(setSpanRange({ min: range.min_mhz, max: range.max_mhz }));
+      dispatch(setSpanRange({ min: range.min_hz, max: range.max_hz }));
       
       // Default center freq to the middle of the span
-      dispatch(setCenterFreq((range.min_mhz + range.max_mhz) / 2));
+      dispatch(setCenterFreq((range.min_hz + range.max_hz) / 2));
     }
   }
 );

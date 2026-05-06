@@ -1,6 +1,7 @@
 import React from "react";
 import styled from "styled-components";
 import { SidebarToggleButton } from "./SidebarToggle";
+import { VaultStatus } from "../ui/VaultStatus";
 import nAptLogo from "@n-apt/public/images/icon.svg";
 
 const HeaderContainer = styled.div`
@@ -9,6 +10,12 @@ const HeaderContainer = styled.div`
   justify-content: space-between;
   gap: ${(props) => props.theme.spacing.md};
   padding: ${(props) => props.theme.spacing.xxl};
+`;
+
+const RightControls = styled.div`
+  display: flex;
+  align-items: center;
+  gap: ${(props) => props.theme.spacing.md};
 `;
 
 const NAPTIcon = styled.img`
@@ -31,7 +38,10 @@ export const NAPTSidebarHeader: React.FC<NAPTSidebarHeaderProps> = ({ onToggleCl
   return (
     <HeaderContainer>
       <SidebarToggleButton ref={toggleRef} onClick={onToggleClick} />
-      <NAPTIcon src={nAptLogo} alt="N-APT Logo" />
+      <RightControls>
+        <VaultStatus />
+        <NAPTIcon src={nAptLogo} alt="N-APT Logo" />
+      </RightControls>
     </HeaderContainer>
   );
 };

@@ -200,67 +200,73 @@ global.ImageData = class ImageData {
 } as any;
 
 // Mock canvas for FFT/waterfall testing
-HTMLCanvasElement.prototype.getContext = jest.fn(
-  () =>
-    ({
-      fillRect: jest.fn(),
-      clearRect: jest.fn(),
-      getImageData: jest.fn(() => new ImageData(800, 600)),
-      putImageData: jest.fn(),
-      createImageData: jest.fn((width, height) => new ImageData(width, height)),
-      setTransform: jest.fn(),
-      drawImage: jest.fn(),
-      save: jest.fn(),
-      fillText: jest.fn(),
-      restore: jest.fn(),
-      beginPath: jest.fn(),
-      moveTo: jest.fn(),
-      lineTo: jest.fn(),
-      closePath: jest.fn(),
-      stroke: jest.fn(),
-      translate: jest.fn(),
-      scale: jest.fn(),
-      rotate: jest.fn(),
-      arc: jest.fn(),
-      fill: jest.fn(),
-      measureText: jest.fn(() => ({ width: 0 })),
-      transform: jest.fn(),
-      rect: jest.fn(),
-      clip: jest.fn(),
-    }) as any,
-);
+if (typeof HTMLCanvasElement !== 'undefined') {
+  HTMLCanvasElement.prototype.getContext = jest.fn(
+    () =>
+      ({
+        fillRect: jest.fn(),
+        clearRect: jest.fn(),
+        getImageData: jest.fn(() => new ImageData(800, 600)),
+        putImageData: jest.fn(),
+        createImageData: jest.fn((width, height) => new ImageData(width, height)),
+        setTransform: jest.fn(),
+        drawImage: jest.fn(),
+        save: jest.fn(),
+        fillText: jest.fn(),
+        restore: jest.fn(),
+        beginPath: jest.fn(),
+        moveTo: jest.fn(),
+        lineTo: jest.fn(),
+        closePath: jest.fn(),
+        stroke: jest.fn(),
+        translate: jest.fn(),
+        scale: jest.fn(),
+        rotate: jest.fn(),
+        arc: jest.fn(),
+        fill: jest.fn(),
+        measureText: jest.fn(() => ({ width: 0 })),
+        transform: jest.fn(),
+        rect: jest.fn(),
+        clip: jest.fn(),
+      }) as any,
+  );
+}
 
 // Mock canvas size properties
-Object.defineProperty(HTMLCanvasElement.prototype, "width", {
-  get() {
-    return 800;
-  },
-  set(_value) {
-    /* do nothing */
-  },
-});
+if (typeof HTMLCanvasElement !== 'undefined') {
+  Object.defineProperty(HTMLCanvasElement.prototype, "width", {
+    get() {
+      return 800;
+    },
+    set(_value) {
+      /* do nothing */
+    },
+  });
 
-Object.defineProperty(HTMLCanvasElement.prototype, "height", {
-  get() {
-    return 600;
-  },
-  set(_value) {
-    /* do nothing */
-  },
-});
+  Object.defineProperty(HTMLCanvasElement.prototype, "height", {
+    get() {
+      return 600;
+    },
+    set(_value) {
+      /* do nothing */
+    },
+  });
+}
 
 // Mock getBoundingClientRect
-Element.prototype.getBoundingClientRect = jest.fn(() => ({
-  width: 800,
-  height: 600,
-  top: 0,
-  left: 0,
-  bottom: 600,
-  right: 800,
-  x: 0,
-  y: 0,
-  toJSON: jest.fn(),
-}));
+if (typeof Element !== 'undefined') {
+  Element.prototype.getBoundingClientRect = jest.fn(() => ({
+    width: 800,
+    height: 600,
+    top: 0,
+    left: 0,
+    bottom: 600,
+    right: 800,
+    x: 0,
+    y: 0,
+    toJSON: jest.fn(),
+  }));
+}
 
 // Mock WebSocket
 const MockWebSocket = jest.fn().mockImplementation(() => ({
@@ -348,10 +354,25 @@ if (typeof performance !== "undefined" && !performance.clearMarks) {
 // Mock WASM modules
 jest.mock("n_apt_canvas", () => {
   const mockModule: any = {
+    __esModule: true,
     RenderingProcessor: class {
       process = jest.fn();
       destroy = jest.fn();
+      resample_spectrum = jest.fn();
+      shift_waterfall_buffer = jest.fn();
+      apply_color_mapping = jest.fn();
+      get_zoomed_data = jest.fn(() => ({
+        slicedWaveform: new Float32Array(0),
+        visualRange: [0, 1],
+        clampedPan: 0
+      }));
+      transform_to_screen_coords = jest.fn(() => []);
+      process_iq_to_dbm_spectrum = jest.fn((input) => new Float32Array(input.length / 2));
     },
+    match_noise_floor_db_wasm: jest.fn((
+      _reference: Float32Array,
+      target: Float32Array,
+    ) => new Float32Array(target)),
     test_wasm_simd_availability: jest.fn(() => false),
   };
   mockModule.default = jest.fn(() => Promise.resolve());

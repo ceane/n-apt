@@ -183,8 +183,8 @@ const calculateVisibleFrequencyRange = ({
   vizPanOffset: number;
 }) => {
   const minFreq = 0;
-  const maxFreq = 2000;
-  const hardwareSpan = sampleRateHz > 0 ? sampleRateHz / 1_000_000 : 3.2;
+  const maxFreq = 2_000_000_000; // 2GHz max
+  const hardwareSpan = sampleRateHz > 0 ? sampleRateHz : 3_200_000;
   const areaKey = activeSignalArea || "A";
   const safeZoom = Number.isFinite(vizZoom) && vizZoom > 0 ? vizZoom : 1;
 

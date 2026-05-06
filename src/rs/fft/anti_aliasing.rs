@@ -22,6 +22,80 @@ pub fn match_noise_floor(reference: &[f64], target: &mut [f64]) {
   }
 }
 
+fn mean_f32(signal: &[f32]) -> Option<f32> {
+  let mut sum = 0.0f32;
+  let mut count = 0usize;
+  for value in signal {
+    if value.is_finite() {
+      sum += *value;
+      count += 1;
+    }
+  }
+  if count > 0 {
+    Some(sum / count as f32)
+  } else {
+    None
+  }
+}
+
+/// Normalize dB-domain spectrum floor by applying an additive offset.
+///
+/// Unlike `match_noise_floor`, spectrum traces are already logarithmic dB values,
+/// so matching floors is an offset operation rather than a linear amplitude scale.
+pub fn match_noise_floor_db(
+  reference: &[f32],
+  target: &mut [f32],
+  edge_bins: usize,
+) {
+  match_noise_floor_db_with_limit(reference, target, edge_bins, 0.0);
+}
+
+/// Normalize dB-domain spectrum floor with a cap for upward floor shifts.
+pub fn match_noise_floor_db_with_limit(
+  reference: &[f32],
+  target: &mut [f32],
+  edge_bins: usize,
+  max_positive_shift_db: f32,
+) {
+  if reference.is_empty() || target.is_empty() {
+    return;
+  }
+
+  let bins = edge_bins.max(1).min(reference.len()).min(target.len());
+  let reference_start = reference.len() - bins;
+  let Some(reference_floor) = mean_f32(&reference[reference_start..]) else {
+    return;
+  };
+  let Some(target_floor) = mean_f32(&target[..bins]) else {
+    return;
+  };
+  let delta =
+    (reference_floor - target_floor).min(max_positive_shift_db.max(0.0));
+
+  for value in target.iter_mut() {
+    if value.is_finite() {
+      *value += delta;
+    }
+  }
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+pub fn match_noise_floor_db_wasm(
+  reference: &[f32],
+  target: &[f32],
+  edge_bins: usize,
+  max_positive_shift_db: f32,
+) -> Vec<f32> {
+  let mut adjusted = target.to_vec();
+  match_noise_floor_db_with_limit(
+    reference,
+    &mut adjusted,
+    edge_bins,
+    max_positive_shift_db,
+  );
+  adjusted
+}
+
 /// Hann-weighted crossfade between two signals
 pub fn crossfade(a: &[f64], b: &[f64], overlap: usize) -> Vec<f64> {
   let mut result = Vec::new();
@@ -150,10 +224,10 @@ impl Measurement {
 /// Returns the true frequency that could produce all measurements
 pub fn reconstruct_frequency_crt(
   measurements: &[Measurement],
-  max_search_mhz: f64,
+  max_search_hz: f64,
   step_hz: f64,
 ) -> Option<f64> {
-  let max_search = max_search_mhz * 1_000_000.0;
+  let max_search = max_search_hz;
   let mut f = 0.0;
 
   while f < max_search {
@@ -198,5 +272,28 @@ mod tests {
   fn test_fold_to_nyquist() {
     // Fold 3/4 of sample rate back
     assert!((fold_to_nyquist(0.75, 1.0) - 0.25).abs() < 0.001);
+  }
+
+  #[test]
+  fn test_match_noise_floor_db_offset() {
+    let reference = vec![-82.0_f32, -81.0, -80.0, -79.0];
+    let mut target = vec![-70.0_f32, -69.0, -68.0, -67.0];
+
+    match_noise_floor_db(&reference, &mut target, 4);
+
+    let reference_avg: f32 =
+      reference.iter().sum::<f32>() / reference.len() as f32;
+    let target_avg: f32 = target.iter().sum::<f32>() / target.len() as f32;
+    assert!((reference_avg - target_avg).abs() < 0.001);
+  }
+
+  #[test]
+  fn test_match_noise_floor_db_does_not_raise_by_default() {
+    let reference = vec![-62.0_f32, -50.0];
+    let mut target = vec![-84.0_f32, -83.0, -82.0, -81.0];
+
+    match_noise_floor_db(&reference, &mut target, 2);
+
+    assert_eq!(target[0], -84.0);
   }
 }

@@ -261,7 +261,7 @@ export const analysisTools: WebMCPTool[] = [
     ],
     returns: { type: "object", description: "Analysis session information" },
     category: "ML Analysis",
-    route: "/analysis",
+    route: "/demodulate",
   },
   {
     name: "getAnalysisResults",
@@ -278,7 +278,7 @@ export const analysisTools: WebMCPTool[] = [
     ],
     returns: { type: "object", description: "Analysis results and metadata" },
     category: "ML Analysis",
-    route: "/analysis",
+    route: "/demodulate",
   },
   {
     name: "exportAnalysisResults",
@@ -301,7 +301,7 @@ export const analysisTools: WebMCPTool[] = [
     ],
     returns: { type: "object", description: "Export file information" },
     category: "ML Analysis",
-    route: "/analysis",
+    route: "/demodulate",
   },
 ];
 
@@ -359,8 +359,8 @@ export const drawSignalTools: WebMCPTool[] = [
         type: "number",
         description: "Sample rate in Hz",
         required: false,
-        enum: [1000000, 2000000, 3200000],
-        default: 3200000,
+        enum: [1_000_000, 2_000_000, 3_200_000],
+        default: 3_200_000,
       },
     ],
     returns: { type: "object", description: "Generated signal information" },
@@ -597,6 +597,82 @@ export const hotspotTools: WebMCPTool[] = [
   },
 ];
 
+// Map Endpoints Tools
+export const mapEndpointsTools: WebMCPTool[] = [
+  {
+    name: "searchLocation",
+    description: "Search for a geographical location",
+    parameters: [
+      {
+        name: "query",
+        type: "string",
+        description: "Search query (city, state, landmark)",
+        required: true,
+      },
+    ],
+    returns: { type: "array", description: "List of matching locations" },
+    category: "Map Locations",
+    route: "/map-endpoints",
+  },
+  {
+    name: "selectLocation",
+    description: "Select a saved or searched location",
+    parameters: [
+      {
+        name: "locationId",
+        type: "string",
+        description: "ID of the location to select",
+        required: true,
+      },
+    ],
+    returns: { type: "boolean", description: "Selection success status" },
+    category: "Map Locations",
+    route: "/map-endpoints",
+  },
+  {
+    name: "addLocation",
+    description: "Add current preview location to saved locations",
+    parameters: [
+      {
+        name: "name",
+        type: "string",
+        description: "Name for the location",
+        required: true,
+      },
+      {
+        name: "lat",
+        type: "number",
+        description: "Latitude",
+        required: true,
+      },
+      {
+        name: "lng",
+        type: "number",
+        description: "Longitude",
+        required: true,
+      },
+    ],
+    returns: { type: "object", description: "Added location data" },
+    category: "Map Locations",
+    route: "/map-endpoints",
+  },
+  {
+    name: "removeLocation",
+    description: "Remove a location from saved locations",
+    parameters: [
+      {
+        name: "locationId",
+        type: "string",
+        description: "ID of the location to remove",
+        required: true,
+      },
+    ],
+    returns: { type: "boolean", description: "Removal success status" },
+    category: "Map Locations",
+    route: "/map-endpoints",
+  },
+];
+
 // All tools combined
 export const allWebMCPTools: WebMCPTool[] = [
   ...spectrumTools,
@@ -604,12 +680,13 @@ export const allWebMCPTools: WebMCPTool[] = [
   ...drawSignalTools,
   ...model3DTools,
   ...hotspotTools,
+  ...mapEndpointsTools,
 ];
 
 // Get tools by route
 export function getToolsByRoute(route: string): WebMCPTool[] {
   return allWebMCPTools.filter(
-    (tool) => tool.route === route || tool.route === "/",
+    (tool) => tool.route === route || tool.route === "/" || (route === "/visualizer" && tool.route === "/"),
   );
 }
 

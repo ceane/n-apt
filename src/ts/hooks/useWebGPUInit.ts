@@ -401,12 +401,16 @@ export function useWebGPUInit({
           }
         });
 
-        setWebgpuEnabled(true);
-        setIsInitializingWebGPU(false);
+        if (!cancelled) {
+          setWebgpuEnabled(true);
+          setIsInitializingWebGPU(false);
+        }
       } catch {
         webgpuContextLostRef.current = true;
-        setWebgpuEnabled(false);
-        setIsInitializingWebGPU(false);
+        if (!cancelled) {
+          setWebgpuEnabled(false);
+          setIsInitializingWebGPU(false);
+        }
 
         if (retryCount < maxWebgpuRetries) {
           setTimeout(

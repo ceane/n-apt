@@ -1,6 +1,5 @@
 import React, { useMemo, useReducer, useEffect, useCallback, useRef, createContext, useContext } from "react";
 import type { AuthState } from "@n-apt/routes/AuthenticationRoute";
-import { deriveAesKey } from "@n-apt/crypto/webcrypto";
 import {
   getStoredSession,
   validateSession,
@@ -8,9 +7,15 @@ import {
   authenticateWithPasskey,
   registerPasskey,
   fetchAuthInfo,
+  fetchVaultKey,
   clearSession,
   type AuthInfo,
 } from "@n-apt/services/auth";
+import {
+  deriveAesKey,
+  importAesKey,
+  base64ToBytes,
+} from "@n-apt/crypto/webcrypto";
 
 interface UseAuthenticationReturn {
   authState: AuthState;
@@ -23,6 +28,7 @@ interface UseAuthenticationReturn {
   handlePasswordAuth: (password: string) => Promise<void>;
   handlePasskeyAuth: () => Promise<void>;
   handleRegisterPasskey: () => Promise<void>;
+  logout: () => void;
 }
 
 interface AuthInternalState {
@@ -139,18 +145,9 @@ const useAuthenticationInternal = (
   const [state, dispatch] = useReducer(authReducer, initialState);
   const hasLoggedWebAuthnIdeNoticeRef = useRef(false);
 
-  const deriveConfiguredAesKey = useCallback(async (): Promise<CryptoKey> => {
-    const configuredPassword = import.meta.env.VITE_UNSAFE_LOCAL_USER_PASSWORD;
-
-    if (
-      typeof configuredPassword !== "string" ||
-      configuredPassword.trim().length === 0
-    ) {
-      throw new Error(
-        "Missing VITE_UNSAFE_LOCAL_USER_PASSWORD, cannot derive the AES session key for encrypted WebSocket data.",
-      );
-    }
-    return deriveAesKey(configuredPassword);
+  const importBase64Key = useCallback(async (base64: string): Promise<CryptoKey> => {
+    const bytes = base64ToBytes(base64);
+    return importAesKey(bytes.buffer as ArrayBuffer);
   }, []);
 
   // Check if WebAuthn is available in the browser
@@ -281,13 +278,17 @@ const useAuthenticationInternal = (
           const result = await validateSession(storedToken);
           if (!cancelled && result.valid) {
             try {
-              const key = await deriveConfiguredAesKey();
-              dispatch({
-                type: "AUTH_SUCCESS",
-                sessionToken: storedToken,
-                aesKey: key,
-              });
-              return;
+              const vaultKeyB64 = await fetchVaultKey(storedToken);
+              if (vaultKeyB64) {
+                const key = await importBase64Key(vaultKeyB64);
+                dispatch({
+                  type: "AUTH_SUCCESS",
+                  sessionToken: storedToken,
+                  aesKey: key,
+                });
+                return;
+              }
+              throw new Error("Could not fetch vault key for session");
             } catch {
               console.warn("Stored session cannot be resumed securely:");
               clearSession();
@@ -331,7 +332,7 @@ const useAuthenticationInternal = (
         clearTimeout(retryTimeout);
       }
     };
-  }, [deriveConfiguredAesKey, isWebAuthnAvailable, skipBackendBootstrap]);
+  }, [isWebAuthnAvailable, skipBackendBootstrap]);
 
   const handlePasswordAuth = useCallback(async (password: string) => {
     dispatch({ type: "AUTHENTICATING" });
@@ -355,7 +356,11 @@ const useAuthenticationInternal = (
     dispatch({ type: "AUTHENTICATING" });
     try {
       const result = await authenticateWithPasskey();
-      const key = await deriveConfiguredAesKey();
+      const vaultKeyB64 = await fetchVaultKey(result.token);
+      if (!vaultKeyB64) {
+        throw new Error("Passkey auth succeeded but vault key retrieval failed.");
+      }
+      const key = await importBase64Key(vaultKeyB64);
       dispatch({
         type: "AUTH_SUCCESS",
         sessionToken: result.token,
@@ -412,10 +417,16 @@ const useAuthenticationInternal = (
     }
   }, [isWebAuthnAvailable]);
 
+  const logout = useCallback(() => {
+    clearSession();
+    dispatch({ type: "READY" });
+  }, []);
+
   return {
     ...state,
     handlePasswordAuth,
     handlePasskeyAuth,
     handleRegisterPasskey,
+    logout,
   };
 };

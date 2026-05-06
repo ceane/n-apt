@@ -12,6 +12,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { DeviceProfile } from "@n-apt/consts/schemas/websocket";
+import { formatFrequency } from "@n-apt/utils/frequency";
 
 const Section = styled.div`
   display: grid;
@@ -256,7 +257,7 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
             tooltip="Radio signal bandwidth capacity. Determines the range of frequencies that can be intercepted and processed from transmissions."
           >
             <SettingValue>
-              {`${(maxSampleRate / 1000000).toFixed(1)}MHz`}
+              {maxSampleRate ? formatFrequency(maxSampleRate) : "0 Hz"}
             </SettingValue>
           </Row>
           <Row

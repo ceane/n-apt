@@ -83,7 +83,7 @@ export interface VisualizationStateProps {
   fftMax?: number;
   powerScale?: "dB" | "dBm";
   frequencyRange: FrequencyRange;
-  centerFrequencyMHz: number;
+  centerFrequencyHz: number;
   onVizZoomChange?: (zoom: number) => void;
   onVizPanChange?: (pan: number) => void;
   onFftDbLimitsChange?: (min: number, max: number) => void;
@@ -96,7 +96,7 @@ export const useVisualizationState = ({
   fftMax,
   powerScale = "dB",
   frequencyRange,
-  centerFrequencyMHz,
+  centerFrequencyHz,
   onVizZoomChange,
   onVizPanChange,
   onFftDbLimitsChange,
@@ -121,7 +121,7 @@ export const useVisualizationState = ({
   const vizDbMinRef = useRef(vizDbMin);
   const vizDbMaxRef = useRef(vizDbMax);
   const frequencyRangeRef = useRef<FrequencyRange>(frequencyRange);
-  const centerFreqRef = useRef(centerFrequencyMHz);
+  const centerFreqRef = useRef(centerFrequencyHz);
   const lastEmittedDbLimitsRef = useRef<{ min: number; max: number } | null>(null);
 
   // Update refs when values change
@@ -129,7 +129,7 @@ export const useVisualizationState = ({
   vizPanOffsetRef.current = currentVizPanOffset;
   vizDbMinRef.current = vizDbMin;
   vizDbMaxRef.current = vizDbMax;
-  centerFreqRef.current = centerFrequencyMHz;
+  centerFreqRef.current = centerFrequencyHz;
 
   const setVizZoom = useCallback(
     (val: number | ((prev: number) => number)) => {

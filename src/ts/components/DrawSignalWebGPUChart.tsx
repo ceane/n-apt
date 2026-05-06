@@ -312,8 +312,8 @@ const DrawSignalWebGPUChart: React.FC<DrawSignalWebGPUChartProps> = ({
       const chartWidth = canvasWidth - 2 * padding;
       const chartHeight = canvasHeight - 2 * padding;
 
-      // Map frequency (0-3 MHz) to x position
-      const x = padding + (point.freq / 3) * chartWidth;
+      // Map frequency (0-3,000,000 Hz) to x position
+      const x = padding + (point.freq / 3_000_000) * chartWidth;
 
       // Map dB (-80 to 0) to y position (inverted because canvas y increases downward)
       const y = padding + ((point.x + 80) / 80) * chartHeight;

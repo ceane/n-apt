@@ -86,6 +86,12 @@ export interface WasmSimdMathHandle {
   
   // Enhanced resampling
   resampleSpectrumEnhanced: (input: Float32Array, output: Float32Array, algorithm?: 'max' | 'avg' | 'min') => void;
+  matchNoiseFloorDb: (
+    reference: Float32Array,
+    target: Float32Array,
+    edgeBins: number,
+    maxPositiveShiftDb?: number,
+  ) => Float32Array;
   
   // Performance and availability
   isSimdAvailable: boolean;
@@ -229,22 +235,30 @@ export function computeIqToDbSpectrumScalar(
 export function useWasmSimdMath(options: SpectrumMathOptions): WasmSimdMathHandle {
   const { fftSize, enableSimd, fallbackToScalar } = options;
   
+  const isMountedRef = useRef(true);
+  
   // WASM module state
   const [isWasmLoaded, setIsWasmLoaded] = useState(false);
   const [isSimdAvailable, setIsSimdAvailable] = useState(false);
   
   // WASM processor references
   const renderingProcessorRef = useRef<any>(null);
+  const wasmModuleRef = useRef<any>(null);
   
   // Initialize WASM SIMD module
   useEffect(() => {
+    isMountedRef.current = true;
     const initWasm = async () => {
       try {
         const wasmModule = await import("n_apt_canvas");
+        if (!isMountedRef.current) return;
+        
+        wasmModuleRef.current = wasmModule;
         const initWasm = wasmModule.default;
         
         // Initialize the WASM module
         await initWasm();
+        if (!isMountedRef.current) return;
         
         if (enableSimd) {
           setIsSimdAvailable(true);
@@ -258,6 +272,7 @@ export function useWasmSimdMath(options: SpectrumMathOptions): WasmSimdMathHandl
         
         setIsWasmLoaded(true);
       } catch (error) {
+        if (!isMountedRef.current) return;
         console.error("Failed to load WASM SIMD module:", error);
         if (fallbackToScalar) {
           setIsWasmLoaded(true); // Allow scalar fallback
@@ -266,6 +281,10 @@ export function useWasmSimdMath(options: SpectrumMathOptions): WasmSimdMathHandl
     };
     
     initWasm();
+
+    return () => {
+      isMountedRef.current = false;
+    };
   }, [fftSize, enableSimd, fallbackToScalar]);
   
   // WASM SIMD operations
@@ -293,6 +312,53 @@ export function useWasmSimdMath(options: SpectrumMathOptions): WasmSimdMathHandl
         output[x] = maxVal !== -Infinity ? maxVal : (input[Math.min(start, srcLen - 1)] ?? -150);
       }
     }
+  }, [isSimdAvailable]);
+
+  const matchNoiseFloorDb = useCallback((
+    reference: Float32Array,
+    target: Float32Array,
+    edgeBins: number,
+    maxPositiveShiftDb = 0,
+  ) => {
+    if (wasmModuleRef.current && isSimdAvailable) {
+      try {
+        const matchNoiseFloor = wasmModuleRef.current.match_noise_floor_db_wasm;
+        if (typeof matchNoiseFloor === "function") {
+          return new Float32Array(
+            matchNoiseFloor(reference, target, edgeBins, maxPositiveShiftDb),
+          );
+        }
+      } catch (error) {
+        console.warn("WASM SIMD noise-floor matching fallback failed, using scalar path:", error);
+      }
+    }
+
+    const output = new Float32Array(target);
+    const bins = Math.max(1, Math.min(edgeBins, reference.length, output.length));
+    const mean = (values: Float32Array, start: number, end: number) => {
+      let sum = 0;
+      let count = 0;
+      for (let i = Math.max(0, start); i < Math.min(values.length, end); i++) {
+        if (Number.isFinite(values[i])) {
+          sum += values[i];
+          count++;
+        }
+      }
+      return count > 0 ? sum / count : Number.NaN;
+    };
+    const referenceFloor = mean(reference, reference.length - bins, reference.length);
+    const targetFloor = mean(output, 0, bins);
+    if (!Number.isFinite(referenceFloor) || !Number.isFinite(targetFloor)) {
+      return output;
+    }
+
+    const delta = Math.min(referenceFloor - targetFloor, Math.max(0, maxPositiveShiftDb));
+    if (delta !== 0) {
+      for (let i = 0; i < output.length; i++) {
+        if (Number.isFinite(output[i])) output[i] += delta;
+      }
+    }
+    return output;
   }, [isSimdAvailable]);
 
   const processIqToDbmSpectrum = useCallback((
@@ -745,6 +811,7 @@ export function useWasmSimdMath(options: SpectrumMathOptions): WasmSimdMathHandl
     calculateFrequencyDrag,
     detectProminentSpikes,
     resampleSpectrumEnhanced,
+    matchNoiseFloorDb,
     
     // State
     isSimdAvailable,

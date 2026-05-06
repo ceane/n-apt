@@ -33,4 +33,24 @@ describe("buildPlaybackSeedFrame", () => {
       data_type: "iq_raw",
     });
   });
+
+  it("prefers the stitched playback frame over a raw IQ chunk in iq mode", () => {
+    const stitchedFrame = {
+      waveform: new Float32Array([-80, -60, -40]),
+    };
+
+    const iqData = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]);
+
+    expect(
+      buildPlaybackSeedFrame({
+        displayMode: "iq",
+        precomputedFrames: [stitchedFrame],
+        channelData: {
+          is_mock_apt: true,
+          iq_data: iqData,
+          bins_per_frame: 2,
+        },
+      }),
+    ).toBe(stitchedFrame);
+  });
 });

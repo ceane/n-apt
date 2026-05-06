@@ -397,6 +397,45 @@ export function setupHotspotToolHandlers(hotspotProps: any) {
   });
 }
 
+export function setupMapEndpointsToolHandlers(mapProps: any) {
+  toolHandlers.register("searchLocation", async (params) => {
+    const { query } = params;
+    // This would typically involve a fetch to Nominatim, but for now we simulate
+    return {
+      success: true,
+      query,
+      results: [
+        { id: "loc_1", name: "New York, NY", lat: 40.7128, lng: -74.006 },
+        { id: "loc_2", name: "Los Angeles, CA", lat: 34.0522, lng: -118.2437 },
+      ],
+    };
+  });
+
+  toolHandlers.register("selectLocation", async (params) => {
+    const { locationId } = params;
+    if (mapProps.setActiveLocation) {
+      mapProps.setActiveLocation(locationId);
+    }
+    return { success: true, locationId };
+  });
+
+  toolHandlers.register("addLocation", async (params) => {
+    const { name, lat, lng } = params;
+    if (mapProps.addLocation) {
+      mapProps.addLocation(name, lat, lng);
+    }
+    return { success: true, name, lat, lng };
+  });
+
+  toolHandlers.register("removeLocation", async (params) => {
+    const { locationId } = params;
+    if (mapProps.removeLocation) {
+      mapProps.removeLocation(locationId);
+    }
+    return { success: true, locationId };
+  });
+}
+
 // Initialize WebMCP when available
 export function initializeWebMCP() {
   if (window.webmcp) {

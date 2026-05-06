@@ -42,7 +42,7 @@ export interface SpectrumRendererOptions {
   overlayDirty?: { grid: boolean; markers: boolean; spikes: boolean };
   
   /** Center frequency in MHz for marker placement */
-  centerFrequencyMHz?: number;
+  centerFrequencyHz?: number;
   /** Whether the SDR device is currently connected (for marker visibility) */
   isDeviceConnected?: boolean;
   /** Hardware sample rate in Hz for block boundary markers */
@@ -99,7 +99,7 @@ export function useSpectrumRenderer() {
       markersOverlayRenderer,
       spikesOverlayRenderer,
       overlayDirty,
-      centerFrequencyMHz,
+      centerFrequencyHz,
       isDeviceConnected = true,
       hardwareSampleRateHz,
       fullCaptureRange,
@@ -127,7 +127,7 @@ export function useSpectrumRenderer() {
         fftMin,
         fftMax,
         showGrid: true,
-        centerFrequencyMHz,
+        centerFrequencyHz,
         isDeviceConnected,
       });
     }
@@ -162,13 +162,13 @@ export function useSpectrumRenderer() {
       // Update center markers and hotspot labels
       if (markersOverlayRenderer && (overlayDirty?.markers || now - lastOverlayUploadMsRef.current.markers >= OVERLAY_MIN_INTERVAL_MS)) {
         const ctx = markersOverlayRenderer.beginDraw(width, height, dpr);
-        if (centerFrequencyMHz !== undefined) {
+        if (centerFrequencyHz !== undefined) {
           drawMarkersOnContext(
             ctx,
             width,
             height,
             frequencyRange,
-            centerFrequencyMHz,
+            centerFrequencyHz,
             isDeviceConnected,
             hardwareSampleRateHz,
             fullCaptureRange,
@@ -221,7 +221,7 @@ export function useSpectrumRenderer() {
         gridOverlayRenderer: gridOverlayRenderer ?? undefined,
         markersOverlayRenderer: markersOverlayRenderer ?? undefined,
         spikesOverlayRenderer: shouldShowSpikes ? (spikesOverlayRenderer ?? undefined) : undefined,
-        centerFrequencyMHz,
+        centerFrequencyHz,
         isDeviceConnected,
         showGrid: true, // Internal to drawWebGPU - handled by the overlays above
         lineColor,

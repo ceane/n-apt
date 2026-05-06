@@ -47,8 +47,8 @@ export interface EnhancedSdrSettings extends SdrProcessorMetadata {
 export interface EnhancedSpectrumFrame extends SdrProcessorMetadata {
   id: string;
   label: string;
-  min_mhz: number;
-  max_mhz: number;
+  min_hz: number;
+  max_hz: number;
   description: string;
 }
 

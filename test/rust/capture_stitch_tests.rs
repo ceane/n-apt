@@ -295,20 +295,20 @@ async fn test_live_stitching_from_sdr() -> Result<()> {
   );
 
   // Configure for a 2-hop capture
-  let hop_bw = processor.get_sample_rate() as f64 / 1_000_000.0;
+  let hop_bw = processor.get_sample_rate() as f64;
   let total_span = hop_bw * 1.5;
-  let min_f = 100.0; // Assume 100MHz for test
+  let min_f = 100_000_000.0; // 100MHz in Hz
   let max_f = min_f + total_span;
 
   // We'll manually perform two reads at different frequencies
   let center1 = min_f + (hop_bw * 0.4);
   let center2 = max_f - (hop_bw * 0.4);
 
-  processor.set_center_frequency((center1 * 1_000_000.0) as u32)?;
+  processor.set_center_frequency(center1 as u32)?;
   std::thread::sleep(std::time::Duration::from_millis(200)); // Settle
   let frame1 = processor.read_and_process_frame()?;
 
-  processor.set_center_frequency((center2 * 1_000_000.0) as u32)?;
+  processor.set_center_frequency(center2 as u32)?;
   std::thread::sleep(std::time::Duration::from_millis(200)); // Settle
   let frame2 = processor.read_and_process_frame()?;
 

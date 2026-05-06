@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useCallback } from 'react';
 import { usePretextText } from '@n-apt/hooks/usePretextText';
-import { formatFrequency } from '@n-apt/consts';
+import { formatFrequency } from '@n-apt/utils/frequency';
 
 export interface PretextVFODisplayProps {
   frequency: number;

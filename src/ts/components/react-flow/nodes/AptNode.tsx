@@ -13,7 +13,7 @@ export const AptNode: React.FC<AptNodeProps> = ({ data }) => {
     <SignalPreviewNode
       label={data.label || 'APT Analysis'}
       activeSignalArea="apt-preview"
-      centerFrequencyMHz={137.92}
+      centerFrequencyHz={137_920_000}
       frequencyRange={{ min: 137.82, max: 138.02 }}
       buildIqData={generateAPTIQData}
     />

@@ -2,12 +2,23 @@
  * File Processing Worker - Handles file I/O and stitching operations
  */
 
+import { parseFrequency } from "../utils/frequency";
+import { base64ToBytes } from "../crypto/webcrypto";
+
 let currentFftSize = 8192;
+
+/** Strip non-printable/control characters and cap length for safe display. */
+function sanitizeFilename(name: string): string {
+  return name.replace(/[^\x20-\x7E]/g, '').slice(0, 255);
+}
 
 // File processing functions
 function parseFrequencyFromFilename(filename: string): number {
-  const match = filename.match(/iq_(\d+\.?\d*)MHz/);
-  return match ? parseFloat(match[1]) : 0.0;
+  // Extract frequency part: iq_137.5MHz -> 137.5MHz
+  const match = filename.match(/iq_([\d._]+[a-zA-Z]*)/);
+  if (!match) return 0.0;
+  
+  return parseFrequency(match[1], "MHz") || 0.0;
 }
 
 function loadC64File(fileData: ArrayBuffer, _fileName: string): Uint8Array {
@@ -221,14 +232,14 @@ function sameLogicalChannel(rangeA: any, rangeB: any, labelA: any, labelB: any):
   if (!Array.isArray(rangeA) || !Array.isArray(rangeB)) return false;
   if (rangeA.length < 2 || rangeB.length < 2) return false;
 
-  // Allow small epsilon for floating-point rounding (0.001 MHz = 1 kHz)
+  // Allow small epsilon for floating-point rounding (1 Hz)
   return (
-    Math.abs(rangeA[0] - rangeB[0]) < 0.001 &&
-    Math.abs(rangeA[1] - rangeB[1]) < 0.001
+    Math.abs(rangeA[0] - rangeB[0]) < 1.0 &&
+    Math.abs(rangeA[1] - rangeB[1]) < 1.0
   );
 }
 
-function stitchAdjacentChannels(channels: any[], _defaultFftSize: number, _maxSampleRateHz: number = 3200000) {
+function stitchAdjacentChannels(channels: any[], _defaultFftSize: number, _maxSampleRateHz: number = 3_200_000) {
   if (!channels || channels.length <= 1) return channels;
 
   // Preserve the original entry order from the source file/config.
@@ -312,7 +323,7 @@ function buildCombinedFrame(
   frame: number,
   metadataMap: Map<string, FileMetadata> = new Map(),
   fftSize: number = currentFftSize,
-  _maxSampleRateHz: number = 3200000,
+  _maxSampleRateHz: number = 3_200_000,
 ) {
   const allFileNames = new Set(fileDataCache.keys());
   if (allFileNames.size === 0) return null;
@@ -330,7 +341,7 @@ function buildCombinedFrame(
     // they represent the full channel span from multiple stitched hops.
     const sampleRate = meta?.capture_sample_rate_hz || meta?.sample_rate_hz || _maxSampleRateHz;
     
-    const halfSpan = sampleRate / 1000000 / 2;
+    const halfSpan = sampleRate / 2;
 
     const fMin = freq - halfSpan;
     const fMax = freq + halfSpan;
@@ -468,7 +479,45 @@ self.onmessage = async function (e) {
             const ciphertext = encryptedData.slice(12);
             
             try {
-              const decryptedData = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, aesKey, ciphertext);
+              let decryptedData: ArrayBuffer;
+              
+              if (metaObj.wrapped_dek || (metaObj.metadata && metaObj.metadata.wrapped_dek)) {
+                const wrappedDekBase64 = metaObj.wrapped_dek || metaObj.metadata.wrapped_dek;
+                const wrappedDekBytes = base64ToBytes(wrappedDekBase64);
+                const ivDek = wrappedDekBytes.slice(0, 12);
+                const cipherDek = wrappedDekBytes.slice(12);
+                
+                // 1. Unwrap (decrypt) the DEK using the Vault Key (aesKey)
+                const decryptedDek = await crypto.subtle.decrypt(
+                  { name: "AES-GCM", iv: ivDek },
+                  aesKey,
+                  cipherDek
+                );
+                
+                // 2. Import the raw DEK
+                const dek = await crypto.subtle.importKey(
+                  "raw",
+                  decryptedDek,
+                  { name: "AES-GCM" },
+                  false,
+                  ["decrypt"]
+                );
+                
+                // 3. Decrypt the main payload using the DEK
+                decryptedData = await crypto.subtle.decrypt(
+                  { name: "AES-GCM", iv },
+                  dek,
+                  ciphertext
+                );
+              } else {
+                // Legacy file: Decrypt using the Vault Key directly
+                decryptedData = await crypto.subtle.decrypt(
+                  { name: "AES-GCM", iv },
+                  aesKey,
+                  ciphertext
+                );
+              }
+              
               const payloadArray = new Uint8Array(decryptedData);
               
               const chOffsetIq = firstChannel.offset_iq;
@@ -499,7 +548,7 @@ self.onmessage = async function (e) {
         if (fftSize) currentFftSize = fftSize;
         
         // DERIVE MAX SAMPLE RATE FROM OPTIONS OR FALLBACK TO 3.2MHz
-        const maxSampleRateHz = sampleRateOptions?.maxSampleRateHz || 3200000;
+        const maxSampleRateHz = sampleRateOptions?.maxSampleRateHz || 3_200_000;
         
         const fileDataCache = new Map();
         const freqMap = new Map();
@@ -577,7 +626,45 @@ self.onmessage = async function (e) {
                 const encryptedData = new Uint8Array(file.fileData, headerSize);
                 const iv = encryptedData.slice(0, 12);
                 const ciphertext = encryptedData.slice(12);
-                const decryptedData = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, aesKey, ciphertext);
+                let decryptedData: ArrayBuffer;
+
+                if (metaObj.wrapped_dek || (metadata && (metadata as any).wrapped_dek)) {
+                  const wrappedDekBase64 = metaObj.wrapped_dek || (metadata as any).wrapped_dek;
+                  const wrappedDekBytes = base64ToBytes(wrappedDekBase64);
+                  const ivDek = wrappedDekBytes.slice(0, 12);
+                  const cipherDek = wrappedDekBytes.slice(12);
+
+                  // 1. Unwrap (decrypt) the DEK using the Vault Key (aesKey)
+                  const decryptedDek = await crypto.subtle.decrypt(
+                    { name: "AES-GCM", iv: ivDek },
+                    aesKey,
+                    cipherDek
+                  );
+
+                  // 2. Import the raw DEK
+                  const dek = await crypto.subtle.importKey(
+                    "raw",
+                    decryptedDek,
+                    { name: "AES-GCM" },
+                    false,
+                    ["decrypt"]
+                  );
+
+                  // 3. Decrypt the main payload using the DEK
+                  decryptedData = await crypto.subtle.decrypt(
+                    { name: "AES-GCM", iv },
+                    dek,
+                    ciphertext
+                  );
+                } else {
+                  // Legacy file: Decrypt using the Vault Key directly
+                  decryptedData = await crypto.subtle.decrypt(
+                    { name: "AES-GCM", iv },
+                    aesKey,
+                    ciphertext
+                  );
+                }
+
                 const payloadArray = new Uint8Array(decryptedData);
 
                 const parsedChannels: any[] = [];
@@ -603,7 +690,7 @@ self.onmessage = async function (e) {
                         frequency_range:
                           Number.isFinite(reqMin) &&
                           Number.isFinite(reqMax)
-                            ? [reqMin / 1_000_000, reqMax / 1_000_000]
+                            ? [reqMin, reqMax]
                             : undefined,
                     });
                 }
@@ -635,15 +722,15 @@ self.onmessage = async function (e) {
                   const groupRange = group.frequency_range;
                   const entryCenterHz =
                     groupRange && groupRange.length === 2
-                      ? ((groupRange[0] + groupRange[1]) / 2) * 1_000_000
+                      ? ((groupRange[0] + groupRange[1]) / 2)
                       : group.center_freq_hz;
                   const entrySpanHz =
                     groupRange && groupRange.length === 2
-                      ? (groupRange[1] - groupRange[0]) * 1_000_000
+                      ? (groupRange[1] - groupRange[0])
                       : group.sample_rate_hz;
 
                   fileDataCache.set(entryName, groupIq);
-                  freqMap.set(entryName, entryCenterHz / 1e6);
+                  freqMap.set(entryName, entryCenterHz);
                   metadataMap.set(entryName, {
                     ...metadata,
                     center_frequency_hz: entryCenterHz,
@@ -667,13 +754,13 @@ self.onmessage = async function (e) {
               loadedCount++;
             }
 
-            const baseFrequency = metadata?.center_frequency_hz ? metadata.center_frequency_hz / 1000000 : parseFrequencyFromFilename(file.fileName);
+            const baseFrequency = metadata?.center_frequency_hz ? metadata.center_frequency_hz : parseFrequencyFromFilename(file.fileName);
             const frequency = baseFrequency * (1 + (settings.ppm || 0) * 1e-6);
             freqMap.set(file.fileName, frequency);
 
-            self.postMessage({ type: "progress", id, data: { current: i + 1, total: files.length, status: `Loaded ${file.fileName}` } });
+            self.postMessage({ type: "progress", id, data: { current: i + 1, total: files.length, status: `Loaded ${sanitizeFilename(file.fileName)}` } });
           } catch (error) {
-            console.warn(`Failed to load ${file.fileName}:`, error);
+            console.warn("Failed to load file:", sanitizeFilename(file.fileName), error);
           }
         }
 

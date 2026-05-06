@@ -21,7 +21,7 @@ interface ReduxFrequencyRangeSliderProps {
   signalAreaKey?: string;
   minFreq: number;
   maxFreq: number;
-  sampleRateMHz?: number | null;
+  sampleRateHz?: number | null;
   limitMarkers?: Array<{ freq: number; label: string }>;
   isActive?: boolean;
   onActivate?: () => void;
@@ -35,7 +35,7 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
   signalAreaKey,
   minFreq,
   maxFreq,
-  sampleRateMHz,
+  sampleRateHz,
   limitMarkers,
   isActive,
   onActivate,
@@ -58,8 +58,8 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
     areaKey.toLowerCase() === activeSignalArea?.toLowerCase();
   const span = maxFreq - minFreq;
   const hardwareSpan =
-    typeof sampleRateMHz === "number" && Number.isFinite(sampleRateMHz)
-      ? Math.min(sampleRateMHz, span)
+    typeof sampleRateHz === "number" && Number.isFinite(sampleRateHz)
+      ? Math.min(sampleRateHz, span)
       : span;
   const rememberedRange =
     lastKnownRanges[areaKey] ?? lastKnownRanges[areaKey.toLowerCase()] ?? null;
@@ -191,7 +191,7 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
         maxFreq={maxFreq}
         visibleMin={visibleRange.min}
         visibleMax={visibleRange.max}
-        sampleRateMHz={
+        sampleRateHz={
           typeof hardwareSpan === "number"
             ? hardwareSpan / (isCurrentActive ? Math.max(1, vizZoom) : 1)
             : null

@@ -11,6 +11,7 @@ import { useDragAndDropFiles } from "@n-apt/hooks/useDragAndDropFiles";
 
 // Import NaptMetadata type from FileMetadata component
 import type { NaptMetadata } from "./FileMetadata";
+import { DecryptionFallback } from "../ui/DecryptionFallback";
 
 const Section = styled.div<{ $marginTop?: string }>`
   display: grid;
@@ -191,9 +192,15 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
 
           <ActionsContainer>
             {stitchStatus && !stitchingActive && stitchStatus.startsWith("Stitching failed") && (
-              <StitchStatusMessage $isError={true}>
-                {stitchStatus}
-              </StitchStatusMessage>
+              <div className="mt-2">
+                {stitchStatus.toLowerCase().includes("decryption") ? (
+                  <DecryptionFallback moduleName="File Stitcher" errorType="vault" />
+                ) : (
+                  <StitchStatusMessage $isError={true}>
+                    {stitchStatus}
+                  </StitchStatusMessage>
+                )}
+              </div>
             )}
 
             <Button
