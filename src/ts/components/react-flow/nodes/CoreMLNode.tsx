@@ -113,7 +113,7 @@ export const CoreMLNode: React.FC<CoreMLNodeProps> = ({ data }) => {
     data: [0.04, 0.12, 0.22, 0.31, 0.28, 0.18, 0.09, 0.02],
     frequencyMin: 0,
     frequencyMax: 1000,
-    sampleRate: 3200000,
+    sampleRate: 3_200_000,
   }), []);
 
   const sendRequest = async (path: string, init?: RequestInit) => {

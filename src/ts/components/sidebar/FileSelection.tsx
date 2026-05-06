@@ -57,6 +57,9 @@ const HiddenFileInput = styled.input`
   display: none;
 `;
 
+import { useAppSelector } from "@n-apt/redux";
+import { DecryptionFallback } from "../ui/DecryptionFallback";
+
 interface FileSelectionProps {
   onFileChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
 }
@@ -64,9 +67,18 @@ interface FileSelectionProps {
 export const FileSelection: React.FC<FileSelectionProps> = ({
   onFileChange,
 }) => {
+  const cryptoCorrupted = useAppSelector((state) => state.websocket.cryptoCorrupted);
+
   return (
     <Section>
       <SidebarSectionTitle icon={<FolderOpen size={14} />} title="File selection" />
+      
+      {cryptoCorrupted && (
+        <div style={{ gridColumn: '1 / -1', marginBottom: '12px' }}>
+          <DecryptionFallback moduleName="File Selection" errorType="vault" />
+        </div>
+      )}
+
       <SettingRow>
         <SettingLabelContainer>
           <SettingLabel>Choose or drag files...</SettingLabel>

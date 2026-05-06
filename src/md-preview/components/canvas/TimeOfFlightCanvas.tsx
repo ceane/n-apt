@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { prepareWithSegments, layoutNextLine } from '@chenglou/pretext';
 import CanvasImage from "@n-apt/md-preview/components/canvas/shared/CanvasImage";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { useTexture } from "@react-three/drei";
@@ -68,11 +67,13 @@ const radioWaveFragmentShader = `
 
     float distToAntenna = distance(vUv, uAntennaCenter);
 
-    float speed = 0.35;
-    float pulsePhase = mod(uTime * speed, 2.0);
-    float waveR = pulsePhase <= 1.0 ? pulsePhase : 2.0 - pulsePhase;
+    float speed = 0.5;
+    float pulsePhase = mod(uTime * speed, 3.0);
+    float waveR = 0.0;
+    if (pulsePhase <= 1.0) waveR = pulsePhase;
+    else if (pulsePhase <= 2.0) waveR = 2.0 - pulsePhase;
 
-    float combinedRing = waveRing(distToAntenna, waveR);
+    float combinedRing = pulsePhase <= 2.0 ? waveRing(distToAntenna, waveR) : 0.0;
 
     // Subtle ripple texture
     float ripple = 0.5 + 0.5 * sin(distToAntenna * 60.0 - uTime * 6.0);
@@ -187,19 +188,24 @@ const heatmapFragmentShader = `
 
     vec3 heatColor = thermalColor(density);
 
-    // Wave-driven reveal: wait until wave bounces back to reveal the heatmap footprint
-    float speed = 0.35;
-    float pulsePhase = mod(uTime * speed, 2.0);
-    float waveR = pulsePhase <= 1.0 ? pulsePhase : 2.0 - pulsePhase;
+    // Wave-driven reveal
+    float speed = 0.5;
+    float pulsePhase = mod(uTime * speed, 3.0);
+    float waveR = 0.0;
+    if (pulsePhase <= 1.0) waveR = pulsePhase;
+    else if (pulsePhase <= 2.0) waveR = 2.0 - pulsePhase;
     float distToAntenna = distance(vUv, uAntennaCenter);
     
-    float isReturning = step(1.0, pulsePhase);
-    float hasPassedBack = isReturning * smoothstep(0.05, -0.05, waveR - distToAntenna);
-    float waveProximity = isReturning * smoothstep(0.18, 0.0, abs(distToAntenna - waveR));
-
-    // Base 10% opacity
-    float baseAlpha = 0.10;
-    float revealAlpha = mix(baseAlpha, 1.0, max(waveProximity, hasPassedBack));
+    float revealAlpha = 0.0;
+    if (pulsePhase <= 1.0) {
+        revealAlpha = 0.0;
+    } else if (pulsePhase <= 2.0) {
+        float hasPassedBack = smoothstep(0.05, -0.05, waveR - distToAntenna);
+        float waveProximity = smoothstep(0.18, 0.0, abs(distToAntenna - waveR));
+        revealAlpha = max(waveProximity, hasPassedBack);
+    } else {
+        revealAlpha = 1.0 - (pulsePhase - 2.0);
+    }
 
     float alpha = smoothstep(0.15, 0.30, bodyAlpha) * 0.92 * revealAlpha;
 
@@ -258,8 +264,6 @@ const RadioWave: React.FC<{ bodyTexture: THREE.Texture }> = ({ bodyTexture }) =>
 
 
 
-const BINARY_STRING = Array.from({ length: 2500 }, () => Math.random() > 0.5 ? "A4" : "F2").join(' '); // Just placeholder, will be replaced inside BinaryRow
-
 const binaryRowVertexShader = `
   varying vec2 vUv;
   varying vec3 vWorldPosition;
@@ -285,13 +289,20 @@ const binaryRowFragmentShader = `
     vec2 screenUv = vec2(vWorldPosition.x / 10.0 + 0.5, vWorldPosition.y / 6.5 + 0.5);
     float distToAntenna = distance(screenUv, uAntennaCenter);
     
-    float speed = 0.35;
-    float pulsePhase = mod(uTime * speed, 2.0);
-    float waveR = pulsePhase <= 1.0 ? pulsePhase : 2.0 - pulsePhase;
-    float isReturning = step(1.0, pulsePhase);
-    float isGoingOut = 1.0 - isReturning;
+    float speed = 0.5;
+    float pulsePhase = mod(uTime * speed, 3.0);
+    float waveR = 0.0;
+    if (pulsePhase <= 1.0) waveR = pulsePhase;
+    else if (pulsePhase <= 2.0) waveR = 2.0 - pulsePhase;
 
-    float revealed = isReturning * smoothstep(0.05, -0.05, waveR - distToAntenna);
+    float revealed = 0.0;
+    if (pulsePhase <= 1.0) {
+        revealed = 0.0;
+    } else if (pulsePhase <= 2.0) {
+        revealed = smoothstep(0.05, -0.05, waveR - distToAntenna);
+    } else {
+        revealed = 1.0 - (pulsePhase - 2.0);
+    }
 
     float hit = clamp(revealed, 0.0, 1.0);
     
@@ -320,7 +331,7 @@ const BinaryRow = ({ text, x, y, widthWorld }: { text: string; x: number; y: num
        else dynamicText += chars[Math.floor(Math.random() * 16)];
     }
 
-    const baseSize = 40 + Math.random() * 60;
+    const baseSize = 14 + Math.random() * 8;
     ctx.font = `normal ${baseSize}px "JetBrains Mono", monospace`;
     const metrics = ctx.measureText(dynamicText);
     const textWidth = metrics.width;
@@ -355,7 +366,7 @@ const BinaryRow = ({ text, x, y, widthWorld }: { text: string; x: number; y: num
     if (materialRef.current) {
       materialRef.current.uniforms.uTime.value = state.clock.elapsedTime;
     }
-    const newCycle = Math.floor(state.clock.elapsedTime * 0.35 / 2.0);
+    const newCycle = Math.floor(state.clock.elapsedTime / 6.0);
     if (newCycle !== cycle) setCycle(newCycle);
   });
 
@@ -379,12 +390,7 @@ const BinaryRow = ({ text, x, y, widthWorld }: { text: string; x: number; y: num
 
 const BinaryMatrixOverlay = () => {
   const rows = useMemo(() => {
-    const ROW_HEIGHT = 0.55;
-    const FONT = '20px "JetBrains Mono", monospace';
-    const WORLD_TO_PX = 45;
-    const prepared = prepareWithSegments(BINARY_STRING, FONT, { whiteSpace: 'normal' });
-
-    let cursor = { segmentIndex: 0, graphemeIndex: 0 };
+    const ROW_HEIGHT = 0.35; // Added vertical spacing
     const rowData = [];
 
     const centerX = 2.8;
@@ -400,28 +406,17 @@ const BinaryMatrixOverlay = () => {
       const normalizedY = (currentY - centerY) / radiusY;
       const xOffset = radiusX * Math.sqrt(Math.max(0, 1 - normalizedY * normalizedY));
 
-      const startX = -1.2; // Move numbers to the left of person
       const endX = centerX - xOffset - 0.2;
-
-      const widthWorld = endX - startX;
-      if (widthWorld <= 0.2) {
-        currentY -= ROW_HEIGHT;
-        continue;
-      }
-
-      const widthPx = widthWorld * WORLD_TO_PX;
-
-      const line = layoutNextLine(prepared, cursor, widthPx);
-      if (!line) break;
+      const startX = endX - 0.3; // 1 column wide
+      const widthWorld = 0.3;
 
       rowData.push({
         y: currentY,
         x: startX,
-        text: line.text,
+        text: "00", // Will be replaced with 2 random hex chars in BinaryRow
         widthWorld: widthWorld
       });
 
-      cursor = line.end;
       currentY -= ROW_HEIGHT;
     }
     return rowData;
@@ -563,7 +558,7 @@ const DynamicStatsOverlay = () => {
   const cycleRef = useRef<number>(-1);
 
   useFrame((state) => {
-    const cycle = Math.floor(state.clock.elapsedTime * 0.35 / 2.0);
+    const cycle = Math.floor(state.clock.elapsedTime / 6.0);
     if (cycleRef.current !== cycle) {
       cycleRef.current = cycle;
 

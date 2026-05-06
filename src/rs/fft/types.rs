@@ -160,7 +160,7 @@ pub struct MockSignalConfig {
 impl Default for MockSignalConfig {
   fn default() -> Self {
     Self {
-      frequencies: vec![100000.0, 500000.0, 1000000.0], // 100kHz, 500kHz, 1MHz
+      frequencies: vec![100_000.0, 500_000.0, 1_000_000.0], // 100kHz, 500kHz, 1MHz
       amplitudes: vec![0.3, 0.2, 0.1],
       noise_level: 0.1,
     }

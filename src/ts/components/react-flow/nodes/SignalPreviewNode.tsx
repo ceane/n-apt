@@ -47,7 +47,7 @@ const CanvasContainer = styled.div`
 interface SignalPreviewNodeProps {
   label: string;
   activeSignalArea: string;
-  centerFrequencyMHz: number;
+  centerFrequencyHz: number;
   frequencyRange: { min: number; max: number };
   fftSize?: number;
   buildIqData: (fftSize: number) => Uint8Array;
@@ -56,7 +56,7 @@ interface SignalPreviewNodeProps {
 export const SignalPreviewNode: React.FC<SignalPreviewNodeProps> = ({
   label,
   activeSignalArea,
-  centerFrequencyMHz,
+  centerFrequencyHz,
   frequencyRange,
   fftSize = 2048,
   buildIqData,
@@ -65,12 +65,12 @@ export const SignalPreviewNode: React.FC<SignalPreviewNodeProps> = ({
     const iqData = buildIqData(fftSize);
     return {
       type: "spectrum",
-      center_frequency_hz: Math.round(centerFrequencyMHz * 1_000_000),
-      sample_rate: Math.round((frequencyRange.max - frequencyRange.min) * 1_000_000),
+      center_frequency_hz: Math.round(centerFrequencyHz),
+      sample_rate: Math.round(frequencyRange.max - frequencyRange.min),
       data_type: "iq_raw",
       iq_data: iqData,
     };
-  }, [buildIqData, centerFrequencyMHz, fftSize, frequencyRange.max, frequencyRange.min]);
+  }, [buildIqData, centerFrequencyHz, fftSize, frequencyRange.max, frequencyRange.min]);
 
   const dataRef = useRef<LiveFrameData>(previewFrame);
   dataRef.current = previewFrame;
@@ -82,7 +82,7 @@ export const SignalPreviewNode: React.FC<SignalPreviewNodeProps> = ({
         <FFTCanvas
           dataRef={dataRef}
           frequencyRange={frequencyRange}
-          centerFrequencyMHz={centerFrequencyMHz}
+          centerFrequencyHz={centerFrequencyHz}
           activeSignalArea={activeSignalArea}
           isPaused={false}
           isDeviceConnected={true}

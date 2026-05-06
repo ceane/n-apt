@@ -211,7 +211,6 @@ export const themeActions = {
 export {
   setSnapshotGrid,
   setDeviceInfo,
-  setCryptoCorrupted,
   resetSettings,
 } from './slices/settingsSlice';
 
@@ -227,6 +226,7 @@ import {
   setAutoFftOptions,
   setSpectrumFrames,
   setPaused,
+  setCryptoCorrupted,
 } from './slices/websocketSlice';
 
 export {
@@ -240,6 +240,7 @@ export {
   setAutoFftOptions,
   setSpectrumFrames,
   setPaused,
+  setCryptoCorrupted,
 } from './slices/websocketSlice';
 
 // Export collective action objects for convenience
@@ -254,6 +255,7 @@ export const websocketActions = {
   setAutoFftOptions,
   setSpectrumFrames,
   setPaused,
+  setCryptoCorrupted,
 };
 
 // Export thunks - explicit exports to prevent Safari issues
@@ -303,7 +305,7 @@ export {
   selectDeviceSettings,
   selectSpectrumData,
   selectEffectiveFrequencyRange,
-  selectSampleRateMHz,
+  selectSampleRateHz,
   selectSignalAreaBounds,
   selectIsVisualizerRouteActive,
   selectThemeObject,

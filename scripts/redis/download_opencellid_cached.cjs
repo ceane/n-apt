@@ -250,10 +250,11 @@ const LOCAL_CSV_DIR = process.env.LOCAL_OPENCELLID_CSV_DIR || path.join(__dirnam
 // Fallback to local CSV files
 async function loadFromLocalCSV(mcc) {
   const csvPath = path.join(LOCAL_CSV_DIR, `${mcc}.csv`);
+  const fileName = path.basename(csvPath);
   
   try {
     if (fs.existsSync(csvPath)) {
-      console.log(`📁 Using local CSV file for MCC ${mcc}: ${csvPath}`);
+      console.log(`📁 Found local CSV file for MCC ${mcc}: ${fileName} (Source: ${LOCAL_CSV_DIR})`);
       stats.localFallbacks++;
       const csvData = fs.readFileSync(csvPath, 'utf8');
       return csvData;

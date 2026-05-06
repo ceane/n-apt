@@ -48,7 +48,7 @@ describe("Onscreen Whole Sample Capture", () => {
     expect(mockSendCaptureCommand).toHaveBeenCalledWith(
       expect.objectContaining({
         acquisitionMode: "whole_sample",
-        fragments: [{ minFreq: 0, maxFreq: 3.2 }],
+        fragments: [{ minFreq: 0, maxFreq: 3200000 }],
       }),
     );
   });

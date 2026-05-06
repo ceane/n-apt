@@ -55,8 +55,8 @@ const equalSpectrumFrames = (
     if (
       left.id !== right.id ||
       left.label !== right.label ||
-      left.min_mhz !== right.min_mhz ||
-      left.max_mhz !== right.max_mhz ||
+      left.min_hz !== right.min_hz ||
+      left.max_hz !== right.max_hz ||
       left.description !== right.description
     ) {
       return false;
@@ -117,6 +117,10 @@ let dataBatchFrame: number | null = null;
 let pendingDataUpdate: any = null;
 let allowNextPausedFrame = false;
 const DISCONNECT_GRACE_MS = 150;
+// RATIONALE for Auto FFT:
+// 1. Screen widths are typically smaller than the FFT size (which is width-based).
+// 2. Performance: Smaller FFTs save resources; higher resolution (larger FFT) should be reserved for zoom states.
+let lastSettingsRequest: { fft_size?: number; timestamp: number } | null = null;
 
 // Process batched data updates — writes directly to liveDataRef, no Redux dispatch.
 const processBatchedData = (dispatch: Dispatch, getState: () => any) => {
@@ -224,9 +228,29 @@ const processMessage = (dispatch: Dispatch, getState: () => any, parsedData: any
         updates.maxSampleRateHz = parsedData.max_sample_rate;
       }
       if (parsedData.sdr_settings) {
-        updates.sdrSettings = parsedData.sdr_settings;
-        if (typeof parsedData.sdr_settings.sample_rate === "number") {
-          updates.sampleRateHz = parsedData.sdr_settings.sample_rate;
+        let sdrSettings = parsedData.sdr_settings;
+        
+        // Anti-clobbering guard: If we recently requested a specific FFT size, 
+        // don't let a stale backend status overwrite it (especially if it tries to force 2048).
+        if (lastSettingsRequest && Date.now() - lastSettingsRequest.timestamp < 5000) {
+          const intendedFftSize = lastSettingsRequest.fft_size;
+          const reportedFftSize = sdrSettings.fft?.default_size;
+          
+          if (intendedFftSize && reportedFftSize && intendedFftSize !== reportedFftSize) {
+            console.warn(`[WebsocketMiddleware] Backend reported stale FFT size (${reportedFftSize}), preserving intended client state (${intendedFftSize})`);
+            sdrSettings = {
+              ...sdrSettings,
+              fft: {
+                ...sdrSettings.fft,
+                default_size: intendedFftSize,
+              }
+            };
+          }
+        }
+
+        updates.sdrSettings = sdrSettings;
+        if (typeof sdrSettings.sample_rate === "number") {
+          updates.sampleRateHz = sdrSettings.sample_rate;
         }
       }
       if (typeof parsedData.device_state === "string") {
@@ -243,16 +267,16 @@ const processMessage = (dispatch: Dispatch, getState: () => any, parsedData: any
           .map((f: any) => ({
             id: f.id,
             label: typeof f.label === "string" ? f.label : "",
-            min_mhz: Number(f.min_mhz),
-            max_mhz: Number(f.max_mhz),
+            min_hz: Number(f.min_hz),
+            max_hz: Number(f.max_hz),
             description: typeof f.description === "string" ? f.description : "",
           }))
           .filter((f: any) =>
             typeof f.label === "string" &&
             f.label.length > 0 &&
-            Number.isFinite(f.min_mhz) &&
-            Number.isFinite(f.max_mhz) &&
-            f.max_mhz > f.min_mhz,
+            Number.isFinite(f.min_hz) &&
+            Number.isFinite(f.max_hz) &&
+            f.max_hz > f.min_hz,
           );
       }
       
@@ -428,7 +452,7 @@ const processBinaryMessage = async (dispatch: Dispatch, _getState: () => any, bu
       type: "spectrum",
       is_mock_apt: false,
       center_frequency_hz: centerFrequencyHz,
-      waveform_span_mhz: null,
+      waveform_span_hz: null,
       timestamp: timestamp,
       data_type: "iq_raw",
       sample_rate: sampleRate,
@@ -632,6 +656,15 @@ const createWebSocketMiddleware = (): Middleware<{}, any> => (store) => (next) =
     
     case 'websocket/sendMessage': {
       const { type, data }: { type: string; data: any } = action.payload;
+      
+      // Track intended FFT size to prevent clobbering from status broadcasts
+      if (type === 'settings' && data.fft_size) {
+        lastSettingsRequest = {
+          fft_size: data.fft_size,
+          timestamp: Date.now(),
+        };
+      }
+
       if (type === 'request_next_frame') {
         allowNextPausedFrame = true;
       }

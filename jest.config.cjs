@@ -27,6 +27,10 @@ module.exports = {
     "<rootDir>/test/integration/**/*.test.ts",
     "<rootDir>/test/integration/**/*.test.tsx"
   ],
+  testPathIgnorePatterns: [
+    "/node_modules/",
+    "/.shared-worktree-cache/"
+  ],
   collectCoverageFrom: [
     "src/**/*.{ts,tsx}",
     "!src/**/*.d.ts",

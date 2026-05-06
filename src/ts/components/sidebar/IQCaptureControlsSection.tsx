@@ -9,8 +9,11 @@ import type {
   DeviceState,
 } from "@n-apt/hooks/useWebSocket";
 import { addNotification, updateNotification } from "@n-apt/redux/slices/notificationsSlice";
+import { useAppSelector } from "@n-apt/redux/store";
 import { formatDurationMs } from "@n-apt/utils/formatters";
+import { formatFrequency } from "@n-apt/utils/frequency";
 import {
+  AlertTriangle,
   Clock,
   File as FileIcon,
   FileSignal,
@@ -398,6 +401,31 @@ const ErrorSettingValue = styled(SettingValue)`
   font-size: 11px;
 `;
 
+const ValidationWarning = styled.div`
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 12px;
+  background-color: ${(props) => props.theme.warning}15;
+  border-left: 3px solid ${(props) => props.theme.warning};
+  border-radius: 4px;
+  margin-top: 8px;
+  grid-column: 1 / -1;
+`;
+
+const WarningText = styled.div`
+  font-size: 11px;
+  color: ${(props) => props.theme.warning};
+  line-height: 1.4;
+  font-weight: 500;
+`;
+
+const WarningIcon = styled(AlertTriangle)`
+  color: ${(props) => props.theme.warning};
+  flex-shrink: 0;
+  margin-top: 1px;
+`;
+
 const DownloadsHeader = styled.div`
   display: flex;
   justify-content: space-between;
@@ -488,10 +516,10 @@ export const IQCaptureControlsSection: React.FC<
     const derivedChannels: ChannelDescriptor[] = React.useMemo(() => {
       if (!captureRange?.segments) return []
       return captureRange.segments.map((seg, idx) => {
-        const minMHz = seg.min;
-        const maxMHz = seg.max;
-        const centerHz = Math.round(((minMHz + maxMHz) / 2) * 1_000_000);
-        const widthHz = Math.round((maxMHz - minMHz) * 1_000_000);
+        const minHz = seg.min;
+        const maxHz = seg.max;
+        const centerHz = Math.round((minHz + maxHz) / 2);
+        const widthHz = Math.round(maxHz - minHz);
         return {
           center_freq_hz: centerHz,
           size_hz: widthHz,
@@ -513,6 +541,11 @@ export const IQCaptureControlsSection: React.FC<
     };
     const { isAuthenticated, sessionToken } = useAuthentication();
     const dispatch = useDispatch();
+
+    // Access live SDR settings from store for validation
+    const gain = useAppSelector((s) => s.spectrum.gain);
+    const ppm = useAppSelector((s) => s.spectrum.ppm);
+
     const {
       isSupported,
       requestPermission,
@@ -522,6 +555,72 @@ export const IQCaptureControlsSection: React.FC<
     const hasOnscreenSelected = activeCaptureAreas.includes("Onscreen");
     const hasChannelSelected = activeCaptureAreas.some((a) => a !== "Onscreen");
     const onscreenOnly = hasOnscreenSelected && !hasChannelSelected;
+
+    /**
+     * .napt Validation Logic
+     * 
+     * Requirements:
+     * 1. Frequency: Selected range must be within N-APT channels (A, B, C) from signals.yaml
+     * 2. Gain: >= 20dB
+     * 3. PPM: >= 1
+     * 
+     * Future: Integrate Spike Detection here.
+     */
+    const naptValidation = React.useMemo(() => {
+      const isGainValid = gain >= 20;
+      const isPpmValid = ppm >= 1;
+
+      // N-APT Channel Ranges (Hz)
+      const NAPT_CHANNELS = [
+        { min: 18_000, max: 4_390_000, label: "A" },
+        { min: 24_720_000, max: 29_880_000, label: "B" },
+        { min: 4_750_000, max: 23_000_000, label: "C" },
+      ];
+
+      // Check frequency range validity
+      // The requested capture segments must be entirely contained within the union of N-APT channels
+      const segments = captureRange?.segments || [];
+      const selectedSegments = segments.filter(seg => activeCaptureAreas.includes(seg.label));
+
+      let isFreqValid = selectedSegments.length > 0;
+      const invalidSegments: string[] = [];
+
+      for (const seg of selectedSegments) {
+        const isContained = NAPT_CHANNELS.some(
+          ch => seg.min >= ch.min && seg.max <= ch.max
+        );
+        if (!isContained) {
+          isFreqValid = false;
+          invalidSegments.push(seg.label);
+        }
+      }
+
+      // TODO: Spike Detection validation hook
+      // One day we will check for the presence of stable APT-like spikes before allowing .napt
+      const isSpikeDetectionValid = true; 
+
+      const isValid = isGainValid && isPpmValid && isFreqValid && isSpikeDetectionValid;
+
+      const reasons: string[] = [];
+      if (!isGainValid) reasons.push(`Gain too low (${gain}dB < 20dB)`);
+      if (!isPpmValid) reasons.push(`PPM too low (${ppm} < 1)`);
+      if (!isFreqValid) {
+        if (selectedSegments.length === 0) {
+          reasons.push("No capture areas selected");
+        } else {
+          reasons.push(`Range outside N-APT channels: ${invalidSegments.join(", ")}`);
+        }
+      }
+
+      return { isValid, reasons, isGainValid, isPpmValid, isFreqValid };
+    }, [gain, ppm, captureRange, activeCaptureAreas]);
+
+    // Auto-switch to .wav if .napt is selected but invalid
+    React.useEffect(() => {
+      if (captureFileType === ".napt" && !naptValidation.isValid && activeCaptureAreas.length > 0) {
+        onCaptureFileTypeChange(".wav");
+      }
+    }, [naptValidation.isValid, captureFileType, onCaptureFileTypeChange, activeCaptureAreas.length]);
 
     // Helper function to format file sizes
     const formatFileSize = (bytes: number): string => {
@@ -584,11 +683,11 @@ export const IQCaptureControlsSection: React.FC<
 
     // Calculate capture range span to determine appropriate mode
     const captureRangeSpan = captureRange.max - captureRange.min;
-    const hardwareSampleRateMHz = maxSampleRate / 1000000;
+    const hardwareSampleRateHz = maxSampleRate;
 
     // Determine which modes are available
-    const isOnscreenExactMatch = onscreenOnly && hardwareSampleRateMHz > 0 && Math.abs(captureRangeSpan - hardwareSampleRateMHz) < 0.01;
-    const isWiderThanHardware = captureRangeSpan > hardwareSampleRateMHz + 0.01;
+    const isOnscreenExactMatch = onscreenOnly && hardwareSampleRateHz > 0 && Math.abs(captureRangeSpan - hardwareSampleRateHz) < 10_000;
+    const isWiderThanHardware = captureRangeSpan > hardwareSampleRateHz + 10_000;
 
     // GUARDS: Determine appropriate capture mode based on capture type
     let effectiveAcquisitionMode = acquisitionMode;
@@ -633,9 +732,9 @@ export const IQCaptureControlsSection: React.FC<
 
     const formatSampleRateLabel = (hz: number) => {
       if (!hz || Number.isNaN(hz)) {
-        return "0MHz";
+        return "0 Hz";
       }
-      return `${(hz / 1_000_000).toFixed(1)}MHz`;
+      return formatFrequency(hz);
     };
 
     const handleGeolocationToggle = async (enabled: boolean) => {
@@ -678,16 +777,20 @@ export const IQCaptureControlsSection: React.FC<
                       ? activeCaptureAreas.filter((a) => a !== area.label)
                       : [...activeCaptureAreas, area.label];
 
-                    const nextOnscreenOnly = nextAreas.includes("Onscreen") && nextAreas.every((a) => a === "Onscreen");
-                    const nextHasChannel = nextAreas.some((a) => a !== "Onscreen");
-                    const nextSpan = captureRange.max - captureRange.min;
-                    const hwMHz = maxSampleRate / 1000000;
+                    const hwHz = maxSampleRate;
+                    const nextOnscreenOnly = nextAreas.includes("Onscreen") && nextAreas.length === 1;
+                    const nextHasChannel = nextAreas.some(a => a !== "Onscreen");
+                    
+                    const nextSelectedSegments = availableCaptureAreas.filter(a => nextAreas.includes(a.label));
+                    const nextMin = nextSelectedSegments.length > 0 ? Math.min(...nextSelectedSegments.map(s => s.min)) : 0;
+                    const nextMax = nextSelectedSegments.length > 0 ? Math.max(...nextSelectedSegments.map(s => s.max)) : 0;
+                    const nextSpan = nextMax - nextMin;
 
-                    if (nextOnscreenOnly && hwMHz > 0 && Math.abs(nextSpan - hwMHz) < 0.01) {
+                    if (nextOnscreenOnly && hwHz > 0 && Math.abs(nextSpan - hwHz) < 10_000) {
                       if (acquisitionMode !== "whole_sample") {
                         onAcquisitionModeChange("whole_sample");
                       }
-                    } else if (nextHasChannel && nextSpan > hwMHz + 0.01) {
+                    } else if (nextHasChannel && nextSpan > hwHz + 10_000) {
                       if (acquisitionMode === "whole_sample") {
                         onAcquisitionModeChange("stepwise");
                       }
@@ -751,15 +854,30 @@ export const IQCaptureControlsSection: React.FC<
           </Row>
 
           <Row label={<IconLabel icon={FileIcon} text="File type" />}>
-            <SettingSelect
-              value={captureFileType}
-              onChange={(e) =>
-                onCaptureFileTypeChange(e.target.value as CaptureFileType)
-              }
-            >
-              <option value=".napt">.napt</option>
-              <option value=".wav">.wav</option>
-            </SettingSelect>
+            <div style={{ display: "flex", flexDirection: "column", width: "100%" }}>
+              <SettingSelect
+                value={captureFileType}
+                onChange={(e) =>
+                  onCaptureFileTypeChange(e.target.value as CaptureFileType)
+                }
+              >
+                <option value=".napt" disabled={!naptValidation.isValid}>
+                  .napt {!naptValidation.isValid ? "(Invalid)" : ""}
+                </option>
+                <option value=".wav">.wav</option>
+              </SettingSelect>
+
+              {!naptValidation.isValid && (
+                <ValidationWarning>
+                  <WarningIcon size={14} />
+                  <WarningText>
+                    .napt format requires: gain ≥ 20dB, ppm ≥ 1, and frequency within N-APT channels.
+                    <br />
+                    <strong>Issues:</strong> {naptValidation.reasons.join(", ")}
+                  </WarningText>
+                </ValidationWarning>
+              )}
+            </div>
           </Row>
 
           <Row

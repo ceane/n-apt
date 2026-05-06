@@ -107,7 +107,7 @@ describe("Device Stream Frozen Scenarios", () => {
   const mockProps = {
     dataRef: mockDataRef,
     frequencyRange: mockFrequencyRange,
-    centerFrequencyMHz: 100,
+    centerFrequencyHz: 100_000_000,
     activeSignalArea: "test-area",
     isPaused: false,
     isDeviceConnected: true,

@@ -80,7 +80,6 @@ global.clearCanvasCalls = () => {
  * @returns {CanvasRenderingContext2D|WebGLRenderingContext|WebGL2RenderingContext|null} The context object
  */
 // ---- ENHANCED HTMLCanvasElement MOCK ----
-const originalGetContext = HTMLCanvasElement.prototype.getContext;
 
 function wrapCanvas2DContext(ctx) {
   if (!ctx || ctx.__canvasLoggingWrapped) {
@@ -127,600 +126,604 @@ function wrapCanvas2DContext(ctx) {
   return ctx;
 }
 
-HTMLCanvasElement.prototype.getContext = function (type, ...contextArgs) {
-  // Log canvas context creation
-  logCall(global.__CANVAS_CALLS__, 'getContext', [type, ...contextArgs]);
-  
-  // Use jest-canvas-mock for 2D context
-  if (type === '2d') {
-    return wrapCanvas2DContext(originalGetContext.call(this, type, ...contextArgs));
-  }
+const originalGetContext = typeof HTMLCanvasElement !== 'undefined' ? HTMLCanvasElement.prototype.getContext : null;
 
-  if (type === 'webgpu') {
-    return {
-      canvas: this,
-      configure: jest.fn((...args) => {
-        logCall(global.__WEBGPU_CALLS__, 'configure', args);
-      }),
-      getCurrentTexture: jest.fn(() => {
-        logCall(global.__WEBGPU_CALLS__, 'getCurrentTexture', []);
-        return {
-          createView: jest.fn((...args) => {
-            logCall(global.__WEBGPU_CALLS__, 'createView', args);
-            return {};
-          }),
-          destroy: jest.fn(() => {
-            logCall(global.__WEBGPU_CALLS__, 'destroyTexture', []);
-          }),
-        };
-      }),
-      unconfigure: jest.fn(() => {
-        logCall(global.__WEBGPU_CALLS__, 'unconfigure', []);
-      }),
-    };
-  }
-  
-  // Enhanced WebGL/WebGL2 mock
-  if (type === 'webgl' || type === 'webgl2') {
-    /**
-     * Comprehensive WebGL context mock with state tracking and call logging.
-     * This mock provides a complete WebGL API implementation for testing purposes,
-     * including shader/program management, buffer/texture operations, and drawing methods.
-     * 
-     * @type {WebGLRenderingContext|WebGL2RenderingContext}
-     */
-    const gl = {
-      // WebGL Constants
-      /** @type {number} */ VERTEX_SHADER: 35633,
-      /** @type {number} */ FRAGMENT_SHADER: 35632,
-      /** @type {number} */ ARRAY_BUFFER: 34962,
-      /** @type {number} */ ELEMENT_ARRAY_BUFFER: 34963,
-      /** @type {number} */ STATIC_DRAW: 35044,
-      /** @type {number} */ DYNAMIC_DRAW: 35048,
-      /** @type {number} */ TRIANGLES: 4,
-      /** @type {number} */ TRIANGLE_STRIP: 5,
-      /** @type {number} */ TRIANGLE_FAN: 6,
-      /** @type {number} */ COLOR_BUFFER_BIT: 16384,
-      /** @type {number} */ DEPTH_BUFFER_BIT: 256,
-      /** @type {number} */ DEPTH_TEST: 2929,
-      /** @type {number} */ CULL_FACE: 2884,
-      /** @type {number} */ BLEND: 3042,
-      /** @type {number} */ SRC_ALPHA: 770,
-      /** @type {number} */ ONE_MINUS_SRC_ALPHA: 771,
-      /** @type {number} */ TEXTURE_2D: 3553,
-      /** @type {number} */ RGBA: 6408,
-      /** @type {number} */ UNSIGNED_BYTE: 5121,
-      /** @type {number} */ CLAMP_TO_EDGE: 33071,
-      /** @type {number} */ LINEAR: 9729,
-      /** @type {number} */ NEAREST: 9728,
-      /** @type {number} */ LINEAR_MIPMAP_LINEAR: 9987,
-      
-      // State tracking for WebGL resources
-      /** @type {Map<string, any>} */ _parameters: new Map(),
-      /** @type {Map<string, {data: any, usage: number}>} */ _buffers: new Map(),
-      /** @type {Map<string, {image: any, params: Object}>} */ _textures: new Map(),
-      /** @type {Map<string, {type: number, compiled: boolean, source?: string}>} */ _shaders: new Map(),
-      /** @type {Map<string, {linked: boolean, attachedShaders: string[]}>} */ _programs: new Map(),
-      /** @type {Map<string, {name: string, program: string}>} */ _uniformLocations: new Map(),
-      
-      // Current state tracking
-      /** @type {string|null} */ _currentProgram: null,
-      /** @type {{target: number, buffer: string}|null} */ _currentBuffer: null,
-      /** @type {{target: number, texture: string}|null} */ _currentTexture: null,
-      /** @type {number[]|null} */ _clearColor: null,
-      /** @type {number[]|null} */ _viewport: null,
-      
-      /**
-       * Mock WebGL getExtension method with support for common extensions.
-       * 
-       * @param {string} name - The extension name
-       * @returns {Object|null} Mock extension object or null if not supported
-       */
-      getExtension: jest.fn((name) => {
-        logCall(global.__WEBGL_CALLS__, 'getExtension', [name]);
-        // Mock common extensions
-        const extensions = {
-          'OES_texture_float': { FLOAT: 5126 },
-          'OES_texture_half_float': { HALF_FLOAT_OES: 36193 },
-          'WEBGL_depth_texture': { UNSIGNED_INT_24_8_WEBGL: 34042 },
-          'OES_element_index_uint': { UNSIGNED_INT: 5125 },
-          'ANGLE_instanced_arrays': {
-            VERTEX_ATTRIB_ARRAY_DIVISOR_ANGLE: 35070,
-            drawArraysInstancedANGLE: jest.fn(),
-            drawElementsInstancedANGLE: jest.fn(),
-            vertexAttribDivisorANGLE: jest.fn(),
-          },
-        };
-        return extensions[name] || null;
-      }),
-      
-      /**
-       * Mock WebGL getParameter method for common WebGL parameters.
-       * 
-       * @param {number} pname - The parameter name
-       * @returns {any} The parameter value or null if not supported
-       */
-      getParameter: jest.fn((pname) => {
-        logCall(global.__WEBGL_CALLS__, 'getParameter', [pname]);
-        const params = {
-          [gl.VERSION]: 'WebGL 2.0',
-          [gl.VENDOR]: 'Mock Vendor',
-          [gl.RENDERER]: 'Mock Renderer',
-          [gl.SHADING_LANGUAGE_VERSION]: 'WebGL GLSL ES 3.00',
-          [gl.MAX_TEXTURE_SIZE]: 4096,
-          [gl.MAX_VIEWPORT_DIMS]: [4096, 4096],
-          [gl.MAX_TEXTURE_IMAGE_UNITS]: 16,
-          [gl.MAX_VERTEX_ATTRIBS]: 16,
-        };
-        return params[pname] || null;
-      }),
-      
-      // Shader lifecycle methods
-      /**
-       * Mock WebGL createShader method.
-       * 
-       * @param {number} type - The shader type (VERTEX_SHADER or FRAGMENT_SHADER)
-       * @returns {string} Mock shader ID
-       */
-      createShader: jest.fn((type) => {
-        logCall(global.__WEBGL_CALLS__, 'createShader', [type]);
-        const shaderId = `shader_${Object.keys(gl._shaders).length}`;
-        gl._shaders[shaderId] = { type, compiled: false };
-        return shaderId;
-      }),
-      
-      /**
-       * Mock WebGL shaderSource method.
-       * 
-       * @param {string} shader - The shader ID
-       * @param {string} source - The GLSL source code
-       */
-      shaderSource: jest.fn((shader, source) => {
-        logCall(global.__WEBGL_CALLS__, 'shaderSource', [shader, source]);
-        if (gl._shaders[shader]) {
-          gl._shaders[shader].source = source;
-        }
-      }),
-      
-      /**
-       * Mock WebGL compileShader method.
-       * 
-       * @param {string} shader - The shader ID
-       */
-      compileShader: jest.fn((shader) => {
-        logCall(global.__WEBGL_CALLS__, 'compileShader', [shader]);
-        if (gl._shaders[shader]) {
-          gl._shaders[shader].compiled = true;
-        }
-      }),
-      
-      /**
-       * Mock WebGL getShaderParameter method.
-       * 
-       * @param {string} shader - The shader ID
-       * @param {number} pname - The parameter name (e.g., COMPILE_STATUS)
-       * @returns {any} The parameter value
-       */
-      getShaderParameter: jest.fn((shader, pname) => {
-        logCall(global.__WEBGL_CALLS__, 'getShaderParameter', [shader, pname]);
-        if (gl._shaders[shader]) {
-          return pname === gl.COMPILE_STATUS ? true : null;
-        }
-        return null;
-      }),
-      
-      /**
-       * Mock WebGL getShaderInfoLog method.
-       * 
-       * @param {string} shader - The shader ID
-       * @returns {string} Empty string (no compilation errors in mock)
-       */
-      getShaderInfoLog: jest.fn((shader) => {
-        logCall(global.__WEBGL_CALLS__, 'getShaderInfoLog', [shader]);
-        return '';
-      }),
-      
-      // Program lifecycle methods
-      /**
-       * Mock WebGL createProgram method.
-       * 
-       * @returns {string} Mock program ID
-       */
-      createProgram: jest.fn(() => {
-        logCall(global.__WEBGL_CALLS__, 'createProgram', []);
-        const programId = `program_${Object.keys(gl._programs).length}`;
-        gl._programs[programId] = { linked: false, attachedShaders: [] };
-        return programId;
-      }),
-      
-      /**
-       * Mock WebGL attachShader method.
-       * 
-       * @param {string} program - The program ID
-       * @param {string} shader - The shader ID
-       */
-      attachShader: jest.fn((program, shader) => {
-        logCall(global.__WEBGL_CALLS__, 'attachShader', [program, shader]);
-        if (gl._programs[program]) {
-          gl._programs[program].attachedShaders.push(shader);
-        }
-      }),
-      
-      /**
-       * Mock WebGL linkProgram method.
-       * 
-       * @param {string} program - The program ID
-       */
-      linkProgram: jest.fn((program) => {
-        logCall(global.__WEBGL_CALLS__, 'linkProgram', [program]);
-        if (gl._programs[program]) {
-          gl._programs[program].linked = true;
-        }
-      }),
-      
-      /**
-       * Mock WebGL getProgramParameter method.
-       * 
-       * @param {string} program - The program ID
-       * @param {number} pname - The parameter name (e.g., LINK_STATUS)
-       * @returns {any} The parameter value
-       */
-      getProgramParameter: jest.fn((program, pname) => {
-        logCall(global.__WEBGL_CALLS__, 'getProgramParameter', [program, pname]);
-        if (gl._programs[program]) {
-          return pname === gl.LINK_STATUS ? true : null;
-        }
-        return null;
-      }),
-      
-      /**
-       * Mock WebGL getProgramInfoLog method.
-       * 
-       * @param {string} program - The program ID
-       * @returns {string} Empty string (no linking errors in mock)
-       */
-      getProgramInfoLog: jest.fn((program) => {
-        logCall(global.__WEBGL_CALLS__, 'getProgramInfoLog', [program]);
-        return '';
-      }),
-      
-      /**
-       * Mock WebGL useProgram method.
-       * 
-       * @param {string} program - The program ID
-       */
-      useProgram: jest.fn((program) => {
-        logCall(global.__WEBGL_CALLS__, 'useProgram', [program]);
-        gl._currentProgram = program;
-      }),
-      
-      // Uniform management methods
-      /**
-       * Mock WebGL getUniformLocation method.
-       * 
-       * @param {string} program - The program ID
-       * @param {string} name - The uniform name
-       * @returns {string} Mock uniform location ID
-       */
-      getUniformLocation: jest.fn((program, name) => {
-        logCall(global.__WEBGL_CALLS__, 'getUniformLocation', [program, name]);
-        const locationId = `uniform_${program}_${name}`;
-        gl._uniformLocations[locationId] = { name, program };
-        return locationId;
-      }),
-      
-      /**
-       * Mock WebGL uniform1f method.
-       * 
-       * @param {string} location - The uniform location ID
-       * @param {number} x - The uniform value
-       */
-      uniform1f: jest.fn((location, x) => {
-        logCall(global.__WEBGL_CALLS__, 'uniform1f', [location, x]);
-      }),
-      
-      /**
-       * Mock WebGL uniform2f method.
-       * 
-       * @param {string} location - The uniform location ID
-       * @param {number} x - The first uniform value
-       * @param {number} y - The second uniform value
-       */
-      uniform2f: jest.fn((location, x, y) => {
-        logCall(global.__WEBGL_CALLS__, 'uniform2f', [location, x, y]);
-      }),
-      
-      /**
-       * Mock WebGL uniform3f method.
-       * 
-       * @param {string} location - The uniform location ID
-       * @param {number} x - The first uniform value
-       * @param {number} y - The second uniform value
-       * @param {number} z - The third uniform value
-       */
-      uniform3f: jest.fn((location, x, y, z) => {
-        logCall(global.__WEBGL_CALLS__, 'uniform3f', [location, x, y, z]);
-      }),
-      
-      /**
-       * Mock WebGL uniform4f method.
-       * 
-       * @param {string} location - The uniform location ID
-       * @param {number} x - The first uniform value
-       * @param {number} y - The second uniform value
-       * @param {number} z - The third uniform value
-       * @param {number} w - The fourth uniform value
-       */
-      uniform4f: jest.fn((location, x, y, z, w) => {
-        logCall(global.__WEBGL_CALLS__, 'uniform4f', [location, x, y, z, w]);
-      }),
-      
-      /**
-       * Mock WebGL uniformMatrix4fv method.
-       * 
-       * @param {string} location - The uniform location ID
-       * @param {boolean} transpose - Whether to transpose the matrix
-       * @param {Float32Array} data - The matrix data
-       */
-      uniformMatrix4fv: jest.fn((location, transpose, data) => {
-        logCall(global.__WEBGL_CALLS__, 'uniformMatrix4fv', [location, transpose, data]);
-      }),
-      
-      // Vertex attribute methods
-      /**
-       * Mock WebGL enableVertexAttribArray method.
-       * 
-       * @param {number} index - The attribute index
-       */
-      enableVertexAttribArray: jest.fn((index) => {
-        logCall(global.__WEBGL_CALLS__, 'enableVertexAttribArray', [index]);
-      }),
-      
-      /**
-       * Mock WebGL disableVertexAttribArray method.
-       * 
-       * @param {number} index - The attribute index
-       */
-      disableVertexAttribArray: jest.fn((index) => {
-        logCall(global.__WEBGL_CALLS__, 'disableVertexAttribArray', [index]);
-      }),
-      
-      /**
-       * Mock WebGL vertexAttribPointer method.
-       * 
-       * @param {number} index - The attribute index
-       * @param {number} size - The number of components per attribute
-       * @param {number} type - The data type
-       * @param {boolean} normalized - Whether to normalize the data
-       * @param {number} stride - The stride in bytes
-       * @param {number} offset - The offset in bytes
-       */
-      vertexAttribPointer: jest.fn((index, size, type, normalized, stride, offset) => {
-        logCall(global.__WEBGL_CALLS__, 'vertexAttribPointer', [index, size, type, normalized, stride, offset]);
-      }),
-      
-      // Buffer management methods
-      /**
-       * Mock WebGL createBuffer method.
-       * 
-       * @returns {string} Mock buffer ID
-       */
-      createBuffer: jest.fn(() => {
-        logCall(global.__WEBGL_CALLS__, 'createBuffer', []);
-        const bufferId = `buffer_${Object.keys(gl._buffers).length}`;
-        gl._buffers[bufferId] = { data: null, usage: null };
-        return bufferId;
-      }),
-      
-      /**
-       * Mock WebGL bindBuffer method.
-       * 
-       * @param {number} target - The buffer target (ARRAY_BUFFER or ELEMENT_ARRAY_BUFFER)
-       * @param {string} buffer - The buffer ID
-       */
-      bindBuffer: jest.fn((target, buffer) => {
-        logCall(global.__WEBGL_CALLS__, 'bindBuffer', [target, buffer]);
-        gl._currentBuffer = { target, buffer };
-      }),
-      
-      /**
-       * Mock WebGL bufferData method.
-       * 
-       * @param {number} target - The buffer target
-       * @param {any} data - The buffer data
-       * @param {number} usage - The usage pattern
-       */
-      bufferData: jest.fn((target, data, usage) => {
-        logCall(global.__WEBGL_CALLS__, 'bufferData', [target, data, usage]);
-        if (gl._currentBuffer && gl._buffers[gl._currentBuffer.buffer]) {
-          gl._buffers[gl._currentBuffer.buffer].data = data;
-          gl._buffers[gl._currentBuffer.buffer].usage = usage;
-        }
-      }),
-      
-      // Texture management methods
-      /**
-       * Mock WebGL createTexture method.
-       * 
-       * @returns {string} Mock texture ID
-       */
-      createTexture: jest.fn(() => {
-        logCall(global.__WEBGL_CALLS__, 'createTexture', []);
-        const textureId = `texture_${Object.keys(gl._textures).length}`;
-        gl._textures[textureId] = { image: null, params: {} };
-        return textureId;
-      }),
-      
-      /**
-       * Mock WebGL bindTexture method.
-       * 
-       * @param {number} target - The texture target (usually TEXTURE_2D)
-       * @param {string} texture - The texture ID
-       */
-      bindTexture: jest.fn((target, texture) => {
-        logCall(global.__WEBGL_CALLS__, 'bindTexture', [target, texture]);
-        gl._currentTexture = { target, texture };
-      }),
-      
-      /**
-       * Mock WebGL texImage2D method.
-       * 
-       * @param {...any} args - Texture image parameters
-       */
-      texImage2D: jest.fn((...args) => {
-        logCall(global.__WEBGL_CALLS__, 'texImage2D', args);
-        if (gl._currentTexture && gl._textures[gl._currentTexture.texture]) {
-          gl._textures[gl._currentTexture.texture].image = args[args.length - 1];
-        }
-      }),
-      
-      /**
-       * Mock WebGL texParameteri method.
-       * 
-       * @param {number} target - The texture target
-       * @param {number} pname - The parameter name
-       * @param {number} param - The parameter value
-       */
-      texParameteri: jest.fn((target, pname, param) => {
-        logCall(global.__WEBGL_CALLS__, 'texParameteri', [target, pname, param]);
-        if (gl._currentTexture && gl._textures[gl._currentTexture.texture]) {
-          gl._textures[gl._currentTexture.texture].params[pname] = param;
-        }
-      }),
-      
-      /**
-       * Mock WebGL generateMipmap method.
-       * 
-       * @param {number} target - The texture target
-       */
-      generateMipmap: jest.fn((target) => {
-        logCall(global.__WEBGL_CALLS__, 'generateMipmap', [target]);
-      }),
-      
-      /**
-       * Mock WebGL activeTexture method.
-       * 
-       * @param {number} texture - The texture unit
-       */
-      activeTexture: jest.fn((texture) => {
-        logCall(global.__WEBGL_CALLS__, 'activeTexture', [texture]);
-      }),
-      
-      // Drawing and rendering methods
-      /**
-       * Mock WebGL clear method.
-       * 
-       * @param {number} mask - The clear mask (COLOR_BUFFER_BIT, DEPTH_BUFFER_BIT, etc.)
-       */
-      clear: jest.fn((mask) => {
-        logCall(global.__WEBGL_CALLS__, 'clear', [mask]);
-      }),
-      
-      /**
-       * Mock WebGL clearColor method.
-       * 
-       * @param {number} r - Red component (0-1)
-       * @param {number} g - Green component (0-1)
-       * @param {number} b - Blue component (0-1)
-       * @param {number} a - Alpha component (0-1)
-       */
-      clearColor: jest.fn((r, g, b, a) => {
-        logCall(global.__WEBGL_CALLS__, 'clearColor', [r, g, b, a]);
-        gl._clearColor = [r, g, b, a];
-      }),
-      
-      /**
-       * Mock WebGL drawArrays method.
-       * 
-       * @param {number} mode - The drawing mode (TRIANGLES, etc.)
-       * @param {number} first - The starting index
-       * @param {number} count - The number of indices to draw
-       */
-      drawArrays: jest.fn((mode, first, count) => {
-        logCall(global.__WEBGL_CALLS__, 'drawArrays', [mode, first, count]);
-      }),
-      
-      /**
-       * Mock WebGL drawElements method.
-       * 
-       * @param {number} mode - The drawing mode
-       * @param {number} count - The number of indices to draw
-       * @param {number} type - The index type
-       * @param {number} offset - The starting offset
-       */
-      drawElements: jest.fn((mode, count, type, offset) => {
-        logCall(global.__WEBGL_CALLS__, 'drawElements', [mode, count, type, offset]);
-      }),
-      
-      // State management methods
-      /**
-       * Mock WebGL enable method.
-       * 
-       * @param {number} cap - The capability to enable
-       */
-      enable: jest.fn((cap) => {
-        logCall(global.__WEBGL_CALLS__, 'enable', [cap]);
-      }),
-      
-      /**
-       * Mock WebGL disable method.
-       * 
-       * @param {number} cap - The capability to disable
-       */
-      disable: jest.fn((cap) => {
-        logCall(global.__WEBGL_CALLS__, 'disable', [cap]);
-      }),
-      
-      /**
-       * Mock WebGL viewport method.
-       * 
-       * @param {number} x - The x coordinate
-       * @param {number} y - The y coordinate
-       * @param {number} width - The viewport width
-       * @param {number} height - The viewport height
-       */
-      viewport: jest.fn((x, y, width, height) => {
-        logCall(global.__WEBGL_CALLS__, 'viewport', [x, y, width, height]);
-        gl._viewport = [x, y, width, height];
-      }),
-      
-      // Canvas element methods (added to WebGL context for convenience)
-      /**
-       * Mock getBoundingClientRect method.
-       * 
-       * @returns {DOMRect} Mock bounding rectangle
-       */
-      getBoundingClientRect: jest.fn(() => ({
-        width: 800,
-        height: 600,
-        top: 0,
-        left: 0,
-        right: 800,
-        bottom: 600,
-      })),
-      
-      /**
-       * Mock toDataURL method.
-       * 
-       * @returns {string} Mock data URL
-       */
-      toDataURL: jest.fn(() => 'data:image/png;base64,mock'),
-      
-      /**
-       * Mock toBlob method.
-       * 
-       * @param {Function} callback - The callback function
-       */
-      toBlob: jest.fn((callback) => {
-        callback(new Blob(['mock image data'], { type: 'image/png' }));
-      }),
-    };
+if (typeof HTMLCanvasElement !== 'undefined') {
+  HTMLCanvasElement.prototype.getContext = function (type, ...contextArgs) {
+    // Log canvas context creation
+    logCall(global.__CANVAS_CALLS__, 'getContext', [type, ...contextArgs]);
     
-    return gl;
-  }
-  
-  return originalGetContext.call(this, type, ...contextArgs);
-};
+    // Use jest-canvas-mock for 2D context
+    if (type === '2d') {
+      return wrapCanvas2DContext(originalGetContext.call(this, type, ...contextArgs));
+    }
+
+    if (type === 'webgpu') {
+      return {
+        canvas: this,
+        configure: jest.fn((...args) => {
+          logCall(global.__WEBGPU_CALLS__, 'configure', args);
+        }),
+        getCurrentTexture: jest.fn(() => {
+          logCall(global.__WEBGPU_CALLS__, 'getCurrentTexture', []);
+          return {
+            createView: jest.fn((...args) => {
+              logCall(global.__WEBGPU_CALLS__, 'createView', args);
+              return {};
+            }),
+            destroy: jest.fn(() => {
+              logCall(global.__WEBGPU_CALLS__, 'destroyTexture', []);
+            }),
+          };
+        }),
+        unconfigure: jest.fn(() => {
+          logCall(global.__WEBGPU_CALLS__, 'unconfigure', []);
+        }),
+      };
+    }
+    
+    // Enhanced WebGL/WebGL2 mock
+    if (type === 'webgl' || type === 'webgl2') {
+      /**
+       * Comprehensive WebGL context mock with state tracking and call logging.
+       * This mock provides a complete WebGL API implementation for testing purposes,
+       * including shader/program management, buffer/texture operations, and drawing methods.
+       * 
+       * @type {WebGLRenderingContext|WebGL2RenderingContext}
+       */
+      const gl = {
+        // WebGL Constants
+        /** @type {number} */ VERTEX_SHADER: 35633,
+        /** @type {number} */ FRAGMENT_SHADER: 35632,
+        /** @type {number} */ ARRAY_BUFFER: 34962,
+        /** @type {number} */ ELEMENT_ARRAY_BUFFER: 34963,
+        /** @type {number} */ STATIC_DRAW: 35044,
+        /** @type {number} */ DYNAMIC_DRAW: 35048,
+        /** @type {number} */ TRIANGLES: 4,
+        /** @type {number} */ TRIANGLE_STRIP: 5,
+        /** @type {number} */ TRIANGLE_FAN: 6,
+        /** @type {number} */ COLOR_BUFFER_BIT: 16384,
+        /** @type {number} */ DEPTH_BUFFER_BIT: 256,
+        /** @type {number} */ DEPTH_TEST: 2929,
+        /** @type {number} */ CULL_FACE: 2884,
+        /** @type {number} */ BLEND: 3042,
+        /** @type {number} */ SRC_ALPHA: 770,
+        /** @type {number} */ ONE_MINUS_SRC_ALPHA: 771,
+        /** @type {number} */ TEXTURE_2D: 3553,
+        /** @type {number} */ RGBA: 6408,
+        /** @type {number} */ UNSIGNED_BYTE: 5121,
+        /** @type {number} */ CLAMP_TO_EDGE: 33071,
+        /** @type {number} */ LINEAR: 9729,
+        /** @type {number} */ NEAREST: 9728,
+        /** @type {number} */ LINEAR_MIPMAP_LINEAR: 9987,
+        
+        // State tracking for WebGL resources
+        /** @type {Map<string, any>} */ _parameters: new Map(),
+        /** @type {Map<string, {data: any, usage: number}>} */ _buffers: new Map(),
+        /** @type {Map<string, {image: any, params: Object}>} */ _textures: new Map(),
+        /** @type {Map<string, {type: number, compiled: boolean, source?: string}>} */ _shaders: new Map(),
+        /** @type {Map<string, {linked: boolean, attachedShaders: string[]}>} */ _programs: new Map(),
+        /** @type {Map<string, {name: string, program: string}>} */ _uniformLocations: new Map(),
+        
+        // Current state tracking
+        /** @type {string|null} */ _currentProgram: null,
+        /** @type {{target: number, buffer: string}|null} */ _currentBuffer: null,
+        /** @type {{target: number, texture: string}|null} */ _currentTexture: null,
+        /** @type {number[]|null} */ _clearColor: null,
+        /** @type {number[]|null} */ _viewport: null,
+        
+        /**
+         * Mock WebGL getExtension method with support for common extensions.
+         * 
+         * @param {string} name - The extension name
+         * @returns {Object|null} Mock extension object or null if not supported
+         */
+        getExtension: jest.fn((name) => {
+          logCall(global.__WEBGL_CALLS__, 'getExtension', [name]);
+          // Mock common extensions
+          const extensions = {
+            'OES_texture_float': { FLOAT: 5126 },
+            'OES_texture_half_float': { HALF_FLOAT_OES: 36193 },
+            'WEBGL_depth_texture': { UNSIGNED_INT_24_8_WEBGL: 34042 },
+            'OES_element_index_uint': { UNSIGNED_INT: 5125 },
+            'ANGLE_instanced_arrays': {
+              VERTEX_ATTRIB_ARRAY_DIVISOR_ANGLE: 35070,
+              drawArraysInstancedANGLE: jest.fn(),
+              drawElementsInstancedANGLE: jest.fn(),
+              vertexAttribDivisorANGLE: jest.fn(),
+            },
+          };
+          return extensions[name] || null;
+        }),
+        
+        /**
+         * Mock WebGL getParameter method for common WebGL parameters.
+         * 
+         * @param {number} pname - The parameter name
+         * @returns {any} The parameter value or null if not supported
+         */
+        getParameter: jest.fn((pname) => {
+          logCall(global.__WEBGL_CALLS__, 'getParameter', [pname]);
+          const params = {
+            [gl.VERSION]: 'WebGL 2.0',
+            [gl.VENDOR]: 'Mock Vendor',
+            [gl.RENDERER]: 'Mock Renderer',
+            [gl.SHADING_LANGUAGE_VERSION]: 'WebGL GLSL ES 3.00',
+            [gl.MAX_TEXTURE_SIZE]: 4096,
+            [gl.MAX_VIEWPORT_DIMS]: [4096, 4096],
+            [gl.MAX_TEXTURE_IMAGE_UNITS]: 16,
+            [gl.MAX_VERTEX_ATTRIBS]: 16,
+          };
+          return params[pname] || null;
+        }),
+        
+        // Shader lifecycle methods
+        /**
+         * Mock WebGL createShader method.
+         * 
+         * @param {number} type - The shader type (VERTEX_SHADER or FRAGMENT_SHADER)
+         * @returns {string} Mock shader ID
+         */
+        createShader: jest.fn((type) => {
+          logCall(global.__WEBGL_CALLS__, 'createShader', [type]);
+          const shaderId = `shader_${Object.keys(gl._shaders).length}`;
+          gl._shaders[shaderId] = { type, compiled: false };
+          return shaderId;
+        }),
+        
+        /**
+         * Mock WebGL shaderSource method.
+         * 
+         * @param {string} shader - The shader ID
+         * @param {string} source - The GLSL source code
+         */
+        shaderSource: jest.fn((shader, source) => {
+          logCall(global.__WEBGL_CALLS__, 'shaderSource', [shader, source]);
+          if (gl._shaders[shader]) {
+            gl._shaders[shader].source = source;
+          }
+        }),
+        
+        /**
+         * Mock WebGL compileShader method.
+         * 
+         * @param {string} shader - The shader ID
+         */
+        compileShader: jest.fn((shader) => {
+          logCall(global.__WEBGL_CALLS__, 'compileShader', [shader]);
+          if (gl._shaders[shader]) {
+            gl._shaders[shader].compiled = true;
+          }
+        }),
+        
+        /**
+         * Mock WebGL getShaderParameter method.
+         * 
+         * @param {string} shader - The shader ID
+         * @param {number} pname - The parameter name (e.g., COMPILE_STATUS)
+         * @returns {any} The parameter value
+         */
+        getShaderParameter: jest.fn((shader, pname) => {
+          logCall(global.__WEBGL_CALLS__, 'getShaderParameter', [shader, pname]);
+          if (gl._shaders[shader]) {
+            return pname === gl.COMPILE_STATUS ? true : null;
+          }
+          return null;
+        }),
+        
+        /**
+         * Mock WebGL getShaderInfoLog method.
+         * 
+         * @param {string} shader - The shader ID
+         * @returns {string} Empty string (no compilation errors in mock)
+         */
+        getShaderInfoLog: jest.fn((shader) => {
+          logCall(global.__WEBGL_CALLS__, 'getShaderInfoLog', [shader]);
+          return '';
+        }),
+        
+        // Program lifecycle methods
+        /**
+         * Mock WebGL createProgram method.
+         * 
+         * @returns {string} Mock program ID
+         */
+        createProgram: jest.fn(() => {
+          logCall(global.__WEBGL_CALLS__, 'createProgram', []);
+          const programId = `program_${Object.keys(gl._programs).length}`;
+          gl._programs[programId] = { linked: false, attachedShaders: [] };
+          return programId;
+        }),
+        
+        /**
+         * Mock WebGL attachShader method.
+         * 
+         * @param {string} program - The program ID
+         * @param {string} shader - The shader ID
+         */
+        attachShader: jest.fn((program, shader) => {
+          logCall(global.__WEBGL_CALLS__, 'attachShader', [program, shader]);
+          if (gl._programs[program]) {
+            gl._programs[program].attachedShaders.push(shader);
+          }
+        }),
+        
+        /**
+         * Mock WebGL linkProgram method.
+         * 
+         * @param {string} program - The program ID
+         */
+        linkProgram: jest.fn((program) => {
+          logCall(global.__WEBGL_CALLS__, 'linkProgram', [program]);
+          if (gl._programs[program]) {
+            gl._programs[program].linked = true;
+          }
+        }),
+        
+        /**
+         * Mock WebGL getProgramParameter method.
+         * 
+         * @param {string} program - The program ID
+         * @param {number} pname - The parameter name (e.g., LINK_STATUS)
+         * @returns {any} The parameter value
+         */
+        getProgramParameter: jest.fn((program, pname) => {
+          logCall(global.__WEBGL_CALLS__, 'getProgramParameter', [program, pname]);
+          if (gl._programs[program]) {
+            return pname === gl.LINK_STATUS ? true : null;
+          }
+          return null;
+        }),
+        
+        /**
+         * Mock WebGL getProgramInfoLog method.
+         * 
+         * @param {string} program - The program ID
+         * @returns {string} Empty string (no linking errors in mock)
+         */
+        getProgramInfoLog: jest.fn((program) => {
+          logCall(global.__WEBGL_CALLS__, 'getProgramInfoLog', [program]);
+          return '';
+        }),
+        
+        /**
+         * Mock WebGL useProgram method.
+         * 
+         * @param {string} program - The program ID
+         */
+        useProgram: jest.fn((program) => {
+          logCall(global.__WEBGL_CALLS__, 'useProgram', [program]);
+          gl._currentProgram = program;
+        }),
+        
+        // Uniform management methods
+        /**
+         * Mock WebGL getUniformLocation method.
+         * 
+         * @param {string} program - The program ID
+         * @param {string} name - The uniform name
+         * @returns {string} Mock uniform location ID
+         */
+        getUniformLocation: jest.fn((program, name) => {
+          logCall(global.__WEBGL_CALLS__, 'getUniformLocation', [program, name]);
+          const locationId = `uniform_${program}_${name}`;
+          gl._uniformLocations[locationId] = { name, program };
+          return locationId;
+        }),
+        
+        /**
+         * Mock WebGL uniform1f method.
+         * 
+         * @param {string} location - The uniform location ID
+         * @param {number} x - The uniform value
+         */
+        uniform1f: jest.fn((location, x) => {
+          logCall(global.__WEBGL_CALLS__, 'uniform1f', [location, x]);
+        }),
+        
+        /**
+         * Mock WebGL uniform2f method.
+         * 
+         * @param {string} location - The uniform location ID
+         * @param {number} x - The first uniform value
+         * @param {number} y - The second uniform value
+         */
+        uniform2f: jest.fn((location, x, y) => {
+          logCall(global.__WEBGL_CALLS__, 'uniform2f', [location, x, y]);
+        }),
+        
+        /**
+         * Mock WebGL uniform3f method.
+         * 
+         * @param {string} location - The uniform location ID
+         * @param {number} x - The first uniform value
+         * @param {number} y - The second uniform value
+         * @param {number} z - The third uniform value
+         */
+        uniform3f: jest.fn((location, x, y, z) => {
+          logCall(global.__WEBGL_CALLS__, 'uniform3f', [location, x, y, z]);
+        }),
+        
+        /**
+         * Mock WebGL uniform4f method.
+         * 
+         * @param {string} location - The uniform location ID
+         * @param {number} x - The first uniform value
+         * @param {number} y - The second uniform value
+         * @param {number} z - The third uniform value
+         * @param {number} w - The fourth uniform value
+         */
+        uniform4f: jest.fn((location, x, y, z, w) => {
+          logCall(global.__WEBGL_CALLS__, 'uniform4f', [location, x, y, z, w]);
+        }),
+        
+        /**
+         * Mock WebGL uniformMatrix4fv method.
+         * 
+         * @param {string} location - The uniform location ID
+         * @param {boolean} transpose - Whether to transpose the matrix
+         * @param {Float32Array} data - The matrix data
+         */
+        uniformMatrix4fv: jest.fn((location, transpose, data) => {
+          logCall(global.__WEBGL_CALLS__, 'uniformMatrix4fv', [location, transpose, data]);
+        }),
+        
+        // Vertex attribute methods
+        /**
+         * Mock WebGL enableVertexAttribArray method.
+         * 
+         * @param {number} index - The attribute index
+         */
+        enableVertexAttribArray: jest.fn((index) => {
+          logCall(global.__WEBGL_CALLS__, 'enableVertexAttribArray', [index]);
+        }),
+        
+        /**
+         * Mock WebGL disableVertexAttribArray method.
+         * 
+         * @param {number} index - The attribute index
+         */
+        disableVertexAttribArray: jest.fn((index) => {
+          logCall(global.__WEBGL_CALLS__, 'disableVertexAttribArray', [index]);
+        }),
+        
+        /**
+         * Mock WebGL vertexAttribPointer method.
+         * 
+         * @param {number} index - The attribute index
+         * @param {number} size - The number of components per attribute
+         * @param {number} type - The data type
+         * @param {boolean} normalized - Whether to normalize the data
+         * @param {number} stride - The stride in bytes
+         * @param {number} offset - The offset in bytes
+         */
+        vertexAttribPointer: jest.fn((index, size, type, normalized, stride, offset) => {
+          logCall(global.__WEBGL_CALLS__, 'vertexAttribPointer', [index, size, type, normalized, stride, offset]);
+        }),
+        
+        // Buffer management methods
+        /**
+         * Mock WebGL createBuffer method.
+         * 
+         * @returns {string} Mock buffer ID
+         */
+        createBuffer: jest.fn(() => {
+          logCall(global.__WEBGL_CALLS__, 'createBuffer', []);
+          const bufferId = `buffer_${Object.keys(gl._buffers).length}`;
+          gl._buffers[bufferId] = { data: null, usage: null };
+          return bufferId;
+        }),
+        
+        /**
+         * Mock WebGL bindBuffer method.
+         * 
+         * @param {number} target - The buffer target (ARRAY_BUFFER or ELEMENT_ARRAY_BUFFER)
+         * @param {string} buffer - The buffer ID
+         */
+        bindBuffer: jest.fn((target, buffer) => {
+          logCall(global.__WEBGL_CALLS__, 'bindBuffer', [target, buffer]);
+          gl._currentBuffer = { target, buffer };
+        }),
+        
+        /**
+         * Mock WebGL bufferData method.
+         * 
+         * @param {number} target - The buffer target
+         * @param {any} data - The buffer data
+         * @param {number} usage - The usage pattern
+         */
+        bufferData: jest.fn((target, data, usage) => {
+          logCall(global.__WEBGL_CALLS__, 'bufferData', [target, data, usage]);
+          if (gl._currentBuffer && gl._buffers[gl._currentBuffer.buffer]) {
+            gl._buffers[gl._currentBuffer.buffer].data = data;
+            gl._buffers[gl._currentBuffer.buffer].usage = usage;
+          }
+        }),
+        
+        // Texture management methods
+        /**
+         * Mock WebGL createTexture method.
+         * 
+         * @returns {string} Mock texture ID
+         */
+        createTexture: jest.fn(() => {
+          logCall(global.__WEBGL_CALLS__, 'createTexture', []);
+          const textureId = `texture_${Object.keys(gl._textures).length}`;
+          gl._textures[textureId] = { image: null, params: {} };
+          return textureId;
+        }),
+        
+        /**
+         * Mock WebGL bindTexture method.
+         * 
+         * @param {number} target - The texture target (usually TEXTURE_2D)
+         * @param {string} texture - The texture ID
+         */
+        bindTexture: jest.fn((target, texture) => {
+          logCall(global.__WEBGL_CALLS__, 'bindTexture', [target, texture]);
+          gl._currentTexture = { target, texture };
+        }),
+        
+        /**
+         * Mock WebGL texImage2D method.
+         * 
+         * @param {...any} args - Texture image parameters
+         */
+        texImage2D: jest.fn((...args) => {
+          logCall(global.__WEBGL_CALLS__, 'texImage2D', args);
+          if (gl._currentTexture && gl._textures[gl._currentTexture.texture]) {
+            gl._textures[gl._currentTexture.texture].image = args[args.length - 1];
+          }
+        }),
+        
+        /**
+         * Mock WebGL texParameteri method.
+         * 
+         * @param {number} target - The texture target
+         * @param {number} pname - The parameter name
+         * @param {number} param - The parameter value
+         */
+        texParameteri: jest.fn((target, pname, param) => {
+          logCall(global.__WEBGL_CALLS__, 'texParameteri', [target, pname, param]);
+          if (gl._currentTexture && gl._textures[gl._currentTexture.texture]) {
+            gl._textures[gl._currentTexture.texture].params[pname] = param;
+          }
+        }),
+        
+        /**
+         * Mock WebGL generateMipmap method.
+         * 
+         * @param {number} target - The texture target
+         */
+        generateMipmap: jest.fn((target) => {
+          logCall(global.__WEBGL_CALLS__, 'generateMipmap', [target]);
+        }),
+        
+        /**
+         * Mock WebGL activeTexture method.
+         * 
+         * @param {number} texture - The texture unit
+         */
+        activeTexture: jest.fn((texture) => {
+          logCall(global.__WEBGL_CALLS__, 'activeTexture', [texture]);
+        }),
+        
+        // Drawing and rendering methods
+        /**
+         * Mock WebGL clear method.
+         * 
+         * @param {number} mask - The clear mask (COLOR_BUFFER_BIT, DEPTH_BUFFER_BIT, etc.)
+         */
+        clear: jest.fn((mask) => {
+          logCall(global.__WEBGL_CALLS__, 'clear', [mask]);
+        }),
+        
+        /**
+         * Mock WebGL clearColor method.
+         * 
+         * @param {number} r - Red component (0-1)
+         * @param {number} g - Green component (0-1)
+         * @param {number} b - Blue component (0-1)
+         * @param {number} a - Alpha component (0-1)
+         */
+        clearColor: jest.fn((r, g, b, a) => {
+          logCall(global.__WEBGL_CALLS__, 'clearColor', [r, g, b, a]);
+          gl._clearColor = [r, g, b, a];
+        }),
+        
+        /**
+         * Mock WebGL drawArrays method.
+         * 
+         * @param {number} mode - The drawing mode (TRIANGLES, etc.)
+         * @param {number} first - The starting index
+         * @param {number} count - The number of indices to draw
+         */
+        drawArrays: jest.fn((mode, first, count) => {
+          logCall(global.__WEBGL_CALLS__, 'drawArrays', [mode, first, count]);
+        }),
+        
+        /**
+         * Mock WebGL drawElements method.
+         * 
+         * @param {number} mode - The drawing mode
+         * @param {number} count - The number of indices to draw
+         * @param {number} type - The index type
+         * @param {number} offset - The starting offset
+         */
+        drawElements: jest.fn((mode, count, type, offset) => {
+          logCall(global.__WEBGL_CALLS__, 'drawElements', [mode, count, type, offset]);
+        }),
+        
+        // State management methods
+        /**
+         * Mock WebGL enable method.
+         * 
+         * @param {number} cap - The capability to enable
+         */
+        enable: jest.fn((cap) => {
+          logCall(global.__WEBGL_CALLS__, 'enable', [cap]);
+        }),
+        
+        /**
+         * Mock WebGL disable method.
+         * 
+         * @param {number} cap - The capability to disable
+         */
+        disable: jest.fn((cap) => {
+          logCall(global.__WEBGL_CALLS__, 'disable', [cap]);
+        }),
+        
+        /**
+         * Mock WebGL viewport method.
+         * 
+         * @param {number} x - The x coordinate
+         * @param {number} y - The y coordinate
+         * @param {number} width - The viewport width
+         * @param {number} height - The viewport height
+         */
+        viewport: jest.fn((x, y, width, height) => {
+          logCall(global.__WEBGL_CALLS__, 'viewport', [x, y, width, height]);
+          gl._viewport = [x, y, width, height];
+        }),
+        
+        // Canvas element methods (added to WebGL context for convenience)
+        /**
+         * Mock getBoundingClientRect method.
+         * 
+         * @returns {DOMRect} Mock bounding rectangle
+         */
+        getBoundingClientRect: jest.fn(() => ({
+          width: 800,
+          height: 600,
+          top: 0,
+          left: 0,
+          right: 800,
+          bottom: 600,
+        })),
+        
+        /**
+         * Mock toDataURL method.
+         * 
+         * @returns {string} Mock data URL
+         */
+        toDataURL: jest.fn(() => 'data:image/png;base64,mock'),
+        
+        /**
+         * Mock toBlob method.
+         * 
+         * @param {Function} callback - The callback function
+         */
+        toBlob: jest.fn((callback) => {
+          callback(new Blob(['mock image data'], { type: 'image/png' }));
+        }),
+      };
+      
+      return gl;
+    }
+    
+    return originalGetContext.call(this, type, ...contextArgs);
+  };
+}
 
 /**
  * Enhanced WebGPU mock with comprehensive API support.

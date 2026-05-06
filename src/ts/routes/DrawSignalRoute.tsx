@@ -318,7 +318,7 @@ export const DrawSignalRoute: React.FC = () => {
           <CanvasElement ref={canvasRef} />
         ) : (
           <MathOverlay>
-            <DecryptionFallback moduleName="Spike-EQ Math" />
+            <DecryptionFallback moduleName="Spike-EQ Math" errorType="latex" />
           </MathOverlay>
         )}
 

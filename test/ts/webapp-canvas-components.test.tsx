@@ -169,6 +169,10 @@ jest.mock('@n-apt/utils/detectHeterodyning', () => ({
 // Mock WASM module
 jest.mock('n_apt_canvas', () => {
   const mockModule: any = {
+    match_noise_floor_db_wasm: jest.fn((
+      _reference: Float32Array,
+      target: Float32Array,
+    ) => new Float32Array(target)),
     test_wasm_simd_availability: jest.fn(),
   };
   mockModule.default = jest.fn(() => Promise.resolve());

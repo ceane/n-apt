@@ -9,7 +9,7 @@ const routeMarkdownMap: Record<string, string> = {
   "/demodulate": "analysis.md",
   "/draw-signal": "draw-signal.md",
   "/3d-model": "3d-model.md",
-  "/hotspot-editor": "hotspot-editor.md",
+  "/map-endpoints": "map-endpoints.md",
 };
 
 // Token estimation (rough calculation: ~4 characters per token)

@@ -233,8 +233,8 @@ export interface FFTCanvasProps {
   dataRef: React.MutableRefObject<any>;
   /** Frequency range to display */
   frequencyRange: FrequencyRange;
-  /** Current center frequency in MHz (for overlay label) */
-  centerFrequencyMHz: number;
+  /** Current center frequency in Hz (for overlay label) */
+  centerFrequencyHz: number;
   /** Currently active signal area identifier */
   activeSignalArea: string;
   /** Signal area bounds for VFO drag clamping */
@@ -257,7 +257,7 @@ export interface FFTCanvasProps {
     frequencyRange: FrequencyRange;
     dbMin: number;
     dbMax: number;
-    centerFrequencyMHz: number;
+    centerFrequencyHz: number;
     isDeviceConnected: boolean;
     vizZoom: number;
     vizPanOffset: number;
@@ -324,7 +324,7 @@ export type SnapshotData = {
   dbMax: number;
   fftSize?: number;
   fftWindow?: string;
-  centerFrequencyMHz: number;
+  centerFrequencyHz: number;
   isDeviceConnected: boolean;
   vizZoom: number;
   vizPanOffset: number;
@@ -355,7 +355,7 @@ const FFTCanvas = memo(
     const {
       dataRef,
       frequencyRange,
-      centerFrequencyMHz,
+      centerFrequencyHz,
       activeSignalArea: _activeSignalArea,
       signalAreaBounds,
       isPaused,
@@ -490,8 +490,8 @@ const FFTCanvas = memo(
     const maxFrameBufferSize = 1;
     const lastProcessedDataRef = useRef<any>(null);
     const frequencyRangeRef = useRef<FrequencyRange>(frequencyRange);
-    const centerFreqRef = useRef(centerFrequencyMHz);
-    centerFreqRef.current = centerFrequencyMHz;
+    const centerFreqRef = useRef(centerFrequencyHz);
+    centerFreqRef.current = centerFrequencyHz;
 
     const retuneSmearRef = useRef(0);
     const retuneDriftPxRef = useRef(0);
@@ -751,8 +751,8 @@ const FFTCanvas = memo(
     // (grid lines stay at same positions, but frequency labels shift)
     useEffect(() => {
       overlayDirtyRef.current.markers = true;
-      centerFreqRef.current = centerFrequencyMHz;
-    }, [centerFrequencyMHz, overlayDirtyRef]);
+      centerFreqRef.current = centerFrequencyHz;
+    }, [centerFrequencyHz, overlayDirtyRef]);
 
     // Effect: When device connection state changes, redraw markers overlay
     // to show/hide red limit lines indicating hardware boundaries
@@ -992,10 +992,8 @@ const FFTCanvas = memo(
                 typeof hopCenterHz === "number" && hopCenterHz > 0 &&
                 typeof hopSampleRate === "number" && hopSampleRate > 0
               ) {
-                const hopCenterMHz = hopCenterHz / 1_000_000;
-                const hopSpanMHz = hopSampleRate / 1_000_000;
-                const hopMin = hopCenterMHz - hopSpanMHz / 2;
-                const hopMax = hopCenterMHz + hopSpanMHz / 2;
+                const hopMin = hopCenterHz - hopSampleRate / 2;
+                const hopMax = hopCenterHz + hopSampleRate / 2;
 
                 // Reset the full-channel buffer when the channel range changes
                 if (
@@ -1227,7 +1225,7 @@ const FFTCanvas = memo(
               markersOverlayRenderer: markersOverlayRendererRef.current,
               spikesOverlayRenderer: spikesOverlayRendererRef.current,
               overlayDirty: overlayDirtyRef.current,
-              centerFrequencyMHz: centerFreqRef.current,
+              centerFrequencyHz: centerFreqRef.current,
               isDeviceConnected,
               hardwareSampleRateHz,
               fullCaptureRange: frequencyRangeRef.current,
@@ -1912,7 +1910,7 @@ const FFTCanvas = memo(
         dbMax: vizDbMaxRef.current,
         fftSize: effectiveFftSize,
         fftWindow: fftWindow ?? "Rectangular",
-        centerFrequencyMHz: centerFreqRef.current,
+        centerFrequencyHz: centerFreqRef.current,
         isDeviceConnected,
         vizZoom: vizZoomRef.current,
         vizPanOffset: vizPanOffsetRef.current,

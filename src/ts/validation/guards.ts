@@ -222,7 +222,7 @@ export const validateWaterfallDataComprehensive = (
     if (options.sampleRate <= 0) {
       errors.push(`Invalid sample rate: ${options.sampleRate}`);
     }
-    if (options.sampleRate > 10000000) { // 10 MHz
+    if (options.sampleRate > 10_000_000) { // 10 MHz
       warnings.push(`Very high sample rate: ${options.sampleRate} Hz`);
     }
   }
@@ -232,7 +232,7 @@ export const validateWaterfallDataComprehensive = (
     if (options.centerFrequencyHz <= 0) {
       errors.push(`Invalid center frequency: ${options.centerFrequencyHz} Hz`);
     }
-    if (options.centerFrequencyHz > 30000000000) { // 30 GHz
+    if (options.centerFrequencyHz > 30_000_000_000) { // 30 GHz
       warnings.push(`Very high center frequency: ${options.centerFrequencyHz} Hz`);
     }
   }
@@ -421,7 +421,7 @@ export const validateSpectrumDataComprehensive = (
     if (options.sampleRate <= 0) {
       errors.push(`Invalid sample rate: ${options.sampleRate}`);
     }
-    if (options.sampleRate > 10000000) { // 10 MHz
+    if (options.sampleRate > 10_000_000) { // 10 MHz
       warnings.push(`Very high sample rate: ${options.sampleRate} Hz`);
     }
   }
@@ -431,7 +431,7 @@ export const validateSpectrumDataComprehensive = (
     if (options.centerFrequencyHz <= 0) {
       errors.push(`Invalid center frequency: ${options.centerFrequencyHz} Hz`);
     }
-    if (options.centerFrequencyHz > 30000000000) { // 30 GHz
+    if (options.centerFrequencyHz > 30_000_000_000) { // 30 GHz
       warnings.push(`Very high center frequency: ${options.centerFrequencyHz} Hz`);
     }
   }
@@ -532,7 +532,7 @@ export const validateSpectrumDataComprehensive = (
 };
 
 export const isValidFrequency = (value: unknown): value is number => {
-  return isValidNumberEnhanced(value, 0, 30000); // 0-30 GHz in Hz units (much higher range)
+  return isValidNumberEnhanced(value, 0, 30_000_000_000); // 0-30 GHz in Hz units
 };
 
 export const isValidTimestamp = (value: unknown): value is number => {
@@ -586,9 +586,9 @@ export const isValidSpectrumFrameEnhanced = (data: unknown): data is SpectrumFra
   return (
     isValidStringEnhanced(frame.id, 1, 100) &&
     isValidStringEnhanced(frame.label, 1, 200) &&
-    isValidFrequency(frame.min_mhz) &&
-    isValidFrequency(frame.max_mhz) &&
-    frame.max_mhz > frame.min_mhz &&
+    isValidFrequency(frame.min_hz) &&
+    isValidFrequency(frame.max_hz) &&
+    frame.max_hz > frame.min_hz &&
     isValidStringEnhanced(frame.description, 0, 500)
   );
 };

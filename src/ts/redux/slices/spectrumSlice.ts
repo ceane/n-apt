@@ -87,8 +87,8 @@ const initialState: SpectrumState = {
   fftSmoothEnabled: false,
   wfSmoothEnabled: false,
   
-  gain: 10,
-  ppm: 0,
+  gain: 30,
+  ppm: 1,
   tunerAGC: false,
   rtlAGC: false,
   sampleRateHz: 3_200_000,
@@ -295,7 +295,6 @@ const spectrumSlice = createSlice({
         fftSize: action.payload.fftSize ?? state.fftSize,
         fftFrameRate: action.payload.fftFrameRate ?? state.fftFrameRate,
       };
-      state.rtlAGC = LIVE_CONTROL_DEFAULTS.rtlAGC;
     },
   },
 });

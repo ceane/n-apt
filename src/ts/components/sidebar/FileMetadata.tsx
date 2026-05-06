@@ -8,6 +8,7 @@ import { formatDuration, formatFileSize, formatTimestampWithTimezone } from "@n-
 import { fileRegistry } from "@n-apt/utils/fileRegistry";
 import { GeolocationData, AptChannelMetadata } from "@n-apt/consts/schemas/websocket";
 import { useAppSelector } from "@n-apt/redux";
+import { DecryptionFallback } from "../ui/DecryptionFallback";
 
 export type NaptMetadata = {
   sample_rate?: number;
@@ -203,9 +204,7 @@ export const FileMetadata: React.FC<FileMetadataProps> = ({
   const displayedCenterFrequencyHz = (isFileMode && activePlaybackMetadata
     ? activePlaybackMetadata.center_frequency_hz
     : naptMetadata?.center_frequency_hz ??
-    (naptMetadata?.center_frequency
-      ? naptMetadata.center_frequency * 1_000_000
-      : 0)) ?? 0;
+    naptMetadata?.center_frequency ?? 0) ?? 0;
 
   const displayedCaptureRateHz = (isFileMode && activePlaybackMetadata
     ? activePlaybackMetadata.capture_sample_rate_hz
@@ -268,9 +267,15 @@ return (
           )}
 
           {naptMetadataError ? (
-            <MetadataErrorBox>
-              {naptMetadataError}
-            </MetadataErrorBox>
+            <div className="mt-2">
+              {naptMetadataError.toLowerCase().includes("decryption") ? (
+                <DecryptionFallback moduleName="File Metadata" errorType="vault" />
+              ) : (
+                <MetadataErrorBox>
+                  {naptMetadataError}
+                </MetadataErrorBox>
+              )}
+            </div>
           ) : naptMetadata ? (
             <MetadataGrid>
               {activePlaybackMetadata && (activePlaybackMetadata.channelCount ?? 0) > 1 && (
@@ -291,7 +296,7 @@ return (
                   />
                 </MetadataLabel>
                 <MetadataValue>
-                  {formatFrequency(displayedCenterFrequencyHz / 1000000, {
+                  {formatFrequency(displayedCenterFrequencyHz, {
                     trimTrailingZeros: true,
                   })}
                 </MetadataValue>
@@ -305,7 +310,7 @@ return (
                   />
                 </MetadataLabel>
                 <MetadataValue>
-                  {formatFrequency(displayedCaptureRateHz / 1000000, {
+                  {formatFrequency(displayedCaptureRateHz, {
                     trimTrailingZeros: true,
                   })}
                 </MetadataValue>
@@ -340,7 +345,7 @@ return (
                 </MetadataLabel>
                 <MetadataValue>
                   {formatFrequency(
-                    (naptMetadata.hardware_sample_rate_hz || 0) / 1000000,
+                    (naptMetadata.hardware_sample_rate_hz || 0),
                     { trimTrailingZeros: true },
                   )}
                 </MetadataValue>

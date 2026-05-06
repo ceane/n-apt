@@ -85,10 +85,10 @@ export const DemodFilePlaybackBridge: React.FC<DemodFilePlaybackBridgeProps> = (
         activeChannel,
         channelCount,
         center_frequency_hz: activeRange
-          ? ((activeRange[0] + activeRange[1]) / 2) * 1_000_000
+          ? ((activeRange[0] + activeRange[1]) / 2)
           : channel.center_freq_hz,
         capture_sample_rate_hz: activeRange
-          ? (activeRange[1] - activeRange[0]) * 1_000_000
+          ? (activeRange[1] - activeRange[0])
           : channel.sample_rate_hz,
         frame_rate: channel.frame_rate,
         hardware_sample_rate_hz:
@@ -155,8 +155,8 @@ export const DemodFilePlaybackBridge: React.FC<DemodFilePlaybackBridgeProps> = (
       return;
     }
 
-    const span = (channel.sample_rate_hz || 3200000) / 1_000_000;
-    const center = (channel.center_freq_hz || 0) / 1_000_000;
+    const span = channel.sample_rate_hz || 3_200_000;
+    const center = channel.center_freq_hz || 0;
     setFrequencyRange({ min: center - span / 2, max: center + span / 2 });
   }, [activeChannel, allChannelsRef, setFrequencyRange]);
 

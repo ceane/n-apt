@@ -3,8 +3,10 @@ use std::path::Path;
 fn main() {
   println!("cargo:rerun-if-changed=build.rs");
 
-  #[cfg(not(target_arch = "wasm32"))]
-  link_rtlsdr();
+  let target_arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
+  if target_arch != "wasm32" {
+    link_rtlsdr();
+  }
 
   // Check for decrypted modules (Surgical Encryption)
   let decrypted_marker =
@@ -14,7 +16,6 @@ fn main() {
   }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 fn link_rtlsdr() {
   if try_pkg_config() {
     return;
@@ -60,7 +61,6 @@ fn link_rtlsdr() {
   }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 fn try_pkg_config() -> bool {
   for package in ["librtlsdr", "rtlsdr"] {
     if pkg_config::Config::new()

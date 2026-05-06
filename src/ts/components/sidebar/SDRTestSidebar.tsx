@@ -86,7 +86,7 @@ export const SDRTestSidebar: React.FC = () => {
     },
   } = useSpectrumStore();
 
-  const showPrompt = usePrompt();
+  const { showPrompt } = usePrompt();
 
   const maxSampleRate = sampleRateHzEffective ?? maxSampleRateHz ?? 0;
 

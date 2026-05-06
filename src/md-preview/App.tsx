@@ -29,7 +29,9 @@ import remarkTimeOfFlightBlocks from "@n-apt/md-preview/utils/remarkTimeOfFlight
 import remarkSignalCanvasBlocks from "@n-apt/md-preview/utils/remarkSignalCanvasBlocks";
 import remarkIconShortcodes from "@n-apt/md-preview/utils/remarkIconShortcodes";
 import remarkLatexCodeBlocks from "@n-apt/md-preview/utils/remarkLatexCodeBlocks";
+import remarkReactDaysSinceBlocks from "@n-apt/md-preview/utils/remarkReactDaysSinceBlocks";
 import GiscusComments from "@n-apt/md-preview/components/GiscusComments";
+import { DaysSince } from "@n-apt/md-preview/components/DaysSince";
 import { assetUrl, assetPageUrl } from "@n-apt/md-preview/utils/asset-helpers";
 import { registerMarkdownHotReload } from "@n-apt/md-preview/utils/hmr";
 import { CanvasHarness } from "@n-apt/md-preview/components/canvas/CanvasHarness";
@@ -145,36 +147,58 @@ const LatexBlock: React.FC<LatexBlockProps> = ({ "data-expressions": serializedE
   useLayoutEffect(() => {
     const resizeExpressions = () => {
       expressionRefs.current.forEach((expressionNode) => {
-        if (!expressionNode) {
-          return;
-        }
+        if (!expressionNode) return;
+        
+        const katexNode = expressionNode.querySelector(".katex-display") as HTMLElement;
+        if (!katexNode) return;
 
-        const displayNode = expressionNode.querySelector(":scope > .katex-display") as HTMLElement | null;
-        const katexNode = displayNode?.querySelector(":scope > .katex") as HTMLElement | null;
+        const displayNode = katexNode.querySelector(".katex") as HTMLElement;
+        if (!displayNode) return;
 
-        if (!displayNode || !katexNode) {
-          return;
-        }
+        // Reset styles for measurement
+        katexNode.style.transform = "none";
+        katexNode.style.width = "auto";
+        displayNode.style.height = "auto";
+        displayNode.style.width = "auto";
+        expressionNode.style.height = "auto";
 
-        displayNode.style.maxWidth = "100%";
-        expressionNode.style.maxWidth = "100%";
-
-        const availableWidth = expressionNode.clientWidth;
-        const requiredWidth = katexNode.scrollWidth;
-        const naturalHeight = katexNode.scrollHeight;
+        const availableWidth = expressionNode.getBoundingClientRect().width - 4; 
+        const requiredWidth = displayNode.scrollWidth;
+        const naturalHeight = displayNode.scrollHeight;
 
         if (availableWidth > 0 && requiredWidth > availableWidth) {
-          const scale = Math.max((availableWidth / requiredWidth) * 0.98, 0.58);
-          katexNode.style.transform = `scale(${scale})`;
-          katexNode.style.transformOrigin = "left top";
+          // Snap to precise scale factors to avoid jitter
+          let scale = availableWidth / requiredWidth;
+          if (scale < 0.95 && scale >= 0.85) scale = 0.85;
+          else if (scale < 0.85 && scale >= 0.75) scale = 0.75;
+          else if (scale < 0.75 && scale >= 0.65) scale = 0.65;
+          else if (scale < 0.65) scale = Math.max(scale, 0.5);
+          
+          scale = Math.min(scale, 0.99); // Safety margin
+
+          // Apply scale to the inner .katex element
+          displayNode.style.transform = `scale(${scale})`;
+          displayNode.style.transformOrigin = "center top";
+          displayNode.style.display = "inline-block";
+          
           const scaledHeight = naturalHeight * scale;
-          displayNode.style.height = `${scaledHeight + 4}px`;
-          expressionNode.style.height = `${scaledHeight + 4}px`;
+          
+          // Adjust containers to match the scaled dimensions
+          displayNode.style.height = `${naturalHeight}px`; 
+          katexNode.style.height = `${scaledHeight}px`;
+          expressionNode.style.height = `${scaledHeight}px`;
+          
+          // Force the container to match the visual width to prevent overflow
+          katexNode.style.width = "100%";
+          katexNode.style.overflow = "hidden";
         } else {
-          katexNode.style.transform = "";
-          katexNode.style.transformOrigin = "";
-          displayNode.style.height = "";
-          expressionNode.style.height = "";
+          displayNode.style.transform = "none";
+          displayNode.style.height = "auto";
+          displayNode.style.width = "auto";
+          katexNode.style.height = "auto";
+          expressionNode.style.height = "auto";
+          katexNode.style.width = "auto";
+          katexNode.style.overflow = "visible";
         }
       });
     };
@@ -196,8 +220,6 @@ const LatexBlock: React.FC<LatexBlockProps> = ({ "data-expressions": serializedE
       window.removeEventListener("resize", resizeExpressions);
     };
   }, [renderedExpressions]);
-
-  expressionRefs.current = [];
 
   return (
     <LatexBlockContainer ref={blockRef}>
@@ -359,7 +381,12 @@ const App: React.FC = () => {
     "icon-inline": ({ node: _node, ...props }: any) => <IconInline {...props} />,
     "desktop-only": ({ node: _node, children, ...props }: any) => <DesktopOnly {...props}>{children}</DesktopOnly>,
     "mobile-only": ({ node: _node, children, ...props }: any) => <MobileOnly {...props}>{children}</MobileOnly>,
-    table: ({ node: _node, ...props }) => <div className="table-dense"><table {...props} /></div>,
+    "days-since": () => <DaysSince />,
+    table: ({ node: _node, ...props }) => (
+      <div className="table-scroll-wrapper table-dense">
+        <table {...props} />
+      </div>
+    ),
   }), []);
 
   return (
@@ -373,6 +400,7 @@ const App: React.FC = () => {
               remarkGfm,
               remarkIconShortcodes,
               remarkLatexCodeBlocks as any,
+              remarkReactDaysSinceBlocks as any,
               remarkBodyAttenuationBlocks as any,
               remarkTimeOfFlightBlocks,
               remarkSignalCanvasBlocks as any,
@@ -394,7 +422,10 @@ const App: React.FC = () => {
 };
 
 const GlobalStyle = createGlobalStyle`
-  :root { color-scheme: dark; }
+  :root { 
+    color-scheme: dark;
+    --bg: #283780;
+  }
   * { box-sizing: border-box; }
   html {
     scroll-behavior: auto !important;
@@ -402,7 +433,7 @@ const GlobalStyle = createGlobalStyle`
   body {
     margin: 0;
     font-family: "DM Mono", "JetBrains Mono", "Space Grotesk", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-    background: #283780;
+    background: var(--bg);
     color: #f3f6ff;
     min-height: 100vh;
     scroll-behavior: auto !important;
@@ -449,7 +480,7 @@ const ArticleContent = styled.article`
   color: #acbaff;
   line-height: 1.7;
   font-size: clamp(0.95rem, 1.2vw, 1.1rem);
-  overflow-x: hidden;
+  overflow-x: visible;
   min-width: 0;
   overflow-wrap: anywhere;
   word-break: normal;
@@ -466,6 +497,10 @@ const ArticleContent = styled.article`
     margin-top: 2.5em;
     margin-bottom: 1.2em;
     color: #9eaeff;
+
+    sup {
+      font-size: 0.65em;
+    }
   }
 
   h1 {
@@ -573,8 +608,8 @@ const ArticleContent = styled.article`
     border-spacing: 0;
     margin: 2em 0;
     font-size: 0.95em;
-    background: #1d2f7a;
-    border: 1px solid #1a275c;
+    background: color-mix(in srgb, var(--bg), black 20%);
+    border: 1px solid color-mix(in srgb, var(--bg), white 10%);
     border-radius: 12px;
     overflow: hidden;
     font-family: "DM Mono", monospace;
@@ -597,12 +632,12 @@ const ArticleContent = styled.article`
     letter-spacing: 0.04em;
     text-transform: uppercase;
     color: #9eaeff;
-    background: #263b8f;
+    background: color-mix(in srgb, var(--bg), white 5%);
   }
 
   td {
     color: #acbaff;
-    background: #0f1647;
+    background: color-mix(in srgb, var(--bg), black 60%);
   }
 
   td:first-child {
@@ -610,22 +645,61 @@ const ArticleContent = styled.article`
   }
 
   tr:nth-child(even) td {
-    background: #131d55;
+    background: color-mix(in srgb, var(--bg), black 50%);
   }
 
   tr:last-child td {
     border-bottom: none;
   }
 
-  .table-dense {
+  .table-scroll-wrapper {
+    width: 100%;
+    overflow-x: auto;
+    margin: 2em 0;
+    -webkit-overflow-scrolling: touch;
+    
+    /* Custom scrollbar for tables */
+    &::-webkit-scrollbar {
+      height: 4px;
+    }
+    &::-webkit-scrollbar-track {
+      background: rgba(255, 255, 255, 0.05);
+    }
+    &::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: 2px;
+    }
+  }
+
+  .table-dense, .table-tiny {
     width: 100%;
     
+    table {
+      table-layout: auto !important;
+      margin: 0 !important;
+    }
 
     th, td {
-      padding: 1rem .25rem;
-      font-size: .75rem;
-      text-align: center;
+      padding: 0.75rem !important;
+      font-size: 0.9rem !important;
       text-transform: none;
+    }
+
+    @media (max-width: 768px) {
+      th, td {
+        padding: 0.5rem !important;
+        font-size: 0.8rem !important;
+      }
+    }
+  }
+
+  .table-tiny {
+    @media (max-width: 768px) {
+      th, td {
+        padding: 0.3rem 0.4rem !important;
+        font-size: 0.65rem !important;
+        letter-spacing: -0.01em;
+      }
     }
   }
 
@@ -660,12 +734,53 @@ const ArticleContent = styled.article`
 
   .footnotes p {
     margin: 0;
-    word-wrap: break-word;
-    overflow-wrap: break-word;
+    word-break: break-all;
   }
 
-  .footnotes a {
-    word-break: break-all;
+  /* Global KaTeX responsiveness */
+  .katex-display {
+    width: 100%;
+    max-width: 100%;
+    margin: 1.5em 0;
+    text-align: center;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 1em 0;
+    transition: font-size 0.2s ease;
+    min-height: 2em;
+    position: relative;
+    
+    /* Precise breakpoints for LaTeX font scaling */
+    font-size: 1.1em;
+    @media (max-width: 1024px) { font-size: 1.0em; }
+    @media (max-width: 768px) { font-size: 0.9em; }
+    @media (max-width: 480px) { font-size: 0.8em; }
+
+    /* Custom scrollbar for wide equations */
+    &::-webkit-scrollbar {
+      height: 4px;
+    }
+    &::-webkit-scrollbar-track {
+      background: rgba(255, 255, 255, 0.05);
+    }
+    &::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: 2px;
+    }
+  }
+
+  .katex-display > .katex {
+    display: inline-block;
+    max-width: none;
+    white-space: nowrap;
+    vertical-align: middle;
+    width: auto !important;
+  }
+
+  /* Inline math should also be careful */
+  .katex {
+    font-size: 1.05em;
+    text-rendering: optimizeLegibility;
   }
 `;
 
@@ -769,35 +884,23 @@ const LatexBlockContainer = styled.div`
 `;
 
 const LatexExpressionRow = styled.div`
-  width: fit-content;
+  width: 100%;
   margin: 0 auto 1.25em;
-  max-width: 100%;
   min-width: 0;
   overflow-x: auto;
   overflow-y: visible;
-
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  
   &:last-child {
     margin-bottom: 0;
   }
 
+  /* Specific overrides for rows if needed, but primary styles are in ArticleContent */
   & > .katex-display {
-    width: fit-content;
-    max-width: 100%;
-    max-width: 100vw;
-    margin-left: auto;
-    margin-right: auto;
-    text-align: center;
-    font-size: 1em;
-  }
-
-  & > .katex-display > .katex {
-    display: inline-block;
-    max-width: 100%;
-    font-size: 0.95em;
-
-    @media (max-width: 768px) {
-      font-size: 0.75em;
-    }
+    margin: 0;
+    padding: 0.5em 0;
   }
 `;
 

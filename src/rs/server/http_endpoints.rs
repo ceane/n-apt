@@ -7,20 +7,20 @@ use log::{error, info, warn};
 use redis::Client as RedisClient;
 use rustfft::{num_complex::Complex, FftPlanner};
 use serde::{Deserialize, Serialize};
-use serde_json;
 use std::collections::HashSet;
 use std::env;
-use std::sync::{atomic::Ordering, Arc};
+use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::Instant;
 use tokio_util::io::ReaderStream;
+use validator::Validate;
 
 use crate::sdr::rtlsdr::RtlSdrDevice;
-use crate::server::types::ChannelSpec;
-
 use super::types::{
-  CaptureDownloadParams, SpectrumFrameMessage, WebMCPToolRequest,
-  WebMCPToolResponse,
+  CaptureDownloadParams, ChannelSpec, SpectrumFrameMessage, TowerBoundsQuery,
+  WebMCPToolRequest, WebMCPToolResponse,
 };
+
 
 // Haversine distance calculation for tower filtering
 fn haversine_distance(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
@@ -98,13 +98,13 @@ fn format_frequency_range(frames: &[SpectrumFrameMessage]) -> Option<String> {
   let mut min = f64::INFINITY;
   let mut max = f64::NEG_INFINITY;
   for frame in frames {
-    min = min.min(frame.min_mhz);
-    max = max.max(frame.max_mhz);
+    min = min.min(frame.min_hz);
+    max = max.max(frame.max_hz);
   }
   if !min.is_finite() || !max.is_finite() || max <= min {
     return None;
   }
-  Some(format!("{:.3}-{:.3} MHz", min, max))
+  Some(format!("{:.0}-{:.0} Hz", min, max))
 }
 
 fn format_sample_rate(sample_rate: Option<u32>) -> Option<String> {
@@ -112,21 +112,9 @@ fn format_sample_rate(sample_rate: Option<u32>) -> Option<String> {
   if rate == 0 {
     return None;
   }
-  Some(format!("{:.3} MS/s", rate as f64 / 1_000_000.0))
+  Some(format!("{} S/s", rate))
 }
 
-#[derive(Debug, Deserialize)]
-pub struct TowerBoundsQuery {
-  pub ne_lat: f64,
-  pub ne_lng: f64,
-  pub sw_lat: f64,
-  pub sw_lng: f64,
-  pub zoom: Option<u32>,
-  pub tech: Option<String>,
-  pub range: Option<String>,
-  pub mcc: Option<String>,
-  pub mnc: Option<String>,
-}
 
 #[derive(Debug, Serialize, Clone)]
 pub struct TowerRecord {
@@ -179,9 +167,9 @@ pub struct StitchDiagnosticResponse {
   pub hop1_frames: Vec<Vec<f32>>,
   pub hop2_frames: Vec<Vec<f32>>,
   pub stitched_frames: Vec<Vec<f32>>,
-  pub hop1_freq_mhz: [f32; 2],
-  pub hop2_freq_mhz: [f32; 2],
-  pub stitched_freq_mhz: [f32; 2],
+  pub hop1_freq_hz: [f32; 2],
+  pub hop2_freq_hz: [f32; 2],
+  pub stitched_freq_hz: [f32; 2],
   pub overlap_start: usize,
   pub overlap_end: usize,
   pub device_info: String,
@@ -221,6 +209,17 @@ fn parse_filter_set(raw: &Option<String>) -> HashSet<String> {
 pub async fn towers_bounds_handler(
   Query(query): Query<TowerBoundsQuery>,
 ) -> impl IntoResponse {
+  if let Err(e) = query.validate() {
+    return (
+      StatusCode::BAD_REQUEST,
+      Json(serde_json::json!({
+        "error": "Validation failed",
+        "details": format!("{}", e)
+      })),
+    )
+      .into_response();
+  }
+
   if query.ne_lat < query.sw_lat || query.ne_lng < query.sw_lng {
     return (
       StatusCode::BAD_REQUEST,
@@ -527,15 +526,66 @@ pub async fn status_handler(
   let device_state = state.shared.device_state.lock().unwrap().clone();
   let device_loading_reason =
     state.shared.device_loading_reason.lock().unwrap().clone();
+  let device_loading = *state.shared.device_loading.lock().unwrap();
+  let paused = state.shared.is_paused.load(Ordering::SeqCst);
+  let sdr_settings = state.shared.sdr_settings.lock().unwrap().clone();
+  let channels = state.shared.channels.lock().unwrap().clone();
+  let device_profile = state.shared.device_profile.lock().unwrap().clone();
+
+  let normalize_rtl_device_name = |raw_name: &str| {
+    let short_name = raw_name.split(" - ").next().unwrap_or("RTL-SDR").trim();
+    let lower = short_name.to_ascii_lowercase();
+
+    if let Some(version) = short_name.split_whitespace().find_map(|token| {
+      let cleaned = token
+        .trim_matches(|c: char| !c.is_ascii_alphanumeric())
+        .to_ascii_lowercase();
+      let version = cleaned.strip_prefix('v')?;
+      if !version.is_empty() && version.chars().all(|c| c.is_ascii_digit()) {
+        Some(version.to_string())
+      } else {
+        None
+      }
+    }) {
+      return format!("RTL-SDR {}", format!("v{}", version));
+    }
+
+    if lower.contains("rtl-sdr blog")
+      || lower.contains("rtl2832")
+      || lower.contains("rtl-sdr")
+      || lower.contains("generic")
+      || lower.contains("rtl2382u")
+    {
+      return "RTL-SDR v4".to_string();
+    }
+
+    short_name.to_string()
+  };
+
+  // Extract short device name from device_info
+  let device_name = if device_connected {
+    normalize_rtl_device_name(&device_info)
+  } else {
+    "Mock APT SDR".to_string()
+  };
 
   Json(serde_json::json!({
+    "type": "status",
     "device_connected": device_connected,
     "device_present": device_present,
     "device_count": device_count,
     "device_state": device_state,
+    "device_loading": device_loading,
     "device_loading_reason": device_loading_reason,
     "device_info": device_info,
+    "device_name": device_name,
+    "paused": paused,
+    "max_sample_rate": sdr_settings.sample_rate,
+    "channels": channels,
+    "sdr_settings": sdr_settings,
+    "device": if device_connected { "rtl-sdr" } else { "mock_apt" },
     "backend": if device_connected { "rtl-sdr" } else { "mock_apt" },
+    "device_profile": device_profile,
     "clients": client_count,
     "authenticated_clients": authenticated_count,
   }))
@@ -547,6 +597,17 @@ pub async fn capture_download_handler(
   Query(params): Query<CaptureDownloadParams>,
   State(state): State<Arc<super::AppState>>,
 ) -> impl IntoResponse {
+  if let Err(e) = params.validate() {
+    return (
+      StatusCode::BAD_REQUEST,
+      Json(serde_json::json!({
+        "error": "Validation failed",
+        "details": format!("{}", e)
+      })),
+    )
+      .into_response();
+  }
+
   let _session = match state.session_store.validate(&params.token) {
     Some(s) => s,
     None => {
@@ -557,9 +618,8 @@ pub async fn capture_download_handler(
 
   // Get capture artifacts for this job
   let artifacts: Vec<crate::server::types::CaptureArtifact> = {
-    let artifacts_map = state.shared.capture_artifacts.lock().unwrap();
-    match artifacts_map.get(&params.job_id) {
-      Some(artifacts) => artifacts.clone(),
+    match state.shared.get_capture_artifacts(&params.job_id) {
+      Some(artifacts) => artifacts,
       None => {
         return (
           StatusCode::NOT_FOUND,
@@ -809,10 +869,10 @@ pub async fn agent_status_handler(
       "is_paused": is_paused,
       "active_clients": client_count,
       "authenticated_clients": authenticated_count,
-      "capture_artifacts": shared.capture_artifacts.lock().unwrap().len()
+      "redis_metadata_active": true
     },
     "signals": {
-      "center_frequency_mhz": center_freq_hz as f64 / 1_000_000.0,
+      "center_frequency_hz": center_freq_hz as f64,
       "frequency_range": freq_range,
       "sample_rate": sample_rate_label
     },
@@ -843,6 +903,17 @@ pub async fn execute_webmcp_tool_handler(
   State(state): State<Arc<super::AppState>>,
   Json(tool_request): Json<WebMCPToolRequest>,
 ) -> impl IntoResponse {
+  if let Err(e) = tool_request.validate() {
+    return (
+      StatusCode::BAD_REQUEST,
+      Json(serde_json::json!({
+        "error": "Validation failed",
+        "details": format!("{}", e)
+      })),
+    )
+      .into_response();
+  }
+
   info!("WebMCP tool execution requested: {}", tool_request.name);
 
   let tool_name = tool_request.name.as_str();
@@ -870,7 +941,7 @@ pub async fn execute_webmcp_tool_handler(
     }
   };
 
-  Json(result)
+  Json(result).into_response()
 }
 
 /// POST /api/debug/stitch-diagnostic — Run a 2-hop capture and return stitching data
@@ -1031,10 +1102,10 @@ pub async fn stitch_diagnostic_handler(
       .iter()
       .find(|c| c.label.to_uppercase() == label.to_uppercase())
     {
-      // Anchor center1 so that the hardware capture starts exactly at the channel's min_mhz
+      // Anchor center1 so that the hardware capture starts exactly at the channel's min_hz
       // center = min + (sample_rate / 2)
       let sr_hz = processor.get_sample_rate() as f64;
-      let anchored_hz = (ch.min_mhz * 1_000_000.0 + (sr_hz / 2.0)) as u32;
+      let anchored_hz = (ch.min_hz + (sr_hz / 2.0)) as u32;
       info!(
         "Anchoring diagnostic center1 to {} Hz for area {}",
         anchored_hz, label
@@ -1043,7 +1114,7 @@ pub async fn stitch_diagnostic_handler(
     }
   }
 
-  let (center1, hop_bw_mhz, sample_rate, device_info, was_paused) = {
+  let (center1, hop_bw_hz, sample_rate, device_info, was_paused) = {
     let was_paused = state.shared.is_paused.load(Ordering::Relaxed);
     // Pause during diagnostic to avoid hardware contention
     state.shared.is_paused.store(true, Ordering::Relaxed);
@@ -1062,7 +1133,7 @@ pub async fn stitch_diagnostic_handler(
     let sample_rate = processor.get_sample_rate() as f64;
     (
       processor.get_center_frequency(),
-      sample_rate / 1_000_000.0,
+      sample_rate,
       sample_rate,
       processor.get_device_info(),
       was_paused,
@@ -1154,7 +1225,7 @@ pub async fn stitch_diagnostic_handler(
 
   // Calculate dynamic overlap bounds based strictly on the center frequency jump
   let offset_bins =
-    ((fft_size as f64) * (jump_hz / hop_bw_mhz)).round() as usize;
+    ((fft_size as f64) * (jump_hz / hop_bw_hz)).round() as usize;
   let overlap_bins = fft_size.saturating_sub(offset_bins);
   // 4. Midpoint Cut Stitching (No Blending)
   let mut stitched_frames = Vec::with_capacity(NUM_FRAMES);
@@ -1201,9 +1272,9 @@ pub async fn stitch_diagnostic_handler(
     hop1_frames,
     hop2_frames,
     stitched_frames,
-    hop1_freq_mhz: [hop1_start, hop1_end],
-    hop2_freq_mhz: [hop2_start, hop2_end],
-    stitched_freq_mhz: [hop1_start, hop2_end],
+    hop1_freq_hz: [hop1_start, hop1_end],
+    hop2_freq_hz: [hop2_start, hop2_end],
+    stitched_freq_hz: [hop1_start, hop2_end],
     overlap_start: offset_bins,
     overlap_end: overlap_bins,
 

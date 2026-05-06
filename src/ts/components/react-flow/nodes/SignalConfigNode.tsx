@@ -141,7 +141,7 @@ interface SignalConfigNodeProps {
 export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
   const dispatch = useAppDispatch();
   const spectrum = useAppSelector(state => state.spectrum);
-  const { wsConnection, sampleRateMHz, state: liveState } = useSpectrumStore();
+  const { wsConnection, sampleRateHzEffective, state: liveState } = useSpectrumStore();
   const { sessionToken, aesKey } = useAuthentication();
 
   const {
@@ -159,7 +159,7 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
     setPpm,
     scheduleCoupledAdjustment
   } = useSdrSettings({
-    maxSampleRate: (sampleRateMHz || 3.2) * 1_000_000,
+    maxSampleRate: sampleRateHzEffective || 3_200_000,
     sdrSettings: liveSdrSettingsConfig,
     onSettingsChange: (settings) => dispatch(sendSettings(settings))
   });

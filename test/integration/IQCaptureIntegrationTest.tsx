@@ -2,6 +2,7 @@ import React from "react";
 import { IQCaptureControlsSection } from "../../src/ts/components/sidebar/IQCaptureControlsSection";
 import { useWebSocket } from "../../src/ts/hooks/useWebSocket";
 import type { CaptureFileType } from "../../src/ts/consts/schemas/websocket";
+import { formatFrequency } from "../../src/ts/utils/frequency";
 
 export const IQCaptureIntegrationTest: React.FC = () => {
   const {
@@ -25,17 +26,17 @@ export const IQCaptureIntegrationTest: React.FC = () => {
 
   // Mock data for testing
   const mockAvailableCaptureAreas = [
-    { label: "Onscreen", min: 0, max: 3.2 },
-    { label: "Area A", min: 10, max: 20 },
-    { label: "Area B", min: 20, max: 30 }
+    { label: "Onscreen", min: 0, max: 3200000 },
+    { label: "Area A", min: 10000000, max: 20000000 },
+    { label: "Area B", min: 25000000, max: 28000000 }
   ];
 
   const mockCaptureRange = {
-    min: 10,
-    max: 30,
+    min: 10000000,
+    max: 28000000,
     segments: [
-      { label: "Area A", min: 10, max: 20 },
-      { label: "Area B", min: 20, max: 30 }
+      { label: "Area A", min: 10000000, max: 20000000 },
+      { label: "Area B", min: 25000000, max: 28000000 }
     ]
   };
 
@@ -72,7 +73,7 @@ export const IQCaptureIntegrationTest: React.FC = () => {
         : 0;
     const effectiveAcquisitionMode =
       activeCaptureAreas.includes("Onscreen") &&
-        Math.abs(captureRangeSpan - sampleRateMHz) < 0.01
+        Math.abs(captureRangeSpan - sampleRate) < 1000
         ? "whole_sample"
         : acquisitionMode;
 
@@ -111,7 +112,7 @@ export const IQCaptureIntegrationTest: React.FC = () => {
       {/* Capture Metadata Display */}
       {captureStatus?.status === "done" && (
         <div data-testid="capture-metadata">
-          Sample Rate: {(maxSampleRateHz || 3200000) / 1000000}MHz
+          Sample Rate: {formatFrequency(maxSampleRateHz || 3200000)}
           Duration: {captureDurationS}s
           Size: 1.02 MB
         </div>

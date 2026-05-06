@@ -20,7 +20,7 @@ describe("useOverlayRenderer Hook", () => {
   it("should draw hardware sample rate lines when appropriate", () => {
     const { result } = renderHook(() => useOverlayRenderer());
     
-    const frequencyRange = { min: 90, max: 110 }; // 20MHz span
+    const frequencyRange = { min: 90e6, max: 110e6 }; // 20MHz span
     const hardwareSampleRateHz = 10000000; // 10MHz
     // Span > SampleRate, so it should draw lines
 
@@ -46,7 +46,7 @@ describe("useOverlayRenderer Hook", () => {
   it("should draw 'Next Sample' for partial blocks at the end", () => {
     const { result } = renderHook(() => useOverlayRenderer());
     
-    const frequencyRange = { min: 90, max: 105 }; // 15MHz span
+    const frequencyRange = { min: 90e6, max: 105e6 }; // 15MHz span
     const hardwareSampleRateHz = 10000000; // 10MHz
     // First block: 90-100 (Full), Second block: 100-105 (Partial)
 
@@ -69,7 +69,7 @@ describe("useOverlayRenderer Hook", () => {
   it("should not draw hardware lines if span is smaller than sample rate", () => {
     const { result } = renderHook(() => useOverlayRenderer());
     
-    const frequencyRange = { min: 95, max: 100 }; // 5MHz span
+    const frequencyRange = { min: 95e6, max: 100e6 }; // 5MHz span
     const hardwareSampleRateHz = 10000000; // 10MHz
 
     jest.clearAllMocks();
@@ -86,5 +86,32 @@ describe("useOverlayRenderer Hook", () => {
 
     const labels = mockCtx.fillText.mock.calls.map((c: any) => c[0]);
     expect(labels).not.toContain("Hardware Sample Rate");
+  });
+
+  it("should draw frequency grid ticks in MHz with Hz input", () => {
+    const { result } = renderHook(() => useOverlayRenderer());
+    
+    const frequencyRange = { min: 90e6, max: 92e6 }; // 2MHz span
+    
+    jest.clearAllMocks();
+    result.current.drawGridOnContext(
+      mockCtx,
+      1000,
+      600,
+      frequencyRange,
+      -120,
+      0,
+      "dB"
+    );
+
+    const labels = mockCtx.fillText.mock.calls.map((c: any) => c[0]);
+    // With 2MHz span, step should be 250kHz (250,000 Hz)
+    // Ticks: 90.25, 90.50, 90.75, 91.00, etc.
+    // 91MHz will collide with the center label and be filtered out, which is expected.
+    // 90.25MHz -> 90.3MHz (rounded to 1 decimal)
+    // 90.75MHz -> 90.8MHz (rounded to 1 decimal)
+    expect(labels).toContain("90.3MHz");
+    expect(labels).toContain("90.8MHz");
+    expect(labels).not.toContain("91MHz"); // Collides with center
   });
 });

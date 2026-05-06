@@ -63,7 +63,7 @@ export function useDrawMockNAPTSignal() {
 
     for (let i = 0; i <= steps; i++) {
       const t = -1 + (2 * i) / steps;
-      const freq = ((t + 1) / 2) * 3;
+      const freq = ((t + 1) / 2) * 3_000_000;
       
       let maxClumpSignal = 0;
       for (const clump of clumps) {
@@ -73,10 +73,10 @@ export function useDrawMockNAPTSignal() {
         // Add beats (heterodyne)
         if (clump.beats && clump.beats.length > 0) {
           for (const beat of clump.beats) {
-            // Shift centerOffset by offsetHz (convert Hz to MHz)
+            // Shift centerOffset by offsetHz
             const beatClump = { 
               ...clump, 
-              centerOffset: clump.centerOffset + (beat.offsetHz / 1_000_000) 
+              centerOffset: clump.centerOffset + beat.offsetHz 
             };
             clumpSum += calculateX ? calculateX(t, beatClump) : 0;
           }
