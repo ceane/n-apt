@@ -1154,12 +1154,16 @@ Using the obvious and what I've seen, it was pretty easy to give a solid estimat
 
 **Through the fiber cables to an endpoint (data through the network; most likely infrastructure access and not the internet)** [^data-estimate]
 
+<div class="table-tiny">
+
 | Channel | Bandwidth | MB/s | 5 min | 1 hour | 3 hours | 24 hours |
 |---|---|---|---|---|---|---|
 | A | 4.35 MHz | ~4.35 MB/s | ~1.31 GB | ~15.7 GB | ~47 GB | ~375 GB |
 | B | 5.16 MHz | ~5.16 MB/s | ~1.55 GB | ~18.6 GB | ~55.7 GB | ~446 GB |
 | C | 18.25 MHz | ~18.25 MB/s | ~5.48 GB | ~65.7 GB | ~197.1 GB | ~1.58 TB |
 | **Total** | **27.76 MHz** | **~27.76 MB/s** | **~8.34 GB** | **~100 GB** | **~299.8 GB** | **~2.4 TB** |
+
+</div>
 
 That's right! Just **sitting somewhere for 5 mins is over 8GBs of data** by minimum of physics!
 
@@ -1168,12 +1172,16 @@ That's right! Just **sitting somewhere for 5 mins is over 8GBs of data** by mini
 
 **In the air to person (brain, body, nervous system; data in air doing the effects/heterodyning)**
 
+<div class="table-tiny">
+
 | Channel | BW ×2 | MB/s | 5 min | 1 hour | 3 hours | 24 hours |
 |---|---|---|---|---|---|---|
 | A | 8.7 MHz | ~8.7 MB/s | ~2.61 GB | ~31.3 GB | ~94 GB | ~751 GB |
 | B | 10.32 MHz | ~10.32 MB/s | ~3.1 GB | ~37.2 GB | ~111 GB | ~891 GB |
 | C | 36.5 MHz | ~36.5 MB/s | ~10.95 GB | ~131.4 GB | ~394.2 GB | ~3.15 TB |
 | **Total** | **55.52 MHz** | **~55.52 MB/s** | **~16.66 GB** | **~199.9 GB** | **~599.2 GB** | **~4.79 TB** |
+
+</div>
 
 Due to how the signal has to be "played twice" (heterodyning) for it to work on biology the endpoints are handling more than just *one data stream = one signal*, instead *one data stream = two signals*, so the endpoints will broadcast the same content twice, in the form of two different signals, nearly identical but slightly different. While the network carries the content, in the air, the signals' bandwidth is multiplied by two in the radio unit!
 
