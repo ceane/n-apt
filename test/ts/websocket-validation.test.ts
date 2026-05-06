@@ -16,22 +16,22 @@ import {
   resetValidationMetrics,
 } from "@n-apt/validation";
 
-describe('WebSocket Validation System', () => {
+describe("WebSocket Validation System", () => {
   beforeEach(() => {
     resetValidationMetrics();
   });
 
-  describe('WebSocket Message Validation', () => {
-    test('should validate valid WebSocket messages', () => {
+  describe("WebSocket Message Validation", () => {
+    test("should validate valid WebSocket messages", () => {
       const validMessage = {
         type: "pause",
-        paused: false
+        paused: false,
       };
 
       expect(validateWebSocketMessage(validMessage)).toBe(true);
     });
 
-    test('should reject invalid WebSocket messages', () => {
+    test("should reject invalid WebSocket messages", () => {
       const invalidMessages = [
         null,
         undefined,
@@ -43,20 +43,20 @@ describe('WebSocket Validation System', () => {
         { type: "unknown" }, // unknown type
       ];
 
-      invalidMessages.forEach(msg => {
+      invalidMessages.forEach((msg) => {
         expect(validateWebSocketMessage(msg)).toBe(false);
       });
     });
 
-    test('should handle ArrayBuffer data (binary)', () => {
+    test("should handle ArrayBuffer data (binary)", () => {
       const binaryData = new ArrayBuffer(1024);
       // Should skip validation for binary data
       expect(validateWebSocketMessage(binaryData)).toBe(true);
     });
   });
 
-  describe('Status Message Validation', () => {
-    test('should validate valid status messages', () => {
+  describe("Status Message Validation", () => {
+    test("should validate valid status messages", () => {
       const validStatus = {
         type: "status",
         device_connected: true,
@@ -73,8 +73,8 @@ describe('WebSocket Validation System', () => {
             label: "Test Channel",
             min_hz: 100000000,
             max_hz: 200000000,
-            description: "Test description"
-          }
+            description: "Test description",
+          },
         ],
         sdr_settings: {
           sample_rate: 2048000,
@@ -82,33 +82,33 @@ describe('WebSocket Validation System', () => {
           gain: {
             tuner_gain: 20,
             rtl_agc: false,
-            tuner_agc: false
+            tuner_agc: false,
           },
           fft: {
             default_size: 2048,
             default_frame_rate: 30,
             max_size: 4096,
-            max_frame_rate: 60
+            max_frame_rate: 60,
           },
           display: {
             min_db: -100,
             max_db: 0,
-            padding: 10
-          }
+            padding: 10,
+          },
         },
         device: "rtl-sdr",
         device_profile: {
           kind: "rtl_sdr",
           is_rtl_sdr: true,
           supports_approx_dbm: true,
-          supports_raw_iq_stream: true
-        }
+          supports_raw_iq_stream: true,
+        },
       };
 
       expect(validateStatusMessage(validStatus)).toBe(true);
     });
 
-    test('should reject invalid status messages', () => {
+    test("should reject invalid status messages", () => {
       const invalidStatus = {
         type: "status",
         device_connected: "not_boolean", // should be boolean
@@ -122,13 +122,13 @@ describe('WebSocket Validation System', () => {
         channels: "not_array", // should be array
         sdr_settings: "not_object", // should be object
         device: "invalid_device", // invalid enum
-        device_profile: "not_object" // should be object
+        device_profile: "not_object", // should be object
       };
 
       expect(validateStatusMessage(invalidStatus)).toBe(false);
     });
 
-    test('should handle partial status messages', () => {
+    test("should handle partial status messages", () => {
       // Note: StatusMessageSchema requires all fields, so partial messages won't be valid
       const partialStatus = {
         type: "status",
@@ -143,23 +143,23 @@ describe('WebSocket Validation System', () => {
         channels: [],
         sdr_settings: {
           sample_rate: 2048000,
-          center_frequency: 100000000
+          center_frequency: 100000000,
         },
         device: "mock_apt",
         device_profile: {
           kind: "mock",
           is_rtl_sdr: false,
           supports_approx_dbm: false,
-          supports_raw_iq_stream: false
-        }
+          supports_raw_iq_stream: false,
+        },
       };
 
       expect(validateStatusMessage(partialStatus)).toBe(true);
     });
   });
 
-  describe('Capture Status Validation', () => {
-    test('should validate valid capture status', () => {
+  describe("Capture Status Validation", () => {
+    test("should validate valid capture status", () => {
       const validCaptureStatus = {
         jobId: "job-123",
         status: "started",
@@ -168,114 +168,116 @@ describe('WebSocket Validation System', () => {
         downloadUrl: "http://example.com/download",
         filename: "capture.bin",
         fileCount: 10,
-        ephemeral: false
+        ephemeral: false,
       };
 
       expect(validateCaptureStatus(validCaptureStatus)).toBe(true);
     });
 
-    test('should validate capture status without optional fields', () => {
+    test("should validate capture status without optional fields", () => {
       const minimalCaptureStatus = {
         jobId: "job-123",
-        status: "done"
+        status: "done",
       };
 
       expect(validateCaptureStatus(minimalCaptureStatus)).toBe(true);
     });
 
-    test('should reject invalid capture status', () => {
+    test("should reject invalid capture status", () => {
       const invalidCaptureStatus = {
         jobId: "", // empty job ID
         status: "invalid_status", // invalid status
         progress: 150, // progress > 100
-        fileCount: -5 // negative file count
+        fileCount: -5, // negative file count
       };
 
       expect(validateCaptureStatus(invalidCaptureStatus)).toBe(false);
     });
   });
 
-  describe('Auto FFT Options Validation', () => {
-    test('should validate valid auto FFT options', () => {
+  describe("Auto FFT Options Validation", () => {
+    test("should validate valid auto FFT options", () => {
       const validOptions = {
         type: "auto_fft_options",
         autoSizes: [512, 1024, 2048, 4096],
-        recommended: 2048
+        recommended: 2048,
       };
 
       expect(validateAutoFftOptions(validOptions)).toBe(true);
     });
 
-    test('should reject invalid auto FFT options', () => {
+    test("should reject invalid auto FFT options", () => {
       const invalidOptions = {
         type: "auto_fft_options",
         autoSizes: "not_array", // should be array
-        recommended: "not_number" // should be number
+        recommended: "not_number", // should be number
       };
 
       expect(validateAutoFftOptions(invalidOptions)).toBe(false);
     });
 
-    test('should handle empty auto sizes', () => {
+    test("should handle empty auto sizes", () => {
       const emptyOptions = {
         type: "auto_fft_options",
         autoSizes: [],
-        recommended: 1024
+        recommended: 1024,
       };
 
       expect(validateAutoFftOptions(emptyOptions)).toBe(true);
     });
   });
 
-  describe('Authentication Validation', () => {
-    test('should validate valid auth info', () => {
+  describe("Authentication Validation", () => {
+    test("should validate valid auth info", () => {
       const validAuthInfo = {
-        has_passkeys: true
+        has_passkeys: true,
       };
 
       expect(validateAuthInfo(validAuthInfo)).toBe(true);
     });
 
-    test('should validate valid auth result', () => {
+    test("should validate valid auth result", () => {
       const validAuthResult = {
         token: "jwt-token-123",
-        expires_in: 3600
+        expires_in: 3600,
       };
 
       expect(validateAuthResult(validAuthResult)).toBe(true);
     });
 
-    test('should validate valid session validation', () => {
+    test("should validate valid session validation", () => {
       const validSessionValidation = {
         valid: true,
         userId: "user-123",
-        expiresAt: Date.now() + 3600000
+        expiresAt: Date.now() + 3600000,
       };
 
       expect(validateSessionValidation(validSessionValidation)).toBe(true);
     });
 
-    test('should reject invalid auth data', () => {
+    test("should reject invalid auth data", () => {
       expect(validateAuthInfo({ has_passkeys: "not_boolean" })).toBe(false);
-      expect(validateAuthResult({ token: 123, expires_in: "not_number" })).toBe(false);
+      expect(validateAuthResult({ token: 123, expires_in: "not_number" })).toBe(
+        false,
+      );
       expect(validateSessionValidation({ valid: "not_boolean" })).toBe(false);
     });
   });
 
-  describe('Redux Action Validation', () => {
-    test('should validate non-WebSocket Redux actions', () => {
+  describe("Redux Action Validation", () => {
+    test("should validate non-WebSocket Redux actions", () => {
       const validActions = [
         { type: "other/action" }, // Non-websocket actions should be valid
         { type: "some/otherAction" },
-        { type: "any/action" }
+        { type: "any/action" },
       ];
 
-      validActions.forEach(action => {
+      validActions.forEach((action) => {
         expect(validateReduxAction(action)).toBe(true);
       });
     });
 
-    test('should reject invalid Redux actions', () => {
+    test("should reject invalid Redux actions", () => {
       const invalidActions = [
         null,
         undefined,
@@ -284,57 +286,69 @@ describe('WebSocket Validation System', () => {
         { type: "" }, // empty type
       ];
 
-      invalidActions.forEach(action => {
+      invalidActions.forEach((action) => {
         expect(validateReduxAction(action)).toBe(false);
       });
     });
   });
 
-  describe('Process WebSocket Message with Validation', () => {
-    test('should process valid WebSocket messages', () => {
+  describe("Process WebSocket Message with Validation", () => {
+    test("should process valid WebSocket messages", () => {
       const mockDispatch = jest.fn();
       const mockGetState = jest.fn(() => ({
-        websocket: { isPaused: false }
+        websocket: { isPaused: false },
       }));
 
       const validMessage = {
         type: "pause",
-        paused: false
+        paused: false,
       };
 
-      const result = processWebSocketMessageWithValidation(mockDispatch, mockGetState, validMessage);
+      const result = processWebSocketMessageWithValidation(
+        mockDispatch,
+        mockGetState,
+        validMessage,
+      );
       expect(result).toBe(true);
     });
 
-    test('should reject invalid WebSocket messages', () => {
+    test("should reject invalid WebSocket messages", () => {
       const mockDispatch = jest.fn();
       const mockGetState = jest.fn(() => ({
-        websocket: { isPaused: false }
+        websocket: { isPaused: false },
       }));
 
       const invalidMessage = {
-        type: "invalid_type"
+        type: "invalid_type",
       };
 
-      const result = processWebSocketMessageWithValidation(mockDispatch, mockGetState, invalidMessage);
+      const result = processWebSocketMessageWithValidation(
+        mockDispatch,
+        mockGetState,
+        invalidMessage,
+      );
       expect(result).toBe(false);
     });
 
-    test('should handle binary data', () => {
+    test("should handle binary data", () => {
       const mockDispatch = jest.fn();
       const mockGetState = jest.fn(() => ({
-        websocket: { isPaused: false }
+        websocket: { isPaused: false },
       }));
 
       const binaryData = new ArrayBuffer(1024);
 
-      const result = processWebSocketMessageWithValidation(mockDispatch, mockGetState, binaryData);
+      const result = processWebSocketMessageWithValidation(
+        mockDispatch,
+        mockGetState,
+        binaryData,
+      );
       expect(result).toBe(true); // Binary data should be allowed
     });
   });
 
-  describe('Validation Metrics', () => {
-    test('should track validation metrics', () => {
+  describe("Validation Metrics", () => {
+    test("should track validation metrics", () => {
       // Perform some validations
       validateWebSocketMessage({ type: "status" });
       validateStatusMessage({ type: "status", device_state: "connected" });
@@ -347,13 +361,13 @@ describe('WebSocket Validation System', () => {
       expect(metrics.lastValidationTime).toBeGreaterThanOrEqual(0);
     });
 
-    test('should reset validation metrics', () => {
+    test("should reset validation metrics", () => {
       // Perform some validations
       validateWebSocketMessage({ type: "status" });
-      
+
       // Reset metrics
       resetValidationMetrics();
-      
+
       const metrics = getValidationMetrics();
       expect(metrics.totalValidations).toBe(0);
       expect(metrics.validationFailures).toBe(0);
@@ -361,10 +375,10 @@ describe('WebSocket Validation System', () => {
       expect(metrics.lastValidationTime).toBe(0);
     });
 
-    test('should track validation failures correctly', () => {
+    test("should track validation failures correctly", () => {
       // Reset metrics first
       resetValidationMetrics();
-      
+
       // Perform validations with known outcomes
       validateWebSocketMessage({ type: "pause", paused: true }); // valid
       validateWebSocketMessage({ type: "pause", paused: false }); // valid
@@ -376,26 +390,26 @@ describe('WebSocket Validation System', () => {
     });
   });
 
-  describe('Performance Tests', () => {
-    test('should validate messages quickly', () => {
+  describe("Performance Tests", () => {
+    test("should validate messages quickly", () => {
       const startTime = performance.now();
-      
+
       // Validate 1000 messages
       for (let i = 0; i < 1000; i++) {
         validateWebSocketMessage({
           type: "pause",
-          paused: i % 2 === 0
+          paused: i % 2 === 0,
         });
       }
-      
+
       const endTime = performance.now();
       const averageTime = (endTime - startTime) / 1000;
-      
+
       // Should validate messages in less than 5ms on average (relaxed for CI)
       expect(averageTime).toBeLessThan(5);
     });
 
-    test('should handle large messages efficiently', () => {
+    test("should handle large messages efficiently", () => {
       const largeMessage = {
         type: "status",
         device_connected: true,
@@ -412,7 +426,7 @@ describe('WebSocket Validation System', () => {
           label: `Channel ${i}`,
           min_hz: i * 10000000,
           max_hz: (i + 1) * 10000000,
-          description: `Description for channel ${i}`
+          description: `Description for channel ${i}`,
         })),
         sdr_settings: {
           sample_rate: 2048000,
@@ -420,27 +434,27 @@ describe('WebSocket Validation System', () => {
           gain: {
             tuner_gain: 20,
             rtl_agc: false,
-            tuner_agc: false
+            tuner_agc: false,
           },
           fft: {
             default_size: 2048,
             default_frame_rate: 30,
             max_size: 4096,
-            max_frame_rate: 60
+            max_frame_rate: 60,
           },
           display: {
             min_db: -100,
             max_db: 0,
-            padding: 10
-          }
+            padding: 10,
+          },
         },
         device: "rtl-sdr",
         device_profile: {
           kind: "rtl_sdr",
           is_rtl_sdr: true,
           supports_approx_dbm: true,
-          supports_raw_iq_stream: true
-        }
+          supports_raw_iq_stream: true,
+        },
       };
 
       const startTime = performance.now();
@@ -452,11 +466,11 @@ describe('WebSocket Validation System', () => {
     });
   });
 
-  describe('Edge Cases', () => {
-    test('should handle circular references in objects', () => {
+  describe("Edge Cases", () => {
+    test("should handle circular references in objects", () => {
       const circularMessage: any = {
         type: "pause",
-        paused: false
+        paused: false,
       };
       circularMessage.self = circularMessage; // Create circular reference
 
@@ -464,10 +478,10 @@ describe('WebSocket Validation System', () => {
       expect(() => validateWebSocketMessage(circularMessage)).not.toThrow();
     });
 
-    test('should handle very long strings', () => {
+    test("should handle very long strings", () => {
       const longStringMessage = {
         type: "pause",
-        paused: false
+        paused: false,
       };
       // Create a circular reference with long string to test handling
       (longStringMessage as any).self = "A".repeat(10000);
@@ -475,7 +489,7 @@ describe('WebSocket Validation System', () => {
       expect(validateWebSocketMessage(longStringMessage)).toBe(true);
     });
 
-    test('should handle extreme numeric values', () => {
+    test("should handle extreme numeric values", () => {
       const extremeValuesMessage = {
         type: "status",
         device_connected: true,
@@ -486,46 +500,48 @@ describe('WebSocket Validation System', () => {
         device_state: "connected",
         paused: false,
         max_sample_rate: 10000000, // 10MHz sample rate in Hz
-        channels: [{
-          id: "test",
-          label: "test",
-          min_hz: 0,
-          max_hz: 6000000000, // 6000 MHz = 6 GHz - high but reasonable for SDR
-          description: "test"
-        }],
+        channels: [
+          {
+            id: "test",
+            label: "test",
+            min_hz: 0,
+            max_hz: 6000000000, // 6000 MHz = 6 GHz - high but reasonable for SDR
+            description: "test",
+          },
+        ],
         sdr_settings: {
           sample_rate: 2048000, // 2.048 MHz sample rate in Hz
           center_frequency: 100000000, // 100 MHz center frequency in Hz
           gain: {
             tuner_gain: 20,
             rtl_agc: false,
-            tuner_agc: false
+            tuner_agc: false,
           },
           fft: {
             default_size: 2048,
             default_frame_rate: 30,
             max_size: 4096,
-            max_frame_rate: 60
+            max_frame_rate: 60,
           },
           display: {
             min_db: -100,
             max_db: 0,
-            padding: 10
-          }
+            padding: 10,
+          },
         },
         device: "rtl-sdr",
         device_profile: {
           kind: "rtl_sdr",
           is_rtl_sdr: true,
           supports_approx_dbm: true,
-          supports_raw_iq_stream: true
-        }
+          supports_raw_iq_stream: true,
+        },
       };
 
       expect(validateStatusMessage(extremeValuesMessage)).toBe(true);
     });
 
-    test('should handle null and undefined values in optional fields', () => {
+    test("should handle null and undefined values in optional fields", () => {
       const nullUndefinedMessage = {
         type: "status",
         device_connected: true,
@@ -543,27 +559,27 @@ describe('WebSocket Validation System', () => {
           gain: {
             tuner_gain: 20,
             rtl_agc: false,
-            tuner_agc: false
+            tuner_agc: false,
           },
           fft: {
             default_size: 2048,
             default_frame_rate: 30,
             max_size: 4096,
-            max_frame_rate: 60
+            max_frame_rate: 60,
           },
           display: {
             min_db: -100,
             max_db: 0,
-            padding: 10
-          }
+            padding: 10,
+          },
         },
         device: "rtl-sdr",
         device_profile: {
           kind: "rtl_sdr",
           is_rtl_sdr: true,
           supports_approx_dbm: true,
-          supports_raw_iq_stream: true
-        }
+          supports_raw_iq_stream: true,
+        },
       };
 
       // Should handle null/undefined in optional fields gracefully

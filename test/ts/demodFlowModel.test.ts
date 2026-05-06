@@ -21,8 +21,20 @@ describe("buildDemodFlowGraph", () => {
     expect(nodeIds.has("channel")).toBe(false);
     expect(nodeIds.has("metadata")).toBe(true);
     expect(nodeIds.has("signalOptions")).toBe(false);
-    expect(graph.edges.some((edge) => edge.source === "stimulus" || edge.target === "stimulus")).toBe(false);
-    expect(graph.edges.some((edge) => edge.source === "channel" || edge.target === "channel")).toBe(false);
-    expect(graph.edges.some((edge) => edge.source === "source" && edge.target === "metadata")).toBe(true);
+    expect(
+      graph.edges.some(
+        (edge) => edge.source === "stimulus" || edge.target === "stimulus",
+      ),
+    ).toBe(false);
+    expect(
+      graph.edges.some(
+        (edge) => edge.source === "channel" || edge.target === "channel",
+      ),
+    ).toBe(false);
+    expect(
+      graph.edges.some(
+        (edge) => edge.source === "source" && edge.target === "metadata",
+      ),
+    ).toBe(true);
   });
 });

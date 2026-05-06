@@ -1,12 +1,20 @@
 import React from "react";
-import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import {
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+  act,
+} from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { IQCaptureIntegrationTest } from "./IQCaptureIntegrationTest";
 import { TestWrapper } from "../ts/testUtils";
 import type { CaptureStatus } from "../../src/ts/consts/schemas/websocket";
 
 const mockSendCaptureCommand = jest.fn();
-const alertSpy = jest.spyOn(window, "alert").mockImplementation(() => undefined);
+const alertSpy = jest
+  .spyOn(window, "alert")
+  .mockImplementation(() => undefined);
 
 const mockWebSocketState: {
   isConnected: boolean;
@@ -51,13 +59,15 @@ describe("I/Q Capture Integration Tests", () => {
       render(
         <TestWrapper>
           <IQCaptureIntegrationTest />
-        </TestWrapper>
+        </TestWrapper>,
       );
 
       // Open the collapsible section
       fireEvent.click(screen.getByText("Take an I/Q Capture"));
 
-      expect(screen.getByLabelText("Hardware sample rate")).toHaveTextContent("3.2MHz");
+      expect(screen.getByLabelText("Hardware sample rate")).toHaveTextContent(
+        "3.2MHz",
+      );
       expect(screen.getByRole("button", { name: "Capture" })).toBeDisabled();
     });
 
@@ -67,7 +77,7 @@ describe("I/Q Capture Integration Tests", () => {
       render(
         <TestWrapper>
           <IQCaptureIntegrationTest />
-        </TestWrapper>
+        </TestWrapper>,
       );
 
       // Open the collapsible section
@@ -79,7 +89,9 @@ describe("I/Q Capture Integration Tests", () => {
         fireEvent.click(screen.getByText("Capture"));
       });
 
-      expect(alertSpy).toHaveBeenCalledWith("Sample rate exceeds maximum of 3.2MHz");
+      expect(alertSpy).toHaveBeenCalledWith(
+        "Sample rate exceeds maximum of 3.2MHz",
+      );
       expect(mockSendCaptureCommand).not.toHaveBeenCalled();
     });
 
@@ -94,7 +106,7 @@ describe("I/Q Capture Integration Tests", () => {
       render(
         <TestWrapper>
           <IQCaptureIntegrationTest />
-        </TestWrapper>
+        </TestWrapper>,
       );
 
       // Open the collapsible section
@@ -104,7 +116,9 @@ describe("I/Q Capture Integration Tests", () => {
         expect(screen.getByText("test-capture.napt")).toBeInTheDocument();
       });
 
-      expect(screen.getByTestId("capture-metadata")).toHaveTextContent("Sample Rate: 3.2MHz");
+      expect(screen.getByTestId("capture-metadata")).toHaveTextContent(
+        "Sample Rate: 3.2MHz",
+      );
     });
   });
 
@@ -113,7 +127,7 @@ describe("I/Q Capture Integration Tests", () => {
       render(
         <TestWrapper>
           <IQCaptureIntegrationTest />
-        </TestWrapper>
+        </TestWrapper>,
       );
 
       // Open the collapsible section
@@ -128,7 +142,7 @@ describe("I/Q Capture Integration Tests", () => {
       expect(mockSendCaptureCommand).toHaveBeenCalledWith(
         expect.objectContaining({
           acquisitionMode: "whole_sample",
-        })
+        }),
       );
     });
 
@@ -136,14 +150,16 @@ describe("I/Q Capture Integration Tests", () => {
       const { container } = render(
         <TestWrapper>
           <IQCaptureIntegrationTest />
-        </TestWrapper>
+        </TestWrapper>,
       );
 
       // Open the collapsible section
       fireEvent.click(screen.getByText("Take an I/Q Capture"));
 
       fireEvent.click(screen.getByLabelText("Area A"));
-      const durationInput = container.querySelector('input[type="number"]') as HTMLInputElement;
+      const durationInput = container.querySelector(
+        'input[type="number"]',
+      ) as HTMLInputElement;
       fireEvent.change(durationInput, {
         target: { value: "10" },
       });
@@ -158,7 +174,7 @@ describe("I/Q Capture Integration Tests", () => {
           fileType: ".napt",
           acquisitionMode: "stepwise",
           encrypted: false,
-        })
+        }),
       );
     });
 
@@ -166,17 +182,21 @@ describe("I/Q Capture Integration Tests", () => {
       const view = render(
         <TestWrapper>
           <IQCaptureIntegrationTest />
-        </TestWrapper>
+        </TestWrapper>,
       );
 
       // Open the collapsible section
       fireEvent.click(screen.getByText("Take an I/Q Capture"));
 
-      mockWebSocketState.captureStatus = { status: "progress", jobId: "test-job-1", progress: 25 };
+      mockWebSocketState.captureStatus = {
+        status: "progress",
+        jobId: "test-job-1",
+        progress: 25,
+      };
       view.rerender(
         <TestWrapper>
           <IQCaptureIntegrationTest />
-        </TestWrapper>
+        </TestWrapper>,
       );
 
       await waitFor(() => {
@@ -192,7 +212,7 @@ describe("I/Q Capture Integration Tests", () => {
       view.rerender(
         <TestWrapper>
           <IQCaptureIntegrationTest />
-        </TestWrapper>
+        </TestWrapper>,
       );
 
       await waitFor(() => {
@@ -207,7 +227,7 @@ describe("I/Q Capture Integration Tests", () => {
       const view = render(
         <TestWrapper>
           <IQCaptureIntegrationTest />
-        </TestWrapper>
+        </TestWrapper>,
       );
 
       // Open the collapsible section
@@ -224,11 +244,13 @@ describe("I/Q Capture Integration Tests", () => {
       view.rerender(
         <TestWrapper>
           <IQCaptureIntegrationTest />
-        </TestWrapper>
+        </TestWrapper>,
       );
 
       await waitFor(() => {
-        expect(screen.getByText("Failed: Device disconnected")).toBeInTheDocument();
+        expect(
+          screen.getByText("Failed: Device disconnected"),
+        ).toBeInTheDocument();
         expect(screen.getByRole("button", { name: "Capture" })).toBeDisabled();
       });
     });
@@ -237,7 +259,7 @@ describe("I/Q Capture Integration Tests", () => {
       render(
         <TestWrapper>
           <IQCaptureIntegrationTest />
-        </TestWrapper>
+        </TestWrapper>,
       );
 
       // Open the collapsible section
@@ -258,14 +280,16 @@ describe("I/Q Capture Integration Tests", () => {
       const { container } = render(
         <TestWrapper>
           <IQCaptureIntegrationTest />
-        </TestWrapper>
+        </TestWrapper>,
       );
 
       // Open the collapsible section
       fireEvent.click(screen.getByText("Take an I/Q Capture"));
 
       fireEvent.click(screen.getByLabelText("Area A"));
-      const durationInput = container.querySelector('input[type="number"]') as HTMLInputElement;
+      const durationInput = container.querySelector(
+        'input[type="number"]',
+      ) as HTMLInputElement;
 
       fireEvent.change(durationInput, { target: { value: "0" } });
       expect(screen.getByDisplayValue("1")).toBeInTheDocument();
@@ -286,14 +310,18 @@ describe("I/Q Capture Integration Tests", () => {
       render(
         <TestWrapper>
           <IQCaptureIntegrationTest />
-        </TestWrapper>
+        </TestWrapper>,
       );
 
       // Open the collapsible section
       fireEvent.click(screen.getByText("Take an I/Q Capture"));
 
-      fireEvent.change(screen.getByDisplayValue(/\.napt/), { target: { value: ".wav" } });
-      expect(screen.getByLabelText("Hardware sample rate")).toHaveTextContent("3.2MHz");
+      fireEvent.change(screen.getByDisplayValue(/\.napt/), {
+        target: { value: ".wav" },
+      });
+      expect(screen.getByLabelText("Hardware sample rate")).toHaveTextContent(
+        "3.2MHz",
+      );
 
       fireEvent.click(screen.getByLabelText("Area A"));
 
@@ -304,7 +332,7 @@ describe("I/Q Capture Integration Tests", () => {
       expect(mockSendCaptureCommand).toHaveBeenCalledWith(
         expect.objectContaining({
           fileType: ".wav",
-        })
+        }),
       );
     });
 
@@ -319,7 +347,7 @@ describe("I/Q Capture Integration Tests", () => {
       render(
         <TestWrapper>
           <IQCaptureIntegrationTest />
-        </TestWrapper>
+        </TestWrapper>,
       );
 
       // Open the collapsible section
@@ -328,29 +356,40 @@ describe("I/Q Capture Integration Tests", () => {
       await waitFor(() => {
         const downloadLink = screen.getByText("test-capture.napt");
         expect(downloadLink).toBeInTheDocument();
-        expect(downloadLink).toHaveAttribute("href", expect.stringContaining("token=mock-token"));
+        expect(downloadLink).toHaveAttribute(
+          "href",
+          expect.stringContaining("token=mock-token"),
+        );
       });
 
-      expect(screen.getByTestId("capture-metadata")).toHaveTextContent("Duration: 5s");
-      expect(screen.getByTestId("capture-metadata")).toHaveTextContent("Sample Rate: 3.2MHz");
+      expect(screen.getByTestId("capture-metadata")).toHaveTextContent(
+        "Duration: 5s",
+      );
+      expect(screen.getByTestId("capture-metadata")).toHaveTextContent(
+        "Sample Rate: 3.2MHz",
+      );
     });
   });
 
   describe("Mock vs Real Device Testing", () => {
     it("should handle mock device sample rate limits", async () => {
-      mockWebSocketState.dataRef = { current: { deviceInfo: "Mock APT Device" } };
+      mockWebSocketState.dataRef = {
+        current: { deviceInfo: "Mock APT Device" },
+      };
 
       render(
         <TestWrapper>
           <IQCaptureIntegrationTest />
-        </TestWrapper>
+        </TestWrapper>,
       );
 
       // Open the collapsible section
       fireEvent.click(screen.getByText("Take an I/Q Capture"));
 
       expect(screen.getByText("Mock APT Device")).toBeInTheDocument();
-      expect(screen.getByLabelText("Hardware sample rate")).toHaveTextContent("3.2MHz");
+      expect(screen.getByLabelText("Hardware sample rate")).toHaveTextContent(
+        "3.2MHz",
+      );
 
       fireEvent.click(screen.getByLabelText("Area A"));
 
@@ -362,17 +401,19 @@ describe("I/Q Capture Integration Tests", () => {
     });
 
     it("should handle real device sample rate detection", () => {
-      mockWebSocketState.dataRef = { current: { deviceInfo: "RTL-SDR Blog V4" } };
+      mockWebSocketState.dataRef = {
+        current: { deviceInfo: "RTL-SDR Blog V4" },
+      };
 
       render(
         <TestWrapper>
           <IQCaptureIntegrationTest />
-        </TestWrapper>
+        </TestWrapper>,
       );
 
       expect(screen.getByText("RTL-SDR Blog V4")).toBeInTheDocument();
       expect(screen.getByTestId("supported-sample-rates")).toHaveTextContent(
-        "3.2MHz, 2.8MHz, 2.4MHz, 2.048MHz"
+        "3.2MHz, 2.8MHz, 2.4MHz, 2.048MHz",
       );
     });
   });

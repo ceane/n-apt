@@ -1,30 +1,33 @@
-import React, { useRef, useEffect, useCallback } from 'react';
-import { usePretextText } from '@n-apt/hooks/usePretextText';
-import type { PretextCanvasTextProps } from '@n-apt/components/pretext/PretextTypes';
+import React, { useRef, useEffect, useCallback } from "react";
+import { usePretextText } from "@n-apt/hooks/usePretextText";
+import type { PretextCanvasTextProps } from "@n-apt/components/pretext/PretextTypes";
 
 export interface PretextCanvasTextRef {
   draw: (ctx: CanvasRenderingContext2D) => void;
   getBounds: () => { x: number; y: number; width: number; height: number };
 }
 
-export const PretextCanvasText = React.forwardRef<PretextCanvasTextRef, PretextCanvasTextProps>(
+export const PretextCanvasText = React.forwardRef<
+  PretextCanvasTextRef,
+  PretextCanvasTextProps
+>(
   (
     {
       text,
-      font = 'Inter, sans-serif',
+      font = "Inter, sans-serif",
       fontSize = 16,
-      color = '#000000',
+      color = "#000000",
       maxWidth,
       lineHeight,
-      whiteSpace = 'normal',
+      whiteSpace = "normal",
       x = 0,
       y = 0,
-      anchorX = 'left',
-      anchorY = 'top',
+      anchorX = "left",
+      anchorY = "top",
       rotation = 0,
       opacity = 1,
     },
-    ref
+    ref,
   ) => {
     const { layout, layoutWithLines, metrics, isReady } = usePretextText({
       text,
@@ -56,33 +59,43 @@ export const PretextCanvasText = React.forwardRef<PretextCanvasTextRef, PretextC
         ctx.font = fontString;
         ctx.fillStyle = color;
         ctx.textAlign = anchorX;
-        ctx.textBaseline = anchorY === 'middle' ? 'middle' : anchorY === 'bottom' ? 'bottom' : 'top';
+        ctx.textBaseline =
+          anchorY === "middle"
+            ? "middle"
+            : anchorY === "bottom"
+              ? "bottom"
+              : "top";
 
         // Calculate text position based on anchors
         let drawX = 0;
         let drawY = 0;
 
-        if (anchorX === 'center') {
+        if (anchorX === "center") {
           drawX = 0;
-        } else if (anchorX === 'right') {
+        } else if (anchorX === "right") {
           drawX = 0;
         }
 
-        if (anchorY === 'middle') {
+        if (anchorY === "middle") {
           drawY = 0;
-        } else if (anchorY === 'bottom') {
+        } else if (anchorY === "bottom") {
           drawY = 0;
         }
 
         // Use layout if maxWidth is specified, otherwise simple text
         if (maxWidth) {
           const layoutResult = layout(maxWidth, lineHeight || fontSize * 1.2);
-          const linesResult = layoutWithLines(maxWidth, lineHeight || fontSize * 1.2);
+          const linesResult = layoutWithLines(
+            maxWidth,
+            lineHeight || fontSize * 1.2,
+          );
 
-          linesResult.lines.forEach((line: { text: string; width: number }, index: number) => {
-            const lineY = drawY + index * (lineHeight || fontSize * 1.2);
-            ctx.fillText(line.text, drawX, lineY);
-          });
+          linesResult.lines.forEach(
+            (line: { text: string; width: number }, index: number) => {
+              const lineY = drawY + index * (lineHeight || fontSize * 1.2);
+              ctx.fillText(line.text, drawX, lineY);
+            },
+          );
 
           boundsRef.current = {
             x,
@@ -102,14 +115,31 @@ export const PretextCanvasText = React.forwardRef<PretextCanvasTextRef, PretextC
 
         ctx.restore();
       },
-      [text, font, fontSize, color, maxWidth, lineHeight, whiteSpace, x, y, anchorX, anchorY, rotation, opacity, layout, metrics, isReady]
+      [
+        text,
+        font,
+        fontSize,
+        color,
+        maxWidth,
+        lineHeight,
+        whiteSpace,
+        x,
+        y,
+        anchorX,
+        anchorY,
+        rotation,
+        opacity,
+        layout,
+        metrics,
+        isReady,
+      ],
     );
 
     const getBounds = useCallback(() => boundsRef.current, []);
 
     useEffect(() => {
       if (ref) {
-        if (typeof ref === 'function') {
+        if (typeof ref === "function") {
           ref({ draw, getBounds });
         } else {
           ref.current = { draw, getBounds };
@@ -120,7 +150,7 @@ export const PretextCanvasText = React.forwardRef<PretextCanvasTextRef, PretextC
     // This component doesn't render anything directly
     // It's meant to be used with a canvas context
     return null;
-  }
+  },
 );
 
-PretextCanvasText.displayName = 'PretextCanvasText';
+PretextCanvasText.displayName = "PretextCanvasText";

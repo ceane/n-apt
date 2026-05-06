@@ -71,10 +71,6 @@ jest.mock("@n-apt/hooks/useHotspotEditor", () => ({
     children,
 }));
 
-
-
-
-
 import * as React from "react";
 import {
   spectrumReducer,

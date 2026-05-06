@@ -14,7 +14,12 @@ import {
 import { useAppSelector } from "@n-apt/redux";
 import type { SnapshotVideoFormat } from "@n-apt/hooks/useSnapshot";
 
-export type SnapshotAspectRatio = "default" | "4:3" | "16:10" | "16:9" | "19.5:9";
+export type SnapshotAspectRatio =
+  | "default"
+  | "4:3"
+  | "16:10"
+  | "16:9"
+  | "19.5:9";
 
 const Section = styled.div`
   display: grid;
@@ -39,7 +44,10 @@ const LabelWithIcon = styled.span`
   }
 `;
 
-const IconLabel: React.FC<{ icon: React.ComponentType<any>; text: string }> = ({ icon: IconComponent, text }) => (
+const IconLabel: React.FC<{ icon: React.ComponentType<any>; text: string }> = ({
+  icon: IconComponent,
+  text,
+}) => (
   <LabelWithIcon>
     <IconComponent size={14} strokeWidth={1.75} aria-hidden="true" />
     {text}
@@ -50,13 +58,14 @@ const SettingSelect = styled.select<{ $disabled?: boolean }>`
   background-color: transparent;
   border: 1px solid transparent;
   border-radius: 4px;
-  color: ${(props) => props.$disabled ? props.theme.textMuted : props.theme.textPrimary};
+  color: ${(props) =>
+    props.$disabled ? props.theme.textMuted : props.theme.textPrimary};
   font-family: ${(props) => props.theme.typography.mono};
   font-size: 12px;
   font-weight: 500;
   padding: 2px 6px;
   min-width: 80px;
-  cursor: ${(props) => props.$disabled ? "not-allowed" : "pointer"};
+  cursor: ${(props) => (props.$disabled ? "not-allowed" : "pointer")};
   appearance: none;
   background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ccc' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6,9 12,15 18,9'%3e%3c/polyline%3e%3c/svg%3e");
   background-repeat: no-repeat;
@@ -65,10 +74,11 @@ const SettingSelect = styled.select<{ $disabled?: boolean }>`
   padding-right: 20px;
   box-sizing: border-box;
   max-width: 100%;
-  opacity: ${(props) => props.$disabled ? 0.5 : 1};
+  opacity: ${(props) => (props.$disabled ? 0.5 : 1)};
 
   &:hover {
-    border-color: ${(props) => props.$disabled ? "transparent" : props.theme.borderHover};
+    border-color: ${(props) =>
+      props.$disabled ? "transparent" : props.theme.borderHover};
   }
 
   &:focus {
@@ -139,10 +149,14 @@ const PauseButton = styled.button<{ $paused: boolean }>`
   flex: 0 0 25%;
   height: 100%;
   padding: 12px 8px;
-  background-color: ${(props) => (props.$paused ? props.theme.primaryAnchor : props.theme.surface)};
-  border: 1px solid ${(props) => (props.$paused ? props.theme.primary : props.theme.borderHover)};
+  background-color: ${(props) =>
+    props.$paused ? props.theme.primaryAnchor : props.theme.surface};
+  border: 1px solid
+    ${(props) =>
+      props.$paused ? props.theme.primary : props.theme.borderHover};
   border-radius: 8px;
-  color: ${(props) => (props.$paused ? props.theme.primary : props.theme.textPrimary)};
+  color: ${(props) =>
+    props.$paused ? props.theme.primary : props.theme.textPrimary};
   font-family: ${(props) => props.theme.typography.mono};
   font-size: 12px;
   font-weight: 500;
@@ -185,7 +199,8 @@ const SnapshotStatusDot = styled.span<{ $active: boolean }>`
   border-radius: 999px;
   background: ${(props) => props.theme.primary};
   opacity: ${(props) => (props.$active ? 1 : 0)};
-  animation: ${(props) => (props.$active ? blink : "none")} 1s ease-in-out infinite;
+  animation: ${(props) => (props.$active ? blink : "none")} 1s ease-in-out
+    infinite;
 `;
 
 const ErrorText = styled.div`
@@ -209,7 +224,9 @@ interface SnapshotControlsSectionProps {
   onSnapshotShowWaterfallChange: (value: boolean) => void;
   onSnapshotShowStatsChange: (value: boolean) => void;
   onSnapshotShowGeolocationChange: (value: boolean) => void;
-  onSnapshotFormatChange: (value: "png" | "svg" | SnapshotVideoFormat | "animated-svg") => void;
+  onSnapshotFormatChange: (
+    value: "png" | "svg" | SnapshotVideoFormat | "animated-svg",
+  ) => void;
   onSnapshotGridPreferenceChange: (value: boolean) => void;
   onSnapshotAspectRatioChange: (value: SnapshotAspectRatio) => void;
   onSnapshot: () => void;
@@ -240,148 +257,162 @@ export const SnapshotControlsSection: React.FC<
   isFileMode = false,
   hasFileLoaded = false,
 }) => {
-    const progress = useAppSelector((state) => state.snapshot);
-    const isCapturing =
-      progress.stage === "started" ||
-      progress.stage === "collecting" ||
-      progress.stage === "encoding";
+  const progress = useAppSelector((state) => state.snapshot);
+  const isCapturing =
+    progress.stage === "started" ||
+    progress.stage === "collecting" ||
+    progress.stage === "encoding";
 
-    const buttonLabel = isCapturing
-      ? progress.message ?? "Saving snapshot"
-      : "Save snapshot";
+  const buttonLabel = isCapturing
+    ? (progress.message ?? "Saving snapshot")
+    : "Save snapshot";
 
-    const isDisabled = isFileMode && !hasFileLoaded;
+  const isDisabled = isFileMode && !hasFileLoaded;
 
-    return (
-      <Section>
-        <Collapsible
-          icon={<Fullscreen size={14} />}
-          label="Take a Snapshot"
-          defaultOpen={false}
-        >
-          <Row label={<IconLabel icon={Scan} text="Range" />}>
-            <SettingSelect
-              value={snapshotWhole ? "whole" : "onscreen"}
-              onChange={(e) =>
-                onSnapshotWholeChange(e.target.value === "whole")
-              }
-              style={{ minWidth: "120px" }}
-              $disabled={isDisabled}
-            >
-              <option value="onscreen">On screen</option>
-              <option value="whole">Whole Channel</option>
-            </SettingSelect>
-          </Row>
-
-          <Row label={<IconLabel icon={SquareDashedTopSolid} text="Waterfall" />}>
-            <ToggleSwitch>
-              <ToggleSwitchInput
-                type="checkbox"
-                checked={snapshotShowWaterfall}
-                disabled={isDisabled}
-                onChange={(e) =>
-                  onSnapshotShowWaterfallChange(e.target.checked)
-                }
-              />
-              <ToggleSwitchSlider />
-            </ToggleSwitch>
-          </Row>
-
-
-          <Row label={<IconLabel icon={Grid2X2} text="Grid" />}>
-            <ToggleSwitch>
-              <ToggleSwitchInput
-                type="checkbox"
-                checked={snapshotGridPreference}
-                disabled={isDisabled}
-                onChange={(e) =>
-                  onSnapshotGridPreferenceChange(e.target.checked)
-                }
-              />
-              <ToggleSwitchSlider />
-            </ToggleSwitch>
-          </Row>
-
-          <Row label={<IconLabel icon={BookA} text="Stats" />}>
-            <ToggleSwitch>
-              <ToggleSwitchInput
-                type="checkbox"
-                checked={snapshotShowStats}
-                disabled={isDisabled}
-                onChange={(e) => onSnapshotShowStatsChange(e.target.checked)}
-              />
-              <ToggleSwitchSlider />
-            </ToggleSwitch>
-          </Row>
-
-          <div style={{ display: 'contents', opacity: (snapshotShowStats && !snapshotGeolocationError) ? 1 : 0.5 }}>
-            <Row label={<IconLabel icon={MapPin} text="Geolocation" />}>
-              <ToggleSwitch>
-                <ToggleSwitchInput
-                  type="checkbox"
-                  checked={snapshotShowGeolocation && snapshotShowStats && !snapshotGeolocationError}
-                  disabled={!snapshotShowStats || !!snapshotGeolocationError || isDisabled}
-                  onChange={(e) => onSnapshotShowGeolocationChange(e.target.checked)}
-                />
-                <ToggleSwitchSlider />
-              </ToggleSwitch>
-            </Row>
-            {snapshotGeolocationError && (
-              <Row label="">
-                <ErrorText>{snapshotGeolocationError}</ErrorText>
-              </Row>
-            )}
-          </div>
-
-          <Row label={<IconLabel icon={Ratio} text="Aspect Ratio" />}>
-            <SettingSelect
-              value={snapshotAspectRatio}
-              onChange={(e) =>
-                onSnapshotAspectRatioChange(e.target.value as SnapshotAspectRatio)
-              }
-              style={{ minWidth: "100px" }}
-              $disabled={isDisabled}
-            >
-              <option value="default">Default</option>
-              <option value="4:3">4:3</option>
-              <option value="16:10">16:10</option>
-              <option value="16:9">16:9</option>
-              <option value="19.5:9">19.5:9</option>
-            </SettingSelect>
-          </Row>
-
-          <Row label={<IconLabel icon={ImageIcon} text="Format" />}>
-            <SettingSelect
-              value={snapshotFormat}
-              onChange={(e) =>
-                onSnapshotFormatChange(e.target.value as "png" | "svg" | SnapshotVideoFormat | "animated-svg")
-              }
-              style={{ minWidth: "110px" }}
-              $disabled={isDisabled}
-            >
-              <option value="png">PNG</option>
-              <option value="svg">SVG</option>
-              <option value="animated-svg">Animated SVG (1s)</option>
-              {supportedSnapshotVideoFormat && (
-                <option value={supportedSnapshotVideoFormat}>
-                  {supportedSnapshotVideoFormat === "mp4" ? "MP4 (1s)" : "WebM (1s)"}
-                </option>
-              )}
-            </SettingSelect>
-          </Row>
-
-          <SnapshotActionButton
-            $paused={false}
-            onClick={onSnapshot}
-            style={{ marginTop: "8px" }}
-            disabled={isDisabled}
+  return (
+    <Section>
+      <Collapsible
+        icon={<Fullscreen size={14} />}
+        label="Take a Snapshot"
+        defaultOpen={false}
+      >
+        <Row label={<IconLabel icon={Scan} text="Range" />}>
+          <SettingSelect
+            value={snapshotWhole ? "whole" : "onscreen"}
+            onChange={(e) => onSnapshotWholeChange(e.target.value === "whole")}
+            style={{ minWidth: "120px" }}
+            $disabled={isDisabled}
           >
-            <SnapshotButtonContent>
-              <SnapshotStatusDot $active={isCapturing} />
-              {isDisabled ? "Load a file to capture" : buttonLabel}
-            </SnapshotButtonContent>
-          </SnapshotActionButton>
-        </Collapsible >
-      </Section >
-    );
-  };
+            <option value="onscreen">On screen</option>
+            <option value="whole">Whole Channel</option>
+          </SettingSelect>
+        </Row>
+
+        <Row label={<IconLabel icon={SquareDashedTopSolid} text="Waterfall" />}>
+          <ToggleSwitch>
+            <ToggleSwitchInput
+              type="checkbox"
+              checked={snapshotShowWaterfall}
+              disabled={isDisabled}
+              onChange={(e) => onSnapshotShowWaterfallChange(e.target.checked)}
+            />
+            <ToggleSwitchSlider />
+          </ToggleSwitch>
+        </Row>
+
+        <Row label={<IconLabel icon={Grid2X2} text="Grid" />}>
+          <ToggleSwitch>
+            <ToggleSwitchInput
+              type="checkbox"
+              checked={snapshotGridPreference}
+              disabled={isDisabled}
+              onChange={(e) => onSnapshotGridPreferenceChange(e.target.checked)}
+            />
+            <ToggleSwitchSlider />
+          </ToggleSwitch>
+        </Row>
+
+        <Row label={<IconLabel icon={BookA} text="Stats" />}>
+          <ToggleSwitch>
+            <ToggleSwitchInput
+              type="checkbox"
+              checked={snapshotShowStats}
+              disabled={isDisabled}
+              onChange={(e) => onSnapshotShowStatsChange(e.target.checked)}
+            />
+            <ToggleSwitchSlider />
+          </ToggleSwitch>
+        </Row>
+
+        <div
+          style={{
+            display: "contents",
+            opacity: snapshotShowStats && !snapshotGeolocationError ? 1 : 0.5,
+          }}
+        >
+          <Row label={<IconLabel icon={MapPin} text="Geolocation" />}>
+            <ToggleSwitch>
+              <ToggleSwitchInput
+                type="checkbox"
+                checked={
+                  snapshotShowGeolocation &&
+                  snapshotShowStats &&
+                  !snapshotGeolocationError
+                }
+                disabled={
+                  !snapshotShowStats || !!snapshotGeolocationError || isDisabled
+                }
+                onChange={(e) =>
+                  onSnapshotShowGeolocationChange(e.target.checked)
+                }
+              />
+              <ToggleSwitchSlider />
+            </ToggleSwitch>
+          </Row>
+          {snapshotGeolocationError && (
+            <Row label="">
+              <ErrorText>{snapshotGeolocationError}</ErrorText>
+            </Row>
+          )}
+        </div>
+
+        <Row label={<IconLabel icon={Ratio} text="Aspect Ratio" />}>
+          <SettingSelect
+            value={snapshotAspectRatio}
+            onChange={(e) =>
+              onSnapshotAspectRatioChange(e.target.value as SnapshotAspectRatio)
+            }
+            style={{ minWidth: "100px" }}
+            $disabled={isDisabled}
+          >
+            <option value="default">Default</option>
+            <option value="4:3">4:3</option>
+            <option value="16:10">16:10</option>
+            <option value="16:9">16:9</option>
+            <option value="19.5:9">19.5:9</option>
+          </SettingSelect>
+        </Row>
+
+        <Row label={<IconLabel icon={ImageIcon} text="Format" />}>
+          <SettingSelect
+            value={snapshotFormat}
+            onChange={(e) =>
+              onSnapshotFormatChange(
+                e.target.value as
+                  | "png"
+                  | "svg"
+                  | SnapshotVideoFormat
+                  | "animated-svg",
+              )
+            }
+            style={{ minWidth: "110px" }}
+            $disabled={isDisabled}
+          >
+            <option value="png">PNG</option>
+            <option value="svg">SVG</option>
+            <option value="animated-svg">Animated SVG (1s)</option>
+            {supportedSnapshotVideoFormat && (
+              <option value={supportedSnapshotVideoFormat}>
+                {supportedSnapshotVideoFormat === "mp4"
+                  ? "MP4 (1s)"
+                  : "WebM (1s)"}
+              </option>
+            )}
+          </SettingSelect>
+        </Row>
+
+        <SnapshotActionButton
+          $paused={false}
+          onClick={onSnapshot}
+          style={{ marginTop: "8px" }}
+          disabled={isDisabled}
+        >
+          <SnapshotButtonContent>
+            <SnapshotStatusDot $active={isCapturing} />
+            {isDisabled ? "Load a file to capture" : buttonLabel}
+          </SnapshotButtonContent>
+        </SnapshotActionButton>
+      </Collapsible>
+    </Section>
+  );
+};

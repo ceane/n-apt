@@ -140,6 +140,10 @@ impl websocket_server::WebSocketServer {
         get(crate::authentication::auth_handlers::auth_info_handler),
       )
       .route(
+        "/auth/logout",
+        get(crate::authentication::auth_handlers::auth_logout_handler),
+      )
+      .route(
         "/auth/challenge",
         post(crate::authentication::auth_handlers::auth_challenge_handler),
       )
@@ -232,10 +236,10 @@ impl websocket_server::WebSocketServer {
     let credential_store = CredentialStore::new().map_err(|e| {
       anyhow::anyhow!("Failed to create credential store: {}", e)
     })?;
-    let redis_url = std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1/".to_string());
-    let session_store = SessionStore::new(&redis_url).map_err(|e| {
-      anyhow::anyhow!("Failed to create session store: {}", e)
-    })?;
+    let redis_url = std::env::var("REDIS_URL")
+      .unwrap_or_else(|_| "redis://127.0.0.1/".to_string());
+    let session_store = SessionStore::new(&redis_url)
+      .map_err(|e| anyhow::anyhow!("Failed to create session store: {}", e))?;
 
     // Initialize WebAuthn
     let app_url = std::env::var("APP_URL")
@@ -301,7 +305,8 @@ pub async fn run_server() -> Result<()> {
   info!("Binding HTTP listener on {}:{}", host, port);
   let listener = tokio::net::TcpListener::bind((host, port)).await?;
 
-  let redis_url = std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1/".to_string());
+  let redis_url = std::env::var("REDIS_URL")
+    .unwrap_or_else(|_| "redis://127.0.0.1/".to_string());
 
   // Create WebSocket server with integrated SDR processor
   let websocket_server = websocket_server::WebSocketServer::new(&redis_url);

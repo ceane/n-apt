@@ -1,5 +1,5 @@
-import styled from 'styled-components';
-import { ReactFlow } from '@xyflow/react';
+import styled from "styled-components";
+import { ReactFlow } from "@xyflow/react";
 
 export const StyledReactFlow = styled(ReactFlow)`
   width: 100%;

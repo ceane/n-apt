@@ -3,9 +3,9 @@
  * These wrappers are applied to SDR processor types only
  */
 
-export type TrustLevel = 'high' | 'medium' | 'low';
+export type TrustLevel = "high" | "medium" | "low";
 
-export type ExpectedLatency = 'none' | 'normal' | 'high';
+export type ExpectedLatency = "none" | "normal" | "high";
 
 /**
  * Data integrity metadata for SDR processor types
@@ -62,7 +62,11 @@ export interface EnhancedCaptureRequest extends SdrProcessorMetadata {
   fftSize: number;
   fftWindow: string;
   geolocation?: any;
-  refBasedDemodBaseline?: "audio_hearing" | "audio_internal" | "speech" | "vision";
+  refBasedDemodBaseline?:
+    | "audio_hearing"
+    | "audio_internal"
+    | "speech"
+    | "vision";
   liveMode?: boolean;
 }
 
@@ -70,17 +74,20 @@ export interface EnhancedCaptureRequest extends SdrProcessorMetadata {
  * Calculate expected latency based on FFT size
  */
 export function calculateExpectedLatency(fftSize?: number): ExpectedLatency {
-  if (!fftSize) return 'none';
-  if (fftSize >= 4096) return 'high';
-  if (fftSize >= 2048) return 'normal';
-  return 'none';
+  if (!fftSize) return "none";
+  if (fftSize >= 4096) return "high";
+  if (fftSize >= 2048) return "normal";
+  return "none";
 }
 
 /**
  * Calculate trust level based on data source and validation
  */
-export function calculateTrustLevel(source: string, isValidated: boolean): TrustLevel {
-  if (source === 'mock_apt' && isValidated) return 'high';
-  if (source === 'rtl-sdr' && isValidated) return 'medium';
-  return 'low';
+export function calculateTrustLevel(
+  source: string,
+  isValidated: boolean,
+): TrustLevel {
+  if (source === "mock_apt" && isValidated) return "high";
+  if (source === "rtl-sdr" && isValidated) return "medium";
+  return "low";
 }

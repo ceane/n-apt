@@ -559,8 +559,7 @@ impl SdrProcessor {
         self.capture_current_fragment = expected_segment;
         let &(min_freq, _max_freq) = &self.capture_fragments[expected_segment];
 
-        let new_center_freq =
-          ((min_freq) + (sample_rate as f64 / 2.0)) as u32;
+        let new_center_freq = ((min_freq) + (sample_rate as f64 / 2.0)) as u32;
         if let Err(e) = self.set_center_frequency(new_center_freq) {
           warn!("Failed to hop capture frequency: {}", e);
         }
@@ -1227,7 +1226,14 @@ impl SdrProcessor {
       } else {
         0
       };
-      info!("  ch[{}]: center={:.3}Hz, sr={:.3}Hz, spectrum_frames={}, iq_bytes={}", idx, ch.center_freq_hz, ch.sample_rate_hz, num_frames, ch.iq_data.len());
+      info!(
+        "  ch[{}]: center={:.3}Hz, sr={:.3}Hz, spectrum_frames={}, iq_bytes={}",
+        idx,
+        ch.center_freq_hz,
+        ch.sample_rate_hz,
+        num_frames,
+        ch.iq_data.len()
+      );
     }
 
     if channels.len() > 1 {
@@ -1357,7 +1363,11 @@ impl SdrProcessor {
       ref_based_demod_baseline: self.capture_ref_based_demod_baseline.take(),
       is_mock_apt: self.device.device_type().contains("Mock"),
       is_ephemeral: self.capture_is_ephemeral,
-      dek: if self.capture_encrypted { Some(crate::crypto::generate_key()) } else { None },
+      dek: if self.capture_encrypted {
+        Some(crate::crypto::generate_key())
+      } else {
+        None
+      },
     })
   }
 

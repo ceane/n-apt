@@ -1,8 +1,8 @@
-import React from 'react';
-import { createPortal } from 'react-dom';
-import styled from 'styled-components';
-import { X } from 'lucide-react';
-import ReduxThemeProvider from '@n-apt/components/ReduxThemeProvider';
+import React from "react";
+import { createPortal } from "react-dom";
+import styled from "styled-components";
+import { X } from "lucide-react";
+import ReduxThemeProvider from "@n-apt/components/ReduxThemeProvider";
 
 const FullscreenOverlay = styled.div`
   position: fixed;
@@ -24,8 +24,9 @@ const ModalContent = styled.div`
   padding: 0;
   overflow: hidden;
   position: relative;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4),
-              0 0 40px ${({ theme }) => theme.colors.primary}11;
+  box-shadow:
+    0 20px 60px rgba(0, 0, 0, 0.4),
+    0 0 40px ${({ theme }) => theme.colors.primary}11;
   display: flex;
   flex-direction: column;
 `;
@@ -107,7 +108,11 @@ interface FullscreenModalProps {
   onClose?: () => void;
 }
 
-export const FullscreenModal: React.FC<FullscreenModalProps> = ({ children, title, onClose }) => {
+export const FullscreenModal: React.FC<FullscreenModalProps> = ({
+  children,
+  title,
+  onClose,
+}) => {
   return createPortal(
     <ReduxThemeProvider>
       <FullscreenOverlay>
@@ -117,16 +122,17 @@ export const FullscreenModal: React.FC<FullscreenModalProps> = ({ children, titl
               <DiagnosticLabel>Diagnostic View</DiagnosticLabel>
               <MainTitle>{title}</MainTitle>
             </ModalTitle>
-            <CloseButton onClick={onClose} style={{ position: 'relative', top: 0, right: 0 }}>
+            <CloseButton
+              onClick={onClose}
+              style={{ position: "relative", top: 0, right: 0 }}
+            >
               <X size={20} />
             </CloseButton>
           </ModalHeader>
-          <ScrollableContainer>
-            {children}
-          </ScrollableContainer>
+          <ScrollableContainer>{children}</ScrollableContainer>
         </ModalContent>
       </FullscreenOverlay>
     </ReduxThemeProvider>,
-    document.body
+    document.body,
   );
 };

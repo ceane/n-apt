@@ -4,9 +4,9 @@ use n_apt_backend::server::main::AppState;
 use n_apt_backend::server::shared_state::SharedState;
 use n_apt_backend::server::websocket_server::WebSocketServer;
 use n_apt_backend::session::SessionStore;
+use serial_test::serial;
 use std::sync::Arc;
 use tokio::sync::broadcast;
-use serial_test::serial;
 use url::Url;
 use webauthn_rs::prelude::*;
 
@@ -171,4 +171,68 @@ async fn test_auth_info_endpoint() {
 
   let json = response.json::<serde_json::Value>();
   assert_eq!(json["has_passkeys"].as_bool(), Some(false));
+}
+
+#[tokio::test]
+#[serial]
+async fn test_auth_logout_endpoint() {
+  ensure_test_password();
+  let (broadcast_tx, _) = broadcast::channel(10);
+  let (spectrum_tx, _) = broadcast::channel(10);
+  let (cmd_tx, _) = std::sync::mpsc::channel();
+
+  let temp_dir = tempfile::tempdir().unwrap();
+  std::env::set_var("HOME", temp_dir.path());
+
+  let shared = SharedState::new("redis://127.0.0.1:6379");
+  let sdr_processor = Arc::new(tokio::sync::Mutex::new(
+    n_apt_backend::sdr::processor::SdrProcessor::new_mock_apt().unwrap(),
+  ));
+  let state = Arc::new(AppState {
+    shared,
+    credential_store: CredentialStore::new().unwrap(),
+    session_store: SessionStore::new("redis://127.0.0.1:6379").unwrap(),
+    webauthn: WebauthnBuilder::new(
+      "localhost",
+      &Url::parse("http://localhost").unwrap(),
+    )
+    .unwrap()
+    .build()
+    .unwrap(),
+    broadcast_tx,
+    spectrum_tx,
+    cmd_tx,
+    sdr_processor,
+  });
+
+  let app = WebSocketServer::create_app(Arc::clone(&state));
+  let server = TestServer::new(app);
+
+  // 1. Create a session first to verify revocation
+  let token = state.session_store.create_session([0u8; 32]);
+  assert!(
+    state.session_store.validate(&token).is_some(),
+    "Session should be valid after creation"
+  );
+
+  // 2. Call logout with the token
+  let response = server.get(&format!("/auth/logout?token={}", token)).await;
+
+  // Assert redirect (303 See Other)
+  response.assert_status(axum::http::StatusCode::SEE_OTHER);
+
+  // Assert Location header
+  response.assert_header("location", "/");
+
+  // Assert Clear-Site-Data header
+  response.assert_header(
+    "clear-site-data",
+    "\"cache\", \"cookies\", \"storage\", \"executionContexts\"",
+  );
+
+  // 3. Verify the session is actually revoked in Redis
+  assert!(
+    state.session_store.validate(&token).is_none(),
+    "Session should be revoked after logout"
+  );
 }

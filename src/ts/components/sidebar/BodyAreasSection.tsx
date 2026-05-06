@@ -175,18 +175,26 @@ const BaseButton = styled.button`
   }
 `;
 
-const SelectableButton = styled(BaseButton) <{ $isSelected: boolean }>`
-  background: ${(props) => (props.$isSelected ? props.theme.primaryAnchor : props.theme.surface)};
-  border-color: ${(props) => (props.$isSelected ? props.theme.primary : props.theme.border)};
-  box-shadow: ${(props) => (props.$isSelected ? `0 0 0 1px ${props.theme.primaryAlpha}` : "none")};
+const SelectableButton = styled(BaseButton)<{ $isSelected: boolean }>`
+  background: ${(props) =>
+    props.$isSelected ? props.theme.primaryAnchor : props.theme.surface};
+  border-color: ${(props) =>
+    props.$isSelected ? props.theme.primary : props.theme.border};
+  box-shadow: ${(props) =>
+    props.$isSelected ? `0 0 0 1px ${props.theme.primaryAlpha}` : "none"};
 
   &:hover {
-    background: ${(props) => (props.$isSelected ? props.theme.primaryAnchor : props.theme.surfaceHover)};
-    border-color: ${(props) => (props.$isSelected ? props.theme.primary : props.theme.borderHover)};
+    background: ${(props) =>
+      props.$isSelected ? props.theme.primaryAnchor : props.theme.surfaceHover};
+    border-color: ${(props) =>
+      props.$isSelected ? props.theme.primary : props.theme.borderHover};
   }
 
   &:focus {
-    box-shadow: ${(props) => (props.$isSelected ? `0 0 0 1px ${props.theme.primaryAlpha}` : `0 0 0 3px ${props.theme.primaryAlpha}, 0 0 0 1px ${props.theme.primaryAlpha} inset`)};
+    box-shadow: ${(props) =>
+      props.$isSelected
+        ? `0 0 0 1px ${props.theme.primaryAlpha}`
+        : `0 0 0 3px ${props.theme.primaryAlpha}, 0 0 0 1px ${props.theme.primaryAlpha} inset`};
   }
 `;
 
@@ -202,19 +210,18 @@ const SelectionIndicator = styled.span<{ $isSelected: boolean }>`
   height: 14px;
   border-radius: 999px;
   background: ${(props) =>
-    props.$isSelected
-      ? props.theme.primary
-      : props.theme.borderHover};
+    props.$isSelected ? props.theme.primary : props.theme.borderHover};
 `;
 
 const ChevronIndicator = styled.span<{ $isSelected: boolean }>`
   font-size: 14px;
   color: ${(props) =>
-    props.$isSelected
-      ? props.theme.textPrimary
-      : props.theme.textMuted};
-  transform: ${(props) => (props.$isSelected ? "translateX(0)" : "translateX(-2px)")};
-  transition: transform 120ms ease, color 120ms ease;
+    props.$isSelected ? props.theme.textPrimary : props.theme.textMuted};
+  transform: ${(props) =>
+    props.$isSelected ? "translateX(0)" : "translateX(-2px)"};
+  transition:
+    transform 120ms ease,
+    color 120ms ease;
 `;
 
 interface BodyAreasSectionProps {

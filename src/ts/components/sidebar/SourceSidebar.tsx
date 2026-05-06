@@ -14,7 +14,6 @@ const Section = styled.div`
   box-sizing: border-box;
 `;
 
-
 interface SourceSidebarProps {
   sourceMode?: SourceMode;
   onSourceModeChange?: (mode: SourceMode) => void;
@@ -35,7 +34,7 @@ export const SourceSidebar: React.FC<SourceSidebarProps> = ({
         sourceMode={sourceMode}
         backend={backend || null}
         deviceName={deviceName || null}
-        onSourceModeChange={onSourceModeChange || (() => { })}
+        onSourceModeChange={onSourceModeChange || (() => {})}
       />
     </Section>
   );

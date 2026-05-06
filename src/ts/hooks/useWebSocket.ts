@@ -14,7 +14,7 @@ import {
   AutoFftOptionsResponse,
   DeviceProfile,
   SdrSettingsConfig,
-  WebSocketMessage
+  WebSocketMessage,
 } from "@n-apt/consts/schemas/websocket";
 
 export type {
@@ -29,7 +29,7 @@ export type {
   AutoFftOptionsResponse,
   DeviceProfile,
   SdrSettingsConfig,
-  WebSocketMessage
+  WebSocketMessage,
 };
 
 export type WebSocketData = {
@@ -65,8 +65,6 @@ export type WebSocketData = {
   sendGetAutoFftOptions: (screenWidth: number) => void;
   sendPowerScaleCommand: (scale: "dB" | "dBm") => void;
 };
-
-
 
 type WsState = {
   isConnected: boolean;
@@ -124,7 +122,12 @@ const INITIAL_WS_STATE: WsState = {
 function wsReducer(state: WsState, action: WsAction): WsState {
   switch (action.type) {
     case "CONNECTED":
-      return { ...state, isConnected: true, error: null, cryptoCorrupted: false };
+      return {
+        ...state,
+        isConnected: true,
+        error: null,
+        cryptoCorrupted: false,
+      };
     case "DISCONNECTED":
       return { ...state, isConnected: false };
     case "RESET":
@@ -214,7 +217,10 @@ export const useWebSocket = (
         wsRef.current = ws;
 
         ws.onopen = () => {
-          if (disposed) { ws.close(); return; }
+          if (disposed) {
+            ws.close();
+            return;
+          }
           dispatch({ type: "CONNECTED" });
           reconnectAttemptRef.current = 0;
         };
@@ -245,12 +251,15 @@ export const useWebSocket = (
                     if (disposed) return;
 
                     if (dataType !== 1) {
-                      console.warn("Ignoring unexpected non-IQ binary payload", {
-                        dataType,
-                        centerFrequencyHz,
-                        sampleRate,
-                        byteLength: decryptedBytes.byteLength,
-                      });
+                      console.warn(
+                        "Ignoring unexpected non-IQ binary payload",
+                        {
+                          dataType,
+                          centerFrequencyHz,
+                          sampleRate,
+                          byteLength: decryptedBytes.byteLength,
+                        },
+                      );
                       return;
                     }
 
@@ -311,9 +320,7 @@ export const useWebSocket = (
                         parsedData.messages &&
                         parsedData.messages.length > 0
                       ) {
-                        const firstMessage = JSON.parse(
-                          parsedData.messages[0],
-                        );
+                        const firstMessage = JSON.parse(parsedData.messages[0]);
                         dataRef.current = firstMessage;
                       } else {
                         dataRef.current = parsedData;
@@ -365,10 +372,13 @@ export const useWebSocket = (
                 parsedData.device_profile &&
                 typeof parsedData.device_profile.kind === "string" &&
                 typeof parsedData.device_profile.is_rtl_sdr === "boolean" &&
-                typeof parsedData.device_profile.supports_approx_dbm === "boolean" &&
-                typeof parsedData.device_profile.supports_raw_iq_stream === "boolean"
+                typeof parsedData.device_profile.supports_approx_dbm ===
+                  "boolean" &&
+                typeof parsedData.device_profile.supports_raw_iq_stream ===
+                  "boolean"
               ) {
-                updates.deviceProfile = parsedData.device_profile as DeviceProfile;
+                updates.deviceProfile =
+                  parsedData.device_profile as DeviceProfile;
               }
               if (typeof parsedData.max_sample_rate === "number") {
                 updates.maxSampleRateHz = parsedData.max_sample_rate;
@@ -490,11 +500,14 @@ export const useWebSocket = (
         ws.onclose = () => {
           if (disposed) return;
           dispatch({ type: "DISCONNECTED" });
-          
+
           // Exponential backoff reconnection logic
           const maxAttempts = 5;
           if (reconnectAttemptRef.current < maxAttempts) {
-            const delay = Math.min(1000 * Math.pow(2, reconnectAttemptRef.current), 30000);
+            const delay = Math.min(
+              1000 * Math.pow(2, reconnectAttemptRef.current),
+              30000,
+            );
             reconnectTimeoutRef.current = window.setTimeout(() => {
               reconnectAttemptRef.current++;
               connect();
@@ -505,7 +518,6 @@ export const useWebSocket = (
         ws.onerror = (error) => {
           console.error("WebSocket error:", error);
         };
-
       } catch (error) {
         console.error("Failed to create WebSocket:", error);
         dispatch({ type: "DISCONNECTED" });
@@ -610,21 +622,24 @@ export const useWebSocket = (
   );
 
   // Function to request auto FFT options from the server
-  const sendGetAutoFftOptions = useCallback((screenWidth: number) => {
-    // Check if we already have auto FFT options cached
-    if (state.autoFftOptions) {
-      return;
-    }
-    
-    const ws = wsRef.current;
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      const message = JSON.stringify({
-        type: "get_auto_fft_options",
-        screenWidth: screenWidth,
-      });
-      ws.send(message);
-    }
-  }, [state.autoFftOptions]);
+  const sendGetAutoFftOptions = useCallback(
+    (screenWidth: number) => {
+      // Check if we already have auto FFT options cached
+      if (state.autoFftOptions) {
+        return;
+      }
+
+      const ws = wsRef.current;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        const message = JSON.stringify({
+          type: "get_auto_fft_options",
+          screenWidth: screenWidth,
+        });
+        ws.send(message);
+      }
+    },
+    [state.autoFftOptions],
+  );
 
   // Function to send pause/resume commands to the server
   const sendPauseCommand = useCallback((isPaused: boolean) => {
@@ -700,7 +715,9 @@ export const useWebSocket = (
       if (currentJobId) {
         const ws = wsRef.current;
         if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: "capture_stop", jobId: currentJobId }));
+          ws.send(
+            JSON.stringify({ type: "capture_stop", jobId: currentJobId }),
+          );
         }
       }
     };
@@ -720,7 +737,7 @@ export const useWebSocket = (
     }
 
     const message = JSON.stringify({
-      type: 'power_scale',
+      type: "power_scale",
       data: { powerScale: scale },
     });
     ws.send(message);

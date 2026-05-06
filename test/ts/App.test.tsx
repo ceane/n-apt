@@ -13,36 +13,51 @@ Element.prototype.scrollTo = jest.fn();
 jest.mock("@n-apt/routes/Routes", () => ({
   AppRoutes: () => (
     <Routes>
-      <Route path="/" element={
-        <div>
-          <div data-testid="spectrum-route">Spectrum Route</div>
-          <div data-testid="spectrum-sidebar">Spectrum Sidebar</div>
-        </div>
-      } />
-      <Route path="/demodulate" element={
-        <div>
-          <div data-testid="demod-route">Demod Route</div>
-          <div data-testid="route-sidebar">Route Sidebar</div>
-        </div>
-      } />
-      <Route path="/draw-signal" element={
-        <div>
-          <div data-testid="draw-signal-route">Draw Signal Route</div>
-          <div data-testid="draw-signal-sidebar">Draw Signal Sidebar</div>
-        </div>
-      } />
-      <Route path="/3d-model" element={
-        <div>
-          <div data-testid="model3d-route">Model 3D Route</div>
-          <div data-testid="route-sidebar">Route Sidebar</div>
-        </div>
-      } />
-      <Route path="/map-endpoints" element={
-        <div>
-          <div data-testid="map-endpoints-route">Map Endpoints Route</div>
-          <div data-testid="map-endpoints-sidebar">Map Endpoints Sidebar</div>
-        </div>
-      } />
+      <Route
+        path="/"
+        element={
+          <div>
+            <div data-testid="spectrum-route">Spectrum Route</div>
+            <div data-testid="spectrum-sidebar">Spectrum Sidebar</div>
+          </div>
+        }
+      />
+      <Route
+        path="/demodulate"
+        element={
+          <div>
+            <div data-testid="demod-route">Demod Route</div>
+            <div data-testid="route-sidebar">Route Sidebar</div>
+          </div>
+        }
+      />
+      <Route
+        path="/draw-signal"
+        element={
+          <div>
+            <div data-testid="draw-signal-route">Draw Signal Route</div>
+            <div data-testid="draw-signal-sidebar">Draw Signal Sidebar</div>
+          </div>
+        }
+      />
+      <Route
+        path="/3d-model"
+        element={
+          <div>
+            <div data-testid="model3d-route">Model 3D Route</div>
+            <div data-testid="route-sidebar">Route Sidebar</div>
+          </div>
+        }
+      />
+      <Route
+        path="/map-endpoints"
+        element={
+          <div>
+            <div data-testid="map-endpoints-route">Map Endpoints Route</div>
+            <div data-testid="map-endpoints-sidebar">Map Endpoints Sidebar</div>
+          </div>
+        }
+      />
     </Routes>
   ),
 }));
@@ -67,11 +82,13 @@ jest.mock("@n-apt/hooks/useModel3D", () => ({
 }));
 
 jest.mock("@n-apt/hooks/useHotspotEditor", () => ({
-  Model3DInteractionProvider: ({ children }: { children: React.ReactNode }) => children,
+  Model3DInteractionProvider: ({ children }: { children: React.ReactNode }) =>
+    children,
 }));
 
 jest.mock("@n-apt/hooks/useMapLocations", () => ({
-  MapLocationsProvider: ({ children }: { children: React.ReactNode }) => children,
+  MapLocationsProvider: ({ children }: { children: React.ReactNode }) =>
+    children,
 }));
 
 // Mock route components - return promises for lazy loading
@@ -90,7 +107,9 @@ jest.mock("@n-apt/routes/DemodRoute", () => ({
 jest.mock("@n-apt/routes/DrawSignalRoute", () => ({
   __esModule: true,
   default: () => <div data-testid="draw-signal-route">Draw Signal Route</div>,
-  DrawSignalRoute: () => <div data-testid="draw-signal-route">Draw Signal Route</div>,
+  DrawSignalRoute: () => (
+    <div data-testid="draw-signal-route">Draw Signal Route</div>
+  ),
 }));
 
 jest.mock("@n-apt/routes/Model3DRoute", () => ({
@@ -101,22 +120,31 @@ jest.mock("@n-apt/routes/Model3DRoute", () => ({
 
 jest.mock("@n-apt/routes/MapEndpointsRoute", () => ({
   __esModule: true,
-  default: () => <div data-testid="map-endpoints-route">Map Endpoints Route</div>,
-  MapEndpointsRoute: () => <div data-testid="map-endpoints-route">Map Endpoints Route</div>,
+  default: () => (
+    <div data-testid="map-endpoints-route">Map Endpoints Route</div>
+  ),
+  MapEndpointsRoute: () => (
+    <div data-testid="map-endpoints-route">Map Endpoints Route</div>
+  ),
 }));
 
 // Mock sidebars
 jest.mock("@n-apt/components/sidebar/SpectrumSidebar", () => ({
-  SpectrumSidebar: () => <div data-testid="spectrum-sidebar">Spectrum Sidebar</div>,
+  SpectrumSidebar: () => (
+    <div data-testid="spectrum-sidebar">Spectrum Sidebar</div>
+  ),
 }));
 
-
 jest.mock("@n-apt/components/sidebar/DrawSignalSidebar", () => ({
-  DrawSignalSidebar: () => <div data-testid="draw-signal-sidebar">Draw Signal Sidebar</div>,
+  DrawSignalSidebar: () => (
+    <div data-testid="draw-signal-sidebar">Draw Signal Sidebar</div>
+  ),
 }));
 
 jest.mock("@n-apt/components/sidebar/MapEndpointsSidebar", () => ({
-  MapEndpointsSidebar: () => <div data-testid="map-endpoints-sidebar">Map Endpoints Sidebar</div>,
+  MapEndpointsSidebar: () => (
+    <div data-testid="map-endpoints-sidebar">Map Endpoints Sidebar</div>
+  ),
 }));
 
 const renderApp = (initialPath = "/") => {
@@ -159,5 +187,4 @@ describe("App Routing", () => {
     expect(screen.getByTestId("map-endpoints-route")).toBeInTheDocument();
     expect(screen.getByTestId("map-endpoints-sidebar")).toBeInTheDocument();
   });
-
 });

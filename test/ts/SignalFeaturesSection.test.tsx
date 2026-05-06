@@ -5,13 +5,23 @@ import { ThemeProvider } from "styled-components";
 import { SignalFeaturesSection } from "../../src/ts/components/sidebar/SignalFeaturesSection";
 
 jest.mock("@n-apt/components/ui", () => ({
-  Row: ({ label, children }: { label: React.ReactNode; children: React.ReactNode }) => (
+  Row: ({
+    label,
+    children,
+  }: {
+    label: React.ReactNode;
+    children: React.ReactNode;
+  }) => (
     <div>
       <span>{label}</span>
       <div>{children}</div>
     </div>
   ),
-  Collapsible: ({ children, label, defaultOpen }: {
+  Collapsible: ({
+    children,
+    label,
+    defaultOpen,
+  }: {
     children: React.ReactNode;
     label: string;
     defaultOpen?: boolean;

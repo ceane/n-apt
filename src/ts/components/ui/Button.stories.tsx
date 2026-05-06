@@ -31,7 +31,14 @@ const theme: AppStyledTheme = {
 
 export const Variants = () => (
   <ThemeProvider theme={theme}>
-    <div style={{ display: "flex", gap: "10px", padding: "20px", background: "#0a0a0a" }}>
+    <div
+      style={{
+        display: "flex",
+        gap: "10px",
+        padding: "20px",
+        background: "#0a0a0a",
+      }}
+    >
       <Button $variant="primary">Primary Button</Button>
       <Button $variant="secondary">Secondary Button</Button>
       <Button $variant="danger">Danger Button</Button>
@@ -41,17 +48,37 @@ export const Variants = () => (
 
 export const Disabled = () => (
   <ThemeProvider theme={theme}>
-    <div style={{ display: "flex", gap: "10px", padding: "20px", background: "#0a0a0a" }}>
-      <Button $variant="primary" disabled>Primary Disabled</Button>
-      <Button $variant="secondary" disabled>Secondary Disabled</Button>
-      <Button $variant="danger" disabled>Danger Disabled</Button>
+    <div
+      style={{
+        display: "flex",
+        gap: "10px",
+        padding: "20px",
+        background: "#0a0a0a",
+      }}
+    >
+      <Button $variant="primary" disabled>
+        Primary Disabled
+      </Button>
+      <Button $variant="secondary" disabled>
+        Secondary Disabled
+      </Button>
+      <Button $variant="danger" disabled>
+        Danger Disabled
+      </Button>
     </div>
   </ThemeProvider>
 );
 
 export const Loading = () => (
   <ThemeProvider theme={theme}>
-    <div style={{ display: "flex", gap: "10px", padding: "20px", background: "#0a0a0a" }}>
+    <div
+      style={{
+        display: "flex",
+        gap: "10px",
+        padding: "20px",
+        background: "#0a0a0a",
+      }}
+    >
       <Button $variant="primary">
         <span className="animate-spin">↻</span> Loading...
       </Button>

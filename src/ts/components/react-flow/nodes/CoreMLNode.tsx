@@ -1,6 +1,13 @@
-import React, { useMemo, useState } from 'react';
-import styled from 'styled-components';
-import { Activity, Brain, Database, RefreshCw, Sparkles, Gauge } from 'lucide-react';
+import React, { useMemo, useState } from "react";
+import styled from "styled-components";
+import {
+  Activity,
+  Brain,
+  Database,
+  RefreshCw,
+  Sparkles,
+  Gauge,
+} from "lucide-react";
 
 interface CoreMLNodeProps {
   data: {
@@ -102,24 +109,27 @@ const Chip = styled.span`
 `;
 
 export const CoreMLNode: React.FC<CoreMLNodeProps> = ({ data }) => {
-  const [status, setStatus] = useState<string>('Ready');
+  const [status, setStatus] = useState<string>("Ready");
   const [busyAction, setBusyAction] = useState<string | null>(null);
 
-  const endpointBase = useMemo(() => '/api/v1', []);
+  const endpointBase = useMemo(() => "/api/v1", []);
 
-  const demoSample = useMemo(() => ({
-    signalArea: 'A',
-    label: 'target',
-    data: [0.04, 0.12, 0.22, 0.31, 0.28, 0.18, 0.09, 0.02],
-    frequencyMin: 0,
-    frequencyMax: 1000,
-    sampleRate: 3_200_000,
-  }), []);
+  const demoSample = useMemo(
+    () => ({
+      signalArea: "A",
+      label: "target",
+      data: [0.04, 0.12, 0.22, 0.31, 0.28, 0.18, 0.09, 0.02],
+      frequencyMin: 0,
+      frequencyMax: 1000,
+      sampleRate: 3_200_000,
+    }),
+    [],
+  );
 
   const sendRequest = async (path: string, init?: RequestInit) => {
     const response = await fetch(`${endpointBase}${path}`, {
       headers: {
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
         ...init?.headers,
       },
       ...init,
@@ -135,8 +145,11 @@ export const CoreMLNode: React.FC<CoreMLNodeProps> = ({ data }) => {
     }
 
     if (!response.ok) {
-      const message = typeof payload === 'string' ? payload : payload?.reason || payload?.message || response.statusText;
-      throw new Error(message || 'Request failed');
+      const message =
+        typeof payload === "string"
+          ? payload
+          : payload?.reason || payload?.message || response.statusText;
+      throw new Error(message || "Request failed");
     }
 
     return payload;
@@ -150,38 +163,42 @@ export const CoreMLNode: React.FC<CoreMLNodeProps> = ({ data }) => {
       const result = await request();
       setStatus(`${action} complete:\n${JSON.stringify(result, null, 2)}`);
     } catch (error: any) {
-      setStatus(`${action} failed:\n${error?.message || 'Unknown error'}`);
+      setStatus(`${action} failed:\n${error?.message || "Unknown error"}`);
     } finally {
       setBusyAction(null);
     }
   };
 
-  const handleTrainSample = () => runAction('Capture Sample', () =>
-    sendRequest('/training/sample', {
-      method: 'POST',
-      body: JSON.stringify(demoSample),
-    }),
-  );
-
-  const handleTrainModel = () => runAction('Train Model', () =>
-    sendRequest('/training/start', { method: 'POST' }),
-  );
-
-  const handleTrainingStatus = () => runAction('Training Status', () =>
-    sendRequest('/training/status', { method: 'GET' }),
-  );
-
-  const handleClassify = () => runAction('Classify', () =>
-    sendRequest('/classify', {
-      method: 'POST',
-      body: JSON.stringify({
-        data: demoSample.data,
-        signalArea: demoSample.signalArea,
-        frequencyMin: demoSample.frequencyMin,
-        frequencyMax: demoSample.frequencyMax,
+  const handleTrainSample = () =>
+    runAction("Capture Sample", () =>
+      sendRequest("/training/sample", {
+        method: "POST",
+        body: JSON.stringify(demoSample),
       }),
-    }),
-  );
+    );
+
+  const handleTrainModel = () =>
+    runAction("Train Model", () =>
+      sendRequest("/training/start", { method: "POST" }),
+    );
+
+  const handleTrainingStatus = () =>
+    runAction("Training Status", () =>
+      sendRequest("/training/status", { method: "GET" }),
+    );
+
+  const handleClassify = () =>
+    runAction("Classify", () =>
+      sendRequest("/classify", {
+        method: "POST",
+        body: JSON.stringify({
+          data: demoSample.data,
+          signalArea: demoSample.signalArea,
+          frequencyMin: demoSample.frequencyMin,
+          frequencyMax: demoSample.frequencyMax,
+        }),
+      }),
+    );
 
   return (
     <NodeContainer>
@@ -189,10 +206,16 @@ export const CoreMLNode: React.FC<CoreMLNodeProps> = ({ data }) => {
         <Brain size={16} />
         {data.label}
       </NodeTitle>
-      <NodeSubtitle>{data.description ?? 'CoreML training and inference controls for the Swift service.'}</NodeSubtitle>
+      <NodeSubtitle>
+        {data.description ??
+          "CoreML training and inference controls for the Swift service."}
+      </NodeSubtitle>
 
       <ButtonGrid>
-        <ActionButton onClick={handleTrainSample} disabled={busyAction !== null}>
+        <ActionButton
+          onClick={handleTrainSample}
+          disabled={busyAction !== null}
+        >
           <Database size={14} />
           Sample
         </ActionButton>
@@ -200,7 +223,10 @@ export const CoreMLNode: React.FC<CoreMLNodeProps> = ({ data }) => {
           <Sparkles size={14} />
           Train
         </ActionButton>
-        <ActionButton onClick={handleTrainingStatus} disabled={busyAction !== null}>
+        <ActionButton
+          onClick={handleTrainingStatus}
+          disabled={busyAction !== null}
+        >
           <Gauge size={14} />
           Status
         </ActionButton>
@@ -213,7 +239,7 @@ export const CoreMLNode: React.FC<CoreMLNodeProps> = ({ data }) => {
       <ChipRow>
         <Chip>
           <RefreshCw size={10} />
-          {busyAction ? busyAction : 'Idle'}
+          {busyAction ? busyAction : "Idle"}
         </Chip>
         <Chip>POST /api/v1/training/sample</Chip>
         <Chip>POST /api/v1/training/start</Chip>

@@ -104,7 +104,7 @@ export const useVisualizationState = ({
   const effectivePowerScale = powerScale;
   const baseDbMin = Number.isFinite(fftMin) ? (fftMin as number) : FFT_MIN_DB;
   const baseDbMax = Number.isFinite(fftMax) ? (fftMax as number) : FFT_MAX_DB;
-  
+
   const validatedDbRange = useMemo(
     () => ensureValidDbRange(baseDbMin, baseDbMax, effectivePowerScale),
     [baseDbMin, baseDbMax, effectivePowerScale],
@@ -122,7 +122,9 @@ export const useVisualizationState = ({
   const vizDbMaxRef = useRef(vizDbMax);
   const frequencyRangeRef = useRef<FrequencyRange>(frequencyRange);
   const centerFreqRef = useRef(centerFrequencyHz);
-  const lastEmittedDbLimitsRef = useRef<{ min: number; max: number } | null>(null);
+  const lastEmittedDbLimitsRef = useRef<{ min: number; max: number } | null>(
+    null,
+  );
 
   // Update refs when values change
   vizZoomRef.current = currentVizZoom;
@@ -168,8 +170,7 @@ export const useVisualizationState = ({
     const normalized = { min: vizDbMin, max: vizDbMax };
     const lastEmitted = lastEmittedDbLimitsRef.current;
     const shouldEmit =
-      baseDbMin !== normalized.min ||
-      baseDbMax !== normalized.max;
+      baseDbMin !== normalized.min || baseDbMax !== normalized.max;
 
     if (
       shouldEmit &&

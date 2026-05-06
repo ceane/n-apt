@@ -193,8 +193,8 @@ mod integration_tests {
   }
 
   #[tokio::test]
-  async fn test_manual_capture_metadata_uses_elapsed_duration_and_snapshot_fft_size()
-  -> Result<()> {
+  async fn test_manual_capture_metadata_uses_elapsed_duration_and_snapshot_fft_size(
+  ) -> Result<()> {
     let mut processor = SdrProcessor::new_mock_apt()?;
     processor.initialize()?;
 
@@ -223,7 +223,9 @@ mod integration_tests {
 
     sleep(Duration::from_millis(150)).await;
 
-    let capture_result = processor.stop_capture().expect("manual stop should return a result");
+    let capture_result = processor
+      .stop_capture()
+      .expect("manual stop should return a result");
 
     assert_eq!(capture_result.duration_mode, "manual");
     assert!(capture_result.duration_s >= 0.1);

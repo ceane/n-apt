@@ -86,7 +86,7 @@ jest.mock("@n-apt/hooks/useSpectrumRendering", () => ({
 }));
 
 jest.mock("@n-apt/hooks/useFrequencyDrag", () => ({
-  useFrequencyDrag: () => { },
+  useFrequencyDrag: () => {},
 }));
 
 describe("Device Stream Frozen Scenarios", () => {
@@ -101,7 +101,7 @@ describe("Device Stream Frozen Scenarios", () => {
         { length: 1024 },
         (_, sampleIndex) => -60 + Math.sin(sampleIndex * 0.1) * 20,
       ),
-    }
+    },
   };
 
   const mockProps = {
@@ -120,7 +120,7 @@ describe("Device Stream Frozen Scenarios", () => {
         <MemoryRouter>
           <FFTCanvas {...props} />
         </MemoryRouter>
-      </TestWrapper>
+      </TestWrapper>,
     );
 
   beforeEach(() => {
@@ -133,7 +133,7 @@ describe("Device Stream Frozen Scenarios", () => {
         current: {
           waveform: Array.from({ length: 1024 }, () => -60), // Flat line indicates frozen stream
           timestamp: Date.now() - 10000, // 10 seconds old
-        }
+        },
       };
       const frozenProps = {
         ...mockProps,
@@ -157,7 +157,7 @@ describe("Device Stream Frozen Scenarios", () => {
           <MemoryRouter>
             <FFTCanvas {...mockProps} isDeviceConnected={false} />
           </MemoryRouter>
-        </TestWrapper>
+        </TestWrapper>,
       );
 
       // Should handle gracefully without crashing
@@ -170,7 +170,7 @@ describe("Device Stream Frozen Scenarios", () => {
       const identicalDataRef = {
         current: {
           waveform: identicalData,
-        }
+        },
       };
 
       const frozenProps = {
@@ -196,7 +196,10 @@ describe("Device Stream Frozen Scenarios", () => {
       const frozenDataRef = { current: { waveform: frozenData } };
       const freshDataRef = { current: { waveform: freshData } };
 
-      const { rerender } = renderFFTCanvas({ ...mockProps, dataRef: frozenDataRef });
+      const { rerender } = renderFFTCanvas({
+        ...mockProps,
+        dataRef: frozenDataRef,
+      });
 
       // Stream was frozen with flat data
       expect(screen.getByText("FFT Signal Display")).toBeInTheDocument();
@@ -207,7 +210,7 @@ describe("Device Stream Frozen Scenarios", () => {
           <MemoryRouter>
             <FFTCanvas {...mockProps} dataRef={freshDataRef} />
           </MemoryRouter>
-        </TestWrapper>
+        </TestWrapper>,
       );
 
       await waitFor(() => {
@@ -216,7 +219,10 @@ describe("Device Stream Frozen Scenarios", () => {
     });
 
     it("should handle device reconnection after stream freeze", async () => {
-      const { rerender } = renderFFTCanvas({ ...mockProps, isDeviceConnected: false });
+      const { rerender } = renderFFTCanvas({
+        ...mockProps,
+        isDeviceConnected: false,
+      });
 
       // Device was disconnected (frozen stream)
       expect(screen.getByText("FFT Signal Display")).toBeInTheDocument();
@@ -227,7 +233,7 @@ describe("Device Stream Frozen Scenarios", () => {
           <MemoryRouter>
             <FFTCanvas {...mockProps} isDeviceConnected={true} />
           </MemoryRouter>
-        </TestWrapper>
+        </TestWrapper>,
       );
 
       await waitFor(() => {
@@ -244,7 +250,7 @@ describe("Device Stream Frozen Scenarios", () => {
           <MemoryRouter>
             <FFTCanvas {...mockProps} isDeviceConnected={false} />
           </MemoryRouter>
-        </TestWrapper>
+        </TestWrapper>,
       );
 
       expect(screen.getByText("FFT Signal Display")).toBeInTheDocument();
@@ -255,7 +261,7 @@ describe("Device Stream Frozen Scenarios", () => {
           <MemoryRouter>
             <FFTCanvas {...mockProps} isDeviceConnected={true} />
           </MemoryRouter>
-        </TestWrapper>
+        </TestWrapper>,
       );
 
       expect(screen.getByText("FFT Signal Display")).toBeInTheDocument();
@@ -267,7 +273,7 @@ describe("Device Stream Frozen Scenarios", () => {
       const corruptedDataRef = {
         current: {
           waveform: Array.from({ length: 1024 }, () => NaN), // Corrupted data
-        }
+        },
       };
       const corruptedProps = {
         ...mockProps,
@@ -303,7 +309,7 @@ describe("Device Stream Frozen Scenarios", () => {
           waveform: Array.from({ length: 1024 }, (_, i) =>
             i % 10 === 0 ? Infinity : -60,
           ),
-        }
+        },
       };
       const infiniteProps = {
         ...mockProps,
@@ -319,7 +325,7 @@ describe("Device Stream Frozen Scenarios", () => {
       const frozenDataRef2 = {
         current: {
           waveform: Array.from({ length: 1024 }, () => -60),
-        }
+        },
       };
       const frozenProps = {
         ...mockProps,
@@ -335,7 +341,7 @@ describe("Device Stream Frozen Scenarios", () => {
             <MemoryRouter>
               <FFTCanvas {...frozenProps} />
             </MemoryRouter>
-          </TestWrapper>
+          </TestWrapper>,
         );
       }
 
@@ -352,14 +358,14 @@ describe("Device Stream Frozen Scenarios", () => {
           <MemoryRouter>
             <FFTCanvas {...mockProps} isDeviceConnected={false} />
           </MemoryRouter>
-        </TestWrapper>
+        </TestWrapper>,
       );
       rerender(
         <TestWrapper>
           <MemoryRouter>
             <FFTCanvas {...mockProps} isDeviceConnected={true} />
           </MemoryRouter>
-        </TestWrapper>
+        </TestWrapper>,
       );
 
       // Should maintain performance
@@ -404,7 +410,7 @@ describe("Device Stream Frozen Scenarios", () => {
           <MemoryRouter>
             <FFTCanvas {...frozenProps} />
           </MemoryRouter>
-        </TestWrapper>
+        </TestWrapper>,
       );
 
       // Frequency range should be preserved
@@ -426,7 +432,10 @@ describe("Device Stream Frozen Scenarios", () => {
     });
 
     it("should recover from mock mode stream freeze", async () => {
-      const { rerender } = renderFFTCanvas({ ...mockProps, isDeviceConnected: false });
+      const { rerender } = renderFFTCanvas({
+        ...mockProps,
+        isDeviceConnected: false,
+      });
 
       // Mock mode freeze
       expect(screen.getByText("FFT Signal Display")).toBeInTheDocument();
@@ -437,7 +446,7 @@ describe("Device Stream Frozen Scenarios", () => {
           <MemoryRouter>
             <FFTCanvas {...mockProps} isDeviceConnected={true} />
           </MemoryRouter>
-        </TestWrapper>
+        </TestWrapper>,
       );
 
       await waitFor(() => {
@@ -460,7 +469,10 @@ describe("Device Stream Frozen Scenarios", () => {
     });
 
     it("should handle WebSocket reconnection after freeze", async () => {
-      const { rerender } = renderFFTCanvas({ ...mockProps, isDeviceConnected: false });
+      const { rerender } = renderFFTCanvas({
+        ...mockProps,
+        isDeviceConnected: false,
+      });
 
       // WebSocket was disconnected (frozen stream)
       expect(screen.getByText("FFT Signal Display")).toBeInTheDocument();
@@ -471,7 +483,7 @@ describe("Device Stream Frozen Scenarios", () => {
           <MemoryRouter>
             <FFTCanvas {...mockProps} isDeviceConnected={true} />
           </MemoryRouter>
-        </TestWrapper>
+        </TestWrapper>,
       );
 
       await waitFor(() => {

@@ -1,6 +1,6 @@
-import React from 'react';
-import styled from 'styled-components';
-import { Play, Pause, RotateCcw, Maximize2 } from 'lucide-react';
+import React from "react";
+import styled from "styled-components";
+import { Play, Pause, RotateCcw, Maximize2 } from "lucide-react";
 
 const ControlBarContainer = styled.div`
   display: flex;
@@ -48,20 +48,20 @@ export const ControlBar: React.FC<ControlBarProps> = ({
   onPlay,
   onPause,
   onReset,
-  onFullscreen
+  onFullscreen,
 }) => {
   return (
     <ControlBarContainer>
       <ControlButton onClick={isPlaying ? onPause : onPlay}>
         {isPlaying ? <Pause size={12} /> : <Play size={12} />}
-        {isPlaying ? 'Pause' : 'Play'}
+        {isPlaying ? "Pause" : "Play"}
       </ControlButton>
-      
+
       <ControlButton onClick={onReset}>
         <RotateCcw size={12} />
         Reset
       </ControlButton>
-      
+
       <ControlButton onClick={onFullscreen}>
         <Maximize2 size={12} />
         Fullscreen

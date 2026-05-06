@@ -1,6 +1,6 @@
-import React from 'react';
-import { render, waitFor } from '@testing-library/react';
-import '@testing-library/jest-dom';
+import React from "react";
+import { render, waitFor } from "@testing-library/react";
+import "@testing-library/jest-dom";
 
 // Mock WebGPU and WebGL contexts
 const mockGPU = {
@@ -24,7 +24,7 @@ const mockGPU = {
 };
 
 // Mock HTMLCanvasElement methods
-Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', {
+Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
   value: jest.fn(() => ({
     getExtension: jest.fn(),
     getParameter: jest.fn(),
@@ -61,12 +61,10 @@ Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', {
 });
 
 // Mock navigator.gpu
-Object.defineProperty(navigator, 'gpu', {
+Object.defineProperty(navigator, "gpu", {
   value: mockGPU,
   writable: true,
 });
-
-
 
 // Mock ResizeObserver
 global.ResizeObserver = jest.fn().mockImplementation(() => ({
@@ -79,15 +77,15 @@ global.ResizeObserver = jest.fn().mockImplementation(() => ({
 global.requestAnimationFrame = jest.fn((cb) => setTimeout(cb, 16));
 
 // Mock URL.createObjectURL
-global.URL.createObjectURL = jest.fn(() => 'mocked-url');
+global.URL.createObjectURL = jest.fn(() => "mocked-url");
 global.URL.revokeObjectURL = jest.fn();
 
 // Mock import.meta.env for components that use it
-Object.defineProperty(window, 'import', {
+Object.defineProperty(window, "import", {
   value: {
     meta: {
       env: {
-        BASE_URL: '/',
+        BASE_URL: "/",
       },
     },
   },
@@ -98,7 +96,7 @@ Object.defineProperty(window, 'import', {
 (globalThis as any).import = {
   meta: {
     env: {
-      BASE_URL: '/',
+      BASE_URL: "/",
     },
   },
 } as any;
@@ -107,34 +105,34 @@ Object.defineProperty(window, 'import', {
 global.fetch = jest.fn().mockImplementation(() =>
   Promise.resolve({
     ok: true,
-    blob: () => Promise.resolve(new Blob(['mock image data'])),
-  })
+    blob: () => Promise.resolve(new Blob(["mock image data"])),
+  }),
 );
 
 // Mock THREE.js with all required classes
-jest.mock('three', () => ({
-  ...jest.requireActual('three'),
+jest.mock("three", () => ({
+  ...jest.requireActual("three"),
   WebGLRenderer: jest.fn().mockImplementation(() => ({
     setSize: jest.fn(),
     setPixelRatio: jest.fn(),
     render: jest.fn(),
-    domElement: document.createElement('canvas'),
+    domElement: document.createElement("canvas"),
     dispose: jest.fn(),
   })),
   WebGL1Renderer: jest.fn().mockImplementation(() => ({
     setSize: jest.fn(),
     setPixelRatio: jest.fn(),
     render: jest.fn(),
-    domElement: document.createElement('canvas'),
+    domElement: document.createElement("canvas"),
     dispose: jest.fn(),
   })),
 }));
 
-describe('Canvas Component Loading Tests', () => {
+describe("Canvas Component Loading Tests", () => {
   let container: HTMLDivElement;
 
   beforeEach(() => {
-    container = document.createElement('div');
+    container = document.createElement("div");
     document.body.appendChild(container);
     jest.clearAllMocks();
   });
@@ -143,102 +141,111 @@ describe('Canvas Component Loading Tests', () => {
     document.body.removeChild(container);
   });
 
-  describe('Body Attenuation Canvas', () => {
-    test('should load and render BodyAttenuationCanvas', async () => {
-      const { BodyAttenuationCanvas } = await import('../../src/md-preview/components/canvas');
+  describe("Body Attenuation Canvas", () => {
+    test("should load and render BodyAttenuationCanvas", async () => {
+      const { BodyAttenuationCanvas } =
+        await import("../../src/md-preview/components/canvas");
 
       render(<BodyAttenuationCanvas />, { container });
 
       // Wait for component to mount
       await waitFor(() => {
-        expect(container.querySelector('canvas')).toBeInTheDocument();
+        expect(container.querySelector("canvas")).toBeInTheDocument();
       });
     }, 15000);
   });
 
-  describe('Signal Canvas Components', () => {
-    test('should load and render AmplitudeModulationCanvas', async () => {
-      const { AmplitudeModulationCanvas } = await import('../../src/md-preview/components/canvas');
+  describe("Signal Canvas Components", () => {
+    test("should load and render AmplitudeModulationCanvas", async () => {
+      const { AmplitudeModulationCanvas } =
+        await import("../../src/md-preview/components/canvas");
 
       render(<AmplitudeModulationCanvas />, { container });
 
       await waitFor(() => {
-        expect(container.querySelector('canvas')).toBeInTheDocument();
+        expect(container.querySelector("canvas")).toBeInTheDocument();
       });
     });
 
-    test('should load and render FrequencyModulationCanvas', async () => {
-      const { FrequencyModulationCanvas } = await import('../../src/md-preview/components/canvas');
+    test("should load and render FrequencyModulationCanvas", async () => {
+      const { FrequencyModulationCanvas } =
+        await import("../../src/md-preview/components/canvas");
 
       render(<FrequencyModulationCanvas />, { container });
 
       await waitFor(() => {
-        expect(container.querySelector('canvas')).toBeInTheDocument();
+        expect(container.querySelector("canvas")).toBeInTheDocument();
       });
     });
 
-    test('should load and render HeterodyningCanvas', async () => {
-      const { HeterodyningCanvas } = await import('../../src/md-preview/components/canvas');
+    test("should load and render HeterodyningCanvas", async () => {
+      const { HeterodyningCanvas } =
+        await import("../../src/md-preview/components/canvas");
 
       render(<HeterodyningCanvas />, { container });
 
       await waitFor(() => {
-        expect(container.querySelector('canvas')).toBeInTheDocument();
+        expect(container.querySelector("canvas")).toBeInTheDocument();
       });
     });
 
-    test('should load and render MultipathCanvas', async () => {
-      const { MultipathCanvas } = await import('../../src/md-preview/components/canvas');
+    test("should load and render MultipathCanvas", async () => {
+      const { MultipathCanvas } =
+        await import("../../src/md-preview/components/canvas");
 
       render(<MultipathCanvas />, { container });
 
       await waitFor(() => {
-        expect(container.querySelector('svg')).toBeInTheDocument();
+        expect(container.querySelector("svg")).toBeInTheDocument();
       });
     });
   });
 
-  describe('Other Canvas Components', () => {
-    test('should load and render ImpedanceCanvas', async () => {
-      const { ImpedanceCanvas } = await import('../../src/md-preview/components/canvas');
+  describe("Other Canvas Components", () => {
+    test("should load and render ImpedanceCanvas", async () => {
+      const { ImpedanceCanvas } =
+        await import("../../src/md-preview/components/canvas");
 
       render(<ImpedanceCanvas />, { container });
 
       await waitFor(() => {
-        expect(container.querySelector('canvas')).toBeInTheDocument();
+        expect(container.querySelector("canvas")).toBeInTheDocument();
       });
     });
 
-    test('should load and render TimeOfFlightCanvas', async () => {
-      const { TimeOfFlightCanvas } = await import('../../src/md-preview/components/canvas');
+    test("should load and render TimeOfFlightCanvas", async () => {
+      const { TimeOfFlightCanvas } =
+        await import("../../src/md-preview/components/canvas");
 
       render(<TimeOfFlightCanvas />, { container });
 
       await waitFor(() => {
-        expect(container.querySelector('canvas')).toBeInTheDocument();
+        expect(container.querySelector("canvas")).toBeInTheDocument();
       });
     });
 
-    test('should load and render PhaseShiftingCanvas', async () => {
-      const { PhaseShiftingCanvas } = await import('../../src/md-preview/components/canvas');
+    test("should load and render PhaseShiftingCanvas", async () => {
+      const { PhaseShiftingCanvas } =
+        await import("../../src/md-preview/components/canvas");
 
       render(<PhaseShiftingCanvas />, { container });
 
       await waitFor(() => {
-        expect(container.querySelector('svg')).toBeInTheDocument();
+        expect(container.querySelector("svg")).toBeInTheDocument();
       });
     });
   });
 
-  describe('Canvas Error Handling', () => {
-    test('should handle canvas creation errors gracefully', async () => {
+  describe("Canvas Error Handling", () => {
+    test("should handle canvas creation errors gracefully", async () => {
       // Mock canvas context to return null (simulating WebGL/WebGPU failure)
-      Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', {
+      Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
         value: jest.fn(() => null),
         writable: true,
       });
 
-      const { BodyAttenuationCanvas } = await import('../../src/md-preview/components/canvas');
+      const { BodyAttenuationCanvas } =
+        await import("../../src/md-preview/components/canvas");
 
       // Should not throw error
       expect(() => {
@@ -246,14 +253,15 @@ describe('Canvas Component Loading Tests', () => {
       }).not.toThrow();
     });
 
-    test('should handle GPU unavailability gracefully', async () => {
+    test("should handle GPU unavailability gracefully", async () => {
       // Mock GPU as unavailable
-      Object.defineProperty(navigator, 'gpu', {
+      Object.defineProperty(navigator, "gpu", {
         value: undefined,
         writable: true,
       });
 
-      const { BodyAttenuationCanvas } = await import('../../src/md-preview/components/canvas');
+      const { BodyAttenuationCanvas } =
+        await import("../../src/md-preview/components/canvas");
 
       // Should not throw error
       expect(() => {
@@ -262,8 +270,8 @@ describe('Canvas Component Loading Tests', () => {
     });
   });
 
-  describe('Canvas Integration', () => {
-    test('should integrate all canvas components together', async () => {
+  describe("Canvas Integration", () => {
+    test("should integrate all canvas components together", async () => {
       const {
         BodyAttenuationCanvas,
         AmplitudeModulationCanvas,
@@ -272,8 +280,8 @@ describe('Canvas Component Loading Tests', () => {
         MultipathCanvas,
         PhaseShiftingCanvas,
         ImpedanceCanvas,
-        TimeOfFlightCanvas
-      } = await import('../../src/md-preview/components/canvas');
+        TimeOfFlightCanvas,
+      } = await import("../../src/md-preview/components/canvas");
 
       const components = [
         BodyAttenuationCanvas,
@@ -288,7 +296,7 @@ describe('Canvas Component Loading Tests', () => {
 
       // Render all components
       components.forEach((Component, index) => {
-        const testContainer = document.createElement('div');
+        const testContainer = document.createElement("div");
         document.body.appendChild(testContainer);
 
         try {
@@ -303,16 +311,17 @@ describe('Canvas Component Loading Tests', () => {
     });
   });
 
-  describe('Canvas Performance', () => {
-    test('should render canvases within reasonable time', async () => {
-      const { BodyAttenuationCanvas } = await import('../../src/md-preview/components/canvas');
+  describe("Canvas Performance", () => {
+    test("should render canvases within reasonable time", async () => {
+      const { BodyAttenuationCanvas } =
+        await import("../../src/md-preview/components/canvas");
 
       const startTime = performance.now();
 
       render(<BodyAttenuationCanvas />, { container });
 
       await waitFor(() => {
-        expect(container.querySelector('canvas')).toBeInTheDocument();
+        expect(container.querySelector("canvas")).toBeInTheDocument();
       });
 
       const endTime = performance.now();

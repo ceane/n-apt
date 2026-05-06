@@ -1,5 +1,5 @@
-import React from 'react';
-import styled from 'styled-components';
+import React from "react";
+import styled from "styled-components";
 
 const NodeWrapper = styled.div`
   display: flex;
@@ -99,7 +99,7 @@ export const FileOptionsNode: React.FC<FileOptionsNodeProps> = ({ data }) => {
         <div>
           <TitleRow>
             <Title>REFERENCE CAPTURE</Title>
-            <Badge>{data.vector || 'RAW'}</Badge>
+            <Badge>{data.vector || "RAW"}</Badge>
           </TitleRow>
           <JobId>{result.jobId}</JobId>
         </div>
@@ -108,15 +108,15 @@ export const FileOptionsNode: React.FC<FileOptionsNodeProps> = ({ data }) => {
       <SummaryBox>
         <SummaryLine>
           <Label>File</Label>
-          <Value>{result.fileName || 'Unknown'}</Value>
+          <Value>{result.fileName || "Unknown"}</Value>
         </SummaryLine>
         <SummaryLine>
           <Label>Timestamp</Label>
-          <Value>{result.timestamp || '—'}</Value>
+          <Value>{result.timestamp || "—"}</Value>
         </SummaryLine>
         <SummaryLine>
           <Label>Summary</Label>
-          <Value>{result.summary || 'Captured reference'}</Value>
+          <Value>{result.summary || "Captured reference"}</Value>
         </SummaryLine>
       </SummaryBox>
     </NodeWrapper>

@@ -174,7 +174,9 @@ fn dirs_path() -> Result<PathBuf, String> {
 
   // Final check: ensure joining didn't somehow escape the home directory
   if !final_dir.starts_with(&canonical_home) {
-    return Err("Security violation: derived path escaped home directory".into());
+    return Err(
+      "Security violation: derived path escaped home directory".into(),
+    );
   }
 
   Ok(final_dir)

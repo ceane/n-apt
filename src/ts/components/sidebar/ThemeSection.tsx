@@ -1,8 +1,20 @@
 import React, { useState } from "react";
 import styled from "styled-components";
-import { Palette, Droplet, AudioLines, SquareDashedTopSolid, SwatchBook } from "lucide-react";
+import {
+  Palette,
+  Droplet,
+  AudioLines,
+  SquareDashedTopSolid,
+  SwatchBook,
+} from "lucide-react";
 import { useAppSelector, useAppDispatch } from "@n-apt/redux";
-import { setAppMode as setAppModeAction, setAccentColor as setAccentColorAction, setFftColor as setFftColorAction, setWaterfallTheme as setWaterfallThemeAction, resetTheme as resetThemeAction } from "@n-apt/redux";
+import {
+  setAppMode as setAppModeAction,
+  setAccentColor as setAccentColorAction,
+  setFftColor as setFftColorAction,
+  setWaterfallTheme as setWaterfallThemeAction,
+  resetTheme as resetThemeAction,
+} from "@n-apt/redux";
 import { WATERFALL_COLORMAPS } from "@n-apt/consts/colormaps";
 import { Row, Button } from "@n-apt/components/ui";
 import { Collapsible } from "@n-apt/components/ui/Collapsible";
@@ -36,7 +48,10 @@ const LabelWithIcon = styled.span`
   }
 `;
 
-const IconLabel: React.FC<{ icon: React.ComponentType<any>; text: string }> = ({ icon: IconComponent, text }) => (
+const IconLabel: React.FC<{ icon: React.ComponentType<any>; text: string }> = ({
+  icon: IconComponent,
+  text,
+}) => (
   <LabelWithIcon>
     <IconComponent size={14} strokeWidth={1.75} aria-hidden="true" />
     {text}
@@ -151,7 +166,9 @@ export const ThemeSection: React.FC = () => {
         <Row label={<IconLabel icon={Palette} text="App Theme" />}>
           <SettingSelect
             value={appMode}
-            onChange={(e) => handleSetAppMode(e.target.value as "system" | "dark" | "light")}
+            onChange={(e) =>
+              handleSetAppMode(e.target.value as "system" | "dark" | "light")
+            }
           >
             <option value="system">System</option>
             <option value="dark">Dark</option>
@@ -211,7 +228,7 @@ export const ThemeSection: React.FC = () => {
             Reset Theme to Defaults
           </Button>
         </div>
-      </Collapsible >
-    </Section >
+      </Collapsible>
+    </Section>
   );
 };

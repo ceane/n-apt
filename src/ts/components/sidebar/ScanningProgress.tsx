@@ -35,7 +35,8 @@ const ProgressTitle = styled.span`
 `;
 
 const ProgressStatus = styled.span<{ $active: boolean }>`
-  color: ${(props) => (props.$active ? props.theme.success : props.theme.textMuted)};
+  color: ${(props) =>
+    props.$active ? props.theme.success : props.theme.textMuted};
   font-weight: 500;
 `;
 
@@ -49,8 +50,12 @@ const ProgressBar = styled.div`
 
 const ProgressFill = styled.div<{ $progress: number }>`
   height: 100%;
-  width: ${props => props.$progress}%;
-  background: linear-gradient(90deg, ${(props) => props.theme.primary}, ${(props) => props.theme.success});
+  width: ${(props) => props.$progress}%;
+  background: linear-gradient(
+    90deg,
+    ${(props) => props.theme.primary},
+    ${(props) => props.theme.success}
+  );
   border-radius: 2px;
   transition: width 0.3s ease;
 `;
@@ -103,12 +108,8 @@ export const ScanningProgress: React.FC<ScanningProgressProps> = ({
         <span>
           Current: <FrequencyDisplay>{currentFreqDisplay}</FrequencyDisplay>
         </span>
-        <span>
-          Range: {rangeDisplay}
-        </span>
-        <span>
-          Found: {detectedRegions} regions
-        </span>
+        <span>Range: {rangeDisplay}</span>
+        <span>Found: {detectedRegions} regions</span>
       </ProgressDetails>
     </ProgressContainer>
   );

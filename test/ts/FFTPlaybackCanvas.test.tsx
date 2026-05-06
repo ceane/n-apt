@@ -1,10 +1,5 @@
 import * as React from "react";
-import {
-  render,
-  screen,
-  fireEvent,
-  waitFor,
-} from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import FFTPlaybackCanvas from "@n-apt/components/FFTPlaybackCanvas";
 
@@ -68,7 +63,9 @@ describe("FFTPlaybackCanvas Component", () => {
     );
 
     // Component shows drop zone when no files
-    expect(screen.getByText("Drop .wav or .napt files here")).toBeInTheDocument();
+    expect(
+      screen.getByText("Drop .wav or .napt files here"),
+    ).toBeInTheDocument();
 
     unmount();
   });
@@ -190,8 +187,12 @@ describe("FFTPlaybackCanvas Component", () => {
 
   it("should handle multiple files", () => {
     const manyFiles = [
-      ...Array.from({ length: 5 }, (_, i) => createMockFile(`test${i}.napt`, 4096)),
-      ...Array.from({ length: 5 }, (_, i) => createMockFile(`wav${i}.wav`, 4096)),
+      ...Array.from({ length: 5 }, (_, i) =>
+        createMockFile(`test${i}.napt`, 4096),
+      ),
+      ...Array.from({ length: 5 }, (_, i) =>
+        createMockFile(`wav${i}.wav`, 4096),
+      ),
     ];
 
     render(<FFTPlaybackCanvas {...defaultProps} selectedFiles={manyFiles} />);

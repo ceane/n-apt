@@ -14,7 +14,9 @@ declare global {
   // eslint-disable-next-line no-var
   var countCanvasCalls: (callName: string) => number;
   // eslint-disable-next-line no-var
-  var getWebGPUCalls: (callName: string) => Array<{ name: string; args: any[] }>;
+  var getWebGPUCalls: (
+    callName: string,
+  ) => Array<{ name: string; args: any[] }>;
 }
 
 describe("canvas API integration", () => {
@@ -155,7 +157,9 @@ describe("canvas API integration", () => {
       });
     });
 
-    const encodersBeforeResize = global.getWebGPUCalls("createCommandEncoder").length;
+    const encodersBeforeResize = global.getWebGPUCalls(
+      "createCommandEncoder",
+    ).length;
     const submitsBeforeResize = global.getWebGPUCalls("submit").length;
 
     canvas.height = 220;
@@ -173,9 +177,9 @@ describe("canvas API integration", () => {
       });
     });
 
-    expect(global.getWebGPUCalls("createCommandEncoder").length).toBeGreaterThan(
-      encodersBeforeResize,
-    );
+    expect(
+      global.getWebGPUCalls("createCommandEncoder").length,
+    ).toBeGreaterThan(encodersBeforeResize);
     expect(global.getWebGPUCalls("submit").length).toBeGreaterThan(
       submitsBeforeResize,
     );
@@ -204,7 +208,8 @@ describe("canvas API integration", () => {
       });
     });
 
-    const textureCreatesBeforeSwap = global.getWebGPUCalls("createTexture").length;
+    const textureCreatesBeforeSwap =
+      global.getWebGPUCalls("createTexture").length;
 
     await act(async () => {
       await result.current.drawWebGPUFIFOWaterfall({

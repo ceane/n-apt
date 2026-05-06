@@ -1,6 +1,6 @@
-import React, { useRef, useEffect, useCallback } from 'react';
-import { usePretextText } from '@n-apt/hooks/usePretextText';
-import { formatFrequency } from '@n-apt/utils/frequency';
+import React, { useRef, useEffect, useCallback } from "react";
+import { usePretextText } from "@n-apt/hooks/usePretextText";
+import { formatFrequency } from "@n-apt/utils/frequency";
 
 export interface PretextVFODisplayProps {
   frequency: number;
@@ -19,9 +19,9 @@ export const PretextVFODisplay: React.FC<PretextVFODisplayProps> = ({
   x = 0,
   y = 0,
   fontSize = 14,
-  color = '#ffff00',
+  color = "#ffff00",
   showBackground = true,
-  backgroundColor = 'rgba(0, 0, 0, 0.8)',
+  backgroundColor = "rgba(0, 0, 0, 0.8)",
   padding = 6,
   borderRadius = 4,
 }) => {
@@ -29,7 +29,7 @@ export const PretextVFODisplay: React.FC<PretextVFODisplayProps> = ({
 
   const { metrics, isReady, getDPIScaledMetrics } = usePretextText({
     text: formatFrequency(frequency),
-    font: 'bold JetBrains Mono, monospace',
+    font: "bold JetBrains Mono, monospace",
     fontSize,
     color,
   });
@@ -38,7 +38,7 @@ export const PretextVFODisplay: React.FC<PretextVFODisplayProps> = ({
     const canvas = canvasRef.current;
     if (!canvas || !isReady || !metrics) return;
 
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
     const dpr = window.devicePixelRatio || 1;
@@ -59,18 +59,34 @@ export const PretextVFODisplay: React.FC<PretextVFODisplayProps> = ({
     if (showBackground) {
       ctx.fillStyle = backgroundColor;
       ctx.beginPath();
-      ctx.roundRect(0, 0, metrics.width + padding * 2, metrics.height + padding * 2, borderRadius);
+      ctx.roundRect(
+        0,
+        0,
+        metrics.width + padding * 2,
+        metrics.height + padding * 2,
+        borderRadius,
+      );
       ctx.fill();
     }
 
     // Draw text using DPI-scaled measurements
     ctx.font = `bold ${fontSize * dpr}px JetBrains Mono, monospace`;
     ctx.fillStyle = color;
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'top';
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
     ctx.fillText(formatFrequency(frequency), padding, padding);
-
-  }, [frequency, fontSize, color, showBackground, backgroundColor, padding, borderRadius, isReady, metrics, getDPIScaledMetrics]);
+  }, [
+    frequency,
+    fontSize,
+    color,
+    showBackground,
+    backgroundColor,
+    padding,
+    borderRadius,
+    isReady,
+    metrics,
+    getDPIScaledMetrics,
+  ]);
 
   useEffect(() => {
     draw();
@@ -80,10 +96,10 @@ export const PretextVFODisplay: React.FC<PretextVFODisplayProps> = ({
     <canvas
       ref={canvasRef}
       style={{
-        position: 'absolute',
+        position: "absolute",
         left: x,
         top: y,
-        pointerEvents: 'none',
+        pointerEvents: "none",
         zIndex: 10,
       }}
     />

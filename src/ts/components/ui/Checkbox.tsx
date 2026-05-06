@@ -36,8 +36,10 @@ export const StyledCheckbox = styled.div<{ $checked: boolean }>`
   display: inline-block;
   width: 16px;
   height: 16px;
-  background: ${({ $checked, theme }) => ($checked ? theme.primary : theme.surface)};
-  border: 1px solid ${({ $checked, theme }) => ($checked ? theme.primary : theme.borderHover)};
+  background: ${({ $checked, theme }) =>
+    $checked ? theme.primary : theme.surface};
+  border: 1px solid
+    ${({ $checked, theme }) => ($checked ? theme.primary : theme.borderHover)};
   border-radius: 4px;
   transition: all 150ms;
   display: flex;
@@ -55,8 +57,7 @@ export const StyledCheckbox = styled.div<{ $checked: boolean }>`
   }
 `;
 
-export interface CheckboxProps
-  extends React.InputHTMLAttributes<HTMLInputElement> {
+export interface CheckboxProps extends React.InputHTMLAttributes<HTMLInputElement> {
   label?: React.ReactNode;
 }
 

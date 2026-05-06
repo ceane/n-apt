@@ -49,6 +49,10 @@ path = "test/rust/frequency_scaling_e2e.rs"
 name = "encryption_e2e_tests"
 path = "test/rust/encryption_e2e_tests.rs"
 
+[[test]]
+name = "performance_tests"
+path = "test/rust/performance_tests.rs"
+
 [[bin]]
 name = "live_stream_test"
 path = "src/rs/bin/live_stream_test.rs"
@@ -128,6 +132,7 @@ yawc = { version = "0.3.3", features = ["axum", "zlib"] }
 doc-comment = "0.3"
 tempfile = "3"
 serial_test = "3.2"
+criterion = { version = "0.5", features = ["html_reports"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio-test = "0.4"
@@ -136,6 +141,10 @@ tower = "0.5"
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test = "0.3.70"
+
+[[bench]]
+name = "fft_bench"
+harness = false
 
 [build-dependencies]
 pkg-config = "0.3"
@@ -161,7 +170,7 @@ codegen-units = 16
 opt-level = 3
 lto = "thin"
 codegen-units = 8
-panic = "abort"
+panic = "unwind"
 strip = true
 overflow-checks = false
 

@@ -31,8 +31,12 @@ const statusPayload = {
 };
 
 const Template = () => {
-  const [fftSize, setFftSize] = React.useState(statusPayload.sdr_settings.fft.default_size);
-  const [frameRate, setFrameRate] = React.useState(statusPayload.sdr_settings.fft.default_frame_rate);
+  const [fftSize, setFftSize] = React.useState(
+    statusPayload.sdr_settings.fft.default_size,
+  );
+  const [frameRate, setFrameRate] = React.useState(
+    statusPayload.sdr_settings.fft.default_frame_rate,
+  );
   const [window, setWindow] = React.useState("Hamming");
   const [res, setRes] = React.useState<"low" | "medium" | "high">("medium");
   const [scale, setScale] = React.useState<"dB" | "dBm">("dB");
@@ -47,7 +51,9 @@ const Template = () => {
           fftFrameRate={frameRate}
           maxFrameRate={statusPayload.sdr_settings.fft.max_frame_rate}
           fftSize={fftSize}
-          fftSizeOptions={Object.keys(statusPayload.sdr_settings.fft.size_to_frame_rate).map(Number)}
+          fftSizeOptions={Object.keys(
+            statusPayload.sdr_settings.fft.size_to_frame_rate,
+          ).map(Number)}
           fftWindow={window}
           temporalResolution={res}
           autoFftOptions={null}
@@ -60,7 +66,10 @@ const Template = () => {
           onPowerScaleChange={setScale}
           scheduleCoupledAdjustment={(trigger, size, rate) => {
             if (trigger === "fftSize") {
-              const recommendedRate = (statusPayload.sdr_settings.fft.size_to_frame_rate as any)[size] || rate;
+              const recommendedRate =
+                (statusPayload.sdr_settings.fft.size_to_frame_rate as any)[
+                  size
+                ] || rate;
               setFrameRate(recommendedRate);
             }
           }}

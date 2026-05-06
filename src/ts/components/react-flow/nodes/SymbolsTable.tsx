@@ -1,17 +1,17 @@
-import React, { useState, useEffect, useRef } from 'react';
-import styled from 'styled-components';
-import { useAppSelector } from '@n-apt/redux';
-import { liveDataRef } from '@n-apt/redux/middleware/websocketMiddleware';
-import { formatFrequency } from '@n-apt/utils/frequency';
-import { ChevronLeft, ChevronRight, Maximize } from 'lucide-react';
-import { createPortal } from 'react-dom';
-import { FullscreenModal } from '@n-apt/components/react-flow/nodes/FullscreenModal';
+import React, { useState, useEffect, useRef } from "react";
+import styled from "styled-components";
+import { useAppSelector } from "@n-apt/redux";
+import { liveDataRef } from "@n-apt/redux/middleware/websocketMiddleware";
+import { formatFrequency } from "@n-apt/utils/frequency";
+import { ChevronLeft, ChevronRight, Maximize } from "lucide-react";
+import { createPortal } from "react-dom";
+import { FullscreenModal } from "@n-apt/components/react-flow/nodes/FullscreenModal";
 import {
   computeSymbolsLayout,
   getIqDataView,
   readVisibleIQSample,
   resolveAvailableSampleCount,
-} from '@n-apt/components/react-flow/nodes/tableLayout';
+} from "@n-apt/components/react-flow/nodes/tableLayout";
 
 const OuterContainer = styled.div`
   display: flex;
@@ -117,7 +117,9 @@ const MetaInfoLabel = styled.span`
 
 const SubHeader = styled.div`
   display: grid;
-  grid-template-columns: minmax(92px, 0.95fr) minmax(72px, 0.8fr) minmax(132px, 1.2fr) minmax(82px, 0.85fr) minmax(112px, 1fr);
+  grid-template-columns:
+    minmax(92px, 0.95fr) minmax(72px, 0.8fr) minmax(132px, 1.2fr)
+    minmax(82px, 0.85fr) minmax(112px, 1fr);
   border-bottom: 1px solid ${({ theme }) => theme.colors.border};
   background: ${({ theme }) => theme.colors.background};
   padding: 6px 12px;
@@ -130,7 +132,7 @@ const SubHeaderCol = styled.div<{ $alignRight?: boolean }>`
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  text-align: ${props => props.$alignRight ? 'right' : 'left'};
+  text-align: ${(props) => (props.$alignRight ? "right" : "left")};
 `;
 
 const GridArea = styled.div`
@@ -142,7 +144,9 @@ const GridArea = styled.div`
 
 const SymbolRow = styled.div<{ $rowHeight: number }>`
   display: grid;
-  grid-template-columns: minmax(92px, 0.95fr) minmax(72px, 0.8fr) minmax(132px, 1.2fr) minmax(82px, 0.85fr) minmax(112px, 1fr);
+  grid-template-columns:
+    minmax(92px, 0.95fr) minmax(72px, 0.8fr) minmax(132px, 1.2fr)
+    minmax(82px, 0.85fr) minmax(112px, 1fr);
   align-items: center;
   font-size: 13px;
   height: ${({ $rowHeight }) => `${$rowHeight}px`};
@@ -189,7 +193,10 @@ const ColPhase = styled.div`
 `;
 
 const ColPower = styled.div<{ $magnitude: number }>`
-  color: ${props => props.$magnitude > -40 ? props.theme.colors.primary : props.theme.colors.textMuted};
+  color: ${(props) =>
+    props.$magnitude > -40
+      ? props.theme.colors.primary
+      : props.theme.colors.textMuted};
   text-align: right;
   font-weight: 600;
 `;
@@ -200,7 +207,7 @@ const TooltipContainer = styled.div`
   border: 1px solid ${({ theme }) => theme.colors.border};
   padding: 8px 14px;
   border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
   pointer-events: none;
   z-index: 10000;
   color: ${({ theme }) => theme.colors.textPrimary};
@@ -231,7 +238,7 @@ const TooltipLabel = styled.span`
 
 const TooltipValue = styled.span<{ $color?: string; $fontWeight?: number }>`
   color: ${({ theme, $color }) => $color || theme.colors.textPrimary};
-  font-weight: ${({ $fontWeight }) => $fontWeight || 'normal'};
+  font-weight: ${({ $fontWeight }) => $fontWeight || "normal"};
 `;
 
 const TooltipArrow = styled.div`
@@ -250,12 +257,20 @@ interface SymbolsTableProps {
   frequencyRange: { min: number; max: number } | null;
 }
 
-export const SymbolsTable: React.FC<SymbolsTableProps> = ({ frequencyRange }) => {
+export const SymbolsTable: React.FC<SymbolsTableProps> = ({
+  frequencyRange,
+}) => {
   const reduxDeviceName = useAppSelector((s) => s.websocket.deviceName);
-  const fftSize = useAppSelector(state => state.spectrum.fftSize);
-  const activePlaybackMetadata = useAppSelector((state) => state.waterfall.activePlaybackMetadata);
-  const playbackFrameCounter = useAppSelector((state) => state.waterfall.playbackFrameCounter);
-  const dataFrameCounter = useAppSelector((state) => state.websocket.dataFrameCounter);
+  const fftSize = useAppSelector((state) => state.spectrum.fftSize);
+  const activePlaybackMetadata = useAppSelector(
+    (state) => state.waterfall.activePlaybackMetadata,
+  );
+  const playbackFrameCounter = useAppSelector(
+    (state) => state.waterfall.playbackFrameCounter,
+  );
+  const dataFrameCounter = useAppSelector(
+    (state) => state.websocket.dataFrameCounter,
+  );
   const sourceMode = useAppSelector((state) => state.waterfall.sourceMode);
 
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -268,26 +283,33 @@ export const SymbolsTable: React.FC<SymbolsTableProps> = ({ frequencyRange }) =>
     const ob = new ResizeObserver((entries) => {
       const entry = entries[0];
       if (entry) {
-        setContainerDims({ width: entry.contentRect.width, height: entry.contentRect.height });
+        setContainerDims({
+          width: entry.contentRect.width,
+          height: entry.contentRect.height,
+        });
       }
     });
     ob.observe(gridRef.current);
     return () => ob.disconnect();
   }, []);
 
-  const fallbackWidth = typeof window === 'undefined'
-    ? 420
-    : isFullscreen
-      ? Math.max(920, window.innerWidth - 160)
-      : 420;
-  const fallbackHeight = typeof window === 'undefined'
-    ? 320
-    : isFullscreen
-      ? Math.max(420, window.innerHeight - 260)
-      : 320;
+  const fallbackWidth =
+    typeof window === "undefined"
+      ? 420
+      : isFullscreen
+        ? Math.max(920, window.innerWidth - 160)
+        : 420;
+  const fallbackHeight =
+    typeof window === "undefined"
+      ? 320
+      : isFullscreen
+        ? Math.max(420, window.innerHeight - 260)
+        : 320;
   const layout = computeSymbolsLayout({
-    width: isFullscreen ? fallbackWidth : (containerDims.width || fallbackWidth),
-    height: isFullscreen ? fallbackHeight : (containerDims.height || fallbackHeight),
+    width: isFullscreen ? fallbackWidth : containerDims.width || fallbackWidth,
+    height: isFullscreen
+      ? fallbackHeight
+      : containerDims.height || fallbackHeight,
   });
   const rowHeight = layout.rowHeight;
   const rowsCount = layout.rowsCount;
@@ -297,7 +319,10 @@ export const SymbolsTable: React.FC<SymbolsTableProps> = ({ frequencyRange }) =>
     }
     return liveDataRef.current?.iq_data as Uint8Array | undefined;
   }, [dataFrameCounter, playbackFrameCounter, sourceMode]);
-  const iqDataView = React.useMemo(() => getIqDataView(frameIqData), [frameIqData]);
+  const iqDataView = React.useMemo(
+    () => getIqDataView(frameIqData),
+    [frameIqData],
+  );
   const totalSamples = React.useMemo(
     () => resolveAvailableSampleCount(frameIqData, fftSize || 2048),
     [fftSize, frameIqData],
@@ -307,13 +332,13 @@ export const SymbolsTable: React.FC<SymbolsTableProps> = ({ frequencyRange }) =>
   const offsetCurrentBase = currentPage * rowsCount;
 
   const [hoveredCell, setHoveredCell] = useState<{
-    symbol: string,
-    freq: number,
-    i: number,
-    q: number,
-    power: number,
-    x: number,
-    y: number
+    symbol: string;
+    freq: number;
+    i: number;
+    q: number;
+    power: number;
+    x: number;
+    y: number;
   } | null>(null);
 
   // Frequency range step calculations
@@ -323,20 +348,20 @@ export const SymbolsTable: React.FC<SymbolsTableProps> = ({ frequencyRange }) =>
         max: activePlaybackMetadata.frequency_range[1],
       }
     : frequencyRange;
-  const freqMin = effectiveFrequencyRange?.min ?? 18.000;
-  const freqMax = effectiveFrequencyRange?.max ?? 18.200;
+  const freqMin = effectiveFrequencyRange?.min ?? 18.0;
+  const freqMax = effectiveFrequencyRange?.max ?? 18.2;
   const totalSpan = freqMax - freqMin;
   const stepPerSample = totalSpan / totalSamples;
 
-  const handleNextPage = () => setPage(p => Math.min(p + 1, totalPages - 1));
-  const handlePrevPage = () => setPage(p => Math.max(0, p - 1));
+  const handleNextPage = () => setPage((p) => Math.min(p + 1, totalPages - 1));
+  const handlePrevPage = () => setPage((p) => Math.max(0, p - 1));
 
   const deviceName = reduxDeviceName || "SDR Device";
 
   const renderTable = (full: boolean = false) => (
-    <OuterContainer style={full ? { border: 'none', borderRadius: 0 } : {}}>
+    <OuterContainer style={full ? { border: "none", borderRadius: 0 } : {}}>
       <Header>
-        <div style={{ display: 'flex', alignItems: 'center' }}>
+        <div style={{ display: "flex", alignItems: "center" }}>
           <DeviceTitle>{deviceName}</DeviceTitle>
           <LiveBadge>Signal Active</LiveBadge>
         </div>
@@ -348,26 +373,31 @@ export const SymbolsTable: React.FC<SymbolsTableProps> = ({ frequencyRange }) =>
           <PageLabel>
             PAGE {currentPage + 1} / {totalPages}
           </PageLabel>
-          <PageButton onClick={handleNextPage} disabled={currentPage >= totalPages - 1}>
+          <PageButton
+            onClick={handleNextPage}
+            disabled={currentPage >= totalPages - 1}
+          >
             <ChevronRight size={16} />
           </PageButton>
         </PaginationControl>
 
         <MetaInfo>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div><MetaInfoLabel>FFT SIZE:</MetaInfoLabel> {fftSize}</div>
+          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+            <div>
+              <MetaInfoLabel>FFT SIZE:</MetaInfoLabel> {fftSize}
+            </div>
             {!full && (
               <button
                 onClick={() => setIsFullscreen(true)}
                 style={{
-                  background: 'transparent',
-                  border: 'none',
-                  color: '#00d4ff',
-                  cursor: 'pointer',
+                  background: "transparent",
+                  border: "none",
+                  color: "#00d4ff",
+                  cursor: "pointer",
                   opacity: 0.6,
-                  padding: '4px',
-                  display: 'flex',
-                  alignItems: 'center'
+                  padding: "4px",
+                  display: "flex",
+                  alignItems: "center",
                 }}
               >
                 <Maximize size={16} />
@@ -386,93 +416,106 @@ export const SymbolsTable: React.FC<SymbolsTableProps> = ({ frequencyRange }) =>
       </SubHeader>
 
       <GridArea ref={full ? null : gridRef}>
-        {(full || containerDims.height > 0) && Array.from({ length: rowsCount }, (_, idx) => {
-          const absoluteSampleIndex = offsetCurrentBase + idx;
-          const sample = readVisibleIQSample(iqDataView, absoluteSampleIndex);
-          if (!sample) {
-            return null;
-          }
-          const rowFreq = freqMin + (absoluteSampleIndex * stepPerSample);
-          const sI = sample.i >= 128 ? "+" : "-";
-          const sQ = sample.q >= 128 ? "+" : "-";
-          const phaseRad = Math.atan2(sample.q - 128, sample.i - 128);
-          const phaseDeg = ((phaseRad * 180) / Math.PI + 360) % 360;
-          const magnitude = Math.sqrt(
-            Math.pow((sample.i - 128) / 128, 2) + Math.pow((sample.q - 128) / 128, 2),
-          );
-          const powerDbm = -70 + (magnitude * 50);
-          const symbol = `(${sI}, ${sQ})`;
+        {(full || containerDims.height > 0) &&
+          Array.from({ length: rowsCount }, (_, idx) => {
+            const absoluteSampleIndex = offsetCurrentBase + idx;
+            const sample = readVisibleIQSample(iqDataView, absoluteSampleIndex);
+            if (!sample) {
+              return null;
+            }
+            const rowFreq = freqMin + absoluteSampleIndex * stepPerSample;
+            const sI = sample.i >= 128 ? "+" : "-";
+            const sQ = sample.q >= 128 ? "+" : "-";
+            const phaseRad = Math.atan2(sample.q - 128, sample.i - 128);
+            const phaseDeg = ((phaseRad * 180) / Math.PI + 360) % 360;
+            const magnitude = Math.sqrt(
+              Math.pow((sample.i - 128) / 128, 2) +
+                Math.pow((sample.q - 128) / 128, 2),
+            );
+            const powerDbm = -70 + magnitude * 50;
+            const symbol = `(${sI}, ${sQ})`;
 
-          return (
-            <SymbolRow
-              key={idx}
-              $rowHeight={rowHeight}
-              onMouseEnter={(e) => {
-                const rect = e.currentTarget.getBoundingClientRect();
-                setHoveredCell({
-                  symbol,
-                  freq: rowFreq,
-                  i: sample.i,
-                  q: sample.q,
-                  power: powerDbm,
-                  x: rect.left + rect.width / 2,
-                  y: rect.top
-                });
-              }}
-              onMouseLeave={() => setHoveredCell(null)}
-            >
-              <ColFrequency>{formatFrequency(rowFreq)}</ColFrequency>
-              <ColSymbol>{symbol}</ColSymbol>
-              <ColIQ>
-                <IVal>{sample.i.toString().padStart(3, ' ')}</IVal>
-                <span style={{ opacity: 0.3 }}>|</span>
-                <QVal>{sample.q.toString().padStart(3, ' ')}</QVal>
-              </ColIQ>
-              <ColPhase>{phaseDeg.toFixed(1)}°</ColPhase>
-              <ColPower $magnitude={powerDbm}>
-                {powerDbm.toFixed(3)} dBm
-              </ColPower>
-            </SymbolRow>
-          );
-        })}
-        {!iqDataView && Array(rowsCount).fill(0).map((_, i) => (
-          <SymbolRow key={i} $rowHeight={rowHeight}>
-            <ColFrequency>--.--- ---</ColFrequency>
-            <ColSymbol>--</ColSymbol>
-            <ColIQ><IVal>--</IVal> | <QVal>--</QVal></ColIQ>
-            <ColPhase>--</ColPhase>
-            <ColPower $magnitude={-100}>--</ColPower>
-          </SymbolRow>
-        ))}
+            return (
+              <SymbolRow
+                key={idx}
+                $rowHeight={rowHeight}
+                onMouseEnter={(e) => {
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  setHoveredCell({
+                    symbol,
+                    freq: rowFreq,
+                    i: sample.i,
+                    q: sample.q,
+                    power: powerDbm,
+                    x: rect.left + rect.width / 2,
+                    y: rect.top,
+                  });
+                }}
+                onMouseLeave={() => setHoveredCell(null)}
+              >
+                <ColFrequency>{formatFrequency(rowFreq)}</ColFrequency>
+                <ColSymbol>{symbol}</ColSymbol>
+                <ColIQ>
+                  <IVal>{sample.i.toString().padStart(3, " ")}</IVal>
+                  <span style={{ opacity: 0.3 }}>|</span>
+                  <QVal>{sample.q.toString().padStart(3, " ")}</QVal>
+                </ColIQ>
+                <ColPhase>{phaseDeg.toFixed(1)}°</ColPhase>
+                <ColPower $magnitude={powerDbm}>
+                  {powerDbm.toFixed(3)} dBm
+                </ColPower>
+              </SymbolRow>
+            );
+          })}
+        {!iqDataView &&
+          Array(rowsCount)
+            .fill(0)
+            .map((_, i) => (
+              <SymbolRow key={i} $rowHeight={rowHeight}>
+                <ColFrequency>--.--- ---</ColFrequency>
+                <ColSymbol>--</ColSymbol>
+                <ColIQ>
+                  <IVal>--</IVal> | <QVal>--</QVal>
+                </ColIQ>
+                <ColPhase>--</ColPhase>
+                <ColPower $magnitude={-100}>--</ColPower>
+              </SymbolRow>
+            ))}
       </GridArea>
 
-      {hoveredCell && createPortal(
-        <TooltipContainer
-          style={{
-            left: hoveredCell.x,
-            top: hoveredCell.y - 12,
-            transform: 'translate(-50%, -100%)'
-          }}
-        >
-          <TooltipRow>
-            <TooltipSymbol>SYMBOL {hoveredCell.symbol}</TooltipSymbol>
-            <TooltipValue $color="#333">|</TooltipValue>
-            <TooltipLabel>POWER</TooltipLabel>
-            <TooltipValue $color={hoveredCell.power > -40 ? '#00ff88' : '#aaa'} $fontWeight={700}>
-              {hoveredCell.power.toFixed(2)} dBm
-            </TooltipValue>
-          </TooltipRow>
-          <TooltipRow>
-            <TooltipLabel>I/Q:</TooltipLabel>
-            <TooltipValue>{hoveredCell.i} | {hoveredCell.q}</TooltipValue>
-            <TooltipValue $color="#333">|</TooltipValue>
-            <TooltipLabel>FREQ:</TooltipLabel>
-            <TooltipValue>{formatFrequency(hoveredCell.freq)}</TooltipValue>
-          </TooltipRow>
-          <TooltipArrow />
-        </TooltipContainer>,
-        document.body
-      )}
+      {hoveredCell &&
+        createPortal(
+          <TooltipContainer
+            style={{
+              left: hoveredCell.x,
+              top: hoveredCell.y - 12,
+              transform: "translate(-50%, -100%)",
+            }}
+          >
+            <TooltipRow>
+              <TooltipSymbol>SYMBOL {hoveredCell.symbol}</TooltipSymbol>
+              <TooltipValue $color="#333">|</TooltipValue>
+              <TooltipLabel>POWER</TooltipLabel>
+              <TooltipValue
+                $color={hoveredCell.power > -40 ? "#00ff88" : "#aaa"}
+                $fontWeight={700}
+              >
+                {hoveredCell.power.toFixed(2)} dBm
+              </TooltipValue>
+            </TooltipRow>
+            <TooltipRow>
+              <TooltipLabel>I/Q:</TooltipLabel>
+              <TooltipValue>
+                {hoveredCell.i} | {hoveredCell.q}
+              </TooltipValue>
+              <TooltipValue $color="#333">|</TooltipValue>
+              <TooltipLabel>FREQ:</TooltipLabel>
+              <TooltipValue>{formatFrequency(hoveredCell.freq)}</TooltipValue>
+            </TooltipRow>
+            <TooltipArrow />
+          </TooltipContainer>,
+          document.body,
+        )}
     </OuterContainer>
   );
 
@@ -480,8 +523,11 @@ export const SymbolsTable: React.FC<SymbolsTableProps> = ({ frequencyRange }) =>
     <>
       {renderTable(false)}
       {isFullscreen && (
-        <FullscreenModal title="Symbol (I/Q) Analysis" onClose={() => setIsFullscreen(false)}>
-          <div style={{ height: 'calc(95vh - 140px)' }}>
+        <FullscreenModal
+          title="Symbol (I/Q) Analysis"
+          onClose={() => setIsFullscreen(false)}
+        >
+          <div style={{ height: "calc(95vh - 140px)" }}>
             {renderTable(true)}
           </div>
         </FullscreenModal>

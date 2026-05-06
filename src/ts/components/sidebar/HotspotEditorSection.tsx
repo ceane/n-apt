@@ -172,8 +172,10 @@ const HotspotList = styled.div`
 `;
 
 const HotspotItem = styled.div<{ $selected: boolean }>`
-  background-color: ${(props) => (props.$selected ? props.theme.primaryAnchor : props.theme.surface)};
-  border: 1px solid ${(props) => (props.$selected ? props.theme.primary : props.theme.border)};
+  background-color: ${(props) =>
+    props.$selected ? props.theme.primaryAnchor : props.theme.surface};
+  border: 1px solid
+    ${(props) => (props.$selected ? props.theme.primary : props.theme.border)};
   border-radius: 6px;
   padding: 10px 12px;
   cursor: pointer;
@@ -214,7 +216,8 @@ const HotspotName = styled.div`
 `;
 
 const EditIcon = styled.div<{ $isSelected: boolean }>`
-  color: ${(props) => (props.$isSelected ? props.theme.primary : props.theme.textMuted)};
+  color: ${(props) =>
+    props.$isSelected ? props.theme.primary : props.theme.textMuted};
   opacity: ${(props) => (props.$isSelected ? 1 : 0.4)};
   transition: all 0.2s ease;
   cursor: pointer;
@@ -237,28 +240,41 @@ const CategoryBadge = styled.div<{ $category: string }>`
   letter-spacing: 0.5px;
   background: ${(props) => {
     switch (props.$category) {
-      case "physiology": return `${props.theme.primary}1a`;
-      case "psychology": return `${props.theme.warning}1a`;
-      case "effects": return `${props.theme.danger}1a`;
-      default: return props.theme.surfaceHover;
+      case "physiology":
+        return `${props.theme.primary}1a`;
+      case "psychology":
+        return `${props.theme.warning}1a`;
+      case "effects":
+        return `${props.theme.danger}1a`;
+      default:
+        return props.theme.surfaceHover;
     }
   }};
   color: ${(props) => {
     switch (props.$category) {
-      case "physiology": return props.theme.primary;
-      case "psychology": return props.theme.warning;
-      case "effects": return props.theme.danger;
-      default: return props.theme.textMuted;
+      case "physiology":
+        return props.theme.primary;
+      case "psychology":
+        return props.theme.warning;
+      case "effects":
+        return props.theme.danger;
+      default:
+        return props.theme.textMuted;
     }
   }};
-  border: 1px solid ${(props) => {
-    switch (props.$category) {
-      case "physiology": return `${props.theme.primary}33`;
-      case "psychology": return `${props.theme.warning}33`;
-      case "effects": return `${props.theme.danger}33`;
-      default: return props.theme.border;
-    }
-  }};
+  border: 1px solid
+    ${(props) => {
+      switch (props.$category) {
+        case "physiology":
+          return `${props.theme.primary}33`;
+        case "psychology":
+          return `${props.theme.warning}33`;
+        case "effects":
+          return `${props.theme.danger}33`;
+        default:
+          return props.theme.border;
+      }
+    }};
 `;
 
 const HotspotPosition = styled.div`
@@ -370,9 +386,7 @@ export const HotspotEditorSection: React.FC = () => {
         </StyledRow>
 
         {isMultiSelectMode && (
-          <InlineHint>
-            Selected: {multiSelectedHotspots.length}
-          </InlineHint>
+          <InlineHint>Selected: {multiSelectedHotspots.length}</InlineHint>
         )}
 
         <StyledRow className="clean-row" label="Show Grid">
@@ -387,9 +401,7 @@ export const HotspotEditorSection: React.FC = () => {
         <StyledRow className="clean-row" label="Category">
           <SettingSelect
             value={currentCategory}
-            onChange={(e) =>
-              setCurrentCategory(e.target.value as any)
-            }
+            onChange={(e) => setCurrentCategory(e.target.value as any)}
           >
             <option value="physiology">Physiology</option>
             <option value="psychology">Psychology</option>
@@ -415,7 +427,7 @@ export const HotspotEditorSection: React.FC = () => {
         <HotspotList>
           {hotspots.map((hotspot) => {
             const isSelected = selectedHotspot === hotspot.id;
-            
+
             return (
               <HotspotItem
                 key={hotspot.id}
@@ -446,7 +458,13 @@ export const HotspotEditorSection: React.FC = () => {
                   >
                     {hotspot.name}
                   </HotspotName>
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                    }}
+                  >
                     <CategoryBadge $category={hotspot.category}>
                       {hotspot.category}
                     </CategoryBadge>

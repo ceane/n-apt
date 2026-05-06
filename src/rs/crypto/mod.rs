@@ -50,16 +50,16 @@ pub fn generate_key() -> [u8; 32] {
 
 /// Compute HMAC-SHA256 over `data` using the given `key`.
 pub fn compute_hmac(key: &[u8; 32], data: &[u8]) -> Vec<u8> {
-  let mut mac: Hmac<Sha256> = MacKeyInit::new_from_slice(key)
-    .expect("HMAC key length is always valid");
+  let mut mac: Hmac<Sha256> =
+    MacKeyInit::new_from_slice(key).expect("HMAC key length is always valid");
   mac.update(data);
   mac.finalize().into_bytes().to_vec()
 }
 
 /// Verify an HMAC-SHA256 tag. Returns `true` when the tag is valid.
 pub fn verify_hmac(key: &[u8; 32], data: &[u8], tag: &[u8]) -> bool {
-  let mut mac: Hmac<Sha256> = MacKeyInit::new_from_slice(key)
-    .expect("HMAC key length is always valid");
+  let mut mac: Hmac<Sha256> =
+    MacKeyInit::new_from_slice(key).expect("HMAC key length is always valid");
   mac.update(data);
   mac.verify_slice(tag).is_ok()
 }
@@ -90,10 +90,7 @@ pub fn encrypt_payload_binary(
 
 /// Encrypt `plaintext` with AES-256-GCM.
 /// Returns `base64( 12-byte IV || ciphertext || 16-byte tag )`.
-pub fn encrypt_payload(
-  key: &[u8; 32],
-  plaintext: &[u8],
-) -> Result<String> {
+pub fn encrypt_payload(key: &[u8; 32], plaintext: &[u8]) -> Result<String> {
   let encrypted = encrypt_payload_binary(key, plaintext)?;
   Ok(B64.encode(&encrypted))
 }

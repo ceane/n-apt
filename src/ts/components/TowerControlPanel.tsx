@@ -1,5 +1,5 @@
-import React from 'react';
-import styled from 'styled-components';
+import React from "react";
+import styled from "styled-components";
 
 interface TowerControlPanelProps {
   truncated: boolean;
@@ -26,12 +26,12 @@ const Notification = styled.div<{ $visible: boolean }>`
   font-size: 11px;
   font-weight: 500;
   margin-top: 6px;
-  display: ${props => props.$visible ? 'block' : 'none'};
+  display: ${(props) => (props.$visible ? "block" : "none")};
   animation: slideIn 0.3s ease-out;
   word-wrap: break-word;
   white-space: normal;
   line-height: 1.3;
-  
+
   @keyframes slideIn {
     from {
       opacity: 0;
@@ -55,7 +55,7 @@ const SubText = styled.div`
 `;
 
 const StatusText = styled.div<{ $loading?: boolean }>`
-  color: ${props => props.$loading ? "#93c5fd" : "#9ca3af"};
+  color: ${(props) => (props.$loading ? "#93c5fd" : "#9ca3af")};
   font-size: 10px;
   margin-top: 8px;
 `;
@@ -70,7 +70,7 @@ export const TowerControlPanel: React.FC<TowerControlPanelProps> = ({
   totalFound,
   currentCount,
   towersLoading,
-  towersError
+  towersError,
 }) => {
   return (
     <TowersContainer>
@@ -82,7 +82,8 @@ export const TowerControlPanel: React.FC<TowerControlPanelProps> = ({
       {truncated && totalFound && (
         <Notification $visible={truncated}>
           <MainText>
-            📍 {currentCount.toLocaleString()} of {totalFound.toLocaleString()} towers
+            📍 {currentCount.toLocaleString()} of {totalFound.toLocaleString()}{" "}
+            towers
           </MainText>
           <SubText>Zoom in to see more</SubText>
         </Notification>

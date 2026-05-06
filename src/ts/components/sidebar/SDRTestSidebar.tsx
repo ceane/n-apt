@@ -3,11 +3,17 @@ import styled from "styled-components";
 import { useSdrSettings } from "@n-apt/hooks/useSdrSettings";
 import { Unplug, ChevronsLeftRightEllipsis } from "lucide-react";
 
-import { useSpectrumStore, LIVE_CONTROL_DEFAULTS } from "@n-apt/hooks/useSpectrumStore";
+import {
+  useSpectrumStore,
+  LIVE_CONTROL_DEFAULTS,
+} from "@n-apt/hooks/useSpectrumStore";
 
 import { SignalDisplaySection } from "@n-apt/components/sidebar/SignalDisplaySection";
 import { SourceSettingsSection } from "@n-apt/components/sidebar/SourceSettingsSection";
-import { ConnectionStatusSection, PauseButton } from "@n-apt/components/sidebar/ConnectionStatusSection";
+import {
+  ConnectionStatusSection,
+  PauseButton,
+} from "@n-apt/components/sidebar/ConnectionStatusSection";
 import SourceInput from "@n-apt/components/sidebar/SourceInput";
 import { Channels } from "@n-apt/components/sidebar/Channels";
 import { SidebarSectionTitle } from "@n-apt/components/ui/Collapsible";
@@ -28,11 +34,13 @@ const Section = styled.div<{ $fileMode?: boolean }>`
   grid-template-columns: subgrid;
   grid-column: 1 / -1;
   gap: inherit;
-  background-color: ${(props) => props.$fileMode ? props.theme.surface : 'transparent'};
-  padding: ${(props) => props.$fileMode ? '12px' : '0'};
-  border-radius: ${(props) => props.$fileMode ? '8px' : '0'};
-  border: ${(props) => props.$fileMode ? `1px solid ${props.theme.border}` : 'none'};
-  margin: ${(props) => props.$fileMode ? '8px 0' : '0'};
+  background-color: ${(props) =>
+    props.$fileMode ? props.theme.surface : "transparent"};
+  padding: ${(props) => (props.$fileMode ? "12px" : "0")};
+  border-radius: ${(props) => (props.$fileMode ? "8px" : "0")};
+  border: ${(props) =>
+    props.$fileMode ? `1px solid ${props.theme.border}` : "none"};
+  margin: ${(props) => (props.$fileMode ? "8px 0" : "0")};
 `;
 
 const MultiFrameButton = styled(PauseButton)`
@@ -137,7 +145,14 @@ export const SDRTestSidebar: React.FC = () => {
       tunerAGC: LIVE_CONTROL_DEFAULTS.tunerAGC,
       rtlAGC: LIVE_CONTROL_DEFAULTS.rtlAGC,
     });
-  }, [autoFftOptions?.recommended, dispatch, maxFrameRate, sendSettings, state.fftFrameRate, state.fftSize]);
+  }, [
+    autoFftOptions?.recommended,
+    dispatch,
+    maxFrameRate,
+    sendSettings,
+    state.fftFrameRate,
+    state.fftSize,
+  ]);
 
   return (
     <SidebarContent>
@@ -173,7 +188,9 @@ export const SDRTestSidebar: React.FC = () => {
                 onClick={() => dispatch({ type: "TRIGGER_DIAGNOSTIC" })}
                 disabled={state.isDiagnosticRunning}
               >
-                {state.isDiagnosticRunning ? "Capturing..." : "Run Multi-Frame Capture"}
+                {state.isDiagnosticRunning
+                  ? "Capturing..."
+                  : "Run Multi-Frame Capture"}
               </MultiFrameButton>
             }
           />
@@ -200,7 +217,10 @@ export const SDRTestSidebar: React.FC = () => {
           </PauseButton>
 
           <Section>
-            <SidebarSectionTitle icon={<ChevronsLeftRightEllipsis size={14} />} title="Channel" />
+            <SidebarSectionTitle
+              icon={<ChevronsLeftRightEllipsis size={14} />}
+              title="Channel"
+            />
             <Channels />
           </Section>
 

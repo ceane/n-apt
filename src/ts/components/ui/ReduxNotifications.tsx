@@ -1,8 +1,12 @@
-import React, { useEffect } from 'react';
-import { useSelector, useDispatch } from 'react-redux';
-import { Notification } from './Notification';
-import { selectNotifications, removeNotification, clearAllNotifications } from '@n-apt/redux/slices/notificationsSlice';
-import styled from 'styled-components';
+import React, { useEffect } from "react";
+import { useSelector, useDispatch } from "react-redux";
+import { Notification } from "./Notification";
+import {
+  selectNotifications,
+  removeNotification,
+  clearAllNotifications,
+} from "@n-apt/redux/slices/notificationsSlice";
+import styled from "styled-components";
 
 const NotificationContainer = styled.div`
   position: fixed;
@@ -13,7 +17,7 @@ const NotificationContainer = styled.div`
   gap: 12px;
   z-index: 99999;
   pointer-events: none;
-  
+
   & > * {
     pointer-events: auto;
   }

@@ -12,9 +12,6 @@ const Section = styled.div`
   width: 100%;
 `;
 
-
-
-
 const HeterodyningContainer = styled.div`
   display: grid;
   grid-auto-flow: column;
@@ -57,7 +54,8 @@ const ClassifyButton = styled.button<{ $disabled?: boolean }>`
   background-color: ${(props) => props.theme.surface};
   border: 1px solid ${(props) => props.theme.borderHover};
   border-radius: 6px;
-  color: ${({ $disabled, theme }) => ($disabled ? theme.textMuted : theme.primary)};
+  color: ${({ $disabled, theme }) =>
+    $disabled ? theme.textMuted : theme.primary};
   font-family: ${(props) => props.theme.typography.mono};
 `;
 
@@ -106,11 +104,24 @@ export const SignalFeaturesSection: React.FC<SignalFeaturesSectionProps> = ({
         defaultOpen={true}
       >
         <>
-          <Row label={<>N-APT<span role="img" aria-label="brain" style={{ marginLeft: "6px" }}>🧠</span></>} tooltipTitle="N-APT" tooltip="N-APT stands for: Neuro Automatic Picture Transmission. These radio waves are modulated akin to APT signals (unknown reasons at this time) but unique in their ability to intercept, process and alter the brain and nervous system.<br><br>Through LF/HF frequencies (frequencies that survive attenuation of the skull and/or body; and lose less energy with longer distances/obstacles), it functions from triangulation, time of flight depth, heterodyning (it's key feature which ensures bioelectrical reception), phase shifting, center frequencies, impedance & endpoint signals processing (suspected as Kaiser, Bayes' Theorem/Posterior Probability, etc.).<br><br>It is an unprecedented formula of radio waves and neurotechnology with nascent efforts to decipher its modulation and content.">
+          <Row
+            label={
+              <>
+                N-APT
+                <span
+                  role="img"
+                  aria-label="brain"
+                  style={{ marginLeft: "6px" }}
+                >
+                  🧠
+                </span>
+              </>
+            }
+            tooltipTitle="N-APT"
+            tooltip="N-APT stands for: Neuro Automatic Picture Transmission. These radio waves are modulated akin to APT signals (unknown reasons at this time) but unique in their ability to intercept, process and alter the brain and nervous system.<br><br>Through LF/HF frequencies (frequencies that survive attenuation of the skull and/or body; and lose less energy with longer distances/obstacles), it functions from triangulation, time of flight depth, heterodyning (it's key feature which ensures bioelectrical reception), phase shifting, center frequencies, impedance & endpoint signals processing (suspected as Kaiser, Bayes' Theorem/Posterior Probability, etc.).<br><br>It is an unprecedented formula of radio waves and neurotechnology with nascent efforts to decipher its modulation and content."
+          >
             <StatusActionRow>
-              <StatusText>
-                {classificationStatusText}
-              </StatusText>
+              <StatusText>{classificationStatusText}</StatusText>
               <ClassifyButton
                 $disabled={classificationDisabled}
                 disabled={classificationDisabled}

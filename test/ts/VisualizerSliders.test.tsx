@@ -25,7 +25,7 @@ describe("VisualizerSliders", () => {
     render(
       <TestWrapper>
         <VisualizerSliders {...defaultProps} />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     expect(screen.getByText("Zoom")).toBeInTheDocument();
@@ -41,8 +41,13 @@ describe("VisualizerSliders", () => {
   test("uses dBm units when powerScale is dBm", () => {
     render(
       <TestWrapper>
-        <VisualizerSliders {...defaultProps} powerScale="dBm" dbMax={10} dbMin={-90} />
-      </TestWrapper>
+        <VisualizerSliders
+          {...defaultProps}
+          powerScale="dBm"
+          dbMax={10}
+          dbMin={-90}
+        />
+      </TestWrapper>,
     );
 
     expect(screen.getByText("10dBm")).toBeInTheDocument();
@@ -55,8 +60,12 @@ describe("VisualizerSliders", () => {
 
     render(
       <TestWrapper>
-        <VisualizerSliders {...defaultProps} onResetZoomDb={onReset} onFftAvgChange={onAvg} />
-      </TestWrapper>
+        <VisualizerSliders
+          {...defaultProps}
+          onResetZoomDb={onReset}
+          onFftAvgChange={onAvg}
+        />
+      </TestWrapper>,
     );
 
     fireEvent.click(screen.getByText("RESET"));
@@ -70,7 +79,7 @@ describe("VisualizerSliders", () => {
     const { rerender } = render(
       <TestWrapper>
         <VisualizerSliders {...defaultProps} fftAvgEnabled={true} />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     // active button has "▸" prefix
@@ -79,7 +88,7 @@ describe("VisualizerSliders", () => {
     rerender(
       <TestWrapper>
         <VisualizerSliders {...defaultProps} fftAvgEnabled={false} />
-      </TestWrapper>
+      </TestWrapper>,
     );
     expect(screen.getByText("▹ AVG")).toBeInTheDocument();
   });
@@ -89,10 +98,12 @@ describe("VisualizerSliders", () => {
     render(
       <TestWrapper>
         <VisualizerSliders {...defaultProps} onZoomChange={onZoom} />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
-    const _zoomSlider = screen.getByText("Zoom").parentElement?.querySelector(".SliderTrack");
+    const _zoomSlider = screen
+      .getByText("Zoom")
+      .parentElement?.querySelector(".SliderTrack");
     // Since SliderTrack is a styled component, it might not have the class unless we add it.
     // Let's find it by getting the SliderThumb's parent.
     const zoomText = screen.getByText(/1(\.0)?x/);
@@ -100,7 +111,7 @@ describe("VisualizerSliders", () => {
 
     if (track) {
       // Mock getBoundingClientRect for the track
-      jest.spyOn(track, 'getBoundingClientRect').mockReturnValue({
+      jest.spyOn(track, "getBoundingClientRect").mockReturnValue({
         top: 0,
         left: 0,
         width: 40,
@@ -109,7 +120,7 @@ describe("VisualizerSliders", () => {
         right: 40,
         x: 0,
         y: 0,
-        toJSON: () => { }
+        toJSON: () => {},
       } as DOMRect);
 
       // Click at the top of the vertical zoom slider (max zoom)

@@ -9,18 +9,17 @@ use rustfft::{num_complex::Complex, FftPlanner};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::env;
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::sync::Arc;
 use std::time::Instant;
 use tokio_util::io::ReaderStream;
 use validator::Validate;
 
-use crate::sdr::rtlsdr::RtlSdrDevice;
 use super::types::{
   CaptureDownloadParams, ChannelSpec, SpectrumFrameMessage, TowerBoundsQuery,
   WebMCPToolRequest, WebMCPToolResponse,
 };
-
+use crate::sdr::rtlsdr::RtlSdrDevice;
 
 // Haversine distance calculation for tower filtering
 fn haversine_distance(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
@@ -114,7 +113,6 @@ fn format_sample_rate(sample_rate: Option<u32>) -> Option<String> {
   }
   Some(format!("{} S/s", rate))
 }
-
 
 #[derive(Debug, Serialize, Clone)]
 pub struct TowerRecord {

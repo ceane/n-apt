@@ -1,9 +1,9 @@
 import DecryptingText from "@n-apt/components/DecryptingText";
 
 export default {
-  title: 'Components/DecryptingText',
+  title: "Components/DecryptingText",
   parameters: {
-    layout: 'centered',
+    layout: "centered",
   },
 };
 
@@ -32,21 +32,23 @@ export const CustomStyling = () => (
     speed={8}
     className="text-3xl font-mono text-cyan-400"
     style={{
-      textShadow: '0 0 10px rgba(0, 212, 255, 0.5)',
+      textShadow: "0 0 10px rgba(0, 212, 255, 0.5)",
     }}
   />
 );
 
 export const MultipleTexts = () => (
-  <div style={{
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '20px',
-    alignItems: 'center',
-    padding: '40px',
-    backgroundColor: '#0a0a0a',
-    minHeight: '300px'
-  }}>
+  <div
+    style={{
+      display: "flex",
+      flexDirection: "column",
+      gap: "20px",
+      alignItems: "center",
+      padding: "40px",
+      backgroundColor: "#0a0a0a",
+      minHeight: "300px",
+    }}
+  >
     <DecryptingText
       targetText="System Status"
       speed={5}

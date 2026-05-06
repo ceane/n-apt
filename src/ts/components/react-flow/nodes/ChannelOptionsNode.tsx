@@ -1,5 +1,5 @@
-import React from 'react';
-import styled from 'styled-components';
+import React from "react";
+import styled from "styled-components";
 
 const NodeWrapper = styled.div`
   display: flex;
@@ -42,7 +42,9 @@ interface ChannelOptionsNodeProps {
   };
 }
 
-export const ChannelOptionsNode: React.FC<ChannelOptionsNodeProps> = ({ data }) => {
+export const ChannelOptionsNode: React.FC<ChannelOptionsNodeProps> = ({
+  data,
+}) => {
   return (
     <NodeWrapper>
       <NodeTitle>{data.label}</NodeTitle>

@@ -18,12 +18,14 @@ export interface PerformanceThresholds {
   warningThreshold: number;
 }
 
-export function usePerformanceMonitor(options: Partial<PerformanceThresholds> = {}) {
+export function usePerformanceMonitor(
+  options: Partial<PerformanceThresholds> = {},
+) {
   const {
     targetFPS = 60,
     maxFrameTime = 16.67, // ms for 60fps
     maxMemoryUsage = 512, // MB
-    warningThreshold = 0.8
+    warningThreshold = 0.8,
   } = options;
 
   // State
@@ -35,11 +37,13 @@ export function usePerformanceMonitor(options: Partial<PerformanceThresholds> = 
     memoryUsage: 0,
     droppedFrames: 0,
     averageFrameTime: 0,
-    timestamp: performance.now()
+    timestamp: performance.now(),
   });
 
   const [isPerformant, setIsPerformant] = useState(true);
-  const [performanceGrade, setPerformanceGrade] = useState<'A' | 'B' | 'C' | 'D' | 'F'>('A');
+  const [performanceGrade, setPerformanceGrade] = useState<
+    "A" | "B" | "C" | "D" | "F"
+  >("A");
 
   // Refs for tracking
   const frameCountRef = useRef(0);
@@ -62,7 +66,7 @@ export function usePerformanceMonitor(options: Partial<PerformanceThresholds> = 
   // Mark GPU processing end
   const endGPUProcessing = useCallback(() => {
     const gpuTime = performance.now() - gpuProcessingStartRef.current;
-    setMetrics(prev => ({ ...prev, gpuProcessingTime: gpuTime }));
+    setMetrics((prev) => ({ ...prev, gpuProcessingTime: gpuTime }));
   }, []);
 
   // End performance measurement for a frame
@@ -87,11 +91,14 @@ export function usePerformanceMonitor(options: Partial<PerformanceThresholds> = 
     }
 
     // Calculate average frame time
-    const averageFrameTime = frameTimeHistoryRef.current.reduce((sum, time) => sum + time, 0) / frameTimeHistoryRef.current.length;
+    const averageFrameTime =
+      frameTimeHistoryRef.current.reduce((sum, time) => sum + time, 0) /
+      frameTimeHistoryRef.current.length;
 
     // Get memory usage if available
-    const memoryUsage = (performance as any).memory ? 
-      (performance as any).memory.usedJSHeapSize / (1024 * 1024) : 0;
+    const memoryUsage = (performance as any).memory
+      ? (performance as any).memory.usedJSHeapSize / (1024 * 1024)
+      : 0;
 
     // Update metrics
     const newMetrics: PerformanceMetrics = {
@@ -102,21 +109,21 @@ export function usePerformanceMonitor(options: Partial<PerformanceThresholds> = 
       memoryUsage,
       droppedFrames: droppedFramesRef.current,
       averageFrameTime,
-      timestamp: now
+      timestamp: now,
     };
 
     setMetrics(newMetrics);
 
     // Determine performance grade
-    let grade: 'A' | 'B' | 'C' | 'D' | 'F' = 'A';
+    let grade: "A" | "B" | "C" | "D" | "F" = "A";
     if (fps < targetFPS * 0.5 || frameTime > maxFrameTime * 2) {
-      grade = 'F';
+      grade = "F";
     } else if (fps < targetFPS * 0.7 || frameTime > maxFrameTime * 1.5) {
-      grade = 'D';
+      grade = "D";
     } else if (fps < targetFPS * 0.85 || frameTime > maxFrameTime * 1.2) {
-      grade = 'C';
+      grade = "C";
     } else if (fps < targetFPS * 0.95 || frameTime > maxFrameTime * 1.1) {
-      grade = 'B';
+      grade = "B";
     }
 
     setPerformanceGrade(grade);
@@ -132,40 +139,65 @@ export function usePerformanceMonitor(options: Partial<PerformanceThresholds> = 
       grade: performanceGrade,
       isPerformant,
       summary: {
-        averageFPS: frameCountRef.current > 0 ? 
-          (frameCountRef.current / ((performance.now() - lastFrameTimeRef.current) / 1000)) : 0,
+        averageFPS:
+          frameCountRef.current > 0
+            ? frameCountRef.current /
+              ((performance.now() - lastFrameTimeRef.current) / 1000)
+            : 0,
         totalFrames: frameCountRef.current,
-        droppedFrameRate: frameCountRef.current > 0 ? 
-          (droppedFramesRef.current / frameCountRef.current) * 100 : 0,
-        memoryEfficiency: maxMemoryUsage > 0 ? 
-          (1 - metrics.memoryUsage / maxMemoryUsage) * 100 : 100
+        droppedFrameRate:
+          frameCountRef.current > 0
+            ? (droppedFramesRef.current / frameCountRef.current) * 100
+            : 0,
+        memoryEfficiency:
+          maxMemoryUsage > 0
+            ? (1 - metrics.memoryUsage / maxMemoryUsage) * 100
+            : 100,
       },
-      recommendations: [] as string[]
+      recommendations: [] as string[],
     };
 
     // Generate recommendations
     if (metrics.fps < targetFPS * 0.85) {
-      report.recommendations.push('Consider reducing rendering complexity or enabling GPU optimizations');
+      report.recommendations.push(
+        "Consider reducing rendering complexity or enabling GPU optimizations",
+      );
     }
 
     if (metrics.averageFrameTime > maxFrameTime * 1.2) {
-      report.recommendations.push('Frame time is high - check for CPU bottlenecks');
+      report.recommendations.push(
+        "Frame time is high - check for CPU bottlenecks",
+      );
     }
 
     if (metrics.memoryUsage > maxMemoryUsage * warningThreshold) {
-      report.recommendations.push('Memory usage is high - consider buffer pooling or cleanup');
+      report.recommendations.push(
+        "Memory usage is high - consider buffer pooling or cleanup",
+      );
     }
 
     if (metrics.gpuProcessingTime > 5) {
-      report.recommendations.push('GPU processing time is high - consider shader optimization');
+      report.recommendations.push(
+        "GPU processing time is high - consider shader optimization",
+      );
     }
 
     if (droppedFramesRef.current > frameCountRef.current * 0.1) {
-      report.recommendations.push('High dropped frame rate - consider reducing workload');
+      report.recommendations.push(
+        "High dropped frame rate - consider reducing workload",
+      );
     }
 
     return report;
-  }, [metrics, performanceGrade, isPerformant, targetFPS, maxFrameTime, maxMemoryUsage, warningThreshold]);
+  }, [
+    metrics,
+    performanceGrade,
+    isPerformant,
+    targetFPS,
+    maxFrameTime,
+    maxMemoryUsage,
+    warningThreshold,
+  ]);
 
   // Reset performance counters
   const resetCounters = useCallback(() => {
@@ -202,7 +234,7 @@ export function usePerformanceMonitor(options: Partial<PerformanceThresholds> = 
     startGPUProcessing,
     endGPUProcessing,
     getPerformanceReport,
-    resetCounters
+    resetCounters,
   };
 }
 
@@ -219,7 +251,7 @@ export function useWebGPUPerformanceMonitor(device?: GPUDevice) {
     vendor: null,
     architecture: null,
     device: null,
-    description: null
+    description: null,
   });
 
   const [gpuLimits, setGpuLimits] = useState<{
@@ -231,7 +263,7 @@ export function useWebGPUPerformanceMonitor(device?: GPUDevice) {
     maxTextureDimension2D: 0,
     maxBufferSize: 0,
     maxComputeWorkgroupSizeX: 0,
-    maxComputeInvocationsPerWorkgroup: 0
+    maxComputeInvocationsPerWorkgroup: 0,
   });
 
   // Get GPU information when device becomes available
@@ -244,11 +276,11 @@ export function useWebGPUPerformanceMonitor(device?: GPUDevice) {
         if (adapter) {
           const info = await adapter.requestAdapterInfo();
           setGpuInfo({
-            adapter: info.architecture || 'Unknown',
-            vendor: info.vendor || 'Unknown',
-            architecture: info.architecture || 'Unknown',
-            device: info.device || 'Unknown',
-            description: info.description || 'Unknown'
+            adapter: info.architecture || "Unknown",
+            vendor: info.vendor || "Unknown",
+            architecture: info.architecture || "Unknown",
+            device: info.device || "Unknown",
+            description: info.description || "Unknown",
           });
         }
 
@@ -257,10 +289,11 @@ export function useWebGPUPerformanceMonitor(device?: GPUDevice) {
           maxTextureDimension2D: device.limits.maxTextureDimension2D,
           maxBufferSize: device.limits.maxBufferSize,
           maxComputeWorkgroupSizeX: device.limits.maxComputeWorkgroupSizeX,
-          maxComputeInvocationsPerWorkgroup: device.limits.maxComputeInvocationsPerWorkgroup
+          maxComputeInvocationsPerWorkgroup:
+            device.limits.maxComputeInvocationsPerWorkgroup,
         });
       } catch (error) {
-        console.warn('Failed to get GPU info:', error);
+        console.warn("Failed to get GPU info:", error);
       }
     };
 
@@ -270,6 +303,6 @@ export function useWebGPUPerformanceMonitor(device?: GPUDevice) {
   return {
     gpuInfo,
     gpuLimits,
-    isWebGPUSupported: typeof navigator !== 'undefined' && 'gpu' in navigator
+    isWebGPUSupported: typeof navigator !== "undefined" && "gpu" in navigator,
   };
 }

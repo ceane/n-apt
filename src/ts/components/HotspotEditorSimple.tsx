@@ -231,11 +231,30 @@ export const HotspotEditorSimple: React.FC<HotspotEditorSimpleProps> = ({
         camera={{ position: MODEL_CAMERA_POSITION, fov: MODEL_FOV }}
       >
         <ambientLight intensity={MODEL_AMBIENT_LIGHT_INTENSITY} />
-        <directionalLight position={MODEL_KEY_LIGHT_POSITION} intensity={MODEL_KEY_LIGHT_INTENSITY} />
-        <pointLight position={MODEL_FILL_LIGHT_POSITION} intensity={MODEL_FILL_LIGHT_INTENSITY} color="#ffffff" />
-        <pointLight position={MODEL_BACK_LIGHT_POSITION} intensity={MODEL_BACK_LIGHT_INTENSITY} color="#8ddcff" />
-        <pointLight position={[-2.8, 2.4, -4.2]} intensity={1.4} color="#7cc7ff" />
-        <pointLight position={[2.8, 2.4, -4.2]} intensity={1.4} color="#7cc7ff" />
+        <directionalLight
+          position={MODEL_KEY_LIGHT_POSITION}
+          intensity={MODEL_KEY_LIGHT_INTENSITY}
+        />
+        <pointLight
+          position={MODEL_FILL_LIGHT_POSITION}
+          intensity={MODEL_FILL_LIGHT_INTENSITY}
+          color="#ffffff"
+        />
+        <pointLight
+          position={MODEL_BACK_LIGHT_POSITION}
+          intensity={MODEL_BACK_LIGHT_INTENSITY}
+          color="#8ddcff"
+        />
+        <pointLight
+          position={[-2.8, 2.4, -4.2]}
+          intensity={1.4}
+          color="#7cc7ff"
+        />
+        <pointLight
+          position={[2.8, 2.4, -4.2]}
+          intensity={1.4}
+          color="#7cc7ff"
+        />
 
         {showGrid && (
           <gridHelper args={[10, 10, "#333", "#222"]} position={[0, 0, 0]} />

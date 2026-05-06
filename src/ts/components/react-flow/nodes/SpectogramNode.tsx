@@ -1,4 +1,4 @@
-import React from 'react';
+import React from "react";
 
 interface SpectogramNodeProps {
   data: {
@@ -12,7 +12,7 @@ export const SpectogramNode: React.FC<SpectogramNodeProps> = ({ data }) => {
     <>
       <div className="node-title">{data.label}</div>
       <div className="node-description">
-        <div style={{ fontSize: '9px', textAlign: 'center' }}>
+        <div style={{ fontSize: "9px", textAlign: "center" }}>
           🖼️ 128x128 ML
         </div>
       </div>

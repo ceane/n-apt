@@ -1,5 +1,5 @@
-import React from 'react';
-import styled from 'styled-components';
+import React from "react";
+import styled from "styled-components";
 
 interface MapEndpointsHUDProps {
   truncated: boolean;
@@ -35,7 +35,7 @@ const Notification = styled.div<{ $visible: boolean }>`
   font-size: 11px;
   font-weight: 500;
   margin-top: 8px;
-  display: ${props => props.$visible ? 'block' : 'none'};
+  display: ${(props) => (props.$visible ? "block" : "none")};
   animation: slideIn 0.3s ease-out;
   word-wrap: break-word;
   white-space: normal;
@@ -43,7 +43,7 @@ const Notification = styled.div<{ $visible: boolean }>`
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
   backdrop-filter: blur(4px);
   max-width: 100%;
-  
+
   @keyframes slideIn {
     from {
       opacity: 0;
@@ -70,7 +70,10 @@ const SubText = styled.div`
 `;
 
 const StatusText = styled.div<{ $loading?: boolean }>`
-  color: ${props => props.$loading ? (props.theme.primary || "#93c5fd") : (props.theme.textSecondary || "#9ca3af")};
+  color: ${(props) =>
+    props.$loading
+      ? props.theme.primary || "#93c5fd"
+      : props.theme.textSecondary || "#9ca3af"};
   font-size: 10px;
   font-family: "JetBrains Mono", monospace;
   margin-top: 8px;
@@ -94,7 +97,7 @@ export const MapEndpointsHUD: React.FC<MapEndpointsHUDProps> = ({
   totalFound,
   currentCount,
   towersLoading,
-  towersError
+  towersError,
 }) => {
   return (
     <HUDContainer>
@@ -106,7 +109,8 @@ export const MapEndpointsHUD: React.FC<MapEndpointsHUDProps> = ({
       {truncated && totalFound && (
         <Notification $visible={truncated}>
           <MainText>
-            📍 {currentCount.toLocaleString()} of {totalFound.toLocaleString()} towers
+            📍 {currentCount.toLocaleString()} of {totalFound.toLocaleString()}{" "}
+            towers
           </MainText>
           <SubText>Zoom in to see more</SubText>
         </Notification>

@@ -1,7 +1,7 @@
-import React, { useMemo, useState } from 'react';
-import styled from 'styled-components';
-import { Search, Zap } from 'lucide-react';
-import { useSpectrumStore } from '@n-apt/hooks/useSpectrumStore';
+import React, { useMemo, useState } from "react";
+import styled from "styled-components";
+import { Search, Zap } from "lucide-react";
+import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 
 interface SpikeNodeProps {
   data: {
@@ -100,21 +100,27 @@ const HelperText = styled.div`
 
 export const SpikeNode: React.FC<SpikeNodeProps> = ({ data }) => {
   const { state } = useSpectrumStore();
-  const [scanStatus, setScanStatus] = useState<string>('Ready to scan FFT for spikes.');
+  const [scanStatus, setScanStatus] = useState<string>(
+    "Ready to scan FFT for spikes.",
+  );
   const [isScanning, setIsScanning] = useState(false);
 
   const currentWindow = useMemo(() => {
     const base = state.fftSize || 0;
     const rate = state.sampleRateHz || 0;
-    return base > 0 ? `${base} bins @ ${Math.round(rate / 1000)} kHz` : 'FFT not ready';
+    return base > 0
+      ? `${base} bins @ ${Math.round(rate / 1000)} kHz`
+      : "FFT not ready";
   }, [state.fftSize, state.sampleRateHz]);
 
   const handleScan = () => {
     setIsScanning(true);
-    setScanStatus('Scanning FFT for prominent spikes...');
+    setScanStatus("Scanning FFT for prominent spikes...");
 
     window.setTimeout(() => {
-      setScanStatus('Spike scan complete. Detected peaks are ready for review in the FFT view.');
+      setScanStatus(
+        "Spike scan complete. Detected peaks are ready for review in the FFT view.",
+      );
       setIsScanning(false);
     }, 350);
   };
@@ -125,12 +131,14 @@ export const SpikeNode: React.FC<SpikeNodeProps> = ({ data }) => {
         <Zap size={16} />
         {data.label}
       </NodeTitle>
-      <NodeSubtitle>{data.description ?? 'Scan the FFT for prominent spikes.'}</NodeSubtitle>
+      <NodeSubtitle>
+        {data.description ?? "Scan the FFT for prominent spikes."}
+      </NodeSubtitle>
 
       <Section>
         <PrimaryButton type="button" onClick={handleScan} disabled={isScanning}>
           <Search size={12} />
-          {isScanning ? 'Scanning…' : 'Scan FFT for spikes'}
+          {isScanning ? "Scanning…" : "Scan FFT for spikes"}
         </PrimaryButton>
 
         <ResultCard>
@@ -144,7 +152,8 @@ export const SpikeNode: React.FC<SpikeNodeProps> = ({ data }) => {
         </ResultCard>
 
         <HelperText>
-          This node only scans the FFT output for spikes. Beat modulation stays in the Beat Detection node.
+          This node only scans the FFT output for spikes. Beat modulation stays
+          in the Beat Detection node.
         </HelperText>
       </Section>
     </NodeContainer>

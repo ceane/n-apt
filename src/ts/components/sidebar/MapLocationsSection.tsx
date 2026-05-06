@@ -124,8 +124,9 @@ const PillWrapper = styled.div`
 
 const Pill = styled.button<{ $color: string; $active: boolean }>`
   padding: 4px 8px;
-  background: ${(props) => props.$active ? props.$color : props.theme.surface};
-  color: ${(props) => props.$active ? "white" : props.theme.textPrimary};
+  background: ${(props) =>
+    props.$active ? props.$color : props.theme.surface};
+  color: ${(props) => (props.$active ? "white" : props.theme.textPrimary)};
   border: 1px solid ${(props) => props.$color};
   border-radius: 12px;
   font-size: 10px;
@@ -178,48 +179,50 @@ export const MapLocationsSection: React.FC = () => {
         `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5&countrycodes=us&addressdetails=1&extratags=1`,
         {
           headers: {
-            'User-Agent': 'n-apt/1.0'
-          }
-        }
+            "User-Agent": "n-apt/1.0",
+          },
+        },
       );
 
       if (response.ok) {
         const results = await response.json();
 
         // Process results to be less granular - focus on city, state, and major landmarks
-        const processedResults = results.map((result: any) => {
-          const address = result.address || {};
-          let displayName = '';
+        const processedResults = results
+          .map((result: any) => {
+            const address = result.address || {};
+            let displayName = "";
 
-          // Priority order for US locations
-          if (address.city || address.town || address.village) {
-            const city = address.city || address.town || address.village;
-            const state = address.state || '';
-            displayName = state ? `${city}, ${state}` : city;
-          } else if (address.county && address.state) {
-            displayName = `${address.county.replace(' County', '')}, ${address.state}`;
-          } else if (address.state) {
-            displayName = address.state;
-          } else if (result.display_name) {
-            // Fallback but clean up the display name
-            displayName = result.display_name
-              .split(',')
-              .slice(0, 2) // Keep only first 2 parts
-              .join(',')
-              .replace(/, United States$/, '');
-          }
+            // Priority order for US locations
+            if (address.city || address.town || address.village) {
+              const city = address.city || address.town || address.village;
+              const state = address.state || "";
+              displayName = state ? `${city}, ${state}` : city;
+            } else if (address.county && address.state) {
+              displayName = `${address.county.replace(" County", "")}, ${address.state}`;
+            } else if (address.state) {
+              displayName = address.state;
+            } else if (result.display_name) {
+              // Fallback but clean up the display name
+              displayName = result.display_name
+                .split(",")
+                .slice(0, 2) // Keep only first 2 parts
+                .join(",")
+                .replace(/, United States$/, "");
+            }
 
-          return {
-            ...result,
-            display_name: displayName || result.display_name,
-            simplified_name: displayName
-          };
-        }).filter((result: any) => result.simplified_name);
+            return {
+              ...result,
+              display_name: displayName || result.display_name,
+              simplified_name: displayName,
+            };
+          })
+          .filter((result: any) => result.simplified_name);
 
         setSearchResults(processedResults);
       }
     } catch (error) {
-      console.error('Search error:', error);
+      console.error("Search error:", error);
       setSearchResults([]);
     }
   };
@@ -254,7 +257,11 @@ export const MapLocationsSection: React.FC = () => {
 
   const handleAddPreview = () => {
     if (previewLocation) {
-      addLocation(previewLocation.name, previewLocation.lat, previewLocation.lng);
+      addLocation(
+        previewLocation.name,
+        previewLocation.lat,
+        previewLocation.lng,
+      );
       setPreviewLocation(null);
     }
   };
@@ -268,7 +275,7 @@ export const MapLocationsSection: React.FC = () => {
       onConfirm: () => {
         removeLocation(id);
       },
-      variant: "danger"
+      variant: "danger",
     });
   };
 
@@ -301,10 +308,7 @@ export const MapLocationsSection: React.FC = () => {
         </div>
       ) : (
         <div style={{ gridColumn: "1 / -1" }}>
-          <SearchInput
-            placeholder="Loading Maps..."
-            disabled
-          />
+          <SearchInput placeholder="Loading Maps..." disabled />
         </div>
       )}
 
@@ -327,10 +331,12 @@ export const MapLocationsSection: React.FC = () => {
               {loc.name}
             </Pill>
             {loc.id !== "current" && (
-              <RemoveButton onClick={(e) => {
-                e.stopPropagation();
-                handleRemoveClick(loc.id, loc.name);
-              }}>
+              <RemoveButton
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleRemoveClick(loc.id, loc.name);
+                }}
+              >
                 ×
               </RemoveButton>
             )}

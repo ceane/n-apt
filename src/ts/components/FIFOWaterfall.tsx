@@ -35,7 +35,8 @@ const WaterfallCanvas = styled.canvas<{ $width: number; $height: number }>`
   display: block;
   width: ${({ $width }) => $width}px;
   height: ${({ $height }) => $height}px;
-  background-color: ${({ theme }) => theme.colors?.waterfallBackground ?? WATERFALL_CANVAS_BG};
+  background-color: ${({ theme }) =>
+    theme.colors?.waterfallBackground ?? WATERFALL_CANVAS_BG};
 `;
 
 const WATERFALL_PLACEHOLDER_TEXT = "Loading data from source...";
@@ -177,7 +178,8 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
       canvas.style.width = `${width}px`;
       canvas.style.height = `${height}px`;
 
-      const showPlaceholder = awaitingDeviceData && (!waveform || waveform.length === 0);
+      const showPlaceholder =
+        awaitingDeviceData && (!waveform || waveform.length === 0);
 
       if (showPlaceholder) {
         const minDim = Math.max(1, Math.min(width, height));
@@ -202,7 +204,10 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
       const renderWaveform = waveform ?? lastWaveformRef.current;
       if (!isPaused && renderWaveform) {
         // Add new frame when not paused
-        const resampled = performScalarResampling(Array.from(renderWaveform), width);
+        const resampled = performScalarResampling(
+          Array.from(renderWaveform),
+          width,
+        );
         const normalizedData = spectrumToAmplitude(
           resampled,
           WATERFALL_HISTORY_LIMIT,

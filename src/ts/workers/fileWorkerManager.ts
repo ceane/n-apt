@@ -126,7 +126,7 @@ export class FileWorkerManager {
   async loadFile(fileId: string, aesKey?: CryptoKey | null): Promise<any> {
     const file = fileRegistry.get(fileId);
     if (!file) throw new Error("File not found in registry");
-    
+
     const fileData = await file.arrayBuffer();
     return this.sendMessage("loadFile", {
       fileData,
@@ -141,14 +141,18 @@ export class FileWorkerManager {
     fftSize: number,
     onProgress?: (progress: any) => void,
     aesKey?: CryptoKey | null,
-    sampleRateOptions?: { maxSampleRateHz: number; currentSampleRateHz: number },
+    sampleRateOptions?: {
+      maxSampleRateHz: number;
+      currentSampleRateHz: number;
+    },
   ): Promise<any> {
     const filesData = [];
 
     for (const fileObj of selectedFiles) {
       const actualFile = fileRegistry.get(fileObj.id);
-      if (!actualFile) throw new Error(`File ${fileObj.name} not found in registry`);
-      
+      if (!actualFile)
+        throw new Error(`File ${fileObj.name} not found in registry`);
+
       const fileData = await actualFile.arrayBuffer();
       filesData.push({
         fileName: fileObj.name,
@@ -158,12 +162,12 @@ export class FileWorkerManager {
 
     return this.sendMessage(
       "stitchFiles",
-      { 
-        files: filesData, 
-        settings, 
-        fftSize, 
+      {
+        files: filesData,
+        settings,
+        fftSize,
         aesKey,
-        sampleRateOptions // Pass current sample rate options dynamically
+        sampleRateOptions, // Pass current sample rate options dynamically
       },
       onProgress,
     );

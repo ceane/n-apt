@@ -1,5 +1,5 @@
-import React from 'react';
-import styled from 'styled-components';
+import React from "react";
+import styled from "styled-components";
 
 const NodeContainerWrapper = styled.div`
   background: ${({ theme }) => theme.colors.surface};
@@ -8,7 +8,7 @@ const NodeContainerWrapper = styled.div`
   padding: ${({ theme }) => theme.spacing.md};
   min-width: 200px;
   font-family: ${({ theme }) => theme.typography.mono};
-  
+
   &:hover {
     border-color: ${({ theme }) => theme.colors.borderHover};
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
@@ -17,13 +17,12 @@ const NodeContainerWrapper = styled.div`
 
 interface NodeContainerProps {
   children: React.ReactNode;
-  'data-nodeid'?: string;
+  "data-nodeid"?: string;
 }
 
-export const NodeContainer: React.FC<NodeContainerProps> = ({ children, ...props }) => {
-  return (
-    <NodeContainerWrapper {...props}>
-      {children}
-    </NodeContainerWrapper>
-  );
+export const NodeContainer: React.FC<NodeContainerProps> = ({
+  children,
+  ...props
+}) => {
+  return <NodeContainerWrapper {...props}>{children}</NodeContainerWrapper>;
 };

@@ -1,4 +1,10 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import React, {
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+  useRef,
+} from "react";
 import styled from "styled-components";
 import {
   MapContainer,
@@ -6,7 +12,7 @@ import {
   Popup,
   TileLayer,
   useMap,
-  useMapEvents
+  useMapEvents,
 } from "react-leaflet";
 import L from "leaflet";
 import { useMapLocations } from "@n-apt/hooks/useMapLocations";
@@ -212,32 +218,43 @@ const ThemedTileLayer: React.FC = () => {
   React.useEffect(() => {
     // Check if we're in dark mode
     const checkTheme = () => {
-      const isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const isDarkMode = window.matchMedia(
+        "(prefers-color-scheme: dark)",
+      ).matches;
       setIsDark(isDarkMode);
     };
 
     checkTheme();
 
-    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-    mediaQuery.addEventListener('change', checkTheme);
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+    mediaQuery.addEventListener("change", checkTheme);
 
-    return () => mediaQuery.removeEventListener('change', checkTheme);
+    return () => mediaQuery.removeEventListener("change", checkTheme);
   }, []);
 
   return (
     <TileLayer
       attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
-      url={isDark
-        ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-        : "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
+      url={
+        isDark
+          ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+          : "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
       }
     />
   );
 };
 
 export const MapEndpointsRoute: React.FC = () => {
-  const { locations, activeLocationId, isLoaded, loadError, previewLocation } = useMapLocations();
-  const { towers, loading: towersLoading, error: towersError, truncated, totalFound, fetchTowersInBounds } = useTowers();
+  const { locations, activeLocationId, isLoaded, loadError, previewLocation } =
+    useMapLocations();
+  const {
+    towers,
+    loading: towersLoading,
+    error: towersError,
+    truncated,
+    totalFound,
+    fetchTowersInBounds,
+  } = useTowers();
   const [center, setCenter] = useState({ lat: 37.7749, lng: -122.4194 }); // Default to SF for safety
   const [zoom, setZoom] = useState(15);
   const [map, setMap] = useState<L.Map | null>(null);
@@ -352,7 +369,7 @@ export const MapEndpointsRoute: React.FC = () => {
     return L.divIcon({
       html: `<div style="background-color: ${fillColor}; width: 24px; height: 24px; border-radius: 50%; border: 2px solid #ffffff; opacity: 0.8;"></div>`,
       iconSize: [24, 24],
-      className: "tower-marker"
+      className: "tower-marker",
     });
   }, []);
 
@@ -416,7 +433,10 @@ export const MapEndpointsRoute: React.FC = () => {
 
           <ControlSection>
             <SectionTitle>Carrier / Network</SectionTitle>
-            <CarrierSelect value={carrierPresetValue} onChange={onCarrierChange}>
+            <CarrierSelect
+              value={carrierPresetValue}
+              onChange={onCarrierChange}
+            >
               <option value="all">All Carriers</option>
               <option value="310-260">T-Mobile US</option>
               <option value="310-410">AT&T Mobility</option>
@@ -427,19 +447,39 @@ export const MapEndpointsRoute: React.FC = () => {
             {carrierPresetValue === "custom" && (
               <CustomCarrierRow>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: "9px", color: "#666", marginBottom: "2px" }}>MCC</div>
+                  <div
+                    style={{
+                      fontSize: "9px",
+                      color: "#666",
+                      marginBottom: "2px",
+                    }}
+                  >
+                    MCC
+                  </div>
                   <CarrierInput
                     placeholder="310"
                     value={mcc}
-                    onChange={(e) => setMcc(e.target.value.replace(/\D/g, "").slice(0, 3))}
+                    onChange={(e) =>
+                      setMcc(e.target.value.replace(/\D/g, "").slice(0, 3))
+                    }
                   />
                 </div>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: "9px", color: "#666", marginBottom: "2px" }}>MNC</div>
+                  <div
+                    style={{
+                      fontSize: "9px",
+                      color: "#666",
+                      marginBottom: "2px",
+                    }}
+                  >
+                    MNC
+                  </div>
                   <CarrierInput
                     placeholder="260"
                     value={mnc}
-                    onChange={(e) => setMnc(e.target.value.replace(/\D/g, "").slice(0, 3))}
+                    onChange={(e) =>
+                      setMnc(e.target.value.replace(/\D/g, "").slice(0, 3))
+                    }
                   />
                 </div>
               </CustomCarrierRow>
@@ -475,10 +515,10 @@ export const MapEndpointsRoute: React.FC = () => {
                 icon={L.divIcon({
                   html: `<div style="background-color: #00d4ff; width: 16px; height: 16px; border-radius: 50%; border: 2px solid #fff;"></div>`,
                   iconSize: [16, 16],
-                  className: "active-location-marker"
+                  className: "active-location-marker",
                 })}
                 eventHandlers={{
-                  click: () => setSelectedTower(null)
+                  click: () => setSelectedTower(null),
                 }}
               />
             )}
@@ -490,10 +530,10 @@ export const MapEndpointsRoute: React.FC = () => {
                 icon={L.divIcon({
                   html: `<div style="background-color: #fff; width: 14px; height: 14px; border-radius: 50%; border: 2px solid #00d4ff; animation: bounce 1s infinite;"></div>`,
                   iconSize: [14, 14],
-                  className: "preview-marker"
+                  className: "preview-marker",
                 })}
                 eventHandlers={{
-                  click: () => setSelectedTower(null)
+                  click: () => setSelectedTower(null),
                 }}
               />
             )}
@@ -505,7 +545,7 @@ export const MapEndpointsRoute: React.FC = () => {
                 title={`${tower.radio} ${tower.mcc}-${tower.mnc} LAC ${tower.lac} CELL ${tower.cell}`}
                 icon={towerIcon(tower)}
                 eventHandlers={{
-                  click: () => setSelectedTower(tower)
+                  click: () => setSelectedTower(tower),
                 }}
               />
             ))}
@@ -516,7 +556,9 @@ export const MapEndpointsRoute: React.FC = () => {
                 className="custom-popup"
               >
                 <InfoWindowContent>
-                  <InfoTitle>{getCarrierName(selectedTower.mcc, selectedTower.mnc)}</InfoTitle>
+                  <InfoTitle>
+                    {getCarrierName(selectedTower.mcc, selectedTower.mnc)}
+                  </InfoTitle>
                   <InfoRow>
                     <InfoLabel>Radio Type:</InfoLabel>
                     <InfoValue>{selectedTower.radio.toUpperCase()}</InfoValue>
@@ -531,14 +573,20 @@ export const MapEndpointsRoute: React.FC = () => {
                   </InfoRow>
                   <InfoRow>
                     <InfoLabel>MCC-MNC:</InfoLabel>
-                    <InfoValue>{selectedTower.mcc}-{selectedTower.mnc}</InfoValue>
+                    <InfoValue>
+                      {selectedTower.mcc}-{selectedTower.mnc}
+                    </InfoValue>
                   </InfoRow>
                   <InfoRow>
                     <InfoLabel>Coords:</InfoLabel>
-                    <InfoValue>{selectedTower.lat.toFixed(5)}, {selectedTower.lon.toFixed(5)}</InfoValue>
+                    <InfoValue>
+                      {selectedTower.lat.toFixed(5)},{" "}
+                      {selectedTower.lon.toFixed(5)}
+                    </InfoValue>
                   </InfoRow>
                   <LeaseeBadge>
-                    Infrastructure provided by {getPotentialLeasee(selectedTower.id)} (Est.)
+                    Infrastructure provided by{" "}
+                    {getPotentialLeasee(selectedTower.id)} (Est.)
                   </LeaseeBadge>
                 </InfoWindowContent>
               </Popup>

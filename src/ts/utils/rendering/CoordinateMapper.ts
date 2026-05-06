@@ -24,7 +24,7 @@ export class CoordinateMapper {
     plotArea: Rect,
     freqRange: Range,
     dbRange: Range,
-    dpr: number = 1
+    dpr: number = 1,
   ) {
     this.plotArea = plotArea;
     this.freqRange = freqRange;
@@ -50,7 +50,9 @@ export class CoordinateMapper {
     if (range === 0) return this.plotArea.y + this.plotArea.height;
     // Higher dB means smaller Y (higher on screen)
     const ratio = (db - this.dbRange.min) / range;
-    return this.plotArea.y + this.plotArea.height - ratio * this.plotArea.height;
+    return (
+      this.plotArea.y + this.plotArea.height - ratio * this.plotArea.height
+    );
   }
 
   /**
@@ -58,7 +60,10 @@ export class CoordinateMapper {
    */
   clampY(db: number): number {
     const y = this.dbToY(db);
-    return Math.max(this.plotArea.y, Math.min(this.plotArea.y + this.plotArea.height, y));
+    return Math.max(
+      this.plotArea.y,
+      Math.min(this.plotArea.y + this.plotArea.height, y),
+    );
   }
 
   /**

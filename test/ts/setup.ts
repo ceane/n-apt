@@ -77,28 +77,40 @@ jest.mock("@react-three/drei", () => ({
   })),
 }));
 
-jest.mock("@react-three/flex", () => ({
-  Flex: ({ children }: any) => React.createElement("div", null, children),
-  Box: ({ children }: any) => React.createElement("div", null, children),
-}), { virtual: true });
+jest.mock(
+  "@react-three/flex",
+  () => ({
+    Flex: ({ children }: any) => React.createElement("div", null, children),
+    Box: ({ children }: any) => React.createElement("div", null, children),
+  }),
+  { virtual: true },
+);
 
-jest.mock("@react-three/postprocessing", () => ({
-  EffectComposer: ({ children }: any) => children ?? null,
-  Bloom: () => null,
-}), { virtual: true });
+jest.mock(
+  "@react-three/postprocessing",
+  () => ({
+    EffectComposer: ({ children }: any) => children ?? null,
+    Bloom: () => null,
+  }),
+  { virtual: true },
+);
 
-jest.mock("@chenglou/pretext", () => ({
-  prepareWithSegments: jest.fn((text: string) => ({ text })),
-  layout: jest.fn(() => ({ height: 20, lineCount: 1 })),
-  layoutWithLines: jest.fn(() => ({
-    height: 20,
-    lines: [{ text: "mock line", width: 80 }],
-  })),
-  layoutNextLine: jest.fn(() => ({
-    text: "mock line",
-    end: { segmentIndex: 0, graphemeIndex: 0 },
-  })),
-}), { virtual: true });
+jest.mock(
+  "@chenglou/pretext",
+  () => ({
+    prepareWithSegments: jest.fn((text: string) => ({ text })),
+    layout: jest.fn(() => ({ height: 20, lineCount: 1 })),
+    layoutWithLines: jest.fn(() => ({
+      height: 20,
+      lines: [{ text: "mock line", width: 80 }],
+    })),
+    layoutNextLine: jest.fn(() => ({
+      text: "mock line",
+      end: { segmentIndex: 0, graphemeIndex: 0 },
+    })),
+  }),
+  { virtual: true },
+);
 
 jest.mock("leva", () => ({
   LevaPanel: () => null,
@@ -200,7 +212,7 @@ global.ImageData = class ImageData {
 } as any;
 
 // Mock canvas for FFT/waterfall testing
-if (typeof HTMLCanvasElement !== 'undefined') {
+if (typeof HTMLCanvasElement !== "undefined") {
   HTMLCanvasElement.prototype.getContext = jest.fn(
     () =>
       ({
@@ -208,7 +220,9 @@ if (typeof HTMLCanvasElement !== 'undefined') {
         clearRect: jest.fn(),
         getImageData: jest.fn(() => new ImageData(800, 600)),
         putImageData: jest.fn(),
-        createImageData: jest.fn((width, height) => new ImageData(width, height)),
+        createImageData: jest.fn(
+          (width, height) => new ImageData(width, height),
+        ),
         setTransform: jest.fn(),
         drawImage: jest.fn(),
         save: jest.fn(),
@@ -233,7 +247,7 @@ if (typeof HTMLCanvasElement !== 'undefined') {
 }
 
 // Mock canvas size properties
-if (typeof HTMLCanvasElement !== 'undefined') {
+if (typeof HTMLCanvasElement !== "undefined") {
   Object.defineProperty(HTMLCanvasElement.prototype, "width", {
     get() {
       return 800;
@@ -254,7 +268,7 @@ if (typeof HTMLCanvasElement !== 'undefined') {
 }
 
 // Mock getBoundingClientRect
-if (typeof Element !== 'undefined') {
+if (typeof Element !== "undefined") {
   Element.prototype.getBoundingClientRect = jest.fn(() => ({
     width: 800,
     height: 600,
@@ -352,29 +366,35 @@ if (typeof performance !== "undefined" && !performance.clearMarks) {
 }
 
 // Mock WASM modules
-jest.mock("n_apt_canvas", () => {
-  const mockModule: any = {
-    __esModule: true,
-    RenderingProcessor: class {
-      process = jest.fn();
-      destroy = jest.fn();
-      resample_spectrum = jest.fn();
-      shift_waterfall_buffer = jest.fn();
-      apply_color_mapping = jest.fn();
-      get_zoomed_data = jest.fn(() => ({
-        slicedWaveform: new Float32Array(0),
-        visualRange: [0, 1],
-        clampedPan: 0
-      }));
-      transform_to_screen_coords = jest.fn(() => []);
-      process_iq_to_dbm_spectrum = jest.fn((input) => new Float32Array(input.length / 2));
-    },
-    match_noise_floor_db_wasm: jest.fn((
-      _reference: Float32Array,
-      target: Float32Array,
-    ) => new Float32Array(target)),
-    test_wasm_simd_availability: jest.fn(() => false),
-  };
-  mockModule.default = jest.fn(() => Promise.resolve());
-  return mockModule;
-}, { virtual: true });
+jest.mock(
+  "n_apt_canvas",
+  () => {
+    const mockModule: any = {
+      __esModule: true,
+      RenderingProcessor: class {
+        process = jest.fn();
+        destroy = jest.fn();
+        resample_spectrum = jest.fn();
+        shift_waterfall_buffer = jest.fn();
+        apply_color_mapping = jest.fn();
+        get_zoomed_data = jest.fn(() => ({
+          slicedWaveform: new Float32Array(0),
+          visualRange: [0, 1],
+          clampedPan: 0,
+        }));
+        transform_to_screen_coords = jest.fn(() => []);
+        process_iq_to_dbm_spectrum = jest.fn(
+          (input) => new Float32Array(input.length / 2),
+        );
+      },
+      match_noise_floor_db_wasm: jest.fn(
+        (_reference: Float32Array, target: Float32Array) =>
+          new Float32Array(target),
+      ),
+      test_wasm_simd_availability: jest.fn(() => false),
+    };
+    mockModule.default = jest.fn(() => Promise.resolve());
+    return mockModule;
+  },
+  { virtual: true },
+);

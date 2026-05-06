@@ -1,4 +1,4 @@
-import DOMPurify from 'dompurify';
+import DOMPurify from "dompurify";
 
 /**
  * Sanitizes a whole SVG string, ensuring standard SVG and SMIL animation elements are preserved.
@@ -6,10 +6,29 @@ import DOMPurify from 'dompurify';
 export function sanitizeSVG(svg: string): string {
   return DOMPurify.sanitize(svg, {
     USE_PROFILES: { svg: true, svgFilters: true },
-    ADD_TAGS: ['animate', 'animateMotion', 'animateTransform', 'mpath', 'set', 'symbol', 'use'],
+    ADD_TAGS: [
+      "animate",
+      "animateMotion",
+      "animateTransform",
+      "mpath",
+      "set",
+      "symbol",
+      "use",
+    ],
     ADD_ATTR: [
-      'attributeName', 'values', 'dur', 'repeatCount', 'begin', 'from', 'to', 
-      'keyTimes', 'keySplines', 'calcMode', 'preserveAspectRatio', 'href', 'opacity'
+      "attributeName",
+      "values",
+      "dur",
+      "repeatCount",
+      "begin",
+      "from",
+      "to",
+      "keyTimes",
+      "keySplines",
+      "calcMode",
+      "preserveAspectRatio",
+      "href",
+      "opacity",
     ],
     RETURN_TRUSTED_TYPE: false,
   });
@@ -21,11 +40,11 @@ export function sanitizeSVG(svg: string): string {
  */
 export function escapeAttr(val: string | number): string {
   return String(val)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 }
 
 /**
@@ -34,7 +53,7 @@ export function escapeAttr(val: string | number): string {
 export function sanitizeNumeric(val: string | number): string {
   const s = String(val);
   // Allow numbers, decimals, units (px, %, em, rem, s, ms)
-  return s.replace(/[^\d.a-z%-]/gi, '');
+  return s.replace(/[^\d.a-z%-]/gi, "");
 }
 
 /**
@@ -42,7 +61,7 @@ export function sanitizeNumeric(val: string | number): string {
  */
 export function sanitizePath(val: string): string {
   // Allow M, L, H, V, C, S, Q, T, A, Z, numbers, commas, spaces, dots, dashes
-  return val.replace(/[^\d. ,MLHVCSQTAZz-]/gi, '');
+  return val.replace(/[^\d. ,MLHVCSQTAZz-]/gi, "");
 }
 
 /**
@@ -50,5 +69,5 @@ export function sanitizePath(val: string): string {
  */
 export function sanitizeViewBox(val: string): string {
   // Allow numbers, decimals, and spaces
-  return val.replace(/[^\d. ]/g, '');
+  return val.replace(/[^\d. ]/g, "");
 }

@@ -5,17 +5,17 @@ declare global {
     name: string;
     args: any[];
   }>;
-  
+
   var __WEBGPU_CALLS__: Array<{
     name: string;
     args: any[];
   }>;
-  
+
   var __CANVAS_CALLS__: Array<{
     name: string;
     args: any[];
   }>;
-  
+
   // Helper functions for testing
   function clearCanvasCalls(): void;
   function expectWebGLCall(callName: string, args?: any[]): any;
@@ -84,9 +84,9 @@ interface GPUColor {
   a: number;
 }
 
-type GPULoadOp = 'load' | 'clear';
-type GPUStoreOp = 'store' | 'discard';
-type GPUTextureFormat = 'bgra8unorm' | 'rgba8unorm' | 'rgba32float' | string;
+type GPULoadOp = "load" | "clear";
+type GPUStoreOp = "store" | "discard";
+type GPUTextureFormat = "bgra8unorm" | "rgba8unorm" | "rgba32float" | string;
 
 // Mock classes
 interface MockGPUBuffer {
@@ -109,7 +109,13 @@ interface MockGPUCommandEncoder {
   finish(): GPUCommandBuffer;
   beginComputePass(): GPUComputePassEncoder;
   beginRenderPass(descriptor: GPURenderPassDescriptor): GPURenderPassEncoder;
-  copyBufferToBuffer(src: GPUBuffer, srcOffset: number, dst: GPUBuffer, dstOffset: number, size: number): void;
+  copyBufferToBuffer(
+    src: GPUBuffer,
+    srcOffset: number,
+    dst: GPUBuffer,
+    dstOffset: number,
+    size: number,
+  ): void;
   copyBufferToTexture(src: any, dst: any, copySize: any): void;
   copyTextureToBuffer(src: any, dst: any, copySize: any): void;
   copyTextureToTexture(src: any, dst: any, copySize: any): void;
@@ -123,7 +129,9 @@ interface MockGPUDevice {
   createComputePipeline(descriptor: any): any;
   createRenderPipeline(descriptor: any): any;
   createShaderModule(descriptor: any): any;
-  createCommandEncoder(descriptor?: GPUCommandEncoderDescriptor): MockGPUCommandEncoder;
+  createCommandEncoder(
+    descriptor?: GPUCommandEncoderDescriptor,
+  ): MockGPUCommandEncoder;
   createSampler(descriptor?: any): any;
   createPipelineLayout(descriptor: any): any;
   createQuerySet(descriptor: any): any;
@@ -135,7 +143,11 @@ interface MockGPUDevice {
 
 interface MockGPUQueue {
   submit(commandBuffers: GPUCommandBuffer[]): void;
-  writeBuffer(buffer: GPUBuffer, offset: number, data: ArrayBufferView | ArrayBuffer): void;
+  writeBuffer(
+    buffer: GPUBuffer,
+    offset: number,
+    data: ArrayBufferView | ArrayBuffer,
+  ): void;
   onSubmittedWorkDone(): Promise<void>;
 }
 

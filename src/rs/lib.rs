@@ -6,6 +6,7 @@ pub mod consts;
 pub mod crypto;
 #[cfg(all(rs_decrypted, not(target_arch = "wasm32")))]
 #[path = "../encrypted-modules/tmp/rs/mod.rs"]
+#[rustfmt::skip]
 pub mod encrypted_modules;
 pub mod fft;
 #[cfg(not(target_arch = "wasm32"))]

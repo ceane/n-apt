@@ -32,7 +32,8 @@ const SettingSelect = styled.select`
   }
 
   option {
-    background-color: ${(props) => props.theme.fftBackground || props.theme.background};
+    background-color: ${(props) =>
+      props.theme.fftBackground || props.theme.background};
     color: ${(props) => props.theme.textPrimary};
     font-family: ${(props) => props.theme.typography.mono};
   }
@@ -85,7 +86,10 @@ export const SourceInput: React.FC<SourceInputProps> = ({
         style={{ minWidth: "130px" }}
       >
         <option value="live">{getLiveInputLabel(backend, deviceName)}</option>
-        <option value="file" style={fileModeColor ? { color: fileModeColor } : undefined}>
+        <option
+          value="file"
+          style={fileModeColor ? { color: fileModeColor } : undefined}
+        >
           File Selection
         </option>
       </SettingSelect>

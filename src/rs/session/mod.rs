@@ -6,7 +6,7 @@
 //!
 //! Sessions are persisted to `~/.n-apt/sessions.json` so they survive restarts.
 
-use redis::{Commands, Connection, Client as RedisClient};
+use redis::{Client as RedisClient, Commands, Connection};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -42,13 +42,17 @@ impl SessionStore {
   }
 
   fn get_conn(&self) -> Result<Connection, String> {
-    let mut conn = self.client.get_connection()
+    let mut conn = self
+      .client
+      .get_connection()
       .map_err(|e| format!("Redis connection failed: {}", e))?;
-    
+
     // Ensure we are on DB 1 for sessions
-    redis::cmd("SELECT").arg(1).query::<()>(&mut conn)
+    redis::cmd("SELECT")
+      .arg(1)
+      .query::<()>(&mut conn)
       .map_err(|e| format!("Failed to select Redis DB 1: {}", e))?;
-    
+
     Ok(conn)
   }
 
@@ -64,7 +68,8 @@ impl SessionStore {
     let session_json = serde_json::to_string(&session).unwrap_or_default();
 
     if let Ok(mut conn) = self.get_conn() {
-      let _: redis::RedisResult<()> = conn.set_ex(&key, session_json, self.ttl_secs);
+      let _: redis::RedisResult<()> =
+        conn.set_ex(&key, session_json, self.ttl_secs);
       log::info!("Session created in Redis: {}…", &token[..8]);
     } else {
       log::error!("Failed to create session in Redis: connection error");
@@ -82,7 +87,7 @@ impl SessionStore {
     }
     let mut conn = self.get_conn().ok()?;
     let key = format!("{}{}", self.prefix, token);
-    
+
     let session_json: Option<String> = conn.get(&key).ok()?;
     match session_json {
       Some(json) => {
@@ -106,7 +111,6 @@ impl SessionStore {
     }
   }
 }
-
 
 // NOTE: The tests below were written for the old file-based SessionStore
 // (with_path, with_path_and_ttl, created_at_epoch, expires_at_epoch).

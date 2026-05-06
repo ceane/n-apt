@@ -13,7 +13,8 @@ const ToggleContainer = styled.div<{ $disabled?: boolean }>`
 const Switch = styled.div<{ $active: boolean }>`
   width: 32px;
   height: 18px;
-  background-color: ${(props) => (props.$active ? props.theme.primary : props.theme.borderHover)};
+  background-color: ${(props) =>
+    props.$active ? props.theme.primary : props.theme.borderHover};
   border-radius: 9px;
   position: relative;
   transition: background-color 0.2s ease;

@@ -35,9 +35,10 @@ export const DemodRoute: React.FC = () => {
 
       <DemodRouteSection />
 
-      {analysisSession.state === 'capturing' && analysisSession.type === 'vision' && (
-        <VisionScene session={analysisSession} />
-      )}
+      {analysisSession.state === "capturing" &&
+        analysisSession.type === "vision" && (
+          <VisionScene session={analysisSession} />
+        )}
     </DemodContainer>
   );
 };

@@ -1,6 +1,6 @@
 /**
  * WebSocket Schema Definitions
- * 
+ *
  * This file contains the TypeScript definitions for all WebSocket messages
  * exchanged between the client and server.
  */
@@ -61,7 +61,11 @@ export type SdrSettingsConfig = {
   };
 };
 
-export type AptContentType = "audio_hearing" | "audio_internal" | "speech" | "video_vision";
+export type AptContentType =
+  | "audio_hearing"
+  | "audio_internal"
+  | "speech"
+  | "video_vision";
 
 export interface AptChannelMetadata {
   windowSizeHz: number;
@@ -122,7 +126,11 @@ export type CaptureRequest = {
   fftSize: number;
   fftWindow: string;
   geolocation?: GeolocationData;
-  refBasedDemodBaseline?: "audio_hearing" | "audio_internal" | "speech" | "vision";
+  refBasedDemodBaseline?:
+    | "audio_hearing"
+    | "audio_internal"
+    | "speech"
+    | "vision";
   liveMode?: boolean;
 };
 
@@ -172,14 +180,23 @@ export interface StatusMessage {
 }
 
 export type WebSocketMessage =
-  | { type: "frequency_range" | "set_frequency_range"; min_hz: number; max_hz: number }
+  | {
+      type: "frequency_range" | "set_frequency_range";
+      min_hz: number;
+      max_hz: number;
+    }
   | { type: "pause"; paused: boolean }
   | { type: "gain"; gain: number }
   | { type: "ppm"; ppm: number }
   | ({ type: "settings" } & SDRSettings)
   | { type: "frame_rate"; frameRate: number }
   | { type: "restart_device" }
-  | { type: "training_capture"; action: "start" | "stop"; label: "target" | "noise"; signalArea: string }
+  | {
+      type: "training_capture";
+      action: "start" | "stop";
+      label: "target" | "noise";
+      signalArea: string;
+    }
   | ({ type: "capture" } & CaptureRequest)
   | { type: "capture_stop"; jobId?: string }
   | { type: "get_auto_fft_options"; screenWidth: number };

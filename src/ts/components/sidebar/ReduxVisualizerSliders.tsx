@@ -23,27 +23,40 @@ const ReduxVisualizerSliders: React.FC<ReduxVisualizerSlidersProps> = ({
   const dispatch = useAppDispatch();
 
   // Get state from Redux
-  const vizZoom = useAppSelector(state => state.spectrum.vizZoom);
-  const fftMinDb = useAppSelector(state => state.spectrum.fftMinDb);
-  const fftMaxDb = useAppSelector(state => state.spectrum.fftMaxDb);
-  const powerScale = useAppSelector(state => state.spectrum.powerScale);
-  const fftAvgEnabled = useAppSelector(state => state.spectrum.fftAvgEnabled);
-  const fftSmoothEnabled = useAppSelector(state => state.spectrum.fftSmoothEnabled);
-  const wfSmoothEnabled = useAppSelector(state => state.spectrum.wfSmoothEnabled);
+  const vizZoom = useAppSelector((state) => state.spectrum.vizZoom);
+  const fftMinDb = useAppSelector((state) => state.spectrum.fftMinDb);
+  const fftMaxDb = useAppSelector((state) => state.spectrum.fftMaxDb);
+  const powerScale = useAppSelector((state) => state.spectrum.powerScale);
+  const fftAvgEnabled = useAppSelector((state) => state.spectrum.fftAvgEnabled);
+  const fftSmoothEnabled = useAppSelector(
+    (state) => state.spectrum.fftSmoothEnabled,
+  );
+  const wfSmoothEnabled = useAppSelector(
+    (state) => state.spectrum.wfSmoothEnabled,
+  );
 
   // Handle zoom change
-  const handleZoomChange = React.useCallback((zoom: number) => {
-    dispatch(spectrumActions.setVizZoom(zoom));
-  }, [dispatch]);
+  const handleZoomChange = React.useCallback(
+    (zoom: number) => {
+      dispatch(spectrumActions.setVizZoom(zoom));
+    },
+    [dispatch],
+  );
 
   // Handle dB range changes
-  const handleDbMaxChange = React.useCallback((dbMax: number) => {
-    dispatch(spectrumActions.setFftDbLimits({ min: fftMinDb, max: dbMax }));
-  }, [dispatch, fftMinDb]);
+  const handleDbMaxChange = React.useCallback(
+    (dbMax: number) => {
+      dispatch(spectrumActions.setFftDbLimits({ min: fftMinDb, max: dbMax }));
+    },
+    [dispatch, fftMinDb],
+  );
 
-  const handleDbMinChange = React.useCallback((dbMin: number) => {
-    dispatch(spectrumActions.setFftDbLimits({ min: dbMin, max: fftMaxDb }));
-  }, [dispatch, fftMaxDb]);
+  const handleDbMinChange = React.useCallback(
+    (dbMin: number) => {
+      dispatch(spectrumActions.setFftDbLimits({ min: dbMin, max: fftMaxDb }));
+    },
+    [dispatch, fftMaxDb],
+  );
 
   // Handle reset
   const handleResetZoomDb = React.useCallback(() => {
@@ -52,17 +65,26 @@ const ReduxVisualizerSliders: React.FC<ReduxVisualizerSlidersProps> = ({
   }, [dispatch, onResetZoomDb]);
 
   // Handle toggle changes (these would need Redux actions added)
-  const handleFftAvgChange = React.useCallback((enabled: boolean) => {
-    dispatch(spectrumActions.setFftAvgEnabled(enabled));
-  }, [dispatch]);
+  const handleFftAvgChange = React.useCallback(
+    (enabled: boolean) => {
+      dispatch(spectrumActions.setFftAvgEnabled(enabled));
+    },
+    [dispatch],
+  );
 
-  const handleFftSmoothChange = React.useCallback((enabled: boolean) => {
-    dispatch(spectrumActions.setFftSmoothEnabled(enabled));
-  }, [dispatch]);
+  const handleFftSmoothChange = React.useCallback(
+    (enabled: boolean) => {
+      dispatch(spectrumActions.setFftSmoothEnabled(enabled));
+    },
+    [dispatch],
+  );
 
-  const handleWfSmoothChange = React.useCallback((enabled: boolean) => {
-    dispatch(spectrumActions.setWfSmoothEnabled(enabled));
-  }, [dispatch]);
+  const handleWfSmoothChange = React.useCallback(
+    (enabled: boolean) => {
+      dispatch(spectrumActions.setWfSmoothEnabled(enabled));
+    },
+    [dispatch],
+  );
 
   return (
     <Container>

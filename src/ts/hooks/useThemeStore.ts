@@ -9,7 +9,7 @@ export interface ThemeState {
   accentColor: string;
   fftColor: string;
   waterfallTheme: string; // ID from WATERFALL_COLORMAPS
-  
+
   setAppMode: (mode: AppMode) => void;
   setAccentColor: (color: string) => void;
   setFftColor: (color: string) => void;
@@ -28,7 +28,7 @@ export const useThemeStore = create<ThemeState>()(
   persist(
     (set) => ({
       ...DEFAULTS,
-      
+
       setAppMode: (appMode) => set({ appMode }),
       setAccentColor: (accentColor) => set({ accentColor }),
       setFftColor: (fftColor) => set({ fftColor }),
@@ -37,6 +37,6 @@ export const useThemeStore = create<ThemeState>()(
     }),
     {
       name: "napt-theme-storage",
-    }
-  )
+    },
+  ),
 );

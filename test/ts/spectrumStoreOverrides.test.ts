@@ -71,7 +71,9 @@ describe("applyWaterfallStateOverrides", () => {
     );
 
     expect(merged.sourceMode).toBe("file");
-    expect(merged.selectedFiles).toEqual([{ id: "file-1", name: "capture.napt" }]);
+    expect(merged.selectedFiles).toEqual([
+      { id: "file-1", name: "capture.napt" },
+    ]);
     expect(merged.stitchStatus).toBe("processing");
     expect(merged.isStitchPaused).toBe(true);
     expect(merged.drawSignal3D).toBe(true);

@@ -84,14 +84,17 @@ const getPersistedNumber = (key: string): number | null => {
 const estimateRefreshRateFromSamples = (samples: number[]): number | null => {
   if (samples.length === 0) return null;
 
-  const sorted = [...samples].filter((value) => Number.isFinite(value) && value > 0).sort((a, b) => a - b);
+  const sorted = [...samples]
+    .filter((value) => Number.isFinite(value) && value > 0)
+    .sort((a, b) => a - b);
   if (sorted.length === 0) return null;
 
   // Use the fastest stable cluster to approximate the display's max refresh.
   // Average-based estimates are easily pulled down by occasional dropped frames.
   const fastestClusterSize = Math.max(5, Math.floor(sorted.length * 0.25));
   const fastestCluster = sorted.slice(0, fastestClusterSize);
-  const medianOfFastestCluster = fastestCluster[Math.floor(fastestCluster.length / 2)];
+  const medianOfFastestCluster =
+    fastestCluster[Math.floor(fastestCluster.length / 2)];
 
   if (!medianOfFastestCluster || medianOfFastestCluster <= 0) return null;
 
@@ -166,10 +169,10 @@ export type DrawParams = {
   spikesAmplitude: number; // Unit: dB (max 0)
   decayRate: number;
   envelopeWidth: number;
-  centerOffset: number;    // Unit: Hz
-  peakAmplitude: number;   // Unit: dB (max 0)
+  centerOffset: number; // Unit: Hz
+  peakAmplitude: number; // Unit: dB (max 0)
   simulatedNoise: number;
-  beats: BeatParams[];     // Up to 2 beats
+  beats: BeatParams[]; // Up to 2 beats
 };
 
 export type SpectrumState = {
@@ -229,14 +232,14 @@ export type SpectrumAction =
   | { type: "SET_SIGNAL_AREA"; area: string }
   | { type: "SET_FREQUENCY_RANGE"; range: FrequencyRange }
   | {
-    type: "SET_SIGNAL_AREA_AND_RANGE";
-    area: string;
-    range: FrequencyRange;
-  }
+      type: "SET_SIGNAL_AREA_AND_RANGE";
+      area: string;
+      range: FrequencyRange;
+    }
   | {
-    type: "SET_TEMPORAL_RESOLUTION";
-    resolution: "low" | "medium" | "high";
-  }
+      type: "SET_TEMPORAL_RESOLUTION";
+      resolution: "low" | "medium" | "high";
+    }
   | { type: "SET_POWER_SCALE"; powerScale: "dB" | "dBm" }
   | { type: "SET_SELECTED_FILES"; files: SelectedFile[] }
   | { type: "SET_SNAPSHOT_GRID"; preference: boolean }
@@ -252,9 +255,9 @@ export type SpectrumAction =
   | { type: "TRIGGER_STITCH" }
   | { type: "TOGGLE_STITCH_PAUSE" }
   | {
-    type: "SET_STITCH_SOURCE_SETTINGS";
-    settings: { gain: number; ppm: number };
-  }
+      type: "SET_STITCH_SOURCE_SETTINGS";
+      settings: { gain: number; ppm: number };
+    }
   | { type: "SET_STITCH_PAUSED"; paused: boolean }
   | { type: "LEAVE_VISUALIZER" }
   | { type: "SET_FFT_FRAME_RATE"; fftFrameRate: number }
@@ -271,12 +274,12 @@ export type SpectrumAction =
   | { type: "REQUEST_HETERODYNING_VERIFY" }
   | { type: "SET_HETERODYNING_VERIFY_DISABLED"; disabled: boolean }
   | {
-    type: "SET_HETERODYNING_RESULT";
-    detected: boolean;
-    confidence: number | null;
-    statusText: string;
-    highlightedBins: Array<{ start: number; end: number }>;
-  }
+      type: "SET_HETERODYNING_RESULT";
+      detected: boolean;
+      confidence: number | null;
+      statusText: string;
+      highlightedBins: Array<{ start: number; end: number }>;
+    }
   | { type: "RESET_ZOOM_AND_DB" }
   | { type: "RESET_DRAW_PARAMS" }
   | { type: "RESET_LIVE_CONTROLS"; fftSize?: number; fftFrameRate?: number }
@@ -303,7 +306,7 @@ export const INITIAL_SPECTRUM_STATE: SpectrumState = {
       decayRate: 0.2,
       envelopeWidth: 10,
       centerOffset: 1_500_000,
-      peakAmplitude: -40,    // -40 dB
+      peakAmplitude: -40, // -40 dB
       simulatedNoise: 0.05,
       beats: [],
     },
@@ -367,7 +370,11 @@ const loadPersistedSdrSettings = (): Partial<SpectrumState> => {
       delete parsed.powerScale;
     }
     // Ensure lastKnownRanges is a valid object (not null, undefined, or non-object)
-    if (!parsed.lastKnownRanges || typeof parsed.lastKnownRanges !== "object" || Array.isArray(parsed.lastKnownRanges)) {
+    if (
+      !parsed.lastKnownRanges ||
+      typeof parsed.lastKnownRanges !== "object" ||
+      Array.isArray(parsed.lastKnownRanges)
+    ) {
       parsed.lastKnownRanges = {};
     }
 
@@ -398,7 +405,10 @@ export function spectrumReducer(
       ) {
         return state;
       }
-      const safeRanges = state.lastKnownRanges && typeof state.lastKnownRanges === 'object' ? state.lastKnownRanges : {};
+      const safeRanges =
+        state.lastKnownRanges && typeof state.lastKnownRanges === "object"
+          ? state.lastKnownRanges
+          : {};
       return {
         ...state,
         frequencyRange: action.range,
@@ -407,7 +417,10 @@ export function spectrumReducer(
           : safeRanges,
       };
     case "SET_SIGNAL_AREA_AND_RANGE":
-      const safeRanges2 = state.lastKnownRanges && typeof state.lastKnownRanges === 'object' ? state.lastKnownRanges : {};
+      const safeRanges2 =
+        state.lastKnownRanges && typeof state.lastKnownRanges === "object"
+          ? state.lastKnownRanges
+          : {};
       return {
         ...state,
         activeSignalArea: action.area,
@@ -520,18 +533,27 @@ export function spectrumReducer(
     case "SET_VIZ_PAN":
       return { ...state, vizPanOffset: action.pan };
     case "SET_FFT_DB_LIMITS":
-      return { ...state, fftMinDb: Math.round(action.min), fftMaxDb: Math.round(action.max) };
+      return {
+        ...state,
+        fftMinDb: Math.round(action.min),
+        fftMaxDb: Math.round(action.max),
+      };
     case "SET_SHOW_SPIKE_OVERLAY":
       return { ...state, showSpikeOverlay: action.enabled };
     case "SET_SAMPLE_RATE":
-      return { ...state, sampleRateHz: action.sampleRateHz, sample_size: action.sampleRateHz };
+      return {
+        ...state,
+        sampleRateHz: action.sampleRateHz,
+        sample_size: action.sampleRateHz,
+      };
     case "SET_SDR_SETTINGS_BUNDLE":
       return {
         ...state,
         ...action.settings,
-        sample_size: typeof action.settings.sampleRateHz === "number"
-          ? action.settings.sampleRateHz
-          : state.sample_size,
+        sample_size:
+          typeof action.settings.sampleRateHz === "number"
+            ? action.settings.sampleRateHz
+            : state.sample_size,
       };
     case "REQUEST_HETERODYNING_VERIFY":
       return {
@@ -548,11 +570,11 @@ export function spectrumReducer(
         heterodyningVerifyDisabled: action.disabled,
         ...(action.disabled
           ? {
-            heterodyningStatusText: "Unavailable",
-            heterodyningConfidence: null,
-            heterodyningDetected: false,
-            heterodyningHighlightedBins: [],
-          }
+              heterodyningStatusText: "Unavailable",
+              heterodyningConfidence: null,
+              heterodyningDetected: false,
+              heterodyningHighlightedBins: [],
+            }
           : {}),
       };
     case "SET_HETERODYNING_RESULT":
@@ -576,7 +598,9 @@ export function spectrumReducer(
     case "RESET_DRAW_PARAMS":
       return {
         ...state,
-        drawParams: JSON.parse(JSON.stringify(INITIAL_SPECTRUM_STATE.drawParams)),
+        drawParams: JSON.parse(
+          JSON.stringify(INITIAL_SPECTRUM_STATE.drawParams),
+        ),
         globalNoiseFloor: INITIAL_SPECTRUM_STATE.globalNoiseFloor,
         activeClumpIndex: 0,
       };
@@ -584,7 +608,8 @@ export function spectrumReducer(
       const isDbm = state.powerScale === "dBm";
       return {
         ...state,
-        displayTemporalResolution: LIVE_CONTROL_DEFAULTS.displayTemporalResolution,
+        displayTemporalResolution:
+          LIVE_CONTROL_DEFAULTS.displayTemporalResolution,
         vizZoom: LIVE_CONTROL_DEFAULTS.vizZoom,
         vizPanOffset: LIVE_CONTROL_DEFAULTS.vizPanOffset,
         fftMinDb: isDbm ? -100 : -120,
@@ -655,7 +680,12 @@ export type SpectrumStoreContextValue = {
     sendSettings: (settings: SDRSettings) => void;
     sendRestartDevice: () => void;
     sendCaptureCommand: (req: CaptureRequest) => void;
-    sendScanCommand: (jobId: string, minFreq: number, maxFreq: number, options?: any) => void;
+    sendScanCommand: (
+      jobId: string,
+      minFreq: number,
+      maxFreq: number,
+      options?: any,
+    ) => void;
     sendDemodulateCommand: (jobId: string, region: any) => void;
     sendTrainingCommand: (
       action: "start" | "stop",
@@ -688,656 +718,720 @@ interface SpectrumProviderProps {
   mockValue?: SpectrumStoreContextValue;
 }
 
-export const SpectrumProvider: React.FC<SpectrumProviderProps> = memo(({
-  children,
-  mockValue,
-}) => {
-  if (mockValue) {
-    return (
-      <SpectrumStoreContext.Provider value={mockValue}>
-        {children}
-      </SpectrumStoreContext.Provider>
-    );
-  }
-
-  const [state, dispatch] = useReducer(spectrumReducer, {
-    ...INITIAL_SPECTRUM_STATE,
-    ...loadPersistedSdrSettings(),
-  });
-  const fftVisualizerMachineRef = useRef<FFTVisualizerMachine | null>(null);
-  if (!fftVisualizerMachineRef.current) {
-    fftVisualizerMachineRef.current = createFFTVisualizerMachine();
-  }
-  const fftVisualizerMachine = fftVisualizerMachineRef.current;
-  const location = useLocation();
-  const reduxDispatch = useAppDispatch();
-
-  const { isAuthenticated, sessionToken, aesKey } = useAuthentication();
-  const wsUrl = sessionToken ? buildWsUrl(sessionToken) : "";
-  const isConnected = useAppSelector((s) => s.websocket.isConnected);
-  const isPaused = useAppSelector((s) => s.websocket.isPaused);
-  const serverPaused = useAppSelector((s) => s.websocket.serverPaused);
-  const backend = useAppSelector((s) => s.websocket.backend);
-  const deviceInfo = useAppSelector((s) => s.websocket.deviceInfo);
-  const cryptoCorrupted = useAppSelector((s) => s.websocket.cryptoCorrupted);
-  const deviceName = useAppSelector((s) => s.websocket.deviceName);
-  const deviceProfile = useAppSelector((s) => s.websocket.deviceProfile);
-  const deviceLoadingReason = useAppSelector((s) => s.websocket.deviceLoadingReason);
-  const maxSampleRateHz = useAppSelector((s) => s.websocket.maxSampleRateHz);
-  const sampleRateHz = useAppSelector((s) => s.websocket.sampleRateHz);
-  const sdrSettings = useAppSelector((s) => s.websocket.sdrSettings);
-  const wsSpectrumFrames = useAppSelector((s) => s.websocket.spectrumFrames);
-  const captureStatus = useAppSelector((s) => s.websocket.captureStatus);
-  const autoFftOptions = useAppSelector((s) => s.websocket.autoFftOptions);
-  const error = useAppSelector((s) => s.websocket.error);
-  const deviceState = useAppSelector((s) => s.websocket.deviceState);
-  const waterfallState = useAppSelector((s) => s.waterfall);
-  // liveDataRef is written directly by the middleware — never goes through Redux.
-  const dataRef = liveDataRef;
-
-  const mergedState = useMemo(
-    () => applyWaterfallStateOverrides(state, waterfallState),
-    [state, waterfallState],
-  );
-
-  const storeDispatch = useCallback(
-    (action: SpectrumAction) => {
-      switch (action.type) {
-        case "SET_SOURCE_MODE":
-          reduxDispatch(setWaterfallSourceMode(action.mode));
-          return;
-        case "SET_SELECTED_FILES":
-          reduxDispatch(setWaterfallSelectedFiles(action.files));
-          return;
-        case "SET_SNAPSHOT_GRID":
-          reduxDispatch(setWaterfallSnapshotGrid(action.preference));
-          dispatch(action);
-          return;
-        case "SET_GLOBAL_NOISE_FLOOR":
-          reduxDispatch(setWaterfallGlobalNoiseFloor(action.noise));
-          return;
-        case "SET_STITCH_STATUS":
-          reduxDispatch(setWaterfallStitchStatus(action.status));
-          return;
-        case "TRIGGER_STITCH":
-          reduxDispatch(triggerWaterfallStitch());
-          return;
-        case "TOGGLE_STITCH_PAUSE":
-          reduxDispatch(toggleWaterfallStitchPause());
-          return;
-        case "SET_STITCH_SOURCE_SETTINGS":
-          reduxDispatch(setWaterfallStitchSourceSettings(action.settings));
-          return;
-        case "SET_STITCH_PAUSED":
-          reduxDispatch(setWaterfallStitchPaused(action.paused));
-          return;
-        case "CLEAR_WATERFALL":
-          reduxDispatch(clearWaterfall());
-          return;
-        case "RESET_WATERFALL_CLEARED":
-          reduxDispatch(resetWaterfallCleared());
-          return;
-        case "SET_DRAW_SIGNAL_3D":
-          reduxDispatch(setWaterfallDrawSignal3D(action.enabled));
-          return;
-        case "SET_SDR_SETTINGS_BUNDLE":
-          reduxDispatch(setSdrSettingsBundleAction(action.settings as any));
-          dispatch(action);
-          return;
-        case "RESET_LIVE_CONTROLS":
-          reduxDispatch(resetLiveControlsAction({ fftSize: action.fftSize, fftFrameRate: action.fftFrameRate }));
-          dispatch(action);
-          return;
-        case "RESET_ZOOM_AND_DB":
-          reduxDispatch(resetZoomAndDbAction());
-          dispatch(action);
-          return;
-        case "TRAINING_STOP":
-          reduxDispatch(resetTrainingCapture());
-          return;
-        default:
-          dispatch(action);
-      }
-    },
-    [reduxDispatch],
-  );
-
-  useEffect(() => {
-    reduxDispatch(
-      connectWebSocket({
-        url: wsUrl,
-        aesKey,
-        enabled: isAuthenticated,
-      }),
-    );
-    return () => {
-      reduxDispatch(disconnectWebSocket());
-    };
-  }, [reduxDispatch, wsUrl, aesKey, isAuthenticated]);
-
-  const sendFrequencyRangeCommand = useCallback(
-    (range: FrequencyRange) => {
-      reduxDispatch(sendFrequencyRangeThunk(range));
-    },
-    [reduxDispatch],
-  );
-
-  const sendPauseCommand = useCallback(
-    (paused: boolean) => {
-      reduxDispatch({
-        type: "websocket/setPaused",
-        payload: { isPaused: paused },
-      });
-    },
-    [reduxDispatch],
-  );
-
-  const sendSettingsCommand = useCallback(
-    (settings: SDRSettings) => {
-      reduxDispatch(sendSettingsThunk(settings));
-    },
-    [reduxDispatch],
-  );
-
-  const sendRestartDeviceCommand = useCallback(() => {
-    reduxDispatch(sendRestartDeviceThunk());
-  }, [reduxDispatch]);
-
-  const sendCaptureCommand = useCallback(
-    (req: CaptureRequest) => {
-      reduxDispatch(sendCaptureCommandThunk(req));
-    },
-    [reduxDispatch],
-  );
-
-  const sendScanCommand = useCallback(
-    (jobId: string, minFreq: number, maxFreq: number, options?: any) => {
-      reduxDispatch(sendScanCommandThunk({ jobId, minFreq, maxFreq, options }));
-    },
-    [reduxDispatch],
-  );
-
-  const sendDemodulateCommand = useCallback(
-    (jobId: string, region: any) => {
-      reduxDispatch(sendDemodulateCommandThunk({ jobId, region }));
-    },
-    [reduxDispatch],
-  );
-
-  const sendTrainingCommand = useCallback(
-    (
-      action: "start" | "stop",
-      label: "target" | "noise",
-      signalArea: string,
-    ) => {
-      reduxDispatch(sendTrainingCommandThunk({ action, label, signalArea }));
-    },
-    [reduxDispatch],
-  );
-
-  const sendGetAutoFftOptionsCommand = useCallback(
-    (screenWidth: number) => {
-      reduxDispatch(sendGetAutoFftOptionsThunk(screenWidth));
-    },
-    [reduxDispatch],
-  );
-
-  const sendPowerScaleCommand = useCallback(
-    (scale: "dB" | "dBm") => {
-      reduxDispatch(sendPowerScaleCommandThunk(scale));
-    },
-    [reduxDispatch],
-  );
-
-  const wsConnection = useMemo(
-    () => ({
-      isConnected,
-      deviceState,
-      deviceLoadingReason,
-      isPaused,
-      serverPaused,
-      backend,
-      deviceInfo,
-      deviceName,
-      deviceProfile,
-      maxSampleRateHz,
-      sampleRateHz,
-      sdrSettings,
-      dataRef,
-      spectrumFrames: wsSpectrumFrames,
-      captureStatus,
-      autoFftOptions,
-      error,
-      cryptoCorrupted,
-      sendFrequencyRange: sendFrequencyRangeCommand,
-      sendPauseCommand,
-      sendSettings: sendSettingsCommand,
-      sendRestartDevice: sendRestartDeviceCommand,
-      sendCaptureCommand,
-      sendScanCommand,
-      sendDemodulateCommand,
-      sendTrainingCommand,
-      sendGetAutoFftOptions: sendGetAutoFftOptionsCommand,
-      sendPowerScaleCommand,
-    }),
-    [
-      isConnected,
-      deviceState,
-      deviceLoadingReason,
-      isPaused,
-      serverPaused,
-      backend,
-      deviceInfo,
-      deviceName,
-      deviceProfile,
-      maxSampleRateHz,
-      sampleRateHz,
-      sdrSettings,
-      dataRef,
-      captureStatus,
-      autoFftOptions,
-      error,
-      cryptoCorrupted,
-      sendFrequencyRangeCommand,
-      sendPauseCommand,
-      sendSettingsCommand,
-      sendRestartDeviceCommand,
-      sendCaptureCommand,
-      sendScanCommand,
-      sendDemodulateCommand,
-      sendTrainingCommand,
-      sendGetAutoFftOptionsCommand,
-      sendPowerScaleCommand,
-    ],
-  );
-
-  // Track active spectrum route globally
-  const isVisualizerRoute =
-    location.pathname === "/" ||
-    location.pathname === "/visualizer" ||
-    location.pathname === "/demodulate";
-
-  const [manualVisualizerPaused, setManualVisualizerPaused] = useState(() => {
-    if (typeof window === "undefined") return false;
-    // On the visualizer route, always start unpaused so the first render
-    // doesn't race with the mount effect and send a stale pause=true.
-    const path = window.location.pathname;
-    if (path === "/" || path === "/visualizer" || path === "/demodulate") return false;
-    return sessionStorage.getItem(MANUAL_VISUALIZER_PAUSE_KEY) === "true";
-  });
-
-  const lastSentPauseRef = useRef<boolean | null>(null);
-
-  // Track if we've already synced backend connection settings
-  const hasInitializedBackendSettingsRef = useRef(false);
-
-  const [cachedFrames, setCachedFrames] = useState<SpectrumFrame[]>(() => {
-    if (typeof window === "undefined") return [];
-    try {
-      const raw = sessionStorage.getItem("napt-spectrum-frames");
-      if (!raw) return [];
-      const parsed = JSON.parse(raw) as SpectrumFrame[];
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  });
-
-  const [cachedSdrSettings, setCachedSdrSettings] =
-    useState<SdrSettingsConfig | null>(() => {
-      if (typeof window === "undefined") return null;
-      try {
-        const raw = sessionStorage.getItem("napt-sdr-settings");
-        if (!raw) return null;
-        return JSON.parse(raw) as SdrSettingsConfig;
-      } catch {
-        return null;
-      }
-    });
-
-  // 1. Clear manual pause on EXACTLY / if on fresh mount
-  useEffect(() => {
-    if (location.pathname === "/" || location.pathname === "/demodulate" || location.pathname === "/visualizer") {
-      setManualVisualizerPaused(false);
-      sessionStorage.setItem(MANUAL_VISUALIZER_PAUSE_KEY, "false");
-    }
-  }, []); // Only once on mount
-
-  // 2. Auto-pause when navigating AWAY. We don't auto-resume.
-  useEffect(() => {
-    if (!isVisualizerRoute && !manualVisualizerPaused) {
-      setManualVisualizerPaused(true);
-      sessionStorage.setItem(MANUAL_VISUALIZER_PAUSE_KEY, "true");
-    }
-  }, [isVisualizerRoute, manualVisualizerPaused]);
-
-  // 3. Sync store visualizerPaused with manualVisualizerPaused
-  useEffect(() => {
-    if (mergedState.visualizerPaused !== manualVisualizerPaused) {
-      storeDispatch({ type: "SET_VISUALIZER_PAUSED", paused: manualVisualizerPaused });
-    }
-  }, [manualVisualizerPaused, mergedState.visualizerPaused, storeDispatch]);
-
-  // 4. Sync backend with manualVisualizerPaused
-  useEffect(() => {
-    if (isConnected && lastSentPauseRef.current !== manualVisualizerPaused) {
-      wsConnection.sendPauseCommand(manualVisualizerPaused);
-      lastSentPauseRef.current = manualVisualizerPaused;
-    }
-  }, [manualVisualizerPaused, isConnected, wsConnection]);
-
-  // Persist SDR settings when they change
-  useEffect(() => {
-    const settingsToPersist = {
-      fftSize: state.fftSize,
-      fftWindow: state.fftWindow,
-      fftFrameRate: state.fftFrameRate,
-      detectedFrameRate: state.detectedFrameRate,
-      gain: state.gain,
-      ppm: state.ppm,
-      tunerAGC: state.tunerAGC,
-      rtlAGC: state.rtlAGC,
-      vizZoom: state.vizZoom,
-      vizPanOffset: state.vizPanOffset,
-      fftMinDb: state.fftMinDb,
-      fftMaxDb: state.fftMaxDb,
-      frequencyRange: state.frequencyRange,
-      activeSignalArea: state.activeSignalArea,
-      lastKnownRanges: state.lastKnownRanges,
-      displayTemporalResolution: state.displayTemporalResolution,
-      snapshotGridPreference: mergedState.snapshotGridPreference,
-      sampleRateHz: state.sampleRateHz,
-      sample_size: state.sample_size,
-    };
-    sessionStorage.setItem(SDR_SETTINGS_KEY, JSON.stringify(settingsToPersist));
-  }, [
-    state.fftSize,
-    state.fftWindow,
-    state.fftFrameRate,
-    state.detectedFrameRate,
-    state.gain,
-    state.ppm,
-    state.tunerAGC,
-    state.rtlAGC,
-    state.vizZoom,
-    state.vizPanOffset,
-    state.fftMinDb,
-    state.fftMaxDb,
-    state.frequencyRange,
-    state.activeSignalArea,
-    state.lastKnownRanges,
-    state.displayTemporalResolution,
-    state.powerScale,
-    mergedState.snapshotGridPreference,
-    state.sampleRateHz,
-    state.sample_size,
-  ]);
-
-  const lastSentPowerScaleRef = useRef<"dB" | "dBm" | null>(null);
-  useEffect(() => {
-    if (!isConnected || lastSentPowerScaleRef.current === state.powerScale) return;
-    wsConnection.sendPowerScaleCommand(state.powerScale);
-    lastSentPowerScaleRef.current = state.powerScale;
-  }, [isConnected, wsConnection.sendPowerScaleCommand, state.powerScale]);
-
-  const lastSentFrameRateRef = useRef<number | null>(null);
-  useEffect(() => {
-    if (!isConnected || state.detectedFrameRate == null) return;
-    if (lastSentFrameRateRef.current === state.detectedFrameRate) return;
-    reduxDispatch({
-      type: "websocket/sendMessage",
-      payload: {
-        type: "frame_rate",
-        data: {
-          frameRate: Math.round(state.detectedFrameRate),
-        },
-      },
-    });
-    lastSentFrameRateRef.current = state.detectedFrameRate;
-  }, [isConnected, reduxDispatch, state.detectedFrameRate]);
-
-  // Revert power scale to dB if not supported by the current device
-  useEffect(() => {
-    if (deviceProfile && !deviceProfile.supports_approx_dbm && state.powerScale === "dBm") {
-      storeDispatch({ type: "SET_POWER_SCALE", powerScale: "dB" });
-    }
-  }, [deviceProfile, state.powerScale, storeDispatch]);
-
-  useEffect(() => {
-    if (wsSpectrumFrames.length === 0) return;
-    setCachedFrames(wsSpectrumFrames);
-    try {
-      sessionStorage.setItem(
-        "napt-spectrum-frames",
-        JSON.stringify(wsSpectrumFrames),
+export const SpectrumProvider: React.FC<SpectrumProviderProps> = memo(
+  ({ children, mockValue }) => {
+    if (mockValue) {
+      return (
+        <SpectrumStoreContext.Provider value={mockValue}>
+          {children}
+        </SpectrumStoreContext.Provider>
       );
-    } catch {
-      /* ignore */
     }
-  }, [wsSpectrumFrames]);
 
-  useEffect(() => {
-    if (!sdrSettings) return;
-    setCachedSdrSettings(sdrSettings);
-    try {
-      sessionStorage.setItem("napt-sdr-settings", JSON.stringify(sdrSettings));
-    } catch {
-      /* ignore */
-    }
-  }, [sdrSettings]);
-
-  // Sync sample rate from backend to store state
-  useEffect(() => {
-    const rate = sdrSettings?.sample_rate ?? sampleRateHz ?? maxSampleRateHz;
-    if (typeof rate === "number" && rate > 0 && rate !== state.sampleRateHz) {
-      storeDispatch({ type: "SET_SAMPLE_RATE", sampleRateHz: rate });
-    }
-  }, [sdrSettings?.sample_rate, sampleRateHz, maxSampleRateHz, state.sampleRateHz, storeDispatch]);
-
-  const effectiveFrames: SpectrumFrame[] =
-    Array.isArray(wsSpectrumFrames) && wsSpectrumFrames.length > 0
-      ? wsSpectrumFrames
-      : (Array.isArray(cachedFrames) ? cachedFrames : []);
-  const effectiveSdrSettings = sdrSettings ?? cachedSdrSettings;
-
-  const sampleRateHzEffective = sampleRateHz;
-
-  const signalAreaBounds = useMemo(() => {
-    if (!Array.isArray(effectiveFrames) || effectiveFrames.length === 0) {
-      return null;
-    }
-    const bounds: Record<string, { min: number; max: number }> = {};
-    effectiveFrames.forEach((frame) => {
-      const label = frame.label;
-      if (!label) return;
-      bounds[label] = { min: frame.min_hz, max: frame.max_hz };
-      bounds[label.toLowerCase()] = { min: frame.min_hz, max: frame.max_hz };
+    const [state, dispatch] = useReducer(spectrumReducer, {
+      ...INITIAL_SPECTRUM_STATE,
+      ...loadPersistedSdrSettings(),
     });
-    return bounds;
-  }, [effectiveFrames]);
+    const fftVisualizerMachineRef = useRef<FFTVisualizerMachine | null>(null);
+    if (!fftVisualizerMachineRef.current) {
+      fftVisualizerMachineRef.current = createFFTVisualizerMachine();
+    }
+    const fftVisualizerMachine = fftVisualizerMachineRef.current;
+    const location = useLocation();
+    const reduxDispatch = useAppDispatch();
 
-  // Initialize frequencyRange if either it is null or unset
-  // based on the first available frame (usually area 'A')
-  // and the current sample rate. This is placed after variable
-  // declarations to satisfy closure requirements.
-  useEffect(() => {
-    if (mergedState.frequencyRange) return;
-    if (!Array.isArray(effectiveFrames) || effectiveFrames.length === 0) return;
-
-    const primaryFrame =
-      effectiveFrames.find((frame) => frame.label.toLowerCase() === "a") ??
-      effectiveFrames[0];
-    if (!primaryFrame) return;
-
-    const min = primaryFrame.min_hz;
-    const max = sampleRateHz
-      ? Math.min(primaryFrame.max_hz, min + sampleRateHz)
-      : primaryFrame.max_hz;
-    const nextRange = { min, max };
-
-    const range = nextRange;
-    if (lastSentFrequencyRangeRef.current?.min === range.min && lastSentFrequencyRangeRef.current?.max === range.max) return;
-
-    storeDispatch({ type: "SET_FREQUENCY_RANGE", range: nextRange });
-    wsConnection.sendFrequencyRange(nextRange);
-    lastSentFrequencyRangeRef.current = nextRange;
-  }, [
-    mergedState.frequencyRange,
-    sampleRateHz,
-    effectiveFrames,
-    wsConnection.sendFrequencyRange,
-    storeDispatch,
-  ]);
-
-  // Execute exactly once to absorb backend default configurations (like signals.yaml gain)
-  useEffect(() => {
-    if (!sdrSettings || hasInitializedBackendSettingsRef.current) return;
-
-    // Validate we actually received meaningful backend config (e.g. valid sample rate)
-    if (
-      sdrSettings.sample_rate === 0 &&
-      (sdrSettings.center_frequency === 0 ||
-        sdrSettings.center_frequency === undefined)
-    )
-      return;
-
-    // Once valid, sync it into the global store immediately.
-    hasInitializedBackendSettingsRef.current = true;
-
-    const derived = deriveStateFromConfig(
-      sampleRateHzEffective ?? 0,
-      sdrSettings,
+    const { isAuthenticated, sessionToken, aesKey } = useAuthentication();
+    const wsUrl = sessionToken ? buildWsUrl(sessionToken) : "";
+    const isConnected = useAppSelector((s) => s.websocket.isConnected);
+    const isPaused = useAppSelector((s) => s.websocket.isPaused);
+    const serverPaused = useAppSelector((s) => s.websocket.serverPaused);
+    const backend = useAppSelector((s) => s.websocket.backend);
+    const deviceInfo = useAppSelector((s) => s.websocket.deviceInfo);
+    const cryptoCorrupted = useAppSelector((s) => s.websocket.cryptoCorrupted);
+    const deviceName = useAppSelector((s) => s.websocket.deviceName);
+    const deviceProfile = useAppSelector((s) => s.websocket.deviceProfile);
+    const deviceLoadingReason = useAppSelector(
+      (s) => s.websocket.deviceLoadingReason,
     );
-    storeDispatch({
-      type: "SET_SDR_SETTINGS_BUNDLE",
-      settings: derived,
-    });
-  }, [sdrSettings, sampleRateHzEffective, storeDispatch]);
+    const maxSampleRateHz = useAppSelector((s) => s.websocket.maxSampleRateHz);
+    const sampleRateHz = useAppSelector((s) => s.websocket.sampleRateHz);
+    const sdrSettings = useAppSelector((s) => s.websocket.sdrSettings);
+    const wsSpectrumFrames = useAppSelector((s) => s.websocket.spectrumFrames);
+    const captureStatus = useAppSelector((s) => s.websocket.captureStatus);
+    const autoFftOptions = useAppSelector((s) => s.websocket.autoFftOptions);
+    const error = useAppSelector((s) => s.websocket.error);
+    const deviceState = useAppSelector((s) => s.websocket.deviceState);
+    const waterfallState = useAppSelector((s) => s.waterfall);
+    // liveDataRef is written directly by the middleware — never goes through Redux.
+    const dataRef = liveDataRef;
 
-  const lastSentFrequencyRangeRef = useRef<FrequencyRange | null>(null);
-  useEffect(() => {
-    if (!isConnected || !mergedState.frequencyRange) return;
-    const range = mergedState.frequencyRange;
-    if (lastSentFrequencyRangeRef.current?.min === range.min && lastSentFrequencyRangeRef.current?.max === range.max) return;
+    const mergedState = useMemo(
+      () => applyWaterfallStateOverrides(state, waterfallState),
+      [state, waterfallState],
+    );
 
-    wsConnection.sendFrequencyRange(range);
-    lastSentFrequencyRangeRef.current = range;
-  }, [isConnected, mergedState.frequencyRange, wsConnection.sendFrequencyRange]);
+    const storeDispatch = useCallback(
+      (action: SpectrumAction) => {
+        switch (action.type) {
+          case "SET_SOURCE_MODE":
+            reduxDispatch(setWaterfallSourceMode(action.mode));
+            return;
+          case "SET_SELECTED_FILES":
+            reduxDispatch(setWaterfallSelectedFiles(action.files));
+            return;
+          case "SET_SNAPSHOT_GRID":
+            reduxDispatch(setWaterfallSnapshotGrid(action.preference));
+            dispatch(action);
+            return;
+          case "SET_GLOBAL_NOISE_FLOOR":
+            reduxDispatch(setWaterfallGlobalNoiseFloor(action.noise));
+            return;
+          case "SET_STITCH_STATUS":
+            reduxDispatch(setWaterfallStitchStatus(action.status));
+            return;
+          case "TRIGGER_STITCH":
+            reduxDispatch(triggerWaterfallStitch());
+            return;
+          case "TOGGLE_STITCH_PAUSE":
+            reduxDispatch(toggleWaterfallStitchPause());
+            return;
+          case "SET_STITCH_SOURCE_SETTINGS":
+            reduxDispatch(setWaterfallStitchSourceSettings(action.settings));
+            return;
+          case "SET_STITCH_PAUSED":
+            reduxDispatch(setWaterfallStitchPaused(action.paused));
+            return;
+          case "CLEAR_WATERFALL":
+            reduxDispatch(clearWaterfall());
+            return;
+          case "RESET_WATERFALL_CLEARED":
+            reduxDispatch(resetWaterfallCleared());
+            return;
+          case "SET_DRAW_SIGNAL_3D":
+            reduxDispatch(setWaterfallDrawSignal3D(action.enabled));
+            return;
+          case "SET_SDR_SETTINGS_BUNDLE":
+            reduxDispatch(setSdrSettingsBundleAction(action.settings as any));
+            dispatch(action);
+            return;
+          case "RESET_LIVE_CONTROLS":
+            reduxDispatch(
+              resetLiveControlsAction({
+                fftSize: action.fftSize,
+                fftFrameRate: action.fftFrameRate,
+              }),
+            );
+            dispatch(action);
+            return;
+          case "RESET_ZOOM_AND_DB":
+            reduxDispatch(resetZoomAndDbAction());
+            dispatch(action);
+            return;
+          case "TRAINING_STOP":
+            reduxDispatch(resetTrainingCapture());
+            return;
+          default:
+            dispatch(action);
+        }
+      },
+      [reduxDispatch],
+    );
 
-  // Screen width detection for auto FFT options
-  useEffect(() => {
-    if (!isVisualizerRoute || !isConnected) return;
-
-    const detectScreenWidth = () => {
-      const cssWidth =
-        window.innerWidth ||
-        document.documentElement.clientWidth ||
-        document.body.clientWidth;
-      const dpr = window.devicePixelRatio || 1;
-      wsConnection.sendGetAutoFftOptions(Math.round(cssWidth * dpr));
-    };
-
-    // Only request if we don't have cached auto FFT options
-    if (!autoFftOptions) {
-      // Initial detection on route load
-      detectScreenWidth();
-
-      // Listen for resize events (with debouncing)
-      let resizeTimeout: NodeJS.Timeout;
-      const handleResize = () => {
-        clearTimeout(resizeTimeout);
-        resizeTimeout = setTimeout(detectScreenWidth, 500);
-      };
-
-      window.addEventListener("resize", handleResize);
+    useEffect(() => {
+      reduxDispatch(
+        connectWebSocket({
+          url: wsUrl,
+          aesKey,
+          enabled: isAuthenticated,
+        }),
+      );
       return () => {
-        window.removeEventListener("resize", handleResize);
-        clearTimeout(resizeTimeout);
+        reduxDispatch(disconnectWebSocket());
       };
-    }
-  }, [isVisualizerRoute, isConnected, wsConnection.sendGetAutoFftOptions, autoFftOptions]);
+    }, [reduxDispatch, wsUrl, aesKey, isAuthenticated]);
 
-  useEffect(() => {
-    if (!isVisualizerRoute) return;
-    if (state.detectedFrameRate != null) return;
+    const sendFrequencyRangeCommand = useCallback(
+      (range: FrequencyRange) => {
+        reduxDispatch(sendFrequencyRangeThunk(range));
+      },
+      [reduxDispatch],
+    );
 
-    const persistedFrameRate = getPersistedNumber(VISUALIZER_FRAME_RATE_KEY);
-    if (persistedFrameRate != null) {
-      storeDispatch({ type: "SET_DETECTED_FRAME_RATE", detectedFrameRate: persistedFrameRate });
-      return;
-    }
+    const sendPauseCommand = useCallback(
+      (paused: boolean) => {
+        reduxDispatch({
+          type: "websocket/setPaused",
+          payload: { isPaused: paused },
+        });
+      },
+      [reduxDispatch],
+    );
 
-    let cancelled = false;
-    void detectRefreshRate().then((frameRate) => {
-      if (cancelled || frameRate == null) return;
+    const sendSettingsCommand = useCallback(
+      (settings: SDRSettings) => {
+        reduxDispatch(sendSettingsThunk(settings));
+      },
+      [reduxDispatch],
+    );
 
-      const rounded = Math.round(frameRate);
-      storeDispatch({ type: "SET_DETECTED_FRAME_RATE", detectedFrameRate: rounded });
+    const sendRestartDeviceCommand = useCallback(() => {
+      reduxDispatch(sendRestartDeviceThunk());
+    }, [reduxDispatch]);
+
+    const sendCaptureCommand = useCallback(
+      (req: CaptureRequest) => {
+        reduxDispatch(sendCaptureCommandThunk(req));
+      },
+      [reduxDispatch],
+    );
+
+    const sendScanCommand = useCallback(
+      (jobId: string, minFreq: number, maxFreq: number, options?: any) => {
+        reduxDispatch(
+          sendScanCommandThunk({ jobId, minFreq, maxFreq, options }),
+        );
+      },
+      [reduxDispatch],
+    );
+
+    const sendDemodulateCommand = useCallback(
+      (jobId: string, region: any) => {
+        reduxDispatch(sendDemodulateCommandThunk({ jobId, region }));
+      },
+      [reduxDispatch],
+    );
+
+    const sendTrainingCommand = useCallback(
+      (
+        action: "start" | "stop",
+        label: "target" | "noise",
+        signalArea: string,
+      ) => {
+        reduxDispatch(sendTrainingCommandThunk({ action, label, signalArea }));
+      },
+      [reduxDispatch],
+    );
+
+    const sendGetAutoFftOptionsCommand = useCallback(
+      (screenWidth: number) => {
+        reduxDispatch(sendGetAutoFftOptionsThunk(screenWidth));
+      },
+      [reduxDispatch],
+    );
+
+    const sendPowerScaleCommand = useCallback(
+      (scale: "dB" | "dBm") => {
+        reduxDispatch(sendPowerScaleCommandThunk(scale));
+      },
+      [reduxDispatch],
+    );
+
+    const wsConnection = useMemo(
+      () => ({
+        isConnected,
+        deviceState,
+        deviceLoadingReason,
+        isPaused,
+        serverPaused,
+        backend,
+        deviceInfo,
+        deviceName,
+        deviceProfile,
+        maxSampleRateHz,
+        sampleRateHz,
+        sdrSettings,
+        dataRef,
+        spectrumFrames: wsSpectrumFrames,
+        captureStatus,
+        autoFftOptions,
+        error,
+        cryptoCorrupted,
+        sendFrequencyRange: sendFrequencyRangeCommand,
+        sendPauseCommand,
+        sendSettings: sendSettingsCommand,
+        sendRestartDevice: sendRestartDeviceCommand,
+        sendCaptureCommand,
+        sendScanCommand,
+        sendDemodulateCommand,
+        sendTrainingCommand,
+        sendGetAutoFftOptions: sendGetAutoFftOptionsCommand,
+        sendPowerScaleCommand,
+      }),
+      [
+        isConnected,
+        deviceState,
+        deviceLoadingReason,
+        isPaused,
+        serverPaused,
+        backend,
+        deviceInfo,
+        deviceName,
+        deviceProfile,
+        maxSampleRateHz,
+        sampleRateHz,
+        sdrSettings,
+        dataRef,
+        captureStatus,
+        autoFftOptions,
+        error,
+        cryptoCorrupted,
+        sendFrequencyRangeCommand,
+        sendPauseCommand,
+        sendSettingsCommand,
+        sendRestartDeviceCommand,
+        sendCaptureCommand,
+        sendScanCommand,
+        sendDemodulateCommand,
+        sendTrainingCommand,
+        sendGetAutoFftOptionsCommand,
+        sendPowerScaleCommand,
+      ],
+    );
+
+    // Track active spectrum route globally
+    const isVisualizerRoute =
+      location.pathname === "/" ||
+      location.pathname === "/visualizer" ||
+      location.pathname === "/demodulate";
+
+    const [manualVisualizerPaused, setManualVisualizerPaused] = useState(() => {
+      if (typeof window === "undefined") return false;
+      // On the visualizer route, always start unpaused so the first render
+      // doesn't race with the mount effect and send a stale pause=true.
+      const path = window.location.pathname;
+      if (path === "/" || path === "/visualizer" || path === "/demodulate")
+        return false;
+      return sessionStorage.getItem(MANUAL_VISUALIZER_PAUSE_KEY) === "true";
+    });
+
+    const lastSentPauseRef = useRef<boolean | null>(null);
+
+    // Track if we've already synced backend connection settings
+    const hasInitializedBackendSettingsRef = useRef(false);
+
+    const [cachedFrames, setCachedFrames] = useState<SpectrumFrame[]>(() => {
+      if (typeof window === "undefined") return [];
       try {
-        sessionStorage.setItem(VISUALIZER_FRAME_RATE_KEY, String(rounded));
+        const raw = sessionStorage.getItem("napt-spectrum-frames");
+        if (!raw) return [];
+        const parsed = JSON.parse(raw) as SpectrumFrame[];
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    });
+
+    const [cachedSdrSettings, setCachedSdrSettings] =
+      useState<SdrSettingsConfig | null>(() => {
+        if (typeof window === "undefined") return null;
+        try {
+          const raw = sessionStorage.getItem("napt-sdr-settings");
+          if (!raw) return null;
+          return JSON.parse(raw) as SdrSettingsConfig;
+        } catch {
+          return null;
+        }
+      });
+
+    // 1. Clear manual pause on EXACTLY / if on fresh mount
+    useEffect(() => {
+      if (
+        location.pathname === "/" ||
+        location.pathname === "/demodulate" ||
+        location.pathname === "/visualizer"
+      ) {
+        setManualVisualizerPaused(false);
+        sessionStorage.setItem(MANUAL_VISUALIZER_PAUSE_KEY, "false");
+      }
+    }, []); // Only once on mount
+
+    // 2. Auto-pause when navigating AWAY. We don't auto-resume.
+    useEffect(() => {
+      if (!isVisualizerRoute && !manualVisualizerPaused) {
+        setManualVisualizerPaused(true);
+        sessionStorage.setItem(MANUAL_VISUALIZER_PAUSE_KEY, "true");
+      }
+    }, [isVisualizerRoute, manualVisualizerPaused]);
+
+    // 3. Sync store visualizerPaused with manualVisualizerPaused
+    useEffect(() => {
+      if (mergedState.visualizerPaused !== manualVisualizerPaused) {
+        storeDispatch({
+          type: "SET_VISUALIZER_PAUSED",
+          paused: manualVisualizerPaused,
+        });
+      }
+    }, [manualVisualizerPaused, mergedState.visualizerPaused, storeDispatch]);
+
+    // 4. Sync backend with manualVisualizerPaused
+    useEffect(() => {
+      if (isConnected && lastSentPauseRef.current !== manualVisualizerPaused) {
+        wsConnection.sendPauseCommand(manualVisualizerPaused);
+        lastSentPauseRef.current = manualVisualizerPaused;
+      }
+    }, [manualVisualizerPaused, isConnected, wsConnection]);
+
+    // Persist SDR settings when they change
+    useEffect(() => {
+      const settingsToPersist = {
+        fftSize: state.fftSize,
+        fftWindow: state.fftWindow,
+        fftFrameRate: state.fftFrameRate,
+        detectedFrameRate: state.detectedFrameRate,
+        gain: state.gain,
+        ppm: state.ppm,
+        tunerAGC: state.tunerAGC,
+        rtlAGC: state.rtlAGC,
+        vizZoom: state.vizZoom,
+        vizPanOffset: state.vizPanOffset,
+        fftMinDb: state.fftMinDb,
+        fftMaxDb: state.fftMaxDb,
+        frequencyRange: state.frequencyRange,
+        activeSignalArea: state.activeSignalArea,
+        lastKnownRanges: state.lastKnownRanges,
+        displayTemporalResolution: state.displayTemporalResolution,
+        snapshotGridPreference: mergedState.snapshotGridPreference,
+        sampleRateHz: state.sampleRateHz,
+        sample_size: state.sample_size,
+      };
+      sessionStorage.setItem(
+        SDR_SETTINGS_KEY,
+        JSON.stringify(settingsToPersist),
+      );
+    }, [
+      state.fftSize,
+      state.fftWindow,
+      state.fftFrameRate,
+      state.detectedFrameRate,
+      state.gain,
+      state.ppm,
+      state.tunerAGC,
+      state.rtlAGC,
+      state.vizZoom,
+      state.vizPanOffset,
+      state.fftMinDb,
+      state.fftMaxDb,
+      state.frequencyRange,
+      state.activeSignalArea,
+      state.lastKnownRanges,
+      state.displayTemporalResolution,
+      state.powerScale,
+      mergedState.snapshotGridPreference,
+      state.sampleRateHz,
+      state.sample_size,
+    ]);
+
+    const lastSentPowerScaleRef = useRef<"dB" | "dBm" | null>(null);
+    useEffect(() => {
+      if (!isConnected || lastSentPowerScaleRef.current === state.powerScale)
+        return;
+      wsConnection.sendPowerScaleCommand(state.powerScale);
+      lastSentPowerScaleRef.current = state.powerScale;
+    }, [isConnected, wsConnection.sendPowerScaleCommand, state.powerScale]);
+
+    const lastSentFrameRateRef = useRef<number | null>(null);
+    useEffect(() => {
+      if (!isConnected || state.detectedFrameRate == null) return;
+      if (lastSentFrameRateRef.current === state.detectedFrameRate) return;
+      reduxDispatch({
+        type: "websocket/sendMessage",
+        payload: {
+          type: "frame_rate",
+          data: {
+            frameRate: Math.round(state.detectedFrameRate),
+          },
+        },
+      });
+      lastSentFrameRateRef.current = state.detectedFrameRate;
+    }, [isConnected, reduxDispatch, state.detectedFrameRate]);
+
+    // Revert power scale to dB if not supported by the current device
+    useEffect(() => {
+      if (
+        deviceProfile &&
+        !deviceProfile.supports_approx_dbm &&
+        state.powerScale === "dBm"
+      ) {
+        storeDispatch({ type: "SET_POWER_SCALE", powerScale: "dB" });
+      }
+    }, [deviceProfile, state.powerScale, storeDispatch]);
+
+    useEffect(() => {
+      if (wsSpectrumFrames.length === 0) return;
+      setCachedFrames(wsSpectrumFrames);
+      try {
+        sessionStorage.setItem(
+          "napt-spectrum-frames",
+          JSON.stringify(wsSpectrumFrames),
+        );
       } catch {
         /* ignore */
       }
-    });
+    }, [wsSpectrumFrames]);
 
-    return () => {
-      cancelled = true;
-    };
-  }, [isVisualizerRoute, state.detectedFrameRate, storeDispatch]);
+    useEffect(() => {
+      if (!sdrSettings) return;
+      setCachedSdrSettings(sdrSettings);
+      try {
+        sessionStorage.setItem(
+          "napt-sdr-settings",
+          JSON.stringify(sdrSettings),
+        );
+      } catch {
+        /* ignore */
+      }
+    }, [sdrSettings]);
 
-  const toggleVisualizerPause = useCallback(() => {
-    const nextPaused = !manualVisualizerPaused;
-    setManualVisualizerPaused(nextPaused);
-    sessionStorage.setItem(MANUAL_VISUALIZER_PAUSE_KEY, String(nextPaused));
-
-    // Force an immediate update of the store state
-    storeDispatch({ type: "SET_VISUALIZER_PAUSED", paused: nextPaused });
-
-    // Send command immediately for responsiveness
-    if (isConnected) {
-      wsConnection.sendPauseCommand(nextPaused);
-      lastSentPauseRef.current = nextPaused;
-    }
-  }, [manualVisualizerPaused, isConnected, wsConnection.sendPauseCommand, storeDispatch]);
-
-  const value = useMemo(
-    () => ({
-      state: mergedState,
-      dispatch: storeDispatch,
-      fftVisualizerMachine,
-      manualVisualizerPaused,
-      setManualVisualizerPaused,
-      effectiveFrames,
-      effectiveSdrSettings,
-      sampleRateHzEffective,
-      signalAreaBounds,
-      lastSentPauseRef,
-      wsConnection,
-      toggleVisualizerPause,
-      cryptoCorrupted,
-      deviceName,
-      deviceProfile,
-    }),
-    [
-      mergedState,
+    // Sync sample rate from backend to store state
+    useEffect(() => {
+      const rate = sdrSettings?.sample_rate ?? sampleRateHz ?? maxSampleRateHz;
+      if (typeof rate === "number" && rate > 0 && rate !== state.sampleRateHz) {
+        storeDispatch({ type: "SET_SAMPLE_RATE", sampleRateHz: rate });
+      }
+    }, [
+      sdrSettings?.sample_rate,
+      sampleRateHz,
+      maxSampleRateHz,
+      state.sampleRateHz,
       storeDispatch,
-      fftVisualizerMachine,
-      manualVisualizerPaused,
-      effectiveFrames,
-      effectiveSdrSettings,
-      sampleRateHzEffective,
-      signalAreaBounds,
-      wsConnection,
-      toggleVisualizerPause,
-      cryptoCorrupted,
-      deviceName,
-      deviceProfile,
-    ],
-  );
+    ]);
 
-  return (
-    <SpectrumStoreContext.Provider value={value}>
-      {children}
-    </SpectrumStoreContext.Provider>
-  );
-});
+    const effectiveFrames: SpectrumFrame[] =
+      Array.isArray(wsSpectrumFrames) && wsSpectrumFrames.length > 0
+        ? wsSpectrumFrames
+        : Array.isArray(cachedFrames)
+          ? cachedFrames
+          : [];
+    const effectiveSdrSettings = sdrSettings ?? cachedSdrSettings;
+
+    const sampleRateHzEffective = sampleRateHz;
+
+    const signalAreaBounds = useMemo(() => {
+      if (!Array.isArray(effectiveFrames) || effectiveFrames.length === 0) {
+        return null;
+      }
+      const bounds: Record<string, { min: number; max: number }> = {};
+      effectiveFrames.forEach((frame) => {
+        const label = frame.label;
+        if (!label) return;
+        bounds[label] = { min: frame.min_hz, max: frame.max_hz };
+        bounds[label.toLowerCase()] = { min: frame.min_hz, max: frame.max_hz };
+      });
+      return bounds;
+    }, [effectiveFrames]);
+
+    // Initialize frequencyRange if either it is null or unset
+    // based on the first available frame (usually area 'A')
+    // and the current sample rate. This is placed after variable
+    // declarations to satisfy closure requirements.
+    useEffect(() => {
+      if (mergedState.frequencyRange) return;
+      if (!Array.isArray(effectiveFrames) || effectiveFrames.length === 0)
+        return;
+
+      const primaryFrame =
+        effectiveFrames.find((frame) => frame.label.toLowerCase() === "a") ??
+        effectiveFrames[0];
+      if (!primaryFrame) return;
+
+      const min = primaryFrame.min_hz;
+      const max = sampleRateHz
+        ? Math.min(primaryFrame.max_hz, min + sampleRateHz)
+        : primaryFrame.max_hz;
+      const nextRange = { min, max };
+
+      const range = nextRange;
+      if (
+        lastSentFrequencyRangeRef.current?.min === range.min &&
+        lastSentFrequencyRangeRef.current?.max === range.max
+      )
+        return;
+
+      storeDispatch({ type: "SET_FREQUENCY_RANGE", range: nextRange });
+      wsConnection.sendFrequencyRange(nextRange);
+      lastSentFrequencyRangeRef.current = nextRange;
+    }, [
+      mergedState.frequencyRange,
+      sampleRateHz,
+      effectiveFrames,
+      wsConnection.sendFrequencyRange,
+      storeDispatch,
+    ]);
+
+    // Execute exactly once to absorb backend default configurations (like signals.yaml gain)
+    useEffect(() => {
+      if (!sdrSettings || hasInitializedBackendSettingsRef.current) return;
+
+      // Validate we actually received meaningful backend config (e.g. valid sample rate)
+      if (
+        sdrSettings.sample_rate === 0 &&
+        (sdrSettings.center_frequency === 0 ||
+          sdrSettings.center_frequency === undefined)
+      )
+        return;
+
+      // Once valid, sync it into the global store immediately.
+      hasInitializedBackendSettingsRef.current = true;
+
+      const derived = deriveStateFromConfig(
+        sampleRateHzEffective ?? 0,
+        sdrSettings,
+      );
+      storeDispatch({
+        type: "SET_SDR_SETTINGS_BUNDLE",
+        settings: derived,
+      });
+    }, [sdrSettings, sampleRateHzEffective, storeDispatch]);
+
+    const lastSentFrequencyRangeRef = useRef<FrequencyRange | null>(null);
+    useEffect(() => {
+      if (!isConnected || !mergedState.frequencyRange) return;
+      const range = mergedState.frequencyRange;
+      if (
+        lastSentFrequencyRangeRef.current?.min === range.min &&
+        lastSentFrequencyRangeRef.current?.max === range.max
+      )
+        return;
+
+      wsConnection.sendFrequencyRange(range);
+      lastSentFrequencyRangeRef.current = range;
+    }, [
+      isConnected,
+      mergedState.frequencyRange,
+      wsConnection.sendFrequencyRange,
+    ]);
+
+    // Screen width detection for auto FFT options
+    useEffect(() => {
+      if (!isVisualizerRoute || !isConnected) return;
+
+      const detectScreenWidth = () => {
+        const cssWidth =
+          window.innerWidth ||
+          document.documentElement.clientWidth ||
+          document.body.clientWidth;
+        const dpr = window.devicePixelRatio || 1;
+        wsConnection.sendGetAutoFftOptions(Math.round(cssWidth * dpr));
+      };
+
+      // Only request if we don't have cached auto FFT options
+      if (!autoFftOptions) {
+        // Initial detection on route load
+        detectScreenWidth();
+
+        // Listen for resize events (with debouncing)
+        let resizeTimeout: NodeJS.Timeout;
+        const handleResize = () => {
+          clearTimeout(resizeTimeout);
+          resizeTimeout = setTimeout(detectScreenWidth, 500);
+        };
+
+        window.addEventListener("resize", handleResize);
+        return () => {
+          window.removeEventListener("resize", handleResize);
+          clearTimeout(resizeTimeout);
+        };
+      }
+    }, [
+      isVisualizerRoute,
+      isConnected,
+      wsConnection.sendGetAutoFftOptions,
+      autoFftOptions,
+    ]);
+
+    useEffect(() => {
+      if (!isVisualizerRoute) return;
+      if (state.detectedFrameRate != null) return;
+
+      const persistedFrameRate = getPersistedNumber(VISUALIZER_FRAME_RATE_KEY);
+      if (persistedFrameRate != null) {
+        storeDispatch({
+          type: "SET_DETECTED_FRAME_RATE",
+          detectedFrameRate: persistedFrameRate,
+        });
+        return;
+      }
+
+      let cancelled = false;
+      void detectRefreshRate().then((frameRate) => {
+        if (cancelled || frameRate == null) return;
+
+        const rounded = Math.round(frameRate);
+        storeDispatch({
+          type: "SET_DETECTED_FRAME_RATE",
+          detectedFrameRate: rounded,
+        });
+        try {
+          sessionStorage.setItem(VISUALIZER_FRAME_RATE_KEY, String(rounded));
+        } catch {
+          /* ignore */
+        }
+      });
+
+      return () => {
+        cancelled = true;
+      };
+    }, [isVisualizerRoute, state.detectedFrameRate, storeDispatch]);
+
+    const toggleVisualizerPause = useCallback(() => {
+      const nextPaused = !manualVisualizerPaused;
+      setManualVisualizerPaused(nextPaused);
+      sessionStorage.setItem(MANUAL_VISUALIZER_PAUSE_KEY, String(nextPaused));
+
+      // Force an immediate update of the store state
+      storeDispatch({ type: "SET_VISUALIZER_PAUSED", paused: nextPaused });
+
+      // Send command immediately for responsiveness
+      if (isConnected) {
+        wsConnection.sendPauseCommand(nextPaused);
+        lastSentPauseRef.current = nextPaused;
+      }
+    }, [
+      manualVisualizerPaused,
+      isConnected,
+      wsConnection.sendPauseCommand,
+      storeDispatch,
+    ]);
+
+    const value = useMemo(
+      () => ({
+        state: mergedState,
+        dispatch: storeDispatch,
+        fftVisualizerMachine,
+        manualVisualizerPaused,
+        setManualVisualizerPaused,
+        effectiveFrames,
+        effectiveSdrSettings,
+        sampleRateHzEffective,
+        signalAreaBounds,
+        lastSentPauseRef,
+        wsConnection,
+        toggleVisualizerPause,
+        cryptoCorrupted,
+        deviceName,
+        deviceProfile,
+      }),
+      [
+        mergedState,
+        storeDispatch,
+        fftVisualizerMachine,
+        manualVisualizerPaused,
+        effectiveFrames,
+        effectiveSdrSettings,
+        sampleRateHzEffective,
+        signalAreaBounds,
+        wsConnection,
+        toggleVisualizerPause,
+        cryptoCorrupted,
+        deviceName,
+        deviceProfile,
+      ],
+    );
+
+    return (
+      <SpectrumStoreContext.Provider value={value}>
+        {children}
+      </SpectrumStoreContext.Provider>
+    );
+  },
+);

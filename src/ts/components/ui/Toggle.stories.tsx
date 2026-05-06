@@ -27,7 +27,16 @@ const theme: AppStyledTheme = {
 
 export const States = () => (
   <ThemeProvider theme={theme}>
-    <div style={{ display: "flex", flexDirection: "column", gap: "20px", padding: "20px", background: "#0a0a0a", width: "300px" }}>
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: "20px",
+        padding: "20px",
+        background: "#0a0a0a",
+        width: "300px",
+      }}
+    >
       <div style={{ display: "flex", gap: "8px" }}>
         <div style={{ width: "80px" }}>
           <Toggle $active={true}>Active</Toggle>
@@ -38,10 +47,14 @@ export const States = () => (
       </div>
       <div style={{ display: "flex", gap: "8px" }}>
         <div style={{ width: "80px" }}>
-          <Toggle $active={true} disabled>Active Dis</Toggle>
+          <Toggle $active={true} disabled>
+            Active Dis
+          </Toggle>
         </div>
         <div style={{ width: "80px" }}>
-          <Toggle $active={false} disabled>Inact Dis</Toggle>
+          <Toggle $active={false} disabled>
+            Inact Dis
+          </Toggle>
         </div>
       </div>
     </div>

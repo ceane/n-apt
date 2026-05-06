@@ -26,7 +26,15 @@ const theme: AppStyledTheme = {
 
 export const Default = () => (
   <ThemeProvider theme={theme}>
-    <div style={{ padding: "20px", background: "#0a0a0a", width: "350px", display: "grid", gap: "2px" }}>
+    <div
+      style={{
+        padding: "20px",
+        background: "#0a0a0a",
+        width: "350px",
+        display: "grid",
+        gap: "2px",
+      }}
+    >
       <Row label="Enable GPU" tooltip="Use WebGPU for rendering if available.">
         <Toggle $active={true}>ON</Toggle>
       </Row>

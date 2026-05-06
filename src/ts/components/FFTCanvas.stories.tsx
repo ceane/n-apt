@@ -74,7 +74,6 @@ type SignalType = "peaks" | "sweep" | "noise" | "realistic";
 
 const SIGNAL_TYPES: SignalType[] = ["peaks", "sweep", "noise", "realistic"];
 
-
 const generateSignalFrame = (
   fftSize: number,
   signalType: SignalType,
@@ -148,7 +147,9 @@ const useDynamicSignal = (fftSize = 4096) => {
 
 const useStaticWaveform = () => {
   return React.useRef<any>({
-    waveform: new Float32Array(4096).map((_, idx) => -95 + Math.sin(idx * 0.01) * 10),
+    waveform: new Float32Array(4096).map(
+      (_, idx) => -95 + Math.sin(idx * 0.01) * 10,
+    ),
     center_frequency_hz: 2_400_000_000,
     sample_rate: 3_200_000,
     data_type: "fft_frame",
@@ -169,7 +170,10 @@ type StoryFFTCanvasProps = Partial<React.ComponentProps<typeof FFTCanvas>> & {
   canvasRef?: React.Ref<FFTCanvasHandle>;
 };
 
-const StatefulCanvas: React.FC<StoryFFTCanvasProps> = ({ canvasRef, ...props }) => {
+const StatefulCanvas: React.FC<StoryFFTCanvasProps> = ({
+  canvasRef,
+  ...props
+}) => {
   const [zoom, setZoom] = React.useState(1);
   const [pan, setPan] = React.useState(0);
   const [dbMin, setDbMin] = React.useState(-120);
@@ -210,12 +214,18 @@ export const Snapshot = () => {
   const { handleSnapshot } = useSnapshot(BASE_PROPS.frequencyRange, true);
 
   const [snapshotWhole, setSnapshotWhole] = React.useState(false);
-  const [snapshotShowWaterfall, setSnapshotShowWaterfall] = React.useState(true);
+  const [snapshotShowWaterfall, setSnapshotShowWaterfall] =
+    React.useState(true);
   const [snapshotShowStats, setSnapshotShowStats] = React.useState(true);
-  const [snapshotShowGeolocation, setSnapshotShowGeolocation] = React.useState(false);
-  const [snapshotFormat, setSnapshotFormat] = React.useState<"png" | "svg" | SnapshotVideoFormat | "animated-svg">("png");
-  const [snapshotGridPreference, setSnapshotGridPreference] = React.useState(true);
-  const [snapshotGeolocationError, setSnapshotGeolocationError] = React.useState<string | null>(null);
+  const [snapshotShowGeolocation, setSnapshotShowGeolocation] =
+    React.useState(false);
+  const [snapshotFormat, setSnapshotFormat] = React.useState<
+    "png" | "svg" | SnapshotVideoFormat | "animated-svg"
+  >("png");
+  const [snapshotGridPreference, setSnapshotGridPreference] =
+    React.useState(true);
+  const [snapshotGeolocationError, setSnapshotGeolocationError] =
+    React.useState<string | null>(null);
   const supportedSnapshotVideoFormat = React.useMemo(
     () => getSupportedSnapshotVideoFormat(),
     [],
@@ -270,11 +280,19 @@ export const Snapshot = () => {
         }}
       >
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          <label style={{ color: "#ccc", fontFamily: "JetBrains Mono, monospace", fontSize: 12 }}>
+          <label
+            style={{
+              color: "#ccc",
+              fontFamily: "JetBrains Mono, monospace",
+              fontSize: 12,
+            }}
+          >
             Signal preset:
             <select
               value={signalType}
-              onChange={(event) => setSignalType(event.target.value as SignalType)}
+              onChange={(event) =>
+                setSignalType(event.target.value as SignalType)
+              }
               style={{ marginLeft: 8 }}
             >
               {SIGNAL_TYPES.map((type) => (
@@ -345,12 +363,27 @@ export const Playing = () => {
 
   return (
     <StoryShell>
-      <div style={{ display: "flex", flexDirection: "column", gap: 12, height: "100%" }}>
-        <label style={{ color: "#ccc", fontFamily: "JetBrains Mono, monospace", fontSize: 12 }}>
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 12,
+          height: "100%",
+        }}
+      >
+        <label
+          style={{
+            color: "#ccc",
+            fontFamily: "JetBrains Mono, monospace",
+            fontSize: 12,
+          }}
+        >
           Signal preset:
           <select
             value={signalType}
-            onChange={(event) => setSignalType(event.target.value as SignalType)}
+            onChange={(event) =>
+              setSignalType(event.target.value as SignalType)
+            }
             style={{ marginLeft: 8 }}
           >
             {SIGNAL_TYPES.map((type) => (

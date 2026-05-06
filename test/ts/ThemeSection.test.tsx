@@ -28,7 +28,7 @@ describe("ThemeSection Component", () => {
         <ThemeProvider theme={mockTheme}>
           <ThemeSection />
         </ThemeProvider>
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     expect(screen.getByText("App Theme")).toBeInTheDocument();
@@ -43,7 +43,7 @@ describe("ThemeSection Component", () => {
           <ThemeSection />
           <ThemeTestHarness />
         </ThemeProvider>
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     const select = screen.getByDisplayValue("System");
@@ -62,7 +62,7 @@ describe("ThemeSection Component", () => {
           <ThemeSection />
           <ThemeTestHarness />
         </ThemeProvider>
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     // Change something first

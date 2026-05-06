@@ -33,7 +33,9 @@ const loadDemodMath = async () => {
     return await import(/* @vite-ignore */ modulePath);
   } catch {
     return {
-      default: () => <DecryptionFallback moduleName="Demod Math" errorType="demod" />,
+      default: () => (
+        <DecryptionFallback moduleName="Demod Math" errorType="demod" />
+      ),
     };
   }
 };
