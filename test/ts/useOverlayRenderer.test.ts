@@ -108,10 +108,10 @@ describe("useOverlayRenderer Hook", () => {
     // With 2MHz span, step should be 250kHz (250,000 Hz)
     // Ticks: 90.25, 90.50, 90.75, 91.00, etc.
     // 91MHz will collide with the center label and be filtered out, which is expected.
-    // 90.25MHz -> 90.3MHz (rounded to 1 decimal)
-    // 90.75MHz -> 90.8MHz (rounded to 1 decimal)
-    expect(labels).toContain("90.3MHz");
-    expect(labels).toContain("90.8MHz");
+    // 90.25MHz -> 90.25MHz (precise)
+    // 90.75MHz -> 90.75MHz (precise)
+    expect(labels).toContain("90.25MHz");
+    expect(labels).toContain("90.75MHz");
     expect(labels).not.toContain("91MHz"); // Collides with center
   });
 });

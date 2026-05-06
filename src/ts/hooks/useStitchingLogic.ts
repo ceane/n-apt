@@ -209,7 +209,7 @@ export const useStitchingLogic = ({
       );
 
       if (!result.stitchedData) {
-        throw new Error("Failed to stitch files");
+        throw new Error("Failed to process file segments");
       }
 
       // Store worker data in refs for frame building
@@ -307,8 +307,8 @@ export const useStitchingLogic = ({
       const msg = error.message || String(error);
       setStitchStatus(
         msg.toLowerCase().includes("decryption")
-          ? "Stitching failed: Decryption failed"
-          : `Stitching failed: ${msg}`,
+          ? "File decryption failed, wrong key"
+          : msg,
       );
     }
   }, [

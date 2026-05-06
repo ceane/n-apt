@@ -495,7 +495,7 @@ export const AuthenticationUI = ({
           authState === "failed" ||
           authState === "timeout")
       ) {
-        onPasswordSubmit(password);
+        onPasswordSubmit(password.trim());
       }
     },
     [password, authState, onPasswordSubmit],

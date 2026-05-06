@@ -294,6 +294,16 @@ const useAuthenticationInternal = (
               const vaultKeyB64 = await fetchVaultKey(storedToken);
               if (vaultKeyB64) {
                 const key = await importBase64Key(vaultKeyB64);
+
+                // Debug: Log the resumed key's hash
+                const rawKey = await crypto.subtle.exportKey("raw", key);
+                const hashBuffer = await crypto.subtle.digest("SHA-256", rawKey);
+                const hash = Array.from(new Uint8Array(hashBuffer))
+                  .map((b) => b.toString(16).padStart(2, "0"))
+                  .join("")
+                  .substring(0, 8);
+                console.log(`[auth] Resumed session vault key hash: ${hash}`);
+
                 dispatch({
                   type: "AUTH_SUCCESS",
                   sessionToken: storedToken,
@@ -350,8 +360,18 @@ const useAuthenticationInternal = (
   const handlePasswordAuth = useCallback(async (password: string) => {
     dispatch({ type: "AUTHENTICATING" });
     try {
-      const result = await authenticateWithPassword(password);
-      const key = await deriveAesKey(password);
+      const result = await authenticateWithPassword(password.trim());
+      const key = await deriveAesKey(password.trim());
+
+      // Debug: Log the derived key's hash
+      const rawKey = await crypto.subtle.exportKey("raw", key);
+      const hashBuffer = await crypto.subtle.digest("SHA-256", rawKey);
+      const hash = Array.from(new Uint8Array(hashBuffer))
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("")
+        .substring(0, 8);
+      console.log(`[auth] Password auth derived key hash: ${hash}`);
+
       dispatch({
         type: "AUTH_SUCCESS",
         sessionToken: result.token,

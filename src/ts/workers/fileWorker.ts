@@ -444,7 +444,14 @@ self.onmessage = async function (e) {
   try {
     switch (type) {
       case "loadFile": {
-        const { fileData, fileName, aesKey } = data;
+        const { fileData, fileName, aesKey: rawAesKey } = data;
+        const aesKey = rawAesKey ? await crypto.subtle.importKey("raw", rawAesKey, { name: "AES-GCM" }, true, ["decrypt"]) : null;
+        
+        if (aesKey) {
+          const hash = await crypto.subtle.digest("SHA-256", rawAesKey as ArrayBuffer);
+          const hashStr = Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 8);
+          console.log(`[fileWorker] loadFile initialized with Vault Key (hash: ${hashStr})`);
+        }
         const lower = fileName.toLowerCase();
         let rawData: Uint8Array = new Uint8Array(0);
         if (lower.endsWith(".wav")) {
@@ -460,16 +467,16 @@ self.onmessage = async function (e) {
             [rawData.buffer],
           );
         } else if (lower.endsWith(".napt") && aesKey) {
-          const MAX_HEADER_READ = Math.min(8192, fileData.byteLength);
+          const MAX_HEADER_READ = Math.min(16384, fileData.byteLength); // Increased to support larger metadata
           const maxHeaderBytes = new Uint8Array(fileData, 0, MAX_HEADER_READ);
           let newlineIdx = maxHeaderBytes.indexOf(10);
 
           // Robust header parsing: try newline first, then find JSON boundary
-          let jsonStr: string;
+          let jsonStr = "";
+          let jsonEndIdx = -1;
           if (newlineIdx > 0) {
-            jsonStr = new TextDecoder().decode(
-              maxHeaderBytes.slice(0, newlineIdx),
-            );
+            jsonStr = new TextDecoder().decode(maxHeaderBytes.subarray(0, newlineIdx));
+            jsonEndIdx = newlineIdx;
           } else {
             // Fallback: find the end of the root JSON object by looking for the
             // closing brace that isn't inside a string
@@ -477,7 +484,7 @@ self.onmessage = async function (e) {
             let braceDepth = 0;
             let inString = false;
             let escape = false;
-            let jsonEnd = -1;
+            let foundStart = false;
             for (let ci = 0; ci < headerText.length; ci++) {
               const c = headerText[ci];
               if (escape) {
@@ -493,21 +500,40 @@ self.onmessage = async function (e) {
                 continue;
               }
               if (inString) continue;
-              if (c === "{") braceDepth++;
+              if (c === "{") {
+                braceDepth++;
+                foundStart = true;
+              }
               if (c === "}") {
                 braceDepth--;
-                if (braceDepth === 0) {
-                  jsonEnd = ci + 1;
+                if (foundStart && braceDepth === 0) {
+                  jsonEndIdx = ci + 1;
                   break;
                 }
               }
             }
-            if (jsonEnd <= 0)
+            if (jsonEndIdx <= 0)
               throw new Error("Invalid NAPT header: no JSON boundary found");
-            jsonStr = headerText.slice(0, jsonEnd);
+            jsonStr = headerText.slice(0, jsonEndIdx);
           }
 
           const metaObj = JSON.parse(jsonStr);
+          const metadata = metaObj.metadata || metaObj;
+          const isEncrypted = metadata.encrypted === true || metadata.encrypted === "true" || metaObj.encrypted === true;
+
+          // Determine actual padding size. Backend usually uses 4096 or 2048.
+          // We'll probe multiple candidates starting with the most likely ones.
+          const possibleHeaderSizes = new Set<number>();
+          
+          // 1. If there's a newline right after JSON, the next byte is a strong candidate
+          if (jsonEndIdx > 0 && jsonEndIdx < fileData.byteLength) {
+            possibleHeaderSizes.add(jsonEndIdx + 1);
+          }
+          
+          // 2. Standard power-of-two sizes
+          [4096, 2048, 1024, 8192].forEach(s => {
+             if (s >= jsonEndIdx) possibleHeaderSizes.add(s);
+          });
 
           // Check for channels at top-level OR inside metadata
           const channels = metaObj.channels ||
@@ -520,70 +546,83 @@ self.onmessage = async function (e) {
           const firstChannel = channels[0];
 
           if (firstChannel && firstChannel.offset_iq !== undefined) {
-            // Determine actual padding size. Backend now uses 4096, previously used 2048.
-            // Force 4096 if metaObj.metadata.channels exists as hinted by the user's header dump
-            const headerSize =
-              metaObj.metadata?.channels || metaObj.channels ? 4096 : 2048;
-
-            const encryptedData = new Uint8Array(fileData, headerSize);
-            const iv = encryptedData.slice(0, 12);
-            const ciphertext = encryptedData.slice(12);
-
             try {
-              let decryptedData: ArrayBuffer;
+              let decryptedData: ArrayBuffer | null = null;
+              let lastError: any = null;
+              
+              const headerProbeList = Array.from(possibleHeaderSizes);
 
-              if (
-                metaObj.wrapped_dek ||
-                (metaObj.metadata && metaObj.metadata.wrapped_dek)
-              ) {
-                const wrappedDekBase64 =
-                  metaObj.wrapped_dek || metaObj.metadata.wrapped_dek;
-                const wrappedDekBytes = base64ToBytes(wrappedDekBase64);
-                const ivDek = wrappedDekBytes.slice(0, 12);
-                const cipherDek = wrappedDekBytes.slice(12);
+              for (const hSize of headerProbeList) {
+                if (fileData.byteLength <= hSize + 12) continue;
+                
+                const encryptedView = new Uint8Array(fileData, hSize);
+                const iv = encryptedView.subarray(0, 12);
+                const ciphertext = encryptedView.subarray(12);
 
-                // 1. Unwrap (decrypt) the DEK using the Vault Key (aesKey)
-                const decryptedDek = await crypto.subtle.decrypt(
-                  { name: "AES-GCM", iv: ivDek },
-                  aesKey,
-                  cipherDek,
-                );
+                if (!isEncrypted) {
+                  decryptedData = encryptedView.buffer.slice(encryptedView.byteOffset);
+                  break;
+                }
 
-                // 2. Import the raw DEK
-                const dek = await crypto.subtle.importKey(
-                  "raw",
-                  decryptedDek,
-                  { name: "AES-GCM" },
-                  false,
-                  ["decrypt"],
-                );
+                try {
+                  const wrappedDekBase64 = 
+                    metaObj.wrapped_dek || (metaObj.metadata && metaObj.metadata.wrapped_dek) ||
+                    metaObj.encrypted_dek || (metaObj.metadata && metaObj.metadata.encrypted_dek) ||
+                    metaObj.wrapped_key || (metaObj.metadata && metaObj.metadata.wrapped_key) ||
+                    metaObj.encrypted_key || (metaObj.metadata && metaObj.metadata.encrypted_key) ||
+                    metaObj.session_key || (metaObj.metadata && metaObj.metadata.session_key);
 
-                // 3. Decrypt the main payload using the DEK
-                decryptedData = await crypto.subtle.decrypt(
-                  { name: "AES-GCM", iv },
-                  dek,
-                  ciphertext,
-                );
-              } else {
-                // Legacy file: Decrypt using the Vault Key directly
-                decryptedData = await crypto.subtle.decrypt(
-                  { name: "AES-GCM", iv },
-                  aesKey,
-                  ciphertext,
-                );
+                  if (wrappedDekBase64) {
+                    const wrappedDekBytes = base64ToBytes(wrappedDekBase64);
+                    if (wrappedDekBytes.length < 12) throw new Error("Invalid wrapped DEK length");
+
+                    const ivDek = wrappedDekBytes.subarray(0, 12);
+                    const cipherDek = wrappedDekBytes.subarray(12);
+
+                    const decryptedDek = await crypto.subtle.decrypt(
+                      { name: "AES-GCM", iv: ivDek },
+                      aesKey,
+                      cipherDek,
+                    );
+
+                    const dek = await crypto.subtle.importKey(
+                      "raw",
+                      decryptedDek,
+                      { name: "AES-GCM" },
+                      false,
+                      ["decrypt"],
+                    );
+
+                    decryptedData = await crypto.subtle.decrypt(
+                      { name: "AES-GCM", iv },
+                      dek,
+                      ciphertext,
+                    );
+                  } else {
+                    decryptedData = await crypto.subtle.decrypt(
+                      { name: "AES-GCM", iv },
+                      aesKey,
+                      ciphertext,
+                    );
+                  }
+                  if (decryptedData) {
+                    console.log(`[fileWorker] Decryption successful for ${fileName} with headerSize ${hSize}`);
+                    break;
+                  }
+                } catch (e) {
+                  lastError = e;
+                }
+              }
+
+              if (!decryptedData) {
+                throw lastError || new Error("Decryption failed for all possible header sizes.");
               }
 
               const payloadArray = new Uint8Array(decryptedData);
-
               const chOffsetIq = firstChannel.offset_iq;
-              const iqByteLength =
-                firstChannel.iq_length ?? payloadArray.length - chOffsetIq;
+              const iqByteLength = firstChannel.iq_length ?? payloadArray.length - chOffsetIq;
 
-              const iqPart = payloadArray.slice(
-                chOffsetIq,
-                chOffsetIq + iqByteLength,
-              );
-              const metadata = metaObj.metadata || metaObj;
+              const iqPart = payloadArray.slice(chOffsetIq, chOffsetIq + iqByteLength);
 
               const responseData = { rawData: iqPart, fileName, metadata };
               (self as any).postMessage(
@@ -591,16 +630,16 @@ self.onmessage = async function (e) {
                 [iqPart.buffer],
               );
             } catch (decryptErr: any) {
-              console.error("NAPT Load - Decryption Failed:", decryptErr);
-              throw new Error(
-                `Decryption failed: ${decryptErr.message || decryptErr}`,
-              );
+              const errType = decryptErr instanceof Error ? decryptErr.name : typeof decryptErr;
+              console.error(`NAPT Load [${fileName}] - Decryption Failed (${errType}):`, decryptErr);
+              let detail = decryptErr.message || String(decryptErr);
+              if (errType === 'OperationError') {
+                detail = "AES-GCM authentication failed (wrong key or corrupted data). Check if the file matches your current Vault session.";
+              }
+              throw new Error(`Decryption failed for ${fileName}: ${detail}`);
             }
           } else {
-            console.error("NAPT Load - Invalid channel offsets", {
-              firstChannel,
-            });
-            throw new Error("Missing offset_iq in header channels");
+            throw new Error(`Invalid .napt header in ${fileName}: missing offset_iq in channels`);
           }
         } else {
           rawData = loadC64File(fileData, fileName);
@@ -610,7 +649,38 @@ self.onmessage = async function (e) {
       }
 
       case "stitchFiles": {
-        const { files, settings, fftSize, aesKey, sampleRateOptions } = data;
+        // Helper to get a short hash of the key for debugging
+        const getKeyHash = async (key: CryptoKey | ArrayBuffer) => {
+          try {
+            const raw = key instanceof ArrayBuffer ? key : await crypto.subtle.exportKey("raw", key);
+            const hashBuffer = await crypto.subtle.digest("SHA-256", raw);
+            const hashArray = Array.from(new Uint8Array(hashBuffer));
+            return hashArray.map(b => b.toString(16).padStart(2, '0')).join('').substring(0, 8);
+          } catch (e) {
+            return "unknown";
+          }
+        };
+
+        const { files, settings, fftSize, aesKey: rawAesKey, sampleRateOptions } = data;
+        let aesKey: CryptoKey | null = null;
+        let vaultKeyHash = "none";
+
+        if (rawAesKey) {
+          try {
+            aesKey = await crypto.subtle.importKey(
+              "raw",
+              rawAesKey,
+              { name: "AES-GCM" },
+              false,
+              ["decrypt"],
+            );
+            vaultKeyHash = await getKeyHash(rawAesKey);
+            console.log(`[fileWorker] stitchFiles initialized with Vault Key (hash: ${vaultKeyHash})`);
+          } catch (e) {
+            console.error("[fileWorker] Failed to import AES key:", e);
+          }
+        }
+
         if (fftSize) currentFftSize = fftSize;
 
         // DERIVE MAX SAMPLE RATE FROM OPTIONS OR FALLBACK TO 3.2MHz
@@ -621,6 +691,8 @@ self.onmessage = async function (e) {
         const metadataMap = new Map();
 
         let loadedCount = 0;
+        let decryptionErrorCount = 0;
+        let lastError: any = null;
 
         for (let i = 0; i < files.length; i++) {
           const file = files[i];
@@ -638,10 +710,6 @@ self.onmessage = async function (e) {
               rawData = raw;
               metadata = wavMeta as FileMetadata;
 
-              // Multi-channel WAV files legitimately have sample rates larger
-              // than the hardware rate because they represent stitched channel
-              // spans. Do NOT clamp per-channel or file-level sample rates.
-
               if (channels && channels.length > 0) {
                 (metadata as any).channels_data = stitchAdjacentChannels(
                   channels,
@@ -650,151 +718,122 @@ self.onmessage = async function (e) {
                 );
               }
             } else if (lower.endsWith(".napt") && aesKey) {
-              const MAX_HEADER_READ = Math.min(8192, file.fileData.byteLength);
-              const maxHeaderBytes = new Uint8Array(
-                file.fileData,
-                0,
-                MAX_HEADER_READ,
-              );
-              let naptNewlineIdx = maxHeaderBytes.indexOf(10);
+              // Robust header parsing logic reproduced here
+              let detectedHeaderSize = 4096;
+              let naptJsonStr = "";
+              let jsonEndIdx = -1;
 
-              // Robust header parsing: try newline first, then find JSON boundary
-              let naptJsonStr: string;
-              if (naptNewlineIdx > 0) {
-                naptJsonStr = new TextDecoder().decode(
-                  maxHeaderBytes.slice(0, naptNewlineIdx),
-                );
-              } else {
-                const headerText = new TextDecoder().decode(maxHeaderBytes);
-                let braceDepth = 0;
-                let inString = false;
-                let escape = false;
-                let jsonEnd = -1;
-                for (let ci = 0; ci < headerText.length; ci++) {
-                  const c = headerText[ci];
-                  if (escape) {
-                    escape = false;
-                    continue;
-                  }
-                  if (c === "\\") {
-                    escape = true;
-                    continue;
-                  }
-                  if (c === '"') {
-                    inString = !inString;
-                    continue;
-                  }
-                  if (inString) continue;
-                  if (c === "{") braceDepth++;
-                  if (c === "}") {
-                    braceDepth--;
-                    if (braceDepth === 0) {
-                      jsonEnd = ci + 1;
-                      break;
+              for (const headerSize of [4096, 2048, 8192, 1024]) {
+                if (file.fileData.byteLength < headerSize) continue;
+                detectedHeaderSize = headerSize;
+                
+                const maxHeaderBytes = new Uint8Array(file.fileData, 0, headerSize);
+                const newlineIdx = maxHeaderBytes.indexOf(10);
+
+                if (newlineIdx > 0) {
+                  naptJsonStr = new TextDecoder().decode(maxHeaderBytes.subarray(0, newlineIdx));
+                  jsonEndIdx = newlineIdx;
+                } else {
+                  const headerText = new TextDecoder().decode(maxHeaderBytes);
+                  let braceDepth = 0;
+                  let inString = false;
+                  let escape = false;
+                  let foundStart = false;
+                  for (let ci = 0; ci < headerText.length; ci++) {
+                    const c = headerText[ci];
+                    if (escape) { escape = false; continue; }
+                    if (c === "\\") { escape = true; continue; }
+                    if (c === '"') { inString = !inString; continue; }
+                    if (inString) continue;
+                    if (c === "{") { braceDepth++; foundStart = true; }
+                    if (c === "}") {
+                      braceDepth--;
+                      if (foundStart && braceDepth === 0) {
+                        jsonEndIdx = ci + 1;
+                        break;
+                      }
                     }
                   }
+                  if (jsonEndIdx <= 0) continue;
+                  naptJsonStr = headerText.slice(0, jsonEndIdx);
                 }
-                if (jsonEnd <= 0)
-                  throw new Error(
-                    "Invalid NAPT header: no JSON boundary found",
-                  );
-                naptJsonStr = headerText.slice(0, jsonEnd);
+
+                try {
+                  const testObj = JSON.parse(naptJsonStr);
+                  if (testObj) break;
+                } catch (e) {
+                  continue;
+                }
               }
+
+              if (!naptJsonStr) throw new Error(`Could not parse NAPT header for ${file.fileName}`);
 
               const metaObj = JSON.parse(naptJsonStr);
               metadata = metaObj.metadata || metaObj;
+              const isEncrypted = metadata.encrypted === true || metadata.encrypted === "true" || metaObj.encrypted === true;
 
               let channelsMetadata = metadata?.channels || metaObj.channels;
               if (!channelsMetadata && metaObj.offset_iq !== undefined) {
-                channelsMetadata = [
-                  {
-                    offset_iq: metaObj.offset_iq,
-                    iq_length: metaObj.iq_length,
-                    center_freq_hz: metadata?.center_frequency_hz || 0,
-                    sample_rate_hz: metadata?.capture_sample_rate_hz || 0,
-                  },
-                ];
+                channelsMetadata = [{
+                  offset_iq: metaObj.offset_iq,
+                  iq_length: metaObj.iq_length,
+                  center_freq_hz: metadata?.center_frequency_hz || 0,
+                  sample_rate_hz: metadata?.capture_sample_rate_hz || 0,
+                }];
               }
 
               if (channelsMetadata && channelsMetadata.length > 0) {
-                // Multi-channel NAPT files legitimately have sample rates larger
-                // than the hardware rate because they represent stitched channel
-                // spans. Do NOT clamp per-channel or file-level sample rates.
+                let decryptedData: ArrayBuffer | null = null;
+                const possibleHeaderSizes = new Set<number>();
+                if (jsonEndIdx > 0 && jsonEndIdx < file.fileData.byteLength) possibleHeaderSizes.add(jsonEndIdx + 1);
+                [detectedHeaderSize, 4096, 2048, 1024, 8192].forEach(s => {
+                  if (s >= jsonEndIdx) possibleHeaderSizes.add(s);
+                });
 
-                const headerSize =
-                  metaObj.channels || metadata?.channels ? 4096 : 2048;
+                const headerProbeList = Array.from(possibleHeaderSizes);
+                let decryptErr: any = null;
 
-                const encryptedData = new Uint8Array(file.fileData, headerSize);
-                const iv = encryptedData.slice(0, 12);
-                const ciphertext = encryptedData.slice(12);
-                let decryptedData: ArrayBuffer;
+                for (const hSize of headerProbeList) {
+                  if (file.fileData.byteLength <= hSize + 12) continue;
+                  const encryptedView = new Uint8Array(file.fileData, hSize);
+                  const iv = encryptedView.subarray(0, 12);
+                  const ciphertext = encryptedView.subarray(12);
 
-                if (
-                  metaObj.wrapped_dek ||
-                  (metadata && (metadata as any).wrapped_dek)
-                ) {
-                  const wrappedDekBase64 =
-                    metaObj.wrapped_dek || (metadata as any).wrapped_dek;
-                  const wrappedDekBytes = base64ToBytes(wrappedDekBase64);
-                  const ivDek = wrappedDekBytes.slice(0, 12);
-                  const cipherDek = wrappedDekBytes.slice(12);
+                  if (!isEncrypted) {
+                    decryptedData = encryptedView.buffer.slice(encryptedView.byteOffset);
+                    break;
+                  }
 
-                  // 1. Unwrap (decrypt) the DEK using the Vault Key (aesKey)
-                  const decryptedDek = await crypto.subtle.decrypt(
-                    { name: "AES-GCM", iv: ivDek },
-                    aesKey,
-                    cipherDek,
-                  );
+                  try {
+                    const wrappedDekBase64 = metaObj.wrapped_dek || metaObj.encrypted_dek || metaObj.wrapped_key || metaObj.session_key ||
+                      (metaObj.metadata && (metaObj.metadata.wrapped_dek || metaObj.metadata.encrypted_dek));
 
-                  // 2. Import the raw DEK
-                  const dek = await crypto.subtle.importKey(
-                    "raw",
-                    decryptedDek,
-                    { name: "AES-GCM" },
-                    false,
-                    ["decrypt"],
-                  );
-
-                  // 3. Decrypt the main payload using the DEK
-                  decryptedData = await crypto.subtle.decrypt(
-                    { name: "AES-GCM", iv },
-                    dek,
-                    ciphertext,
-                  );
-                } else {
-                  // Legacy file: Decrypt using the Vault Key directly
-                  decryptedData = await crypto.subtle.decrypt(
-                    { name: "AES-GCM", iv },
-                    aesKey,
-                    ciphertext,
-                  );
+                    if (wrappedDekBase64) {
+                      const wrappedDekBytes = base64ToBytes(wrappedDekBase64);
+                      const ivDek = wrappedDekBytes.subarray(0, 12);
+                      const cipherDek = wrappedDekBytes.subarray(12);
+                      const decryptedDek = await crypto.subtle.decrypt({ name: "AES-GCM", iv: ivDek }, aesKey, cipherDek);
+                      const dek = await crypto.subtle.importKey("raw", decryptedDek, { name: "AES-GCM" }, false, ["decrypt"]);
+                      decryptedData = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, dek, ciphertext);
+                    } else {
+                      decryptedData = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, aesKey, ciphertext);
+                    }
+                    if (decryptedData) break;
+                  } catch (e: any) {
+                    decryptErr = e;
+                  }
                 }
 
-                const payloadArray = new Uint8Array(decryptedData);
+                if (!decryptedData) throw decryptErr || new Error("Decryption failed");
 
+                const payloadArray = new Uint8Array(decryptedData);
                 const parsedChannels: any[] = [];
                 for (let j = 0; j < channelsMetadata.length; j++) {
                   const ch = channelsMetadata[j];
                   const chOffsetIq = ch.offset_iq;
-                  const nextOffsetIq =
-                    j + 1 < channelsMetadata.length
-                      ? channelsMetadata[j + 1].offset_iq
-                      : payloadArray.length;
-                  const iqLength =
-                    ch.iq_length ?? Math.max(0, nextOffsetIq - chOffsetIq);
-                  const iqBytes = payloadArray.slice(
-                    chOffsetIq,
-                    chOffsetIq + iqLength,
-                  );
-                  const reqMin =
-                    ch.requested_min_freq_hz ??
-                    ch.requested_min_hz ??
-                    ch.min_freq_hz;
-                  const reqMax =
-                    ch.requested_max_freq_hz ??
-                    ch.requested_max_hz ??
-                    ch.max_freq_hz;
-
+                  const nextOffsetIq = j + 1 < channelsMetadata.length ? channelsMetadata[j + 1].offset_iq : payloadArray.length;
+                  const iqLength = ch.iq_length ?? Math.max(0, nextOffsetIq - chOffsetIq);
+                  const iqBytes = payloadArray.slice(chOffsetIq, chOffsetIq + iqLength);
                   parsedChannels.push({
                     iq_data: iqBytes,
                     center_freq_hz: ch.center_freq_hz,
@@ -803,67 +842,35 @@ self.onmessage = async function (e) {
                     bins_per_frame: ch.bins_per_frame,
                     frame_rate: metadata?.frame_rate,
                     hardware_sample_rate_hz: metadata?.hardware_sample_rate_hz,
-                    frequency_range:
-                      Number.isFinite(reqMin) && Number.isFinite(reqMax)
-                        ? [reqMin, reqMax]
-                        : undefined,
+                    frequency_range: ch.requested_min_freq_hz ? [ch.requested_min_freq_hz, ch.requested_max_freq_hz] : undefined,
                   });
                 }
 
-                const actualFftSize =
-                  metadata?.fft_size || (metadata as any)?.fft?.size || 2048;
-
-                // Store the individual hardware hops before they are grouped and overwritten by the stitcher
-                (metadata as any).raw_hardware_blocks = parsedChannels.map(
-                  (ch) => ({
+                const actualFftSize = metadata?.fft_size || 2048;
+                (metadata as any).raw_hardware_blocks = parsedChannels.map(ch => ({
                     center_freq_hz: ch.center_freq_hz,
                     sample_rate_hz: ch.sample_rate_hz,
-                  }),
-                );
+                }));
 
-                const stitchedChannelsWithRange = stitchAdjacentChannels(
-                  parsedChannels,
-                  actualFftSize,
-                  maxSampleRateHz,
-                );
-                (metadata as any).channels_data = stitchedChannelsWithRange;
+                const stitchedChannels = stitchAdjacentChannels(parsedChannels, actualFftSize, maxSampleRateHz);
+                (metadata as any).channels_data = stitchedChannels;
+                if (parsedChannels.length > 0) rawData = parsedChannels[0].iq_data;
 
-                // Keep first channel IQ for audio playback
-                if (parsedChannels.length > 0) {
-                  rawData = parsedChannels[0].iq_data;
-                }
-
-                const groupsToRegister =
-                  stitchedChannelsWithRange.length > 0
-                    ? stitchedChannelsWithRange
-                    : parsedChannels;
-
+                const groupsToRegister = stitchedChannels.length > 0 ? stitchedChannels : parsedChannels;
                 groupsToRegister.forEach((group, groupIndex) => {
                   const groupIq = group.iq_data || group.iq;
                   if (!groupIq || groupIq.length === 0) return;
-                  const entryName =
-                    groupIndex === 0
-                      ? file.fileName
-                      : `${file.fileName}__group${groupIndex}`;
-                  const groupRange = group.frequency_range;
-                  const entryCenterHz =
-                    groupRange && groupRange.length === 2
-                      ? (groupRange[0] + groupRange[1]) / 2
-                      : group.center_freq_hz;
-                  const entrySpanHz =
-                    groupRange && groupRange.length === 2
-                      ? groupRange[1] - groupRange[0]
-                      : group.sample_rate_hz;
-
+                  const entryName = groupIndex === 0 ? file.fileName : `${file.fileName}__group${groupIndex}`;
+                  const entryCenterHz = group.frequency_range ? (group.frequency_range[0] + group.frequency_range[1]) / 2 : group.center_freq_hz;
                   fileDataCache.set(entryName, groupIq);
                   freqMap.set(entryName, entryCenterHz);
                   metadataMap.set(entryName, {
                     ...metadata,
                     center_frequency_hz: entryCenterHz,
-                    capture_sample_rate_hz: entrySpanHz,
-                    sample_rate_hz: entrySpanHz,
-                    frequency_range: groupRange ?? metadata?.frequency_range,
-                  } as any);
+                    capture_sample_rate_hz: group.sample_rate_hz,
+                    sample_rate_hz: group.sample_rate_hz,
+                    frequency_range: group.frequency_range ?? metadata?.frequency_range,
+                  });
                 });
               }
             } else {
@@ -871,41 +878,32 @@ self.onmessage = async function (e) {
             }
 
             if (rawData && rawData.length > 0) {
-              if (!fileDataCache.has(file.fileName)) {
-                fileDataCache.set(file.fileName, rawData);
-              }
-              if (metadata && !metadataMap.has(file.fileName)) {
-                metadataMap.set(file.fileName, metadata);
-              }
+              if (!fileDataCache.has(file.fileName)) fileDataCache.set(file.fileName, rawData);
+              if (metadata && !metadataMap.has(file.fileName)) metadataMap.set(file.fileName, metadata);
               loadedCount++;
             }
 
-            const baseFrequency = metadata?.center_frequency_hz
-              ? metadata.center_frequency_hz
-              : parseFrequencyFromFilename(file.fileName);
-            const frequency = baseFrequency * (1 + (settings.ppm || 0) * 1e-6);
-            freqMap.set(file.fileName, frequency);
+            const baseFrequency = metadata?.center_frequency_hz || parseFrequencyFromFilename(file.fileName);
+            freqMap.set(file.fileName, baseFrequency * (1 + (settings.ppm || 0) * 1e-6));
 
             self.postMessage({
               type: "progress",
               id,
-              data: {
-                current: i + 1,
-                total: files.length,
-                status: `Loaded ${sanitizeFilename(file.fileName)}`,
-              },
+              data: { current: i + 1, total: files.length, status: `Loaded ${sanitizeFilename(file.fileName)}` },
             });
-          } catch (error) {
-            console.warn(
-              "Failed to load file:",
-              sanitizeFilename(file.fileName),
-              error,
-            );
+          } catch (error: any) {
+            console.error(`[fileWorker] Failed to load ${file.fileName}:`, error);
+            lastError = error;
+            if (error.message?.includes("OperationError") || error.message?.includes("decrypt")) decryptionErrorCount++;
           }
         }
 
-        if (loadedCount === 0)
-          throw new Error("No files could be loaded successfully");
+        if (loadedCount === 0) {
+          if (decryptionErrorCount > 0) {
+            throw new Error(`File decryption failed, wrong key: ${lastError?.message || "OperationError"}`);
+          }
+          throw new Error(`No files could be loaded successfully: ${lastError?.message || "Unknown error"}`);
+        }
 
         const internalFftSize = fftSize || currentFftSize;
         const chunkSize = internalFftSize * 2; // IQ pair per bin

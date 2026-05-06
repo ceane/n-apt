@@ -68,6 +68,7 @@ signals:
     # Per-channel mock APT configuration
     # These channels define where mock signals are generated
     # The keys (a, b, c) should match the n_apt.channels keys
+    # These mock signals do not do anything or carry any content like a real N-APT signal
     channels:
       a:
         label: "A"
