@@ -4,7 +4,7 @@ use anyhow::{anyhow, Result};
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::io::Cursor;
 
-use super::decryption::derive_key;
+use crate::crypto::{decrypt_iq_data, decrypt_waveform, derive_key};
 use super::types::LiveData;
 
 /// Parse binary WebSocket message and decrypt payload
@@ -40,7 +40,7 @@ pub fn parse_binary_message(
     0 => {
       // Spectrum data (FFT power values)
       let waveform =
-        super::decryption::decrypt_waveform(&key, encrypted_payload)?;
+        decrypt_waveform(&key, encrypted_payload)?;
       Ok(LiveData::Spectrum {
         timestamp,
         center_frequency_hz,
@@ -51,7 +51,7 @@ pub fn parse_binary_message(
     1 => {
       // Raw I/Q data
       let iq_bytes =
-        super::decryption::decrypt_iq_data(&key, encrypted_payload)?;
+        decrypt_iq_data(&key, encrypted_payload)?;
       Ok(LiveData::RawIQ {
         timestamp,
         center_frequency_hz,
