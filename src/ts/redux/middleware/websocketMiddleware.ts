@@ -1,9 +1,9 @@
-import { Middleware, Dispatch } from '@reduxjs/toolkit';
-import { 
-  setConnecting, 
-  setConnected, 
-  setDisconnected, 
-  setReconnecting, 
+import { Middleware, Dispatch } from "@reduxjs/toolkit";
+import {
+  setConnecting,
+  setConnected,
+  setDisconnected,
+  setReconnecting,
   setError,
   updateDeviceState,
   setCaptureStatus,
@@ -12,16 +12,16 @@ import {
   queueMessage,
   clearQueuedMessages,
   incrementDataFrameCounter,
-} from '../slices/websocketSlice';
-import { setHardwareInfo } from '../slices/demodSlice';
-import { decryptPayload, decryptBinaryPayload } from '@n-apt/crypto/webcrypto';
-import { AutoFftOptionsResponse } from '@n-apt/consts/schemas/websocket';
-import { scannerWorkerManager } from '@n-apt/workers/scannerWorkerManager';
-import { 
+} from "../slices/websocketSlice";
+import { setHardwareInfo } from "../slices/demodSlice";
+import { decryptPayload, decryptBinaryPayload } from "@n-apt/crypto/webcrypto";
+import { AutoFftOptionsResponse } from "@n-apt/consts/schemas/websocket";
+import { scannerWorkerManager } from "@n-apt/workers/scannerWorkerManager";
+import {
   processWebSocketMessageWithValidation,
   validateStatusMessage,
   validateAutoFftOptions,
-} from '@n-apt/validation';
+} from "@n-apt/validation";
 
 // Module-level ref for high-frequency live frame data.
 // Written directly — never goes through Redux state — so no React rerenders per frame.
@@ -76,8 +76,8 @@ const equalValue = (current: unknown, next: unknown): boolean => {
   if (
     current &&
     next &&
-    typeof current === 'object' &&
-    typeof next === 'object'
+    typeof current === "object" &&
+    typeof next === "object"
   ) {
     return shallowEqualObject(
       current as Record<string, unknown>,
@@ -106,7 +106,7 @@ let wsInstance: WebSocketInstance = {
   disconnectTimeout: null,
   reconnectAttempts: 0,
   maxReconnectAttempts: 5,
-  url: '',
+  url: "",
   aesKey: null,
   enabled: false,
   disposed: false,
@@ -138,15 +138,15 @@ const processBatchedData = (dispatch: Dispatch, getState: () => any) => {
 };
 
 const getPausedValue = (payload: unknown): boolean | null => {
-  if (typeof payload === 'boolean') {
+  if (typeof payload === "boolean") {
     return payload;
   }
 
   if (
     payload &&
-    typeof payload === 'object' &&
-    'isPaused' in payload &&
-    typeof (payload as { isPaused?: unknown }).isPaused === 'boolean'
+    typeof payload === "object" &&
+    "isPaused" in payload &&
+    typeof (payload as { isPaused?: unknown }).isPaused === "boolean"
   ) {
     return (payload as { isPaused: boolean }).isPaused;
   }
@@ -191,10 +191,14 @@ const cleanupSocket = () => {
 };
 
 // WebSocket message processing
-const processMessage = (dispatch: Dispatch, getState: () => any, parsedData: any) => {
+const processMessage = (
+  dispatch: Dispatch,
+  getState: () => any,
+  parsedData: any,
+) => {
   // Validate the message first (skip binary data for performance)
   if (!processWebSocketMessageWithValidation(dispatch, getState, parsedData)) {
-    console.warn('WebSocket message failed validation:', parsedData);
+    console.warn("WebSocket message failed validation:", parsedData);
     return;
   }
 
@@ -202,10 +206,10 @@ const processMessage = (dispatch: Dispatch, getState: () => any, parsedData: any
   if (parsedData?.type === "status") {
     // Additional validation for status messages
     if (!validateStatusMessage(parsedData)) {
-      console.error('Status message validation failed:', parsedData);
+      console.error("Status message validation failed:", parsedData);
       return;
     }
-    
+
     try {
       const updates: any = {
         serverPaused: parsedData.paused || false,
@@ -229,21 +233,30 @@ const processMessage = (dispatch: Dispatch, getState: () => any, parsedData: any
       }
       if (parsedData.sdr_settings) {
         let sdrSettings = parsedData.sdr_settings;
-        
-        // Anti-clobbering guard: If we recently requested a specific FFT size, 
+
+        // Anti-clobbering guard: If we recently requested a specific FFT size,
         // don't let a stale backend status overwrite it (especially if it tries to force 2048).
-        if (lastSettingsRequest && Date.now() - lastSettingsRequest.timestamp < 5000) {
+        if (
+          lastSettingsRequest &&
+          Date.now() - lastSettingsRequest.timestamp < 5000
+        ) {
           const intendedFftSize = lastSettingsRequest.fft_size;
           const reportedFftSize = sdrSettings.fft?.default_size;
-          
-          if (intendedFftSize && reportedFftSize && intendedFftSize !== reportedFftSize) {
-            console.warn(`[WebsocketMiddleware] Backend reported stale FFT size (${reportedFftSize}), preserving intended client state (${intendedFftSize})`);
+
+          if (
+            intendedFftSize &&
+            reportedFftSize &&
+            intendedFftSize !== reportedFftSize
+          ) {
+            console.warn(
+              `[WebsocketMiddleware] Backend reported stale FFT size (${reportedFftSize}), preserving intended client state (${intendedFftSize})`,
+            );
             sdrSettings = {
               ...sdrSettings,
               fft: {
                 ...sdrSettings.fft,
                 default_size: intendedFftSize,
-              }
+              },
             };
           }
         }
@@ -271,20 +284,21 @@ const processMessage = (dispatch: Dispatch, getState: () => any, parsedData: any
             max_hz: Number(f.max_hz),
             description: typeof f.description === "string" ? f.description : "",
           }))
-          .filter((f: any) =>
-            typeof f.label === "string" &&
-            f.label.length > 0 &&
-            Number.isFinite(f.min_hz) &&
-            Number.isFinite(f.max_hz) &&
-            f.max_hz > f.min_hz,
+          .filter(
+            (f: any) =>
+              typeof f.label === "string" &&
+              f.label.length > 0 &&
+              Number.isFinite(f.min_hz) &&
+              Number.isFinite(f.max_hz) &&
+              f.max_hz > f.min_hz,
           );
       }
-      
+
       const reason = parsedData.device_loading_reason;
       if (reason === "connect" || reason === "restart" || reason === null) {
         updates.deviceLoadingReason = reason;
       }
-      
+
       const websocketState = getState().websocket;
       const hasChanges = Object.entries(updates).some(([key, value]) => {
         return !equalValue(websocketState[key], value);
@@ -293,7 +307,7 @@ const processMessage = (dispatch: Dispatch, getState: () => any, parsedData: any
         dispatch(updateDeviceState(updates));
       }
     } catch (e) {
-      console.error('Failed to parse status message:', e);
+      console.error("Failed to parse status message:", e);
     }
     return;
   }
@@ -302,16 +316,16 @@ const processMessage = (dispatch: Dispatch, getState: () => any, parsedData: any
   if (parsedData?.type === "capture_status") {
     // Temporarily skip strict validation to allow I/Q capture to work
     // TODO: Fix schema validation issue and re-enable proper validation
-    
+
     // const statusData = parsedData.status || parsedData;
     // if (!validateCaptureStatus(statusData)) {
     //   console.error('Capture status validation failed:', statusData);
     //   return;
     // }
-    
+
     try {
       const statusObj = parsedData.status || {};
-      
+
       if (
         typeof statusObj.jobId === "string" &&
         (statusObj.status === "started" ||
@@ -326,14 +340,26 @@ const processMessage = (dispatch: Dispatch, getState: () => any, parsedData: any
           progress: statusObj.progress,
           downloadUrl: statusObj.downloadUrl,
           filename: statusObj.filename,
-          fileCount: typeof statusObj.fileCount === "number" ? statusObj.fileCount : undefined,
+          fileCount:
+            typeof statusObj.fileCount === "number"
+              ? statusObj.fileCount
+              : undefined,
           ephemeral:
-            typeof statusObj.ephemeral === "boolean" ? statusObj.ephemeral : undefined,
+            typeof statusObj.ephemeral === "boolean"
+              ? statusObj.ephemeral
+              : undefined,
           timestamp:
-            typeof statusObj.timestamp === "number" ? statusObj.timestamp : undefined,
-          fileSize: typeof statusObj.fileSize === "number" ? statusObj.fileSize : undefined,
+            typeof statusObj.timestamp === "number"
+              ? statusObj.timestamp
+              : undefined,
+          fileSize:
+            typeof statusObj.fileSize === "number"
+              ? statusObj.fileSize
+              : undefined,
           duration:
-            typeof statusObj.duration === "number" ? statusObj.duration : undefined,
+            typeof statusObj.duration === "number"
+              ? statusObj.duration
+              : undefined,
         };
         if (statusObj.error) {
           (newStatus as any).error = statusObj.error;
@@ -344,7 +370,7 @@ const processMessage = (dispatch: Dispatch, getState: () => any, parsedData: any
         }
       }
     } catch (e) {
-      console.error('Failed to parse capture status:', e);
+      console.error("Failed to parse capture status:", e);
     }
     return;
   }
@@ -353,10 +379,10 @@ const processMessage = (dispatch: Dispatch, getState: () => any, parsedData: any
   if (parsedData?.type === "auto_fft_options") {
     // Validate auto FFT options
     if (!validateAutoFftOptions(parsedData)) {
-      console.error('Auto FFT options validation failed:', parsedData);
+      console.error("Auto FFT options validation failed:", parsedData);
       return;
     }
-    
+
     try {
       if (
         Array.isArray(parsedData.autoSizes) &&
@@ -373,7 +399,7 @@ const processMessage = (dispatch: Dispatch, getState: () => any, parsedData: any
         }
       }
     } catch (e) {
-      console.error('Failed to parse auto FFT options:', e);
+      console.error("Failed to parse auto FFT options:", e);
     }
     return;
   }
@@ -387,21 +413,26 @@ const processMessage = (dispatch: Dispatch, getState: () => any, parsedData: any
     scannerWorkerManager.handleWSResponse(parsedData);
     return;
   }
-  
+
   // Hardware info messages
   if (parsedData?.type === "hardware_info") {
     try {
-      if (parsedData.hardwareFreqRange && typeof parsedData.sampleRate === "number") {
-        dispatch(setHardwareInfo({
-          range: {
-            min: parsedData.hardwareFreqRange.min,
-            max: parsedData.hardwareFreqRange.max
-          },
-          sampleRate: parsedData.sampleRate
-        }));
+      if (
+        parsedData.hardwareFreqRange &&
+        typeof parsedData.sampleRate === "number"
+      ) {
+        dispatch(
+          setHardwareInfo({
+            range: {
+              min: parsedData.hardwareFreqRange.min,
+              max: parsedData.hardwareFreqRange.max,
+            },
+            sampleRate: parsedData.sampleRate,
+          }),
+        );
       }
     } catch (e) {
-      console.error('Failed to parse hardware info:', e);
+      console.error("Failed to parse hardware info:", e);
     }
     return;
   }
@@ -411,35 +442,40 @@ const processMessage = (dispatch: Dispatch, getState: () => any, parsedData: any
     try {
       // Dispatch custom event for APT analysis results
       // This will be handled by the DemodContext
-      const event = new CustomEvent('aptAnalysisResult', {
-        detail: parsedData
+      const event = new CustomEvent("aptAnalysisResult", {
+        detail: parsedData,
       });
       window.dispatchEvent(event);
     } catch (e) {
-      console.error('Failed to process APT analysis result:', e);
+      console.error("Failed to process APT analysis result:", e);
     }
     return;
   }
 };
 
 // Binary message processing
-const processBinaryMessage = async (dispatch: Dispatch, _getState: () => any, buffer: ArrayBuffer, aesKey: CryptoKey) => {
+const processBinaryMessage = async (
+  dispatch: Dispatch,
+  _getState: () => any,
+  buffer: ArrayBuffer,
+  aesKey: CryptoKey,
+) => {
   try {
     const view = new DataView(buffer);
-    
+
     // Extract metadata
     const timestamp = Number(view.getBigUint64(0, true));
     const centerFrequencyHz = Number(view.getBigUint64(8, true));
     const dataType = Number(view.getUint32(16, true));
     const sampleRate = Number(view.getUint32(20, true));
-    
+
     // Extract encrypted payload
     const encryptedPayload = new Uint8Array(buffer, 24);
-    
+
     // Decrypt the binary payload
     const decryptedBytes = await decryptBinaryPayload(aesKey, encryptedPayload);
     if (dataType !== 1) {
-      console.warn('Ignoring unexpected non-IQ binary payload', {
+      console.warn("Ignoring unexpected non-IQ binary payload", {
         dataType,
         centerFrequencyHz,
         sampleRate,
@@ -458,7 +494,7 @@ const processBinaryMessage = async (dispatch: Dispatch, _getState: () => any, bu
       sample_rate: sampleRate,
       iq_data: decryptedBytes,
     };
-    
+
     // Batch the data update to prevent excessive re-renders
     pendingDataUpdate = spectrumData;
     if (dataBatchFrame === null) {
@@ -473,235 +509,258 @@ const processBinaryMessage = async (dispatch: Dispatch, _getState: () => any, bu
 };
 
 // Create WebSocket middleware
-const createWebSocketMiddleware = (): Middleware<{}, any> => (store) => (next) => (action: any) => {
-  const { dispatch, getState } = store;
-  
-  // Handle WebSocket connection management actions
-  switch (action.type) {
-    case 'websocket/connect': {
-      const { url, aesKey, enabled = true } = action.payload;
+const createWebSocketMiddleware =
+  (): Middleware<{}, any> => (store) => (next) => (action: any) => {
+    const { dispatch, getState } = store;
 
-      if (wsInstance.disconnectTimeout) {
-        clearTimeout(wsInstance.disconnectTimeout);
-        wsInstance.disconnectTimeout = null;
-      }
+    // Handle WebSocket connection management actions
+    switch (action.type) {
+      case "websocket/connect": {
+        const { url, aesKey, enabled = true } = action.payload;
 
-      const existingSocket = wsInstance.ws;
-      const hasReusableSocket =
-        !!existingSocket &&
-        !wsInstance.disposed &&
-        wsInstance.enabled === enabled &&
-        wsInstance.url === url &&
-        sameAesKeyReference(wsInstance.aesKey, aesKey) &&
-        (existingSocket.readyState === WebSocket.CONNECTING ||
-          existingSocket.readyState === WebSocket.OPEN);
-
-      if (hasReusableSocket) {
-        if (existingSocket?.readyState === WebSocket.OPEN) {
-          dispatch(setConnected());
-        } else {
-          dispatch(setConnecting());
+        if (wsInstance.disconnectTimeout) {
+          clearTimeout(wsInstance.disconnectTimeout);
+          wsInstance.disconnectTimeout = null;
         }
+
+        const existingSocket = wsInstance.ws;
+        const hasReusableSocket =
+          !!existingSocket &&
+          !wsInstance.disposed &&
+          wsInstance.enabled === enabled &&
+          wsInstance.url === url &&
+          sameAesKeyReference(wsInstance.aesKey, aesKey) &&
+          (existingSocket.readyState === WebSocket.CONNECTING ||
+            existingSocket.readyState === WebSocket.OPEN);
+
+        if (hasReusableSocket) {
+          if (existingSocket?.readyState === WebSocket.OPEN) {
+            dispatch(setConnected());
+          } else {
+            dispatch(setConnecting());
+          }
+          return next(action);
+        }
+
+        // Cleanup existing connection
+        cleanupSocket();
+
+        if (!enabled || !url) {
+          dispatch(setDisconnected());
+          return next(action);
+        }
+
+        wsInstance.url = url;
+        wsInstance.aesKey = aesKey;
+        wsInstance.enabled = enabled;
+        wsInstance.reconnectAttempts = 0;
+        wsInstance.disposed = false;
+
+        const connect = () => {
+          if (wsInstance.disposed) return;
+
+          try {
+            dispatch(setConnecting());
+            const ws = new WebSocket(url);
+            ws.binaryType = "arraybuffer";
+            wsInstance.ws = ws;
+
+            ws.onopen = () => {
+              if (wsInstance.disposed) {
+                ws.close();
+                return;
+              }
+              dispatch(setConnected());
+              wsInstance.reconnectAttempts = 0;
+
+              // Send queued messages
+              const state = getState();
+              const queuedMessages = state.websocket.queuedMessages;
+              if (queuedMessages.length > 0) {
+                queuedMessages.forEach(
+                  ({ type, data }: { type: string; data: any }) => {
+                    ws.send(JSON.stringify({ type, ...data }));
+                  },
+                );
+                dispatch(clearQueuedMessages());
+              }
+            };
+
+            ws.onmessage = async (event) => {
+              if (wsInstance.disposed) return;
+
+              // Binary fast-path for spectrum data
+              if (event.data instanceof ArrayBuffer) {
+                if (wsInstance.aesKey) {
+                  await processBinaryMessage(
+                    dispatch,
+                    getState,
+                    event.data,
+                    wsInstance.aesKey,
+                  );
+                }
+                return;
+              }
+
+              const raw = event.data as string;
+              let parsed: any;
+              try {
+                parsed = JSON.parse(raw);
+              } catch (e) {
+                console.error("Failed to parse websocket message:", e);
+                return;
+              }
+
+              // Priority: Handle critical control messages immediately before any other processing
+              if (
+                parsed?.type === "auto_fft_options" ||
+                parsed?.type === "status" ||
+                parsed?.type === "capture_status"
+              ) {
+                processMessage(dispatch, getState, parsed);
+                return;
+              }
+
+              if (parsed?.type === "spectrum") {
+                queueLiveData(parsed, dispatch, getState);
+                return;
+              }
+
+              if (parsed?.type === "encrypted_spectrum") {
+                if (wsInstance.aesKey && typeof parsed.payload === "string") {
+                  try {
+                    const plaintext = await decryptPayload(
+                      wsInstance.aesKey,
+                      parsed.payload,
+                    );
+                    const decrypted = JSON.parse(plaintext);
+                    if (
+                      decrypted?.type === "batch" &&
+                      Array.isArray(decrypted.messages) &&
+                      decrypted.messages.length > 0
+                    ) {
+                      queueLiveData(
+                        JSON.parse(decrypted.messages[0]),
+                        dispatch,
+                        getState,
+                      );
+                    } else {
+                      queueLiveData(decrypted, dispatch, getState);
+                    }
+                  } catch (e) {
+                    console.error("Failed to decrypt spectrum data:", e);
+                  }
+                }
+                return;
+              }
+
+              // Process status and control messages immediately
+              processMessage(dispatch, getState, parsed);
+            };
+
+            ws.onclose = () => {
+              if (wsInstance.disposed) return;
+              dispatch(setDisconnected());
+
+              // Exponential backoff reconnection
+              if (
+                wsInstance.reconnectAttempts < wsInstance.maxReconnectAttempts
+              ) {
+                const delay = Math.min(
+                  1000 * Math.pow(2, wsInstance.reconnectAttempts),
+                  30000,
+                );
+                wsInstance.reconnectTimeout = window.setTimeout(() => {
+                  wsInstance.reconnectAttempts++;
+                  dispatch(setReconnecting(wsInstance.reconnectAttempts));
+                  connect();
+                }, delay);
+              }
+            };
+
+            ws.onerror = (error) => {
+              console.error("WebSocket error:", error);
+              dispatch(setError("WebSocket connection error"));
+            };
+          } catch (error) {
+            console.error("Failed to create WebSocket:", error);
+            dispatch(setError("Failed to create WebSocket connection"));
+          }
+        };
+
+        connect();
         return next(action);
       }
-      
-      // Cleanup existing connection
-      cleanupSocket();
-      
-      if (!enabled || !url) {
+
+      case "websocket/disconnect": {
+        if (wsInstance.disconnectTimeout) {
+          clearTimeout(wsInstance.disconnectTimeout);
+        }
+
+        wsInstance.disconnectTimeout = window.setTimeout(() => {
+          wsInstance.disconnectTimeout = null;
+          cleanupSocket();
+        }, DISCONNECT_GRACE_MS);
+
+        if (dataBatchFrame) {
+          cancelAnimationFrame(dataBatchFrame);
+          dataBatchFrame = null;
+        }
+
         dispatch(setDisconnected());
         return next(action);
       }
-      
-      wsInstance.url = url;
-      wsInstance.aesKey = aesKey;
-      wsInstance.enabled = enabled;
-      wsInstance.reconnectAttempts = 0;
-      wsInstance.disposed = false;
-      
-      const connect = () => {
-        if (wsInstance.disposed) return;
-        
-        try {
-          dispatch(setConnecting());
-          const ws = new WebSocket(url);
-          ws.binaryType = "arraybuffer";
-          wsInstance.ws = ws;
-          
-          ws.onopen = () => {
-            if (wsInstance.disposed) {
-              ws.close();
-              return;
-            }
-            dispatch(setConnected());
-            wsInstance.reconnectAttempts = 0;
-            
-            // Send queued messages
-            const state = getState();
-            const queuedMessages = state.websocket.queuedMessages;
-            if (queuedMessages.length > 0) {
-              queuedMessages.forEach(({ type, data }: { type: string; data: any }) => {
-                ws.send(JSON.stringify({ type, ...data }));
-              });
-              dispatch(clearQueuedMessages());
-            }
-          };
-          
-          ws.onmessage = async (event) => {
-            if (wsInstance.disposed) return;
-            
-            // Binary fast-path for spectrum data
-            if (event.data instanceof ArrayBuffer) {
-              if (wsInstance.aesKey) {
-                await processBinaryMessage(dispatch, getState, event.data, wsInstance.aesKey);
-              }
-              return;
-            }
-            
-            const raw = event.data as string;
-            let parsed: any;
-            try {
-              parsed = JSON.parse(raw);
-            } catch (e) {
-              console.error('Failed to parse websocket message:', e);
-              return;
-            }
 
-            // Priority: Handle critical control messages immediately before any other processing
-            if (parsed?.type === "auto_fft_options" || 
-                parsed?.type === "status" ||
-                parsed?.type === "capture_status") {
-              processMessage(dispatch, getState, parsed);
-              return;
-            }
+      case "websocket/sendMessage": {
+        const { type, data }: { type: string; data: any } = action.payload;
 
-            if (parsed?.type === "spectrum") {
-              queueLiveData(parsed, dispatch, getState);
-              return;
-            }
-
-            if (parsed?.type === "encrypted_spectrum") {
-              if (wsInstance.aesKey && typeof parsed.payload === "string") {
-                try {
-                  const plaintext = await decryptPayload(wsInstance.aesKey, parsed.payload);
-                  const decrypted = JSON.parse(plaintext);
-                  if (
-                    decrypted?.type === "batch" &&
-                    Array.isArray(decrypted.messages) &&
-                    decrypted.messages.length > 0
-                  ) {
-                    queueLiveData(JSON.parse(decrypted.messages[0]), dispatch, getState);
-                  } else {
-                    queueLiveData(decrypted, dispatch, getState);
-                  }
-                } catch (e) {
-                  console.error('Failed to decrypt spectrum data:', e);
-                }
-              }
-              return;
-            }
-
-            // Process status and control messages immediately
-            processMessage(dispatch, getState, parsed);
+        // Track intended FFT size to prevent clobbering from status broadcasts
+        if (type === "settings" && data.fft_size) {
+          lastSettingsRequest = {
+            fft_size: data.fft_size,
+            timestamp: Date.now(),
           };
-          
-          ws.onclose = () => {
-            if (wsInstance.disposed) return;
-            dispatch(setDisconnected());
-            
-            // Exponential backoff reconnection
-            if (wsInstance.reconnectAttempts < wsInstance.maxReconnectAttempts) {
-              const delay = Math.min(1000 * Math.pow(2, wsInstance.reconnectAttempts), 30000);
-              wsInstance.reconnectTimeout = window.setTimeout(() => {
-                wsInstance.reconnectAttempts++;
-                dispatch(setReconnecting(wsInstance.reconnectAttempts));
-                connect();
-              }, delay);
-            }
-          };
-          
-          ws.onerror = (error) => {
-            console.error("WebSocket error:", error);
-            dispatch(setError("WebSocket connection error"));
-          };
-          
-        } catch (error) {
-          console.error("Failed to create WebSocket:", error);
-          dispatch(setError("Failed to create WebSocket connection"));
         }
-      };
-      
-      connect();
-      return next(action);
-    }
-    
-    case 'websocket/disconnect': {
-      if (wsInstance.disconnectTimeout) {
-        clearTimeout(wsInstance.disconnectTimeout);
-      }
 
-      wsInstance.disconnectTimeout = window.setTimeout(() => {
-        wsInstance.disconnectTimeout = null;
-        cleanupSocket();
-      }, DISCONNECT_GRACE_MS);
-      
-      if (dataBatchFrame) {
-        cancelAnimationFrame(dataBatchFrame);
-        dataBatchFrame = null;
-      }
-      
-      dispatch(setDisconnected());
-      return next(action);
-    }
-    
-    case 'websocket/sendMessage': {
-      const { type, data }: { type: string; data: any } = action.payload;
-      
-      // Track intended FFT size to prevent clobbering from status broadcasts
-      if (type === 'settings' && data.fft_size) {
-        lastSettingsRequest = {
-          fft_size: data.fft_size,
-          timestamp: Date.now(),
-        };
-      }
+        if (type === "request_next_frame") {
+          allowNextPausedFrame = true;
+        }
 
-      if (type === 'request_next_frame') {
-        allowNextPausedFrame = true;
-      }
-      
-      if (wsInstance.ws && wsInstance.ws.readyState === WebSocket.OPEN) {
-        wsInstance.ws.send(JSON.stringify({ type, ...data }));
-      } else {
-        // Queue the message for when connection is restored
-        dispatch(queueMessage({ type, data }));
-      }
-      return next(action);
-    }
-
-    case 'websocket/setPaused': {
-      const isPaused = getPausedValue(action.payload);
-
-      if (isPaused === null) {
+        if (wsInstance.ws && wsInstance.ws.readyState === WebSocket.OPEN) {
+          wsInstance.ws.send(JSON.stringify({ type, ...data }));
+        } else {
+          // Queue the message for when connection is restored
+          dispatch(queueMessage({ type, data }));
+        }
         return next(action);
       }
-      
-      if (wsInstance.ws && wsInstance.ws.readyState === WebSocket.OPEN) {
-        wsInstance.ws.send(JSON.stringify({
-          type: "pause",
-          paused: isPaused,
-        }));
+
+      case "websocket/setPaused": {
+        const isPaused = getPausedValue(action.payload);
+
+        if (isPaused === null) {
+          return next(action);
+        }
+
+        if (wsInstance.ws && wsInstance.ws.readyState === WebSocket.OPEN) {
+          wsInstance.ws.send(
+            JSON.stringify({
+              type: "pause",
+              paused: isPaused,
+            }),
+          );
+        }
+
+        return next({
+          ...action,
+          payload: isPaused,
+        });
       }
 
-      return next({
-        ...action,
-        payload: isPaused,
-      });
+      default:
+        return next(action);
     }
-    
-    default:
-      return next(action);
-  }
-};
+  };
 
 // Export the middleware factory
 const websocketMiddleware = createWebSocketMiddleware();

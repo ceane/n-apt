@@ -9,8 +9,10 @@ const Section = styled.div`
   grid-template-columns: subgrid;
   grid-column: 1 / -1;
   gap: inherit;
-  padding: ${(props) => (props.theme.mode === "light" ? props.theme.spacing.sm : 0)};
-  background-color: ${(props) => (props.theme.mode === "light" ? props.theme.surface : "transparent")};
+  padding: ${(props) =>
+    props.theme.mode === "light" ? props.theme.spacing.sm : 0};
+  background-color: ${(props) =>
+    props.theme.mode === "light" ? props.theme.surface : "transparent"};
   border-radius: 8px;
   border: ${(props) =>
     props.theme.mode === "light" ? `1px solid ${props.theme.border}` : "none"};
@@ -34,7 +36,7 @@ export const FFTWaterfallSection: React.FC<FFTWaterfallSectionProps> = ({
 }) => {
   const [isOpen] = useState(false);
   const dispatch = useAppDispatch();
-  const drawSignal3D = useAppSelector(state => state.waterfall.drawSignal3D);
+  const drawSignal3D = useAppSelector((state) => state.waterfall.drawSignal3D);
 
   const isFileSource = sourceMode === "file";
   const isDisabled = isFileSource ? selectedFilesCount === 0 : false;
@@ -45,10 +47,7 @@ export const FFTWaterfallSection: React.FC<FFTWaterfallSectionProps> = ({
 
   return (
     <Section>
-      <Collapsible
-        label="FFT/Waterfall Drawing options"
-        defaultOpen={isOpen}
-      >
+      <Collapsible label="FFT/Waterfall Drawing options" defaultOpen={isOpen}>
         <Row
           label="Draw Signal 3D"
           tooltipTitle="3D FFT Waterfall"

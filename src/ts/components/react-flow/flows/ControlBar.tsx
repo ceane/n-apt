@@ -1,6 +1,6 @@
-import React from 'react';
-import styled from 'styled-components';
-import { Play } from 'lucide-react';
+import React from "react";
+import styled from "styled-components";
+import { Play } from "lucide-react";
 
 const ControlBarContainer = styled.div`
   position: absolute;
@@ -56,7 +56,9 @@ interface ControlBarProps {
 export const ControlBar: React.FC<ControlBarProps> = ({ onPlay }) => {
   return (
     <ControlBarContainer>
-      <PlayButton onClick={onPlay || (() => console.log('Play button clicked'))}>
+      <PlayButton
+        onClick={onPlay || (() => console.log("Play button clicked"))}
+      >
         <Play size={20} />
       </PlayButton>
     </ControlBarContainer>

@@ -90,25 +90,25 @@ const TechBadge = styled.span<{ $tech: string }>`
   font-weight: 600;
   margin-right: 4px;
   margin-bottom: 2px;
-  
-  ${props => {
+
+  ${(props) => {
     switch (props.$tech) {
-      case 'NR':
+      case "NR":
         return `
           background: #3b82f6;
           color: white;
         `;
-      case 'LTE':
+      case "LTE":
         return `
           background: #22c55e;
           color: white;
         `;
-      case 'UMTS':
+      case "UMTS":
         return `
           background: #eab308;
           color: black;
         `;
-      case 'GSM':
+      case "GSM":
         return `
           background: #ef4444;
           color: white;
@@ -154,12 +154,14 @@ interface NearestEndpoint {
 
 export const EndpointsListAndSearch: React.FC = () => {
   const { activeLocationId, locations } = useMapLocations();
-  const [nearestEndpoints, setNearestEndpoints] = useState<NearestEndpoint[]>([]);
+  const [nearestEndpoints, setNearestEndpoints] = useState<NearestEndpoint[]>(
+    [],
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const getCurrentLocation = useCallback(() => {
-    const activeLoc = locations.find(l => l.id === activeLocationId);
+    const activeLoc = locations.find((l) => l.id === activeLocationId);
     if (!activeLoc || activeLoc.lat === 0 || activeLoc.lng === 0) {
       return null;
     }
@@ -180,7 +182,8 @@ export const EndpointsListAndSearch: React.FC = () => {
       // Create a small bounding box around current location (approximately 1km radius)
       const radiusKm = 1.0;
       const latDelta = radiusKm / 111.0; // ~1km latitude
-      const lngDelta = radiusKm / (111.0 * Math.cos(currentLoc.lat * Math.PI / 180));
+      const lngDelta =
+        radiusKm / (111.0 * Math.cos((currentLoc.lat * Math.PI) / 180));
 
       const params = new URLSearchParams({
         ne_lat: String(currentLoc.lat + latDelta),
@@ -203,9 +206,16 @@ export const EndpointsListAndSearch: React.FC = () => {
         const endpointsWithDistance = data.towers
           .map((tower: TowerRecord) => ({
             tower,
-            distance: calculateDistance(currentLoc.lat, currentLoc.lng, tower.lat, tower.lon)
+            distance: calculateDistance(
+              currentLoc.lat,
+              currentLoc.lng,
+              tower.lat,
+              tower.lon,
+            ),
           }))
-          .sort((a: NearestEndpoint, b: NearestEndpoint) => a.distance - b.distance)
+          .sort(
+            (a: NearestEndpoint, b: NearestEndpoint) => a.distance - b.distance,
+          )
           .slice(0, 10); // Take only the nearest 10
 
         setNearestEndpoints(endpointsWithDistance);
@@ -213,21 +223,30 @@ export const EndpointsListAndSearch: React.FC = () => {
         setNearestEndpoints([]);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to fetch endpoints");
+      setError(
+        err instanceof Error ? err.message : "Failed to fetch endpoints",
+      );
       setNearestEndpoints([]);
     } finally {
       setLoading(false);
     }
   }, [getCurrentLocation]);
 
-  const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+  const calculateDistance = (
+    lat1: number,
+    lon1: number,
+    lat2: number,
+    lon2: number,
+  ): number => {
     const R = 6371; // Earth's radius in kilometers
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const dLat = ((lat2 - lat1) * Math.PI) / 180;
+    const dLon = ((lon2 - lon1) * Math.PI) / 180;
     const a =
       Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+      Math.cos((lat1 * Math.PI) / 180) *
+        Math.cos((lat2 * Math.PI) / 180) *
+        Math.sin(dLon / 2) *
+        Math.sin(dLon / 2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     return R * c;
   };
@@ -240,7 +259,7 @@ export const EndpointsListAndSearch: React.FC = () => {
       lat: endpoint.tower.lat,
       lng: endpoint.tower.lon,
       zoom: 16,
-      color: "#f59e0b"
+      color: "#f59e0b",
     };
 
     // This would need to be integrated with the map location management
@@ -281,7 +300,9 @@ export const EndpointsListAndSearch: React.FC = () => {
 
       {!loading && !error && nearestEndpoints.length === 0 && (
         <EndpointsList>
-          <EmptyText>No endpoints found. Select a location and try again.</EmptyText>
+          <EmptyText>
+            No endpoints found. Select a location and try again.
+          </EmptyText>
         </EndpointsList>
       )}
 
@@ -302,8 +323,7 @@ export const EndpointsListAndSearch: React.FC = () => {
                 <EndpointDistance>
                   {endpoint.distance < 1
                     ? `${(endpoint.distance * 1000).toFixed(0)}m`
-                    : `${endpoint.distance.toFixed(1)}km`
-                  }
+                    : `${endpoint.distance.toFixed(1)}km`}
                 </EndpointDistance>
               </EndpointHeader>
               <EndpointDetails>

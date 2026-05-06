@@ -47,7 +47,7 @@ describe("FFTCanvas Component", () => {
             <FFTCanvas {...defaultProps} />
           </SpectrumProvider>
         </MemoryRouter>
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     await waitFor(() => {
@@ -64,7 +64,7 @@ describe("FFTCanvas Component", () => {
             <FFTCanvas {...defaultProps} />
           </SpectrumProvider>
         </MemoryRouter>
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     await waitFor(() => {
@@ -80,8 +80,7 @@ describe("FFTCanvas Component", () => {
     const seededSnapshot = {
       waveform: new Float32Array([1, 2, 3, 4]),
       waterfallTextureSnapshot: new Uint8Array([
-        10, 20, 30, 255,
-        40, 50, 60, 255,
+        10, 20, 30, 255, 40, 50, 60, 255,
       ]),
       waterfallTextureMeta: {
         width: 1,
@@ -89,8 +88,7 @@ describe("FFTCanvas Component", () => {
         writeRow: 1,
       },
       waterfallBuffer: new Uint8ClampedArray([
-        10, 20, 30, 255,
-        40, 50, 60, 255,
+        10, 20, 30, 255, 40, 50, 60, 255,
       ]),
       waterfallDims: {
         width: 1,
@@ -116,7 +114,7 @@ describe("FFTCanvas Component", () => {
               </ThemeProvider>
             </SpectrumProvider>
           </MemoryRouter>
-        </TestWrapper>
+        </TestWrapper>,
       );
 
     const firstRender = renderCanvas();
@@ -147,8 +145,7 @@ describe("FFTCanvas Component", () => {
     const seededSnapshot = {
       waveform: new Float32Array([1, 2, 3, 4]),
       waterfallTextureSnapshot: new Uint8Array([
-        10, 20, 30, 255,
-        40, 50, 60, 255,
+        10, 20, 30, 255, 40, 50, 60, 255,
       ]),
       waterfallTextureMeta: {
         width: 1,
@@ -156,8 +153,7 @@ describe("FFTCanvas Component", () => {
         writeRow: 1,
       },
       waterfallBuffer: new Uint8ClampedArray([
-        10, 20, 30, 255,
-        40, 50, 60, 255,
+        10, 20, 30, 255, 40, 50, 60, 255,
       ]),
       waterfallDims: {
         width: 1,
@@ -183,7 +179,7 @@ describe("FFTCanvas Component", () => {
               </ThemeProvider>
             </SpectrumProvider>
           </MemoryRouter>
-        </TestWrapper>
+        </TestWrapper>,
       );
 
     const firstRender = renderCanvas();
@@ -232,7 +228,7 @@ describe("FFTCanvas Component", () => {
             </ThemeProvider>
           </SpectrumProvider>
         </MemoryRouter>
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     await waitFor(() => {

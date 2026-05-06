@@ -20,7 +20,14 @@ export const Horizontal = () => {
 export const Vertical = () => {
   const [value, setValue] = React.useState(30);
   return (
-    <div style={{ padding: "20px", background: "#0a0a0a", height: "300px", display: "flex" }}>
+    <div
+      style={{
+        padding: "20px",
+        background: "#0a0a0a",
+        height: "300px",
+        display: "flex",
+      }}
+    >
       <Slider
         label="Gain"
         value={value}
@@ -45,8 +52,18 @@ export const WithSnapRanges = () => {
         max={108}
         onChange={setValue}
         snapRanges={[
-          { label: "Station A", min: 92, max: 94, color: "rgba(0, 212, 255, 0.2)" },
-          { label: "Station B", min: 100, max: 102, color: "rgba(255, 0, 136, 0.2)" },
+          {
+            label: "Station A",
+            min: 92,
+            max: 94,
+            color: "rgba(0, 212, 255, 0.2)",
+          },
+          {
+            label: "Station B",
+            min: 100,
+            max: 102,
+            color: "rgba(255, 0, 136, 0.2)",
+          },
         ]}
       />
     </div>

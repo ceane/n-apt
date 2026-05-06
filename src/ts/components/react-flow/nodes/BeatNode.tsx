@@ -1,8 +1,8 @@
-import React, { useMemo } from 'react';
-import styled from 'styled-components';
-import { Minus, Plus, Waves } from 'lucide-react';
-import { Slider } from '@n-apt/components/ui';
-import { useSpectrumStore } from '@n-apt/hooks/useSpectrumStore';
+import React, { useMemo } from "react";
+import styled from "styled-components";
+import { Minus, Plus, Waves } from "lucide-react";
+import { Slider } from "@n-apt/components/ui";
+import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 
 interface BeatNodeProps {
   data: {
@@ -108,23 +108,24 @@ const HelperText = styled.div`
 `;
 
 const SNAP_RANGES = [
-  { label: 'Delta', min: 0.5, max: 4, color: 'rgba(255, 100, 100, 0.1)' },
-  { label: 'Theta', min: 4, max: 8, color: 'rgba(100, 255, 100, 0.1)' },
-  { label: 'Alpha', min: 8, max: 12, color: 'rgba(100, 100, 255, 0.1)' },
-  { label: 'Beta', min: 12, max: 30, color: 'rgba(255, 255, 100, 0.1)' },
-  { label: 'Gamma', min: 30, max: 100, color: 'rgba(255, 100, 255, 0.1)' },
-  { label: 'Voice', min: 120, max: 180, color: 'rgba(100, 255, 255, 0.1)' },
+  { label: "Delta", min: 0.5, max: 4, color: "rgba(255, 100, 100, 0.1)" },
+  { label: "Theta", min: 4, max: 8, color: "rgba(100, 255, 100, 0.1)" },
+  { label: "Alpha", min: 8, max: 12, color: "rgba(100, 100, 255, 0.1)" },
+  { label: "Beta", min: 12, max: 30, color: "rgba(255, 255, 100, 0.1)" },
+  { label: "Gamma", min: 30, max: 100, color: "rgba(255, 100, 255, 0.1)" },
+  { label: "Voice", min: 120, max: 180, color: "rgba(100, 255, 255, 0.1)" },
 ];
 
 export const BeatNode: React.FC<BeatNodeProps> = ({ data }) => {
   const { state, dispatch } = useSpectrumStore();
-  const activeParams = state.drawParams[state.activeClumpIndex] || state.drawParams[0];
+  const activeParams =
+    state.drawParams[state.activeClumpIndex] || state.drawParams[0];
 
   const beats = useMemo(() => activeParams.beats ?? [], [activeParams.beats]);
 
   const updateParams = (nextBeats: typeof beats) => {
     dispatch({
-      type: 'SET_CLUMP_PARAMS',
+      type: "SET_CLUMP_PARAMS",
       index: state.activeClumpIndex,
       params: { ...activeParams, beats: nextBeats },
     });
@@ -141,7 +142,10 @@ export const BeatNode: React.FC<BeatNodeProps> = ({ data }) => {
 
   const changeBeat = (index: number, offsetHz: number) => {
     const next = [...beats];
-    next[index] = { ...next[index], offsetHz: offsetHz < 0.75 ? 0.5 : Math.round(offsetHz) };
+    next[index] = {
+      ...next[index],
+      offsetHz: offsetHz < 0.75 ? 0.5 : Math.round(offsetHz),
+    };
     updateParams(next);
   };
 
@@ -151,17 +155,26 @@ export const BeatNode: React.FC<BeatNodeProps> = ({ data }) => {
         <Waves size={16} />
         {data.label}
       </NodeTitle>
-      <NodeSubtitle>{data.description ?? 'Beat detection and heterodyne offsets before FFT.'}</NodeSubtitle>
+      <NodeSubtitle>
+        {data.description ??
+          "Beat detection and heterodyne offsets before FFT."}
+      </NodeSubtitle>
 
       <Section>
         <HeaderRow>
           <SectionTitle>Beat offsets</SectionTitle>
-          <ActionButton type="button" onClick={addBeat} disabled={beats.length >= 2}>
+          <ActionButton
+            type="button"
+            onClick={addBeat}
+            disabled={beats.length >= 2}
+          >
             <Plus size={12} /> Add Beat
           </ActionButton>
         </HeaderRow>
 
-        {beats.length === 0 && <HelperText>No beats configured yet.</HelperText>}
+        {beats.length === 0 && (
+          <HelperText>No beats configured yet.</HelperText>
+        )}
 
         {beats.map((beat, index) => (
           <BeatCard key={index}>
@@ -182,14 +195,17 @@ export const BeatNode: React.FC<BeatNodeProps> = ({ data }) => {
               logarithmic={true}
               snapRanges={SNAP_RANGES}
               onChange={(value) => changeBeat(index, value)}
-              formatValue={(value) => `${value % 1 === 0 ? value : value.toFixed(1)} Hz`}
+              formatValue={(value) =>
+                `${value % 1 === 0 ? value : value.toFixed(1)} Hz`
+              }
               orientation="horizontal"
             />
           </BeatCard>
         ))}
 
         <HelperText>
-          Beat detection feeds the FFT node when the flow is composed left-to-right.
+          Beat detection feeds the FFT node when the flow is composed
+          left-to-right.
         </HelperText>
       </Section>
     </NodeContainer>

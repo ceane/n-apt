@@ -147,7 +147,10 @@ const LabelWithIcon = styled.span`
   }
 `;
 
-const IconLabel: React.FC<{ icon: LucideIcon; text: string }> = ({ icon: IconComponent, text }) => (
+const IconLabel: React.FC<{ icon: LucideIcon; text: string }> = ({
+  icon: IconComponent,
+  text,
+}) => (
   <LabelWithIcon>
     <IconComponent size={14} strokeWidth={1.75} aria-hidden="true" />
     {text}
@@ -208,23 +211,20 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
   onDisplayModeChange: _onDisplayModeChange,
   scheduleCoupledAdjustment,
 }) => {
-  const showsApproxDbmToggle =
-    deviceProfile
-      ? deviceProfile.supports_approx_dbm
-      : (
-        backend === "rtl_sdr" ||
-        backend === "rtl-sdr" ||
-        backend === "rtlsdr" ||
-        backend === "rtl-tcp" ||
-        backend === "rtltcp"
-      );
+  const showsApproxDbmToggle = deviceProfile
+    ? deviceProfile.supports_approx_dbm
+    : backend === "rtl_sdr" ||
+      backend === "rtl-sdr" ||
+      backend === "rtlsdr" ||
+      backend === "rtl-tcp" ||
+      backend === "rtltcp";
 
   const manualFftOptions = React.useMemo(
     () =>
       Array.from(
         new Set(
-          (fftSizeOptions.length ? fftSizeOptions : [fftSize]).filter((size) =>
-            Number.isFinite(size) && size > 0,
+          (fftSizeOptions.length ? fftSizeOptions : [fftSize]).filter(
+            (size) => Number.isFinite(size) && size > 0,
           ),
         ),
       ).sort((a, b) => a - b),
@@ -235,8 +235,8 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
     () =>
       Array.from(
         new Set(
-          (autoFftOptions?.autoSizes ?? []).filter((size) =>
-            Number.isFinite(size) && size > 0,
+          (autoFftOptions?.autoSizes ?? []).filter(
+            (size) => Number.isFinite(size) && size > 0,
           ),
         ),
       ).sort((a, b) => a - b),
@@ -261,7 +261,9 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
             </SettingValue>
           </Row>
           <Row
-            label={<IconLabel icon={GalleryHorizontal} text="Frame rate (logical)" />}
+            label={
+              <IconLabel icon={GalleryHorizontal} text="Frame rate (logical)" />
+            }
             tooltipTitle="Frame Rate"
             tooltip={`Signal processing speed. Higher rates provide more real-time analysis of transmissions. Current maximum theoretical rate: ${maxFrameRate} fps based on current FFT size and bandwidth capacity.`}
           >
@@ -381,7 +383,11 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
       )}
       {/* RTL-SDR specific power scale toggle - enabled for testing and file mode */}
       {(showsApproxDbmToggle || sourceMode === "file") && (
-        <Row label={<IconLabel icon={Zap} text="Power Scale" />} tooltipTitle="Power Scale Mode" tooltip="Signal power measurement: dB (relative scale) or Approximated dBm (raw RTL-SDR I/Q based estimate). RTL-SDR readings are more accurate than rlt_power and are around ±3-5dBm within accuracy of signal's measured power. Approximated dBm is useful for stable absolute-like comparisons, but it is not lab-calibrated true dBm.">
+        <Row
+          label={<IconLabel icon={Zap} text="Power Scale" />}
+          tooltipTitle="Power Scale Mode"
+          tooltip="Signal power measurement: dB (relative scale) or Approximated dBm (raw RTL-SDR I/Q based estimate). RTL-SDR readings are more accurate than rlt_power and are around ±3-5dBm within accuracy of signal's measured power. Approximated dBm is useful for stable absolute-like comparisons, but it is not lab-calibrated true dBm."
+        >
           <WideSettingSelect
             value={powerScale}
             onChange={(e) => {

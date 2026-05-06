@@ -27,10 +27,18 @@ describe("FIFOWaterfallCanvas", () => {
       </ThemeProvider>,
     );
 
-    expect(screen.getByText(/Waterfall Display \(Paused\)/i)).toBeInTheDocument();
-    expect(container.querySelector("#fft-waterfall-canvas-webgpu")).toBeInTheDocument();
-    expect(container.querySelector("#fft-waterfall-canvas-overlay")).toBeInTheDocument();
-    expect(screen.getAllByTestId("fifo-waterfall-highlight-band")).toHaveLength(2);
+    expect(
+      screen.getByText(/Waterfall Display \(Paused\)/i),
+    ).toBeInTheDocument();
+    expect(
+      container.querySelector("#fft-waterfall-canvas-webgpu"),
+    ).toBeInTheDocument();
+    expect(
+      container.querySelector("#fft-waterfall-canvas-overlay"),
+    ).toBeInTheDocument();
+    expect(screen.getAllByTestId("fifo-waterfall-highlight-band")).toHaveLength(
+      2,
+    );
     expect(setWaterfallGpuCanvasNode).toHaveBeenCalledWith(
       expect.any(HTMLCanvasElement),
     );

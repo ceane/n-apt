@@ -1,8 +1,8 @@
-import React from 'react';
-import { Brain } from 'lucide-react';
-import { formatFrequency } from '@n-apt/utils/frequency';
-import { useSpectrumStore } from '@n-apt/hooks/useSpectrumStore';
-import styled from 'styled-components';
+import React from "react";
+import { Brain } from "lucide-react";
+import { formatFrequency } from "@n-apt/utils/frequency";
+import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
+import styled from "styled-components";
 
 const AnalysisContainer = styled.div`
   display: flex;
@@ -92,10 +92,20 @@ interface AnalysisNodeProps {
 }
 
 export const AnalysisNode: React.FC<AnalysisNodeProps> = ({ data }) => {
-  const { state: spectrumState, sampleRateHzEffective: sampleRateHz } = useSpectrumStore();
-  const { activeSignalArea, frequencyRange, lastKnownRanges, vizZoom, vizPanOffset } = spectrumState;
+  const { state: spectrumState, sampleRateHzEffective: sampleRateHz } =
+    useSpectrumStore();
+  const {
+    activeSignalArea,
+    frequencyRange,
+    lastKnownRanges,
+    vizZoom,
+    vizPanOffset,
+  } = spectrumState;
   const areaKey = activeSignalArea || "A";
-  const safeLastKnownRanges = lastKnownRanges && typeof lastKnownRanges === 'object' ? lastKnownRanges : {};
+  const safeLastKnownRanges =
+    lastKnownRanges && typeof lastKnownRanges === "object"
+      ? lastKnownRanges
+      : {};
 
   // Calculate visible frequency range based on zoom and pan for labeling
   const calculateVisible = () => {
@@ -103,10 +113,15 @@ export const AnalysisNode: React.FC<AnalysisNodeProps> = ({ data }) => {
     const maxFreq = 2000; // Cap
     const hardwareSpan = sampleRateHz || 3_200_000;
 
-    const safeZoom = (Number.isFinite(vizZoom) && vizZoom > 0) ? vizZoom : 1;
+    const safeZoom = Number.isFinite(vizZoom) && vizZoom > 0 ? vizZoom : 1;
 
     if (!frequencyRange) {
-      return safeLastKnownRanges[areaKey] || { min: minFreq, max: minFreq + hardwareSpan };
+      return (
+        safeLastKnownRanges[areaKey] || {
+          min: minFreq,
+          max: minFreq + hardwareSpan,
+        }
+      );
     }
 
     const hardwareCenter = (frequencyRange.min + frequencyRange.max) / 2;
@@ -144,15 +159,15 @@ export const AnalysisNode: React.FC<AnalysisNodeProps> = ({ data }) => {
       <ContentBox>
         <FrequencySpan>
           <FrequencyLabel>Frequency Span</FrequencyLabel>
-          <FrequencyValue>{formatFrequency(freqRange.min)} - {formatFrequency(freqRange.max)}</FrequencyValue>
+          <FrequencyValue>
+            {formatFrequency(freqRange.min)} - {formatFrequency(freqRange.max)}
+          </FrequencyValue>
         </FrequencySpan>
         <SnrRow>
           <span style={{ opacity: 0.6 }}>SNR Delta:</span>
-          <span style={{ fontFamily: 'monospace' }}>{result.snrDelta}</span>
+          <span style={{ fontFamily: "monospace" }}>{result.snrDelta}</span>
         </SnrRow>
-        <SummaryText>
-          {result.summary}
-        </SummaryText>
+        <SummaryText>{result.summary}</SummaryText>
       </ContentBox>
     </AnalysisContainer>
   );

@@ -13,21 +13,28 @@ export const FrequencyValidationIntegrationTest: React.FC = () => {
   } = useWebSocket("ws://test", null, false);
 
   // Mock state for frequency testing
-  const [frequencyRanges, setFrequencyRanges] = React.useState<Array<{
-    minFreq: number;
-    maxFreq: number;
-    unit: 'MHz' | 'kHz' | 'Hz';
-  }>>([
-    { minFreq: 100, maxFreq: 103.2, unit: 'MHz' }
-  ]);
+  const [frequencyRanges, setFrequencyRanges] = React.useState<
+    Array<{
+      minFreq: number;
+      maxFreq: number;
+      unit: "MHz" | "kHz" | "Hz";
+    }>
+  >([{ minFreq: 100, maxFreq: 103.2, unit: "MHz" }]);
 
   const [captureDurationS, setCaptureDurationS] = React.useState(5);
-  const [captureFileType, setCaptureFileType] = React.useState<CaptureFileType>(".napt");
-  const [acquisitionMode, setAcquisitionMode] = React.useState<"stepwise" | "interleaved">("stepwise");
+  const [captureFileType, setCaptureFileType] =
+    React.useState<CaptureFileType>(".napt");
+  const [acquisitionMode, setAcquisitionMode] = React.useState<
+    "stepwise" | "interleaved"
+  >("stepwise");
   const [captureEncrypted, setCaptureEncrypted] = React.useState(false);
 
   // Validation functions
-  const validateFrequencyRange = (minFreq: number, maxFreq: number, unit: 'MHz' | 'kHz' | 'Hz'): string[] => {
+  const validateFrequencyRange = (
+    minFreq: number,
+    maxFreq: number,
+    unit: "MHz" | "kHz" | "Hz",
+  ): string[] => {
     const errors: string[] = [];
 
     // Convert to Hz for validation
@@ -65,19 +72,24 @@ export const FrequencyValidationIntegrationTest: React.FC = () => {
     }
 
     // Check for extremely large values
-    if (minHz > 10000000000 || maxHz > 10000000000) { // 10GHz
+    if (minHz > 10000000000 || maxHz > 10000000000) {
+      // 10GHz
       errors.push("Frequency exceeds maximum supported value");
     }
 
     return errors;
   };
 
-  const convertToHz = (freq: number, unit: 'MHz' | 'kHz' | 'Hz'): number => {
+  const convertToHz = (freq: number, unit: "MHz" | "kHz" | "Hz"): number => {
     switch (unit) {
-      case 'MHz': return freq * 1000000;
-      case 'kHz': return freq * 1000;
-      case 'Hz': return freq;
-      default: return freq;
+      case "MHz":
+        return freq * 1000000;
+      case "kHz":
+        return freq * 1000;
+      case "Hz":
+        return freq;
+      default:
+        return freq;
     }
   };
 
@@ -86,8 +98,12 @@ export const FrequencyValidationIntegrationTest: React.FC = () => {
 
     // Validate each range individually
     frequencyRanges.forEach((range, index) => {
-      const errors = validateFrequencyRange(range.minFreq, range.maxFreq, range.unit);
-      errors.forEach(error => {
+      const errors = validateFrequencyRange(
+        range.minFreq,
+        range.maxFreq,
+        range.unit,
+      );
+      errors.forEach((error) => {
         allErrors.push(`Range ${index + 1}: ${error}`);
       });
     });
@@ -121,7 +137,7 @@ export const FrequencyValidationIntegrationTest: React.FC = () => {
     }
 
     // Convert ranges to backend format
-    const fragments = frequencyRanges.map(range => ({
+    const fragments = frequencyRanges.map((range) => ({
       minFreq: convertToHz(range.minFreq, range.unit),
       maxFreq: convertToHz(range.maxFreq, range.unit),
     }));
@@ -140,13 +156,20 @@ export const FrequencyValidationIntegrationTest: React.FC = () => {
   };
 
   const addFrequencyRange = () => {
-    setFrequencyRanges([...frequencyRanges, { minFreq: 100, maxFreq: 103.2, unit: 'MHz' }]);
+    setFrequencyRanges([
+      ...frequencyRanges,
+      { minFreq: 100, maxFreq: 103.2, unit: "MHz" },
+    ]);
   };
 
-  const updateFrequencyRange = (index: number, field: 'minFreq' | 'maxFreq' | 'unit', value: number | 'MHz' | 'kHz' | 'Hz') => {
+  const updateFrequencyRange = (
+    index: number,
+    field: "minFreq" | "maxFreq" | "unit",
+    value: number | "MHz" | "kHz" | "Hz",
+  ) => {
     const newRanges = [...frequencyRanges];
-    if (field === 'unit') {
-      newRanges[index][field] = value as 'MHz' | 'kHz' | 'Hz';
+    if (field === "unit") {
+      newRanges[index][field] = value as "MHz" | "kHz" | "Hz";
     } else {
       newRanges[index][field] = value as number;
     }
@@ -180,7 +203,13 @@ export const FrequencyValidationIntegrationTest: React.FC = () => {
               <input
                 type="number"
                 value={range.minFreq}
-                onChange={(e) => updateFrequencyRange(index, 'minFreq', parseFloat(e.target.value) || 0)}
+                onChange={(e) =>
+                  updateFrequencyRange(
+                    index,
+                    "minFreq",
+                    parseFloat(e.target.value) || 0,
+                  )
+                }
                 aria-label={`Min Frequency (${range.unit})`}
               />
             </label>
@@ -190,7 +219,13 @@ export const FrequencyValidationIntegrationTest: React.FC = () => {
               <input
                 type="number"
                 value={range.maxFreq}
-                onChange={(e) => updateFrequencyRange(index, 'maxFreq', parseFloat(e.target.value) || 0)}
+                onChange={(e) =>
+                  updateFrequencyRange(
+                    index,
+                    "maxFreq",
+                    parseFloat(e.target.value) || 0,
+                  )
+                }
                 aria-label={`Max Frequency (${range.unit})`}
               />
             </label>
@@ -199,7 +234,13 @@ export const FrequencyValidationIntegrationTest: React.FC = () => {
               Frequency Unit:
               <select
                 value={range.unit}
-                onChange={(e) => updateFrequencyRange(index, 'unit', e.target.value as 'MHz' | 'kHz' | 'Hz')}
+                onChange={(e) =>
+                  updateFrequencyRange(
+                    index,
+                    "unit",
+                    e.target.value as "MHz" | "kHz" | "Hz",
+                  )
+                }
                 aria-label="Frequency Unit"
               >
                 <option value="Hz">Hz</option>
@@ -209,7 +250,9 @@ export const FrequencyValidationIntegrationTest: React.FC = () => {
             </label>
 
             {frequencyRanges.length > 1 && (
-              <button onClick={() => removeFrequencyRange(index)}>Remove</button>
+              <button onClick={() => removeFrequencyRange(index)}>
+                Remove
+              </button>
             )}
           </div>
         ))}
@@ -222,7 +265,7 @@ export const FrequencyValidationIntegrationTest: React.FC = () => {
 
       {/* Error Display */}
       {hasErrors && (
-        <div data-testid="frequency-errors" style={{ color: 'red' }}>
+        <div data-testid="frequency-errors" style={{ color: "red" }}>
           {errors.map((error, index) => (
             <div key={index}>{error}</div>
           ))}
@@ -245,7 +288,9 @@ export const FrequencyValidationIntegrationTest: React.FC = () => {
           File Type:
           <select
             value={captureFileType}
-            onChange={(e) => setCaptureFileType(e.target.value as CaptureFileType)}
+            onChange={(e) =>
+              setCaptureFileType(e.target.value as CaptureFileType)
+            }
           >
             <option value=".napt">.napt</option>
             <option value=".wav">.wav</option>
@@ -256,7 +301,9 @@ export const FrequencyValidationIntegrationTest: React.FC = () => {
           Acquisition Mode:
           <select
             value={acquisitionMode}
-            onChange={(e) => setAcquisitionMode(e.target.value as "stepwise" | "interleaved")}
+            onChange={(e) =>
+              setAcquisitionMode(e.target.value as "stepwise" | "interleaved")
+            }
           >
             <option value="stepwise">Stepwise</option>
             <option value="interleaved">Interleaved</option>
@@ -294,16 +341,20 @@ export const FrequencyValidationIntegrationTest: React.FC = () => {
       {dataRef?.current?.captureMetadata && (
         <div data-testid="frequency-validation">
           <h4>Capture Frequency Validation</h4>
-          {dataRef.current.captureMetadata.frequencies?.map((freq: any, index: number) => (
-            <div key={index}>
-              Requested: {(freq.min / 1000000).toFixed(2)}MHz - {(freq.max / 1000000).toFixed(2)}MHz
-              {freq.actualMin && freq.actualMax && (
-                <span>
-                  , Actual: {(freq.actualMin / 1000000).toFixed(5)}MHz - {(freq.actualMax / 1000000).toFixed(5)}MHz
-                </span>
-              )}
-            </div>
-          ))}
+          {dataRef.current.captureMetadata.frequencies?.map(
+            (freq: any, index: number) => (
+              <div key={index}>
+                Requested: {(freq.min / 1000000).toFixed(2)}MHz -{" "}
+                {(freq.max / 1000000).toFixed(2)}MHz
+                {freq.actualMin && freq.actualMax && (
+                  <span>
+                    , Actual: {(freq.actualMin / 1000000).toFixed(5)}MHz -{" "}
+                    {(freq.actualMax / 1000000).toFixed(5)}MHz
+                  </span>
+                )}
+              </div>
+            ),
+          )}
         </div>
       )}
     </div>

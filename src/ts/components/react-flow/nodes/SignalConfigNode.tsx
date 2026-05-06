@@ -11,7 +11,14 @@ import {
   Pipette,
   FileBox,
 } from "lucide-react";
-import { useAppSelector, useAppDispatch, setTemporalResolution, setPowerScale, sendSettings, sendPowerScaleCommand } from "@n-apt/redux";
+import {
+  useAppSelector,
+  useAppDispatch,
+  setTemporalResolution,
+  setPowerScale,
+  sendSettings,
+  sendPowerScaleCommand,
+} from "@n-apt/redux";
 import { useSdrSettings } from "@n-apt/hooks/useSdrSettings";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 import { fileRegistry } from "@n-apt/utils/fileRegistry";
@@ -63,7 +70,7 @@ const SettingLabel = styled.div`
   display: flex;
   align-items: center;
   gap: 6px;
-  
+
   svg {
     width: 12px;
     height: 12px;
@@ -81,18 +88,18 @@ const SettingInput = styled.input`
   padding: ${({ theme }) => theme.spacing.xs} ${({ theme }) => theme.spacing.sm};
   width: 70px;
   text-align: right;
-  
+
   &:focus {
     outline: none;
     border-color: ${({ theme }) => theme.colors.primary};
   }
-  
+
   &::-webkit-outer-spin-button,
   &::-webkit-inner-spin-button {
     -webkit-appearance: none;
     margin: 0;
   }
-  
+
   &[type="number"] {
     -moz-appearance: textfield;
   }
@@ -108,12 +115,12 @@ const SettingSelect = styled.select`
   padding: ${({ theme }) => theme.spacing.xs} ${({ theme }) => theme.spacing.sm};
   min-width: 100px;
   cursor: pointer;
-  
+
   &:focus {
     outline: none;
     border-color: ${({ theme }) => theme.colors.primary};
   }
-  
+
   option {
     background: ${({ theme }) => theme.colors.surface};
     color: ${({ theme }) => theme.colors.textPrimary};
@@ -140,15 +147,19 @@ interface SignalConfigNodeProps {
 
 export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
   const dispatch = useAppDispatch();
-  const spectrum = useAppSelector(state => state.spectrum);
-  const { wsConnection, sampleRateHzEffective, state: liveState } = useSpectrumStore();
+  const spectrum = useAppSelector((state) => state.spectrum);
+  const {
+    wsConnection,
+    sampleRateHzEffective,
+    state: liveState,
+  } = useSpectrumStore();
   const { sessionToken, aesKey } = useAuthentication();
 
   const {
     sdrSettings: liveSdrSettingsConfig,
     backend: liveBackend,
     deviceProfile: liveDeviceProfileToUse,
-    autoFftOptions: liveAutoFftOptions
+    autoFftOptions: liveAutoFftOptions,
   } = wsConnection;
 
   const {
@@ -157,16 +168,20 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
     setFftWindow: handleFftWindow,
     setGain,
     setPpm,
-    scheduleCoupledAdjustment
+    scheduleCoupledAdjustment,
   } = useSdrSettings({
     maxSampleRate: sampleRateHzEffective || 3_200_000,
     sdrSettings: liveSdrSettingsConfig,
-    onSettingsChange: (settings) => dispatch(sendSettings(settings))
+    onSettingsChange: (settings) => dispatch(sendSettings(settings)),
   });
 
-  const showsApproxDbmToggle = liveDeviceProfileToUse?.supports_approx_dbm ||
-    (liveBackend === "rtl_sdr" || liveBackend === "rtl-sdr" || liveBackend === "rtlsdr" ||
-      liveBackend === "rtl-tcp" || liveBackend === "rtltcp");
+  const showsApproxDbmToggle =
+    liveDeviceProfileToUse?.supports_approx_dbm ||
+    liveBackend === "rtl_sdr" ||
+    liveBackend === "rtl-sdr" ||
+    liveBackend === "rtlsdr" ||
+    liveBackend === "rtl-tcp" ||
+    liveBackend === "rtltcp";
 
   const sourceMode = liveState?.sourceMode ?? "live";
   const selectedFiles = liveState?.selectedFiles ?? [];
@@ -175,8 +190,8 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
     () =>
       Array.from(
         new Set(
-          (fftSizeOptions.length ? fftSizeOptions : [spectrum.fftSize]).filter((size) =>
-            Number.isFinite(size) && size > 0,
+          (fftSizeOptions.length ? fftSizeOptions : [spectrum.fftSize]).filter(
+            (size) => Number.isFinite(size) && size > 0,
           ),
         ),
       ).sort((a: any, b: any) => a - b),
@@ -187,8 +202,8 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
     () =>
       Array.from(
         new Set(
-          (liveAutoFftOptions?.autoSizes ?? []).filter((size) =>
-            Number.isFinite(size) && size > 0,
+          (liveAutoFftOptions?.autoSizes ?? []).filter(
+            (size) => Number.isFinite(size) && size > 0,
           ),
         ),
       ).sort((a: any, b: any) => a - b),
@@ -210,10 +225,13 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
     setGain(val);
   };
 
-  const selectedPrimaryFile = (selectedFiles && selectedFiles.length > 0) ? selectedFiles[0] : null;
+  const selectedPrimaryFile =
+    selectedFiles && selectedFiles.length > 0 ? selectedFiles[0] : null;
 
   const [naptMetadata, setNaptMetadata] = useState<NaptMetadata | null>(null);
-  const [naptMetadataError, setNaptMetadataError] = useState<string | null>(null);
+  const [naptMetadataError, setNaptMetadataError] = useState<string | null>(
+    null,
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -245,18 +263,38 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
 
           let jsonStr: string;
           if (newlineIdx > 0) {
-            jsonStr = new TextDecoder().decode(headerBytes.slice(0, newlineIdx));
+            jsonStr = new TextDecoder().decode(
+              headerBytes.slice(0, newlineIdx),
+            );
           } else {
             const headerText = new TextDecoder().decode(headerBytes);
-            let braceDepth = 0, inStr = false, esc = false, jsonEnd = -1;
+            let braceDepth = 0,
+              inStr = false,
+              esc = false,
+              jsonEnd = -1;
             for (let ci = 0; ci < headerText.length; ci++) {
               const c = headerText[ci];
-              if (esc) { esc = false; continue; }
-              if (c === '\\') { esc = true; continue; }
-              if (c === '"') { inStr = !inStr; continue; }
+              if (esc) {
+                esc = false;
+                continue;
+              }
+              if (c === "\\") {
+                esc = true;
+                continue;
+              }
+              if (c === '"') {
+                inStr = !inStr;
+                continue;
+              }
               if (inStr) continue;
-              if (c === '{') braceDepth++;
-              if (c === '}') { braceDepth--; if (braceDepth === 0) { jsonEnd = ci + 1; break; } }
+              if (c === "{") braceDepth++;
+              if (c === "}") {
+                braceDepth--;
+                if (braceDepth === 0) {
+                  jsonEnd = ci + 1;
+                  break;
+                }
+              }
             }
             if (jsonEnd <= 0) throw new Error("Invalid NAPT header");
             jsonStr = headerText.slice(0, jsonEnd);
@@ -317,10 +355,18 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
   return (
     <NodeContainer>
       <NodeTitle>
-        {sourceMode === "file" ? <FileBox size={16} /> : <Columns3Cog size={16} />}
+        {sourceMode === "file" ? (
+          <FileBox size={16} />
+        ) : (
+          <Columns3Cog size={16} />
+        )}
         {sourceMode === "file" ? "Metadata" : data.label}
       </NodeTitle>
-      <NodeSubtitle>{sourceMode === "file" ? "Recorded Data Properties" : "Hardware sampling and FFT settings"}</NodeSubtitle>
+      <NodeSubtitle>
+        {sourceMode === "file"
+          ? "Recorded Data Properties"
+          : "Hardware sampling and FFT settings"}
+      </NodeSubtitle>
 
       {sourceMode === "file" ? (
         <>
@@ -359,7 +405,11 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
               onChange={(e) => {
                 const val = Number(e.target.value);
                 setFftSize(val);
-                scheduleCoupledAdjustment("fftSize", val, spectrum.fftFrameRate);
+                scheduleCoupledAdjustment(
+                  "fftSize",
+                  val,
+                  spectrum.fftFrameRate,
+                );
               }}
             >
               {autoFftSizeOptions.length > 0 ? (
@@ -415,7 +465,11 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
             <SettingSelect
               value={spectrum.displayTemporalResolution}
               onChange={(e) => {
-                dispatch(setTemporalResolution(e.target.value as "low" | "medium" | "high"));
+                dispatch(
+                  setTemporalResolution(
+                    e.target.value as "low" | "medium" | "high",
+                  ),
+                );
               }}
             >
               <option value="low">Low</option>
@@ -467,7 +521,9 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
                 type="number"
                 step="1"
                 value={spectrum.gain}
-                onChange={(e) => handleGainChange(Math.round(Number(e.target.value)))}
+                onChange={(e) =>
+                  handleGainChange(Math.round(Number(e.target.value)))
+                }
                 min="0"
                 max="49.6"
               />

@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback } from "react";
 import { GeolocationData } from "@n-apt/types/geolocation";
 
 export interface UseGeolocationReturn {
@@ -14,11 +14,11 @@ export const useGeolocation = (): UseGeolocationReturn => {
   const [location, setLocation] = useState<GeolocationData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [isSupported] = useState(() => 'geolocation' in navigator);
+  const [isSupported] = useState(() => "geolocation" in navigator);
 
   const requestPermission = useCallback(async (): Promise<boolean> => {
     if (!isSupported) {
-      setError('Geolocation is not supported by this browser');
+      setError("Geolocation is not supported by this browser");
       return false;
     }
 
@@ -27,23 +27,27 @@ export const useGeolocation = (): UseGeolocationReturn => {
 
     try {
       // Check if permission API is available
-      if ('permissions' in navigator) {
-        const permission = await navigator.permissions.query({ name: 'geolocation' });
-        if (permission.state === 'denied') {
-          setError('Geolocation permission denied');
+      if ("permissions" in navigator) {
+        const permission = await navigator.permissions.query({
+          name: "geolocation",
+        });
+        if (permission.state === "denied") {
+          setError("Geolocation permission denied");
           setIsLoading(false);
           return false;
         }
       }
 
       // Try to get current position to verify permission
-      const position = await new Promise<GeolocationPosition>((resolve, reject) => {
-        navigator.geolocation.getCurrentPosition(resolve, reject, {
-          enableHighAccuracy: true,
-          timeout: 10000,
-          maximumAge: 60000,
-        });
-      });
+      const position = await new Promise<GeolocationPosition>(
+        (resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: true,
+            timeout: 10000,
+            maximumAge: 60000,
+          });
+        },
+      );
 
       const locationData: GeolocationData = {
         latitude: position.coords.latitude,
@@ -57,10 +61,11 @@ export const useGeolocation = (): UseGeolocationReturn => {
       setIsLoading(false);
       return true;
     } catch (err) {
-      const errorMessage = err instanceof GeolocationPositionError 
-        ? getGeolocationErrorMessage(err.code)
-        : 'Failed to get location';
-      
+      const errorMessage =
+        err instanceof GeolocationPositionError
+          ? getGeolocationErrorMessage(err.code)
+          : "Failed to get location";
+
       setError(errorMessage);
       setIsLoading(false);
       return false;
@@ -69,7 +74,7 @@ export const useGeolocation = (): UseGeolocationReturn => {
 
   const getLocation = useCallback(async (): Promise<GeolocationData | null> => {
     if (!isSupported) {
-      setError('Geolocation is not supported by this browser');
+      setError("Geolocation is not supported by this browser");
       return null;
     }
 
@@ -77,13 +82,15 @@ export const useGeolocation = (): UseGeolocationReturn => {
     setError(null);
 
     try {
-      const position = await new Promise<GeolocationPosition>((resolve, reject) => {
-        navigator.geolocation.getCurrentPosition(resolve, reject, {
-          enableHighAccuracy: true,
-          timeout: 10000,
-          maximumAge: 0, // Force fresh location
-        });
-      });
+      const position = await new Promise<GeolocationPosition>(
+        (resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: true,
+            timeout: 10000,
+            maximumAge: 0, // Force fresh location
+          });
+        },
+      );
 
       const locationData: GeolocationData = {
         latitude: position.coords.latitude,
@@ -97,10 +104,11 @@ export const useGeolocation = (): UseGeolocationReturn => {
       setIsLoading(false);
       return locationData;
     } catch (err) {
-      const errorMessage = err instanceof GeolocationPositionError 
-        ? getGeolocationErrorMessage(err.code)
-        : 'Failed to get location';
-      
+      const errorMessage =
+        err instanceof GeolocationPositionError
+          ? getGeolocationErrorMessage(err.code)
+          : "Failed to get location";
+
       setError(errorMessage);
       setIsLoading(false);
       return null;
@@ -120,12 +128,12 @@ export const useGeolocation = (): UseGeolocationReturn => {
 function getGeolocationErrorMessage(code: number): string {
   switch (code) {
     case 1:
-      return 'Geolocation permission denied';
+      return "Geolocation permission denied";
     case 2:
-      return 'Geolocation position unavailable';
+      return "Geolocation position unavailable";
     case 3:
-      return 'Geolocation request timeout';
+      return "Geolocation request timeout";
     default:
-      return 'Geolocation error occurred';
+      return "Geolocation error occurred";
   }
 }

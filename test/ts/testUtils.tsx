@@ -43,9 +43,7 @@ export function TestWrapper({ children }: { children: React.ReactNode }) {
 
   return (
     <Provider store={store}>
-      <ThemeProvider theme={defaultTheme}>
-        {children}
-      </ThemeProvider>
+      <ThemeProvider theme={defaultTheme}>{children}</ThemeProvider>
     </Provider>
   );
 }

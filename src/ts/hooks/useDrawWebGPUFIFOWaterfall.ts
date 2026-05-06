@@ -43,8 +43,11 @@ function parseCssColorToRgba(color: string): [number, number, number, number] {
 }
 
 function readCssColor(name: string, fallback: string): string {
-  if (typeof window === "undefined" || typeof document === "undefined") return fallback;
-  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  if (typeof window === "undefined" || typeof document === "undefined")
+    return fallback;
+  const value = getComputedStyle(document.documentElement)
+    .getPropertyValue(name)
+    .trim();
   return value || fallback;
 }
 
@@ -439,27 +442,39 @@ export function useDrawWebGPUFIFOWaterfall() {
         if (!freeze && s.dataTex && fftData.length > 0) {
           // Validate FFT data on first frame or when paused
           if (isFirstFrame || isPaused) {
-            const validationResult = validateSpectrumDataComprehensive(fftData, {
-              fftSize,
-              sampleRate,
-              centerFrequencyHz,
-              timestamp: Date.now(),
-              isPaused,
-              isFirstFrame
-            });
-            
+            const validationResult = validateSpectrumDataComprehensive(
+              fftData,
+              {
+                fftSize,
+                sampleRate,
+                centerFrequencyHz,
+                timestamp: Date.now(),
+                isPaused,
+                isFirstFrame,
+              },
+            );
+
             if (!validationResult.isValid) {
-              console.error(`WebGPU waterfall FFT validation failed (${isFirstFrame ? 'first frame' : 'paused'}):`, validationResult.errors);
+              console.error(
+                `WebGPU waterfall FFT validation failed (${isFirstFrame ? "first frame" : "paused"}):`,
+                validationResult.errors,
+              );
             } else if (validationResult.warnings.length > 0) {
-              console.warn(`WebGPU waterfall FFT validation warnings (${isFirstFrame ? 'first frame' : 'paused'}):`, validationResult.warnings);
+              console.warn(
+                `WebGPU waterfall FFT validation warnings (${isFirstFrame ? "first frame" : "paused"}):`,
+                validationResult.warnings,
+              );
             }
-            
+
             // Log validation metadata for debugging (only in development)
-            if (process.env.NODE_ENV === 'development') {
-              console.log('WebGPU waterfall FFT validation metadata:', validationResult.metadata);
+            if (process.env.NODE_ENV === "development") {
+              console.log(
+                "WebGPU waterfall FFT validation metadata:",
+                validationResult.metadata,
+              );
             }
           }
-          
+
           const smear = Math.max(
             0,
             Math.min(Math.floor(driftAmount || 0), s.texH - 1),
@@ -485,9 +500,9 @@ export function useDrawWebGPUFIFOWaterfall() {
         // drawWaterfall() — render circular buffer to screen
         // =========================================================
         // Update colormap if provided and changed (detect via colormapName OR length)
-        const colormapChanged = colormapName 
-           ? colormapName !== s.currentColorMapName
-           : (colormap && colormap.length !== s.colorCount);
+        const colormapChanged = colormapName
+          ? colormapName !== s.currentColorMapName
+          : colormap && colormap.length !== s.colorCount;
 
         if (colormap && colormap.length > 0 && colormapChanged) {
           s.currentColorMapName = colormapName;

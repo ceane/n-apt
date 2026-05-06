@@ -1,31 +1,31 @@
 import ClassificationControls from "@n-apt/components/ClassificationControls";
 
 export default {
-  title: 'Components/ClassificationControls',
+  title: "Components/ClassificationControls",
   parameters: {
-    layout: 'fullscreen',
+    layout: "fullscreen",
   },
 };
 
 const StoryFrame: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <div
     style={{
-      minHeight: '100vh',
-      padding: '80px 40px',
-      background: '#050507',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
+      minHeight: "100vh",
+      padding: "80px 40px",
+      background: "#050507",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
     }}
   >
     <div
       style={{
         width: 640,
         borderRadius: 18,
-        border: '1px solid rgba(255,255,255,0.08)',
-        background: '#0b0b0f',
-        padding: '40px',
-        boxShadow: '0 20px 60px rgba(0,0,0,0.45)',
+        border: "1px solid rgba(255,255,255,0.08)",
+        background: "#0b0b0f",
+        padding: "40px",
+        boxShadow: "0 20px 60px rgba(0,0,0,0.45)",
       }}
     >
       {children}
@@ -34,8 +34,8 @@ const StoryFrame: React.FC<{ children: React.ReactNode }> = ({ children }) => (
 );
 
 const sharedProps = {
-  onCaptureStart: (label: string) => console.log('Start capture:', label),
-  onCaptureStop: () => console.log('Stop capture'),
+  onCaptureStart: (label: string) => console.log("Start capture:", label),
+  onCaptureStop: () => console.log("Stop capture"),
 };
 
 export const Disconnected = () => (

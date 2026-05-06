@@ -16,7 +16,7 @@ export interface OffscreenCanvasSnapshotProps {
 
 /**
  * OffscreenCanvas component for capturing WebGPU canvas snapshots
- * 
+ *
  * This component creates an offscreen 2D canvas to copy WebGPU canvas content
  * and convert it to exportable image formats. WebGPU textures cannot be
  * directly exported, so we copy them to a 2D canvas first.
@@ -30,9 +30,11 @@ export function OffscreenCanvasSnapshot({
   const offscreenCanvasRef = useRef<OffscreenCanvas | null>(null);
 
   const ensureOffscreenCanvas = useCallback(() => {
-    if (!offscreenCanvasRef.current || 
-        offscreenCanvasRef.current.width !== width || 
-        offscreenCanvasRef.current.height !== height) {
+    if (
+      !offscreenCanvasRef.current ||
+      offscreenCanvasRef.current.width !== width ||
+      offscreenCanvasRef.current.height !== height
+    ) {
       offscreenCanvasRef.current = new OffscreenCanvas(width, height);
     }
     return offscreenCanvasRef.current;
@@ -42,8 +44,8 @@ export function OffscreenCanvasSnapshot({
     if (!sourceCanvas) return null;
 
     const offscreenCanvas = ensureOffscreenCanvas();
-    const ctx = offscreenCanvas.getContext('2d');
-    
+    const ctx = offscreenCanvas.getContext("2d");
+
     if (!ctx) return null;
 
     ctx.clearRect(0, 0, width, height);
@@ -51,9 +53,10 @@ export function OffscreenCanvasSnapshot({
 
     const bitmap = offscreenCanvas.transferToImageBitmap();
 
-    const dataUrl = offscreenCanvas.convertToBlob({ type: 'image/png' })
-      .then(blob => {
-        if (!blob) throw new Error('Failed to create blob');
+    const dataUrl = offscreenCanvas
+      .convertToBlob({ type: "image/png" })
+      .then((blob) => {
+        if (!blob) throw new Error("Failed to create blob");
         return URL.createObjectURL(blob);
       });
 
@@ -81,46 +84,50 @@ export function OffscreenCanvasSnapshot({
 export function useOffscreenCanvasSnapshot() {
   const captureRef = useRef<() => SnapshotData | null>(() => null);
 
-  const setupCapture = useCallback((
-    sourceCanvas: HTMLCanvasElement | null,
-    width: number,
-    height: number,
-    onSnapshot?: (data: SnapshotData) => void
-  ) => {
-    const offscreenCanvas = new OffscreenCanvas(width, height);
-    const ctx = offscreenCanvas.getContext('2d');
-    
-    if (!ctx) return null;
+  const setupCapture = useCallback(
+    (
+      sourceCanvas: HTMLCanvasElement | null,
+      width: number,
+      height: number,
+      onSnapshot?: (data: SnapshotData) => void,
+    ) => {
+      const offscreenCanvas = new OffscreenCanvas(width, height);
+      const ctx = offscreenCanvas.getContext("2d");
 
-    const capture = (): SnapshotData | null => {
-      if (!sourceCanvas) return null;
+      if (!ctx) return null;
 
-      ctx.clearRect(0, 0, width, height);
-      ctx.drawImage(sourceCanvas, 0, 0, width, height);
+      const capture = (): SnapshotData | null => {
+        if (!sourceCanvas) return null;
 
-      const bitmap = offscreenCanvas.transferToImageBitmap();
+        ctx.clearRect(0, 0, width, height);
+        ctx.drawImage(sourceCanvas, 0, 0, width, height);
 
-      const dataUrl = offscreenCanvas.convertToBlob({ type: 'image/png' })
-        .then(blob => {
-          if (!blob) throw new Error('Failed to create blob');
-          return URL.createObjectURL(blob);
-        });
+        const bitmap = offscreenCanvas.transferToImageBitmap();
 
-      const snapshotData: SnapshotData = {
-        bitmap,
-        dataUrl,
-        width,
-        height,
+        const dataUrl = offscreenCanvas
+          .convertToBlob({ type: "image/png" })
+          .then((blob) => {
+            if (!blob) throw new Error("Failed to create blob");
+            return URL.createObjectURL(blob);
+          });
+
+        const snapshotData: SnapshotData = {
+          bitmap,
+          dataUrl,
+          width,
+          height,
+        };
+
+        onSnapshot?.(snapshotData);
+
+        return snapshotData;
       };
 
-      onSnapshot?.(snapshotData);
-
-      return snapshotData;
-    };
-
-    captureRef.current = capture;
-    return capture;
-  }, []);
+      captureRef.current = capture;
+      return capture;
+    },
+    [],
+  );
 
   const captureSnapshot = useCallback(() => {
     return captureRef.current();

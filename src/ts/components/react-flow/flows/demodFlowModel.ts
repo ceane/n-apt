@@ -20,10 +20,10 @@ export const buildDemodFlowGraph = (sourceMode: SourceMode): DemodFlowGraph => {
         nonRemovable: true,
       },
     },
-    ...(
-      isFileSource
-        ? []
-        : [{
+    ...(isFileSource
+      ? []
+      : [
+          {
             id: "channel",
             type: "custom",
             position: { x: 250, y: 260 },
@@ -32,11 +32,11 @@ export const buildDemodFlowGraph = (sourceMode: SourceMode): DemodFlowGraph => {
               channelNode: true,
               nonRemovable: true,
             },
-          } satisfies Node]
-    ),
-    ...(
-      isFileSource
-        ? [{
+          } satisfies Node,
+        ]),
+    ...(isFileSource
+      ? [
+          {
             id: "metadata",
             type: "custom",
             position: { x: 250, y: 480 },
@@ -44,8 +44,10 @@ export const buildDemodFlowGraph = (sourceMode: SourceMode): DemodFlowGraph => {
               label: "Metadata",
               metadataNode: true,
             },
-          } satisfies Node]
-        : [{
+          } satisfies Node,
+        ]
+      : [
+          {
             id: "signalOptions",
             type: "custom",
             position: { x: 250, y: 480 },
@@ -53,8 +55,8 @@ export const buildDemodFlowGraph = (sourceMode: SourceMode): DemodFlowGraph => {
               label: "Signal Configuration",
               signalOptions: true,
             },
-          } satisfies Node]
-    ),
+          } satisfies Node,
+        ]),
     {
       id: "symbols",
       type: "custom",
@@ -73,10 +75,10 @@ export const buildDemodFlowGraph = (sourceMode: SourceMode): DemodFlowGraph => {
         bitstreamOptions: true,
       },
     },
-    ...(
-      isFileSource
-        ? []
-        : [{
+    ...(isFileSource
+      ? []
+      : [
+          {
             id: "stimulus",
             type: "custom",
             position: { x: 450, y: 860 },
@@ -84,8 +86,8 @@ export const buildDemodFlowGraph = (sourceMode: SourceMode): DemodFlowGraph => {
               label: "Stimulus",
               stimulusOptions: true,
             },
-          } satisfies Node]
-    ),
+          } satisfies Node,
+        ]),
     {
       id: "output",
       type: "custom",
@@ -95,32 +97,40 @@ export const buildDemodFlowGraph = (sourceMode: SourceMode): DemodFlowGraph => {
   ];
 
   const edges: Edge[] = [
-    ...(
-      isFileSource
-        ? [{
+    ...(isFileSource
+      ? [
+          {
             id: "e-source-metadata",
             source: "source",
             target: "metadata",
             animated: true,
-            style: { stroke: "#00d4ffaa", strokeWidth: 2, strokeDasharray: "5 5" },
-          } satisfies Edge]
-        : [
-            {
-              id: "e-source-channel",
-              source: "source",
-              target: "channel",
-              animated: true,
-              style: { stroke: "#00d4ff", strokeWidth: 2 },
+            style: {
+              stroke: "#00d4ffaa",
+              strokeWidth: 2,
+              strokeDasharray: "5 5",
             },
-            {
-              id: "e-channel-signalOptions",
-              source: "channel",
-              target: "signalOptions",
-              animated: true,
-              style: { stroke: "#00d4ffaa", strokeWidth: 2, strokeDasharray: "5 5" },
+          } satisfies Edge,
+        ]
+      : [
+          {
+            id: "e-source-channel",
+            source: "source",
+            target: "channel",
+            animated: true,
+            style: { stroke: "#00d4ff", strokeWidth: 2 },
+          },
+          {
+            id: "e-channel-signalOptions",
+            source: "channel",
+            target: "signalOptions",
+            animated: true,
+            style: {
+              stroke: "#00d4ffaa",
+              strokeWidth: 2,
+              strokeDasharray: "5 5",
             },
-          ]
-    ),
+          },
+        ]),
     {
       id: isFileSource ? "e-metadata-symbols" : "e-signalOptions-symbols",
       source: isFileSource ? "metadata" : "signalOptions",
@@ -135,26 +145,24 @@ export const buildDemodFlowGraph = (sourceMode: SourceMode): DemodFlowGraph => {
       animated: true,
       style: { stroke: "#00d4ffaa", strokeWidth: 2, strokeDasharray: "5 5" },
     },
-    ...(
-      isFileSource
-        ? []
-        : [
-            {
-              id: "e-signalOptions-stimulus",
-              source: "signalOptions",
-              target: "stimulus",
-              animated: true,
-              style: { stroke: "#a855f7", strokeWidth: 2 },
-            },
-            {
-              id: "e-stimulus-output",
-              source: "stimulus",
-              target: "output",
-              animated: true,
-              style: { stroke: "#e100ff", strokeWidth: 2 },
-            },
-          ]
-    ),
+    ...(isFileSource
+      ? []
+      : [
+          {
+            id: "e-signalOptions-stimulus",
+            source: "signalOptions",
+            target: "stimulus",
+            animated: true,
+            style: { stroke: "#a855f7", strokeWidth: 2 },
+          },
+          {
+            id: "e-stimulus-output",
+            source: "stimulus",
+            target: "output",
+            animated: true,
+            style: { stroke: "#e100ff", strokeWidth: 2 },
+          },
+        ]),
   ];
 
   return { nodes, edges };

@@ -44,11 +44,15 @@ const PolarLobeLine: React.FC<{
 
   // Use BoxGeometry for 3D lines
   const geometry = useMemo(() => new THREE.BoxGeometry(1, 1, 1), []);
-  const material = useMemo(() => new THREE.MeshBasicMaterial({
-    color: "#ac77ff",
-    transparent: true,
-    opacity: 0.9,
-  }), []);
+  const material = useMemo(
+    () =>
+      new THREE.MeshBasicMaterial({
+        color: "#ac77ff",
+        transparent: true,
+        opacity: 0.9,
+      }),
+    [],
+  );
 
   const MAX_RADIUS = 7.5;
   const ANTENNA_VISUAL_RADIUS = (aperture / 100) * 1.5;
@@ -69,7 +73,10 @@ const PolarLobeLine: React.FC<{
     const physicsBeamWidth = 51 * (wavelengthMm / aperture);
 
     // Merge prop with physics, biasing towards physics if it's broad
-    const effectiveBeamWidth = Math.min(180, Math.max(propBeamWidth || 5, physicsBeamWidth));
+    const effectiveBeamWidth = Math.min(
+      180,
+      Math.max(propBeamWidth || 5, physicsBeamWidth),
+    );
 
     for (let i = 0; i <= SEGMENTS; i++) {
       const theta = (i * Math.PI * 2) / SEGMENTS;
@@ -91,12 +98,17 @@ const PolarLobeLine: React.FC<{
 
       // If Aperture < Wavelength, diffraction dominates (leaks behind much more)
       const diffractionRatio = Math.min(1.0, wavelengthMm / aperture);
-      const diffractionFloor = 0.05 + 0.4 * diffractionRatio * (0.5 + 0.5 * Math.cos(normTheta));
+      const diffractionFloor =
+        0.05 + 0.4 * diffractionRatio * (0.5 + 0.5 * Math.cos(normTheta));
 
       const finalIntensity = intensity + (1 - intensity) * diffractionFloor;
 
-      const r = ANTENNA_VISUAL_RADIUS + finalIntensity * (MAX_RADIUS - ANTENNA_VISUAL_RADIUS);
-      points.push(new THREE.Vector3(r * Math.sin(theta), 0.01, -r * Math.cos(theta)));
+      const r =
+        ANTENNA_VISUAL_RADIUS +
+        finalIntensity * (MAX_RADIUS - ANTENNA_VISUAL_RADIUS);
+      points.push(
+        new THREE.Vector3(r * Math.sin(theta), 0.01, -r * Math.cos(theta)),
+      );
     }
 
     for (let i = 0; i < SEGMENTS; i++) {
@@ -116,9 +128,7 @@ const PolarLobeLine: React.FC<{
     meshRef.current.instanceMatrix.needsUpdate = true;
   });
 
-  return (
-    <instancedMesh ref={meshRef} args={[geometry, material, SEGMENTS]} />
-  );
+  return <instancedMesh ref={meshRef} args={[geometry, material, SEGMENTS]} />;
 };
 
 const DegreeLabel = styled.div`
@@ -142,24 +152,38 @@ const PolarGrid3D: React.FC<{ aperture: number }> = ({ aperture }) => {
         <mesh key={`ring-${i}`} rotation={[-Math.PI / 2, 0, 0]}>
           <ringGeometry
             args={[
-              ANTENNA_VISUAL_RADIUS + r * (MAX_RADIUS - ANTENNA_VISUAL_RADIUS) - 0.015,
-              ANTENNA_VISUAL_RADIUS + r * (MAX_RADIUS - ANTENNA_VISUAL_RADIUS) + 0.015,
-              128
+              ANTENNA_VISUAL_RADIUS +
+                r * (MAX_RADIUS - ANTENNA_VISUAL_RADIUS) -
+                0.015,
+              ANTENNA_VISUAL_RADIUS +
+                r * (MAX_RADIUS - ANTENNA_VISUAL_RADIUS) +
+                0.015,
+              128,
             ]}
           />
-          <meshBasicMaterial color="#ffffff" transparent opacity={0.08} side={THREE.DoubleSide} />
+          <meshBasicMaterial
+            color="#ffffff"
+            transparent
+            opacity={0.08}
+            side={THREE.DoubleSide}
+          />
         </mesh>
       ))}
 
       {/* Angle lines & Labels */}
-      {angles.map(angle => {
+      {angles.map((angle) => {
         const rad = (angle * Math.PI) / 180;
         const len = MAX_RADIUS;
-        const labelPos = ANTENNA_VISUAL_RADIUS + 1.2 * (MAX_RADIUS - ANTENNA_VISUAL_RADIUS);
+        const labelPos =
+          ANTENNA_VISUAL_RADIUS + 1.2 * (MAX_RADIUS - ANTENNA_VISUAL_RADIUS);
         return (
           <group key={`angle-grp-${angle}`}>
             <mesh
-              position={[len / 2 * Math.sin(rad), 0, -len / 2 * Math.cos(rad)]}
+              position={[
+                (len / 2) * Math.sin(rad),
+                0,
+                (-len / 2) * Math.cos(rad),
+              ]}
               rotation={[0, -rad, 0]}
             >
               <boxGeometry args={[0.015, 0.001, len]} />
@@ -167,7 +191,15 @@ const PolarGrid3D: React.FC<{ aperture: number }> = ({ aperture }) => {
             </mesh>
 
             {/* 3D Label emulation - simple HTML overlay in the scene */}
-            <Html position={[labelPos * Math.sin(rad), 0, -labelPos * Math.cos(rad)]} center transform={false}>
+            <Html
+              position={[
+                labelPos * Math.sin(rad),
+                0,
+                -labelPos * Math.cos(rad),
+              ]}
+              center
+              transform={false}
+            >
               <DegreeLabel>{angle}°</DegreeLabel>
             </Html>
           </group>
@@ -181,8 +213,15 @@ const PolarGrid3D: React.FC<{ aperture: number }> = ({ aperture }) => {
           <meshBasicMaterial color="#0a0a0c" side={THREE.DoubleSide} />
         </mesh>
         <mesh rotation={[-Math.PI / 2, 0, 0]}>
-          <ringGeometry args={[ANTENNA_VISUAL_RADIUS - 0.06, ANTENNA_VISUAL_RADIUS, 64]} />
-          <meshBasicMaterial color="#ac77ff" transparent opacity={0.6} side={THREE.DoubleSide} />
+          <ringGeometry
+            args={[ANTENNA_VISUAL_RADIUS - 0.06, ANTENNA_VISUAL_RADIUS, 64]}
+          />
+          <meshBasicMaterial
+            color="#ac77ff"
+            transparent
+            opacity={0.6}
+            side={THREE.DoubleSide}
+          />
         </mesh>
       </group>
     </group>
@@ -243,9 +282,15 @@ export const PolarRadioWaveWebGPU: React.FC<PolarRadioWaveWebGPUProps> = ({
       <ContentWrapper>
         <Canvas
           shadows
-          camera={{ position: [0, 15, 0], zoom: 30, up: [0, 0, -1], far: 1000, near: -1000 }}
+          camera={{
+            position: [0, 15, 0],
+            zoom: 30,
+            up: [0, 0, -1],
+            far: 1000,
+            near: -1000,
+          }}
           orthographic
-          style={{ aspectRatio: '4 / 3', width: '100%' }}
+          style={{ aspectRatio: "4 / 3", width: "100%" }}
         >
           <ambientLight intensity={1.5} />
           <PolarGrid3D aperture={aperture} />
@@ -259,13 +304,16 @@ export const PolarRadioWaveWebGPU: React.FC<PolarRadioWaveWebGPUProps> = ({
 
         <MetricsOverlay>
           <MetricItem>
-            <MathText>ƒ</MathText> (Frequency): <MetricValue>{frequency.toFixed(3)} MHz</MetricValue>
+            <MathText>ƒ</MathText> (Frequency):{" "}
+            <MetricValue>{frequency.toFixed(3)} MHz</MetricValue>
           </MetricItem>
           <MetricItem>
-            <MathText>λ</MathText> (Wavelength): <MetricValue>{formatDistance(wavelengthMm)}</MetricValue>
+            <MathText>λ</MathText> (Wavelength):{" "}
+            <MetricValue>{formatDistance(wavelengthMm)}</MetricValue>
           </MetricItem>
           <MetricItem>
-            <MathText>A</MathText> (Aperture): <MetricValue>{formatDistance(aperture)}</MetricValue>
+            <MathText>A</MathText> (Aperture):{" "}
+            <MetricValue>{formatDistance(aperture)}</MetricValue>
           </MetricItem>
         </MetricsOverlay>
 

@@ -1,9 +1,5 @@
 import * as React from "react";
-import {
-  render,
-  screen,
-  fireEvent,
-} from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom";
 
@@ -47,9 +43,7 @@ describe("AuthenticationRoute", () => {
   });
 
   it("should show loading state during authentication", () => {
-    render(
-      <AuthenticationUI {...defaultProps} authState="authenticating" />,
-    );
+    render(<AuthenticationUI {...defaultProps} authState="authenticating" />);
     expect(screen.getByText("Authenticating...")).toBeInTheDocument();
   });
 

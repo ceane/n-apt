@@ -1,4 +1,9 @@
-import { createSlice, createAsyncThunk, nanoid, PayloadAction } from "@reduxjs/toolkit";
+import {
+  createSlice,
+  createAsyncThunk,
+  nanoid,
+  PayloadAction,
+} from "@reduxjs/toolkit";
 import type { RootState } from "@n-apt/redux/store";
 import type {
   DisplayTemporalResolution,
@@ -106,9 +111,8 @@ export const buildStatsSnapshot = (
     tunerAGC: spectrum.tunerAGC,
     rtlAGC: spectrum.rtlAGC,
     sampleRateHz: spectrum.sampleRateHz,
-    heterodyningStatusText: waterfall.sourceMode === "file"
-      ? "Unavailable"
-      : "Unknown",
+    heterodyningStatusText:
+      waterfall.sourceMode === "file" ? "Unavailable" : "Unknown",
     heterodyningDetected: false,
     createdAt: Date.now(),
   };
@@ -145,7 +149,8 @@ const noteCardsSlice = createSlice({
   reducers: {
     hydrateNoteCards: (state, action: PayloadAction<NoteCardModel[]>) => {
       const incoming = action.payload ?? [];
-      const sharedPosition = incoming[incoming.length - 1]?.position ?? DEFAULT_POSITION;
+      const sharedPosition =
+        incoming[incoming.length - 1]?.position ?? DEFAULT_POSITION;
       const sharedSize = incoming[incoming.length - 1]?.size ?? DEFAULT_SIZE;
       state.cards = incoming.map((card) => ({
         ...card,
@@ -217,9 +222,13 @@ const noteCardsSlice = createSlice({
     removeNoteCard: (state, action: PayloadAction<string>) => {
       state.cards = state.cards.filter((c) => c.id !== action.payload);
       if (state.activeCardId === action.payload) {
-        state.activeCardId = state.cards.length ? state.cards[state.cards.length - 1].id : null;
+        state.activeCardId = state.cards.length
+          ? state.cards[state.cards.length - 1].id
+          : null;
         if (state.activeCardId) {
-          const newActive = state.cards.find((c) => c.id === state.activeCardId);
+          const newActive = state.cards.find(
+            (c) => c.id === state.activeCardId,
+          );
           if (newActive) {
             newActive.isActive = true;
           }
@@ -266,7 +275,10 @@ export const {
 export const selectNoteCardsState = (state: RootState) => state.noteCards;
 export const selectNoteCards = (state: RootState) => state.noteCards.cards;
 export const selectActiveNoteCard = (state: RootState) =>
-  state.noteCards.cards.find((card) => card.id === state.noteCards.activeCardId) ?? null;
-export const selectNoteCardsCollapsed = (state: RootState) => state.noteCards.isCollapsed;
+  state.noteCards.cards.find(
+    (card) => card.id === state.noteCards.activeCardId,
+  ) ?? null;
+export const selectNoteCardsCollapsed = (state: RootState) =>
+  state.noteCards.isCollapsed;
 
 export default noteCardsSlice.reducer;

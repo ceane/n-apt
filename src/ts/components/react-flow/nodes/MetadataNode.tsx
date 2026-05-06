@@ -41,18 +41,24 @@ interface MetadataNodeProps {
 
 export const MetadataNode: React.FC<MetadataNodeProps> = ({ data }) => {
   const { sessionToken, aesKey } = useAuthentication();
-  const selectedFiles = useAppSelector((state) => state.waterfall.selectedFiles);
+  const selectedFiles = useAppSelector(
+    (state) => state.waterfall.selectedFiles,
+  );
   const sourceMode = useAppSelector((state) => state.waterfall.sourceMode);
 
   const selectedPrimaryFile = useMemo(() => {
     if (sourceMode !== "file" || selectedFiles.length === 0) return null;
     const file = selectedFiles[0];
     const lowerName = file.name.toLowerCase();
-    return lowerName.endsWith(".napt") || lowerName.endsWith(".wav") ? file : null;
+    return lowerName.endsWith(".napt") || lowerName.endsWith(".wav")
+      ? file
+      : null;
   }, [selectedFiles, sourceMode]);
 
   const [naptMetadata, setNaptMetadata] = useState<NaptMetadata | null>(null);
-  const [naptMetadataError, setNaptMetadataError] = useState<string | null>(null);
+  const [naptMetadataError, setNaptMetadataError] = useState<string | null>(
+    null,
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -86,18 +92,38 @@ export const MetadataNode: React.FC<MetadataNodeProps> = ({ data }) => {
 
           let jsonStr: string;
           if (newlineIndex > 0) {
-            jsonStr = new TextDecoder().decode(headerBytes.slice(0, newlineIndex));
+            jsonStr = new TextDecoder().decode(
+              headerBytes.slice(0, newlineIndex),
+            );
           } else {
             const headerText = new TextDecoder().decode(headerBytes);
-            let braceDepth = 0, inStr = false, esc = false, jsonEnd = -1;
+            let braceDepth = 0,
+              inStr = false,
+              esc = false,
+              jsonEnd = -1;
             for (let ci = 0; ci < headerText.length; ci++) {
               const c = headerText[ci];
-              if (esc) { esc = false; continue; }
-              if (c === '\\') { esc = true; continue; }
-              if (c === '"') { inStr = !inStr; continue; }
+              if (esc) {
+                esc = false;
+                continue;
+              }
+              if (c === "\\") {
+                esc = true;
+                continue;
+              }
+              if (c === '"') {
+                inStr = !inStr;
+                continue;
+              }
               if (inStr) continue;
-              if (c === '{') braceDepth++;
-              if (c === '}') { braceDepth--; if (braceDepth === 0) { jsonEnd = ci + 1; break; } }
+              if (c === "{") braceDepth++;
+              if (c === "}") {
+                braceDepth--;
+                if (braceDepth === 0) {
+                  jsonEnd = ci + 1;
+                  break;
+                }
+              }
             }
             if (jsonEnd <= 0) throw new Error("Invalid NAPT header");
             jsonStr = headerText.slice(0, jsonEnd);
@@ -114,7 +140,9 @@ export const MetadataNode: React.FC<MetadataNodeProps> = ({ data }) => {
         if (isWav) {
           const view = new DataView(buffer);
           const readText = (offset: number, length: number) =>
-            String.fromCharCode(...Array.from(new Uint8Array(buffer, offset, length)));
+            String.fromCharCode(
+              ...Array.from(new Uint8Array(buffer, offset, length)),
+            );
 
           if (readText(0, 4) !== "RIFF" || readText(8, 4) !== "WAVE") {
             throw new Error("Invalid WAV header");
@@ -126,10 +154,16 @@ export const MetadataNode: React.FC<MetadataNodeProps> = ({ data }) => {
             const chunkId = readText(offset, 4);
             const chunkSize = view.getUint32(offset + 4, true);
             if (chunkId === "nAPT") {
-              const metadataBytes = new Uint8Array(buffer, offset + 8, chunkSize);
+              const metadataBytes = new Uint8Array(
+                buffer,
+                offset + 8,
+                chunkSize,
+              );
               const nullIndex = metadataBytes.indexOf(0);
               const json = new TextDecoder().decode(
-                nullIndex === -1 ? metadataBytes : metadataBytes.slice(0, nullIndex),
+                nullIndex === -1
+                  ? metadataBytes
+                  : metadataBytes.slice(0, nullIndex),
               );
               const parsed = JSON.parse(json);
               metadata = (parsed.metadata || parsed) as NaptMetadata;
@@ -140,7 +174,9 @@ export const MetadataNode: React.FC<MetadataNodeProps> = ({ data }) => {
 
           if (!cancelled) {
             setNaptMetadata(metadata);
-            setNaptMetadataError(metadata ? null : "No embedded metadata found");
+            setNaptMetadataError(
+              metadata ? null : "No embedded metadata found",
+            );
           }
         }
       } catch (error: any) {

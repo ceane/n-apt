@@ -9,7 +9,7 @@ let currentFftSize = 8192;
 
 /** Strip non-printable/control characters and cap length for safe display. */
 function sanitizeFilename(name: string): string {
-  return name.replace(/[^\x20-\x7E]/g, '').slice(0, 255);
+  return name.replace(/[^\x20-\x7E]/g, "").slice(0, 255);
 }
 
 // File processing functions
@@ -17,7 +17,7 @@ function parseFrequencyFromFilename(filename: string): number {
   // Extract frequency part: iq_137.5MHz -> 137.5MHz
   const match = filename.match(/iq_([\d._]+[a-zA-Z]*)/);
   if (!match) return 0.0;
-  
+
   return parseFrequency(match[1], "MHz") || 0.0;
 }
 
@@ -106,7 +106,10 @@ function loadWavFile(fileData: ArrayBuffer): WavLoadResult {
     } else if (chunkId.startsWith("nIQ")) {
       const idx = parseInt(chunkId.substring(3));
       if (!isNaN(idx)) {
-        extraIqChunks.set(idx, new Uint8Array(fileData, chunkDataStart, safeSize));
+        extraIqChunks.set(
+          idx,
+          new Uint8Array(fileData, chunkDataStart, safeSize),
+        );
       }
     } else if (chunkId === "nAPT") {
       try {
@@ -128,8 +131,12 @@ function loadWavFile(fileData: ArrayBuffer): WavLoadResult {
   }
 
   if (dataStart === 0) throw new Error("No data chunk in WAV");
-  
-  const mainIqBytes = new Uint8Array(fileData, dataStart, Math.max(0, dataSize));
+
+  const mainIqBytes = new Uint8Array(
+    fileData,
+    dataStart,
+    Math.max(0, dataSize),
+  );
   const raw = mainIqBytes.slice(); // Owned copy (source buffer may be transferred)
 
   // Construct channels array
@@ -219,16 +226,21 @@ function processToSpectrum(
  * Helper: compare two frequency_range arrays for logical channel identity.
  * Returns true if both represent the same requested channel range.
  */
-function sameLogicalChannel(rangeA: any, rangeB: any, labelA: any, labelB: any): boolean {
+function sameLogicalChannel(
+  rangeA: any,
+  rangeB: any,
+  labelA: any,
+  labelB: any,
+): boolean {
   // If labels are provided and differ, they are definitely different channels
   if (labelA !== labelB) return false;
-  
+
   // If both ranges are missing, let the proximity check (frequency distance) decide
   if (!rangeA && !rangeB) return true;
-  
+
   // If one has a range and the other doesn't, treat them as different
   if (!rangeA || !rangeB) return false;
-  
+
   if (!Array.isArray(rangeA) || !Array.isArray(rangeB)) return false;
   if (rangeA.length < 2 || rangeB.length < 2) return false;
 
@@ -239,7 +251,11 @@ function sameLogicalChannel(rangeA: any, rangeB: any, labelA: any, labelB: any):
   );
 }
 
-function stitchAdjacentChannels(channels: any[], _defaultFftSize: number, _maxSampleRateHz: number = 3_200_000) {
+function stitchAdjacentChannels(
+  channels: any[],
+  _defaultFftSize: number,
+  _maxSampleRateHz: number = 3_200_000,
+) {
   if (!channels || channels.length <= 1) return channels;
 
   // Preserve the original entry order from the source file/config.
@@ -249,26 +265,33 @@ function stitchAdjacentChannels(channels: any[], _defaultFftSize: number, _maxSa
   // merging hops from different channel selections (e.g. C and B).
   const grouped: any[][] = [];
   let currentGroup = [channels[0]];
-  
+
   for (let i = 1; i < channels.length; i++) {
     const ch = channels[i];
     const prev = currentGroup[currentGroup.length - 1];
-    
+
     // FIRST CHECK: logical channel boundary via requested frequency_range.
     // Hops from different logical channels must NEVER be merged.
-    if (!sameLogicalChannel(prev.frequency_range, ch.frequency_range, prev.label, ch.label)) {
+    if (
+      !sameLogicalChannel(
+        prev.frequency_range,
+        ch.frequency_range,
+        prev.label,
+        ch.label,
+      )
+    ) {
       grouped.push(currentGroup);
       currentGroup = [ch];
       continue;
     }
-    
+
     // Use actual sample rates for adjacency (no clamping — these are hardware hops)
     const prevSampleRate = prev.sample_rate_hz || _maxSampleRateHz;
     const chSampleRate = ch.sample_rate_hz || _maxSampleRateHz;
-    
+
     const prevMax = (prev.center_freq_hz || 0) + prevSampleRate / 2;
     const chMin = (ch.center_freq_hz || 0) - chSampleRate / 2;
-    
+
     // Group if they touch or nearly touch (allow 1kHz epsilon for float rounding)
     if (chMin <= prevMax + 1000) {
       currentGroup.push(ch);
@@ -278,18 +301,18 @@ function stitchAdjacentChannels(channels: any[], _defaultFftSize: number, _maxSa
     }
   }
   grouped.push(currentGroup);
-  
-  return grouped.map(group => {
+
+  return grouped.map((group) => {
     if (group.length === 1) return group[0];
-    
+
     // Compute overall range from all channels (already trimmed by backend)
     const first = group[0];
     const last = group[group.length - 1];
-    
+
     // Use actual sample rates (no clamping)
     const firstSampleRate = first.sample_rate_hz || _maxSampleRateHz;
     const lastSampleRate = last.sample_rate_hz || _maxSampleRateHz;
-    
+
     const minFreq = (first.center_freq_hz || 0) - firstSampleRate / 2;
     const maxFreq = (last.center_freq_hz || 0) + lastSampleRate / 2;
     const totalSpan = maxFreq - minFreq;
@@ -300,7 +323,7 @@ function stitchAdjacentChannels(channels: any[], _defaultFftSize: number, _maxSa
     const requestedMaxs = group
       .map((c: any) => c.frequency_range?.[1])
       .filter((v: number | undefined) => Number.isFinite(v));
-    
+
     return {
       iq_data: group[0].iq_data || group[0].iq,
       center_freq_hz: newCenter,
@@ -335,12 +358,13 @@ function buildCombinedFrame(
   for (const name of allFileNames) {
     const freq = freqMap.get(name) ?? 0;
     const meta = metadataMap.get(name);
-    
+
     // Use the actual sample rate from metadata — multi-channel captures
     // legitimately have sample rates larger than the hardware rate because
     // they represent the full channel span from multiple stitched hops.
-    const sampleRate = meta?.capture_sample_rate_hz || meta?.sample_rate_hz || _maxSampleRateHz;
-    
+    const sampleRate =
+      meta?.capture_sample_rate_hz || meta?.sample_rate_hz || _maxSampleRateHz;
+
     const halfSpan = sampleRate / 2;
 
     const fMin = freq - halfSpan;
@@ -378,13 +402,12 @@ function buildCombinedFrame(
     const numCanvasBins = endBin - startBin;
     const N = spectrum.length;
     const halfN = Math.floor(N / 2);
-    
+
     if (N > numCanvasBins) {
       for (let i = 0; i < N; i++) {
         // If data is pre-shifted, use identity mapping; otherwise fftshift
-        const mappedI = isPreShifted ? i : (i < halfN ? i + halfN : i - halfN);
-        const targetBin =
-          startBin + Math.floor((mappedI / N) * numCanvasBins);
+        const mappedI = isPreShifted ? i : i < halfN ? i + halfN : i - halfN;
+        const targetBin = startBin + Math.floor((mappedI / N) * numCanvasBins);
         if (targetBin >= 0 && targetBin < fftSize) {
           combinedWaveform[targetBin] = Math.max(
             combinedWaveform[targetBin],
@@ -398,7 +421,11 @@ function buildCombinedFrame(
         const fraction = (targetBin - startBin) / numCanvasBins;
         const linearI = Math.min(N - 1, Math.floor(fraction * N));
         // If data is pre-shifted, use identity mapping; otherwise fftshift
-        const sourceIndex = isPreShifted ? linearI : (linearI < halfN ? linearI + halfN : linearI - halfN);
+        const sourceIndex = isPreShifted
+          ? linearI
+          : linearI < halfN
+            ? linearI + halfN
+            : linearI - halfN;
         combinedWaveform[targetBin] = Math.max(
           combinedWaveform[targetBin],
           spectrum[sourceIndex],
@@ -423,20 +450,26 @@ self.onmessage = async function (e) {
         if (lower.endsWith(".wav")) {
           const res = loadWavFile(fileData);
           rawData = res.raw; // res.raw is already Uint8Array from loadWavFile
-          
+
           (self as any).postMessage(
-            { type: "result", id, data: { rawData, fileName, metadata: res.metadata } },
+            {
+              type: "result",
+              id,
+              data: { rawData, fileName, metadata: res.metadata },
+            },
             [rawData.buffer],
           );
         } else if (lower.endsWith(".napt") && aesKey) {
           const MAX_HEADER_READ = Math.min(8192, fileData.byteLength);
           const maxHeaderBytes = new Uint8Array(fileData, 0, MAX_HEADER_READ);
           let newlineIdx = maxHeaderBytes.indexOf(10);
-          
+
           // Robust header parsing: try newline first, then find JSON boundary
           let jsonStr: string;
           if (newlineIdx > 0) {
-            jsonStr = new TextDecoder().decode(maxHeaderBytes.slice(0, newlineIdx));
+            jsonStr = new TextDecoder().decode(
+              maxHeaderBytes.slice(0, newlineIdx),
+            );
           } else {
             // Fallback: find the end of the root JSON object by looking for the
             // closing brace that isn't inside a string
@@ -447,93 +480,126 @@ self.onmessage = async function (e) {
             let jsonEnd = -1;
             for (let ci = 0; ci < headerText.length; ci++) {
               const c = headerText[ci];
-              if (escape) { escape = false; continue; }
-              if (c === '\\') { escape = true; continue; }
-              if (c === '"') { inString = !inString; continue; }
+              if (escape) {
+                escape = false;
+                continue;
+              }
+              if (c === "\\") {
+                escape = true;
+                continue;
+              }
+              if (c === '"') {
+                inString = !inString;
+                continue;
+              }
               if (inString) continue;
-              if (c === '{') braceDepth++;
-              if (c === '}') { braceDepth--; if (braceDepth === 0) { jsonEnd = ci + 1; break; } }
+              if (c === "{") braceDepth++;
+              if (c === "}") {
+                braceDepth--;
+                if (braceDepth === 0) {
+                  jsonEnd = ci + 1;
+                  break;
+                }
+              }
             }
-            if (jsonEnd <= 0) throw new Error("Invalid NAPT header: no JSON boundary found");
+            if (jsonEnd <= 0)
+              throw new Error("Invalid NAPT header: no JSON boundary found");
             jsonStr = headerText.slice(0, jsonEnd);
           }
-          
+
           const metaObj = JSON.parse(jsonStr);
-          
+
           // Check for channels at top-level OR inside metadata
-          const channels = metaObj.channels || metaObj.metadata?.channels || [
-            { 
-              offset_iq: metaObj.offset_iq ?? metaObj.metadata?.offset_iq, 
-              iq_length: metaObj.iq_length ?? metaObj.metadata?.iq_length
-            }
-          ];
+          const channels = metaObj.channels ||
+            metaObj.metadata?.channels || [
+              {
+                offset_iq: metaObj.offset_iq ?? metaObj.metadata?.offset_iq,
+                iq_length: metaObj.iq_length ?? metaObj.metadata?.iq_length,
+              },
+            ];
           const firstChannel = channels[0];
 
           if (firstChannel && firstChannel.offset_iq !== undefined) {
             // Determine actual padding size. Backend now uses 4096, previously used 2048.
             // Force 4096 if metaObj.metadata.channels exists as hinted by the user's header dump
-            const headerSize = (metaObj.metadata?.channels || metaObj.channels) ? 4096 : 2048;
+            const headerSize =
+              metaObj.metadata?.channels || metaObj.channels ? 4096 : 2048;
 
             const encryptedData = new Uint8Array(fileData, headerSize);
             const iv = encryptedData.slice(0, 12);
             const ciphertext = encryptedData.slice(12);
-            
+
             try {
               let decryptedData: ArrayBuffer;
-              
-              if (metaObj.wrapped_dek || (metaObj.metadata && metaObj.metadata.wrapped_dek)) {
-                const wrappedDekBase64 = metaObj.wrapped_dek || metaObj.metadata.wrapped_dek;
+
+              if (
+                metaObj.wrapped_dek ||
+                (metaObj.metadata && metaObj.metadata.wrapped_dek)
+              ) {
+                const wrappedDekBase64 =
+                  metaObj.wrapped_dek || metaObj.metadata.wrapped_dek;
                 const wrappedDekBytes = base64ToBytes(wrappedDekBase64);
                 const ivDek = wrappedDekBytes.slice(0, 12);
                 const cipherDek = wrappedDekBytes.slice(12);
-                
+
                 // 1. Unwrap (decrypt) the DEK using the Vault Key (aesKey)
                 const decryptedDek = await crypto.subtle.decrypt(
                   { name: "AES-GCM", iv: ivDek },
                   aesKey,
-                  cipherDek
+                  cipherDek,
                 );
-                
+
                 // 2. Import the raw DEK
                 const dek = await crypto.subtle.importKey(
                   "raw",
                   decryptedDek,
                   { name: "AES-GCM" },
                   false,
-                  ["decrypt"]
+                  ["decrypt"],
                 );
-                
+
                 // 3. Decrypt the main payload using the DEK
                 decryptedData = await crypto.subtle.decrypt(
                   { name: "AES-GCM", iv },
                   dek,
-                  ciphertext
+                  ciphertext,
                 );
               } else {
                 // Legacy file: Decrypt using the Vault Key directly
                 decryptedData = await crypto.subtle.decrypt(
                   { name: "AES-GCM", iv },
                   aesKey,
-                  ciphertext
+                  ciphertext,
                 );
               }
-              
+
               const payloadArray = new Uint8Array(decryptedData);
-              
+
               const chOffsetIq = firstChannel.offset_iq;
-              const iqByteLength = firstChannel.iq_length ?? (payloadArray.length - chOffsetIq);
-              
-              const iqPart = payloadArray.slice(chOffsetIq, chOffsetIq + iqByteLength);
+              const iqByteLength =
+                firstChannel.iq_length ?? payloadArray.length - chOffsetIq;
+
+              const iqPart = payloadArray.slice(
+                chOffsetIq,
+                chOffsetIq + iqByteLength,
+              );
               const metadata = metaObj.metadata || metaObj;
-              
+
               const responseData = { rawData: iqPart, fileName, metadata };
-              (self as any).postMessage({ type: "result", id, data: responseData }, [iqPart.buffer]);
+              (self as any).postMessage(
+                { type: "result", id, data: responseData },
+                [iqPart.buffer],
+              );
             } catch (decryptErr: any) {
               console.error("NAPT Load - Decryption Failed:", decryptErr);
-              throw new Error(`Decryption failed: ${decryptErr.message || decryptErr}`);
+              throw new Error(
+                `Decryption failed: ${decryptErr.message || decryptErr}`,
+              );
             }
           } else {
-            console.error("NAPT Load - Invalid channel offsets", { firstChannel });
+            console.error("NAPT Load - Invalid channel offsets", {
+              firstChannel,
+            });
             throw new Error("Missing offset_iq in header channels");
           }
         } else {
@@ -546,10 +612,10 @@ self.onmessage = async function (e) {
       case "stitchFiles": {
         const { files, settings, fftSize, aesKey, sampleRateOptions } = data;
         if (fftSize) currentFftSize = fftSize;
-        
+
         // DERIVE MAX SAMPLE RATE FROM OPTIONS OR FALLBACK TO 3.2MHz
         const maxSampleRateHz = sampleRateOptions?.maxSampleRateHz || 3_200_000;
-        
+
         const fileDataCache = new Map();
         const freqMap = new Map();
         const metadataMap = new Map();
@@ -564,26 +630,40 @@ self.onmessage = async function (e) {
             let metadata: FileMetadata | null = null;
 
             if (lower.endsWith(".wav")) {
-              const { raw, metadata: wavMeta, channels } = loadWavFile(file.fileData);
+              const {
+                raw,
+                metadata: wavMeta,
+                channels,
+              } = loadWavFile(file.fileData);
               rawData = raw;
               metadata = wavMeta as FileMetadata;
-              
+
               // Multi-channel WAV files legitimately have sample rates larger
               // than the hardware rate because they represent stitched channel
               // spans. Do NOT clamp per-channel or file-level sample rates.
-              
+
               if (channels && channels.length > 0) {
-                 (metadata as any).channels_data = stitchAdjacentChannels(channels, metadata?.fft_size || 8192, maxSampleRateHz);
+                (metadata as any).channels_data = stitchAdjacentChannels(
+                  channels,
+                  metadata?.fft_size || 8192,
+                  maxSampleRateHz,
+                );
               }
             } else if (lower.endsWith(".napt") && aesKey) {
               const MAX_HEADER_READ = Math.min(8192, file.fileData.byteLength);
-              const maxHeaderBytes = new Uint8Array(file.fileData, 0, MAX_HEADER_READ);
+              const maxHeaderBytes = new Uint8Array(
+                file.fileData,
+                0,
+                MAX_HEADER_READ,
+              );
               let naptNewlineIdx = maxHeaderBytes.indexOf(10);
-              
+
               // Robust header parsing: try newline first, then find JSON boundary
               let naptJsonStr: string;
               if (naptNewlineIdx > 0) {
-                naptJsonStr = new TextDecoder().decode(maxHeaderBytes.slice(0, naptNewlineIdx));
+                naptJsonStr = new TextDecoder().decode(
+                  maxHeaderBytes.slice(0, naptNewlineIdx),
+                );
               } else {
                 const headerText = new TextDecoder().decode(maxHeaderBytes);
                 let braceDepth = 0;
@@ -592,44 +672,69 @@ self.onmessage = async function (e) {
                 let jsonEnd = -1;
                 for (let ci = 0; ci < headerText.length; ci++) {
                   const c = headerText[ci];
-                  if (escape) { escape = false; continue; }
-                  if (c === '\\') { escape = true; continue; }
-                  if (c === '"') { inString = !inString; continue; }
+                  if (escape) {
+                    escape = false;
+                    continue;
+                  }
+                  if (c === "\\") {
+                    escape = true;
+                    continue;
+                  }
+                  if (c === '"') {
+                    inString = !inString;
+                    continue;
+                  }
                   if (inString) continue;
-                  if (c === '{') braceDepth++;
-                  if (c === '}') { braceDepth--; if (braceDepth === 0) { jsonEnd = ci + 1; break; } }
+                  if (c === "{") braceDepth++;
+                  if (c === "}") {
+                    braceDepth--;
+                    if (braceDepth === 0) {
+                      jsonEnd = ci + 1;
+                      break;
+                    }
+                  }
                 }
-                if (jsonEnd <= 0) throw new Error("Invalid NAPT header: no JSON boundary found");
+                if (jsonEnd <= 0)
+                  throw new Error(
+                    "Invalid NAPT header: no JSON boundary found",
+                  );
                 naptJsonStr = headerText.slice(0, jsonEnd);
               }
-              
+
               const metaObj = JSON.parse(naptJsonStr);
               metadata = metaObj.metadata || metaObj;
 
               let channelsMetadata = metadata?.channels || metaObj.channels;
               if (!channelsMetadata && metaObj.offset_iq !== undefined) {
-                  channelsMetadata = [{
-                      offset_iq: metaObj.offset_iq,
-                      iq_length: metaObj.iq_length,
-                      center_freq_hz: metadata?.center_frequency_hz || 0,
-                      sample_rate_hz: metadata?.capture_sample_rate_hz || 0
-                  }];
+                channelsMetadata = [
+                  {
+                    offset_iq: metaObj.offset_iq,
+                    iq_length: metaObj.iq_length,
+                    center_freq_hz: metadata?.center_frequency_hz || 0,
+                    sample_rate_hz: metadata?.capture_sample_rate_hz || 0,
+                  },
+                ];
               }
 
               if (channelsMetadata && channelsMetadata.length > 0) {
                 // Multi-channel NAPT files legitimately have sample rates larger
                 // than the hardware rate because they represent stitched channel
                 // spans. Do NOT clamp per-channel or file-level sample rates.
-                
-                const headerSize = metaObj.channels || metadata?.channels ? 4096 : 2048;
+
+                const headerSize =
+                  metaObj.channels || metadata?.channels ? 4096 : 2048;
 
                 const encryptedData = new Uint8Array(file.fileData, headerSize);
                 const iv = encryptedData.slice(0, 12);
                 const ciphertext = encryptedData.slice(12);
                 let decryptedData: ArrayBuffer;
 
-                if (metaObj.wrapped_dek || (metadata && (metadata as any).wrapped_dek)) {
-                  const wrappedDekBase64 = metaObj.wrapped_dek || (metadata as any).wrapped_dek;
+                if (
+                  metaObj.wrapped_dek ||
+                  (metadata && (metadata as any).wrapped_dek)
+                ) {
+                  const wrappedDekBase64 =
+                    metaObj.wrapped_dek || (metadata as any).wrapped_dek;
                   const wrappedDekBytes = base64ToBytes(wrappedDekBase64);
                   const ivDek = wrappedDekBytes.slice(0, 12);
                   const cipherDek = wrappedDekBytes.slice(12);
@@ -638,7 +743,7 @@ self.onmessage = async function (e) {
                   const decryptedDek = await crypto.subtle.decrypt(
                     { name: "AES-GCM", iv: ivDek },
                     aesKey,
-                    cipherDek
+                    cipherDek,
                   );
 
                   // 2. Import the raw DEK
@@ -647,21 +752,21 @@ self.onmessage = async function (e) {
                     decryptedDek,
                     { name: "AES-GCM" },
                     false,
-                    ["decrypt"]
+                    ["decrypt"],
                   );
 
                   // 3. Decrypt the main payload using the DEK
                   decryptedData = await crypto.subtle.decrypt(
                     { name: "AES-GCM", iv },
                     dek,
-                    ciphertext
+                    ciphertext,
                   );
                 } else {
                   // Legacy file: Decrypt using the Vault Key directly
                   decryptedData = await crypto.subtle.decrypt(
                     { name: "AES-GCM", iv },
                     aesKey,
-                    ciphertext
+                    ciphertext,
                   );
                 }
 
@@ -669,64 +774,85 @@ self.onmessage = async function (e) {
 
                 const parsedChannels: any[] = [];
                 for (let j = 0; j < channelsMetadata.length; j++) {
-                    const ch = channelsMetadata[j];
-                    const chOffsetIq = ch.offset_iq;
-                    const nextOffsetIq = j + 1 < channelsMetadata.length
+                  const ch = channelsMetadata[j];
+                  const chOffsetIq = ch.offset_iq;
+                  const nextOffsetIq =
+                    j + 1 < channelsMetadata.length
                       ? channelsMetadata[j + 1].offset_iq
                       : payloadArray.length;
-                    const iqLength = ch.iq_length ?? Math.max(0, nextOffsetIq - chOffsetIq);
-                    const iqBytes = payloadArray.slice(chOffsetIq, chOffsetIq + iqLength);
-                    const reqMin = ch.requested_min_freq_hz ?? ch.requested_min_hz ?? ch.min_freq_hz;
-                    const reqMax = ch.requested_max_freq_hz ?? ch.requested_max_hz ?? ch.max_freq_hz;
+                  const iqLength =
+                    ch.iq_length ?? Math.max(0, nextOffsetIq - chOffsetIq);
+                  const iqBytes = payloadArray.slice(
+                    chOffsetIq,
+                    chOffsetIq + iqLength,
+                  );
+                  const reqMin =
+                    ch.requested_min_freq_hz ??
+                    ch.requested_min_hz ??
+                    ch.min_freq_hz;
+                  const reqMax =
+                    ch.requested_max_freq_hz ??
+                    ch.requested_max_hz ??
+                    ch.max_freq_hz;
 
-                    parsedChannels.push({
-                        iq_data: iqBytes,
-                        center_freq_hz: ch.center_freq_hz,
-                        sample_rate_hz: ch.sample_rate_hz,
-                        label: ch.label,
-                        bins_per_frame: ch.bins_per_frame,
-                        frame_rate: metadata?.frame_rate,
-                        hardware_sample_rate_hz: metadata?.hardware_sample_rate_hz,
-                        frequency_range:
-                          Number.isFinite(reqMin) &&
-                          Number.isFinite(reqMax)
-                            ? [reqMin, reqMax]
-                            : undefined,
-                    });
-                }
-                
-                const actualFftSize = metadata?.fft_size || (metadata as any)?.fft?.size || 2048;
-                
-                // Store the individual hardware hops before they are grouped and overwritten by the stitcher
-                (metadata as any).raw_hardware_blocks = parsedChannels.map(ch => ({
+                  parsedChannels.push({
+                    iq_data: iqBytes,
                     center_freq_hz: ch.center_freq_hz,
-                    sample_rate_hz: ch.sample_rate_hz
-                }));
+                    sample_rate_hz: ch.sample_rate_hz,
+                    label: ch.label,
+                    bins_per_frame: ch.bins_per_frame,
+                    frame_rate: metadata?.frame_rate,
+                    hardware_sample_rate_hz: metadata?.hardware_sample_rate_hz,
+                    frequency_range:
+                      Number.isFinite(reqMin) && Number.isFinite(reqMax)
+                        ? [reqMin, reqMax]
+                        : undefined,
+                  });
+                }
 
-                const stitchedChannelsWithRange = stitchAdjacentChannels(parsedChannels, actualFftSize, maxSampleRateHz);
+                const actualFftSize =
+                  metadata?.fft_size || (metadata as any)?.fft?.size || 2048;
+
+                // Store the individual hardware hops before they are grouped and overwritten by the stitcher
+                (metadata as any).raw_hardware_blocks = parsedChannels.map(
+                  (ch) => ({
+                    center_freq_hz: ch.center_freq_hz,
+                    sample_rate_hz: ch.sample_rate_hz,
+                  }),
+                );
+
+                const stitchedChannelsWithRange = stitchAdjacentChannels(
+                  parsedChannels,
+                  actualFftSize,
+                  maxSampleRateHz,
+                );
                 (metadata as any).channels_data = stitchedChannelsWithRange;
-                
+
                 // Keep first channel IQ for audio playback
                 if (parsedChannels.length > 0) {
-                    rawData = parsedChannels[0].iq_data;
+                  rawData = parsedChannels[0].iq_data;
                 }
 
-                const groupsToRegister = stitchedChannelsWithRange.length > 0
-                  ? stitchedChannelsWithRange
-                  : parsedChannels;
+                const groupsToRegister =
+                  stitchedChannelsWithRange.length > 0
+                    ? stitchedChannelsWithRange
+                    : parsedChannels;
 
                 groupsToRegister.forEach((group, groupIndex) => {
                   const groupIq = group.iq_data || group.iq;
                   if (!groupIq || groupIq.length === 0) return;
-                  const entryName = groupIndex === 0 ? file.fileName : `${file.fileName}__group${groupIndex}`;
+                  const entryName =
+                    groupIndex === 0
+                      ? file.fileName
+                      : `${file.fileName}__group${groupIndex}`;
                   const groupRange = group.frequency_range;
                   const entryCenterHz =
                     groupRange && groupRange.length === 2
-                      ? ((groupRange[0] + groupRange[1]) / 2)
+                      ? (groupRange[0] + groupRange[1]) / 2
                       : group.center_freq_hz;
                   const entrySpanHz =
                     groupRange && groupRange.length === 2
-                      ? (groupRange[1] - groupRange[0])
+                      ? groupRange[1] - groupRange[0]
                       : group.sample_rate_hz;
 
                   fileDataCache.set(entryName, groupIq);
@@ -754,29 +880,56 @@ self.onmessage = async function (e) {
               loadedCount++;
             }
 
-            const baseFrequency = metadata?.center_frequency_hz ? metadata.center_frequency_hz : parseFrequencyFromFilename(file.fileName);
+            const baseFrequency = metadata?.center_frequency_hz
+              ? metadata.center_frequency_hz
+              : parseFrequencyFromFilename(file.fileName);
             const frequency = baseFrequency * (1 + (settings.ppm || 0) * 1e-6);
             freqMap.set(file.fileName, frequency);
 
-            self.postMessage({ type: "progress", id, data: { current: i + 1, total: files.length, status: `Loaded ${sanitizeFilename(file.fileName)}` } });
+            self.postMessage({
+              type: "progress",
+              id,
+              data: {
+                current: i + 1,
+                total: files.length,
+                status: `Loaded ${sanitizeFilename(file.fileName)}`,
+              },
+            });
           } catch (error) {
-            console.warn("Failed to load file:", sanitizeFilename(file.fileName), error);
+            console.warn(
+              "Failed to load file:",
+              sanitizeFilename(file.fileName),
+              error,
+            );
           }
         }
 
-        if (loadedCount === 0) throw new Error("No files could be loaded successfully");
+        if (loadedCount === 0)
+          throw new Error("No files could be loaded successfully");
 
         const internalFftSize = fftSize || currentFftSize;
         const chunkSize = internalFftSize * 2; // IQ pair per bin
-        const maxFrames = Math.max(1, Math.min(...Array.from(fileDataCache.keys()).map(name => {
-            const raw = fileDataCache.get(name);
-            return raw ? Math.floor(raw.length / chunkSize) : 1;
-        })));
+        const maxFrames = Math.max(
+          1,
+          Math.min(
+            ...Array.from(fileDataCache.keys()).map((name) => {
+              const raw = fileDataCache.get(name);
+              return raw ? Math.floor(raw.length / chunkSize) : 1;
+            }),
+          ),
+        );
 
         // Only compute the first frame for the seed display.
         // The playback animation emits raw IQ chunks per frame —
         // FFTCanvas / GPU shader handles FFT, windowing, and dB conversion.
-        const firstFrame = buildCombinedFrame(fileDataCache, freqMap, 0, metadataMap, internalFftSize, maxSampleRateHz);
+        const firstFrame = buildCombinedFrame(
+          fileDataCache,
+          freqMap,
+          0,
+          metadataMap,
+          internalFftSize,
+          maxSampleRateHz,
+        );
         const precomputedFrames = firstFrame ? [firstFrame] : [];
 
         const firstMeta = metadataMap.values().next().value;

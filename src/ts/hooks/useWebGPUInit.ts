@@ -230,7 +230,8 @@ export function useWebGPUInit({
   const [isInitialized, setIsInitialized] = useState(false);
   const [webgpuReady, setWebgpuReady] = useState(false);
   const [webgpuEnabled, setWebgpuEnabled] = useState(false);
-  const [isInitializingWebGPU, setIsInitializingWebGPU] = useState(isWebGPUSupported());
+  const [isInitializingWebGPU, setIsInitializingWebGPU] =
+    useState(isWebGPUSupported());
 
   const webgpuDeviceRef = useRef<GPUDevice | null>(null);
   const webgpuFormatRef = useRef<GPUTextureFormat | null>(null);
@@ -243,7 +244,7 @@ export function useWebGPUInit({
     device: webgpuDeviceRef.current,
     format: webgpuFormatRef.current,
     maxCacheSize: 50,
-    enableHotReload: process.env.NODE_ENV === 'development'
+    enableHotReload: process.env.NODE_ENV === "development",
   });
 
   const bufferManager = useSharedBufferManager({
@@ -252,12 +253,16 @@ export function useWebGPUInit({
     maxPoolSize: 50,
     bufferSize: 1024 * 1024,
     enableGarbageCollection: true,
-    gcInterval: 30000
+    gcInterval: 30000,
   });
-  
+
   // Preload essential shaders when device becomes available
   useEffect(() => {
-    if (webgpuDeviceRef.current && webgpuFormatRef.current && shaderCache.isInitialized) {
+    if (
+      webgpuDeviceRef.current &&
+      webgpuFormatRef.current &&
+      shaderCache.isInitialized
+    ) {
       const preloadShaders = async () => {
         try {
           // Preload compute shaders (vertexCode is used for compute shader detection)
@@ -274,15 +279,19 @@ export function useWebGPUInit({
             },
           ]);
 
-          console.log('Shader preloading completed successfully');
+          console.log("Shader preloading completed successfully");
         } catch (error) {
-          console.warn('Failed to preload shaders:', error);
+          console.warn("Failed to preload shaders:", error);
         }
       };
 
       preloadShaders();
     }
-  }, [webgpuDeviceRef.current, webgpuFormatRef.current, shaderCache.isInitialized]);
+  }, [
+    webgpuDeviceRef.current,
+    webgpuFormatRef.current,
+    shaderCache.isInitialized,
+  ]);
 
   // Overlay texture renderers are still provided by this hook
   const gridOverlayRendererRef = useRef<OverlayTextureRenderer | null>(null);

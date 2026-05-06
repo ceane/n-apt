@@ -1,6 +1,6 @@
-use axum::extract::State;
-use axum::http::StatusCode;
-use axum::response::IntoResponse;
+use axum::extract::{Query, State};
+use axum::http::{HeaderName, HeaderValue, StatusCode};
+use axum::response::{IntoResponse, Redirect};
 use axum::Json;
 use log::{error, info, warn};
 use std::sync::Arc;
@@ -9,8 +9,8 @@ use webauthn_rs::prelude::*;
 use crate::crypto;
 
 use crate::server::types::{
-  AuthSessionRequest, AuthVerifyRequest, PasskeyAuthFinishRequest,
-  PasskeyRegisterFinishRequest,
+  AuthSessionRequest, AuthVerifyRequest, LogoutParams,
+  PasskeyAuthFinishRequest, PasskeyRegisterFinishRequest,
 };
 use uuid::Uuid;
 
@@ -23,6 +23,32 @@ pub async fn auth_info_handler(
   Json(serde_json::json!({
     "has_passkeys": has_passkeys,
   }))
+}
+
+/// GET /auth/logout — clear site data and redirect to login.
+/// Optionally revokes the provided session token in Redis.
+pub async fn auth_logout_handler(
+  State(state): State<Arc<crate::server::AppState>>,
+  Query(params): Query<LogoutParams>,
+) -> impl IntoResponse {
+  if let Some(token) = params.token {
+    info!("Revoking session token: {}…", &token[..token.len().min(8)]);
+    state.session_store.revoke(&token);
+  }
+
+  info!("Logout requested, clearing site data and redirecting");
+  let mut response = Redirect::to("/").into_response();
+
+  // Clear-Site-Data: "cache", "cookies", "storage", "executionContexts"
+  // This ensures all local storage, cookies, and cache are wiped on the client.
+  response.headers_mut().insert(
+    HeaderName::from_static("clear-site-data"),
+    HeaderValue::from_static(
+      "\"cache\", \"cookies\", \"storage\", \"executionContexts\"",
+    ),
+  );
+
+  response
 }
 
 /// POST /auth/challenge — generate a nonce for password-based auth.
@@ -39,7 +65,8 @@ pub async fn auth_challenge_handler(
     return (
       StatusCode::INTERNAL_SERVER_ERROR,
       Json(serde_json::json!({ "error": "redis_error" })),
-    ).into_response();
+    )
+      .into_response();
   }
 
   (
@@ -48,7 +75,8 @@ pub async fn auth_challenge_handler(
       "challenge_id": challenge_id,
       "nonce": nonce_b64,
     })),
-  ).into_response()
+  )
+    .into_response()
 }
 
 /// POST /auth/verify — verify password-based HMAC response, return session token.
@@ -66,7 +94,8 @@ pub async fn auth_verify_handler(
         "error": "invalid_challenge",
         "message": "Challenge not found or expired",
       })),
-    ).into_response();
+    )
+      .into_response();
   };
 
   // Verify HMAC
@@ -79,7 +108,8 @@ pub async fn auth_verify_handler(
           "error": "invalid_hmac",
           "message": "Invalid HMAC encoding",
         })),
-      ).into_response();
+      )
+        .into_response();
     }
   };
 
@@ -95,7 +125,8 @@ pub async fn auth_verify_handler(
         "error": "auth_failed",
         "message": "Invalid passkey",
       })),
-    ).into_response();
+    )
+      .into_response();
   }
 
   // Authentication successful — create session
@@ -110,7 +141,8 @@ pub async fn auth_verify_handler(
       "token": token,
       "expires_in": 86400,
     })),
-  ).into_response()
+  )
+    .into_response()
 }
 
 /// POST /auth/session — validate an existing session token.
@@ -155,14 +187,17 @@ pub async fn auth_vault_key_handler(
       let enc_key: [u8; 32] = match session.encryption_key.try_into() {
         Ok(k) => k,
         Err(_) => {
-          log::error!("Session has invalid encryption key — cannot return vault key");
+          log::error!(
+            "Session has invalid encryption key — cannot return vault key"
+          );
           return (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({
               "error": "invalid_session_key",
               "message": "Session encryption key is corrupted",
             })),
-          ).into_response();
+          )
+            .into_response();
         }
       };
       (
@@ -170,7 +205,8 @@ pub async fn auth_vault_key_handler(
         Json(crate::server::types::VaultKeyResponse {
           vault_key: crypto::to_base64(&enc_key),
         }),
-      ).into_response()
+      )
+        .into_response()
     }
     None => (
       StatusCode::UNAUTHORIZED,
@@ -178,7 +214,8 @@ pub async fn auth_vault_key_handler(
         "error": "session_expired",
         "message": "Invalid or expired session token",
       })),
-    ).into_response(),
+    )
+      .into_response(),
   }
 }
 

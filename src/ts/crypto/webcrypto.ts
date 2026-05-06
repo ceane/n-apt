@@ -6,13 +6,12 @@
  * in src/crypto/mod.rs.
  */
 
+import { PBKDF2_SALT_VAL } from "../consts/env";
+
 const PBKDF2_ITERATIONS = 100_000;
 // Load salt from environment variable (Vite) or fallback to default.
 // Must match NAPT_PBKDF2_SALT in Rust backend.
-const DEFAULT_SALT = "n-apt-aes-salt-v1";
-const PBKDF2_SALT = new TextEncoder().encode(
-  (import.meta as any).env?.VITE_PBKDF2_SALT || DEFAULT_SALT,
-);
+const PBKDF2_SALT = new TextEncoder().encode(PBKDF2_SALT_VAL);
 const IV_LENGTH = 12; // AES-GCM standard nonce size
 
 /**

@@ -227,7 +227,6 @@ mod tests {
     assert!(result3.timestamp > 0);
   }
 
-
   #[test]
   fn test_mock_signal_generation() {
     let mut processor = FFTProcessor::new();
@@ -350,7 +349,6 @@ mod tests {
     let result = processor.process_samples(&samples).unwrap();
     assert_eq!(result.power_spectrum.len(), 200); // Zoomed output
   }
-
 
   #[cfg(not(target_arch = "wasm32"))]
   #[test]

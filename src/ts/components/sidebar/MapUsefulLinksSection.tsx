@@ -133,7 +133,8 @@ export const MapUsefulLinksSection: React.FC = () => {
         </Row>
       </Collapsible>
       <InfoParagraph>
-        Tower data provided by OpenCelliD. CC BY-SA 4.0 license. Not for commercial use without proper licensing.
+        Tower data provided by OpenCelliD. CC BY-SA 4.0 license. Not for
+        commercial use without proper licensing.
       </InfoParagraph>
     </>
   );

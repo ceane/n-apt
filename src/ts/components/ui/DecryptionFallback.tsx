@@ -1,6 +1,12 @@
-import React from 'react';
-import styled from 'styled-components';
-import { ShieldAlert, Terminal, HelpCircle, RefreshCcw, Shield } from "lucide-react";
+import React from "react";
+import styled from "styled-components";
+import {
+  ShieldAlert,
+  Terminal,
+  HelpCircle,
+  RefreshCcw,
+  Shield,
+} from "lucide-react";
 import { useAuthentication } from "../../hooks/useAuthentication";
 import { Button } from "@n-apt/components/ui";
 
@@ -55,39 +61,45 @@ const CodeBlock = styled.code`
   border-radius: 2px;
 `;
 
-export type DecryptionErrorType = 'vault' | 'demod' | 'latex';
+export type DecryptionErrorType = "vault" | "demod" | "latex";
 
 interface DecryptionFallbackProps {
   moduleName: string;
   errorType?: DecryptionErrorType;
 }
 
-export const DecryptionFallback: React.FC<DecryptionFallbackProps> = ({ 
-  moduleName, 
-  errorType = 'vault' 
+export const DecryptionFallback: React.FC<DecryptionFallbackProps> = ({
+  moduleName,
+  errorType = "vault",
 }) => {
   const { logout } = useAuthentication();
 
   const getErrorInfo = () => {
     switch (errorType) {
-      case 'demod':
+      case "demod":
         return {
-          envVar: 'UNSAFE_LOCAL_DEMOD_PASSWORD',
-          message: 'Demodulation logic is encrypted and requires a specific password for this environment.',
-          troubleshooting: 'Ensure the demodulation keys are correctly synchronized with your .env.local file.'
+          envVar: "UNSAFE_LOCAL_DEMOD_PASSWORD",
+          message:
+            "Demodulation logic is encrypted and requires a specific password for this environment.",
+          troubleshooting:
+            "Ensure the demodulation keys are correctly synchronized with your .env.local file.",
         };
-      case 'latex':
+      case "latex":
         return {
-          envVar: 'UNSAFE_LOCAL_LATEX_PASSWORD',
-          message: 'LaTeX math rendering components are encrypted to protect proprietary formatting logic.',
-          troubleshooting: 'Check if the LaTeX renderer service is authenticated correctly.'
+          envVar: "UNSAFE_LOCAL_LATEX_PASSWORD",
+          message:
+            "LaTeX math rendering components are encrypted to protect proprietary formatting logic.",
+          troubleshooting:
+            "Check if the LaTeX renderer service is authenticated correctly.",
         };
-      case 'vault':
+      case "vault":
       default:
         return {
-          envVar: 'UNSAFE_LOCAL_USER_PASSWORD',
-          message: 'This file or module is encrypted and the current vault session cannot unlock it.',
-          troubleshooting: 'Try locking and unlocking the vault again from the sidebar header.'
+          envVar: "UNSAFE_LOCAL_USER_PASSWORD",
+          message:
+            "This file or module is encrypted and the current vault session cannot unlock it.",
+          troubleshooting:
+            "Try locking and unlocking the vault again from the sidebar header.",
         };
     }
   };
@@ -100,46 +112,64 @@ export const DecryptionFallback: React.FC<DecryptionFallbackProps> = ({
         <ShieldAlert size={16} />
         <Title>{moduleName} Decryption Failed</Title>
       </Header>
-      
+
       <Message>
         {message}
         <br />
-        <span style={{ opacity: 0.7, fontSize: '10px' }}>
-          This usually happens if the session key has expired or the password was incorrect.
+        <span style={{ opacity: 0.7, fontSize: "10px" }}>
+          This usually happens if the session key has expired or the password
+          was incorrect.
         </span>
       </Message>
 
       <Instructions>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <Terminal size={12} />
-          <span>Check your <CodeBlock>.env.local</CodeBlock> configuration:</span>
+          <span>
+            Check your <CodeBlock>.env.local</CodeBlock> configuration:
+          </span>
         </div>
-        <div style={{ paddingLeft: 18, color: '#999' }}>
+        <div style={{ paddingLeft: 18, color: "#999" }}>
           Ensure <CodeBlock>{envVar}</CodeBlock> is set correctly.
         </div>
-        
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            marginTop: 4,
+          }}
+        >
           <HelpCircle size={12} />
           <span>Troubleshooting:</span>
         </div>
-        <div style={{ paddingLeft: 18, color: '#999' }}>
-          {troubleshooting}
-        </div>
+        <div style={{ paddingLeft: 18, color: "#999" }}>{troubleshooting}</div>
       </Instructions>
 
-      <div style={{ display: 'flex', gap: '8px' }}>
-        <Button 
-          $variant="primary" 
+      <div style={{ display: "flex", gap: "8px" }}>
+        <Button
+          $variant="primary"
           onClick={() => window.location.reload()}
-          style={{ fontSize: '10px', padding: '4px 8px', height: 'auto', flex: 1 }}
+          style={{
+            fontSize: "10px",
+            padding: "4px 8px",
+            height: "auto",
+            flex: 1,
+          }}
         >
           <RefreshCcw size={10} />
           Reload
         </Button>
-        <Button 
-          $variant="secondary" 
+        <Button
+          $variant="secondary"
           onClick={logout}
-          style={{ fontSize: '10px', padding: '4px 8px', height: 'auto', flex: 1 }}
+          style={{
+            fontSize: "10px",
+            padding: "4px 8px",
+            height: "auto",
+            flex: 1,
+          }}
         >
           <Shield size={10} />
           Re-auth

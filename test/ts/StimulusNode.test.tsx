@@ -8,8 +8,8 @@ import { TestWrapper } from "./testUtils";
 // Mock the useDemod hook
 jest.mock("@n-apt/contexts/DemodContext", () => ({
   useDemod: () => ({
-    analysisSession: { state: 'idle', type: 'audio', startTime: null },
-    selectedBaseline: 'audio',
+    analysisSession: { state: "idle", type: "audio", startTime: null },
+    selectedBaseline: "audio",
     setSelectedBaseline: jest.fn(),
     liveMode: false,
     setLiveMode: jest.fn(),
@@ -31,7 +31,7 @@ describe("StimulusNode", () => {
     render(
       <TestWrapper>
         <StimulusNode {...defaultProps} />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     expect(screen.getByText("Stimulus")).toBeInTheDocument();
@@ -42,7 +42,7 @@ describe("StimulusNode", () => {
     render(
       <TestWrapper>
         <StimulusNode {...defaultProps} />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     expect(screen.getByText("440Hz SINE TONE")).toBeInTheDocument();
@@ -52,7 +52,7 @@ describe("StimulusNode", () => {
     render(
       <TestWrapper>
         <StimulusNode {...defaultProps} />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     const select = screen.getByRole("combobox");
@@ -64,7 +64,7 @@ describe("StimulusNode", () => {
     render(
       <TestWrapper>
         <StimulusNode {...defaultProps} />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     const input = screen.getByDisplayValue("5");
@@ -75,7 +75,7 @@ describe("StimulusNode", () => {
     render(
       <TestWrapper>
         <StimulusNode {...defaultProps} />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     const button = screen.getByText("TRIGGER");
@@ -86,7 +86,7 @@ describe("StimulusNode", () => {
     render(
       <TestWrapper>
         <StimulusNode {...defaultProps} />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     const checkbox = screen.getByRole("checkbox");
@@ -98,7 +98,7 @@ describe("StimulusNode", () => {
     render(
       <TestWrapper>
         <StimulusNode data={{ label: "Stimulus", stimulusOptions: true }} />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     expect(screen.getByText(/Capture N-APT signals/)).toBeInTheDocument();

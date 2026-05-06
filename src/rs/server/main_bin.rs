@@ -20,7 +20,9 @@ fn load_dev_env() {
         loaded_any = true;
         break;
       }
-      Err(dotenvy::Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {
+      Err(dotenvy::Error::Io(error))
+        if error.kind() == std::io::ErrorKind::NotFound =>
+      {
         log::info!("Environment file not found at {}", candidate);
       }
       Err(error) => {

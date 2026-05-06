@@ -67,14 +67,19 @@ interface FileSelectionProps {
 export const FileSelection: React.FC<FileSelectionProps> = ({
   onFileChange,
 }) => {
-  const cryptoCorrupted = useAppSelector((state) => state.websocket.cryptoCorrupted);
+  const cryptoCorrupted = useAppSelector(
+    (state) => state.websocket.cryptoCorrupted,
+  );
 
   return (
     <Section>
-      <SidebarSectionTitle icon={<FolderOpen size={14} />} title="File selection" />
-      
+      <SidebarSectionTitle
+        icon={<FolderOpen size={14} />}
+        title="File selection"
+      />
+
       {cryptoCorrupted && (
-        <div style={{ gridColumn: '1 / -1', marginBottom: '12px' }}>
+        <div style={{ gridColumn: "1 / -1", marginBottom: "12px" }}>
           <DecryptionFallback moduleName="File Selection" errorType="vault" />
         </div>
       )}

@@ -1,1 +1,3 @@
-export const getGoogleMapsApiKey = () => import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string;
+import { getGoogleMapsApiKey as getApiKey } from "../consts/env";
+
+export const getGoogleMapsApiKey = () => getApiKey;

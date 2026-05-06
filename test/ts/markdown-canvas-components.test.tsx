@@ -3,35 +3,40 @@
  * Tests all canvas components used in the markdown preview system
  */
 
-import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import '@testing-library/jest-dom';
+import React from "react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import "@testing-library/jest-dom";
 
 // Import canvas components
-import { BodyAttenuationCanvas, ImpedanceCanvas, TimeOfFlightCanvas, PhaseShiftingCanvas as PhaseShfitingCanvas } from '../../src/md-preview/components/canvas';
-import { BodyAttenuationCanvas as BodyAttenuationWebGPUCanvas } from '../../src/md-preview/components/canvas';
-import remarkSignalCanvasBlocks from '../../src/md-preview/utils/remarkSignalCanvasBlocks';
+import {
+  BodyAttenuationCanvas,
+  ImpedanceCanvas,
+  TimeOfFlightCanvas,
+  PhaseShiftingCanvas as PhaseShfitingCanvas,
+} from "../../src/md-preview/components/canvas";
+import { BodyAttenuationCanvas as BodyAttenuationWebGPUCanvas } from "../../src/md-preview/components/canvas";
+import remarkSignalCanvasBlocks from "../../src/md-preview/utils/remarkSignalCanvasBlocks";
 
 // Mock Three.js and React Three Fiber
-jest.mock('three', () => ({
-  ...jest.requireActual('three'),
+jest.mock("three", () => ({
+  ...jest.requireActual("three"),
   WebGLRenderer: jest.fn().mockImplementation(() => ({
     setSize: jest.fn(),
     setPixelRatio: jest.fn(),
     render: jest.fn(),
     dispose: jest.fn(),
-    domElement: document.createElement('canvas'),
+    domElement: document.createElement("canvas"),
   })),
   WebGL1Renderer: jest.fn().mockImplementation(() => ({
     setSize: jest.fn(),
     setPixelRatio: jest.fn(),
     render: jest.fn(),
     dispose: jest.fn(),
-    domElement: document.createElement('canvas'),
+    domElement: document.createElement("canvas"),
   })),
 }));
 
-jest.mock('@react-three/fiber', () => ({
+jest.mock("@react-three/fiber", () => ({
   Canvas: ({ className, style }: any) => (
     <div data-testid="r3f-canvas" className={className} style={style}>
       <canvas role="img" />
@@ -46,7 +51,7 @@ jest.mock('@react-three/fiber', () => ({
   })),
 }));
 
-jest.mock('@react-three/drei', () => ({
+jest.mock("@react-three/drei", () => ({
   Html: ({ children }: any) => <div>{children}</div>,
   Text: ({ children }: any) => <span>{children}</span>,
   Line: () => null,
@@ -55,75 +60,81 @@ jest.mock('@react-three/drei', () => ({
     wrapS: 1001,
     wrapT: 1001,
     repeat: { set: jest.fn() },
-    offset: { set: jest.fn() }
+    offset: { set: jest.fn() },
   })),
 }));
 
-jest.mock('styled-components', () => ({
+jest.mock("styled-components", () => ({
   __esModule: true,
-  ...jest.requireActual('styled-components'),
-  default: jest.requireActual('styled-components').default,
+  ...jest.requireActual("styled-components"),
+  default: jest.requireActual("styled-components").default,
 }));
 
 // Mock import.meta.env
-Object.defineProperty(window, 'importMetaEnv', {
-  value: { BASE_URL: '/' },
+Object.defineProperty(window, "importMetaEnv", {
+  value: { BASE_URL: "/" },
   writable: true,
 });
 
-Object.defineProperty(global, 'import', {
+Object.defineProperty(global, "import", {
   value: {
     meta: {
-      env: { BASE_URL: '/' }
-    }
+      env: { BASE_URL: "/" },
+    },
   },
   writable: true,
 });
 
-describe('Markdown Canvas Components', () => {
+describe("Markdown Canvas Components", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     // Reset canvas mocking
     global.clearCanvasCalls();
   });
 
-  describe('BodyAttenuationCanvas', () => {
-    test('renders without crashing', () => {
+  describe("BodyAttenuationCanvas", () => {
+    test("renders without crashing", () => {
       render(<BodyAttenuationCanvas />);
 
-      expect(screen.getByAltText('Body attenuation visualization')).toBeInTheDocument();
-      expect(screen.getByText('drag inside the panel to move the target cursor')).toBeInTheDocument();
+      expect(
+        screen.getByAltText("Body attenuation visualization"),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText("drag inside the panel to move the target cursor"),
+      ).toBeInTheDocument();
     });
 
-    test('displays WebGL/WebGPU canvas correctly', () => {
+    test("displays WebGL/WebGPU canvas correctly", () => {
       render(<BodyAttenuationCanvas />);
 
-      expect(screen.getByTestId('r3f-canvas')).toBeInTheDocument();
+      expect(screen.getByTestId("r3f-canvas")).toBeInTheDocument();
     });
 
-    test('shows endpoint information', () => {
+    test("shows endpoint information", () => {
       render(<BodyAttenuationCanvas />);
 
-      expect(screen.getByText('Endpoint A (Tx)')).toBeInTheDocument();
-      expect(screen.getByText('Endpoint B (Rx)')).toBeInTheDocument();
+      expect(screen.getByText("Endpoint A (Tx)")).toBeInTheDocument();
+      expect(screen.getByText("Endpoint B (Rx)")).toBeInTheDocument();
       expect(screen.getByText(/\+24\.0 dBm/)).toBeInTheDocument();
       expect(screen.getByText(/-48\.0 dBm/)).toBeInTheDocument();
     });
 
-    test('displays metrics correctly', () => {
+    test("displays metrics correctly", () => {
       render(<BodyAttenuationCanvas />);
 
-      expect(screen.getByText('tx distance')).toBeInTheDocument();
-      expect(screen.getByText('rx distance')).toBeInTheDocument();
-      expect(screen.getByText('frequency')).toBeInTheDocument();
-      expect(screen.getByText('total path loss')).toBeInTheDocument();
-      expect(screen.getByText('13.56 MHz')).toBeInTheDocument();
+      expect(screen.getByText("tx distance")).toBeInTheDocument();
+      expect(screen.getByText("rx distance")).toBeInTheDocument();
+      expect(screen.getByText("frequency")).toBeInTheDocument();
+      expect(screen.getByText("total path loss")).toBeInTheDocument();
+      expect(screen.getByText("13.56 MHz")).toBeInTheDocument();
     });
 
-    test('handles pointer interactions', async () => {
+    test("handles pointer interactions", async () => {
       render(<BodyAttenuationCanvas />);
 
-      const canvasStage = screen.getByText('drag inside the panel to move the target cursor').closest('div');
+      const canvasStage = screen
+        .getByText("drag inside the panel to move the target cursor")
+        .closest("div");
 
       if (canvasStage) {
         fireEvent.pointerDown(canvasStage, { clientX: 200 });
@@ -132,125 +143,127 @@ describe('Markdown Canvas Components', () => {
 
         await waitFor(() => {
           // Should update cursor position
-          expect(screen.getByText('drag inside the panel to move the target cursor')).toBeInTheDocument();
+          expect(
+            screen.getByText("drag inside the panel to move the target cursor"),
+          ).toBeInTheDocument();
         });
       }
     });
 
-    test('uses WebGL context', () => {
+    test("uses WebGL context", () => {
       render(<BodyAttenuationCanvas />);
 
-      expect(screen.getByTestId('r3f-canvas')).toBeInTheDocument();
+      expect(screen.getByTestId("r3f-canvas")).toBeInTheDocument();
     });
   });
 
-  describe('BodyAttenuationWebGPUCanvas', () => {
-    test('renders without crashing', () => {
+  describe("BodyAttenuationWebGPUCanvas", () => {
+    test("renders without crashing", () => {
       render(<BodyAttenuationWebGPUCanvas />);
 
-      expect(screen.getByTestId('r3f-canvas')).toBeInTheDocument();
+      expect(screen.getByTestId("r3f-canvas")).toBeInTheDocument();
     });
 
-    test('uses WebGPU when available', () => {
+    test("uses WebGPU when available", () => {
       // Mock WebGPU availability
-      Object.defineProperty(navigator, 'gpu', {
+      Object.defineProperty(navigator, "gpu", {
         value: {
           requestAdapter: jest.fn().mockResolvedValue({
-            requestDevice: jest.fn().mockResolvedValue({})
-          })
+            requestDevice: jest.fn().mockResolvedValue({}),
+          }),
         },
         writable: true,
       });
 
       render(<BodyAttenuationWebGPUCanvas />);
 
-      expect(screen.getByTestId('r3f-canvas')).toBeInTheDocument();
+      expect(screen.getByTestId("r3f-canvas")).toBeInTheDocument();
     });
 
-    test('handles character image loading', async () => {
+    test("handles character image loading", async () => {
       render(<BodyAttenuationWebGPUCanvas />);
 
       await waitFor(() => {
-        expect(screen.getByTestId('r3f-canvas')).toBeInTheDocument();
+        expect(screen.getByTestId("r3f-canvas")).toBeInTheDocument();
       });
     });
 
-    test('uses WebGL context as fallback', () => {
+    test("uses WebGL context as fallback", () => {
       render(<BodyAttenuationWebGPUCanvas />);
 
-      expect(screen.getByTestId('r3f-canvas')).toBeInTheDocument();
+      expect(screen.getByTestId("r3f-canvas")).toBeInTheDocument();
     });
   });
 
-  describe('ImpedanceCanvas', () => {
-    test('renders without crashing', () => {
+  describe("ImpedanceCanvas", () => {
+    test("renders without crashing", () => {
       render(<ImpedanceCanvas />);
 
-      expect(screen.getByTestId('r3f-canvas')).toBeInTheDocument();
+      expect(screen.getByTestId("r3f-canvas")).toBeInTheDocument();
     });
 
-    test('displays impedance visualization', () => {
+    test("displays impedance visualization", () => {
       render(<ImpedanceCanvas />);
 
-      expect(screen.getByTestId('r3f-canvas')).toBeInTheDocument();
+      expect(screen.getByTestId("r3f-canvas")).toBeInTheDocument();
     });
 
-    test('uses WebGL context', () => {
+    test("uses WebGL context", () => {
       render(<ImpedanceCanvas />);
 
-      expect(screen.getByTestId('r3f-canvas')).toBeInTheDocument();
+      expect(screen.getByTestId("r3f-canvas")).toBeInTheDocument();
     });
   });
 
-  describe('TimeOfFlightCanvas', () => {
-    test('renders without crashing', () => {
+  describe("TimeOfFlightCanvas", () => {
+    test("renders without crashing", () => {
       render(<TimeOfFlightCanvas />);
 
-      expect(screen.getByTestId('r3f-canvas')).toBeInTheDocument();
+      expect(screen.getByTestId("r3f-canvas")).toBeInTheDocument();
     });
 
-    test('displays time of flight visualization', () => {
+    test("displays time of flight visualization", () => {
       render(<TimeOfFlightCanvas />);
 
-      expect(screen.getByTestId('r3f-canvas')).toBeInTheDocument();
+      expect(screen.getByTestId("r3f-canvas")).toBeInTheDocument();
     });
 
-    test('uses WebGL context', () => {
+    test("uses WebGL context", () => {
       render(<TimeOfFlightCanvas />);
 
-      expect(screen.getByTestId('r3f-canvas')).toBeInTheDocument();
+      expect(screen.getByTestId("r3f-canvas")).toBeInTheDocument();
     });
   });
 
-  describe('PhaseShfitingCanvas', () => {
-    test('renders without crashing', () => {
+  describe("PhaseShfitingCanvas", () => {
+    test("renders without crashing", () => {
       render(<PhaseShfitingCanvas />);
 
-      expect(screen.getByTestId('r3f-canvas')).toBeInTheDocument();
+      expect(screen.getByTestId("r3f-canvas")).toBeInTheDocument();
     });
 
-    test('displays phase shifting visualization', () => {
+    test("displays phase shifting visualization", () => {
       render(<PhaseShfitingCanvas />);
 
-      expect(screen.getByTestId('r3f-canvas')).toBeInTheDocument();
+      expect(screen.getByTestId("r3f-canvas")).toBeInTheDocument();
     });
 
-    test('uses WebGL context', () => {
+    test("uses WebGL context", () => {
       render(<PhaseShfitingCanvas />);
 
-      expect(screen.getByTestId('r3f-canvas')).toBeInTheDocument();
+      expect(screen.getByTestId("r3f-canvas")).toBeInTheDocument();
     });
   });
 
-  describe('remarkSignalCanvasBlocks', () => {
-    test('processes signal canvas blocks correctly', () => {
+  describe("remarkSignalCanvasBlocks", () => {
+    test("processes signal canvas blocks correctly", () => {
       const tree = {
-        type: 'root',
+        type: "root",
         children: [
           {
-            type: 'code',
-            lang: 'canvas::phaseshifting',
-            value: '',
+            type: "code",
+            lang: "canvas::phaseshifting",
+            value: "",
           },
         ],
       };
@@ -258,44 +271,53 @@ describe('Markdown Canvas Components', () => {
       remarkSignalCanvasBlocks()(tree as any);
 
       expect(tree.children[0]).toEqual({
-        type: 'html',
-        value: '<phase-shifting-canvas></phase-shifting-canvas>',
+        type: "html",
+        value: "<phase-shifting-canvas></phase-shifting-canvas>",
       });
     });
 
-    test('handles different canvas types', () => {
+    test("handles different canvas types", () => {
       const canvasTypes = [
-        ['canvas::phaseshifting', '<phase-shifting-canvas></phase-shifting-canvas>'],
-        ['canvas::frequencymodulation', '<frequency-modulation-canvas></frequency-modulation-canvas>'],
-        ['canvas::amplitudemodulation', '<amplitude-modulation-canvas></amplitude-modulation-canvas>'],
+        [
+          "canvas::phaseshifting",
+          "<phase-shifting-canvas></phase-shifting-canvas>",
+        ],
+        [
+          "canvas::frequencymodulation",
+          "<frequency-modulation-canvas></frequency-modulation-canvas>",
+        ],
+        [
+          "canvas::amplitudemodulation",
+          "<amplitude-modulation-canvas></amplitude-modulation-canvas>",
+        ],
       ];
 
       canvasTypes.forEach(([lang, value]) => {
         const tree = {
-          type: 'root',
+          type: "root",
           children: [
             {
-              type: 'code',
+              type: "code",
               lang,
-              value: '',
+              value: "",
             },
           ],
         };
 
         remarkSignalCanvasBlocks()(tree as any);
-        expect(tree.children[0]).toEqual({ type: 'html', value });
+        expect(tree.children[0]).toEqual({ type: "html", value });
       });
     });
 
-    test('handles invalid nodes gracefully', () => {
+    test("handles invalid nodes gracefully", () => {
       const invalidNodes = [
         null,
         undefined,
-        { type: 'text', value: 'plain text' },
-        { type: 'element', tagName: 'div' },
+        { type: "text", value: "plain text" },
+        { type: "element", tagName: "div" },
       ];
 
-      invalidNodes.forEach(node => {
+      invalidNodes.forEach((node) => {
         expect(() => {
           remarkSignalCanvasBlocks()(node as any);
         }).not.toThrow();
@@ -303,8 +325,8 @@ describe('Markdown Canvas Components', () => {
     });
   });
 
-  describe('Canvas Integration Tests', () => {
-    test('all canvas components can render together', () => {
+  describe("Canvas Integration Tests", () => {
+    test("all canvas components can render together", () => {
       const TestComponent = () => (
         <div>
           <BodyAttenuationCanvas />
@@ -316,30 +338,36 @@ describe('Markdown Canvas Components', () => {
 
       render(<TestComponent />);
 
-      expect(screen.getByAltText('Body attenuation visualization')).toBeInTheDocument();
-      expect(screen.getAllByTestId('r3f-canvas')).toHaveLength(4);
+      expect(
+        screen.getByAltText("Body attenuation visualization"),
+      ).toBeInTheDocument();
+      expect(screen.getAllByTestId("r3f-canvas")).toHaveLength(4);
     });
 
-    test('canvas components handle resize events', () => {
+    test("canvas components handle resize events", () => {
       render(<BodyAttenuationCanvas />);
 
       // Simulate window resize
-      window.dispatchEvent(new Event('resize'));
+      window.dispatchEvent(new Event("resize"));
 
       // Component should still be rendered
-      expect(screen.getByAltText('Body attenuation visualization')).toBeInTheDocument();
+      expect(
+        screen.getByAltText("Body attenuation visualization"),
+      ).toBeInTheDocument();
     });
 
-    test('canvas components handle cleanup properly', () => {
+    test("canvas components handle cleanup properly", () => {
       const { unmount } = render(<BodyAttenuationCanvas />);
 
       unmount();
 
       // Should not throw errors during cleanup
-      expect(document.body.innerHTML).not.toContain('BODY ATTENUATION / ENTRY EXIT MODEL');
+      expect(document.body.innerHTML).not.toContain(
+        "BODY ATTENUATION / ENTRY EXIT MODEL",
+      );
     });
 
-    test('canvas components render efficiently', () => {
+    test("canvas components render efficiently", () => {
       const startTime = performance.now();
 
       const TestComponent = () => (
@@ -367,45 +395,49 @@ describe('Markdown Canvas Components', () => {
       global.THREE = originalThree;
     });
 
-    test('handles image loading errors', () => {
+    test("handles image loading errors", () => {
       render(<BodyAttenuationCanvas />);
 
       // Simulate image loading error
-      const images = document.querySelectorAll('img');
-      images.forEach(img => {
+      const images = document.querySelectorAll("img");
+      images.forEach((img) => {
         fireEvent.error(img);
       });
 
       // Should still render the component
-      expect(screen.getByAltText('Body attenuation visualization')).toBeInTheDocument();
+      expect(
+        screen.getByAltText("Body attenuation visualization"),
+      ).toBeInTheDocument();
     });
   });
 
-  describe('Canvas Accessibility', () => {
-    test('provides proper ARIA labels', () => {
+  describe("Canvas Accessibility", () => {
+    test("provides proper ARIA labels", () => {
       render(<BodyAttenuationCanvas />);
 
       // Check for proper accessibility attributes
-      const canvasElements = document.querySelectorAll('canvas');
-      canvasElements.forEach(canvas => {
-        expect(canvas).toHaveAttribute('role');
+      const canvasElements = document.querySelectorAll("canvas");
+      canvasElements.forEach((canvas) => {
+        expect(canvas).toHaveAttribute("role");
       });
     });
 
-    test('supports keyboard navigation', () => {
+    test("supports keyboard navigation", () => {
       render(<BodyAttenuationCanvas />);
 
       // Test keyboard events
-      fireEvent.keyDown(document, { key: 'Tab' });
+      fireEvent.keyDown(document, { key: "Tab" });
 
-      expect(screen.getByAltText('Body attenuation visualization')).toBeInTheDocument();
+      expect(
+        screen.getByAltText("Body attenuation visualization"),
+      ).toBeInTheDocument();
     });
 
-    test('provides alternative text for visual content', () => {
+    test("provides alternative text for visual content", () => {
       render(<BodyAttenuationCanvas />);
 
       // Check for alternative text
-      const images = document.querySelectorAll('img[alt]');
+      const images = document.querySelectorAll("img[alt]");
       expect(images.length).toBeGreaterThan(0);
     });
   });

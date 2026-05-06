@@ -1,4 +1,10 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useMemo,
+} from "react";
 import styled from "styled-components";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 import { useDrawMockNAPTSignal } from "@n-apt/hooks/useDrawMockNAPTSignal";
@@ -36,7 +42,11 @@ const Title = styled.h1`
   color: ${(props: any) => props.theme.primary || "#3b82f6"};
   font-family: "Outfit", "Inter", sans-serif;
   letter-spacing: -0.5px;
-  background: linear-gradient(135deg, ${(props) => props.theme.textPrimary} 0%, ${(props) => props.theme.textSecondary} 100%);
+  background: linear-gradient(
+    135deg,
+    ${(props) => props.theme.textPrimary} 0%,
+    ${(props) => props.theme.textSecondary} 100%
+  );
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 `;
@@ -50,7 +60,8 @@ const Subtitle = styled.p`
 const VisualizerWrapper = styled.div`
   flex: 1;
   position: relative;
-  background-color: ${(props) => props.theme.colors?.fftBackground ?? FFT_CANVAS_BG};
+  background-color: ${(props) =>
+    props.theme.colors?.fftBackground ?? FFT_CANVAS_BG};
   border: 1px solid ${(props) => props.theme.canvasBorder ?? "#1a1a1a"};
   border-radius: 12px;
   overflow: hidden;
@@ -70,7 +81,6 @@ const CanvasElement = styled.canvas`
   aspect-ratio: 4 / 3;
   width: 100%;
 `;
-
 
 const InfoBox = styled.div`
   position: absolute;
@@ -131,8 +141,6 @@ const PolarHeaderWrapper = styled.div`
   width: 100%;
   margin-bottom: 8px; /* Reduced from 24px as CollapsibleTitleContainer has margin */
 `;
-
-
 
 const PolarCard = styled.div`
   background: ${(props) => props.theme.surfaceHover}66;
@@ -214,7 +222,10 @@ export const DrawSignalRoute: React.FC = () => {
   }, [drawParams, state.globalNoiseFloor, generateMockNAPTData]);
 
   const waveformArray = useMemo(() => data.map((p) => p.x), [data]);
-  const floatWaveform = useMemo(() => new Float32Array(waveformArray), [waveformArray]);
+  const floatWaveform = useMemo(
+    () => new Float32Array(waveformArray),
+    [waveformArray],
+  );
 
   const renderFrame = useCallback(() => {
     const canvas = canvasRef.current;
@@ -323,23 +334,36 @@ export const DrawSignalRoute: React.FC = () => {
         )}
 
         {mathLoaded && (
-        <InfoBox>
-          <InfoItem>
-            Clumps: <InfoValue>{drawParams.length}</InfoValue>
-          </InfoItem>
-          <InfoItem>
-            Active: <InfoValue>#{state.activeClumpIndex + 1}</InfoValue>
-          </InfoItem>
-          <InfoItem>
-            Spike Count: <InfoValue>{drawParams[state.activeClumpIndex]?.spikeCount ?? 0}</InfoValue>
-          </InfoItem>
-          <InfoItem>
-            Spike Width: <InfoValue>{(drawParams[state.activeClumpIndex]?.spikeWidth ?? 0).toFixed(2)}</InfoValue>
-          </InfoItem>
-          <InfoItem>
-            Envelope: <InfoValue>{(drawParams[state.activeClumpIndex]?.envelopeWidth ?? 0).toFixed(1)}</InfoValue>
-          </InfoItem>
-        </InfoBox>
+          <InfoBox>
+            <InfoItem>
+              Clumps: <InfoValue>{drawParams.length}</InfoValue>
+            </InfoItem>
+            <InfoItem>
+              Active: <InfoValue>#{state.activeClumpIndex + 1}</InfoValue>
+            </InfoItem>
+            <InfoItem>
+              Spike Count:{" "}
+              <InfoValue>
+                {drawParams[state.activeClumpIndex]?.spikeCount ?? 0}
+              </InfoValue>
+            </InfoItem>
+            <InfoItem>
+              Spike Width:{" "}
+              <InfoValue>
+                {(drawParams[state.activeClumpIndex]?.spikeWidth ?? 0).toFixed(
+                  2,
+                )}
+              </InfoValue>
+            </InfoItem>
+            <InfoItem>
+              Envelope:{" "}
+              <InfoValue>
+                {(
+                  drawParams[state.activeClumpIndex]?.envelopeWidth ?? 0
+                ).toFixed(1)}
+              </InfoValue>
+            </InfoItem>
+          </InfoBox>
         )}
       </VisualizerWrapper>
 
@@ -353,9 +377,20 @@ export const DrawSignalRoute: React.FC = () => {
         </PolarHeaderWrapper>
 
         {isPolarOpen && (
-          <div style={{ marginTop: '20px', position: 'relative', width: '100%' }}>
-            <PolarCard style={{ width: '100%', position: 'relative', padding: 0 }}>
-              <CardTitle style={{ position: 'absolute', top: '16px', left: '16px', zIndex: 10 }}>
+          <div
+            style={{ marginTop: "20px", position: "relative", width: "100%" }}
+          >
+            <PolarCard
+              style={{ width: "100%", position: "relative", padding: 0 }}
+            >
+              <CardTitle
+                style={{
+                  position: "absolute",
+                  top: "16px",
+                  left: "16px",
+                  zIndex: 10,
+                }}
+              >
                 High-Fidelity 3D Propagation & Radiation HUD
               </CardTitle>
 
@@ -363,12 +398,18 @@ export const DrawSignalRoute: React.FC = () => {
                 <PolarPane>
                   <Canvas
                     camera={{ position: [15, 15, 15], fov: 45 }}
-                    style={{ width: '100%', minHeight: '500px', height: '100%' }}
+                    style={{
+                      width: "100%",
+                      minHeight: "500px",
+                      height: "100%",
+                    }}
                   >
                     <ambientLight intensity={0.5} />
                     <pointLight position={[20, 20, 20]} />
                     <RadiationLobe3D
-                      frequency={drawParams[state.activeClumpIndex]?.centerOffset || 1.5}
+                      frequency={
+                        drawParams[state.activeClumpIndex]?.centerOffset || 1.5
+                      }
                       aperture={0.04}
                       height={5}
                       n={6}
@@ -381,9 +422,14 @@ export const DrawSignalRoute: React.FC = () => {
                 <PolarPane>
                   <PolarRadioWaveWebGPU
                     aperture={40}
-                    beamWidth={(drawParams[state.activeClumpIndex]?.spikeWidth ?? 0.1) * 200}
+                    beamWidth={
+                      (drawParams[state.activeClumpIndex]?.spikeWidth ?? 0.1) *
+                      200
+                    }
                     rotation={0}
-                    frequency={drawParams[state.activeClumpIndex]?.centerOffset ?? 1.5}
+                    frequency={
+                      drawParams[state.activeClumpIndex]?.centerOffset ?? 1.5
+                    }
                   />
                 </PolarPane>
               </PolarComposite>

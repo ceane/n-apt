@@ -85,7 +85,7 @@ export const deriveIQPoints = (
   const points: IQPoint[] = [];
 
   for (let idx = 0; idx < numPoints; idx += 1) {
-    const base = (offset * 2) + (idx * 2);
+    const base = offset * 2 + idx * 2;
     const iVal = iqData[base];
     const qVal = iqData[base + 1];
 
@@ -100,7 +100,7 @@ export const deriveIQPoints = (
     const magnitude = Math.sqrt(
       Math.pow((iVal - 128) / 128, 2) + Math.pow((qVal - 128) / 128, 2),
     );
-    const powerDbm = -70 + (magnitude * 50);
+    const powerDbm = -70 + magnitude * 50;
 
     points.push({
       index: idx,

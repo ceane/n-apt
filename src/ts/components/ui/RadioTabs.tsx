@@ -23,18 +23,24 @@ const TabGroup = styled.div`
   gap: 0;
 `;
 
-const TabButton = styled.button<{ $active?: boolean; $isLeft?: boolean; $variant?: "primary" | "fft" }>`
+const TabButton = styled.button<{
+  $active?: boolean;
+  $isLeft?: boolean;
+  $variant?: "primary" | "fft";
+}>`
   border: none;
   border: 1px solid
     ${({ $active, $variant, theme }) => {
-    if ($active) {
-      return $variant === "primary" ? theme.primary : theme.fft;
-    }
-    return theme.borderHover;
-  }};
+      if ($active) {
+        return $variant === "primary" ? theme.primary : theme.fft;
+      }
+      return theme.borderHover;
+    }};
   background-color: ${({ $active, $variant, theme }) => {
     if ($active) {
-      return $variant === "primary" ? theme.primaryAnchor : theme.activeBackground;
+      return $variant === "primary"
+        ? theme.primaryAnchor
+        : theme.activeBackground;
     }
     return theme.surface;
   }};
@@ -43,15 +49,21 @@ const TabButton = styled.button<{ $active?: boolean; $isLeft?: boolean; $variant
   font-family: ${(p) => p.theme.typography.mono};
   font-size: 12px;
   cursor: pointer;
-  border-radius: ${(p) => (p.$isLeft ? '0' : '0')};
-  border-top-left-radius:${(p) => p.$isLeft ? '999px' : '0'};
-  border-bottom-left-radius:${(p) => p.$isLeft ? '999px' : '0'};
-  border-top-right-radius:${(p) => p.$isLeft ? '0' : '999px'};
-  border-bottom-right-radius:${(p) => p.$isLeft ? '0' : '999px'};
+  border-radius: ${(p) => (p.$isLeft ? "0" : "0")};
+  border-top-left-radius: ${(p) => (p.$isLeft ? "999px" : "0")};
+  border-bottom-left-radius: ${(p) => (p.$isLeft ? "999px" : "0")};
+  border-top-right-radius: ${(p) => (p.$isLeft ? "0" : "999px")};
+  border-bottom-right-radius: ${(p) => (p.$isLeft ? "0" : "999px")};
   white-space: nowrap;
 `;
 
-export const RadioTabs: React.FC<RadioTabsProps> = ({ value, onChange, options, className, variant }) => {
+export const RadioTabs: React.FC<RadioTabsProps> = ({
+  value,
+  onChange,
+  options,
+  className,
+  variant,
+}) => {
   return (
     <TabGroup className={className} role="radiogroup" aria-label="Radio tabs">
       {options.map((opt, idx) => (

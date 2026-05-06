@@ -1,7 +1,7 @@
-import React from 'react';
-import styled from 'styled-components';
-import { Brain } from 'lucide-react';
-import { useAuthentication } from '@n-apt/hooks/useAuthentication';
+import React from "react";
+import styled from "styled-components";
+import { Brain } from "lucide-react";
+import { useAuthentication } from "@n-apt/hooks/useAuthentication";
 
 const NodeWrapper = styled.div`
   display: flex;
@@ -158,7 +158,7 @@ export const OutputNode: React.FC<OutputNodeProps> = ({ data }) => {
       // Ignored
     }
     if (sessionToken) {
-      if (urlStr.includes('?')) {
+      if (urlStr.includes("?")) {
         urlStr += `&token=${encodeURIComponent(sessionToken)}`;
       } else {
         urlStr += `?token=${encodeURIComponent(sessionToken)}`;
@@ -168,22 +168,33 @@ export const OutputNode: React.FC<OutputNodeProps> = ({ data }) => {
   }, [naptFilePath, sessionToken]);
 
   if (!result) {
-    const isProcessing = state && state !== 'idle' && state !== 'result';
+    const isProcessing = state && state !== "idle" && state !== "result";
 
     return (
-      <NodeWrapper style={{ alignItems: 'center', minWidth: '180px' }}>
-        <Header style={{ width: '100%', justifyContent: 'center' }}>
+      <NodeWrapper style={{ alignItems: "center", minWidth: "180px" }}>
+        <Header style={{ width: "100%", justifyContent: "center" }}>
           <TitleRow>
             <Title>Output</Title>
           </TitleRow>
         </Header>
-        <Metrics style={{ width: '100%', textAlign: 'center' }}>
+        <Metrics style={{ width: "100%", textAlign: "center" }}>
           {isProcessing ? (
-            <div style={{ fontSize: '10px', color: '#ffaa00', display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'center' }}>
+            <div
+              style={{
+                fontSize: "10px",
+                color: "#ffaa00",
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                justifyContent: "center",
+              }}
+            >
               <span>⚡ Processing... ({state})</span>
             </div>
           ) : (
-            <div style={{ fontSize: '10px', opacity: 0.4 }}>Awaiting analysis results</div>
+            <div style={{ fontSize: "10px", opacity: 0.4 }}>
+              Awaiting analysis results
+            </div>
           )}
         </Metrics>
       </NodeWrapper>
@@ -224,13 +235,16 @@ export const OutputNode: React.FC<OutputNodeProps> = ({ data }) => {
         )}
       </Metrics>
 
-      {(result.timestamp || result.duration || result.fileSize !== undefined || result.summary) && (
+      {(result.timestamp ||
+        result.duration ||
+        result.fileSize !== undefined ||
+        result.summary) && (
         <MetadataList>
           {result.timestamp && (
             <MetadataRow>
               <MetadataLabel>Timestamp</MetadataLabel>
               <MetadataValue>
-                {typeof result.timestamp === 'number'
+                {typeof result.timestamp === "number"
                   ? new Date(result.timestamp).toLocaleString()
                   : result.timestamp}
               </MetadataValue>
@@ -241,7 +255,7 @@ export const OutputNode: React.FC<OutputNodeProps> = ({ data }) => {
             <MetadataRow>
               <MetadataLabel>Duration</MetadataLabel>
               <MetadataValue>
-                {typeof result.duration === 'number'
+                {typeof result.duration === "number"
                   ? `${(result.duration / 1000).toFixed(1)}s`
                   : result.duration}
               </MetadataValue>
@@ -274,7 +288,7 @@ export const OutputNode: React.FC<OutputNodeProps> = ({ data }) => {
           onClick={(e) => {
             e.stopPropagation();
             e.preventDefault();
-            window.open(downloadHref, '_blank', 'noopener,noreferrer');
+            window.open(downloadHref, "_blank", "noopener,noreferrer");
           }}
         >
           Download .napt

@@ -22,7 +22,7 @@ export interface CanvasState {
 }
 
 export const useCanvasState = (
-  waterfallCanvasBindings?: FFTCanvasWaterfallBindings
+  waterfallCanvasBindings?: FFTCanvasWaterfallBindings,
 ): CanvasState => {
   // GPU canvas state
   const [spectrumGpuCanvasNode, setSpectrumGpuCanvasNode] =
@@ -35,10 +35,17 @@ export const useCanvasState = (
   const [waterfallOverlayCanvasNode, setWaterfallOverlayCanvasNode] =
     useState<HTMLCanvasElement | null>(null);
 
-  const effectiveWaterfallGpuCanvasNode = waterfallCanvasBindings?.waterfallGpuCanvasNode ?? waterfallGpuCanvasNode;
-  const effectiveWaterfallOverlayCanvasNode = waterfallCanvasBindings?.waterfallOverlayCanvasNode ?? waterfallOverlayCanvasNode;
-  const effectiveSetWaterfallGpuCanvasNode = waterfallCanvasBindings?.setWaterfallGpuCanvasNode ?? setWaterfallGpuCanvasNode;
-  const effectiveSetWaterfallOverlayCanvasNode = waterfallCanvasBindings?.setWaterfallOverlayCanvasNode ?? setWaterfallOverlayCanvasNode;
+  const effectiveWaterfallGpuCanvasNode =
+    waterfallCanvasBindings?.waterfallGpuCanvasNode ?? waterfallGpuCanvasNode;
+  const effectiveWaterfallOverlayCanvasNode =
+    waterfallCanvasBindings?.waterfallOverlayCanvasNode ??
+    waterfallOverlayCanvasNode;
+  const effectiveSetWaterfallGpuCanvasNode =
+    waterfallCanvasBindings?.setWaterfallGpuCanvasNode ??
+    setWaterfallGpuCanvasNode;
+  const effectiveSetWaterfallOverlayCanvasNode =
+    waterfallCanvasBindings?.setWaterfallOverlayCanvasNode ??
+    setWaterfallOverlayCanvasNode;
 
   // Maintain refs for internal hook usage that don't need to trigger re-renders
   const spectrumGpuCanvasRef = useRef<HTMLCanvasElement | null>(null);

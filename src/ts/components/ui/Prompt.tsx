@@ -91,15 +91,15 @@ const Button = styled.button<{ $variant?: "primary" | "danger" }>`
 
   &:hover {
     background: ${(props) => {
-    const { $variant = "primary", theme } = props;
-    if ($variant === "danger") {
-      return theme.mode === "light" ? "#e53e3e" : "#ff6666";
-    }
-    if ($variant === "primary") {
-      return theme.mode === "light" ? "#0044cc" : "#fff";
-    }
-    return theme.mode === "light" ? "#e2e8f0" : "#444";
-  }};
+      const { $variant = "primary", theme } = props;
+      if ($variant === "danger") {
+        return theme.mode === "light" ? "#e53e3e" : "#ff6666";
+      }
+      if ($variant === "primary") {
+        return theme.mode === "light" ? "#0044cc" : "#fff";
+      }
+      return theme.mode === "light" ? "#e2e8f0" : "#444";
+    }};
     transform: translateY(-1px);
   }
 
@@ -133,7 +133,7 @@ export const Prompt: React.FC<PromptProps> = ({
   cancelText = "Cancel",
   onConfirm,
   onCancel,
-  variant = "primary"
+  variant = "primary",
 }) => {
   const dialogRef = useRef<HTMLDialogElement>(null);
 
@@ -164,17 +164,11 @@ export const Prompt: React.FC<PromptProps> = ({
   };
 
   return (
-    <Dialog
-      ref={dialogRef}
-      onClose={onCancel}
-      onClick={handleBackdropClick}
-    >
+    <Dialog ref={dialogRef} onClose={onCancel} onClick={handleBackdropClick}>
       <Title>{title}</Title>
       <Message>{message}</Message>
       <ButtonRow>
-        <Button onClick={handleCancel}>
-          {cancelText}
-        </Button>
+        <Button onClick={handleCancel}>{cancelText}</Button>
         <Button $variant={variant} onClick={onConfirm}>
           {confirmText}
         </Button>

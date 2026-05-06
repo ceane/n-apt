@@ -34,7 +34,10 @@ function computeVisibleOnscreenRange(
   const hardwareMax = activeFrame?.max_hz ?? frequencyRange.max;
   const hardwareSpan =
     typeof sampleRateMHz === "number" && Number.isFinite(sampleRateMHz)
-      ? Math.min(sampleRateMHz, Math.max(0, hardwareMax - hardwareMin || fallbackSpan))
+      ? Math.min(
+          sampleRateMHz,
+          Math.max(0, hardwareMax - hardwareMin || fallbackSpan),
+        )
       : Math.max(0, hardwareMax - hardwareMin || fallbackSpan);
 
   const safeZoom = Number.isFinite(vizZoom) && vizZoom > 0 ? vizZoom : 1;
@@ -95,8 +98,8 @@ describe("visibleOnscreenRange clamping", () => {
       { min: 0.018, max: 3.218 }, // 3.2 MHz span
       frameA,
       3.2, // sampleRateMHz
-      1,   // vizZoom
-      0,   // vizPanOffset
+      1, // vizZoom
+      0, // vizPanOffset
     );
     const span = range.max - range.min;
     expect(span).toBeCloseTo(3.2, 2);
@@ -259,14 +262,18 @@ describe("captureRange isolation (Bug 2 regression)", () => {
   it("channel-only capture uses channel bounds, not onscreen bounds", () => {
     const visibleOnscreenRange = { min: 0.594, max: 3.794 }; // hardware-width window
     const availableCaptureAreas = [
-      { label: "Onscreen", min: visibleOnscreenRange.min, max: visibleOnscreenRange.max },
+      {
+        label: "Onscreen",
+        min: visibleOnscreenRange.min,
+        max: visibleOnscreenRange.max,
+      },
       { label: "A", min: 0.018, max: 4.37 },
     ];
     const activeCaptureAreas = ["A"]; // only channel A selected, NOT onscreen
 
     // Mirrors SpectrumSidebar.captureRange logic (FIXED)
     const segments = availableCaptureAreas.filter((a) =>
-      activeCaptureAreas.includes(a.label)
+      activeCaptureAreas.includes(a.label),
     );
     const mins = segments.map((s) => s.min);
     const maxs = segments.map((s) => s.max);
@@ -283,13 +290,17 @@ describe("captureRange isolation (Bug 2 regression)", () => {
   it("onscreen-only capture uses onscreen bounds", () => {
     const visibleOnscreenRange = { min: 0.594, max: 3.794 };
     const availableCaptureAreas = [
-      { label: "Onscreen", min: visibleOnscreenRange.min, max: visibleOnscreenRange.max },
+      {
+        label: "Onscreen",
+        min: visibleOnscreenRange.min,
+        max: visibleOnscreenRange.max,
+      },
       { label: "A", min: 0.018, max: 4.37 },
     ];
     const activeCaptureAreas = ["Onscreen"];
 
     const segments = availableCaptureAreas.filter((a) =>
-      activeCaptureAreas.includes(a.label)
+      activeCaptureAreas.includes(a.label),
     );
     const mins = segments.map((s) => s.min);
     const maxs = segments.map((s) => s.max);
@@ -305,13 +316,17 @@ describe("captureRange isolation (Bug 2 regression)", () => {
   it("both selected uses the union of onscreen and channel", () => {
     const visibleOnscreenRange = { min: 0.594, max: 3.794 };
     const availableCaptureAreas = [
-      { label: "Onscreen", min: visibleOnscreenRange.min, max: visibleOnscreenRange.max },
+      {
+        label: "Onscreen",
+        min: visibleOnscreenRange.min,
+        max: visibleOnscreenRange.max,
+      },
       { label: "A", min: 0.018, max: 4.37 },
     ];
     const activeCaptureAreas = ["Onscreen", "A"];
 
     const segments = availableCaptureAreas.filter((a) =>
-      activeCaptureAreas.includes(a.label)
+      activeCaptureAreas.includes(a.label),
     );
     const mins = segments.map((s) => s.min);
     const maxs = segments.map((s) => s.max);
@@ -337,14 +352,19 @@ describe("UI mode restriction logic (Bug 1)", () => {
     const hasOnscreenSelected = activeCaptureAreas.includes("Onscreen");
     const hasChannelSelected = activeCaptureAreas.some((a) => a !== "Onscreen");
     const onscreenOnly = hasOnscreenSelected && !hasChannelSelected;
-    const isOnscreenExactMatch = onscreenOnly && hardwareSampleRateMHz > 0 && Math.abs(captureRangeSpan - hardwareSampleRateMHz) < 0.01;
+    const isOnscreenExactMatch =
+      onscreenOnly &&
+      hardwareSampleRateMHz > 0 &&
+      Math.abs(captureRangeSpan - hardwareSampleRateMHz) < 0.01;
     const isWiderThanHardware = captureRangeSpan > hardwareSampleRateMHz + 0.01;
     return { isOnscreenExactMatch, isWiderThanHardware };
   }
 
   it("onscreen-only exact match: only whole_sample available", () => {
     const { isOnscreenExactMatch, isWiderThanHardware } = resolveAvailableModes(
-      ["Onscreen"], 3.2, 3.2,
+      ["Onscreen"],
+      3.2,
+      3.2,
     );
     expect(isOnscreenExactMatch).toBe(true);
     expect(isWiderThanHardware).toBe(false);
@@ -352,7 +372,9 @@ describe("UI mode restriction logic (Bug 1)", () => {
 
   it("channel wider than hardware: no whole_sample available", () => {
     const { isOnscreenExactMatch, isWiderThanHardware } = resolveAvailableModes(
-      ["A"], 4.352, 3.2,
+      ["A"],
+      4.352,
+      3.2,
     );
     expect(isOnscreenExactMatch).toBe(false);
     expect(isWiderThanHardware).toBe(true);
@@ -360,7 +382,9 @@ describe("UI mode restriction logic (Bug 1)", () => {
 
   it("channel+onscreen wider than hardware: no whole_sample, not exact match", () => {
     const { isOnscreenExactMatch, isWiderThanHardware } = resolveAvailableModes(
-      ["Onscreen", "A"], 4.352, 3.2,
+      ["Onscreen", "A"],
+      4.352,
+      3.2,
     );
     expect(isOnscreenExactMatch).toBe(false);
     expect(isWiderThanHardware).toBe(true);
@@ -368,34 +392,34 @@ describe("UI mode restriction logic (Bug 1)", () => {
 
   it("narrow channel: all modes available", () => {
     const { isOnscreenExactMatch, isWiderThanHardware } = resolveAvailableModes(
-      ["A"], 2.0, 3.2,
+      ["A"],
+      2.0,
+      3.2,
     );
     expect(isOnscreenExactMatch).toBe(false);
     expect(isWiderThanHardware).toBe(false);
   });
 
   it("forces stepwise when wider than hardware and user had whole_sample", () => {
-    const { isWiderThanHardware } = resolveAvailableModes(
-      ["A"], 4.352, 3.2,
-    );
+    const { isWiderThanHardware } = resolveAvailableModes(["A"], 4.352, 3.2);
     expect(isWiderThanHardware).toBe(true);
     // The UI guard would force whole_sample → stepwise
     const acquisitionMode = "whole_sample";
-    const effective = isWiderThanHardware && acquisitionMode === "whole_sample"
-      ? "stepwise"
-      : acquisitionMode;
+    const effective =
+      isWiderThanHardware && acquisitionMode === "whole_sample"
+        ? "stepwise"
+        : acquisitionMode;
     expect(effective).toBe("stepwise");
   });
 
   it("preserves interleaved when wider than hardware", () => {
-    const { isWiderThanHardware } = resolveAvailableModes(
-      ["A"], 4.352, 3.2,
-    );
+    const { isWiderThanHardware } = resolveAvailableModes(["A"], 4.352, 3.2);
     expect(isWiderThanHardware).toBe(true);
     const acquisitionMode: string = "interleaved";
-    const effective = isWiderThanHardware && acquisitionMode === "whole_sample"
-      ? "stepwise"
-      : acquisitionMode;
+    const effective =
+      isWiderThanHardware && acquisitionMode === "whole_sample"
+        ? "stepwise"
+        : acquisitionMode;
     expect(effective).toBe("interleaved");
   });
 });
@@ -417,10 +441,10 @@ describe("frequency_range metadata override (Bug: -382kHz to 4.77MHz)", () => {
 
     const numHops = Math.ceil(span / usableBwMhz); // ceil(1.813) = 2
     const firstCenter = minFreq + usableBwMhz / 2; // 1.218
-    const lastCenter = maxFreq - usableBwMhz / 2;  // 3.17
+    const lastCenter = maxFreq - usableBwMhz / 2; // 3.17
 
     const hop0Start = firstCenter - hwBwMhz / 2; // -0.382
-    const hop1End = lastCenter + hwBwMhz / 2;     // 4.77
+    const hop1End = lastCenter + hwBwMhz / 2; // 4.77
 
     expect(numHops).toBe(2);
     expect(hop0Start).toBeCloseTo(-0.382, 3);
@@ -498,9 +522,9 @@ describe("frequency_range metadata override (Bug: -382kHz to 4.77MHz)", () => {
 
     const _numHops = Math.ceil(span / usableBwMhz); // ceil(2.15) = 3
     const firstCenter = minFreq + usableBwMhz / 2; // 25.92
-    const lastCenter = maxFreq - usableBwMhz / 2;  // 28.68
+    const lastCenter = maxFreq - usableBwMhz / 2; // 28.68
     const hop0Start = firstCenter - hwBwMhz / 2; // 24.32
-    const hopLastEnd = lastCenter + hwBwMhz / 2;  // 30.28
+    const hopLastEnd = lastCenter + hwBwMhz / 2; // 30.28
 
     expect(hop0Start).toBeCloseTo(24.32, 2);
     expect(hopLastEnd).toBeCloseTo(30.28, 2);

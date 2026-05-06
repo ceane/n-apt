@@ -1,4 +1,4 @@
-export const WATERFALL_3D_VERTEX_SHADER = /* wgsl */`
+export const WATERFALL_3D_VERTEX_SHADER = /* wgsl */ `
 struct VertexOutput {
   @builtin(position) position: vec4<f32>,
   @location(0) color: vec3<f32>,
@@ -50,7 +50,7 @@ fn main(@location(0) position: vec2<f32>, @location(1) intensity: f32, @location
 }
 `;
 
-export const WATERFALL_3D_FRAGMENT_SHADER = /* wgsl */`
+export const WATERFALL_3D_FRAGMENT_SHADER = /* wgsl */ `
 @fragment
 fn main(@location(0) color: vec3<f32>, @location(1) depth: f32) -> @location(0) vec4<f32> {
   // Apply depth-based fading for waterfall effect
@@ -86,10 +86,10 @@ export const createWaterfall3DPipeline = (
   });
 
   return device.createRenderPipeline({
-    layout: 'auto',
+    layout: "auto",
     vertex: {
       module: vertexShader,
-      entryPoint: 'main',
+      entryPoint: "main",
       buffers: [
         {
           // Position buffer (x, y)
@@ -98,7 +98,7 @@ export const createWaterfall3DPipeline = (
             {
               shaderLocation: 0,
               offset: 0,
-              format: 'float32x2',
+              format: "float32x2",
             },
           ],
         },
@@ -109,10 +109,10 @@ export const createWaterfall3DPipeline = (
             {
               shaderLocation: 1,
               offset: 0,
-              format: 'float32',
+              format: "float32",
             },
           ],
-          stepMode: 'instance',
+          stepMode: "instance",
         },
         {
           // Frame index buffer
@@ -121,16 +121,16 @@ export const createWaterfall3DPipeline = (
             {
               shaderLocation: 2,
               offset: 0,
-              format: 'float32',
+              format: "float32",
             },
           ],
-          stepMode: 'instance',
+          stepMode: "instance",
         },
       ],
     },
     fragment: {
       module: fragmentShader,
-      entryPoint: 'main',
+      entryPoint: "main",
       targets: [
         {
           format,
@@ -138,12 +138,12 @@ export const createWaterfall3DPipeline = (
       ],
     },
     primitive: {
-      topology: 'line-list',
+      topology: "line-list",
     },
     depthStencil: {
       depthWriteEnabled: true,
-      depthCompare: 'less',
-      format: 'depth24plus',
+      depthCompare: "less",
+      format: "depth24plus",
     },
   });
 };

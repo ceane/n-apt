@@ -1,6 +1,12 @@
 import React from "react";
 import styled from "styled-components";
-import { FileSignal, FileStack, CheckCircle2, Download, Trash2 } from "lucide-react";
+import {
+  FileSignal,
+  FileStack,
+  CheckCircle2,
+  Download,
+  Trash2,
+} from "lucide-react";
 import { SidebarSectionTitle } from "@n-apt/components/ui/Collapsible";
 
 const Section = styled.div<{ $marginTop?: string }>`
@@ -85,7 +91,7 @@ const DownloadActionLink = styled.a`
   align-items: center;
   gap: 4px;
   text-decoration: none;
-  
+
   &:hover {
     text-decoration: underline;
   }
@@ -103,7 +109,7 @@ const RemoveActionButton = styled.button`
   text-decoration: underline;
   padding: 0;
   outline: none;
-  
+
   &:hover {
     opacity: 0.8;
   }
@@ -125,7 +131,7 @@ const ClearAllLink = styled.button`
   text-decoration: underline;
   padding: 0;
   outline: none;
-  
+
   &:hover {
     opacity: 0.8;
   }
@@ -155,16 +161,17 @@ export const SelectedFiles: React.FC<SelectedFilesProps> = ({
 
   return (
     <Section>
-      <SidebarSectionTitle icon={<FileStack size={14} />} title={`Selected files (${selectedFiles.length})`} />
+      <SidebarSectionTitle
+        icon={<FileStack size={14} />}
+        title={`Selected files (${selectedFiles.length})`}
+      />
       {selectedFiles.map((file, index) => (
         <FileCard key={`${file.name}-${index}`}>
           <FileItemHeader>
             <FileIcon>
               <FileSignal size={18} strokeWidth={2} />
             </FileIcon>
-            <FileTitle>
-              {renderFileName(file.name)}
-            </FileTitle>
+            <FileTitle>{renderFileName(file.name)}</FileTitle>
           </FileItemHeader>
           <FileInfoRow>
             <FileInfoActions>
@@ -173,7 +180,7 @@ export const SelectedFiles: React.FC<SelectedFilesProps> = ({
               </LoadedLabel>
               {file.downloadUrl && (
                 <DownloadActionLink
-                  href={`${file.downloadUrl}${sessionToken ? `&token=${encodeURIComponent(sessionToken)}` : ''}`}
+                  href={`${file.downloadUrl}${sessionToken ? `&token=${encodeURIComponent(sessionToken)}` : ""}`}
                   download={file.name}
                 >
                   <Download size={12} /> Download
@@ -188,9 +195,7 @@ export const SelectedFiles: React.FC<SelectedFilesProps> = ({
       ))}
       {selectedFiles.length > 0 && (
         <ClearAllContainer>
-          <ClearAllLink onClick={onClear}>
-            Clear all?
-          </ClearAllLink>
+          <ClearAllLink onClick={onClear}>Clear all?</ClearAllLink>
         </ClearAllContainer>
       )}
     </Section>

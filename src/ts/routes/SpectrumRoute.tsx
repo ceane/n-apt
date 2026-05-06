@@ -88,25 +88,28 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       // Only handle spacebar when not in an input field
-      if (event.code === 'Space' &&
-        !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName || '') &&
-        !(document.activeElement as HTMLElement)?.isContentEditable) {
+      if (
+        event.code === "Space" &&
+        !["INPUT", "TEXTAREA", "SELECT"].includes(
+          document.activeElement?.tagName || "",
+        ) &&
+        !(document.activeElement as HTMLElement)?.isContentEditable
+      ) {
         event.preventDefault();
         event.stopPropagation();
         toggleVisualizerPause();
       }
     };
 
-    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener("keydown", handleKeyDown);
     return () => {
-      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener("keydown", handleKeyDown);
     };
   }, [toggleVisualizerPause]);
 
-
   // Device connection state management
   useDeviceConnectionState({
-    deviceState: deviceState || 'disconnected',
+    deviceState: deviceState || "disconnected",
     showSpikeOverlay: state.showSpikeOverlay,
     dispatch,
   });
@@ -146,7 +149,8 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
     getSnapshotData: () => fftCanvasRef.current?.getSnapshotData() ?? undefined,
     getVideoSourceCanvases: () => {
       const spectrumCanvas = fftCanvasRef.current?.getSpectrumCanvas() ?? null;
-      const waterfallCanvas = fftCanvasRef.current?.getWaterfallCanvas() ?? null;
+      const waterfallCanvas =
+        fftCanvasRef.current?.getWaterfallCanvas() ?? null;
       return {
         spectrum: spectrumCanvas,
         waterfall: waterfallCanvas,
@@ -215,7 +219,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
                 onFftDbLimitsChange={(min, max) =>
                   dispatch({ type: "SET_FFT_DB_LIMITS", min, max })
                 }
-                onSnapshot={() => { }}
+                onSnapshot={() => {}}
                 snapshotGridPreference={state.snapshotGridPreference}
                 showSpikeOverlay={state.showSpikeOverlay}
                 heterodyningVerifyRequestId={state.heterodyningVerifyRequestId}

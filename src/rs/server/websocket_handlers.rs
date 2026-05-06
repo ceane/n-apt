@@ -4,11 +4,11 @@ use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use futures_util::{SinkExt, StreamExt};
 use log::{debug, error, info, warn};
-use validator::Validate;
 use serde_json;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tokio::sync::broadcast;
+use validator::Validate;
 
 use crate::crypto;
 
@@ -18,7 +18,7 @@ use super::utils::reconcile_device_state;
 
 /// Calculate optimal FFT sizes based on screen width (in physical pixels, i.e. CSS width × DPR).
 /// Returns (available_sizes, recommended_size).
-/// 
+///
 /// RATIONALE:
 /// 1. Screen sizes are usually smaller than the FFT size; we keep them balanced since FFT is width-based.
 /// 2. Performance: Smaller FFTs are cheaper. Higher resolution is typically only needed when zooming.
@@ -206,7 +206,11 @@ pub async fn handle_ws_connection(
   };
 
   if let Ok(status_json) = serde_json::to_string(&initial_status) {
-    if ws_sender.send(Message::Text(status_json.into())).await.is_err() {
+    if ws_sender
+      .send(Message::Text(status_json.into()))
+      .await
+      .is_err()
+    {
       shared.authenticated_count.fetch_sub(1, Ordering::Relaxed);
       shared.client_count.fetch_sub(1, Ordering::Relaxed);
       return;
@@ -401,20 +405,25 @@ pub fn handle_message(
         let channels = shared.channels.lock().unwrap().clone();
         let sdr_settings = shared.sdr_settings.lock().unwrap().clone();
         let normalize_rtl_device_name = |raw_name: &str| {
-          let short_name = raw_name.split(" - ").next().unwrap_or("RTL-SDR").trim();
+          let short_name =
+            raw_name.split(" - ").next().unwrap_or("RTL-SDR").trim();
           let lower = short_name.to_ascii_lowercase();
 
-          if let Some(version) = short_name.split_whitespace().find_map(|token| {
-            let cleaned = token
-              .trim_matches(|c: char| !c.is_ascii_alphanumeric())
-              .to_ascii_lowercase();
-            let version = cleaned.strip_prefix('v')?;
-            if !version.is_empty() && version.chars().all(|c| c.is_ascii_digit()) {
-              Some(version.to_string())
-            } else {
-              None
-            }
-          }) {
+          if let Some(version) =
+            short_name.split_whitespace().find_map(|token| {
+              let cleaned = token
+                .trim_matches(|c: char| !c.is_ascii_alphanumeric())
+                .to_ascii_lowercase();
+              let version = cleaned.strip_prefix('v')?;
+              if !version.is_empty()
+                && version.chars().all(|c| c.is_ascii_digit())
+              {
+                Some(version.to_string())
+              } else {
+                None
+              }
+            })
+          {
             return format!("RTL-SDR {}", format!("v{}", version));
           }
 
@@ -594,9 +603,9 @@ pub fn handle_message(
         .duration_mode
         .clone()
         .unwrap_or_else(|| "timed".to_string());
-      
+
       let current_settings = shared.sdr_settings.lock().unwrap().clone();
-      
+
       let capture_cmd = super::types::SdrCommand::StartCapture {
         job_id: message
           .job_id
@@ -622,7 +631,9 @@ pub fn handle_message(
           .clone()
           .unwrap_or_else(|| "whole_sample".to_string()),
         encrypted: message.encrypted.unwrap_or(true),
-        fft_size: message.fft_size.unwrap_or(current_settings.fft.default_size),
+        fft_size: message
+          .fft_size
+          .unwrap_or(current_settings.fft.default_size),
         fft_window: message
           .fft_window
           .clone()

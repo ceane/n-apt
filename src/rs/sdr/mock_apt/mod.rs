@@ -250,7 +250,6 @@ impl MockAptDevice {
       self.signals.len()
     );
   }
-
 }
 
 impl SdrDevice for MockAptDevice {
@@ -426,12 +425,12 @@ impl MockAptDevice {
     // SNR = Signal - (RF_Noise + Gain)
     let frontend_noise_db = rf_noise_db + analog_gain;
     let adc_intrinsic_noise_db = -38.0; // Fixed noise floor of the 8-bit ADC
-    
+
     // Combine noise sources in linear power domain
     let total_adc_noise_power = 10f64.powf(frontend_noise_db / 10.0)
       + 10f64.powf(adc_intrinsic_noise_db / 10.0);
     // Split total noise power between I and Q components (total_power = E[I^2 + Q^2])
-    // For Uniform distribution [-A, A], Variance = A^2 / 3. 
+    // For Uniform distribution [-A, A], Variance = A^2 / 3.
     // We want Var = power/2, so A = sqrt(1.5 * power).
     let noise_amplitude = (1.5 * total_adc_noise_power).sqrt();
 
@@ -465,13 +464,13 @@ impl MockAptDevice {
       if !signal.active {
         continue;
       }
-      let abs_freq_hz = signal.config.center_frequency_hz
-        + (signal.drift_offset as f64);
+      let abs_freq_hz =
+        signal.config.center_frequency_hz + (signal.drift_offset as f64);
       // Simulate PPM error: f_effective = f_requested * (1.0 - ppm / 1e6)
       let effective_center_freq =
         center_freq * (1.0 - self.ppm as f64 / 1_000_000.0);
       let rel_freq = abs_freq_hz - effective_center_freq;
-      
+
       // Filter signals outside the current sample rate window
       if rel_freq.abs() > (sample_rate / 2.0) + 100000.0 {
         continue;
@@ -480,13 +479,13 @@ impl MockAptDevice {
       // 1.0 Hz modulation rate - sample-rate independent
       let modulation_rate_hz = 1.0;
       let modulation_phase_step = 2.0 * PI64 * modulation_rate_hz / sample_rate;
-      
+
       let modulation = (signal.modulation_phase as f64).sin() * 0.1 + 0.9;
       let rf_signal_db = signal.config.strength_db * modulation;
-      
+
       // Apply analog gain to the RF signal
       let adc_signal_db = rf_signal_db + analog_gain;
-      
+
       let mut amp = 10f64.powf(adc_signal_db / 20.0);
       let mut amp_side = amp * 0.707;
 
@@ -546,8 +545,10 @@ impl MockAptDevice {
 
     for _ in 0..fft_size {
       // Use pre-calculated noise amplitude for correct power distribution
-      let mut i_sample = (self.rng.random::<f64>() - 0.5) * 2.0 * noise_amplitude;
-      let mut q_sample = (self.rng.random::<f64>() - 0.5) * 2.0 * noise_amplitude;
+      let mut i_sample =
+        (self.rng.random::<f64>() - 0.5) * 2.0 * noise_amplitude;
+      let mut q_sample =
+        (self.rng.random::<f64>() - 0.5) * 2.0 * noise_amplitude;
 
       for sig in &mut cached_signals {
         // Update main signal
@@ -576,7 +577,7 @@ impl MockAptDevice {
           sig.sh_re = next_h_re;
           sig.sh_im = next_h_im;
         }
-        
+
         // Advance modulation phase per sample for perfect continuity
         sig.signal.modulation_phase += sig.modulation_phase_step as f32;
       }
@@ -600,10 +601,10 @@ impl MockAptDevice {
         sig.signal.phase_side_low = sig.sl_im.atan2(sig.sl_re);
         sig.signal.phase_side_high = sig.sh_im.atan2(sig.sh_re);
       }
-      
+
       // Wrap modulation phase
       while sig.signal.modulation_phase > (2.0 * PI) as f32 {
-          sig.signal.modulation_phase -= (2.0 * PI) as f32;
+        sig.signal.modulation_phase -= (2.0 * PI) as f32;
       }
     }
     self.total_samples = self.total_samples.wrapping_add(fft_size as u64);
@@ -631,13 +632,8 @@ impl MockAptDevice {
 mod tests {
   use super::*;
   use std::fs;
-  use std::sync::{Mutex, OnceLock};
   use std::thread::sleep;
-
-  fn cwd_lock() -> &'static Mutex<()> {
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
-  }
+  use crate::server::utils::cwd_lock;
 
   fn write_test_signals_yaml(
     path: &std::path::Path,

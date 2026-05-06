@@ -162,7 +162,8 @@ pub struct WebSocketServer {
 
 impl Default for WebSocketServer {
   fn default() -> Self {
-    let redis_url = std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1/".to_string());
+    let redis_url = std::env::var("REDIS_URL")
+      .unwrap_or_else(|_| "redis://127.0.0.1/".to_string());
     Self::new(&redis_url)
   }
 }
@@ -395,7 +396,8 @@ impl WebSocketServer {
             // Apply and snapshot the FFT parameters requested for this capture.
             // This ensures the capture runs at the user-selected FFT size and window
             // even if the live stream was using different settings.
-            let mut capture_settings = crate::server::types::SdrProcessorSettings::default();
+            let mut capture_settings =
+              crate::server::types::SdrProcessorSettings::default();
             let mut settings_valid = false;
 
             if fft_size > 0 && (fft_size & (fft_size - 1)) == 0 {
@@ -422,11 +424,8 @@ impl WebSocketServer {
             }
             processor.capture_fft_size =
               processor.fft_processor.config().fft_size;
-            processor.capture_fft_window = processor
-              .fft_processor
-              .config()
-              .window_type
-              .to_string();
+            processor.capture_fft_window =
+              processor.fft_processor.config().window_type.to_string();
             processor.capture_gain = processor.current_gain_db;
             processor.capture_ppm = processor.current_ppm;
             processor.capture_geolocation = geolocation;
@@ -543,8 +542,7 @@ impl WebSocketServer {
 
             // Tune to the first hop if available
             if let Some(&(min_freq, max_freq)) = all_hops.first() {
-              let center_freq =
-                (min_freq + (hw_sample_rate / 2.0)) as u32;
+              let center_freq = (min_freq + (hw_sample_rate / 2.0)) as u32;
               if let Err(e) = processor.set_center_frequency(center_freq) {
                 error!("Failed to tune to first fragment: {}", e);
               } else {
@@ -617,11 +615,18 @@ impl WebSocketServer {
                   &result, &enc_key,
                 ) {
                   Ok(artifact) => {
-                    let mut artifacts = shared_clone.get_capture_artifacts(&result.job_id).unwrap_or_default();
+                    let mut artifacts = shared_clone
+                      .get_capture_artifacts(&result.job_id)
+                      .unwrap_or_default();
                     artifacts.push(artifact.clone());
-                    
-                    if let Err(e) = shared_clone.store_capture_artifacts(&result.job_id, &artifacts) {
-                      error!("Failed to store capture artifacts in Redis: {}", e);
+
+                    if let Err(e) = shared_clone
+                      .store_capture_artifacts(&result.job_id, &artifacts)
+                    {
+                      error!(
+                        "Failed to store capture artifacts in Redis: {}",
+                        e
+                      );
                     }
 
                     let timestamp = std::time::SystemTime::now()
@@ -1358,10 +1363,14 @@ impl WebSocketServer {
           match crate::server::utils::save_capture_file_multi(&result, &enc_key)
           {
             Ok(artifact) => {
-              let mut artifacts = shared_clone.get_capture_artifacts(&result.job_id).unwrap_or_default();
+              let mut artifacts = shared_clone
+                .get_capture_artifacts(&result.job_id)
+                .unwrap_or_default();
               artifacts.push(artifact.clone());
-              
-              if let Err(e) = shared_clone.store_capture_artifacts(&result.job_id, &artifacts) {
+
+              if let Err(e) =
+                shared_clone.store_capture_artifacts(&result.job_id, &artifacts)
+              {
                 error!("Failed to store capture artifacts in Redis: {}", e);
               }
 

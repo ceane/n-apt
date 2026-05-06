@@ -1,7 +1,13 @@
 import React from "react";
 import styled from "styled-components";
 import { gsap } from "gsap";
-import { PersonStanding, Blend, Bone, NotebookPen, DraftingCompass } from "lucide-react";
+import {
+  PersonStanding,
+  Blend,
+  Bone,
+  NotebookPen,
+  DraftingCompass,
+} from "lucide-react";
 import { BodyAreasSection } from "@n-apt/components/sidebar/BodyAreasSection";
 import { HotspotEditorSection } from "@n-apt/components/sidebar/HotspotEditorSection";
 import { useModel3D } from "@n-apt/hooks/useModel3D";
@@ -134,9 +140,7 @@ export const Model3DSidebar: React.FC = () => {
         </InfoText>
       </InfoBox>
 
-      <ResetButton onClick={handleResetCamera}>
-        Reset Camera
-      </ResetButton>
+      <ResetButton onClick={handleResetCamera}>Reset Camera</ResetButton>
 
       <Section>
         <Collapsible
@@ -177,9 +181,7 @@ export const Model3DSidebar: React.FC = () => {
           label="Effects /"
           defaultOpen={openSection === "effects"}
         >
-          <SectionDescription>
-            Visual effects and overlays.
-          </SectionDescription>
+          <SectionDescription>Visual effects and overlays.</SectionDescription>
         </Collapsible>
 
         <Collapsible

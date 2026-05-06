@@ -81,26 +81,40 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
 }) => {
   const dispatch = useAppDispatch();
   const { setFlow } = useDemod();
-  const { toggleVisualizerPause, manualVisualizerPaused, wsConnection, state: liveState, dispatch: storeDispatch } = useSpectrumStore();
+  const {
+    toggleVisualizerPause,
+    manualVisualizerPaused,
+    wsConnection,
+    state: liveState,
+    dispatch: storeDispatch,
+  } = useSpectrumStore();
 
-  const handleFlowSelect = useCallback((flow: any) => {
-    setFlow(flow.id, flow.nodes, flow.edges);
-  }, [setFlow]);
+  const handleFlowSelect = useCallback(
+    (flow: any) => {
+      setFlow(flow.id, flow.nodes, flow.edges);
+    },
+    [setFlow],
+  );
 
   const { sourceMode, selectedFiles } = liveState;
   const stitchStatus = useAppSelector((state) => state.waterfall.stitchStatus);
-  const isStitchPaused = useAppSelector((state) => state.waterfall.isStitchPaused);
+  const isStitchPaused = useAppSelector(
+    (state) => state.waterfall.isStitchPaused,
+  );
 
   // Get real device data from Redux store
   const isConnected = useAppSelector((s) => s.websocket.isConnected);
   const deviceState = useAppSelector((s) => s.websocket.deviceState);
-  const deviceLoadingReason = useAppSelector((s) => s.websocket.deviceLoadingReason);
+  const deviceLoadingReason = useAppSelector(
+    (s) => s.websocket.deviceLoadingReason,
+  );
   const isPaused = useAppSelector((s) => s.websocket.isPaused);
   const deviceName = useAppSelector((s) => s.websocket.deviceName);
   const backend = useAppSelector((s) => s.websocket.backend);
   const cryptoCorrupted = useAppSelector((s) => s.websocket.cryptoCorrupted);
 
-  const liveIsPaused = manualVisualizerPaused ?? wsConnection.isPaused ?? isPaused;
+  const liveIsPaused =
+    manualVisualizerPaused ?? wsConnection.isPaused ?? isPaused;
   const wasLivePausedBeforeFileModeRef = useRef<boolean>(liveIsPaused);
   const previousSourceModeRef = useRef<SourceMode>(
     sourceMode === "file" ? "live" : sourceMode,
@@ -135,7 +149,14 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
     if (wasLivePausedBeforeFileModeRef.current !== manualVisualizerPaused) {
       toggleVisualizerPause();
     }
-  }, [dispatch, liveIsPaused, manualVisualizerPaused, sourceMode, storeDispatch, toggleVisualizerPause]);
+  }, [
+    dispatch,
+    liveIsPaused,
+    manualVisualizerPaused,
+    sourceMode,
+    storeDispatch,
+    toggleVisualizerPause,
+  ]);
 
   return (
     <SidebarContent>
@@ -158,7 +179,9 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
             dispatch(triggerStitch());
             storeDispatch({ type: "TRIGGER_STITCH" });
           }}
-          onClear={() => storeDispatch({ type: "SET_SELECTED_FILES", files: [] })}
+          onClear={() =>
+            storeDispatch({ type: "SET_SELECTED_FILES", files: [] })
+          }
           onStitchPauseToggle={() => {
             const nextPaused = !isStitchPaused;
             dispatch(setStitchPaused(nextPaused));
@@ -198,7 +221,9 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
       <InfoBox>
         <InfoTitle>Demodulation</InfoTitle>
         <InfoText>
-          N-APT uses APT-style modulation (shape, encoding): the RF signal is FM-demodulated to recover an AM-modulated subcarrier, and envelope detection is then used to recover the transmitted content.
+          N-APT uses APT-style modulation (shape, encoding): the RF signal is
+          FM-demodulated to recover an AM-modulated subcarrier, and envelope
+          detection is then used to recover the transmitted content.
         </InfoText>
       </InfoBox>
 

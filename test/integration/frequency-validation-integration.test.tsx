@@ -51,17 +51,23 @@ describe("Frequency Validation Integration Tests", () => {
       render(
         <TestWrapper>
           <FrequencyValidationIntegrationTest />
-        </TestWrapper>
+        </TestWrapper>,
       );
 
-      fireEvent.change(screen.getByLabelText("Min Frequency (MHz)"), { target: { value: "-10" } });
-      fireEvent.change(screen.getByLabelText("Max Frequency (MHz)"), { target: { value: "100" } });
+      fireEvent.change(screen.getByLabelText("Min Frequency (MHz)"), {
+        target: { value: "-10" },
+      });
+      fireEvent.change(screen.getByLabelText("Max Frequency (MHz)"), {
+        target: { value: "100" },
+      });
 
       await act(async () => {
         fireEvent.click(screen.getByText("Capture"));
       });
 
-      expect(screen.getByText(/Negative frequencies are not allowed/)).toBeInTheDocument();
+      expect(
+        screen.getByText(/Negative frequencies are not allowed/),
+      ).toBeInTheDocument();
       expect(mockSendCaptureCommand).not.toHaveBeenCalled();
     });
 
@@ -69,30 +75,40 @@ describe("Frequency Validation Integration Tests", () => {
       render(
         <TestWrapper>
           <FrequencyValidationIntegrationTest />
-        </TestWrapper>
+        </TestWrapper>,
       );
 
-      fireEvent.change(screen.getByLabelText("Min Frequency (MHz)"), { target: { value: "-5" } });
+      fireEvent.change(screen.getByLabelText("Min Frequency (MHz)"), {
+        target: { value: "-5" },
+      });
 
       expect(screen.getByText("Capture")).toBeDisabled();
-      expect(screen.getByText(/Negative frequencies are not allowed/)).toBeInTheDocument();
+      expect(
+        screen.getByText(/Negative frequencies are not allowed/),
+      ).toBeInTheDocument();
     });
 
     it("should prevent zero-width 0Hz range", async () => {
       render(
         <TestWrapper>
           <FrequencyValidationIntegrationTest />
-        </TestWrapper>
+        </TestWrapper>,
       );
 
-      fireEvent.change(screen.getByLabelText("Min Frequency (MHz)"), { target: { value: "0" } });
-      fireEvent.change(screen.getByLabelText("Max Frequency (MHz)"), { target: { value: "0" } });
+      fireEvent.change(screen.getByLabelText("Min Frequency (MHz)"), {
+        target: { value: "0" },
+      });
+      fireEvent.change(screen.getByLabelText("Max Frequency (MHz)"), {
+        target: { value: "0" },
+      });
 
       await act(async () => {
         fireEvent.click(screen.getByText("Capture"));
       });
 
-      expect(screen.getByText(/Frequency range cannot be zero width/)).toBeInTheDocument();
+      expect(
+        screen.getByText(/Frequency range cannot be zero width/),
+      ).toBeInTheDocument();
     });
   });
 
@@ -101,11 +117,15 @@ describe("Frequency Validation Integration Tests", () => {
       render(
         <TestWrapper>
           <FrequencyValidationIntegrationTest />
-        </TestWrapper>
+        </TestWrapper>,
       );
 
-      fireEvent.change(screen.getByLabelText("Min Frequency (MHz)"), { target: { value: "100" } });
-      fireEvent.change(screen.getByLabelText("Max Frequency (MHz)"), { target: { value: "103.2" } });
+      fireEvent.change(screen.getByLabelText("Min Frequency (MHz)"), {
+        target: { value: "100" },
+      });
+      fireEvent.change(screen.getByLabelText("Max Frequency (MHz)"), {
+        target: { value: "103.2" },
+      });
 
       await act(async () => {
         fireEvent.click(screen.getByText("Capture"));
@@ -119,7 +139,7 @@ describe("Frequency Validation Integration Tests", () => {
               maxFreq: 103200000,
             }),
           ]),
-        })
+        }),
       );
     });
 
@@ -127,30 +147,44 @@ describe("Frequency Validation Integration Tests", () => {
       render(
         <TestWrapper>
           <FrequencyValidationIntegrationTest />
-        </TestWrapper>
+        </TestWrapper>,
       );
 
-      fireEvent.change(screen.getByLabelText("Min Frequency (MHz)"), { target: { value: "200" } });
-      fireEvent.change(screen.getByLabelText("Max Frequency (MHz)"), { target: { value: "100" } });
+      fireEvent.change(screen.getByLabelText("Min Frequency (MHz)"), {
+        target: { value: "200" },
+      });
+      fireEvent.change(screen.getByLabelText("Max Frequency (MHz)"), {
+        target: { value: "100" },
+      });
 
       await act(async () => {
         fireEvent.click(screen.getByText("Capture"));
       });
 
       expect(mockSendCaptureCommand).not.toHaveBeenCalled();
-      expect(screen.getByText(/Minimum frequency must be less than maximum frequency/)).toBeInTheDocument();
+      expect(
+        screen.getByText(
+          /Minimum frequency must be less than maximum frequency/,
+        ),
+      ).toBeInTheDocument();
     });
 
     it("should handle frequency unit conversions correctly", async () => {
       render(
         <TestWrapper>
           <FrequencyValidationIntegrationTest />
-        </TestWrapper>
+        </TestWrapper>,
       );
 
-      fireEvent.change(screen.getByLabelText("Frequency Unit"), { target: { value: "kHz" } });
-      fireEvent.change(screen.getByLabelText("Min Frequency (kHz)"), { target: { value: "100000" } });
-      fireEvent.change(screen.getByLabelText("Max Frequency (kHz)"), { target: { value: "103200" } });
+      fireEvent.change(screen.getByLabelText("Frequency Unit"), {
+        target: { value: "kHz" },
+      });
+      fireEvent.change(screen.getByLabelText("Min Frequency (kHz)"), {
+        target: { value: "100000" },
+      });
+      fireEvent.change(screen.getByLabelText("Max Frequency (kHz)"), {
+        target: { value: "103200" },
+      });
 
       await act(async () => {
         fireEvent.click(screen.getByText("Capture"));
@@ -164,7 +198,7 @@ describe("Frequency Validation Integration Tests", () => {
               maxFreq: 103200000,
             }),
           ]),
-        })
+        }),
       );
     });
   });
@@ -174,50 +208,70 @@ describe("Frequency Validation Integration Tests", () => {
       render(
         <TestWrapper>
           <FrequencyValidationIntegrationTest />
-        </TestWrapper>
+        </TestWrapper>,
       );
 
-      fireEvent.change(screen.getByLabelText("Min Frequency (MHz)"), { target: { value: "1800" } });
-      fireEvent.change(screen.getByLabelText("Max Frequency (MHz)"), { target: { value: "1805" } });
+      fireEvent.change(screen.getByLabelText("Min Frequency (MHz)"), {
+        target: { value: "1800" },
+      });
+      fireEvent.change(screen.getByLabelText("Max Frequency (MHz)"), {
+        target: { value: "1805" },
+      });
 
       await act(async () => {
         fireEvent.click(screen.getByText("Capture"));
       });
 
-      expect(screen.getByText(/Frequency range outside device capabilities/)).toBeInTheDocument();
+      expect(
+        screen.getByText(/Frequency range outside device capabilities/),
+      ).toBeInTheDocument();
     });
 
     it("should validate bandwidth constraints", async () => {
       render(
         <TestWrapper>
           <FrequencyValidationIntegrationTest />
-        </TestWrapper>
+        </TestWrapper>,
       );
 
-      fireEvent.change(screen.getByLabelText("Min Frequency (MHz)"), { target: { value: "100" } });
-      fireEvent.change(screen.getByLabelText("Max Frequency (MHz)"), { target: { value: "110" } });
+      fireEvent.change(screen.getByLabelText("Min Frequency (MHz)"), {
+        target: { value: "100" },
+      });
+      fireEvent.change(screen.getByLabelText("Max Frequency (MHz)"), {
+        target: { value: "110" },
+      });
 
       await act(async () => {
         fireEvent.click(screen.getByText("Capture"));
       });
 
-      expect(screen.getByText(/Bandwidth exceeds sample rate limit/)).toBeInTheDocument();
+      expect(
+        screen.getByText(/Bandwidth exceeds sample rate limit/),
+      ).toBeInTheDocument();
     });
 
     it("should handle multiple frequency fragments", async () => {
       render(
         <TestWrapper>
           <FrequencyValidationIntegrationTest />
-        </TestWrapper>
+        </TestWrapper>,
       );
 
       const addRangeButton = screen.getByText("Add Frequency Range");
       fireEvent.click(addRangeButton);
 
-      fireEvent.change(screen.getAllByLabelText("Min Frequency (MHz)")[0], { target: { value: "100" } });
-      fireEvent.change(screen.getAllByLabelText("Max Frequency (MHz)")[0], { target: { value: "101.6" } });
-      fireEvent.change(screen.getAllByLabelText("Min Frequency (MHz)")[1], { target: { value: "101.6" } });
-      fireEvent.change(screen.getAllByLabelText("Max Frequency (MHz)")[1], { target: { value: "103.2" } });
+      fireEvent.change(screen.getAllByLabelText("Min Frequency (MHz)")[0], {
+        target: { value: "100" },
+      });
+      fireEvent.change(screen.getAllByLabelText("Max Frequency (MHz)")[0], {
+        target: { value: "101.6" },
+      });
+      fireEvent.change(screen.getAllByLabelText("Min Frequency (MHz)")[1], {
+        target: { value: "101.6" },
+      });
+      fireEvent.change(screen.getAllByLabelText("Max Frequency (MHz)")[1], {
+        target: { value: "103.2" },
+      });
 
       await act(async () => {
         fireEvent.click(screen.getByText("Capture"));
@@ -235,7 +289,7 @@ describe("Frequency Validation Integration Tests", () => {
               maxFreq: 103200000,
             }),
           ]),
-        })
+        }),
       );
     });
   });
@@ -245,18 +299,26 @@ describe("Frequency Validation Integration Tests", () => {
       render(
         <TestWrapper>
           <FrequencyValidationIntegrationTest />
-        </TestWrapper>
+        </TestWrapper>,
       );
 
-      fireEvent.change(screen.getByLabelText("Min Frequency (MHz)"), { target: { value: "200" } });
-      fireEvent.change(screen.getByLabelText("Max Frequency (MHz)"), { target: { value: "100" } });
+      fireEvent.change(screen.getByLabelText("Min Frequency (MHz)"), {
+        target: { value: "200" },
+      });
+      fireEvent.change(screen.getByLabelText("Max Frequency (MHz)"), {
+        target: { value: "100" },
+      });
 
       await act(async () => {
         fireEvent.click(screen.getByText("Capture"));
       });
 
       expect(mockSendCaptureCommand).not.toHaveBeenCalled();
-      expect(screen.getByText(/Minimum frequency must be less than maximum frequency/)).toBeInTheDocument();
+      expect(
+        screen.getByText(
+          /Minimum frequency must be less than maximum frequency/,
+        ),
+      ).toBeInTheDocument();
     });
 
     it("should verify backend captures at correct frequencies", () => {
@@ -271,7 +333,12 @@ describe("Frequency Validation Integration Tests", () => {
           deviceInfo: "Mock Device",
           captureMetadata: {
             frequencies: [
-              { min: 100000000, max: 103200000, actualMin: 99999950, actualMax: 103200050 },
+              {
+                min: 100000000,
+                max: 103200000,
+                actualMin: 99999950,
+                actualMax: 103200050,
+              },
             ],
           },
         },
@@ -280,15 +347,27 @@ describe("Frequency Validation Integration Tests", () => {
       render(
         <TestWrapper>
           <FrequencyValidationIntegrationTest />
-        </TestWrapper>
+        </TestWrapper>,
       );
 
-      expect(screen.getByTestId("frequency-validation-test")).toBeInTheDocument();
-      expect(screen.getByTestId("frequency-validation")).toHaveTextContent("Requested:");
-      expect(screen.getByTestId("frequency-validation")).toHaveTextContent("100.00");
-      expect(screen.getByTestId("frequency-validation")).toHaveTextContent("103.20");
-      expect(screen.getByTestId("frequency-validation")).toHaveTextContent("99.99995");
-      expect(screen.getByTestId("frequency-validation")).toHaveTextContent("103.20005");
+      expect(
+        screen.getByTestId("frequency-validation-test"),
+      ).toBeInTheDocument();
+      expect(screen.getByTestId("frequency-validation")).toHaveTextContent(
+        "Requested:",
+      );
+      expect(screen.getByTestId("frequency-validation")).toHaveTextContent(
+        "100.00",
+      );
+      expect(screen.getByTestId("frequency-validation")).toHaveTextContent(
+        "103.20",
+      );
+      expect(screen.getByTestId("frequency-validation")).toHaveTextContent(
+        "99.99995",
+      );
+      expect(screen.getByTestId("frequency-validation")).toHaveTextContent(
+        "103.20005",
+      );
     });
   });
 
@@ -297,48 +376,68 @@ describe("Frequency Validation Integration Tests", () => {
       render(
         <TestWrapper>
           <FrequencyValidationIntegrationTest />
-        </TestWrapper>
+        </TestWrapper>,
       );
 
-      fireEvent.change(screen.getByLabelText("Min Frequency (MHz)"), { target: { value: "0" } });
-      fireEvent.change(screen.getByLabelText("Max Frequency (MHz)"), { target: { value: "3" } });
+      fireEvent.change(screen.getByLabelText("Min Frequency (MHz)"), {
+        target: { value: "0" },
+      });
+      fireEvent.change(screen.getByLabelText("Max Frequency (MHz)"), {
+        target: { value: "3" },
+      });
 
       expect(screen.getByText("Capture")).not.toBeDisabled();
-      expect(screen.queryByText(/Frequency cannot be zero/)).not.toBeInTheDocument();
+      expect(
+        screen.queryByText(/Frequency cannot be zero/),
+      ).not.toBeInTheDocument();
     });
 
     it("should handle extremely large frequency values", () => {
       render(
         <TestWrapper>
           <FrequencyValidationIntegrationTest />
-        </TestWrapper>
+        </TestWrapper>,
       );
 
-      fireEvent.change(screen.getByLabelText("Min Frequency (MHz)"), { target: { value: "999999" } });
+      fireEvent.change(screen.getByLabelText("Min Frequency (MHz)"), {
+        target: { value: "999999" },
+      });
 
       expect(screen.getByText("Capture")).toBeDisabled();
-      expect(screen.getByText(/Frequency exceeds maximum supported value/)).toBeInTheDocument();
+      expect(
+        screen.getByText(/Frequency exceeds maximum supported value/),
+      ).toBeInTheDocument();
     });
 
     it("should handle frequency range overlaps", async () => {
       render(
         <TestWrapper>
           <FrequencyValidationIntegrationTest />
-        </TestWrapper>
+        </TestWrapper>,
       );
 
       const addRangeButton = screen.getByText("Add Frequency Range");
       fireEvent.click(addRangeButton);
-      fireEvent.change(screen.getAllByLabelText("Min Frequency (MHz)")[0], { target: { value: "100" } });
-      fireEvent.change(screen.getAllByLabelText("Max Frequency (MHz)")[0], { target: { value: "102" } });
-      fireEvent.change(screen.getAllByLabelText("Min Frequency (MHz)")[1], { target: { value: "101" } });
-      fireEvent.change(screen.getAllByLabelText("Max Frequency (MHz)")[1], { target: { value: "103" } });
+      fireEvent.change(screen.getAllByLabelText("Min Frequency (MHz)")[0], {
+        target: { value: "100" },
+      });
+      fireEvent.change(screen.getAllByLabelText("Max Frequency (MHz)")[0], {
+        target: { value: "102" },
+      });
+      fireEvent.change(screen.getAllByLabelText("Min Frequency (MHz)")[1], {
+        target: { value: "101" },
+      });
+      fireEvent.change(screen.getAllByLabelText("Max Frequency (MHz)")[1], {
+        target: { value: "103" },
+      });
 
       await act(async () => {
         fireEvent.click(screen.getByText("Capture"));
       });
 
-      expect(screen.getAllByText(/Frequency ranges cannot overlap/).length).toBeGreaterThan(0);
+      expect(
+        screen.getAllByText(/Frequency ranges cannot overlap/).length,
+      ).toBeGreaterThan(0);
     });
   });
 });

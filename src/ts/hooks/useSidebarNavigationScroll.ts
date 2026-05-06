@@ -52,7 +52,8 @@ const isTabFullyVisible = (
 ) => {
   const containerRect = container.getBoundingClientRect();
   const tabRect = tabElement.getBoundingClientRect();
-  const visibleTop = containerRect.top + getRequiredTopClearance(container, stickyToggle);
+  const visibleTop =
+    containerRect.top + getRequiredTopClearance(container, stickyToggle);
   const visibleBottom = containerRect.bottom - EXTRA_CLEARANCE_PX;
 
   return tabRect.top >= visibleTop && tabRect.bottom <= visibleBottom;

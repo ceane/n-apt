@@ -37,11 +37,17 @@ import { useCallback, useRef } from "react";
 import { OverlayTextureRenderer } from "@n-apt/hooks/useWebGPUInit";
 import { LINE_COLOR, SHADOW_COLOR, FFT_AREA_MIN } from "@n-apt/consts";
 import { SPECTRUM_SHADER, RESAMPLE_WGSL } from "@n-apt/shaders";
-import { configureWebGPUCanvas, parseCssColorToRgba } from "@n-apt/utils/webgpu";
+import {
+  configureWebGPUCanvas,
+  parseCssColorToRgba,
+} from "@n-apt/utils/webgpu";
 
 const readCssColor = (name: string, fallback: string) => {
-  if (typeof window === "undefined" || typeof document === "undefined") return fallback;
-  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  if (typeof window === "undefined" || typeof document === "undefined")
+    return fallback;
+  const value = getComputedStyle(document.documentElement)
+    .getPropertyValue(name)
+    .trim();
   return value || fallback;
 };
 
@@ -216,15 +222,29 @@ export function useDrawWebGPUFFTSignal() {
       // --- Compute resample pipeline: downsample high-res waveform to display pixels ---
       const resampleBindGroupLayout = device.createBindGroupLayout({
         entries: [
-          { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-          { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-          { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
+          {
+            binding: 0,
+            visibility: GPUShaderStage.COMPUTE,
+            buffer: { type: "read-only-storage" },
+          },
+          {
+            binding: 1,
+            visibility: GPUShaderStage.COMPUTE,
+            buffer: { type: "storage" },
+          },
+          {
+            binding: 2,
+            visibility: GPUShaderStage.COMPUTE,
+            buffer: { type: "uniform" },
+          },
         ],
       });
 
       const resampleModule = device.createShaderModule({ code: RESAMPLE_WGSL });
       const resamplePipeline = device.createComputePipeline({
-        layout: device.createPipelineLayout({ bindGroupLayouts: [resampleBindGroupLayout] }),
+        layout: device.createPipelineLayout({
+          bindGroupLayouts: [resampleBindGroupLayout],
+        }),
         compute: { module: resampleModule, entryPoint: "main" },
       });
 
@@ -295,9 +315,8 @@ export function useDrawWebGPUFFTSignal() {
       const state = rendererRef.current;
       if (!state) return false;
 
-      const waveformData = waveform instanceof Uint8Array
-        ? Float32Array.from(waveform)
-        : waveform;
+      const waveformData =
+        waveform instanceof Uint8Array ? Float32Array.from(waveform) : waveform;
 
       if (waveformData.length === 0) return false;
 
@@ -314,7 +333,10 @@ export function useDrawWebGPUFFTSignal() {
         let buffersChanged = false;
 
         // --- Resample input buffer: recreate when waveform length changes ---
-        if (!state.resampleInputBuffer || srcLen !== state.resampleInputLength) {
+        if (
+          !state.resampleInputBuffer ||
+          srcLen !== state.resampleInputLength
+        ) {
           state.resampleInputBuffer?.destroy();
           state.resampleInputBuffer = state.device.createBuffer({
             size: srcLen * Float32Array.BYTES_PER_ELEMENT,
@@ -326,7 +348,10 @@ export function useDrawWebGPUFFTSignal() {
 
         // --- Resample output buffer: recreate when display width changes ---
         // This buffer holds the downsampled data that the render shader reads
-        if (!state.resampleOutputBuffer || displayWidth !== state.resampleOutputLength) {
+        if (
+          !state.resampleOutputBuffer ||
+          displayWidth !== state.resampleOutputLength
+        ) {
           state.resampleOutputBuffer?.destroy();
           state.resampleOutputBuffer = state.device.createBuffer({
             size: displayWidth * Float32Array.BYTES_PER_ELEMENT,

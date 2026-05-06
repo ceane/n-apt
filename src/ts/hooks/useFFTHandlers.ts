@@ -32,12 +32,21 @@ export interface FFTHandlersState {
   // Rendering functions
   drawSpectrum: ReturnType<typeof useSpectrumRenderer>["drawSpectrum"];
   cleanupSpectrum: ReturnType<typeof useSpectrumRenderer>["cleanup"];
-  processIqToDbmSpectrum: (iqData: Uint8Array, offsetDb: number, fftSize: number) => Float32Array;
-  detectProminentSpikes: ReturnType<typeof useWasmSimdMath>["detectProminentSpikes"];
+  processIqToDbmSpectrum: (
+    iqData: Uint8Array,
+    offsetDb: number,
+    fftSize: number,
+  ) => Float32Array;
+  detectProminentSpikes: ReturnType<
+    typeof useWasmSimdMath
+  >["detectProminentSpikes"];
 
   // Utility functions
   clearOverlayCanvas: (canvas: HTMLCanvasElement | null) => void;
-  drawLoadingPlaceholder: (canvas: HTMLCanvasElement | null, fontOverride?: string) => void;
+  drawLoadingPlaceholder: (
+    canvas: HTMLCanvasElement | null,
+    fontOverride?: string,
+  ) => void;
   buildSnapshotData: () => any;
 }
 
@@ -133,10 +142,7 @@ export const useFFTHandlers = ({
   const fullChannelRangeRef = useRef<FrequencyRange | null>(null);
 
   // Initialize WASM SIMD for optimized data processing
-  const {
-    processIqToDbmSpectrum,
-    detectProminentSpikes,
-  } = useWasmSimdMath({
+  const { processIqToDbmSpectrum, detectProminentSpikes } = useWasmSimdMath({
     fftSize: 4096,
     enableSimd: true,
     fallbackToScalar: true,

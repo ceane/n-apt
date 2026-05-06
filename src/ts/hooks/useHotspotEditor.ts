@@ -185,7 +185,9 @@ interface HotspotEditorContextType {
   sidebarTab: SidebarTab;
   setSidebarTab: (tab: SidebarTab) => void;
   currentCategory: "physiology" | "psychology" | "effects";
-  setCurrentCategory: (category: "physiology" | "psychology" | "effects") => void;
+  setCurrentCategory: (
+    category: "physiology" | "psychology" | "effects",
+  ) => void;
 }
 
 const HotspotEditorContext = createContext<
@@ -197,10 +199,9 @@ interface Model3DInteractionProviderProps {
   onHotspotsChange?: (hotspots: Hotspot[]) => void;
 }
 
-export const Model3DInteractionProvider: React.FC<Model3DInteractionProviderProps> = ({
-  children,
-  onHotspotsChange,
-}) => {
+export const Model3DInteractionProvider: React.FC<
+  Model3DInteractionProviderProps
+> = ({ children, onHotspotsChange }) => {
   const [state, dispatch] = useReducer(hotspotReducer, {
     ...INITIAL_HOTSPOT_STATE,
     hotspots: loadHotspotsFromStorage(),

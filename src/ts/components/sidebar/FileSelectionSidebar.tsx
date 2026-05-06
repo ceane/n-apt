@@ -41,13 +41,19 @@ type NaptMetadata = {
 
 interface FileSelectionSidebarProps {
   selectedFiles: { id: string; name: string; downloadUrl?: string }[];
-  onSelectedFilesChange: (files: { id: string; name: string; downloadUrl?: string }[]) => void;
+  onSelectedFilesChange: (
+    files: { id: string; name: string; downloadUrl?: string }[],
+  ) => void;
   stitchStatus: string;
   isStitchPaused: boolean;
   onStitch: () => void;
   onClear: () => void;
   onStitchPauseToggle: () => void;
-  selectedPrimaryFile: { id: string; name: string; downloadUrl?: string } | null;
+  selectedPrimaryFile: {
+    id: string;
+    name: string;
+    downloadUrl?: string;
+  } | null;
   naptMetadata: NaptMetadata | null;
   naptMetadataError: string | null;
   sessionToken?: string | null;

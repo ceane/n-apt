@@ -91,12 +91,14 @@ const FocusGlobeMaterial = shaderMaterial(
 
     gl_FragColor = vec4(uColor, finalAlpha);
   }
-  `
+  `,
 );
 
 extend({ FocusGlobeMaterial });
 
-export const HorizonFocusGlobe: React.FC<{ active?: boolean }> = ({ active = true }) => {
+export const HorizonFocusGlobe: React.FC<{ active?: boolean }> = ({
+  active = true,
+}) => {
   const meshRef = useRef<THREE.Mesh>(null);
   const materialRef = useRef<any>(null);
   const geoRef = useRef<THREE.IcosahedronGeometry>(null);
@@ -109,7 +111,10 @@ export const HorizonFocusGlobe: React.FC<{ active?: boolean }> = ({ active = tru
       for (let i = 0; i < count; i++) {
         barycentric[i * 3 + (i % 3)] = 1;
       }
-      geometry.setAttribute("barycentric", new THREE.BufferAttribute(barycentric, 3));
+      geometry.setAttribute(
+        "barycentric",
+        new THREE.BufferAttribute(barycentric, 3),
+      );
     }
   }, []);
 
@@ -117,7 +122,9 @@ export const HorizonFocusGlobe: React.FC<{ active?: boolean }> = ({ active = tru
     if (materialRef.current) {
       materialRef.current.uTime = state.clock.elapsedTime;
 
-      const targetScale = active ? new THREE.Vector3(2.5, 2.0, 2.5) : new THREE.Vector3(0.01, 0.01, 0.01);
+      const targetScale = active
+        ? new THREE.Vector3(2.5, 2.0, 2.5)
+        : new THREE.Vector3(0.01, 0.01, 0.01);
       const scaleLerp = active ? 0.05 : 0.15;
       meshRef.current?.scale.lerp(targetScale, scaleLerp);
 

@@ -36,7 +36,12 @@ export const formatFrequency = (
   const precisionKHz = options.precisionKHz ?? 1;
   const trimTrailingZeros = options.trimTrailingZeros ?? false;
 
-  if (freqHz === undefined || freqHz === null || Number.isNaN(freqHz) || !Number.isFinite(freqHz)) {
+  if (
+    freqHz === undefined ||
+    freqHz === null ||
+    Number.isNaN(freqHz) ||
+    !Number.isFinite(freqHz)
+  ) {
     return "---" + (showUnits ? "Hz" : "");
   }
 
@@ -89,11 +94,16 @@ export const formatFrequencyHz = (freqHz: number): string => {
  * @returns Formatted frequency string with dot separators for thousands
  */
 export const formatFrequencyHighRes = (freqHz: number): string => {
-  if (freqHz === undefined || freqHz === null || Number.isNaN(freqHz) || !Number.isFinite(freqHz)) {
+  if (
+    freqHz === undefined ||
+    freqHz === null ||
+    Number.isNaN(freqHz) ||
+    !Number.isFinite(freqHz)
+  ) {
     return "---Hz";
   }
   const abs = Math.abs(freqHz);
-  
+
   if (abs >= 1_000_000_000) {
     // GHz.MHz.kHz.Hz
     const unit = "GHz";
@@ -166,7 +176,7 @@ export const getFrequencyClass = (valueHz: number) => {
  */
 export const parseFrequency = (
   freqStr: string,
-  defaultUnit: "Hz" | "kHz" | "MHz" | "GHz" = "Hz"
+  defaultUnit: "Hz" | "kHz" | "MHz" | "GHz" = "Hz",
 ): number => {
   if (!freqStr) return NaN;
   const normalized = freqStr.trim().replace(/_/g, "");
@@ -178,18 +188,27 @@ export const parseFrequency = (
 
   if (!unit) {
     switch (defaultUnit) {
-      case "GHz": return value * 1_000_000_000;
-      case "MHz": return value * 1_000_000;
-      case "kHz": return value * 1_000;
-      case "Hz": return value;
+      case "GHz":
+        return value * 1_000_000_000;
+      case "MHz":
+        return value * 1_000_000;
+      case "kHz":
+        return value * 1_000;
+      case "Hz":
+        return value;
     }
   }
 
   switch (unit) {
-    case "ghz": return value * 1_000_000_000;
-    case "mhz": return value * 1_000_000;
-    case "khz": return value * 1000;
-    case "hz": return value;
-    default: return NaN;
+    case "ghz":
+      return value * 1_000_000_000;
+    case "mhz":
+      return value * 1_000_000;
+    case "khz":
+      return value * 1000;
+    case "hz":
+      return value;
+    default:
+      return NaN;
   }
 };

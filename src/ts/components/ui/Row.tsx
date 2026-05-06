@@ -11,10 +11,15 @@ export const RowContainer = styled.div`
   gap: 12px;
   padding: 10px 0;
   background-color: ${(props) =>
-    props.theme.mode === "light" ? props.theme.primaryAnchor : props.theme.surface};
+    props.theme.mode === "light"
+      ? props.theme.primaryAnchor
+      : props.theme.surface};
   border-radius: 6px;
-  border: 1px solid ${(props) =>
-    props.theme.mode === "light" ? props.theme.borderHover : props.theme.border};
+  border: 1px solid
+    ${(props) =>
+      props.theme.mode === "light"
+        ? props.theme.borderHover
+        : props.theme.border};
   user-select: none;
   box-sizing: border-box;
   width: 100%;

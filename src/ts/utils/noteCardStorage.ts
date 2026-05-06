@@ -61,48 +61,61 @@ const withStore = async <T>(
   }
 };
 
-export const loadPersistedNoteCards = async (): Promise<PersistedNoteCardsPayload> => {
-  const result = await withStore("readonly", (store) =>
-    new Promise<PersistedNoteCardsPayload>((resolve, reject) => {
-      const request = store.get(RECORD_KEY);
-      request.onsuccess = () => {
-        const rawValue = request.result?.value;
-        if (Array.isArray(rawValue)) {
-          resolve({ cards: rawValue, isCollapsed: false });
-          return;
-        }
-        if (rawValue && Array.isArray(rawValue.cards)) {
-          resolve({
-            cards: rawValue.cards,
-            isCollapsed: rawValue.isCollapsed ?? false,
-          });
-          return;
-        }
-        resolve(DEFAULT_PERSISTED_STATE);
-      };
-      request.onerror = () => reject(request.error);
-    }),
-  );
+export const loadPersistedNoteCards =
+  async (): Promise<PersistedNoteCardsPayload> => {
+    const result = await withStore(
+      "readonly",
+      (store) =>
+        new Promise<PersistedNoteCardsPayload>((resolve, reject) => {
+          const request = store.get(RECORD_KEY);
+          request.onsuccess = () => {
+            const rawValue = request.result?.value;
+            if (Array.isArray(rawValue)) {
+              resolve({ cards: rawValue, isCollapsed: false });
+              return;
+            }
+            if (rawValue && Array.isArray(rawValue.cards)) {
+              resolve({
+                cards: rawValue.cards,
+                isCollapsed: rawValue.isCollapsed ?? false,
+              });
+              return;
+            }
+            resolve(DEFAULT_PERSISTED_STATE);
+          };
+          request.onerror = () => reject(request.error);
+        }),
+    );
 
-  return result ?? DEFAULT_PERSISTED_STATE;
-};
+    return result ?? DEFAULT_PERSISTED_STATE;
+  };
 
-export const persistNoteCards = async (payload: PersistedNoteCardsPayload): Promise<void> => {
-  await withStore("readwrite", (store) =>
-    new Promise<void>((resolve, reject) => {
-      const request = store.put({ id: RECORD_KEY, value: payload, updatedAt: Date.now() });
-      request.onsuccess = () => resolve();
-      request.onerror = () => reject(request.error);
-    }),
+export const persistNoteCards = async (
+  payload: PersistedNoteCardsPayload,
+): Promise<void> => {
+  await withStore(
+    "readwrite",
+    (store) =>
+      new Promise<void>((resolve, reject) => {
+        const request = store.put({
+          id: RECORD_KEY,
+          value: payload,
+          updatedAt: Date.now(),
+        });
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error);
+      }),
   );
 };
 
 export const clearPersistedNoteCards = async (): Promise<void> => {
-  await withStore("readwrite", (store) =>
-    new Promise<void>((resolve, reject) => {
-      const request = store.delete(RECORD_KEY);
-      request.onsuccess = () => resolve();
-      request.onerror = () => reject(request.error);
-    }),
+  await withStore(
+    "readwrite",
+    (store) =>
+      new Promise<void>((resolve, reject) => {
+        const request = store.delete(RECORD_KEY);
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error);
+      }),
   );
 };
