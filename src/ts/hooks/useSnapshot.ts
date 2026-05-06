@@ -809,10 +809,13 @@ function generateSvgWithSymbols(svgString: string): string {
   const viewBox = viewBoxMatch ? viewBoxMatch[1] : "0 0 1200 700";
   const content = extractSvgContent(svgString);
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}">
+  const sanitizedViewBox = escapeAttr(sanitizeViewBox(viewBox));
+  const sanitizedContent = sanitizeSVG(content);
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${sanitizedViewBox}">
   <defs>
-    <symbol id="spectrum-snapshot" viewBox="${viewBox}" preserveAspectRatio="xMidYMid meet">
-      ${content}
+    <symbol id="spectrum-snapshot" viewBox="${sanitizedViewBox}" preserveAspectRatio="xMidYMid meet">
+      ${sanitizedContent}
     </symbol>
   </defs>
   <!-- Display the symbol by default -->
