@@ -297,7 +297,11 @@ This was the biggest break and I finally found where and which frequencies the N
 As far as bandwidth, when tuning the signal, I could see about 6MHz of bandwidth, reliably, provided RTL-SDR is not the best and this signal is complex with heterodyning involved (extremely small resolution, multiple signals not drawn easy by any spectrum analyzer which layers in everything).
 
 
-### HF-MF-LF Waves
+### LF-MF-HF Waves
+
+When it comes to all the channels, the wavelenghts are not intuitve to envision with this kind of functionality. These are large waves slamming and intersecting at the person thousands (kHz) to millions (MHz) of times a second!
+
+![Wavelength Comparison](/md-preview/images/n-apt-channels-wavelength-comparison.png)
 
 TODO
 
@@ -742,9 +746,28 @@ TODO
 
 ### An average of 1µW or more? (of power on tissue traversal and exit)
 
-In order to target the brain, I made a solid assumption based off of what ChatGPT told me, that brainwaves are about `1-10µW` (microwatts), so I figured that the signals' power should be near there, anything less in scale, the math I did was dire to remain above the noise in the environment, go through the skull and/or body (body because it does my vocal cords/vocal as an interface, mouth and throat muscles, in addition to others) losing 99% energy and make it back to an endpoint. Biology constrains this problem to maintaining an exacting level of energy consistently at the body/entry, so the further one is away from an endpoint, the energy always stays the same, only the receiver, fixed at various distances, suffers from less energy coming back from the target (the body).
+In order to target the brain, I made a solid assumption based off of what ChatGPT told me, that brainwaves are about `1-10µW` (microwatts), so I figured that the signals' power should be near there, anything less in scale, the math I did was dire to remain above the noise in the environment, go through the skull and/or body (body because it does my vocal cords/vocal real-time as an interface, mouth and throat muscles, in addition to other muscles in my person) losing 99% energy and make it back to an endpoint. 
 
-In reality, when I took a look at the signals on my person using `rtl_power`, it was actually a solid assumption, with values around `-21dBm`, as low as `-29dBm` (I assume read only or very, very minor writes). The spikes reached as high as `1, 3 and 9dBm`. Those reads were with `rtl_power` which uses an algorithm not as accurate as possible, because RTL-SDR only can give relative power, not absolute, that's a lot more math and guesswork.
+Biology constrains this problem to maintaining an exacting level of energy consistently at the body/entry, so the further one is away from an endpoint, the energy always stays the same, only the receiver, fixed at various distances, suffers from less energy coming back from the target (the body).
+
+
+Of course my assumptions of ~~1µW or more?~~ were wrong. I was strongly biased toward that level of energy due to attenuation, I was extremely anxious before I saw the signal, if it didn't have enough energy to make it back to an endpoint to even be processed, however in retrospect, I was wrong! 
+
+Previously I had made a table of estimates, which I'll share below, though in retrospect I was wrong, I had the very right concerns about travel, energy loss and attenuation.
+
+**Estimated Energy (per second, per signal out of 7)**
+
+| Source (30m away) | Target (at body) | Target Exit (exiting body) | Receiver (30m away; sans damping) |
+| :--- | :--- | :--- | :--- |
+| 10W | 31.5 µW | 1 µW | 63 pW, –42dBm? |
+| 70W | 220.3 µW | 7 µW | 440 pW, –34.5dBm? |
+| 130W | 409.5 µW | 13 µW | 820 pW, –31dBm? |
+| 190W | 598.5 µW | 19 µW | 1.2 nW, –29.2dBm? |
+| 250W | 787.5 µW | 25 µW | 25 nW, -28dBm? |
+
+*(speculated at 100MHz; of course longer wavelength/lower frequency [at the cost of bandwidth] = less attenuation & more energy returned!)*
+
+In reality, when I took a look at the signals on my person using `rtl_power` (which were very different frequencies, not VHF but LF/HF/MF frequencies), it was looking like a solid assumption, with values around `-21dBm`, as low as `-29dBm`. The spikes reached as high as `1, 3 and 9dBm`. Those reads were with `rtl_power` which uses an algorithm for relative power which were not as accurate as as they could be, because RTL-SDR only can give relative power, not absolute, there's a lot more math and guesswork.
 
 For reference, this is what dBm looks like (and foreshadows the shock to come...):
 
@@ -761,15 +784,18 @@ For reference, this is what dBm looks like (and foreshadows the shock to come...
 | -70 dBm | 1e-10 W    | 0.0001 µW    |
 | -80 dBm | 1e-11 W    | 0.00001 µW   |
 
-I have never seen the power change at all, which is how I most certainly know it's the signal and that this hypothesis remain valid. From SF to San Francsiquo Creek to Stanford, the signals' power remains constant and stable at my person!
+I have never seen the power change at all, which is how I most certainly know it's the signal, but I wasn't so immediately trusting of `rtl_power`. Of course, I tested it outside and different environments and I got the same stable signal of course doing the same thing, running the hellish interactive on my brain and body. From SF to San Francsiquo Creek to Stanford, the signals' power remained constant and stable at my person (aka finally found it)!
 
 
 ![San Francisquito Creek](/md-preview/images/12_23_25_4_35PM.jpg)
 *I walked down around the El Palo Alto into San Francisqutio Creek and connected my RTL-SDR, opened the signals, I hoped for a contradictory result (a weakspot) counter to the experience gripping and mangling my brain for years and was disappointed. It works flawlessly even in a wooded ravine!*
 
-Unfortunately, later on, when I added power scale to my app later on, I was shocked to see that the power was significantly different when drawn than with `rtl_power`. But more on that below.
+Unfortunately, later on, when I added power scale to my app later on and did more work to be within the parameters of absolute power from RTL-SDR (off by `3dBm-5dBm`, according to ChatGPT), I was shocked to see that the power was significantly different when drawn than with `rtl_power`.
 
-The even bigger mystery and mind-boggling discovery here is that the energy is astoundingly low in the valleys, sometimes reaching -50dBm to -70dBm (Yes! 10 nanowatts to 100 picowatts, matching power levels of WiFi but strange for bioelectrical signals), some parts of the signal even lower!
+The even bigger mystery and mind-boggling discovery here is that the energy is astoundingly low in the valleys, sometimes reaching -50dBm to -70dBm (Yes! 10 nanowatts to 100 picowatts–matching power levels of strong WiFi or 5G but very unexpected for these bioelectrical signals which are VERY POWERFUL). 
+
+What is even more suprising is that some scant parts of the signal are even lower in energy! These also were inherently readings of the signal pre-entry of the body (since they are far stronger than exit, the stronger signal that I will surface).
+
 
 ## Center frequency <a id="center-frequency"></a>
 
@@ -788,6 +814,8 @@ The method worked instantaneously, so I thought, what if they were capturing som
 This kind of impedance is different. In order to use impedance to detect electrical charges, the NSA's technique operates like **TEMPEST** (method of intercepting electrical charges from radio waves) but more advanced. By simply delivering the next frame of data and the difference between the previous frame after exit from the skull/body from a series of baselines according to the electrical activity.
 
 Below is the equation that I had worked out, however the NSA's mathematics are certainly different, accommodating for depth, particular charge they are looking for, beats, etc.
+
+<desktop-only>
 
 ```LaTex
 \[
@@ -811,6 +839,32 @@ n & \text{Cycle/frame index}
 \end{array}
 \]
 ```
+
+</desktop-only>
+
+<mobile-only>
+
+```LaTex
+\[
+\boxed{ R_n = \frac{\Delta P}{P_b} \cdot e^{-\alpha c t} }
+\]
+
+\[
+\begin{array}{l}
+R_n: \text{Normalized response} \\
+P_{\text{rx},n}: \text{Received power} \\
+P_b: \text{Baseline power} \\
+t: \text{Time-of-flight} \\
+\alpha: \text{Attenuation coeff.} \\
+c: \text{Wave speed in tissue} \\
+c_0: \text{Light speed} \\
+\varepsilon_r: \text{Relative permittivity} \\
+n: \text{Cycle index}
+\end{array}
+\]
+```
+
+</mobile-only>
 
 ## Body Attenuation <a id="body-attenuation"></a>
 
@@ -1082,11 +1136,6 @@ It's very different from the other channels, which always have prominent spikes,
 
 ![Channel C, partial (at the hardware limit)––in dBm, the approximate actual power](/md-preview/images/snapshot-channel-c-power.png)
 
----
-
-When it comes to all the channels, the wavelenghts are not intuitve to envision with this kind of functionality. These are large waves slamming and intersecting at the person thousands (kHz) to millions (MHz) of times a second!
-
-![Wavelength Comparison](/md-preview/images/n-apt-channels-wavelength-comparison.png)
 
 <br />
 <br />
