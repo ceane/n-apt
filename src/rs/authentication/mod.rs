@@ -21,6 +21,7 @@ pub struct CredentialFile {
 /// Manages passkey credential persistence.
 pub struct CredentialStore {
   path: PathBuf,
+  base_dir: PathBuf,
 }
 
 impl CredentialStore {
@@ -28,12 +29,22 @@ impl CredentialStore {
   pub fn new() -> Result<Self, String> {
     let dir = dirs_path()?;
     std::fs::create_dir_all(&dir).map_err(|e| format!("create dir: {e}"))?;
+
+    // RE-CANONICALIZE the final directory to ensure it's not a symlink to somewhere dangerous.
+    // This is a defense-in-depth measure against TOCTOU or crafted symlink attacks.
+    let dir = dir
+      .canonicalize()
+      .map_err(|e| format!("canonicalize dir: {e}"))?;
+
     let path = dir.join("credentials.json");
 
     // Final security check: ensure the path is still within the expected directory
     // and doesn't contain any traversal components.
     if !path.is_absolute() {
       return Err("Credential path must be absolute".to_string());
+    }
+    if !path.starts_with(&dir) {
+      return Err("Credential path escaped base directory".to_string());
     }
     if path
       .components()
@@ -42,18 +53,24 @@ impl CredentialStore {
       return Err("Credential path contains invalid components".to_string());
     }
 
-    Ok(Self { path })
+    Ok(Self {
+      path,
+      base_dir: dir,
+    })
   }
 
   /// Load credentials from disk. Returns default if file doesn't exist.
   pub fn load(&self) -> CredentialFile {
-    // Double-check path safety before reading
-    if self
-      .path
-      .components()
-      .any(|c| matches!(c, std::path::Component::ParentDir))
+    // SECURITY: Explicitly re-validate path safety before reading.
+    // This ensures that even if the struct was tampered with, we don't
+    // read from an uncontrolled location.
+    if !self.path.starts_with(&self.base_dir)
+      || self
+        .path
+        .components()
+        .any(|c| matches!(c, std::path::Component::ParentDir))
     {
-      log::error!("Refusing to read from path with traversal components");
+      log::error!("Refusing to read from unsafe path: {:?}", self.path);
       return CredentialFile::default();
     }
 
@@ -65,13 +82,14 @@ impl CredentialStore {
 
   /// Save credentials to disk.
   pub fn save(&self, creds: &CredentialFile) -> Result<(), String> {
-    // Double-check path safety before writing
-    if self
-      .path
-      .components()
-      .any(|c| matches!(c, std::path::Component::ParentDir))
+    // SECURITY: Explicitly re-validate path safety before writing.
+    if !self.path.starts_with(&self.base_dir)
+      || self
+        .path
+        .components()
+        .any(|c| matches!(c, std::path::Component::ParentDir))
     {
-      return Err("Refusing to write to path with traversal components".into());
+      return Err(format!("Refusing to write to unsafe path: {:?}", self.path));
     }
 
     let json = serde_json::to_string_pretty(creds)
