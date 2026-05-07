@@ -97,8 +97,6 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
     waterfall: null,
     averaging: null,
     smoothing: null,
-    // Multi-stage FFT bind groups with dynamic offsets
-    fft_stages: null,
   });
 
   // State management

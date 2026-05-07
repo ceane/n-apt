@@ -576,29 +576,29 @@ self.onmessage = async function (e) {
                     const cipherDek = wrappedDekBytes.subarray(12);
 
                     const decryptedDek = await crypto.subtle.decrypt(
-                      { name: "AES-GCM", iv: ivDek },
-                      aesKey,
-                      cipherDek,
+                      { name: "AES-GCM", iv: ivDek as any },
+                      aesKey as CryptoKey,
+                      cipherDek as any,
                     );
 
                     const dek = await crypto.subtle.importKey(
                       "raw",
-                      decryptedDek,
+                      decryptedDek as any,
                       { name: "AES-GCM" },
                       false,
                       ["decrypt"],
                     );
 
                     decryptedData = await crypto.subtle.decrypt(
-                      { name: "AES-GCM", iv },
-                      dek,
-                      ciphertext,
+                      { name: "AES-GCM", iv: iv as any },
+                      dek as CryptoKey,
+                      ciphertext as any,
                     );
                   } else {
                     decryptedData = await crypto.subtle.decrypt(
-                      { name: "AES-GCM", iv },
-                      aesKey,
-                      ciphertext,
+                      { name: "AES-GCM", iv: iv as any },
+                      aesKey as CryptoKey,
+                      ciphertext as any,
                     );
                   }
                   if (decryptedData) {
@@ -627,7 +627,7 @@ self.onmessage = async function (e) {
               );
             } catch (decryptErr: any) {
               const errType = decryptErr instanceof Error ? decryptErr.name : typeof decryptErr;
-              console.error(`NAPT Load [${fileName}] - Decryption Failed (${errType}):`, decryptErr);
+              console.error("NAPT Load Decryption Failed:", fileName, errType, decryptErr);
               let detail = decryptErr.message || String(decryptErr);
               if (errType === 'OperationError') {
                 detail = "AES-GCM authentication failed (wrong key or corrupted data). Check if the file matches your current Vault session.";
@@ -753,7 +753,10 @@ self.onmessage = async function (e) {
 
               const metaObj = JSON.parse(naptJsonStr);
               metadata = metaObj.metadata || metaObj;
-              const isEncrypted = metadata.encrypted === true || metadata.encrypted === "true" || metaObj.encrypted === true;
+              const isEncrypted = !!(
+                (metadata && (metadata.encrypted === true || (metadata.encrypted as unknown as string) === "true")) ||
+                (metaObj && metaObj.encrypted === true)
+              );
 
               let channelsMetadata = metadata?.channels || metaObj.channels;
               if (!channelsMetadata && metaObj.offset_iq !== undefined) {
@@ -795,11 +798,11 @@ self.onmessage = async function (e) {
                       const wrappedDekBytes = base64ToBytes(wrappedDekBase64);
                       const ivDek = wrappedDekBytes.subarray(0, 12);
                       const cipherDek = wrappedDekBytes.subarray(12);
-                      const decryptedDek = await crypto.subtle.decrypt({ name: "AES-GCM", iv: ivDek }, aesKey, cipherDek);
-                      const dek = await crypto.subtle.importKey("raw", decryptedDek, { name: "AES-GCM" }, false, ["decrypt"]);
-                      decryptedData = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, dek, ciphertext);
+                      const decryptedDek = await crypto.subtle.decrypt({ name: "AES-GCM", iv: ivDek as any }, aesKey as CryptoKey, cipherDek as any);
+                      const dek = await crypto.subtle.importKey("raw", decryptedDek as any, { name: "AES-GCM" }, false, ["decrypt"]);
+                      decryptedData = await crypto.subtle.decrypt({ name: "AES-GCM", iv: iv as any }, dek as CryptoKey, ciphertext as any);
                     } else {
-                      decryptedData = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, aesKey, ciphertext);
+                      decryptedData = await crypto.subtle.decrypt({ name: "AES-GCM", iv: iv as any }, aesKey as CryptoKey, ciphertext as any);
                     }
                     if (decryptedData) break;
                   } catch (e: any) {

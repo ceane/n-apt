@@ -18,7 +18,7 @@ function check(password, salt) {
         decipher.setAuthTag(tag);
         
         const decrypted = Buffer.concat([decipher.update(actualCiphertext), decipher.final()]);
-        console.log(`Password "${password}" worked! DEK hex: ${decrypted.toString('hex')}`);
+        console.log(`Password verification successful.`);
         return true;
     } catch (e) {
         return false;

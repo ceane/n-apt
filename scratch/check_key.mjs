@@ -5,7 +5,7 @@ function check(password, salt) {
     const ITERATIONS = 100_000;
     const key = crypto.pbkdf2Sync(password, SALT, ITERATIONS, 32, 'sha256');
     const hash = crypto.createHash('sha256').update(key).digest('hex').substring(0, 8);
-    console.log(`Password: "${password}", Salt: "${salt}" -> ${hash}`);
+    // Success (log removed)
 }
 
 check("your_password", "n-apt-aes-salt-v1");

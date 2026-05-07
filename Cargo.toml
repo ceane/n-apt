@@ -53,6 +53,14 @@ path = "test/rust/encryption_e2e_tests.rs"
 name = "performance_tests"
 path = "test/rust/performance_tests.rs"
 
+[[test]]
+name = "frequency_validation_tests"
+path = "test/rust/frequency_validation_tests.rs"
+
+[[test]]
+name = "iq_capture_integration_tests"
+path = "test/rust/iq_capture_integration_tests.rs"
+
 [[bin]]
 name = "live_stream_test"
 path = "src/rs/bin/live_stream_test.rs"
