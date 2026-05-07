@@ -84,6 +84,15 @@ const StitchStatusMessage = styled.div<{ $isError: boolean }>`
   text-align: center;
 `;
 
+const SpaceHint = styled.span`
+  font-size: 9px;
+  color: ${(props) => props.theme.textSecondary};
+  opacity: 0.6;
+  line-height: 1;
+  margin-top: 3px;
+  display: block;
+`;
+
 interface FileProcessingSectionProps {
   selectedFiles: { id: string; name: string; downloadUrl?: string }[];
   stitchStatus: string;
@@ -238,13 +247,19 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
                 "Error"
               ) : hasProcessedData ? (
                 isStitchPaused ? (
-                  <>
-                    <Play size={16} fill="currentColor" /> Play
-                  </>
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "2px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      <Play size={16} fill="currentColor" /> Play
+                    </div>
+                    <SpaceHint>[Space]</SpaceHint>
+                  </div>
                 ) : (
-                  <>
-                    <Pause size={16} fill="currentColor" /> Pause
-                  </>
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "2px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      <Pause size={16} fill="currentColor" /> Pause
+                    </div>
+                    <SpaceHint>[Space]</SpaceHint>
+                  </div>
                 )
               ) : (
                 <>

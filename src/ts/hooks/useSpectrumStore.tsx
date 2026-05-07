@@ -1374,19 +1374,26 @@ export const SpectrumProvider: React.FC<SpectrumProviderProps> = memo(
     }, [isVisualizerRoute, state.detectedFrameRate, storeDispatch]);
 
     const toggleVisualizerPause = useCallback(() => {
-      const nextPaused = !manualVisualizerPaused;
-      setManualVisualizerPaused(nextPaused);
-      sessionStorage.setItem(MANUAL_VISUALIZER_PAUSE_KEY, String(nextPaused));
+      if (mergedState.sourceMode === "file") {
+        const nextPaused = !mergedState.isStitchPaused;
+        storeDispatch({ type: "SET_STITCH_PAUSED", paused: nextPaused });
+      } else {
+        const nextPaused = !manualVisualizerPaused;
+        setManualVisualizerPaused(nextPaused);
+        sessionStorage.setItem(MANUAL_VISUALIZER_PAUSE_KEY, String(nextPaused));
 
-      // Force an immediate update of the store state
-      storeDispatch({ type: "SET_VISUALIZER_PAUSED", paused: nextPaused });
+        // Force an immediate update of the store state
+        storeDispatch({ type: "SET_VISUALIZER_PAUSED", paused: nextPaused });
 
-      // Send command immediately for responsiveness
-      if (isConnected) {
-        wsConnection.sendPauseCommand(nextPaused);
-        lastSentPauseRef.current = nextPaused;
+        // Send command immediately for responsiveness
+        if (isConnected) {
+          wsConnection.sendPauseCommand(nextPaused);
+          lastSentPauseRef.current = nextPaused;
+        }
       }
     }, [
+      mergedState.sourceMode,
+      mergedState.isStitchPaused,
       manualVisualizerPaused,
       isConnected,
       wsConnection.sendPauseCommand,
