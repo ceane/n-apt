@@ -23,7 +23,7 @@ describe("Markdown Canvas Components - Basic Tests", () => {
     expect(gl).toBeTruthy();
     expect(typeof gl?.clearColor).toBe("function");
     // @ts-ignore - globalThis access for canvas mocking
-    expect(global["canvasCalls"]).toBeDefined();
+    expect(global["__CANVAS_CALLS__"]).toBeDefined();
     // @ts-ignore
     expect(global["clearCanvasCalls"]).toBeDefined();
     expect(typeof global["clearCanvasCalls"]).toBe("function");
@@ -231,6 +231,7 @@ describe("Markdown Canvas Components - Basic Tests", () => {
       expect(texture).toBeTruthy();
 
       gl.bindTexture(gl.TEXTURE_2D, texture);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
       // @ts-ignore - countWebGLCalls is defined in jest.canvasSetup.cjs
       expect((countWebGLCalls as any)("createTexture")).toBe(1);
       // @ts-ignore

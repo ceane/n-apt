@@ -167,8 +167,10 @@ export const OutputNode: React.FC<OutputNodeProps> = ({ data }) => {
     return urlStr;
   }, [naptFilePath, sessionToken]);
 
-  if (!result) {
-    const isProcessing = state && state !== "idle" && state !== "result";
+  const isProcessing = state && state !== "idle" && state !== "result";
+  const isAwaiting = state === "idle";
+
+  if (!result || isProcessing || isAwaiting) {
 
     return (
       <NodeWrapper style={{ alignItems: "center", minWidth: "180px" }}>

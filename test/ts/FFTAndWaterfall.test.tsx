@@ -16,7 +16,7 @@ jest.mock("@n-apt/components/FFTCanvas", () => {
   return {
     __esModule: true,
     default: React.forwardRef((_props: any, ref: React.Ref<HTMLDivElement>) => {
-      fftCanvasMock();
+      fftCanvasMock(_props);
       return <div data-testid="fft-canvas" ref={ref} />;
     }),
   };
