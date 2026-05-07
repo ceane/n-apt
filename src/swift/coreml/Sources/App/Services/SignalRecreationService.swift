@@ -137,7 +137,8 @@ class SignalRecreationService {
         
         // Noise and SNR analysis
         let noiseLevel = estimateNoiseLevel(magnitude: magnitude)
-        let signalPower = magnitude.filter { $0 > noiseLevel * 2 }.reduce(0, +) / max(1, magnitude.filter { $0 > noiseLevel * 2 }.count)
+        let strongSignals = magnitude.filter { $0 > noiseLevel * 2 }
+        let signalPower = strongSignals.reduce(0.0, +) / Double(max(1, strongSignals.count))
         let signalToNoiseRatio = signalPower > 0 ? 10 * log10(signalPower / noiseLevel) : 0.0
         
         // Bandwidth calculation
