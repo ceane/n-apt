@@ -1,5 +1,11 @@
 import React from "react";
-import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import {
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+  act,
+} from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { FileWorker3Point2MHzTest } from "./FileWorker3Point2MHzTest";
 import { TestWrapper } from "../ts/testUtils";
@@ -28,7 +34,7 @@ describe("FileWorker 3.2MHz Sample Rate Tests", () => {
       render(
         <TestWrapper>
           <FileWorker3Point2MHzTest />
-        </TestWrapper>
+        </TestWrapper>,
       );
 
       const testButton = screen.getByTestId("test-3.2MHz-default");
@@ -38,7 +44,9 @@ describe("FileWorker 3.2MHz Sample Rate Tests", () => {
       });
 
       await waitFor(() => {
-        expect(screen.getByText(/Default sample rate applied when metadata missing/)).toBeInTheDocument();
+        expect(
+          screen.getByText(/Default sample rate applied when metadata missing/),
+        ).toBeInTheDocument();
       });
     });
 
@@ -46,7 +54,7 @@ describe("FileWorker 3.2MHz Sample Rate Tests", () => {
       render(
         <TestWrapper>
           <FileWorker3Point2MHzTest />
-        </TestWrapper>
+        </TestWrapper>,
       );
 
       const testButton = screen.getByTestId("test-channel-stitching");
@@ -62,19 +70,25 @@ describe("FileWorker 3.2MHz Sample Rate Tests", () => {
         data: {
           stitchedData: {
             waveform: new Float32Array(8192),
-            range: { min: 100, max: 103.2 } // 3.2MHz span
-          }
-        }
+            range: { min: 100, max: 103.2 }, // 3.2MHz span
+          },
+        },
       };
 
       // Mock the worker onmessage handler
       if (typeof mockFileWorker.onmessage === "function") {
-        (mockFileWorker.onmessage as (event: { data: unknown }) => void)({ data: workerMessage });
+        (mockFileWorker.onmessage as (event: { data: unknown }) => void)({
+          data: workerMessage,
+        });
       }
 
       await waitFor(() => {
-        expect(screen.getByText(/Adjacent channels detected/)).toBeInTheDocument();
-        expect(screen.getByText(/Overlap within 3.2MHz tolerance/)).toBeInTheDocument();
+        expect(
+          screen.getByText(/Adjacent channels detected/),
+        ).toBeInTheDocument();
+        expect(
+          screen.getByText(/Overlap within 3.2MHz tolerance/),
+        ).toBeInTheDocument();
       });
     });
 
@@ -82,7 +96,7 @@ describe("FileWorker 3.2MHz Sample Rate Tests", () => {
       render(
         <TestWrapper>
           <FileWorker3Point2MHzTest />
-        </TestWrapper>
+        </TestWrapper>,
       );
 
       const testButton = screen.getByTestId("test-invalid-sample-rate");
@@ -93,7 +107,9 @@ describe("FileWorker 3.2MHz Sample Rate Tests", () => {
 
       // Should show warning about sample rate being clamped
       await waitFor(() => {
-        expect(screen.getByText(/Sample rate clamped to 3.2MHz/)).toBeInTheDocument();
+        expect(
+          screen.getByText(/Sample rate clamped to 3.2MHz/),
+        ).toBeInTheDocument();
       });
     });
   });
@@ -103,7 +119,7 @@ describe("FileWorker 3.2MHz Sample Rate Tests", () => {
       render(
         <TestWrapper>
           <FileWorker3Point2MHzTest />
-        </TestWrapper>
+        </TestWrapper>,
       );
 
       const testButton = screen.getByTestId("test-frequency-validation");
@@ -113,7 +129,9 @@ describe("FileWorker 3.2MHz Sample Rate Tests", () => {
       });
 
       await waitFor(() => {
-        expect(screen.getByText(/Frequency range exceeds 3.2MHz limit/)).toBeInTheDocument();
+        expect(
+          screen.getByText(/Frequency range exceeds 3.2MHz limit/),
+        ).toBeInTheDocument();
       });
     });
 
@@ -121,7 +139,7 @@ describe("FileWorker 3.2MHz Sample Rate Tests", () => {
       render(
         <TestWrapper>
           <FileWorker3Point2MHzTest />
-        </TestWrapper>
+        </TestWrapper>,
       );
 
       const testButton = screen.getByTestId("test-frequency-exceeds");
@@ -131,7 +149,9 @@ describe("FileWorker 3.2MHz Sample Rate Tests", () => {
       });
 
       await waitFor(() => {
-        expect(screen.getByText(/Frequency range exceeds 3.2MHz limit/)).toBeInTheDocument();
+        expect(
+          screen.getByText(/Frequency range exceeds 3.2MHz limit/),
+        ).toBeInTheDocument();
       });
     });
 
@@ -139,7 +159,7 @@ describe("FileWorker 3.2MHz Sample Rate Tests", () => {
       render(
         <TestWrapper>
           <FileWorker3Point2MHzTest />
-        </TestWrapper>
+        </TestWrapper>,
       );
 
       const testButton = screen.getByTestId("test-frequency-bins");
@@ -149,7 +169,9 @@ describe("FileWorker 3.2MHz Sample Rate Tests", () => {
       });
 
       await waitFor(() => {
-        expect(screen.getByText(/Frequency bins calculated for 3.2MHz/)).toBeInTheDocument();
+        expect(
+          screen.getByText(/Frequency bins calculated for 3.2MHz/),
+        ).toBeInTheDocument();
         expect(screen.getByText(/Bin count: 8192/)).toBeInTheDocument(); // Typical FFT size
       });
     });
@@ -160,7 +182,7 @@ describe("FileWorker 3.2MHz Sample Rate Tests", () => {
       render(
         <TestWrapper>
           <FileWorker3Point2MHzTest />
-        </TestWrapper>
+        </TestWrapper>,
       );
 
       const testButton = screen.getByTestId("test-multi-channel-stitch");
@@ -170,7 +192,9 @@ describe("FileWorker 3.2MHz Sample Rate Tests", () => {
       });
 
       await waitFor(() => {
-        expect(screen.getByText(/Multi-channel stitching at 3.2MHz/)).toBeInTheDocument();
+        expect(
+          screen.getByText(/Multi-channel stitching at 3.2MHz/),
+        ).toBeInTheDocument();
         expect(screen.getByText(/Channels processed: 2/)).toBeInTheDocument();
       });
     });
@@ -179,7 +203,7 @@ describe("FileWorker 3.2MHz Sample Rate Tests", () => {
       render(
         <TestWrapper>
           <FileWorker3Point2MHzTest />
-        </TestWrapper>
+        </TestWrapper>,
       );
 
       const testButton = screen.getByTestId("test-adjacent-channels");
@@ -189,8 +213,12 @@ describe("FileWorker 3.2MHz Sample Rate Tests", () => {
       });
 
       await waitFor(() => {
-        expect(screen.getByText(/Adjacent channels detected/)).toBeInTheDocument();
-        expect(screen.getByText(/Overlap within 3.2MHz tolerance/)).toBeInTheDocument();
+        expect(
+          screen.getByText(/Adjacent channels detected/),
+        ).toBeInTheDocument();
+        expect(
+          screen.getByText(/Overlap within 3.2MHz tolerance/),
+        ).toBeInTheDocument();
       });
     });
 
@@ -198,7 +226,7 @@ describe("FileWorker 3.2MHz Sample Rate Tests", () => {
       render(
         <TestWrapper>
           <FileWorker3Point2MHzTest />
-        </TestWrapper>
+        </TestWrapper>,
       );
 
       const testButton = screen.getByTestId("test-channel-gaps");
@@ -208,7 +236,9 @@ describe("FileWorker 3.2MHz Sample Rate Tests", () => {
       });
 
       await waitFor(() => {
-        expect(screen.getByText(/Channel gap exceeds 3.2MHz/)).toBeInTheDocument();
+        expect(
+          screen.getByText(/Channel gap exceeds 3.2MHz/),
+        ).toBeInTheDocument();
         expect(screen.getByText(/Gap detected: 2.8MHz/)).toBeInTheDocument();
       });
     });
@@ -219,7 +249,7 @@ describe("FileWorker 3.2MHz Sample Rate Tests", () => {
       render(
         <TestWrapper>
           <FileWorker3Point2MHzTest />
-        </TestWrapper>
+        </TestWrapper>,
       );
 
       const testButton = screen.getByTestId("test-napt-validation");
@@ -238,7 +268,7 @@ describe("FileWorker 3.2MHz Sample Rate Tests", () => {
       render(
         <TestWrapper>
           <FileWorker3Point2MHzTest />
-        </TestWrapper>
+        </TestWrapper>,
       );
 
       const testButton = screen.getByTestId("test-wav-validation");
@@ -249,7 +279,9 @@ describe("FileWorker 3.2MHz Sample Rate Tests", () => {
 
       await waitFor(() => {
         expect(screen.getByText(/WAV file validated/)).toBeInTheDocument();
-        expect(screen.getByText(/Hardware sample rate: 3.2MHz/)).toBeInTheDocument();
+        expect(
+          screen.getByText(/Hardware sample rate: 3.2MHz/),
+        ).toBeInTheDocument();
       });
     });
 
@@ -257,7 +289,7 @@ describe("FileWorker 3.2MHz Sample Rate Tests", () => {
       render(
         <TestWrapper>
           <FileWorker3Point2MHzTest />
-        </TestWrapper>
+        </TestWrapper>,
       );
 
       const testButton = screen.getByTestId("test-reject-high-sample-rate");
@@ -268,7 +300,9 @@ describe("FileWorker 3.2MHz Sample Rate Tests", () => {
 
       await waitFor(() => {
         expect(screen.getByText(/File rejected/)).toBeInTheDocument();
-        expect(screen.getByText(/Sample rate too high: 4.0MHz/)).toBeInTheDocument();
+        expect(
+          screen.getByText(/Sample rate too high: 4.0MHz/),
+        ).toBeInTheDocument();
       });
     });
   });
@@ -278,7 +312,7 @@ describe("FileWorker 3.2MHz Sample Rate Tests", () => {
       render(
         <TestWrapper>
           <FileWorker3Point2MHzTest />
-        </TestWrapper>
+        </TestWrapper>,
       );
 
       const testButton = screen.getByTestId("test-realtime-processing");
@@ -288,8 +322,12 @@ describe("FileWorker 3.2MHz Sample Rate Tests", () => {
       });
 
       await waitFor(() => {
-        expect(screen.getByText(/Real-time processing at 3.2MHz/)).toBeInTheDocument();
-        expect(screen.getByText(/Processing rate: 3200000 samples\/s/)).toBeInTheDocument();
+        expect(
+          screen.getByText(/Real-time processing at 3.2MHz/),
+        ).toBeInTheDocument();
+        expect(
+          screen.getByText(/Processing rate: 3200000 samples\/s/),
+        ).toBeInTheDocument();
       });
     });
 
@@ -297,7 +335,7 @@ describe("FileWorker 3.2MHz Sample Rate Tests", () => {
       render(
         <TestWrapper>
           <FileWorker3Point2MHzTest />
-        </TestWrapper>
+        </TestWrapper>,
       );
 
       const testButton = screen.getByTestId("test-buffer-protection");
@@ -307,8 +345,12 @@ describe("FileWorker 3.2MHz Sample Rate Tests", () => {
       });
 
       await waitFor(() => {
-        expect(screen.getByText(/Buffer protection active/)).toBeInTheDocument();
-        expect(screen.getByText(/Max buffer size: 3.2MHz samples/)).toBeInTheDocument();
+        expect(
+          screen.getByText(/Buffer protection active/),
+        ).toBeInTheDocument();
+        expect(
+          screen.getByText(/Max buffer size: 3.2MHz samples/),
+        ).toBeInTheDocument();
       });
     });
   });
@@ -318,7 +360,7 @@ describe("FileWorker 3.2MHz Sample Rate Tests", () => {
       render(
         <TestWrapper>
           <FileWorker3Point2MHzTest />
-        </TestWrapper>
+        </TestWrapper>,
       );
 
       const testButton = screen.getByTestId("test-low-sample-rate");
@@ -329,7 +371,9 @@ describe("FileWorker 3.2MHz Sample Rate Tests", () => {
 
       await waitFor(() => {
         expect(screen.getByText(/Sample rate too low/)).toBeInTheDocument();
-        expect(screen.getByText(/Minimum: 1.0MHz, Requested: 0.5MHz/)).toBeInTheDocument();
+        expect(
+          screen.getByText(/Minimum: 1.0MHz, Requested: 0.5MHz/),
+        ).toBeInTheDocument();
       });
     });
 
@@ -337,7 +381,7 @@ describe("FileWorker 3.2MHz Sample Rate Tests", () => {
       render(
         <TestWrapper>
           <FileWorker3Point2MHzTest />
-        </TestWrapper>
+        </TestWrapper>,
       );
 
       const testButton = screen.getByTestId("test-corrupted-metadata");
@@ -348,7 +392,9 @@ describe("FileWorker 3.2MHz Sample Rate Tests", () => {
 
       await waitFor(() => {
         expect(screen.getByText(/Metadata corrupted/)).toBeInTheDocument();
-        expect(screen.getByText(/Falling back to 3.2MHz default/)).toBeInTheDocument();
+        expect(
+          screen.getByText(/Falling back to 3.2MHz default/),
+        ).toBeInTheDocument();
       });
     });
   });

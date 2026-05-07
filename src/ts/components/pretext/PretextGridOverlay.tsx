@@ -1,13 +1,16 @@
-import React, { useRef, useEffect, useCallback, useMemo } from 'react';
-import { usePretextText } from '@n-apt/hooks/usePretextText';
-import { setupCanvasForDPI } from '@n-apt/utils/canvasDPIScaling';
+import React, { useRef, useEffect, useCallback, useMemo } from "react";
+import { usePretextText } from "@n-apt/hooks/usePretextText";
+import { setupCanvasForDPI } from "@n-apt/utils/canvasDPIScaling";
 import {
   FFT_GRID_COLOR,
   FFT_TEXT_COLOR,
   FFT_AREA_MIN,
   findBestFrequencyRange,
-} from '@n-apt/consts';
-import { formatFrequency, formatFrequencyHighRes } from "@n-apt/utils/frequency";
+} from "@n-apt/consts";
+import {
+  formatFrequency,
+  formatFrequencyHighRes,
+} from "@n-apt/utils/frequency";
 
 export interface PretextGridOverlayProps {
   width: number;
@@ -45,10 +48,13 @@ export const PretextGridOverlay: React.FC<PretextGridOverlayProps> = ({
     const maxFreq = frequencyRange.max;
     const viewBandwidth2 = maxFreq - minFreq;
 
-    const fullSpan = fullCaptureRange ? (fullCaptureRange.max - fullCaptureRange.min) : 0;
+    const fullSpan = fullCaptureRange
+      ? fullCaptureRange.max - fullCaptureRange.min
+      : 0;
     const zoom = fullSpan > 0 ? fullSpan / viewBandwidth2 : 1;
     const useHighRes = zoom >= 100;
-    const formatFreq = (f: number) => useHighRes ? formatFrequencyHighRes(f) : formatFrequency(f);
+    const formatFreq = (f: number) =>
+      useHighRes ? formatFrequencyHighRes(f) : formatFrequency(f);
 
     // Generate horizontal labels only - vertical labels handled by PretextDBScale
     const step = findBestFrequencyRange(viewBandwidth2, 10);
@@ -71,34 +77,49 @@ export const PretextGridOverlay: React.FC<PretextGridOverlayProps> = ({
 
     return {
       horizontalLabels: [
-        { freq: minFreq, label: formatFreq(minFreq), type: 'start' },
-        { freq: maxFreq, label: formatFreq(maxFreq), type: 'end' },
-        { freq: visualCenterFreq, label: formatFreq(visualCenterFreq), type: 'center' },
-        ...horizontalLabels.map(h => ({ ...h, type: 'tick' as const }))
-      ]
+        { freq: minFreq, label: formatFreq(minFreq), type: "start" },
+        { freq: maxFreq, label: formatFreq(maxFreq), type: "end" },
+        {
+          freq: visualCenterFreq,
+          label: formatFreq(visualCenterFreq),
+          type: "center",
+        },
+        ...horizontalLabels.map((h) => ({ ...h, type: "tick" as const })),
+      ],
     };
   }, [frequencyRange, fullCaptureRange]);
 
   // Create hooks for horizontal labels only
-  const horizontalTextHooks = Array.from({ length: MAX_HORIZONTAL_LABELS }, (_, index) => {
-    const item = labelData.horizontalLabels[index];
-    return usePretextText({
-      text: item ? (item.type === 'center' ? `✋  ${item.label}` : item.label) : '',
-      font: '12px JetBrains Mono',
-      fontSize: 12,
-      color: FFT_TEXT_COLOR,
-    });
-  });
+  const horizontalTextHooks = Array.from(
+    { length: MAX_HORIZONTAL_LABELS },
+    (_, index) => {
+      const item = labelData.horizontalLabels[index];
+      return usePretextText({
+        text: item
+          ? item.type === "center"
+            ? `✋  ${item.label}`
+            : item.label
+          : "",
+        font: "12px JetBrains Mono",
+        fontSize: 12,
+        color: FFT_TEXT_COLOR,
+      });
+    },
+  );
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas || !frequencyRange) return;
 
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
     // Setup DPI scaling
-    const { ctx: scaledCtx, devicePixelRatio } = setupCanvasForDPI(canvas, width, height);
+    const { ctx: scaledCtx, devicePixelRatio } = setupCanvasForDPI(
+      canvas,
+      width,
+      height,
+    );
 
     const dpr = devicePixelRatio;
     const fftAreaMax = { x: width - 40, y: height - 40 };
@@ -142,16 +163,28 @@ export const PretextGridOverlay: React.FC<PretextGridOverlayProps> = ({
 
       const xPos = freqToX2(item.freq);
 
-      if (item.type === 'start') {
+      if (item.type === "start") {
         scaledCtx.textAlign = "left";
-        scaledCtx.fillText(item.label, FFT_AREA_MIN.x * dpr, (fftAreaMax.y + 25) * dpr);
-      } else if (item.type === 'end') {
+        scaledCtx.fillText(
+          item.label,
+          FFT_AREA_MIN.x * dpr,
+          (fftAreaMax.y + 25) * dpr,
+        );
+      } else if (item.type === "end") {
         scaledCtx.textAlign = "right";
-        scaledCtx.fillText(item.label, fftAreaMax.x * dpr, (fftAreaMax.y + 25) * dpr);
-      } else if (item.type === 'center') {
+        scaledCtx.fillText(
+          item.label,
+          fftAreaMax.x * dpr,
+          (fftAreaMax.y + 25) * dpr,
+        );
+      } else if (item.type === "center") {
         scaledCtx.textAlign = "center";
-        scaledCtx.fillText(`✋  ${item.label}`, (width / 2) * dpr, (fftAreaMax.y + 25) * dpr);
-      } else if (item.type === 'tick') {
+        scaledCtx.fillText(
+          `✋  ${item.label}`,
+          (width / 2) * dpr,
+          (fftAreaMax.y + 25) * dpr,
+        );
+      } else if (item.type === "tick") {
         // Draw tick mark
         scaledCtx.strokeStyle = FFT_TEXT_COLOR;
         scaledCtx.beginPath();
@@ -171,7 +204,6 @@ export const PretextGridOverlay: React.FC<PretextGridOverlayProps> = ({
         scaledCtx.fillText(item.label, xPos * dpr, (fftAreaMax.y + 25) * dpr);
       }
     });
-
   }, [width, height, frequencyRange, labelData, horizontalTextHooks]);
 
   useEffect(() => {
@@ -182,12 +214,12 @@ export const PretextGridOverlay: React.FC<PretextGridOverlayProps> = ({
     <canvas
       ref={canvasRef}
       style={{
-        position: 'absolute',
+        position: "absolute",
         top: 0,
         left: 0,
         width,
         height,
-        pointerEvents: 'none',
+        pointerEvents: "none",
         zIndex: 5,
       }}
     />

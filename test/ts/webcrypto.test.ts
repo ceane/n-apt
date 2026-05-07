@@ -12,7 +12,7 @@ import {
 describe("webcrypto service", () => {
   const testPassword = "test-password-123";
   const testPayload = "Hello, N-APT!";
-  
+
   test("Base64 helpers provide round-trip consistency", () => {
     const original = new Uint8Array([72, 101, 108, 108, 111]); // "Hello"
     const b64 = bytesToBase64(original);
@@ -36,7 +36,7 @@ describe("webcrypto service", () => {
     const nonce = bytesToBase64(new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]));
     const hmac1 = await computeHmac(testPassword, nonce);
     const hmac2 = await computeHmac(testPassword, nonce);
-    
+
     expect(typeof hmac1).toBe("string");
     expect(hmac1.length).toBeGreaterThan(0);
     expect(hmac1).toBe(hmac2);
@@ -52,24 +52,24 @@ describe("webcrypto service", () => {
       rawKey,
       { name: "AES-GCM" },
       false,
-      ["encrypt", "decrypt"]
+      ["encrypt", "decrypt"],
     );
-    
+
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const msg = new TextEncoder().encode(testPayload);
-    
+
     const encrypted = await crypto.subtle.encrypt(
       { name: "AES-GCM", iv },
       aesKey,
-      msg
+      msg,
     );
-    
+
     const combined = new Uint8Array(iv.length + encrypted.byteLength);
     combined.set(iv, 0);
     combined.set(new Uint8Array(encrypted), iv.length);
-    
+
     const b64Payload = bytesToBase64(combined);
-    
+
     // Test decryptPayload
     const decrypted = await decryptPayload(aesKey, b64Payload);
     expect(decrypted).toBe(testPayload);
@@ -90,17 +90,17 @@ describe("webcrypto service", () => {
       correctRawKey,
       { name: "AES-GCM" },
       false,
-      ["encrypt", "decrypt"]
+      ["encrypt", "decrypt"],
     );
     const wrongKey = await deriveAesKey("wrong-password");
-    
+
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const encrypted = await crypto.subtle.encrypt(
       { name: "AES-GCM", iv },
       correctEncryptKey,
-      new TextEncoder().encode(testPayload)
+      new TextEncoder().encode(testPayload),
     );
-    
+
     const combined = new Uint8Array(iv.length + encrypted.byteLength);
     combined.set(iv, 0);
     combined.set(new Uint8Array(encrypted), iv.length);

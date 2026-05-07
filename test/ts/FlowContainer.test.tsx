@@ -12,7 +12,7 @@ describe("FlowContainer", () => {
         <FlowContainer>
           <div>Test Content</div>
         </FlowContainer>
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     expect(screen.getByText("Test Content")).toBeInTheDocument();
@@ -24,7 +24,7 @@ describe("FlowContainer", () => {
         <FlowContainer>
           <div>Test Content</div>
         </FlowContainer>
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     const flowContainer = container.firstChild;
@@ -43,7 +43,7 @@ describe("FlowContainer", () => {
           <div>Child 2</div>
           <div>Child 3</div>
         </FlowContainer>
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     expect(screen.getByText("Child 1")).toBeInTheDocument();

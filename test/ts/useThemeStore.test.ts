@@ -12,7 +12,7 @@ describe("useThemeStore", () => {
 
   it("should initialize with default values", () => {
     const { result } = renderHook(() => useThemeStore());
-    
+
     expect(result.current.appMode).toBe("system");
     expect(result.current.accentColor).toBe(COLORS.primary);
     expect(result.current.fftColor).toBe("#00d4ff");
@@ -21,7 +21,7 @@ describe("useThemeStore", () => {
 
   it("should update app mode", () => {
     const { result } = renderHook(() => useThemeStore());
-    
+
     act(() => {
       result.current.setAppMode("dark");
     });
@@ -35,7 +35,7 @@ describe("useThemeStore", () => {
 
   it("should update accent color", () => {
     const { result } = renderHook(() => useThemeStore());
-    
+
     const newColor = "#ff0000";
     act(() => {
       result.current.setAccentColor(newColor);
@@ -45,7 +45,7 @@ describe("useThemeStore", () => {
 
   it("should update waterfall theme", () => {
     const { result } = renderHook(() => useThemeStore());
-    
+
     act(() => {
       result.current.setWaterfallTheme("plasma");
     });
@@ -54,13 +54,13 @@ describe("useThemeStore", () => {
 
   it("should reset to defaults", () => {
     const { result } = renderHook(() => useThemeStore());
-    
+
     act(() => {
       result.current.setAppMode("dark");
       result.current.setAccentColor("#123456");
       result.current.resetTheme();
     });
-    
+
     expect(result.current.appMode).toBe("system");
     expect(result.current.accentColor).toBe(COLORS.primary);
   });

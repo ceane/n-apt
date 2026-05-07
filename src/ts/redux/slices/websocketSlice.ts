@@ -1,4 +1,4 @@
-import { createSlice, PayloadAction } from '@reduxjs/toolkit';
+import { createSlice, PayloadAction } from "@reduxjs/toolkit";
 import {
   DeviceState,
   DeviceLoadingReason,
@@ -7,13 +7,13 @@ import {
   AutoFftOptionsResponse,
   DeviceProfile,
   CaptureStatus,
-} from '@n-apt/consts/schemas/websocket';
-import { 
+} from "@n-apt/consts/schemas/websocket";
+import {
   validateCaptureStatus,
   validateAutoFftOptions,
-  isValidSpectrumFrame 
+  isValidSpectrumFrame,
 } from "@n-apt/validation";
-import { loadPersistedAutoFftOptions } from '@n-apt/redux/middleware/localStorageMiddleware';
+import { loadPersistedAutoFftOptions } from "@n-apt/redux/middleware/localStorageMiddleware";
 
 const shallowEqualObject = (
   a: Record<string, unknown> | null | undefined,
@@ -59,13 +59,19 @@ const validateSpectrumFrames = (frames: unknown[]): SpectrumFrame[] => {
 };
 
 // Enhanced validation for capture status
-const validateCaptureStatusEnhanced = (status: unknown): CaptureStatus | null => {
+const validateCaptureStatusEnhanced = (
+  status: unknown,
+): CaptureStatus | null => {
   return validateCaptureStatus(status) ? (status as CaptureStatus) : null;
 };
 
 // Enhanced validation for auto FFT options
-const validateAutoFftOptionsEnhanced = (options: unknown): AutoFftOptionsResponse | null => {
-  return validateAutoFftOptions(options) ? (options as AutoFftOptionsResponse) : null;
+const validateAutoFftOptionsEnhanced = (
+  options: unknown,
+): AutoFftOptionsResponse | null => {
+  return validateAutoFftOptions(options)
+    ? (options as AutoFftOptionsResponse)
+    : null;
 };
 
 const equalValue = (current: unknown, next: unknown): boolean => {
@@ -79,8 +85,8 @@ const equalValue = (current: unknown, next: unknown): boolean => {
   if (
     current &&
     next &&
-    typeof current === 'object' &&
-    typeof next === 'object'
+    typeof current === "object" &&
+    typeof next === "object"
   ) {
     return shallowEqualObject(
       current as Record<string, unknown>,
@@ -93,16 +99,21 @@ const equalValue = (current: unknown, next: unknown): boolean => {
 export interface WebSocketState {
   // Connection state
   isConnected: boolean;
-  connectionStatus: 'disconnected' | 'connecting' | 'connected' | 'reconnecting' | 'error';
+  connectionStatus:
+    | "disconnected"
+    | "connecting"
+    | "connected"
+    | "reconnecting"
+    | "error";
   reconnectAttempts: number;
   maxReconnectAttempts: number;
-  
+
   // Device state
   deviceState: DeviceState;
   deviceLoadingReason: DeviceLoadingReason;
   isPaused: boolean;
   serverPaused: boolean;
-  
+
   // Device info
   backend: string | null;
   deviceInfo: string | null;
@@ -111,19 +122,19 @@ export interface WebSocketState {
   maxSampleRateHz: number | null;
   sampleRateHz: number | null;
   sdrSettings: SdrSettingsConfig | null;
-  
+
   // Data
   spectrumFrames: SpectrumFrame[];
   dataFrameCounter: 0; // Increment when live data arrives
-  
+
   // Capture and processing
   captureStatus: CaptureStatus;
   autoFftOptions: AutoFftOptionsResponse | null;
-  
+
   // Error handling
   error: string | null;
   cryptoCorrupted: boolean;
-  
+
   // Message queue for offline/reconnecting
   queuedMessages: Array<{
     type: string;
@@ -134,15 +145,15 @@ export interface WebSocketState {
 
 const initialState: WebSocketState = {
   isConnected: false,
-  connectionStatus: 'disconnected',
+  connectionStatus: "disconnected",
   reconnectAttempts: 0,
   maxReconnectAttempts: 5,
-  
+
   deviceState: null,
   deviceLoadingReason: null,
   isPaused: false,
   serverPaused: false,
-  
+
   backend: null,
   deviceInfo: null,
   deviceName: null,
@@ -150,58 +161,61 @@ const initialState: WebSocketState = {
   maxSampleRateHz: null,
   sampleRateHz: null,
   sdrSettings: null,
-  
+
   spectrumFrames: [],
   dataFrameCounter: 0,
-  
+
   captureStatus: null,
   autoFftOptions: loadPersistedAutoFftOptions(), // Load cached options on startup
-  
+
   error: null,
   cryptoCorrupted: false,
-  
+
   queuedMessages: [],
 };
 
 const websocketSlice = createSlice({
-  name: 'websocket',
+  name: "websocket",
   initialState,
   reducers: {
     // Connection management
     setConnecting: (state) => {
-      state.connectionStatus = 'connecting';
+      state.connectionStatus = "connecting";
       state.error = null;
     },
-    
+
     setConnected: (state) => {
       state.isConnected = true;
-      state.connectionStatus = 'connected';
+      state.connectionStatus = "connected";
       state.reconnectAttempts = 0;
       state.error = null;
       state.cryptoCorrupted = false;
     },
-    
+
     setDisconnected: (state) => {
       state.isConnected = false;
-      state.connectionStatus = 'disconnected';
+      state.connectionStatus = "disconnected";
     },
-    
+
     setReconnecting: (state, action: PayloadAction<number>) => {
-      state.connectionStatus = 'reconnecting';
+      state.connectionStatus = "reconnecting";
       state.reconnectAttempts = action.payload;
     },
-    
+
     setError: (state, action: PayloadAction<string>) => {
       state.error = action.payload;
-      state.connectionStatus = 'error';
+      state.connectionStatus = "error";
     },
-    
+
     reset: (state) => {
       Object.assign(state, initialState);
     },
-    
+
     // Device state updates
-    updateDeviceState: (state, action: PayloadAction<Partial<WebSocketState>>) => {
+    updateDeviceState: (
+      state,
+      action: PayloadAction<Partial<WebSocketState>>,
+    ) => {
       const draftState = state as WebSocketState;
       const mutableState = state as unknown as Record<string, unknown>;
       for (const [key, value] of Object.entries(action.payload) as Array<
@@ -212,21 +226,23 @@ const websocketSlice = createSlice({
         }
       }
     },
-    
+
     setServerPaused: (state, action: PayloadAction<boolean>) => {
       state.serverPaused = action.payload;
     },
-    
+
     // Spectrum frames
     setSpectrumFrames: (state, action: PayloadAction<SpectrumFrame[]>) => {
       // Validate spectrum frames before storing
       const validatedFrames = validateSpectrumFrames(action.payload);
       if (validatedFrames.length !== action.payload.length) {
-        console.warn(`Filtered ${action.payload.length - validatedFrames.length} invalid spectrum frames`);
+        console.warn(
+          `Filtered ${action.payload.length - validatedFrames.length} invalid spectrum frames`,
+        );
       }
       state.spectrumFrames = validatedFrames;
     },
-    
+
     // Capture status
     setCaptureStatus: (state, action: PayloadAction<CaptureStatus | null>) => {
       // Allow null to clear capture status
@@ -234,49 +250,55 @@ const websocketSlice = createSlice({
         state.captureStatus = null;
         return;
       }
-      
+
       // Validate capture status before storing
       const validatedStatus = validateCaptureStatusEnhanced(action.payload);
       if (validatedStatus) {
         state.captureStatus = validatedStatus;
       } else {
-        console.error('Invalid capture status rejected:', action.payload);
+        console.error("Invalid capture status rejected:", action.payload);
       }
     },
-    
+
     // Auto FFT options
-    setAutoFftOptions: (state, action: PayloadAction<AutoFftOptionsResponse>) => {
+    setAutoFftOptions: (
+      state,
+      action: PayloadAction<AutoFftOptionsResponse>,
+    ) => {
       // Validate auto FFT options before storing
       const validatedOptions = validateAutoFftOptionsEnhanced(action.payload);
       if (validatedOptions) {
         state.autoFftOptions = validatedOptions;
       } else {
-        console.error('Invalid auto FFT options rejected:', action.payload);
+        console.error("Invalid auto FFT options rejected:", action.payload);
       }
     },
-    
+
     // Crypto corruption
     setCryptoCorrupted: (state) => {
       state.cryptoCorrupted = true;
     },
-    
+
     // Message queue management
-    queueMessage: (state, action: PayloadAction<{ type: string; data: any }>) => {
+    queueMessage: (
+      state,
+      action: PayloadAction<{ type: string; data: any }>,
+    ) => {
       state.queuedMessages.push({
         ...action.payload,
         timestamp: Date.now(),
       });
     },
-    
+
     clearQueuedMessages: (state) => {
       state.queuedMessages = [];
     },
-    
+
     // Pause state (user-controlled)
     setPaused: (state, action: PayloadAction<boolean>) => {
       state.isPaused = action.payload;
     },
-    
+
     // Data frame counter - increment when live data arrives
     incrementDataFrameCounter: (state) => {
       state.dataFrameCounter += 1;

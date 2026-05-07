@@ -1,4 +1,12 @@
-import React, { useMemo, useReducer, useEffect, useCallback, useRef, createContext, useContext } from "react";
+import React, {
+  useMemo,
+  useReducer,
+  useEffect,
+  useCallback,
+  useRef,
+  createContext,
+  useContext,
+} from "react";
 import type { AuthState } from "@n-apt/routes/AuthenticationRoute";
 import {
   getStoredSession,
@@ -54,7 +62,9 @@ const getInitialHasPasskeys = () => {
     return localStorage.getItem("n_apt_has_passkeys") === "true";
   } catch {
     // Safari private mode or localStorage blocked
-    console.warn("localStorage unavailable, assuming no passkeys (likely Safari private mode)");
+    console.warn(
+      "localStorage unavailable, assuming no passkeys (likely Safari private mode)",
+    );
     return false;
   }
 };
@@ -145,10 +155,13 @@ const useAuthenticationInternal = (
   const [state, dispatch] = useReducer(authReducer, initialState);
   const hasLoggedWebAuthnIdeNoticeRef = useRef(false);
 
-  const importBase64Key = useCallback(async (base64: string): Promise<CryptoKey> => {
-    const bytes = base64ToBytes(base64);
-    return importAesKey(bytes.buffer as ArrayBuffer);
-  }, []);
+  const importBase64Key = useCallback(
+    async (base64: string): Promise<CryptoKey> => {
+      const bytes = base64ToBytes(base64);
+      return importAesKey(bytes.buffer as ArrayBuffer);
+    },
+    [],
+  );
 
   // Check if WebAuthn is available in the browser
   const isWebAuthnAvailable = useMemo(() => {
@@ -281,6 +294,7 @@ const useAuthenticationInternal = (
               const vaultKeyB64 = await fetchVaultKey(storedToken);
               if (vaultKeyB64) {
                 const key = await importBase64Key(vaultKeyB64);
+
                 dispatch({
                   type: "AUTH_SUCCESS",
                   sessionToken: storedToken,
@@ -339,6 +353,9 @@ const useAuthenticationInternal = (
     try {
       const result = await authenticateWithPassword(password);
       const key = await deriveAesKey(password);
+
+
+
       dispatch({
         type: "AUTH_SUCCESS",
         sessionToken: result.token,
@@ -358,7 +375,9 @@ const useAuthenticationInternal = (
       const result = await authenticateWithPasskey();
       const vaultKeyB64 = await fetchVaultKey(result.token);
       if (!vaultKeyB64) {
-        throw new Error("Passkey auth succeeded but vault key retrieval failed.");
+        throw new Error(
+          "Passkey auth succeeded but vault key retrieval failed.",
+        );
       }
       const key = await importBase64Key(vaultKeyB64);
       dispatch({
@@ -418,9 +437,19 @@ const useAuthenticationInternal = (
   }, [isWebAuthnAvailable]);
 
   const logout = useCallback(() => {
+    const token = state.sessionToken;
     clearSession();
     dispatch({ type: "READY" });
-  }, []);
+
+    // Trigger backend logout to revoke token and clear site data.
+    // We use window.location.href to ensure a full navigation, which is
+    // required for Clear-Site-Data to be processed reliably and to
+    // handle the server-side redirect back to the root.
+    const logoutUrl = token
+      ? `/auth/logout?token=${encodeURIComponent(token)}`
+      : "/auth/logout";
+    window.location.href = logoutUrl;
+  }, [state.sessionToken]);
 
   return {
     ...state,

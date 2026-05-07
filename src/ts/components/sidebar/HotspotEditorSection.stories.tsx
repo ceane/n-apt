@@ -10,7 +10,15 @@ const theme = {
 
 export const Default = () => (
   <ThemeProvider theme={theme as any}>
-    <div style={{ padding: "20px", background: "#0a0a0a", width: "350px", display: "grid", gap: "2px" }}>
+    <div
+      style={{
+        padding: "20px",
+        background: "#0a0a0a",
+        width: "350px",
+        display: "grid",
+        gap: "2px",
+      }}
+    >
       <Model3DInteractionProvider>
         <HotspotEditorSection />
       </Model3DInteractionProvider>
@@ -19,5 +27,5 @@ export const Default = () => (
 );
 
 export default {
-  title: 'Sidebar/Hotspot Editor',
+  title: "Sidebar/Hotspot Editor",
 };

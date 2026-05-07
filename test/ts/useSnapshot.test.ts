@@ -96,7 +96,10 @@ describe("getZoomedSlice", () => {
 // ────────────────────────────────────────────────────────────────────────────
 
 describe("dbToColor", () => {
-  const mockColormap = [[0, 0, 0], [255, 255, 255]];
+  const mockColormap = [
+    [0, 0, 0],
+    [255, 255, 255],
+  ];
 
   it("returns [r, g, b] tuple", () => {
     const color = dbToColor(-60, -120, 0, mockColormap);
@@ -140,10 +143,12 @@ describe("getWholeChannelRenderRange", () => {
         {
           data: {} as any,
           visualRange: { min: 0, max: 2 },
+          waveformHistory: [],
         },
         {
           data: {} as any,
           visualRange: { min: 2, max: 6 },
+          waveformHistory: [],
         },
       ],
     );
@@ -195,6 +200,7 @@ describe("useSnapshot", () => {
       showWaterfall: false,
       showStats: true,
       showGrid: true,
+      showGeolocation: false,
       format: "png" as const,
       getSnapshotData: () => null,
     };
@@ -202,7 +208,7 @@ describe("useSnapshot", () => {
     await act(async () => {
       await result.current.handleSnapshot(options);
     });
-    
+
     // Should not crash even if data is null
   });
 });

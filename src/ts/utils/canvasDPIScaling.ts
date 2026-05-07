@@ -19,11 +19,11 @@ export interface CanvasDPISetup {
 export const setupCanvasForDPI = (
   canvas: HTMLCanvasElement,
   width: number,
-  height: number
+  height: number,
 ): CanvasDPISetup => {
-  const ctx = canvas.getContext('2d');
+  const ctx = canvas.getContext("2d");
   if (!ctx) {
-    throw new Error('Failed to get 2D context');
+    throw new Error("Failed to get 2D context");
   }
 
   const devicePixelRatio = window.devicePixelRatio || 1;
@@ -55,7 +55,7 @@ export const setupCanvasForDPI = (
  */
 export const getDPIScaledFontSize = (
   fontSize: number,
-  devicePixelRatio: number = window.devicePixelRatio || 1
+  devicePixelRatio: number = window.devicePixelRatio || 1,
 ): number => {
   return fontSize * devicePixelRatio;
 };
@@ -69,7 +69,7 @@ export const getDPIScaledFontSize = (
 export const scaleCoordinatesForDPI = (
   x: number,
   y: number,
-  devicePixelRatio: number = window.devicePixelRatio || 1
+  devicePixelRatio: number = window.devicePixelRatio || 1,
 ): [number, number] => {
   return [x * devicePixelRatio, y * devicePixelRatio];
 };
@@ -85,12 +85,16 @@ export const isHighDPI = (): boolean => {
  * Get optimal text rendering settings for current DPI
  */
 export const getOptimalTextRenderingSettings = (
-  devicePixelRatio: number = window.devicePixelRatio || 1
+  devicePixelRatio: number = window.devicePixelRatio || 1,
 ) => {
   return {
-    fontSmoothing: devicePixelRatio > 1 ? 'antialiased' as const : 'auto' as const,
-    textRendering: devicePixelRatio > 1 ? 'optimizeLegibility' as const : 'auto' as const,
+    fontSmoothing:
+      devicePixelRatio > 1 ? ("antialiased" as const) : ("auto" as const),
+    textRendering:
+      devicePixelRatio > 1
+        ? ("optimizeLegibility" as const)
+        : ("auto" as const),
     imageSmoothingEnabled: true,
-    imageSmoothingQuality: 'high' as const,
+    imageSmoothingQuality: "high" as const,
   };
 };

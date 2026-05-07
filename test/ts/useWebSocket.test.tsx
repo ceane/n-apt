@@ -29,11 +29,11 @@ describe("useWebSocket Hook", () => {
     expect(typeof result.current.isPaused).toBe("boolean");
     expect(
       result.current.deviceState === null ||
-      typeof result.current.deviceState === "string",
+        typeof result.current.deviceState === "string",
     ).toBe(true);
     expect(
       result.current.backend === null ||
-      typeof result.current.backend === "string",
+        typeof result.current.backend === "string",
     ).toBe(true);
     expect(
       result.current.error === null || typeof result.current.error === "string",
@@ -49,7 +49,9 @@ describe("useWebSocket Hook", () => {
   });
 
   it("should handle disabled state", () => {
-    const { result: _result } = renderHook(() => useWebSocket("ws://test", null, false));
+    const { result: _result } = renderHook(() =>
+      useWebSocket("ws://test", null, false),
+    );
 
     // When disabled, should not attempt connection
     expect(global.WebSocket).not.toHaveBeenCalled();

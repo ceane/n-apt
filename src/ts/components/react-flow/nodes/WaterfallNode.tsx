@@ -1,4 +1,4 @@
-import React from 'react';
+import React from "react";
 
 interface WaterfallNodeProps {
   data: {
@@ -12,7 +12,7 @@ export const WaterfallNode: React.FC<WaterfallNodeProps> = ({ data }) => {
     <>
       <div className="node-title">{data.label}</div>
       <div className="node-description">
-        <div style={{ fontSize: '10px', textAlign: 'center' }}>
+        <div style={{ fontSize: "10px", textAlign: "center" }}>
           🌊 Waterfall
         </div>
       </div>

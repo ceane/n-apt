@@ -65,38 +65,54 @@ export interface WasmSimdMathHandle {
     fftSize?: number,
     windowType?: string,
   ) => Float32Array;
-  shiftWaterfallBuffer: (buffer: Uint8ClampedArray, width: number, height: number) => void;
-  applyColorMapping: (amplitudes: Float32Array, output: Uint8ClampedArray, intensity: number) => void;
-  
+  shiftWaterfallBuffer: (
+    buffer: Uint8ClampedArray,
+    width: number,
+    height: number,
+  ) => void;
+  applyColorMapping: (
+    amplitudes: Float32Array,
+    output: Uint8ClampedArray,
+    intensity: number,
+  ) => void;
+
   // Mathematical preprocessing
-  getZoomedData: (params: ZoomMathParams) => { 
-    slicedWaveform: Float32Array; 
-    visualRange: { min: number; max: number }; 
-    clampedPan: number; 
+  getZoomedData: (params: ZoomMathParams) => {
+    slicedWaveform: Float32Array;
+    visualRange: { min: number; max: number };
+    clampedPan: number;
   };
-  
-  transformToScreenCoords: (params: CoordinateTransformParams) => Array<{x: number, y: number}>;
-  
-  calculateFrequencyDrag: (params: DragMathParams) => { 
-    freqChange: number; 
-    newPan?: number; 
-    newRange?: { min: number; max: number }; 
+
+  transformToScreenCoords: (
+    params: CoordinateTransformParams,
+  ) => Array<{ x: number; y: number }>;
+
+  calculateFrequencyDrag: (params: DragMathParams) => {
+    freqChange: number;
+    newPan?: number;
+    newRange?: { min: number; max: number };
   };
-  detectProminentSpikes: (params: SpikeDetectionParams) => SpectrumSpikeMarker[];
-  
+  detectProminentSpikes: (
+    params: SpikeDetectionParams,
+  ) => SpectrumSpikeMarker[];
+
   // Enhanced resampling
-  resampleSpectrumEnhanced: (input: Float32Array, output: Float32Array, algorithm?: 'max' | 'avg' | 'min') => void;
+  resampleSpectrumEnhanced: (
+    input: Float32Array,
+    output: Float32Array,
+    algorithm?: "max" | "avg" | "min",
+  ) => void;
   matchNoiseFloorDb: (
     reference: Float32Array,
     target: Float32Array,
     edgeBins: number,
     maxPositiveShiftDb?: number,
   ) => Float32Array;
-  
+
   // Performance and availability
   isSimdAvailable: boolean;
   isWasmLoaded: boolean;
-};
+}
 
 const normalizeWindowType = (windowType?: string) => {
   switch ((windowType ?? "hanning").toLowerCase()) {
@@ -117,11 +133,7 @@ const normalizeWindowType = (windowType?: string) => {
   }
 };
 
-const getWindowValue = (
-  index: number,
-  size: number,
-  windowType?: string,
-) => {
+const getWindowValue = (index: number, size: number, windowType?: string) => {
   if (size <= 1) return 1;
 
   const normalized = normalizeWindowType(windowType);
@@ -133,12 +145,18 @@ const getWindowValue = (
     case "hamming":
       return 0.54 - 0.46 * Math.cos(2 * Math.PI * t);
     case "blackman":
-      return 0.42 - 0.5 * Math.cos(2 * Math.PI * t) + 0.08 * Math.cos(4 * Math.PI * t);
+      return (
+        0.42 -
+        0.5 * Math.cos(2 * Math.PI * t) +
+        0.08 * Math.cos(4 * Math.PI * t)
+      );
     case "nuttall":
-      return 0.355768
-        - 0.487396 * Math.cos(2 * Math.PI * t)
-        + 0.144232 * Math.cos(4 * Math.PI * t)
-        - 0.012604 * Math.cos(6 * Math.PI * t);
+      return (
+        0.355768 -
+        0.487396 * Math.cos(2 * Math.PI * t) +
+        0.144232 * Math.cos(4 * Math.PI * t) -
+        0.012604 * Math.cos(6 * Math.PI * t)
+      );
     case "hanning":
     default:
       return 0.5 - 0.5 * Math.cos(2 * Math.PI * t);
@@ -154,7 +172,10 @@ export function computeIqToDbSpectrumScalar(
   },
 ): Float32Array {
   const { fftSize, offsetDb, windowType } = options;
-  const numSamples = Math.max(1, Math.min(fftSize, Math.floor(input.length / 2)));
+  const numSamples = Math.max(
+    1,
+    Math.min(fftSize, Math.floor(input.length / 2)),
+  );
   const real = new Float32Array(numSamples);
   const imag = new Float32Array(numSamples);
   let windowSum = 0;
@@ -203,8 +224,10 @@ export function computeIqToDbSpectrumScalar(
       for (let j = 0; j < halfM; j++) {
         const uReal = paddedReal[k + j];
         const uImag = paddedImag[k + j];
-        const vr = paddedReal[k + j + halfM] * wReal - paddedImag[k + j + halfM] * wImag;
-        const vi = paddedReal[k + j + halfM] * wImag + paddedImag[k + j + halfM] * wReal;
+        const vr =
+          paddedReal[k + j + halfM] * wReal - paddedImag[k + j + halfM] * wImag;
+        const vi =
+          paddedReal[k + j + halfM] * wImag + paddedImag[k + j + halfM] * wReal;
         paddedReal[k + j] = uReal + vr;
         paddedImag[k + j] = uImag + vi;
         paddedReal[k + j + halfM] = uReal - vr;
@@ -219,7 +242,8 @@ export function computeIqToDbSpectrumScalar(
   const normSq = Math.max(windowSum * windowSum, 1e-12);
   const output = new Float32Array(fftLen);
   for (let i = 0; i < fftLen; i++) {
-    const magSq = (paddedReal[i] * paddedReal[i] + paddedImag[i] * paddedImag[i]) / normSq;
+    const magSq =
+      (paddedReal[i] * paddedReal[i] + paddedImag[i] * paddedImag[i]) / normSq;
     output[i] = 10 * Math.log10(magSq + 1e-15) + offsetDb;
   }
 
@@ -232,19 +256,21 @@ export function computeIqToDbSpectrumScalar(
   return shifted;
 }
 
-export function useWasmSimdMath(options: SpectrumMathOptions): WasmSimdMathHandle {
+export function useWasmSimdMath(
+  options: SpectrumMathOptions,
+): WasmSimdMathHandle {
   const { fftSize, enableSimd, fallbackToScalar } = options;
-  
+
   const isMountedRef = useRef(true);
-  
+
   // WASM module state
   const [isWasmLoaded, setIsWasmLoaded] = useState(false);
   const [isSimdAvailable, setIsSimdAvailable] = useState(false);
-  
+
   // WASM processor references
   const renderingProcessorRef = useRef<any>(null);
   const wasmModuleRef = useRef<any>(null);
-  
+
   // Initialize WASM SIMD module
   useEffect(() => {
     isMountedRef.current = true;
@@ -252,14 +278,14 @@ export function useWasmSimdMath(options: SpectrumMathOptions): WasmSimdMathHandl
       try {
         const wasmModule = await import("n_apt_canvas");
         if (!isMountedRef.current) return;
-        
+
         wasmModuleRef.current = wasmModule;
         const initWasm = wasmModule.default;
-        
+
         // Initialize the WASM module
         await initWasm();
         if (!isMountedRef.current) return;
-        
+
         if (enableSimd) {
           setIsSimdAvailable(true);
           try {
@@ -269,7 +295,7 @@ export function useWasmSimdMath(options: SpectrumMathOptions): WasmSimdMathHandl
             console.warn("RenderingProcessor not available, using fallbacks");
           }
         }
-        
+
         setIsWasmLoaded(true);
       } catch (error) {
         if (!isMountedRef.current) return;
@@ -279,113 +305,158 @@ export function useWasmSimdMath(options: SpectrumMathOptions): WasmSimdMathHandl
         }
       }
     };
-    
+
     initWasm();
 
     return () => {
       isMountedRef.current = false;
     };
   }, [fftSize, enableSimd, fallbackToScalar]);
-  
-  // WASM SIMD operations
-  const resampleSpectrum = useCallback((input: Float32Array, output: Float32Array) => {
-    if (renderingProcessorRef.current && isSimdAvailable) {
-      // Use WASM SIMD for resampling
-      renderingProcessorRef.current.resample_spectrum(input, output, output.length);
-    } else {
-      // Scalar fallback with max-pooling
-      const srcLen = input.length;
-      const outLen = output.length;
-      
-      for (let x = 0; x < outLen; x++) {
-        const start = Math.floor((x * srcLen) / outLen);
-        const end = Math.max(start + 1, Math.floor(((x + 1) * srcLen) / outLen));
-        let maxVal = -Infinity;
-        
-        for (let i = start; i < end && i < srcLen; i++) {
-          const v = input[i];
-          if (Number.isFinite(v) && v > maxVal) {
-            maxVal = v;
-          }
-        }
-        
-        output[x] = maxVal !== -Infinity ? maxVal : (input[Math.min(start, srcLen - 1)] ?? -150);
-      }
-    }
-  }, [isSimdAvailable]);
 
-  const matchNoiseFloorDb = useCallback((
-    reference: Float32Array,
-    target: Float32Array,
-    edgeBins: number,
-    maxPositiveShiftDb = 0,
-  ) => {
-    if (wasmModuleRef.current && isSimdAvailable) {
-      try {
-        const matchNoiseFloor = wasmModuleRef.current.match_noise_floor_db_wasm;
-        if (typeof matchNoiseFloor === "function") {
-          return new Float32Array(
-            matchNoiseFloor(reference, target, edgeBins, maxPositiveShiftDb),
+  // WASM SIMD operations
+  const resampleSpectrum = useCallback(
+    (input: Float32Array, output: Float32Array) => {
+      if (renderingProcessorRef.current && isSimdAvailable) {
+        // Use WASM SIMD for resampling
+        renderingProcessorRef.current.resample_spectrum(
+          input,
+          output,
+          output.length,
+        );
+      } else {
+        // Scalar fallback with max-pooling
+        const srcLen = input.length;
+        const outLen = output.length;
+
+        for (let x = 0; x < outLen; x++) {
+          const start = Math.floor((x * srcLen) / outLen);
+          const end = Math.max(
+            start + 1,
+            Math.floor(((x + 1) * srcLen) / outLen),
+          );
+          let maxVal = -Infinity;
+
+          for (let i = start; i < end && i < srcLen; i++) {
+            const v = input[i];
+            if (Number.isFinite(v) && v > maxVal) {
+              maxVal = v;
+            }
+          }
+
+          output[x] =
+            maxVal !== -Infinity
+              ? maxVal
+              : (input[Math.min(start, srcLen - 1)] ?? -150);
+        }
+      }
+    },
+    [isSimdAvailable],
+  );
+
+  const matchNoiseFloorDb = useCallback(
+    (
+      reference: Float32Array,
+      target: Float32Array,
+      edgeBins: number,
+      maxPositiveShiftDb = 0,
+    ) => {
+      if (wasmModuleRef.current && isSimdAvailable) {
+        try {
+          const matchNoiseFloor =
+            wasmModuleRef.current.match_noise_floor_db_wasm;
+          if (typeof matchNoiseFloor === "function") {
+            return new Float32Array(
+              matchNoiseFloor(reference, target, edgeBins, maxPositiveShiftDb),
+            );
+          }
+        } catch (error) {
+          console.warn(
+            "WASM SIMD noise-floor matching fallback failed, using scalar path:",
+            error,
           );
         }
-      } catch (error) {
-        console.warn("WASM SIMD noise-floor matching fallback failed, using scalar path:", error);
       }
-    }
 
-    const output = new Float32Array(target);
-    const bins = Math.max(1, Math.min(edgeBins, reference.length, output.length));
-    const mean = (values: Float32Array, start: number, end: number) => {
-      let sum = 0;
-      let count = 0;
-      for (let i = Math.max(0, start); i < Math.min(values.length, end); i++) {
-        if (Number.isFinite(values[i])) {
-          sum += values[i];
-          count++;
+      const output = new Float32Array(target);
+      const bins = Math.max(
+        1,
+        Math.min(edgeBins, reference.length, output.length),
+      );
+      const mean = (values: Float32Array, start: number, end: number) => {
+        let sum = 0;
+        let count = 0;
+        for (
+          let i = Math.max(0, start);
+          i < Math.min(values.length, end);
+          i++
+        ) {
+          if (Number.isFinite(values[i])) {
+            sum += values[i];
+            count++;
+          }
+        }
+        return count > 0 ? sum / count : Number.NaN;
+      };
+      const referenceFloor = mean(
+        reference,
+        reference.length - bins,
+        reference.length,
+      );
+      const targetFloor = mean(output, 0, bins);
+      if (!Number.isFinite(referenceFloor) || !Number.isFinite(targetFloor)) {
+        return output;
+      }
+
+      const delta = Math.min(
+        referenceFloor - targetFloor,
+        Math.max(0, maxPositiveShiftDb),
+      );
+      if (delta !== 0) {
+        for (let i = 0; i < output.length; i++) {
+          if (Number.isFinite(output[i])) output[i] += delta;
         }
       }
-      return count > 0 ? sum / count : Number.NaN;
-    };
-    const referenceFloor = mean(reference, reference.length - bins, reference.length);
-    const targetFloor = mean(output, 0, bins);
-    if (!Number.isFinite(referenceFloor) || !Number.isFinite(targetFloor)) {
       return output;
-    }
+    },
+    [isSimdAvailable],
+  );
 
-    const delta = Math.min(referenceFloor - targetFloor, Math.max(0, maxPositiveShiftDb));
-    if (delta !== 0) {
-      for (let i = 0; i < output.length; i++) {
-        if (Number.isFinite(output[i])) output[i] += delta;
-      }
-    }
-    return output;
-  }, [isSimdAvailable]);
-
-  const processIqToDbmSpectrum = useCallback((
-    input: Uint8Array,
-    offsetDb: number,
-    overrideFftSize?: number,
-    windowType?: string,
-  ) => {
-    if (renderingProcessorRef.current && isSimdAvailable) {
-      try {
-        const processor = renderingProcessorRef.current as {
-          process_iq_to_dbm_spectrum?: (input: Uint8Array, offsetDb: number) => Float32Array | Float32Array;
-        };
-        if (typeof processor.process_iq_to_dbm_spectrum === "function") {
-          return new Float32Array(processor.process_iq_to_dbm_spectrum(input, offsetDb));
+  const processIqToDbmSpectrum = useCallback(
+    (
+      input: Uint8Array,
+      offsetDb: number,
+      overrideFftSize?: number,
+      windowType?: string,
+    ) => {
+      if (renderingProcessorRef.current && isSimdAvailable) {
+        try {
+          const processor = renderingProcessorRef.current as {
+            process_iq_to_dbm_spectrum?: (
+              input: Uint8Array,
+              offsetDb: number,
+            ) => Float32Array | Float32Array;
+          };
+          if (typeof processor.process_iq_to_dbm_spectrum === "function") {
+            return new Float32Array(
+              processor.process_iq_to_dbm_spectrum(input, offsetDb),
+            );
+          }
+        } catch (error) {
+          console.warn(
+            "WASM SIMD I/Q dBm fallback failed, using scalar path:",
+            error,
+          );
         }
-      } catch (error) {
-        console.warn("WASM SIMD I/Q dBm fallback failed, using scalar path:", error);
       }
-    }
 
-    return computeIqToDbSpectrumScalar(input, {
-      fftSize: overrideFftSize ?? fftSize,
-      offsetDb,
-      windowType,
-    });
-  }, [fftSize, isSimdAvailable]);
+      return computeIqToDbSpectrumScalar(input, {
+        fftSize: overrideFftSize ?? fftSize,
+        offsetDb,
+        windowType,
+      });
+    },
+    [fftSize, isSimdAvailable],
+  );
 
   const processIqToSpectrum = useCallback(
     (
@@ -407,243 +478,286 @@ export function useWasmSimdMath(options: SpectrumMathOptions): WasmSimdMathHandl
     [processIqToDbmSpectrum],
   );
 
-  const shiftWaterfallBuffer = useCallback((buffer: Uint8ClampedArray, width: number, height: number) => {
-    if (renderingProcessorRef.current && isSimdAvailable) {
-      // Use WASM SIMD for buffer shifting
-      renderingProcessorRef.current.shift_waterfall_buffer(buffer, width, height);
-    } else {
-      // Scalar fallback
-      const rowSize = width * 4; // RGBA
-      
-      // Shift all rows up by one (copy from bottom to top to avoid overlap)
-      for (let y = 0; y < height - 1; y++) {
-        const srcOffset = (y + 1) * rowSize;
-        const dstOffset = y * rowSize;
-        
-        for (let x = 0; x < rowSize; x++) {
-          buffer[dstOffset + x] = buffer[srcOffset + x];
-        }
-      }
-      
-      // Clear the bottom row
-      const bottomRowOffset = (height - 1) * rowSize;
-      for (let x = 0; x < rowSize; x++) {
-        buffer[bottomRowOffset + x] = 0;
-      }
-    }
-  }, [isSimdAvailable]);
-  
-  const applyColorMapping = useCallback((amplitudes: Float32Array, output: Uint8ClampedArray, intensity: number) => {
-    if (renderingProcessorRef.current && isSimdAvailable) {
-      // Use WASM SIMD for color mapping
-      renderingProcessorRef.current.apply_color_mapping(amplitudes, output, intensity);
-    } else {
-      // Scalar fallback
-      for (let i = 0; i < amplitudes.length; i++) {
-        const amp = amplitudes[i];
-        const normalized = Math.max(0, Math.min(1, amp));
-        
-        // Simple color mapping: blue -> green -> red
-        let r, g, b;
-        if (normalized < 0.5) {
-          // Blue to Green
-          const t = normalized * 2;
-          r = 0;
-          g = Math.floor(255 * t);
-          b = Math.floor(255 * (1 - t));
-        } else {
-          // Green to Red
-          const t = (normalized - 0.5) * 2;
-          r = Math.floor(255 * t);
-          g = Math.floor(255 * (1 - t));
-          b = 0;
-        }
-        
-        const idx = i * 4;
-        output[idx] = r;
-        output[idx + 1] = g;
-        output[idx + 2] = b;
-        output[idx + 3] = 255; // Alpha
-      }
-    }
-  }, [isSimdAvailable]);
-  
-  // Mathematical preprocessing functions
-  const getZoomedData = useCallback((params: ZoomMathParams) => {
-    const { fullWaveform, fullRange, zoom, panOffset } = params;
-    
-    if (renderingProcessorRef.current && isSimdAvailable) {
-      const result = renderingProcessorRef.current.get_zoomed_data(
-        fullWaveform,
-        fullRange.min,
-        fullRange.max,
-        zoom,
-        panOffset,
-      );
-      
-      return {
-        slicedWaveform: new Float32Array(result.slicedWaveform),
-        visualRange: { 
-          min: result.visualRange[0], 
-          max: result.visualRange[1] 
-        },
-        clampedPan: result.clampedPan,
-      };
-    } else {
-      // Scalar fallback implementation
-      if (zoom === 1) {
-        return {
-          slicedWaveform: fullWaveform,
-          visualRange: fullRange,
-          clampedPan: 0,
-        };
-      }
-
-      const totalBins = fullWaveform.length;
-      const visibleBins = Math.max(1, Math.floor(totalBins / zoom));
-      const fullSpan = fullRange.max - fullRange.min;
-      const halfSpan = fullSpan / (2 * zoom);
-      
-      // Calculate max allowed pan
-      const maxPan = fullSpan / 2 - halfSpan;
-      let clampedPan = panOffset;
-      if (maxPan >= 0) {
-        clampedPan = Math.max(-maxPan, Math.min(maxPan, panOffset));
-      } else {
-        const outPan = -maxPan;
-        clampedPan = Math.max(-outPan, Math.min(outPan, panOffset));
-      }
-      
-      const centerFreq = (fullRange.min + fullRange.max) / 2;
-      const visualCenter = centerFreq + clampedPan;
-      const visualCenterBin = Math.round(((visualCenter - fullRange.min) / fullSpan) * totalBins);
-      
-      let startBin = Math.round(visualCenterBin - visibleBins / 2);
-      const visualRange = {
-        min: visualCenter - halfSpan,
-        max: visualCenter + halfSpan,
-      };
-      
-      if (zoom < 1) {
-        const paddedWaveform = new Float32Array(visibleBins).fill(-150);
-        const destOffset = Math.max(0, -startBin);
-        const dataToCopy = Math.min(totalBins, visibleBins - destOffset);
-        const srcOffset = Math.max(0, startBin);
-        
-        if (dataToCopy > 0) {
-          paddedWaveform.set(fullWaveform.subarray(srcOffset, srcOffset + dataToCopy), destOffset);
-        }
-        return { slicedWaveform: paddedWaveform, visualRange, clampedPan };
-      }
-      
-      // Clamp startBin for zoom > 1
-      startBin = Math.max(0, Math.min(totalBins - visibleBins, startBin));
-      
-      const slicedWaveform = fullWaveform.subarray(startBin, startBin + visibleBins);
-      return { slicedWaveform, visualRange, clampedPan };
-    }
-  }, [isSimdAvailable]);
-
-  const transformToScreenCoords = useCallback((params: CoordinateTransformParams) => {
-    const { spectrumData, canvasWidth, canvasHeight, fftArea, dbRange } = params;
-    
-    if (renderingProcessorRef.current && isSimdAvailable) {
-      const coords = renderingProcessorRef.current.transform_to_screen_coords(
-        new Float32Array(spectrumData),
-        canvasWidth,
-        canvasHeight,
-        fftArea.x,
-        fftArea.y,
-        dbRange.min,
-        dbRange.max,
-      );
-      
-      // Convert interleaved coordinates to array of {x, y} objects
-      const result: Array<{x: number, y: number}> = [];
-      for (let i = 0; i < coords.length; i += 2) {
-        result.push({ x: coords[i], y: coords[i + 1] });
-      }
-      return result;
-    } else {
-      // Scalar fallback
-      const dataWidth = spectrumData.length;
-      if (dataWidth <= 1) return [];
-      
-      const fftAreaMax = { x: canvasWidth - 40, y: canvasHeight - 40 };
-      const fftHeight = fftAreaMax.y - fftArea.y;
-      const plotWidth = fftAreaMax.x - fftArea.x;
-      const vertRange = dbRange.max - dbRange.min;
-      const scaleFactor = fftHeight / vertRange;
-      
-      const result: Array<{x: number, y: number}> = [];
-      
-      for (let i = 0; i < dataWidth; i++) {
-        const x = Math.round(fftArea.x + (i / (dataWidth - 1)) * plotWidth);
-        const y = Math.round(
-          Math.max(
-            fftArea.y + 1,
-            Math.min(
-              fftAreaMax.y,
-              fftAreaMax.y - (spectrumData[i] - dbRange.min) * scaleFactor,
-            ),
-          ),
+  const shiftWaterfallBuffer = useCallback(
+    (buffer: Uint8ClampedArray, width: number, height: number) => {
+      if (renderingProcessorRef.current && isSimdAvailable) {
+        // Use WASM SIMD for buffer shifting
+        renderingProcessorRef.current.shift_waterfall_buffer(
+          buffer,
+          width,
+          height,
         );
-        result.push({ x, y });
-      }
-      
-      return result;
-    }
-  }, [isSimdAvailable]);
+      } else {
+        // Scalar fallback
+        const rowSize = width * 4; // RGBA
 
-  const calculateFrequencyDrag = useCallback((params: DragMathParams) => {
-    const { deltaX, canvasWidth, fullRange, zoom, dragStartFreq, dragStartPan } = params;
-    
-    if (renderingProcessorRef.current && isSimdAvailable) {
-      // For now, use scalar implementation - can be enhanced later
-      const visualRange = fullRange.max - fullRange.min / zoom;
-      const freqChange = (deltaX / canvasWidth) * visualRange;
-      
-      if (zoom > 1) {
-        // Visual panning mode
-        const maxPan = fullRange.max / 2 - visualRange / 2;
-        let newPan = dragStartPan - freqChange;
-        newPan = Math.max(-maxPan, Math.min(maxPan, newPan));
-        
-        return { freqChange, newPan };
-      } else {
-        // Hardware retune mode
-        const newMinFreq = dragStartFreq - freqChange;
-        const rangeWidth = fullRange.max - fullRange.min;
-        const newMaxFreq = newMinFreq + rangeWidth;
-        
-        return { 
-          freqChange, 
-          newRange: { min: newMinFreq, max: newMaxFreq } 
-        };
+        // Shift all rows up by one (copy from bottom to top to avoid overlap)
+        for (let y = 0; y < height - 1; y++) {
+          const srcOffset = (y + 1) * rowSize;
+          const dstOffset = y * rowSize;
+
+          for (let x = 0; x < rowSize; x++) {
+            buffer[dstOffset + x] = buffer[srcOffset + x];
+          }
+        }
+
+        // Clear the bottom row
+        const bottomRowOffset = (height - 1) * rowSize;
+        for (let x = 0; x < rowSize; x++) {
+          buffer[bottomRowOffset + x] = 0;
+        }
       }
-    } else {
-      // Scalar fallback
-      const visualRange = fullRange.max - fullRange.min / zoom;
-      const freqChange = (deltaX / canvasWidth) * visualRange;
-      
-      if (zoom > 1) {
-        const maxPan = fullRange.max / 2 - visualRange / 2;
-        let newPan = dragStartPan - freqChange;
-        newPan = Math.max(-maxPan, Math.min(maxPan, newPan));
-        
-        return { freqChange, newPan };
+    },
+    [isSimdAvailable],
+  );
+
+  const applyColorMapping = useCallback(
+    (
+      amplitudes: Float32Array,
+      output: Uint8ClampedArray,
+      intensity: number,
+    ) => {
+      if (renderingProcessorRef.current && isSimdAvailable) {
+        // Use WASM SIMD for color mapping
+        renderingProcessorRef.current.apply_color_mapping(
+          amplitudes,
+          output,
+          intensity,
+        );
       } else {
-        const newMinFreq = dragStartFreq - freqChange;
-        const rangeWidth = fullRange.max - fullRange.min;
-        const newMaxFreq = newMinFreq + rangeWidth;
-        
-        return { 
-          freqChange, 
-          newRange: { min: newMinFreq, max: newMaxFreq } 
-        };
+        // Scalar fallback
+        for (let i = 0; i < amplitudes.length; i++) {
+          const amp = amplitudes[i];
+          const normalized = Math.max(0, Math.min(1, amp));
+
+          // Simple color mapping: blue -> green -> red
+          let r, g, b;
+          if (normalized < 0.5) {
+            // Blue to Green
+            const t = normalized * 2;
+            r = 0;
+            g = Math.floor(255 * t);
+            b = Math.floor(255 * (1 - t));
+          } else {
+            // Green to Red
+            const t = (normalized - 0.5) * 2;
+            r = Math.floor(255 * t);
+            g = Math.floor(255 * (1 - t));
+            b = 0;
+          }
+
+          const idx = i * 4;
+          output[idx] = r;
+          output[idx + 1] = g;
+          output[idx + 2] = b;
+          output[idx + 3] = 255; // Alpha
+        }
       }
-    }
-  }, [isSimdAvailable]);
+    },
+    [isSimdAvailable],
+  );
+
+  // Mathematical preprocessing functions
+  const getZoomedData = useCallback(
+    (params: ZoomMathParams) => {
+      const { fullWaveform, fullRange, zoom, panOffset } = params;
+
+      if (renderingProcessorRef.current && isSimdAvailable) {
+        const result = renderingProcessorRef.current.get_zoomed_data(
+          fullWaveform,
+          fullRange.min,
+          fullRange.max,
+          zoom,
+          panOffset,
+        );
+
+        return {
+          slicedWaveform: new Float32Array(result.slicedWaveform),
+          visualRange: {
+            min: result.visualRange[0],
+            max: result.visualRange[1],
+          },
+          clampedPan: result.clampedPan,
+        };
+      } else {
+        // Scalar fallback implementation
+        if (zoom === 1) {
+          return {
+            slicedWaveform: fullWaveform,
+            visualRange: fullRange,
+            clampedPan: 0,
+          };
+        }
+
+        const totalBins = fullWaveform.length;
+        const visibleBins = Math.max(1, Math.floor(totalBins / zoom));
+        const fullSpan = fullRange.max - fullRange.min;
+        const halfSpan = fullSpan / (2 * zoom);
+
+        // Calculate max allowed pan
+        const maxPan = fullSpan / 2 - halfSpan;
+        let clampedPan = panOffset;
+        if (maxPan >= 0) {
+          clampedPan = Math.max(-maxPan, Math.min(maxPan, panOffset));
+        } else {
+          const outPan = -maxPan;
+          clampedPan = Math.max(-outPan, Math.min(outPan, panOffset));
+        }
+
+        const centerFreq = (fullRange.min + fullRange.max) / 2;
+        const visualCenter = centerFreq + clampedPan;
+        const visualCenterBin = Math.round(
+          ((visualCenter - fullRange.min) / fullSpan) * totalBins,
+        );
+
+        let startBin = Math.round(visualCenterBin - visibleBins / 2);
+        const visualRange = {
+          min: visualCenter - halfSpan,
+          max: visualCenter + halfSpan,
+        };
+
+        if (zoom < 1) {
+          const paddedWaveform = new Float32Array(visibleBins).fill(-150);
+          const destOffset = Math.max(0, -startBin);
+          const dataToCopy = Math.min(totalBins, visibleBins - destOffset);
+          const srcOffset = Math.max(0, startBin);
+
+          if (dataToCopy > 0) {
+            paddedWaveform.set(
+              fullWaveform.subarray(srcOffset, srcOffset + dataToCopy),
+              destOffset,
+            );
+          }
+          return { slicedWaveform: paddedWaveform, visualRange, clampedPan };
+        }
+
+        // Clamp startBin for zoom > 1
+        startBin = Math.max(0, Math.min(totalBins - visibleBins, startBin));
+
+        const slicedWaveform = fullWaveform.subarray(
+          startBin,
+          startBin + visibleBins,
+        );
+        return { slicedWaveform, visualRange, clampedPan };
+      }
+    },
+    [isSimdAvailable],
+  );
+
+  const transformToScreenCoords = useCallback(
+    (params: CoordinateTransformParams) => {
+      const { spectrumData, canvasWidth, canvasHeight, fftArea, dbRange } =
+        params;
+
+      if (renderingProcessorRef.current && isSimdAvailable) {
+        const coords = renderingProcessorRef.current.transform_to_screen_coords(
+          new Float32Array(spectrumData),
+          canvasWidth,
+          canvasHeight,
+          fftArea.x,
+          fftArea.y,
+          dbRange.min,
+          dbRange.max,
+        );
+
+        // Convert interleaved coordinates to array of {x, y} objects
+        const result: Array<{ x: number; y: number }> = [];
+        for (let i = 0; i < coords.length; i += 2) {
+          result.push({ x: coords[i], y: coords[i + 1] });
+        }
+        return result;
+      } else {
+        // Scalar fallback
+        const dataWidth = spectrumData.length;
+        if (dataWidth <= 1) return [];
+
+        const fftAreaMax = { x: canvasWidth - 40, y: canvasHeight - 40 };
+        const fftHeight = fftAreaMax.y - fftArea.y;
+        const plotWidth = fftAreaMax.x - fftArea.x;
+        const vertRange = dbRange.max - dbRange.min;
+        const scaleFactor = fftHeight / vertRange;
+
+        const result: Array<{ x: number; y: number }> = [];
+
+        for (let i = 0; i < dataWidth; i++) {
+          const x = Math.round(fftArea.x + (i / (dataWidth - 1)) * plotWidth);
+          const y = Math.round(
+            Math.max(
+              fftArea.y + 1,
+              Math.min(
+                fftAreaMax.y,
+                fftAreaMax.y - (spectrumData[i] - dbRange.min) * scaleFactor,
+              ),
+            ),
+          );
+          result.push({ x, y });
+        }
+
+        return result;
+      }
+    },
+    [isSimdAvailable],
+  );
+
+  const calculateFrequencyDrag = useCallback(
+    (params: DragMathParams) => {
+      const {
+        deltaX,
+        canvasWidth,
+        fullRange,
+        zoom,
+        dragStartFreq,
+        dragStartPan,
+      } = params;
+
+      if (renderingProcessorRef.current && isSimdAvailable) {
+        // For now, use scalar implementation - can be enhanced later
+        const visualRange = fullRange.max - fullRange.min / zoom;
+        const freqChange = (deltaX / canvasWidth) * visualRange;
+
+        if (zoom > 1) {
+          // Visual panning mode
+          const maxPan = fullRange.max / 2 - visualRange / 2;
+          let newPan = dragStartPan - freqChange;
+          newPan = Math.max(-maxPan, Math.min(maxPan, newPan));
+
+          return { freqChange, newPan };
+        } else {
+          // Hardware retune mode
+          const newMinFreq = dragStartFreq - freqChange;
+          const rangeWidth = fullRange.max - fullRange.min;
+          const newMaxFreq = newMinFreq + rangeWidth;
+
+          return {
+            freqChange,
+            newRange: { min: newMinFreq, max: newMaxFreq },
+          };
+        }
+      } else {
+        // Scalar fallback
+        const visualRange = fullRange.max - fullRange.min / zoom;
+        const freqChange = (deltaX / canvasWidth) * visualRange;
+
+        if (zoom > 1) {
+          const maxPan = fullRange.max / 2 - visualRange / 2;
+          let newPan = dragStartPan - freqChange;
+          newPan = Math.max(-maxPan, Math.min(maxPan, newPan));
+
+          return { freqChange, newPan };
+        } else {
+          const newMinFreq = dragStartFreq - freqChange;
+          const rangeWidth = fullRange.max - fullRange.min;
+          const newMaxFreq = newMinFreq + rangeWidth;
+
+          return {
+            freqChange,
+            newRange: { min: newMinFreq, max: newMaxFreq },
+          };
+        }
+      }
+    },
+    [isSimdAvailable],
+  );
 
   const detectProminentSpikes = useCallback((params: SpikeDetectionParams) => {
     const {
@@ -670,7 +784,7 @@ export function useWasmSimdMath(options: SpectrumMathOptions): WasmSimdMathHandl
     const zScores = new Float32Array(length);
     const localMeans = new Float32Array(length);
     const localStdDevs = new Float32Array(length);
-    
+
     // Pass 1: compute local mean and std dev using sliding window
     for (let i = 0; i < length; i++) {
       let sum = 0;
@@ -678,7 +792,7 @@ export function useWasmSimdMath(options: SpectrumMathOptions): WasmSimdMathHandl
       let count = 0;
       const start = Math.max(0, i - w);
       const end = Math.min(length - 1, i + w);
-      
+
       for (let j = start; j <= end; j++) {
         const val = spectrumData[j];
         if (Number.isFinite(val)) {
@@ -687,17 +801,17 @@ export function useWasmSimdMath(options: SpectrumMathOptions): WasmSimdMathHandl
           count++;
         }
       }
-      
+
       if (count > 0) {
         const mean = sum / count;
         localMeans[i] = mean;
         // variance = E[X^2] - (E[X])^2
-        const variance = Math.max(0, (sumSq / count) - (mean * mean));
+        const variance = Math.max(0, sumSq / count - mean * mean);
         const stdDev = Math.sqrt(variance);
         localStdDevs[i] = Math.max(0.1, stdDev); // Prevent division by zero
       }
     }
-    
+
     // Pass 2: calculate z-scores
     for (let i = 0; i < length; i++) {
       const val = spectrumData[i];
@@ -711,7 +825,10 @@ export function useWasmSimdMath(options: SpectrumMathOptions): WasmSimdMathHandl
         ? temporalPersistence
         : null;
     const decay = 0.9;
-    const persistenceSpread = Math.max(1, Math.min(4, Math.floor(length / 1024)));
+    const persistenceSpread = Math.max(
+      1,
+      Math.min(4, Math.floor(length / 1024)),
+    );
 
     // Update persistence
     if (persistence) {
@@ -742,13 +859,16 @@ export function useWasmSimdMath(options: SpectrumMathOptions): WasmSimdMathHandl
       const center = spectrumData[i];
       if (!Number.isFinite(center)) continue;
 
-      const effectiveScore = zScores[i] + (persistence ? persistence[i] * 0.65 : 0);
+      const effectiveScore =
+        zScores[i] + (persistence ? persistence[i] * 0.65 : 0);
       if (effectiveScore < minZScore) continue;
 
       // Peak detection (local maximum in the effective score)
       if (
-        effectiveScore <= zScores[i - 1] + (persistence ? persistence[i - 1] * 0.65 : 0) ||
-        effectiveScore <= zScores[i + 1] + (persistence ? persistence[i + 1] * 0.65 : 0)
+        effectiveScore <=
+          zScores[i - 1] + (persistence ? persistence[i - 1] * 0.65 : 0) ||
+        effectiveScore <=
+          zScores[i + 1] + (persistence ? persistence[i + 1] * 0.65 : 0)
       ) {
         continue;
       }
@@ -756,7 +876,7 @@ export function useWasmSimdMath(options: SpectrumMathOptions): WasmSimdMathHandl
       // Base radius on Z-score magnitude
       const normalizedScore = Math.max(
         0,
-        Math.min(1, (effectiveScore - minZScore) / 5.0)
+        Math.min(1, (effectiveScore - minZScore) / 5.0),
       );
 
       candidates.push({
@@ -772,7 +892,11 @@ export function useWasmSimdMath(options: SpectrumMathOptions): WasmSimdMathHandl
     const filtered: SpectrumSpikeMarker[] = [];
     const minSpacing = Math.max(2, Math.floor(length / 420));
     for (const candidate of candidates) {
-      if (filtered.some((marker) => Math.abs(marker.index - candidate.index) < minSpacing)) {
+      if (
+        filtered.some(
+          (marker) => Math.abs(marker.index - candidate.index) < minSpacing,
+        )
+      ) {
         continue;
       }
       filtered.push(candidate);
@@ -784,18 +908,26 @@ export function useWasmSimdMath(options: SpectrumMathOptions): WasmSimdMathHandl
   }, []);
 
   // Enhanced resampling with algorithm selection
-  const resampleSpectrumEnhanced = useCallback((
-    input: Float32Array, 
-    output: Float32Array, 
-    algorithm: 'max' | 'avg' | 'min' = 'max'
-  ) => {
-    if (renderingProcessorRef.current && isSimdAvailable) {
-      renderingProcessorRef.current.resample_spectrum_enhanced(input, output, output.length, algorithm);
-    } else {
-      // Scalar fallback
-      resampleSpectrum(input, output);
-    }
-  }, [isSimdAvailable, resampleSpectrum]);
+  const resampleSpectrumEnhanced = useCallback(
+    (
+      input: Float32Array,
+      output: Float32Array,
+      algorithm: "max" | "avg" | "min" = "max",
+    ) => {
+      if (renderingProcessorRef.current && isSimdAvailable) {
+        renderingProcessorRef.current.resample_spectrum_enhanced(
+          input,
+          output,
+          output.length,
+          algorithm,
+        );
+      } else {
+        // Scalar fallback
+        resampleSpectrum(input, output);
+      }
+    },
+    [isSimdAvailable, resampleSpectrum],
+  );
 
   return {
     // WASM SIMD operations
@@ -804,7 +936,7 @@ export function useWasmSimdMath(options: SpectrumMathOptions): WasmSimdMathHandl
     processIqToDbmSpectrum,
     shiftWaterfallBuffer,
     applyColorMapping,
-    
+
     // Mathematical preprocessing
     getZoomedData,
     transformToScreenCoords,
@@ -812,7 +944,7 @@ export function useWasmSimdMath(options: SpectrumMathOptions): WasmSimdMathHandl
     detectProminentSpikes,
     resampleSpectrumEnhanced,
     matchNoiseFloorDb,
-    
+
     // State
     isSimdAvailable,
     isWasmLoaded,

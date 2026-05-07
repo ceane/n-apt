@@ -3,7 +3,7 @@
  * Provides runtime validation with performance optimizations
  */
 
-import type { Dispatch } from '@reduxjs/toolkit';
+import type { Dispatch } from "@reduxjs/toolkit";
 import {
   isValidWebSocketMessageWithIntegrity,
   isValidStatusMessageEnhanced,
@@ -21,8 +21,8 @@ import {
 
 // Validation configuration
 const VALIDATION_CONFIG = {
-  enableLogging: process.env.NODE_ENV === 'development',
-  enableStrictValidation: process.env.NODE_ENV === 'development',
+  enableLogging: process.env.NODE_ENV === "development",
+  enableStrictValidation: process.env.NODE_ENV === "development",
   skipBinaryValidation: true, // Performance optimization
   logValidationFailures: true,
 };
@@ -43,32 +43,37 @@ const validationMetrics: ValidationMetrics = {
 };
 
 // Performance monitoring
-function measureValidationTime<T>(
-  validator: () => T,
-  operation: string
-): T {
+function measureValidationTime<T>(validator: () => T, operation: string): T {
   const startTime = performance.now();
   const result = validator();
   const endTime = performance.now();
-  
+
   const duration = endTime - startTime;
   validationMetrics.lastValidationTime = duration;
   validationMetrics.totalValidations++;
-  validationMetrics.averageValidationTime = 
-    (validationMetrics.averageValidationTime * (validationMetrics.totalValidations - 1) + duration) / 
+  validationMetrics.averageValidationTime =
+    (validationMetrics.averageValidationTime *
+      (validationMetrics.totalValidations - 1) +
+      duration) /
     validationMetrics.totalValidations;
-  
+
   if (VALIDATION_CONFIG.enableLogging && duration > 5) {
-    console.warn(`Slow validation detected: ${operation} took ${duration.toFixed(2)}ms`);
+    console.warn(
+      `Slow validation detected: ${operation} took ${duration.toFixed(2)}ms`,
+    );
   }
-  
+
   return result;
 }
 
 // Logging utilities
-function logValidationFailure(operation: string, data: unknown, error?: string): void {
+function logValidationFailure(
+  operation: string,
+  data: unknown,
+  error?: string,
+): void {
   if (VALIDATION_CONFIG.logValidationFailures) {
-    console.error(`❌ Validation failed: ${operation}`, data, error || '');
+    console.error("❌ Validation failed: %s", operation, data, error || "");
     validationMetrics.validationFailures++;
   }
 }
@@ -80,167 +85,181 @@ export function validateWebSocketMessage(data: unknown): boolean {
     if (data instanceof ArrayBuffer) {
       return VALIDATION_CONFIG.skipBinaryValidation;
     }
-    
+
     // Quick validation for common message types
-    if (isValidObject(data) && 'type' in data) {
+    if (isValidObject(data) && "type" in data) {
       const messageData = data as { type: unknown };
       const messageType = messageData.type;
-      
+
       // Skip expensive validation for high-frequency messages and capture_status (temp fix)
-      if (messageType === 'spectrum' || messageType === 'encrypted_spectrum' || messageType === 'capture_status') {
-        return quickValidate(data, ['type']);
+      if (
+        messageType === "spectrum" ||
+        messageType === "encrypted_spectrum" ||
+        messageType === "capture_status"
+      ) {
+        return quickValidate(data, ["type"]);
       }
     }
-    
+
     // Full validation for control messages
     const isValid = isValidWebSocketMessageWithIntegrity(data);
-    
+
     if (!isValid) {
-      logValidationFailure('WebSocket message', data);
+      logValidationFailure("WebSocket message", data);
     }
-    
+
     return isValid;
-  }, 'WebSocket message validation');
+  }, "WebSocket message validation");
 }
 
 // Status message validation
 export function validateStatusMessage(data: unknown): boolean {
   return measureValidationTime(() => {
     const isValid = isValidStatusMessageEnhanced(data);
-    
+
     if (!isValid) {
-      logValidationFailure('Status message', data);
+      logValidationFailure("Status message", data);
     }
-    
+
     return isValid;
-  }, 'Status message validation');
+  }, "Status message validation");
 }
 
 // Capture status validation
 export function validateCaptureStatus(data: unknown): boolean {
   return measureValidationTime(() => {
     const isValid = isValidCaptureStatus(data);
-    
+
     if (!isValid) {
-      logValidationFailure('Capture status', data);
+      logValidationFailure("Capture status", data);
     }
-    
+
     return isValid;
-  }, 'Capture status validation');
+  }, "Capture status validation");
 }
 
 // Auto FFT options validation
 export function validateAutoFftOptions(data: unknown): boolean {
   return measureValidationTime(() => {
     const isValid = isValidAutoFftOptions(data);
-    
+
     if (!isValid) {
-      logValidationFailure('Auto FFT options', data);
+      logValidationFailure("Auto FFT options", data);
     }
-    
+
     return isValid;
-  }, 'Auto FFT options validation');
+  }, "Auto FFT options validation");
 }
 
 // Authentication validation
-export function validateAuthInfo(data: unknown): data is { has_passkeys: boolean } {
+export function validateAuthInfo(
+  data: unknown,
+): data is { has_passkeys: boolean } {
   return measureValidationTime(() => {
     const result = AuthInfoSchema.safeParse(data);
-    
+
     if (result.success) {
       return true;
     } else {
-      logValidationFailure('Auth info', data, result.error.message);
+      logValidationFailure("Auth info", data, result.error.message);
       return false;
     }
-  }, 'Auth info validation');
+  }, "Auth info validation");
 }
 
-export function validateAuthResult(data: unknown): data is { token: string; expires_in: number } {
+export function validateAuthResult(
+  data: unknown,
+): data is { token: string; expires_in: number } {
   return measureValidationTime(() => {
     const result = AuthResultSchema.safeParse(data);
-    
+
     if (result.success) {
       return true;
     } else {
-      logValidationFailure('Auth result', data, result.error.message);
+      logValidationFailure("Auth result", data, result.error.message);
       return false;
     }
-  }, 'Auth result validation');
+  }, "Auth result validation");
 }
 
-export function validateSessionValidation(data: unknown): data is { valid: boolean; token?: string; error?: string } {
+export function validateSessionValidation(
+  data: unknown,
+): data is { valid: boolean; token?: string; error?: string } {
   return measureValidationTime(() => {
     const result = SessionValidationSchema.safeParse(data);
-    
+
     if (result.success) {
       return true;
     } else {
-      logValidationFailure('Session validation', data, result.error.message);
+      logValidationFailure("Session validation", data, result.error.message);
       return false;
     }
-  }, 'Session validation validation');
+  }, "Session validation validation");
 }
 
 // Redux middleware validator
 export function validateReduxAction(action: unknown): boolean {
   return measureValidationTime(() => {
     // Quick validation for Redux actions
-    if (!isValidObject(action) || !('type' in action)) {
+    if (!isValidObject(action) || !("type" in action)) {
       return false;
     }
-    
+
     const actionObj = action as { type: unknown };
     const actionType = actionObj.type;
-    
+
     // Validate WebSocket actions more strictly
-    if (typeof actionType === 'string' && actionType.startsWith('websocket/')) {
-      return validateAndExtract(action, (data: unknown): data is typeof action => isValidWebSocketMessageWithIntegrity(data)) !== null;
+    if (typeof actionType === "string" && actionType.startsWith("websocket/")) {
+      return (
+        validateAndExtract(action, (data: unknown): data is typeof action =>
+          isValidWebSocketMessageWithIntegrity(data),
+        ) !== null
+      );
     }
-    
+
     // Basic validation for other actions
-    return typeof actionType === 'string' && actionType.length > 0;
-  }, 'Redux action validation');
+    return typeof actionType === "string" && actionType.length > 0;
+  }, "Redux action validation");
 }
 
 // Enhanced WebSocket message processor with validation
 export function processWebSocketMessageWithValidation(
   _dispatch: Dispatch,
   _getState: () => any,
-  parsedData: unknown
+  parsedData: unknown,
 ): boolean {
   // Validate the message first
   if (!validateWebSocketMessage(parsedData)) {
     return false;
   }
-  
+
   // Skip further processing for binary data
   if (parsedData instanceof ArrayBuffer) {
     return true;
   }
-  
+
   // Process validated control messages
   if (isValidObject(parsedData)) {
     const data = parsedData as Record<string, unknown>;
-    
+
     switch (data.type) {
-      case 'status':
+      case "status":
         return validateStatusMessage(data);
-        
-      case 'capture_status':
+
+      case "capture_status":
         // Temporarily allow all capture status messages to fix I/Q capture
         // TODO: Fix schema validation and re-enable proper validation
         return true;
-        
-      case 'auto_fft_options':
+
+      case "auto_fft_options":
         return validateAutoFftOptions(data);
-        
+
       default:
         // For other message types, we've already done basic validation
         return true;
     }
   }
-  
+
   return true;
 }
 
@@ -275,21 +294,29 @@ export function performValidationHealthCheck(): {
   metrics: ValidationMetrics;
 } {
   const issues: string[] = [];
-  
+
   // Check validation failure rate
-  const failureRate = validationMetrics.totalValidations > 0 
-    ? validationMetrics.validationFailures / validationMetrics.totalValidations 
-    : 0;
-  
-  if (failureRate > 0.1) { // More than 10% failures
-    issues.push(`High validation failure rate: ${(failureRate * 100).toFixed(2)}%`);
+  const failureRate =
+    validationMetrics.totalValidations > 0
+      ? validationMetrics.validationFailures /
+        validationMetrics.totalValidations
+      : 0;
+
+  if (failureRate > 0.1) {
+    // More than 10% failures
+    issues.push(
+      `High validation failure rate: ${(failureRate * 100).toFixed(2)}%`,
+    );
   }
-  
+
   // Check average validation time
-  if (validationMetrics.averageValidationTime > 10) { // More than 10ms average
-    issues.push(`Slow validation performance: ${validationMetrics.averageValidationTime.toFixed(2)}ms average`);
+  if (validationMetrics.averageValidationTime > 10) {
+    // More than 10ms average
+    issues.push(
+      `Slow validation performance: ${validationMetrics.averageValidationTime.toFixed(2)}ms average`,
+    );
   }
-  
+
   return {
     isHealthy: issues.length === 0,
     issues,

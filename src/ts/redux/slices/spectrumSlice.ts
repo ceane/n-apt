@@ -1,5 +1,5 @@
-import { createSlice, PayloadAction } from '@reduxjs/toolkit';
-import { FrequencyRange } from '@n-apt/consts/schemas/websocket';
+import { createSlice, PayloadAction } from "@reduxjs/toolkit";
+import { FrequencyRange } from "@n-apt/consts/schemas/websocket";
 
 export type DisplayTemporalResolution = "low" | "medium" | "high";
 export type PowerScale = "dB" | "dBm";
@@ -10,14 +10,14 @@ export interface SpectrumState {
   activeSignalArea: string;
   frequencyRange: FrequencyRange | null;
   lastKnownRanges: Record<string, { min: number; max: number }>;
-  
+
   // Display settings
   displayTemporalResolution: DisplayTemporalResolution;
   powerScale: PowerScale;
   vizZoom: number;
   vizPanOffset: number;
   displayMode: "fft" | "iq";
-  
+
   // FFT settings
   fftMinDb: number;
   fftMaxDb: number;
@@ -29,18 +29,18 @@ export interface SpectrumState {
   fftAvgEnabled: boolean;
   fftSmoothEnabled: boolean;
   wfSmoothEnabled: boolean;
-  
+
   // SDR settings
   gain: number;
   ppm: number;
   tunerAGC: boolean;
   rtlAGC: boolean;
   sampleRateHz: number;
-  
+
   // Visualization state
   visualizerPaused: boolean;
   isWaterfallCleared: boolean;
-  
+
   // Diagnostic state
   diagnosticStatus: string;
   isDiagnosticRunning: boolean;
@@ -69,13 +69,13 @@ const initialState: SpectrumState = {
   activeSignalArea: "A",
   frequencyRange: null,
   lastKnownRanges: {},
-  
+
   displayTemporalResolution: "medium",
   powerScale: "dB",
   vizZoom: 1,
   vizPanOffset: 0,
   displayMode: "fft",
-  
+
   fftMinDb: -120,
   fftMaxDb: 0, // This will be updated based on powerScale
   fftSize: 32768,
@@ -86,30 +86,30 @@ const initialState: SpectrumState = {
   fftAvgEnabled: false,
   fftSmoothEnabled: false,
   wfSmoothEnabled: false,
-  
+
   gain: 30,
   ppm: 1,
   tunerAGC: false,
   rtlAGC: false,
   sampleRateHz: 3_200_000,
-  
+
   visualizerPaused: false,
   isWaterfallCleared: false,
-  
+
   diagnosticStatus: "Ready",
   isDiagnosticRunning: false,
   diagnosticTrigger: 0,
 };
 
 const spectrumSlice = createSlice({
-  name: 'spectrum',
+  name: "spectrum",
   initialState,
   reducers: {
     // Signal area and frequency
     setActiveSignalArea: (state, action: PayloadAction<string>) => {
       state.activeSignalArea = action.payload;
     },
-    
+
     setFrequencyRange: (state, action: PayloadAction<FrequencyRange>) => {
       // Avoid redundant updates
       if (
@@ -119,33 +119,42 @@ const spectrumSlice = createSlice({
       ) {
         return;
       }
-      
+
       state.frequencyRange = action.payload;
       if (state.activeSignalArea) {
-        if (!state.lastKnownRanges || typeof state.lastKnownRanges !== 'object') {
+        if (
+          !state.lastKnownRanges ||
+          typeof state.lastKnownRanges !== "object"
+        ) {
           state.lastKnownRanges = {};
         }
         state.lastKnownRanges[state.activeSignalArea] = action.payload;
       }
     },
-    
-    setSignalAreaAndRange: (state, action: PayloadAction<{ area: string; range: FrequencyRange }>) => {
+
+    setSignalAreaAndRange: (
+      state,
+      action: PayloadAction<{ area: string; range: FrequencyRange }>,
+    ) => {
       state.activeSignalArea = action.payload.area;
       state.frequencyRange = action.payload.range;
-      if (!state.lastKnownRanges || typeof state.lastKnownRanges !== 'object') {
+      if (!state.lastKnownRanges || typeof state.lastKnownRanges !== "object") {
         state.lastKnownRanges = {};
       }
       state.lastKnownRanges[action.payload.area] = action.payload.range;
     },
-    
+
     // Display settings
-    setTemporalResolution: (state, action: PayloadAction<DisplayTemporalResolution>) => {
+    setTemporalResolution: (
+      state,
+      action: PayloadAction<DisplayTemporalResolution>,
+    ) => {
       state.displayTemporalResolution = action.payload;
     },
-    
+
     setPowerScale: (state, action: PayloadAction<PowerScale>) => {
       const isSwitchingToDbm = action.payload === "dBm";
-      
+
       // Auto-adjust dB limits when switching scales
       if (isSwitchingToDbm && state.powerScale !== "dBm") {
         state.fftMinDb = -120;
@@ -154,44 +163,47 @@ const spectrumSlice = createSlice({
         state.fftMinDb = -150;
         state.fftMaxDb = 0;
       }
-      
+
       state.powerScale = action.payload;
     },
-    
+
     setVizZoom: (state, action: PayloadAction<number>) => {
       state.vizZoom = action.payload;
     },
-    
+
     setVizPan: (state, action: PayloadAction<number>) => {
       state.vizPanOffset = action.payload;
     },
-    
+
     setDisplayMode: (state, action: PayloadAction<"fft" | "iq">) => {
       state.displayMode = action.payload;
     },
-    
+
     // FFT settings
-    setFftDbLimits: (state, action: PayloadAction<{ min: number; max: number }>) => {
+    setFftDbLimits: (
+      state,
+      action: PayloadAction<{ min: number; max: number }>,
+    ) => {
       state.fftMinDb = Math.round(action.payload.min);
       state.fftMaxDb = Math.round(action.payload.max);
     },
-    
+
     setFftSize: (state, action: PayloadAction<number>) => {
       state.fftSize = action.payload;
     },
-    
+
     setFftSizeOptions: (state, action: PayloadAction<number[]>) => {
       state.fftSizeOptions = action.payload;
     },
-    
+
     setFftWindow: (state, action: PayloadAction<string>) => {
       state.fftWindow = action.payload;
     },
-    
+
     setFftFrameRate: (state, action: PayloadAction<number>) => {
       state.fftFrameRate = action.payload;
     },
-    
+
     setAutoFftApplied: (state, action: PayloadAction<boolean>) => {
       state.isAutoFftApplied = action.payload;
     },
@@ -207,63 +219,66 @@ const spectrumSlice = createSlice({
     setWfSmoothEnabled: (state, action: PayloadAction<boolean>) => {
       state.wfSmoothEnabled = action.payload;
     },
-    
+
     // SDR settings
     setGain: (state, action: PayloadAction<number>) => {
       state.gain = action.payload;
     },
-    
+
     setPpm: (state, action: PayloadAction<number>) => {
       state.ppm = action.payload;
     },
-    
+
     setTunerAGC: (state, action: PayloadAction<boolean>) => {
       state.tunerAGC = action.payload;
     },
-    
+
     setRtlAGC: (state, action: PayloadAction<boolean>) => {
       state.rtlAGC = action.payload;
     },
-    
+
     setSampleRate: (state, action: PayloadAction<number>) => {
       state.sampleRateHz = action.payload;
     },
-    
+
     // Bundle updates for efficiency
-    setSdrSettingsBundle: (state, action: PayloadAction<Partial<SpectrumState>>) => {
+    setSdrSettingsBundle: (
+      state,
+      action: PayloadAction<Partial<SpectrumState>>,
+    ) => {
       Object.assign(state, action.payload);
     },
-    
+
     // Visualization state
     setVisualizerPaused: (state, action: PayloadAction<boolean>) => {
       state.visualizerPaused = action.payload;
     },
-    
+
     clearWaterfall: (state) => {
       state.isWaterfallCleared = true;
     },
-    
+
     resetWaterfallCleared: (state) => {
       state.isWaterfallCleared = false;
     },
-    
+
     leaveVisualizer: (state) => {
       state.visualizerPaused = true;
     },
-    
+
     // Diagnostic state
     setDiagnosticStatus: (state, action: PayloadAction<string>) => {
       state.diagnosticStatus = action.payload;
     },
-    
+
     setDiagnosticRunning: (state, action: PayloadAction<boolean>) => {
       state.isDiagnosticRunning = action.payload;
     },
-    
+
     triggerDiagnostic: (state) => {
       state.diagnosticTrigger += 1;
     },
-    
+
     // Reset actions
     resetZoomAndDb: (state) => {
       const isDbm = state.powerScale === "dBm";
@@ -274,12 +289,16 @@ const spectrumSlice = createSlice({
       state.fftMinDb = isDbm ? -100 : -120;
       state.fftMaxDb = isDbm ? 30 : 0;
     },
-    
-    resetLiveControls: (state, action: PayloadAction<{ fftSize?: number; fftFrameRate?: number }>) => {
+
+    resetLiveControls: (
+      state,
+      action: PayloadAction<{ fftSize?: number; fftFrameRate?: number }>,
+    ) => {
       const isDbm = state.powerScale === "dBm";
       return {
         ...state,
-        displayTemporalResolution: LIVE_CONTROL_DEFAULTS.displayTemporalResolution,
+        displayTemporalResolution:
+          LIVE_CONTROL_DEFAULTS.displayTemporalResolution,
         vizZoom: LIVE_CONTROL_DEFAULTS.vizZoom,
         vizPanOffset: LIVE_CONTROL_DEFAULTS.vizPanOffset,
         fftMinDb: isDbm ? -100 : -120,

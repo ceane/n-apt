@@ -80,7 +80,10 @@ export function isAgentRequest(req: Request): boolean {
 
   // Check user agent for AI agent signatures
   const hasAgentUserAgent = agentPatterns.some((pattern) =>
-    (typeof userAgent === 'string' ? userAgent.toLowerCase() : String(userAgent)).includes(pattern),
+    (typeof userAgent === "string"
+      ? userAgent.toLowerCase()
+      : String(userAgent)
+    ).includes(pattern),
   );
 
   // Check for markdown content negotiation

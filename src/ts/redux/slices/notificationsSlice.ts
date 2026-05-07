@@ -1,8 +1,8 @@
-import { createSlice, PayloadAction } from '@reduxjs/toolkit';
+import { createSlice, PayloadAction } from "@reduxjs/toolkit";
 
 export interface NotificationState {
   id: string;
-  type: 'info' | 'success' | 'warning' | 'error';
+  type: "info" | "success" | "warning" | "error";
   title: string;
   message?: string;
   duration?: number;
@@ -18,27 +18,42 @@ const initialState: NotificationsState = {
 };
 
 const notificationsSlice = createSlice({
-  name: 'notifications',
+  name: "notifications",
   initialState,
   reducers: {
-    addNotification: (state, action: PayloadAction<Omit<NotificationState, 'timestamp'> & { id?: string }>) => {
+    addNotification: (
+      state,
+      action: PayloadAction<
+        Omit<NotificationState, "timestamp"> & { id?: string }
+      >,
+    ) => {
       const notification: NotificationState = {
         ...action.payload,
-        id: action.payload.id || `notification-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        id:
+          action.payload.id ||
+          `notification-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         timestamp: Date.now(),
       };
-      
+
       // Check if notification with this ID already exists and update it
-      const existingIndex = state.notifications.findIndex(n => n.id === notification.id);
+      const existingIndex = state.notifications.findIndex(
+        (n) => n.id === notification.id,
+      );
       if (existingIndex !== -1) {
         state.notifications[existingIndex] = notification;
       } else {
         state.notifications.push(notification);
       }
     },
-    updateNotification: (state, action: PayloadAction<{ id: string; updates: Partial<Omit<NotificationState, 'id' | 'timestamp'>> }>) => {
+    updateNotification: (
+      state,
+      action: PayloadAction<{
+        id: string;
+        updates: Partial<Omit<NotificationState, "id" | "timestamp">>;
+      }>,
+    ) => {
       const { id, updates } = action.payload;
-      const existingIndex = state.notifications.findIndex(n => n.id === id);
+      const existingIndex = state.notifications.findIndex((n) => n.id === id);
       if (existingIndex !== -1) {
         state.notifications[existingIndex] = {
           ...state.notifications[existingIndex],
@@ -48,7 +63,9 @@ const notificationsSlice = createSlice({
       }
     },
     removeNotification: (state, action: PayloadAction<string>) => {
-      state.notifications = state.notifications.filter(n => n.id !== action.payload);
+      state.notifications = state.notifications.filter(
+        (n) => n.id !== action.payload,
+      );
     },
     clearAllNotifications: (state) => {
       state.notifications = [];
@@ -56,9 +73,15 @@ const notificationsSlice = createSlice({
   },
 });
 
-export const { addNotification, updateNotification, removeNotification, clearAllNotifications } = notificationsSlice.actions;
+export const {
+  addNotification,
+  updateNotification,
+  removeNotification,
+  clearAllNotifications,
+} = notificationsSlice.actions;
 
-export const selectNotifications = (state: { notifications: NotificationsState }) => 
-  state.notifications.notifications;
+export const selectNotifications = (state: {
+  notifications: NotificationsState;
+}) => state.notifications.notifications;
 
 export default notificationsSlice.reducer;

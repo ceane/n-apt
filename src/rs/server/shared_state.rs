@@ -84,15 +84,12 @@ pub struct SharedState {
 
 impl SharedState {
   pub fn new(redis_url: &str) -> Arc<Self> {
-    let passkey = std::env::var("UNSAFE_LOCAL_USER_PASSWORD").expect("Missing UNSAFE_LOCAL_USER_PASSWORD");
+    let passkey = std::env::var("UNSAFE_LOCAL_USER_PASSWORD")
+      .expect("Missing UNSAFE_LOCAL_USER_PASSWORD");
     let encryption_key = crate::crypto::derive_key(&passkey);
     let sdr_settings = load_sdr_settings();
     let redis_client = redis::Client::open(redis_url)
       .expect("Failed to initialize Redis client");
-    log::info!(
-      "Encryption key derived from passkey (PBKDF2-HMAC-SHA256, {} iterations)",
-      100_000
-    );
 
     Arc::new(SharedState {
       latest_spectrum: Mutex::new(None),
@@ -170,23 +167,32 @@ impl SharedState {
   }
 
   /// Increment the failure streak and return the new count.
-   pub fn record_health_failure(&self) -> u32 {
-     self.health_failure_streak.fetch_add(1, Ordering::Relaxed) + 1
-   }
+  pub fn record_health_failure(&self) -> u32 {
+    self.health_failure_streak.fetch_add(1, Ordering::Relaxed) + 1
+  }
 
   /// Store an auth challenge nonce in Redis.
-  pub fn store_challenge(&self, challenge_id: &str, nonce: [u8; 32]) -> Result<(), String> {
-    let mut conn = self.redis_client.get_connection()
+  pub fn store_challenge(
+    &self,
+    challenge_id: &str,
+    nonce: [u8; 32],
+  ) -> Result<(), String> {
+    let mut conn = self
+      .redis_client
+      .get_connection()
       .map_err(|e| format!("Redis connection failed: {}", e))?;
-    
+
     // Select DB 1 for metadata/auth
-    redis::cmd("SELECT").arg(1).query::<()>(&mut conn)
+    redis::cmd("SELECT")
+      .arg(1)
+      .query::<()>(&mut conn)
       .map_err(|e| format!("Failed to select Redis DB 1: {}", e))?;
 
     let key = format!("challenge:{}", challenge_id);
-    let _: () = conn.set_ex(key, nonce.to_vec(), 60) // 60s TTL
+    let _: () = conn
+      .set_ex(key, nonce.to_vec(), 60) // 60s TTL
       .map_err(|e| format!("Redis SETEX failed: {}", e))?;
-    
+
     Ok(())
   }
 
@@ -197,7 +203,7 @@ impl SharedState {
 
     let key = format!("challenge:{}", challenge_id);
     let nonce_vec: Option<Vec<u8>> = conn.get(&key).ok()?;
-    
+
     if let Some(vec) = nonce_vec {
       let _: () = conn.del(key).ok()?; // Consume challenge
       if vec.len() == 32 {
@@ -210,32 +216,44 @@ impl SharedState {
   }
 
   /// Store capture artifacts in Redis for a job.
-  pub fn store_capture_artifacts(&self, job_id: &str, artifacts: &[CaptureArtifact]) -> Result<(), String> {
-    let mut conn = self.redis_client.get_connection()
+  pub fn store_capture_artifacts(
+    &self,
+    job_id: &str,
+    artifacts: &[CaptureArtifact],
+  ) -> Result<(), String> {
+    let mut conn = self
+      .redis_client
+      .get_connection()
       .map_err(|e| format!("Redis connection failed: {}", e))?;
-    
+
     // Select DB 1 for metadata
-    redis::cmd("SELECT").arg(1).query::<()>(&mut conn)
+    redis::cmd("SELECT")
+      .arg(1)
+      .query::<()>(&mut conn)
       .map_err(|e| format!("Failed to select Redis DB 1: {}", e))?;
 
     let key = format!("artifacts:{}", job_id);
     let json = serde_json::to_string(artifacts)
       .map_err(|e| format!("Serialization failed: {}", e))?;
-    
-    let _: () = conn.set(key, json)
+
+    let _: () = conn
+      .set(key, json)
       .map_err(|e| format!("Redis SET failed: {}", e))?;
-    
+
     Ok(())
   }
 
   /// Retrieve capture artifacts from Redis for a job.
-  pub fn get_capture_artifacts(&self, job_id: &str) -> Option<Vec<CaptureArtifact>> {
+  pub fn get_capture_artifacts(
+    &self,
+    job_id: &str,
+  ) -> Option<Vec<CaptureArtifact>> {
     let mut conn = self.redis_client.get_connection().ok()?;
     let _ = redis::cmd("SELECT").arg(1).query::<()>(&mut conn).ok()?;
 
     let key = format!("artifacts:{}", job_id);
     let json: Option<String> = conn.get(key).ok()?;
-    
+
     match json {
       Some(s) => serde_json::from_str::<Vec<CaptureArtifact>>(&s).ok(),
       None => None,

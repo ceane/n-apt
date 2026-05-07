@@ -23,6 +23,7 @@ export class FileWorkerManager {
   }
 
   private initializeWorker() {
+    if (typeof Worker === 'undefined') return;
     try {
       this.worker = new Worker(new URL("./fileWorker.ts", import.meta.url), {
         type: "module",
@@ -85,7 +86,7 @@ export class FileWorkerManager {
           this.pendingRequests.delete(id);
           reject(
             new Error(
-              `Worker request ${id} timed out after ${this.REQUEST_TIMEOUT}ms`,
+              `File timed out after ${this.REQUEST_TIMEOUT / 1000}s`,
             ),
           );
         }
@@ -126,12 +127,13 @@ export class FileWorkerManager {
   async loadFile(fileId: string, aesKey?: CryptoKey | null): Promise<any> {
     const file = fileRegistry.get(fileId);
     if (!file) throw new Error("File not found in registry");
-    
+
     const fileData = await file.arrayBuffer();
+    const rawAesKey = aesKey ? await crypto.subtle.exportKey("raw", aesKey) : null;
     return this.sendMessage("loadFile", {
       fileData,
       fileName: file.name,
-      aesKey,
+      aesKey: rawAesKey,
     });
   }
 
@@ -141,14 +143,18 @@ export class FileWorkerManager {
     fftSize: number,
     onProgress?: (progress: any) => void,
     aesKey?: CryptoKey | null,
-    sampleRateOptions?: { maxSampleRateHz: number; currentSampleRateHz: number },
+    sampleRateOptions?: {
+      maxSampleRateHz: number;
+      currentSampleRateHz: number;
+    },
   ): Promise<any> {
     const filesData = [];
 
     for (const fileObj of selectedFiles) {
       const actualFile = fileRegistry.get(fileObj.id);
-      if (!actualFile) throw new Error(`File ${fileObj.name} not found in registry`);
-      
+      if (!actualFile)
+        throw new Error(`File ${fileObj.name} not found in registry`);
+
       const fileData = await actualFile.arrayBuffer();
       filesData.push({
         fileName: fileObj.name,
@@ -158,12 +164,12 @@ export class FileWorkerManager {
 
     return this.sendMessage(
       "stitchFiles",
-      { 
-        files: filesData, 
-        settings, 
-        fftSize, 
-        aesKey,
-        sampleRateOptions // Pass current sample rate options dynamically
+      {
+        files: filesData,
+        settings,
+        fftSize,
+        aesKey: aesKey ? await crypto.subtle.exportKey("raw", aesKey) : null,
+        sampleRateOptions, // Pass current sample rate options dynamically
       },
       onProgress,
     );

@@ -74,7 +74,10 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
   const calculateVisibleRange = useCallback(() => {
     const safeZoom = Number.isFinite(vizZoom) && vizZoom > 0 ? vizZoom : 1;
     if (!isCurrentActive) {
-      const baseRange = rememberedRange ?? { min: minFreq, max: minFreq + hardwareSpan };
+      const baseRange = rememberedRange ?? {
+        min: minFreq,
+        max: minFreq + hardwareSpan,
+      };
       return {
         min: baseRange.min,
         max: baseRange.max,
@@ -125,63 +128,66 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
   const visibleRange = calculateVisibleRange();
 
   // Handle frequency range change
-  const handleRangeChange = useCallback((range: { min: number; max: number }) => {
-    const safeZoom = Number.isFinite(vizZoom) && vizZoom > 0 ? vizZoom : 1;
+  const handleRangeChange = useCallback(
+    (range: { min: number; max: number }) => {
+      const safeZoom = Number.isFinite(vizZoom) && vizZoom > 0 ? vizZoom : 1;
 
-    if (isCurrentActive && safeZoom > 1 && frequencyRange) {
-      const visualCenter = (range.min + range.max) / 2;
-      const halfHardware = hardwareSpan / 2;
-      const currentHardwareCenter =
-        (frequencyRange.min + frequencyRange.max) / 2;
-      const halfVisualSpan = hardwareSpan / (2 * safeZoom);
-      const maxPan = halfHardware - halfVisualSpan;
-      const desiredPan = visualCenter - currentHardwareCenter;
+      if (isCurrentActive && safeZoom > 1 && frequencyRange) {
+        const visualCenter = (range.min + range.max) / 2;
+        const halfHardware = hardwareSpan / 2;
+        const currentHardwareCenter =
+          (frequencyRange.min + frequencyRange.max) / 2;
+        const halfVisualSpan = hardwareSpan / (2 * safeZoom);
+        const maxPan = halfHardware - halfVisualSpan;
+        const desiredPan = visualCenter - currentHardwareCenter;
 
-      if (Math.abs(desiredPan) <= maxPan + 0.001) {
-        dispatch(spectrumActions.setVizPan(desiredPan));
-        storeDispatch({ type: "SET_VIZ_PAN", pan: desiredPan });
+        if (Math.abs(desiredPan) <= maxPan + 0.001) {
+          dispatch(spectrumActions.setVizPan(desiredPan));
+          storeDispatch({ type: "SET_VIZ_PAN", pan: desiredPan });
+          return;
+        }
+
+        let newHardwareCenter = visualCenter;
+        let newHardwareMin = newHardwareCenter - halfHardware;
+        let newHardwareMax = newHardwareCenter + halfHardware;
+
+        if (newHardwareMin < minFreq) {
+          newHardwareMin = minFreq;
+          newHardwareMax = minFreq + hardwareSpan;
+        }
+        if (newHardwareMax > maxFreq) {
+          newHardwareMax = maxFreq;
+          newHardwareMin = maxFreq - hardwareSpan;
+        }
+        newHardwareCenter = (newHardwareMin + newHardwareMax) / 2;
+
+        const newRange = { min: newHardwareMin, max: newHardwareMax };
+        dispatch(spectrumActions.setFrequencyRange(newRange));
+        storeDispatch({ type: "SET_FREQUENCY_RANGE", range: newRange });
+        wsConnection.sendFrequencyRange(newRange);
+
+        const remainingPan = visualCenter - newHardwareCenter;
+        dispatch(spectrumActions.setVizPan(remainingPan));
+        storeDispatch({ type: "SET_VIZ_PAN", pan: remainingPan });
         return;
       }
 
-      let newHardwareCenter = visualCenter;
-      let newHardwareMin = newHardwareCenter - halfHardware;
-      let newHardwareMax = newHardwareCenter + halfHardware;
-
-      if (newHardwareMin < minFreq) {
-        newHardwareMin = minFreq;
-        newHardwareMax = minFreq + hardwareSpan;
-      }
-      if (newHardwareMax > maxFreq) {
-        newHardwareMax = maxFreq;
-        newHardwareMin = maxFreq - hardwareSpan;
-      }
-      newHardwareCenter = (newHardwareMin + newHardwareMax) / 2;
-
-      const newRange = { min: newHardwareMin, max: newHardwareMax };
-      dispatch(spectrumActions.setFrequencyRange(newRange));
-      storeDispatch({ type: "SET_FREQUENCY_RANGE", range: newRange });
-      wsConnection.sendFrequencyRange(newRange);
-
-      const remainingPan = visualCenter - newHardwareCenter;
-      dispatch(spectrumActions.setVizPan(remainingPan));
-      storeDispatch({ type: "SET_VIZ_PAN", pan: remainingPan });
-      return;
-    }
-
-    dispatch(spectrumActions.setFrequencyRange(range));
-    storeDispatch({ type: "SET_FREQUENCY_RANGE", range });
-    wsConnection.sendFrequencyRange(range);
-  }, [
-    dispatch,
-    storeDispatch,
-    wsConnection,
-    vizZoom,
-    isCurrentActive,
-    frequencyRange,
-    hardwareSpan,
-    minFreq,
-    maxFreq,
-  ]);
+      dispatch(spectrumActions.setFrequencyRange(range));
+      storeDispatch({ type: "SET_FREQUENCY_RANGE", range });
+      wsConnection.sendFrequencyRange(range);
+    },
+    [
+      dispatch,
+      storeDispatch,
+      wsConnection,
+      vizZoom,
+      isCurrentActive,
+      frequencyRange,
+      hardwareSpan,
+      minFreq,
+      maxFreq,
+    ],
+  );
 
   return (
     <Container>
@@ -198,7 +204,7 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
         }
         limitMarkers={limitMarkers}
         isActive={isActive ?? isCurrentActive}
-        onActivate={onActivate ?? (() => { })}
+        onActivate={onActivate ?? (() => {})}
         onRangeChange={handleRangeChange}
         externalFrequencyRange={externalFrequencyRange ?? undefined}
         readOnly={readOnly}

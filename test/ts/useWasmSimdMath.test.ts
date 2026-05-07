@@ -1,6 +1,4 @@
-import {
-  computeIqToDbSpectrumScalar,
-} from "../../src/ts/hooks/useWasmSimdMath";
+import { computeIqToDbSpectrumScalar } from "../../src/ts/hooks/useWasmSimdMath";
 
 function buildToneIqSamples(sampleCount: number, cycles: number): Uint8Array {
   const out = new Uint8Array(sampleCount * 2);

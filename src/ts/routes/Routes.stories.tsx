@@ -1,7 +1,9 @@
 import React from "react";
 import { AppRoutes } from "@n-apt/routes/Routes";
 
-const FullscreenStage: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+const FullscreenStage: React.FC<{ children: React.ReactNode }> = ({
+  children,
+}) => (
   <div
     style={{
       minHeight: "100vh",

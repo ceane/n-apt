@@ -27,8 +27,10 @@ const InfoIcon = styled.div`
   width: ${INFO_ICON_SIZE}px;
   height: ${INFO_ICON_SIZE}px;
   border-radius: 50%;
-  background-color: ${(props) => props.theme.popoverIconBackground || POPOVER_ICON_BACKGROUND};
-  border: 1px solid ${(props) => props.theme.popoverIconBorder || POPOVER_ICON_BORDER};
+  background-color: ${(props) =>
+    props.theme.popoverIconBackground || POPOVER_ICON_BACKGROUND};
+  border: 1px solid
+    ${(props) => props.theme.popoverIconBorder || POPOVER_ICON_BORDER};
   color: ${(props) => props.theme.popoverIconColor || POPOVER_ICON_COLOR};
   font-size: 10px;
   font-weight: 600;
@@ -40,9 +42,12 @@ const InfoIcon = styled.div`
   margin-left: 4px;
 
   &:hover {
-    background-color: ${(props) => props.theme.popoverIconHoverBackground || POPOVER_ICON_HOVER_BACKGROUND};
-    border-color: ${(props) => props.theme.popoverIconHoverBackground || POPOVER_ICON_HOVER_BACKGROUND};
-    color: ${(props) => props.theme.popoverIconHoverColor || POPOVER_ICON_HOVER_COLOR};
+    background-color: ${(props) =>
+      props.theme.popoverIconHoverBackground || POPOVER_ICON_HOVER_BACKGROUND};
+    border-color: ${(props) =>
+      props.theme.popoverIconHoverBackground || POPOVER_ICON_HOVER_BACKGROUND};
+    color: ${(props) =>
+      props.theme.popoverIconHoverColor || POPOVER_ICON_HOVER_COLOR};
   }
 `;
 
@@ -58,12 +63,19 @@ const PopoverContent = styled.div.attrs<{
   position: fixed;
   width: ${POPOVER_WIDTH}px;
   padding: ${POPOVER_PADDING}px;
-  background-color: ${(props) => props.theme.popoverBackground || POPOVER_BACKGROUND};
+  background-color: ${(props) =>
+    props.theme.popoverBackground || POPOVER_BACKGROUND};
   border: 1px solid ${(props) => props.theme.popoverBorder || POPOVER_BORDER};
   border-radius: 8px;
-  box-shadow: 0 4px 20px ${(props) => (props.theme.mode === "light" ? "rgba(31, 37, 50, 0.18)" : "rgba(0, 0, 0, 0.5)")};
+  box-shadow: 0 4px 20px
+    ${(props) =>
+      props.theme.mode === "light"
+        ? "rgba(31, 37, 50, 0.18)"
+        : "rgba(0, 0, 0, 0.5)"};
   z-index: ${POPOVER_Z_INDEX};
-  transition: opacity 0.2s ease, visibility 0.2s ease;
+  transition:
+    opacity 0.2s ease,
+    visibility 0.2s ease;
   pointer-events: none;
   max-height: calc(100vh - 24px);
   overflow-y: auto;

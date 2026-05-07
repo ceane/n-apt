@@ -1,5 +1,5 @@
-import { configureStore } from '@reduxjs/toolkit';
-import { TypedUseSelectorHook, useDispatch, useSelector } from 'react-redux';
+import { configureStore } from "@reduxjs/toolkit";
+import { TypedUseSelectorHook, useDispatch, useSelector } from "react-redux";
 
 // Import slices (will be created next)
 import authSlice from "@n-apt/redux/slices/authSlice";
@@ -15,7 +15,10 @@ import snapshotSlice from "@n-apt/redux/slices/snapshotSlice";
 
 // Import middleware (will be created next)
 import websocketMiddleware from "@n-apt/redux/middleware/websocketMiddleware";
-import localStorageMiddleware, { loadPersistedSdrSettings, loadPersistedTheme } from "@n-apt/redux/middleware/localStorageMiddleware";
+import localStorageMiddleware, {
+  loadPersistedSdrSettings,
+  loadPersistedTheme,
+} from "@n-apt/redux/middleware/localStorageMiddleware";
 
 const preloadedState = {
   spectrum: loadPersistedSdrSettings(),
@@ -41,25 +44,22 @@ export const store = configureStore({
       serializableCheck: {
         // Ignore these action types for serialization checks
         ignoredActions: [
-          'websocket/connect',
-          'websocket/disconnect',
-          'websocket/connect/pending',
-          'websocket/connect/fulfilled',
-          'websocket/connect/rejected',
-          'websocket/disconnect/pending',
-          'websocket/disconnect/fulfilled',
-          'websocket/disconnect/rejected',
-          'persist/PERSIST',
-          'persist/REHYDRATE',
+          "websocket/connect",
+          "websocket/disconnect",
+          "websocket/connect/pending",
+          "websocket/connect/fulfilled",
+          "websocket/connect/rejected",
+          "websocket/disconnect/pending",
+          "websocket/disconnect/fulfilled",
+          "websocket/disconnect/rejected",
+          "persist/PERSIST",
+          "persist/REHYDRATE",
         ],
-        ignoredPaths: ['persistedState'],
-        ignoredActionPaths: ['payload.aesKey', 'meta.arg.aesKey'],
+        ignoredPaths: ["persistedState"],
+        ignoredActionPaths: ["payload.aesKey", "meta.arg.aesKey"],
       },
-    }).concat(
-      websocketMiddleware,
-      localStorageMiddleware
-    ),
-  devTools: process.env.NODE_ENV !== 'production',
+    }).concat(websocketMiddleware, localStorageMiddleware),
+  devTools: process.env.NODE_ENV !== "production",
 });
 
 export type RootState = ReturnType<typeof store.getState>;

@@ -35,9 +35,11 @@ const DropZone = styled.div<{ $isDragging: boolean }>`
   grid-column: 1 / -1;
   gap: inherit;
   position: relative;
-  border: 2px dashed ${(props) => (props.$isDragging ? props.theme.primary : "transparent")};
+  border: 2px dashed
+    ${(props) => (props.$isDragging ? props.theme.primary : "transparent")};
   border-radius: 8px;
-  background-color: ${(props) => (props.$isDragging ? `${props.theme.primary}1a` : "transparent")};
+  background-color: ${(props) =>
+    props.$isDragging ? `${props.theme.primary}1a` : "transparent"};
   transition: all 0.2s ease;
   min-height: 40px;
   z-index: 5;
@@ -52,7 +54,10 @@ const DropOverlay = styled.div`
   display: flex;
   align-items: center;
   justify-content: center;
-  background-color: ${(props) => props.theme.mode === "light" ? "rgba(255, 255, 255, 0.7)" : `${props.theme.primary}1a`};
+  background-color: ${(props) =>
+    props.theme.mode === "light"
+      ? "rgba(255, 255, 255, 0.7)"
+      : `${props.theme.primary}1a`};
   border-radius: 6px;
   z-index: 10;
   pointer-events: none;
@@ -69,12 +74,23 @@ const StitchStatusMessage = styled.div<{ $isError: boolean }>`
   border-radius: 6px;
   font-size: 12px;
   font-weight: 500;
-  color: ${(props) => (props.$isError ? props.theme.danger : props.theme.success)};
+  color: ${(props) =>
+    props.$isError ? props.theme.danger : props.theme.success};
   background-color: ${(props) =>
     props.$isError ? `${props.theme.danger}0d` : `${props.theme.success}0d`};
   border: 1px solid
-    ${(props) => (props.$isError ? `${props.theme.danger}33` : `${props.theme.success}33`)};
+    ${(props) =>
+      props.$isError ? `${props.theme.danger}33` : `${props.theme.success}33`};
   text-align: center;
+`;
+
+const SpaceHint = styled.span`
+  font-size: 9px;
+  color: ${(props) => props.theme.textSecondary};
+  opacity: 0.6;
+  line-height: 1;
+  margin-top: 3px;
+  display: block;
 `;
 
 interface FileProcessingSectionProps {
@@ -108,16 +124,15 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
   sessionToken,
   showMetadata = true,
 }) => {
-
   const stitchButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const processFiles = (files: File[]) => {
     if (files.length === 0) return;
 
     // Register files in the non-serializable registry
-    const registeredFiles = files.map(file => ({
+    const registeredFiles = files.map((file) => ({
       id: fileRegistry.register(file),
-      name: file.name
+      name: file.name,
     }));
 
     onSelectedFilesChange(registeredFiles);
@@ -134,15 +149,10 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
     }, 50);
   };
 
-  const {
-    isDragging,
-    onDragEnter,
-    onDragOver,
-    onDragLeave,
-    onDrop,
-  } = useDragAndDropFiles({
-    onFilesDropped: processFiles,
-  });
+  const { isDragging, onDragEnter, onDragOver, onDragLeave, onDrop } =
+    useDragAndDropFiles({
+      onFilesDropped: processFiles,
+    });
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files) return;
@@ -160,10 +170,13 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
   };
 
   const stitchingActive =
-    stitchStatus?.includes("Loading") ||
-    stitchStatus?.includes("Processing") ||
-    stitchStatus?.includes("computing");
-  const hasProcessedData = stitchStatus?.includes("Successfully");
+    (stitchStatus?.toLowerCase().includes("loading") ||
+    stitchStatus?.toLowerCase().includes("processing") ||
+    stitchStatus?.toLowerCase().includes("computing") ||
+    stitchStatus?.toLowerCase().includes("loaded")) &&
+    !stitchStatus?.toLowerCase().includes("successfully");
+  const hasProcessedData = stitchStatus?.toLowerCase().includes("successfully");
+  const isError = stitchStatus && !stitchingActive && !hasProcessedData && stitchStatus.toLowerCase() !== "no files selected for stitching";
 
   return (
     <DropZone
@@ -191,23 +204,26 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
           </Section>
 
           <ActionsContainer>
-            {stitchStatus && !stitchingActive && stitchStatus.startsWith("Stitching failed") && (
-              <div className="mt-2">
-                {stitchStatus.toLowerCase().includes("decryption") ? (
-                  <DecryptionFallback moduleName="File Stitcher" errorType="vault" />
-                ) : (
-                  <StitchStatusMessage $isError={true}>
-                    {stitchStatus}
-                  </StitchStatusMessage>
-                )}
-              </div>
-            )}
+            {isError && (
+                <div className="mt-2">
+                  {stitchStatus.toLowerCase().includes("decryption") ? (
+                    <DecryptionFallback
+                      moduleName="File Stitcher"
+                      errorType="vault"
+                    />
+                  ) : (
+                    <StitchStatusMessage $isError={true}>
+                      {stitchStatus}
+                    </StitchStatusMessage>
+                  )}
+                </div>
+              )}
 
             <Button
               $variant={
                 stitchingActive
                   ? "secondary"
-                  : stitchStatus?.startsWith("Stitching failed")
+                  : isError
                     ? "danger"
                     : "primary"
               }
@@ -221,20 +237,33 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
                 }
               }}
               disabled={stitchingActive}
-              style={{ width: '100%', padding: '12px' }}
+              style={{ width: "100%", padding: "12px" }}
             >
               {stitchingActive ? (
-                <><Loader2 size={16} className="animate-spin" /> Processing...</>
-              ) : stitchStatus?.startsWith("Stitching failed") ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" /> Processing...
+                </>
+              ) : isError ? (
                 "Error"
               ) : hasProcessedData ? (
-                isStitchPaused ? (
-                  <><Play size={16} fill="currentColor" /> Play</>
-                ) : (
-                  <><Pause size={16} fill="currentColor" /> Pause</>
-                )
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "2px", width: "100%" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px", fontWeight: 600 }}>
+                    {isStitchPaused ? (
+                      <>
+                        <Play size={14} fill="currentColor" /> Play
+                      </>
+                    ) : (
+                      <>
+                        <Pause size={14} fill="currentColor" /> Pause
+                      </>
+                    )}
+                  </div>
+                  <SpaceHint>[Space]</SpaceHint>
+                </div>
               ) : (
-                <><CheckCircle2 size={16} /> Process then play</>
+                <>
+                  <CheckCircle2 size={16} /> Process then play
+                </>
               )}
             </Button>
           </ActionsContainer>

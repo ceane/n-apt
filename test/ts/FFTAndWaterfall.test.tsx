@@ -2,7 +2,7 @@ import React from "react";
 import { render, screen } from "@testing-library/react";
 import FFTAndWaterfall from "@n-apt/components/FFTAndWaterfall";
 
-const fftCanvasMock = jest.fn(() => <div data-testid="fft-canvas" />);
+const fftCanvasMock = jest.fn((_props?: any) => <div data-testid="fft-canvas" />);
 const visualizerSlidersMock = jest.fn(() => (
   <div data-testid="visualizer-sliders" />
 ));
@@ -15,20 +15,20 @@ jest.mock("@n-apt/components/FFTCanvas", () => {
 
   return {
     __esModule: true,
-    default: React.forwardRef((props: any, ref: React.Ref<HTMLDivElement>) => {
-      fftCanvasMock(props);
+    default: React.forwardRef((_props: any, ref: React.Ref<HTMLDivElement>) => {
+      fftCanvasMock(_props);
       return <div data-testid="fft-canvas" ref={ref} />;
     }),
   };
 });
 
 jest.mock("@n-apt/components/VisualizerSliders", () => ({
-  VisualizerSliders: (props: any) => visualizerSlidersMock(props),
+  VisualizerSliders: (_props: any) => visualizerSlidersMock(),
 }));
 
 jest.mock("@n-apt/components/FIFOWaterfallCanvas", () => ({
   __esModule: true,
-  default: (props: any) => waterfallCanvasMock(props),
+  default: (_props: any) => waterfallCanvasMock(),
 }));
 
 jest.mock("@n-apt/redux", () => ({

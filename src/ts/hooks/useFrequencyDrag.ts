@@ -90,7 +90,7 @@ export function useFrequencyDrag({
 
       if (isBoxDraggingRef.current) {
         boxCurrentRef.current = { x: e.clientX, y: e.clientY };
-        
+
         // Render box
         if (!selectionBoxRef.current) {
           const div = document.createElement("div");
@@ -126,7 +126,6 @@ export function useFrequencyDrag({
 
       const canvas = getActiveSpectrumCanvas();
       if (!isDraggingRef.current || !canvas) return;
-
 
       const canvasRect = canvas.getBoundingClientRect();
       const width = canvasRect.width;
@@ -182,7 +181,10 @@ export function useFrequencyDrag({
             const newHardwareCenter = (newHardwareMin + newHardwareMax) / 2;
 
             // 1. Notify hardware to shift its window
-            onFrequencyRangeChange({ min: newHardwareMin, max: newHardwareMax });
+            onFrequencyRangeChange({
+              min: newHardwareMin,
+              max: newHardwareMax,
+            });
 
             // 2. Set visual pan relative to this NEW hardware center
             const remainingPan = visualCenter - newHardwareCenter;
@@ -208,16 +210,19 @@ export function useFrequencyDrag({
           // Clamp to configured signal area bounds (e.g., from signals.yaml)
           const minBoundary = bounds.min;
           const maxBoundary = bounds.max;
-          
-          if (rangeWidth >= (maxBoundary - minBoundary)) {
+
+          if (rangeWidth >= maxBoundary - minBoundary) {
             // Overscan: The window is larger than the bounds, so the bounds
             // must be fully contained within the window.
             // windowMax >= maxBoundary => newMinFreq + rangeWidth >= maxBoundary
             // windowMin <= minBoundary => newMinFreq <= minBoundary
             const minAllowedMinFreq = maxBoundary - rangeWidth;
             const maxAllowedMinFreq = minBoundary;
-            
-            newMinFreq = Math.max(minAllowedMinFreq, Math.min(maxAllowedMinFreq, newMinFreq));
+
+            newMinFreq = Math.max(
+              minAllowedMinFreq,
+              Math.min(maxAllowedMinFreq, newMinFreq),
+            );
             newMaxFreq = newMinFreq + rangeWidth;
           } else {
             // Underscan: The window is smaller than the bounds.
@@ -248,7 +253,6 @@ export function useFrequencyDrag({
         const newRange = { min: newMinFreq, max: newMaxFreq };
         frequencyRangeRef.current = newRange;
         onFrequencyRangeChange(newRange);
-
       } else if (onVizPanChange) {
         const maxPan = fullRange / 2 - visualRange / 2;
         let newPan = dragStartPanRef.current - freqChange;
@@ -265,7 +269,7 @@ export function useFrequencyDrag({
       const height = rect.height;
       const y = e.clientY - rect.top;
       const vfoThreshold = 80;
-      
+
       // Bottom area is the VFO area
       if (y >= height - vfoThreshold) {
         isDraggingRef.current = true;
@@ -286,7 +290,7 @@ export function useFrequencyDrag({
 
     const handlePointerUp = (e: PointerEvent) => {
       const container = getContainer();
-      
+
       if (isBoxDraggingRef.current && container) {
         isBoxDraggingRef.current = false;
         container.releasePointerCapture(e.pointerId);
@@ -302,18 +306,26 @@ export function useFrequencyDrag({
           const boxHeight = Math.abs(currentY - startY);
 
           // Only zoom if the box is reasonably sized (avoid accidental clicks)
-          if (boxWidth > 10 && boxHeight > 10 && onVizZoomChange && onVizPanChange && onFftDbLimitsChange) {
+          if (
+            boxWidth > 10 &&
+            boxHeight > 10 &&
+            onVizZoomChange &&
+            onVizPanChange &&
+            onFftDbLimitsChange
+          ) {
             const zoom = vizZoomRef?.current || 1;
-            const fullRange = frequencyRangeRef.current.max - frequencyRangeRef.current.min;
-            
+            const fullRange =
+              frequencyRangeRef.current.max - frequencyRangeRef.current.min;
+
             // Use the actual clamped visual range from the renderer for precise mapping
             const currentVisualRange = clampedVizRangeRef?.current || {
               min: frequencyRangeRef.current.min,
-              max: frequencyRangeRef.current.max
+              max: frequencyRangeRef.current.max,
             };
             const visualMin = currentVisualRange.min;
-            const visualRangeSpan = currentVisualRange.max - currentVisualRange.min;
-            
+            const visualRangeSpan =
+              currentVisualRange.max - currentVisualRange.min;
+
             const left = Math.min(startX, currentX);
             const top = Math.min(startY, currentY);
 
@@ -351,15 +363,17 @@ export function useFrequencyDrag({
             const freqFracRight = (selRight - plotLeftCSS) / plotWidthCSS;
             const newFreqMin = visualMin + freqFracLeft * visualRangeSpan;
             const newFreqMax = visualMin + freqFracRight * visualRangeSpan;
-            
+
             // Zoom multiplier based on ratio of plot width to selection width
             const newZoomMultiplier = plotWidthCSS / clampedBoxWidth;
             const newZoomRaw = zoom * newZoomMultiplier;
             const newZoom = Math.max(1, Math.min(1000, newZoomRaw));
-            
+
             // Calculate new pan to center the selection
             const targetVisualCenter = (newFreqMin + newFreqMax) / 2;
-            const trueCenter = (frequencyRangeRef.current.min + frequencyRangeRef.current.max) / 2;
+            const trueCenter =
+              (frequencyRangeRef.current.min + frequencyRangeRef.current.max) /
+              2;
             let newPan = targetVisualCenter - trueCenter;
 
             // Clamp pan
@@ -387,13 +401,23 @@ export function useFrequencyDrag({
               const fullFreqMax = frequencyRangeRef.current.max;
               const fullFreqSpan = fullFreqMax - fullFreqMin;
 
-              const binStart = Math.max(0, Math.floor(((newFreqMin - fullFreqMin) / fullFreqSpan) * totalBins));
-              const binEnd = Math.min(totalBins - 1, Math.ceil(((newFreqMax - fullFreqMin) / fullFreqSpan) * totalBins));
+              const binStart = Math.max(
+                0,
+                Math.floor(
+                  ((newFreqMin - fullFreqMin) / fullFreqSpan) * totalBins,
+                ),
+              );
+              const binEnd = Math.min(
+                totalBins - 1,
+                Math.ceil(
+                  ((newFreqMax - fullFreqMin) / fullFreqSpan) * totalBins,
+                ),
+              );
 
               if (binStart <= binEnd) {
                 let maxSignal = -Infinity;
                 let minSignal = Infinity;
-                
+
                 for (let i = binStart; i <= binEnd; i++) {
                   const val = waveform[i];
                   if (val > maxSignal) maxSignal = val;
@@ -424,7 +448,8 @@ export function useFrequencyDrag({
         const rect = container.getBoundingClientRect();
         const y = e.clientY - rect.top;
         const vfoThreshold = 80;
-        container.style.cursor = y >= rect.height - vfoThreshold ? "grab" : "crosshair";
+        container.style.cursor =
+          y >= rect.height - vfoThreshold ? "grab" : "crosshair";
       }
       isDraggingRef.current = false;
     };
@@ -433,14 +458,14 @@ export function useFrequencyDrag({
     const handlePointerMoveForCursor = (e: PointerEvent) => {
       const container = getContainer();
       if (!container || isDraggingRef.current) return;
-      
+
       const rect = container.getBoundingClientRect();
       const y = e.clientY - rect.top;
       const vfoThreshold = 80; // Increased from 60 for better hit area
-      
+
       const isOverVfo = y >= rect.height - vfoThreshold;
       const nextCursor = isOverVfo ? "grab" : "crosshair";
-      
+
       if (container.style.cursor !== nextCursor) {
         container.style.cursor = nextCursor;
       }

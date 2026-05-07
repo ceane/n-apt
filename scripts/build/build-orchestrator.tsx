@@ -84,12 +84,12 @@ const accentColors = {
 };
 
 const processSuffixes: Record<string, { text: string; color: string }> = {
-  'Starting frontend server...': { text: ' Vite.', color: accentColors.vite },
-  'Starting Redis database server...': { text: ' Redis.', color: accentColors.redis },
-  'Swapping Redis Database...': { text: ' Redis.', color: accentColors.redis },
-  'Building WASM SIMD module...': { text: ' Rust → WebAssembly.', color: accentColors.wasm },
-  'Building (or skipping if missing) N-APT Encrypted Modules...': { text: ' Rust.', color: accentColors.rust },
-  'Building and starting Rust backend...': { text: ' Rust.', color: accentColors.rust },
+  'Starting frontend server': { text: ' Vite.', color: accentColors.vite },
+  'Starting Redis database server': { text: ' Redis.', color: accentColors.redis },
+  'Swapping Redis Database': { text: ' Redis.', color: accentColors.redis },
+  'Building WASM SIMD module': { text: ' WASM.', color: accentColors.wasm },
+  'Building N-APT Encrypted Modules': { text: ' AES.', color: accentColors.rust },
+  'Building and starting Rust backend': { text: ' Rust.', color: accentColors.rust },
 };
 
 const encryptedModulesStatus = {
@@ -180,12 +180,12 @@ const ProcessStep = ({ process, isActive, spinnerFrame, showOutput, onToggleOutp
           <Text color={getStatusColor()}>
             {getStatusIcon()} {process.label ?? getStatusText()}
           </Text>
-          {process.name === 'Swapping Redis Database...' ? (
+          {process.name === 'Swapping Redis Database' ? (
             <Text color={accentColors.redis}> Redis.</Text>
           ) : processSuffixes[process.name] && (
             <Text color={processSuffixes[process.name].color}>{processSuffixes[process.name].text}</Text>
           )}
-          {process.message && process.name !== 'N-APT Encrypted Modules...' && (
+          {process.message && process.name !== 'N-APT Encrypted Modules' && (
             <Text
               color={process.message.startsWith('⚠') ? 'yellow' : process.message.startsWith('✗') ? 'red' : process.message.startsWith('✔') ? 'green' : 'gray'}
             >
@@ -228,10 +228,12 @@ const BuildOrchestrator = () => {
   const [buildState, setBuildState] = useState<BuildState>({
     processes: [
       { name: 'Cleaning up existing processes', status: 'pending' },
-      { name: 'Starting Redis database server...', status: 'pending' },
-      { name: 'Swapping Redis Database...', status: 'pending' },
-      { name: 'Building WASM SIMD module...', status: 'pending' },
-      { name: 'N-APT Encrypted Modules...', status: 'pending' },
+      { name: 'Validating Rust backend code', status: 'pending' },
+      { name: 'Validating signals.yaml', status: 'pending' },
+      { name: 'Starting Redis database server', status: 'pending' },
+      { name: 'Swapping Redis Database', status: 'pending' },
+      { name: 'Building WASM SIMD module', status: 'pending' },
+      { name: 'Building N-APT Encrypted Modules', status: 'pending' },
       { name: 'Building and starting Rust backend', status: 'pending' },
       { name: 'Starting frontend server', status: 'pending' },
     ],
@@ -416,7 +418,8 @@ const BuildOrchestrator = () => {
 
           const errorMessage = stderr.trim() || stdout.trim() || `Command exited with code ${code ?? 'unknown'}`;
           addLog(chalk.red(`Error in ${description}: ${errorMessage}`));
-          appendErrorDetail(`${description}: ${errorMessage}`);
+          const summary = errorMessage.length > 200 ? `${errorMessage.slice(0, 197)}...` : errorMessage;
+          appendErrorDetail(`${description}: ${summary}`);
           resolve({ success: false, output: stdout });
         });
 
@@ -438,7 +441,7 @@ const BuildOrchestrator = () => {
     const executeForegroundCommand = useCallback((command: string, description: string, stepIndex: number): Promise<{ success: boolean; output: string }> => {
       return new Promise((resolve) => {
         try {
-          updateProcessStatus(stepIndex, 'running', undefined, 'Building backend... Rust.');
+          updateProcessStatus(stepIndex, 'running', undefined, 'Building and starting Rust backend');
           setBuildState(prev => ({ ...prev, activeBuildOutputStep: stepIndex }));
   
           addLog(chalk.blue(`Executing foreground: ${command}`));
@@ -499,7 +502,14 @@ const BuildOrchestrator = () => {
 
           const errorMessage = stderr.trim() || stdout.trim() || `Command exited with code ${code ?? 'unknown'}`;
           addLog(chalk.red(`Error in ${description}: ${errorMessage}`));
-          appendErrorDetail(`${description}: ${errorMessage}`);
+          // If it's a compilation error, make it obvious
+          let summary = errorMessage;
+          if (errorMessage.toLowerCase().includes('error: could not compile') || errorMessage.toLowerCase().includes('error[')) {
+            summary = 'Rust compilation FAILED. Check the build output above for details.';
+          } else if (summary.length > 200) {
+            summary = `${summary.slice(0, 197)}...`;
+          }
+          appendErrorDetail(`${description}: ${summary}`);
           resolve({ success: false, output: stdout });
         });
 
@@ -750,43 +760,47 @@ sleep 0.5
         pidKey: undefined,
       },
       {
-        index: 0.25,
-        command: 'mkdir -p .redis_data',
-        description: 'Preparing Redis environment',
+        index: 1,
+        command: isNativeWindows
+          ? 'echo Config validation not supported on Windows; skipping.'
+          : `
+set -euo pipefail
+echo "Checking Rust syntax..."
+cargo check --bin n-apt-backend --profile dev-fast 2>&1
+`,
+        description: 'Validating Rust backend code',
         isBackground: false,
+        pidKey: undefined,
       },
       {
-        index: 0.5,
+        index: 2,
         command: isNativeWindows
           ? 'echo Config validation not supported on Windows; skipping.'
           : `
 set -euo pipefail
 echo "Validating signals.yaml..."
-# Use direct execution instead of login shell to save time
-cargo run --bin n-apt-backend --profile dev-fast -- --validate-config 2>&1 || {
-  echo "❌ signals.yaml validation FAILED - aborting build"
-  exit 1
-}
-echo "✅ signals.yaml is valid"
+if [ -f "./target/dev-fast/n-apt-backend" ]; then
+  ./target/dev-fast/n-apt-backend --validate-config 2>&1
+else
+  cargo run --bin n-apt-backend --profile dev-fast -- --validate-config 2>&1
+fi
 `,
         description: 'Validating signals.yaml',
         isBackground: false,
         pidKey: undefined,
       },
       {
-        index: 1,
+        index: 3,
         command: `
 set -euo pipefail
 REDIS_PORT=6379
 DATA_DIR='.redis_data'
 mkdir -p "$DATA_DIR"
 if command -v redis-server >/dev/null 2>&1; then
-  # Final port check - if still blocked, the kill -9 failed (e.g. permission issue)
   if lsof -ti:$REDIS_PORT >/dev/null 2>&1; then
     echo "Error: Port $REDIS_PORT is still in use after cleanup. Please stop any system Redis services."
     exit 1
   fi
-  # Use both RDB and AOF for maximum persistence reliability
   exec redis-server --port $REDIS_PORT --dir "$DATA_DIR" --daemonize no --appendonly yes --save 60 1 --dbfilename dump.rdb
 else
   echo "redis-server is required on PATH"
@@ -798,7 +812,7 @@ fi
         pidKey: 'redisPid' as const,
       },
       {
-        index: 2,
+        index: 4,
         command: isNativeWindows ? 'echo Redis tower swap requires bash/redis-cli on non-Windows environments.' : `
 set -euo pipefail
 REDIS_PORT="${'${'}REDIS_PORT:-6379}"
@@ -810,11 +824,8 @@ if [ ! -f "scripts/redis/download_opencellid_cached.cjs" ]; then
   exit 0
 fi
 
-# Add timeout to prevent hanging (30 seconds instead of 5 minutes)
-# Pass the home directory and other paths explicitly if needed
 export LOCAL_OPENCELLID_CSV_DIR="${'${'}LOCAL_OPENCELLID_CSV_DIR:-data/opencellid}"
 if [ ! -d "$LOCAL_OPENCELLID_CSV_DIR" ] || [ -z "$(ls "$LOCAL_OPENCELLID_CSV_DIR"/31*.csv 2>/dev/null)" ]; then
-  # Try Downloads folder as a fallback
   DOWNLOADS_DIR="$HOME/Downloads"
   if [ -d "$DOWNLOADS_DIR" ] && [ ! -z "$(ls "$DOWNLOADS_DIR"/31*.csv 2>/dev/null)" ]; then
     export LOCAL_OPENCELLID_CSV_DIR="$DOWNLOADS_DIR"
@@ -841,14 +852,14 @@ exit 0
         pidKey: undefined,
       },
       {
-        index: 3,
+        index: 5,
         command: 'npm run build:wasm -- --force',
         description: 'Building WASM SIMD module',
         isBackground: false,
         pidKey: undefined,
       },
       {
-        index: 4,
+        index: 6,
         command: isNativeWindows ? 'echo Encrypted module decrypt step is not supported in this Windows shell path.' : `
 set -euo pipefail
 if npm run decrypt-modules >/dev/null 2>&1; then
@@ -867,8 +878,8 @@ exit 1
         pidKey: undefined,
       },
       {
-        index: 5,
-        command: undefined, // Will execute composite command in handler
+        index: 7,
+        command: undefined,
         description: 'Starting Rust backend',
         isBackground: false,
         pidKey: undefined,
@@ -876,7 +887,7 @@ exit 1
         isCompositeRustStep: true,
       },
       {
-        index: 6,
+        index: 8,
         command: isNativeWindows ? 'npx vite dev --host --force' : 'node_modules/.bin/vite dev --host --force',
         description: 'Starting frontend server',
         isBackground: true,
@@ -886,14 +897,13 @@ exit 1
     ];
 
     for (const step of steps) {
-      updateProcessStatus(step.index, 'running');
-
-      let success: boolean;
-      const stepLabelBase = step.index === 2 ? getTowerLoadDescription() : step.description;
+      const stepLabelBase = (step.index === 4) ? getTowerLoadDescription() : step.description;
       const stepLabel = step.index === 0 ? stepLabelBase : withEllipsis(stepLabelBase);
       const runningLabel = step.label ?? stepLabel;
+
       updateProcessStatus(step.index, 'running', undefined, runningLabel);
 
+      let success: boolean;
       if (step.isCompositeRustStep) {
         // Execute composite Rust build → start → wait sequence
         success = await executeCompositeRustStep(step.index);
@@ -908,10 +918,10 @@ exit 1
       }
 
       if (success) {
-        if (step.index === 2) {
+        if (step.index === 4) {
           const { message, label } = getTowerCountLabel(stepLabel);
           updateProcessStatus(step.index, 'success', message, label);
-        } else if (step.index === 5) {
+        } else if (step.index === 7) {
           updateProcessStatus(step.index, 'success', undefined, 'Rust backend running...');
         } else {
           updateProcessStatus(step.index, 'success', undefined, stepLabel);
@@ -919,6 +929,7 @@ exit 1
       } else {
         updateProcessStatus(step.index, 'error', undefined, stepLabel);
         appendErrorDetail(`${step.description} failed`);
+        break; // Stop the build if a step fails
       }
 
       // Small delay between steps for visual clarity

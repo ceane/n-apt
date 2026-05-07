@@ -1,12 +1,29 @@
 import * as React from "react";
-import {
-  render,
-  screen,
-  fireEvent,
-  waitFor,
-} from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import FFTPlaybackCanvas from "@n-apt/components/FFTPlaybackCanvas";
+
+jest.mock("@n-apt/hooks/useWasmSimdMath", () => ({
+  useWasmSimdMath: () => ({
+    isWasmLoaded: true,
+    isSimdAvailable: false,
+    resampleSpectrum: jest.fn(),
+    processIqToSpectrum: jest.fn(),
+    processIqToDbmSpectrum: jest.fn(),
+    shiftWaterfallBuffer: jest.fn(),
+    applyColorMapping: jest.fn(),
+    getZoomedData: jest.fn((params) => ({
+      slicedWaveform: params.fullWaveform,
+      visualRange: params.fullRange,
+      clampedPan: 0,
+    })),
+    transformToScreenCoords: jest.fn(() => []),
+    calculateFrequencyDrag: jest.fn(),
+    detectProminentSpikes: jest.fn(() => []),
+    resampleSpectrumEnhanced: jest.fn(),
+    matchNoiseFloorDb: jest.fn((ref, target) => target),
+  }),
+}));
 
 // Mock File API
 const createMockFile = (name: string, size: number = 1024): File => {
@@ -21,8 +38,8 @@ const createMockFile = (name: string, size: number = 1024): File => {
 
 describe("FFTPlaybackCanvas Component", () => {
   const mockFiles = [
-    createMockFile("test1.napt", 8192),
-    createMockFile("test2.wav", 8192),
+    { id: "test1", name: "test1.napt" },
+    { id: "test2", name: "test2.wav" },
   ];
 
   const defaultProps = {
@@ -30,6 +47,8 @@ describe("FFTPlaybackCanvas Component", () => {
     stitchTrigger: 0,
     stitchSourceSettings: { gain: 0, ppm: 0 },
     isPaused: false,
+    fftSize: 2048,
+    displayMode: "fft" as const,
     onStitchStatus: jest.fn(),
     onStitchPauseToggle: jest.fn(),
     onSelectedFilesChange: jest.fn(),
@@ -68,7 +87,9 @@ describe("FFTPlaybackCanvas Component", () => {
     );
 
     // Component shows drop zone when no files
-    expect(screen.getByText("Drop .wav or .napt files here")).toBeInTheDocument();
+    expect(
+      screen.getByText("Drop .wav or .napt files here"),
+    ).toBeInTheDocument();
 
     unmount();
   });
@@ -161,7 +182,7 @@ describe("FFTPlaybackCanvas Component", () => {
     });
 
     render(
-      <FFTPlaybackCanvas {...defaultProps} selectedFiles={[invalidFile]} />,
+      <FFTPlaybackCanvas {...defaultProps} selectedFiles={[{ id: "invalid", name: "test.txt" }]} />,
     );
 
     // Should not crash and should show error handling
@@ -173,7 +194,7 @@ describe("FFTPlaybackCanvas Component", () => {
       type: "application/octet-stream",
     });
 
-    render(<FFTPlaybackCanvas {...defaultProps} selectedFiles={[emptyFile]} />);
+    render(<FFTPlaybackCanvas {...defaultProps} selectedFiles={[{ id: "empty", name: "empty.napt" }]} />);
 
     // Should not crash
     expect(screen.getByText("empty.napt")).toBeInTheDocument();
@@ -182,7 +203,7 @@ describe("FFTPlaybackCanvas Component", () => {
   it("should handle large files efficiently", () => {
     const largeFile = createMockFile("large.wav", 1048576); // 1MB file
 
-    render(<FFTPlaybackCanvas {...defaultProps} selectedFiles={[largeFile]} />);
+    render(<FFTPlaybackCanvas {...defaultProps} selectedFiles={[{ id: "large", name: "large.wav" }]} />);
 
     // Should not crash with large file
     expect(screen.getByText("large.wav")).toBeInTheDocument();
@@ -190,8 +211,8 @@ describe("FFTPlaybackCanvas Component", () => {
 
   it("should handle multiple files", () => {
     const manyFiles = [
-      ...Array.from({ length: 5 }, (_, i) => createMockFile(`test${i}.napt`, 4096)),
-      ...Array.from({ length: 5 }, (_, i) => createMockFile(`wav${i}.wav`, 4096)),
+      ...Array.from({ length: 5 }, (_, i) => ({ id: `test${i}`, name: `test${i}.napt` })),
+      ...Array.from({ length: 5 }, (_, i) => ({ id: `wav${i}`, name: `wav${i}.wav` })),
     ];
 
     render(<FFTPlaybackCanvas {...defaultProps} selectedFiles={manyFiles} />);
@@ -302,9 +323,9 @@ describe("FFTPlaybackCanvas Component", () => {
     const { rerender } = render(<FFTPlaybackCanvas {...defaultProps} />);
 
     // Rapid file changes
-    const files1 = [createMockFile("file1.napt")];
-    const files2 = [createMockFile("file2.wav")];
-    const files3 = [createMockFile("file3.napt")];
+    const files1 = [{ id: "file1", name: "file1.napt" }];
+    const files2 = [{ id: "file2", name: "file2.wav" }];
+    const files3 = [{ id: "file3", name: "file3.napt" }];
 
     expect(() =>
       rerender(<FFTPlaybackCanvas {...defaultProps} selectedFiles={files1} />),

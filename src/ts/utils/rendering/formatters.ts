@@ -1,4 +1,7 @@
-import { formatFrequency, formatFrequencyHighRes } from "@n-apt/utils/frequency";
+import {
+  formatFrequency,
+  formatFrequencyHighRes,
+} from "@n-apt/utils/frequency";
 
 /**
  * Format Hz value for display — trims trailing zeros, always includes unit.
@@ -15,17 +18,24 @@ export function fmtFreq(hz: number, zoom: number = 1): string {
  */
 export function fmtFreqTick(hz: number, stepHz: number): string {
   const { precisionMHz, precisionKHz } = tickPrecisionForStep(stepHz);
-  return formatFrequency(hz, { trimTrailingZeros: true, precisionMHz, precisionKHz });
+  return formatFrequency(hz, {
+    trimTrailingZeros: true,
+    precisionMHz,
+    precisionKHz,
+  });
 }
 
 /**
  * Compute the minimum decimal precision needed for tick labels given
  * a step size in Hz so that adjacent values format to different strings.
  */
-export function tickPrecisionForStep(stepHz: number): { precisionMHz: number; precisionKHz: number } {
+export function tickPrecisionForStep(stepHz: number): {
+  precisionMHz: number;
+  precisionKHz: number;
+} {
   if (stepHz >= 100_000) return { precisionMHz: 1, precisionKHz: 0 };
-  if (stepHz >= 10_000)  return { precisionMHz: 2, precisionKHz: 1 };
-  if (stepHz >= 1_000)   return { precisionMHz: 3, precisionKHz: 2 };
+  if (stepHz >= 10_000) return { precisionMHz: 2, precisionKHz: 1 };
+  if (stepHz >= 1_000) return { precisionMHz: 3, precisionKHz: 2 };
   return { precisionMHz: 4, precisionKHz: 3 };
 }
 

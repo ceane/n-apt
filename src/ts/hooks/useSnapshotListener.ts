@@ -55,16 +55,21 @@ export const useSnapshotListener = ({
   useEffect(() => {
     const listener = async (e: Event) => {
       const options = (e as CustomEvent).detail;
-      dispatchProgress(setSnapshotProgress({
-        stage: "started",
-        message: "Preparing snapshot",
-        current: null,
-        total: null,
-      }));
+      dispatchProgress(
+        setSnapshotProgress({
+          stage: "started",
+          message: "Preparing snapshot",
+          current: null,
+          total: null,
+        }),
+      );
       let sdrSettingsLabel: string | undefined;
 
       if (effectiveSdrSettings) {
-        const gainValue = (effectiveSdrSettings.gain?.tuner_gain != null) ? effectiveSdrSettings.gain.tuner_gain : null;
+        const gainValue =
+          effectiveSdrSettings.gain?.tuner_gain != null
+            ? effectiveSdrSettings.gain.tuner_gain
+            : null;
         const gainStr = gainValue !== null ? `${gainValue} dB` : "Auto";
         const ppmStr =
           effectiveSdrSettings.ppm !== undefined
@@ -96,10 +101,7 @@ export const useSnapshotListener = ({
         getWholeChannelSegmentFrames:
           options.whole && sourceMode === "live" && isVideo
             ? () =>
-                streamWholeChannelSegmentFrames(
-                  captureWholeChannelSegments,
-                  30,
-                )
+                streamWholeChannelSegmentFrames(captureWholeChannelSegments, 30)
             : undefined,
         getVideoSourceCanvases,
         refreshVideoFrame,

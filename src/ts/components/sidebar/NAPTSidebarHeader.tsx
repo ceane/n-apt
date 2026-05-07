@@ -34,7 +34,10 @@ interface NAPTSidebarHeaderProps {
   toggleRef?: React.Ref<HTMLButtonElement>;
 }
 
-export const NAPTSidebarHeader: React.FC<NAPTSidebarHeaderProps> = ({ onToggleClick, toggleRef }) => {
+export const NAPTSidebarHeader: React.FC<NAPTSidebarHeaderProps> = ({
+  onToggleClick,
+  toggleRef,
+}) => {
   return (
     <HeaderContainer>
       <SidebarToggleButton ref={toggleRef} onClick={onToggleClick} />

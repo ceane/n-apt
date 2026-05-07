@@ -49,6 +49,18 @@ path = "test/rust/frequency_scaling_e2e.rs"
 name = "encryption_e2e_tests"
 path = "test/rust/encryption_e2e_tests.rs"
 
+[[test]]
+name = "performance_tests"
+path = "test/rust/performance_tests.rs"
+
+[[test]]
+name = "frequency_validation_tests"
+path = "test/rust/frequency_validation_tests.rs"
+
+[[test]]
+name = "iq_capture_integration_tests"
+path = "test/rust/iq_capture_integration_tests.rs"
+
 [[bin]]
 name = "live_stream_test"
 path = "src/rs/bin/live_stream_test.rs"
@@ -68,8 +80,7 @@ rustfft = "6"
 num-complex = "0.4"
 rand = "0.10"
 rayon = "1.12"
-getrandom = { version = "0.2", features = ["js"] }
-getrandom_04 = { package = "getrandom", version = "0.4", features = ["wasm_js"] }
+getrandom = { version = "0.4", features = ["wasm_js"] }
 anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -83,9 +94,9 @@ dotenvy = "0.15"
 
 # WASM dependencies (only when targeting WASM)
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-wasm-bindgen = "0.2.120"
-js-sys = "0.3.97"
-web-sys = { version = "0.3.97", features = ["console"] }
+wasm-bindgen = "0.2.121"
+js-sys = "0.3.98"
+web-sys = { version = "0.3.98", features = ["console"] }
 
 # Server dependencies (only when not targeting WASM)
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
@@ -102,7 +113,7 @@ hmac = "0.13"
 sha2 = "0.11"
 pbkdf2 = { version = "0.13", features = ["password-hash"] }
 base64 = "0.22"
-zip = { version = "2", default-features = false, features = ["deflate"] }
+zip = { version = "8", default-features = false, features = ["deflate"] }
 # HTTP client for CoreML service communication
 reqwest = { version = "0.13", features = ["json"] }
 # HTTP + WebSocket server (axum replaces raw TcpListener + tokio-tungstenite)
@@ -128,6 +139,7 @@ yawc = { version = "0.3.3", features = ["axum", "zlib"] }
 doc-comment = "0.3"
 tempfile = "3"
 serial_test = "3.2"
+criterion = { version = "0.5", features = ["html_reports"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio-test = "0.4"
@@ -136,6 +148,10 @@ tower = "0.5"
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test = "0.3.70"
+
+[[bench]]
+name = "fft_bench"
+harness = false
 
 [build-dependencies]
 pkg-config = "0.3"
@@ -161,7 +177,7 @@ codegen-units = 16
 opt-level = 3
 lto = "thin"
 codegen-units = 8
-panic = "abort"
+panic = "unwind"
 strip = true
 overflow-checks = false
 

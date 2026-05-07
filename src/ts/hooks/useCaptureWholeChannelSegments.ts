@@ -31,12 +31,19 @@ export async function* streamWholeChannelSegmentFrames(
   }
 
   const histories = capturedSegments.map(
-    seg => seg.waveformHistory || (seg.data.waveform ? [seg.data.waveform] : []),
+    (seg) =>
+      seg.waveformHistory || (seg.data.waveform ? [seg.data.waveform] : []),
   );
-  const framesPerSegment = Math.max(...histories.map(h => h.length), 1);
+  const framesPerSegment = Math.max(...histories.map((h) => h.length), 1);
 
-  for (let videoFrameIdx = 0; videoFrameIdx < totalVideoFrames; videoFrameIdx++) {
-    const timeIdx = Math.floor((videoFrameIdx / totalVideoFrames) * framesPerSegment);
+  for (
+    let videoFrameIdx = 0;
+    videoFrameIdx < totalVideoFrames;
+    videoFrameIdx++
+  ) {
+    const timeIdx = Math.floor(
+      (videoFrameIdx / totalVideoFrames) * framesPerSegment,
+    );
 
     const frameSegments = capturedSegments.map((segment, segIdx) => {
       const history = histories[segIdx];
@@ -89,9 +96,7 @@ export const useCaptureWholeChannelSegments = ({
 
   return useCallback(async () => {
     const fullRange = frequencyRange;
-    const hardwareSpanHz = sampleRateHzEffective
-      ? sampleRateHzEffective
-      : null;
+    const hardwareSpanHz = sampleRateHzEffective ? sampleRateHzEffective : null;
 
     if (
       !fullRange ||
@@ -103,7 +108,9 @@ export const useCaptureWholeChannelSegments = ({
     }
 
     const area = activeSignalArea?.toLowerCase();
-    const channelRange = area ? signalAreaBounds?.[area] ?? fullRange : fullRange;
+    const channelRange = area
+      ? (signalAreaBounds?.[area] ?? fullRange)
+      : fullRange;
     const totalSpan = channelRange.max - channelRange.min;
     if (!(totalSpan > hardwareSpanHz + 1)) {
       return [];
@@ -111,7 +118,9 @@ export const useCaptureWholeChannelSegments = ({
 
     const settleMs = 1000;
     const raf = () =>
-      new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+      new Promise<void>((resolve) =>
+        window.requestAnimationFrame(() => resolve()),
+      );
     const sleep = (ms: number) =>
       new Promise<void>((resolve) => window.setTimeout(resolve, ms));
 
@@ -127,12 +136,14 @@ export const useCaptureWholeChannelSegments = ({
     const framesToCapture = Math.round(captureFps * (settleMs / 1000));
 
     try {
-      reduxDispatch(setSnapshotProgress({
-        stage: "collecting",
-        message: "Collecting whole-channel segments",
-        current: 0,
-        total: estimatedSegments,
-      }));
+      reduxDispatch(
+        setSnapshotProgress({
+          stage: "collecting",
+          message: "Collecting whole-channel segments",
+          current: 0,
+          total: estimatedSegments,
+        }),
+      );
 
       for (
         let segmentMin = channelRange.min;
@@ -155,12 +166,14 @@ export const useCaptureWholeChannelSegments = ({
         };
         const nextIndex = segments.length + 1;
 
-        reduxDispatch(setSnapshotProgress({
-          stage: "collecting",
-          message: `Collecting segment ${nextIndex} of ${estimatedSegments}`,
-          current: nextIndex,
-          total: estimatedSegments,
-        }));
+        reduxDispatch(
+          setSnapshotProgress({
+            stage: "collecting",
+            message: `Collecting segment ${nextIndex} of ${estimatedSegments}`,
+            current: nextIndex,
+            total: estimatedSegments,
+          }),
+        );
 
         dispatch({ type: "SET_FREQUENCY_RANGE", range: nextRange });
         sendFrequencyRange(nextRange);

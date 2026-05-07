@@ -20,7 +20,10 @@ type ThemeColorMap = Record<ThemeColorToken, string>;
 
 export const APP_THEME_COLORS = THEME_TOKENS.colors;
 
-const toAlphaHex = (value: number) => Math.round(value * 255).toString(16).padStart(2, "0");
+const toAlphaHex = (value: number) =>
+  Math.round(value * 255)
+    .toString(16)
+    .padStart(2, "0");
 
 const appendHexAlpha = (color: string, opacity: number) => {
   if (/^#[0-9a-fA-F]{6}$/.test(color)) {
@@ -35,21 +38,34 @@ const appendHexAlpha = (color: string, opacity: number) => {
 };
 
 const toCssVarName = (prefix: string, key: string) =>
-  `--${prefix}-${key.replace(/([a-z0-9])([A-Z])/g, "$1-$2").replace(/_/g, "-").toLowerCase()}`;
+  `--${prefix}-${key
+    .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
+    .replace(/_/g, "-")
+    .toLowerCase()}`;
 
 const getSystemMode = (): ThemeMode => {
-  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+  if (
+    typeof window === "undefined" ||
+    typeof window.matchMedia !== "function"
+  ) {
     return "dark";
   }
 
-  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  return window.matchMedia("(prefers-color-scheme: dark)").matches
+    ? "dark"
+    : "light";
 };
 
 export const useResolvedThemeMode = (appMode: AppMode): ThemeMode => {
-  const [systemMode, setSystemMode] = React.useState<ThemeMode>(() => getSystemMode());
+  const [systemMode, setSystemMode] = React.useState<ThemeMode>(() =>
+    getSystemMode(),
+  );
 
   React.useEffect(() => {
-    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+    if (
+      typeof window === "undefined" ||
+      typeof window.matchMedia !== "function"
+    ) {
       return;
     }
 
@@ -81,13 +97,13 @@ export interface AppStyledTheme {
   fft: string;
   cssVariables: Record<string, string | number>;
   [key: string]:
-  | string
-  | number
-  | ThemeColorMap
-  | typeof THEME_TOKENS.typography
-  | typeof THEME_TOKENS.spacing
-  | typeof THEME_TOKENS.layout
-  | Record<string, string | number>;
+    | string
+    | number
+    | ThemeColorMap
+    | typeof THEME_TOKENS.typography
+    | typeof THEME_TOKENS.spacing
+    | typeof THEME_TOKENS.layout
+    | Record<string, string | number>;
 }
 
 export const buildAppTheme = ({
@@ -149,9 +165,9 @@ export const buildAppTheme = ({
 export const GlobalThemeStyle = createGlobalStyle`
   :root {
     ${({ theme }) =>
-    Object.entries(theme.cssVariables)
-      .map(([name, value]) => `${name}: ${value};`)
-      .join("\n")}
+      Object.entries(theme.cssVariables)
+        .map(([name, value]) => `${name}: ${value};`)
+        .join("\n")}
   }
 
   html,

@@ -46,19 +46,19 @@ fn preprocess_frequency_tags(content: &str) -> String {
       format!("[{}, {}]", start, end)
     })
     .to_string();
-    
+
   content
 }
 
 fn main() {
-    let input = "!frequency_range 18kHz..4.39MHz";
-    println!("{}", preprocess_frequency_tags(input));
-    
-    let input2 = r"mock_apt:
+  let input = "!frequency_range 18kHz..4.39MHz";
+  println!("{}", preprocess_frequency_tags(input));
+
+  let input2 = r#"mock_apt:
     channels:
       a:
-        label: ""A""
+        label: "A"
         freq_range_hz: !frequency_range 18kHz..4.47MHz
-";
-    println!("{}", preprocess_frequency_tags(input2));
+"#;
+  println!("{}", preprocess_frequency_tags(input2));
 }

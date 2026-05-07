@@ -4,11 +4,11 @@ use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use futures_util::{SinkExt, StreamExt};
 use log::{debug, error, info, warn};
-use validator::Validate;
 use serde_json;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tokio::sync::broadcast;
+use validator::Validate;
 
 use crate::crypto;
 
@@ -18,7 +18,7 @@ use super::utils::reconcile_device_state;
 
 /// Calculate optimal FFT sizes based on screen width (in physical pixels, i.e. CSS width × DPR).
 /// Returns (available_sizes, recommended_size).
-/// 
+///
 /// RATIONALE:
 /// 1. Screen sizes are usually smaller than the FFT size; we keep them balanced since FFT is width-based.
 /// 2. Performance: Smaller FFTs are cheaper. Higher resolution is typically only needed when zooming.
@@ -36,7 +36,7 @@ pub async fn ws_upgrade_handler(
   State(state): State<Arc<super::AppState>>,
 ) -> impl IntoResponse {
   // Validate session token
-  let session = match state.session_store.validate(&params.token) {
+  let _session = match state.session_store.validate(&params.token) {
     Some(s) => s,
     None => {
       return (StatusCode::UNAUTHORIZED, "Invalid or expired session token")
@@ -50,14 +50,7 @@ pub async fn ws_upgrade_handler(
   let broadcast_tx = state.broadcast_tx.clone();
   let spectrum_tx = state.spectrum_tx.clone();
   let cmd_tx = state.cmd_tx.clone();
-  let enc_key: [u8; 32] = match session.encryption_key.try_into() {
-    Ok(k) => k,
-    Err(_) => {
-      log::error!("Session has invalid encryption key length — rejecting WebSocket upgrade");
-      return (StatusCode::INTERNAL_SERVER_ERROR, "Invalid session key")
-        .into_response();
-    }
-  };
+  let enc_key = state.shared.encryption_key;
   let session_token = params.token.clone();
 
   ws.on_upgrade(move |socket| {
@@ -206,7 +199,11 @@ pub async fn handle_ws_connection(
   };
 
   if let Ok(status_json) = serde_json::to_string(&initial_status) {
-    if ws_sender.send(Message::Text(status_json.into())).await.is_err() {
+    if ws_sender
+      .send(Message::Text(status_json.into()))
+      .await
+      .is_err()
+    {
       shared.authenticated_count.fetch_sub(1, Ordering::Relaxed);
       shared.client_count.fetch_sub(1, Ordering::Relaxed);
       return;
@@ -401,20 +398,25 @@ pub fn handle_message(
         let channels = shared.channels.lock().unwrap().clone();
         let sdr_settings = shared.sdr_settings.lock().unwrap().clone();
         let normalize_rtl_device_name = |raw_name: &str| {
-          let short_name = raw_name.split(" - ").next().unwrap_or("RTL-SDR").trim();
+          let short_name =
+            raw_name.split(" - ").next().unwrap_or("RTL-SDR").trim();
           let lower = short_name.to_ascii_lowercase();
 
-          if let Some(version) = short_name.split_whitespace().find_map(|token| {
-            let cleaned = token
-              .trim_matches(|c: char| !c.is_ascii_alphanumeric())
-              .to_ascii_lowercase();
-            let version = cleaned.strip_prefix('v')?;
-            if !version.is_empty() && version.chars().all(|c| c.is_ascii_digit()) {
-              Some(version.to_string())
-            } else {
-              None
-            }
-          }) {
+          if let Some(version) =
+            short_name.split_whitespace().find_map(|token| {
+              let cleaned = token
+                .trim_matches(|c: char| !c.is_ascii_alphanumeric())
+                .to_ascii_lowercase();
+              let version = cleaned.strip_prefix('v')?;
+              if !version.is_empty()
+                && version.chars().all(|c| c.is_ascii_digit())
+              {
+                Some(version.to_string())
+              } else {
+                None
+              }
+            })
+          {
             return format!("RTL-SDR {}", format!("v{}", version));
           }
 
@@ -527,6 +529,7 @@ pub fn handle_message(
           fft_size,
           fft_window: message.fft_window,
           frame_rate,
+          sample_rate: None,
           gain,
           ppm,
           tuner_agc: message.tuner_agc,
@@ -594,9 +597,9 @@ pub fn handle_message(
         .duration_mode
         .clone()
         .unwrap_or_else(|| "timed".to_string());
-      
+
       let current_settings = shared.sdr_settings.lock().unwrap().clone();
-      
+
       let capture_cmd = super::types::SdrCommand::StartCapture {
         job_id: message
           .job_id
@@ -622,7 +625,9 @@ pub fn handle_message(
           .clone()
           .unwrap_or_else(|| "whole_sample".to_string()),
         encrypted: message.encrypted.unwrap_or(true),
-        fft_size: message.fft_size.unwrap_or(current_settings.fft.default_size),
+        fft_size: message
+          .fft_size
+          .unwrap_or(current_settings.fft.default_size),
         fft_window: message
           .fft_window
           .clone()

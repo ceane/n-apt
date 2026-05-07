@@ -24,14 +24,16 @@ const RangeButton = styled.button<{ $active: boolean; $variant: RangeVariant }>`
   appearance: none;
   border: 1px solid
     ${({ $active, $variant, theme }) => {
-    if ($active) {
-      return $variant === "primary" ? theme.primary : theme.fft;
-    }
-    return theme.borderHover;
-  }};
+      if ($active) {
+        return $variant === "primary" ? theme.primary : theme.fft;
+      }
+      return theme.borderHover;
+    }};
   background-color: ${({ $active, $variant, theme }) => {
     if ($active) {
-      return $variant === "primary" ? theme.primaryAnchor : theme.activeBackground;
+      return $variant === "primary"
+        ? theme.primaryAnchor
+        : theme.activeBackground;
     }
     return theme.surface;
   }};
@@ -45,7 +47,10 @@ const RangeButton = styled.button<{ $active: boolean; $variant: RangeVariant }>`
   align-items: stretch;
   gap: 6px;
   cursor: pointer;
-  transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
   font-family: ${(props) => props.theme.typography.mono};
   text-align: left;
   box-sizing: border-box;
@@ -80,8 +85,12 @@ const RangeTotal = styled.span<{ $active: boolean; $variant: RangeVariant }>`
   background-color: ${({ $active, $variant, theme }) => {
     if (!$active) return theme.border;
     return $variant === "primary"
-      ? (theme.mode === "light" ? `${theme.primary}14` : `${theme.primary}22`)
-      : (theme.mode === "light" ? `${theme.fft}14` : `${theme.fft}22`);
+      ? theme.mode === "light"
+        ? `${theme.primary}14`
+        : `${theme.primary}22`
+      : theme.mode === "light"
+        ? `${theme.fft}14`
+        : `${theme.fft}22`;
   }};
   color: ${({ $active, $variant, theme }) => {
     if (!$active) return "transparent";
@@ -92,7 +101,10 @@ const RangeTotal = styled.span<{ $active: boolean; $variant: RangeVariant }>`
   letter-spacing: 0.2px;
   min-height: ${({ $active }) => ($active ? "20px" : "6px")};
   padding: ${({ $active }) => ($active ? "2px 8px" : "0")};
-  transition: color 0.2s ease, min-height 0.2s ease, background-color 0.2s ease;
+  transition:
+    color 0.2s ease,
+    min-height 0.2s ease,
+    background-color 0.2s ease;
 `;
 
 export interface RangeProps {
@@ -104,7 +116,14 @@ export interface RangeProps {
   variant?: RangeVariant;
 }
 
-export const Range: React.FC<RangeProps> = ({ label, min, max, selected, onToggle, variant = "primary" }) => {
+export const Range: React.FC<RangeProps> = ({
+  label,
+  min,
+  max,
+  selected,
+  onToggle,
+  variant = "primary",
+}) => {
   const totalSpan = Math.max(0, max - min);
   const descriptiveRange = `${formatFrequency(min)} to ${formatFrequency(max)}`;
 
@@ -121,7 +140,11 @@ export const Range: React.FC<RangeProps> = ({ label, min, max, selected, onToggl
         $variant={variant}
       >
         <RangeStart>{formatFrequency(min)}</RangeStart>
-        <RangeTotal $active={selected} aria-hidden={!selected} $variant={variant}>
+        <RangeTotal
+          $active={selected}
+          aria-hidden={!selected}
+          $variant={variant}
+        >
           {selected ? `${formatFrequency(totalSpan)} total` : null}
         </RangeTotal>
         <RangeEnd>{formatFrequency(max)}</RangeEnd>

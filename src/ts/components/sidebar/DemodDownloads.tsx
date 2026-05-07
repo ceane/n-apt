@@ -9,18 +9,18 @@ const Section = styled.div`
   gap: inherit;
   margin-bottom: 0;
   box-sizing: border-box;
-  
+
   /* Flash animation when scrolled to */
   &[data-flash="true"] {
     animation: flash 0.2s steps(2, start) 10 alternate;
   }
-  
+
   @keyframes flash {
     to {
       background-color: rgba(0, 255, 136, 0.33);
     }
   }
-  
+
   /* Fallback for browsers that don't support attribute selectors */
   &.flash {
     animation: flash 2s ease-in-out infinite alternate;
@@ -60,7 +60,9 @@ interface DemodDownloadsProps {
   className?: string;
 }
 
-export const DemodDownloads: React.FC<DemodDownloadsProps> = ({ className }) => {
+export const DemodDownloads: React.FC<DemodDownloadsProps> = ({
+  className,
+}) => {
   const { analysisSession } = useDemod();
 
   // Refs for scrolling and flashing
@@ -70,7 +72,7 @@ export const DemodDownloads: React.FC<DemodDownloadsProps> = ({ className }) => 
 
   // Handle flashing when analysis completes
   React.useEffect(() => {
-    if (analysisSession.state === 'result' && wasPreviouslyAnalyzing.current) {
+    if (analysisSession.state === "result" && wasPreviouslyAnalyzing.current) {
       // Reset the flag
       wasPreviouslyAnalyzing.current = false;
 
@@ -81,14 +83,20 @@ export const DemodDownloads: React.FC<DemodDownloadsProps> = ({ className }) => 
       setTimeout(() => {
         setShouldFlash(false);
       }, 2000); // Match animation duration
-    } else if (analysisSession.state === 'capturing' || analysisSession.state === 'analyzing') {
+    } else if (
+      analysisSession.state === "capturing" ||
+      analysisSession.state === "analyzing"
+    ) {
       // Set flag when analysis starts
       wasPreviouslyAnalyzing.current = true;
       setShouldFlash(false);
     }
   }, [analysisSession.state]);
 
-  if (analysisSession.state !== 'result' || !analysisSession.result?.naptFilePath) {
+  if (
+    analysisSession.state !== "result" ||
+    !analysisSession.result?.naptFilePath
+  ) {
     return null;
   }
 
@@ -97,7 +105,7 @@ export const DemodDownloads: React.FC<DemodDownloadsProps> = ({ className }) => 
       ref={referenceCapturesRef}
       data-sidebar-results
       data-flash={shouldFlash.toString()}
-      className={`${shouldFlash ? 'flash' : ''} ${className || ''}`}
+      className={`${shouldFlash ? "flash" : ""} ${className || ""}`}
     >
       <SectionTitle>Reference Captures</SectionTitle>
       <ResultCard>
@@ -109,13 +117,14 @@ export const DemodDownloads: React.FC<DemodDownloadsProps> = ({ className }) => 
           {analysisSession.result.naptFilePath}
         </DownloadCaptureLink>
         {analysisSession.result.timestamp && (
-          <div style={{ fontSize: '10px', color: '#666', marginTop: '4px' }}>
+          <div style={{ fontSize: "10px", color: "#666", marginTop: "4px" }}>
             {new Date(analysisSession.result.timestamp).toLocaleString()}
           </div>
         )}
         {analysisSession.result.fileSize && (
-          <div style={{ fontSize: '10px', color: '#666', marginTop: '2px' }}>
-            Size: {(analysisSession.result.fileSize / 1024 / 1024).toFixed(2)} MB
+          <div style={{ fontSize: "10px", color: "#666", marginTop: "2px" }}>
+            Size: {(analysisSession.result.fileSize / 1024 / 1024).toFixed(2)}{" "}
+            MB
           </div>
         )}
       </ResultCard>

@@ -25,7 +25,8 @@ class ScannerWorkerManager {
    * Called by the WS message handler when a scan result/progress arrives
    */
   handleWSResponse(message: any) {
-    const { type, jobId, regions, progress, currentFreq, regionsLength } = message;
+    const { type, jobId, regions, progress, currentFreq, regionsLength } =
+      message;
     const request = this.pendingRequests.get(jobId);
 
     if (!request) return;
@@ -37,10 +38,10 @@ class ScannerWorkerManager {
       request.resolve(regions);
       this.pendingRequests.delete(jobId);
     } else if (type === "demod_result") {
-        if (request.timeout) clearTimeout(request.timeout);
-        // data here would be the demod result
-        request.resolve(message);
-        this.pendingRequests.delete(jobId);
+      if (request.timeout) clearTimeout(request.timeout);
+      // data here would be the demod result
+      request.resolve(message);
+      this.pendingRequests.delete(jobId);
     }
   }
 
@@ -48,9 +49,16 @@ class ScannerWorkerManager {
     return `scan_${++this.requestId}_${Date.now()}`;
   }
 
-  async scan(_iqSamples: Uint8Array, frequencyRange: { min: number; max: number }, options: any, onProgress?: (p: any) => void): Promise<any> {
+  async scan(
+    _iqSamples: Uint8Array,
+    frequencyRange: { min: number; max: number },
+    options: any,
+    onProgress?: (p: any) => void,
+  ): Promise<any> {
     if (!this._sendWSCommand) {
-        return Promise.reject(new Error("Backend connection not ready for scanning"));
+      return Promise.reject(
+        new Error("Backend connection not ready for scanning"),
+      );
     }
 
     const jobId = this.generateRequestId();
@@ -76,25 +84,31 @@ class ScannerWorkerManager {
         job_id: jobId,
         min_freq: frequencyRange.min,
         max_freq: frequencyRange.max,
-        options // Pass through options for backend heuristic tuning
+        options, // Pass through options for backend heuristic tuning
       });
     });
   }
 
-  async demodulate(_iqSamples: Uint8Array, region: any, _sampleRate: number): Promise<any> {
+  async demodulate(
+    _iqSamples: Uint8Array,
+    region: any,
+    _sampleRate: number,
+  ): Promise<any> {
     if (!this._sendWSCommand) {
-        return Promise.reject(new Error("Backend connection not ready for demodulation"));
+      return Promise.reject(
+        new Error("Backend connection not ready for demodulation"),
+      );
     }
 
     const jobId = `demod_${Date.now()}`;
 
     return new Promise((resolve, reject) => {
-        this.pendingRequests.set(jobId, { resolve, reject });
-        this._sendWSCommand!({
-            type: "demodulate",
-            job_id: jobId,
-            region
-        });
+      this.pendingRequests.set(jobId, { resolve, reject });
+      this._sendWSCommand!({
+        type: "demodulate",
+        job_id: jobId,
+        region,
+      });
     });
   }
 

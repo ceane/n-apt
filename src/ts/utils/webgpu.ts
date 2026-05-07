@@ -26,7 +26,9 @@ export function configureWebGPUCanvas(
 /**
  * Parse a CSS color string into an RGBA array normalized to [0, 1]
  */
-export function parseCssColorToRgba(color: string): [number, number, number, number] {
+export function parseCssColorToRgba(
+  color: string,
+): [number, number, number, number] {
   const trimmed = color.trim();
   if (trimmed.startsWith("#")) {
     const hex = trimmed.slice(1);

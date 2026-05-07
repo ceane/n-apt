@@ -15,7 +15,15 @@ export const Default = () => {
 };
 
 export const States = () => (
-  <div style={{ display: "flex", flexDirection: "column", gap: "10px", padding: "20px", background: "#0a0a0a" }}>
+  <div
+    style={{
+      display: "flex",
+      flexDirection: "column",
+      gap: "10px",
+      padding: "20px",
+      background: "#0a0a0a",
+    }}
+  >
     <Checkbox label="Checked" checked={true} readOnly />
     <Checkbox label="Unchecked" checked={false} readOnly />
     <Checkbox label="Disabled Checked" checked={true} disabled />

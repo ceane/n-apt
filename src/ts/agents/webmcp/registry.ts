@@ -686,7 +686,10 @@ export const allWebMCPTools: WebMCPTool[] = [
 // Get tools by route
 export function getToolsByRoute(route: string): WebMCPTool[] {
   return allWebMCPTools.filter(
-    (tool) => tool.route === route || tool.route === "/" || (route === "/visualizer" && tool.route === "/"),
+    (tool) =>
+      tool.route === route ||
+      tool.route === "/" ||
+      (route === "/visualizer" && tool.route === "/"),
   );
 }
 

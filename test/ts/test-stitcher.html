@@ -86,7 +86,9 @@
     <div class="container">
       <h1>FFT Stitcher Test</h1>
 
-      <div class="status" id="status">Select .napt or .wav files to begin stitching</div>
+      <div class="status" id="status">
+        Select .napt or .wav files to begin stitching
+      </div>
 
       <div class="file-input">
         <input
@@ -134,7 +136,8 @@
 
       function updateUI() {
         if (selectedFiles.length === 0) {
-          statusEl.textContent = "Select .napt or .wav files to begin stitching";
+          statusEl.textContent =
+            "Select .napt or .wav files to begin stitching";
           fileListEl.style.display = "none";
           stitchBtnEl.disabled = true;
           clearBtnEl.disabled = true;
@@ -145,16 +148,16 @@
           stitchBtnEl.disabled = false;
           clearBtnEl.disabled = false;
 
-          fileItemsEl.textContent = '';
+          fileItemsEl.textContent = "";
           selectedFiles.forEach((file, index) => {
-            const item = document.createElement('div');
-            item.className = 'file-item';
-            const nameSpan = document.createElement('span');
-            nameSpan.textContent = file.name;  // textContent auto-escapes HTML
-            const removeBtn = document.createElement('button');
-            removeBtn.className = 'remove-btn';
-            removeBtn.textContent = 'Remove';
-            removeBtn.addEventListener('click', () => removeFile(index));
+            const item = document.createElement("div");
+            item.className = "file-item";
+            const nameSpan = document.createElement("span");
+            nameSpan.textContent = file.name; // textContent auto-escapes HTML
+            const removeBtn = document.createElement("button");
+            removeBtn.className = "remove-btn";
+            removeBtn.textContent = "Remove";
+            removeBtn.addEventListener("click", () => removeFile(index));
             item.appendChild(nameSpan);
             item.appendChild(removeBtn);
             fileItemsEl.appendChild(item);

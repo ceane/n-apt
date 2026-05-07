@@ -2,12 +2,12 @@ use anyhow::Result;
 use log::info;
 use regex::Regex;
 use serde_yaml::Value;
-use std::io::Write;
-use std::sync::{OnceLock, RwLock};
 use sha2::Digest;
+use std::io::Write;
+use std::sync::RwLock;
 
 use super::types::{CaptureArtifact, ChannelSpec};
- 
+
 pub static RE_SAFE_ID: std::sync::LazyLock<Regex> =
   std::sync::LazyLock::new(|| Regex::new(r"^[a-zA-Z0-9_-]+$").unwrap());
 
@@ -83,7 +83,9 @@ fn downsample_spectrum(data: &[f32], target_len: usize) -> Vec<f32> {
   crate::simd::downsample_spectrum_simd(data, target_len)
 }
 
-pub fn read_config_file(filename: &str) -> Option<(String, std::time::SystemTime)> {
+pub fn read_config_file(
+  filename: &str,
+) -> Option<(String, std::time::SystemTime)> {
   let path = std::path::Path::new(filename);
   let content = if path.exists() {
     std::fs::read_to_string(path).ok()
@@ -101,6 +103,12 @@ pub fn read_config_file(filename: &str) -> Option<(String, std::time::SystemTime
     });
 
   modified.map(|m| (content, m))
+}
+
+#[cfg(test)]
+pub(crate) fn cwd_lock() -> &'static std::sync::Mutex<()> {
+  static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+  LOCK.get_or_init(|| std::sync::Mutex::new(()))
 }
 
 struct CachedSignalsConfig {
@@ -129,12 +137,12 @@ fn reload_signals_config() -> CachedSignalsConfig {
   let config = serde_yaml::from_str(&processed).unwrap_or_else(|e| {
     eprintln!("\n❌ INVALID signals.yaml CONFIGURATION");
     eprintln!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    
+
     let error_msg = e.to_string();
     if let Some(line_col) = extract_yaml_location(&error_msg) {
       eprintln!("Location: {}", line_col);
     }
-    
+
     eprintln!("Error: {}", error_msg);
     eprintln!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     eprintln!("\nCommon issues:");
@@ -402,6 +410,7 @@ mod tests {
 
   #[test]
   fn load_sdr_settings_uses_manifest_dir_when_cwd_missing() {
+    let _guard = cwd_lock().lock().expect("cwd lock");
     let original_dir = std::env::current_dir().expect("current dir");
     let unique = SystemTime::now()
       .duration_since(UNIX_EPOCH)
@@ -953,13 +962,15 @@ pub fn save_capture_file_multi(
     // Phase 2: Per-file key wrapping
     // 1. Use the DEK from result if available, otherwise generate a unique one
     let dek = result.dek.unwrap_or_else(|| crate::crypto::generate_key());
-    
+
     // 2. Wrap the DEK using the vault key
-    let wrapped_dek_bytes = crate::crypto::encrypt_payload_binary(encryption_key, &dek)
-      .map_err(|e| format!("DEK wrapping failed: {}", e))?;
-    
+    let wrapped_dek_bytes =
+      crate::crypto::encrypt_payload_binary(encryption_key, &dek)
+        .map_err(|e| format!("DEK wrapping failed: {}", e))?;
+
     // 3. Store the wrapped DEK in metadata
-    meta_obj["wrapped_dek"] = serde_json::json!(crate::crypto::to_base64(&wrapped_dek_bytes));
+    meta_obj["wrapped_dek"] =
+      serde_json::json!(crate::crypto::to_base64(&wrapped_dek_bytes));
 
     // Header JSON for .napt
     let complete_json = format!(r#"{{"metadata":{}}}"#, meta_obj);
@@ -998,8 +1009,13 @@ pub fn save_capture_file_multi(
       .map_err(|e| format!("Failed to flush file: {}", e))?;
 
     let (checksum, file_size) = writer.finalize();
-    
-    info!("Saved encrypted capture: {} ({} bytes, sha256:{})", path.display(), file_size, checksum);
+
+    info!(
+      "Saved encrypted capture: {} ({} bytes, sha256:{})",
+      path.display(),
+      file_size,
+      checksum
+    );
 
     return Ok(CaptureArtifact {
       filename,
@@ -1111,7 +1127,9 @@ pub fn save_capture_file_multi(
 
     // Write IQ Chunks
     for (i, (tag, size, padding)) in iq_chunks.iter().enumerate() {
-      writer.write_all(tag.as_bytes()).map_err(|e| e.to_string())?;
+      writer
+        .write_all(tag.as_bytes())
+        .map_err(|e| e.to_string())?;
       writer
         .write_all(&size.to_le_bytes())
         .map_err(|e| e.to_string())?;
@@ -1126,7 +1144,12 @@ pub fn save_capture_file_multi(
     writer.flush().map_err(|e| e.to_string())?;
     let (checksum, file_size) = writer.finalize();
 
-    info!("Saved WAV capture: {} ({} bytes, sha256:{})", path.display(), file_size, checksum);
+    info!(
+      "Saved WAV capture: {} ({} bytes, sha256:{})",
+      path.display(),
+      file_size,
+      checksum
+    );
 
     Ok(CaptureArtifact {
       filename,
@@ -1209,8 +1232,10 @@ mod save_tests {
     use sha2::Digest;
     let file_content =
       fs::read(&artifact.path).expect("read file for checksum verification");
-    let expected_checksum =
-      sha2::Sha256::digest(&file_content).iter().map(|b| format!("{:02x}", b)).collect::<String>();
+    let expected_checksum = sha2::Sha256::digest(&file_content)
+      .iter()
+      .map(|b| format!("{:02x}", b))
+      .collect::<String>();
     assert_eq!(
       artifact.checksum, expected_checksum,
       "Stored checksum should match calculated checksum"
@@ -1283,8 +1308,10 @@ mod save_tests {
     use sha2::Digest;
     let file_content = fs::read(&artifact.path)
       .expect("read encrypted file for checksum verification");
-    let expected_checksum =
-      sha2::Sha256::digest(&file_content).iter().map(|b| format!("{:02x}", b)).collect::<String>();
+    let expected_checksum = sha2::Sha256::digest(&file_content)
+      .iter()
+      .map(|b| format!("{:02x}", b))
+      .collect::<String>();
     assert_eq!(
       artifact.checksum, expected_checksum,
       "Stored checksum should match calculated checksum for encrypted files"
@@ -1368,10 +1395,10 @@ mod save_tests {
       dek: None,
     };
 
-    let artifact1 =
-      save_capture_file_multi(&result1, &test_encryption_key()).expect("save first file");
-    let artifact2 =
-      save_capture_file_multi(&result2, &test_encryption_key()).expect("save second file");
+    let artifact1 = save_capture_file_multi(&result1, &test_encryption_key())
+      .expect("save first file");
+    let artifact2 = save_capture_file_multi(&result2, &test_encryption_key())
+      .expect("save second file");
 
     // Verify checksums are different for different files
     assert_ne!(
@@ -1422,12 +1449,12 @@ mod save_tests {
       dek: None,
     };
 
-    let result_napt =
-      save_capture_file_multi(&result, &test_encryption_key()).expect("save multi .napt");
+    let result_napt = save_capture_file_multi(&result, &test_encryption_key())
+      .expect("save multi .napt");
 
     let content_napt_bytes = fs::read(&result_napt.path).expect("read .napt");
     let content_napt = String::from_utf8_lossy(&content_napt_bytes);
-    
+
     // Verify Phase 2: Per-file key wrapping
     assert!(
       content_napt.contains(r#""wrapped_dek":"#),
@@ -1515,8 +1542,9 @@ mod save_tests {
       dek: None,
     };
 
-    let result_wav = save_capture_file_multi(&result_wav_struct, &test_encryption_key())
-      .expect("save multi .wav");
+    let result_wav =
+      save_capture_file_multi(&result_wav_struct, &test_encryption_key())
+        .expect("save multi .wav");
 
     let content_wav = fs::read(&result_wav.path).expect("read .wav");
     let wav_str = String::from_utf8_lossy(&content_wav);

@@ -35,7 +35,7 @@ describe("FileWorkerManager", () => {
     });
     const onProgress = jest.fn();
 
-    const result = await manager.loadFile(mockFile, onProgress);
+    const result = await manager.loadFile(mockFile as any, onProgress as any);
 
     expect(result).toBeDefined();
     expect(result.name).toBe("test.napt");
@@ -58,7 +58,7 @@ describe("FileWorkerManager", () => {
       }
     }, 100);
 
-    await manager.loadFile(mockFile, onProgress);
+    await manager.loadFile(mockFile as any, onProgress as any);
 
     expect(onProgress).toHaveBeenCalled();
     expect(onProgress).toHaveBeenCalledWith(
@@ -72,21 +72,21 @@ describe("FileWorkerManager", () => {
     });
 
     // Simulate file loading error
-    manager.simulateError("fileloading", "File loading failed");
+    (manager as any).simulateError("loadFile", "Worker error");
 
-    await expect(manager.loadFile(mockFile)).rejects.toThrow(
-      "File loading failed",
+    await expect((manager as any).loadFile(mockFile as any)).rejects.toThrow(
+      "Worker error",
     );
 
     // Reset for next test
-    manager.resetErrorSimulation();
+    (manager as any).resetErrorSimulation();
   });
 
   it("should build frames", async () => {
     const fileDataCache = new Map([["test.napt", new Uint8Array(1024)]]);
     const freqMap = new Map([["test.napt", 1.6]]);
 
-    const result = await manager.buildFrame(0, fileDataCache, freqMap);
+    const result = await (manager as any).buildFrame(0, fileDataCache, freqMap);
 
     expect(result).toBeDefined();
     expect(result.waveform).toBeInstanceOf(Float32Array);
@@ -98,14 +98,14 @@ describe("FileWorkerManager", () => {
     const freqMap = new Map([["test.napt", 1.6]]);
 
     // Simulate frame building error
-    manager.simulateError("framebuilding", "Frame building failed");
+    (manager as any).simulateError("buildFrame", "Frame building failed");
 
-    await expect(manager.buildFrame(0, fileDataCache, freqMap)).rejects.toThrow(
+    await expect((manager as any).buildFrame(0, fileDataCache, freqMap)).rejects.toThrow(
       "Frame building failed",
     );
 
     // Reset for next test
-    manager.resetErrorSimulation();
+    (manager as any).resetErrorSimulation();
   });
 
   it("should handle worker timeout", async () => {
@@ -114,22 +114,22 @@ describe("FileWorkerManager", () => {
     });
 
     // Simulate timeout
-    manager.simulateError("timeout");
+    (manager as any).simulateError("timeout");
 
-    await expect(manager.loadFile(mockFile)).rejects.toThrow(
+    await expect((manager as any).loadFile(mockFile as any)).rejects.toThrow(
       "Worker request timed out",
     );
 
     // Reset for next test
-    manager.resetErrorSimulation();
+    (manager as any).resetErrorSimulation();
   });
 
   it("should handle multiple concurrent requests", async () => {
     const mockFile1 = new File(["data1"], "test1.napt");
     const mockFile2 = new File(["data2"], "test2.wav");
 
-    const promise1 = manager.loadFile(mockFile1);
-    const promise2 = manager.loadFile(mockFile2);
+    const promise1 = (manager as any).loadFile(mockFile1 as any);
+    const promise2 = (manager as any).loadFile(mockFile2 as any);
 
     const [result1, result2] = await Promise.all([promise1, promise2]);
 
@@ -139,7 +139,7 @@ describe("FileWorkerManager", () => {
 
   it("should terminate worker properly", () => {
     manager.terminate();
-    expect(manager.isTerminated).toBe(true);
+    expect((manager as any).isTerminated).toBe(true);
   });
 
   it("should handle multiple termination calls", () => {
@@ -157,7 +157,7 @@ describe("FileWorkerManager", () => {
     manager.terminate();
 
     // Should throw error when trying to load file after termination
-    await expect(manager.loadFile(mockFile)).rejects.toThrow(
+    await expect((manager as any).loadFile(mockFile as any)).rejects.toThrow(
       "Worker terminated",
     );
   });
@@ -168,7 +168,7 @@ describe("FileWorkerManager", () => {
     });
     const onProgress = jest.fn();
 
-    const result = await manager.loadFile(mockFile, onProgress);
+    const result = await (manager as any).loadFile(mockFile as any, onProgress as any);
 
     expect(onProgress).toHaveBeenCalled();
     expect(result.name).toBe("test.napt");
@@ -180,7 +180,7 @@ describe("FileWorkerManager", () => {
       type: "application/octet-stream",
     });
 
-    const result = await manager.loadFile(mockFile);
+    const result = await (manager as any).loadFile(mockFile as any);
 
     expect(result.data).toBeInstanceOf(ArrayBuffer);
     expect(result.data.byteLength).toBe(1024 * 1024);
@@ -205,7 +205,7 @@ describe("FileWorkerManager", () => {
     const mockFile = new File(["test data"], "test.napt", {
       type: "application/octet-stream",
     });
-    const promise = manager.loadFile(mockFile);
+    const promise = (manager as any).loadFile(mockFile as any);
 
     // Terminate before completion
     manager.terminate();
@@ -220,7 +220,7 @@ describe("FileWorkerManager", () => {
     });
 
     // The mock handles errors gracefully, so this should just work
-    await expect(manager.loadFile(mockFile)).resolves.toBeDefined();
+    await expect((manager as any).loadFile("test.napt")).resolves.toBeDefined();
   });
 
   it("should maintain request queue", async () => {
@@ -228,8 +228,8 @@ describe("FileWorkerManager", () => {
     const mockFile2 = new File(["data2"], "test2.wav");
 
     // Start multiple requests
-    const promise1 = manager.loadFile(mockFile1);
-    const promise2 = manager.loadFile(mockFile2);
+    const promise1 = manager.loadFile(mockFile1 as any);
+    const promise2 = manager.loadFile(mockFile2 as any);
 
     const [result1, result2] = await Promise.all([promise1, promise2]);
 

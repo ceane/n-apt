@@ -41,7 +41,8 @@ export const createStitchSessionKey = ({
   });
 };
 
-export const getStitchSession = (key: string) => stitchSessionCache.get(key) ?? null;
+export const getStitchSession = (key: string) =>
+  stitchSessionCache.get(key) ?? null;
 
 export const setStitchSession = (key: string, data: StitchSessionData) => {
   stitchSessionCache.set(key, data);

@@ -8,10 +8,7 @@ import FFTCanvas, {
 import FIFOWaterfallCanvas from "@n-apt/components/FIFOWaterfallCanvas";
 import { VisualizerSliders } from "@n-apt/components/VisualizerSliders";
 import { useAppDispatch, useAppSelector, spectrumActions } from "@n-apt/redux";
-import {
-  VISUALIZER_PADDING,
-  VISUALIZER_GAP
-} from "@n-apt/consts";
+import { VISUALIZER_PADDING, VISUALIZER_GAP } from "@n-apt/consts";
 
 const Container = styled.div`
   flex: 1;

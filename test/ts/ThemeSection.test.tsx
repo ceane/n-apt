@@ -6,9 +6,21 @@ import { useThemeStore } from "@n-apt/hooks/useThemeStore";
 import { useAppSelector } from "@n-apt/redux";
 import { TestWrapper } from "./testUtils";
 import { ThemeProvider } from "styled-components";
+import { THEME_TOKENS } from "@n-apt/consts/theme";
 
 const mockTheme = {
+  mode: "dark" as const,
+  requestedMode: "system" as const,
+  waterfallTheme: "classic",
+  colors: THEME_TOKENS.colors.dark,
+  typography: THEME_TOKENS.typography,
+  spacing: THEME_TOKENS.spacing,
+  layout: THEME_TOKENS.layout,
   primary: "#00d4ff",
+  primaryAlpha: "#00d4ff33",
+  primaryAnchor: "#00d4ff1a",
+  fft: "#00d4ff",
+  cssVariables: {},
 };
 
 // Test harness to check Redux state
@@ -28,7 +40,7 @@ describe("ThemeSection Component", () => {
         <ThemeProvider theme={mockTheme}>
           <ThemeSection />
         </ThemeProvider>
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     expect(screen.getByText("App Theme")).toBeInTheDocument();
@@ -43,7 +55,7 @@ describe("ThemeSection Component", () => {
           <ThemeSection />
           <ThemeTestHarness />
         </ThemeProvider>
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     const select = screen.getByDisplayValue("System");
@@ -62,7 +74,7 @@ describe("ThemeSection Component", () => {
           <ThemeSection />
           <ThemeTestHarness />
         </ThemeProvider>
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     // Change something first

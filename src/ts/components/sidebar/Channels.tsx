@@ -7,7 +7,7 @@ import { requestNextLiveFrame } from "@n-apt/redux/thunks/websocketThunks";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 import { formatFrequency } from "@n-apt/utils/frequency";
 import ReduxFrequencyRangeSlider from "@n-apt/components/sidebar/ReduxFrequencyRangeSlider";
-import { Collapsible, Tooltip } from "@n-apt/components/ui"
+import { Collapsible, Tooltip } from "@n-apt/components/ui";
 import type { FrequencyRange } from "@n-apt/hooks/useWebSocket";
 
 /** Matches sidebar `Section`: participates in parent subgrid so nested `ReduxFrequencyRangeSlider` subgrid works. */
@@ -84,7 +84,8 @@ const ChannelBlock = styled.button<{ $isActive: boolean }>`
 const ChannelLetter = styled.span<{ $isActive: boolean }>`
   font-size: 36px;
   font-weight: 800;
-  color: ${(props) => (props.$isActive ? props.theme.primary : props.theme.textDisabled)};
+  color: ${(props) =>
+    props.$isActive ? props.theme.primary : props.theme.textDisabled};
   line-height: 1;
 `;
 
@@ -92,7 +93,8 @@ const ChannelFreq = styled.span<{ $isActive: boolean }>`
   font-size: 18px;
   font-weight: 700;
   font-family: ${(props) => props.theme.typography.mono};
-  color: ${(props) => (props.$isActive ? props.theme.primary : props.theme.textDisabled)};
+  color: ${(props) =>
+    props.$isActive ? props.theme.primary : props.theme.textDisabled};
 `;
 
 const SampleRateLabel = styled.p`
@@ -145,9 +147,9 @@ const MonoValue = styled.span`
   display: inline-block;
   font-family: "JetBrains Mono", monospace;
   font-weight: bold;
-  background: ${(props) => props.theme.surface}; 
-  padding: .1rem .25rem;
-  margin: .1rem 0;
+  background: ${(props) => props.theme.surface};
+  padding: 0.1rem 0.25rem;
+  margin: 0.1rem 0;
   border-radius: 8px;
 `;
 
@@ -168,7 +170,7 @@ const FrequencyInput = styled.input`
   font-size: 14px;
   padding: 6px 8px;
   width: 100px;
-  
+
   &:focus {
     outline: none;
     border-color: ${(props) => props.theme.primary};
@@ -191,11 +193,11 @@ const TuneButton = styled.button`
   font-size: 12px;
   cursor: pointer;
   transition: all 0.2s ease;
-  
+
   &:hover {
     background-color: ${(props) => `${props.theme.primary}cc`};
   }
-  
+
   &:disabled {
     background-color: ${(props) => props.theme.borderHover};
     border-color: ${(props) => props.theme.borderHover};
@@ -220,16 +222,21 @@ const ModeButton = styled.button<{ $active: boolean }>`
   background: transparent;
   border: none;
   border-radius: 4px;
-  color: ${(props) => props.$active ? props.theme.background : props.theme.textSecondary};
+  color: ${(props) =>
+    props.$active ? props.theme.background : props.theme.textSecondary};
   font-family: ${(props) => props.theme.typography.mono};
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
-  background-color: ${(props) => props.$active ? props.theme.primary : 'transparent'};
+  background-color: ${(props) =>
+    props.$active ? props.theme.primary : "transparent"};
 
   &:hover {
-    background-color: ${(props) => props.$active ? `${props.theme.primary}cc` : `${props.theme.borderHover}33`};
+    background-color: ${(props) =>
+      props.$active
+        ? `${props.theme.primary}cc`
+        : `${props.theme.borderHover}33`};
   }
 `;
 
@@ -240,10 +247,10 @@ const EmptyStateText = styled.div`
 `;
 
 const Divider = styled.hr`
-    border: 0;
-    height: 1px;
-    background: ${(props) => props.theme.borderHover};
-    margin: 8px 0 12px;
+  border: 0;
+  height: 1px;
+  background: ${(props) => props.theme.borderHover};
+  margin: 8px 0 12px;
 `;
 
 export type ChannelsVariant = "demod" | "spectrum";
@@ -317,14 +324,14 @@ export const Channels: React.FC<ChannelsProps> = ({
 
   const channels = useMemo(() => {
     if (!Array.isArray(effectiveFrames)) return [];
-    return effectiveFrames.filter(f => ["A", "B"].includes(f.label));
+    return effectiveFrames.filter((f) => ["A", "B"].includes(f.label));
   }, [effectiveFrames]);
 
   // Compute information for the active channel box
   // Resolve the active frame robustly from both sources
   const activeFrame = Array.isArray(effectiveFrames)
-    ? (effectiveFrames.find((f: any) => f.label === activeSignalArea)
-      || channels.find((f: any) => f.label === activeSignalArea))
+    ? effectiveFrames.find((f: any) => f.label === activeSignalArea) ||
+      channels.find((f: any) => f.label === activeSignalArea)
     : undefined;
   const activeDescription: string = activeFrame?.description ?? "";
   // Bandwidth estimation: 1 byte per Hz, width in Hz -> B/s -> MB/s
@@ -338,13 +345,13 @@ export const Channels: React.FC<ChannelsProps> = ({
 
   // Helpers to format bandwidth values with human-friendly units
   const formatBWperSec = (mbPerSec: number) => {
-  const bps = mbPerSec * 1_000_000; // convert MB/s to B/s
-  const tb = mbPerSec / 1024;
-  if (tb >= 0.8) {
-    // Show near-next-TB values with a single decimal (e.g., 0.9 TB)
-    return `${tb.toFixed(1)} TB/s`;
-  }
-  if (bps >= 1_000_000_000_000) {
+    const bps = mbPerSec * 1_000_000; // convert MB/s to B/s
+    const tb = mbPerSec / 1024;
+    if (tb >= 0.8) {
+      // Show near-next-TB values with a single decimal (e.g., 0.9 TB)
+      return `${tb.toFixed(1)} TB/s`;
+    }
+    if (bps >= 1_000_000_000_000) {
       return `${(bps / 1_000_000_000_000).toFixed(2)} TB/s`;
     }
     if (bps >= 1_000_000_000) {
@@ -372,10 +379,12 @@ export const Channels: React.FC<ChannelsProps> = ({
   const formattedDataBandwidth = formatBWperSec(bandwidthMBps);
   const formattedSignalBandwidth = (widthHz / 1_000_000).toFixed(2);
 
-  const IQExplainerTooltip = () =>
-    <Tooltip 
+  const IQExplainerTooltip = () => (
+    <Tooltip
       title=""
-      content="I/Q data makes up the signal (what comes out of the antenna and is in the air) <br /><br /> I and Q are pairs of bytes, both from 0-255 that represent one point that make up points of a signal.<br ><br />Example: I = 2, Q = 100 at 4kHz <br /><br /> I = In-phase component (the “main” wave direction) <br /> Q = Quadrature component (the part shifted by 90° — like a “sideways” version of the wave)<br />" />
+      content="I/Q data makes up the signal (what comes out of the antenna and is in the air) <br /><br /> I and Q are pairs of bytes, both from 0-255 that represent one point that make up points of a signal.<br ><br />Example: I = 2, Q = 100 at 4kHz <br /><br /> I = In-phase component (the “main” wave direction) <br /> Q = Quadrature component (the part shifted by 90° — like a “sideways” version of the wave)<br />"
+    />
+  );
 
   if (variant === "spectrum") {
     return (
@@ -406,16 +415,17 @@ export const Channels: React.FC<ChannelsProps> = ({
                     const rememberedRange =
                       state.lastKnownRanges[label] ??
                       state.lastKnownRanges[label.toLowerCase()];
-                    const nextRange =
-                      rememberedRange ?? {
-                        min: minFreq,
-                        max:
-                          minFreq +
-                          (typeof sampleRateHz === "number"
-                            ? Math.min(sampleRateHz, span)
-                            : span),
-                      };
-                    reduxDispatch(setSignalAreaAndRange({ area: label, range: nextRange }));
+                    const nextRange = rememberedRange ?? {
+                      min: minFreq,
+                      max:
+                        minFreq +
+                        (typeof sampleRateHz === "number"
+                          ? Math.min(sampleRateHz, span)
+                          : span),
+                    };
+                    reduxDispatch(
+                      setSignalAreaAndRange({ area: label, range: nextRange }),
+                    );
                     storeDispatch({
                       type: "SET_SIGNAL_AREA_AND_RANGE",
                       area: label,
@@ -433,27 +443,34 @@ export const Channels: React.FC<ChannelsProps> = ({
         {/* Active Channel Description & Stats Box */}
         {activeFrame && (
           <ActiveChannelInfoBox>
-            <Collapsible
-              title="Channel Description">
-                {activeDescription ? (
-                  <>
-                    <br />
-                    <ActiveChannelInfoTitle>Channel {activeFrame.label}</ActiveChannelInfoTitle>
-                    <ActiveChannelDescription>{activeDescription}</ActiveChannelDescription>
-                    <Divider />
-                  </>
-                ) : null}
-                
-                <Collapsible
-                  title="More...">
-                  <ActiveChannelBandwidthList>
-                    <IQExplainerTooltip /> Naive Signal Bandwidth (I/Q) = <MonoValue>{iqDataRateMBps}</MonoValue> <br />
-                    Naive Data Bandwidth = <MonoValue>{formattedDataBandwidth}</MonoValue> of <MonoValue>{formattedSignalBandwidth} MHz</MonoValue><br />
-                    5 mins = <MonoValue>{formatMBValue(minutes5MB)}</MonoValue><br />
-                    1 hour = <MonoValue>{formatMBValue(hourMB)}</MonoValue><br />
-                    24 hours = <MonoValue>{formatMBValue(dayMB)}</MonoValue>
-                  </ActiveChannelBandwidthList>     
-                </Collapsible>
+            <Collapsible title="Channel Description">
+              {activeDescription ? (
+                <>
+                  <br />
+                  <ActiveChannelInfoTitle>
+                    Channel {activeFrame.label}
+                  </ActiveChannelInfoTitle>
+                  <ActiveChannelDescription>
+                    {activeDescription}
+                  </ActiveChannelDescription>
+                  <Divider />
+                </>
+              ) : null}
+
+              <Collapsible title="More...">
+                <ActiveChannelBandwidthList>
+                  <IQExplainerTooltip /> Naive Signal Bandwidth (I/Q) ={" "}
+                  <MonoValue>{iqDataRateMBps}</MonoValue> <br />
+                  Naive Data Bandwidth ={" "}
+                  <MonoValue>{formattedDataBandwidth}</MonoValue> of{" "}
+                  <MonoValue>{formattedSignalBandwidth} MHz</MonoValue>
+                  <br />5 mins ={" "}
+                  <MonoValue>{formatMBValue(minutes5MB)}</MonoValue>
+                  <br />1 hour = <MonoValue>{formatMBValue(hourMB)}</MonoValue>
+                  <br />
+                  24 hours = <MonoValue>{formatMBValue(dayMB)}</MonoValue>
+                </ActiveChannelBandwidthList>
+              </Collapsible>
             </Collapsible>
           </ActiveChannelInfoBox>
         )}
@@ -464,13 +481,15 @@ export const Channels: React.FC<ChannelsProps> = ({
   const handleTune = (frame: any) => {
     const range = {
       min: frame.min_hz,
-      max: sampleRateHz ? Math.min(frame.max_hz, frame.min_hz + sampleRateHz) : frame.max_hz
+      max: sampleRateHz
+        ? Math.min(frame.max_hz, frame.min_hz + sampleRateHz)
+        : frame.max_hz,
     };
 
     storeDispatch({
       type: "SET_SIGNAL_AREA_AND_RANGE",
       area: frame.label,
-      range
+      range,
     });
 
     wsConnection.sendFrequencyRange(range);
@@ -486,13 +505,13 @@ export const Channels: React.FC<ChannelsProps> = ({
     const freqHz = freq; // Raw Hz now
     const range = {
       min: Math.max(0, freqHz - windowSizeHz / 2),
-      max: freqHz + windowSizeHz / 2
+      max: freqHz + windowSizeHz / 2,
     };
 
     storeDispatch({
       type: "SET_SIGNAL_AREA_AND_RANGE",
       area: "manual",
-      range
+      range,
     });
 
     wsConnection.sendFrequencyRange(range);
@@ -552,48 +571,54 @@ export const Channels: React.FC<ChannelsProps> = ({
         )}
 
         {/* Channel Buttons - Only show when Channel(s) is selected */}
-        {!isManualMode && channels.map(ch => {
-          const isActive = state.activeSignalArea === ch.label;
-          const isChannelScanning = isScanning && scanRange &&
-            ch.min_hz <= (scanRange.max || 0) &&
-            ch.max_hz >= (scanRange.min || 0);
+        {!isManualMode &&
+          channels.map((ch) => {
+            const isActive = state.activeSignalArea === ch.label;
+            const isChannelScanning =
+              isScanning &&
+              scanRange &&
+              ch.min_hz <= (scanRange.max || 0) &&
+              ch.max_hz >= (scanRange.min || 0);
 
-          return (
-            <React.Fragment key={ch.id}>
-              <ChannelBlock
-                $isActive={isActive}
-                onClick={() => handleTune(ch)}
-              >
-                <ChannelLetter $isActive={isActive}>{ch.label}</ChannelLetter>
-                <ChannelFreq $isActive={isActive}>
-                  {formatFrequency(ch.min_hz)} - {formatFrequency(ch.max_hz)}
-                </ChannelFreq>
-              </ChannelBlock>
+            return (
+              <React.Fragment key={ch.id}>
+                <ChannelBlock
+                  $isActive={isActive}
+                  onClick={() => handleTune(ch)}
+                >
+                  <ChannelLetter $isActive={isActive}>{ch.label}</ChannelLetter>
+                  <ChannelFreq $isActive={isActive}>
+                    {formatFrequency(ch.min_hz)} - {formatFrequency(ch.max_hz)}
+                  </ChannelFreq>
+                </ChannelBlock>
 
-              {/* Show FrequencyRangeSlider only for the active channel */}
-              {isActive && (
-                <ReduxFrequencyRangeSlider
-                  label=""
-                  signalAreaKey={ch.label}
-                  minFreq={ch.min_hz}
-                  maxFreq={ch.max_hz}
-                  sampleRateHz={sampleRateHz}
-                  onActivate={() => handleTune(ch)}
-                  readOnly={isChannelScanning}
-                  scanProgress={isChannelScanning ? scanProgress : 0}
-                  scanCurrentFreq={
-                    isChannelScanning && scanCurrentFreq !== undefined
-                      ? scanCurrentFreq
-                      : undefined
-                  }
-                />
-              )}
+                {/* Show FrequencyRangeSlider only for the active channel */}
+                {isActive && (
+                  <ReduxFrequencyRangeSlider
+                    label=""
+                    signalAreaKey={ch.label}
+                    minFreq={ch.min_hz}
+                    maxFreq={ch.max_hz}
+                    sampleRateHz={sampleRateHz}
+                    onActivate={() => handleTune(ch)}
+                    readOnly={isChannelScanning}
+                    scanProgress={isChannelScanning ? scanProgress : 0}
+                    scanCurrentFreq={
+                      isChannelScanning && scanCurrentFreq !== undefined
+                        ? scanCurrentFreq
+                        : undefined
+                    }
+                  />
+                )}
               </React.Fragment>
             );
           })}
 
         <SampleRateLabel>
-          Hardware sample rate: <SampleRateValue>{sampleRateHz ? formatFrequency(sampleRateHz) : "X.X MHz"}</SampleRateValue>
+          Hardware sample rate:{" "}
+          <SampleRateValue>
+            {sampleRateHz ? formatFrequency(sampleRateHz) : "X.X MHz"}
+          </SampleRateValue>
         </SampleRateLabel>
       </ChannelsDemodBody>
     </ChannelsSection>

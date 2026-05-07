@@ -10,17 +10,31 @@ describe("useFrequencyDrag Hook", () => {
   const mockOnFftDbLimitsChange = jest.fn();
 
   const frequencyRangeRef = { current: { min: 100, max: 110 } };
-  const spectrumGpuCanvasRef = { current: { getBoundingClientRect: () => ({ left: 0, top: 0, width: 1000, height: 600 }) } } as any;
+  const spectrumGpuCanvasRef = {
+    current: {
+      getBoundingClientRect: () => ({
+        left: 0,
+        top: 0,
+        width: 1000,
+        height: 600,
+      }),
+    },
+  } as any;
   const spectrumContainerRef = {
     current: {
-      getBoundingClientRect: () => ({ left: 0, top: 0, width: 1000, height: 600 }),
+      getBoundingClientRect: () => ({
+        left: 0,
+        top: 0,
+        width: 1000,
+        height: 600,
+      }),
       addEventListener: jest.fn(),
       removeEventListener: jest.fn(),
       style: { cursor: "" },
       setPointerCapture: jest.fn(),
       releasePointerCapture: jest.fn(),
       appendChild: jest.fn(),
-    }
+    },
   } as any;
 
   const defaultOptions: any = {
@@ -61,7 +75,10 @@ describe("useFrequencyDrag Hook", () => {
   });
 
   const triggerPointerDown = (clientX: number, clientY: number) => {
-    const handler = spectrumContainerRef.current.addEventListener.mock.calls.find((c: any) => c[0] === "pointerdown")[1];
+    const handler =
+      spectrumContainerRef.current.addEventListener.mock.calls.find(
+        (c: any) => c[0] === "pointerdown",
+      )[1];
     act(() => {
       handler({ clientX, clientY, pointerId: 1 } as any);
     });
@@ -96,7 +113,10 @@ describe("useFrequencyDrag Hook", () => {
     triggerPointerMove(600, 550);
 
     expect(mockOnFrequencyRangeChange).toHaveBeenCalled();
-    const lastCall = mockOnFrequencyRangeChange.mock.calls[mockOnFrequencyRangeChange.mock.calls.length - 1][0];
+    const lastCall =
+      mockOnFrequencyRangeChange.mock.calls[
+        mockOnFrequencyRangeChange.mock.calls.length - 1
+      ][0];
     expect(lastCall.min).toBeCloseTo(99, 1);
     expect(lastCall.max).toBeCloseTo(109, 1);
   });
@@ -136,7 +156,10 @@ describe("useFrequencyDrag Hook", () => {
     // Result should be clamped because max is 110.
     triggerPointerMove(400, 550);
 
-    const lastCall = mockOnFrequencyRangeChange.mock.calls[mockOnFrequencyRangeChange.mock.calls.length - 1][0];
+    const lastCall =
+      mockOnFrequencyRangeChange.mock.calls[
+        mockOnFrequencyRangeChange.mock.calls.length - 1
+      ][0];
     expect(lastCall.max).toBe(110);
     expect(lastCall.min).toBe(100);
   });

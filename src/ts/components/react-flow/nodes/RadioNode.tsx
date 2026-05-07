@@ -1,11 +1,15 @@
-import React, { useEffect, useMemo } from 'react';
-import styled from 'styled-components';
-import { Handle, Position, useReactFlow } from '@xyflow/react';
-import { Radio as RadioIcon, Volume2, VolumeX } from 'lucide-react';
-import { useAppDispatch, useAppSelector } from '@n-apt/redux';
-import { setAlgorithm, setBandwidth, setListening } from '@n-apt/redux/slices/demodSlice';
-import { formatFrequency } from '@n-apt/utils/frequency';
-import { useDemod } from '@n-apt/contexts/DemodContext';
+import React, { useEffect, useMemo } from "react";
+import styled from "styled-components";
+import { Handle, Position, useReactFlow } from "@xyflow/react";
+import { Radio as RadioIcon, Volume2, VolumeX } from "lucide-react";
+import { useAppDispatch, useAppSelector } from "@n-apt/redux";
+import {
+  setAlgorithm,
+  setBandwidth,
+  setListening,
+} from "@n-apt/redux/slices/demodSlice";
+import { formatFrequency } from "@n-apt/utils/frequency";
+import { useDemod } from "@n-apt/contexts/DemodContext";
 
 const NodeContainer = styled.div`
   background: ${({ theme }) => theme.colors.background};
@@ -82,9 +86,11 @@ const FrequencyDisplay = styled.div`
 const ListenButton = styled.button<{ $active: boolean }>`
   width: 100%;
   margin-top: 12px;
-  background: ${({ theme, $active }) => $active ? theme.colors.primary : theme.colors.primary + '22'};
+  background: ${({ theme, $active }) =>
+    $active ? theme.colors.primary : theme.colors.primary + "22"};
   border: 1px solid ${({ theme }) => theme.colors.primary}44;
-  color: ${({ theme, $active }) => $active ? theme.colors.background : theme.colors.primary};
+  color: ${({ theme, $active }) =>
+    $active ? theme.colors.background : theme.colors.primary};
   padding: 8px;
   border-radius: 4px;
   font-size: 10px;
@@ -98,7 +104,8 @@ const ListenButton = styled.button<{ $active: boolean }>`
   gap: 6px;
 
   &:hover {
-    background: ${({ theme, $active }) => $active ? theme.colors.primary : theme.colors.primary + '44'};
+    background: ${({ theme, $active }) =>
+      $active ? theme.colors.primary : theme.colors.primary + "44"};
     border-color: ${({ theme }) => theme.colors.primary};
   }
 `;
@@ -124,18 +131,20 @@ export const RadioNode: React.FC<RadioNodeProps> = ({ data }) => {
     const nodes = getNodes();
     const edges = getEdges();
     // Find this radio node by matching the label
-    const radioNode = nodes.find(n => n.data?.label === data.label && n.type === 'custom');
+    const radioNode = nodes.find(
+      (n) => n.data?.label === data.label && n.type === "custom",
+    );
 
     if (!radioNode) return false;
 
     // Find all nodes that have an edge to this radio node
     const upstreamNodeIds = edges
-      .filter(e => e.target === radioNode.id)
-      .map(e => e.source);
+      .filter((e) => e.target === radioNode.id)
+      .map((e) => e.source);
 
     // Check if any upstream node has fmOptions
-    return upstreamNodeIds.some(id => {
-      const node = nodes.find(n => n.id === id);
+    return upstreamNodeIds.some((id) => {
+      const node = nodes.find((n) => n.id === id);
       return node?.data?.fmOptions;
     });
   }, [getNodes, getEdges, data]);
@@ -143,10 +152,10 @@ export const RadioNode: React.FC<RadioNodeProps> = ({ data }) => {
   // Auto-select APT algorithm if an APT node is present in the flow
   useEffect(() => {
     const nodes = getNodes();
-    const hasAptNode = nodes.some(n => n.data && n.data.aptOptions);
+    const hasAptNode = nodes.some((n) => n.data && n.data.aptOptions);
 
-    if (hasAptNode && algorithm !== 'apt') {
-      dispatch(setAlgorithm('apt'));
+    if (hasAptNode && algorithm !== "apt") {
+      dispatch(setAlgorithm("apt"));
     }
   }, [getNodes, algorithm, dispatch]);
 
@@ -165,15 +174,17 @@ export const RadioNode: React.FC<RadioNodeProps> = ({ data }) => {
 
       <Header>
         <RadioIcon size={14} color="#00d4ff" />
-        <Title>{data.label || 'Radio'}</Title>
+        <Title>{data.label || "Radio"}</Title>
       </Header>
 
       <ControlGroup>
         <ControlItem>
           <Label>Demod Algorithm</Label>
           <StyledSelect
-            value={hasFmNodeUpstream ? 'fm' : algorithm}
-            onChange={(e) => dispatch(setAlgorithm(e.target.value as 'fm' | 'apt'))}
+            value={hasFmNodeUpstream ? "fm" : algorithm}
+            onChange={(e) =>
+              dispatch(setAlgorithm(e.target.value as "fm" | "apt"))
+            }
             disabled={hasFmNodeUpstream}
           >
             <option value="fm">FM (Wideband/Narrow)</option>
@@ -187,7 +198,9 @@ export const RadioNode: React.FC<RadioNodeProps> = ({ data }) => {
               <Label>Bandwidth</Label>
               <StyledSelect
                 value={bandwidth}
-                onChange={(e) => dispatch(setBandwidth(parseInt(e.target.value)))}
+                onChange={(e) =>
+                  dispatch(setBandwidth(parseInt(e.target.value)))
+                }
               >
                 <option value="12">12.5 kHz</option>
                 <option value="25">25 kHz</option>
@@ -206,14 +219,14 @@ export const RadioNode: React.FC<RadioNodeProps> = ({ data }) => {
               ? `${(centerFreq / 1e6).toFixed(1)}FM (±100kHz)`
               : centerFreq
                 ? formatFrequency(centerFreq / 1e6)
-                : 'From Span'}
+                : "From Span"}
           </FrequencyDisplay>
         </ControlItem>
       </ControlGroup>
 
       <ListenButton $active={isListening} onClick={handleListenToggle}>
         {isListening ? <Volume2 size={12} /> : <VolumeX size={12} />}
-        {isListening ? 'Stop Listening' : 'Listen Real-time'}
+        {isListening ? "Stop Listening" : "Listen Real-time"}
       </ListenButton>
 
       <Handle type="source" position={Position.Right} id="audio" />

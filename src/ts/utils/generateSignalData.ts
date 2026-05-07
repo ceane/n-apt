@@ -12,7 +12,11 @@ export const generateAPTSpectrum = (size: number): Float32Array => {
     const peakPos = center + offset * sidebandSpacing;
     const peakHeight = FFT_MAX_DB - 10 - Math.abs(offset) * 8;
     const peakWidth = size * 0.002;
-    for (let i = Math.floor(peakPos - peakWidth * 3); i < Math.ceil(peakPos + peakWidth * 3); i++) {
+    for (
+      let i = Math.floor(peakPos - peakWidth * 3);
+      i < Math.ceil(peakPos + peakWidth * 3);
+      i++
+    ) {
       if (i >= 0 && i < size) {
         const dist = (i - peakPos) / peakWidth;
         const val = peakHeight * Math.exp(-0.5 * dist * dist);
@@ -48,10 +52,15 @@ export const generateFMIQData = (size: number): Uint8Array => {
   const freq = 15000;
   for (let i = 0; i < size; i++) {
     const t = i / sampleRate;
-    const phase = 2 * Math.PI * (freq * t + 2.0 * Math.sin(2 * Math.PI * 400 * t));
+    const phase =
+      2 * Math.PI * (freq * t + 2.0 * Math.sin(2 * Math.PI * 400 * t));
     // Scale float (-1.0 to 1.0) to uint8 (0 to 255)
-    iq[i * 2] = Math.floor((Math.cos(phase) * 0.5 + (Math.random() - 0.5) * 0.05) * 127 + 128);
-    iq[i * 2 + 1] = Math.floor((Math.sin(phase) * 0.5 + (Math.random() - 0.5) * 0.05) * 127 + 128);
+    iq[i * 2] = Math.floor(
+      (Math.cos(phase) * 0.5 + (Math.random() - 0.5) * 0.05) * 127 + 128,
+    );
+    iq[i * 2 + 1] = Math.floor(
+      (Math.sin(phase) * 0.5 + (Math.random() - 0.5) * 0.05) * 127 + 128,
+    );
   }
   return iq;
 };
@@ -67,8 +76,16 @@ export const generateAPTIQData = (size: number): Uint8Array => {
     const subcarrier = 1.0 + 0.8 * Math.sin(2 * Math.PI * 2400 * t);
     const phase = 5.0 * Math.sin(2 * Math.PI * 2400 * t);
     // Scale float to uint8 (0 to 255)
-    iq[i * 2] = Math.floor((Math.cos(phase) * subcarrier * 0.4 + (Math.random() - 0.5) * 0.02) * 127 + 128);
-    iq[i * 2 + 1] = Math.floor((Math.sin(phase) * subcarrier * 0.4 + (Math.random() - 0.5) * 0.02) * 127 + 128);
+    iq[i * 2] = Math.floor(
+      (Math.cos(phase) * subcarrier * 0.4 + (Math.random() - 0.5) * 0.02) *
+        127 +
+        128,
+    );
+    iq[i * 2 + 1] = Math.floor(
+      (Math.sin(phase) * subcarrier * 0.4 + (Math.random() - 0.5) * 0.02) *
+        127 +
+        128,
+    );
   }
   return iq;
 };

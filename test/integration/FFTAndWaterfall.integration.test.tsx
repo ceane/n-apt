@@ -39,11 +39,13 @@ describe("FFTAndWaterfall Integration", () => {
     const { container } = render(
       <TestWrapper>
         <FFTAndWaterfall {...defaultProps} />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     // Check for canvas elements by ID (defined in FIFOWaterfallCanvas and FFTCanvas)
-    expect(container.querySelector("#fft-waterfall-canvas-webgpu")).toBeInTheDocument();
+    expect(
+      container.querySelector("#fft-waterfall-canvas-webgpu"),
+    ).toBeInTheDocument();
   });
 
   test("processes mock binary data and triggers rendering", async () => {
@@ -61,10 +63,10 @@ describe("FFTAndWaterfall Integration", () => {
     render(
       <TestWrapper>
         <FFTAndWaterfall {...defaultProps} />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
-    // Manually trigger the RAF callback if we can find it, 
+    // Manually trigger the RAF callback if we can find it,
     // or rely on hooks that run on mount.
     // FFTCanvas uses useFFTAnimation which sets up an animation loop.
 
@@ -88,10 +90,12 @@ describe("FFTAndWaterfall Integration", () => {
       <TestWrapper>
         <FFTAndWaterfall
           {...defaultProps}
-          ref={(val: any) => { attachedRef = val; }}
+          ref={(val: any) => {
+            attachedRef = val;
+          }}
           visualizerMachine={visualizerMachine as any}
         />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     if (!attachedRef) {
@@ -120,7 +124,7 @@ describe("FFTAndWaterfall Integration", () => {
       }
 
       // Allow any async effects to settle
-      await new Promise(resolve => setTimeout(resolve, 50));
+      await new Promise((resolve) => setTimeout(resolve, 50));
     });
 
     // Verify snapshot data can be retrieved
@@ -138,7 +142,7 @@ describe("FFTAndWaterfall Integration", () => {
     const { rerender } = render(
       <TestWrapper>
         <FFTAndWaterfall {...defaultProps} isIqRecordingActive={false} />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     expect(screen.queryByText(/REC/i)).not.toBeInTheDocument();
@@ -146,7 +150,7 @@ describe("FFTAndWaterfall Integration", () => {
     rerender(
       <TestWrapper>
         <FFTAndWaterfall {...defaultProps} isIqRecordingActive={true} />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     // Check if some indicator of recording is present (if applicable)

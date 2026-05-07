@@ -1,10 +1,15 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import styled from 'styled-components';
-import { Handle, Position } from '@xyflow/react';
-import { Settings2, Zap } from 'lucide-react';
-import { useAppDispatch, useAppSelector, sendFrequencyRange, setFrequencyRange } from '@n-apt/redux';
-import { fetchHardwareInfo } from '@n-apt/redux/thunks/demodThunks';
-import { formatFrequency, parseFrequency } from '@n-apt/utils/frequency';
+import React, { useState, useEffect, useMemo } from "react";
+import styled from "styled-components";
+import { Handle, Position } from "@xyflow/react";
+import { Settings2, Zap } from "lucide-react";
+import {
+  useAppDispatch,
+  useAppSelector,
+  sendFrequencyRange,
+  setFrequencyRange,
+} from "@n-apt/redux";
+import { fetchHardwareInfo } from "@n-apt/redux/thunks/demodThunks";
+import { formatFrequency, parseFrequency } from "@n-apt/utils/frequency";
 
 const NodeContainer = styled.div`
   background: ${({ theme }) => theme.colors.background};
@@ -111,10 +116,13 @@ export const SpanNode: React.FC<SpanNodeProps> = ({ data }) => {
   const isConnected = useAppSelector((state) => state.websocket.isConnected);
   const hardwareRange = useAppSelector((state) => state.demod.hardwareRange);
   const sampleRate = useAppSelector((state) => state.demod.sampleRateHz);
-  const activeFrequencyRange = useAppSelector((state) => state.spectrum.frequencyRange);
+  const activeFrequencyRange = useAppSelector(
+    (state) => state.spectrum.frequencyRange,
+  );
 
-  const [centerFreq, setCenterFreq] = useState<string>('137.500');
-  const displaySampleRateHz = sampleRate && sampleRate > 0 ? sampleRate : 3_200_000;
+  const [centerFreq, setCenterFreq] = useState<string>("137.500");
+  const displaySampleRateHz =
+    sampleRate && sampleRate > 0 ? sampleRate : 3_200_000;
 
   useEffect(() => {
     if (!isConnected) return;
@@ -124,14 +132,18 @@ export const SpanNode: React.FC<SpanNodeProps> = ({ data }) => {
   useEffect(() => {
     if (!activeFrequencyRange) return;
     const center = (activeFrequencyRange.min + activeFrequencyRange.max) / 2;
-    setCenterFreq(Number.isFinite(center) ? center.toFixed(3) : '---');
+    setCenterFreq(Number.isFinite(center) ? center.toFixed(3) : "---");
   }, [activeFrequencyRange]);
 
   const derivedSpanHz = useMemo(() => {
     if (Number.isFinite(displaySampleRateHz) && displaySampleRateHz > 0) {
       return displaySampleRateHz;
     }
-    if (activeFrequencyRange && Number.isFinite(activeFrequencyRange.min) && Number.isFinite(activeFrequencyRange.max)) {
+    if (
+      activeFrequencyRange &&
+      Number.isFinite(activeFrequencyRange.min) &&
+      Number.isFinite(activeFrequencyRange.max)
+    ) {
       return Math.max(0, activeFrequencyRange.max - activeFrequencyRange.min);
     }
     return 3_200_000;
@@ -140,7 +152,7 @@ export const SpanNode: React.FC<SpanNodeProps> = ({ data }) => {
   const displayHardwareRange = hardwareRange ?? { min: 0, max: 2_000_000_000 };
 
   const derivedCenterHz = useMemo(() => {
-    const parsed = parseFrequency(centerFreq, 'MHz');
+    const parsed = parseFrequency(centerFreq, "MHz");
     if (Number.isFinite(parsed)) {
       return parsed;
     }
@@ -165,7 +177,7 @@ export const SpanNode: React.FC<SpanNodeProps> = ({ data }) => {
     <NodeContainer>
       <Header>
         <Settings2 size={14} color="#00d4ff" />
-        <Title>{data.label || 'Span'}</Title>
+        <Title>{data.label || "Span"}</Title>
       </Header>
 
       <InfoRow>

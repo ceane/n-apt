@@ -29,14 +29,15 @@ import { useTheme } from "styled-components";
 
 // ClickHandler is no longer needed as we use onPointerDown on the mesh directly
 
-function worldToModelLocal(position: [number, number, number]): [number, number, number] {
+function worldToModelLocal(
+  position: [number, number, number],
+): [number, number, number] {
   return [
     position[0] - MODEL_ROOT_POSITION[0],
     position[1] - MODEL_ROOT_POSITION[1],
     position[2] - MODEL_ROOT_POSITION[2],
   ];
 }
-
 
 function RendererSizeSync() {
   const { gl, camera } = useThree();
@@ -72,7 +73,13 @@ function RendererSizeSync() {
   return null;
 }
 
-function PhysiologyOrb({ area, isSelected }: { area: Area; isSelected: boolean }) {
+function PhysiologyOrb({
+  area,
+  isSelected,
+}: {
+  area: Area;
+  isSelected: boolean;
+}) {
   const markerPosition = worldToModelLocal(area.target);
   const compactRadiusByArea: Record<string, number> = {
     Head: 0.015,
@@ -82,7 +89,8 @@ function PhysiologyOrb({ area, isSelected }: { area: Area; isSelected: boolean }
     Throat: 0.003,
   };
   const normalRadius = 0.032;
-  const baseRadius = (compactRadiusByArea[area.name] ?? normalRadius) * (isSelected ? 1.2 : 1);
+  const baseRadius =
+    (compactRadiusByArea[area.name] ?? normalRadius) * (isSelected ? 1.2 : 1);
   const baseOpacity = isSelected ? 0.85 : 0.65;
 
   return (
@@ -110,7 +118,6 @@ function PhysiologyOrb({ area, isSelected }: { area: Area; isSelected: boolean }
     </group>
   );
 }
-
 
 function AreaMarker({ selectedArea }: { selectedArea: Area }) {
   const markerPosition = worldToModelLocal(selectedArea.target);
@@ -221,14 +228,17 @@ function Model({
   const { scene } = useGLTF(HUMAN_MODEL_AFRO_MALE_GLB_URL);
   const groupRef = useRef<any>(null);
 
-  const onPointerDown = useCallback((e: any) => {
-    if (!isEditMode) return;
-    e.stopPropagation();
-    if (groupRef.current) {
-      const localPoint = groupRef.current.worldToLocal(e.point.clone());
-      onAddHotspot(localPoint);
-    }
-  }, [isEditMode, onAddHotspot]);
+  const onPointerDown = useCallback(
+    (e: any) => {
+      if (!isEditMode) return;
+      e.stopPropagation();
+      if (groupRef.current) {
+        const localPoint = groupRef.current.worldToLocal(e.point.clone());
+        onAddHotspot(localPoint);
+      }
+    },
+    [isEditMode, onAddHotspot],
+  );
 
   return (
     <group ref={groupRef} position={MODEL_ROOT_POSITION}>
@@ -297,14 +307,49 @@ export const Model3DCanvas: React.FC<Model3DCanvasProps> = ({
         <RendererSizeSync />
         <Suspense fallback={null}>
           <ambientLight intensity={MODEL_AMBIENT_LIGHT_INTENSITY} />
-          <directionalLight position={MODEL_KEY_LIGHT_POSITION} intensity={MODEL_KEY_LIGHT_INTENSITY} />
-          <pointLight position={MODEL_FILL_LIGHT_POSITION} intensity={MODEL_FILL_LIGHT_INTENSITY} color="#ffffff" />
-          <pointLight position={MODEL_BACK_LIGHT_POSITION} intensity={MODEL_BACK_LIGHT_INTENSITY} color="#8ddcff" />
-          <pointLight position={[-2.8, 2.4, -4.2]} intensity={1.4} color="#7cc7ff" />
-          <pointLight position={[2.8, 2.4, -4.2]} intensity={1.4} color="#7cc7ff" />
+          <directionalLight
+            position={MODEL_KEY_LIGHT_POSITION}
+            intensity={MODEL_KEY_LIGHT_INTENSITY}
+          />
+          <pointLight
+            position={MODEL_FILL_LIGHT_POSITION}
+            intensity={MODEL_FILL_LIGHT_INTENSITY}
+            color="#ffffff"
+          />
+          <pointLight
+            position={MODEL_BACK_LIGHT_POSITION}
+            intensity={MODEL_BACK_LIGHT_INTENSITY}
+            color="#8ddcff"
+          />
+          <pointLight
+            position={[-2.8, 2.4, -4.2]}
+            intensity={1.4}
+            color="#7cc7ff"
+          />
+          <pointLight
+            position={[2.8, 2.4, -4.2]}
+            intensity={1.4}
+            color="#7cc7ff"
+          />
           {/* Mirror front lighting to the back */}
-          <directionalLight position={[-MODEL_KEY_LIGHT_POSITION[0], MODEL_KEY_LIGHT_POSITION[1], -MODEL_KEY_LIGHT_POSITION[2]]} intensity={MODEL_KEY_LIGHT_INTENSITY * 0.9} color="#ffffff" />
-          <pointLight position={[-MODEL_FILL_LIGHT_POSITION[0], MODEL_FILL_LIGHT_POSITION[1], -MODEL_FILL_LIGHT_POSITION[2]]} intensity={MODEL_FILL_LIGHT_INTENSITY * 1.0} color="#ffffff" />
+          <directionalLight
+            position={[
+              -MODEL_KEY_LIGHT_POSITION[0],
+              MODEL_KEY_LIGHT_POSITION[1],
+              -MODEL_KEY_LIGHT_POSITION[2],
+            ]}
+            intensity={MODEL_KEY_LIGHT_INTENSITY * 0.9}
+            color="#ffffff"
+          />
+          <pointLight
+            position={[
+              -MODEL_FILL_LIGHT_POSITION[0],
+              MODEL_FILL_LIGHT_POSITION[1],
+              -MODEL_FILL_LIGHT_POSITION[2],
+            ]}
+            intensity={MODEL_FILL_LIGHT_INTENSITY * 1.0}
+            color="#ffffff"
+          />
 
           {isEditMode && showGrid && (
             <gridHelper args={[10, 10, "#333", "#222"]} position={[0, 0, 0]} />
@@ -319,13 +364,14 @@ export const Model3DCanvas: React.FC<Model3DCanvasProps> = ({
               <Brain />
               <HorizonFocusGlobe active={isEditMode} />
 
-              {!isEditMode && PHYSIOLOGY_AREAS.map((area) => (
-                <PhysiologyOrb
-                  key={area.name}
-                  area={area}
-                  isSelected={selectedArea?.name === area.name}
-                />
-              ))}
+              {!isEditMode &&
+                PHYSIOLOGY_AREAS.map((area) => (
+                  <PhysiologyOrb
+                    key={area.name}
+                    area={area}
+                    isSelected={selectedArea?.name === area.name}
+                  />
+                ))}
 
               {hotspots.map((hotspot) => (
                 <HotspotMarker

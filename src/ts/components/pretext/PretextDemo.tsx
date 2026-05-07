@@ -1,7 +1,13 @@
-import React, { useRef, useEffect, useCallback, useState } from 'react';
-import { PretextCanvasText, type PretextCanvasTextRef } from '@n-apt/components/pretext/PretextCanvasText';
-import { PretextVFOText } from '@n-apt/components/pretext/PretextVFOText';
-import { PretextStatsBox, type PretextStatsBoxRef } from '@n-apt/components/pretext/PretextStatsBox';
+import React, { useRef, useEffect, useCallback, useState } from "react";
+import {
+  PretextCanvasText,
+  type PretextCanvasTextRef,
+} from "@n-apt/components/pretext/PretextCanvasText";
+import { PretextVFOText } from "@n-apt/components/pretext/PretextVFOText";
+import {
+  PretextStatsBox,
+  type PretextStatsBoxRef,
+} from "@n-apt/components/pretext/PretextStatsBox";
 
 export const PretextDemo: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -14,15 +20,15 @@ export const PretextDemo: React.FC = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
     // Clear canvas
-    ctx.fillStyle = '#1a1a1a';
+    ctx.fillStyle = "#1a1a1a";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     // Draw grid
-    ctx.strokeStyle = '#333333';
+    ctx.strokeStyle = "#333333";
     ctx.lineWidth = 1;
     for (let i = 0; i < canvas.width; i += 50) {
       ctx.beginPath();
@@ -50,20 +56,20 @@ export const PretextDemo: React.FC = () => {
   // Simulate frequency changes
   useEffect(() => {
     const interval = setInterval(() => {
-      setFrequency(prev => prev + 1000000); // +1 MHz
+      setFrequency((prev) => prev + 1000000); // +1 MHz
     }, 2000);
 
     return () => clearInterval(interval);
   }, []);
 
   return (
-    <div style={{ padding: '20px', backgroundColor: '#000', color: '#fff' }}>
+    <div style={{ padding: "20px", backgroundColor: "#000", color: "#fff" }}>
       <h2>Pretext Canvas Text Demo</h2>
       <canvas
         ref={canvasRef}
         width={800}
         height={400}
-        style={{ border: '1px solid #444', backgroundColor: '#1a1a1a' }}
+        style={{ border: "1px solid #444", backgroundColor: "#1a1a1a" }}
       />
 
       {/* Hidden text components that render to canvas */}
@@ -96,14 +102,14 @@ export const PretextDemo: React.FC = () => {
         height={120}
         title="Signal Stats"
         stats={[
-          { label: 'Frequency', value: `${(frequency / 1e6).toFixed(2)} MHz` },
-          { label: 'Signal', value: '-45.2 dBm', color: '#00ff00' },
-          { label: 'SNR', value: '23.4 dB', color: '#ffff00' },
-          { label: 'Sample Rate', value: '2.4 MS/s' },
+          { label: "Frequency", value: `${(frequency / 1e6).toFixed(2)} MHz` },
+          { label: "Signal", value: "-45.2 dBm", color: "#00ff00" },
+          { label: "SNR", value: "23.4 dB", color: "#ffff00" },
+          { label: "Sample Rate", value: "2.4 MS/s" },
         ]}
       />
 
-      <div style={{ marginTop: '20px', fontSize: '14px' }}>
+      <div style={{ marginTop: "20px", fontSize: "14px" }}>
         <p>Frequency updates automatically every 2 seconds</p>
         <p>Current: {(frequency / 1e6).toFixed(2)} MHz</p>
       </div>

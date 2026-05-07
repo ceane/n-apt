@@ -1,4 +1,4 @@
-import { createSlice, PayloadAction } from '@reduxjs/toolkit';
+import { createSlice, PayloadAction } from "@reduxjs/toolkit";
 import { THEME_TOKENS } from "@n-apt/consts/theme";
 
 export type AppMode = "system" | "dark" | "light";
@@ -20,31 +20,34 @@ const DEFAULTS = {
 const initialState: ThemeState = DEFAULTS;
 
 const themeSlice = createSlice({
-  name: 'theme',
+  name: "theme",
   initialState,
   reducers: {
     setAppMode: (state, action: PayloadAction<AppMode>) => {
       state.appMode = action.payload;
     },
-    
+
     setAccentColor: (state, action: PayloadAction<string>) => {
       state.accentColor = action.payload;
     },
-    
+
     setFftColor: (state, action: PayloadAction<string>) => {
       state.fftColor = action.payload;
     },
-    
+
     setWaterfallTheme: (state, action: PayloadAction<string>) => {
       state.waterfallTheme = action.payload;
     },
-    
+
     resetTheme: (state) => {
       Object.assign(state, DEFAULTS);
     },
-    
+
     // Bulk update for efficiency
-    updateThemeSettings: (state, action: PayloadAction<Partial<ThemeState>>) => {
+    updateThemeSettings: (
+      state,
+      action: PayloadAction<Partial<ThemeState>>,
+    ) => {
       Object.assign(state, action.payload);
     },
   },

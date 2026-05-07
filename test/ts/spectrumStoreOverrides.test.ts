@@ -49,6 +49,11 @@ describe("applyWaterfallStateOverrides", () => {
         diagnosticTrigger: 0,
         drawSignal3D: false,
         displayMode: "fft",
+        detectedFrameRate: 60,
+        sample_size: 32768,
+        fftAvgEnabled: false,
+        fftSmoothEnabled: false,
+        wfSmoothEnabled: false,
       },
       {
         sourceMode: "file",
@@ -67,11 +72,15 @@ describe("applyWaterfallStateOverrides", () => {
         activeClumpIndex: 0,
         globalNoiseFloor: -100,
         activePlaybackMetadata: null,
+        playbackChannels: [],
+        playbackFrameCounter: 0,
       },
     );
 
     expect(merged.sourceMode).toBe("file");
-    expect(merged.selectedFiles).toEqual([{ id: "file-1", name: "capture.napt" }]);
+    expect(merged.selectedFiles).toEqual([
+      { id: "file-1", name: "capture.napt" },
+    ]);
     expect(merged.stitchStatus).toBe("processing");
     expect(merged.isStitchPaused).toBe(true);
     expect(merged.drawSignal3D).toBe(true);

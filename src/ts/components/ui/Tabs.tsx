@@ -12,8 +12,10 @@ export const TabsContainer = styled.div`
 
 export const TabButton = styled.button<{ $active: boolean }>`
   flex: 1;
-  background: ${({ $active, theme }) => ($active ? theme.surfaceHover : "transparent")};
-  color: ${({ $active, theme }) => ($active ? theme.textPrimary : theme.textSecondary)};
+  background: ${({ $active, theme }) =>
+    $active ? theme.surfaceHover : "transparent"};
+  color: ${({ $active, theme }) =>
+    $active ? theme.textPrimary : theme.textSecondary};
   border: none;
   border-radius: 4px;
   padding: 6px 12px;
@@ -26,7 +28,8 @@ export const TabButton = styled.button<{ $active: boolean }>`
 
   &:hover {
     color: ${(props) => props.theme.textPrimary};
-    background: ${({ $active, theme }) => ($active ? theme.surfaceHover : theme.background)};
+    background: ${({ $active, theme }) =>
+      $active ? theme.surfaceHover : theme.background};
   }
 `;
 

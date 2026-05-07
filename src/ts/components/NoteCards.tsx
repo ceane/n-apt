@@ -15,7 +15,10 @@ import {
   setNoteCardsCollapsed,
   selectNoteCardsCollapsed,
 } from "@n-apt/redux";
-import { persistNoteCards, loadPersistedNoteCards } from "@n-apt/utils/noteCardStorage";
+import {
+  persistNoteCards,
+  loadPersistedNoteCards,
+} from "@n-apt/utils/noteCardStorage";
 
 const MIN_CARD_WIDTH = 300;
 const MIN_CARD_HEIGHT = 320;
@@ -46,7 +49,11 @@ const StackShadow = styled.div<{
   height: ${STACK_EXTENSION}px;
   border-radius: 32px;
   border: 0;
-  background: linear-gradient(180deg, rgba(15, 15, 15, 0.92), rgba(0, 0, 0, 0.98));
+  background: linear-gradient(
+    180deg,
+    rgba(15, 15, 15, 0.92),
+    rgba(0, 0, 0, 0.98)
+  );
   transform: ${({ $offset }) =>
     `translate(${$offset * STACK_OFFSET_X}px, ${$offset * STACK_OFFSET_Y}px)`};
   box-shadow: 0 18px 40px rgba(0, 0, 0, 0.55);
@@ -70,7 +77,9 @@ const Card = styled.article<{
   left: ${({ $x }) => `${$x}px`};
   width: ${({ $width }) => `${$width}px`};
   height: ${({ $height, $collapsed }) =>
-    $collapsed ? `${Math.min($height, COLLAPSED_CARD_HEIGHT)}px` : `${$height}px`};
+    $collapsed
+      ? `${Math.min($height, COLLAPSED_CARD_HEIGHT)}px`
+      : `${$height}px`};
   min-width: ${MIN_CARD_WIDTH}px;
   min-height: ${MIN_CARD_HEIGHT}px;
   border-radius: 28px;
@@ -179,7 +188,8 @@ const ActionButton = styled.button<{ $primary?: boolean }>`
   font-weight: 700;
   cursor: pointer;
   color: ${({ $primary }) => ($primary ? "#fff" : "#d6d6d6")};
-  background: ${({ $primary }) => ($primary ? "#275df2" : "rgba(255,255,255,0.08)")};
+  background: ${({ $primary }) =>
+    $primary ? "#275df2" : "rgba(255,255,255,0.08)"};
 `;
 
 const Summary = styled.div`
@@ -231,8 +241,12 @@ const formatRange = (range: { min: number; max: number } | null) => {
 
 const formatSummary = (card: ReturnType<typeof selectNoteCards>[number]) => {
   const center = card.stats.centerFrequencyHz;
-  const centerText = Number.isFinite(center) ? `${(center! / 1e6).toFixed(3)}MHz` : "Unavailable";
-  const zoomText = Number.isFinite(card.stats.vizZoom) ? card.stats.vizZoom.toFixed(1) : "---";
+  const centerText = Number.isFinite(center)
+    ? `${(center! / 1e6).toFixed(3)}MHz`
+    : "Unavailable";
+  const zoomText = Number.isFinite(card.stats.vizZoom)
+    ? card.stats.vizZoom.toFixed(1)
+    : "---";
   return `${centerText}\n${zoomText}x zoom\n${card.stats.fftDbMin} to ${card.stats.fftDbMax}${card.stats.powerScale}`;
 };
 
@@ -318,40 +332,58 @@ export const NoteCards: React.FC<NoteCardsProps> = ({ fftCanvasRef }) => {
     }
   }, [cards.length, createCard, isHydrated]);
 
-  const onPointerMove = React.useCallback((event: PointerEvent) => {
-    const dragState = dragStateRef.current;
-    if (!dragState || dragState.pointerId !== event.pointerId) {
-      return;
-    }
+  const onPointerMove = React.useCallback(
+    (event: PointerEvent) => {
+      const dragState = dragStateRef.current;
+      if (!dragState || dragState.pointerId !== event.pointerId) {
+        return;
+      }
 
-    didDragRef.current = true;
-    dispatch(
-      updateNoteCardPosition({
-        id: dragState.id,
-        position: {
-          x: Math.max(24, dragState.originX + event.clientX - dragState.startX),
-          y: Math.max(24, dragState.originY + event.clientY - dragState.startY),
-        },
-      }),
-    );
-  }, [dispatch]);
+      didDragRef.current = true;
+      dispatch(
+        updateNoteCardPosition({
+          id: dragState.id,
+          position: {
+            x: Math.max(
+              24,
+              dragState.originX + event.clientX - dragState.startX,
+            ),
+            y: Math.max(
+              24,
+              dragState.originY + event.clientY - dragState.startY,
+            ),
+          },
+        }),
+      );
+    },
+    [dispatch],
+  );
 
-  const onResizeMove = React.useCallback((event: PointerEvent) => {
-    const resizeState = resizeStateRef.current;
-    if (!resizeState || resizeState.pointerId !== event.pointerId) {
-      return;
-    }
+  const onResizeMove = React.useCallback(
+    (event: PointerEvent) => {
+      const resizeState = resizeStateRef.current;
+      if (!resizeState || resizeState.pointerId !== event.pointerId) {
+        return;
+      }
 
-    dispatch(
-      updateNoteCardSize({
-        id: resizeState.id,
-        size: {
-          width: Math.max(MIN_CARD_WIDTH, resizeState.originWidth + event.clientX - resizeState.startX),
-          height: Math.max(MIN_CARD_HEIGHT, resizeState.originHeight + event.clientY - resizeState.startY),
-        },
-      }),
-    );
-  }, [dispatch]);
+      dispatch(
+        updateNoteCardSize({
+          id: resizeState.id,
+          size: {
+            width: Math.max(
+              MIN_CARD_WIDTH,
+              resizeState.originWidth + event.clientX - resizeState.startX,
+            ),
+            height: Math.max(
+              MIN_CARD_HEIGHT,
+              resizeState.originHeight + event.clientY - resizeState.startY,
+            ),
+          },
+        }),
+      );
+    },
+    [dispatch],
+  );
 
   const endDrag = React.useCallback((event: PointerEvent) => {
     if (dragStateRef.current?.pointerId === event.pointerId) {
@@ -440,7 +472,12 @@ export const NoteCards: React.FC<NoteCardsProps> = ({ fftCanvasRef }) => {
               placeholder="This looks like it's it..."
               rows={2}
               onChange={(event) =>
-                dispatch(updateNoteCardText({ id: activeCard.id, title: event.target.value }))
+                dispatch(
+                  updateNoteCardText({
+                    id: activeCard.id,
+                    title: event.target.value,
+                  }),
+                )
               }
             />
 
@@ -491,11 +528,25 @@ export const NoteCards: React.FC<NoteCardsProps> = ({ fftCanvasRef }) => {
                   : "Unavailable"}
               </Value>
               <Label>Sample Rate</Label>
-              <Value>{Number.isFinite(activeCard.stats.sampleRateHz) ? (activeCard.stats.sampleRateHz / 1_000_000).toFixed(1) : "---"} MHz</Value>
+              <Value>
+                {Number.isFinite(activeCard.stats.sampleRateHz)
+                  ? (activeCard.stats.sampleRateHz / 1_000_000).toFixed(1)
+                  : "---"}{" "}
+                MHz
+              </Value>
               <Label>Heterodyned?</Label>
-              <Value>{activeCard.stats.heterodyningDetected ? "Yes" : activeCard.stats.heterodyningStatusText}</Value>
+              <Value>
+                {activeCard.stats.heterodyningDetected
+                  ? "Yes"
+                  : activeCard.stats.heterodyningStatusText}
+              </Value>
               <Label>Current Zoom</Label>
-              <Value>{Number.isFinite(activeCard.stats.vizZoom) ? activeCard.stats.vizZoom.toFixed(1) : "---"}x</Value>
+              <Value>
+                {Number.isFinite(activeCard.stats.vizZoom)
+                  ? activeCard.stats.vizZoom.toFixed(1)
+                  : "---"}
+                x
+              </Value>
             </StatsGrid>
           </ScrollBody>
 
@@ -505,7 +556,9 @@ export const NoteCards: React.FC<NoteCardsProps> = ({ fftCanvasRef }) => {
               onClick={() => {
                 const snapshot = fftCanvasRef?.current?.getCompositeSnapshot();
                 if (!snapshot) return;
-                dispatch(attachNoteCardSnapshot({ id: activeCard.id, snapshot }));
+                dispatch(
+                  attachNoteCardSnapshot({ id: activeCard.id, snapshot }),
+                );
               }}
             >
               Snapshot

@@ -42,7 +42,9 @@ const cloneSnapshot = (
     waterfallBuffer: snapshot.waterfallBuffer
       ? new Uint8ClampedArray(snapshot.waterfallBuffer)
       : null,
-    waterfallDims: snapshot.waterfallDims ? { ...snapshot.waterfallDims } : null,
+    waterfallDims: snapshot.waterfallDims
+      ? { ...snapshot.waterfallDims }
+      : null,
   };
 };
 

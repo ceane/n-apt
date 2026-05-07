@@ -5,7 +5,7 @@ export interface PretextTextOptions {
   color?: string;
   maxWidth?: number;
   lineHeight?: number;
-  whiteSpace?: 'normal' | 'pre-wrap';
+  whiteSpace?: "normal" | "pre-wrap";
 }
 
 export interface PretextLayoutResult {
@@ -31,15 +31,18 @@ export interface PretextMetrics {
 export interface PretextCanvasTextProps extends PretextTextOptions {
   x?: number;
   y?: number;
-  anchorX?: 'left' | 'center' | 'right';
-  anchorY?: 'top' | 'middle' | 'bottom';
+  anchorX?: "left" | "center" | "right";
+  anchorY?: "top" | "middle" | "bottom";
   rotation?: number;
   opacity?: number;
 }
 
-export interface PretextVFOTextProps extends Omit<PretextCanvasTextProps, 'maxWidth'> {
+export interface PretextVFOTextProps extends Omit<
+  PretextCanvasTextProps,
+  "maxWidth"
+> {
   frequency: number;
-  unit?: 'Hz' | 'kHz' | 'MHz' | 'GHz';
+  unit?: "Hz" | "kHz" | "MHz" | "GHz";
   precision?: number;
   showUnit?: boolean;
 }

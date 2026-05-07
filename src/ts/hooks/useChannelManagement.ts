@@ -23,47 +23,55 @@ export const useChannelManagement = ({
   onChannelMetadataChange,
 }: UseChannelManagementProps) => {
   // Channel switching helper - batches state updates for better performance
-  const switchChannel = useCallback((newIdx: number) => {
-    const ch = allChannelsRef.current[newIdx];
-    if (!ch) return;
+  const switchChannel = useCallback(
+    (newIdx: number) => {
+      const ch = allChannelsRef.current[newIdx];
+      if (!ch) return;
 
-    setActiveChannel(newIdx);
-    const freqRange =
-      Array.isArray(ch.frequency_range) &&
-      ch.frequency_range.length === 2 &&
-      Number.isFinite(ch.frequency_range[0]) &&
-      Number.isFinite(ch.frequency_range[1])
-        ? ch.frequency_range
-        : undefined;
-    const derivedCenterHz = freqRange
-      ? ((freqRange[0] + freqRange[1]) / 2)
-      : ch.center_freq_hz;
-    const derivedCaptureRateHz = freqRange
-      ? (freqRange[1] - freqRange[0])
-      : ch.sample_rate_hz;
-    const channelLabel = ch.label || `Channel ${newIdx + 1}`;
-    onChannelMetadataChange?.({
-      activeChannel: newIdx,
-      channelCount: allChannelsRef.current.length,
-      channelLabel,
-      center_frequency_hz: derivedCenterHz,
-      capture_sample_rate_hz: derivedCaptureRateHz,
-      frame_rate: ch.frame_rate,
-      hardware_sample_rate_hz: ch.hardware_sample_rate_hz,
-      frequency_range: freqRange,
-    });
-    if (freqRange) {
-      setFrequencyRange({
-        min: freqRange[0],
-        max: freqRange[1],
+      setActiveChannel(newIdx);
+      const freqRange =
+        Array.isArray(ch.frequency_range) &&
+        ch.frequency_range.length === 2 &&
+        Number.isFinite(ch.frequency_range[0]) &&
+        Number.isFinite(ch.frequency_range[1])
+          ? ch.frequency_range
+          : undefined;
+      const derivedCenterHz = freqRange
+        ? (freqRange[0] + freqRange[1]) / 2
+        : ch.center_freq_hz;
+      const derivedCaptureRateHz = freqRange
+        ? freqRange[1] - freqRange[0]
+        : ch.sample_rate_hz;
+      const channelLabel = ch.label || `Channel ${newIdx + 1}`;
+      onChannelMetadataChange?.({
+        activeChannel: newIdx,
+        channelCount: allChannelsRef.current.length,
+        channelLabel,
+        center_frequency_hz: derivedCenterHz,
+        capture_sample_rate_hz: derivedCaptureRateHz,
+        frame_rate: ch.frame_rate,
+        hardware_sample_rate_hz: ch.hardware_sample_rate_hz,
+        frequency_range: freqRange,
       });
-      return;
-    }
+      if (freqRange) {
+        setFrequencyRange({
+          min: freqRange[0],
+          max: freqRange[1],
+        });
+        return;
+      }
 
-    const span = (ch.sample_rate_hz || 3_200_000);
-    const center = (ch.center_freq_hz || 0);
-    setFrequencyRange({ min: center - span / 2, max: center + span / 2 });
-  }, [setActiveChannel, setFrequencyRange, onChannelMetadataChange, allChannelsRef]);
+      const span = ch.sample_rate_hz || 3_200_000;
+      const center = ch.center_freq_hz || 0;
+      setFrequencyRange({ min: center - span / 2, max: center + span / 2 });
+    },
+    [
+      setActiveChannel,
+      setFrequencyRange,
+      onChannelMetadataChange,
+      allChannelsRef,
+    ],
+  );
 
   return { switchChannel };
 };

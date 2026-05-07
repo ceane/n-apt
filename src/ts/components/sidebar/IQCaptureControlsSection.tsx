@@ -8,7 +8,10 @@ import type {
   CaptureFileType,
   DeviceState,
 } from "@n-apt/hooks/useWebSocket";
-import { addNotification, updateNotification } from "@n-apt/redux/slices/notificationsSlice";
+import {
+  addNotification,
+  updateNotification,
+} from "@n-apt/redux/slices/notificationsSlice";
 import { useAppSelector } from "@n-apt/redux/store";
 import { formatDurationMs } from "@n-apt/utils/formatters";
 import { formatFrequency } from "@n-apt/utils/frequency";
@@ -67,7 +70,10 @@ const LabelWithIcon = styled.span`
   }
 `;
 
-const IconLabel: React.FC<{ icon: LucideIcon; text: string }> = ({ icon: IconComponent, text }) => (
+const IconLabel: React.FC<{ icon: LucideIcon; text: string }> = ({
+  icon: IconComponent,
+  text,
+}) => (
   <LabelWithIcon>
     <IconComponent size={14} strokeWidth={1.75} aria-hidden="true" />
     {text}
@@ -293,10 +299,14 @@ const PauseButton = styled.button<{ $paused: boolean }>`
   flex: 0 0 25%;
   height: 100%;
   padding: 12px 8px;
-  background-color: ${(props) => (props.$paused ? props.theme.primaryAnchor : props.theme.surface)};
-  border: 1px solid ${(props) => (props.$paused ? props.theme.primary : props.theme.borderHover)};
+  background-color: ${(props) =>
+    props.$paused ? props.theme.primaryAnchor : props.theme.surface};
+  border: 1px solid
+    ${(props) =>
+      props.$paused ? props.theme.primary : props.theme.borderHover};
   border-radius: 8px;
-  color: ${(props) => (props.$paused ? props.theme.primary : props.theme.textPrimary)};
+  color: ${(props) =>
+    props.$paused ? props.theme.primary : props.theme.textPrimary};
   font-family: ${(props) => props.theme.typography.mono};
   font-size: 12px;
   font-weight: 500;
@@ -312,7 +322,7 @@ const PauseButton = styled.button<{ $paused: boolean }>`
   }
 `;
 
-const CaptureButton = styled(PauseButton) <{ $disabled: boolean }>`
+const CaptureButton = styled(PauseButton)<{ $disabled: boolean }>`
   flex: 1;
   opacity: ${(props) => (props.$disabled ? 0.5 : 1)};
   cursor: ${(props) => (props.$disabled ? "not-allowed" : "pointer")};
@@ -381,7 +391,9 @@ const DownloadLink = styled.a`
   min-width: 0;
 `;
 
-const StatusValue = styled.div<{ $tone: "warning" | "success" | "error" | "muted" }>`
+const StatusValue = styled.div<{
+  $tone: "warning" | "success" | "error" | "muted";
+}>`
   font-size: 12px;
   font-family: ${(props) => props.theme.typography.mono};
   color: ${(props) =>
@@ -470,7 +482,9 @@ interface IQCaptureControlsSectionProps {
   onCaptureDurationModeChange?: (mode: "timed" | "manual") => void;
   onCaptureDurationSChange: (value: number) => void;
   onCaptureFileTypeChange: (value: CaptureFileType) => void;
-  onAcquisitionModeChange: (mode: "stepwise" | "interleaved" | "whole_sample") => void;
+  onAcquisitionModeChange: (
+    mode: "stepwise" | "interleaved" | "whole_sample",
+  ) => void;
   onCaptureEncryptedChange: (value: boolean) => void;
   onCapturePlaybackChange: (value: boolean) => void;
   onCaptureGeolocationChange: (value: boolean) => void;
@@ -512,516 +526,591 @@ export const IQCaptureControlsSection: React.FC<
   channels,
   onCaptureWithChannels,
 }) => {
-    // Build derived channels from the capture range segments when channels aren't provided
-    const derivedChannels: ChannelDescriptor[] = React.useMemo(() => {
-      if (!captureRange?.segments) return []
-      return captureRange.segments.map((seg, idx) => {
-        const minHz = seg.min;
-        const maxHz = seg.max;
-        const centerHz = Math.round((minHz + maxHz) / 2);
-        const widthHz = Math.round(maxHz - minHz);
-        return {
-          center_freq_hz: centerHz,
-          size_hz: widthHz,
-          label: seg.label ?? `Ch${idx + 1}`
-        } as ChannelDescriptor
-      })
-    }, [captureRange?.segments]);
+  // Build derived channels from the capture range segments when channels aren't provided
+  const derivedChannels: ChannelDescriptor[] = React.useMemo(() => {
+    if (!captureRange?.segments) return [];
+    return captureRange.segments.map((seg, idx) => {
+      const minHz = seg.min;
+      const maxHz = seg.max;
+      const centerHz = Math.round((minHz + maxHz) / 2);
+      const widthHz = Math.round(maxHz - minHz);
+      return {
+        center_freq_hz: centerHz,
+        size_hz: widthHz,
+        label: seg.label ?? `Ch${idx + 1}`,
+      } as ChannelDescriptor;
+    });
+  }, [captureRange?.segments]);
 
-    // Final channels payload to pass to backend (UI-chosen or derived)
-    const channelsPayload: ChannelDescriptor[] = (typeof channels !== 'undefined' && channels && channels.length > 0)
+  // Final channels payload to pass to backend (UI-chosen or derived)
+  const channelsPayload: ChannelDescriptor[] =
+    typeof channels !== "undefined" && channels && channels.length > 0
       ? channels
-      : derivedChannels
+      : derivedChannels;
 
-    const triggerWithChannels = () => {
-      onCapture();
-      if (typeof onCaptureWithChannels === 'function') {
-        onCaptureWithChannels(channelsPayload);
+  const triggerWithChannels = () => {
+    onCapture();
+    if (typeof onCaptureWithChannels === "function") {
+      onCaptureWithChannels(channelsPayload);
+    }
+  };
+  const { isAuthenticated, sessionToken } = useAuthentication();
+  const dispatch = useDispatch();
+
+  // Access live SDR settings from store for validation
+  const gain = useAppSelector((s) => s.spectrum.gain);
+  const ppm = useAppSelector((s) => s.spectrum.ppm);
+
+  const {
+    isSupported,
+    requestPermission,
+    error: geoError,
+    isLoading: geoLoading,
+  } = useGeolocation();
+  const hasOnscreenSelected = activeCaptureAreas.includes("Onscreen");
+  const hasChannelSelected = activeCaptureAreas.some((a) => a !== "Onscreen");
+  const onscreenOnly = hasOnscreenSelected && !hasChannelSelected;
+
+  /**
+   * .napt Validation Logic
+   *
+   * Requirements:
+   * 1. Frequency: Selected range must be within N-APT channels (A, B, C) from signals.yaml
+   * 2. Gain: >= 20dB
+   * 3. PPM: >= 1
+   *
+   * Future: Integrate Spike Detection here.
+   */
+  const naptValidation = React.useMemo(() => {
+    const isGainValid = gain >= 20;
+    const isPpmValid = ppm >= 1;
+
+    // N-APT Channel Ranges (Hz)
+    const NAPT_CHANNELS = [
+      { min: 18_000, max: 4_390_000, label: "A" },
+      { min: 24_720_000, max: 29_880_000, label: "B" },
+      { min: 4_750_000, max: 23_000_000, label: "C" },
+    ];
+
+    // Check frequency range validity
+    // The requested capture segments must be entirely contained within the union of N-APT channels
+    const segments = captureRange?.segments || [];
+    const selectedSegments = segments.filter((seg) =>
+      activeCaptureAreas.includes(seg.label),
+    );
+
+    let isFreqValid = selectedSegments.length > 0;
+    const invalidSegments: string[] = [];
+
+    for (const seg of selectedSegments) {
+      const isContained = NAPT_CHANNELS.some(
+        (ch) => seg.min >= ch.min && seg.max <= ch.max,
+      );
+      if (!isContained) {
+        isFreqValid = false;
+        invalidSegments.push(seg.label);
       }
-    };
-    const { isAuthenticated, sessionToken } = useAuthentication();
-    const dispatch = useDispatch();
+    }
 
-    // Access live SDR settings from store for validation
-    const gain = useAppSelector((s) => s.spectrum.gain);
-    const ppm = useAppSelector((s) => s.spectrum.ppm);
+    // TODO: Spike Detection validation hook
+    // One day we will check for the presence of stable APT-like spikes before allowing .napt
+    const isSpikeDetectionValid = true;
 
-    const {
-      isSupported,
-      requestPermission,
-      error: geoError,
-      isLoading: geoLoading
-    } = useGeolocation();
-    const hasOnscreenSelected = activeCaptureAreas.includes("Onscreen");
-    const hasChannelSelected = activeCaptureAreas.some((a) => a !== "Onscreen");
-    const onscreenOnly = hasOnscreenSelected && !hasChannelSelected;
+    const isValid =
+      isGainValid && isPpmValid && isFreqValid && isSpikeDetectionValid;
 
-    /**
-     * .napt Validation Logic
-     * 
-     * Requirements:
-     * 1. Frequency: Selected range must be within N-APT channels (A, B, C) from signals.yaml
-     * 2. Gain: >= 20dB
-     * 3. PPM: >= 1
-     * 
-     * Future: Integrate Spike Detection here.
-     */
-    const naptValidation = React.useMemo(() => {
-      const isGainValid = gain >= 20;
-      const isPpmValid = ppm >= 1;
-
-      // N-APT Channel Ranges (Hz)
-      const NAPT_CHANNELS = [
-        { min: 18_000, max: 4_390_000, label: "A" },
-        { min: 24_720_000, max: 29_880_000, label: "B" },
-        { min: 4_750_000, max: 23_000_000, label: "C" },
-      ];
-
-      // Check frequency range validity
-      // The requested capture segments must be entirely contained within the union of N-APT channels
-      const segments = captureRange?.segments || [];
-      const selectedSegments = segments.filter(seg => activeCaptureAreas.includes(seg.label));
-
-      let isFreqValid = selectedSegments.length > 0;
-      const invalidSegments: string[] = [];
-
-      for (const seg of selectedSegments) {
-        const isContained = NAPT_CHANNELS.some(
-          ch => seg.min >= ch.min && seg.max <= ch.max
-        );
-        if (!isContained) {
-          isFreqValid = false;
-          invalidSegments.push(seg.label);
-        }
-      }
-
-      // TODO: Spike Detection validation hook
-      // One day we will check for the presence of stable APT-like spikes before allowing .napt
-      const isSpikeDetectionValid = true; 
-
-      const isValid = isGainValid && isPpmValid && isFreqValid && isSpikeDetectionValid;
-
-      const reasons: string[] = [];
-      if (!isGainValid) reasons.push(`Gain too low (${gain}dB < 20dB)`);
-      if (!isPpmValid) reasons.push(`PPM too low (${ppm} < 1)`);
-      if (!isFreqValid) {
-        if (selectedSegments.length === 0) {
-          reasons.push("No capture areas selected");
-        } else {
-          reasons.push(`Range outside N-APT channels: ${invalidSegments.join(", ")}`);
-        }
-      }
-
-      return { isValid, reasons, isGainValid, isPpmValid, isFreqValid };
-    }, [gain, ppm, captureRange, activeCaptureAreas]);
-
-    // Auto-switch to .wav if .napt is selected but invalid
-    React.useEffect(() => {
-      if (captureFileType === ".napt" && !naptValidation.isValid && activeCaptureAreas.length > 0) {
-        onCaptureFileTypeChange(".wav");
-      }
-    }, [naptValidation.isValid, captureFileType, onCaptureFileTypeChange, activeCaptureAreas.length]);
-
-    // Helper function to format file sizes
-    const formatFileSize = (bytes: number): string => {
-      if (bytes === 0) return '0 B';
-      const k = 1024;
-      const sizes = ['B', 'KB', 'MB', 'GB'];
-      const i = Math.floor(Math.log(bytes) / Math.log(k));
-      const value = bytes / Math.pow(k, i);
-      // Show decimal places for KB and above, but not for bytes
-      if (i === 0) {
-        return `${Math.round(value)} ${sizes[i]}`;
-      }
-      return `${value.toFixed(2)} ${sizes[i]}`;
-    };
-
-    // Notification effect for capture status changes
-    React.useEffect(() => {
-      const captureNotificationId = `capture-${captureStatus?.jobId || 'unknown'}`;
-
-      if (captureStatus?.status === "started") {
-        dispatch(addNotification({
-          id: captureNotificationId,
-          type: 'info',
-          title: 'Capturing...',
-          message: captureStatus.message || 'I/Q capture in progress',
-          duration: 0, // Don't auto-dismiss while capturing
-        }));
-      } else if (captureStatus?.status === "progress") {
-        // Update notification with progress if available
-        dispatch(updateNotification({
-          id: captureNotificationId,
-          updates: {
-            message: captureStatus.message || 'Processing...',
-          }
-        }));
-      } else if (captureStatus?.status === "done") {
-        dispatch(updateNotification({
-          id: captureNotificationId,
-          updates: {
-            type: 'success',
-            title: 'Capture Complete',
-            message: captureStatus.filename
-              ? `New capture ready for download\n${captureStatus.fileSize ? formatFileSize(captureStatus.fileSize) : ''}`
-              : 'I/Q capture completed successfully',
-            duration: 5000, // Auto-dismiss after 5 seconds
-          }
-        }));
-      } else if (captureStatus?.status === "failed") {
-        dispatch(updateNotification({
-          id: captureNotificationId,
-          updates: {
-            type: 'error',
-            title: 'Capture Failed',
-            message: captureStatus.error || captureStatus.message || 'I/Q capture failed',
-            duration: 8000, // Keep error notification longer
-          }
-        }));
-      }
-    }, [captureStatus, dispatch]);
-
-    // Calculate capture range span to determine appropriate mode
-    const captureRangeSpan = captureRange.max - captureRange.min;
-    const hardwareSampleRateHz = maxSampleRate;
-
-    // Determine which modes are available
-    const isOnscreenExactMatch = onscreenOnly && hardwareSampleRateHz > 0 && Math.abs(captureRangeSpan - hardwareSampleRateHz) < 10_000;
-    const isWiderThanHardware = captureRangeSpan > hardwareSampleRateHz + 10_000;
-
-    // GUARDS: Determine appropriate capture mode based on capture type
-    let effectiveAcquisitionMode = acquisitionMode;
-
-    if (isOnscreenExactMatch) {
-      // Onscreen only + span matches hardware → force whole_sample
-      effectiveAcquisitionMode = "whole_sample";
-    } else if (isWiderThanHardware) {
-      // Wider than hardware → only stepwise or interleaved allowed
-      if (acquisitionMode === "whole_sample") {
-        effectiveAcquisitionMode = "stepwise";
+    const reasons: string[] = [];
+    if (!isGainValid) reasons.push(`Gain too low (${gain}dB < 20dB)`);
+    if (!isPpmValid) reasons.push(`PPM too low (${ppm} < 1)`);
+    if (!isFreqValid) {
+      if (selectedSegments.length === 0) {
+        reasons.push("No capture areas selected");
       } else {
-        effectiveAcquisitionMode = acquisitionMode;
+        reasons.push(
+          `Range outside N-APT channels: ${invalidSegments.join(", ")}`,
+        );
       }
+    }
+
+    return { isValid, reasons, isGainValid, isPpmValid, isFreqValid };
+  }, [gain, ppm, captureRange, activeCaptureAreas]);
+
+  // Auto-switch to .wav if .napt is selected but invalid
+  React.useEffect(() => {
+    if (
+      captureFileType === ".napt" &&
+      !naptValidation.isValid &&
+      activeCaptureAreas.length > 0
+    ) {
+      onCaptureFileTypeChange(".wav");
+    }
+  }, [
+    naptValidation.isValid,
+    captureFileType,
+    onCaptureFileTypeChange,
+    activeCaptureAreas.length,
+  ]);
+
+  // Helper function to format file sizes
+  const formatFileSize = (bytes: number): string => {
+    if (bytes === 0) return "0 B";
+    const k = 1024;
+    const sizes = ["B", "KB", "MB", "GB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    const value = bytes / Math.pow(k, i);
+    // Show decimal places for KB and above, but not for bytes
+    if (i === 0) {
+      return `${Math.round(value)} ${sizes[i]}`;
+    }
+    return `${value.toFixed(2)} ${sizes[i]}`;
+  };
+
+  // Notification effect for capture status changes
+  React.useEffect(() => {
+    const captureNotificationId = `capture-${captureStatus?.jobId || "unknown"}`;
+
+    if (captureStatus?.status === "started") {
+      dispatch(
+        addNotification({
+          id: captureNotificationId,
+          type: "info",
+          title: "Capturing...",
+          message: captureStatus.message || "I/Q capture in progress",
+          duration: 0, // Don't auto-dismiss while capturing
+        }),
+      );
+    } else if (captureStatus?.status === "progress") {
+      // Update notification with progress if available
+      dispatch(
+        updateNotification({
+          id: captureNotificationId,
+          updates: {
+            message: captureStatus.message || "Processing...",
+          },
+        }),
+      );
+    } else if (captureStatus?.status === "done") {
+      dispatch(
+        updateNotification({
+          id: captureNotificationId,
+          updates: {
+            type: "success",
+            title: "Capture Complete",
+            message: captureStatus.filename
+              ? `New capture ready for download\n${captureStatus.fileSize ? formatFileSize(captureStatus.fileSize) : ""}`
+              : "I/Q capture completed successfully",
+            duration: 5000, // Auto-dismiss after 5 seconds
+          },
+        }),
+      );
+    } else if (captureStatus?.status === "failed") {
+      dispatch(
+        updateNotification({
+          id: captureNotificationId,
+          updates: {
+            type: "error",
+            title: "Capture Failed",
+            message:
+              captureStatus.error ||
+              captureStatus.message ||
+              "I/Q capture failed",
+            duration: 8000, // Keep error notification longer
+          },
+        }),
+      );
+    }
+  }, [captureStatus, dispatch]);
+
+  // Calculate capture range span to determine appropriate mode
+  const captureRangeSpan = captureRange.max - captureRange.min;
+  const hardwareSampleRateHz = maxSampleRate;
+
+  // Determine which modes are available
+  const isOnscreenExactMatch =
+    onscreenOnly &&
+    hardwareSampleRateHz > 0 &&
+    Math.abs(captureRangeSpan - hardwareSampleRateHz) < 10_000;
+  const isWiderThanHardware = captureRangeSpan > hardwareSampleRateHz + 10_000;
+
+  // GUARDS: Determine appropriate capture mode based on capture type
+  let effectiveAcquisitionMode = acquisitionMode;
+
+  if (isOnscreenExactMatch) {
+    // Onscreen only + span matches hardware → force whole_sample
+    effectiveAcquisitionMode = "whole_sample";
+  } else if (isWiderThanHardware) {
+    // Wider than hardware → only stepwise or interleaved allowed
+    if (acquisitionMode === "whole_sample") {
+      effectiveAcquisitionMode = "stepwise";
     } else {
-      // Narrower than hardware but not exact match → user's choice
       effectiveAcquisitionMode = acquisitionMode;
     }
-    const statusTone =
-      captureStatus?.status === "done"
-        ? "success"
-        : captureStatus?.status === "failed"
-          ? "error"
-          : captureStatus?.status === "started" || captureStatus?.status === "progress"
-            ? "warning"
-            : "muted";
-    const statusText =
-      captureStatus?.status === "done"
-        ? "Complete"
-        : captureStatus?.status === "failed"
-          ? `Failed: ${captureStatus.error || "Unknown error"}`
-          : captureStatus?.status === "started" || captureStatus?.status === "progress"
-            ? "In progress..."
-            : "Idle";
-    const hasSelectedCaptureAreas = activeCaptureAreas.length > 0;
-    const isCaptureActive = captureStatus?.status === "started";
-    const isCaptureDisabled =
-      !isConnected ||
-      deviceState === "loading" ||
-      !isAuthenticated ||
-      (!isCaptureActive && !hasSelectedCaptureAreas);
+  } else {
+    // Narrower than hardware but not exact match → user's choice
+    effectiveAcquisitionMode = acquisitionMode;
+  }
+  const statusTone =
+    captureStatus?.status === "done"
+      ? "success"
+      : captureStatus?.status === "failed"
+        ? "error"
+        : captureStatus?.status === "started" ||
+            captureStatus?.status === "progress"
+          ? "warning"
+          : "muted";
+  const statusText =
+    captureStatus?.status === "done"
+      ? "Complete"
+      : captureStatus?.status === "failed"
+        ? `Failed: ${captureStatus.error || "Unknown error"}`
+        : captureStatus?.status === "started" ||
+            captureStatus?.status === "progress"
+          ? "In progress..."
+          : "Idle";
+  const hasSelectedCaptureAreas = activeCaptureAreas.length > 0;
+  const isCaptureActive = captureStatus?.status === "started";
+  const isCaptureDisabled =
+    !isConnected ||
+    deviceState === "loading" ||
+    !isAuthenticated ||
+    (!isCaptureActive && !hasSelectedCaptureAreas);
 
-    const formatSampleRateLabel = (hz: number) => {
-      if (!hz || Number.isNaN(hz)) {
-        return "0 Hz";
+  const formatSampleRateLabel = (hz: number) => {
+    if (!hz || Number.isNaN(hz)) {
+      return "0 Hz";
+    }
+    return formatFrequency(hz);
+  };
+
+  const handleGeolocationToggle = async (enabled: boolean) => {
+    if (enabled && captureFileType === ".napt") {
+      const hasPermission = await requestPermission();
+      if (!hasPermission) {
+        // If permission denied, keep toggle off
+        onCaptureGeolocationChange(false);
+        return;
       }
-      return formatFrequency(hz);
-    };
+    }
+    onCaptureGeolocationChange(enabled);
+  };
+  const sampleRateLabel = formatSampleRateLabel(maxSampleRate);
+  const capturePhaseMessage = captureStatus?.message;
+  const captureButtonLabel = isCaptureActive ? "Stop" : "Capture";
+  const handleCaptureClick = isCaptureActive
+    ? (onStopCapture ?? triggerWithChannels)
+    : triggerWithChannels;
+  const handleDurationModeChange =
+    onCaptureDurationModeChange ?? (() => undefined);
 
-    const handleGeolocationToggle = async (enabled: boolean) => {
-      if (enabled && captureFileType === ".napt") {
-        const hasPermission = await requestPermission();
-        if (!hasPermission) {
-          // If permission denied, keep toggle off
-          onCaptureGeolocationChange(false);
-          return;
-        }
-      }
-      onCaptureGeolocationChange(enabled);
-    };
-    const sampleRateLabel = formatSampleRateLabel(maxSampleRate);
-    const capturePhaseMessage = captureStatus?.message;
-    const captureButtonLabel = isCaptureActive ? "Stop" : "Capture";
-    const handleCaptureClick = isCaptureActive ? (onStopCapture ?? triggerWithChannels) : triggerWithChannels;
-    const handleDurationModeChange = onCaptureDurationModeChange ?? (() => undefined);
+  return (
+    <Section>
+      <Collapsible
+        icon={<FileSignal size={14} />}
+        label="Take an I/Q Capture"
+        defaultOpen={false}
+      >
+        <RangeRowContainer>
+          <RangeRowLabel>
+            <IconLabel icon={Scan} text="Ranges" />
+            <SampleRateBadge aria-label="Hardware sample rate">
+              {sampleRateLabel}
+            </SampleRateBadge>
+          </RangeRowLabel>
+          <RangeRowBody>
+            <RangeGrid>
+              {availableCaptureAreas.map((area, idx) => {
+                const isSelected = activeCaptureAreas.includes(area.label);
+                const variant = idx % 2 === 0 ? "primary" : "secondary";
 
-    return (
-      <Section>
-        <Collapsible
-          icon={<FileSignal size={14} />}
-          label="Take an I/Q Capture"
-          defaultOpen={false}
-        >
-          <RangeRowContainer>
-            <RangeRowLabel>
-              <IconLabel icon={Scan} text="Ranges" />
-              <SampleRateBadge aria-label="Hardware sample rate">{sampleRateLabel}</SampleRateBadge>
-            </RangeRowLabel>
-            <RangeRowBody>
-              <RangeGrid>
-                {availableCaptureAreas.map((area, idx) => {
-                  const isSelected = activeCaptureAreas.includes(area.label);
-                  const variant = idx % 2 === 0 ? "primary" : "secondary";
+                const handleToggle = () => {
+                  const nextAreas = isSelected
+                    ? activeCaptureAreas.filter((a) => a !== area.label)
+                    : [...activeCaptureAreas, area.label];
 
-                  const handleToggle = () => {
-                    const nextAreas = isSelected
-                      ? activeCaptureAreas.filter((a) => a !== area.label)
-                      : [...activeCaptureAreas, area.label];
-
-                    const hwHz = maxSampleRate;
-                    const nextOnscreenOnly = nextAreas.includes("Onscreen") && nextAreas.length === 1;
-                    const nextHasChannel = nextAreas.some(a => a !== "Onscreen");
-                    
-                    const nextSelectedSegments = availableCaptureAreas.filter(a => nextAreas.includes(a.label));
-                    const nextMin = nextSelectedSegments.length > 0 ? Math.min(...nextSelectedSegments.map(s => s.min)) : 0;
-                    const nextMax = nextSelectedSegments.length > 0 ? Math.max(...nextSelectedSegments.map(s => s.max)) : 0;
-                    const nextSpan = nextMax - nextMin;
-
-                    if (nextOnscreenOnly && hwHz > 0 && Math.abs(nextSpan - hwHz) < 10_000) {
-                      if (acquisitionMode !== "whole_sample") {
-                        onAcquisitionModeChange("whole_sample");
-                      }
-                    } else if (nextHasChannel && nextSpan > hwHz + 10_000) {
-                      if (acquisitionMode === "whole_sample") {
-                        onAcquisitionModeChange("stepwise");
-                      }
-                    }
-
-                    onActiveCaptureAreasChange(nextAreas);
-                  };
-
-                  const matchingSegment = captureRange.segments.find((seg) => seg.label === area.label);
-                  const label = matchingSegment?.label ?? area.label;
-                  const min = matchingSegment?.min ?? area.min;
-                  const max = matchingSegment?.max ?? area.max;
-
-                  return (
-                    <Range
-                      key={area.label}
-                      label={label}
-                      min={min}
-                      max={max}
-                      selected={isSelected}
-                      onToggle={handleToggle}
-                      variant={variant}
-                    />
+                  const hwHz = maxSampleRate;
+                  const nextOnscreenOnly =
+                    nextAreas.includes("Onscreen") && nextAreas.length === 1;
+                  const nextHasChannel = nextAreas.some(
+                    (a) => a !== "Onscreen",
                   );
-                })}
-              </RangeGrid>
-            </RangeRowBody>
-          </RangeRowContainer>
 
-          <Row label={<IconLabel icon={Clock} text="Duration" />}>
-            <DurationBlock>
-              <RadioTabs
-                value={captureDurationMode}
-                onChange={(v) => handleDurationModeChange(v as "timed" | "manual")}
-                options={[
-                  { value: "timed", label: "Timed" },
-                  { value: "manual", label: "Manual" },
-                ]}
-              />
+                  const nextSelectedSegments = availableCaptureAreas.filter(
+                    (a) => nextAreas.includes(a.label),
+                  );
+                  const nextMin =
+                    nextSelectedSegments.length > 0
+                      ? Math.min(...nextSelectedSegments.map((s) => s.min))
+                      : 0;
+                  const nextMax =
+                    nextSelectedSegments.length > 0
+                      ? Math.max(...nextSelectedSegments.map((s) => s.max))
+                      : 0;
+                  const nextSpan = nextMax - nextMin;
 
-              <DurationInputOrTextRow>
-                {captureDurationMode === "timed" ? (
-                  <div style={{}}>
-                    <DurationInputBox
-                      type="number"
-                      min="1"
-                      step="1"
-                      value={Math.round(captureDurationS)}
-                      name="iq-capture-duration"
-                      onChange={(e) => onCaptureDurationSChange(parseInt(e.target.value) || 1)}
-                    />
-                    <DurationUnit>s</DurationUnit>
-                  </div>
-                ) : (
-                  <DurationManualCenter>
-                    <SettingValue>I/Q Capture runs until <br /> you press Stop.</SettingValue>
-                  </DurationManualCenter>
-                )}
-              </DurationInputOrTextRow>
-            </DurationBlock>
-          </Row>
+                  if (
+                    nextOnscreenOnly &&
+                    hwHz > 0 &&
+                    Math.abs(nextSpan - hwHz) < 10_000
+                  ) {
+                    if (acquisitionMode !== "whole_sample") {
+                      onAcquisitionModeChange("whole_sample");
+                    }
+                  } else if (nextHasChannel && nextSpan > hwHz + 10_000) {
+                    if (acquisitionMode === "whole_sample") {
+                      onAcquisitionModeChange("stepwise");
+                    }
+                  }
 
-          <Row label={<IconLabel icon={FileIcon} text="File type" />}>
-            <div style={{ display: "flex", flexDirection: "column", width: "100%" }}>
-              <SettingSelect
-                value={captureFileType}
-                onChange={(e) =>
-                  onCaptureFileTypeChange(e.target.value as CaptureFileType)
-                }
-              >
-                <option value=".napt" disabled={!naptValidation.isValid}>
-                  .napt {!naptValidation.isValid ? "(Invalid)" : ""}
-                </option>
-                <option value=".wav">.wav</option>
-              </SettingSelect>
+                  onActiveCaptureAreasChange(nextAreas);
+                };
 
-              {!naptValidation.isValid && (
-                <ValidationWarning>
-                  <WarningIcon size={14} />
-                  <WarningText>
-                    .napt format requires: gain ≥ 20dB, ppm ≥ 1, and frequency within N-APT channels.
-                    <br />
-                    <strong>Issues:</strong> {naptValidation.reasons.join(", ")}
-                  </WarningText>
-                </ValidationWarning>
+                const matchingSegment = captureRange.segments.find(
+                  (seg) => seg.label === area.label,
+                );
+                const label = matchingSegment?.label ?? area.label;
+                const min = matchingSegment?.min ?? area.min;
+                const max = matchingSegment?.max ?? area.max;
+
+                return (
+                  <Range
+                    key={area.label}
+                    label={label}
+                    min={min}
+                    max={max}
+                    selected={isSelected}
+                    onToggle={handleToggle}
+                    variant={variant}
+                  />
+                );
+              })}
+            </RangeGrid>
+          </RangeRowBody>
+        </RangeRowContainer>
+
+        <Row label={<IconLabel icon={Clock} text="Duration" />}>
+          <DurationBlock>
+            <RadioTabs
+              value={captureDurationMode}
+              onChange={(v) =>
+                handleDurationModeChange(v as "timed" | "manual")
+              }
+              options={[
+                { value: "timed", label: "Timed" },
+                { value: "manual", label: "Manual" },
+              ]}
+            />
+
+            <DurationInputOrTextRow>
+              {captureDurationMode === "timed" ? (
+                <div style={{}}>
+                  <DurationInputBox
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={Math.round(captureDurationS)}
+                    name="iq-capture-duration"
+                    onChange={(e) =>
+                      onCaptureDurationSChange(parseInt(e.target.value) || 1)
+                    }
+                  />
+                  <DurationUnit>s</DurationUnit>
+                </div>
+              ) : (
+                <DurationManualCenter>
+                  <SettingValue>
+                    I/Q Capture runs until <br /> you press Stop.
+                  </SettingValue>
+                </DurationManualCenter>
               )}
-            </div>
-          </Row>
+            </DurationInputOrTextRow>
+          </DurationBlock>
+        </Row>
 
-          <Row
-            label={<IconLabel icon={PanelLeftDashed} text="Acquisition Mode" />}
-            tooltipTitle="Capture Mode Selection"
-            tooltip="Stepwise: Captures frequency ranges sequentially. Interleaved: Rapidly sweeps and interleaves results. Whole Sample: Captures exact hardware sample rate without movement."
+        <Row label={<IconLabel icon={FileIcon} text="File type" />}>
+          <div
+            style={{ display: "flex", flexDirection: "column", width: "100%" }}
           >
             <SettingSelect
-              value={effectiveAcquisitionMode}
-              onChange={(e) => onAcquisitionModeChange(e.target.value as "stepwise" | "interleaved" | "whole_sample")}
-              disabled={isOnscreenExactMatch}
+              value={captureFileType}
+              onChange={(e) =>
+                onCaptureFileTypeChange(e.target.value as CaptureFileType)
+              }
             >
-              {!isWiderThanHardware && (
-                <option value="whole_sample">Whole Sample</option>
-              )}
-              {!isOnscreenExactMatch && (
-                <>
-                  <option value="stepwise">Stepwise</option>
-                  <option value="interleaved">Interleaved (TDMS)</option>
-                </>
-              )}
+              <option value=".napt" disabled={!naptValidation.isValid}>
+                .napt {!naptValidation.isValid ? "(Invalid)" : ""}
+              </option>
+              <option value=".wav">.wav</option>
             </SettingSelect>
-          </Row>
 
-          <Row label={<IconLabel icon={LockKeyhole} text="Encrypted (AES-256-GCM)" />}>
-            <ToggleSwitch $disabled={captureFileType === ".napt"}>
-              <ToggleSwitchInput
-                type="checkbox"
-                checked={captureFileType === ".napt" ? true : captureEncrypted}
-                disabled={captureFileType === ".napt"}
-                onChange={(e) => onCaptureEncryptedChange(e.target.checked)}
-              />
-              <ToggleSwitchSlider $disabled={captureFileType === ".napt"} />
-            </ToggleSwitch>
-          </Row>
-
-          <Row
-            label={<IconLabel icon={MapPin} text="Geolocation" />}
-            tooltipTitle="Location data (lat, long, accuracy, altitude)"
-            tooltip="Only available for .napt files. Requires browser permission to access location."
-          >
-            <ToggleSwitch $disabled={captureFileType !== ".napt" || !isSupported || geoLoading}>
-              <ToggleSwitchInput
-                type="checkbox"
-                checked={captureFileType === ".napt" ? captureGeolocation : false}
-                disabled={captureFileType !== ".napt" || !isSupported || geoLoading}
-                onChange={(e) => handleGeolocationToggle(e.target.checked)}
-              />
-              <ToggleSwitchSlider $disabled={captureFileType !== ".napt" || !isSupported || geoLoading} />
-            </ToggleSwitch>
-          </Row>
-
-          {geoError && captureFileType === ".napt" && (
-            <Row label="">
-              <ErrorSettingValue>
-                {geoError}
-              </ErrorSettingValue>
-            </Row>
-          )}
-
-          <CaptureActions>
-            <CaptureButton
-              $paused={false}
-              $disabled={isCaptureDisabled}
-              onClick={handleCaptureClick}
-              disabled={isCaptureDisabled}
-            >
-              {captureButtonLabel}
-            </CaptureButton>
-
-            <PlaybackOption>
-              <input
-                type="checkbox"
-                checked={capturePlayback}
-                onChange={(e) => onCapturePlaybackChange(e.target.checked)}
-              />
-              <PlaybackLabel>Playback after capture</PlaybackLabel>
-            </PlaybackOption>
-          </CaptureActions>
-
-          <StatusDownloadsCard>
-            <DownloadsHeader>
-              <InfoCardTitle>Downloads</InfoCardTitle>
-              <ClearStatusButton
-                onClick={onClearStatus}
-                title="Clear capture status"
-              >
-                <Trash2 size={12} /> Clear
-              </ClearStatusButton>
-            </DownloadsHeader>
-            {captureStatus?.downloadUrl && isAuthenticated ? (
-              <DownloadCard>
-                <InfoRow>
-                  <div style={{ minWidth: 0 }}>
-                    <DownloadLink
-                      href={`${captureStatus.downloadUrl}&token=${encodeURIComponent(sessionToken || "")}`}
-                      download={captureStatus.filename || "capture"}
-                      rel="noopener noreferrer"
-                      title={captureStatus.filename || "Download"}
-                    >
-                      {captureStatus.filename || "Download"}
-                    </DownloadLink>
-                    <DownloadMeta>
-                      {typeof captureStatus.fileSize === "number" && (
-                        formatFileSize(captureStatus.fileSize)
-                      )}
-                      {" / "}
-                      {typeof captureStatus.duration === "number" && (
-                        formatDurationMs(captureStatus.duration)
-                      )}
-                    </DownloadMeta>
-
-                  </div>
-                  <StatusValue
-                    $tone={
-                      captureStatus?.status === "done"
-                        ? "success"
-                        : captureStatus?.status === "failed"
-                          ? "error"
-                          : "warning"
-                    }
-                  >
-                    {captureStatus?.status === "done"
-                      ? "Complete"
-                      : captureStatus?.status === "failed"
-                        ? "Failed"
-                        : "In progress..."}
-                  </StatusValue>
-                </InfoRow>
-              </DownloadCard>
-            ) : (
-              <InfoRow>
-                <InfoLabel>
-                  {capturePhaseMessage || (
-                    captureStatus?.status === "started" || captureStatus?.status === "progress"
-                      ? "Capturing now..."
-                      : "No downloads yet"
-                  )}
-                </InfoLabel>
-                <StatusValue $tone={statusTone}>{statusText}</StatusValue>
-              </InfoRow>
+            {!naptValidation.isValid && (
+              <ValidationWarning>
+                <WarningIcon size={14} />
+                <WarningText>
+                  .napt format requires: gain ≥ 20dB, ppm ≥ 1, and frequency
+                  within N-APT channels.
+                  <br />
+                  <strong>Issues:</strong> {naptValidation.reasons.join(", ")}
+                </WarningText>
+              </ValidationWarning>
             )}
-          </StatusDownloadsCard>
-        </Collapsible>
-      </Section>
-    );
-  };
+          </div>
+        </Row>
+
+        <Row
+          label={<IconLabel icon={PanelLeftDashed} text="Acquisition Mode" />}
+          tooltipTitle="Capture Mode Selection"
+          tooltip="Stepwise: Captures frequency ranges sequentially. Interleaved: Rapidly sweeps and interleaves results. Whole Sample: Captures exact hardware sample rate without movement."
+        >
+          <SettingSelect
+            value={effectiveAcquisitionMode}
+            onChange={(e) =>
+              onAcquisitionModeChange(
+                e.target.value as "stepwise" | "interleaved" | "whole_sample",
+              )
+            }
+            disabled={isOnscreenExactMatch}
+          >
+            {!isWiderThanHardware && (
+              <option value="whole_sample">Whole Sample</option>
+            )}
+            {!isOnscreenExactMatch && (
+              <>
+                <option value="stepwise">Stepwise</option>
+                <option value="interleaved">Interleaved (TDMS)</option>
+              </>
+            )}
+          </SettingSelect>
+        </Row>
+
+        <Row
+          label={
+            <IconLabel icon={LockKeyhole} text="Encrypted (AES-256-GCM)" />
+          }
+        >
+          <ToggleSwitch $disabled={captureFileType === ".napt"}>
+            <ToggleSwitchInput
+              type="checkbox"
+              checked={captureFileType === ".napt" ? true : captureEncrypted}
+              disabled={captureFileType === ".napt"}
+              onChange={(e) => onCaptureEncryptedChange(e.target.checked)}
+            />
+            <ToggleSwitchSlider $disabled={captureFileType === ".napt"} />
+          </ToggleSwitch>
+        </Row>
+
+        <Row
+          label={<IconLabel icon={MapPin} text="Geolocation" />}
+          tooltipTitle="Location data (lat, long, accuracy, altitude)"
+          tooltip="Only available for .napt files. Requires browser permission to access location."
+        >
+          <ToggleSwitch
+            $disabled={
+              captureFileType !== ".napt" || !isSupported || geoLoading
+            }
+          >
+            <ToggleSwitchInput
+              type="checkbox"
+              checked={captureFileType === ".napt" ? captureGeolocation : false}
+              disabled={
+                captureFileType !== ".napt" || !isSupported || geoLoading
+              }
+              onChange={(e) => handleGeolocationToggle(e.target.checked)}
+            />
+            <ToggleSwitchSlider
+              $disabled={
+                captureFileType !== ".napt" || !isSupported || geoLoading
+              }
+            />
+          </ToggleSwitch>
+        </Row>
+
+        {geoError && captureFileType === ".napt" && (
+          <Row label="">
+            <ErrorSettingValue>{geoError}</ErrorSettingValue>
+          </Row>
+        )}
+
+        <CaptureActions>
+          <CaptureButton
+            $paused={false}
+            $disabled={isCaptureDisabled}
+            onClick={handleCaptureClick}
+            disabled={isCaptureDisabled}
+          >
+            {captureButtonLabel}
+          </CaptureButton>
+
+          <PlaybackOption>
+            <input
+              type="checkbox"
+              checked={capturePlayback}
+              onChange={(e) => onCapturePlaybackChange(e.target.checked)}
+            />
+            <PlaybackLabel>Playback after capture</PlaybackLabel>
+          </PlaybackOption>
+        </CaptureActions>
+
+        <StatusDownloadsCard>
+          <DownloadsHeader>
+            <InfoCardTitle>Downloads</InfoCardTitle>
+            <ClearStatusButton
+              onClick={onClearStatus}
+              title="Clear capture status"
+            >
+              <Trash2 size={12} /> Clear
+            </ClearStatusButton>
+          </DownloadsHeader>
+          {captureStatus?.downloadUrl && isAuthenticated ? (
+            <DownloadCard>
+              <InfoRow>
+                <div style={{ minWidth: 0 }}>
+                  <DownloadLink
+                    href={`${captureStatus.downloadUrl}&token=${encodeURIComponent(sessionToken || "")}`}
+                    download={captureStatus.filename || "capture"}
+                    rel="noopener noreferrer"
+                    title={captureStatus.filename || "Download"}
+                  >
+                    {captureStatus.filename || "Download"}
+                  </DownloadLink>
+                  <DownloadMeta>
+                    {typeof captureStatus.fileSize === "number" &&
+                      formatFileSize(captureStatus.fileSize)}
+                    {" / "}
+                    {typeof captureStatus.duration === "number" &&
+                      formatDurationMs(captureStatus.duration)}
+                  </DownloadMeta>
+                </div>
+                <StatusValue
+                  $tone={
+                    captureStatus?.status === "done"
+                      ? "success"
+                      : captureStatus?.status === "failed"
+                        ? "error"
+                        : "warning"
+                  }
+                >
+                  {captureStatus?.status === "done"
+                    ? "Complete"
+                    : captureStatus?.status === "failed"
+                      ? "Failed"
+                      : "In progress..."}
+                </StatusValue>
+              </InfoRow>
+            </DownloadCard>
+          ) : (
+            <InfoRow>
+              <InfoLabel>
+                {capturePhaseMessage ||
+                  (captureStatus?.status === "started" ||
+                  captureStatus?.status === "progress"
+                    ? "Capturing now..."
+                    : "No downloads yet")}
+              </InfoLabel>
+              <StatusValue $tone={statusTone}>{statusText}</StatusValue>
+            </InfoRow>
+          )}
+        </StatusDownloadsCard>
+      </Collapsible>
+    </Section>
+  );
+};

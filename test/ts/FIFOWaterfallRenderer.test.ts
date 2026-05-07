@@ -62,7 +62,7 @@ describe("useDrawWebGPUFIFOWaterfall Hook", () => {
 
   it("should initialize and render a waterfall frame", async () => {
     const { result } = renderHook(() => useDrawWebGPUFIFOWaterfall());
-    
+
     const fftData = new Float32Array(4096).fill(-50);
     const options = {
       canvas: mockCanvas,
@@ -75,7 +75,7 @@ describe("useDrawWebGPUFIFOWaterfall Hook", () => {
     };
 
     const success = await result.current.drawWebGPUFIFOWaterfall(options);
-    
+
     expect(success).toBe(true);
     expect(mockDevice.createTexture).toHaveBeenCalled();
     expect(mockDevice.queue.writeTexture).toHaveBeenCalled();
@@ -84,7 +84,7 @@ describe("useDrawWebGPUFIFOWaterfall Hook", () => {
 
   it("should handle resizing", async () => {
     const { result } = renderHook(() => useDrawWebGPUFIFOWaterfall());
-    
+
     const fftData = new Float32Array(4096).fill(-50);
     const options = {
       canvas: mockCanvas,
@@ -96,10 +96,13 @@ describe("useDrawWebGPUFIFOWaterfall Hook", () => {
 
     // First draw
     await result.current.drawWebGPUFIFOWaterfall(options);
-    
+
     // Change height
     const resizedCanvas = { ...mockCanvas, height: 800 };
-    await result.current.drawWebGPUFIFOWaterfall({ ...options, canvas: resizedCanvas });
+    await result.current.drawWebGPUFIFOWaterfall({
+      ...options,
+      canvas: resizedCanvas,
+    });
 
     // Should create a new texture for the new height
     expect(mockDevice.createTexture).toHaveBeenCalledTimes(3); // 1 for color, 1 for data, 1 for resized data
@@ -107,7 +110,7 @@ describe("useDrawWebGPUFIFOWaterfall Hook", () => {
 
   it("should handle freeze mode", async () => {
     const { result } = renderHook(() => useDrawWebGPUFIFOWaterfall());
-    
+
     const fftData = new Float32Array(4096).fill(-50);
     const options = {
       canvas: mockCanvas,
@@ -122,12 +125,14 @@ describe("useDrawWebGPUFIFOWaterfall Hook", () => {
 
     // Should NOT write texture when frozen
     expect(mockDevice.queue.writeTexture).not.toHaveBeenCalledWith(
-        expect.objectContaining({ origin: expect.objectContaining({ y: expect.any(Number) }) }),
-        expect.any(Uint8Array),
-        expect.any(Object),
-        expect.any(Object)
+      expect.objectContaining({
+        origin: expect.objectContaining({ y: expect.any(Number) }),
+      }),
+      expect.any(Uint8Array),
+      expect.any(Object),
+      expect.any(Object),
     );
-    
+
     // Actually, it still writes the color texture on first init if we don't clear mock
     // Let's check specifically for the data texture write (which has Y origin)
   });

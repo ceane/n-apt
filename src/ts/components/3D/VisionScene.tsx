@@ -36,7 +36,10 @@ export const VisionScene: React.FC<{ session: any }> = ({ session }) => {
   const [captureTime, setCaptureTime] = useState(5);
 
   useEffect(() => {
-    if (session.state === 'capturing' && (!session.countdown || session.countdown === 0)) {
+    if (
+      session.state === "capturing" &&
+      (!session.countdown || session.countdown === 0)
+    ) {
       const timer = setInterval(() => {
         setCaptureTime((prev) => Math.max(0, prev - 1));
       }, 1000);
@@ -58,7 +61,7 @@ export const VisionScene: React.FC<{ session: any }> = ({ session }) => {
         </>
       )}
     </FullscreenOverlay>,
-    document.body
+    document.body,
   );
 };
 

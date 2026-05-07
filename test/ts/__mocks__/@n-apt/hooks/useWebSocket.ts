@@ -101,7 +101,9 @@ export function useWebSocket(
   const [deviceInfo, setDeviceInfo] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [spectrumFrames, setSpectrumFrames] = useState<SpectrumFrame[]>([]);
-  const [sdrSettings, setSdrSettings] = useState<SdrSettingsConfig | null>(null);
+  const [sdrSettings, setSdrSettings] = useState<SdrSettingsConfig | null>(
+    null,
+  );
 
   const dataRef = useRef<any>(null);
 

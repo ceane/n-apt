@@ -1,10 +1,10 @@
-import { createSlice, PayloadAction } from '@reduxjs/toolkit';
+import { createSlice, PayloadAction } from "@reduxjs/toolkit";
 
 export interface DemodState {
   spanRange: { min: number; max: number } | null;
   hardwareRange: { min: number; max: number } | null;
   sampleRateHz: number | null;
-  algorithm: 'fm' | 'apt';
+  algorithm: "fm" | "apt";
   bandwidthKhz: number;
   centerFreqHz: number | null;
   isListening: boolean;
@@ -14,27 +14,33 @@ const initialState: DemodState = {
   spanRange: null,
   hardwareRange: null,
   sampleRateHz: null,
-  algorithm: 'fm',
+  algorithm: "fm",
   bandwidthKhz: 200,
   centerFreqHz: null,
   isListening: false,
 };
 
 const demodSlice = createSlice({
-  name: 'demod',
+  name: "demod",
   initialState,
   reducers: {
     setHardwareInfo: (
       state,
-      action: PayloadAction<{ range: { min: number; max: number }; sampleRate: number }>,
+      action: PayloadAction<{
+        range: { min: number; max: number };
+        sampleRate: number;
+      }>,
     ) => {
       state.hardwareRange = action.payload.range;
       state.sampleRateHz = action.payload.sampleRate;
     },
-    setSpanRange: (state, action: PayloadAction<{ min: number; max: number }>) => {
+    setSpanRange: (
+      state,
+      action: PayloadAction<{ min: number; max: number }>,
+    ) => {
       state.spanRange = action.payload;
     },
-    setAlgorithm: (state, action: PayloadAction<'fm' | 'apt'>) => {
+    setAlgorithm: (state, action: PayloadAction<"fm" | "apt">) => {
       state.algorithm = action.payload;
     },
     setBandwidth: (state, action: PayloadAction<number>) => {

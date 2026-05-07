@@ -2,20 +2,6 @@
 import { act, renderHook } from "@testing-library/react";
 import { useDrawWebGPUFIFOWaterfall } from "@n-apt/hooks/useDrawWebGPUFIFOWaterfall";
 
-declare global {
-  // eslint-disable-next-line no-var
-  var expectCanvasCall: (callName: string, args?: any[] | null) => unknown;
-  // eslint-disable-next-line no-var
-  var expectCanvasContext: (contextType: string) => unknown;
-  // eslint-disable-next-line no-var
-  var expectWebGLCall: (callName: string, args?: any[] | null) => unknown;
-  // eslint-disable-next-line no-var
-  var expectWebGPUCall: (callName: string, args?: any[] | null) => unknown;
-  // eslint-disable-next-line no-var
-  var countCanvasCalls: (callName: string) => number;
-  // eslint-disable-next-line no-var
-  var getWebGPUCalls: (callName: string) => Array<{ name: string; args: any[] }>;
-}
 
 describe("canvas API integration", () => {
   it("tracks WebGL draw calls", () => {
@@ -155,7 +141,9 @@ describe("canvas API integration", () => {
       });
     });
 
-    const encodersBeforeResize = global.getWebGPUCalls("createCommandEncoder").length;
+    const encodersBeforeResize = global.getWebGPUCalls(
+      "createCommandEncoder",
+    ).length;
     const submitsBeforeResize = global.getWebGPUCalls("submit").length;
 
     canvas.height = 220;
@@ -173,9 +161,9 @@ describe("canvas API integration", () => {
       });
     });
 
-    expect(global.getWebGPUCalls("createCommandEncoder").length).toBeGreaterThan(
-      encodersBeforeResize,
-    );
+    expect(
+      global.getWebGPUCalls("createCommandEncoder").length,
+    ).toBeGreaterThan(encodersBeforeResize);
     expect(global.getWebGPUCalls("submit").length).toBeGreaterThan(
       submitsBeforeResize,
     );
@@ -204,7 +192,8 @@ describe("canvas API integration", () => {
       });
     });
 
-    const textureCreatesBeforeSwap = global.getWebGPUCalls("createTexture").length;
+    const textureCreatesBeforeSwap =
+      global.getWebGPUCalls("createTexture").length;
 
     await act(async () => {
       await result.current.drawWebGPUFIFOWaterfall({

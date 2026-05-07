@@ -1,14 +1,19 @@
-import React, { useEffect } from 'react';
-import { Provider } from 'react-redux';
-import { store } from '@n-apt/redux';
+import React, { useEffect } from "react";
+import { Provider } from "react-redux";
+import { store } from "@n-apt/redux";
 import {
   loadPersistedTheme,
   loadPersistedSdrSettings,
   loadPersistedPasskeys,
   loadPersistedSpectrumFrames,
   loadPersistedSdrSettingsCache,
-} from '@n-apt/redux';
-import { themeActions, authActions, spectrumActions, websocketActions } from '@n-apt/redux';
+} from "@n-apt/redux";
+import {
+  themeActions,
+  authActions,
+  spectrumActions,
+  websocketActions,
+} from "@n-apt/redux";
 
 declare global {
   interface Window {
@@ -48,11 +53,11 @@ const ReduxProvider: React.FC<ReduxProviderProps> = ({ children }) => {
       }
 
       if (!window.__reduxProviderInitialized) {
-        console.log('Redux provider initialized with persisted data');
+        console.log("Redux provider initialized with persisted data");
         window.__reduxProviderInitialized = true;
       }
     } catch (error) {
-      console.error('Failed to load persisted data:', error);
+      console.error("Failed to load persisted data:", error);
     }
   }, []);
 

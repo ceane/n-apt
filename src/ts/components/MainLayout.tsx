@@ -28,15 +28,19 @@ const NavigationTabs = memo(styled.div`
   display: flex;
   flex-direction: column;
   gap: ${(props) => props.theme.spacing.sm};
-  padding: 0 ${(props) => props.theme.spacing.xxl} ${(props) => props.theme.spacing.lg} ${(props) => props.theme.spacing.xxl};
+  padding: 0 ${(props) => props.theme.spacing.xxl}
+    ${(props) => props.theme.spacing.lg} ${(props) => props.theme.spacing.xxl};
 `);
 
 const NavigationTab = memo(styled.button<{ $isActive: boolean }>`
   padding: ${(props) => `${props.theme.spacing.md} ${props.theme.spacing.lg}`};
-  border: 1px solid ${(props) => (props.$isActive ? props.theme.borderHover : "transparent")};
+  border: 1px solid
+    ${(props) => (props.$isActive ? props.theme.borderHover : "transparent")};
   border-radius: 8px;
-  background-color: ${(props) => (props.$isActive ? props.theme.surface : "transparent")};
-  color: ${(props) => (props.$isActive ? props.theme.primary : props.theme.textMuted)};
+  background-color: ${(props) =>
+    props.$isActive ? props.theme.surface : "transparent"};
+  color: ${(props) =>
+    props.$isActive ? props.theme.primary : props.theme.textMuted};
   font-family: ${(props) => props.theme.typography.mono};
   font-size: 13px;
   font-weight: 500;
@@ -57,7 +61,9 @@ const SidebarContent = memo(styled.div`
   flex: 1;
   display: flex;
   flex-direction: column;
-  padding-bottom: calc(${(props) => props.theme.spacing.xxl} + env(safe-area-inset-bottom, 0px));
+  padding-bottom: calc(
+    ${(props) => props.theme.spacing.xxl} + env(safe-area-inset-bottom, 0px)
+  );
 `);
 
 interface MainLayoutProps {
@@ -75,7 +81,10 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
 }) => {
   const [internalIsSidebarOpen, setInternalIsSidebarOpen] = useState(true);
 
-  const isSidebarOpen = controlledIsSidebarOpen !== undefined ? controlledIsSidebarOpen : internalIsSidebarOpen;
+  const isSidebarOpen =
+    controlledIsSidebarOpen !== undefined
+      ? controlledIsSidebarOpen
+      : internalIsSidebarOpen;
   const setIsSidebarOpen = (open: boolean) => {
     if (onSidebarOpenChange) {
       onSidebarOpenChange(open);

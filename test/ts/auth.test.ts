@@ -40,7 +40,9 @@ describe("auth service", () => {
 
       const result = await fetchServerStatus();
       expect(result).toEqual(mockStatus);
-      expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining("/status"));
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining("/status"),
+      );
     });
 
     test("validateSession returns valid result for valid token", async () => {
@@ -82,17 +84,25 @@ describe("auth service", () => {
       });
 
       const result = await authenticateWithPassword(password);
-      
+
       expect(result.token).toBe(authToken);
       expect(getStoredSession()).toBe(authToken);
-      
+
       // Verify correct fetch sequence
       expect(global.fetch).toHaveBeenCalledTimes(2);
-      expect(global.fetch).toHaveBeenNthCalledWith(1, expect.stringContaining("/auth/challenge"), expect.anything());
-      expect(global.fetch).toHaveBeenNthCalledWith(2, expect.stringContaining("/auth/verify"), expect.objectContaining({
-        method: "POST",
-        body: expect.stringContaining(challengeId)
-      }));
+      expect(global.fetch).toHaveBeenNthCalledWith(
+        1,
+        expect.stringContaining("/auth/challenge"),
+        expect.anything(),
+      );
+      expect(global.fetch).toHaveBeenNthCalledWith(
+        2,
+        expect.stringContaining("/auth/verify"),
+        expect.objectContaining({
+          method: "POST",
+          body: expect.stringContaining(challengeId),
+        }),
+      );
     });
 
     test("authenticateWithPassword throws on server error", async () => {
@@ -101,7 +111,9 @@ describe("auth service", () => {
         status: 500,
       });
 
-      await expect(authenticateWithPassword("pwd")).rejects.toThrow("Server disconnected 500");
+      await expect(authenticateWithPassword("pwd")).rejects.toThrow(
+        "Server disconnected 500",
+      );
     });
   });
 

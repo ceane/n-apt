@@ -1,4 +1,10 @@
-import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import React, {
+  useState,
+  useRef,
+  useEffect,
+  useCallback,
+  useMemo,
+} from "react";
 import styled from "styled-components";
 import { FrequencyRange } from "@n-apt/hooks/useWebSocket";
 import { formatFrequency } from "@n-apt/consts/sdr";
@@ -50,7 +56,8 @@ const LabelContainer = styled.div`
 const Label = styled.span<{ $isActive: boolean }>`
   font-size: 24px;
   font-weight: 700;
-  color: ${(props) => (props.$isActive ? props.theme.primary : props.theme.textSecondary)};
+  color: ${(props) =>
+    props.$isActive ? props.theme.primary : props.theme.textSecondary};
   transition: color 0.2s ease;
 `;
 
@@ -59,10 +66,14 @@ const SliderContainer = styled.div<{ $isActive: boolean }>`
   outline: none;
   padding: 8px;
   border-radius: 6px;
-  border: 1px solid ${(props) => (props.$isActive ? props.theme.primary : "transparent")};
-  background-color: ${(props) => (props.$isActive ? `${props.theme.primary}20` : "transparent")};
+  border: 1px solid
+    ${(props) => (props.$isActive ? props.theme.primary : "transparent")};
+  background-color: ${(props) =>
+    props.$isActive ? `${props.theme.primary}20` : "transparent"};
   cursor: pointer;
-  transition: border-color 0.2s ease, background-color 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    background-color 0.2s ease;
   box-sizing: border-box;
   min-width: 0;
   touch-action: none;
@@ -95,17 +106,28 @@ const RangeLabels = styled.div`
   user-select: none;
 `;
 
-const VisibleWindow = styled.div<{ $isActive: boolean; $readOnly?: boolean; $isScanning?: boolean }>`
+const VisibleWindow = styled.div<{
+  $isActive: boolean;
+  $readOnly?: boolean;
+  $isScanning?: boolean;
+}>`
   position: absolute;
   top: 2px;
   bottom: 2px;
   background-color: ${(props) =>
-    props.$isScanning ? `${props.theme.success}30` :
-      props.$isActive ? props.theme.activeBackground : props.theme.inactiveBackground};
-  border: 1px solid ${(props) =>
-    props.$isScanning ? props.theme.success :
-      props.$isActive ? props.theme.primary : props.theme.textMuted};
-  cursor: ${props => props.$readOnly ? "default" : "grab"};
+    props.$isScanning
+      ? `${props.theme.success}30`
+      : props.$isActive
+        ? props.theme.activeBackground
+        : props.theme.inactiveBackground};
+  border: 1px solid
+    ${(props) =>
+      props.$isScanning
+        ? props.theme.success
+        : props.$isActive
+          ? props.theme.primary
+          : props.theme.textMuted};
+  cursor: ${(props) => (props.$readOnly ? "default" : "grab")};
   display: grid;
   align-items: center;
   justify-items: center;
@@ -113,7 +135,9 @@ const VisibleWindow = styled.div<{ $isActive: boolean; $readOnly?: boolean; $isS
   box-sizing: border-box;
   min-width: min-content;
   overflow: visible;
-  transition: background-color 0.3s ease, border-color 0.3s ease;
+  transition:
+    background-color 0.3s ease,
+    border-color 0.3s ease;
   touch-action: none;
 `;
 
@@ -122,7 +146,8 @@ const WindowLabel = styled.span<{ $isActive: boolean }>`
   left: 50%;
   transform: translateX(-50%);
   font-size: 9px;
-  color: ${(props) => (props.$isActive ? props.theme.primary : props.theme.textMuted)};
+  color: ${(props) =>
+    props.$isActive ? props.theme.primary : props.theme.textMuted};
   white-space: nowrap;
   pointer-events: none;
   user-select: none;
@@ -148,7 +173,8 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   scanCurrentFreq,
 }) => {
   const totalRange = maxFreq - minFreq;
-  const safeTotalRange = Number.isFinite(totalRange) && totalRange > 0 ? totalRange : 1;
+  const safeTotalRange =
+    Number.isFinite(totalRange) && totalRange > 0 ? totalRange : 1;
   const clampedVisibleMin = Math.max(minFreq, Math.min(maxFreq, visibleMin));
   const requestedVisibleMax = Math.max(clampedVisibleMin, visibleMax);
   const rateLimitedMax =
@@ -189,9 +215,10 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   const [isDragging, setIsDragging] = useState(false);
 
   // Calculate scan position if scanning
-  const scanWindowStart = readOnly && scanCurrentFreq !== undefined
-    ? (scanCurrentFreq - minFreq) / safeTotalRange
-    : windowStart;
+  const scanWindowStart =
+    readOnly && scanCurrentFreq !== undefined
+      ? (scanCurrentFreq - minFreq) / safeTotalRange
+      : windowStart;
 
   const isScanning = readOnly && scanProgress > 0;
 
@@ -206,7 +233,8 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
 
     const updateWidths = () => {
       if (track) setTrackWidth(track.clientWidth); // Use clientWidth to prevent border overflow
-      if (windowLabel) setWindowLabelWidth(windowLabel.getBoundingClientRect().width);
+      if (windowLabel)
+        setWindowLabelWidth(windowLabel.getBoundingClientRect().width);
     };
 
     const observer = new ResizeObserver(updateWidths);
@@ -238,7 +266,13 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
       clamped = Math.max(-overscan, Math.min(0, desiredStart));
     }
     setWindowStart(clamped);
-  }, [externalFrequencyRange, clampedVisibleMin, minFreq, safeTotalRange, windowWidth]);
+  }, [
+    externalFrequencyRange,
+    clampedVisibleMin,
+    minFreq,
+    safeTotalRange,
+    windowWidth,
+  ]);
 
   // Handle activation: no longer forces a notification on mount/activation
   // to prevent overwriting the store with default/initial values.
@@ -254,14 +288,24 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   const minContentThumbWidth = Math.max(0, Math.ceil(windowLabelWidth) + 16);
   const renderedThumbWidth = Math.max(logicalThumbWidth, minContentThumbWidth);
   const logicalMaxWindowStart = Math.max(0, 1 - windowWidth);
-  const clampedWindowStart = Math.max(0, Math.min(logicalMaxWindowStart, windowStart));
+  const clampedWindowStart = Math.max(
+    0,
+    Math.min(logicalMaxWindowStart, windowStart),
+  );
 
-  const effectiveWindowStart = isScanning ? scanWindowStart : clampedWindowStart;
-  const effectiveMaxWindowStart = isScanning ? 1 - windowWidth : logicalMaxWindowStart;
+  const effectiveWindowStart = isScanning
+    ? scanWindowStart
+    : clampedWindowStart;
+  const effectiveMaxWindowStart = isScanning
+    ? 1 - windowWidth
+    : logicalMaxWindowStart;
 
   const visualRatio = useMemo(() => {
     if (effectiveMaxWindowStart > 0) {
-      return Math.max(0, Math.min(1, effectiveWindowStart / effectiveMaxWindowStart));
+      return Math.max(
+        0,
+        Math.min(1, effectiveWindowStart / effectiveMaxWindowStart),
+      );
     }
     return 0;
   }, [effectiveMaxWindowStart, effectiveWindowStart]);
@@ -272,7 +316,13 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
       return effectiveWindowStart * trackWidth;
     }
     return visualRatio * draggableTrackWidth;
-  }, [effectiveMaxWindowStart, effectiveWindowStart, trackWidth, visualRatio, draggableTrackWidth]);
+  }, [
+    effectiveMaxWindowStart,
+    effectiveWindowStart,
+    trackWidth,
+    visualRatio,
+    draggableTrackWidth,
+  ]);
 
   const labelPositions = useMemo(() => {
     const windowLeft = thumbLeftPx;
@@ -452,7 +502,10 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   const handleTrackMouseDown = (e: React.MouseEvent) => {
     if (readOnly) return;
 
-    if (e.target === thumbRef.current || thumbRef.current?.contains(e.target as Node)) {
+    if (
+      e.target === thumbRef.current ||
+      thumbRef.current?.contains(e.target as Node)
+    ) {
       return;
     }
 

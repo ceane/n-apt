@@ -19,7 +19,7 @@ describe("FrequencyRangeSlider", () => {
     render(
       <TestWrapper>
         <FrequencyRangeSlider {...defaultProps} />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     expect(screen.getByText("A")).toBeInTheDocument();
@@ -35,7 +35,7 @@ describe("FrequencyRangeSlider", () => {
     render(
       <TestWrapper>
         <FrequencyRangeSlider {...defaultProps} onActivate={onActivate} />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     const container = screen.getByText("A").closest("div")?.nextElementSibling; // SliderContainer follows label
@@ -48,7 +48,7 @@ describe("FrequencyRangeSlider", () => {
     render(
       <TestWrapper>
         <FrequencyRangeSlider {...defaultProps} onRangeChange={onRangeChange} />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     // The component uses window mousemove/mouseup listeners
@@ -58,15 +58,16 @@ describe("FrequencyRangeSlider", () => {
     if (thumb) {
       // Start drag
       fireEvent.mouseDown(thumb, { clientX: 100 });
-      
+
       // Move 50 pixels to the right
       fireEvent.mouseMove(window, { clientX: 150 });
-      
+
       // End drag
       fireEvent.mouseUp(window);
-      
+
       expect(onRangeChange).toHaveBeenCalled();
-      const lastCall = onRangeChange.mock.calls[onRangeChange.mock.calls.length - 1][0];
+      const lastCall =
+        onRangeChange.mock.calls[onRangeChange.mock.calls.length - 1][0];
       expect(lastCall.min).toBeGreaterThan(120);
       expect(lastCall.max).toBeGreaterThan(150);
     }
@@ -77,13 +78,13 @@ describe("FrequencyRangeSlider", () => {
     render(
       <TestWrapper>
         <FrequencyRangeSlider {...defaultProps} onRangeChange={onRangeChange} />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     // Trigger keyboard event on window
     fireEvent.keyDown(window, { key: "ArrowUp" });
     expect(onRangeChange).toHaveBeenCalled();
-    
+
     const rangeAfterUp = onRangeChange.mock.calls[0][0];
     expect(rangeAfterUp.min).toBeGreaterThan(120);
 
@@ -96,8 +97,12 @@ describe("FrequencyRangeSlider", () => {
     const onRangeChange = jest.fn();
     render(
       <TestWrapper>
-        <FrequencyRangeSlider {...defaultProps} readOnly={true} onRangeChange={onRangeChange} />
-      </TestWrapper>
+        <FrequencyRangeSlider
+          {...defaultProps}
+          readOnly={true}
+          onRangeChange={onRangeChange}
+        />
+      </TestWrapper>,
     );
 
     const thumb = screen.getByText(/120.*-.*150/).parentElement;

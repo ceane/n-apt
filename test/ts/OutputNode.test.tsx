@@ -38,7 +38,7 @@ describe("OutputNode", () => {
     render(
       <TestWrapper>
         <OutputNode {...defaultProps} />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     expect(screen.getByText("Output")).toBeInTheDocument();
@@ -50,7 +50,7 @@ describe("OutputNode", () => {
     render(
       <TestWrapper>
         <OutputNode {...defaultProps} />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     expect(screen.getByText("95.0%")).toBeInTheDocument();
@@ -60,7 +60,7 @@ describe("OutputNode", () => {
     render(
       <TestWrapper>
         <OutputNode {...defaultProps} />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     expect(screen.getByText("88.0%")).toBeInTheDocument();
@@ -70,7 +70,7 @@ describe("OutputNode", () => {
     render(
       <TestWrapper>
         <OutputNode {...defaultProps} />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     expect(screen.getByText("+3.2 dB")).toBeInTheDocument();
@@ -80,7 +80,7 @@ describe("OutputNode", () => {
     render(
       <TestWrapper>
         <OutputNode {...defaultProps} />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     expect(screen.getByText("Timestamp")).toBeInTheDocument();
@@ -90,7 +90,7 @@ describe("OutputNode", () => {
     render(
       <TestWrapper>
         <OutputNode {...defaultProps} />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     expect(screen.getByText("Test summary")).toBeInTheDocument();
@@ -100,7 +100,7 @@ describe("OutputNode", () => {
     render(
       <TestWrapper>
         <OutputNode {...defaultProps} />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     expect(screen.getByText("Download .napt")).toBeInTheDocument();
@@ -111,13 +111,17 @@ describe("OutputNode", () => {
       data: {
         label: "Output",
         state: "idle",
+        result: {
+          jobId: "test-job",
+          confidence: 0.5,
+        },
       },
     };
 
     render(
       <TestWrapper>
         <OutputNode {...awaitingProps} />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     expect(screen.getByText("Awaiting analysis results")).toBeInTheDocument();
@@ -128,13 +132,17 @@ describe("OutputNode", () => {
       data: {
         label: "Output",
         state: "processing",
+        result: {
+          jobId: "test-job",
+          confidence: 0.5,
+        },
       },
     };
 
     render(
       <TestWrapper>
         <OutputNode {...processingProps} />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     expect(screen.getByText(/Processing.../)).toBeInTheDocument();
@@ -156,7 +164,7 @@ describe("OutputNode", () => {
     render(
       <TestWrapper>
         <OutputNode {...smallFileProps} />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     expect(screen.getByText("50.0 KB")).toBeInTheDocument();
@@ -177,7 +185,7 @@ describe("OutputNode", () => {
     render(
       <TestWrapper>
         <OutputNode {...largeFileProps} />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     expect(screen.getByText("2.50 MB")).toBeInTheDocument();
@@ -187,7 +195,7 @@ describe("OutputNode", () => {
     render(
       <TestWrapper>
         <OutputNode {...defaultProps} />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     expect(screen.getByText("audio")).toBeInTheDocument();
@@ -207,7 +215,7 @@ describe("OutputNode", () => {
     render(
       <TestWrapper>
         <OutputNode {...noVectorProps} />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     expect(screen.queryByText("audio")).not.toBeInTheDocument();

@@ -6,7 +6,7 @@ import {
   FFT_MIN_DB,
   FFT_MAX_DB,
   FFT_GRID_COLOR,
-  FFT_TEXT_COLOR
+  FFT_TEXT_COLOR,
 } from "@n-apt/consts";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 import { formatFrequency } from "@n-apt/utils/frequency";
@@ -22,11 +22,17 @@ const Container = styled.div`
   overflow-y: auto;
 
   /* Custom Scrollbar */
-  &::-webkit-scrollbar { width: 6px; }
-  &::-webkit-scrollbar-track { background: transparent; }
-  &::-webkit-scrollbar-thumb { background: #333; border-radius: 10px; }
+  &::-webkit-scrollbar {
+    width: 6px;
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: #333;
+    border-radius: 10px;
+  }
 `;
-
 
 const VisualizerGrid = styled.div`
   display: flex;
@@ -57,7 +63,7 @@ const Card = styled.div`
 const CanvasWrapper = styled.div<{ $aspectRatio?: string }>`
   position: relative;
   width: 100%;
-  aspect-ratio: ${props => props.$aspectRatio || "21 / 11"};
+  aspect-ratio: ${(props) => props.$aspectRatio || "21 / 11"};
 `;
 
 const SectionHeader = styled.div`
@@ -86,7 +92,7 @@ const SectionTitle = styled.div`
 `;
 
 const Badge = styled.div<{ color?: string }>`
-  background: ${props => props.color || "#3b82f6"};
+  background: ${(props) => props.color || "#3b82f6"};
   color: white;
   padding: 2px 8px;
   border-radius: 4px;
@@ -95,7 +101,6 @@ const Badge = styled.div<{ color?: string }>`
   text-transform: uppercase;
 `;
 
-
 export const StitchTestRoute: React.FC = () => {
   const { state, dispatch } = useSpectrumStore();
   const [result, setResult] = useState<any>(null);
@@ -103,8 +108,13 @@ export const StitchTestRoute: React.FC = () => {
 
   // Zoom / Interaction
   const [zoomRange, setZoomRange] = useState<[number, number] | null>(null);
-  const [dragStart, setDragStart] = useState<{ x: number, y: number } | null>(null);
-  const [dragCurrent, setDragCurrent] = useState<{ x: number, y: number } | null>(null);
+  const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(
+    null,
+  );
+  const [dragCurrent, setDragCurrent] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
 
   const rawCanvasRef = useRef<HTMLCanvasElement>(null);
   const stitchedCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -113,7 +123,10 @@ export const StitchTestRoute: React.FC = () => {
 
   const runDiagnostic = async () => {
     dispatch({ type: "SET_DIAGNOSTIC_RUNNING", running: true });
-    dispatch({ type: "SET_DIAGNOSTIC_STATUS", status: "Capturing 60 frames..." });
+    dispatch({
+      type: "SET_DIAGNOSTIC_STATUS",
+      status: "Capturing 60 frames...",
+    });
 
     // Compute center_hz from the current frequency range so the backend
     // tunes to whichever channel the user has selected in the sidebar.
@@ -128,7 +141,7 @@ export const StitchTestRoute: React.FC = () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           center_hz,
-          signal_area: state.activeSignalArea
+          signal_area: state.activeSignalArea,
         }),
       });
       if (!response.ok) {
@@ -141,7 +154,10 @@ export const StitchTestRoute: React.FC = () => {
       setFrameIndex(0);
       dispatch({ type: "SET_DIAGNOSTIC_STATUS", status: "Capture complete" });
     } catch (e: any) {
-      dispatch({ type: "SET_DIAGNOSTIC_STATUS", status: `Error: ${e.message}` });
+      dispatch({
+        type: "SET_DIAGNOSTIC_STATUS",
+        status: `Error: ${e.message}`,
+      });
     } finally {
       dispatch({ type: "SET_DIAGNOSTIC_RUNNING", running: false });
     }
@@ -155,7 +171,10 @@ export const StitchTestRoute: React.FC = () => {
   }, [state.diagnosticTrigger]);
 
   /** Max-pooling decimation to extract signal envelope when points > pixels */
-  const decimateWaveform = (waveform: number[], targetWidth: number): number[] => {
+  const decimateWaveform = (
+    waveform: number[],
+    targetWidth: number,
+  ): number[] => {
     const len = waveform.length;
     if (len <= targetWidth * 1.5 || targetWidth <= 0) return waveform;
     const out = Array.from({ length: targetWidth }, () => 0);
@@ -192,7 +211,11 @@ export const StitchTestRoute: React.FC = () => {
       ctx.fillStyle = "#444";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText("Run Multi-Frame Capture to start", rect.width / 2, rect.height / 2);
+      ctx.fillText(
+        "Run Multi-Frame Capture to start",
+        rect.width / 2,
+        rect.height / 2,
+      );
       ctx.restore();
     };
     drawEmptyState(rawCanvasRef.current);
@@ -204,13 +227,16 @@ export const StitchTestRoute: React.FC = () => {
 
     const render = () => {
       if (result) {
-        [rawCanvasRef, stitchedCanvasRef].forEach(ref => {
+        [rawCanvasRef, stitchedCanvasRef].forEach((ref) => {
           if (!ref.current) return;
           const canvas = ref.current;
           const rect = canvas.getBoundingClientRect();
           const dpr = window.devicePixelRatio || 1;
 
-          if (canvas.width !== Math.floor(rect.width * dpr) || canvas.height !== Math.floor(rect.height * dpr)) {
+          if (
+            canvas.width !== Math.floor(rect.width * dpr) ||
+            canvas.height !== Math.floor(rect.height * dpr)
+          ) {
             canvas.width = Math.floor(rect.width * dpr);
             canvas.height = Math.floor(rect.height * dpr);
           }
@@ -236,7 +262,7 @@ export const StitchTestRoute: React.FC = () => {
       hop2_phase_deg,
       correction_angle_deg,
       fm_deviation_khz,
-      timing
+      timing,
     } = data;
     const hop1 = hop1_frames[index] || [];
     const hop2 = hop2_frames[index] || [];
@@ -253,7 +279,7 @@ export const StitchTestRoute: React.FC = () => {
       h2_phase?: number,
       correction?: number,
       fmDeviation?: number,
-      isStitched?: boolean
+      isStitched?: boolean,
     ) => {
       const dpr = window.devicePixelRatio || 1;
       ctx.save();
@@ -267,7 +293,10 @@ export const StitchTestRoute: React.FC = () => {
       const bottomMargin = 40;
       const topMargin = isStitched ? 50 : 125;
 
-      const fftAreaMax = { x: logicalWidth - rightMargin, y: logicalHeight - bottomMargin };
+      const fftAreaMax = {
+        x: logicalWidth - rightMargin,
+        y: logicalHeight - bottomMargin,
+      };
       const fftHeight = fftAreaMax.y - topMargin;
       const plotWidth = fftAreaMax.x - leftMargin;
 
@@ -313,10 +342,23 @@ export const StitchTestRoute: React.FC = () => {
         ctx.fillText(formatFrequency(val), x, fftAreaMax.y + 22);
       }
 
-      const drawHWBlock = (startFreq: number, endFreq: number, color: string, label: string, phaseDeg?: number) => {
+      const drawHWBlock = (
+        startFreq: number,
+        endFreq: number,
+        color: string,
+        label: string,
+        phaseDeg?: number,
+      ) => {
         if (startFreq < range[1] && endFreq > range[0]) {
-          const x1 = leftMargin + ((Math.max(startFreq, range[0]) - range[0]) / (range[1] - range[0])) * plotWidth;
-          const x2 = leftMargin + ((Math.min(endFreq, range[1]) - range[0]) / (range[1] - range[0])) * plotWidth;
+          const x1 =
+            leftMargin +
+            ((Math.max(startFreq, range[0]) - range[0]) /
+              (range[1] - range[0])) *
+              plotWidth;
+          const x2 =
+            leftMargin +
+            ((Math.min(endFreq, range[1]) - range[0]) / (range[1] - range[0])) *
+              plotWidth;
 
           ctx.save();
           ctx.setLineDash([4, 4]);
@@ -360,16 +402,34 @@ export const StitchTestRoute: React.FC = () => {
         }
       };
 
-      if (hop1_range) drawHWBlock(hop1_range[0], hop1_range[1], "rgba(255, 68, 68, 0.45)", "Hop A", h1_phase);
-      if (hop2_range) drawHWBlock(hop2_range[0], hop2_range[1], "rgba(68, 68, 255, 0.45)", "Hop B", h2_phase);
+      if (hop1_range)
+        drawHWBlock(
+          hop1_range[0],
+          hop1_range[1],
+          "rgba(255, 68, 68, 0.45)",
+          "Hop A",
+          h1_phase,
+        );
+      if (hop2_range)
+        drawHWBlock(
+          hop2_range[0],
+          hop2_range[1],
+          "rgba(68, 68, 255, 0.45)",
+          "Hop B",
+          h2_phase,
+        );
 
       // Overlap Span Annotation
       if (hop1_range && hop2_range) {
         const overlapStart = hop2_range[0];
         const overlapEnd = hop1_range[1];
         if (overlapEnd > overlapStart) {
-          const x0 = leftMargin + ((overlapStart - range[0]) / (range[1] - range[0])) * plotWidth;
-          const x1 = leftMargin + ((overlapEnd - range[0]) / (range[1] - range[0])) * plotWidth;
+          const x0 =
+            leftMargin +
+            ((overlapStart - range[0]) / (range[1] - range[0])) * plotWidth;
+          const x1 =
+            leftMargin +
+            ((overlapEnd - range[0]) / (range[1] - range[0])) * plotWidth;
 
           ctx.save();
           ctx.strokeStyle = "rgba(255, 255, 255, 0.3)";
@@ -384,13 +444,17 @@ export const StitchTestRoute: React.FC = () => {
 
           // Vertical ticks for overlap
           ctx.beginPath();
-          ctx.moveTo(x0, lineY - 3); ctx.lineTo(x0, lineY + 3);
-          ctx.moveTo(x1, lineY - 3); ctx.lineTo(x1, lineY + 3);
+          ctx.moveTo(x0, lineY - 3);
+          ctx.lineTo(x0, lineY + 3);
+          ctx.moveTo(x1, lineY - 3);
+          ctx.lineTo(x1, lineY + 3);
           ctx.stroke();
 
           // Midpoint Cut Line
           const midFreq = (overlapStart + overlapEnd) / 2;
-          const xMid = leftMargin + ((midFreq - range[0]) / (range[1] - range[0])) * plotWidth;
+          const xMid =
+            leftMargin +
+            ((midFreq - range[0]) / (range[1] - range[0])) * plotWidth;
 
           ctx.save();
           ctx.strokeStyle = "#10b981"; // Emerald green for the "keep" boundary
@@ -413,7 +477,11 @@ export const StitchTestRoute: React.FC = () => {
           ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
           ctx.font = "bold 9px JetBrains Mono";
           ctx.textAlign = "center";
-          ctx.fillText(`${formatFrequency(spanMHz)} OVERLAP`, (x0 + x1) / 2, lineY - 8);
+          ctx.fillText(
+            `${formatFrequency(spanMHz)} OVERLAP`,
+            (x0 + x1) / 2,
+            lineY - 8,
+          );
           ctx.restore();
 
           // Phase correction display
@@ -421,15 +489,22 @@ export const StitchTestRoute: React.FC = () => {
             const midX = (x0 + x1) / 2;
             ctx.fillStyle = "#fff";
             ctx.font = "bold 10px JetBrains Mono";
-            ctx.fillText(`${correction?.toFixed(1)}° PHASE SHIFT APPLIED`, midX, topMargin - 12);
+            ctx.fillText(
+              `${correction?.toFixed(1)}° PHASE SHIFT APPLIED`,
+              midX,
+              topMargin - 12,
+            );
 
             const absDev = Math.abs(fmDeviation || 0);
             const sign = (fmDeviation || 0) > 0 ? "+" : "-";
-            ctx.fillText(`Deviation: Δf ≈ ${sign}${absDev.toFixed(1)} kHz`, midX, topMargin - 26);
+            ctx.fillText(
+              `Deviation: Δf ≈ ${sign}${absDev.toFixed(1)} kHz`,
+              midX,
+              topMargin - 26,
+            );
           }
         }
       }
-
 
       // Timing metadata overlay (Top Canvas only)
       if (!isStitched && timing) {
@@ -446,9 +521,21 @@ export const StitchTestRoute: React.FC = () => {
         ctx.textAlign = "right";
         ctx.font = "italic 10px JetBrains Mono";
         ctx.fillStyle = "rgba(255, 255, 255, 0.6)";
-        ctx.fillText("Strategy: Sub-sample fractional delay tracking. We precisely offset", logicalWidth - rightMargin, 20);
-        ctx.fillText("time differences in the overlap, align their sine waves smoothly,", logicalWidth - rightMargin, 34);
-        ctx.fillText("and perform a hard midpoint cut to eliminate spectral artifacts.", logicalWidth - rightMargin, 48);
+        ctx.fillText(
+          "Strategy: Sub-sample fractional delay tracking. We precisely offset",
+          logicalWidth - rightMargin,
+          20,
+        );
+        ctx.fillText(
+          "time differences in the overlap, align their sine waves smoothly,",
+          logicalWidth - rightMargin,
+          34,
+        );
+        ctx.fillText(
+          "and perform a hard midpoint cut to eliminate spectral artifacts.",
+          logicalWidth - rightMargin,
+          48,
+        );
       }
 
       // Box Border
@@ -468,7 +555,7 @@ export const StitchTestRoute: React.FC = () => {
       color: string,
       fill: string,
       globalRange: [number, number],
-      isStitched?: boolean
+      isStitched?: boolean,
     ) => {
       if (!data || data.length === 0) return;
 
@@ -484,7 +571,10 @@ export const StitchTestRoute: React.FC = () => {
       const bottomMargin = 40;
       const topMargin = isStitched ? 50 : 125;
 
-      const fftAreaMax = { x: logicalWidth - rightMargin, y: logicalHeight - bottomMargin };
+      const fftAreaMax = {
+        x: logicalWidth - rightMargin,
+        y: logicalHeight - bottomMargin,
+      };
       const fftHeight = fftAreaMax.y - topMargin;
       const plotWidth = fftAreaMax.x - leftMargin;
 
@@ -493,8 +583,14 @@ export const StitchTestRoute: React.FC = () => {
       const vertRange = dbMax - dbMin;
       const scaleFactor = fftHeight / vertRange;
 
-      const x0 = leftMargin + ((range[0] - globalRange[0]) / (globalRange[1] - globalRange[0])) * plotWidth;
-      const x1 = leftMargin + ((range[1] - globalRange[0]) / (globalRange[1] - globalRange[0])) * plotWidth;
+      const x0 =
+        leftMargin +
+        ((range[0] - globalRange[0]) / (globalRange[1] - globalRange[0])) *
+          plotWidth;
+      const x1 =
+        leftMargin +
+        ((range[1] - globalRange[0]) / (globalRange[1] - globalRange[0])) *
+          plotWidth;
       const w = x1 - x0;
 
       // Decimate to maintain peaks on sparse canvas
@@ -504,7 +600,8 @@ export const StitchTestRoute: React.FC = () => {
         return fftAreaMax.y - (db - dbMin) * scaleFactor;
       };
 
-      const clampY = (y: number) => Math.max(topMargin, Math.min(fftAreaMax.y, y));
+      const clampY = (y: number) =>
+        Math.max(topMargin, Math.min(fftAreaMax.y, y));
 
       // Gradient Fill (Premium look)
       const gradient = ctx.createLinearGradient(0, topMargin, 0, fftAreaMax.y);
@@ -547,12 +644,47 @@ export const StitchTestRoute: React.FC = () => {
         ctx.fillStyle = "#000";
         ctx.fillRect(0, 0, width, height);
 
-        const fullRange: [number, number] = [Math.min(hop1_freq_mhz[0], hop2_freq_mhz[0]), Math.max(hop1_freq_mhz[1], hop2_freq_mhz[1])];
+        const fullRange: [number, number] = [
+          Math.min(hop1_freq_mhz[0], hop2_freq_mhz[0]),
+          Math.max(hop1_freq_mhz[1], hop2_freq_mhz[1]),
+        ];
         const activeRange = zoomRange || fullRange;
-        drawAxis(ctx, width, height, activeRange, hop1_freq_mhz, hop2_freq_mhz, hop1_phase_deg, hop2_phase_deg, correction_angle_deg, fm_deviation_khz, false);
+        drawAxis(
+          ctx,
+          width,
+          height,
+          activeRange,
+          hop1_freq_mhz,
+          hop2_freq_mhz,
+          hop1_phase_deg,
+          hop2_phase_deg,
+          correction_angle_deg,
+          fm_deviation_khz,
+          false,
+        );
 
-        drawTrace(ctx, width, height, hop1, hop1_freq_mhz, "#ff4444", "rgba(255, 68, 68, 0.15)", activeRange, false);
-        drawTrace(ctx, width, height, hop2, hop2_freq_mhz, "#4444ff", "rgba(68, 68, 255, 0.15)", activeRange, false);
+        drawTrace(
+          ctx,
+          width,
+          height,
+          hop1,
+          hop1_freq_mhz,
+          "#ff4444",
+          "rgba(255, 68, 68, 0.15)",
+          activeRange,
+          false,
+        );
+        drawTrace(
+          ctx,
+          width,
+          height,
+          hop2,
+          hop2_freq_mhz,
+          "#4444ff",
+          "rgba(68, 68, 255, 0.15)",
+          activeRange,
+          false,
+        );
       }
     }
 
@@ -566,8 +698,30 @@ export const StitchTestRoute: React.FC = () => {
 
         const fullRange = stitched_freq_mhz;
         const activeRange = zoomRange || fullRange;
-        drawAxis(ctx, width, height, activeRange, hop1_freq_mhz, hop2_freq_mhz, undefined, undefined, undefined, undefined, true);
-        drawTrace(ctx, width, height, stitched, stitched_freq_mhz, LINE_COLOR, SHADOW_COLOR, activeRange, true);
+        drawAxis(
+          ctx,
+          width,
+          height,
+          activeRange,
+          hop1_freq_mhz,
+          hop2_freq_mhz,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          true,
+        );
+        drawTrace(
+          ctx,
+          width,
+          height,
+          stitched,
+          stitched_freq_mhz,
+          LINE_COLOR,
+          SHADOW_COLOR,
+          activeRange,
+          true,
+        );
       }
     }
   };
@@ -588,7 +742,10 @@ export const StitchTestRoute: React.FC = () => {
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (dragStart) {
       const rect = e.currentTarget.getBoundingClientRect();
-      setDragCurrent({ x: Math.max(0, Math.min(rect.width, e.clientX - rect.left)), y: Math.max(0, Math.min(rect.height, e.clientY - rect.top)) });
+      setDragCurrent({
+        x: Math.max(0, Math.min(rect.width, e.clientX - rect.left)),
+        y: Math.max(0, Math.min(rect.height, e.clientY - rect.top)),
+      });
     }
   };
 
@@ -605,11 +762,20 @@ export const StitchTestRoute: React.FC = () => {
       const xLeft = Math.min(dragStart.x, dragCurrent.x);
       const xRight = Math.max(dragStart.x, dragCurrent.x);
 
-      const normLeft = Math.max(0, Math.min(1, (xLeft - leftMargin) / plotWidth));
-      const normRight = Math.max(0, Math.min(1, (xRight - leftMargin) / plotWidth));
+      const normLeft = Math.max(
+        0,
+        Math.min(1, (xLeft - leftMargin) / plotWidth),
+      );
+      const normRight = Math.max(
+        0,
+        Math.min(1, (xRight - leftMargin) / plotWidth),
+      );
 
       const { hop1_freq_mhz, hop2_freq_mhz } = result;
-      const fullRange: [number, number] = [Math.min(hop1_freq_mhz[0], hop2_freq_mhz[0]), Math.max(hop1_freq_mhz[1], hop2_freq_mhz[1])];
+      const fullRange: [number, number] = [
+        Math.min(hop1_freq_mhz[0], hop2_freq_mhz[0]),
+        Math.max(hop1_freq_mhz[1], hop2_freq_mhz[1]),
+      ];
       const baseRange = zoomRange || fullRange;
       const freqSpan = baseRange[1] - baseRange[0];
 
@@ -643,28 +809,43 @@ export const StitchTestRoute: React.FC = () => {
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
-            onContextMenu={(e) => { e.preventDefault(); setZoomRange(null); }}
-            style={{ position: 'relative' }}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setZoomRange(null);
+            }}
+            style={{ position: "relative" }}
           >
-            <canvas ref={rawCanvasRef} style={{ width: "100%", height: "100%", cursor: "crosshair" }} />
+            <canvas
+              ref={rawCanvasRef}
+              style={{ width: "100%", height: "100%", cursor: "crosshair" }}
+            />
             {dragStart && dragCurrent && (
-              <div style={{
-                position: "absolute",
-                border: "1px dashed rgba(255,255,255,0.8)",
-                backgroundColor: "rgba(255,255,255,0.2)",
-                pointerEvents: "none",
-                zIndex: 100,
-                left: Math.min(dragStart.x, dragCurrent.x),
-                top: Math.min(dragStart.y, dragCurrent.y),
-                width: Math.abs(dragCurrent.x - dragStart.x),
-                height: Math.abs(dragCurrent.y - dragStart.y),
-              }} />
+              <div
+                style={{
+                  position: "absolute",
+                  border: "1px dashed rgba(255,255,255,0.8)",
+                  backgroundColor: "rgba(255,255,255,0.2)",
+                  pointerEvents: "none",
+                  zIndex: 100,
+                  left: Math.min(dragStart.x, dragCurrent.x),
+                  top: Math.min(dragStart.y, dragCurrent.y),
+                  width: Math.abs(dragCurrent.x - dragStart.x),
+                  height: Math.abs(dragCurrent.y - dragStart.y),
+                }}
+              />
             )}
           </CanvasWrapper>
         </Card>
 
         {result && (
-          <Card style={{ padding: "16px 24px", display: "flex", alignItems: "center", gap: "24px" }}>
+          <Card
+            style={{
+              padding: "16px 24px",
+              display: "flex",
+              alignItems: "center",
+              gap: "24px",
+            }}
+          >
             <input
               type="range"
               min="0"
@@ -673,18 +854,21 @@ export const StitchTestRoute: React.FC = () => {
               onChange={(e) => setFrameIndex(parseInt(e.target.value))}
               style={{ flex: 1, height: "32px", cursor: "pointer" }}
             />
-            <span style={{
-              fontFamily: "JetBrains Mono",
-              fontSize: "13px",
-              color: "#3b82f6",
-              whiteSpace: "nowrap",
-              fontWeight: "bold",
-              background: "rgba(59, 130, 246, 0.1)",
-              padding: "4px 10px",
-              borderRadius: "4px",
-              border: "1px solid rgba(59, 130, 246, 0.2)"
-            }}>
-              FRAME {(frameIndex + 1).toString().padStart(2, '0')} / {result.hop1_frames?.length || 60}
+            <span
+              style={{
+                fontFamily: "JetBrains Mono",
+                fontSize: "13px",
+                color: "#3b82f6",
+                whiteSpace: "nowrap",
+                fontWeight: "bold",
+                background: "rgba(59, 130, 246, 0.1)",
+                padding: "4px 10px",
+                borderRadius: "4px",
+                border: "1px solid rgba(59, 130, 246, 0.2)",
+              }}
+            >
+              FRAME {(frameIndex + 1).toString().padStart(2, "0")} /{" "}
+              {result.hop1_frames?.length || 60}
             </span>
           </Card>
         )}
@@ -699,22 +883,30 @@ export const StitchTestRoute: React.FC = () => {
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
-            onContextMenu={(e) => { e.preventDefault(); setZoomRange(null); }}
-            style={{ position: 'relative' }}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setZoomRange(null);
+            }}
+            style={{ position: "relative" }}
           >
-            <canvas ref={stitchedCanvasRef} style={{ width: "100%", height: "100%", cursor: "crosshair" }} />
+            <canvas
+              ref={stitchedCanvasRef}
+              style={{ width: "100%", height: "100%", cursor: "crosshair" }}
+            />
             {dragStart && dragCurrent && (
-              <div style={{
-                position: "absolute",
-                border: "1px dashed rgba(255,255,255,0.8)",
-                backgroundColor: "rgba(255,255,255,0.2)",
-                pointerEvents: "none",
-                zIndex: 100,
-                left: Math.min(dragStart.x, dragCurrent.x),
-                top: Math.min(dragStart.y, dragCurrent.y),
-                width: Math.abs(dragCurrent.x - dragStart.x),
-                height: Math.abs(dragCurrent.y - dragStart.y),
-              }} />
+              <div
+                style={{
+                  position: "absolute",
+                  border: "1px dashed rgba(255,255,255,0.8)",
+                  backgroundColor: "rgba(255,255,255,0.2)",
+                  pointerEvents: "none",
+                  zIndex: 100,
+                  left: Math.min(dragStart.x, dragCurrent.x),
+                  top: Math.min(dragStart.y, dragCurrent.y),
+                  width: Math.abs(dragCurrent.x - dragStart.x),
+                  height: Math.abs(dragCurrent.y - dragStart.y),
+                }}
+              />
             )}
           </CanvasWrapper>
         </Card>

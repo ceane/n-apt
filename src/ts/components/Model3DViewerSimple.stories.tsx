@@ -6,10 +6,7 @@ const MockWrapper = () => {
   const controlsRef = React.useRef(null);
   return (
     <div style={{ width: "100%", height: "600px", background: "#050505" }}>
-      <Model3DViewerSimple
-        selectedArea={null}
-        controlsRef={controlsRef}
-      />
+      <Model3DViewerSimple selectedArea={null} controlsRef={controlsRef} />
     </div>
   );
 };

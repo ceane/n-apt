@@ -14,6 +14,7 @@ pub mod rendering_processor;
 // Encrypted demodulation kernels (only available when decrypted)
 #[cfg(rs_decrypted)]
 #[path = "../../encrypted-modules/tmp/rs/simd/demod_kernels.rs"]
+#[rustfmt::skip]
 pub mod demod_kernels;
 
 // Re-export main processors

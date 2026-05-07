@@ -77,9 +77,7 @@ const FIFOWaterfallCanvas: FC<FIFOWaterfallCanvasProps> = ({
   return (
     <Suspense fallback={<div>Loading waterfall...</div>}>
       <WaterfallSection>
-        <SectionTitle>
-          Waterfall Display {isPaused && "(Paused)"}
-        </SectionTitle>
+        <SectionTitle>Waterfall Display {isPaused && "(Paused)"}</SectionTitle>
         <CanvasWrapper>
           <CanvasLayer
             ref={setWaterfallGpuCanvasNode}
@@ -96,7 +94,10 @@ const FIFOWaterfallCanvas: FC<FIFOWaterfallCanvasProps> = ({
                   key={`waterfall-highlight-${index}`}
                   data-testid="fifo-waterfall-highlight-band"
                   $left={Math.max(0, Math.min(100, bin.start * 100))}
-                  $width={Math.max(0.2, Math.min(100, (bin.end - bin.start) * 100))}
+                  $width={Math.max(
+                    0.2,
+                    Math.min(100, (bin.end - bin.start) * 100),
+                  )}
                 />
               ))}
             </HighlightOverlay>

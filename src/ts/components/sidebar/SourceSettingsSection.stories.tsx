@@ -1,6 +1,6 @@
-import { useState } from 'react';
-import { SourceSettingsSection } from '@n-apt/components/sidebar/SourceSettingsSection';
-import { ThemeProvider, styled } from 'styled-components';
+import { useState } from "react";
+import { SourceSettingsSection } from "@n-apt/components/sidebar/SourceSettingsSection";
+import { ThemeProvider, styled } from "styled-components";
 
 const SidebarContainer = styled.div`
   background-color: #0a0a0a;
@@ -14,10 +14,10 @@ const SidebarContainer = styled.div`
 `;
 
 const theme = {
-  primary: '#00d4ff',
-  primaryAnchor: 'rgba(0, 212, 255, 0.1)',
-  fft: '#00d4ff',
-  mode: 'dark',
+  primary: "#00d4ff",
+  primaryAnchor: "rgba(0, 212, 255, 0.1)",
+  fft: "#00d4ff",
+  mode: "dark",
 };
 
 export const LiveSource = () => {
@@ -41,8 +41,8 @@ export const LiveSource = () => {
           onPpmChange={setPpm}
           onTunerAGCChange={setTunerAGC}
           onRtlAGCChange={setRtlAGC}
-          onStitchSourceSettingsChange={() => { }}
-          onAgcModeChange={() => { }}
+          onStitchSourceSettingsChange={() => {}}
+          onAgcModeChange={() => {}}
         />
       </SidebarContainer>
     </ThemeProvider>
@@ -63,12 +63,12 @@ export const FileSource = () => {
           rtlAGC={false}
           stitchSourceSettings={stitchSettings}
           isConnected={true}
-          onGainChange={() => { }}
-          onPpmChange={() => { }}
-          onTunerAGCChange={() => { }}
-          onRtlAGCChange={() => { }}
+          onGainChange={() => {}}
+          onPpmChange={() => {}}
+          onTunerAGCChange={() => {}}
+          onRtlAGCChange={() => {}}
           onStitchSourceSettingsChange={setStitchSettings}
-          onAgcModeChange={() => { }}
+          onAgcModeChange={() => {}}
         />
       </SidebarContainer>
     </ThemeProvider>
@@ -86,17 +86,17 @@ export const Disconnected = () => (
         rtlAGC={false}
         stitchSourceSettings={{ gain: 0, ppm: 0 }}
         isConnected={false}
-        onGainChange={() => { }}
-        onPpmChange={() => { }}
-        onTunerAGCChange={() => { }}
-        onRtlAGCChange={() => { }}
-        onStitchSourceSettingsChange={() => { }}
-        onAgcModeChange={() => { }}
+        onGainChange={() => {}}
+        onPpmChange={() => {}}
+        onTunerAGCChange={() => {}}
+        onRtlAGCChange={() => {}}
+        onStitchSourceSettingsChange={() => {}}
+        onAgcModeChange={() => {}}
       />
     </SidebarContainer>
   </ThemeProvider>
 );
 
 export default {
-  title: 'Sidebar/Source Settings',
+  title: "Sidebar/Source Settings",
 };

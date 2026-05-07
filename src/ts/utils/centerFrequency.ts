@@ -5,7 +5,9 @@ import type { FrequencyRange } from "@n-apt/hooks/useWebSocket";
  * @param frequencyRange - The frequency range with min and max values
  * @returns The center frequency in Hz, or null if invalid
  */
-export const calculateCenterFrequency = (frequencyRange: FrequencyRange | null): number | null => {
+export const calculateCenterFrequency = (
+  frequencyRange: FrequencyRange | null,
+): number | null => {
   if (!frequencyRange) return null;
   const min = frequencyRange.min;
   const max = frequencyRange.max;

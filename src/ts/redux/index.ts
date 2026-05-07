@@ -1,6 +1,6 @@
 // Redux store and hooks
-export { store, useAppDispatch, useAppSelector } from './store';
-export type { RootState, AppDispatch } from './store';
+export { store, useAppDispatch, useAppSelector } from "./store";
+export type { RootState, AppDispatch } from "./store";
 
 // Export slice actions
 export {
@@ -13,7 +13,7 @@ export {
   clearSession,
   resetAuth,
   setInitialAuthCheckComplete,
-} from './slices/authSlice';
+} from "./slices/authSlice";
 
 // Import auth actions for collective export
 import {
@@ -26,7 +26,7 @@ import {
   clearSession,
   resetAuth,
   setInitialAuthCheckComplete,
-} from './slices/authSlice';
+} from "./slices/authSlice";
 
 // Export collective action objects for convenience
 export const authActions = {
@@ -52,9 +52,13 @@ export {
   removeNoteCard,
   clearNoteCards,
   setNoteCardsCollapsed,
-} from './slices/noteCardsSlice';
+} from "./slices/noteCardsSlice";
 
-export { selectNoteCards, selectActiveNoteCard, selectNoteCardsCollapsed } from './slices/noteCardsSlice';
+export {
+  selectNoteCards,
+  selectActiveNoteCard,
+  selectNoteCardsCollapsed,
+} from "./slices/noteCardsSlice";
 
 // Import spectrum actions for collective export
 import {
@@ -87,7 +91,7 @@ import {
   resetLiveControls,
   setTemporalResolution,
   setPowerScale,
-} from './slices/spectrumSlice';
+} from "./slices/spectrumSlice";
 
 // Export spectrum actions as individual
 export {
@@ -120,7 +124,7 @@ export {
   resetLiveControls,
   setTemporalResolution,
   setPowerScale,
-} from './slices/spectrumSlice';
+} from "./slices/spectrumSlice";
 
 // Export collective action objects for convenience
 export const spectrumActions = {
@@ -173,7 +177,7 @@ export {
   setGlobalNoiseFloor,
   clearWaterfall,
   resetWaterfallCleared,
-} from './slices/waterfallSlice';
+} from "./slices/waterfallSlice";
 
 export {
   setAppMode,
@@ -181,12 +185,12 @@ export {
   setFftColor,
   setWaterfallTheme,
   resetTheme,
-} from './slices/themeSlice';
+} from "./slices/themeSlice";
 
 export {
   setSnapshotProgress,
   clearSnapshotProgress,
-} from './slices/snapshotSlice';
+} from "./slices/snapshotSlice";
 
 // Import theme actions for collective export
 import {
@@ -196,7 +200,7 @@ import {
   setWaterfallTheme,
   resetTheme,
   updateThemeSettings,
-} from './slices/themeSlice';
+} from "./slices/themeSlice";
 
 // Export collective action objects for convenience
 export const themeActions = {
@@ -212,7 +216,7 @@ export {
   setSnapshotGrid,
   setDeviceInfo,
   resetSettings,
-} from './slices/settingsSlice';
+} from "./slices/settingsSlice";
 
 // Import websocket actions for collective export
 import {
@@ -227,7 +231,7 @@ import {
   setSpectrumFrames,
   setPaused,
   setCryptoCorrupted,
-} from './slices/websocketSlice';
+} from "./slices/websocketSlice";
 
 export {
   setConnecting,
@@ -241,7 +245,7 @@ export {
   setSpectrumFrames,
   setPaused,
   setCryptoCorrupted,
-} from './slices/websocketSlice';
+} from "./slices/websocketSlice";
 
 // Export collective action objects for convenience
 export const websocketActions = {
@@ -275,7 +279,7 @@ export {
   sendScanCommand,
   sendDemodulateCommand,
   toggleVisualizerPause,
-} from './thunks/websocketThunks';
+} from "./thunks/websocketThunks";
 
 // Export selectors - explicit exports to prevent Safari issues
 export {
@@ -312,11 +316,11 @@ export {
   selectHighFrequencyData,
   selectIsWebSocketReady,
   selectDeviceCapabilities,
-} from './selectors/performanceSelectors';
+} from "./selectors/performanceSelectors";
 
 // Export middleware (for advanced usage)
-export { default as websocketMiddleware } from './middleware/websocketMiddleware';
-export { default as localStorageMiddleware } from './middleware/localStorageMiddleware';
+export { default as websocketMiddleware } from "./middleware/websocketMiddleware";
+export { default as localStorageMiddleware } from "./middleware/localStorageMiddleware";
 
 // Export persistence helpers
 export {
@@ -325,4 +329,4 @@ export {
   loadPersistedPasskeys,
   loadPersistedSpectrumFrames,
   loadPersistedSdrSettingsCache,
-} from './middleware/localStorageMiddleware';
+} from "./middleware/localStorageMiddleware";
