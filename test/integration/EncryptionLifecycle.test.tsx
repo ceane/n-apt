@@ -67,6 +67,21 @@ describe("Encryption Lifecycle Integration (Rust-Generated Test Vectors)", () =>
 
     console.log("✅ Frontend successfully decrypted backend-generated payload");
   });
+
+  it("should be invariant to trailing whitespace in the password", async () => {
+    // This test verifies that 'test-password-123' and 'test-password-123 '
+    // produce the same AES key, matching the backend's new .trim() behavior.
+    const PASSWORD_WITH_SPACE = "test-password-123 ";
+    const key1 = await deriveAesKey(PASSWORD);
+    const key2 = await deriveAesKey(PASSWORD_WITH_SPACE);
+
+    // Export keys to compare their raw bits
+    const raw1 = await crypto.webcrypto.subtle.exportKey("raw", key1);
+    const raw2 = await crypto.webcrypto.subtle.exportKey("raw", key2);
+
+    expect(new Uint8Array(raw1)).toEqual(new Uint8Array(raw2));
+    console.log("✅ Password whitespace invariance verified on frontend");
+  });
 });
 
 // Helper for base64 (since we are not in a browser environment with atob)

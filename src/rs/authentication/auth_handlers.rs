@@ -182,28 +182,12 @@ pub async fn auth_vault_key_handler(
   axum::extract::Query(query): axum::extract::Query<VaultKeyQuery>,
 ) -> impl IntoResponse {
   match state.session_store.validate(&query.token) {
-    Some(session) => {
+    Some(_session) => {
       info!("Vault key requested and session validated");
-      let enc_key: [u8; 32] = match session.encryption_key.try_into() {
-        Ok(k) => k,
-        Err(_) => {
-          log::error!(
-            "Session has invalid encryption key — cannot return vault key"
-          );
-          return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({
-              "error": "invalid_session_key",
-              "message": "Session encryption key is corrupted",
-            })),
-          )
-            .into_response();
-        }
-      };
       (
         StatusCode::OK,
         Json(crate::server::types::VaultKeyResponse {
-          vault_key: crypto::to_base64(&enc_key),
+          vault_key: crypto::to_base64(&state.shared.encryption_key),
         }),
       )
         .into_response()

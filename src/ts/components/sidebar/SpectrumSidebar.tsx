@@ -698,7 +698,7 @@ export const SpectrumSidebar: React.FC = () => {
         : acquisitionMode;
 
     const req: CaptureRequest = {
-      jobId: `cap_${Date.now()} `,
+      jobId: `cap_${Date.now()}`,
       fragments,
       durationMode: captureDurationMode,
       durationS: Math.max(1, Math.round(captureDurationS)),

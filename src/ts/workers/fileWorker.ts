@@ -602,7 +602,7 @@ self.onmessage = async function (e) {
                     );
                   }
                   if (decryptedData) {
-                    console.log(`[fileWorker] Decryption successful for ${fileName} with headerSize ${hSize}`);
+
                     break;
                   }
                 } catch (e) {
