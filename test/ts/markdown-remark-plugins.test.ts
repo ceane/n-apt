@@ -5,10 +5,12 @@ import remarkLatexCodeBlocks from "../../src/md-preview/utils/remarkLatexCodeBlo
 import remarkIconShortcodes from "../../src/md-preview/utils/remarkIconShortcodes";
 
 const applyPlugin = (
-  plugin: ReturnType<typeof remarkBodyAttenuationBlocks>,
+  plugin: any,
   tree: any,
 ) => {
-  plugin(tree);
+  if (plugin) {
+    plugin(tree);
+  }
   return tree;
 };
 
@@ -22,6 +24,7 @@ describe("Markdown Remark Plugins", () => {
         ],
       };
 
+      // @ts-ignore - remark plugin type signature is complex for tests
       applyPlugin(remarkBodyAttenuationBlocks(), tree);
 
       expect(tree.children[0]).toEqual({
@@ -38,6 +41,7 @@ describe("Markdown Remark Plugins", () => {
         ],
       };
 
+      // @ts-ignore - remark plugin type signature is complex for tests
       applyPlugin(remarkBodyAttenuationBlocks(), tree);
 
       expect(tree.children[0]).toEqual({
@@ -55,6 +59,7 @@ describe("Markdown Remark Plugins", () => {
         children: [{ type: "code", lang: "canvas::timeofflight", value: "" }],
       };
 
+      // @ts-ignore - remark plugin type signature is complex for tests
       applyPlugin(remarkTimeOfFlightBlocks(), tree);
 
       expect(tree.children[0]).toEqual({
@@ -73,6 +78,7 @@ describe("Markdown Remark Plugins", () => {
         ],
       };
 
+      // @ts-ignore - remark plugin type signature is complex for tests
       applyPlugin(remarkSignalCanvasBlocks(), tree);
 
       expect(tree.children[0]).toEqual({
@@ -90,6 +96,7 @@ describe("Markdown Remark Plugins", () => {
         ],
       };
 
+      // @ts-ignore - remark plugin type signature is complex for tests
       applyPlugin(remarkSignalCanvasBlocks(), tree);
 
       expect(tree.children[0]).toEqual({
@@ -112,6 +119,7 @@ describe("Markdown Remark Plugins", () => {
         ],
       };
 
+      // @ts-ignore - remark plugin type signature is complex for tests
       applyPlugin(remarkLatexCodeBlocks(), tree);
 
       expect(tree.children[0]).toEqual({
@@ -134,6 +142,7 @@ describe("Markdown Remark Plugins", () => {
         ],
       };
 
+      // @ts-ignore - remark plugin type signature is complex for tests
       applyPlugin(remarkLatexCodeBlocks(), tree);
 
       const serialized = (tree.children[0].value as string).match(
@@ -159,6 +168,7 @@ describe("Markdown Remark Plugins", () => {
         ],
       };
 
+      // @ts-ignore - remark plugin type signature is complex for tests
       applyPlugin(remarkIconShortcodes(), tree);
 
       expect(tree.children[0].children).toEqual([
@@ -189,6 +199,7 @@ describe("Markdown Remark Plugins", () => {
         ],
       };
 
+      // @ts-ignore - remark plugin type signature is complex for tests
       applyPlugin(remarkIconShortcodes(), tree);
 
       expect(tree.children[0].children).toEqual([
@@ -221,21 +232,25 @@ describe("Markdown Remark Plugins", () => {
         ],
       };
 
+      // @ts-ignore - remark plugin type signature is complex for tests
       applyPlugin(remarkIconShortcodes(), tree);
+      // @ts-ignore
       applyPlugin(remarkBodyAttenuationBlocks(), tree);
+      // @ts-ignore
       applyPlugin(remarkLatexCodeBlocks(), tree);
+      // @ts-ignore
       applyPlugin(remarkSignalCanvasBlocks(), tree);
 
-      expect(tree.children[0].children[1]).toEqual({
+      expect((tree.children[0] as any).children[1]).toEqual({
         type: "html",
         value: '<icon-inline data-icon="heart"></icon-inline>',
       });
-      expect(tree.children[1]).toEqual({
+      expect((tree.children[1] as any)).toEqual({
         type: "html",
         value: "<body-attenuation-canvas></body-attenuation-canvas>",
       });
-      expect(tree.children[2].type).toBe("html");
-      expect(tree.children[2].value).toContain("<latex-block");
+      expect((tree.children[2] as any).type).toBe("html");
+      expect((tree.children[2] as any).value).toContain("<latex-block");
       expect(tree.children[3]).toEqual({
         type: "html",
         value: "<amplitude-modulation-canvas></amplitude-modulation-canvas>",

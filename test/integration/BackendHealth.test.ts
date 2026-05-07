@@ -46,7 +46,7 @@ describe("Backend Health Integration", () => {
           `⏳ Backend status: ${response.status} (attempt ${attempts})`,
         );
       } catch (e) {
-        console.log(`⏳ Backend not ready (attempt ${attempts}): ${e.message}`);
+        console.log(`⏳ Backend not ready (attempt ${attempts}): ${(e as Error).message}`);
       }
       attempts++;
       await new Promise((resolve) => setTimeout(resolve, 1000));

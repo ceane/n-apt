@@ -143,10 +143,12 @@ describe("getWholeChannelRenderRange", () => {
         {
           data: {} as any,
           visualRange: { min: 0, max: 2 },
+          waveformHistory: [],
         },
         {
           data: {} as any,
           visualRange: { min: 2, max: 6 },
+          waveformHistory: [],
         },
       ],
     );
@@ -198,6 +200,7 @@ describe("useSnapshot", () => {
       showWaterfall: false,
       showStats: true,
       showGrid: true,
+      showGeolocation: false,
       format: "png" as const,
       getSnapshotData: () => null,
     };

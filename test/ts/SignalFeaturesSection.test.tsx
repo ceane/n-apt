@@ -3,6 +3,7 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { ThemeProvider } from "styled-components";
 import { SignalFeaturesSection } from "../../src/ts/components/sidebar/SignalFeaturesSection";
+import { THEME_TOKENS } from "@n-apt/consts/theme";
 
 jest.mock("@n-apt/components/ui", () => ({
   Row: ({
@@ -47,11 +48,18 @@ jest.mock("@n-apt/components/ui", () => ({
 }));
 
 const theme = {
+  mode: "dark" as const,
+  requestedMode: "system" as const,
+  waterfallTheme: "classic",
+  colors: THEME_TOKENS.colors.dark,
+  typography: THEME_TOKENS.typography,
+  spacing: THEME_TOKENS.spacing,
+  layout: THEME_TOKENS.layout,
   primary: "#00ffff",
-  textMuted: "#888888",
-  typography: {
-    mono: "monospace",
-  },
+  primaryAlpha: "#00ffff33",
+  primaryAnchor: "#00ffff1a",
+  fft: "#00ffff",
+  cssVariables: {},
 };
 
 describe("SignalFeaturesSection", () => {

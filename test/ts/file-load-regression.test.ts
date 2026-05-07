@@ -1,4 +1,5 @@
 
+// @ts-ignore - module path may not exist in test environment
 import { JSON_EXTRACT_RE } from "./fileWorker_logic";
 
 describe("JSON Extraction Regression", () => {

@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 
 function check(password, salt) {
     const SALT = Buffer.from(salt);
-    const ITERATIONS = 100_000;
+    const ITERATIONS = 600_000;
     const key = crypto.pbkdf2Sync(password, SALT, ITERATIONS, 32, 'sha256');
     const hash = crypto.createHash('sha256').update(key).digest('hex').substring(0, 8);
     // Success (log removed)

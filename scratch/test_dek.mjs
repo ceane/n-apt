@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 
 function check(password, salt) {
     const SALT = Buffer.from(salt);
-    const ITERATIONS = 100_000;
+    const ITERATIONS = 600_000;
     const vaultKey = crypto.pbkdf2Sync(password, SALT, ITERATIONS, 32, 'sha256');
 
     const wrappedDekB64 = "ynjA9yE07qUw0RzyP+U6fiu3Ugy/1bmNK4s4hKZ9VVQRTr3dWFGkHt5kg9EsHCPG4QYe9yOGi6jykkRQ";

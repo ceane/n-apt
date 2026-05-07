@@ -3,12 +3,6 @@ import {
   parseCssColorToRgba,
 } from "../../src/ts/utils/webgpu";
 
-// Declare global helper functions from jest.canvasSetup.cjs
-declare global {
-  function clearCanvasCalls(): void;
-  function expectCanvasContext(contextType: string): any;
-  function expectWebGPUCall(callName: string, args?: any[] | null): any;
-}
 
 describe("WebGPU Utilities", () => {
   beforeEach(() => {

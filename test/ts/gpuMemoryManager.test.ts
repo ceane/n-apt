@@ -16,12 +16,6 @@ const _mockConsoleWarn = jest.spyOn(console, "warn").mockImplementation();
 const _mockConsoleError = jest.spyOn(console, "error").mockImplementation();
 const _mockConsoleLog = jest.spyOn(console, "log").mockImplementation();
 
-// Declare global helper functions from jest.canvasSetup.cjs
-declare global {
-  function clearCanvasCalls(): void;
-  function expectWebGPUCall(callName: string, args?: any[] | null): any;
-  function countWebGPUCalls(callName: string): number;
-}
 
 describe("GPUMemoryManager", () => {
   let memoryManager: GPUMemoryManager;

@@ -2,22 +2,6 @@
 import { act, renderHook } from "@testing-library/react";
 import { useDrawWebGPUFIFOWaterfall } from "@n-apt/hooks/useDrawWebGPUFIFOWaterfall";
 
-declare global {
-  // eslint-disable-next-line no-var
-  var expectCanvasCall: (callName: string, args?: any[] | null) => unknown;
-  // eslint-disable-next-line no-var
-  var expectCanvasContext: (contextType: string) => unknown;
-  // eslint-disable-next-line no-var
-  var expectWebGLCall: (callName: string, args?: any[] | null) => unknown;
-  // eslint-disable-next-line no-var
-  var expectWebGPUCall: (callName: string, args?: any[] | null) => unknown;
-  // eslint-disable-next-line no-var
-  var countCanvasCalls: (callName: string) => number;
-  // eslint-disable-next-line no-var
-  var getWebGPUCalls: (
-    callName: string,
-  ) => Array<{ name: string; args: any[] }>;
-}
 
 describe("canvas API integration", () => {
   it("tracks WebGL draw calls", () => {

@@ -13,7 +13,9 @@ describe("remarkTimeOfFlightBlocks", () => {
       ],
     };
 
-    remarkTimeOfFlightBlocks()(tree);
+    // @ts-ignore - remark plugin type signature is complex for tests
+    const plugin = remarkTimeOfFlightBlocks();
+    plugin?.(tree, undefined as any, undefined as any);
 
     expect(tree.children[0]).toEqual({
       type: "html",

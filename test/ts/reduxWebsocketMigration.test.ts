@@ -56,9 +56,9 @@ describe("Redux WebSocket Migration", () => {
       );
 
       const range = { min: 100, max: 102 };
-      await store.dispatch(sendFrequencyRange(range));
+      await (store.dispatch as any)(sendFrequencyRange(range));
 
-      const state = store.getState();
+      const state = store.getState() as any;
       // Verify the thunk completed
       expect(state.websocket.sampleRateHz).toBe(2_400_000);
     });
@@ -71,9 +71,9 @@ describe("Redux WebSocket Migration", () => {
       );
 
       const centerMHz = 101;
-      await store.dispatch(sendCenterFrequency(centerMHz));
+      await (store.dispatch as any)(sendCenterFrequency(centerMHz));
 
-      const state = store.getState();
+      const state = store.getState() as any;
       expect(state.websocket.sampleRateHz).toBe(2_400_000);
     });
 
@@ -88,14 +88,15 @@ describe("Redux WebSocket Migration", () => {
         }),
       );
 
-      expect(store.getState().websocket.captureStatus).not.toBeNull();
+      expect((store.getState() as any).websocket.captureStatus).not.toBeNull();
 
       // Send new capture command
-      await store.dispatch(
+      await (store.dispatch as any)(
         sendCaptureCommand({
           jobId: "new-job",
-          fragments: [{ min_hz: 100, max_hz: 102 }],
+          fragments: [{ minFreq: 100, maxFreq: 102 }],
           durationS: 5,
+          durationMode: "timed" as const,
           fileType: ".napt",
           acquisitionMode: "stepwise",
           encrypted: true,
@@ -105,7 +106,7 @@ describe("Redux WebSocket Migration", () => {
       );
 
       // Verify capture status was cleared
-      expect(store.getState().websocket.captureStatus).toBeNull();
+      expect((store.getState() as any).websocket.captureStatus).toBeNull();
     });
   });
 
@@ -128,7 +129,7 @@ describe("Redux WebSocket Migration", () => {
       liveDataRef.current = mockFrame;
 
       // Verify Redux state is unchanged
-      const state = store.getState();
+      const state = store.getState() as any;
       expect(state.websocket).not.toHaveProperty("data");
       expect(liveDataRef.current).toBe(mockFrame);
     });
@@ -145,12 +146,12 @@ describe("Redux WebSocket Migration", () => {
 
       // First dispatch
       store.dispatch(setCaptureStatus(initialStatus));
-      const state1 = store.getState();
+      const state1 = store.getState() as any;
       expect(state1.websocket.captureStatus).toEqual(initialStatus);
 
       // Second dispatch with identical data
       store.dispatch(setCaptureStatus(initialStatus));
-      const state2 = store.getState();
+      const state2 = store.getState() as any;
 
       // State reference should be the same (no new object created)
       expect(state2.websocket.captureStatus).toEqual(initialStatus);
@@ -160,17 +161,17 @@ describe("Redux WebSocket Migration", () => {
       const deviceUpdate = {
         backend: "RTL-SDR",
         deviceName: "Generic RTL2832U",
-        deviceState: "ready" as const,
+        deviceState: "ready" as any,
       };
 
       // First update
       store.dispatch(updateDeviceState(deviceUpdate));
-      const state1 = store.getState();
+      const state1 = store.getState() as any;
       expect(state1.websocket.backend).toBe("RTL-SDR");
 
       // Second update with same data
       store.dispatch(updateDeviceState(deviceUpdate));
-      const state2 = store.getState();
+      const state2 = store.getState() as any;
 
       // Values should match
       expect(state2.websocket.backend).toBe("RTL-SDR");
@@ -185,19 +186,19 @@ describe("Redux WebSocket Migration", () => {
       };
 
       store.dispatch(setAutoFftOptions(options));
-      const state1 = store.getState();
+      const state1 = store.getState() as any;
       expect(state1.websocket.autoFftOptions).toEqual(options);
 
       // Dispatch again with identical data
       store.dispatch(setAutoFftOptions(options));
-      const state2 = store.getState();
+      const state2 = store.getState() as any;
       expect(state2.websocket.autoFftOptions).toEqual(options);
     });
   });
 
   describe("Redux slice behavior", () => {
     it("websocket slice initializes with correct defaults", () => {
-      const state = store.getState().websocket;
+      const state = (store.getState() as any).websocket;
 
       expect(state.isConnected).toBe(false);
       expect(state.connectionStatus).toBe("disconnected");
@@ -211,11 +212,11 @@ describe("Redux WebSocket Migration", () => {
       store.dispatch(
         updateDeviceState({
           backend: "RTL-SDR",
-          deviceState: "ready",
+          deviceState: "ready" as any,
         }),
       );
 
-      let state = store.getState().websocket;
+      let state = (store.getState() as any).websocket;
       expect(state.backend).toBe("RTL-SDR");
       expect(state.deviceState).toBe("ready");
       expect(state.deviceName).toBeNull(); // Unchanged
@@ -226,7 +227,7 @@ describe("Redux WebSocket Migration", () => {
         }),
       );
 
-      state = store.getState().websocket;
+      state = (store.getState() as any).websocket;
       expect(state.backend).toBe("RTL-SDR"); // Preserved
       expect(state.deviceName).toBe("Generic RTL2832U"); // Updated
     });

@@ -11,21 +11,27 @@ describe("streamWholeChannelSegmentFrames", () => {
       .fn<
         Promise<
           Array<{
-            data: { id: number };
+            data: any;
             visualRange: { min: number; max: number };
+            waveformHistory: Float32Array[];
           }>
         >,
         []
       >()
       .mockImplementation(async () => [
         {
-          data: { id: 1 },
+          data: {},
           visualRange: { min: 1, max: 2 },
+          waveformHistory: [],
         },
       ]);
 
     const frames: Array<
-      Array<{ data: { id: number }; visualRange: { min: number; max: number } }>
+      Array<{
+        data: any;
+        visualRange: { min: number; max: number };
+        waveformHistory: Float32Array[];
+      }>
     > = [];
     for await (const frame of streamWholeChannelSegmentFrames(
       captureWholeChannelSegments,
@@ -39,8 +45,9 @@ describe("streamWholeChannelSegmentFrames", () => {
     expect(frames).toHaveLength(12);
     expect(frames[0]).toEqual([
       {
-        data: { id: 1 },
+        data: {},
         visualRange: { min: 1, max: 2 },
+        waveformHistory: [],
       },
     ]);
   });

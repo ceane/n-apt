@@ -7,7 +7,7 @@ const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 12;
 const SALT_LENGTH = 16;
 const KEY_LENGTH = 32;
-const ITERATIONS = 100000;
+const ITERATIONS = 600000;
 
 interface FileBundle {
   files: {
@@ -45,7 +45,8 @@ function shouldRunEncryptedModules(): boolean {
 }
 
 function deriveKey(password: string, salt: Buffer): Buffer {
-  return crypto.pbkdf2Sync(password, salt, ITERATIONS, KEY_LENGTH, 'sha256');
+  // Use scryptSync for better security than PBKDF2
+  return crypto.scryptSync(password, salt, KEY_LENGTH, { N: 131072, r: 8, p: 1 });
 }
 
 function encrypt(data: string, password: string): Buffer {

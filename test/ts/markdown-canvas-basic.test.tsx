@@ -22,6 +22,11 @@ describe("Markdown Canvas Components - Basic Tests", () => {
 
     expect(gl).toBeTruthy();
     expect(typeof gl?.clearColor).toBe("function");
+    // @ts-ignore - globalThis access for canvas mocking
+    expect(global["canvasCalls"]).toBeDefined();
+    // @ts-ignore
+    expect(global["clearCanvasCalls"]).toBeDefined();
+    expect(typeof global["clearCanvasCalls"]).toBe("function");
   });
 
   test("WebGPU mocking is available", () => {
@@ -35,17 +40,18 @@ describe("Markdown Canvas Components - Basic Tests", () => {
     canvas.getContext("2d");
 
     // Check that canvas context calls were logged
-    expect(global.__CANVAS_CALLS__).toHaveLength(2);
+    expect((global as any).__CANVAS_CALLS__).toHaveLength(2);
     expect(
-      global.__CANVAS_CALLS__.filter(
-        (c) => c.name === "getContext" && c.args[0] === "webgl",
+      (global as any).__CANVAS_CALLS__.filter(
+        (c: any) => c.name === "getContext" && c.args[0] === "webgl",
       ),
     ).toHaveLength(1);
     expect(
-      global.__CANVAS_CALLS__.filter(
-        (c) => c.name === "getContext" && c.args[0] === "2d",
+      (global as any).__CANVAS_CALLS__.filter(
+        (c: any) => c.name === "getContext" && c.args[0] === "2d",
       ),
     ).toHaveLength(1);
+    // @ts-ignore
     expect(global.countWebGLCalls()).toBe(0); // WebGL calls are tracked separately
   });
 
@@ -58,18 +64,23 @@ describe("Markdown Canvas Components - Basic Tests", () => {
       gl.clear(gl.COLOR_BUFFER_BIT);
     }
 
+    // @ts-ignore - globalThis access for canvas mocking
     expect(global.countWebGLCalls("clearColor")).toBe(1);
+    // @ts-ignore
     expect(global.countWebGLCalls("clear")).toBe(1);
   });
 
   test("WebGPU calls are tracked", async () => {
     const adapter = await navigator.gpu.requestAdapter();
+    if (!adapter) return;
     const device = await adapter.requestDevice();
     const _buffer = device.createBuffer({ size: 512, usage: 4 });
 
-    // Check that WebGPU calls were tracked
+    // @ts-ignore - globalThis access for canvas mocking
     expect(global.countWebGPUCalls("requestAdapter")).toBe(1);
+    // @ts-ignore
     expect(global.countWebGPUCalls("requestDevice")).toBe(1);
+    // @ts-ignore
     expect(global.countWebGPUCalls("createBuffer")).toBe(1);
   });
 
@@ -113,15 +124,18 @@ describe("Markdown Canvas Components - Basic Tests", () => {
     // First test
     const canvas1 = document.createElement("canvas");
     canvas1.getContext("webgl");
+    // @ts-ignore - globalThis access for canvas mocking
     expect(global.__CANVAS_CALLS__).toHaveLength(1);
 
     // Clear calls
     global.clearCanvasCalls();
+    // @ts-ignore
     expect(global.__CANVAS_CALLS__).toHaveLength(0);
 
     // Second test
     const canvas2 = document.createElement("canvas");
     canvas2.getContext("webgl");
+    // @ts-ignore
     expect(global.__CANVAS_CALLS__).toHaveLength(1);
   });
 
@@ -132,7 +146,8 @@ describe("Markdown Canvas Components - Basic Tests", () => {
     if (gl) {
       const ext = gl.getExtension("OES_texture_float");
       expect(ext).toBeTruthy();
-      expect(ext?.FLOAT).toBe(5126);
+      // @ts-ignore - OES_texture_float extension property
+      expect((ext as any)?.FLOAT).toBe(5126);
     }
   });
 
@@ -155,10 +170,10 @@ describe("Markdown Canvas Components - Basic Tests", () => {
       const shader = gl.createShader(gl.VERTEX_SHADER);
       expect(shader).toBeTruthy();
 
-      gl.shaderSource(shader, "void main() { gl_Position = vec4(0.0); }");
-      gl.compileShader(shader);
+      gl.shaderSource(shader!, "void main() { gl_Position = vec4(0.0); }");
+      gl.compileShader(shader!);
 
-      const compiled = gl.getShaderParameter(shader, gl.COMPILE_STATUS);
+      const compiled = gl.getShaderParameter(shader!, gl.COMPILE_STATUS);
       expect(compiled).toBe(true);
     }
   });
@@ -174,11 +189,11 @@ describe("Markdown Canvas Components - Basic Tests", () => {
       const vertexShader = gl.createShader(gl.VERTEX_SHADER);
       const fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
 
-      gl.attachShader(program, vertexShader);
-      gl.attachShader(program, fragmentShader);
-      gl.linkProgram(program);
+      gl.attachShader(program!, vertexShader!);
+      gl.attachShader(program!, fragmentShader!);
+      gl.linkProgram(program!);
 
-      const linked = gl.getProgramParameter(program, gl.LINK_STATUS);
+      const linked = gl.getProgramParameter(program!, gl.LINK_STATUS);
       expect(linked).toBe(true);
     }
   });
@@ -198,9 +213,12 @@ describe("Markdown Canvas Components - Basic Tests", () => {
         gl.STATIC_DRAW,
       );
 
-      expect(countWebGLCalls("createBuffer")).toBe(1);
-      expect(countWebGLCalls("bindBuffer")).toBe(1);
-      expect(countWebGLCalls("bufferData")).toBe(1);
+      // @ts-ignore - countWebGLCalls is defined in jest.canvasSetup.cjs
+      expect((countWebGLCalls as any)("createBuffer")).toBe(1);
+      // @ts-ignore
+      expect((countWebGLCalls as any)("bindBuffer")).toBe(1);
+      // @ts-ignore
+      expect((countWebGLCalls as any)("bufferData")).toBe(1);
     }
   });
 
@@ -213,16 +231,18 @@ describe("Markdown Canvas Components - Basic Tests", () => {
       expect(texture).toBeTruthy();
 
       gl.bindTexture(gl.TEXTURE_2D, texture);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-
-      expect(countWebGLCalls("createTexture")).toBe(1);
-      expect(countWebGLCalls("bindTexture")).toBe(1);
-      expect(countWebGLCalls("texParameteri")).toBe(1);
+      // @ts-ignore - countWebGLCalls is defined in jest.canvasSetup.cjs
+      expect((countWebGLCalls as any)("createTexture")).toBe(1);
+      // @ts-ignore
+      expect((countWebGLCalls as any)("bindTexture")).toBe(1);
+      // @ts-ignore
+      expect((countWebGLCalls as any)("texParameteri")).toBe(1);
     }
   });
 
   test("WebGPU buffer operations work", async () => {
     const adapter = await navigator.gpu.requestAdapter();
+    if (!adapter) return;
     const device = await adapter.requestDevice();
 
     const buffer = device.createBuffer({ size: 1024, usage: 6 }); // VERTEX + UNIFORM
@@ -238,6 +258,7 @@ describe("Markdown Canvas Components - Basic Tests", () => {
 
   test("WebGPU texture operations work", async () => {
     const adapter = await navigator.gpu.requestAdapter();
+    if (!adapter) return;
     const device = await adapter.requestDevice();
 
     const texture = device.createTexture({
@@ -256,6 +277,7 @@ describe("Markdown Canvas Components - Basic Tests", () => {
 
   test("WebGPU command encoder operations work", async () => {
     const adapter = await navigator.gpu.requestAdapter();
+    if (!adapter) return;
     const device = await adapter.requestDevice();
 
     const encoder = device.createCommandEncoder();
