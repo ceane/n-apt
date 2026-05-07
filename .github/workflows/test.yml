@@ -273,6 +273,9 @@ jobs:
       - name: Build Rust Backend
         run: npm run build:rust
 
+      - name: Generate Encrypted Test Artifacts
+        run: cargo test --test encryption_e2e_tests generate_test_artifacts -- --nocapture
+
       - name: Run integration tests (Affected Only on Branches)
         run: |
           if [ "${{ github.ref }}" = "refs/heads/main" ]; then
