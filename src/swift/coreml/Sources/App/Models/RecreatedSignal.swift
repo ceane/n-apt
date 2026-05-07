@@ -13,6 +13,9 @@ final class RecreatedSignal: Model, Content {
     @Field(key: "signal_parameters")
     var signalParameters: [String: Double]
 
+    @Field(key: "waveform_type")
+    var waveformType: String
+
     @Field(key: "waveform_pattern")
     var waveformPattern: [Float]
 
@@ -46,6 +49,7 @@ final class RecreatedSignal: Model, Content {
         id: UUID? = nil,
         originalSignalId: UUID?,
         signalParameters: [String: Double],
+        waveformType: String,
         waveformPattern: [Float],
         recreationQualityScore: Double,
         parameterEstimates: [String: Double],
@@ -58,6 +62,7 @@ final class RecreatedSignal: Model, Content {
         self.id = id
         self.originalSignalId = originalSignalId
         self.signalParameters = signalParameters
+        self.waveformType = waveformType
         self.waveformPattern = waveformPattern
         self.recreationQualityScore = recreationQualityScore
         self.parameterEstimates = parameterEstimates
