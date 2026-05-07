@@ -196,9 +196,9 @@ func routes(_ app: Application) throws {
                 "pulseRepetitionFrequency": signalParameters.pulseRepetitionFrequency ?? 0.0,
                 "noiseLevel": signalParameters.noiseLevel,
                 "signalToNoiseRatio": signalParameters.signalToNoiseRatio,
-                "bandwidth": signalParameters.bandwidth,
-                "waveformType": signalParameters.waveformType
+                "bandwidth": signalParameters.bandwidth
             ],
+            waveformType: signalParameters.waveformType,
             analysisConfidence: confidence
         )
     }
@@ -207,8 +207,8 @@ func routes(_ app: Application) throws {
         let input = try req.content.decode(RecreationGenerateInput.self)
         
         // Retrieve signal parameters from database
-        guard let signalParametersId = input.signalParametersId,
-              let uuid = UUID(uuidString: signalParametersId),
+        let signalParametersId = input.signalParametersId
+        guard let uuid = UUID(uuidString: signalParametersId),
               let signalParameters = try await SignalParameters.find(uuid, on: req.db) else {
             throw Abort(.badRequest, reason: "Invalid signal parameters ID")
         }
@@ -225,9 +225,9 @@ func routes(_ app: Application) throws {
             signalParameters: [
                 "amplitude": signalParameters.amplitude,
                 "frequency": signalParameters.frequency,
-                "phase": signalParameters.phase,
-                "waveformType": signalParameters.waveformType
+                "phase": signalParameters.phase
             ],
+            waveformType: signalParameters.waveformType,
             waveformPattern: waveformPattern,
             recreationQualityScore: qualityScore,
             parameterEstimates: [
@@ -366,6 +366,7 @@ struct RecreationAnalysisInput: Content {
 struct RecreationAnalysisResponse: Content {
     let signalParametersId: String?
     let parameters: [String: Double]
+    let waveformType: String
     let analysisConfidence: Double
 }
 

@@ -7,6 +7,7 @@ struct CreateRecreatedSignals: Migration {
             .id()
             .field("original_signal_id", .uuid)
             .field("signal_parameters", .dictionary(of: .double), .required)
+            .field("waveform_type", .string, .required)
             .field("waveform_pattern", .array(of: .float), .required)
             .field("recreation_quality_score", .double, .required)
             .field("parameter_estimates", .dictionary(of: .double), .required)

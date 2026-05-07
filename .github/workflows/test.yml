@@ -2,13 +2,17 @@ name: Tests
 
 on:
   push:
-    branches: ["**"]
+    branches: [main]
   pull_request:
     branches: ["**"]
 
 permissions:
   contents: read
   pull-requests: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   # Detect changes for conditional testing
@@ -17,15 +21,15 @@ jobs:
     outputs:
       frontend: ${{ steps.filter.outputs.frontend }}
       rust: ${{ steps.filter.outputs.rust }}
+      rust-performance: ${{ steps.filter.outputs['rust-performance'] }}
       wasm: ${{ steps.filter.outputs.wasm }}
       integration: ${{ steps.filter.outputs.integration }}
-      # Helper output to run integration tests if ANY core logic changed
-      needs-any-integration: ${{ steps.filter.outputs.frontend == 'true' || steps.filter.outputs.rust == 'true' || steps.filter.outputs.wasm == 'true' || steps.filter.outputs.integration == 'true' }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
         id: filter
         with:
+          list-files: shell
           filters: |
             frontend:
               - 'src/ts/**'
@@ -34,6 +38,8 @@ jobs:
               - 'test/ts/**'
               - 'package*.json'
               - 'tsconfig*.json'
+              - 'vite*.config.*'
+              - 'jest.config.*'
             rust:
               - 'src/rs/**'
               - 'test/rust/**'
@@ -41,16 +47,47 @@ jobs:
               - 'Cargo.lock'
               - 'build.rs'
               - 'signals.yaml'
+            rust-performance:
+              - 'test/rust/performance_tests.rs'
+              - 'src/rs/fft/**'
+              - 'src/rs/simd/**'
+              - 'src/rs/sdr/processor/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
             wasm:
               - 'src/rs/lib.rs'
               - 'src/rs/wasm/**'
               - 'src/rs/simd/**'
               - 'test/wasm/**'
               - 'Cargo-wasm.toml'
+              - 'scripts/build/build_wasm.sh'
             integration:
               - 'test/integration/**'
+              - 'test/ts/**'
+              - 'src/ts/crypto/**'
+              - 'src/ts/services/**'
+              - 'src/ts/workers/**'
+              - 'src/rs/crypto/**'
+              - 'src/rs/server/**'
+              - 'src/rs/sdr/**'
               - 'scripts/**'
               - 'signals.yaml'
+              - 'package*.json'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+
+      - name: Print matched files
+        run: |
+          echo "frontend=${{ steps.filter.outputs.frontend }}"
+          echo "${{ steps.filter.outputs.frontend_files }}"
+          echo "rust=${{ steps.filter.outputs.rust }}"
+          echo "${{ steps.filter.outputs.rust_files }}"
+          echo "rust-performance=${{ steps.filter.outputs['rust-performance'] }}"
+          echo "${{ steps.filter.outputs['rust-performance_files'] }}"
+          echo "wasm=${{ steps.filter.outputs.wasm }}"
+          echo "${{ steps.filter.outputs.wasm_files }}"
+          echo "integration=${{ steps.filter.outputs.integration }}"
+          echo "${{ steps.filter.outputs.integration_files }}"
 
   # Frontend tests
   frontend-tests:
@@ -118,6 +155,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y librtlsdr-dev
@@ -138,7 +177,98 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Run Rust tests
-        run: cargo test --profile dev-fast
+        run: |
+          all_tests=(
+            authentication_tests
+            capture_stitch_tests
+            device_stream_frozen_tests
+            encryption_e2e_tests
+            fft_processor_tests
+            frequency_scaling_e2e
+            frequency_validation_tests
+            iq_capture_integration_tests
+            mock_apt_tests
+            server_tests
+          )
+
+          run_selected_tests() {
+            for test_name in "$@"; do
+              cargo test --profile dev-fast --test "$test_name"
+            done
+          }
+
+          if [ "${{ github.ref }}" = "refs/heads/main" ] || [ "${{ github.event_name }}" = "push" ]; then
+            run_selected_tests "${all_tests[@]}"
+            exit 0
+          fi
+
+          git fetch --no-tags --prune --depth=1 origin "${{ github.base_ref }}"
+          changed_files=$(git diff --name-only "origin/${{ github.base_ref }}...HEAD" -- 'src/rs/**' 'test/rust/**' 'Cargo.toml' 'Cargo.lock' 'build.rs' 'signals.yaml')
+          echo "Changed Rust files:"
+          echo "$changed_files"
+
+          tests=()
+          run_all=false
+
+          while IFS= read -r file; do
+            case "$file" in
+              Cargo.toml|Cargo.lock|build.rs|signals.yaml|src/rs/lib.rs)
+                run_all=true
+                ;;
+              test/rust/performance_tests.rs)
+                ;;
+              test/rust/*.rs)
+                test_name=$(basename "$file" .rs)
+                tests+=("$test_name")
+                ;;
+              src/rs/authentication/*|src/rs/session/*)
+                tests+=("authentication_tests" "server_tests")
+                ;;
+              src/rs/crypto/*)
+                tests+=("encryption_e2e_tests" "authentication_tests")
+                ;;
+              src/rs/server/*)
+                tests+=("server_tests" "device_stream_frozen_tests")
+                ;;
+              src/rs/sdr/mock_apt/*)
+                tests+=("mock_apt_tests")
+                ;;
+              src/rs/sdr/processor/*)
+                tests+=("capture_stitch_tests" "frequency_validation_tests" "iq_capture_integration_tests")
+                ;;
+              src/rs/sdr/*)
+                tests+=("mock_apt_tests" "device_stream_frozen_tests")
+                ;;
+              src/rs/fft/*)
+                tests+=("fft_processor_tests" "capture_stitch_tests")
+                ;;
+              src/rs/stitching.rs)
+                tests+=("capture_stitch_tests")
+                ;;
+              src/rs/simd/*)
+                tests+=("fft_processor_tests")
+                ;;
+              src/rs/consts/*)
+                tests+=("fft_processor_tests" "frequency_validation_tests")
+                ;;
+              *)
+                run_all=true
+                ;;
+            esac
+          done <<< "$changed_files"
+
+          if [ "$run_all" = true ]; then
+            run_selected_tests "${all_tests[@]}"
+            exit 0
+          fi
+
+          if [ "${#tests[@]}" -eq 0 ]; then
+            cargo test --profile dev-fast --lib
+            exit 0
+          fi
+
+          mapfile -t selected_tests < <(printf "%s\n" "${tests[@]}" | sort -u)
+          run_selected_tests "${selected_tests[@]}"
         env:
           REDIS_URL: redis://localhost:6379
           UNSAFE_LOCAL_USER_PASSWORD: n-apt-dev-key
@@ -154,7 +284,7 @@ jobs:
   rust-performance-tests:
     runs-on: ubuntu-latest
     needs: detect-changes
-    if: needs.detect-changes.outputs.rust == 'true' || github.ref == 'refs/heads/main'
+    if: needs.detect-changes.outputs['rust-performance'] == 'true' || github.ref == 'refs/heads/main'
 
     steps:
       - name: Checkout code
@@ -218,7 +348,7 @@ jobs:
   integration-tests:
     runs-on: ubuntu-latest
     needs: detect-changes
-    if: needs.detect-changes.outputs.needs-any-integration == 'true' || github.ref == 'refs/heads/main'
+    if: needs.detect-changes.outputs.integration == 'true' || github.ref == 'refs/heads/main'
 
     services:
       redis:
