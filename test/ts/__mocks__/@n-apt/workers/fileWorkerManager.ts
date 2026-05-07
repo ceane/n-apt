@@ -66,7 +66,7 @@ export class FileWorkerManager {
         }
 
         // Simulate different file types
-        if (file.name.endsWith(".napt") || file.name.endsWith(".wav")) {
+        if (file && file.name && (file.name.endsWith(".napt") || file.name.endsWith(".wav"))) {
           resolve({
             name: file.name,
             data: new ArrayBuffer(file.size),
@@ -181,7 +181,9 @@ export class FileWorkerManager {
         this.pendingRequests.clear();
         break;
       case "fileloading":
+      case "loadFile":
       case "framebuilding":
+      case "buildFrame":
         // Set error flag for next operation
         this.shouldSimulateError = true;
         this.simulatedErrorMessage = message || `${errorType} failed`;
