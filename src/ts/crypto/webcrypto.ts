@@ -20,9 +20,10 @@ const IV_LENGTH = 12; // AES-GCM standard nonce size
  */
 export async function deriveRawKey(passkey: string): Promise<ArrayBuffer> {
   const enc = new TextEncoder();
+  const trimmed = passkey.trim();
   const keyMaterial = await crypto.subtle.importKey(
     "raw",
-    enc.encode(passkey),
+    enc.encode(trimmed),
     "PBKDF2",
     false,
     ["deriveBits"],

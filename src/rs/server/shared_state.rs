@@ -90,10 +90,6 @@ impl SharedState {
     let sdr_settings = load_sdr_settings();
     let redis_client = redis::Client::open(redis_url)
       .expect("Failed to initialize Redis client");
-    log::info!(
-      "Encryption key derived from passkey (PBKDF2-HMAC-SHA256, {} iterations)",
-      100_000
-    );
 
     Arc::new(SharedState {
       latest_spectrum: Mutex::new(None),
