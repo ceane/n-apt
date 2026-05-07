@@ -2,10 +2,21 @@ import { render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import FIFOWaterfallCanvas from "@n-apt/components/FIFOWaterfallCanvas";
 import { ThemeProvider } from "styled-components";
+import { THEME_TOKENS } from "@n-apt/consts/theme";
 
 const mockTheme = {
-  background: "#0a0a0a",
-  canvasBorder: "#1f2937",
+  mode: "dark" as const,
+  requestedMode: "system" as const,
+  waterfallTheme: "classic",
+  colors: THEME_TOKENS.colors.dark,
+  typography: THEME_TOKENS.typography,
+  spacing: THEME_TOKENS.spacing,
+  layout: THEME_TOKENS.layout,
+  primary: "#00d4ff",
+  primaryAlpha: "#00d4ff33",
+  primaryAnchor: "#00d4ff1a",
+  fft: "#00d4ff",
+  cssVariables: {},
 };
 
 describe("FIFOWaterfallCanvas", () => {
@@ -27,10 +38,18 @@ describe("FIFOWaterfallCanvas", () => {
       </ThemeProvider>,
     );
 
-    expect(screen.getByText(/Waterfall Display \(Paused\)/i)).toBeInTheDocument();
-    expect(container.querySelector("#fft-waterfall-canvas-webgpu")).toBeInTheDocument();
-    expect(container.querySelector("#fft-waterfall-canvas-overlay")).toBeInTheDocument();
-    expect(screen.getAllByTestId("fifo-waterfall-highlight-band")).toHaveLength(2);
+    expect(
+      screen.getByText(/Waterfall Display \(Paused\)/i),
+    ).toBeInTheDocument();
+    expect(
+      container.querySelector("#fft-waterfall-canvas-webgpu"),
+    ).toBeInTheDocument();
+    expect(
+      container.querySelector("#fft-waterfall-canvas-overlay"),
+    ).toBeInTheDocument();
+    expect(screen.getAllByTestId("fifo-waterfall-highlight-band")).toHaveLength(
+      2,
+    );
     expect(setWaterfallGpuCanvasNode).toHaveBeenCalledWith(
       expect.any(HTMLCanvasElement),
     );
@@ -55,7 +74,7 @@ describe("FIFOWaterfallCanvas", () => {
 
     unmount();
 
-    expect(setWaterfallGpuCanvasNode.mock.calls.at(-1)?.[0]).toBeNull();
-    expect(setWaterfallOverlayCanvasNode.mock.calls.at(-1)?.[0]).toBeNull();
+    expect(setWaterfallGpuCanvasNode.mock.calls[setWaterfallGpuCanvasNode.mock.calls.length - 1]?.[0]).toBeNull();
+    expect(setWaterfallOverlayCanvasNode.mock.calls[setWaterfallOverlayCanvasNode.mock.calls.length - 1]?.[0]).toBeNull();
   });
 });

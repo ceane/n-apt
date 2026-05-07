@@ -20,8 +20,8 @@ export interface CaptureResult {
 }
 
 export interface AnalysisSession {
-  state: 'idle' | 'starting' | 'capturing' | 'analyzing' | 'result';
-  type?: 'audio' | 'internal' | 'speech' | 'vision' | 'apt';
+  state: "idle" | "starting" | "capturing" | "analyzing" | "result";
+  type?: "audio" | "internal" | "speech" | "vision" | "apt";
   startTime?: number;
   durationS?: number; // The requested duration in seconds
   countdown?: number; // 3, 2, 1...
@@ -33,8 +33,13 @@ export interface AnalysisSession {
   aptStage?: string; // Current APT processing stage
 }
 
-export type AnalysisType = 'audio' | 'internal' | 'speech' | 'vision' | 'apt';
-export type AnalysisSessionState = 'idle' | 'starting' | 'capturing' | 'analyzing' | 'result';
+export type AnalysisType = "audio" | "internal" | "speech" | "vision" | "apt";
+export type AnalysisSessionState =
+  | "idle"
+  | "starting"
+  | "capturing"
+  | "analyzing"
+  | "result";
 
 export interface FrequencyRange {
   min: number;

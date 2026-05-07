@@ -25,10 +25,11 @@ export const getWaterfallMotion = ({
   const currentSpan = getSpan(currentVisualRange);
   const previousSpan = getSpan(previousVisualRange);
   const referenceSpan = currentSpan > 0 ? currentSpan : previousSpan;
-  const centerDelta = getCenterFrequency(currentVisualRange) - getCenterFrequency(previousVisualRange);
-  const driftBins = referenceSpan > 0
-    ? (centerDelta / referenceSpan) * textureWidth
-    : 0;
+  const centerDelta =
+    getCenterFrequency(currentVisualRange) -
+    getCenterFrequency(previousVisualRange);
+  const driftBins =
+    referenceSpan > 0 ? (centerDelta / referenceSpan) * textureWidth : 0;
   const zoomChanged = Math.abs(currentSpan - previousSpan) > Number.EPSILON;
   const shouldPaintMotionRow = Math.abs(driftBins) >= 0.5 || zoomChanged;
   const smearRows = shouldPaintMotionRow

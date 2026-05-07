@@ -6,8 +6,12 @@
  * in src/crypto/mod.rs.
  */
 
+import { PBKDF2_SALT_VAL } from "../consts/env";
+
 const PBKDF2_ITERATIONS = 100_000;
-const PBKDF2_SALT = new TextEncoder().encode("n-apt-aes-salt-v1");
+// Load salt from environment variable (Vite) or fallback to default.
+// Must match NAPT_PBKDF2_SALT in Rust backend.
+const PBKDF2_SALT = new TextEncoder().encode(PBKDF2_SALT_VAL);
 const IV_LENGTH = 12; // AES-GCM standard nonce size
 
 /**
@@ -16,9 +20,10 @@ const IV_LENGTH = 12; // AES-GCM standard nonce size
  */
 export async function deriveRawKey(passkey: string): Promise<ArrayBuffer> {
   const enc = new TextEncoder();
+  const trimmed = passkey.trim();
   const keyMaterial = await crypto.subtle.importKey(
     "raw",
-    enc.encode(passkey),
+    enc.encode(trimmed),
     "PBKDF2",
     false,
     ["deriveBits"],
@@ -41,7 +46,7 @@ export async function deriveRawKey(passkey: string): Promise<ArrayBuffer> {
  */
 export async function deriveAesKey(passkey: string): Promise<CryptoKey> {
   const rawKey = await deriveRawKey(passkey);
-  return crypto.subtle.importKey("raw", rawKey, { name: "AES-GCM" }, false, [
+  return crypto.subtle.importKey("raw", rawKey, { name: "AES-GCM" }, true, [
     "decrypt",
   ]);
 }
@@ -50,7 +55,7 @@ export async function deriveAesKey(passkey: string): Promise<CryptoKey> {
  * Import a raw AES-256 key from an ArrayBuffer (e.g. received from backend).
  */
 export async function importAesKey(rawKey: ArrayBuffer): Promise<CryptoKey> {
-  return crypto.subtle.importKey("raw", rawKey, { name: "AES-GCM" }, false, [
+  return crypto.subtle.importKey("raw", rawKey, { name: "AES-GCM" }, true, [
     "decrypt",
   ]);
 }

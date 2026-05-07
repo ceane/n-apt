@@ -1,13 +1,13 @@
-import React, { useMemo, useRef } from 'react';
-import styled from 'styled-components';
-import { Handle, Position } from '@xyflow/react';
-import { Radio as RadioIcon } from 'lucide-react';
-import { useAppDispatch, useAppSelector } from '@n-apt/redux';
-import { sendFrequencyRange } from '@n-apt/redux/thunks/websocketThunks';
-import { setCenterFreq } from '@n-apt/redux/slices/demodSlice';
-import { formatFrequency } from '@n-apt/utils/frequency';
-import FFTCanvas from '@n-apt/components/FFTCanvas';
-import { generateFMIQData } from '@n-apt/utils/generateSignalData';
+import React, { useMemo, useRef } from "react";
+import styled from "styled-components";
+import { Handle, Position } from "@xyflow/react";
+import { Radio as RadioIcon } from "lucide-react";
+import { useAppDispatch, useAppSelector } from "@n-apt/redux";
+import { sendFrequencyRange } from "@n-apt/redux/thunks/websocketThunks";
+import { setCenterFreq } from "@n-apt/redux/slices/demodSlice";
+import { formatFrequency } from "@n-apt/utils/frequency";
+import FFTCanvas from "@n-apt/components/FFTCanvas";
+import { generateFMIQData } from "@n-apt/utils/generateSignalData";
 
 const NodeContainer = styled.div`
   background: ${({ theme }) => theme.colors.background};
@@ -69,9 +69,13 @@ const StationsGrid = styled.div`
 `;
 
 const StationPill = styled.button<{ $active: boolean }>`
-  background: ${({ theme, $active }) => $active ? theme.colors.primary : theme.colors.surface};
-  border: 1px solid ${({ theme, $active }) => $active ? theme.colors.primary : theme.colors.border};
-  color: ${({ theme, $active }) => $active ? theme.colors.background : theme.colors.textPrimary};
+  background: ${({ theme, $active }) =>
+    $active ? theme.colors.primary : theme.colors.surface};
+  border: 1px solid
+    ${({ theme, $active }) =>
+      $active ? theme.colors.primary : theme.colors.border};
+  color: ${({ theme, $active }) =>
+    $active ? theme.colors.background : theme.colors.textPrimary};
   border-radius: 12px;
   padding: 4px 10px;
   font-size: 10px;
@@ -97,7 +101,9 @@ const VisualSection = styled.div`
 `;
 
 const FM_STATIONS = [
-  88.1, 88.5, 88.9, 89.3, 89.5, 89.7, 90.3, 90.5, 90.7, 91.1, 91.7, 92.3, 92.7, 93.3, 94.1, 94.5, 95.3, 96.5, 97.3, 98.1, 98.5, 99.7, 100.3, 101.3, 102.1, 103.7, 104.5, 105.3, 106.1, 106.9, 107.7
+  88.1, 88.5, 88.9, 89.3, 89.5, 89.7, 90.3, 90.5, 90.7, 91.1, 91.7, 92.3, 92.7,
+  93.3, 94.1, 94.5, 95.3, 96.5, 97.3, 98.1, 98.5, 99.7, 100.3, 101.3, 102.1,
+  103.7, 104.5, 105.3, 106.1, 106.9, 107.7,
 ];
 
 interface FmNodeProps {
@@ -113,25 +119,27 @@ export const FmNode: React.FC<FmNodeProps> = ({ data }) => {
   const handleStationClick = (freqMHz: number) => {
     // Send frequency change command to server with ±100kHz range (200kHz total) for FM demodulation
     const freqHz = freqMHz * 1_000_000;
-    dispatch(sendFrequencyRange({
-      min: freqHz - 100_000,
-      max: freqHz + 100_000
-    }));
+    dispatch(
+      sendFrequencyRange({
+        min: freqHz - 100_000,
+        max: freqHz + 100_000,
+      }),
+    );
     // Set PPM to 0 for precise FM tuning
     dispatch({
-      type: 'websocket/sendMessage',
+      type: "websocket/sendMessage",
       payload: {
-        type: 'ppm',
-        ppm: 0
-      }
+        type: "ppm",
+        ppm: 0,
+      },
     });
     // Set FFT Window to Rectangular for FM demodulation
     dispatch({
-      type: 'websocket/sendMessage',
+      type: "websocket/sendMessage",
       payload: {
-        type: 'settings',
-        fftWindow: 'Rectangular'
-      }
+        type: "settings",
+        fftWindow: "Rectangular",
+      },
     });
     // Update local Redux state to keep the pill selected
     dispatch(setCenterFreq(freqMHz * 1e6));
@@ -141,7 +149,7 @@ export const FmNode: React.FC<FmNodeProps> = ({ data }) => {
   const fmDataRef = useRef({
     iq_data: fmIQ,
     sample_rate: 250000,
-    center_frequency_hz: 88200000
+    center_frequency_hz: 88200000,
   });
 
   const fmRange = useMemo(() => ({ min: 88_000_000, max: 108_000_000 }), []);
@@ -152,11 +160,11 @@ export const FmNode: React.FC<FmNodeProps> = ({ data }) => {
 
       <Header>
         <RadioIcon size={14} color="#00d4ff" />
-        <Title>{data.label || 'FM Radio'}</Title>
+        <Title>{data.label || "FM Radio"}</Title>
       </Header>
 
       <FrequencyDisplay>
-        {centerFreq ? formatFrequency(centerFreq) : 'Select a station'}
+        {centerFreq ? formatFrequency(centerFreq) : "Select a station"}
       </FrequencyDisplay>
 
       <StationsSection>
@@ -165,7 +173,10 @@ export const FmNode: React.FC<FmNodeProps> = ({ data }) => {
           {FM_STATIONS.map((station) => (
             <StationPill
               key={station}
-              $active={centerFreq !== null && Math.abs(centerFreq - station * 1_000_000) < 100_000}
+              $active={
+                centerFreq !== null &&
+                Math.abs(centerFreq - station * 1_000_000) < 100_000
+              }
               onClick={() => handleStationClick(station)}
             >
               {station.toFixed(1)}

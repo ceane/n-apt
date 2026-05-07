@@ -4,7 +4,6 @@ import { MapLocationsSection } from "./MapLocationsSection";
 import { MapNearestEndpointsSection } from "./MapNearestEndpointsSection";
 import { MapUsefulLinksSection } from "./MapUsefulLinksSection";
 
-
 const SidebarContainer = styled.div`
   display: grid;
   grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
@@ -56,10 +55,20 @@ export const MapEndpointsSidebar: React.FC = () => {
       <Attribution>
         <AttributionRow>
           <AttributionBadge>CC BY-SA</AttributionBadge>
-          <span>Cell Tower Data from <AttributionLink href="https://opencellid.org/" target="_blank" rel="noopener noreferrer">OpenCelliD</AttributionLink></span>
+          <span>
+            Cell Tower Data from{" "}
+            <AttributionLink
+              href="https://opencellid.org/"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              OpenCelliD
+            </AttributionLink>
+          </span>
         </AttributionRow>
         <AttributionDetail>
-          OpenCelliD Project is licensed under a Creative Commons Attribution-ShareAlike 4.0 International License
+          OpenCelliD Project is licensed under a Creative Commons
+          Attribution-ShareAlike 4.0 International License
         </AttributionDetail>
       </Attribution>
 

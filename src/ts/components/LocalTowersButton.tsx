@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
-import styled from 'styled-components';
-import { useGeolocation } from '@n-apt/hooks/useGeolocation';
-import { BACKEND_HTTP_URL } from '@n-apt/consts/env';
+import React, { useState } from "react";
+import styled from "styled-components";
+import { useGeolocation } from "@n-apt/hooks/useGeolocation";
+import { BACKEND_HTTP_URL } from "@n-apt/consts/env";
 
 interface LocalTowersButtonProps {
   onLocalTowersLoaded?: (result: LocalTowersResult) => void;
@@ -16,31 +16,25 @@ interface LocalTowersResult {
 }
 
 const Button = styled.button<{ $disabled?: boolean; $loading?: boolean }>`
-  background: ${props =>
-    props.$disabled ? '#444' :
-      props.$loading ? '#666' :
-        '#2563eb'
-  };
+  background: ${(props) =>
+    props.$disabled ? "#444" : props.$loading ? "#666" : "#2563eb"};
   color: white;
   border: none;
   padding: 8px 16px;
   border-radius: 6px;
-  cursor: ${props => props.$disabled ? 'not-allowed' : 'pointer'};
+  cursor: ${(props) => (props.$disabled ? "not-allowed" : "pointer")};
   font-size: 14px;
   font-weight: 500;
   transition: all 0.2s ease;
   display: flex;
   align-items: center;
   gap: 8px;
-  
+
   &:hover {
-    background: ${props =>
-    props.$disabled ? '#444' :
-      props.$loading ? '#666' :
-        '#1d4ed8'
-  };
+    background: ${(props) =>
+      props.$disabled ? "#444" : props.$loading ? "#666" : "#1d4ed8"};
   }
-  
+
   &:disabled {
     opacity: 0.6;
     cursor: not-allowed;
@@ -54,10 +48,14 @@ const Spinner = styled.div`
   border-top: 2px solid transparent;
   border-radius: 50%;
   animation: spin 1s linear infinite;
-  
+
   @keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
+    0% {
+      transform: rotate(0deg);
+    }
+    100% {
+      transform: rotate(360deg);
+    }
   }
 `;
 
@@ -65,7 +63,7 @@ const StatusIcon = styled.div<{ $cached?: boolean }>`
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: ${props => props.$cached ? '#10b981' : '#3b82f6'};
+  background: ${(props) => (props.$cached ? "#10b981" : "#3b82f6")};
   display: flex;
   align-items: center;
   justify-content: center;
@@ -75,9 +73,11 @@ const StatusIcon = styled.div<{ $cached?: boolean }>`
 `;
 
 export const LocalTowersButton: React.FC<LocalTowersButtonProps> = ({
-  onLocalTowersLoaded
+  onLocalTowersLoaded,
 }) => {
-  const [status, setStatus] = useState<'idle' | 'loading' | 'loaded' | 'error'>('idle');
+  const [status, setStatus] = useState<"idle" | "loading" | "loaded" | "error">(
+    "idle",
+  );
   const [result, setResult] = useState<LocalTowersResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -85,13 +85,13 @@ export const LocalTowersButton: React.FC<LocalTowersButtonProps> = ({
     getLocation,
     isSupported,
     error: geoError,
-    isLoading: geoLoading
+    isLoading: geoLoading,
   } = useGeolocation();
 
   const handleLoadLocalTowers = async () => {
     if (!isSupported) {
-      setError('Geolocation is not supported by your browser');
-      setStatus('error');
+      setError("Geolocation is not supported by your browser");
+      setStatus("error");
       return;
     }
 
@@ -99,28 +99,31 @@ export const LocalTowersButton: React.FC<LocalTowersButtonProps> = ({
       return; // Wait for geolocation to load
     }
 
-    setStatus('loading');
+    setStatus("loading");
     setError(null);
 
     try {
       // Get user location
       const userLocation = await getLocation();
       if (!userLocation) {
-        throw new Error('Unable to get your location');
+        throw new Error("Unable to get your location");
       }
 
       // Call backend API
-      const response = await fetch(`${BACKEND_HTTP_URL}/api/towers/load-local-radius`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
+      const response = await fetch(
+        `${BACKEND_HTTP_URL}/api/towers/load-local-radius`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            latitude: userLocation.latitude,
+            longitude: userLocation.longitude,
+            radius_km: 25, // Default 25km radius
+          }),
         },
-        body: JSON.stringify({
-          latitude: userLocation.latitude,
-          longitude: userLocation.longitude,
-          radius_km: 25 // Default 25km radius
-        })
-      });
+      );
 
       if (!response.ok) {
         throw new Error(`Server error: ${response.status}`);
@@ -128,21 +131,21 @@ export const LocalTowersButton: React.FC<LocalTowersButtonProps> = ({
 
       const data: LocalTowersResult = await response.json();
       setResult(data);
-      setStatus('loaded');
+      setStatus("loaded");
 
       if (onLocalTowersLoaded) {
         onLocalTowersLoaded(data);
       }
-
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to load local towers';
+      const errorMessage =
+        err instanceof Error ? err.message : "Failed to load local towers";
       setError(errorMessage);
-      setStatus('error');
+      setStatus("error");
     }
   };
 
   const renderButtonContent = () => {
-    if (status === 'loading') {
+    if (status === "loading") {
       return (
         <>
           <Spinner />
@@ -151,15 +154,15 @@ export const LocalTowersButton: React.FC<LocalTowersButtonProps> = ({
       );
     }
 
-    if (status === 'loaded' && result) {
+    if (status === "loaded" && result) {
       return (
         <>
           <StatusIcon $cached={result.cached}>
-            {result.cached ? '✓' : '✓'}
+            {result.cached ? "✓" : "✓"}
           </StatusIcon>
           <span>
             {result.loaded} local towers loaded
-            {result.cached && ' (cached)'}
+            {result.cached && " (cached)"}
           </span>
         </>
       );
@@ -175,7 +178,7 @@ export const LocalTowersButton: React.FC<LocalTowersButtonProps> = ({
 
   const getTooltip = () => {
     if (!isSupported) {
-      return 'Geolocation is not supported by your browser';
+      return "Geolocation is not supported by your browser";
     }
 
     if (geoError) {
@@ -183,29 +186,29 @@ export const LocalTowersButton: React.FC<LocalTowersButtonProps> = ({
     }
 
     if (geoLoading) {
-      return 'Getting your location...';
+      return "Getting your location...";
     }
 
-    if (status === 'error' && error) {
+    if (status === "error" && error) {
       return error;
     }
 
-    if (status === 'loaded' && result) {
+    if (status === "loaded" && result) {
       return result.cached
         ? `Using cached towers from ${result.radius}km radius`
         : `Loaded ${result.loaded} towers from ${result.radius}km radius around your location`;
     }
 
-    return 'Load towers within 25km of your current location';
+    return "Load towers within 25km of your current location";
   };
 
-  const isDisabled = !isSupported || geoLoading || status === 'loading';
+  const isDisabled = !isSupported || geoLoading || status === "loading";
 
   return (
     <Button
       onClick={handleLoadLocalTowers}
       disabled={isDisabled}
-      $loading={status === 'loading'}
+      $loading={status === "loading"}
       $disabled={isDisabled}
       title={getTooltip()}
     >

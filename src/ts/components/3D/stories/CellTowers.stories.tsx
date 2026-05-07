@@ -1,22 +1,22 @@
-import React from 'react';
-import { Canvas } from '@react-three/fiber';
-import { OrbitControls, Grid } from '@react-three/drei';
+import React from "react";
+import { Canvas } from "@react-three/fiber";
+import { OrbitControls, Grid } from "@react-three/drei";
 import {
   SectorTower,
   DiamondCell,
   PoleMountedSmallCell,
   HexagonalSmallCell,
-  SinglePanelSmallCell
-} from '../CellTowers';
+  SinglePanelSmallCell,
+} from "../CellTowers";
 
 export default {
-  title: 'ThreeD/CellTowers',
+  title: "ThreeD/CellTowers",
 };
 
 const Setup = ({ children }: { children: React.ReactNode }) => (
-  <div style={{ width: '100%', height: '600px', background: '#050505' }}>
+  <div style={{ width: "100%", height: "600px", background: "#050505" }}>
     <Canvas camera={{ position: [15, 10, 15], fov: 45 }}>
-      <color attach="background" args={['#050505']} />
+      <color attach="background" args={["#050505"]} />
       <ambientLight intensity={0.6} />
       <directionalLight position={[10, 20, 10]} intensity={1.2} />
       <directionalLight position={[-10, 5, -10]} intensity={0.4} />
@@ -37,7 +37,11 @@ const Setup = ({ children }: { children: React.ReactNode }) => (
 
       {children}
 
-      <OrbitControls makeDefault minPolarAngle={0} maxPolarAngle={Math.PI / 2} />
+      <OrbitControls
+        makeDefault
+        minPolarAngle={0}
+        maxPolarAngle={Math.PI / 2}
+      />
     </Canvas>
   </div>
 );

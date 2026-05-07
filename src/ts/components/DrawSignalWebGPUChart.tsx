@@ -125,7 +125,6 @@ const DrawSignalWebGPUChart: React.FC<DrawSignalWebGPUChartProps> = ({
     return vertices;
   };
 
-
   const ensurePipelines = (device: GPUDevice, format: GPUTextureFormat) => {
     if (
       linePipelineRef.current &&

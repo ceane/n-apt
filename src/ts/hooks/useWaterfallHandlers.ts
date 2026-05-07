@@ -26,7 +26,10 @@ export interface WaterfallHandlersState {
   waterfallDataWidthRef: React.MutableRefObject<number | null>;
   bufferPoolRef: React.MutableRefObject<Uint8ClampedArray[]>;
   waterfallCappedBufferRef: React.MutableRefObject<Float32Array | null>;
-  waterfallDimsRef: React.MutableRefObject<{ width: number; height: number } | null>;
+  waterfallDimsRef: React.MutableRefObject<{
+    width: number;
+    height: number;
+  } | null>;
   waterfallGpuDimsRef: React.MutableRefObject<{
     width: number;
     height: number;
@@ -38,7 +41,9 @@ export interface WaterfallHandlersState {
   lastWaterfallVisualRangeRef: React.MutableRefObject<FrequencyRange | null>;
 
   // Rendering functions
-  drawWebGPUFIFOWaterfall: ReturnType<typeof useDrawWebGPUFIFOWaterfall>["drawWebGPUFIFOWaterfall"];
+  drawWebGPUFIFOWaterfall: ReturnType<
+    typeof useDrawWebGPUFIFOWaterfall
+  >["drawWebGPUFIFOWaterfall"];
 
   // Utility functions
   getBufferFromPool: (size: number) => Uint8ClampedArray;
@@ -89,7 +94,9 @@ export const useWaterfallHandlers = ({
   } | null>(null);
   const heterodyningHistoryRef = useRef<Float32Array[]>([]);
   const lastHeterodyningRequestIdRef = useRef(0);
-  const pendingWaterfallRestoreRef = useRef<PendingWaterfallRestore | null>(null);
+  const pendingWaterfallRestoreRef = useRef<PendingWaterfallRestore | null>(
+    null,
+  );
   const restoredWaterfallRef = useRef(false);
 
   // Waterfall processing buffers
@@ -98,7 +105,9 @@ export const useWaterfallHandlers = ({
   const bufferPoolRef = useRef<Uint8ClampedArray[]>([]);
   const maxBufferPoolSize = 3;
   const waterfallCappedBufferRef = useRef<Float32Array | null>(null);
-  const waterfallDimsRef = useRef<{ width: number; height: number } | null>(null);
+  const waterfallDimsRef = useRef<{ width: number; height: number } | null>(
+    null,
+  );
   const waterfallGpuDimsRef = useRef<{
     width: number;
     height: number;

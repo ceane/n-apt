@@ -49,7 +49,13 @@ type HookHarnessProps = {
   sdrSettings: SdrSettingsConfig;
   spectrumStateOverride?: Pick<
     SpectrumState,
-    "fftSize" | "fftWindow" | "fftFrameRate" | "gain" | "ppm" | "tunerAGC" | "rtlAGC"
+    | "fftSize"
+    | "fftWindow"
+    | "fftFrameRate"
+    | "gain"
+    | "ppm"
+    | "tunerAGC"
+    | "rtlAGC"
   >;
 };
 

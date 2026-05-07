@@ -103,7 +103,7 @@ const ClumpSelector = styled.div`
   margin-bottom: 16px;
   overflow-x: auto;
   padding-bottom: 4px;
-  
+
   &::-webkit-scrollbar {
     height: 4px;
   }
@@ -114,9 +114,12 @@ const ClumpSelector = styled.div`
 `;
 
 const ClumpTab = styled.button<{ $active: boolean }>`
-  background: ${(props) => (props.$active ? props.theme.primary : props.theme.surface)};
-  color: ${(props) => (props.$active ? props.theme.background : props.theme.textSecondary)};
-  border: 1px solid ${(props) => (props.$active ? props.theme.primary : props.theme.border)};
+  background: ${(props) =>
+    props.$active ? props.theme.primary : props.theme.surface};
+  color: ${(props) =>
+    props.$active ? props.theme.background : props.theme.textSecondary};
+  border: 1px solid
+    ${(props) => (props.$active ? props.theme.primary : props.theme.border)};
   padding: 4px 12px;
   border-radius: 4px;
   font-size: 11px;
@@ -126,7 +129,8 @@ const ClumpTab = styled.button<{ $active: boolean }>`
   transition: all 0.2s;
 
   &:hover {
-    background: ${(props) => (props.$active ? props.theme.primary : props.theme.surfaceHover)};
+    background: ${(props) =>
+      props.$active ? props.theme.primary : props.theme.surfaceHover};
   }
 `;
 
@@ -285,7 +289,9 @@ const DrawMath = React.lazy(async () => {
     return await import(/* @vite-ignore */ modulePath);
   } catch {
     return {
-      default: () => <DecryptionFallback moduleName="Draw Math" errorType="latex" />,
+      default: () => (
+        <DecryptionFallback moduleName="Draw Math" errorType="latex" />
+      ),
     };
   }
 });
@@ -308,7 +314,7 @@ export const DrawSignalSidebar: React.FC = () => {
     let newParams = [...drawParams];
     if (count > drawParams.length) {
       for (let i = drawParams.length; i < count; i++) {
-        newParams.push({ ...drawParams[0], centerOffset: (i * 0.4) - 0.2 });
+        newParams.push({ ...drawParams[0], centerOffset: i * 0.4 - 0.2 });
       }
     } else {
       newParams = drawParams.slice(0, count);
@@ -339,21 +345,23 @@ export const DrawSignalSidebar: React.FC = () => {
 
   return (
     <DrawContainer>
-      <React.Suspense fallback={<LoadingFallback>Loading Math...</LoadingFallback>}>
+      <React.Suspense
+        fallback={<LoadingFallback>Loading Math...</LoadingFallback>}
+      >
         <DrawMath />
       </React.Suspense>
 
       <SectionHeader>
-        <SectionHeading>
-          Simulation Controls
-        </SectionHeading>
+        <SectionHeading>Simulation Controls</SectionHeading>
         <ResetButton onClick={() => dispatch({ type: "RESET_DRAW_PARAMS" })}>
           Reset Defaults
         </ResetButton>
       </SectionHeader>
 
       <ControlsContainer>
-        <BeatsSection style={{ borderTop: 'none', paddingTop: 0, marginTop: 4 }}>
+        <BeatsSection
+          style={{ borderTop: "none", paddingTop: 0, marginTop: 4 }}
+        >
           <BeatsHeader>
             <BeatsTitle>Add Beats (Heterodyne)</BeatsTitle>
             <AddBeatButton
@@ -368,7 +376,9 @@ export const DrawSignalSidebar: React.FC = () => {
             <BeatItem key={i}>
               <BeatRow>
                 <BeatLabel>Beat {i + 1}</BeatLabel>
-                <RemoveBeatButton onClick={() => handleRemoveBeat(i)}>×</RemoveBeatButton>
+                <RemoveBeatButton onClick={() => handleRemoveBeat(i)}>
+                  ×
+                </RemoveBeatButton>
               </BeatRow>
               <Slider
                 value={beat.offsetHz}
@@ -390,10 +400,16 @@ export const DrawSignalSidebar: React.FC = () => {
         <Row label="Clumps">
           <SettingSelect
             value={drawParams.length}
-            onChange={(e: React.ChangeEvent<HTMLSelectElement>) => handleClumpCountChange(parseInt(e.target.value))}
-            style={{ width: '100%' }}
+            onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
+              handleClumpCountChange(parseInt(e.target.value))
+            }
+            style={{ width: "100%" }}
           >
-            {[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{n} Clump{n > 1 ? 's' : ''}</option>)}
+            {[1, 2, 3, 4, 5].map((n) => (
+              <option key={n} value={n}>
+                {n} Clump{n > 1 ? "s" : ""}
+              </option>
+            ))}
           </SettingSelect>
         </Row>
 
@@ -403,7 +419,9 @@ export const DrawSignalSidebar: React.FC = () => {
               <ClumpTab
                 key={i}
                 $active={activeClumpIndex === i}
-                onClick={() => dispatch({ type: "SET_ACTIVE_CLUMP_INDEX", index: i })}
+                onClick={() =>
+                  dispatch({ type: "SET_ACTIVE_CLUMP_INDEX", index: i })
+                }
               >
                 Clump {i + 1}
               </ClumpTab>
@@ -441,7 +459,9 @@ export const DrawSignalSidebar: React.FC = () => {
           min={-140}
           max={-40}
           step={1}
-          onChange={(noise) => dispatch({ type: "SET_GLOBAL_NOISE_FLOOR", noise })}
+          onChange={(noise) =>
+            dispatch({ type: "SET_GLOBAL_NOISE_FLOOR", noise })
+          }
           formatValue={(v) => `${v} dB`}
           orientation="horizontal"
         />
@@ -525,7 +545,6 @@ export const DrawSignalSidebar: React.FC = () => {
           formatValue={(v) => v.toFixed(1)}
           orientation="horizontal"
         />
-
       </ControlsContainer>
 
       <InfoContainer>

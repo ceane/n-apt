@@ -21,9 +21,7 @@ import {
 const getApiBase = (): string => {
   if (typeof window !== "undefined") {
     const host = window.location.hostname;
-    const isLocalPreviewHost =
-      host === "localhost" ||
-      host === "127.0.0.1";
+    const isLocalPreviewHost = host === "localhost" || host === "127.0.0.1";
 
     if (isLocalPreviewHost) {
       return "";
@@ -85,12 +83,12 @@ export function clearSession(): void {
 export async function fetchAuthInfo(): Promise<AuthInfo> {
   const res = await fetch(`${API_BASE}/auth/info`);
   if (!res.ok) throw new Error(`auth/info failed: ${res.status}`);
-  
+
   const data = await res.json();
   if (!validateAuthInfo(data)) {
-    throw new Error('Invalid auth info response from server');
+    throw new Error("Invalid auth info response from server");
   }
-  
+
   return data;
 }
 
@@ -133,9 +131,7 @@ export async function validateSession(
   if (!res.ok) {
     return {
       valid: false,
-      error:
-        parsed?.error ||
-        `Session validation failed: ${res.status}`,
+      error: parsed?.error || `Session validation failed: ${res.status}`,
     };
   }
 
@@ -202,10 +198,10 @@ export async function authenticateWithPassword(
   }
 
   const result: AuthResult = await verifyRes.json();
-  
+
   // Validate authentication result
   if (!validateAuthResult(result)) {
-    throw new Error('Invalid authentication result from server');
+    throw new Error("Invalid authentication result from server");
   }
 
   // Step 4: Store session and derive AES key for later decryption
@@ -302,12 +298,12 @@ export async function authenticateWithPasskey(): Promise<AuthResult> {
   }
 
   const result: AuthResult = await finishRes.json();
-  
+
   // Validate authentication result
   if (!validateAuthResult(result)) {
-    throw new Error('Invalid passkey authentication result from server');
+    throw new Error("Invalid passkey authentication result from server");
   }
-  
+
   storeSession(result.token);
   return result;
 }

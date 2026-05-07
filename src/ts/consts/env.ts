@@ -34,3 +34,7 @@ export const WASM_BUILD_PATH =
   getEnvVar("VITE_WASM_BUILD_PATH") ??
   getEnvVar("WASM_BUILD_PATH") ??
   "packages/n_apt_canvas";
+export const PBKDF2_SALT_VAL =
+  getEnvVar("VITE_PBKDF2_SALT") ?? "n-apt-aes-salt-v1";
+export const getGoogleMapsApiKey =
+  getEnvVar("VITE_GOOGLE_MAPS_API_KEY") ?? "";

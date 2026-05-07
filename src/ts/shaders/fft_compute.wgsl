@@ -3,7 +3,7 @@
 
 // FFT Compute Parameters
 struct FFTParams {
-  stage: u32,        // Current FFT stage
+  stage: u32,        // Current FFT stage or bit-reversal log2(N)
   direction: i32,    // 1 for forward, -1 for inverse
   input_size: u32,   // Size of input buffer (must be power of 2)
   window_type: u32,  // Window function type
@@ -106,6 +106,27 @@ fn butterfly(a: Complex, b: Complex, twiddle: Complex) -> Complex {
   return complex_add(a, twiddled_b);
 }
 
+// Bit reversal utility
+fn reverse_bits(index: u32, bits: u32) -> u32 {
+    var result = 0u;
+    var x = index;
+    for (var i = 0u; i < bits; i = i + 1u) {
+        result = (result << 1u) | (x & 1u);
+        x = x >> 1u;
+    }
+    return result;
+}
+
+@compute @workgroup_size(256)
+fn fft_bit_reversal(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let idx = global_id.x;
+    if (idx >= params.input_size) {
+        return;
+    }
+    let reversed_idx = reverse_bits(idx, params.stage); // stage = log2(N)
+    output_buffer[reversed_idx] = temp_buffer[idx];
+}
+
 // Main FFT compute shader
 @compute @workgroup_size(256)
 fn fft_compute(@builtin(global_invocation_id) global_id: vec3<u32>) {
@@ -164,16 +185,19 @@ fn fft_window(@builtin(global_invocation_id) global_id: vec3<u32>) {
   temp_buffer[idx] = windowed;
 }
 
-// Power spectrum calculation
+// Power spectrum calculation with FFT Shift
 @compute @workgroup_size(256)
 fn fft_power_spectrum(@builtin(global_invocation_id) global_id: vec3<u32>) {
   let idx = global_id.x;
+  let n = params.input_size;
   
-  if (idx >= params.input_size) {
+  if (idx >= n) {
     return;
   }
   
-  let complex_val = input_buffer[idx];
+  // Implement FFT Shift (swap halves) so DC is in center
+  let shifted_idx = (idx + n / 2u) % n;
+  let complex_val = input_buffer[shifted_idx];
   let magnitude = complex_magnitude(complex_val);
   
   // Convert to dB scale with normalization
@@ -224,46 +248,6 @@ fn fft_smooth(@builtin(global_invocation_id) global_id: vec3<u32>) {
   output_buffer[idx] = Complex(smoothed, 0.0);
 }
 
-// Waterfall color mapping with direct FFT integration
-@compute @workgroup_size(256)
-fn fft_waterfall_direct(@builtin(global_invocation_id) global_id: vec3<u32>) {
-  let idx = global_id.x;
-  
-  if (idx >= params.input_size) {
-    return;
-  }
-  
-  // Direct access to FFT power spectrum data
-  let complex_val = input_buffer[idx];
-  let magnitude = complex_magnitude(complex_val);
-  
-  // Convert to dB scale with normalization
-  let db_value = 20.0 * log10(max(magnitude / params.normalization, 1e-10));
-  
-  // Normalize dB value to [0, 1] for waterfall using min_db/max_db
-  let range = params.max_db - params.min_db;
-  let normalized = clamp((db_value - params.min_db) / max(range, 0.001), 0.0, 1.0);
-  
-  // Direct waterfall color mapping (optimized for real-time)
-  var color: vec4<f32>;
-  
-  // Optimized color calculation using conditional moves
-  let is_low = normalized < 0.5;
-  let t_low = normalized * 2.0;
-  let t_high = (normalized - 0.5) * 2.0;
-  
-  color.r = select(0.0, t_high, is_low);
-  color.g = select(t_low, 1.0 - t_high, is_low);
-  color.b = select(1.0 - t_low, 0.0, is_low);
-  color.a = 1.0;
-  
-  // Store as RGBA in output buffer for direct waterfall rendering
-  output_buffer[idx] = Complex(
-    color.r * 255.0 + color.g * 255.0 * 256.0 + color.b * 255.0 * 65536.0,
-    color.a * 255.0
-  );
-}
-
 @compute @workgroup_size(256)
 fn waterfall_buffer_update(@builtin(global_invocation_id) global_id: vec3<u32>) {
   let idx = global_id.x;
@@ -274,18 +258,22 @@ fn waterfall_buffer_update(@builtin(global_invocation_id) global_id: vec3<u32>) 
     return;
   }
   
-  // Downsample if needed (decimation)
+  // Optimized Max-Pooling Decimation to preserve signal spikes
   let ratio = width / waterfall_width;
-  let input_idx = idx * ratio;
+  let start_idx = idx * ratio;
+  let end_idx = min(start_idx + ratio, width);
   
-  // Read FFT power spectrum directly
-  let complex_val = input_buffer[input_idx];
-  let magnitude = complex_magnitude(complex_val);
-  let db_value = 20.0 * log10(max(magnitude / params.normalization, 1e-10));
+  var max_db = -200.0;
+  for (var i = start_idx; i < end_idx; i = i + 1u) {
+    let complex_val = input_buffer[i];
+    let magnitude = complex_magnitude(complex_val);
+    let db_val = 20.0 * log10(max(magnitude / params.normalization, 1e-10));
+    max_db = max(max_db, db_val);
+  }
   
   // Normalize and apply color mapping using min_db/max_db
   let range = params.max_db - params.min_db;
-  let normalized = clamp((db_value - params.min_db) / max(range, 0.001), 0.0, 1.0);
+  let normalized = clamp((max_db - params.min_db) / max(range, 0.001), 0.0, 1.0);
   
   // Map to colors: Blue -> Cyan -> Green -> Yellow -> Red
   var r = 0.0;
@@ -309,7 +297,6 @@ fn waterfall_buffer_update(@builtin(global_invocation_id) global_id: vec3<u32>) 
   let color_u32 = (u32(r * 255.0)) | (u32(g * 255.0) << 8u) | (u32(b * 255.0) << 16u) | (255u << 24u);
   
   // Pack 2 pixels per Complex element (8 bytes total, 4 bytes each)
-  // real part = pixel N, imag part = pixel N+1
   if (idx % 2u == 0u) {
     output_buffer[idx / 2u].real = bitcast<f32>(color_u32);
   } else {
@@ -318,7 +305,7 @@ fn waterfall_buffer_update(@builtin(global_invocation_id) global_id: vec3<u32>) 
 }
 
 fn rtl_sdr_windowed_complex_iq(idx: u32, sample: Complex) -> Complex {
-  let window_val = window_function(idx, params.input_size, WINDOW_HANNING);
+  let window_val = window_function(idx, params.input_size, params.window_type);
   return Complex(sample.real * window_val, sample.imag * window_val);
 }
 
@@ -423,13 +410,16 @@ fn rtl_sdr_iq_to_dbm(@builtin(global_invocation_id) global_id: vec3<u32>) {
 @compute @workgroup_size(256)
 fn rtl_sdr_power_spectrum_dbm(@builtin(global_invocation_id) global_id: vec3<u32>) {
   let idx = global_id.x;
+  let n = params.input_size;
 
-  if (idx >= params.input_size) {
+  if (idx >= n) {
     return;
   }
 
-  let complex_val = input_buffer[idx];
-  let dbm = calibrated_dbm(complex_val, idx);
+  // Implement FFT Shift for calibrated DBM mode
+  let shifted_idx = (idx + n / 2u) % n;
+  let complex_val = input_buffer[shifted_idx];
+  let dbm = calibrated_dbm(complex_val, shifted_idx);
   output_buffer[idx] = Complex(dbm, 0.0);
 }
 

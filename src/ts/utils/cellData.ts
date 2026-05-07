@@ -51,7 +51,12 @@ export function getCarrierName(mcc: string, mnc: string): string {
  */
 export function getPotentialLeasee(towerId: string): string {
   // This is a placeholder for future matching logic
-  const providers = ["American Tower", "Crown Castle", "SBA Communications", "Vertical Bridge"];
+  const providers = [
+    "American Tower",
+    "Crown Castle",
+    "SBA Communications",
+    "Vertical Bridge",
+  ];
   const index = parseInt(towerId.slice(-1), 16) % providers.length;
   return providers[index];
 }

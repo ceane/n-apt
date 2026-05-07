@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
-import styled, { keyframes } from 'styled-components';
-import { X } from 'lucide-react';
+import React, { useEffect, useState } from "react";
+import styled, { keyframes } from "styled-components";
+import { X } from "lucide-react";
 
 const slideIn = keyframes`
   from {
@@ -13,51 +13,54 @@ const slideIn = keyframes`
   }
 `;
 
-const NotificationContainer = styled.div<{ $type: 'info' | 'success' | 'warning' | 'error' }>`
+const NotificationContainer = styled.div<{
+  $type: "info" | "success" | "warning" | "error";
+}>`
   display: flex;
   align-items: flex-start;
   gap: 12px;
   padding: 12px 16px;
   background: ${(props) => {
     switch (props.$type) {
-      case 'success':
-        return props.theme.background || '#1a1a1a';
-      case 'warning':
-        return props.theme.background || '#1a1a1a';
-      case 'error':
-        return props.theme.background || '#1a1a1a';
+      case "success":
+        return props.theme.background || "#1a1a1a";
+      case "warning":
+        return props.theme.background || "#1a1a1a";
+      case "error":
+        return props.theme.background || "#1a1a1a";
       default:
-        return props.theme.background || '#1a1a1a';
+        return props.theme.background || "#1a1a1a";
     }
   }};
-  border: 1px solid ${(props) => {
-    switch (props.$type) {
-      case 'success':
-        return props.theme.success || '#22c55e';
-      case 'warning':
-        return props.theme.warning || '#f59e0b';
-      case 'error':
-        return props.theme.danger || '#ef4444';
-      default:
-        return props.theme.primary || '#00d4ff';
-    }
-  }};
+  border: 1px solid
+    ${(props) => {
+      switch (props.$type) {
+        case "success":
+          return props.theme.success || "#22c55e";
+        case "warning":
+          return props.theme.warning || "#f59e0b";
+        case "error":
+          return props.theme.danger || "#ef4444";
+        default:
+          return props.theme.primary || "#00d4ff";
+      }
+    }};
   border-radius: 8px;
   color: ${(props) => {
     switch (props.$type) {
-      case 'success':
-        return props.theme.success || '#22c55e';
-      case 'warning':
-        return props.theme.warning || '#f59e0b';
-      case 'error':
-        return props.theme.danger || '#ef4444';
+      case "success":
+        return props.theme.success || "#22c55e";
+      case "warning":
+        return props.theme.warning || "#f59e0b";
+      case "error":
+        return props.theme.danger || "#ef4444";
       default:
-        return props.theme.primary || '#00d4ff';
+        return props.theme.primary || "#00d4ff";
     }
   }};
   font-size: 12px;
   font-weight: 500;
-  font-family: ${(props) => props.theme.typography?.mono || 'monospace'};
+  font-family: ${(props) => props.theme.typography?.mono || "monospace"};
   min-width: 280px;
   max-width: 400px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
@@ -106,26 +109,29 @@ const CloseButton = styled.button`
   }
 `;
 
-const NotificationDot = styled.div<{ $type: 'info' | 'success' | 'warning' | 'error' }>`
+const NotificationDot = styled.div<{
+  $type: "info" | "success" | "warning" | "error";
+}>`
   width: 8px;
   height: 8px;
   border-radius: 50%;
   background: ${(props) => {
     switch (props.$type) {
-      case 'success':
-        return props.theme.success || '#22c55e';
-      case 'warning':
-        return props.theme.warning || '#f59e0b';
-      case 'error':
-        return props.theme.danger || '#ef4444';
+      case "success":
+        return props.theme.success || "#22c55e";
+      case "warning":
+        return props.theme.warning || "#f59e0b";
+      case "error":
+        return props.theme.danger || "#ef4444";
       default:
-        return props.theme.primary || '#00d4ff';
+        return props.theme.primary || "#00d4ff";
     }
   }};
   animation: pulse 2s infinite;
-  
+
   @keyframes pulse {
-    0%, 100% {
+    0%,
+    100% {
       opacity: 1;
     }
     50% {
@@ -136,7 +142,7 @@ const NotificationDot = styled.div<{ $type: 'info' | 'success' | 'warning' | 'er
 
 export interface NotificationProps {
   id: string;
-  type: 'info' | 'success' | 'warning' | 'error';
+  type: "info" | "success" | "warning" | "error";
   title: string;
   message?: string;
   duration?: number; // Auto-dismiss after ms, undefined = no auto-dismiss

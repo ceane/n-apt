@@ -1,4 +1,11 @@
-import React, { createContext, useContext, useState, ReactNode, useRef, useEffect } from "react";
+import React, {
+  createContext,
+  useContext,
+  useState,
+  ReactNode,
+  useRef,
+  useEffect,
+} from "react";
 import styled from "styled-components";
 import { Prompt } from "./Prompt";
 
@@ -65,9 +72,16 @@ const ButtonRow = styled.div`
 `;
 
 const Button = styled.button<{ $primary?: boolean }>`
-  background: ${({ theme, $primary }) => $primary ? theme.primary : "transparent"};
-  color: ${({ theme, $primary }) => $primary ? (theme.mode === "light" ? "#fff" : "#000") : theme.textSecondary};
-  border: ${({ theme, $primary }) => $primary ? "none" : `1px solid ${theme.border}`};
+  background: ${({ theme, $primary }) =>
+    $primary ? theme.primary : "transparent"};
+  color: ${({ theme, $primary }) =>
+    $primary
+      ? theme.mode === "light"
+        ? "#fff"
+        : "#000"
+      : theme.textSecondary};
+  border: ${({ theme, $primary }) =>
+    $primary ? "none" : `1px solid ${theme.border}`};
   border-radius: 6px;
   padding: 8px 16px;
   font-size: 12px;
@@ -76,7 +90,8 @@ const Button = styled.button<{ $primary?: boolean }>`
   transition: all 0.2s ease;
 
   &:hover {
-    background: ${({ theme, $primary }) => $primary ? theme.textPrimary : theme.surfaceHover};
+    background: ${({ theme, $primary }) =>
+      $primary ? theme.textPrimary : theme.surfaceHover};
   }
 `;
 
@@ -105,21 +120,23 @@ export const usePrompt = () => {
   return context;
 };
 
-export const PromptProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+export const PromptProvider: React.FC<{ children: ReactNode }> = ({
+  children,
+}) => {
   const [promptState, setPromptState] = useState({
     open: false,
     title: "",
     message: "",
     confirmText: "Confirm",
     cancelText: "Cancel",
-    onConfirm: () => { },
-    onCancel: () => { },
+    onConfirm: () => {},
+    onCancel: () => {},
     variant: "primary" as "primary" | "danger",
   });
 
   const [passwordState, setPasswordState] = useState({
     open: false,
-    onConfirm: (_password: string) => { },
+    onConfirm: (_password: string) => {},
   });
 
   const passwordRef = useRef<HTMLDialogElement>(null);
@@ -143,11 +160,11 @@ export const PromptProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       cancelText: options.cancelText || "Cancel",
       onConfirm: () => {
         options.onConfirm();
-        setPromptState(prev => ({ ...prev, open: false }));
+        setPromptState((prev) => ({ ...prev, open: false }));
       },
       onCancel: () => {
         options.onCancel?.();
-        setPromptState(prev => ({ ...prev, open: false }));
+        setPromptState((prev) => ({ ...prev, open: false }));
       },
       variant: options.variant || "primary",
     });
@@ -161,7 +178,7 @@ export const PromptProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     e.preventDefault();
     const password = passwordInputRef.current?.value || "";
     passwordState.onConfirm(password);
-    setPasswordState({ open: false, onConfirm: () => { } });
+    setPasswordState({ open: false, onConfirm: () => {} });
     if (passwordInputRef.current) passwordInputRef.current.value = "";
   };
 
@@ -178,29 +195,40 @@ export const PromptProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         onCancel={promptState.onCancel}
         variant={promptState.variant}
       />
-      <PasswordDialog ref={passwordRef} onClose={() => setPasswordState({ open: false, onConfirm: () => { } })}>
+      <PasswordDialog
+        ref={passwordRef}
+        onClose={() => setPasswordState({ open: false, onConfirm: () => {} })}
+      >
         <Form onSubmit={handlePasswordSubmit}>
           <div>
             <Title>Unlock Vault</Title>
-            <Message>Enter your password to derive the decryption key and unlock the vault.</Message>
+            <Message>
+              Enter your password to derive the decryption key and unlock the
+              vault.
+            </Message>
           </div>
-          <input 
-            type="text" 
-            name="username" 
-            autoComplete="username" 
-            value="n-apt-user" 
-            readOnly 
-            style={{ display: 'none' }} 
+          <input
+            type="text"
+            name="username"
+            autoComplete="username"
+            value="n-apt-user"
+            readOnly
+            style={{ display: "none" }}
           />
-          <Input 
+          <Input
             ref={passwordInputRef}
-            type="password" 
-            placeholder="Vault Password" 
+            type="password"
+            placeholder="Vault Password"
             autoComplete="current-password"
             required
           />
           <ButtonRow>
-            <Button type="button" onClick={() => setPasswordState({ open: false, onConfirm: () => { } })}>
+            <Button
+              type="button"
+              onClick={() =>
+                setPasswordState({ open: false, onConfirm: () => {} })
+              }
+            >
               Cancel
             </Button>
             <Button type="submit" $primary>

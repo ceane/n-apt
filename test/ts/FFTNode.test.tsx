@@ -17,7 +17,7 @@ describe("FFTNode", () => {
     render(
       <TestWrapper>
         <FFTNode {...defaultProps} />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     expect(screen.getByText("FFT Transform")).toBeInTheDocument();
@@ -27,7 +27,7 @@ describe("FFTNode", () => {
     render(
       <TestWrapper>
         <FFTNode {...defaultProps} />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     expect(screen.getByText("📊 FFT Transform")).toBeInTheDocument();
@@ -37,7 +37,7 @@ describe("FFTNode", () => {
     const { container } = render(
       <TestWrapper>
         <FFTNode {...defaultProps} />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     const titleElement = container.querySelector(".node-title");
@@ -48,7 +48,7 @@ describe("FFTNode", () => {
     const { container } = render(
       <TestWrapper>
         <FFTNode {...defaultProps} />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     const descriptionElement = container.querySelector(".node-description");
@@ -66,7 +66,7 @@ describe("FFTNode", () => {
     render(
       <TestWrapper>
         <FFTNode {...customProps} />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     expect(screen.getByText("Custom FFT")).toBeInTheDocument();

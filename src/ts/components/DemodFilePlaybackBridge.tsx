@@ -20,7 +20,9 @@ interface DemodFilePlaybackBridgeProps {
   onStitchStatus?: (status: string) => void;
 }
 
-export const DemodFilePlaybackBridge: React.FC<DemodFilePlaybackBridgeProps> = ({
+export const DemodFilePlaybackBridge: React.FC<
+  DemodFilePlaybackBridgeProps
+> = ({
   selectedFiles,
   stitchTrigger,
   stitchSourceSettings,
@@ -29,7 +31,8 @@ export const DemodFilePlaybackBridge: React.FC<DemodFilePlaybackBridgeProps> = (
   onStitchStatus,
 }) => {
   const dispatch = useAppDispatch();
-  const playbackDataRef = liveDataRef as React.MutableRefObject<LiveFrameData | null>;
+  const playbackDataRef =
+    liveDataRef as React.MutableRefObject<LiveFrameData | null>;
 
   const {
     hasStitchedData,
@@ -85,10 +88,10 @@ export const DemodFilePlaybackBridge: React.FC<DemodFilePlaybackBridgeProps> = (
         activeChannel,
         channelCount,
         center_frequency_hz: activeRange
-          ? ((activeRange[0] + activeRange[1]) / 2)
+          ? (activeRange[0] + activeRange[1]) / 2
           : channel.center_freq_hz,
         capture_sample_rate_hz: activeRange
-          ? (activeRange[1] - activeRange[0])
+          ? activeRange[1] - activeRange[0]
           : channel.sample_rate_hz,
         frame_rate: channel.frame_rate,
         hardware_sample_rate_hz:
@@ -96,7 +99,13 @@ export const DemodFilePlaybackBridge: React.FC<DemodFilePlaybackBridgeProps> = (
         frequency_range: activeRange,
       }),
     );
-  }, [activeChannel, allChannelsRef, channelCount, dispatch, hardwareSampleRateHz]);
+  }, [
+    activeChannel,
+    allChannelsRef,
+    channelCount,
+    dispatch,
+    hardwareSampleRateHz,
+  ]);
 
   const fileNamesSet = useMemo(
     () => new Set(selectedFiles.map((file) => file.name)),
@@ -139,7 +148,8 @@ export const DemodFilePlaybackBridge: React.FC<DemodFilePlaybackBridgeProps> = (
   }, [dispatch, hasStitchedData, playbackDataRef]);
 
   useEffect(() => {
-    const channel = allChannelsRef.current[activeChannel] ?? allChannelsRef.current[0];
+    const channel =
+      allChannelsRef.current[activeChannel] ?? allChannelsRef.current[0];
     if (!channel) return;
 
     const activeRange =

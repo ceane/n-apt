@@ -2,7 +2,11 @@ import React, { useMemo, useState, useEffect, useCallback, memo } from "react";
 import styled from "styled-components";
 import { Unplug } from "lucide-react";
 import { useAppSelector, useAppDispatch } from "@n-apt/redux";
-import { getSupportedSnapshotVideoFormat, type SnapshotVideoFormat, type SnapshotAspectRatio } from "@n-apt/hooks/useSnapshot";
+import {
+  getSupportedSnapshotVideoFormat,
+  type SnapshotVideoFormat,
+  type SnapshotAspectRatio,
+} from "@n-apt/hooks/useSnapshot";
 import {
   setSourceMode,
   setSelectedFiles,
@@ -24,7 +28,10 @@ import {
   sendCaptureCommand,
   sendCaptureStopCommand,
 } from "@n-apt/redux/thunks/websocketThunks";
-import { deriveStateFromConfig, useSdrSettings } from "@n-apt/hooks/useSdrSettings";
+import {
+  deriveStateFromConfig,
+  useSdrSettings,
+} from "@n-apt/hooks/useSdrSettings";
 import { useAuthentication } from "@n-apt/hooks/useAuthentication";
 import { useGeolocation } from "@n-apt/hooks/useGeolocation";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
@@ -173,7 +180,9 @@ export const SpectrumSidebar: React.FC = () => {
   const isConnected = useAppSelector((s) => s.websocket.isConnected);
   const connectionStatus = useAppSelector((s) => s.websocket.connectionStatus);
   const deviceState = useAppSelector((s) => s.websocket.deviceState);
-  const deviceLoadingReason = useAppSelector((s) => s.websocket.deviceLoadingReason);
+  const deviceLoadingReason = useAppSelector(
+    (s) => s.websocket.deviceLoadingReason,
+  );
   const isPaused = useAppSelector((s) => s.websocket.isPaused);
   const deviceName = useAppSelector((s) => s.websocket.deviceName);
   const deviceProfile = useAppSelector((s) => s.websocket.deviceProfile);
@@ -192,12 +201,15 @@ export const SpectrumSidebar: React.FC = () => {
   const liveDeviceLoadingReason =
     wsConnection.deviceLoadingReason ?? deviceLoadingReason;
   const liveIsConnected = wsConnection.isConnected ?? isConnected;
-  const liveIsPaused = manualVisualizerPaused ?? wsConnection.isPaused ?? isPaused;
+  const liveIsPaused =
+    manualVisualizerPaused ?? wsConnection.isPaused ?? isPaused;
   const liveCaptureStatus = wsConnection.captureStatus ?? captureStatus;
   const liveAutoFftOptions = wsConnection.autoFftOptions ?? autoFftOptions;
-  const liveFramesToUse = effectiveFrames.length > 0 ? effectiveFrames : spectrumFrames;
+  const liveFramesToUse =
+    effectiveFrames.length > 0 ? effectiveFrames : spectrumFrames;
   const liveSdrSettingsToUse = effectiveSdrSettings ?? sdrSettings;
-  const liveDeviceNameToUse = liveDeviceName ?? wsConnection.deviceName ?? deviceName;
+  const liveDeviceNameToUse =
+    liveDeviceName ?? wsConnection.deviceName ?? deviceName;
   const liveDeviceProfileToUse =
     liveDeviceProfile ?? wsConnection.deviceProfile ?? deviceProfile;
   const isMockLiveSource =
@@ -268,12 +280,20 @@ export const SpectrumSidebar: React.FC = () => {
       storeDispatch({
         type: "SET_SDR_SETTINGS_BUNDLE",
         settings: {
-          ...(settings.fftSize !== undefined ? { fftSize: settings.fftSize } : {}),
-          ...(settings.fftWindow !== undefined ? { fftWindow: settings.fftWindow } : {}),
-          ...(settings.frameRate !== undefined ? { fftFrameRate: settings.frameRate } : {}),
+          ...(settings.fftSize !== undefined
+            ? { fftSize: settings.fftSize }
+            : {}),
+          ...(settings.fftWindow !== undefined
+            ? { fftWindow: settings.fftWindow }
+            : {}),
+          ...(settings.frameRate !== undefined
+            ? { fftFrameRate: settings.frameRate }
+            : {}),
           ...(settings.gain !== undefined ? { gain: settings.gain } : {}),
           ...(settings.ppm !== undefined ? { ppm: settings.ppm } : {}),
-          ...(settings.tunerAGC !== undefined ? { tunerAGC: settings.tunerAGC } : {}),
+          ...(settings.tunerAGC !== undefined
+            ? { tunerAGC: settings.tunerAGC }
+            : {}),
           ...(settings.rtlAGC !== undefined ? { rtlAGC: settings.rtlAGC } : {}),
         },
       });
@@ -290,11 +310,14 @@ export const SpectrumSidebar: React.FC = () => {
       ...(typeof derived.tunerAGC === "boolean"
         ? { tunerAGC: derived.tunerAGC }
         : {}),
-      ...(typeof derived.rtlAGC === "boolean" ? { rtlAGC: derived.rtlAGC } : {}),
+      ...(typeof derived.rtlAGC === "boolean"
+        ? { rtlAGC: derived.rtlAGC }
+        : {}),
       ...(typeof liveState.fftSize !== "number" || liveState.fftSize <= 0
         ? { fftSize: derived.fftSize }
         : {}),
-      ...(typeof liveState.fftFrameRate !== "number" || liveState.fftFrameRate <= 0
+      ...(typeof liveState.fftFrameRate !== "number" ||
+      liveState.fftFrameRate <= 0
         ? { fftFrameRate: derived.fftFrameRate }
         : {}),
       ...(!liveState.fftWindow ? { fftWindow: derived.fftWindow } : {}),
@@ -341,9 +364,15 @@ export const SpectrumSidebar: React.FC = () => {
 
   // Capture UI state
   const { showPrompt } = usePrompt();
-  const [activeCaptureAreas, setActiveCaptureAreas] = useState<string[]>(["Onscreen"]);
-  const [acquisitionMode, setAcquisitionMode] = useState<"stepwise" | "interleaved" | "whole_sample">("stepwise");
-  const [captureDurationMode, setCaptureDurationMode] = useState<"timed" | "manual">("timed");
+  const [activeCaptureAreas, setActiveCaptureAreas] = useState<string[]>([
+    "Onscreen",
+  ]);
+  const [acquisitionMode, setAcquisitionMode] = useState<
+    "stepwise" | "interleaved" | "whole_sample"
+  >("stepwise");
+  const [captureDurationMode, setCaptureDurationMode] = useState<
+    "timed" | "manual"
+  >("timed");
   const [captureDurationS, setCaptureDurationS] = useState(1);
   const [captureFileTypeState, setCaptureFileTypeState] =
     useState<CaptureFileType>(".napt");
@@ -356,14 +385,20 @@ export const SpectrumSidebar: React.FC = () => {
   const [snapshotShowWaterfall, setSnapshotShowWaterfall] = useState(false);
   const [snapshotShowStats, setSnapshotShowStats] = useState(true);
   const [snapshotShowGeolocation, setSnapshotShowGeolocation] = useState(false);
-  const [snapshotGeolocationError, setSnapshotGeolocationError] = useState<string | null>(null);
-  const [snapshotGeolocationPosition, setSnapshotGeolocationPosition] = useState<{ lat: string, lon: string } | null>(null);
+  const [snapshotGeolocationError, setSnapshotGeolocationError] = useState<
+    string | null
+  >(null);
+  const [snapshotGeolocationPosition, setSnapshotGeolocationPosition] =
+    useState<{ lat: string; lon: string } | null>(null);
   const supportedSnapshotVideoFormat = useMemo(
     () => getSupportedSnapshotVideoFormat(),
     [],
   );
-  const [snapshotFormat, setSnapshotFormat] = useState<"png" | "svg" | SnapshotVideoFormat | "animated-svg">("png");
-  const [snapshotAspectRatio, setSnapshotAspectRatio] = useState<SnapshotAspectRatio>("default");
+  const [snapshotFormat, setSnapshotFormat] = useState<
+    "png" | "svg" | SnapshotVideoFormat | "animated-svg"
+  >("png");
+  const [snapshotAspectRatio, setSnapshotAspectRatio] =
+    useState<SnapshotAspectRatio>("default");
 
   // NAPT metadata state
   const [naptMetadata, setNaptMetadata] = useState<NaptMetadata | null>(null);
@@ -406,7 +441,7 @@ export const SpectrumSidebar: React.FC = () => {
           const serializedFile = {
             id,
             name: filename,
-            downloadUrl: liveCaptureStatus.downloadUrl
+            downloadUrl: liveCaptureStatus.downloadUrl,
           };
 
           dispatch(setSelectedFiles([serializedFile]));
@@ -426,7 +461,13 @@ export const SpectrumSidebar: React.FC = () => {
       };
       run();
     }
-  }, [liveCaptureStatus, capturePlayback, sessionToken, dispatch, storeDispatch]);
+  }, [
+    liveCaptureStatus,
+    capturePlayback,
+    sessionToken,
+    dispatch,
+    storeDispatch,
+  ]);
 
   // Toggle visualizer pause
   const toggleVisualizerPause = useCallback(() => {
@@ -451,17 +492,14 @@ export const SpectrumSidebar: React.FC = () => {
   }, [sourceMode, dispatch, storeDispatch]);
 
   const fileCapturedRange = useMemo(() => {
-    if (sourceMode !== "file" || selectedFiles.length === 0)
-      return null;
+    if (sourceMode !== "file" || selectedFiles.length === 0) return null;
     let minFreq = Infinity;
     let maxFreq = -Infinity;
 
     // If we have metadata for a single file, use that
     if (selectedFiles.length === 1 && naptMetadata) {
       const freq =
-        naptMetadata.center_frequency_hz ||
-        naptMetadata.center_frequency ||
-        0;
+        naptMetadata.center_frequency_hz || naptMetadata.center_frequency || 0;
       const sampleRate =
         naptMetadata.capture_sample_rate_hz ||
         naptMetadata.sample_rate_hz ||
@@ -513,8 +551,12 @@ export const SpectrumSidebar: React.FC = () => {
     const hardwareMin = activeFrame?.min_hz ?? frequencyRange.min;
     const hardwareMax = activeFrame?.max_hz ?? frequencyRange.max;
     const hardwareSpan =
-      typeof sampleRateHzLocal === "number" && Number.isFinite(sampleRateHzLocal)
-        ? Math.min(sampleRateHzLocal, Math.max(0, hardwareMax - hardwareMin || fallbackSpan))
+      typeof sampleRateHzLocal === "number" &&
+      Number.isFinite(sampleRateHzLocal)
+        ? Math.min(
+            sampleRateHzLocal,
+            Math.max(0, hardwareMax - hardwareMin || fallbackSpan),
+          )
         : Math.max(0, hardwareMax - hardwareMin || fallbackSpan);
 
     const safeZoom = Number.isFinite(vizZoom) && vizZoom > 0 ? vizZoom : 1;
@@ -588,7 +630,7 @@ export const SpectrumSidebar: React.FC = () => {
 
   const captureRange = useMemo(() => {
     const segments = availableCaptureAreas.filter((a) =>
-      activeCaptureAreas.includes(a.label)
+      activeCaptureAreas.includes(a.label),
     );
     if (segments.length === 0 && visibleOnscreenRange) {
       return {
@@ -615,7 +657,8 @@ export const SpectrumSidebar: React.FC = () => {
   }, [dispatch, liveCaptureStatus?.jobId]);
 
   const handleCapture = useCallback(async () => {
-    if (!isServerConnected || liveDeviceState === "loading" || !isAuthenticated) return;
+    if (!isServerConnected || liveDeviceState === "loading" || !isAuthenticated)
+      return;
 
     // Clear previous capture status before starting new one
     dispatch(setCaptureStatus(null));
@@ -649,13 +692,13 @@ export const SpectrumSidebar: React.FC = () => {
     const hardwareSampleRateHz = maxSampleRate;
     const effectiveAcquisitionMode =
       onscreenIsActive &&
-        hardwareSampleRateHz > 0 &&
-        Math.abs(onscreenSpan - hardwareSampleRateHz) < 10_000
+      hardwareSampleRateHz > 0 &&
+      Math.abs(onscreenSpan - hardwareSampleRateHz) < 10_000
         ? "whole_sample"
         : acquisitionMode;
 
     const req: CaptureRequest = {
-      jobId: `cap_${Date.now()} `,
+      jobId: `cap_${Date.now()}`,
       fragments,
       durationMode: captureDurationMode,
       durationS: Math.max(1, Math.round(captureDurationS)),
@@ -699,9 +742,10 @@ export const SpectrumSidebar: React.FC = () => {
           format: snapshotFormat,
           grid: snapshotGridPreference,
           aspectRatio: snapshotAspectRatio,
-          fileTimestamp: sourceMode === "file" && naptMetadata?.timestamp_utc
-            ? naptMetadata.timestamp_utc
-            : undefined,
+          fileTimestamp:
+            sourceMode === "file" && naptMetadata?.timestamp_utc
+              ? naptMetadata.timestamp_utc
+              : undefined,
         },
       }),
     );
@@ -728,7 +772,7 @@ export const SpectrumSidebar: React.FC = () => {
         // Success - we have permission and it works
         setSnapshotGeolocationPosition({
           lat: pos.coords.latitude.toFixed(6),
-          lon: pos.coords.longitude.toFixed(6)
+          lon: pos.coords.longitude.toFixed(6),
         });
         setSnapshotGeolocationError(null);
       },
@@ -749,7 +793,7 @@ export const SpectrumSidebar: React.FC = () => {
         setSnapshotShowGeolocation(false);
         setSnapshotGeolocationPosition(null);
       },
-      { timeout: 8000, maximumAge: 60000, enableHighAccuracy: false }
+      { timeout: 8000, maximumAge: 60000, enableHighAccuracy: false },
     );
   }, []);
 
@@ -786,7 +830,9 @@ export const SpectrumSidebar: React.FC = () => {
           // Robust parsing: try newline first, then JSON boundary detection
           let jsonStr: string;
           if (newlineIdx > 0) {
-            jsonStr = new TextDecoder().decode(headerBytes.slice(0, newlineIdx));
+            jsonStr = new TextDecoder().decode(
+              headerBytes.slice(0, newlineIdx),
+            );
           } else {
             // Fallback: find the closing brace of the root JSON object
             const headerText = new TextDecoder().decode(headerBytes);
@@ -796,12 +842,27 @@ export const SpectrumSidebar: React.FC = () => {
             let jsonEnd = -1;
             for (let ci = 0; ci < headerText.length; ci++) {
               const c = headerText[ci];
-              if (escape) { escape = false; continue; }
-              if (c === '\\') { escape = true; continue; }
-              if (c === '"') { inString = !inString; continue; }
+              if (escape) {
+                escape = false;
+                continue;
+              }
+              if (c === "\\") {
+                escape = true;
+                continue;
+              }
+              if (c === '"') {
+                inString = !inString;
+                continue;
+              }
               if (inString) continue;
-              if (c === '{') braceDepth++;
-              if (c === '}') { braceDepth--; if (braceDepth === 0) { jsonEnd = ci + 1; break; } }
+              if (c === "{") braceDepth++;
+              if (c === "}") {
+                braceDepth--;
+                if (braceDepth === 0) {
+                  jsonEnd = ci + 1;
+                  break;
+                }
+              }
             }
             if (jsonEnd <= 0) throw new Error("Invalid NAPT header");
             jsonStr = headerText.slice(0, jsonEnd);
@@ -871,9 +932,15 @@ export const SpectrumSidebar: React.FC = () => {
 
   useEffect(() => {
     setActiveCaptureAreas((current) => {
-      const validLabels = new Set(availableCaptureAreas.map((area) => area.label));
+      const validLabels = new Set(
+        availableCaptureAreas.map((area) => area.label),
+      );
       const next = current.filter((label) => validLabels.has(label));
-      return next.length > 0 ? next : (validLabels.has("Onscreen") ? ["Onscreen"] : next);
+      return next.length > 0
+        ? next
+        : validLabels.has("Onscreen")
+          ? ["Onscreen"]
+          : next;
     });
   }, [availableCaptureAreas]);
 
@@ -903,7 +970,9 @@ export const SpectrumSidebar: React.FC = () => {
         <>
           <FileSelectionSidebar
             selectedFiles={selectedFiles}
-            onSelectedFilesChange={(files: { id: string; name: string; downloadUrl?: string }[]) => {
+            onSelectedFilesChange={(
+              files: { id: string; name: string; downloadUrl?: string }[],
+            ) => {
               dispatch(setSelectedFiles(files));
               storeDispatch({ type: "SET_SELECTED_FILES", files });
             }}
@@ -920,7 +989,10 @@ export const SpectrumSidebar: React.FC = () => {
             }}
             onStitchPauseToggle={() => {
               dispatch(setStitchPaused(!isStitchPaused));
-              storeDispatch({ type: "SET_STITCH_PAUSED", paused: !isStitchPaused });
+              storeDispatch({
+                type: "SET_STITCH_PAUSED",
+                paused: !isStitchPaused,
+              });
             }}
             selectedPrimaryFile={selectedPrimaryFile}
             naptMetadata={naptMetadata}
@@ -967,15 +1039,18 @@ export const SpectrumSidebar: React.FC = () => {
             deviceProfile={null}
             powerScale={powerScale}
             displayMode={displayMode || "fft"}
-            onFftFrameRateChange={() => { }}
-            onFftSizeChange={() => { }}
+            onFftFrameRateChange={() => {}}
+            onFftSizeChange={() => {}}
             onFftWindowChange={(win) => {
               dispatch(setFftWindowAction(win));
               storeDispatch({ type: "SET_FFT_WINDOW", fftWindow: win });
             }}
             onTemporalResolutionChange={(res) => {
               dispatch(setTemporalResolution(res));
-              storeDispatch({ type: "SET_TEMPORAL_RESOLUTION", resolution: res });
+              storeDispatch({
+                type: "SET_TEMPORAL_RESOLUTION",
+                resolution: res,
+              });
             }}
             onPowerScaleChange={(ps) => {
               dispatch(setPowerScale(ps));
@@ -985,7 +1060,7 @@ export const SpectrumSidebar: React.FC = () => {
               dispatch(setDisplayMode(mode));
               storeDispatch({ type: "SET_DISPLAY_MODE", displayMode: mode });
             }}
-            scheduleCoupledAdjustment={() => { }}
+            scheduleCoupledAdjustment={() => {}}
           />
         </>
       )}
@@ -1007,7 +1082,8 @@ export const SpectrumSidebar: React.FC = () => {
               onClick={() => {
                 showPrompt({
                   title: "Reset Options to Defaults?",
-                  message: "Reset options like zoom, signal display, source settings and all other options to the app's default settings?",
+                  message:
+                    "Reset options like zoom, signal display, source settings and all other options to the app's default settings?",
                   confirmText: "Reset",
                   cancelText: "Cancel",
                   variant: "danger",
@@ -1100,7 +1176,10 @@ export const SpectrumSidebar: React.FC = () => {
             }}
             onTemporalResolutionChange={(res) => {
               dispatch(setTemporalResolution(res));
-              storeDispatch({ type: "SET_TEMPORAL_RESOLUTION", resolution: res });
+              storeDispatch({
+                type: "SET_TEMPORAL_RESOLUTION",
+                resolution: res,
+              });
             }}
             onPowerScaleChange={(ps) => {
               dispatch(setPowerScale(ps));

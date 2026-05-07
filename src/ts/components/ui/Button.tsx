@@ -7,7 +7,9 @@ const spin = `
   }
 `;
 
-export const Button = styled.button<{ $variant?: "primary" | "secondary" | "danger" }>`
+export const Button = styled.button<{
+  $variant?: "primary" | "secondary" | "danger";
+}>`
   ${spin}
   font-family: ${(props) => props.theme?.typography?.mono ?? "monospace"};
   font-size: 12px;

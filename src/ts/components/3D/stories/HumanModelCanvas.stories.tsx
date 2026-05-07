@@ -6,4 +6,6 @@ export default {
   component: Model3DCanvas,
 };
 
-export const Default: Story = () => <Model3DCanvas width="800px" height="600px" />;
+export const Default: Story = () => (
+  <Model3DCanvas width="800px" height="600px" />
+);

@@ -59,7 +59,7 @@ jobs:
     if: needs.detect-changes.outputs.frontend == 'true' || github.ref == 'refs/heads/main'
     strategy:
       matrix:
-        node-version: [22.x]
+        node-version: [26.x]
 
     steps:
       - name: Checkout code
@@ -150,6 +150,38 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
 
+  # Rust Performance Tests (Release mode)
+  rust-performance-tests:
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.rust == 'true' || github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y librtlsdr-dev
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target/
+          key: ${{ runner.os }}-cargo-perf-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-perf-
+            ${{ runner.os }}-cargo-
+
+      - name: Run Rust Performance Tests
+        run: cargo test --test performance_tests --release -- --nocapture
+
   # WASM tests
   wasm-tests:
     runs-on: ubuntu-latest
@@ -165,7 +197,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22.x'
+          node-version: '26.x'
           cache: "npm"
 
       - name: Setup Rust
@@ -208,7 +240,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22.x'
+          node-version: '26.x'
           cache: "npm"
 
       - name: Install system dependencies
@@ -240,6 +272,9 @@ jobs:
 
       - name: Build Rust Backend
         run: npm run build:rust
+
+      - name: Generate Encrypted Test Artifacts
+        run: cargo test --test encryption_e2e_tests generate_test_artifacts -- --nocapture
 
       - name: Run integration tests (Affected Only on Branches)
         run: |

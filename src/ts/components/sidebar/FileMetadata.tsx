@@ -4,9 +4,16 @@ import { ScrollText } from "lucide-react";
 import { Collapsible } from "@n-apt/components/ui/Collapsible";
 import { Tooltip } from "@n-apt/components/ui";
 import { formatFrequency } from "@n-apt/utils/frequency";
-import { formatDuration, formatFileSize, formatTimestampWithTimezone } from "@n-apt/utils/formatters";
+import {
+  formatDuration,
+  formatFileSize,
+  formatTimestampWithTimezone,
+} from "@n-apt/utils/formatters";
 import { fileRegistry } from "@n-apt/utils/fileRegistry";
-import { GeolocationData, AptChannelMetadata } from "@n-apt/consts/schemas/websocket";
+import {
+  GeolocationData,
+  AptChannelMetadata,
+} from "@n-apt/consts/schemas/websocket";
 import { useAppSelector } from "@n-apt/redux";
 import { DecryptionFallback } from "../ui/DecryptionFallback";
 
@@ -15,11 +22,13 @@ export type NaptMetadata = {
   sample_rate_hz?: number;
   capture_sample_rate_hz?: number;
   hardware_sample_rate_hz?: number;
-  channels?: Array<{
-    center_freq_hz?: number;
-    sample_rate_hz?: number;
-    bins_per_frame?: number;
-  } & AptChannelMetadata>;
+  channels?: Array<
+    {
+      center_freq_hz?: number;
+      sample_rate_hz?: number;
+      bins_per_frame?: number;
+    } & AptChannelMetadata
+  >;
   center_frequency?: number;
   center_frequency_hz?: number;
   frequency_range?: [number, number];
@@ -200,30 +209,42 @@ export const FileMetadata: React.FC<FileMetadataProps> = ({
     (state) => state.waterfall.activePlaybackMetadata,
   );
 
-  const isFileMode = useAppSelector((state) => state.waterfall.sourceMode === "file");
-  const displayedCenterFrequencyHz = (isFileMode && activePlaybackMetadata
-    ? activePlaybackMetadata.center_frequency_hz
-    : naptMetadata?.center_frequency_hz ??
-    naptMetadata?.center_frequency ?? 0) ?? 0;
+  const isFileMode = useAppSelector(
+    (state) => state.waterfall.sourceMode === "file",
+  );
+  const displayedCenterFrequencyHz =
+    (isFileMode && activePlaybackMetadata
+      ? activePlaybackMetadata.center_frequency_hz
+      : (naptMetadata?.center_frequency_hz ??
+        naptMetadata?.center_frequency ??
+        0)) ?? 0;
 
-  const displayedCaptureRateHz = (isFileMode && activePlaybackMetadata
-    ? activePlaybackMetadata.capture_sample_rate_hz
-    : (naptMetadata?.channels?.length === 1 &&
-      typeof naptMetadata.channels[0]?.sample_rate_hz === "number"
-      ? naptMetadata.channels[0].sample_rate_hz
-      : naptMetadata?.capture_sample_rate_hz ??
-      naptMetadata?.sample_rate_hz ??
-      naptMetadata?.sample_rate ??
-      0)) ?? 0;
+  const displayedCaptureRateHz =
+    (isFileMode && activePlaybackMetadata
+      ? activePlaybackMetadata.capture_sample_rate_hz
+      : naptMetadata?.channels?.length === 1 &&
+          typeof naptMetadata.channels[0]?.sample_rate_hz === "number"
+        ? naptMetadata.channels[0].sample_rate_hz
+        : (naptMetadata?.capture_sample_rate_hz ??
+          naptMetadata?.sample_rate_hz ??
+          naptMetadata?.sample_rate ??
+          0)) ?? 0;
 
-  const displayedFrameRate = (isFileMode && activePlaybackMetadata)
-    ? activePlaybackMetadata.frame_rate
-    : naptMetadata?.frame_rate;
+  const displayedFrameRate =
+    isFileMode && activePlaybackMetadata
+      ? activePlaybackMetadata.frame_rate
+      : naptMetadata?.frame_rate;
   const displayedFrequencyRange =
-    activePlaybackMetadata?.frequency_range ?? naptMetadata?.frequency_range ?? null;
-  const selectedFileSize = selectedNaptFile ? fileRegistry.get(selectedNaptFile.id)?.size : undefined;
+    activePlaybackMetadata?.frequency_range ??
+    naptMetadata?.frequency_range ??
+    null;
+  const selectedFileSize = selectedNaptFile
+    ? fileRegistry.get(selectedNaptFile.id)?.size
+    : undefined;
 
-  const captureStatus = useAppSelector((state) => state.websocket.captureStatus);
+  const captureStatus = useAppSelector(
+    (state) => state.websocket.captureStatus,
+  );
   const fileRowDurationSeconds =
     selectedNaptFile &&
     captureStatus?.status === "done" &&
@@ -234,7 +255,7 @@ export const FileMetadata: React.FC<FileMetadataProps> = ({
         ? naptMetadata.duration_s
         : undefined;
 
-return (
+  return (
     <Section>
       {showTitle && (
         <Collapsible
@@ -243,24 +264,32 @@ return (
           defaultOpen={true}
         >
           {selectedNaptFile && (
-            <SettingRow style={{ height: 'auto', padding: '12px' }}>
-              <SettingLabelContainer style={{ alignSelf: 'start', paddingTop: '4px' }}>
+            <SettingRow style={{ height: "auto", padding: "12px" }}>
+              <SettingLabelContainer
+                style={{ alignSelf: "start", paddingTop: "4px" }}
+              >
                 <SettingLabel>File</SettingLabel>
               </SettingLabelContainer>
-              <div style={{ display: "grid", gap: 4, justifySelf: "end", textAlign: "right", minWidth: 0 }}>
+              <div
+                style={{
+                  display: "grid",
+                  gap: 4,
+                  justifySelf: "end",
+                  textAlign: "right",
+                  minWidth: 0,
+                }}
+              >
                 <WrappedSettingValue title={selectedNaptFile.name}>
                   {renderFileName(selectedNaptFile.name)}
                 </WrappedSettingValue>
 
                 <SettingValue style={{ opacity: 0.75 }}>
-                  {typeof selectedFileSize === "number" && (
-                    formatFileSize(selectedFileSize)
-                  )}
-                  { "  /  " }
+                  {typeof selectedFileSize === "number" &&
+                    formatFileSize(selectedFileSize)}
+                  {"  /  "}
                   {typeof fileRowDurationSeconds === "number" &&
-                    Number.isFinite(fileRowDurationSeconds) && (
-                    formatDuration(fileRowDurationSeconds)
-                  )}
+                    Number.isFinite(fileRowDurationSeconds) &&
+                    formatDuration(fileRowDurationSeconds)}
                 </SettingValue>
               </div>
             </SettingRow>
@@ -269,24 +298,27 @@ return (
           {naptMetadataError ? (
             <div className="mt-2">
               {naptMetadataError.toLowerCase().includes("decryption") ? (
-                <DecryptionFallback moduleName="File Metadata" errorType="vault" />
+                <DecryptionFallback
+                  moduleName="File Metadata"
+                  errorType="vault"
+                />
               ) : (
-                <MetadataErrorBox>
-                  {naptMetadataError}
-                </MetadataErrorBox>
+                <MetadataErrorBox>{naptMetadataError}</MetadataErrorBox>
               )}
             </div>
           ) : naptMetadata ? (
             <MetadataGrid>
-              {activePlaybackMetadata && (activePlaybackMetadata.channelCount ?? 0) > 1 && (
-                <MetadataItem style={{ gridColumn: '1 / -1' }}>
-                  <MetadataLabel>Active Channel</MetadataLabel>
-                  <MetadataValue style={{ fontWeight: 600 }}>
-                    {activePlaybackMetadata.channelLabel || `Channel ${activePlaybackMetadata.activeChannel + 1}`}
-                    {' '}/ {activePlaybackMetadata.channelCount}
-                  </MetadataValue>
-                </MetadataItem>
-              )}
+              {activePlaybackMetadata &&
+                (activePlaybackMetadata.channelCount ?? 0) > 1 && (
+                  <MetadataItem style={{ gridColumn: "1 / -1" }}>
+                    <MetadataLabel>Active Channel</MetadataLabel>
+                    <MetadataValue style={{ fontWeight: 600 }}>
+                      {activePlaybackMetadata.channelLabel ||
+                        `Channel ${activePlaybackMetadata.activeChannel + 1}`}{" "}
+                      / {activePlaybackMetadata.channelCount}
+                    </MetadataValue>
+                  </MetadataItem>
+                )}
               <MetadataItem>
                 <MetadataLabel>
                   Center Freq
@@ -344,10 +376,9 @@ return (
                   />
                 </MetadataLabel>
                 <MetadataValue>
-                  {formatFrequency(
-                    (naptMetadata.hardware_sample_rate_hz || 0),
-                    { trimTrailingZeros: true },
-                  )}
+                  {formatFrequency(naptMetadata.hardware_sample_rate_hz || 0, {
+                    trimTrailingZeros: true,
+                  })}
                 </MetadataValue>
               </MetadataItem>
               <MetadataItem>
@@ -377,7 +408,8 @@ return (
                   />
                 </MetadataLabel>
                 <MetadataValue>
-                  {naptMetadata.fft_size || naptMetadata.fft?.size || "N/A"} / {naptMetadata.fft_window || "Blackman"}
+                  {naptMetadata.fft_size || naptMetadata.fft?.size || "N/A"} /{" "}
+                  {naptMetadata.fft_window || "Blackman"}
                 </MetadataValue>
               </MetadataItem>
               <MetadataItem>
@@ -403,7 +435,8 @@ return (
                   />
                 </MetadataLabel>
                 <MetadataValue>
-                  {naptMetadata.gain?.toFixed(1) || "N/A"} dB / {naptMetadata.ppm || 0}
+                  {naptMetadata.gain?.toFixed(1) || "N/A"} dB /{" "}
+                  {naptMetadata.ppm || 0}
                 </MetadataValue>
               </MetadataItem>
               <MetadataItem>
@@ -415,7 +448,8 @@ return (
                   />
                 </MetadataLabel>
                 <MetadataValue>
-                  T:{naptMetadata.tuner_agc ? "On" : "Off"} R:{naptMetadata.rtl_agc ? "On" : "Off"}
+                  T:{naptMetadata.tuner_agc ? "On" : "Off"} R:
+                  {naptMetadata.rtl_agc ? "On" : "Off"}
                 </MetadataValue>
               </MetadataItem>
               <MetadataItem>
@@ -442,7 +476,8 @@ return (
                     />
                   </MetadataLabel>
                   <MetadataValue>
-                    {naptMetadata.geolocation.latitude}, {naptMetadata.geolocation.longitude}
+                    {naptMetadata.geolocation.latitude},{" "}
+                    {naptMetadata.geolocation.longitude}
                   </MetadataValue>
                 </MetadataItem>
               )}

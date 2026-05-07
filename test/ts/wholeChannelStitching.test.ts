@@ -1,6 +1,4 @@
-import {
-  stitchWholeChannelWaveform,
-} from "@n-apt/utils/rendering/wholeChannelStitching";
+import { stitchWholeChannelWaveform } from "@n-apt/utils/rendering/wholeChannelStitching";
 
 describe("stitchWholeChannelWaveform", () => {
   it("normalizes adjacent segment floors before stitching", () => {

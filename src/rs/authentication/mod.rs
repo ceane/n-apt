@@ -29,11 +29,34 @@ impl CredentialStore {
     let dir = dirs_path()?;
     std::fs::create_dir_all(&dir).map_err(|e| format!("create dir: {e}"))?;
     let path = dir.join("credentials.json");
+
+    // Final security check: ensure the path is still within the expected directory
+    // and doesn't contain any traversal components.
+    if !path.is_absolute() {
+      return Err("Credential path must be absolute".to_string());
+    }
+    if path
+      .components()
+      .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
+      return Err("Credential path contains invalid components".to_string());
+    }
+
     Ok(Self { path })
   }
 
   /// Load credentials from disk. Returns default if file doesn't exist.
   pub fn load(&self) -> CredentialFile {
+    // Double-check path safety before reading
+    if self
+      .path
+      .components()
+      .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
+      log::error!("Refusing to read from path with traversal components");
+      return CredentialFile::default();
+    }
+
     match std::fs::read_to_string(&self.path) {
       Ok(contents) => serde_json::from_str(&contents).unwrap_or_default(),
       Err(_) => CredentialFile::default(),
@@ -42,6 +65,15 @@ impl CredentialStore {
 
   /// Save credentials to disk.
   pub fn save(&self, creds: &CredentialFile) -> Result<(), String> {
+    // Double-check path safety before writing
+    if self
+      .path
+      .components()
+      .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
+      return Err("Refusing to write to path with traversal components".into());
+    }
+
     let json = serde_json::to_string_pretty(creds)
       .map_err(|e| format!("serialize: {e}"))?;
     std::fs::write(&self.path, json).map_err(|e| format!("write: {e}"))?;
@@ -102,12 +134,34 @@ fn dirs_path() -> Result<PathBuf, String> {
   let home = std::env::var("HOME")
     .or_else(|_| std::env::var("USERPROFILE"))
     .map_err(|_| "Cannot determine home directory".to_string())?;
+
   let home_path = PathBuf::from(&home);
+
+  // Explicitly validate that the home path is absolute and doesn't contain
+  // traversal components before we even canonicalize it.
+  if !home_path.is_absolute() {
+    return Err(format!(
+      "Home directory '{}' must be an absolute path",
+      home
+    ));
+  }
+
+  if home_path
+    .components()
+    .any(|c| matches!(c, std::path::Component::ParentDir))
+  {
+    return Err(format!(
+      "Home directory '{}' contains invalid traversal components",
+      home
+    ));
+  }
+
   // Canonicalize resolves symlinks and normalizes the path,
   // preventing ".." traversal attacks via a crafted HOME variable.
   let canonical_home = home_path.canonicalize().map_err(|e| {
     format!("Home directory '{}' is not a valid path: {}", home, e)
   })?;
+
   // Ensure the canonical path is actually a directory
   if !canonical_home.is_dir() {
     return Err(format!(
@@ -115,7 +169,17 @@ fn dirs_path() -> Result<PathBuf, String> {
       canonical_home.display()
     ));
   }
-  Ok(canonical_home.join(".n-apt"))
+
+  let final_dir = canonical_home.join(".n-apt");
+
+  // Final check: ensure joining didn't somehow escape the home directory
+  if !final_dir.starts_with(&canonical_home) {
+    return Err(
+      "Security violation: derived path escaped home directory".into(),
+    );
+  }
+
+  Ok(final_dir)
 }
 
 pub mod auth_handlers;

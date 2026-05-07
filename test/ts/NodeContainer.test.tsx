@@ -12,7 +12,7 @@ describe("NodeContainer", () => {
         <NodeContainer data-nodeid="test-node">
           <div>Test Content</div>
         </NodeContainer>
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     expect(screen.getByText("Test Content")).toBeInTheDocument();
@@ -24,7 +24,7 @@ describe("NodeContainer", () => {
         <NodeContainer data-nodeid="test-node">
           <div>Test Content</div>
         </NodeContainer>
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     const nodeContainer = container.querySelector('[data-nodeid="test-node"]');
@@ -37,7 +37,7 @@ describe("NodeContainer", () => {
         <NodeContainer>
           <div>Test Content</div>
         </NodeContainer>
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     const nodeContainer = container.firstChild;

@@ -13,8 +13,11 @@ import {
 import type { SdrLimitMarker } from "@n-apt/utils/sdrLimitMarkers";
 
 const readCssColor = (name: string, fallback: string) => {
-  if (typeof window === "undefined" || typeof document === "undefined") return fallback;
-  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  if (typeof window === "undefined" || typeof document === "undefined")
+    return fallback;
+  const value = getComputedStyle(document.documentElement)
+    .getPropertyValue(name)
+    .trim();
   return value || fallback;
 };
 
@@ -123,10 +126,13 @@ export function useDraw2DFFTSignal() {
 
       // (Removed old grid loop)
 
-      const fullSpan = fullCaptureRange ? (fullCaptureRange.max - fullCaptureRange.min) : 0;
-      const zoom = (fullSpan > 0) ? fullSpan / viewBandwidth : 1;
+      const fullSpan = fullCaptureRange
+        ? fullCaptureRange.max - fullCaptureRange.min
+        : 0;
+      const zoom = fullSpan > 0 ? fullSpan / viewBandwidth : 1;
       const useHighRes = zoom >= 100;
-      const formatFreq = (f: number) => useHighRes ? formatFrequencyHighRes(f) : formatFrequency(f);
+      const formatFreq = (f: number) =>
+        useHighRes ? formatFrequencyHighRes(f) : formatFrequency(f);
 
       const visualCenterFreq = (minFreq + maxFreq) / 2;
 
@@ -134,23 +140,33 @@ export function useDraw2DFFTSignal() {
       const occupiedRects: { x1: number; x2: number }[] = [];
       const startLabel = formatFreq(minFreq);
       const endLabel = formatFreq(maxFreq);
-      const centerLabelText = Number.isNaN(visualCenterFreq) || !Number.isFinite(visualCenterFreq)
-        ? "-- MHz"
-        : formatFreq(visualCenterFreq);
+      const centerLabelText =
+        Number.isNaN(visualCenterFreq) || !Number.isFinite(visualCenterFreq)
+          ? "-- MHz"
+          : formatFreq(visualCenterFreq);
 
       const startW = ctx.measureText(startLabel).width;
       const endW = ctx.measureText(endLabel).width;
       const centerW = ctx.measureText(`✋  ${centerLabelText}`).width;
 
-      occupiedRects.push({ x1: FFT_AREA_MIN.x - 5, x2: FFT_AREA_MIN.x + startW + 15 });
-      occupiedRects.push({ x1: fftAreaMax.x - endW - 15, x2: fftAreaMax.x + 5 });
-      occupiedRects.push({ x1: width / 2 - centerW / 2 - 15, x2: width / 2 + centerW / 2 + 15 });
+      occupiedRects.push({
+        x1: FFT_AREA_MIN.x - 5,
+        x2: FFT_AREA_MIN.x + startW + 15,
+      });
+      occupiedRects.push({
+        x1: fftAreaMax.x - endW - 15,
+        x2: fftAreaMax.x + 5,
+      });
+      occupiedRects.push({
+        x1: width / 2 - centerW / 2 - 15,
+        x2: width / 2 + centerW / 2 + 15,
+      });
 
       const isColliding = (x: number, text: string) => {
         const tw = ctx.measureText(text).width;
         const x1 = x - tw / 2 - 10;
         const x2 = x + tw / 2 + 10;
-        return occupiedRects.some(r => (x1 < r.x2 && x2 > r.x1));
+        return occupiedRects.some((r) => x1 < r.x2 && x2 > r.x1);
       };
       // ───────────────────────────────────────────────────────────────────────
 
@@ -233,7 +249,10 @@ export function useDraw2DFFTSignal() {
           ctx.lineTo(x, fftAreaMax.y);
           ctx.stroke();
 
-          const textX = Math.max(FFT_AREA_MIN.x + 45, Math.min(fftAreaMax.x - 45, x));
+          const textX = Math.max(
+            FFT_AREA_MIN.x + 45,
+            Math.min(fftAreaMax.x - 45, x),
+          );
           ctx.fillText(marker.label, textX, FFT_AREA_MIN.y + 45);
         }
 
@@ -245,7 +264,7 @@ export function useDraw2DFFTSignal() {
       const totalSpan = anchorRange.max - anchorRange.min;
       const hwSpanMHz = hardwareSampleRateHz ? hardwareSampleRateHz / 1e6 : 0;
       const shouldShowHWGrid = totalSpan > hwSpanMHz + 0.001 && hwSpanMHz > 0;
-      
+
       if (shouldShowHWGrid) {
         ctx.save();
         ctx.strokeStyle = "rgba(220, 220, 220, 0.54)"; // User specified color
@@ -273,7 +292,11 @@ export function useDraw2DFFTSignal() {
           // Only draw if visible in the current zoomed frequency range
           if (blockEnd > minFreq && blockStart < maxFreq) {
             // Draw left boundary
-            if (blockStart > anchorRange.min + 0.0001 && blockStart >= minFreq && blockStart <= maxFreq) {
+            if (
+              blockStart > anchorRange.min + 0.0001 &&
+              blockStart >= minFreq &&
+              blockStart <= maxFreq
+            ) {
               const lx = Math.round(freqToX(blockStart));
               ctx.beginPath();
               ctx.moveTo(lx, FFT_AREA_MIN.y);
@@ -282,7 +305,11 @@ export function useDraw2DFFTSignal() {
             }
 
             // Draw right boundary
-            if (blockEnd < anchorRange.max - 0.0001 && blockEnd >= minFreq && blockEnd <= maxFreq) {
+            if (
+              blockEnd < anchorRange.max - 0.0001 &&
+              blockEnd >= minFreq &&
+              blockEnd <= maxFreq
+            ) {
               const rx = Math.round(freqToX(blockEnd));
               ctx.beginPath();
               ctx.moveTo(rx, FFT_AREA_MIN.y);
@@ -294,13 +321,12 @@ export function useDraw2DFFTSignal() {
             const visibleStart = Math.max(blockStart, minFreq);
             const visibleEnd = Math.min(blockEnd, maxFreq);
             const visibleCenter = (visibleStart + visibleEnd) / 2;
-            
-            if (
-              visibleCenter >= minFreq &&
-              visibleCenter <= maxFreq
-            ) {
+
+            if (visibleCenter >= minFreq && visibleCenter <= maxFreq) {
               const cx = Math.round(freqToX(visibleCenter));
-              const label = isFullBlock ? "Hardware Sample Rate" : "Next Sample";
+              const label = isFullBlock
+                ? "Hardware Sample Rate"
+                : "Next Sample";
               const subLabel = formatOffset(blockWidth);
               ctx.fillText(label, cx, FFT_AREA_MIN.y + 4);
               ctx.fillText(subLabel, cx, FFT_AREA_MIN.y + 16);
@@ -326,8 +352,7 @@ export function useDraw2DFFTSignal() {
     ) => {
       const dpr = window.devicePixelRatio || 1;
       const waveformArray = toFloat32Waveform(waveform);
-      if (!waveformArray || waveformArray.length === 0)
-        return;
+      if (!waveformArray || waveformArray.length === 0) return;
 
       const fftAreaMax = { x: width - 40, y: height - 40 };
       const fftHeight = fftAreaMax.y - FFT_AREA_MIN.y;
@@ -344,9 +369,9 @@ export function useDraw2DFFTSignal() {
       const clampY = (dbVal: number) => {
         if (displayMode === "iq") {
           // I/Q values are typically in range [-1, 1] or similar
-          // We'll normalize them to the canvas height. 
+          // We'll normalize them to the canvas height.
           // Let's assume the input is already somewhat scaled or we can just draw it centered.
-          const y = (height / 2) - (dbVal * (height / 3)); // Scale 1.0 to 1/3 height
+          const y = height / 2 - dbVal * (height / 3); // Scale 1.0 to 1/3 height
           return Math.max(0, Math.min(height, y));
         }
         const y = fftAreaMax.y - (dbVal - fftMin) * scaleFactor;
@@ -398,10 +423,13 @@ export function useDraw2DFFTSignal() {
       const viewBandwidth = maxFreq - minFreq;
       if (viewBandwidth <= 0) return;
 
-      const fullSpan = fullCaptureRange ? (fullCaptureRange.max - fullCaptureRange.min) : 0;
+      const fullSpan = fullCaptureRange
+        ? fullCaptureRange.max - fullCaptureRange.min
+        : 0;
       const zoom = fullSpan > 0 ? fullSpan / viewBandwidth : 1;
       const useHighRes = zoom >= 100;
-      const formatFreq = (f: number) => useHighRes ? formatFrequencyHighRes(f) : formatFrequency(f);
+      const formatFreq = (f: number) =>
+        useHighRes ? formatFrequencyHighRes(f) : formatFrequency(f);
 
       const freqToX = (freq: number) =>
         FFT_AREA_MIN.x + ((freq - minFreq) / viewBandwidth) * plotWidth;
@@ -537,7 +565,15 @@ export function useDraw2DFFTSignal() {
           }
 
           // Simple line drawing for performance
-          drawSpectrumTrace(ctx, cssWidth, cssHeight, waveformArray, fftMin, fftMax, displayMode);
+          drawSpectrumTrace(
+            ctx,
+            cssWidth,
+            cssHeight,
+            waveformArray,
+            fftMin,
+            fftMax,
+            displayMode,
+          );
         } else {
           // Full quality mode: complete spectrum rendering
           if (showGrid && displayMode === "fft") {
@@ -551,13 +587,21 @@ export function useDraw2DFFTSignal() {
               powerScale,
               true,
               hardwareSampleRateHz,
-              fullCaptureRange
+              fullCaptureRange,
             );
           } else {
             ctx.fillStyle = "#000000";
             ctx.fillRect(0, 0, cssWidth, cssHeight);
           }
-          drawSpectrumTrace(ctx, cssWidth, cssHeight, waveformArray, fftMin, fftMax, displayMode);
+          drawSpectrumTrace(
+            ctx,
+            cssWidth,
+            cssHeight,
+            waveformArray,
+            fftMin,
+            fftMax,
+            displayMode,
+          );
         }
 
         // Draw markers if needed

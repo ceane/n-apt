@@ -20,17 +20,25 @@ export function useSpectrumRendering({
       const width = rect?.width || canvas.width;
       const height = rect?.height || canvas.height;
 
-      return draw2DFFTSignal({
-        canvas,
-        waveform: spectrumData,
-        frequencyRange: frequencyRangeRef.current,
-        fftMin: displayTemporalResolution === "high" ? -120 : -100,
-        fftMax: displayTemporalResolution === "high" ? 20 : 0,
-        showGrid: snapshotGridPreferenceRef.current,
-        highPerformanceMode: displayTemporalResolution === "high",
-      }) ?? (width > 0 && height > 0);
+      return (
+        draw2DFFTSignal({
+          canvas,
+          waveform: spectrumData,
+          frequencyRange: frequencyRangeRef.current,
+          fftMin: displayTemporalResolution === "high" ? -120 : -100,
+          fftMax: displayTemporalResolution === "high" ? 20 : 0,
+          showGrid: snapshotGridPreferenceRef.current,
+          highPerformanceMode: displayTemporalResolution === "high",
+        }) ??
+        (width > 0 && height > 0)
+      );
     },
-    [displayTemporalResolution, draw2DFFTSignal, frequencyRangeRef, snapshotGridPreferenceRef],
+    [
+      displayTemporalResolution,
+      draw2DFFTSignal,
+      frequencyRangeRef,
+      snapshotGridPreferenceRef,
+    ],
   );
 
   return { renderSpectrum };

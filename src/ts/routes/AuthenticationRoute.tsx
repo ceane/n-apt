@@ -40,7 +40,9 @@ const makeWavePath = (
   const step = width / segments;
   const points = Array.from({ length: segments + 1 }, (_, index) => {
     const x = index * step;
-    const y = baseline + Math.sin((x / width) * Math.PI * 2 * frequency + phase) * amplitude;
+    const y =
+      baseline +
+      Math.sin((x / width) * Math.PI * 2 * frequency + phase) * amplitude;
     return `${index === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
   });
 
@@ -110,15 +112,14 @@ const WavePath = styled.path<{ $delay?: string; $reverse?: boolean }>`
   stroke-linejoin: round;
   opacity: 0.48;
   filter: blur(0.2px);
-  animation: ${(props) => (props.$reverse ? waveDriftReverse : waveDrift)}
-    16s ease-in-out infinite;
+  animation: ${(props) => (props.$reverse ? waveDriftReverse : waveDrift)} 16s
+    ease-in-out infinite;
   animation-delay: ${(props) => props.$delay ?? "0s"};
 
   @supports (color: color-contrast(white vs black, white)) {
     stroke: color-contrast(
-      ${(props) => props.theme.background}
-      vs
-      ${(props) => props.theme.primary ?? "#00d4ff"},
+      ${(props) => props.theme.background} vs
+        ${(props) => props.theme.primary ?? "#00d4ff"},
       #ffffff,
       #00d4ff,
       #66e6ff
@@ -131,9 +132,8 @@ const WavePath = styled.path<{ $delay?: string; $reverse?: boolean }>`
 
     @supports (color: color-contrast(white vs black, white)) {
       stroke: color-contrast(
-        ${(props) => props.theme.background}
-        vs
-        ${(props) => props.theme.primary ?? "#00d4ff"},
+        ${(props) => props.theme.background} vs
+          ${(props) => props.theme.primary ?? "#00d4ff"},
         #ffffff,
         #00d4ff,
         #9ff3ff
@@ -183,7 +183,7 @@ const BinaryDigitInner = styled.div<{
   $size: number;
 }>`
   color: ${(props) => props.theme.primary ?? "#00d4ff"};
-  font-family: 'Courier New', monospace;
+  font-family: "Courier New", monospace;
   font-weight: bold;
   font-size: ${(props) => props.$size}px;
   text-shadow: 0 0 12px ${(props) => props.theme.primary ?? "#00d4ff"}aa;
@@ -220,9 +220,9 @@ const StatusText = styled.p<{ $variant?: "info" | "error" | "success" }>`
   font-size: 12px;
   color: ${(props) =>
     props.$variant === "error"
-      ? props.theme.danger ?? "#ff4444"
+      ? (props.theme.danger ?? "#ff4444")
       : props.$variant === "success"
-        ? props.theme.primary ?? "#00d4ff"
+        ? (props.theme.primary ?? "#00d4ff")
         : props.theme.textSecondary};
   margin: 0;
   text-align: center;
@@ -266,7 +266,7 @@ const Input = styled.input`
   }
 `;
 
-const AuthButton = styled(Button) <{
+const AuthButton = styled(Button)<{
   $variant?: "primary" | "secondary" | "danger";
 }>`
   width: 24cqw;
@@ -345,7 +345,6 @@ const Logo = styled.img`
   height: 128px;
   mix-blend-mode: multiply;
 
-  
   @media (prefers-color-scheme: dark) {
     filter: invert(1);
     mix-blend-mode: screen;
@@ -377,28 +376,36 @@ export const AuthenticationUI = ({
   const [waveViewportWidth, setWaveViewportWidth] = useState(() =>
     typeof window === "undefined" ? 1200 : window.innerWidth,
   );
-  const [binaryDigits] = useState<Array<{
-    id: number;
-    value: string;
-    y: number;
-    size: number;
-    delay: number;
-    duration: number;
-  }>>(() => {
+  const [binaryDigits] = useState<
+    Array<{
+      id: number;
+      value: string;
+      y: number;
+      size: number;
+      delay: number;
+      duration: number;
+    }>
+  >(() => {
     const digits = [];
     // Generate pool of 12 persistent hex bytes
     for (let i = 0; i < 12; i++) {
       const isWaveA = i < 24;
       // Generate random hex byte like "7A 0B"
-      const byte1 = Math.floor(Math.random() * 256).toString(16).toUpperCase().padStart(2, '0');
-      const byte2 = Math.floor(Math.random() * 256).toString(16).toUpperCase().padStart(2, '0');
+      const byte1 = Math.floor(Math.random() * 256)
+        .toString(16)
+        .toUpperCase()
+        .padStart(2, "0");
+      const byte2 = Math.floor(Math.random() * 256)
+        .toString(16)
+        .toUpperCase()
+        .padStart(2, "0");
       digits.push({
         id: i,
         value: `${byte1} ${byte2}`,
-        y: isWaveA ? (40 + Math.random() * 8) : (52 + Math.random() * 8), // Lane-based Y
+        y: isWaveA ? 40 + Math.random() * 8 : 52 + Math.random() * 8, // Lane-based Y
         size: 8 + Math.random() * 16,
         delay: -(Math.random() * 20), // Significant negative delay to spread them across the screen immediately
-        duration: 8 + Math.random() * 8 // Variety in speed
+        duration: 8 + Math.random() * 8, // Variety in speed
       });
     }
     return digits;
@@ -453,15 +460,31 @@ export const AuthenticationUI = ({
   const amplitudeB = 14 + Math.cos(cycle * 1.1) * 8;
   const minFrequency = Math.max(0.6, 480 / waveWidth);
   const maxFrequency = Math.max(1.1, waveWidth / 520);
-  const frequencyA = minFrequency + (maxFrequency - minFrequency) * (0.5 + 0.5 * Math.sin(cycle * 0.45));
-  const frequencyB = minFrequency + (maxFrequency - minFrequency) * (0.5 + 0.5 * Math.cos(cycle * 0.52 + 0.8));
+  const frequencyA =
+    minFrequency +
+    (maxFrequency - minFrequency) * (0.5 + 0.5 * Math.sin(cycle * 0.45));
+  const frequencyB =
+    minFrequency +
+    (maxFrequency - minFrequency) * (0.5 + 0.5 * Math.cos(cycle * 0.52 + 0.8));
   const phaseA = -cycle * 1.5;
   const phaseB = -cycle * 1.2 + Math.PI / 1.7;
-  const wavePathA = makeWavePath(waveWidth, 110, amplitudeA, frequencyA, phaseA);
-  const wavePathB = makeWavePath(waveWidth, 130, amplitudeB, frequencyB, phaseB);
+  const wavePathA = makeWavePath(
+    waveWidth,
+    110,
+    amplitudeA,
+    frequencyA,
+    phaseA,
+  );
+  const wavePathB = makeWavePath(
+    waveWidth,
+    130,
+    amplitudeB,
+    frequencyB,
+    phaseB,
+  );
 
   // No-op useEffect as digits are now persistent and purely CSS driven
-  useEffect(() => { }, []);
+  useEffect(() => {}, []);
 
   const handlePasswordSubmit = useCallback(
     (e: React.FormEvent) => {
@@ -472,7 +495,7 @@ export const AuthenticationUI = ({
           authState === "failed" ||
           authState === "timeout")
       ) {
-        onPasswordSubmit(password);
+        onPasswordSubmit(password.trim());
       }
     },
     [password, authState, onPasswordSubmit],
@@ -534,13 +557,13 @@ export const AuthenticationUI = ({
             key={digit.id}
             $delay={digit.delay}
             $duration={digit.duration}
-            style={{
-              '--digit-y': `${digit.y}%`,
-            } as React.CSSProperties}
+            style={
+              {
+                "--digit-y": `${digit.y}%`,
+              } as React.CSSProperties
+            }
           >
-            <BinaryDigitInner
-              $size={digit.size}
-            >
+            <BinaryDigitInner $size={digit.size}>
               {digit.value}
             </BinaryDigitInner>
           </BinaryDigitContainer>

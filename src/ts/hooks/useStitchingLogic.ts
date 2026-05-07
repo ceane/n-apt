@@ -25,7 +25,9 @@ interface StitchingResult {
   activeChannel: number;
   hardwareSampleRateHz?: number;
   allChannelsRef: React.MutableRefObject<any[]>;
-  workerFileDataCache: React.MutableRefObject<[string, Uint8Array | number[]][]>;
+  workerFileDataCache: React.MutableRefObject<
+    [string, Uint8Array | number[]][]
+  >;
   workerFreqMap: React.MutableRefObject<[string, number][]>;
   workerMetadataMap: React.MutableRefObject<[string, any][]>;
   precomputedFrames: React.MutableRefObject<any[]>;
@@ -67,11 +69,15 @@ export const useStitchingLogic = ({
   stitchSourceSettingsRef.current = stitchSourceSettings;
   const lastTriggerRef = useRef<number | null>(null);
   const selectedFileNamesKey = useMemo(
-    () => selectedFiles.map((f) => f.name).sort().join("|"),
+    () =>
+      selectedFiles
+        .map((f) => f.name)
+        .sort()
+        .join("|"),
     [selectedFiles],
   );
   const lastProcessedFilesRef = useRef<string[]>(
-    selectedFileNamesKey ? selectedFileNamesKey.split("|") : []
+    selectedFileNamesKey ? selectedFileNamesKey.split("|") : [],
   );
 
   // Worker data refs
@@ -94,18 +100,25 @@ export const useStitchingLogic = ({
 
   // Unify restoration and trigger logic
   // Restore from cache immediately to prevent 1-frame flickering
-  const cachedOnMount = useMemo(() => getStitchSession(stitchSessionKey), [stitchSessionKey]);
+  const cachedOnMount = useMemo(
+    () => getStitchSession(stitchSessionKey),
+    [stitchSessionKey],
+  );
 
   // State - initialize from cache if available
   const [hasStitchedData, setHasStitchedData] = useState(!!cachedOnMount);
   const [frequencyRange, setFrequencyRange] = useState(
-    cachedOnMount?.frequencyRange || { min: 0.0, max: 3.2 }
+    cachedOnMount?.frequencyRange || { min: 0.0, max: 3.2 },
   );
-  const [channelCount, setChannelCount] = useState(cachedOnMount?.channelCount || 0);
-  const [activeChannel, setActiveChannel] = useState(cachedOnMount?.activeChannel || 0);
-  const [hardwareSampleRateHz, setHardwareSampleRateHz] = useState<number | undefined>(
-    cachedOnMount?.hardwareSampleRateHz
+  const [channelCount, setChannelCount] = useState(
+    cachedOnMount?.channelCount || 0,
   );
+  const [activeChannel, setActiveChannel] = useState(
+    cachedOnMount?.activeChannel || 0,
+  );
+  const [hardwareSampleRateHz, setHardwareSampleRateHz] = useState<
+    number | undefined
+  >(cachedOnMount?.hardwareSampleRateHz);
 
   const setStitchStatus = useCallback((status: string) => {
     onStitchStatusRef.current?.(status);
@@ -113,9 +126,8 @@ export const useStitchingLogic = ({
 
   // Reset stitched state when file selection changes
   useEffect(() => {
-    const currentFileNames = selectedFileNamesKey.length > 0
-      ? selectedFileNamesKey.split("|")
-      : [];
+    const currentFileNames =
+      selectedFileNamesKey.length > 0 ? selectedFileNamesKey.split("|") : [];
     const lastFileNames = lastProcessedFilesRef.current;
     if (JSON.stringify(currentFileNames) !== JSON.stringify(lastFileNames)) {
       setHasStitchedData(false);
@@ -147,7 +159,7 @@ export const useStitchingLogic = ({
     maxFrames.current = cachedOnMount.maxFrames;
     allChannelsRef.current = cachedOnMount.allChannels;
     restoredSessionKeyRef.current = stitchSessionKey;
-    
+
     // Trigger callback once on mount
     onChannelsChange?.(cachedOnMount.allChannels);
     onProcessedDataChange?.(true);
@@ -161,17 +173,18 @@ export const useStitchingLogic = ({
     }
 
     setStitchStatus(`Loading ${currentFiles.length} files...`);
-    
+
     // Check if files have changed to force reset
-    const currentFileNames = currentFiles.map(f => f.name).sort();
+    const currentFileNames = currentFiles.map((f) => f.name).sort();
     const lastFileNames = lastProcessedFilesRef.current;
-    const filesChanged = JSON.stringify(currentFileNames) !== JSON.stringify(lastFileNames);
-    
+    const filesChanged =
+      JSON.stringify(currentFileNames) !== JSON.stringify(lastFileNames);
+
     // Clear previous data
     workerFreqMap.current = [];
     workerFileDataCache.current = [];
     precomputedFrames.current = [];
-    
+
     // Reset to first channel if files changed
     if (filesChanged) {
       setActiveChannel(0);
@@ -188,7 +201,7 @@ export const useStitchingLogic = ({
         (progress: any) => {
           setStitchStatus(
             progress.status ||
-            `Loading ${progress.current}/${progress.total} files...`,
+              `Loading ${progress.current}/${progress.total} files...`,
           );
         },
         aesKeyRef.current,
@@ -196,7 +209,7 @@ export const useStitchingLogic = ({
       );
 
       if (!result.stitchedData) {
-        throw new Error("Failed to stitch files");
+        throw new Error("Failed to process file segments");
       }
 
       // Store worker data in refs for frame building
@@ -207,27 +220,26 @@ export const useStitchingLogic = ({
       maxFrames.current = result.maxFrames;
 
       // Handle multi-channel metadata from worker
-      const firstFileMeta = result.metadataMap && result.metadataMap[0] ? result.metadataMap[0][1] : null;
+      const firstFileMeta =
+        result.metadataMap && result.metadataMap[0]
+          ? result.metadataMap[0][1]
+          : null;
       const channels = firstFileMeta?.channels_data || result.channels || [];
-      
+
       // Extract the TRUE per-hop hardware sample rate from raw_hardware_blocks
       const rawBlocks = firstFileMeta?.raw_hardware_blocks;
-      const hwHz = (rawBlocks && rawBlocks.length > 0)
-        ? rawBlocks[0].sample_rate_hz
-        : (firstFileMeta?.hardware_sample_rate_hz || firstFileMeta?.capture_sample_rate_hz);
+      const hwHz =
+        rawBlocks && rawBlocks.length > 0
+          ? rawBlocks[0].sample_rate_hz
+          : firstFileMeta?.hardware_sample_rate_hz ||
+            firstFileMeta?.capture_sample_rate_hz;
 
       allChannelsRef.current = channels;
       setHardwareSampleRateHz(hwHz);
       setChannelCount(channels.length);
       setActiveChannel(0);
 
-      console.log("[useStitchingLogic] Channels identified:", channels.map((c: any, i: number) => ({
-        index: i,
-        label: c.label,
-        center: c.center_freq_hz,
-        rate: c.sample_rate_hz,
-        range: c.frequency_range
-      })));
+
       const firstChannel = channels.length > 0 ? channels[0] : null;
       const firstChannelRange =
         Array.isArray(firstChannel?.frequency_range) &&
@@ -238,7 +250,10 @@ export const useStitchingLogic = ({
           : null;
       const requestedRange = firstFileMeta?.frequency_range;
       if (firstChannelRange) {
-        setFrequencyRange({ min: firstChannelRange[0], max: firstChannelRange[1] });
+        setFrequencyRange({
+          min: firstChannelRange[0],
+          max: firstChannelRange[1],
+        });
       } else if (
         Array.isArray(requestedRange) &&
         requestedRange.length === 2 &&
@@ -247,8 +262,8 @@ export const useStitchingLogic = ({
       ) {
         setFrequencyRange({ min: requestedRange[0], max: requestedRange[1] });
       } else if (firstChannel) {
-        const span = (firstChannel.sample_rate_hz || 3_200_000);
-        const center = (firstChannel.center_freq_hz || 0);
+        const span = firstChannel.sample_rate_hz || 3_200_000;
+        const center = firstChannel.center_freq_hz || 0;
         setFrequencyRange({ min: center - span / 2, max: center + span / 2 });
       } else if (result.range) {
         setFrequencyRange(result.range);
@@ -266,7 +281,7 @@ export const useStitchingLogic = ({
         hasStitchedData: true,
         frequencyRange: firstChannelRange
           ? { min: firstChannelRange[0], max: firstChannelRange[1] }
-          : result.range ?? frequencyRange,
+          : (result.range ?? frequencyRange),
         channelCount: channels.length,
         activeChannel: 0,
         hardwareSampleRateHz: hwHz,
@@ -281,9 +296,27 @@ export const useStitchingLogic = ({
     } catch (error: any) {
       console.error("Stitch error:", error);
       const msg = error.message || String(error);
-      setStitchStatus(msg.toLowerCase().includes("decryption") ? "Stitching failed: Decryption failed" : `Stitching failed: ${msg}`);
+      setStitchStatus(
+        msg.toLowerCase().includes("decryption")
+          ? "File decryption failed, wrong key"
+          : msg,
+      );
     }
-  }, [fftSize, frequencyRange, sampleRateOptions, setStitchStatus, stitchSessionKey, setHasStitchedData, setHardwareSampleRateHz, setChannelCount, setActiveChannel, setFrequencyRange, onStitchStatus, onChannelsChange, onProcessedDataChange]);
+  }, [
+    fftSize,
+    frequencyRange,
+    sampleRateOptions,
+    setStitchStatus,
+    stitchSessionKey,
+    setHasStitchedData,
+    setHardwareSampleRateHz,
+    setChannelCount,
+    setActiveChannel,
+    setFrequencyRange,
+    onStitchStatus,
+    onChannelsChange,
+    onProcessedDataChange,
+  ]);
 
   // Trigger: respond to parent's stitch button click
   useEffect(() => {

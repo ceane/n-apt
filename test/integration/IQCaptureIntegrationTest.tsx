@@ -8,18 +8,27 @@ export const IQCaptureIntegrationTest: React.FC = () => {
   const {
     isConnected,
     deviceState,
+    deviceInfo,
     captureStatus,
     maxSampleRateHz,
     dataRef,
     sendCaptureCommand,
-  } = useWebSocket("", null);
+    sendCaptureStopCommand,
+  } = useWebSocket("ws://test", null, false);
 
   // Mock state for testing
-  const [activeCaptureAreas, setActiveCaptureAreas] = React.useState<string[]>([]);
+  const [activeCaptureAreas, setActiveCaptureAreas] = React.useState<string[]>(
+    [],
+  );
   const [captureDurationS, setCaptureDurationS] = React.useState(5);
-  const [captureDurationMode, setCaptureDurationMode] = React.useState<"timed" | "manual">("timed");
-  const [captureFileType, setCaptureFileType] = React.useState<CaptureFileType>(".napt");
-  const [acquisitionMode, setAcquisitionMode] = React.useState<"stepwise" | "interleaved" | "whole_sample">("stepwise");
+  const [captureDurationMode, setCaptureDurationMode] = React.useState<
+    "timed" | "manual"
+  >("timed");
+  const [captureFileType, setCaptureFileType] =
+    React.useState<CaptureFileType>(".napt");
+  const [acquisitionMode, setAcquisitionMode] = React.useState<
+    "stepwise" | "interleaved" | "whole_sample"
+  >("stepwise");
   const [captureEncrypted, setCaptureEncrypted] = React.useState(false);
   const [capturePlayback, setCapturePlayback] = React.useState(false);
   const [captureGeolocation, setCaptureGeolocation] = React.useState(false);
@@ -28,7 +37,7 @@ export const IQCaptureIntegrationTest: React.FC = () => {
   const mockAvailableCaptureAreas = [
     { label: "Onscreen", min: 0, max: 3200000 },
     { label: "Area A", min: 10000000, max: 20000000 },
-    { label: "Area B", min: 25000000, max: 28000000 }
+    { label: "Area B", min: 25000000, max: 28000000 },
   ];
 
   const mockCaptureRange = {
@@ -36,8 +45,8 @@ export const IQCaptureIntegrationTest: React.FC = () => {
     max: 28000000,
     segments: [
       { label: "Area A", min: 10000000, max: 20000000 },
-      { label: "Area B", min: 25000000, max: 28000000 }
-    ]
+      { label: "Area B", min: 25000000, max: 28000000 },
+    ],
   };
 
   const handleCapture = () => {
@@ -58,49 +67,55 @@ export const IQCaptureIntegrationTest: React.FC = () => {
       return;
     }
 
-    const selectedFragments = activeCaptureAreas.map(area => {
-      const areaData = mockAvailableCaptureAreas.find(a => a.label === area);
+    const selectedFragments = activeCaptureAreas.map((area) => {
+      const areaData = mockAvailableCaptureAreas.find((a) => a.label === area);
       return {
         minFreq: areaData?.min || 0,
-        maxFreq: areaData?.max || 30
+        maxFreq: areaData?.max || 30,
       };
     });
     const sampleRateMHz = sampleRate / 1000000;
     const captureRangeSpan =
       selectedFragments.length > 0
-        ? Math.max(...selectedFragments.map(fragment => fragment.maxFreq)) -
-        Math.min(...selectedFragments.map(fragment => fragment.minFreq))
+        ? Math.max(...selectedFragments.map((fragment) => fragment.maxFreq)) -
+          Math.min(...selectedFragments.map((fragment) => fragment.minFreq))
         : 0;
     const effectiveAcquisitionMode =
       activeCaptureAreas.includes("Onscreen") &&
-        Math.abs(captureRangeSpan - sampleRate) < 1000
+      Math.abs(captureRangeSpan - sampleRate) < 1000
         ? "whole_sample"
         : acquisitionMode;
 
     sendCaptureCommand({
       jobId: `test-job-${Date.now()}`,
       fragments: selectedFragments,
+      durationMode: captureDurationMode,
       durationS: captureDurationS,
       fileType: captureFileType,
       acquisitionMode: effectiveAcquisitionMode,
       encrypted: captureEncrypted,
       fftSize: 1024,
       fftWindow: "Rectangular",
-      geolocation: captureGeolocation ? {
-        latitude: 0,
-        longitude: 0,
-        accuracy: 10,
-        timestamp: Date.now()
-      } : undefined,
+      geolocation: captureGeolocation
+        ? {
+            latitude: 0,
+            longitude: 0,
+            accuracy: 10,
+            timestamp: Date.now(),
+          }
+        : undefined,
     });
   };
 
   return (
     <div data-testid="iq-capture-integration-test">
       {/* Device Info Display */}
-      {dataRef?.current?.deviceInfo && (
+      {deviceState && (
         <div data-testid="device-info">
-          {dataRef.current.deviceInfo}
+          Device State: {deviceState}
+          {deviceInfo && (
+            <div data-testid="device-name">{deviceInfo}</div>
+          )}
         </div>
       )}
 
@@ -113,8 +128,7 @@ export const IQCaptureIntegrationTest: React.FC = () => {
       {captureStatus?.status === "done" && (
         <div data-testid="capture-metadata">
           Sample Rate: {formatFrequency(maxSampleRateHz || 3200000)}
-          Duration: {captureDurationS}s
-          Size: 1.02 MB
+          Duration: {captureDurationS}s Size: 1.02 MB
         </div>
       )}
 
@@ -131,7 +145,7 @@ export const IQCaptureIntegrationTest: React.FC = () => {
         captureGeolocation={captureGeolocation}
         captureRange={mockCaptureRange}
         maxSampleRate={maxSampleRateHz || 3200000}
-        captureStatus={captureStatus || { status: "idle", jobId: "" }}
+        captureStatus={captureStatus || null}
         isConnected={isConnected || false}
         deviceState={deviceState || "disconnected"}
         onActiveCaptureAreasChange={setActiveCaptureAreas}
@@ -143,7 +157,7 @@ export const IQCaptureIntegrationTest: React.FC = () => {
         onCapturePlaybackChange={setCapturePlayback}
         onCaptureGeolocationChange={setCaptureGeolocation}
         onCapture={handleCapture}
-        onClearStatus={() => { }}
+        onClearStatus={() => {}}
       />
     </div>
   );

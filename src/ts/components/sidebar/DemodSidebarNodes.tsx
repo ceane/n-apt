@@ -1,7 +1,28 @@
 import React from "react";
 import styled from "styled-components";
 import { Collapsible } from "@n-apt/components/ui";
-import { ToyBrick, Plus, Radio, Settings, Wifi, Volume2, Play, Image, RadioIcon, Brain, Activity, Zap, Cpu, Waves, BarChart3, Music, Camera, Binary, Signal, FileBox } from "lucide-react";
+import {
+  ToyBrick,
+  Plus,
+  Radio,
+  Settings,
+  Wifi,
+  Volume2,
+  Play,
+  Image,
+  RadioIcon,
+  Brain,
+  Activity,
+  Zap,
+  Cpu,
+  Waves,
+  BarChart3,
+  Music,
+  Camera,
+  Binary,
+  Signal,
+  FileBox,
+} from "lucide-react";
 
 const NodePaletteContainer = styled.div`
   display: flex;
@@ -86,226 +107,326 @@ interface NodeType {
 
 const availableNodes: NodeType[] = [
   {
-    id: 'source',
-    type: 'custom',
-    label: 'Source',
-    description: 'Auto-populated from sidebar',
+    id: "source",
+    type: "custom",
+    label: "Source",
+    description: "Auto-populated from sidebar",
     icon: <Radio size={16} />,
     position: { x: 250, y: 50 },
-    data: { label: 'Source', description: 'Auto-populated from sidebar', sourceNode: true, nonRemovable: true }
+    data: {
+      label: "Source",
+      description: "Auto-populated from sidebar",
+      sourceNode: true,
+      nonRemovable: true,
+    },
   },
   {
-    id: 'signal-config',
-    type: 'custom',
-    label: 'Signal Configuration',
-    description: 'Configure sampling, FFT resolution, and hardware gain.',
+    id: "signal-config",
+    type: "custom",
+    label: "Signal Configuration",
+    description: "Configure sampling, FFT resolution, and hardware gain.",
     icon: <Settings size={16} />,
     position: { x: 250, y: 150 },
     data: {
-      label: 'Signal Configuration',
-      description: 'Hardware sampling and FFT settings',
-      signalOptions: true
-    }
+      label: "Signal Configuration",
+      description: "Hardware sampling and FFT settings",
+      signalOptions: true,
+    },
   },
   {
-    id: 'metadata',
-    type: 'custom',
-    label: 'Metadata',
-    description: 'Recorded file metadata, frequency span, and capture properties.',
+    id: "metadata",
+    type: "custom",
+    label: "Metadata",
+    description:
+      "Recorded file metadata, frequency span, and capture properties.",
     icon: <FileBox size={16} />,
     position: { x: 250, y: 250 },
     data: {
-      label: 'Metadata',
-      description: 'Recorded file metadata, frequency span, and capture properties.',
-      metadataNode: true
-    }
+      label: "Metadata",
+      description:
+        "Recorded file metadata, frequency span, and capture properties.",
+      metadataNode: true,
+    },
   },
   {
-    id: 'coreml',
-    type: 'custom',
-    label: 'CoreML',
-    description: 'Machine learning inference',
+    id: "coreml",
+    type: "custom",
+    label: "CoreML",
+    description: "Machine learning inference",
     icon: <Cpu size={16} />,
     position: { x: 100, y: 150 },
-    data: { label: 'CoreML', description: 'Machine learning inference', coremlOptions: true }
+    data: {
+      label: "CoreML",
+      description: "Machine learning inference",
+      coremlOptions: true,
+    },
   },
   {
-    id: 'spike-detection',
-    type: 'custom',
-    label: 'Spike Detection',
-    description: 'Detect signal spikes',
+    id: "spike-detection",
+    type: "custom",
+    label: "Spike Detection",
+    description: "Detect signal spikes",
     icon: <Zap size={16} />,
     position: { x: 400, y: 150 },
-    data: { label: 'Spike Detection', description: 'Detect signal spikes', spikeOptions: true }
+    data: {
+      label: "Spike Detection",
+      description: "Detect signal spikes",
+      spikeOptions: true,
+    },
   },
   {
-    id: 'beat-detection',
-    type: 'custom',
-    label: 'Beat Detection',
-    description: 'Beat frequencies/heterodyning',
+    id: "beat-detection",
+    type: "custom",
+    label: "Beat Detection",
+    description: "Beat frequencies/heterodyning",
     icon: <BarChart3 size={16} />,
     position: { x: 100, y: 250 },
-    data: { label: 'Beat Detection', description: 'Beat frequencies/heterodyning', beatOptions: true }
+    data: {
+      label: "Beat Detection",
+      description: "Beat frequencies/heterodyning",
+      beatOptions: true,
+    },
   },
   {
-    id: 'fft',
-    type: 'custom',
-    label: 'FFT',
-    description: 'Fast Fourier Transform',
+    id: "fft",
+    type: "custom",
+    label: "FFT",
+    description: "Fast Fourier Transform",
     icon: <Activity size={16} />,
     position: { x: 400, y: 250 },
-    data: { label: 'FFT', description: 'Fast Fourier Transform', fftOptions: true }
+    data: {
+      label: "FFT",
+      description: "Fast Fourier Transform",
+      fftOptions: true,
+    },
   },
   {
-    id: 'waterfall',
-    type: 'custom',
-    label: 'Waterfall',
-    description: 'Frequency spectrum waterfall',
+    id: "waterfall",
+    type: "custom",
+    label: "Waterfall",
+    description: "Frequency spectrum waterfall",
     icon: <Waves size={16} />,
     position: { x: 100, y: 350 },
-    data: { label: 'Waterfall', description: 'Frequency spectrum waterfall', waterfallOptions: true }
+    data: {
+      label: "Waterfall",
+      description: "Frequency spectrum waterfall",
+      waterfallOptions: true,
+    },
   },
   {
-    id: 'spectogram-128',
-    type: 'custom',
-    label: 'Spectogram 128',
-    description: '128x128 images for ML (128kHz x 128 frames)',
+    id: "spectogram-128",
+    type: "custom",
+    label: "Spectogram 128",
+    description: "128x128 images for ML (128kHz x 128 frames)",
     icon: <Image size={16} />,
     position: { x: 250, y: 350 },
-    data: { label: 'Spectogram 128', description: '128x128 images for ML (128kHz x 128 frames)', spectogramOptions: true }
+    data: {
+      label: "Spectogram 128",
+      description: "128x128 images for ML (128kHz x 128 frames)",
+      spectogramOptions: true,
+    },
   },
   {
-    id: 'output',
-    type: 'custom',
-    label: 'Output',
-    description: 'Processed signal results',
+    id: "output",
+    type: "custom",
+    label: "Output",
+    description: "Processed signal results",
     icon: <Plus size={16} />,
     position: { x: 400, y: 350 },
-    data: { label: 'Output', description: 'Processed signal results' }
+    data: { label: "Output", description: "Processed signal results" },
   },
   {
-    id: 'channel',
-    type: 'custom',
-    label: 'Channel',
-    description: 'Select signals.yaml channels',
+    id: "channel",
+    type: "custom",
+    label: "Channel",
+    description: "Select signals.yaml channels",
     icon: <Wifi size={16} />,
     position: { x: 150, y: 450 },
-    data: { label: 'Channel', description: 'Select signals.yaml channels', channelOptions: true }
+    data: {
+      label: "Channel",
+      description: "Select signals.yaml channels",
+      channelOptions: true,
+    },
   },
   {
-    id: 'span',
-    type: 'custom',
-    label: 'Span',
-    description: 'Arbitrary frequency range',
+    id: "span",
+    type: "custom",
+    label: "Span",
+    description: "Arbitrary frequency range",
     icon: <Settings size={16} />,
     position: { x: 350, y: 450 },
-    data: { label: 'Span', description: 'Arbitrary frequency range', spanOptions: true }
+    data: {
+      label: "Span",
+      description: "Arbitrary frequency range",
+      spanOptions: true,
+    },
   },
   {
-    id: 'stimulus',
-    type: 'custom',
-    label: 'Stimulus (N-APT)',
-    description: 'Record I/Q captures of N-APT channels using a baseline media content to detect where is what.',
+    id: "stimulus",
+    type: "custom",
+    label: "Stimulus (N-APT)",
+    description:
+      "Record I/Q captures of N-APT channels using a baseline media content to detect where is what.",
     icon: <Volume2 size={16} />,
     position: { x: 150, y: 550 },
-    data: { label: 'Stimulus', description: 'Record I/Q captures of N-APT channels using a baseline media content to detect where is what.', stimulusOptions: true }
+    data: {
+      label: "Stimulus",
+      description:
+        "Record I/Q captures of N-APT channels using a baseline media content to detect where is what.",
+      stimulusOptions: true,
+    },
   },
   {
-    id: 'tempo-note-stimulus',
-    type: 'custom',
-    label: 'Tempo/Note Stimulus (N-APT)',
-    description: 'Record I/Q captures of N-APT channels using rich sound to detect where is what.',
+    id: "tempo-note-stimulus",
+    type: "custom",
+    label: "Tempo/Note Stimulus (N-APT)",
+    description:
+      "Record I/Q captures of N-APT channels using rich sound to detect where is what.",
     icon: <Music size={16} />,
     position: { x: 350, y: 550 },
-    data: { label: 'Tempo/Note Stimulus', description: 'Record I/Q captures of N-APT channels using rich sound to detect where is what.', tempoNoteOptions: true }
+    data: {
+      label: "Tempo/Note Stimulus",
+      description:
+        "Record I/Q captures of N-APT channels using rich sound to detect where is what.",
+      tempoNoteOptions: true,
+    },
   },
   {
-    id: 'radio',
-    type: 'custom',
-    label: 'Radio',
-    description: 'Scan for/playback content representing audio content/input capture',
+    id: "radio",
+    type: "custom",
+    label: "Radio",
+    description:
+      "Scan for/playback content representing audio content/input capture",
     icon: <RadioIcon size={16} />,
     position: { x: 150, y: 650 },
-    data: { label: 'Radio', description: 'Scan for/playback content representing audio content/input capture', radioOptions: true }
+    data: {
+      label: "Radio",
+      description:
+        "Scan for/playback content representing audio content/input capture",
+      radioOptions: true,
+    },
   },
   {
-    id: 'camera',
-    type: 'custom',
-    label: 'Camera',
-    description: 'Scan for/playback content representing visual content/input capture',
+    id: "camera",
+    type: "custom",
+    label: "Camera",
+    description:
+      "Scan for/playback content representing visual content/input capture",
     icon: <Camera size={16} />,
     position: { x: 350, y: 650 },
-    data: { label: 'Camera', description: 'Scan for/playback content representing visual content/input capture', cameraOptions: true }
+    data: {
+      label: "Camera",
+      description:
+        "Scan for/playback content representing visual content/input capture",
+      cameraOptions: true,
+    },
   },
   {
-    id: 'stream',
-    type: 'custom',
-    label: 'Stream',
-    description: 'Real-time data streaming',
+    id: "stream",
+    type: "custom",
+    label: "Stream",
+    description: "Real-time data streaming",
     icon: <Play size={16} />,
     position: { x: 150, y: 750 },
-    data: { label: 'Stream', description: 'Real-time data streaming', streamOptions: true }
+    data: {
+      label: "Stream",
+      description: "Real-time data streaming",
+      streamOptions: true,
+    },
   },
   {
-    id: 'apt',
-    type: 'custom',
-    label: 'APT',
-    description: 'Automatic Picture Transmission',
+    id: "apt",
+    type: "custom",
+    label: "APT",
+    description: "Automatic Picture Transmission",
     icon: <Image size={16} />,
     position: { x: 350, y: 750 },
-    data: { label: 'APT', description: 'Automatic Picture Transmission', aptOptions: true }
+    data: {
+      label: "APT",
+      description: "Automatic Picture Transmission",
+      aptOptions: true,
+    },
   },
   {
-    id: 'fm',
-    type: 'custom',
-    label: 'FM',
-    description: 'Frequency modulation demodulation',
+    id: "fm",
+    type: "custom",
+    label: "FM",
+    description: "Frequency modulation demodulation",
     icon: <RadioIcon size={16} />,
     position: { x: 150, y: 850 },
-    data: { label: 'FM', description: 'Frequency modulation demodulation', fmOptions: true }
+    data: {
+      label: "FM",
+      description: "Frequency modulation demodulation",
+      fmOptions: true,
+    },
   },
   {
-    id: 'symbols',
-    type: 'custom',
-    label: 'Symbols (I/Q)',
-    description: 'Converts baseband waveform into discrete modulation symbols. Each symbol represents one or more bits.',
+    id: "symbols",
+    type: "custom",
+    label: "Symbols (I/Q)",
+    description:
+      "Converts baseband waveform into discrete modulation symbols. Each symbol represents one or more bits.",
     icon: <Signal size={16} />,
     position: { x: 350, y: 850 },
-    data: { label: 'Symbols (I/Q)', description: 'Converts baseband waveform into discrete modulation symbols. Each symbol represents one or more bits.', symbolsOptions: true }
+    data: {
+      label: "Symbols (I/Q)",
+      description:
+        "Converts baseband waveform into discrete modulation symbols. Each symbol represents one or more bits.",
+      symbolsOptions: true,
+    },
   },
   {
-    id: 'bitstream',
-    type: 'custom',
-    label: 'Bitstream (0s/1s)',
-    description: 'Maps symbols into raw bits after demodulation. Continuous 0s and 1s, no framing applied yet.',
+    id: "bitstream",
+    type: "custom",
+    label: "Bitstream (0s/1s)",
+    description:
+      "Maps symbols into raw bits after demodulation. Continuous 0s and 1s, no framing applied yet.",
     icon: <Binary size={16} />,
     position: { x: 150, y: 950 },
-    data: { label: 'Bitstream (0s/1s)', description: 'Maps symbols into raw bits after demodulation. Continuous 0s and 1s, no framing applied yet.', bitstreamOptions: true }
+    data: {
+      label: "Bitstream (0s/1s)",
+      description:
+        "Maps symbols into raw bits after demodulation. Continuous 0s and 1s, no framing applied yet.",
+      bitstreamOptions: true,
+    },
   },
   {
-    id: 'baseband',
-    type: 'custom',
-    label: 'Baseband (I/Q waveform)',
-    description: 'The signal after removing the RF carrier, represented by in-phase (I) and quadrature (Q) samples. These are raw values (0–255 u8) from the ADC.',
+    id: "baseband",
+    type: "custom",
+    label: "Baseband (I/Q waveform)",
+    description:
+      "The signal after removing the RF carrier, represented by in-phase (I) and quadrature (Q) samples. These are raw values (0–255 u8) from the ADC.",
     icon: <Waves size={16} />,
     position: { x: 350, y: 950 },
-    data: { label: 'Baseband (I/Q waveform)', description: 'The signal after removing the RF carrier, represented by in-phase (I) and quadrature (Q) samples. These are raw values (0–255 u8) from the ADC.', basebandOptions: true }
+    data: {
+      label: "Baseband (I/Q waveform)",
+      description:
+        "The signal after removing the RF carrier, represented by in-phase (I) and quadrature (Q) samples. These are raw values (0–255 u8) from the ADC.",
+      basebandOptions: true,
+    },
   },
   {
-    id: 'baseline-analysis',
-    type: 'custom',
-    label: 'Baseline Analysis',
-    description: 'Neural baseline vector analysis',
+    id: "baseline-analysis",
+    type: "custom",
+    label: "Baseline Analysis",
+    description: "Neural baseline vector analysis",
     icon: <Brain size={16} />,
     position: { x: 250, y: 1050 },
-    data: { label: 'Baseline Analysis', description: 'Neural baseline vector analysis', analysisOptions: true }
-  }
+    data: {
+      label: "Baseline Analysis",
+      description: "Neural baseline vector analysis",
+      analysisOptions: true,
+    },
+  },
 ];
 
 export const DemodSidebarNodes: React.FC = () => {
   const handleDragStart = (event: React.DragEvent, nodeType: NodeType) => {
-    event.dataTransfer.setData('application/reactflow', JSON.stringify(nodeType));
-    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData(
+      "application/reactflow",
+      JSON.stringify(nodeType),
+    );
+    event.dataTransfer.effectAllowed = "move";
   };
 
   return (

@@ -133,7 +133,11 @@ export const deriveStateFromConfig = (
   const fft = sdrSettings?.fft;
   const gainConfig = sdrSettings?.gain;
   const fftSize = typeof fft?.default_size === "number" ? fft.default_size : 0;
-  const maxFrameRate = getLogicalMaxFrameRate(maxSampleRate, fftSize, sdrSettings);
+  const maxFrameRate = getLogicalMaxFrameRate(
+    maxSampleRate,
+    fftSize,
+    sdrSettings,
+  );
   const rawFrameRate =
     typeof fft?.default_frame_rate === "number"
       ? fft.default_frame_rate

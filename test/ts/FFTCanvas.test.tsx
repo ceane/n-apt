@@ -7,6 +7,7 @@ import { SpectrumProvider } from "../../src/ts/hooks/useSpectrumStore";
 import { MemoryRouter } from "react-router-dom";
 import { TestWrapper } from "./testUtils";
 import { ThemeProvider } from "styled-components";
+import { THEME_TOKENS } from "@n-apt/consts/theme";
 import { createFFTVisualizerMachine } from "../../src/ts/utils/fftVisualizerMachine";
 import { createRef } from "react";
 
@@ -19,14 +20,43 @@ jest.mock("@n-apt/hooks/useAuthentication", () => ({
   }),
 }));
 
+jest.mock("@n-apt/hooks/useWasmSimdMath", () => ({
+  useWasmSimdMath: () => ({
+    isWasmLoaded: true,
+    isSimdAvailable: false,
+    resampleSpectrum: jest.fn(),
+    processIqToSpectrum: jest.fn(),
+    processIqToDbmSpectrum: jest.fn(),
+    shiftWaterfallBuffer: jest.fn(),
+    applyColorMapping: jest.fn(),
+    getZoomedData: jest.fn((params) => ({
+      slicedWaveform: params.fullWaveform,
+      visualRange: params.fullRange,
+      clampedPan: 0,
+    })),
+    transformToScreenCoords: jest.fn(() => []),
+    calculateFrequencyDrag: jest.fn(),
+    detectProminentSpikes: jest.fn(() => []),
+    resampleSpectrumEnhanced: jest.fn(),
+    matchNoiseFloorDb: jest.fn((ref, target) => target),
+  }),
+}));
+
 jest.unmock("@n-apt/components/FFTCanvas");
 
 const mockTheme = {
-  primary: "#00d4ff",
-  background: "#0a0a0a",
-  text: "#ffffff",
-  fftColor: "#00d4ff",
+  mode: "dark" as const,
+  requestedMode: "system" as const,
   waterfallTheme: "magma",
+  colors: THEME_TOKENS.colors.dark,
+  typography: THEME_TOKENS.typography,
+  spacing: THEME_TOKENS.spacing,
+  layout: THEME_TOKENS.layout,
+  primary: "#00d4ff",
+  primaryAlpha: "#00d4ff33",
+  primaryAnchor: "#00d4ff1a",
+  fft: "#00d4ff",
+  cssVariables: {},
 };
 
 describe("FFTCanvas Component", () => {
@@ -47,7 +77,7 @@ describe("FFTCanvas Component", () => {
             <FFTCanvas {...defaultProps} />
           </SpectrumProvider>
         </MemoryRouter>
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     await waitFor(() => {
@@ -64,7 +94,7 @@ describe("FFTCanvas Component", () => {
             <FFTCanvas {...defaultProps} />
           </SpectrumProvider>
         </MemoryRouter>
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     await waitFor(() => {
@@ -80,8 +110,7 @@ describe("FFTCanvas Component", () => {
     const seededSnapshot = {
       waveform: new Float32Array([1, 2, 3, 4]),
       waterfallTextureSnapshot: new Uint8Array([
-        10, 20, 30, 255,
-        40, 50, 60, 255,
+        10, 20, 30, 255, 40, 50, 60, 255,
       ]),
       waterfallTextureMeta: {
         width: 1,
@@ -89,8 +118,7 @@ describe("FFTCanvas Component", () => {
         writeRow: 1,
       },
       waterfallBuffer: new Uint8ClampedArray([
-        10, 20, 30, 255,
-        40, 50, 60, 255,
+        10, 20, 30, 255, 40, 50, 60, 255,
       ]),
       waterfallDims: {
         width: 1,
@@ -116,7 +144,7 @@ describe("FFTCanvas Component", () => {
               </ThemeProvider>
             </SpectrumProvider>
           </MemoryRouter>
-        </TestWrapper>
+        </TestWrapper>,
       );
 
     const firstRender = renderCanvas();
@@ -147,8 +175,7 @@ describe("FFTCanvas Component", () => {
     const seededSnapshot = {
       waveform: new Float32Array([1, 2, 3, 4]),
       waterfallTextureSnapshot: new Uint8Array([
-        10, 20, 30, 255,
-        40, 50, 60, 255,
+        10, 20, 30, 255, 40, 50, 60, 255,
       ]),
       waterfallTextureMeta: {
         width: 1,
@@ -156,8 +183,7 @@ describe("FFTCanvas Component", () => {
         writeRow: 1,
       },
       waterfallBuffer: new Uint8ClampedArray([
-        10, 20, 30, 255,
-        40, 50, 60, 255,
+        10, 20, 30, 255, 40, 50, 60, 255,
       ]),
       waterfallDims: {
         width: 1,
@@ -183,7 +209,7 @@ describe("FFTCanvas Component", () => {
               </ThemeProvider>
             </SpectrumProvider>
           </MemoryRouter>
-        </TestWrapper>
+        </TestWrapper>,
       );
 
     const firstRender = renderCanvas();
@@ -232,7 +258,7 @@ describe("FFTCanvas Component", () => {
             </ThemeProvider>
           </SpectrumProvider>
         </MemoryRouter>
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     await waitFor(() => {

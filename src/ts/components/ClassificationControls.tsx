@@ -27,12 +27,13 @@ const CaptureButton = styled.button<{
 }>`
   padding: 5px 14px;
   border-radius: 4px;
-  border: 1px solid ${(props) =>
-    props.$active
-      ? props.$variant === "target"
-        ? "#00cc66"
-        : "#ff6644"
-      : "#333"};
+  border: 1px solid
+    ${(props) =>
+      props.$active
+        ? props.$variant === "target"
+          ? "#00cc66"
+          : "#ff6644"
+        : "#333"};
   background: ${(props) =>
     props.$active
       ? props.$variant === "target"
@@ -53,7 +54,8 @@ const CaptureButton = styled.button<{
   white-space: nowrap;
 
   &:hover:not(:disabled) {
-    border-color: ${(props) => (props.$variant === "target" ? "#00cc66" : "#ff6644")};
+    border-color: ${(props) =>
+      props.$variant === "target" ? "#00cc66" : "#ff6644"};
     color: ${(props) => (props.$variant === "target" ? "#00cc66" : "#ff6644")};
   }
 
@@ -79,9 +81,13 @@ const StatusBadge = styled.span<{ $capturing: boolean }>`
   gap: 6px;
   padding: 3px 10px;
   border-radius: 3px;
-  background: ${(props) => (props.$capturing ? "rgba(0, 212, 255, 0.1)" : "transparent")};
-  border: 1px solid ${(props) => (props.$capturing ? `${props.theme.primary}33` : props.theme.border)};
-  color: ${(props) => (props.$capturing ? props.theme.primary : props.theme.textMuted)};
+  background: ${(props) =>
+    props.$capturing ? "rgba(0, 212, 255, 0.1)" : "transparent"};
+  border: 1px solid
+    ${(props) =>
+      props.$capturing ? `${props.theme.primary}33` : props.theme.border};
+  color: ${(props) =>
+    props.$capturing ? props.theme.primary : props.theme.textMuted};
   font-size: 10px;
   font-weight: 500;
   white-space: nowrap;
@@ -97,8 +103,12 @@ const Dot = styled.span<{ $color: string }>`
 
   animation: blink 1s ease-in-out infinite alternate;
   @keyframes blink {
-    from { opacity: 0.4; }
-    to   { opacity: 1; }
+    from {
+      opacity: 0.4;
+    }
+    to {
+      opacity: 1;
+    }
   }
 `;
 

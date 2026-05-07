@@ -70,7 +70,13 @@ export const SignalPreviewNode: React.FC<SignalPreviewNodeProps> = ({
       data_type: "iq_raw",
       iq_data: iqData,
     };
-  }, [buildIqData, centerFrequencyHz, fftSize, frequencyRange.max, frequencyRange.min]);
+  }, [
+    buildIqData,
+    centerFrequencyHz,
+    fftSize,
+    frequencyRange.max,
+    frequencyRange.min,
+  ]);
 
   const dataRef = useRef<LiveFrameData>(previewFrame);
   dataRef.current = previewFrame;

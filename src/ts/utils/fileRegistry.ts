@@ -10,7 +10,7 @@ class FileRegistry {
    * If the file is already registered, returns the existing ID.
    */
   register(file: File): string {
-    // Generate an ID based on name and size as a heuristic, 
+    // Generate an ID based on name and size as a heuristic,
     // or use a random UUID if we want more uniqueness.
     const id = `${file.name}-${file.size}-${file.lastModified}`;
     this.files.set(id, file);

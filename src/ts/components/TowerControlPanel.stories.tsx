@@ -1,14 +1,14 @@
 import { TowerControlPanel } from "@n-apt/components/TowerControlPanel";
 
 export default {
-  title: 'Components/TowerControlPanel',
+  title: "Components/TowerControlPanel",
   parameters: {
-    layout: 'centered',
+    layout: "centered",
   },
 };
 
 export const Default = () => (
-  <div style={{ backgroundColor: '#0a0a0a', padding: '40px' }}>
+  <div style={{ backgroundColor: "#0a0a0a", padding: "40px" }}>
     <TowerControlPanel
       truncated={false}
       totalFound={null}
@@ -20,7 +20,7 @@ export const Default = () => (
 );
 
 export const Loading = () => (
-  <div style={{ backgroundColor: '#0a0a0a', padding: '40px' }}>
+  <div style={{ backgroundColor: "#0a0a0a", padding: "40px" }}>
     <TowerControlPanel
       truncated={false}
       totalFound={null}
@@ -32,7 +32,7 @@ export const Loading = () => (
 );
 
 export const TruncatedResults = () => (
-  <div style={{ backgroundColor: '#0a0a0a', padding: '40px' }}>
+  <div style={{ backgroundColor: "#0a0a0a", padding: "40px" }}>
     <TowerControlPanel
       truncated={true}
       totalFound={15420}
@@ -44,7 +44,7 @@ export const TruncatedResults = () => (
 );
 
 export const WithError = () => (
-  <div style={{ backgroundColor: '#0a0a0a', padding: '40px' }}>
+  <div style={{ backgroundColor: "#0a0a0a", padding: "40px" }}>
     <TowerControlPanel
       truncated={false}
       totalFound={null}
@@ -56,7 +56,7 @@ export const WithError = () => (
 );
 
 export const HighCount = () => (
-  <div style={{ backgroundColor: '#0a0a0a', padding: '40px' }}>
+  <div style={{ backgroundColor: "#0a0a0a", padding: "40px" }}>
     <TowerControlPanel
       truncated={true}
       totalFound={48923}
@@ -68,19 +68,23 @@ export const HighCount = () => (
 );
 
 export const InContext = () => (
-  <div style={{
-    backgroundColor: '#0a0a0a',
-    padding: '40px',
-    fontFamily: 'JetBrains Mono, monospace'
-  }}>
-    <div style={{
-      backgroundColor: '#1a1a1a',
-      padding: '20px',
-      borderRadius: '8px',
-      border: '1px solid #333',
-      width: '280px'
-    }}>
-      <h3 style={{ color: '#e0e0e0', margin: '0 0 16px 0', fontSize: '14px' }}>
+  <div
+    style={{
+      backgroundColor: "#0a0a0a",
+      padding: "40px",
+      fontFamily: "JetBrains Mono, monospace",
+    }}
+  >
+    <div
+      style={{
+        backgroundColor: "#1a1a1a",
+        padding: "20px",
+        borderRadius: "8px",
+        border: "1px solid #333",
+        width: "280px",
+      }}
+    >
+      <h3 style={{ color: "#e0e0e0", margin: "0 0 16px 0", fontSize: "14px" }}>
         🗺️ Tower Map Status
       </h3>
       <TowerControlPanel
@@ -90,14 +94,16 @@ export const InContext = () => (
         towersLoading={false}
         towersError={null}
       />
-      <div style={{
-        marginTop: '20px',
-        padding: '12px',
-        backgroundColor: '#0d0d0d',
-        borderRadius: '4px',
-        border: '1px solid #2a2a2a'
-      }}>
-        <p style={{ color: '#888', margin: 0, fontSize: '12px' }}>
+      <div
+        style={{
+          marginTop: "20px",
+          padding: "12px",
+          backgroundColor: "#0d0d0d",
+          borderRadius: "4px",
+          border: "1px solid #2a2a2a",
+        }}
+      >
+        <p style={{ color: "#888", margin: 0, fontSize: "12px" }}>
           📡 Showing cell towers within current map view
         </p>
       </div>

@@ -1,10 +1,7 @@
 import React from "react";
 import styled from "styled-components";
 import { Slider } from "@n-apt/components/ui";
-import {
-  COLORS,
-  STITCHER_BUTTON_STYLE,
-} from "@n-apt/consts/components";
+import { COLORS, STITCHER_BUTTON_STYLE } from "@n-apt/consts/components";
 import { FFT_MIN_DB, FFT_MAX_DB } from "@n-apt/consts";
 
 const SlidersGrid = styled.div`
@@ -33,12 +30,10 @@ const ActionButton = styled.button<{ $active?: boolean }>`
   white-space: nowrap;
   padding: 6px 10px;
   border-radius: ${STITCHER_BUTTON_STYLE.borderRadius};
-  border: 1px solid ${(props) =>
-    props.$active ? props.theme.primary : COLORS.borderHover};
+  border: 1px solid
+    ${(props) => (props.$active ? props.theme.primary : COLORS.borderHover)};
   background: ${(props) =>
-    props.$active
-      ? props.theme.activeBackground
-      : props.theme.surface};
+    props.$active ? props.theme.activeBackground : props.theme.surface};
   color: ${(props) =>
     props.$active ? props.theme.primary : props.theme.textSecondary};
   cursor: pointer;
@@ -48,8 +43,9 @@ const ActionButton = styled.button<{ $active?: boolean }>`
 
   &:hover {
     background: ${(props) =>
-    props.$active ? props.theme.activeBackground : props.theme.surfaceHover};
-    color: ${(props) => (props.$active ? props.theme.primary : props.theme.textPrimary)};
+      props.$active ? props.theme.activeBackground : props.theme.surfaceHover};
+    color: ${(props) =>
+      props.$active ? props.theme.primary : props.theme.textPrimary};
   }
 
   &:active {

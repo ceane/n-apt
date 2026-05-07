@@ -97,8 +97,10 @@ export function useTowers() {
       setLoading(true);
       setError(null);
       try {
-        const response = await fetch(`${API_BASE}/api/towers/bounds?${params.toString()}`);
-        
+        const response = await fetch(
+          `${API_BASE}/api/towers/bounds?${params.toString()}`,
+        );
+
         if (!response.ok) {
           throw new Error(`Failed to load towers (${response.status})`);
         }
@@ -120,7 +122,8 @@ export function useTowers() {
 
         setTowers(safeTowers);
       } catch (err) {
-        const message = err instanceof Error ? err.message : "Unknown tower query error";
+        const message =
+          err instanceof Error ? err.message : "Unknown tower query error";
         setError(message);
       } finally {
         setLoading(false);

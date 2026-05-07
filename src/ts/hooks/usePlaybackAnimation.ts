@@ -24,9 +24,9 @@ export const usePlaybackAnimation = ({
 }: UsePlaybackAnimationProps) => {
   const isPausedRef = useRef(isPaused);
   isPausedRef.current = isPaused;
-  
+
   const lastFrameTimeRef = useRef<number | null>(null);
-  
+
   const iqFrameIdxRef = useRef(0);
 
   // Cached per-channel derived values — avoids recomputing on every rAF tick
@@ -44,58 +44,70 @@ export const usePlaybackAnimation = ({
     }
   }, [hasStitchedData]);
 
-  const animateFrame = useCallback((timestamp: number, forceFrame = false) => {
-    if (!lastFrameTimeRef.current) lastFrameTimeRef.current = timestamp;
-    const elapsed = timestamp - lastFrameTimeRef.current;
+  const animateFrame = useCallback(
+    (timestamp: number, forceFrame = false) => {
+      if (!lastFrameTimeRef.current) lastFrameTimeRef.current = timestamp;
+      const elapsed = timestamp - lastFrameTimeRef.current;
 
-    const channelData = allChannelsRef.current[activeChannel];
-    if (channelData) {
-      const frameRate = channelData.frame_rate || 30;
-      const frameInterval = 1000 / frameRate;
+      const channelData = allChannelsRef.current[activeChannel];
+      if (channelData) {
+        const frameRate = channelData.frame_rate || 30;
+        const frameInterval = 1000 / frameRate;
 
-      if (elapsed >= frameInterval || forceFrame) {
-        // Rebuild cached values only when the channel object changes
-        if (cachedChannelIdRef.current !== channelData) {
-          cachedChannelIdRef.current = channelData;
-          const iqData = channelData.iq_data || channelData.iq;
-          if (iqData && iqData.length > 0) {
-            // Zero-copy when already Uint8Array (our worker now always provides this)
-            cachedIqRef.current = iqData instanceof Uint8Array ? iqData : new Uint8Array(iqData);
-            const fftSize = channelData.bins_per_frame || 2048;
-            cachedChunkSizeRef.current = fftSize * 2;
-            cachedTotalFramesRef.current = Math.max(1, Math.floor(cachedIqRef.current.length / cachedChunkSizeRef.current));
-            
-            // Auto-reset frame index when channel changes or at start
-            iqFrameIdxRef.current = 0;
-          } else {
-            cachedIqRef.current = null;
+        if (elapsed >= frameInterval || forceFrame) {
+          // Rebuild cached values only when the channel object changes
+          if (cachedChannelIdRef.current !== channelData) {
+            cachedChannelIdRef.current = channelData;
+            const iqData = channelData.iq_data || channelData.iq;
+            if (iqData && iqData.length > 0) {
+              // Zero-copy when already Uint8Array (our worker now always provides this)
+              cachedIqRef.current =
+                iqData instanceof Uint8Array ? iqData : new Uint8Array(iqData);
+              const fftSize = channelData.bins_per_frame || 2048;
+              cachedChunkSizeRef.current = fftSize * 2;
+              cachedTotalFramesRef.current = Math.max(
+                1,
+                Math.floor(
+                  cachedIqRef.current.length / cachedChunkSizeRef.current,
+                ),
+              );
+
+              // Auto-reset frame index when channel changes or at start
+              iqFrameIdxRef.current = 0;
+            } else {
+              cachedIqRef.current = null;
+            }
           }
-        }
 
-        const fullIq = cachedIqRef.current;
-        if (fullIq) {
-          const chunkSize = cachedChunkSizeRef.current;
-          const totalFrames = cachedTotalFramesRef.current;
-          const frameIdx = iqFrameIdxRef.current % totalFrames;
-          const offset = frameIdx * chunkSize;
-          const chunk = fullIq.subarray(offset, Math.min(fullIq.length, offset + chunkSize));
-          iqFrameIdxRef.current = frameIdx + 1;
+          const fullIq = cachedIqRef.current;
+          if (fullIq) {
+            const chunkSize = cachedChunkSizeRef.current;
+            const totalFrames = cachedTotalFramesRef.current;
+            const frameIdx = iqFrameIdxRef.current % totalFrames;
+            const offset = frameIdx * chunkSize;
+            const chunk = fullIq.subarray(
+              offset,
+              Math.min(fullIq.length, offset + chunkSize),
+            );
+            iqFrameIdxRef.current = frameIdx + 1;
 
-          if (chunk.length >= 2) {
-            fftCanvasDataRef.current = {
-              type: "spectrum",
-              center_frequency_hz: channelData.center_freq_hz,
-              sample_rate: channelData.sample_rate_hz,
-              data_type: "iq_raw",
-              iq_data: chunk,
-            };
-            onFrameEmitted?.();
+            if (chunk.length >= 2) {
+              fftCanvasDataRef.current = {
+                type: "spectrum",
+                center_frequency_hz: channelData.center_freq_hz,
+                sample_rate: channelData.sample_rate_hz,
+                data_type: "iq_raw",
+                iq_data: chunk,
+              };
+              onFrameEmitted?.();
+            }
           }
+          lastFrameTimeRef.current = timestamp;
         }
-        lastFrameTimeRef.current = timestamp;
       }
-    }
-  }, [allChannelsRef, activeChannel, fftCanvasDataRef, onFrameEmitted]);
+    },
+    [allChannelsRef, activeChannel, fftCanvasDataRef, onFrameEmitted],
+  );
 
   useEffect(() => {
     if (!hasStitchedData || isPaused) return;

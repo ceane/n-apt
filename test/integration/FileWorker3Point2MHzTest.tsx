@@ -6,7 +6,7 @@ const mockFileWorkerManager = {
   loadFile: jest.fn(),
   buildFrame: jest.fn(),
   getFrame: jest.fn(),
-  terminate: jest.fn()
+  terminate: jest.fn(),
 };
 
 // Mock data for testing
@@ -24,9 +24,9 @@ const mockMetadata = {
       offset_spectrum: 4096,
       iq_length: 4096,
       spectrum_length: 8192,
-      bins_per_frame: 8192
-    }
-  ]
+      bins_per_frame: 8192,
+    },
+  ],
 };
 
 export const FileWorker3Point2MHzTest: React.FC = () => {
@@ -34,7 +34,7 @@ export const FileWorker3Point2MHzTest: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
 
   const addResult = (message: string) => {
-    setTestResults(prev => [...prev, message]);
+    setTestResults((prev) => [...prev, message]);
   };
 
   // Test 1: Default 3.2MHz sample rate enforcement
@@ -43,18 +43,27 @@ export const FileWorker3Point2MHzTest: React.FC = () => {
       addResult("Testing default 3.2MHz sample rate enforcement...");
 
       // Test with missing metadata (should default to 3.2MHz)
-      const files = [{
-        name: "test_capture.napt",
-        file: new File([mockFileData], "test_capture.napt")
-      }];
+      const files = [
+        {
+          name: "test_capture.napt",
+          file: new File([mockFileData], "test_capture.napt"),
+        },
+      ];
 
       const settings = { gain: 0, ppm: 0 };
 
       // This should use 3.2MHz default when metadata is missing
-      await mockFileWorkerManager.stitchFiles(files, settings, 8192, undefined, null, {
-        maxSampleRateHz: 3200000,
-        currentSampleRateHz: 3200000
-      });
+      await mockFileWorkerManager.stitchFiles(
+        files,
+        settings,
+        8192,
+        undefined,
+        null,
+        {
+          maxSampleRateHz: 3200000,
+          currentSampleRateHz: 3200000,
+        },
+      );
 
       addResult("✅ 3.2MHz span enforced");
       addResult("✅ Default sample rate applied when metadata missing");
@@ -71,14 +80,16 @@ export const FileWorker3Point2MHzTest: React.FC = () => {
       // Simulate the fileWorker's stitchAdjacentChannels logic
       const channels = [
         { center_freq_hz: 100000000, sample_rate_hz: 3200000 },
-        { center_freq_hz: 103200000, sample_rate_hz: 3200000 }
+        { center_freq_hz: 103200000, sample_rate_hz: 3200000 },
       ];
 
       // Check if channels are adjacent within 3.2MHz
-      const prevMax = channels[0].center_freq_hz + channels[0].sample_rate_hz / 2;
+      const prevMax =
+        channels[0].center_freq_hz + channels[0].sample_rate_hz / 2;
       const chMin = channels[1].center_freq_hz - channels[1].sample_rate_hz / 2;
 
-      if (chMin <= prevMax + 1000) { // 1kHz tolerance
+      if (chMin <= prevMax + 1000) {
+        // 1kHz tolerance
         addResult("✅ Adjacent channels detected");
         addResult("✅ Overlap within 3.2MHz tolerance");
       } else {
@@ -98,11 +109,14 @@ export const FileWorker3Point2MHzTest: React.FC = () => {
       const invalidMetadata = {
         ...mockMetadata,
         capture_sample_rate_hz: 4000000, // 4.0MHz - exceeds limit
-        sample_rate_hz: 4000000
+        sample_rate_hz: 4000000,
       };
 
       // FileWorker should clamp this to 3.2MHz
-      const clampedRate = Math.min(invalidMetadata.capture_sample_rate_hz, 3200000);
+      const clampedRate = Math.min(
+        invalidMetadata.capture_sample_rate_hz,
+        3200000,
+      );
 
       if (clampedRate === 3200000) {
         addResult("✅ Sample rate clamped to 3.2MHz");
@@ -126,7 +140,9 @@ export const FileWorker3Point2MHzTest: React.FC = () => {
 
       if (bandwidth <= 3200000) {
         addResult("✅ Frequency range validated: 3.2MHz bandwidth");
-        addResult(`✅ Range: ${minFreq}MHz - ${maxFreq}MHz (${bandwidth / 1000000}MHz)`);
+        addResult(
+          `✅ Range: ${minFreq}MHz - ${maxFreq}MHz (${bandwidth / 1000000}MHz)`,
+        );
       } else {
         addResult("❌ Frequency range exceeds 3.2MHz limit");
       }
@@ -180,7 +196,7 @@ export const FileWorker3Point2MHzTest: React.FC = () => {
 
       const channels = [
         { center_freq_hz: 100000000, sample_rate_hz: 3200000 },
-        { center_freq_hz: 103200000, sample_rate_hz: 3200000 }
+        { center_freq_hz: 103200000, sample_rate_hz: 3200000 },
       ];
 
       // Simulate stitching logic from fileWorker
@@ -203,14 +219,16 @@ export const FileWorker3Point2MHzTest: React.FC = () => {
 
       const channels = [
         { center_freq_hz: 100000000, sample_rate_hz: 3200000 },
-        { center_freq_hz: 103200000, sample_rate_hz: 3200000 }
+        { center_freq_hz: 103200000, sample_rate_hz: 3200000 },
       ];
 
-      const prevMax = channels[0].center_freq_hz + channels[0].sample_rate_hz / 2;
+      const prevMax =
+        channels[0].center_freq_hz + channels[0].sample_rate_hz / 2;
       const chMin = channels[1].center_freq_hz - channels[1].sample_rate_hz / 2;
       const gap = chMin - prevMax;
 
-      if (gap <= 1000) { // 1kHz tolerance
+      if (gap <= 1000) {
+        // 1kHz tolerance
         addResult("✅ Adjacent channels detected");
         addResult("✅ Overlap within 3.2MHz tolerance");
         addResult(`✅ Gap: ${gap}Hz`);
@@ -229,14 +247,16 @@ export const FileWorker3Point2MHzTest: React.FC = () => {
 
       const channels = [
         { center_freq_hz: 100000000, sample_rate_hz: 3200000 },
-        { center_freq_hz: 106000000, sample_rate_hz: 3200000 } // 3MHz gap
+        { center_freq_hz: 106000000, sample_rate_hz: 3200000 }, // 3MHz gap
       ];
 
-      const prevMax = channels[0].center_freq_hz + channels[0].sample_rate_hz / 2;
+      const prevMax =
+        channels[0].center_freq_hz + channels[0].sample_rate_hz / 2;
       const chMin = channels[1].center_freq_hz - channels[1].sample_rate_hz / 2;
       const gap = (chMin - prevMax) / 1000000; // Convert to MHz
 
-      if (gap > 0.001) { // More than 1kHz gap
+      if (gap > 0.001) {
+        // More than 1kHz gap
         addResult("❌ Channel gap exceeds 3.2MHz tolerance");
         addResult(`❌ Gap detected: ${gap.toFixed(1)}MHz`);
       } else {
@@ -256,7 +276,9 @@ export const FileWorker3Point2MHzTest: React.FC = () => {
       if (mockMetadata.capture_sample_rate_hz === 3200000) {
         addResult("✅ NAPT file validated");
         addResult(`✅ Sample rate: ${mockMetadata.capture_sample_rate_hz} Hz`);
-        addResult(`✅ Center frequency: ${mockMetadata.center_frequency_hz / 1000000}MHz`);
+        addResult(
+          `✅ Center frequency: ${mockMetadata.center_frequency_hz / 1000000}MHz`,
+        );
       } else {
         addResult("❌ Invalid sample rate in NAPT file");
       }
@@ -273,12 +295,14 @@ export const FileWorker3Point2MHzTest: React.FC = () => {
       // Simulate WAV file with hardware sample rate
       const wavMetadata = {
         ...mockMetadata,
-        hardware_sample_rate_hz: 3200000
+        hardware_sample_rate_hz: 3200000,
       };
 
       if (wavMetadata.hardware_sample_rate_hz === 3200000) {
         addResult("✅ WAV file validated");
-        addResult(`✅ Hardware sample rate: ${(wavMetadata.hardware_sample_rate_hz / 1000000).toFixed(1)}MHz`);
+        addResult(
+          `✅ Hardware sample rate: ${(wavMetadata.hardware_sample_rate_hz / 1000000).toFixed(1)}MHz`,
+        );
       } else {
         addResult("❌ Invalid hardware sample rate");
       }
@@ -296,7 +320,9 @@ export const FileWorker3Point2MHzTest: React.FC = () => {
 
       if (highSampleRate > 3200000) {
         addResult("❌ File rejected");
-        addResult(`❌ Sample rate too high: ${(highSampleRate / 1000000).toFixed(1)}MHz`);
+        addResult(
+          `❌ Sample rate too high: ${(highSampleRate / 1000000).toFixed(1)}MHz`,
+        );
         addResult("❌ Maximum allowed: 3.2MHz");
       } else {
         addResult("✅ Sample rate within limits");
@@ -313,12 +339,14 @@ export const FileWorker3Point2MHzTest: React.FC = () => {
 
       const sampleRate = 3200000; // 3.2MHz
       const bufferSize = 8192;
-      const processingTime = bufferSize / sampleRate * 1000; // ms
+      const processingTime = (bufferSize / sampleRate) * 1000; // ms
 
       addResult("✅ Real-time processing at 3.2MHz");
       addResult(`✅ Processing rate: ${sampleRate} samples/s`);
       addResult(`✅ Buffer size: ${bufferSize} samples`);
-      addResult(`✅ Processing time: ${processingTime.toFixed(2)}ms per buffer`);
+      addResult(
+        `✅ Processing time: ${processingTime.toFixed(2)}ms per buffer`,
+      );
     } catch (error) {
       addResult(`❌ Error: ${error}`);
     }
@@ -333,8 +361,12 @@ export const FileWorker3Point2MHzTest: React.FC = () => {
       const maxBufferSize = maxSampleRate / 10; // 100ms of data
 
       addResult("✅ Buffer protection active");
-      addResult(`✅ Max buffer size: ${(maxSampleRate / 1000000).toFixed(1)}MHz samples`);
-      addResult(`✅ Max buffer duration: ${maxBufferSize / maxSampleRate * 1000}ms`);
+      addResult(
+        `✅ Max buffer size: ${(maxSampleRate / 1000000).toFixed(1)}MHz samples`,
+      );
+      addResult(
+        `✅ Max buffer duration: ${(maxBufferSize / maxSampleRate) * 1000}ms`,
+      );
     } catch (error) {
       addResult(`❌ Error: ${error}`);
     }
@@ -350,7 +382,9 @@ export const FileWorker3Point2MHzTest: React.FC = () => {
 
       if (lowSampleRate < minSampleRate) {
         addResult("❌ Sample rate too low");
-        addResult(`❌ Minimum: ${(minSampleRate / 1000000).toFixed(1)}MHz, Requested: ${(lowSampleRate / 1000000).toFixed(1)}MHz`);
+        addResult(
+          `❌ Minimum: ${(minSampleRate / 1000000).toFixed(1)}MHz, Requested: ${(lowSampleRate / 1000000).toFixed(1)}MHz`,
+        );
       } else {
         addResult("✅ Sample rate acceptable");
       }
@@ -367,7 +401,7 @@ export const FileWorker3Point2MHzTest: React.FC = () => {
       // Simulate corrupted metadata
       const _corruptedMetadata = {
         center_frequency_hz: undefined,
-        capture_sample_rate_hz: undefined
+        capture_sample_rate_hz: undefined,
       };
 
       // Should fall back to 3.2MHz default
@@ -449,53 +483,124 @@ export const FileWorker3Point2MHzTest: React.FC = () => {
     <div data-testid="fileWorker-3.2MHz-test">
       <h3>FileWorker 3.2MHz Sample Rate Tests</h3>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "10px", margin: "20px 0" }}>
-        <button data-testid="test-3.2MHz-default" onClick={() => runTest("test-3.2MHz-default")} disabled={isLoading}>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(3, 1fr)",
+          gap: "10px",
+          margin: "20px 0",
+        }}
+      >
+        <button
+          data-testid="test-3.2MHz-default"
+          onClick={() => runTest("test-3.2MHz-default")}
+          disabled={isLoading}
+        >
           Default 3.2MHz
         </button>
-        <button data-testid="test-channel-stitching" onClick={() => runTest("test-channel-stitching")} disabled={isLoading}>
+        <button
+          data-testid="test-channel-stitching"
+          onClick={() => runTest("test-channel-stitching")}
+          disabled={isLoading}
+        >
           Channel Stitching
         </button>
-        <button data-testid="test-invalid-sample-rate" onClick={() => runTest("test-invalid-sample-rate")} disabled={isLoading}>
+        <button
+          data-testid="test-invalid-sample-rate"
+          onClick={() => runTest("test-invalid-sample-rate")}
+          disabled={isLoading}
+        >
           Invalid Rate
         </button>
-        <button data-testid="test-frequency-validation" onClick={() => runTest("test-frequency-validation")} disabled={isLoading}>
+        <button
+          data-testid="test-frequency-validation"
+          onClick={() => runTest("test-frequency-validation")}
+          disabled={isLoading}
+        >
           Frequency Validation
         </button>
-        <button data-testid="test-frequency-exceeds" onClick={() => runTest("test-frequency-exceeds")} disabled={isLoading}>
+        <button
+          data-testid="test-frequency-exceeds"
+          onClick={() => runTest("test-frequency-exceeds")}
+          disabled={isLoading}
+        >
           Frequency Exceeds
         </button>
-        <button data-testid="test-frequency-bins" onClick={() => runTest("test-frequency-bins")} disabled={isLoading}>
+        <button
+          data-testid="test-frequency-bins"
+          onClick={() => runTest("test-frequency-bins")}
+          disabled={isLoading}
+        >
           Frequency Bins
         </button>
-        <button data-testid="test-multi-channel-stitch" onClick={() => runTest("test-multi-channel-stitch")} disabled={isLoading}>
+        <button
+          data-testid="test-multi-channel-stitch"
+          onClick={() => runTest("test-multi-channel-stitch")}
+          disabled={isLoading}
+        >
           Multi-Channel
         </button>
-        <button data-testid="test-adjacent-channels" onClick={() => runTest("test-adjacent-channels")} disabled={isLoading}>
+        <button
+          data-testid="test-adjacent-channels"
+          onClick={() => runTest("test-adjacent-channels")}
+          disabled={isLoading}
+        >
           Adjacent Channels
         </button>
-        <button data-testid="test-channel-gaps" onClick={() => runTest("test-channel-gaps")} disabled={isLoading}>
+        <button
+          data-testid="test-channel-gaps"
+          onClick={() => runTest("test-channel-gaps")}
+          disabled={isLoading}
+        >
           Channel Gaps
         </button>
-        <button data-testid="test-napt-validation" onClick={() => runTest("test-napt-validation")} disabled={isLoading}>
+        <button
+          data-testid="test-napt-validation"
+          onClick={() => runTest("test-napt-validation")}
+          disabled={isLoading}
+        >
           NAPT Validation
         </button>
-        <button data-testid="test-wav-validation" onClick={() => runTest("test-wav-validation")} disabled={isLoading}>
+        <button
+          data-testid="test-wav-validation"
+          onClick={() => runTest("test-wav-validation")}
+          disabled={isLoading}
+        >
           WAV Validation
         </button>
-        <button data-testid="test-reject-high-sample-rate" onClick={() => runTest("test-reject-high-sample-rate")} disabled={isLoading}>
+        <button
+          data-testid="test-reject-high-sample-rate"
+          onClick={() => runTest("test-reject-high-sample-rate")}
+          disabled={isLoading}
+        >
           Reject High Rate
         </button>
-        <button data-testid="test-realtime-processing" onClick={() => runTest("test-realtime-processing")} disabled={isLoading}>
+        <button
+          data-testid="test-realtime-processing"
+          onClick={() => runTest("test-realtime-processing")}
+          disabled={isLoading}
+        >
           Real-time Processing
         </button>
-        <button data-testid="test-buffer-protection" onClick={() => runTest("test-buffer-protection")} disabled={isLoading}>
+        <button
+          data-testid="test-buffer-protection"
+          onClick={() => runTest("test-buffer-protection")}
+          disabled={isLoading}
+        >
           Buffer Protection
         </button>
-        <button data-testid="test-low-sample-rate" onClick={() => runTest("test-low-sample-rate")} disabled={isLoading}>
+        <button
+          data-testid="test-low-sample-rate"
+          onClick={() => runTest("test-low-sample-rate")}
+          disabled={isLoading}
+        >
           Low Sample Rate
         </button>
-        <button data-testid="test-corrupted-metadata" onClick={() => runTest("test-corrupted-metadata")} disabled={isLoading}>
+        <button
+          data-testid="test-corrupted-metadata"
+          onClick={() => runTest("test-corrupted-metadata")}
+          disabled={isLoading}
+        >
           Corrupted Metadata
         </button>
       </div>
@@ -505,12 +610,19 @@ export const FileWorker3Point2MHzTest: React.FC = () => {
       <div data-testid="test-results" style={{ marginTop: "20px" }}>
         <h4>Test Results:</h4>
         {testResults.map((result, index) => (
-          <div key={index} style={{
-            color: result.includes("✅") ? "green" : result.includes("❌") ? "red" : "black",
-            fontFamily: "monospace",
-            fontSize: "12px",
-            margin: "2px 0"
-          }}>
+          <div
+            key={index}
+            style={{
+              color: result.includes("✅")
+                ? "green"
+                : result.includes("❌")
+                  ? "red"
+                  : "black",
+              fontFamily: "monospace",
+              fontSize: "12px",
+              margin: "2px 0",
+            }}
+          >
             {result}
           </div>
         ))}

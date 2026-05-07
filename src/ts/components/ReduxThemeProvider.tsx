@@ -1,13 +1,19 @@
 import React from "react";
 import { ThemeProvider } from "styled-components";
 import { useAppSelector } from "@n-apt/redux";
-import { buildAppTheme, GlobalThemeStyle, useResolvedThemeMode } from "@n-apt/components/ui/Theme";
+import {
+  buildAppTheme,
+  GlobalThemeStyle,
+  useResolvedThemeMode,
+} from "@n-apt/components/ui/Theme";
 
 interface ReduxThemeProviderProps {
   children: React.ReactNode;
 }
 
-const ReduxThemeProvider: React.FC<ReduxThemeProviderProps> = ({ children }) => {
+const ReduxThemeProvider: React.FC<ReduxThemeProviderProps> = ({
+  children,
+}) => {
   const themeState = useAppSelector((state) => state.theme);
   const resolvedMode = useResolvedThemeMode(themeState.appMode);
 
@@ -20,7 +26,13 @@ const ReduxThemeProvider: React.FC<ReduxThemeProviderProps> = ({ children }) => 
         resolvedMode,
         waterfallTheme: themeState.waterfallTheme,
       }),
-    [themeState.accentColor, themeState.appMode, themeState.fftColor, themeState.waterfallTheme, resolvedMode]
+    [
+      themeState.accentColor,
+      themeState.appMode,
+      themeState.fftColor,
+      themeState.waterfallTheme,
+      resolvedMode,
+    ],
   );
 
   return (

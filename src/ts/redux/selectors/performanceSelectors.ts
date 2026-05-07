@@ -1,5 +1,5 @@
-import { createSelector } from '@reduxjs/toolkit';
-import { RootState } from '../store';
+import { createSelector } from "@reduxjs/toolkit";
+import { RootState } from "../store";
 
 // Basic memoized selectors for individual state slices
 export const selectAuthState = (state: RootState) => state.auth;
@@ -12,38 +12,38 @@ export const selectWebSocketState = (state: RootState) => state.websocket;
 // Auth selectors
 export const selectIsAuthenticated = createSelector(
   [selectAuthState],
-  (auth) => auth.isAuthenticated
+  (auth) => auth.isAuthenticated,
 );
 
 export const selectAuthError = createSelector(
   [selectAuthState],
-  (auth) => auth.authError
+  (auth) => auth.authError,
 );
 
 export const selectSessionToken = createSelector(
   [selectAuthState],
-  (auth) => auth.sessionToken
+  (auth) => auth.sessionToken,
 );
 
 export const selectHasPasskeys = createSelector(
   [selectAuthState],
-  (auth) => auth.hasPasskeys
+  (auth) => auth.hasPasskeys,
 );
 
 // Spectrum selectors
 export const selectFrequencyRange = createSelector(
   [selectSpectrumState],
-  (spectrum) => spectrum.frequencyRange
+  (spectrum) => spectrum.frequencyRange,
 );
 
 export const selectActiveSignalArea = createSelector(
   [selectSpectrumState],
-  (spectrum) => spectrum.activeSignalArea
+  (spectrum) => spectrum.activeSignalArea,
 );
 
 export const selectPowerScale = createSelector(
   [selectSpectrumState],
-  (spectrum) => spectrum.powerScale
+  (spectrum) => spectrum.powerScale,
 );
 
 export const selectFftSettings = createSelector(
@@ -54,7 +54,7 @@ export const selectFftSettings = createSelector(
     fftFrameRate: spectrum.fftFrameRate,
     fftMinDb: spectrum.fftMinDb,
     fftMaxDb: spectrum.fftMaxDb,
-  })
+  }),
 );
 
 export const selectVisualizationSettings = createSelector(
@@ -64,7 +64,7 @@ export const selectVisualizationSettings = createSelector(
     vizPanOffset: spectrum.vizPanOffset,
     visualizerPaused: spectrum.visualizerPaused,
     displayTemporalResolution: spectrum.displayTemporalResolution,
-  })
+  }),
 );
 
 export const selectSdrSettings = createSelector(
@@ -75,18 +75,19 @@ export const selectSdrSettings = createSelector(
     tunerAGC: spectrum.tunerAGC,
     rtlAGC: spectrum.rtlAGC,
     sampleRateHz: spectrum.sampleRateHz,
-  })
+  }),
 );
 
 // Waterfall selectors
 export const selectDrawParams = createSelector(
   [selectWaterfallState],
-  (waterfall) => waterfall.drawParams
+  (waterfall) => waterfall.drawParams,
 );
 
 export const selectActiveDrawParams = createSelector(
   [selectWaterfallState],
-  (waterfall) => waterfall.drawParams[waterfall.activeClumpIndex] || waterfall.drawParams[0]
+  (waterfall) =>
+    waterfall.drawParams[waterfall.activeClumpIndex] || waterfall.drawParams[0],
 );
 
 export const selectTrainingCaptureState = createSelector(
@@ -95,7 +96,7 @@ export const selectTrainingCaptureState = createSelector(
     isTrainingCapturing: waterfall.isTrainingCapturing,
     trainingCaptureLabel: waterfall.trainingCaptureLabel,
     trainingCapturedSamples: waterfall.trainingCapturedSamples,
-  })
+  }),
 );
 
 export const selectStitchState = createSelector(
@@ -105,7 +106,7 @@ export const selectStitchState = createSelector(
     isStitchPaused: waterfall.isStitchPaused,
     stitchTrigger: waterfall.stitchTrigger,
     stitchSourceSettings: waterfall.stitchSourceSettings,
-  })
+  }),
 );
 
 // Theme selectors
@@ -116,7 +117,7 @@ export const selectThemeColors = createSelector(
     fftColor: theme.fftColor,
     appMode: theme.appMode,
     waterfallTheme: theme.waterfallTheme,
-  })
+  }),
 );
 
 // WebSocket selectors
@@ -127,7 +128,7 @@ export const selectConnectionState = createSelector(
     connectionStatus: websocket.connectionStatus,
     reconnectAttempts: websocket.reconnectAttempts,
     error: websocket.error,
-  })
+  }),
 );
 
 export const selectDeviceState = createSelector(
@@ -138,7 +139,7 @@ export const selectDeviceState = createSelector(
     deviceProfile: websocket.deviceProfile,
     deviceInfo: websocket.deviceInfo,
     backend: websocket.backend,
-  })
+  }),
 );
 
 export const selectDeviceSettings = createSelector(
@@ -149,7 +150,7 @@ export const selectDeviceSettings = createSelector(
     sdrSettings: websocket.sdrSettings,
     isPaused: websocket.isPaused,
     serverPaused: websocket.serverPaused,
-  })
+  }),
 );
 
 export const selectSpectrumData = createSelector(
@@ -158,7 +159,7 @@ export const selectSpectrumData = createSelector(
     spectrumFrames: websocket.spectrumFrames,
     captureStatus: websocket.captureStatus,
     autoFftOptions: websocket.autoFftOptions,
-  })
+  }),
 );
 
 // Complex computed selectors
@@ -166,28 +167,32 @@ export const selectEffectiveFrequencyRange = createSelector(
   [selectFrequencyRange, selectActiveSignalArea, selectSpectrumState],
   (frequencyRange, activeSignalArea, spectrum) => {
     if (frequencyRange) return frequencyRange;
-    
+
     // Fallback to last known range for active area
     const lastKnownRanges = spectrum.lastKnownRanges;
-    const lastKnown = lastKnownRanges && typeof lastKnownRanges === 'object'
-      ? lastKnownRanges[activeSignalArea]
-      : null;
+    const lastKnown =
+      lastKnownRanges && typeof lastKnownRanges === "object"
+        ? lastKnownRanges[activeSignalArea]
+        : null;
     return lastKnown || null;
-  }
+  },
 );
 
 export const selectSampleRateHz = createSelector(
   [selectSpectrumState],
-  (spectrum) => spectrum.sampleRateHz
+  (spectrum) => spectrum.sampleRateHz,
 );
 
 export const selectSignalAreaBounds = createSelector(
   [selectSpectrumData],
   (spectrumData) => {
-    if (!Array.isArray(spectrumData.spectrumFrames) || spectrumData.spectrumFrames.length === 0) {
+    if (
+      !Array.isArray(spectrumData.spectrumFrames) ||
+      spectrumData.spectrumFrames.length === 0
+    ) {
       return null;
     }
-    
+
     const bounds: Record<string, { min: number; max: number }> = {};
     spectrumData.spectrumFrames.forEach((frame) => {
       const label = frame.label;
@@ -196,24 +201,24 @@ export const selectSignalAreaBounds = createSelector(
       bounds[label.toLowerCase()] = { min: frame.min_hz, max: frame.max_hz };
     });
     return bounds;
-  }
+  },
 );
 
 export const selectIsVisualizerRouteActive = createSelector(
-  [() => '/'], // Default to home since router state isn't available yet
-  (pathname) => pathname === "/" || pathname === "/visualizer"
+  [() => "/"], // Default to home since router state isn't available yet
+  (pathname) => pathname === "/" || pathname === "/visualizer",
 );
 
 export const selectThemeObject = createSelector(
   [selectThemeColors],
   (colors) => {
-    const primaryAlpha = colors.accentColor.startsWith("#") 
-      ? `${colors.accentColor}33` 
+    const primaryAlpha = colors.accentColor.startsWith("#")
+      ? `${colors.accentColor}33`
       : colors.accentColor;
-    const primaryAnchor = colors.accentColor.startsWith("#") 
-      ? `${colors.accentColor}1a` 
+    const primaryAnchor = colors.accentColor.startsWith("#")
+      ? `${colors.accentColor}1a`
       : colors.accentColor;
-    
+
     return {
       primary: colors.accentColor,
       primaryAlpha,
@@ -222,7 +227,7 @@ export const selectThemeObject = createSelector(
       mode: colors.appMode,
       waterfallTheme: colors.waterfallTheme,
     };
-  }
+  },
 );
 
 // selectHighFrequencyData: live frame data is now in liveDataRef (middleware module ref),
@@ -234,10 +239,12 @@ export const selectHighFrequencyData = (_state: any) => null;
 export const selectIsWebSocketReady = createSelector(
   [selectConnectionState, selectDeviceState],
   (connection, device) => {
-    return connection.isConnected && 
-           connection.connectionStatus === 'connected' &&
-           device.deviceState !== null;
-  }
+    return (
+      connection.isConnected &&
+      connection.connectionStatus === "connected" &&
+      device.deviceState !== null
+    );
+  },
 );
 
 // Selector for device capabilities
@@ -247,5 +254,5 @@ export const selectDeviceCapabilities = createSelector(
     supportsApproxDbm: device.deviceProfile?.supports_approx_dbm || false,
     supportsRawIqStream: device.deviceProfile?.supports_raw_iq_stream || false,
     isRtlSdr: device.deviceProfile?.is_rtl_sdr || false,
-  })
+  }),
 );

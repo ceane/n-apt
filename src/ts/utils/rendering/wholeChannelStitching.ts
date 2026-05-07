@@ -22,7 +22,10 @@ function lerp(a: number, b: number, t: number): number {
   return a * (1 - t) + b * t;
 }
 
-function sampleLinear(waveform: Float32Array | number[], ratio: number): number {
+function sampleLinear(
+  waveform: Float32Array | number[],
+  ratio: number,
+): number {
   if (waveform.length === 0) return Number.NaN;
   if (waveform.length === 1) return waveform[0];
 
@@ -54,7 +57,11 @@ export function calculateNoiseFloorDeltaDb(
   if (!reference.length || !target.length) return 0;
 
   const bins = Math.max(1, Math.min(edgeBins, reference.length, target.length));
-  const referenceFloor = mean(reference, reference.length - bins, reference.length);
+  const referenceFloor = mean(
+    reference,
+    reference.length - bins,
+    reference.length,
+  );
   const targetFloor = mean(target, 0, bins);
   if (!Number.isFinite(referenceFloor) || !Number.isFinite(targetFloor)) {
     return 0;
@@ -90,7 +97,11 @@ function smoothWaveform(input: Float32Array, radius: number): Float32Array {
   for (let i = 0; i < input.length; i++) {
     let sum = 0;
     let weightSum = 0;
-    for (let j = Math.max(0, i - radius); j <= Math.min(input.length - 1, i + radius); j++) {
+    for (
+      let j = Math.max(0, i - radius);
+      j <= Math.min(input.length - 1, i + radius);
+      j++
+    ) {
       const distance = Math.abs(i - j);
       const weight = radius + 1 - distance;
       sum += input[j] * weight;
@@ -140,15 +151,30 @@ export function stitchWholeChannelWaveform(
   let lastEnd = 0;
 
   for (const segment of validSegments) {
-    const startRatio = Math.max(0, (segment.visualRange.min - fullRange.min) / totalSpan);
-    const endRatio = Math.min(1, (segment.visualRange.max - fullRange.min) / totalSpan);
-    const destStart = Math.max(0, Math.min(stitchedBins - 1, Math.round(startRatio * stitchedBins)));
-    const destEnd = Math.max(destStart + 1, Math.min(stitchedBins, Math.round(endRatio * stitchedBins)));
+    const startRatio = Math.max(
+      0,
+      (segment.visualRange.min - fullRange.min) / totalSpan,
+    );
+    const endRatio = Math.min(
+      1,
+      (segment.visualRange.max - fullRange.min) / totalSpan,
+    );
+    const destStart = Math.max(
+      0,
+      Math.min(stitchedBins - 1, Math.round(startRatio * stitchedBins)),
+    );
+    const destEnd = Math.max(
+      destStart + 1,
+      Math.min(stitchedBins, Math.round(endRatio * stitchedBins)),
+    );
     const destCount = destEnd - destStart;
     const sampled = new Float32Array(destCount);
 
     for (let i = 0; i < destCount; i++) {
-      sampled[i] = sampleLinear(segment.waveform, i / Math.max(1, destCount - 1));
+      sampled[i] = sampleLinear(
+        segment.waveform,
+        i / Math.max(1, destCount - 1),
+      );
     }
 
     const seam = Math.min(seamBins, lastEnd, destCount);
@@ -173,18 +199,26 @@ export function stitchWholeChannelWaveform(
       const dst = destStart + i;
       let weight = 1;
       if (destStart < lastEnd && dst < lastEnd && seam > 0) {
-        const t = Math.max(0, Math.min(1, (dst - destStart + 1) / (lastEnd - destStart + 1)));
+        const t = Math.max(
+          0,
+          Math.min(1, (dst - destStart + 1) / (lastEnd - destStart + 1)),
+        );
         weight = 0.5 - 0.5 * Math.cos(Math.PI * t);
       }
 
-      stitched[dst] = weights[dst] > 0
-        ? (stitched[dst] * weights[dst] + sampled[i] * weight) / (weights[dst] + weight)
-        : sampled[i];
+      stitched[dst] =
+        weights[dst] > 0
+          ? (stitched[dst] * weights[dst] + sampled[i] * weight) /
+            (weights[dst] + weight)
+          : sampled[i];
       weights[dst] += weight;
     }
 
     lastEnd = Math.max(lastEnd, destEnd);
   }
 
-  return smoothWaveform(stitched, Math.max(0, options.smoothingRadius ?? DEFAULT_SMOOTHING_RADIUS));
+  return smoothWaveform(
+    stitched,
+    Math.max(0, options.smoothingRadius ?? DEFAULT_SMOOTHING_RADIUS),
+  );
 }

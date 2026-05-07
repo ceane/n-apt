@@ -83,7 +83,7 @@ jest.mock("@n-apt/hooks/useSpectrumRendering", () => ({
 }));
 
 jest.mock("@n-apt/hooks/useFrequencyDrag", () => ({
-  useFrequencyDrag: () => { },
+  useFrequencyDrag: () => {},
 }));
 
 describe("FFTCanvas Pause Functionality", () => {
@@ -98,7 +98,7 @@ describe("FFTCanvas Pause Functionality", () => {
         { length: 1024 },
         (_, i) => -60 + Math.sin(i * 0.1) * 20,
       ),
-    }
+    },
   };
 
   const mockProps = {
@@ -117,7 +117,7 @@ describe("FFTCanvas Pause Functionality", () => {
         <MemoryRouter>
           <FFTCanvas {...props} />
         </MemoryRouter>
-      </TestWrapper>
+      </TestWrapper>,
     );
 
   const wrapFFTCanvas = (props: any) => (

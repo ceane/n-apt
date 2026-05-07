@@ -32,7 +32,9 @@ const CollapsedToggle = styled(SidebarToggle)`
   top: ${(props) => props.theme.spacing.xxl};
   left: ${(props) => props.theme.spacing.xxl};
   margin: 0;
-  transition: opacity 0.3s ease, transform 0.3s ease;
+  transition:
+    opacity 0.3s ease,
+    transform 0.3s ease;
 `;
 
 interface SidebarToggleProps {
@@ -44,17 +46,20 @@ interface CollapsedToggleProps {
   onClick: () => void;
 }
 
-export const SidebarToggleButton = React.forwardRef<HTMLButtonElement, SidebarToggleProps>(
-  ({ onClick }, ref) => (
-    <SidebarToggle ref={ref} onClick={onClick}>
-      <SlidersVertical />
-    </SidebarToggle>
-  )
-);
+export const SidebarToggleButton = React.forwardRef<
+  HTMLButtonElement,
+  SidebarToggleProps
+>(({ onClick }, ref) => (
+  <SidebarToggle ref={ref} onClick={onClick}>
+    <SlidersVertical />
+  </SidebarToggle>
+));
 
-SidebarToggleButton.displayName = 'SidebarToggleButton';
+SidebarToggleButton.displayName = "SidebarToggleButton";
 
-export const CollapsedToggleButton: React.FC<CollapsedToggleProps> = ({ onClick }) => (
+export const CollapsedToggleButton: React.FC<CollapsedToggleProps> = ({
+  onClick,
+}) => (
   <CollapsedToggle onClick={onClick}>
     <SlidersVertical />
   </CollapsedToggle>

@@ -22,7 +22,10 @@ export interface PauseLogicOptions {
     width: number;
     height: number;
   } | null>;
-  dataRef: React.MutableRefObject<{ iq_data?: Uint8Array; data_type?: string } | null>;
+  dataRef: React.MutableRefObject<{
+    iq_data?: Uint8Array;
+    data_type?: string;
+  } | null>;
   forceRender: () => void;
   // Additional options for waterfall validation
   fftSize?: number;
@@ -71,21 +74,34 @@ export function usePauseLogic({
             centerFrequencyHz,
             timestamp: Date.now(),
             isPaused: true,
-            isFirstFrame: false
+            isFirstFrame: false,
           });
-          
+
           if (!validationResult.isValid) {
-            console.error('Waterfall data validation failed on pause:', validationResult.errors);
+            console.error(
+              "Waterfall data validation failed on pause:",
+              validationResult.errors,
+            );
             // Still save the data, but log the issues
           } else if (validationResult.warnings.length > 0) {
-            console.warn('Waterfall data validation warnings on pause:', validationResult.warnings);
+            console.warn(
+              "Waterfall data validation warnings on pause:",
+              validationResult.warnings,
+            );
           }
-          
+
           // Log validation metadata for debugging
-          console.log('Waterfall validation metadata:', validationResult.metadata);
+          console.log(
+            "Waterfall validation metadata:",
+            validationResult.metadata,
+          );
         }
-        
-        const bytes = new Uint8Array(wfBuf.buffer, wfBuf.byteOffset, wfBuf.byteLength);
+
+        const bytes = new Uint8Array(
+          wfBuf.buffer,
+          wfBuf.byteOffset,
+          wfBuf.byteLength,
+        );
         let binary = "";
         const chunkSize = 8192;
         for (let i = 0; i < bytes.length; i += chunkSize) {

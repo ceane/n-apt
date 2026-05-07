@@ -1,7 +1,12 @@
 import React from "react";
 import styled from "styled-components";
 import { Row } from "@n-apt/components/ui";
-import { ArrowBigUp, Pipette, SlidersVertical, type LucideIcon } from "lucide-react";
+import {
+  ArrowBigUp,
+  Pipette,
+  SlidersVertical,
+  type LucideIcon,
+} from "lucide-react";
 
 const Section = styled.div`
   display: grid;
@@ -142,7 +147,10 @@ const LabelWithIcon = styled.span`
   }
 `;
 
-const IconLabel: React.FC<{ icon: LucideIcon; text: string }> = ({ icon: IconComponent, text }) => (
+const IconLabel: React.FC<{ icon: LucideIcon; text: string }> = ({
+  icon: IconComponent,
+  text,
+}) => (
   <LabelWithIcon>
     <IconComponent size={14} strokeWidth={1.75} aria-hidden="true" />
     {text}
@@ -305,7 +313,11 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
       </Row>
       {sourceMode === "live" && (
         <>
-          <Row label="Tuner AGC" tooltipTitle="Tuner AGC" tooltip="Tuner Automatic Gain Control. Automatically adjusts the tuner gain for optimal signal reception. Works alongside manual gain setting. Only one AGC mode can be active at a time.">
+          <Row
+            label="Tuner AGC"
+            tooltipTitle="Tuner AGC"
+            tooltip="Tuner Automatic Gain Control. Automatically adjusts the tuner gain for optimal signal reception. Works alongside manual gain setting. Only one AGC mode can be active at a time."
+          >
             <ToggleSwitch $disabled={!isConnected || disableAgcControls}>
               <ToggleSwitchInput
                 type="checkbox"
@@ -313,10 +325,16 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
                 onChange={(e) => handleTunerAGCChange(e.target.checked)}
                 disabled={!isConnected || disableAgcControls}
               />
-              <ToggleSwitchSlider $disabled={!isConnected || disableAgcControls} />
+              <ToggleSwitchSlider
+                $disabled={!isConnected || disableAgcControls}
+              />
             </ToggleSwitch>
           </Row>
-          <Row label="RTL AGC" tooltipTitle="RTL AGC" tooltip="RTL Automatic Gain Control. Automatically adjusts the RTL2832 gain for optimal signal reception. Works alongside manual gain setting. Only one AGC mode can be active at a time.">
+          <Row
+            label="RTL AGC"
+            tooltipTitle="RTL AGC"
+            tooltip="RTL Automatic Gain Control. Automatically adjusts the RTL2832 gain for optimal signal reception. Works alongside manual gain setting. Only one AGC mode can be active at a time."
+          >
             <ToggleSwitch $disabled={!isConnected || disableAgcControls}>
               <ToggleSwitchInput
                 type="checkbox"
@@ -324,7 +342,9 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
                 onChange={(e) => handleRtlAGCChange(e.target.checked)}
                 disabled={!isConnected || disableAgcControls}
               />
-              <ToggleSwitchSlider $disabled={!isConnected || disableAgcControls} />
+              <ToggleSwitchSlider
+                $disabled={!isConnected || disableAgcControls}
+              />
             </ToggleSwitch>
           </Row>
         </>

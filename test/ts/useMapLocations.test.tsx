@@ -1,6 +1,9 @@
 import React from "react";
 import { renderHook, act } from "@testing-library/react";
-import { MapLocationsProvider, useMapLocations } from "@n-apt/hooks/useMapLocations";
+import {
+  MapLocationsProvider,
+  useMapLocations,
+} from "@n-apt/hooks/useMapLocations";
 
 // Mock Leaflet
 jest.mock("react-leaflet", () => ({
@@ -41,7 +44,7 @@ const mockGeolocation = {
         latitude: 40.7128,
         longitude: -74.006,
       },
-    })
+    }),
   ),
 };
 (global.navigator as any).geolocation = mockGeolocation;
@@ -77,7 +80,11 @@ describe("useMapLocations Hook", () => {
     });
 
     expect(result.current.locations).toHaveLength(2);
-    expect(result.current.locations.find(({ name }: { name: string }) => name === "Test Spot")).toBeDefined();
+    expect(
+      result.current.locations.find(
+        ({ name }: { name: string }) => name === "Test Spot",
+      ),
+    ).toBeDefined();
     expect(result.current.activeLocationId).toMatch(/^loc_/);
   });
 

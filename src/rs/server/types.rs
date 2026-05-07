@@ -20,6 +20,12 @@ pub struct WebMCPToolResponse {
   pub tool: String,
 }
 
+/// Parameters for the logout endpoint
+#[derive(Debug, Deserialize)]
+pub struct LogoutParams {
+  pub token: Option<String>,
+}
+
 /// Power scale mode for spectrum display
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum PowerScale {
@@ -130,6 +136,7 @@ pub struct SdrProcessorSettings {
   pub fft_size: Option<usize>,
   pub fft_window: Option<String>,
   pub frame_rate: Option<u32>,
+  pub sample_rate: Option<u32>,
   pub gain: Option<f64>,
   pub ppm: Option<i32>,
   pub tuner_agc: Option<bool>,
@@ -782,4 +789,26 @@ pub struct CaptureDownloadParams {
   #[serde(rename = "jobId")]
   #[validate(regex(path = *crate::server::utils::RE_SAFE_ID))]
   pub job_id: String,
+}
+
+/// Helper struct for capture fragments in tests
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CaptureFragment {
+  pub min_freq_mhz: f64,
+  pub max_freq_mhz: f64,
+}
+
+/// Helper struct for capture requests in tests
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CaptureRequest {
+  pub job_id: String,
+  pub fragments: Vec<CaptureFragment>,
+  pub duration_s: f64,
+  pub duration_mode: String,
+  pub file_type: String,
+  pub acquisition_mode: String,
+  pub encrypted: bool,
+  pub fft_size: usize,
+  pub fft_window: String,
+  pub geolocation: Option<GeolocationData>,
 }

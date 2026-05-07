@@ -108,7 +108,11 @@ const ContentPanel: React.FC<{ title: string; children: React.ReactNode }> = ({
       }}
     >
       <div>
-        <div style={{ fontSize: "24px", color: "#00d4ff", marginBottom: "8px" }}>{title}</div>
+        <div
+          style={{ fontSize: "24px", color: "#00d4ff", marginBottom: "8px" }}
+        >
+          {title}
+        </div>
         <div style={{ fontSize: "13px", color: "#777" }}>
           Ladle story rendered inside the real app shell.
         </div>
@@ -118,7 +122,11 @@ const ContentPanel: React.FC<{ title: string; children: React.ReactNode }> = ({
   </div>
 );
 
-export const LadleAppShell = ({ children, route, title = "N-APT Shell" }: LadleAppShellProps) => {
+export const LadleAppShell = ({
+  children,
+  route,
+  title = "N-APT Shell",
+}: LadleAppShellProps) => {
   const { globalState } = useLadleContext();
   const storyId = globalState.story || "";
 
@@ -133,13 +141,17 @@ export const LadleAppShell = ({ children, route, title = "N-APT Shell" }: LadleA
   };
 
   // Use the provided route prop if present, otherwise infer from story ID
-  const activeRoute = route || (
-    storyId.includes("draw") ? "/draw-signal" :
-      storyId.includes("demod") ? "/demodulate" :
-        (storyId.includes("3d-model") || storyId.includes("human-model")) ? "/3d-model" :
-          storyId.includes("map") ? "/map-endpoints" :
-            "/visualizer"
-  );
+  const activeRoute =
+    route ||
+    (storyId.includes("draw")
+      ? "/draw-signal"
+      : storyId.includes("demod")
+        ? "/demodulate"
+        : storyId.includes("3d-model") || storyId.includes("human-model")
+          ? "/3d-model"
+          : storyId.includes("map")
+            ? "/map-endpoints"
+            : "/visualizer");
 
   return (
     <MainLayout

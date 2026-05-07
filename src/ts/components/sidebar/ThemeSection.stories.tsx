@@ -13,10 +13,18 @@ const themeSlice = createSlice({
     primary: "#00d4ff",
   },
   reducers: {
-    setAppMode: (state, action) => { state.appMode = action.payload; },
-    setAccentColor: (state, action) => { state.accentColor = action.payload; },
-    setFftColor: (state, action) => { state.fftColor = action.payload; },
-    setWaterfallTheme: (state, action) => { state.waterfallTheme = action.payload; },
+    setAppMode: (state, action) => {
+      state.appMode = action.payload;
+    },
+    setAccentColor: (state, action) => {
+      state.accentColor = action.payload;
+    },
+    setFftColor: (state, action) => {
+      state.fftColor = action.payload;
+    },
+    setWaterfallTheme: (state, action) => {
+      state.waterfallTheme = action.payload;
+    },
     resetTheme: (state) => {
       state.appMode = "dark";
       state.accentColor = "#00d4ff";

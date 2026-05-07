@@ -22,7 +22,11 @@ const defaultProps = {
   captureEncrypted: true,
   capturePlayback: false,
   captureGeolocation: false,
-  captureRange: { min: 10, max: 20, segments: [{ label: "Area A", min: 10, max: 20 }] },
+  captureRange: {
+    min: 10,
+    max: 20,
+    segments: [{ label: "Area A", min: 10, max: 20 }],
+  },
   maxSampleRate: 3200000,
   captureStatus: null,
   isConnected: true,
@@ -44,7 +48,7 @@ describe("IQCaptureControlsSection", () => {
     render(
       <TestWrapper>
         <IQCaptureControlsSection {...defaultProps} />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     // Open the collapsible section
@@ -59,7 +63,7 @@ describe("IQCaptureControlsSection", () => {
     render(
       <TestWrapper>
         <IQCaptureControlsSection {...defaultProps} />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     // Open the collapsible section
@@ -67,14 +71,16 @@ describe("IQCaptureControlsSection", () => {
 
     const checkbox = screen.getByLabelText("Area A");
     fireEvent.click(checkbox);
-    expect(defaultProps.onActiveCaptureAreasChange).toHaveBeenCalledWith(["Area A"]);
+    expect(defaultProps.onActiveCaptureAreasChange).toHaveBeenCalledWith([
+      "Area A",
+    ]);
   });
 
   it("should handle duration change", () => {
     render(
       <TestWrapper>
         <IQCaptureControlsSection {...defaultProps} />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     // Open the collapsible section
@@ -89,7 +95,7 @@ describe("IQCaptureControlsSection", () => {
     render(
       <TestWrapper>
         <IQCaptureControlsSection {...defaultProps} isConnected={false} />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     // Open the collapsible section
@@ -106,7 +112,7 @@ describe("IQCaptureControlsSection", () => {
           {...defaultProps}
           captureStatus={{ status: "started", jobId: "job-1" }}
         />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     fireEvent.click(screen.getByText("Take an I/Q Capture"));
@@ -126,7 +132,7 @@ describe("IQCaptureControlsSection", () => {
           {...defaultProps}
           captureStatus={{ status: "started", jobId: "job-1" }}
         />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     // Open the collapsible section
@@ -144,10 +150,10 @@ describe("IQCaptureControlsSection", () => {
             status: "done",
             jobId: "job-1",
             downloadUrl: "/api/download?id=job-1",
-            filename: "test.napt"
+            filename: "test.napt",
           }}
         />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     // Open the collapsible section

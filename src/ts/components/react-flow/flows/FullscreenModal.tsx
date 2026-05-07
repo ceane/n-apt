@@ -1,7 +1,7 @@
-import React from 'react';
-import { createPortal } from 'react-dom';
-import styled from 'styled-components';
-import { X } from 'lucide-react';
+import React from "react";
+import { createPortal } from "react-dom";
+import styled from "styled-components";
+import { X } from "lucide-react";
 
 const FullscreenOverlay = styled.div`
   position: fixed;
@@ -49,21 +49,32 @@ interface FullscreenModalProps {
   onClose?: () => void;
 }
 
-export const FullscreenModal: React.FC<FullscreenModalProps> = ({ children, title, onClose }) => {
+export const FullscreenModal: React.FC<FullscreenModalProps> = ({
+  children,
+  title,
+  onClose,
+}) => {
   return createPortal(
     <FullscreenOverlay>
       <ModalContent>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-          <h2 style={{ margin: 0, color: 'white', fontSize: '18px' }}>{title}</h2>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: "20px",
+          }}
+        >
+          <h2 style={{ margin: 0, color: "white", fontSize: "18px" }}>
+            {title}
+          </h2>
           <CloseButton onClick={onClose}>
             <X size={24} />
           </CloseButton>
         </div>
-        <div style={{ flex: 1, overflow: 'auto' }}>
-          {children}
-        </div>
+        <div style={{ flex: 1, overflow: "auto" }}>{children}</div>
       </ModalContent>
     </FullscreenOverlay>,
-    document.body
+    document.body,
   );
 };

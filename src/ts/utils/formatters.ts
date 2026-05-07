@@ -4,7 +4,10 @@ export const formatFileSize = (bytes: number): string => {
   }
 
   const units = ["B", "KB", "MB", "GB", "TB", "PB"] as const;
-  const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  const exponent = Math.min(
+    Math.floor(Math.log(bytes) / Math.log(1024)),
+    units.length - 1,
+  );
   const value = bytes / 1024 ** exponent;
 
   if (exponent === 0) {

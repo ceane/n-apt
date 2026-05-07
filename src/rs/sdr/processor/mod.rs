@@ -412,6 +412,7 @@ impl SdrProcessor {
     processor.apply_settings(crate::server::types::SdrProcessorSettings {
       fft_size: Some(sdr_settings.fft.default_size),
       frame_rate: Some(sdr_settings.fft.default_frame_rate),
+      sample_rate: Some(sdr_settings.sample_rate),
       gain: Some(sdr_settings.gain.tuner_gain),
       ppm: Some(sdr_settings.ppm as i32),
       tuner_agc: Some(sdr_settings.gain.tuner_agc),
@@ -559,8 +560,7 @@ impl SdrProcessor {
         self.capture_current_fragment = expected_segment;
         let &(min_freq, _max_freq) = &self.capture_fragments[expected_segment];
 
-        let new_center_freq =
-          ((min_freq) + (sample_rate as f64 / 2.0)) as u32;
+        let new_center_freq = ((min_freq) + (sample_rate as f64 / 2.0)) as u32;
         if let Err(e) = self.set_center_frequency(new_center_freq) {
           warn!("Failed to hop capture frequency: {}", e);
         }
@@ -665,6 +665,7 @@ impl SdrProcessor {
     let fft_size = settings.fft_size;
     let fft_window = settings.fft_window;
     let frame_rate = settings.frame_rate;
+    let sample_rate = settings.sample_rate;
     let gain = settings.gain;
     let ppm = settings.ppm;
     let tuner_agc = settings.tuner_agc;
@@ -682,6 +683,25 @@ impl SdrProcessor {
         "Updated FFT processor sample rate to {} Hz",
         device_sample_rate
       );
+    }
+
+    // Sample rate (Hardware)
+    if let Some(rate) = sample_rate {
+      let max_rate = 3_200_000;
+      let min_rate = 1;
+      let clamped_rate = rate.clamp(min_rate, max_rate);
+      if clamped_rate != rate {
+        warn!(
+          "Requested sample rate {} Hz out of bounds [{}, {}], clamping to {}",
+          rate, min_rate, max_rate, clamped_rate
+        );
+      }
+      if self.device.get_sample_rate() != clamped_rate {
+        self.device.set_sample_rate(clamped_rate)?;
+        config.sample_rate = clamped_rate;
+        config_changed = true;
+        info!("Sample rate set to {} Hz", clamped_rate);
+      }
     }
 
     // FFT size
@@ -1145,6 +1165,150 @@ impl SdrProcessor {
     Ok(())
   }
 
+  /// Start a new capture job (helper for tests and centralizing logic)
+  pub fn start_capture(
+    &mut self,
+    request: crate::server::types::CaptureRequest,
+  ) -> Result<()> {
+    if self.capture_active {
+      return Err(anyhow::anyhow!("Capture already active"));
+    }
+
+    let hw_sample_rate = self.get_sample_rate() as f64;
+    let hw_bw_hz = hw_sample_rate;
+    const USABLE_BW_FRACTION: f64 = 0.75;
+    let usable_bw_hz = hw_bw_hz * USABLE_BW_FRACTION;
+
+    // Validate fragments
+    for frag in &request.fragments {
+      if frag.min_freq_mhz < 0.0 || frag.max_freq_mhz < 0.0 {
+        return Err(anyhow::anyhow!(
+          "Invalid frequency fragment: frequencies must be non-negative"
+        ));
+      }
+      if frag.max_freq_mhz < frag.min_freq_mhz {
+        return Err(anyhow::anyhow!(
+          "Invalid frequency fragment: max frequency must be >= min frequency"
+        ));
+      }
+      // Basic RTL-SDR limits check (24MHz - 1766MHz)
+      if frag.max_freq_mhz > 1766.0 {
+        return Err(anyhow::anyhow!(
+          "Frequency exceeds device maximum (1766MHz)"
+        ));
+      }
+    }
+
+    let mut capture_channels = Vec::new();
+    let mut all_hops = Vec::new();
+    let mut overall_min = f64::MAX;
+    let mut overall_max = f64::MIN;
+
+    let mode_str = match request.acquisition_mode.as_str() {
+      "stepwise" => "stepwise_naive".to_string(),
+      "interleaved" => "interleaved".to_string(),
+      _ => "whole_sample".to_string(),
+    };
+
+    for frag in &request.fragments {
+      let min_freq = frag.min_freq_mhz * 1_000_000.0;
+      let max_freq = frag.max_freq_mhz * 1_000_000.0;
+      overall_min = overall_min.min(min_freq);
+      overall_max = overall_max.max(max_freq);
+
+      let span = max_freq - min_freq;
+      
+      if mode_str == "whole_sample" {
+        if span > hw_sample_rate {
+           return Err(anyhow::anyhow!(
+             "Requested bandwidth ({:.2}MHz) exceeds hardware sample rate ({:.2}MHz) in whole_sample mode",
+             span / 1_000_000.0,
+             hw_sample_rate / 1_000_000.0
+           ));
+        }
+        let center = (min_freq + max_freq) / 2.0;
+        let hop_start = center - hw_bw_hz / 2.0;
+        all_hops.push((hop_start, hop_start + hw_bw_hz));
+        capture_channels.push(CaptureChannel {
+          center_freq_hz: center,
+          sample_rate_hz: hw_sample_rate,
+          requested_min_freq_hz: Some(min_freq),
+          requested_max_freq_hz: Some(max_freq),
+          iq_data: Vec::new(),
+          spectrum_data: Vec::new(),
+          bins_per_frame: 0,
+          label: None,
+        });
+      } else if span <= usable_bw_hz {
+        // Small span: center the window on the requested range
+        let center = (min_freq + max_freq) / 2.0;
+        let hop_start = center - hw_bw_hz / 2.0;
+        all_hops.push((hop_start, hop_start + hw_bw_hz));
+        capture_channels.push(CaptureChannel {
+          center_freq_hz: center,
+          sample_rate_hz: hw_sample_rate,
+          requested_min_freq_hz: Some(min_freq),
+          requested_max_freq_hz: Some(max_freq),
+          iq_data: Vec::new(),
+          spectrum_data: Vec::new(),
+          bins_per_frame: 0,
+          label: None,
+        });
+      } else {
+        // Multi-hop needed
+        let num_hops = (span / usable_bw_hz).ceil() as usize;
+        for i in 0..num_hops {
+          let center = if num_hops == 1 {
+            (min_freq + max_freq) / 2.0
+          } else {
+            // Distribute hops so that the "usable" centers cover the range.
+            min_freq + (usable_bw_hz / 2.0) + (i as f64 * usable_bw_hz)
+          };
+          
+          let hop_start = center - hw_bw_hz / 2.0;
+          all_hops.push((hop_start, hop_start + hw_bw_hz));
+          capture_channels.push(CaptureChannel {
+            center_freq_hz: center,
+            sample_rate_hz: hw_sample_rate,
+            requested_min_freq_hz: Some(min_freq),
+            requested_max_freq_hz: Some(max_freq),
+            iq_data: Vec::new(),
+            spectrum_data: Vec::new(),
+            bins_per_frame: 0,
+            label: None,
+          });
+        }
+      }
+    }
+
+    self.capture_job_id = Some(request.job_id);
+    self.capture_duration_s = request.duration_s;
+    self.capture_is_manual_mode = request.duration_mode == "manual";
+    self.capture_file_type = request.file_type;
+    self.capture_acquisition_mode = mode_str;
+    
+    self.capture_encrypted = request.encrypted;
+    self.capture_fft_size = request.fft_size;
+    self.capture_fft_window = request.fft_window;
+    self.capture_geolocation = request.geolocation;
+    self.capture_fragments = all_hops;
+    self.capture_channels = capture_channels;
+    self.capture_overall_center_hz = (overall_min + overall_max) / 2.0;
+    self.capture_overall_span_hz = overall_max - overall_min;
+    self.capture_requested_range = Some((overall_min, overall_max));
+    self.capture_start = Some(std::time::Instant::now());
+    self.capture_active = true;
+    self.capture_manual_stop = false;
+
+    // Tune to first hop
+    if let Some(&(min, max)) = self.capture_fragments.first() {
+      let center = ((min + max) / 2.0) as u32;
+      self.set_center_frequency(center)?;
+    }
+
+    Ok(())
+  }
+
   /// Stop an active capture immediately.
   pub fn stop_capture(&mut self) -> Option<CaptureResult> {
     if !self.capture_active {
@@ -1227,78 +1391,21 @@ impl SdrProcessor {
       } else {
         0
       };
-      info!("  ch[{}]: center={:.3}Hz, sr={:.3}Hz, spectrum_frames={}, iq_bytes={}", idx, ch.center_freq_hz, ch.sample_rate_hz, num_frames, ch.iq_data.len());
+      info!(
+        "  ch[{}]: center={:.3}Hz, sr={:.3}Hz, spectrum_frames={}, iq_bytes={}",
+        idx,
+        ch.center_freq_hz,
+        ch.sample_rate_hz,
+        num_frames,
+        ch.iq_data.len()
+      );
     }
 
     if channels.len() > 1 {
       let fft_size = self.fft_processor.config().fft_size;
-
-      for i in 1..channels.len() {
-        let prev_max =
-          channels[i - 1].center_freq_hz + channels[i - 1].sample_rate_hz / 2.0;
-        let curr_min =
-          channels[i].center_freq_hz - channels[i].sample_rate_hz / 2.0;
-        let overlap_hz = prev_max - curr_min;
-
-        if overlap_hz > 0.0 {
-          let midpoint_hz = (prev_max + curr_min) / 2.0;
-
-          let prev_overlap_hz = prev_max - midpoint_hz;
-          let prev_trim_fraction =
-            prev_overlap_hz / channels[i - 1].sample_rate_hz;
-          let prev_trim_bins =
-            (fft_size as f64 * prev_trim_fraction).round() as usize;
-
-          if prev_trim_bins > 0
-            && prev_trim_bins < (channels[i - 1].bins_per_frame as usize)
-          {
-            if !channels[i - 1].spectrum_data.is_empty() {
-              let old_bins = channels[i - 1].bins_per_frame as usize;
-              let new_bins = old_bins - prev_trim_bins;
-              let num_frames = channels[i - 1].spectrum_data.len() / old_bins;
-              let mut new_spectrum = Vec::with_capacity(num_frames * new_bins);
-
-              for f in 0..num_frames {
-                let start = f * old_bins;
-                let end = start + new_bins;
-                new_spectrum.extend_from_slice(
-                  &channels[i - 1].spectrum_data[start..end],
-                );
-              }
-              channels[i - 1].spectrum_data = new_spectrum;
-              channels[i - 1].bins_per_frame = new_bins as u32;
-            }
-            channels[i - 1].sample_rate_hz -= prev_overlap_hz;
-            channels[i - 1].center_freq_hz -= prev_overlap_hz / 2.0;
-          }
-
-          let curr_overlap_hz = midpoint_hz - curr_min;
-          let curr_trim_fraction = curr_overlap_hz / channels[i].sample_rate_hz;
-          let curr_trim_bins =
-            (fft_size as f64 * curr_trim_fraction).round() as usize;
-
-          if curr_trim_bins > 0 && curr_trim_bins < fft_size {
-            if !channels[i].spectrum_data.is_empty() {
-              let num_frames = channels[i].spectrum_data.len() / fft_size;
-              let new_bins = fft_size - curr_trim_bins;
-              let mut new_spectrum = Vec::with_capacity(num_frames * new_bins);
-
-              for f in 0..num_frames {
-                let start = f * fft_size + curr_trim_bins;
-                let end = (f + 1) * fft_size;
-                new_spectrum
-                  .extend_from_slice(&channels[i].spectrum_data[start..end]);
-              }
-              channels[i].spectrum_data = new_spectrum;
-              channels[i].bins_per_frame = new_bins as u32;
-            } else {
-              channels[i].bins_per_frame = (fft_size - curr_trim_bins) as u32;
-            }
-            channels[i].sample_rate_hz -= curr_overlap_hz;
-            channels[i].center_freq_hz += curr_overlap_hz / 2.0;
-          }
-        } else if channels[i].bins_per_frame == 0 {
-          channels[i].bins_per_frame = fft_size as u32;
+      for ch in &mut channels {
+        if ch.bins_per_frame == 0 {
+          ch.bins_per_frame = fft_size as u32;
         }
       }
 
@@ -1357,7 +1464,11 @@ impl SdrProcessor {
       ref_based_demod_baseline: self.capture_ref_based_demod_baseline.take(),
       is_mock_apt: self.device.device_type().contains("Mock"),
       is_ephemeral: self.capture_is_ephemeral,
-      dek: if self.capture_encrypted { Some(crate::crypto::generate_key()) } else { None },
+      dek: if self.capture_encrypted {
+        Some(crate::crypto::generate_key())
+      } else {
+        None
+      },
     })
   }
 
