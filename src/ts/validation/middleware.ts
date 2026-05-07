@@ -73,7 +73,7 @@ function logValidationFailure(
   error?: string,
 ): void {
   if (VALIDATION_CONFIG.logValidationFailures) {
-    console.error(`❌ Validation failed: ${operation}`, data, error || "");
+    console.error("❌ Validation failed: %s", operation, data, error || "");
     validationMetrics.validationFailures++;
   }
 }
