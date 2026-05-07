@@ -161,10 +161,11 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
   };
 
   const stitchingActive =
-    stitchStatus?.toLowerCase().includes("loading") ||
+    (stitchStatus?.toLowerCase().includes("loading") ||
     stitchStatus?.toLowerCase().includes("processing") ||
     stitchStatus?.toLowerCase().includes("computing") ||
-    stitchStatus?.toLowerCase().includes("loaded");
+    stitchStatus?.toLowerCase().includes("loaded")) &&
+    !stitchStatus?.toLowerCase().includes("successfully");
   const hasProcessedData = stitchStatus?.toLowerCase().includes("successfully");
   const isError = stitchStatus && !stitchingActive && !hasProcessedData && stitchStatus.toLowerCase() !== "no files selected for stitching";
 

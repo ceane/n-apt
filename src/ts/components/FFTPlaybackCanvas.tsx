@@ -279,14 +279,7 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
 
       const channelLabel = ch.label || `Channel ${activeChannel + 1}`;
 
-      console.log("[FFTPlaybackCanvas] Updating metadata", {
-        activeChannel,
-        channelCount,
-        chLabel: channelLabel,
-        chSampleRate: ch.sample_rate_hz,
-        chCenter: ch.center_freq_hz,
-        hasStitchedData,
-      });
+
       dispatch(
         setActivePlaybackMetadata({
           activeChannel,
