@@ -447,11 +447,7 @@ self.onmessage = async function (e) {
         const { fileData, fileName, aesKey: rawAesKey } = data;
         const aesKey = rawAesKey ? await crypto.subtle.importKey("raw", rawAesKey, { name: "AES-GCM" }, true, ["decrypt"]) : null;
         
-        if (aesKey) {
-          const hash = await crypto.subtle.digest("SHA-256", rawAesKey as ArrayBuffer);
-          const hashStr = Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 8);
-          console.log(`[fileWorker] loadFile initialized with Vault Key (hash: ${hashStr})`);
-        }
+
         const lower = fileName.toLowerCase();
         let rawData: Uint8Array = new Uint8Array(0);
         if (lower.endsWith(".wav")) {
@@ -649,21 +645,8 @@ self.onmessage = async function (e) {
       }
 
       case "stitchFiles": {
-        // Helper to get a short hash of the key for debugging
-        const getKeyHash = async (key: CryptoKey | ArrayBuffer) => {
-          try {
-            const raw = key instanceof ArrayBuffer ? key : await crypto.subtle.exportKey("raw", key);
-            const hashBuffer = await crypto.subtle.digest("SHA-256", raw);
-            const hashArray = Array.from(new Uint8Array(hashBuffer));
-            return hashArray.map(b => b.toString(16).padStart(2, '0')).join('').substring(0, 8);
-          } catch (e) {
-            return "unknown";
-          }
-        };
-
         const { files, settings, fftSize, aesKey: rawAesKey, sampleRateOptions } = data;
         let aesKey: CryptoKey | null = null;
-        let vaultKeyHash = "none";
 
         if (rawAesKey) {
           try {
@@ -674,8 +657,8 @@ self.onmessage = async function (e) {
               false,
               ["decrypt"],
             );
-            vaultKeyHash = await getKeyHash(rawAesKey);
-            console.log(`[fileWorker] stitchFiles initialized with Vault Key (hash: ${vaultKeyHash})`);
+
+
           } catch (e) {
             console.error("[fileWorker] Failed to import AES key:", e);
           }
@@ -894,7 +877,9 @@ self.onmessage = async function (e) {
           } catch (error: any) {
             console.error(`[fileWorker] Failed to load ${file.fileName}:`, error);
             lastError = error;
-            if (error.message?.includes("OperationError") || error.message?.includes("decrypt")) decryptionErrorCount++;
+            if (error.name === "OperationError" || error.message?.includes("OperationError") || error.message?.includes("decrypt")) {
+              decryptionErrorCount++;
+            }
           }
         }
 

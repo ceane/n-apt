@@ -411,3 +411,5 @@ coverage/lcov-report/ts/workers/fileWorker.ts.html
 coverage/lcov-report/ts/workers/fileWorkerManager.ts.html
 coverage/lcov-report/ts/workers/index.html
 coverage/lcov-report/ts/workers/scannerWorkerManager.ts.html
+# Test fixtures
+test/integration/fixtures/encrypted_test.napt

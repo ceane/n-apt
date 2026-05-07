@@ -29,8 +29,9 @@ pub fn get_pbkdf2_salt() -> &'static [u8] {
 /// Derive a 256-bit AES key from a passkey using PBKDF2-HMAC-SHA256.
 pub fn derive_key(passkey: &str) -> [u8; 32] {
   let mut key = [0u8; 32];
+  let trimmed = passkey.trim();
   pbkdf2_hmac::<Sha256>(
-    passkey.as_bytes(),
+    trimmed.as_bytes(),
     get_pbkdf2_salt(),
     PBKDF2_ITERATIONS,
     &mut key,

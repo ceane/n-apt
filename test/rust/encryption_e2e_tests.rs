@@ -105,6 +105,22 @@ fn test_encryption_save_load_cycle() {
 }
 
 #[test]
+fn test_derive_key_trimming() {
+  let key1 = derive_key("mypassword");
+  let key2 = derive_key("  mypassword  \n");
+  let key3 = derive_key("\tmypassword\r\n");
+  assert_eq!(
+    key1, key2,
+    "derive_key should be invariant to leading/trailing space/newline"
+  );
+  assert_eq!(
+    key1, key3,
+    "derive_key should be invariant to leading/trailing tab/carriage return"
+  );
+}
+
+
+#[test]
 fn test_checksum_integrity_and_corruption() {
   let _dir = tempdir().unwrap();
   let vault_key = [1u8; 32];

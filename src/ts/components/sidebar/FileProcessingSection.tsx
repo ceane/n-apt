@@ -161,11 +161,12 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
   };
 
   const stitchingActive =
-    stitchStatus?.includes("Loading") ||
-    stitchStatus?.includes("Processing") ||
-    stitchStatus?.includes("computing");
-  const hasProcessedData = stitchStatus?.includes("Successfully");
-  const isError = stitchStatus && !stitchingActive && !hasProcessedData && stitchStatus !== "No files selected for stitching";
+    stitchStatus?.toLowerCase().includes("loading") ||
+    stitchStatus?.toLowerCase().includes("processing") ||
+    stitchStatus?.toLowerCase().includes("computing") ||
+    stitchStatus?.toLowerCase().includes("loaded");
+  const hasProcessedData = stitchStatus?.toLowerCase().includes("successfully");
+  const isError = stitchStatus && !stitchingActive && !hasProcessedData && stitchStatus.toLowerCase() !== "no files selected for stitching";
 
   return (
     <DropZone
