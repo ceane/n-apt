@@ -87,9 +87,11 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
   // Global keyboard event listener for spacebar to pause/resume
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      // Only handle spacebar when not in an input field
+      // Only handle spacebar when not in an input field and in live mode
+      // (File mode is handled by FFTPlaybackCanvas)
       if (
         event.code === "Space" &&
+        state.sourceMode === "live" &&
         !["INPUT", "TEXTAREA", "SELECT"].includes(
           document.activeElement?.tagName || "",
         ) &&

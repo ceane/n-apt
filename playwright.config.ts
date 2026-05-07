@@ -2,6 +2,7 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './test/ts',
+  testMatch: /.*\.spec\.(ts|tsx)$/,
   timeout: 60 * 1000,
   expect: {
     timeout: 10000,
@@ -26,7 +27,7 @@ export default defineConfig({
   webServer: {
     command: './target/dev-fast/n-apt-backend & npx vite --port 5173 --host 127.0.0.1',
     port: 5173,
-    reuseExistingServer: false,
+    reuseExistingServer: true,
     timeout: 120 * 1000,
     env: {
       UNSAFE_LOCAL_USER_PASSWORD: 'test-password-123',

@@ -3,6 +3,28 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import FFTPlaybackCanvas from "@n-apt/components/FFTPlaybackCanvas";
 
+jest.mock("@n-apt/hooks/useWasmSimdMath", () => ({
+  useWasmSimdMath: () => ({
+    isWasmLoaded: true,
+    isSimdAvailable: false,
+    resampleSpectrum: jest.fn(),
+    processIqToSpectrum: jest.fn(),
+    processIqToDbmSpectrum: jest.fn(),
+    shiftWaterfallBuffer: jest.fn(),
+    applyColorMapping: jest.fn(),
+    getZoomedData: jest.fn((params) => ({
+      slicedWaveform: params.fullWaveform,
+      visualRange: params.fullRange,
+      clampedPan: 0,
+    })),
+    transformToScreenCoords: jest.fn(() => []),
+    calculateFrequencyDrag: jest.fn(),
+    detectProminentSpikes: jest.fn(() => []),
+    resampleSpectrumEnhanced: jest.fn(),
+    matchNoiseFloorDb: jest.fn((ref, target) => target),
+  }),
+}));
+
 // Mock File API
 const createMockFile = (name: string, size: number = 1024): File => {
   const buffer = new ArrayBuffer(size);

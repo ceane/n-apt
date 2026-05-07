@@ -246,21 +246,20 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
               ) : isError ? (
                 "Error"
               ) : hasProcessedData ? (
-                isStitchPaused ? (
-                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "2px" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                      <Play size={16} fill="currentColor" /> Play
-                    </div>
-                    <SpaceHint>[Space]</SpaceHint>
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "2px", width: "100%" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px", fontWeight: 600 }}>
+                    {isStitchPaused ? (
+                      <>
+                        <Play size={14} fill="currentColor" /> Play
+                      </>
+                    ) : (
+                      <>
+                        <Pause size={14} fill="currentColor" /> Pause
+                      </>
+                    )}
                   </div>
-                ) : (
-                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "2px" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                      <Pause size={16} fill="currentColor" /> Pause
-                    </div>
-                    <SpaceHint>[Space]</SpaceHint>
-                  </div>
-                )
+                  <SpaceHint>[Space]</SpaceHint>
+                </div>
               ) : (
                 <>
                   <CheckCircle2 size={16} /> Process then play

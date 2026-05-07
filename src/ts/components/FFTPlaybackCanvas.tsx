@@ -174,7 +174,7 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
     const stitchStatus = useAppSelector(
       (state) => state.waterfall.stitchStatus,
     );
-    const { state: spectrumState, dispatch: storeDispatch } =
+    const { state: spectrumState, toggleVisualizerPause } =
       useSpectrumStore();
     const { activeSignalArea } = spectrumState;
     // ── Custom hooks for separated concerns ──
@@ -332,9 +332,9 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
         allChannelsRef.current.length > 0
       ) {
         const firstLabel = allChannelsRef.current[0].label || "Channel 1";
-        storeDispatch({ type: "SET_SIGNAL_AREA", area: firstLabel });
+        dispatch({ type: "SET_SIGNAL_AREA", area: firstLabel });
       }
-    }, [hasStitchedData, activeSignalArea, allChannelsRef, storeDispatch]);
+    }, [hasStitchedData, activeSignalArea, allChannelsRef, dispatch]);
 
     // ── Clear when file selection actually changes ──
     const fileNamesSet = useMemo(
@@ -403,6 +403,29 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
       isPaused,
       animateFrame,
     ]);
+
+    // Global keyboard event listener for spacebar to toggle play/pause
+    useEffect(() => {
+      const handleKeyDown = (event: KeyboardEvent) => {
+        // Only handle spacebar when not in an input field
+        if (
+          event.code === "Space" &&
+          !["INPUT", "TEXTAREA", "SELECT"].includes(
+            document.activeElement?.tagName || "",
+          ) &&
+          !(document.activeElement as HTMLElement)?.isContentEditable
+        ) {
+          event.preventDefault();
+          event.stopPropagation();
+          toggleVisualizerPause();
+        }
+      };
+
+      window.addEventListener("keydown", handleKeyDown);
+      return () => {
+        window.removeEventListener("keydown", handleKeyDown);
+      };
+    }, [toggleVisualizerPause]);
 
     useEffect(() => {
       return () => {

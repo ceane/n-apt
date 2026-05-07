@@ -19,6 +19,28 @@ jest.mock("@n-apt/hooks/useAuthentication", () => ({
   }),
 }));
 
+jest.mock("@n-apt/hooks/useWasmSimdMath", () => ({
+  useWasmSimdMath: () => ({
+    isWasmLoaded: true,
+    isSimdAvailable: false,
+    resampleSpectrum: jest.fn(),
+    processIqToSpectrum: jest.fn(),
+    processIqToDbmSpectrum: jest.fn(),
+    shiftWaterfallBuffer: jest.fn(),
+    applyColorMapping: jest.fn(),
+    getZoomedData: jest.fn((params) => ({
+      slicedWaveform: params.fullWaveform,
+      visualRange: params.fullRange,
+      clampedPan: 0,
+    })),
+    transformToScreenCoords: jest.fn(() => []),
+    calculateFrequencyDrag: jest.fn(),
+    detectProminentSpikes: jest.fn(() => []),
+    resampleSpectrumEnhanced: jest.fn(),
+    matchNoiseFloorDb: jest.fn((ref, target) => target),
+  }),
+}));
+
 jest.unmock("@n-apt/components/FFTCanvas");
 
 const mockTheme = {

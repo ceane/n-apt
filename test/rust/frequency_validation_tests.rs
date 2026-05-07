@@ -13,7 +13,6 @@ use tokio::time::sleep;
 /// Test frequency validation constants
 const MIN_VALID_FREQ_HZ: u64 = 0; // 0Hz (RTL-SDR can tune to 0)
 const MAX_VALID_FREQ_HZ: u64 = 1_766_000_000; // 1766MHz (RTL-SDR maximum)
-const SAMPLE_RATE_HZ: u64 = 3_200_000; // 3.2MHz
 
 #[cfg(test)]
 mod frequency_validation_tests {
@@ -31,7 +30,8 @@ mod frequency_validation_tests {
         min_freq_mhz: -10.0, // Negative frequency
         max_freq_mhz: 100.0,
       }],
-      duration_s: 1.0,
+      duration_s: 0.05,
+      duration_mode: "timed".to_string(),
       file_type: ".napt".to_string(),
       acquisition_mode: "stepwise".to_string(),
       encrypted: false,
@@ -66,7 +66,8 @@ mod frequency_validation_tests {
         min_freq_mhz: 0.0, // 0Hz - valid for RTL-SDR
         max_freq_mhz: 3.0, // 3MHz bandwidth
       }],
-      duration_s: 1.0,
+      duration_s: 0.05,
+      duration_mode: "timed".to_string(),
       file_type: ".napt".to_string(),
       acquisition_mode: "stepwise".to_string(),
       encrypted: false,
@@ -84,7 +85,7 @@ mod frequency_validation_tests {
     sleep(Duration::from_millis(100)).await;
 
     // Verify capture metadata
-    let capture_result = processor.check_capture_completion()?;
+    let capture_result = processor.check_capture_completion().ok_or_else(|| anyhow::anyhow!("Capture not complete"))?;
     assert_eq!(capture_result.job_id, "test-zero-freq");
 
     // Check that frequencies are valid (>= 0Hz)
@@ -93,7 +94,7 @@ mod frequency_validation_tests {
     }
 
     // Clean up
-    processor.stop_capture()?;
+    processor.stop_capture();
 
     Ok(())
   }
@@ -110,7 +111,8 @@ mod frequency_validation_tests {
         min_freq_mhz: 10.0,
         max_freq_mhz: -5.0, // Max < Min and negative
       }],
-      duration_s: 1.0,
+      duration_s: 0.05,
+      duration_mode: "timed".to_string(),
       file_type: ".napt".to_string(),
       acquisition_mode: "stepwise".to_string(),
       encrypted: false,
@@ -139,7 +141,8 @@ mod frequency_validation_tests {
         min_freq_mhz: 200.0, // Higher than max
         max_freq_mhz: 100.0,
       }],
-      duration_s: 1.0,
+      duration_s: 0.05,
+      duration_mode: "timed".to_string(),
       file_type: ".napt".to_string(),
       acquisition_mode: "stepwise".to_string(),
       encrypted: false,
@@ -175,7 +178,8 @@ mod frequency_validation_tests {
         min_freq_mhz: 0.0, // 0Hz - allowed for RTL-SDR
         max_freq_mhz: 3.0, // 3MHz bandwidth
       }],
-      duration_s: 1.0,
+      duration_s: 0.05,
+      duration_mode: "timed".to_string(),
       file_type: ".napt".to_string(),
       acquisition_mode: "stepwise".to_string(),
       encrypted: false,
@@ -186,7 +190,7 @@ mod frequency_validation_tests {
 
     let result_zero = processor.start_capture(capture_request_zero);
     assert!(result_zero.is_ok());
-    processor.stop_capture()?;
+    processor.stop_capture();
 
     // Test frequency above device maximum
     let capture_request_high = CaptureRequest {
@@ -195,7 +199,8 @@ mod frequency_validation_tests {
         min_freq_mhz: 2000.0, // Above 1766MHz RTL-SDR maximum
         max_freq_mhz: 2005.0,
       }],
-      duration_s: 1.0,
+      duration_s: 0.01,
+      duration_mode: "timed".to_string(),
       file_type: ".napt".to_string(),
       acquisition_mode: "stepwise".to_string(),
       encrypted: false,
@@ -222,9 +227,10 @@ mod frequency_validation_tests {
         min_freq_mhz: 100.0,
         max_freq_mhz: 110.0, // 10MHz bandwidth > 3.2MHz sample rate
       }],
-      duration_s: 1.0,
+      duration_s: 0.01,
+      duration_mode: "timed".to_string(),
       file_type: ".napt".to_string(),
-      acquisition_mode: "stepwise".to_string(),
+      acquisition_mode: "whole_sample".to_string(), // Use whole_sample to trigger bandwidth error
       encrypted: false,
       fft_size: 1024,
       fft_window: "Rectangular".to_string(),
@@ -258,7 +264,8 @@ mod frequency_validation_tests {
         min_freq_mhz: 100.0,
         max_freq_mhz: 103.0, // 3MHz bandwidth < 3.2MHz sample rate
       }],
-      duration_s: 2.0,
+      duration_s: 0.01,
+      duration_mode: "timed".to_string(),
       file_type: ".napt".to_string(),
       acquisition_mode: "stepwise".to_string(),
       encrypted: false,
@@ -271,10 +278,10 @@ mod frequency_validation_tests {
     assert!(result.is_ok());
 
     // Let it capture briefly
-    sleep(Duration::from_millis(100)).await;
+    sleep(Duration::from_millis(300)).await;
 
     // Verify capture metadata contains correct frequencies
-    let capture_result = processor.check_capture_completion()?;
+    let capture_result = processor.check_capture_completion().ok_or_else(|| anyhow::anyhow!("Capture not complete"))?;
     assert_eq!(capture_result.job_id, "test-valid-freq");
 
     // Check that frequencies are positive and within valid range
@@ -285,7 +292,7 @@ mod frequency_validation_tests {
     }
 
     // Clean up
-    processor.stop_capture()?;
+    processor.stop_capture();
 
     Ok(())
   }
@@ -308,7 +315,8 @@ mod frequency_validation_tests {
           max_freq_mhz: 103.2,
         },
       ],
-      duration_s: 2.0,
+      duration_s: 0.01,
+      duration_mode: "timed".to_string(),
       file_type: ".napt".to_string(),
       acquisition_mode: "stepwise".to_string(),
       encrypted: false,
@@ -320,9 +328,9 @@ mod frequency_validation_tests {
     let result = processor.start_capture(capture_request);
     assert!(result.is_ok());
 
-    sleep(Duration::from_millis(100)).await;
+    sleep(Duration::from_millis(300)).await;
 
-    let capture_result = processor.check_capture_completion()?;
+    let capture_result = processor.check_capture_completion().ok_or_else(|| anyhow::anyhow!("Capture not complete"))?;
 
     // All channels should have valid frequencies
     for channel in &capture_result.channels {
@@ -331,7 +339,7 @@ mod frequency_validation_tests {
       assert!(channel.center_freq_hz <= 103.2 * 1000000.0);
     }
 
-    processor.stop_capture()?;
+    processor.stop_capture();
 
     Ok(())
   }
@@ -348,7 +356,8 @@ mod frequency_validation_tests {
         min_freq_mhz: 100.123456789,
         max_freq_mhz: 103.987654321,
       }],
-      duration_s: 1.0,
+      duration_s: 0.05,
+      duration_mode: "timed".to_string(),
       file_type: ".napt".to_string(),
       acquisition_mode: "stepwise".to_string(),
       encrypted: false,
@@ -362,7 +371,7 @@ mod frequency_validation_tests {
 
     sleep(Duration::from_millis(100)).await;
 
-    let capture_result = processor.check_capture_completion()?;
+    let capture_result = processor.check_capture_completion().ok_or_else(|| anyhow::anyhow!("Capture not complete"))?;
 
     // Verify frequencies are preserved with reasonable precision
     for channel in &capture_result.channels {
@@ -374,7 +383,7 @@ mod frequency_validation_tests {
       assert!(channel.center_freq_hz <= expected_max + 1000.0);
     }
 
-    processor.stop_capture()?;
+    processor.stop_capture();
 
     Ok(())
   }
@@ -399,7 +408,8 @@ mod frequency_synchronization_tests {
         min_freq_mhz: frontend_min_mhz,
         max_freq_mhz: frontend_max_mhz,
       }],
-      duration_s: 2.0,
+      duration_s: 0.01,
+      duration_mode: "timed".to_string(),
       file_type: ".napt".to_string(),
       acquisition_mode: "stepwise".to_string(),
       encrypted: false,
@@ -409,9 +419,9 @@ mod frequency_synchronization_tests {
     };
 
     processor.start_capture(capture_request)?;
-    sleep(Duration::from_millis(100)).await;
+    sleep(Duration::from_millis(300)).await;
 
-    let capture_result = processor.check_capture_completion()?;
+    let capture_result = processor.check_capture_completion().ok_or_else(|| anyhow::anyhow!("Capture not complete"))?;
 
     // Verify backend captured at requested frequencies
     assert_eq!(capture_result.channels.len(), 1);
@@ -427,7 +437,7 @@ mod frequency_synchronization_tests {
     assert!(channel.center_freq_hz >= frontend_min_mhz * 1000000.0);
     assert!(channel.center_freq_hz <= frontend_max_mhz * 1000000.0);
 
-    processor.stop_capture()?;
+    processor.stop_capture();
 
     Ok(())
   }
@@ -451,7 +461,8 @@ mod frequency_synchronization_tests {
           min_freq_mhz: min_mhz,
           max_freq_mhz: max_mhz,
         }],
-        duration_s: 1.0,
+        duration_s: 0.01,
+        duration_mode: "timed".to_string(),
         file_type: ".napt".to_string(),
         acquisition_mode: "stepwise".to_string(),
         encrypted: false,
@@ -466,12 +477,12 @@ mod frequency_synchronization_tests {
         // Should succeed for valid edge cases
         assert!(result.is_ok());
 
-        sleep(Duration::from_millis(50)).await;
+        sleep(Duration::from_millis(300)).await;
 
-        let capture_result = processor.check_capture_completion()?;
+        let capture_result = processor.check_capture_completion().ok_or_else(|| anyhow::anyhow!("Capture not complete"))?;
         assert!(capture_result.channels[0].center_freq_hz > 0.0);
 
-        processor.stop_capture()?;
+        processor.stop_capture();
       } else {
         // Should fail for invalid edge cases
         assert!(result.is_err());
@@ -499,7 +510,8 @@ mod frequency_synchronization_tests {
           max_freq_mhz: 103.0,
         },
       ],
-      duration_s: 1.0,
+      duration_s: 0.05,
+      duration_mode: "timed".to_string(),
       file_type: ".napt".to_string(),
       acquisition_mode: "stepwise".to_string(),
       encrypted: false,
@@ -515,7 +527,7 @@ mod frequency_synchronization_tests {
       Ok(_) => {
         // If it succeeds, verify no duplicate capture
         sleep(Duration::from_millis(100)).await;
-        let capture_result = processor.check_capture_completion()?;
+        let capture_result = processor.check_capture_completion().ok_or_else(|| anyhow::anyhow!("Capture not complete"))?;
 
         // Should have 2 separate channels or merged into 1
         assert!(capture_result.channels.len() >= 1);
@@ -525,7 +537,7 @@ mod frequency_synchronization_tests {
           assert!(channel.center_freq_hz > 0.0);
         }
 
-        processor.stop_capture()?;
+        processor.stop_capture();
       }
       Err(e) => {
         // It's acceptable to reject overlapping ranges

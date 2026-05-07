@@ -529,6 +529,7 @@ pub fn handle_message(
           fft_size,
           fft_window: message.fft_window,
           frame_rate,
+          sample_rate: None,
           gain,
           ppm,
           tuner_agc: message.tuner_agc,

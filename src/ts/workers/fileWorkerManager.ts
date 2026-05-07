@@ -23,6 +23,7 @@ export class FileWorkerManager {
   }
 
   private initializeWorker() {
+    if (typeof Worker === 'undefined') return;
     try {
       this.worker = new Worker(new URL("./fileWorker.ts", import.meta.url), {
         type: "module",
