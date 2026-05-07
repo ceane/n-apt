@@ -19,6 +19,7 @@ const alertSpy = jest
 const mockWebSocketState: {
   isConnected: boolean;
   deviceState: "connected" | "disconnected" | "loading";
+  deviceInfo: string | null;
   captureStatus: CaptureStatus;
   maxSampleRateHz: number;
   dataRef: { current: { deviceInfo?: string } };
@@ -26,6 +27,7 @@ const mockWebSocketState: {
 } = {
   isConnected: true,
   deviceState: "connected",
+  deviceInfo: "Mock Device",
   captureStatus: null,
   maxSampleRateHz: 3200000,
   dataRef: { current: { deviceInfo: "Mock Device" } },
@@ -48,6 +50,7 @@ describe("I/Q Capture Integration Tests", () => {
     jest.clearAllMocks();
     mockWebSocketState.isConnected = true;
     mockWebSocketState.deviceState = "connected";
+    mockWebSocketState.deviceInfo = "Mock Device";
     mockWebSocketState.captureStatus = null;
     mockWebSocketState.maxSampleRateHz = 3200000;
     mockWebSocketState.dataRef = { current: { deviceInfo: "Mock Device" } };
@@ -373,6 +376,7 @@ describe("I/Q Capture Integration Tests", () => {
 
   describe("Mock vs Real Device Testing", () => {
     it("should handle mock device sample rate limits", async () => {
+      mockWebSocketState.deviceInfo = "Mock APT Device";
       mockWebSocketState.dataRef = {
         current: { deviceInfo: "Mock APT Device" },
       };
@@ -401,6 +405,7 @@ describe("I/Q Capture Integration Tests", () => {
     });
 
     it("should handle real device sample rate detection", () => {
+      mockWebSocketState.deviceInfo = "RTL-SDR Blog V4";
       mockWebSocketState.dataRef = {
         current: { deviceInfo: "RTL-SDR Blog V4" },
       };

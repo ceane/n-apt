@@ -11,6 +11,7 @@ type CaptureStatusWithIdle = CaptureStatus | { status: "idle"; jobId: string };
 const mockWebSocketState: {
   isConnected: boolean;
   deviceState: string;
+  deviceInfo: string | null;
   captureStatus: CaptureStatusWithIdle;
   maxSampleRateHz: number;
   dataRef: { current: { deviceInfo?: string; captureMetadata?: unknown } };
@@ -18,6 +19,7 @@ const mockWebSocketState: {
 } = {
   isConnected: true,
   deviceState: "connected",
+  deviceInfo: "Mock Device",
   captureStatus: { status: "idle", jobId: "" },
   maxSampleRateHz: 3200000,
   dataRef: { current: { deviceInfo: "Mock Device" } },
@@ -40,6 +42,7 @@ describe("Frequency Validation Integration Tests", () => {
     jest.clearAllMocks();
     mockWebSocketState.isConnected = true;
     mockWebSocketState.deviceState = "connected";
+    mockWebSocketState.deviceInfo = "Mock Device";
     mockWebSocketState.captureStatus = { status: "idle", jobId: "" };
     mockWebSocketState.maxSampleRateHz = 3200000;
     mockWebSocketState.dataRef = { current: { deviceInfo: "Mock Device" } };
