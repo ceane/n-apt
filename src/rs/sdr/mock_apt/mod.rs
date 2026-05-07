@@ -730,7 +730,7 @@ signals:
     let yaml_path = temp_dir.join("signals.yaml");
     write_test_signals_yaml(&yaml_path, 500_000, -95);
     let mut device = MockAptDevice::new();
-    assert_eq!(device.signals.len(), 8);
+    assert_eq!(device.signals.len(), 9);
     assert_eq!(device.noise_floor_db, -95.0);
 
     sleep(Duration::from_millis(300));
@@ -739,7 +739,7 @@ signals:
 
     device.reload_config_if_needed();
 
-    assert_eq!(device.signals.len(), 4);
+    assert_eq!(device.signals.len(), 5);
     assert_eq!(device.noise_floor_db, -70.0);
 
     std::env::set_current_dir(&original_dir).expect("restore dir");
