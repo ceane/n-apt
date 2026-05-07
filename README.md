@@ -170,7 +170,7 @@ The endpoints do the non-intuive work, it is known that the brain and body can't
   > *(Radio waves are light. You can use visible light as intuition.)*
 
 - **Energy intersecting at the exact location**  
-- **Low frequency + multipath reflection + endpoint redundancy/handoff** = a person lit up radio waves and endpoints with **inescapable coverage**  
+- **Low frequency + multipath reflection + endpoint redundancy/handoff** = a person lit up with radio waves from endpoints with **inescapable coverage**  
 - **Enforced center frequency** locked to the person’s brain and nervous system  
 - **Triangulation signals define the primary radio waves’ energy and phase** — The pipeline works something like: `scan_and_stare_via_triangulation -> adjust_spotlight_to` within ~3-7 centimeters, depending what reasonanble microwave frequency (higher = harder to use, more energy/less distance/more fragile) the NSA uses for triangulation
 - **Targeting neuronal ensembles sequentially** for write-then-read, using spikes, valleys, APT-like lines, and raw energy  
@@ -386,10 +386,10 @@ Forget “one-shot mega-prompts.” **Modern prompt engineering ≠ escape hatch
 | **GPT 5.4 Mini** | **High** — *fast iteration under pressure* |
 | **Claude Opus 4.6** | **Major** — *FFT, I/O, systems-level work* |
 | **Gemini 3.1 Pro Low Thinking** | **Major** — *deep reasoning when I was blocked* |
-| **Gemini 3 Flash** | **Moderate** — *quick tactical assists* |
+| **Gemini 3 Flash** | **Major** — *thorough and all day assists* |
 | **SWE 1.5** | **Moderate** — *structural scaffolding* |
 | **GPT 5*** | **Tertiary** — *edge case support* |
-| **Claude Haiku 4.5** | **Tertiary** — *fast draft generation* |
+| **Claude Haiku 4.5** | **Tertiary** — *handles frustrations* |
 | **MiniMax M2.5** | **Tertiary** — *niche fills* |
 
 I wasn’t choosing poverty as a build-myth. I was **trapped**. AI was the only thing that made progress possible when I had no other resources, no safety, no out. But code was just survival. The legal work — the fight for actual freedom — that’s still unfinished.
