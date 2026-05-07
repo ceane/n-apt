@@ -878,7 +878,7 @@ self.onmessage = async function (e) {
               data: { current: i + 1, total: files.length, status: `Loaded ${sanitizeFilename(file.fileName)}` },
             });
           } catch (error: any) {
-            console.error(`[fileWorker] Failed to load ${file.fileName}:`, error);
+            console.error("[fileWorker] Failed to load %s:", file.fileName, error);
             lastError = error;
             if (error.name === "OperationError" || error.message?.includes("OperationError") || error.message?.includes("decrypt")) {
               decryptionErrorCount++;

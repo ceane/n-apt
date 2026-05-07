@@ -41,7 +41,7 @@
       "@n-apt/validation/*": ["./src/ts/validation/*"]
     }
   },
-  "include": ["src/ts", "src/md-preview", "src/encrypted-modules", "src/ts/types", "src/types"],
+  "include": ["src/ts", "src/md-preview", "src/encrypted-modules", "src/ts/types", "src/types", "test/ts", "test/integration"],
   "exclude": ["src/md-preview/components/canvas/ascii-motion-animation.tsx"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }
