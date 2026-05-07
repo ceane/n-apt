@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from "@jest/globals";
+import { describe, it, expect } from "@jest/globals";
 import fs from "fs";
 import path from "path";
 import {
@@ -48,7 +48,7 @@ describe("Encryption Lifecycle Integration (Rust-Generated Test Vectors)", () =>
       // Import the DEK as a new CryptoKey
       const dek = await crypto.webcrypto.subtle.importKey(
         "raw",
-        rawDek,
+        rawDek.slice(0),
         { name: "AES-GCM" },
         false,
         ["decrypt"],

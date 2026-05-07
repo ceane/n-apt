@@ -268,6 +268,7 @@ describe("Markdown Canvas Components", () => {
         ],
       };
 
+      // @ts-ignore
       remarkSignalCanvasBlocks()(tree as any);
 
       expect(tree.children[0]).toEqual({
@@ -304,6 +305,7 @@ describe("Markdown Canvas Components", () => {
           ],
         };
 
+        // @ts-ignore
         remarkSignalCanvasBlocks()(tree as any);
         expect(tree.children[0]).toEqual({ type: "html", value });
       });
@@ -319,6 +321,7 @@ describe("Markdown Canvas Components", () => {
 
       invalidNodes.forEach((node) => {
         expect(() => {
+          // @ts-ignore - remark plugin type signature is complex for tests
           remarkSignalCanvasBlocks()(node as any);
         }).not.toThrow();
       });
@@ -384,15 +387,17 @@ describe("Markdown Canvas Components", () => {
       const _renderTime = endTime - startTime;
 
       // Mock missing THREE.js
-      const originalThree = global.THREE;
-      global.THREE = undefined;
+      // @ts-ignore - globalThis access for THREE mocking
+      const originalThree = (global as any).THREE;
+      (global as any).THREE = undefined;
 
       expect(() => {
         render(<BodyAttenuationCanvas />);
       }).not.toThrow();
 
       // Restore THREE.js
-      global.THREE = originalThree;
+      // @ts-ignore
+      (global as any).THREE = originalThree;
     });
 
     test("handles image loading errors", () => {

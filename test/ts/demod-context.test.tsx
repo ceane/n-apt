@@ -43,7 +43,7 @@ const TestComponent: React.FC = () => {
 
   React.useEffect(() => {
     // Start APT analysis after component mounts
-    startAnalysis("apt", false, "test script", "test media", [1, 2, 3]);
+    startAnalysis("apt", false, 5.0, "test script", "test media", [1, 2, 3]);
     return () => clearAnalysis();
   }, [startAnalysis, clearAnalysis]);
 

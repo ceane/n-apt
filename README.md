@@ -250,7 +250,7 @@ They are specifially segmented this way because A and B are similar in shape (an
 
 ### Node.js
 
-- **Version**: 18.0 or higher
+- **Version**: 26.x or higher
 - **Installation**:
   - **macOS**: `brew install node`
   - **Ubuntu/Debian**: `sudo apt update && sudo apt install nodejs npm`

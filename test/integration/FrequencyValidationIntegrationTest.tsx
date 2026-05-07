@@ -145,6 +145,7 @@ export const FrequencyValidationIntegrationTest: React.FC = () => {
     sendCaptureCommand?.({
       jobId: `freq-test-${Date.now()}`,
       fragments,
+      durationMode: "timed",
       durationS: captureDurationS,
       fileType: captureFileType,
       acquisitionMode,
@@ -188,9 +189,9 @@ export const FrequencyValidationIntegrationTest: React.FC = () => {
       <h3>Frequency Validation Integration Test</h3>
 
       {/* Device Info */}
-      {dataRef?.current?.deviceInfo && (
+      {_deviceState && (
         <div data-testid="device-info">
-          Device: {dataRef.current.deviceInfo}
+          Device State: {_deviceState}
         </div>
       )}
 
@@ -337,26 +338,6 @@ export const FrequencyValidationIntegrationTest: React.FC = () => {
         </div>
       )}
 
-      {/* Frequency Validation Results */}
-      {dataRef?.current?.captureMetadata && (
-        <div data-testid="frequency-validation">
-          <h4>Capture Frequency Validation</h4>
-          {dataRef.current.captureMetadata.frequencies?.map(
-            (freq: any, index: number) => (
-              <div key={index}>
-                Requested: {(freq.min / 1000000).toFixed(2)}MHz -{" "}
-                {(freq.max / 1000000).toFixed(2)}MHz
-                {freq.actualMin && freq.actualMax && (
-                  <span>
-                    , Actual: {(freq.actualMin / 1000000).toFixed(5)}MHz -{" "}
-                    {(freq.actualMax / 1000000).toFixed(5)}MHz
-                  </span>
-                )}
-              </div>
-            ),
-          )}
-        </div>
-      )}
     </div>
   );
 };

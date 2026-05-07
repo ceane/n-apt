@@ -59,7 +59,7 @@ jobs:
     if: needs.detect-changes.outputs.frontend == 'true' || github.ref == 'refs/heads/main'
     strategy:
       matrix:
-        node-version: [22.x]
+        node-version: [26.x]
 
     steps:
       - name: Checkout code
@@ -197,7 +197,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22.x'
+          node-version: '26.x'
           cache: "npm"
 
       - name: Setup Rust
@@ -240,7 +240,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22.x'
+          node-version: '26.x'
           cache: "npm"
 
       - name: Install system dependencies

@@ -28,12 +28,12 @@ if (!password) {
 }
 
 const SALT = Buffer.from("n-apt-aes-salt-v1");
-const ITERATIONS = 100_000;
+const ITERATIONS = 600_000;
 const IV_LENGTH = 12;
 
 // Derive vault key using PBKDF2
 const vaultKey = crypto.pbkdf2Sync(password, SALT, ITERATIONS, 32, 'sha256');
-const vaultKeyHash = crypto.createHash('sha256').update(vaultKey).digest('hex').substring(0, 8);
+const vaultKeyHash = vaultKey.toString('hex').substring(0, 8);
 console.log(`Initialized with Vault Key (hash: ${vaultKeyHash})`);
 
 async function decryptFile(filePath) {

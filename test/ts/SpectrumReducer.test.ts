@@ -132,7 +132,7 @@ describe("spectrumReducer", () => {
   });
 
   it("SET_SELECTED_FILES updates files", () => {
-    const files = [{ name: "test.iq", file: new File([], "test.iq") }];
+    const files = [{ id: "test-1", name: "test.iq", file: new File([], "test.iq") }];
     const next = spectrumReducer(INITIAL_SPECTRUM_STATE, {
       type: "SET_SELECTED_FILES",
       files,
@@ -149,14 +149,20 @@ describe("spectrumReducer", () => {
   });
 
   it("SET_DRAW_PARAMS updates draw params", () => {
-    const params = {
-      spikeCount: 20,
-      spikeWidth: 0.8,
-      centerSpikeBoost: 3.0,
-      floorAmplitude: 0.3,
-      decayRate: 0.1,
-      envelopeWidth: 5,
-    };
+    const params = [
+      {
+        spikeCount: 20,
+        spikeWidth: 0.8,
+        centerSpikeBoost: 3.0,
+        spikesAmplitude: -10,
+        decayRate: 0.1,
+        envelopeWidth: 5,
+        centerOffset: 1500000,
+        peakAmplitude: -40,
+        simulatedNoise: 0.05,
+        beats: [],
+      },
+    ];
     const next = spectrumReducer(INITIAL_SPECTRUM_STATE, {
       type: "SET_DRAW_PARAMS",
       params,

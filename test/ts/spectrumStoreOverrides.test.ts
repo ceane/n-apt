@@ -49,6 +49,11 @@ describe("applyWaterfallStateOverrides", () => {
         diagnosticTrigger: 0,
         drawSignal3D: false,
         displayMode: "fft",
+        detectedFrameRate: 60,
+        sample_size: 32768,
+        fftAvgEnabled: false,
+        fftSmoothEnabled: false,
+        wfSmoothEnabled: false,
       },
       {
         sourceMode: "file",
@@ -67,6 +72,8 @@ describe("applyWaterfallStateOverrides", () => {
         activeClumpIndex: 0,
         globalNoiseFloor: -100,
         activePlaybackMetadata: null,
+        playbackChannels: [],
+        playbackFrameCounter: 0,
       },
     );
 

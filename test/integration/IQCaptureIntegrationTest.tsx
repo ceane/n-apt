@@ -87,6 +87,7 @@ export const IQCaptureIntegrationTest: React.FC = () => {
     sendCaptureCommand({
       jobId: `test-job-${Date.now()}`,
       fragments: selectedFragments,
+      durationMode: captureDurationMode,
       durationS: captureDurationS,
       fileType: captureFileType,
       acquisitionMode: effectiveAcquisitionMode,
@@ -107,8 +108,8 @@ export const IQCaptureIntegrationTest: React.FC = () => {
   return (
     <div data-testid="iq-capture-integration-test">
       {/* Device Info Display */}
-      {dataRef?.current?.deviceInfo && (
-        <div data-testid="device-info">{dataRef.current.deviceInfo}</div>
+      {deviceState && (
+        <div data-testid="device-info">Device State: {deviceState}</div>
       )}
 
       {/* Supported Sample Rates */}
@@ -137,7 +138,7 @@ export const IQCaptureIntegrationTest: React.FC = () => {
         captureGeolocation={captureGeolocation}
         captureRange={mockCaptureRange}
         maxSampleRate={maxSampleRateHz || 3200000}
-        captureStatus={captureStatus || { status: "idle", jobId: "" }}
+        captureStatus={captureStatus || null}
         isConnected={isConnected || false}
         deviceState={deviceState || "disconnected"}
         onActiveCaptureAreasChange={setActiveCaptureAreas}

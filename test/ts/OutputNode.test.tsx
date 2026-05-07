@@ -111,6 +111,10 @@ describe("OutputNode", () => {
       data: {
         label: "Output",
         state: "idle",
+        result: {
+          jobId: "test-job",
+          confidence: 0.5,
+        },
       },
     };
 
@@ -128,6 +132,10 @@ describe("OutputNode", () => {
       data: {
         label: "Output",
         state: "processing",
+        result: {
+          jobId: "test-job",
+          confidence: 0.5,
+        },
       },
     };
 

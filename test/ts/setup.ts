@@ -165,15 +165,32 @@ global.ResizeObserver = class ResizeObserver {
   }
 };
 
+// Declare global helper functions from jest.canvasSetup.cjs
+declare global {
+  function clearCanvasCalls(): void;
+  function expectCanvasCall(callName: string, args?: any[] | null): void;
+  function expectCanvasContext(contextType: string): void;
+  function expectWebGLCall(callName: string, args?: any[] | null): void;
+  function expectWebGPUCall(callName: string, args?: any[] | null): void;
+  function countCanvasCalls(callName: string): number;
+  function countWebGPUCalls(callName: string): number;
+  function getWebGPUCalls(callName: string): Array<{ name: string; args: any[] }>;
+}
+
 // Mock IntersectionObserver for testing (e.g. CanvasHarness lazy loading)
 global.IntersectionObserver = class IntersectionObserver {
-  constructor(callback: any) {
+  readonly root: Element | null = null;
+  readonly rootMargin: string = "0px";
+  readonly thresholds: ReadonlyArray<number> = [0];
+  readonly scrollMargin: string = "0px";
+
+  constructor(callback: IntersectionObserverCallback, _options?: IntersectionObserverInit) {
     this.callback = callback;
   }
-  callback: any;
+  callback: IntersectionObserverCallback;
   observe(target: Element) {
     // Synchronously trigger intersection to mount components immediately in tests
-    this.callback([{ target, isIntersecting: true }]);
+    this.callback([{ target, isIntersecting: true, boundingClientRect: {} as DOMRectReadOnly, intersectionRatio: 1, intersectionRect: {} as DOMRectReadOnly, time: Date.now(), rootBounds: null } as IntersectionObserverEntry], this);
   }
   unobserve() {
     // Mock implementation
@@ -181,7 +198,10 @@ global.IntersectionObserver = class IntersectionObserver {
   disconnect() {
     // Mock implementation
   }
-};
+  takeRecords(): IntersectionObserverEntry[] {
+    return [];
+  }
+} as any;
 
 // Mock ImageData for canvas testing
 global.ImageData = class ImageData {
