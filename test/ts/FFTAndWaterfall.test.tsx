@@ -2,7 +2,7 @@ import React from "react";
 import { render, screen } from "@testing-library/react";
 import FFTAndWaterfall from "@n-apt/components/FFTAndWaterfall";
 
-const fftCanvasMock = jest.fn(() => <div data-testid="fft-canvas" />);
+const fftCanvasMock = jest.fn((_props?: any) => <div data-testid="fft-canvas" />);
 const visualizerSlidersMock = jest.fn(() => (
   <div data-testid="visualizer-sliders" />
 ));

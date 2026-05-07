@@ -93,7 +93,7 @@ npm run lint         # oxlint
 npm run lint:fix     # Fix issues
 npm run format       # oxfmt
 npm run format:check # Check formatting
-npm run typecheck    # TypeScript
+npm run typecheck    # TypeScript, NEVER SKIPS TYPE CHECKING, MUST RUN TO PASS CI/CD
 
 # Rust formatting (optimized)
 npm run format:rust      # Parallel formatting for all files

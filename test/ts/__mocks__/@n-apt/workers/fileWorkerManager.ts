@@ -154,7 +154,14 @@ export class FileWorkerManager {
 
   // Mock method for testing error scenarios
   simulateError(
-    errorType: "timeout" | "crash" | "memory" | "fileloading" | "framebuilding",
+    errorType:
+      | "timeout"
+      | "crash"
+      | "memory"
+      | "fileloading"
+      | "framebuilding"
+      | "loadFile"
+      | "buildFrame",
     message?: string,
   ) {
     switch (errorType) {
