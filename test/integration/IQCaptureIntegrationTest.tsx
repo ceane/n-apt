@@ -109,7 +109,12 @@ export const IQCaptureIntegrationTest: React.FC = () => {
     <div data-testid="iq-capture-integration-test">
       {/* Device Info Display */}
       {deviceState && (
-        <div data-testid="device-info">Device State: {deviceState}</div>
+        <div data-testid="device-info">
+          Device State: {deviceState}
+          {dataRef?.current?.deviceInfo && (
+            <div data-testid="device-name">{dataRef.current.deviceInfo}</div>
+          )}
+        </div>
       )}
 
       {/* Supported Sample Rates */}
