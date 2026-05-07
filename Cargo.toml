@@ -80,8 +80,7 @@ rustfft = "6"
 num-complex = "0.4"
 rand = "0.10"
 rayon = "1.12"
-getrandom = { version = "0.2", features = ["js"] }
-getrandom_04 = { package = "getrandom", version = "0.4", features = ["wasm_js"] }
+getrandom = { version = "0.4", features = ["wasm_js"] }
 anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -95,9 +94,9 @@ dotenvy = "0.15"
 
 # WASM dependencies (only when targeting WASM)
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-wasm-bindgen = "0.2.120"
-js-sys = "0.3.97"
-web-sys = { version = "0.3.97", features = ["console"] }
+wasm-bindgen = "0.2.121"
+js-sys = "0.3.98"
+web-sys = { version = "0.3.98", features = ["console"] }
 
 # Server dependencies (only when not targeting WASM)
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
@@ -114,7 +113,7 @@ hmac = "0.13"
 sha2 = "0.11"
 pbkdf2 = { version = "0.13", features = ["password-hash"] }
 base64 = "0.22"
-zip = { version = "2", default-features = false, features = ["deflate"] }
+zip = { version = "8", default-features = false, features = ["deflate"] }
 # HTTP client for CoreML service communication
 reqwest = { version = "0.13", features = ["json"] }
 # HTTP + WebSocket server (axum replaces raw TcpListener + tokio-tungstenite)
