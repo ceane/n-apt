@@ -8,11 +8,13 @@ export const IQCaptureIntegrationTest: React.FC = () => {
   const {
     isConnected,
     deviceState,
+    deviceInfo,
     captureStatus,
     maxSampleRateHz,
     dataRef,
     sendCaptureCommand,
-  } = useWebSocket("", null);
+    sendCaptureStopCommand,
+  } = useWebSocket("ws://test", null, false);
 
   // Mock state for testing
   const [activeCaptureAreas, setActiveCaptureAreas] = React.useState<string[]>(
@@ -111,8 +113,8 @@ export const IQCaptureIntegrationTest: React.FC = () => {
       {deviceState && (
         <div data-testid="device-info">
           Device State: {deviceState}
-          {dataRef?.current?.deviceInfo && (
-            <div data-testid="device-name">{dataRef.current.deviceInfo}</div>
+          {deviceInfo && (
+            <div data-testid="device-name">{deviceInfo}</div>
           )}
         </div>
       )}

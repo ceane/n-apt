@@ -6,6 +6,7 @@ export const FrequencyValidationIntegrationTest: React.FC = () => {
   const {
     isConnected,
     deviceState: _deviceState,
+    deviceInfo,
     captureStatus,
     maxSampleRateHz,
     dataRef,
@@ -192,8 +193,8 @@ export const FrequencyValidationIntegrationTest: React.FC = () => {
       {_deviceState && (
         <div data-testid="device-info">
           Device State: {_deviceState}
-          {dataRef?.current?.deviceInfo && (
-            <div data-testid="device-name">{dataRef.current.deviceInfo}</div>
+          {deviceInfo && (
+            <div data-testid="device-name">{deviceInfo}</div>
           )}
         </div>
       )}
@@ -342,10 +343,10 @@ export const FrequencyValidationIntegrationTest: React.FC = () => {
       )}
 
       {/* Backend Frequency Validation Report */}
-      {captureStatus?.status === "done" && dataRef?.current?.captureMetadata?.frequencies && (
+      {captureStatus?.status === "done" && (dataRef?.current as any)?.captureMetadata?.frequencies && (
         <div data-testid="frequency-validation">
           <h4>Backend Validation Report:</h4>
-          {dataRef.current.captureMetadata.frequencies.map((freq: any, i: number) => (
+          {(dataRef.current as any).captureMetadata.frequencies.map((freq: any, i: number) => (
             <div key={i}>
               <p>Requested: {(freq.min / 1000000).toFixed(2)} - {(freq.max / 1000000).toFixed(2)}</p>
               <p>Actual: {(freq.actualMin / 1000000).toFixed(5)} - {(freq.actualMax / 1000000).toFixed(5)}</p>
