@@ -135,6 +135,7 @@ const VisibleWindow = styled.div<{
   box-sizing: border-box;
   min-width: min-content;
   overflow: visible;
+  will-change: transform, width;
   transition:
     background-color 0.3s ease,
     border-color 0.3s ease;
@@ -560,7 +561,7 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
             $readOnly={readOnly}
             $isScanning={isScanning}
             style={{
-              left: `${thumbLeftPx}px`,
+              transform: `translate3d(${thumbLeftPx}px, 0, 0)`,
               width: `max(${widthPercent}%, ${minContentThumbWidth}px)`,
             }}
             onMouseDown={handleMouseDown}

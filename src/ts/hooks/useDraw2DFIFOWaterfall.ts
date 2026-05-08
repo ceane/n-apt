@@ -174,7 +174,7 @@ export function useDraw2DFIFOWaterfall() {
         if (fftFrame && fftFrame.length > 0) {
           // Convert spectrum to amplitude (0-1 range)
           const amplitudes = spectrumToAmplitude(
-            Array.isArray(fftFrame) ? fftFrame : Array.from(fftFrame),
+            fftFrame,
             waterfallMin,
             waterfallMax,
           );
@@ -234,7 +234,10 @@ export function useDraw2DFIFOWaterfall() {
         const expectedSize = waterfallWidth * waterfallHeight * 4;
         if (waterfallBuffer.length >= expectedSize) {
           try {
-            const imageData = new ImageData(waterfallWidth, waterfallHeight);
+            const imageData = ctx.createImageData(
+              waterfallWidth,
+              waterfallHeight,
+            );
             imageData.data.set(waterfallBuffer.subarray(0, expectedSize));
             ctx.putImageData(imageData, marginX, marginY);
           } catch (e) {

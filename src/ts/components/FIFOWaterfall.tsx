@@ -22,7 +22,10 @@ interface FIFOWaterfallProps {
   retuneSmear: number;
   isPaused: boolean;
   isVisible: boolean;
-  performScalarResampling: (data: number[], targetLength: number) => number[];
+  performScalarResampling: (
+    data: ArrayLike<number>,
+    targetLength: number,
+  ) => number[];
   spectrumToAmplitude: (
     data: number[],
     historyLimit: number,
@@ -125,7 +128,7 @@ const drawWaterfall = ({
   if (waterfallBuffer.length < expectedSize) {
     return;
   }
-  const imageData = new ImageData(width, height);
+  const imageData = ctx.createImageData(width, height);
   imageData.data.set(waterfallBuffer.subarray(0, expectedSize));
   ctx.putImageData(imageData, 0, 0);
 };
@@ -204,10 +207,7 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
       const renderWaveform = waveform ?? lastWaveformRef.current;
       if (!isPaused && renderWaveform) {
         // Add new frame when not paused
-        const resampled = performScalarResampling(
-          Array.from(renderWaveform),
-          width,
-        );
+        const resampled = performScalarResampling(renderWaveform as any, width);
         const normalizedData = spectrumToAmplitude(
           resampled,
           WATERFALL_HISTORY_LIMIT,

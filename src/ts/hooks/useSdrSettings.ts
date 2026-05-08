@@ -126,6 +126,34 @@ const getBestLogicalFftSizeForFrameRate = (
   return bestSize;
 };
 
+const hasPersistedSpectrumSettings = (): boolean => {
+  if (typeof window === "undefined") return false;
+
+  const storageKeys = ["napt-sdr-settings-v2", "napt-sdr-settings"];
+
+  for (const storage of [window.localStorage, window.sessionStorage]) {
+    for (const key of storageKeys) {
+      try {
+        const raw = storage.getItem(key);
+        if (!raw) continue;
+
+        const parsed = JSON.parse(raw) as { fftSize?: unknown };
+        if (
+          typeof parsed.fftSize === "number" &&
+          Number.isFinite(parsed.fftSize) &&
+          parsed.fftSize > 0
+        ) {
+          return true;
+        }
+      } catch {
+        // Ignore invalid cache entries and continue checking other stores.
+      }
+    }
+  }
+
+  return false;
+};
+
 export const deriveStateFromConfig = (
   maxSampleRate: number,
   sdrSettings?: SdrSettingsConfig | null,
@@ -176,6 +204,7 @@ export const useSdrSettings = ({
   const stateRef = useRef(state);
   const onSettingsChangeRef = useRef(onSettingsChange);
   const appliedConfigSignatureRef = useRef<string | null>(null);
+  const hasPersistedSettingsRef = useRef(hasPersistedSpectrumSettings());
 
   useEffect(() => {
     stateRef.current = state;
@@ -369,6 +398,12 @@ export const useSdrSettings = ({
     }
 
     appliedConfigSignatureRef.current = configSignature;
+
+    // If the user already has persisted spectrum settings for this session,
+    // do not reapply backend defaults and clobber their chosen FFT size.
+    if (hasPersistedSettingsRef.current) {
+      return;
+    }
 
     if (sdrSettings?.fft?.default_size) {
       setFftSize(sdrSettings.fft.default_size);

@@ -64,6 +64,7 @@ export interface WasmSimdMathHandle {
     offsetDb: number,
     fftSize?: number,
     windowType?: string,
+    output?: Float32Array,
   ) => Float32Array;
   shiftWaterfallBuffer: (
     buffer: Uint8ClampedArray,
@@ -256,6 +257,17 @@ export function computeIqToDbSpectrumScalar(
   return shifted;
 }
 
+const writeSpectrumOutput = (
+  source: Float32Array,
+  output?: Float32Array,
+) => {
+  if (output && output.length === source.length) {
+    output.set(source);
+    return output;
+  }
+  return new Float32Array(source);
+};
+
 export function useWasmSimdMath(
   options: SpectrumMathOptions,
 ): WasmSimdMathHandle {
@@ -311,7 +323,7 @@ export function useWasmSimdMath(
     return () => {
       isMountedRef.current = false;
     };
-  }, [fftSize, enableSimd, fallbackToScalar]);
+  }, [enableSimd, fallbackToScalar]);
 
   // WASM SIMD operations
   const resampleSpectrum = useCallback(
@@ -427,8 +439,18 @@ export function useWasmSimdMath(
       offsetDb: number,
       overrideFftSize?: number,
       windowType?: string,
+      output?: Float32Array,
     ) => {
-      if (renderingProcessorRef.current && isSimdAvailable) {
+      const requestedFftSize = overrideFftSize ?? fftSize;
+
+      // The current WASM SIMD processor is compiled around a fixed FFT width.
+      // When the UI asks for a different size, fall back to the scalar path so
+      // the rendered spectrum actually matches the requested FFT size.
+      if (
+        renderingProcessorRef.current &&
+        isSimdAvailable &&
+        requestedFftSize === fftSize
+      ) {
         try {
           const processor = renderingProcessorRef.current as {
             process_iq_to_dbm_spectrum?: (
@@ -437,9 +459,10 @@ export function useWasmSimdMath(
             ) => Float32Array | Float32Array;
           };
           if (typeof processor.process_iq_to_dbm_spectrum === "function") {
-            return new Float32Array(
-              processor.process_iq_to_dbm_spectrum(input, offsetDb),
-            );
+            const result = processor.process_iq_to_dbm_spectrum(input, offsetDb);
+            const typedResult =
+              result instanceof Float32Array ? result : new Float32Array(result);
+            return writeSpectrumOutput(typedResult, output);
           }
         } catch (error) {
           console.warn(
@@ -449,11 +472,12 @@ export function useWasmSimdMath(
         }
       }
 
-      return computeIqToDbSpectrumScalar(input, {
-        fftSize: overrideFftSize ?? fftSize,
+      const computed = computeIqToDbSpectrumScalar(input, {
+        fftSize: requestedFftSize,
         offsetDb,
         windowType,
       });
+      return writeSpectrumOutput(computed, output);
     },
     [fftSize, isSimdAvailable],
   );

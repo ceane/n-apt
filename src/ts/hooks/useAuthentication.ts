@@ -86,7 +86,6 @@ function authReducer(
     case "AUTHENTICATING":
       return { ...state, authState: "authenticating", authError: null };
     case "AUTH_SUCCESS":
-      console.log("[useAuthentication] AUTH_SUCCESS: Key derived/imported successfully.");
       return {
         ...state,
         sessionToken: action.sessionToken,

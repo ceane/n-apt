@@ -4,9 +4,6 @@
 
 import { parseFrequency } from "../utils/frequency";
 import { base64ToBytes } from "../crypto/webcrypto";
-import { PBKDF2_SALT_VAL } from "../consts/env";
-
-console.log("[fileWorker] Worker initialized. PBKDF2_SALT_VAL:", PBKDF2_SALT_VAL);
 
 let currentFftSize = 8192;
 
@@ -581,7 +578,6 @@ self.onmessage = async function (e) {
           }
 
           const metaObj = JSON.parse(jsonStr);
-          console.log(`[fileWorker] Raw Metadata for ${fileName}:`, JSON.stringify(metaObj));
           const metadata = metaObj.metadata || metaObj;
           const isEncrypted = metadata.encrypted === true || metadata.encrypted === "true" || metaObj.encrypted === true;
 
@@ -661,7 +657,6 @@ self.onmessage = async function (e) {
 
         if (rawAesKey) {
           try {
-            console.log("[fileWorker] Importing AES key for stitchFiles, length:", rawAesKey.byteLength);
             aesKey = await crypto.subtle.importKey(
               "raw",
               rawAesKey,
@@ -762,7 +757,6 @@ self.onmessage = async function (e) {
               if (!naptJsonStr) throw new Error(`Could not parse NAPT header for ${file.fileName}`);
 
               const metaObj = JSON.parse(naptJsonStr);
-              console.log(`[fileWorker] Raw Metadata during stitch for ${file.fileName}:`, JSON.stringify(metaObj));
               metadata = metaObj.metadata || metaObj;
               const isEncrypted = !!(
                 (metadata && (metadata.encrypted === true || (metadata.encrypted as unknown as string) === "true")) ||

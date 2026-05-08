@@ -715,9 +715,11 @@ const createWebSocketMiddleware =
         const { type, data }: { type: string; data: any } = action.payload;
 
         // Track intended FFT size to prevent clobbering from status broadcasts
-        if (type === "settings" && data.fft_size) {
+        const requestedFftSize =
+          data?.fft_size ?? data?.fftSize ?? data?.fft_size_hz;
+        if (type === "settings" && requestedFftSize) {
           lastSettingsRequest = {
-            fft_size: data.fft_size,
+            fft_size: requestedFftSize,
             timestamp: Date.now(),
           };
         }

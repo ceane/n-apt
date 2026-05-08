@@ -527,6 +527,7 @@ const FFTCanvas = memo(
     const effectivePowerScale = powerScale ?? "dB";
     const baseDbMin = Number.isFinite(fftMin) ? (fftMin as number) : FFT_MIN_DB;
     const baseDbMax = Number.isFinite(fftMax) ? (fftMax as number) : FFT_MAX_DB;
+    const effectiveFftSize = fftSize ?? 32768;
     const validatedDbRange = useMemo(
       () => ensureValidDbRange(baseDbMin, baseDbMax, effectivePowerScale),
       [baseDbMin, baseDbMax, effectivePowerScale],
@@ -602,6 +603,9 @@ const FFTCanvas = memo(
     ]);
     const fftProcessedBufferRef = useRef<Float32Array | null>(null);
     const spikePersistenceRef = useRef<Float32Array | null>(null);
+    const spectrumOutputBufferRef = useRef<Float32Array | null>(null);
+    const autoFftResizeTimeoutRef = useRef<number | null>(null);
+    const pendingFftSizeChangeRef = useRef(false);
 
     const setVizZoom = useCallback(
       (val: number | ((prev: number) => number)) => {
@@ -627,6 +631,7 @@ const FFTCanvas = memo(
     const vizDbMinRef = useRef(vizDbMin);
     const vizPanOffsetRef = useRef(vizPanOffset);
     const previousPowerScaleRef = useRef(effectivePowerScale);
+    const previousFftSizeRef = useRef(effectiveFftSize);
     const lastEmittedDbLimitsRef = useRef<{ min: number; max: number } | null>(
       null,
     );
@@ -763,7 +768,6 @@ const FFTCanvas = memo(
       gpuBufferPoolRef,
     });
     const spectrumWebgpuEnabled = webgpuEnabled;
-    const effectiveFftSize = fftSize ?? 32768;
     const activeScaleDbMin = vizDbMin;
     const activeScaleDbMax = vizDbMax;
     const gpuProcessingDevice = webgpuDeviceRef.current;
@@ -808,6 +812,11 @@ const FFTCanvas = memo(
     // Calculates CSS width × DPR for accurate pixel coverage. Debounced at 500ms.
     useEffect(() => {
       if (sendGetAutoFftOptions && !autoFftOptions) {
+        if (autoFftResizeTimeoutRef.current !== null) {
+          window.clearTimeout(autoFftResizeTimeoutRef.current);
+          autoFftResizeTimeoutRef.current = null;
+        }
+
         const detectScreenWidth = () => {
           const cssWidth =
             window.innerWidth ||
@@ -819,18 +828,29 @@ const FFTCanvas = memo(
 
         detectScreenWidth();
 
-        let resizeTimeout: NodeJS.Timeout;
         const handleResize = () => {
-          clearTimeout(resizeTimeout);
-          resizeTimeout = setTimeout(detectScreenWidth, 500);
+          if (autoFftResizeTimeoutRef.current !== null) {
+            window.clearTimeout(autoFftResizeTimeoutRef.current);
+          }
+          autoFftResizeTimeoutRef.current = window.setTimeout(
+            detectScreenWidth,
+            500,
+          );
         };
 
         window.addEventListener("resize", handleResize);
 
         return () => {
           window.removeEventListener("resize", handleResize);
-          clearTimeout(resizeTimeout);
+          if (autoFftResizeTimeoutRef.current !== null) {
+            window.clearTimeout(autoFftResizeTimeoutRef.current);
+            autoFftResizeTimeoutRef.current = null;
+          }
         };
+      }
+      if (autoFftResizeTimeoutRef.current !== null) {
+        window.clearTimeout(autoFftResizeTimeoutRef.current);
+        autoFftResizeTimeoutRef.current = null;
       }
     }, [sendGetAutoFftOptions, autoFftOptions]);
 
@@ -884,9 +904,16 @@ const FFTCanvas = memo(
           isDbm ? 30.0 : 0.0,
           effectiveFftSize,
           fftWindow,
+          spectrumOutputBufferRef.current ?? undefined,
         );
         if (restored.length > 0) {
-          renderWaveformRef.current = new Float32Array(restored);
+          spectrumOutputBufferRef.current = restored;
+          const prev = renderWaveformRef.current;
+          if (!prev || prev.length !== restored.length) {
+            renderWaveformRef.current = new Float32Array(restored);
+          } else {
+            prev.set(restored);
+          }
           return;
         }
       }
@@ -1000,19 +1027,23 @@ const FFTCanvas = memo(
             offsetDb,
             effectiveFftSize,
             fftWindow,
+            spectrumOutputBufferRef.current ?? undefined,
           );
-          const cpuSpectrum = new Float32Array(rawSpectrum.length);
-
+          spectrumOutputBufferRef.current = rawSpectrum;
           const minClamp = activeScaleDbMin;
           const maxClamp = activeScaleDbMax;
 
           for (let i = 0; i < rawSpectrum.length; i++) {
-            cpuSpectrum[i] = Math.min(
-              maxClamp,
-              Math.max(minClamp, rawSpectrum[i]),
-            );
+            rawSpectrum[i] = Math.min(maxClamp, Math.max(minClamp, rawSpectrum[i]));
           }
-          waveform = cpuSpectrum;
+          const prev = renderWaveformRef.current;
+          if (!prev || prev.length !== rawSpectrum.length) {
+            renderWaveformRef.current = new Float32Array(rawSpectrum);
+          } else {
+            prev.set(rawSpectrum);
+          }
+          waveform = renderWaveformRef.current!;
+          pendingFftSizeChangeRef.current = false;
 
           // Validate waveform before processing
           if (waveform && waveform.length > 0) {
@@ -1149,6 +1180,7 @@ const FFTCanvas = memo(
             isDbmMode ? 30.0 : 0.0,
             effectiveFftSize,
             fftWindow,
+            spectrumOutputBufferRef.current ?? undefined,
           );
 
           // Validate waveform before processing
@@ -1156,6 +1188,7 @@ const FFTCanvas = memo(
             return;
           }
 
+          spectrumOutputBufferRef.current = processedWaveform;
           waveformFloatRef.current = processedWaveform;
           lastProcessedDataRef.current = currentData;
           lastRenderedPowerScaleRef.current = powerScale;
@@ -1167,6 +1200,7 @@ const FFTCanvas = memo(
             prev.fill(0);
             prev.set(processedWaveform);
           }
+          pendingFftSizeChangeRef.current = false;
         }
 
         const waveform = renderWaveformRef.current;
@@ -1980,6 +2014,18 @@ const FFTCanvas = memo(
         forceRender();
       }
     }, [effectivePowerScale, isPaused, forceRender]);
+
+    // Effect: When FFT size changes, drop the cached processed frame so the
+    // next render recomputes at the newly selected resolution.
+    useEffect(() => {
+      if (previousFftSizeRef.current === effectiveFftSize) {
+        return;
+      }
+
+      previousFftSizeRef.current = effectiveFftSize;
+      lastProcessedDataRef.current = null;
+      pendingFftSizeChangeRef.current = true;
+    }, [effectiveFftSize, isPaused, forceRender]);
 
     const buildSnapshotData = useCallback((): SnapshotData | null => {
       const waveform = renderWaveformRef.current;

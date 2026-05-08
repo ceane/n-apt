@@ -1279,7 +1279,18 @@ export const SpectrumProvider: React.FC<SpectrumProviderProps> = memo(
       );
       storeDispatch({
         type: "SET_SDR_SETTINGS_BUNDLE",
-        settings: derived,
+        settings: {
+          ...derived,
+          fftSize:
+            typeof mergedState.fftSize === "number" && mergedState.fftSize > 0
+              ? mergedState.fftSize
+              : derived.fftSize,
+          fftFrameRate:
+            typeof mergedState.fftFrameRate === "number" &&
+            mergedState.fftFrameRate > 0
+              ? mergedState.fftFrameRate
+              : derived.fftFrameRate,
+        },
       });
     }, [sdrSettings, sampleRateHzEffective, storeDispatch]);
 
