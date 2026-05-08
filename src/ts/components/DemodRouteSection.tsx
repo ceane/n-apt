@@ -212,16 +212,10 @@ const CustomNode = React.memo(
   ({
     data,
     id,
-    frequencyRange,
   }: {
     data: any;
     id: string;
-    frequencyRange: { min: number; max: number } | null;
   }) => {
-    const inheritedFrequencyRange = React.useContext(
-      VisibleFrequencyRangeContext,
-    );
-    const effectiveFrequencyRange = frequencyRange ?? inheritedFrequencyRange;
     let content: React.ReactNode;
 
     if (data.sourceNode) content = <SourceNode data={data} />;
@@ -245,10 +239,6 @@ const CustomNode = React.memo(
     else if (data.fmOptions) content = <FmNode data={data} />;
     else if (data.fileOptions) content = <FileOptionsNode data={data} />;
     else if (data.outputNode) content = <OutputNode data={data} />;
-    else if (data.symbolOptions)
-      content = <SymbolsTable frequencyRange={effectiveFrequencyRange} />;
-    else if (data.bitstreamOptions)
-      content = <BitstreamViewer frequencyRange={effectiveFrequencyRange} />;
     else {
       content = (
         <div className="node-container">
@@ -286,10 +276,74 @@ const CustomNode = React.memo(
   },
 );
 
+const FrequencyAwareNode = React.memo(
+  ({ data, id }: { data: any; id: string }) => {
+    const frequencyRange = React.useContext(VisibleFrequencyRangeContext);
+
+    if (data.symbolOptions) {
+      return (
+        <NodeContainer data-nodeid={id}>
+          <Handle
+            type="target"
+            position={Position.Top}
+            style={{
+              background: "#666",
+              border: "1px solid #999",
+              width: "8px",
+              height: "8px",
+            }}
+          />
+          <SymbolsTable frequencyRange={frequencyRange} />
+          <Handle
+            type="source"
+            position={Position.Bottom}
+            style={{
+              background: "#666",
+              border: "1px solid #999",
+              width: "8px",
+              height: "8px",
+            }}
+          />
+        </NodeContainer>
+      );
+    }
+
+    return (
+      <NodeContainer data-nodeid={id}>
+        <Handle
+          type="target"
+          position={Position.Top}
+          style={{
+            background: "#666",
+            border: "1px solid #999",
+            width: "8px",
+            height: "8px",
+          }}
+        />
+        <BitstreamViewer frequencyRange={frequencyRange} />
+        <Handle
+          type="source"
+          position={Position.Bottom}
+          style={{
+            background: "#666",
+            border: "1px solid #999",
+            width: "8px",
+            height: "8px",
+          }}
+        />
+      </NodeContainer>
+    );
+  },
+);
+
 const NODE_TYPES = {
-  custom: (nodeProps: { data: any; id: string }) => (
-    <CustomNode {...nodeProps} frequencyRange={null} />
-  ),
+  custom: (nodeProps: { data: any; id: string }) => {
+    if (nodeProps.data?.symbolOptions || nodeProps.data?.bitstreamOptions) {
+      return <FrequencyAwareNode {...nodeProps} />;
+    }
+
+    return <CustomNode {...nodeProps} />;
+  },
 };
 
 // Inner component that uses React Flow hooks
@@ -318,6 +372,7 @@ const DemodRouteSectionInner: React.FC = () => {
   const lastMeasuredSizesRef = useRef<Map<string, { w: number; h: number }>>(
     new Map(),
   );
+  const onKeyDownRef = useRef<(event: KeyboardEvent) => void>(() => {});
   const elkRef = useRef<any>(null);
   const layoutRunIdRef = useRef(0);
   const shouldFitAfterLayoutRef = useRef(true);
@@ -506,7 +561,7 @@ const DemodRouteSectionInner: React.FC = () => {
                 "stimulus",
                 "output",
               ];
-        const sortedNodes = [...nodesRef.current].sort((a, b) => {
+        const sortedNodes = nodesRef.current.toSorted((a, b) => {
           return layoutOrder.indexOf(a.id) - layoutOrder.indexOf(b.id);
         });
 
@@ -626,6 +681,8 @@ const DemodRouteSectionInner: React.FC = () => {
     },
     [fitView, setNodesLocal, sourceMode],
   );
+
+  const nodeTypes = useMemo(() => NODE_TYPES, []);
 
   const scheduleMeasureAndLayout = useCallback(
     (force: boolean = false) => {
@@ -831,13 +888,18 @@ const DemodRouteSectionInner: React.FC = () => {
     [deleteElements],
   );
 
+  useEffect(() => {
+    onKeyDownRef.current = onKeyDown;
+  }, [onKeyDown]);
+
   // Add keyboard event listener
   useEffect(() => {
-    window.addEventListener("keydown", onKeyDown);
+    const handleKeyDown = (event: KeyboardEvent) => onKeyDownRef.current(event);
+    window.addEventListener("keydown", handleKeyDown);
     return () => {
-      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [onKeyDown]);
+  }, []);
 
   return (
     <FlowContainer
@@ -858,7 +920,7 @@ const DemodRouteSectionInner: React.FC = () => {
           onConnect={onConnect}
           onNodeContextMenu={onNodeContextMenu}
           onPaneClick={onPaneClick}
-          nodeTypes={NODE_TYPES}
+          nodeTypes={nodeTypes}
           connectionMode={ConnectionMode.Loose}
           attributionPosition="bottom-left"
           panOnDrag={true}

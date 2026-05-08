@@ -173,13 +173,6 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
 
       if (isInputFocused) return;
 
-      if (event.code === "Space" && state.sourceMode === "live") {
-        event.preventDefault();
-        event.stopPropagation();
-        toggleVisualizerPause();
-        return;
-      }
-
       // Handle ArrowLeft/ArrowRight to move frequency by 33kHz
       if (
         (event.code === "ArrowLeft" || event.code === "ArrowRight") &&
