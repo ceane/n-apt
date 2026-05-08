@@ -122,7 +122,18 @@ const CanvasWrapper = memo(styled.div`
   border-radius: 8px;
   overflow: hidden;
   background-color: ${(props) => props.theme.background};
+
+  &.cursor-grab {
+    cursor: grab !important;
+  }
+  &.cursor-grabbing {
+    cursor: grabbing !important;
+  }
+  &.cursor-crosshair {
+    cursor: crosshair !important;
+  }
 `);
+
 
 const SpectrumRow = memo(styled.div`
   display: flex;

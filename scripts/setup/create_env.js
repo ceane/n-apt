@@ -63,8 +63,8 @@ const envConfig = {
 
   // PBKDF2 Salts for cryptographic operations
   // If not set, the application uses a default hard-coded salt (not recommended for production)
-  'NAPT_PBKDF2_SALT': 'napt_default_salt_change_this_in_production',
-  'VITE_PBKDF2_SALT': 'napt_default_salt_change_this_in_production',
+  'NAPT_PBKDF2_SALT': 'n-apt-aes-salt-v1',
+  'VITE_PBKDF2_SALT': 'n-apt-aes-salt-v1',
 
   // Rust logging
   'RUST_LOG': 'info'

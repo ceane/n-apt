@@ -27,4 +27,13 @@ describe("env constants", () => {
 
     expect(PBKDF2_SALT_VAL).toBe("n-apt-aes-salt-v1");
   });
+
+  it("falls back to NAPT_PBKDF2_SALT when VITE_PBKDF2_SALT is absent", async () => {
+    process.env.NAPT_PBKDF2_SALT = "shared-salt";
+    delete process.env.VITE_PBKDF2_SALT;
+
+    const { PBKDF2_SALT_VAL } = await import("../../src/ts/consts/env");
+
+    expect(PBKDF2_SALT_VAL).toBe("shared-salt");
+  });
 });

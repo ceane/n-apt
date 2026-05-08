@@ -51,6 +51,12 @@ export function useFrequencyDrag({
   const boxStartRef = useRef({ x: 0, y: 0 });
   const boxCurrentRef = useRef({ x: 0, y: 0 });
   const selectionBoxRef = useRef<HTMLDivElement | null>(null);
+  
+  // Refs for multi-touch pinch-to-zoom
+  const activePointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const initialPinchDistRef = useRef<number | null>(null);
+  const initialPinchZoomRef = useRef<number>(1);
+  const initialPinchPanRef = useRef<number>(0);
 
   const containerRefCacheRef = useRef<HTMLElement | null>(null);
   const containerRectRef = useRef<DOMRect | null>(null);
@@ -86,6 +92,30 @@ export function useFrequencyDrag({
       if (!rect) {
         rect = container.getBoundingClientRect();
         containerRectRef.current = rect;
+      }
+
+      if (activePointersRef.current.has(e.pointerId)) {
+        activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      }
+
+      // Handle multi-touch pinch-to-zoom (mobile)
+      if (activePointersRef.current.size === 2 && initialPinchDistRef.current && onVizZoomChange) {
+        const pointers = Array.from(activePointersRef.current.values());
+        const p1 = pointers[0];
+        const p2 = pointers[1];
+        
+        const currentDist = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+        const zoomScale = currentDist / initialPinchDistRef.current;
+        let newZoom = initialPinchZoomRef.current * zoomScale;
+        newZoom = Math.max(1, Math.min(1000, newZoom));
+        
+        if (newZoom !== vizZoomRef?.current) {
+          onVizZoomChange(newZoom);
+          
+          // Optionally add panning logic here to make it "stick" to the fingers,
+          // but just zooming is already a huge improvement for mobile.
+        }
+        return;
       }
 
       if (isBoxDraggingRef.current) {
@@ -265,10 +295,33 @@ export function useFrequencyDrag({
       const container = getContainer();
       if (!container) return;
 
+      // Track all pointers for multi-touch
+      activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+      if (activePointersRef.current.size === 2) {
+        // Start multi-touch pinch
+        const pointers = Array.from(activePointersRef.current.values());
+        const p1 = pointers[0];
+        const p2 = pointers[1];
+        initialPinchDistRef.current = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+        initialPinchZoomRef.current = vizZoomRef?.current || 1;
+        initialPinchPanRef.current = vizPanOffsetRef?.current || 0;
+        
+        // Cancel single-touch interactions
+        isDraggingRef.current = false;
+        isBoxDraggingRef.current = false;
+        if (selectionBoxRef.current) {
+          selectionBoxRef.current.remove();
+          selectionBoxRef.current = null;
+        }
+        container.setPointerCapture(e.pointerId);
+        return;
+      }
+
       const rect = container.getBoundingClientRect();
       const height = rect.height;
       const y = e.clientY - rect.top;
-      const vfoThreshold = 80;
+      const vfoThreshold = 60;
 
       // Bottom area is the VFO area
       if (y >= height - vfoThreshold) {
@@ -277,7 +330,8 @@ export function useFrequencyDrag({
         dragStartFreqRef.current = frequencyRangeRef.current.min;
         dragStartPanRef.current = vizPanOffsetRef?.current || 0;
         dragStartRangeRef.current = { ...frequencyRangeRef.current };
-        container.style.cursor = "grabbing";
+        container.classList.add("cursor-grabbing");
+        container.classList.remove("cursor-grab");
         container.setPointerCapture(e.pointerId);
       } else {
         // Upper area is for box zooming
@@ -290,6 +344,11 @@ export function useFrequencyDrag({
 
     const handlePointerUp = (e: PointerEvent) => {
       const container = getContainer();
+
+      activePointersRef.current.delete(e.pointerId);
+      if (activePointersRef.current.size < 2) {
+        initialPinchDistRef.current = null;
+      }
 
       if (isBoxDraggingRef.current && container) {
         isBoxDraggingRef.current = false;
@@ -441,40 +500,180 @@ export function useFrequencyDrag({
           selectionBoxRef.current = null;
         }
       }
-
       if (isDraggingRef.current && container) {
         container.releasePointerCapture(e.pointerId);
-        // After drag, update cursor based on current position
         const rect = container.getBoundingClientRect();
         const y = e.clientY - rect.top;
-        const vfoThreshold = 80;
-        container.style.cursor =
-          y >= rect.height - vfoThreshold ? "grab" : "crosshair";
+        const vfoThreshold = 60;
+        if (y >= rect.height - vfoThreshold) {
+          container.classList.add("cursor-grab");
+          container.classList.remove("cursor-crosshair");
+        } else {
+          container.classList.add("cursor-crosshair");
+          container.classList.remove("cursor-grab");
+        }
+        container.classList.remove("cursor-grabbing");
       }
       isDraggingRef.current = false;
     };
 
-    // Show grab cursor only in the bottom VFO area, crosshair in upper area
     const handlePointerMoveForCursor = (e: PointerEvent) => {
       const container = getContainer();
       if (!container || isDraggingRef.current) return;
 
-      const rect = container.getBoundingClientRect();
+      const rect = containerRectRef.current || container.getBoundingClientRect();
       const y = e.clientY - rect.top;
-      const vfoThreshold = 80; // Increased from 60 for better hit area
+      const vfoThreshold = 60;
 
       const isOverVfo = y >= rect.height - vfoThreshold;
-      const nextCursor = isOverVfo ? "grab" : "crosshair";
+      
+      if (isOverVfo) {
+        if (!container.classList.contains("cursor-grab")) {
+          container.classList.add("cursor-grab");
+          container.classList.remove("cursor-crosshair");
+        }
+      } else {
+        if (!container.classList.contains("cursor-crosshair")) {
+          container.classList.add("cursor-crosshair");
+          container.classList.remove("cursor-grab");
+        }
+      }
+    };
 
-      if (container.style.cursor !== nextCursor) {
-        container.style.cursor = nextCursor;
+    const handleWheel = (e: WheelEvent) => {
+      const container = getContainer();
+      if (!container) return;
+
+      const rect =
+        containerRectRef.current || container.getBoundingClientRect();
+      const y = e.clientY - rect.top;
+      const vfoThreshold = 60;
+
+      // 1. Handle Pinch-to-Zoom (ctrlKey is true on trackpad pinches)
+      if (e.ctrlKey) {
+        e.preventDefault();
+        if (!onVizZoomChange || !vizZoomRef) return;
+
+        const zoom = vizZoomRef.current;
+        // Use an exponential scale for a smoother, "premium" feel.
+        // deltaY is negative for zooming in, positive for zooming out.
+        // Sensitivity 0.003 provides a "stronger" response than the previous linear 1.05 factor.
+        const sensitivity = 0.003;
+        let newZoom = zoom * Math.exp(-e.deltaY * sensitivity);
+
+        newZoom = Math.max(1, Math.min(1000, newZoom));
+
+        if (Math.abs(newZoom - zoom) > 0.001) {
+          // Zoom relative to mouse position
+          const canvas = getActiveSpectrumCanvas();
+          if (canvas) {
+            const canvasRect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - canvasRect.left;
+            const width = canvasRect.width;
+
+            const fullRange =
+              frequencyRangeRef.current.max - frequencyRangeRef.current.min;
+            const currentVisualRange = fullRange / zoom;
+            const currentPan = vizPanOffsetRef?.current || 0;
+            const centerFreq =
+              (frequencyRangeRef.current.min + frequencyRangeRef.current.max) /
+              2;
+            const visualMin =
+              centerFreq + currentPan - currentVisualRange / 2;
+
+            // Frequency currently under the mouse
+            const freqAtMouse =
+              visualMin + (mouseX / width) * currentVisualRange;
+
+            // Update zoom
+            onVizZoomChange(newZoom);
+
+            // Adjust pan so freqAtMouse stays under the same relative mouseX
+            if (onVizPanChange) {
+              const newVisualRange = fullRange / newZoom;
+              const newVisualMin =
+                freqAtMouse - (mouseX / width) * newVisualRange;
+              let newPan = newVisualMin + newVisualRange / 2 - centerFreq;
+
+              const maxPan = fullRange / 2 - newVisualRange / 2;
+              newPan = Math.max(-maxPan, Math.min(maxPan, newPan));
+              onVizPanChange(newPan);
+            }
+          } else {
+            onVizZoomChange(newZoom);
+          }
+        }
+        return;
+      }
+
+      if (y >= rect.height - vfoThreshold) {
+        // Move laterally on scroll
+        e.preventDefault();
+
+        // Use deltaY for vertical scroll wheels to move laterally
+        // Use deltaX for horizontal scroll wheels/gestures
+        const delta =
+          Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+
+        const canvas = getActiveSpectrumCanvas();
+        if (!canvas) return;
+        const width = canvas.getBoundingClientRect().width || 1;
+
+        const zoom = vizZoomRef?.current || 1;
+        const fullRange =
+          frequencyRangeRef.current.max - frequencyRangeRef.current.min;
+        const visualRange = fullRange / zoom;
+
+        // Scroll sensitivity: roughly 1 pixel per unit of delta
+        const deltaPx = delta;
+        const freqChange = (deltaPx / width) * visualRange;
+
+        if (zoom > 1 && onVizPanChange && vizPanOffsetRef) {
+          // Visual panning mode (zoomed)
+          const currentPan = vizPanOffsetRef.current;
+          const maxPan = fullRange / 2 - visualRange / 2;
+
+          // Scrolling down/right (delta > 0) shows higher frequencies -> increase pan
+          let newPan = currentPan + freqChange;
+          newPan = Math.max(-maxPan, Math.min(maxPan, newPan));
+          onVizPanChange(newPan);
+        } else if (onFrequencyRangeChange) {
+          // Hardware retune mode
+          const currentRange = frequencyRangeRef.current;
+          const currentMin = currentRange.min;
+          const newMin = currentMin + freqChange;
+          const newMax = newMin + fullRange;
+
+          // Simple boundary check
+          const bounds =
+            signalAreaBounds?.[activeSignalArea] ||
+            signalAreaBounds?.[activeSignalArea.toLowerCase()];
+          if (bounds) {
+            if (newMin < bounds.min) {
+              onFrequencyRangeChange({
+                min: bounds.min,
+                max: bounds.min + fullRange,
+              });
+            } else if (newMax > bounds.max) {
+              onFrequencyRangeChange({
+                min: bounds.max - fullRange,
+                max: bounds.max,
+              });
+            } else {
+              onFrequencyRangeChange({ min: newMin, max: newMax });
+            }
+          } else {
+            onFrequencyRangeChange({ min: newMin, max: newMax });
+          }
+        }
       }
     };
 
     const handlePointerLeave = () => {
       const container = getContainer();
-      if (container && !isDraggingRef.current)
-        container.style.cursor = "default";
+      if (container && !isDraggingRef.current) {
+        container.classList.remove("cursor-grab", "cursor-crosshair", "cursor-grabbing");
+      }
     };
 
     const container = getContainer();
@@ -483,7 +682,11 @@ export function useFrequencyDrag({
     container.addEventListener("pointerdown", handlePointerDown);
     container.addEventListener("pointermove", handlePointerMoveForCursor);
     container.addEventListener("pointerleave", handlePointerLeave);
-    container.style.cursor = "crosshair";
+    container.addEventListener("wheel", handleWheel, { passive: false });
+    
+    if (!container.classList.contains("cursor-crosshair")) {
+      container.classList.add("cursor-crosshair");
+    }
 
     const resizeObserver = new ResizeObserver(updateContainerRect);
     resizeObserver.observe(container);
@@ -498,6 +701,7 @@ export function useFrequencyDrag({
       container.removeEventListener("pointerdown", handlePointerDown);
       container.removeEventListener("pointermove", handlePointerMoveForCursor);
       container.removeEventListener("pointerleave", handlePointerLeave);
+      container.removeEventListener("wheel", handleWheel);
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
     };
