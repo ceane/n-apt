@@ -84,8 +84,7 @@ pub struct SharedState {
 
 impl SharedState {
   pub fn new(redis_url: &str) -> Arc<Self> {
-    let passkey = std::env::var("UNSAFE_LOCAL_USER_PASSWORD")
-      .expect("Missing UNSAFE_LOCAL_USER_PASSWORD");
+    let passkey = unsafe_local_user_password();
     let encryption_key = crate::crypto::derive_key(&passkey);
     let sdr_settings = load_sdr_settings();
     let redis_client = redis::Client::open(redis_url)
@@ -258,5 +257,41 @@ impl SharedState {
       Some(s) => serde_json::from_str::<Vec<CaptureArtifact>>(&s).ok(),
       None => None,
     }
+  }
+}
+
+fn unsafe_local_user_password() -> String {
+  match std::env::var("UNSAFE_LOCAL_USER_PASSWORD") {
+    Ok(passkey) if !passkey.trim().is_empty() => passkey,
+    _ => panic!(
+      "UNSAFE_LOCAL_USER_PASSWORD missing. .env.local missing or incomplete; run npm run setup"
+    ),
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::unsafe_local_user_password;
+  use serial_test::serial;
+
+  #[test]
+  #[serial]
+  fn uses_configured_unsafe_local_user_password() {
+    std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "configured-password");
+
+    assert_eq!(unsafe_local_user_password(), "configured-password");
+
+    std::env::remove_var("UNSAFE_LOCAL_USER_PASSWORD");
+  }
+
+  #[test]
+  #[serial]
+  #[should_panic(
+    expected = "UNSAFE_LOCAL_USER_PASSWORD missing. .env.local missing or incomplete; run npm run setup"
+  )]
+  fn missing_unsafe_local_user_password_has_setup_error() {
+    std::env::remove_var("UNSAFE_LOCAL_USER_PASSWORD");
+
+    let _ = unsafe_local_user_password();
   }
 }

@@ -99,6 +99,21 @@ export async function fetchServerStatus(): Promise<any> {
   return res.json();
 }
 
+/** GET /logout — revoke the current session and clear site data. */
+export async function logoutSession(token?: string | null): Promise<void> {
+  const logoutUrl = token
+    ? `${API_BASE}/logout?token=${encodeURIComponent(token)}`
+    : `${API_BASE}/logout`;
+  const res = await fetch(logoutUrl, {
+    method: "GET",
+    credentials: "include",
+  });
+
+  if (!res.ok && res.status !== 303 && res.status !== 302) {
+    throw new Error(`logout failed: ${res.status}`);
+  }
+}
+
 /** POST /auth/session — validate an existing session token. */
 export async function validateSession(
   token: string,

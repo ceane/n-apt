@@ -1,5 +1,10 @@
 export type FailingServices = 'Vite' | 'Rust' | 'Redis' | 'WebAssembly';
 
+export interface BuildProcessLike {
+  status: 'pending' | 'running' | 'success' | 'error';
+  message?: string;
+}
+
 interface RuntimeSummaryStateArgs {
   hasErrors: boolean;
   hasCompilationErrors: boolean;
@@ -77,3 +82,12 @@ export const getRuntimeSummaryState = ({
     color: 'green'
   };
 };
+
+export const markPendingProcessesAfterFailure = <
+  T extends BuildProcessLike,
+>(processes: T[]): T[] =>
+  processes.map((process) =>
+    process.status === 'pending'
+      ? { ...process, status: 'error', message: 'skipped after failure' }
+      : process
+  );

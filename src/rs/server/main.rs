@@ -144,6 +144,10 @@ impl websocket_server::WebSocketServer {
         get(crate::authentication::auth_handlers::auth_logout_handler),
       )
       .route(
+        "/logout",
+        get(crate::authentication::auth_handlers::auth_logout_handler),
+      )
+      .route(
         "/auth/challenge",
         post(crate::authentication::auth_handlers::auth_challenge_handler),
       )

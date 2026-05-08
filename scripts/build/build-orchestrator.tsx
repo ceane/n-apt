@@ -1,4 +1,4 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { render } from 'ink';
 import { Box, Text, useApp, useInput } from 'ink';
@@ -12,8 +12,12 @@ import { fileURLToPath } from 'node:url';
 import {
   getRuntimeSummaryState,
   isRuntimeRecoverySignal,
+  markPendingProcessesAfterFailure,
   type FailingServices
 } from './buildStatus';
+
+dotenv.config({ path: '.env.local' });
+dotenv.config();
 
 const getFailingServices = (errorDetails: string[]): FailingServices[] => {
   const failing: FailingServices[] = [];
@@ -765,6 +769,14 @@ sleep 0.5
           ? 'echo Config validation not supported on Windows; skipping.'
           : `
 set -euo pipefail
+if [ ! -f ".env.local" ]; then
+  echo "Error: .env.local missing. Run npm run setup."
+  exit 1
+fi
+if ! grep -q '^UNSAFE_LOCAL_USER_PASSWORD=' ".env.local"; then
+  echo "Error: UNSAFE_LOCAL_USER_PASSWORD missing from .env.local. Run npm run setup."
+  exit 1
+fi
 echo "Checking Rust syntax..."
 cargo check --bin n-apt-backend --profile dev-fast 2>&1
 `,
@@ -927,7 +939,16 @@ exit 1
           updateProcessStatus(step.index, 'success', undefined, stepLabel);
         }
       } else {
-        updateProcessStatus(step.index, 'error', undefined, stepLabel);
+        setBuildState(prev => ({
+          ...prev,
+          processes: markPendingProcessesAfterFailure(
+            prev.processes.map((proc, index) =>
+              index === step.index
+                ? { ...proc, status: 'error', message: undefined, label: stepLabel }
+                : proc
+            )
+          ),
+        }));
         appendErrorDetail(`${step.description} failed`);
         break; // Stop the build if a step fails
       }
