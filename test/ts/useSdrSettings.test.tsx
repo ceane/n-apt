@@ -1,12 +1,17 @@
 import React from "react";
 import { MemoryRouter } from "react-router-dom";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
+import { Provider } from "react-redux";
+import { configureStore } from "@reduxjs/toolkit";
 import { useSdrSettings } from "@n-apt/hooks/useSdrSettings";
 import { SpectrumProvider } from "@n-apt/hooks/useSpectrumStore";
 import { AuthProvider } from "@n-apt/hooks/useAuthentication";
 import type { SdrSettingsConfig } from "@n-apt/hooks/useWebSocket";
 import type { SpectrumState } from "@n-apt/hooks/useSpectrumStore";
 import { TestWrapper } from "./testUtils";
+import spectrumSlice, {
+  setSdrSettingsBundle,
+} from "@n-apt/redux/slices/spectrumSlice";
 
 jest.mock("@n-apt/hooks/useAuthentication", () => ({
   AuthProvider: ({ children }: { children: React.ReactNode }) => children,
@@ -160,5 +165,53 @@ describe("useSdrSettings", () => {
     );
 
     expect(screen.getByTestId("fftSize")).toHaveTextContent("8192");
+  });
+
+  it("preserves persisted fft size instead of applying backend defaults on mount", async () => {
+    localStorage.setItem(
+      "napt-sdr-settings-v2",
+      JSON.stringify({
+        fftSize: 8192,
+      }),
+    );
+
+    const store = configureStore({
+      reducer: {
+        spectrum: spectrumSlice,
+      },
+    });
+
+    store.dispatch(
+      setSdrSettingsBundle({
+        fftSize: 8192,
+        fftWindow: "Rectangular",
+        fftFrameRate: 42,
+        gain: 49.6,
+        ppm: 2,
+        tunerAGC: false,
+        rtlAGC: true,
+      }),
+    );
+
+    render(
+      <Provider store={store}>
+        <HookHarness
+          sdrSettings={{
+            ...mockSdrSettings,
+            fft: {
+              ...mockSdrSettings.fft,
+              default_size: 16384,
+            },
+          }}
+        />
+      </Provider>,
+    );
+
+    await waitFor(() => {
+      expect(store.getState().spectrum.fftSize).toBe(8192);
+    });
+    expect(screen.getByTestId("fftSize")).toHaveTextContent("8192");
+
+    localStorage.removeItem("napt-sdr-settings-v2");
   });
 });

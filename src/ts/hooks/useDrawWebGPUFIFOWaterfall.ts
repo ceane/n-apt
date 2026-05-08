@@ -366,13 +366,29 @@ export function useDrawWebGPUFIFOWaterfall() {
           );
 
           if (prevTex && !widthChanged) {
-            // Re-map history to new vertical size if possible
+            // Repack the circular buffer by display age so the visible history
+            // stays in the same order after a height change.
             const enc = device.createCommandEncoder();
-            enc.copyTextureToTexture(
-              { texture: prevTex },
-              { texture: s.dataTex },
-              { width: s.texW, height: Math.min(prevH, needH) },
-            );
+            const prevRenderRow =
+              prevH > 0 ? (s.writeRow - 1 + prevH) % prevH : 0;
+            const nextRenderRow =
+              needH > 0 ? (s.writeRow - 1 + needH) % needH : 0;
+            for (let age = 0; age < needH; age++) {
+              const srcAge = Math.max(
+                0,
+                Math.min(prevH - 1, Math.floor((age * prevH) / needH)),
+              );
+              const srcY =
+                prevH > 0
+                  ? (prevRenderRow - srcAge + prevH) % prevH
+                  : 0;
+              const dstY = (nextRenderRow - age + needH) % needH;
+              enc.copyTextureToTexture(
+                { texture: prevTex, origin: { x: 0, y: srcY } },
+                { texture: s.dataTex, origin: { x: 0, y: dstY } },
+                { width: s.texW, height: 1 },
+              );
+            }
             device.queue.submit([enc.finish()]);
             s.writeRow = Math.min(s.writeRow, s.texH - 1);
           } else {

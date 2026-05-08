@@ -55,8 +55,13 @@ export function useFrequencyDrag({
   // Refs for multi-touch pinch-to-zoom
   const activePointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
   const initialPinchDistRef = useRef<number | null>(null);
+  const lastPinchDistRef = useRef<number | null>(null);
   const initialPinchZoomRef = useRef<number>(1);
   const initialPinchPanRef = useRef<number>(0);
+  const initialPinchCenterRef = useRef<{ x: number; y: number } | null>(null);
+  const PINCH_LOG_GAIN = 2.5;
+  const PINCH_LOG_SPREAD = 5;
+  const PINCH_VELOCITY_GAIN = 0.012;
 
   const containerRefCacheRef = useRef<HTMLElement | null>(null);
   const containerRectRef = useRef<DOMRect | null>(null);
@@ -75,6 +80,33 @@ export function useFrequencyDrag({
 
     const getActiveSpectrumCanvas = (): HTMLElement | null => {
       return spectrumGpuCanvasRef.current ?? getContainer();
+    };
+
+    const setPointerCaptureIfAvailable = (container: HTMLElement, pointerId: number) => {
+      if (typeof container.setPointerCapture === "function") {
+        container.setPointerCapture(pointerId);
+      }
+    };
+
+    const releasePointerCaptureIfAvailable = (
+      container: HTMLElement,
+      pointerId: number,
+    ) => {
+      if (typeof container.releasePointerCapture === "function") {
+        container.releasePointerCapture(pointerId);
+      }
+    };
+
+    const addClassIfAvailable = (container: HTMLElement, className: string) => {
+      if (container.classList && !container.classList.contains(className)) {
+        container.classList.add(className);
+      }
+    };
+
+    const removeClassIfAvailable = (container: HTMLElement, className: string) => {
+      if (container.classList) {
+        container.classList.remove(className);
+      }
     };
 
     const updateContainerRect = () => {
@@ -106,8 +138,21 @@ export function useFrequencyDrag({
         
         const currentDist = Math.hypot(p1.x - p2.x, p1.y - p2.y);
         const zoomScale = currentDist / initialPinchDistRef.current;
-        let newZoom = initialPinchZoomRef.current * zoomScale;
+        const lastDist = lastPinchDistRef.current ?? initialPinchDistRef.current;
+        const distDelta = currentDist - lastDist;
+        const distVelocity = Math.abs(distDelta);
+        const normalizedDelta = zoomScale - 1;
+        const logResponse =
+          Math.sign(normalizedDelta) *
+          Math.log1p(Math.abs(normalizedDelta) * PINCH_LOG_SPREAD);
+        const easedZoomScale =
+          Math.exp(
+            logResponse * PINCH_LOG_GAIN +
+              Math.min(0.2, distVelocity * PINCH_VELOCITY_GAIN),
+          ) || 1;
+        let newZoom = initialPinchZoomRef.current * easedZoomScale;
         newZoom = Math.max(1, Math.min(1000, newZoom));
+        lastPinchDistRef.current = currentDist;
         
         if (newZoom !== vizZoomRef?.current) {
           onVizZoomChange(newZoom);
@@ -304,8 +349,13 @@ export function useFrequencyDrag({
         const p1 = pointers[0];
         const p2 = pointers[1];
         initialPinchDistRef.current = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+        lastPinchDistRef.current = initialPinchDistRef.current;
         initialPinchZoomRef.current = vizZoomRef?.current || 1;
         initialPinchPanRef.current = vizPanOffsetRef?.current || 0;
+        initialPinchCenterRef.current = {
+          x: (p1.x + p2.x) / 2,
+          y: (p1.y + p2.y) / 2,
+        };
         
         // Cancel single-touch interactions
         isDraggingRef.current = false;
@@ -314,7 +364,7 @@ export function useFrequencyDrag({
           selectionBoxRef.current.remove();
           selectionBoxRef.current = null;
         }
-        container.setPointerCapture(e.pointerId);
+        setPointerCaptureIfAvailable(container, e.pointerId);
         return;
       }
 
@@ -330,15 +380,15 @@ export function useFrequencyDrag({
         dragStartFreqRef.current = frequencyRangeRef.current.min;
         dragStartPanRef.current = vizPanOffsetRef?.current || 0;
         dragStartRangeRef.current = { ...frequencyRangeRef.current };
-        container.classList.add("cursor-grabbing");
-        container.classList.remove("cursor-grab");
-        container.setPointerCapture(e.pointerId);
+        addClassIfAvailable(container, "cursor-grabbing");
+        removeClassIfAvailable(container, "cursor-grab");
+        setPointerCaptureIfAvailable(container, e.pointerId);
       } else {
         // Upper area is for box zooming
         isBoxDraggingRef.current = true;
         boxStartRef.current = { x: e.clientX, y: e.clientY };
         boxCurrentRef.current = { x: e.clientX, y: e.clientY };
-        container.setPointerCapture(e.pointerId);
+        setPointerCaptureIfAvailable(container, e.pointerId);
       }
     };
 
@@ -348,11 +398,13 @@ export function useFrequencyDrag({
       activePointersRef.current.delete(e.pointerId);
       if (activePointersRef.current.size < 2) {
         initialPinchDistRef.current = null;
+        lastPinchDistRef.current = null;
+        initialPinchCenterRef.current = null;
       }
 
       if (isBoxDraggingRef.current && container) {
         isBoxDraggingRef.current = false;
-        container.releasePointerCapture(e.pointerId);
+        releasePointerCaptureIfAvailable(container, e.pointerId);
 
         if (selectionBoxRef.current) {
           const rect = container.getBoundingClientRect();
@@ -506,13 +558,13 @@ export function useFrequencyDrag({
         const y = e.clientY - rect.top;
         const vfoThreshold = 60;
         if (y >= rect.height - vfoThreshold) {
-          container.classList.add("cursor-grab");
-          container.classList.remove("cursor-crosshair");
+          addClassIfAvailable(container, "cursor-grab");
+          removeClassIfAvailable(container, "cursor-crosshair");
         } else {
-          container.classList.add("cursor-crosshair");
-          container.classList.remove("cursor-grab");
+          addClassIfAvailable(container, "cursor-crosshair");
+          removeClassIfAvailable(container, "cursor-grab");
         }
-        container.classList.remove("cursor-grabbing");
+        removeClassIfAvailable(container, "cursor-grabbing");
       }
       isDraggingRef.current = false;
     };
@@ -528,14 +580,14 @@ export function useFrequencyDrag({
       const isOverVfo = y >= rect.height - vfoThreshold;
       
       if (isOverVfo) {
-        if (!container.classList.contains("cursor-grab")) {
-          container.classList.add("cursor-grab");
-          container.classList.remove("cursor-crosshair");
+        if (!container.classList || !container.classList.contains("cursor-grab")) {
+          addClassIfAvailable(container, "cursor-grab");
+          removeClassIfAvailable(container, "cursor-crosshair");
         }
       } else {
-        if (!container.classList.contains("cursor-crosshair")) {
-          container.classList.add("cursor-crosshair");
-          container.classList.remove("cursor-grab");
+        if (!container.classList || !container.classList.contains("cursor-crosshair")) {
+          addClassIfAvailable(container, "cursor-crosshair");
+          removeClassIfAvailable(container, "cursor-grab");
         }
       }
     };
@@ -564,11 +616,21 @@ export function useFrequencyDrag({
         newZoom = Math.max(1, Math.min(1000, newZoom));
 
         if (Math.abs(newZoom - zoom) > 0.001) {
-          // Zoom relative to mouse position
+          // Zoom relative to the gesture or mouse position so the content
+          // stays anchored under the user's fingers/pointer.
           const canvas = getActiveSpectrumCanvas();
           if (canvas) {
             const canvasRect = canvas.getBoundingClientRect();
-            const mouseX = e.clientX - canvasRect.left;
+            const focusX =
+              activePointersRef.current.size === 2 && initialPinchCenterRef.current
+                ? (p1.x + p2.x) / 2
+                : e.clientX;
+            const anchorX =
+              activePointersRef.current.size === 2 && initialPinchCenterRef.current
+                ? initialPinchCenterRef.current.x
+                : e.clientX;
+            const currentAnchorX = focusX - canvasRect.left;
+            const initialAnchorX = anchorX - canvasRect.left;
             const width = canvasRect.width;
 
             const fullRange =
@@ -581,18 +643,18 @@ export function useFrequencyDrag({
             const visualMin =
               centerFreq + currentPan - currentVisualRange / 2;
 
-            // Frequency currently under the mouse
-            const freqAtMouse =
-              visualMin + (mouseX / width) * currentVisualRange;
+            // Frequency currently under the gesture anchor at the start.
+            const freqAtAnchor =
+              visualMin + (initialAnchorX / width) * currentVisualRange;
 
             // Update zoom
             onVizZoomChange(newZoom);
 
-            // Adjust pan so freqAtMouse stays under the same relative mouseX
+            // Adjust pan so freqAtAnchor stays under the current anchor position.
             if (onVizPanChange) {
               const newVisualRange = fullRange / newZoom;
               const newVisualMin =
-                freqAtMouse - (mouseX / width) * newVisualRange;
+                freqAtAnchor - (currentAnchorX / width) * newVisualRange;
               let newPan = newVisualMin + newVisualRange / 2 - centerFreq;
 
               const maxPan = fullRange / 2 - newVisualRange / 2;
@@ -672,7 +734,9 @@ export function useFrequencyDrag({
     const handlePointerLeave = () => {
       const container = getContainer();
       if (container && !isDraggingRef.current) {
-        container.classList.remove("cursor-grab", "cursor-crosshair", "cursor-grabbing");
+        removeClassIfAvailable(container, "cursor-grab");
+        removeClassIfAvailable(container, "cursor-crosshair");
+        removeClassIfAvailable(container, "cursor-grabbing");
       }
     };
 
@@ -684,9 +748,7 @@ export function useFrequencyDrag({
     container.addEventListener("pointerleave", handlePointerLeave);
     container.addEventListener("wheel", handleWheel, { passive: false });
     
-    if (!container.classList.contains("cursor-crosshair")) {
-      container.classList.add("cursor-crosshair");
-    }
+    addClassIfAvailable(container, "cursor-crosshair");
 
     const resizeObserver = new ResizeObserver(updateContainerRect);
     resizeObserver.observe(container);

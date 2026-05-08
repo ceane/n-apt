@@ -30,6 +30,11 @@ describe("useFrequencyDrag Hook", () => {
       }),
       addEventListener: jest.fn(),
       removeEventListener: jest.fn(),
+      classList: {
+        contains: jest.fn().mockReturnValue(false),
+        add: jest.fn(),
+        remove: jest.fn(),
+      },
       style: { cursor: "" },
       setPointerCapture: jest.fn(),
       releasePointerCapture: jest.fn(),
@@ -74,13 +79,13 @@ describe("useFrequencyDrag Hook", () => {
     jest.restoreAllMocks();
   });
 
-  const triggerPointerDown = (clientX: number, clientY: number) => {
+  const triggerPointerDown = (clientX: number, clientY: number, pointerId = 1) => {
     const handler =
       spectrumContainerRef.current.addEventListener.mock.calls.find(
         (c: any) => c[0] === "pointerdown",
       )[1];
     act(() => {
-      handler({ clientX, clientY, pointerId: 1 } as any);
+      handler({ clientX, clientY, pointerId } as any);
     });
   };
 
@@ -162,5 +167,57 @@ describe("useFrequencyDrag Hook", () => {
       ][0];
     expect(lastCall.max).toBe(110);
     expect(lastCall.min).toBe(100);
+  });
+
+  it("should make pinch zoom feel more responsive and keep the gesture anchored", () => {
+    const pinchOptions = {
+      ...defaultOptions,
+      vizZoomRef: { current: 2 },
+      vizPanOffsetRef: { current: 10 },
+    };
+
+    renderHook(() => useFrequencyDrag(pinchOptions));
+
+    triggerPointerDown(400, 300, 1);
+    triggerPointerDown(600, 300, 2);
+
+    act(() => {
+      listeners["pointermove"]?.({
+        pointerId: 2,
+        clientX: 620,
+        clientY: 300,
+      } as any);
+    });
+
+    expect(mockOnVizZoomChange).toHaveBeenCalled();
+    const zoomCall =
+      mockOnVizZoomChange.mock.calls[mockOnVizZoomChange.mock.calls.length - 1][0];
+    expect(zoomCall).toBeGreaterThan(2.2);
+  });
+
+  it("should ease pinch-out zoom so it does not feel linear", () => {
+    const pinchOptions = {
+      ...defaultOptions,
+      vizZoomRef: { current: 2 },
+      vizPanOffsetRef: { current: 10 },
+    };
+
+    renderHook(() => useFrequencyDrag(pinchOptions));
+
+    triggerPointerDown(400, 300, 1);
+    triggerPointerDown(600, 300, 2);
+
+    act(() => {
+      listeners["pointermove"]?.({
+        pointerId: 2,
+        clientX: 580,
+        clientY: 300,
+      } as any);
+    });
+
+    expect(mockOnVizZoomChange).toHaveBeenCalled();
+    const zoomCall =
+      mockOnVizZoomChange.mock.calls[mockOnVizZoomChange.mock.calls.length - 1][0];
+    expect(zoomCall).toBeGreaterThanOrEqual(1);
   });
 });

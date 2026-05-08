@@ -279,7 +279,6 @@ export function useWebGPUInit({
             },
           ]);
 
-          console.log("Shader preloading completed successfully");
         } catch (error) {
           console.warn("Failed to preload shaders:", error);
         }
