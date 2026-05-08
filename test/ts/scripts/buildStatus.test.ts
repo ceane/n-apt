@@ -2,6 +2,7 @@ import { describe, expect, it } from "@jest/globals";
 import {
   getRuntimeSummaryState,
   isRuntimeRecoverySignal,
+  markPendingProcessesAfterFailure,
 } from "../../../scripts/build/buildStatus";
 
 describe("getRuntimeSummaryState", () => {
@@ -111,5 +112,37 @@ describe("isRuntimeRecoverySignal", () => {
       ),
     ).toBe(false);
     expect(isRuntimeRecoverySignal("")).toBe(false);
+  });
+});
+
+describe("markPendingProcessesAfterFailure", () => {
+  it("marks later pending processes as skipped when a build step fails", () => {
+    const processes = markPendingProcessesAfterFailure([
+      { name: "cleanup", status: "success" },
+      { name: "rust", status: "error" },
+      { name: "wasm", status: "pending" },
+      { name: "vite", status: "pending" },
+    ]);
+
+    expect(processes).toEqual([
+      { name: "cleanup", status: "success" },
+      { name: "rust", status: "error" },
+      { name: "wasm", status: "error", message: "skipped after failure" },
+      { name: "vite", status: "error", message: "skipped after failure" },
+    ]);
+  });
+
+  it("leaves running and completed processes untouched", () => {
+    const processes = markPendingProcessesAfterFailure([
+      { name: "redis", status: "running", pid: 123 },
+      { name: "rust", status: "error" },
+      { name: "vite", status: "success" },
+    ]);
+
+    expect(processes).toEqual([
+      { name: "redis", status: "running", pid: 123 },
+      { name: "rust", status: "error" },
+      { name: "vite", status: "success" },
+    ]);
   });
 });

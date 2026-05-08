@@ -26,6 +26,11 @@ dist/
 build/
 scripts/dist/
 
+# Generated diagnostics and test artifacts
+rust_outdated.txt
+typecheck_output.txt
+test-results/
+
 # Include scripts/build (don't exclude it)
 !scripts/build/
 
