@@ -84,30 +84,6 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
     });
   }, [activeTab]);
 
-  // Global keyboard event listener for spacebar to pause/resume
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      // Only handle spacebar when not in an input field and in live mode
-      // (File mode is handled by FFTPlaybackCanvas)
-      if (
-        event.code === "Space" &&
-        state.sourceMode === "live" &&
-        !["INPUT", "TEXTAREA", "SELECT"].includes(
-          document.activeElement?.tagName || "",
-        ) &&
-        !(document.activeElement as HTMLElement)?.isContentEditable
-      ) {
-        event.preventDefault();
-        event.stopPropagation();
-        toggleVisualizerPause();
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [toggleVisualizerPause]);
 
   // Device connection state management
   useDeviceConnectionState({
@@ -185,6 +161,90 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
   const centerFrequencyHz = useMemo(() => {
     return calculateCenterFrequency(state.frequencyRange);
   }, [state.frequencyRange]);
+
+  // Global keyboard event listener for spacebar to pause/resume and arrows for frequency shift
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Only handle events when not in an input field
+      const isInputFocused =
+        ["INPUT", "TEXTAREA", "SELECT"].includes(
+          document.activeElement?.tagName || "",
+        ) || (document.activeElement as HTMLElement)?.isContentEditable;
+
+      if (isInputFocused) return;
+
+      if (event.code === "Space" && state.sourceMode === "live") {
+        event.preventDefault();
+        event.stopPropagation();
+        toggleVisualizerPause();
+        return;
+      }
+
+      // Handle ArrowLeft/ArrowRight to move frequency by 33kHz
+      if (
+        (event.code === "ArrowLeft" || event.code === "ArrowRight") &&
+        state.frequencyRange
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+
+        const shiftHz = event.code === "ArrowRight" ? 33000 : -33000;
+
+        if (state.sourceMode === "live") {
+          const currentRange = state.frequencyRange;
+          const fullRange = currentRange.max - currentRange.min;
+          const newMin = currentRange.min + shiftHz;
+          const newMax = newMin + fullRange;
+
+          // Clamping logic
+          const bounds =
+            signalAreaBounds?.[state.activeSignalArea] ||
+            signalAreaBounds?.[state.activeSignalArea.toLowerCase()];
+
+          let finalMin = newMin;
+          let finalMax = newMax;
+
+          if (bounds) {
+            if (finalMin < bounds.min) {
+              finalMin = bounds.min;
+              finalMax = finalMin + fullRange;
+            } else if (finalMax > bounds.max) {
+              finalMax = bounds.max;
+              finalMin = finalMax - fullRange;
+            }
+          }
+
+          handleFrequencyRangeChange({ min: finalMin, max: finalMax });
+        } else if (state.sourceMode === "file") {
+          // In file mode, move the visual pan offset
+          const currentPan = state.vizPanOffset;
+          const zoom = state.vizZoom;
+          const fullRange = state.frequencyRange.max - state.frequencyRange.min;
+          const visualRange = fullRange / zoom;
+          const maxPan = fullRange / 2 - visualRange / 2;
+
+          let newPan = currentPan + shiftHz;
+          newPan = Math.max(-maxPan, Math.min(maxPan, newPan));
+          setVizPanOffset(newPan);
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [
+    state.sourceMode,
+    state.frequencyRange,
+    state.activeSignalArea,
+    state.vizPanOffset,
+    state.vizZoom,
+    signalAreaBounds,
+    toggleVisualizerPause,
+    handleFrequencyRangeChange,
+    setVizPanOffset,
+  ]);
 
   return (
     <SpectrumContainer>

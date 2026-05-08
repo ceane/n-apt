@@ -67,7 +67,9 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, dirname, "");
   const browserEnv = Object.fromEntries(
     Object.entries(env).filter(
-      ([key]) => key.startsWith("VITE_") && key !== "VITE_UNSAFE_LOCAL_USER_PASSWORD",
+      ([key]) =>
+        (key.startsWith("VITE_") && key !== "VITE_UNSAFE_LOCAL_USER_PASSWORD") ||
+        key === "NAPT_PBKDF2_SALT",
     ),
   );
 

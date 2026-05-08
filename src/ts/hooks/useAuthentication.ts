@@ -20,7 +20,6 @@ import {
   type AuthInfo,
 } from "@n-apt/services/auth";
 import {
-  deriveAesKey,
   importAesKey,
   base64ToBytes,
 } from "@n-apt/crypto/webcrypto";
@@ -87,6 +86,7 @@ function authReducer(
     case "AUTHENTICATING":
       return { ...state, authState: "authenticating", authError: null };
     case "AUTH_SUCCESS":
+      console.log("[useAuthentication] AUTH_SUCCESS: Key derived/imported successfully.");
       return {
         ...state,
         sessionToken: action.sessionToken,
@@ -352,9 +352,11 @@ const useAuthenticationInternal = (
     dispatch({ type: "AUTHENTICATING" });
     try {
       const result = await authenticateWithPassword(password);
-      const key = await deriveAesKey(password);
-
-
+      const vaultKeyB64 = await fetchVaultKey(result.token);
+      if (!vaultKeyB64) {
+        throw new Error("Password authentication succeeded but vault key retrieval failed.");
+      }
+      const key = await importBase64Key(vaultKeyB64);
 
       dispatch({
         type: "AUTH_SUCCESS",
