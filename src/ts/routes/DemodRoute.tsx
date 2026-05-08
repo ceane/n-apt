@@ -1,10 +1,20 @@
-import React from "react";
+import React, { Suspense } from "react";
 import styled from "styled-components";
 import { DemodRouteSection } from "@n-apt/components/DemodRouteSection";
-import { VisionScene } from "@n-apt/components/3D/VisionScene";
-import { DemodFilePlaybackBridge } from "@n-apt/components/DemodFilePlaybackBridge";
 import { useDemod } from "@n-apt/contexts/DemodContext";
 import { useAppSelector } from "@n-apt/redux";
+
+const VisionScene = React.lazy(() =>
+  import("@n-apt/components/3D/VisionScene").then((m) => ({
+    default: m.VisionScene,
+  })),
+);
+
+const DemodFilePlaybackBridge = React.lazy(() =>
+  import("@n-apt/components/DemodFilePlaybackBridge").then((m) => ({
+    default: m.DemodFilePlaybackBridge,
+  })),
+);
 
 const DemodContainer = styled.div`
   flex: 1;
@@ -18,26 +28,38 @@ const DemodContainer = styled.div`
 
 export const DemodRoute: React.FC = () => {
   const { analysisSession } = useDemod();
-  const waterfall = useAppSelector((state) => state.waterfall);
+  const sourceMode = useAppSelector((state) => state.waterfall.sourceMode);
+  const selectedFiles = useAppSelector((state) => state.waterfall.selectedFiles);
+  const stitchTrigger = useAppSelector((state) => state.waterfall.stitchTrigger);
+  const stitchSourceSettings = useAppSelector(
+    (state) => state.waterfall.stitchSourceSettings,
+  );
+  const isStitchPaused = useAppSelector(
+    (state) => state.waterfall.isStitchPaused,
+  );
   const fftSize = useAppSelector((state) => state.spectrum.fftSize);
 
   return (
     <DemodContainer data-testid="demod-route">
-      {waterfall.sourceMode === "file" && (
-        <DemodFilePlaybackBridge
-          selectedFiles={waterfall.selectedFiles}
-          stitchTrigger={waterfall.stitchTrigger}
-          stitchSourceSettings={waterfall.stitchSourceSettings}
-          isPaused={waterfall.isStitchPaused}
-          fftSize={fftSize}
-        />
+      {sourceMode === "file" && (
+        <Suspense fallback={null}>
+          <DemodFilePlaybackBridge
+            selectedFiles={selectedFiles}
+            stitchTrigger={stitchTrigger}
+            stitchSourceSettings={stitchSourceSettings}
+            isPaused={isStitchPaused}
+            fftSize={fftSize}
+          />
+        </Suspense>
       )}
 
       <DemodRouteSection />
 
       {analysisSession.state === "capturing" &&
         analysisSession.type === "vision" && (
-          <VisionScene session={analysisSession} />
+          <Suspense fallback={null}>
+            <VisionScene session={analysisSession} />
+          </Suspense>
         )}
     </DemodContainer>
   );

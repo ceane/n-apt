@@ -120,10 +120,6 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
     sourceMode === "file" ? "live" : sourceMode,
   );
 
-  const togglePause = useCallback(() => {
-    toggleVisualizerPause();
-  }, [toggleVisualizerPause]);
-
   const handleSourceModeChange = (mode: SourceMode) => {
     storeDispatch({ type: "SET_SOURCE_MODE", mode });
   };
@@ -201,7 +197,7 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
           deviceLoadingReason={deviceLoadingReason}
           isPaused={liveIsPaused}
           cryptoCorrupted={cryptoCorrupted}
-          onPauseToggle={togglePause}
+          onPauseToggle={toggleVisualizerPause}
           onRestartDevice={() => dispatch(sendRestartDevice())}
         />
       )}
