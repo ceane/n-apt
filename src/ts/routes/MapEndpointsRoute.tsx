@@ -10,12 +10,17 @@ import {
   MapContainer,
   Marker,
   Popup,
+  Polyline,
   TileLayer,
   useMap,
   useMapEvents,
 } from "react-leaflet";
 import L from "leaflet";
 import { useMapLocations } from "@n-apt/hooks/useMapLocations";
+import {
+  useMapRoutePaths,
+  useRouteSegmentDistances,
+} from "@n-apt/hooks/useMapRoutePaths";
 import { type TowerRecord, useTowers } from "@n-apt/hooks/useTowers";
 import { getCarrierName, getPotentialLeasee } from "@n-apt/utils/cellData";
 
@@ -240,13 +245,24 @@ const ThemedTileLayer: React.FC = () => {
           ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
           : "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
       }
+      keepBuffer={6}
+      updateWhenIdle
+      updateWhenZooming={false}
     />
   );
 };
 
 export const MapEndpointsRoute: React.FC = () => {
-  const { locations, activeLocationId, isLoaded, loadError, previewLocation } =
-    useMapLocations();
+  const {
+    locations,
+    activeLocationId,
+    recenterTick,
+    isLoaded,
+    loadError,
+    previewLocation,
+    recenterLocation,
+  } = useMapLocations();
+  const { segments, setNearestEndpoints, setMapBounds } = useMapRoutePaths();
   const {
     towers,
     loading: towersLoading,
@@ -265,6 +281,28 @@ export const MapEndpointsRoute: React.FC = () => {
   const boundsDebounceRef = useRef<number | null>(null);
 
   const techFilter = useMemo(() => selectedTech.join(","), [selectedTech]);
+  const routeMatches = useRouteSegmentDistances(towers, segments);
+
+  useEffect(() => {
+    setNearestEndpoints(routeMatches);
+  }, [routeMatches, setNearestEndpoints]);
+
+  const routeBounds = useMemo(() => {
+    if (!segments.length) return null;
+
+    const points = segments.flatMap((segment) => [segment.start, segment.end]);
+    const lats = points.map((point) => point.lat);
+    const lngs = points.map((point) => point.lng);
+    const padLat = Math.max(0.02, (Math.max(...lats) - Math.min(...lats)) * 0.2);
+    const padLng = Math.max(0.02, (Math.max(...lngs) - Math.min(...lngs)) * 0.2);
+
+    return {
+      neLat: Math.max(...lats) + padLat,
+      neLng: Math.max(...lngs) + padLng,
+      swLat: Math.min(...lats) - padLat,
+      swLng: Math.min(...lngs) - padLng,
+    };
+  }, [segments]);
 
   const onCarrierChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const value = e.target.value;
@@ -293,13 +331,35 @@ export const MapEndpointsRoute: React.FC = () => {
       const newCenter = L.latLng(targetLoc.lat, targetLoc.lng);
       setCenter({ lat: targetLoc.lat, lng: targetLoc.lng });
       setZoom(targetLoc.zoom);
-      map.setView(newCenter, targetLoc.zoom);
+      map.setView(newCenter, targetLoc.zoom, { animate: false });
     }
-  }, [activeLocationId, locations, map, isLoaded, previewLocation]);
+  }, [activeLocationId, locations, map, isLoaded, previewLocation, recenterTick]);
 
   const onLoad = useCallback((mapInstance: L.Map) => {
     setMap(mapInstance);
-  }, []);
+    const bounds = mapInstance.getBounds();
+    if (bounds) {
+      setMapBounds({
+        north: bounds.getNorth(),
+        south: bounds.getSouth(),
+        east: bounds.getEast(),
+        west: bounds.getWest(),
+      });
+    }
+  }, [setMapBounds]);
+
+  const syncMapBounds = useCallback(() => {
+    if (!map) return;
+    const bounds = map.getBounds();
+    if (!bounds) return;
+    // Store the visible map area so sidebar search can bias to the current viewport.
+    setMapBounds({
+      north: bounds.getNorth(),
+      south: bounds.getSouth(),
+      east: bounds.getEast(),
+      west: bounds.getWest(),
+    });
+  }, [map, setMapBounds]);
 
   const toggleTech = useCallback((tech: string) => {
     setSelectedTech((prev) => {
@@ -333,17 +393,30 @@ export const MapEndpointsRoute: React.FC = () => {
   }, [map, isLoaded, fetchTowersInBounds, techFilter, zoom, mcc, mnc]);
 
   const onMapIdle = useCallback(() => {
+    syncMapBounds();
     if (boundsDebounceRef.current !== null) {
       window.clearTimeout(boundsDebounceRef.current);
     }
     boundsDebounceRef.current = window.setTimeout(() => {
       fetchTowersForCurrentBounds();
     }, 250);
-  }, [fetchTowersForCurrentBounds]);
+  }, [fetchTowersForCurrentBounds, syncMapBounds]);
 
   useEffect(() => {
     fetchTowersForCurrentBounds();
   }, [fetchTowersForCurrentBounds]);
+
+  useEffect(() => {
+    if (!routeBounds || !isLoaded) return;
+    fetchTowersInBounds({
+      ...routeBounds,
+      zoom,
+      tech: techFilter,
+      range: "0,-1",
+      mcc: mcc || undefined,
+      mnc: mnc || undefined,
+    });
+  }, [routeBounds, isLoaded, fetchTowersInBounds, zoom, techFilter, mcc, mnc]);
 
   useEffect(() => {
     return () => {
@@ -498,6 +571,9 @@ export const MapEndpointsRoute: React.FC = () => {
             center={[center.lat, center.lng]}
             zoom={zoom}
             style={mapContainerStyle}
+            zoomAnimation={false}
+            fadeAnimation={false}
+            markerZoomAnimation={false}
           >
             <ThemedTileLayer />
 
@@ -507,6 +583,21 @@ export const MapEndpointsRoute: React.FC = () => {
             />
 
             <MapController onMapLoad={onLoad} />
+
+            {segments.map((segment) => (
+              <Polyline
+                key={segment.id}
+                positions={[
+                  [segment.start.lat, segment.start.lng],
+                  [segment.end.lat, segment.end.lng],
+                ]}
+                pathOptions={{
+                  color: "#f59e0b",
+                  weight: 4,
+                  opacity: 0.9,
+                }}
+              />
+            ))}
 
             {center.lat !== 0 && !previewLocation && (
               <Marker

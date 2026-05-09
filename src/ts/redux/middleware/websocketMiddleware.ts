@@ -617,7 +617,7 @@ const createWebSocketMiddleware =
                 parsed?.type === "status" ||
                 parsed?.type === "capture_status"
               ) {
-                processMessage(dispatch, getState, parsed);
+                setTimeout(() => processMessage(dispatch, getState, parsed), 0);
                 return;
               }
 
@@ -654,8 +654,8 @@ const createWebSocketMiddleware =
                 return;
               }
 
-              // Process status and control messages immediately
-              processMessage(dispatch, getState, parsed);
+              // Process status and control messages immediately (deferred to avoid blocking)
+              setTimeout(() => processMessage(dispatch, getState, parsed), 0);
             };
 
             ws.onclose = () => {

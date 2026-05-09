@@ -561,7 +561,7 @@ const DemodRouteSectionInner: React.FC = () => {
                 "stimulus",
                 "output",
               ];
-        const sortedNodes = nodesRef.current.toSorted((a, b) => {
+        const sortedNodes = nodesRef.current.toSorted((a: Node, b: Node) => {
           return layoutOrder.indexOf(a.id) - layoutOrder.indexOf(b.id);
         });
 
@@ -575,7 +575,7 @@ const DemodRouteSectionInner: React.FC = () => {
             "elk.alignment": "CENTER",
             "elk.layered.crossingMinimization.forceNodeModelOrder": "true",
           },
-          children: sortedNodes.map((node) => {
+          children: sortedNodes.map((node: Node) => {
             const dims = getDimensions(node);
             return {
               id: node.id,
@@ -583,7 +583,7 @@ const DemodRouteSectionInner: React.FC = () => {
               height: dims.h,
             };
           }),
-          edges: edgesRef.current.map((edge) => ({
+          edges: edgesRef.current.map((edge: Edge) => ({
             id: edge.id,
             sources: [edge.source],
             targets: [edge.target],
