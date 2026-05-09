@@ -18,6 +18,8 @@ interface Model3DContextType {
   selectedArea: Area | null;
   setSelectedArea: (area: Area | null) => void;
   controlsRef: React.RefObject<any>;
+  modelVariant: "human" | "brain";
+  setModelVariant: (variant: "human" | "brain") => void;
 }
 
 const Model3DContext = createContext<Model3DContextType | undefined>(undefined);
@@ -30,6 +32,7 @@ export const Model3DProvider: React.FC<Model3DProviderProps> = ({
   children,
 }) => {
   const [selectedArea, setSelectedArea] = useState<Area | null>(null);
+  const [modelVariant, setModelVariant] = useState<"human" | "brain">("human");
   const controlsRef = useRef<any>(null);
 
   const contextValue = useMemo<Model3DContextType>(
@@ -37,8 +40,10 @@ export const Model3DProvider: React.FC<Model3DProviderProps> = ({
       selectedArea,
       setSelectedArea,
       controlsRef,
+      modelVariant,
+      setModelVariant,
     }),
-    [selectedArea],
+    [selectedArea, modelVariant],
   );
 
   return React.createElement(

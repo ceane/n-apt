@@ -268,15 +268,36 @@ export const SymbolsTable: React.FC<SymbolsTableProps> = ({
   const playbackFrameCounter = useAppSelector(
     (state) => state.waterfall.playbackFrameCounter,
   );
-  const dataFrameCounter = useAppSelector(
-    (state) => state.websocket.dataFrameCounter,
-  );
   const sourceMode = useAppSelector((state) => state.waterfall.sourceMode);
 
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [containerDims, setContainerDims] = useState({ width: 0, height: 0 });
   const gridRef = useRef<HTMLDivElement>(null);
   const [page, setPage] = useState(0);
+
+  // Throttled data polling — replaces the per-frame dataFrameCounter subscription.
+  // Tables don't need 60fps updates; 4fps is plenty for readable symbol data.
+  const [frameIqData, setFrameIqData] = useState<Uint8Array | undefined>(
+    undefined,
+  );
+  const lastIqRefRef = useRef<unknown>(null);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      const nextRef = liveDataRef.current?.iq_data as
+        | Uint8Array
+        | undefined;
+      if (nextRef !== lastIqRefRef.current) {
+        lastIqRefRef.current = nextRef;
+        if (sourceMode === "file" && playbackFrameCounter === 0) {
+          setFrameIqData(undefined);
+        } else {
+          setFrameIqData(nextRef);
+        }
+      }
+    }, 250); // 4fps
+    return () => clearInterval(id);
+  }, [sourceMode, playbackFrameCounter]);
 
   useEffect(() => {
     if (!gridRef.current) return;
@@ -313,12 +334,6 @@ export const SymbolsTable: React.FC<SymbolsTableProps> = ({
   });
   const rowHeight = layout.rowHeight;
   const rowsCount = layout.rowsCount;
-  const frameIqData = React.useMemo(() => {
-    if (sourceMode === "file" && playbackFrameCounter === 0) {
-      return undefined;
-    }
-    return liveDataRef.current?.iq_data as Uint8Array | undefined;
-  }, [dataFrameCounter, playbackFrameCounter, sourceMode]);
   const iqDataView = React.useMemo(
     () => getIqDataView(frameIqData),
     [frameIqData],

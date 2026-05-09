@@ -67,6 +67,8 @@ export interface SpectrumRendererOptions {
   drawSignal3D?: boolean;
   /** Display mode: FFT or IQ */
   displayMode?: "fft" | "iq";
+  /** Tighten FFT margins for small node previews */
+  nodePreview?: boolean;
 }
 
 /**
@@ -113,6 +115,7 @@ export function useSpectrumRenderer() {
         lineColor,
         fillColor,
         drawSignal3D = false,
+        nodePreview = false,
       } = options;
 
       if (!canvas) return false;
@@ -243,6 +246,7 @@ export function useSpectrumRenderer() {
           showGrid: true, // Internal to drawWebGPU - handled by the overlays above
           lineColor,
           fillColor,
+          nodePreview,
         });
       } else {
         return false;

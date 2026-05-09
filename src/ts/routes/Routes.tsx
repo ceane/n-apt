@@ -3,6 +3,7 @@ import styled from "styled-components";
 import { Routes, Route } from "react-router-dom";
 import { MainLayout } from "@n-apt/components/MainLayout";
 import { SpectrumSidebar } from "@n-apt/components/sidebar/SpectrumSidebar";
+import { DrawSignalPaginationProvider } from "@n-apt/contexts/DrawSignalPaginationContext";
 
 import { DemodulateSidebar } from "@n-apt/components/sidebar/DemodulateSidebar";
 import { DrawSignalSidebar } from "@n-apt/components/sidebar/DrawSignalSidebar";
@@ -61,6 +62,7 @@ import { Model3DInteractionProvider as HotspotEditorProvider } from "@n-apt/hook
 import { DemodProvider, useDemod } from "@n-apt/contexts/DemodContext";
 import { ReactFlowProvider } from "@xyflow/react";
 import { MapLocationsProvider } from "@n-apt/hooks/useMapLocations";
+import { MapRoutePathsProvider } from "@n-apt/hooks/useMapRoutePaths";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 
 // Create a wrapper component to manage scanner state
@@ -183,13 +185,17 @@ const AppRoutesInner: React.FC = () => {
         <Route
           path="/draw-signal"
           element={
-            <MainLayout sidebar={<DrawSignalSidebar />}>
-              <Suspense
-                fallback={<RouteLoadingFallback>Loading...</RouteLoadingFallback>}
-              >
-                <DrawSignalRoute />
-              </Suspense>
-            </MainLayout>
+            <DrawSignalPaginationProvider>
+              <MainLayout sidebar={<DrawSignalSidebar />}>
+                <Suspense
+                  fallback={
+                    <RouteLoadingFallback>Loading...</RouteLoadingFallback>
+                  }
+                >
+                  <DrawSignalRoute />
+                </Suspense>
+              </MainLayout>
+            </DrawSignalPaginationProvider>
           }
         />
         <Route
@@ -215,13 +221,17 @@ const AppRoutesInner: React.FC = () => {
         <Route
           path="/map-endpoints"
           element={
-            <MainLayout sidebar={<MapEndpointsSidebar />}>
-              <Suspense
-                fallback={<RouteLoadingFallback>Loading...</RouteLoadingFallback>}
-              >
-                <MapEndpointsRoute />
-              </Suspense>
-            </MainLayout>
+            <MapRoutePathsProvider>
+              <MainLayout sidebar={<MapEndpointsSidebar />}>
+                <Suspense
+                  fallback={
+                    <RouteLoadingFallback>Loading...</RouteLoadingFallback>
+                  }
+                >
+                  <MapEndpointsRoute />
+                </Suspense>
+              </MainLayout>
+            </MapRoutePathsProvider>
           }
         />
         <Route

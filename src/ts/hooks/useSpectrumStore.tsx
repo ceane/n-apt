@@ -49,6 +49,7 @@ import {
   sendGetAutoFftOptions as sendGetAutoFftOptionsThunk,
   sendTrainingCommand as sendTrainingCommandThunk,
   sendFrequencyRange as sendFrequencyRangeThunk,
+  requestNextPausedFrame as requestNextPausedFrameThunk,
   sendSettings as sendSettingsThunk,
   sendRestartDevice as sendRestartDeviceThunk,
   sendCaptureCommand as sendCaptureCommandThunk,
@@ -1128,6 +1129,59 @@ export const SpectrumProvider: React.FC<SpectrumProviderProps> = memo(
       wsConnection.sendPowerScaleCommand(state.powerScale);
       lastSentPowerScaleRef.current = state.powerScale;
     }, [isConnected, wsConnection.sendPowerScaleCommand, state.powerScale]);
+
+    const pausedPreviewTimeoutRef = useRef<number | null>(null);
+    const lastPausedPreviewSignatureRef = useRef<string | null>(null);
+    useEffect(() => {
+      const isLiveSource = state.sourceMode === "live";
+      const isPausedForPreview = manualVisualizerPaused && isConnected;
+      if (!isLiveSource || !isPausedForPreview) {
+        if (pausedPreviewTimeoutRef.current !== null) {
+          window.clearTimeout(pausedPreviewTimeoutRef.current);
+          pausedPreviewTimeoutRef.current = null;
+        }
+        lastPausedPreviewSignatureRef.current = null;
+        return;
+      }
+
+      const rangeSignature = state.frequencyRange
+        ? `${state.frequencyRange.min}:${state.frequencyRange.max}`
+        : "none";
+      const nextSignature = [
+        rangeSignature,
+        state.vizZoom,
+        state.vizPanOffset,
+      ].join("|");
+
+      if (nextSignature === lastPausedPreviewSignatureRef.current) {
+        return;
+      }
+
+      if (pausedPreviewTimeoutRef.current !== null) {
+        window.clearTimeout(pausedPreviewTimeoutRef.current);
+      }
+
+      pausedPreviewTimeoutRef.current = window.setTimeout(() => {
+        reduxDispatch(requestNextPausedFrameThunk());
+        lastPausedPreviewSignatureRef.current = nextSignature;
+        pausedPreviewTimeoutRef.current = null;
+      }, 120);
+
+      return () => {
+        if (pausedPreviewTimeoutRef.current !== null) {
+          window.clearTimeout(pausedPreviewTimeoutRef.current);
+          pausedPreviewTimeoutRef.current = null;
+        }
+      };
+    }, [
+      isConnected,
+      manualVisualizerPaused,
+      reduxDispatch,
+      state.frequencyRange,
+      state.sourceMode,
+      state.vizPanOffset,
+      state.vizZoom,
+    ]);
 
     const lastSentFrameRateRef = useRef<number | null>(null);
     useEffect(() => {

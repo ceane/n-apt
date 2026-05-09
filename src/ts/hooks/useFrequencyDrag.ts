@@ -2,6 +2,7 @@ import { useRef, useEffect } from "react";
 import type { FrequencyRange } from "@n-apt/consts/types";
 
 export interface FrequencyDragOptions {
+  disabled?: boolean;
   spectrumGpuCanvasRef: React.RefObject<HTMLCanvasElement | null>;
   spectrumGpuCanvasNode?: HTMLCanvasElement | null;
   /** Container div wrapping the canvases (receives pointer events since canvas has pointer-events:none) */
@@ -24,6 +25,7 @@ export interface FrequencyDragOptions {
 }
 
 export function useFrequencyDrag({
+  disabled = false,
   spectrumGpuCanvasRef,
   spectrumGpuCanvasNode,
   spectrumContainerRef,
@@ -67,6 +69,8 @@ export function useFrequencyDrag({
   const containerRectRef = useRef<DOMRect | null>(null);
 
   useEffect(() => {
+    if (disabled) return;
+
     const getContainer = (): HTMLElement | null => {
       if (containerRefCacheRef.current) return containerRefCacheRef.current;
       if (spectrumContainerRef?.current) {
@@ -623,7 +627,7 @@ export function useFrequencyDrag({
             const canvasRect = canvas.getBoundingClientRect();
             const focusX =
               activePointersRef.current.size === 2 && initialPinchCenterRef.current
-                ? (p1.x + p2.x) / 2
+                ? initialPinchCenterRef.current.x
                 : e.clientX;
             const anchorX =
               activePointersRef.current.size === 2 && initialPinchCenterRef.current
@@ -768,6 +772,7 @@ export function useFrequencyDrag({
       window.removeEventListener("pointerup", handlePointerUp);
     };
   }, [
+    disabled,
     onFrequencyRangeChange,
     activeSignalArea,
     spectrumWebgpuEnabled,

@@ -1,37 +1,32 @@
 import React, { Suspense, useRef, useCallback, useEffect } from "react";
 import styled from "styled-components";
 import { Canvas, useThree } from "@react-three/fiber";
-import { OrbitControls, useGLTF, TransformControls } from "@react-three/drei";
+import { OrbitControls, TransformControls, useGLTF } from "@react-three/drei";
 import { Vector3 } from "three";
-import Brain from "@n-apt/components/3D/Brain";
 import { HorizonFocusGlobe } from "@n-apt/components/3D/HorizonFocusGlobe";
 import { HUMAN_MODEL_AFRO_MALE_GLB_URL } from "@n-apt/components/3D/modelAssetUrls";
-import { useModel3D, type Area } from "@n-apt/hooks/useModel3D";
 import { useHotspotEditor } from "@n-apt/hooks/useHotspotEditor";
+import { useModel3D, type Area } from "@n-apt/hooks/useModel3D";
 import { PHYSIOLOGY_AREAS } from "@n-apt/components/sidebar/BodyAreasSection";
 import {
-  MODEL_CAMERA_POSITION,
-  MODEL_CAMERA_TARGET,
-  MODEL_FOV,
-  MODEL_ROOT_POSITION,
-  SPHERE_GEOMETRY_SEGMENTS,
-  SPHERE_MARKER_COLOR,
-  SPHERE_MARKER_BASE_INTENSITY,
   MODEL_AMBIENT_LIGHT_INTENSITY,
-  MODEL_KEY_LIGHT_INTENSITY,
-  MODEL_KEY_LIGHT_POSITION,
-  MODEL_FILL_LIGHT_INTENSITY,
-  MODEL_FILL_LIGHT_POSITION,
   MODEL_BACK_LIGHT_INTENSITY,
   MODEL_BACK_LIGHT_POSITION,
+  MODEL_CAMERA_POSITION,
+  MODEL_CAMERA_TARGET,
+  MODEL_FILL_LIGHT_INTENSITY,
+  MODEL_FILL_LIGHT_POSITION,
+  MODEL_FOV,
+  MODEL_KEY_LIGHT_INTENSITY,
+  MODEL_KEY_LIGHT_POSITION,
+  MODEL_ROOT_POSITION,
+  SPHERE_GEOMETRY_SEGMENTS,
+  SPHERE_MARKER_BASE_INTENSITY,
+  SPHERE_MARKER_COLOR,
 } from "@n-apt/consts";
 import { useTheme } from "styled-components";
 
-// ClickHandler is no longer needed as we use onPointerDown on the mesh directly
-
-function worldToModelLocal(
-  position: [number, number, number],
-): [number, number, number] {
+function worldToModelLocal(position: [number, number, number]): [number, number, number] {
   return [
     position[0] - MODEL_ROOT_POSITION[0],
     position[1] - MODEL_ROOT_POSITION[1],
@@ -50,9 +45,7 @@ function RendererSizeSync() {
       const width = parent.clientWidth;
       const height = parent.clientHeight;
       if (!width || !height) return;
-
       gl.setSize(width, height, false);
-
       if ("aspect" in camera) {
         camera.aspect = width / height;
         camera.updateProjectionMatrix();
@@ -73,13 +66,7 @@ function RendererSizeSync() {
   return null;
 }
 
-function PhysiologyOrb({
-  area,
-  isSelected,
-}: {
-  area: Area;
-  isSelected: boolean;
-}) {
+function PhysiologyOrb({ area, isSelected }: { area: Area; isSelected: boolean }) {
   const markerPosition = worldToModelLocal(area.target);
   const compactRadiusByArea: Record<string, number> = {
     Head: 0.015,
@@ -122,16 +109,12 @@ function PhysiologyOrb({
 function AreaMarker({ selectedArea }: { selectedArea: Area }) {
   const markerPosition = worldToModelLocal(selectedArea.target);
 
-  if (selectedArea.name === "Head") {
-    return null;
-  }
+  if (selectedArea.name === "Head") return null;
 
   return (
     <group position={markerPosition}>
       <mesh>
-        <sphereGeometry
-          args={[0.04, SPHERE_GEOMETRY_SEGMENTS, SPHERE_GEOMETRY_SEGMENTS]}
-        />
+        <sphereGeometry args={[0.04, SPHERE_GEOMETRY_SEGMENTS, SPHERE_GEOMETRY_SEGMENTS]} />
         <meshStandardMaterial
           color={SPHERE_MARKER_COLOR}
           emissive={SPHERE_MARKER_COLOR}
@@ -141,9 +124,7 @@ function AreaMarker({ selectedArea }: { selectedArea: Area }) {
         />
       </mesh>
       <mesh>
-        <sphereGeometry
-          args={[0.08, SPHERE_GEOMETRY_SEGMENTS, SPHERE_GEOMETRY_SEGMENTS]}
-        />
+        <sphereGeometry args={[0.08, SPHERE_GEOMETRY_SEGMENTS, SPHERE_GEOMETRY_SEGMENTS]} />
         <meshStandardMaterial
           color={SPHERE_MARKER_COLOR}
           emissive={SPHERE_MARKER_COLOR}
@@ -153,9 +134,7 @@ function AreaMarker({ selectedArea }: { selectedArea: Area }) {
         />
       </mesh>
       <mesh>
-        <sphereGeometry
-          args={[0.12, SPHERE_GEOMETRY_SEGMENTS, SPHERE_GEOMETRY_SEGMENTS]}
-        />
+        <sphereGeometry args={[0.12, SPHERE_GEOMETRY_SEGMENTS, SPHERE_GEOMETRY_SEGMENTS]} />
         <meshStandardMaterial
           color={SPHERE_MARKER_COLOR}
           emissive={SPHERE_MARKER_COLOR}
@@ -182,31 +161,19 @@ function HotspotMarker({
   const theme = useTheme() as any;
   const size = hotspot.size === "large" ? 0.08 : 0.02;
   const baseColor = hotspot.size === "large" ? theme.primary : "#ffaa00";
-  const color = isMultiSelected
-    ? "#ff6b6b"
-    : isSelected
-      ? "#ffffff"
-      : baseColor;
+  const color = isMultiSelected ? "#ff6b6b" : isSelected ? "#ffffff" : baseColor;
 
   return (
     <group position={hotspot.position}>
       <mesh onClick={onClick}>
         <sphereGeometry args={[size, 16, 16]} />
-        <meshStandardMaterial
-          color={color}
-          emissive={color}
-          emissiveIntensity={0.5}
-        />
+        <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.5} />
       </mesh>
       {isSelected && (
         <group position={[0, size + 0.05, 0]}>
           <mesh>
             <sphereGeometry args={[0.02, 16, 16]} />
-            <meshStandardMaterial
-              color="#ffaa00"
-              emissive="#ffaa00"
-              emissiveIntensity={0.8}
-            />
+            <meshStandardMaterial color="#ffaa00" emissive="#ffaa00" emissiveIntensity={0.8} />
           </mesh>
         </group>
       )}
@@ -214,17 +181,15 @@ function HotspotMarker({
   );
 }
 
-function Model({
+function PersonModel({
   selectedArea,
   isEditMode,
   onAddHotspot,
-  modelVariant,
   children,
 }: {
   selectedArea: Area | null;
   isEditMode: boolean;
   onAddHotspot: (point: Vector3) => void;
-  modelVariant: "human" | "brain";
   children?: React.ReactNode;
 }) {
   const { scene } = useGLTF(HUMAN_MODEL_AFRO_MALE_GLB_URL);
@@ -244,11 +209,7 @@ function Model({
 
   return (
     <group ref={groupRef} position={MODEL_ROOT_POSITION}>
-      {modelVariant === "brain" ? (
-        <Brain />
-      ) : (
-        <primitive object={scene} onPointerDown={onPointerDown} />
-      )}
+      <primitive object={scene} onPointerDown={onPointerDown} />
       {selectedArea && <AreaMarker selectedArea={selectedArea} />}
       {children}
     </group>
@@ -262,7 +223,6 @@ const CanvasContainer = styled.div`
   min-width: 0;
   min-height: 0;
   position: relative;
-
   canvas {
     width: 100% !important;
     height: 100% !important;
@@ -282,16 +242,8 @@ const HintOverlay = styled.div`
   pointer-events: none;
 `;
 
-interface Model3DCanvasProps {
-  width?: string | number;
-  height?: string | number;
-}
-
-export const Model3DCanvas: React.FC<Model3DCanvasProps> = ({
-  width = "100%",
-  height = "100%",
-}) => {
-  const { selectedArea, controlsRef, modelVariant } = useModel3D();
+export const Model3DPerson: React.FC = () => {
+  const { selectedArea, controlsRef } = useModel3D();
   const {
     hotspots,
     selectedHotspot,
@@ -301,84 +253,29 @@ export const Model3DCanvas: React.FC<Model3DCanvasProps> = ({
     handleHotspotClick,
     multiSelectedHotspots,
   } = useHotspotEditor();
-
   const isEditMode = sidebarTab === "make-hotspots";
 
   return (
-    <CanvasContainer style={{ width, height }}>
-      <Canvas
-        style={{ width: "100%", height: "100%" }}
-        camera={{ position: MODEL_CAMERA_POSITION, fov: MODEL_FOV }}
-      >
+    <CanvasContainer>
+      <Canvas style={{ width: "100%", height: "100%" }} camera={{ position: MODEL_CAMERA_POSITION, fov: MODEL_FOV }}>
         <RendererSizeSync />
         <Suspense fallback={null}>
           <ambientLight intensity={MODEL_AMBIENT_LIGHT_INTENSITY} />
-          <directionalLight
-            position={MODEL_KEY_LIGHT_POSITION}
-            intensity={MODEL_KEY_LIGHT_INTENSITY}
-          />
-          <pointLight
-            position={MODEL_FILL_LIGHT_POSITION}
-            intensity={MODEL_FILL_LIGHT_INTENSITY}
-            color="#ffffff"
-          />
-          <pointLight
-            position={MODEL_BACK_LIGHT_POSITION}
-            intensity={MODEL_BACK_LIGHT_INTENSITY}
-            color="#8ddcff"
-          />
-          <pointLight
-            position={[-2.8, 2.4, -4.2]}
-            intensity={1.4}
-            color="#7cc7ff"
-          />
-          <pointLight
-            position={[2.8, 2.4, -4.2]}
-            intensity={1.4}
-            color="#7cc7ff"
-          />
-          {/* Mirror front lighting to the back */}
-          <directionalLight
-            position={[
-              -MODEL_KEY_LIGHT_POSITION[0],
-              MODEL_KEY_LIGHT_POSITION[1],
-              -MODEL_KEY_LIGHT_POSITION[2],
-            ]}
-            intensity={MODEL_KEY_LIGHT_INTENSITY * 0.9}
-            color="#ffffff"
-          />
-          <pointLight
-            position={[
-              -MODEL_FILL_LIGHT_POSITION[0],
-              MODEL_FILL_LIGHT_POSITION[1],
-              -MODEL_FILL_LIGHT_POSITION[2],
-            ]}
-            intensity={MODEL_FILL_LIGHT_INTENSITY * 1.0}
-            color="#ffffff"
-          />
-
-          {isEditMode && showGrid && (
-            <gridHelper args={[10, 10, "#333", "#222"]} position={[0, 0, 0]} />
-          )}
-
+          <directionalLight position={MODEL_KEY_LIGHT_POSITION} intensity={MODEL_KEY_LIGHT_INTENSITY} />
+          <pointLight position={MODEL_FILL_LIGHT_POSITION} intensity={MODEL_FILL_LIGHT_INTENSITY} color="#ffffff" />
+          <pointLight position={MODEL_BACK_LIGHT_POSITION} intensity={MODEL_BACK_LIGHT_INTENSITY} color="#8ddcff" />
+          <pointLight position={[-2.8, 2.4, -4.2]} intensity={1.4} color="#7cc7ff" />
+          <pointLight position={[2.8, 2.4, -4.2]} intensity={1.4} color="#7cc7ff" />
+          <directionalLight position={[-MODEL_KEY_LIGHT_POSITION[0], MODEL_KEY_LIGHT_POSITION[1], -MODEL_KEY_LIGHT_POSITION[2]]} intensity={MODEL_KEY_LIGHT_INTENSITY * 0.9} color="#ffffff" />
+          <pointLight position={[-MODEL_FILL_LIGHT_POSITION[0], MODEL_FILL_LIGHT_POSITION[1], -MODEL_FILL_LIGHT_POSITION[2]]} intensity={MODEL_FILL_LIGHT_INTENSITY * 1.0} color="#ffffff" />
+          {isEditMode && showGrid && <gridHelper args={[10, 10, "#333", "#222"]} position={[0, 0, 0]} />}
           <TransformControls mode="translate">
-            <Model
-              selectedArea={selectedArea}
-              isEditMode={isEditMode}
-              onAddHotspot={handleAddHotspot}
-              modelVariant={modelVariant}
-            >
+            <PersonModel selectedArea={selectedArea} isEditMode={isEditMode} onAddHotspot={handleAddHotspot}>
               <HorizonFocusGlobe active={isEditMode} />
-
               {!isEditMode &&
                 PHYSIOLOGY_AREAS.map((area) => (
-                  <PhysiologyOrb
-                    key={area.name}
-                    area={area}
-                    isSelected={selectedArea?.name === area.name}
-                  />
+                  <PhysiologyOrb key={area.name} area={area} isSelected={selectedArea?.name === area.name} />
                 ))}
-
               {hotspots.map((hotspot) => (
                 <HotspotMarker
                   key={hotspot.id}
@@ -388,21 +285,12 @@ export const Model3DCanvas: React.FC<Model3DCanvasProps> = ({
                   isMultiSelected={multiSelectedHotspots.includes(hotspot.id)}
                 />
               ))}
-            </Model>
+            </PersonModel>
           </TransformControls>
-
-          <OrbitControls
-            ref={controlsRef}
-            makeDefault
-            enableDamping
-            target={MODEL_CAMERA_TARGET}
-          />
+          <OrbitControls ref={controlsRef} makeDefault enableDamping target={MODEL_CAMERA_TARGET} />
         </Suspense>
       </Canvas>
-
-      {isEditMode && (
-        <HintOverlay>Click on the model to add hotspots</HintOverlay>
-      )}
+      {isEditMode && <HintOverlay>Click on the model to add hotspots</HintOverlay>}
     </CanvasContainer>
   );
 };

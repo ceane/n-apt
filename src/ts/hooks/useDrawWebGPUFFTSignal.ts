@@ -107,6 +107,7 @@ export interface WebGPUFFTSignalOptions {
   showGrid?: boolean;
   lineColor?: string;
   fillColor?: string;
+  nodePreview?: boolean;
 }
 
 export function useDrawWebGPUFFTSignal() {
@@ -293,6 +294,7 @@ export function useDrawWebGPUFFTSignal() {
         showGrid = true,
         lineColor = LINE_COLOR,
         fillColor = SHADOW_COLOR,
+        nodePreview = false,
       } = options;
 
       // Background color from CSS variable - not configurable per-call to ensure
@@ -321,12 +323,13 @@ export function useDrawWebGPUFFTSignal() {
       if (waveformData.length === 0) return false;
 
       try {
-        // Calculate target display width (CSS width minus 40px margins)
-        // Must match CPU-side calculation for coordinate consistency
-        const rect = canvas.parentElement?.getBoundingClientRect();
+        // Calculate target display width using offsetWidth (unaffected by CSS
+        // transforms like React Flow's viewport zoom).
+        const parentWidth = canvas.parentElement?.offsetWidth ?? canvas.offsetWidth ?? 1;
+        const marginPx = nodePreview ? 0 : 40;
         const displayWidth = Math.max(
           1,
-          Math.floor((rect?.width || canvas.clientWidth || 1) - 40),
+          Math.floor(parentWidth - marginPx),
         );
 
         const srcLen = waveformData.length;
@@ -414,17 +417,22 @@ export function useDrawWebGPUFFTSignal() {
         computePass.dispatchWorkgroups(Math.ceil(displayWidth / 64));
         computePass.end();
 
-        // --- Prepare render parameters ---
         // Convert CSS pixel coordinates to WebGPU Normalized Device Coordinates (-1 to +1) space
-        const logicalWidth = canvas.clientWidth || 1;
-        const logicalHeight = canvas.clientHeight || 1;
-        const fftAreaMax = { x: logicalWidth - 40, y: logicalHeight - 40 };
+        // Use offsetWidth/offsetHeight — clientWidth returns post-transform dimensions
+        // inside React Flow's scaled viewport, giving wrong NDC coordinates.
+        const logicalWidth = canvas.offsetWidth || canvas.clientWidth || 1;
+        const logicalHeight = canvas.offsetHeight || canvas.clientHeight || 1;
+        const fftAreaMax = {
+          x: logicalWidth - (nodePreview ? 0 : 40),
+          y: logicalHeight - (nodePreview ? 0 : 40),
+        };
 
         // Plot bounds in NDC: X is [-1, 1], Y is [+1, -1] (Y flipped for screen coords)
-        const plotMinX = (FFT_AREA_MIN.x / logicalWidth) * 2 - 1;
+        const plotMinX =
+          ((nodePreview ? 0 : FFT_AREA_MIN.x) / logicalWidth) * 2 - 1;
         const plotMaxX = (fftAreaMax.x / logicalWidth) * 2 - 1;
         const yToNdc = (y: number) => 1 - (y / logicalHeight) * 2;
-        const plotMaxY = yToNdc(FFT_AREA_MIN.y);
+        const plotMaxY = yToNdc(nodePreview ? 0 : FFT_AREA_MIN.y);
         const plotMinY = yToNdc(fftAreaMax.y);
 
         const [lineR, lineG, lineB, lineA] = parseCssColorToRgba(lineColor);

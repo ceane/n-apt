@@ -121,9 +121,6 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
     isListening: false,
     algorithm: "fm" as const,
   };
-  const dataFrameCounter = useAppSelector(
-    (state) => state.websocket.dataFrameCounter,
-  );
 
   // React Flow state moved to context for global access (e.g. sidebar templates)
   const initialFlow = useMemo(
@@ -163,33 +160,37 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
     bufferSize: 4096,
   });
 
-  // Listen for real-time IQ data and process it
+  // Throttled IQ demod processing — polls liveDataRef instead of subscribing
+  // to dataFrameCounter to avoid re-rendering the entire DemodProvider tree on every frame.
+  // 30fps is more than sufficient for audio buffer processing.
   useEffect(() => {
-    if (
-      !demodState.isListening ||
-      !demodState.centerFreqHz ||
-      !liveDataRef.current
-    )
-      return;
+    if (!demodState.isListening || !demodState.centerFreqHz) return;
 
-    const iqData = liveDataRef.current.iq_data as Uint8Array;
-    const sampleRate = liveDataRef.current.sample_rate || 3200000;
+    let lastRef: unknown = null;
+    const id = setInterval(() => {
+      const current = liveDataRef.current;
+      if (!current || current === lastRef) return;
+      lastRef = current;
 
-    if (demodState.algorithm === "fm") {
-      const audioData = fmDemod.processIQData(iqData, sampleRate);
-      if (audioData) {
-        fmDemod.playAudio(audioData);
+      const iqData = current.iq_data as Uint8Array;
+      const sampleRate = current.sample_rate || 3200000;
+
+      if (demodState.algorithm === "fm") {
+        const audioData = fmDemod.processIQData(iqData, sampleRate);
+        if (audioData) {
+          fmDemod.playAudio(audioData);
+        }
+      } else if (demodState.algorithm === "apt") {
+        aptDemod.processIQData(iqData, sampleRate);
+        aptDemod.playAudio();
       }
-    } else if (demodState.algorithm === "apt") {
-      aptDemod.processIQData(iqData, sampleRate);
-      aptDemod.playAudio();
-    }
+    }, 33); // ~30fps — sufficient for audio buffer delivery
 
     return () => {
+      clearInterval(id);
       fmDemod.stopAudio();
     };
   }, [
-    dataFrameCounter,
     demodState.isListening,
     demodState.centerFreqHz,
     demodState.algorithm,

@@ -1,12 +1,6 @@
 import { memo, useRef, useEffect } from "react";
 import styled from "styled-components";
-import {
-  WATERFALL_CANVAS_BG,
-  WATERFALL_HISTORY_LIMIT,
-  WATERFALL_HISTORY_MAX,
-  FFT_MIN_DB,
-  FFT_MAX_DB,
-} from "@n-apt/consts";
+import { WATERFALL_CANVAS_BG, FFT_MIN_DB, FFT_MAX_DB } from "@n-apt/consts";
 
 interface FrequencyRange {
   min: number;
@@ -26,11 +20,14 @@ interface FIFOWaterfallProps {
     data: ArrayLike<number>,
     targetLength: number,
   ) => number[];
-  spectrumToAmplitude: (
+  /** Deprecated: FIFOWaterfall now consumes dB spectrum frames directly. */
+  spectrumToAmplitude?: (
     data: number[],
     historyLimit: number,
     historyMax: number,
   ) => number[];
+  fftMin?: number;
+  fftMax?: number;
   awaitingDeviceData?: boolean;
 }
 
@@ -71,6 +68,23 @@ const sampleGradient = (t: number): [number, number, number] => {
   ];
 };
 
+const fillWaterfallBuffer = (
+  buffer: Uint8ClampedArray,
+  width: number,
+  height: number,
+) => {
+  const [r, g, b] = sampleGradient(0);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = (y * width + x) * 4;
+      buffer[idx] = r;
+      buffer[idx + 1] = g;
+      buffer[idx + 2] = b;
+      buffer[idx + 3] = 255;
+    }
+  }
+};
+
 const addWaterfallFrame = (
   buffer: Uint8ClampedArray,
   fftFrame: number[],
@@ -93,7 +107,8 @@ const addWaterfallFrame = (
   }
 
   for (let x = 0; x < width; x++) {
-    const dbValue = fftFrame[x] ?? minDb;
+    const value = fftFrame[x];
+    const dbValue = Number.isFinite(value) ? value : minDb;
     const normalized = (dbValue - minDb) / (maxDb - minDb || 1);
     const [r, g, b] = sampleGradient(normalized);
     const idx = x * 4;
@@ -144,7 +159,8 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
     isPaused,
     isVisible,
     performScalarResampling,
-    spectrumToAmplitude,
+    fftMin = FFT_MIN_DB,
+    fftMax = FFT_MAX_DB,
     awaitingDeviceData = false,
   }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -156,13 +172,18 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
 
     // Initialize buffer if needed
     useEffect(() => {
-      const expectedLen = width * height * 4;
+      const dpr =
+        typeof window === "undefined" ? 1 : window.devicePixelRatio || 1;
+      const renderWidth = Math.max(1, Math.round(width * dpr));
+      const renderHeight = Math.max(1, Math.round(height * dpr));
+      const expectedLen = renderWidth * renderHeight * 4;
       if (
         !localBufferRef.current ||
         localBufferRef.current.length !== expectedLen
       ) {
         localBufferRef.current = new Uint8ClampedArray(expectedLen);
-        bufferDimsRef.current = { width, height };
+        fillWaterfallBuffer(localBufferRef.current, renderWidth, renderHeight);
+        bufferDimsRef.current = { width: renderWidth, height: renderHeight };
         onWaterfallBufferChange?.(localBufferRef.current);
       }
     }, [width, height, onWaterfallBufferChange]);
@@ -175,9 +196,14 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
 
+      const dpr =
+        typeof window === "undefined" ? 1 : window.devicePixelRatio || 1;
+      const renderWidth = Math.max(1, Math.round(width * dpr));
+      const renderHeight = Math.max(1, Math.round(height * dpr));
+
       // Update canvas dimensions
-      canvas.width = width;
-      canvas.height = height;
+      canvas.width = renderWidth;
+      canvas.height = renderHeight;
       canvas.style.width = `${width}px`;
       canvas.style.height = `${height}px`;
 
@@ -187,6 +213,7 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
       if (showPlaceholder) {
         const minDim = Math.max(1, Math.min(width, height));
         const fontSize = Math.max(12, Math.min(24, Math.round(minDim * 0.07)));
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         ctx.fillStyle = canvas.style.backgroundColor || WATERFALL_CANVAS_BG;
         ctx.fillRect(0, 0, width, height);
         ctx.font = `${fontSize}px 'JetBrains Mono', monospace`;
@@ -207,29 +234,32 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
       const renderWaveform = waveform ?? lastWaveformRef.current;
       if (!isPaused && renderWaveform) {
         // Add new frame when not paused
-        const resampled = performScalarResampling(renderWaveform as any, width);
-        const normalizedData = spectrumToAmplitude(
-          resampled,
-          WATERFALL_HISTORY_LIMIT,
-          WATERFALL_HISTORY_MAX,
+        const resampled = performScalarResampling(
+          renderWaveform as any,
+          renderWidth,
         );
 
         addWaterfallFrame(
           buffer,
-          normalizedData,
-          width,
-          height,
-          retuneSmear,
+          resampled,
+          renderWidth,
+          renderHeight,
+          retuneSmear * dpr,
           1,
-          FFT_MIN_DB,
-          FFT_MAX_DB,
+          fftMin,
+          fftMax,
         );
 
         onWaterfallBufferChange?.(buffer);
       }
 
       // Draw the waterfall
-      drawWaterfall({ ctx, width, height, waterfallBuffer: buffer });
+      drawWaterfall({
+        ctx,
+        width: renderWidth,
+        height: renderHeight,
+        waterfallBuffer: buffer,
+      });
     }, [
       width,
       height,
@@ -239,7 +269,8 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
       isVisible,
       retuneSmear,
       performScalarResampling,
-      spectrumToAmplitude,
+      fftMin,
+      fftMax,
       onWaterfallBufferChange,
       awaitingDeviceData,
     ]);
