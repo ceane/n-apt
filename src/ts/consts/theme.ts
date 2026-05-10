@@ -99,6 +99,8 @@ const darkColors: ColorMap = {
   stitcherButtonBackground: "#1a1a1a",
   stitcherButtonBorder: "#2a2a2a",
   stitcherButtonText: "#cccccc",
+  spectrumOverlay: "rgba(255, 255, 255, 0.15)",
+  spectrumOverlayBorder: "rgba(255, 255, 255, 0.75)",
 };
 
 const lightColors: ColorMap = {
@@ -162,6 +164,8 @@ const lightColors: ColorMap = {
   stitcherButtonBackground: "#f5f6fb",
   stitcherButtonBorder: "#d6deeb",
   stitcherButtonText: "#1f2532",
+  spectrumOverlay: "rgba(0, 0, 0, 0.08)",
+  spectrumOverlayBorder: "rgba(0, 0, 0, 0.55)",
 };
 
 export const THEME_TOKENS = {

@@ -332,6 +332,8 @@ export interface FFTCanvasProps {
   visualizerMachine?: FFTVisualizerMachine;
   visualizerSessionKey?: string;
   waterfallCanvasBindings?: FFTCanvasWaterfallBindings;
+  demodulationCenterFreqHz?: number | null;
+  demodulationRangeHz?: number | null;
 }
 
 export interface FFTCanvasWaterfallBindings {
@@ -425,6 +427,8 @@ const FFTCanvas = memo(
       waterfallCanvasBindings,
       compact = false,
       nodePreview = false,
+      demodulationCenterFreqHz = null,
+      demodulationRangeHz = null,
     } = props;
     const dispatch = useAppDispatch();
     const fftColor = useAppSelector((reduxState) => reduxState.theme.fftColor);
@@ -656,6 +660,24 @@ const FFTCanvas = memo(
     vizDbMinRef.current = vizDbMin;
     vizPanOffsetRef.current = vizPanOffset;
 
+    const demodFocusOverlay = useMemo(() => {
+      if (
+        demodulationCenterFreqHz === null ||
+        demodulationCenterFreqHz === undefined ||
+        !Number.isFinite(demodulationCenterFreqHz)
+      ) {
+        return null;
+      }
+
+      const range = demodulationRangeHz ?? 100_000;
+      if (!Number.isFinite(range) || range <= 0) return null;
+
+      return {
+        centerFrequencyHz: demodulationCenterFreqHz,
+        halfBandwidthHz: range / 2,
+      };
+    }, [demodulationCenterFreqHz, demodulationRangeHz]);
+
     // Compute zoomed visual frequency range and waveform slice
     // When zoom > 1: shows a subset of bins (magnified view)
     // When zoom < 1: pads the waveform with minimum dB values (zoomed out view)
@@ -817,6 +839,10 @@ const FFTCanvas = memo(
     useEffect(() => {
       overlayDirtyRef.current.markers = true;
     }, [isDeviceConnected]);
+
+    useEffect(() => {
+      overlayDirtyRef.current.markers = true;
+    }, [demodFocusOverlay, overlayDirtyRef]);
 
     // Effect: Recording state or sample rate changes trigger grid redraw
     // to update the recording indicator visual elements
@@ -1076,6 +1102,7 @@ const FFTCanvas = memo(
             // from individual hop-sized I/Q chunks for "Whole Channel" snapshots.
             {
               const channelRange = frequencyRangeRef.current;
+              if (!channelRange) return;
               const channelSpan = channelRange.max - channelRange.min;
               const hopCenterHz = currentData.center_frequency_hz;
               const hopSampleRate = currentData.sample_rate;
@@ -1228,7 +1255,7 @@ const FFTCanvas = memo(
         // Update waveform reference after potential restoration
         const currentWaveform = renderWaveformRef.current;
 
-        if (currentWaveform && currentWaveform.length > 0) {
+        if (currentWaveform && currentWaveform.length > 0 && frequencyRangeRef.current) {
           const {
             slicedWaveform: rawSlicedWaveform,
             visualRange,
@@ -1324,9 +1351,7 @@ const FFTCanvas = memo(
               gridOverlayRenderer: compact
                 ? undefined
                 : gridOverlayRendererRef.current,
-              markersOverlayRenderer: compact
-                ? undefined
-                : markersOverlayRendererRef.current,
+              markersOverlayRenderer: markersOverlayRendererRef.current,
               spikesOverlayRenderer: spikesOverlayRendererRef.current,
               overlayDirty: overlayDirtyRef.current,
               centerFrequencyHz: centerFreqRef.current,
@@ -1336,6 +1361,7 @@ const FFTCanvas = memo(
               isIqRecordingActive: compact ? false : isIqRecordingActive,
               limitMarkers: compact ? [] : limitMarkers,
               showSpikeOverlay,
+              demodFocusOverlay,
               onSpikeCount: (count) => {
                 dispatch(setGpuSpikeCount(count));
               },
@@ -1571,6 +1597,8 @@ const FFTCanvas = memo(
         clearOverlayCanvas,
         dispatch,
         WATERFALL_PLACEHOLDER_FONT,
+        demodFocusOverlay,
+        nodePreview,
       ],
     );
 
@@ -1788,8 +1816,10 @@ const FFTCanvas = memo(
       frequencyRangeRef.current = frequencyRange;
 
       if (
-        prevRange.min !== frequencyRange.min ||
-        prevRange.max !== frequencyRange.max
+        frequencyRange &&
+        prevRange &&
+        (prevRange.min !== frequencyRange.min ||
+        prevRange.max !== frequencyRange.max)
       ) {
         lastProcessedDataRef.current = null;
         renderWaveformRef.current = null;

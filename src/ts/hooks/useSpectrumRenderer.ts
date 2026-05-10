@@ -1,7 +1,10 @@
 import { useCallback, useRef } from "react";
 import { useDrawWebGPUFFTSignal } from "@n-apt/hooks/useDrawWebGPUFFTSignal";
 import { useDraw3DWaterfallSignal } from "@n-apt/hooks/useDraw3DWaterfallSignal";
-import { useOverlayRenderer } from "@n-apt/hooks/useOverlayRenderer";
+import {
+  type DemodFocusOverlay,
+  useOverlayRenderer,
+} from "@n-apt/hooks/useOverlayRenderer";
 import { OverlayTextureRenderer } from "@n-apt/hooks/useWebGPUInit";
 import type { SdrLimitMarker } from "@n-apt/utils/sdrLimitMarkers";
 
@@ -56,7 +59,8 @@ export interface SpectrumRendererOptions {
   showSpikeOverlay?: boolean;
   /** Receives a throttled readback of the GPU spike counter */
   onSpikeCount?: (count: number) => void;
-
+  /** FM/demod focus region rendered into the marker overlay texture */
+  demodFocusOverlay?: DemodFocusOverlay | null;
 
   /** Visual customization: Main signal line color */
   lineColor?: string;
@@ -82,7 +86,11 @@ export function useSpectrumRenderer() {
   const { drawWebGPUFFTSignal, cleanup: cleanupGPU } = useDrawWebGPUFFTSignal();
   const { draw3DWaterfallSignal, cleanup: cleanup3D } =
     useDraw3DWaterfallSignal();
-  const { drawGridOnContext, drawMarkersOnContext } = useOverlayRenderer();
+  const {
+    drawGridOnContext,
+    drawMarkersOnContext,
+    drawDemodFocusOnContext,
+  } = useOverlayRenderer();
 
   const lastOverlayUploadMsRef = useRef({ grid: 0, markers: 0, spikes: 0 });
 
@@ -111,6 +119,7 @@ export function useSpectrumRenderer() {
         limitMarkers = [],
         showSpikeOverlay = false,
         onSpikeCount,
+        demodFocusOverlay,
 
         lineColor,
         fillColor,
@@ -177,7 +186,8 @@ export function useSpectrumRenderer() {
               OVERLAY_MIN_INTERVAL_MS)
         ) {
           const ctx = markersOverlayRenderer.beginDraw(width, height, dpr);
-          if (centerFrequencyHz !== undefined) {
+          ctx.clearRect(0, 0, width, height);
+          if (!nodePreview && centerFrequencyHz !== undefined) {
             drawMarkersOnContext(
               ctx,
               width,
@@ -191,6 +201,14 @@ export function useSpectrumRenderer() {
               limitMarkers,
             );
           }
+          drawDemodFocusOnContext(
+            ctx,
+            width,
+            height,
+            frequencyRange,
+            demodFocusOverlay,
+            nodePreview,
+          );
           markersOverlayRenderer.endDraw();
           if (overlayDirty) overlayDirty.markers = false;
           lastOverlayUploadMsRef.current.markers = now;
@@ -226,6 +244,7 @@ export function useSpectrumRenderer() {
       draw3DWaterfallSignal,
       drawGridOnContext,
       drawMarkersOnContext,
+      drawDemodFocusOnContext,
     ],
   );
 
