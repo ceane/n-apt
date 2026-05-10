@@ -25,7 +25,7 @@ import {
   MetadataNode,
   SourceNode,
   CoreMLNode,
-  SpikeNode,
+  SpikeDetectionNode,
   BeatNode,
   FFTNode,
   WaterfallNode,
@@ -220,7 +220,7 @@ const CustomNode = React.memo(
 
     if (data.sourceNode) content = <SourceNode data={data} />;
     else if (data.coremlOptions) content = <CoreMLNode data={data} />;
-    else if (data.spikeOptions) content = <SpikeNode data={data} />;
+    else if (data.spikeOptions) content = <SpikeDetectionNode data={data} />;
     else if (data.beatOptions) content = <BeatNode data={data} />;
     else if (data.fftOptions) content = <FFTNode data={data} />;
     else if (data.waterfallOptions) content = <WaterfallNode data={data} />;
@@ -553,15 +553,15 @@ const DemodRouteSectionInner: React.FC = () => {
                 "source",
                 "channel",
                 "signalOptions",
-                "spike",
                 "beat",
                 "fft",
+                "spike",
                 "symbols",
                 "bitstream",
                 "stimulus",
                 "output",
               ];
-        const sortedNodes = nodesRef.current.toSorted((a: Node, b: Node) => {
+        const sortedNodes = nodesRef.current.slice().sort((a: Node, b: Node) => {
           return layoutOrder.indexOf(a.id) - layoutOrder.indexOf(b.id);
         });
 
@@ -873,9 +873,54 @@ const DemodRouteSectionInner: React.FC = () => {
         data: nodeData.data,
       };
 
-      setNodesLocal((nds: Node[]) => nds.concat(newNode));
+      setNodesLocal((nds: Node[]) => {
+        const isSpikeNode = !!nodeData.data?.spikeOptions;
+        const fftNode = isSpikeNode
+          ? nds
+              .filter((node) => node.data?.fftOptions)
+              .sort((a, b) => a.position.y - b.position.y)[0] ?? null
+          : null;
+        const nextNode = isSpikeNode && fftNode
+          ? {
+              ...newNode,
+              position: {
+                x: fftNode.position.x,
+                y: fftNode.position.y + 180,
+              },
+            }
+          : newNode;
+        const nextNodes = nds.concat(nextNode);
+        if (!isSpikeNode || !fftNode) {
+          return nextNodes;
+        }
+
+        const nextEdge: Edge = {
+          id: `e-${fftNode.id}-${newNode.id}`,
+          source: fftNode.id,
+          target: newNode.id,
+          animated: true,
+          style: {
+            stroke: "#00d4ffaa",
+            strokeWidth: 2,
+            strokeDasharray: "5 5",
+          },
+        };
+
+        setEdgesLocal((eds: Edge[]) => {
+          if (eds.some((edge) => edge.source === fftNode.id && edge.target === newNode.id)) {
+            return eds;
+          }
+          return [...eds, nextEdge];
+        });
+
+        window.requestAnimationFrame(() => {
+          window.dispatchEvent(new CustomEvent("demod-flow-node-resize"));
+        });
+
+        return nextNodes;
+      });
     },
-    [setNodesLocal, screenToFlowPosition],
+    [setNodesLocal, setEdgesLocal, screenToFlowPosition],
   );
 
   // Handle keyboard shortcuts

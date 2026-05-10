@@ -91,6 +91,8 @@ import {
   resetLiveControls,
   setTemporalResolution,
   setPowerScale,
+  setShowSpikeOverlay,
+  setGpuSpikeCount,
 } from "./slices/spectrumSlice";
 
 // Export spectrum actions as individual
@@ -124,6 +126,8 @@ export {
   resetLiveControls,
   setTemporalResolution,
   setPowerScale,
+  setShowSpikeOverlay,
+  setGpuSpikeCount,
 } from "./slices/spectrumSlice";
 
 // Export collective action objects for convenience
@@ -157,6 +161,8 @@ export const spectrumActions = {
   resetLiveControls,
   setTemporalResolution,
   setPowerScale,
+  setShowSpikeOverlay,
+  setGpuSpikeCount,
 };
 
 export {

@@ -18,7 +18,8 @@ import { useDrawWebGPUFIFOWaterfall } from "@n-apt/hooks/useDrawWebGPUFIFOWaterf
 import { useFrequencyDrag } from "@n-apt/hooks/useFrequencyDrag";
 import { useWebGPUInit } from "@n-apt/hooks/useWebGPUInit";
 import { useWasmSimdMath } from "@n-apt/hooks/useWasmSimdMath";
-import { useAppSelector } from "@n-apt/redux";
+import { useAppDispatch, useAppSelector } from "@n-apt/redux";
+import { setGpuSpikeCount } from "@n-apt/redux/slices/spectrumSlice";
 import { WATERFALL_COLORMAPS } from "@n-apt/consts/colormaps";
 import type { DeviceProfile } from "@n-apt/consts/schemas/websocket";
 import type { LiveFrameData } from "@n-apt/consts/schemas/websocket";
@@ -425,6 +426,7 @@ const FFTCanvas = memo(
       compact = false,
       nodePreview = false,
     } = props;
+    const dispatch = useAppDispatch();
     const fftColor = useAppSelector((reduxState) => reduxState.theme.fftColor);
     const waterfallTheme = useAppSelector(
       (reduxState) => reduxState.theme.waterfallTheme,
@@ -617,7 +619,7 @@ const FFTCanvas = memo(
       visualizerSessionKey,
     ]);
     const fftProcessedBufferRef = useRef<Float32Array | null>(null);
-    const spikePersistenceRef = useRef<Float32Array | null>(null);
+
     const spectrumOutputBufferRef = useRef<Float32Array | null>(null);
     const autoFftResizeTimeoutRef = useRef<number | null>(null);
     const pendingFftSizeChangeRef = useRef(false);
@@ -895,7 +897,7 @@ const FFTCanvas = memo(
     });
 
     // Initialize WASM SIMD for optimized data processing
-    const { processIqToDbmSpectrum, detectProminentSpikes } = useWasmSimdMath({
+    const { processIqToDbmSpectrum } = useWasmSimdMath({
       fftSize: 4096,
       enableSimd: true,
       fallbackToScalar: true,
@@ -1326,9 +1328,7 @@ const FFTCanvas = memo(
               markersOverlayRenderer: compact
                 ? undefined
                 : markersOverlayRendererRef.current,
-              spikesOverlayRenderer: compact
-                ? undefined
-                : spikesOverlayRendererRef.current,
+              spikesOverlayRenderer: spikesOverlayRendererRef.current,
               overlayDirty: overlayDirtyRef.current,
               centerFrequencyHz: centerFreqRef.current,
               isDeviceConnected,
@@ -1336,28 +1336,10 @@ const FFTCanvas = memo(
               fullCaptureRange: frequencyRangeRef.current,
               isIqRecordingActive: compact ? false : isIqRecordingActive,
               limitMarkers: compact ? [] : limitMarkers,
-              showSpikeOverlay: compact ? false : showSpikeOverlay,
-              spikeMarkers:
-                !compact && showSpikeOverlay
-                  ? detectProminentSpikes({
-                      spectrumData: slicedWaveform,
-                      dbMin: activeScaleDbMin,
-                      dbMax: activeScaleDbMax,
-                      maxMarkers: Math.max(
-                        24,
-                        Math.floor(slicedWaveform.length / 12),
-                      ),
-                      frequencyRange: visualRange,
-                      temporalPersistence:
-                        spikePersistenceRef.current &&
-                        spikePersistenceRef.current.length ===
-                          slicedWaveform.length
-                          ? spikePersistenceRef.current
-                          : (spikePersistenceRef.current = new Float32Array(
-                              slicedWaveform.length,
-                            )),
-                    })
-                  : [],
+              showSpikeOverlay,
+              onSpikeCount: (count) => {
+                dispatch(setGpuSpikeCount(count));
+              },
               lineColor: fftColor,
               fillColor: fillColor,
             });
@@ -1588,6 +1570,7 @@ const FFTCanvas = memo(
         awaitingDeviceData,
         drawLoadingPlaceholder,
         clearOverlayCanvas,
+        dispatch,
         WATERFALL_PLACEHOLDER_FONT,
       ],
     );
@@ -1653,12 +1636,8 @@ const FFTCanvas = memo(
       );
     }, [heterodyningVerifyRequestId, onHeterodyningAnalyzed]);
 
-    // Effect: Toggle spike detection overlay. Clears persistence buffer when disabled
-    // to reset temporal smoothing state for next enable.
+    // Effect: Toggle spike detection overlay. The spike hook owns persistence.
     useEffect(() => {
-      if (!showSpikeOverlay) {
-        spikePersistenceRef.current = null;
-      }
       overlayDirtyRef.current.spikes = true;
       forceRender();
     }, [showSpikeOverlay, forceRender, overlayDirtyRef]);

@@ -1,4 +1,4 @@
-import { memo, useRef, useEffect } from "react";
+import { memo, useRef, useEffect, useState } from "react";
 import styled from "styled-components";
 import { WATERFALL_CANVAS_BG, FFT_MIN_DB, FFT_MAX_DB } from "@n-apt/consts";
 
@@ -31,10 +31,25 @@ interface FIFOWaterfallProps {
   awaitingDeviceData?: boolean;
 }
 
-const WaterfallCanvas = styled.canvas<{ $width: number; $height: number }>`
+const WaterfallViewport = styled.div`
+  display: flex;
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+`;
+
+const WaterfallCanvas = styled.canvas`
   display: block;
-  width: ${({ $width }) => $width}px;
-  height: ${({ $height }) => $height}px;
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+  min-width: 0;
+  min-height: 0;
   background-color: ${({ theme }) =>
     theme.colors?.waterfallBackground ?? WATERFALL_CANVAS_BG};
 `;
@@ -164,29 +179,80 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
     awaitingDeviceData = false,
   }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
+    const viewportRef = useRef<HTMLDivElement>(null);
     const localBufferRef = useRef<Uint8ClampedArray | null>(null);
     const bufferDimsRef = useRef<{ width: number; height: number } | null>(
       null,
     );
     const lastWaveformRef = useRef<Float32Array | null>(null);
+    const resizeFrameRef = useRef<number | null>(null);
+    const [viewportSize, setViewportSize] = useState({
+      width: width,
+      height: height,
+    });
+
+    const resolveCssSize = () => viewportSize;
+
+    // Initialize buffer if needed
+    useEffect(() => {
+      const viewport = viewportRef.current;
+      if (!viewport) return;
+
+      const updateSize = () => {
+        if (resizeFrameRef.current !== null) {
+          window.cancelAnimationFrame(resizeFrameRef.current);
+        }
+        resizeFrameRef.current = window.requestAnimationFrame(() => {
+          const measuredWidth = viewport.offsetWidth;
+          const measuredHeight = viewport.offsetHeight;
+          if (measuredWidth < 2 || measuredHeight < 2) return;
+
+          setViewportSize((current) => {
+            const nextWidth = Math.max(1, Math.round(measuredWidth || width));
+            const nextHeight = Math.max(1, Math.round(measuredHeight || height));
+            if (current.width === nextWidth && current.height === nextHeight) {
+              return current;
+            }
+            return { width: nextWidth, height: nextHeight };
+          });
+        });
+      };
+
+      updateSize();
+      const observer = new ResizeObserver(updateSize);
+      observer.observe(viewport);
+      return () => {
+        if (resizeFrameRef.current !== null) {
+          window.cancelAnimationFrame(resizeFrameRef.current);
+          resizeFrameRef.current = null;
+        }
+        observer.disconnect();
+      };
+    }, [width, height]);
 
     // Initialize buffer if needed
     useEffect(() => {
       const dpr =
         typeof window === "undefined" ? 1 : window.devicePixelRatio || 1;
-      const renderWidth = Math.max(1, Math.round(width * dpr));
-      const renderHeight = Math.max(1, Math.round(height * dpr));
+      const { width: cssWidth, height: cssHeight } = resolveCssSize();
+      const renderWidth = Math.max(1, Math.round(cssWidth * dpr));
+      const renderHeight = Math.max(1, Math.round(cssHeight * dpr));
       const expectedLen = renderWidth * renderHeight * 4;
+      const previousDims = bufferDimsRef.current;
       if (
         !localBufferRef.current ||
-        localBufferRef.current.length !== expectedLen
+        localBufferRef.current.length !== expectedLen ||
+        !previousDims ||
+        previousDims.width !== renderWidth ||
+        previousDims.height !== renderHeight
       ) {
         localBufferRef.current = new Uint8ClampedArray(expectedLen);
         fillWaterfallBuffer(localBufferRef.current, renderWidth, renderHeight);
         bufferDimsRef.current = { width: renderWidth, height: renderHeight };
+        lastWaveformRef.current = null;
         onWaterfallBufferChange?.(localBufferRef.current);
       }
-    }, [width, height, onWaterfallBufferChange]);
+    }, [viewportSize.width, viewportSize.height, onWaterfallBufferChange]);
 
     // Render waterfall
     useEffect(() => {
@@ -198,29 +264,30 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
 
       const dpr =
         typeof window === "undefined" ? 1 : window.devicePixelRatio || 1;
-      const renderWidth = Math.max(1, Math.round(width * dpr));
-      const renderHeight = Math.max(1, Math.round(height * dpr));
+      const { width: cssWidth, height: cssHeight } = resolveCssSize();
+      const renderWidth = Math.max(1, Math.round(cssWidth * dpr));
+      const renderHeight = Math.max(1, Math.round(cssHeight * dpr));
 
       // Update canvas dimensions
       canvas.width = renderWidth;
       canvas.height = renderHeight;
-      canvas.style.width = `${width}px`;
-      canvas.style.height = `${height}px`;
+      canvas.style.width = `${cssWidth}px`;
+      canvas.style.height = `${cssHeight}px`;
 
       const showPlaceholder =
         awaitingDeviceData && (!waveform || waveform.length === 0);
 
       if (showPlaceholder) {
-        const minDim = Math.max(1, Math.min(width, height));
+        const minDim = Math.max(1, Math.min(cssWidth, cssHeight));
         const fontSize = Math.max(12, Math.min(24, Math.round(minDim * 0.07)));
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         ctx.fillStyle = canvas.style.backgroundColor || WATERFALL_CANVAS_BG;
-        ctx.fillRect(0, 0, width, height);
+        ctx.fillRect(0, 0, cssWidth, cssHeight);
         ctx.font = `${fontSize}px 'JetBrains Mono', monospace`;
         ctx.fillStyle = WATERFALL_PLACEHOLDER_COLOR;
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
-        ctx.fillText(WATERFALL_PLACEHOLDER_TEXT, width / 2, height / 2);
+        ctx.fillText(WATERFALL_PLACEHOLDER_TEXT, cssWidth / 2, cssHeight / 2);
         return;
       }
 
@@ -261,8 +328,8 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
         waterfallBuffer: buffer,
       });
     }, [
-      width,
-      height,
+      viewportSize.width,
+      viewportSize.height,
       waveform,
       frequencyRange,
       isPaused,
@@ -275,7 +342,12 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
       awaitingDeviceData,
     ]);
 
-    return <WaterfallCanvas ref={canvasRef} $width={width} $height={height} />;
+    const { width: cssWidth, height: cssHeight } = resolveCssSize();
+    return (
+      <WaterfallViewport ref={viewportRef}>
+        <WaterfallCanvas ref={canvasRef} />
+      </WaterfallViewport>
+    );
   },
 );
 

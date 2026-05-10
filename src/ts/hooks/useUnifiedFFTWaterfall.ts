@@ -498,10 +498,10 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
         const windowPass = encoder.beginComputePass();
         if (inputMode === "complex_iq" && rtlIqWindowPipelineRef.current) {
           windowPass.setPipeline(rtlIqWindowPipelineRef.current);
-          windowPass.setBindGroup(0, bindGroupsRef.current.rtlIqWindow!, [0 * alignment]);
+          windowPass.setBindGroup(0, bindGroupsRef.current.rtlIqWindow!, [0]);
         } else if (fftWindowPipelineRef.current) {
           windowPass.setPipeline(fftWindowPipelineRef.current);
-          windowPass.setBindGroup(0, bindGroupsRef.current.fftWindow!, [0 * alignment]);
+          windowPass.setBindGroup(0, bindGroupsRef.current.fftWindow!, [0]);
         }
         windowPass.dispatchWorkgroups(Math.ceil(fftSize / 256));
         windowPass.end();
@@ -616,6 +616,4 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
   };
 }
 
-function int32View(buffer: ArrayBuffer) {
-  return new Int32Array(buffer);
-}
+
