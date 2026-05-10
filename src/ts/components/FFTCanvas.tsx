@@ -619,7 +619,6 @@ const FFTCanvas = memo(
       visualizerSessionKey,
     ]);
     const fftProcessedBufferRef = useRef<Float32Array | null>(null);
-
     const spectrumOutputBufferRef = useRef<Float32Array | null>(null);
     const autoFftResizeTimeoutRef = useRef<number | null>(null);
     const pendingFftSizeChangeRef = useRef(false);
