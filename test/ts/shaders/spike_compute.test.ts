@@ -1,14 +1,19 @@
-import { describe, expect, it } from "vitest";
-import { spikeComputeShader } from "@n-apt/shaders";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+const SPIKE_COMPUTE_WGSL = readFileSync(
+  join(process.cwd(), "src/ts/shaders/spike_compute.wgsl"),
+  "utf8",
+);
 
 describe("spike_compute.wgsl", () => {
   it("stays non-empty", () => {
-    expect(spikeComputeShader.trim()).not.toHaveLength(0);
+    expect(SPIKE_COMPUTE_WGSL.trim()).not.toHaveLength(0);
   });
 
   it("exports the expected spike compute entry point", () => {
-    expect(spikeComputeShader).toContain("fn main");
-    expect(spikeComputeShader).toContain("SpikeMarker");
-    expect(spikeComputeShader).toContain("spike_count");
+    expect(SPIKE_COMPUTE_WGSL).toContain("fn main");
+    expect(SPIKE_COMPUTE_WGSL).toContain("SpikeMarker");
+    expect(SPIKE_COMPUTE_WGSL).toContain("spike_count");
   });
 });

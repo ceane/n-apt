@@ -12,10 +12,17 @@ import { Button } from "@n-apt/components/ui";
 
 const FallbackContainer = styled.div`
   padding: 16px;
-  background: rgba(255, 68, 68, 0.05);
-  border: 1px dashed rgba(255, 68, 68, 0.2);
+  background: ${(props) =>
+    props.theme.mode === "light"
+      ? "linear-gradient(180deg, rgba(255, 68, 68, 0.05), rgba(255, 68, 68, 0.02))"
+      : "rgba(255, 68, 68, 0.05)"};
+  border: 1px dashed
+    ${(props) =>
+      props.theme.mode === "light"
+        ? "rgba(214, 54, 54, 0.28)"
+        : "rgba(255, 68, 68, 0.2)"};
   border-radius: 8px;
-  color: #ff6666;
+  color: ${(props) => props.theme.danger || props.theme.colors?.danger || "#ff6666"};
   font-family: "JetBrains Mono", monospace;
   font-size: 12px;
   text-align: left;
@@ -28,7 +35,7 @@ const Header = styled.div`
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #ff4444;
+  color: ${(props) => props.theme.danger || props.theme.colors?.danger || "#ff4444"};
 `;
 
 const Title = styled.div`
@@ -41,24 +48,47 @@ const Message = styled.div`
   opacity: 0.9;
   font-size: 11px;
   line-height: 1.5;
+  color: ${(props) => props.theme.textSecondary || props.theme.colors?.textSecondary || "#4a5568"};
 `;
 
 const Instructions = styled.div`
-  background: rgba(0, 0, 0, 0.2);
+  background: ${(props) =>
+    props.theme.mode === "light"
+      ? "rgba(255, 255, 255, 0.85)"
+      : "rgba(0, 0, 0, 0.2)"};
   padding: 10px;
   border-radius: 4px;
   font-size: 10px;
-  color: #bbb;
+  color: ${(props) => props.theme.textSecondary || props.theme.colors?.textSecondary || "#bbb"};
   display: flex;
   flex-direction: column;
   gap: 6px;
+  border: 1px solid
+    ${(props) =>
+      props.theme.mode === "light"
+        ? "rgba(214, 222, 235, 0.9)"
+        : "rgba(255, 255, 255, 0.08)"};
+  box-shadow: ${(props) =>
+    props.theme.mode === "light"
+      ? "0 1px 2px rgba(31, 37, 50, 0.04)"
+      : "none"};
 `;
 
 const CodeBlock = styled.code`
-  color: #eee;
-  background: rgba(255, 255, 255, 0.05);
+  color: ${(props) => props.theme.textPrimary || props.theme.colors?.textPrimary || "#eee"};
+  background: ${(props) =>
+    props.theme.mode === "light"
+      ? "rgba(0, 85, 255, 0.08)"
+      : "rgba(255, 255, 255, 0.05)"};
   padding: 2px 4px;
   border-radius: 2px;
+`;
+
+const AsideText = styled.span`
+  opacity: 0.8;
+  font-size: 10px;
+  color: ${(props) =>
+    props.theme.textMuted || props.theme.colors?.textMuted || "#6b7280"};
 `;
 
 export type DecryptionErrorType = "vault" | "demod" | "latex";
@@ -116,10 +146,10 @@ export const DecryptionFallback: React.FC<DecryptionFallbackProps> = ({
       <Message>
         {message}
         <br />
-        <span style={{ opacity: 0.7, fontSize: "10px" }}>
+        <AsideText>
           This usually happens if the session key has expired or the password
           was incorrect.
-        </span>
+        </AsideText>
       </Message>
 
       <Instructions>
@@ -129,7 +159,7 @@ export const DecryptionFallback: React.FC<DecryptionFallbackProps> = ({
             Check your <CodeBlock>.env.local</CodeBlock> configuration:
           </span>
         </div>
-        <div style={{ paddingLeft: 18, color: "#999" }}>
+        <div style={{ paddingLeft: 18, color: "inherit" }}>
           Ensure <CodeBlock>{envVar}</CodeBlock> is set correctly.
         </div>
 
@@ -144,7 +174,7 @@ export const DecryptionFallback: React.FC<DecryptionFallbackProps> = ({
           <HelpCircle size={12} />
           <span>Troubleshooting:</span>
         </div>
-        <div style={{ paddingLeft: 18, color: "#999" }}>{troubleshooting}</div>
+        <div style={{ paddingLeft: 18, color: "inherit" }}>{troubleshooting}</div>
       </Instructions>
 
       <div style={{ display: "flex", gap: "8px" }}>
@@ -152,7 +182,7 @@ export const DecryptionFallback: React.FC<DecryptionFallbackProps> = ({
           $variant="primary"
           onClick={() => window.location.reload()}
           style={{
-            fontSize: "10px",
+            fontSize: "12px",
             padding: "4px 8px",
             height: "auto",
             flex: 1,
@@ -165,7 +195,7 @@ export const DecryptionFallback: React.FC<DecryptionFallbackProps> = ({
           $variant="secondary"
           onClick={logout}
           style={{
-            fontSize: "10px",
+            fontSize: "12px",
             padding: "4px 8px",
             height: "auto",
             flex: 1,
