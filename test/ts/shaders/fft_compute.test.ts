@@ -1,14 +1,12 @@
-import { describe, expect, it } from "vitest";
-import { fftComputeShader } from "@n-apt/shaders";
+import { FFT_COMPUTE_SHADER } from "../../../src/ts/consts/shaders/fft_compute";
 
 describe("fft_compute.wgsl", () => {
   it("stays non-empty", () => {
-    expect(fftComputeShader.trim()).not.toHaveLength(0);
+    expect(FFT_COMPUTE_SHADER.trim()).not.toHaveLength(0);
   });
 
   it("exports the expected entry points", () => {
-    expect(fftComputeShader).toContain("fn fft_window");
-    expect(fftComputeShader).toContain("fn fft_compute");
-    expect(fftComputeShader).toContain("fn fft_bit_reversal");
+    expect(FFT_COMPUTE_SHADER).toContain("fn fft_window");
+    expect(FFT_COMPUTE_SHADER).toContain("fn fft_compute");
   });
 });

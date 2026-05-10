@@ -1,15 +1,14 @@
-import { describe, expect, it } from "vitest";
-import { spectrumShader } from "@n-apt/shaders";
+import { SPECTRUM_SHADER } from "../../../src/ts/consts/shaders/spectrum";
 
 describe("spectrum.wgsl", () => {
   it("stays non-empty", () => {
-    expect(spectrumShader.trim()).not.toHaveLength(0);
+    expect(SPECTRUM_SHADER.trim()).not.toHaveLength(0);
   });
 
   it("exports the expected entry points", () => {
-    expect(spectrumShader).toContain("fn vs_line");
-    expect(spectrumShader).toContain("fn vs_fill");
-    expect(spectrumShader).toContain("fn fs_line");
-    expect(spectrumShader).toContain("fn fs_fill");
+    expect(SPECTRUM_SHADER).toContain("fn vs_line");
+    expect(SPECTRUM_SHADER).toContain("fn vs_fill");
+    expect(SPECTRUM_SHADER).toContain("fn fs_line");
+    expect(SPECTRUM_SHADER).toContain("fn fs_fill");
   });
 });

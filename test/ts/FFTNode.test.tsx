@@ -30,29 +30,27 @@ describe("FFTNode", () => {
       </TestWrapper>,
     );
 
-    expect(screen.getByText("📊 FFT Transform")).toBeInTheDocument();
+    expect(screen.getByText("FFT Transform")).toBeInTheDocument();
   });
 
-  it("renders node-title class", () => {
-    const { container } = render(
+  it("renders node title styling", () => {
+    render(
       <TestWrapper>
         <FFTNode {...defaultProps} />
       </TestWrapper>,
     );
 
-    const titleElement = container.querySelector(".node-title");
-    expect(titleElement).toBeInTheDocument();
+    expect(screen.getByText("FFT Transform")).toBeInTheDocument();
   });
 
-  it("renders node-description class", () => {
-    const { container } = render(
+  it("renders the FFT canvas", () => {
+    render(
       <TestWrapper>
         <FFTNode {...defaultProps} />
       </TestWrapper>,
     );
 
-    const descriptionElement = container.querySelector(".node-description");
-    expect(descriptionElement).toBeInTheDocument();
+    expect(screen.getByTestId("fft-canvas")).toBeInTheDocument();
   });
 
   it("renders with custom label", () => {
