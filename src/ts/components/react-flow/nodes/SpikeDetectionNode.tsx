@@ -1,7 +1,6 @@
 import React, { useMemo, useState } from "react";
 import styled from "styled-components";
 import { Search, Zap } from "lucide-react";
-import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 
 interface SpikeDetectionNodeProps {
   data: {
@@ -180,7 +179,9 @@ export const SpikeDetectionNode: React.FC<SpikeDetectionNodeProps> = ({
               <ResultLabel>FFT Scan</ResultLabel>
               <ResultMeta>{currentWindow}</ResultMeta>
             </div>
-            <CountBadge>{isEnabled ? `${gpuSpikeCount} spikes` : "off"}</CountBadge>
+            <CountBadge>
+              {isEnabled ? `${gpuSpikeCount} spikes` : "off"}
+            </CountBadge>
           </ResultHeader>
           <HelperText>{scanStatus}</HelperText>
         </ResultCard>
