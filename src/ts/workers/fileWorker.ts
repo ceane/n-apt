@@ -304,8 +304,6 @@ async function decryptNaptPayloadAtOffsets(
       );
     } catch (e: any) {
       lastError = e;
-      // We log but continue the loop to try next offset
-      console.debug(`[fileWorker] Decryption attempt failed at offset ${hSize} for ${fileName}:`, e.name || e.message || e);
     }
   }
 

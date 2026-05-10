@@ -21,6 +21,11 @@ import { tickPrecisionForStep } from "@n-apt/utils/rendering/formatters";
 import type { SdrLimitMarker } from "@n-apt/utils/sdrLimitMarkers";
 import type { SpectrumSpikeMarker } from "@n-apt/hooks/useWasmSimdMath";
 
+export interface DemodFocusOverlay {
+  centerFrequencyHz: number;
+  halfBandwidthHz: number;
+}
+
 const readCssColor = (name: string, fallback: string) => {
   if (typeof window === "undefined" || typeof document === "undefined")
     return fallback;
@@ -47,6 +52,9 @@ const getCanvasThemeColors = () => ({
   centerLabelText: readCssColor("--color-snap-center-label-text", "#666"),
   boundaryLine: readCssColor("--color-fft-boundary-line", BOUNDARY_LINE_COLOR),
   boundaryText: readCssColor("--color-fft-boundary-text", BOUNDARY_TEXT_COLOR),
+  spectrumOverlay: readCssColor("--color-spectrum-overlay", "rgba(255, 255, 255, 0.15)"),
+  spectrumOverlayBorder: readCssColor("--color-spectrum-overlay-border", "rgba(255, 255, 255, 0.75)"),
+  textPrimary: readCssColor("--color-text-primary", "#cccccc"),
 });
 
 /**
@@ -488,6 +496,134 @@ export function useOverlayRenderer() {
     [],
   );
 
+  const drawDemodFocusOnContext = useCallback(
+    (
+      ctx: OffscreenCanvasRenderingContext2D,
+      width: number,
+      height: number,
+      frequencyRange: { min: number; max: number },
+      demodFocus: DemodFocusOverlay | null | undefined,
+      nodePreview = false,
+    ) => {
+      if (!demodFocus) return;
+
+      const { centerFrequencyHz, halfBandwidthHz } = demodFocus;
+      if (
+        !Number.isFinite(centerFrequencyHz) ||
+        !Number.isFinite(halfBandwidthHz) ||
+        halfBandwidthHz <= 0
+      ) {
+        return;
+      }
+
+      const minFreq = frequencyRange.min;
+      const maxFreq = frequencyRange.max;
+      const viewBandwidth = maxFreq - minFreq;
+      if (
+        !Number.isFinite(minFreq) ||
+        !Number.isFinite(maxFreq) ||
+        viewBandwidth <= 0
+      ) {
+        return;
+      }
+
+      const bandMin = centerFrequencyHz - halfBandwidthHz;
+      const bandMax = centerFrequencyHz + halfBandwidthHz;
+
+      // Only return if off-screen in full mode; for nodePreview, we want to see it if possible
+      if (!nodePreview && (bandMax <= minFreq || bandMin >= maxFreq)) return;
+
+      const plotLeft = nodePreview ? 0 : FFT_AREA_MIN.x;
+      const plotRight = nodePreview ? width : width - 40;
+      const plotTop = nodePreview ? 0 : FFT_AREA_MIN.y;
+      const plotBottom = nodePreview ? height : height - 40;
+      const plotWidth = plotRight - plotLeft;
+      if (plotWidth <= 0 || plotBottom <= plotTop) return;
+
+      const freqToX = (freq: number) =>
+        plotLeft + ((freq - minFreq) / viewBandwidth) * plotWidth;
+
+      const leftX = Math.max(plotLeft, Math.min(plotRight, freqToX(bandMin)));
+      const rightX = Math.max(plotLeft, Math.min(plotRight, freqToX(bandMax)));
+      const bandWidth = Math.max(2, rightX - leftX);
+      const centerX = Math.max(
+        plotLeft + 28,
+        Math.min(plotRight - 28, freqToX(centerFrequencyHz)),
+      );
+      const label = `${(centerFrequencyHz / 1_000_000).toFixed(1)}MHz`;
+      const subLabel = `±${Math.round(halfBandwidthHz / 1_000)}kHz`;
+
+      ctx.save();
+      const canvasTheme = getCanvasThemeColors();
+
+      // Background Highlight (from theme)
+      ctx.fillStyle = canvasTheme.spectrumOverlay;
+      ctx.fillRect(leftX, plotTop, bandWidth, plotBottom - plotTop);
+
+      // Boundary lines (Dotted from theme)
+      ctx.strokeStyle = canvasTheme.spectrumOverlayBorder;
+      ctx.lineWidth = Math.max(1, 2 / (window.devicePixelRatio || 1));
+      ctx.setLineDash([3, 4]); // Increased spacing for clear "dotted" look
+      ctx.lineCap = "round";
+
+      for (const x of [leftX, rightX]) {
+        ctx.beginPath();
+        ctx.moveTo(x, plotTop);
+        ctx.lineTo(x, plotBottom);
+        ctx.stroke();
+      }
+
+      ctx.setLineDash([]);
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+      ctx.font = nodePreview
+        ? "bold 10px JetBrains Mono"
+        : "bold 12px JetBrains Mono";
+
+      const labelWidth = Math.max(
+        ctx.measureText(label).width,
+        ctx.measureText(subLabel).width,
+      );
+      const labelX = Math.max(
+        plotLeft + labelWidth / 2 + 8,
+        Math.min(plotRight - labelWidth / 2 - 8, centerX),
+      );
+
+      // Multi-line Label Background (Opaque white for contrast on labels)
+      const labelHeight = nodePreview ? 26 : 38;
+      ctx.fillStyle = "rgba(255, 255, 255, 0.96)";
+      ctx.fillRect(
+        labelX - labelWidth / 2 - 8,
+        plotTop + (nodePreview ? 4 : 10),
+        labelWidth + 16,
+        labelHeight,
+      );
+
+      ctx.fillStyle = "#07111f"; // Dark text on light label bg for clarity
+      ctx.fillText(label, labelX, plotTop + (nodePreview ? 6 : 13));
+      
+      // Always show sub-label now
+      ctx.font = "bold 9px JetBrains Mono";
+      ctx.fillStyle = "rgba(7, 17, 31, 0.8)";
+      ctx.fillText(subLabel, labelX, plotTop + (nodePreview ? 17 : 28));
+
+      // Center Line (Themed) - Drawn LAST to be on top
+      const centerLineX = freqToX(centerFrequencyHz);
+      if (centerLineX >= plotLeft && centerLineX <= plotRight) {
+        ctx.strokeStyle = canvasTheme.centerLineColor;
+        ctx.lineWidth = Math.max(1, 2.5 / (window.devicePixelRatio || 1));
+        ctx.setLineDash([]); // Solid center line
+        ctx.beginPath();
+        ctx.moveTo(centerLineX, plotTop);
+        ctx.lineTo(centerLineX, plotBottom);
+        ctx.stroke();
+      }
+
+      ctx.restore();
+    },
+    [],
+  );
+
   const drawSpikeMarkersOnContext = useCallback(
     (
       ctx: OffscreenCanvasRenderingContext2D,
@@ -556,6 +692,7 @@ export function useOverlayRenderer() {
   return {
     drawGridOnContext,
     drawMarkersOnContext,
+    drawDemodFocusOnContext,
     drawSpikeMarkersOnContext,
   };
 }

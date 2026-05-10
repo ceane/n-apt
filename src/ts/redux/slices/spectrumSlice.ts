@@ -1,5 +1,5 @@
 import { createSlice, PayloadAction } from "@reduxjs/toolkit";
-import { FrequencyRange } from "@n-apt/consts/schemas/websocket";
+import { FrequencyRange } from "@n-apt/consts/types";
 
 export type DisplayTemporalResolution = "low" | "medium" | "high";
 export type PowerScale = "dB" | "dBm";
@@ -47,6 +47,10 @@ export interface SpectrumState {
   diagnosticStatus: string;
   isDiagnosticRunning: boolean;
   diagnosticTrigger: number;
+
+  // Live preview range (from SpanNode)
+  previewRange: FrequencyRange | null;
+  previewCenterHz: number | null;
 }
 
 const LIVE_CONTROL_DEFAULTS = {
@@ -56,6 +60,8 @@ const LIVE_CONTROL_DEFAULTS = {
   vizPanOffset: 0,
   fftMinDb: -120,
   fftMaxDb: 0,
+  previewRange: null,
+  previewCenterHz: null,
   fftSizeOptions: [] as number[],
   fftWindow: "Rectangular",
   fftAvgEnabled: false,
@@ -99,6 +105,8 @@ const initialState: SpectrumState = {
   isWaterfallCleared: false,
   showSpikeOverlay: false,
   gpuSpikeCount: 0,
+  previewRange: null,
+  previewCenterHz: null,
 
   diagnosticStatus: "Ready",
   isDiagnosticRunning: false,
@@ -294,6 +302,13 @@ const spectrumSlice = createSlice({
       state.diagnosticTrigger += 1;
     },
 
+    setPreviewRange: (state, action: PayloadAction<FrequencyRange | null>) => {
+      state.previewRange = action.payload;
+    },
+    setPreviewCenterHz: (state, action: PayloadAction<number | null>) => {
+      state.previewCenterHz = action.payload;
+    },
+
     // Reset actions
     resetZoomAndDb: (state) => {
       const isDbm = state.powerScale === "dBm";
@@ -368,6 +383,8 @@ export const {
   resetLiveControls,
   setShowSpikeOverlay,
   setGpuSpikeCount,
+  setPreviewRange,
+  setPreviewCenterHz,
 } = spectrumSlice.actions;
 
 export default spectrumSlice.reducer;

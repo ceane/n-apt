@@ -1,10 +1,10 @@
 import { createAsyncThunk } from "@reduxjs/toolkit";
 import { RootState } from "@n-apt/redux/store";
 import {
-  FrequencyRange,
   SDRSettings,
   CaptureRequest,
 } from "@n-apt/consts/schemas/websocket";
+import { FrequencyRange } from "@n-apt/consts/types";
 
 const getSampleRateHz = (state: RootState): number | null => {
   const candidates = [

@@ -316,11 +316,16 @@ const flowTemplates: FlowTemplate[] = [
         },
       },
       {
-        id: "apt",
+        id: "fft",
         type: "custom",
-        label: "APT",
+        label: "FFT",
         position: { x: 250, y: 350 },
-        data: { label: "APT", description: "APT processing", aptOptions: true },
+        data: {
+          label: "FFT",
+          description: "Fast Fourier Transform",
+          fftOptions: true,
+          showDemodOverlay: true,
+        },
       },
       {
         id: "radio",
@@ -345,13 +350,13 @@ const flowTemplates: FlowTemplate[] = [
       {
         id: "e2",
         source: "span",
-        target: "apt",
+        target: "fft",
         animated: true,
         style: { stroke: "#00d4ffaa", strokeWidth: 2 },
       },
       {
         id: "e3",
-        source: "apt",
+        source: "fft",
         target: "radio",
         animated: true,
         style: { stroke: "#00d4ffaa", strokeWidth: 2 },

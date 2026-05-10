@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import styled from "styled-components";
 import { Handle, Position, useReactFlow } from "@xyflow/react";
 import { Radio as RadioIcon, Volume2, VolumeX } from "lucide-react";
@@ -10,6 +10,7 @@ import {
 } from "@n-apt/redux/slices/demodSlice";
 import { formatFrequency } from "@n-apt/utils/frequency";
 import { useDemod } from "@n-apt/contexts/DemodContext";
+import { FrequencyInput } from "../../ui/FrequencyInput";
 
 const NodeContainer = styled.div`
   background: ${({ theme }) => theme.colors.background};
@@ -83,6 +84,24 @@ const FrequencyDisplay = styled.div`
   border: 1px dashed ${({ theme }) => theme.colors.border};
 `;
 
+const FollowSpanToggle = styled.button<{ $active: boolean }>`
+  align-self: flex-start;
+  margin-top: 4px;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  border: 1px solid
+    ${({ theme, $active }) =>
+      $active ? theme.colors.primary : `${theme.colors.border}`};
+  background: ${({ theme, $active }) =>
+    $active ? `${theme.colors.primary}22` : "transparent"};
+  color: ${({ theme, $active }) =>
+    $active ? theme.colors.primary : theme.colors.textMuted};
+`;
+
 const ListenButton = styled.button<{ $active: boolean }>`
   width: 100%;
   margin-top: 12px;
@@ -116,12 +135,23 @@ interface RadioNodeProps {
   };
 }
 
+const MIN_BANDWIDTH_HZ = 1_000;
+
 export const RadioNode: React.FC<RadioNodeProps> = ({ data }) => {
   const dispatch = useAppDispatch();
   const algorithm = useAppSelector((state) => state.demod.algorithm);
-  const bandwidth = useAppSelector((state) => state.demod.bandwidthKhz);
+  const bandwidthKhz = useAppSelector((state) => state.demod.bandwidthKhz);
   const isListening = useAppSelector((state) => state.demod.isListening);
   const centerFreq = useAppSelector((state) => state.demod.centerFreqHz);
+  const sampleRateHz = useAppSelector((state) => state.demod.sampleRateHz);
+  const frequencyRange = useAppSelector(
+    (state) => state.spectrum.frequencyRange,
+  );
+
+  const displaySampleRateHz =
+    sampleRateHz && sampleRateHz > 0 ? sampleRateHz : 3_200_000;
+
+  const [bandwidthFollowsSpan, setBandwidthFollowsSpan] = useState(true);
 
   const { audioPlayback } = useDemod();
   const { getNodes, getEdges } = useReactFlow();
@@ -168,6 +198,22 @@ export const RadioNode: React.FC<RadioNodeProps> = ({ data }) => {
     }
   };
 
+  useEffect(() => {
+    if (!bandwidthFollowsSpan || !frequencyRange) return;
+    const bwHz = frequencyRange.max - frequencyRange.min;
+    if (!Number.isFinite(bwHz) || bwHz < MIN_BANDWIDTH_HZ) return;
+    dispatch(setBandwidth(bwHz / 1000));
+  }, [bandwidthFollowsSpan, frequencyRange, dispatch]);
+
+  const bandwidthHzFromSpan =
+    frequencyRange &&
+    Number.isFinite(frequencyRange.min) &&
+    Number.isFinite(frequencyRange.max)
+      ? frequencyRange.max - frequencyRange.min
+      : null;
+
+  const manualBandwidthHz = (bandwidthKhz || 200) * 1000;
+
   return (
     <NodeContainer>
       <Handle type="target" position={Position.Left} id="range" />
@@ -193,23 +239,32 @@ export const RadioNode: React.FC<RadioNodeProps> = ({ data }) => {
         </ControlItem>
 
         {!hasFmNodeUpstream && (
-          <>
-            <ControlItem>
-              <Label>Bandwidth</Label>
-              <StyledSelect
-                value={bandwidth}
-                onChange={(e) =>
-                  dispatch(setBandwidth(parseInt(e.target.value)))
-                }
-              >
-                <option value="12">12.5 kHz</option>
-                <option value="25">25 kHz</option>
-                <option value="50">50 kHz</option>
-                <option value="100">100 kHz</option>
-                <option value="200">200 kHz</option>
-              </StyledSelect>
-            </ControlItem>
-          </>
+          <ControlItem>
+            <Label>Bandwidth</Label>
+            <FollowSpanToggle
+              type="button"
+              $active={bandwidthFollowsSpan}
+              onClick={() => setBandwidthFollowsSpan((v) => !v)}
+            >
+              From span
+            </FollowSpanToggle>
+            {bandwidthFollowsSpan ? (
+              <FrequencyDisplay>
+                {bandwidthHzFromSpan != null &&
+                Number.isFinite(bandwidthHzFromSpan) &&
+                bandwidthHzFromSpan >= MIN_BANDWIDTH_HZ
+                  ? formatFrequency(bandwidthHzFromSpan)
+                  : "From Span"}
+              </FrequencyDisplay>
+            ) : (
+              <FrequencyInput
+                valueHz={manualBandwidthHz}
+                onChangeHz={(hz) => dispatch(setBandwidth(hz / 1000))}
+                minHz={MIN_BANDWIDTH_HZ}
+                maxHz={displaySampleRateHz}
+              />
+            )}
+          </ControlItem>
         )}
 
         <ControlItem>
@@ -218,7 +273,7 @@ export const RadioNode: React.FC<RadioNodeProps> = ({ data }) => {
             {hasFmNodeUpstream && centerFreq
               ? `${(centerFreq / 1e6).toFixed(1)}FM (±100kHz)`
               : centerFreq
-                ? formatFrequency(centerFreq / 1e6)
+                ? formatFrequency(centerFreq)
                 : "From Span"}
           </FrequencyDisplay>
         </ControlItem>

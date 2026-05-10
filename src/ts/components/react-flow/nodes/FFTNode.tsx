@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef } from "react";
 import styled from "styled-components";
 import FFTCanvas, { type FFTCanvasHandle } from "@n-apt/components/FFTCanvas";
 import type { LiveFrameData } from "@n-apt/consts/schemas/websocket";
+import { FrequencyRange } from "@n-apt/consts/types";
 import { useAppSelector } from "@n-apt/redux";
 import { liveDataRef } from "@n-apt/redux/middleware/websocketMiddleware";
 
@@ -9,6 +10,7 @@ interface FFTNodeProps {
   data: {
     fftOptions: boolean;
     label: string;
+    showDemodOverlay?: boolean;
   };
 }
 
@@ -57,22 +59,6 @@ const CanvasContainer = styled.div`
   overflow: hidden;
 `;
 
-const resolveFrequencyRange = (
-  frame: LiveFrameData | null,
-  fallbackRange: { min: number; max: number } | null,
-  fallbackCenterHz: number,
-) => {
-  if (fallbackRange) return fallbackRange;
-
-  const centerHz = frame?.center_frequency_hz ?? fallbackCenterHz;
-  const sampleRate = frame?.sample_rate ?? 1;
-
-  return {
-    min: Math.max(0, centerHz - sampleRate / 2),
-    max: centerHz + sampleRate / 2,
-  };
-};
-
 export const FFTNode: React.FC<FFTNodeProps> = ({ data }) => {
   const fftRef = useRef<FFTCanvasHandle | null>(null);
   const dataRef = useRef<LiveFrameData | null>(liveDataRef.current);
@@ -80,7 +66,7 @@ export const FFTNode: React.FC<FFTNodeProps> = ({ data }) => {
     (state) => state.spectrum.frequencyRange,
   );
   const centerFrequencyHz = useAppSelector(
-    (state) => (state.spectrum as any).centerFrequencyHz || 0,
+    (state) => state.websocket.sdrSettings?.center_frequency || 0,
   );
   const activeSignalArea = useAppSelector(
     (state) => state.spectrum.activeSignalArea || "A",
@@ -93,22 +79,98 @@ export const FFTNode: React.FC<FFTNodeProps> = ({ data }) => {
   const showSpikeOverlay = useAppSelector(
     (state) => state.spectrum.showSpikeOverlay,
   );
+  const demodCenterFreqHz = useAppSelector((state) => state.demod.centerFreqHz);
+  const demodBandwidthKhz = useAppSelector((state) => state.demod.bandwidthKhz);
+  const previewCenterHz = useAppSelector((state) => state.spectrum.previewCenterHz);
+  const previewRange = useAppSelector((state) => state.spectrum.previewRange);
 
-  // Keep dataRef synced without triggering React re-renders.
-  // FFTCanvas has its own 60fps rAF loop (useFFTAnimation) that reads
-  // dataRef.current directly, so no setState/dispatch needed here.
+  // Use a ref to track the latest range without stale closures
+  const rangeRef = useRef<{ min: number; max: number } | null>(null);
+  const [resolvedRange, setResolvedRange] = React.useState<FrequencyRange | undefined>(undefined);
+
+  // Sync live frame data and derive frequency range from frame metadata
   useEffect(() => {
     const id = setInterval(() => {
-      dataRef.current = liveDataRef.current;
-    }, 16); // ~60fps sync, no React re-render
+      const liveFrame = liveDataRef.current;
+      dataRef.current = liveFrame;
+
+      // Derive range from the actual frame metadata (center_frequency_hz + sample_rate)
+      let newRange: FrequencyRange | null = null;
+
+      if (liveFrame?.center_frequency_hz && liveFrame?.sample_rate) {
+        newRange = {
+          min: liveFrame.center_frequency_hz - liveFrame.sample_rate / 2,
+          max: liveFrame.center_frequency_hz + liveFrame.sample_rate / 2,
+        };
+      } else if (frequencyRange) {
+        newRange = frequencyRange;
+      } else {
+        const fallbackCenter =
+          demodCenterFreqHz && demodCenterFreqHz > 0
+            ? demodCenterFreqHz
+            : centerFrequencyHz;
+        if (fallbackCenter > 0) {
+          newRange = {
+            min: fallbackCenter - 1_200_000,
+            max: fallbackCenter + 1_200_000,
+          };
+        }
+      }
+
+      // Only update state if the range actually changed
+      const prev = rangeRef.current;
+      if (
+        newRange &&
+        (!prev || prev.min !== newRange.min || prev.max !== newRange.max)
+      ) {
+        rangeRef.current = newRange;
+        setResolvedRange(newRange || undefined);
+      }
+    }, 50); // 20fps is plenty for range sync
     return () => clearInterval(id);
-  }, []);
+  }, [frequencyRange, centerFrequencyHz, demodCenterFreqHz]); // Include demodCenterFreqHz to react to station changes
 
   const frame = dataRef.current;
-  const previewFrequencyRange = useMemo(
-    () => resolveFrequencyRange(frame, frequencyRange, centerFrequencyHz),
-    [centerFrequencyHz, frame, frequencyRange],
-  );
+
+  // Derive the effective display range, shifting it if a preview center is active
+  const effectiveDisplayRange = useMemo(() => {
+    if (!resolvedRange) return undefined;
+    if (!previewCenterHz) return resolvedRange;
+
+    const currentCenter = (resolvedRange.min + resolvedRange.max) / 2;
+    const offset = previewCenterHz - currentCenter;
+    return {
+      min: resolvedRange.min + offset,
+      max: resolvedRange.max + offset,
+    };
+  }, [resolvedRange, previewCenterHz]);
+
+  const currentCenterHz = effectiveDisplayRange
+    ? (effectiveDisplayRange.min + effectiveDisplayRange.max) / 2
+    : centerFrequencyHz;
+
+  /** Spectrum slice from Span / Apply — not the same as sample rate or radio demod BW. */
+  const selectionDemodOverlay = useMemo(() => {
+    if (
+      !frequencyRange ||
+      !Number.isFinite(frequencyRange.min) ||
+      !Number.isFinite(frequencyRange.max)
+    ) {
+      return null;
+    }
+    const widthHz = frequencyRange.max - frequencyRange.min;
+    if (!Number.isFinite(widthHz) || widthHz < 1) return null;
+    return {
+      centerHz: (frequencyRange.min + frequencyRange.max) / 2,
+      rangeHz: widthHz,
+    };
+  }, [frequencyRange]);
+
+  const demodOverlayCenterHz = selectionDemodOverlay?.centerHz ??
+    demodCenterFreqHz ??
+    currentCenterHz;
+  const demodOverlayRangeHz =
+    selectionDemodOverlay?.rangeHz ?? demodBandwidthKhz * 1000;
 
   return (
     <NodeWrapper>
@@ -117,8 +179,8 @@ export const FFTNode: React.FC<FFTNodeProps> = ({ data }) => {
         <FFTCanvas
           ref={fftRef}
           dataRef={dataRef}
-          frequencyRange={previewFrequencyRange}
-          centerFrequencyHz={frame?.center_frequency_hz ?? centerFrequencyHz}
+          frequencyRange={effectiveDisplayRange || { min: 0, max: 0 }}
+          centerFrequencyHz={currentCenterHz}
           activeSignalArea={activeSignalArea}
           isPaused={false}
           isDeviceConnected={true}
@@ -133,6 +195,20 @@ export const FFTNode: React.FC<FFTNodeProps> = ({ data }) => {
           nodePreview={true}
           awaitingDeviceData={!frame}
           isIqRecordingActive={true}
+          demodulationCenterFreqHz={
+            previewRange
+              ? (previewRange.min + previewRange.max) / 2
+              : data.showDemodOverlay
+                ? demodOverlayCenterHz
+                : undefined
+          }
+          demodulationRangeHz={
+            previewRange
+              ? previewRange.max - previewRange.min
+              : data.showDemodOverlay
+                ? demodOverlayRangeHz
+                : undefined
+          }
         />
       </CanvasContainer>
     </NodeWrapper>
