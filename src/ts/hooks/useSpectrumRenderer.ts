@@ -4,7 +4,6 @@ import { useDraw3DWaterfallSignal } from "@n-apt/hooks/useDraw3DWaterfallSignal"
 import { useOverlayRenderer } from "@n-apt/hooks/useOverlayRenderer";
 import { OverlayTextureRenderer } from "@n-apt/hooks/useWebGPUInit";
 import type { SdrLimitMarker } from "@n-apt/utils/sdrLimitMarkers";
-import type { SpectrumSpikeMarker } from "@n-apt/hooks/useWasmSimdMath";
 
 const OVERLAY_MIN_INTERVAL_MS = 50;
 
@@ -55,8 +54,9 @@ export interface SpectrumRendererOptions {
   limitMarkers?: SdrLimitMarker[];
   /** Whether the WebGPU spike overlay should be drawn */
   showSpikeOverlay?: boolean;
-  /** Precomputed prominent spike markers for the current visible waveform */
-  spikeMarkers?: SpectrumSpikeMarker[];
+  /** Receives a throttled readback of the GPU spike counter */
+  onSpikeCount?: (count: number) => void;
+
 
   /** Visual customization: Main signal line color */
   lineColor?: string;
@@ -82,8 +82,7 @@ export function useSpectrumRenderer() {
   const { drawWebGPUFFTSignal, cleanup: cleanupGPU } = useDrawWebGPUFFTSignal();
   const { draw3DWaterfallSignal, cleanup: cleanup3D } =
     useDraw3DWaterfallSignal();
-  const { drawGridOnContext, drawMarkersOnContext, drawSpikeMarkersOnContext } =
-    useOverlayRenderer();
+  const { drawGridOnContext, drawMarkersOnContext } = useOverlayRenderer();
 
   const lastOverlayUploadMsRef = useRef({ grid: 0, markers: 0, spikes: 0 });
 
@@ -102,7 +101,7 @@ export function useSpectrumRenderer() {
         powerScale = "dB",
         gridOverlayRenderer,
         markersOverlayRenderer,
-        spikesOverlayRenderer,
+        spikesOverlayRenderer: _spikesOverlayRenderer,
         overlayDirty,
         centerFrequencyHz,
         isDeviceConnected = true,
@@ -111,7 +110,8 @@ export function useSpectrumRenderer() {
         isIqRecordingActive,
         limitMarkers = [],
         showSpikeOverlay = false,
-        spikeMarkers = [],
+        onSpikeCount,
+
         lineColor,
         fillColor,
         drawSignal3D = false,
@@ -140,7 +140,6 @@ export function useSpectrumRenderer() {
 
       if (device && format) {
         const now = performance.now();
-        const shouldShowSpikes = showSpikeOverlay && isDeviceConnected;
         const dpr = window.devicePixelRatio || 1;
         const width = canvas.clientWidth || 1;
         const height = canvas.clientHeight || 1;
@@ -197,36 +196,6 @@ export function useSpectrumRenderer() {
           lastOverlayUploadMsRef.current.markers = now;
         }
 
-        if (
-          spikesOverlayRenderer &&
-          shouldShowSpikes &&
-          (overlayDirty?.spikes ||
-            now - lastOverlayUploadMsRef.current.spikes >=
-              OVERLAY_MIN_INTERVAL_MS)
-        ) {
-          const ctx = spikesOverlayRenderer.beginDraw(width, height, dpr);
-          drawSpikeMarkersOnContext(
-            ctx,
-            width,
-            height,
-            waveform.length,
-            fftMin,
-            fftMax,
-            spikeMarkers,
-          );
-          spikesOverlayRenderer.endDraw();
-          if (overlayDirty) overlayDirty.spikes = false;
-          lastOverlayUploadMsRef.current.spikes = now;
-        } else if (
-          spikesOverlayRenderer &&
-          (!shouldShowSpikes || overlayDirty?.spikes)
-        ) {
-          spikesOverlayRenderer.beginDraw(width, height, dpr);
-          spikesOverlayRenderer.endDraw();
-          if (overlayDirty) overlayDirty.spikes = false;
-          lastOverlayUploadMsRef.current.spikes = now;
-        }
-
         // Perform the actual signal trace render
         return drawWebGPUFFTSignal({
           canvas,
@@ -238,12 +207,12 @@ export function useSpectrumRenderer() {
           fftMax,
           gridOverlayRenderer: gridOverlayRenderer ?? undefined,
           markersOverlayRenderer: markersOverlayRenderer ?? undefined,
-          spikesOverlayRenderer: shouldShowSpikes
-            ? (spikesOverlayRenderer ?? undefined)
-            : undefined,
+          spikesOverlayRenderer: undefined,
           centerFrequencyHz,
           isDeviceConnected,
           showGrid: true, // Internal to drawWebGPU - handled by the overlays above
+          showSpikeOverlay,
+          onSpikeCount,
           lineColor,
           fillColor,
           nodePreview,
@@ -257,7 +226,6 @@ export function useSpectrumRenderer() {
       draw3DWaterfallSignal,
       drawGridOnContext,
       drawMarkersOnContext,
-      drawSpikeMarkersOnContext,
     ],
   );
 

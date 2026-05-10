@@ -16,20 +16,17 @@ const NodeWrapper = styled.div`
   display: flex;
   flex-direction: column;
   width: 100%;
-  min-height: 320px;
+  min-height: 400px;
   align-self: stretch;
-  background: rgba(18, 18, 18, 0.95);
-  border: 1px solid #333;
   border-radius: 12px;
   padding: 0;
-  min-width: 420px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  min-width: 525px;
   cursor: grab;
   overflow: hidden;
 `;
 
 const NodeTitle = styled.div`
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   color: ${({ theme }) => theme.colors?.primary || "#00d4ff"};
   letter-spacing: 0.1em;
@@ -37,7 +34,7 @@ const NodeTitle = styled.div`
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 10px 0;
+  padding: 10px 12px 0;
 
   &::before {
     content: "";
@@ -56,8 +53,8 @@ const CanvasContainer = styled.div`
   flex-direction: column;
   min-height: 0;
   align-self: stretch;
+  padding: 8px 10px 10px;
   overflow: hidden;
-  background: #000;
 `;
 
 const resolveFrequencyRange = (
@@ -93,6 +90,9 @@ export const FFTNode: React.FC<FFTNodeProps> = ({ data }) => {
   const fftMinDb = useAppSelector((state) => state.spectrum.fftMinDb);
   const fftMaxDb = useAppSelector((state) => state.spectrum.fftMaxDb);
   const powerScale = useAppSelector((state) => state.spectrum.powerScale);
+  const showSpikeOverlay = useAppSelector(
+    (state) => state.spectrum.showSpikeOverlay,
+  );
 
   // Keep dataRef synced without triggering React re-renders.
   // FFTCanvas has its own 60fps rAF loop (useFFTAnimation) that reads
@@ -127,6 +127,7 @@ export const FFTNode: React.FC<FFTNodeProps> = ({ data }) => {
           fftMin={fftMinDb}
           fftMax={fftMaxDb}
           powerScale={powerScale}
+          showSpikeOverlay={showSpikeOverlay}
           snapshotGridPreference={true}
           compact={true}
           nodePreview={true}

@@ -40,6 +40,8 @@ export interface SpectrumState {
   // Visualization state
   visualizerPaused: boolean;
   isWaterfallCleared: boolean;
+  showSpikeOverlay: boolean;
+  gpuSpikeCount: number;
 
   // Diagnostic state
   diagnosticStatus: string;
@@ -95,6 +97,8 @@ const initialState: SpectrumState = {
 
   visualizerPaused: false,
   isWaterfallCleared: false,
+  showSpikeOverlay: false,
+  gpuSpikeCount: 0,
 
   diagnosticStatus: "Ready",
   isDiagnosticRunning: false,
@@ -266,6 +270,17 @@ const spectrumSlice = createSlice({
       state.visualizerPaused = true;
     },
 
+    setShowSpikeOverlay: (state, action: PayloadAction<boolean>) => {
+      state.showSpikeOverlay = action.payload;
+      if (!action.payload) {
+        state.gpuSpikeCount = 0;
+      }
+    },
+
+    setGpuSpikeCount: (state, action: PayloadAction<number>) => {
+      state.gpuSpikeCount = Math.max(0, Math.floor(action.payload));
+    },
+
     // Diagnostic state
     setDiagnosticStatus: (state, action: PayloadAction<string>) => {
       state.diagnosticStatus = action.payload;
@@ -351,6 +366,8 @@ export const {
   triggerDiagnostic,
   resetZoomAndDb,
   resetLiveControls,
+  setShowSpikeOverlay,
+  setGpuSpikeCount,
 } = spectrumSlice.actions;
 
 export default spectrumSlice.reducer;

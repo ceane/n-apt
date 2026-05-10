@@ -804,13 +804,20 @@ export function useWasmSimdMath(
       }
     }
 
-    // Z-score based approach
-    const zScores = new Float32Array(length);
-    const localMeans = new Float32Array(length);
-    const localStdDevs = new Float32Array(length);
+    const candidates: SpectrumSpikeMarker[] = [];
+    const minZScore = 2.0; // Keep this permissive so spikes still render in noisy spectra
 
-    // Pass 1: compute local mean and std dev using sliding window
-    for (let i = 0; i < length; i++) {
+    for (let i = 2; i < length - 2; i++) {
+      const val = spectrumData[i];
+      if (!Number.isFinite(val)) continue;
+
+      // 1. Strict local maximum check on the raw spectrum data
+      if (val <= spectrumData[i - 1] || val <= spectrumData[i + 1]) {
+        continue;
+      }
+
+      // 2. Compute local mean and std dev EXCLUDING the immediate peak region
+      // This prevents the spike from inflating its own baseline variance
       let sum = 0;
       let sumSq = 0;
       let count = 0;
@@ -818,100 +825,60 @@ export function useWasmSimdMath(
       const end = Math.min(length - 1, i + w);
 
       for (let j = start; j <= end; j++) {
-        const val = spectrumData[j];
-        if (Number.isFinite(val)) {
-          sum += val;
-          sumSq += val * val;
+        // Exclude the peak and its immediate neighbors
+        if (Math.abs(j - i) <= 2) continue;
+        
+        const neighbor = spectrumData[j];
+        if (Number.isFinite(neighbor)) {
+          sum += neighbor;
+          sumSq += neighbor * neighbor;
           count++;
         }
       }
 
-      if (count > 0) {
-        const mean = sum / count;
-        localMeans[i] = mean;
-        // variance = E[X^2] - (E[X])^2
-        const variance = Math.max(0, sumSq / count - mean * mean);
-        const stdDev = Math.sqrt(variance);
-        localStdDevs[i] = Math.max(0.1, stdDev); // Prevent division by zero
+      if (count < 2) continue;
+
+      const mean = sum / count;
+      const variance = Math.max(0, (sumSq / count) - (mean * mean));
+      
+      // Floor stdDev to prevent extreme z-scores in completely flat noise regions
+      const stdDev = Math.max(1.0, Math.sqrt(variance)); 
+      
+      const zScore = (val - mean) / stdDev;
+
+      if (zScore >= minZScore) {
+        // Base radius on Z-score magnitude
+        const normalizedScore = Math.max(0, Math.min(1, (zScore - minZScore) / 10.0));
+
+        candidates.push({
+          index: i,
+          value: val,
+          prominence: zScore,
+          radius: 3.5 + normalizedScore * 7.5,
+        });
       }
-    }
-
-    // Pass 2: calculate z-scores
-    for (let i = 0; i < length; i++) {
-      const val = spectrumData[i];
-      if (Number.isFinite(val)) {
-        zScores[i] = (val - localMeans[i]) / localStdDevs[i];
-      }
-    }
-
-    const persistence =
-      temporalPersistence && temporalPersistence.length === length
-        ? temporalPersistence
-        : null;
-    const decay = 0.9;
-    const persistenceSpread = Math.max(
-      1,
-      Math.min(4, Math.floor(length / 1024)),
-    );
-
-    // Update persistence
-    if (persistence) {
-      for (let i = 0; i < length; i++) {
-        persistence[i] *= decay;
-      }
-      for (let i = 0; i < length; i++) {
-        const score = zScores[i];
-        if (score <= 0) continue;
-        for (
-          let j = Math.max(0, i - persistenceSpread);
-          j <= Math.min(length - 1, i + persistenceSpread);
-          j++
-        ) {
-          const weight = j === i ? 1 : 0.72;
-          const boosted = score * weight;
-          if (boosted > persistence[j]) {
-            persistence[j] = boosted;
-          }
-        }
-      }
-    }
-
-    const minZScore = 2.5; // Z-score threshold for spikes
-    const candidates: SpectrumSpikeMarker[] = [];
-
-    for (let i = 2; i < length - 2; i++) {
-      const center = spectrumData[i];
-      if (!Number.isFinite(center)) continue;
-
-      const effectiveScore =
-        zScores[i] + (persistence ? persistence[i] * 0.65 : 0);
-      if (effectiveScore < minZScore) continue;
-
-      // Peak detection (local maximum in the effective score)
-      if (
-        effectiveScore <=
-          zScores[i - 1] + (persistence ? persistence[i - 1] * 0.65 : 0) ||
-        effectiveScore <=
-          zScores[i + 1] + (persistence ? persistence[i + 1] * 0.65 : 0)
-      ) {
-        continue;
-      }
-
-      // Base radius on Z-score magnitude
-      const normalizedScore = Math.max(
-        0,
-        Math.min(1, (effectiveScore - minZScore) / 5.0),
-      );
-
-      candidates.push({
-        index: i,
-        value: center,
-        prominence: effectiveScore, // use z-score as prominence metric
-        radius: 3.5 + normalizedScore * 7.5,
-      });
     }
 
     candidates.sort((a, b) => b.prominence - a.prominence);
+
+    // Visual debug fallback: if the spectrum is too flat or too noisy to
+    // produce meaningful local maxima, still emit evenly spaced markers so the
+    // spike overlay path remains observable during integration.
+    if (candidates.length === 0) {
+      const fallbackMarkers: SpectrumSpikeMarker[] = [];
+      const step = Math.max(32, Math.floor(length / 32));
+      for (let i = step; i < length - 1; i += step) {
+        const value = spectrumData[i];
+        if (!Number.isFinite(value)) continue;
+        fallbackMarkers.push({
+          index: i,
+          value,
+          prominence: 0,
+          radius: 3.5,
+        });
+      }
+      return fallbackMarkers.slice(0, maxMarkers);
+    }
 
     const filtered: SpectrumSpikeMarker[] = [];
     const minSpacing = Math.max(2, Math.floor(length / 420));

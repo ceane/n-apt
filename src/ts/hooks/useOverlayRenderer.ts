@@ -499,37 +499,53 @@ export function useOverlayRenderer() {
       spikeMarkers: SpectrumSpikeMarker[] = [],
     ) => {
       if (spikeMarkers.length === 0 || waveformLength < 2) return;
-      const fftAreaMax = { x: width - 40, y: height - 40 };
-      const plotWidth = fftAreaMax.x - FFT_AREA_MIN.x;
-      const fftHeight = fftAreaMax.y - FFT_AREA_MIN.y;
+      const left = 0;
+      const top = 0;
+      const right = width;
+      const bottom = height;
+      const plotWidth = right - left;
+      const fftHeight = bottom - top;
       const dynamicRange = fftMax - fftMin;
       if (dynamicRange <= 0) return;
 
       const idxToX = (idx: number) =>
-        FFT_AREA_MIN.x + (idx / (waveformLength - 1)) * plotWidth;
+        left + (idx / (waveformLength - 1)) * plotWidth;
       const valueToY = (value: number) =>
         Math.max(
-          FFT_AREA_MIN.y + 2,
+          top + 2,
           Math.min(
-            fftAreaMax.y - 2,
-            fftAreaMax.y - ((value - fftMin) / dynamicRange) * fftHeight,
+            bottom - 2,
+            bottom - ((value - fftMin) / dynamicRange) * fftHeight,
           ),
         );
 
       ctx.save();
-      ctx.fillStyle = "rgba(255, 72, 72, 0.92)";
-      ctx.strokeStyle = "rgba(255, 228, 228, 0.95)";
-      ctx.shadowColor = "rgba(255, 72, 72, 0.7)";
-      ctx.shadowBlur = 8;
-      ctx.lineWidth = 1.25;
+      ctx.fillStyle = "rgba(255, 72, 72, 0.96)";
+      ctx.strokeStyle = "rgba(255, 228, 228, 0.98)";
+      ctx.shadowColor = "rgba(255, 72, 72, 0.45)";
+      ctx.shadowBlur = 5;
+      ctx.lineWidth = 1.15;
+      ctx.setLineDash([1, 5]);
+      ctx.lineCap = "round";
 
       for (const marker of spikeMarkers) {
         const x = idxToX(marker.index);
-        const y = valueToY(marker.value) - marker.radius * 0.35;
+        const y = valueToY(marker.value);
+        const dotRadius = Math.max(1.5, marker.radius * 0.4);
+        const hoverOffset = Math.max(10, marker.radius * 2.2);
+        const markerY = Math.max(top + 6, y - hoverOffset);
+        const lineEndY = Math.max(top + 2, markerY - dotRadius - 3);
         ctx.beginPath();
-        ctx.arc(x, y, marker.radius, 0, Math.PI * 2);
+        ctx.moveTo(x, top + 2);
+        ctx.lineTo(x, lineEndY);
+        ctx.stroke();
+
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.arc(x, markerY, dotRadius, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
+        ctx.setLineDash([1, 5]);
       }
 
       ctx.restore();

@@ -1,7 +1,7 @@
 // Node Components
 export { SourceNode } from "./SourceNode";
 export { CoreMLNode } from "./CoreMLNode";
-export { SpikeNode } from "./SpikeNode";
+export { SpikeDetectionNode, SpikeNode } from "./SpikeDetectionNode";
 export { BeatNode } from "./BeatNode";
 export { FFTNode } from "./FFTNode";
 export { WaterfallNode } from "./WaterfallNode";

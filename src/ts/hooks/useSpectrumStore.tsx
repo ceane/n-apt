@@ -40,6 +40,7 @@ import {
   setSdrSettingsBundle as setSdrSettingsBundleAction,
   resetLiveControls as resetLiveControlsAction,
   resetZoomAndDb as resetZoomAndDbAction,
+  setShowSpikeOverlay as setShowSpikeOverlayAction,
 } from "@n-apt/redux";
 import { liveDataRef } from "@n-apt/redux/middleware/websocketMiddleware";
 import {
@@ -830,6 +831,10 @@ export const SpectrumProvider: React.FC<SpectrumProviderProps> = memo(
             return;
           case "TRAINING_STOP":
             reduxDispatch(resetTrainingCapture());
+            return;
+          case "SET_SHOW_SPIKE_OVERLAY":
+            reduxDispatch(setShowSpikeOverlayAction(action.enabled));
+            dispatch(action);
             return;
           default:
             dispatch(action);

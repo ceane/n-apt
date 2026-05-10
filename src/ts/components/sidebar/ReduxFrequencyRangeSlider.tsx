@@ -127,37 +127,6 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
 
   const visibleRange = calculateVisibleRange();
 
-  // Throttled WebSocket sender
-  const throttleTimeoutRef = React.useRef<number | null>(null);
-  const pendingRangeRef = React.useRef<{ min: number; max: number } | null>(null);
-
-  const sendThrottled = React.useCallback(
-    (range: { min: number; max: number }) => {
-      if (throttleTimeoutRef.current === null) {
-        wsConnection.sendFrequencyRange(range);
-        throttleTimeoutRef.current = window.setTimeout(() => {
-          throttleTimeoutRef.current = null;
-          if (pendingRangeRef.current) {
-            const nextRange = pendingRangeRef.current;
-            pendingRangeRef.current = null;
-            sendThrottled(nextRange);
-          }
-        }, 100);
-      } else {
-        pendingRangeRef.current = range;
-      }
-    },
-    [wsConnection],
-  );
-
-  React.useEffect(() => {
-    return () => {
-      if (throttleTimeoutRef.current !== null) {
-        window.clearTimeout(throttleTimeoutRef.current);
-      }
-    };
-  }, []);
-
   // Handle frequency range change
   const handleRangeChange = useCallback(
     (range: { min: number; max: number }) => {
@@ -195,7 +164,7 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
         const newRange = { min: newHardwareMin, max: newHardwareMax };
         dispatch(spectrumActions.setFrequencyRange(newRange));
         storeDispatch({ type: "SET_FREQUENCY_RANGE", range: newRange });
-        sendThrottled(newRange);
+        wsConnection.sendFrequencyRange(newRange);
 
         const remainingPan = visualCenter - newHardwareCenter;
         dispatch(spectrumActions.setVizPan(remainingPan));
@@ -205,11 +174,11 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
 
       dispatch(spectrumActions.setFrequencyRange(range));
       storeDispatch({ type: "SET_FREQUENCY_RANGE", range });
-      sendThrottled(range);
+      wsConnection.sendFrequencyRange(range);
     },
     [
       storeDispatch,
-      sendThrottled,
+      wsConnection,
       vizZoom,
       isCurrentActive,
       frequencyRange,

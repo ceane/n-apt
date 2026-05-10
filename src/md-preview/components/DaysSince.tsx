@@ -7,7 +7,6 @@ const ESCALATION_DATE = new Date('2023-01-01T00:00:00Z');
 
 // Default fallback rates
 const DEFAULT_RATE_MBS = 3.47;
-const fallback_rate = 27.76;
 const DEFAULT_RATE_DAY_GB = (DEFAULT_RATE_MBS * 86400) / 1000;
 
 const Container = styled.div`

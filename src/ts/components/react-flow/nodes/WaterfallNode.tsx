@@ -15,18 +15,18 @@ interface WaterfallNodeProps {
 const NodeWrapper = styled.div`
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  background: rgba(18, 18, 18, 0.95);
-  border: 1px solid #333;
   border-radius: 12px;
-  padding: 12px;
-  min-width: 420px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  padding: 0;
+  width: 100%;
+  min-width: 525px;
+  min-height: 400px;
+  align-self: stretch;
   cursor: grab;
+  overflow: hidden;
 `;
 
 const NodeTitle = styled.div`
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   color: ${({ theme }) => theme.colors?.primary || "#00d4ff"};
   letter-spacing: 0.1em;
@@ -34,6 +34,7 @@ const NodeTitle = styled.div`
   display: flex;
   align-items: center;
   gap: 6px;
+  padding: 10px 12px 0;
 
   &::before {
     content: "";
@@ -47,12 +48,12 @@ const NodeTitle = styled.div`
 
 const CanvasContainer = styled.div`
   width: 100%;
-  height: 220px;
-  border-radius: 6px;
-  overflow: hidden;
-  border: 1px solid #222;
-  background: #000;
-  pointer-events: none;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  align-self: stretch;
+  padding: 8px 10px 10px;
 `;
 
 export const WaterfallNode: React.FC<WaterfallNodeProps> = ({ data }) => {

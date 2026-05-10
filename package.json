@@ -66,6 +66,8 @@
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "test:wasm": "bash ./test/wasm/test_runner.sh",
+    "lint:wgsl": "npx naga-wasi-cli --bulk-validate src/ts/shaders/*.wgsl",
+    "test:shader": "npx vitest run --root . test/ts/shaders/*.test.ts",
     "test:rust": "cargo test",
     "test:e2e": "playwright test",
     "test:all": "npm run test && npm run test:rust && npm run test:integration && npm run test:e2e",
@@ -165,6 +167,7 @@
     "@types/react-dom": "^19.2.3",
     "@types/react-katex": "^3.0.4",
     "@types/styled-components": "^5.1.36",
+    "@use-gpu/wgsl": "^0.19.0",
     "@vitejs/plugin-react": "^6.0.1",
     "@vitest/browser-playwright": "^4.1.0",
     "@vitest/coverage-v8": "^4.1.0",
@@ -188,7 +191,8 @@
     "typescript": "^6.0.3",
     "vite": "^8.0.10",
     "vite-plugin-glsl": "^1.5.6",
-    "vitest": "^4.1.0"
+    "vitest": "^4.1.0",
+    "wgsl-test": "^0.2.29"
   },
   "peerDependencies": {
     "react": "^16.8.4 || ^17.0.0 || ^18.0.0 || ^19.0.0"
