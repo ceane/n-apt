@@ -180,10 +180,3 @@ codegen-units = 8
 panic = "unwind"
 strip = true
 overflow-checks = false
-
-[profile.dev-fast]
-inherits = "dev"
-opt-level = 1
-debug = false
-incremental = true
-codegen-units = 16
