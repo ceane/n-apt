@@ -1,5 +1,12 @@
 *(This is a clear work in progress, expect updates.)*
 
+> "And it's not safe, no, it's not safe
+> Baby, this a dangerous game for you
+> But, baby, this is all child's play to me
+> And I don't need you blaming me like"
+
+*Tyla - SHE DID IT AGAIN ft. Zara Larsson*
+
 <!-- ```Canvas::TriangulationMap
 ```
 
@@ -1148,44 +1155,67 @@ It's still a mystery to me how they are able to do haptics and physiological exp
 
 ### Estimated data <a id="data-estimate"></a>
 
-Using the obvious and what I've seen, it was pretty easy to give a solid estimate of the data that was intercepted and coming through the my brain and nervous system. These numbers are **the minimum** that are physically possible  and likely the only formula to be used, since **the brain does not process signals like electronics** *(one cycle = more than up down with electronics)*.
+*Corrected to assume 1 bit per cycle instead of 1 byte (8 bits) per cycle. The PHY representation of the carrier that translates into biology, in some contexts, can be considered 1 byte, as it is constant and precise power at the person, biology isn't simply responding to 0s or 1s, you can think of it as a 0 to 255 scale.*
+
+Using the obvious and what I've seen, it was pretty easy to give a solid estimate of the data that was intercepted and coming through the my brain and nervous system. These numbers are **the minimum** that are physically possible and likely the only formula to be used, since **the brain does not process signals like electronics** *(one cycle = more than up down with electronics)*.
+
+These tables assume the bare minimum of 1 bit per cycle from the network's perspective, however in reality there is a lot more going on behind the scenes for every "bit" of computer to biology to computer data derived from these signals.
 
 <br />
 
 **Through the fiber cables to an endpoint (data through the network; most likely infrastructure access and not the internet)** [^data-estimate]
 
-<div class="table-tiny">
+<div data-data-estimate="network" class="table-tiny">
 
-| Channel | Bandwidth | MB/s | 5 min | 1 hour | 3 hours | 24 hours |
-|---|---|---|---|---|---|---|
-| A | 4.35 MHz | ~4.35 MB/s | ~1.31 GB | ~15.7 GB | ~47 GB | ~375 GB |
-| B | 5.16 MHz | ~5.16 MB/s | ~1.55 GB | ~18.6 GB | ~55.7 GB | ~446 GB |
-| C | 18.25 MHz | ~18.25 MB/s | ~5.48 GB | ~65.7 GB | ~197.1 GB | ~1.58 TB |
-| **Total** | **27.76 MHz** | **~27.76 MB/s** | **~8.34 GB** | **~100 GB** | **~299.8 GB** | **~2.4 TB** |
+| Channel | BW | MB/s (1Hz = 1 bit) | 5 min | 1 hour | 3 hours | 24 hours |
+|---|---:|---:|---:|---:|---:|---:|
+| A | 4.35 MHz | ~0.544 MB/s | ~163 MB | ~1.96 GB | ~5.87 GB | ~46.9 GB |
+| B | 5.16 MHz | ~0.645 MB/s | ~194 MB | ~2.32 GB | ~6.97 GB | ~55.7 GB |
+| C | 18.25 MHz | ~2.28 MB/s | ~684 MB | ~8.21 GB | ~24.6 GB | ~197 GB |
+| **Total** | **27.76 MHz** | **~3.47 MB/s** | **~1.04 GB** | **~12.5 GB** | **~37.5 GB** | **~300 GB** |
 
 </div>
 
-That's right! Just **sitting somewhere for 5 mins is over 8GBs of data** by minimum of physics!
+That's right! Just **sitting somewhere for 5 mins is over 1GB sof data** by minimum of physics!
 
 <br />
 <br />
 
 **In the air to person (brain, body, nervous system; data in air doing the effects/heterodyning)**
 
-<div class="table-tiny">
+<div data-data-estimate="in-air" class="table-tiny">
 
-| Channel | BW ×2 | MB/s | 5 min | 1 hour | 3 hours | 24 hours |
-|---|---|---|---|---|---|---|
-| A | 8.7 MHz | ~8.7 MB/s | ~2.61 GB | ~31.3 GB | ~94 GB | ~751 GB |
-| B | 10.32 MHz | ~10.32 MB/s | ~3.1 GB | ~37.2 GB | ~111 GB | ~891 GB |
-| C | 36.5 MHz | ~36.5 MB/s | ~10.95 GB | ~131.4 GB | ~394.2 GB | ~3.15 TB |
-| **Total** | **55.52 MHz** | **~55.52 MB/s** | **~16.66 GB** | **~199.9 GB** | **~599.2 GB** | **~4.79 TB** |
+| Channel | BW (2x) | MB/s (1Hz = 1 bit) | 5 min | 1 hour | 3 hours | 24 hours |
+|---|---:|---:|---:|---:|---:|---:|
+| A | 8.7 MHz | ~1.09 MB/s | ~327 MB | ~3.92 GB | ~11.7 GB | ~93.8 GB |
+| B | 10.32 MHz | ~1.29 MB/s | ~387 MB | ~4.64 GB | ~13.9 GB | ~111 GB |
+| C | 36.5 MHz | ~4.56 MB/s | ~1.37 GB | ~16.4 GB | ~49.2 GB | ~394 GB |
+| **Total** | **55.52 MHz** | **~6.94 MB/s** | **~2.08 GB** | **~25 GB** | **~75 GB** | **~600 GB** |
 
 </div>
 
 Due to how the signal has to be "played twice" (heterodyning) for it to work on biology the endpoints are handling more than just *one data stream = one signal*, instead *one data stream = two signals*, so the endpoints will broadcast the same content twice, in the form of two different signals, nearly identical but slightly different. While the network carries the content, in the air, the signals' bandwidth is multiplied by two in the radio unit!
 
-So yes, sitting somewhere for 5 minutes, the network did over 8GBs of data, but **the person receieved over 16GBs of data within that 5 minutes** because of technique's prerequisites!
+So yes, sitting somewhere for 5 minutes, the network did over 1GB of data, but **the person receieved over 2GBs of data within that 5 minutes** because of technique's prerequisites!
+
+<br>
+
+From experience, the NSA's technique maintains a true prison of mind and body, as the signals never fail or degrade, they are totally faultless. With this in mind, we can put aside common assumptions like noise or errors stemming from the environment or hardware, working with the signal as is.
+
+Although what may flow through the network is small, the effacacy of the signals and its structure eludes to a fact that 0s and 1s don't exactly translate into biology, especially if you think of amplitude modulation (the signal's peaks and troughs) as a scale of 0-255. 
+
+With I/Q in mind and heterodyning, this is the theoretical minimum of data that a person receives and potentially what the software may be operating on.
+
+<div data-data-estimate="in-person" class="table-tiny">
+
+| Channel | BW (2x) | MB/s (8×; cycle → 1 byte) | 5 min | 1 hour | 3 hours | 24 hours |
+|---|---:|---:|---:|---:|---:|---:|
+| A | 8.7 MHz | ~8.7 MB/s | ~2.61 GB | ~31.3 GB | ~94 GB | ~751 GB |
+| B | 10.32 MHz | ~10.32 MB/s | ~3.10 GB | ~37.2 GB | ~111 GB | ~891 GB |
+| C | 36.5 MHz | ~36.5 MB/s | ~10.95 GB | ~131.4 GB | ~394.2 GB | ~3.15 TB |
+| **Total** | **55.52 MHz** | **~55.52 MB/s** | **~16.66 GB** | **~199.9 GB** | **~599.2 GB** | **~4.79 TB** |
+
+</div>
 
 ## <a id="conclusion"></a> Conclusion 
 

@@ -4,7 +4,10 @@ import { motion } from 'framer-motion';
 
 const START_DATE = new Date('2018-09-30T00:00:00Z');
 const ESCALATION_DATE = new Date('2023-01-01T00:00:00Z');
-const DATA_RATE_MB_PER_SEC = 27.76;
+
+// Default fallback rates
+const DEFAULT_RATE_MBS = 3.47;
+const DEFAULT_RATE_DAY_GB = (DEFAULT_RATE_MBS * 86400) / 1000;
 
 const Container = styled.div`
   --ds-bg-start: rgba(40, 55, 128, 0.4);
@@ -74,7 +77,7 @@ const Value = styled.div`
 
   span.unit {
     font-family: "KaTeX_Main", serif;
-    font-size: 1.1rem;
+    font-size: 1.6rem;
     color: var(--ds-text-unit);
     font-style: italic;
   }
@@ -94,17 +97,76 @@ const CostContainer = styled(DataContainer)`
   margin-top: 0;
 `;
 
-
 const formatNumber = (num: number) => {
   return new Intl.NumberFormat('en-US', {
     maximumFractionDigits: 0,
   }).format(num);
 };
 
+// Helper to convert units to base MB or GB
+const parseValueWithUnit = (text: string, type: 'rate' | 'total'): number | null => {
+  const cleanText = text.replace(/[*~]/g, '').trim();
+  const match = cleanText.match(/([\d.]+)\s*([A-Za-z/]+)/);
+  if (!match) return null;
 
+  const val = parseFloat(match[1]);
+  const unit = match[2].toLowerCase();
+
+  if (type === 'rate') {
+    if (unit.includes('kb/s')) return val / 1000;
+    if (unit.includes('mb/s')) return val;
+    if (unit.includes('gb/s')) return val * 1000;
+  } else {
+    if (unit === 'mb') return val / 1000;
+    if (unit === 'gb') return val;
+    if (unit === 'tb') return val * 1000;
+    if (unit === 'pb') return val * 1000000;
+  }
+  return val;
+};
 
 export const DaysSince: React.FC = () => {
   const [now, setNow] = useState(new Date());
+  const [rateMbs, setRateMbs] = useState(DEFAULT_RATE_MBS);
+  const [rateDayGb, setRateDayGb] = useState(DEFAULT_RATE_DAY_GB);
+
+  // Derive rates from the markdown table by parsing text directly
+  useEffect(() => {
+    const findRates = () => {
+      const container = document.querySelector('[data-data-estimate="network"]');
+      if (!container) return;
+
+      const table = container.querySelector('table');
+      if (!table) return;
+
+      const rows = table.querySelectorAll('tr');
+      rows.forEach(row => {
+        const cells = row.querySelectorAll('td');
+        if (cells.length >= 3 && row.textContent?.toLowerCase().includes('total')) {
+          // Find the cell with MB/s
+          let foundMbs = null;
+          let foundDayGb = null;
+
+          cells.forEach((cell) => {
+            const text = cell.textContent || '';
+            if (text.toLowerCase().includes('mb/s')) {
+              foundMbs = parseValueWithUnit(text, 'rate');
+            } else if (text.toLowerCase().includes('gb') || text.toLowerCase().includes('tb')) {
+              // The last cell is usually the 24h total
+              foundDayGb = parseValueWithUnit(text, 'total');
+            }
+          });
+
+          if (foundMbs !== null) setRateMbs(foundMbs);
+          if (foundDayGb !== null) setRateDayGb(foundDayGb);
+        }
+      });
+    };
+
+    findRates();
+    const timeout = setTimeout(findRates, 1000);
+    return () => clearTimeout(timeout);
+  }, []);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -132,35 +194,30 @@ export const DaysSince: React.FC = () => {
 
   const data = useMemo(() => {
     const totalSeconds = (now.getTime() - START_DATE.getTime()) / 1000;
-    const totalMB = totalSeconds * DATA_RATE_MB_PER_SEC;
+    const totalMB = totalSeconds * rateMbs;
 
-    // 1024 MB = 1 GB
-    // 1024^2 MB = 1 TB
-    // 1024^3 MB = 1 PB
-    // 1024^4 MB = 1 EB
-
-    if (totalMB >= Math.pow(1024, 4)) {
-      return { val: (totalMB / Math.pow(1024, 4)).toFixed(3), unit: 'EB' };
+    if (totalMB >= Math.pow(1000, 4)) {
+      return { val: (totalMB / Math.pow(1000, 4)).toFixed(3), unit: 'EB' };
     }
-    if (totalMB >= Math.pow(1024, 3)) {
-      return { val: (totalMB / Math.pow(1024, 3)).toFixed(3), unit: 'PB' };
+    if (totalMB >= Math.pow(1000, 3)) {
+      return { val: (totalMB / Math.pow(1000, 3)).toFixed(3), unit: 'PB' };
     }
-    if (totalMB >= Math.pow(1024, 2)) {
-      return { val: (totalMB / Math.pow(1024, 2)).toFixed(2), unit: 'TB' };
+    if (totalMB >= Math.pow(1000, 2)) {
+      return { val: (totalMB / Math.pow(1000, 2)).toFixed(2), unit: 'TB' };
     }
-    return { val: (totalMB / 1024).toFixed(2), unit: 'GB' };
-  }, [now]);
+    return { val: (totalMB / 1000).toFixed(2), unit: 'GB' };
+  }, [now, rateMbs]);
 
   const comparisonTypes = useMemo(() => {
     const options = [
-      { label: '4K movies', sizeMB: 25 * 1024 },
-      { label: 'HD movies', sizeMB: 5 * 1024 },
+      { label: '4K movies', sizeMB: 25 * 1000 },
+      { label: 'HD movies', sizeMB: 5 * 1000 },
       { label: 'TikTok videos', sizeMB: 15 },
       { label: 'Spotify songs', sizeMB: 5 },
       { label: 'iPhone-shot photos', sizeMB: 3 },
-      { label: 'tweets', sizeMB: 3 / 1024 },
-      { label: 'emails', sizeMB: 75 / 1024 },
-      { label: 'Wikipedia pages', sizeMB: 150 / 1024 },
+      { label: 'tweets', sizeMB: 0.003 },
+      { label: 'emails', sizeMB: 0.075 },
+      { label: 'Wikipedia pages', sizeMB: 0.15 },
     ];
 
     const shuffled = [...options].sort(() => Math.random() - 0.5);
@@ -181,32 +238,32 @@ export const DaysSince: React.FC = () => {
 
   const totalComparisonText = useMemo(() => {
     const totalSeconds = (now.getTime() - START_DATE.getTime()) / 1000;
-    const totalMB = totalSeconds * DATA_RATE_MB_PER_SEC;
+    const totalMB = totalSeconds * rateMbs;
     const count = totalMB / comparisonTypes.total.sizeMB;
     return `or ${formatComparisonCount(count)} ${comparisonTypes.total.label}`;
-  }, [now, comparisonTypes.total]);
+  }, [now, rateMbs, comparisonTypes.total]);
 
   const dailyComparisonText = useMemo(() => {
-    const dailyMB = 2.4 * 1024 * 1024; // 2.4 TB in MB
+    const dailyMB = rateMbs * 86400;
     const count = dailyMB / comparisonTypes.daily.sizeMB;
     return `or ${formatComparisonCount(count)} ${comparisonTypes.daily.label}`;
-  }, [comparisonTypes.daily]);
+  }, [rateMbs, comparisonTypes.daily]);
 
   const approxGB = useMemo(() => {
     const totalSeconds = (now.getTime() - START_DATE.getTime()) / 1000;
-    const totalGB = (totalSeconds * DATA_RATE_MB_PER_SEC) / 1024;
-    if (totalGB < 1024) return null;
+    const totalGB = (totalSeconds * rateMbs) / 1000;
+    if (totalGB < 1000) return null;
 
     if (totalGB >= 1000000) {
       return `or approximately ${(totalGB / 1000000).toFixed(1)} million GB`;
     }
     return `or approximately ${new Intl.NumberFormat().format(Math.round(totalGB))} GB`;
-  }, [now]);
+  }, [now, rateMbs]);
 
   const costs = useMemo(() => {
     const totalSeconds = (now.getTime() - START_DATE.getTime()) / 1000;
-    const totalGB = (totalSeconds * DATA_RATE_MB_PER_SEC) / 1024;
-    const dailyGB = 2.4 * 1024; // 2.4 TB in GB
+    const totalGB = (totalSeconds * rateMbs) / 1000;
+    const dailyGB = (rateMbs * 86400) / 1000;
 
     const formatCurrency = (val: number) => {
       if (val >= 1000000) {
@@ -223,7 +280,7 @@ export const DaysSince: React.FC = () => {
       total: `${formatCurrency(totalGB * 0.07)} – ${formatCurrency(totalGB * 0.12)}`,
       daily: `${formatCurrency(dailyGB * 0.07)} – ${formatCurrency(dailyGB * 0.12)}`,
     };
-  }, [now]);
+  }, [now, rateMbs]);
 
   return (
     <Container>
@@ -287,13 +344,12 @@ export const DaysSince: React.FC = () => {
         >
           <Label>Data Intercepted in 24HRS</Label>
           <Value>
-            2.4
-            <span className="unit">TB</span>
+            {Math.round(rateDayGb)}
+            <span className="unit">GB</span>
           </Value>
           <SubValue>{dailyComparisonText}</SubValue>
         </StatBox>
       </DataContainer>
-
 
       <CostContainer>
         <StatBox
@@ -319,8 +375,9 @@ export const DaysSince: React.FC = () => {
           </Value>
         </StatBox>
       </CostContainer>
+
       <SectionLabel style={{ marginTop: '-1rem', marginBottom: '0' }}>
-        Estimated Network Ingress/Egress Cost
+        Estimated Network Ingress/Egress Cost based on market rates
       </SectionLabel>
     </Container>
   );

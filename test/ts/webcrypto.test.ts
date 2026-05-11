@@ -8,6 +8,7 @@ import {
   bytesToBase64,
   base64ToBytes,
 } from "../../src/ts/crypto/webcrypto";
+import crypto from "node:crypto";
 
 describe("webcrypto service", () => {
   const testPassword = "test-password-123";
@@ -24,6 +25,19 @@ describe("webcrypto service", () => {
   test("deriveRawKey returns a 32-byte ArrayBuffer", async () => {
     const rawKey = await deriveRawKey(testPassword);
     expect(rawKey.byteLength).toBe(32); // 256 bits
+  });
+
+  test("deriveRawKey matches the backend PBKDF2 parameters", async () => {
+    const expected = crypto.pbkdf2Sync(
+      testPassword.trim(),
+      "n-apt-aes-salt-v1",
+      100_000,
+      32,
+      "sha256",
+    );
+    const rawKey = await deriveRawKey(testPassword);
+
+    expect(Buffer.from(rawKey)).toEqual(expected);
   });
 
   test("deriveAesKey returns an AES-GCM CryptoKey", async () => {
@@ -47,13 +61,13 @@ describe("webcrypto service", () => {
 
   test("AES-GCM decryption works for valid payloads", async () => {
     const rawKey = await deriveRawKey(testPassword);
-    const aesKey = await crypto.subtle.importKey(
+    const aesKey = (await crypto.subtle.importKey(
       "raw",
       rawKey,
       { name: "AES-GCM" },
       false,
       ["encrypt", "decrypt"],
-    );
+    )) as unknown as CryptoKey;
 
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const msg = new TextEncoder().encode(testPayload);
@@ -85,13 +99,13 @@ describe("webcrypto service", () => {
 
   test("decryption fails with wrong key", async () => {
     const correctRawKey = await deriveRawKey(testPassword);
-    const correctEncryptKey = await crypto.subtle.importKey(
+    const correctEncryptKey = (await crypto.subtle.importKey(
       "raw",
       correctRawKey,
       { name: "AES-GCM" },
       false,
       ["encrypt", "decrypt"],
-    );
+    )) as unknown as CryptoKey;
     const wrongKey = await deriveAesKey("wrong-password");
 
     const iv = crypto.getRandomValues(new Uint8Array(12));

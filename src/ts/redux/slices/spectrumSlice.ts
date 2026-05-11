@@ -1,5 +1,5 @@
 import { createSlice, PayloadAction } from "@reduxjs/toolkit";
-import { FrequencyRange } from "@n-apt/consts/schemas/websocket";
+import { FrequencyRange, Alignment } from "@n-apt/consts/types";
 
 export type DisplayTemporalResolution = "low" | "medium" | "high";
 export type PowerScale = "dB" | "dBm";
@@ -40,11 +40,17 @@ export interface SpectrumState {
   // Visualization state
   visualizerPaused: boolean;
   isWaterfallCleared: boolean;
+  showSpikeOverlay: boolean;
+  gpuSpikeCount: number;
 
   // Diagnostic state
   diagnosticStatus: string;
   isDiagnosticRunning: boolean;
   diagnosticTrigger: number;
+
+  // Live preview range (from SpanNode)
+  previewRange: FrequencyRange | null;
+  previewAlignment: Alignment;
 }
 
 const LIVE_CONTROL_DEFAULTS = {
@@ -54,6 +60,7 @@ const LIVE_CONTROL_DEFAULTS = {
   vizPanOffset: 0,
   fftMinDb: -120,
   fftMaxDb: 0,
+  previewRange: null,
   fftSizeOptions: [] as number[],
   fftWindow: "Rectangular",
   fftAvgEnabled: false,
@@ -95,6 +102,10 @@ const initialState: SpectrumState = {
 
   visualizerPaused: false,
   isWaterfallCleared: false,
+  showSpikeOverlay: false,
+  gpuSpikeCount: 0,
+  previewRange: null,
+  previewAlignment: "centered",
 
   diagnosticStatus: "Ready",
   isDiagnosticRunning: false,
@@ -266,6 +277,17 @@ const spectrumSlice = createSlice({
       state.visualizerPaused = true;
     },
 
+    setShowSpikeOverlay: (state, action: PayloadAction<boolean>) => {
+      state.showSpikeOverlay = action.payload;
+      if (!action.payload) {
+        state.gpuSpikeCount = 0;
+      }
+    },
+
+    setGpuSpikeCount: (state, action: PayloadAction<number>) => {
+      state.gpuSpikeCount = Math.max(0, Math.floor(action.payload));
+    },
+
     // Diagnostic state
     setDiagnosticStatus: (state, action: PayloadAction<string>) => {
       state.diagnosticStatus = action.payload;
@@ -277,6 +299,14 @@ const spectrumSlice = createSlice({
 
     triggerDiagnostic: (state) => {
       state.diagnosticTrigger += 1;
+    },
+
+    setPreviewRange: (state, action: PayloadAction<FrequencyRange | null>) => {
+      state.previewRange = action.payload;
+    },
+    
+    setPreviewAlignment: (state, action: PayloadAction<Alignment>) => {
+      state.previewAlignment = action.payload;
     },
 
     // Reset actions
@@ -351,6 +381,10 @@ export const {
   triggerDiagnostic,
   resetZoomAndDb,
   resetLiveControls,
+  setShowSpikeOverlay,
+  setGpuSpikeCount,
+  setPreviewRange,
+  setPreviewAlignment,
 } = spectrumSlice.actions;
 
 export default spectrumSlice.reducer;

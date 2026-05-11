@@ -25,6 +25,13 @@ node_modules
 dist/
 build/
 scripts/dist/
+scratch/
+
+# Generated diagnostics and test artifacts
+rust_outdated.txt
+typecheck_output.txt
+test-results/
+test/ts/shaders/generated/
 
 # Include scripts/build (don't exclude it)
 !scripts/build/

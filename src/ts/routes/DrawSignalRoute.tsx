@@ -6,6 +6,8 @@ import React, {
   useMemo,
 } from "react";
 import styled from "styled-components";
+import { ChevronLeft, ChevronRight } from "lucide-react";
+import { useDrawSignalPagination } from "@n-apt/contexts/DrawSignalPaginationContext";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 import { useDrawMockNAPTSignal } from "@n-apt/hooks/useDrawMockNAPTSignal";
 import { useWebGPUInit } from "@n-apt/hooks/useWebGPUInit";
@@ -14,7 +16,6 @@ import { RESAMPLE_WGSL } from "@n-apt/shaders";
 import { FFT_CANVAS_BG } from "@n-apt/consts";
 import { PolarRadioWaveWebGPU } from "@n-apt/components/3D/PolarRadioWaveWebGPU";
 import { RadiationLobe3D } from "@n-apt/components/3D/RadiationLobe3D";
-import { CollapsibleTitle } from "@n-apt/components/ui/Collapsible";
 import { DecryptionFallback } from "@n-apt/components/ui/DecryptionFallback";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
@@ -22,7 +23,7 @@ import { OrbitControls } from "@react-three/drei";
 const PageContainer = styled.div`
   display: flex;
   flex-direction: column;
-  height: 100%;
+  height: 100vh;
   min-height: 0;
   width: 100%;
   padding: 24px;
@@ -34,6 +35,10 @@ const PageContainer = styled.div`
 
 const Header = styled.div`
   margin-bottom: 24px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
 `;
 
 const Title = styled.h1`
@@ -55,6 +60,51 @@ const Subtitle = styled.p`
   font-size: 14px;
   color: ${(props) => props.theme.textSecondary};
   font-family: "Outfit", "Inter", sans-serif;
+`;
+
+const PageControls = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+`;
+
+const PageLabel = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+`;
+
+const PageCounter = styled.div`
+  font-size: 10px;
+  font-family: ${(props) => props.theme.typography.mono};
+  color: ${(props) => props.theme.textMuted};
+`;
+
+const PageArrow = styled.button`
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  border: 1px solid ${(props) => props.theme.border};
+  background: ${(props) => props.theme.surface};
+  color: ${(props) => props.theme.textPrimary};
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+
+  &:hover:not(:disabled) {
+    border-color: ${(props) => props.theme.primary};
+    color: ${(props) => props.theme.primary};
+    background: ${(props) => props.theme.surfaceHover};
+  }
+
+  &:disabled {
+    opacity: 0.35;
+    cursor: default;
+  }
 `;
 
 const VisualizerWrapper = styled.div`
@@ -128,18 +178,11 @@ const InfoValue = styled.span`
 `;
 
 const PolarSectionContainer = styled.div`
-  margin-top: 32px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-  padding-top: 24px;
+  flex: 1;
+  min-height: 400px;
   display: flex;
   flex-direction: column;
   width: 100%;
-`;
-
-const PolarHeaderWrapper = styled.div`
-  grid-column: 1 / -1;
-  width: 100%;
-  margin-bottom: 8px; /* Reduced from 24px as CollapsibleTitleContainer has margin */
 `;
 
 const PolarCard = styled.div`
@@ -151,6 +194,9 @@ const PolarCard = styled.div`
   flex-direction: column;
   gap: 12px;
   width: 100%;
+  min-height: 400px;
+  height: 100%;
+  box-sizing: border-box;
 `;
 
 const PolarComposite = styled.div`
@@ -158,7 +204,8 @@ const PolarComposite = styled.div`
   grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
   gap: 0;
   width: 100%;
-  min-height: 500px;
+  min-height: 400px;
+  height: 100%;
   border-radius: 12px;
   overflow: hidden;
   background: ${(props) => props.theme.surface};
@@ -167,7 +214,8 @@ const PolarComposite = styled.div`
 const PolarPane = styled.div`
   position: relative;
   min-width: 0;
-  min-height: 500px;
+  min-height: 400px;
+  height: 100%;
 
   &:first-child {
     border-right: 1px solid ${(props) => props.theme.border};
@@ -183,17 +231,38 @@ const CardTitle = styled.div`
   font-family: "JetBrains Mono", monospace;
 `;
 
+const PageViewport = styled.div`
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+`;
+
+const PolarPageWrap = styled.div`
+  flex: 1;
+  min-height: 400px;
+  height: 100%;
+  display: flex;
+`;
+
+const PolarCanvasWrap = styled.div`
+  position: relative;
+  width: 100%;
+  flex: 1;
+  min-height: 400px;
+  height: 100%;
+`;
+
 export const DrawSignalRoute: React.FC = () => {
   const { state, sampleRateHzEffective } = useSpectrumStore();
   const { drawParams } = state;
   const { generateMockNAPTData, mathLoaded } = useDrawMockNAPTSignal();
   const { drawSpectrum, cleanup } = useSpectrumRenderer();
+  const { pageIndex, setPageIndex, pageCount } = useDrawSignalPagination();
 
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
-  const [isPolarOpen, setIsPolarOpen] = useState(false);
-
   // WebGPU initialization refs
   const waterfallGpuCanvasRef = useRef<HTMLCanvasElement>(null);
   const resampleComputePipelineRef = useRef<GPUComputePipeline | null>(null);
@@ -315,128 +384,150 @@ export const DrawSignalRoute: React.FC = () => {
     return () => cleanup();
   }, [cleanup]);
 
+  const pageTitle =
+    pageIndex === 0 ? "Draw N-APT Signal Simulator" : "Polar Radiation View";
+  const pageSubtitle =
+    pageIndex === 0
+      ? "An approximate mathematical synthesis of the N-APT frequency comb."
+      : "Polar radiation coordinates and lobe visualization.";
+
   return (
     <PageContainer data-testid="draw-signal-route">
       <Header>
-        <Title>Draw N-APT Signal Simulator</Title>
-        <Subtitle>
-          An approximate mathematical synthesis of the N-APT frequency comb.
-        </Subtitle>
+        <PageLabel>
+          <Title>{pageTitle}</Title>
+          <Subtitle>{pageSubtitle}</Subtitle>
+        </PageLabel>
+        <PageControls>
+          <PageCounter>
+            {pageIndex + 1} / {pageCount}
+          </PageCounter>
+          <PageArrow
+            type="button"
+            aria-label="Previous section"
+            onClick={() => setPageIndex((current) => Math.max(0, current - 1))}
+            disabled={pageIndex === 0}
+          >
+            <ChevronLeft size={16} />
+          </PageArrow>
+            <PageArrow
+              type="button"
+              aria-label="Next section"
+              onClick={() =>
+                setPageIndex((current) => Math.min(pageCount - 1, current + 1))
+              }
+              disabled={pageIndex === pageCount - 1}
+            >
+              <ChevronRight size={16} />
+            </PageArrow>
+        </PageControls>
       </Header>
 
-      <VisualizerWrapper ref={containerRef}>
-        {mathLoaded ? (
-          <CanvasElement ref={canvasRef} />
+      <PageViewport>
+        {pageIndex === 0 ? (
+          <VisualizerWrapper ref={containerRef}>
+            {mathLoaded ? (
+              <CanvasElement ref={canvasRef} />
+            ) : (
+              <MathOverlay>
+                <DecryptionFallback moduleName="Spike-EQ Math" errorType="latex" />
+              </MathOverlay>
+            )}
+
+            {mathLoaded && (
+              <InfoBox>
+                <InfoItem>
+                  Clumps: <InfoValue>{drawParams.length}</InfoValue>
+                </InfoItem>
+                <InfoItem>
+                  Active: <InfoValue>#{state.activeClumpIndex + 1}</InfoValue>
+                </InfoItem>
+                <InfoItem>
+                  Spike Count:{" "}
+                  <InfoValue>
+                    {drawParams[state.activeClumpIndex]?.spikeCount ?? 0}
+                  </InfoValue>
+                </InfoItem>
+                <InfoItem>
+                  Spike Width:{" "}
+                  <InfoValue>
+                    {(drawParams[state.activeClumpIndex]?.spikeWidth ?? 0).toFixed(
+                      2,
+                    )}
+                  </InfoValue>
+                </InfoItem>
+                <InfoItem>
+                  Envelope:{" "}
+                  <InfoValue>
+                    {(
+                      drawParams[state.activeClumpIndex]?.envelopeWidth ?? 0
+                    ).toFixed(1)}
+                  </InfoValue>
+                </InfoItem>
+              </InfoBox>
+            )}
+          </VisualizerWrapper>
         ) : (
-          <MathOverlay>
-            <DecryptionFallback moduleName="Spike-EQ Math" errorType="latex" />
-          </MathOverlay>
-        )}
-
-        {mathLoaded && (
-          <InfoBox>
-            <InfoItem>
-              Clumps: <InfoValue>{drawParams.length}</InfoValue>
-            </InfoItem>
-            <InfoItem>
-              Active: <InfoValue>#{state.activeClumpIndex + 1}</InfoValue>
-            </InfoItem>
-            <InfoItem>
-              Spike Count:{" "}
-              <InfoValue>
-                {drawParams[state.activeClumpIndex]?.spikeCount ?? 0}
-              </InfoValue>
-            </InfoItem>
-            <InfoItem>
-              Spike Width:{" "}
-              <InfoValue>
-                {(drawParams[state.activeClumpIndex]?.spikeWidth ?? 0).toFixed(
-                  2,
-                )}
-              </InfoValue>
-            </InfoItem>
-            <InfoItem>
-              Envelope:{" "}
-              <InfoValue>
-                {(
-                  drawParams[state.activeClumpIndex]?.envelopeWidth ?? 0
-                ).toFixed(1)}
-              </InfoValue>
-            </InfoItem>
-          </InfoBox>
-        )}
-      </VisualizerWrapper>
-
-      <PolarSectionContainer>
-        <PolarHeaderWrapper>
-          <CollapsibleTitle
-            label="Polar Emission Charts (radio wave shown from antenna face)"
-            isOpen={isPolarOpen}
-            onToggle={() => setIsPolarOpen(!isPolarOpen)}
-          />
-        </PolarHeaderWrapper>
-
-        {isPolarOpen && (
-          <div
-            style={{ marginTop: "20px", position: "relative", width: "100%" }}
-          >
-            <PolarCard
-              style={{ width: "100%", position: "relative", padding: 0 }}
-            >
-              <CardTitle
-                style={{
-                  position: "absolute",
-                  top: "16px",
-                  left: "16px",
-                  zIndex: 10,
-                }}
-              >
-                High-Fidelity 3D Propagation & Radiation HUD
-              </CardTitle>
-
-              <PolarComposite>
-                <PolarPane>
-                  <Canvas
-                    camera={{ position: [15, 15, 15], fov: 45 }}
+          <PolarSectionContainer>
+            <PolarPageWrap>
+              <PolarCanvasWrap>
+                <PolarCard style={{ padding: 0 }}>
+                  <CardTitle
                     style={{
-                      width: "100%",
-                      minHeight: "500px",
-                      height: "100%",
+                      position: "absolute",
+                      top: "16px",
+                      left: "16px",
+                      zIndex: 10,
                     }}
                   >
-                    <ambientLight intensity={0.5} />
-                    <pointLight position={[20, 20, 20]} />
-                    <RadiationLobe3D
-                      frequency={
-                        drawParams[state.activeClumpIndex]?.centerOffset || 1.5
-                      }
-                      aperture={0.04}
-                      height={5}
-                      n={6}
-                      m={20}
-                    />
-                    <OrbitControls makeDefault />
-                  </Canvas>
-                </PolarPane>
+                    High-Fidelity 3D Propagation & Radiation HUD
+                  </CardTitle>
 
-                <PolarPane>
-                  <PolarRadioWaveWebGPU
-                    aperture={40}
-                    beamWidth={
-                      (drawParams[state.activeClumpIndex]?.spikeWidth ?? 0.1) *
-                      200
-                    }
-                    rotation={0}
-                    frequency={
-                      drawParams[state.activeClumpIndex]?.centerOffset ?? 1.5
-                    }
-                  />
-                </PolarPane>
-              </PolarComposite>
-            </PolarCard>
-          </div>
+                  <PolarComposite>
+                    <PolarPane>
+                      <Canvas
+                        camera={{ position: [15, 15, 15], fov: 45 }}
+                        style={{
+                          width: "100%",
+                          minHeight: "400px",
+                          height: "100%",
+                        }}
+                      >
+                        <ambientLight intensity={0.5} />
+                        <pointLight position={[20, 20, 20]} />
+                        <RadiationLobe3D
+                          frequency={
+                            drawParams[state.activeClumpIndex]?.centerOffset || 1.5
+                          }
+                          aperture={0.04}
+                          height={5}
+                          n={6}
+                          m={20}
+                        />
+                        <OrbitControls makeDefault />
+                      </Canvas>
+                    </PolarPane>
+
+                    <PolarPane>
+                      <PolarRadioWaveWebGPU
+                        aperture={40}
+                        beamWidth={
+                          (drawParams[state.activeClumpIndex]?.spikeWidth ?? 0.1) *
+                          200
+                        }
+                        rotation={0}
+                        frequency={
+                          drawParams[state.activeClumpIndex]?.centerOffset ?? 1.5
+                        }
+                      />
+                    </PolarPane>
+                  </PolarComposite>
+                </PolarCard>
+              </PolarCanvasWrap>
+            </PolarPageWrap>
+          </PolarSectionContainer>
         )}
-      </PolarSectionContainer>
+      </PageViewport>
     </PageContainer>
   );
 };

@@ -251,6 +251,65 @@ function sameLogicalChannel(
   );
 }
 
+async function decryptNaptPayloadAtOffsets(
+  fileData: ArrayBuffer,
+  aesKey: CryptoKey,
+  fileName: string,
+  offsets: number[],
+  wrappedDekBase64?: string | null,
+): Promise<ArrayBuffer> {
+  let lastError: any = null;
+
+  for (const hSize of offsets) {
+    if (fileData.byteLength <= hSize + 12) continue;
+
+    const encryptedView = new Uint8Array(fileData, hSize);
+    const iv = encryptedView.subarray(0, 12);
+    const ciphertext = encryptedView.subarray(12);
+
+    try {
+      if (wrappedDekBase64) {
+        const wrappedDekBytes = base64ToBytes(wrappedDekBase64);
+        if (wrappedDekBytes.length < 12) throw new Error("Invalid wrapped DEK length");
+
+        const ivDek = wrappedDekBytes.subarray(0, 12);
+        const cipherDek = wrappedDekBytes.subarray(12);
+
+        const decryptedDek = await crypto.subtle.decrypt(
+          { name: "AES-GCM", iv: ivDek as any },
+          aesKey,
+          cipherDek as any,
+        );
+
+        const dek = await crypto.subtle.importKey(
+          "raw",
+          decryptedDek as any,
+          { name: "AES-GCM" },
+          false,
+          ["decrypt"],
+        );
+
+        return await crypto.subtle.decrypt(
+          { name: "AES-GCM", iv: iv as any },
+          dek as CryptoKey,
+          ciphertext as any,
+        );
+      }
+
+      // Default: direct decryption with vault key
+      return await crypto.subtle.decrypt(
+        { name: "AES-GCM", iv: iv as any },
+        aesKey,
+        ciphertext as any,
+      );
+    } catch (e: any) {
+      lastError = e;
+    }
+  }
+
+  throw lastError || new Error("Decryption failed for all possible header sizes.");
+}
+
 function stitchAdjacentChannels(
   channels: any[],
   _defaultFftSize: number,
@@ -349,7 +408,10 @@ function buildCombinedFrame(
   _maxSampleRateHz: number = 3_200_000,
 ) {
   const allFileNames = new Set(fileDataCache.keys());
-  if (allFileNames.size === 0) return null;
+  if (allFileNames.size === 0) {
+    console.warn("[fileWorker] buildCombinedFrame: No files in cache.");
+    return null;
+  }
 
   let minFreq = Infinity;
   let maxFreq = -Infinity;
@@ -517,19 +579,7 @@ self.onmessage = async function (e) {
           const metadata = metaObj.metadata || metaObj;
           const isEncrypted = metadata.encrypted === true || metadata.encrypted === "true" || metaObj.encrypted === true;
 
-          // Determine actual padding size. Backend usually uses 4096 or 2048.
-          // We'll probe multiple candidates starting with the most likely ones.
-          const possibleHeaderSizes = new Set<number>();
-          
-          // 1. If there's a newline right after JSON, the next byte is a strong candidate
-          if (jsonEndIdx > 0 && jsonEndIdx < fileData.byteLength) {
-            possibleHeaderSizes.add(jsonEndIdx + 1);
-          }
-          
-          // 2. Standard power-of-two sizes
-          [4096, 2048, 1024, 8192].forEach(s => {
-             if (s >= jsonEndIdx) possibleHeaderSizes.add(s);
-          });
+          const possibleHeaderSizes = [4096, 2048, 8192, 1024];
 
           // Check for channels at top-level OR inside metadata
           const channels = metaObj.channels ||
@@ -544,88 +594,43 @@ self.onmessage = async function (e) {
           if (firstChannel && firstChannel.offset_iq !== undefined) {
             try {
               let decryptedData: ArrayBuffer | null = null;
-              let lastError: any = null;
-              
-              const headerProbeList = Array.from(possibleHeaderSizes);
-
-              for (const hSize of headerProbeList) {
-                if (fileData.byteLength <= hSize + 12) continue;
-                
+              if (!isEncrypted) {
+                const hSize = possibleHeaderSizes.find((size) => fileData.byteLength > size + 12) ?? 0;
                 const encryptedView = new Uint8Array(fileData, hSize);
-                const iv = encryptedView.subarray(0, 12);
-                const ciphertext = encryptedView.subarray(12);
+                decryptedData = encryptedView.buffer.slice(encryptedView.byteOffset);
+              } else {
+                const wrappedDekBase64 =
+                  metaObj.wrapped_dek || (metaObj.metadata && metaObj.metadata.wrapped_dek) ||
+                  metaObj.encrypted_dek || (metaObj.metadata && metaObj.metadata.encrypted_dek) ||
+                  metaObj.wrapped_key || (metaObj.metadata && metaObj.metadata.wrapped_key) ||
+                  metaObj.encrypted_key || (metaObj.metadata && metaObj.metadata.encrypted_key) ||
+                  metaObj.session_key || (metaObj.metadata && metaObj.metadata.session_key);
 
-                if (!isEncrypted) {
-                  decryptedData = encryptedView.buffer.slice(encryptedView.byteOffset);
-                  break;
-                }
-
-                try {
-                  const wrappedDekBase64 = 
-                    metaObj.wrapped_dek || (metaObj.metadata && metaObj.metadata.wrapped_dek) ||
-                    metaObj.encrypted_dek || (metaObj.metadata && metaObj.metadata.encrypted_dek) ||
-                    metaObj.wrapped_key || (metaObj.metadata && metaObj.metadata.wrapped_key) ||
-                    metaObj.encrypted_key || (metaObj.metadata && metaObj.metadata.encrypted_key) ||
-                    metaObj.session_key || (metaObj.metadata && metaObj.metadata.session_key);
-
-                  if (wrappedDekBase64) {
-                    const wrappedDekBytes = base64ToBytes(wrappedDekBase64);
-                    if (wrappedDekBytes.length < 12) throw new Error("Invalid wrapped DEK length");
-
-                    const ivDek = wrappedDekBytes.subarray(0, 12);
-                    const cipherDek = wrappedDekBytes.subarray(12);
-
-                    const decryptedDek = await crypto.subtle.decrypt(
-                      { name: "AES-GCM", iv: ivDek as any },
-                      aesKey as CryptoKey,
-                      cipherDek as any,
-                    );
-
-                    const dek = await crypto.subtle.importKey(
-                      "raw",
-                      decryptedDek as any,
-                      { name: "AES-GCM" },
-                      false,
-                      ["decrypt"],
-                    );
-
-                    decryptedData = await crypto.subtle.decrypt(
-                      { name: "AES-GCM", iv: iv as any },
-                      dek as CryptoKey,
-                      ciphertext as any,
-                    );
-                  } else {
-                    decryptedData = await crypto.subtle.decrypt(
-                      { name: "AES-GCM", iv: iv as any },
-                      aesKey as CryptoKey,
-                      ciphertext as any,
-                    );
-                  }
-                  if (decryptedData) {
-
-                    break;
-                  }
-                } catch (e) {
-                  lastError = e;
-                }
+                decryptedData = await decryptNaptPayloadAtOffsets(
+                  fileData,
+                  aesKey as CryptoKey,
+                  fileName,
+                  possibleHeaderSizes,
+                  wrappedDekBase64,
+                );
               }
 
-              if (!decryptedData) {
-                throw lastError || new Error("Decryption failed for all possible header sizes.");
-              }
+                if (!decryptedData) {
+                  throw new Error("Decryption failed for all possible header sizes.");
+                }
 
-              const payloadArray = new Uint8Array(decryptedData);
-              const chOffsetIq = firstChannel.offset_iq;
-              const iqByteLength = firstChannel.iq_length ?? payloadArray.length - chOffsetIq;
+                const payloadArray = new Uint8Array(decryptedData);
+                const chOffsetIq = firstChannel.offset_iq;
+                const iqByteLength = firstChannel.iq_length ?? payloadArray.length - chOffsetIq;
 
-              const iqPart = payloadArray.slice(chOffsetIq, chOffsetIq + iqByteLength);
+                const iqPart = payloadArray.slice(chOffsetIq, chOffsetIq + iqByteLength);
 
-              const responseData = { rawData: iqPart, fileName, metadata };
-              (self as any).postMessage(
-                { type: "result", id, data: responseData },
-                [iqPart.buffer],
-              );
-            } catch (decryptErr: any) {
+                const responseData = { rawData: iqPart, fileName, metadata };
+                (self as any).postMessage(
+                  { type: "result", id, data: responseData },
+                  [iqPart.buffer],
+                );
+              } catch (decryptErr: any) {
               const errType = decryptErr instanceof Error ? decryptErr.name : typeof decryptErr;
               console.error("NAPT Load Decryption Failed:", fileName, errType, decryptErr);
               let detail = decryptErr.message || String(decryptErr);
@@ -657,8 +662,6 @@ self.onmessage = async function (e) {
               false,
               ["decrypt"],
             );
-
-
           } catch (e) {
             console.error("[fileWorker] Failed to import AES key:", e);
           }
@@ -770,47 +773,29 @@ self.onmessage = async function (e) {
 
               if (channelsMetadata && channelsMetadata.length > 0) {
                 let decryptedData: ArrayBuffer | null = null;
-                const possibleHeaderSizes = new Set<number>();
-                if (jsonEndIdx > 0 && jsonEndIdx < file.fileData.byteLength) possibleHeaderSizes.add(jsonEndIdx + 1);
-                [detectedHeaderSize, 4096, 2048, 1024, 8192].forEach(s => {
-                  if (s >= jsonEndIdx) possibleHeaderSizes.add(s);
-                });
+              const possibleHeaderSizes = [4096, 2048, 8192, 1024];
+              const wrappedDekBase64 =
+                metaObj.wrapped_dek || (metaObj.metadata && metaObj.metadata.wrapped_dek) ||
+                metaObj.encrypted_dek || (metaObj.metadata && metaObj.metadata.encrypted_dek) ||
+                metaObj.wrapped_key || (metaObj.metadata && metaObj.metadata.wrapped_key) ||
+                metaObj.encrypted_key || (metaObj.metadata && metaObj.metadata.encrypted_key) ||
+                metaObj.session_key || (metaObj.metadata && metaObj.metadata.session_key);
 
-                const headerProbeList = Array.from(possibleHeaderSizes);
-                let decryptErr: any = null;
+              if (!isEncrypted) {
+                const hSize = possibleHeaderSizes.find((size) => file.fileData.byteLength > size + 12) ?? 0;
+                const encryptedView = new Uint8Array(file.fileData, hSize);
+                decryptedData = encryptedView.buffer.slice(encryptedView.byteOffset);
+              } else {
+                decryptedData = await decryptNaptPayloadAtOffsets(
+                  file.fileData,
+                  aesKey as CryptoKey,
+                  file.fileName,
+                  possibleHeaderSizes,
+                  wrappedDekBase64,
+                );
+              }
 
-                for (const hSize of headerProbeList) {
-                  if (file.fileData.byteLength <= hSize + 12) continue;
-                  const encryptedView = new Uint8Array(file.fileData, hSize);
-                  const iv = encryptedView.subarray(0, 12);
-                  const ciphertext = encryptedView.subarray(12);
-
-                  if (!isEncrypted) {
-                    decryptedData = encryptedView.buffer.slice(encryptedView.byteOffset);
-                    break;
-                  }
-
-                  try {
-                    const wrappedDekBase64 = metaObj.wrapped_dek || metaObj.encrypted_dek || metaObj.wrapped_key || metaObj.session_key ||
-                      (metaObj.metadata && (metaObj.metadata.wrapped_dek || metaObj.metadata.encrypted_dek));
-
-                    if (wrappedDekBase64) {
-                      const wrappedDekBytes = base64ToBytes(wrappedDekBase64);
-                      const ivDek = wrappedDekBytes.subarray(0, 12);
-                      const cipherDek = wrappedDekBytes.subarray(12);
-                      const decryptedDek = await crypto.subtle.decrypt({ name: "AES-GCM", iv: ivDek as any }, aesKey as CryptoKey, cipherDek as any);
-                      const dek = await crypto.subtle.importKey("raw", decryptedDek as any, { name: "AES-GCM" }, false, ["decrypt"]);
-                      decryptedData = await crypto.subtle.decrypt({ name: "AES-GCM", iv: iv as any }, dek as CryptoKey, ciphertext as any);
-                    } else {
-                      decryptedData = await crypto.subtle.decrypt({ name: "AES-GCM", iv: iv as any }, aesKey as CryptoKey, ciphertext as any);
-                    }
-                    if (decryptedData) break;
-                  } catch (e: any) {
-                    decryptErr = e;
-                  }
-                }
-
-                if (!decryptedData) throw decryptErr || new Error("Decryption failed");
+                if (!decryptedData) throw new Error("Decryption failed");
 
                 const payloadArray = new Uint8Array(decryptedData);
                 const parsedChannels: any[] = [];

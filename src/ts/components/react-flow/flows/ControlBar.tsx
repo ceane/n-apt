@@ -1,66 +1,71 @@
 import React from "react";
 import styled from "styled-components";
-import { Play } from "lucide-react";
+import { Play, Pause, RotateCcw, Maximize2 } from "lucide-react";
 
 const ControlBarContainer = styled.div`
-  position: absolute;
-  bottom: 20px;
-  left: 50%;
-  transform: translateX(-50%);
   display: flex;
-  gap: 12px;
-  padding: 10px;
-  background: rgba(10, 10, 10, 0.78);
-  backdrop-filter: blur(14px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 14px;
-  z-index: 10;
+  gap: 8px;
+  padding: 8px 12px;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 8px;
+  align-items: center;
 `;
 
-const PlayButton = styled.button`
-  background-color: ${(props) => props.theme.primary};
-  color: white;
-  border: none;
-  border-radius: 10px;
-  padding: 12px 18px;
-  cursor: pointer;
+const ControlButton = styled.button`
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 14px;
-  font-weight: 600;
+  gap: 4px;
+  padding: 6px 10px;
+  background: #2a2a2a;
+  border: 1px solid #444;
+  border-radius: 6px;
+  color: #fff;
+  font-size: 11px;
+  cursor: pointer;
   transition: all 0.2s ease;
-  outline: none;
-  box-shadow: none;
-
-  &:focus,
-  &:focus-visible {
-    outline: none;
-    box-shadow: none;
-  }
 
   &:hover {
-    background-color: ${(props) => props.theme.primaryHover};
-    transform: scale(1.05);
+    background: #3a3a3a;
+    border-color: #555;
   }
 
   &:active {
-    transform: scale(1.02);
+    transform: scale(0.95);
   }
 `;
 
 interface ControlBarProps {
+  isPlaying?: boolean;
   onPlay?: () => void;
+  onPause?: () => void;
+  onReset?: () => void;
+  onFullscreen?: () => void;
 }
 
-export const ControlBar: React.FC<ControlBarProps> = ({ onPlay }) => {
+export const ControlBar: React.FC<ControlBarProps> = ({
+  isPlaying = false,
+  onPlay,
+  onPause,
+  onReset,
+  onFullscreen,
+}) => {
   return (
     <ControlBarContainer>
-      <PlayButton
-        onClick={onPlay || (() => console.log("Play button clicked"))}
-      >
-        <Play size={20} />
-      </PlayButton>
+      <ControlButton onClick={isPlaying ? onPause : onPlay}>
+        {isPlaying ? <Pause size={12} /> : <Play size={12} />}
+        {isPlaying ? "Pause" : "Play"}
+      </ControlButton>
+
+      <ControlButton onClick={onReset}>
+        <RotateCcw size={12} />
+        Reset
+      </ControlButton>
+
+      <ControlButton onClick={onFullscreen}>
+        <Maximize2 size={12} />
+        Fullscreen
+      </ControlButton>
     </ControlBarContainer>
   );
 };

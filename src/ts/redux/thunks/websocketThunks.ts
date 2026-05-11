@@ -1,45 +1,23 @@
 import { createAsyncThunk } from "@reduxjs/toolkit";
 import { RootState } from "@n-apt/redux/store";
 import {
-  FrequencyRange,
   SDRSettings,
   CaptureRequest,
 } from "@n-apt/consts/schemas/websocket";
+import { FrequencyRange } from "@n-apt/consts/types";
 
 const getSampleRateHz = (state: RootState): number | null => {
-  const candidates = [
-    state.websocket.sdrSettings?.sample_rate,
-    state.websocket.sampleRateHz,
-    state.spectrum.sampleRateHz,
-  ];
-  for (const candidate of candidates) {
-    if (
-      typeof candidate === "number" &&
-      Number.isFinite(candidate) &&
-      candidate > 0
-    ) {
-      return candidate;
-    }
-  }
-  return null;
+  const sampleRateHz = state.demod?.sampleRateHz ?? state.spectrum?.sampleRateHz;
+  return Number.isFinite(sampleRateHz) && sampleRateHz > 0 ? sampleRateHz : null;
 };
 
 const buildTunedFrequencyPayload = (
   state: RootState,
   range: FrequencyRange,
 ): { min_hz: number; max_hz: number } => {
-  const centerHz = (range.min + range.max) / 2;
-  const sampleRateHz = getSampleRateHz(state);
-  if (!sampleRateHz) {
-    return {
-      min_hz: range.min,
-      max_hz: range.max,
-    };
-  }
-  const halfSpanHz = sampleRateHz / 2;
   return {
-    min_hz: centerHz - halfSpanHz,
-    max_hz: centerHz + halfSpanHz,
+    min_hz: range.min,
+    max_hz: range.max,
   };
 };
 
@@ -88,6 +66,22 @@ export const sendFrequencyRange = createAsyncThunk(
 
 export const requestNextLiveFrame = createAsyncThunk(
   "websocket/requestNextLiveFrame",
+  async (_, { dispatch, getState }) => {
+    const state = getState() as RootState;
+    if (state.websocket.isConnected) {
+      dispatch({
+        type: "websocket/sendMessage",
+        payload: {
+          type: "request_next_frame",
+          data: {},
+        },
+      });
+    }
+  },
+);
+
+export const requestNextPausedFrame = createAsyncThunk(
+  "websocket/requestNextPausedFrame",
   async (_, { dispatch, getState }) => {
     const state = getState() as RootState;
     if (state.websocket.isConnected) {

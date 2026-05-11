@@ -28,7 +28,7 @@ if (!password) {
 }
 
 const SALT = Buffer.from("n-apt-aes-salt-v1");
-const ITERATIONS = 600_000;
+const ITERATIONS = 100_000;
 const IV_LENGTH = 12;
 
 // Derive vault key using PBKDF2

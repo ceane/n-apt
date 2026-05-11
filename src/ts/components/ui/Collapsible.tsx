@@ -109,6 +109,7 @@ export interface CollapsibleProps {
   icon?: React.ReactNode;
   children: React.ReactNode;
   defaultOpen?: boolean;
+  onOpenChange?: (isOpen: boolean) => void;
 }
 
 export const Collapsible: React.FC<CollapsibleProps> = ({
@@ -117,12 +118,17 @@ export const Collapsible: React.FC<CollapsibleProps> = ({
   icon,
   children,
   defaultOpen = false,
+  onOpenChange,
 }) => {
   const [isOpen, setIsOpen] = React.useState(defaultOpen);
 
   const handleToggle = React.useCallback(() => {
-    setIsOpen((prev) => !prev);
-  }, []);
+    setIsOpen((prev) => {
+      const next = !prev;
+      onOpenChange?.(next);
+      return next;
+    });
+  }, [onOpenChange]);
 
   return (
     <>

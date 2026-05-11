@@ -30,7 +30,7 @@ command -v npm >/dev/null 2>&1 || { echo -e "${RED}Error: npm is not installed.$
 
 # 2. Build Backend Utility
 echo -e "\n${BLUE}Step 2: Building backend test utility...${NC}"
-cargo build --profile dev-fast --bin n-apt-backend
+cargo build --bin n-apt-backend
 
 # 3. Generate Test Vectors (Rust)
 echo -e "\n${BLUE}Step 3: Generating encrypted test vectors...${NC}"

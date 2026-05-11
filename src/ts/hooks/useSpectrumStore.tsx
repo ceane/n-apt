@@ -40,6 +40,7 @@ import {
   setSdrSettingsBundle as setSdrSettingsBundleAction,
   resetLiveControls as resetLiveControlsAction,
   resetZoomAndDb as resetZoomAndDbAction,
+  setShowSpikeOverlay as setShowSpikeOverlayAction,
 } from "@n-apt/redux";
 import { liveDataRef } from "@n-apt/redux/middleware/websocketMiddleware";
 import {
@@ -49,6 +50,7 @@ import {
   sendGetAutoFftOptions as sendGetAutoFftOptionsThunk,
   sendTrainingCommand as sendTrainingCommandThunk,
   sendFrequencyRange as sendFrequencyRangeThunk,
+  requestNextPausedFrame as requestNextPausedFrameThunk,
   sendSettings as sendSettingsThunk,
   sendRestartDevice as sendRestartDeviceThunk,
   sendCaptureCommand as sendCaptureCommandThunk,
@@ -830,6 +832,10 @@ export const SpectrumProvider: React.FC<SpectrumProviderProps> = memo(
           case "TRAINING_STOP":
             reduxDispatch(resetTrainingCapture());
             return;
+          case "SET_SHOW_SPIKE_OVERLAY":
+            reduxDispatch(setShowSpikeOverlayAction(action.enabled));
+            dispatch(action);
+            return;
           default:
             dispatch(action);
         }
@@ -1129,6 +1135,59 @@ export const SpectrumProvider: React.FC<SpectrumProviderProps> = memo(
       lastSentPowerScaleRef.current = state.powerScale;
     }, [isConnected, wsConnection.sendPowerScaleCommand, state.powerScale]);
 
+    const pausedPreviewTimeoutRef = useRef<number | null>(null);
+    const lastPausedPreviewSignatureRef = useRef<string | null>(null);
+    useEffect(() => {
+      const isLiveSource = state.sourceMode === "live";
+      const isPausedForPreview = manualVisualizerPaused && isConnected;
+      if (!isLiveSource || !isPausedForPreview) {
+        if (pausedPreviewTimeoutRef.current !== null) {
+          window.clearTimeout(pausedPreviewTimeoutRef.current);
+          pausedPreviewTimeoutRef.current = null;
+        }
+        lastPausedPreviewSignatureRef.current = null;
+        return;
+      }
+
+      const rangeSignature = state.frequencyRange
+        ? `${state.frequencyRange.min}:${state.frequencyRange.max}`
+        : "none";
+      const nextSignature = [
+        rangeSignature,
+        state.vizZoom,
+        state.vizPanOffset,
+      ].join("|");
+
+      if (nextSignature === lastPausedPreviewSignatureRef.current) {
+        return;
+      }
+
+      if (pausedPreviewTimeoutRef.current !== null) {
+        window.clearTimeout(pausedPreviewTimeoutRef.current);
+      }
+
+      pausedPreviewTimeoutRef.current = window.setTimeout(() => {
+        reduxDispatch(requestNextPausedFrameThunk());
+        lastPausedPreviewSignatureRef.current = nextSignature;
+        pausedPreviewTimeoutRef.current = null;
+      }, 120);
+
+      return () => {
+        if (pausedPreviewTimeoutRef.current !== null) {
+          window.clearTimeout(pausedPreviewTimeoutRef.current);
+          pausedPreviewTimeoutRef.current = null;
+        }
+      };
+    }, [
+      isConnected,
+      manualVisualizerPaused,
+      reduxDispatch,
+      state.frequencyRange,
+      state.sourceMode,
+      state.vizPanOffset,
+      state.vizZoom,
+    ]);
+
     const lastSentFrameRateRef = useRef<number | null>(null);
     useEffect(() => {
       if (!isConnected || state.detectedFrameRate == null) return;
@@ -1279,7 +1338,18 @@ export const SpectrumProvider: React.FC<SpectrumProviderProps> = memo(
       );
       storeDispatch({
         type: "SET_SDR_SETTINGS_BUNDLE",
-        settings: derived,
+        settings: {
+          ...derived,
+          fftSize:
+            typeof mergedState.fftSize === "number" && mergedState.fftSize > 0
+              ? mergedState.fftSize
+              : derived.fftSize,
+          fftFrameRate:
+            typeof mergedState.fftFrameRate === "number" &&
+            mergedState.fftFrameRate > 0
+              ? mergedState.fftFrameRate
+              : derived.fftFrameRate,
+        },
       });
     }, [sdrSettings, sampleRateHzEffective, storeDispatch]);
 

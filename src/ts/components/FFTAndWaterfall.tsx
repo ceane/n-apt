@@ -67,6 +67,7 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTCanvasProps>(
       <Container>
         <Left>
           <FFTCanvas
+            key={`fft-canvas-${props.fftSize}`}
             ref={ref}
             {...props}
             waterfallCanvasBindings={waterfallCanvasBindings}

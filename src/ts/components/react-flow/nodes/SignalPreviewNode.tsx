@@ -12,7 +12,6 @@ const NodeWrapper = styled.div`
   border-radius: 12px;
   padding: 12px;
   min-width: 420px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
 `;
 
 const NodeTitle = styled.div`
@@ -49,6 +48,8 @@ interface SignalPreviewNodeProps {
   activeSignalArea: string;
   centerFrequencyHz: number;
   frequencyRange: { min: number; max: number };
+  demodulationCenterFreqHz?: number;
+  demodulationRangeHz?: number;
   fftSize?: number;
   buildIqData: (fftSize: number) => Uint8Array;
 }
@@ -58,6 +59,8 @@ export const SignalPreviewNode: React.FC<SignalPreviewNodeProps> = ({
   activeSignalArea,
   centerFrequencyHz,
   frequencyRange,
+  demodulationCenterFreqHz,
+  demodulationRangeHz,
   fftSize = 2048,
   buildIqData,
 }) => {
@@ -89,6 +92,8 @@ export const SignalPreviewNode: React.FC<SignalPreviewNodeProps> = ({
           dataRef={dataRef}
           frequencyRange={frequencyRange}
           centerFrequencyHz={centerFrequencyHz}
+          demodulationCenterFreqHz={demodulationCenterFreqHz ?? centerFrequencyHz}
+          demodulationRangeHz={demodulationRangeHz}
           activeSignalArea={activeSignalArea}
           isPaused={false}
           isDeviceConnected={true}
@@ -96,6 +101,7 @@ export const SignalPreviewNode: React.FC<SignalPreviewNodeProps> = ({
           powerScale="dB"
           snapshotGridPreference={true}
           compact={true}
+          nodePreview={true}
           awaitingDeviceData={false}
           isIqRecordingActive={true}
         />
