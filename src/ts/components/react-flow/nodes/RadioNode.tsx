@@ -1,16 +1,14 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo } from "react";
 import styled from "styled-components";
 import { Handle, Position, useReactFlow } from "@xyflow/react";
 import { Radio as RadioIcon, Volume2, VolumeX } from "lucide-react";
 import { useAppDispatch, useAppSelector } from "@n-apt/redux";
 import {
   setAlgorithm,
-  setBandwidth,
   setListening,
 } from "@n-apt/redux/slices/demodSlice";
 import { formatFrequency } from "@n-apt/utils/frequency";
 import { useDemod } from "@n-apt/contexts/DemodContext";
-import { FrequencyInput } from "../../ui/FrequencyInput";
 
 const NodeContainer = styled.div`
   background: ${({ theme }) => theme.colors.background};
@@ -84,7 +82,7 @@ const FrequencyDisplay = styled.div`
   border: 1px dashed ${({ theme }) => theme.colors.border};
 `;
 
-const FollowSpanToggle = styled.button<{ $active: boolean }>`
+const SourceTag = styled.div`
   align-self: flex-start;
   margin-top: 4px;
   font-size: 9px;
@@ -92,14 +90,9 @@ const FollowSpanToggle = styled.button<{ $active: boolean }>`
   letter-spacing: 0.06em;
   padding: 4px 8px;
   border-radius: 4px;
-  cursor: pointer;
-  border: 1px solid
-    ${({ theme, $active }) =>
-      $active ? theme.colors.primary : `${theme.colors.border}`};
-  background: ${({ theme, $active }) =>
-    $active ? `${theme.colors.primary}22` : "transparent"};
-  color: ${({ theme, $active }) =>
-    $active ? theme.colors.primary : theme.colors.textMuted};
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  color: ${({ theme }) => theme.colors.textMuted};
+  background: transparent;
 `;
 
 const ListenButton = styled.button<{ $active: boolean }>`
@@ -143,41 +136,34 @@ export const RadioNode: React.FC<RadioNodeProps> = ({ data }) => {
   const bandwidthKhz = useAppSelector((state) => state.demod.bandwidthKhz);
   const isListening = useAppSelector((state) => state.demod.isListening);
   const centerFreq = useAppSelector((state) => state.demod.centerFreqHz);
-  const sampleRateHz = useAppSelector((state) => state.demod.sampleRateHz);
-  const frequencyRange = useAppSelector(
-    (state) => state.spectrum.frequencyRange,
-  );
-
-  const displaySampleRateHz =
-    sampleRateHz && sampleRateHz > 0 ? sampleRateHz : 3_200_000;
-
-  const [bandwidthFollowsSpan, setBandwidthFollowsSpan] = useState(true);
+  const previewRange = useAppSelector((state) => state.spectrum.previewRange);
 
   const { audioPlayback } = useDemod();
   const { getNodes, getEdges } = useReactFlow();
 
-  // Check if FM node is connected upstream
-  const hasFmNodeUpstream = useMemo(() => {
+  const upstreamSource = useMemo<"fm" | "span" | "manual">(() => {
     const nodes = getNodes();
     const edges = getEdges();
-    // Find this radio node by matching the label
     const radioNode = nodes.find(
       (n) => n.data?.label === data.label && n.type === "custom",
     );
 
-    if (!radioNode) return false;
+    if (!radioNode) return "manual";
 
-    // Find all nodes that have an edge to this radio node
     const upstreamNodeIds = edges
       .filter((e) => e.target === radioNode.id)
       .map((e) => e.source);
 
-    // Check if any upstream node has fmOptions
-    return upstreamNodeIds.some((id) => {
-      const node = nodes.find((n) => n.id === id);
-      return node?.data?.fmOptions;
-    });
+    const upstreamNodes = upstreamNodeIds
+      .map((id) => nodes.find((n) => n.id === id))
+      .filter(Boolean);
+
+    if (upstreamNodes.some((node) => node?.data?.fmOptions)) return "fm";
+    if (upstreamNodes.some((node) => node?.data?.spanOptions)) return "span";
+    return "manual";
   }, [getNodes, getEdges, data]);
+  const hasFmNodeUpstream = upstreamSource === "fm";
+  const hasSpanNodeUpstream = upstreamSource === "span";
 
   // Auto-select APT algorithm if an APT node is present in the flow
   useEffect(() => {
@@ -198,21 +184,36 @@ export const RadioNode: React.FC<RadioNodeProps> = ({ data }) => {
     }
   };
 
-  useEffect(() => {
-    if (!bandwidthFollowsSpan || !frequencyRange) return;
-    const bwHz = frequencyRange.max - frequencyRange.min;
-    if (!Number.isFinite(bwHz) || bwHz < MIN_BANDWIDTH_HZ) return;
-    dispatch(setBandwidth(bwHz / 1000));
-  }, [bandwidthFollowsSpan, frequencyRange, dispatch]);
-
-  const bandwidthHzFromSpan =
-    frequencyRange &&
-    Number.isFinite(frequencyRange.min) &&
-    Number.isFinite(frequencyRange.max)
-      ? frequencyRange.max - frequencyRange.min
+  const centerHzFromPreview =
+    hasSpanNodeUpstream &&
+    previewRange &&
+    Number.isFinite(previewRange.min) &&
+    Number.isFinite(previewRange.max)
+      ? (previewRange.min + previewRange.max) / 2
+      : null;
+  const bandwidthHzFromPreview =
+    hasSpanNodeUpstream &&
+    previewRange &&
+    Number.isFinite(previewRange.min) &&
+    Number.isFinite(previewRange.max)
+      ? previewRange.max - previewRange.min
       : null;
 
-  const manualBandwidthHz = (bandwidthKhz || 200) * 1000;
+  const sourceBadge = hasFmNodeUpstream
+    ? "From FM"
+    : hasSpanNodeUpstream
+      ? "From Span"
+      : "Manual";
+  const centerDisplayHz = hasFmNodeUpstream
+    ? centerFreq
+    : hasSpanNodeUpstream
+      ? centerHzFromPreview
+      : centerFreq;
+  const bandwidthDisplayHz = hasFmNodeUpstream
+    ? (bandwidthKhz || 200) * 1000
+    : hasSpanNodeUpstream
+      ? bandwidthHzFromPreview
+      : (bandwidthKhz || 200) * 1000;
 
   return (
     <NodeContainer>
@@ -225,6 +226,28 @@ export const RadioNode: React.FC<RadioNodeProps> = ({ data }) => {
 
       <ControlGroup>
         <ControlItem>
+          <Label>Center Frequency</Label>
+          <FrequencyDisplay>
+            {centerDisplayHz != null
+              ? formatFrequency(centerDisplayHz)
+              : sourceBadge}
+          </FrequencyDisplay>
+          <SourceTag>{sourceBadge}</SourceTag>
+        </ControlItem>
+
+        <ControlItem>
+          <Label>Bandwidth</Label>
+          <FrequencyDisplay>
+            {bandwidthDisplayHz != null &&
+            Number.isFinite(bandwidthDisplayHz) &&
+            bandwidthDisplayHz >= MIN_BANDWIDTH_HZ
+              ? formatFrequency(bandwidthDisplayHz)
+              : sourceBadge}
+          </FrequencyDisplay>
+          <SourceTag>{sourceBadge}</SourceTag>
+        </ControlItem>
+
+        <ControlItem>
           <Label>Demod Algorithm</Label>
           <StyledSelect
             value={hasFmNodeUpstream ? "fm" : algorithm}
@@ -236,46 +259,6 @@ export const RadioNode: React.FC<RadioNodeProps> = ({ data }) => {
             <option value="fm">FM (Wideband/Narrow)</option>
             <option value="apt">APT (NOAA Satellite)</option>
           </StyledSelect>
-        </ControlItem>
-
-        {!hasFmNodeUpstream && (
-          <ControlItem>
-            <Label>Bandwidth</Label>
-            <FollowSpanToggle
-              type="button"
-              $active={bandwidthFollowsSpan}
-              onClick={() => setBandwidthFollowsSpan((v) => !v)}
-            >
-              From span
-            </FollowSpanToggle>
-            {bandwidthFollowsSpan ? (
-              <FrequencyDisplay>
-                {bandwidthHzFromSpan != null &&
-                Number.isFinite(bandwidthHzFromSpan) &&
-                bandwidthHzFromSpan >= MIN_BANDWIDTH_HZ
-                  ? formatFrequency(bandwidthHzFromSpan)
-                  : "From Span"}
-              </FrequencyDisplay>
-            ) : (
-              <FrequencyInput
-                valueHz={manualBandwidthHz}
-                onChangeHz={(hz) => dispatch(setBandwidth(hz / 1000))}
-                minHz={MIN_BANDWIDTH_HZ}
-                maxHz={displaySampleRateHz}
-              />
-            )}
-          </ControlItem>
-        )}
-
-        <ControlItem>
-          <Label>Center Frequency</Label>
-          <FrequencyDisplay>
-            {hasFmNodeUpstream && centerFreq
-              ? `${(centerFreq / 1e6).toFixed(1)}FM (±100kHz)`
-              : centerFreq
-                ? formatFrequency(centerFreq)
-                : "From Span"}
-          </FrequencyDisplay>
         </ControlItem>
       </ControlGroup>
 

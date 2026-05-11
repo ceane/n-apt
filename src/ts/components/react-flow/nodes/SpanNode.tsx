@@ -1,12 +1,21 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
-import styled from "styled-components";
+import { styled } from "styled-components";
 import { Handle, Position } from "@xyflow/react";
 import { Zap, BookmarkPlus, Trash2 } from "lucide-react";
 import { useAppDispatch, useAppSelector } from "@n-apt/redux";
 import { FrequencyRange } from "@n-apt/consts/types";
-import { sendFrequencyRange } from "@n-apt/redux/thunks/websocketThunks";
-import { setFrequencyRange, setPreviewRange, setPreviewCenterHz } from "@n-apt/redux/slices/spectrumSlice";
+import {
+  requestNextPausedFrame,
+  sendFrequencyRange,
+} from "@n-apt/redux/thunks/websocketThunks";
+import { setFrequencyRange, setPreviewRange, setPreviewAlignment } from "@n-apt/redux/slices/spectrumSlice";
 import { formatFrequency } from "@n-apt/utils/frequency";
+import {
+  clampFrequencyHz,
+  getBandwidthEndHz,
+  getBandwidthStartHz,
+  getCenteredFrequencyHz,
+} from "@n-apt/utils/frequency";
 import { FrequencyInput } from "../../ui/FrequencyInput";
 
 const NodeContainer = styled.div`
@@ -206,7 +215,7 @@ interface SpanNodeProps {
 /** Hard limits for the observable band edges (selection must fit). */
 const GLOBAL_BAND_EDGE_MIN_HZ = 0;
 const GLOBAL_BAND_EDGE_MAX_HZ = 30_000_000_000;
-const HARDWARE_MIN_CENTER_HZ = 1_600_000;
+const HARDWARE_MIN_CENTER_HZ = 0;
 const HARDWARE_MAX_CENTER_HZ = 30_000_000_000;
 
 /** Minimum selection bandwidth. */
@@ -214,12 +223,35 @@ const MIN_BANDWIDTH_HZ = 1_000;
 
 export const SPAN_PRESETS_STORAGE_KEY = "n-apt.span-presets.v1";
 
-export interface SpanPreset {
+export const AlignmentSelect = styled.select`
+  background: ${({ theme }) => theme.colors.surface};
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: 4px;
+  color: ${({ theme }) => theme.colors.textPrimary};
+  font-size: 10px;
+  padding: 6px;
+  width: 100%;
+  outline: none;
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  
+  &:focus {
+    border-color: ${({ theme }) => theme.colors.primary};
+  }
+`;
+
+type Alignment = "centered" | "start" | "end";
+
+interface SpanPreset {
   id: string;
   name: string;
   centerFreqHz: number;
   bandwidthHz: number;
   bandwidthStartHz: number;
+  hardwareSpanHz?: number;
 }
 
 function maxBandwidthForCenter(centerHz: number, sampleRateHz: number): number {
@@ -252,13 +284,8 @@ export function clampBandwidthStartHz(params: {
   const capLo = Math.max(GLOBAL_BAND_EDGE_MIN_HZ, centerHz - half);
   const capHi = Math.min(GLOBAL_BAND_EDGE_MAX_HZ, centerHz + half);
   const lo = capLo;
-  const hi = capHi - bandwidthHz;
-  if (hi < lo) return lo;
-  return Math.max(lo, Math.min(startHz, hi));
-}
-
-function centeredBandwidthStart(centerHz: number, bandwidthHz: number): number {
-  return centerHz - bandwidthHz / 2;
+  const hi = Math.max(lo, capHi - bandwidthHz);
+  return clampFrequencyHz(startHz, lo, hi);
 }
 
 function loadPresetsFromStorage(): SpanPreset[] {
@@ -306,31 +333,76 @@ export const SpanNode: React.FC<SpanNodeProps> = ({ data }) => {
   const activeFrequencyRange = useAppSelector(
     (state) => state.spectrum.frequencyRange,
   );
+  const previewRange = useAppSelector((state) => state.spectrum.previewRange);
+  const isPaused = useAppSelector((state) => state.websocket.isPaused);
+  const isConnected = useAppSelector((state) => state.websocket.isConnected);
 
-  const [centerFreqHz, setCenterFreqHz] = useState(137_500_000);
-  const [bandwidthHz, setBandwidthHz] = useState(3_200_000);
+  const [centerFreqHz, setCenterFreqHz] = useState(26_000_000);
+  const [hardwareSpanHz, setHardwareSpanHz] = useState(3_200_000);
+  const [bandwidthHz, setBandwidthHz] = useState(500_000);
   const [bandwidthStartHz, setBandwidthStartHz] = useState(
-    centeredBandwidthStart(137_500_000, 3_200_000),
+    getCenteredFrequencyHz(26_000_000, 500_000),
   );
+  const [alignment, setAlignment] = useState<Alignment>("centered");
 
   const [presetNameDraft, setPresetNameDraft] = useState("");
   const [presets, setPresets] = useState<SpanPreset[]>(loadPresetsFromStorage);
+  const lastDispatchedRangeRef = useRef<FrequencyRange | null>(null);
+  const isPublishingLocalRangeRef = useRef(false);
+  const pausedFrameRequestTimeoutRef = useRef<number | null>(null);
+
+  const maybeRequestPausedFrame = useCallback(
+    (direction: "left" | "right" | "none" = "none") => {
+      if (!isPaused || !isConnected) return;
+      if (pausedFrameRequestTimeoutRef.current !== null) {
+        window.clearTimeout(pausedFrameRequestTimeoutRef.current);
+      }
+      pausedFrameRequestTimeoutRef.current = window.setTimeout(() => {
+        const selectionRange = lastDispatchedRangeRef.current;
+        if (!selectionRange || !activeFrequencyRange) {
+          pausedFrameRequestTimeoutRef.current = null;
+          return;
+        }
+
+        const atLeftEdge =
+          selectionRange.min <= activeFrequencyRange.min + 0.1;
+        const atRightEdge =
+          selectionRange.max >= activeFrequencyRange.max - 0.1;
+
+        const shouldRequest =
+          (direction === "right" && atRightEdge) ||
+          (direction === "left" &&
+            atLeftEdge &&
+            activeFrequencyRange.min > 0);
+
+        if (!shouldRequest) {
+          pausedFrameRequestTimeoutRef.current = null;
+          return;
+        }
+
+        dispatch(requestNextPausedFrame());
+        pausedFrameRequestTimeoutRef.current = null;
+      }, 0);
+    },
+    [activeFrequencyRange, dispatch, isConnected, isPaused],
+  );
 
   const displaySampleRateHz =
     sampleRateHz && sampleRateHz > 0 ? sampleRateHz : 3_200_000;
 
   const derivedSpanHz = useMemo(() => {
-    // Priority 1: Use the active visual range from the spectrum if available
+    if (Number.isFinite(hardwareSpanHz) && hardwareSpanHz > 0) {
+      return hardwareSpanHz;
+    }
+    if (Number.isFinite(displaySampleRateHz) && displaySampleRateHz > 0) {
+      return displaySampleRateHz;
+    }
     if (activeFrequencyRange) {
       const range = activeFrequencyRange.max - activeFrequencyRange.min;
       if (range > 0) return range;
     }
-    // Priority 2: Use the sample rate from the demod settings
-    if (Number.isFinite(displaySampleRateHz) && displaySampleRateHz > 0) {
-      return displaySampleRateHz;
-    }
     return 3_200_000;
-  }, [activeFrequencyRange, displaySampleRateHz]);
+  }, [activeFrequencyRange, displaySampleRateHz, hardwareSpanHz]);
 
   const { minCenterHz, maxCenterHz } = useMemo(() => {
     const halfCapture = derivedSpanHz / 2;
@@ -343,8 +415,6 @@ export const SpanNode: React.FC<SpanNodeProps> = ({ data }) => {
     const minFromLow = GLOBAL_BAND_EDGE_MIN_HZ + halfCapture;
     const maxFromHigh = GLOBAL_BAND_EDGE_MAX_HZ - halfCapture;
 
-    // Center frequency must be at least HARDWARE_MIN_CENTER_HZ
-    // AND it must be far enough from GLOBAL_BAND_EDGE_MIN_HZ to fit half the span.
     const actualMin = Math.max(minFromLow, HARDWARE_MIN_CENTER_HZ);
     const actualMax = Math.min(maxFromHigh, HARDWARE_MAX_CENTER_HZ);
 
@@ -357,8 +427,6 @@ export const SpanNode: React.FC<SpanNodeProps> = ({ data }) => {
   const maxBandwidthHz = derivedSpanHz;
 
   const { bandwidthStartMinHz, bandwidthStartMaxHz } = useMemo(() => {
-    // Relaxed boundaries for bandwidth start to allow "pushing" the window.
-    // The actual clamping is handled in handleBandwidthStartChange.
     const lo = GLOBAL_BAND_EDGE_MIN_HZ;
     const hi = Math.max(lo, GLOBAL_BAND_EDGE_MAX_HZ - bandwidthHz);
     return {
@@ -367,170 +435,213 @@ export const SpanNode: React.FC<SpanNodeProps> = ({ data }) => {
     };
   }, [bandwidthHz]);
 
-  const handleBandwidthStartChange = useCallback(
-    (newStart: number) => {
-      setCenterFreqHz(oldCenter => {
-        const half = derivedSpanHz / 2;
-        const lo = oldCenter - half;
-        const hi = oldCenter + half;
-        const newEnd = newStart + bandwidthHz;
+  const prevDerivedSpanRef = useRef<number | null>(null);
+  const hasSyncedInitialValue = useRef(false);
+  const lastUserActionTimeRef = useRef<number>(0);
 
-        let nextCenter = oldCenter;
-        if (newStart < lo) {
-          nextCenter = oldCenter - (lo - newStart);
-        } else if (newEnd > hi) {
-          nextCenter = oldCenter + (newEnd - hi);
-        }
-        
-        return Math.max(minCenterHz, Math.min(nextCenter, maxCenterHz));
-      });
-      setBandwidthStartHz(newStart);
-    },
-    [bandwidthHz, derivedSpanHz, minCenterHz, maxCenterHz],
-  );
+  const getConsolidatedState = useCallback((
+    targetCenter: number,
+    targetBw: number,
+    targetStart: number,
+    targetSpan: number,
+    mode: Alignment,
+    primarySource: 'center' | 'bandwidth' | 'start' | 'external' | 'alignment' | 'preview_sync'
+  ) => {
+    let c = targetCenter;
+    let b = targetBw;
+    let s = targetStart;
+    let span = targetSpan;
 
-  const handleCenterFreqChange = useCallback((val: number) => {
-    setCenterFreqHz(val);
+    const halfSpan = span / 2;
+    const minC = Math.max(HARDWARE_MIN_CENTER_HZ, GLOBAL_BAND_EDGE_MIN_HZ + halfSpan);
+    const maxC = Math.min(HARDWARE_MAX_CENTER_HZ, GLOBAL_BAND_EDGE_MAX_HZ - halfSpan);
+
+    b = Math.max(MIN_BANDWIDTH_HZ, Math.min(b, span));
+
+    if (primarySource === 'center' || primarySource === 'external') {
+      c = Math.max(minC, Math.min(c, maxC));
+      if (mode === 'centered') {
+        s = c - b / 2;
+      } else if (mode === 'start') {
+        s = Math.max(GLOBAL_BAND_EDGE_MIN_HZ, Math.min(s, GLOBAL_BAND_EDGE_MAX_HZ - b));
+      } else if (mode === 'end') {
+        s = Math.max(GLOBAL_BAND_EDGE_MIN_HZ, Math.min(s, GLOBAL_BAND_EDGE_MAX_HZ - b));
+      }
+    } else if (primarySource === 'bandwidth') {
+      if (mode === 'start') {
+      } else if (mode === 'end') {
+        const currentEnd = targetStart + targetBw;
+        s = currentEnd - b;
+      } else {
+        s = c - b / 2;
+      }
+    } else if (primarySource === 'preview_sync') {
+      s = targetStart;
+    } else if (primarySource === 'alignment') {
+      s = Math.max(GLOBAL_BAND_EDGE_MIN_HZ, Math.min(s, GLOBAL_BAND_EDGE_MAX_HZ - b));
+    } else if (primarySource === 'start') {
+      if (mode === 'end') {
+        s = targetStart - b;
+      } else {
+        s = targetStart;
+      }
+    }
+
+    const selectionMin = s;
+    const selectionMax = s + b;
+
+    let windowMin = c - halfSpan;
+    let windowMax = c + halfSpan;
+
+    const buffer = span * 0.01;
+
+    if (selectionMin < windowMin + buffer) {
+      const jump = halfSpan; 
+      c = Math.max(minC, Math.min(c - jump, maxC));
+      windowMin = c - halfSpan;
+      windowMax = c + halfSpan;
+    } else if (selectionMax > windowMax - buffer) {
+      const jump = halfSpan;
+      c = Math.max(minC, Math.min(c + jump, maxC));
+      windowMin = c - halfSpan;
+      windowMax = c + halfSpan;
+    }
+
+    s = Math.max(windowMin, Math.min(s, windowMax - b));
+
+    return { center: c, bandwidth: b, start: s, span: span };
   }, []);
 
-  const handleBandwidthChange = useCallback(
-    (newBw: number) => {
-      setCenterFreqHz(oldCenter => {
-        const half = derivedSpanHz / 2;
-        const currentHi = oldCenter + half;
-        const newEnd = bandwidthStartHz + newBw;
+  const updateState = useCallback((
+    c: number, 
+    b: number, 
+    s: number, 
+    span: number,
+    mode: Alignment, 
+    source: 'center' | 'bandwidth' | 'start' | 'external' | 'alignment' | 'preview_sync'
+  ) => {
+    const next = getConsolidatedState(c, b, s, span, mode, source);
+    
+    const centerMoved = Math.abs(centerFreqHz - next.center) > 0.1;
+    const spanMoved = Math.abs(hardwareSpanHz - next.span) > 0.1;
 
-        let nextCenter = oldCenter;
-        if (newEnd > currentHi) {
-          nextCenter = oldCenter + (newEnd - currentHi);
-        }
+    setCenterFreqHz(prev => Math.abs(prev - next.center) < 0.01 ? prev : next.center);
+    setBandwidthHz(prev => Math.abs(prev - next.bandwidth) < 0.01 ? prev : next.bandwidth);
+    setBandwidthStartHz(prev => Math.abs(prev - next.start) < 0.01 ? prev : next.start);
+    setHardwareSpanHz(prev => Math.abs(prev - next.span) < 0.01 ? prev : next.span);
+
+    if (source !== 'preview_sync') {
+      const selectionRange = { min: next.start, max: next.start + next.bandwidth };
+      const isDifferent = !lastDispatchedRangeRef.current ||
+        Math.abs(selectionRange.min - lastDispatchedRangeRef.current.min) > 0.1 ||
+        Math.abs(selectionRange.max - lastDispatchedRangeRef.current.max) > 0.1;
         
-        return Math.max(minCenterHz, Math.min(nextCenter, maxCenterHz));
-      });
-      setBandwidthHz(newBw);
-    },
-    [bandwidthStartHz, derivedSpanHz, minCenterHz, maxCenterHz],
-  );
+      if (isDifferent) {
+        lastDispatchedRangeRef.current = selectionRange;
+        dispatch(setPreviewRange(selectionRange));
+        if (activeFrequencyRange) {
+          if (selectionRange.max > activeFrequencyRange.max) {
+            maybeRequestPausedFrame("right");
+          } else if (selectionRange.min < activeFrequencyRange.min) {
+            maybeRequestPausedFrame("left");
+          }
+        }
+      }
+      dispatch(setPreviewAlignment(mode));
+    }
 
-  const prevDerivedSpanRef = useRef<number | null>(null);
+    if (centerMoved || spanMoved) {
+      const halfSpan = next.span / 2;
+      const hwRange = { min: next.center - halfSpan, max: next.center + halfSpan };
+      
+      isPublishingLocalRangeRef.current = true;
+      dispatch(setFrequencyRange(hwRange));
+      dispatch(sendFrequencyRange(hwRange));
+      setTimeout(() => {
+        isPublishingLocalRangeRef.current = false;
+      }, 0);
+    }
+  }, [getConsolidatedState, dispatch, centerFreqHz, hardwareSpanHz]);
 
-  const hasSyncedInitialValue = useRef(false);
+  const isRecentlyInteracted = Date.now() - lastUserActionTimeRef.current < 1500;
+
   useEffect(() => {
     if (!activeFrequencyRange) return;
+    if (!hasSyncedInitialValue.current) return;
+
+    const hwCenter = (activeFrequencyRange.min + activeFrequencyRange.max) / 2;
+    const hwSpan = activeFrequencyRange.max - activeFrequencyRange.min;
+
+    if (!isRecentlyInteracted && Math.abs(hwCenter - centerFreqHz) > 1000) {
+      updateState(hwCenter, bandwidthHz, bandwidthStartHz, hwSpan, alignment, 'external');
+    }
+  }, [activeFrequencyRange, hardwareSpanHz, alignment, updateState, centerFreqHz, isRecentlyInteracted, bandwidthHz, bandwidthStartHz]);
+
+  useEffect(() => {
     if (hasSyncedInitialValue.current) return;
-
-    const { min, max } = activeFrequencyRange;
-    if (!Number.isFinite(min) || !Number.isFinite(max)) return;
-
-    let center = (min + max) / 2;
-    let bw = Math.max(MIN_BANDWIDTH_HZ, max - min);
-    center = Math.max(minCenterHz, Math.min(center, maxCenterHz));
-    bw = Math.min(bw, maxBandwidthForCenter(center, derivedSpanHz));
-    bw = Math.max(MIN_BANDWIDTH_HZ, bw);
-
-    let start = min;
-    start = clampBandwidthStartHz({
-      centerHz: center,
-      bandwidthHz: bw,
-      captureSpanHz: derivedSpanHz,
-      startHz: start,
-    });
-
-    setCenterFreqHz(center);
-    setBandwidthHz(bw);
-    setBandwidthStartHz(start);
+    if (!Number.isFinite(centerFreqHz) || !Number.isFinite(bandwidthHz)) return;
     hasSyncedInitialValue.current = true;
-  }, [activeFrequencyRange, derivedSpanHz, minCenterHz, maxCenterHz]);
+    updateState(centerFreqHz, bandwidthHz, bandwidthStartHz, derivedSpanHz, alignment, "external");
+  }, [centerFreqHz, bandwidthHz, bandwidthStartHz, derivedSpanHz, alignment, updateState]);
 
   useEffect(() => {
-    if (prevDerivedSpanRef.current === null) {
-      prevDerivedSpanRef.current = derivedSpanHz;
-      return;
+    if (!previewRange || isRecentlyInteracted || isPublishingLocalRangeRef.current) return;
+    
+    const center = (previewRange.min + previewRange.max) / 2;
+    const bw = previewRange.max - previewRange.min;
+    
+    updateState(centerFreqHz, bw, previewRange.min, hardwareSpanHz, alignment, 'preview_sync');
+  }, [previewRange, updateState, centerFreqHz, hardwareSpanHz, alignment, isRecentlyInteracted]);
+
+  const handleBandwidthStartChange = (val: number) => {
+    lastUserActionTimeRef.current = Date.now();
+    const direction =
+      val > bandwidthStartHz ? "right" : val < bandwidthStartHz ? "left" : "none";
+    updateState(centerFreqHz, bandwidthHz, val, hardwareSpanHz, alignment, 'start');
+    if (direction !== "none") {
+      maybeRequestPausedFrame(direction);
     }
-    if (prevDerivedSpanRef.current === derivedSpanHz) return;
-    prevDerivedSpanRef.current = derivedSpanHz;
+  };
 
-    setBandwidthHz((bw) => Math.min(bw, derivedSpanHz));
-  }, [derivedSpanHz]);
+  const handleCenterFreqChange = (val: number) => {
+    lastUserActionTimeRef.current = Date.now();
+    updateState(val, bandwidthHz, bandwidthStartHz, hardwareSpanHz, alignment, 'center');
+  };
 
-  useEffect(() => {
-    if (centerFreqHz < minCenterHz) {
-      setCenterFreqHz(minCenterHz);
-    } else if (centerFreqHz > maxCenterHz) {
-      setCenterFreqHz(maxCenterHz);
-    }
-  }, [centerFreqHz, minCenterHz, maxCenterHz]);
+  const handleHardwareSpanChange = (val: number) => {
+    lastUserActionTimeRef.current = Date.now();
+    updateState(centerFreqHz, bandwidthHz, bandwidthStartHz, val, alignment, 'external');
+  };
 
-  useEffect(() => {
-    const cap = maxBandwidthForCenter(centerFreqHz, derivedSpanHz);
-    if (bandwidthHz > cap) {
-      setBandwidthHz(Math.max(MIN_BANDWIDTH_HZ, cap));
-    } else if (bandwidthHz < MIN_BANDWIDTH_HZ) {
-      setBandwidthHz(MIN_BANDWIDTH_HZ);
-    }
-  }, [centerFreqHz, derivedSpanHz, bandwidthHz]);
+  const handleBandwidthChange = (val: number) => {
+    lastUserActionTimeRef.current = Date.now();
+    updateState(centerFreqHz, val, bandwidthStartHz, hardwareSpanHz, alignment, 'bandwidth');
+  };
 
   useEffect(() => {
-    setBandwidthStartHz((start) =>
-      clampBandwidthStartHz({
-        centerHz: centerFreqHz,
-        bandwidthHz,
-        captureSpanHz: derivedSpanHz,
-        startHz: start,
-      }),
-    );
-  }, [centerFreqHz, bandwidthHz, derivedSpanHz]);
-
-  // Sync local state to global preview state for live visualization
-  useEffect(() => {
-    const range = {
-      min: bandwidthStartHz,
-      max: bandwidthStartHz + bandwidthHz,
-    };
-    dispatch(setPreviewRange(range));
-    dispatch(setPreviewCenterHz(centerFreqHz));
-
-    // Clear preview on unmount
-    return () => {
-      dispatch(setPreviewRange(null));
-      dispatch(setPreviewCenterHz(null));
-    };
-  }, [dispatch, bandwidthStartHz, bandwidthHz, centerFreqHz]);
-
-  // Sync preview to Redux for FFTNode live preview
-  useEffect(() => {
-    const half = derivedSpanHz / 2;
-    dispatch(
-      setPreviewRange({
-        min: bandwidthStartHz,
-        max: bandwidthStartHz + bandwidthHz,
-      } as FrequencyRange),
-    );
-
     return () => {
       dispatch(setPreviewRange(null));
     };
-  }, [bandwidthStartHz, bandwidthHz, centerFreqHz, derivedSpanHz, dispatch]);
+  }, [dispatch]);
 
   const displayHardwareRange = hardwareRange ?? { min: 0, max: 2_000_000_000 };
 
   const selectionMinHz = bandwidthStartHz;
   const selectionMaxHz = bandwidthStartHz + bandwidthHz;
   const selectionCenterHz = bandwidthStartHz + bandwidthHz / 2;
+  const bandwidthStartStepHz =
+    alignment === "centered" ? bandwidthHz / 2 : bandwidthHz;
 
   const handleApply = () => {
-    if (
-      Number.isFinite(centerFreqHz) &&
-      Number.isFinite(bandwidthHz) &&
-      Number.isFinite(bandwidthStartHz) &&
-      bandwidthHz >= MIN_BANDWIDTH_HZ &&
-      selectionMaxHz > selectionMinHz
-    ) {
-      const range = { min: selectionMinHz, max: selectionMaxHz };
-      dispatch(setFrequencyRange(range));
-      dispatch(sendFrequencyRange(range));
-    }
+    const halfSpan = hardwareSpanHz / 2;
+    const range = { 
+      min: centerFreqHz - halfSpan, 
+      max: centerFreqHz + halfSpan 
+    };
+    dispatch(setFrequencyRange(range));
+    dispatch(sendFrequencyRange(range));
   };
+
 
   const handleSavePreset = useCallback(() => {
     const name = presetNameDraft.trim();
@@ -541,6 +652,7 @@ export const SpanNode: React.FC<SpanNodeProps> = ({ data }) => {
       centerFreqHz,
       bandwidthHz,
       bandwidthStartHz,
+      hardwareSpanHz,
     };
     setPresets((prev) => {
       const withoutDupName = prev.filter((p) => p.name !== name);
@@ -549,13 +661,12 @@ export const SpanNode: React.FC<SpanNodeProps> = ({ data }) => {
       return next;
     });
     setPresetNameDraft("");
-  }, [presetNameDraft, centerFreqHz, bandwidthHz, bandwidthStartHz]);
+  }, [presetNameDraft, centerFreqHz, bandwidthHz, bandwidthStartHz, hardwareSpanHz]);
 
   const handleLoadPreset = useCallback((p: SpanPreset) => {
-    setCenterFreqHz(p.centerFreqHz);
-    setBandwidthHz(p.bandwidthHz);
-    setBandwidthStartHz(p.bandwidthStartHz);
-  }, []);
+    lastUserActionTimeRef.current = Date.now();
+    updateState(p.centerFreqHz, p.bandwidthHz, p.bandwidthStartHz, p.hardwareSpanHz ?? 3_200_000, alignment, "external");
+  }, [alignment, updateState]);
 
   const handleDeletePreset = useCallback((id: string) => {
     setPresets((prev) => {
@@ -572,48 +683,21 @@ export const SpanNode: React.FC<SpanNodeProps> = ({ data }) => {
         <Title>{data.label || "Span"}</Title>
       </Header>
 
-      <InfoRow>
-        <span>Hardware Frequency Range:</span>
-        <InfoValue>
-          {`${formatFrequency(displayHardwareRange.min)} - ${formatFrequency(displayHardwareRange.max)}`}
-        </InfoValue>
-      </InfoRow>
-      <InfoRow>
-        <span>Sample Rate (max bandwidth):</span>
-        <InfoValue>{formatFrequency(displaySampleRateHz)}</InfoValue>
-      </InfoRow>
-      <InfoRow>
-        <span>Selection start:</span>
-        <InfoValue>
-          {formatFrequency(selectionMinHz, {
-            precisionMHz: 3,
-            precisionGHz: 3,
-          })}
-        </InfoValue>
-      </InfoRow>
-      <InfoRow>
-        <span>Selection end:</span>
-        <InfoValue>
-          {formatFrequency(selectionMaxHz, {
-            precisionMHz: 3,
-            precisionGHz: 3,
-          })}
-        </InfoValue>
-      </InfoRow>
-      <InfoRow>
-        <span>Selection center (derived):</span>
-        <InfoValue>
-          {formatFrequency(selectionCenterHz, {
-            precisionMHz: 3,
-            precisionGHz: 3,
-          })}
-        </InfoValue>
-      </InfoRow>
-
       <InputGroup>
         <InputField>
-          <Label>Center Frequency</Label>
+          <Label htmlFor="hw-span">Sample Rate</Label>
           <FrequencyInput
+            id="hw-span"
+            valueHz={hardwareSpanHz}
+            onChangeHz={handleHardwareSpanChange}
+            minHz={MIN_BANDWIDTH_HZ}
+            maxHz={10_000_000}
+          />
+        </InputField>
+        <InputField>
+          <Label htmlFor="hw-center">Center Frequency</Label>
+          <FrequencyInput
+            id="hw-center"
             valueHz={centerFreqHz}
             onChangeHz={handleCenterFreqChange}
             minHz={minCenterHz}
@@ -621,8 +705,20 @@ export const SpanNode: React.FC<SpanNodeProps> = ({ data }) => {
           />
         </InputField>
         <InputField>
-          <Label>Bandwidth</Label>
+          <Label htmlFor="sel-start">Bandwidth Start</Label>
           <FrequencyInput
+            id="sel-start"
+            valueHz={bandwidthStartHz}
+            onChangeHz={handleBandwidthStartChange}
+            minHz={bandwidthStartMinHz}
+            maxHz={bandwidthStartMaxHz}
+            stepHz={bandwidthStartStepHz}
+          />
+        </InputField>
+        <InputField>
+          <Label htmlFor="sel-width">Bandwidth</Label>
+          <FrequencyInput
+            id="sel-width"
             valueHz={bandwidthHz}
             onChangeHz={handleBandwidthChange}
             minHz={MIN_BANDWIDTH_HZ}
@@ -630,13 +726,21 @@ export const SpanNode: React.FC<SpanNodeProps> = ({ data }) => {
           />
         </InputField>
         <InputField>
-          <Label>Bandwidth start</Label>
-          <FrequencyInput
-            valueHz={bandwidthStartHz}
-            onChangeHz={handleBandwidthStartChange}
-            minHz={bandwidthStartMinHz}
-            maxHz={bandwidthStartMaxHz}
-          />
+          <Label htmlFor="bw-alignment">Bandwidth Alignment</Label>
+          <AlignmentSelect 
+            id="bw-alignment"
+            value={alignment} 
+            onChange={(e) => {
+              const newMode = e.target.value as Alignment;
+              setAlignment(newMode);
+              dispatch(setPreviewAlignment(newMode));
+              updateState(centerFreqHz, bandwidthHz, bandwidthStartHz, hardwareSpanHz, newMode, 'alignment');
+            }}
+          >
+            <option value="centered">Centered</option>
+            <option value="start">Start</option>
+            <option value="end">End</option>
+          </AlignmentSelect>
         </InputField>
       </InputGroup>
 

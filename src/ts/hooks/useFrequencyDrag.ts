@@ -12,6 +12,10 @@ export interface FrequencyDragOptions {
   activeSignalArea: string;
   signalAreaBounds?: Record<string, { min: number; max: number }>;
   onFrequencyRangeChange?: (range: FrequencyRange) => void;
+  /** Currently active demodulation selection range */
+  selectionRange?: FrequencyRange;
+  /** Callback for selection range changes (dragging the box) */
+  onSelectionChange?: (range: FrequencyRange) => void;
   vizZoomRef?: React.MutableRefObject<number>;
   vizPanOffsetRef?: React.MutableRefObject<number>;
   clampedVizRangeRef?: React.MutableRefObject<FrequencyRange>;
@@ -34,6 +38,8 @@ export function useFrequencyDrag({
   activeSignalArea,
   signalAreaBounds,
   onFrequencyRangeChange,
+  selectionRange,
+  onSelectionChange,
   vizZoomRef,
   vizPanOffsetRef,
   clampedVizRangeRef,
@@ -50,6 +56,8 @@ export function useFrequencyDrag({
   const dragStartFreqRef = useRef(0);
   const dragStartPanRef = useRef(0);
   const dragStartRangeRef = useRef<FrequencyRange>({ min: 0, max: 0 });
+  const dragStartSelectionRef = useRef<FrequencyRange>({ min: 0, max: 0 });
+  const isSelectionDraggingRef = useRef(false);
   const boxStartRef = useRef({ x: 0, y: 0 });
   const boxCurrentRef = useRef({ x: 0, y: 0 });
   const selectionBoxRef = useRef<HTMLDivElement | null>(null);
@@ -200,6 +208,26 @@ export function useFrequencyDrag({
         div.style.top = `${Math.max(0, top)}px`;
         div.style.width = `${Math.min(rect.width - left, width)}px`;
         div.style.height = `${Math.min(rect.height - top, height)}px`;
+        return;
+      }
+
+      if (isSelectionDraggingRef.current && onSelectionChange) {
+        const canvas = getActiveSpectrumCanvas();
+        if (!canvas) return;
+
+        const canvasRect = canvas.getBoundingClientRect();
+        const width = canvasRect.width;
+
+        const deltaX = e.clientX - dragStartXRef.current;
+        const zoom = vizZoomRef?.current || 1;
+        const fullRange = frequencyRangeRef.current.max - frequencyRangeRef.current.min;
+        const visualRange = fullRange / zoom;
+        const freqChange = (deltaX / width) * visualRange;
+
+        const newMin = dragStartSelectionRef.current.min + freqChange;
+        const newMax = dragStartSelectionRef.current.max + freqChange;
+        
+        onSelectionChange({ min: newMin, max: newMax });
         return;
       }
 
@@ -374,8 +402,37 @@ export function useFrequencyDrag({
 
       const rect = container.getBoundingClientRect();
       const height = rect.height;
+      const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
       const vfoThreshold = 60;
+
+      // Check if clicking inside the demodulation selection box
+      if (selectionRange && !disabled && y < height - vfoThreshold) {
+        const canvas = getActiveSpectrumCanvas();
+        if (canvas) {
+          const canvasRect = canvas.getBoundingClientRect();
+          const zoom = vizZoomRef?.current || 1;
+          const pan = vizPanOffsetRef?.current || 0;
+          const fullMin = frequencyRangeRef.current.min;
+          const fullMax = frequencyRangeRef.current.max;
+          const fullSpan = fullMax - fullMin;
+          const centerFreq = (fullMin + fullMax) / 2;
+          const visualSpan = fullSpan / zoom;
+          const visualMin = centerFreq + pan - visualSpan / 2;
+          
+          const freqAtClick = visualMin + (x / canvasRect.width) * visualSpan;
+          
+          if (freqAtClick >= selectionRange.min && freqAtClick <= selectionRange.max) {
+            isSelectionDraggingRef.current = true;
+            dragStartXRef.current = e.clientX;
+            dragStartSelectionRef.current = { ...selectionRange };
+            addClassIfAvailable(container, "cursor-grabbing");
+            removeClassIfAvailable(container, "cursor-crosshair");
+            setPointerCaptureIfAvailable(container, e.pointerId);
+            return;
+          }
+        }
+      }
 
       // Bottom area is the VFO area
       if (y >= height - vfoThreshold) {
@@ -571,6 +628,7 @@ export function useFrequencyDrag({
         removeClassIfAvailable(container, "cursor-grabbing");
       }
       isDraggingRef.current = false;
+      isSelectionDraggingRef.current = false;
     };
 
     const handlePointerMoveForCursor = (e: PointerEvent) => {

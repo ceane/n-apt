@@ -8,7 +8,7 @@ import {
   memo,
   Suspense,
 } from "react";
-import styled from "styled-components";
+import { styled } from "styled-components";
 import { useFFTAnimation } from "@n-apt/hooks/useFFTAnimation";
 import { usePauseLogic } from "@n-apt/hooks/usePauseLogic";
 import { useSpectrumRenderer } from "@n-apt/hooks/useSpectrumRenderer";
@@ -23,7 +23,7 @@ import { setGpuSpikeCount } from "@n-apt/redux/slices/spectrumSlice";
 import { WATERFALL_COLORMAPS } from "@n-apt/consts/colormaps";
 import type { DeviceProfile } from "@n-apt/consts/schemas/websocket";
 import type { LiveFrameData } from "@n-apt/consts/schemas/websocket";
-import type { FrequencyRange } from "@n-apt/consts/types";
+import type { Alignment, FrequencyRange } from "@n-apt/consts/types";
 import type { SdrLimitMarker } from "@n-apt/utils/sdrLimitMarkers";
 // New hooks
 import { useCanvasState } from "@n-apt/hooks/useCanvasState";
@@ -277,6 +277,11 @@ export interface FFTCanvasProps {
   isDeviceConnected?: boolean;
   /** Callback for frequency range changes */
   onFrequencyRangeChange?: (range: FrequencyRange) => void;
+  /** Currently active demodulation selection range */
+  selectionRange?: FrequencyRange;
+  /** Callback for selection range changes (dragging the box) */
+  onSelectionChange?: (range: FrequencyRange) => void;
+  bandwidthAlignment?: Alignment;
   displayTemporalResolution?: "low" | "medium" | "high";
   /** Callback to trigger a snapshot render for the sidebar */
   onSnapshot?: (data: {
@@ -429,6 +434,9 @@ const FFTCanvas = memo(
       nodePreview = false,
       demodulationCenterFreqHz = null,
       demodulationRangeHz = null,
+      selectionRange,
+      bandwidthAlignment = "centered",
+      onSelectionChange,
     } = props;
     const dispatch = useAppDispatch();
     const fftColor = useAppSelector((reduxState) => reduxState.theme.fftColor);
@@ -662,6 +670,19 @@ const FFTCanvas = memo(
 
     const demodFocusOverlay = useMemo(() => {
       if (
+        selectionRange &&
+        Number.isFinite(selectionRange.min) &&
+        Number.isFinite(selectionRange.max) &&
+        selectionRange.max > selectionRange.min
+      ) {
+        return {
+          centerFrequencyHz: (selectionRange.min + selectionRange.max) / 2,
+          halfBandwidthHz: (selectionRange.max - selectionRange.min) / 2,
+          alignment: bandwidthAlignment,
+        };
+      }
+
+      if (
         demodulationCenterFreqHz === null ||
         demodulationCenterFreqHz === undefined ||
         !Number.isFinite(demodulationCenterFreqHz)
@@ -675,8 +696,30 @@ const FFTCanvas = memo(
       return {
         centerFrequencyHz: demodulationCenterFreqHz,
         halfBandwidthHz: range / 2,
+        alignment: bandwidthAlignment,
       };
-    }, [demodulationCenterFreqHz, demodulationRangeHz]);
+    }, [
+      selectionRange,
+      demodulationCenterFreqHz,
+      demodulationRangeHz,
+      bandwidthAlignment,
+    ]);
+
+    const selectionOverlay = useMemo(() => {
+      if (
+        !selectionRange ||
+        !Number.isFinite(selectionRange.min) ||
+        !Number.isFinite(selectionRange.max) ||
+        selectionRange.max <= selectionRange.min
+      ) {
+        return null;
+      }
+
+      return {
+        minFrequencyHz: selectionRange.min,
+        maxFrequencyHz: selectionRange.max,
+      };
+    }, [selectionRange]);
 
     // Compute zoomed visual frequency range and waveform slice
     // When zoom > 1: shows a subset of bins (magnified view)
@@ -906,6 +949,8 @@ const FFTCanvas = memo(
       activeSignalArea: _activeSignalArea,
       signalAreaBounds,
       onFrequencyRangeChange,
+      selectionRange,
+      onSelectionChange,
       vizZoomRef,
       vizPanOffsetRef,
       onVizPanChange: (pan: number) => {
@@ -1362,6 +1407,7 @@ const FFTCanvas = memo(
               limitMarkers: compact ? [] : limitMarkers,
               showSpikeOverlay,
               demodFocusOverlay,
+              selectionOverlay,
               onSpikeCount: (count) => {
                 dispatch(setGpuSpikeCount(count));
               },
@@ -1668,6 +1714,13 @@ const FFTCanvas = memo(
       overlayDirtyRef.current.spikes = true;
       forceRender();
     }, [showSpikeOverlay, forceRender, overlayDirtyRef]);
+
+    // Selection updates can happen without new FFT data, so force the overlay
+    // to repaint immediately when the live span range changes.
+    useEffect(() => {
+      overlayDirtyRef.current.markers = true;
+      forceRender();
+    }, [selectionRange, forceRender, overlayDirtyRef]);
 
     const { restoreWaveformFromStorage, ensurePausedFrame } = usePauseLogic({
       isPaused,

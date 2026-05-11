@@ -41,6 +41,8 @@ export type AnalysisSessionState =
   | "analyzing"
   | "result";
 
+export type Alignment = "centered" | "start" | "end";
+
 export interface FrequencyRange {
   min: number;
   max: number;

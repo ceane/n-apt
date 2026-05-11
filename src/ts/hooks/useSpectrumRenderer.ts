@@ -3,6 +3,7 @@ import { useDrawWebGPUFFTSignal } from "@n-apt/hooks/useDrawWebGPUFFTSignal";
 import { useDraw3DWaterfallSignal } from "@n-apt/hooks/useDraw3DWaterfallSignal";
 import {
   type DemodFocusOverlay,
+  type SelectionOverlay,
   useOverlayRenderer,
 } from "@n-apt/hooks/useOverlayRenderer";
 import { OverlayTextureRenderer } from "@n-apt/hooks/useWebGPUInit";
@@ -61,6 +62,8 @@ export interface SpectrumRendererOptions {
   onSpikeCount?: (count: number) => void;
   /** FM/demod focus region rendered into the marker overlay texture */
   demodFocusOverlay?: DemodFocusOverlay | null;
+  /** Live span selection rendered as a sliding range */
+  selectionOverlay?: SelectionOverlay | null;
 
   /** Visual customization: Main signal line color */
   lineColor?: string;
@@ -90,6 +93,7 @@ export function useSpectrumRenderer() {
     drawGridOnContext,
     drawMarkersOnContext,
     drawDemodFocusOnContext,
+    drawSelectionOverlayOnContext,
   } = useOverlayRenderer();
 
   const lastOverlayUploadMsRef = useRef({ grid: 0, markers: 0, spikes: 0 });
@@ -120,6 +124,7 @@ export function useSpectrumRenderer() {
         showSpikeOverlay = false,
         onSpikeCount,
         demodFocusOverlay,
+        selectionOverlay,
 
         lineColor,
         fillColor,
@@ -209,6 +214,14 @@ export function useSpectrumRenderer() {
             demodFocusOverlay,
             nodePreview,
           );
+          drawSelectionOverlayOnContext(
+            ctx,
+            width,
+            height,
+            frequencyRange,
+            selectionOverlay,
+            nodePreview,
+          );
           markersOverlayRenderer.endDraw();
           if (overlayDirty) overlayDirty.markers = false;
           lastOverlayUploadMsRef.current.markers = now;
@@ -245,6 +258,7 @@ export function useSpectrumRenderer() {
       drawGridOnContext,
       drawMarkersOnContext,
       drawDemodFocusOnContext,
+      drawSelectionOverlayOnContext,
     ],
   );
 
