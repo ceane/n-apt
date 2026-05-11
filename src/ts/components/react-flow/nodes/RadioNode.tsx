@@ -7,6 +7,7 @@ import {
   setAlgorithm,
   setListening,
 } from "@n-apt/redux/slices/demodSlice";
+import { syncRadioDemodFromSource } from "@n-apt/redux/thunks/demodThunks";
 import { formatFrequency } from "@n-apt/utils/frequency";
 import { useDemod } from "@n-apt/contexts/DemodContext";
 
@@ -132,7 +133,7 @@ export const RadioNode: React.FC<RadioNodeProps> = ({ data }) => {
   const { audioPlayback } = useDemod();
   const { getNodes, getEdges } = useReactFlow();
 
-  const upstreamSource = useMemo<"fm" | "span" | "manual">(() => {
+  const upstreamSource = useMemo<"fm" | "connected" | "manual">(() => {
     const nodes = getNodes();
     const edges = getEdges();
     const radioNode = nodes.find(
@@ -150,11 +151,11 @@ export const RadioNode: React.FC<RadioNodeProps> = ({ data }) => {
       .filter(Boolean);
 
     if (upstreamNodes.some((node) => node?.data?.fmOptions)) return "fm";
-    if (upstreamNodes.some((node) => node?.data?.spanOptions)) return "span";
+    if (upstreamNodes.length > 0) return "connected";
     return "manual";
   }, [getNodes, getEdges, data]);
   const hasFmNodeUpstream = upstreamSource === "fm";
-  const hasSpanNodeUpstream = upstreamSource === "span";
+  const hasUpstreamConnection = upstreamSource !== "manual";
 
   // Auto-select APT algorithm if an APT node is present in the flow
   useEffect(() => {
@@ -176,35 +177,60 @@ export const RadioNode: React.FC<RadioNodeProps> = ({ data }) => {
   };
 
   const centerHzFromPreview =
-    hasSpanNodeUpstream &&
     previewRange &&
     Number.isFinite(previewRange.min) &&
     Number.isFinite(previewRange.max)
       ? (previewRange.min + previewRange.max) / 2
       : null;
   const bandwidthHzFromPreview =
-    hasSpanNodeUpstream &&
     previewRange &&
     Number.isFinite(previewRange.min) &&
     Number.isFinite(previewRange.max)
       ? previewRange.max - previewRange.min
       : null;
 
-  const sourceBadge = hasFmNodeUpstream
-    ? "From FM"
-    : hasSpanNodeUpstream
-      ? "From Span"
-      : "Manual";
+  const sourceBadge = hasUpstreamConnection ? "From Node" : "Manual";
   const centerDisplayHz = hasFmNodeUpstream
     ? centerFreq
-    : hasSpanNodeUpstream
+    : hasUpstreamConnection
       ? centerHzFromPreview
       : centerFreq;
   const bandwidthDisplayHz = hasFmNodeUpstream
     ? (bandwidthKhz || 200) * 1000
-    : hasSpanNodeUpstream
+    : hasUpstreamConnection
       ? bandwidthHzFromPreview
       : (bandwidthKhz || 200) * 1000;
+
+  useEffect(() => {
+    if (hasFmNodeUpstream) {
+      dispatch(
+        syncRadioDemodFromSource({
+          source: "fm",
+          centerFreqHz: centerFreq,
+          bandwidthKhz: bandwidthKhz,
+        }),
+      );
+      return;
+    }
+
+    if (hasUpstreamConnection && centerHzFromPreview != null && bandwidthHzFromPreview != null) {
+      dispatch(
+        syncRadioDemodFromSource({
+          source: "span",
+          centerFreqHz: centerHzFromPreview,
+          bandwidthHz: bandwidthHzFromPreview,
+        }),
+      );
+    }
+  }, [
+    dispatch,
+    hasFmNodeUpstream,
+    hasUpstreamConnection,
+    centerFreq,
+    bandwidthKhz,
+    centerHzFromPreview,
+    bandwidthHzFromPreview,
+  ]);
 
   return (
     <>
