@@ -16,6 +16,7 @@ const SettingRow = styled.div`
   display: flex;
   justify-content: space-between;
   align-items: center;
+  grid-column: 1 / -1;
   padding: 6px 6px 6px 12px;
   background-color: ${(props) => props.theme.surface};
   border-radius: 6px;
@@ -103,7 +104,6 @@ export const FileSelection: React.FC<FileSelectionProps> = ({
               minWidth: "124px",
               paddingInline: "18px",
               whiteSpace: "nowrap",
-              justifySelf: "end",
             }}
           >
             Browse...

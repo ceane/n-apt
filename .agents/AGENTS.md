@@ -91,6 +91,7 @@ cargo clippy         # Lint
 ```bash
 npm run lint         # oxlint
 npm run lint:fix     # Fix issues
+npm run lint:shader  # .wsgl shader linting
 npm run format       # oxfmt
 npm run format:check # Check formatting
 npm run typecheck    # TypeScript, NEVER SKIPS TYPE CHECKING, MUST RUN TO PASS CI/CD

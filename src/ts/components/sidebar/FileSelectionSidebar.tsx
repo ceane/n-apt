@@ -10,7 +10,6 @@ const Section = styled.div<{ $marginBottom?: string }>`
   gap: inherit;
   margin-bottom: ${({ $marginBottom }) => $marginBottom || "0"};
   box-sizing: border-box;
-  width: 100%;
 `;
 
 type NaptMetadata = {

@@ -9,8 +9,7 @@ const Section = styled.div`
   display: grid;
   grid-template-columns: subgrid;
   grid-column: 1 / -1;
-  gap: inherit;
-  margin-bottom: 0;
+  gap: 8px;
   box-sizing: border-box;
 `;
 

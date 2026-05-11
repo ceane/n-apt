@@ -43,6 +43,7 @@ const DropZone = styled.div<{ $isDragging: boolean }>`
   transition: all 0.2s ease;
   min-height: 40px;
   z-index: 5;
+  box-sizing: border-box;
 `;
 
 const DropOverlay = styled.div`
@@ -205,19 +206,19 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
 
           <ActionsContainer>
             {isError && (
-                <div className="mt-2">
-                  {stitchStatus.toLowerCase().includes("decryption") ? (
-                    <DecryptionFallback
-                      moduleName="File Stitcher"
-                      errorType="vault"
-                    />
-                  ) : (
-                    <StitchStatusMessage $isError={true}>
-                      {stitchStatus}
-                    </StitchStatusMessage>
-                  )}
-                </div>
-              )}
+              <div className="mt-2">
+                {stitchStatus.toLowerCase().includes("decryption") ? (
+                  <DecryptionFallback
+                    moduleName="File Stitcher"
+                    errorType="vault"
+                  />
+                ) : (
+                  <StitchStatusMessage $isError={true}>
+                    {stitchStatus}
+                  </StitchStatusMessage>
+                )}
+              </div>
+            )}
 
             <Button
               $variant={

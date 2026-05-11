@@ -96,10 +96,10 @@ export const CollapsibleTitleToggle = styled.span`
 
 export const CollapsibleBody = styled.div`
   display: grid;
-  grid-template-columns: subgrid;
   grid-column: 1 / -1;
   gap: inherit;
   margin-top: 8px;
+  width: 100%;
   min-width: 0;
 `;
 

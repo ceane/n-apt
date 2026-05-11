@@ -9,6 +9,7 @@ const Section = styled.div`
   gap: inherit;
   margin-bottom: 0;
   box-sizing: border-box;
+  width: 100%;
 `;
 
 const MathFallback = styled.div`

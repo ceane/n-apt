@@ -11,6 +11,7 @@ import { useAuthentication } from "../../hooks/useAuthentication";
 import { Button } from "@n-apt/components/ui";
 
 const FallbackContainer = styled.div`
+  grid-column: 1 / -1;
   padding: 16px;
   background: ${(props) =>
     props.theme.mode === "light"
@@ -29,6 +30,9 @@ const FallbackContainer = styled.div`
   display: flex;
   flex-direction: column;
   gap: 12px;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 `;
 
 const Header = styled.div`

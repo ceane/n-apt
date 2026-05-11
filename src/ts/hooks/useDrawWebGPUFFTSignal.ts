@@ -499,8 +499,8 @@ export function useDrawWebGPUFFTSignal() {
         if (!state.spikeBuffer || srcLen !== state.spikeWaveformLength) {
           state.spikeBuffer?.destroy();
           state.spikeBuffer = state.device.createBuffer({
-            // 100 spikes * 16 bytes (index: u32, value: f32, score: f32, radius: f32)
-            size: 100 * 16,
+            // 128 spikes * 16 bytes (index: u32, value: f32, score: f32, radius: f32)
+            size: 128 * 16,
             usage: GPUBufferUsage.STORAGE,
           });
           state.spikeCountBuffer?.destroy();
@@ -539,10 +539,15 @@ export function useDrawWebGPUFFTSignal() {
         }
 
         // --- Spikes parameters ---
-        const spanMHz = frequencyRange ? Math.abs(frequencyRange.max - frequencyRange.min) : 3.2;
-        const binsPerMHz = srcLen / Math.max(spanMHz, 0.001);
-        const bins45kHz = Math.ceil(binsPerMHz * 0.045);
-        const windowSize = Math.max(2, Math.min(Math.floor(srcLen / 10), bins45kHz, 512));
+        const spanHz = frequencyRange
+          ? Math.abs(frequencyRange.max - frequencyRange.min)
+          : 3_200_000;
+        const binsPerHz = srcLen / Math.max(spanHz, 1);
+        const bins45kHz = Math.ceil(binsPerHz * 45_000);
+        const windowSize = Math.max(
+          8,
+          Math.min(Math.floor(srcLen / 64), bins45kHz, 18),
+        );
 
         const spikeParamsData = new ArrayBuffer(16);
         const u32Params = new Uint32Array(spikeParamsData);
@@ -550,7 +555,11 @@ export function useDrawWebGPUFFTSignal() {
         u32Params[0] = srcLen;
         u32Params[1] = windowSize;
         f32Params[2] = 3.0; // min_z_score (more sensitive)
-        f32Params[3] = 0.0; // padding
+        let floorSum = 0.0;
+        for (let i = 0; i < srcLen; i++) {
+          floorSum += waveformData[i];
+        }
+        f32Params[3] = floorSum / Math.max(1, srcLen); // global floor baseline
 
         // --- All Uploads FIRST ---
         state.device.queue.writeBuffer(state.resampleInputBuffer, 0, waveformData.buffer, waveformData.byteOffset, waveformData.byteLength);
@@ -687,9 +696,9 @@ export function useDrawWebGPUFFTSignal() {
         if (showSpikeOverlay && state.spikeRenderBindGroup) {
           pass.setBindGroup(0, state.spikeRenderBindGroup);
           pass.setPipeline(state.spikeRenderLinePipeline);
-          pass.draw(2, 100); // Max 100 instances
+          pass.draw(2, 128); // Max 128 instances
           pass.setPipeline(state.spikeRenderCirclePipeline);
-          pass.draw(6, 100);
+          pass.draw(6, 128);
         }
 
         // Overlays on top (frequency markers)
@@ -708,7 +717,7 @@ export function useDrawWebGPUFFTSignal() {
             .mapAsync(GPUMapMode.READ)
             .then(() => {
               const mapped = readbackBuffer.getMappedRange();
-              const count = Math.min(new Uint32Array(mapped)[0] ?? 0, 100);
+              const count = Math.min(new Uint32Array(mapped)[0] ?? 0, 128);
               readbackBuffer.unmap();
               state.spikeCountReadbackInFlight = false;
               if (count !== state.lastReportedSpikeCount) {

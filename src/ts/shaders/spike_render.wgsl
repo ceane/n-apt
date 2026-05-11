@@ -13,6 +13,8 @@ struct SpikeMarker {
 // [1] = (dBmin, dBmax, displayWidth, srcLen)
 // [2-3] = colors (line RGBA, fill RGBA)
 
+const MAX_SPIKES: u32 = 128u;
+
 fn idx_to_x(idx: u32) -> f32 {
   // uniforms[1].w = source waveform length (NOT display width at [1].z)
   // Spike indices are raw waveform positions, so we must normalize against srcLen
@@ -51,7 +53,7 @@ fn vs_line(@builtin(vertex_index) vertex_index: u32, @builtin(instance_index) in
   let count = spike_count_buffer[0];
   var out: VertexOut;
   
-  if (instance_index >= count || instance_index >= 100u) {
+  if (instance_index >= count || instance_index >= MAX_SPIKES) {
     out.is_active = 0u;
     out.position = vec4<f32>(0.0, 0.0, 0.0, 1.0);
     return out;
@@ -88,7 +90,7 @@ fn vs_circle(@builtin(vertex_index) vertex_index: u32, @builtin(instance_index) 
   let count = spike_count_buffer[0];
   var out: VertexOut;
   
-  if (instance_index >= count || instance_index >= 100u) {
+  if (instance_index >= count || instance_index >= MAX_SPIKES) {
     out.is_active = 0u;
     out.position = vec4<f32>(0.0, 0.0, 0.0, 1.0);
     return out;
