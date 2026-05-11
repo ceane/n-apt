@@ -177,7 +177,7 @@ const CustomNode = React.memo(
     else if (data.coremlOptions) content = <CoreMLNode data={data} />;
     else if (data.spikeOptions) content = <SpikeDetectionNode data={data} />;
     else if (data.beatOptions) content = <BeatNode data={data} />;
-    else if (data.fftOptions) content = <FFTNode data={data} />;
+    else if (data.fftOptions) content = <FFTNode data={data} id={id} />;
     else if (data.waterfallOptions) content = <WaterfallNode data={data} />;
     else if (data.spectogramOptions) content = <SpectogramNode data={data} />;
     else if (data.channelNode) content = <ChannelNode data={data} />;
@@ -435,7 +435,8 @@ const DemodRouteSectionInner: React.FC = () => {
 
         for (const [id, size] of sizeMap.entries()) {
           const prev = lastMeasuredSizesRef.current.get(id);
-          if (!prev || prev.w !== size.w || prev.h !== size.h) {
+          // Add 1px tolerance to prevent jitter from subpixel rendering during drag/hover transitions
+          if (!prev || Math.abs(prev.w - size.w) > 1 || Math.abs(prev.h - size.h) > 1) {
             return true;
           }
         }
@@ -474,8 +475,8 @@ const DemodRouteSectionInner: React.FC = () => {
             return node;
           });
         });
-        setIsLaidOut(true);
         setIsSwitchingFlow(false);
+        setIsLaidOut(true);
         hasLaidOut.current = true;
         shouldFitAfterLayoutRef.current = false;
         void fitView({
@@ -616,8 +617,8 @@ const DemodRouteSectionInner: React.FC = () => {
             if (layoutRunIdRef.current !== currentRunId) {
               return;
             }
-            setIsLaidOut(true);
             setIsSwitchingFlow(false);
+            setIsLaidOut(true);
             hasLaidOut.current = true;
             shouldFitAfterLayoutRef.current = false;
             void fitView({
@@ -638,7 +639,7 @@ const DemodRouteSectionInner: React.FC = () => {
         setIsSwitchingFlow(false);
       }
     },
-    [nodes, edges, fitView, setNodesLocal, setEdgesLocal, sourceMode],
+    [fitView, setNodesLocal, setEdgesLocal, sourceMode],
   );
 
   const nodeTypes = useMemo(() => NODE_TYPES, []);

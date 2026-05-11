@@ -131,6 +131,13 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialFlow.edges);
   const [flowVersion, setFlowVersion] = useState(0);
 
+  useEffect(() => {
+    const nextFlow = buildDemodFlowGraph(state.sourceMode || "live");
+    setNodes(nextFlow.nodes);
+    setEdges(nextFlow.edges);
+    setFlowVersion((v) => v + 1);
+  }, [setEdges, setNodes, state.sourceMode]);
+
   const setFlow = useCallback(
     (_flowId: string, customNodes?: Node[], customEdges?: Edge[]) => {
       if (customNodes && customEdges) {

@@ -230,8 +230,9 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
 
     // ── Memoized callbacks for hook stability ──
     const handleFrameEmitted = useCallback(() => {
-      dispatch(incrementPlaybackFrameCounter());
-    }, [dispatch]);
+      // Intentionally empty: removed high-frequency Redux dispatch to eliminate jitter.
+      // Tables now poll liveDataRef at a lower frequency (4fps).
+    }, []);
 
     const handleChannelMetadataChange = useCallback(
       (meta: any) => {

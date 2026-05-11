@@ -39,9 +39,15 @@ export function useFFTAnimation({
       const now = performance.now();
       const elapsed = now - lastFrameTimeRef.current;
 
-      // Always render if forced, or if enough time has passed
-      if (force || elapsed >= frameRateLimiterRef.current) {
-        lastFrameTimeRef.current = now;
+      // Use a small fudge factor (4ms) to account for rAF jitter on same-rate displays
+      if (force || elapsed >= frameRateLimiterRef.current - 4) {
+        // Adjust lastFrameTime by the interval to maintain cadence
+        // but don't let it drift too far behind actual time
+        if (force || elapsed > frameRateLimiterRef.current * 2) {
+          lastFrameTimeRef.current = now;
+        } else {
+          lastFrameTimeRef.current += frameRateLimiterRef.current;
+        }
         onRenderFrame(runId);
       }
 

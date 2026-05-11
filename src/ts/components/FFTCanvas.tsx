@@ -308,6 +308,8 @@ export interface FFTCanvasProps {
   /** Currently active demodulation selection range */
   selectionRange?: FrequencyRange;
   selectionMode?: "zoom" | "range";
+  /** Whether the selection overlay is disabled */
+  selectionDisabled?: boolean;
   /** Callback for selection range changes (dragging the box) */
   onSelectionChange?: (range: FrequencyRange) => void;
   bandwidthAlignment?: Alignment;
@@ -465,6 +467,7 @@ const FFTCanvas = memo(
       demodulationRangeHz = null,
       selectionRange,
       selectionMode = "zoom",
+      selectionDisabled = false,
       bandwidthAlignment = "centered",
       onSelectionChange,
     } = props;
@@ -998,7 +1001,7 @@ const FFTCanvas = memo(
     }, [sendGetAutoFftOptions, autoFftOptions]);
 
     useFrequencyDrag({
-      disabled: false,
+      disabled: selectionDisabled,
       selectionMode,
       spectrumGpuCanvasRef,
       spectrumGpuCanvasNode,

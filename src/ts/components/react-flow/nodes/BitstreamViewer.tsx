@@ -263,9 +263,6 @@ export const BitstreamViewer: React.FC<BitstreamViewerProps> = ({
   const activePlaybackMetadata = useAppSelector(
     (state) => state.waterfall.activePlaybackMetadata,
   );
-  const playbackFrameCounter = useAppSelector(
-    (state) => state.waterfall.playbackFrameCounter,
-  );
   const sourceMode = useAppSelector((state) => state.waterfall.sourceMode);
 
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -285,17 +282,14 @@ export const BitstreamViewer: React.FC<BitstreamViewerProps> = ({
       const nextRef = liveDataRef.current?.iq_data as
         | Uint8Array
         | undefined;
+      
       if (nextRef !== lastIqRefRef.current) {
         lastIqRefRef.current = nextRef;
-        if (sourceMode === "file" && playbackFrameCounter === 0) {
-          setFrameIqData(undefined);
-        } else {
-          setFrameIqData(nextRef);
-        }
+        setFrameIqData(nextRef);
       }
     }, 250); // 4fps — fast enough for readable table updates
     return () => clearInterval(id);
-  }, [sourceMode, playbackFrameCounter]);
+  }, []);
 
   useEffect(() => {
     if (!gridRef.current) return;

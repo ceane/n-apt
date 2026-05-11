@@ -31,6 +31,7 @@ import { TestWrapper } from "./testUtils";
 
 describe("FFTNode", () => {
   const defaultProps = {
+    id: "fft-node",
     data: {
       fftOptions: true,
       label: "FFT Transform",
@@ -79,6 +80,7 @@ describe("FFTNode", () => {
 
   it("renders with custom label", () => {
     const customProps = {
+      id: "custom-fft",
       data: {
         fftOptions: true,
         label: "Custom FFT",

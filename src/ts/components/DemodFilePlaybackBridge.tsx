@@ -67,7 +67,8 @@ export const DemodFilePlaybackBridge: React.FC<
     fftCanvasDataRef: playbackDataRef,
     displayMode: "iq",
     onFrameEmitted: () => {
-      dispatch(incrementPlaybackFrameCounter());
+      // Intentionally empty: removed high-frequency Redux dispatch to eliminate jitter.
+      // Tables now poll liveDataRef at a lower frequency (4fps).
     },
   });
 

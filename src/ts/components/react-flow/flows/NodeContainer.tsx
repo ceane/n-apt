@@ -9,14 +9,13 @@ const NodeContainerWrapper = styled.div<{ $width?: string }>`
   min-width: ${({ $width }) => $width || "280px"};
   font-family: ${({ theme }) => theme.typography.body};
   box-shadow: none;
-  transition: all 0.2s ease-in-out;
+  transition: border-color 0.2s ease-in-out, background-color 0.2s ease-in-out;
   position: relative;
   overflow: visible;
 
   &:hover {
     border-color: ${({ theme }) => theme.colors.primary};
     box-shadow: none;
-    transform: translateY(-2px);
   }
 
   /* Cleanup as requested by user */

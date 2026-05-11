@@ -128,7 +128,9 @@ let lastSettingsRequest: { fft_size?: number; timestamp: number } | null = null;
 const processBatchedData = (dispatch: Dispatch, getState: () => any) => {
   if (pendingDataUpdate !== null) {
     const isPaused = getState().websocket.isPaused;
-    if (!isPaused || allowNextPausedFrame) {
+    const sourceMode = getState().waterfall?.sourceMode;
+    const isFileSource = sourceMode === "file";
+    if ((!isPaused || allowNextPausedFrame) && !isFileSource) {
       liveDataRef.current = pendingDataUpdate;
       // Dispatch action to trigger state machine updates
       dispatch(incrementDataFrameCounter());

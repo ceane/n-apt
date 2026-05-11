@@ -213,7 +213,21 @@ export const GlobalThemeStyle = createGlobalStyle`
     background: ${({ theme }) => theme.colors.surface} !important;
   }
   
+  
   .leaflet-tile-pane {
     background: ${({ theme }) => theme.colors.surface} !important;
+  }
+
+  /* Interaction cursors */
+  .cursor-grabbing {
+    cursor: grabbing !important;
+  }
+  
+  .cursor-crosshair {
+    cursor: crosshair !important;
+  }
+
+  .cursor-grab {
+    cursor: grab !important;
   }
 `;

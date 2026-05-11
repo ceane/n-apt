@@ -2,12 +2,14 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { styled } from "styled-components";
 import { useAppDispatch, useAppSelector } from "@n-apt/redux";
 import { setPreviewRange } from "@n-apt/redux/slices/spectrumSlice";
+import { useNodeConnections, useNodes } from "@xyflow/react";
 import FFTCanvas, { type FFTCanvasHandle } from "@n-apt/components/FFTCanvas";
 import type { LiveFrameData } from "@n-apt/consts/schemas/websocket";
 import { FrequencyRange } from "@n-apt/consts/types";
 import { liveDataRef } from "@n-apt/redux/middleware/websocketMiddleware";
 
 interface FFTNodeProps {
+  id: string;
   data: {
     fftOptions: boolean;
     label: string;
@@ -90,13 +92,27 @@ const CanvasContainer = styled.div`
   padding: 8px 10px 10px;
   overflow: hidden;
   pointer-events: auto;
-  cursor: crosshair;
+  cursor: grab;
 `;
 
-export const FFTNode: React.FC<FFTNodeProps> = ({ data }) => {
+export const FFTNode: React.FC<FFTNodeProps> = ({ id, data }) => {
   const dispatch = useAppDispatch();
   const fftRef = useRef<FFTCanvasHandle | null>(null);
   const dataRef = useRef<LiveFrameData | null>(liveDataRef.current);
+
+  const nodes = useNodes();
+  const connections = useNodeConnections({
+    id: id,
+    handleType: "target",
+  });
+
+  const isSpanConnected = useMemo(() => {
+    return connections.some((conn) => {
+      const sourceNode = nodes.find((n) => n.id === conn.source);
+      return sourceNode?.data?.spanOptions === true;
+    });
+  }, [connections, nodes]);
+
   const frequencyRange = useAppSelector(
     (state) => state.spectrum.frequencyRange,
   );
@@ -214,7 +230,7 @@ export const FFTNode: React.FC<FFTNodeProps> = ({ data }) => {
   return (
     <NodeWrapper>
       <NodeTitle>{data.label}</NodeTitle>
-      <CanvasContainer className="nodrag nopan" tabIndex={0}>
+      <CanvasContainer className="nodrag nopan" tabIndex={-1}>
         <FFTCanvas
           ref={fftRef}
           dataRef={dataRef}
@@ -235,21 +251,26 @@ export const FFTNode: React.FC<FFTNodeProps> = ({ data }) => {
           awaitingDeviceData={!frame}
           isIqRecordingActive={true}
           demodulationCenterFreqHz={
-            previewRange
-              ? (previewRange.min + previewRange.max) / 2
-              : data.showDemodOverlay
-                ? demodOverlayCenterHz
-                : undefined
+            isSpanConnected
+              ? (previewRange
+                  ? (previewRange.min + previewRange.max) / 2
+                  : data.showDemodOverlay
+                    ? demodOverlayCenterHz
+                    : undefined)
+              : undefined
           }
           demodulationRangeHz={
-            previewRange
-              ? previewRange.max - previewRange.min
-              : data.showDemodOverlay
-                ? demodOverlayRangeHz
-                : undefined
+            isSpanConnected
+              ? (previewRange
+                  ? previewRange.max - previewRange.min
+                  : data.showDemodOverlay
+                    ? demodOverlayRangeHz
+                    : undefined)
+              : undefined
           }
-          selectionRange={previewRange || undefined}
+          selectionRange={isSpanConnected ? (previewRange || undefined) : undefined}
           selectionMode="range"
+          selectionDisabled={!isSpanConnected}
           bandwidthAlignment={previewAlignment}
           onSelectionChange={handleSelectionChange}
         />
