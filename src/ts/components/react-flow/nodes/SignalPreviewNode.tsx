@@ -12,7 +12,6 @@ const NodeWrapper = styled.div`
   border-radius: 12px;
   padding: 12px;
   min-width: 420px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
 `;
 
 const NodeTitle = styled.div`

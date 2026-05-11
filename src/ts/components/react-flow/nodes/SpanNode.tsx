@@ -18,15 +18,6 @@ import {
 } from "@n-apt/utils/frequency";
 import { FrequencyInput } from "../../ui/FrequencyInput";
 
-const NodeContainer = styled.div`
-  background: ${({ theme }) => theme.colors.background};
-  border: 1px solid ${({ theme }) => theme.colors.border};
-  border-radius: 8px;
-  padding: 12px;
-  min-width: 320px;
-  color: ${({ theme }) => theme.colors.textPrimary};
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
-`;
 
 const Header = styled.div`
   display: flex;
@@ -112,10 +103,10 @@ const PresetSaveRow = styled.div`
 
 const PresetNameInput = styled.input`
   flex: 1;
-  background: ${({ theme }) => theme.colors.surface};
+  background: ${({ theme }) => theme.colors.background};
   border: 1px solid ${({ theme }) => theme.colors.border};
   border-radius: 4px;
-  padding: 6px 8px;
+  padding: 4px 6px;
   color: ${({ theme }) => theme.colors.textPrimary};
   font-size: 11px;
   font-family: ${({ theme }) => theme.typography.mono};
@@ -677,7 +668,7 @@ export const SpanNode: React.FC<SpanNodeProps> = ({ data }) => {
   }, []);
 
   return (
-    <NodeContainer>
+    <>
       <Header>
         <Zap size={14} color="#00d4ff" fill="#00d4ff" />
         <Title>{data.label || "Span"}</Title>
@@ -795,9 +786,7 @@ export const SpanNode: React.FC<SpanNodeProps> = ({ data }) => {
 
       <ApplyButton onClick={handleApply}>Apply Span</ApplyButton>
 
-      <Handle type="target" position={Position.Left} id="range" />
-      <Handle type="source" position={Position.Right} id="range" />
-    </NodeContainer>
+    </>
   );
 };
 

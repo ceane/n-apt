@@ -72,6 +72,10 @@ interface DemodulateSidebarProps {
 
 import { useDemod } from "@n-apt/contexts/DemodContext";
 
+import {
+  type FlowTemplate,
+} from "@n-apt/components/react-flow/flows";
+
 export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
   isScanning = false,
   scanProgress = 0,
@@ -90,8 +94,8 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
   } = useSpectrumStore();
 
   const handleFlowSelect = useCallback(
-    (flow: any) => {
-      setFlow(flow.id, flow.nodes, flow.edges);
+    (flow: FlowTemplate) => {
+      setFlow(flow.id, flow.nodes as any, flow.edges as any);
     },
     [setFlow],
   );

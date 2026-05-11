@@ -568,14 +568,28 @@ export function useOverlayRenderer() {
       ctx.save();
       const canvasTheme = getCanvasThemeColors();
 
-      // Background Highlight (from theme)
+      // 1. Center Line (Themed) - Drawn first so other elements can obscure it
+      const centerLineX = freqToX(centerFrequencyHz);
+      if (centerLineX >= plotLeft && centerLineX <= plotRight) {
+        ctx.save();
+        ctx.strokeStyle = canvasTheme.centerLineColor;
+        ctx.lineWidth = Math.max(1, 2.5 / (window.devicePixelRatio || 1));
+        ctx.setLineDash([]); // Solid center line
+        ctx.beginPath();
+        ctx.moveTo(centerLineX, plotTop);
+        ctx.lineTo(centerLineX, plotBottom);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // 2. Background Highlight (from theme) - Now on top of the center line
       ctx.fillStyle = canvasTheme.spectrumOverlay;
       ctx.fillRect(leftX, plotTop, bandWidth, plotBottom - plotTop);
 
-      // Boundary lines (Dotted from theme)
+      // 3. Boundary lines (Dotted from theme)
       ctx.strokeStyle = canvasTheme.spectrumOverlayBorder;
       ctx.lineWidth = Math.max(1, 2 / (window.devicePixelRatio || 1));
-      ctx.setLineDash([3, 4]); // Increased spacing for clear "dotted" look
+      ctx.setLineDash([3, 4]); 
       ctx.lineCap = "round";
 
       for (const x of [leftX, rightX]) {
@@ -585,6 +599,7 @@ export function useOverlayRenderer() {
         ctx.stroke();
       }
 
+      // 4. Drawing text labels and markers box
       ctx.setLineDash([]);
       ctx.textAlign = "center";
       ctx.textBaseline = "top";
@@ -601,9 +616,9 @@ export function useOverlayRenderer() {
         Math.min(plotRight - labelWidth / 2 - 8, centerX),
       );
 
-      // Multi-line Label Background (Opaque white for contrast on labels)
+      // Multi-line Label Background (Opaque white for maximum contrast)
       const labelHeight = nodePreview ? 26 : 38;
-      ctx.fillStyle = "rgba(255, 255, 255, 0.96)";
+      ctx.fillStyle = "rgba(255, 255, 255, 1.0)";
       ctx.fillRect(
         labelX - labelWidth / 2 - 8,
         plotTop + (nodePreview ? 4 : 10),
@@ -611,25 +626,22 @@ export function useOverlayRenderer() {
         labelHeight,
       );
 
-      ctx.fillStyle = "#07111f"; // Dark text on light label bg for clarity
+      // Optional: fine border for the label box
+      ctx.strokeStyle = "rgba(0, 0, 0, 0.1)";
+      ctx.lineWidth = 1;
+      ctx.strokeRect(
+        labelX - labelWidth / 2 - 8,
+        plotTop + (nodePreview ? 4 : 10),
+        labelWidth + 16,
+        labelHeight,
+      );
+
+      ctx.fillStyle = "#07111f"; // Dark text on light label bg
       ctx.fillText(label, labelX, plotTop + (nodePreview ? 6 : 13));
       
-      // Always show sub-label now
       ctx.font = "bold 9px JetBrains Mono";
       ctx.fillStyle = "rgba(7, 17, 31, 0.8)";
       ctx.fillText(subLabel, labelX, plotTop + (nodePreview ? 17 : 28));
-
-      // Center Line (Themed) - Drawn LAST to be on top
-      const centerLineX = freqToX(centerFrequencyHz);
-      if (centerLineX >= plotLeft && centerLineX <= plotRight) {
-        ctx.strokeStyle = canvasTheme.centerLineColor;
-        ctx.lineWidth = Math.max(1, 2.5 / (window.devicePixelRatio || 1));
-        ctx.setLineDash([]); // Solid center line
-        ctx.beginPath();
-        ctx.moveTo(centerLineX, plotTop);
-        ctx.lineTo(centerLineX, plotBottom);
-        ctx.stroke();
-      }
 
       ctx.restore();
     },

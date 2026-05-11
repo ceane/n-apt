@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useEffect } from "react";
+import React, { useCallback, useMemo, useRef, useEffect, useState } from "react";
 import styled from "styled-components";
 import { Play } from "lucide-react";
 import {
@@ -41,10 +41,16 @@ import {
   StreamNode,
   TempoNoteNode,
   OutputNode,
-  NodeContainer,
   SymbolsTable,
   BitstreamViewer,
 } from "@n-apt/components/react-flow/nodes";
+import {
+  NodeContainer,
+  FlowContainer,
+  StyledReactFlow,
+  ControlBar,
+  FullscreenModal,
+} from "@n-apt/components/react-flow/flows";
 // Removed local buildDemodFlowGraph call
 
 const VisibleFrequencyRangeContext = React.createContext<{
@@ -52,64 +58,13 @@ const VisibleFrequencyRangeContext = React.createContext<{
   max: number;
 } | null>(null);
 
-const FlowContainer = styled.div`
-  width: 100%;
-  height: 100%;
-  background-color: ${(props) => props.theme.background};
-  border: 1px solid ${(props) => props.theme.border};
-  overflow: hidden;
-  position: relative;
-  z-index: 1;
-  isolation: isolate;
-  flex: 1;
-`;
-
-const BottomControlBar = styled.div`
-  position: absolute;
-  bottom: 20px;
-  left: 50%;
-  transform: translateX(-50%);
-  background-color: ${(props) => props.theme.surface};
-  border: 1px solid ${(props) => props.theme.border};
-  border-radius: 8px;
-  padding: 8px 16px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  z-index: 10;
-`;
-
-const PlayButton = styled.button`
-  background-color: ${(props) => props.theme.primary};
-  color: white;
-  border: none;
-  border-radius: 50%;
-  width: 40px;
-  height: 40px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  font-size: 16px;
-
-  &:hover {
-    background-color: ${(props) => props.theme.primaryHover};
-    transform: scale(1.05);
-  }
-
-  &:active {
-    transform: scale(0.95);
-  }
-`;
 
 const ContextMenuPanel = styled.div`
   position: fixed;
   background: ${({ theme }) => theme.colors.surface};
   border: 1px solid ${({ theme }) => theme.colors.border};
-  border-radius: 8px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  border-radius: 0;
+  box-shadow: none;
   padding: 5px;
   z-index: 1000;
   display: flex;
@@ -122,7 +77,7 @@ const ContextMenuPanel = styled.div`
 const ContextMenuItem = styled.button`
   background: transparent;
   border: none;
-  border-radius: 4px;
+  border-radius: 0;
   padding: 8px 12px;
   color: ${({ theme }) => theme.colors.textPrimary};
   font-size: 12px;
@@ -145,7 +100,8 @@ const StyledReactFlow = styled(ReactFlow)`
   .react-flow__controls {
     background-color: ${(props) => props.theme.surface} !important;
     border: 1px solid ${(props) => props.theme.border} !important;
-    border-radius: 8px !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
   }
 
   .react-flow__controls-button {
@@ -250,27 +206,31 @@ const CustomNode = React.memo(
 
     return (
       <NodeContainer data-nodeid={id}>
-        <Handle
-          type="target"
-          position={Position.Top}
-          style={{
-            background: "#666",
-            border: "1px solid #999",
-            width: "8px",
-            height: "8px",
-          }}
-        />
+        {!data.sourceNode && (
+          <Handle
+            type="target"
+            position={Position.Top}
+            style={{
+              background: "#666",
+              border: "1px solid #999",
+              width: "8px",
+              height: "8px",
+            }}
+          />
+        )}
         {content}
-        <Handle
-          type="source"
-          position={Position.Bottom}
-          style={{
-            background: "#666",
-            border: "1px solid #999",
-            width: "8px",
-            height: "8px",
-          }}
-        />
+        {!data.outputNode && (
+          <Handle
+            type="source"
+            position={Position.Bottom}
+            style={{
+              background: "#666",
+              border: "1px solid #999",
+              width: "8px",
+              height: "8px",
+            }}
+          />
+        )}
       </NodeContainer>
     );
   },
@@ -408,7 +368,8 @@ const DemodRouteSectionInner: React.FC = () => {
     setEdges: setEdgesLocal,
   } = useDemod();
 
-  const [isLaidOut, setIsLaidOut] = React.useState(false);
+  const [isLaidOut, setIsLaidOut] = useState(false);
+  const [isSwitchingFlow, setIsSwitchingFlow] = useState(false);
 
   const [menu, setMenu] = React.useState<{
     id: string;
@@ -514,18 +475,17 @@ const DemodRouteSectionInner: React.FC = () => {
             return node;
           });
         });
-        hasLaidOut.current = true;
         setIsLaidOut(true);
-        if (shouldFitAfterLayoutRef.current) {
-          shouldFitAfterLayoutRef.current = false;
-          void fitView({
-            padding: 0.15,
-            includeHiddenNodes: false,
-            duration: 0,
-            minZoom: 0.3,
-            maxZoom: 1.2,
-          });
-        }
+        setIsSwitchingFlow(false);
+        hasLaidOut.current = true;
+        shouldFitAfterLayoutRef.current = false;
+        void fitView({
+          padding: 0.15,
+          includeHiddenNodes: false,
+          duration: 0,
+          minZoom: 0.3,
+          maxZoom: 1.2,
+        });
         return;
       }
 
@@ -657,29 +617,29 @@ const DemodRouteSectionInner: React.FC = () => {
             if (layoutRunIdRef.current !== currentRunId) {
               return;
             }
-            hasLaidOut.current = true;
             setIsLaidOut(true);
-            if (shouldFitAfterLayoutRef.current) {
-              shouldFitAfterLayoutRef.current = false;
-              void fitView({
-                padding: 0.15,
-                includeHiddenNodes: false,
-                duration: 0,
-                minZoom: 0.3,
-                maxZoom: 1.2,
-              });
-            }
+            setIsSwitchingFlow(false);
+            hasLaidOut.current = true;
+            shouldFitAfterLayoutRef.current = false;
+            void fitView({
+              padding: 0.15,
+              includeHiddenNodes: false,
+              duration: 0,
+              minZoom: 0.3,
+              maxZoom: 1.2,
+            });
           });
         } else {
-          hasLaidOut.current = true;
           setIsLaidOut(true);
+          setIsSwitchingFlow(false);
+          hasLaidOut.current = true;
         }
       } catch (error) {
-        console.error("ELK Layout failed:", error);
-        setIsLaidOut(true);
+        console.error("Layout error:", error);
+        setIsSwitchingFlow(false);
       }
     },
-    [fitView, setNodesLocal, sourceMode],
+    [nodes, edges, fitView, setNodesLocal, setEdgesLocal, sourceMode],
   );
 
   const nodeTypes = useMemo(() => NODE_TYPES, []);
@@ -704,14 +664,16 @@ const DemodRouteSectionInner: React.FC = () => {
   );
 
   useEffect(() => {
-    hasLaidOut.current = false;
-    setIsLaidOut(false);
-    shouldFitAfterLayoutRef.current = true;
+    if (!hasLaidOut.current || flowVersion > 0) {
+      shouldFitAfterLayoutRef.current = true;
+      setIsSwitchingFlow(true);
+    }
+
     lastMeasuredSizesRef.current = new Map();
-    // Defer initial layout to prevent blocking render
+    // Defer initial layout just enough for React to render the new nodes to the DOM
     const timer = setTimeout(() => {
       scheduleMeasureAndLayout(true);
-    }, 100);
+    }, 16); // ~1 frame
     return () => clearTimeout(timer);
   }, [
     edges.length,
@@ -957,8 +919,8 @@ const DemodRouteSectionInner: React.FC = () => {
           nodes={nodes}
           edges={edges}
           style={{
-            opacity: isLaidOut ? 1 : 0,
-            transition: "opacity 0.2s ease-in",
+            opacity: isSwitchingFlow ? 0 : 1,
+            transition: isSwitchingFlow ? "none" : "opacity 0.15s ease-out",
           }}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
@@ -983,11 +945,6 @@ const DemodRouteSectionInner: React.FC = () => {
         </StyledReactFlow>
       </VisibleFrequencyRangeContext.Provider>
 
-      <BottomControlBar>
-        <PlayButton onClick={() => console.log("Play button clicked")}>
-          <Play size={20} />
-        </PlayButton>
-      </BottomControlBar>
 
       {menu && (
         <ContextMenuPanel style={{ top: menu.top, left: menu.left }}>

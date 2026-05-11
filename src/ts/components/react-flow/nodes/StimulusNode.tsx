@@ -122,8 +122,7 @@ const SpeechBar = styled.div<{ $isCapturing: boolean }>`
       ? props.theme.colors.success
       : props.theme.colors.border};
   transform-origin: bottom center;
-  box-shadow: ${(props) =>
-    props.$isCapturing ? `0 0 10px ${props.theme.colors.success}33` : "none"};
+  box-shadow: none;
   border-radius: 2px;
   animation: ${(props) =>
     props.$isCapturing ? "speechPulse 0.9s infinite ease-in-out" : "none"};

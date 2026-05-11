@@ -52,7 +52,7 @@ const NodeWrapper = styled.div`
   width: 100%;
   min-height: 400px;
   align-self: stretch;
-  border-radius: 12px;
+  border-radius: 0;
   padding: 0;
   min-width: 525px;
   cursor: grab;
@@ -76,7 +76,7 @@ const NodeTitle = styled.div`
     width: 8px;
     height: 8px;
     background: currentColor;
-    border-radius: 2px;
+    border-radius: 0;
   }
 `;
 
@@ -89,6 +89,8 @@ const CanvasContainer = styled.div`
   align-self: stretch;
   padding: 8px 10px 10px;
   overflow: hidden;
+  pointer-events: auto;
+  cursor: crosshair;
 `;
 
 export const FFTNode: React.FC<FFTNodeProps> = ({ data }) => {
@@ -116,7 +118,7 @@ export const FFTNode: React.FC<FFTNodeProps> = ({ data }) => {
     (state) => state.demod?.centerFreqHz ?? null,
   );
   const demodBandwidthKhz = useAppSelector(
-    (state) => state.demod?.bandwidthKhz ?? 200,
+    (state) => state.demod?.bandwidthKhz ?? 500,
   );
   const { previewRange, previewAlignment } = useAppSelector((state) => state.spectrum);
 
@@ -209,11 +211,10 @@ export const FFTNode: React.FC<FFTNodeProps> = ({ data }) => {
     currentCenterHz;
   const demodOverlayRangeHz =
     selectionDemodOverlay?.rangeHz ?? demodBandwidthKhz * 1000;
-
   return (
     <NodeWrapper>
       <NodeTitle>{data.label}</NodeTitle>
-      <CanvasContainer>
+      <CanvasContainer className="nodrag nopan" tabIndex={0}>
         <FFTCanvas
           ref={fftRef}
           dataRef={dataRef}
@@ -248,6 +249,7 @@ export const FFTNode: React.FC<FFTNodeProps> = ({ data }) => {
                 : undefined
           }
           selectionRange={previewRange || undefined}
+          selectionMode="range"
           bandwidthAlignment={previewAlignment}
           onSelectionChange={handleSelectionChange}
         />

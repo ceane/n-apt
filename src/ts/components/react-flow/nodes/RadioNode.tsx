@@ -10,15 +10,6 @@ import {
 import { formatFrequency } from "@n-apt/utils/frequency";
 import { useDemod } from "@n-apt/contexts/DemodContext";
 
-const NodeContainer = styled.div`
-  background: ${({ theme }) => theme.colors.background};
-  border: 1px solid ${({ theme }) => theme.colors.border};
-  border-radius: 8px;
-  padding: 12px;
-  min-width: 420px;
-  color: ${({ theme }) => theme.colors.textPrimary};
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
-`;
 
 const Header = styled.div`
   display: flex;
@@ -216,9 +207,7 @@ export const RadioNode: React.FC<RadioNodeProps> = ({ data }) => {
       : (bandwidthKhz || 200) * 1000;
 
   return (
-    <NodeContainer>
-      <Handle type="target" position={Position.Left} id="range" />
-
+    <>
       <Header>
         <RadioIcon size={14} color="#00d4ff" />
         <Title>{data.label || "Radio"}</Title>
@@ -267,7 +256,6 @@ export const RadioNode: React.FC<RadioNodeProps> = ({ data }) => {
         {isListening ? "Stop Listening" : "Listen Real-time"}
       </ListenButton>
 
-      <Handle type="source" position={Position.Right} id="audio" />
-    </NodeContainer>
+    </>
   );
 };

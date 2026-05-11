@@ -172,6 +172,34 @@ const HighlightOverlay = memo(styled.div`
   pointer-events: none;
 `);
 
+const SelectionTooltip = memo(styled.div`
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 120;
+  pointer-events: none;
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(7, 10, 18, 0.82);
+  border: 1px solid rgba(255, 206, 84, 0.45);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.32);
+  color: rgba(255, 247, 225, 0.98);
+  font-size: 11px;
+  line-height: 1.35;
+  letter-spacing: 0.02em;
+  backdrop-filter: blur(8px);
+
+  strong {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: rgba(255, 206, 84, 0.92);
+  }
+`);
+
 const HighlightBand = memo(styled.div<{
   $left: number;
   $width: number;
@@ -279,6 +307,7 @@ export interface FFTCanvasProps {
   onFrequencyRangeChange?: (range: FrequencyRange) => void;
   /** Currently active demodulation selection range */
   selectionRange?: FrequencyRange;
+  selectionMode?: "zoom" | "range";
   /** Callback for selection range changes (dragging the box) */
   onSelectionChange?: (range: FrequencyRange) => void;
   bandwidthAlignment?: Alignment;
@@ -435,6 +464,7 @@ const FFTCanvas = memo(
       demodulationCenterFreqHz = null,
       demodulationRangeHz = null,
       selectionRange,
+      selectionMode = "zoom",
       bandwidthAlignment = "centered",
       onSelectionChange,
     } = props;
@@ -705,7 +735,7 @@ const FFTCanvas = memo(
       bandwidthAlignment,
     ]);
 
-    const selectionOverlay = useMemo(() => {
+  const selectionOverlay = useMemo(() => {
       if (
         !selectionRange ||
         !Number.isFinite(selectionRange.min) ||
@@ -719,7 +749,35 @@ const FFTCanvas = memo(
         minFrequencyHz: selectionRange.min,
         maxFrequencyHz: selectionRange.max,
       };
-    }, [selectionRange]);
+  }, [selectionRange]);
+
+  const selectionTooltipText = useMemo(() => {
+    if (!selectionRange) return null;
+    if (
+      !Number.isFinite(selectionRange.min) ||
+      !Number.isFinite(selectionRange.max) ||
+      selectionRange.max <= selectionRange.min
+    ) {
+      return null;
+    }
+
+    const startHz = selectionRange.min.toLocaleString(undefined, {
+      maximumFractionDigits: 0,
+    });
+    const endHz = selectionRange.max.toLocaleString(undefined, {
+      maximumFractionDigits: 0,
+    });
+    const spanHz = (selectionRange.max - selectionRange.min).toLocaleString(
+      undefined,
+      { maximumFractionDigits: 0 },
+    );
+
+    return {
+      startHz,
+      endHz,
+      spanHz,
+    };
+  }, [selectionRange]);
 
     // Compute zoomed visual frequency range and waveform slice
     // When zoom > 1: shows a subset of bins (magnified view)
@@ -940,7 +998,8 @@ const FFTCanvas = memo(
     }, [sendGetAutoFftOptions, autoFftOptions]);
 
     useFrequencyDrag({
-      disabled: nodePreview,
+      disabled: false,
+      selectionMode,
       spectrumGpuCanvasRef,
       spectrumGpuCanvasNode,
       spectrumContainerRef,
@@ -2289,6 +2348,14 @@ const FFTCanvas = memo(
                           />
                         ))}
                       </HighlightOverlay>
+                    )}
+                    {selectionTooltipText && selectionMode === "range" && (
+                      <SelectionTooltip>
+                        <strong>Selection</strong>
+                        <span>Start: {selectionTooltipText.startHz} Hz</span>
+                        <span>End: {selectionTooltipText.endHz} Hz</span>
+                        <span>Span: {selectionTooltipText.spanHz} Hz</span>
+                      </SelectionTooltip>
                     )}
                   </CanvasWrapper>
                 </SpectrumRow>

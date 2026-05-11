@@ -1,20 +1,42 @@
+import React from "react";
 import styled from "styled-components";
 
-export const NodeContainer = styled.div`
-  background-color: ${(props) => props.theme.surface}e6;
-  backdrop-filter: blur(8px);
-  border: 1px solid ${(props) => props.theme.border};
+const NodeContainerWrapper = styled.div<{ $width?: string }>`
+  background: ${({ theme }) => theme.colors.surface};
+  border: 1px solid ${({ theme }) => theme.colors.border};
   border-radius: 12px;
-  padding: 16px;
-  min-width: 200px;
-  color: ${(props) => props.theme.textPrimary};
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  padding: ${({ theme }) => theme.spacing.lg};
+  min-width: ${({ $width }) => $width || "280px"};
+  font-family: ${({ theme }) => theme.typography.fontFamily};
+  box-shadow: none;
+  transition: all 0.2s ease-in-out;
   position: relative;
-  overflow: hidden;
+  overflow: visible;
 
   &:hover {
+    border-color: ${({ theme }) => theme.colors.primary};
+    box-shadow: none;
     transform: translateY(-2px);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
   }
+
+  /* Cleanup as requested by user */
 `;
+
+interface NodeContainerProps {
+  children: React.ReactNode;
+  "data-nodeid"?: string;
+  width?: string;
+  className?: string;
+}
+
+export const NodeContainer: React.FC<NodeContainerProps> = ({
+  children,
+  width,
+  ...props
+}) => {
+  return (
+    <NodeContainerWrapper $width={width} {...props}>
+      {children}
+    </NodeContainerWrapper>
+  );
+};
