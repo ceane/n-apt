@@ -13,6 +13,11 @@ echo ""
 # Ensure we're in the correct directory
 cd "$(dirname "$0")"
 
+# Prefer rustup-managed toolchain if it exists.
+if command -v rustup &> /dev/null && [ -d "$HOME/.cargo/bin" ]; then
+    export PATH="$HOME/.cargo/bin:$PATH"
+fi
+
 # Check if wasm-pack is installed
 if ! command -v wasm-pack &> /dev/null; then
     echo "❌ wasm-pack not found. Installing..."
@@ -21,10 +26,18 @@ fi
 
 # Verify WASM target is installed
 echo "🎯 Checking WASM target..."
-rustup target list --installed | grep wasm32-unknown-unknown >/dev/null || {
-    echo "📦 Installing WASM target..."
-    rustup target add wasm32-unknown-unknown
-}
+if command -v rustup &> /dev/null; then
+    rustup target list --installed | grep wasm32-unknown-unknown >/dev/null || {
+        echo "📦 Installing WASM target..."
+        rustup target add wasm32-unknown-unknown
+    }
+else
+    rustup target list --installed | grep wasm32-unknown-unknown >/dev/null || {
+        echo "❌ wasm32-unknown-unknown target not found."
+        echo "   Install it with rustup or switch to a rustup-managed Rust toolchain."
+        exit 1
+    }
+fi
 
 # Function to run Node.js tests
 run_node_tests() {
