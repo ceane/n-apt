@@ -486,27 +486,29 @@ export function useFrequencyDrag({
           const existing = selectionRange ?? selectionDraftRangeRef.current;
           const edgeThreshold = Math.max(fullRange * 0.01, 1);
 
-          // If Alt is held, allow moving the box. Otherwise, start a new one (create).
-          // Edge resizing is always prioritized if close enough.
-          const isOnEdge = Math.abs(freqAtClick - existing.min) <= edgeThreshold || 
-                           Math.abs(freqAtClick - existing.max) <= edgeThreshold;
+          if (existing) {
+            // If Alt is held, allow moving the box. Otherwise, start a new one (create).
+            // Edge resizing is always prioritized if close enough.
+            const isOnEdge = Math.abs(freqAtClick - existing.min) <= edgeThreshold || 
+                             Math.abs(freqAtClick - existing.max) <= edgeThreshold;
 
-          if (isOnEdge || e.altKey) {
-            if (Math.abs(freqAtClick - existing.min) <= edgeThreshold) {
-              selectionDragModeRef.current = "resize-left";
-            } else if (Math.abs(freqAtClick - existing.max) <= edgeThreshold) {
-              selectionDragModeRef.current = "resize-right";
-            } else {
-              selectionDragModeRef.current = "move";
+            if (isOnEdge || e.altKey) {
+              if (Math.abs(freqAtClick - existing.min) <= edgeThreshold) {
+                selectionDragModeRef.current = "resize-left";
+              } else if (Math.abs(freqAtClick - existing.max) <= edgeThreshold) {
+                selectionDragModeRef.current = "resize-right";
+              } else {
+                selectionDragModeRef.current = "move";
+              }
+              selectionDragOriginFreqRef.current = freqAtClick;
+              selectionDraftRangeRef.current = existing;
+              isSelectionDraggingRef.current = true;
+              dragStartSelectionRef.current = { ...existing };
+              setPointerCaptureIfAvailable(container, e.pointerId);
+              addClassIfAvailable(container, "cursor-grabbing");
+              removeClassIfAvailable(container, "cursor-crosshair");
+              return;
             }
-            selectionDragOriginFreqRef.current = freqAtClick;
-            selectionDraftRangeRef.current = existing;
-            isSelectionDraggingRef.current = true;
-            dragStartSelectionRef.current = { ...existing };
-            setPointerCaptureIfAvailable(container, e.pointerId);
-            addClassIfAvailable(container, "cursor-grabbing");
-            removeClassIfAvailable(container, "cursor-crosshair");
-            return;
           }
 
           selectionDragModeRef.current = "create";
