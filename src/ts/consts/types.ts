@@ -41,6 +41,8 @@ export type AnalysisSessionState =
   | "analyzing"
   | "result";
 
+export type Alignment = "centered" | "start" | "end";
+
 export interface FrequencyRange {
   min: number;
   max: number;
@@ -50,7 +52,7 @@ export interface SpectrumRenderOptions {
   ctx: CanvasRenderingContext2D;
   width: number;
   height: number;
-  waveform: number[];
+  waveform: ArrayLike<number>;
   frequencyRange: FrequencyRange;
   fftMin?: number;
   fftMax?: number;
@@ -81,11 +83,11 @@ export interface WaterfallRenderOptions {
  * @returns Normalized amplitude array
  */
 export function spectrumToAmplitude(
-  spectrum: number[],
+  spectrum: ArrayLike<number>,
   minDb: number,
   maxDb: number,
 ): number[] {
-  return spectrum.map((db) => {
+  return Array.from(spectrum, (db) => {
     const normalized = (db - minDb) / (maxDb - minDb);
     return Math.max(0, Math.min(1, normalized));
   });

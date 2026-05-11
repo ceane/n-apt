@@ -97,10 +97,7 @@ const ResetButton = styled.button`
 `;
 
 export const Model3DSidebar: React.FC = () => {
-  const { controlsRef, setSelectedArea } = useModel3D();
-
-  // Unified accordion state
-  const [openSection] = React.useState<string>("physiology");
+  const { controlsRef, setSelectedArea, setModelVariant } = useModel3D();
 
   const handleResetCamera = () => {
     if (controlsRef?.current) {
@@ -146,7 +143,10 @@ export const Model3DSidebar: React.FC = () => {
         <Collapsible
           icon={<PersonStanding size={16} />}
           label="Physiology /"
-          defaultOpen={openSection === "physiology"}
+          defaultOpen
+          onOpenChange={(isOpen) => {
+            if (isOpen) setModelVariant("human");
+          }}
         >
           <SectionDescription>
             Click an area to focus the camera
@@ -159,7 +159,9 @@ export const Model3DSidebar: React.FC = () => {
         <Collapsible
           icon={<Blend size={16} />}
           label="Psychology /"
-          defaultOpen={openSection === "psychology"}
+          onOpenChange={(isOpen) => {
+            setModelVariant(isOpen ? "brain" : "human");
+          }}
         >
           <SectionDescription>
             Psychology-related data and mappings.
@@ -169,7 +171,6 @@ export const Model3DSidebar: React.FC = () => {
         <Collapsible
           icon={<Bone size={16} />}
           label="Anatomy /"
-          defaultOpen={openSection === "anatomy"}
         >
           <SectionDescription>
             Anatomical structures and bone mapping.
@@ -179,7 +180,6 @@ export const Model3DSidebar: React.FC = () => {
         <Collapsible
           icon={<NotebookPen size={16} />}
           label="Effects /"
-          defaultOpen={openSection === "effects"}
         >
           <SectionDescription>Visual effects and overlays.</SectionDescription>
         </Collapsible>
@@ -187,7 +187,6 @@ export const Model3DSidebar: React.FC = () => {
         <Collapsible
           icon={<DraftingCompass size={16} />}
           label="Make Hotspots /"
-          defaultOpen={openSection === "hotspots"}
         >
           <div style={{ gridColumn: "1 / -1" }}>
             <HotspotEditorSection />

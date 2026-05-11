@@ -123,13 +123,13 @@ const PillWrapper = styled.div`
 `;
 
 const Pill = styled.button<{ $color: string; $active: boolean }>`
-  padding: 4px 8px;
+  padding: .5rem .75rem;
   background: ${(props) =>
     props.$active ? props.$color : props.theme.surface};
   color: ${(props) => (props.$active ? "white" : props.theme.textPrimary)};
   border: 1px solid ${(props) => props.$color};
-  border-radius: 12px;
-  font-size: 10px;
+  border-radius: 18px;
+  font-size: .7rem;
   font-family: ${(props) => props.theme.typography.mono};
   cursor: pointer;
 
@@ -144,7 +144,7 @@ const RemoveButton = styled.button`
   border: none;
   color: ${(props) => props.theme.textSecondary};
   cursor: pointer;
-  font-size: 12px;
+  font-size: 24px;
 
   &:hover {
     color: ${(props) => props.theme.danger};
@@ -161,7 +161,7 @@ export const MapLocationsSection: React.FC = () => {
     activeLocationId,
     isLoaded,
     previewLocation,
-    setActiveLocation,
+    recenterLocation,
     setPreviewLocation,
     addLocation,
     removeLocation,
@@ -326,7 +326,7 @@ export const MapLocationsSection: React.FC = () => {
             <Pill
               $color={loc.color}
               $active={activeLocationId === loc.id}
-              onClick={() => setActiveLocation(loc.id)}
+              onClick={() => recenterLocation(loc.id)}
             >
               {loc.name}
             </Pill>

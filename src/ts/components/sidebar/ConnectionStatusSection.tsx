@@ -17,6 +17,11 @@ const ConnectionStatusContainer = styled.div`
   padding: 12px;
   box-sizing: border-box;
   width: 100%;
+  position: sticky;
+  top: 15px;
+  z-index: 100;
+  margin-bottom: 12px;
+  box-shadow: none;
 `;
 
 const ConnectionStatus = styled.div`
@@ -45,16 +50,7 @@ const StatusDot = styled.div<{
         : props.$connected
           ? props.theme.primary
           : props.theme.danger};
-  box-shadow: ${(props) => {
-    const c = props.$color
-      ? props.$color
-      : props.$loading
-        ? props.theme.warning
-        : props.$connected
-          ? props.theme.primary
-          : props.theme.danger;
-    return `0 0 8px ${c}`;
-  }};
+  box-shadow: none;
   flex-shrink: 0;
   ${(props) =>
     props.$loading &&
@@ -87,7 +83,7 @@ export const PauseButton = styled.button<{ $paused: boolean }>`
   border: 1px solid
     ${(props) =>
       props.$paused ? props.theme.primary : props.theme.borderHover};
-  border-radius: 8px;
+  border-radius: 4px;
   color: ${(props) =>
     props.$paused ? props.theme.primary : props.theme.textPrimary};
   font-family: ${(props) => props.theme.typography.mono};

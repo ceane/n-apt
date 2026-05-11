@@ -36,6 +36,7 @@ export interface Draw2DFFTSignalOptions {
   fftMin?: number;
   fftMax?: number;
   powerScale?: "dB" | "dBm";
+  nodePreview?: boolean;
   showGrid?: boolean;
   centerFrequencyHz?: number;
   isDeviceConnected?: boolean;
@@ -75,6 +76,7 @@ export function useDraw2DFFTSignal() {
       fftMax: number,
       _powerScale: "dB" | "dBm",
       clearBackground: boolean,
+      nodePreview: boolean,
       hardwareSampleRateHz?: number,
       fullCaptureRange?: { min: number; max: number },
       limitMarkers: SdrLimitMarker[] = [],
@@ -89,9 +91,13 @@ export function useDraw2DFFTSignal() {
         ctx.fillRect(0, 0, width, height);
       }
 
-      const fftAreaMax = { x: width - 40, y: height - 40 };
-      const fftHeight = fftAreaMax.y - FFT_AREA_MIN.y;
-      const plotWidth = fftAreaMax.x - FFT_AREA_MIN.x;
+      const leftPad = nodePreview ? 0 : FFT_AREA_MIN.x;
+      const topPad = nodePreview ? 0 : FFT_AREA_MIN.y;
+      const rightPad = nodePreview ? 0 : 40;
+      const bottomPad = nodePreview ? 0 : 40;
+      const fftAreaMax = { x: width - rightPad, y: height - bottomPad };
+      const fftHeight = fftAreaMax.y - topPad;
+      const plotWidth = fftAreaMax.x - leftPad;
 
       const startLine = Math.floor(fftMax / VERTICAL_RANGE) * VERTICAL_RANGE;
       const vertRange = fftMax - fftMin;
@@ -104,7 +110,7 @@ export function useDraw2DFFTSignal() {
       const lowerFreq = Math.ceil(minFreq / range) * range;
       const upperFreq = maxFreq;
       const freqToX = (freq: number) =>
-        FFT_AREA_MIN.x + ((freq - minFreq) / viewBandwidth) * plotWidth;
+        leftPad + ((freq - minFreq) / viewBandwidth) * plotWidth;
 
       ctx.strokeStyle = canvasTheme.gridColor;
       ctx.fillStyle = textColor ?? canvasTheme.textColor;
@@ -118,7 +124,7 @@ export function useDraw2DFFTSignal() {
       for (let line = startLine; line > fftMin; line -= VERTICAL_RANGE) {
         const yPos = fftAreaMax.y - (line - fftMin) * scaleFactor;
         ctx.beginPath();
-        ctx.moveTo(FFT_AREA_MIN.x, Math.round(yPos));
+        ctx.moveTo(leftPad, Math.round(yPos));
         ctx.lineTo(fftAreaMax.x, Math.round(yPos));
         ctx.stroke();
         // Labeling is handled by overlay renderer
@@ -150,8 +156,8 @@ export function useDraw2DFFTSignal() {
       const centerW = ctx.measureText(`✋  ${centerLabelText}`).width;
 
       occupiedRects.push({
-        x1: FFT_AREA_MIN.x - 5,
-        x2: FFT_AREA_MIN.x + startW + 15,
+        x1: leftPad - 5,
+        x2: leftPad + startW + 15,
       });
       occupiedRects.push({
         x1: fftAreaMax.x - endW - 15,
@@ -173,15 +179,15 @@ export function useDraw2DFFTSignal() {
       // Draw Start Line + Label
       ctx.textAlign = "left";
       ctx.beginPath();
-      ctx.moveTo(FFT_AREA_MIN.x, FFT_AREA_MIN.y);
-      ctx.lineTo(FFT_AREA_MIN.x, fftAreaMax.y + 7);
+      ctx.moveTo(leftPad, topPad);
+      ctx.lineTo(leftPad, fftAreaMax.y + 7);
       ctx.stroke();
-      ctx.fillText(startLabel, FFT_AREA_MIN.x, fftAreaMax.y + 25);
+      ctx.fillText(startLabel, leftPad, fftAreaMax.y + 25);
 
       // Draw End Line + Label
       ctx.textAlign = "right";
       ctx.beginPath();
-      ctx.moveTo(fftAreaMax.x, FFT_AREA_MIN.y);
+      ctx.moveTo(fftAreaMax.x, topPad);
       ctx.lineTo(fftAreaMax.x, fftAreaMax.y + 7);
       ctx.stroke();
       ctx.fillText(endLabel, fftAreaMax.x, fftAreaMax.y + 25);
@@ -194,7 +200,7 @@ export function useDraw2DFFTSignal() {
         // Grid line
         ctx.strokeStyle = canvasTheme.gridColor;
         ctx.beginPath();
-        ctx.moveTo(ix, FFT_AREA_MIN.y);
+        ctx.moveTo(ix, topPad);
         ctx.lineTo(ix, fftAreaMax.y);
         ctx.stroke();
 
@@ -222,12 +228,12 @@ export function useDraw2DFFTSignal() {
       ctx.strokeStyle = canvasTheme.textColor;
       ctx.lineWidth = 1.0 / dpr;
       ctx.beginPath();
-      ctx.moveTo(FFT_AREA_MIN.x, fftAreaMax.y);
+      ctx.moveTo(leftPad, fftAreaMax.y);
       ctx.lineTo(fftAreaMax.x, fftAreaMax.y);
       ctx.stroke();
       ctx.beginPath();
-      ctx.moveTo(FFT_AREA_MIN.x, FFT_AREA_MIN.y);
-      ctx.lineTo(FFT_AREA_MIN.x, fftAreaMax.y - 1);
+      ctx.moveTo(leftPad, topPad);
+      ctx.lineTo(leftPad, fftAreaMax.y - 1);
       ctx.stroke();
 
       if (limitMarkers.length > 0) {
@@ -245,15 +251,15 @@ export function useDraw2DFFTSignal() {
 
           const x = Math.round(freqToX(marker.freq)) + 0.5;
           ctx.beginPath();
-          ctx.moveTo(x, FFT_AREA_MIN.y);
+          ctx.moveTo(x, topPad);
           ctx.lineTo(x, fftAreaMax.y);
           ctx.stroke();
 
           const textX = Math.max(
-            FFT_AREA_MIN.x + 45,
+            leftPad + 45,
             Math.min(fftAreaMax.x - 45, x),
           );
-          ctx.fillText(marker.label, textX, FFT_AREA_MIN.y + 45);
+          ctx.fillText(marker.label, textX, topPad + 45);
         }
 
         ctx.restore();
@@ -299,7 +305,7 @@ export function useDraw2DFFTSignal() {
             ) {
               const lx = Math.round(freqToX(blockStart));
               ctx.beginPath();
-              ctx.moveTo(lx, FFT_AREA_MIN.y);
+              ctx.moveTo(lx, topPad);
               ctx.lineTo(lx, fftAreaMax.y);
               ctx.stroke();
             }
@@ -312,7 +318,7 @@ export function useDraw2DFFTSignal() {
             ) {
               const rx = Math.round(freqToX(blockEnd));
               ctx.beginPath();
-              ctx.moveTo(rx, FFT_AREA_MIN.y);
+              ctx.moveTo(rx, topPad);
               ctx.lineTo(rx, fftAreaMax.y);
               ctx.stroke();
             }
@@ -328,8 +334,8 @@ export function useDraw2DFFTSignal() {
                 ? "Hardware Sample Rate"
                 : "Next Sample";
               const subLabel = formatOffset(blockWidth);
-              ctx.fillText(label, cx, FFT_AREA_MIN.y + 4);
-              ctx.fillText(subLabel, cx, FFT_AREA_MIN.y + 16);
+              ctx.fillText(label, cx, topPad + 4);
+              ctx.fillText(subLabel, cx, topPad + 16);
             }
           }
           currentFreq = blockEnd;
@@ -349,21 +355,26 @@ export function useDraw2DFFTSignal() {
       fftMin: number,
       fftMax: number,
       displayMode: "fft" | "iq" = "fft",
+      nodePreview = false,
     ) => {
       const dpr = window.devicePixelRatio || 1;
       const waveformArray = toFloat32Waveform(waveform);
       if (!waveformArray || waveformArray.length === 0) return;
 
-      const fftAreaMax = { x: width - 40, y: height - 40 };
-      const fftHeight = fftAreaMax.y - FFT_AREA_MIN.y;
-      const plotWidth = fftAreaMax.x - FFT_AREA_MIN.x;
+      const leftPad = nodePreview ? 0 : FFT_AREA_MIN.x;
+      const topPad = nodePreview ? 0 : FFT_AREA_MIN.y;
+      const rightPad = nodePreview ? 0 : 40;
+      const bottomPad = nodePreview ? 0 : 40;
+      const fftAreaMax = { x: width - rightPad, y: height - bottomPad };
+      const fftHeight = fftAreaMax.y - topPad;
+      const plotWidth = fftAreaMax.x - leftPad;
       const dataWidth = waveformArray.length;
       const vertRange = fftMax - fftMin;
       const scaleFactor = fftHeight / vertRange;
 
       const idxToX = (idx: number) => {
-        if (dataWidth <= 1) return FFT_AREA_MIN.x;
-        return FFT_AREA_MIN.x + (idx / (dataWidth - 1)) * plotWidth;
+        if (dataWidth <= 1) return leftPad;
+        return leftPad + (idx / (dataWidth - 1)) * plotWidth;
       };
 
       const clampY = (dbVal: number) => {
@@ -375,7 +386,7 @@ export function useDraw2DFFTSignal() {
           return Math.max(0, Math.min(height, y));
         }
         const y = fftAreaMax.y - (dbVal - fftMin) * scaleFactor;
-        return Math.max(FFT_AREA_MIN.y + 1, Math.min(fftAreaMax.y, y));
+        return Math.max(topPad + 1, Math.min(fftAreaMax.y, y));
       };
 
       ctx.fillStyle = SHADOW_COLOR;
@@ -412,12 +423,17 @@ export function useDraw2DFFTSignal() {
       frequencyRange: { min: number; max: number },
       centerFrequencyHz: number,
       isDeviceConnected: boolean,
+      nodePreview: boolean,
       fullCaptureRange?: { min: number; max: number },
     ) => {
       const dpr = window.devicePixelRatio || 1;
       const canvasTheme = getCanvasThemeColors();
-      const fftAreaMax = { x: width - 40, y: height - 40 };
-      const plotWidth = fftAreaMax.x - FFT_AREA_MIN.x;
+      const leftPad = nodePreview ? 0 : FFT_AREA_MIN.x;
+      const topPad = nodePreview ? 0 : FFT_AREA_MIN.y;
+      const rightPad = nodePreview ? 0 : 40;
+      const bottomPad = nodePreview ? 0 : 40;
+      const fftAreaMax = { x: width - rightPad, y: height - bottomPad };
+      const plotWidth = fftAreaMax.x - leftPad;
       const minFreq = frequencyRange?.min ?? 0;
       const maxFreq = frequencyRange?.max ?? 3.2;
       const viewBandwidth = maxFreq - minFreq;
@@ -432,7 +448,7 @@ export function useDraw2DFFTSignal() {
         useHighRes ? formatFrequencyHighRes(f) : formatFrequency(f);
 
       const freqToX = (freq: number) =>
-        FFT_AREA_MIN.x + ((freq - minFreq) / viewBandwidth) * plotWidth;
+        leftPad + ((freq - minFreq) / viewBandwidth) * plotWidth;
 
       const markers: { freq: number; label: string }[] = [
         { freq: 0.5, label: "500kHz / RTL-SDR v4 lower limit" },
@@ -447,7 +463,7 @@ export function useDraw2DFFTSignal() {
           ctx.strokeStyle = canvasTheme.boundaryLine;
           ctx.lineWidth = 1 / dpr;
           ctx.beginPath();
-          ctx.moveTo(x, FFT_AREA_MIN.y);
+          ctx.moveTo(x, topPad);
           ctx.lineTo(x, fftAreaMax.y);
           ctx.stroke();
           ctx.restore();
@@ -459,10 +475,10 @@ export function useDraw2DFFTSignal() {
           ctx.textBaseline = "top";
           const tw = ctx.measureText(m.label).width;
           const lx = Math.max(
-            FFT_AREA_MIN.x + tw / 2 + 4,
+            leftPad + tw / 2 + 4,
             Math.min(fftAreaMax.x - tw / 2 - 4, x),
           );
-          ctx.fillText(m.label, lx, FFT_AREA_MIN.y + 45);
+          ctx.fillText(m.label, lx, topPad + 45);
           ctx.restore();
         }
       }
@@ -470,12 +486,12 @@ export function useDraw2DFFTSignal() {
       if (Number.isFinite(centerFrequencyHz)) {
         // Always draw center line at the exact middle of the plot area
         // Using freqToX(centerFrequencyHz) causes drift when zoomed
-        const cx = Math.round((FFT_AREA_MIN.x + fftAreaMax.x) / 2) + 0.5;
+        const cx = Math.round((leftPad + fftAreaMax.x) / 2) + 0.5;
         ctx.save();
         ctx.strokeStyle = "rgba(220, 255, 0, 0.7)";
         ctx.lineWidth = 1 / dpr;
         ctx.beginPath();
-        ctx.moveTo(cx, FFT_AREA_MIN.y);
+        ctx.moveTo(cx, topPad);
         ctx.lineTo(cx, fftAreaMax.y);
         ctx.stroke();
         ctx.restore();
@@ -509,6 +525,7 @@ export function useDraw2DFFTSignal() {
         fftMin = -80,
         fftMax = 20,
         powerScale = "dB",
+        nodePreview = false,
         showGrid = true,
         centerFrequencyHz,
         isDeviceConnected = true,
@@ -545,20 +562,21 @@ export function useDraw2DFFTSignal() {
       try {
         if (highPerformanceMode) {
           // High performance mode: minimal drawing
-          if (showGrid) {
-            drawSpectrumGrid(
-              ctx,
-              cssWidth,
-              cssHeight,
-              frequencyRange,
-              fftMin,
-              fftMax,
-              powerScale,
-              true,
-              hardwareSampleRateHz,
-              fullCaptureRange,
-              limitMarkers,
-            );
+        if (showGrid) {
+          drawSpectrumGrid(
+            ctx,
+            cssWidth,
+            cssHeight,
+            frequencyRange,
+            fftMin,
+            fftMax,
+            powerScale,
+            true,
+            nodePreview,
+            hardwareSampleRateHz,
+            fullCaptureRange,
+            limitMarkers,
+          );
           } else {
             ctx.fillStyle = "#000000";
             ctx.fillRect(0, 0, cssWidth, cssHeight);
@@ -573,22 +591,24 @@ export function useDraw2DFFTSignal() {
             fftMin,
             fftMax,
             displayMode,
+            nodePreview,
           );
         } else {
           // Full quality mode: complete spectrum rendering
           if (showGrid && displayMode === "fft") {
             drawSpectrumGrid(
               ctx,
-              cssWidth,
-              cssHeight,
-              frequencyRange,
-              fftMin,
-              fftMax,
-              powerScale,
-              true,
-              hardwareSampleRateHz,
-              fullCaptureRange,
-            );
+            cssWidth,
+            cssHeight,
+            frequencyRange,
+            fftMin,
+            fftMax,
+            powerScale,
+            true,
+            nodePreview,
+            hardwareSampleRateHz,
+            fullCaptureRange,
+          );
           } else {
             ctx.fillStyle = "#000000";
             ctx.fillRect(0, 0, cssWidth, cssHeight);
@@ -601,6 +621,7 @@ export function useDraw2DFFTSignal() {
             fftMin,
             fftMax,
             displayMode,
+            nodePreview,
           );
         }
 
@@ -613,6 +634,7 @@ export function useDraw2DFFTSignal() {
             frequencyRange,
             centerFrequencyHz,
             isDeviceConnected,
+            nodePreview,
             fullCaptureRange,
           );
         }

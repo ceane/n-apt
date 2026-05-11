@@ -16,6 +16,57 @@ export interface FormatFrequencyOptions {
   trimTrailingZeros?: boolean;
 }
 
+export type FrequencyUnit = "Hz" | "kHz" | "MHz" | "GHz";
+
+export interface FrequencyScale {
+  value: number;
+  unit: FrequencyUnit;
+}
+
+export const clampFrequencyHz = (
+  hz: number,
+  minHz: number,
+  maxHz: number,
+): number => {
+  const safeMin = Number.isFinite(minHz) ? minHz : 0;
+  const safeMax = Number.isFinite(maxHz) ? maxHz : Number.MAX_VALUE;
+  const lo = Math.min(safeMin, safeMax);
+  const hi = Math.max(safeMin, safeMax);
+  if (!Number.isFinite(hz)) return lo;
+  return Math.max(lo, Math.min(hz, hi));
+};
+
+export const getFrequencyUnitScale = (unit: FrequencyUnit): number => {
+  switch (unit) {
+    case "GHz":
+      return 1_000_000_000;
+    case "MHz":
+      return 1_000_000;
+    case "kHz":
+      return 1_000;
+    case "Hz":
+    default:
+      return 1;
+  }
+};
+
+export const getOptimalFrequencyScale = (hz: number): FrequencyScale => {
+  const absHz = Math.abs(hz);
+  if (absHz >= 1_000_000_000) return { value: hz / 1_000_000_000, unit: "GHz" };
+  if (absHz >= 1_000_000) return { value: hz / 1_000_000, unit: "MHz" };
+  if (absHz >= 1_000) return { value: hz / 1_000, unit: "kHz" };
+  return { value: hz, unit: "Hz" };
+};
+
+export const getCenteredFrequencyHz = (centerHz: number, bandwidthHz: number): number =>
+  centerHz - bandwidthHz / 2;
+
+export const getBandwidthEndHz = (startHz: number, bandwidthHz: number): number =>
+  startHz + bandwidthHz;
+
+export const getBandwidthStartHz = (endHz: number, bandwidthHz: number): number =>
+  endHz - bandwidthHz;
+
 const trimNumericString = (value: string): string =>
   value.includes(".") ? value.replace(/\.?0+$/, "") : value;
 

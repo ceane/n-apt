@@ -33,4 +33,16 @@ describe("computeIqToDbSpectrumScalar", () => {
     expect(hanning).toHaveLength(64);
     expect(Array.from(rectangular)).not.toEqual(Array.from(hanning));
   });
+
+  it("honors larger FFT sizes when the caller requests them", () => {
+    const iq = buildToneIqSamples(128, 11);
+
+    const spectrum = computeIqToDbSpectrumScalar(iq, {
+      fftSize: 128,
+      offsetDb: 0,
+      windowType: "hann",
+    });
+
+    expect(spectrum).toHaveLength(128);
+  });
 });

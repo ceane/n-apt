@@ -2,7 +2,7 @@
 //!
 //! This binary delegates to the main server functionality in the library.
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 
 fn load_dev_env() {
   let cwd = std::env::current_dir()
@@ -40,6 +40,22 @@ fn load_dev_env() {
   }
 }
 
+fn require_local_password_env() -> Result<()> {
+  if std::env::var("UNSAFE_LOCAL_USER_PASSWORD")
+    .ok()
+    .filter(|value| !value.trim().is_empty())
+    .is_some()
+  {
+    return Ok(());
+  }
+
+  if !std::path::Path::new(".env.local").exists() {
+    bail!(".env.local missing, run npm run setup");
+  }
+
+  bail!("UNSAFE_LOCAL_USER_PASSWORD missing from .env.local, run npm run setup");
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
   // Check for --validate-config flag (no server startup)
@@ -48,6 +64,7 @@ async fn main() -> Result<()> {
   }
 
   load_dev_env();
+  require_local_password_env()?;
 
   // Delegate to the actual server implementation
   n_apt_backend::run_server().await

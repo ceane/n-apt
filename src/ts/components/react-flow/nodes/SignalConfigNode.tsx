@@ -27,15 +27,6 @@ import FileMetadata from "@n-apt/components/sidebar/FileMetadata";
 import { useAuthentication } from "@n-apt/hooks/useAuthentication";
 import type { NaptMetadata } from "@n-apt/components/sidebar/FileMetadata";
 
-const NodeContainer = styled.div`
-  background: ${({ theme }) => theme.colors.surface};
-  border: 1px solid ${({ theme }) => theme.colors.border};
-  border-radius: 12px;
-  padding: ${({ theme }) => theme.spacing.lg};
-  min-width: 320px;
-  max-width: 400px;
-`;
-
 const NodeTitle = styled.div`
   font-size: ${({ theme }) => theme.typography.bodySize};
   font-weight: bold;
@@ -353,7 +344,7 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
   }, [selectedPrimaryFile, aesKey, sourceMode]);
 
   return (
-    <NodeContainer>
+    <>
       <NodeTitle>
         {sourceMode === "file" ? (
           <FileBox size={16} />
@@ -532,6 +523,6 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
           </SettingRow>
         </SettingsGrid>
       )}
-    </NodeContainer>
+    </>
   );
 };

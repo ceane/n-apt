@@ -1,4 +1,6 @@
 export { Model3DCanvas } from "./Model3DCanvas";
+export { Model3DPerson } from "./Model3DPerson";
+export { Model3DBrain } from "./Model3DBrain";
 export { PolarRadioWaveWebGPU } from "./PolarRadioWaveWebGPU";
 export { RadiationLobe3D } from "./RadiationLobe3D";
 export { default as Brain } from "./Brain";

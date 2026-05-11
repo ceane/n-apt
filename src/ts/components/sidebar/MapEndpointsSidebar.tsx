@@ -1,6 +1,7 @@
 import React from "react";
 import styled from "styled-components";
 import { MapLocationsSection } from "./MapLocationsSection";
+import { MapRoutePathsSection } from "./MapRoutePathsSection";
 import { MapNearestEndpointsSection } from "./MapNearestEndpointsSection";
 import { MapUsefulLinksSection } from "./MapUsefulLinksSection";
 
@@ -73,6 +74,7 @@ export const MapEndpointsSidebar: React.FC = () => {
       </Attribution>
 
       <MapLocationsSection />
+      <MapRoutePathsSection />
       <MapNearestEndpointsSection />
       <MapUsefulLinksSection />
     </SidebarContainer>

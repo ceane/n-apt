@@ -36,7 +36,7 @@
 import { useCallback, useRef } from "react";
 import { OverlayTextureRenderer } from "@n-apt/hooks/useWebGPUInit";
 import { LINE_COLOR, SHADOW_COLOR, FFT_AREA_MIN } from "@n-apt/consts";
-import { SPECTRUM_SHADER, RESAMPLE_WGSL } from "@n-apt/shaders";
+import { SPECTRUM_SHADER, RESAMPLE_WGSL, SPIKE_COMPUTE_WGSL, SPIKE_RENDER_WGSL } from "@n-apt/shaders";
 import {
   configureWebGPUCanvas,
   parseCssColorToRgba,
@@ -89,6 +89,22 @@ type FFTWebGPUState = {
   resampleBindGroup: GPUBindGroup | null;
   resampleInputLength: number;
   resampleOutputLength: number;
+  // Spikes compute/render state
+  spikeComputePipeline: GPUComputePipeline;
+  spikeComputeBindGroupLayout: GPUBindGroupLayout;
+  spikeRenderLinePipeline: GPURenderPipeline;
+  spikeRenderCirclePipeline: GPURenderPipeline;
+  spikeRenderBindGroupLayout: GPUBindGroupLayout;
+  spikeBuffer: GPUBuffer | null;
+  spikeCountBuffer: GPUBuffer | null;
+  spikeCountReadbackBuffer: GPUBuffer | null;
+  spikeCountReadbackInFlight: boolean;
+  lastSpikeCountReadbackMs: number;
+  lastReportedSpikeCount: number;
+  spikeParamsBuffer: GPUBuffer;
+  spikeComputeBindGroup: GPUBindGroup | null;
+  spikeRenderBindGroup: GPUBindGroup | null;
+  spikeWaveformLength: number;
 };
 
 export interface WebGPUFFTSignalOptions {
@@ -107,6 +123,9 @@ export interface WebGPUFFTSignalOptions {
   showGrid?: boolean;
   lineColor?: string;
   fillColor?: string;
+  nodePreview?: boolean;
+  showSpikeOverlay?: boolean;
+  onSpikeCount?: (count: number) => void;
 }
 
 export function useDrawWebGPUFFTSignal() {
@@ -254,6 +273,78 @@ export function useDrawWebGPUFFTSignal() {
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       });
 
+      // --- Compute spikes pipeline ---
+      device.pushErrorScope("validation");
+      const spikeComputeBindGroupLayout = device.createBindGroupLayout({
+        entries: [
+          { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+          { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+          { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+          { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+        ],
+      });
+      const spikeComputeModule = device.createShaderModule({ code: SPIKE_COMPUTE_WGSL });
+      const spikeComputePipeline = device.createComputePipeline({
+        layout: device.createPipelineLayout({ bindGroupLayouts: [spikeComputeBindGroupLayout] }),
+        compute: { module: spikeComputeModule, entryPoint: "main" },
+      });
+      device.popErrorScope().then((error) => {
+        if (error) console.error("Spike Compute Pipeline Error:", error.message);
+      });
+
+      // --- Render spikes pipeline ---
+      device.pushErrorScope("validation");
+      const spikeRenderBindGroupLayout = device.createBindGroupLayout({
+        entries: [
+          { binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
+          { binding: 1, visibility: GPUShaderStage.VERTEX, buffer: { type: "uniform" } },
+          { binding: 2, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
+        ],
+      });
+      const spikeRenderModule = device.createShaderModule({ code: SPIKE_RENDER_WGSL });
+      
+      const spikeRenderLinePipeline = device.createRenderPipeline({
+        layout: device.createPipelineLayout({ bindGroupLayouts: [spikeRenderBindGroupLayout] }),
+        vertex: { module: spikeRenderModule, entryPoint: "vs_line" },
+        fragment: {
+          module: spikeRenderModule,
+          entryPoint: "fs_line",
+          targets: [{
+            format,
+            blend: {
+              color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" },
+              alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
+            },
+          }],
+        },
+        primitive: { topology: "line-list" },
+      });
+
+      const spikeRenderCirclePipeline = device.createRenderPipeline({
+        layout: device.createPipelineLayout({ bindGroupLayouts: [spikeRenderBindGroupLayout] }),
+        vertex: { module: spikeRenderModule, entryPoint: "vs_circle" },
+        fragment: {
+          module: spikeRenderModule,
+          entryPoint: "fs_circle",
+          targets: [{
+            format,
+            blend: {
+              color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" },
+              alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
+            },
+          }],
+        },
+        primitive: { topology: "triangle-list" },
+      });
+      device.popErrorScope().then((error) => {
+        if (error) console.error("Spike Render Pipeline Error:", error.message);
+      });
+
+      const spikeParamsBuffer = device.createBuffer({
+        size: 16,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      });
+
       return {
         canvas,
         device,
@@ -273,6 +364,21 @@ export function useDrawWebGPUFFTSignal() {
         resampleBindGroup: null,
         resampleInputLength: 0,
         resampleOutputLength: 0,
+        spikeComputePipeline,
+        spikeComputeBindGroupLayout,
+        spikeRenderLinePipeline,
+        spikeRenderCirclePipeline,
+        spikeRenderBindGroupLayout,
+        spikeBuffer: null,
+        spikeCountBuffer: null,
+        spikeCountReadbackBuffer: null,
+        spikeCountReadbackInFlight: false,
+        lastSpikeCountReadbackMs: 0,
+        lastReportedSpikeCount: 0,
+        spikeParamsBuffer,
+        spikeComputeBindGroup: null,
+        spikeRenderBindGroup: null,
+        spikeWaveformLength: 0,
       };
     },
     [],
@@ -285,6 +391,7 @@ export function useDrawWebGPUFFTSignal() {
         device,
         format,
         waveform,
+        frequencyRange,
         fftMin = -80,
         fftMax = 20,
         gridOverlayRenderer,
@@ -293,6 +400,9 @@ export function useDrawWebGPUFFTSignal() {
         showGrid = true,
         lineColor = LINE_COLOR,
         fillColor = SHADOW_COLOR,
+        nodePreview = false,
+        showSpikeOverlay = false,
+        onSpikeCount,
       } = options;
 
       // Background color from CSS variable - not configurable per-call to ensure
@@ -321,12 +431,13 @@ export function useDrawWebGPUFFTSignal() {
       if (waveformData.length === 0) return false;
 
       try {
-        // Calculate target display width (CSS width minus 40px margins)
-        // Must match CPU-side calculation for coordinate consistency
-        const rect = canvas.parentElement?.getBoundingClientRect();
+        // Calculate target display width using offsetWidth (unaffected by CSS
+        // transforms like React Flow's viewport zoom).
+        const parentWidth = canvas.parentElement?.offsetWidth ?? canvas.offsetWidth ?? 1;
+        const marginPx = nodePreview ? 0 : 40;
         const displayWidth = Math.max(
           1,
-          Math.floor((rect?.width || canvas.clientWidth || 1) - 40),
+          Math.floor(parentWidth - marginPx),
         );
 
         const srcLen = waveformData.length;
@@ -384,24 +495,72 @@ export function useDrawWebGPUFFTSignal() {
           });
         }
 
-        // --- Upload raw waveform to input buffer ---
-        state.device.queue.writeBuffer(
-          state.resampleInputBuffer,
-          0,
-          waveformData.buffer as ArrayBuffer,
-          waveformData.byteOffset,
-          waveformData.byteLength,
-        );
+        // --- Spikes buffers rebuild ---
+        if (!state.spikeBuffer || srcLen !== state.spikeWaveformLength) {
+          state.spikeBuffer?.destroy();
+          state.spikeBuffer = state.device.createBuffer({
+            // 100 spikes * 16 bytes (index: u32, value: f32, score: f32, radius: f32)
+            size: 100 * 16,
+            usage: GPUBufferUsage.STORAGE,
+          });
+          state.spikeCountBuffer?.destroy();
+          state.spikeCountBuffer = state.device.createBuffer({
+            size: 4,
+            usage:
+              GPUBufferUsage.STORAGE |
+              GPUBufferUsage.COPY_DST |
+              GPUBufferUsage.COPY_SRC,
+          });
+          state.spikeCountReadbackBuffer?.destroy();
+          state.spikeCountReadbackBuffer = state.device.createBuffer({
+            size: 4,
+            usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+          });
+          state.spikeWaveformLength = srcLen;
 
-        // --- Upload resample params ---
-        const paramsData = new Uint32Array([srcLen, displayWidth, 0, 0]);
-        state.device.queue.writeBuffer(
-          state.resampleParamsBuffer,
-          0,
-          paramsData.buffer as ArrayBuffer,
-          paramsData.byteOffset,
-          paramsData.byteLength,
-        );
+          state.spikeComputeBindGroup = state.device.createBindGroup({
+            layout: state.spikeComputePipeline.getBindGroupLayout(0),
+            entries: [
+              { binding: 0, resource: { buffer: state.resampleInputBuffer! } },
+              { binding: 1, resource: { buffer: state.spikeParamsBuffer } },
+              { binding: 2, resource: { buffer: state.spikeBuffer } },
+              { binding: 3, resource: { buffer: state.spikeCountBuffer } },
+            ],
+          });
+
+          state.spikeRenderBindGroup = state.device.createBindGroup({
+            layout: state.spikeRenderLinePipeline.getBindGroupLayout(0),
+            entries: [
+              { binding: 0, resource: { buffer: state.spikeBuffer } },
+              { binding: 1, resource: { buffer: state.uniformBuffer } },
+              { binding: 2, resource: { buffer: state.spikeCountBuffer } },
+            ],
+          });
+        }
+
+        // --- Spikes parameters ---
+        const spanMHz = frequencyRange ? Math.abs(frequencyRange.max - frequencyRange.min) : 3.2;
+        const binsPerMHz = srcLen / Math.max(spanMHz, 0.001);
+        const bins45kHz = Math.ceil(binsPerMHz * 0.045);
+        const windowSize = Math.max(2, Math.min(Math.floor(srcLen / 10), bins45kHz, 512));
+
+        const spikeParamsData = new ArrayBuffer(16);
+        const u32Params = new Uint32Array(spikeParamsData);
+        const f32Params = new Float32Array(spikeParamsData);
+        u32Params[0] = srcLen;
+        u32Params[1] = windowSize;
+        f32Params[2] = 3.0; // min_z_score (more sensitive)
+        f32Params[3] = 0.0; // padding
+
+        // --- All Uploads FIRST ---
+        state.device.queue.writeBuffer(state.resampleInputBuffer, 0, waveformData.buffer, waveformData.byteOffset, waveformData.byteLength);
+        state.device.queue.writeBuffer(state.resampleParamsBuffer, 0, new Uint32Array([srcLen, displayWidth, 0, 0]));
+        if (state.spikeParamsBuffer) {
+          state.device.queue.writeBuffer(state.spikeParamsBuffer, 0, spikeParamsData);
+        }
+        if (state.spikeCountBuffer) {
+          state.device.queue.writeBuffer(state.spikeCountBuffer, 0, new Uint32Array([0]));
+        }
 
         // --- Build command encoder: compute (resample) then render ---
         const encoder = state.device.createCommandEncoder();
@@ -412,19 +571,55 @@ export function useDrawWebGPUFFTSignal() {
         computePass.setPipeline(state.resamplePipeline);
         computePass.setBindGroup(0, state.resampleBindGroup);
         computePass.dispatchWorkgroups(Math.ceil(displayWidth / 64));
+
+        if (showSpikeOverlay && state.spikeComputeBindGroup && state.spikeCountBuffer) {
+          computePass.setPipeline(state.spikeComputePipeline);
+          computePass.setBindGroup(0, state.spikeComputeBindGroup);
+          computePass.dispatchWorkgroups(Math.ceil(srcLen / 64));
+        }
+
         computePass.end();
 
-        // --- Prepare render parameters ---
+        const nowMs =
+          typeof performance !== "undefined" ? performance.now() : Date.now();
+        const shouldReadSpikeCount =
+          showSpikeOverlay &&
+          onSpikeCount &&
+          state.spikeCountBuffer &&
+          state.spikeCountReadbackBuffer &&
+          !state.spikeCountReadbackInFlight &&
+          nowMs - state.lastSpikeCountReadbackMs >= 250;
+        if (shouldReadSpikeCount) {
+          encoder.copyBufferToBuffer(
+            state.spikeCountBuffer!,
+            0,
+            state.spikeCountReadbackBuffer!,
+            0,
+            4,
+          );
+          state.spikeCountReadbackInFlight = true;
+          state.lastSpikeCountReadbackMs = nowMs;
+        } else if (!showSpikeOverlay && onSpikeCount && state.lastReportedSpikeCount !== 0) {
+          state.lastReportedSpikeCount = 0;
+          onSpikeCount(0);
+        }
+
         // Convert CSS pixel coordinates to WebGPU Normalized Device Coordinates (-1 to +1) space
-        const logicalWidth = canvas.clientWidth || 1;
-        const logicalHeight = canvas.clientHeight || 1;
-        const fftAreaMax = { x: logicalWidth - 40, y: logicalHeight - 40 };
+        // Use offsetWidth/offsetHeight — clientWidth returns post-transform dimensions
+        // inside React Flow's scaled viewport, giving wrong NDC coordinates.
+        const logicalWidth = canvas.offsetWidth || canvas.clientWidth || 1;
+        const logicalHeight = canvas.offsetHeight || canvas.clientHeight || 1;
+        const fftAreaMax = {
+          x: logicalWidth - (nodePreview ? 0 : 40),
+          y: logicalHeight - (nodePreview ? 0 : 40),
+        };
 
         // Plot bounds in NDC: X is [-1, 1], Y is [+1, -1] (Y flipped for screen coords)
-        const plotMinX = (FFT_AREA_MIN.x / logicalWidth) * 2 - 1;
+        const plotMinX =
+          ((nodePreview ? 0 : FFT_AREA_MIN.x) / logicalWidth) * 2 - 1;
         const plotMaxX = (fftAreaMax.x / logicalWidth) * 2 - 1;
         const yToNdc = (y: number) => 1 - (y / logicalHeight) * 2;
-        const plotMaxY = yToNdc(FFT_AREA_MIN.y);
+        const plotMaxY = yToNdc(nodePreview ? 0 : FFT_AREA_MIN.y);
         const plotMinY = yToNdc(fftAreaMax.y);
 
         const [lineR, lineG, lineB, lineA] = parseCssColorToRgba(lineColor);
@@ -433,7 +628,8 @@ export function useDrawWebGPUFFTSignal() {
         // Pack uniforms into Float32Array (layout must match shader)
         // [0-3]: plot bounds (minX, minY, maxX, maxY)
         // [4-5]: dB range (min, max)
-        // [6-7]: waveform length + padding
+        // [6]:   display width (resampled waveform length for FFT shader)
+        // [7]:   source waveform length (raw bin count, for spike index→x mapping)
         // [8-11]: line color RGBA
         // [12-15]: fill color RGBA
         state.uniformValues[0] = plotMinX;
@@ -443,7 +639,7 @@ export function useDrawWebGPUFFTSignal() {
         state.uniformValues[4] = fftMin;
         state.uniformValues[5] = fftMax;
         state.uniformValues[6] = displayWidth;
-        state.uniformValues[7] = 0;
+        state.uniformValues[7] = srcLen; // Source waveform length for spike index→x mapping
         state.uniformValues[8] = lineR;
         state.uniformValues[9] = lineG;
         state.uniformValues[10] = lineB;
@@ -487,15 +683,43 @@ export function useDrawWebGPUFFTSignal() {
         pass.setPipeline(state.pipelineLine);
         pass.draw(displayWidth); // 1 vertex per point for line strip
 
-        // Overlays on top (frequency markers, spike detections)
+        // Natively render spikes using the GPU buffers!
+        if (showSpikeOverlay && state.spikeRenderBindGroup) {
+          pass.setBindGroup(0, state.spikeRenderBindGroup);
+          pass.setPipeline(state.spikeRenderLinePipeline);
+          pass.draw(2, 100); // Max 100 instances
+          pass.setPipeline(state.spikeRenderCirclePipeline);
+          pass.draw(6, 100);
+        }
+
+        // Overlays on top (frequency markers)
         if (markersOverlayRenderer) {
           markersOverlayRenderer.renderInPass(pass);
         }
-        if (spikesOverlayRenderer) {
+        
+        if (!showSpikeOverlay && spikesOverlayRenderer) {
           spikesOverlayRenderer.renderInPass(pass);
         }
         pass.end();
         state.device.queue.submit([encoder.finish()]);
+        if (shouldReadSpikeCount && state.spikeCountReadbackBuffer) {
+          const readbackBuffer = state.spikeCountReadbackBuffer;
+          void readbackBuffer
+            .mapAsync(GPUMapMode.READ)
+            .then(() => {
+              const mapped = readbackBuffer.getMappedRange();
+              const count = Math.min(new Uint32Array(mapped)[0] ?? 0, 100);
+              readbackBuffer.unmap();
+              state.spikeCountReadbackInFlight = false;
+              if (count !== state.lastReportedSpikeCount) {
+                state.lastReportedSpikeCount = count;
+                onSpikeCount?.(count);
+              }
+            })
+            .catch(() => {
+              state.spikeCountReadbackInFlight = false;
+            });
+        }
         return true;
       } catch (error) {
         console.error("WebGPU FFT rendering failed:", error);

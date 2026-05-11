@@ -115,6 +115,8 @@ let wsInstance: WebSocketInstance = {
 // Batching for high-frequency data
 let dataBatchFrame: number | null = null;
 let pendingDataUpdate: any = null;
+let statusBatchFrame: number | null = null;
+let pendingStatusUpdates: any = null;
 let allowNextPausedFrame = false;
 const DISCONNECT_GRACE_MS = 150;
 // RATIONALE for Auto FFT:
@@ -135,6 +137,20 @@ const processBatchedData = (dispatch: Dispatch, getState: () => any) => {
     pendingDataUpdate = null;
   }
   dataBatchFrame = null;
+};
+
+const processBatchedStatus = (dispatch: Dispatch, getState: () => any) => {
+  if (pendingStatusUpdates !== null) {
+    const websocketState = getState().websocket;
+    const hasChanges = Object.entries(pendingStatusUpdates).some(([key, value]) => {
+      return !equalValue(websocketState[key], value);
+    });
+    if (hasChanges) {
+      dispatch(updateDeviceState(pendingStatusUpdates));
+    }
+    pendingStatusUpdates = null;
+  }
+  statusBatchFrame = null;
 };
 
 const getPausedValue = (payload: unknown): boolean | null => {
@@ -299,12 +315,16 @@ const processMessage = (
         updates.deviceLoadingReason = reason;
       }
 
-      const websocketState = getState().websocket;
-      const hasChanges = Object.entries(updates).some(([key, value]) => {
-        return !equalValue(websocketState[key], value);
-      });
-      if (hasChanges) {
-        dispatch(updateDeviceState(updates));
+      if (pendingStatusUpdates === null) {
+        pendingStatusUpdates = updates;
+      } else {
+        pendingStatusUpdates = { ...pendingStatusUpdates, ...updates };
+      }
+
+      if (statusBatchFrame === null) {
+        statusBatchFrame = window.requestAnimationFrame(() =>
+          processBatchedStatus(dispatch, getState),
+        );
       }
     } catch (e) {
       console.error("Failed to parse status message:", e);
@@ -654,7 +674,7 @@ const createWebSocketMiddleware =
                 return;
               }
 
-              // Process status and control messages immediately
+              // Process status and control messages
               processMessage(dispatch, getState, parsed);
             };
 
@@ -715,9 +735,11 @@ const createWebSocketMiddleware =
         const { type, data }: { type: string; data: any } = action.payload;
 
         // Track intended FFT size to prevent clobbering from status broadcasts
-        if (type === "settings" && data.fft_size) {
+        const requestedFftSize =
+          data?.fft_size ?? data?.fftSize ?? data?.fft_size_hz;
+        if (type === "settings" && requestedFftSize) {
           lastSettingsRequest = {
-            fft_size: data.fft_size,
+            fft_size: requestedFftSize,
             timestamp: Date.now(),
           };
         }

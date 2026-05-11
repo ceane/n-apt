@@ -109,6 +109,31 @@ const ResetButton = memo(styled(Button)`
   border: 1px solid ${(props) => props.theme.borderHover};
 `);
 
+const hasPersistedFftSize = (): boolean => {
+  if (typeof window === "undefined") return false;
+
+  for (const storage of [window.localStorage, window.sessionStorage]) {
+    for (const key of ["napt-sdr-settings-v2", "napt-sdr-settings"]) {
+      try {
+        const raw = storage.getItem(key);
+        if (!raw) continue;
+        const parsed = JSON.parse(raw) as { fftSize?: unknown };
+        if (
+          typeof parsed.fftSize === "number" &&
+          Number.isFinite(parsed.fftSize) &&
+          parsed.fftSize > 0
+        ) {
+          return true;
+        }
+      } catch {
+        // Ignore bad cache entries and keep checking other stores.
+      }
+    }
+  }
+
+  return false;
+};
+
 type NaptMetadata = {
   sample_rate?: number;
   sample_rate_hz?: number;
@@ -339,6 +364,7 @@ export const SpectrumSidebar: React.FC = () => {
 
   useEffect(() => {
     if (liveState.isAutoFftApplied) return;
+    if (hasPersistedFftSize()) return;
     if (
       !liveAutoFftOptions ||
       typeof liveAutoFftOptions.recommended !== "number"

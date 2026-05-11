@@ -236,3 +236,48 @@ async fn test_auth_logout_endpoint() {
     "Session should be revoked after logout"
   );
 }
+
+#[tokio::test]
+#[serial]
+async fn test_logout_alias_redirects_to_login() {
+  ensure_test_password();
+  let (broadcast_tx, _) = broadcast::channel(10);
+  let (spectrum_tx, _) = broadcast::channel(10);
+  let (cmd_tx, _) = std::sync::mpsc::channel();
+
+  let temp_dir = tempfile::tempdir().unwrap();
+  std::env::set_var("HOME", temp_dir.path());
+
+  let shared = SharedState::new("redis://127.0.0.1:6379");
+  let sdr_processor = Arc::new(tokio::sync::Mutex::new(
+    n_apt_backend::sdr::processor::SdrProcessor::new_mock_apt().unwrap(),
+  ));
+  let state = Arc::new(AppState {
+    shared,
+    credential_store: CredentialStore::new().unwrap(),
+    session_store: SessionStore::new("redis://127.0.0.1:6379").unwrap(),
+    webauthn: WebauthnBuilder::new(
+      "localhost",
+      &Url::parse("http://localhost").unwrap(),
+    )
+    .unwrap()
+    .build()
+    .unwrap(),
+    broadcast_tx,
+    spectrum_tx,
+    cmd_tx,
+    sdr_processor,
+  });
+
+  let app = WebSocketServer::create_app(Arc::clone(&state));
+  let server = TestServer::new(app);
+
+  let response = server.get("/logout").await;
+
+  response.assert_status(axum::http::StatusCode::SEE_OTHER);
+  response.assert_header("location", "/");
+  response.assert_header(
+    "clear-site-data",
+    "\"cache\", \"cookies\", \"storage\", \"executionContexts\"",
+  );
+}

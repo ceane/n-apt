@@ -1,9 +1,8 @@
 import React, { useMemo, useState } from "react";
 import styled from "styled-components";
 import { Search, Zap } from "lucide-react";
-import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 
-interface SpikeNodeProps {
+interface SpikeDetectionNodeProps {
   data: {
     spikeOptions: boolean;
     label: string;
@@ -93,33 +92,62 @@ const ResultMeta = styled.div`
   color: ${({ theme }) => theme.colors.textSecondary};
 `;
 
+const CountBadge = styled.div`
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid ${({ theme }) => theme.colors.primary};
+  color: ${({ theme }) => theme.colors.primary};
+  background: ${({ theme }) => theme.colors.primary}1a;
+  font-size: 10px;
+  font-weight: 700;
+`;
+
 const HelperText = styled.div`
   font-size: 10px;
   color: ${({ theme }) => theme.colors.textSecondary};
 `;
 
-export const SpikeNode: React.FC<SpikeNodeProps> = ({ data }) => {
-  const { state } = useSpectrumStore();
+import { useAppDispatch, useAppSelector } from "@n-apt/redux";
+import { setShowSpikeOverlay } from "@n-apt/redux/slices/spectrumSlice";
+
+export const SpikeDetectionNode: React.FC<SpikeDetectionNodeProps> = ({
+  data,
+}) => {
+  const dispatch = useAppDispatch();
+  const isEnabled = useAppSelector((state) => state.spectrum.showSpikeOverlay);
+  const fftSize = useAppSelector((state) => state.spectrum.fftSize);
+  const sampleRateHz = useAppSelector((state) => state.spectrum.sampleRateHz);
+  const gpuSpikeCount = useAppSelector(
+    (state) => state.spectrum.gpuSpikeCount,
+  );
+  
   const [scanStatus, setScanStatus] = useState<string>(
     "Ready to scan FFT for spikes.",
   );
   const [isScanning, setIsScanning] = useState(false);
 
   const currentWindow = useMemo(() => {
-    const base = state.fftSize || 0;
-    const rate = state.sampleRateHz || 0;
+    const base = fftSize || 0;
+    const rate = sampleRateHz || 0;
     return base > 0
       ? `${base} bins @ ${Math.round(rate / 1000)} kHz`
       : "FFT not ready";
-  }, [state.fftSize, state.sampleRateHz]);
+  }, [fftSize, sampleRateHz]);
 
   const handleScan = () => {
     setIsScanning(true);
-    setScanStatus("Scanning FFT for prominent spikes...");
+    dispatch(setShowSpikeOverlay(!isEnabled));
+    setScanStatus(
+      !isEnabled
+        ? "Spike overlay enabled. Review markers in the FFT view."
+        : "Spike overlay disabled.",
+    );
 
     window.setTimeout(() => {
       setScanStatus(
-        "Spike scan complete. Detected peaks are ready for review in the FFT view.",
+        !isEnabled
+          ? "Spike overlay is active and markers should render in FFT."
+          : "Spike overlay turned off.",
       );
       setIsScanning(false);
     }, 350);
@@ -138,7 +166,11 @@ export const SpikeNode: React.FC<SpikeNodeProps> = ({ data }) => {
       <Section>
         <PrimaryButton type="button" onClick={handleScan} disabled={isScanning}>
           <Search size={12} />
-          {isScanning ? "Scanning…" : "Scan FFT for spikes"}
+          {isScanning
+            ? "Updating…"
+            : isEnabled
+              ? "Disable spike overlay"
+              : "Enable spike overlay"}
         </PrimaryButton>
 
         <ResultCard>
@@ -147,15 +179,20 @@ export const SpikeNode: React.FC<SpikeNodeProps> = ({ data }) => {
               <ResultLabel>FFT Scan</ResultLabel>
               <ResultMeta>{currentWindow}</ResultMeta>
             </div>
+            <CountBadge>
+              {isEnabled ? `${gpuSpikeCount} spikes` : "off"}
+            </CountBadge>
           </ResultHeader>
           <HelperText>{scanStatus}</HelperText>
         </ResultCard>
 
         <HelperText>
-          This node only scans the FFT output for spikes. Beat modulation stays
-          in the Beat Detection node.
+          This node toggles spike detection markers in the FFT view. Beat
+          modulation stays in the Beat Detection node.
         </HelperText>
       </Section>
     </NodeContainer>
   );
 };
+
+export { SpikeDetectionNode as SpikeNode };

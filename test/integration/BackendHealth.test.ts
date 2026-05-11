@@ -1,5 +1,6 @@
 /** @jest-environment node */
 import { spawn, ChildProcess } from "child_process";
+import fs from "fs";
 import path from "path";
 
 describe("Backend Health Integration", () => {
@@ -12,7 +13,18 @@ describe("Backend Health Integration", () => {
     const projectRoot = path.resolve(process.cwd());
     const binaryPath =
       process.env.BACKEND_BINARY_PATH ||
-      path.join(projectRoot, "target/dev-fast/n-apt-backend");
+      path.join(projectRoot, "target/debug/n-apt-backend");
+
+    if (!fs.existsSync(binaryPath)) {
+      throw new Error(
+        `Backend binary not found at ${binaryPath}. Run npm run build:rust before BackendHealth.`,
+      );
+    }
+
+    let backendOutput = "";
+    const appendBackendOutput = (data: Buffer | string) => {
+      backendOutput = `${backendOutput}${data.toString()}`.slice(-8000);
+    };
 
     backendProcess = spawn(binaryPath, [], {
       cwd: projectRoot,
@@ -25,28 +37,57 @@ describe("Backend Health Integration", () => {
     });
 
     backendProcess.stdout?.on("data", (data) => {
+      appendBackendOutput(data);
       process.stdout.write(`[Backend STDOUT] ${data}`);
     });
 
     backendProcess.stderr?.on("data", (data) => {
+      appendBackendOutput(data);
       process.stderr.write(`[Backend STDERR] ${data}`);
+    });
+
+    const exited = new Promise<never>((_, reject) => {
+      backendProcess.once("exit", (code, signal) => {
+        reject(
+          new Error(
+            `Backend exited before it became healthy (code: ${code ?? "null"}, signal: ${
+              signal ?? "null"
+            }).\n${backendOutput.trim()}`,
+          ),
+        );
+      });
+      backendProcess.once("error", (error) => {
+        reject(new Error(`Backend failed to start: ${error.message}`));
+      });
     });
 
     // Wait for it to start and respond to status check
     let attempts = 0;
     const maxAttempts = 30;
     while (attempts < maxAttempts) {
-      try {
-        const response = await fetch(`${BASE_URL}/status`);
-        if (response.ok) {
-          console.log(`✅ Backend responded with 200 OK after ${attempts}s`);
-          return; // Success
-        }
-        console.log(
-          `⏳ Backend status: ${response.status} (attempt ${attempts})`,
-        );
-      } catch (e) {
-        console.log(`⏳ Backend not ready (attempt ${attempts}): ${(e as Error).message}`);
+      const ready = await Promise.race([
+        (async () => {
+          try {
+            const response = await fetch(`${BASE_URL}/status`);
+            if (response.ok) {
+              console.log(`✅ Backend responded with 200 OK after ${attempts}s`);
+              return true;
+            }
+            console.log(
+              `⏳ Backend status: ${response.status} (attempt ${attempts})`,
+            );
+          } catch (e) {
+            console.log(
+              `⏳ Backend not ready (attempt ${attempts}): ${(e as Error).message}`,
+            );
+          }
+          return false;
+        })(),
+        exited,
+      ]);
+
+      if (ready) {
+        return; // Success
       }
       attempts++;
       await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -54,12 +95,25 @@ describe("Backend Health Integration", () => {
 
     // If we got here, it failed to start. Capture exit code if any.
     const exitCode = backendProcess.exitCode;
-    throw new Error(`Backend failed to start in time. Exit code: ${exitCode}`);
+    throw new Error(
+      `Backend failed to start in time. Exit code: ${exitCode}.\n${backendOutput.trim()}`,
+    );
   }, 45000); // 45s timeout for compilation/startup
 
-  afterAll(() => {
+  afterAll(async () => {
     if (backendProcess) {
+      if (backendProcess.exitCode !== null) {
+        return;
+      }
+
       backendProcess.kill();
+      await new Promise((resolve) => {
+        const timeout = setTimeout(resolve, 2000);
+        backendProcess.once("exit", () => {
+          clearTimeout(timeout);
+          resolve(undefined);
+        });
+      });
     }
   });
 

@@ -18,9 +18,11 @@ export interface MapLocation {
 interface MapLocationsContextType {
   locations: MapLocation[];
   activeLocationId: string | null;
+  recenterTick: number;
   addLocation: (name: string, lat: number, lng: number) => void;
   removeLocation: (id: string) => void;
   setActiveLocation: (id: string | null) => void;
+  recenterLocation: (id: string) => void;
   currentLocation: MapLocation | null;
   previewLocation: MapLocation | null;
   setPreviewLocation: (loc: MapLocation | null) => void;
@@ -60,6 +62,7 @@ export const MapLocationsProvider: React.FC<{ children: React.ReactNode }> = ({
   const [activeLocationId, setActiveLocationId] = useState<string | null>(
     "current",
   );
+  const [recenterTick, setRecenterTick] = useState(0);
   const [currentLocation, setCurrentLocation] = useState<MapLocation | null>(
     null,
   );
@@ -130,14 +133,22 @@ export const MapLocationsProvider: React.FC<{ children: React.ReactNode }> = ({
     if (id) setPreviewLocation(null); // Clear preview when switching to a saved loc
   }, []);
 
+  const recenterLocation = useCallback((id: string) => {
+    setActiveLocationId(id);
+    setPreviewLocation(null);
+    setRecenterTick((prev) => prev + 1);
+  }, []);
+
   return (
     <MapLocationsContext.Provider
       value={{
         locations,
         activeLocationId,
+        recenterTick,
         addLocation,
         removeLocation,
         setActiveLocation,
+        recenterLocation,
         currentLocation,
         previewLocation,
         setPreviewLocation,

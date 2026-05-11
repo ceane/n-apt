@@ -5,7 +5,7 @@ import { useAppSelector } from "@n-apt/redux";
 import { liveDataRef } from "@n-apt/redux/middleware/websocketMiddleware";
 import { formatFrequency } from "@n-apt/utils/frequency";
 import { ChevronLeft, ChevronRight, Maximize } from "lucide-react";
-import { FullscreenModal } from "@n-apt/components/react-flow/nodes/FullscreenModal";
+import { FullscreenModal } from "@n-apt/components/react-flow/flows/FullscreenModal";
 import {
   computeBitstreamLayout,
   getIqDataView,
@@ -266,15 +266,36 @@ export const BitstreamViewer: React.FC<BitstreamViewerProps> = ({
   const playbackFrameCounter = useAppSelector(
     (state) => state.waterfall.playbackFrameCounter,
   );
-  const dataFrameCounter = useAppSelector(
-    (state) => state.websocket.dataFrameCounter,
-  );
   const sourceMode = useAppSelector((state) => state.waterfall.sourceMode);
 
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [containerDims, setContainerDims] = useState({ width: 0, height: 0 });
   const gridRef = useRef<HTMLDivElement>(null);
   const [page, setPage] = useState(0);
+
+  // Throttled data polling — replaces the per-frame dataFrameCounter subscription.
+  // Tables don't need 60fps updates; 4fps is plenty for readable hex data.
+  const [frameIqData, setFrameIqData] = useState<Uint8Array | undefined>(
+    undefined,
+  );
+  const lastIqRefRef = useRef<unknown>(null);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      const nextRef = liveDataRef.current?.iq_data as
+        | Uint8Array
+        | undefined;
+      if (nextRef !== lastIqRefRef.current) {
+        lastIqRefRef.current = nextRef;
+        if (sourceMode === "file" && playbackFrameCounter === 0) {
+          setFrameIqData(undefined);
+        } else {
+          setFrameIqData(nextRef);
+        }
+      }
+    }, 250); // 4fps — fast enough for readable table updates
+    return () => clearInterval(id);
+  }, [sourceMode, playbackFrameCounter]);
 
   useEffect(() => {
     if (!gridRef.current) return;
@@ -311,12 +332,6 @@ export const BitstreamViewer: React.FC<BitstreamViewerProps> = ({
   const rowHeight = layout.rowHeight;
   const rowsCount = layout.rowsCount;
   const iqPairsPerRow = layout.iqPairsPerRow;
-  const frameIqData = React.useMemo(() => {
-    if (sourceMode === "file" && playbackFrameCounter === 0) {
-      return undefined;
-    }
-    return liveDataRef.current?.iq_data as Uint8Array | undefined;
-  }, [dataFrameCounter, playbackFrameCounter, sourceMode]);
   const iqDataView = React.useMemo(
     () => getIqDataView(frameIqData),
     [frameIqData],

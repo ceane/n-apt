@@ -2,7 +2,7 @@ import React from "react";
 import { render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom";
 // @ts-ignore - Jest module mapper handles this
-import { NodeContainer } from "@n-apt/components/react-flow/nodes/NodeContainer";
+import { NodeContainer } from "@n-apt/components/react-flow/flows/NodeContainer";
 import { TestWrapper } from "./testUtils";
 
 describe("NodeContainer", () => {

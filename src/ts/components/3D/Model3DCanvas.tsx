@@ -218,11 +218,13 @@ function Model({
   selectedArea,
   isEditMode,
   onAddHotspot,
+  modelVariant,
   children,
 }: {
   selectedArea: Area | null;
   isEditMode: boolean;
   onAddHotspot: (point: Vector3) => void;
+  modelVariant: "human" | "brain";
   children?: React.ReactNode;
 }) {
   const { scene } = useGLTF(HUMAN_MODEL_AFRO_MALE_GLB_URL);
@@ -242,7 +244,11 @@ function Model({
 
   return (
     <group ref={groupRef} position={MODEL_ROOT_POSITION}>
-      <primitive object={scene} onPointerDown={onPointerDown} />
+      {modelVariant === "brain" ? (
+        <Brain />
+      ) : (
+        <primitive object={scene} onPointerDown={onPointerDown} />
+      )}
       {selectedArea && <AreaMarker selectedArea={selectedArea} />}
       {children}
     </group>
@@ -285,7 +291,7 @@ export const Model3DCanvas: React.FC<Model3DCanvasProps> = ({
   width = "100%",
   height = "100%",
 }) => {
-  const { selectedArea, controlsRef } = useModel3D();
+  const { selectedArea, controlsRef, modelVariant } = useModel3D();
   const {
     hotspots,
     selectedHotspot,
@@ -360,8 +366,8 @@ export const Model3DCanvas: React.FC<Model3DCanvasProps> = ({
               selectedArea={selectedArea}
               isEditMode={isEditMode}
               onAddHotspot={handleAddHotspot}
+              modelVariant={modelVariant}
             >
-              <Brain />
               <HorizonFocusGlobe active={isEditMode} />
 
               {!isEditMode &&

@@ -5,21 +5,11 @@ import { Radio as RadioIcon, Volume2, VolumeX } from "lucide-react";
 import { useAppDispatch, useAppSelector } from "@n-apt/redux";
 import {
   setAlgorithm,
-  setBandwidth,
   setListening,
 } from "@n-apt/redux/slices/demodSlice";
 import { formatFrequency } from "@n-apt/utils/frequency";
 import { useDemod } from "@n-apt/contexts/DemodContext";
 
-const NodeContainer = styled.div`
-  background: ${({ theme }) => theme.colors.background};
-  border: 1px solid ${({ theme }) => theme.colors.border};
-  border-radius: 8px;
-  padding: 12px;
-  min-width: 420px;
-  color: ${({ theme }) => theme.colors.textPrimary};
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
-`;
 
 const Header = styled.div`
   display: flex;
@@ -83,6 +73,19 @@ const FrequencyDisplay = styled.div`
   border: 1px dashed ${({ theme }) => theme.colors.border};
 `;
 
+const SourceTag = styled.div`
+  align-self: flex-start;
+  margin-top: 4px;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  color: ${({ theme }) => theme.colors.textMuted};
+  background: transparent;
+`;
+
 const ListenButton = styled.button<{ $active: boolean }>`
   width: 100%;
   margin-top: 12px;
@@ -116,38 +119,42 @@ interface RadioNodeProps {
   };
 }
 
+const MIN_BANDWIDTH_HZ = 1_000;
+
 export const RadioNode: React.FC<RadioNodeProps> = ({ data }) => {
   const dispatch = useAppDispatch();
   const algorithm = useAppSelector((state) => state.demod.algorithm);
-  const bandwidth = useAppSelector((state) => state.demod.bandwidthKhz);
+  const bandwidthKhz = useAppSelector((state) => state.demod.bandwidthKhz);
   const isListening = useAppSelector((state) => state.demod.isListening);
   const centerFreq = useAppSelector((state) => state.demod.centerFreqHz);
+  const previewRange = useAppSelector((state) => state.spectrum.previewRange);
 
   const { audioPlayback } = useDemod();
   const { getNodes, getEdges } = useReactFlow();
 
-  // Check if FM node is connected upstream
-  const hasFmNodeUpstream = useMemo(() => {
+  const upstreamSource = useMemo<"fm" | "span" | "manual">(() => {
     const nodes = getNodes();
     const edges = getEdges();
-    // Find this radio node by matching the label
     const radioNode = nodes.find(
       (n) => n.data?.label === data.label && n.type === "custom",
     );
 
-    if (!radioNode) return false;
+    if (!radioNode) return "manual";
 
-    // Find all nodes that have an edge to this radio node
     const upstreamNodeIds = edges
       .filter((e) => e.target === radioNode.id)
       .map((e) => e.source);
 
-    // Check if any upstream node has fmOptions
-    return upstreamNodeIds.some((id) => {
-      const node = nodes.find((n) => n.id === id);
-      return node?.data?.fmOptions;
-    });
+    const upstreamNodes = upstreamNodeIds
+      .map((id) => nodes.find((n) => n.id === id))
+      .filter(Boolean);
+
+    if (upstreamNodes.some((node) => node?.data?.fmOptions)) return "fm";
+    if (upstreamNodes.some((node) => node?.data?.spanOptions)) return "span";
+    return "manual";
   }, [getNodes, getEdges, data]);
+  const hasFmNodeUpstream = upstreamSource === "fm";
+  const hasSpanNodeUpstream = upstreamSource === "span";
 
   // Auto-select APT algorithm if an APT node is present in the flow
   useEffect(() => {
@@ -168,16 +175,67 @@ export const RadioNode: React.FC<RadioNodeProps> = ({ data }) => {
     }
   };
 
-  return (
-    <NodeContainer>
-      <Handle type="target" position={Position.Left} id="range" />
+  const centerHzFromPreview =
+    hasSpanNodeUpstream &&
+    previewRange &&
+    Number.isFinite(previewRange.min) &&
+    Number.isFinite(previewRange.max)
+      ? (previewRange.min + previewRange.max) / 2
+      : null;
+  const bandwidthHzFromPreview =
+    hasSpanNodeUpstream &&
+    previewRange &&
+    Number.isFinite(previewRange.min) &&
+    Number.isFinite(previewRange.max)
+      ? previewRange.max - previewRange.min
+      : null;
 
+  const sourceBadge = hasFmNodeUpstream
+    ? "From FM"
+    : hasSpanNodeUpstream
+      ? "From Span"
+      : "Manual";
+  const centerDisplayHz = hasFmNodeUpstream
+    ? centerFreq
+    : hasSpanNodeUpstream
+      ? centerHzFromPreview
+      : centerFreq;
+  const bandwidthDisplayHz = hasFmNodeUpstream
+    ? (bandwidthKhz || 200) * 1000
+    : hasSpanNodeUpstream
+      ? bandwidthHzFromPreview
+      : (bandwidthKhz || 200) * 1000;
+
+  return (
+    <>
       <Header>
         <RadioIcon size={14} color="#00d4ff" />
         <Title>{data.label || "Radio"}</Title>
       </Header>
 
       <ControlGroup>
+        <ControlItem>
+          <Label>Center Frequency</Label>
+          <FrequencyDisplay>
+            {centerDisplayHz != null
+              ? formatFrequency(centerDisplayHz)
+              : sourceBadge}
+          </FrequencyDisplay>
+          <SourceTag>{sourceBadge}</SourceTag>
+        </ControlItem>
+
+        <ControlItem>
+          <Label>Bandwidth</Label>
+          <FrequencyDisplay>
+            {bandwidthDisplayHz != null &&
+            Number.isFinite(bandwidthDisplayHz) &&
+            bandwidthDisplayHz >= MIN_BANDWIDTH_HZ
+              ? formatFrequency(bandwidthDisplayHz)
+              : sourceBadge}
+          </FrequencyDisplay>
+          <SourceTag>{sourceBadge}</SourceTag>
+        </ControlItem>
+
         <ControlItem>
           <Label>Demod Algorithm</Label>
           <StyledSelect
@@ -191,37 +249,6 @@ export const RadioNode: React.FC<RadioNodeProps> = ({ data }) => {
             <option value="apt">APT (NOAA Satellite)</option>
           </StyledSelect>
         </ControlItem>
-
-        {!hasFmNodeUpstream && (
-          <>
-            <ControlItem>
-              <Label>Bandwidth</Label>
-              <StyledSelect
-                value={bandwidth}
-                onChange={(e) =>
-                  dispatch(setBandwidth(parseInt(e.target.value)))
-                }
-              >
-                <option value="12">12.5 kHz</option>
-                <option value="25">25 kHz</option>
-                <option value="50">50 kHz</option>
-                <option value="100">100 kHz</option>
-                <option value="200">200 kHz</option>
-              </StyledSelect>
-            </ControlItem>
-          </>
-        )}
-
-        <ControlItem>
-          <Label>Center Frequency</Label>
-          <FrequencyDisplay>
-            {hasFmNodeUpstream && centerFreq
-              ? `${(centerFreq / 1e6).toFixed(1)}FM (±100kHz)`
-              : centerFreq
-                ? formatFrequency(centerFreq / 1e6)
-                : "From Span"}
-          </FrequencyDisplay>
-        </ControlItem>
       </ControlGroup>
 
       <ListenButton $active={isListening} onClick={handleListenToggle}>
@@ -229,7 +256,6 @@ export const RadioNode: React.FC<RadioNodeProps> = ({ data }) => {
         {isListening ? "Stop Listening" : "Listen Real-time"}
       </ListenButton>
 
-      <Handle type="source" position={Position.Right} id="audio" />
-    </NodeContainer>
+    </>
   );
 };

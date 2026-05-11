@@ -63,8 +63,8 @@ const envConfig = {
 
   // PBKDF2 Salts for cryptographic operations
   // If not set, the application uses a default hard-coded salt (not recommended for production)
-  'NAPT_PBKDF2_SALT': 'napt_default_salt_change_this_in_production',
-  'VITE_PBKDF2_SALT': 'napt_default_salt_change_this_in_production',
+  'NAPT_PBKDF2_SALT': 'n-apt-aes-salt-v1',
+  'VITE_PBKDF2_SALT': 'n-apt-aes-salt-v1',
 
   // Rust logging
   'RUST_LOG': 'info'
@@ -103,7 +103,7 @@ function createEnvContent() {
   content += '# Used for decrypting streaming frames and files\n';
   content += '# Ensure to set the correct password for the files here\n';
   content += `UNSAFE_LOCAL_USER_PASSWORD=${envConfig.UNSAFE_LOCAL_USER_PASSWORD}\n`;
-  content += `VITE_UNSAFE_LOCAL_USER_PASSWORD=$UNSAFE_LOCAL_USER_PASSWORD\n\n`;
+  content += `VITE_UNSAFE_LOCAL_USER_PASSWORD=${envConfig.UNSAFE_LOCAL_USER_PASSWORD}\n\n`;
 
   content += '# Encrypted Modules Decryption\n';
   content += '# Used for decrypting encrypted modules\n';
@@ -118,7 +118,7 @@ function createEnvContent() {
   content += '# Used for key derivation in both backend and frontend\n';
   content += '# RECOMMENDED: Change these to unique random strings in production\n';
   content += `NAPT_PBKDF2_SALT=${envConfig.NAPT_PBKDF2_SALT}\n`;
-  content += `VITE_PBKDF2_SALT=$NAPT_PBKDF2_SALT\n\n`;
+  content += `VITE_PBKDF2_SALT=${envConfig.NAPT_PBKDF2_SALT}\n\n`;
   
   content += '# Additional Development Settings\n';
   content += '# Uncomment and modify as needed:\n';

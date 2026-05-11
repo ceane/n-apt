@@ -330,6 +330,7 @@ impl WebSocketServer {
                     build_device_profile(processor.is_mock()),
                   );
                   broadcast_device_status(&shared_state, &_broadcast_tx);
+                  last_hardware_swap = Some(Instant::now());
                 }
               }
               Err(e) => {
@@ -337,6 +338,8 @@ impl WebSocketServer {
                 // Try re-init of existing device
                 if let Err(e) = processor.initialize() {
                   error!("Failed to restart existing device: {}", e);
+                } else {
+                  last_hardware_swap = Some(Instant::now());
                 }
                 // Revert state regardless
                 shared_state.update_device_status(
@@ -982,6 +985,7 @@ impl WebSocketServer {
                         build_device_profile(processor.is_mock()),
                       );
                       broadcast_device_status(&shared_state, &_broadcast_tx);
+                      last_hardware_swap = Some(Instant::now());
                       info!("Full device restart succeeded");
                     }
                   }
@@ -998,6 +1002,7 @@ impl WebSocketServer {
                       build_device_profile(processor.is_mock()),
                     );
                     broadcast_device_status(&shared_state, &_broadcast_tx);
+                    last_hardware_swap = Some(Instant::now());
                   }
                 }
               }
@@ -1267,6 +1272,7 @@ impl WebSocketServer {
                   // Don't declare "connected" yet — the next health-check
                   // or successful frame read will confirm recovery.
                   info!("Read-error re-init succeeded, awaiting health confirmation...");
+                  last_hardware_swap = Some(Instant::now());
                 }
               } else {
                 warn!(
@@ -1302,6 +1308,7 @@ impl WebSocketServer {
                   build_device_profile(processor.is_mock()),
                 );
                 broadcast_device_status(&shared_state, &_broadcast_tx);
+                last_hardware_swap = Some(Instant::now());
               }
               last_failure_at = Some(Instant::now());
             }

@@ -177,7 +177,6 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
       wsConnection.sendFrequencyRange(range);
     },
     [
-      dispatch,
       storeDispatch,
       wsConnection,
       vizZoom,

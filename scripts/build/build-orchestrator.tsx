@@ -1,4 +1,4 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { render } from 'ink';
 import { Box, Text, useApp, useInput } from 'ink';
@@ -12,8 +12,12 @@ import { fileURLToPath } from 'node:url';
 import {
   getRuntimeSummaryState,
   isRuntimeRecoverySignal,
+  markPendingProcessesAfterFailure,
   type FailingServices
 } from './buildStatus';
+
+dotenv.config({ path: '.env.local' });
+dotenv.config();
 
 const getFailingServices = (errorDetails: string[]): FailingServices[] => {
   const failing: FailingServices[] = [];
@@ -610,7 +614,7 @@ const BuildOrchestrator = () => {
         // Rust step to appear hung while state churn grows over time.
         addLog(chalk.blue('Building Rust backend binary...'));
         const buildResult = await executeForegroundCommand(
-          'cargo build --bin n-apt-backend --profile dev-fast',
+          'cargo build --bin n-apt-backend',
           'Building Rust backend',
           stepIndex
         );
@@ -621,8 +625,8 @@ const BuildOrchestrator = () => {
 
         addLog(chalk.blue('Starting Rust backend in background...'));
         const startCommand = isNativeWindows
-          ? 'target\\dev-fast\\n-apt-backend.exe'
-          : './target/dev-fast/n-apt-backend';
+          ? 'target\\debug\\n-apt-backend.exe'
+          : './target/debug/n-apt-backend';
         const startResult = await startBackgroundProcess(
           startCommand,
           'Rust backend',
@@ -765,8 +769,16 @@ sleep 0.5
           ? 'echo Config validation not supported on Windows; skipping.'
           : `
 set -euo pipefail
+if [ ! -f ".env.local" ]; then
+  echo "Error: .env.local missing. Run npm run setup."
+  exit 1
+fi
+if ! grep -q '^UNSAFE_LOCAL_USER_PASSWORD=' ".env.local"; then
+  echo "Error: UNSAFE_LOCAL_USER_PASSWORD missing from .env.local. Run npm run setup."
+  exit 1
+fi
 echo "Checking Rust syntax..."
-cargo check --bin n-apt-backend --profile dev-fast 2>&1
+cargo check --bin n-apt-backend 2>&1
 `,
         description: 'Validating Rust backend code',
         isBackground: false,
@@ -779,10 +791,10 @@ cargo check --bin n-apt-backend --profile dev-fast 2>&1
           : `
 set -euo pipefail
 echo "Validating signals.yaml..."
-if [ -f "./target/dev-fast/n-apt-backend" ]; then
-  ./target/dev-fast/n-apt-backend --validate-config 2>&1
+if [ -f "./target/debug/n-apt-backend" ]; then
+  ./target/debug/n-apt-backend --validate-config 2>&1
 else
-  cargo run --bin n-apt-backend --profile dev-fast -- --validate-config 2>&1
+  cargo run --bin n-apt-backend -- --validate-config 2>&1
 fi
 `,
         description: 'Validating signals.yaml',
@@ -927,7 +939,16 @@ exit 1
           updateProcessStatus(step.index, 'success', undefined, stepLabel);
         }
       } else {
-        updateProcessStatus(step.index, 'error', undefined, stepLabel);
+        setBuildState(prev => ({
+          ...prev,
+          processes: markPendingProcessesAfterFailure(
+            prev.processes.map((proc, index) =>
+              index === step.index
+                ? { ...proc, status: 'error', message: undefined, label: stepLabel }
+                : proc
+            )
+          ),
+        }));
         appendErrorDetail(`${step.description} failed`);
         break; // Stop the build if a step fails
       }

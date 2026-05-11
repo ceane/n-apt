@@ -2,7 +2,7 @@
 import fs from "node:fs";
 import { execSync } from "node:child_process";
 import path from "path";
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import glsl from "vite-plugin-glsl";
 
@@ -49,9 +49,33 @@ const fsAllow = Array.from(
   ),
 );
 
-export default defineConfig({
+const injectBrowserEnv = (browserEnv) => ({
+  name: "n-apt-browser-env",
+  transform(code, id) {
+    if (!id.includes("consts/env.ts") || !code.includes("__N_APT_ENV__")) {
+      return null;
+    }
+
+    return code.replaceAll(
+      "__N_APT_BROWSER_ENV__",
+      JSON.stringify(browserEnv),
+    );
+  },
+});
+
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, dirname, "");
+  const browserEnv = Object.fromEntries(
+    Object.entries(env).filter(
+      ([key]) =>
+        (key.startsWith("VITE_") && key !== "VITE_UNSAFE_LOCAL_USER_PASSWORD") ||
+        key === "NAPT_PBKDF2_SALT",
+    ),
+  );
+
+  return {
   plugins: [
-    /* reactDevtools(), */ react(), glsl({
+    injectBrowserEnv(browserEnv), /* reactDevtools(), */ react(), glsl({
     defaultExtension: 'wgsl',
     compress: false,
   })],
@@ -138,6 +162,23 @@ export default defineConfig({
           });
         }
       },
+      "/logout": {
+        target: "http://localhost:8765",
+        changeOrigin: true,
+        timeout: 10000,
+        configure: (proxy, _options) => {
+          proxy.on('error', (err, req, res) => {
+            if (err.code === 'ECONNREFUSED') {
+              if (!res.headersSent) {
+                res.writeHead(503, { 'Content-Type': 'text/plain' });
+                res.end('Backend not ready yet, please retry');
+              }
+            } else {
+              console.error('Proxy error:', err);
+            }
+          });
+        }
+      },
       "/capture": {
         target: "http://localhost:8765",
         changeOrigin: true,
@@ -174,4 +215,5 @@ export default defineConfig({
       }
     }
   }
+  };
 });

@@ -108,6 +108,43 @@ describe("useDrawWebGPUFIFOWaterfall Hook", () => {
     expect(mockDevice.createTexture).toHaveBeenCalledTimes(3); // 1 for color, 1 for data, 1 for resized data
   });
 
+  it("should preserve paused waterfall history across taller resizes", async () => {
+    const { result } = renderHook(() => useDrawWebGPUFIFOWaterfall());
+
+    const fftData = new Float32Array(4096).fill(-50);
+    const options = {
+      canvas: mockCanvas,
+      device: mockDevice as any,
+      format: "rgba8unorm" as GPUTextureFormat,
+      fftData,
+      frequencyRange: { min: 100, max: 110 },
+      isPaused: true,
+    };
+
+    await result.current.drawWebGPUFIFOWaterfall(options);
+
+    (mockCanvas as any).height = 800;
+    await result.current.drawWebGPUFIFOWaterfall({
+      ...options,
+      canvas: mockCanvas,
+    });
+
+    const resizeEncoder = mockDevice.createCommandEncoder.mock.results
+      .map((entry) => entry.value)
+      .find((encoder) => encoder.copyTextureToTexture.mock.calls.length > 0);
+
+    expect(resizeEncoder?.copyTextureToTexture).toHaveBeenCalled();
+    expect(resizeEncoder?.copyTextureToTexture).toHaveBeenCalledWith(
+      expect.objectContaining({
+        texture: expect.anything(),
+      }),
+      expect.objectContaining({
+        texture: expect.anything(),
+      }),
+      expect.objectContaining({ width: 4096, height: 1 }),
+    );
+  });
+
   it("should handle freeze mode", async () => {
     const { result } = renderHook(() => useDrawWebGPUFIFOWaterfall());
 
