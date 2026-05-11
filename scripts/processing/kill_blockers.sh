@@ -6,7 +6,6 @@ set -e
 pkill -f "n-apt-backend" 2>/dev/null || true
 pkill -f "target/debug/n-apt-backend" 2>/dev/null || true
 pkill -f "target/release/n-apt-backend" 2>/dev/null || true
-pkill -f "target/dev-fast/n-apt-backend" 2>/dev/null || true
 
 # Kill Vite processes
 pkill -f "vite" 2>/dev/null || true

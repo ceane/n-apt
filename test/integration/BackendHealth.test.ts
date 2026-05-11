@@ -13,7 +13,7 @@ describe("Backend Health Integration", () => {
     const projectRoot = path.resolve(process.cwd());
     const binaryPath =
       process.env.BACKEND_BINARY_PATH ||
-      path.join(projectRoot, "target/dev-fast/n-apt-backend");
+      path.join(projectRoot, "target/debug/n-apt-backend");
 
     if (!fs.existsSync(binaryPath)) {
       throw new Error(

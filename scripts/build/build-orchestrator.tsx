@@ -614,7 +614,7 @@ const BuildOrchestrator = () => {
         // Rust step to appear hung while state churn grows over time.
         addLog(chalk.blue('Building Rust backend binary...'));
         const buildResult = await executeForegroundCommand(
-          'cargo build --bin n-apt-backend --profile dev-fast',
+          'cargo build --bin n-apt-backend',
           'Building Rust backend',
           stepIndex
         );
@@ -625,8 +625,8 @@ const BuildOrchestrator = () => {
 
         addLog(chalk.blue('Starting Rust backend in background...'));
         const startCommand = isNativeWindows
-          ? 'target\\dev-fast\\n-apt-backend.exe'
-          : './target/dev-fast/n-apt-backend';
+          ? 'target\\debug\\n-apt-backend.exe'
+          : './target/debug/n-apt-backend';
         const startResult = await startBackgroundProcess(
           startCommand,
           'Rust backend',
@@ -778,7 +778,7 @@ if ! grep -q '^UNSAFE_LOCAL_USER_PASSWORD=' ".env.local"; then
   exit 1
 fi
 echo "Checking Rust syntax..."
-cargo check --bin n-apt-backend --profile dev-fast 2>&1
+cargo check --bin n-apt-backend 2>&1
 `,
         description: 'Validating Rust backend code',
         isBackground: false,
@@ -791,10 +791,10 @@ cargo check --bin n-apt-backend --profile dev-fast 2>&1
           : `
 set -euo pipefail
 echo "Validating signals.yaml..."
-if [ -f "./target/dev-fast/n-apt-backend" ]; then
-  ./target/dev-fast/n-apt-backend --validate-config 2>&1
+if [ -f "./target/debug/n-apt-backend" ]; then
+  ./target/debug/n-apt-backend --validate-config 2>&1
 else
-  cargo run --bin n-apt-backend --profile dev-fast -- --validate-config 2>&1
+  cargo run --bin n-apt-backend -- --validate-config 2>&1
 fi
 `,
         description: 'Validating signals.yaml',
