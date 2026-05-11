@@ -1,9 +1,10 @@
-import React, { useEffect, useMemo, useRef } from "react";
-import styled from "styled-components";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { styled } from "styled-components";
+import { useAppDispatch, useAppSelector } from "@n-apt/redux";
+import { setPreviewRange } from "@n-apt/redux/slices/spectrumSlice";
 import FFTCanvas, { type FFTCanvasHandle } from "@n-apt/components/FFTCanvas";
 import type { LiveFrameData } from "@n-apt/consts/schemas/websocket";
 import { FrequencyRange } from "@n-apt/consts/types";
-import { useAppSelector } from "@n-apt/redux";
 import { liveDataRef } from "@n-apt/redux/middleware/websocketMiddleware";
 
 interface FFTNodeProps {
@@ -11,6 +12,37 @@ interface FFTNodeProps {
     fftOptions: boolean;
     label: string;
     showDemodOverlay?: boolean;
+  };
+}
+
+export function getDisplayRangeForSelection(
+  displayRange: FrequencyRange | undefined,
+  selectionRange: FrequencyRange | null | undefined,
+): FrequencyRange | undefined {
+  if (!displayRange) return undefined;
+  if (
+    !selectionRange ||
+    !Number.isFinite(selectionRange.min) ||
+    !Number.isFinite(selectionRange.max) ||
+    selectionRange.max <= selectionRange.min
+  ) {
+    return displayRange;
+  }
+
+  const span = displayRange.max - displayRange.min;
+  if (!Number.isFinite(span) || span <= 0) return displayRange;
+
+  let offset = 0;
+  if (selectionRange.min < displayRange.min) {
+    offset = selectionRange.min - displayRange.min;
+  } else if (selectionRange.max > displayRange.max) {
+    offset = selectionRange.max - displayRange.max;
+  }
+
+  if (offset === 0) return displayRange;
+  return {
+    min: displayRange.min + offset,
+    max: displayRange.max + offset,
   };
 }
 
@@ -60,6 +92,7 @@ const CanvasContainer = styled.div`
 `;
 
 export const FFTNode: React.FC<FFTNodeProps> = ({ data }) => {
+  const dispatch = useAppDispatch();
   const fftRef = useRef<FFTCanvasHandle | null>(null);
   const dataRef = useRef<LiveFrameData | null>(liveDataRef.current);
   const frequencyRange = useAppSelector(
@@ -79,14 +112,17 @@ export const FFTNode: React.FC<FFTNodeProps> = ({ data }) => {
   const showSpikeOverlay = useAppSelector(
     (state) => state.spectrum.showSpikeOverlay,
   );
-  const demodCenterFreqHz = useAppSelector((state) => state.demod.centerFreqHz);
-  const demodBandwidthKhz = useAppSelector((state) => state.demod.bandwidthKhz);
-  const previewCenterHz = useAppSelector((state) => state.spectrum.previewCenterHz);
-  const previewRange = useAppSelector((state) => state.spectrum.previewRange);
+  const demodCenterFreqHz = useAppSelector(
+    (state) => state.demod?.centerFreqHz ?? null,
+  );
+  const demodBandwidthKhz = useAppSelector(
+    (state) => state.demod?.bandwidthKhz ?? 200,
+  );
+  const { previewRange, previewAlignment } = useAppSelector((state) => state.spectrum);
 
   // Use a ref to track the latest range without stale closures
   const rangeRef = useRef<{ min: number; max: number } | null>(null);
-  const [resolvedRange, setResolvedRange] = React.useState<FrequencyRange | undefined>(undefined);
+  const [resolvedRange, setResolvedRange] = useState<FrequencyRange | undefined>(undefined);
 
   // Sync live frame data and derive frequency range from frame metadata
   useEffect(() => {
@@ -132,22 +168,24 @@ export const FFTNode: React.FC<FFTNodeProps> = ({ data }) => {
 
   const frame = dataRef.current;
 
-  // Derive the effective display range, shifting it if a preview center is active
   const effectiveDisplayRange = useMemo(() => {
-    if (!resolvedRange) return undefined;
-    if (!previewCenterHz) return resolvedRange;
-
-    const currentCenter = (resolvedRange.min + resolvedRange.max) / 2;
-    const offset = previewCenterHz - currentCenter;
-    return {
-      min: resolvedRange.min + offset,
-      max: resolvedRange.max + offset,
-    };
-  }, [resolvedRange, previewCenterHz]);
+    return getDisplayRangeForSelection(resolvedRange, previewRange);
+  }, [resolvedRange, previewRange]);
 
   const currentCenterHz = effectiveDisplayRange
     ? (effectiveDisplayRange.min + effectiveDisplayRange.max) / 2
     : centerFrequencyHz;
+
+  const handleSelectionChange = useCallback((range: FrequencyRange) => {
+    dispatch(setPreviewRange(range));
+  }, [dispatch]);
+
+  const handlePointerUp = useCallback(() => {
+    // When dragging ends, we could commit the frequency range
+    // but SpanNode usually has an "Apply" button or auto-applies.
+    // However, the user wants "immediate, lag-free UI updates".
+    // We'll let SpanNode handle the actual commitment to avoid double-dispatching.
+  }, []);
 
   /** Spectrum slice from Span / Apply — not the same as sample rate or radio demod BW. */
   const selectionDemodOverlay = useMemo(() => {
@@ -209,6 +247,9 @@ export const FFTNode: React.FC<FFTNodeProps> = ({ data }) => {
                 ? demodOverlayRangeHz
                 : undefined
           }
+          selectionRange={previewRange || undefined}
+          bandwidthAlignment={previewAlignment}
+          onSelectionChange={handleSelectionChange}
         />
       </CanvasContainer>
     </NodeWrapper>

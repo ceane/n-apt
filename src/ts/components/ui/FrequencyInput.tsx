@@ -1,5 +1,10 @@
 import React, { useState, useEffect, useRef } from "react";
-import styled from "styled-components";
+import { styled } from "styled-components";
+import {
+  clampFrequencyHz,
+  getFrequencyUnitScale,
+  getOptimalFrequencyScale,
+} from "@n-apt/utils/frequency";
 
 const InputContainer = styled.div`
   display: flex;
@@ -64,97 +69,101 @@ interface FrequencyInputProps {
   onChangeHz: (hz: number) => void;
   minHz?: number;
   maxHz?: number;
+  stepHz?: number;
   label?: string;
+  id?: string;
 }
 
-function clampFrequencyHz(hz: number, minHz: number, maxHz: number): number {
-  const safeMin = Number.isFinite(minHz) ? minHz : 0;
-  const safeMax = Number.isFinite(maxHz) ? maxHz : Number.MAX_VALUE;
-  const lo = Math.min(safeMin, safeMax);
-  const hi = Math.max(safeMin, safeMax);
-  if (!Number.isFinite(hz)) return lo;
-  return Math.max(lo, Math.min(hz, hi));
-}
-
-export const FrequencyInput: React.FC<FrequencyInputProps> = ({
+export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(({
   valueHz,
   onChangeHz,
   minHz = 0,
   maxHz = 30_000_000_000,
+  stepHz,
+  id,
 }) => {
   const [displayValue, setDisplayValue] = useState<string>("0");
   const [displayUnit, setDisplayUnit] = useState<string>("Hz");
   
-  // Use a ref to track the "current" Hz value for continuous keyboard tuning
-  // even if parent renders are slow.
   const hzRef = useRef(valueHz);
   const onChangeRef = useRef(onChangeHz);
   onChangeRef.current = onChangeHz;
   const isFocusedRef = useRef(false);
+  const lastSyncHzRef = useRef<number | null>(null);
+  const prevValueHzRef = useRef<number>(NaN);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  const getOptimalUnit = (hz: number) => {
-    const absHz = Math.abs(hz);
-    if (absHz >= 1_000_000_000) return { val: hz / 1_000_000_000, unit: "GHz" };
-    if (absHz >= 1_000_000) return { val: hz / 1_000_000, unit: "MHz" };
-    if (absHz >= 1_000) return { val: hz / 1_000, unit: "kHz" };
-    return { val: hz, unit: "Hz" };
-  };
-
-  // Keep display and ref aligned with props; push clamped value up if parent is out of range.
-  // Do not depend on onChangeHz — unstable inline handlers would reset local display while typing.
-  // While focused, do not rewrite displayValue (avoids forcing ".000" on every keystroke).
   useEffect(() => {
     if (!Number.isFinite(valueHz)) return;
+
+    const isFirstRun = isNaN(prevValueHzRef.current);
+    const valueChanged = isFirstRun || Math.abs(valueHz - prevValueHzRef.current) > 0.1;
+    prevValueHzRef.current = valueHz;
+    
+    // If we've recently sent an update, check if this prop is just an acknowledgment of that update.
+    // If it is, and we've already moved on to a newer local value (e.g. rapid arrow key hits),
+    // we must ignore this stale acknowledgment.
+    const matchesLocal = Math.abs(valueHz - hzRef.current) < 0.1;
+    
+    if (!isFirstRun && (matchesLocal || !valueChanged)) {
+      return;
+    }
+    
+    // Proceed with syncing parent prop to local state
     const cappedHz = clampFrequencyHz(valueHz, minHz, maxHz);
     hzRef.current = cappedHz;
-    if (!isFocusedRef.current) {
-      const { val, unit } = getOptimalUnit(cappedHz);
-      setDisplayValue(val.toFixed(3));
-      setDisplayUnit(unit);
-    }
+    
     if (cappedHz !== valueHz) {
       onChangeRef.current(cappedHz);
+    }
+    
+    const isFocused = isFocusedRef.current || document.activeElement === inputRef.current;
+    if (!isFocused || isFirstRun) {
+      const { value, unit } = getOptimalFrequencyScale(cappedHz);
+      setDisplayValue(value.toFixed(3));
+      setDisplayUnit(unit);
     }
   }, [valueHz, minHz, maxHz]);
 
   const handleUpdate = (newHz: number, forceRefreshUI = false) => {
     const cappedHz = clampFrequencyHz(newHz, minHz, maxHz);
-    
-    // Always notify parent of the capped value
-    onChangeHz(cappedHz);
-    
-    // Immediate local update for responsiveness
+
+    // Synchronously update local tracking refs
     hzRef.current = cappedHz;
+    onChangeRef.current(cappedHz);
 
     if (cappedHz !== newHz || forceRefreshUI) {
-      const { val, unit } = getOptimalUnit(cappedHz);
-      setDisplayValue(val.toFixed(3));
+      const { value, unit } = getOptimalFrequencyScale(cappedHz);
+      setDisplayValue(value.toFixed(3));
       setDisplayUnit(unit);
     }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+      // stopPropagation is CRITICAL to prevent React Flow from capturing arrow keys
+      e.stopPropagation();
       e.preventDefault();
       
       const direction = e.key === "ArrowUp" ? 1 : -1;
       const shiftMultiplier = e.shiftKey ? 10 : 1;
       
-      let stepHz = 1;
-      if (displayUnit === "kHz") stepHz = 1_000;
-      else if (displayUnit === "MHz") stepHz = 100_000; // 0.1MHz step for better precision
-      else if (displayUnit === "GHz") stepHz = 10_000_000; // 10MHz step
+      const currentHz = hzRef.current;
+      const { unit: currentOptimalUnit } = getOptimalFrequencyScale(currentHz);
+      
+      let resolvedStepHz = Number.isFinite(stepHz) && stepHz! > 0 ? stepHz! : 1;
+      if (!stepHz) {
+        if (currentOptimalUnit === "kHz") resolvedStepHz = 1_000;
+        else if (currentOptimalUnit === "MHz") resolvedStepHz = 1_000_000;
+        else if (currentOptimalUnit === "GHz") resolvedStepHz = 1_000_000_000;
+      }
 
-      const currentHz = Number.isFinite(hzRef.current)
-        ? hzRef.current
-        : valueHz;
-      const nextHz = currentHz + (direction * stepHz * shiftMultiplier);
-      handleUpdate(nextHz, true);
+      handleUpdate(currentHz + (direction * resolvedStepHz * shiftMultiplier), true);
     }
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const valStr = e.target.value;
+    const valStr = e.target.value.replace(/\s+/g, "");
     setDisplayValue(valStr);
 
     const val = parseFloat(valStr);
@@ -171,7 +180,8 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = ({
         setDisplayValue((cappedHz / multiplier).toFixed(3));
       }
 
-      onChangeHz(cappedHz);
+      lastSyncHzRef.current = cappedHz;
+      onChangeRef.current(cappedHz);
       hzRef.current = cappedHz;
     }
   };
@@ -182,21 +192,18 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = ({
 
   const handleBlur = () => {
     isFocusedRef.current = false;
-    const cappedHz = clampFrequencyHz(valueHz, minHz, maxHz);
-    const { val, unit } = getOptimalUnit(cappedHz);
-    setDisplayValue(val.toFixed(3));
+    // Always sync back to the high-precision ref on blur to fix any formatting drift
+    const cappedHz = clampFrequencyHz(hzRef.current, minHz, maxHz);
+    const { value, unit } = getOptimalFrequencyScale(cappedHz);
+    setDisplayValue(value.toFixed(3));
     setDisplayUnit(unit);
   };
 
   const handleUnitChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const newUnit = e.target.value;
     setDisplayUnit(newUnit);
-    
-    // Recalculate display value based on new unit
-    let multiplier = 1;
-    if (newUnit === "kHz") multiplier = 1_000;
-    else if (newUnit === "MHz") multiplier = 1_000_000;
-    else if (newUnit === "GHz") multiplier = 1_000_000_000;
+
+    const multiplier = getFrequencyUnitScale(newUnit as "Hz" | "kHz" | "MHz" | "GHz");
     
     setDisplayValue((hzRef.current / multiplier).toFixed(3));
   };
@@ -204,6 +211,8 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = ({
   return (
     <InputContainer>
       <StyledInput
+        id={id}
+        ref={inputRef}
         type="text"
         value={displayValue}
         onFocus={handleFocus}
@@ -219,4 +228,4 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = ({
       </UnitSelect>
     </InputContainer>
   );
-};
+});

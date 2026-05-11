@@ -21,9 +21,17 @@ import { tickPrecisionForStep } from "@n-apt/utils/rendering/formatters";
 import type { SdrLimitMarker } from "@n-apt/utils/sdrLimitMarkers";
 import type { SpectrumSpikeMarker } from "@n-apt/hooks/useWasmSimdMath";
 
+export type Alignment = "centered" | "start" | "end";
+
 export interface DemodFocusOverlay {
   centerFrequencyHz: number;
   halfBandwidthHz: number;
+  alignment?: Alignment;
+}
+
+export interface SelectionOverlay {
+  minFrequencyHz: number;
+  maxFrequencyHz: number;
 }
 
 const readCssColor = (name: string, fallback: string) => {
@@ -551,7 +559,11 @@ export function useOverlayRenderer() {
         Math.min(plotRight - 28, freqToX(centerFrequencyHz)),
       );
       const label = `${(centerFrequencyHz / 1_000_000).toFixed(1)}MHz`;
-      const subLabel = `±${Math.round(halfBandwidthHz / 1_000)}kHz`;
+      
+      const alignment = demodFocus.alignment || "centered";
+      const subLabel = alignment === "centered"
+        ? `±${Math.round(halfBandwidthHz / 1_000)}kHz`
+        : `${Math.round((halfBandwidthHz * 2) / 1_000)}kHz`;
 
       ctx.save();
       const canvasTheme = getCanvasThemeColors();
@@ -619,6 +631,74 @@ export function useOverlayRenderer() {
         ctx.stroke();
       }
 
+      ctx.restore();
+    },
+    [],
+  );
+
+  const drawSelectionOverlayOnContext = useCallback(
+    (
+      ctx: OffscreenCanvasRenderingContext2D,
+      width: number,
+      height: number,
+      frequencyRange: { min: number; max: number },
+      selectionRange: SelectionOverlay | null | undefined,
+      nodePreview = false,
+    ) => {
+      if (!selectionRange) return;
+
+      const { minFrequencyHz, maxFrequencyHz } = selectionRange;
+      if (
+        !Number.isFinite(minFrequencyHz) ||
+        !Number.isFinite(maxFrequencyHz) ||
+        maxFrequencyHz <= minFrequencyHz
+      ) {
+        return;
+      }
+
+      const minFreq = frequencyRange.min;
+      const maxFreq = frequencyRange.max;
+      const viewBandwidth = maxFreq - minFreq;
+      if (
+        !Number.isFinite(minFreq) ||
+        !Number.isFinite(maxFreq) ||
+        viewBandwidth <= 0
+      ) {
+        return;
+      }
+
+      const left = Math.max(minFreq, minFrequencyHz);
+      const right = Math.min(maxFreq, maxFrequencyHz);
+      if (right <= left) return;
+
+      const plotLeft = nodePreview ? 0 : FFT_AREA_MIN.x;
+      const plotRight = nodePreview ? width : width - 40;
+      const plotTop = nodePreview ? 0 : FFT_AREA_MIN.y;
+      const plotBottom = nodePreview ? height : height - 40;
+      const plotWidth = plotRight - plotLeft;
+      if (plotWidth <= 0 || plotBottom <= plotTop) return;
+
+      const freqToX = (freq: number) =>
+        plotLeft + ((freq - minFreq) / viewBandwidth) * plotWidth;
+
+      const leftX = Math.max(plotLeft, Math.min(plotRight, freqToX(left)));
+      const rightX = Math.max(plotLeft, Math.min(plotRight, freqToX(right)));
+      const bandWidth = Math.max(2, rightX - leftX);
+
+      ctx.save();
+      const canvasTheme = getCanvasThemeColors();
+      ctx.fillStyle = canvasTheme.spectrumOverlay;
+      ctx.fillRect(leftX, plotTop, bandWidth, plotBottom - plotTop);
+      ctx.strokeStyle = canvasTheme.spectrumOverlayBorder;
+      ctx.lineWidth = Math.max(1, 2 / (window.devicePixelRatio || 1));
+      ctx.setLineDash([3, 4]);
+      ctx.lineCap = "round";
+      for (const x of [leftX, rightX]) {
+        ctx.beginPath();
+        ctx.moveTo(x, plotTop);
+        ctx.lineTo(x, plotBottom);
+        ctx.stroke();
+      }
       ctx.restore();
     },
     [],
@@ -693,6 +773,7 @@ export function useOverlayRenderer() {
     drawGridOnContext,
     drawMarkersOnContext,
     drawDemodFocusOnContext,
+    drawSelectionOverlayOnContext,
     drawSpikeMarkersOnContext,
   };
 }

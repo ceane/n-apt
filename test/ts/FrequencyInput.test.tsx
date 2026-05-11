@@ -48,6 +48,14 @@ describe("FrequencyInput", () => {
     expect(onChange).toHaveBeenCalledWith(2500000);
   });
 
+  it("ignores spaces while typing numbers", () => {
+    const onChange = jest.fn();
+    render(<ControlledFrequencyInput valueHz={1000000} onChangeHz={onChange} />);
+    const input = screen.getByRole("textbox");
+    fireEvent.change(input, { target: { value: "2 5" } });
+    expect(onChange).toHaveBeenCalledWith(25_000_000);
+  });
+
   it("adjusts value with arrow keys using unit-aware steps", async () => {
     const onChange = jest.fn();
     render(<ControlledFrequencyInput valueHz={1000000} onChangeHz={onChange} />);
@@ -129,6 +137,37 @@ describe("FrequencyInput", () => {
     expect(screen.getByDisplayValue("30.000")).toBeInTheDocument();
   });
 
+  it("uses custom stepHz for arrow keys when provided", () => {
+    const onChange = jest.fn();
+    render(
+      <ControlledFrequencyInput
+        valueHz={31_750_000}
+        onChangeHz={onChange}
+        stepHz={500_000}
+      />,
+    );
+    const input = screen.getByRole("textbox");
+
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    expect(onChange).toHaveBeenCalledWith(32_250_000);
+  });
+
+  it("updates immediately on the first arrow key press", async () => {
+    render(
+      <ControlledFrequencyInput
+        valueHz={31_750_000}
+        stepHz={500_000}
+      />,
+    );
+    const input = screen.getByRole("textbox");
+
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue("32.250")).toBeInTheDocument();
+    });
+  });
+
   it("clamps an out-of-range valueHz from the parent on mount", async () => {
     const onChange = jest.fn();
     render(
@@ -164,6 +203,23 @@ describe("FrequencyInput", () => {
     expect(onChange.mock.calls).toEqual([[1_600_000], [1_600_000]]);
     await waitFor(() => {
       expect(screen.getByDisplayValue("1.600")).toBeInTheDocument();
+    });
+  });
+
+  it("increments on the first arrow press even after typing", async () => {
+    render(
+      <ControlledFrequencyInput
+        valueHz={31_750_000}
+        stepHz={500_000}
+      />,
+    );
+    const input = screen.getByRole("textbox");
+
+    fireEvent.change(input, { target: { value: "31.750" } });
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue("32.250")).toBeInTheDocument();
     });
   });
 

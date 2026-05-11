@@ -1,5 +1,5 @@
 import { createSlice, PayloadAction } from "@reduxjs/toolkit";
-import { FrequencyRange } from "@n-apt/consts/types";
+import { FrequencyRange, Alignment } from "@n-apt/consts/types";
 
 export type DisplayTemporalResolution = "low" | "medium" | "high";
 export type PowerScale = "dB" | "dBm";
@@ -50,7 +50,7 @@ export interface SpectrumState {
 
   // Live preview range (from SpanNode)
   previewRange: FrequencyRange | null;
-  previewCenterHz: number | null;
+  previewAlignment: Alignment;
 }
 
 const LIVE_CONTROL_DEFAULTS = {
@@ -61,7 +61,6 @@ const LIVE_CONTROL_DEFAULTS = {
   fftMinDb: -120,
   fftMaxDb: 0,
   previewRange: null,
-  previewCenterHz: null,
   fftSizeOptions: [] as number[],
   fftWindow: "Rectangular",
   fftAvgEnabled: false,
@@ -106,7 +105,7 @@ const initialState: SpectrumState = {
   showSpikeOverlay: false,
   gpuSpikeCount: 0,
   previewRange: null,
-  previewCenterHz: null,
+  previewAlignment: "centered",
 
   diagnosticStatus: "Ready",
   isDiagnosticRunning: false,
@@ -305,8 +304,9 @@ const spectrumSlice = createSlice({
     setPreviewRange: (state, action: PayloadAction<FrequencyRange | null>) => {
       state.previewRange = action.payload;
     },
-    setPreviewCenterHz: (state, action: PayloadAction<number | null>) => {
-      state.previewCenterHz = action.payload;
+    
+    setPreviewAlignment: (state, action: PayloadAction<Alignment>) => {
+      state.previewAlignment = action.payload;
     },
 
     // Reset actions
@@ -384,7 +384,7 @@ export const {
   setShowSpikeOverlay,
   setGpuSpikeCount,
   setPreviewRange,
-  setPreviewCenterHz,
+  setPreviewAlignment,
 } = spectrumSlice.actions;
 
 export default spectrumSlice.reducer;

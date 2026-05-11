@@ -3,6 +3,7 @@ import { render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom";
 // @ts-ignore - Jest module mapper handles this
 import { FFTNode } from "@n-apt/components/react-flow/nodes/FFTNode";
+import { getDisplayRangeForSelection } from "../../src/ts/components/react-flow/nodes/FFTNode";
 import { TestWrapper } from "./testUtils";
 
 describe("FFTNode", () => {
@@ -68,5 +69,34 @@ describe("FFTNode", () => {
     );
 
     expect(screen.getByText("Custom FFT")).toBeInTheDocument();
+  });
+});
+
+describe("getDisplayRangeForSelection", () => {
+  it("keeps the spectrum fixed while the sliding selection fits on screen", () => {
+    expect(
+      getDisplayRangeForSelection(
+        { min: 30_400_000, max: 33_600_000 },
+        { min: 31_750_000, max: 32_250_000 },
+      ),
+    ).toEqual({ min: 30_400_000, max: 33_600_000 });
+  });
+
+  it("pans right only enough when the selection crosses the right edge", () => {
+    expect(
+      getDisplayRangeForSelection(
+        { min: 30_400_000, max: 33_600_000 },
+        { min: 33_450_000, max: 33_950_000 },
+      ),
+    ).toEqual({ min: 30_750_000, max: 33_950_000 });
+  });
+
+  it("pans left only enough when the selection crosses the left edge", () => {
+    expect(
+      getDisplayRangeForSelection(
+        { min: 30_400_000, max: 33_600_000 },
+        { min: 30_000_000, max: 30_500_000 },
+      ),
+    ).toEqual({ min: 30_000_000, max: 33_200_000 });
   });
 });

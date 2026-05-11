@@ -12,7 +12,8 @@ const NodeContainer = styled.div`
   border: 1px solid ${({ theme }) => theme.colors.border};
   border-radius: 8px;
   padding: 12px;
-  min-width: 420px;
+  width: 280px;
+  min-width: 280px;
   color: ${({ theme }) => theme.colors.textPrimary};
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
 `;
@@ -61,8 +62,8 @@ const StationsLabel = styled.div`
 `;
 
 const StationsGrid = styled.div`
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 6px;
 `;
 
@@ -75,13 +76,14 @@ const StationPill = styled.button<{ $active: boolean }>`
   color: ${({ theme, $active }) =>
     $active ? theme.colors.background : theme.colors.textPrimary};
   border-radius: 12px;
-  padding: 4px 10px;
-  font-size: 10px;
+  padding: 4px 6px;
+  font-size: 9px;
   font-weight: 600;
   font-family: ${({ theme }) => theme.typography.mono};
   cursor: pointer;
   transition: all 0.2s;
   white-space: nowrap;
+  width: 100%;
 
   &:hover {
     background: ${({ theme }) => theme.colors.primary}33;
