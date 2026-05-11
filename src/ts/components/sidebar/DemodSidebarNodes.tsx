@@ -372,7 +372,7 @@ const availableNodes: NodeType[] = [
       label: "Symbols (I/Q)",
       description:
         "Converts baseband waveform into discrete modulation symbols. Each symbol represents one or more bits.",
-      symbolsOptions: true,
+      symbolOptions: true,
     },
   },
   {

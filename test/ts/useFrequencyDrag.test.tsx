@@ -39,6 +39,7 @@ describe("useFrequencyDrag Hook", () => {
       setPointerCapture: jest.fn(),
       releasePointerCapture: jest.fn(),
       appendChild: jest.fn(),
+      focus: jest.fn(),
     },
   } as any;
 

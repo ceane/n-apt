@@ -15,7 +15,6 @@ const NodeContainer = styled.div`
   width: 280px;
   min-width: 280px;
   color: ${({ theme }) => theme.colors.textPrimary};
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
 `;
 
 const Header = styled.div`
@@ -143,8 +142,6 @@ export const FmNode: React.FC<FmNodeProps> = ({ data }) => {
 
   return (
     <NodeContainer>
-      <Handle type="target" position={Position.Left} id="range" />
-
       <Header>
         <RadioIcon size={14} color="#00d4ff" />
         <Title>{data.label || "FM Radio"}</Title>
@@ -174,7 +171,6 @@ export const FmNode: React.FC<FmNodeProps> = ({ data }) => {
 
 
 
-      <Handle type="source" position={Position.Right} id="audio" />
     </NodeContainer>
   );
 };

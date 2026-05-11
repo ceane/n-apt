@@ -22,13 +22,6 @@ export { StreamNode } from "./StreamNode";
 export { TempoNoteNode } from "./TempoNoteNode";
 export { OutputNode } from "./OutputNode";
 
-// Flow Components (moved from flows/)
-export { FlowContainer } from "./FlowContainer";
-export { StyledReactFlow } from "./StyledReactFlow";
-export { NodeContainer } from "./NodeContainer";
-export { ControlBar } from "./ControlBar";
-export { FullscreenModal } from "./FullscreenModal";
-
 // Analysis viewer components
 export { SymbolsTable } from "./SymbolsTable";
 export { BitstreamViewer } from "./BitstreamViewer";

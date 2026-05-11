@@ -30,7 +30,7 @@ import {
   useNodesState,
   useEdgesState,
 } from "@xyflow/react";
-import { buildDemodFlowGraph } from "@n-apt/components/react-flow/flows/demodFlowModel";
+import { buildDemodFlowGraph } from "@n-apt/components/react-flow/flows";
 import {
   AnalysisSession,
   AnalysisType,
@@ -134,12 +134,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
   const setFlow = useCallback(
     (_flowId: string, customNodes?: Node[], customEdges?: Edge[]) => {
       if (customNodes && customEdges) {
-        // Reset node positions to trigger ELK layout recalculation
-        const nodesWithResetPositions = customNodes.map((node) => ({
-          ...node,
-          position: { x: 0, y: 0 },
-        }));
-        setNodes(nodesWithResetPositions);
+        setNodes(customNodes);
         setEdges(customEdges);
         // Increment flow version to force layout re-trigger
         setFlowVersion((v) => v + 1);

@@ -7,14 +7,6 @@ import { useAuthentication } from "@n-apt/hooks/useAuthentication";
 import { fileRegistry } from "@n-apt/utils/fileRegistry";
 import { useAppSelector } from "@n-apt/redux";
 
-const NodeContainer = styled.div`
-  background: ${({ theme }) => theme.colors.surface};
-  border: 1px solid ${({ theme }) => theme.colors.border};
-  border-radius: 12px;
-  padding: ${({ theme }) => theme.spacing.lg};
-  min-width: 320px;
-  max-width: 400px;
-`;
 
 const NodeTitle = styled.div`
   font-size: ${({ theme }) => theme.typography.bodySize};
@@ -206,7 +198,7 @@ export const MetadataNode: React.FC<MetadataNodeProps> = ({ data }) => {
   }, [selectedPrimaryFile, naptMetadata, naptMetadataError]);
 
   return (
-    <NodeContainer>
+    <>
       <NodeTitle>
         <FileBox size={16} />
         {data.label}
@@ -219,7 +211,7 @@ export const MetadataNode: React.FC<MetadataNodeProps> = ({ data }) => {
         sessionToken={sessionToken}
         showTitle={false}
       />
-    </NodeContainer>
+    </>
   );
 };
 

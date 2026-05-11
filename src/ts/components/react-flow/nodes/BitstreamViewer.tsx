@@ -5,7 +5,7 @@ import { useAppSelector } from "@n-apt/redux";
 import { liveDataRef } from "@n-apt/redux/middleware/websocketMiddleware";
 import { formatFrequency } from "@n-apt/utils/frequency";
 import { ChevronLeft, ChevronRight, Maximize } from "lucide-react";
-import { FullscreenModal } from "@n-apt/components/react-flow/nodes/FullscreenModal";
+import { FullscreenModal } from "@n-apt/components/react-flow/flows/FullscreenModal";
 import {
   computeBitstreamLayout,
   getIqDataView,
