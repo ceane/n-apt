@@ -31,6 +31,7 @@ scratch/
 rust_outdated.txt
 typecheck_output.txt
 test-results/
+test/ts/shaders/generated/
 
 # Include scripts/build (don't exclude it)
 !scripts/build/
