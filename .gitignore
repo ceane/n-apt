@@ -33,6 +33,9 @@ typecheck_output.txt
 test-results/
 test/ts/shaders/generated/
 
+# Local OpenCellID cache state
+scripts/.cache/opencellid/last_run.json
+
 # Include scripts/build (don't exclude it)
 !scripts/build/
 

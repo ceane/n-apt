@@ -1,5 +1,8 @@
 import { useCallback, useRef, useState, useEffect } from "react";
-import { computeFrequencyOffsetHz, shiftIqToBaseband } from "@n-apt/utils/demodulation";
+import {
+  applyComplexLowPass,
+  shiftIqToBaseband,
+} from "@n-apt/utils/demodulation";
 
 export interface AudioDemodAPTOptions {
   targetSampleRate: number; // Output audio sample rate (48kHz)
@@ -57,20 +60,17 @@ export function useAudioDemodAPT(
     ): Float32Array => {
       const samples = iqData.length / 2;
       const audioBuffer = new Float32Array(samples);
-      const frequencyOffsetHz = computeFrequencyOffsetHz(
-        0,
-        frameCenterFrequencyHz,
-      );
-      const shiftedIq = shiftIqToBaseband(
-        iqData,
+      const shiftedIq = shiftIqToBaseband(iqData, sampleRate, 0);
+      const filteredIq = applyComplexLowPass(
+        shiftedIq,
         sampleRate,
-        frequencyOffsetHz,
+        200_000,
       );
       const i = new Float32Array(samples);
       const q = new Float32Array(samples);
       for (let j = 0; j < samples; j++) {
-        i[j] = shiftedIq[j * 2];
-        q[j] = shiftedIq[j * 2 + 1];
+        i[j] = filteredIq[j * 2];
+        q[j] = filteredIq[j * 2 + 1];
       }
 
       for (let j = 1; j < samples; j++) {

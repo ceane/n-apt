@@ -157,6 +157,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
   const fmDemod = useAudioDemodFM({
     targetSampleRate: 48000,
     bufferSize: 4096,
+    centerFrequency: demodState.centerFreqHz ?? 0,
     bandwidth: (demodState.bandwidthKhz || 200) * 1000,
   });
   const aptDemod = useAudioDemodAPT({

@@ -1,5 +1,6 @@
 import {
   computeFrequencyOffsetHz,
+  applyComplexLowPass,
   shiftIqToBaseband,
 } from "../../src/ts/utils/demodulation";
 
@@ -25,5 +26,24 @@ describe("demodulation utilities", () => {
       0.9921875, 0,
       0.9921875, 0,
     ]);
+  });
+
+  it("attenuates fast IQ changes more when the bandwidth is narrower", () => {
+    const iq = new Float32Array([
+      1, 0,
+      -1, 0,
+      1, 0,
+      -1, 0,
+      1, 0,
+      -1, 0,
+    ]);
+
+    const wide = applyComplexLowPass(iq, 3_200_000, 200_000);
+    const narrow = applyComplexLowPass(iq, 3_200_000, 10_000);
+
+    const wideDelta = Math.abs(wide[2] - wide[0]);
+    const narrowDelta = Math.abs(narrow[2] - narrow[0]);
+
+    expect(narrowDelta).toBeLessThan(wideDelta);
   });
 });
