@@ -178,7 +178,9 @@ export const RadioNode: React.FC<RadioNodeProps> = ({ data }) => {
     const nextState = !isListening;
     dispatch(setListening(nextState));
 
-    if (!nextState) {
+    if (nextState) {
+      audioPlayback.resumeAudioContext();
+    } else {
       audioPlayback.stopAudio();
     }
   };

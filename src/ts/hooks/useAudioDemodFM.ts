@@ -44,12 +44,18 @@ export function useAudioDemodFM(
   const gainNodeRef = useRef<GainNode | null>(null);
 
   // Demodulator state refs to prevent discontinuities between chunks
-  const shiftStateRef = useRef<ShiftState>({ phase: 0 });
-  const lowPassStateRef = useRef<LowPassState>({ prevI: 0, prevQ: 0 });
+  const shiftStateRef = useRef<{ phase: number }>({ phase: 0 });
+  const filterStateRef = useRef<{ real: number; imag: number }>({
+    real: 0,
+    imag: 0,
+  });
   const lastDiscrimIRef = useRef<number>(0);
   const lastDiscrimQRef = useRef<number>(0);
+  const lastDcBiasRef = useRef<number>(0);
+  const audioLPStateRef = useRef<[number, number]>([0, 0]);
   const lastDeemphasisRef = useRef<number>(0);
   const nextStartTimeRef = useRef<number>(0);
+  const resampleOffsetRef = useRef<number>(0);
 
   // Get or create audio context
   const getAudioContext = useCallback(() => {
@@ -57,12 +63,18 @@ export function useAudioDemodFM(
       !audioContextRef.current ||
       audioContextRef.current.state === "closed"
     ) {
-      audioContextRef.current = new (
+      const ctx = new (
         window.AudioContext || (window as any).webkitAudioContext
       )();
+      audioContextRef.current = ctx;
+
+      const gain = ctx.createGain();
+      gain.gain.value = volume;
+      gain.connect(ctx.destination);
+      gainNodeRef.current = gain;
     }
     return audioContextRef.current;
-  }, []);
+  }, [volume]);
 
   // FM demodulation algorithm using phase discriminator
   const demodulateFM = useCallback(
@@ -73,25 +85,25 @@ export function useAudioDemodFM(
     ): Float32Array => {
       const samples = iqData.length / 2;
       const audioBuffer = new Float32Array(samples);
-      const frequencyOffsetHz = computeFrequencyOffsetHz(
+      const shiftHz = computeFrequencyOffsetHz(
         centerFrequency,
         frameCenterFrequencyHz,
       );
 
       // 1. Shift to baseband (stateful)
-      const shiftedIq = shiftIqToBaseband(
+      const shifted = shiftIqToBaseband(
         iqData,
+        shiftHz,
         inputSampleRate,
-        frequencyOffsetHz,
         shiftStateRef.current,
       );
 
-      // 2. Low pass filter (stateful)
-      const filteredIq = applyComplexLowPass(
-        shiftedIq,
+      // 2. Complex Low-Pass Filter (stateful)
+      const filtered = applyComplexLowPass(
+        shifted,
+        bandwidth / 2,
         inputSampleRate,
-        bandwidth,
-        lowPassStateRef.current,
+        filterStateRef.current,
       );
 
       // 3. Phase discriminator (stateful)
@@ -99,8 +111,8 @@ export function useAudioDemodFM(
       let prevQ = lastDiscrimQRef.current;
 
       for (let j = 0; j < samples; j++) {
-        const curI = filteredIq[j * 2];
-        const curQ = filteredIq[j * 2 + 1];
+        const curI = filtered[j * 2];
+        const curQ = filtered[j * 2 + 1];
 
         // Complex conjugate multiplication: z[n] * conj(z[n-1])
         // Yields a vector whose angle is the phase difference
@@ -116,14 +128,33 @@ export function useAudioDemodFM(
       lastDiscrimIRef.current = prevI;
       lastDiscrimQRef.current = prevQ;
 
-      // 4. DC Removal (High-pass filter)
-      // Use a simple leaky integrator to track and remove bias
-      let bias = 0;
-      for (let j = 0; j < samples; j++) bias += audioBuffer[j];
-      bias /= samples;
-      for (let j = 0; j < samples; j++) audioBuffer[j] -= bias;
+      // 4. DC Removal (Stateful High-pass filter)
+      // alpha = 0.999 is a very slow leaky integrator to track and remove DC bias
+      const dcAlpha = 0.999;
+      let bias = lastDcBiasRef.current;
+      for (let j = 0; j < samples; j++) {
+        bias = dcAlpha * bias + (1 - dcAlpha) * audioBuffer[j];
+        audioBuffer[j] -= bias;
+      }
+      lastDcBiasRef.current = bias;
 
-      // 5. De-emphasis filter (stateful)
+      // 5. Audio Low-Pass Filter (15-16kHz) - 2nd Order
+      // This is CRITICAL for FM broadcast to remove the 19kHz pilot and stereo subcarriers.
+      // We use two stages of IIR filtering for a steeper roll-off.
+      const audioCutoffHz = 15500;
+      const audioDt = 1 / inputSampleRate;
+      const audioRc = 1 / (2 * Math.PI * audioCutoffHz);
+      const audioAlpha = audioDt / (audioRc + audioDt);
+      let [lp1, lp2] = audioLPStateRef.current;
+
+      for (let j = 0; j < samples; j++) {
+        lp1 = lp1 + audioAlpha * (audioBuffer[j] - lp1);
+        lp2 = lp2 + audioAlpha * (lp1 - lp2);
+        audioBuffer[j] = lp2;
+      }
+      audioLPStateRef.current = [lp1, lp2];
+
+      // 6. De-emphasis filter (stateful)
       // alpha = exp(-1 / (tau * sampleRate)) where tau = 75μs
       const deemphasisAlpha = Math.exp(-1 / (75e-6 * inputSampleRate));
       let prevOut = lastDeemphasisRef.current;
@@ -136,11 +167,14 @@ export function useAudioDemodFM(
       }
       lastDeemphasisRef.current = prevOut;
 
-      // 6. Gain and hard-clipping
-      const outputGain = 5.0;
+      // 7. Gain and hard-clipping
+      // atan2 output is [-PI, PI]. Typical FM deviation is ~1.8 rad at 256k rate.
+      // Normalize by PI to get ~[-0.6, 0.6], then apply a comfortable gain.
+      const outputGain = 2.5;
       for (let j = 0; j < samples; j++) {
-        const scaled = audioBuffer[j] * outputGain;
-        audioBuffer[j] = Math.max(-1, Math.min(1, scaled));
+        const normalized = audioBuffer[j] / Math.PI;
+        const scaled = normalized * outputGain;
+        audioBuffer[j] = Math.max(-1.1, Math.min(1.1, scaled));
       }
 
       return audioBuffer;
@@ -148,28 +182,37 @@ export function useAudioDemodFM(
     [centerFrequency, bandwidth],
   );
 
-  // Simple linear resampling
+
+  // Stateful linear resampling to prevent phase slips at chunk boundaries
   const resampleAudio = useCallback(
     (audio: Float32Array, fromRate: number, toRate: number): Float32Array => {
-      if (fromRate === toRate) return audio;
+      if (fromRate === toRate) {
+        resampleOffsetRef.current = 0;
+        return audio;
+      }
       const ratio = fromRate / toRate;
-      const outputLength = Math.floor(audio.length / ratio);
-      const resampled = new Float32Array(outputLength);
+      const startOffset = resampleOffsetRef.current;
+      const resampledSamples = [];
+      let sourceIndex = startOffset;
 
-      for (let i = 0; i < outputLength; i++) {
-        const sourceIndex = i * ratio;
+      while (sourceIndex < audio.length) {
         const index = Math.floor(sourceIndex);
         const fraction = sourceIndex - index;
 
         if (index < audio.length - 1) {
-          resampled[i] =
-            audio[index] * (1 - fraction) + audio[index + 1] * fraction;
+          resampledSamples.push(
+            audio[index] * (1 - fraction) + audio[index + 1] * fraction,
+          );
         } else {
-          resampled[i] = audio[index];
+          resampledSamples.push(audio[index]);
         }
+        sourceIndex += ratio;
       }
 
-      return resampled;
+      // Store the remaining offset for the next chunk
+      resampleOffsetRef.current = sourceIndex - audio.length;
+
+      return new Float32Array(resampledSamples);
     },
     [],
   );
@@ -215,20 +258,18 @@ export function useAudioDemodFM(
         const sourceNode = audioContext.createBufferSource();
         sourceNode.buffer = buffer;
 
-        const gainNode = audioContext.createGain();
-        gainNode.gain.value = volume;
+        sourceNode.connect(gainNodeRef.current!);
 
-        sourceNode.connect(gainNode);
-        gainNode.connect(audioContext.destination);
-
-        // Precise scheduling to prevent gaps/crackles
+        // Precise scheduling with a safety buffer to prevent gaps/crackles
         const currentTime = audioContext.currentTime;
-        // If we fall too far behind (e.g. tab was inactive), reset the clock
-        if (nextStartTimeRef.current < currentTime - 0.1) {
-          nextStartTimeRef.current = currentTime + 0.05;
+        const targetLatency = 0.15; // 150ms buffer to absorb jitter
+
+        // If we fall behind the current time or are just starting, reset to target latency
+        if (nextStartTimeRef.current < currentTime + 0.02) {
+          nextStartTimeRef.current = currentTime + targetLatency;
         }
 
-        const startTime = Math.max(currentTime, nextStartTimeRef.current);
+        const startTime = nextStartTimeRef.current;
         sourceNode.start(startTime);
 
         // Update the next expected start time
@@ -248,13 +289,26 @@ export function useAudioDemodFM(
     nextStartTimeRef.current = 0;
     // Reset DSP state to prevent pops when restarting
     shiftStateRef.current = { phase: 0 };
-    lowPassStateRef.current = { prevI: 0, prevQ: 0 };
     lastDiscrimIRef.current = 0;
     lastDiscrimQRef.current = 0;
+    lastDcBiasRef.current = 0;
+    audioLPStateRef.current = [0, 0];
     lastDeemphasisRef.current = 0;
+    resampleOffsetRef.current = 0;
+    shiftStateRef.current.phase = 0;
+    filterStateRef.current.real = 0;
+    filterStateRef.current.imag = 0;
+    nextStartTimeRef.current = 0;
   }, []);
 
   // For compatibility with DemodContext, playAudio now just calls playChunk
+  const resumeAudioContext = useCallback(() => {
+    const audioContext = getAudioContext();
+    if (audioContext && audioContext.state === "suspended") {
+      audioContext.resume();
+    }
+  }, [getAudioContext]);
+
   const playAudio = useCallback(
     (audioData: Float32Array) => {
       playChunk(audioData);
@@ -287,6 +341,7 @@ export function useAudioDemodFM(
     playAudio,
     stopAudio,
     setVolume,
+    resumeAudioContext,
     isPlaying,
     volume,
   };

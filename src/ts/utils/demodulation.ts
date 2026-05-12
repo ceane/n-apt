@@ -30,7 +30,9 @@ export const shiftIqToBaseband = (
   }
 
   // Keep phase in [-PI, PI] to prevent precision issues over long runs
-  state.phase = ((state.phase + Math.PI) % (2 * Math.PI)) - Math.PI;
+  state.phase %= 2 * Math.PI;
+  if (state.phase > Math.PI) state.phase -= 2 * Math.PI;
+  if (state.phase < -Math.PI) state.phase += 2 * Math.PI;
 
   return shifted;
 };

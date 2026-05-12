@@ -182,33 +182,39 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
 
     if (!demodState.isListening || !demodState.centerFreqHz) return;
 
-    let lastRef: unknown = null;
     const id = setInterval(() => {
-      const current = liveDataRef.current;
-      if (!current || current === lastRef) return;
-      lastRef = current;
+      const queue = liveDataRef.current;
+      if (!queue || queue.length === 0) return;
 
-      const iqData = current.iq_data as Uint8Array;
-      const sampleRate = current.sample_rate || 3200000;
-      const frameCenterFrequencyHz = current.center_frequency_hz ?? null;
+      // Drain the queue
+      const batch = [...queue];
+      liveDataRef.current = [];
 
-      if (demodState.algorithm === "fm") {
-        const audioData = fmDemod.processIQData(
-          iqData,
-          sampleRate,
-          frameCenterFrequencyHz,
-        );
-        if (audioData) {
-          fmDemod.playAudio(audioData);
+      for (const current of batch) {
+        if (!current || !current.iq_data) continue;
+
+        const iqData = current.iq_data as Uint8Array;
+        const sampleRate = current.sample_rate || 3200000;
+        const frameCenterFrequencyHz = current.center_frequency ?? null;
+
+        if (demodState.algorithm === "fm") {
+          const audioData = fmDemod.processIQData(
+            iqData,
+            sampleRate,
+            frameCenterFrequencyHz,
+          );
+          if (audioData) {
+            fmDemod.playAudio(audioData);
+          }
+        } else if (demodState.algorithm === "apt") {
+          aptDemod.processIQData(iqData, sampleRate, frameCenterFrequencyHz);
+          aptDemod.playAudio();
+        } else if (demodState.algorithm === "napt") {
+          naptDemod.processIQData(iqData, sampleRate, frameCenterFrequencyHz);
+          naptDemod.playAudio();
         }
-      } else if (demodState.algorithm === "apt") {
-        aptDemod.processIQData(iqData, sampleRate, frameCenterFrequencyHz);
-        aptDemod.playAudio();
-      } else if (demodState.algorithm === "napt") {
-        naptDemod.processIQData(iqData, sampleRate, frameCenterFrequencyHz);
-        naptDemod.playAudio();
       }
-    }, 33); // ~30fps — sufficient for audio buffer delivery
+    }, 33);
 
     return () => {
       clearInterval(id);

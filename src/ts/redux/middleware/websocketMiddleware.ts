@@ -25,7 +25,7 @@ import {
 
 // Module-level ref for high-frequency live frame data.
 // Written directly — never goes through Redux state — so no React rerenders per frame.
-export const liveDataRef: { current: any } = { current: null };
+export const liveDataRef: { current: any[] } = { current: [] };
 
 const shallowEqualObject = (
   a: Record<string, unknown> | null | undefined,
@@ -131,7 +131,15 @@ const processBatchedData = (dispatch: Dispatch, getState: () => any) => {
     const sourceMode = getState().waterfall?.sourceMode;
     const isFileSource = sourceMode === "file";
     if ((!isPaused || allowNextPausedFrame) && !isFileSource) {
-      liveDataRef.current = pendingDataUpdate;
+      if (Array.isArray(pendingDataUpdate)) {
+        liveDataRef.current.push(...pendingDataUpdate);
+      } else {
+        liveDataRef.current.push(pendingDataUpdate);
+      }
+      // Limit queue size to prevent memory leaks if processing falls behind
+      if (liveDataRef.current.length > 100) {
+        liveDataRef.current = liveDataRef.current.slice(-50);
+      }
       // Dispatch action to trigger state machine updates
       dispatch(incrementDataFrameCounter());
       allowNextPausedFrame = false;
@@ -177,7 +185,12 @@ const queueLiveData = (
   dispatch: Dispatch,
   getState: () => any,
 ) => {
-  pendingDataUpdate = data;
+  if (pendingDataUpdate === null) {
+    pendingDataUpdate = [data];
+  } else {
+    pendingDataUpdate.push(data);
+  }
+  
   if (dataBatchFrame === null) {
     dataBatchFrame = window.requestAnimationFrame(() =>
       processBatchedData(dispatch, getState),
@@ -518,7 +531,12 @@ const processBinaryMessage = async (
     };
 
     // Batch the data update to prevent excessive re-renders
-    pendingDataUpdate = spectrumData;
+    if (pendingDataUpdate === null) {
+      pendingDataUpdate = [spectrumData];
+    } else {
+      pendingDataUpdate.push(spectrumData);
+    }
+    
     if (dataBatchFrame === null) {
       dataBatchFrame = window.requestAnimationFrame(() =>
         processBatchedData(dispatch, _getState),
@@ -667,7 +685,11 @@ const createWebSocketMiddleware =
                         getState,
                       );
                     } else {
-                      queueLiveData(decrypted, dispatch, getState);
+                      if (pendingDataUpdate === null) {
+                        pendingDataUpdate = [decrypted];
+                      } else {
+                        pendingDataUpdate.push(decrypted);
+                      }
                     }
                   } catch (e) {
                     console.error("Failed to decrypt spectrum data:", e);
