@@ -13,9 +13,6 @@ use webauthn_rs::prelude::*;
 pub struct CredentialFile {
   /// Map of user ID → list of registered passkey credentials
   pub passkeys: HashMap<String, Vec<Passkey>>,
-  /// Pending registration states (keyed by challenge ID)
-  #[serde(default)]
-  pub pending_registrations: HashMap<String, String>,
 }
 
 /// Manages passkey credential persistence.
@@ -121,28 +118,6 @@ impl CredentialStore {
     self.save(&creds)
   }
 
-  /// Store a pending registration state (serialized).
-  pub fn store_pending_registration(
-    &self,
-    id: &str,
-    state: &str,
-  ) -> Result<(), String> {
-    let mut creds = self.load();
-    creds
-      .pending_registrations
-      .insert(id.to_string(), state.to_string());
-    self.save(&creds)
-  }
-
-  /// Retrieve and remove a pending registration state.
-  pub fn take_pending_registration(&self, id: &str) -> Option<String> {
-    let mut creds = self.load();
-    let state = creds.pending_registrations.remove(id);
-    if state.is_some() {
-      let _ = self.save(&creds);
-    }
-    state
-  }
 }
 
 /// Get the n-apt config directory path (~/.n-apt).

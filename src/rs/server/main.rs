@@ -13,6 +13,7 @@ use anyhow::Result;
 use axum::routing::{get, post};
 use axum::Router;
 use log::info;
+use std::collections::HashMap;
 use std::env;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -50,6 +51,10 @@ use super::websocket_server;
 pub struct AppState {
   pub shared: Arc<shared_state::SharedState>,
   pub credential_store: CredentialStore,
+  pub pending_passkey_registrations:
+    std::sync::Mutex<HashMap<String, PasskeyRegistration>>,
+  pub pending_passkey_authentications:
+    std::sync::Mutex<HashMap<String, PasskeyAuthentication>>,
   pub session_store: SessionStore,
   pub webauthn: Webauthn,
   pub broadcast_tx: broadcast::Sender<String>,
@@ -269,6 +274,8 @@ impl websocket_server::WebSocketServer {
     let state = Arc::new(AppState {
       shared,
       credential_store,
+      pending_passkey_registrations: std::sync::Mutex::new(HashMap::new()),
+      pending_passkey_authentications: std::sync::Mutex::new(HashMap::new()),
       session_store,
       webauthn: webauthn_result,
       broadcast_tx,

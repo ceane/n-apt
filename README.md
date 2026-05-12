@@ -272,6 +272,13 @@ They are specifially segmented this way because A and B are similar in shape (an
   - **Ubuntu/Debian**: `sudo apt install redis-server`
   - **Windows**: Download from [redis.io](https://redis.io/)
 
+- **RTL-SDR native library**:
+  - **macOS**: `brew install librtlsdr`
+  - **Ubuntu/Debian**: `sudo apt install librtlsdr-dev`
+  - **Windows**: use **WSL2** for the main dev workflow, then install the Linux package inside WSL
+  - **Verification**: `pkg-config --modversion librtlsdr` or `pkg-config --modversion rtlsdr`
+  - **If Cargo still cannot find it**: install `pkg-config` and make sure the library is installed in the normal system location
+
 ### Downloading Cell Tower Dataset
 
 To use cell tower mapping features, download the [OpenCellID dataset](https://www.opencellid.org/downloads; search and grab all the US files after getting an API token). **The data should be unzipped and in your `~/Downloads` folder** (or `Downloads` folder on Windows): *(It looks like `310.csv, 314.csv`, etc.)*
@@ -303,10 +310,16 @@ npm run towers:process:opencellid
 ```bash
 git clone https://github.com/ceane/n-apt.git
 cd n-apt
-npm run setup  # sets up .env.local
-npm i          # installs dependencies, postinstall script will install rust dependencies
+npm run setup  # sets up .env.local and fetches Rust dependencies
+npm install     # installs dependencies
 npm run dev    # starts app
 ```
+
+Recommended order:
+
+1. `npm run setup`
+2. `npm install`
+3. `npm run dev`
 
 > [!NOTE]
 > **Windows:** if you are on Windows, run the steps above inside **WSL2** instead of native PowerShell/CMD.

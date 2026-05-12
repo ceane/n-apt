@@ -696,7 +696,7 @@ pub async fn capture_download_handler(
     let mut zip = zip::ZipWriter::new(&mut zip_buffer);
     let options: zip::write::FileOptions<()> =
       zip::write::FileOptions::default()
-        .compression_method(zip::CompressionMethod::Deflated)
+        .compression_method(zip::CompressionMethod::Stored)
         .unix_permissions(0o644);
 
     for artifact in &artifacts {

@@ -113,15 +113,15 @@ hmac = "0.13"
 sha2 = "0.11"
 pbkdf2 = { version = "0.13", features = ["password-hash"] }
 base64 = "0.22"
-zip = { version = "8", default-features = false, features = ["deflate"] }
+zip = { version = "8", default-features = false }
 # HTTP client for CoreML service communication
-reqwest = { version = "0.13", features = ["json"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 # HTTP + WebSocket server (axum replaces raw TcpListener + tokio-tungstenite)
 axum = { version = "0.8", features = ["ws"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["cors", "set-header", "compression-gzip"] }
 # WebAuthn passkey authentication
-webauthn-rs = { version = "0.5", features = ["danger-allow-state-serialisation"] }
+webauthn-rs = { version = "0.5", default-features = false }
 webauthn-rs-proto = "0.5"
 # Session management
 uuid = { version = "1", features = ["v4"] }

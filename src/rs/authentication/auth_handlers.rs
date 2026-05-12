@@ -220,20 +220,11 @@ pub async fn passkey_register_start_handler(
   ) {
     Ok((ccr, reg_state)) => {
       let challenge_id = Uuid::new_v4().to_string();
-      // Serialize registration state for later verification
-      let state_json = serde_json::to_string(&reg_state).unwrap_or_default();
-      if let Err(e) = state
-        .credential_store
-        .store_pending_registration(&challenge_id, &state_json)
-      {
-        error!("Failed to store pending registration: {}", e);
-        return (
-          StatusCode::INTERNAL_SERVER_ERROR,
-          Json(serde_json::json!({
-            "error": "storage_error",
-          })),
-        );
-      }
+      state
+        .pending_passkey_registrations
+        .lock()
+        .expect("passkey registration state poisoned")
+        .insert(challenge_id.clone(), reg_state);
 
       let ccr_json = serde_json::to_value(&ccr).unwrap_or_else(|e| {
         error!("Failed to serialize CCR: {}", e);
@@ -270,9 +261,11 @@ pub async fn passkey_register_finish_handler(
   State(state): State<Arc<crate::server::AppState>>,
   Json(body): Json<PasskeyRegisterFinishRequest>,
 ) -> impl IntoResponse {
-  let state_json: String = match state
-    .credential_store
-    .take_pending_registration(&body.challenge_id)
+  let reg_state: PasskeyRegistration = match state
+    .pending_passkey_registrations
+    .lock()
+    .expect("passkey registration state poisoned")
+    .remove(&body.challenge_id)
   {
     Some(s) => s,
     None => {
@@ -280,18 +273,6 @@ pub async fn passkey_register_finish_handler(
         StatusCode::BAD_REQUEST,
         Json(serde_json::json!({
           "error": "invalid_challenge",
-        })),
-      );
-    }
-  };
-
-  let reg_state: PasskeyRegistration = match serde_json::from_str(&state_json) {
-    Ok(s) => s,
-    Err(_) => {
-      return (
-        StatusCode::INTERNAL_SERVER_ERROR,
-        Json(serde_json::json!({
-          "error": "state_corrupt",
         })),
       );
     }
@@ -350,19 +331,11 @@ pub async fn passkey_auth_start_handler(
   match state.webauthn.start_passkey_authentication(&existing_keys) {
     Ok((rcr, auth_state)) => {
       let challenge_id = Uuid::new_v4().to_string();
-      let state_json = serde_json::to_string(&auth_state).unwrap_or_default();
-      if let Err(e) = state
-        .credential_store
-        .store_pending_registration(&challenge_id, &state_json)
-      {
-        error!("Failed to store pending auth state: {}", e);
-        return (
-          StatusCode::INTERNAL_SERVER_ERROR,
-          Json(serde_json::json!({
-            "error": "storage_error",
-          })),
-        );
-      }
+      state
+        .pending_passkey_authentications
+        .lock()
+        .expect("passkey auth state poisoned")
+        .insert(challenge_id.clone(), auth_state);
 
       (
         StatusCode::OK,
@@ -390,9 +363,11 @@ pub async fn passkey_auth_finish_handler(
   State(state): State<Arc<crate::server::AppState>>,
   Json(body): Json<PasskeyAuthFinishRequest>,
 ) -> impl IntoResponse {
-  let state_json: String = match state
-    .credential_store
-    .take_pending_registration(&body.challenge_id)
+  let auth_state: PasskeyAuthentication = match state
+    .pending_passkey_authentications
+    .lock()
+    .expect("passkey auth state poisoned")
+    .remove(&body.challenge_id)
   {
     Some(s) => s,
     None => {
@@ -404,19 +379,6 @@ pub async fn passkey_auth_finish_handler(
       );
     }
   };
-
-  let auth_state: PasskeyAuthentication =
-    match serde_json::from_str(&state_json) {
-      Ok(s) => s,
-      Err(_) => {
-        return (
-          StatusCode::INTERNAL_SERVER_ERROR,
-          Json(serde_json::json!({
-            "error": "state_corrupt",
-          })),
-        );
-      }
-    };
 
   match state
     .webauthn

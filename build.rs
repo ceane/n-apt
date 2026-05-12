@@ -21,44 +21,9 @@ fn link_rtlsdr() {
     return;
   }
 
-  println!("cargo:rustc-link-lib=dylib=rtlsdr");
-
-  #[cfg(target_os = "macos")]
-  {
-    if Path::new("/opt/homebrew/opt/librtlsdr/lib").exists() {
-      println!(
-        "cargo:rustc-link-search=native=/opt/homebrew/opt/librtlsdr/lib"
-      );
-      println!("cargo:include=/opt/homebrew/opt/librtlsdr/include");
-      return;
-    }
-
-    if Path::new("/usr/local/lib/librtlsdr.dylib").exists() {
-      println!("cargo:rustc-link-search=native=/usr/local/lib");
-      println!("cargo:include=/usr/local/include");
-      return;
-    }
-  }
-
-  #[cfg(target_os = "linux")]
-  {
-    for candidate in [
-      "/usr/lib/x86_64-linux-gnu",
-      "/usr/lib/aarch64-linux-gnu",
-      "/usr/lib/arm-linux-gnueabihf",
-      "/usr/local/lib",
-      "/usr/lib",
-      "/lib/x86_64-linux-gnu",
-      "/lib/aarch64-linux-gnu",
-    ] {
-      if Path::new(candidate).exists() {
-        println!("cargo:rustc-link-search=native={candidate}");
-      }
-    }
-    if Path::new("/usr/include").exists() {
-      println!("cargo:include=/usr/include");
-    }
-  }
+  panic!(
+    "librtlsdr/rtlsdr not found. Install the native library and pkg-config, then rerun cargo."
+  );
 }
 
 fn try_pkg_config() -> bool {
