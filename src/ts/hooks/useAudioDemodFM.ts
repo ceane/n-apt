@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState, useEffect } from "react";
+import { computeFrequencyOffsetHz, shiftIqToBaseband } from "@n-apt/utils/demodulation";
 
 export interface AudioDemodFMOptions {
   targetSampleRate: number; // Output audio sample rate for playback (typically 48000)
@@ -11,6 +12,7 @@ export interface AudioDemodFMHandle {
   processIQData: (
     iqData: Uint8Array,
     sampleRateHz: number,
+    frameCenterFrequencyHz?: number | null,
   ) => Float32Array | null;
   playChunk: (audioData: Float32Array) => void;
   playAudio: (audioData: Float32Array) => void;
@@ -51,18 +53,29 @@ export function useAudioDemodFM(
 
   // FM demodulation algorithm using phase discriminator
   const demodulateFM = useCallback(
-    (iqData: Uint8Array, inputSampleRate: number): Float32Array => {
+    (
+      iqData: Uint8Array,
+      inputSampleRate: number,
+      frameCenterFrequencyHz?: number | null,
+    ): Float32Array => {
       const samples = iqData.length / 2;
       const audioBuffer = new Float32Array(samples);
+      const frequencyOffsetHz = computeFrequencyOffsetHz(
+        centerFrequency,
+        frameCenterFrequencyHz,
+      );
+      const shiftedIq = shiftIqToBaseband(
+        iqData,
+        inputSampleRate,
+        frequencyOffsetHz,
+      );
 
-      // Convert Uint8Array to normalized I/Q values
       const i = new Float32Array(samples);
       const q = new Float32Array(samples);
 
       for (let j = 0; j < samples; j++) {
-        // Convert from 0-255 range to -1 to 1 range
-        i[j] = (iqData[j * 2] - 128) / 128;
-        q[j] = (iqData[j * 2 + 1] - 128) / 128;
+        i[j] = shiftedIq[j * 2];
+        q[j] = shiftedIq[j * 2 + 1];
       }
 
       // Downconvert to baseband if centerFrequency is set
@@ -92,26 +105,30 @@ export function useAudioDemodFM(
         q[j] = prevQ;
       }
 
-      // FM demodulation using phase discriminator with cumulative phase tracking
-      // This gives instantaneous frequency directly: imag(z[n] * conj(z[n-1]))
-      let cumulativePhase = 0;
+      // FM demodulation using a phase discriminator.
+      // The discriminator output is the instantaneous phase delta between
+      // adjacent IQ samples, not a cumulative phase trace.
       for (let j = 1; j < samples; j++) {
         // Complex conjugate multiplication: z[n] * conj(z[n-1])
         const real = i[j] * i[j - 1] + q[j] * q[j - 1];
         const imag = q[j] * i[j - 1] - i[j] * q[j - 1];
 
         // atan2 gives instantaneous phase difference
-        let phaseDiff = Math.atan2(imag, real);
-
-        // Phase unwrapping: track cumulative phase to avoid discontinuities
-        phaseDiff += cumulativePhase;
-        cumulativePhase = phaseDiff;
-
-        audioBuffer[j] = phaseDiff;
+        audioBuffer[j] = Math.atan2(imag, real);
       }
 
       // Set first sample
-      audioBuffer[0] = audioBuffer[1];
+      audioBuffer[0] = samples > 1 ? audioBuffer[1] : 0;
+
+      // Remove the residual DC component introduced by the discriminator.
+      let mean = 0;
+      for (let j = 0; j < samples; j++) {
+        mean += audioBuffer[j];
+      }
+      mean /= samples;
+      for (let j = 0; j < samples; j++) {
+        audioBuffer[j] -= mean;
+      }
 
       // Apply de-emphasis filter (1-pole low-pass for 75μs at 48kHz)
       // alpha = exp(-1 / (tau * sampleRate)) where tau = 75e-6
@@ -142,11 +159,19 @@ export function useAudioDemodFM(
 
   // Process I/Q data and return demodulated audio (resampled to targetSampleRate)
   const processIQData = useCallback(
-    (iqData: Uint8Array, inputSampleRate: number): Float32Array | null => {
+    (
+      iqData: Uint8Array,
+      inputSampleRate: number,
+      frameCenterFrequencyHz?: number | null,
+    ): Float32Array | null => {
       if (!iqData || iqData.length === 0) return null;
 
       // Demodulate FM to audio
-      const demodulatedAudio = demodulateFM(iqData, inputSampleRate);
+      const demodulatedAudio = demodulateFM(
+        iqData,
+        inputSampleRate,
+        frameCenterFrequencyHz,
+      );
 
       // Resample to targetSampleRate (typically 48000 for playback)
       let finalAudio = demodulatedAudio;

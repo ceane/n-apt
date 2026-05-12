@@ -1,12 +1,12 @@
 import { useCallback, useRef, useState, useEffect } from "react";
 import { computeFrequencyOffsetHz, shiftIqToBaseband } from "@n-apt/utils/demodulation";
 
-export interface AudioDemodAPTOptions {
+export interface AudioDemodNAPTOptions {
   targetSampleRate: number; // Output audio sample rate (48kHz)
   bufferSize: number; // Audio buffer size
 }
 
-export interface AudioDemodAPTHandle {
+export interface AudioDemodNAPTHandle {
   processIQData: (
     iqData: Uint8Array,
     sampleRate: number,
@@ -20,15 +20,14 @@ export interface AudioDemodAPTHandle {
 }
 
 /**
- * APT demodulation and playback using Web Audio API
- * Specifically implementing the discrete envelope detection algorithm
- * y[i] = sqrt(x[i]^2 + x[i-1]^2 - 2x[i]x[i-1]cos(phi)) / sin(phi)
- * to recover the AM-modulated image content from the FM baseband.
+ * N-APT audio demodulation and playback using Web Audio API.
+ * This is currently a direct copy of the APT demod pipeline so the new
+ * hook can be wired into the mix without altering the existing behavior.
  */
-export function useAudioDemodAPT(
-  options: AudioDemodAPTOptions,
-): AudioDemodAPTHandle {
-  const APT_IMAGE_CARRIER = 2400; // 2.4kHz subcarrier
+export function useNAPTAudioDemod(
+  options: AudioDemodNAPTOptions,
+): AudioDemodNAPTHandle {
+  const NAPT_IMAGE_CARRIER = 2400;
   const { targetSampleRate } = options;
 
   const [isPlaying, setIsPlaying] = useState(false);
@@ -48,49 +47,50 @@ export function useAudioDemodAPT(
     return audioContextRef.current;
   }, []);
 
-  // Standard FM demodulation (APT is FM modulated)
-  const demodulateAPTBaseband = useCallback(
+  const demodulateNAPTBaseband = useCallback(
     (
       iqData: Uint8Array,
       sampleRate: number,
       frameCenterFrequencyHz?: number | null,
     ): Float32Array => {
-      const samples = iqData.length / 2;
-      const audioBuffer = new Float32Array(samples);
-      const frequencyOffsetHz = computeFrequencyOffsetHz(
-        0,
-        frameCenterFrequencyHz,
-      );
-      const shiftedIq = shiftIqToBaseband(
-        iqData,
-        sampleRate,
-        frequencyOffsetHz,
-      );
-      const i = new Float32Array(samples);
-      const q = new Float32Array(samples);
+    const samples = iqData.length / 2;
+    const audioBuffer = new Float32Array(samples);
+    const frequencyOffsetHz = computeFrequencyOffsetHz(
+      0,
+      frameCenterFrequencyHz,
+    );
+    const shiftedIq = shiftIqToBaseband(
+      iqData,
+      sampleRate,
+      frequencyOffsetHz,
+    );
+    const i = new Float32Array(samples);
+    const q = new Float32Array(samples);
+    for (let j = 0; j < samples; j++) {
+      i[j] = shiftedIq[j * 2];
+      q[j] = shiftedIq[j * 2 + 1];
+    }
+
+    for (let j = 1; j < samples; j++) {
+      const phase1 = Math.atan2(q[j - 1], i[j - 1]);
+      const phase2 = Math.atan2(q[j], i[j]);
+
+      let phaseDiff = phase2 - phase1;
+      if (phaseDiff > Math.PI) phaseDiff -= 2 * Math.PI;
+      else if (phaseDiff < -Math.PI) phaseDiff += 2 * Math.PI;
+
+      audioBuffer[j] = phaseDiff;
+    }
+
+    let maxAmp = 0;
+    for (let j = 0; j < samples; j++) {
+      maxAmp = Math.max(maxAmp, Math.abs(audioBuffer[j]));
+    }
+    if (maxAmp > 0) {
       for (let j = 0; j < samples; j++) {
-        i[j] = shiftedIq[j * 2];
-        q[j] = shiftedIq[j * 2 + 1];
+        audioBuffer[j] /= maxAmp;
       }
-
-      for (let j = 1; j < samples; j++) {
-        const phase1 = Math.atan2(q[j - 1], i[j - 1]);
-        const phase2 = Math.atan2(q[j], i[j]);
-
-        let phaseDiff = phase2 - phase1;
-        if (phaseDiff > Math.PI) phaseDiff -= 2 * Math.PI;
-        else if (phaseDiff < -Math.PI) phaseDiff += 2 * Math.PI;
-
-        audioBuffer[j] = phaseDiff;
-      }
-
-      // Normalization
-      let maxAmp = 0;
-      for (let j = 0; j < samples; j++)
-        maxAmp = Math.max(maxAmp, Math.abs(audioBuffer[j]));
-      if (maxAmp > 0) {
-        for (let j = 0; j < samples; j++) audioBuffer[j] /= maxAmp;
-      }
+    }
 
       return audioBuffer;
     },
@@ -118,44 +118,29 @@ export function useAudioDemodAPT(
     [],
   );
 
-  const envelopeDetectAPT = useCallback(
+  const envelopeDetectNAPT = useCallback(
     (audio: Float32Array, sampleRate: number): Float32Array => {
-      const phi = 2 * Math.PI * (APT_IMAGE_CARRIER / sampleRate);
+      const phi = (2 * Math.PI * NAPT_IMAGE_CARRIER) / sampleRate;
       const cosPhi = Math.cos(phi);
       const sinPhi = Math.sin(phi);
 
       const samples = audio.length;
       const envelope = new Float32Array(samples);
-
-      // Formula from PI-SDR / apt137 for discrete envelope detection
       for (let j = 1; j < samples; j++) {
         const xi = audio[j];
         const prevXi = audio[j - 1];
-
-        const term1 = xi * xi;
-        const term2 = prevXi * prevXi;
-        const term3 = 2 * xi * prevXi * cosPhi;
-
-        // Prevent negative values due to floating point precision errors before sqrt
-        const val = Math.sqrt(Math.max(0, term1 + term2 - term3));
+        const val = Math.sqrt(
+          Math.max(0, xi * xi + prevXi * prevXi - 2 * xi * prevXi * cosPhi),
+        );
         envelope[j] = val / sinPhi;
       }
+      envelope[0] = envelope[1] || 0;
 
-      // Handle index 0
-      envelope[0] = envelope[1];
-
-      // Simple normalization and clamping for audio representation of pixels
       let maxAmp = 0;
       for (let j = 0; j < samples; j++) maxAmp = Math.max(maxAmp, envelope[j]);
       if (maxAmp > 0) {
-        for (let j = 0; j < samples; j++) {
-          // Map [0, max] to [0, 1] then shift to center around 0 for DC-free audio if needed?
-          // Actually for audio of pixels, we just clamp to 1.0 but pixels are unipolar.
-          // We'll provide it as unipolar [0, 1] which the audio context will handle as positive samples.
-          envelope[j] /= maxAmp;
-        }
+        for (let j = 0; j < samples; j++) envelope[j] /= maxAmp;
       }
-
       return envelope;
     },
     [],
@@ -168,33 +153,34 @@ export function useAudioDemodAPT(
       frameCenterFrequencyHz?: number | null,
     ) => {
       if (!iqData || iqData.length === 0) return;
-
-      // 1. FM demodulation to get baseband (which contains 2.4kHz AM subcarrier)
-      const baseband = demodulateAPTBaseband(
+      const baseband = demodulateNAPTBaseband(
         iqData,
         inputSampleRate,
         frameCenterFrequencyHz,
       );
-
-      // 2. Apply Envelope Detection to recover image pixels (magnitude of 2.4kHz subcarrier)
-      // Note: It's theoretically better to apply this at the original inputSampleRate
-      // to preserve more phase nuance before resampling.
-      const imageEnvelope = envelopeDetectAPT(baseband, inputSampleRate);
-
-      // 3. Resample the resulting envelope to the target audio sample rate (e.g. 48kHz)
+      const imageEnvelope = envelopeDetectNAPT(baseband, inputSampleRate);
       let finalAudio = imageEnvelope;
       if (inputSampleRate !== targetSampleRate) {
-        finalAudio = resampleAudio(
-          imageEnvelope,
-          inputSampleRate,
-          targetSampleRate,
-        );
+        finalAudio = resampleAudio(imageEnvelope, inputSampleRate, targetSampleRate);
       }
-
       processedAudioBufferRef.current = finalAudio;
     },
-    [demodulateAPTBaseband, envelopeDetectAPT, resampleAudio, targetSampleRate],
+    [demodulateNAPTBaseband, envelopeDetectNAPT, resampleAudio, targetSampleRate],
   );
+
+  const stopAudio = useCallback(() => {
+    if (sourceNodeRef.current) {
+      try {
+        sourceNodeRef.current.stop();
+      } catch {}
+      sourceNodeRef.current = null;
+    }
+    if (gainNodeRef.current) {
+      gainNodeRef.current.disconnect();
+      gainNodeRef.current = null;
+    }
+    setIsPlaying(false);
+  }, []);
 
   const playAudio = useCallback(() => {
     if (!processedAudioBufferRef.current) return;
@@ -223,24 +209,10 @@ export function useAudioDemodAPT(
       sourceNode.start(0);
       setIsPlaying(true);
     } catch (error) {
-      console.error("Error playing APT audio:", error);
+      console.error("Error playing N-APT audio:", error);
       setIsPlaying(false);
     }
-  }, [getAudioContext, volume, targetSampleRate]);
-
-  const stopAudio = useCallback(() => {
-    if (sourceNodeRef.current) {
-      try {
-        sourceNodeRef.current.stop();
-      } catch {}
-      sourceNodeRef.current = null;
-    }
-    if (gainNodeRef.current) {
-      gainNodeRef.current.disconnect();
-      gainNodeRef.current = null;
-    }
-    setIsPlaying(false);
-  }, []);
+  }, [getAudioContext, stopAudio, volume, targetSampleRate]);
 
   const setVolume = useCallback((newVolume: number) => {
     const clamped = Math.max(0, Math.min(1, newVolume));

@@ -128,6 +128,7 @@ export const RadioNode: React.FC<RadioNodeProps> = ({ data }) => {
   const bandwidthKhz = useAppSelector((state) => state.demod.bandwidthKhz);
   const isListening = useAppSelector((state) => state.demod.isListening);
   const centerFreq = useAppSelector((state) => state.demod.centerFreqHz);
+  const isPaused = useAppSelector((state) => state.websocket.isPaused);
   const previewRange = useAppSelector((state) => state.spectrum.previewRange);
 
   const { audioPlayback } = useDemod();
@@ -162,10 +163,16 @@ export const RadioNode: React.FC<RadioNodeProps> = ({ data }) => {
     const nodes = getNodes();
     const hasAptNode = nodes.some((n) => n.data && n.data.aptOptions);
 
-    if (hasAptNode && algorithm !== "apt") {
+    if (hasAptNode && algorithm === "fm") {
       dispatch(setAlgorithm("apt"));
     }
   }, [getNodes, algorithm, dispatch]);
+
+  useEffect(() => {
+    if (isPaused && isListening) {
+      audioPlayback.stopAudio();
+    }
+  }, [audioPlayback, isListening, isPaused]);
 
   const handleListenToggle = () => {
     const nextState = !isListening;
@@ -265,16 +272,17 @@ export const RadioNode: React.FC<RadioNodeProps> = ({ data }) => {
         <ControlItem>
           <Label>Demod Algorithm</Label>
           <StyledSelect
-            value={hasFmNodeUpstream ? "fm" : algorithm}
-            onChange={(e) =>
-              dispatch(setAlgorithm(e.target.value as "fm" | "apt"))
+          value={hasFmNodeUpstream ? "fm" : algorithm}
+          onChange={(e) =>
+              dispatch(setAlgorithm(e.target.value as "fm" | "apt" | "napt"))
             }
-            disabled={hasFmNodeUpstream}
-          >
-            <option value="fm">FM (Wideband/Narrow)</option>
-            <option value="apt">APT (NOAA Satellite)</option>
-          </StyledSelect>
-        </ControlItem>
+          disabled={hasFmNodeUpstream}
+        >
+          <option value="fm">FM (Wideband/Narrow)</option>
+          <option value="apt">APT (NOAA Satellite)</option>
+          <option value="napt">N-APT (Audio)</option>
+        </StyledSelect>
+      </ControlItem>
       </ControlGroup>
 
       <ListenButton $active={isListening} onClick={handleListenToggle}>

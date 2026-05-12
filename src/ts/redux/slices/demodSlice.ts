@@ -4,7 +4,7 @@ export interface DemodState {
   spanRange: { min: number; max: number } | null;
   hardwareRange: { min: number; max: number } | null;
   sampleRateHz: number | null;
-  algorithm: "fm" | "apt";
+  algorithm: "fm" | "apt" | "napt";
   bandwidthKhz: number;
   centerFreqHz: number | null;
   isListening: boolean;
@@ -40,7 +40,7 @@ const demodSlice = createSlice({
     ) => {
       state.spanRange = action.payload;
     },
-    setAlgorithm: (state, action: PayloadAction<"fm" | "apt">) => {
+    setAlgorithm: (state, action: PayloadAction<"fm" | "apt" | "napt">) => {
       state.algorithm = action.payload;
     },
     setBandwidth: (state, action: PayloadAction<number>) => {
