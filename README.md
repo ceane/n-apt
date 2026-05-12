@@ -279,6 +279,8 @@ They are specifially segmented this way because A and B are similar in shape (an
   - **Verification**: `pkg-config --modversion librtlsdr` or `pkg-config --modversion rtlsdr`
   - **If Cargo still cannot find it**: install `pkg-config` and make sure the library is installed in the normal system location
 
+- npm installs are delayed by 7 days for newly published package versions via `.npmrc`'s `min-release-age`.
+
 ### Downloading Cell Tower Dataset
 
 To use cell tower mapping features, download the [OpenCellID dataset](https://www.opencellid.org/downloads; search and grab all the US files after getting an API token). **The data should be unzipped and in your `~/Downloads` folder** (or `Downloads` folder on Windows): *(It looks like `310.csv, 314.csv`, etc.)*
