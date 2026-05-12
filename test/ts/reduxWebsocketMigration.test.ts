@@ -11,6 +11,7 @@ import {
   sendCaptureCommand,
 } from "@n-apt/redux/thunks/websocketThunks";
 import spectrumSlice from "@n-apt/redux/slices/spectrumSlice";
+import type { IqRawFrame } from "@n-apt/consts/schemas/websocket";
 
 // Mock WebSocket to prevent actual connections
 global.WebSocket = jest.fn(() => ({
@@ -43,7 +44,7 @@ describe("Redux WebSocket Migration", () => {
     });
 
     // Clear the live data ref
-    liveDataRef.current = null;
+      liveDataRef.current = null;
   });
 
   describe("Thunk payload shaping", () => {
@@ -117,7 +118,7 @@ describe("Redux WebSocket Migration", () => {
       expect(liveDataRef.current).toBeNull();
 
       // Simulate an IQ frame write
-      const mockFrame = {
+      const mockFrame: IqRawFrame = {
         type: "spectrum",
         data_type: "iq_raw",
         iq_data: new Uint8Array([127, 129, 130, 126]),

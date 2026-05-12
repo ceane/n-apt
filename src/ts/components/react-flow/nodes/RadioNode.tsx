@@ -128,7 +128,7 @@ export const RadioNode: React.FC<RadioNodeProps> = ({ data }) => {
   const bandwidthKhz = useAppSelector((state) => state.demod.bandwidthKhz);
   const isListening = useAppSelector((state) => state.demod.isListening);
   const centerFreq = useAppSelector((state) => state.demod.centerFreqHz);
-  const isPaused = useAppSelector((state) => state.websocket.isPaused);
+  const isPaused = useAppSelector((state) => state.websocket?.isPaused ?? false);
   const previewRange = useAppSelector((state) => state.spectrum.previewRange);
 
   const { audioPlayback } = useDemod();

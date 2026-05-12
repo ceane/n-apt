@@ -66,12 +66,18 @@ export const WaterfallNode: React.FC<WaterfallNodeProps> = ({ data }) => {
   });
 
   // Throttled data polling — waterfall scrolls visually so 8fps is smooth enough.
-  const [liveFrame, setLiveFrame] = useState(liveDataRef.current);
+  const [liveFrame, setLiveFrame] = useState(
+    Array.isArray(liveDataRef.current)
+      ? liveDataRef.current[liveDataRef.current.length - 1] ?? null
+      : liveDataRef.current,
+  );
   const lastRefRef = useRef<unknown>(null);
 
   useEffect(() => {
     const id = setInterval(() => {
-      const next = liveDataRef.current;
+      const next = Array.isArray(liveDataRef.current)
+        ? liveDataRef.current[liveDataRef.current.length - 1] ?? null
+        : liveDataRef.current;
       if (next !== lastRefRef.current) {
         lastRefRef.current = next;
         setLiveFrame(next);

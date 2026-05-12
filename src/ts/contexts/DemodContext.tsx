@@ -183,8 +183,12 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
     if (!demodState.isListening || !demodState.centerFreqHz) return;
 
     const id = setInterval(() => {
-      const queue = liveDataRef.current;
-      if (!queue || queue.length === 0) return;
+      const queue = Array.isArray(liveDataRef.current)
+        ? liveDataRef.current
+        : liveDataRef.current
+          ? [liveDataRef.current]
+          : [];
+      if (queue.length === 0) return;
 
       // Drain the queue
       const batch = [...queue];
@@ -195,7 +199,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
 
         const iqData = current.iq_data as Uint8Array;
         const sampleRate = current.sample_rate || 3200000;
-        const frameCenterFrequencyHz = current.center_frequency ?? null;
+        const frameCenterFrequencyHz = current.center_frequency_hz ?? null;
 
         if (demodState.algorithm === "fm") {
           const audioData = fmDemod.processIQData(

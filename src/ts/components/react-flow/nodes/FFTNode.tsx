@@ -98,7 +98,10 @@ const CanvasContainer = styled.div`
 export const FFTNode: React.FC<FFTNodeProps> = ({ id, data }) => {
   const dispatch = useAppDispatch();
   const fftRef = useRef<FFTCanvasHandle | null>(null);
-  const dataRef = useRef<LiveFrameData | null>(liveDataRef.current);
+  const initialFrame = Array.isArray(liveDataRef.current)
+    ? liveDataRef.current[liveDataRef.current.length - 1] ?? null
+    : liveDataRef.current;
+  const dataRef = useRef<LiveFrameData | null>(initialFrame);
 
   const nodes = useNodes();
   const connections = useNodeConnections({
@@ -145,7 +148,9 @@ export const FFTNode: React.FC<FFTNodeProps> = ({ id, data }) => {
   // Sync live frame data and derive frequency range from frame metadata
   useEffect(() => {
     const id = setInterval(() => {
-      const liveFrame = liveDataRef.current;
+      const liveFrame = Array.isArray(liveDataRef.current)
+        ? liveDataRef.current[liveDataRef.current.length - 1] ?? null
+        : liveDataRef.current;
       dataRef.current = liveFrame;
 
       // Derive range from the actual frame metadata (center_frequency_hz + sample_rate)

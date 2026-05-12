@@ -23,6 +23,7 @@ export interface AudioDemodFMHandle {
   playChunk: (audioData: Float32Array) => void;
   playAudio: (audioData: Float32Array) => void;
   stopAudio: () => void;
+  resumeAudioContext: () => void;
   setVolume: (volume: number) => void;
   isPlaying: boolean;
   volume: number;
@@ -44,10 +45,10 @@ export function useAudioDemodFM(
   const gainNodeRef = useRef<GainNode | null>(null);
 
   // Demodulator state refs to prevent discontinuities between chunks
-  const shiftStateRef = useRef<{ phase: number }>({ phase: 0 });
-  const filterStateRef = useRef<{ real: number; imag: number }>({
-    real: 0,
-    imag: 0,
+  const shiftStateRef = useRef<ShiftState>({ phase: 0 });
+  const filterStateRef = useRef<LowPassState>({
+    prevI: 0,
+    prevQ: 0,
   });
   const lastDiscrimIRef = useRef<number>(0);
   const lastDiscrimQRef = useRef<number>(0);
@@ -85,6 +86,9 @@ export function useAudioDemodFM(
     ): Float32Array => {
       const samples = iqData.length / 2;
       const audioBuffer = new Float32Array(samples);
+      if (iqData.every((sample) => sample === 0)) {
+        return audioBuffer;
+      }
       const shiftHz = computeFrequencyOffsetHz(
         centerFrequency,
         frameCenterFrequencyHz,
@@ -192,7 +196,7 @@ export function useAudioDemodFM(
       }
       const ratio = fromRate / toRate;
       const startOffset = resampleOffsetRef.current;
-      const resampledSamples = [];
+      const resampledSamples: number[] = [];
       let sourceIndex = startOffset;
 
       while (sourceIndex < audio.length) {
@@ -253,7 +257,7 @@ export function useAudioDemodFM(
           audioData.length,
           targetSampleRate,
         );
-        buffer.copyToChannel(audioData, 0);
+        buffer.copyToChannel(Float32Array.from(audioData), 0);
 
         const sourceNode = audioContext.createBufferSource();
         sourceNode.buffer = buffer;
@@ -296,8 +300,8 @@ export function useAudioDemodFM(
     lastDeemphasisRef.current = 0;
     resampleOffsetRef.current = 0;
     shiftStateRef.current.phase = 0;
-    filterStateRef.current.real = 0;
-    filterStateRef.current.imag = 0;
+    filterStateRef.current.prevI = 0;
+    filterStateRef.current.prevQ = 0;
     nextStartTimeRef.current = 0;
   }, []);
 

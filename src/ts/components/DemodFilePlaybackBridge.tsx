@@ -32,7 +32,7 @@ export const DemodFilePlaybackBridge: React.FC<
 }) => {
   const dispatch = useAppDispatch();
   const playbackDataRef =
-    liveDataRef as React.MutableRefObject<LiveFrameData | null>;
+    liveDataRef as unknown as React.MutableRefObject<LiveFrameData | null>;
 
   const {
     hasStitchedData,

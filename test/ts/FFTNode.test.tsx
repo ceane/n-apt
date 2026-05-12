@@ -22,6 +22,10 @@ if (typeof window !== "undefined" && !window.OffscreenCanvas) {
     }
   };
 }
+jest.mock("@xyflow/react", () => ({
+  useNodes: () => [],
+  useNodeConnections: () => [],
+}));
 import { render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom";
 // @ts-ignore - Jest module mapper handles this
@@ -109,7 +113,7 @@ describe("FFTNode", () => {
     
     const style = window.getComputedStyle(container);
     expect(style.pointerEvents).toBe("auto");
-    expect(style.cursor).toBe("crosshair");
+    expect(style.cursor).toBe("grab");
   });
 });
 

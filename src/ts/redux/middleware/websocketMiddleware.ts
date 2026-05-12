@@ -15,7 +15,7 @@ import {
 } from "../slices/websocketSlice";
 import { setHardwareInfo } from "../slices/demodSlice";
 import { decryptPayload, decryptBinaryPayload } from "@n-apt/crypto/webcrypto";
-import { AutoFftOptionsResponse } from "@n-apt/consts/schemas/websocket";
+import { AutoFftOptionsResponse, type IqRawFrame } from "@n-apt/consts/schemas/websocket";
 import { scannerWorkerManager } from "@n-apt/workers/scannerWorkerManager";
 import {
   processWebSocketMessageWithValidation,
@@ -25,7 +25,9 @@ import {
 
 // Module-level ref for high-frequency live frame data.
 // Written directly — never goes through Redux state — so no React rerenders per frame.
-export const liveDataRef: { current: any[] } = { current: [] };
+export const liveDataRef: { current: IqRawFrame[] | IqRawFrame | null } = {
+  current: [],
+};
 
 const shallowEqualObject = (
   a: Record<string, unknown> | null | undefined,
@@ -132,12 +134,24 @@ const processBatchedData = (dispatch: Dispatch, getState: () => any) => {
     const isFileSource = sourceMode === "file";
     if ((!isPaused || allowNextPausedFrame) && !isFileSource) {
       if (Array.isArray(pendingDataUpdate)) {
-        liveDataRef.current.push(...pendingDataUpdate);
+        if (Array.isArray(liveDataRef.current)) {
+          liveDataRef.current.push(...pendingDataUpdate);
+        } else if (liveDataRef.current) {
+          liveDataRef.current = [liveDataRef.current, ...pendingDataUpdate];
+        } else {
+          liveDataRef.current = [...pendingDataUpdate];
+        }
       } else {
-        liveDataRef.current.push(pendingDataUpdate);
+        if (Array.isArray(liveDataRef.current)) {
+          liveDataRef.current.push(pendingDataUpdate);
+        } else if (liveDataRef.current) {
+          liveDataRef.current = [liveDataRef.current, pendingDataUpdate];
+        } else {
+          liveDataRef.current = pendingDataUpdate;
+        }
       }
       // Limit queue size to prevent memory leaks if processing falls behind
-      if (liveDataRef.current.length > 100) {
+      if (Array.isArray(liveDataRef.current) && liveDataRef.current.length > 100) {
         liveDataRef.current = liveDataRef.current.slice(-50);
       }
       // Dispatch action to trigger state machine updates
