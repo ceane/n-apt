@@ -163,6 +163,7 @@ pub struct StitchOptions {
   pub chinese_remainder_synthesis: bool,
   pub js_anti_aliasing: bool,
   pub js_noise_floor_matching: bool,
+  pub acquisition_mode: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -194,6 +195,7 @@ pub struct StitchDiagnosticResponse {
   pub fm_deviation_khz: f32,
   pub reconstructed_freq_hz: Option<f64>,
   pub timing: StitchDiagnosticTiming,
+  pub acquisition_mode: String,
 }
 
 fn normalize_tech_key(token: &str) -> String {
@@ -1158,85 +1160,8 @@ pub async fn stitch_diagnostic_handler(
   const NUM_FRAMES: usize = 10;
   let mut hop1_frames = Vec::with_capacity(NUM_FRAMES);
   let mut hop2_frames = Vec::with_capacity(NUM_FRAMES);
-  log::info!("Performing Hop 1 at {} Hz...", center1);
   let mut hop1_raw_iq = Vec::new();
-
-  // 1. Capture Hop 1
-  {
-    // Clear any stale pending frequency to avoid accidental retunes
-    processor.frame.pending_freq = None;
-    // Flush to clear any stale data before we start the "real" capture
-    processor.flush_read_queue();
-
-    for _ in 0..NUM_FRAMES {
-      match processor.read_and_process_frame() {
-        Ok(f) => {
-          // Collect the raw IQ bytes the device just read (set by read_and_process_frame)
-          hop1_raw_iq.extend_from_slice(&processor.frame.last_frame_raw_iq);
-          hop1_frames.push(f);
-        }
-        Err(e) => {
-          state.shared.is_paused.store(was_paused, Ordering::Relaxed);
-          return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to capture hop 1: {}", e),
-          )
-            .into_response();
-        }
-      }
-    }
-  }
-
-  // 2. Tune and Capture Hop 2 (offset by 1.2MHz)
-  let center2 = center1 + 1_200_000;
   let mut hop2_raw_iq = Vec::new();
-  {
-    log::info!("Tuning to Hop 2: {} Hz...", center2);
-    if let Err(e) = processor.set_center_frequency(center2) {
-      state.shared.is_paused.store(was_paused, Ordering::Relaxed);
-      return (
-        StatusCode::INTERNAL_SERVER_ERROR,
-        format!("Failed to tune to hop 2: {}", e),
-      )
-        .into_response();
-    }
-
-    // Flush to clear any data from the old frequency
-    processor.flush_read_queue();
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-
-    log::info!("Performing Hop 2 at {} Hz...", center2);
-    for _ in 0..NUM_FRAMES {
-      match processor.read_and_process_frame() {
-        Ok(f) => {
-          hop2_raw_iq.extend_from_slice(&processor.frame.last_frame_raw_iq);
-          hop2_frames.push(f);
-        }
-        Err(e) => {
-          let _ = processor.set_center_frequency(center1); // Restore
-          state.shared.is_paused.store(was_paused, Ordering::Relaxed);
-          return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to capture hop 2: {}", e),
-          )
-            .into_response();
-        }
-      }
-      if let Some(chz) = effective_center1 {
-        let chz_u32 = chz as u32;
-        if let Err(e) = processor.set_center_frequency(chz_u32) {
-          state.shared.is_paused.store(was_paused, Ordering::Relaxed);
-          return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to tune to hop 1: {}", e),
-          )
-            .into_response();
-        }
-      }
-    }
-    // Restore frequency
-    let _ = processor.set_center_frequency(center1);
-  }
 
   let options = body.as_ref().and_then(|b| b.stitch_options.clone()).unwrap_or(StitchOptions {
     phase_correction: true,
@@ -1247,7 +1172,130 @@ pub async fn stitch_diagnostic_handler(
     chinese_remainder_synthesis: false,
     js_anti_aliasing: false,
     js_noise_floor_matching: false,
+    acquisition_mode: Some("interleaved".to_string()),
   });
+
+  let acq_mode = options
+    .acquisition_mode
+    .clone()
+    .unwrap_or_else(|| "interleaved".to_string());
+
+  let center2 = center1 + 1_200_000;
+  if acq_mode == "interleaved" {
+    log::info!("Performing INTERLEAVED capture (rapid hopping)...");
+    for i in 0..NUM_FRAMES {
+      // Frame for Hop 1
+      if let Err(e) = processor.set_center_frequency(center1) {
+        state.shared.is_paused.store(was_paused, Ordering::Relaxed);
+        return (
+          StatusCode::INTERNAL_SERVER_ERROR,
+          format!("Failed to tune to hop 1: {}", e),
+        )
+          .into_response();
+      }
+      processor.flush_read_queue();
+      match processor.read_and_process_frame() {
+        Ok(f) => {
+          hop1_raw_iq.extend_from_slice(&processor.frame.last_frame_raw_iq);
+          hop1_frames.push(f);
+        }
+        Err(e) => {
+          state.shared.is_paused.store(was_paused, Ordering::Relaxed);
+          return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to capture hop 1 at index {}: {}", i, e),
+          )
+            .into_response();
+        }
+      }
+
+      // Frame for Hop 2
+      if let Err(e) = processor.set_center_frequency(center2) {
+        state.shared.is_paused.store(was_paused, Ordering::Relaxed);
+        return (
+          StatusCode::INTERNAL_SERVER_ERROR,
+          format!("Failed to tune to hop 2: {}", e),
+        )
+          .into_response();
+      }
+      processor.flush_read_queue();
+      match processor.read_and_process_frame() {
+        Ok(f) => {
+          hop2_raw_iq.extend_from_slice(&processor.frame.last_frame_raw_iq);
+          hop2_frames.push(f);
+        }
+        Err(e) => {
+          state.shared.is_paused.store(was_paused, Ordering::Relaxed);
+          return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to capture hop 2 at index {}: {}", i, e),
+          )
+            .into_response();
+        }
+      }
+    }
+  } else {
+    log::info!("Performing STEPWISE capture (block-wise)...");
+    // 1. Capture Hop 1 Block
+    {
+      if let Err(e) = processor.set_center_frequency(center1) {
+        state.shared.is_paused.store(was_paused, Ordering::Relaxed);
+        return (
+          StatusCode::INTERNAL_SERVER_ERROR,
+          format!("Failed to tune to hop 1: {}", e),
+        )
+          .into_response();
+      }
+      processor.flush_read_queue();
+      for _ in 0..NUM_FRAMES {
+        match processor.read_and_process_frame() {
+          Ok(f) => {
+            hop1_raw_iq.extend_from_slice(&processor.frame.last_frame_raw_iq);
+            hop1_frames.push(f);
+          }
+          Err(e) => {
+            state.shared.is_paused.store(was_paused, Ordering::Relaxed);
+            return (
+              StatusCode::INTERNAL_SERVER_ERROR,
+              format!("Failed to capture hop 1: {}", e),
+            )
+              .into_response();
+          }
+        }
+      }
+    }
+
+    // 2. Capture Hop 2 Block
+    {
+      if let Err(e) = processor.set_center_frequency(center2) {
+        state.shared.is_paused.store(was_paused, Ordering::Relaxed);
+        return (
+          StatusCode::INTERNAL_SERVER_ERROR,
+          format!("Failed to tune to hop 2: {}", e),
+        )
+          .into_response();
+      }
+      processor.flush_read_queue();
+      for _ in 0..NUM_FRAMES {
+        match processor.read_and_process_frame() {
+          Ok(f) => {
+            hop2_raw_iq.extend_from_slice(&processor.frame.last_frame_raw_iq);
+            hop2_frames.push(f);
+          }
+          Err(e) => {
+            state.shared.is_paused.store(was_paused, Ordering::Relaxed);
+            return (
+              StatusCode::INTERNAL_SERVER_ERROR,
+              format!("Failed to capture hop 2: {}", e),
+            )
+              .into_response();
+          }
+        }
+      }
+    }
+  }
+
+  // Restore frequency
 
   // Compute phase coherence / alignment offset in the overlap region
   log::info!("Calculating phase offset and stitching...");
@@ -1278,15 +1326,29 @@ pub async fn stitch_diagnostic_handler(
   let midpoint_bin = overlap_bins / 2;
 
   for i in 0..NUM_FRAMES {
-    let f1 = &hop1_frames[i];
+    let mut f1 = hop1_frames[i].clone();
     let mut f2 = hop2_frames[i].clone();
 
+    if options.anti_aliasing {
+      // Apply spectral masking to edges to suppress aliasing/roll-off artifacts
+      let mask_bins = (fft_size / 20).max(1); // 5% edge masking
+      for j in 0..mask_bins {
+        let weight = (j as f32 / mask_bins as f32).powf(0.5);
+        let atten_db = 20.0 * (weight + 1e-9).log10();
+        
+        f1[j] += atten_db;
+        f1[fft_size - 1 - j] += atten_db;
+        f2[j] += atten_db;
+        f2[fft_size - 1 - j] += atten_db;
+      }
+    }
+
     if options.noise_floor_matching {
-      anti_aliasing::match_noise_floor_db(f1, &mut f2, overlap_bins);
+      anti_aliasing::match_noise_floor_db(&f1, &mut f2, overlap_bins);
     }
 
     let stitched = if options.crossfading && overlap_bins > 1 {
-      anti_aliasing::crossfade_f32(f1, &f2, overlap_bins)
+      anti_aliasing::crossfade_f32(&f1, &f2, overlap_bins)
     } else {
       let mut s = Vec::with_capacity(f1.len() + f2.len() - overlap_bins);
       s.extend_from_slice(&f1[..offset_bins + midpoint_bin]);
@@ -1341,6 +1403,7 @@ pub async fn stitch_diagnostic_handler(
     correction_angle_deg,
     fm_deviation_khz,
     reconstructed_freq_hz,
+    acquisition_mode: acq_mode,
     timing: StitchDiagnosticTiming {
       total_latency_ms,
       settle_time_ms,

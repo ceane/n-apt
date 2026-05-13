@@ -110,6 +110,7 @@ const RangeLabel = styled.div<{ $pos: number }>`
   font-weight: 800;
   pointer-events: none;
   white-space: nowrap;
+  z-index: 10;
 `;
 
 const RangeTick = styled.div<{ $pos: number }>`
@@ -123,7 +124,7 @@ const RangeTick = styled.div<{ $pos: number }>`
       ? COLORS.borderHover
       : "rgba(255, 255, 255, 0.2)"};
   pointer-events: none;
-  z-index: 1;
+  z-index: 10;
 `;
 
 const TrackClipper = styled.div`
@@ -157,9 +158,8 @@ export const SliderThumb = styled.div<{
       : "width 0.15s cubic-bezier(0.2, 0, 0, 1), height 0.15s cubic-bezier(0.2, 0, 0, 1), background-color 0.2s ease, scale 0.1s ease"};
 
   /* Performance hint */
-  will-change: ${({ $orientation }) =>
-    $orientation === "vertical" ? "height" : "width"};
-  z-index: 2;
+  will-change: width, height;
+  z-index: 5;
 
   &:hover {
     background-color: ${(props) =>
@@ -193,7 +193,7 @@ export const SliderThumb = styled.div<{
     width: 100%;
     flex-flow: column;
     height: ${$percent}%;
-    min-height: ${MIN_THUMB_RATIO * 100}%;
+    min-height: 10px;
   `
       : `
     top: 0;
@@ -201,7 +201,7 @@ export const SliderThumb = styled.div<{
     height: 100%;
     flex-flow: row;
     width: ${$percent}%;
-    min-width: ${MIN_THUMB_RATIO * 100}%;
+    min-width: 10px;
   `}
 `;
 
@@ -234,6 +234,8 @@ export interface SliderProps {
   max: number;
   step?: number;
   onChange: (value: number) => void;
+  hideThumbValue?: boolean;
+  minThumbRatio?: number;
   formatValue?: (value: number) => string;
   invertFill?: boolean;
   logarithmic?: boolean;
@@ -253,6 +255,8 @@ export const Slider: React.FC<SliderProps> = React.memo(
     step = 1,
     onChange,
     formatValue,
+    hideThumbValue = false,
+    minThumbRatio = 0.2,
     invertFill = false,
     logarithmic = false,
     orientation = "horizontal",
@@ -278,7 +282,7 @@ export const Slider: React.FC<SliderProps> = React.memo(
 
     const rangeNorm = getNormFromVal(value);
     const fillRatio = invertFill ? 1 - rangeNorm : rangeNorm;
-    const percent = (MIN_THUMB_RATIO + fillRatio * (1 - MIN_THUMB_RATIO)) * 100;
+    const percent = (minThumbRatio + fillRatio * (1 - minThumbRatio)) * 100;
 
     const currentRange = snapRanges.find(
       (r) => value >= r.min && value <= r.max,
@@ -398,10 +402,12 @@ export const Slider: React.FC<SliderProps> = React.memo(
           $orientation={orientation}
           $isDragging={isDragging}
         />
-        <SliderValue $orientation={orientation}>
-          {currentRange ? `${currentRange.label} ` : ""}
-          {formatValue ? formatValue(value) : value}
-        </SliderValue>
+        {!hideThumbValue && (
+          <SliderValue $orientation={orientation}>
+            {currentRange ? `${currentRange.label} ` : ""}
+            {formatValue ? formatValue(value) : value}
+          </SliderValue>
+        )}
       </SliderTrack>
     );
 

@@ -237,6 +237,7 @@ export type SpectrumState = {
     chineseRemainderSynthesis: boolean;
     jsAntiAliasing: boolean;
     jsNoiseFloorMatching: boolean;
+    acquisitionMode: "stepwise" | "interleaved";
   };
 };
 
@@ -301,7 +302,8 @@ export type SpectrumAction =
   | { type: "SET_DRAW_SIGNAL_3D"; enabled: boolean }
   | { type: "SET_DISPLAY_MODE"; displayMode: "fft" | "iq" }
   | { type: "SET_FFT_WINDOW"; fftWindow: string }
-  | { type: "SET_STITCH_OPTION"; option: keyof SpectrumState["stitchOptions"]; enabled: boolean };
+  | { type: "SET_STITCH_OPTION"; option: keyof SpectrumState["stitchOptions"]; enabled: boolean }
+  | { type: "SET_STITCH_OPTION_VALUE"; option: keyof SpectrumState["stitchOptions"]; value: any };
 
 export const INITIAL_SPECTRUM_STATE: SpectrumState = {
   activeSignalArea: "A",
@@ -376,6 +378,7 @@ export const INITIAL_SPECTRUM_STATE: SpectrumState = {
     chineseRemainderSynthesis: false,
     jsAntiAliasing: false,
     jsNoiseFloorMatching: false,
+    acquisitionMode: "interleaved",
   },
 };
 
@@ -668,6 +671,14 @@ export function spectrumReducer(
         stitchOptions: {
           ...state.stitchOptions,
           [action.option]: action.enabled,
+        },
+      };
+    case "SET_STITCH_OPTION_VALUE":
+      return {
+        ...state,
+        stitchOptions: {
+          ...state.stitchOptions,
+          [action.option]: action.value,
         },
       };
     default:

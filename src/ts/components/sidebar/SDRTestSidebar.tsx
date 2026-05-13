@@ -1,7 +1,7 @@
 import React, { useCallback } from "react";
 import styled from "styled-components";
 import { useSdrSettings } from "@n-apt/hooks/useSdrSettings";
-import { Unplug, ChevronsLeftRightEllipsis } from "lucide-react";
+import { Unplug, ChevronsLeftRightEllipsis, RotateCcw } from "lucide-react";
 
 import {
   useSpectrumStore,
@@ -188,17 +188,26 @@ export const SDRTestSidebar: React.FC = () => {
                 $paused={false}
                 onClick={() => dispatch({ type: "TRIGGER_DIAGNOSTIC" })}
                 disabled={state.isDiagnosticRunning}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: "8px",
+                }}
               >
-                {state.isDiagnosticRunning
-                  ? "Capturing..."
-                  : "Run Multi-Frame Capture"}
+                {state.isDiagnosticRunning ? (
+                  state.diagnosticStatus || "Capturing..."
+                ) : state.diagnosticStatus === "Capture complete" ? (
+                  <>
+                    <RotateCcw size={14} />
+                    Run Again
+                  </>
+                ) : (
+                  "Run Multi-Frame Capture"
+                )}
               </MultiFrameButton>
             }
           />
-
-          <DiagnosticStatusDisplay>
-            {state.diagnosticStatus}
-          </DiagnosticStatusDisplay>
 
           <PauseButton
             $paused={false}
@@ -217,15 +226,12 @@ export const SDRTestSidebar: React.FC = () => {
             Reset Options to Defaults
           </PauseButton>
 
+          <SignalComposition sidebar />
+
           <Section>
-            <SidebarSectionTitle
-              icon={<ChevronsLeftRightEllipsis size={14} />}
-              title="Channel"
-            />
+
             <Channels />
           </Section>
-          
-          <SignalComposition sidebar />
 
           <SignalDisplaySection
             sourceMode={state.sourceMode}

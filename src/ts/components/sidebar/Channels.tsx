@@ -255,6 +255,34 @@ const Divider = styled.hr`
 
 export type ChannelsVariant = "demod" | "spectrum";
 
+/**
+ * Formats frequency with up to 3 decimal places, strictly truncating (no rounding).
+ */
+const formatChannelFreq = (hz: number): string => {
+  const abs = Math.abs(hz);
+  let val: number;
+  let unit: string;
+
+  if (abs >= 1_000_000) {
+    val = hz / 1_000_000;
+    unit = "MHz";
+  } else if (abs >= 1_000) {
+    val = hz / 1_000;
+    unit = "kHz";
+  } else {
+    val = hz;
+    unit = "Hz";
+  }
+
+  // Truncate to 3 decimal places without rounding
+  const s = val.toString();
+  const dotIndex = s.indexOf(".");
+  if (dotIndex !== -1) {
+    return s.slice(0, dotIndex + 4) + unit;
+  }
+  return s + unit;
+};
+
 interface ChannelsProps {
   /** `spectrum`: compact Redux sliders (spectrum sidebar). `demod`: channel/manual controls (demod sidebar). */
   variant?: ChannelsVariant;
@@ -305,7 +333,7 @@ export const Channels: React.FC<ChannelsProps> = ({
 
   const channels = useMemo(() => {
     if (!Array.isArray(effectiveFrames)) return [];
-    return effectiveFrames.filter((f) => ["A", "B"].includes(f.label));
+    return effectiveFrames.filter((f) => ["A", "B", "C"].includes(f.label));
   }, [effectiveFrames]);
 
   // Compute information for the active channel box
@@ -511,10 +539,12 @@ export const Channels: React.FC<ChannelsProps> = ({
 
   return (
     <ChannelsSection>
-      <ChannelsSectionTitle>
-        <ChevronsLeftRightEllipsis size={14} />
-        <SectionText>Channels</SectionText>
-      </ChannelsSectionTitle>
+      {!hideTitle && (
+        <ChannelsSectionTitle>
+          <ChevronsLeftRightEllipsis size={14} />
+          <SectionText>Channels</SectionText>
+        </ChannelsSectionTitle>
+      )}
       <ChannelsDemodBody>
         {/* Channel/Manual Toggle */}
         <ModeToggle>
@@ -569,7 +599,7 @@ export const Channels: React.FC<ChannelsProps> = ({
                 >
                   <ChannelLetter $isActive={isActive}>{ch.label}</ChannelLetter>
                   <ChannelFreq $isActive={isActive}>
-                    {formatFrequency(ch.min_hz)} - {formatFrequency(ch.max_hz)}
+                    {formatChannelFreq(ch.min_hz)} - {formatChannelFreq(ch.max_hz)}
                   </ChannelFreq>
                 </ChannelBlock>
 

@@ -7,12 +7,17 @@ import {
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 import { formatFrequency } from "@n-apt/utils/frequency";
 import { type AppStyledTheme } from "@n-apt/components/ui/Theme";
+import { Slider, type SnapRange } from "@n-apt/components/ui";
+import { useMemo } from "react";
+import { Info } from "lucide-react";
+import Tooltip from "@n-apt/components/ui/Tooltip";
 
 const Container = styled.div`
   display: flex;
   flex-direction: column;
   height: 100%;
   width: 100%;
+  overscroll-behavior: contain;
   color: ${({ theme }) => theme.colors.textPrimary};
   background: ${({ theme }) => theme.colors.background};
   font-family: ${({ theme }) => theme.typography.body};
@@ -37,6 +42,7 @@ const VisualizerGrid = styled.div`
   flex-direction: column;
   gap: 0;
   padding-right: 8px;
+  overscroll-behavior: none;
 `;
 
 const Card = styled.div`
@@ -118,6 +124,7 @@ export const StitchTestRoute: React.FC = () => {
 
   const rawCanvasRef = useRef<HTMLCanvasElement>(null);
   const stitchedCanvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const lastTriggerRef = useRef(state.diagnosticTrigger);
 
@@ -126,7 +133,7 @@ export const StitchTestRoute: React.FC = () => {
   const runDiagnostic = async () => {
     if (isRequestingRef.current) return;
     isRequestingRef.current = true;
-    
+
     dispatch({ type: "SET_DIAGNOSTIC_RUNNING", running: true });
     dispatch({
       type: "SET_DIAGNOSTIC_STATUS",
@@ -261,7 +268,7 @@ export const StitchTestRoute: React.FC = () => {
 
   const drawData = (data: any, index: number) => {
     if (!data) return;
-    
+
     const {
       hop1_frames = [],
       hop2_frames = [],
@@ -272,15 +279,19 @@ export const StitchTestRoute: React.FC = () => {
       fm_deviation_khz,
       timing,
     } = data;
-    
-    // Normalize all frequency ranges to Hz for consistent formatting and scaling
-    const toHz = (r: [number, number] | undefined) =>
-      r ? ([r[0] * (r[0] < 1000 ? 1e6 : 1), r[1] * (r[1] < 1000 ? 1e6 : 1)] as [number, number]) : [0, 0];
 
-    const h1 = toHz(data.hop1_freq_hz || data.hop1_freq_mhz);
-    const h2 = toHz(data.hop2_freq_hz || data.hop2_freq_mhz);
-    const hs = toHz(data.stitched_freq_hz || data.stitched_freq_mhz);
-    
+    // Normalize all frequency ranges to Hz for consistent formatting and scaling
+    const toHz = (r: [number, number] | undefined) => {
+      if (!r) return [0, 0] as [number, number];
+      // If values are small (e.g. < 10000), assume they are in MHz and convert to Hz
+      const multiplier = Math.max(Math.abs(r[0]), Math.abs(r[1])) < 10000 ? 1e6 : 1;
+      return [r[0] * multiplier, r[1] * multiplier] as [number, number];
+    };
+
+    const h1 = toHz(data.hop1_freq_hz || (data as any).hop1_freq_mhz);
+    const h2 = toHz(data.hop2_freq_hz || (data as any).hop2_freq_mhz);
+    const hs = toHz(data.stitched_freq_hz || (data as any).stitched_freq_mhz);
+
     const hop1 = hop1_frames[index] || [];
     const hop2 = hop2_frames[index] || [];
     const stitched = stitched_frames[index] || [];
@@ -371,11 +382,11 @@ export const StitchTestRoute: React.FC = () => {
             leftMargin +
             ((Math.max(startFreq, range[0]) - range[0]) /
               (range[1] - range[0])) *
-              plotWidth;
+            plotWidth;
           const x2 =
             leftMargin +
             ((Math.min(endFreq, range[1]) - range[0]) / (range[1] - range[0])) *
-              plotWidth;
+            plotWidth;
 
           ctx.save();
           ctx.setLineDash([4, 4]);
@@ -408,8 +419,8 @@ export const StitchTestRoute: React.FC = () => {
             ctx.fillStyle = color.replace("0.45", "0.7");
 
             let phaseStr = `${phaseDeg.toFixed(1)}°`;
-            if (label === "Hop B" && correction !== undefined) {
-              const aligned = ((phaseDeg + correction + 180) % 360) - 180;
+            if (label === "Hop B" && correction !== undefined && correction !== null) {
+              const aligned = (((phaseDeg || 0) + correction + 180) % 360) - 180;
               phaseStr += ` (Aligned: ${aligned.toFixed(1)}°)`;
             }
             ctx.fillText(phaseStr, cx, topMargin - 62);
@@ -533,26 +544,6 @@ export const StitchTestRoute: React.FC = () => {
           timeStr += ` / FM Dev: ${fmDeviation.toFixed(1)} kHz`;
         }
         ctx.fillText(timeStr, logicalWidth / 2, 22);
-
-        // ELI5 Strategy Overlay
-        ctx.textAlign = "right";
-        ctx.font = `italic 10px ${theme.typography.mono}`;
-        ctx.fillStyle = theme.colors.textSecondary + "99"; // 0.6 alpha
-        ctx.fillText(
-          "Strategy: Sub-sample fractional delay tracking. We precisely offset",
-          logicalWidth - rightMargin,
-          20,
-        );
-        ctx.fillText(
-          "time differences in the overlap, align their sine waves smoothly,",
-          logicalWidth - rightMargin,
-          34,
-        );
-        ctx.fillText(
-          "and perform a hard midpoint cut to eliminate spectral artifacts.",
-          logicalWidth - rightMargin,
-          48,
-        );
       }
 
       // Box Border
@@ -603,11 +594,11 @@ export const StitchTestRoute: React.FC = () => {
       const x0 =
         leftMargin +
         ((range[0] - globalRange[0]) / (globalRange[1] - globalRange[0])) *
-          plotWidth;
+        plotWidth;
       const x1 =
         leftMargin +
         ((range[1] - globalRange[0]) / (globalRange[1] - globalRange[0])) *
-          plotWidth;
+        plotWidth;
       const w = x1 - x0;
 
       // Decimate to maintain peaks on sparse canvas
@@ -789,11 +780,14 @@ export const StitchTestRoute: React.FC = () => {
         Math.min(1, (xRight - leftMargin) / plotWidth),
       );
 
-      const toHz = (r: [number, number] | undefined) =>
-        r ? ([r[0] * (r[0] < 1000 ? 1e6 : 1), r[1] * (r[1] < 1000 ? 1e6 : 1)] as [number, number]) : [0, 0];
+      const toHz = (r: [number, number] | undefined) => {
+        if (!r) return [0, 0] as [number, number];
+        const multiplier = Math.max(Math.abs(r[0]), Math.abs(r[1])) < 10000 ? 1e6 : 1;
+        return [r[0] * multiplier, r[1] * multiplier] as [number, number];
+      };
 
-      const h1 = toHz(result.hop1_freq_hz || result.hop1_freq_mhz);
-      const h2 = toHz(result.hop2_freq_hz || result.hop2_freq_mhz);
+      const h1 = toHz(result.hop1_freq_hz || (result as any).hop1_freq_mhz);
+      const h2 = toHz(result.hop2_freq_hz || (result as any).hop2_freq_mhz);
       const fullRange: [number, number] = [
         Math.min(h1[0], h2[0]),
         Math.max(h1[1], h2[1]),
@@ -814,19 +808,85 @@ export const StitchTestRoute: React.FC = () => {
     e.currentTarget.releasePointerCapture(e.pointerId);
   };
 
+  const scrubberRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = scrubberRef.current;
+    if (!el) return;
+
+    let lastScrollTime = 0;
+    const LOCKOUT_MS = 60; // Prevent "blasting through" frames
+
+    const onWheel = (e: WheelEvent) => {
+      if (!result?.hop1_frames) return;
+
+      const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+      if (Math.abs(delta) < 10) return;
+
+      // When over the visualizer or scrubber, lock the scroll
+      e.preventDefault();
+      e.stopPropagation();
+
+      const now = Date.now();
+      if (now - lastScrollTime < LOCKOUT_MS) return;
+
+      setFrameIndex((prev) => {
+        const next = prev + (delta > 0 ? 1 : -1);
+        const clamped = Math.max(0, Math.min(result.hop1_frames.length - 1, next));
+        if (clamped !== prev) {
+          lastScrollTime = now;
+        }
+        return clamped;
+      });
+    };
+
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [result?.hop1_frames?.length]);
+
+  const frameSnapRanges = useMemo(() => {
+    const count = result?.hop1_frames?.length || 0;
+    if (count <= 1) return [];
+
+    const ranges: SnapRange[] = [];
+    for (let i = 0; i < count; i++) {
+      ranges.push({
+        label: (i + 1).toString(),
+        min: i,
+        max: i + 1,
+        // Alternate colors for a "segmented" look
+        color: i % 2 === 0
+          ? (theme.mode === "dark" ? "rgba(255, 255, 255, 0.03)" : "rgba(0, 0, 0, 0.02)")
+          : (theme.mode === "dark" ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.05)"),
+      });
+    }
+    return ranges;
+  }, [result?.hop1_frames?.length, theme.mode]);
+
   return (
-    <Container>
+    <Container ref={containerRef}>
       <header style={{ marginBottom: theme.spacing.xl }}>
         <h1 style={{ margin: "0", fontSize: theme.typography.headingSize }}>
-          Interleaved Capture (TDMS) Diagnostic
+          Stitching Diagnostic
         </h1>
       </header>
 
-      <VisualizerGrid>
+      <VisualizerGrid ref={scrubberRef}>
         <Card>
           <SectionHeader>
-            <SectionTitle>Raw Hops (A/B Overlap)</SectionTitle>
-            <Badge>Time-Divided (interleaved)</Badge>
+            <SectionTitle>
+              Raw Hops (A/B Overlap)
+              <Tooltip content="Sub-sample fractional delay tracking. We precisely offset time differences in the overlap, align their sine waves smoothly, and perform a hard midpoint cut to eliminate spectral artifacts.">
+                <Info size={12} style={{ cursor: "help", opacity: 0.8 }} />
+              </Tooltip>
+            </SectionTitle>
+            {result && (
+              <Badge>
+                {result.acquisition_mode === "stepwise"
+                  ? "Stepwise Capture"
+                  : "Time-Divided (interleaved)"}
+              </Badge>
+            )}
           </SectionHeader>
           <CanvasWrapper
             $aspectRatio="21 / 11"
@@ -868,16 +928,22 @@ export const StitchTestRoute: React.FC = () => {
               display: "flex",
               alignItems: "center",
               gap: "24px",
+              cursor: "ew-resize",
+              touchAction: "none"
             }}
           >
-            <input
-              type="range"
-              min="0"
-              max={(result.hop1_frames?.length || 1) - 1}
-              value={frameIndex}
-              onChange={(e) => setFrameIndex(parseInt(e.target.value))}
-              style={{ flex: 1, height: "32px", cursor: "pointer" }}
-            />
+            <div style={{ flex: 1, padding: "0 10px" }}>
+              <Slider
+                value={frameIndex + 1}
+                min={0}
+                max={result.hop1_frames?.length || 10}
+                step={1}
+                onChange={(v) => setFrameIndex(Math.max(0, Math.floor(v - 0.5)))}
+                hideThumbValue={true}
+                minThumbRatio={0}
+                snapRanges={frameSnapRanges}
+              />
+            </div>
             <span
               style={{
                 fontFamily: theme.typography.mono,
